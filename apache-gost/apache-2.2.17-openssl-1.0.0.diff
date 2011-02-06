@@ -1,0 +1,186 @@
+diff -Nur httpd-2.2.17/modules/ssl/ssl_engine_init.c httpd-2.2.17-patched/modules/ssl/ssl_engine_init.c
+--- httpd-2.2.17/modules/ssl/ssl_engine_init.c	2010-07-12 22:47:45.000000000 +0400
++++ httpd-2.2.17-patched/modules/ssl/ssl_engine_init.c	2010-12-22 21:40:15.000000000 +0300
+@@ -359,7 +359,15 @@
+             ssl_log_ssl_error(APLOG_MARK, APLOG_ERR, s);
+             ssl_die();
+         }
+-
++        
++	if (!ENGINE_init(e)) {
++			ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
++				"Init: Failed to initialize Crypto Device API `%s'",
++				mc->szCryptoDevice);
++				ssl_log_ssl_error(APLOG_MARK, APLOG_ERR,s);
++				ssl_die();
++		}
++		
+         if (strEQ(mc->szCryptoDevice, "chil")) {
+             ENGINE_ctrl(e, ENGINE_CTRL_CHIL_SET_FORKCHECK, 1, 0, 0);
+         }
+@@ -375,6 +383,8 @@
+                      "Init: loaded Crypto Device API `%s'", 
+                      mc->szCryptoDevice);
+ 
++        /* Have to reinitalize SSL after loading engine */
++		SSL_library_init();
+         ENGINE_free(e);
+     }
+ }
+@@ -441,6 +451,9 @@
+                                   modssl_ctx_t *mctx)
+ {
+     SSL_CTX *ctx = NULL;
++#if OPENSSL_VERSION_NUMBER>=0x0909000L
++const 
++#endif	
+     MODSSL_SSL_METHOD_CONST SSL_METHOD *method = NULL;
+     char *cp;
+     int protocol = mctx->protocol;
+@@ -821,10 +834,17 @@
+     ssl_asn1_t *asn1;
+     MODSSL_D2I_PrivateKey_CONST unsigned char *ptr;
+     const char *type = ssl_asn1_keystr(idx);
+-    int pkey_type = (idx == SSL_AIDX_RSA) ? EVP_PKEY_RSA : EVP_PKEY_DSA;
++    int pkey_type;
+     EVP_PKEY *pkey;
++    EVP_PKEY *pubkey = NULL;
+ 
+-    if (!(asn1 = ssl_asn1_table_get(mc->tPrivateKey, id))) {
++	if (mctx->pks->certs[idx]) {
++		pubkey = X509_get_pubkey(mctx->pks->certs[idx]);
++		pkey_type = pubkey->type;
++		EVP_PKEY_free(pubkey);
++	}	
++    
++	if (!(asn1 = ssl_asn1_table_get(mc->tPrivateKey, id))) {
+         return FALSE;
+     }
+ 
+@@ -933,34 +953,32 @@
+                                   apr_pool_t *ptemp,
+                                   modssl_ctx_t *mctx)
+ {
+-    const char *rsa_id, *dsa_id;
++    const char *id;
+     const char *vhost_id = mctx->sc->vhost_id;
+     int i;
+-    int have_rsa, have_dsa;
+-
+-    rsa_id = ssl_asn1_table_keyfmt(ptemp, vhost_id, SSL_AIDX_RSA);
+-    dsa_id = ssl_asn1_table_keyfmt(ptemp, vhost_id, SSL_AIDX_DSA);
++    
++    int have_key = 0,have_cert=0;
+ 
+-    have_rsa = ssl_server_import_cert(s, mctx, rsa_id, SSL_AIDX_RSA);
+-    have_dsa = ssl_server_import_cert(s, mctx, dsa_id, SSL_AIDX_DSA);
++	for (i = 0; i < SSL_AIDX_MAX; i++) {
++    	id = ssl_asn1_table_keyfmt(ptemp, vhost_id, i);
++		ap_log_error(APLOG_MARK,APLOG_DEBUG,0,s,"Trying key with id %s alg %d",id,i);
++		have_cert = ssl_server_import_cert(s, mctx, id, i) || have_cert;
++        ssl_check_public_cert(s, ptemp, mctx->pks->certs[i], i);
++    	have_key = ssl_server_import_key(s, mctx, id, i) || have_key;
++	};
+ 
+-    if (!(have_rsa || have_dsa)) {
++	if (!have_cert) {
+         ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
+-                "Oops, no RSA or DSA server certificate found "
++                "Oops, no server certificate found "
+                 "for '%s:%d'?!", s->server_hostname, s->port);
+         ssl_die();
+     }
+ 
+-    for (i = 0; i < SSL_AIDX_MAX; i++) {
+-        ssl_check_public_cert(s, ptemp, mctx->pks->certs[i], i);
+-    }
+ 
+-    have_rsa = ssl_server_import_key(s, mctx, rsa_id, SSL_AIDX_RSA);
+-    have_dsa = ssl_server_import_key(s, mctx, dsa_id, SSL_AIDX_DSA);
+ 
+-    if (!(have_rsa || have_dsa)) {
++    if (!(have_key)) {
+         ap_log_error(APLOG_MARK, APLOG_ERR, 0, s,
+-                "Oops, no RSA or DSA server private key found?!");
++                "Oops, no server private key found?!");
+         ssl_die();
+     }
+ }
+diff -Nur httpd-2.2.17/modules/ssl/ssl_private.h httpd-2.2.17-patched/modules/ssl/ssl_private.h
+--- httpd-2.2.17/modules/ssl/ssl_private.h	2010-07-12 22:47:45.000000000 +0400
++++ httpd-2.2.17-patched/modules/ssl/ssl_private.h	2010-12-22 21:44:06.000000000 +0300
+@@ -181,11 +181,24 @@
+ #define SSL_ALGO_UNKNOWN (0)
+ #define SSL_ALGO_RSA     (1<<0)
+ #define SSL_ALGO_DSA     (1<<1)
++#if OPENSSL_VERSION_NUMBER >= 0x00909000L
++#define SSL_ALGO_EC       (1<<2)
++#define SSL_ALGO_GOST94   (1<<3)
++#define SSL_ALGO_GOST01   (1<<4)
++#define SSL_ALGO_ALL      (0x1F)
++#else
+ #define SSL_ALGO_ALL     (SSL_ALGO_RSA|SSL_ALGO_DSA)
+-
++#endif
+ #define SSL_AIDX_RSA     (0)
+ #define SSL_AIDX_DSA     (1)
+-#define SSL_AIDX_MAX     (2)
++#if OPENSSL_VERSION_NUMBER >= 0x00909000L
++#define SSL_AIDX_EC      (2)
++#define SSL_AIDX_GOST94  (3)
++#define SSL_AIDX_GOST01  (4)
++#define SSL_AIDX_MAX     (5)
++#else
++#define SSL_AIDX_MAX   (2)
++#endif
+ 
+ 
+ /**
+diff -Nur httpd-2.2.17/modules/ssl/ssl_util.c httpd-2.2.17-patched/modules/ssl/ssl_util.c
+--- httpd-2.2.17/modules/ssl/ssl_util.c	2008-09-18 18:34:51.000000000 +0400
++++ httpd-2.2.17-patched/modules/ssl/ssl_util.c	2010-12-22 21:48:20.000000000 +0300
+@@ -150,6 +150,17 @@
+             case EVP_PKEY_DSA:
+                 t = SSL_ALGO_DSA;
+                 break;
++            #if OPENSSL_VERSION_NUMBER >= 0x0909000L				
++			case EVP_PKEY_EC:
++				t = SSL_ALGO_EC;
++				break;
++			case NID_id_GostR3410_94:
++				t = SSL_ALGO_GOST94;
++				break;
++			case NID_id_GostR3410_2001:
++				t = SSL_ALGO_GOST01;
++				break;	
++			#endif
+             default:
+                 break;
+         }
+@@ -174,6 +185,17 @@
+         case SSL_ALGO_DSA:
+             cp = "DSA";
+             break;
++#if OPENSSL_VERSION_NUMBER >= 0x0909000L
++		case SSL_ALGO_EC:
++			cp = "EC";
++			break;
++		case SSL_ALGO_GOST94:
++			cp = "GOST R 34.10-94";
++			break;
++		case SSL_ALGO_GOST01:
++			cp= "GOST R 34.10-2001";
++			break;
++#endif	
+         default:
+             break;
+     }
+@@ -245,7 +267,7 @@
+     apr_hash_set(table, key, klen, NULL);
+ }
+ 
+-static const char *ssl_asn1_key_types[] = {"RSA", "DSA"};
++static const char *ssl_asn1_key_types[] = {"RSA", "DSA","EC","GOST R 34.10-94", "GOST R 34.10-2001"};
+ 
+ const char *ssl_asn1_keystr(int keytype)
+ {

@@ -1,0 +1,1347 @@
+#!/usr/bin/perl
+
+$|=1;
+
+$DEBUG=0;
+
+use Getopt::Std;
+use Sys::Syslog;
+use DBI;
+use Socket;
+use Sys::Hostname;
+use Net::hostent;
+
+$VERSION='0.2';
+
+($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime(time);
+$year += 1900;
+
+$db_server = 'localhost';
+$db_database = 'snort';
+$db_usercode = 'snort';
+$db_password = '******';
+
+$DB_TYPE="mysql";
+
+getopts('thVvu:p:s:d:T:L:');
+
+if ($opt_h) {
+  print "logsnorter [-u db_usercode] [-p db_password] [-s db_server]\n";
+  print "logsnorter [-d db_database]\n";
+  print "logsnorter [-T /var/log/syslog] - to continually 'tail' syslog files\n";
+  print "logsnorter [-v] - to show every line (use with \"-T\" and pipe back into swatch)\n";
+  print "logsnorter [-L bitmask] - restrict search to known log formats (\"-L -h\" for help)\n";
+  print "logsnorter -t <use timestamp of syslog msg instead of current time>\n\n";
+  print "System-specific perl code should be put into /etc/logsnorter.conf
+(e.g. the cisco_interface[] arrays)\n\n";
+  exit ;
+}
+
+
+if ($opt_V) {
+  print "logsnorter: Version $VERSION\n";
+  exit;
+}
+
+
+if ($opt_L && $opt_L !~ /^[0-9]+$/) {
+ print "
+logformats:
+   1   = cisco format
+   2   = ipfwadm format
+   4   = ipchains format
+   8   = iptables format
+   16  = bastille format
+   32  = BSD ipf format
+
+e.g. To get logsnorter to scan for cisco and iptables only, choose
+
+\"-L 9\" #that's 1 + 8
+
+Not choosing the \"-L\" option is equivalent to asking for *all* formats
+to be scanned for.
+
+";
+ exit;
+}
+
+
+#Merge the contents of this file in here. This allows you to keep your
+#system-specific information in a separate area to the actual program...
+#
+#
+#You should store your SQL data (username,password,server) there and
+#protect it so that only the appropriate account can read it.
+#
+# e.g.
+#
+#$db_server='localhost';
+#$db_usercode='snort';
+#$db_database='snort';
+#$db_password='9f54b53j954';
+#
+#Cisco access-list syslog messages don't always report the interface
+#which generated the message. You must therefore provide logsnorter
+#with this information (indexed to the ACL number) so that it can
+#correctly inject these into the snort database
+#
+#$cisco_interface['rtr01',107]="Serial0.1";
+#$cisco_interface['rtr01',108]="Serial0.1";
+#$cisco_interface['rtr11',105]="FastEthernet0";
+#$cisco_interface['rtr11',106]="FastEthernet0";
+#
+# where "107" is referred to in the following Cisco rule:
+#
+# access-list 107 deny   ospf any any log-input
+#
+# and 107 is associated with the Serial0.1 interface
+#
+
+if ( -f "/etc/logsnorter.conf" ) {
+  require ("/etc/logsnorter.conf") ;
+}
+
+#Command-line options override the config file...
+
+$db_usercode = $opt_u if ($opt_u);
+$db_password = $opt_p if ($opt_p);
+$db_server = $opt_s if ($opt_s);
+$db_database = $opt_d if ($opt_d);
+
+
+$ip_ver=4;
+
+$ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+$tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+$udp_len=$udp_csum=0;
+$icmp_csum=$icmp_id=$icmp_seq=0;
+
+$hex=0;
+$base64=1;
+$ascii=2;
+
+$cid=0;
+
+
+%month_array = ('Jan' => 1,
+             'Feb' => 2,
+             'Mar' => 3,
+             'Apr' => 4,
+             'May' => 5,
+             'Jun' => 6,
+             'Jul' => 7,
+             'Aug' => 8,
+             'Sep' => 9,
+             'Oct' => 10,
+             'Nov' => 11,
+             'Dec' => 12);
+
+$dbh = DBI->connect("DBI:$DB_TYPE:database=$db_database;host=$db_server",$db_usercode,$db_password) || die "\nCannot access DB server!\n";
+
+
+
+if ($opt_T) {
+  open(STDIN,"tail -f $opt_T|")||die "cannot tail $opt_T - $!";
+}
+while (<STDIN>) {
+  print if ($opt_v);
+  $line++;
+  if (/ logsnorter: /) {
+    next;
+  }
+  chop;
+  #Get rid of ratty old swatch escape chars if present
+  s/\033\[0m//g;
+  &initialize_vars;
+
+  &parse_cisco_logs if (!$opt_L || $opt_L & 1);
+  &parse_ipfwadm_logs if (!$opt_L || $opt_L & 2);
+  &parse_ipchains_logs if (!$opt_L || $opt_L & 4);
+  &parse_iptables_logs if (!$opt_L || $opt_L & 8);
+  #&parse_bastille_logs if (!$opt_L || $opt_L & 16);
+  #&parse_ipf_logs if (!$opt_L || $opt_L & 32);
+}
+
+
+sub parse_ipchains_logs {
+  my $i,$num_packets;
+  &debug("parse_ipchains_logs...");
+  $logtype='ipchains';
+  $interface_prepend="syslog_";
+
+  $data=$_;
+  if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: Packet log:/) {
+    /^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: Packet log: ([^\s]+) (\w+) (\w+) PROTO=([0-9]+) ([0-9\.]+):([0-9]+) ([0-9\.]+):([0-9]+) L=([0-9]+) S=(\w+) I=([0-9]+) F=(\w+) T=([0-9]+) (.*)$/i;
+
+    $month=$1;
+    $day=$2;
+    $hour=$3;
+    $min=$4;
+    $sec=$5;
+    $linux=$6;
+    $ruleset=$7;
+    $auth=$8;
+    $interface=$9;
+    $ip_proto=$10;
+    $src_addr=$11;
+    $src_port=$12;
+    $dst_addr=$13;
+    $dst_port=$14;
+    $ip_len=$15;
+    $ip_tos=$16;
+    $ip_id=$17;
+    $frag_off=$18;
+    $ip_ttl=$19;
+    $therest=$20;
+    next if ($auth !~ /REJECT|DENY/);
+    if ( $linux eq "" ) {
+      &crash("Cannot interpret ipchains line (proto=$ip_proto): $_\n");
+    }
+    $linux=~s/\'/\'/g;
+
+    if ($ip_proto == 6) {
+      $therest =~ /\s\(\#(.*)\)$/;
+      $num_packets=$1;
+      $syn="SYN" if ($therest =~ / SYN /);
+    }
+    if ( $ip_proto == 1 ) {
+      $icmp_type=$src_port;
+      $icmp_code=0;
+    }
+
+    $hstip=&getaddr($linux);
+    if ($hstip ne $sensor_ip) {
+      $sensor_ip=$hstip;
+      &find_sensor($sensor_ip,$interface);
+    }
+
+    if (!$src_addr || !$dst_addr || !$ip_proto ) {
+      &crash("IPChains Error line $line: insuffient info - broken syslog entry!");
+    }
+
+
+
+    $src_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+    $array_src_addr[0]=$1;
+    $array_src_addr[1]=$2;
+    $array_src_addr[2]=$3;
+    $array_src_addr[3]=$4;
+
+    $dst_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+    $array_dst_addr[0]=$1;
+    $array_dst_addr[1]=$2;
+    $array_dst_addr[2]=$3;
+    $array_dst_addr[3]=$4;
+
+    #IPChains doesn't  count packets - i.e. one syslog == 1 packet
+    $num_packets=1 if (!$num_packets);
+    for ($i=0;$i<$num_packets;$i++) {
+      &debug("i=$i,num_packets=$num_packets");
+      &insert_event;
+      next;
+    }
+  }
+}
+
+sub parse_ipfwadm_logs {
+  &debug("parse_ipfwadm_logs");
+  $logtype='ipfwadm';
+  $interface_prepend="syslog_";
+  $num_packets=1;
+
+  $data=$_;
+  if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: IP fw/) {
+    $ip_ver=4;
+    $ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+    $tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+    $udp_len=$udp_csum=0;
+    $icmp_csum=$icmp_id=$icmp_seq=0;
+
+
+    if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: IP fw-(\w+) (\w+) ([:\w]+) ([\w\/]+) ([0-9\.]+):([0-9]+) ([0-9\.]+):([0-9]+) L=([0-9]+) S=(\w+) I=([0-9]+) F=(\w+) T=([0-9]+)/i) {
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=$7;
+      $auth=$8;
+      $interface=$9;
+      $proto=$10;
+      $src_addr=$11;
+      $src_port=$12;
+      $dst_addr=$13;
+      $dst_port=$14;
+      $ip_len=$15;
+      $ip_tos=$16;
+      $ip_id=$17;
+      $frag_off=$18;
+      $ip_ttl=$19;
+      $therest=$20;
+      next if ($auth ne "rej");
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: IP fw-(\w+) (\w+) ([:\w]+) ([\w\/]+) ([0-9\.]+) ([0-9\.]+) L=([0-9]+) S=(\w+) I=([0-9]+) F=(\w+) T=([0-9]+)/i) {
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=$7;
+      $auth=$8;
+      $interface=$9;
+      $proto=$10;
+      $src_addr=$11;
+      $dst_addr=$12;
+      $ip_len=$13;
+      $ip_tos=$14;
+      $ip_id=$15;
+      $frag_off=$16;
+      $ip_ttl=$17;
+      $therest=$18;
+      next if ($auth ne "rej");
+    } else {
+      &crash("Unknown ipfw match on line $line: $_");
+    }
+    if ($proto =~ /^(.*)\/(.*)$/) {
+      $proto=$1;
+      $type=$2;
+    }
+    &get_ip_proto($proto);
+    if ( $linux eq "" ) {
+      &crash("Cannot interpret ipfw line (proto=$ip_proto): $_\n");
+    } else {
+    }
+    $linux=~s/\'/\'/g;
+
+    if ($ip_proto == 6) {
+      $therest =~ /\s\(\#(.*)\)$/;
+    }
+    if ( $ip_proto == 1 ) {
+      $icmp_type=$type;
+      $icmp_code=0;
+    }
+
+    $hstip=&getaddr($linux);
+    if ($hstip ne $sensor_ip) {
+      $sensor_ip=$hstip;
+      &find_sensor($sensor_ip,$interface);
+    }
+
+    if (!$src_addr || !$dst_addr || !$ip_proto ) {
+      &crash("IPFwadm Error line $line: insuffient info - broken syslog entry!");
+    }
+
+    $src_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+    $array_src_addr[0]=$1;
+    $array_src_addr[1]=$2;
+    $array_src_addr[2]=$3;
+    $array_src_addr[3]=$4;
+
+    $dst_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+    $array_dst_addr[0]=$1;
+    $array_dst_addr[1]=$2;
+    $array_dst_addr[2]=$3;
+    $array_dst_addr[3]=$4;
+
+    for ($i=0;$i<=$num_packets;$i++) {
+      &insert_event;
+      next;
+    }
+  }
+}
+
+sub parse_cisco_logs {
+  &debug("parse_cisco_logs");
+  $logtype='ciscoacl';
+  $interface_prepend="syslog_";
+
+  $data=$_;
+
+
+  if (/IPACCESSLOG/i) {
+    $ip_ver=4;
+    $ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+    $tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+    $udp_len=$udp_csum=0;
+    $icmp_csum=$icmp_id=$icmp_seq=0;
+
+    if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) ([0-9]+): ([^\s]+) .*IPACCESSLOGP: list .* (udp|tcp)/) {
+      /^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) ([0-9]+): ([^\s]+) ([^\s]+): list ([0-9]+) (\w+) (\w+) ([0-9\.]+)\(([0-9]+)\) (.*) ([0-9\.]+)\(([0-9]+)\), ([0-9]+) packet/i;
+
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $cisco=$6;
+      $junk=$7;
+      $junk1=$8;
+      $tag=$9;
+      $ruleset=$10;
+      $auth=$11;
+      $proto=$12;
+      $src_addr=$13;
+      $src_port=$14;
+      $interface=$15;
+      $dst_addr=$16;
+      $dst_port=$17;
+      $num_packets=$18;
+      next if ($auth ne "denied");
+      if ( $cisco eq "" ) {
+	&crash("Cannot interpret Cisco line (proto=$proto): $_\n");
+      }
+      $cisco=~s/\'/\'/g;
+      $hstip=&getaddr($cisco);
+      if ($interface =~ /^\(([^\s]+)[^\)]+\) [^\s]+$/) {
+	$interface = $1;
+      } else {
+	if (!$cisco_interface[$cisco,$ruleset]) {
+	  #&crash("Cannot interpret Cisco line as no interface found.\nDefine array \$cisco_interface[$cisco,$ruleset] = 'FastEthernet0/0' or whatever in $0, then re-run.\n$_");
+	  $cisco_interface[$cisco,$ruleset]="logsnorter";
+	}
+	$interface=$cisco_interface[$cisco,$ruleset];
+      }
+      if ($hstip ne $sensor_ip) {
+	$sensor_ip=$hstip;
+	&find_sensor($sensor_ip,$interface);
+      }
+
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) ([0-9]+): ([^\s]+) .*IPACCESSLOGDP: list .* icmp/) {
+      /^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) ([0-9]+): ([^\s]+) ([^\s]+): list ([0-9]+) (\w+) (\w+) ([0-9\.]+) \(([^\)]+)\) [^\s]+ ([0-9\.]+) \(([0-9]+)\/([0-9]+)\), ([0-9]+) packet/i;
+
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $cisco=$6;
+      $cisco=~s/\'/\'/g;
+      $junk=$7;
+      $junk1=$8;
+      $tag=$9;
+      $ruleset=$10;
+      $auth=$11;
+      $proto=$12;
+      $src_addr=$13;
+      $interface=$14;
+      $dst_addr=$15;
+      $icmp_type=$16;
+      $icmp_code=$17;
+      $num_packets=$18;
+      next if ($auth ne "denied");
+      if ( $cisco eq "" ) {
+	&crash("Cannot interpret icmp Cisco line (proto=$proto): $_\n");
+      }
+      $cisco=~s/\'/\'/g;
+      $hstip=&getaddr($cisco);
+      if ($hstip ne $sensor_ip) {
+	$sensor_ip=$hstip;
+	&find_sensor($sensor_ip,$interface);
+      }
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) ([0-9]+): ([^\s]+) ([^\s]+)IPACCESSLOGS: list ([0-9]+) (\w+) ([0-9\.]+) ([0-9]+) packet/i) {
+
+      /^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) ([0-9]+): ([^\s]+) ([^\s]+): list ([0-9]+) (\w+) ([0-9\.]+) ([0-9]+) packet/i;
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $cisco=$6;
+      $cisco=~s/\'/\'/g;
+      $junk=$7;
+      $junk1=$8;
+      $tag=$9;
+      $ruleset=$10;
+      $auth=$11;
+      $src_addr=$12;
+      $num_packets=$13;
+      next if ($auth ne "denied");
+      if ( $cisco eq "" ) {
+	&crash("Cannot interpret icmp Cisco line (proto=$proto): $_\n");
+      }
+      $cisco=~s/\'/\'/g;
+      $hstip=&getaddr($cisco);
+      $dst_addr=$hstip;
+      $ip_proto="0";
+      if ($hstip ne $sensor_ip) {
+	$sensor_ip=$hstip;
+	&find_sensor($sensor_ip,$interface);
+      }
+    } else {
+      &crash("Cisco error line $line: doesn't match known type: $_\n");
+    }
+
+    #Convert proto back to number
+    &get_ip_proto($proto);
+
+    if (!$src_addr || !$dst_addr || $ip_proto eq "" || ($ip_proto == 1 && $icmp_type eq "") || !$ruleset) {
+      &crash("Cisco Error line $line: insuffient info - broken syslog entry! (src_addr=$src_addr,dst_addr=$dst_addr,ip_proto=$ip_proto,icmp_type=$icmp_type,acl=$ruleset)");
+    }
+
+
+    $src_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+    $array_src_addr[0]=$1;
+    $array_src_addr[1]=$2;
+    $array_src_addr[2]=$3;
+    $array_src_addr[3]=$4;
+
+    $dst_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+    $array_dst_addr[0]=$1;
+    $array_dst_addr[1]=$2;
+    $array_dst_addr[2]=$3;
+    $array_dst_addr[3]=$4;
+
+    if ($num_packets == 0) {
+      &crash("Cisco Whaa! No number of packets for line $line - duh...");
+    }
+    &insert_event;
+    next;
+  }
+}
+
+#function added by siafu (hacked by jpgu <;-)
+sub parse_iptables_logs {
+  &debug("parse_iptables_logs");
+  $logtype='iptables';
+  $interface_prepend="syslog_";
+
+  $data=$_;
+  if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Inbound IN=/) {
+    $ip_ver=4;
+    $ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+    $tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+    $udp_len=$udp_csum=0;
+    $icmp_csum=$icmp_id=$icmp_seq=0;
+    if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Inbound IN=(\w+[0-9]+) OUT= (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) ([\w+\s]+)/) {
+      #If we audited an incoming TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=IN;
+      $auth=audit;
+      $interface=$7;
+      $src_addr=$10;
+      $dst_addr=$11;
+      $ip_len=$12;
+      $ip_tos=$13;
+      # PREC=$14
+      $ip_ttl=$15;
+      $ip_id=$16;
+      $proto=$18;
+      $src_port=$19;
+      $dst_port=$20;
+      # WINDOW=$21;
+      $therest=$22;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Outbound IN= OUT=(\w+[0-9]+) (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) ([\w+\s]+)/) {
+      #If we audited an outgoing TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=OUT;
+      $auth=audit;
+      $interface=$7;
+      $src_addr=$10;
+      $dst_addr=$11;
+      $ip_len=$12;
+      $ip_tos=$13;
+      # PREC=$14
+      $ip_ttl=$15;
+      $ip_id=$16;
+      $proto=$18;
+      $src_port=$19;
+      $dst_port=$20;
+      # WINDOW=$21;
+      $therest=$22;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Inbound IN=(\w+[0-9]+) OUT= (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+      #If we audited an incoming UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=IN;
+      $auth=audit;
+      $interface=$7;
+      $src_addr=$10;
+      $dst_addr=$11;
+      $ip_len=$12;
+      $ip_tos=$13;
+      # PREC=$14
+      $ip_ttl=$15;
+      $ip_id=$16;
+      $proto=$18;
+      $src_port=$19;
+      $dst_port=$20;
+      # LEN=$21;
+      $therest=$21;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Outbound IN= OUT=(\w+[0-9]+) (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+      #If we audited an outgoing UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=OUT;
+      $auth=audit;
+      $interface=$7;
+      $src_addr=$10;
+      $dst_addr=$11;
+      $ip_len=$12;
+      $ip_tos=$13;
+      # PREC=$14
+      $ip_ttl=$15;
+      $ip_id=$16;
+      $proto=$18;
+      $src_port=$19;
+      $dst_port=$20;
+      # LEN=$21;
+      $therest=$21;
+      # $frag_off=$;
+#Jun 20 14:24:13 fw kernel: IN=eth0 OUT=eth1 SRC=xxx.xxx.xxx.xxx DST=xxx.xxx.xxx.xxx LEN=40 TOS=0x00 PREC=0x00 TTL=127 ID=186 DF PROTO=TCP SPT=3021 DPT=80 WINDOW=5840 RES=0x00 ACK URGP=0
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Inbound IN=(\w+[0-9]+) OUT=(\w+[0-9]+) (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) RES=(\w+) ([\w+\s]+)/) {
+      #If we audited a FORWARD TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=FORWARD;
+      $auth=audit;
+      #Interface-IN=$7
+      #Interface-OUT=$8
+      $interface=$8;
+      $src_addr=$11;
+      $dst_addr=$12;
+      $ip_len=$13;
+      $ip_tos=$14;
+      # PREC=$15
+      $ip_ttl=$16;
+      $ip_id=$17;
+      $proto=$19;
+      $src_port=$20;
+      $dst_port=$21;
+      # WINDOW=$22;
+      # RES=$23;
+      $therest=$24;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Outbound IN=(\w+[0-9]+) OUT=(\w+[0-9]+) (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+      #If we audited a FORWARD UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=FORWARD;
+      $auth=audit;
+      #Interface-IN=$7
+      #Interface-OUT=$8
+      $interface=$8;
+      $src_addr=$11;
+      $dst_addr=$12;
+      $ip_len=$13;
+      $ip_tos=$14;
+      # PREC=$15
+      $ip_ttl=$16;
+      $ip_id=$17;
+      $proto=$19;
+      $src_port=$20;
+      $dst_port=$21;
+      # LEN=$22;
+      $therest=$22;
+      #Oct 21 11:10:43 pulsar kernel: IN=eth0 OUT= MAC=00:01:02:f2:3a:23:00:50:04:f1:f7:c8:08:00 SRC=*.*.*.* DST=*.*.*.* LEN=72 TOS=0x00 PREC=0x00 TTL=128 ID=8552 PROTO=ICMP TYPE=8 CODE=0 ID=1027 SEQ=0
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Inbound IN=(\w+[0-9]+) OUT= (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) TYPE=([0-9]+) CODE=([0-9]+) ([\w+\s]+)/) {
+      #If we audited an incoming ICMP packet (added..)
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=IN;
+      $auth=audit;
+      $interface=$7;
+      $src_addr=$10;
+      $dst_addr=$11;
+      $ip_len=$12;
+      $ip_tos=$13;
+      # PREC=$14
+      $ip_ttl=$15;
+      $ip_id=$16;
+      $proto=$18;
+      $type=$19;
+      $code=$20;
+      $therest=$21;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Outbound IN= OUT=(\w+[0-9]+) (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) TYPE=([0-9]+) CODE=([0-9]+) ([\w+\s]+)/) {
+      #If we audited an outgoing ICMP packet (added..)
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=OUT;
+      $auth=audit;
+      $interface=$7;
+      $src_addr=$10;
+      $dst_addr=$11;
+      $ip_len=$12;
+      $ip_tos=$13;
+      # PREC=$14
+      $ip_ttl=$15;
+      $ip_id=$16;
+      $proto=$18;
+      $type=$19;
+      $code=$20;
+      $therest=$21;
+    } else {
+      &crash("Unknown iptables match on line $line: $_");
+    }
+    &parse_iptables_vars;
+  }
+}
+
+sub parse_iptables_vars {
+  &debug("parse_iptables_vars");
+  if ($proto =~ /^(.*)\/(.*)$/) {
+    $proto=$1;
+    $type=$2;
+  }
+  &get_ip_proto($proto);
+  if ( $linux eq "" ) {
+    &crash("Cannot interpret iptables line (proto=$ip_proto): $_\n");
+  }
+  $linux=~s/\'/\'/g;
+
+  if ($ip_proto == 6) {
+    $therest =~ /\s\(\#(.*)\)$/;
+  }
+  if ( $ip_proto == 1 ) {
+    $icmp_type=$type;
+    $icmp_code=$code;
+  }
+
+  $hstip=&getaddr($linux);
+  if ($hstip ne $sensor_ip) {
+    $sensor_ip=$hstip;
+    &find_sensor($sensor_ip,$interface);
+  }
+
+  if (!$src_addr || !$dst_addr || !$ip_proto ) {
+    &crash("IPTables Error line $line: insuffient info - broken syslog entry!");
+  }
+
+  $src_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+  $array_src_addr[0]=$1;
+  $array_src_addr[1]=$2;
+  $array_src_addr[2]=$3;
+  $array_src_addr[3]=$4;
+
+  $dst_addr=~/^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$/;
+  $array_dst_addr[0]=$1;
+  $array_dst_addr[1]=$2;
+  $array_dst_addr[2]=$3;
+  $array_dst_addr[3]=$4;
+
+  #IPTables doesn't  count packets - i.e. one syslog == 1 packet
+  &insert_event;
+  next;
+}
+
+#function added by siafu
+#Bastille Firewall prepends 'audit' to the syslog message when logging specific ports
+sub parse_bastille_auditlogs {
+  &debug("parse_bastille_auditlogs");
+  $logtype='bastille';
+  $interface_prepend="syslog_";
+
+  $data=$_;
+  # Bastille regular audit logs
+  if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: audit/) {
+    $ip_ver=4;
+    $ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+    $tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+    $udp_len=$udp_csum=0;
+    $icmp_csum=$icmp_id=$icmp_seq=0;
+
+    if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: auditIN=(\w+[0-9]+) OUT= MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) DF PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) RES=(\w+) SYN URGP=([0-9]+)/) {
+      #If we audited an incoming TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=IN;
+      $auth=audit;
+      $interface=$7;
+      $mac=$8;
+      $src_addr=$9;
+      $dst_addr=$10;
+      $ip_len=$11;
+      $ip_tos=$12;
+      # PREC=$13
+      $ip_ttl=$14;
+      $ip_id=$15;
+      $proto=$16;
+      $src_port=$17;
+      $dst_port=$18;
+      # WINDOW=$19;
+      # RES=$20;
+      # SYN URGP=$21
+      $therest=$22;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: auditIN= OUT=(\w+[0-9]+) MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) DF PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) RES=(\w+) SYN URGP=([0-9]+)/) {
+      #If we audited an outgoing TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=OUT;
+      $auth=audit;
+      $interface=$7;
+      $mac=$8;
+      $src_addr=$9;
+      $dst_addr=$10;
+      $ip_len=$11;
+      $ip_tos=$12;
+      # PREC=$13
+      $ip_ttl=$14;
+      $ip_id=$15;
+      $proto=$16;
+      $src_port=$17;
+      $dst_port=$18;
+      # WINDOW=$19;
+      # RES=$20;
+      # SYN URGP=$21
+      $therest=$22;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: auditIN=(\w+[0-9]+) OUT= MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+      #If we audited an incoming UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=IN;
+      $auth=audit;
+      $interface=$7;
+      $mac=$8;
+      $src_addr=$9;
+      $dst_addr=$10;
+      $ip_len=$11;
+      $ip_tos=$12;
+      # PREC=$13
+      $ip_ttl=$14;
+      $ip_id=$15;
+      $proto=$16;
+      $src_port=$17;
+      $dst_port=$18;
+      # LEN=$19;
+      $therest=$20;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: auditIN= OUT=(\w+[0-9]+) MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+      #If we audited an outgoing UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=OUT;
+      $auth=audit;
+      $interface=$7;
+      $mac=$8;
+      $src_addr=$9;
+      $dst_addr=$10;
+      $ip_len=$11;
+      $ip_tos=$12;
+      # PREC=$13
+      $ip_ttl=$14;
+      $ip_id=$15;
+      $proto=$16;
+      $src_port=$17;
+      $dst_port=$18;
+      # LEN=$19;
+      $therest=$20;
+      # $frag_off=$;
+    } else {
+      &crash("Unknown iptables match on line $line: $_");
+    }
+    &parse_iptables_vars;
+  }
+}
+
+# function added by siafu
+# Bastille Firewall prepends 'PUB_IN','PUB_OUT','INT_IN', 'INPUT' to syslogs when
+# logging all packets that are denied or rejected.
+sub parse_bastille_denylogs {
+  &debug("parse_bastille_denylogs");
+  $logtype='bastille';
+  $interface_prepend="syslog_";
+
+  $data=$_;
+  if ((/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: PUB_(\w+)/) || (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: INT_(\w+)/) || (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: INPUT (\w+)/)) {
+    $ip_ver=4;
+    $ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+    $tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+    $udp_len=$udp_csum=0;
+    $icmp_csum=$icmp_id=$icmp_seq=0;
+    if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: (\w+) (\w+) ([0-9]+) IN=(\w+[0-9]+) OUT= MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) DF PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) RES=(\w+) SYN URGP=([0-9]+)/) {
+    # If we denied (and logged) an incoming TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=$7;
+      $auth=$8;
+      # unknown=$9
+      $interface=$10;
+      $mac=$11;
+      $src_addr=$12;
+      $dst_addr=$13;
+      $ip_len=$14;
+      $ip_tos=$15;
+      # PREC=$16
+      $ip_ttl=$17;
+      $ip_id=$18;
+      $proto=$19;
+      $src_port=$20;
+      $dst_port=$21;
+      # WINDOW=$22;
+      # RES=$23;
+      # SYN URGP=$24
+      $therest=$25;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: (\w+) (\w+) ([0-9]+) IN= OUT=(\w+[0-9]+) MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) DF PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) WINDOW=([0-9]+) RES=(\w+) SYN URGP=([0-9]+)/) {
+    # If we denied (and logged) an outgoing TCP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=$7;
+      $auth=$8;
+      # unknown=$9
+      $interface=$10;
+      $mac=$11;
+      $src_addr=$12;
+      $dst_addr=$13;
+      $ip_len=$14;
+      $ip_tos=$15;
+      # PREC=$16
+      $ip_ttl=$17;
+      $ip_id=$18;
+      $proto=$19;
+      $src_port=$20;
+      $dst_port=$21;
+      # WINDOW=$22;
+      # RES=$23;
+      # SYN URGP=$24
+      $therest=$25;
+      # $frag_off=$;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: (\w+) (\w+) ([0-9]+) IN=(\w+[0-9]+) OUT= MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+    # If we denied (and logged) an incoming UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=$7;
+      $auth=$8;
+      # unknown=$9
+      $interface=$10;
+      $mac=$11;
+      $src_addr=$12;
+      $dst_addr=$13;
+      $ip_len=$14;
+      $ip_tos=$15;
+      # PREC=$16
+      $ip_ttl=$17;
+      $ip_id=$18;
+      $proto=$19;
+      $src_port=$20;
+      $dst_port=$21;
+      # LEN=$22;
+      $therest=$23;
+    } elsif (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) kernel: (\w+) (\w+) ([0-9]+) IN= OUT=(\w+[0-9]+) MAC=([a-f,0-9,:]+) SRC=([0-9\.]+) DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) LEN=([0-9]+)/) {
+    # If we denied (and logged) an outgoing UDP packet
+      $month=$1;
+      $day=$2;
+      $hour=$3;
+      $min=$4;
+      $sec=$5;
+      $linux=$6;
+      $ruleset=$7;
+      $auth=$8;
+      # unknown=$9
+      $interface=$10;
+      $mac=$11;
+      $src_addr=$12;
+      $dst_addr=$13;
+      $ip_len=$14;
+      $ip_tos=$15;
+      # PREC=$16
+      $ip_ttl=$17;
+      $ip_id=$18;
+      $proto=$19;
+      $src_port=$20;
+      $dst_port=$21;
+      # LEN=$22;
+      $therest=$23;
+    } else {
+      &crash("Unknown iptables match on line $line: $_");
+    }
+    &parse_iptables_vars;
+  }
+}
+
+sub find_sensor {
+  my ($hst,$int) = @_;
+
+
+  #Glean the interface from $interface
+  if ($int =~ /\s/) {
+    $int =~ /^([^\s]+)\s/;
+    $int = $1;
+  }
+  if (!$int) {
+    &crash("Error line $line: no interface found\n");
+  }
+
+
+  $sth = $dbh->prepare(q{select sid from sensor where hostname = ? and interface = ?});
+  $rc = $sth->execute($hst,"$interface_prepend$int") || &crash("DB Error on line $line: \"select sid from sensor where hostname = '$hst'\" failed - $!");
+  ($sid) = $sth->fetchrow_array;
+  if (!$sid) {
+    #It's a new one!
+    $sth = $dbh->prepare(q{InSeRt INTO sensor (hostname, interface, detail, encoding) VALUES (?,?,'1',?)});
+    $rc = $sth->execute($hst,"$interface_prepend$int",$ascii) || &crash("DB Error on line $line: \"insert into sensor hostname=$hst\" failed - $!");
+
+    $sth = $dbh->prepare(q{select sid from sensor where hostname = ? and interface = ?});
+    $rc = $sth->execute($hst,"$interface_prepend$int") || &crash("DB Error on line $line: \"select sid from sensor where hostname = '$hst'\" failed - $!");
+    ($sid) = $sth->fetchrow_array;
+    $cid = 0;
+  } else {
+    #It's an existing sensor - find current max cid
+    &find_max_cid($sid);
+  }
+}
+
+sub find_signature {
+  my ($sig)=@_;
+  $sth = $dbh->prepare(q{SELECT sig_id FROM signature WHERE sig_name = ?});
+  $rc = $sth->execute($sig)|| &crash("DB Error on line $line: \"SELECT sig_id FROM signature WHERE sig_name = '$sig'\" failed - $!");
+  ($sig_num) = $sth->fetchrow_array;
+#  print "find_sig[$rec_count]: sig_num=$sig_num,sig_name=$sig\n";
+  if (!$sig_num) {
+#    print "find_sig[$rec_count]: insert into signature (sig_name) Values $sig\n";
+    $sth = $dbh->prepare(q{InSeRt INTO signature (sig_name) VALUES (?)});
+    $rc = $sth->execute($sig)|| &crash("DB Error on line $line: \"InSeRt INTO signature (sig_name) VALUES ('$sig')\" failed - $!");
+    #Recurse - but check count!
+    $rec_count++;
+    if ($rec_count > 2) {die "Infinite loop forming in find_signature call! Dying..."};
+    &find_signature($sig);
+  }
+  $rec_count=0;
+  return($sig_num);
+}
+
+sub get_ip_proto {
+  my ($proto)=@_;
+  if ($proto =~ /^[0-9]+$/) {
+    $ip_proto=$proto
+  } else {
+    my $ip_proto_name,$ip_proto_alias,$ip_proto_num;
+    ($ip_proto_name,$ip_proto_alias,$ip_proto_num)=getprotobyname($proto);
+    $ip_proto=$ip_proto_num;
+  }
+}
+
+sub find_max_cid {
+  my ($id) = @_;
+  $sth = $dbh->prepare(q{select max(cid) from event where sid = ?});
+  $rc = $sth->execute($id) || &crash("DB Error on line $line: \"select  max(cid) from event where sid = '$id'\" failed - $!");
+  ($cid) = $sth->fetchrow_array;
+}
+
+
+sub insert_event {
+  my $i=0;
+  &debug("insert_event called...");
+  $cid++;
+  my $logevent, $src_type,$dst_type,$src_port_name, $dst_port_name ;
+
+  &crash("Broken record - sid not defined!") if (!$sid);
+  &crash ("Bogus interface definition on line $line") if ($interface =~ /\-\>|\<\-|\(/);
+
+  if ($ip_proto != 1) {
+    $src_port_name=&getservice($src_port,$ip_proto);
+    if ($src_port > 1023) {
+      if ($src_port eq $src_port_name) {
+	$src_type='high';
+      } else {
+	$src_type=$src_port_name;
+      }
+    } else {
+      $src_type=$src_port_name;
+    }
+    $dst_port_name=&getservice($dst_port,$ip_proto);
+    if ($dst_port > 1023) {
+      if ($dst_port_name eq $dst_port) {
+	$dst_type="high";
+      } else {
+	$dst_type=$dst_port_name;
+      }
+    } else {
+      $dst_type = $dst_port_name;
+    }
+  } else {
+    $src_type=$dst_type='icmp';
+  }
+  $logevent="$logtype-$ruleset/$src_type->$dst_type";
+
+  next if ( $logevent =~ /$ignore_stupid_matches/);
+  $signature=&find_signature($logevent);
+  if ($opt_t) {
+    $sth = $dbh->prepare(q{InSeRt INTO event (sid,cid,signature,timestamp) VALUES (?,?,?,?)});
+    $rc = $sth->execute($sid,$cid,$signature, "$year-".$month_array{$month}."-$day $hour:$min:$sec") || &crash("DB Error on line $line: \"InSeRt INTO event (sid,cid,signature,timestamp) VALUES ($sid,$cid,'$signature', '$year-".$month_array{$month}."-$day $hour:$min:$sec')\" failed - $!");
+  } else {
+    $sth = $dbh->prepare(q{InSeRt INTO event (sid,cid,signature,timestamp) VALUES (?,?,?,NOW())});
+    $rc = $sth->execute($sid,$cid,"$signature") || &crash("DB Error on line $line: \"InSeRt INTO event (sid,cid,signature,timestamp) VALUES ($sid,$cid,'$signature',NOW())\" failed - $!");
+  }
+  #Generate int32 versions of ip addresses...
+  $src_int32=$dst_int32='0x';
+  for ($z=0;$z<4;$z++) {
+    $src_int32 .= sprintf "%2x",$array_src_addr[$z];
+    $dst_int32 .= sprintf "%2x",$array_dst_addr[$z];
+  }
+  $src_int32=~ s/\s/0/g;
+  $dst_int32=~ s/\s/0/g;
+  $ip_src= hex($src_int32);
+  $ip_dst= hex($dst_int32);
+  $sth = $dbh->prepare(q{InSeRt InTO iphdr (sid, cid, ip_src, ip_dst,ip_ver,ip_hlen, ip_tos, ip_len, ip_id, ip_flags, ip_off,ip_ttl, ip_proto, ip_csum) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)});
+  $rc = $sth->execute($sid,$cid,$ip_src, $ip_dst, $ip_ver,$ip_hlen, $ip_tos, $ip_len, $ip_id, $ip_flags, $ip_off, $ip_ttl, $ip_proto, $ip_csum) || &crash("DB Error on line $line: \"InSeRt INTO iphdr with sid=$sid, cid=$cid\" failed - $!");
+  if ( $ip_proto == 6) {
+    $sth = $dbh->prepare(q{InSeRt INTO tcphdr (sid, cid, tcp_sport, tcp_dport, tcp_seq, tcp_ack, tcp_off, tcp_res, tcp_flags, tcp_win, tcp_csum, tcp_urp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)});
+    $rc = $sth->execute($sid,$cid,$src_port, $dst_port,$tcp_seq, $tcp_ack, $tcp_off, $tcp_res, $tcp_flags, $tcp_win, $tcp_csum, $tcp_urp) || &crash("DB Error on line $line: \"InSeRt INTO tcphdr with sid=$sid, cid=$cid\" failed - $!");
+  }
+  if ( $ip_proto == 17) {
+    $sth = $dbh->prepare(q{InSeRt INTO udphdr (sid, cid, udp_sport, udp_dport, udp_len, udp_csum) VALUES (?,?,?,?,?,?)});
+    $rc = $sth->execute($sid,$cid,$src_port, $dst_port,$udp_len, $udp_csum) || &crash("DB Error on line $line: \"InSeRt INTO udphdr with sid=$sid,cid=$cid\" failed - $!");
+  }
+  if ( $ip_proto == 1) {
+    $sth = $dbh->prepare(q{InSeRt INTO icmphdr (sid, cid, icmp_type, icmp_code, icmp_csum, icmp_id, icmp_seq) VALUES (?,?,?,?,?,?,?)});
+    $rc = $sth->execute($sid,$cid,$icmp_type,$icmp_code,$icmp_csum, $icmp_id, $icmp_seq) || &crash("DB Error on line $line: \"InSeRt INTO icmphdr with sid=$sid,cid=$cid\" failed - $!");
+  }
+  $data =~ s/\n/ /g;
+  $data =~ s/\'/\'/g;
+  $sth = $dbh->prepare(q{InSeRt INTO data (sid,cid,data_payload) VALUES (?,?,?)});
+  $rc = $sth->execute($sid,$cid,$data) || &crash("DB Error on line $line: \"InSeRt INTO data with sid=$sid,cid=$cid,data=$data\" failed - $!");
+
+}
+
+sub crash {
+  my ($entry) = @_;
+  $entry="$entry\n" if ( $entry !~ /\n$/ );
+  syslog('info', "logsnorter: $entry");
+  print "logsnorter: Error line $line. $entry";
+  if (!$opt_T ) {
+    exit;
+  } else {
+    next;
+  }
+}
+
+sub initialize_vars {
+  $ip_ver=4;
+  $src_port=$dst_port='';
+  $proto=$ip_hlen=$ip_tos=$ip_len=$ip_id=$ip_flags=$ip_off=$ip_ttl=$ip_proto=$ip_csum=0;
+  $tcp_seq=$tcp_ack=$tcp_off=$tcp_res=$tcp_flags=$tcp_win=$tcp_csum=$tcp_urp=0;
+  $udp_len=$udp_csum=$i=$z=0;
+  $icmp_csum=$icmp_id=$icmp_seq=0;
+}
+
+sub getaddr {
+  my($hn)=@_;
+  my $h,$ip;
+  $h = gethostbyname($hn)||&crash("getaddr: Cannot resolve $hn to IP address! Cannot run logsnorter on a host with different DNS or /etc/hosts entries than the host that generated this syslog message!");
+  $ip=inet_ntoa($h->addr);
+  return($ip);
+}
+
+sub getservice {
+  my ($a,$b)=@_;
+  my $h;
+  my($proto,$alias,$num);
+  ($proto,$alias,$num)=getprotobynumber($b);
+  $h = getservbyport($a,$proto);
+  if ($h) {
+    return($h);
+  } else {
+    return($a);
+  }
+}
+
+sub debug {
+ if ($DEBUG) {
+  print @_,"\n";
+ }
+}
+
+
+
+__END__
+
+=head1 NAME
+
+I<logsnorter> - scans syslog messages for HIDS messages and pumps them into a SQL snort database
+
+=head2 SYNOPSIS
+
+
+logsnorter [-vVt] -T /var/log/syslog -u user \
+  -p passwd -s dbserver -d database
+
+
+=head1 DESCRIPTION
+
+This perl script scans syslog messages looking for reports of packets
+denied by router/firewall/HIDS systems (such as Cisco routers),
+translates them into snort format and injects them into the same SQL
+database system B<snort> is running on.
+
+Currently the following systems are supported:
+
+=over 2
+
+=item o Cisco acess-lists
+
+=item o Linux 2.0 ipfw
+
+=item o Linux 2.2 ipchains
+
+=item o Linux 2.4 iptables
+
+=back
+=back
+
+Merging information like perimeter router data into the central B<snort>
+NIDS system allows you to gain a more comprehensive report of what
+attacks and scans are being done against your network. If your
+perimeter router is blocking all packets besides port 25 and port 80,
+B<snort> (sitting behind that router) will not even know that there are
+full-blown port scans being run against your network. Using I<logsnorter>
+to merge those messages back into the B<snort> database allows such
+events to be seen.
+
+The wonderous PHP-based B<snort> analysis package - I<ACID> - is invaluable
+in this regard. See B<http://www.cert.org/kb/acid/> for details.
+
+
+=head1 OPTIONS
+
+=over 2
+
+=item -u DB username
+
+=item -p DB password
+
+=item -d  DB database
+
+=item -s DB server
+
+=item -v
+
+Verbose: print every syslog line to STDOUT as it is scanned for matches. This option can be used to "chain" logsnorter in front of swatch (i.e. swatch calls "logsnorter -T /var/log/syslog" instead of "tail -f /var/log/syslog").
+
+=item -t
+
+Use the timestamps assosiated with the syslog message instead of the current time. This must be used when post-processing syslog files (e.g. running logsnorter once per day over yesterdays syslog messages) otherwise all the entries going into the snort database will have the current time! Also be sure all your systems are using NTP or the like so that their timestamps are in sync.
+
+=item -T
+
+"tail" the filename that follows - typically /var/log/syslog. This is the most used form for logsnorter, where it is permanently left running, continually scanning incoming syslog messages and pumping them back into the snort database in real-time.
+
+
+=back
+=back
+
+
+=head1 CONFIGURATION
+
+As there are quite a few command-line options, these are better placed in the config file /etc/logsnorter.conf. This file is simply merged back into the actual logsnorter script. i.e. it must contain valid perl commands:
+
+=head2 Example Configuration File
+
+#This is /etc/logsnorter.conf
+
+#$db_server='localhost';
+
+#$db_usercode='snort';
+
+#$db_database='snort';
+
+#$db_password='9f54b53j954';
+
+#Cisco access-list syslog messages don't report the interface
+
+#which generated the message. You must therefore provide logsnorter
+
+#with this information (indexed to the ACL number) so that it can
+
+#correctly inject these into the snort database
+
+$cisco_interface['rtr01',107]="Serial0.1";
+
+$cisco_interface['rtr01',108]="Serial0.1";
+
+$cisco_interface['rtr11',105]="FastEthernet0";
+
+$cisco_interface['rtr11',106]="FastEthernet0";
+
+
+
+=head1 TODO
+
+=over 2
+
+=item o Support for PostGreSQL? It may already work - someone tell me!
+
+=item o Support for non-Linux packet filters - e.g. BSD ipfilter. Someone else will have to do it. Code welcome!
+
+=back
+=back
+
+=head1 AUTHOR
+
+Jason Haar <jhaar@users.sourceforge.net>
+
+=head1 CONTRIBUTORS
+
+JP Guillemin <jpgu@users.sourceforge.net>
+Rewrite some of the iptables parsing subroutine regex rules
+
+=cut
+
+

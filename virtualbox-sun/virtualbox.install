@@ -1,0 +1,103 @@
+_install_notes() {
+    cat <<-EOT
+>>> NOTE:
+>>>  - Run "sudo /etc/rc.d/vboxdrv setup", every time your kernel is upgraded,
+>>>    to compile virtualbox driver modules for a new kernel version.
+>>>  - Add your users to the vboxusers group:
+>>>      gpasswd -a USERNAME vboxusers
+>>>  - Customize your "/etc/conf.d/vboxdrv"; usually, defaults are OK.
+>>>  - Add "vboxdrv" to DAEMONS array in your "/etc/rc.conf", if needed.
+>>>  - If USB does not work for you out-of-the-box, add the following line
+>>>    to your "/etc/fstab":
+none /proc/bus/usb usbfs auto,busgid=108,busmode=0775,devgid=108,devmode=0664 0 0
+EOT
+}
+
+post_install() {
+    # Unload stale modules
+    /etc/rc.d/vboxdrv stop
+
+    # Build new modules
+    /etc/rc.d/vboxdrv setup
+
+    # Add group 'vboxusers'
+    #
+    # This GID is reserved (http://wiki.archlinux.org/index.php/UID_and_GID_list)
+    # But in some systems it may be being used. Please replace if needed
+    groupadd -f -g 108 vboxusers
+
+    # Create directory
+    mkdir -p /var/run/VirtualBox
+
+    # Load new udev rule for module vboxdrv
+    udevadm control --reload-rules
+
+    # Show the license
+    echo '---------------------------------------------------------------------------' >&2
+    echo ' You must agree to the following license in order to use this program:' >&2
+    echo >&2
+    cat /opt/VirtualBox/LICENSE >&2
+    echo >&2
+    echo '---------------------------------------------------------------------------' >&2
+
+    # Load newly build modules
+    /etc/rc.d/vboxdrv start
+
+    # Show install notes
+    _install_notes
+}
+
+# $1: The new package version
+# $2: The old package version
+post_upgrade() {
+    _NEWVERSION=`echo $1 | cut -f-1 -d '-'`
+    _OLDVERSION=`echo $2 | cut -f-1 -d '-'`
+
+    # Remove stale stuff (eg. module compilation files) from an existing and, or
+    # old installation. Old versions used to use these directories
+    if [ "$_NEWVERSION" != "$_OLDVERSION" ]; then
+        rm -Rf "/opt/VirtualBox-${_OLDVERSION}" &>/dev/null
+    fi
+    if [ "$1" != "$2" ]; then
+	# Unload stale modules
+	/etc/rc.d/vboxdrv stop
+
+	# Build new modules
+	if which dkms >/dev/null; then
+	    dkms add -m vboxhost -v $VBOX_VERSION >/dev/null 2>&1
+	else
+	    /etc/rc.d/vboxdrv setup
+	fi
+
+	# Load newly build modules
+	/etc/rc.d/vboxdrv start
+
+    fi
+
+    # Create directory
+    mkdir -p /var/run/VirtualBox
+
+    # Show install notes
+    _install_notes
+}
+
+pre_remove() {
+    # Unload stale modules
+    /etc/rc.d/vboxdrv stop
+
+    # Remove the module files
+    if which dkms >/dev/null; then
+	. /etc/conf.d/vboxdrv
+	dkms remove -m vboxhost -v $VBOX_VERSION --all
+    else
+	rm -f /lib/modules/`uname -r`/misc/{vboxdrv,vboxnetadp,vboxnetflt}.ko
+    fi
+}
+
+post_remove() {
+    # Remove stuff remaining from the module compilation
+    rm -Rf /opt/VirtualBox
+
+    # Remove unwanted directory
+    rm -Rf /var/run/VirtualBox
+}

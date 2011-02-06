@@ -1,0 +1,325 @@
+# HG changeset patch
+# Parent 7530e890ad6ed214783244371ec1ef816d24083e
+
+diff --git a/browser/components/shell/src/nsGNOMEShellService.cpp b/browser/components/shell/src/nsGNOMEShellService.cpp
+--- a/browser/components/shell/src/nsGNOMEShellService.cpp
++++ b/browser/components/shell/src/nsGNOMEShellService.cpp
+@@ -101,30 +101,33 @@ static const char kDesktopOptionsKey[] =
+ static const char kDesktopDrawBGKey[] = DG_BACKGROUND "/draw_background";
+ static const char kDesktopColorKey[] = DG_BACKGROUND "/primary_color";
+ 
+ nsresult
+ nsGNOMEShellService::Init()
+ {
+   nsresult rv;
+ 
+-  // GConf _must_ be available, or we do not allow
++  // GConf or GIO _must_ be available, or we do not allow
+   // CreateInstance to succeed.
+ 
+   nsCOMPtr<nsIGConfService> gconf = do_GetService(NS_GCONFSERVICE_CONTRACTID);
+   nsCOMPtr<nsIGIOService> giovfs =
+     do_GetService(NS_GIOSERVICE_CONTRACTID);
+ 
+-  if (!gconf)
++  if (!gconf && !giovfs)
+     return NS_ERROR_NOT_AVAILABLE;
+ 
+   // Check G_BROKEN_FILENAMES.  If it's set, then filenames in glib use
+   // the locale encoding.  If it's not set, they use UTF-8.
+   mUseLocaleFilenames = PR_GetEnv("G_BROKEN_FILENAMES") != nsnull;
+ 
++  if (GetAppPathFromLauncher())
++    return NS_OK;
++
+   nsCOMPtr<nsIProperties> dirSvc
+     (do_GetService("@mozilla.org/file/directory_service;1"));
+   NS_ENSURE_TRUE(dirSvc, NS_ERROR_NOT_AVAILABLE);
+ 
+   nsCOMPtr<nsILocalFile> appPath;
+   rv = dirSvc->Get(NS_XPCOM_CURRENT_PROCESS_DIR, NS_GET_IID(nsILocalFile),
+                    getter_AddRefs(appPath));
+   NS_ENSURE_SUCCESS(rv, rv);
+@@ -133,16 +136,44 @@ nsGNOMEShellService::Init()
+   NS_ENSURE_SUCCESS(rv, rv);
+ 
+   return appPath->GetNativePath(mAppPath);
+ }
+ 
+ NS_IMPL_ISUPPORTS1(nsGNOMEShellService, nsIShellService)
+ 
+ PRBool
++nsGNOMEShellService::GetAppPathFromLauncher()
++{
++  gchar *tmp;
++
++  const char *launcher = PR_GetEnv("MOZ_APP_LAUNCHER");
++  if (!launcher)
++    return PR_FALSE;
++
++  if (g_path_is_absolute(launcher)) {
++    mAppPath = launcher;
++    tmp = g_path_get_basename(launcher);
++    gchar *fullpath = g_find_program_in_path(tmp);
++    if (fullpath && mAppPath.Equals(fullpath))
++      mAppIsInPath = PR_TRUE;
++    g_free(fullpath);
++  } else {
++    tmp = g_find_program_in_path(launcher);
++    if (!tmp)
++      return PR_FALSE;
++    mAppPath = tmp;
++    mAppIsInPath = PR_TRUE;
++  }
++
++  g_free(tmp);
++  return PR_TRUE;
++}
++
++PRBool
+ nsGNOMEShellService::KeyMatchesAppName(const char *aKeyValue) const
+ {
+ 
+   gchar *commandPath;
+   if (mUseLocaleFilenames) {
+     gchar *nativePath = g_filename_from_utf8(aKeyValue, -1, NULL, NULL, NULL);
+     if (!nativePath) {
+       NS_ERROR("Error converting path to filesystem encoding");
+@@ -158,84 +189,119 @@ nsGNOMEShellService::KeyMatchesAppName(c
+   if (!commandPath)
+     return PR_FALSE;
+ 
+   PRBool matches = mAppPath.Equals(commandPath);
+   g_free(commandPath);
+   return matches;
+ }
+ 
++PRBool
++nsGNOMEShellService::CheckHandlerMatchesAppName(const nsACString &handler) const
++{
++  gint argc;
++  gchar **argv;
++  nsCAutoString command(handler);
++
++  // The string will be something of the form: [/path/to/]browser "%s"
++  // We want to remove all of the parameters and get just the binary name.
++  if (g_shell_parse_argv(command.get(), &argc, &argv, NULL) && argc > 0) {
++    command.Assign(argv[0]);
++    g_strfreev(argv);
++  }
++
++  if (!KeyMatchesAppName(command.get()))
++    return PR_FALSE; // the handler is disabled or set to another app
++
++  return PR_TRUE;
++}
++
+ NS_IMETHODIMP
+ nsGNOMEShellService::IsDefaultBrowser(PRBool aStartupCheck,
+                                       PRBool* aIsDefaultBrowser)
+ {
+   *aIsDefaultBrowser = PR_FALSE;
+   if (aStartupCheck)
+     mCheckedThisSession = PR_TRUE;
+ 
+   nsCOMPtr<nsIGConfService> gconf = do_GetService(NS_GCONFSERVICE_CONTRACTID);
++  nsCOMPtr<nsIGIOService> giovfs = do_GetService(NS_GIOSERVICE_CONTRACTID);
+ 
+   PRBool enabled;
+   nsCAutoString handler;
++  nsCOMPtr<nsIGIOMimeApp> gioApp;
+ 
+   for (unsigned int i = 0; i < NS_ARRAY_LENGTH(appProtocols); ++i) {
+     if (!appProtocols[i].essential)
+       continue;
+ 
+-    handler.Truncate();
+-    gconf->GetAppForProtocol(nsDependentCString(appProtocols[i].name),
+-                             &enabled, handler);
++    if (gconf) {
++      handler.Truncate();
++      gconf->GetAppForProtocol(nsDependentCString(appProtocols[i].name),
++                               &enabled, handler);
+ 
+-    // The string will be something of the form: [/path/to/]browser "%s"
+-    // We want to remove all of the parameters and get just the binary name.
+-
+-    gint argc;
+-    gchar **argv;
+-
+-    if (g_shell_parse_argv(handler.get(), &argc, &argv, NULL) && argc > 0) {
+-      handler.Assign(argv[0]);
+-      g_strfreev(argv);
++      if (!CheckHandlerMatchesAppName(handler) || !enabled)
++        return NS_OK; // the handler is disabled or set to another app
+     }
+ 
+-    if (!KeyMatchesAppName(handler.get()) || !enabled)
+-      return NS_OK; // the handler is disabled or set to another app
++    if (giovfs) {
++      handler.Truncate();
++      giovfs->GetAppForURIScheme(nsDependentCString(appProtocols[i].name),
++                                 getter_AddRefs(gioApp));
++      if (!gioApp)
++        return NS_OK;
++
++      gioApp->GetCommand(handler);
++
++      if (!CheckHandlerMatchesAppName(handler))
++        return NS_OK; // the handler is set to another app
++    }
+   }
+ 
+   *aIsDefaultBrowser = PR_TRUE;
+ 
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsGNOMEShellService::SetDefaultBrowser(PRBool aClaimAllTypes,
+                                        PRBool aForAllUsers)
+ {
+ #ifdef DEBUG
+   if (aForAllUsers)
+     NS_WARNING("Setting the default browser for all users is not yet supported");
+ #endif
+ 
++  nsCAutoString appKeyValue;
+   nsCOMPtr<nsIGConfService> gconf = do_GetService(NS_GCONFSERVICE_CONTRACTID);
++  nsCOMPtr<nsIGIOService> giovfs = do_GetService(NS_GIOSERVICE_CONTRACTID);
++
++  if (mAppIsInPath) {
++    // mAppPath is in the users path, so use only the basename as the
++    // launcher
++    gchar *tmp = g_path_get_basename(mAppPath.get());
++    appKeyValue = tmp;
++    g_free(tmp);
++  } else {
++    appKeyValue = mAppPath;
++  }
++  appKeyValue.AppendLiteral(" %s");
++
+   if (gconf) {
+-    nsCAutoString appKeyValue(mAppPath);
+-    appKeyValue.Append(" \"%s\"");
+     for (unsigned int i = 0; i < NS_ARRAY_LENGTH(appProtocols); ++i) {
+       if (appProtocols[i].essential || aClaimAllTypes) {
+         gconf->SetAppForProtocol(nsDependentCString(appProtocols[i].name),
+                                  appKeyValue);
+       }
+     }
+   }
+ 
+-  // set handler for .html and xhtml files and MIME types:
+-  if (aClaimAllTypes) {
++  if (giovfs) {
+     nsresult rv;
+-    nsCOMPtr<nsIGIOService> giovfs =
+-      do_GetService(NS_GIOSERVICE_CONTRACTID, &rv);
+-    NS_ENSURE_SUCCESS(rv, rv);
++    unsigned int i;
+ 
+     nsCOMPtr<nsIStringBundleService> bundleService =
+       do_GetService(NS_STRINGBUNDLE_CONTRACTID, &rv);
+     NS_ENSURE_SUCCESS(rv, rv);
+ 
+     nsCOMPtr<nsIStringBundle> brandBundle;
+     rv = bundleService->CreateBundle(BRAND_PROPERTIES, getter_AddRefs(brandBundle));
+     NS_ENSURE_SUCCESS(rv, rv);
+@@ -249,20 +315,30 @@ nsGNOMEShellService::SetDefaultBrowser(P
+     // use brandShortName as the application id.
+     NS_ConvertUTF16toUTF8 id(brandShortName);
+     nsCOMPtr<nsIGIOMimeApp> appInfo;
+     rv = giovfs->CreateAppFromCommand(mAppPath,
+                                       id,
+                                       getter_AddRefs(appInfo));
+     NS_ENSURE_SUCCESS(rv, rv);
+ 
+-    // Add mime types for html, xhtml extension and set app to just created appinfo.
+-    for (unsigned int i = 0; i < NS_ARRAY_LENGTH(appTypes); ++i) {
+-      appInfo->SetAsDefaultForMimeType(nsDependentCString(appTypes[i].mimeType));
+-      appInfo->SetAsDefaultForFileExtensions(nsDependentCString(appTypes[i].extensions));
++    // set handler for the protocols
++    for (i = 0; i < NS_ARRAY_LENGTH(appProtocols); ++i) {
++      if (appProtocols[i].essential || aClaimAllTypes) {
++        appInfo->SetAsDefaultForURIScheme(nsDependentCString(appProtocols[i].name));
++      }
++    }
++
++    // set handler for .html and xhtml files and MIME types:
++    if (aClaimAllTypes) {
++      // Add mime types for html, xhtml extension and set app to just created appinfo.
++      for (i = 0; i < NS_ARRAY_LENGTH(appTypes); ++i) {
++        appInfo->SetAsDefaultForMimeType(nsDependentCString(appTypes[i].mimeType));
++        appInfo->SetAsDefaultForFileExtensions(nsDependentCString(appTypes[i].extensions));
++      }
+     }
+   }
+ 
+   return NS_OK;
+ }
+ 
+ NS_IMETHODIMP
+ nsGNOMEShellService::GetShouldCheckDefaultBrowser(PRBool* aResult)
+@@ -451,17 +527,27 @@ nsGNOMEShellService::OpenApplication(PRI
+   nsCAutoString scheme;
+   if (aApplication == APPLICATION_MAIL)
+     scheme.Assign("mailto");
+   else if (aApplication == APPLICATION_NEWS)
+     scheme.Assign("news");
+   else
+     return NS_ERROR_NOT_AVAILABLE;
+ 
++  nsCOMPtr<nsIGIOService> giovfs = do_GetService(NS_GIOSERVICE_CONTRACTID);
++  if (giovfs) {
++    nsCOMPtr<nsIGIOMimeApp> gioApp;
++    giovfs->GetAppForURIScheme(scheme, getter_AddRefs(gioApp));
++    if (gioApp)
++      return gioApp->Launch(EmptyCString());
++  }
++
+   nsCOMPtr<nsIGConfService> gconf = do_GetService(NS_GCONFSERVICE_CONTRACTID);
++  if (!gconf)
++    return NS_ERROR_FAILURE;
+ 
+   PRBool enabled;
+   nsCAutoString appCommand;
+   gconf->GetAppForProtocol(scheme, &enabled, appCommand);
+ 
+   if (!enabled)
+     return NS_ERROR_FAILURE;
+ 
+diff --git a/browser/components/shell/src/nsGNOMEShellService.h b/browser/components/shell/src/nsGNOMEShellService.h
+--- a/browser/components/shell/src/nsGNOMEShellService.h
++++ b/browser/components/shell/src/nsGNOMEShellService.h
+@@ -38,26 +38,29 @@
+ #define nsgnomeshellservice_h____
+ 
+ #include "nsIShellService.h"
+ #include "nsStringAPI.h"
+ 
+ class nsGNOMEShellService : public nsIShellService
+ {
+ public:
+-  nsGNOMEShellService() : mCheckedThisSession(PR_FALSE) { }
++  nsGNOMEShellService() : mCheckedThisSession(PR_FALSE), mAppIsInPath(PR_FALSE) { }
+ 
+   NS_DECL_ISUPPORTS
+   NS_DECL_NSISHELLSERVICE
+ 
+   nsresult Init() NS_HIDDEN;
+ 
+ private:
+   ~nsGNOMEShellService() {}
+ 
+   NS_HIDDEN_(PRBool) KeyMatchesAppName(const char *aKeyValue) const;
++  NS_HIDDEN_(PRBool) CheckHandlerMatchesAppName(const nsACString& handler) const;
+ 
++  NS_HIDDEN_(PRBool) GetAppPathFromLauncher();
+   PRPackedBool mCheckedThisSession;
+   PRPackedBool mUseLocaleFilenames;
+   nsCString    mAppPath;
++  PRPackedBool mAppIsInPath;
+ };
+ 
+ #endif // nsgnomeshellservice_h____

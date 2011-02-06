@@ -1,0 +1,331 @@
+Description: backport GtkStatusIcon support to get proper icon transparency
+Origin: backport, http://developer.pidgin.im/viewmtn/revision/info/4e796a513d5ffdab72249b7e88425b41d820a05f
+Bug: http://developer.pidgin.im/ticket/2629
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/+source/light-themes/+bug/532789
+
+diff -Naur pidgin-2.6.6.ori/pidgin/gtkdocklet-gtk.c pidgin-2.6.6/pidgin/gtkdocklet-gtk.c
+--- pidgin-2.6.6.ori/pidgin/gtkdocklet-gtk.c	1969-12-31 19:00:00.000000000 -0500
++++ pidgin-2.6.6/pidgin/gtkdocklet-gtk.c	2010-03-05 23:09:45.000000000 -0500
+@@ -0,0 +1,155 @@
++/*
++ * System tray icon (aka docklet) plugin for Purple
++ *
++ * Copyright (C) 2007 Anders Hasselqvist
++ * 
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
++ * 02111-1307, USA.
++ */
++
++#include "internal.h"
++#include "pidgin.h"
++#include "debug.h"
++#include "prefs.h"
++#include "pidginstock.h"
++#include "gtkdocklet.h"
++
++/* globals */
++GtkStatusIcon *docklet = NULL;
++
++static void
++docklet_gtk_status_activated_cb(GtkStatusIcon *status_icon, gpointer user_data)
++{
++	pidgin_docklet_clicked(1); 
++}
++
++static void
++docklet_gtk_status_clicked_cb(GtkStatusIcon *status_icon, guint button, guint activate_time, gpointer user_data)
++{
++	pidgin_docklet_clicked(button); 
++}
++
++static void
++docklet_gtk_status_update_icon(PurpleStatusPrimitive status, gboolean connecting, gboolean pending)
++{
++	const gchar *icon_name = NULL;
++
++	switch (status) {
++		case PURPLE_STATUS_OFFLINE:
++			icon_name = PIDGIN_STOCK_TRAY_OFFLINE;
++			break;
++		case PURPLE_STATUS_AWAY:
++			icon_name = PIDGIN_STOCK_TRAY_AWAY;
++			break;
++		case PURPLE_STATUS_UNAVAILABLE:
++			icon_name = PIDGIN_STOCK_TRAY_BUSY;
++			break;
++		case PURPLE_STATUS_EXTENDED_AWAY:
++			icon_name = PIDGIN_STOCK_TRAY_XA;
++			break;
++		case PURPLE_STATUS_INVISIBLE:
++			icon_name = PIDGIN_STOCK_TRAY_INVISIBLE;
++			break;
++		default:
++			icon_name = PIDGIN_STOCK_TRAY_AVAILABLE;
++			break;
++	}
++
++	if (pending)
++		icon_name = PIDGIN_STOCK_TRAY_PENDING;
++	if (connecting)
++		icon_name = PIDGIN_STOCK_TRAY_CONNECT;
++
++	if (icon_name) {
++		gtk_status_icon_set_from_icon_name(docklet, icon_name);
++	}
++}
++
++static void
++docklet_gtk_status_set_tooltip(gchar *tooltip)
++{
++	if (tooltip) {
++		gtk_status_icon_set_tooltip(docklet, tooltip);
++	} else {
++		gtk_status_icon_set_tooltip(docklet, NULL);
++	}
++}
++
++static void
++docklet_gtk_status_position_menu(GtkMenu *menu,
++                                 int *x, int *y, gboolean *push_in,
++                                 gpointer user_data)
++{
++	gtk_status_icon_position_menu(menu, x, y, push_in, docklet);
++}
++
++static void
++docklet_gtk_status_destroy(void)
++{
++	g_return_if_fail(docklet != NULL);
++
++	pidgin_docklet_remove();
++	
++	g_object_unref(G_OBJECT(docklet));
++	docklet = NULL;
++
++	purple_debug_info("docklet", "GTK+ destroyed\n");
++}
++
++static void
++docklet_gtk_status_create(gboolean recreate)
++{
++	if (docklet) {
++		/* if this is being called when a tray icon exists, it's because
++		   something messed up. try destroying it before we proceed,
++		   although docklet_refcount may be all hosed. hopefully won't happen. */
++		purple_debug_warning("docklet", "trying to create icon but it already exists?\n");
++		docklet_gtk_status_destroy();
++	}
++
++	docklet = gtk_status_icon_new();
++	g_return_if_fail(docklet != NULL);
++
++	g_signal_connect(G_OBJECT(docklet), "activate", G_CALLBACK(docklet_gtk_status_activated_cb), NULL);
++	g_signal_connect(G_OBJECT(docklet), "popup-menu", G_CALLBACK(docklet_gtk_status_clicked_cb), NULL);
++
++	pidgin_docklet_embedded();
++	gtk_status_icon_set_visible(docklet, TRUE);
++	purple_debug_info("docklet", "GTK+ created\n");
++}
++
++static void
++docklet_gtk_status_create_ui_op(void)
++{
++	docklet_gtk_status_create(FALSE);
++}
++
++static struct docklet_ui_ops ui_ops =
++{
++	docklet_gtk_status_create_ui_op,
++	docklet_gtk_status_destroy,
++	docklet_gtk_status_update_icon,
++	NULL,
++	docklet_gtk_status_set_tooltip,
++	docklet_gtk_status_position_menu
++};
++
++void
++docklet_ui_init(void)
++{
++	pidgin_docklet_set_ui_ops(&ui_ops);
++	gtk_icon_theme_append_search_path(gtk_icon_theme_get_default(),
++		DATADIR G_DIR_SEPARATOR_S "pixmaps" G_DIR_SEPARATOR_S "pidgin" G_DIR_SEPARATOR_S "tray");
++}
+diff -Naur pidgin-2.6.6.ori/pidgin/gtkdocklet.h pidgin-2.6.6/pidgin/gtkdocklet.h
+--- pidgin-2.6.6.ori/pidgin/gtkdocklet.h	2010-02-16 04:34:06.000000000 -0500
++++ pidgin-2.6.6/pidgin/gtkdocklet.h	2010-03-05 23:09:58.000000000 -0500
+@@ -49,7 +49,7 @@
+ void pidgin_docklet_uninit(void);
+ void*pidgin_docklet_get_handle(void);
+ 
+-/* function in gtkdocklet-{x11,win32}.c */
++/* function in gtkdocklet-{gtk,x11,win32}.c */
+ void docklet_ui_init(void);
+ 
+ #endif /* _GTKDOCKLET_H_ */
+diff -Naur pidgin-2.6.6.ori/pidgin/gtkdocklet-x11.c pidgin-2.6.6/pidgin/gtkdocklet-x11.c
+--- pidgin-2.6.6.ori/pidgin/gtkdocklet-x11.c	2010-02-16 04:34:06.000000000 -0500
++++ pidgin-2.6.6/pidgin/gtkdocklet-x11.c	2010-03-05 23:09:58.000000000 -0500
+@@ -34,6 +34,8 @@
+ #include "gtkdocklet.h"
+ #include <gdk/gdkkeysyms.h>
+ 
++#if !GTK_CHECK_VERSION(2,10,0)
++
+ #define SHORT_EMBED_TIMEOUT 5000
+ #define LONG_EMBED_TIMEOUT 15000
+ 
+@@ -358,3 +360,6 @@
+ 	purple_prefs_add_none(PIDGIN_PREFS_ROOT "/docklet/x11");
+ 	purple_prefs_add_bool(PIDGIN_PREFS_ROOT "/docklet/x11/embedded", FALSE);
+ }
++
++#endif  /* !GTK_CHECK_VERSION(2,10,0) */
++
+diff -Naur pidgin-2.6.6.ori/pidgin/Makefile.am pidgin-2.6.6/pidgin/Makefile.am
+--- pidgin-2.6.6.ori/pidgin/Makefile.am	2010-02-16 04:34:06.000000000 -0500
++++ pidgin-2.6.6/pidgin/Makefile.am	2010-03-05 23:09:58.000000000 -0500
+@@ -92,6 +92,7 @@
+ 	gtkdialogs.c \
+ 	gtkdnd-hints.c \
+ 	gtkdocklet.c \
++	gtkdocklet-gtk.c \
+ 	gtkdocklet-x11.c \
+ 	gtkeventloop.c \
+ 	gtkexpander.c \
+diff -Naur pidgin-2.6.6.ori/pidgin/Makefile.in pidgin-2.6.6/pidgin/Makefile.in
+--- pidgin-2.6.6.ori/pidgin/Makefile.in	2010-02-16 04:34:30.000000000 -0500
++++ pidgin-2.6.6/pidgin/Makefile.in	2010-03-05 23:09:58.000000000 -0500
+@@ -62,15 +62,16 @@
+ 	gtkcellrendererexpander.c gtkcellrendererprogress.c \
+ 	gtkcellview.c gtkcellviewmenuitem.c gtkcertmgr.c gtkconn.c \
+ 	gtkconv.c gtkdebug.c gtkdialogs.c gtkdnd-hints.c gtkdocklet.c \
+-	gtkdocklet-x11.c gtkeventloop.c gtkexpander.c gtkft.c \
+-	gtkicon-theme.c gtkicon-theme-loader.c gtkidle.c gtkimhtml.c \
+-	gtkimhtmltoolbar.c gtklog.c gtkmain.c gtkmedia.c gtkmenutray.c \
+-	gtknotify.c gtkplugin.c gtkpluginpref.c gtkpounce.c gtkprefs.c \
+-	gtkprivacy.c gtkrequest.c gtkroomlist.c gtksavedstatuses.c \
+-	gtkscrollbook.c gtksession.c gtksmiley.c gtksound.c \
+-	gtksourceiter.c gtksourceundomanager.c gtksourceview-marshal.c \
+-	gtkstatus-icon-theme.c gtkstatusbox.c gtkthemes.c gtkutils.c \
+-	gtkwhiteboard.c minidialog.c pidgintooltip.c
++	gtkdocklet-gtk.c gtkdocklet-x11.c gtkeventloop.c gtkexpander.c \
++	gtkft.c gtkicon-theme.c gtkicon-theme-loader.c gtkidle.c \
++	gtkimhtml.c gtkimhtmltoolbar.c gtklog.c gtkmain.c gtkmedia.c \
++	gtkmenutray.c gtknotify.c gtkplugin.c gtkpluginpref.c \
++	gtkpounce.c gtkprefs.c gtkprivacy.c gtkrequest.c gtkroomlist.c \
++	gtksavedstatuses.c gtkscrollbook.c gtksession.c gtksmiley.c \
++	gtksound.c gtksourceiter.c gtksourceundomanager.c \
++	gtksourceview-marshal.c gtkstatus-icon-theme.c gtkstatusbox.c \
++	gtkthemes.c gtkutils.c gtkwhiteboard.c minidialog.c \
++	pidgintooltip.c
+ @ENABLE_GTK_TRUE@am_pidgin_OBJECTS = eggtrayicon.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	pidgincombobox.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	pidginstock.$(OBJEXT) gtkaccount.$(OBJEXT) \
+@@ -84,7 +85,8 @@
+ @ENABLE_GTK_TRUE@	gtkcertmgr.$(OBJEXT) gtkconn.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	gtkconv.$(OBJEXT) gtkdebug.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	gtkdialogs.$(OBJEXT) gtkdnd-hints.$(OBJEXT) \
+-@ENABLE_GTK_TRUE@	gtkdocklet.$(OBJEXT) gtkdocklet-x11.$(OBJEXT) \
++@ENABLE_GTK_TRUE@	gtkdocklet.$(OBJEXT) gtkdocklet-gtk.$(OBJEXT) \
++@ENABLE_GTK_TRUE@	gtkdocklet-x11.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	gtkeventloop.$(OBJEXT) gtkexpander.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	gtkft.$(OBJEXT) gtkicon-theme.$(OBJEXT) \
+ @ENABLE_GTK_TRUE@	gtkicon-theme-loader.$(OBJEXT) \
+@@ -587,6 +589,7 @@
+ @ENABLE_GTK_TRUE@	gtkdialogs.c \
+ @ENABLE_GTK_TRUE@	gtkdnd-hints.c \
+ @ENABLE_GTK_TRUE@	gtkdocklet.c \
++@ENABLE_GTK_TRUE@	gtkdocklet-gtk.c \
+ @ENABLE_GTK_TRUE@	gtkdocklet-x11.c \
+ @ENABLE_GTK_TRUE@	gtkeventloop.c \
+ @ENABLE_GTK_TRUE@	gtkexpander.c \
+@@ -816,6 +819,7 @@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkdebug.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkdialogs.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkdnd-hints.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkdocklet-gtk.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkdocklet-x11.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkdocklet.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/gtkeventloop.Po@am__quote@
+diff -Naur pidgin-2.6.6.ori/pidgin/pidginstock.c pidgin-2.6.6/pidgin/pidginstock.c
+--- pidgin-2.6.6.ori/pidgin/pidginstock.c	2010-02-16 04:34:06.000000000 -0500
++++ pidgin-2.6.6/pidgin/pidginstock.c	2010-03-05 23:09:50.000000000 -0500
+@@ -218,17 +218,22 @@
+ 	{ PIDGIN_STOCK_STATUS_LOGOUT,    "status",  "log-out.png",       TRUE, TRUE, TRUE,  TRUE,  TRUE,  FALSE, TRUE,  NULL },
+ 	{ PIDGIN_STOCK_STATUS_OFFLINE,   "status",  "offline.png",       TRUE, TRUE, TRUE,  TRUE,  TRUE,  FALSE, FALSE, PIDGIN_STOCK_STATUS_OFFLINE_I  },
+ 	{ PIDGIN_STOCK_STATUS_PERSON,    "status",  "person.png",        TRUE, TRUE, TRUE,  TRUE,  TRUE,  FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_STATUS_MESSAGE,   "toolbar", "message-new.png",   TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, NULL },
++	{ PIDGIN_STOCK_STATUS_MESSAGE,   "toolbar", "message-new.png",   TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, NULL }
++};
+ 
+-	{ PIDGIN_STOCK_TRAY_AVAILABLE, "tray", "tray-online.png",        FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_INVISIBLE, "tray", "tray-invisible.png",     FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_AWAY,      "tray", "tray-away.png",          FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_BUSY,      "tray", "tray-busy.png",          FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_XA,        "tray", "tray-extended-away.png", FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_OFFLINE,   "tray", "tray-offline.png",       FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_CONNECT,   "tray", "tray-connecting.png",    FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_PENDING,   "tray", "tray-new-im.png",        FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL },
+-	{ PIDGIN_STOCK_TRAY_EMAIL,     "tray", "tray-message.png",       FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL }
++const SizedStockIcon sized_tray_icons [] = {
++#define SIZED_TRAY_ICON(name) \
++	{ name, "tray/hicolor", "status/" name ".png", FALSE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, NULL }
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_AVAILABLE ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_INVISIBLE ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_AWAY ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_BUSY ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_XA ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_OFFLINE ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_CONNECT ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_PENDING ),
++	SIZED_TRAY_ICON( PIDGIN_STOCK_TRAY_EMAIL )
++#undef SIZED_TRAY_ICON
+ };
+ 
+ /*****************************************************************************
+@@ -480,6 +485,33 @@
+ 		}
+ 	}
+ 
++	for (i = 0; i < G_N_ELEMENTS(sized_tray_icons); i++)
++	{
++		normal = gtk_icon_set_new();
++		if (sized_tray_icons[i].translucent_name)
++			translucent = gtk_icon_set_new();
++
++#define ADD_SIZED_ICON(name, size) \
++		if (sized_tray_icons[i].name) { \
++			add_sized_icon(normal, name, PIDGIN_ICON_THEME(theme), size, sized_tray_icons[i], FALSE); \
++			if (sized_tray_icons[i].translucent_name) \
++				add_sized_icon(translucent, name, PIDGIN_ICON_THEME(theme), size, sized_tray_icons[i], TRUE); \
++		}
++		ADD_SIZED_ICON(extra_small, "16x16");
++		ADD_SIZED_ICON(small, "22x22");
++		ADD_SIZED_ICON(medium, "32x32");
++		ADD_SIZED_ICON(large, "48x48");
++#undef ADD_SIZED_ICON
++
++		gtk_icon_factory_add(icon_factory, sized_tray_icons[i].name, normal);
++		gtk_icon_set_unref(normal);
++
++		if (sized_tray_icons[i].translucent_name) {
++			gtk_icon_factory_add(icon_factory, sized_tray_icons[i].translucent_name, translucent);
++			gtk_icon_set_unref(translucent);
++		}
++	}
++
+ 	gtk_widget_destroy(win);
+ 	g_object_unref(G_OBJECT(icon_factory));
+ 	reload_settings();

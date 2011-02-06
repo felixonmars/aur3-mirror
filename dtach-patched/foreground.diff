@@ -1,0 +1,122 @@
+diff --git a/dtach.1 b/dtach.1
+index 699925c..da376b0 100644
+--- a/dtach.1
++++ b/dtach.1
+@@ -13,6 +13,9 @@ dtach \- simple program that emulates the detach feature of screen.
+ .br
+ .B dtach \-n
+ .I <socket> <options> <command...>
++.br
++.B dtach \-N
++.I <socket> <options> <command...>
+ 
+ .SH DESCRIPTION
+ .B dtach
+@@ -92,7 +95,14 @@ Creates a new session, without attaching to it. A new session is created in
+ which the specified program is executed.
+ .B dtach
+ does not try to attach to the newly created session, however, and exits
+-instead.
++instead (it daemonizes in the background).
++.TP
++.B \-N
++Creates a new session, without attaching to it. A new session is created in
++which the specified program is executed.
++.B dtach
++does not try to attach to the newly created session, however, and waits for
++the program to exit instead (it runs in foreground).
+ 
+ .PP
+ .SS OPTIONS
+diff --git a/dtach.h b/dtach.h
+index f2f4951..d30bb19 100644
+--- a/dtach.h
++++ b/dtach.h
+@@ -129,6 +129,7 @@ struct packet
+ 
+ int attach_main(int noerror);
+ int master_main(char **argv, int waitattach);
++int master_main_inprocess(char **argv, int waitattach);
+ 
+ #ifdef sun
+ #define BROKEN_MASTER
+diff --git a/main.c b/main.c
+index ade242a..5615302 100644
+--- a/main.c
++++ b/main.c
+@@ -61,7 +61,9 @@ usage()
+ 		"\t\t  does not exist, running the specified command.\n"
+ 		"  -c\t\tCreate a new socket and run the specified command.\n"
+ 		"  -n\t\tCreate a new socket and run the specified command "
+-		"detached.\n"
++		"detached (daemonized, in bagkground).\n"
++		"  -N\t\tCreate a new socket and run the specified command "
++		"detached (non-daemonized, in foreground).\n"
+ 		"Options:\n"
+ 		"  -e <char>\tSet the detach character to <char>, defaults "
+ 		"to ^\\.\n"
+@@ -102,7 +104,7 @@ main(int argc, char **argv)
+ 		if (mode == '?')
+ 			usage();
+ 		else if (mode != 'a' && mode != 'c' && mode != 'n' &&
+-			 mode != 'A')
++			 mode != 'N' && mode != 'A')
+ 		{
+ 			printf("%s: Invalid mode '-%c'\n", progname, mode);
+ 			printf("Try '%s --help' for more information.\n",
+@@ -215,7 +217,7 @@ main(int argc, char **argv)
+ 		dont_have_tty = 1;
+ 	}
+ 
+-	if (dont_have_tty && mode != 'n')
++	if (dont_have_tty && (mode != 'n' && mode != 'N'))
+ 	{
+ 		printf("%s: Attaching to a session requires a terminal.\n",
+ 			progname);
+@@ -236,6 +238,8 @@ main(int argc, char **argv)
+ 	}
+ 	else if (mode == 'n')
+ 		return master_main(argv, 0);
++	else if (mode == 'N')
++		return master_main_inprocess(argv, 0);
+ 	else if (mode == 'c')
+ 	{
+ 		if (master_main(argv, 1) != 0)
+diff --git a/master.c b/master.c
+index 88b85f5..38cfe04 100644
+--- a/master.c
++++ b/master.c
+@@ -507,6 +507,33 @@ master_process(int s, char **argv, int waitattach, int statusfd)
+ }
+ 
+ int
++master_main_inprocess(char **argv, int waitattach)
++{
++	int s;
++
++	/* Use a default redraw method if one hasn't been specified yet. */
++	if (redraw_method == REDRAW_UNSPEC)
++		redraw_method = REDRAW_CTRL_L;
++
++	/* Create the unix domain socket. */
++	s = create_socket(sockname);
++	if (s < 0)
++	{
++		printf("%s: %s: %s\n", progname, sockname, strerror(errno));
++		return 1;
++	}
++
++#if defined(F_SETFD) && defined(FD_CLOEXEC)
++	fcntl(s, F_SETFD, FD_CLOEXEC);
++#endif
++
++	/* Child - this becomes the master */
++	master_process(s, argv, waitattach, dup(2));
++
++	return 0;
++}
++
++int
+ master_main(char **argv, int waitattach)
+ {
+ 	int fd[2] = {-1, -1};

@@ -1,0 +1,222 @@
+# HG changeset patch
+# Parent 4a8ebab4db51ea6b64c53788092f9565f0d4236a
+
+diff -r 4a8ebab4db51 hw/eepro100.c
+--- a/hw/eepro100.c	Fri Aug 27 03:15:33 2010 -0400
++++ b/hw/eepro100.c	Mon Aug 30 13:06:26 2010 -0400
+@@ -57,10 +57,12 @@
+ #define KiB 1024
+ 
+ /* Debug EEPRO100 card. */
+-//~ #define DEBUG_EEPRO100
++#define DEBUG_EEPRO100
++
++int e100_debug = 0;
+ 
+ #ifdef DEBUG_EEPRO100
+-#define logout(fmt, ...) fprintf(stderr, "EE100\t%-24s" fmt, __func__, ## __VA_ARGS__)
++#define logout(fmt, ...) do {if (e100_debug) fprintf(stderr, "EE100\t%-24s" fmt, __func__, ## __VA_ARGS__);} while (0)
+ #else
+ #define logout(fmt, ...) ((void)0)
+ #endif
+@@ -72,7 +74,7 @@
+ #define RXTX    1
+ #define EEPROM  1       /* eeprom related actions */
+ 
+-#define TRACE(flag, command) ((flag) ? (command) : (void)0)
++#define TRACE(flag, command) do {if (flag) {command;}} while (0)
+ 
+ #define missing(text) fprintf(stderr, "eepro100: feature is missing in this emulation: " text "\n")
+ 
+@@ -164,6 +166,15 @@
+ } eepro100_rx_t;
+ 
+ typedef struct {
++    uint16_t count;
++    uint16_t pad0;
++    uint32_t link;
++    uint32_t buf_addr;
++    uint16_t size;
++    uint16_t pad1;
++} eepro100_rbd_t;
++
++typedef struct {
+     uint32_t tx_good_frames, tx_max_collisions, tx_late_collisions,
+         tx_underruns, tx_lost_crs, tx_deferred, tx_single_collisions,
+         tx_multiple_collisions, tx_total_collisions;
+@@ -211,6 +222,7 @@
+     /* (ru_base + ru_offset) address the RFD in the Receive Frame Area. */
+     uint32_t ru_base;           /* RU base address */
+     uint32_t ru_offset;         /* RU address offset */
++    uint32_t rbd_offset;        /* RBD address offset */
+     uint32_t statsaddr;         /* pointer to eepro100_stats_t */
+ 
+     /* Statistical counters. Also used for wake-up packet (i82559). */
+@@ -758,7 +770,7 @@
+         uint16_t command = le16_to_cpu(tx.command);
+         logout
+             ("val=0x%02x (cu start), status=0x%04x, command=0x%04x, link=0x%08x\n",
+-             val, status, command, tx.link);
++             CU_START, status, command, tx.link);
+         bool bit_el = ((command & 0x8000) != 0);
+         bool bit_s = ((command & 0x4000) != 0);
+         bool bit_i = ((command & 0x2000) != 0);
+@@ -773,7 +785,7 @@
+             break;
+         case CmdIASetup:
+             cpu_physical_memory_read(cb_address + 8, &s->conf.macaddr.a[0], 6);
+-            TRACE(OTHER, logout("macaddr: %s\n", nic_dump(&s->macaddr[0], 6)));
++            TRACE(OTHER, logout("macaddr: %s\n", nic_dump(&s->conf.macaddr.a[0], 6)));
+             break;
+         case CmdConfigure:
+             cpu_physical_memory_read(cb_address + 8, &s->configuration[0],
+@@ -812,18 +824,13 @@
+             uint16_t size = 0;
+             uint32_t tbd_address = cb_address + 0x10;
+             assert(tcb_bytes <= sizeof(buf));
+-            while (size < tcb_bytes) {
+-                uint32_t tx_buffer_address = ldl_phys(tbd_address);
+-                uint16_t tx_buffer_size = lduw_phys(tbd_address + 4);
+-                //~ uint16_t tx_buffer_el = lduw_phys(tbd_address + 6);
+-                tbd_address += 8;
++            if (tbd_array == 0xffffffff) {
++                /* Simplified mode. */
+                 TRACE(RXTX, logout
+                     ("TBD (simplified mode): buffer address 0x%08x, size 0x%04x\n",
+-                     tx_buffer_address, tx_buffer_size));
+-                tx_buffer_size = MIN(tx_buffer_size, sizeof(buf) - size);
+-                cpu_physical_memory_read(tx_buffer_address, &buf[size],
+-                                         tx_buffer_size);
+-                size += tx_buffer_size;
++                     tbd_address, tcb_bytes));
++                cpu_physical_memory_read(tbd_address, buf, tcb_bytes);
++                size = tcb_bytes;
+             }
+             if (tbd_array == 0xffffffff) {
+                 /* Simplified mode. Was already handled by code above. */
+@@ -834,7 +841,7 @@
+                     /* Extended Flexible TCB. */
+                     for (; tbd_count < 2; tbd_count++) {
+                         uint32_t tx_buffer_address = ldl_phys(tbd_address);
+-                        uint16_t tx_buffer_size = lduw_phys(tbd_address + 4);
++                        uint16_t tx_buffer_size = lduw_phys(tbd_address + 4) & 0x3fff;
+                         uint16_t tx_buffer_el = lduw_phys(tbd_address + 6);
+                         tbd_address += 8;
+                         TRACE(RXTX, logout
+@@ -987,6 +994,16 @@
+         }
+         set_ru_state(s, ru_ready);
+         s->ru_offset = s->pointer;
++
++        eepro100_rx_t rx;
++        cpu_physical_memory_read(s->ru_base + s->ru_offset, (uint8_t *) & rx,
++                                 offsetof(eepro100_rx_t, packet));
++        uint16_t rfd_command = le16_to_cpu(rx.command);
++
++        /* If the SF bit is set, then use flexible mode. */
++        if (rfd_command & 0x0008)
++            s->rbd_offset = le32_to_cpu(rx.rx_buf_addr);
++
+         TRACE(OTHER, logout("val=0x%02x (rx start)\n", val));
+         break;
+     case RX_RESUME:
+@@ -1003,6 +1020,10 @@
+         TRACE(OTHER, logout("val=0x%02x (RU base address)\n", val));
+         s->ru_base = s->pointer;
+         break;
++    case RX_ABORT:
++        /* TODO XXX _AP_ need to generate interrupts and halt all activity. */
++        set_ru_state(s, ru_idle);
++        break;
+     default:
+         logout("val=0x%02x (undefined RU command)\n", val);
+         missing("Undefined SU command");
+@@ -1696,7 +1717,6 @@
+           rfd_command, rx.link, rx.rx_buf_addr, rfd_size));
+     stw_phys(s->ru_base + s->ru_offset + offsetof(eepro100_rx_t, status),
+              rfd_status);
+-    stw_phys(s->ru_base + s->ru_offset + offsetof(eepro100_rx_t, count), size);
+     /* Early receive interrupt not supported. */
+     //~ eepro100_er_interrupt(s);
+     /* Receive CRC Transfer not supported. */
+@@ -1706,8 +1726,28 @@
+     }
+     /* TODO: check stripping enable bit. */
+     //~ assert(!(s->configuration[17] & 1));
+-    cpu_physical_memory_write(s->ru_base + s->ru_offset +
+-                              offsetof(eepro100_rx_t, packet), buf, size);
++
++    if (rfd_command & 0x0008) {
++       /* XXX TODO _AP_ support more links */
++       eepro100_rbd_t rbd;
++       int wrote = 0;
++       do {
++            cpu_physical_memory_read(s->ru_base + s->rbd_offset, (uint8_t *) &rbd, sizeof(rbd));
++            int w = (size - wrote) > rbd.size ? rbd.size : (size - wrote);
++            cpu_physical_memory_write(s->ru_base + rbd.buf_addr, buf + wrote, w);
++            stw_phys(s->ru_base + s->rbd_offset, w | 0x8000 | 0x4000);
++            wrote += w;
++            s->rbd_offset = le32_to_cpu(rbd.link);
++       } while(wrote < size);
++    } else {
++        /* Simplified mode. */
++        assert(size <= rfd_size);
++        cpu_physical_memory_write(s->ru_base + s->ru_offset +
++                                  offsetof(eepro100_rx_t, packet), buf, size);
++    }
++    /* Update the EOF and F bits in addition to setting the size. */
++    stw_phys(s->ru_base + s->ru_offset + offsetof(eepro100_rx_t, count), size | 0x8000 | 0x4000);
++
+     s->statistics.rx_good_frames++;
+     eepro100_fr_interrupt(s);
+     s->ru_offset = le32_to_cpu(rx.link);
+@@ -1747,6 +1787,7 @@
+         VMSTATE_UINT32(cu_offset, EEPRO100State),
+         VMSTATE_UINT32(ru_base, EEPRO100State),
+         VMSTATE_UINT32(ru_offset, EEPRO100State),
++        VMSTATE_UINT32(rbd_offset, EEPRO100State),
+         VMSTATE_UINT32(statsaddr, EEPRO100State),
+         /* Save eepro100_stats_t statistics. */
+         VMSTATE_UINT32(statistics.tx_good_frames, EEPRO100State),
+@@ -1832,7 +1873,7 @@
+                            pci_mmio_map);
+ 
+     qemu_macaddr_default_if_unset(&s->conf.macaddr);
+-    logout("macaddr: %s\n", nic_dump(&s->macaddr[0], 6));
++    logout("macaddr: %s\n", nic_dump(&s->conf.macaddr.a[0], 6));
+     assert(s->region[1] == 0);
+ 
+     nic_reset(s);
+diff -r 4a8ebab4db51 qemu-options.hx
+--- a/qemu-options.hx	Fri Aug 27 03:15:33 2010 -0400
++++ b/qemu-options.hx	Mon Aug 30 13:06:26 2010 -0400
+@@ -1954,6 +1954,13 @@
+ Write device configuration to @var{file}.
+ ETEXI
+ 
++DEF("debug-e100", 0, QEMU_OPTION_debug_e100,
++"-debug-e100     print E100 debug statments\n")
++STEXI
++@item -debug-e100
++Print E100 debug statments.
++ETEXI
++
+ HXCOMM This is the last statement. Insert new options before this line!
+ STEXI
+ @end table
+diff -r 4a8ebab4db51 vl.c
+--- a/vl.c	Fri Aug 27 03:15:33 2010 -0400
++++ b/vl.c	Mon Aug 30 13:06:26 2010 -0400
+@@ -5653,6 +5653,12 @@
+                     fclose(fp);
+                     break;
+                 }
++            case QEMU_OPTION_debug_e100:
++                {
++                    extern int e100_debug;
++                    e100_debug = 1;
++                    break;
++                }
+             }
+         }
+     }

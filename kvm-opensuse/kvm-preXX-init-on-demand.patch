@@ -1,0 +1,551 @@
+From 3be490091c2503d8b50f4a0ce1efe68004f65d3e Mon Sep 17 00:00:00 2001
+From: Alexander Graf <agraf@suse.de>
+Date: Tue, 4 Nov 2008 18:48:21 +0100
+Subject: [PATCH] Activate Virtualization On Demand v3
+
+X86 CPUs need to have some magic happening to enable the virtualization
+extensions on them. This magic can result in unpleasant results for
+users, like blocking other VMMs from working (vmx) or using invalid TLB
+entries (svm).
+
+Currently KVM activates virtualization when the respective kernel module
+is loaded. This blocks us from autoloading KVM modules without breaking
+other VMMs.
+
+To circumvent this problem at least a bit, this patch introduces on
+demand activation of virtualization. This means, that instead
+virtualization is enabled on creation of the first virtual machine
+and disabled on removal of the last one.
+
+So using this, KVM can be easily autoloaded, while keeping other
+hypervisors usable.
+
+v2 adds returns to non-x86 hardware_enables and adds IA64 change
+v3 changes:
+  - use spin_lock instead of atomics
+  - put locking to new functions hardware_{en,dis}able_all that get called
+    on VM creation/destruction
+  - remove usage counter checks where not necessary
+  - return -EINVAL for IA64 slot < 0 case
+
+Signed-off-by: Alexander Graf <agraf@suse.de>
+---
+ arch/ia64/kvm/kvm-ia64.c   |    8 +++--
+ arch/powerpc/kvm/powerpc.c |    3 +-
+ arch/s390/kvm/kvm-s390.c   |    3 +-
+ kernel/x86/svm.c         |   13 +++++--
+ kernel/x86/vmx.c         |    7 +++-
+ kernel/x86/x86.c         |    4 +-
+ kernel/include/asm-x86/kvm_host.h |    2 +-
+ kernel/include/linux/kvm_host.h   |    2 +-
+ virt/kvm/kvm_main.c        |   75 ++++++++++++++++++++++++++++++++++++-------
+ 9 files changed, 90 insertions(+), 27 deletions(-)
+
+Index: kvm-83/kernel/ia64/kvm-ia64.c
+===================================================================
+--- kvm-83.orig/kernel/ia64/kvm-ia64.c
++++ kvm-83/kernel/ia64/kvm-ia64.c
+@@ -151,7 +151,7 @@ long ia64_pal_vp_create(u64 *vpd, u64 *h
+ 
+ static  DEFINE_SPINLOCK(vp_lock);
+ 
+-void kvm_arch_hardware_enable(void *garbage)
++int kvm_arch_hardware_enable(void *garbage)
+ {
+ 	long  status;
+ 	long  tmp_base;
+@@ -165,7 +165,7 @@ void kvm_arch_hardware_enable(void *garb
+ 	slot = ia64_itr_entry(0x3, KVM_VMM_BASE, pte, KVM_VMM_SHIFT);
+ 	local_irq_restore(saved_psr);
+ 	if (slot < 0)
+-		return;
++		return -EINVAL;
+ 
+ 	spin_lock(&vp_lock);
+ 	status = ia64_pal_vp_init_env(kvm_vsa_base ?
+@@ -173,7 +173,7 @@ void kvm_arch_hardware_enable(void *garb
+ 			__pa(kvm_vm_buffer), KVM_VM_BUFFER_BASE, &tmp_base);
+ 	if (status != 0) {
+ 		printk(KERN_WARNING"kvm: Failed to Enable VT Support!!!!\n");
+-		return ;
++		return -EINVAL;
+ 	}
+ 
+ 	if (!kvm_vsa_base) {
+@@ -182,6 +182,8 @@ void kvm_arch_hardware_enable(void *garb
+ 	}
+ 	spin_unlock(&vp_lock);
+ 	ia64_ptr_entry(0x3, slot);
++
++	return 0;
+ }
+ 
+ void kvm_arch_hardware_disable(void *garbage)
+Index: kvm-83/kernel/x86/svm.c
+===================================================================
+--- kvm-83.orig/kernel/x86/svm.c
++++ kvm-83/kernel/x86/svm.c
+@@ -303,7 +303,7 @@ static void svm_hardware_disable(void *g
+ 	cpu_svm_disable();
+ }
+ 
+-static void svm_hardware_enable(void *garbage)
++static int svm_hardware_enable(void *garbage)
+ {
+ 
+ 	struct svm_cpu_data *svm_data;
+@@ -312,16 +312,20 @@ static void svm_hardware_enable(void *ga
+ 	struct kvm_desc_struct *gdt;
+ 	int me = raw_smp_processor_id();
+ 
++	rdmsrl(MSR_EFER, efer);
++	if (efer & EFER_SVME)
++		return -EBUSY;
++
+ 	if (!has_svm()) {
+ 		printk(KERN_ERR "svm_cpu_init: err EOPNOTSUPP on %d\n", me);
+-		return;
++		return -EINVAL;
+ 	}
+ 	svm_data = per_cpu(svm_data, me);
+ 
+ 	if (!svm_data) {
+ 		printk(KERN_ERR "svm_cpu_init: svm_data is NULL on %d\n",
+ 		       me);
+-		return;
++		return -EINVAL;
+ 	}
+ 
+ 	svm_data->asid_generation = 1;
+@@ -332,11 +336,12 @@ static void svm_hardware_enable(void *ga
+ 	gdt = (struct kvm_desc_struct *)gdt_descr.address;
+ 	svm_data->tss_desc = (struct kvm_ldttss_desc *)(gdt + GDT_ENTRY_TSS);
+ 
+-	rdmsrl(MSR_EFER, efer);
+ 	wrmsrl(MSR_EFER, efer | EFER_SVME);
+ 
+ 	wrmsrl(MSR_VM_HSAVE_PA,
+ 	       page_to_pfn(svm_data->save_area) << PAGE_SHIFT);
++
++	return 0;
+ }
+ 
+ static void svm_cpu_uninit(int cpu)
+Index: kvm-83/kernel/x86/vmx.c
+===================================================================
+--- kvm-83.orig/kernel/x86/vmx.c
++++ kvm-83/kernel/x86/vmx.c
+@@ -1099,12 +1099,15 @@ static __init int vmx_disabled_by_bios(v
+ 	/* locked but not enabled */
+ }
+ 
+-static void hardware_enable(void *garbage)
++static int hardware_enable(void *garbage)
+ {
+ 	int cpu = raw_smp_processor_id();
+ 	u64 phys_addr = __pa(per_cpu(vmxarea, cpu));
+ 	u64 old;
+ 
++	if (read_cr4() & X86_CR4_VMXE)
++		return -EBUSY;
++
+ 	INIT_LIST_HEAD(&per_cpu(vcpus_on_cpu, cpu));
+ 	rdmsrl(MSR_IA32_FEATURE_CONTROL, old);
+ 	if ((old & (FEATURE_CONTROL_LOCKED |
+@@ -1119,6 +1122,8 @@ static void hardware_enable(void *garbag
+ 	asm volatile (ASM_VMX_VMXON_RAX
+ 		      : : "a"(&phys_addr), "m"(phys_addr)
+ 		      : "memory", "cc");
++
++	return 0;
+ }
+ 
+ static void vmclear_local_vcpus(void)
+Index: kvm-83/kernel/x86/x86.c
+===================================================================
+--- kvm-83.orig/kernel/x86/x86.c
++++ kvm-83/kernel/x86/x86.c
+@@ -4158,9 +4158,9 @@ int kvm_arch_vcpu_reset(struct kvm_vcpu
+ 	return kvm_x86_ops->vcpu_reset(vcpu);
+ }
+ 
+-void kvm_arch_hardware_enable(void *garbage)
++int kvm_arch_hardware_enable(void *garbage)
+ {
+-	kvm_x86_ops->hardware_enable(garbage);
++	return kvm_x86_ops->hardware_enable(garbage);
+ }
+ 
+ void kvm_arch_hardware_disable(void *garbage)
+Index: kvm-83/kernel/include/asm-x86/kvm_host.h
+===================================================================
+--- kvm-83.orig/kernel/include/asm-x86/kvm_host.h
++++ kvm-83/kernel/include/asm-x86/kvm_host.h
+@@ -504,7 +504,7 @@ struct descriptor_table {
+ struct kvm_x86_ops {
+ 	int (*cpu_has_kvm_support)(void);          /* __init */
+ 	int (*disabled_by_bios)(void);             /* __init */
+-	void (*hardware_enable)(void *dummy);      /* __init */
++	int (*hardware_enable)(void *dummy);       /* __init */
+ 	void (*hardware_disable)(void *dummy);
+ 	void (*check_processor_compatibility)(void *rtn);
+ 	int (*hardware_setup)(void);               /* __init */
+Index: kvm-83/kernel/include/linux/kvm_host.h
+===================================================================
+--- kvm-83.orig/kernel/include/linux/kvm_host.h
++++ kvm-83/kernel/include/linux/kvm_host.h
+@@ -316,7 +316,7 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu
+ void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu);
+ 
+ int kvm_arch_vcpu_reset(struct kvm_vcpu *vcpu);
+-void kvm_arch_hardware_enable(void *garbage);
++int kvm_arch_hardware_enable(void *garbage);
+ void kvm_arch_hardware_disable(void *garbage);
+ int kvm_arch_hardware_setup(void);
+ void kvm_arch_hardware_unsetup(void);
+Index: kvm-83/kernel/x86/kvm_main.c
+===================================================================
+--- kvm-83.orig/kernel/x86/kvm_main.c
++++ kvm-83/kernel/x86/kvm_main.c
+@@ -112,6 +112,8 @@ DEFINE_SPINLOCK(kvm_lock);
+ LIST_HEAD(vm_list);
+ 
+ static cpumask_var_t cpus_hardware_enabled;
++static int kvm_usage_count = 0;
++static DEFINE_SPINLOCK(kvm_usage_lock);
+ 
+ struct kmem_cache *kvm_vcpu_cache;
+ EXPORT_SYMBOL_GPL(kvm_vcpu_cache);
+@@ -122,6 +124,8 @@ struct dentry *kvm_debugfs_dir;
+ 
+ static long kvm_vcpu_ioctl(struct file *file, unsigned int ioctl,
+ 			   unsigned long arg);
++static int hardware_enable_all(void);
++static void hardware_disable_all(void);
+ 
+ static bool kvm_rebooting;
+ 
+@@ -873,13 +877,19 @@ static const struct mmu_notifier_ops kvm
+ 
+ static struct kvm *kvm_create_vm(void)
+ {
++	int r = 0;
+ 	struct kvm *kvm = kvm_arch_create_vm();
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 	struct page *page;
+ #endif
+ 
+ 	if (IS_ERR(kvm))
+-		goto out;
++		return kvm;
++
++	r = hardware_enable_all();
++	if (r) {
++		goto out_err;
++	}
+ #ifdef CONFIG_HAVE_KVM_IRQCHIP
+ 	INIT_HLIST_HEAD(&kvm->mask_notifier_list);
+ #endif
+@@ -887,8 +897,8 @@ static struct kvm *kvm_create_vm(void)
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 	page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+ 	if (!page) {
+-		kfree(kvm);
+-		return ERR_PTR(-ENOMEM);
++		r = -ENOMEM;
++		goto out_err;
+ 	}
+ 	kvm->coalesced_mmio_ring =
+ 			(struct kvm_coalesced_mmio_ring *)page_address(page);
+@@ -896,15 +906,13 @@ static struct kvm *kvm_create_vm(void)
+ 
+ #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
+ 	{
+-		int err;
+ 		kvm->mmu_notifier.ops = &kvm_mmu_notifier_ops;
+-		err = mmu_notifier_register(&kvm->mmu_notifier, current->mm);
+-		if (err) {
++		r = mmu_notifier_register(&kvm->mmu_notifier, current->mm);
++		if (r) {
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 			put_page(page);
+ #endif
+-			kfree(kvm);
+-			return ERR_PTR(err);
++			goto out_err;
+ 		}
+ 	}
+ #endif
+@@ -923,8 +931,12 @@ mmget(&kvm->mm->mm_count);
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 	kvm_coalesced_mmio_init(kvm);
+ #endif
+-out:
+ 	return kvm;
++
++out_err:
++	hardware_disable_all();
++	kfree(kvm);
++	return ERR_PTR(r);
+ }
+ 
+ /*
+@@ -974,6 +986,7 @@ static void kvm_destroy_vm(struct kvm *k
+ 	mmu_notifier_unregister(&kvm->mmu_notifier, kvm->mm);
+ #endif
+ 	kvm_arch_destroy_vm(kvm);
++	hardware_disable_all();
+ 	mmdrop(mm);
+ }
+ 
+@@ -2112,14 +2125,40 @@ static struct miscdevice kvm_dev = {
+ 	&kvm_chardev_ops,
+ };
+ 
+-static void hardware_enable(void *junk)
++static void hardware_enable(void *_r)
+ {
+ 	int cpu = raw_smp_processor_id();
++	int r;
++
++	/* If enabling a previous CPU failed already, let's not continue */
++	if (_r && *((int*)_r))
++		return;
+ 
+ 	if (cpumask_test_cpu(cpu, cpus_hardware_enabled))
+ 		return;
++	r = kvm_arch_hardware_enable(NULL);
++	if (_r)
++		*((int*)_r) = r;
++	if (r) {
++		printk(KERN_INFO "kvm: enabling virtualization on "
++				 "CPU%d failed\n", cpu);
++		return;
++	}
++
+ 	cpumask_set_cpu(cpu, cpus_hardware_enabled);
+-	kvm_arch_hardware_enable(NULL);
++}
++
++static int hardware_enable_all(void)
++{
++	int r = 0;
++
++	spin_lock(&kvm_usage_lock);
++	kvm_usage_count++;
++	if (kvm_usage_count == 1)
++		kvm_on_each_cpu(hardware_enable, &r, 1);
++	spin_unlock(&kvm_usage_lock);
++
++	return r;
+ }
+ 
+ static void hardware_disable(void *junk)
+@@ -2132,6 +2171,18 @@ static void hardware_disable(void *junk)
+ 	kvm_arch_hardware_disable(NULL);
+ }
+ 
++static void hardware_disable_all(void)
++{
++	if (!kvm_usage_count)
++		return;
++
++	spin_lock(&kvm_usage_lock);
++	kvm_usage_count--;
++	if (!kvm_usage_count)
++		kvm_on_each_cpu(hardware_disable, NULL, 1);
++	spin_unlock(&kvm_usage_lock);
++}
++
+ static int kvm_cpu_hotplug(struct notifier_block *notifier, unsigned long val,
+ 			   void *v)
+ {
+@@ -2382,7 +2433,6 @@ int kvm_init(void *opaque, unsigned int
+ 			goto out_free_1;
+ 	}
+ 
+-	kvm_on_each_cpu(hardware_enable, NULL, 1);
+ 	r = register_cpu_notifier(&kvm_cpu_notifier);
+ 	if (r)
+ 		goto out_free_2;
+@@ -2440,7 +2490,6 @@ out_free_3:
+ 	unregister_reboot_notifier(&kvm_reboot_notifier);
+ 	unregister_cpu_notifier(&kvm_cpu_notifier);
+ out_free_2:
+-	kvm_on_each_cpu(hardware_disable, NULL, 1);
+ out_free_1:
+ 	kvm_arch_hardware_unsetup();
+ out_free_0a:
+Index: kvm-83/kernel/ia64/kvm_main.c
+===================================================================
+--- kvm-83.orig/kernel/ia64/kvm_main.c
++++ kvm-83/kernel/ia64/kvm_main.c
+@@ -112,6 +112,8 @@ DEFINE_SPINLOCK(kvm_lock);
+ LIST_HEAD(vm_list);
+ 
+ static cpumask_var_t cpus_hardware_enabled;
++static int kvm_usage_count = 0;
++static DEFINE_SPINLOCK(kvm_usage_lock);
+ 
+ struct kmem_cache *kvm_vcpu_cache;
+ EXPORT_SYMBOL_GPL(kvm_vcpu_cache);
+@@ -122,6 +124,8 @@ struct dentry *kvm_debugfs_dir;
+ 
+ static long kvm_vcpu_ioctl(struct file *file, unsigned int ioctl,
+ 			   unsigned long arg);
++static int hardware_enable_all(void);
++static void hardware_disable_all(void);
+ 
+ static bool kvm_rebooting;
+ 
+@@ -873,13 +877,19 @@ static const struct mmu_notifier_ops kvm
+ 
+ static struct kvm *kvm_create_vm(void)
+ {
++	int r = 0;
+ 	struct kvm *kvm = kvm_arch_create_vm();
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 	struct page *page;
+ #endif
+ 
+ 	if (IS_ERR(kvm))
+-		goto out;
++		return kvm;
++
++	r = hardware_enable_all();
++	if (r) {
++		goto out_err;
++	}
+ #ifdef CONFIG_HAVE_KVM_IRQCHIP
+ 	INIT_HLIST_HEAD(&kvm->mask_notifier_list);
+ #endif
+@@ -887,8 +897,8 @@ static struct kvm *kvm_create_vm(void)
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 	page = alloc_page(GFP_KERNEL | __GFP_ZERO);
+ 	if (!page) {
+-		kfree(kvm);
+-		return ERR_PTR(-ENOMEM);
++		r = -ENOMEM;
++		goto out_err;
+ 	}
+ 	kvm->coalesced_mmio_ring =
+ 			(struct kvm_coalesced_mmio_ring *)page_address(page);
+@@ -896,15 +906,13 @@ static struct kvm *kvm_create_vm(void)
+ 
+ #if defined(CONFIG_MMU_NOTIFIER) && defined(KVM_ARCH_WANT_MMU_NOTIFIER)
+ 	{
+-		int err;
+ 		kvm->mmu_notifier.ops = &kvm_mmu_notifier_ops;
+-		err = mmu_notifier_register(&kvm->mmu_notifier, current->mm);
+-		if (err) {
++		r = mmu_notifier_register(&kvm->mmu_notifier, current->mm);
++		if (r) {
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 			put_page(page);
+ #endif
+-			kfree(kvm);
+-			return ERR_PTR(err);
++			goto out_err;
+ 		}
+ 	}
+ #endif
+@@ -923,8 +931,12 @@ static struct kvm *kvm_create_vm(void)
+ #ifdef KVM_COALESCED_MMIO_PAGE_OFFSET
+ 	kvm_coalesced_mmio_init(kvm);
+ #endif
+-out:
+ 	return kvm;
++
++out_err:
++	hardware_disable_all();
++	kfree(kvm);
++	return ERR_PTR(r);
+ }
+ 
+ /*
+@@ -974,6 +986,7 @@ static void kvm_destroy_vm(struct kvm *k
+ 	mmu_notifier_unregister(&kvm->mmu_notifier, kvm->mm);
+ #endif
+ 	kvm_arch_destroy_vm(kvm);
++	hardware_disable_all();
+ 	mmdrop(mm);
+ }
+ 
+@@ -2112,14 +2125,40 @@ static struct miscdevice kvm_dev = {
+ 	&kvm_chardev_ops,
+ };
+ 
+-static void hardware_enable(void *junk)
++static void hardware_enable(void *_r)
+ {
+ 	int cpu = raw_smp_processor_id();
++	int r;
++
++	/* If enabling a previous CPU failed already, let's not continue */
++	if (_r && *((int*)_r))
++		return;
+ 
+ 	if (cpumask_test_cpu(cpu, cpus_hardware_enabled))
+ 		return;
++	r = kvm_arch_hardware_enable(NULL);
++	if (_r)
++		*((int*)_r) = r;
++	if (r) {
++		printk(KERN_INFO "kvm: enabling virtualization on "
++				 "CPU%d failed\n", cpu);
++		return;
++	}
++
+ 	cpumask_set_cpu(cpu, cpus_hardware_enabled);
+-	kvm_arch_hardware_enable(NULL);
++}
++
++static int hardware_enable_all(void)
++{
++	int r = 0;
++
++	spin_lock(&kvm_usage_lock);
++	kvm_usage_count++;
++	if (kvm_usage_count == 1)
++		on_each_cpu(hardware_enable, &r, 1);
++	spin_unlock(&kvm_usage_lock);
++
++	return r;
+ }
+ 
+ static void hardware_disable(void *junk)
+@@ -2132,6 +2171,18 @@ static void hardware_disable(void *junk)
+ 	kvm_arch_hardware_disable(NULL);
+ }
+ 
++static void hardware_disable_all(void)
++{
++	if (!kvm_usage_count)
++		return;
++
++	spin_lock(&kvm_usage_lock);
++	kvm_usage_count--;
++	if (!kvm_usage_count)
++		on_each_cpu(hardware_disable, NULL, 1);
++	spin_unlock(&kvm_usage_lock);
++}
++
+ static int kvm_cpu_hotplug(struct notifier_block *notifier, unsigned long val,
+ 			   void *v)
+ {
+@@ -2379,7 +2430,6 @@ int kvm_init(void *opaque, unsigned int
+ 			goto out_free_1;
+ 	}
+ 
+-	kvm_on_each_cpu(hardware_enable, NULL, 1);
+ 	r = register_cpu_notifier(&kvm_cpu_notifier);
+ 	if (r)
+ 		goto out_free_2;
+@@ -2430,7 +2480,6 @@ out_free_3:
+ 	unregister_reboot_notifier(&kvm_reboot_notifier);
+ 	unregister_cpu_notifier(&kvm_cpu_notifier);
+ out_free_2:
+-	kvm_on_each_cpu(hardware_disable, NULL, 1);
+ out_free_1:
+ 	kvm_arch_hardware_unsetup();
+ out_free_0a:

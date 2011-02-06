@@ -1,0 +1,140 @@
+#!/bin/bash
+# alsa-emu10k1d v0.3 RC2 (GPL3) by 3ED <krzysztof1987@gamil.com>
+#
+. /etc/rc.conf
+. /etc/rc.d/functions
+. /etc/conf.d/alsa-emu10k1d
+
+# DSP state file..
+S_DSP_F="/etc/asound.dsp"
+
+case "$1" in
+  start)
+		if [ -f "/var/run/daemons/alsa" ]; then
+			echo -n "Turn off any audio programs and speakers.. [enter to continue]"
+			read
+			/etc/rc.d/alsa stop
+			$0 start
+			echo "==> Backuping rc.conf.."
+			cp -v /etc/rc.conf /etc/rc.conf.backup-emu10k1d
+			echo "==> Replacing \"alsa\" --> \"alsa-emu10k1d\" in rc.conf.."
+			sed -i 's/\(DAEMONS.*\)alsa[[:space:]]\(.*)\)/\1alsa-emu10k1d \2/g' /etc/rc.conf
+		else
+			stat_busy "Starting ALSA DSP Processor"
+			/usr/sbin/ld10k1d start &> /dev/null
+			if [ $? -gt 0 ]; then
+				stat_fail
+			else
+				stat_done
+				add_daemon alsa-emu10k1d
+				$0 restore
+			fi
+		fi
+    ;;
+  stop)
+		[ "$STOP_WITH_STORE" = "yes" ] && $0 store
+		stat_busy "Stopping ALSA DSP processor"
+		/usr/sbin/ld10k1d stop &> /dev/null
+		if [ $? -gt 0 ]; then
+			stat_fail
+		else
+			stat_done
+			rm_daemon alsa-emu10k1d
+		fi
+    ;;
+  store)
+    stat_busy "Saving ALSA Levels"
+		/usr/sbin/alsactl store
+		if [ $? -gt 0 ]; then
+			stat_fail
+		else
+			stat_done
+		fi
+		stat_busy "Saving ALSA DSP Levels"
+		lo10k1 --store $S_DSP_F
+		if [ $? -gt 0 ]; then
+			stat_fail
+		else
+			stat_done
+			if [ ! -f "/tmp/.lo10k1.lock" ]; then
+				touch /tmp/.lo10k1.lock
+			fi
+		fi
+    ;;
+    restore) 
+	stat_busy "Restoring ALSA DSP Levels"
+	if [ -n "$INIT_NAME" ] && [ "$INIT_NAME" = "auto" ]; then
+		if [ ! -f "/tmp/.lo10k1.lock" ]; then
+			if [ -f "$S_DSP_F" ]; then
+				lo10k1 --restore $S_DSP_F
+				if [ $? -gt 0 ]; then
+					stat_fail
+				else
+					stat_done
+					touch /tmp/.lo10k1.lock
+				fi
+			else
+				typeset -i card=0
+				until [ -f "/proc/asound/card$card/emu10k1" -o "$card" -gt "20" ]; do let card++; done
+				if (( $card > 20, $card < 0 )); then
+					stat_fail
+					echo "I cannot find card on emu10k1. You will must change INIT_NAME=(your) in conf.d and daemon start and store."
+				else
+					eval $(sed '/Audigy2\|Audigy\|Live/!d; s/\(^.*$\)/cardid="\1"/g'  /proc/asound/card$card/id)
+					if [ "$cardid" = "Audigy2" -o "$cardid" = "Audigy" ]; then
+						init_audigy_eq10
+						if [ $? -gt 0 ]; then
+							stat_fail
+						else
+							stat_done
+							touch /tmp/.lo10k1.lock
+						fi
+					elif [ "$cardid" = "Live" ]; then
+						init_live
+						if [ $? -gt 0 ]; then
+							stat_fail
+						else
+							stat_done
+							touch /tmp/.lo10k1.lock
+						fi
+					else
+						stat_fail
+						echo "FIXME: Send me your /proc/asound/card$q/id entry and name card."
+						echo "Workaround: You will must change INIT_NAME=(your) in conf.d and daemon start and store."
+					fi
+				fi
+			fi
+		else 
+			stat_done
+		fi
+	elif [ -n "$INIT_NAME" ] && [ "$INIT_NAME" != "auto" ]; then
+		if [ ! -f "/tmp/.lo10k1.lock" ]; then
+			init_$INIT_NAME
+			if [ $? -gt 0 ]; then
+				stat_fail
+			else
+				stat_done
+				touch /tmp/.lo10k1.lock
+			fi
+		else
+			stat_done
+		fi
+	else
+		stat_fail	
+	fi
+	stat_busy "Restoring ALSA Levels"
+	/usr/sbin/alsactl restore &> /dev/null
+	if [ $? -gt 0 ]; then
+		stat_fail
+  	else
+		stat_done
+	fi
+	;;
+  restart)
+    $0 stop
+    sleep 1
+    $0 start
+    ;;
+  *)
+    echo "usage: $0 {start|stop|store|restore|restart}"
+esac

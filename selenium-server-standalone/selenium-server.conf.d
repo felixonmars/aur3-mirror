@@ -1,0 +1,1 @@
+SELENIUM_SERVER_USER=nobody

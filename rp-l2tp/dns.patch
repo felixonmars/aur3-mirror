@@ -1,0 +1,141 @@
+diff -aur rp-l2tp-0.4.orig/handlers/cmd.c rp-l2tp-0.4.new/handlers/cmd.c
+--- rp-l2tp-0.4.orig/handlers/cmd.c	2004-07-01 18:58:56.000000000 +0400
++++ rp-l2tp-0.4.new/handlers/cmd.c	2007-03-12 01:48:25.000000000 +0300
+@@ -340,7 +340,7 @@
+ 	return;
+     }
+     memcpy(&haddr.sin_addr, he->h_addr, sizeof(haddr.sin_addr));
+-    p = l2tp_peer_find(&haddr, NULL);
++    p = l2tp_peer_find(&haddr, NULL, peer);
+     if (!p) {
+ 	cmd_reply(es, fd, "ERR Unknown peer");
+ 	return;
+diff -aur rp-l2tp-0.4.orig/l2tp.h rp-l2tp-0.4.new/l2tp.h
+--- rp-l2tp-0.4.orig/l2tp.h	2004-07-01 18:58:55.000000000 +0400
++++ rp-l2tp-0.4.new/l2tp.h	2007-03-12 03:23:14.000000000 +0300
+@@ -78,6 +78,8 @@
+     int mask_bits;		/* Peer's netmask in number of bits */
+     char hostname[MAX_HOSTNAME]; /* My hostname as presented to this peer. */
+     size_t hostname_len;	/* Length of my hostname */
++    char peer[MAX_HOSTNAME]; /* Peer's name. */
++    size_t peer_len;	/* Length of name */
+     char peername[MAX_HOSTNAME]; /* Peer's hostname. */
+     size_t peername_len;	/* Length of hostname */
+     char secret[MAX_SECRET_LEN]; /* Secret for this peer */
+@@ -453,7 +455,7 @@
+ 
+ /* peer.c */
+ void l2tp_peer_init(void);
+-l2tp_peer *l2tp_peer_find(struct sockaddr_in *addr, char const *hostname);
++l2tp_peer *l2tp_peer_find(struct sockaddr_in *addr, char const *hostname, char const *peernametosearch);
+ l2tp_peer *l2tp_peer_insert(struct sockaddr_in *addr);
+ 
+ /* debug.c */
+diff -aur rp-l2tp-0.4.orig/peer.c rp-l2tp-0.4.new/peer.c
+--- rp-l2tp-0.4.orig/peer.c	2004-07-01 18:58:55.000000000 +0400
++++ rp-l2tp-0.4.new/peer.c	2007-03-12 03:27:17.000000000 +0300
+@@ -18,6 +18,8 @@
+ 
+ #include "l2tp.h"
+ #include <stddef.h>
++#include <netdb.h>
++#include <errno.h>
+ #include <string.h>
+ 
+ static hash_table all_peers;
+@@ -36,6 +38,7 @@
+ static int handle_secret_option(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
+ static int handle_hostname_option(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
+ static int handle_peername_option(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
++static int handle_peer_option(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
+ static int set_lac_handler(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
+ static int handle_lac_option(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
+ static int set_lns_handler(EventSelector *es, l2tp_opt_descriptor *desc, char const *value);
+@@ -44,7 +47,7 @@
+ /* Peer options */
+ static l2tp_opt_descriptor peer_opts[] = {
+     /*  name               type                 addr */
+-    { "peer",              OPT_TYPE_IPADDR,   &prototype.addr.sin_addr.s_addr},
++    { "peer",              OPT_TYPE_CALLFUNC, (void *) handle_peer_option},
+     { "mask",              OPT_TYPE_INT,      &prototype.mask_bits},
+     { "secret",            OPT_TYPE_CALLFUNC, (void *) handle_secret_option},
+     { "hostname",          OPT_TYPE_CALLFUNC, (void *) handle_hostname_option},
+@@ -114,6 +117,36 @@
+ }
+ 
+ /**********************************************************************
++* %FUNCTION: handle_peer_option
++* %ARGUMENTS:
++*  es -- event selector
++*  desc -- descriptor
++*  value -- the peer
++* %RETURNS:
++*  0
++* %DESCRIPTION:
++*  Copies peer to prototype
++***********************************************************************/
++static int
++handle_peer_option(EventSelector *es,
++			 l2tp_opt_descriptor *desc,
++			 char const *value)
++{
++	struct hostent *he;
++	strncpy(prototype.peer, value, MAX_HOSTNAME);
++	prototype.peer[MAX_HOSTNAME-1] = 0;
++	prototype.peer_len = strlen(prototype.peer);
++	he = gethostbyname(value);
++	if (!he) {
++		l2tp_set_errmsg("Could not resolve %s as IP address: %s",
++			   value, strerror(errno));
++		return -1;
++	}
++	memcpy(&prototype.addr.sin_addr.s_addr, he->h_addr, sizeof(he->h_addr));
++	return 0;
++}
++
++/**********************************************************************
+ * %FUNCTION: handle_hostname_option
+ * %ARGUMENTS:
+ *  es -- event selector
+@@ -270,6 +303,8 @@
+ 	peer->mask_bits = prototype.mask_bits;
+ 	memcpy(&peer->hostname,&prototype.hostname, sizeof(prototype.hostname));
+ 	peer->hostname_len = prototype.hostname_len;
++	memcpy(&peer->peer,&prototype.peer, sizeof(prototype.peer));
++	peer->peer_len = prototype.peer_len;
+ 	memcpy(&peer->peername,&prototype.peername, sizeof(prototype.peername));
+ 	peer->peername_len = prototype.peername_len;
+ 	memcpy(&peer->secret, &prototype.secret, MAX_SECRET_LEN);
+@@ -351,7 +386,7 @@
+ *  Searches peer hash table for specified peer.
+ ***********************************************************************/
+ l2tp_peer *
+-l2tp_peer_find(struct sockaddr_in *addr, char const *peername)
++l2tp_peer_find(struct sockaddr_in *addr, char const *peername, const char *peernametosearch)
+ {
+     void *cursor;
+     l2tp_peer *peer = NULL;
+@@ -371,8 +406,9 @@
+ 	       addr1_str, addr2_str,
+ 	       candidate->mask_bits));
+ 
+-	if ((candidate->addr.sin_addr.s_addr & mask) ==
+-	    (addr->sin_addr.s_addr & mask)
++	if (((candidate->addr.sin_addr.s_addr & mask) ==
++		(addr->sin_addr.s_addr & mask)
++		|| (peernametosearch && candidate->peer[0] && !strcmp(peernametosearch,candidate->peer)))
+ 	    && (!peername ||
+ 		!(candidate->peername[0]) ||
+ 		!strcmp(peername,candidate->peername))) {
+diff -aur rp-l2tp-0.4.orig/tunnel.c rp-l2tp-0.4.new/tunnel.c
+--- rp-l2tp-0.4.orig/tunnel.c	2004-07-01 18:58:56.000000000 +0400
++++ rp-l2tp-0.4.new/tunnel.c	2007-03-12 01:50:07.000000000 +0300
+@@ -1348,7 +1348,7 @@
+                            l2tp_debug_tunnel_to_str(tunnel), tunnel->peer_hostname));
+ 
+     /* Find peer */
+-    tunnel->peer = l2tp_peer_find(&tunnel->peer_addr, tunnel->peer_hostname);
++    tunnel->peer = l2tp_peer_find(&tunnel->peer_addr, tunnel->peer_hostname, NULL);
+ 
+     /* Get assigned tunnel ID */
+     val = l2tp_dgram_search_avp(dgram, tunnel, &mandatory, &hidden, &len,

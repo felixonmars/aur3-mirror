@@ -1,0 +1,40 @@
+# this is an exact clone of the i686 package with arch changed to x86_64
+# $Id: PKGBUILD 16705 2010-05-05 18:08:13Z schiv $
+# Maintainer: Zak Johnson <zjohnson1111@gmail.com>
+# i686 Maintainer: Ray Rashif <schivmeister@gmail.com>
+
+pkgname=dssi-vst
+pkgver=0.9.2
+pkgrel=1
+pkgdesc="DSSI adapter/wrapper for win32 VST plug-ins, amd64 package"
+arch=(x86_64)
+url="http://www.breakfastquay.com/dssi-vst/"
+license=('GPL')
+depends=('wine' 'jack' 'liblo')
+makedepends=('dssi' 'ladspa')
+source=(http://code.breakfastquay.com/attachments/download/10/$pkgname-$pkgver.tar.bz2
+	winexec.patch)
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  # fix executable extension issue
+  patch -Np1 -i ../winexec.patch || return 1
+
+  # use CXXFLAGS in build
+  sed -i \
+    "s:-Ivestige -Wall -fPIC:$CXXFLAGS -Ivestige -Wall -fPIC:" Makefile
+
+  make || return 1
+  make	BINDIR="$pkgdir/usr/bin" \
+  	DSSIDIR="$pkgdir/usr/lib/dssi" \
+	LADSPADIR="$pkgdir/usr/lib/ladspa" install
+
+  # dssi-vst does not know about the executable extension issue
+  cd "$pkgdir/usr/lib/dssi/dssi-vst"
+
+  mv dssi-vst-server.exe dssi-vst-server
+  mv dssi-vst-scanner.exe dssi-vst-scanner
+}
+md5sums=('5c569200571de76dac18be4eb6fbd9c8'
+         '7578313fb2861165ed349cef1d02f829')

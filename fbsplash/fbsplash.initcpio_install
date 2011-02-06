@@ -1,0 +1,114 @@
+
+install() {
+	(
+		. /etc/conf.d/splash
+
+		if /bin/mountpoint -q /lib/splash/cache; then
+			/bin/umount /lib/splash/cache
+		fi
+
+		# Add the helper
+		add_binary /sbin/fbcondecor_helper
+
+		# Add the daemon for early start
+		if [[ $SPLASH_DAEMON = early ]]; then
+			add_binary /sbin/fbsplashd.static
+		fi
+
+		# Add a clean config file avoiding errors when running the hook
+		file=$( /usr/bin/mktemp )
+		for var in SPLASH_INIT_MESSAGE SPLASH_MODE_REQ SPLASH_THEME SPLASH_TTY \
+		           SPLASH_AUTOVERBOSE SPLASH_EFFECTS SPLASH_TEXTBOX
+		do
+			eval value=\"\$$var\"
+			[ -n "$value" ] && echo $var="'$value'"
+		done >|$file
+		add_file $file /etc/conf.d/splash
+
+		# List file paths contained in given Fbsplash theme cfg file
+		_get_cfg_files() {
+			< "$1" /bin/sed -re '
+				# convert all whitespace into single blanks
+				s,[[:space:]]+, ,g ; t L1
+				:L1
+				# drop comments, grouping directives and blank lines
+				/^ *([#<]|$)/ d
+				# get a filepath or drop
+				s,.*[ =]([^ ]*/[^ ]+).*,\1, ; t ; d
+			' | /usr/bin/sort -u
+		}
+
+		# Check if cfg file name or path
+		_match_cfg() {
+			[[ "$1" =~ (^|/)[0-9]+x[0-9]+\.cfg$ ]]
+		}
+
+		# Add non-cfg files in given dir
+		_add_non_cfg_files() {
+			local file dir="$1"
+			for file in $( /bin/ls "$dir" ); do
+				if [ -f "$dir/$file" ]; then
+					_match_cfg "$file" || add_file "$dir/$file"
+				fi
+			done
+		}
+
+		# Add global non-cfg files
+		_add_non_cfg_files /etc/splash
+
+		# Add themes
+		dirs=""
+		for theme in ${SPLASH_THEMES[*]}; do # string list and array allowed
+			[ ${theme:0:1} = / ] || theme=/etc/splash/$theme
+			if [ -f $theme ]; then
+				if ! _match_cfg $theme; then
+					err "Not a valid theme cfg file name: $theme"
+					continue
+				fi
+				add_file $theme || continue
+				dir=$( dirname $theme )
+				# Add non-cfg files in theme dir
+				_add_non_cfg_files $dir
+				# Add files refered in cfg file by paths
+				for file in $( _get_cfg_files $theme ); do
+					if [ ${file:0:1} = / ]; then
+						add_file $file
+						continue
+					fi
+					# Path may be relative to theme-dir or to /etc/splash
+					[ -e $dir/$file -o ! -f /etc/splash/$file ] && add_file $dir/$file
+					[ -e /etc/splash/$file -o ! -f $dir/$file ] && add_file /etc/splash/$file
+				done
+			elif [ -d $theme ]; then
+				dir=$theme
+				add_full_dir $dir
+			else
+				err "Theme not found: $theme"
+				continue
+			fi
+			if [[ " "$dirs" " != *" "$dir" "* ]]; then
+				dirs+=" "$dir
+			fi
+		done
+		for dir in $dirs; do
+			# Add the rc_init-pre script if we have one
+			# Currently this just prevents early daemon start for the theme
+			if [[ $SPLASH_DAEMON = early && -x $dir/scripts/rc_init-pre ]]; then
+				add_file $dir/scripts/rc_init-pre || continue
+				echo "WARNING: rc_init-pre script found - no early daemon with '${dir##*/}'!" >&2
+			fi
+		done
+	)
+
+	SCRIPT="fbsplash"
+}
+
+help() {
+cat<<HELPEOF
+  This hook adds the FBconDecor helper and Fbsplash themes and maybe the
+  Fbsplash daemon as specified in /etc/conf.d/splash. Put it after udev
+  for early daemon start or when using a FBconDecor kernel.
+HELPEOF
+}
+
+#EOF

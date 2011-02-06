@@ -1,0 +1,168 @@
+diff -u --new-file qmail-1.03.orig/hier.c qmail-1.03/hier.c
+--- qmail-1.03.orig/hier.c	2005-07-05 14:36:37.356290187 -0300
++++ qmail-1.03/hier.c	2005-07-05 14:37:02.744036970 -0300
+@@ -55,6 +55,8 @@
+   d(auto_qmail,"queue/bounce",auto_uids,auto_gidq,0700);
+ 
+   dsplit("queue/mess",auto_uidq,0750);
++  dsplit("queue/todo",auto_uidq,0750);
++  dsplit("queue/intd",auto_uidq,0700);
+   dsplit("queue/info",auto_uids,0700);
+   dsplit("queue/local",auto_uids,0700);
+   dsplit("queue/remote",auto_uids,0700);
+diff -u --new-file qmail-1.03.orig/qmail-clean.c qmail-1.03/qmail-clean.c
+--- qmail-1.03.orig/qmail-clean.c	2005-07-05 14:36:37.303303238 -0300
++++ qmail-1.03/qmail-clean.c	2005-07-05 14:37:02.739038201 -0300
+@@ -73,22 +73,26 @@
+    if (line.len < 7) { respond("x"); continue; }
+    if (line.len > 100) { respond("x"); continue; }
+    if (line.s[line.len - 1]) { respond("x"); continue; } /* impossible */
+-   for (i = 5;i < line.len - 1;++i)
++   for (i = line.len - 2;i > 4;--i)
++    {
++     if (line.s[i] == '/') break;
+      if ((unsigned char) (line.s[i] - '0') > 9)
+       { respond("x"); continue; }
+-   if (!scan_ulong(line.s + 5,&id)) { respond("x"); continue; }
++    }
++   if (line.s[i] == '/')
++     if (!scan_ulong(line.s + i + 1,&id)) { respond("x"); continue; }
+    if (byte_equal(line.s,5,"foop/"))
+     {
+ #define U(prefix,flag) fmtqfn(fnbuf,prefix,id,flag); \
+ if (unlink(fnbuf) == -1) if (errno != error_noent) { respond("!"); continue; }
+-     U("intd/",0)
++     U("intd/",1)
+      U("mess/",1)
+      respond("+");
+     }
+    else if (byte_equal(line.s,4,"todo/"))
+     {
+-     U("intd/",0)
+-     U("todo/",0)
++     U("intd/",1)
++     U("todo/",1)
+      respond("+");
+     }
+    else
+diff -u --new-file qmail-1.03.orig/qmail-qstat.sh qmail-1.03/qmail-qstat.sh
+--- qmail-1.03.orig/qmail-qstat.sh	2005-07-05 14:36:37.289306685 -0300
++++ qmail-1.03/qmail-qstat.sh	2005-07-05 14:37:02.812020225 -0300
+@@ -1,7 +1,7 @@
+ cd QMAIL
+ messdirs=`echo queue/mess/* | wc -w`
+ messfiles=`find queue/mess/* -print | wc -w`
+-tododirs=`echo queue/todo | wc -w`
+-todofiles=`find queue/todo -print | wc -w`
++tododirs=`echo queue/todo/* | wc -w`
++todofiles=`find queue/todo/* -print | wc -w`
+ echo messages in queue: `expr $messfiles - $messdirs`
+ echo messages in queue but not yet preprocessed: `expr $todofiles - $tododirs`
+diff -u --new-file qmail-1.03.orig/qmail-queue.c qmail-1.03/qmail-queue.c
+--- qmail-1.03.orig/qmail-queue.c	2005-07-05 14:36:37.285307670 -0300
++++ qmail-1.03/qmail-queue.c	2005-07-05 14:37:02.751035246 -0300
+@@ -180,8 +180,8 @@
+ 
+  messnum = pidst.st_ino;
+  messfn = fnnum("mess/",1);
+- todofn = fnnum("todo/",0);
+- intdfn = fnnum("intd/",0);
++ todofn = fnnum("todo/",1);
++ intdfn = fnnum("intd/",1);
+ 
+  if (link(pidfn,messfn) == -1) die(64);
+  if (unlink(pidfn) == -1) die(63);
+Common subdirectories: qmail-1.03.orig/qmail-rhinit and qmail-1.03/qmail-rhinit
+diff -u --new-file qmail-1.03.orig/qmail-send.c qmail-1.03/qmail-send.c
+--- qmail-1.03.orig/qmail-send.c	2005-07-05 14:36:37.304302992 -0300
++++ qmail-1.03/qmail-send.c	2005-07-05 14:37:02.767031306 -0300
+@@ -96,7 +96,7 @@
+ }
+ 
+ void fnmake_info(id) unsigned long id; { fn.len = fmtqfn(fn.s,"info/",id,1); }
+-void fnmake_todo(id) unsigned long id; { fn.len = fmtqfn(fn.s,"todo/",id,0); }
++void fnmake_todo(id) unsigned long id; { fn.len = fmtqfn(fn.s,"todo/",id,1); }
+ void fnmake_mess(id) unsigned long id; { fn.len = fmtqfn(fn.s,"mess/",id,1); }
+ void fnmake_foop(id) unsigned long id; { fn.len = fmtqfn(fn.s,"foop/",id,0); }
+ void fnmake_split(id) unsigned long id; { fn.len = fmtqfn(fn.s,"",id,1); }
+@@ -1216,7 +1216,8 @@
+ /* this file is too long ---------------------------------------------- TODO */
+ 
+ datetime_sec nexttodorun;
+-DIR *tododir; /* if 0, have to opendir again */
++int flagtododir = 0; /* if 0, have to readsubdir_init again */
++readsubdir todosubdir;
+ stralloc todoline = {0};
+ char todobuf[SUBSTDIO_INSIZE];
+ char todobufinfo[512];
+@@ -1224,7 +1225,7 @@
+ 
+ void todo_init()
+ {
+- tododir = 0;
++ flagtododir = 0;
+  nexttodorun = now();
+  trigger_set();
+ }
+@@ -1236,7 +1237,7 @@
+ {
+  if (flagexitasap) return;
+  trigger_selprep(nfds,rfds);
+- if (tododir) *wakeup = 0;
++ if (flagtododir) *wakeup = 0;
+  if (*wakeup > nexttodorun) *wakeup = nexttodorun;
+ }
+ 
+@@ -1253,8 +1254,7 @@
+  char ch;
+  int match;
+  unsigned long id;
+- unsigned int len;
+- direntry *d;
++ int z;
+  int c;
+  unsigned long uid;
+  unsigned long pid;
+@@ -1265,32 +1265,26 @@
+ 
+  if (flagexitasap) return;
+ 
+- if (!tododir)
++ if (!flagtododir)
+   {
+    if (!trigger_pulled(rfds))
+      if (recent < nexttodorun)
+        return;
+    trigger_set();
+-   tododir = opendir("todo");
+-   if (!tododir)
+-    {
+-     pausedir("todo");
+-     return;
+-    }
++   readsubdir_init(&todosubdir, "todo", pausedir);
++   flagtododir = 1;
+    nexttodorun = recent + SLEEP_TODO;
+   }
+ 
+- d = readdir(tododir);
+- if (!d)
++ switch(readsubdir_next(&todosubdir, &id))
+   {
+-   closedir(tododir);
+-   tododir = 0;
+-   return;
++    case 1:
++      break;
++    case 0:
++      flagtododir = 0;
++    default:
++      return;
+   }
+- if (str_equal(d->d_name,".")) return;
+- if (str_equal(d->d_name,"..")) return;
+- len = scan_ulong(d->d_name,&id);
+- if (!len || d->d_name[len]) return;
+ 
+  fnmake_todo(id);
+ 

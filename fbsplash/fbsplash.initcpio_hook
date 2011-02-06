@@ -1,0 +1,102 @@
+run_hook ()
+{
+	SPLASH_INIT_MESSAGE="Initializing the kernel"
+	SPLASH_MODE_REQ="off"
+	SPLASH_THEME="default"
+	SPLASH_TTY=16
+	SPLASH_TEXTBOX="no"
+	SPLASH_AUTOVERBOSE=0
+
+	. /etc/conf.d/splash
+
+	# Kernel parameters override config file
+	local ifs="$IFS"
+	IFS=','
+	set -- $splash
+	IFS="$ifs"
+	local arg effects
+	for arg in "$@"; do
+		case "$arg"
+		in off      ) SPLASH_MODE_REQ="off"
+		;; silent   ) SPLASH_MODE_REQ="silent"
+		;; verbose  ) SPLASH_MODE_REQ="verbose"
+		;; theme:?* ) SPLASH_THEME="${arg#theme:}"
+		;;   tty:?* ) SPLASH_TTY="${arg#tty:}"
+		;; insane   ) SPLASH_SANITY="insane"
+		;; fadein | fadeout ) effects="$effects,$arg"
+		esac
+	done
+	if [ -n "$effects" ]; then
+		SPLASH_EFFECTS="${effects#,}"
+	fi
+
+	if [ "${SPLASH_MODE_REQ}" != "silent" ]; then
+		return
+	fi
+
+	if ! [ "$console" = tty1 -o "$SPLASH_SANITY" = insane ]; then
+		err "Fbsplash requires console=tty1 in kernel line!"
+		return 1
+	fi
+
+	# Start the daemon here if possible
+	# to show animations early and gain some bootup speed
+	if [ -x /sbin/fbsplashd.static ]; then
+		if [ -x /etc/splash/"$SPLASH_THEME"/scripts/rc_init-pre ]; then
+			msg "Found '/etc/splash/$SPLASH_THEME/scripts/rc_init-pre'"
+			msg "Not starting Fbsplash daemon - no theme hook support in initcpio."
+		else
+			msg "Starting Fbsplash Daemon"
+			(
+				set -e
+				# Hold the cache and fifo within /dev to get it moved to the new root
+				mkdir /dev/.splash-cache
+				# code line derived from splash-functions.sh
+				mount -t tmpfs cachedir /dev/.splash-cache -o rw,mode=0644,size=4096k
+				# Take over any existing cache content
+				mkdir -p /lib/splash/cache
+				mv /lib/splash/cache /lib/splash/.splash-cache
+				cp -a /lib/splash/.splash-cache /dev/
+				ln -s /dev/.splash-cache /lib/splash/cache
+				mkfifo -m 600 /lib/splash/cache/.splash
+				# Wait for any fbcondecor fadein - may take very long on some broken systems
+				i=0
+				while [ -n "$( pidof fbcondecor_helper )" ]; do
+					if [ $i -ge 50 ]; then
+						err "timeout on waiting for fbcondecor_helper to die!"
+						exit 1
+					fi
+					sleep .1
+					i=$(( i + 1 ))
+				done
+				# Actually start the daemon
+				options=""
+				[ -n "$SPLASH_THEME"      ] && options="$options --theme=$SPLASH_THEME"
+				[ -n "$SPLASH_EFFECTS"    ] && options="$options --effects=$SPLASH_EFFECTS"
+				[ "$SPLASH_TEXTBOX" = yes ] && options="$options --textbox"
+				cd /dev/.splash-cache
+				BOOT_MSG="${SPLASH_INIT_MESSAGE}" \
+					/sbin/fbsplashd.static --type=bootup --pidfile=daemon.pid $options
+				(
+					echo set tty silent $SPLASH_TTY
+					echo set mode silent
+					echo repaint
+					echo set autoverbose $SPLASH_AUTOVERBOSE
+				) >/lib/splash/cache/.splash &
+			)
+			return
+		fi
+	fi
+
+	# Start the fbcondecor helper if not already done by fbcondecor kernel
+	(
+		# code copied from splash-functions.sh
+		fbcondecor_supported() {
+			[ -e /dev/fbsplash -o -e /dev/fbcondecor ]
+		}
+		if ! fbcondecor_supported; then
+			BOOT_MSG="${SPLASH_INIT_MESSAGE}" \
+				/sbin/fbcondecor_helper 2 init 0 0 $SPLASH_THEME
+		fi
+	)
+}

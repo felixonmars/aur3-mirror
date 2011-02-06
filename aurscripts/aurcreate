@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# aurcreate - create clean packages prepared for upload to AUR
+# Version: 1.1.5
+# Author:  Michal Krenek (Mikos) <mikos@sg1.cz>
+# License: GNU General Public License v.2
+#          http://www.gnu.org/licenses/gpl.txt
+# Modifications:
+#     
+#    * Version 1.1.5
+#         By: Stefan Husmann <stefan-husmann@t-online.de>
+#         Bugfix: aurcreate deleted what we want to upload 
+#    * Version 1.1.4
+#         By: Stefan Husmann <stefan-husmann@t-online.de>
+#         Using sane default if BUILDSCRIPT is not set in makepkg.conf
+#    * Version 1.1.3 
+#         By: Stefan Husmann <stefan-husmann@t-online.de>
+#         Changes: Also copies the install file into the tarball
+#     * Version 1.1.2
+#         By: Daenyth <Daenyth+arch _AT_ gmail _DOT_ com> April 2008
+#         Changes:  Remove trailing slash from command line arguments to allow for tab completion on directories
+#                   Notify the user as to the location of their completed package
+#                   Remove the aur directory after we are done
+#     * Version 1.1.1
+#         By: Daenyth <Daenyth+arch _AT_ gmail _DOT_ com> April 2008
+#         Changes:  Bugfix. Removed "local" declaration, since it's not a function
+#                   Direct push/popd output to /dev/null
+#     * Version 1.1.0
+#         By: Daenyth <Daenyth+arch _AT_ gmail _DOT_ com> April 2008
+#         Changes:  Preserve the build dir now and work elsewhere. 
+#                   Honor /etc/makepkg.conf's BUILDSCRIPT variable.
+#                   Also copy all $sources instead of just $BUILDSCRIPT.
+
+# This will set $BUILDSCRIPT, which is usually PKGBUILD
+eval `grep -m 1 "^BUILDSCRIPT" /etc/makepkg.conf`
+if [ "$BUILDSCRIPT" == "" ]; then
+    BUILDSCRIPT="PKGBUILD"
+fi
+
+if [ -z "$*" ]; then
+  echo "$(basename $0) - create clean packages prepared for upload to AUR"
+  echo "Error: You must specify package name(s)"
+  exit 1
+fi
+
+for name in "$@"; do
+  # This fix will allow people to use tab completion without worrying about trailing slashes
+  name=$(echo $name | sed 's;/$;;') 
+
+  if [ ! -d "$name" ]; then
+    echo "You don't have directory $name here. Skipping this package..."
+    echo
+    continue
+  fi
+
+  if [ ! -f "$name/$BUILDSCRIPT" ]; then
+    echo "$BUILDSCRIPT doesn't exist in '$name' directory. Skipping this package..."
+    echo
+    continue
+  fi
+
+  # We want to work inside the package dir directly.
+  # We are probably around ~/builds/$pkgname right now.
+  pushd "$name" > /dev/null
+
+  # Create a directory that will be only for the aur package
+  # And ensure that it will be clean
+  aurdir="aur/$name" # Note to any other people modifying: changing this will 
+                   # probably break the script. Be careful what the script rm's.
+  rm -rf "$aurdir" 2> /dev/null
+  mkdir -p "$aurdir"
+
+  sources=($(. $BUILDSCRIPT; echo ${source[@]}))
+  for source in ${sources[@]}; do
+    if echo $source | grep -v '://' > /dev/null; then
+      cp "$source" "$aurdir"
+    fi
+  done
+  cp $(awk -F= '/install=/ {print $2}' $BUILDSCRIPT) "$aurdir"
+  [ -f $name.install ] && cp $name.install "$aurdir"
+  cp "$BUILDSCRIPT" "$aurdir"
+  
+  # Following our assumed directory structure from before, 
+  # we should be at ~/builds/$pkgname/aur
+  # with the $pkgname directory below us and full of
+  # goodies for all the little children
+  pushd "$aurdir"> /dev/null
+  cd ..
+
+  echo "Creating new package '$name'..."
+  tar -cvzf "$name.tar.gz" "$name"
+  mv "$name.tar.gz" ..
+  popd > /dev/null # Return to ~/builds/$pkgname
+  echo "Cleaning up the work directory"
+  rm -rf aur
+  popd > /dev/null # Return to the directory we ran 
+                   # the script in, to prepare for the next loop
+done

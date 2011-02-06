@@ -1,0 +1,186 @@
+pkgname=chromium-browser-svn
+pkgrel=58
+pkgdesc='An open-source browser project that aims to build a safer, faster, and more stable way for all users to experience the web'
+arch=('i686' 'x86_64')
+url='http://www.chromium.org/Home'
+license=('BSD')
+depends=( 'gtk2' 'nss>=3.12' 'gconf' 'glib2' 'freetype2' 'zlib' 'libjpeg' 'libxml2' 'bzip2' 'libevent' 'libpng' 'ffmpeg' 'libxss' 'xdg-utils' 'hicolor-icon-theme' )
+makedepends=( 'subversion' 'perl>=5' 'python2' 'bison>=2.3' 'flex>=2.5.34' 'gperf>=3.0.3' 'pkgconfig>=0.20' 'alsa-lib' 'nspr>=4.7.1' 'rsync' 'gnome-keyring' 'libgnome-keyring' 'patch' )
+provides=( 'chromium-browser' 'chromium' 'chrome' )
+conflicts=( 'chromium-browser' 'chromium' 'chrome ')
+source=( 'chromium.desktop'
+         'gclient'
+         'chromium-browser.sh' )
+install='chromium.install'
+md5sums=( 'b9849a247ca75c2def39d7f63762dc48'
+          '6fe3f998d2677d48ba54dd0998193366'
+          '2178331349c6ee8f8300bf71d585dc6d' )
+
+# Change this to "trunk" or some other revision number to get that
+# version instead of the "safe sync" version:
+_revision=
+
+_builddir="${srcdir}/builddir"
+
+_svntrunk_gclient=http://src.chromium.org/svn/trunk/tools/depot_tools
+_svnmod_gclient=depot_tools
+
+build() {
+    # see http://code.google.com/p/chromium/issues/detail?id=41887
+    export CXXFLAGS="${CXXFLAGS} -fno-ipa-cp"
+
+    if [ "x$CHROMIUM_WATERFALL_REMINDER" != x ]; then
+        read -p "Remember to check http://build.chromium.org/buildbot/waterfall/console"
+    fi
+
+	# Arch uses python3 by default, so we want python in $PATH to point to python2
+	rm -rf ${srcdir}/python
+	mkdir ${srcdir}/python
+	ln -s /usr/bin/python2 ${srcdir}/python/python
+	
+    _source ||
+            { msg "Failed to download gclient and chromium sources"; return 1; }
+	_setup_builddir ||
+            { msg "Failed to make a copy of the build dir."
+              msg" Are you out of disk space?"; return 1; }
+
+	cd "${srcdir}"
+	msg "Preparing Build of Chromium revision ${pkgver}..."
+	cd "${_builddir}"
+
+	# strip -Werror - the build process treats warnings as error and aborts; we dont want that...
+	sed -i "s/'-Werror'/''/" -i build/common.gypi || return 1
+	# temporary fix (sort of) for proxybug w. kde4
+	sed -e 's/\.kde/.kde4/' -i net/proxy/proxy_config_service_linux.cc || return 1
+	# Write out corrrect revision number in 'About Chromium'
+	echo ${pkgver} > build/LASTCHANGE.in || return 1
+
+	export GYP_GENERATORS='make'
+	local _localconf
+        # XXX: can any of these be replaced by gyp flags?
+	    _localconf="${_localconf} -Dlinux_sandbox_path=/usr/lib/chromium/chromium-sandbox -Dlinux_sandbox_chrome_path=/usr/lib/chromium/chromium"
+	    _localconf="${_localconf} -Dlinux_strip_binary=1 -Dremove_webcore_debug_symbols=1"
+        _localconf="${_localconf} -Dproprietary_codecs=1"
+
+        export GYP_DEFINES
+        GYP_DEFINES="${GYP_DEFINES} gcc_version=44 no_strict_aliasing=1"
+        GYP_DEFINES="${GYP_DEFINES} use_system_zlib=1"
+        GYP_DEFINES="${GYP_DEFINES} use_system_libjpeg=1"
+        # see http://code.google.com/p/chromium/issues/detail?id=32967
+        GYP_DEFINES="${GYP_DEFINES} use_system_libxml=0"
+        GYP_DEFINES="${GYP_DEFINES} use_system_bzip2=1"
+        GYP_DEFINES="${GYP_DEFINES} use_system_libevent=1"
+        GYP_DEFINES="${GYP_DEFINES} use_system_libpng=1"
+        # see http://code.google.com/p/chromium/issues/detail?id=61759
+		GYP_DEFINES="${GYP_DEFINES} use_system_ffmpeg=0"
+		GYP_DEFINES="${GYP_DEFINES} use_libjpeg_turbo=1"
+
+
+	if [ "${_shared_build}" = "true" ]; then
+		msg "Preparing a shared Build..."
+		_localconf="${_localconf} -Dlibrary=shared_library"
+	fi
+
+	if [ "${CARCH}" = 'x86_64' ]; then
+		# 64-bit instructions from
+		# http://code.google.com/p/chromium/wiki/LinuxBuildInstructions
+        GYP_DEFINES="${GYP_DEFINES} target_arch=x64"
+	fi
+	msg "Running gyp in builddir using these Settings: "
+	echo ${_localconf}
+	echo ${GYP_DEFINES}
+        # export CFLAGS="$CFLAGS -D__STDC_CONSTANT_MACROS"
+        export CXXFLAGS="$CXXFLAGS -D__STDC_CONSTANT_MACROS"
+	build/gyp_chromium -f make build/all.gyp ${_localconf} --depth=. || return 1
+
+	msg "Now starting Build..."
+	make ${MAKEFLAGS} BUILDTYPE=Release V=1 chrome chrome_sandbox || return 1
+	msg "Installing Chromium to ${pkgdir}..."
+	install -m 0755 -D "${_builddir}/out/Release/chrome"	            "${pkgdir}/usr/lib/chromium/chromium"
+	install -m 0755 -D "${_builddir}/out/Release/libffmpegsumo.so"      "${pkgdir}/usr/lib/chromium/libffmpegsumo.so"
+	install -m 4555 -o root -g root -D "${_builddir}/out/Release/chrome_sandbox"	"${pkgdir}/usr/lib/chromium/chromium-sandbox"
+	install -m 0644 -D "${_builddir}/out/Release/chrome.pak"			"${pkgdir}/usr/lib/chromium/chrome.pak"
+	install -m 0644 -D "${_builddir}/out/Release/resources.pak"			"${pkgdir}/usr/lib/chromium/resources.pak"
+	ln -s /usr/lib/libavcodec.so.52 "${pkgdir}/usr/lib/chromium/libavcodec.so.52"
+	ln -s /usr/lib/libavformat.so.52 "${pkgdir}/usr/lib/chromium/libavformat.so.52"
+	ln -s /usr/lib/libavutil.so.50 "${pkgdir}/usr/lib/chromium/libavutil.so.50"
+	cp -a "${_builddir}/out/Release/locales"					"${pkgdir}/usr/lib/chromium/"
+	cp -a "${_builddir}/out/Release/resources"      			"${pkgdir}/usr/lib/chromium/"
+	find "${pkgdir}/usr/lib/chromium/" -name '*.d' -type f -delete
+	install -m 0644 -D "${_builddir}/out/Release/chrome.1"				"${pkgdir}/usr/share/man/man1/chromium.1"
+	install -m 0644 -D "${srcdir}/chromium.desktop"					"${pkgdir}/usr/share/applications/chromium.desktop"
+	for size in 16 32 48 256; do
+		install -m 0644 -D \
+		"${_builddir}/chrome/app/theme/chromium/product_logo_${size}.png"	"${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/chromium.png"
+	done
+	install -m 0755 -D "${srcdir}/chromium-browser.sh"                  "${pkgdir}/usr/bin/chromium"
+	install -m 0644 -D "${_builddir}/LICENSE"			                "${pkgdir}/usr/share/licenses/chromium/LICENSE"
+}
+
+_source() {
+	cd "${srcdir}"
+	msg "Checking out gclient..."
+	if [ -d "${_svnmod_gclient}/.svn" ]; then
+		(cd "${_svnmod_gclient}" && svn update) || return 1
+	else
+		svn co "${_svntrunk_gclient}" --config-dir ./ "${_svnmod_gclient}" || return 1
+	fi
+	msg "Configuring gclient..."
+	rsync -rlpgo --exclude=".svn/" ${_exclude_dirs} "${srcdir}/depot_tools/" "${srcdir}/depot_tools_p2/" || return 1
+	msg "replacing Python Interpreter in ${srcdir}/depot_tools_p2/..."
+	find "${srcdir}/depot_tools_p2/" -type f -print0 | xargs -0 sed -i 's$\/usr\/bin\/python$'${srcdir}'\/python\/python$g'
+        chmod +x ./depot_tools_p2/gclient.py
+	export PATH=./depot_tools_p2/:$PATH
+	export PATH="${srcdir}/python":$PATH
+	# always force a new configuration...
+	if [ -f "${srcdir}/.gclient" ]; then
+		rm -rf "${srcdir}/.gclient"
+	fi
+
+	cp -v "${srcdir}/gclient" "${srcdir}/.gclient" || return 1
+        # There have been complaints about Google's servers closing connections:
+        msg "Downloading Chromium's sources."
+        msg "Will retry up to 5 times; press ctrl-c to abort."
+        for ((n=0; n<5; ++n)); do
+            if [ -z "$_revision" ]; then
+                # break upon successful sync:
+                gclient.py sync --force --nohooks && break
+            else
+                gclient.py sync --force --nohooks --revision "src@${_revision}" && break
+            fi
+        done
+        if test $? -ne 0; then
+            return 1
+        fi
+
+        # Get the correct $pkgver by asking svn what is checked out:
+        pkgver=`LC_ALL=C svn info "${srcdir}/src/" | awk '/Revision/ {print ""$2""}'`
+}
+
+_setup_builddir() {
+	# Always prepare a new, clean && save environment... ;-)
+	# This technique will prevent the above "patch" invocations from
+	# failing (when the source/build directory has already been patched),
+	# but it's wasteful of disk space.
+	if [ -d "${_builddir}" ]; then
+		rm -rf "${_builddir}"
+	fi
+	mkdir -p "${_builddir}"
+	# From export_tarball.py
+	_exclude_dirs="--exclude=chrome/test/data
+	--exclude=chrome/tools/test/reference_build
+	--exclude=chrome_frame --exclude=gears/binaries
+	--exclude=net/data/cache_tests --exclude=o3d/documentation
+	--exclude=o3d/samples --exclude=third_party/lighttpd
+	--exclude=third_party/WebKit/LayoutTests
+	--exclude=webkit/data/layout_tests
+	--exclude=webkit/tools/test/reference_build"
+	msg "Syncing local Build directory (can take a while)..."
+	rsync -rlpgo --exclude=".svn/" ${_exclude_dirs} "${srcdir}/src/" "${_builddir}" || return 1
+	msg "replacing Python Interpreter in ${_builddir}..."
+	find ${_builddir} -type f -print0 | xargs -0 sed -i 's$\/usr\/bin\/python$'${srcdir}'\/python\/python$g'
+}
+
+# This pkgver is for aur.archlinux.org and tools that quickly parse this
+# PKGBUILD. The true version is set within _source().
+pkgver=2010

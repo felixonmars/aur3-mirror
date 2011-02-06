@@ -1,0 +1,116 @@
+# Maintainer: thotypous <matiasΘarchlinux-br·org>
+# Contributor: Peter 'piie' Feuerer <peterΘpiie·net>
+# Contributor: Sascha Pfau <MrPeacockΘgmail·com>
+# Contributor: iggy <iggy.mfΘgmail·com>
+
+pkgname="virtualbox_bin-3_0"
+pkgver="3.1.4"
+_build="57640"
+pkgrel=1
+pkgdesc="Powerful x86 virtualization (Personal Use Binaries Edition)"
+url="http://www.virtualbox.org"
+license=('custom:PUEL')
+arch=('i686' 'x86_64')
+install=('vbox.install')
+
+md5sums=('4cd92d79644ef6f4c41cb53de77f0458'
+         'dcb2d165b25274f77426a895d6dc41af')
+
+_architect='x86'
+[ "$CARCH" = "x86_64" ] && _architect='amd64'
+[ "$CARCH" = "x86_64" ] && md5sums[0]='d360d634488c7603288690441f4f7d8b'
+
+source=("VirtualBox-${pkgver}-${_build}-Linux_${_architect}.run::http://download.virtualbox.org/virtualbox/${pkgver}/VirtualBox-${pkgver}-${_build}-Linux_${_architect}.run"
+        'vbox_build_module')
+
+install=('vbox.install')
+depends=('libxmu' 'gcc' 'make')
+optdepends=("qt: for VirtualBox GUI"
+            "sdl: for VBoxSDL and VirtualBox GUI")
+provides=("virtualbox=${pkgver}")
+conflicts=('virtualbox-ose' 'virtualbox-modules' 'virtualbox_bin')
+
+build() {
+    # Check package
+    sh "VirtualBox-${pkgver}-${_build}-Linux_${_architect}.run" --check || return 1
+
+    # Unpack
+    echo yes | sh "VirtualBox-${pkgver}-${_build}-Linux_${_architect}.run" --target "$srcdir" \
+        --nox11 --noexec &>/dev/null || return 1
+
+    mkdir -p \
+        "$pkgdir/opt/VirtualBox" \
+        "$pkgdir/usr/bin" \
+        "$pkgdir/lib/udev/rules.d" \
+        "$pkgdir/etc/vbox" \
+        "$pkgdir/usr/share/applications" \
+        "$pkgdir/usr/share/pixmaps" || return 1
+
+    cd "$pkgdir/opt/VirtualBox"
+    tar -jxf "$srcdir/VirtualBox.tar.bz2" || return 1
+
+    # Mark set-user-ID-on-execution if release is marked as a hardened build.
+    if egrep '^HARDENED="1"' "$srcdir/install.sh" &> /dev/null; then
+        chmod 4511 "VirtualBox" "VBoxSDL" "VBoxHeadless" "VBoxNetDHCP"
+        for _n in "VBoxVMM.so" "VBoxREM.so" "VBoxRT.so" "VBoxDDU.so" "VBoxXPCOM.so"; do
+            ln -sf "/opt/VirtualBox/${_n}" "components"
+        done
+        chmod go-w .
+    fi
+
+    # VBoxNetAdpCtl needs to be suid root even if this is not a hardened build.
+    chmod 4511 "VBoxNetAdpCtl"
+
+    # Replace VirtualBox built-in Qt by system Qt libraries.
+    # Fixes problems with some KDE themes reported by users.
+    rm "libQtCoreVBox.so.4" "libQtGuiVBox.so.4" "libQtNetworkVBox.so.4"
+    ln -s "/usr/lib/libQtCore.so.4" "libQtCoreVBox.so.4"
+    ln -s "/usr/lib/libQtGui.so.4" "libQtGuiVBox.so.4"
+    ln -s "/usr/lib/libQtNetwork.so.4" "libQtNetworkVBox.so.4"
+
+    # Install vbox_build_module
+    install -D -m744 "$srcdir/vbox_build_module" "$pkgdir/usr/bin/vbox_build_module"
+
+    # This would install the SDK, but it doesn't work because the
+    # extension expects an UCS4-compiled python, while Arch Linux
+    # has an UCS2-compiled python.
+    #
+    #cd "$pkgdir/opt/VirtualBox/sdk/installer"
+    #VBOX_INSTALL_PATH="/opt/VirtualBox" python vboxapisetup.py install --root "${pkgdir}" || return 1
+    #rm -Rf build
+    #cd "$pkgdir/opt/VirtualBox"
+
+    # So remove the SDK stuff.
+    rm -Rf sdk vboxshell.py VBoxPython*
+
+    # Symlink the launchers
+    for _app in "VirtualBox" "VBoxHeadless" "VBoxManage" "VBoxSDL" "VBoxSVC" \
+                "VBoxTunctl" "VBoxNetAdpCtl" "rdesktop-vrdp"; do
+        ln -s "/opt/VirtualBox/${_app}" "$pkgdir/usr/bin/${_app}"
+    done
+
+    # Symlink the desktop icon
+    ln -s "/opt/VirtualBox/VBox.png" "$pkgdir/usr/share/pixmaps/VBox.png"
+    ln -s "/opt/VirtualBox/virtualbox.desktop" "$pkgdir/usr/share/applications/VirtualBox.desktop"
+
+    # Replace some init scripts by simplified stuff
+    sed -i -e 's,sudo /etc/init.d/vboxdrv setup,/usr/bin/vbox_build_module,g' "$pkgdir/opt/VirtualBox/VBox.sh"
+    sed -i -e 's,sudo /etc/init.d/vboxdrv restart,modprobe vboxdrv,g' "$pkgdir/opt/VirtualBox/VBox.sh"
+
+    # Add udev rules
+    echo 'KERNEL=="vboxdrv", NAME="vboxdrv", OWNER="root", GROUP="vboxusers", MODE="0660"' > \
+        "$pkgdir/lib/udev/rules.d/10-vboxdrv.rules"
+    echo 'SUBSYSTEM=="usb_device", GROUP="vboxusers", MODE="0664"' >> \
+        "$pkgdir/lib/udev/rules.d/10-vboxdrv.rules"
+    echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", GROUP="vboxusers", MODE="0664"' >> \
+        "$pkgdir/lib/udev/rules.d/10-vboxdrv.rules"
+
+    # Point the installation directory to vbox
+    echo '# VirtualBox installation directory' > "$pkgdir/etc/vbox/vbox.cfg"
+    echo 'INSTALL_DIR="/opt/VirtualBox"'      >> "$pkgdir/etc/vbox/vbox.cfg"
+
+    # Link the license
+    mkdir -p "$pkgdir/usr/share/licenses/$pkgname"
+    ln -s "/opt/VirtualBox/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/PUEL"
+}
+

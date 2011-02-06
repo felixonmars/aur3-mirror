@@ -1,0 +1,461 @@
+diff --git a/src/download/choke_manager.cc b/src/download/choke_manager.cc
+index 4915a96..3c422c0 100644
+--- a/src/download/choke_manager.cc
++++ b/src/download/choke_manager.cc
+@@ -129,8 +129,14 @@ ChokeManager::cycle(uint32_t quota) {
+   if (m_unchoked.size() > quota)
+     choke_range(m_unchoked.begin(), m_unchoked.end() - unchoked, m_unchoked.size() - quota);
+ 
++  // In case there were friends who are not to be choked, try again with twice
++  // as many as remain unchoked (friends who will not be choked again plus as
++  // many non-friends).
+   if (m_unchoked.size() > quota)
+-    throw internal_error("ChokeManager::cycle() m_unchoked.size() > quota.");
++    choke_range(m_unchoked.begin(), m_unchoked.end() - unchoked, std::min((m_unchoked.size() - quota) * 2, m_unchoked.size()));
++
++  // If there were friends in the n+1..2n range, we still have too many unchoked here.
++  // FIXME: Change choke_range to take the number of peers to unchoke, instead of a fixed range.
+ 
+   return m_unchoked.size() - oldSize;
+ }
+@@ -145,10 +151,11 @@ ChokeManager::set_queued(PeerConnectionBase* pc, ChokeManagerNode* base) {
+   if (base->snubbed())
+     return;
+ 
+-  if (!is_full() && (m_flags & flag_unchoke_all_new || m_slotCanUnchoke()) &&
+-      base->time_last_choke() + rak::timer::from_seconds(10) < cachedTime) {
++  if (pc->peer_info()->is_friend() ||
++      (!is_full() && (m_flags & flag_unchoke_all_new || m_slotCanUnchoke()) &&
++       base->time_last_choke() + rak::timer::from_seconds(10) < cachedTime)) {
+     m_unchoked.push_back(value_type(pc, 0));
+-    m_slotConnection(pc, false);
++    m_slotConnection(pc, 0);
+ 
+     m_slotUnchoke(1);
+ 
+@@ -169,7 +176,7 @@ ChokeManager::set_not_queued(PeerConnectionBase* pc, ChokeManagerNode* base) {
+ 
+   if (base->unchoked()) {
+     choke_manager_erase(&m_unchoked, pc);
+-    m_slotConnection(pc, true);
++    m_slotConnection(pc, flag_connection_choke);
+     m_slotUnchoke(-1);
+ 
+   } else {
+@@ -186,7 +193,7 @@ ChokeManager::set_snubbed(PeerConnectionBase* pc, ChokeManagerNode* base) {
+ 
+   if (base->unchoked()) {
+     choke_manager_erase(&m_unchoked, pc);
+-    m_slotConnection(pc, true);
++    m_slotConnection(pc, flag_connection_choke);
+     m_slotUnchoke(-1);
+ 
+   } else if (base->queued()) {
+@@ -212,7 +219,7 @@ ChokeManager::set_not_snubbed(PeerConnectionBase* pc, ChokeManagerNode* base) {
+   if (!is_full() && (m_flags & flag_unchoke_all_new || m_slotCanUnchoke()) &&
+       base->time_last_choke() + rak::timer::from_seconds(10) < cachedTime) {
+     m_unchoked.push_back(value_type(pc, 0));
+-    m_slotConnection(pc, false);
++    m_slotConnection(pc, 0);
+ 
+     m_slotUnchoke(1);
+ 
+@@ -346,20 +353,20 @@ ChokeManager::choke_range(iterator first, iterator last, uint32_t max) {
+         (itr - 1)->second > m_unchoked.end())
+       throw internal_error("ChokeManager::choke_range(...) bad iterator range.");
+ 
+-    count += (itr - 1)->first;
+-
+     // We move the connections that return true, while the ones that
+-    // return false get thrown out. The function called must update
+-    // ChunkManager::m_queued if false is returned.
++    // return false stay unchoked.
+     //
+     // The C++ standard says std::partition will call the predicate
+     // max 'last - first' times, so we can assume it gets called once
+     // per element.
+     iterator split = std::partition(itr->second - (itr - 1)->first, itr->second,
+-                                    rak::on(rak::mem_ref(&value_type::first), std::bind2nd(m_slotConnection, true)));
++                                    rak::on(rak::mem_ref(&value_type::first),
++                                            std::bind2nd(m_slotConnection, flag_connection_choke | flag_connection_may_ignore)));
+ 
+     m_queued.insert(m_queued.end(), itr->second - (itr - 1)->first, split);
+-    m_unchoked.erase(itr->second - (itr - 1)->first, itr->second);
++    m_unchoked.erase(itr->second - (itr - 1)->first, split);
++
++    count += split - (itr->second - (itr - 1)->first);
+   }
+ 
+   if (count > max)
+@@ -392,7 +399,7 @@ ChokeManager::unchoke_range(iterator first, iterator last, uint32_t max) {
+     count += (itr - 1)->first;
+ 
+     std::for_each(itr->second - (itr - 1)->first, itr->second,
+-                  rak::on(rak::mem_ref(&value_type::first), std::bind2nd(m_slotConnection, false)));
++                  rak::on(rak::mem_ref(&value_type::first), std::bind2nd(m_slotConnection, 0)));
+ 
+     m_unchoked.insert(m_unchoked.end(), itr->second - (itr - 1)->first, itr->second);
+     m_queued.erase(itr->second - (itr - 1)->first, itr->second);
+diff --git a/src/download/choke_manager.h b/src/download/choke_manager.h
+index d9ab886..3a7ec67 100644
+--- a/src/download/choke_manager.h
++++ b/src/download/choke_manager.h
+@@ -53,7 +53,7 @@ class ChokeManager {
+ public:
+   typedef rak::mem_fun1<ResourceManager, void, int>              slot_unchoke;
+   typedef rak::mem_fun0<ResourceManager, unsigned int>           slot_can_unchoke;
+-  typedef std::mem_fun1_t<bool, PeerConnectionBase, bool>        slot_connection;
++  typedef std::mem_fun1_t<bool, PeerConnectionBase, int>         slot_connection;
+ 
+   typedef std::vector<std::pair<PeerConnectionBase*, uint32_t> > container_type;
+   typedef container_type::value_type                             value_type;
+@@ -65,6 +65,9 @@ public:
+ 
+   static const int flag_unchoke_all_new = 0x1;
+ 
++  static const int flag_connection_choke      = 0x1;
++  static const int flag_connection_may_ignore = 0x2;
++
+   static const uint32_t order_base = (1 << 30);
+   static const uint32_t order_max_size = 4;
+   static const uint32_t weight_size_bytes = order_max_size * sizeof(uint32_t);
+diff --git a/src/protocol/handshake.cc b/src/protocol/handshake.cc
+index 7fb389b..ea3eee8 100644
+--- a/src/protocol/handshake.cc
++++ b/src/protocol/handshake.cc
+@@ -840,7 +840,7 @@ Handshake::validate_download() {
+     throw handshake_error(ConnectionManager::handshake_dropped, e_handshake_unknown_download);
+   if (!m_download->info()->is_active())
+     throw handshake_error(ConnectionManager::handshake_dropped, e_handshake_inactive_download);
+-  if (!m_download->info()->is_accepting_new_peers())
++  if (!m_download->info()->is_accepting_new_peers() && m_peerInfo != NULL && !m_peerInfo->is_friend())
+     throw handshake_error(ConnectionManager::handshake_dropped, e_handshake_not_accepting_connections);
+ }
+ 
+@@ -1024,6 +1024,9 @@ Handshake::prepare_peer_info() {
+     if (m_peerInfo == NULL)
+       throw handshake_error(ConnectionManager::handshake_failed, e_handshake_network_error);
+ 
++    if (!m_download->info()->is_accepting_new_peers() && !m_peerInfo->is_friend())
++      throw handshake_error(ConnectionManager::handshake_dropped, e_handshake_not_accepting_connections);
++
+     if (m_peerInfo->failed_counter() > m_manager->max_failed)
+       throw handshake_error(ConnectionManager::handshake_dropped, e_handshake_toomanyfailed);
+ 
+diff --git a/src/protocol/handshake_manager.cc b/src/protocol/handshake_manager.cc
+index e06f594..2dea2e5 100644
+--- a/src/protocol/handshake_manager.cc
++++ b/src/protocol/handshake_manager.cc
+@@ -108,7 +108,7 @@ HandshakeManager::erase_download(DownloadMain* info) {
+ void
+ HandshakeManager::add_incoming(SocketFd fd, const rak::socket_address& sa) {
+   if (!manager->connection_manager()->can_connect() ||
+-      !manager->connection_manager()->filter(sa.c_sockaddr()) ||
++      manager->connection_manager()->filter(sa.c_sockaddr()) == ConnectionManager::filter_blocked ||
+       !setup_socket(fd)) {
+     fd.close();
+     return;
+@@ -126,7 +126,7 @@ HandshakeManager::add_incoming(SocketFd fd, const rak::socket_address& sa) {
+ void
+ HandshakeManager::add_outgoing(const rak::socket_address& sa, DownloadMain* download) {
+   if (!manager->connection_manager()->can_connect() ||
+-      !manager->connection_manager()->filter(sa.c_sockaddr()))
++      manager->connection_manager()->filter(sa.c_sockaddr()) == ConnectionManager::filter_blocked)
+     return;
+ 
+   create_outgoing(sa, download, manager->connection_manager()->encryption_options());
+diff --git a/src/protocol/peer_connection_base.cc b/src/protocol/peer_connection_base.cc
+index 815ea93..9eddbb8 100644
+--- a/src/protocol/peer_connection_base.cc
++++ b/src/protocol/peer_connection_base.cc
+@@ -203,10 +203,14 @@ PeerConnectionBase::set_upload_snubbed(bool v) {
+ }
+ 
+ bool
+-PeerConnectionBase::receive_upload_choke(bool choke) {
++PeerConnectionBase::receive_upload_choke(int flags) {
++  bool choke = flags & ChokeManager::flag_connection_choke;
+   if (choke == m_upChoke.choked())
+     throw internal_error("PeerConnectionBase::receive_upload_choke(...) already set to the same state.");
+ 
++  if (choke && m_peerInfo->is_friend() && (flags & ChokeManager::flag_connection_may_ignore))
++    return false;
++
+   write_insert_poll_safe();
+ 
+   m_sendChoked = true;
+@@ -217,7 +221,8 @@ PeerConnectionBase::receive_upload_choke(bool choke) {
+ }
+ 
+ bool
+-PeerConnectionBase::receive_download_choke(bool choke) {
++PeerConnectionBase::receive_download_choke(int flags) {
++  bool choke = flags & ChokeManager::flag_connection_choke;
+   if (choke == m_downChoke.choked())
+     throw internal_error("PeerConnectionBase::receive_download_choke(...) already set to the same state.");
+ 
+@@ -427,7 +432,7 @@ PeerConnectionBase::down_chunk() {
+   transfer->adjust_position(bytesTransfered);
+ 
+   m_down->throttle()->node_used(m_peerChunks.download_throttle(), bytesTransfered);
+-  m_download->info()->down_rate()->insert(bytesTransfered);
++  m_download->info()->down_rate()->insert(bytesTransfered, m_peerInfo->is_friend());
+ 
+   return transfer->is_finished();
+ }
+@@ -497,7 +502,7 @@ PeerConnectionBase::down_chunk_process(const void* buffer, uint32_t length) {
+   transfer->adjust_position(length);
+ 
+   m_down->throttle()->node_used(m_peerChunks.download_throttle(), length);
+-  m_download->info()->down_rate()->insert(length);
++  m_download->info()->down_rate()->insert(length, m_peerInfo->is_friend());
+ 
+   return length;
+ }
+@@ -516,8 +521,8 @@ PeerConnectionBase::down_chunk_skip_process(const void* buffer, uint32_t length)
+   // Hmm, this might result in more bytes than nessesary being
+   // counted.
+   m_down->throttle()->node_used(m_peerChunks.download_throttle(), length);
+-  m_download->info()->down_rate()->insert(length);
+-  m_download->info()->skip_rate()->insert(length);
++  m_download->info()->down_rate()->insert(length, m_peerInfo->is_friend());
++  m_download->info()->skip_rate()->insert(length, m_peerInfo->is_friend());
+ 
+   if (!transfer->is_valid()) {
+     transfer->adjust_position(length);
+@@ -662,7 +667,7 @@ PeerConnectionBase::up_chunk() {
+   }
+ 
+   m_up->throttle()->node_used(m_peerChunks.upload_throttle(), bytesTransfered);
+-  m_download->info()->up_rate()->insert(bytesTransfered);
++  m_download->info()->up_rate()->insert(bytesTransfered, m_peerInfo->is_friend());
+ 
+   // Just modifying the piece to cover the remaining data ends up
+   // being much cleaner and we avoid an unnessesary position variable.
+diff --git a/src/protocol/peer_connection_base.h b/src/protocol/peer_connection_base.h
+index d131341..dc0dc41 100644
+--- a/src/protocol/peer_connection_base.h
++++ b/src/protocol/peer_connection_base.h
+@@ -127,8 +127,8 @@ public:
+   virtual void        update_interested() = 0;
+   virtual bool        receive_keepalive() = 0;
+ 
+-  bool                receive_upload_choke(bool choke);
+-  bool                receive_download_choke(bool choke);
++  bool                receive_upload_choke(int flags);
++  bool                receive_download_choke(int flags);
+ 
+   virtual void        event_error();
+ 
+diff --git a/src/protocol/peer_connection_leech.cc b/src/protocol/peer_connection_leech.cc
+index 36c6d7a..7918dff 100644
+--- a/src/protocol/peer_connection_leech.cc
++++ b/src/protocol/peer_connection_leech.cc
+@@ -516,6 +516,7 @@ PeerConnection<type>::fill_write_buffer() {
+   if (type == Download::CONNECTION_LEECH && m_tryRequest) {
+     if (!(m_tryRequest = !should_request()) &&
+         !(m_tryRequest = try_request_pieces()) &&
++        !m_peerInfo->is_friend() &&
+ 
+         !download_queue()->is_interested_in_active()) {
+       m_sendInterested = true;
+diff --git a/src/torrent/connection_manager.cc b/src/torrent/connection_manager.cc
+index 152a0a1..efc919b 100644
+--- a/src/torrent/connection_manager.cc
++++ b/src/torrent/connection_manager.cc
+@@ -163,7 +163,7 @@ ConnectionManager::set_proxy_address(const sockaddr* sa) {
+ uint32_t
+ ConnectionManager::filter(const sockaddr* sa) {
+   if (m_slotFilter.empty())
+-    return 1;
++    return filter_permitted;
+   else
+     return m_slotFilter(sa);
+ }
+diff --git a/src/torrent/connection_manager.h b/src/torrent/connection_manager.h
+index 07ac736..c5e81c0 100644
+--- a/src/torrent/connection_manager.h
++++ b/src/torrent/connection_manager.h
+@@ -84,6 +84,10 @@ public:
+   static const uint32_t encryption_enable_retry     = (1 << 4);
+   static const uint32_t encryption_prefer_plaintext = (1 << 5);
+ 
++  static const uint32_t filter_blocked              = 0;
++  static const uint32_t filter_permitted            = (1 << 0);
++  static const uint32_t filter_friend               = (1 << 1);
++
+   // Internal to libtorrent.
+   static const uint32_t encryption_use_proxy        = (1 << 6);
+ 
+diff --git a/src/torrent/peer/connection_list.cc b/src/torrent/peer/connection_list.cc
+index e50606e..fa9e912 100644
+--- a/src/torrent/peer/connection_list.cc
++++ b/src/torrent/peer/connection_list.cc
+@@ -70,7 +70,7 @@ ConnectionList::clear() {
+ 
+ PeerConnectionBase*
+ ConnectionList::insert(PeerInfo* peerInfo, const SocketFd& fd, Bitfield* bitfield, EncryptionInfo* encryptionInfo, ProtocolExtension* extensions) {
+-  if (size() >= m_maxSize)
++  if (size() >= m_maxSize && !peerInfo->is_friend())
+     return NULL;
+ 
+   PeerConnectionBase* peerConnection = m_slotNewConnection(encryptionInfo->is_encrypted());
+diff --git a/src/torrent/peer/peer.h b/src/torrent/peer/peer.h
+index 70169ad..13e2880 100644
+--- a/src/torrent/peer/peer.h
++++ b/src/torrent/peer/peer.h
+@@ -71,6 +71,8 @@ public:
+   void                 set_snubbed(bool v);
+   void                 set_banned();
+ 
++  bool                 is_friend() const                  { return peer_info()->is_friend(); }
++
+   const HashString&    id() const                         { return peer_info()->id(); }
+   const char*          options() const                    { return peer_info()->options(); }
+   const sockaddr*      address() const                    { return peer_info()->socket_address(); }
+diff --git a/src/torrent/peer/peer_info.h b/src/torrent/peer/peer_info.h
+index fe80027..8f56f73 100644
+--- a/src/torrent/peer/peer_info.h
++++ b/src/torrent/peer/peer_info.h
+@@ -40,6 +40,10 @@
+ #include <torrent/hash_string.h>
+ #include <torrent/peer/client_info.h>
+ 
++// For conditional compilation depending on whether this patch was applied.
++// Remove for release.
++#define LIBTORRENT_FRIENDS 1
++
+ namespace torrent {
+ 
+ class LIBTORRENT_EXPORT PeerInfo {
+@@ -56,8 +60,11 @@ public:
+   static const int flag_handshake = (1 << 2);
+   static const int flag_blocked   = (1 << 3);   // For initial seeding.
+   static const int flag_restart   = (1 << 4);
++  static const int flag_filtered  = (1 << 5);
++  static const int flag_friend    = (1 << 6);
+ 
+-  PeerInfo(const sockaddr* address);
++  // Constructor is private. Use PeerList::insert_address or
++  // PeerList::create_peer_info instead.
+   ~PeerInfo();
+ 
+   bool                is_connected() const                  { return m_flags & flag_connected; }
+@@ -65,6 +72,8 @@ public:
+   bool                is_handshake() const                  { return m_flags & flag_handshake; }
+   bool                is_blocked() const                    { return m_flags & flag_blocked; }
+   bool                is_restart() const                    { return m_flags & flag_restart; }
++  bool                is_filtered() const                   { return m_flags & flag_filtered; }
++  bool                is_friend() const                     { return m_flags & flag_friend; }
+ 
+   int                 flags() const                         { return m_flags; }
+ 
+@@ -108,6 +117,7 @@ protected:
+   void                set_connection(PeerConnectionBase* c) { m_connection = c; }
+ 
+ private:
++  PeerInfo(const sockaddr* address);
+   PeerInfo(const PeerInfo&);
+   void operator = (const PeerInfo&);
+ 
+diff --git a/src/torrent/peer/peer_list.cc b/src/torrent/peer/peer_list.cc
+index cef840b..7164b91 100644
+--- a/src/torrent/peer/peer_list.cc
++++ b/src/torrent/peer/peer_list.cc
+@@ -42,7 +42,9 @@
+ #include <rak/socket_address.h>
+ 
+ #include "download/available_list.h"
++#include "torrent/connection_manager.h"
+ #include "torrent/peer/client_list.h"
++#include "torrent.h"
+ 
+ #include "exceptions.h"
+ #include "globals.h"
+@@ -102,6 +104,20 @@ PeerList::~PeerList() {
+ }
+ 
+ PeerInfo*
++PeerList::create_peer_info(const sockaddr* sa) {
++  PeerInfo* peerInfo = new PeerInfo(sa);
++  uint32_t filter = connection_manager()->filter(sa);
++
++  if (filter == ConnectionManager::filter_blocked)
++    peerInfo->set_flags(PeerInfo::flag_filtered);
++
++  else if (filter & ConnectionManager::filter_friend)
++    peerInfo->set_flags(PeerInfo::flag_friend);
++
++  return peerInfo;
++}
++
++PeerInfo*
+ PeerList::insert_address(const sockaddr* sa, int flags) {
+   if (!socket_address_key::is_comparable(sa))
+     return NULL;
+@@ -118,7 +134,7 @@ PeerList::insert_address(const sockaddr* sa, int flags) {
+ 
+   const rak::socket_address* address = rak::socket_address::cast_from(sa);
+ 
+-  PeerInfo* peerInfo = new PeerInfo(sa);
++  PeerInfo* peerInfo = create_peer_info(sa);
+   peerInfo->set_listen_port(address->port());
+   
+   manager->client_list()->retrieve_unknown(&peerInfo->mutable_client_info());
+@@ -216,7 +232,7 @@ PeerList::connected(const sockaddr* sa, int flags) {
+ 
+   if (range.first == range.second) {
+     // Create a new entry.
+-    peerInfo = new PeerInfo(sa);
++    peerInfo = create_peer_info(sa);
+ 
+     base_type::insert(range.second, value_type(socket_address_key(peerInfo->socket_address()), peerInfo));
+ 
+diff --git a/src/torrent/peer/peer_list.h b/src/torrent/peer/peer_list.h
+index fece106..2ee5e1e 100644
+--- a/src/torrent/peer/peer_list.h
++++ b/src/torrent/peer/peer_list.h
+@@ -111,6 +111,8 @@ public:
+   const_reverse_iterator rbegin() const { return base_type::rbegin(); }
+   const_reverse_iterator rend() const   { return base_type::rend(); }
+ 
++  static PeerInfo*    create_peer_info(const sockaddr* sa);
++
+ protected:
+   // Insert, or find a PeerInfo with socket address 'sa'. Returns end
+   // if no more connections are allowed from that host.
+diff --git a/src/torrent/rate.cc b/src/torrent/rate.cc
+index c28d718..586350d 100644
+--- a/src/torrent/rate.cc
++++ b/src/torrent/rate.cc
+@@ -58,7 +58,7 @@ Rate::rate() const {
+ }
+ 
+ void
+-Rate::insert(rate_type bytes) {
++Rate::insert(rate_type bytes, bool rate_only) {
+   discard_old();
+ 
+   if (m_current > ((rate_type)1 << 40) || bytes > ((rate_type)1 << 28))
+@@ -69,7 +69,7 @@ Rate::insert(rate_type bytes) {
+   else
+     m_container.front().second += bytes;
+ 
+-  m_total += bytes;
++  m_total += rate_only ? 0 : bytes;
+   m_current += bytes;
+ }
+ 
+diff --git a/src/torrent/rate.h b/src/torrent/rate.h
+index 239e4b6..4c48aea 100644
+--- a/src/torrent/rate.h
++++ b/src/torrent/rate.h
+@@ -68,7 +68,7 @@ public:
+   timer_type          span() const                            { return m_span; }
+   void                set_span(timer_type s)                  { m_span = s; }
+ 
+-  void                insert(rate_type bytes);
++  void                insert(rate_type bytes, bool rate_only = false);
+ 
+   void                reset_rate()                            { m_current = 0; m_container.clear(); }
+   

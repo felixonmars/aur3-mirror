@@ -1,0 +1,1036 @@
+# This patch is a merge of patches provided in
+# http://repository.maemo.org/pool/maemo5.0/free/g/glib2.0/glib2.0_2.20.3-1maemo2+0m5.diff.gz
+# 
+# Below is a list of patch included :
+# [ NO ] : patch is not included
+# [ YES] : patch is included as-is
+# [MOD.] : patch has been modified before inclusion
+# 
+# 20-gmarkup-speedup.patch                                        [ NO ]
+#    Already included
+# 21-gsimpleasyncresult-memleak.patch                             [ NO ]
+#    Already included
+# 25-gatomic.patch                                                [ NO ]
+#    Only ARM
+# 26-arm-stack-frames.patch                                       [ NO ]
+#    Only ARM
+# 30-gfileutils.patch                                             [ NO ]
+#    Workaround for UBIFS
+# 35-gmessages.patch                                              [ NO ]
+#    Use syslog for logging
+# 40-gscanner.patch                                               [MOD.]
+#    A new gtkrc scanner for hildon
+#    Removed #ifdef MAEMO_CHANGES as if MAEMO_CHANGES is not defined,
+#    the compilation fails. Cleaned changes only related to spacing.
+#    Needs configure to be regenerated.
+# 45-gunicode.patch                                               [ YES]
+#    Add canonical decomposition of a Unicode character
+# 50-gthread.patch                                                [ YES]
+#    Inherit priority and policy in threads
+# 60_wait-longer-for-threads-to-die.patch                         [MOD.]
+#    Wait 5 instead of 1 second for threads to die.
+#    Removed useless debug message.
+# 70_use-monotonic-clock-for-timeouts.patch                       [ YES]
+#    Fix problems if date/time is changed
+#    Needs configure to be regenerated.
+# 80-hildon-user-named-dir.patch                                  [ YES]
+#    Extended version of g_get_user_special_dir
+# 
+diff -Naurd glib-2.22.2.orig/configure.in glib-2.22.2/configure.in
+--- glib-2.22.2.orig/configure.in	2009-10-07 15:29:47.000000000 +0200
++++ glib-2.22.2/configure.in	2009-12-07 18:35:32.479304509 +0100
+@@ -187,7 +187,7 @@
+ if test "$glib_native_win32" != yes; then
+     # libtool option to control which symbols are exported
+     # right now, symbols starting with _ are not exported
+-    LIBTOOL_EXPORT_OPTIONS='-export-symbols-regex "^g.*"'
++    LIBTOOL_EXPORT_OPTIONS='-export-symbols-regex "^[[^_]].*"'
+ else
+     # We currently use .def files on Windows
+     LIBTOOL_EXPORT_OPTIONS=
+@@ -2376,6 +2376,7 @@
+     AC_DEFINE(HAVE_CLOCK_GETTIME, 1)
+     G_THREAD_LIBS="$G_THREAD_LIBS -lrt"
+     G_THREAD_LIBS_FOR_GTHREAD="$G_THREAD_LIBS_FOR_GTHREAD -lrt"
++    G_LIBS_EXTRA="$G_LIBS_EXTRA -lrt"
+   ])
+ ])
+ 
+@@ -2642,13 +2643,13 @@
+ 
+ case $host in
+   *-*-cygwin*)
+-	G_LIBS_EXTRA="-luser32 -lkernel32"
++	G_LIBS_EXTRA="$G_LIBS_EXTRA -luser32 -lkernel32"
+     ;;
+   *-*-mingw*)
+-	G_LIBS_EXTRA="-lws2_32 -lole32"
++	G_LIBS_EXTRA="$G_LIBS_EXTRA -lws2_32 -lole32"
+     ;;
+   *)
+-	G_LIBS_EXTRA=""
++	G_LIBS_EXTRA="$G_LIBS_EXTRA"
+     ;;
+ esac
+ AC_SUBST(G_LIBS_EXTRA)
+diff -Naurd glib-2.22.2.orig/glib/glib.symbols glib-2.22.2/glib/glib.symbols
+--- glib-2.22.2.orig/glib/glib.symbols	2009-09-11 05:48:55.000000000 +0200
++++ glib-2.22.2/glib/glib.symbols	2009-12-07 18:35:29.822639912 +0100
+@@ -1005,6 +1005,7 @@
+ g_scanner_sync_file_offset
+ g_scanner_unexp_token
+ g_scanner_warn G_GNUC_PRINTF(2,3)
++hildon_g_scanner_cache_open
+ #endif
+ #endif
+ 
+@@ -1577,6 +1578,7 @@
+ g_get_user_data_dir
+ g_reload_user_special_dirs_cache
+ g_get_user_special_dir
++hildon_get_user_named_dir
+ #ifndef _WIN64
+ g_get_user_name PRIVATE
+ #endif
+diff -Naurd glib-2.22.2.orig/glib/gmain.c glib-2.22.2/glib/gmain.c
+--- glib-2.22.2.orig/glib/gmain.c	2009-08-29 04:52:23.000000000 +0200
++++ glib-2.22.2/glib/gmain.c	2009-12-07 18:35:32.482640199 +0100
+@@ -79,6 +79,10 @@
+ 
+ #include "galias.h"
+ 
++#if defined(HAVE_CLOCK_GETTIME) && defined(HAVE_MONOTONIC_CLOCK)
++#define USE_CLOCK_GETTIME 1
++#endif
++
+ /* Types */
+ 
+ typedef struct _GTimeoutSource GTimeoutSource;
+@@ -160,6 +164,7 @@
+   GPollFunc poll_func;
+ 
+   GTimeVal current_time;
++  GTimeVal current_time_monotonic;
+   gboolean time_is_current;
+ };
+ 
+@@ -231,6 +236,9 @@
+ 
+ /* Forward declarations */
+ 
++static void g_get_current_time_monotonic        (GTimeVal     *result);
++static void g_source_get_current_time_monotonic (GSource      *source,
++						 GTimeVal     *timeval);
+ static void g_source_unref_internal             (GSource      *source,
+ 						 GMainContext *context,
+ 						 gboolean      have_lock);
+@@ -1623,6 +1631,20 @@
+ }
+ 
+ static void
++g_get_current_time_monotonic (GTimeVal *result)
++{
++#ifdef USE_CLOCK_GETTIME
++  struct timespec r;
++
++  clock_gettime (CLOCK_MONOTONIC, &r);
++  result->tv_sec = r.tv_sec;
++  result->tv_usec = r.tv_nsec / 1000;
++#else
++  g_get_current_time (result);
++#endif
++}
++
++static void
+ g_main_dispatch_free (gpointer dispatch)
+ {
+   g_slice_free (GMainDispatch, dispatch);
+@@ -3111,6 +3133,7 @@
+   if (!context->time_is_current)
+     {
+       g_get_current_time (&context->current_time);
++      g_get_current_time_monotonic (&context->current_time_monotonic);
+       context->time_is_current = TRUE;
+     }
+   
+@@ -3119,6 +3142,30 @@
+   UNLOCK_CONTEXT (context);
+ }
+ 
++static void
++g_source_get_current_time_monotonic (GSource  *source,
++				     GTimeVal *timeval)
++{
++  GMainContext *context;
++
++  g_return_if_fail (source->context != NULL);
++
++  context = source->context;
++
++  LOCK_CONTEXT (context);
++
++  if (!context->time_is_current)
++    {
++      g_get_current_time (&context->current_time);
++      g_get_current_time_monotonic (&context->current_time_monotonic);
++      context->time_is_current = TRUE;
++    }
++
++  *timeval = context->current_time_monotonic;
++
++  UNLOCK_CONTEXT (context);
++}
++
+ /**
+  * g_main_context_set_poll_func:
+  * @context: a #GMainContext
+@@ -3323,7 +3370,7 @@
+   
+   GTimeoutSource *timeout_source = (GTimeoutSource *)source;
+ 
+-  g_source_get_current_time (source, &current_time);
++  g_source_get_current_time_monotonic (source, &current_time);
+ 
+   sec = timeout_source->expiration.tv_sec - current_time.tv_sec;
+   msec = (timeout_source->expiration.tv_usec - current_time.tv_usec) / 1000;
+@@ -3372,8 +3419,8 @@
+   GTimeVal current_time;
+   GTimeoutSource *timeout_source = (GTimeoutSource *)source;
+ 
+-  g_source_get_current_time (source, &current_time);
+-  
++  g_source_get_current_time_monotonic (source, &current_time);
++
+   return ((timeout_source->expiration.tv_sec < current_time.tv_sec) ||
+ 	  ((timeout_source->expiration.tv_sec == current_time.tv_sec) &&
+ 	   (timeout_source->expiration.tv_usec <= current_time.tv_usec)));
+@@ -3397,7 +3444,7 @@
+     {
+       GTimeVal current_time;
+ 
+-      g_source_get_current_time (source, &current_time);
++      g_source_get_current_time_monotonic (source, &current_time);
+       g_timeout_set_expiration (timeout_source, &current_time);
+ 
+       return TRUE;
+@@ -3427,7 +3474,7 @@
+ 
+   timeout_source->interval = interval;
+ 
+-  g_get_current_time (&current_time);
++  g_get_current_time_monotonic (&current_time);
+   g_timeout_set_expiration (timeout_source, &current_time);
+   
+   return source;
+@@ -3460,7 +3507,7 @@
+   timeout_source->interval = 1000*interval;
+   timeout_source->granularity = 1000;
+ 
+-  g_get_current_time (&current_time);
++  g_get_current_time_monotonic (&current_time);
+   g_timeout_set_expiration (timeout_source, &current_time);
+ 
+   return source;
+diff -Naurd glib-2.22.2.orig/glib/gscanner.c glib-2.22.2/glib/gscanner.c
+--- glib-2.22.2.orig/glib/gscanner.c	2009-04-01 01:04:20.000000000 +0200
++++ glib-2.22.2/glib/gscanner.c	2009-12-07 18:35:29.775971547 +0100
+@@ -42,7 +42,13 @@
+ #include	<unistd.h>
+ #endif
+ 
++#include <sys/mman.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++
+ #include	"glib.h"
++#include "gstdio.h"
+ #include	"gprintfint.h"
+ #include        "galias.h"
+ 
+@@ -61,6 +67,7 @@
+ )
+ #define	READ_BUFFER_SIZE	(4000)
+ 
++#define INPUT_NAME(scanner) ((scanner)->input_name ? (scanner)->input_name : "<memory>")
+ 
+ /* --- typedefs --- */
+ typedef	struct	_GScannerKey	GScannerKey;
+@@ -233,7 +240,13 @@
+   scanner->scope_id = 0;
+   
+   scanner->msg_handler = g_scanner_msg_handler;
+-  
++
++  scanner->cache_fd = -1;
++  scanner->cache_size = 0;
++  scanner->cache_base = NULL;
++  scanner->cache_p = NULL;
++  scanner->cache_flags = 0;
++
+   return scanner;
+ }
+ 
+@@ -278,8 +291,17 @@
+   g_hash_table_foreach (scanner->symbol_table, 
+ 			g_scanner_destroy_symbol_table_entry, NULL);
+   g_hash_table_destroy (scanner->symbol_table);
+-  g_scanner_free_value (&scanner->token, &scanner->value);
+-  g_scanner_free_value (&scanner->next_token, &scanner->next_value);
++  if (scanner->cache_base != NULL)
++    {
++      munmap (scanner->cache_base, scanner->cache_size);
++    }
++  else
++    {
++      g_scanner_free_value (&scanner->token, &scanner->value);
++      g_scanner_free_value (&scanner->next_token, &scanner->next_value);
++    }
++  if (scanner->cache_fd != -1)
++    close (scanner->cache_fd);
+   g_free (scanner->config);
+   g_free (scanner->buffer);
+   g_free (scanner);
+@@ -293,7 +315,7 @@
+   g_return_if_fail (scanner != NULL);
+   
+   _g_fprintf (stderr, "%s:%d: ",
+-	      scanner->input_name ? scanner->input_name : "<memory>",
++	      INPUT_NAME (scanner),
+ 	      scanner->line);
+   if (is_error)
+     _g_fprintf (stderr, "error: ");
+@@ -554,6 +576,91 @@
+   g_hash_table_foreach (scanner->symbol_table, g_scanner_foreach_internal, d);
+ }
+ 
++static gboolean
++g_scanner_get_token_cache (GScanner    *scanner,
++                           GTokenType  *token_p,
++                           GTokenValue *value_p,
++                           guint       *line_p,
++                           guint       *position_p)
++{
++  gint len;
++
++  if (scanner->cache_p == NULL)
++    return FALSE;
++
++  if (scanner->cache_p == scanner->cache_end)
++    {
++      *token_p = G_TOKEN_EOF;
++      return TRUE;
++    }
++
++#define ENSURE_AVAILABLE(scanner, bytes) \
++  if (scanner->cache_p + (bytes) > scanner->cache_end) \
++    goto eof
++
++  ENSURE_AVAILABLE(scanner, sizeof(GTokenType));
++
++  *token_p = *(GTokenType *) scanner->cache_p;
++  scanner->cache_p += sizeof (GTokenType);
++
++  switch (*token_p)
++    {
++    case G_TOKEN_STRING:
++    case G_TOKEN_IDENTIFIER:
++    case G_TOKEN_IDENTIFIER_NULL:
++    case G_TOKEN_COMMENT_SINGLE:
++    case G_TOKEN_COMMENT_MULTI:
++      ENSURE_AVAILABLE (scanner, sizeof (gint));
++
++      len = *(gint *) scanner->cache_p;
++      scanner->cache_p += sizeof (gint);
++
++      ENSURE_AVAILABLE (scanner, len);
++
++      value_p->v_string = (gchar *) scanner->cache_p;
++      scanner->cache_p += len;
++      break;
++
++    case G_TOKEN_ERROR:
++    case G_TOKEN_EOF:
++      break;
++
++    case G_TOKEN_LEFT_PAREN:
++    case G_TOKEN_RIGHT_PAREN:
++    case G_TOKEN_LEFT_CURLY:
++    case G_TOKEN_RIGHT_CURLY:
++    case G_TOKEN_LEFT_BRACE:
++    case G_TOKEN_RIGHT_BRACE:
++    case G_TOKEN_EQUAL_SIGN:
++    case G_TOKEN_COMMA:
++      value_p->v_int64 = *token_p;
++      break;
++
++    default:
++      if (*token_p < G_TOKEN_LAST)
++	{
++          ENSURE_AVAILABLE (scanner, sizeof (GTokenValue));
++
++/*	  *value_p = *(GTokenValue *)scanner->cache_p;*/
++          memcpy (value_p, scanner->cache_p, sizeof (GTokenValue));
++	  scanner->cache_p += sizeof (GTokenValue);
++	}
++      else
++	value_p->v_int64 = 0;
++
++      break;
++    }
++
++  return TRUE;
++
++eof:
++  *token_p = G_TOKEN_ERROR;
++  value_p->v_error = G_ERR_UNEXP_EOF;
++  return TRUE;
++
++#undef ENSURE_AVAILABLE
++}
++
+ GTokenType
+ g_scanner_peek_next_token (GScanner	*scanner)
+ {
+@@ -563,16 +670,135 @@
+     {
+       scanner->next_line = scanner->line;
+       scanner->next_position = scanner->position;
+-      g_scanner_get_token_i (scanner,
+-			     &scanner->next_token,
+-			     &scanner->next_value,
+-			     &scanner->next_line,
+-			     &scanner->next_position);
++
++      if (!g_scanner_get_token_cache (scanner,
++                                      &scanner->next_token,
++                                      &scanner->next_value,
++                                      &scanner->next_line,
++                                      &scanner->next_position))
++        {
++          g_scanner_get_token_i (scanner,
++                                 &scanner->next_token,
++                                 &scanner->next_value,
++                                 &scanner->next_line,
++                                 &scanner->next_position);
++        }
+     }
+   
+   return scanner->next_token;
+ }
+ 
++static void
++g_scanner_cache_token (GScanner *scanner)
++{
++  gint count;
++
++  if (scanner->cache_fd == -1 || scanner->cache_p != NULL)
++    return;
++
++  if (scanner->token == G_TOKEN_ERROR)
++    g_error ("%s: rc file parse error while writing cache for '%s'. Aborting.",
++             G_STRFUNC, INPUT_NAME (scanner));
++
++  do
++    {
++      count = write (scanner->cache_fd, &scanner->token,
++                     sizeof (scanner->token));
++    }
++  while (count == -1 && (errno == EINTR || errno == EAGAIN));
++
++  if (count != sizeof (scanner->token))
++    g_error ("%s: error while writing cache for '%s': %s. Aborting.",
++             G_STRFUNC, INPUT_NAME (scanner), g_strerror (errno));
++
++#define G_SCANNER_CACHE_MEM_ALIGN (MAX (sizeof (double), sizeof (void)))
++
++  switch (scanner->token)
++    {
++      gint len;
++      gint lena;
++
++    case G_TOKEN_STRING:
++    case G_TOKEN_IDENTIFIER:
++    case G_TOKEN_IDENTIFIER_NULL:
++    case G_TOKEN_COMMENT_SINGLE:
++    case G_TOKEN_COMMENT_MULTI:
++      /* pad strings to multiple of G_SCANNER_CACHE_MEM_ALIGN */
++      lena = len = strlen (scanner->value.v_string) + 1;
++      if (lena % G_SCANNER_CACHE_MEM_ALIGN)
++        lena += G_SCANNER_CACHE_MEM_ALIGN - (lena % G_SCANNER_CACHE_MEM_ALIGN);
++
++      do
++        {
++          count = write (scanner->cache_fd, &lena, sizeof (lena));
++        }
++      while (count == -1 && (errno == EINTR || errno == EAGAIN));
++
++      if (count != sizeof (lena))
++        g_error ("%s: error while writing cache for '%s': %s. Aborting.",
++                 G_STRFUNC, INPUT_NAME (scanner), g_strerror (errno));
++
++      do
++        {
++          count = write (scanner->cache_fd, scanner->value.v_string, len);
++        }
++      while (count == -1 && (errno == EINTR || errno == EAGAIN));
++
++      if (count != len)
++        g_error ("%s: error while writing cache for '%s': %s. Aborting.",
++                 G_STRFUNC, INPUT_NAME (scanner), g_strerror (errno));
++
++      if (lena > len)
++        {
++          do
++            {
++              count = write (scanner->cache_fd, "\0\0\0\0\0\0\0\0", lena - len);
++            }
++          while (count == -1 && (errno == EINTR || errno == EAGAIN));
++
++          if (count != lena - len)
++            g_error ("%s: error while writing cache for '%s': %s. Aborting.",
++                     G_STRFUNC, INPUT_NAME (scanner), g_strerror (errno));
++        }
++      break;
++
++    case G_TOKEN_EOF:
++      if (close (scanner->cache_fd) == -1)
++        g_error ("%s: error while writing cache for '%s': %s. Aborting.",
++                 G_STRFUNC, INPUT_NAME (scanner), g_strerror (errno));
++      scanner->cache_fd = -1;
++      break;
++
++    case G_TOKEN_LEFT_PAREN:
++    case G_TOKEN_RIGHT_PAREN:
++    case G_TOKEN_LEFT_CURLY:
++    case G_TOKEN_RIGHT_CURLY:
++    case G_TOKEN_LEFT_BRACE:
++    case G_TOKEN_RIGHT_BRACE:
++    case G_TOKEN_EQUAL_SIGN:
++    case G_TOKEN_COMMA:
++      break;
++
++    default:
++      if (scanner->token < G_TOKEN_LAST)
++        {
++          do
++            {
++              count = write (scanner->cache_fd, &scanner->value,
++                             sizeof (scanner->value));
++            }
++          while (count == -1 && (errno == EINTR || errno == EAGAIN));
++
++          if (count != sizeof (scanner->value))
++            g_error ("%s: error while writing cache for '%s': %s. Aborting.",
++                     G_STRFUNC, INPUT_NAME (scanner), g_strerror (errno));
++        }
++      else
++        g_assert (scanner->token == scanner->value.v_int);
++      break;
++    }
++}
++
+ GTokenType
+ g_scanner_get_next_token (GScanner	*scanner)
+ {
+@@ -580,7 +806,8 @@
+   
+   if (scanner->next_token != G_TOKEN_NONE)
+     {
+-      g_scanner_free_value (&scanner->token, &scanner->value);
++      if (scanner->cache_p == NULL)
++        g_scanner_free_value (&scanner->token, &scanner->value);
+       
+       scanner->token = scanner->next_token;
+       scanner->value = scanner->next_value;
+@@ -588,6 +815,14 @@
+       scanner->position = scanner->next_position;
+       scanner->next_token = G_TOKEN_NONE;
+     }
++  else if (g_scanner_get_token_cache (scanner,
++				      &scanner->token,
++				      &scanner->value,
++				      &scanner->line,
++				      &scanner->position))
++    {
++      return scanner->token;
++    }
+   else
+     g_scanner_get_token_i (scanner,
+ 			   &scanner->token,
+@@ -595,6 +830,9 @@
+ 			   &scanner->line,
+ 			   &scanner->position);
+   
++  if (scanner->cache_flags & HILDON_SCANNER_CACHE_FLAGS_WRITE)
++    g_scanner_cache_token (scanner);
++
+   return scanner->token;
+ }
+ 
+@@ -647,6 +885,77 @@
+ }
+ 
+ void
++hildon_g_scanner_cache_open (GScanner    *scanner,
++                             const gchar *filename)
++{
++  gchar       *filename_cache;
++  struct stat  st_rc;
++  struct stat  st_cache;
++  gint         fd;
++  gpointer     cache_p = NULL;
++  gsize        cache_size = 0;
++
++  g_return_if_fail (scanner != NULL);
++  g_return_if_fail (filename != NULL);
++
++  if (fstat (scanner->input_fd, &st_rc) == -1)
++    return;
++
++  filename_cache = g_strconcat (filename, ".cache", NULL);
++
++  /* FIXME: create cache only if explicitly asked for (to be used by a
++   * standalone application, for example.)  The cache filename should
++   * also be derived from the gtkrc path, but it's not available
++   * without modifications to gtk+
++   */
++
++  if (getenv ("HILDON_SCANNER_CACHE_CREATE"))
++    {
++      /* we don't care if this file exists or not, just delete it */
++      g_remove (filename_cache);
++
++      fd = g_open (filename_cache, O_CREAT|O_EXCL|O_WRONLY|O_TRUNC, 0666);
++
++      if (fd != -1)
++        scanner->cache_flags |= HILDON_SCANNER_CACHE_FLAGS_WRITE;
++      else
++        g_printerr ("%s: error while writing cache: %s. Not creating cache.",
++                    G_STRFUNC, g_strerror (errno));
++    }
++  else
++    {
++      fd = g_open (filename_cache, O_RDONLY);
++      if (fd != -1)
++        {
++          if (fstat (fd, &st_cache) == 0 &&
++              st_rc.st_mtime <= st_cache.st_mtime)
++            {
++              gpointer ptr;
++
++              ptr = mmap (NULL, st_cache.st_size, PROT_READ, MAP_SHARED, fd, 0);
++              if (ptr != MAP_FAILED)
++                {
++                  cache_p = ptr;
++                  cache_size = st_cache.st_size;
++                }
++            }
++
++          /* after mmap the file descriptor is no longer needer */
++          close (fd);
++          fd = -1;
++        }
++    }
++
++  g_free (filename_cache);
++
++  scanner->cache_fd = fd;
++  scanner->cache_size = cache_size;
++  scanner->cache_base = cache_p;
++  scanner->cache_p = cache_p;
++  scanner->cache_end = cache_p + cache_size;
++}
++
++void
+ g_scanner_input_file (GScanner *scanner,
+ 		      gint	input_fd)
+ {
+diff -Naurd glib-2.22.2.orig/glib/gscanner.h glib-2.22.2/glib/gscanner.h
+--- glib-2.22.2.orig/glib/gscanner.h	2009-04-01 01:04:20.000000000 +0200
++++ glib-2.22.2/glib/gscanner.h	2009-12-07 18:35:29.775971547 +0100
+@@ -124,6 +124,12 @@
+   guint		v_error;
+ };
+ 
++/* cache flags, private */
++typedef enum
++{
++  HILDON_SCANNER_CACHE_FLAGS_WRITE   = 1
++} HildonScannerCacheFlags;
++
+ struct	_GScannerConfig
+ {
+   /* Character sets
+@@ -204,12 +210,22 @@
+   
+   /* handler function for _warn and _error */
+   GScannerMsgFunc	msg_handler;
++
++  /* caching, private */
++  gint                    cache_fd;
++  HildonScannerCacheFlags cache_flags;
++  gsize                   cache_size;
++  gpointer                cache_base;
++  const gchar            *cache_p;
++  const gchar            *cache_end;
+ };
+ 
+ GScanner*	g_scanner_new			(const GScannerConfig *config_templ);
+ void		g_scanner_destroy		(GScanner	*scanner);
+ void		g_scanner_input_file		(GScanner	*scanner,
+ 						 gint		input_fd);
++void            hildon_g_scanner_cache_open     (GScanner       *scanner,
++                                                 const gchar    *filename);
+ void		g_scanner_sync_file_offset	(GScanner	*scanner);
+ void		g_scanner_input_text		(GScanner	*scanner,
+ 						 const	gchar	*text,
+diff -Naurd glib-2.22.2.orig/glib/gunicode.h glib-2.22.2/glib/gunicode.h
+--- glib-2.22.2.orig/glib/gunicode.h	2009-04-01 01:04:20.000000000 +0200
++++ glib-2.22.2/glib/gunicode.h	2009-12-07 18:35:29.782640971 +0100
+@@ -269,6 +269,14 @@
+ gunichar *g_unicode_canonical_decomposition (gunichar  ch,
+ 					     gsize    *result_len) G_GNUC_MALLOC;
+ 
++/* Compute canonical decomposition of a character.  Fills buffer with a
++   string of Unicode characters.  RESULT_LEN is set to the resulting
++   length of the string.  */
++gboolean g_unicode_canonical_decomposition_to_buffer (gunichar  ch,
++                                                      gunichar *out,
++                                                      gsize     out_len,
++				                      gsize    *result_len);
++
+ /* Array of skip-bytes-per-initial character.
+  */
+ GLIB_VAR const gchar * const g_utf8_skip;
+diff -Naurd glib-2.22.2.orig/glib/gunidecomp.c glib-2.22.2/glib/gunidecomp.c
+--- glib-2.22.2.orig/glib/gunidecomp.c	2009-04-01 01:04:20.000000000 +0200
++++ glib-2.22.2/glib/gunidecomp.c	2009-12-07 18:35:29.785974216 +0100
+@@ -258,6 +258,78 @@
+   return r;
+ }
+ 
++/**
++ * g_unicode_canonical_decomposition_to_buffer:
++ * @ch: a Unicode character.
++ * @out: a buffer to store the decomposited string of unicode characters
++ * @out_len: the size of the buffer
++ * @result_len: location to store the length of the return value.
++ *
++ * Computes the canonical decomposition of a Unicode character,
++ * storing the result in @out if it is large enough. If @out is
++ * too small, FALSE is returned and the function should be called
++ * again with a buffer of size @result_len.
++ *
++ * Return value: TRUE if @out was large enough
++ *
++ * Since: maemo
++ **/
++gboolean
++g_unicode_canonical_decomposition_to_buffer (gunichar  ch,
++                                             gunichar *out,
++                                             gsize     out_len,
++				             gsize    *result_len)
++{
++  const gchar *decomp;
++  const gchar *p;
++
++  /* Hangul syllable */
++  if (ch >= 0xac00 && ch <= 0xd7a3)
++    {
++      decompose_hangul (ch, NULL, result_len);
++
++      if (*result_len <= out_len)
++        {
++          decompose_hangul (ch, out, result_len);
++
++          return TRUE;
++        }
++      else
++        return FALSE;
++    }
++  else if ((decomp = find_decomposition (ch, FALSE)) != NULL)
++    {
++      /* Found it.  */
++      int i;
++
++      *result_len = g_utf8_strlen (decomp, -1);
++
++      if (*result_len <= out_len)
++        {
++          for (p = decomp, i = 0; *p != '\0'; p = g_utf8_next_char (p), i++)
++            out[i] = g_utf8_get_char (p);
++
++          return TRUE;
++        }
++      else
++        return FALSE;
++    }
++  else
++    {
++      /* Not in our table.  */
++      *result_len = 1;
++
++      if (out_len >= 1)
++        {
++          *out = ch;
++
++          return TRUE;
++        }
++      else
++        return FALSE;
++    }
++}
++
+ /* L,V => LV and LV,T => LVT  */
+ static gboolean
+ combine_hangul (gunichar a,
+diff -Naurd glib-2.22.2.orig/glib/gutils.c glib-2.22.2/glib/gutils.c
+--- glib-2.22.2.orig/glib/gutils.c	2009-08-29 04:52:23.000000000 +0200
++++ glib-2.22.2/glib/gutils.c	2009-12-07 18:35:29.825974624 +0100
+@@ -1465,6 +1465,7 @@
+ static  gchar  **g_system_config_dirs = NULL;
+ 
+ static  gchar  **g_user_special_dirs = NULL;
++static  GHashTable *g_user_named_dirs = NULL;
+ 
+ /* fifteen minutes of fame for everybody */
+ #define G_USER_DIRS_EXPIRE      15 * 60
+@@ -2366,6 +2367,7 @@
+     {
+       gchar *buffer = lines[i];
+       gchar *d, *p;
++      gchar *key;
+       gint len;
+       gboolean is_relative = FALSE;
+       GUserDirectory directory;
+@@ -2378,7 +2380,9 @@
+       p = buffer;
+       while (*p == ' ' || *p == '\t')
+ 	p++;
+-      
++
++      key = p;
++
+       if (strncmp (p, "XDG_DESKTOP_DIR", strlen ("XDG_DESKTOP_DIR")) == 0)
+         {
+           directory = G_USER_DIRECTORY_DESKTOP;
+@@ -2420,13 +2424,20 @@
+           p += strlen ("XDG_VIDEOS_DIR");
+         }
+       else
+-	continue;
++        {
++          directory = G_USER_N_DIRECTORIES;
++          while (*p != '=' && *p != '\0')
++            p++;
++        }
+ 
+       while (*p == ' ' || *p == '\t')
+ 	p++;
+ 
+       if (*p != '=')
+ 	continue;
++
++      *p = '\0';
++
+       p++;
+ 
+       while (*p == ' ' || *p == '\t')
+@@ -2455,14 +2466,22 @@
+       len = strlen (d);
+       if (d[len - 1] == '/')
+         d[len - 1] = 0;
+-      
++
+       if (is_relative)
+         {
+           g_get_any_init ();
+-          g_user_special_dirs[directory] = g_build_filename (g_home_dir, d, NULL);
++          if (directory < G_USER_N_DIRECTORIES)
++            g_user_special_dirs[directory] = g_build_filename (g_home_dir, d, NULL);
++          g_hash_table_insert (g_user_named_dirs, g_strdup (key),
++            g_build_filename (g_home_dir, d, NULL));
+         }
+       else
+-	g_user_special_dirs[directory] = g_strdup (d);
++        {
++          if (directory < G_USER_N_DIRECTORIES)
++            g_user_special_dirs[directory] = g_strdup (d);
++          g_hash_table_insert (g_user_named_dirs, g_strdup (key), g_strdup (d));
++        }
++
+     }
+ 
+   g_strfreev (lines);
+@@ -2472,6 +2491,34 @@
+ #endif /* G_OS_UNIX && !HAVE_CARBON */
+ 
+ 
++static void
++g_ensure_user_special_dirs ()
++{
++  G_LOCK (g_utils_global);
++
++  if (G_UNLIKELY (g_user_special_dirs == NULL))
++    {
++      g_user_named_dirs = g_hash_table_new_full (
++        g_str_hash, g_str_equal, g_free, g_free);
++      g_user_special_dirs = g_new0 (gchar *, G_USER_N_DIRECTORIES);
++
++      load_user_special_dirs ();
++
++      /* Special-case desktop for historical compatibility */
++      if (g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] == NULL)
++        {
++          g_get_any_init ();
++
++          g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] =
++            g_build_filename (g_home_dir, "Desktop", NULL);
++          g_hash_table_insert (g_user_named_dirs, g_strdup ("XDG_DESKTOP_DIR"),
++            g_build_filename (g_home_dir, "Desktop", NULL));
++        }
++    }
++
++  G_UNLOCK (g_utils_global);
++}
++
+ /**
+  * g_reload_user_special_dirs_cache:
+  *
+@@ -2535,9 +2582,7 @@
+  * falls back to <filename>$HOME/Desktop</filename> when XDG special
+  * user directories have not been set up. 
+  *
+- * Depending on the platform, the user might be able to change the path
+- * of the special directory without requiring the session to restart; GLib
+- * will not reflect any change once the special directories are loaded.
++ * See hildon_get_user_named_dir() for a more generic version of this function.
+  *
+  * Return value: the path to the specified special directory, or %NULL
+  *   if the logical id was not found. The returned string is owned by
+@@ -2551,27 +2596,37 @@
+   g_return_val_if_fail (directory >= G_USER_DIRECTORY_DESKTOP &&
+                         directory < G_USER_N_DIRECTORIES, NULL);
+ 
+-  G_LOCK (g_utils_global);
+-
+-  if (G_UNLIKELY (g_user_special_dirs == NULL))
+-    {
+-      g_user_special_dirs = g_new0 (gchar *, G_USER_N_DIRECTORIES);
+-
+-      load_user_special_dirs ();
+-
+-      /* Special-case desktop for historical compatibility */
+-      if (g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] == NULL)
+-        {
+-          g_get_any_init ();
++  g_ensure_user_special_dirs ();
+ 
+-          g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] =
+-            g_build_filename (g_home_dir, "Desktop", NULL);
+-        }
+-    }
++  return g_user_special_dirs[directory];
++}
+ 
+-  G_UNLOCK (g_utils_global);
++/**
++ * hildon_get_user_named_dir:
++ * @directory: the string id of a named directory
++ *
++ * Returns the full path of a named directory using its string id, such
++ * as for example "XDG_DOWNLOAD_DIR".
++ *
++ * On Unix this is done through the XDG special user directories which
++ * are read from ~/.config/user-dirs.dir and /etc/xdg/user-dirs.conf.
++ *
++ * Depending on the platform, the user might be able to change the path
++ * of the special directory without requiring the session to restart; GLib
++ * will not reflect any change once the special directories are loaded.
++ *
++ * Return value: the path to the specified special directory, or %NULL
++ *   if the string id was not found. The returned string is owned by
++ *   GLib and should not be modified or freed.
++ *
++ * Since: 2.22
++ */
++G_CONST_RETURN gchar *
++hildon_get_user_named_dir (const gchar* directory)
++{
++  g_ensure_user_special_dirs ();
+ 
+-  return g_user_special_dirs[directory];
++  return g_hash_table_lookup (g_user_named_dirs, directory);
+ }
+ 
+ #ifdef G_OS_WIN32
+diff -Naurd glib-2.22.2.orig/glib/gutils.h glib-2.22.2/glib/gutils.h
+--- glib-2.22.2.orig/glib/gutils.h	2009-08-29 04:52:23.000000000 +0200
++++ glib-2.22.2/glib/gutils.h	2009-12-07 18:35:29.825974624 +0100
+@@ -192,6 +192,8 @@
+ 
+ G_CONST_RETURN gchar* g_get_user_special_dir (GUserDirectory directory);
+ 
++G_CONST_RETURN gchar* hildon_get_user_named_dir (const gchar* directory);
++
+ typedef struct _GDebugKey	GDebugKey;
+ struct _GDebugKey
+ {
+diff -Naurd glib-2.22.2.orig/gthread/gthread-posix.c glib-2.22.2/gthread/gthread-posix.c
+--- glib-2.22.2.orig/gthread/gthread-posix.c	2009-04-01 01:04:20.000000000 +0200
++++ glib-2.22.2/gthread/gthread-posix.c	2009-12-07 18:35:29.799309151 +0100
+@@ -342,9 +342,24 @@
+ #ifdef HAVE_PRIORITIES
+ # ifdef G_THREADS_IMPL_POSIX
+   {
++    int policy, pprio;
+     struct sched_param sched;
+-    posix_check_cmd (pthread_attr_getschedparam (&attr, &sched));
+-    sched.sched_priority = g_thread_priority_map [priority];
++    /* this would use the default values */
++    /*posix_check_cmd (pthread_attr_getschedpolicy(&attr, &policy));
++    posix_check_cmd (pthread_attr_getschedparam (&attr, &sched));*/
++    /* but we want to inherit...
++     * priority maps are initialized based on inheritance assumption anyway
++     * and that's where the problem comes from... */
++    posix_check_cmd (pthread_getschedparam (pthread_self(), &policy, &sched));
++    pprio = g_thread_priority_map [priority];
++    if (pprio < sched_get_priority_min(policy))
++      pprio = sched_get_priority_min(policy);
++    else if (pprio > sched_get_priority_max(policy))
++      pprio = sched_get_priority_max(policy);
++    sched.sched_priority = pprio;
++    /*g_print("%s@%i: creating thread with policy %i, priority %i\n",
++      __FILE__, __LINE__, policy, pprio);*/
++    posix_check_cmd_prio (pthread_attr_setschedpolicy (&attr, policy));
+     posix_check_cmd_prio (pthread_attr_setschedparam (&attr, &sched));
+   }
+ # else /* G_THREADS_IMPL_DCE */
+diff -Naurd glib-2.22.2.orig/tests/threadpool-test.c glib-2.22.2/tests/threadpool-test.c
+--- glib-2.22.2.orig/tests/threadpool-test.c	2009-04-01 01:04:21.000000000 +0200
++++ glib-2.22.2/tests/threadpool-test.c	2009-12-07 18:35:29.819308622 +0100
+@@ -5,8 +5,8 @@
+ 
+ #include <glib.h>
+ 
+-#define DEBUG_MSG(x)
+-/* #define DEBUG_MSG(args) g_printerr args ; g_printerr ("\n");  */
++/* #define DEBUG_MSG(x) */
++#define DEBUG_MSG(args) g_printerr args ; g_printerr ("\n");
+ 
+ #define WAIT                5    /* seconds */
+ #define MAX_THREADS         10
+@@ -124,10 +124,10 @@
+    DEBUG_MSG (("[unused] stopping unused threads"));
+    g_thread_pool_stop_unused_threads ();
+ 
+-   DEBUG_MSG (("[unused] waiting ONE second for threads to die"));
++   DEBUG_MSG (("[unused] waiting FIVE second for threads to die"));
+ 
+    /* Some time for threads to die. */
+-   g_usleep (G_USEC_PER_SEC);
++   g_usleep (5 * G_USEC_PER_SEC);
+ 
+    DEBUG_MSG (("[unused] stopped idle threads, %d remain, %d threads still exist",
+ 	       g_thread_pool_get_num_unused_threads (),

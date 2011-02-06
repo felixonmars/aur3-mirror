@@ -1,0 +1,150 @@
+
+# Maintainer: Kurt J. Bosch <kjb-temp-2009 at alpenjodel.de>
+
+pkgname=openoffice-base-bin
+_basever=3.3
+pkgver=${_basever}.0
+pkgrel=1
+pkgdesc="OpenOffice.org - Upstream binary"
+arch=('i686' 'x86_64')
+url="http://openoffice.org/"
+license=('LGPL3' 'custom:THIRDPARTY')
+# Some depends can be found in the README, some with namcap, some with _extract_depends() below
+depends=(
+	'desktop-file-utils'        # install script
+	'freetype2'
+	'glibc>=2.5'
+	'gtk2>=2.10.4'
+	'hicolor-icon-theme'
+	'sh'                        # freedesktop-menus
+	'shared-mime-info'          # install script
+)
+makedepends=(
+	'coreutils' 'findutils' 'rpmextract'
+	'binutils' 'tar' # _debunpack()
+)
+optdepends=(
+	'libgail-gnome: GNOME Assistive Technology'
+	'mime-types: provides /etc/mime.types'
+	'openoffice-de: Language pack (example)'
+)
+provides=( openoffice-{base,sdk}=${pkgver} )
+conflicts=( openoffice-{base,sdk} libreoffice{,-bin} libreoffice-base{,-bin} )
+backup=("usr/lib/openoffice.org3/program/sofficerc")
+options=(!strip docs)
+install=openoffice-bin.install
+changelog=Changelog
+_url="http://download.services.openoffice.org/files"
+_arch="-ARCH-" # feed the AUR ;-)
+_src_extra=""
+# only 'install-rpm' tarballs contain freedesktop integration !
+case "$CARCH"
+in "i686"   ) _arch="x86"   ;                     md5sums=( 'b23dda259909373746d33d9844dc64f5' )
+;; "x86_64" ) _arch="x86-64"; _src_extra="-wJRE"; md5sums=( 'ca1594218be28ad3d521952e09e79ca1' )
+esac
+_dirs=( "${srcdir}"/OOO330_m20_native_packed-1_en-US.9567 )
+
+source=("${_url}"/stable/${pkgver}/OOo_${pkgver}_Linux_${_arch}_install-rpm${_src_extra}_en-US.tar.gz )
+
+_debunpack() {
+	ar -p "$1" data.tar.gz | tar -xz
+}
+
+package() {
+	cd "${pkgdir}"
+	# unpack RPMs and DEBs
+	local dir file
+	for dir in "${_dirs[@]}"; do
+		for file in $( cd "${dir}" && find -type f \( -name '*.rpm' -o -name '*.deb' \) ); do
+			if [[ $file == */desktop-integration/* && $file != *-freedesktop-menus-* ]] ||
+			   [[ $file == */jre* ]]; then
+				msg2 "Skipping ${file#./}"
+				continue
+			fi
+			msg2 "Extracting ${file#./}"
+			case $file
+			in *.rpm ) rpmextract.sh "${dir}/${file}"
+			;; *.deb ) _debunpack    "${dir}/${file}"
+			esac
+		done
+	done
+	# move and symlink dirs to make package compatible with stock ArchLinux i18n packages
+	msg2 "Moving/Symlinking ..."
+	mkdir -p usr/lib
+	local dir
+	for dir in openoffice.org openoffice.org3; do
+		mv opt/${dir} usr/lib/
+		ln -s -t opt /usr/lib/${dir}
+	done
+	# link binaries
+	mkdir -p usr/bin
+	ln -s -t usr/bin /usr/lib/openoffice.org3/program/soffice
+	ln -s -t usr/bin /usr/lib/openoffice.org3/program/spadmin
+	# link mozilla plugin
+	mkdir -p usr/lib/mozilla/plugins
+	ln -s -t usr/lib/mozilla/plugins /usr/lib/openoffice.org3/program/libnpsoplugin.so
+	# link license files
+	local file i=0
+	for file in $( find usr/lib -type f -name 'THIRDPARTY*LICENSE*.html' )
+	do
+		mkdir -p usr/share/licenses/${pkgname}
+		ln -sT /${file} usr/share/licenses/${pkgname}/THIRDPARTY-$((++i)).html
+	done
+}
+
+# Function for listing external dependencies
+_extract_depends() {
+	if [[ -z $1 ]]; then
+		echo "Usage: _extract_depends <RPMS-directory-path>" >&2
+		return 1
+	fi
+	(
+		cd "$1"
+		for f in $( find -type f -name '*.rpm' ); do
+			r=$( rpmmeta -t requirename $f | sed -r 's;(ooobasis|openoffice|rpmlib)[^ ]*;;g' )
+			[[ $r ]] && echo ${f#./} $r
+		done
+	)
+}
+
+# Function for extracting install script code
+_extract_install() {
+	if [[ -z $1 ]]; then
+		echo "Usage: _extract_install <RPMS-directory-path>" >&2
+		return 1
+	fi
+	cat <<EOF
+## arg 1:  the new package version
+post_install() {
+
+  ## code from freedesktop-menus rpm tag postin
+
+  #### Inappropriate parts should be removed:
+  #### - mime.type stuff is already provided by mime-types package
+  #### - /etc/mailcap does not exist on ArchLinux normaly
+  #### - Don't use 'which' because tools are already in depends
+
+EOF
+	rpmmeta -t postin "${1}"/desktop-integration/openoffice*-freedesktop-menus-*.noarch.rpm
+	cat <<EOF
+}
+
+## arg 1:  the new package version
+## arg 2:  the old package version
+post_upgrade() {
+  post_install \$1
+}
+
+## arg 1:  the old package version
+post_remove() {
+
+  ## code from freedesktop-menus rpm tag postun
+
+  #### inappropriate parts should be removed
+
+EOF
+	rpmmeta -t postun "${1}"/desktop-integration/openoffice*-freedesktop-menus-*.noarch.rpm
+	cat <<EOF
+}
+EOF
+}

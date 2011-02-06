@@ -1,0 +1,256 @@
+Index: libao2/audio_out.c
+===================================================================
+--- a/libao2/audio_out.c	(revision 32628)
++++ b/libao2/audio_out.c	(working copy)
+@@ -53,6 +53,7 @@
+ extern const ao_functions_t audio_out_ivtv;
+ extern const ao_functions_t audio_out_v4l2;
+ extern const ao_functions_t audio_out_mpegpes;
++extern const ao_functions_t audio_out_rsound;
+ extern const ao_functions_t audio_out_pcm;
+ extern const ao_functions_t audio_out_pss;
+ 
+@@ -96,6 +97,9 @@
+ #ifdef CONFIG_ESD
+         &audio_out_esd,
+ #endif
++#ifdef CONFIG_RSOUND
++        &audio_out_rsound,
++#endif
+ #ifdef CONFIG_PULSE
+         &audio_out_pulse,
+ #endif
+Index: libao2/ao_rsound.c
+===================================================================
+--- a/libao2/ao_rsound.c	(revision 0)
++++ b/libao2/ao_rsound.c	(revision 0)
+@@ -0,0 +1,144 @@
++/*
++ * RSound audio output driver
++ *
++ * This file is part of MPlayer.
++ *
++ * MPlayer is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * MPlayer is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with MPlayer; if not, write to the Free Software Foundation, Inc.,
++ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++ */
++
++#include "config.h"
++
++#include <stdlib.h>
++#include <string.h>
++
++#include "libavutil/common.h"
++#include "mpbswap.h"
++#include "subopt-helper.h"
++#include "libaf/af_format.h"
++#include "libaf/reorder_ch.h"
++#include "audio_out.h"
++#include "audio_out_internal.h"
++#include "mp_msg.h"
++#include "help_mp.h"
++
++#include <rsound.h>
++
++static const ao_info_t info =
++{
++   "RSound output driver",
++   "rsound",
++   "Hans-Kristian Arntzen",
++   ""
++};
++
++LIBAO_EXTERN(rsound)
++
++static char *host = NULL;
++static char *port = NULL;
++static rsound_t* rd = NULL;
++
++static int control(int cmd, void *arg)
++{
++   return -1;
++}
++
++static int init(int rate, int channels, int format, int flags)
++{
++   int bufsize = (1 << 15);
++   if ( host )
++      free(host);
++   if ( port )
++      free(port);
++
++   // Parses commandline
++   const opt_t subopts[] = {
++      {"host", OPT_ARG_MSTRZ, &host, NULL},
++      {"port", OPT_ARG_MSTRZ, &port, NULL},
++      {NULL}
++   };
++
++   if (subopt_parse(ao_subdevice, subopts) != 0) {
++      return 0;
++   }
++
++   if ( rsd_init(&rd) < 0 )
++      return 0;
++
++   // Defaults
++   if ( host != NULL )
++      rsd_set_param(rd, RSD_HOST, host);
++
++   if ( port != NULL )
++      rsd_set_param(rd, RSD_PORT, port);
++
++   rsd_set_param(rd, RSD_SAMPLERATE, &rate);
++   rsd_set_param(rd, RSD_CHANNELS, &channels);
++   rsd_set_param(rd, RSD_BUFSIZE, &bufsize);
++   ao_data.channels = channels;
++   ao_data.samplerate = rate;
++   ao_data.format = AF_FORMAT_S16_LE;
++   ao_data.bps = channels*rate*2;
++
++   if ( rsd_start(rd) < 0 )
++      return 0;
++   
++   ao_data.outburst = (1 << 10);
++   ao_data.buffersize = bufsize;
++   
++   return 1;
++}
++
++static void uninit(int n)
++{
++   rsd_stop(rd);
++   rsd_free(rd);
++}
++
++static void reset(void)
++{
++   rsd_stop(rd);
++   rsd_start(rd);
++}
++
++static void audio_pause(void)
++{
++   rsd_pause(rd, 1);
++}
++
++static void audio_resume(void)
++{
++   rsd_pause(rd, 0);
++}
++
++static int get_space(void)
++{
++   int ptr = rsd_get_avail(rd);
++   return ptr;
++}
++
++static int play(void* data, int len, int flags)
++{
++	(void) flags;
++   int rc = rsd_write(rd, data, len);
++   return rc;
++}
++
++static float get_delay(void)
++{
++   int ptr = rsd_delay_ms(rd);
++   return (float)ptr / 1000.0;
++}
++
++
+Index: Makefile
+===================================================================
+--- a/Makefile	(revision 32628)
++++ b/Makefile	(working copy)
+@@ -545,6 +545,7 @@
+ SRCS_MPLAYER-$(DXR2)         += libao2/ao_dxr2.c libvo/vo_dxr2.c
+ SRCS_MPLAYER-$(DXR3)         += libvo/vo_dxr3.c
+ SRCS_MPLAYER-$(ESD)          += libao2/ao_esd.c
++SRCS_MPLAYER-$(RSOUND)       += libao2/ao_rsound.c
+ SRCS_MPLAYER-$(FBDEV)        += libvo/vo_fbdev.c libvo/vo_fbdev2.c
+ SRCS_MPLAYER-$(FFMPEG)       += libvo/vo_png.c
+ SRCS_MPLAYER-$(GGI)          += libvo/vo_ggi.c
+Index: configure
+===================================================================
+--- a/configure	(revision 32628)
++++ b/configure	(working copy)
+@@ -455,6 +455,7 @@
+   --disable-ossaudio     disable OSS audio output [autodetect]
+   --disable-arts         disable aRts audio output [autodetect]
+   --disable-esd          disable esd audio output [autodetect]
++  --disable-rsound       disable rsound audio output [autodetect]
+   --disable-pulse        disable Pulseaudio audio output [autodetect]
+   --disable-jack         disable JACK audio output [autodetect]
+   --disable-openal       disable OpenAL audio output [autodetect]
+@@ -643,6 +644,7 @@
+ _ossaudio=auto
+ _arts=auto
+ _esd=auto
++_rsound=auto
+ _pulse=auto
+ _jack=auto
+ _kai=auto
+@@ -1022,6 +1024,8 @@
+   --disable-arts)       _arts=no        ;;
+   --enable-esd)         _esd=yes        ;;
+   --disable-esd)        _esd=no         ;;
++  --enable-rsound)      _rsound=yes     ;;
++  --disable-rsound)     _rsound=no      ;;
+   --enable-pulse)       _pulse=yes      ;;
+   --disable-pulse)      _pulse=no       ;;
+   --enable-jack)        _jack=yes       ;;
+@@ -5481,7 +5485,27 @@
+   noaomodules="esd $noaomodules"
+ fi
+ 
++echocheck "RSound"
++if test "$_rsound" = auto ; then
++   _rsound=no
++   cat > $TMPC << EOF
++#include <rsound.h>
++int main(void) { rsound_t *rd; rsd_init(&rd); return 0; }
++EOF
++cc_check -lrsound && _rsound=yes
++fi
++echores "$_rsound"
+ 
++if test "$_rsound" = yes ; then
++   def_rsound='#define CONFIG_RSOUND 1'
++   aomodules="rsound $aomodules"
++   libs_mplayer="$libs_mplayer -lrsound"
++else
++   def_rsound='#undef CONFIG_RSOUND'
++   noaomodules="rsound $noaomodules"
++fi
++
++
+ echocheck "NAS"
+ if test "$_nas" = auto ; then
+   _nas=no
+@@ -8081,6 +8105,7 @@
+ DXR2 = $_dxr2
+ DXR3 = $_dxr3
+ ESD = $_esd
++RSOUND = $_rsound
+ FAAC=$_faac
+ FAAD = $_faad
+ FAAD_INTERNAL = $_faad_internal
+@@ -8530,6 +8555,7 @@
+ $def_dart
+ $def_esd
+ $def_esd_latency
++$def_rsound
+ $def_jack
+ $def_kai
+ $def_nas

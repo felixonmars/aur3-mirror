@@ -1,0 +1,5309 @@
+diff -r beb8d83a8658 -r 714d808e57bb Makefile
+--- a/Makefile	Wed Aug 25 09:22:52 2010 +0100
++++ b/Makefile	Fri Dec 24 10:29:50 2010 +0000
+@@ -81,6 +81,10 @@
+ tools/ioemu-dir:
+ 	$(MAKE) -C tools ioemu-dir-find
+ 
++.PHONY: tools/ioemu-dir-force-update
++tools/ioemu-dir-force-update:
++	$(MAKE) -C tools ioemu-dir-force-update
++
+ .PHONY: install-docs
+ install-docs:
+ 	sh ./docs/check_pkgs && $(MAKE) -C docs install || true
+diff -r beb8d83a8658 -r 714d808e57bb buildconfigs/enable-xen-config
+--- a/buildconfigs/enable-xen-config	Wed Aug 25 09:22:52 2010 +0100
++++ b/buildconfigs/enable-xen-config	Fri Dec 24 10:29:50 2010 +0000
+@@ -27,26 +27,37 @@
+ setopt CONFIG_PARAVIRT y
+ setopt CONFIG_PARAVIRT_DEBUG y
+ setopt CONFIG_PARAVIRT_GUEST y
++setopt CONFIG_PARAVIRT_SPINLOCKS y
+ 
+ setopt CONFIG_XEN y
+ setopt CONFIG_XEN_BLKDEV_FRONTEND y
+ setopt CONFIG_XEN_NETDEV_FRONTEND y
+ setopt CONFIG_XEN_KBDDEV_FRONTEND y
+ setopt CONFIG_XEN_FBDEV_FRONTEND y
++setopt CONFIG_XEN_PCIDEV_FRONTEND y
+ setopt CONFIG_XEN_BALLOON y
+ setopt CONFIG_XEN_SCRUB_PAGES y
+ setopt CONFIG_XEN_DEV_EVTCHN y
+ setopt CONFIG_XEN_BACKEND y
+ setopt CONFIG_XEN_BLKDEV_BACKEND y
++setopt CONFIG_XEN_BLKDEV_TAP y
+ setopt CONFIG_XEN_NETDEV_BACKEND y
++setopt CONFIG_XEN_PCIDEV_BACKEND y
++setopt CONFIG_XEN_PCIDEV_BACKEND_VPCI y
++setopt CONFIG_XEN_PCIDEV_BACKEND_PASS n
++setopt CONFIG_XEN_PCIDEV_BACKEND_SLOT n
++setopt CONFIG_XEN_PCIDEV_BE_DEBUG n
+ setopt CONFIG_XENFS y
+ setopt CONFIG_XEN_COMPAT_XENFS y
++setopt CONFIG_XEN_PCI_PASSTHROUGH y
+ setopt CONFIG_HVC_XEN y
+ setopt CONFIG_XEN_MAX_DOMAIN_MEMORY 32
+ setopt CONFIG_XEN_DEBUG_FS y
+ setopt CONFIG_XEN_DOM0 y
+ setopt CONFIG_XEN_SYS_HYPERVISOR y
+ setopt CONFIG_XEN_GNTDEV y
++setopt CONFIG_XEN_PLATFORM_PCI y
++
+ setopt CONFIG_VMI y
+ 
+ setopt CONFIG_KVM y
+@@ -64,6 +75,13 @@
+ 
+ setopt CONFIG_DEBUG_STACK_USAGE n
+ 
++setopt CONFIG_MEMORY_HOTPLUG y
++setopt CONFIG_MEMORY_HOTREMOVE y
++
++setopt CONFIG_MIGRATION n
++
++setopt CONFIG_ACPI_HOTPLUG_MEMORY n
++
+ # Should all be set one way or another in defconfig but aren't
+ setopt CONFIG_NUMA n
+ setopt CONFIG_X86_VSMP n
+@@ -80,10 +98,16 @@
+ setopt CONFIG_X86_MCE_INTEL n
+ setopt CONFIG_X86_MCE_AMD n
+ setopt CONFIG_CRYPTO_AES_NI_INTEL n
++setopt CONFIG_CISS_SCSI_TAPE n
+ 
+ setopt CONFIG_FUSION y
+ setopt CONFIG_FUSION_SPI m
+ setopt CONFIG_FUSION_SAS m
++setopt CONFIG_FUSION_FC m
++setopt CONFIG_FUSION_MAX_SGE 128
++setopt CONFIG_FUSION_CTL n
++setopt CONFIG_FUSION_LOGGING n
++
+ setopt CONFIG_BLK_CPQ_CISS_DA m
+ 
+ case ${XEN_TARGET_ARCH} in
+diff -r beb8d83a8658 -r 714d808e57bb extras/mini-os/netfront.c
+--- a/extras/mini-os/netfront.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/extras/mini-os/netfront.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -105,9 +105,9 @@
+     rmb(); /* Ensure we see queued responses up to 'rp'. */
+     cons = dev->rx.rsp_cons;
+ 
+-    nr_consumed = 0;
+-    some = 0;
+-    while ((cons != rp) && !some)
++    for (nr_consumed = 0, some = 0;
++         (cons != rp) && !some;
++         nr_consumed++, cons++)
+     {
+         struct net_buffer* buf;
+         unsigned char* page;
+@@ -146,10 +146,6 @@
+ #endif
+ 		dev->netif_rx(page+rx->offset,rx->status);
+         }
+-
+-        nr_consumed++;
+-
+-        ++cons;
+     }
+     dev->rx.rsp_cons=cons;
+ 
+diff -r beb8d83a8658 -r 714d808e57bb tools/Makefile
+--- a/tools/Makefile	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/Makefile	Fri Dec 24 10:29:50 2010 +0000
+@@ -107,6 +107,15 @@
+ 		cd ioemu-dir; \
+ 		./xen-setup $(IOEMU_CONFIGURE_CROSS)
+ 
++.PHONY: ioemu-dir-force-update
++ioemu-dir-force-update:
++	set -ex; \
++	if [ "$(QEMU_TAG)" ]; then \
++		cd ioemu-remote; \
++		$(GIT) fetch origin; \
++		$(GIT) reset --hard $(QEMU_TAG); \
++	fi
++
+ subdir-all-ioemu-dir subdir-install-ioemu-dir: ioemu-dir-find
+ 
+ subdir-clean-ioemu-dir:
+diff -r beb8d83a8658 -r 714d808e57bb tools/debugger/gdbsx/gx/gx_comm.c
+--- a/tools/debugger/gdbsx/gx/gx_comm.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/debugger/gdbsx/gx/gx_comm.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -227,13 +227,19 @@
+         
+         gxprt("Bad checksum, sentsum=0x%x, csum=0x%x, buf=%s\n",
+               (c1 << 4) + c2, csum, buf);
+-        write(remote_fd, "-", 1);
++        if (write(remote_fd, "-", 1) != 1) {
++            perror("write");
++            return -1;
++        }
+     }
+     if (gx_remote_dbg) {
+         gxprt("getpkt (\"%s\");  [sending ack] \n", buf);
+     }
+         
+-    write(remote_fd, "+", 1);
++    if (write(remote_fd, "+", 1) != 1) {
++        perror("write");
++        return -1;
++    }
+         
+     if (gx_remote_dbg) {
+         gxprt("[sent ack]\n");
+diff -r beb8d83a8658 -r 714d808e57bb tools/debugger/gdbsx/xg/xg_main.c
+--- a/tools/debugger/gdbsx/xg/xg_main.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/debugger/gdbsx/xg/xg_main.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -158,6 +158,7 @@
+ 
+ 
+ /*
++ * Precondition: domctl global struct must be filled 
+  * Returns : 0 Success, failure otherwise with errno set
+  */
+ static int
+@@ -366,6 +367,19 @@
+     union vcpu_guest_context_any anyc;
+     int sz = sizeof(anyc);
+ 
++    /* first try the MTF for hvm guest. otherwise do manually */
++    if (_hvm_guest) {
++        domctl.u.debug_op.vcpu = which_vcpu;
++        domctl.u.debug_op.op = setit ? XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_ON :
++                                       XEN_DOMCTL_DEBUG_OP_SINGLE_STEP_OFF;
++
++        if (_domctl_hcall(XEN_DOMCTL_debug_op, NULL, 0) == 0) {
++            XGTRC("vcpu:%d:MTF success setit:%d\n", which_vcpu, setit);
++            return 0;
++        }
++        XGTRC("vcpu:%d:MTF failed. setit:%d\n", which_vcpu, setit);
++    }
++
+     memset(&anyc, 0, sz);
+     domctl.u.vcpucontext.vcpu = (uint16_t)which_vcpu;
+     set_xen_guest_handle(domctl.u.vcpucontext.ctxt, &anyc.ctxt);
+diff -r beb8d83a8658 -r 714d808e57bb tools/firmware/hvmloader/hvmloader.c
+--- a/tools/firmware/hvmloader/hvmloader.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/firmware/hvmloader/hvmloader.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -196,7 +196,7 @@
+     outb(0x4d1, (uint8_t)(PCI_ISA_IRQ_MASK >> 8));
+ 
+     /* Scan the PCI bus and map resources. */
+-    for ( devfn = 0; devfn < 128; devfn++ )
++    for ( devfn = 0; devfn < 256; devfn++ )
+     {
+         class     = pci_readw(devfn, PCI_CLASS_DEVICE);
+         vendor_id = pci_readw(devfn, PCI_VENDOR_ID);
+@@ -466,11 +466,10 @@
+  */
+ static int scan_etherboot_nic(uint32_t copy_rom_dest)
+ {
+-    uint8_t devfn;
+-    uint16_t class, vendor_id, device_id;
++    uint16_t class, vendor_id, device_id, devfn;
+     int rom_size = 0;
+ 
+-    for ( devfn = 0; (devfn < 128) && !rom_size; devfn++ )
++    for ( devfn = 0; (devfn < 256) && !rom_size; devfn++ )
+     {
+         class     = pci_readw(devfn, PCI_CLASS_DEVICE);
+         vendor_id = pci_readw(devfn, PCI_VENDOR_ID);
+@@ -494,10 +493,9 @@
+ static int pci_load_option_roms(uint32_t rom_base_addr)
+ {
+     uint32_t option_rom_addr, rom_phys_addr = rom_base_addr;
+-    uint16_t vendor_id, device_id;
+-    uint8_t devfn, class;
++    uint16_t vendor_id, device_id, devfn, class;
+ 
+-    for ( devfn = 0; devfn < 128; devfn++ )
++    for ( devfn = 0; devfn < 256; devfn++ )
+     {
+         class     = pci_readb(devfn, PCI_CLASS_DEVICE + 1);
+         vendor_id = pci_readw(devfn, PCI_VENDOR_ID);
+diff -r beb8d83a8658 -r 714d808e57bb tools/hotplug/Linux/vif-common.sh
+--- a/tools/hotplug/Linux/vif-common.sh	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/hotplug/Linux/vif-common.sh	Fri Dec 24 10:29:50 2010 +0000
+@@ -73,10 +73,10 @@
+     local c="-D"
+   fi
+ 
+-  iptables "$c" FORWARD -m physdev --physdev-in "$vif" "$@" -j ACCEPT \
+-    2>/dev/null &&
+-  iptables "$c" FORWARD -m state --state RELATED,ESTABLISHED -m physdev \
+-    --physdev-out "$vif" -j ACCEPT 2>/dev/null
++  iptables "$c" FORWARD -m physdev --physdev-is-bridged --physdev-in "$vif" \
++    "$@" -j ACCEPT 2>/dev/null &&
++  iptables "$c" FORWARD -m physdev --physdev-is-bridged --physdev-out "$vif" \
++    -j ACCEPT 2>/dev/null
+ 
+   if [ "$command" == "online" -a $? -ne 0 ]
+   then
+diff -r beb8d83a8658 -r 714d808e57bb tools/libxc/xc_tmem.c
+--- a/tools/libxc/xc_tmem.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/libxc/xc_tmem.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -49,7 +49,56 @@
+     set_xen_guest_handle(op.u.ctrl.buf,buf);
+     op.u.ctrl.arg1 = arg1;
+     op.u.ctrl.arg2 = arg2;
+-    op.u.ctrl.arg3 = arg3;
++    /* use xc_tmem_control_oid if arg3 is required */
++    op.u.ctrl.oid[0] = 0;
++    op.u.ctrl.oid[1] = 0;
++    op.u.ctrl.oid[2] = 0;
++
++    if (subop == TMEMC_LIST) {
++        if ((arg1 != 0) && (lock_pages(buf, arg1) != 0))
++        {
++            PERROR("Could not lock memory for Xen hypercall");
++            return -ENOMEM;
++        }
++    }
++
++#ifdef VALGRIND
++    if (arg1 != 0)
++        memset(buf, 0, arg1);
++#endif
++
++    rc = do_tmem_op(xc, &op);
++
++    if (subop == TMEMC_LIST) {
++        if (arg1 != 0)
++            unlock_pages(buf, arg1);
++    }
++
++    return rc;
++}
++
++int xc_tmem_control_oid(int xc,
++                        int32_t pool_id,
++                        uint32_t subop,
++                        uint32_t cli_id,
++                        uint32_t arg1,
++                        uint32_t arg2,
++                        struct tmem_oid oid,
++                        void *buf)
++{
++    tmem_op_t op;
++    int rc;
++
++    op.cmd = TMEM_CONTROL;
++    op.pool_id = pool_id;
++    op.u.ctrl.subop = subop;
++    op.u.ctrl.cli_id = cli_id;
++    set_xen_guest_handle(op.u.ctrl.buf,buf);
++    op.u.ctrl.arg1 = arg1;
++    op.u.ctrl.arg2 = arg2;
++    op.u.ctrl.oid[0] = oid.oid[0];
++    op.u.ctrl.oid[1] = oid.oid[1];
++    op.u.ctrl.oid[2] = oid.oid[2];
+ 
+     if (subop == TMEMC_LIST) {
+         if ((arg1 != 0) && (lock_pages(buf, arg1) != 0))
+@@ -115,10 +164,10 @@
+ 
+     op.cmd = TMEM_AUTH;
+     op.pool_id = 0;
+-    op.u.new.arg1 = cli_id;
+-    op.u.new.flags = arg1;
+-    if ( xc_tmem_uuid_parse(uuid_str, &op.u.new.uuid[0],
+-                                      &op.u.new.uuid[1]) < 0 )
++    op.u.creat.arg1 = cli_id;
++    op.u.creat.flags = arg1;
++    if ( xc_tmem_uuid_parse(uuid_str, &op.u.creat.uuid[0],
++                                      &op.u.creat.uuid[1]) < 0 )
+     {
+         PERROR("Can't parse uuid, use xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx");
+         return -1;
+@@ -239,7 +288,7 @@
+                 } else {
+                     /* page list terminator */
+                     h = (struct tmem_handle *)buf;
+-                    h->oid = -1;
++                    h->oid[0] = h->oid[1] = h->oid[2] = -1L;
+                     if ( write_exact(io_fd, &h->oid, sizeof(h->oid)) )
+                         return -1;
+                     break;
+@@ -276,7 +325,8 @@
+         if ( write_exact(io_fd, &handle.index, sizeof(handle.index)) )
+             return -1;
+         count++;
+-        checksum += handle.pool_id + handle.oid + handle.index;
++        checksum += handle.pool_id + handle.oid[0] + handle.oid[1] +
++                    handle.oid[2] + handle.index;
+     }
+     if ( count )
+             DPRINTF("needed %d tmem invalidates, check=%d\n",count,checksum);
+@@ -306,10 +356,10 @@
+ 
+     op.cmd = TMEM_RESTORE_NEW;
+     op.pool_id = pool_id;
+-    op.u.new.arg1 = cli_id;
+-    op.u.new.flags = flags;
+-    op.u.new.uuid[0] = uuid_lo;
+-    op.u.new.uuid[1] = uuid_hi;
++    op.u.creat.arg1 = cli_id;
++    op.u.creat.flags = flags;
++    op.u.creat.uuid[0] = uuid_lo;
++    op.u.creat.uuid[1] = uuid_hi;
+ 
+     return do_tmem_op(xc, &op);
+ }
+@@ -386,20 +436,21 @@
+         }
+         for ( j = n_pages; j > 0; j-- )
+         {
+-            uint64_t oid;
++            struct tmem_oid oid;
+             uint32_t index;
+             int rc;
+             if ( read_exact(io_fd, &oid, sizeof(oid)) )
+                 return -1;
+-            if ( oid == -1 )
++            if ( oid.oid[0] == -1L && oid.oid[1] == -1L && oid.oid[2] == -1L )
+                 break;
+             if ( read_exact(io_fd, &index, sizeof(index)) )
+                 return -1;
+             if ( read_exact(io_fd, buf, pagesize) )
+                 return -1;
+             checksum += *buf;
+-            if ( (rc = xc_tmem_control(xc, pool_id, TMEMC_RESTORE_PUT_PAGE,
+-                                 dom, bufsize, index, oid, buf)) <= 0 )
++            if ( (rc = xc_tmem_control_oid(xc, pool_id,
++                                           TMEMC_RESTORE_PUT_PAGE, dom,
++                                           bufsize, index, oid, buf)) <= 0 )
+             {
+                 DPRINTF("xc_tmem_restore: putting page failed, rc=%d\n",rc);
+                 return -1;
+@@ -419,7 +470,7 @@
+ int xc_tmem_restore_extra(int xc, int dom, int io_fd)
+ {
+     uint32_t pool_id;
+-    uint64_t oid;
++    struct tmem_oid oid;
+     uint32_t index;
+     int count = 0;
+     int checksum = 0;
+@@ -430,11 +481,11 @@
+             return -1;
+         if ( read_exact(io_fd, &index, sizeof(index)) )
+             return -1;
+-        if ( xc_tmem_control(xc, pool_id, TMEMC_RESTORE_FLUSH_PAGE, dom,
+-                             0,index,oid,NULL) <= 0 )
++        if ( xc_tmem_control_oid(xc, pool_id, TMEMC_RESTORE_FLUSH_PAGE, dom,
++                                 0,index,oid,NULL) <= 0 )
+             return -1;
+         count++;
+-        checksum += pool_id + oid + index;
++        checksum += pool_id + oid.oid[0] + oid.oid[1] + oid.oid[2] + index;
+     }
+     if ( pool_id != -1 )
+         return -1;
+diff -r beb8d83a8658 -r 714d808e57bb tools/libxc/xenctrl.h
+--- a/tools/libxc/xenctrl.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/libxc/xenctrl.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -1309,6 +1309,14 @@
+ /**
+  * tmem operations
+  */
++
++struct tmem_oid {
++    uint64_t oid[3];
++};
++
++int xc_tmem_control_oid(int xc, int32_t pool_id, uint32_t subop,
++                        uint32_t cli_id, uint32_t arg1, uint32_t arg2,
++                        struct tmem_oid oid, void *buf);
+ int xc_tmem_control(int xc, int32_t pool_id, uint32_t subop, uint32_t cli_id,
+                     uint32_t arg1, uint32_t arg2, uint64_t arg3, void *buf);
+ int xc_tmem_auth(int xc_handle, int cli_id, char *uuid_str, int arg1);
+diff -r beb8d83a8658 -r 714d808e57bb tools/pygrub/src/GrubConf.py
+--- a/tools/pygrub/src/GrubConf.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/pygrub/src/GrubConf.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -77,6 +77,8 @@
+             self._part = val
+             return
+         val = val.replace("(", "").replace(")", "")
++        if val[:5] == "msdos":
++            val = val[5:]
+         self._part = int(val)
+     part = property(get_part, set_part)
+ 
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/util/bugtool.py
+--- a/tools/python/xen/util/bugtool.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/util/bugtool.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -141,7 +141,7 @@
+     finally:
+         f.close()
+ 
+-    raise "Could not find title of bug %d!" % bug
++    raise ValueError("Could not find title of bug %d!" % bug)
+ 
+ 
+ def send(bug, conn, fd, filename, username, password):
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/util/xmlrpcclient.py
+--- a/tools/python/xen/util/xmlrpcclient.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/util/xmlrpcclient.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -22,6 +22,7 @@
+ import string
+ import xmlrpclib
+ from types import StringTypes
++from sys import hexversion
+ 
+ 
+ try:
+@@ -54,7 +55,12 @@
+         return xmlrpclib.Transport.request(self, host, '/RPC2',
+                                            request_body, verbose)
+     def make_connection(self, host):
+-        return HTTPUnix(self.__handler)
++        if hexversion < 0x02070000:
++            # python 2.6 or earlier
++            return HTTPUnix(self.__handler)
++        else:
++            # xmlrpclib.Transport changed in python 2.7
++            return HTTPUnixConnection(self.__handler)
+ 
+ 
+ # We need our own transport for HTTPS, because xmlrpclib.SafeTransport is
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/util/xmlrpclib2.py
+--- a/tools/python/xen/util/xmlrpclib2.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/util/xmlrpclib2.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -58,6 +58,9 @@
+ # some bugs in Keep-Alive handling and also enabled it by default
+ class XMLRPCRequestHandler(SimpleXMLRPCRequestHandler):
+     protocol_version = "HTTP/1.1"
++    # xend crashes in python 2.7 unless disable_nagle_algorithm = False
++    # it isn't used in earlier versions so it is harmless to set it generally
++    disable_nagle_algorithm = False
+ 
+     def __init__(self, hosts_allowed, request, client_address, server):
+         self.hosts_allowed = hosts_allowed
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/xend/XendBase.py
+--- a/tools/python/xen/xend/XendBase.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/xend/XendBase.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -115,7 +115,7 @@
+             # In OSS, ref == uuid
+             return uuid
+         else:
+-            raise "Big Error.. TODO!"
++            raise ValueError("Big Error.. TODO!")
+ 
+     def get_all_records(cls):
+         return dict([(inst.get_uuid(), inst.get_record())
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/xend/XendDomainInfo.py
+--- a/tools/python/xen/xend/XendDomainInfo.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/xend/XendDomainInfo.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -3243,6 +3243,7 @@
+ 
+             taptype = blkdev_uname_to_taptype(disk)
+             mounted = devtype in ['tap', 'tap2'] and taptype != 'aio' and taptype != 'sync' and not os.stat(fn).st_rdev
++            mounted_vbd_uuid = 0
+             if mounted:
+                 # This is a file, not a device.  pygrub can cope with a
+                 # file if it's raw, but if it's QCOW or other such formats
+@@ -3258,7 +3259,8 @@
+ 
+                 from xen.xend import XendDomain
+                 dom0 = XendDomain.instance().privilegedDomain()
+-                dom0._waitForDeviceUUID(dom0.create_vbd(vbd, disk))
++                mounted_vbd_uuid = dom0.create_vbd(vbd, disk);
++                dom0._waitForDeviceUUID(mounted_vbd_uuid)
+                 fn = BOOTLOADER_LOOPBACK_DEVICE
+ 
+             try:
+@@ -3268,8 +3270,9 @@
+                 if mounted:
+                     log.info("Unmounting %s from %s." %
+                              (fn, BOOTLOADER_LOOPBACK_DEVICE))
+-
+-                    dom0.destroyDevice('tap', BOOTLOADER_LOOPBACK_DEVICE)
++                    _, vbd_info = dom0.info['devices'][mounted_vbd_uuid]
++                    dom0.destroyDevice(dom0.getBlockDeviceClass(vbd_info['devid']), 
++                                       BOOTLOADER_LOOPBACK_DEVICE, force = True)
+ 
+             if blcfg is None:
+                 msg = "Had a bootloader specified, but can't find disk"
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/xm/main.py
+--- a/tools/python/xen/xm/main.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/xm/main.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -2616,7 +2616,7 @@
+                              for ref, record in server.xenapi.network
+                              .get_all_records().items()])
+             if bridge not in networks.keys():
+-                raise "Unknown bridge name!"
++                raise ValueError("Unknown bridge name!")
+             return networks[bridge]
+ 
+         vif_conv = {
+diff -r beb8d83a8658 -r 714d808e57bb tools/python/xen/xm/xenapi_create.py
+--- a/tools/python/xen/xm/xenapi_create.py	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/python/xen/xm/xenapi_create.py	Fri Dec 24 10:29:50 2010 +0000
+@@ -703,7 +703,7 @@
+                 vm.attributes['security_label'] = \
+                                     security.set_security_label(sec_data[0][1][1],sec_data[0][2][1])
+             except Exception, e:
+-                raise "Invalid security data format: %s" % str(sec_data)
++                raise ValueError("Invalid security data format: %s" % str(sec_data))
+ 
+         # Make the name tag
+ 
+diff -r beb8d83a8658 -r 714d808e57bb tools/xenpaging/xenpaging.c
+--- a/tools/xenpaging/xenpaging.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/xenpaging/xenpaging.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -19,6 +19,7 @@
+  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+  */
+ 
++#define _XOPEN_SOURCE	600
+ 
+ #include <inttypes.h>
+ #include <stdlib.h>
+diff -r beb8d83a8658 -r 714d808e57bb tools/xenstore/xs.c
+--- a/tools/xenstore/xs.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/tools/xenstore/xs.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -285,6 +285,8 @@
+ 	mutex_unlock(&h->request_mutex);
+ 	mutex_unlock(&h->reply_mutex);
+ 	mutex_unlock(&h->watch_mutex);
++
++	close_fds_free(h);
+ }
+ 
+ static bool read_all(int fd, void *data, unsigned int len)
+diff -r beb8d83a8658 -r 714d808e57bb xen/Makefile
+--- a/xen/Makefile	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/Makefile	Fri Dec 24 10:29:50 2010 +0000
+@@ -2,7 +2,7 @@
+ # All other places this is stored (eg. compile.h) should be autogenerated.
+ export XEN_VERSION       = 4
+ export XEN_SUBVERSION    = 0
+-export XEN_EXTRAVERSION ?= .1$(XEN_VENDORVERSION)
++export XEN_EXTRAVERSION ?= .2-rc1-pre$(XEN_VENDORVERSION)
+ export XEN_FULLVERSION   = $(XEN_VERSION).$(XEN_SUBVERSION)$(XEN_EXTRAVERSION)
+ -include xen-version
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/ia64/xen/domain.c
+--- a/xen/arch/ia64/xen/domain.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/ia64/xen/domain.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -372,7 +372,7 @@
+ void startup_cpu_idle_loop(void)
+ {
+ 	/* Just some sanity to ensure that the scheduler is set up okay. */
+-	ASSERT(current->domain->domain_id == IDLE_DOMAIN_ID);
++	ASSERT(is_idle_vcpu(current));
+ 	raise_softirq(SCHEDULE_SOFTIRQ);
+ 
+ 	continue_cpu_idle_loop();
+@@ -563,7 +563,7 @@
+ {
+ 	struct pt_regs *regs = vcpu_regs (v);
+ 	struct switch_stack *sw = (struct switch_stack *) regs - 1;
+-	extern void ia64_ret_from_clone;
++	extern char ia64_ret_from_clone;
+ 
+ 	memset(sw, 0, sizeof(struct switch_stack) + sizeof(struct pt_regs));
+ 	sw->ar_bspstore = (unsigned long)vcpu_to_rbs_bottom(v);
+@@ -726,7 +726,7 @@
+ static int
+ vcpu_has_not_run(struct vcpu* v)
+ {
+-	extern void ia64_ret_from_clone;
++	extern char ia64_ret_from_clone;
+ 	struct switch_stack *sw = vcpu_to_switch_stack(v);
+ 
+ 	return (sw == (struct switch_stack *)(vcpu_regs(v)) - 1) &&
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/ia64/xen/machine_kexec.c
+--- a/xen/arch/ia64/xen/machine_kexec.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/ia64/xen/machine_kexec.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -147,7 +147,7 @@
+ 
+ static int machine_kexec_get_xen(xen_kexec_range_t *range)
+ {
+-	range->start = range->start = ia64_tpa(_text);
++	range->start = ia64_tpa(_text);
+ 	range->size = (unsigned long)_end - (unsigned long)_text;
+ 	return 0;
+ }
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/ia64/xen/xensetup.c
+--- a/xen/arch/ia64/xen/xensetup.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/ia64/xen/xensetup.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -567,7 +567,7 @@
+ 
+     scheduler_init();
+     idle_vcpu[0] = (struct vcpu*) ia64_r13;
+-    idle_domain = domain_create(IDLE_DOMAIN_ID, 0, 0);
++    idle_domain = domain_create(DOMID_IDLE, 0, 0);
+     if ( idle_domain == NULL )
+         BUG();
+     idle_domain->vcpu = idle_vcpu;
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/acpi/cpu_idle.c
+--- a/xen/arch/x86/acpi/cpu_idle.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/acpi/cpu_idle.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -226,6 +226,31 @@
+     return atomic_read(&this_cpu(schedule_data).urgent_count);
+ }
+ 
++/*
++ * "AAJ72. EOI Transaction May Not be Sent if Software Enters Core C6 During 
++ * an Interrupt Service Routine"
++ * 
++ * There was an errata with some Core i7 processors that an EOI transaction 
++ * may not be sent if software enters core C6 during an interrupt service 
++ * routine. So we don't enter deep Cx state if there is an EOI pending.
++ */
++bool_t errata_c6_eoi_workaround(void)
++{
++    static bool_t fix_needed = -1;
++
++    if ( unlikely(fix_needed == -1) )
++    {
++        int model = boot_cpu_data.x86_model;
++        fix_needed = (cpu_has_apic && !directed_eoi_enabled &&
++                      (boot_cpu_data.x86_vendor == X86_VENDOR_INTEL) &&
++                      (boot_cpu_data.x86 == 6) &&
++                      ((model == 0x1a) || (model == 0x1e) || (model == 0x1f) ||
++                       (model == 0x25) || (model == 0x2c) || (model == 0x2f)));
++    }
++
++    return (fix_needed && cpu_has_pending_apic_eoi());
++}
++
+ static void acpi_processor_idle(void)
+ {
+     struct acpi_processor_power *power = processor_powers[smp_processor_id()];
+@@ -277,6 +302,9 @@
+         return;
+     }
+ 
++    if ( (cx->type == ACPI_STATE_C3) && errata_c6_eoi_workaround() )
++        cx = power->safe_state;
++
+     power->last_state = cx;
+ 
+     /*
+@@ -689,7 +717,8 @@
+     {
+     case ACPI_ADR_SPACE_FIXED_HARDWARE:
+         if ( xen_cx->reg.bit_width == VENDOR_INTEL &&
+-             xen_cx->reg.bit_offset == NATIVE_CSTATE_BEYOND_HALT )
++             xen_cx->reg.bit_offset == NATIVE_CSTATE_BEYOND_HALT &&
++             boot_cpu_has(X86_FEATURE_MWAIT) )
+             cx->entry_method = ACPI_CSTATE_EM_FFH;
+         else
+             cx->entry_method = ACPI_CSTATE_EM_HALT;
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/acpi/power.c
+--- a/xen/arch/x86/acpi/power.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/acpi/power.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -12,7 +12,6 @@
+ 
+ #include <xen/config.h>
+ #include <asm/io.h>
+-#include <asm/acpi.h>
+ #include <xen/acpi.h>
+ #include <xen/errno.h>
+ #include <xen/iocap.h>
+@@ -159,6 +158,8 @@
+ 
+     freeze_domains();
+ 
++    acpi_dmar_reinstate();
++
+     disable_nonboot_cpus();
+     if ( num_online_cpus() != 1 )
+     {
+@@ -229,6 +230,7 @@
+     cpufreq_add_cpu(0);
+     microcode_resume_cpu(0);
+     enable_nonboot_cpus();
++    acpi_dmar_zap();
+     thaw_domains();
+     spin_unlock(&pm_lock);
+     return error;
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/apic.c
+--- a/xen/arch/x86/apic.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/apic.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -493,9 +493,21 @@
+     apic_pm_state.active = 1;
+ }
+ 
++static void __enable_x2apic(void)
++{
++    uint64_t msr_content;
++
++    rdmsrl(MSR_IA32_APICBASE, msr_content);
++    if ( !(msr_content & MSR_IA32_APICBASE_EXTD) )
++    {
++        msr_content |= MSR_IA32_APICBASE_ENABLE | MSR_IA32_APICBASE_EXTD;
++        msr_content = (uint32_t)msr_content;
++        wrmsrl(MSR_IA32_APICBASE, msr_content);
++    }
++}
++
+ static void resume_x2apic(void)
+ {
+-    uint64_t msr_content;
+     struct IO_APIC_route_entry **ioapic_entries = NULL;
+ 
+     ASSERT(x2apic_enabled);
+@@ -517,14 +529,7 @@
+     mask_IO_APIC_setup(ioapic_entries);
+ 
+     iommu_enable_IR();
+-
+-    rdmsrl(MSR_IA32_APICBASE, msr_content);
+-    if ( !(msr_content & MSR_IA32_APICBASE_EXTD) )
+-    {
+-        msr_content |= MSR_IA32_APICBASE_ENABLE | MSR_IA32_APICBASE_EXTD;
+-        msr_content = (uint32_t)msr_content;
+-        wrmsrl(MSR_IA32_APICBASE, msr_content);
+-    }
++    __enable_x2apic();
+ 
+     restore_IO_APIC_setup(ioapic_entries);
+     unmask_8259A();
+@@ -740,9 +745,10 @@
+     apic_pm_state.apic_tmict = apic_read(APIC_TMICT);
+     apic_pm_state.apic_tdcr = apic_read(APIC_TDCR);
+     apic_pm_state.apic_thmr = apic_read(APIC_LVTTHMR);
+-    
++
+     local_irq_save(flags);
+     disable_local_APIC();
++    iommu_disable_IR();
+     local_irq_restore(flags);
+     return 0;
+ }
+@@ -1039,15 +1045,8 @@
+ 
+     if ( !x2apic_preenabled )
+     {
+-        u32 lo, hi;
+-
+-        rdmsr(MSR_IA32_APICBASE, lo, hi);
+-        if ( !(lo & MSR_IA32_APICBASE_EXTD) )
+-        {
+-            lo |= MSR_IA32_APICBASE_ENABLE | MSR_IA32_APICBASE_EXTD;
+-            wrmsr(MSR_IA32_APICBASE, lo, 0);
+-            printk("x2APIC mode enabled.\n");
+-        }
++        __enable_x2apic();
++        printk("x2APIC mode enabled.\n");
+     }
+ 
+ restore_out:
+@@ -1061,19 +1060,12 @@
+ 
+ static void enable_ap_x2apic(void)
+ {
+-    u32 lo, hi;
+-
+     ASSERT(smp_processor_id() != 0);
+ 
+     /* APs only enable x2apic when BSP did so. */
+     BUG_ON(!x2apic_enabled);
+ 
+-    rdmsr(MSR_IA32_APICBASE, lo, hi);
+-    if ( !(lo & MSR_IA32_APICBASE_EXTD) )
+-    {
+-        lo |= MSR_IA32_APICBASE_ENABLE | MSR_IA32_APICBASE_EXTD;
+-        wrmsr(MSR_IA32_APICBASE, lo, 0);
+-    }
++    __enable_x2apic();
+ }
+ 
+ void enable_x2apic(void)
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/cpu/amd.c
+--- a/xen/arch/x86/cpu/amd.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/cpu/amd.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -52,6 +52,47 @@
+ 	);
+ }
+ 
++static inline int rdmsr_amd_safe(unsigned int msr, unsigned int *lo,
++				 unsigned int *hi)
++{
++	int err;
++
++	asm volatile("1: rdmsr\n2:\n"
++		     ".section .fixup,\"ax\"\n"
++		     "3: movl %6,%2\n"
++		     "   jmp 2b\n"
++		     ".previous\n"
++		     ".section __ex_table,\"a\"\n"
++		     __FIXUP_ALIGN "\n"
++		     __FIXUP_WORD " 1b,3b\n"
++		     ".previous\n"
++		     : "=a" (*lo), "=d" (*hi), "=r" (err)
++		     : "c" (msr), "D" (0x9c5a203a), "2" (0), "i" (-EFAULT));
++
++	return err;
++}
++
++static inline int wrmsr_amd_safe(unsigned int msr, unsigned int lo,
++				 unsigned int hi)
++{
++	int err;
++
++	asm volatile("1: wrmsr\n2:\n"
++		     ".section .fixup,\"ax\"\n"
++		     "3: movl %6,%0\n"
++		     "   jmp 2b\n"
++		     ".previous\n"
++		     ".section __ex_table,\"a\"\n"
++		     __FIXUP_ALIGN "\n"
++		     __FIXUP_WORD " 1b,3b\n"
++		     ".previous\n"
++		     : "=r" (err)
++		     : "c" (msr), "a" (lo), "d" (hi), "D" (0x9c5a203a),
++		       "0" (0), "i" (-EFAULT));
++
++	return err;
++}
++
+ /*
+  * Mask the features and extended features returned by CPUID.  Parameters are
+  * set from the boot line via two methods:
+@@ -338,6 +379,24 @@
+ 	   3DNow is IDd by bit 31 in extended CPUID (1*32+31) anyway */
+ 	clear_bit(0*32+31, c->x86_capability);
+ 	
++#ifdef CONFIG_X86_64
++	if (c->x86 == 0xf && c->x86_model < 0x14
++	    && cpu_has(c, X86_FEATURE_LAHF_LM)) {
++		/*
++		 * Some BIOSes incorrectly force this feature, but only K8
++		 * revision D (model = 0x14) and later actually support it.
++		 * (AMD Erratum #110, docId: 25759).
++		 */
++		unsigned int lo, hi;
++
++		clear_bit(X86_FEATURE_LAHF_LM, c->x86_capability);
++		if (!rdmsr_amd_safe(0xc001100d, &lo, &hi)) {
++			hi &= ~1;
++			wrmsr_amd_safe(0xc001100d, lo, hi);
++		}
++	}
++#endif
++
+ 	r = get_model_name(c);
+ 
+ 	switch(c->x86)
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/cpu/intel.c
+--- a/xen/arch/x86/cpu/intel.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/cpu/intel.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -30,7 +30,7 @@
+ integer_param("cpuid_mask_ecx", opt_cpuid_mask_ecx);
+ integer_param("cpuid_mask_edx", opt_cpuid_mask_edx);
+ 
+-static int use_xsave = 1;
++static int use_xsave;
+ boolean_param("xsave", use_xsave);
+ 
+ #ifdef CONFIG_X86_INTEL_USERCOPY
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/debug.c
+--- a/xen/arch/x86/debug.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/debug.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -230,7 +230,7 @@
+ }
+ 
+ /* 
+- * addr is hypervisor addr if domid == IDLE_DOMAIN_ID, else it's guest addr
++ * addr is hypervisor addr if domid == DOMID_IDLE, else it's guest addr
+  * buf is debugger buffer.
+  * if toaddr, then addr = buf (write to addr), else buf = addr (rd from guest)
+  * pgd3: value of init_mm.pgd[3] in guest. see above.
+@@ -241,7 +241,7 @@
+            uint64_t pgd3)
+ {
+     struct domain *dp = get_domain_by_id(domid);
+-    int hyp = (domid == IDLE_DOMAIN_ID);
++    int hyp = (domid == DOMID_IDLE);
+ 
+     DBGP2("gmem:addr:%lx buf:%p len:$%d domid:%x toaddr:%x dp:%p\n", 
+           addr, buf, len, domid, toaddr, dp);
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/domain_build.c
+--- a/xen/arch/x86/domain_build.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/domain_build.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -188,6 +188,15 @@
+     if ( is_pv_32on64_domain(d) )
+         avail -= opt_dom0_max_vcpus - 1;
+ 
++    /* Reserve memory for iommu_dom0_init() (rough estimate). */
++    if ( iommu_enabled )
++    {
++        unsigned int s;
++
++        for ( s = 9; s < BITS_PER_LONG; s += 9 )
++            avail -= max_page >> s;
++    }
++
+     /*
+      * If domain 0 allocation isn't specified, reserve 1/16th of available
+      * memory for things like DMA buffers. This reservation is clamped to 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/hvm.c
+--- a/xen/arch/x86/hvm/hvm.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/hvm.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -2120,7 +2120,7 @@
+     case MSR_IA32_MTRR_PHYSBASE0...MSR_IA32_MTRR_PHYSMASK7:
+         if ( !mtrr )
+             goto gp_fault;
+-        if ( !mtrr_var_range_msr_set(&v->arch.hvm_vcpu.mtrr,
++        if ( !mtrr_var_range_msr_set(v->domain, &v->arch.hvm_vcpu.mtrr,
+                                      regs->ecx, msr_content) )
+             goto gp_fault;
+         break;
+@@ -3124,6 +3124,15 @@
+         break;
+     }
+ 
++    case HVMOP_get_time: {
++        xen_hvm_get_time_t gxt;
++
++        gxt.now = NOW();
++        if ( copy_to_guest(arg, &gxt, 1) )
++            rc = -EFAULT;
++        break;
++    }
++
+     default:
+     {
+         gdprintk(XENLOG_WARNING, "Bad HVM op %ld.\n", op);
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/mtrr.c
+--- a/xen/arch/x86/hvm/mtrr.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/mtrr.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -30,10 +30,7 @@
+ 
+ extern struct mtrr_state mtrr_state;
+ 
+-static uint64_t phys_base_msr_mask;
+-static uint64_t phys_mask_msr_mask;
+ static uint32_t size_or_mask;
+-static uint32_t size_and_mask;
+ 
+ /* Get page attribute fields (PAn) from PAT MSR. */
+ #define pat_cr_2_paf(pat_cr,n)  ((((uint64_t)pat_cr) >> ((n)<<3)) & 0xff)
+@@ -181,11 +178,7 @@
+     if ( cpuid_eax(0x80000000) >= 0x80000008 )
+         phys_addr = (uint8_t)cpuid_eax(0x80000008);
+ 
+-    phys_base_msr_mask = ~((((uint64_t)1) << phys_addr) - 1) | 0xf00UL;
+-    phys_mask_msr_mask = ~((((uint64_t)1) << phys_addr) - 1) | 0x7ffUL;
+-
+     size_or_mask = ~((1 << (phys_addr - PAGE_SHIFT)) - 1);
+-    size_and_mask = ~size_or_mask & 0xfff00000;
+ 
+     return 0;
+ }
+@@ -482,34 +475,39 @@
+     return 1;
+ }
+ 
+-bool_t mtrr_var_range_msr_set(struct mtrr_state *m, uint32_t msr,
+-                              uint64_t msr_content)
++bool_t mtrr_var_range_msr_set(
++    struct domain *d, struct mtrr_state *m, uint32_t msr, uint64_t msr_content)
+ {
+-    uint32_t index;
++    uint32_t index, type, phys_addr, eax, ebx, ecx, edx;
+     uint64_t msr_mask;
+     uint64_t *var_range_base = (uint64_t*)m->var_ranges;
+ 
+     index = msr - MSR_IA32_MTRR_PHYSBASE0;
++    if ( var_range_base[index] == msr_content )
++        return 1;
+ 
+-    if ( var_range_base[index] != msr_content )
++    type = (uint8_t)msr_content;
++    if ( unlikely(!(type == 0 || type == 1 ||
++                    type == 4 || type == 5 || type == 6)) )
++        return 0;
++
++    phys_addr = 36;
++    domain_cpuid(d, 0x80000000, 0, &eax, &ebx, &ecx, &edx);
++    if ( eax >= 0x80000008 )
+     {
+-        uint32_t type = msr_content & 0xff;
++        domain_cpuid(d, 0x80000008, 0, &eax, &ebx, &ecx, &edx);
++        phys_addr = (uint8_t)eax;
++    }
++    msr_mask = ~((((uint64_t)1) << phys_addr) - 1);
++    msr_mask |= (index & 1) ? 0x7ffUL : 0xf00UL;
++    if ( unlikely(msr_content && (msr_content & msr_mask)) )
++    {
++        HVM_DBG_LOG(DBG_LEVEL_MSR, "invalid msr content:%"PRIx64"\n",
++                    msr_content);
++        return 0;
++    }
+ 
+-        msr_mask = (index & 1) ? phys_mask_msr_mask : phys_base_msr_mask;
+-
+-        if ( unlikely(!(type == 0 || type == 1 ||
+-                        type == 4 || type == 5 || type == 6)) )
+-            return 0;
+-
+-        if ( unlikely(msr_content && (msr_content & msr_mask)) )
+-        {
+-            HVM_DBG_LOG(DBG_LEVEL_MSR, "invalid msr content:%"PRIx64"\n",
+-                        msr_content);
+-            return 0;
+-        }
+-
+-        var_range_base[index] = msr_content;
+-    }
++    var_range_base[index] = msr_content;
+ 
+     m->overlapped = is_var_mtrr_overlapped(m);
+ 
+@@ -692,9 +690,9 @@
+ 
+     for ( i = 0; i < MTRR_VCNT; i++ )
+     {
+-        mtrr_var_range_msr_set(mtrr_state,
++        mtrr_var_range_msr_set(d, mtrr_state,
+                 MTRRphysBase_MSR(i), hw_mtrr.msr_mtrr_var[i*2]);
+-        mtrr_var_range_msr_set(mtrr_state,
++        mtrr_var_range_msr_set(d, mtrr_state,
+                 MTRRphysMask_MSR(i), hw_mtrr.msr_mtrr_var[i*2+1]);
+     }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/pmtimer.c
+--- a/xen/arch/x86/hvm/pmtimer.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/pmtimer.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -83,14 +83,16 @@
+  * since the last time we did that. */
+ static void pmt_update_time(PMTState *s)
+ {
+-    uint64_t curr_gtime;
++    uint64_t curr_gtime, tmp;
+     uint32_t msb = s->pm.tmr_val & TMR_VAL_MSB;
+     
+     ASSERT(spin_is_locked(&s->lock));
+ 
+     /* Update the timer */
+     curr_gtime = hvm_get_guest_time(s->vcpu);
+-    s->pm.tmr_val += ((curr_gtime - s->last_gtime) * s->scale) >> 32;
++    tmp = ((curr_gtime - s->last_gtime) * s->scale) + s->not_accounted;
++    s->not_accounted = (uint32_t)tmp;
++    s->pm.tmr_val += tmp >> 32;
+     s->pm.tmr_val &= TMR_VAL_MASK;
+     s->last_gtime = curr_gtime;
+     
+@@ -257,6 +259,7 @@
+ 
+     /* Calculate future counter values from now. */
+     s->last_gtime = hvm_get_guest_time(s->vcpu);
++    s->not_accounted = 0;
+ 
+     /* Set the SCI state from the registers */ 
+     pmt_update_sci(s);
+@@ -276,6 +279,7 @@
+     spin_lock_init(&s->lock);
+ 
+     s->scale = ((uint64_t)FREQUENCE_PMTIMER << 32) / SYSTEM_TIME_HZ;
++    s->not_accounted = 0;
+     s->vcpu = v;
+ 
+     /* Intercept port I/O (need two handlers because PM1a_CNT is between
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/svm/svm.c
+--- a/xen/arch/x86/hvm/svm/svm.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/svm/svm.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -889,9 +889,6 @@
+         return;
+     }
+ 
+-    /* Xen does not fill x86_capability words except 0. */
+-    boot_cpu_data.x86_capability[5] = cpuid_ecx(0x80000001);
+-
+     if ( !test_bit(X86_FEATURE_SVME, &boot_cpu_data.x86_capability) )
+         return;
+ 
+@@ -932,7 +929,7 @@
+         _d.qualification = 0;
+         _d.mfn = mfn_x(gfn_to_mfn_query(current->domain, gfn, &_d.p2mt));
+         
+-        __trace_var(TRC_HVM_NPF, 0, sizeof(_d), (unsigned char *)&_d);
++        __trace_var(TRC_HVM_NPF, 0, sizeof(_d), &_d);
+     }
+ 
+     if ( hvm_hap_nested_page_fault(gfn) )
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/vlapic.c
+--- a/xen/arch/x86/hvm/vlapic.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/vlapic.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -863,12 +863,12 @@
+     unsigned long tmict = vlapic_get_reg(s, APIC_TMICT);
+     uint64_t period;
+ 
++    s->pt.irq = vlapic_get_reg(s, APIC_LVTT) & APIC_VECTOR_MASK;
+     if ( (tmict = vlapic_get_reg(s, APIC_TMICT)) == 0 )
+         return;
+ 
+     period = ((uint64_t)APIC_BUS_CYCLE_NS *
+               (uint32_t)tmict * s->hw.timer_divisor);
+-    s->pt.irq = vlapic_get_reg(s, APIC_LVTT) & APIC_VECTOR_MASK;
+     create_periodic_time(vlapic_vcpu(s), &s->pt, period,
+                          vlapic_lvtt_period(s) ? period : 0,
+                          s->pt.irq, vlapic_pt_cb,
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/vmx/vmx.c
+--- a/xen/arch/x86/hvm/vmx/vmx.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/vmx/vmx.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -1433,9 +1433,6 @@
+         return;
+     }
+ 
+-    /* Xen does not fill x86_capability words except 0. */
+-    boot_cpu_data.x86_capability[4] = cpuid_ecx(1);
+-
+     if ( !test_bit(X86_FEATURE_VMXE, &boot_cpu_data.x86_capability) )
+         return;
+ 
+@@ -2129,11 +2126,10 @@
+         _d.qualification = qualification;
+         _d.mfn = mfn_x(gfn_to_mfn_query(current->domain, gfn, &_d.p2mt));
+         
+-        __trace_var(TRC_HVM_NPF, 0, sizeof(_d), (unsigned char *)&_d);
++        __trace_var(TRC_HVM_NPF, 0, sizeof(_d), &_d);
+     }
+ 
+-    if ( (qualification & EPT_GLA_VALID) &&
+-         hvm_hap_nested_page_fault(gfn) )
++    if ( hvm_hap_nested_page_fault(gfn) )
+         return;
+ 
+     /* Everything else is an error. */
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/hvm/vmx/vpmu_core2.c
+--- a/xen/arch/x86/hvm/vmx/vpmu_core2.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/hvm/vmx/vpmu_core2.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -35,6 +35,68 @@
+ #include <asm/hvm/vmx/vpmu.h>
+ #include <asm/hvm/vmx/vpmu_core2.h>
+ 
++/*
++ * QUIRK to workaround an issue on Nehalem processors currently seen
++ * on family 6 cpus E5520 (model 26) and X7542 (model 46).
++ * The issue leads to endless PMC interrupt loops on the processor.
++ * If the interrupt handler is running and a pmc reaches the value 0, this
++ * value remains forever and it triggers immediately a new interrupt after
++ * finishing the handler.
++ * A workaround is to read all flagged counters and if the value is 0 write
++ * 1 (or another value != 0) into it.
++ * There exist no errata and the real cause of this behaviour is unknown.
++ */
++bool_t __read_mostly is_pmc_quirk;
++
++static void check_pmc_quirk(void)
++{
++    u8 family = current_cpu_data.x86;
++    u8 cpu_model = current_cpu_data.x86_model;
++    is_pmc_quirk = 0;
++    if ( family == 6 )
++    {
++        if ( cpu_model == 46 || cpu_model == 26 )
++            is_pmc_quirk = 1;
++    }
++}
++
++static int core2_get_pmc_count(void);
++static void handle_pmc_quirk(u64 msr_content)
++{
++    int num_gen_pmc = core2_get_pmc_count();
++    int num_fix_pmc  = 3;
++    int i;
++    u64 val;
++
++    if ( !is_pmc_quirk )
++        return;
++
++    val = msr_content;
++    for ( i = 0; i < num_gen_pmc; i++ )
++    {
++        if ( val & 0x1 )
++        {
++            u64 cnt;
++            rdmsrl(MSR_P6_PERFCTR0 + i, cnt);
++            if ( cnt == 0 )
++                wrmsrl(MSR_P6_PERFCTR0 + i, 1);
++        }
++        val >>= 1;
++    }
++    val = msr_content >> 32;
++    for ( i = 0; i < num_fix_pmc; i++ )
++    {
++        if ( val & 0x1 )
++        {
++            u64 cnt;
++            rdmsrl(MSR_CORE_PERF_FIXED_CTR0 + i, cnt);
++            if ( cnt == 0 )
++                wrmsrl(MSR_CORE_PERF_FIXED_CTR0 + i, 1);
++        }
++        val >>= 1;
++    }
++}
++
+ u32 core2_counters_msr[] =   {
+     MSR_CORE_PERF_FIXED_CTR0,
+     MSR_CORE_PERF_FIXED_CTR1,
+@@ -497,6 +559,10 @@
+     rdmsrl(MSR_CORE_PERF_GLOBAL_STATUS, msr_content);
+     if ( !msr_content )
+         return 0;
++
++    if ( is_pmc_quirk )
++        handle_pmc_quirk(msr_content);
++
+     core2_vpmu_cxt->global_ovf_status |= msr_content;
+     msr_content = 0xC000000700000000 | ((1 << core2_get_pmc_count()) - 1);
+     wrmsrl(MSR_CORE_PERF_GLOBAL_OVF_CTRL, msr_content);
+@@ -518,6 +584,7 @@
+ 
+ static void core2_vpmu_initialise(struct vcpu *v)
+ {
++    check_pmc_quirk();
+ }
+ 
+ static void core2_vpmu_destroy(struct vcpu *v)
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/i387.c
+--- a/xen/arch/x86/i387.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/i387.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -132,6 +132,8 @@
+     }
+ }
+ 
++#define XSTATE_CPUID 0xd
++
+ /*
+  * Maximum size (in byte) of the XSAVE/XRSTOR save area required by all
+  * the supported and enabled features on the processor, including the
+@@ -148,7 +150,12 @@
+     int cpu = smp_processor_id();
+     u32 min_size;
+ 
+-    cpuid_count(0xd, 0, &eax, &ebx, &ecx, &edx);
++    if ( boot_cpu_data.cpuid_level < XSTATE_CPUID ) {
++        printk(XENLOG_ERR "XSTATE_CPUID missing\n");
++        return;
++    }
++
++    cpuid_count(XSTATE_CPUID, 0, &eax, &ebx, &ecx, &edx);
+ 
+     printk("%s: cpu%d: cntxt_max_size: 0x%x and states: %08x:%08x\n",
+         __func__, cpu, ecx, edx, eax);
+@@ -169,7 +176,7 @@
+      */
+     set_in_cr4(X86_CR4_OSXSAVE);
+     set_xcr0(eax & XCNTXT_MASK);
+-    cpuid_count(0xd, 0, &eax, &ebx, &ecx, &edx);
++    cpuid_count(XSTATE_CPUID, 0, &eax, &ebx, &ecx, &edx);
+     clear_in_cr4(X86_CR4_OSXSAVE);
+ 
+     if ( cpu == 0 )
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/i8259.c
+--- a/xen/arch/x86/i8259.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/i8259.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -367,6 +367,12 @@
+     spin_unlock_irqrestore(&i8259A_lock, flags);
+ }
+ 
++void __init make_8259A_irq(unsigned int irq)
++{
++    io_apic_irqs &= ~(1 << irq);
++    irq_to_desc(irq)->handler = &i8259A_irq_type;
++}
++
+ static struct irqaction __read_mostly cascade = { no_action, "cascade", NULL};
+ 
+ void __init init_IRQ(void)
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/io_apic.c
+--- a/xen/arch/x86/io_apic.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/io_apic.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -38,10 +38,6 @@
+ #include <io_ports.h>
+ #include <public/physdev.h>
+ 
+-/* Different to Linux: our implementation can be simpler. */
+-#define make_8259A_irq(irq) (io_apic_irqs &= ~(1<<(irq)))
+-
+-int (*ioapic_renumber_irq)(int ioapic, int irq);
+ atomic_t irq_mis_count;
+ 
+ /* Where if anywhere is the i8259 connect in external int mode */
+@@ -880,13 +876,6 @@
+         while (i < apic)
+             irq += nr_ioapic_registers[i++];
+         irq += pin;
+-
+-        /*
+-         * For MPS mode, so far only needed by ES7000 platform
+-         */
+-        if (ioapic_renumber_irq)
+-            irq = ioapic_renumber_irq(apic, irq);
+-
+         break;
+     }
+     default:
+@@ -1645,11 +1634,14 @@
+ 
+     ack_APIC_irq();
+     
++    if ( directed_eoi_enabled )
++        return;
++
+     if ((irq_desc[irq].status & IRQ_MOVE_PENDING) &&
+        !io_apic_level_ack_pending(irq))
+-        move_native_irq(irq);
++        move_masked_irq(irq);
+ 
+-    if (!directed_eoi_enabled && !(v & (1 << (i & 0x1f)))) {
++    if ( !(v & (1 << (i & 0x1f))) ) {
+         atomic_inc(&irq_mis_count);
+         spin_lock(&ioapic_lock);
+         __edge_IO_APIC_irq(irq);
+@@ -1665,12 +1657,22 @@
+ 
+     if ( !ioapic_ack_new )
+     {
+-        if ( irq_desc[irq].status & IRQ_DISABLED )
+-            return;
++        if ( directed_eoi_enabled )
++        {
++            if ( !(irq_desc[irq].status & (IRQ_DISABLED|IRQ_MOVE_PENDING)) )
++            {
++                eoi_IO_APIC_irq(irq);
++                return;
++            }
+ 
+-        if ( directed_eoi_enabled )
++            mask_IO_APIC_irq(irq);
+             eoi_IO_APIC_irq(irq);
+-        else
++            if ( (irq_desc[irq].status & IRQ_MOVE_PENDING) &&
++                 !io_apic_level_ack_pending(irq) )
++                move_masked_irq(irq);
++        }
++
++        if ( !(irq_desc[irq].status & IRQ_DISABLED) )
+             unmask_IO_APIC_irq(irq);
+ 
+         return;
+@@ -1929,7 +1931,6 @@
+     
+     irq_desc[0].depth  = 0;
+     irq_desc[0].status &= ~IRQ_DISABLED;
+-    irq_desc[0].handler = &ioapic_edge_type;
+ 
+     /*
+      * Subtle, code in do_timer_interrupt() expects an AEOI
+@@ -2030,8 +2031,8 @@
+         return;
+     }
+     printk(" failed :(.\n");
+-    panic("IO-APIC + timer doesn't work!  Boot with apic=debug and send a "
+-          "report.  Then try booting with the 'noapic' option");
++    panic("IO-APIC + timer doesn't work!  Boot with apic_verbosity=debug "
++          "and send a report.  Then try booting with the 'noapic' option");
+ }
+ 
+ /*
+@@ -2457,6 +2458,9 @@
+     unsigned int irq, pin, printed = 0;
+     unsigned long flags;
+ 
++    if ( !irq_2_pin )
++        return;
++
+     for ( irq = 0; irq < nr_irqs_gsi; irq++ )
+     {
+         entry = &irq_2_pin[irq];
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/irq.c
+--- a/xen/arch/x86/irq.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/irq.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -46,8 +46,6 @@
+ 
+ struct irq_cfg __read_mostly *irq_cfg = NULL;
+ 
+-static struct timer *__read_mostly irq_guest_eoi_timer;
+-
+ static DEFINE_SPINLOCK(vector_lock);
+ 
+ DEFINE_PER_CPU(vector_irq_t, vector_irq) = {
+@@ -90,14 +88,14 @@
+     cpus_and(mask, domain, cpu_online_map);
+     if (cpus_empty(mask))
+         return -EINVAL;
+-    if ((cfg->vector == vector) && cpus_equal(cfg->domain, domain))
++    if ((cfg->vector == vector) && cpus_equal(cfg->domain, mask))
+         return 0;
+     if (cfg->vector != IRQ_VECTOR_UNASSIGNED) 
+         return -EBUSY;
+     for_each_cpu_mask(cpu, mask)
+         per_cpu(vector_irq, cpu)[vector] = irq;
+     cfg->vector = vector;
+-    cfg->domain = domain;
++    cfg->domain = mask;
+     irq_status[irq] = IRQ_USED;
+     if (IO_APIC_IRQ(irq))
+         irq_vector[irq] = vector;
+@@ -274,18 +272,15 @@
+     irq_desc = xmalloc_array(struct irq_desc, nr_irqs);
+     irq_cfg = xmalloc_array(struct irq_cfg, nr_irqs);
+     irq_status = xmalloc_array(int, nr_irqs);
+-    irq_guest_eoi_timer = xmalloc_array(struct timer, nr_irqs);
+     irq_vector = xmalloc_array(u8, nr_irqs_gsi);
+     
+-    if (!irq_desc || !irq_cfg || !irq_status ||! irq_vector ||
+-        !irq_guest_eoi_timer)
++    if ( !irq_desc || !irq_cfg || !irq_status ||! irq_vector )
+         return -ENOMEM;
+ 
+     memset(irq_desc, 0,  nr_irqs * sizeof(*irq_desc));
+     memset(irq_cfg, 0,  nr_irqs * sizeof(*irq_cfg));
+     memset(irq_status, 0,  nr_irqs * sizeof(*irq_status));
+     memset(irq_vector, 0, nr_irqs_gsi * sizeof(*irq_vector));
+-    memset(irq_guest_eoi_timer, 0, nr_irqs * sizeof(*irq_guest_eoi_timer));
+     
+     for (irq = 0; irq < nr_irqs; irq++) {
+         desc = irq_to_desc(irq);
+@@ -458,10 +453,10 @@
+ 
+ void move_masked_irq(int irq)
+ {
+-	struct irq_desc *desc = irq_to_desc(irq);
++    struct irq_desc *desc = irq_to_desc(irq);
+ 
+-	if (likely(!(desc->status & IRQ_MOVE_PENDING)))
+-		return;
++    if (likely(!(desc->status & IRQ_MOVE_PENDING)))
++        return;
+     
+     desc->status &= ~IRQ_MOVE_PENDING;
+ 
+@@ -471,22 +466,19 @@
+     if (!desc->handler->set_affinity)
+         return;
+ 
+-	/*
+-	 * If there was a valid mask to work with, please
+-	 * do the disable, re-program, enable sequence.
+-	 * This is *not* particularly important for level triggered
+-	 * but in a edge trigger case, we might be setting rte
+-	 * when an active trigger is comming in. This could
+-	 * cause some ioapics to mal-function.
+-	 * Being paranoid i guess!
+-	 *
+-	 * For correct operation this depends on the caller
+-	 * masking the irqs.
+-	 */
++    /*
++     * If there was a valid mask to work with, please do the disable, 
++     * re-program, enable sequence. This is *not* particularly important for 
++     * level triggered but in a edge trigger case, we might be setting rte when 
++     * an active trigger is comming in. This could cause some ioapics to 
++     * mal-function. Being paranoid i guess!
++     *
++     * For correct operation this depends on the caller masking the irqs.
++     */
+     if (likely(cpus_intersects(desc->pending_mask, cpu_online_map)))
+         desc->handler->set_affinity(irq, desc->pending_mask);
+ 
+-	cpus_clear(desc->pending_mask);
++    cpus_clear(desc->pending_mask);
+ }
+ 
+ void move_native_irq(int irq)
+@@ -540,6 +532,8 @@
+         return;
+     }
+ 
++    irq_enter();
++
+     desc = irq_to_desc(irq);
+ 
+     spin_lock(&desc->lock);
+@@ -573,14 +567,10 @@
+             desc->rl_quantum_start = now;
+         }
+ 
+-        irq_enter();
+         tsc_in = tb_init_done ? get_cycles() : 0;
+         __do_IRQ_guest(irq);
+         TRACE_3D(TRC_TRACE_IRQ, irq, tsc_in, get_cycles());
+-        irq_exit();
+-        spin_unlock(&desc->lock);
+-        set_irq_regs(old_regs);
+-        return;
++        goto out_no_end;
+     }
+ 
+     desc->status &= ~IRQ_REPLAY;
+@@ -599,20 +589,20 @@
+     while ( desc->status & IRQ_PENDING )
+     {
+         desc->status &= ~IRQ_PENDING;
+-        irq_enter();
+         spin_unlock_irq(&desc->lock);
+         tsc_in = tb_init_done ? get_cycles() : 0;
+         action->handler(irq, action->dev_id, regs);
+         TRACE_3D(TRC_TRACE_IRQ, irq, tsc_in, get_cycles());
+         spin_lock_irq(&desc->lock);
+-        irq_exit();
+     }
+ 
+     desc->status &= ~IRQ_INPROGRESS;
+ 
+  out:
+     desc->handler->end(irq);
++ out_no_end:
+     spin_unlock(&desc->lock);
++    irq_exit();
+     set_irq_regs(old_regs);
+ }
+ 
+@@ -740,6 +730,7 @@
+ #define ACKTYPE_UNMASK 1     /* Unmask PIC hardware (from any CPU)   */
+ #define ACKTYPE_EOI    2     /* EOI on the CPU that was interrupted  */
+     cpumask_t cpu_eoi_map;   /* CPUs that need to EOI this interrupt */
++    struct timer eoi_timer;
+     struct domain *guest[IRQ_MAX_GUESTS];
+ } irq_guest_action_t;
+ 
+@@ -756,6 +747,11 @@
+ static DEFINE_PER_CPU(struct pending_eoi, pending_eoi[NR_DYNAMIC_VECTORS]);
+ #define pending_eoi_sp(p) ((p)[NR_DYNAMIC_VECTORS-1].vector)
+ 
++bool_t cpu_has_pending_apic_eoi(void)
++{
++    return (pending_eoi_sp(this_cpu(pending_eoi)) != 0);
++}
++
+ static inline void set_pirq_eoi(struct domain *d, unsigned int irq)
+ {
+     if ( d->arch.pirq_eoi_map )
+@@ -784,13 +780,55 @@
+     desc->handler->enable(irq);
+ }
+ 
++static void set_eoi_ready(void *data);
++
+ static void irq_guest_eoi_timer_fn(void *data)
+ {
+     struct irq_desc *desc = data;
++    unsigned int irq = desc - irq_desc;
++    irq_guest_action_t *action;
++    cpumask_t cpu_eoi_map;
+     unsigned long flags;
+ 
+     spin_lock_irqsave(&desc->lock, flags);
+-    _irq_guest_eoi(desc);
++    
++    if ( !(desc->status & IRQ_GUEST) )
++        goto out;
++
++    action = (irq_guest_action_t *)desc->action;
++
++    if ( action->ack_type != ACKTYPE_NONE )
++    {
++        unsigned int i;
++        for ( i = 0; i < action->nr_guests; i++ )
++        {
++            struct domain *d = action->guest[i];
++            unsigned int pirq = domain_irq_to_pirq(d, irq);
++            if ( test_and_clear_bit(pirq, d->pirq_mask) )
++                action->in_flight--;
++        }
++    }
++
++    if ( action->in_flight != 0 )
++        goto out;
++
++    switch ( action->ack_type )
++    {
++    case ACKTYPE_UNMASK:
++        desc->handler->end(irq);
++        break;
++    case ACKTYPE_EOI:
++        cpu_eoi_map = action->cpu_eoi_map;
++        spin_unlock_irq(&desc->lock);
++        on_selected_cpus(&cpu_eoi_map, set_eoi_ready, desc, 0);
++        spin_lock_irq(&desc->lock);
++        break;
++    case ACKTYPE_NONE:
++        _irq_guest_eoi(desc);
++        break;
++    }
++
++ out:
+     spin_unlock_irqrestore(&desc->lock, flags);
+ }
+ 
+@@ -847,9 +885,11 @@
+         }
+     }
+ 
+-    if ( already_pending == action->nr_guests )
++    stop_timer(&action->eoi_timer);
++
++    if ( (action->ack_type == ACKTYPE_NONE) &&
++         (already_pending == action->nr_guests) )
+     {
+-        stop_timer(&irq_guest_eoi_timer[irq]);
+         desc->handler->disable(irq);
+         desc->status |= IRQ_GUEST_EOI_PENDING;
+         for ( i = 0; i < already_pending; ++i )
+@@ -865,10 +905,10 @@
+              * - skip the timer setup below.
+              */
+         }
+-        init_timer(&irq_guest_eoi_timer[irq],
+-                   irq_guest_eoi_timer_fn, desc, smp_processor_id());
+-        set_timer(&irq_guest_eoi_timer[irq], NOW() + MILLISECS(1));
+     }
++
++    migrate_timer(&action->eoi_timer, smp_processor_id());
++    set_timer(&action->eoi_timer, NOW() + MILLISECS(1));
+ }
+ 
+ /*
+@@ -978,7 +1018,7 @@
+     if ( action->ack_type == ACKTYPE_NONE )
+     {
+         ASSERT(!test_bit(pirq, d->pirq_mask));
+-        stop_timer(&irq_guest_eoi_timer[irq]);
++        stop_timer(&action->eoi_timer);
+         _irq_guest_eoi(desc);
+     }
+ 
+@@ -1162,6 +1202,7 @@
+         action->shareable   = will_share;
+         action->ack_type    = pirq_acktype(v->domain, pirq);
+         cpus_clear(action->cpu_eoi_map);
++        init_timer(&action->eoi_timer, irq_guest_eoi_timer_fn, desc, 0);
+ 
+         desc->depth = 0;
+         desc->status |= IRQ_GUEST;
+@@ -1266,7 +1307,7 @@
+         }
+         break;
+     case ACKTYPE_NONE:
+-        stop_timer(&irq_guest_eoi_timer[irq]);
++        stop_timer(&action->eoi_timer);
+         _irq_guest_eoi(desc);
+         break;
+     }
+@@ -1306,9 +1347,7 @@
+     BUG_ON(!cpus_empty(action->cpu_eoi_map));
+ 
+     desc->action = NULL;
+-    desc->status &= ~IRQ_GUEST;
+-    desc->status &= ~IRQ_INPROGRESS;
+-    kill_timer(&irq_guest_eoi_timer[irq]);
++    desc->status &= ~(IRQ_GUEST|IRQ_GUEST_EOI_PENDING|IRQ_INPROGRESS);
+     desc->handler->shutdown(irq);
+ 
+     /* Caller frees the old guest descriptor block. */
+@@ -1342,7 +1381,10 @@
+     spin_unlock_irq(&desc->lock);
+ 
+     if ( oldaction != NULL )
++    {
++        kill_timer(&oldaction->eoi_timer);
+         xfree(oldaction);
++    }
+ }
+ 
+ static int pirq_guest_force_unbind(struct domain *d, int irq)
+@@ -1380,7 +1422,10 @@
+     spin_unlock_irq(&desc->lock);
+ 
+     if ( oldaction != NULL )
++    {
++        kill_timer(&oldaction->eoi_timer);
+         xfree(oldaction);
++    }
+ 
+     return bound;
+ }
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/machine_kexec.c
+--- a/xen/arch/x86/machine_kexec.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/machine_kexec.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -23,7 +23,11 @@
+ typedef void (*relocate_new_kernel_t)(
+                 unsigned long indirection_page,
+                 unsigned long *page_list,
+-                unsigned long start_address);
++                unsigned long start_address,
++#ifdef __i386__
++                unsigned int cpu_has_pae,
++#endif
++                unsigned int preserve_context);
+ 
+ extern int machine_kexec_get_xen(xen_kexec_range_t *range);
+ 
+@@ -121,7 +125,11 @@
+ 
+         rnk = (relocate_new_kernel_t) image->page_list[1];
+         (*rnk)(image->indirection_page, image->page_list,
+-               image->start_address);
++               image->start_address,
++#ifdef __i386__
++               1 /* cpu_has_pae */,
++#endif
++               0 /* preserve_context */);
+     }
+ }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm.c
+--- a/xen/arch/x86/mm.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -4223,7 +4223,7 @@
+         ent.size = (uint64_t)(s - ctxt->s) << PAGE_SHIFT;
+         ent.type = E820_RESERVED;
+         buffer = guest_handle_cast(ctxt->map.buffer, e820entry_t);
+-        if ( __copy_to_guest_offset(buffer, ctxt->n, &ent, 1) < 0 )
++        if ( __copy_to_guest_offset(buffer, ctxt->n, &ent, 1) )
+             return -EFAULT;
+         ctxt->n++;
+     }
+@@ -4439,7 +4439,7 @@
+             }
+             if ( ctxt.map.nr_entries <= ctxt.n + (e820.nr_map - i) )
+                 return -EINVAL;
+-            if ( __copy_to_guest_offset(buffer, ctxt.n, e820.map + i, 1) < 0 )
++            if ( __copy_to_guest_offset(buffer, ctxt.n, e820.map + i, 1) )
+                 return -EFAULT;
+             ctxt.s = PFN_UP(e820.map[i].addr + e820.map[i].size);
+         }
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/hap/p2m-ept.c
+--- a/xen/arch/x86/mm/hap/p2m-ept.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/hap/p2m-ept.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -137,7 +137,7 @@
+                           ept_entry_t **table, unsigned long *gfn_remainder,
+                           u32 shift)
+ {
+-    ept_entry_t *ept_entry;
++    ept_entry_t *ept_entry, e;
+     ept_entry_t *next;
+     u32 index;
+ 
+@@ -145,9 +145,11 @@
+ 
+     ept_entry = (*table) + index;
+ 
+-    if ( !is_epte_present(ept_entry) )
++    e=*ept_entry;
++
++    if ( !is_epte_present(&e) )
+     {
+-        if ( ept_entry->avail1 == p2m_populate_on_demand )
++        if ( e.avail1 == p2m_populate_on_demand )
+             return GUEST_TABLE_POD_PAGE;
+ 
+         if ( read_only )
+@@ -155,15 +157,17 @@
+ 
+         if ( !ept_set_middle_entry(d, ept_entry) )
+             return GUEST_TABLE_MAP_FAILED;
++        else
++            e=*ept_entry;
+     }
+ 
+     /* The only time sp would be set here is if we had hit a superpage */
+-    if ( is_epte_superpage(ept_entry) )
++    if ( is_epte_superpage(&e) )
+         return GUEST_TABLE_SUPER_PAGE;
+     else
+     {
+         *gfn_remainder &= (1UL << shift) - 1;
+-        next = map_domain_page(ept_entry->mfn);
++        next = map_domain_page(e.mfn);
+         unmap_domain_page(*table);
+         *table = next;
+         return GUEST_TABLE_NORMAL_PAGE;
+@@ -235,35 +239,39 @@
+         if ( mfn_valid(mfn_x(mfn)) || direct_mmio || p2m_is_paged(p2mt) ||
+              (p2mt == p2m_ram_paging_in_start) )
+         {
+-            ept_entry->emt = epte_get_entry_emt(d, gfn, mfn, &ipat,
++            ept_entry_t new_entry;
++
++            new_entry.emt = epte_get_entry_emt(d, gfn, mfn, &ipat,
+                                                 direct_mmio);
+-            ept_entry->ipat = ipat;
+-            ept_entry->sp = order ? 1 : 0;
++            new_entry.ipat = ipat;
++            new_entry.sp = order ? 1 : 0;
+ 
+             if ( ret == GUEST_TABLE_SUPER_PAGE )
+             {
+-                if ( ept_entry->mfn == (mfn_x(mfn) - offset) )
++                if ( new_entry.mfn == (mfn_x(mfn) - offset) )
+                     need_modify_vtd_table = 0;  
+                 else                  
+-                    ept_entry->mfn = mfn_x(mfn) - offset;
++                    new_entry.mfn = mfn_x(mfn) - offset;
+ 
+-                if ( (ept_entry->avail1 == p2m_ram_logdirty)
++                if ( (new_entry.avail1 == p2m_ram_logdirty)
+                      && (p2mt == p2m_ram_rw) )
+                     for ( i = 0; i < 512; i++ )
+                         paging_mark_dirty(d, mfn_x(mfn) - offset + i);
+             }
+             else
+             {
+-                if ( ept_entry->mfn == mfn_x(mfn) )
++                if ( new_entry.mfn == mfn_x(mfn) )
+                     need_modify_vtd_table = 0;
+                 else
+-                    ept_entry->mfn = mfn_x(mfn);
++                    new_entry.mfn = mfn_x(mfn);
+             }
+ 
+-            ept_entry->avail1 = p2mt;
+-            ept_entry->avail2 = 0;
++            new_entry.avail1 = p2mt;
++            new_entry.avail2 = 0;
+ 
+-            ept_p2m_type_to_flags(ept_entry, p2mt);
++            ept_p2m_type_to_flags(&new_entry, p2mt);
++
++            ept_entry->epte = new_entry.epte;
+         }
+         else
+             ept_entry->epte = 0;
+@@ -387,6 +395,10 @@
+     int i;
+     int ret = 0;
+     mfn_t mfn = _mfn(INVALID_MFN);
++    int do_locking = !p2m_locked_by_me(d->arch.p2m);
++
++    if ( do_locking )
++        p2m_lock(d->arch.p2m);
+ 
+     *t = p2m_mmio_dm;
+ 
+@@ -464,6 +476,8 @@
+     }
+ 
+ out:
++    if ( do_locking )
++        p2m_unlock(d->arch.p2m);
+     unmap_domain_page(table);
+     return mfn;
+ }
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/mem_event.c
+--- a/xen/arch/x86/mm/mem_event.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/mem_event.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -27,16 +27,18 @@
+ #include <asm/mem_event.h>
+ #include <asm/mem_paging.h>
+ 
+-
++/* for public/io/ring.h macros */
+ #define xen_mb()   mb()
+ #define xen_rmb()  rmb()
+ #define xen_wmb()  wmb()
+ 
++#define mem_event_ring_lock_init(_d)  spin_lock_init(&(_d)->mem_event.ring_lock)
++#define mem_event_ring_lock(_d)       spin_lock(&(_d)->mem_event.ring_lock)
++#define mem_event_ring_unlock(_d)     spin_unlock(&(_d)->mem_event.ring_lock)
+ 
+ #define MEM_EVENT_RING_THRESHOLD 4
+ 
+-
+-int mem_event_enable(struct domain *d, mfn_t ring_mfn, mfn_t shared_mfn)
++static int mem_event_enable(struct domain *d, mfn_t ring_mfn, mfn_t shared_mfn)
+ {
+     int rc;
+ 
+@@ -65,9 +67,6 @@
+ 
+     mem_event_ring_lock_init(d);
+ 
+-    d->mem_event.paused = 0;
+-    d->mem_event.enabled = 1;
+-
+     return 0;
+ 
+  err_shared:
+@@ -80,11 +79,8 @@
+     return 1;
+ }
+ 
+-int mem_event_disable(struct domain *d)
++static int mem_event_disable(struct domain *d)
+ {
+-    d->mem_event.enabled = 0;
+-    d->mem_event.paused = 0;
+-
+     unmap_domain_page(d->mem_event.ring_page);
+     d->mem_event.ring_page = NULL;
+ 
+@@ -142,26 +138,14 @@
+ {
+     struct vcpu *v;
+ 
+-    for_each_vcpu(d, v)
+-    {
+-        if ( d->mem_event.paused_vcpus[v->vcpu_id] )
+-        {
+-            vcpu_unpause(v);
+-            d->mem_event.paused_vcpus[v->vcpu_id] = 0;
+-        }
+-    }
+-}
+-
+-int mem_event_pause_vcpu(struct domain *d, struct vcpu *v)
+-{
+-    vcpu_pause_nosync(v);
+-    d->mem_event.paused_vcpus[v->vcpu_id] = 1;
+-
+-    return 0;
++    for_each_vcpu ( d, v )
++        if ( test_and_clear_bit(_VPF_mem_event, &v->pause_flags) )
++            vcpu_wake(v);
+ }
+ 
+ int mem_event_check_ring(struct domain *d)
+ {
++    struct vcpu *curr = current;
+     int free_requests;
+     int ring_full;
+ 
+@@ -170,8 +154,11 @@
+     free_requests = RING_FREE_REQUESTS(&d->mem_event.front_ring);
+     ring_full = free_requests < MEM_EVENT_RING_THRESHOLD;
+ 
+-    if ( (current->domain->domain_id == d->domain_id) && ring_full )
+-        mem_event_pause_vcpu(d, current);
++    if ( (curr->domain->domain_id == d->domain_id) && ring_full )
++    {
++        set_bit(_VPF_mem_event, &curr->pause_flags);
++        vcpu_sleep_nosync(curr);
++    }
+ 
+     mem_event_ring_unlock(d);
+ 
+@@ -198,8 +185,9 @@
+ 
+     if ( unlikely(d->vcpu == NULL) || unlikely(d->vcpu[0] == NULL) )
+     {
+-        MEM_EVENT_ERROR("Memory paging op on a domain (%u) with no vcpus\n",
+-                         d->domain_id);
++        gdprintk(XENLOG_INFO,
++                 "Memory paging op on a domain (%u) with no vcpus\n",
++                 d->domain_id);
+         return -EINVAL;
+     }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/mem_sharing.c
+--- a/xen/arch/x86/mm/mem_sharing.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/mem_sharing.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -545,7 +545,7 @@
+          * it a few lines above.
+          * The mfn needs to revert back to rw type. This should never fail,
+          * since no-one knew that the mfn was temporarily sharable */
+-        ASSERT(page_make_private(d, page) == 0);
++        BUG_ON(page_make_private(d, page) != 0);
+         mem_sharing_hash_destroy(hash_entry);
+         mem_sharing_gfn_destroy(gfn_info, 0);
+         shr_unlock();
+@@ -699,7 +699,7 @@
+     unmap_domain_page(s);
+     unmap_domain_page(t);
+ 
+-    ASSERT(set_shared_p2m_entry(d, gfn, page_to_mfn(page)) != 0);
++    BUG_ON(set_shared_p2m_entry(d, gfn, page_to_mfn(page)) == 0);
+     put_page_and_type(old_page);
+ 
+ private_page_found:    
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/p2m.c
+--- a/xen/arch/x86/mm/p2m.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/p2m.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -841,7 +841,7 @@
+         t.d = d->domain_id;
+         t.order = 9;
+ 
+-        __trace_var(TRC_MEM_POD_ZERO_RECLAIM, 0, sizeof(t), (unsigned char *)&t);
++        __trace_var(TRC_MEM_POD_ZERO_RECLAIM, 0, sizeof(t), &t);
+     }
+ 
+     /* Finally!  We've passed all the checks, and can add the mfn superpage
+@@ -955,7 +955,7 @@
+                 t.d = d->domain_id;
+                 t.order = 0;
+         
+-                __trace_var(TRC_MEM_POD_ZERO_RECLAIM, 0, sizeof(t), (unsigned char *)&t);
++                __trace_var(TRC_MEM_POD_ZERO_RECLAIM, 0, sizeof(t), &t);
+             }
+ 
+             /* Add to cache, and account for the new p2m PoD entry */
+@@ -1115,7 +1115,7 @@
+         t.d = d->domain_id;
+         t.order = order;
+         
+-        __trace_var(TRC_MEM_POD_POPULATE, 0, sizeof(t), (unsigned char *)&t);
++        __trace_var(TRC_MEM_POD_POPULATE, 0, sizeof(t), &t);
+     }
+ 
+     return 0;
+@@ -1146,7 +1146,7 @@
+         t.gfn = gfn;
+         t.d = d->domain_id;
+         
+-        __trace_var(TRC_MEM_POD_SUPERPAGE_SPLINTER, 0, sizeof(t), (unsigned char *)&t);
++        __trace_var(TRC_MEM_POD_SUPERPAGE_SPLINTER, 0, sizeof(t), &t);
+     }
+ 
+     return 0;
+@@ -1212,7 +1212,7 @@
+         t.d = d->domain_id;
+         t.order = page_order;
+ 
+-        __trace_var(TRC_MEM_SET_P2M_ENTRY, 0, sizeof(t), (unsigned char *)&t);
++        __trace_var(TRC_MEM_SET_P2M_ENTRY, 0, sizeof(t), &t);
+     }
+ 
+ #if CONFIG_PAGING_LEVELS >= 4
+@@ -1802,7 +1802,7 @@
+             continue;
+         }
+ 
+-        if ( gfn == SHARED_P2M_ENTRY)
++        if ( gfn == SHARED_M2P_ENTRY )
+         {
+             P2M_PRINTK("shared mfn (%lx) on domain page list!\n",
+                     mfn);
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/shadow/common.c
+--- a/xen/arch/x86/mm/shadow/common.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/shadow/common.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -718,7 +718,7 @@
+     {
+         /* Convert gmfn to gfn */
+         unsigned long gfn = mfn_to_gfn(current->domain, gmfn);
+-        __trace_var(event, 0/*!tsc*/, sizeof(gfn), (unsigned char*)&gfn);
++        __trace_var(event, 0/*!tsc*/, sizeof(gfn), &gfn);
+     }
+ }
+ 
+@@ -1348,8 +1348,7 @@
+         unsigned long gfn;
+         ASSERT(mfn_valid(smfn));
+         gfn = mfn_to_gfn(d, backpointer(mfn_to_page(smfn)));
+-        __trace_var(TRC_SHADOW_PREALLOC_UNPIN, 0/*!tsc*/,
+-                    sizeof(gfn), (unsigned char*)&gfn);
++        __trace_var(TRC_SHADOW_PREALLOC_UNPIN, 0/*!tsc*/, sizeof(gfn), &gfn);
+     }
+ }
+ 
+@@ -2293,7 +2292,7 @@
+     {
+         /* Convert gmfn to gfn */
+         unsigned long gfn = mfn_to_gfn(current->domain, gmfn);
+-        __trace_var(TRC_SHADOW_WRMAP_BF, 0/*!tsc*/, sizeof(gfn), (unsigned char*)&gfn);
++        __trace_var(TRC_SHADOW_WRMAP_BF, 0/*!tsc*/, sizeof(gfn), &gfn);
+     }
+ }
+ 
+@@ -2872,6 +2871,49 @@
+ 
+ /**************************************************************************/
+ 
++#if CONFIG_PAGING_LEVELS >= 4
++/* Reset the up-pointers of every L3 shadow to 0. 
++ * This is called when l3 shadows stop being pinnable, to clear out all
++ * the list-head bits so the up-pointer field is properly inititalised. */
++static int sh_clear_up_pointer(struct vcpu *v, mfn_t smfn, mfn_t unused)
++{
++    mfn_to_page(smfn)->up = 0;
++    return 0;
++}
++#endif
++
++void sh_reset_l3_up_pointers(struct vcpu *v)
++{
++    static hash_callback_t callbacks[SH_type_unused] = {
++        NULL, /* none    */
++        NULL, /* l1_32   */
++        NULL, /* fl1_32  */
++        NULL, /* l2_32   */
++        NULL, /* l1_pae  */
++        NULL, /* fl1_pae */
++        NULL, /* l2_pae  */
++        NULL, /* l2h_pae */
++        NULL, /* l1_64   */
++        NULL, /* fl1_64  */
++        NULL, /* l2_64   */
++        NULL, /* l2h_64  */
++#if CONFIG_PAGING_LEVELS >= 4
++        sh_clear_up_pointer, /* l3_64   */
++#else
++        NULL, /* l3_64   */
++#endif
++        NULL, /* l4_64   */
++        NULL, /* p2m     */
++        NULL  /* unused  */
++    };
++    static unsigned int callback_mask = 1 << SH_type_l3_64_shadow;    
++
++    hash_foreach(v, callback_mask, callbacks, _mfn(INVALID_MFN));
++}
++
++
++/**************************************************************************/
++
+ static void sh_update_paging_modes(struct vcpu *v)
+ {
+     struct domain *d = v->domain;
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/shadow/multi.c
+--- a/xen/arch/x86/mm/shadow/multi.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/shadow/multi.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -1613,6 +1613,7 @@
+                     sh_unpin(v, page_to_mfn(sp));
+             }
+             v->domain->arch.paging.shadow.opt_flags &= ~SHOPT_LINUX_L3_TOPLEVEL;
++            sh_reset_l3_up_pointers(v);
+         }
+     }
+ #endif
+@@ -2847,7 +2848,7 @@
+     if ( tb_init_done )
+     {
+         event |= (GUEST_PAGING_LEVELS-2)<<8;
+-        __trace_var(event, 0/*!tsc*/, sizeof(va), (unsigned char*)&va);
++        __trace_var(event, 0/*!tsc*/, sizeof(va), &va);
+     }
+ }
+ 
+@@ -2871,7 +2872,7 @@
+         d.va = va;
+         d.flags = this_cpu(trace_shadow_path_flags);
+ 
+-        __trace_var(event, 0/*!tsc*/, sizeof(d), (unsigned char*)&d);
++        __trace_var(event, 0/*!tsc*/, sizeof(d), &d);
+     }
+ }
+                                           
+@@ -2895,7 +2896,7 @@
+         d.va = va;
+         d.flags = this_cpu(trace_shadow_path_flags);
+ 
+-        __trace_var(event, 0/*!tsc*/, sizeof(d), (unsigned char*)&d);
++        __trace_var(event, 0/*!tsc*/, sizeof(d), &d);
+     }
+ }
+                                           
+@@ -2921,7 +2922,7 @@
+         d.gfn=gfn_x(gfn);
+         d.va = va;
+ 
+-        __trace_var(event, 0/*!tsc*/, sizeof(d), (unsigned char*)&d);
++        __trace_var(event, 0/*!tsc*/, sizeof(d), &d);
+     }
+ }
+ 
+@@ -2954,7 +2955,7 @@
+ #endif
+         d.flags = this_cpu(trace_shadow_path_flags);
+ 
+-        __trace_var(event, 0/*!tsc*/, sizeof(d), (unsigned char*)&d);
++        __trace_var(event, 0/*!tsc*/, sizeof(d), &d);
+     }
+ }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mm/shadow/private.h
+--- a/xen/arch/x86/mm/shadow/private.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mm/shadow/private.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -464,6 +464,12 @@
+ 
+ #endif /* (SHADOW_OPTIMIZATIONS & SHOPT_OUT_OF_SYNC) */
+ 
++
++/* Reset the up-pointers of every L3 shadow to 0. 
++ * This is called when l3 shadows stop being pinnable, to clear out all
++ * the list-head bits so the up-pointer field is properly inititalised. */
++void sh_reset_l3_up_pointers(struct vcpu *v);
++
+ /******************************************************************************
+  * Flags used in the return value of the shadow_set_lXe() functions...
+  */
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/mpparse.c
+--- a/xen/arch/x86/mpparse.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/mpparse.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -1123,9 +1123,6 @@
+ 
+ 	ioapic_pin = gsi - mp_ioapic_routing[ioapic].gsi_base;
+ 
+-	if (ioapic_renumber_irq)
+-		gsi = ioapic_renumber_irq(ioapic, gsi);
+-
+ 	if (!(irq_to_desc(gsi)->status & IRQ_DISABLED))
+ 		return -EEXIST;
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/physdev.c
+--- a/xen/arch/x86/physdev.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/physdev.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -202,7 +202,7 @@
+         if ( copy_from_guest(&eoi, arg, 1) != 0 )
+             break;
+         ret = -EINVAL;
+-        if ( eoi.irq < 0 || eoi.irq >= v->domain->nr_pirqs )
++        if ( eoi.irq >= v->domain->nr_pirqs )
+             break;
+         if ( v->domain->arch.pirq_eoi_map )
+             evtchn_unmask(v->domain->pirq_to_evtchn[eoi.irq]);
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/platform_hypercall.c
+--- a/xen/arch/x86/platform_hypercall.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/platform_hypercall.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -192,7 +192,10 @@
+             dprintk(XENLOG_INFO, "Domain 0 says that IO-APIC REGSEL is %s\n",
+                     sis_apic_bug ? "bad" : "good");
+ #else
+-            BUG_ON(sis_apic_bug != (quirk_id == QUIRK_IOAPIC_BAD_REGSEL));
++            if ( sis_apic_bug != (quirk_id == QUIRK_IOAPIC_BAD_REGSEL) )
++                dprintk(XENLOG_WARNING,
++                        "Domain 0 thinks that IO-APIC REGSEL is %s\n",
++                        sis_apic_bug ? "good" : "bad");
+ #endif
+             break;
+         default:
+@@ -413,7 +416,6 @@
+         }
+ 
+         if ( (g_info->xen_cpuid >= NR_CPUS) ||
+-             (g_info->xen_cpuid < 0) ||
+              !cpu_present(g_info->xen_cpuid) )
+         {
+             g_info->flags |= XEN_PCPU_FLAGS_INVALID;
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/setup.c
+--- a/xen/arch/x86/setup.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/setup.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -245,7 +245,7 @@
+     /* Domain creation requires that scheduler structures are initialised. */
+     scheduler_init();
+ 
+-    idle_domain = domain_create(IDLE_DOMAIN_ID, 0, 0);
++    idle_domain = domain_create(DOMID_IDLE, 0, 0);
+     if ( idle_domain == NULL )
+         BUG();
+     idle_domain->vcpu = idle_vcpu;
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/shutdown.c
+--- a/xen/arch/x86/shutdown.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/shutdown.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -35,7 +35,7 @@
+ static int reboot_mode;
+ 
+ /*
+- * reboot=b[ios] | t[riple] | k[bd] | [, [w]arm | [c]old]
++ * reboot=b[ios] | t[riple] | k[bd] | n[o] [, [w]arm | [c]old]
+  * warm   Don't set the cold reboot flag
+  * cold   Set the cold reboot flag
+  * bios   Reboot by jumping through the BIOS (only for X86_32)
+@@ -50,6 +50,9 @@
+     {
+         switch ( *str )
+         {
++        case 'n': /* no reboot */
++            opt_noreboot = 1;
++            break;
+         case 'w': /* "warm" reboot (no memory testing etc) */
+             reboot_mode = 0x1234;
+             break;
+@@ -298,12 +301,15 @@
+ 
+ void machine_restart(unsigned int delay_millisecs)
+ {
+-    int i;
++    unsigned int i, attempt;
++    enum reboot_type orig_reboot_type = reboot_type;
+ 
+     watchdog_disable();
+     console_start_sync();
+     spin_debug_disable();
+ 
++    acpi_dmar_reinstate();
++
+     local_irq_enable();
+ 
+     /* Ensure we are the boot CPU. */
+@@ -333,7 +339,7 @@
+     /* Rebooting needs to touch the page at absolute address 0. */
+     *((unsigned short *)__va(0x472)) = reboot_mode;
+ 
+-    for ( ; ; )
++    for ( attempt = 0; ; attempt++ )
+     {
+         switch ( reboot_type )
+         {
+@@ -346,19 +352,29 @@
+                 outb(0xfe,0x64); /* pulse reset low */
+                 udelay(50);
+             }
+-            /* fall through */
++            /*
++             * If this platform supports ACPI reset, we follow a Windows-style
++             * reboot attempt sequence:
++             *   ACPI -> KBD -> ACPI -> KBD
++             * After this we revert to our usual sequence:
++             *   KBD -> TRIPLE -> KBD -> TRIPLE -> KBD -> ...
++             */
++            reboot_type = (((attempt == 1) && (orig_reboot_type == BOOT_ACPI))
++                           ? BOOT_ACPI : BOOT_TRIPLE);
++            break;
+         case BOOT_TRIPLE:
+             asm volatile ( "lidt %0 ; int3" : "=m" (no_idt) );
++            reboot_type = BOOT_KBD;
+             break;
+         case BOOT_BIOS:
+             machine_real_restart(jump_to_bios, sizeof(jump_to_bios));
++            reboot_type = BOOT_KBD;
+             break;
+         case BOOT_ACPI:
+             acpi_reboot();
++            reboot_type = BOOT_KBD;
+             break;
+         }
+-
+-        reboot_type = BOOT_KBD;
+     }
+ }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/smpboot.c
+--- a/xen/arch/x86/smpboot.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/smpboot.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -1602,7 +1602,7 @@
+ 		irq_vector[irq] = FIRST_HIPRIORITY_VECTOR + seridx + 1;
+ 		per_cpu(vector_irq, cpu)[FIRST_HIPRIORITY_VECTOR + seridx + 1] = irq;
+ 		irq_cfg[irq].vector = FIRST_HIPRIORITY_VECTOR + seridx + 1;
+-		irq_cfg[irq].domain = (cpumask_t)CPU_MASK_ALL;
++		irq_cfg[irq].domain = cpu_online_map;
+ 	}
+ 
+ 	/* IPI for cleanuping vectors after irq move */
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/tboot.c
+--- a/xen/arch/x86/tboot.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/tboot.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -5,6 +5,7 @@
+ #include <xen/sched.h>
+ #include <xen/domain_page.h>
+ #include <xen/iommu.h>
++#include <xen/acpi.h>
+ #include <asm/fixmap.h>
+ #include <asm/page.h>
+ #include <asm/processor.h>
+@@ -479,13 +480,7 @@
+ 
+     /* acpi_parse_dmar() zaps APCI DMAR signature in TXT heap table */
+     /* but dom0 will read real table, so must zap it there too */
+-    dmar_table = NULL;
+-    acpi_get_table(ACPI_SIG_DMAR, 0, &dmar_table);
+-    if ( dmar_table != NULL )
+-    {
+-        dmar_table->signature[0] = 'X';
+-        dmar_table->checksum -= 'X'-'D';
+-    }
++    acpi_dmar_zap();
+ 
+     return rc;
+ }
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/time.c
+--- a/xen/arch/x86/time.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/time.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -1792,11 +1792,12 @@
+                   uint32_t tsc_mode, uint64_t elapsed_nsec,
+                   uint32_t gtsc_khz, uint32_t incarnation)
+ {
+-    if ( d->domain_id == 0 || d->domain_id == DOMID_INVALID )
++    if ( is_idle_domain(d) || (d->domain_id == 0) )
+     {
+         d->arch.vtsc = 0;
+         return;
+     }
++
+     switch ( d->arch.tsc_mode = tsc_mode )
+     {
+     case TSC_MODE_NEVER_EMULATE:
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/trace.c
+--- a/xen/arch/x86/trace.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/trace.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -25,8 +25,7 @@
+         d.eip = regs->eip;
+         d.eax = regs->eax;
+ 
+-        __trace_var(TRC_PV_HYPERCALL, 1,
+-                    sizeof(d), (unsigned char *)&d);
++        __trace_var(TRC_PV_HYPERCALL, 1, sizeof(d), &d);
+     }
+     else
+ #endif
+@@ -42,7 +41,7 @@
+         d.eip = regs->eip;
+         d.eax = regs->eax;
+ 
+-        __trace_var(event, 1/*tsc*/, sizeof(d), (unsigned char*)&d);
++        __trace_var(event, 1/*tsc*/, sizeof(d), &d);
+     }
+ }
+ 
+@@ -64,8 +63,7 @@
+         d.error_code = error_code;
+         d.use_error_code=!!use_error_code;
+                 
+-        __trace_var(TRC_PV_TRAP, 1,
+-                    sizeof(d), (unsigned char *)&d);
++        __trace_var(TRC_PV_TRAP, 1, sizeof(d), &d);
+     }
+     else
+ #endif        
+@@ -85,7 +83,7 @@
+                 
+         event = TRC_PV_TRAP;
+         event |= TRC_64_FLAG;
+-        __trace_var(event, 1, sizeof(d), (unsigned char *)&d);
++        __trace_var(event, 1, sizeof(d), &d);
+     }
+ }
+ 
+@@ -104,7 +102,7 @@
+         d.addr = addr;
+         d.error_code = error_code;
+                 
+-        __trace_var(TRC_PV_PAGE_FAULT, 1, sizeof(d), (unsigned char *)&d);
++        __trace_var(TRC_PV_PAGE_FAULT, 1, sizeof(d), &d);
+     }
+     else
+ #endif        
+@@ -120,7 +118,7 @@
+         d.error_code = error_code;
+         event = TRC_PV_PAGE_FAULT;
+         event |= TRC_64_FLAG;
+-        __trace_var(event, 1, sizeof(d), (unsigned char *)&d);
++        __trace_var(event, 1, sizeof(d), &d);
+     }
+ }
+ 
+@@ -130,13 +128,13 @@
+     if ( is_pv_32on64_vcpu(current) )
+     {
+         u32 d = va;
+-        __trace_var(event, 1, sizeof(d), (unsigned char *)&d);
++        __trace_var(event, 1, sizeof(d), &d);
+     }
+     else
+ #endif        
+     {
+         event |= TRC_64_FLAG;
+-        __trace_var(event, 1, sizeof(va), (unsigned char *)&va);
++        __trace_var(event, 1, sizeof(va), &va);
+     }
+ }
+ 
+@@ -151,7 +149,7 @@
+         } __attribute__((packed)) d;
+         d.va1=va1;
+         d.va2=va2;
+-        __trace_var(event, 1, sizeof(d), (unsigned char *)&d);
++        __trace_var(event, 1, sizeof(d), &d);
+     }
+     else
+ #endif        
+@@ -162,7 +160,7 @@
+         d.va1=va1;
+         d.va2=va2;
+         event |= TRC_64_FLAG;
+-        __trace_var(event, 1, sizeof(d), (unsigned char *)&d);
++        __trace_var(event, 1, sizeof(d), &d);
+     }
+ }
+ 
+@@ -189,8 +187,7 @@
+         d.eip = eip;
+         d.pte = npte;
+ 
+-        __trace_var(TRC_PV_PTWR_EMULATION_PAE, 1,
+-                    sizeof(d), (unsigned char *)&d);
++        __trace_var(TRC_PV_PTWR_EMULATION_PAE, 1, sizeof(d), &d);
+     }
+     else
+ #endif        
+@@ -208,6 +205,6 @@
+         event = ((CONFIG_PAGING_LEVELS == 3) ?
+                  TRC_PV_PTWR_EMULATION_PAE : TRC_PV_PTWR_EMULATION);
+         event |= TRC_64_FLAG;
+-        __trace_var(event, 1/*tsc*/, sizeof(d), (unsigned char *)&d);
++        __trace_var(event, 1/*tsc*/, sizeof(d), &d);
+     }
+ }
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/traps.c
+--- a/xen/arch/x86/traps.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/traps.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -1051,8 +1051,14 @@
+     unsigned int is_ldt_area = (offset >> (GDT_LDT_VCPU_VA_SHIFT-1)) & 1;
+     unsigned int vcpu_area   = (offset >> GDT_LDT_VCPU_VA_SHIFT);
+ 
+-    /* Should never fault in another vcpu's area. */
+-    BUG_ON(vcpu_area != curr->vcpu_id);
++    /*
++     * If the fault is in another vcpu's area, it cannot be due to
++     * a GDT/LDT descriptor load. Thus we can reasonably exit immediately, and
++     * indeed we have to since map_ldt_shadow_page() works correctly only on
++     * accesses to a vcpu's own area.
++     */
++    if ( vcpu_area != curr->vcpu_id )
++        return 0;
+ 
+     /* Byte offset within the gdt/ldt sub-area. */
+     offset &= (1UL << (GDT_LDT_VCPU_VA_SHIFT-1)) - 1UL;
+@@ -1223,7 +1229,7 @@
+ 
+     if ( unlikely(IN_HYPERVISOR_RANGE(addr)) )
+     {
+-        if ( !(regs->error_code & PFEC_reserved_bit) &&
++        if ( !(regs->error_code & (PFEC_user_mode | PFEC_reserved_bit)) &&
+              (addr >= GDT_LDT_VIRT_START) && (addr < GDT_LDT_VIRT_END) )
+             return handle_gdt_ldt_mapping_fault(
+                 addr - GDT_LDT_VIRT_START, regs);
+@@ -1231,13 +1237,20 @@
+     }
+ 
+     if ( VM_ASSIST(d, VMASST_TYPE_writable_pagetables) &&
+-         guest_kernel_mode(v, regs) &&
+-         /* Do not check if access-protection fault since the page may 
+-            legitimately be not present in shadow page tables */
+-         ((regs->error_code & (PFEC_write_access|PFEC_reserved_bit)) ==
+-          PFEC_write_access) &&
+-         ptwr_do_page_fault(v, addr, regs) )
+-        return EXCRET_fault_fixed;
++         guest_kernel_mode(v, regs) )
++    {
++        unsigned int mbs = PFEC_write_access;
++        unsigned int mbz = PFEC_reserved_bit | PFEC_insn_fetch;
++
++        /* Do not check if access-protection fault since the page may 
++           legitimately be not present in shadow page tables */
++        if ( !paging_mode_enabled(d) )
++            mbs |= PFEC_page_present;
++
++        if ( ((regs->error_code & (mbs | mbz)) == mbs) &&
++             ptwr_do_page_fault(v, addr, regs) )
++            return EXCRET_fault_fixed;
++    }
+ 
+     /* For non-external shadowed guests, we fix up both their own 
+      * pagefaults and Xen's, since they share the pagetables. */
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/x86_32/domain_page.c
+--- a/xen/arch/x86/x86_32/domain_page.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/x86_32/domain_page.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -42,15 +42,13 @@
+ 
+ void *map_domain_page(unsigned long mfn)
+ {
+-    unsigned long va;
+-    unsigned int idx, i, flags;
++    unsigned long va, flags;
++    unsigned int idx, i;
+     struct vcpu *v;
+     struct mapcache_domain *dcache;
+     struct mapcache_vcpu *vcache;
+     struct vcpu_maphash_entry *hashent;
+ 
+-    ASSERT(!in_irq());
+-
+     perfc_incr(map_domain_page_count);
+ 
+     v = mapcache_current_vcpu();
+@@ -58,6 +56,8 @@
+     dcache = &v->domain->arch.mapcache;
+     vcache = &v->arch.mapcache;
+ 
++    local_irq_save(flags);
++
+     hashent = &vcache->hash[MAPHASH_HASHFN(mfn)];
+     if ( hashent->mfn == mfn )
+     {
+@@ -69,7 +69,7 @@
+         goto out;
+     }
+ 
+-    spin_lock_irqsave(&dcache->lock, flags);
++    spin_lock(&dcache->lock);
+ 
+     /* Has some other CPU caused a wrap? We must flush if so. */
+     if ( unlikely(dcache->epoch != vcache->shadow_epoch) )
+@@ -105,11 +105,12 @@
+     set_bit(idx, dcache->inuse);
+     dcache->cursor = idx + 1;
+ 
+-    spin_unlock_irqrestore(&dcache->lock, flags);
++    spin_unlock(&dcache->lock);
+ 
+     l1e_write(&dcache->l1tab[idx], l1e_from_pfn(mfn, __PAGE_HYPERVISOR));
+ 
+  out:
++    local_irq_restore(flags);
+     va = MAPCACHE_VIRT_START + (idx << PAGE_SHIFT);
+     return (void *)va;
+ }
+@@ -119,11 +120,9 @@
+     unsigned int idx;
+     struct vcpu *v;
+     struct mapcache_domain *dcache;
+-    unsigned long mfn;
++    unsigned long mfn, flags;
+     struct vcpu_maphash_entry *hashent;
+ 
+-    ASSERT(!in_irq());
+-
+     ASSERT((void *)MAPCACHE_VIRT_START <= va);
+     ASSERT(va < (void *)MAPCACHE_VIRT_END);
+ 
+@@ -135,6 +134,8 @@
+     mfn = l1e_get_pfn(dcache->l1tab[idx]);
+     hashent = &v->arch.mapcache.hash[MAPHASH_HASHFN(mfn)];
+ 
++    local_irq_save(flags);
++
+     if ( hashent->idx == idx )
+     {
+         ASSERT(hashent->mfn == mfn);
+@@ -163,6 +164,8 @@
+         /* /Second/, mark as garbage. */
+         set_bit(idx, dcache->garbage);
+     }
++
++    local_irq_restore(flags);
+ }
+ 
+ void mapcache_domain_init(struct domain *d)
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/x86_64/compat/entry.S
+--- a/xen/arch/x86/x86_64/compat/entry.S	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/x86_64/compat/entry.S	Fri Dec 24 10:29:50 2010 +0000
+@@ -36,7 +36,8 @@
+         pushq UREGS_rbx(%rsp); pushq %rcx; pushq %rdx; pushq %rsi; pushq %rdi
+         pushq UREGS_rbp+5*8(%rsp)
+         leaq  compat_hypercall_args_table(%rip),%r10
+-        movq  $6,%rcx
++        movl  %eax,%eax
++        movl  $6,%ecx
+         subb  (%r10,%rax,1),%cl
+         movq  %rsp,%rdi
+         movl  $0xDEADBEEF,%eax
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/x86_64/compat_kexec.S
+--- a/xen/arch/x86/x86_64/compat_kexec.S	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/x86_64/compat_kexec.S	Fri Dec 24 10:29:50 2010 +0000
+@@ -119,6 +119,7 @@
+         movl %eax, %ss
+ 
+         /* Push arguments onto stack. */
++        pushl $0   /* 20(%esp) - preserve context */
+         pushl $1   /* 16(%esp) - cpu has pae */
+         pushl %ecx /* 12(%esp) - start address */
+         pushl %edx /*  8(%esp) - page list */
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/x86_64/entry.S
+--- a/xen/arch/x86/x86_64/entry.S	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/x86_64/entry.S	Fri Dec 24 10:29:50 2010 +0000
+@@ -171,8 +171,8 @@
+         movq  UREGS_rsi+SHADOW_BYTES(%rsp),%rsi   /* Arg 2        */
+         movq  UREGS_rdx+SHADOW_BYTES(%rsp),%rdx   /* Arg 3        */
+         movq  UREGS_r10+SHADOW_BYTES(%rsp),%rcx   /* Arg 4        */
+-        movq  UREGS_rdi+SHADOW_BYTES(%rsp),%r8    /* Arg 5        */
+-        movq  UREGS_rbp+SHADOW_BYTES(%rsp),%r9    /* Arg 6        */
++        movq  UREGS_r8 +SHADOW_BYTES(%rsp),%r8    /* Arg 5        */
++        movq  UREGS_r9 +SHADOW_BYTES(%rsp),%r9    /* Arg 6        */
+ #undef SHADOW_BYTES
+ 1:      leaq  hypercall_table(%rip),%r10
+         PERFC_INCR(PERFC_hypercalls, %rax, %rbx)
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/x86_64/mm.c
+--- a/xen/arch/x86/x86_64/mm.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/x86_64/mm.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -163,9 +163,15 @@
+ 
+ void __init pfn_pdx_hole_setup(unsigned long mask)
+ {
+-    unsigned int i, j, bottom_shift, hole_shift;
++    unsigned int i, j, bottom_shift = 0, hole_shift = 0;
+ 
+-    for ( hole_shift = bottom_shift = j = 0; ; )
++    /*
++     * We skip the first MAX_ORDER bits, as we never want to compress them.
++     * This guarantees that page-pointer arithmetic remains valid within
++     * contiguous aligned ranges of 2^MAX_ORDER pages. Among others, our
++     * buddy allocator relies on this assumption.
++     */
++    for ( j = MAX_ORDER-1; ; )
+     {
+         i = find_next_zero_bit(&mask, BITS_PER_LONG, j);
+         j = find_next_bit(&mask, BITS_PER_LONG, i);
+diff -r beb8d83a8658 -r 714d808e57bb xen/arch/x86/x86_emulate/x86_emulate.c
+--- a/xen/arch/x86/x86_emulate/x86_emulate.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/arch/x86/x86_emulate/x86_emulate.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -2101,9 +2101,11 @@
+         case 4:
+             _regs.edx = (uint32_t)(((int32_t)_regs.eax < 0) ? -1 : 0);
+             break;
++#ifdef __x86_64__ /* compile warning with some versions of 32-bit gcc */
+         case 8:
+-            _regs.edx = (_regs.eax < 0) ? -1 : 0;
++            _regs.edx = ((int64_t)_regs.eax < 0) ? -1 : 0;
+             break;
++#endif
+         }
+         break;
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/domctl.c
+--- a/xen/common/domctl.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/domctl.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -764,11 +764,13 @@
+         new_max = op->u.max_mem.max_memkb >> (PAGE_SHIFT-10);
+ 
+         spin_lock(&d->page_alloc_lock);
+-        if ( new_max >= d->tot_pages )
+-        {
+-            d->max_pages = new_max;
+-            ret = 0;
+-        }
++        /*
++         * NB. We removed a check that new_max >= current tot_pages; this means
++         * that the domain will now be allowed to "ratchet" down to new_max. In
++         * the meantime, while tot > max, all new allocations are disallowed.
++         */
++        d->max_pages = new_max;
++        ret = 0;
+         spin_unlock(&d->page_alloc_lock);
+ 
+     max_mem_out:
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/event_channel.c
+--- a/xen/common/event_channel.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/event_channel.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -994,6 +994,12 @@
+ 
+     spin_lock(&ld->event_lock);
+ 
++    if ( unlikely(ld->is_dying) )
++    {
++        spin_unlock(&ld->event_lock);
++        return;
++    }
++
+     ASSERT(port_is_valid(ld, lport));
+     lchn = evtchn_from_port(ld, lport);
+     ASSERT(lchn->consumer_is_xen);
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/kexec.c
+--- a/xen/common/kexec.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/kexec.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -109,20 +109,13 @@
+     return out;
+ }
+ 
+-static int acpi_dmar_reinstate(struct acpi_table_header *table)
+-{
+-    table->signature[0] = 'D';
+-    table->checksum += 'X'-'D';
+-    return 0;
+-}
+-
+ static void kexec_common_shutdown(void)
+ {
+     watchdog_disable();
+     console_start_sync();
+     spin_debug_disable();
+     one_cpu_only();
+-    acpi_table_parse(ACPI_SIG_DMAR, acpi_dmar_reinstate);
++    acpi_dmar_reinstate();
+ }
+ 
+ void kexec_crash(void)
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/keyhandler.c
+--- a/xen/common/keyhandler.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/keyhandler.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -376,14 +376,17 @@
+     int k;
+ 
+     console_start_log_everything();
++
+     for ( k = 0; k < ARRAY_SIZE(key_table); k++ )
+     {
++        process_pending_softirqs_nested();
+         h = key_table[k];
+         if ( (h == NULL) || !h->diagnostic || h->irq_callback )
+             continue;
+         printk("[%c: %s]\n", k, h->desc);
+         (*h->u.fn)(k);
+     }
++
+     console_end_log_everything();
+ }
+ 
+@@ -395,10 +398,11 @@
+     struct keyhandler *h;
+     int k;
+ 
++    watchdog_disable();
++
+     printk("'%c' pressed -> firing all diagnostic keyhandlers\n", key);
+ 
+     /* Fire all the IRQ-context diangostic keyhandlers now */
+-    console_start_log_everything();
+     for ( k = 0; k < ARRAY_SIZE(key_table); k++ )
+     {
+         h = key_table[k];
+@@ -407,7 +411,8 @@
+         printk("[%c: %s]\n", k, h->desc);
+         (*h->u.irq_fn)(k, regs);
+     }
+-    console_end_log_everything();
++
++    watchdog_enable();
+ 
+     /* Trigger the others from a tasklet in non-IRQ context */
+     tasklet_schedule(&run_all_keyhandlers_tasklet);
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/memory.c
+--- a/xen/common/memory.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/memory.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -234,7 +234,7 @@
+             t.d = a->domain->domain_id;
+             t.order = a->extent_order;
+         
+-            __trace_var(TRC_MEM_DECREASE_RESERVATION, 0, sizeof(t), (unsigned char *)&t);
++            __trace_var(TRC_MEM_DECREASE_RESERVATION, 0, sizeof(t), &t);
+         }
+ 
+         /* See if populate-on-demand wants to handle this */
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/page_alloc.c
+--- a/xen/common/page_alloc.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/page_alloc.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -378,8 +378,6 @@
+     total_avail_pages -= request;
+     ASSERT(total_avail_pages >= 0);
+ 
+-    spin_unlock(&heap_lock);
+-
+     cpus_clear(mask);
+ 
+     for ( i = 0; i < (1 << order); i++ )
+@@ -401,6 +399,8 @@
+         page_set_owner(&pg[i], NULL);
+     }
+ 
++    spin_unlock(&heap_lock);
++
+     if ( unlikely(!cpus_empty(mask)) )
+     {
+         perfc_incr(need_flush_tlb_flush);
+@@ -496,6 +496,8 @@
+     ASSERT(order <= MAX_ORDER);
+     ASSERT(node >= 0);
+ 
++    spin_lock(&heap_lock);
++
+     for ( i = 0; i < (1 << order); i++ )
+     {
+         /*
+@@ -523,8 +525,6 @@
+             pg[i].tlbflush_timestamp = tlbflush_current_time();
+     }
+ 
+-    spin_lock(&heap_lock);
+-
+     avail[node][zone] += 1 << order;
+     total_avail_pages += 1 << order;
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/sched_credit.c
+--- a/xen/common/sched_credit.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/sched_credit.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -420,26 +420,36 @@
+         cpumask_t cpu_idlers;
+         cpumask_t nxt_idlers;
+         int nxt, weight_cpu, weight_nxt;
++        int migrate_factor;
+ 
+         nxt = cycle_cpu(cpu, cpus);
+ 
+         if ( cpu_isset(cpu, per_cpu(cpu_core_map, nxt)) )
+         {
++            /* We're on the same socket, so check the busy-ness of threads.
++             * Migrate if # of idlers is less at all */
+             ASSERT( cpu_isset(nxt, per_cpu(cpu_core_map, cpu)) );
++            migrate_factor = 1;
+             cpus_and(cpu_idlers, idlers, per_cpu(cpu_sibling_map, cpu));
+             cpus_and(nxt_idlers, idlers, per_cpu(cpu_sibling_map, nxt));
+         }
+         else
+         {
++            /* We're on different sockets, so check the busy-ness of cores.
++             * Migrate only if the other core is twice as idle */
+             ASSERT( !cpu_isset(nxt, per_cpu(cpu_core_map, cpu)) );
++            migrate_factor = 2;
+             cpus_and(cpu_idlers, idlers, per_cpu(cpu_core_map, cpu));
+             cpus_and(nxt_idlers, idlers, per_cpu(cpu_core_map, nxt));
+         }
+ 
+         weight_cpu = cpus_weight(cpu_idlers);
+         weight_nxt = cpus_weight(nxt_idlers);
+-        if ( ( (weight_cpu < weight_nxt) ^ sched_smt_power_savings )
+-                && (weight_cpu != weight_nxt) )
++        /* smt_power_savings: consolidate work rather than spreading it */
++        if ( ( sched_smt_power_savings
++               && (weight_cpu > weight_nxt) )
++             || ( !sched_smt_power_savings
++                  && (weight_cpu * migrate_factor < weight_nxt) ) )
+         {
+             cpu = cycle_cpu(CSCHED_PCPU(nxt)->idle_bias, nxt_idlers);
+             if ( commit )
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/schedule.c
+--- a/xen/common/schedule.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/schedule.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -83,7 +83,7 @@
+     event |= ( v->runstate.state & 0x3 ) << 8;
+     event |= ( new_state & 0x3 ) << 4;
+ 
+-    __trace_var(event, 1/*tsc*/, sizeof(d), (unsigned char *)&d);
++    __trace_var(event, 1/*tsc*/, sizeof(d), &d);
+ }
+ 
+ static inline void trace_continue_running(struct vcpu *v)
+@@ -96,8 +96,7 @@
+     d.vcpu = v->vcpu_id;
+     d.domain = v->domain->domain_id;
+ 
+-    __trace_var(TRC_SCHED_CONTINUE_RUNNING, 1/*tsc*/, sizeof(d),
+-                (unsigned char *)&d);
++    __trace_var(TRC_SCHED_CONTINUE_RUNNING, 1/*tsc*/, sizeof(d), &d);
+ }
+ 
+ static inline void vcpu_urgent_count_update(struct vcpu *v)
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/softirq.c
+--- a/xen/common/softirq.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/softirq.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -54,6 +54,16 @@
+     __do_softirq(1ul<<SCHEDULE_SOFTIRQ);
+ }
+ 
++void process_pending_softirqs_nested(void)
++{
++    ASSERT(!in_irq() && local_irq_is_enabled());
++    /*
++     * Do not enter scheduler as it can preempt the calling context,
++     * and do not run tasklets as we're running one currently.
++     */
++    __do_softirq((1ul<<SCHEDULE_SOFTIRQ) | (1ul<<TASKLET_SOFTIRQ));
++}
++
+ asmlinkage void do_softirq(void)
+ {
+     __do_softirq(0);
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/timer.c
+--- a/xen/common/timer.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/timer.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -18,6 +18,7 @@
+ #include <xen/timer.h>
+ #include <xen/keyhandler.h>
+ #include <xen/percpu.h>
++#include <xen/symbols.h>
+ #include <asm/system.h>
+ #include <asm/desc.h>
+ 
+@@ -475,6 +476,13 @@
+     return firsttick + (period - 1) - ((firsttick - 1) % period);
+ }
+ 
++static void dump_timer(struct timer *t, s_time_t now)
++{
++    printk("  ex=%8"PRId64"us timer=%p cb=%p(%p)",
++           (t->expires - now) / 1000, t, t->function, t->data);
++    print_symbol(" %s\n", (unsigned long)t->function);
++}
++
+ static void dump_timerq(unsigned char key)
+ {
+     struct timer  *t;
+@@ -483,28 +491,19 @@
+     s_time_t       now = NOW();
+     int            i, j;
+ 
+-    printk("Dumping timer queues: NOW=0x%08X%08X\n",
+-           (u32)(now>>32), (u32)now);
++    printk("Dumping timer queues:\n");
+ 
+     for_each_online_cpu( i )
+     {
+         ts = &per_cpu(timers, i);
+ 
+-        printk("CPU[%02d] ", i);
++        printk("CPU%02d:\n", i);
+         spin_lock_irqsave(&ts->lock, flags);
+         for ( j = 1; j <= GET_HEAP_SIZE(ts->heap); j++ )
+-        {
+-            t = ts->heap[j];
+-            printk ("  %d : %p ex=0x%08X%08X %p %p\n",
+-                    j, t, (u32)(t->expires>>32), (u32)t->expires,
+-                    t->data, t->function);
+-        }
++            dump_timer(ts->heap[j], now);
+         for ( t = ts->list, j = 0; t != NULL; t = t->list_next, j++ )
+-            printk (" L%d : %p ex=0x%08X%08X %p %p\n",
+-                    j, t, (u32)(t->expires>>32), (u32)t->expires,
+-                    t->data, t->function);
++            dump_timer(t, now);
+         spin_unlock_irqrestore(&ts->lock, flags);
+-        printk("\n");
+     }
+ }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/tmem.c
+--- a/xen/common/tmem.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/tmem.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -26,7 +26,7 @@
+ #define EXPORT /* indicates code other modules are dependent upon */
+ #define FORWARD
+ 
+-#define TMEM_SPEC_VERSION 0
++#define TMEM_SPEC_VERSION 1
+ 
+ /************  INTERFACE TO TMEM HOST-DEPENDENT (tmh) CODE ************/
+ 
+@@ -149,14 +149,13 @@
+ 
+ #define OBJ_HASH_BUCKETS 256 /* must be power of two */
+ #define OBJ_HASH_BUCKETS_MASK (OBJ_HASH_BUCKETS-1)
+-#define OBJ_HASH(_oid) (tmh_hash(_oid, BITS_PER_LONG) & OBJ_HASH_BUCKETS_MASK)
+ 
+ struct tm_pool {
+     bool_t shared;
+     bool_t persistent;
+     bool_t is_dying;
+     int pageshift; /* 0 == 2**12 */
+-    struct list_head pool_list; /* FIXME do we need this anymore? */
++    struct list_head pool_list;
+     client_t *client;
+     uint64_t uuid[2]; /* 0 for private, non-zero for shared */
+     uint32_t pool_id;
+@@ -189,9 +188,14 @@
+ #define is_shared(_p)      (_p->shared)
+ #define is_private(_p)     (!(_p->shared))
+ 
++struct oid {
++    uint64_t oid[3];
++};
++typedef struct oid OID;
++
+ struct tmem_object_root {
+     DECL_SENTINEL
+-    uint64_t oid;
++    OID oid;
+     struct rb_node rb_tree_node; /* protected by pool->pool_rwlock */
+     unsigned long objnode_count; /* atomicity depends on obj_spinlock */
+     long pgp_count; /* atomicity depends on obj_spinlock */
+@@ -217,12 +221,14 @@
+         struct list_head client_inv_pages;
+     };
+     union {
+-        struct list_head client_eph_pages;
+-        struct list_head pool_pers_pages;
+-    };
+-    union {
+-        obj_t *obj;
+-        uint64_t inv_oid;  /* used for invalid list only */
++        struct {
++            union {
++                struct list_head client_eph_pages;
++                struct list_head pool_pers_pages;
++            };
++            obj_t *obj;
++        } us;
++        OID inv_oid;  /* used for invalid list only */
+     };
+     pagesize_t size; /* 0 == PAGE_SIZE (pfp), -1 == data invalid,
+                     else compressed data (cdata) */
+@@ -467,9 +473,9 @@
+ 
+     if ( !tmh_dedup_enabled() )
+         return 0;
+-    ASSERT(pgp->obj != NULL);
+-    ASSERT(pgp->obj->pool != NULL);
+-    ASSERT(!pgp->obj->pool->persistent);
++    ASSERT(pgp->us.obj != NULL);
++    ASSERT(pgp->us.obj->pool != NULL);
++    ASSERT(!pgp->us.obj->pool->persistent);
+     if ( cdata == NULL )
+     {
+         ASSERT(pgp->pfp != NULL);
+@@ -528,7 +534,7 @@
+             /* match! if not compressed, free the no-longer-needed page */
+             /* but if compressed, data is assumed static so don't free! */
+             if ( cdata == NULL )
+-                tmem_page_free(pgp->obj->pool,pgp->pfp);
++                tmem_page_free(pgp->us.obj->pool,pgp->pfp);
+             deduped_puts++;
+             goto match;
+         }
+@@ -540,7 +546,7 @@
+         ret = -ENOMEM;
+         goto unlock;
+     } else if ( cdata != NULL ) {
+-        if ( (pcd->cdata = tmem_malloc_bytes(csize,pgp->obj->pool)) == NULL )
++        if ( (pcd->cdata = tmem_malloc_bytes(csize,pgp->us.obj->pool)) == NULL )
+         {
+             tmem_free(pcd,sizeof(pcd_t),NULL);
+             ret = -ENOMEM;
+@@ -561,11 +567,11 @@
+         pcd->size = 0;
+         pcd->tze = NULL;
+     } else if ( pfp_size < PAGE_SIZE &&
+-         ((pcd->tze = tmem_malloc_bytes(pfp_size,pgp->obj->pool)) != NULL) ) {
++         ((pcd->tze = tmem_malloc_bytes(pfp_size,pgp->us.obj->pool)) != NULL) ) {
+         tmh_tze_copy_from_pfp(pcd->tze,pgp->pfp,pfp_size);
+         pcd->size = pfp_size;
+         pcd_tot_tze_size += pfp_size;
+-        tmem_page_free(pgp->obj->pool,pgp->pfp);
++        tmem_page_free(pgp->us.obj->pool,pgp->pfp);
+     } else {
+         pcd->pfp = pgp->pfp;
+         pcd->size = PAGE_SIZE;
+@@ -602,9 +608,9 @@
+     pool = obj->pool;
+     if ( (pgp = tmem_malloc(pgp_t, pool)) == NULL )
+         return NULL;
+-    pgp->obj = obj;
++    pgp->us.obj = obj;
+     INIT_LIST_HEAD(&pgp->global_eph_pages);
+-    INIT_LIST_HEAD(&pgp->client_eph_pages);
++    INIT_LIST_HEAD(&pgp->us.client_eph_pages);
+     pgp->pfp = NULL;
+     if ( tmh_dedup_enabled() )
+     {
+@@ -642,7 +648,7 @@
+     else if ( pgp_size )
+         tmem_free(pgp->cdata,pgp_size,pool);
+     else
+-        tmem_page_free(pgp->obj->pool,pgp->pfp);
++        tmem_page_free(pgp->us.obj->pool,pgp->pfp);
+     if ( pool != NULL && pgp_size )
+     {
+         pool->client->compressed_pages--;
+@@ -657,18 +663,18 @@
+     pool_t *pool = NULL;
+ 
+     ASSERT_SENTINEL(pgp,PGD);
+-    ASSERT(pgp->obj != NULL);
+-    ASSERT_SENTINEL(pgp->obj,OBJ);
+-    ASSERT_SENTINEL(pgp->obj->pool,POOL);
+-    ASSERT(pgp->obj->pool->client != NULL);
++    ASSERT(pgp->us.obj != NULL);
++    ASSERT_SENTINEL(pgp->us.obj,OBJ);
++    ASSERT_SENTINEL(pgp->us.obj->pool,POOL);
++    ASSERT(pgp->us.obj->pool->client != NULL);
+     if ( from_delete )
+-        ASSERT(pgp_lookup_in_obj(pgp->obj,pgp->index) == NULL);
+-    ASSERT(pgp->obj->pool != NULL);
+-    pool = pgp->obj->pool;
++        ASSERT(pgp_lookup_in_obj(pgp->us.obj,pgp->index) == NULL);
++    ASSERT(pgp->us.obj->pool != NULL);
++    pool = pgp->us.obj->pool;
+     if ( is_ephemeral(pool) )
+     {
+         ASSERT(list_empty(&pgp->global_eph_pages));
+-        ASSERT(list_empty(&pgp->client_eph_pages));
++        ASSERT(list_empty(&pgp->us.client_eph_pages));
+     }
+     pgp_free_data(pgp, pool);
+     atomic_dec_and_assert(global_pgp_count);
+@@ -676,12 +682,12 @@
+     pgp->size = -1;
+     if ( is_persistent(pool) && pool->client->live_migrating )
+     {
+-        pgp->inv_oid = pgp->obj->oid;
++        pgp->inv_oid = pgp->us.obj->oid;
+         pgp->pool_id = pool->pool_id;
+         return;
+     }
+     INVERT_SENTINEL(pgp,PGD);
+-    pgp->obj = NULL;
++    pgp->us.obj = NULL;
+     pgp->index = -1;
+     tmem_free(pgp,sizeof(pgp_t),pool);
+ }
+@@ -693,7 +699,7 @@
+     ASSERT_SENTINEL(pool,POOL);
+     ASSERT_SENTINEL(pgp,PGD);
+     INVERT_SENTINEL(pgp,PGD);
+-    pgp->obj = NULL;
++    pgp->us.obj = NULL;
+     pgp->index = -1;
+     tmem_free(pgp,sizeof(pgp_t),pool);
+ }
+@@ -704,18 +710,18 @@
+     client_t *client;
+ 
+     ASSERT(pgp != NULL);
+-    ASSERT(pgp->obj != NULL);
+-    ASSERT(pgp->obj->pool != NULL);
+-    client = pgp->obj->pool->client;
++    ASSERT(pgp->us.obj != NULL);
++    ASSERT(pgp->us.obj->pool != NULL);
++    client = pgp->us.obj->pool->client;
+     ASSERT(client != NULL);
+-    if ( is_ephemeral(pgp->obj->pool) )
++    if ( is_ephemeral(pgp->us.obj->pool) )
+     {
+         if ( !no_eph_lock )
+             tmem_spin_lock(&eph_lists_spinlock);
+-        if ( !list_empty(&pgp->client_eph_pages) )
++        if ( !list_empty(&pgp->us.client_eph_pages) )
+             client->eph_count--;
+         ASSERT(client->eph_count >= 0);
+-        list_del_init(&pgp->client_eph_pages);
++        list_del_init(&pgp->us.client_eph_pages);
+         if ( !list_empty(&pgp->global_eph_pages) )
+             global_eph_count--;
+         ASSERT(global_eph_count >= 0);
+@@ -728,12 +734,12 @@
+             tmem_spin_lock(&pers_lists_spinlock);
+             list_add_tail(&pgp->client_inv_pages,
+                           &client->persistent_invalidated_list);
+-            if ( pgp != pgp->obj->pool->cur_pgp )
+-                list_del_init(&pgp->pool_pers_pages);
++            if ( pgp != pgp->us.obj->pool->cur_pgp )
++                list_del_init(&pgp->us.pool_pers_pages);
+             tmem_spin_unlock(&pers_lists_spinlock);
+         } else {
+             tmem_spin_lock(&pers_lists_spinlock);
+-            list_del_init(&pgp->pool_pers_pages);
++            list_del_init(&pgp->us.pool_pers_pages);
+             tmem_spin_unlock(&pers_lists_spinlock);
+         }
+     }
+@@ -745,10 +751,10 @@
+     uint64_t life;
+ 
+     ASSERT(pgp != NULL);
+-    ASSERT(pgp->obj != NULL);
+-    ASSERT(pgp->obj->pool != NULL);
++    ASSERT(pgp->us.obj != NULL);
++    ASSERT(pgp->us.obj->pool != NULL);
+     life = get_cycles() - pgp->timestamp;
+-    pgp->obj->pool->sum_life_cycles += life;
++    pgp->us.obj->pool->sum_life_cycles += life;
+     pgp_delist(pgp, no_eph_lock);
+     pgp_free(pgp,1);
+ }
+@@ -758,11 +764,11 @@
+ {
+     pgp_t *pgp = (pgp_t *)v;
+ 
+-    ASSERT_SPINLOCK(&pgp->obj->obj_spinlock);
++    ASSERT_SPINLOCK(&pgp->us.obj->obj_spinlock);
+     pgp_delist(pgp,0);
+-    ASSERT(pgp->obj != NULL);
+-    pgp->obj->pgp_count--;
+-    ASSERT(pgp->obj->pgp_count >= 0);
++    ASSERT(pgp->us.obj != NULL);
++    pgp->us.obj->pgp_count--;
++    ASSERT(pgp->us.obj->pgp_count >= 0);
+     pgp_free(pgp,0);
+ }
+ 
+@@ -849,37 +855,74 @@
+ 
+ /************ POOL OBJECT COLLECTION MANIPULATION ROUTINES *******************/
+ 
++int oid_compare(OID *left, OID *right)
++{
++    if ( left->oid[2] == right->oid[2] )
++    {
++        if ( left->oid[1] == right->oid[1] )
++        {
++            if ( left->oid[0] == right->oid[0] )
++                return 0;
++            else if ( left->oid[0] < right->oid[0] )
++                return -1;
++            else
++                return 1;
++        }
++        else if ( left->oid[1] < right->oid[1] )
++            return -1;
++        else
++            return 1;
++    }
++    else if ( left->oid[2] < right->oid[2] )
++        return -1;
++    else
++        return 1;
++}
++
++void oid_set_invalid(OID *oidp)
++{
++    oidp->oid[0] = oidp->oid[1] = oidp->oid[2] = -1UL;
++}
++
++unsigned oid_hash(OID *oidp)
++{
++    return (tmh_hash(oidp->oid[0] ^ oidp->oid[1] ^ oidp->oid[2],
++                     BITS_PER_LONG) & OBJ_HASH_BUCKETS_MASK);
++}
++
+ /* searches for object==oid in pool, returns locked object if found */
+-static NOINLINE obj_t * obj_find(pool_t *pool, uint64_t oid)
++static NOINLINE obj_t * obj_find(pool_t *pool, OID *oidp)
+ {
+     struct rb_node *node;
+     obj_t *obj;
+ 
+ restart_find:
+     tmem_read_lock(&pool->pool_rwlock);
+-    node = pool->obj_rb_root[OBJ_HASH(oid)].rb_node;
++    node = pool->obj_rb_root[oid_hash(oidp)].rb_node;
+     while ( node )
+     {
+         obj = container_of(node, obj_t, rb_tree_node);
+-        if ( obj->oid == oid )
++        switch ( oid_compare(&obj->oid, oidp) )
+         {
+-            if ( tmh_lock_all )
+-                obj->no_evict = 1;
+-            else
+-            {
+-                if ( !tmem_spin_trylock(&obj->obj_spinlock) )
++            case 0: /* equal */
++                if ( tmh_lock_all )
++                    obj->no_evict = 1;
++                else
+                 {
++                    if ( !tmem_spin_trylock(&obj->obj_spinlock) )
++                    {
++                        tmem_read_unlock(&pool->pool_rwlock);
++                        goto restart_find;
++                    }
+                     tmem_read_unlock(&pool->pool_rwlock);
+-                    goto restart_find;
+                 }
+-                tmem_read_unlock(&pool->pool_rwlock);
+-            }
+-            return obj;
++                return obj;
++            case -1:
++                node = node->rb_left;
++                break;
++            case 1:
++                node = node->rb_right;
+         }
+-        else if ( oid < obj->oid )
+-            node = node->rb_left;
+-        else
+-            node = node->rb_right;
+     }
+     tmem_read_unlock(&pool->pool_rwlock);
+     return NULL;
+@@ -889,7 +932,7 @@
+ static NOINLINE void obj_free(obj_t *obj, int no_rebalance)
+ {
+     pool_t *pool;
+-    uint64_t old_oid;
++    OID old_oid;
+ 
+     ASSERT_SPINLOCK(&obj->obj_spinlock);
+     ASSERT(obj != NULL);
+@@ -908,12 +951,12 @@
+     INVERT_SENTINEL(obj,OBJ);
+     obj->pool = NULL;
+     old_oid = obj->oid;
+-    obj->oid = -1;
++    oid_set_invalid(&obj->oid);
+     obj->last_client = CLI_ID_NULL;
+     atomic_dec_and_assert(global_obj_count);
+     /* use no_rebalance only if all objects are being destroyed anyway */
+     if ( !no_rebalance )
+-        rb_erase(&obj->rb_tree_node,&pool->obj_rb_root[OBJ_HASH(old_oid)]);
++        rb_erase(&obj->rb_tree_node,&pool->obj_rb_root[oid_hash(&old_oid)]);
+     tmem_free(obj,sizeof(obj_t),pool);
+ }
+ 
+@@ -927,12 +970,17 @@
+     {
+         this = container_of(*new, obj_t, rb_tree_node);
+         parent = *new;
+-        if ( obj->oid < this->oid )
+-            new = &((*new)->rb_left);
+-        else if ( obj->oid > this->oid )
+-            new = &((*new)->rb_right);
+-        else
+-            return 0;
++        switch ( oid_compare(&this->oid, &obj->oid) )
++        {
++            case 0:
++                return 0;
++            case -1:
++                new = &((*new)->rb_left);
++                break;
++            case 1:
++                new = &((*new)->rb_right);
++                break;
++        }
+     }
+     rb_link_node(&obj->rb_tree_node, parent, new);
+     rb_insert_color(&obj->rb_tree_node, root);
+@@ -943,7 +991,7 @@
+  * allocate, initialize, and insert an tmem_object_root
+  * (should be called only if find failed)
+  */
+-static NOINLINE obj_t * obj_new(pool_t *pool, uint64_t oid)
++static NOINLINE obj_t * obj_new(pool_t *pool, OID *oidp)
+ {
+     obj_t *obj;
+ 
+@@ -958,13 +1006,13 @@
+     INIT_RADIX_TREE(&obj->tree_root,0);
+     spin_lock_init(&obj->obj_spinlock);
+     obj->pool = pool;
+-    obj->oid = oid;
++    obj->oid = *oidp;
+     obj->objnode_count = 0;
+     obj->pgp_count = 0;
+     obj->last_client = CLI_ID_NULL;
+     SET_SENTINEL(obj,OBJ);
+     tmem_spin_lock(&obj->obj_spinlock);
+-    obj_rb_insert(&pool->obj_rb_root[OBJ_HASH(oid)], obj);
++    obj_rb_insert(&pool->obj_rb_root[oid_hash(oidp)], obj);
+     obj->no_evict = 1;
+     ASSERT_SPINLOCK(&obj->obj_spinlock);
+     return obj;
+@@ -1256,7 +1304,7 @@
+ 
+ static bool_t tmem_try_to_evict_pgp(pgp_t *pgp, bool_t *hold_pool_rwlock)
+ {
+-    obj_t *obj = pgp->obj;
++    obj_t *obj = pgp->us.obj;
+     pool_t *pool = obj->pool;
+     client_t *client = pool->client;
+     uint16_t firstbyte = pgp->firstbyte;
+@@ -1280,8 +1328,8 @@
+                 pgp->eviction_attempted++;
+                 list_del(&pgp->global_eph_pages);
+                 list_add_tail(&pgp->global_eph_pages,&global_ephemeral_page_list);
+-                list_del(&pgp->client_eph_pages);
+-                list_add_tail(&pgp->client_eph_pages,&client->ephemeral_page_list);
++                list_del(&pgp->us.client_eph_pages);
++                list_add_tail(&pgp->us.client_eph_pages,&client->ephemeral_page_list);
+                 goto pcd_unlock;
+             }
+         }
+@@ -1314,7 +1362,7 @@
+     if ( (client != NULL) && client_over_quota(client) &&
+          !list_empty(&client->ephemeral_page_list) )
+     {
+-        list_for_each_entry_safe(pgp,pgp2,&client->ephemeral_page_list,client_eph_pages)
++        list_for_each_entry_safe(pgp,pgp2,&client->ephemeral_page_list,us.client_eph_pages)
+             if ( tmem_try_to_evict_pgp(pgp,&hold_pool_rwlock) )
+                 goto found;
+     } else if ( list_empty(&global_ephemeral_page_list) ) {
+@@ -1331,7 +1379,7 @@
+ found:
+     ASSERT(pgp != NULL);
+     ASSERT_SENTINEL(pgp,PGD);
+-    obj = pgp->obj;
++    obj = pgp->us.obj;
+     ASSERT(obj != NULL);
+     ASSERT(obj->no_evict == 0);
+     ASSERT(obj->pool != NULL);
+@@ -1407,16 +1455,16 @@
+     DECL_LOCAL_CYC_COUNTER(compress);
+     
+     ASSERT(pgp != NULL);
+-    ASSERT(pgp->obj != NULL);
+-    ASSERT_SPINLOCK(&pgp->obj->obj_spinlock);
+-    ASSERT(pgp->obj->pool != NULL);
+-    ASSERT(pgp->obj->pool->client != NULL);
++    ASSERT(pgp->us.obj != NULL);
++    ASSERT_SPINLOCK(&pgp->us.obj->obj_spinlock);
++    ASSERT(pgp->us.obj->pool != NULL);
++    ASSERT(pgp->us.obj->pool->client != NULL);
+ #ifdef __i386__
+     return -ENOMEM;
+ #endif
+ 
+     if ( pgp->pfp != NULL )
+-        pgp_free_data(pgp, pgp->obj->pool);
++        pgp_free_data(pgp, pgp->us.obj->pool);
+     START_CYC_COUNTER(compress);
+     ret = tmh_compress_from_client(cmfn, &dst, &size, cva);
+     if ( (ret == -EFAULT) || (ret == 0) )
+@@ -1424,10 +1472,10 @@
+     else if ( (size == 0) || (size >= tmem_subpage_maxsize()) ) {
+         ret = 0;
+         goto out;
+-    } else if ( tmh_dedup_enabled() && !is_persistent(pgp->obj->pool) ) {
++    } else if ( tmh_dedup_enabled() && !is_persistent(pgp->us.obj->pool) ) {
+         if ( (ret = pcd_associate(pgp,dst,size)) == -ENOMEM )
+             goto out;
+-    } else if ( (p = tmem_malloc_bytes(size,pgp->obj->pool)) == NULL ) {
++    } else if ( (p = tmem_malloc_bytes(size,pgp->us.obj->pool)) == NULL ) {
+         ret = -ENOMEM;
+         goto out;
+     } else {
+@@ -1435,8 +1483,8 @@
+         pgp->cdata = p;
+     }
+     pgp->size = size;
+-    pgp->obj->pool->client->compressed_pages++;
+-    pgp->obj->pool->client->compressed_sum_size += size;
++    pgp->us.obj->pool->client->compressed_pages++;
++    pgp->us.obj->pool->client->compressed_sum_size += size;
+     ret = 1;
+ 
+ out:
+@@ -1456,7 +1504,7 @@
+     ASSERT(pgp != NULL);
+     ASSERT(pgp->pfp != NULL);
+     ASSERT(pgp->size != -1);
+-    obj = pgp->obj;
++    obj = pgp->us.obj;
+     ASSERT_SPINLOCK(&obj->obj_spinlock);
+     ASSERT(obj != NULL);
+     pool = obj->pool;
+@@ -1535,7 +1583,7 @@
+ 
+ 
+ static NOINLINE int do_tmem_put(pool_t *pool,
+-              uint64_t oid, uint32_t index,
++              OID *oidp, uint32_t index,
+               tmem_cli_mfn_t cmfn, pagesize_t tmem_offset,
+               pagesize_t pfn_offset, pagesize_t len, void *cva)
+ {
+@@ -1547,7 +1595,7 @@
+     ASSERT(pool != NULL);
+     pool->puts++;
+     /* does page already exist (dup)?  if so, handle specially */
+-    if ( (obj = objfound = obj_find(pool,oid)) != NULL )
++    if ( (obj = objfound = obj_find(pool,oidp)) != NULL )
+     {
+         ASSERT_SPINLOCK(&objfound->obj_spinlock);
+         if ((pgp = pgp_lookup_in_obj(objfound, index)) != NULL)
+@@ -1561,7 +1609,7 @@
+     if ( (objfound == NULL) )
+     {
+         tmem_write_lock(&pool->pool_rwlock);
+-        if ( (obj = objnew = obj_new(pool,oid)) == NULL )
++        if ( (obj = objnew = obj_new(pool,oidp)) == NULL )
+         {
+             tmem_write_unlock(&pool->pool_rwlock);
+             return -ENOMEM;
+@@ -1627,14 +1675,14 @@
+             &global_ephemeral_page_list);
+         if (++global_eph_count > global_eph_count_max)
+             global_eph_count_max = global_eph_count;
+-        list_add_tail(&pgp->client_eph_pages,
++        list_add_tail(&pgp->us.client_eph_pages,
+             &client->ephemeral_page_list);
+         if (++client->eph_count > client->eph_count_max)
+             client->eph_count_max = client->eph_count;
+         tmem_spin_unlock(&eph_lists_spinlock);
+     } else { /* is_persistent */
+         tmem_spin_lock(&pers_lists_spinlock);
+-        list_add_tail(&pgp->pool_pers_pages,
++        list_add_tail(&pgp->us.pool_pers_pages,
+             &pool->persistent_page_list);
+         tmem_spin_unlock(&pers_lists_spinlock);
+     }
+@@ -1678,7 +1726,7 @@
+     return ret;
+ }
+ 
+-static NOINLINE int do_tmem_get(pool_t *pool, uint64_t oid, uint32_t index,
++static NOINLINE int do_tmem_get(pool_t *pool, OID *oidp, uint32_t index,
+               tmem_cli_mfn_t cmfn, pagesize_t tmem_offset,
+               pagesize_t pfn_offset, pagesize_t len, void *cva)
+ {
+@@ -1691,7 +1739,7 @@
+         return -EEMPTY;
+ 
+     pool->gets++;
+-    obj = obj_find(pool,oid);
++    obj = obj_find(pool,oidp);
+     if ( obj == NULL )
+         return 0;
+ 
+@@ -1737,8 +1785,8 @@
+             tmem_spin_lock(&eph_lists_spinlock);
+             list_del(&pgp->global_eph_pages);
+             list_add_tail(&pgp->global_eph_pages,&global_ephemeral_page_list);
+-            list_del(&pgp->client_eph_pages);
+-            list_add_tail(&pgp->client_eph_pages,&client->ephemeral_page_list);
++            list_del(&pgp->us.client_eph_pages);
++            list_add_tail(&pgp->us.client_eph_pages,&client->ephemeral_page_list);
+             tmem_spin_unlock(&eph_lists_spinlock);
+             ASSERT(obj != NULL);
+             obj->last_client = tmh_get_cli_id_from_current();
+@@ -1763,13 +1811,13 @@
+ 
+ }
+ 
+-static NOINLINE int do_tmem_flush_page(pool_t *pool, uint64_t oid, uint32_t index)
++static NOINLINE int do_tmem_flush_page(pool_t *pool, OID *oidp, uint32_t index)
+ {
+     obj_t *obj;
+     pgp_t *pgp;
+ 
+     pool->flushs++;
+-    obj = obj_find(pool,oid);
++    obj = obj_find(pool,oidp);
+     if ( obj == NULL )
+         goto out;
+     pgp = pgp_delete_from_obj(obj, index);
+@@ -1798,12 +1846,12 @@
+         return 1;
+ }
+ 
+-static NOINLINE int do_tmem_flush_object(pool_t *pool, uint64_t oid)
++static NOINLINE int do_tmem_flush_object(pool_t *pool, OID *oidp)
+ {
+     obj_t *obj;
+ 
+     pool->flush_objs++;
+-    obj = obj_find(pool,oid);
++    obj = obj_find(pool,oidp);
+     if ( obj == NULL )
+         goto out;
+     tmem_write_lock(&pool->pool_rwlock);
+@@ -1865,6 +1913,16 @@
+         printk("failed... unsupported pagesize %d\n",1<<(pagebits+12));
+         return -EPERM;
+     }
++    if ( flags & TMEM_POOL_PRECOMPRESSED )
++    {
++        printk("failed... precompression flag set but unsupported\n");
++        return -EPERM;
++    }
++    if ( flags & TMEM_POOL_RESERVED_BITS )
++    {
++        printk("failed... reserved bits must be zero\n");
++        return -EPERM;
++    }
+     if ( (pool = pool_alloc()) == NULL )
+     {
+         printk("failed... out of memory\n");
+@@ -2369,6 +2427,7 @@
+     pool_t *pool = (client == NULL || pool_id >= MAX_POOLS_PER_DOMAIN)
+                    ? NULL : client->pools[pool_id];
+     pgp_t *pgp;
++    OID oid;
+     int ret = 0;
+     struct tmem_handle *h;
+     unsigned int pagesize = 1 << (pool->pageshift+12);
+@@ -2389,22 +2448,23 @@
+     {
+         /* process the first one */
+         pool->cur_pgp = pgp = list_entry((&pool->persistent_page_list)->next,
+-                         pgp_t,pool_pers_pages);
+-    } else if ( list_is_last(&pool->cur_pgp->pool_pers_pages, 
++                         pgp_t,us.pool_pers_pages);
++    } else if ( list_is_last(&pool->cur_pgp->us.pool_pers_pages, 
+                              &pool->persistent_page_list) )
+     {
+         /* already processed the last one in the list */
+         ret = -1;
+         goto out;
+     }
+-    pgp = list_entry((&pool->cur_pgp->pool_pers_pages)->next,
+-                         pgp_t,pool_pers_pages);
++    pgp = list_entry((&pool->cur_pgp->us.pool_pers_pages)->next,
++                         pgp_t,us.pool_pers_pages);
+     pool->cur_pgp = pgp;
++    oid = pgp->us.obj->oid;
+     h = (struct tmem_handle *)buf.p;
+-    h->oid = pgp->obj->oid;
++    *(OID *)&h->oid[0] = oid;
+     h->index = pgp->index;
+     buf.p = (void *)(h+1);
+-    ret = do_tmem_get(pool, h->oid, h->index,0,0,0,pagesize,buf.p);
++    ret = do_tmem_get(pool, &oid, h->index,0,0,0,pagesize,buf.p);
+ 
+ out:
+     tmem_spin_unlock(&pers_lists_spinlock);
+@@ -2444,7 +2504,7 @@
+     }
+     h = (struct tmem_handle *)buf.p;
+     h->pool_id = pgp->pool_id;
+-    h->oid = pgp->inv_oid;
++    *(OID *)&h->oid = pgp->inv_oid;
+     h->index = pgp->index;
+     ret = 1;
+ out:
+@@ -2452,7 +2512,7 @@
+     return ret;
+ }
+ 
+-static int tmemc_restore_put_page(int cli_id, int pool_id, uint64_t oid,
++static int tmemc_restore_put_page(int cli_id, int pool_id, OID *oidp,
+                       uint32_t index, tmem_cli_va_t buf, uint32_t bufsize)
+ {
+     client_t *client = tmh_client_from_cli_id(cli_id);
+@@ -2461,10 +2521,10 @@
+ 
+     if ( pool == NULL )
+         return -1;
+-    return do_tmem_put(pool,oid,index,0,0,0,bufsize,buf.p);
++    return do_tmem_put(pool,oidp,index,0,0,0,bufsize,buf.p);
+ }
+ 
+-static int tmemc_restore_flush_page(int cli_id, int pool_id, uint64_t oid,
++static int tmemc_restore_flush_page(int cli_id, int pool_id, OID *oidp,
+                         uint32_t index)
+ {
+     client_t *client = tmh_client_from_cli_id(cli_id);
+@@ -2473,7 +2533,7 @@
+ 
+     if ( pool == NULL )
+         return -1;
+-    return do_tmem_flush_page(pool,oid,index);
++    return do_tmem_flush_page(pool,oidp,index);
+ }
+ 
+ static NOINLINE int do_tmem_control(struct tmem_op *op)
+@@ -2481,6 +2541,7 @@
+     int ret;
+     uint32_t pool_id = op->pool_id;
+     uint32_t subop = op->u.ctrl.subop;
++    OID *oidp = (OID *)(&op->u.ctrl.oid[0]);
+ 
+     if (!tmh_current_is_privileged())
+     {
+@@ -2533,12 +2594,12 @@
+         break;
+     case TMEMC_RESTORE_PUT_PAGE:
+         ret = tmemc_restore_put_page(op->u.ctrl.cli_id,pool_id,
+-                                     op->u.ctrl.arg3, op->u.ctrl.arg2,
++                                     oidp, op->u.ctrl.arg2,
+                                      op->u.ctrl.buf, op->u.ctrl.arg1);
+         break;
+     case TMEMC_RESTORE_FLUSH_PAGE:
+         ret = tmemc_restore_flush_page(op->u.ctrl.cli_id,pool_id,
+-                                       op->u.ctrl.arg3, op->u.ctrl.arg2);
++                                       oidp, op->u.ctrl.arg2);
+         break;
+     default:
+         ret = -1;
+@@ -2553,6 +2614,7 @@
+     struct tmem_op op;
+     client_t *client = tmh_client_from_current();
+     pool_t *pool = NULL;
++    OID *oidp;
+     int rc = 0;
+     bool_t succ_get = 0, succ_put = 0;
+     bool_t non_succ_get = 0, non_succ_put = 0;
+@@ -2607,14 +2669,14 @@
+     } else if ( op.cmd == TMEM_AUTH ) {
+         tmem_write_lock(&tmem_rwlock);
+         tmem_write_lock_set = 1;
+-        rc = tmemc_shared_pool_auth(op.u.new.arg1,op.u.new.uuid[0],
+-                         op.u.new.uuid[1],op.u.new.flags);
++        rc = tmemc_shared_pool_auth(op.u.creat.arg1,op.u.creat.uuid[0],
++                         op.u.creat.uuid[1],op.u.creat.flags);
+         goto out;
+     } else if ( op.cmd == TMEM_RESTORE_NEW ) {
+         tmem_write_lock(&tmem_rwlock);
+         tmem_write_lock_set = 1;
+-        rc = do_tmem_new_pool(op.u.new.arg1, op.pool_id, op.u.new.flags,
+-                         op.u.new.uuid[0], op.u.new.uuid[1]);
++        rc = do_tmem_new_pool(op.u.creat.arg1, op.pool_id, op.u.creat.flags,
++                         op.u.creat.uuid[0], op.u.creat.uuid[1]);
+         goto out;
+     }
+ 
+@@ -2656,36 +2718,37 @@
+         ASSERT_SENTINEL(pool,POOL);
+     }
+ 
++    oidp = (OID *)&op.u.gen.oid[0];
+     switch ( op.cmd )
+     {
+     case TMEM_NEW_POOL:
+-        rc = do_tmem_new_pool(CLI_ID_NULL, 0, op.u.new.flags,
+-                              op.u.new.uuid[0], op.u.new.uuid[1]);
++        rc = do_tmem_new_pool(CLI_ID_NULL, 0, op.u.creat.flags,
++                              op.u.creat.uuid[0], op.u.creat.uuid[1]);
+         break;
+     case TMEM_NEW_PAGE:
+         tmem_ensure_avail_pages();
+-        rc = do_tmem_put(pool, op.u.gen.object,
++        rc = do_tmem_put(pool, oidp,
+                          op.u.gen.index, op.u.gen.cmfn, 0, 0, 0, NULL);
+         break;
+     case TMEM_PUT_PAGE:
+         tmem_ensure_avail_pages();
+-        rc = do_tmem_put(pool, op.u.gen.object,
++        rc = do_tmem_put(pool, oidp,
+                     op.u.gen.index, op.u.gen.cmfn, 0, 0, PAGE_SIZE, NULL);
+         if (rc == 1) succ_put = 1;
+         else non_succ_put = 1;
+         break;
+     case TMEM_GET_PAGE:
+-        rc = do_tmem_get(pool, op.u.gen.object, op.u.gen.index, op.u.gen.cmfn,
++        rc = do_tmem_get(pool, oidp, op.u.gen.index, op.u.gen.cmfn,
+                          0, 0, PAGE_SIZE, 0);
+         if (rc == 1) succ_get = 1;
+         else non_succ_get = 1;
+         break;
+     case TMEM_FLUSH_PAGE:
+         flush = 1;
+-        rc = do_tmem_flush_page(pool, op.u.gen.object, op.u.gen.index);
++        rc = do_tmem_flush_page(pool, oidp, op.u.gen.index);
+         break;
+     case TMEM_FLUSH_OBJECT:
+-        rc = do_tmem_flush_object(pool, op.u.gen.object);
++        rc = do_tmem_flush_object(pool, oidp);
+         flush_obj = 1;
+         break;
+     case TMEM_DESTROY_POOL:
+@@ -2693,12 +2756,12 @@
+         rc = do_tmem_destroy_pool(op.pool_id);
+         break;
+     case TMEM_READ:
+-        rc = do_tmem_get(pool, op.u.gen.object, op.u.gen.index, op.u.gen.cmfn,
++        rc = do_tmem_get(pool, oidp, op.u.gen.index, op.u.gen.cmfn,
+                          op.u.gen.tmem_offset, op.u.gen.pfn_offset,
+                          op.u.gen.len,0);
+         break;
+     case TMEM_WRITE:
+-        rc = do_tmem_put(pool, op.u.gen.object,
++        rc = do_tmem_put(pool, oidp,
+                          op.u.gen.index, op.u.gen.cmfn,
+                          op.u.gen.tmem_offset, op.u.gen.pfn_offset,
+                          op.u.gen.len, NULL);
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/tmem_xen.c
+--- a/xen/common/tmem_xen.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/tmem_xen.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -87,49 +87,88 @@
+ }
+ 
+ #ifdef __ia64__
+-static inline void *cli_mfn_to_va(tmem_cli_mfn_t cmfn, unsigned long *pcli_mfn)
++static inline void *cli_get_page(tmem_cli_mfn_t cmfn, unsigned long *pcli_mfn,
++                                 pfp_t **pcli_pfp, bool_t cli_write)
+ {
+     ASSERT(0);
+     return NULL;
+ }
+-#define paging_mark_dirty(_x,_y) do {} while(0)
++
++static inline void cli_put_page(void *cli_va, pfp_t *cli_pfp,
++                                unsigned long cli_mfn, bool_t mark_dirty)
++{
++    ASSERT(0);
++}
+ #else
+-static inline void *cli_mfn_to_va(tmem_cli_mfn_t cmfn, unsigned long *pcli_mfn)
++static inline void *cli_get_page(tmem_cli_mfn_t cmfn, unsigned long *pcli_mfn,
++                                 pfp_t **pcli_pfp, bool_t cli_write)
+ {
+     unsigned long cli_mfn;
+     p2m_type_t t;
++    struct page_info *page;
++    int ret;
+ 
+     cli_mfn = mfn_x(gfn_to_mfn(current->domain, cmfn, &t));
+-    if (t != p2m_ram_rw || cli_mfn == INVALID_MFN)
++    if ( t != p2m_ram_rw || !mfn_valid(cli_mfn) )
++            return NULL;
++    page = mfn_to_page(cli_mfn);
++    if ( cli_write )
++        ret = get_page_and_type(page, current->domain, PGT_writable_page);
++    else
++        ret = get_page(page, current->domain);
++    if ( !ret )
+         return NULL;
+-    if (pcli_mfn != NULL)
+-        *pcli_mfn = cli_mfn;
++    *pcli_mfn = cli_mfn;
++    *pcli_pfp = (pfp_t *)page;
+     return map_domain_page(cli_mfn);
+ }
++
++static inline void cli_put_page(void *cli_va, pfp_t *cli_pfp,
++                                unsigned long cli_mfn, bool_t mark_dirty)
++{
++    if ( mark_dirty )
++    {
++        paging_mark_dirty(current->domain,cli_mfn);
++        put_page_and_type((struct page_info *)cli_pfp);
++    }
++    else
++        put_page((struct page_info *)cli_pfp);
++    unmap_domain_page(cli_va);
++}
+ #endif
+ 
+ EXPORT int tmh_copy_from_client(pfp_t *pfp,
+     tmem_cli_mfn_t cmfn, pagesize_t tmem_offset,
+     pagesize_t pfn_offset, pagesize_t len, void *cli_va)
+ {
+-    unsigned long tmem_mfn;
++    unsigned long tmem_mfn, cli_mfn = 0;
+     void *tmem_va;
++    pfp_t *cli_pfp = NULL;
++    bool_t tmemc = cli_va != NULL; /* if true, cli_va is control-op buffer */
+ 
+     ASSERT(pfp != NULL);
+-    if ( tmem_offset || pfn_offset || len )
+-        if ( (cli_va == NULL) && ((cli_va = cli_mfn_to_va(cmfn,NULL)) == NULL) )
+-            return -EFAULT;
+     tmem_mfn = page_to_mfn(pfp);
+     tmem_va = map_domain_page(tmem_mfn);
++    if ( tmem_offset == 0 && pfn_offset == 0 && len == 0 )
++    {
++        memset(tmem_va, 0, PAGE_SIZE);
++        unmap_domain_page(tmem_va);
++        return 1;
++    }
++    if ( !tmemc )
++    {
++        cli_va = cli_get_page(cmfn, &cli_mfn, &cli_pfp, 0);
++        if ( cli_va == NULL )
++            return -EFAULT;
++    }
+     mb();
+-    if (!len && !tmem_offset && !pfn_offset)
+-        memset(tmem_va, 0, PAGE_SIZE);
+-    else if (len == PAGE_SIZE && !tmem_offset && !pfn_offset)
++    if (len == PAGE_SIZE && !tmem_offset && !pfn_offset)
+         tmh_copy_page(tmem_va, cli_va);
+     else if ( (tmem_offset+len <= PAGE_SIZE) &&
+-                (pfn_offset+len <= PAGE_SIZE) ) 
++              (pfn_offset+len <= PAGE_SIZE) )
+         memcpy((char *)tmem_va+tmem_offset,(char *)cli_va+pfn_offset,len);
+-    unmap_domain_page(cli_va);
++    if ( !tmemc )
++        cli_put_page(cli_va, cli_pfp, cli_mfn, 0);
+     unmap_domain_page(tmem_va);
+     return 1;
+ }
+@@ -140,15 +179,24 @@
+     int ret = 0;
+     unsigned char *dmem = this_cpu(dstmem);
+     unsigned char *wmem = this_cpu(workmem);
++    pfp_t *cli_pfp = NULL;
++    unsigned long cli_mfn = 0;
++    bool_t tmemc = cli_va != NULL; /* if true, cli_va is control-op buffer */
+ 
+-    if ( (cli_va == NULL) && (cli_va = cli_mfn_to_va(cmfn,NULL)) == NULL)
+-        return -EFAULT;
+     if ( dmem == NULL || wmem == NULL )
+         return 0;  /* no buffer, so can't compress */
++    if ( !tmemc )
++    {
++        cli_va = cli_get_page(cmfn, &cli_mfn, &cli_pfp, 0);
++        if ( cli_va == NULL )
++            return -EFAULT;
++    }
+     mb();
+     ret = lzo1x_1_compress(cli_va, PAGE_SIZE, dmem, out_len, wmem);
+     ASSERT(ret == LZO_E_OK);
+     *out_va = dmem;
++    if ( !tmemc )
++        cli_put_page(cli_va, cli_pfp, cli_mfn, 0);
+     unmap_domain_page(cli_va);
+     return 1;
+ }
+@@ -157,14 +205,17 @@
+     pagesize_t tmem_offset, pagesize_t pfn_offset, pagesize_t len, void *cli_va)
+ {
+     unsigned long tmem_mfn, cli_mfn = 0;
+-    int mark_dirty = 1;
+     void *tmem_va;
++    pfp_t *cli_pfp = NULL;
++    bool_t tmemc = cli_va != NULL; /* if true, cli_va is control-op buffer */
+ 
+     ASSERT(pfp != NULL);
+-    if ( cli_va != NULL )
+-        mark_dirty = 0;
+-    else if ( (cli_va = cli_mfn_to_va(cmfn,&cli_mfn)) == NULL)
+-        return -EFAULT;
++    if ( !tmemc )
++    {
++        cli_va = cli_get_page(cmfn, &cli_mfn, &cli_pfp, 1);
++        if ( cli_va == NULL )
++            return -EFAULT;
++    }
+     tmem_mfn = page_to_mfn(pfp);
+     tmem_va = map_domain_page(tmem_mfn);
+     if (len == PAGE_SIZE && !tmem_offset && !pfn_offset)
+@@ -172,11 +223,8 @@
+     else if ( (tmem_offset+len <= PAGE_SIZE) && (pfn_offset+len <= PAGE_SIZE) )
+         memcpy((char *)cli_va+pfn_offset,(char *)tmem_va+tmem_offset,len);
+     unmap_domain_page(tmem_va);
+-    if ( mark_dirty )
+-    {
+-        unmap_domain_page(cli_va);
+-        paging_mark_dirty(current->domain,cli_mfn);
+-    }
++    if ( !tmemc )
++        cli_put_page(cli_va, cli_pfp, cli_mfn, 1);
+     mb();
+     return 1;
+ }
+@@ -185,22 +233,22 @@
+                                     size_t size, void *cli_va)
+ {
+     unsigned long cli_mfn = 0;
+-    int mark_dirty = 1;
++    pfp_t *cli_pfp = NULL;
+     size_t out_len = PAGE_SIZE;
++    bool_t tmemc = cli_va != NULL; /* if true, cli_va is control-op buffer */
+     int ret;
+ 
+-    if ( cli_va != NULL )
+-        mark_dirty = 0;
+-    else if ( (cli_va = cli_mfn_to_va(cmfn,&cli_mfn)) == NULL)
+-        return -EFAULT;
++    if ( !tmemc )
++    {
++        cli_va = cli_get_page(cmfn, &cli_mfn, &cli_pfp, 1);
++        if ( cli_va == NULL )
++            return -EFAULT;
++    }
+     ret = lzo1x_decompress_safe(tmem_va, size, cli_va, &out_len);
+     ASSERT(ret == LZO_E_OK);
+     ASSERT(out_len == PAGE_SIZE);
+-    if ( mark_dirty )
+-    {
+-        unmap_domain_page(cli_va);
+-        paging_mark_dirty(current->domain,cli_mfn);
+-    }
++    if ( !tmemc )
++        cli_put_page(cli_va, cli_pfp, cli_mfn, 1);
+     mb();
+     return 1;
+ }
+@@ -210,18 +258,19 @@
+ {
+     void *cli_va;
+     unsigned long cli_mfn;
++    pfp_t *cli_pfp = NULL;
+ 
+     ASSERT(!(len & (sizeof(uint64_t)-1)));
+     ASSERT(len <= PAGE_SIZE);
+     ASSERT(len > 0 || tmem_va == NULL);
+-    if ( (cli_va = cli_mfn_to_va(cmfn,&cli_mfn)) == NULL)
++    cli_va = cli_get_page(cmfn, &cli_mfn, &cli_pfp, 1);
++    if ( cli_va == NULL )
+         return -EFAULT;
+     if ( len > 0 )
+         memcpy((char *)cli_va,(char *)tmem_va,len);
+     if ( len < PAGE_SIZE )
+         memset((char *)cli_va+len,0,PAGE_SIZE-len);
+-    unmap_domain_page(cli_va);
+-    paging_mark_dirty(current->domain,cli_mfn);
++    cli_put_page(cli_va, cli_pfp, cli_mfn, 1);
+     mb();
+     return 1;
+ }
+diff -r beb8d83a8658 -r 714d808e57bb xen/common/trace.c
+--- a/xen/common/trace.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/common/trace.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -79,14 +79,8 @@
+ 
+ static void calc_tinfo_first_offset(void)
+ {
+-    int offset_in_bytes;
+-    
+-    offset_in_bytes = offsetof(struct t_info, mfn_offset[NR_CPUS]);
+-
++    int offset_in_bytes = offsetof(struct t_info, mfn_offset[NR_CPUS]);
+     t_info_first_offset = fit_to_type(uint32_t, offset_in_bytes);
+-
+-    gdprintk(XENLOG_INFO, "%s: NR_CPUs %d, offset_in_bytes %d, t_info_first_offset %u\n",
+-           __func__, NR_CPUS, offset_in_bytes, (unsigned)t_info_first_offset);
+ }
+ 
+ /**
+@@ -121,21 +115,37 @@
+     int           i, cpu, order;
+     unsigned long nr_pages;
+     /* Start after a fixed-size array of NR_CPUS */
+-    uint32_t *t_info_mfn_list = (uint32_t *)t_info;
+-    int offset = t_info_first_offset;
+-
+-    BUG_ON(check_tbuf_size(opt_tbuf_size));
++    uint32_t *t_info_mfn_list;
++    int offset;
+ 
+     if ( opt_tbuf_size == 0 )
+         return -EINVAL;
+ 
+-    if ( !t_info )
++    if ( check_tbuf_size(opt_tbuf_size) )
+     {
+-        printk("%s: t_info not allocated, cannot allocate trace buffers!\n",
+-               __func__);
++        printk("Xen trace buffers: tb size %d too large. "
++               "Tracing disabled.\n",
++               opt_tbuf_size);
+         return -EINVAL;
+     }
+ 
++    /* t_info size is fixed for now. Currently this works great, so there
++     * seems to be no need to make it dynamic. */
++    t_info = alloc_xenheap_pages(get_order_from_pages(T_INFO_PAGES), 0);
++    if ( t_info == NULL )
++    {
++        printk("Xen trace buffers: t_info allocation failed! "
++               "Tracing disabled.\n");
++        return -ENOMEM;
++    }
++
++    for ( i = 0; i < T_INFO_PAGES; i++ )
++        share_xen_page_with_privileged_guests(
++            virt_to_page(t_info) + i, XENSHARE_readonly);
++
++    t_info_mfn_list = (uint32_t *)t_info;
++    offset = t_info_first_offset;
++
+     t_info->tbuf_size = opt_tbuf_size;
+     printk(XENLOG_INFO "tbuf_size %d\n", t_info->tbuf_size);
+ 
+@@ -241,7 +251,7 @@
+ 
+ 
+ 
+-    if ( (opt_tbuf_size != 0) )
++    if ( opt_tbuf_size != 0 )
+     {
+         if ( size != opt_tbuf_size )
+             gdprintk(XENLOG_INFO, "tb_set_size from %d to %d not implemented\n",
+@@ -252,20 +262,16 @@
+     if ( size <= 0 )
+         return -EINVAL;
+ 
+-    if ( check_tbuf_size(size) )
++    opt_tbuf_size = size;
++
++    if ( (ret = alloc_trace_bufs()) != 0 )
+     {
+-        gdprintk(XENLOG_INFO, "tb size %d too large\n", size);
+-        return -EINVAL;
++        opt_tbuf_size = 0;
++        return ret;
+     }
+ 
+-    opt_tbuf_size = size;
+-
+-    if ( (ret = alloc_trace_bufs()) == 0 )
+-        printk("Xen trace buffers: initialized\n");
+-    else
+-        opt_tbuf_size = 0;
+-
+-    return ret;
++    printk("Xen trace buffers: initialized\n");
++    return 0;
+ }
+ 
+ int trace_will_trace_event(u32 event)
+@@ -308,49 +314,31 @@
+     /* Calculate offset in u32 of first mfn */
+     calc_tinfo_first_offset();
+ 
+-    /* t_info size fixed at 2 pages for now.  That should be big enough / small enough
+-     * until it's worth making it dynamic. */
+-    t_info = alloc_xenheap_pages(1, 0);
+-
+-    if ( t_info == NULL )
+-    {
+-        printk("Xen trace buffers: t_info allocation failed!  Tracing disabled.\n");
+-        return;
+-    }
+-
+-    for(i = 0; i < NR_CPUS; i++)
++    /* Per-cpu t_lock initialisation. */
++    for ( i = 0; i < NR_CPUS; i++ )
+         spin_lock_init(&per_cpu(t_lock, i));
+ 
+-    for(i=0; i<T_INFO_PAGES; i++)
+-        share_xen_page_with_privileged_guests(
+-            virt_to_page(t_info) + i, XENSHARE_readonly);
+-
+     if ( opt_tbuf_size == 0 )
+     {
+         printk("Xen trace buffers: disabled\n");
+-        return;
+-    }
+-    else if ( check_tbuf_size(opt_tbuf_size) )
+-    {
+-        gdprintk(XENLOG_INFO, "Xen trace buffers: "
+-                 "tb size %d too large, disabling\n",
+-                 opt_tbuf_size);
+-        opt_tbuf_size = 0;
++        goto fail;
+     }
+ 
+-    if ( alloc_trace_bufs() == 0 )
++    if ( alloc_trace_bufs() != 0 )
+     {
+-        printk("Xen trace buffers: initialised\n");
+-        wmb(); /* above must be visible before tb_init_done flag set */
+-        tb_init_done = 1;
++        dprintk(XENLOG_INFO, "Xen trace buffers: "
++                "allocation size %d failed, disabling\n",
++                opt_tbuf_size);
++        goto fail;
+     }
+-    else
+-    {
+-        gdprintk(XENLOG_INFO, "Xen trace buffers: "
+-                 "allocation size %d failed, disabling\n",
+-                 opt_tbuf_size);
+-        opt_tbuf_size = 0;
+-    }
++
++    printk("Xen trace buffers: initialised\n");
++    wmb(); /* above must be visible before tb_init_done flag set */
++    tb_init_done = 1;
++    return;
++
++ fail:
++    opt_tbuf_size = 0;
+ }
+ 
+ /**
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/acpi/reboot.c
+--- a/xen/drivers/acpi/reboot.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/acpi/reboot.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -10,9 +10,10 @@
+ 
+ 	rr = &acpi_gbl_FADT.reset_register;
+ 
+-	/* Is the reset register supported? */
+-	if (!(acpi_gbl_FADT.flags & ACPI_FADT_RESET_REGISTER) ||
+-	    (rr->bit_width != 8) || (rr->bit_offset != 0))
++	/* Is the reset register supported? The spec says we should be
++	 * checking the bit width and bit offset, but Windows ignores
++	 * these fields */
++	if (!(acpi_gbl_FADT.flags & ACPI_FADT_RESET_REGISTER))
+ 		return;
+ 
+ 	reset_value = acpi_gbl_FADT.reset_value;
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/cpufreq/cpufreq.c
+--- a/xen/drivers/cpufreq/cpufreq.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/cpufreq/cpufreq.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -115,8 +115,7 @@
+     if (!cpu_online(cpu) || !data || !processor_pminfo[cpu])
+         return -ENODEV;
+ 
+-    if ((perf->platform_limit < 0) || 
+-        (perf->platform_limit >= perf->state_count))
++    if (perf->platform_limit >= perf->state_count)
+         return -EINVAL;
+ 
+     memcpy(&policy, data, sizeof(struct cpufreq_policy)); 
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/passthrough/pci.c
+--- a/xen/drivers/passthrough/pci.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/passthrough/pci.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -440,6 +440,10 @@
+                         spin_unlock(&pcidevs_lock);
+                         return -EINVAL;
+                 }
++
++                if ( !func && !(pci_conf_read8(bus, dev, func,
++                                               PCI_HEADER_TYPE) & 0x80) )
++                    break;
+             }
+         }
+     }
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/passthrough/vtd/dmar.c
+--- a/xen/drivers/passthrough/vtd/dmar.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/passthrough/vtd/dmar.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -46,6 +46,7 @@
+ LIST_HEAD(acpi_atsr_units);
+ LIST_HEAD(acpi_rhsa_units);
+ 
++static u64 igd_drhd_address;
+ u8 dmar_host_address_width;
+ 
+ void dmar_scope_add_buses(struct dmar_scope *scope, u16 sec_bus, u16 sub_bus)
+@@ -239,6 +240,11 @@
+     return NULL;
+ }
+ 
++int is_igd_drhd(struct acpi_drhd_unit *drhd)
++{
++    return ( drhd->address == igd_drhd_address ? 1 : 0);
++}
++
+ /*
+  * Count number of devices in device scope.  Do not include PCI sub
+  * hierarchies.
+@@ -272,7 +278,8 @@
+ 
+ 
+ static int __init acpi_parse_dev_scope(void *start, void *end,
+-                                       void *acpi_entry, int type)
++                                       void *acpi_entry, int type,
++                                       int *igd)
+ {
+     struct dmar_scope *scope = acpi_entry;
+     struct acpi_ioapic_unit *acpi_ioapic_unit;
+@@ -333,6 +340,8 @@
+             if ( iommu_verbose )
+                 dprintk(VTDPREFIX, "  endpoint: %x:%x.%x\n",
+                         bus, path->dev, path->fn);
++            if ( (bus == 0) && (path->dev == 2) && (path->fn == 0) )
++                *igd = 1;
+             break;
+ 
+         case ACPI_DEV_IOAPIC:
+@@ -379,7 +388,7 @@
+     struct acpi_table_drhd * drhd = (struct acpi_table_drhd *)header;
+     void *dev_scope_start, *dev_scope_end;
+     struct acpi_drhd_unit *dmaru;
+-    int ret;
++    int ret, igd = 0;
+     static int include_all = 0;
+ 
+     if ( (ret = acpi_dmar_check_length(header, sizeof(*drhd))) != 0 )
+@@ -404,7 +413,10 @@
+     dev_scope_start = (void *)(drhd + 1);
+     dev_scope_end = ((void *)drhd) + header->length;
+     ret = acpi_parse_dev_scope(dev_scope_start, dev_scope_end,
+-                               dmaru, DMAR_TYPE);
++                               dmaru, DMAR_TYPE, &igd);
++
++    if ( igd )
++        igd_drhd_address = dmaru->address;
+ 
+     if ( dmaru->include_all )
+     {
+@@ -492,7 +504,7 @@
+     struct acpi_rmrr_unit *rmrru;
+     void *dev_scope_start, *dev_scope_end;
+     u64 base_addr = rmrr->base_address, end_addr = rmrr->end_address;
+-    int ret;
++    int ret, igd = 0;
+ 
+     if ( (ret = acpi_dmar_check_length(header, sizeof(*rmrr))) != 0 )
+         return ret;
+@@ -524,7 +536,7 @@
+     dev_scope_start = (void *)(rmrr + 1);
+     dev_scope_end   = ((void *)rmrr) + header->length;
+     ret = acpi_parse_dev_scope(dev_scope_start, dev_scope_end,
+-                               rmrru, RMRR_TYPE);
++                               rmrru, RMRR_TYPE, &igd);
+ 
+     if ( ret || (rmrru->scope.devices_cnt == 0) )
+         xfree(rmrru);
+@@ -589,7 +601,7 @@
+ {
+     struct acpi_table_atsr *atsr = (struct acpi_table_atsr *)header;
+     struct acpi_atsr_unit *atsru;
+-    int ret;
++    int ret, igd = 0;
+     static int all_ports;
+     void *dev_scope_start, *dev_scope_end;
+ 
+@@ -610,7 +622,7 @@
+         dev_scope_start = (void *)(atsr + 1);
+         dev_scope_end   = ((void *)atsr) + header->length;
+         ret = acpi_parse_dev_scope(dev_scope_start, dev_scope_end,
+-                                   atsru, ATSR_TYPE);
++                                   atsru, ATSR_TYPE, &igd);
+     }
+     else
+     {
+@@ -756,3 +768,34 @@
+ {
+     return parse_dmar_table(acpi_parse_dmar);
+ }
++
++static struct acpi_table_header *get_dmar(void)
++{
++    struct acpi_table_header *dmar_table = NULL;
++    unsigned long flags;
++
++    /* Disabling IRQs avoids cross-CPU TLB flush in map_pages_to_xen(). */
++    local_irq_save(flags);
++    acpi_get_table(ACPI_SIG_DMAR, 0, &dmar_table);
++    local_irq_restore(flags);
++
++    return dmar_table;
++}
++
++void acpi_dmar_reinstate(void)
++{
++    struct acpi_table_header *dmar_table = get_dmar();
++    if ( dmar_table == NULL )
++        return;
++    dmar_table->signature[0] = 'D';
++    dmar_table->checksum += 'X'-'D';
++}
++
++void acpi_dmar_zap(void)
++{
++    struct acpi_table_header *dmar_table = get_dmar();
++    if ( dmar_table == NULL )
++        return;
++    dmar_table->signature[0] = 'X';
++    dmar_table->checksum -= 'X'-'D';
++}
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/passthrough/vtd/dmar.h
+--- a/xen/drivers/passthrough/vtd/dmar.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/passthrough/vtd/dmar.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -114,5 +114,6 @@
+ int vtd_hw_check(void);
+ void disable_pmr(struct iommu *iommu);
+ int is_usb_device(u8 bus, u8 devfn);
++int is_igd_drhd(struct acpi_drhd_unit *drhd);
+ 
+ #endif /* _DMAR_H_ */
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/passthrough/vtd/intremap.c
+--- a/xen/drivers/passthrough/vtd/intremap.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/passthrough/vtd/intremap.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -318,9 +318,10 @@
+         *(((u32 *)&new_rte) + 0) = value;
+         new_ire.lo.fpd = 0;
+         new_ire.lo.dm = new_rte.dest_mode;
+-        new_ire.lo.rh = 0;
+         new_ire.lo.tm = new_rte.trigger;
+         new_ire.lo.dlm = new_rte.delivery_mode;
++        /* Hardware require RH = 1 for LPR delivery mode */
++        new_ire.lo.rh = (new_ire.lo.dlm == dest_LowestPrio);
+         new_ire.lo.avail = 0;
+         new_ire.lo.res_1 = 0;
+         new_ire.lo.vector = new_rte.vector;
+@@ -630,9 +631,10 @@
+     /* Set interrupt remapping table entry */
+     new_ire.lo.fpd = 0;
+     new_ire.lo.dm = (msg->address_lo >> MSI_ADDR_DESTMODE_SHIFT) & 0x1;
+-    new_ire.lo.rh = 0;
+     new_ire.lo.tm = (msg->data >> MSI_DATA_TRIGGER_SHIFT) & 0x1;
+     new_ire.lo.dlm = (msg->data >> MSI_DATA_DELIVERY_MODE_SHIFT) & 0x1;
++    /* Hardware require RH = 1 for LPR delivery mode */
++    new_ire.lo.rh = (new_ire.lo.dlm == dest_LowestPrio);
+     new_ire.lo.avail = 0;
+     new_ire.lo.res_1 = 0;
+     new_ire.lo.vector = (msg->data >> MSI_DATA_VECTOR_SHIFT) &
+@@ -871,6 +873,24 @@
+ }
+ 
+ /*
++ * This function is used to disable Interrutp remapping when
++ * suspend local apic
++ */
++void iommu_disable_IR(void)
++{
++    struct acpi_drhd_unit *drhd;
++
++    if ( !iommu_supports_eim() )
++        return;
++
++    for_each_drhd_unit ( drhd )
++        disable_intremap(drhd->iommu);
++
++    for_each_drhd_unit ( drhd )
++        disable_qinval(drhd->iommu);
++}
++
++/*
+  * Check if interrupt remapping is enabled or not
+  * return 1: enabled
+  * return 0: not enabled
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/passthrough/vtd/iommu.c
+--- a/xen/drivers/passthrough/vtd/iommu.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/passthrough/vtd/iommu.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -688,10 +688,34 @@
+     return 0;
+ }
+ 
+-static void iommu_enable_translation(struct iommu *iommu)
++#define GGC 0x52
++#define GGC_MEMORY_VT_ENABLED  (0x8 << 8)
++static int is_igd_vt_enabled(void)
++{
++    unsigned short ggc;
++
++    /* integrated graphics on Intel platforms is located at 0:2.0 */
++    ggc = pci_conf_read16(0, 2, 0, GGC);
++    return ( ggc & GGC_MEMORY_VT_ENABLED ? 1 : 0 );
++}
++
++static void iommu_enable_translation(struct acpi_drhd_unit *drhd)
+ {
+     u32 sts;
+     unsigned long flags;
++    struct iommu *iommu = drhd->iommu;
++
++    if ( !is_igd_vt_enabled() && is_igd_drhd(drhd) ) 
++    {
++        if ( force_iommu )
++            panic("BIOS did not enable IGD for VT properly, crash Xen for security purpose!\n");
++        else
++        {
++            dprintk(XENLOG_WARNING VTDPREFIX,
++                    "BIOS did not enable IGD for VT properly.  Disabling IGD VT-d engine.\n");
++            return;
++        }
++    }
+ 
+     if ( iommu_verbose )
+         dprintk(VTDPREFIX,
+@@ -1178,7 +1202,6 @@
+ 
+ static void intel_iommu_dom0_init(struct domain *d)
+ {
+-    struct iommu *iommu;
+     struct acpi_drhd_unit *drhd;
+ 
+     if ( !iommu_passthrough && !need_iommu(d) )
+@@ -1194,8 +1217,7 @@
+ 
+     for_each_drhd_unit ( drhd )
+     {
+-        iommu = drhd->iommu;
+-        iommu_enable_translation(iommu);
++        iommu_enable_translation(drhd);
+     }
+ }
+ 
+@@ -1278,6 +1300,7 @@
+     if ( context_set_domain_id(context, domain, iommu) )
+     {
+         spin_unlock(&iommu->lock);
++        unmap_vtd_domain_page(context_entries);
+         return -EFAULT;
+     }
+ 
+@@ -1345,23 +1368,16 @@
+         if ( find_upstream_bridge(&bus, &devfn, &secbus) < 1 )
+             break;
+ 
+-        /* PCIe to PCI/PCIx bridge */
+-        if ( pdev_type(bus, devfn) == DEV_TYPE_PCIe2PCI_BRIDGE )
+-        {
+-            ret = domain_context_mapping_one(domain, drhd->iommu, bus, devfn);
+-            if ( ret )
+-                return ret;
++        ret = domain_context_mapping_one(domain, drhd->iommu, bus, devfn);
+ 
+-            /*
+-             * Devices behind PCIe-to-PCI/PCIx bridge may generate
+-             * different requester-id. It may originate from devfn=0
+-             * on the secondary bus behind the bridge. Map that id
+-             * as well.
+-             */
++        /*
++         * Devices behind PCIe-to-PCI/PCIx bridge may generate different
++         * requester-id. It may originate from devfn=0 on the secondary bus
++         * behind the bridge. Map that id as well if we didn't already.
++         */
++        if ( !ret && pdev_type(bus, devfn) == DEV_TYPE_PCIe2PCI_BRIDGE &&
++             (secbus != pdev->bus || pdev->devfn != 0) )
+             ret = domain_context_mapping_one(domain, drhd->iommu, secbus, 0);
+-        }
+-        else /* Legacy PCI bridge */
+-            ret = domain_context_mapping_one(domain, drhd->iommu, bus, devfn);
+ 
+         break;
+ 
+@@ -1616,6 +1632,7 @@
+     if ( old.val == new.val )
+     {
+         spin_unlock(&hd->mapping_lock);
++        unmap_vtd_domain_page(page);
+         return 0;
+     }
+     *pte = new;
+@@ -1982,9 +1999,9 @@
+             "since Queued Invalidation isn't supported or enabled.\n");
+     }
+ 
+-#define P(p,s) printk("Intel VT-d %s %ssupported.\n", s, (p)? "" : "not ")
++#define P(p,s) printk("Intel VT-d %s %senabled.\n", s, (p)? "" : "not ")
+     P(iommu_snoop, "Snoop Control");
+-    P(iommu_passthrough, "DMA Passthrough");
++    P(iommu_passthrough, "Dom0 DMA Passthrough");
+     P(iommu_qinval, "Queued Invalidation");
+     P(iommu_intremap, "Interrupt Remapping");
+ #undef P
+@@ -2122,10 +2139,11 @@
+ 
+         iommu_disable_translation(iommu);
+ 
+-        if ( iommu_intremap )
+-            disable_intremap(iommu);
+-
+-        if ( iommu_qinval )
++        /* If interrupt remapping is enabled, queued invalidation
++         * will be disabled following interupt remapping disabling
++         * in local apic suspend
++         */
++        if ( !iommu_intremap && iommu_qinval )
+             disable_qinval(iommu);
+     }
+ }
+@@ -2159,7 +2177,7 @@
+                     (u32) iommu_state[i][DMAR_FEUADDR_REG]);
+         spin_unlock_irqrestore(&iommu->register_lock, flags);
+ 
+-        iommu_enable_translation(iommu);
++        iommu_enable_translation(drhd);
+     }
+ }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/drivers/passthrough/vtd/utils.c
+--- a/xen/drivers/passthrough/vtd/utils.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/drivers/passthrough/vtd/utils.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -99,7 +99,7 @@
+     struct context_entry *ctxt_entry;
+     struct root_entry *root_entry;
+     struct dma_pte pte;
+-    u64 *l;
++    u64 *l, val;
+     u32 l_index, level;
+ 
+     printk("print_vtd_entries: iommu = %p bdf = %x:%x.%x gmfn = %"PRIx64"\n",
+@@ -112,6 +112,11 @@
+     }
+ 
+     root_entry = (struct root_entry *)map_vtd_domain_page(iommu->root_maddr);
++    if ( root_entry == NULL )
++    {
++        printk("    root_entry == NULL\n");
++        return;
++    }
+ 
+     printk("    root_entry = %p\n", root_entry);
+     printk("    root_entry[%x] = %"PRIx64"\n", bus, root_entry[bus].val);
+@@ -122,61 +127,57 @@
+         return;
+     }
+ 
+-    ctxt_entry =
+-        (struct context_entry *)map_vtd_domain_page(root_entry[bus].val);
++    val = root_entry[bus].val;
++    unmap_vtd_domain_page(root_entry);
++    ctxt_entry = map_vtd_domain_page(val);
+     if ( ctxt_entry == NULL )
+     {
+-        unmap_vtd_domain_page(root_entry);
+         printk("    ctxt_entry == NULL\n");
+         return;
+     }
+ 
+     printk("    context = %p\n", ctxt_entry);
++    val = ctxt_entry[devfn].lo;
+     printk("    context[%x] = %"PRIx64"_%"PRIx64"\n",
+-           devfn, ctxt_entry[devfn].hi, ctxt_entry[devfn].lo);
++           devfn, ctxt_entry[devfn].hi, val);
+     if ( !context_present(ctxt_entry[devfn]) )
+     {
+         unmap_vtd_domain_page(ctxt_entry);
+-        unmap_vtd_domain_page(root_entry);
+         printk("    ctxt_entry[%x] not present\n", devfn);
+         return;
+     }
+ 
+     level = agaw_to_level(context_address_width(ctxt_entry[devfn]));
++    unmap_vtd_domain_page(ctxt_entry);
+     if ( level != VTD_PAGE_TABLE_LEVEL_3 &&
+          level != VTD_PAGE_TABLE_LEVEL_4)
+     {
+-        unmap_vtd_domain_page(ctxt_entry);
+-        unmap_vtd_domain_page(root_entry);
+         printk("Unsupported VTD page table level (%d)!\n", level);
++        return;
+     }
+ 
+-    l = maddr_to_virt(ctxt_entry[devfn].lo);
+     do
+     {
+-        l = (u64*)(((unsigned long)l >> PAGE_SHIFT_4K) << PAGE_SHIFT_4K);
++        l = map_vtd_domain_page(val);
+         printk("    l%d = %p\n", level, l);
+         if ( l == NULL )
+         {
+-            unmap_vtd_domain_page(ctxt_entry);
+-            unmap_vtd_domain_page(root_entry);
+             printk("    l%d == NULL\n", level);
+             break;
+         }
+         l_index = get_level_index(gmfn, level);
+         printk("    l%d_index = %x\n", level, l_index);
+-        printk("    l%d[%x] = %"PRIx64"\n", level, l_index, l[l_index]);
+ 
+-        pte.val = l[l_index];
++        pte.val = val = l[l_index];
++        unmap_vtd_domain_page(l);
++        printk("    l%d[%x] = %"PRIx64"\n", level, l_index, val);
++
++        pte.val = val;
+         if ( !dma_pte_present(pte) )
+         {
+-            unmap_vtd_domain_page(ctxt_entry);
+-            unmap_vtd_domain_page(root_entry);
+             printk("    l%d[%x] not present\n", level, l_index);
+             break;
+         }
+-
+-        l = maddr_to_virt(l[l_index]);
+     } while ( --level );
+ }
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/atomic.h
+--- a/xen/include/asm-x86/atomic.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/atomic.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -10,6 +10,46 @@
+ #define LOCK ""
+ #endif
+ 
++#define build_atomic_read(name, size, type, reg, barrier) \
++static inline type name(const volatile type *addr) \
++{ type ret; asm volatile("mov" size " %1,%0":reg (ret) \
++:"m" (*(volatile type *)addr) barrier); return ret; }
++
++#define build_atomic_write(name, size, type, reg, barrier) \
++static inline void name(volatile type *addr, type val) \
++{ asm volatile("mov" size " %0,%1": :reg (val), \
++"m" (*(volatile type *)addr) barrier); }
++
++build_atomic_read(atomic_read8, "b", uint8_t, "=q", )
++build_atomic_read(atomic_read16, "w", uint16_t, "=r", )
++build_atomic_read(atomic_read32, "l", uint32_t, "=r", )
++build_atomic_read(atomic_read_int, "l", int, "=r", )
++
++build_atomic_write(atomic_write8, "b", uint8_t, "q", )
++build_atomic_write(atomic_write16, "w", uint16_t, "r", )
++build_atomic_write(atomic_write32, "l", uint32_t, "r", )
++build_atomic_write(atomic_write_int, "l", int, "r", )
++
++#ifdef __x86_64__
++build_atomic_read(atomic_read64, "q", uint64_t, "=r", )
++build_atomic_write(atomic_write64, "q", uint64_t, "r", )
++#else
++static inline uint64_t atomic_read64(const volatile uint64_t *addr)
++{
++    uint64_t *__addr = (uint64_t *)addr;
++    return __cmpxchg8b(__addr, 0, 0);
++}
++static inline void atomic_write64(volatile uint64_t *addr, uint64_t val)
++{
++    uint64_t old = *addr, new, *__addr = (uint64_t *)addr;
++    while ( (new = __cmpxchg8b(__addr, old, val)) != old )
++        old = new;
++}
++#endif
++
++#undef build_atomic_read
++#undef build_atomic_write
++
+ /*
+  * NB. I've pushed the volatile qualifier into the operations. This allows
+  * fast accessors such as _atomic_read() and _atomic_set() which don't give
+@@ -26,7 +66,7 @@
+  * Atomically reads the value of @v.
+  */
+ #define _atomic_read(v)		((v).counter)
+-#define atomic_read(v)		(*(volatile int *)&((v)->counter))
++#define atomic_read(v)		atomic_read_int(&((v)->counter))
+ 
+ /**
+  * atomic_set - set atomic variable
+@@ -36,7 +76,7 @@
+  * Atomically sets the value of @v to @i.
+  */ 
+ #define _atomic_set(v,i)	(((v).counter) = (i))
+-#define atomic_set(v,i)		(*(volatile int *)&((v)->counter) = (i))
++#define atomic_set(v,i)		atomic_write_int(&((v)->counter), (i))
+ 
+ /**
+  * atomic_add - add integer to atomic variable
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/cpufeature.h
+--- a/xen/include/asm-x86/cpufeature.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/cpufeature.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -138,7 +138,6 @@
+ #define cpu_has_de		boot_cpu_has(X86_FEATURE_DE)
+ #define cpu_has_pse		boot_cpu_has(X86_FEATURE_PSE)
+ #define cpu_has_tsc		boot_cpu_has(X86_FEATURE_TSC)
+-#define cpu_has_pae		boot_cpu_has(X86_FEATURE_PAE)
+ #define cpu_has_pge		boot_cpu_has(X86_FEATURE_PGE)
+ #define cpu_has_pat		boot_cpu_has(X86_FEATURE_PAT)
+ #define cpu_has_apic		boot_cpu_has(X86_FEATURE_APIC)
+@@ -164,7 +163,6 @@
+ #define cpu_has_de		1
+ #define cpu_has_pse		1
+ #define cpu_has_tsc		1
+-#define cpu_has_pae		1
+ #define cpu_has_pge		1
+ #define cpu_has_pat		1
+ #define cpu_has_apic		boot_cpu_has(X86_FEATURE_APIC)
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/hvm/svm/amd-iommu-proto.h
+--- a/xen/include/asm-x86/hvm/svm/amd-iommu-proto.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/hvm/svm/amd-iommu-proto.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -32,9 +32,6 @@
+ #define DMA_32BIT_MASK  0x00000000ffffffffULL
+ #define PAGE_ALIGN(addr)    (((addr) + PAGE_SIZE - 1) & PAGE_MASK)
+ 
+-extern int amd_iommu_debug;
+-extern int amd_iommu_perdev_intremap;
+-
+ #define AMD_IOMMU_DEBUG(fmt, args...) \
+     do  \
+     {   \
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/hvm/trace.h
+--- a/xen/include/asm-x86/hvm/trace.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/hvm/trace.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -71,7 +71,7 @@
+             _d.d[4]=(d5);                                               \
+             _d.d[5]=(d6);                                               \
+             __trace_var(TRC_HVM_ ## evt, cycles,                        \
+-                        sizeof(u32)*count+1, (unsigned char *)&_d);     \
++                        sizeof(*_d.d) * count, &_d);                    \
+         }                                                               \
+     } while(0)
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/hvm/vpt.h
+--- a/xen/include/asm-x86/hvm/vpt.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/hvm/vpt.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -117,6 +117,7 @@
+     struct hvm_hw_pmtimer pm;   /* 32bit timer value */
+     struct vcpu *vcpu;          /* Keeps sync with this vcpu's guest-time */
+     uint64_t last_gtime;        /* Last (guest) time we updated the timer */
++    uint32_t not_accounted;     /* time not accounted at last update */
+     uint64_t scale;             /* Multiplier to get from tsc to timer ticks */
+     struct timer timer;         /* To make sure we send SCIs */
+     spinlock_t lock;
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/io_apic.h
+--- a/xen/include/asm-x86/io_apic.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/io_apic.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -195,7 +195,6 @@
+ 
+ extern void init_ioapic_mappings(void);
+ 
+-extern int (*ioapic_renumber_irq)(int ioapic, int irq);
+ extern void ioapic_suspend(void);
+ extern void ioapic_resume(void);
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/irq.h
+--- a/xen/include/asm-x86/irq.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/irq.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -94,6 +94,7 @@
+ void mask_8259A(void);
+ void unmask_8259A(void);
+ void init_8259A(int aeoi);
++void make_8259A_irq(unsigned int irq);
+ int i8259A_suspend(void);
+ int i8259A_resume(void);
+ 
+@@ -150,4 +151,6 @@
+ #define domain_pirq_to_irq(d, pirq) ((d)->arch.pirq_irq[pirq])
+ #define domain_irq_to_pirq(d, irq) ((d)->arch.irq_pirq[irq])
+ 
++bool_t cpu_has_pending_apic_eoi(void);
++
+ #endif /* _ASM_HW_IRQ_H */
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/mem_event.h
+--- a/xen/include/asm-x86/mem_event.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/mem_event.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -24,31 +24,6 @@
+ #ifndef __MEM_EVENT_H__
+ #define __MEM_EVENT_H__
+ 
+-
+-/* Printouts */
+-#define MEM_EVENT_PRINTK(_f, _a...)                                      \
+-    debugtrace_printk("mem_event: %s(): " _f, __func__, ##_a)
+-#define MEM_EVENT_ERROR(_f, _a...)                                       \
+-    printk("mem_event error: %s(): " _f, __func__, ##_a)
+-#define MEM_EVENT_DEBUG(flag, _f, _a...)                                 \
+-    do {                                                                  \
+-        if (MEM_EVENT_DEBUG_ ## flag)                                    \
+-            debugtrace_printk("mem_event debug: %s(): " _f, __func__, ##_a); \
+-    } while (0)
+-
+-
+-#define mem_event_enabled(_d) (_d)->mem_event.enabled
+-
+-
+-/* Ring lock */
+-#define mem_event_ring_lock_init(_d)  spin_lock_init(&(_d)->mem_event.ring_lock)
+-#define mem_event_ring_lock(_d)       spin_lock(&(_d)->mem_event.ring_lock)
+-#define mem_event_ring_unlock(_d)     spin_unlock(&(_d)->mem_event.ring_lock)
+-
+-
+-int mem_event_enable(struct domain *d, mfn_t ring_mfn, mfn_t shared_mfn);
+-int mem_event_disable(struct domain *d);
+-
+ int mem_event_check_ring(struct domain *d);
+ void mem_event_put_request(struct domain *d, mem_event_request_t *req);
+ void mem_event_get_response(struct domain *d, mem_event_response_t *rsp);
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/mtrr.h
+--- a/xen/include/asm-x86/mtrr.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/mtrr.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -76,8 +76,9 @@
+ extern void mtrr_aps_sync_end(void);
+ extern void mtrr_bp_restore(void);
+ 
+-extern bool_t mtrr_var_range_msr_set(struct mtrr_state *v,
+-				uint32_t msr, uint64_t msr_content);
++extern bool_t mtrr_var_range_msr_set(
++    struct domain *d, struct mtrr_state *m,
++    uint32_t msr, uint64_t msr_content);
+ extern bool_t mtrr_fix_range_msr_set(struct mtrr_state *v,
+ 				uint32_t row, uint64_t msr_content);
+ extern bool_t mtrr_def_type_msr_set(struct mtrr_state *v, uint64_t msr_content);
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/x86_32/page.h
+--- a/xen/include/asm-x86/x86_32/page.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/x86_32/page.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -79,23 +79,15 @@
+ 
+ #endif
+ 
+-#define pte_read_atomic(ptep) ({                              \
+-    intpte_t __pte = *(ptep), __npte;                         \
+-    while ( (__npte = cmpxchg(ptep, __pte, __pte)) != __pte ) \
+-        __pte = __npte;                                       \
+-    __pte; })
+-#define pte_write_atomic(ptep, pte) do {                      \
+-    intpte_t __pte = *(ptep), __npte;                         \
+-    while ( (__npte = cmpxchg(ptep, __pte, (pte))) != __pte ) \
+-        __pte = __npte;                                       \
+-} while ( 0 )
++#define pte_read_atomic(ptep)       atomic_read64(ptep)
++#define pte_write_atomic(ptep, pte) atomic_write64(ptep, pte)
+ #define pte_write(ptep, pte) do {                             \
+     u32 *__ptep_words = (u32 *)(ptep);                        \
+-    __ptep_words[0] = 0;                                      \
++    atomic_write32(&__ptep_words[0], 0);                      \
+     wmb();                                                    \
+-    __ptep_words[1] = (pte) >> 32;                            \
++    atomic_write32(&__ptep_words[1], (pte) >> 32);            \
+     wmb();                                                    \
+-    __ptep_words[0] = (pte) >>  0;                            \
++    atomic_write32(&__ptep_words[0], (pte) >>  0);            \
+ } while ( 0 )
+ 
+ /* root table */
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/x86_32/system.h
+--- a/xen/include/asm-x86/x86_32/system.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/x86_32/system.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -91,13 +91,6 @@
+     _rc;                                                                \
+ })
+ 
+-static inline void atomic_write64(uint64_t *p, uint64_t v)
+-{
+-    uint64_t w = *p, x;
+-    while ( (x = __cmpxchg8b(p, w, v)) != w )
+-        w = x;
+-}
+-
+ #define mb()                    \
+     asm volatile ( "lock; addl $0,0(%%esp)" : : : "memory" )
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/x86_64/page.h
+--- a/xen/include/asm-x86/x86_64/page.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/x86_64/page.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -99,9 +99,9 @@
+ 
+ #endif /* !__ASSEMBLY__ */
+ 
+-#define pte_read_atomic(ptep)       (*(ptep))
+-#define pte_write_atomic(ptep, pte) (*(ptep) = (pte))
+-#define pte_write(ptep, pte)        (*(ptep) = (pte))
++#define pte_read_atomic(ptep)       atomic_read64(ptep)
++#define pte_write_atomic(ptep, pte) atomic_write64(ptep, pte)
++#define pte_write(ptep, pte)        atomic_write64(ptep, pte)
+ 
+ /* Given a virtual address, get an entry offset into a linear page table. */
+ #define l1_linear_offset(_a) (((_a) & VADDR_MASK) >> L1_PAGETABLE_SHIFT)
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/asm-x86/x86_64/system.h
+--- a/xen/include/asm-x86/x86_64/system.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/asm-x86/x86_64/system.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -47,11 +47,6 @@
+     _rc;                                                                \
+ })
+ 
+-static inline void atomic_write64(uint64_t *p, uint64_t v)
+-{
+-    *p = v;
+-}
+-
+ #define mb()                    \
+     asm volatile ( "mfence" : : : "memory" )
+ 
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/public/hvm/hvm_op.h
+--- a/xen/include/public/hvm/hvm_op.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/public/hvm/hvm_op.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -127,17 +127,26 @@
+ typedef struct xen_hvm_set_mem_type xen_hvm_set_mem_type_t;
+ DEFINE_XEN_GUEST_HANDLE(xen_hvm_set_mem_type_t);
+ 
++#endif /* defined(__XEN__) || defined(__XEN_TOOLS__) */
++
+ /* Hint from PV drivers for pagetable destruction. */
+ #define HVMOP_pagetable_dying        9
+ struct xen_hvm_pagetable_dying {
+     /* Domain with a pagetable about to be destroyed. */
+     domid_t  domid;
++    uint16_t pad[3]; /* align next field on 8-byte boundary */
+     /* guest physical address of the toplevel pagetable dying */
+-    uint64_aligned_t gpa;
++    uint64_t gpa;
+ };
+ typedef struct xen_hvm_pagetable_dying xen_hvm_pagetable_dying_t;
+ DEFINE_XEN_GUEST_HANDLE(xen_hvm_pagetable_dying_t);
+ 
+-#endif /* defined(__XEN__) || defined(__XEN_TOOLS__) */
++/* Get the current Xen time, in nanoseconds since system boot. */
++#define HVMOP_get_time              10
++struct xen_hvm_get_time {
++    uint64_t now;      /* OUT */
++};
++typedef struct xen_hvm_get_time xen_hvm_get_time_t;
++DEFINE_XEN_GUEST_HANDLE(xen_hvm_get_time_t);
+ 
+ #endif /* __XEN_PUBLIC_HVM_HVM_OP_H__ */
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/public/tmem.h
+--- a/xen/include/public/tmem.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/public/tmem.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -29,6 +29,9 @@
+ 
+ #include "xen.h"
+ 
++/* version of ABI */
++#define TMEM_SPEC_VERSION          1
++
+ /* Commands to HYPERVISOR_tmem_op() */
+ #define TMEM_CONTROL               0
+ #define TMEM_NEW_POOL              1
+@@ -75,10 +78,12 @@
+ /* Bits for HYPERVISOR_tmem_op(TMEM_NEW_POOL) */
+ #define TMEM_POOL_PERSIST          1
+ #define TMEM_POOL_SHARED           2
++#define TMEM_POOL_PRECOMPRESSED    4
+ #define TMEM_POOL_PAGESIZE_SHIFT   4
+ #define TMEM_POOL_PAGESIZE_MASK  0xf
+ #define TMEM_POOL_VERSION_SHIFT   24
+ #define TMEM_POOL_VERSION_MASK  0xff
++#define TMEM_POOL_RESERVED_BITS  0x00ffff00
+ 
+ /* Bits for client flags (save/restore) */
+ #define TMEM_CLIENT_COMPRESS       1
+@@ -100,18 +105,18 @@
+             uint64_t uuid[2];
+             uint32_t flags;
+             uint32_t arg1;
+-        } new; /* for cmd == TMEM_NEW_POOL, TMEM_AUTH, TMEM_RESTORE_NEW */
++        } creat; /* for cmd == TMEM_NEW_POOL, TMEM_AUTH, TMEM_RESTORE_NEW */
+         struct { 
+             uint32_t subop;
+             uint32_t cli_id;
+             uint32_t arg1;
+             uint32_t arg2;
+-            uint64_t arg3;
++            uint64_t oid[3];
+             tmem_cli_va_t buf;
+         } ctrl; /* for cmd == TMEM_CONTROL */
+         struct {
+             
+-            uint64_t object;
++            uint64_t oid[3];
+             uint32_t index;
+             uint32_t tmem_offset;
+             uint32_t pfn_offset;
+@@ -126,9 +131,8 @@
+ struct tmem_handle {
+     uint32_t pool_id;
+     uint32_t index;
+-    uint64_t oid;
++    uint64_t oid[3];
+ };
+-
+ #endif
+ 
+ #endif /* __XEN_PUBLIC_TMEM_H__ */
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/public/xen.h
+--- a/xen/include/public/xen.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/public/xen.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -370,8 +370,11 @@
+  * DOMID_COW is used as the owner of sharable pages */
+ #define DOMID_COW  (0x7FF3U)
+ 
+-/* DOMID_INVALID is used to identity invalid domid */
+-#define DOMID_INVALID (0x7FFFU)
++/* DOMID_INVALID is used to identify pages with unknown owner. */
++#define DOMID_INVALID (0x7FF4U)
++
++/* Idle domain. */
++#define DOMID_IDLE (0x7FFFU)
+ 
+ /*
+  * Send an array of these to HYPERVISOR_mmu_update().
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/xen/acpi.h
+--- a/xen/include/xen/acpi.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/xen/acpi.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -421,4 +421,7 @@
+ 
+ void acpi_reboot(void);
+ 
++void acpi_dmar_zap(void);
++void acpi_dmar_reinstate(void);
++
+ #endif /*_LINUX_ACPI_H*/
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/xen/iommu.h
+--- a/xen/include/xen/iommu.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/xen/iommu.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -30,6 +30,8 @@
+ extern bool_t force_iommu, iommu_verbose;
+ extern bool_t iommu_workaround_bios_bug, iommu_passthrough;
+ extern bool_t iommu_snoop, iommu_qinval, iommu_intremap;
++extern bool_t amd_iommu_debug;
++extern bool_t amd_iommu_perdev_intremap;
+ 
+ #define domain_hvm_iommu(d)     (&d->arch.hvm_domain.hvm_iommu)
+ 
+@@ -59,6 +61,7 @@
+ int iommu_setup(void);
+ int iommu_supports_eim(void);
+ int iommu_enable_IR(void);
++void iommu_disable_IR(void);
+ int intremap_enabled(void);
+ 
+ int iommu_add_device(struct pci_dev *pdev);
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/xen/sched.h
+--- a/xen/include/xen/sched.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/xen/sched.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -176,15 +176,6 @@
+     void *ring_page;
+     /* front-end ring */
+     mem_event_front_ring_t front_ring;
+-    /* if domain has been paused due to ring contention */
+-    bool_t paused;
+-    int paused_vcpus[MAX_VIRT_CPUS];
+-    /* the memory event mode */
+-    unsigned long mode;
+-    /* domain to receive memory events */
+-    struct domain *domain;
+-    /* enabled? */
+-    bool_t enabled;
+     /* event channel port (vcpu0 only) */
+     int xen_port;
+ };
+@@ -335,8 +326,7 @@
+ };
+ 
+ extern struct vcpu *idle_vcpu[NR_CPUS];
+-#define IDLE_DOMAIN_ID   (0x7FFFU)
+-#define is_idle_domain(d) ((d)->domain_id == IDLE_DOMAIN_ID)
++#define is_idle_domain(d) ((d)->domain_id == DOMID_IDLE)
+ #define is_idle_vcpu(v)   (is_idle_domain((v)->domain))
+ 
+ #define DOMAIN_DESTROYED (1<<31) /* assumes atomic_t is >= 32 bits */
+@@ -558,6 +548,9 @@
+  /* VCPU affinity has changed: migrating to a new CPU. */
+ #define _VPF_migrating       3
+ #define VPF_migrating        (1UL<<_VPF_migrating)
++ /* VCPU is blocked on memory-event ring. */
++#define _VPF_mem_event       4
++#define VPF_mem_event        (1UL<<_VPF_mem_event)
+ 
+ static inline int vcpu_runnable(struct vcpu *v)
+ {
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/xen/softirq.h
+--- a/xen/include/xen/softirq.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/xen/softirq.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -39,6 +39,8 @@
+  * Use this instead of do_softirq() when you do not want to be preempted.
+  */
+ void process_pending_softirqs(void);
++/* ... and use this instead when running inside a tasklet. */
++void process_pending_softirqs_nested(void);
+ 
+ /*
+  * TASKLETS -- dynamically-allocatable tasks run in softirq context
+diff -r beb8d83a8658 -r 714d808e57bb xen/include/xen/tmem_xen.h
+--- a/xen/include/xen/tmem_xen.h	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/include/xen/tmem_xen.h	Fri Dec 24 10:29:50 2010 +0000
+@@ -469,10 +469,10 @@
+             return rc;
+         switch ( cop.cmd )
+         {
+-        case TMEM_NEW_POOL:   u = XLAT_tmem_op_u_new;   break;
++        case TMEM_NEW_POOL:   u = XLAT_tmem_op_u_creat; break;
+         case TMEM_CONTROL:    u = XLAT_tmem_op_u_ctrl;  break;
+-        case TMEM_AUTH:       u = XLAT_tmem_op_u_new;   break;
+-        case TMEM_RESTORE_NEW:u = XLAT_tmem_op_u_new;   break;
++        case TMEM_AUTH:       u = XLAT_tmem_op_u_creat; break;
++        case TMEM_RESTORE_NEW:u = XLAT_tmem_op_u_creat; break;
+         default:              u = XLAT_tmem_op_u_gen ;  break;
+         }
+ #define XLAT_tmem_op_HNDL_u_ctrl_buf(_d_, _s_) \
+diff -r beb8d83a8658 -r 714d808e57bb xen/xsm/flask/hooks.c
+--- a/xen/xsm/flask/hooks.c	Wed Aug 25 09:22:52 2010 +0100
++++ b/xen/xsm/flask/hooks.c	Fri Dec 24 10:29:50 2010 +0000
+@@ -74,7 +74,7 @@
+ 
+     dsec->d = d;
+ 
+-    if ( d->domain_id == IDLE_DOMAIN_ID )
++    if ( is_idle_domain(d) )
+     {
+         dsec->sid = SECINITSID_XEN;
+         dsec->create_sid = SECINITSID_DOM0;
+@@ -340,7 +340,7 @@
+         default:
+             /*Pages are implicitly labeled by domain ownership!*/
+             dsec = d->ssid;
+-            *sid = dsec->sid;
++            *sid = dsec ? dsec->sid : SECINITSID_UNLABELED;
+         break;
+     }
+ 
+diff -Nru xen-4.0.1/tools/blktap/drivers/blk_linux.c xen-4.0.1-patched/tools/blktap/drivers/blk_linux.c
+--- xen-4.0.1/tools/blktap/drivers/blk_linux.c	2010-08-25 07:22:07.000000000 -0300
++++ xen-4.0.1-patched/tools/blktap/drivers/blk_linux.c	2010-12-16 17:42:14.694504013 -0200
+@@ -1,6 +1,6 @@
+ #include <inttypes.h>
+ #include <sys/ioctl.h>
+-#include <linux/fs.h>
++#include <sys/mount.h>
+ #include "tapdisk.h"
+ #include "blk.h"
+ 
+diff -Nru xen-4.0.1/tools/blktap/drivers/Makefile xen-4.0.1-patched/tools/blktap/drivers/Makefile
+--- xen-4.0.1/tools/blktap/drivers/Makefile	2010-08-25 07:22:07.000000000 -0300
++++ xen-4.0.1-patched/tools/blktap/drivers/Makefile	2010-12-16 17:45:06.214503843 -0200
+@@ -29,8 +29,9 @@
+ MEMSHRLIBS += $(MEMSHR_DIR)/libmemshr.a
+ endif
+ 
+-LDFLAGS_blktapctrl := $(LDFLAGS_libxenctrl) $(LDFLAGS_libxenstore) $(MEMSHRLIBS) -L../lib -lblktap -lrt -lm -lpthread
+-LDFLAGS_img := $(LIBAIO_DIR)/libaio.a $(CRYPT_LIB) -lpthread -lz
++LDFLAGS_xen := $(LDFLAGS_libxenctrl) $(LDFLAGS_libxenstore)
++LDFLAGS_blktapctrl := $(LDFLAGS_xen) $(MEMSHRLIBS) -L../lib -lblktap -lrt -lm -lpthread $(LDFLAGS_xen)
++LDFLAGS_img := $(LIBAIO_DIR)/libaio.a $(CRYPT_LIB) -lpthread -lz $(LDFLAGS_xen)
+ 
+ BLK-OBJS-y  := block-aio.o
+ BLK-OBJS-y  += block-sync.o
+diff -Nru xen-4.0.1/tools/blktap2/drivers/blk_linux.c xen-4.0.1-patched/tools/blktap2/drivers/blk_linux.c
+--- xen-4.0.1/tools/blktap2/drivers/blk_linux.c	2010-08-25 07:22:07.000000000 -0300
++++ xen-4.0.1-patched/tools/blktap2/drivers/blk_linux.c	2010-12-16 17:43:12.624504046 -0200
+@@ -1,7 +1,7 @@
+ #include <inttypes.h>
++#include <errno.h>
+ #include <sys/ioctl.h>
+-#include <linux/fs.h>
+-#include <linux/errno.h>
++#include <sys/mount.h>
+ #include "tapdisk.h"
+ #include "blk.h"
+ 
+diff -Nru xen-4.0.1/tools/xenpaging/Makefile xen-4.0.1-patched/tools/xenpaging/Makefile
+--- xen-4.0.1/tools/xenpaging/Makefile	2010-08-25 07:22:10.000000000 -0300
++++ xen-4.0.1-patched/tools/xenpaging/Makefile	2010-12-16 17:45:35.264502700 -0200
+@@ -27,7 +27,7 @@
+ all: $(IBINS)
+ 
+ xenpaging: $(OBJS)
+-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
++	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
+ 
+ install: all
+ 	$(INSTALL_DIR) $(DESTDIR)$(SBINDIR)

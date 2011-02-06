@@ -1,0 +1,470 @@
+diff -u --new-file qmail-1.03-orig/qmail-control.9 qmail-1.03/qmail-control.9
+--- qmail-1.03-orig/qmail-control.9	2006-03-21 16:38:39.000000000 -0300
++++ qmail-1.03/qmail-control.9	2006-03-21 16:54:04.000000000 -0300
+@@ -22,6 +22,7 @@
+ in
+ .IR badmailfrom ,
+ .IR locals ,
++.IR mailroutes ,
+ .IR percenthack ,
+ .IR qmqpservers ,
+ .IR rcpthosts ,
+@@ -63,6 +64,7 @@
+ .I idhost	\fIme	\fRqmail-inject
+ .I localiphost	\fIme	\fRqmail-smtpd
+ .I locals	\fIme	\fRqmail-send
++.I mailroutes	\fR(none)	\fRqmail-remote
+ .I logger	\fRsplogger	\fRall init scripts
+ .I morercpthosts	\fR(none)	\fRqmail-smtpd
+ .I percenthack	\fR(none)	\fRqmail-send
+diff -u --new-file qmail-1.03-orig/qmail-remote.8 qmail-1.03/qmail-remote.8
+--- qmail-1.03-orig/qmail-remote.8	2006-03-21 16:38:40.000000000 -0300
++++ qmail-1.03/qmail-remote.8	2006-03-21 16:51:59.000000000 -0300
+@@ -1,6 +1,6 @@
+ .TH qmail-remote 8
+ .SH NAME
+-qmail-remote \- send mail via SMTP
++qmail-remote \- send mail via SMTP or QMTP
+ .SH SYNOPSIS
+ .B qmail-remote
+ .I host
+@@ -26,7 +26,8 @@
+ or to a mail exchanger for
+ .I host
+ listed in the Domain Name System,
+-via the Simple Mail Transfer Protocol (SMTP).
++via the Simple Mail Transfer Protocol (SMTP) or
++Quick Mail Transfer Protocol (QMTP).
+ .I host
+ can be either a fully-qualified domain name:
+ 
+@@ -67,6 +68,9 @@
+ .B qmail-remote
+ will happily send such messages.
+ It is the user's responsibility to avoid generating illegal messages.
++
++QMTP is completely transparent. No need for end-of-line conversions,
++and 8-bit clean too.
+ .SH "RESULTS"
+ .B qmail-remote
+ prints some number of 
+@@ -136,6 +140,81 @@
+ .B qmail-remote
+ refuses to run.
+ .TP 5
++.I mailroutes
++Artificial mail routes.
++Each route has the form
++.IR domain\fB:\fIrelay ,
++without any extra spaces.
++If
++.I domain
++matches
++.IR host ,
++.B qmail-remote
++will connect to
++.IR relay ,
++as if
++.I host
++had
++.I relay
++as its only MX.
++(It will also avoid doing any CNAME lookups on
++.IR recip .)
++.I host
++may include a colon and a port number to use instead of the
++normal SMTP port, 25:
++
++.EX
++   inside.af.mil:firewall.af.mil:26
++.EE
++
++.I host
++may include another colon and a protocol specifier after the port number
++to specify qmtp instead of smtp:
++
++.EX
++   almqvist.net:beta.lunds.lu.se:209:qmtp
++.EE
++
++Specifying a protocol requires specifying a port too! Also, just specifying
++port 209 doesn't imply qmtp.
++
++.I relay
++may be empty;
++this tells
++.B qmail-remote
++to look up MX records as usual.
++.I mailroutes
++may include wildcards:
++
++.EX
++   .af.mil:
++   :heaven.af.mil
++.EE
++
++Here
++any address ending with
++.B .af.mil
++(but not
++.B af.mil
++itself)
++is routed by its MX records;
++any other address is artificially routed to
++.BR heaven.af.mil .
++
++The
++.B qmail
++system does not protect you if you create an artificial
++mail loop between machines.
++However,
++you are always safe using
++.I mailroutes
++if you do not accept mail from the network.
++
++.I smtproutes
++is ignored if
++.I mailroutes
++exists.
++.TP 5
+ .I smtproutes
+ Artificial SMTP routes.
+ Each route has the form
+diff -u --new-file qmail-1.03-orig/qmail-remote.c qmail-1.03/qmail-remote.c
+--- qmail-1.03-orig/qmail-remote.c	2006-03-21 16:38:39.000000000 -0300
++++ qmail-1.03/qmail-remote.c	2006-03-21 16:48:24.000000000 -0300
+@@ -1,4 +1,5 @@
+ #include <sys/types.h>
++#include <sys/stat.h>
+ #include <sys/socket.h>
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
+@@ -14,6 +15,7 @@
+ #include "dns.h"
+ #include "alloc.h"
+ #include "quote.h"
++#include "fmt.h"
+ #include "ip.h"
+ #include "ipalloc.h"
+ #include "ipme.h"
+@@ -31,8 +33,10 @@
+ 
+ #define HUGESMTPTEXT 5000
+ 
+-#define PORT_SMTP 25 /* silly rabbit, /etc/services is for users */
+-unsigned long port = PORT_SMTP;
++unsigned long smtp_port = 25; /* silly rabbit, /etc/services is for users */
++unsigned long qmtp_port = 209;
++
++stralloc protocol = {0};
+ 
+ GEN_ALLOC_typedef(saa,stralloc,sa,len,a)
+ GEN_ALLOC_readyplus(saa,stralloc,sa,len,a,i,n,x,10,saa_readyplus)
+@@ -70,6 +74,8 @@
+ Unable to switch to home directory. (#4.3.0)\n"); zerodie(); }
+ void temp_control() { out("Z\
+ Unable to read control files. (#4.3.0)\n"); zerodie(); }
++void temp_proto() { out("Z\
++recipient did not talk proper QMTP (#4.3.0)\n"); zerodie(); }
+ void perm_partialline() { out("D\
+ SMTP cannot transfer messages with partial final lines. (#5.6.2)\n"); zerodie(); }
+ void perm_usage() { out("D\
+@@ -122,9 +128,9 @@
+   return r;
+ }
+ 
+-char inbuf[1024];
++char inbuf[1500];
+ substdio ssin = SUBSTDIO_FDBUF(read,0,inbuf,sizeof inbuf);
+-char smtptobuf[1024];
++char smtptobuf[1500];
+ substdio smtpto = SUBSTDIO_FDBUF(safewrite,-1,smtptobuf,sizeof smtptobuf);
+ char smtpfrombuf[128];
+ substdio smtpfrom = SUBSTDIO_FDBUF(saferead,-1,smtpfrombuf,sizeof smtpfrombuf);
+@@ -222,21 +228,21 @@
+   int flagbother;
+   int i;
+  
+-  if (smtpcode() != 220) quit("ZConnected to "," but greeting failed");
++  if (smtpcode() != 220) quit("Z Connected to "," but greeting failed");
+  
+   substdio_puts(&smtpto,"HELO ");
+   substdio_put(&smtpto,helohost.s,helohost.len);
+   substdio_puts(&smtpto,"\r\n");
+   substdio_flush(&smtpto);
+-  if (smtpcode() != 250) quit("ZConnected to "," but my name was rejected");
++  if (smtpcode() != 250) quit("Z Connected to "," but my name was rejected");
+  
+   substdio_puts(&smtpto,"MAIL FROM:<");
+   substdio_put(&smtpto,sender.s,sender.len);
+   substdio_puts(&smtpto,">\r\n");
+   substdio_flush(&smtpto);
+   code = smtpcode();
+-  if (code >= 500) quit("DConnected to "," but sender was rejected");
+-  if (code >= 400) quit("ZConnected to "," but sender was rejected");
++  if (code >= 500) quit("D Connected to "," but sender was rejected");
++  if (code >= 400) quit("Z Connected to "," but sender was rejected");
+  
+   flagbother = 0;
+   for (i = 0;i < reciplist.len;++i) {
+@@ -246,7 +252,7 @@
+     substdio_flush(&smtpto);
+     code = smtpcode();
+     if (code >= 500) {
+-      out("h"); outhost(); out(" does not like recipient.\n");
++      out("h "); outhost(); out(" does not like recipient.\n");
+       outsmtptext(); zero();
+     }
+     else if (code >= 400) {
+@@ -262,15 +268,126 @@
+  
+   substdio_putsflush(&smtpto,"DATA\r\n");
+   code = smtpcode();
+-  if (code >= 500) quit("D"," failed on DATA command");
+-  if (code >= 400) quit("Z"," failed on DATA command");
++  if (code >= 500) quit("D "," failed on DATA command");
++  if (code >= 400) quit("Z "," failed on DATA command");
+  
+   blast();
+   code = smtpcode();
+   flagcritical = 0;
+-  if (code >= 500) quit("D"," failed after I sent the message");
+-  if (code >= 400) quit("Z"," failed after I sent the message");
+-  quit("K"," accepted message");
++  if (code >= 500) quit("D "," failed after I sent the message");
++  if (code >= 400) quit("Z "," failed after I sent the message");
++  quit("K "," accepted message");
++}
++
++
++
++int qmtp_priority(int pref)
++{
++  if (pref < 12800) return 0;
++  if (pref > 13055) return 0;
++  if (pref % 16 == 1) return 1;
++  return 0;
++}
++
++void qmtp() /* thanks to russell nelson */
++{
++  struct stat st;
++  unsigned long len;
++  int len2;
++  char *x;
++  int i;
++  int n;
++  unsigned char ch;
++  char num[FMT_ULONG];
++  int flagallok;
++
++  if (fstat(0,&st) == -1) quit("Z", " unable to fstat stdin");
++  len = st.st_size;
++
++  /* the following code was substantially taken from serialmail'ss serialqmtp.c */
++  substdio_put(&smtpto,num,fmt_ulong(num,len+1));
++  substdio_put(&smtpto,":\n",2);
++  while (len > 0) {
++    n = substdio_feed(&ssin);
++    if (n <= 0) _exit(32); /* wise guy again */
++    x = substdio_PEEK(&ssin);
++    substdio_put(&smtpto,x,n);
++    substdio_SEEK(&ssin,n);
++    len -= n;
++  }
++  substdio_put(&smtpto,",",1);
++
++  len = sender.len;
++  substdio_put(&smtpto,num,fmt_ulong(num,len));
++  substdio_put(&smtpto,":",1);
++  substdio_put(&smtpto,sender.s,sender.len);
++  substdio_put(&smtpto,",",1);
++
++  len = 0;
++  for (i = 0;i < reciplist.len;++i)
++    len += fmt_ulong(num,reciplist.sa[i].len) + 1 + reciplist.sa[i].len + 1;
++  substdio_put(&smtpto,num,fmt_ulong(num,len));
++  substdio_put(&smtpto,":",1);
++  for (i = 0;i < reciplist.len;++i) {
++    substdio_put(&smtpto,num,fmt_ulong(num,reciplist.sa[i].len));
++    substdio_put(&smtpto,":",1);
++    substdio_put(&smtpto,reciplist.sa[i].s,reciplist.sa[i].len);
++    substdio_put(&smtpto,",",1);
++  }
++  substdio_put(&smtpto,",",1);
++  substdio_flush(&smtpto);
++
++  flagallok = 1;
++
++  for (i = 0;i < reciplist.len;++i) {
++    len = 0;
++    for (;;) {
++      get(&ch);
++      if (ch == ':') break;
++      if (len > 200000000) temp_proto();
++      if (ch - '0' > 9) temp_proto();
++      len = 10 * len + (ch - '0');
++    }
++    if (!len) temp_proto();
++    get(&ch); --len;
++    if ((ch != 'Z') && (ch != 'D') && (ch != 'K')) temp_proto();
++
++    if (!stralloc_copyb(&smtptext,&ch,1)) temp_proto();
++    if (!stralloc_cats(&smtptext,"Remote host said: ")) temp_nomem();
++
++    while (len > 0) {
++      get(&ch);
++      --len;
++    }
++
++    for (len = 0;len < smtptext.len;++len) {
++      ch = smtptext.s[len];
++      if ((ch < 32) || (ch > 126)) smtptext.s[len] = '?';
++    }
++    get(&ch);
++    if (ch != ',') temp_proto();
++    smtptext.s[smtptext.len-1] = '\n';
++
++    if (smtptext.s[0] == 'K') out("r");
++    else if (smtptext.s[0] == 'D') {
++      out("h");
++      flagallok = 0;
++    }
++    else { /* if (smtptext.s[0] == 'Z') */
++      out("s");
++      flagallok = 0;
++    }
++    /* if (substdio_put(subfdoutsmall,smtptext.s+1,smtptext.len-1) == -1) temp_noconn(); */
++    zero();
++  }
++  if (!flagallok) {
++    out("D Giving up on ");outhost();out("\nProtocol: qmtp\n");
++  } else {
++    out("K ");outhost();out(" accepted message.\n");
++  }
++  if (substdio_put(subfdoutsmall,smtptext.s+1,smtptext.len-1) == -1) _exit(0);
++  out("Protocol: qmtp\n");
++  zerodie();
+ }
+ 
+ stralloc canonhost = {0};
+@@ -316,11 +433,20 @@
+     temp_control();
+   if (control_rldef(&helohost,"control/helohost",1,(char *) 0) != 1)
+     temp_control();
+-  switch(control_readfile(&routes,"control/smtproutes",0)) {
++  switch(control_readfile(&routes,"control/mailroutes",0)) {
+     case -1:
+       temp_control();
+-    case 0:
+-      if (!constmap_init(&maproutes,"",0,1)) temp_nomem(); break;
++    case 0: /* file there but empty? */
++      // if (!constmap_init(&maproutes,"",0,1)) temp_nomem(); break;
++      switch(control_readfile(&routes,"control/smtproutes",0)) {
++	case -1:
++	   temp_control();
++	case 0: /* both files there but emtpy */
++	   if (!constmap_init(&maproutes,"",0,1)) temp_nomem(); break; /* never mind */
++	case 1:
++	   if (!constmap_init(&maproutes,routes.s,routes.len,1)) temp_nomem(); break;
++      }
++
+     case 1:
+       if (!constmap_init(&maproutes,routes.s,routes.len,1)) temp_nomem(); break;
+   }
+@@ -353,14 +479,25 @@
+       if (relayhost = constmap(&maproutes,host.s + i,host.len - i))
+         break;
+   if (relayhost && !*relayhost) relayhost = 0;
+- 
++
++  if (!stralloc_copys(&protocol,"smtp")) temp_nomem(); /* smtp is the default */
++
+   if (relayhost) {
+     i = str_chr(relayhost,':');
+     if (relayhost[i]) {
+-      scan_ulong(relayhost + i + 1,&port);
+-      relayhost[i] = 0;
++
++      if (!stralloc_copyb(&host,relayhost,i)) temp_nomem();
++      scan_ulong(relayhost + i + 1,&smtp_port);
++      qmtp_port = smtp_port; /* it is in the route file */
++      i += str_chr(relayhost+i+1,':');
++      if (relayhost[i++]) {
++         stralloc_copys(&protocol,"");
++      }
++      while (relayhost[i++]) {
++        if (!stralloc_append(&protocol,relayhost + i)) temp_nomem(); /* let the route file set the protol */
++      }
+     }
+-    if (!stralloc_copys(&host,relayhost)) temp_nomem();
++    else if (!stralloc_copys(&host,relayhost)) temp_nomem();
+   }
+ 
+ 
+@@ -414,7 +551,22 @@
+     smtpfd = socket(AF_INET,SOCK_STREAM,0);
+     if (smtpfd == -1) temp_oserr();
+  
+-    if (timeoutconn(smtpfd,&ip.ix[i].ip,(unsigned int) port,timeoutconnect) == 0) {
++      
++    if (qmtp_priority(ip.ix[i].pref) || stralloc_starts(&protocol,"qmtp")) {
++       if (!stralloc_copys(&protocol,"qmtp")) temp_nomem();
++       /* unnecessary error checking, already contains smtp? */
++       /* set to qmtp to get logging right, see below */
++      if (timeoutconn(smtpfd,&ip.ix[i].ip,(unsigned int) qmtp_port,timeoutconnect) == 0) {
++	tcpto_err(&ip.ix[i].ip,0);
++	partner = ip.ix[i].ip;
++	qmtp(); /* does not return */
++      }
++      /* logging un-final things is too hard */
++    }
++    close(smtpfd);
++    smtpfd = socket(AF_INET,SOCK_STREAM,0);
++    if (smtpfd == -1) temp_oserr(); /* thanks to ian lance taylor */
++    if (timeoutconn(smtpfd,&ip.ix[i].ip,(unsigned int) smtp_port,timeoutconnect) == 0) {
+       tcpto_err(&ip.ix[i].ip,0);
+       partner = ip.ix[i].ip;
+       smtp(); /* does not return */
+Subdirectorios comunes: qmail-1.03-orig/qmail-rhinit y qmail-1.03/qmail-rhinit
+diff -u --new-file qmail-1.03-orig/qmail-showctl.c qmail-1.03/qmail-showctl.c
+--- qmail-1.03-orig/qmail-showctl.c	2006-03-21 16:38:40.000000000 -0300
++++ qmail-1.03/qmail-showctl.c	2006-03-21 16:53:31.000000000 -0300
+@@ -142,6 +142,7 @@
+   direntry *d;
+   struct stat stmrh;
+   struct stat stmrhcdb;
++  struct stat stmrts;
+ 
+   substdio_puts(subfdout,"qmail home directory: ");
+   substdio_puts(subfdout,auto_qmail);
+@@ -237,6 +238,7 @@
+   do_str("idhost",1,"idhost","Message-ID host name is ");
+   do_str("localiphost",1,"localiphost","Local IP address becomes ");
+   do_lst("locals","Messages for me are delivered locally.","Messages for "," are delivered locally.");
++  do_lst("mailroutes","No artificial mail routes.","mail route: ","");
+   do_str("logger",0,"multilog t /var/log/{}","Logging is done via: ");
+   do_str("me",0,"undefined! Uh-oh","My name is ");
+   do_lst("percenthack","The percent hack is not allowed.","The percent hack is allowed for user%host@",".");
+@@ -265,7 +267,12 @@
+         substdio_puts(subfdout,"Modified recently enough; hopefully up to date.\n");
+ 
+   do_str("smtpgreeting",1,"smtpgreeting","SMTP greeting: 220 ");
+-  do_lst("smtproutes","No artificial SMTP routes.","SMTP route: ","");
++
++  if (stat("mailroutes",&stmrts) == -1)
++    do_lst("smtproutes","No artificial SMTP routes.","SMTP route: ","");
++  else
++    substdio_puts(subfdout,"\nsmtproutes: mailroutes exists, ignoring smtproutes\n");
++
+   do_int("timeoutconnect","60","SMTP client connection timeout is "," seconds");
+   do_int("timeoutremote","1200","SMTP client data timeout is "," seconds");
+   do_int("timeoutsmtpd","1200","SMTP server data timeout is "," seconds");
+@@ -292,6 +299,7 @@
+     if (str_equal(d->d_name,"idhost")) continue;
+     if (str_equal(d->d_name,"localiphost")) continue;
+     if (str_equal(d->d_name,"locals")) continue;
++    if (str_equal(d->d_name,"mailroutes")) continue;
+     if (str_equal(d->d_name,"me")) continue;
+     if (str_equal(d->d_name,"morercpthosts")) continue;
+     if (str_equal(d->d_name,"morercpthosts.cdb")) continue;

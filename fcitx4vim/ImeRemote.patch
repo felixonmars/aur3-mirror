@@ -1,0 +1,238 @@
+diff -Nur src/ImeRemote.c src.n/ImeRemote.c
+--- src/ImeRemote.c	1970-01-01 08:00:00.000000000 +0800
++++ src.n/ImeRemote.c	2009-10-15 10:33:10.920103339 +0800
+@@ -0,0 +1,134 @@
++/*
++ * =====================================================================================
++ *
++ *       Filename:  ImRemote.c
++ *
++ *    Description:  
++ *
++ *        Version:  1.0
++ *       Revision:  none
++ *       Compiler:  gcc
++ *
++ *         Author:  wind (xihe), xihels@gmail.com
++ *        Company:  cyclone
++ *
++ * =====================================================================================
++ */
++
++#ifdef HAVE_CONFIG_H
++#  include <config.h>
++#endif
++
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <sys/un.h>
++#include <unistd.h> 
++#include <fcntl.h>
++#include "xim.h"
++
++static const char socketfile[]="/tmp/fcitx.socket";
++CARD16 g_last_connect_id;
++
++int create_socket(const char *name)
++{
++	int fd;
++	int r;
++	struct sockaddr_un uds_addr;
++
++	/* JIC */
++	unlink(name);
++
++	fd = socket(AF_UNIX, SOCK_STREAM, 0);
++	if (fd < 0) {
++		return fd;
++	}
++
++	/* setup address struct */
++	memset(&uds_addr, 0, sizeof(uds_addr));
++	uds_addr.sun_family = AF_UNIX;
++	strcpy(uds_addr.sun_path, name);
++
++	/* bind it to the socket */
++	r = bind(fd, (struct sockaddr *)&uds_addr, sizeof(uds_addr));
++	if (r < 0) {
++		return r;
++	}
++
++
++	/* listen - allow 10 to queue */
++	r = listen(fd, 10);
++	if (r < 0) {
++		return r;
++	}
++
++	return fd;
++}
++
++
++int ud_accept(int listenfd)
++{
++	for (;;) {
++		int newsock = 0;
++		struct sockaddr_un cliaddr;
++		socklen_t len = sizeof(struct sockaddr_un);
++
++		newsock = accept(listenfd, (struct sockaddr *)&cliaddr, &len);
++		if (newsock < 0) {
++			if (errno == EINTR) {
++				continue; /* signal */
++			}
++		}
++
++		return newsock;
++	}
++}
++
++static void send_ime_state(int fd)
++{
++	IME_STATE r = ConnectIDGetState(g_last_connect_id);
++	write(fd, &r, sizeof(r));
++}
++
++
++extern void DisplayMainWindow (void);
++static void main_loop (int socket_fd)
++{
++	int O;  // 低16位, 0 = get, 1 = set;
++			// 高16位, 只用于 set, 0 关闭输入法, 1 打开输入法.
++	for (;;) {
++		int client_fd = ud_accept(socket_fd);
++		read(client_fd, &O, sizeof(int));
++		if (!O) {
++			send_ime_state(client_fd);
++		} else {
++			O >>= 16;
++			SetIMState(O);
++			if (O) {
++				DisplayMainWindow();
++				DrawMainWindow();
++			}
++		}
++		close(client_fd);
++	}
++}
++
++void* remoteThread (void* val)
++{
++	int socket_fd = create_socket(socketfile);
++	if (socket_fd < 0) {
++		fprintf(stderr, "Can't open socket %s: %s\n", socketfile, strerror(errno));
++		return 0;
++	}
++
++	fcntl(socket_fd, F_SETFD, FD_CLOEXEC);
++	chmod(socketfile, 0666);
++	main_loop(socket_fd);
++	close(socket_fd);
++	return 0;
++}				/* ----------  end of function main  ---------- */
++
+diff -Nur src/main.c src.n/main.c
+--- src/main.c	2009-05-26 23:54:49.000000000 +0800
++++ src.n/main.c	2009-10-15 10:03:02.179584034 +0800
+@@ -64,6 +64,7 @@
+ #ifndef CODESET
+ #define CODESET 14
+ #endif
++#include <pthread.h>
+ 
+ extern Display *dpy;
+ extern Window   inputWindow;
+@@ -72,6 +73,8 @@
+ 
+ extern HIDE_MAINWINDOW hideMainWindow;
+ 
++extern void* remoteThread(void*);
++
+ int main (int argc, char *argv[])
+ {
+     XEvent          event;
+@@ -182,6 +185,8 @@
+     DrawTrayWindow (INACTIVE_ICON);	//显示托盘图标
+ #endif
+     
++	pthread_t pid;
++	pthread_create(&pid, NULL, remoteThread, NULL);
+     //主循环，即XWindow的消息循环
+     for (;;) {
+ 	XNextEvent (dpy, &event);					//等待一个事件发生
+diff -Nur src/Makefile.am src.n/Makefile.am
+--- src/Makefile.am	2009-05-02 23:24:59.000000000 +0800
++++ src.n/Makefile.am	2009-10-14 18:39:07.572008952 +0800
+@@ -32,7 +32,8 @@
+ 		QuickPhrase.c QuickPhrase.h \
+ 		AutoEng.c AutoEng.h \
+ 		fcitx.h extra.c extra.h \
+-		internalVersion.c
++		internalVersion.c \
++		ImeRemote.c
+ 		
+ fcitx_LDADD = ../lib/libXimd.a
+-fcitx_LDFLAGS = -lXpm -lXtst
++fcitx_LDFLAGS = -lXpm -lXtst -lpthread
+diff -Nur src/Makefile.in src.n/Makefile.in
+--- src/Makefile.in	2009-10-08 22:08:05.000000000 +0800
++++ src.n/Makefile.in	2009-10-14 18:39:11.053537314 +0800
+@@ -55,7 +55,8 @@
+ 	sp.$(OBJEXT) tools.$(OBJEXT) ui.$(OBJEXT) table.$(OBJEXT) \
+ 	xim.$(OBJEXT) qw.$(OBJEXT) tray.$(OBJEXT) TrayWindow.$(OBJEXT) \
+ 	vk.$(OBJEXT) about.$(OBJEXT) QuickPhrase.$(OBJEXT) \
+-	AutoEng.$(OBJEXT) extra.$(OBJEXT) internalVersion.$(OBJEXT)
++	AutoEng.$(OBJEXT) extra.$(OBJEXT) internalVersion.$(OBJEXT) \
++	ImeRemote.$(OBJEXT)
+ fcitx_OBJECTS = $(am_fcitx_OBJECTS)
+ fcitx_DEPENDENCIES = ../lib/libXimd.a
+ fcitx_LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(fcitx_LDFLAGS) \
+@@ -112,6 +113,7 @@
+ PACKAGE_NAME = @PACKAGE_NAME@
+ PACKAGE_STRING = @PACKAGE_STRING@
+ PACKAGE_TARNAME = @PACKAGE_TARNAME@
++PACKAGE_URL = @PACKAGE_URL@
+ PACKAGE_VERSION = @PACKAGE_VERSION@
+ PATH_SEPARATOR = @PATH_SEPARATOR@
+ PKG_CONFIG = @PKG_CONFIG@
+@@ -203,10 +205,11 @@
+ 		QuickPhrase.c QuickPhrase.h \
+ 		AutoEng.c AutoEng.h \
+ 		fcitx.h extra.c extra.h \
+-		internalVersion.c
++		internalVersion.c \
++		ImeRemote.c
+ 
+ fcitx_LDADD = ../lib/libXimd.a
+-fcitx_LDFLAGS = -lXpm -lXtst
++fcitx_LDFLAGS = -lXpm -lXtst -lpthread
+ all: all-am
+ 
+ .SUFFIXES:
+@@ -292,6 +295,7 @@
+ 
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/AutoEng.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/IC.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ImeRemote.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/InputWindow.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/KeyList.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/MainWindow.Po@am__quote@
+diff -Nur src/xim.c src.n/xim.c
+--- src/xim.c	2009-09-15 08:21:15.000000000 +0800
++++ src.n/xim.c	2009-10-15 09:47:12.179555894 +0800
+@@ -611,8 +611,10 @@
+     }
+ }
+ 
++extern CARD16 g_last_connect_id;
+ IME_STATE ConnectIDGetState (CARD16 connect_id)
+ {
++	g_last_connect_id = connect_id;
+     CONNECT_ID     *temp;
+ 
+     temp = connectIDsHead;

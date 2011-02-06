@@ -1,0 +1,1159 @@
+Description: Implement complete IPv6 support.
+ The present patch aims at implemententing IPv6 support,
+ thus resolving #427852. The corresponding changes and
+ additions account for the major part of the patch text.
+ .
+ In addition, the bugs #425488, #477928, #595169, and
+ #598367 are dealt with.
+ .
+ The IPv6 capabilities are explained in usage text
+ and in the manual page.
+Author: Mats Erik Andersson <debian@gisladisker.se>
+Bug-Debian: http://bugs.debian.org/427852
+ http://bugs.debian.org/425488
+ http://bugs.debian.org/477928
+ http://bugs.debian.org/595169
+ http://bugs.debian.org/598367
+Forwarded: no
+Edited: Matthew of Boswell; removed Debian specifics
+Last-Update: 2010-09-28
+diff -Naurp iftop-0.17.debian/addr_hash.c iftop-0.17/addr_hash.c
+--- iftop-0.17.debian/addr_hash.c
++++ iftop-0.17/addr_hash.c
+@@ -11,6 +11,19 @@
+ int compare(void* a, void* b) {
+     addr_pair* aa = (addr_pair*)a;
+     addr_pair* bb = (addr_pair*)b;
++
++    if (aa->af != bb->af)
++        return 0;
++
++    if (aa->af == AF_INET6) {
++       return (IN6_ARE_ADDR_EQUAL(&aa->src6, &bb->src6)
++               && aa->src_port == bb->src_port
++               && IN6_ARE_ADDR_EQUAL(&aa->dst6, &bb->dst6)
++               && aa->dst_port == bb->dst_port
++               && aa->protocol == bb->protocol);
++    }
++
++    /* AF_INET or unknown. */
+     return (aa->src.s_addr == bb->src.s_addr 
+             && aa->src_port == bb->src_port
+             && aa->dst.s_addr == bb->dst.s_addr
+@@ -18,25 +31,42 @@ int compare(void* a, void* b) {
+             && aa->protocol == bb->protocol);
+ }
+ 
++static int __inline__ hash_uint32(uint32_t n) {
++    return ((n & 0x000000FF)
++            + ((n & 0x0000FF00) >> 8)
++            + ((n & 0x00FF0000) >> 16)
++            + ((n & 0xFF000000) >> 24));
++}
++
+ int hash(void* key) {
+     int hash;
+-    long addr;
+     addr_pair* ap = (addr_pair*)key;
+-        
+-    addr = (long)ap->src.s_addr;
+ 
+-    hash = ((addr & 0x000000FF)
+-            + (addr & 0x0000FF00 >> 8)
+-            + (addr & 0x00FF0000 >> 16)
+-            + (addr & 0xFF000000 >> 24)
+-            + ap->src_port) % 0xFF;
+-
+-    addr = (long)ap->dst.s_addr;
+-    hash = ( hash + (addr & 0x000000FF)
+-            + (addr & 0x0000FF00 >> 8)
+-            + (addr & 0x00FF0000 >> 16)
+-            + (addr & 0xFF000000 >> 24)
+-            + ap->dst_port) % 0xFF;
++    if (ap->af == AF_INET6) {
++        uint32_t* addr6 = ap->src6.s6_addr32;
++
++        hash = ( hash_uint32(addr6[0])
++                + hash_uint32(addr6[1])
++                + hash_uint32(addr6[2])
++                + hash_uint32(addr6[3])
++                + ap->src_port) % 0xFF;
++
++        addr6 = ap->dst6.s6_addr32;
++        hash = ( hash + hash_uint32(addr6[0])
++                + hash_uint32(addr6[1])
++                + hash_uint32(addr6[2])
++                + hash_uint32(addr6[3])
++                + ap->dst_port) % 0xFF;
++    } else {
++        in_addr_t addr = ap->src.s_addr;
++
++        hash = ( hash_uint32(addr)
++                + ap->src_port) % 0xFF;
++
++        addr = ap->dst.s_addr;
++        hash = ( hash + hash_uint32(addr)
++                + ap->dst_port) % 0xFF;
++    }
+ 
+     return hash;
+ }
+diff -Naurp iftop-0.17.debian/addr_hash.h iftop-0.17/addr_hash.h
+--- iftop-0.17.debian/addr_hash.h
++++ iftop-0.17/addr_hash.h
+@@ -12,11 +12,18 @@
+ #include "hash.h"
+ 
+ typedef struct {
++    int af;
+     unsigned short int protocol;
+     unsigned short int src_port;
+-    struct in_addr src;
++    union {
++        struct in_addr src;
++        struct in6_addr src6;
++    };
+     unsigned short int dst_port;
+-    struct in_addr dst;
++    union {
++        struct in_addr dst;
++        struct in6_addr dst6;
++    };
+ } addr_pair;
+ 
+ typedef addr_pair key_type;      /* index into hash table */
+diff -Naurp iftop-0.17.debian/addrs_ioctl.c iftop-0.17/addrs_ioctl.c
+--- iftop-0.17.debian/addrs_ioctl.c
++++ iftop-0.17/addrs_ioctl.c
+@@ -18,12 +18,17 @@
+ #include <net/if.h>
+ #include <netinet/in.h>
+ 
+-#if defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__
++#if defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__ \
++      || ( defined __GNUC__ && ! defined __linux__ )
+ #include <sys/param.h>
+ #include <sys/sysctl.h>
+ #include <net/if_dl.h>
+ #endif
+ 
++#ifdef USE_GETIFADDRS
++#include <ifaddrs.h>
++#endif
++
+ #include "iftop.h"
+ 
+ /*
+@@ -40,16 +45,20 @@
+  */
+ 
+ int
+-get_addrs_ioctl(char *interface, char if_hw_addr[], struct in_addr *if_ip_addr)
++get_addrs_ioctl(char *interface, char if_hw_addr[], struct in_addr *if_ip_addr, struct in6_addr *if_ip6_addr)
+ {
+   int s;
+   struct ifreq ifr = {};
+   int got_hw_addr = 0;
+   int got_ip_addr = 0;
++  int got_ip6_addr = 0;
++#ifdef USE_GETIFADDRS
++  struct ifaddrs *ifa, *ifas;
++#endif
+ 
+   /* -- */
+ 
+-  s = socket(PF_INET, SOCK_DGRAM, 0); /* any sort of IP socket will do */
++  s = socket(AF_INET, SOCK_DGRAM, 0); /* any sort of IP socket will do */
+ 
+   if (s == -1) {
+     perror("socket");
+@@ -71,7 +80,8 @@ get_addrs_ioctl(char *interface, char if
+     got_hw_addr = 1;
+   }
+ #else
+-#if defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__
++#if defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__ \
++      || ( defined __GNUC__ && ! defined __linux__ )
+   {
+     int sysctlparam[6] = {CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST, 0};
+     size_t needed = 0;
+@@ -109,7 +119,45 @@ get_addrs_ioctl(char *interface, char if
+ #endif
+   
+   /* Get the IP address of the interface */
+-#ifdef SIOCGIFADDR
++#ifdef USE_GETIFADDRS
++  if (getifaddrs(&ifas) == -1) {
++    fprintf(stderr, "Unable to get IP address for interface: %s\n", interface); 
++    perror("getifaddrs()");
++  }
++  else {
++     for (ifa = ifas; ifa != NULL; ifa = ifa->ifa_next) {
++        if (got_ip_addr && got_ip6_addr)
++           break; /* Search is already complete. */
++
++        if (strcmp(ifa->ifa_name, interface))
++           continue; /* Not our interface. */
++
++        if ( (ifa->ifa_addr->sa_family != AF_INET)
++              && (ifa->ifa_addr->sa_family != AF_INET6) )
++           continue; /* AF_PACKET is beyond our scope. */
++
++        if ( (ifa->ifa_addr->sa_family == AF_INET)
++              && !got_ip_addr ) {
++           got_ip_addr = 2;
++           memcpy(if_ip_addr,
++                 &(((struct sockaddr_in *) ifa->ifa_addr)->sin_addr),
++                 sizeof(*if_ip_addr));
++           continue;
++        }
++        /* Must be a IPv6 address at this point. */
++        struct sockaddr_in6 *sa6 = (struct sockaddr_in6 *) ifa->ifa_addr;
++
++        if ( IN6_IS_ADDR_LINKLOCAL(&(sa6->sin6_addr))
++              || IN6_IS_ADDR_SITELOCAL(&(sa6->sin6_addr)) )
++           continue;
++
++        /* A useful IPv6 address. */
++        memcpy(if_ip6_addr, &(sa6->sin6_addr), sizeof(*if_ip6_addr));
++        got_ip6_addr = 4;
++     }
++     freeifaddrs(ifas);
++  } /* getifaddrs() */
++#elif defined(SIOCGIFADDR)
+   (*(struct sockaddr_in *) &ifr.ifr_addr).sin_family = AF_INET;
+   if (ioctl(s, SIOCGIFADDR, &ifr) < 0) {
+     fprintf(stderr, "Unable to get IP address for interface: %s\n", interface); 
+@@ -125,5 +173,5 @@ get_addrs_ioctl(char *interface, char if
+   
+   close(s);
+ 
+-  return got_hw_addr + got_ip_addr;
++  return got_hw_addr + got_ip_addr + got_ip6_addr;
+ }
+diff -Naurp iftop-0.17.debian/cfgfile.c iftop-0.17/cfgfile.c
+--- iftop-0.17.debian/cfgfile.c
++++ iftop-0.17/cfgfile.c
+@@ -36,6 +36,8 @@ char * config_directives[] = {
+ 	"log-scale", 
+ 	"max-bandwidth",
+ 	"net-filter", 
++	"net-filter6", 
++        "link-local",
+ 	"port-display", 
+ 	NULL
+ };
+@@ -230,8 +232,15 @@ void config_set_string(const char *direc
+     stringmap S;
+ 
+     S = stringmap_find(config, directive);
+-    if (S) stringmap_delete_free(S);
+-    stringmap_insert(config, directive, item_ptr(xstrdup(s)));
++    if (S) {
++        /* Replace any already stored string value.
++	 * The node can simply not be deleted straight off,
++	 * due to possible presence of leafs on either side. */
++        if (S->d.v)
++            xfree(S->d.v);
++        S->d.v = xstrdup(s);
++    } else
++        stringmap_insert(config, directive, item_ptr(xstrdup(s)));
+ }
+ 
+ int read_config(char *file, int whinge_on_error) {
+diff -Naurp iftop-0.17.debian/iftop.8 iftop-0.17/iftop.8
+--- iftop-0.17.debian/iftop.8
++++ iftop-0.17/iftop.8
+@@ -11,8 +11,8 @@ iftop - display bandwidth usage on an in
+ 
+ .SH SYNOPSIS
+ \fBiftop\fP \fB-h\fP |
+-[\fB-nNpbBP\fP] [\fB-i\fP \fIinterface\fP] [\fB-f\fP \fIfilter code\fP] [\fB-F\fP \fInet\fP/\fImask\fP]
+-
++[\fB-nNpblBP\fP] [\fB-i\fP \fIinterface\fP] [\fB-f\fP \fIfilter code\fP] [\fB-F\fP \fInet\fP/\fImask\fP]
++[\fB-G\fP \fInet6\fP/\fImask6\fP]
+ .SH DESCRIPTION
+ \fBiftop\fP listens to network traffic on a named \fIinterface\fP, or on the
+ first interface it can find which looks like an external interface if none is
+@@ -65,6 +65,10 @@ the specified interface is also counted.
+ \fB-P\fP
+ Turn on port display.
+ .TP
++\fB-l\fP
++Display and count datagrams addressed to or from link-local IPv6 addresses.
++The default is not to display that address category.
++.TP
+ \fB-b\fP
+ Don't display bar graphs of traffic. 
+ .TP
+@@ -79,12 +83,17 @@ Use \fIfilter code\fP to select the pack
+ counted, so the specified code is evaluated as \fB(\fP\fIfilter code\fP\fB) and ip\fP.
+ .TP
+ \fB-F\fP \fInet\fP/\fImask\fP
+-Specifies a network for traffic analysis.  If specified, iftop will only
++Specifies an IPv4 network for traffic analysis.  If specified, iftop will only
+ include packets flowing in to or out of the given network, and packet direction
+ is determined relative to the network boundary, rather than to the interface.
+ You may specify \fImask\fP as a dotted quad, such as /255.255.255.0, or as a
+ single number specifying the number of bits set in the netmask, such as /24.
+ .TP
++\fB-G\fP \fInet6\fP/\fImask6\fP
++Specifies an IPv6 network for traffic analysis. The value of \fImask6\fP can be
++given as a prefix length or as a numerical address string for more compound
++bitmasking.
++.TP
+ \fB-c\fP \fIconfig file\fP
+ Specifies an alternate config file.  If not specified, iftop will use
+ \fB~/.iftoprc\fP if it exists.  See below for a description of config files
+@@ -212,6 +221,9 @@ Puts the interface into promiscuous mode
+ \fBport-display:\fP \fI(off|source-only|destination-only|on)\fP
+ Controls display of port numbers.
+ .TP
++\fBlink-local:\fP \fI(yes|no)\fP
++Determines displaying of link-local IPv6 addresses.
++.TP
+ \fBhide-source:\fP \fI(yes|no)\fP
+ Hides source host names.
+ .TP
+@@ -239,6 +251,9 @@ Fixes the maximum for the bar graph scal
+ \fBnet-filter:\fP \fInet/mask\fP
+ Defines an IP network boundary for determining packet direction.
+ .TP
++\fBnet-filter6:\fP \fInet6/mask6\fP
++Defines an IPv6 network boundary for determining packet direction.
++.TP
+ \fBscreen-filter:\fP \fIregexp\fP
+ Sets a regular expression to filter screen output.
+ 
+diff -Naurp iftop-0.17.debian/iftop.c iftop-0.17/iftop.c
+--- iftop-0.17.debian/iftop.c
++++ iftop-0.17/iftop.c
+@@ -45,6 +45,7 @@
+ #include "cfgfile.h"
+ #include "ppp.h"
+ 
++#include <netinet/ip6.h>
+ 
+ /* ethernet address of interface. */
+ int have_hw_addr = 0;
+@@ -52,7 +53,9 @@ unsigned char if_hw_addr[6];
+ 
+ /* IP address of interface */
+ int have_ip_addr = 0;
++int have_ip6_addr = 0;
+ struct in_addr if_ip_addr;
++struct in6_addr if_ip6_addr;
+ 
+ extern options_t options;
+ 
+@@ -77,7 +80,8 @@ static void finish(int sig) {
+ 
+ 
+ /* Only need ethernet (plus optional 4 byte VLAN) and IP headers (48) + first 2 bytes of tcp/udp header */
+-#define CAPTURE_LENGTH 72
++/* Increase with a further 20 to account for IPv6 header length.  */
++#define CAPTURE_LENGTH 92
+ 
+ void init_history() {
+     history = addr_hash_create();
+@@ -147,10 +151,14 @@ int in_filter_net(struct in_addr addr) {
+     return ret;
+ }
+ 
+-int ip_addr_match(struct in_addr addr) {
++int __inline__ ip_addr_match(struct in_addr addr) {
+     return addr.s_addr == if_ip_addr.s_addr;
+ }
+ 
++int __inline__ ip6_addr_match(struct in6_addr *addr) {
++    return IN6_ARE_ADDR_EQUAL(addr, &if_ip6_addr);
++}
++
+ /**
+  * Creates an addr_pair from an ip (and tcp/udp) header, swapping src and dst
+  * if required
+@@ -159,6 +167,11 @@ void assign_addr_pair(addr_pair* ap, str
+   unsigned short int src_port = 0;
+   unsigned short int dst_port = 0;
+ 
++  /* Arrange for predictable values. */
++  memset(ap, '\0', sizeof(*ap));
++
++  if(IP_V(iptr) == 4) {
++    ap->af = AF_INET;
+   /* Does this protocol use ports? */
+   if(iptr->ip_p == IPPROTO_TCP || iptr->ip_p == IPPROTO_UDP) {
+     /* We take a slight liberty here by treating UDP the same as TCP */
+@@ -181,7 +194,33 @@ void assign_addr_pair(addr_pair* ap, str
+     ap->dst = iptr->ip_src;
+     ap->dst_port = src_port;
+   }
++  } /* IPv4 */
++  else if (IP_V(iptr) == 6) {
++    /* IPv6 packet seen. */
++    struct ip6_hdr *ip6tr = (struct ip6_hdr *) iptr;
++
++    ap->af = AF_INET6;
++
++    if( (ip6tr->ip6_nxt == IPPROTO_TCP) || (ip6tr->ip6_nxt == IPPROTO_UDP) ) {
++      struct tcphdr *thdr = ((void *) ip6tr) + 40;
++
++      src_port = ntohs(thdr->th_sport);
++      dst_port = ntohs(thdr->th_dport);
++    }
+ 
++    if(flip == 0) {
++      memcpy(&ap->src6, &ip6tr->ip6_src, sizeof(ap->src6));
++      ap->src_port = src_port;
++      memcpy(&ap->dst6, &ip6tr->ip6_dst, sizeof(ap->dst6));
++      ap->dst_port = dst_port;
++    }
++    else {
++      memcpy(&ap->src6, &ip6tr->ip6_dst, sizeof(ap->src6));
++      ap->src_port = dst_port;
++      memcpy(&ap->dst6, &ip6tr->ip6_src, sizeof(ap->dst6));
++      ap->dst_port = src_port;
++    }
++  }
+ }
+ 
+ static void handle_ip_packet(struct ip* iptr, int hw_dir)
+@@ -193,9 +232,16 @@ static void handle_ip_packet(struct ip*
+ 	void **void_pp;
+     } u_ht = { &ht };
+     addr_pair ap;
+-    int len;
++    unsigned int len = 0;
++    struct in6_addr scribdst;   /* Scratch pad. */
++    struct in6_addr scribsrc;   /* Scratch pad. */
++    /* Reinterpret packet type. */
++    struct ip6_hdr* ip6tr = (struct ip6_hdr *) iptr;
++
++    memset(&ap, '\0', sizeof(ap));
+ 
+-    if(options.netfilter == 0) { 
++    if( (IP_V(iptr) ==4 && options.netfilter == 0)
++            || (IP_V(iptr) == 6 && options.netfilter6 == 0) ) { 
+         /*
+          * Net filter is off, so assign direction based on MAC address
+          */
+@@ -212,12 +258,22 @@ static void handle_ip_packet(struct ip*
+         /* Packet direction is not given away by h/ware layer.  Try IP
+          * layer
+          */
+-        else if(have_ip_addr && ip_addr_match(iptr->ip_src)) {
++        else if((IP_V(iptr) == 4) && have_ip_addr && ip_addr_match(iptr->ip_src)) {
+             /* outgoing */
+             assign_addr_pair(&ap, iptr, 0);
+             direction = 1;
+         }
+-        else if(have_ip_addr && ip_addr_match(iptr->ip_dst)) {
++        else if((IP_V(iptr) == 4) && have_ip_addr && ip_addr_match(iptr->ip_dst)) {
++            /* incoming */
++            assign_addr_pair(&ap, iptr, 1);
++            direction = 0;
++        }
++        else if((IP_V(iptr) == 6) && have_ip6_addr && ip6_addr_match(&ip6tr->ip6_src)) {
++            /* outgoing */
++            assign_addr_pair(&ap, iptr, 0);
++            direction = 1;
++        }
++        else if((IP_V(iptr) == 6) && have_ip6_addr && ip6_addr_match(&ip6tr->ip6_dst)) {
+             /* incoming */
+             assign_addr_pair(&ap, iptr, 1);
+             direction = 0;
+@@ -231,16 +287,18 @@ static void handle_ip_packet(struct ip*
+ 	else if (options.promiscuous_but_choosy) {
+ 	    return;		/* junk it */
+ 	}
+-        else if(iptr->ip_src.s_addr < iptr->ip_dst.s_addr) {
++        else if((IP_V(iptr) == 4) && (iptr->ip_src.s_addr < iptr->ip_dst.s_addr)) {
+             assign_addr_pair(&ap, iptr, 1);
+             direction = 0;
+         }
+-        else {
++        else if(IP_V(iptr) == 4) {
+             assign_addr_pair(&ap, iptr, 0);
+             direction = 0;
+         }
++        /* Drop other uncertain packages. */
+     }
+-    else {
++
++    if(IP_V(iptr) == 4 && options.netfilter != 0) {
+         /* 
+          * Net filter on, assign direction according to netmask 
+          */ 
+@@ -260,22 +318,96 @@ static void handle_ip_packet(struct ip*
+         }
+     }
+ 
+-    ap.protocol = iptr->ip_p;
++    if(IP_V(iptr) == 6 && options.netfilter6 != 0) {
++        /*
++         * Net filter IPv6 active.
++         */
++        int j;
++        //else if((IP_V(iptr) == 6) && have_ip6_addr && ip6_addr_match(&ip6tr->ip6_dst)) {
++        /* First reduce the participating addresses using the netfilter prefix.
++         * We need scratch pads to do this.
++         */
++        for (j=0; j < 4; ++j) {
++            scribdst.s6_addr32[j] = ip6tr->ip6_dst.s6_addr32[j]
++                                        & options.netfilter6mask.s6_addr32[j];
++            scribsrc.s6_addr32[j] = ip6tr->ip6_src.s6_addr32[j]
++                                        & options.netfilter6mask.s6_addr32[j];
++        }
++
++        /* Now look for any hits. */
++        //if(in_filter_net(iptr->ip_src) && !in_filter_net(iptr->ip_dst)) {
++        if (IN6_ARE_ADDR_EQUAL(&scribsrc, &options.netfilter6net)
++                && ! IN6_ARE_ADDR_EQUAL(&scribdst, &options.netfilter6net)) {
++            /* out of network */
++            assign_addr_pair(&ap, iptr, 0);
++            direction = 1;
++        }
++        //else if(in_filter_net(iptr->ip_dst) && !in_filter_net(iptr->ip_src)) {
++        else if (! IN6_ARE_ADDR_EQUAL(&scribsrc, &options.netfilter6net)
++                    && IN6_ARE_ADDR_EQUAL(&scribdst, &options.netfilter6net)) {
++            /* into network */
++            assign_addr_pair(&ap, iptr, 1);
++            direction = 0;
++        }
++        else {
++            /* drop packet */
++            return ;
++        }
++    }
++
++#if 1
++    /* Test if link-local IPv6 packets should be dropped. */
++    if( IP_V(iptr) == 6 && !options.link_local
++            && (IN6_IS_ADDR_LINKLOCAL(&ip6tr->ip6_dst)
++                || IN6_IS_ADDR_LINKLOCAL(&ip6tr->ip6_src)) )
++        return;
++#endif
++
++    /* Do address resolving. */
++    switch (IP_V(iptr)) {
++      case 4:
++          ap.protocol = iptr->ip_p;
++          /* Add the addresses to be resolved */
++          /* The IPv4 address is embedded in a in6_addr structure,
++           * so it need be copied, and delivered to resolve(). */
++          memset(&scribdst, '\0', sizeof(scribdst));
++          memcpy(&scribdst, &iptr->ip_dst, sizeof(struct in_addr));
++          resolve(ap.af, &scribdst, NULL, 0);
++          memset(&scribsrc, '\0', sizeof(scribsrc));
++          memcpy(&scribsrc, &iptr->ip_src, sizeof(struct in_addr));
++          resolve(ap.af, &scribsrc, NULL, 0);
++          break;
++      case 6:
++          ap.protocol = ip6tr->ip6_nxt;
++          /* Add the addresses to be resolved */
++          resolve(ap.af, &ip6tr->ip6_dst, NULL, 0);
++          resolve(ap.af, &ip6tr->ip6_src, NULL, 0);
++      default:
++          break;
++    }
+ 
+-    /* Add the addresses to be resolved */
+-    resolve(&iptr->ip_dst, NULL, 0);
+-    resolve(&iptr->ip_src, NULL, 0);
+ 
+     if(hash_find(history, &ap, u_ht.void_pp) == HASH_STATUS_KEY_NOT_FOUND) {
+         ht = history_create();
+         hash_insert(history, &ap, ht);
+     }
+ 
+-    len = ntohs(iptr->ip_len);
++    /* Do accounting. */
++    switch (IP_V(iptr)) {
++      case 4:
++          len = ntohs(iptr->ip_len);
++          break;
++      case 6:
++          len = ntohs(ip6tr->ip6_plen) + 40;
++      default:
++          break;
++    }
+ 
+     /* Update record */
+     ht->last_write = history_pos;
+-    if(iptr->ip_src.s_addr == ap.src.s_addr) {
++    if( ((IP_V(iptr) == 4) && (iptr->ip_src.s_addr == ap.src.s_addr))
++       || ((IP_V(iptr) == 6) && !memcmp(&ip6tr->ip6_src, &ap.src6, sizeof(ap.src6))) )
++    {
+         ht->sent[history_pos] += len;
+         ht->total_sent += len;
+     }
+@@ -374,7 +506,7 @@ static void handle_ppp_packet(unsigned c
+ 		packet += 2;
+ 		length -= 2;
+ 
+-        if(proto == PPP_IP || proto == ETHERTYPE_IP) {
++        if(proto == PPP_IP || proto == ETHERTYPE_IP || proto == ETHERTYPE_IPV6) {
+             handle_ip_packet((struct ip*)packet, -1);
+         }
+     }
+@@ -420,7 +552,7 @@ static void handle_eth_packet(unsigned c
+         payload += sizeof(struct vlan_8021q_header);
+     }
+ 
+-    if(ether_type == ETHERTYPE_IP) {
++    if(ether_type == ETHERTYPE_IP || ether_type == ETHERTYPE_IPV6) {
+         struct ip* iptr;
+         int dir = -1;
+         
+@@ -440,6 +572,7 @@ static void handle_eth_packet(unsigned c
+             dir = 0;
+         }
+ 
++        /* Distinguishing ip_hdr and ip6_hdr will be done later. */
+         iptr = (struct ip*)(payload); /* alignment? */
+         handle_ip_packet(iptr, dir);
+     }
+@@ -452,10 +585,10 @@ static void handle_eth_packet(unsigned c
+ char *set_filter_code(const char *filter) {
+     char *x;
+     if (filter) {
+-        x = xmalloc(strlen(filter) + sizeof "() and ip");
+-        sprintf(x, "(%s) and ip", filter);
++        x = xmalloc(strlen(filter) + sizeof "() and (ip or ip6)");
++        sprintf(x, "(%s) and (ip or ip6)", filter);
+     } else
+-        x = xstrdup("ip");
++        x = xstrdup("ip or ip6");
+     if (pcap_compile(pd, &pcap_filter, x, 1, 0) == -1) {
+         xfree(x);
+         return pcap_geterr(pd);
+@@ -485,19 +618,28 @@ void packet_init() {
+ #ifdef HAVE_DLPI
+     result = get_addrs_dlpi(options.interface, if_hw_addr, &if_ip_addr);
+ #else
+-    result = get_addrs_ioctl(options.interface, if_hw_addr, &if_ip_addr);
++    result = get_addrs_ioctl(options.interface, if_hw_addr,
++          &if_ip_addr, &if_ip6_addr);
+ #endif
+ 
+     if (result < 0) {
+       exit(1);
+     }
+ 
+-    have_hw_addr = result & 1;
+-    have_ip_addr = result & 2;
++    have_hw_addr = result & 0x01;
++    have_ip_addr = result & 0x02;
++    have_ip6_addr = result & 0x04;
+     
+     if(have_ip_addr) {
+       fprintf(stderr, "IP address is: %s\n", inet_ntoa(if_ip_addr));
+     }
++    if(have_ip6_addr) {
++       char ip6str[INET6_ADDRSTRLEN];
++
++       ip6str[0] = '\0';
++       inet_ntop(AF_INET6, &if_ip6_addr, ip6str, sizeof(ip6str));
++       fprintf(stderr, "IPv6 address is: %s\n", ip6str);
++    }
+ 
+     if(have_hw_addr) {
+       fprintf(stderr, "MAC address is:");
+diff -Naurp iftop-0.17.debian/ns_hash.c iftop-0.17/ns_hash.c
+--- iftop-0.17.debian/ns_hash.c
++++ iftop-0.17/ns_hash.c
+@@ -2,6 +2,7 @@
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <sys/types.h>
+ #include <sys/socket.h>
+ #include <netinet/in_systm.h>
+@@ -14,29 +15,36 @@
+ #define hash_table_size 256
+ 
+ int ns_hash_compare(void* a, void* b) {
+-    struct in_addr* aa = (struct in_addr*)a;
+-    struct in_addr* bb = (struct in_addr*)b;
+-    return (aa->s_addr == bb->s_addr);
++    struct in6_addr* aa = (struct in6_addr*)a;
++    struct in6_addr* bb = (struct in6_addr*)b;
++    return IN6_ARE_ADDR_EQUAL(aa, bb);
++}
++
++static int __inline__ hash_uint32(uint32_t n) {
++    return ((n & 0x000000FF)
++            + ((n & 0x0000FF00) >> 8)
++            + ((n & 0x00FF0000) >> 16)
++            + ((n & 0xFF000000) >> 24));
+ }
+ 
+ int ns_hash_hash(void* key) {
+     int hash;
+-    long addr;
+-        
+-    addr = (long)((struct in_addr*)key)->s_addr;
+-
+-    hash = ((addr & 0x000000FF)
+-            + (addr & 0x0000FF00 >> 8)
+-            + (addr & 0x00FF0000 >> 16)
+-            + (addr & 0xFF000000 >> 24)) % 0xFF;
++    uint32_t* addr6 = ((struct in6_addr *) key)->s6_addr32;
++
++    hash = ( hash_uint32(addr6[0])
++            + hash_uint32(addr6[1])
++            + hash_uint32(addr6[2])
++            + hash_uint32(addr6[3])) % 0xFF;
+ 
+     return hash;
+ }
+ 
+ void* ns_hash_copy_key(void* orig) {
+-    struct in_addr* copy;
++    struct in6_addr* copy;
++
+     copy = xmalloc(sizeof *copy);
+-    *copy = *(struct in_addr*)orig;
++    memcpy(copy, orig, sizeof *copy);
++
+     return copy;
+ }
+ 
+diff -Naurp iftop-0.17.debian/options.c iftop-0.17/options.c
+--- iftop-0.17.debian/options.c
++++ iftop-0.17/options.c
+@@ -30,7 +30,7 @@
+ 
+ options_t options;
+ 
+-char optstr[] = "+i:f:nNF:hpbBPm:c:";
++char optstr[] = "+i:f:nNF:G:lhpbBPm:c:";
+ 
+ /* Global options. */
+ 
+@@ -118,6 +118,10 @@ void options_set_defaults() {
+     options.netfilter = 0;
+     inet_aton("10.0.1.0", &options.netfilternet);
+     inet_aton("255.255.255.0", &options.netfiltermask);
++    options.netfilter6 = 0;
++    inet_pton(AF_INET6, "fe80::", &options.netfilter6net);	/* Link-local */
++    inet_pton(AF_INET6, "ffff::", &options.netfilter6mask);
++    options.link_local = 0;
+     options.dnsresolution = 1;
+     options.portresolution = 1;
+ #ifdef NEED_PROMISCUOUS_FOR_OUTGOING
+@@ -237,7 +241,8 @@ static void usage(FILE *fp) {
+     fprintf(fp,
+ "iftop: display bandwidth usage on an interface by host\n"
+ "\n"
+-"Synopsis: iftop -h | [-npbBP] [-i interface] [-f filter code] [-N net/mask]\n"
++"Synopsis: iftop -h | [-npblBP] [-i interface] [-f filter code]\n"
++"                               [-F net/mask] [-G net6/mask6]\n"
+ "\n"
+ "   -h                  display this message\n"
+ "   -n                  don't do hostname lookups\n"
+@@ -249,7 +254,9 @@ static void usage(FILE *fp) {
+ "   -i interface        listen on named interface\n"
+ "   -f filter code      use filter code to select packets to count\n"
+ "                       (default: none, but only IP packets are counted)\n"
+-"   -F net/mask         show traffic flows in/out of network\n"
++"   -F net/mask         show traffic flows in/out of IPv4 network\n"
++"   -G net6/mask6       show traffic flows in/out of IPv6 network\n"
++"   -l                  display and count link-local IPv6 traffic (default: off)\n"
+ "   -P                  show ports as well as hosts\n"
+ "   -m limit            sets the upper limit for the bandwidth scale\n"
+ "   -c config file      specifies an alternative configuration file\n"
+@@ -285,6 +292,10 @@ void options_read_args(int argc, char **
+                 config_set_string("filter-code", optarg);
+                 break;
+ 
++            case 'l':
++                config_set_string("link-local", "true");
++                break;
++
+             case 'p':
+                 config_set_string("promiscuous", "true");
+                 break;
+@@ -297,6 +308,10 @@ void options_read_args(int argc, char **
+                 config_set_string("net-filter", optarg);
+                 break;
+             
++            case 'G':
++                config_set_string("net-filter6", optarg);
++                break;
++
+             case 'm':
+                 config_set_string("max-bandwidth", optarg);
+                 break;
+@@ -437,6 +452,8 @@ int options_config_get_net_filter() {
+     if(s) {
+         char* mask;
+ 
++        options.netfilter = 0;
++
+         mask = strchr(s, '/');
+         if (mask == NULL) {
+             fprintf(stderr, "Could not parse net/mask: %s\n", s);
+@@ -454,7 +471,7 @@ int options_config_get_net_filter() {
+             int n;
+             n = atoi(mask);
+             if (n > 32) {
+-                fprintf(stderr, "Invalid netmask: %s\n", s);
++                fprintf(stderr, "Invalid netmask length: %s\n", mask);
+             }
+             else {
+                 if(n == 32) {
+@@ -469,17 +486,86 @@ int options_config_get_net_filter() {
+                   options.netfiltermask.s_addr = htonl(~mm);
+                 }
+             }
++            options.netfilter = 1;
+         } 
+-        else if (inet_aton(mask, &options.netfiltermask) == 0) {
+-            fprintf(stderr, "Invalid netmask: %s\n", s);
++        else {
++            if (inet_aton(mask, &options.netfiltermask) != 0)
++                options.netfilter = 1;
++            else {
++                fprintf(stderr, "Invalid netmask: %s\n", s);
++                return 0;
++            }
+         }
+         options.netfilternet.s_addr = options.netfilternet.s_addr & options.netfiltermask.s_addr;
+-        options.netfilter = 1;
+         return 1;
+     }
+     return 0;
+ }
+ 
++/*
++ * Read the net filter IPv6 option.  
++ */
++int options_config_get_net_filter6() {
++    char* s;
++    int j;
++
++    s = config_get_string("net-filter6");
++    if(s) {
++        char* mask;
++
++        options.netfilter6 = 0;
++
++        mask = strchr(s, '/');
++        if (mask == NULL) {
++            fprintf(stderr, "Could not parse IPv6 net/prefix: %s\n", s);
++            return 0;
++        }
++        *mask = '\0';
++        mask++;
++        if (inet_pton(AF_INET6, s, &options.netfilter6net) == 0) {
++            fprintf(stderr, "Invalid IPv6 network address: %s\n", s);
++            return 0;
++        }
++        /* Accept prefix lengths and address expressions. */
++        if (mask[strspn(mask, "0123456789")] == '\0') {
++            /* Whole string is numeric */
++            unsigned int n;
++
++            n = atoi(mask);
++            if (n > 128 || n < 1) {
++                fprintf(stderr, "Invalid IPv6 prefix length: %s\n", mask);
++            }
++            else {
++                int bl, rem;
++                const uint32_t mm = 0xffffffff;
++                uint32_t part = mm;
++
++                bl = n / 32;
++                rem = n % 32;
++                part <<= 32 - rem;
++                for (j=0; j < bl; ++j)
++                    options.netfilter6mask.s6_addr32[j] = htonl(mm);
++                if (rem > 0)
++                    options.netfilter6mask.s6_addr32[bl] = htonl(part);
++                options.netfilter6 = 1;
++            }
++        }
++        else {
++            if (inet_pton(AF_INET6, mask, &options.netfilter6mask) != 0)
++                options.netfilter6 = 1;
++            else {
++                fprintf(stderr, "Invalid IPv6 netmask: %s\n", s);
++                return 0;
++            }
++        }
++        /* Prepare any comparison by masking the provided filtered net. */
++        for (j=0; j < 4; ++j)
++            options.netfilter6net.s6_addr32[j] &= options.netfilter6mask.s6_addr32[j];
++
++        return 1;
++    }
++    return 0;
++}
+ 
+ void options_make() {
+     options_config_get_string("interface", &options.interface);
+@@ -498,5 +584,7 @@ void options_make() {
+     options_config_get_bw_rate("max-bandwidth", &options.max_bandwidth);
+     options_config_get_enum("port-display", showports_enumeration, (int*)&options.showports);
+     options_config_get_string("screen-filter", &options.screenfilter);
++    options_config_get_bool("link-local", &options.link_local);
+     options_config_get_net_filter();
++    options_config_get_net_filter6();
+ };
+diff -Naurp iftop-0.17.debian/options.h iftop-0.17/options.h
+--- iftop-0.17.debian/options.h
++++ iftop-0.17/options.h
+@@ -78,6 +78,13 @@ typedef struct {
+     struct in_addr netfilternet;
+     struct in_addr netfiltermask;
+ 
++    int netfilter6;
++    struct in6_addr netfilter6net;
++    struct in6_addr netfilter6mask;
++
++    /* Account for link-local traffic. */
++    int link_local;
++
+     char *config_file;
+     int config_file_specified;
+ 
+diff -Naurp iftop-0.17.debian/resolver.c iftop-0.17/resolver.c
+--- iftop-0.17.debian/resolver.c
++++ iftop-0.17/resolver.c
+@@ -25,7 +25,7 @@
+ 
+ #define RESOLVE_QUEUE_LENGTH 20
+ 
+-struct in_addr resolve_queue[RESOLVE_QUEUE_LENGTH];
++struct in6_addr resolve_queue[RESOLVE_QUEUE_LENGTH];
+ 
+ pthread_cond_t resolver_queue_cond;
+ pthread_mutex_t resolver_queue_mutex;
+@@ -55,18 +55,48 @@ extern options_t options;
+  * as NetBSD break the RFC and implement it in a non-thread-safe fashion, so
+  * for the moment, the configure script won't try to use it.
+  */
+-char *do_resolve(struct in_addr *addr) {
+-    struct sockaddr_in sin = {0};
++char *do_resolve(struct in6_addr *addr) {
++    struct sockaddr_in sin;
++    struct sockaddr_in6 sin6;
+     char buf[NI_MAXHOST]; /* 1025 */
+-    int res;
+-    sin.sin_family = AF_INET;
+-    sin.sin_addr = *addr;
+-    sin.sin_port = 0;
++    int res, af;
++    uint32_t* probe;
+ 
+-    if (getnameinfo((struct sockaddr*)&sin, sizeof sin, buf, sizeof buf, NULL, 0, NI_NAMEREQD) == 0)
+-        return xstrdup(buf);
+-    else
+-        return NULL;
++    memset(&sin, '\0', sizeof(sin));
++    memset(&sin6, '\0', sizeof(sin6));
++
++    /* If the upper three (network byte order) uint32-parts
++     * are null, then there ought to be an IPv4 address here.
++     * Any such IPv6 would have to be 'xxxx::'. Neglectable? */
++    probe = (uint32_t *) addr;
++    af = (probe[1] || probe[2] || probe[3]) ? AF_INET6 : AF_INET;
++
++    switch (af) {
++        case AF_INET:
++            sin.sin_family = af;
++            sin.sin_port = 0;
++            memcpy(&sin.sin_addr, addr, sizeof(sin.sin_addr));
++
++            if (getnameinfo((struct sockaddr*)&sin, sizeof sin,
++                            buf, sizeof buf, NULL, 0, NI_NAMEREQD) == 0)
++                return xstrdup(buf);
++            else
++                return NULL;
++            break;
++        case AF_INET6:
++            sin6.sin6_family = af;
++            sin6.sin6_port = 0;
++            memcpy(&sin6.sin6_addr, addr, sizeof(sin6.sin6_addr));
++
++            if (getnameinfo((struct sockaddr*)&sin6, sizeof sin6,
++                            buf, sizeof buf, NULL, 0, NI_NAMEREQD) == 0)
++                return xstrdup(buf);
++            else
++                return NULL;
++            break;
++        default:
++            return NULL;
++    }
+ }
+ 
+ #elif defined(USE_GETHOSTBYADDR_R)
+@@ -376,7 +406,7 @@ void resolver_worker(void* ptr) {
+         /* Keep resolving until the queue is empty */
+         while(head != tail) {
+             char * hostname;
+-            struct in_addr addr = resolve_queue[tail];
++            struct in6_addr addr = resolve_queue[tail];
+ 
+             /* mutex always locked at this point */
+ 
+@@ -427,7 +457,7 @@ void resolver_initialise() {
+ 
+ }
+ 
+-void resolve(struct in_addr* addr, char* result, int buflen) {
++void resolve(int af, struct in6_addr* addr, char* result, int buflen) {
+     char* hostname;
+     union {
+ 	char **ch_pp;
+@@ -443,12 +473,18 @@ void resolve(struct in_addr* addr, char*
+             /* Found => already resolved, or on the queue */
+         }
+         else {
+-            hostname = strdup(inet_ntoa(*addr));
++            hostname = xmalloc(INET6_ADDRSTRLEN);
++            inet_ntop(af, addr, hostname, INET6_ADDRSTRLEN);
+             hash_insert(ns_hash, addr, hostname);
+ 
+             if(((head + 1) % RESOLVE_QUEUE_LENGTH) == tail) {
+                 /* queue full */
+             }
++            else if((af == AF_INET6)
++                        && (IN6_IS_ADDR_LINKLOCAL(addr)
++                            || IN6_IS_ADDR_SITELOCAL(addr))) {
++                /* Link-local and site-local stay numerical. */
++            }
+             else {
+                 resolve_queue[head] = *addr;
+                 head = (head + 1) % RESOLVE_QUEUE_LENGTH;
+diff -Naurp iftop-0.17.debian/resolver.h iftop-0.17/resolver.h
+--- iftop-0.17.debian/resolver.h
++++ iftop-0.17/resolver.h
+@@ -14,6 +14,6 @@
+ 
+ void resolver_initialise(void);
+ 
+-void resolve(struct in_addr* addr, char* result, int buflen);
++void resolve(int af, struct in6_addr* addr, char* result, int buflen);
+ 
+ #endif /* __RESOLVER_H_ */
+diff -Naurp iftop-0.17.debian/stringmap.c iftop-0.17/stringmap.c
+--- iftop-0.17.debian/stringmap.c
++++ iftop-0.17/stringmap.c
+@@ -53,11 +53,11 @@ void stringmap_delete_free(stringmap S)
+ }
+ 
+ /* stringmap_insert:
+- * Insert into S an item having key k and value d. Returns an existing key
+- * or NULL if it was inserted. 
++ * Insert into S an item having key k and value d. Returns a pointer to
++ * the existing item value, or NULL if a new item was created. 
+  */
+ item *stringmap_insert(stringmap S, const char *k, const item d) {
+-    if (!S) return 0;
++    if (!S) return NULL;
+     if (S->key == NULL) {
+         S->key = xstrdup(k);
+         S->d   = d;
+diff -Naurp iftop-0.17.debian/ui.c iftop-0.17/ui.c
+--- iftop-0.17.debian/ui.c
++++ iftop-0.17/ui.c
+@@ -109,19 +109,19 @@ int screen_line_bandwidth_compare(host_p
+  * Compare two screen lines based on hostname / IP.  Fall over to compare by
+  * bandwidth.
+  */
+-int screen_line_host_compare(struct in_addr* a, struct in_addr* b, host_pair_line* aa, host_pair_line* bb) {
++int screen_line_host_compare(void* a, void* b, host_pair_line* aa, host_pair_line* bb) {
+     char hosta[HOSTNAME_LENGTH], hostb[HOSTNAME_LENGTH];
+     int r;
+ 
+     /* This isn't overly efficient because we resolve again before 
+        display. */
+     if (options.dnsresolution) {
+-        resolve(a, hosta, HOSTNAME_LENGTH);
+-        resolve(b, hostb, HOSTNAME_LENGTH);
++        resolve(aa->ap.af, a, hosta, HOSTNAME_LENGTH);
++        resolve(bb->ap.af, b, hostb, HOSTNAME_LENGTH);
+     }
+     else {
+-        strcpy(hosta, inet_ntoa(*a));
+-        strcpy(hostb, inet_ntoa(*b));
++        inet_ntop(aa->ap.af, a, hosta, sizeof(hosta));
++        inet_ntop(bb->ap.af, b, hostb, sizeof(hostb));
+     }
+ 
+     r = strcmp(hosta, hostb);
+@@ -149,10 +149,10 @@ int screen_line_compare(void* a, void* b
+       return screen_line_bandwidth_compare(aa, bb, 2);
+     }
+     else if(options.sort == OPTION_SORT_SRC) {
+-      return screen_line_host_compare(&(aa->ap.src), &(bb->ap.src), aa, bb);
++      return screen_line_host_compare(&(aa->ap.src6), &(bb->ap.src6), aa, bb);
+     }
+     else if(options.sort == OPTION_SORT_DEST) {
+-      return screen_line_host_compare(&(aa->ap.dst), &(bb->ap.dst), aa, bb);
++      return screen_line_host_compare(&(aa->ap.dst6), &(bb->ap.dst6), aa, bb);
+     }
+ 
+     return 1;
+@@ -487,10 +487,10 @@ void analyse_data() {
+ 
+         /* Aggregate hosts, if required */
+         if(options.aggregate_src) {
+-            ap.src.s_addr = 0;
++            memset(&ap.src6, '\0', sizeof(ap.src6));
+         }
+         if(options.aggregate_dest) {
+-            ap.dst.s_addr = 0;
++            memset(&ap.dst6, '\0', sizeof(ap.dst6));
+         }
+ 
+         /* Aggregate ports, if required */
+@@ -535,7 +535,7 @@ void analyse_data() {
+ 
+ }
+ 
+-void sprint_host(char * line, struct in_addr* addr, unsigned int port, unsigned int protocol, int L) {
++void sprint_host(char * line, int af, struct in6_addr* addr, unsigned int port, unsigned int protocol, int L) {
+     char hostname[HOSTNAME_LENGTH];
+     char service[HOSTNAME_LENGTH];
+     char* s_name;
+@@ -546,14 +546,15 @@ void sprint_host(char * line, struct in_
+ 
+     ip_service skey;
+     int left;
+-    if(addr->s_addr == 0) {
++
++    if(IN6_IS_ADDR_UNSPECIFIED(addr)) {
+         sprintf(hostname, " * ");
+     }
+     else {
+         if (options.dnsresolution)
+-            resolve(addr, hostname, L);
++            resolve(af, addr, hostname, L);
+         else
+-            strcpy(hostname, inet_ntoa(*addr));
++            inet_ntop(af, addr, hostname, sizeof(hostname));
+     }
+     left = strlen(hostname);
+ 
+@@ -637,8 +638,15 @@ void ui_print() {
+                     L = HOSTNAME_LENGTH;
+                 }
+ 
+-                sprint_host(host1, &(screen_line->ap.src), screen_line->ap.src_port, screen_line->ap.protocol, L);
+-                sprint_host(host2, &(screen_line->ap.dst), screen_line->ap.dst_port, screen_line->ap.protocol, L);
++                sprint_host(host1, screen_line->ap.af,
++                            &(screen_line->ap.src6),
++                            screen_line->ap.src_port,
++                            screen_line->ap.protocol, L);
++                sprint_host(host2, screen_line->ap.af,
++                            &(screen_line->ap.dst6),
++                            screen_line->ap.dst_port,
++                            screen_line->ap.protocol, L);
++
+                 if(!screen_filter_match(host1) && !screen_filter_match(host2)) {
+                   continue;
+                 }

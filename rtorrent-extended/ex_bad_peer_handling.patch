@@ -1,0 +1,219 @@
+diff --git a/src/command_download.cc b/src/command_download.cc
+index 6043662..9afd9b0 100644
+--- a/src/command_download.cc
++++ b/src/command_download.cc
+@@ -51,12 +51,14 @@
+ #include <torrent/data/file.h>
+ #include <torrent/data/file_list.h>
+ #include <torrent/peer/connection_list.h>
++#include <torrent/peer/peer_info.h>
+ #include <torrent/peer/peer_list.h>
+ 
+ #include "core/download.h"
+ #include "core/download_store.h"
+ #include "core/manager.h"
+ #include "rpc/command_variable.h"
++#include "rpc/parse.h"
+ 
+ #include "globals.h"
+ #include "control.h"
+@@ -170,6 +172,120 @@ apply_d_delete_tied(core::Download* download) {
+   rpc::call_command("d.set_tied_to_file", std::string(), rpc::make_target(download));
+ }
+ 
++torrent::Object
++apply_d_snub_leechers(core::Download* download, const torrent::Object& rawArgs) {
++  if (!download->is_open() || download->is_done() || rpc::call_command_value("d.get_ignore_commands", rpc::make_target(download)) != 0)
++    return torrent::Object();
++
++  const torrent::Object::list_type& args = rawArgs.as_list();
++
++  if (args.size() < 3)
++    throw torrent::input_error("Too few arguments.");
++
++  torrent::Object::list_type::const_iterator argItr = args.begin();
++  uint64_t snub_ratio = rpc::convert_to_value(*argItr++);
++  uint64_t unsnub_ratio = rpc::convert_to_value(*argItr++);
++  uint64_t min_transfer = rpc::convert_to_value(*argItr++);
++
++  for (torrent::ConnectionList::iterator itr = download->download()->connection_list()->begin(); itr != download->download()->connection_list()->end(); ++itr) {
++#if LIBTORRENT_FRIENDS
++    if (((*itr)->bitfield() && (*itr)->bitfield()->is_all_set()) || (*itr)->peer_info()->is_friend())
++#else
++    if (((*itr)->bitfield() && (*itr)->bitfield()->is_all_set()))
++#endif
++      continue;
++
++    uint64_t up = (*itr)->up_rate()->total();
++    uint64_t down = (*itr)->down_rate()->total();
++
++    if ((*itr)->is_snubbed()) {
++      if (down * unsnub_ratio >= std::max<uint64_t>(up, min_transfer))
++        (*itr)->set_snubbed(false);
++
++    } else if (up > min_transfer && down * snub_ratio < up) {
++      (*itr)->set_snubbed(true);
++    }
++  }
++
++  return torrent::Object();
++}
++
++torrent::Object
++apply_d_ban_slow_peers(core::Download* download, const torrent::Object& rawArgs) {
++  if (!download->is_open() || download->is_done() || rpc::call_command_value("d.get_ignore_commands", rpc::make_target(download)) != 0)
++    return torrent::Object();
++
++  const torrent::Object::list_type& args = rawArgs.as_list();
++
++  if (args.size() < 4)
++    throw torrent::input_error("Too few arguments.");
++
++  torrent::ConnectionList* clist = download->download()->connection_list();
++  int extraPeers = clist->size() - clist->min_size();
++  if (extraPeers <= 0)
++    return torrent::Object();
++
++  torrent::Object::list_type::const_iterator argItrStart = args.begin();
++  int extraSeeds = download->download()->peers_complete() - rpc::convert_to_value(*argItrStart++);
++  uint32_t minRate = rpc::convert_to_value(*argItrStart++);
++
++  for (torrent::ConnectionList::iterator itr = clist->begin(); extraPeers > 0 && itr != clist->end(); ++itr) {
++#if LIBTORRENT_FRIENDS
++    if ((*itr)->peer_info()->is_friend())
++      continue;
++#endif
++
++    bool isSeed = (*itr)->bitfield() && (*itr)->bitfield()->is_all_set();
++    if (isSeed && extraSeeds <= 0)
++      continue;
++
++    int64_t down = (*itr)->down_rate()->total();
++    uint32_t rate = (*itr)->down_rate()->rate();
++
++    for (torrent::Object::list_type::const_iterator argItr = argItrStart; argItr != args.end(); ++argItr) {
++      if (rate >= minRate || down >= rpc::convert_to_value(*argItr++))
++        break;
++
++      if (cachedTime.seconds() - (*itr)->peer_info()->last_connection() < rpc::convert_to_value(*argItr) * 60)
++        continue;
++
++      (*itr)->set_banned();
++
++      extraSeeds -= isSeed;
++      extraPeers--;
++      break;
++    }
++  }
++
++  // Need to go by indices because erasing may invalidate iterators.
++  for (size_t pId = 0; pId < clist->size(); )
++    if ((*(clist->begin() + pId))->is_banned())
++      download->connection_list()->erase(*(clist->begin() + pId), 0);
++    else
++      pId++;
++
++  return torrent::Object();
++}
++
++void
++apply_d_unban_peers(core::Download* download) {
++  torrent::PeerList* list = download->download()->peer_list();
++
++  for (torrent::PeerList::const_iterator itr = list->begin(); itr != list->end(); ++itr)
++    if (itr->second->is_banned())
++      itr->second->set_unbanned();
++}
++
++void
++apply_d_unsnub_peers(core::Download* download) {
++  if (!download->is_open())
++    return;
++
++  for (torrent::ConnectionList::iterator itr = download->download()->connection_list()->begin(); itr != download->download()->connection_list()->end(); ++itr)
++    if ((*itr)->is_snubbed())
++      (*itr)->set_snubbed(false);
++}
++
+ void
+ apply_d_connection_type(core::Download* download, const std::string& name) {
+   torrent::Download::ConnectionType connType;
+@@ -580,6 +696,11 @@ initialize_command_download() {
+   ADD_CD_LIST("delete_link",   rak::bind_ptr_fn(&apply_d_change_link, 1));
+   ADD_CD_V_VOID("delete_tied", &apply_d_delete_tied);
+ 
++  ADD_CD_LIST("ban_slow_peers", rak::ptr_fn(&apply_d_ban_slow_peers));
++  ADD_CD_LIST("snub_leechers",  rak::ptr_fn(&apply_d_snub_leechers));
++  ADD_CD_V_VOID("unban_peers",  &apply_d_unban_peers);
++  ADD_CD_V_VOID("unsnub_peers", &apply_d_unsnub_peers);
++
+   CMD_FUNC_SINGLE("d.start",     "d.set_hashing_failed=0 ;view.set_visible=started");
+   CMD_FUNC_SINGLE("d.stop",      "view.set_visible=stopped");
+   CMD_FUNC_SINGLE("d.try_start", "branch=\"or={d.get_hashing_failed=,d.get_ignore_commands=}\",{},{view.set_visible=started}");
+diff --git a/src/command_events.cc b/src/command_events.cc
+index b25dfbc..a0250d9 100644
+--- a/src/command_events.cc
++++ b/src/command_events.cc
+@@ -42,6 +42,8 @@
+ #include <rak/path.h>
+ #include <rak/string_manip.h>
+ #include <sigc++/adaptors/bind.h>
++#include <torrent/peer/connection_list.h>
++#include <torrent/peer/peer_info.h>
+ #include <torrent/rate.h>
+ #include <torrent/hash_string.h>
+ 
+@@ -276,6 +278,31 @@ apply_close_low_diskspace(int64_t arg) {
+     control->core()->push_log("Closed torrents due to low diskspace.");    
+ }
+ 
++// Should call the d.* commands via RPC, but there doesn't seem to be a way to
++// pass variable-sized argument lists, so call the functions directly for now.
++torrent::Object apply_d_snub_leechers(core::Download*, const torrent::Object&);
++torrent::Object apply_d_ban_slow_peers(core::Download*, const torrent::Object&);
++
++torrent::Object
++apply_snub_leechers(const torrent::Object& rawArgs) {
++  for (core::Manager::DListItr ditr = control->core()->download_list()->begin(); ditr != control->core()->download_list()->end(); ditr++) {
++    if ((*ditr)->is_open() && !(*ditr)->is_done() && rpc::call_command_value("d.get_ignore_commands", rpc::make_target(*ditr)) == 0)
++      apply_d_snub_leechers(*ditr, rawArgs);
++  }
++
++  return torrent::Object();
++}
++
++torrent::Object
++apply_ban_slow_peers(const torrent::Object& rawArgs) {
++  for (core::Manager::DListItr ditr = control->core()->download_list()->begin(); ditr != control->core()->download_list()->end(); ditr++) {
++    if ((*ditr)->is_open() && !(*ditr)->is_done() && rpc::call_command_value("d.get_ignore_commands", rpc::make_target(*ditr)) == 0)
++      apply_d_ban_slow_peers(*ditr, rawArgs);
++  }
++
++  return torrent::Object();
++}
++
+ torrent::Object
+ apply_download_list(const torrent::Object& rawArgs) {
+   const torrent::Object::list_type&          args    = rawArgs.as_list();
+@@ -369,6 +396,8 @@ initialize_command_events() {
+   ADD_COMMAND_LIST("on_finished",     rak::bind_ptr_fn(&apply_on_state_change, "event.download.finished"));
+ 
+   ADD_COMMAND_STRING("on_ratio",      rak::ptr_fn(&apply_on_ratio));
++  ADD_COMMAND_LIST("snub_leechers",   rak::ptr_fn(&apply_snub_leechers));
++  ADD_COMMAND_LIST("ban_slow_peers",  rak::ptr_fn(&apply_ban_slow_peers));
+ 
+   ADD_COMMAND_VOID("start_tied",      &apply_start_tied);
+   ADD_COMMAND_VOID("stop_untied",     &apply_stop_untied);
+diff --git a/src/command_helpers.h b/src/command_helpers.h
+index a807b5f..cda29d8 100644
+--- a/src/command_helpers.h
++++ b/src/command_helpers.h
+@@ -54,7 +54,7 @@ namespace rpc {
+ #define COMMAND_DOWNLOAD_SLOTS_SIZE 150
+ #define COMMAND_FILE_SLOTS_SIZE     30
+ #define COMMAND_FILE_ITR_SLOTS_SIZE 10
+-#define COMMAND_PEER_SLOTS_SIZE     20
++#define COMMAND_PEER_SLOTS_SIZE     30
+ #define COMMAND_TRACKER_SLOTS_SIZE  15
+ #define COMMAND_ANY_SLOTS_SIZE      50
+ 

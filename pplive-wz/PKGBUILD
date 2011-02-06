@@ -1,0 +1,22 @@
+# Contributor: Wean Chan <weanwz@gmail.com>
+pkgname=pplive-wz
+pkgver=1.0
+pkgrel=15
+pkgdesc="PPLive is a peer-to-peer streaming video network created in Huazhong University of Science and Technology, People's Republic of China. It is part of a new generation of P2P applications, that combine P2P and Internet TV, called P2PTV."
+url="http://www.pplive.com/"
+depends=(libhildon-1-wz libhildondesktop0-wz libhildonfm2-wz libhildonmime0-wz libhildonthumbnail0-wz libhildonwm0-wz libosso1-wz expat xine-lib zenity gnome-vfs openssl)
+arch=('i686')
+license=('BSD')
+source=(http://forum.ubuntu.org.cn/download/file.php?id=73796)
+md5sums=("b318ea9450edcdc17212f95a3f2836d3")
+
+build() {
+    cd $srcdir
+    mv file.php?id=73796 pplive-wz.deb || return 1
+    bsdtar xf "pplive-wz.deb" || return 1
+    bsdtar xf data.tar.gz -C $pkgdir || return 1
+    sudo ln -s -f /usr/lib/libexpat.so.1 /usr/lib/libexpat.so.0
+    sudo ln -s -f /usr/lib/libssl.so /usr/lib/libssl.so.6
+    sudo ln -s -f /usr/lib/libcrypto.so /usr/lib/libcrypto.so.6
+}
+

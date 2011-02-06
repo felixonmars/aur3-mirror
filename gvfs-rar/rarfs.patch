@@ -1,0 +1,1825 @@
+Index: gvfs-svn/daemon/Makefile.am
+===================================================================
+--- gvfs-svn/daemon/Makefile.am	(revision 2345)
++++ gvfs-svn/daemon/Makefile.am	(working copy)
+@@ -56,6 +56,10 @@
+ libexec_PROGRAMS += gvfsd-smb-browse gvfsd-smb
+ endif
+ 
++mount_in_files += rar.mount.in
++mount_DATA += rar.mount
++libexec_PROGRAMS += gvfsd-rar
++
+ mount_in_files += cdda.mount.in
+ if USE_CDDA
+ mount_DATA += cdda.mount
+@@ -315,7 +319,20 @@
+ 
+ gvfsd_dnssd_LDADD = $(libraries) $(AVAHI_LIBS) $(top_builddir)/common/libgvfscommon-dnssd.la
+ 
++gvfsd_rar_SOURCES = \
++	gvfsbackendrar.c gvfsbackendrar.h \
++	daemon-main.c daemon-main.h \
++	daemon-main-generic.c \
++	rararchive.c \
++	rararchive.h
+ 
++gvfsd_rar_CPPFLAGS = \
++	-DBACKEND_HEADER=gvfsbackendrar.h -DDEFAULT_BACKEND_TYPE=rar \
++	-DMAX_JOB_THREADS=1 -DBACKEND_TYPES='"rar", \
++	G_VFS_TYPE_BACKEND_RAR,'
++
++gvfsd_rar_LDADD = $(libraries)
++
+ gvfsd_archive_SOURCES = \
+ 	gvfsbackendarchive.c gvfsbackendarchive.h \
+ 	daemon-main.c daemon-main.h \
+Index: gvfs-svn/daemon/gvfsbackendrar.c
+===================================================================
+--- gvfs-svn/daemon/gvfsbackendrar.c	(revision 0)
++++ gvfs-svn/daemon/gvfsbackendrar.c	(revision 0)
+@@ -0,0 +1,532 @@
++/* -*- Mode: C; tab-width: 4 -*- */ 
++/* GIO - GLib Input, Output and Streaming Library
++ * 
++ * Copyright (C) 2006-2007 Red Hat, Inc.
++	 *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++	 *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General
++ * Public License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
++ * Boston, MA 02111-1307, USA.
++ *
++ * Author: Valmantas Palikša <walmis@balticum-tv.lt>
++ */
++
++#include <config.h>
++
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <errno.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <string.h>
++
++
++#include <glib/gstdio.h>
++#include <glib/gi18n.h>
++#include <gio/gio.h>
++
++#include "gvfsbackendrar.h"
++#include "gvfsjobopenforread.h"
++#include "gvfsjobread.h"
++#include "gvfsjobseekread.h"
++#include "gvfsjobqueryinfo.h"
++#include "gvfsjobenumerate.h"
++#include "gvfsdaemonutils.h"
++#include "rararchive.h"
++
++struct _GVfsBackendRar
++{
++	GVfsBackend parent_instance;
++	
++	RarArchive* archive;
++	GHashTable* info_cache;
++	
++};
++
++G_DEFINE_TYPE (GVfsBackendRar, g_vfs_backend_rar, G_VFS_TYPE_BACKEND)
++
++static void
++g_vfs_backend_rar_finalize (GObject *object)
++{
++	if (G_OBJECT_CLASS (g_vfs_backend_rar_parent_class)->finalize)
++		(*G_OBJECT_CLASS (g_vfs_backend_rar_parent_class)->finalize) (object);
++}
++
++static void
++g_vfs_backend_rar_init (GVfsBackendRar *backend)
++{
++	backend->info_cache = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
++}
++
++static GFileInfo* 
++get_file_info(GVfsBackendRar *backend, RarFile* file, GVfsJob* job) 
++{
++	GFileInfo* info = g_hash_table_lookup(backend->info_cache, file);
++	if(!info) {
++		gchar* disp_name;
++		info = g_file_info_new ();		 
++		
++		gvfs_file_info_populate_default (info, file->name, (file->dir)?G_FILE_TYPE_DIRECTORY:G_FILE_TYPE_REGULAR);
++		
++		if((file->compressed || file->encrypted) && !file->dir) {
++			if(!file->encrypted) {
++				disp_name = g_strdup_printf(_("%s (compressed)"), file->name);
++			} else {
++				disp_name = g_strdup_printf(_("%s (encrypted)"), file->name);
++			}
++			g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME, disp_name);
++			g_free(disp_name);
++		}
++		/***** HACK ALERT! HACK ALERT! *****/
++		if(file->compressed || file->encrypted) {
++			/* prevent reading video files when properties are opened, when no seeking 
++			 is available it takes a while */
++			if(file->size > 200*1024*1024) {
++				g_file_info_set_attribute_string(info, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE, "application/octet-stream");
++				g_file_info_set_attribute_string(info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE, "application/octet-stream");
++			}
++		}
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_READ, TRUE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE, FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_DELETE, FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE, (file->dir)?TRUE:FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH, FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME, FALSE);
++		
++		g_file_info_set_attribute_uint64 (info,
++										  G_FILE_ATTRIBUTE_TIME_ACCESS,
++										  file->time);
++		g_file_info_set_attribute_uint32 (info,
++										  G_FILE_ATTRIBUTE_TIME_ACCESS_USEC, 
++										  0);
++		
++		g_file_info_set_attribute_uint64 (info,
++										  G_FILE_ATTRIBUTE_TIME_MODIFIED,
++										  file->time);
++		g_file_info_set_attribute_uint32 (info,
++										  G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC, 
++										  0);
++		
++		g_file_info_set_attribute_uint64 (info,
++										  G_FILE_ATTRIBUTE_TIME_CREATED,
++										  file->time);
++		g_file_info_set_attribute_uint32 (info,
++										  G_FILE_ATTRIBUTE_TIME_CREATED_USEC, 
++										  0);			
++		
++		if(g_str_has_prefix(file->name, "."))
++			g_file_info_set_attribute_boolean(info, G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN, TRUE);
++		
++		g_file_info_set_size (info, file->size);
++		
++		g_file_info_set_name(info, file->name);
++		
++		g_hash_table_insert(backend->info_cache, file, info);		
++	}
++	info = g_file_info_dup(info);
++
++	return info;
++}
++
++static void
++do_mount (GVfsBackend *backend,
++		   GVfsJobMount *job,
++		   GMountSpec *mount_spec,
++		   GMountSource *mount_source,
++		   gboolean is_automount)
++{
++	GVfsBackendRar *rar_backend = G_VFS_BACKEND_RAR (backend);
++	gchar* filename;
++	const char* host;
++	const char* file;
++	
++	GError* gerr = NULL;
++	
++	host = g_mount_spec_get (mount_spec, "host");
++	file = g_mount_spec_get (mount_spec, "file");
++	
++	if(!host && !file) {
++		g_vfs_job_failed (G_VFS_JOB (job),
++						  G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
++						  _("Missing file path"));	
++		return;
++		
++	} else {
++		if(host) {
++			filename = g_uri_unescape_string (host, NULL);
++		} else {
++			filename = g_strdup(file);	
++		}
++		
++		rar_backend->archive = rar_archive_new(filename, &gerr);
++		
++		if(gerr != NULL) {
++			g_warning("%s", gerr->message);
++			
++			g_vfs_job_failed_from_error(G_VFS_JOB (job), gerr);
++			g_free(filename);
++			g_error_free(gerr);
++			gerr = NULL;
++			return;
++		}
++		/* in case no gerror is returned */
++		if(!rar_backend->archive) {
++			g_vfs_job_failed (G_VFS_JOB (job), G_IO_ERROR,
++							  G_IO_ERROR_FAILED,
++							  _("Unknown error"));
++			return;
++		}
++		gchar* basename = g_path_get_basename(rar_backend->archive->basename);
++		
++		g_vfs_backend_set_display_name (backend, basename);
++		g_vfs_backend_set_icon_name (backend, "gnome-mime-application-x-rar");
++		
++		mount_spec = g_mount_spec_new ("rar");
++
++		gchar* tmp;
++		tmp = filename;
++		filename = g_uri_escape_string(filename, NULL, FALSE);
++		g_free(tmp);
++
++		g_mount_spec_set(mount_spec, "host", filename);
++		g_vfs_backend_set_mount_spec (backend, mount_spec);
++		g_mount_spec_unref (mount_spec);
++		g_free(basename);
++		g_free(filename);
++
++		if(rar_backend->archive->has_encrypted) {
++			gboolean aborted;
++			gchar* passw = NULL;
++			g_mount_source_ask_password(mount_source,
++										_("This archive contains encrypted files, please enter the password."),
++										NULL,
++										NULL,
++										G_ASK_PASSWORD_NEED_PASSWORD,
++										&aborted,
++										&passw,
++										NULL,
++										NULL,
++										NULL,
++										NULL);
++			if(passw) {
++				rar_archive_set_password(rar_backend->archive, passw);
++				g_free(passw);
++			}
++			
++		}
++		
++	}
++	g_vfs_job_succeeded (G_VFS_JOB (job));
++	return;
++}
++
++
++
++static void
++do_open_for_read (GVfsBackend *backend,
++				   GVfsJobOpenForRead *job,
++				   const char *filename)
++{
++	g_print ("try_open_for_read (%s)\n", filename);
++	
++	GVfsBackendRar *rar_backend = G_VFS_BACKEND_RAR (backend);
++	
++	RarFile* file;
++	RarHandle* handle;
++	GError* gerr = NULL;
++	
++	file = rar_file_find(rar_backend->archive, filename);
++	
++	
++	if (!file) {
++		g_vfs_job_failed (G_VFS_JOB (job), G_IO_ERROR,
++						  G_IO_ERROR_NOT_FOUND,
++						  _("File not found"));		
++	} else if(file->dir) {
++		g_vfs_job_failed (G_VFS_JOB (job), G_IO_ERROR,
++						  G_IO_ERROR_IS_DIRECTORY,
++						  _("Can't open directory"));
++		
++	} /*else if(file->encrypted) {
++		g_vfs_job_failed (G_VFS_JOB (job), G_IO_ERROR,
++						  G_IO_ERROR_NOT_SUPPORTED,
++						  _("Can't open encrypted files"));
++		
++	}*/ else {
++		
++		handle = rar_handle_open(file, &gerr);
++		if(!handle) {
++			if(gerr) {
++				g_vfs_job_failed_from_error(G_VFS_JOB (job), gerr);
++				g_error_free(gerr);
++				gerr = NULL;
++			} else {
++				g_vfs_job_failed (G_VFS_JOB (job), G_IO_ERROR,
++								  G_IO_ERROR_FAILED,
++								  _("Unknown read error"));					
++			}
++		} else {
++			g_vfs_job_open_for_read_set_handle(job, handle);
++			g_vfs_job_open_for_read_set_can_seek(job, rar_handle_can_seek(handle));
++			g_vfs_job_succeeded (G_VFS_JOB (job));
++		}
++	}
++}
++
++
++
++static void
++do_read (GVfsBackend *backend,
++		 GVfsJobRead *job,
++		 GVfsBackendHandle handle,
++		 char *buffer,
++		 gsize bytes_requested)
++{
++	goffset res;
++	GError* gerr = NULL;
++	RarHandle* f = (RarHandle*)handle;
++	/* without this, under some circumstances this daemon deadlocks with large reads */
++	if (bytes_requested > 65536)
++		bytes_requested = 65536;
++	
++	res = rar_handle_read(f, bytes_requested, buffer, G_VFS_JOB(job)->cancellable, &gerr);
++	
++	if(gerr != NULL) {
++		g_vfs_job_failed_from_error(G_VFS_JOB (job), gerr);
++		g_warning("%s", gerr->message);
++		g_error_free(gerr);
++		gerr = NULL;
++		return;
++	}
++	
++	g_vfs_job_read_set_size (job, res);
++	g_vfs_job_succeeded (G_VFS_JOB (job));
++
++}
++
++
++static gboolean
++try_seek_on_read (GVfsBackend *backend,
++				  GVfsJobSeekRead *job,
++				  GVfsBackendHandle handle,
++				  goffset    offset,
++				  GSeekType  type)
++{
++	goffset final_offset;
++	
++	RarHandle* f = (RarHandle*)handle;
++	if(!rar_handle_can_seek(handle)) {
++		g_vfs_job_failed (G_VFS_JOB (job),
++						  G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
++						  _("Seeking not supported"));
++		return TRUE;
++		
++	}
++	final_offset = rar_handle_seek(f, offset, type);
++
++	if (final_offset == -1)
++	{
++		g_vfs_job_failed (G_VFS_JOB (job),
++						  G_IO_ERROR, G_IO_ERROR_FAILED,
++						  _("Seek failed"));
++	}
++	else
++	{
++		g_vfs_job_seek_read_set_offset (job, final_offset);
++		g_vfs_job_succeeded (G_VFS_JOB (job));
++	}
++	
++	return TRUE;
++}
++
++static void
++do_query_info (GVfsBackend *backend,
++			   GVfsJobQueryInfo *job,
++			   const char *filename,
++			   GFileQueryInfoFlags flags,
++			   GFileInfo *info,
++			   GFileAttributeMatcher *matcher)
++{
++	
++	g_print ("do_get_file_info (%s)\n", filename);
++	GFileInfo* info_src;
++	GVfsBackendRar *rar_backend = G_VFS_BACKEND_RAR (backend);
++	RarFile* file;
++	gchar* display_name;
++	gchar* basename;
++	
++	if(strcmp(filename, "/") == 0) {
++		gvfs_file_info_populate_default (info, filename, G_FILE_TYPE_DIRECTORY);
++		
++		basename = g_path_get_basename(rar_backend->archive->basename);
++		display_name = g_strdup_printf (_("%s in %s"), filename, basename);
++		g_file_info_set_display_name (info, display_name);
++		g_free(display_name);
++		g_free(basename);
++		
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_READ, TRUE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE, FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_DELETE, FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE, TRUE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH, FALSE);
++		g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME, FALSE);
++		
++	} else {
++		
++		file = rar_file_find(rar_backend->archive, filename);
++		if(file) {
++			
++			info_src = get_file_info(rar_backend, file, G_VFS_JOB(job));
++			g_file_info_copy_into(info_src, info);
++			g_object_unref(info_src);
++			
++		} else {
++			g_vfs_job_failed (G_VFS_JOB (job),
++							  G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
++							  _("File not found"));
++			return;
++			
++		}
++	}
++	
++	
++	g_vfs_job_succeeded (G_VFS_JOB (job));
++	
++}
++
++static void
++do_enumerate (GVfsBackend *backend,
++			  GVfsJobEnumerate *job,
++			  const char *filename,
++			  GFileAttributeMatcher *matcher,
++			  GFileQueryInfoFlags flags)
++{
++	GFileInfo *info;
++	
++	GVfsBackendRar *rar_backend = G_VFS_BACKEND_RAR (backend);
++	
++	RarDirectory* dir = rar_directory_find(rar_backend->archive, filename);
++	
++	RarDirectory* tmp = NULL;
++	if(dir) {
++		g_vfs_job_succeeded (G_VFS_JOB (job));
++		
++		GSList* node = dir->dirs_l;
++		
++		while(node != NULL) {
++			tmp = (RarDirectory*)node->data;
++			info = g_file_info_new ();		 
++			gvfs_file_info_populate_default (info, tmp->name, G_FILE_TYPE_DIRECTORY);
++			
++			g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_READ, TRUE);
++			g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_WRITE, FALSE);
++			g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_DELETE, FALSE);
++			g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_EXECUTE, TRUE);
++			g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_TRASH, FALSE);
++			g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME, FALSE);
++			
++			if(g_str_has_prefix(tmp->name, "."))
++				g_file_info_set_attribute_boolean(info, G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN, TRUE);
++			
++			g_file_info_set_name(info, tmp->name);
++			
++			g_vfs_job_enumerate_add_info (job, info);
++			
++			g_object_unref(info);
++			
++			
++			node = node->next;			
++		}
++		node = dir->files;
++		
++		RarFile* f;
++		while(node != NULL) {
++			f = (RarFile*)node->data;
++
++			
++			info = get_file_info(rar_backend, f, G_VFS_JOB(job));
++			
++			g_vfs_job_enumerate_add_info (job, info);
++			g_object_unref(info);
++			
++			node = node->next;			
++		}		
++		
++		g_vfs_job_enumerate_done (job);
++		
++	} else {
++		g_vfs_job_failed (G_VFS_JOB (job),
++						  G_IO_ERROR,G_IO_ERROR_NOT_FOUND,
++						  _("Path not found"));
++		
++	}
++}
++
++static gboolean
++do_close_read (GVfsBackend *backend,
++			   GVfsJobCloseRead *job,
++			   GVfsBackendHandle handle)
++{
++	
++	RarHandle* f = (RarHandle*)handle;
++	rar_handle_close(f);
++	
++	g_vfs_job_succeeded (G_VFS_JOB (job));
++	return TRUE;
++}
++
++static gboolean
++try_query_fs_info (GVfsBackend *backend,
++				   GVfsJobQueryFsInfo *job,
++				   const char *filename,
++				   GFileInfo *info,
++				   GFileAttributeMatcher *attribute_matcher)
++{
++	g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
++	g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_FILESYSTEM_USE_PREVIEW, G_FILESYSTEM_PREVIEW_TYPE_IF_LOCAL);
++	//g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_FILESYSTEM_USE_PREVIEW, G_FILESYSTEM_PREVIEW_TYPE_NEVER);
++	g_file_info_set_attribute_uint64(info, G_FILE_ATTRIBUTE_FILESYSTEM_SIZE, G_VFS_BACKEND_RAR(backend)->archive->total_size);
++	g_file_info_set_attribute_uint64(info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE, 0);
++	g_file_info_set_attribute_string(info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE, "rarfs");
++	
++	g_vfs_job_succeeded (G_VFS_JOB (job));
++	return TRUE;
++}
++
++static gboolean try_unmount(GVfsBackend* backend, GVfsJobUnmount* job) {
++	g_return_val_if_fail(G_VFS_BACKEND_RAR(backend)->archive != NULL, TRUE);
++	
++	rar_unref(G_VFS_BACKEND_RAR(backend)->archive);
++	g_vfs_job_succeeded(G_VFS_JOB(job));
++	return TRUE;
++}
++	 
++
++static void
++g_vfs_backend_rar_class_init (GVfsBackendRarClass *klass)
++{
++	GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
++	GVfsBackendClass *backend_class = G_VFS_BACKEND_CLASS (klass);
++	
++	gobject_class->finalize = g_vfs_backend_rar_finalize;
++	
++	backend_class->mount = do_mount;
++	backend_class->open_for_read = do_open_for_read;
++	backend_class->read = do_read;
++	backend_class->try_seek_on_read = try_seek_on_read;
++	backend_class->query_info = do_query_info;
++	backend_class->enumerate = do_enumerate;
++	backend_class->try_close_read = do_close_read;
++	backend_class->try_query_fs_info = try_query_fs_info;
++	backend_class->try_unmount = try_unmount;
++}
+Index: gvfs-svn/daemon/gvfsbackendrar.h
+===================================================================
+--- gvfs-svn/daemon/gvfsbackendrar.h	(revision 0)
++++ gvfs-svn/daemon/gvfsbackendrar.h	(revision 0)
+@@ -0,0 +1,51 @@
++/* GIO - GLib Input, Output and Streaming Library
++ * 
++ * Copyright (C) 2006-2007 Red Hat, Inc.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General
++ * Public License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place, Suite 330,
++ * Boston, MA 02111-1307, USA.
++ *
++ * Author: Valmantas Palikša <walmis@balticum-tv.lt>
++ */
++
++#ifndef __G_VFS_BACKEND_RAR_H__
++#define __G_VFS_BACKEND_RAR_H__
++
++#include <gvfsbackend.h>
++
++G_BEGIN_DECLS
++
++#define G_VFS_TYPE_BACKEND_RAR         (g_vfs_backend_rar_get_type ())
++#define G_VFS_BACKEND_RAR(o)           (G_TYPE_CHECK_INSTANCE_CAST ((o), G_VFS_TYPE_BACKEND_RAR, GVfsBackendRar))
++#define G_VFS_BACKEND_RAR_CLASS(k)     (G_TYPE_CHECK_CLASS_CAST((k), G_VFS_TYPE_BACKEND_RAR, GVfsBackendRarClass))
++#define G_VFS_IS_BACKEND_RAR(o)        (G_TYPE_CHECK_INSTANCE_TYPE ((o), G_VFS_TYPE_BACKEND_RAR))
++#define G_VFS_IS_BACKEND_RAR_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_VFS_TYPE_BACKEND_RAR))
++#define G_VFS_BACKEND_RAR_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_VFS_TYPE_BACKEND_RAR, GVfsBackendRarClass))
++
++typedef struct _GVfsBackendRar        GVfsBackendRar;
++typedef struct _GVfsBackendRarClass   GVfsBackendRarClass;
++
++struct _GVfsBackendRarClass
++{
++  GVfsBackendClass parent_class;
++};
++
++GType g_vfs_backend_rar_get_type (void) G_GNUC_CONST;
++  
++GVfsBackendRar *g_vfs_backend_rar_new (void);
++
++G_END_DECLS
++
++#endif /* __G_VFS_BACKEND_RAR_H__ */
+Index: gvfs-svn/daemon/rararchive.c
+===================================================================
+--- gvfs-svn/daemon/rararchive.c	(revision 0)
++++ gvfs-svn/daemon/rararchive.c	(revision 0)
+@@ -0,0 +1,952 @@
++/* -*- Mode: C; tab-width: 4 -*- */ 
++/***************************************************************************
++ *            rararchive.c
++ *
++ *	A library for reading rar files
++ *
++ *  Sun Jan 11 18:27:04 2009
++ *  Copyright  2009  Valmantas Paliksa
++ *  <walmis@balticum-tv.lt>
++ ****************************************************************************/
++
++/*
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++     * 
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Library General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor Boston, MA 02110-1301,  USA
++ */
++#include "rararchive.h"
++
++#include <gio/gunixinputstream.h>
++#include <string.h>
++#include <glib/gprintf.h>
++#include <glib/gi18n.h>
++#include <errno.h>
++#include <stdio.h>
++#include <signal.h>
++
++static gboolean rar_archive_load(RarArchive *ar, GError **gerr);
++static RarDirectory *rar_directory_alloc(const gchar *filepath);
++
++/* Table computed with Mark Adler's makecrc.c utility.  */
++static const guint32 crc32_table[256] = {
++	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419,
++	0x706af48f, 0xe963a535, 0x9e6495a3, 0x0edb8832, 0x79dcb8a4,
++	0xe0d5e91e, 0x97d2d988, 0x09b64c2b, 0x7eb17cbd, 0xe7b82d07,
++	0x90bf1d91, 0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de,
++	0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7, 0x136c9856,
++	0x646ba8c0, 0xfd62f97a, 0x8a65c9ec, 0x14015c4f, 0x63066cd9,
++	0xfa0f3d63, 0x8d080df5, 0x3b6e20c8, 0x4c69105e, 0xd56041e4,
++	0xa2677172, 0x3c03e4d1, 0x4b04d447, 0xd20d85fd, 0xa50ab56b,
++	0x35b5a8fa, 0x42b2986c, 0xdbbbc9d6, 0xacbcf940, 0x32d86ce3,
++	0x45df5c75, 0xdcd60dcf, 0xabd13d59, 0x26d930ac, 0x51de003a,
++	0xc8d75180, 0xbfd06116, 0x21b4f4b5, 0x56b3c423, 0xcfba9599,
++	0xb8bda50f, 0x2802b89e, 0x5f058808, 0xc60cd9b2, 0xb10be924,
++	0x2f6f7c87, 0x58684c11, 0xc1611dab, 0xb6662d3d, 0x76dc4190,
++	0x01db7106, 0x98d220bc, 0xefd5102a, 0x71b18589, 0x06b6b51f,
++	0x9fbfe4a5, 0xe8b8d433, 0x7807c9a2, 0x0f00f934, 0x9609a88e,
++	0xe10e9818, 0x7f6a0dbb, 0x086d3d2d, 0x91646c97, 0xe6635c01,
++	0x6b6b51f4, 0x1c6c6162, 0x856530d8, 0xf262004e, 0x6c0695ed,
++	0x1b01a57b, 0x8208f4c1, 0xf50fc457, 0x65b0d9c6, 0x12b7e950,
++	0x8bbeb8ea, 0xfcb9887c, 0x62dd1ddf, 0x15da2d49, 0x8cd37cf3,
++	0xfbd44c65, 0x4db26158, 0x3ab551ce, 0xa3bc0074, 0xd4bb30e2,
++	0x4adfa541, 0x3dd895d7, 0xa4d1c46d, 0xd3d6f4fb, 0x4369e96a,
++	0x346ed9fc, 0xad678846, 0xda60b8d0, 0x44042d73, 0x33031de5,
++	0xaa0a4c5f, 0xdd0d7cc9, 0x5005713c, 0x270241aa, 0xbe0b1010,
++	0xc90c2086, 0x5768b525, 0x206f85b3, 0xb966d409, 0xce61e49f,
++	0x5edef90e, 0x29d9c998, 0xb0d09822, 0xc7d7a8b4, 0x59b33d17,
++	0x2eb40d81, 0xb7bd5c3b, 0xc0ba6cad, 0xedb88320, 0x9abfb3b6,
++	0x03b6e20c, 0x74b1d29a, 0xead54739, 0x9dd277af, 0x04db2615,
++	0x73dc1683, 0xe3630b12, 0x94643b84, 0x0d6d6a3e, 0x7a6a5aa8,
++	0xe40ecf0b, 0x9309ff9d, 0x0a00ae27, 0x7d079eb1, 0xf00f9344,
++	0x8708a3d2, 0x1e01f268, 0x6906c2fe, 0xf762575d, 0x806567cb,
++	0x196c3671, 0x6e6b06e7, 0xfed41b76, 0x89d32be0, 0x10da7a5a,
++	0x67dd4acc, 0xf9b9df6f, 0x8ebeeff9, 0x17b7be43, 0x60b08ed5,
++	0xd6d6a3e8, 0xa1d1937e, 0x38d8c2c4, 0x4fdff252, 0xd1bb67f1,
++	0xa6bc5767, 0x3fb506dd, 0x48b2364b, 0xd80d2bda, 0xaf0a1b4c,
++	0x36034af6, 0x41047a60, 0xdf60efc3, 0xa867df55, 0x316e8eef,
++	0x4669be79, 0xcb61b38c, 0xbc66831a, 0x256fd2a0, 0x5268e236,
++	0xcc0c7795, 0xbb0b4703, 0x220216b9, 0x5505262f, 0xc5ba3bbe,
++	0xb2bd0b28, 0x2bb45a92, 0x5cb36a04, 0xc2d7ffa7, 0xb5d0cf31,
++	0x2cd99e8b, 0x5bdeae1d, 0x9b64c2b0, 0xec63f226, 0x756aa39c,
++	0x026d930a, 0x9c0906a9, 0xeb0e363f, 0x72076785, 0x05005713,
++	0x95bf4a82, 0xe2b87a14, 0x7bb12bae, 0x0cb61b38, 0x92d28e9b,
++	0xe5d5be0d, 0x7cdcefb7, 0x0bdbdf21, 0x86d3d2d4, 0xf1d4e242,
++	0x68ddb3f8, 0x1fda836e, 0x81be16cd, 0xf6b9265b, 0x6fb077e1,
++	0x18b74777, 0x88085ae6, 0xff0f6a70, 0x66063bca, 0x11010b5c,
++	0x8f659eff, 0xf862ae69, 0x616bffd3, 0x166ccf45, 0xa00ae278,
++	0xd70dd2ee, 0x4e048354, 0x3903b3c2, 0xa7672661, 0xd06016f7,
++	0x4969474d, 0x3e6e77db, 0xaed16a4a, 0xd9d65adc, 0x40df0b66,
++	0x37d83bf0, 0xa9bcae53, 0xdebb9ec5, 0x47b2cf7f, 0x30b5ffe9,
++	0xbdbdf21c, 0xcabac28a, 0x53b39330, 0x24b4a3a6, 0xbad03605,
++	0xcdd70693, 0x54de5729, 0x23d967bf, 0xb3667a2e, 0xc4614ab8,
++	0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b,
++	0x2d02ef8d
++};
++
++static guint32 crc32(guint32 crc, guchar *buf, gsize len)
++{
++	guchar *end;
++
++	crc = ~crc;
++	for (end = buf + len; buf < end; ++buf)
++		crc = crc32_table[(crc ^ *buf) & 0xff] ^ (crc >> 8);
++	return ~crc;
++}
++
++static time_t dos2unixtime(guint32 dostime)
++{
++	struct tm time;
++	time.tm_sec = 2 * (dostime & 0x1f);
++	time.tm_min = (dostime >> 5) & 0x3f;
++	time.tm_hour = (dostime >> 11) & 0x1f;
++	time.tm_mday = (dostime >> 16) & 0x1f;
++	time.tm_mon = ((dostime >> 21) & 0x0f) - 1;
++	time.tm_year = ((dostime >> 25) & 0x7f) + 80;
++	time.tm_isdst = -1;
++	return mktime(&time);
++}
++
++static gchar *get_vol_name(RarArchive *ar, gint volid)
++{
++
++	if (volid == -1 && !ar->new_name_style)
++		return g_strdup_printf("%s.rar", ar->basename);
++	else {
++		if (!ar->new_name_style) {
++			gchar letter = 'r';
++			letter += volid / 100;
++			if (letter > 'z')
++				return NULL;
++			volid = volid % 100;
++			return g_strdup_printf("%s.%c%02d", ar->basename, letter, volid);
++		} else {
++			return g_strdup_printf("%s.part%0*d.rar", ar->basename, ar->padding, volid + 2);
++		}
++	}
++	return NULL;
++}
++
++static RarVolume *rar_archive_load_volume(RarArchive *ar, gint volid, GError **gerr)
++{
++	gchar *name = get_vol_name(ar, volid);
++	if (!name) {
++		g_set_error(gerr, RAR_ERROR, RAR_ERROR_TOO_MANY, _("Too many volumes"));
++		return NULL;
++	}
++	RarVolume *vol = g_new0(RarVolume, 1);
++	g_print("Loading volume %d %s\n", volid + 1, name);
++
++	GFile *f = g_file_new_for_commandline_arg(name);
++
++	if (!g_file_query_exists(f, NULL))
++		goto error;
++
++	vol->file = g_file_read(f, NULL, gerr);
++	g_object_unref(f);
++
++	vol->mutex = g_mutex_new();
++	vol->filepath = name;
++	vol->parent_archive = ar;
++	g_hash_table_insert(ar->volumes, GINT_TO_POINTER(volid), vol);
++	return vol;
++
++ error:
++	g_set_error(gerr, RAR_ERROR, RAR_ERROR_MISSING_VOLUME, _("Volume %s is missing"), name);
++	g_object_unref(f);
++
++	g_free(name);
++	if (vol)
++		g_free(vol);
++	return NULL;
++}
++
++static void rar_directory_destroy_fn(RarDirectory *dir)
++{
++	g_return_if_fail(dir != NULL);
++	g_free(dir->name);
++	g_hash_table_destroy(dir->dirs);
++	if (dir->files)
++		g_slist_free(dir->files);
++	if (dir->dirs_l)
++		g_slist_free(dir->dirs_l);
++	g_free(dir);
++}
++
++static void rar_archive_destroy_fn(RarArchive *ar)
++{
++	g_warning("RarArchive Destroy");
++	g_return_if_fail(ar != NULL);
++	g_free(ar->filepath);
++	g_free(ar->basename);
++	g_hash_table_destroy(ar->volumes);
++	g_hash_table_destroy(ar->items);
++	rar_directory_destroy_fn(ar->root);
++	if (ar->password)
++		g_free(ar->password);
++	g_free(ar);
++}
++
++static void rar_items_destroy_fn(RarFile* file)
++{
++	g_return_if_fail(file != NULL);
++	//g_free(file->file_header);
++	g_free(file->path);
++	g_free(file->name);
++	if (file->memory_maps) {
++		g_ptr_array_foreach(file->memory_maps, (GFunc) g_free, NULL);
++		g_ptr_array_free(file->memory_maps, TRUE);
++	}
++	g_free(file);
++}
++
++static void rar_volumes_destroy_fn(RarVolume* vol)
++{
++	g_return_if_fail(vol != NULL);
++
++	g_input_stream_close(G_INPUT_STREAM(vol->file), NULL, NULL);
++	g_object_unref(vol->file);
++
++	g_free(vol->filepath);
++	g_free(vol->main_header);
++	g_mutex_free(vol->mutex);
++	g_free(vol);
++}
++
++RarArchive* rar_archive_new(const gchar* filepath, GError** gerr)
++{
++	if (!g_thread_supported())
++		g_thread_init(NULL);
++
++	//cache re`s so they can be reused
++	static GRegex* re1 = NULL;
++	static GRegex* re2 = NULL;
++	static GRegex* re3 = NULL;
++	if (!re1)
++		re1 = g_regex_new("\\.part([0-9]*)\\.rar$", G_REGEX_OPTIMIZE, 0, NULL);
++	if (!re2)
++		re2 = g_regex_new("\\.[r-z][0-9]*$", G_REGEX_OPTIMIZE, 0, NULL);
++	if (!re3)
++		re3 = g_regex_new("\\.rar$", G_REGEX_OPTIMIZE, 0, NULL);
++
++	RarArchive* ar = g_new0(RarArchive, 1);
++	ar->volumes = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, (GDestroyNotify) rar_volumes_destroy_fn);
++	ar->items = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify) rar_items_destroy_fn);
++	ar->root = rar_directory_alloc("/");
++
++	REFCOUNT_INIT(ar, rar_archive_destroy_fn);
++
++	GFile* f = g_file_new_for_commandline_arg(filepath);
++	if (!g_file_query_exists(f, NULL)) {
++		g_object_unref(f);
++		g_set_error(gerr, RAR_ERROR, RAR_ERROR_MISSING_ARCHIVE, _("Archive %s not found"), filepath);
++		g_free(ar);
++		return NULL;
++	}
++	g_object_unref(f);
++
++	ar->filepath = g_strdup(filepath);
++	GMatchInfo* minfo;
++	if (g_regex_match(re1, ar->filepath, 0, &minfo)) {
++		ar->new_name_style = TRUE;
++		gchar* match = g_match_info_fetch(minfo, 1);
++		if (match) {
++			ar->padding = strlen(match);
++			g_free(match);
++		}
++
++	}
++
++	g_match_info_free(minfo);
++
++	gchar* tmp;
++	ar->basename = g_regex_replace_literal(re1, ar->filepath, -1, 0, "", 0, NULL);
++	tmp = ar->basename;
++	ar->basename = g_regex_replace_literal(re2, ar->basename, -1, 0, "", 0, NULL);
++	g_free(tmp);
++	tmp = ar->basename;
++	ar->basename = g_regex_replace_literal(re3, ar->basename, -1, 0, "", 0, NULL);
++	g_free(tmp);
++
++	if (!rar_archive_load(ar, gerr)) {
++		rar_unref(ar);
++		return NULL;
++	}
++
++	return ar;
++
++}
++
++static RarDirectory* rar_directory_alloc(const gchar* filepath)
++{
++	RarDirectory* dir = g_new0(RarDirectory, 1);
++	dir->name = g_strdup(filepath);
++	dir->dirs = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify) rar_directory_destroy_fn);
++	return dir;
++}
++
++RarDirectory* rar_directory_find(RarArchive* ar, const gchar* path)
++{
++	g_return_val_if_fail(path != NULL && ar != NULL, NULL);
++	if (g_str_has_prefix(path, "/"))
++		path = path + 1;
++
++	if (strcmp(path, "") == 0) {
++		return ar->root;
++	} else {
++		gchar** path_segments = g_strsplit(path, "/", 0);
++		gint num_segments = g_strv_length(path_segments);
++		RarDirectory* pos = ar->root;
++		gint i;
++		for (i = 0; i < num_segments; i++) {
++			pos = g_hash_table_lookup(pos->dirs, path_segments[i]);
++			if (!pos) {
++				g_strfreev(path_segments);
++				return NULL;
++			}
++		}
++
++		g_strfreev(path_segments);
++		return pos;
++	}
++}
++
++/* adds a file to an internal file tree */
++static void rar_archive_register_file(RarArchive* ar, RarFile* file)
++{
++	rar_ref(ar);
++
++	gchar** path_segments = g_strsplit(file->path, "/", 0);
++	gint num_segments = g_strv_length(path_segments);
++
++	RarDirectory* pos = ar->root;
++	RarDirectory* tmp;
++
++	gchar** tmp_pathv = g_malloc0(sizeof(gchar* )* (num_segments + 1));
++	gchar* tmp_path = NULL;
++	gint i;
++
++	for (i = 0; i < num_segments; i++) {
++		tmp_pathv[i] = path_segments[i];
++
++		tmp_path = g_build_pathv("/", tmp_pathv);
++
++		if (i == num_segments - 1) {
++			if (file->dir) {
++				tmp = g_hash_table_lookup(pos->dirs, path_segments[i]);
++				if (!tmp) {
++					tmp = rar_directory_alloc(path_segments[i]);
++					tmp->parent = pos;
++					g_hash_table_insert(pos->dirs, g_strdup(path_segments[i]), tmp);
++					pos->dirs_l = g_slist_append(pos->dirs_l, tmp);
++				}
++			} else {
++				pos->files = g_slist_append(pos->files, file);
++				g_printf("Adding File %s to RarDirectory %s\n", path_segments[i], pos->name);
++			}
++		} else {
++			tmp = g_hash_table_lookup(pos->dirs, path_segments[i]);
++			if (!tmp) {
++				tmp = rar_directory_alloc(path_segments[i]);
++				tmp->parent = pos;
++				g_hash_table_insert(pos->dirs, g_strdup(path_segments[i]), tmp);
++				pos->dirs_l = g_slist_append(pos->dirs_l, tmp);
++				g_printf("Adding %s to RarDirectory %s\n", path_segments[i], pos->name);
++				pos = tmp;
++			}
++			pos = tmp;
++		}
++
++		g_free(tmp_path);
++	}
++	g_free(tmp_pathv);
++	g_strfreev(path_segments);
++	rar_unref(ar);
++}
++
++RarFile* rar_file_find(RarArchive* ar, const gchar* path)
++{
++	g_return_val_if_fail(path != NULL && ar != NULL, NULL);
++	rar_ref(ar);
++	if (g_str_has_prefix(path, "/"))
++		path = path + 1;
++
++	rar_unref(ar);
++	return g_hash_table_lookup(ar->items, path);
++}
++
++static void rar_handle_destroy_fn(RarHandle* handle)
++{
++	g_return_if_fail(handle != NULL);
++	rar_unref(handle->file->parent_archive);
++	g_mutex_free(handle->mutex);
++	if (handle->pipe) {
++		g_input_stream_close(handle->pipe, NULL, NULL);
++		g_object_unref(handle->pipe);
++	}
++	if (handle->stderr_pipe) {
++		g_io_channel_shutdown(handle->stderr_pipe, FALSE, NULL);
++		g_io_channel_unref(handle->stderr_pipe);
++		if(handle->unrar != 0)
++			g_spawn_close_pid(handle->unrar);
++	}
++	g_free(handle);
++}
++
++gboolean rar_archive_has_password(RarArchive* ar)
++{
++	g_return_val_if_fail(ar != NULL, FALSE);
++	return (ar->password != NULL);
++}
++
++void rar_archive_set_password(RarArchive* ar, const gchar* password)
++{
++	g_return_if_fail(ar != NULL && password != NULL);
++	ar->password = g_strdup(password);
++}
++
++static gboolean unrar_stderr_io(GIOChannel* source, GIOCondition condition, RarHandle* handle)
++{
++	g_mutex_lock(handle->mutex);
++	static GRegex* re1 = NULL;
++	if (!re1)
++		re1 = g_regex_new("^Encrypted file:[ ]*CRC failed in.*\\(password incorrect \\?\\)$", 
++						  G_REGEX_OPTIMIZE, 0, NULL);
++
++	gchar* line = NULL;
++	GIOStatus status;
++	switch (condition) {
++	case G_IO_IN:
++		status = g_io_channel_read_line(source, &line, NULL, NULL, NULL);
++		if (status == G_IO_STATUS_AGAIN) {
++			g_mutex_unlock(handle->mutex);
++			
++			g_free(line);
++			return TRUE;
++		}
++		if (status != G_IO_STATUS_NORMAL) {
++			g_mutex_unlock(handle->mutex);
++			rar_unref(handle);
++			
++			g_free(line);
++			return FALSE;
++		}
++		g_printf("Unrar: %s", line);
++		if (g_str_has_prefix(line, "Total errors:")) {
++			g_warning("unknown error");
++			handle->error_condition = RAR_ERROR_UNKNOWN;
++			g_mutex_unlock(handle->mutex);
++			rar_unref(handle);
++
++			g_free(line);
++			return FALSE;
++		} else if (g_regex_match(re1, line, 0, NULL)) {
++			handle->file->parent_archive->wrong_password = TRUE;
++			g_mutex_unlock(handle->mutex);
++			rar_unref(handle);
++			
++			g_free(line);
++			return FALSE;
++		}
++		
++		g_free(line);
++		break;
++	case G_IO_HUP:
++	default:
++		g_mutex_unlock(handle->mutex);
++		rar_unref(handle);
++		return FALSE;
++	}
++	g_mutex_unlock(handle->mutex);
++	return TRUE;
++}
++
++RarHandle* rar_handle_open(RarFile* file, GError** gerr)
++{
++	if (file->parent_archive->wrong_password) {
++		g_set_error(gerr, RAR_ERROR, RAR_ERROR_WRONG_PASSWORD, _("Wrong decryption password"));
++		return NULL;
++	}
++	rar_ref(file->parent_archive);	/*dont unref this now, unref will happen when handle is closed */
++	RarHandle* h = g_new0(RarHandle, 1);
++	REFCOUNT_INIT(h, rar_handle_destroy_fn);
++	h->file = file;
++	h->offset = 0;
++	h->mutex = g_mutex_new();
++	g_mutex_lock(h->mutex);
++
++	if (file->compressed || file->encrypted) {
++		gint stdin, stdout, stderr;
++		gchar* pw = NULL;
++		if (file->parent_archive->password) {
++			pw = g_strdup_printf("-p%s", file->parent_archive->password);
++		}
++		gchar* args[10];
++		gint i = 0;
++		args[i++] = "unrar";
++		args[i++] = "p";
++		args[i++] = "-ierr";
++		args[i++] = "-idp";
++		if (pw)
++			args[i++] = pw;
++		else
++			args[i++] = "-pnull";
++		args[i++] = file->parent_archive->filepath;
++		args[i++] = file->path;
++		args[i++] = NULL;
++
++		if (!g_spawn_async_with_pipes(NULL, args, NULL,
++					      /*G_SPAWN_DO_NOT_REAP_CHILD | */
++					      G_SPAWN_SEARCH_PATH, NULL, NULL, &h->unrar, &stdin, &stdout, &stderr,
++					      gerr)) {
++			if (pw)
++				g_free(pw);
++			
++			g_warning("Unrar spawn failed!");
++			g_mutex_unlock(h->mutex);
++			g_free(h);				  
++			return NULL;
++		} else {
++			g_message("Unrar spawned OK!");
++			h->pipe = g_unix_input_stream_new(stdout, TRUE);
++			h->stderr_pipe = g_io_channel_unix_new(stderr);
++			g_io_channel_set_close_on_unref(h->stderr_pipe, TRUE);
++			g_io_channel_set_flags(h->stderr_pipe, G_IO_FLAG_NONBLOCK, NULL);
++			g_io_add_watch(h->stderr_pipe, G_IO_IN | G_IO_HUP | G_IO_ERR, (GIOFunc) unrar_stderr_io, h);
++
++			rar_ref(h); /* unrefed when unrar is closed */
++
++		}
++		if (pw)
++			g_free(pw);
++
++	}
++	g_mutex_unlock(h->mutex);
++	return h;
++}
++
++gboolean rar_handle_can_seek(RarHandle* handle)
++{
++	return (handle->pipe == NULL);
++}
++
++void rar_handle_close(RarHandle* handle)
++{
++	g_mutex_lock(handle->mutex);
++	if (handle->unrar != 0) {
++		kill(handle->unrar, SIGHUP);
++		g_spawn_close_pid(handle->unrar);
++		handle->unrar = 0;
++	}
++	g_mutex_unlock(handle->mutex);
++	rar_unref(handle);
++}
++
++goffset rar_handle_seek(RarHandle* handle, goffset pos, GSeekType whence)
++{
++	if (!rar_handle_can_seek(handle))
++		return -1;
++
++	rar_ref(handle->file->parent_archive);
++	rar_ref(handle);
++
++	switch (whence) {
++
++	case G_SEEK_SET:
++		if (pos >= handle->file->size || pos < 0)
++			goto error;
++		g_mutex_lock(handle->mutex);
++		handle->offset = pos;
++		g_mutex_unlock(handle->mutex);
++		rar_unref(handle);
++		rar_unref(handle->file->parent_archive);
++		return pos;
++
++	case G_SEEK_CUR:
++		if ((handle->offset + pos) >= handle->file->size || (handle->offset + pos) < 0)
++			goto error;
++		g_mutex_lock(handle->mutex);
++		handle->offset = handle->offset + pos;
++		g_mutex_unlock(handle->mutex);
++		rar_unref(handle);
++		rar_unref(handle->file->parent_archive);
++		return handle->offset;
++
++	case G_SEEK_END:
++		if ((handle->file->size + pos) >= handle->file->size || (handle->file->size + pos) < 0)
++			goto error;
++		g_mutex_lock(handle->mutex);
++		handle->offset = handle->file->size + pos;
++		g_mutex_unlock(handle->mutex);
++		rar_unref(handle);
++		rar_unref(handle->file->parent_archive);
++		return handle->offset;
++	}
++ error:
++	rar_unref(handle->file->parent_archive);
++	rar_unref(handle);
++	return -1;
++}
++
++static gssize rar_handle_read_pipe(RarHandle* handle, gsize len, gpointer buffer, 
++								   GCancellable* cancellable, GError** gerr)
++{
++	g_return_val_if_fail(handle != NULL && handle->pipe != NULL, -1);
++	rar_ref(handle->file->parent_archive);
++	rar_ref(handle);
++	g_mutex_lock(handle->mutex);
++	gssize res;
++	if (handle->file->parent_archive->wrong_password) {
++		g_set_error(gerr, RAR_ERROR, RAR_ERROR_WRONG_PASSWORD, _("Wrong decryption password"));
++		res = -1;
++		goto cleanup;
++	}
++	if (handle->error_condition > 0) {
++		g_set_error(gerr, RAR_ERROR, RAR_ERROR_UNKNOWN, _("Unknown error"));
++		res = -1;
++		goto cleanup;
++	}
++
++	res = g_input_stream_read(handle->pipe, buffer, len, cancellable, gerr);
++ cleanup:
++	g_mutex_unlock(handle->mutex);
++	rar_unref(handle);
++	rar_unref(handle->file->parent_archive);
++	return res;
++}
++
++gssize rar_handle_read(RarHandle* handle, gsize len, gpointer buffer, GCancellable* cancellable, GError** gerr)
++{
++	if (!rar_handle_can_seek(handle))
++		return rar_handle_read_pipe(handle, len, buffer, cancellable, gerr);
++
++	rar_ref(handle->file->parent_archive);
++	rar_ref(handle);
++	g_mutex_lock(handle->mutex);
++	gint i;
++	goffset rel_offset = 0;
++	goffset left;
++
++	if (!handle->map || !(handle->offset >= handle->map->off_start && handle->offset < handle->map->off_end)) {
++		for (i = 0; i < handle->file->memory_maps->len; i++) {
++			handle->map = g_ptr_array_index(handle->file->memory_maps, i);
++			if (handle->offset >= handle->map->off_start && handle->offset < handle->map->off_end)
++				break;
++		}
++	}
++	g_mutex_lock(handle->map->vol->mutex);
++	rel_offset = handle->offset - handle->map->off_start;
++	left = handle->map->off_end - handle->offset;
++
++	if (len > left)
++		len = left;
++
++	if (g_seekable_tell(G_SEEKABLE(handle->map->vol->file)) != (handle->map->start + rel_offset)) {
++		if (!g_seekable_seek
++		    (G_SEEKABLE(handle->map->vol->file), (handle->map->start + rel_offset), G_SEEK_SET, NULL, gerr)) {
++			len = 0;
++			goto cleanup;
++		}
++	}
++
++	g_printf("read map: %p, off: %" G_GINT64_FORMAT " start: %"
++			 G_GINT64_FORMAT ". end: %" G_GINT64_FORMAT "\n", handle->map,
++			 handle->offset, (handle->map->start + rel_offset), (handle->map->start + rel_offset) + len);
++
++	if (left >= 0) {
++		len = g_input_stream_read(G_INPUT_STREAM(handle->map->vol->file), buffer, len, cancellable, gerr);
++	}
++	if(left-len > 0 && len == 0) {
++		gchar* name = g_path_get_basename(handle->map->vol->filepath);
++		g_set_error(gerr, RAR_ERROR, RAR_ERROR_UNEXPECTED_EOF, "Unexpected end-of-file in: %s", name);
++		g_free(name);
++	}
++	
++	if (len > 0)
++		handle->offset += len;
++
++ cleanup:
++	g_mutex_unlock(handle->map->vol->mutex);
++	g_mutex_unlock(handle->mutex);
++	rar_unref(handle);
++	rar_unref(handle->file->parent_archive);
++	return len;
++
++}
++
++static gboolean rar_archive_load(RarArchive* ar, GError** gerr)
++{
++	rar_ref(ar);
++	int n = -1;
++	BlockHeader header;
++	goffset data_size;
++
++	gchar* full_header;
++
++	gchar* filename;
++	gboolean dir;
++	gboolean next_volume;
++	gsize read;
++
++	RarFile* f;
++
++	while (1) {
++		next_volume = FALSE;
++		RarVolume* vol = rar_archive_load_volume(ar, n++, gerr);
++		if (!vol) {
++			rar_unref(ar);
++			return FALSE;
++		}
++		gchar mark[7];
++		if (g_input_stream_read(G_INPUT_STREAM(vol->file), mark, 7, NULL, gerr) == -1) {
++			rar_unref(ar);
++			return FALSE;
++		}
++
++		if (!memcmp(&mark, "\x52\x61\x72\x21\x1a\x07\x00", 7) == 0) {
++			g_set_error(gerr, RAR_ERROR, RAR_ERROR_INVALID_HEADER, _("Not a RAR file"));
++			rar_unref(ar);
++			return FALSE;
++		}
++
++		while (1) {
++
++			if(!g_input_stream_read_all(G_INPUT_STREAM(vol->file), &header, sizeof(BlockHeader), &read, NULL, gerr)) {
++				rar_unref(ar);
++				return FALSE;
++			}
++			/* some archives dont have ENDARC_HEAD headers */
++			if(read == 0 && next_volume) {
++				/* let's move on to the next volume */
++				break;				
++			} else 
++				if(read == 0 && !next_volume){
++					/* looks like we're finished */
++					rar_unref(ar);
++					return TRUE;
++				}
++
++#ifdef DEBUG
++			g_printf("Header type: 0x%x\n", header.HeadType);
++#endif
++			if (header.HeadType == ENDARC_HEAD) {
++				if ((header.Flags & 0x0001) == 0 && !next_volume) {	/*no next volume */
++					rar_unref(ar);
++					return TRUE;
++				}
++				break;
++			}
++
++			full_header = g_malloc(header.HeadSize);
++			if (!full_header) {
++				g_set_error(gerr, RAR_ERROR, RAR_ERROR_INVALID_HEADER, _("Invalid header"));
++				rar_unref(ar);
++				return FALSE;
++			}
++			memcpy(full_header, &header, sizeof(BlockHeader));
++			
++			if(!g_input_stream_read_all(G_INPUT_STREAM(vol->file), full_header + sizeof(BlockHeader), 
++										header.HeadSize - sizeof(BlockHeader), &read, NULL, gerr)) 
++			{
++				g_free(full_header);
++				rar_unref(ar);
++				return FALSE;											
++			}								
++
++			if (read < (header.HeadSize - sizeof(BlockHeader))) {
++				g_set_error(gerr, RAR_ERROR, RAR_ERROR_UNEXPECTED_EOF, _("Unexpected end of file"));
++				g_free(full_header);
++				rar_unref(ar);
++				return FALSE;
++			}
++
++			if (!check_header_crc(header.HeadCRC, full_header, header.HeadSize)) {
++				gchar* name = g_path_get_basename(vol->filepath);
++				g_set_error(gerr, RAR_ERROR, RAR_ERROR_CORRUPT_HEADER, _("Checksum mismatch in %s"),
++					    	name);
++				g_free(name);
++				g_free(full_header);
++				rar_unref(ar);
++				return FALSE;
++			}
++			data_size = header.DataSize;
++			switch (header.HeadType) {
++			case MAIN_HEAD:
++				vol->main_header = g_memdup(full_header, sizeof(MainArchiveHeader));
++
++				if ((header.Flags & 0x0080) == 0x0080) {
++					g_set_error(gerr, RAR_ERROR,
++						    RAR_ERROR_ENCRYPTED_HEADERS,
++						    _("Encrypted headers, cannot open archive"));
++					rar_unref(ar);
++					return FALSE;
++				}
++
++				break;
++/* 			case NEWSUB_HEAD:
++					g_set_error(gerr, RAR_ERROR,
++						    RAR_ERROR_UNSUPPORTED_HEADER,
++						    _("Subheaders are not supported"));
++					rar_unref(ar);
++					return FALSE;
++*/			
++			case FILE_HEAD:
++				;
++				BlockFileHeader* file_entry;
++
++				guint32 pack_high = 0;
++				guint32 unp_high = 0;
++
++				file_entry = (BlockFileHeader* ) full_header;
++
++				gchar* pos = full_header + sizeof(BlockFileHeader);
++				if (file_entry->Flags & 0x0100) {
++					/*read the high bytes */
++					g_memmove(&pack_high, pos, sizeof(guint32));
++					pos += sizeof(guint32);
++					g_memmove(&unp_high, pos, sizeof(guint32));
++					pos += sizeof(guint32);
++				} else {
++					if (file_entry->UnpSize == 0xffffffff) {
++						file_entry->UnpSize = (gint32) (G_MAXINT64);
++						unp_high = (gint32) (G_MAXINT64 >> 32);
++					}
++				}
++
++				filename = g_malloc0(file_entry->NameSize + 1);
++				g_memmove(filename, pos, file_entry->NameSize);
++
++				gint i;
++				for (i = 0;; i++) {
++					if (filename[i] == 0)
++						break;
++					if (filename[i] == '\\')
++						filename[i] = '/';
++				}
++
++				if ((file_entry->Flags & 0xE0) == 0xE0)
++					dir = TRUE;
++				else
++					dir = FALSE;
++
++				f = rar_file_find(ar, filename);
++				if (!f) {
++					f = g_new0(RarFile, 1);
++
++					f->path = g_strdup(filename);
++					f->name = g_path_get_basename(filename);
++					f->dir = dir;
++					f->parent_archive = ar;
++
++					f->size = int32to64(unp_high, file_entry->UnpSize);
++					ar->total_size += f->size;
++
++					if (!dir) {
++						f->memory_maps = g_ptr_array_new();
++					}
++					g_hash_table_insert(ar->items, g_strdup(f->path), f);
++
++					f->compressed = file_entry->Method != 48;
++					ar->has_compressed |= f->compressed;
++					f->encrypted = (file_entry->Flags & 0x0004) == 0x0004;
++					ar->has_encrypted |= f->encrypted;
++					f->time = dos2unixtime(file_entry->FileTime);
++
++					rar_archive_register_file(ar, f);
++				}
++				data_size = int32to64(pack_high, file_entry->PackSize);
++				f->p_size += data_size;
++				if (!dir) {
++					MemoryMap* map = g_new0(MemoryMap, 1);
++
++					map->start = g_seekable_tell(G_SEEKABLE(vol->file));
++
++					map->end = map->start + data_size;
++					map->vol = vol;
++
++					if ((file_entry->Flags & 0x01) == 0x01) {	/*there is data in the prev volume */
++						MemoryMap* prev = g_ptr_array_index(f->memory_maps,
++										    f->memory_maps->len - 1);
++						map->off_start = prev->off_end;
++						map->off_end = map->off_start + data_size;
++					} else {
++						map->off_start = 0;
++						map->off_end = data_size;
++					}
++					g_ptr_array_add(f->memory_maps, map);
++				}
++				next_volume |= (file_entry->Flags & 0x02) == 0x02;
++				
++#ifdef DEBUG
++				g_print("Header CRC: 0x%01x\n", file_entry->HeadCRC);
++				g_print("Header Flags: 0x%01x\n", file_entry->Flags);
++				g_print("Header Size: %u\n", file_entry->HeadSize);
++				g_print("Packed size: %" G_GINT64_FORMAT "\n", data_size);
++				g_print("Unpacked size: %" G_GINT64_FORMAT "\n", f->size);
++				g_print("Host OS: 0x%01x\n", file_entry->HostOS);
++				g_print("File CRC32: 0x%01x\n", file_entry->FileCRC);
++				g_print("File Time: %u\n", file_entry->FileTime);
++				g_print("Name size: %u\n", file_entry->NameSize);
++				g_print("Filename: %s\n", filename);
++				g_print("Directory: %d\n", dir);
++				g_print("Data in prev file %d\n", (file_entry->Flags & 0x01));
++				g_print("Data in next file %d\n", (file_entry->Flags & 0x02));
++				g_print("Compressed %d\n", file_entry->Method != 48);
++				g_print("Encrypted %d\n\n", file_entry->Flags & 0x0004);
++#endif
++				g_free(filename);
++
++				break;
++
++			case ENDARC_HEAD:
++				break;
++
++			/*case PROTECT_HEAD:
++				g_set_error(gerr, RAR_ERROR, RAR_ERROR_UNSUPPORTED_HEADER,
++					    _("Protected headers are not supported"));
++				g_free(full_header);
++				rar_unref(ar);
++				return FALSE;
++
++				break;*/
++			default:
++				g_printf("Unknown block 0x%x\n", header.HeadType);
++				break;
++			}
++			g_free(full_header);
++			memset(&header, 0, sizeof(BlockHeader));
++
++			/*move to the next header */
++			if (!g_seekable_seek(G_SEEKABLE(vol->file), data_size, G_SEEK_CUR, NULL, gerr)) {
++				rar_unref(ar);
++				return FALSE;
++			}
++		}
++	}
++}
++
++void __rar_ref(RarRefCountable* obj)
++{
++	g_return_if_fail(obj != NULL);
++	g_atomic_int_inc(&obj->refcount);
++	/*g_print("ref++ %p, now %d\n", obj, obj->refcount); */
++}
++
++void __rar_unref(RarRefCountable* obj)
++{
++	g_return_if_fail(obj != NULL);
++
++	if (g_atomic_int_dec_and_test(&obj->refcount)) {
++		g_print("ref-- %p, now %d\n", obj, obj->refcount);
++		obj->ref_destr_fn(obj);
++	}
++}
+Index: gvfs-svn/daemon/rararchive.h
+===================================================================
+--- gvfs-svn/daemon/rararchive.h	(revision 0)
++++ gvfs-svn/daemon/rararchive.h	(revision 0)
+@@ -0,0 +1,225 @@
++/* -*- Mode: C; tab-width: 4 -*- */ 
++/*
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++	 * 
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Library General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor Boston, MA 02110-1301,  USA
++ */
++#define _FILE_OFFSET_BITS 64
++
++#include <glib.h>
++#include <gio/gio.h>
++#include <stdio.h>
++#include <sys/types.h>
++
++#define DEBUG 1	
++
++#define rar_ref(x) __rar_ref((RarRefCountable*)x)
++#define rar_unref(x) __rar_unref((RarRefCountable*)x)
++
++#define RAR_ERROR g_quark_from_static_string ("rar-error-quark")
++
++/* the first two bytes is the actual checksum */
++#define check_header_crc(orig_crc, buffer, len) (orig_crc == (guint16)crc32(0, (guchar*)buffer+sizeof(guint16), len-sizeof(guint16)))
++
++#define RAR_REFCOUNTABLE volatile gint refcount; \
++GDestroyNotify ref_destr_fn;			 \
++
++#define REFCOUNT_INIT(x, fn) x->refcount = 1; x->ref_destr_fn = (GDestroyNotify)fn;
++
++#define int32to64(high,low) ((((gint64)(high))<<32)+(low))
++
++typedef enum { 
++	MARK_HEAD=0x72,
++	MAIN_HEAD=0x73,
++	FILE_HEAD=0x74,
++	COMM_HEAD=0x75,
++	AV_HEAD=0x76,
++	SUB_HEAD=0x77,
++	PROTECT_HEAD=0x78,
++	SIGN_HEAD=0x79,
++	NEWSUB_HEAD=0x7a,
++	ENDARC_HEAD=0x7b
++} BlockType;
++
++typedef enum {
++	RAR_ERROR_UNKNOWN = 1,
++	RAR_ERROR_CORRUPT_HEADER,
++	RAR_ERROR_INVALID_HEADER,
++	RAR_ERROR_UNSUPPORTED_HEADER,
++	RAR_ERROR_ENCRYPTED_HEADERS,
++	RAR_ERROR_MISSING_VOLUME,
++	RAR_ERROR_MISSING_ARCHIVE,
++	RAR_ERROR_UNEXPECTED_EOF,
++	RAR_ERROR_OPEN_FAILED,
++	RAR_ERROR_TOO_MANY,
++	RAR_ERROR_IO_ERROR,
++	RAR_ERROR_WRONG_PASSWORD
++} RarError;
++
++#pragma pack(push)  /* push current alignment to stack */
++#pragma pack(1)     /* set alignment to 1 byte boundary */
++
++typedef struct
++{
++	guint16 HeadCRC;
++	guint8 HeadType;
++	guint16 Flags;
++	guint16 HeadSize;
++	guint16 Reserved;
++	guint32 Reserved1;
++} MainArchiveHeader;
++
++typedef struct
++{
++	guint16 HeadCRC;
++	guint8 HeadType;
++	guint16 Flags;
++	guint16 HeadSize;
++	guint32 PackSize;
++	guint32 UnpSize;
++	guint8 HostOS;
++	guint32 FileCRC;
++	guint32 FileTime;
++	guint8 UnpVer;
++	guint8 Method;
++	guint16 NameSize;
++	guint32 FileAttr;
++} BlockFileHeader;
++
++typedef struct
++{
++	guint16 HeadCRC;
++	guint8 HeadType;
++	guint16 Flags;
++	guint16 HeadSize;
++	guint32 DataSize;
++} BlockHeader;
++
++#pragma pack(pop)   /* restore original alignment from stack */
++
++typedef struct _RarArchive RarArchive;
++
++typedef struct {
++	GFileInputStream* file;
++	
++	gchar* filepath;
++	MainArchiveHeader* main_header;
++	RarArchive* parent_archive;
++	GMutex* mutex;	/* for io synchronization */
++} RarVolume;
++
++typedef struct {
++	goffset off_start;
++	goffset off_end;
++	goffset start;
++	goffset end;
++	RarVolume* vol;
++} MemoryMap;
++
++/* all items (files and directories) are stored in RarFile,
++for file tree traversal RarDirectories are used */
++typedef struct {
++	//BlockFileHeader* file_header;
++	RarArchive* parent_archive;
++	
++	goffset p_size; /* packed size */
++	goffset size;	/* unpacked size */
++	
++	gchar* path;
++	gchar* name;
++	guint8 dir : 1;	/* a directory? */
++	guint8 compressed : 1;
++	guint8 encrypted : 1;
++	
++	time_t time;
++	
++	GPtrArray* memory_maps; /* MemoryMap* */
++} RarFile;
++
++typedef struct {
++	RAR_REFCOUNTABLE
++	
++	GMutex* mutex;
++	goffset offset;
++	RarFile* file;
++	MemoryMap* map; /* the last used memory map */
++	
++	/* following members are used when streaming from unrar */
++	GInputStream* pipe; 
++	RarError error_condition;
++	GIOChannel* stderr_pipe;
++	GPid unrar;
++} RarHandle;
++
++typedef struct _RarDirectory {
++	gchar* name;
++	GSList* files;
++	GSList* dirs_l;	/* linked list of RarDirectory for faster enumeration */
++	GHashTable* dirs; /* hash table of RarDirectory for faster lookup */
++	struct _RarDirectory* parent;
++} RarDirectory;
++
++struct _RarArchive{
++	RAR_REFCOUNTABLE
++		
++	gchar* filepath;
++	gchar* basename; /* filepath without extension */
++	
++	guint64 total_size; /* size of all files */
++	
++	GHashTable* volumes; /* RarVolume */
++	GHashTable* items; /* key:path val:RarFile */
++	
++	RarDirectory* root;
++	
++	gchar* password; /* decryption password */
++	
++	guint8 has_encrypted : 1; /* files */
++	guint8 has_compressed : 1; /* files */
++	
++	guint8 new_name_style : 1;
++	/* set when it's known that the encryption
++	 password is wrong */
++	guint8 wrong_password : 1; 
++	guint8 padding : 4;
++	
++};
++
++typedef struct {
++	RAR_REFCOUNTABLE	
++} RarRefCountable;
++
++void __rar_ref(RarRefCountable* obj);
++void __rar_unref(RarRefCountable* obj);
++
++/* public api */
++
++RarArchive* rar_archive_new(const gchar* filepath, GError** gerr);
++/* set decryption password */
++void rar_archive_set_password(RarArchive* ar, const gchar* password);
++gboolean rar_archive_has_password(RarArchive* ar);
++
++RarDirectory* rar_directory_find(RarArchive* ar, const gchar* path);
++
++RarFile* rar_file_find(RarArchive* ar, const gchar* path);
++
++RarHandle* rar_handle_open(RarFile* file, GError** gerr);
++void rar_handle_close(RarHandle* handle);
++goffset rar_handle_seek(RarHandle* handle, goffset pos, GSeekType whence);
++gboolean rar_handle_can_seek(RarHandle* handle);
++
++gssize rar_handle_read(RarHandle* handle, 
++					   gsize len, 
++					   gpointer buffer, 
++					   GCancellable* cancellable, 
++					   GError** gerr);
+Index: gvfs-svn/daemon/rar.mount.in
+===================================================================
+--- gvfs-svn/daemon/rar.mount.in	(revision 0)
++++ gvfs-svn/daemon/rar.mount.in	(revision 0)
+@@ -0,0 +1,4 @@
++[Mount]
++Type=rar
++Exec=@libexecdir@/gvfsd-rar
++AutoMount=false

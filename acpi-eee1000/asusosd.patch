@@ -1,0 +1,687 @@
+diff -Naur old/asus_osd/asusosd.c new/asus_osd/asusosd.c
+--- old/asus_osd/asusosd.c	2008-10-20 09:18:35.000000000 -0500
++++ new/asus_osd/asusosd.c	2008-10-22 21:26:38.000000000 -0500
+@@ -3,6 +3,7 @@
+ #include <string.h>
+ #include <unistd.h>
+ #include <pthread.h>
++#include <syslog.h>
+ #include <fcntl.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
+@@ -14,20 +15,27 @@
+ #include <errno.h>
+ 
+ #define	VOLUME_CONTROL	"/usr/bin/volume_control.sh"
+-#define	RADIO_CONTROL	"/usr/bin/radio_control.sh"
++
++#define PWRMGMT_FILE "/var/state/fsb/osd"
+ 
+ static pthread_mutex_t	q_lock;
+ static pthread_cond_t	q_empty;
+ 
+ static int thread_alive;
++
++static int cfg_flags = 0;
++
+ char filename[128];
++char btfilename[128] = {'\0'};
+ 
+ unsigned int	img_data;
+ int		wlan_value;
+ int		bri_value;
+ int		vol_value;
+ int		vol_level;
++int		rpause;
+ 
++int connect_acpid();
+ char* hotkey_get(int);
+ unsigned int hotkey_parse(char*);
+ 
+@@ -40,7 +48,10 @@
+ void image_open();
+ 
+ int getvol(int);
++int getfsb();
++int getbt();
+ int pipe_cmd(char pipe_cmd[]);
++static int read_config(char config[]);
+ 
+ int
+ main (int argc, char *argv[])
+@@ -48,11 +59,11 @@
+ 	queue		*img_queue;
+ 	pthread_t	img_thread;
+ 	int		socket_fd;
+-	struct sockaddr_un socket_addr;
+ 	char		*hotkey;
+ 	unsigned int	data;
+ 	FILE		*pfile;
+ 	int		i;
++	int		j;
+ 	 char		cmd[64];
+ 
+ 	i = 1;
+@@ -71,73 +82,68 @@
+ 	pthread_cond_init(&q_empty, NULL);
+ 	pthread_create(&img_thread, NULL, image_thread, img_queue);
+ 
+-	socket_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+-	if (socket_fd < 0) {
+-		printf("cannot create socket\n");
+-		return socket_fd;
+-	}
+-
+-	memset(&socket_addr, 0, sizeof(socket_addr));
+-	socket_addr.sun_family = AF_UNIX;
+-	sprintf(socket_addr.sun_path, "%s", "/var/run/acpid.socket");
+-
+-	if(connect(socket_fd, (struct sockaddr *)&socket_addr, sizeof(socket_addr)) < 0)
+-	{
+-		printf("cannot connect socket\n");
+-		close(socket_fd);
+-		return -1;
+-	}
+-
+-	fcntl(socket_fd, F_SETFD, FD_CLOEXEC);
++	socket_fd = connect_acpid();
+ 	setvbuf(stdout, NULL, _IOLBF, 0);
+ 	
+ 	bri_value = 0;
+ 
+ 	if((pfile=fopen("/proc/acpi/asus/brn","rb"))==NULL)
+ 	{
+-		printf("cannot open /proc/acpi/asus/brn\n");
++		syslog(LOG_ERR, "cannot open /proc/acpi/asus/brn\n");
+ 	}
+ 	else
+ 	{
+ 		if(fscanf(pfile, "%d", &bri_value) != 1)
+ 		{
+-			printf("cannot read /proc/acpi/asus/brn\n");
++			syslog(LOG_ERR, "cannot read /proc/acpi/asus/brn\n");
+ 		}
+ 		if(bri_value < 0 || 15 < bri_value)
+ 		{
+ 			bri_value = 0;
+-			printf("read an invalid value [%d] from /proc/acpi/asus/brn\n", bri_value);
++			syslog(LOG_ERR, "read an invalid value [%d] from /proc/acpi/asus/brn\n", bri_value);
+ 		}
+ 		fclose(pfile);
+ 	}
+-/*
+-	if((pfile=fopen("/proc/acpi/asus/wlan", "rb"))==NULL)
+-	{
+-		printf("cannot read /proc/acpi/asus/wlan\n");
+-		close(socket_fd);
+-		return -1;
+-	}
+-	if(fscanf(pfile, "%d", &wlan_value) != 1)
+-	{
+-		printf("cannot read /proc/acpi/asus/wlan\n");
+-		close(socket_fd);
+-		fclose(pfile);
+-		return -1;
+-	}
+-	fclose(pfile);
+-	if(wlan_value == 1)
+-		system("echo 1 > /proc/acpi/asus/wlan");
+-	else if(wlan_value == 0)
+-		system("echo 0 > /proc/acpi/asus/wlan");
+-	else
+-		printf("read an invalid value [%d] from /proc/acpi/asus/wlan\n", wlan_value);
+-	*/
+-	
++
++	/* Read the config file, see what is enabled */
++	cfg_flags = read_config("/etc/acpi/eee.conf");
++
+ 	while(1)
+ 	{
+ 		hotkey = hotkey_get(socket_fd);
+ 		if(hotkey)
+ 		{
++			if (!strncmp("-1", hotkey, 2))
++			{
++				syslog(LOG_ERR, "Broken pipe:  Attempting to reconnect\n");
++				close(socket_fd);
++				socket_fd = 0;
++				rpause = 500000;
++				for (j=1; j<6; j++)
++				{
++                                    usleep(rpause);
++				    socket_fd = connect_acpid();
++				    if (socket_fd < 1)
++			            {
++			                syslog(LOG_ERR, "Attempt %d: failed\n", j);
++					rpause = rpause*2;
++				    }
++				    else
++			            {
++			                syslog(LOG_ERR, "Attempt %d: connected.  Resuming.\n", j);
++				        break;
++				    }
++				}
++
++				if (socket_fd < 1)
++				{
++			            syslog(LOG_ERR, "Unable to connect.  Exiting.\n");
++				    exit(1);
++				}
++				
++				continue;
++			}
++
+ 			if(strncmp("hotkey ATKD ", hotkey, 12))
+ 				continue;
+ 			data = hotkey_parse(hotkey+12);
+@@ -180,6 +186,33 @@
+ 	return 0;
+ }
+ 
++int
++connect_acpid()
++{
++	int sfd = 0;
++	struct sockaddr_un socket_addr;
++
++	sfd = socket(AF_UNIX, SOCK_STREAM, 0);
++	if (sfd < 0) {
++		syslog(LOG_ERR, "cannot create socket\n");
++		return sfd;
++	}
++
++	memset(&socket_addr, 0, sizeof(socket_addr));
++	socket_addr.sun_family = AF_UNIX;
++	sprintf(socket_addr.sun_path, "%s", "/var/run/acpid.socket");
++
++	if(connect(sfd, (struct sockaddr *)&socket_addr, sizeof(socket_addr)) < 0)
++	{
++		syslog(LOG_ERR, "cannot connect to socket: /var/run/acpid.socket\n");
++		close(sfd);
++		return -1;
++	}
++
++	fcntl(sfd, F_SETFD, FD_CLOEXEC);
++	return sfd;
++}
++
+ char*
+ hotkey_get(int sfd)
+ {
+@@ -192,7 +225,7 @@
+ 	while (searching) {
+ 		buf = realloc(buf, buflen);
+ 		if (!buf) {
+-			fprintf(stderr, "ERR: malloc(%d): %s\n",
++			syslog(LOG_ERR, "ERR: malloc(%d): %s\n",
+ 				buflen, strerror(errno));
+ 			return NULL;
+ 		}
+@@ -202,13 +235,13 @@
+ 			r = read(sfd, buf+i, 1);
+ 			if (r < 0 && errno != EINTR) {
+ 				/* we should do something with the data */
+-				fprintf(stderr, "ERR: read(): %s\n",
++				syslog(LOG_ERR, "ERR: read(): %s\n",
+ 					strerror(errno));
+ 				return NULL;
+ 			} else if (r == 0) {
+ 				/* signal this in an almost standard way */
+ 				errno = EPIPE;
+-				return NULL;
++				return "-1";
+ 			} else if (r == 1) {
+ 				/* scan for a newline */
+ 				if (buf[i] == '\n') {
+@@ -253,6 +286,18 @@
+ 			hotkey = IMG_BRN_DN|(val<<8);
+ 		bri_value = val;
+ 	}
++	else if (data[6] == '1' && data[7] == 'c')
++	{
++		hotkey = getfsb();
++	}
++	else if (data[6] == '1' && data[7] == 'd')
++	{
++	    if ((cfg_flags & 4) == 4)
++	    {
++		hotkey = getbt();
++	    }
++	    else return 0;
++	}
+ 	else
+ 	{
+ 		data[8] = 0;
+@@ -261,8 +306,14 @@
+ 		{
+ 			case 13:printf("@@ audio mute %d\n", hotkey);
+ 				//audio mute
+-				if(!getvol(1)) //off
+-					hotkey = 16;//then on
++				if(getvol(1)) //get volume status: 1=on 0=off
++				{
++					hotkey = 16;
++					printf("Volume on\n");
++				}else{
++					hotkey = 13;
++					printf("Volume off\n");
++				}				
+ 				printf("@@ audio mute %d\n", hotkey);
+ 				break;
+ 			case 14:	//volume down
+@@ -306,10 +357,24 @@
+ 		sprintf(filename, "%s%d%s", "/usr/share/asus_osd/VolumeDN",val,".png");
+ 	else if ((img_data&IMAGE_MASK) == IMG_VOL_UP)
+ 		sprintf(filename, "%s%d%s", "/usr/share/asus_osd/VolumeUP",val,".png");
+-	else if ((img_data&IMAGE_MASK) == IMG_AC_IN)
++	else if ((img_data&IMAGE_MASK) == IMG_AC_IN && (cfg_flags & 2) != 2)
+ 		sprintf(filename, "%s", "/usr/share/asus_osd/ACMode.png");
+-	else if ((img_data&IMAGE_MASK) == IMG_AC_OUT)
++	else if ((img_data&IMAGE_MASK) == IMG_AC_IN && (cfg_flags & 2) == 2)
++		sprintf(filename, "%s", "/usr/share/asus_osd/ACMode_performance.png");
++	else if ((img_data&IMAGE_MASK) == IMG_AC_OUT && (cfg_flags & 2) != 2)
+ 		sprintf(filename, "%s", "/usr/share/asus_osd/BatteryMode.png");
++	else if ((img_data&IMAGE_MASK) == IMG_AC_OUT && (cfg_flags & 2) == 2)
++		sprintf(filename, "%s", "/usr/share/asus_osd/BatteryMode_powersave.png");
++	else if ((img_data&IMAGE_MASK) == IMG_FSB_PWRSAVE && (cfg_flags & 1) == 1)
++		sprintf(filename, "%s", "/usr/share/asus_osd/PowerSaving.png");
++	else if ((img_data&IMAGE_MASK) == IMG_FSB_HIGH && (cfg_flags & 1) == 1)
++		sprintf(filename, "%s", "/usr/share/asus_osd/HighPerformance.png");
++	else if ((img_data&IMAGE_MASK) == IMG_FSB_SUPER && (cfg_flags & 1) == 1)
++		sprintf(filename, "%s", "/usr/share/asus_osd/SuperPerformance.png");
++	else if ((img_data&IMAGE_MASK) == IMG_BLUETOOTH_ON && (cfg_flags & 4) == 4)
++		sprintf(filename, "%s", "/usr/share/asus_osd/BluetoothOn.png");
++	else if ((img_data&IMAGE_MASK) == IMG_BLUETOOTH_OFF && (cfg_flags & 4) == 4)
++		sprintf(filename, "%s", "/usr/share/asus_osd/BluetoothOff.png");
+ 
+ 	else return -1;
+ 
+@@ -361,7 +426,7 @@
+ 			sleep(4);*/
+ 		create_image(filename);
+ 	}
+-	else	printf("image_open error.\n");
++	else	syslog(LOG_ERR, "image_open error.\n");
+ }
+ 
+ void image_close()
+@@ -392,6 +457,7 @@
+ 	}
+ 	else		//get status
+ 	{
++                usleep(100000);
+ 		sprintf(volcmd, "%s status", VOLUME_CONTROL);
+ 		if(!pipe_cmd(volcmd))
+ 		{
+@@ -400,11 +466,141 @@
+ 				return 1;
+ 			else if(strstr(volcmd, "[off]"))
+ 				return 0;
+-		}else printf("@@ pipe cmd fail\n");
++		}else syslog(LOG_ERR, "pipe cmd fail\n");
+ 		return 0;
+ 	}
+ }
+ 
++int getfsb()
++{
++        FILE *statefile = NULL;
++	char line[80];
++	int i = 0;
++	int fsb_value = 0;
++	int opened = 0;
++
++	/* sleep a millisecond between attempts to open the file, 
++	 * for two seconds, then fail */
++	for (i=0; i<2000; i++)
++	{
++	    statefile = fopen(PWRMGMT_FILE, "r");
++	    if (statefile == NULL)
++	    {
++	        usleep(10000);
++	        continue;
++	    }
++
++	    opened = 1;
++
++	    /*  Read the file.  If it doesn't contain
++	     *  a valid state, close it, sleep, then try again */
++	    if (fgets(line, 80, statefile) != NULL)
++            {
++		line[strlen(line)-1] = '\0';
++		if (!strcmp(line, "PWRSAV"))
++		{
++		    fsb_value = IMG_FSB_PWRSAVE;
++		}
++		else if (!strcmp(line, "HIPERF"))
++		{
++		    fsb_value = IMG_FSB_HIGH;
++		}
++		else if (!strcmp(line, "SPPERF"))
++		{
++		    fsb_value = IMG_FSB_SUPER;
++		}
++
++	    }
++
++	    fclose(statefile);
++	    statefile = NULL;
++
++	    if (fsb_value != 0)
++	    {
++		/* Got the value.  Reset the OSD state file and break. */
++	        statefile = fopen(PWRMGMT_FILE, "w");
++	        if (statefile == NULL)
++	        {
++	            syslog(LOG_ERR, "Unable to reset OSD state file '%s': %s.  Returning.", PWRMGMT_FILE, strerror(errno));
++		}
++		else
++		{
++	            fclose(statefile);
++	            statefile = NULL;
++		}
++		break;
++	    }
++
++	    usleep(10000);
++	}
++	    
++	if (opened == 0)
++	{
++	    syslog(LOG_ERR, "Unable to open OSD state file '%s': %s.  Returning.", PWRMGMT_FILE, strerror(errno));
++	    return 0;
++	}
++	else if (fsb_value == 0)
++	{
++	    syslog(LOG_ERR, "Unable to determine FSB state in file '%s'.  Returning.", PWRMGMT_FILE);
++	    return 0;
++	}
++	
++	return fsb_value;
++}
++ 
++int getbt()
++{
++        FILE *btRead = NULL;
++	int bt_toggle = 999;
++	char buf[2] = {'\0'};
++
++	if (strlen(btfilename) == 0)
++	{
++	    syslog(LOG_ERR, "NO BLUETOOTH_SWITCH file configured.  Returning.\n");
++	    return 0;
++	}
++
++	usleep(500000);
++	btRead = fopen(btfilename, "r");
++	if (btRead != NULL)
++	{
++	    if (fread(buf, 1, 1, btRead) != 1)
++            {
++	        syslog(LOG_ERR, "Cannot read '%s'.  Returning.\n", btfilename);
++		fclose(btRead);
++	        return 0;
++	    }
++
++	    buf[1] = '\0';
++	    bt_toggle = atoi(buf);
++
++	    if (bt_toggle == 0)
++            {
++		return IMG_BLUETOOTH_OFF;
++	    }
++	    else if (bt_toggle == 1)
++            {
++		return IMG_BLUETOOTH_ON;
++            }
++	    else
++            {
++	        syslog(LOG_ERR, "Invalid value returned from '%s': '%d'.  Returning.\n", btfilename, bt_toggle);
++		fclose(btRead);
++	        return 0;
++	    }
++
++	    fclose(btRead);
++	    btRead = NULL;
++	}
++	else
++	{
++	    syslog(LOG_ERR, "Unable to read '%s': %s.  Returning.", btfilename, strerror(errno));
++	    return 0;
++	}
++
++	return 0;
++}
++
+ int pipe_cmd(char cmd[])
+ {
+ 	int iData = 1,iCount = 0,iSize = sizeof(cmd);
+@@ -438,3 +634,58 @@
+ 	return(EXIT_FAILURE);
+ }
+ 
++static int read_config(char config[])
++{
++	FILE *configfile;
++	char line[80];
++	int flags = 0;
++
++	configfile = fopen(config, "r");
++	if (configfile != NULL)
++	{
++		while(fgets(line, 80, configfile) != NULL)
++		{
++			if (line[0] == '#')
++			{
++				//try to ignore comments
++			}
++			else if (strstr(line, "ENABLE_PWRMGMT=Y") != NULL)
++			{
++				flags = flags | 1;
++			}
++			else if (strstr(line, "ENABLE_PWRMGMT=y") != NULL)
++			{
++				flags = flags | 1;
++			}
++			else if (strstr(line, "ENABLE_PWRMGMT_AUTO=Y") != NULL)
++			{
++                                flags = flags | 2;
++		        }
++			else if (strstr(line, "ENABLE_PWRMGMT_AUTO=y") != NULL)
++			{
++                                flags = flags | 2;
++		        }
++			else if (strstr(line, "ENABLE_BLUETOOTH=Y") != NULL)
++			{
++                                flags = flags | 4;
++		        }
++			else if (strstr(line, "ENABLE_BLUETOOTH=y") != NULL)
++			{
++                                flags = flags | 4;
++		        }
++			else if (strstr(line, "BLUETOOTH_SWITCH=") != NULL)
++			{
++				sscanf(line, "BLUETOOTH_SWITCH=%*[\"\']%[^\"\']", btfilename);
++			}
++
++		}
++	}
++	else
++	{
++		syslog(LOG_ERR, "Unable to open configuration file '%s': defaulting.", config);
++	}
++
++	fclose(configfile);
++
++	return flags;
++}
+diff -Naur old/asus_osd/asusosd_image.c new/asus_osd/asusosd_image.c
+--- old/asus_osd/asusosd_image.c	2008-10-20 09:18:36.000000000 -0500
++++ new/asus_osd/asusosd_image.c	2008-10-21 18:05:40.000000000 -0500
+@@ -1,6 +1,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <syslog.h>
+ #include <X11/Xlib.h>
+ #include <X11/Xutil.h>
+ #include <X11/Xos.h>
+@@ -17,6 +18,7 @@
+ static int  xwindow_create(void);
+ static int  ximage_create(void);
+ static int  ximage_display(void);
++static void  read_pos_from_config(char config[], int *x, int *y);
+ void destroy_osd(void);
+ //static void destroy_image(void);
+ static int  x_msb(unsigned long u32val);
+@@ -50,7 +52,7 @@
+ 		return -1;
+ 	else if (!(pngfile = fopen(filename, "rb"))) 
+ 	{
+-		printf(":  can't open PNG file [%s]\n", filename);
++		syslog(LOG_ERR, ": can't open PNG file [%s]\n", filename);
+ 		return -1;
+ 	} 
+ 	else {
+@@ -64,7 +66,7 @@
+ 
+ 	if (readpng_get_bgcolor(&bg_red, &bg_green, &bg_blue) > 1) {
+ 		readpng_cleanup(TRUE);
+-		printf(":  libpng error while checking for background color\n");
++		syslog(LOG_ERR, ":  libpng error while checking for background color\n");
+ 		return -2;
+ 	}
+ 
+@@ -85,7 +87,7 @@
+ 	fclose(pngfile);
+ 
+ 	if (!image_data) {
+-		printf(":  unable to decode PNG image\n");
++		syslog(LOG_ERR, ":  unable to decode PNG image\n");
+ 		destroy_osd();
+ 		return -3;
+ 	}
+@@ -115,7 +117,8 @@
+ 			XDestroyImage(ximage);
+ 			ximage = NULL;
+ 		}
+-
++		XDestroyWindow(display, window);
++	        have_window = FALSE;
+ 	}
+ 	else	return -1;
+ 	return 0;
+@@ -199,7 +202,7 @@
+ 		if (depth == 8 || need_colormap) {
+ 			colormap = XCreateColormap(display, root, visual, AllocNone);
+ 			if (!colormap) {
+-				printf("XCreateColormap() failed\n");
++				syslog(LOG_ERR, "XCreateColormap() failed\n");
+ 				return 2;
+ 			}
+ 			have_colormap = TRUE;
+@@ -221,7 +224,7 @@
+ #endif
+ 		}
+ 		if (depth >= 15 && (RShift < 0 || GShift < 0 || BShift < 0)) {
+-			printf("rpng internal logic error:  negative X shift(s)!\n");
++			syslog(LOG_ERR, "rpng internal logic error:  negative X shift(s)!\n");
+ 			return 2;
+ 		}
+ 
+@@ -236,11 +239,14 @@
+ 		attr.border_pixel = 0;
+ 		x = 2;//(XDefaultScreenOfDisplay(display)->width - image_width)/2;
+ 		y = 2;//(XDefaultScreenOfDisplay(display)->height - image_height)/2;
++		
++		read_pos_from_config("/etc/acpi/eee.conf", &x, &y);
++
+ 		window = XCreateWindow(display, root, x, y, image_width, image_height, 0,
+ 				depth, InputOutput, visual, attrmask, &attr);
+ 
+ 		if (window == None) {
+-			printf("XCreateWindow() failed\n");
++			syslog(LOG_ERR, "XCreateWindow() failed\n");
+ 			return 2;
+ 		} else
+ 			have_window = TRUE;
+@@ -343,7 +349,7 @@
+ 	}
+ 
+ 	if (!xdata) {
+-		printf(":  unable to allocate image memory\n");
++		syslog(LOG_ERR, ":  unable to allocate image memory\n");
+ 		return 4;
+ 	}
+ 
+@@ -360,7 +366,7 @@
+ 			(char *)xdata, image_width, image_height, pad, 0);
+ 
+ 	if (!ximage) {
+-		printf(":  XCreateImage() failed\n");
++		syslog(LOG_ERR, ":  XCreateImage() failed\n");
+ 		free(xdata);
+ 		return 3;
+ 	}
+@@ -545,3 +551,46 @@
+ 	}
+ 	return i;
+ }
++
++static void read_pos_from_config(char config[], int *x, int *y)
++{
++	FILE *configfile;
++	char line[80];
++
++	configfile = fopen(config, "r");
++	if (configfile != NULL)
++	{
++		while(fgets(line, 80, configfile) != NULL)
++		{
++			if (line[0] == '#')
++			{
++				//try to ignore comments
++			}
++			else if (strstr(line, "ASUSOSD_XPOS=center") != NULL)
++			{
++				*x = (XDefaultScreenOfDisplay(display)->width - image_width)/2;
++			}
++			else if (strstr(line, "ASUSOSD_XPOS=") != NULL)
++			{	
++				sscanf(line,"ASUSOSD_XPOS=%i" , x);
++			}
++			else if (strstr(line, "ASUSOSD_YPOS=center") != NULL)
++			{
++				*y = (XDefaultScreenOfDisplay(display)->height - image_height)/2;
++			}
++			else if (strstr(line, "ASUSOSD_YPOS=") != NULL)
++			{	
++				sscanf(line,"ASUSOSD_YPOS=%i" , y);
++			}
++		}
++	}
++	else
++	{
++		syslog(LOG_ERR, "Unable to open configuration file '%s': defaulting.", config);
++	}
++
++	fclose(configfile);
++}
++
++
++
+diff -Naur old/asus_osd/asusosd_image.h new/asus_osd/asusosd_image.h
+--- old/asus_osd/asusosd_image.h	2008-10-20 09:18:36.000000000 -0500
++++ new/asus_osd/asusosd_image.h	2008-10-21 17:48:13.000000000 -0500
+@@ -42,4 +42,10 @@
+ #define	IMG_AC_IN		50//0x0050
+ #define	IMG_AC_OUT		51//0x0051
+ 
++#define IMG_FSB_PWRSAVE		60//0x0060
++#define IMG_FSB_HIGH		61//0x0061
++#define IMG_FSB_SUPER		62//0x0062
++
++#define IMG_BLUETOOTH_ON	70//0x0070
++#define IMG_BLUETOOTH_OFF	71//0x0071
+ #endif

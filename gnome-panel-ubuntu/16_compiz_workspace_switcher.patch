@@ -1,0 +1,590 @@
+Description: Allow the workspace switcher to change the desktop layout when using compiz
+Bug: https://bugzilla.gnome.org/show_bug.cgi?id=496830
+
+Index: gnome-panel-2.30.0/applets/wncklet/workspace-switcher.c
+===================================================================
+--- gnome-panel-2.30.0.orig/applets/wncklet/workspace-switcher.c	2010-01-14 14:26:27.000000000 +1100
++++ gnome-panel-2.30.0/applets/wncklet/workspace-switcher.c	2010-06-03 13:57:59.223947813 +1000
+@@ -34,6 +34,10 @@
+ #define MAX_REASONABLE_ROWS 16
+ #define DEFAULT_ROWS 1
+ 
++#define COMPIZ_OPTIONS "/apps/compiz/general/screen0/options"
++#define COMPIZ_HSIZE "/apps/compiz/general/screen0/options/hsize"
++#define COMPIZ_VSIZE "/apps/compiz/general/screen0/options/vsize"
++
+ #define NEVER_SENSITIVE "never_sensitive"
+ #define NUM_WORKSPACES "/apps/metacity/general/num_workspaces"
+ #define WORKSPACE_NAME "/apps/metacity/workspace_names/name_1"
+@@ -56,6 +60,7 @@
+ 
+ 	/* Properties: */
+ 	GtkWidget *properties_dialog;
++	GtkWidget *switcher_frame;
+ 	GtkWidget *workspaces_frame;
+ 	GtkWidget *workspace_names_label;
+ 	GtkWidget *workspace_names_scroll;
+@@ -67,6 +72,9 @@
+ 	GtkWidget *num_workspaces_spin;
+ 	GtkWidget *workspaces_tree;
+ 	GtkListStore *workspaces_store;
++	GtkWidget *viewports_frame;
++	GtkWidget *hsize_spin;
++	GtkWidget *vsize_spin;
+ 
+ 	GtkWidget *about;
+ 	
+@@ -96,8 +104,13 @@
+ 				    pager->orientation);
+ 	wnck_pager_set_n_rows (WNCK_PAGER (pager->pager),
+ 			       pager->n_rows);
+-	wnck_pager_set_show_all (WNCK_PAGER (pager->pager),
+-				 pager->display_all);
++
++	if (pager->wm == PAGER_WM_COMPIZ)
++		wnck_pager_set_show_all (WNCK_PAGER (pager->pager),
++					 FALSE);
++	else
++		wnck_pager_set_show_all (WNCK_PAGER (pager->pager),
++					 pager->display_all);
+ 
+ 	if (pager->wm == PAGER_WM_METACITY)
+ 		wnck_pager_set_display_mode (WNCK_PAGER (pager->pager),
+@@ -120,20 +133,28 @@
+ 			gtk_widget_show (pager->workspace_names_scroll);
+ 		if (pager->display_workspaces_toggle)
+ 			gtk_widget_show (pager->display_workspaces_toggle);
++		if (pager->viewports_frame)
++			gtk_widget_hide (pager->viewports_frame);
+ 		break;
+ 	case PAGER_WM_COMPIZ:
++		if (pager->switcher_frame)
++			gtk_widget_hide (pager->switcher_frame);
+ 		if (pager->workspaces_frame)
+-			gtk_widget_show (pager->workspaces_frame);
++			gtk_widget_hide (pager->workspaces_frame);
+ 		if (pager->workspace_names_label)
+ 			gtk_widget_hide (pager->workspace_names_label);
+ 		if (pager->workspace_names_scroll)
+ 			gtk_widget_hide (pager->workspace_names_scroll);
+ 		if (pager->display_workspaces_toggle)
+ 			gtk_widget_hide (pager->display_workspaces_toggle);
++		if (pager->viewports_frame)
++			gtk_widget_show (pager->viewports_frame);
+ 		break;
+ 	case PAGER_WM_UNKNOWN:
+ 		if (pager->workspaces_frame)
+ 			gtk_widget_hide (pager->workspaces_frame);
++		if (pager->viewports_frame)
++			gtk_widget_hide (pager->viewports_frame);
+ 		break;
+ 	default:
+ 		g_assert_not_reached ();
+@@ -155,7 +176,7 @@
+ 		pager->wm = PAGER_WM_UNKNOWN;
+ 	else if (strcmp (wm_name, "Metacity") == 0)
+ 		pager->wm = PAGER_WM_METACITY;
+-	else if (strcmp (wm_name, "Compiz") == 0)
++	else if (strcmp (wm_name, "compiz") == 0)
+ 		pager->wm = PAGER_WM_COMPIZ;
+ 	else
+ 		pager->wm = PAGER_WM_UNKNOWN;
+@@ -211,7 +232,8 @@
+ 	pager->orientation = new_orient;
+ 	pager_update (pager);
+ 	if (pager->label_row_col) 
+-		gtk_label_set_text (GTK_LABEL (pager->label_row_col), pager->orientation == GTK_ORIENTATION_HORIZONTAL ? _("rows") : _("columns"));	
++		gtk_label_set_text (GTK_LABEL (pager->label_row_col),
++                                    pager->orientation == GTK_ORIENTATION_HORIZONTAL ? _("rows") : _("columns"));
+ }
+ 
+ static void
+@@ -663,6 +685,34 @@
+ 				    NULL);
+ }
+ 
++/* compiz' "columns" */
++static void
++hsize_value_changed (GtkSpinButton *button,
++                     gpointer      data)
++{
++	GConfClient* client = gconf_client_get_default ();
++
++        gconf_client_set_int (client,
++                              COMPIZ_HSIZE,
++                              gtk_spin_button_get_value_as_int (button),
++                              NULL);
++	g_object_unref (client);
++}
++
++/* compiz' "rows" */
++static void
++vsize_value_changed (GtkSpinButton *button,
++                     gpointer      data)
++{
++	GConfClient* client = gconf_client_get_default ();
++
++        gconf_client_set_int (client,
++                              COMPIZ_VSIZE,
++                              gtk_spin_button_get_value_as_int (button),
++                              NULL);
++	g_object_unref (client);
++}
++
+ static void
+ update_workspaces_model (PagerData *pager)
+ {
+@@ -787,6 +837,7 @@
+ 			     PagerData *pager)
+ {
+ 	pager->properties_dialog = NULL;
++	pager->switcher_frame = NULL;
+ 	pager->workspaces_frame = NULL;
+ 	pager->workspace_names_label = NULL;
+ 	pager->workspace_names_scroll = NULL;
+@@ -798,6 +849,9 @@
+ 	pager->num_workspaces_spin = NULL;
+ 	pager->workspaces_tree = NULL;
+ 	pager->workspaces_store = NULL;
++	pager->viewports_frame = NULL;
++	pager->hsize_spin = NULL;
++	pager->vsize_spin = NULL;
+ }
+ 
+ static gboolean
+@@ -900,13 +954,49 @@
+ 	GtkTreeViewColumn *column;
+ 	GtkCellRenderer *cell;
+ 	int nr_ws, i;
+-	
++	GConfClient* client = NULL;
++	gint hsize;
++	gint vsize;
++
++	pager->switcher_frame = WID ("switcher_frame");
+ 	pager->workspaces_frame = WID ("workspaces_frame");
+ 	pager->workspace_names_label = WID ("workspace_names_label");
+ 	pager->workspace_names_scroll = WID ("workspace_names_scroll");
+ 
++	if (pager->wm == PAGER_WM_COMPIZ)
++	{
++		client = gconf_client_get_default ();
++
++		pager->viewports_frame = WID ("viewports_frame");
++		pager->hsize_spin = WID ("hsize_spin");
++		pager->vsize_spin = WID ("vsize_spin");
++
++		g_signal_connect (G_OBJECT (pager->hsize_spin),
++				  "value-changed",
++				  (GCallback) hsize_value_changed,
++				  NULL);
++
++		g_signal_connect (G_OBJECT (pager->vsize_spin),
++				  "value-changed",
++				  (GCallback) vsize_value_changed,
++				  NULL);
++
++	        /* set value for hsize (compiz's "columns") */
++		hsize = gconf_client_get_int (client, COMPIZ_HSIZE, NULL);
++		gtk_spin_button_set_value (GTK_SPIN_BUTTON (pager->hsize_spin),
++					   hsize);
++
++	        /* set value for vsize (compiz's "rows") */
++		vsize = gconf_client_get_int (client, COMPIZ_VSIZE, NULL);
++		gtk_spin_button_set_value (GTK_SPIN_BUTTON (pager->vsize_spin),
++					   vsize);
++
++	        g_object_unref (client);
++	}
++	
+ 	pager->display_workspaces_toggle = WID ("workspace_name_toggle");
+-	setup_sensitivity (pager, builder,
++	setup_sensitivity (pager,
++			   builder,
+ 			   "workspace_name_toggle",
+ 			   NULL,
+ 			   NULL,
+@@ -914,7 +1004,8 @@
+ 
+ 	pager->all_workspaces_radio = WID ("all_workspaces_radio");
+ 	pager->current_only_radio = WID ("current_only_radio");
+-	setup_sensitivity (pager, builder,
++	setup_sensitivity (pager,
++			   builder,
+ 			   "all_workspaces_radio",
+ 			   "current_only_radio",
+ 			   "label_row_col",
+@@ -922,14 +1013,16 @@
+ 
+ 	pager->num_rows_spin = WID ("num_rows_spin");
+ 	pager->label_row_col = WID("label_row_col");
+-	setup_sensitivity (pager, builder,
++	setup_sensitivity (pager,
++			   builder,
+ 			   "num_rows_spin",
+ 			   NULL,
+ 			   NULL,
+ 			   "num_rows" /* key */);
+ 
+ 	pager->num_workspaces_spin = WID ("num_workspaces_spin");
+-	setup_sensitivity (pager, builder,
++	setup_sensitivity (pager,
++			   builder,
+ 			   "num_workspaces_spin",
+ 			   NULL,
+ 			   NULL,
+@@ -943,92 +1036,130 @@
+ 			   WORKSPACE_NAME /* key */);
+ 
+ 	/* Display workspace names: */
+-	
+-	g_signal_connect (G_OBJECT (pager->display_workspaces_toggle), "toggled",
+-			  (GCallback) display_workspace_names_toggled, pager);
++	g_signal_connect (G_OBJECT (pager->display_workspaces_toggle),
++			  "toggled",
++			  (GCallback) display_workspace_names_toggled,
++			  pager);
+ 
+-	if (pager->display_mode == WNCK_PAGER_DISPLAY_NAME) {
++	if (pager->display_mode == WNCK_PAGER_DISPLAY_NAME)
+ 		value = TRUE;
+-	} else {
++	else
+ 		value = FALSE;
+-	}
++
+ 	gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (pager->display_workspaces_toggle),
+ 				      value);
+ 
+ 	/* Display all workspaces: */
+-	g_signal_connect (G_OBJECT (pager->all_workspaces_radio), "toggled",
+-			  (GCallback) all_workspaces_toggled, pager);
++	g_signal_connect (G_OBJECT (pager->all_workspaces_radio),
++			  "toggled",
++			  (GCallback) all_workspaces_toggled,
++			  pager);
+ 
+-	if (pager->display_all) {
+-		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (pager->all_workspaces_radio), TRUE);
+-		if ( ! g_object_get_data (G_OBJECT (pager->num_rows_spin), NEVER_SENSITIVE))
+-			gtk_widget_set_sensitive (pager->num_rows_spin, TRUE);
+-	} else {
+-		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (pager->current_only_radio), TRUE);
+-		gtk_widget_set_sensitive (pager->num_rows_spin, FALSE);
++	if (pager->display_all)
++	{
++		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (pager->all_workspaces_radio),
++					      TRUE);
++
++		if (!g_object_get_data (G_OBJECT (pager->num_rows_spin),
++					NEVER_SENSITIVE))
++			gtk_widget_set_sensitive (pager->num_rows_spin,
++						  TRUE);
+ 	}
+-		
++	else
++	{
++		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (pager->current_only_radio),
++					      TRUE);
++		gtk_widget_set_sensitive (pager->num_rows_spin,
++					  FALSE);
++	}
++
+ 	/* Num rows: */
+-	g_signal_connect (G_OBJECT (pager->num_rows_spin), "value_changed",
+-			  (GCallback) num_rows_value_changed, pager);
++	g_signal_connect (G_OBJECT (pager->num_rows_spin),
++			  "value_changed",
++			  (GCallback) num_rows_value_changed,
++			  pager);
+ 
+-	gtk_spin_button_set_value (GTK_SPIN_BUTTON (pager->num_rows_spin), pager->n_rows);
+-	gtk_label_set_text (GTK_LABEL (pager->label_row_col), pager->orientation == GTK_ORIENTATION_HORIZONTAL ? _("rows") : _("columns"));
++	gtk_spin_button_set_value (GTK_SPIN_BUTTON (pager->num_rows_spin),
++				   pager->n_rows);
++	gtk_label_set_text (GTK_LABEL (pager->label_row_col),
++			    pager->orientation == GTK_ORIENTATION_HORIZONTAL ? _("rows") : _("columns"));
+ 
+-	g_signal_connect (pager->properties_dialog, "destroy",
++	g_signal_connect (pager->properties_dialog,
++			  "destroy",
+ 			  G_CALLBACK (properties_dialog_destroyed),
+ 			  pager);
+-	g_signal_connect (pager->properties_dialog, "delete_event",
++	g_signal_connect (pager->properties_dialog,
++			  "delete_event",
+ 			  G_CALLBACK (delete_event),
+ 			  pager);
+-	g_signal_connect (pager->properties_dialog, "response",
++	g_signal_connect (pager->properties_dialog,
++			  "response",
+ 			  G_CALLBACK (response_cb),
+ 			  pager);
+-	
+-	g_signal_connect (WID ("done_button"), "clicked",
+-			  (GCallback) close_dialog, pager);
++
++	g_signal_connect (WID ("done_button"),
++			  "clicked",
++			  (GCallback) close_dialog,
++			  pager);
+ 
+ 	gtk_spin_button_set_value (GTK_SPIN_BUTTON (pager->num_workspaces_spin),
+ 				   wnck_screen_get_workspace_count (pager->screen));
+-	g_signal_connect (G_OBJECT (pager->num_workspaces_spin), "value_changed",
+-			  (GCallback) num_workspaces_value_changed, pager);
+-	
+-	wncklet_connect_while_alive (pager->screen, "workspace_created",
+-				     G_CALLBACK(workspace_created),
++	g_signal_connect (G_OBJECT (pager->num_workspaces_spin),
++			  "value_changed",
++			  (GCallback) num_workspaces_value_changed,
++			  pager);
++
++	wncklet_connect_while_alive (pager->screen,
++				     "workspace_created",
++				     G_CALLBACK (workspace_created),
+ 				     pager,
+ 				     pager->properties_dialog);
+ 
+-	wncklet_connect_while_alive (pager->screen, "workspace_destroyed",
+-				     G_CALLBACK(workspace_destroyed),
++	wncklet_connect_while_alive (pager->screen,
++				     "workspace_destroyed",
++				     G_CALLBACK (workspace_destroyed),
+ 				     pager,
+ 				     pager->properties_dialog);
+ 
+-	g_signal_connect (G_OBJECT (pager->workspaces_tree), "focus_out_event",
+-			  (GCallback) workspaces_tree_focused_out, pager);
++	g_signal_connect (G_OBJECT (pager->workspaces_tree),
++			  "focus_out_event",
++			  (GCallback) workspaces_tree_focused_out,
++			  pager);
+ 
+-	pager->workspaces_store = gtk_list_store_new (1, G_TYPE_STRING, NULL);
++	pager->workspaces_store = gtk_list_store_new (1,
++						      G_TYPE_STRING,
++						      NULL);
+ 	update_workspaces_model (pager);
+-	gtk_tree_view_set_model (GTK_TREE_VIEW (pager->workspaces_tree), GTK_TREE_MODEL (pager->workspaces_store));
++	gtk_tree_view_set_model (GTK_TREE_VIEW (pager->workspaces_tree),
++				 GTK_TREE_MODEL (pager->workspaces_store));
+ 
+ 	g_object_unref (pager->workspaces_store);
+ 
+-	cell = g_object_new (GTK_TYPE_CELL_RENDERER_TEXT, "editable", TRUE, NULL);
++	cell = g_object_new (GTK_TYPE_CELL_RENDERER_TEXT,
++			     "editable",
++			     TRUE,
++			     NULL);
+ 	column = gtk_tree_view_column_new_with_attributes ("workspace",
+ 							   cell,
+-							   "text", 0,
++							   "text",
++							   0,
+ 							   NULL);
+-	gtk_tree_view_append_column (GTK_TREE_VIEW (pager->workspaces_tree), column);
+-	g_signal_connect (cell, "edited",
+-			  (GCallback) workspace_name_edited, pager);
+-	
++	gtk_tree_view_append_column (GTK_TREE_VIEW (pager->workspaces_tree),
++				     column);
++	g_signal_connect (cell,
++			  "edited",
++			  (GCallback) workspace_name_edited,
++			  pager);
++
+ 	nr_ws = wnck_screen_get_workspace_count (pager->screen);
+-	for (i = 0; i < nr_ws; i++) {
+-		wncklet_connect_while_alive (
+-				G_OBJECT (wnck_screen_get_workspace (pager->screen, i)),
+-			   	"name_changed",
+-				G_CALLBACK(workspace_renamed),
+-				pager,
+-				pager->properties_dialog);
++	for (i = 0; i < nr_ws; i++)
++	{
++		wncklet_connect_while_alive (G_OBJECT (wnck_screen_get_workspace (pager->screen,
++										  i)),
++					     "name_changed",
++					     G_CALLBACK (workspace_renamed),
++					     pager,
++					     pager->properties_dialog);
+ 	}
+ 
+ 	update_properties_for_wm (pager);
+Index: gnome-panel-2.30.0/applets/wncklet/workspace-switcher.ui
+===================================================================
+--- gnome-panel-2.30.0.orig/applets/wncklet/workspace-switcher.ui	2010-01-14 14:26:27.000000000 +1100
++++ gnome-panel-2.30.0/applets/wncklet/workspace-switcher.ui	2010-06-03 13:57:59.223947813 +1000
+@@ -20,7 +20,7 @@
+             <property name="orientation">vertical</property>
+             <property name="spacing">12</property>
+             <child>
+-              <object class="GtkFrame" id="frame1">
++              <object class="GtkFrame" id="switcher_frame">
+                 <property name="visible">True</property>
+                 <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
+                 <property name="label_xalign">0</property>
+@@ -253,6 +253,114 @@
+                 <property name="position">1</property>
+               </packing>
+             </child>
++            <child>
++              <object class="GtkFrame" id="viewports_frame">
++                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                <property name="no_show_all">True</property>
++                <property name="label_xalign">0</property>
++                <property name="shadow_type">none</property>
++                <child>
++                  <object class="GtkAlignment" id="viewports_alignment">
++                    <property name="visible">True</property>
++                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                    <property name="left_padding">12</property>
++                    <child>
++                      <object class="GtkVBox" id="viewports_vbox">
++                        <property name="visible">True</property>
++                        <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                        <property name="spacing">6</property>
++                        <child>
++                          <object class="GtkTable" id="viewports_table">
++                            <property name="visible">True</property>
++                            <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                            <property name="n_rows">2</property>
++                            <property name="n_columns">2</property>
++                            <property name="column_spacing">6</property>
++                            <property name="row_spacing">6</property>
++                            <child>
++                              <object class="GtkLabel" id="hsize_label">
++                                <property name="visible">True</property>
++                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                                <property name="label" translatable="yes">Co_lumns:</property>
++                                <property name="use_underline">True</property>
++                                <property name="mnemonic_widget">hsize_spin</property>
++                              </object>
++                              <packing>
++                                <property name="x_options"></property>
++                                <property name="y_options"></property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkSpinButton" id="hsize_spin">
++                                <property name="visible">True</property>
++                                <property name="can_focus">True</property>
++                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                                <property name="adjustment">hsize_spin_adjustment</property>
++                                <property name="climb_rate">1</property>
++                              </object>
++                              <packing>
++                                <property name="left_attach">1</property>
++                                <property name="right_attach">2</property>
++                                <property name="x_options"></property>
++                                <property name="y_options"></property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkLabel" id="vsize_label">
++                                <property name="visible">True</property>
++                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                                <property name="label" translatable="yes">_Rows:</property>
++                                <property name="use_underline">True</property>
++                                <property name="mnemonic_widget">vsize_spin</property>
++                              </object>
++                              <packing>
++                                <property name="top_attach">1</property>
++                                <property name="bottom_attach">2</property>
++                                <property name="x_options"></property>
++                                <property name="y_options"></property>
++                              </packing>
++                            </child>
++                            <child>
++                              <object class="GtkSpinButton" id="vsize_spin">
++                                <property name="visible">True</property>
++                                <property name="can_focus">True</property>
++                                <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                                <property name="adjustment">vsize_spin_adjustment</property>
++                                <property name="climb_rate">1</property>
++                              </object>
++                              <packing>
++                                <property name="left_attach">1</property>
++                                <property name="right_attach">2</property>
++                                <property name="top_attach">1</property>
++                                <property name="bottom_attach">2</property>
++                                <property name="x_options"></property>
++                                <property name="y_options"></property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">False</property>
++                            <property name="position">0</property>
++                          </packing>
++                        </child>
++                      </object>
++                    </child>
++                  </object>
++                </child>
++                <child type="label">
++                  <object class="GtkLabel" id="label_viewports">
++                    <property name="visible">True</property>
++                    <property name="events">GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK | GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK</property>
++                    <property name="label" translatable="yes">&lt;b&gt;Workspaces&lt;/b&gt;</property>
++                    <property name="use_markup">True</property>
++                  </object>
++                </child>
++              </object>
++              <packing>
++                <property name="position">2</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="position">1</property>
+@@ -320,4 +428,18 @@
+     <property name="step_increment">1</property>
+     <property name="page_increment">10</property>
+   </object>
++  <object class="GtkAdjustment" id="hsize_spin_adjustment">
++    <property name="value">1</property>
++    <property name="lower">1</property>
++    <property name="upper">16</property>
++    <property name="step_increment">1</property>
++    <property name="page_increment">10</property>
++  </object>
++  <object class="GtkAdjustment" id="vsize_spin_adjustment">
++    <property name="value">1</property>
++    <property name="lower">1</property>
++    <property name="upper">16</property>
++    <property name="step_increment">1</property>
++    <property name="page_increment">10</property>
++  </object>
+ </interface>
+Index: gnome-panel-2.30.0/gnome-panel/main.c
+===================================================================
+--- gnome-panel-2.30.0.orig/gnome-panel/main.c	2010-01-28 02:34:38.000000000 +1100
++++ gnome-panel-2.30.0/gnome-panel/main.c	2010-06-03 13:57:59.223947813 +1000
+@@ -115,6 +115,11 @@
+ 			      GCONF_CLIENT_PRELOAD_NONE,
+ 			      NULL);
+ 
++	gconf_client_add_dir (panel_gconf_get_client (),
++			      "/apps/compiz/general/screen0/options",
++			      GCONF_CLIENT_PRELOAD_NONE,
++			      NULL);
++
+ 	panel_global_config_load ();
+ 	panel_lockdown_init ();
+ 	panel_profile_load ();
+@@ -139,6 +144,10 @@
+ 	panel_lockdown_finalize ();
+ 
+ 	gconf_client_remove_dir (panel_gconf_get_client (),
++				 "/apps/compiz/general/screen0/options",
++				 NULL);
++
++	gconf_client_remove_dir (panel_gconf_get_client (),
+ 				 "/desktop/gnome/interface",
+ 				 NULL);
+ 

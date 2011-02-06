@@ -1,0 +1,411 @@
+diff -ru klibido-0.2.5-orig/src/klibido.cpp klibido-0.2.5/src/klibido.cpp
+--- klibido-0.2.5-orig/src/klibido.cpp	2006-03-04 11:29:01.000000000 +0100
++++ klibido-0.2.5/src/klibido.cpp	2009-10-08 10:49:38.000000000 +0200
+@@ -38,7 +38,7 @@
+ // // #include <kaction.h>
+ #include <kprogress.h>
+ #include <kdeversion.h>
+-
++#include <ksystemtray.h>
+ #include <kglobal.h>
+ 
+ 
+@@ -46,7 +46,7 @@
+ 
+ 
+ klibido::klibido()
+-	: KMdiMainFrm( 0, "KLibido"  ,KMdi::IDEAlMode )
++	: KMdiMainFrm( 0, "KLibido"  ,KMdi::IDEAlMode ), m_quit(false)
+ {
+ 
+     // set the shell's ui resource file
+@@ -78,8 +78,11 @@
+   }
+   else  migrateDbs();
+ 	
+-	
+-	
++	//setup systemtray icon
++	systemTray = new KSystemTray(this);
++	systemTray->setPixmap(systemTray->loadIcon("klibido"));
++	connect(systemTray, SIGNAL(quitSelected()), this, SLOT(quit()));
++	systemTray->show();
+ // 	setupServers();
+ 	
+ 	
+@@ -438,15 +441,13 @@
+ 	
+ }
+ 
+-
+-
+-
+-
+ void klibido::quit()
+ {
+     /// @todo implement me
+ // 	return;
+ // 	this->close();
++	m_quit = true;
++
+ 	if (close() )
+ 		kapp->quit();
+ }
+@@ -1636,21 +1637,29 @@
+ 
+ void klibido::closeEvent( QCloseEvent * e )
+ {
+-	if (qMgr->empty()) {
+-		saveSize("MainWindow");
+-		e->accept();
++	if(m_quit)
++	{
++		if (qMgr->empty()) {
++			saveSize("MainWindow");
++			e->accept();
+ 
+-	} else {
+-		int result=KMessageBox::questionYesNo(this, i18n("The download queue is not empty. Are you sure you want to quit?"), i18n("question"));
+-		switch (result) {
+-			case KMessageBox::Yes:
+-				saveSize("MainWindow");
+-				e->accept();
+-				break;
+-			case KMessageBox::No:
+-				break;
++		} else {
++			int result=KMessageBox::questionYesNo(this, i18n("The download queue is not empty. Are you sure you want to quit?"), i18n("question"));
++			switch (result) {
++				case KMessageBox::Yes:
++					saveSize("MainWindow");
++					e->accept();
++					break;
++				case KMessageBox::No:
++					m_quit = false;
++					break;
++			}
+ 		}
+ 	}
++	else
++	{
++		hide();
++	}
+ }
+ 
+ void klibido::slotQPaused( bool paused)
+@@ -2093,5 +2102,15 @@
+ 	}	
+ }
+ 
++bool klibido::queryClose()
++{
++	kdDebug() << "queryClose() returning " << m_quit;
++	if(!m_quit)
++	{
++		hide();
++	}
++
++	return m_quit;
++}
+ 
+ #include "klibido.moc"
+diff -ru klibido-0.2.5-orig/src/klibido.h klibido-0.2.5/src/klibido.h
+--- klibido-0.2.5-orig/src/klibido.h	2006-02-09 11:01:19.000000000 +0100
++++ klibido-0.2.5/src/klibido.h	2009-10-07 23:49:11.000000000 +0200
+@@ -54,6 +54,7 @@
+ class ServersList;
+ class AvailableGroups;
+ class FileViewer;
++class KSystemTray;
+ //Toolbar...
+ 
+ 
+@@ -131,7 +132,8 @@
+ 	KAccel *accel;
+ 	KPopupMenu *wMenu;
+ 	KAction *closeAction;
+-	
++	KSystemTray *systemTray;
++	bool m_quit;
+ 	
+ 	//Statusbar widget
+ // 	QLabel *tLabel;
+@@ -189,6 +191,9 @@
+      */
+     virtual ~klibido();
+ 
++protected:
++	virtual bool queryClose();
++
+ public slots:
+ 	//void openNewWindow();
+ 	void slotOpenNewsGroup(NewsGroup *ng);
+diff -ru klibido-0.2.5-orig/src/qmgr.cpp klibido-0.2.5/src/qmgr.cpp
+--- klibido-0.2.5-orig/src/qmgr.cpp	2006-02-12 09:04:51.000000000 +0100
++++ klibido-0.2.5/src/qmgr.cpp	2009-10-07 21:31:08.000000000 +0200
+@@ -2570,138 +2570,143 @@
+ 
+ void QMgr::slotOpenNzb( )
+ {
+-	QString nzbFilename = KFileDialog::getOpenFileName(QString::null, "*.nzb|Newzbin Files\n", this, i18n("Open a .nzb file"));
+-	kdDebug() << "Opened " << nzbFilename << endl;
+-	
+-	if (nzbFilename.isNull())
+-		return;
+-	
+-	//Parse nzb and add posts to the queue
+-	//Ok, I should create a separate class...but for now, let's try a quick & dirty solution...
+-	//Code taken (and adapted with permission) from knzb, (C) 2004 David Pye.
+-	
+-	QFile nzbFile(nzbFilename);
+-	if (!nzbFile.open(IO_ReadOnly)) {
+-		//TODO: Error messagebox!
+-		return;
+-	}
+-	QMap<int, BinHeader*> headerMap;
+-	int i=0;
+-	
+-	QDomDocument doc("nzbfile");
+-	BinHeader *bh = NULL;
+-	doc.setContent(&nzbFile);
+-	nzbFile.close();
+-	QFileInfo qf(nzbFilename);
+-	QRegExp rx("\\((\\d+)/(\\d+)\\)");
+-	QDomElement docElem = doc.documentElement();
+-	QDomNode n = docElem.firstChild();
+-	
+-	while (!n.isNull()) {
+-		
+-		QDomElement e = n.toElement();
+-		if (!e.isNull()) {
+-			if (e.tagName() = "file") {
+-				//Create a BinHeader
+-				i++;
+-				bh = new BinHeader();
+-				QString subject = e.attribute("subject");
+-				int pos=0;
+-				int capPart=0;
+-				int capTotal=0;
+-				int index=-1; // = rx.search(h->m_subj, -1);
+-				while ( (pos=rx.search(subject, pos)) != -1 ) {
+-					index=pos;
+-					pos+=rx.matchedLength();
+-					capPart=rx.cap(1).toInt();
+-					capTotal=rx.cap(2).toInt();
+-				}
+-				subject=subject.left(index).simplifyWhiteSpace();
+-				bh->setSubj(subject);
+-				
+-				bh->setFrom(e.attribute("poster"));
+-				QDateTime qdt;
+-				qdt.setTime_t(e.attribute("date").toUInt());
+-				bh->setDate(qdt.toTime_t());
+-				bh->setStatus(BinHeader::bh_new);
+-				bh->setNumParts(capTotal);
+-				QDomNode fileSubNode = e.firstChild();
+-				while (!fileSubNode.isNull()) {
+-					QDomElement fileElement = fileSubNode.toElement();
+-					if (!fileElement.isNull()) {
+-						if (fileElement.tagName()=="segments") {
+-							QDomNode segmentsSubNode = fileSubNode.firstChild();
+-							while (!segmentsSubNode.isNull()) {
+-								QDomElement segmentsElement = segmentsSubNode.toElement();
+-								if (!segmentsElement.isNull()) {
+-									if (segmentsElement.tagName()=="segment") {
+-										int bytes = segmentsElement.attribute("bytes").toInt();
+-										int part = segmentsElement.attribute("number").toInt();
+-										QString mid = segmentsElement.text();
+-										bh->addNzbPart(part, bytes, mid);
+-										Servers::Iterator sit;
+-										for (sit = servers->begin(); sit != servers->end(); ++sit) {
+-											bh->addHost(part, sit.key());
++	QStringList nzbFilenames = KFileDialog::getOpenFileNames(QString::null, "*.nzb|Newzbin Files\n", this, i18n("Open .nzb files"));
++	QStringList::iterator it;
++
++	for(it = nzbFilenames.begin(); it != nzbFilenames.end(); it++)
++	{
++		QString nzbFilename = *it;
++		kdDebug() << "Opened " << nzbFilename << endl;
++
++		if (nzbFilename.isNull())
++			continue;
++
++		//Parse nzb and add posts to the queue
++		//Ok, I should create a separate class...but for now, let's try a quick & dirty solution...
++		//Code taken (and adapted with permission) from knzb, (C) 2004 David Pye.
++
++		QFile nzbFile(nzbFilename);
++		if (!nzbFile.open(IO_ReadOnly)) {
++			//TODO: Error messagebox!
++			continue;
++		}
++		QMap<int, BinHeader*> headerMap;
++		int i=0;
++
++		QDomDocument doc("nzbfile");
++		BinHeader *bh = NULL;
++		doc.setContent(&nzbFile);
++		nzbFile.close();
++		QFileInfo qf(nzbFilename);
++		QRegExp rx("\\((\\d+)/(\\d+)\\)");
++		QDomElement docElem = doc.documentElement();
++		QDomNode n = docElem.firstChild();
++
++		while (!n.isNull()) {
++
++			QDomElement e = n.toElement();
++			if (!e.isNull()) {
++				if (e.tagName() = "file") {
++					//Create a BinHeader
++					i++;
++					bh = new BinHeader();
++					QString subject = e.attribute("subject");
++					int pos=0;
++					int capPart=0;
++					int capTotal=0;
++					int index=-1; // = rx.search(h->m_subj, -1);
++					while ( (pos=rx.search(subject, pos)) != -1 ) {
++						index=pos;
++						pos+=rx.matchedLength();
++						capPart=rx.cap(1).toInt();
++						capTotal=rx.cap(2).toInt();
++					}
++					subject=subject.left(index).simplifyWhiteSpace();
++					bh->setSubj(subject);
++
++					bh->setFrom(e.attribute("poster"));
++					QDateTime qdt;
++					qdt.setTime_t(e.attribute("date").toUInt());
++					bh->setDate(qdt.toTime_t());
++					bh->setStatus(BinHeader::bh_new);
++					bh->setNumParts(capTotal);
++					QDomNode fileSubNode = e.firstChild();
++					while (!fileSubNode.isNull()) {
++						QDomElement fileElement = fileSubNode.toElement();
++						if (!fileElement.isNull()) {
++							if (fileElement.tagName()=="segments") {
++								QDomNode segmentsSubNode = fileSubNode.firstChild();
++								while (!segmentsSubNode.isNull()) {
++									QDomElement segmentsElement = segmentsSubNode.toElement();
++									if (!segmentsElement.isNull()) {
++										if (segmentsElement.tagName()=="segment") {
++											int bytes = segmentsElement.attribute("bytes").toInt();
++											int part = segmentsElement.attribute("number").toInt();
++											QString mid = segmentsElement.text();
++											bh->addNzbPart(part, bytes, mid);
++											Servers::Iterator sit;
++											for (sit = servers->begin(); sit != servers->end(); ++sit) {
++												bh->addHost(part, sit.key());
++											}
+ 										}
+ 									}
++									segmentsSubNode = segmentsSubNode.nextSibling();
+ 								}
+-								segmentsSubNode = segmentsSubNode.nextSibling();
+ 							}
+ 						}
++
++						fileSubNode=fileSubNode.nextSibling();
+ 					}
+-					
+-					fileSubNode=fileSubNode.nextSibling();
++
+ 				}
+-				
++				//BEGIN DEBUG!
++	// 			kdDebug() << "Binheader created!" << endl;
++	// 			kdDebug() << "Subject: " << bh->getSubj() << endl;
++	// 			kdDebug() << "From: " << bh->getFrom() << endl;
++	// 			kdDebug() << "Bytes: " << bh->getSize() << endl;
++	// 			kdDebug() << "Parts: " << bh->getParts() << endl;
++	// 			PartMid::Iterator pit;
++	// 			for (pit=bh->partMid.begin() ; pit != bh->partMid.end(); ++pit) {
++	// 				kdDebug() << "Part: " << pit.key() << " mid: " << pit.data() << endl;
++	// 			}
++				//END DEBUG
++
++				headerMap[i]=bh;
++
++				//Insert binheader into nzb group...
++				/*
++				Dbt key, data;
++				memset(&key, 0, sizeof(key));
++				memset(&data, 0, sizeof(data));
++
++
++				QString index=bh->getSubj().simplifyWhiteSpace() + bh->getFrom();
++				kdDebug() << "Saving " << index << endl;
++
++				key.set_data((void*) (const char *) index);
++				key.set_size(index.length());
++				data.set_data(bh->data() );
++				data.set_size(bh->getRecordSize());
++				int ret;
++				if ( (ret = nzbGroup->getDb()->put(0, &key, &data, 0) ) != 0)
++					kdDebug() << "Error inserting binheader into nzbGroup: " << dbEnv->strerror(ret) << endl;
++
++				free(data.get_data());
++
++
++				slotAddPostItem(bh, nzbGroup, false,false);
++				*/
+ 			}
+-			//BEGIN DEBUG!
+-// 			kdDebug() << "Binheader created!" << endl;
+-// 			kdDebug() << "Subject: " << bh->getSubj() << endl;
+-// 			kdDebug() << "From: " << bh->getFrom() << endl;
+-// 			kdDebug() << "Bytes: " << bh->getSize() << endl;
+-// 			kdDebug() << "Parts: " << bh->getParts() << endl;
+-// 			PartMid::Iterator pit;
+-// 			for (pit=bh->partMid.begin() ; pit != bh->partMid.end(); ++pit) {
+-// 				kdDebug() << "Part: " << pit.key() << " mid: " << pit.data() << endl;
+-// 			}
+-			//END DEBUG
+-			
+-			headerMap[i]=bh;
+-			
+-			//Insert binheader into nzb group...
+-			/*
+-			Dbt key, data;
+-			memset(&key, 0, sizeof(key));
+-			memset(&data, 0, sizeof(data));
+-			
+-			
+-			QString index=bh->getSubj().simplifyWhiteSpace() + bh->getFrom();
+-			kdDebug() << "Saving " << index << endl;
+-			
+-			key.set_data((void*) (const char *) index);
+-			key.set_size(index.length());
+-			data.set_data(bh->data() );
+-			data.set_size(bh->getRecordSize());
+-			int ret;
+-			if ( (ret = nzbGroup->getDb()->put(0, &key, &data, 0) ) != 0) 
+-				kdDebug() << "Error inserting binheader into nzbGroup: " << dbEnv->strerror(ret) << endl;
+-			
+-			free(data.get_data());
+-			
+-			
+-			slotAddPostItem(bh, nzbGroup, false,false);
+-			*/
++			n=n.nextSibling();
+ 		}
+-		n=n.nextSibling();
++		QFileInfo fi(nzbFilename);
++
++		NzbForm *nzbForm = new NzbForm(&headerMap, nzbGroup->getSaveDir() +  fi.baseName(true), this, nzbFilename, true);
++		connect(nzbForm, SIGNAL(sigDownloadNzbPost(BinHeader*, bool, QString )), this, SLOT(slotAddNzbItem(BinHeader*, bool, QString)));
++		nzbForm->exec();
++
++		nzbGroup->getDb()->sync(0);
+ 	}
+-	QFileInfo fi(nzbFilename);
+-	
+-	NzbForm *nzbForm = new NzbForm(&headerMap, nzbGroup->getSaveDir() +  fi.baseName(true), this, nzbFilename, true);
+-	connect(nzbForm, SIGNAL(sigDownloadNzbPost(BinHeader*, bool, QString )), this, SLOT(slotAddNzbItem(BinHeader*, bool, QString)));
+-	nzbForm->exec();
+-	
+-	nzbGroup->getDb()->sync(0);
+-	
+ }
+ 
+ 

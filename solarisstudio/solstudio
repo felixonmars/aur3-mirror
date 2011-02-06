@@ -1,0 +1,335 @@
+#! /bin/bash
+
+# @(#)solstudio.bash	1.94 10/06/15
+# Copyright (c) 2006, 2010, Oracle and/or its affiliates. All rights reserved.
+# @(#)RELEASE VERSION Sun Studio IDE 9.0 Linux_i386 2010/08/13
+
+OS=$(/bin/uname)
+DEFAULT_USERDIR="$HOME/.sunstudio/12.2-$OS-$(/bin/uname -p)"
+SPRO_JAVA_BINARY=${SPRO_JAVA_BINARY:-java}
+USERDIR=
+i=0
+j=0
+dbcount=0
+clusters=
+export AWT_TOOLKIT=MToolkit
+
+GETTEXT=/usr/bin/gettext
+
+# Resolve symlinks and set SPROHOME
+case "$0" in
+/*)	PRG=$0 ;; 
+*)	PRG=$PWD/$0 ;;
+esac
+
+while [ -h "$PRG" ]
+do
+    ls=$(/bin/ls -ld "$PRG")
+    link=$(/usr/bin/expr "$ls" : '^.*-> \(.*\)$' 2>/dev/null)
+    if /usr/bin/expr "$link" : '^/' 2> /dev/null >/dev/null
+    then
+	PRG="$link"
+    else
+	PRG="`/usr/bin/dirname "$PRG"`/$link"
+    fi
+done
+
+cd $(/usr/bin/dirname $PRG)/../..
+SPROHOME=$(/bin/pwd)
+SPROBIN=$(/bin/pwd)/bin
+SPROLIB=$(/bin/pwd)/lib
+SPROCHECKUPDATE=$(/bin/pwd)/prod/bin/check_update
+SPROIDENAME=sside
+cd $OLDPWD
+
+# Add i18n information
+export TEXTDOMAIN=sunstudio
+export TEXTDOMAINDIR=$SPROHOME/prod/lib/locale
+
+# Add product installation bin to path
+export PATH="${PATH}:${SPROHOME}/bin"
+
+# Check updates
+if [ -x ${SPROHOME}/prod/bin/check_update ]; then
+  ${SPROHOME}/prod/bin/check_update IDE > /dev/null 2>&1 < /dev/null &
+fi
+
+# Check DISPLAY variable
+if [ "no$DISPLAY" = "no" ]; then
+    echo "$0: ERROR: environment variable DISPLAY is not set"
+    exit 2
+fi
+
+# Define the usage function
+usage() {
+    
+    if [ -n "$1" ]
+    then
+	fmt=$(${GETTEXT} -e $"Invalid option: \"%s\"")
+	printf "$fmt\n" "$1"
+    fi
+    fmt=$(${GETTEXT} -e $"Usage: %s {options}
+
+	Options can be:
+
+	    -J<jvm-options>       Pass <jvm-options> to the JVM at startup
+
+	    --jdkhome <path>	  Path to JDK installation
+            --netbeanshome <path> Path to NetBeans distribution
+	    --userdir <path>	  Path of user settings directory
+
+	    --help		  Show usage information
+	    --version		  Emit version information (same as -V)
+	    -V			  Emit version information (same as --version)
+
+	    See '${SPROHOME}/netbeans/bin/netbeans --help' for more options.
+
+	Note:
+	-E, -C, -A, and -D options are no longer supported by solstudio. Please use dbxtool.
+	Options-arguments with embedded spaces must be quoted.")
+    printf "$fmt\n" "$0"
+}
+
+# Define the version output function
+showVersion() {
+    echo "Sun Studio IDE 9.0 Linux_i386 2010/08/13"
+}
+
+# Define the parse_args function
+parse_args() {
+    while [ -n "$1" ]
+    do
+	case "$1" in
+	-E|-C|-A|-D)
+	    if [ -n "$2" ]
+	    then
+		# One of:
+		#	-E: Debug an executable: [ -E "prog [args...]"]
+		#	-C: Debug a core file: [ -C core[:prog]]
+		#	-A: Attach PID: [ -A pid[:prog]]
+		#	-D: WorkShop compatability: [ -D prog [ core | pid ]]
+		SSARGS[$j]="-J-Dspro.debugger.session$dbcount.type=${1#-}"
+		((j=$j+1))
+		SSARGS[$j]="-J-Dspro.debugger.session$dbcount.line=$2"
+		((j=$j+1))
+		if [ "$1" = "-D" -a -n "$3" -a "$3" = "${3#-}" ]
+		then
+		    SSARGS[$j]="-J-Dspro.debugger.session$dbcount.extra=$3"
+		    ((j=$j+1))
+		    shift
+		fi
+		if [ "$1" = "-E" -a -n "$3" -a "$3" = "${3#-}" ]
+		then
+		    SSARGS[$j]="-J-Dspro.debugger.session$dbcount.extra=$3"
+		    ((j=$j+1))
+		    shift
+		fi
+		((dbcount=$dbcount+1))
+		shift
+		usage "$1"
+		exit 1
+	    else
+		usage "$1"
+		exit 1
+	    fi
+	    ;;
+
+	--jdkhome*)
+	    if [ "$1" == "--jdkhome" ]
+	    then
+		jdkhome=$2
+		java_how="--jdkhome"
+		shift
+	    else
+		jdkhome=${1#--jdkhome=}
+		java_how="--jdkhome"
+	    fi
+	    ;;
+
+	--netbeanshome*)
+	    if [ "$1" == "--netbeanshome" ]
+	    then
+		nbhome=$2
+		shift
+	    else
+		nbhome=${1#--netbeanshome=}
+	    fi
+	    ;;
+
+	--netbeanslocation)
+	    ECHONETBEANSLOCATION=true
+	    ;;
+
+	--userdir*)
+	    if [ "$1" == "--userdir" ]
+	    then
+		USERDIR=$2
+		shift
+	    else
+		USERDIR=${1#--userdir=}
+	    fi
+	    ;;
+
+	-J*)
+	    JARGS[$j]="${1}"
+	    ((j=$j+1))
+	    ;;
+
+	-V|--version)
+	    showVersion
+	    exit 0
+	    ;;
+
+	-h|-help|--help)
+	    usage
+	    exit 0
+	    ;;
+
+	*)
+	    NBARGS[$i]=$1
+	    ((i=$i+1))
+	    ;;
+	esac
+	shift
+    done
+}
+
+# fast solution for defining JVM startup options
+#conf_file="${SPROHOME}/prod/etc/sunstudio.conf"
+#if [ -r ${conf_file} ]
+#then
+	#. ${conf_file}
+	#parse_args ${sunstudio_default_options}
+#fi
+
+# Now process the command line
+parse_args "$@"
+
+# Ensure we have a userdir set.
+if [ -z "$USERDIR" ]
+then
+    USERDIR="$DEFAULT_USERDIR"
+fi
+
+# Validate NetBeans + CND installation
+function validate_netbeans_cnd
+{
+    if [ -f "$1/platform/core/core.jar" -a -d "$1/ide" -a -d "$1/cnd" ]
+    then
+        NBHOME=$1
+    elif [ "$2" != "" ]
+    then
+        if [ "$1" != "" ]
+	then
+	fmt=$(${GETTEXT} -e $"\
+Validating NetBeans IDE at: \"%s\"
+
+Oracle Solaris Studio is unable to find a supported version of the NetBeans IDE at the specified location.
+")
+	else
+	fmt=$(${GETTEXT} -e $"\
+Oracle Solaris Studio is unable to find a supported version of the NetBeans IDE.
+")
+	fi
+	printf "$fmt\n" $1
+	fmt=$(${GETTEXT} -e $"\
+Oracle Solaris Studio requires a NetBeans IDE version 6.9 with NetBeans C/C++ module (cnd) enabled.
+Oracle Solaris Studio looks for a valid NetBeans IDE installation in the following order:
+1) Location specified with --netbeanshome command line option
+2) At $SPROHOME/netbeans
+
+")
+	printf "$fmt\n" $1
+	exit 1
+    fi
+}
+
+# Search for netbeans from its location
+NBHOME=
+if [ -n "$nbhome" ]
+then
+    # --netbeanshome <nbhome>
+    validate_netbeans_cnd "$nbhome" error
+fi
+if [ -z "$NBHOME" ]
+then
+    # installed version
+    validate_netbeans_cnd "$SPROHOME/netbeans"
+fi
+if [ -z "$NBHOME" ]
+then
+    # nothing found
+    validate_netbeans_cnd "" error
+fi
+
+# Disable some modules by default
+/bin/mkdir -p "$USERDIR/config/Modules"
+
+# OLD /bin/cp $SPROHOME/prod/modules-xml/off/* $USERDIR/config/Modules
+# Some of the modules we don't want are autoload and you can't disable them
+# so we use the .xml_hidden technique.
+
+for MODULE in $(/bin/ls  $SPROHOME/prod/modules-xml/off/* )
+do
+	MODULEBASE=$(basename $MODULE)
+	/bin/cp $SPROHOME/prod/modules-xml/off/$MODULEBASE \
+		$USERDIR/config/Modules/$MODULEBASE""_hidden
+done
+
+# Prevent Import dialog and License dialog from showing
+#if [ ! -f $USERDIR/var/imported ]
+#then
+#    /bin/mkdir -p "$USERDIR/var"
+#    /bin/touch "$USERDIR/var/imported"
+#    /bin/touch "$USERDIR/var/license_accepted"
+#fi
+
+# Validate the selected JDK
+source $SPROHOME/prod/bin/jdk_chooser_ide
+
+# Now add some extra (but required) options
+NBARGS[$i]=--branding
+((i=$i+1))
+NBARGS[$i]=sunstudio
+((i=$i+1))
+NBARGS[$i]=--userdir
+((i=$i+1))
+NBARGS[$i]=$USERDIR
+((i=$i+1))
+NBARGS[$i]=--jdkhome
+((i=$i+1))
+NBARGS[$i]=$JDK_HOME
+((i=$i+1))
+
+SSARGS[$j]=-J-Dspro.home=$SPROHOME
+((j=$j+1))
+SSARGS[$j]=-J-Dspro.bin=$SPROBIN
+((j=$j+1))
+SSARGS[$j]=-J-Dspro.lib=$SPROLIB
+((j=$j+1))
+SSARGS[$j]=-J-Dspro.check_update=$SPROCHECKUPDATE
+((j=$j+1))
+SSARGS[$j]=-J-Dspro.ide.name=$SPROIDENAME
+((j=$j+1))
+SSARGS[$j]=-J-Dspro.pwd=$PWD
+((j=$j+1))
+SSARGS[$j]=-J-Dnb.registration.enabled=false
+((j=$j+1))
+SSARGS[$j]=-J-Dnetbeans.logger.console=false
+((j=$j+1))
+#SSARGS[$j]=-J-Dnetbeans.winsys.ctrltab.editoronly=true
+#((j=$j+1))
+#SSARGS[$j]=-J-da
+#((j=$j+1))
+
+# Possibly just echo NetBeans location and exit
+if [ -n "$ECHONETBEANSLOCATION" ]
+then
+    echo $NBHOME/bin/netbeans
+    exit 0
+fi
+
+# Run Netbeans
+export netbeans_extraclusters=$SPROHOME/prod/nb-clusters/sside1
+
+$NBHOME/bin/netbeans "${SSARGS[@]}" "${NBARGS[@]}" "${JARGS[@]}" 

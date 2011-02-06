@@ -1,0 +1,6 @@
+20 ctime=1272676740
+20 atime=1272676742
+19 SCHILY.dev=2051
+20 SCHILY.ino=47643
+18 SCHILY.nlink=1
+52 LIBARCHIVE.xattr.security.selinux=dW5sYWJlbGVkAA

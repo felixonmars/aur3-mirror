@@ -1,0 +1,68 @@
+post_install ()
+{
+	echo -e >&2 "\033[1;32m==>\033[0m Installing base system (x86_64)..."
+
+	local mirrorlist=$(mktemp --tmpdir mirrorlist.XXXX)
+
+	sed "s/i686\|x86_64/x86_64/g" "/etc/pacman.d/mirrorlist" > "$mirrorlist"
+
+	local config=$(mktemp --tmpdir pacman.conf.XXXX)
+
+	# filling pacman.conf
+	echo -e "[options]\n\n" \
+			"RootDir     = /opt/arch64/\n" \
+			"DBPath      = /opt/arch64/var/lib/pacman/\n" \
+			"LogFile     = /opt/arch64/var/log/pacman.log\n" \
+			"HoldPkg     = pacman glibc\n" \
+			"SyncFirst   = pacman\n" > "$config"
+
+	for i in testing core extra community; do
+		# comment the following line to enable testing in chroot
+		[ "$i" == "testing" ] && continue
+
+		echo -e "[$i]\nInclude = $mirrorlist\n" >> "$config"
+	done
+
+	# install packages
+	pacman --noconfirm --config "$config" -Sy base base-devel sudo >&2 || return 1
+
+	install -Dm644 "$mirrorlist" "/opt/arch64/etc/pacman.d/mirrorlist"
+
+	for i in group hosts localtime locale.gen pacman.conf \
+			profile.d/locale.sh rc.conf resolv.conf shadow sudoers;  do
+		ln -f "/etc/$i" "/opt/arch64/etc/" 2>/dev/null \
+			|| cp -af "/etc/$i" "/opt/arch64/etc/"
+	done
+
+	echo -e >&2 "\033[1;32m==>\033[0m Configuring schroot..."
+	echo -e "[arch64]
+description=arch64
+type=directory
+location=/opt/arch64
+priority=1
+#users=username
+groups=users
+root-groups=root
+run-setup-scripts=true
+run-exec-scripts=false
+script-config=script-arch64
+personality=linux
+aliases=64\n" >> /etc/schroot/schroot.conf
+
+	schroot -c arch64 locale-gen >&2
+}
+
+pre_remove ()
+{
+	[ -e /var/lib/schroot/mount/arch64-* ] \
+		&& echo -e >&2 "\033[1;31m==>\033[0m There is an active schroot session." \
+		&& echo -e >&2 "\033[1;31m==>\033[0m Please close this session to complete the package removal."
+	while [ -e /var/lib/schroot/mount/arch64-* ]; do
+		sleep 10;
+	done
+
+	echo -e >&2 "\033[1;32m==>\033[0m Removing arch64 from schroot config"
+	sed -i '/\[arch64\]/,/^$/d' /etc/schroot/schroot.conf
+	echo -e >&2 "\033[1;32m==>\033[0m Removing /opt/arch64..."
+	rm -rf "/opt/arch64"
+}

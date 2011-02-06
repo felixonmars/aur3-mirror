@@ -1,0 +1,711 @@
+diff -aur srcs/Makefile srcs_new/Makefile
+--- srcs/Makefile	2007-05-08 08:23:46.000000000 -0700
++++ srcs_new/Makefile	2008-07-25 04:27:08.000000000 -0700
+@@ -73,7 +73,16 @@
+ #---[ UNIX/GCC ]---------------------------------------
+ ifeq ($(SYSTEM), unix)
+ #--- Executable name
++PRODUCT = meka
++ifneq ($(LOCALBUILD), yes)
++EXE     = meka
++PREFIX  = /usr/local
++BINDIR  = bin
++DATADIR = share/$(PRODUCT)
++DOCSDIR = share/doc/$(PRODUCT)
++else
+ EXE     = ../meka
++endif
+ #--- Output directory
+ OD      = obj
+ #--- Compilation
+@@ -83,11 +92,15 @@
+ ASM     = nasm
+ OTYPE   = elf
+ #--- Tools
++CP      = cp
+ RM      = rm
+ MV      = mv
+-MKDIR   = mkdir
++MKDIR   = mkdir -p
+ #--- Definitions
+-DEF_OS  = -DUNIX -DX86_ASM -DASM_SYMBOLS_REQUIRE_UNDERSCORE
++ifneq ($(LOCALBUILD), yes)
++DEF_OPT = -DDATA_DIR="\"$(PREFIX)/$(DATADIR)\"" -DDOCS_DIR="\"$(PREFIX)/$(DOCSDIR)\"" -DCONFDIR
++endif
++DEF_OS  = -DUNIX -DX86_ASM -DASM_SYMBOLS_REQUIRE_UNDERSCORE $(DEF_OPT)
+ INC_OS  = -Ilibs -I../include		                               # This may require an update
+ X86_ASM = yes
+ #--- Libraries
+@@ -281,7 +294,7 @@
+ #-----------------------------------------------------
+ # Includes directory
+ #-----------------------------------------------------
+-INCLUDES = -I. -I./tools -I./sound $(INC_OS)
++INCLUDES += -I. -I./tools -I./sound $(INC_OS)
+ 
+ #-----------------------------------------------------
+ # Preprocessor Definitions
+@@ -305,7 +318,7 @@
+ #-----------------------------------------------------
+ # Compiler Flags
+ #-----------------------------------------------------
+-CFLAGS = $(INCLUDES) $(DEFINES)
++CFLAGS += $(INCLUDES) $(DEFINES)
+ 
+ ifeq ($(SYSTEM), win32)
+ # Win32
+@@ -316,7 +329,7 @@
+ # UNIX/MS-DOS
+ # RELEASE build
+ ifeq ($(BUILD), release)
+-CFLAGS += -Wall -march=pentium -O6 -ffast-math -fno-strength-reduce -funroll-all-loops -fomit-frame-pointer 
++CFLAGS += -Wall -ffast-math -fno-strength-reduce -funroll-all-loops -fomit-frame-pointer 
+ endif
+ # DEBUG build
+ ifeq ($(BUILD), debug)
+@@ -428,6 +441,7 @@
+ help :
+ 	@echo "Rules:"
+ 	@echo "  exe             - Build executable"
++	@echo "  install         - Install files on UNIX distribution"
+ 	@echo "  dist            - Build all distributions"
+ 	@echo "  dist_src        - Build sources distribution"
+ 	@echo "  dist_bin_dos    - Build binary DOS distribution"
+@@ -515,20 +529,31 @@
+ # Not sure if this still work
+ ifeq ($(SYSTEM), unix)
+ dist_bin_unix :
+-	@echo Creating Dist/mekanix.tgz
++	make install DESTDIR=./Dist/$(PRODUCT) LOCALBUILD=yes
++	@echo Creating ./Dist/$(PRODUCT).tar.gz
+ 	@echo Compressing
+-	-upx -9 meka
++	-upx -9 ./Dist/$(PRODUCT)/meka
+ 	@echo Packaging
+-	-mkdir ./Dist/
+-	-mkdir ./Dist/mekanix/
+-	cp meka meka.blt meka.cfg meka.dat meka.inp meka.msg meka.nam meka.pat meka.thm icons.zip ./mekanix/
+-	cp meka.txt mekanix.txt changes.txt compat.txt debugger.txt multi.txt tech.txt ./mekanix/
+-	cp -R Themes ./mekanix/
+-	tar cvzf Dist/mekanix.tgz ./mekanix
+-	rm -fR ./mekanix/
++	cd ./Dist && tar cvzf $(PRODUCT).tar.gz $(PRODUCT)
++	$(RM) -fR ./Dist/$(PRODUCT)
+ 	@echo Done!
+-	@echo -- Check MEKA.BLT ! --
+-	@echo -- Check MEKA.INP ! Joypad auto, on --
++	@echo -- Check meka.blt ! --
++	@echo -- Check meka.inp ! Joypad auto, on --
++endif
++
++# Install unix
++ifeq ($(SYSTEM), unix)
++install : exe
++	$(MKDIR) $(DESTDIR)$(PREFIX)/$(BINDIR)
++	$(MKDIR) $(DESTDIR)$(PREFIX)/$(DATADIR)
++#	$(MKDIR) $(DESTDIR)$(PREFIX)/$(DOCSDIR)
++	$(MKDIR) $(DESTDIR)$(PREFIX)/$(DATADIR)/Themes
++	$(CP) $(EXE) $(DESTDIR)$(PREFIX)/$(BINDIR)/
++	chmod +x $(DESTDIR)$(PREFIX)/$(BINDIR)/meka
++	$(CP) ../*.{blt,dat,inp,msg,nam,pat,thm} $(DESTDIR)$(PREFIX)/$(DATADIR)/
++	$(CP) ../icons.zip $(DESTDIR)$(PREFIX)/$(DATADIR)/
++	$(CP) ../Themes/*.{txt,png} $(DESTDIR)$(PREFIX)/$(DATADIR)/Themes/
++#	$(CP) ../*.txt $(DESTDIR)$(PREFIX)/$(DOCSDIR)
+ endif
+ 
+ # Cleaning rules -------------------------------------
+diff -aur srcs/config.c srcs_new/config.c
+--- srcs/config.c	2007-05-08 12:23:38.000000000 -0700
++++ srcs_new/config.c	2008-07-25 04:18:57.000000000 -0700
+@@ -441,10 +441,15 @@
+     char *     line;
+     int        line_cnt;
+ 
++#ifdef UNIX
++    if (!file_exists (g_Env.Paths.ConfigurationDirectory, 0xFF, NULL)) {
++        meka_mkdir(g_Env.Paths.ConfigurationDirectory); }
++    sprintf (value, g_Env.Paths.ConfigurationFile);
++#else
+     StrCpyPathRemoved(value, g_Env.Paths.ConfigurationFile);
+-#ifndef UNIX
+     strupr(value);
+ #endif
++
+     ConsolePrintf (Msg_Get(MSG_Config_Loading), value);
+ 
+     // Open and read file
+diff -aur srcs/file.c srcs_new/file.c
+--- srcs/file.c	2007-05-12 14:17:40.000000000 -0700
++++ srcs_new/file.c	2008-07-25 04:18:57.000000000 -0700
+@@ -111,62 +111,78 @@
+     // ConsolePrintf ("g_Env.Paths.EmulatorDirectory = %s\n", g_Env.Paths.EmulatorDirectory);
+     // ConsolePrintf ("argv[0] = %s\n", g_Env.argv[0]);
+ 
++    // Set configuration directory
++#ifdef CONFDIR
++    sprintf (g_Env.Paths.ConfigurationDirectory, "%s/.config/mekanix", getenv ("HOME"));
++#else
++    sprintf (g_Env.Paths.ConfigurationDirectory, g_Env.Paths.EmulatorDirectory);
++#endif
++
++    // Set data directory
++#ifdef DATA_DIR
++    sprintf (g_Env.Paths.DataDirectory, DATA_DIR);
++#else
++    sprintf (g_Env.Paths.DataDirectory, g_Env.Paths.EmulatorDirectory);
++#endif
++
++    // Set documentation directory
++#ifdef DOCS_DIR
++     sprintf (g_Env.Paths.DocumentationDirectory, DOCS_DIR);
++#else
++     sprintf (g_Env.Paths.DocumentationDirectory, g_Env.Paths.EmulatorDirectory);
++#endif
++
++    // Fix paths
+ #ifdef UNIX
+-    {   // ????
+-        int len;
+-        char temp[FILENAME_LEN];
+-        strcpy (temp, g_Env.Paths.EmulatorDirectory);
+-        realpath (temp, g_Env.Paths.EmulatorDirectory);
+-        len = strlen (g_Env.Paths.EmulatorDirectory);
+-        g_Env.Paths.EmulatorDirectory [len] = '/';
+-        g_Env.Paths.EmulatorDirectory [len + 1] = EOSTR;
+-    }
++    Get_NixRealPath (g_Env.Paths.EmulatorDirectory);
++    Get_NixRealPath (g_Env.Paths.DataDirectory);
++    Get_NixRealPath (g_Env.Paths.ConfigurationDirectory);
++    Get_NixRealPath (g_Env.Paths.DocumentationDirectory);
+ #else
+     strlwr (g_Env.Paths.EmulatorDirectory);
++    strlwr (g_Env.Paths.DataDirectory);
++    strlwr (g_Env.Paths.ConfigurationDirectory);
++    strlwr (g_Env.Paths.DocumentationDirectory);
+ #endif
+ 
+     // Datafiles
+-    sprintf (g_Env.Paths.DataFile,      "%s/meka.dat",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.DataBaseFile,  "%s/meka.nam",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.SkinFile,      "%s/meka.thm",    g_Env.Paths.EmulatorDirectory);
+-
+-    sprintf (Patches.filename,			"%s/meka.pat",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (VLFN_DataBase.filename,    "%s/meka.fdb",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (Blitters.filename,			"%s/meka.blt",    g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.DataFile,      "%s/meka.dat",    g_Env.Paths.DataDirectory);
++    sprintf (g_Env.Paths.DataBaseFile,  "%s/meka.nam",    g_Env.Paths.DataDirectory);
++    sprintf (g_Env.Paths.SkinFile,      "%s/meka.thm",    g_Env.Paths.DataDirectory);
++
++    sprintf (Patches.filename,			"%s/meka.pat",    g_Env.Paths.DataDirectory);
++    sprintf (VLFN_DataBase.filename,    "%s/meka.fdb",    g_Env.Paths.ConfigurationDirectory);
++    sprintf (Blitters.filename,			"%s/meka.blt",    g_Env.Paths.DataDirectory);
+     //sprintf (registered.filename [0], "%s/meka.reg",    g_Env.Paths.EmulatorDirectory);
+     //sprintf (registered.filename [1], "%s/meka.key",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (Desktop.filename,			"%s/meka.dsk",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (Inputs.FileName,			"%s/meka.inp",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (Messages.FileName,			"%s/meka.msg",    g_Env.Paths.EmulatorDirectory);
++    sprintf (Desktop.filename,			"%s/meka.dsk",    g_Env.Paths.DataDirectory);
++    sprintf (Inputs.FileName,			"%s/meka.inp",    g_Env.Paths.DataDirectory);
++    sprintf (Messages.FileName,			"%s/meka.msg",    g_Env.Paths.DataDirectory);
+ 
+     // Documentations
+-    sprintf (g_Env.Paths.DocumentationMain,       "%s/meka.txt",      g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.DocumentationMain,       "%s/meka.txt",      g_Env.Paths.DocumentationDirectory);
+ #ifdef WIN32
+-    sprintf (g_Env.Paths.DocumentationMainW,      "%s/mekaw.txt",     g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.DocumentationMainW,      "%s/mekaw.txt",     g_Env.Paths.DocumentationDirectory);
+ #elif UNIX
+-    sprintf (g_Env.Paths.DocumentationMainU,      "%s/mekanix.txt",   g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.DocumentationMainU,      "%s/mekanix.txt",   g_Env.Paths.DocumentationDirectory);
+ #endif
+-    sprintf (g_Env.Paths.DocumentationCompat,     "%s/compat.txt",    g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.DocumentationMulti,      "%s/multi.txt",     g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.DocumentationChanges,    "%s/changes.txt",   g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.DocumentationDebugger,   "%s/debugger.txt",  g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.DocumentationCompat,     "%s/compat.txt",    g_Env.Paths.DocumentationDirectory);
++    sprintf (g_Env.Paths.DocumentationMulti,      "%s/multi.txt",     g_Env.Paths.DocumentationDirectory);
++    sprintf (g_Env.Paths.DocumentationChanges,    "%s/changes.txt",   g_Env.Paths.DocumentationDirectory);
++    sprintf (g_Env.Paths.DocumentationDebugger,   "%s/debugger.txt",  g_Env.Paths.DocumentationDirectory);
+ 
+     // Configuration file
+ #ifdef WIN32
+-    sprintf (g_Env.Paths.ConfigurationFile,       "%s/mekaw.cfg",     g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.ConfigurationFile,       "%s/mekaw.cfg",     g_Env.Paths.ConfigurationDirectory);
+ #else
+-    sprintf (g_Env.Paths.ConfigurationFile,       "%s/meka.cfg",      g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.ConfigurationFile,       "%s/meka.cfg",      g_Env.Paths.ConfigurationDirectory);
+ #endif
+ 
+     // Directories
+-#ifdef DOS
+-    sprintf (g_Env.Paths.ScreenshotDirectory,     "%s/Shots",         g_Env.Paths.EmulatorDirectory);
+-#else
+-    sprintf (g_Env.Paths.ScreenshotDirectory,     "%s/Screenshots",   g_Env.Paths.EmulatorDirectory);
+-#endif
+-    sprintf (g_Env.Paths.SavegameDirectory,       "%s/Saves",         g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.MusicDirectory,          "%s/Music",         g_Env.Paths.EmulatorDirectory);
+-    sprintf (g_Env.Paths.DebugDirectory,          "%s/Debug",         g_Env.Paths.EmulatorDirectory);
++    sprintf (g_Env.Paths.ScreenshotDirectory,     "%s/Shots",         g_Env.Paths.ConfigurationDirectory);
++    sprintf (g_Env.Paths.SavegameDirectory,       "%s/Saves",         g_Env.Paths.ConfigurationDirectory);
++    sprintf (g_Env.Paths.MusicDirectory,          "%s/Music",         g_Env.Paths.ConfigurationDirectory);
++    sprintf (g_Env.Paths.DebugDirectory,          "%s/Debug",         g_Env.Paths.ConfigurationDirectory);
+ 
+     // ROM
+     strcpy (g_Env.Paths.MediaImageFile,  "");
+@@ -651,4 +667,17 @@
+         BIOS_Unload ();
+ }
+ 
++#ifdef UNIX
++void Get_NixRealPath (char * path) {
++        int len;
++        char temp[FILENAME_LEN];
++        strcpy (temp, path);
++        realpath (temp, path);
++        len = strlen (path);
++        path [len] = EOSTR;
++//         path [len] = '/';
++//         path [len + 1] = EOSTR;
++}
++#endif
++
+ //-----------------------------------------------------------------------------
+diff -aur srcs/file.h srcs_new/file.h
+--- srcs/file.h	2006-07-03 19:04:51.000000000 -0700
++++ srcs_new/file.h	2008-07-25 04:18:57.000000000 -0700
+@@ -20,6 +20,8 @@
+ 
+ void            Filenames_Init          (void);     // Initialize filenames used by emulator (path to config files, etc.)
+ void            Filenames_Init_ROM      (void);     // Initialize filenames for current ROM
++#ifdef UNIX
++void            Get_NixRealPath (char * path);
++#endif
+ 
+-//-----------------------------------------------------------------------------
+-
++//-----------------------------------------------------------------------------
+\ No newline at end of file
+diff -aur srcs/meka.h srcs_new/meka.h
+--- srcs/meka.h	2007-05-08 11:47:24.000000000 -0700
++++ srcs_new/meka.h	2008-07-25 04:18:57.000000000 -0700
+@@ -24,8 +24,8 @@
+ // Max tiles (in video mode 5)
+ #define MAX_TILES               (512)
+ 
+-// Fixed colors
+-//// FIXME: Currently call makecol(), should refer to a precomputed table
++// Fixed colors
++//// FIXME: Currently call makecol(), should refer to a precomputed table
+ #define COLOR_BLACK				(0x00000000)	//makecol(0,0,0)
+ #define COLOR_WHITE             (0xFFFFFFFF)	//makecol(255,255,255)
+ 
+@@ -209,8 +209,11 @@
+     char    EmulatorDirectory       [FILENAME_LEN];
+     char    StartingDirectory       [FILENAME_LEN];
+     char    ConfigurationFile       [FILENAME_LEN];
++    char    ConfigurationDirectory  [FILENAME_LEN];
++    char    DataDirectory           [FILENAME_LEN];
+     char    DataBaseFile            [FILENAME_LEN];
+     char    DataFile                [FILENAME_LEN];
++    char    DocumentationDirectory  [FILENAME_LEN];
+     char    SkinFile                [FILENAME_LEN];
+     char    ScreenshotDirectory     [FILENAME_LEN];
+     char    SavegameDirectory       [FILENAME_LEN];
+@@ -313,8 +316,8 @@
+     int     video_mode_gui_access_mode;         // Make obsolete
+ 
+ 	// Capture
+-	const char *		capture_filename_template;
+-	bool				capture_automatic_crop_align;
++	const char *		capture_filename_template;
++	bool				capture_automatic_crop_align;
+ 
+ 
+ } t_meka_configuration;
+diff -aur srcs/skin.c srcs_new/skin.c
+--- srcs/skin.c	2006-12-25 12:21:29.000000000 -0800
++++ srcs_new/skin.c	2008-07-25 04:18:58.000000000 -0700
+@@ -561,7 +561,7 @@
+     if (Skins.skin_current->background_picture != NULL)
+     {
+         char filename[FILENAME_LEN];
+-        sprintf(filename, "%s/%s", g_Env.Paths.EmulatorDirectory, Skins.skin_current->background_picture);
++        sprintf(filename, "%s/%s", g_Env.Paths.DataDirectory, Skins.skin_current->background_picture);
+         Skins.background_picture = load_bitmap(filename, NULL);
+         if (Skins.background_picture == NULL)
+         {
+diff -aur srcs/sound/sasound.h srcs_new/sound/sasound.h
+--- srcs/sound/sasound.h	2006-07-03 19:04:51.000000000 -0700
++++ srcs_new/sound/sasound.h	2008-07-25 04:18:57.000000000 -0700
+@@ -65,7 +65,7 @@
+ 
+ void            saUpdateSound (int nowclock);
+ int             saGetSoundCard (int soundcard);
+-BOOL            saInitSoundCard (int soundcard, int buffer_mode, int sample_rate);
++BOOL2           saInitSoundCard (int soundcard, int buffer_mode, int sample_rate);
+ void            saSetupSound (SoundRecEntry *rec);
+ void            saAddSound (SoundRecEntry *rec);
+ void            saDestroySound (void);
+diff -aur srcs/sound/sound.h srcs_new/sound/sound.h
+--- srcs/sound/sound.h	2006-07-03 19:04:51.000000000 -0700
++++ srcs_new/sound/sound.h	2008-07-25 04:18:57.000000000 -0700
+@@ -1,181 +1,181 @@
+ //-----------------------------------------------------------------------------
+-// MEKA - sound.h
+-// Sound Engine - Headers
++// MEKA - sound.h
++// Sound Engine - Headers
+ //-----------------------------------------------------------------------------
+-// Hiromitsu Shioya, 1998-1999
+-// Omar Cornut, 1999+
++// Hiromitsu Shioya, 1998-1999
++// Omar Cornut, 1999+
+ //-----------------------------------------------------------------------------
+-
+-//-----------------------------------------------------------------------------
+-// INCLUDES
+-//-----------------------------------------------------------------------------
+-
+-// Include SEAL library headers
+-#ifndef UNIX
+-#include "audio.h"
+-#else
+-// Uncomment the appropriate:
+-#include "audio.h"      // Official SEAL distribute name
+-// #include "seal.h"    // Debian package header file was renamed to seal.h
+-// FIXME: Need to automate this of use some Makefile trickery to detect.
+-#endif
+-
+-//-----------------------------------------------------------------------------
+-// DEFINITIONS
+-//-----------------------------------------------------------------------------
+-
+-#define SOUND_SOUNDCARD_SELECT  (-1)
+-#define SOUND_SOUNDCARD_NONE    (0)
+-#define SOUND_VOICES_MAX        (16)
+-
+-#define SOUND_MACHINE_SN76496   (0)
+-#define SOUND_MACHINE_YM2413HD  (1)
+-#define SOUND_MACHINE_EMU2413   (2)
+-
+-#define FM_EMULATOR_NONE        (0x00)
+-#define FM_EMULATOR_YM2413HD    (0x01)  // Hiromitsu Shioya / through OPL
+-#define FM_EMULATOR_EMU2413     (0x02)  // Mitsutaka Okazaki / digital
+-
+-//-----------------------------------------------------------------------------
+-// OPL Access
+-//-----------------------------------------------------------------------------
+-
+-#ifndef UNIX
+-#define MEKA_OPL
+-#endif
+-
+-#ifdef MEKA_OPL
+-#include "s_opl.h"                      // S_OPL.H      OPL
+-#endif
+-
+-//-----------------------------------------------------------------------------
+-// INCLUDES (more. note the unordered mess)
+-//-----------------------------------------------------------------------------
+-
+-#include "vgm.h"                // VGM.H : for VGM file creation
+-#include "wav.h"                // WAV.H : for WAV file creation
+-
+-//-----------------------------------------------------------------------------
+-// DATA
+-//-----------------------------------------------------------------------------
+-
+-// SaSound voice (legacy)
+-typedef struct
+-{
+-    HAC         hVoice;         // SEAL voice handler
+-    LPAUDIOWAVE lpWave;
+-    LPBYTE      vstreambuf;     // use bufferedstream mode: stock buffer
+-    int         vstreambuf_chunk_ready[3];
+-    int         playing;        // TRUE/FALSE
+-    // Variables below are unclear...
+-    int         vbits;
+-    int         vchan;          // use bufferedstream mode : write butter counter
+-    int         ventry;         // use bufferedstream mode : entry SEAL buffer counter
+-    int         vlen;           // buffer length
+-    int         vruncount;      // use bufferedstream mode : stock "sound_freerun_count"
+-    int *       vpan;           // Pan buffer
+-    int         vrestart;       // Error restart flag
+-}               t_voice;
+-
+-// t_sound, hold all variables/configurations stuff for the sound part
+-typedef struct
+-{
+-    // General
+-    int         Enabled;
+-    int         Initialized;
+-    int         SoundCard;                      // Seal SoundCard ID
+-    int         SampleRate;                     // In Hz
+-    int         Paused;                         // Paused stack. Sounds play only when this is zero
+-    int         MasterVolume;                   // Master Volume (0-128)
+-
+-    // FM Emulation
+-    int         FM_Enabled;                     // FM Emulation enabled (emulated machine)
+-    int         FM_Emulator_Current;            // FM Emulators, currently used (host machine)
+-    int         FM_Emulator_Available;          // FM Emulators, mask of available type(s), zero if none
+-
+-    // OPL
+-#ifdef MEKA_OPL
+-    int         OPL_Speed;
+-    int         OPL_Address;                    // 220h, 230h, etc... 0 if none
+-#endif
+-
+-    // Voices (SaSound legacy...)
+-    t_voice *   Voices;
+-    int         Voices_Max;
+-
+-    // Logging
+-    FILE *      LogWav;
+-    int         LogWav_SizeData;
+-    char *      LogWav_FileName_Template;
+-    int         LogWav_ID;
+-    t_vgm       LogVGM;
+-    int         LogVGM_Logging_Accuracy;
+-    char *      LogVGM_FileName_Template;
+-    int         LogVGM_ID;
+-}               t_sound;
+-
+-t_sound         Sound;
+-int             Sound_CycleCounter;         // Number of cycle elapsed since last sound sync.
+-
+-//-----------------------------------------------------------------------------
+-// FUNCTIONS
+-//-----------------------------------------------------------------------------
+-
+-void    Sound_Init_Config       (void);     // Initialize sound structure with its default values
+-int     Sound_Init_SEAL         (void);     // Initialize SEAL
+-int     Sound_Init              (void);     // Initialize sound engine
+-void    Sound_Close             (void);     // Close sound engine
+-
+-void    Sound_Update_Frame      (void);     // Miscellaneous things to do on each frame
+-
+-void    Sound_Playback_Start    (void);     // Start sound playback
+-void    Sound_Playback_Stop     (void);     // Stop sound playback
+-
+-void    Sound_Playback_Mute     (void);     // Mute sound playback
+-void    Sound_Playback_Resume   (void);     // Resume sound playback
+-
+-void    Sound_MasterVolume_Set  (int v);    // Change Master Volume
+-
+-//-----------------------------------------------------------------------------
+-// All ununderstandable stuff from old engine
+-//-----------------------------------------------------------------------------
+-
+-#define INSTALL_SOUND_TIMER
+-#define INSTALL_CALC_SOUNDCPU_CLOCK
+-
+-//#define DEF_STREAM_BUFFER_MAXA        (3)
+-#define DEF_MODEB_FRAME_SIZE            (60)
+-#define DEF_MODEB_UPDATE_COUNT          (3)
+-#define DEF_STREAM_BUFFER_MAXB          ((DEF_FRAME_SIZE / DEF_MODEB_UPDATE_COUNT))
+-#define DEF_STREAM_UPDATE_ERROR_MAX     (16) // error wait is 16 seconds.
+-
+-int     STREAM_BUFFER_MAXA;
+-int     STREAM_BUFFER_MAXB;
+-int     MODEB_UPDATE_COUNT;
+-int     MODEB_FRAME_SIZE;
+-int     MODEB_MASK;
+-int     MODEB_ERROR_MAX;
+-
+-int     sound_stream_mode;
+-
+-#define SOUND_STREAM_NORMAL             (0)
+-#define SOUND_STREAM_WAIT               (1)
+-
+-//-----------------------------------------------------------------------------
+-// INCLUDES (even more. note the unordered mess)
+-//-----------------------------------------------------------------------------
+-
+-#include "s_log.h"                      // S_LOG.H      Sound logging
+-#include "s_misc.h"                     // S_MISC.H     Miscellaenous
+-
+-#include "psg.h"                        // PSG.H        PSG SN-76496 emulator
+-
+-#include "fmunit.h"                     // FMUNIT.H     FM Unit wrapper to emulators
+-#include "fmeditor.h"	                // FMEDITOR.H   FM instrument editor applet
+-#include "ym2413hd.h"                   // YM2413HD.H   FM emulator / OPL
+-#include "emu2413/mekaintf.h"           // EMU2413.H... FM emulator / Digital
+-#include "sasound.h"                    // SASOUND.H    Sound system (by Hiroshi)
+-
+-//-----------------------------------------------------------------------------
+-
+-
++
++//-----------------------------------------------------------------------------
++// INCLUDES
++//-----------------------------------------------------------------------------
++
++// Include SEAL library headers
++#ifndef UNIX
++#include "audio.h"
++#else
++// Uncomment the appropriate:
++// #include "audio.h"      // Official SEAL distribute name
++#include "seal.h"    // Debian package header file was renamed to seal.h
++// FIXME: Need to automate this of use some Makefile trickery to detect.
++#endif
++
++//-----------------------------------------------------------------------------
++// DEFINITIONS
++//-----------------------------------------------------------------------------
++
++#define SOUND_SOUNDCARD_SELECT  (-1)
++#define SOUND_SOUNDCARD_NONE    (0)
++#define SOUND_VOICES_MAX        (16)
++
++#define SOUND_MACHINE_SN76496   (0)
++#define SOUND_MACHINE_YM2413HD  (1)
++#define SOUND_MACHINE_EMU2413   (2)
++
++#define FM_EMULATOR_NONE        (0x00)
++#define FM_EMULATOR_YM2413HD    (0x01)  // Hiromitsu Shioya / through OPL
++#define FM_EMULATOR_EMU2413     (0x02)  // Mitsutaka Okazaki / digital
++
++//-----------------------------------------------------------------------------
++// OPL Access
++//-----------------------------------------------------------------------------
++
++#ifndef UNIX
++#define MEKA_OPL
++#endif
++
++#ifdef MEKA_OPL
++#include "s_opl.h"                      // S_OPL.H      OPL
++#endif
++
++//-----------------------------------------------------------------------------
++// INCLUDES (more. note the unordered mess)
++//-----------------------------------------------------------------------------
++
++#include "vgm.h"                // VGM.H : for VGM file creation
++#include "wav.h"                // WAV.H : for WAV file creation
++
++//-----------------------------------------------------------------------------
++// DATA
++//-----------------------------------------------------------------------------
++
++// SaSound voice (legacy)
++typedef struct
++{
++    HAC         hVoice;         // SEAL voice handler
++    LPAUDIOWAVE lpWave;
++    LPBYTE      vstreambuf;     // use bufferedstream mode: stock buffer
++    int         vstreambuf_chunk_ready[3];
++    int         playing;        // TRUE/FALSE
++    // Variables below are unclear...
++    int         vbits;
++    int         vchan;          // use bufferedstream mode : write butter counter
++    int         ventry;         // use bufferedstream mode : entry SEAL buffer counter
++    int         vlen;           // buffer length
++    int         vruncount;      // use bufferedstream mode : stock "sound_freerun_count"
++    int *       vpan;           // Pan buffer
++    int         vrestart;       // Error restart flag
++}               t_voice;
++
++// t_sound, hold all variables/configurations stuff for the sound part
++typedef struct
++{
++    // General
++    int         Enabled;
++    int         Initialized;
++    int         SoundCard;                      // Seal SoundCard ID
++    int         SampleRate;                     // In Hz
++    int         Paused;                         // Paused stack. Sounds play only when this is zero
++    int         MasterVolume;                   // Master Volume (0-128)
++
++    // FM Emulation
++    int         FM_Enabled;                     // FM Emulation enabled (emulated machine)
++    int         FM_Emulator_Current;            // FM Emulators, currently used (host machine)
++    int         FM_Emulator_Available;          // FM Emulators, mask of available type(s), zero if none
++
++    // OPL
++#ifdef MEKA_OPL
++    int         OPL_Speed;
++    int         OPL_Address;                    // 220h, 230h, etc... 0 if none
++#endif
++
++    // Voices (SaSound legacy...)
++    t_voice *   Voices;
++    int         Voices_Max;
++
++    // Logging
++    FILE *      LogWav;
++    int         LogWav_SizeData;
++    char *      LogWav_FileName_Template;
++    int         LogWav_ID;
++    t_vgm       LogVGM;
++    int         LogVGM_Logging_Accuracy;
++    char *      LogVGM_FileName_Template;
++    int         LogVGM_ID;
++}               t_sound;
++
++t_sound         Sound;
++int             Sound_CycleCounter;         // Number of cycle elapsed since last sound sync.
++
++//-----------------------------------------------------------------------------
++// FUNCTIONS
++//-----------------------------------------------------------------------------
++
++void    Sound_Init_Config       (void);     // Initialize sound structure with its default values
++int     Sound_Init_SEAL         (void);     // Initialize SEAL
++int     Sound_Init              (void);     // Initialize sound engine
++void    Sound_Close             (void);     // Close sound engine
++
++void    Sound_Update_Frame      (void);     // Miscellaneous things to do on each frame
++
++void    Sound_Playback_Start    (void);     // Start sound playback
++void    Sound_Playback_Stop     (void);     // Stop sound playback
++
++void    Sound_Playback_Mute     (void);     // Mute sound playback
++void    Sound_Playback_Resume   (void);     // Resume sound playback
++
++void    Sound_MasterVolume_Set  (int v);    // Change Master Volume
++
++//-----------------------------------------------------------------------------
++// All ununderstandable stuff from old engine
++//-----------------------------------------------------------------------------
++
++#define INSTALL_SOUND_TIMER
++#define INSTALL_CALC_SOUNDCPU_CLOCK
++
++//#define DEF_STREAM_BUFFER_MAXA        (3)
++#define DEF_MODEB_FRAME_SIZE            (60)
++#define DEF_MODEB_UPDATE_COUNT          (3)
++#define DEF_STREAM_BUFFER_MAXB          ((DEF_FRAME_SIZE / DEF_MODEB_UPDATE_COUNT))
++#define DEF_STREAM_UPDATE_ERROR_MAX     (16) // error wait is 16 seconds.
++
++int     STREAM_BUFFER_MAXA;
++int     STREAM_BUFFER_MAXB;
++int     MODEB_UPDATE_COUNT;
++int     MODEB_FRAME_SIZE;
++int     MODEB_MASK;
++int     MODEB_ERROR_MAX;
++
++int     sound_stream_mode;
++
++#define SOUND_STREAM_NORMAL             (0)
++#define SOUND_STREAM_WAIT               (1)
++
++//-----------------------------------------------------------------------------
++// INCLUDES (even more. note the unordered mess)
++//-----------------------------------------------------------------------------
++
++#include "s_log.h"                      // S_LOG.H      Sound logging
++#include "s_misc.h"                     // S_MISC.H     Miscellaenous
++
++#include "psg.h"                        // PSG.H        PSG SN-76496 emulator
++
++#include "fmunit.h"                     // FMUNIT.H     FM Unit wrapper to emulators
++#include "fmeditor.h"	                // FMEDITOR.H   FM instrument editor applet
++#include "ym2413hd.h"                   // YM2413HD.H   FM emulator / OPL
++#include "emu2413/mekaintf.h"           // EMU2413.H... FM emulator / Digital
++#include "sasound.h"                    // SASOUND.H    Sound system (by Hiroshi)
++
++//-----------------------------------------------------------------------------
++
++

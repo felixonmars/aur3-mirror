@@ -1,0 +1,113 @@
+# Contributor: Jesus Jerez <jhuss@archlinux.org.ve>
+
+pkgname=eclipse-i18n-es-pack
+pkgver=3.6.0
+_pkgbuild=v20100814043401
+pkgrel=1
+pkgdesc="Spanish language pack for eclipse IDE"
+url="http://babel.eclipse.org/"
+arch=('any')
+license=('EPL')
+depends=('eclipse')
+makedepends=('unzip')
+conflicts=('eclipse-i18n-es')
+changelog=$pkgname.changelog
+_url="http://www.mirrorservice.org/sites/download.eclipse.org/eclipseMirror/technology/babel/babel_language_packs/R0.8.0"
+source=("${_url}/BabelLanguagePack-birt-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-datatools-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-dsdp.mtj-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-dsdp.sequoyah-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-dsdp.tm-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-eclipse-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-modeling.emft.eef-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-modeling.gmp.gmf-notation-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-modeling.gmp.gmf-runtime-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-modeling.gmp.gmf-tooling-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-rt.equinox-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-rt.equinox.p2-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-rt.rap-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-technology.actf-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-technology.egit-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-technology.jgit-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-technology.linux-distros-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-technology.packaging.mpc-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-tools.mat-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-tools.mylyn-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-tools.ptp-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-tools.ptp.photran-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.common-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.dali-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.ejbtools-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.jeetools-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.jsdt-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.jsf-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.servertools-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.sourceediting-es_3.6.0.v20100814043401.zip"
+        "${_url}/BabelLanguagePack-webtools.webservices-es_3.6.0.v20100814043401.zip")
+md5sums=('aeefd2ee092a472d95da447bdecd49a7'
+         '9937249b2afc60a0662cd19ee0dde158'
+         '71408881c89fbf7ccb269239c8c5740c'
+         'cb1a6280286e70fa4eb3affd4bfc2a6b'
+         '4f6db2764570c6f3655dfcdb057bd1ea'
+         'ea93a5e919422be21e30b8cb4ef42fde'
+         '994cbff29f63f82a7e9ce7d114a61c50'
+         'b9111bbb667ffa03a29f41be5a7dfa5a'
+         '021d7034c939b2a2b2508d4c9e64c776'
+         '30004a0dd5cf7acf8f687681335a398f'
+         '6ce203f46d8e2cd67e553765e65bbf1a'
+         '61a6b562a6112c8884409cfb1788feb9'
+         '1413752623f721d925e373139f13f5b0'
+         '47198e0a8b8248bd71ac982c8e5902cf'
+         'ad389c82213b266358396b5acf22a045'
+         'f993561dea215ee16dad0bdeeb54cc31'
+         'b2fae884614324328e35ae5db499f4ea'
+         '7aa89b8884888d7f3bb9cd6fc5fcfc15'
+         'd760b0f2cafcd0e8dd76fad6b06aba9a'
+         '9cb742c17e9205733c4df3782945f9d9'
+         '346868bc89eaf59ef52b3f24a967890b'
+         '82b6d440eca30d22dd9b927956b3012a'
+         '8226551b590bf7bf11495a7306f7cab7'
+         '784bd1d9947fcda2e9727ac280448c06'
+         '5a400b7f6551cfb60c8aa2c96e82bb28'
+         '6fe7061b84cdac94c04080eda1324ea3'
+         '562ba25ee194e8615114cbf982e8ffdb'
+         '38f766507666ddc89ab6768e3fca7574'
+         'b2c0650986a9dd1cffa0499660affe21'
+         '83663de86906b8b1745d84def1a39631'
+         '6f33114fd4282045f07c499bdefc5321')
+sha256sums=('803ff72aafbae288ee47005c2e39e0b0d63c43941522ebda3e66098778708213'
+            '0c0348c5e39eeb27b26d74bd85cc21997ba0e3e3d45f6ba456b102b28b852759'
+            '969ae059752effb82cf087174fe3dee04272a7b8436ff35c68d840e1eba35946'
+            '2a0e9e1cdd6e7f658e1436aec1fddc082610c7fbea2c0c2dc245752723d238ac'
+            '0f6cab530ff2ef29e83ca91664244bd8db923a54fa35b6c535abb9bd3c0ab4f8'
+            'ed461e1c142f118dc9b2e9b33761adf67536cff687136de23f08404a31b14c4f'
+            '8426c4224bec98310a4ad75bbc929ac5d0c89c75b302d25fffe1bd323adbf267'
+            '9d6253c2c8ede8dfb445e1913488b862d3230f1c3cfe4daacf2b0f0be1c2ce38'
+            '921ae7d19b8ae5a29850ddabb9e068ec680cfb95e96a419f7986eba5a7d28bce'
+            '1d5529b52181044d4230175235bee28e27658b5ced4388628bdce003bbd5a346'
+            'd17b6f1907699135de234400633f8e4cd1bd9f979a3dd17ea1f7f2bcb4c482cc'
+            '563482cc90038cab3cb1b0eceadc842029a514cdec56ab4dc1e3cbe8f6e49dec'
+            '8ab824559d6cf7240c53bea18e66f82904d3e1a52e6791a32d5799f2ac5f7d19'
+            'a34a264f1a77cd3ba644f417b8be911a9384385a4c789d195149ebdf938cf795'
+            'a93bd47b5a10c303c45eb40da2e57c4af87812f34b751b182b31276486eab18c'
+            '50a0c0d20ce01162d821fa10fb9f436186e4b626c8e28ebd3e103f530777bdc4'
+            '2ca9f6339db24b59921d4d2d20f6b40cc03464ccd39a4e279b7d0a2c796bdc4c'
+            'bfbc444486b453400050e5c0ea999eba2173e486be5e0dcb1e8bda562ddf6372'
+            'c1f7ff2de4163a8b9352f80826498653bd6419ec7b62633d9232e3cc1f716562'
+            '7e766e4f8b9190f2e01344d93f2c25fba3631ee821bba3ff3b5ce9dc242e8dc5'
+            '3e7bfc29b8ffcc9617aded078a84e1b941cd791327894ebe895b5bdefdc6ea0a'
+            'aa083ceb2e4a3f5187cd956b510e11e2b28453283394fce995aef1a17c5293a9'
+            'f7fbdccaa8bd042e7a0a89c9985befffebf2bd0412864a2d226b338b18eab58a'
+            '9884e5bedcefe42a45c401de262a0ca7d19f1956a357ae77699c409879f1254c'
+            'e097ad980e00b5074959772bda62bd4812edb60d4ad4e03a08e46ed79d1dedc4'
+            'ebbce5f16773b7687295cac8a78665f4b2c024e215f0b9773f993319668fdff0'
+            '509c885ed651cd497471a0c94bb3f95c8f48469958f82993d062d2b1175cfb21'
+            '6a7be38bf1e776592b2838d081bd8caddd47584e859b0749755cef7dc5a16021'
+            '9ffee7ea9edf08fa788545ab90406e9625d01ce4b52168f71600e28993d37335'
+            '4228cabf4f4f24c1713e9086297111f6e68757d3fea4c287f44f19708449da14'
+            '79c14e4d1ab15878cef6541ba3c52865c114723f8e985aa10a555b4042498e33')
+
+build() {
+  mkdir -p ${pkgdir}/usr/share/
+  cp -R ${srcdir}/eclipse ${pkgdir}/usr/share/
+}
