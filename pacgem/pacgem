@@ -17,13 +17,57 @@ module Pacgem
     end
 
     def spew(file, content)
-      File.open(file, 'w') {|f| f.write(content) }
+      File.open(file, 'w') {|f| f.write(content.to_s) }
     end
 
     def truncate(s, max, omission = '...')
       s = s.to_s
       s.length > max ? s[0...max] + omission : s
     end
+  end
+
+  class Logger
+    def initialize
+      @color = STDOUT.isatty
+    end
+
+    def color?
+      @color
+    end
+
+    def nocolor!
+      @color = false
+    end
+
+    def msg(s)
+      print('==> ', :green, :bold)
+      puts(s, :bold)
+    end
+
+    def msg2(s)
+      print('  -> ', :blue, :bold)
+      puts(s, :bold)
+    end
+
+    def warn(s)
+      print('==> WARNING: ', :yellow, :bold)
+      puts(s, :bold)
+    end
+
+    def error(s)
+      print('==> ERROR: ', :red, :bold)
+      puts(s, :bold)
+    end
+
+    def print(s, *c)
+      $stdout.print(color(s, *c))
+    end
+
+    def puts(s, *c)
+      $stdout.puts(color(s, *c))
+    end
+
+    private
 
     COLORS = {
       :clear         =>  0,
@@ -55,37 +99,19 @@ module Pacgem
     }
 
     def color(s, *c)
-      if STDOUT.isatty
-        c.inject('') {|x,c| "#{x}\e[#{COLORS[c]}m" } + "#{s}\e[0m"
+      if color?
+        res = ''
+        c.each {|c| res << "\e[#{COLORS[c]}m" }
+        res << "#{s}\e[0m"
       else
         s
       end
     end
-
-    def info(s)
-      puts(color('==> ', :green, :bold) + color(s, :bold))
-    end
-
-    def warn(s)
-      puts(color('==> WARNING: ', :yellow, :bold) + color(s, :bold))
-    end
-
-    def error(s)
-      puts(color('==> ERROR: ', :red, :bold) + color(s, :bold))
-    end
-
-    def alert(s)
-      puts(color('==> ', :red, :bold, :blink) + color(s, :bold))
-    end
-
-    def subinfo(s)
-      puts(color('  -> ', :blue, :bold) + color(s, :bold))
-    end
-
-    extend self
   end
 
-  class Pkgbuild
+  class PkgBuild
+    include Util
+
     def initialize
       @vars = []
       @@build ||= DATA.read
@@ -107,79 +133,81 @@ module Pacgem
       end
       lines + @@build
     end
+
+    def save
+      spew('PKGBUILD', self)
+    end
   end
 
   class Package
     include Util
 
-    def initialize(name, version, uri, explicit)
+    attr_reader :gemname, :name, :version, :uri
+    attr_writer :explicit
+
+    def initialize(name, version, uri)
       @gemname = name
-      @name = "ruby-#{name.downcase}"
-      @version, @uri, @explicit = version, uri, explicit
+      @name = "#{Package.ruby}-#{name.downcase}"
+      @version, @uri = version, uri
     end
 
-    def install(options)
-      FileUtils.mkpath(@name)
-      Dir.chdir(@name) do
-        download
-        gen_pkgbuild(options)
-        makepkg(options[:noinstall])
-        namcap
-        pacman_install unless options[:noinstall]
-      end
+    def explicit?
+      @explicit
     end
 
     def installed?
-      installed = `pacman -Q #{@name.shellescape} 2>/dev/null`.split(/\s+/)
-      installed[1] =~ /^#{@version}\-\d+$/
+      installed = `pacman -Q #{name.shellescape} 2>/dev/null`.split(/\s+/)
+      installed[1] =~ /^#{version}\-\d+$/
+    end
+
+    def install(options, logger)
+      FileUtils.mkpath(name)
+      Dir.chdir(name) do
+        gemfile = download
+        gen_pkgbuild(gemfile, options)
+        pkgfile = makepkg(options)
+        namcap(pkgfile, logger)
+        pacman(pkgfile, logger) unless options[:noinstall]
+      end
     end
 
     private
 
+    def self.ruby
+      @ruby ||= if RUBY_VERSION > '1.9'
+                    'ruby'
+                  elsif Gem.ruby.include?('ruby-enterprise')
+                    'ruby-enterprise'
+                  else
+                    'ruby1.8'
+                  end
+    end
+
     def download
-      @gemfile = "#{@gemname}-#{@version}.gem"
-      open("#{@uri}gems/#{@gemfile}") do |i|
-        File.open(@gemfile, 'w') do |o|
+      gemfile = "#{gemname}-#{version}.gem"
+      open("#{uri}gems/#{gemfile}") do |i|
+        File.open(gemfile, 'w') do |o|
           FileUtils.copy_stream(i, o)
         end
       end
+      gemfile
     end
 
-    def makepkg(nodeps)
-      system("makepkg -f #{nodeps && '--nodeps'}")
-      @pkgfile = Dir["#{@name}-*.pkg.*"].first
-      raise "makepkg #{@name} failed" unless @pkgfile
-    end
+    def gen_pkgbuild(gemfile, options)
+      spec = Gem::Format.from_file_by_path(gemfile).spec
 
-    def namcap
-      if which?('namcap')
-        info "Checking #{@pkgfile} with namcap..."
-        system("namcap #{@pkgfile}")
-      else
-        warn "namcap is not installed"
-      end
-    end
-
-    def pacman_install
-      alert "Installing #{@pkgfile} with pacman..."
-      system("sudo pacman --as#{@explicit ? 'explicit' : 'deps'} -U #{@pkgfile.shellescape}")
-    end
-
-    def gen_pkgbuild(options)
-      spec = Gem::Format.from_file_by_path(@gemfile).spec
-
-      depends = %w(ruby)
+      depends = [Package.ruby]
       spec.runtime_dependencies.each do |dep|
         dep.requirement.requirements.each do |comp, ver|
           comp = '>=' if comp == '~>'
-          depends << "ruby-#{dep.name.downcase}#{comp}#{ver}"
+          depends << "#{Package.ruby}-#{dep.name.downcase}#{comp}#{ver}"
         end
       end
 
       optdepends = []
       spec.development_dependencies.each do |dep|
         optspec, opturi = Gem::SpecFetcher.fetcher.fetch(dep, true).last
-        optdepends << "ruby-#{dep.name.downcase}: #{truncate(optspec.summary, 80)}" if optspec
+        optdepends << "#{Package.ruby}-#{dep.name.downcase}: #{truncate(optspec.summary, 80)}" if optspec
       end
 
       builder = %w(build fix)
@@ -188,64 +216,85 @@ module Pacgem
         builder << 'autodepends' unless options[:noautodepends]
       end
 
-      pkg = Pkgbuild.new
+      pkg = PkgBuild.new
       pkg['_gemname']    = spec.name
       pkg['_gembuilder'] = builder
-      pkg['pkgname']     = @name
+      pkg['_ruby']       = Gem.ruby
+      pkg['_gem']        = File.join(File.dirname(Gem.ruby), 'gem')
+      pkg['pkgname']     = name
       pkg['pkgver']      = spec.version.to_s
       pkg['pkgrel']      = 1
       pkg['pkgdesc']     = spec.summary
       pkg['arch']        = spec.extensions.empty? ? %w(any) : %w(i686 x86_64)
       pkg['url']         = spec.homepage
       pkg['license']     = [spec.license || 'Ruby']
-      pkg['makedepends'] = %w(rubygems binutils sed findutils)
+      pkg['makedepends'] = %W(#{Package.ruby} binutils sed findutils)
       pkg['depends']     = depends
       pkg['optdepends']  = optdepends
-      pkg['source']      = ["#{@uri}gems/$_gemname-$pkgver.gem"]
-      pkg['sha256sums']  = [Digest::SHA2.file(@gemfile).to_s]
+      pkg['source']      = %W(#{uri}gems/$_gemname-$pkgver.gem)
+      pkg['sha256sums']  = [Digest::SHA2.file(gemfile).to_s]
       pkg['noextract']   = %w($_gemname-$pkgver.gem)
       pkg['options']     = %w(!emptydirs)
-      spew('PKGBUILD', pkg.to_s)
+      pkg.save
+    end
+
+    def makepkg(options)
+      system("makepkg -f #{options[:noinstall] && '--nodeps'} #{options[:nocolor] && '--nocolor'}")
+      Dir["#{name}-*.pkg.*"].first || raise("makepkg #{name} failed")
+    end
+
+    def namcap(pkgfile, logger)
+      if which?('namcap')
+        logger.msg "Checking #{pkgfile} with namcap..."
+        system("namcap #{pkgfile}")
+      else
+        logger.warn 'namcap is not installed'
+      end
+    end
+
+    def pacman(pkgfile, logger)
+      logger.msg "Installing #{pkgfile} with pacman..."
+      system("sudo pacman --as#{explicit? ? 'explicit' : 'deps'} -U #{pkgfile.shellescape}")
     end
   end
 
   class Installer
-    include Util
-
-    def initialize(options)
-      @options = options
-      @order = []
+    def initialize(options, logger)
+      @options, @logger = options, logger
+      @list = []
       @packages = {}
     end
 
     def install
-      @order.reject! {|pkg| pkg.installed? } unless @options[:noinstall]
-      @order.each {|pkg| pkg.install(@options) }
+      @list.reject! {|pkg| pkg.installed? } unless @options[:noinstall]
+      @list.each {|pkg| pkg.install(@options, @logger) }
     end
 
     def resolve(name, version = nil)
-      resolve_dep(Gem::Dependency.new(name, version), true)
+      pkg = resolve_dep(Gem::Dependency.new(name, version))
+      pkg.explicit = true
     end
 
     private
 
-    def resolve_dep(dep, explicit)
+    def resolve_dep(dep)
       @packages[dep.name] ||= begin
         spec, uri = Gem::SpecFetcher.fetcher.fetch(dep, true).last
         raise "Gem #{dep} not found" unless spec
-        subinfo("#{spec.full_name}: #{spec.summary}")
-        spec.runtime_dependencies.each {|dep| resolve_dep(dep, false) }
-        (@order << Package.new(dep.name, spec.version, uri, explicit)).last
+        @logger.msg2 "#{spec.full_name}: #{spec.summary}"
+        spec.runtime_dependencies.each {|d| resolve_dep(d) }
+        pkg = Package.new(dep.name, spec.version, uri)
+        @list << pkg
+        pkg
       end
     end
   end
 
   class Command
-    include Util
-
     def initialize(args)
       @args = args
       @options = {}
+      @logger = Logger.new
     end
 
     def run
@@ -253,10 +302,14 @@ module Pacgem
       @opts.parse!(@args)
       process
       exit 0
+    rescue OptionParser::ParseError => ex
+      $stderr.puts ex.message
+      $stderr.puts @opts
+      exit 1
     rescue Exception => ex
       raise ex if @options[:trace] || SystemExit === ex
-      error ex.message
-      subinfo 'Use --trace for backtrace.'
+      @logger.error ex.message
+      @logger.msg2 'Use --trace for backtrace.'
       exit 1
     end
 
@@ -264,29 +317,30 @@ module Pacgem
 
     def process
       if @args.length < 1
-        puts @opts
-        exit
+        $stderr.puts 'You must specify at least one gem.'
+        $stderr.puts @opts
+        exit 1
       end
 
       raise 'You must not be root to run pacgem!' if Process.uid == 0
 
       trap :SIGINT do
-        Util.error 'Aborted by user! Exiting...'
-        exit
+        @logger.error 'Aborted by user! Exiting...'
+        exit 1
       end
 
       if @options[:destdir]
         dir = File.expand_path(@options[:destdir])
         FileUtils.mkpath(dir)
-        info "Saving package files in #{dir}"
+        @logger.msg "Saving package files in #{dir}"
       else
         dir = Dir.mktmpdir('pacgem-')
       end
 
       begin
         Dir.chdir(dir) do
-          installer = Installer.new(@options)
-          info 'Resolving gems...'
+          installer = Installer.new(@options, @logger)
+          @logger.msg 'Resolving gems...'
           @args.each do |gem|
             if gem =~ /^([-\w]+)((?:[<>]=?|=|~>|-)\d+(?:\.\d+)*)?$/
               name, version = $1, $2
@@ -330,6 +384,10 @@ Options:
         @options[:noautodepends] = true
       end
 
+      opts.on('--nocolor', :NONE, 'Disable colored output') do
+        @logger.nocolor!
+      end
+
       opts.on('--trace', :NONE, 'Show a full traceback on error') do
         @options[:trace] = true
       end
@@ -350,8 +408,9 @@ _gem_build() {
   msg 'Installing gem...'
 
   # Install the gem
-  mkdir -p "$pkgdir/usr/bin" "$_gemdir"
-  gem install --no-ri --no-rdoc --ignore-dependencies -n "$pkgdir/usr/bin" -i "$_gemdir" "$srcdir/$_gemname-$pkgver.gem"
+  mkdir -p $_bindir $_gemdir
+  $_gem install --no-ri --no-rdoc --ignore-dependencies \
+                --bindir $_bindir --install-dir $_gemdir "$srcdir/$_gemname-$pkgver.gem"
 }
 
 _gem_fix() {
@@ -360,18 +419,18 @@ _gem_fix() {
   # Set mode of executables to 755
   [ -d "$_gemdir/bin" ] && find "$_gemdir/bin" -type f -exec chmod 755 '{}' ';'
 
-  # Find man pages and move them to usr/share
+  # Find man pages and move them to the correct directory
   local mandir="$_gemdir/gems/$_gemname-$pkgver/man"
   if [ -d "$mandir" ]; then
-    mkdir -p "$pkgdir/usr/share"
-    mv "$mandir" "$pkgdir/usr/share"
+    mkdir -p $_mandir
+    mv $mandir/* $_mandir
   fi
 
   # Remove cached gem file
   rm -f "$_gemdir/cache/$_gemname-$pkgver.gem"
 
   # Sometimes there are files which are not world readable. Fix this.
-  find "$pkgdir" -type f '!' -perm '-004' -exec chmod o+r '{}' ';'
+  find $pkgdir -type f '!' -perm '-004' -exec chmod o+r '{}' ';'
 }
 
 _gem_cleanext() {
@@ -407,10 +466,10 @@ _gem_autodepends() {
   msg 'Automatic dependency resolution...'
 
   # Find all referenced shared libraries
-  local deps=$(find "$pkgdir" -type f -name '*.so')
+  local deps=$(find $pkgdir -type f -name '*.so')
   [ "$deps" != '' ] || return 0
 
-  deps=$(readelf -d $deps | sed '/library:/!d;s/.*library: \[\(.*\)\].*/\1/')
+  deps=$(readelf -d $deps | sed '/library:/!d;s/.*library: \[\(.*\)\].*/\1/' | sort | uniq)
 
   # Find referenced libraries on the library search path
   local libs=() lib path
@@ -432,11 +491,17 @@ _gem_autodepends() {
   msg2 "Referenced packages: ${depends[*]}"
 }
 
+_rbconfig() {
+  $_ruby -e "require 'rbconfig'; puts RbConfig::CONFIG['$1']"
+}
+
 build() {
-  # gemdir is defined inside build() because if ruby[gems] is not installed on the system
+  # Directories defined inside build() because if ruby is not installed on the system
   # makepkg will barf when sourcing the PKGBUILD
-  _gemdir="$pkgdir$(gem environment gemdir)"
+  _gemdir=$pkgdir$($_gem environment gemdir)
+  _bindir=$pkgdir$(_rbconfig bindir)
+  _mandir=$pkgdir$(_rbconfig mandir)
 
   local i
-  for i in ${_gembuilder[@]}; do _gem_$i "$_gemdir"; done
+  for i in ${_gembuilder[@]}; do _gem_$i $_gemdir; done
 }
