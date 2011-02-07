@@ -1,2 +1,2 @@
 #!/bin/sh
-java -Xmx512M -Djaolt.data.dir=/opt/jaolt/data -jar /opt/jaolt/launcher.jar
+java -Xmx512M $* -jar /usr/share/java/jaolt/launcher.jar
