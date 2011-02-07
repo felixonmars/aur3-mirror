@@ -39,7 +39,7 @@ wait_pid() {
 case "$1" in
 	start)
 		stat_busy "Starting git daemon"
-		check_pid "$PIDF_GITD" || su - git -c "/usr/bin/ruby $GITDIR/script/git-daemon -d"
+		check_pid "$PIDF_GITD" || su - git -c "$GITDIR/script/git-daemon -d"
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
@@ -48,7 +48,11 @@ case "$1" in
 		fi
 
 		stat_busy "Starting gitorious poller"
-		check_pid "$PIDF_POLLER" || su - git -c "env RAILS_ENV=production /usr/bin/ruby $GITDIR/script/poller run" > /dev/null 2>&1 &
+		if [ ! -d "$GITDIR/tmp/pids" ]; then
+			mkdir "$GITDIR/tmp/pids"
+			chown git:git "$GITDIR/tmp/pids"
+		fi
+		check_pid "$PIDF_POLLER" || su - git -c "env RAILS_ENV=production $GITDIR/script/poller run" > /dev/null 2>&1 &
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
