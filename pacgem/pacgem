@@ -10,6 +10,8 @@ require 'optparse'
 require 'fileutils'
 
 module Pacgem
+  VERSION = '0.8'
+
   module Util
     def which?(name)
       `which #{name} 2>/dev/null`
@@ -60,11 +62,11 @@ module Pacgem
     end
 
     def print(s, *c)
-      $stdout.print(color(s, *c))
+      STDOUT.print(color(s, *c))
     end
 
     def puts(s, *c)
-      $stdout.puts(color(s, *c))
+      STDOUT.puts(color(s, *c))
     end
 
     private
@@ -156,7 +158,7 @@ module Pacgem
     end
 
     def installed?
-      installed = `pacman -Q #{name.shellescape} 2>/dev/null`.split(/\s+/)
+      installed = `pacman -Q #{name.shellescape} 2>/dev/null`.strip.split(/\s+/, 2)
       installed[1] =~ /^#{version}\-\d+$/
     end
 
@@ -167,7 +169,7 @@ module Pacgem
         gen_pkgbuild(gemfile, options)
         pkgfile = makepkg(options)
         namcap(pkgfile, logger)
-        pacman(pkgfile, logger) unless options[:noinstall]
+        pacman(pkgfile, logger) unless options[:create]
       end
     end
 
@@ -228,7 +230,7 @@ module Pacgem
       pkg['arch']        = spec.extensions.empty? ? %w(any) : %w(i686 x86_64)
       pkg['url']         = spec.homepage
       pkg['license']     = [spec.license || 'Ruby']
-      pkg['makedepends'] = %W(#{Package.ruby} binutils sed findutils)
+      pkg['makedepends'] = %W(#{Package.ruby} binutils)
       pkg['depends']     = depends
       pkg['optdepends']  = optdepends
       pkg['source']      = %W(#{uri}gems/$_gemname-$pkgver.gem)
@@ -239,7 +241,7 @@ module Pacgem
     end
 
     def makepkg(options)
-      system("makepkg -f #{options[:noinstall] && '--nodeps'} #{options[:nocolor] && '--nocolor'}")
+      system("makepkg -f #{options[:create] && '--nodeps'} #{options[:nocolor] && '--nocolor'}")
       Dir["#{name}-*.pkg.*"].first || raise("makepkg #{name} failed")
     end
 
@@ -254,7 +256,12 @@ module Pacgem
 
     def pacman(pkgfile, logger)
       logger.msg "Installing #{pkgfile} with pacman..."
-      system("sudo pacman --as#{explicit? ? 'explicit' : 'deps'} -U #{pkgfile.shellescape}")
+      cmd = "pacman --as#{explicit? ? 'explicit' : 'deps'} -U #{pkgfile.shellescape}"
+      if which?('sudo')
+        system("sudo #{cmd}")
+      else
+        system("su -c #{cmd.shellescape}")
+      end
     end
   end
 
@@ -266,7 +273,7 @@ module Pacgem
     end
 
     def install
-      @list.reject! {|pkg| pkg.installed? } unless @options[:noinstall]
+      @list.reject! {|pkg| pkg.installed? } unless @options[:create]
       @list.each {|pkg| pkg.install(@options, @logger) }
     end
 
@@ -303,8 +310,8 @@ module Pacgem
       process
       exit 0
     rescue OptionParser::ParseError => ex
-      $stderr.puts ex.message
-      $stderr.puts @opts
+      STDERR.puts ex.message
+      STDERR.puts @opts
       exit 1
     rescue Exception => ex
       raise ex if @options[:trace] || SystemExit === ex
@@ -317,8 +324,8 @@ module Pacgem
 
     def process
       if @args.length < 1
-        $stderr.puts 'You must specify at least one gem.'
-        $stderr.puts @opts
+        STDERR.puts 'You must specify at least one gem.'
+        STDERR.puts @opts
         exit 1
       end
 
@@ -363,7 +370,7 @@ module Pacgem
 Pacgem installs Ruby Gems using the Arch Linux Package Manager (pacman).
 
 Examples:
-    pacgem --noinstall rake    Create ruby-rake package in the directory ./ruby-rake
+    pacgem --create rake       Create ruby-rake package in the directory ./ruby-rake
     pacgem rake-1.0            Create temporary ruby-rake package and install it
     pacgem 'rake>1.0'          Different version specification
     pacgem thin 'rake~>1.0'    Different version specification
@@ -375,8 +382,8 @@ Options:
         @options[:destdir] = dir
       end
 
-      opts.on('-n', '--noinstall', :NONE, 'Do not install package files') do
-        @options[:noinstall] = true
+      opts.on('-c', '--create', :NONE, 'Create package only, do not install') do
+        @options[:create] = true
         @options[:destdir] = Dir.pwd
       end
 
@@ -392,8 +399,17 @@ Options:
         @options[:trace] = true
       end
 
-      opts.on_tail('-h', '--help', 'Show this message') do
+      opts.on_tail('-h', '--help', 'Display help and exit') do
         puts opts
+        exit
+      end
+
+      opts.on_tail('-V', '--version', 'Display version and exit') do
+        puts %{Pacgem Version #{VERSION}
+(C) 2011 Daniel Mendler
+
+This program may be freely redistributed under
+the terms of the GNU General Public License.}
         exit
       end
     end
@@ -408,7 +424,7 @@ _gem_build() {
   msg 'Installing gem...'
 
   # Install the gem
-  mkdir -p $_bindir $_gemdir
+  install -d -m755 $_bindir $_gemdir
   $_gem install --no-ri --no-rdoc --ignore-dependencies \
                 --bindir $_bindir --install-dir $_gemdir "$srcdir/$_gemname-$pkgver.gem"
 }
@@ -417,12 +433,12 @@ _gem_fix() {
   msg 'Fixing gem installation...'
 
   # Set mode of executables to 755
-  [ -d "$_gemdir/bin" ] && find "$_gemdir/bin" -type f -exec chmod 755 '{}' ';'
+  [ -d "$_gemdir/bin" ] && find "$_gemdir/bin" -type f -exec chmod 755 -- '{}' ';'
 
   # Find man pages and move them to the correct directory
   local mandir="$_gemdir/gems/$_gemname-$pkgver/man"
   if [ -d "$mandir" ]; then
-    mkdir -p $_mandir
+    install -d -m755 $_mandir
     mv $mandir/* $_mandir
   fi
 
@@ -430,32 +446,27 @@ _gem_fix() {
   rm -f "$_gemdir/cache/$_gemname-$pkgver.gem"
 
   # Sometimes there are files which are not world readable. Fix this.
-  find $pkgdir -type f '!' -perm '-004' -exec chmod o+r '{}' ';'
+  find $pkgdir -type f '!' -perm '-004' -exec chmod o+r -- '{}' ';'
 }
 
 _gem_cleanext() {
   msg 'Removing native build leftovers...'
   local extdir="$_gemdir/gems/$_gemname-$pkgver/ext"
-  [ -d "$extdir" ] && find "$extdir" -name '*.o' -exec rm -f '{}' ';'
-}
-
-# Check if list includes element
-_includes_not() {
-  local elem=$1
-  shift
-  for i; do [ "$i" = "$elem" ] && return 1; done
-  return 0
+  [ -d "$extdir" ] && find "$extdir" -name '*.o' -exec rm -f -- '{}' ';'
 }
 
 # Check if dependency is already satisfied
 _dependency_satisfied() {
   local dep=$1 deps="${depends[@]}"
+  [ "$(type -t in_array)" == "function" ] || error "in_array should be provided by makepkg"
   while true; do
-    _includes_not $dep ${deps[@]} || return 0
+    in_array $dep ${deps[@]} && return 0
     local found=0 pkg
     # Warning: This could break easily if the pacman output format changes.
-    for pkg in $(pacman -Qi ${deps[@]} 2>/dev/null | sed '/Depends/!d;s/.*: //;s/None\|>=[^ ]*//g'); do
-      _includes_not $pkg ${deps[@]} && deps=(${deps[@]} $pkg) && found=1
+    for pkg in $(LC_ALL=C pacman -Qi ${deps[@]} 2>/dev/null | sed '/Depends On/!d;s/.*: //;s/None\|[<>]=\?[^ ]*\|=[^ ]*//g'); do
+      if ! in_array $pkg ${deps[@]}; then
+        deps=(${deps[@]} $pkg) && found=1
+      fi
     done
     [ $found -eq 1 ] || break
   done
@@ -503,5 +514,7 @@ build() {
   _mandir=$pkgdir$(_rbconfig mandir)
 
   local i
-  for i in ${_gembuilder[@]}; do _gem_$i $_gemdir; done
+  for i in ${_gembuilder[@]}; do
+    _gem_$i
+  done
 }
