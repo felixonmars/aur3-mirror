@@ -1,6 +1,7 @@
 # Contributor: alphazo <alphazo@gmail.com>
+# This version fetches and install master branch from Git repo.
 pkgname=sshuttle-git
-pkgver=20110207
+pkgver=20110208
 pkgrel=1
 pkgdesc="Transparent proxy server that works as a poor man's VPN. Forwards all TCP packets over ssh (and even DNS requests when using --dns option). Doesn't require admin privileges on the server side."
 arch=('any')
@@ -41,9 +42,6 @@ build() {
   git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
 
-  # As of 2011-02-07, we need to use the autopython branch for ArchLinux (python2 + file relocation), should be merged into master soon.
-  git checkout 340223b839b3b9829e2756a769e86fbdcdd1a005
-
   # Patch launcher with files location (/usr/share/sshuttle)
   patch -p1 -i "${srcdir}/arch-install.patch"
 
@@ -54,13 +52,4 @@ build() {
   mkdir -p $pkgdir/usr/share/sshuttle 
   cp -r $srcdir/$_gitname-build/* $pkgdir/usr/share/sshuttle || return 1
 
-} 
-
-
-
-
-
-
-
-
- 
+}
