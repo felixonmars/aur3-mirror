@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# rt2870-firmware-update v0.1
+# rt2870-firmware-update v0.2
 ## Copyright 2011 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -22,8 +22,32 @@ use URI;
 use File::Copy;
 use Archive::Extract;
 use File::Compare;
+use Getopt::Long qw(:config no_ignore_case);
+use Term::ANSIColor qw(:constants);
+$Term::ANSIColor::AUTORESET = 1;
 
+my $probe;
+my $res = GetOptions("probe|p" => \$probe);
+die ":: usage: $0 [ --probe | -p ]\n" unless $res and (scalar @ARGV == 0);
 
+if ($probe)
+{
+    my $LSUSB = `which lsusb 2> /dev/null`;
+    chomp $LSUSB;
+    die ":: install 'usbutils' package first!\n" unless $LSUSB;
+    my $lsusb_out = `lsusb`;
+    if ($lsusb_out =~ /1737:0079\sLinksys/)
+    {
+        say BLUE ":: device 'ID 1737:0079 Linksys WUSB600N v2' found!";
+        exit 0;
+    }
+    else{
+        say RED qq{:: WARNING: I cannot find the Linksys WUSB600N v2 device!
+:: If your wireless adapter is connected, probably the
+:: 'rt3572sta' driver is NOT what you need...};
+exit 1;
+}
+}
 die ":: root privileges required!\n" unless ($> == 0 or $< == 0) ;
 
 my $ralink_url = URI->new('http://www.ralinktech.com');
