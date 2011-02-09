@@ -1,16 +1,9 @@
 #!/usr/bin/ruby
 
-require 'tmpdir'
-require 'rubygems'
-require 'rubygems/format'
-require 'shellwords'
-require 'open-uri'
-require 'digest/sha2'
 require 'optparse'
-require 'fileutils'
 
 module Pacgem
-  VERSION = '0.8'
+  VERSION = '0.9.1'
 
   module Util
     def which?(name)
@@ -51,7 +44,7 @@ module Pacgem
       puts(s, :bold)
     end
 
-    def warn(s)
+    def warning(s)
       print('==> WARNING: ', :yellow, :bold)
       puts(s, :bold)
     end
@@ -149,7 +142,7 @@ module Pacgem
 
     def initialize(name, version, uri)
       @gemname = name
-      @name = "#{Package.ruby}-#{name.downcase}"
+      @name = build_name(name)
       @version, @uri = version, uri
     end
 
@@ -158,7 +151,7 @@ module Pacgem
     end
 
     def installed?
-      installed = `pacman -Q #{name.shellescape} 2>/dev/null`.strip.split(/\s+/, 2)
+      installed = pacman_parse("-Q #{name.shellescape}").strip.split(/\s+/, 2)
       installed[1] =~ /^#{version}\-\d+$/
     end
 
@@ -169,11 +162,19 @@ module Pacgem
         gen_pkgbuild(gemfile, options)
         pkgfile = makepkg(options)
         namcap(pkgfile, logger)
-        pacman(pkgfile, logger) unless options[:create]
+        installpkg(pkgfile, logger) unless options[:create]
       end
     end
 
     private
+
+    def build_name(gemname)
+      "#{Package.ruby}-#{gemname.downcase.tr('_', '-')}"
+    end
+
+    def pacman_parse(args)
+      `LC_ALL=C pacman #{args} 2>/dev/null`
+    end
 
     def self.ruby
       @ruby ||= if RUBY_VERSION > '1.9'
@@ -202,14 +203,14 @@ module Pacgem
       spec.runtime_dependencies.each do |dep|
         dep.requirement.requirements.each do |comp, ver|
           comp = '>=' if comp == '~>'
-          depends << "#{Package.ruby}-#{dep.name.downcase}#{comp}#{ver}"
+          depends << "#{build_name dep.name}#{comp}#{ver}"
         end
       end
 
       optdepends = []
       spec.development_dependencies.each do |dep|
         optspec, opturi = Gem::SpecFetcher.fetcher.fetch(dep, true).last
-        optdepends << "#{Package.ruby}-#{dep.name.downcase}: #{truncate(optspec.summary, 80)}" if optspec
+        optdepends << "#{build_name dep.name}: #{truncate(optspec.summary, 80)}" if optspec
       end
 
       builder = %w(build fix)
@@ -229,7 +230,7 @@ module Pacgem
       pkg['pkgdesc']     = spec.summary
       pkg['arch']        = spec.extensions.empty? ? %w(any) : %w(i686 x86_64)
       pkg['url']         = spec.homepage
-      pkg['license']     = [spec.license || 'Ruby']
+      pkg['license']     = [*spec.license || 'Ruby']
       pkg['makedepends'] = %W(#{Package.ruby} binutils)
       pkg['depends']     = depends
       pkg['optdepends']  = optdepends
@@ -250,12 +251,18 @@ module Pacgem
         logger.msg "Checking #{pkgfile} with namcap..."
         system("namcap #{pkgfile}")
       else
-        logger.warn 'namcap is not installed'
+        logger.warning 'namcap is not installed'
       end
     end
 
-    def pacman(pkgfile, logger)
+    def installpkg(pkgfile, logger)
       logger.msg "Installing #{pkgfile} with pacman..."
+      pacman_parse('-v') =~ /^Lock File\s+:\s+(.*)$/
+      lockfile = $1
+      if File.exists?(lockfile)
+        logger.msg2 'Pacman is currently in use, please wait.'
+        sleep 1 while File.exists?(lockfile)
+      end
       cmd = "pacman --as#{explicit? ? 'explicit' : 'deps'} -U #{pkgfile.shellescape}"
       if which?('sudo')
         system("sudo #{cmd}")
@@ -322,19 +329,34 @@ module Pacgem
 
     private
 
+    def load_libraries
+      require 'tmpdir'
+      require 'rubygems'
+      require 'rubygems/user_interaction'
+      require 'rubygems/format'
+      require 'shellwords'
+      require 'open-uri'
+      require 'digest/sha2'
+      require 'fileutils'
+    end
+
     def process
       if @args.length < 1
-        STDERR.puts 'You must specify at least one gem.'
-        STDERR.puts @opts
+        STDERR.puts 'Error: No operation specified (use -h for help)'
         exit 1
       end
 
-      raise 'You must not be root to run pacgem!' if Process.uid == 0
+      if Process.uid == 0
+        STDERR.puts 'Error: You cannot perform this operation if you are root.'
+        exit 1
+      end
 
       trap :SIGINT do
         @logger.error 'Aborted by user! Exiting...'
         exit 1
       end
+
+      load_libraries
 
       if @options[:destdir]
         dir = File.expand_path(@options[:destdir])
@@ -370,10 +392,10 @@ module Pacgem
 Pacgem installs Ruby Gems using the Arch Linux Package Manager (pacman).
 
 Examples:
-    pacgem --create rake       Create ruby-rake package in the directory ./ruby-rake
-    pacgem rake-1.0            Create temporary ruby-rake package and install it
-    pacgem 'rake>1.0'          Different version specification
-    pacgem thin 'rake~>1.0'    Different version specification
+    pacgem --create rake             Create ruby-rake package in the directory ./ruby-rake
+    pacgem rake-1.0                  Create temporary ruby-rake package and install it
+    pacgem 'rake>1.0'                Install ruby-rake version > 1.0
+    pacgem thin 'rake~>1.0'          Install ruby-thin and ruby-rake with version ~>1.0
 
 Options:
 }
@@ -433,11 +455,11 @@ _gem_fix() {
   msg 'Fixing gem installation...'
 
   # Set mode of executables to 755
-  [ -d "$_gemdir/bin" ] && find "$_gemdir/bin" -type f -exec chmod 755 -- '{}' ';'
+  [[ -d "$_gemdir/bin" ]] && find "$_gemdir/bin" -type f -exec chmod 755 -- '{}' ';'
 
   # Find man pages and move them to the correct directory
   local mandir="$_gemdir/gems/$_gemname-$pkgver/man"
-  if [ -d "$mandir" ]; then
+  if [[ -d $mandir ]]; then
     install -d -m755 $_mandir
     mv $mandir/* $_mandir
   fi
@@ -452,13 +474,13 @@ _gem_fix() {
 _gem_cleanext() {
   msg 'Removing native build leftovers...'
   local extdir="$_gemdir/gems/$_gemname-$pkgver/ext"
-  [ -d "$extdir" ] && find "$extdir" -name '*.o' -exec rm -f -- '{}' ';'
+  [[ -d $extdir ]] && find "$extdir" -name '*.o' -exec rm -f -- '{}' ';'
 }
 
 # Check if dependency is already satisfied
 _dependency_satisfied() {
   local dep=$1 deps="${depends[@]}"
-  [ "$(type -t in_array)" == "function" ] || error "in_array should be provided by makepkg"
+  [[ $(type -t in_array) == 'function' ]] || error "in_array should be provided by makepkg"
   while true; do
     in_array $dep ${deps[@]} && return 0
     local found=0 pkg
@@ -468,7 +490,7 @@ _dependency_satisfied() {
         deps=(${deps[@]} $pkg) && found=1
       fi
     done
-    [ $found -eq 1 ] || break
+    (( $found )) || break
   done
   return 1
 }
@@ -478,18 +500,18 @@ _gem_autodepends() {
 
   # Find all referenced shared libraries
   local deps=$(find $pkgdir -type f -name '*.so')
-  [ "$deps" != '' ] || return 0
+  [[ -n $deps ]] || return 0
 
-  deps=$(readelf -d $deps | sed '/library:/!d;s/.*library: \[\(.*\)\].*/\1/' | sort | uniq)
+  deps=$(readelf -d $deps | sed -n 's/.*Shared library: \[\(.*\)\].*/\1/p' | sort | uniq)
 
   # Find referenced libraries on the library search path
   local libs=() lib path
   for lib in $deps; do
     for path in /lib /usr/lib; do
-      [ -f "$path/$lib" ] && libs=(${libs[@]} "$path/$lib")
+      [[ -f "$path/$lib" ]] && libs=(${libs[@]} "$path/$lib")
     done
   done
-  [ "${#libs}" -ne 0 ] || return 0
+  (( ${#libs} )) || return 0
 
   msg2 "Referenced libraries: ${libs[*]}"
 

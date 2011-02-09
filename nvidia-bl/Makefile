@@ -1,6 +1,6 @@
 NAME=nvidia-bl
 MODULE_NAME=nvidia_bl
-VERSION=0.15.4
+VERSION=0.17.3
 
 obj-m    := $(MODULE_NAME).o
 

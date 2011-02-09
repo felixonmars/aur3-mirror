@@ -32,8 +32,6 @@ if [ ! -f /etc/rc.d/functions ]; then
 fi
 . /etc/rc.d/functions
 
-STARTPROC=daemon
-
 function rc_status() {
     RETVAL=$?
 }
@@ -75,19 +73,20 @@ start() {
     if [ $? -gt 0 ]; then
 	stat_fail
     else
-	add_daemon $prog
+	add_daemon slurm
 	stat_done
     fi
 }
 
 stop() {
+    prog=$1
     stat_busy "Stopping $prog"
     PID=`pidof -o %PPID $prog`
     [ "$PID" ] && kill $PID &> /dev/null
     if [ $? -gt 0 ]; then
 	stat_fail
     else
-	rm_daemon $prog
+	rm_daemon slurm
 	stat_done
     fi
 }

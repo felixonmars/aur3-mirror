@@ -35,23 +35,6 @@
  */
 /* #define CONFIG_NVIDIA_BL_CHECK_SUBSYSTEM_VENDOR */
 
-/* Check for the new backlight suspend/resume feature */
-#if defined(BL_CORE_SUSPENDRESUME)
-	#define  USE_BACKLIGHT_SUSPEND
-/* Otherwise use a platform driver if PM is enabled */
-#elif defined(CONFIG_PM)
-	/*
-	 * TODO: Remove this stuff. Shouldn't be necessary anymore
-	 * unless to be able to compile against very old kernels.
-	 */
-	#warning USE_PLATFORM_DRIVER
-	#define  USE_PLATFORM_DRIVER
-	#undef   __initdata
-	#define  __initdata     /* nothing */
-	#undef   __devinitconst
-	#define  __devinitconst /* nothing */
-#endif
-
 /* Check whether backlight props.state is present */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
 	#define HAVE_BACKLIGHT_PROPS_STATE
@@ -217,8 +200,7 @@ static const struct driver_data nv5x_driver_data __devinitconst = {
  *
  * The list of supported devices was primarily taken from Nvidia's driver
  * documentation appendix A, available at:
- * http://download.nvidia.com/XFree86/Linux-x86_64/195.30/README/supportedchips.html
- * http://download.nvidia.com/XFree86/Linux-x86_64/195.36.24/README/supportedchips.html
+ * http://download.nvidia.com/XFree86/Linux-x86_64/<version>/README/supportedchips.html
  * and completed with NvClock's device table and posts by users of Nvidia's forum at:
  * http://www.nvnews.net/vbulletin/showthread.php?t=143025.
  *
@@ -228,71 +210,71 @@ static const struct driver_data nv5x_driver_data __devinitconst = {
  * $ cat /sys/class/dmi/id/product_name
  */
 static DEFINE_PCI_DEVICE_TABLE(nvidia_bl_device_table) = {
-	/* Geforce Go 7800 */
+	/* Geforce Go 7800 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0098), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7800 GTX */
+	/* Geforce Go 7800 GTX (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0099), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6800 */
+	/* Geforce Go 6800 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x00c8), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6800 Ultra */
+	/* Geforce Go 6800 Ultra (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x00c9), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro FX Go 1400 */
+	/* Quadro FX Go 1400 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x00cc), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6600 */
+	/* Geforce Go 6600 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0144), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6600 TE/6200 TE */
+	/* Geforce Go 6600 TE/6200 TE (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0146), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6600 */
+	/* Geforce Go 6600 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0148), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6600 GT */
+	/* Geforce Go 6600 GT (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0149), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro FX 540M */
+	/* Quadro FX 540M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x014c), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6200 */
+	/* Geforce Go 6200 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0164), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6400 */
+	/* Geforce Go 6400 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0166), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6200 */
+	/* Geforce Go 6200 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0167), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6400 */
+	/* Geforce Go 6400 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0168), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7200 */
+	/* Geforce Go 7200 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01d6), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7300 */
+	/* Geforce Go 7300 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01d7), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7400 */
+	/* Geforce Go 7400 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01d8), (kernel_ulong_t)&nv4x_driver_data },
 	/* Geforce Go 7400GS (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x01d9), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro NVS 110M */
+	/* Quadro NVS 110M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01da), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro NVS 120M */
+	/* Quadro NVS 120M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01db), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro FX 350M */
+	/* Quadro FX 350M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01dc), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce 7500 LE */
+	/* Geforce 7500 LE (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x01dd), (kernel_ulong_t)&nv4x_driver_data },
 	/* NV44M (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x0228), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6150 */
+	/* Geforce Go 6150 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0244), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 6100 */
+	/* Geforce Go 6100 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0247), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7950 GTX */
+	/* Geforce Go 7950 GTX (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0297), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7900 GS */
+	/* Geforce Go 7900 GS (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0298), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7900GTX (NvClock) / Quadro NVS 510M */
+	/* Geforce Go 7900GTX (NvClock) / Quadro NVS 510M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0299), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro FX 2500M */
+	/* Quadro FX 2500M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x029a), (kernel_ulong_t)&nv4x_driver_data },
-	/* Quadro FX 1500M */
+	/* Quadro FX 1500M (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x029b), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7700 */
+	/* Geforce Go 7700 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0397), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7600 */
+	/* Geforce Go 7600 (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0398), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce Go 7600 GT */
+	/* Geforce Go 7600 GT (195.30) */
 	{ PCI_VDEVICE(NVIDIA, 0x0399), (kernel_ulong_t)&nv4x_driver_data },
 	/* Quadro NVS 300M (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x039a), (kernel_ulong_t)&nv4x_driver_data },
@@ -300,225 +282,235 @@ static DEFINE_PCI_DEVICE_TABLE(nvidia_bl_device_table) = {
 	{ PCI_VDEVICE(NVIDIA, 0x039b), (kernel_ulong_t)&nv4x_driver_data },
 	/* QuadroFX 550M (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x039c), (kernel_ulong_t)&nv4x_driver_data },
-	/* Geforce 9500M GS */
+	/* Geforce 9500M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0405), (kernel_ulong_t)&nv5x_driver_data },
 	/* Geforce NB9P-GE (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x0406), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8600M GT */
+	/* Geforce 8600M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0407), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9650M GS */
+	/* Geforce 9650M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0408), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8700M GT */
+	/* Geforce 8700M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0409), (kernel_ulong_t)&nv5x_driver_data },
 	/* Quadro NVS 370M (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x040a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 320M */
+	/* Quadro NVS 320M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x040b), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 570M */
+	/* Quadro FX 570M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x040c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 1600M */
+	/* Quadro FX 1600M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x040d), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8600M GS */
+	/* Geforce 8600M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0425), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8400M GT */
+	/* Geforce 8400M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0426), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8400M GS */
+	/* Geforce 8400M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0427), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8400M G */
+	/* Geforce 8400M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0428), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 140M */
+	/* Quadro NVS 140M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0429), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 130M */
+	/* Quadro NVS 130M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x042a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 135M */
+	/* Quadro NVS 135M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x042b), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 360M */
+	/* Quadro NVS 135M (NvClock) */
+	{ PCI_VDEVICE(NVIDIA, 0x042c), (kernel_ulong_t)&nv5x_driver_data },
+	/* Quadro FX 360M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x042d), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9300M G */
+	/* Geforce 9300M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x042e), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 7150M / nForce 630M */
+	/* Geforce 7150M / nForce 630M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0531), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 7000M / nForce 610M */
+	/* Geforce 7000M / nForce 610M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0533), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9800M GTX */
+	/* Geforce 9800M GTX (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0608), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8800M GTS */
+	/* Geforce 8800M GTS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0609), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTX 280M */
+	/* Geforce GTX 280M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x060a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9800M GT */
+	/* Geforce 9800M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x060b), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8800M GTX */
+	/* Geforce 8800M GTX (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x060c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTX 285M */
+	/* Geforce GTX 285M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x060f), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9800M GTX */
+	/* Geforce 9800M GTX (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0617), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTX 260M */
+	/* Geforce GTX 260M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0618), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 3600M */
+	/* Quadro FX 3600M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x061c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 2800M */
+	/* Quadro FX 2800M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x061d), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 3700M */
+	/* Quadro FX 3700M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x061e), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 3800M */
+	/* Quadro FX 3800M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x061f), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9800M GTS */
+	/* Geforce 9800M GTS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0628), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9700M GTS */
+	/* Geforce 9700M GTS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x062a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9800M GS */
+	/* Geforce 9800M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x062b), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9800M GTS */
+	/* Geforce 9800M GTS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x062c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTS 160M */
+	/* Geforce GTS 160M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0631), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTS 150M */
+	/* Geforce GTS 150M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0632), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 2700M */
+	/* Quadro FX 2700M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x063a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9600M GT */
+	/* Geforce 9600M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0647), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9600M GS */
+	/* Geforce 9600M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0648), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9600M GT */
+	/* Geforce 9600M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0649), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9700M GT */
+	/* Geforce 9700M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x064a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9500M G */
+	/* Geforce 9500M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x064b), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9650M GT */
+	/* Geforce 9650M GT (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x064c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 110M */
+	/* Geforce G 110M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0651), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 130M */
+	/* Geforce GT 130M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0652), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 120M */
+	/* Geforce GT 120M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0653), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 220M */
+	/* Geforce GT 220M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0654), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 1700M */
+	/* Geforce 9650S (NvClock) */
+	{ PCI_VDEVICE(NVIDIA, 0x0656), (kernel_ulong_t)&nv5x_driver_data },
+	/* Quadro FX 380 (NvClock) */
+	{ PCI_VDEVICE(NVIDIA, 0x0658), (kernel_ulong_t)&nv5x_driver_data },
+	/* Quadro FX 580 (NvClock) */
+	{ PCI_VDEVICE(NVIDIA, 0x0659), (kernel_ulong_t)&nv5x_driver_data },
+	/* Quadro FX 1700M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x065a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 770M */
+	/* Geforce 9400GT (NvClock) */
+	{ PCI_VDEVICE(NVIDIA, 0x065b), (kernel_ulong_t)&nv5x_driver_data },
+	/* Quadro FX 770M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x065c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9300M GS */
+	/* Geforce GTX 480M (256.53) */
+	{ PCI_VDEVICE(NVIDIA, 0x06ca), (kernel_ulong_t)&nv5x_driver_data },
+	/* Geforce 9300M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06e5), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9200M GS */
+	/* Geforce 9200M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06e8), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9300M GS */
+	/* Geforce 9300M GS (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06e9), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 150M */
+	/* Quadro NVS 150M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06ea), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 160M */
+	/* Quadro NVS 160M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06eb), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 105M */
+	/* Geforce G 105M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06ec), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 103M */
+	/* Geforce G 103M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06ef), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 105M */
+	/* Geforce G 105M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06f1), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro NVS 420 */
-	{ PCI_VDEVICE(NVIDIA, 0x06f8), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 370 LP */
-	{ PCI_VDEVICE(NVIDIA, 0x06f9), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 370M */
+	/* Quadro FX 370M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x06fb), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9100M G */
+	/* Geforce 9100M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0844), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8200M G */
+	/* Geforce 8200M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0845), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9400M G */
+	/* Geforce 9400M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0862), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9400M */
+	/* Geforce 9400M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0863), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION */
+	/* ION (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0865), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9400M G */
+	/* Geforce 9400M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0866), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9100M G */
+	/* Geforce 9100M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x086e), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 8200M G */
+	/* Geforce 8200M G (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x086f), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 9400M */
+	/* Geforce 9400M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0870), (kernel_ulong_t)&nv5x_driver_data },
 	/* Geforce 9200 (NvClock) */
 	{ PCI_VDEVICE(NVIDIA, 0x0871), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 102M */
+	/* Geforce G 102M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0872), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 102M */
+	/* Geforce G 102M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0873), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION */
+	/* ION (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0874), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION */
+	/* ION (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0876), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 470 */
-	{ PCI_VDEVICE(NVIDIA, 0x087a), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION */
+	/* ION (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x087d), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION LE */
+	/* ION LE (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x087e), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION LE */
+	/* ION LE (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x087f), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 320M */
+	/* Geforce 320M (User report) */
 	{ PCI_VDEVICE(NVIDIA, 0x08a0), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 230M */
+	/* Geforce 320M (User report) */
+	{ PCI_VDEVICE(NVIDIA, 0x08a2), (kernel_ulong_t)&nv5x_driver_data },
+	/* Geforce 320M (User report) */
+	{ PCI_VDEVICE(NVIDIA, 0x08a3), (kernel_ulong_t)&nv5x_driver_data },
+	/* Geforce GT 230M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a28), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 330M */
+	/* Geforce GT 330M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a29), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 230M */
+	/* Geforce GT 230M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a2a), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 330M */
+	/* Geforce GT 330M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a2b), (kernel_ulong_t)&nv5x_driver_data },
-	/* NVS 5100M */
+	/* NVS 5100M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a2c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 320M */
+	/* Geforce GT 320M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a2d), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 240M */
+	/* Geforce GT 240M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a34), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 325M */
+	/* Geforce GT 325M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a35), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 880M */
+	/* Quadro FX 880M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a3c), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION */
+	/* ION (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a64), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 105M */
+	/* Geforce G 105M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a68), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 105M */
+	/* Geforce G 105M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a69), (kernel_ulong_t)&nv5x_driver_data },
-	/* NVS 2100M */
+	/* NVS 2100M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a6a), (kernel_ulong_t)&nv5x_driver_data },
-	/* NVS 3100M */
+	/* NVS 3100M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a6c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 305M */
+	/* Geforce 305M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a6e), (kernel_ulong_t)&nv5x_driver_data },
-	/* ION */
+	/* ION (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a6f), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 310M */
+	/* Geforce 310M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a70), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 305M */
+	/* Geforce 305M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a71), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 310M */
+	/* Geforce 310M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a72), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 305M */
+	/* Geforce 305M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a73), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce G 210M */
+	/* Geforce G 210M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a74), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce 310M */
+	/* Geforce 310M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a75), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 380M */
+	/* Quadro FX 380M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0a7c), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTS 260M */
+	/* Geforce GTS 260M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0ca8), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTS 250M */
+	/* Geforce GTS 250M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0ca9), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GT 335M */
+	/* Geforce GT 335M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0caf), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTS 350M */
+	/* Geforce GTS 350M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0cb0), (kernel_ulong_t)&nv5x_driver_data },
-	/* Geforce GTS 360M */
+	/* Geforce GTS 360M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0cb1), (kernel_ulong_t)&nv5x_driver_data },
-	/* Quadro FX 1800M */
+	/* Quadro FX 1800M (195.36) */
 	{ PCI_VDEVICE(NVIDIA, 0x0cbc), (kernel_ulong_t)&nv5x_driver_data },
 
 	/* end of list */
@@ -554,11 +546,6 @@ static const struct machine_quirks apple_quirks __initdata = {
 static const struct machine_quirks apple_quirks_320m __initdata = {
 	.dev_id		= PCI_ANY_ID,
 	.max_level	= 44000
-};
-
-static const struct machine_quirks sony_vpccw27fx_quirks __initdata = {
-	.dev_id		= PCI_ANY_ID,
-	.max_level	= 127000 /* might be wrong. maybe also 0x1ffff */
 };
 
 static const struct machine_quirks max_level_0x1ffff __initdata = {
@@ -712,6 +699,24 @@ static const struct dmi_system_id nvidia_bl_machine_table[] __initdata = {
 		},
 		.driver_data	= (void *)&apple_quirks_320m,
 	},
+	{
+		.callback	= &nvidia_bl_dmi_match,
+		.ident		= "MacBookAir 3,1",
+		.matches	= {
+			DMI_MATCH(DMI_SYS_VENDOR, "Apple Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "MacBookAir3,1"),
+		},
+		.driver_data	= (void *)&apple_quirks_320m,
+	},
+	{
+		.callback	= &nvidia_bl_dmi_match,
+		.ident		= "MacBookAir 3,2",
+		.matches	= {
+			DMI_MATCH(DMI_SYS_VENDOR, "Apple Inc."),
+			DMI_MATCH(DMI_PRODUCT_NAME, "MacBookAir3,2"),
+		},
+		.driver_data	= (void *)&apple_quirks_320m,
+	},
 
 	/*
 	 * Sony machines: Nvidia graphics
@@ -750,7 +755,25 @@ static const struct dmi_system_id nvidia_bl_machine_table[] __initdata = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Sony Corporation"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "VPCCW27FX"),
 		},
-		.driver_data	= (void *)&sony_vpccw27fx_quirks,
+		.driver_data	= (void *)&max_level_0x1ffff,
+	},
+	{
+		.callback	= &nvidia_bl_dmi_match,
+		.ident		= "Sony VPCCW21FX",
+		.matches	= {
+			DMI_MATCH(DMI_SYS_VENDOR, "Sony Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "VPCCW21FX"),
+		},
+		.driver_data	= (void *)&max_level_0x1ffff,
+	},
+	{
+		.callback	= &nvidia_bl_dmi_match,
+		.ident		= "Sony VPCCW2S1E",
+		.matches	= {
+			DMI_MATCH(DMI_SYS_VENDOR, "Sony Corporation"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "VPCCW2S1E"),
+		},
+		.driver_data	= (void *)&max_level_0x1ffff,
 	},
 
 	/*
@@ -953,9 +976,7 @@ static int nvidia_bl_set_intensity(struct backlight_device *bd)
 }
 
 static const struct backlight_ops nvidia_bl_backlight_ops = {
-#ifdef USE_BACKLIGHT_SUSPEND
 	.options        = BL_CORE_SUSPENDRESUME,
-#endif
 	.get_brightness = &nvidia_bl_get_intensity,
 	.update_status  = &nvidia_bl_set_intensity,
 };
@@ -966,11 +987,7 @@ static const struct backlight_ops nvidia_bl_backlight_ops = {
 static struct driver_data driver_data;
 static struct backlight_device *nvidia_bl_device;
 
-#ifdef USE_PLATFORM_DRIVER
-static int nvidia_bl_probe(struct platform_device *pdev)
-#else
 static int __init nvidia_bl_init(void)
-#endif
 {
 #ifdef INIT_BACKLIGHT_PROPS
 	struct backlight_properties props;
@@ -1023,6 +1040,7 @@ static int __init nvidia_bl_init(void)
 	                                             &driver_data,
 	                                             &nvidia_bl_backlight_ops);
 #endif
+
 	if (IS_ERR(nvidia_bl_device)) {
 		nvidia_bl_unmap_smartdimmer(&driver_data);
 		return PTR_ERR(nvidia_bl_device);
@@ -1058,11 +1076,7 @@ static int __init nvidia_bl_init(void)
 	return 0;
 }
 
-#ifdef USE_PLATFORM_DRIVER
-static int nvidia_bl_remove(struct platform_device *pdev)
-#else
 static void __exit nvidia_bl_exit(void)
-#endif
 {
 	/* Unregister at backlight framework */
 	if (nvidia_bl_device)
@@ -1075,64 +1089,7 @@ static void __exit nvidia_bl_exit(void)
 	/* Release PCI device */
 	if (driver_data.dev)
 		pci_dev_put(driver_data.dev);
-
-#ifdef USE_PLATFORM_DRIVER
-	return 0;
-#endif
 }
-
-#ifdef USE_PLATFORM_DRIVER
-
-/*
- * Platform driver implementation
- */
-static int nvidia_bl_resume(struct platform_device *pdev)
-{
-	if (unlikely(debug))
-		printk(KERN_DEBUG "nvidia_bl: resuming with"
-		       " brightness %d\n", nvidia_bl_device->props.brightness);
-
-	backlight_update_status(nvidia_bl_device);
-	return 0;
-}
-
-static struct platform_driver nvidia_bl_driver = {
-	.probe          = nvidia_bl_probe,
-	.remove         = nvidia_bl_remove,
-	.resume         = nvidia_bl_resume,
-	.driver         = {
-		.owner  = THIS_MODULE,
-		.name   = "nvidia_bl"
-	},
-};
-
-static struct platform_device *nvidia_bl_platform_device;
-
-static int __init nvidia_bl_init(void)
-{
-	int err;
-
-	err = platform_driver_register(&nvidia_bl_driver);
-	if (err)
-		return err;
-
-	nvidia_bl_platform_device =
-		platform_device_register_simple("nvidia_bl", -1, NULL, 0);
-	if (!nvidia_bl_platform_device) {
-		platform_driver_unregister(&nvidia_bl_driver);
-		return -ENOMEM;
-	}
-
-	return 0;
-}
-
-static void __exit nvidia_bl_exit(void)
-{
-	platform_device_unregister(nvidia_bl_platform_device);
-	platform_driver_unregister(&nvidia_bl_driver);
-}
-
-#endif /* USE_PLATFORM_DRIVER */
 
 module_init(nvidia_bl_init);
 module_exit(nvidia_bl_exit);
@@ -1141,3 +1098,4 @@ MODULE_AUTHOR("Mario Schwalbe <schwalbe@inf.tu-dresden.de>");
 MODULE_DESCRIPTION("Nvidia-based graphics adapter display backlight driver");
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(dmi, nvidia_bl_machine_table);
+

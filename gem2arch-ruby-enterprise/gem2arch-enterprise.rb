@@ -25,8 +25,8 @@ md5sums=('<%= md5sum %>')
 
 build() {
   cd $srcdir
-  local _gemdir=`ruby -rubygems -e'puts Gem.default_dir'`
-  gem install --ignore-dependencies --no-rdoc --no-ri  -i "$pkgdir$_gemdir" $_gemname-$pkgver.gem
+  local _gemdir=`/opt/ruby-enterprise/bin/ruby -rubygems -e'puts Gem.default_dir'`
+  /opt/ruby-enterprise/bin/gem install --ignore-dependencies --no-rdoc --no-ri  -i "$pkgdir$_gemdir" $_gemname-$pkgver.gem
 }
 }
 

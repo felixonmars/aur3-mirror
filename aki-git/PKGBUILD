@@ -2,15 +2,15 @@
 # Maintainer: (epsilom) Xavier Corredor <xavier.corredor.llano (a) gmail.com>
 
 pkgname=aki-git
-pkgver=20110117
+pkgver=20110208
 pkgrel=1
 pkgdesc="Aki is a multi-panel IRC-client"
 arch=('x86_64' 'i686')
 url="http://akiirc.org/"
-license=('LGPL2.1')
+license=('LGPL')
 groups=()
 depends=('kdelibs>=4.5' 'qt>=4.7')
-makedepends=('git')
+makedepends=('git' 'automoc4')
 provides=('aki')
 conflicts=('aki')
 replaces=('aki')
@@ -37,12 +37,10 @@ build() {
   rm -rf "$srcdir/$_gitname-build"
   mkdir "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
-
-  #
-  # BUILD HERE
-  #
-
-  cmake "$srcdir/$_gitname" -DCMAKE_BUILD_PREFIX=/usr || return 1
+  cmake "$srcdir/$_gitname" -DCMAKE_INSTALL_PREFIX=/usr || return 1
   make VERBOSE=1 || return 1
-  make DESTDIR="$pkgdir/" install
+}
+package() {
+  cd "$srcdir/$_gitname-build"
+  make DESTDIR=$pkgdir install
 } 
