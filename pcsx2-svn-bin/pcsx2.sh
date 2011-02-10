@@ -1,5 +1,5 @@
 #!/bin/sh
 
 # Launch PCSX2
-cd /opt/pcsx2-bin/
+cd /opt/pcsx2
 ./pcsx2 $*
