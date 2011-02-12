@@ -1,6 +1,6 @@
 pkgname=selenium-server-standalone
 pkgver=2.0b1
-pkgrel=1
+pkgrel=3
 pkgdesc="selenium server"
 arch=(any)
 url="http://seleniumhq.org/"
@@ -12,9 +12,8 @@ source=(http://selenium.googlecode.com/files/selenium-server-standalone-$pkgver.
 	selenium-server.conf.d
 	selenium-server.rc)
 md5sums=('24d6f099ef9f8ed49e6af2010e004284'
-         'eb13d0dc8284fc2f285cde66e991fad4'
-         'eebf224a2529c2563cc7342245a7fe08')
-
+         '52d7774f2997c16a7e6b7672ae40d6ca'
+         'ff4ab4c81b7c42ba950a01f561bdf305')
 build() {
   cd "$srcdir"
   install -D -m0644 selenium-server-standalone-$pkgver.jar \
