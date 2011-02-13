@@ -1,0 +1,175 @@
+# Maintainer: Baptiste Jonglez <zerstorer@free.fr>
+# Adapted from Fedora, see http://git.annexia.org/?p=fedora-mingw.git;a=tree;f=ocaml;hb=HEAD
+# Note : it is quite tricky to get this to work, that is why we stick on 3.11 (the patches from Fedora are designed for this specific version of OCaml)
+_pkgname=ocaml
+pkgname=mingw32-ocaml
+_pkgver=3.11.0+beta1
+pkgver=3.11.0
+pkgrel=3
+pkgdesc="MinGW cross-compiler for Objective Caml (ocaml) that allows building windows (win32) binaries"
+arch=('i686' 'x86_64')
+url="http://caml.inria.fr/"
+license=('QPL')
+options=(!strip)
+makedepends=('mingw32-gcc' 'mingw32-binutils' 'mingw32-flexdll' 'libx11')
+# we need to be able to compile in 32-bit, make sure you have enabled multilib repo
+[ "$CARCH" = "x86_64" ] && makedepends=('mingw32-gcc' 'mingw32-binutils' 'mingw32-flexdll' 'libx11' 'gcc-multilib')
+depends=('ocaml' 'mingw32-gcc' 'mingw32-binutils' 'mingw32-flexdll')
+source=( "http://caml.inria.fr/pub/distrib/ocaml-3.11/${_pkgname}-${_pkgver}.tar.bz2"
+    "Makefile-mingw.in"
+    "mingw32-ocaml-3.11.0+beta1-combined-Makefile.patch"
+    "mingw32-ocaml-3.11.0+beta1-disable-cmxs.patch"
+    "mingw32-ocaml-3.11.0+beta1-filename-win32-dirsep.patch"
+    "mingw32-ocaml-3.11.0+beta1-i386-profiling.patch"
+    "mingw32-ocaml-3.11.0+beta1-no-stdlib-dir.patch"
+    "mingw32-ocaml-3.11.0+beta1-win32-fixes.patch"
+    "mingw32-ocaml-3.11.0+beta1-win32unix-path.patch" )
+md5sums=('77cc67933e451354b6d1ef0ace4f5dc5'
+         'aa6e7590550cb9072ea5f7d46e29c817'
+         '8961a9779982a59d15ff14a33b0623ea'
+         '025780deeb204f9a4c0f6284eff8aafb'
+         '918cd5ac9b714f9392a80179359a9e4c'
+         '41070be20b33227311a80f2b471d2484'
+         '9c95b6776a015121379b2a2dce9e3b4f'
+         '6536d500d4dc4b85fedb67239cea31ba'
+         'ef91b4e988eb29cfe7fe4a81c6b44fde')
+
+
+my_prefix="/usr"
+pkg_prefix="$pkgdir/usr"
+mingw32prefix="i486-mingw32"
+otherlibraries="win32unix str num dynlink bigarray systhreads win32graph"
+
+build() {
+    patch1="mingw32-ocaml-3.11.0+beta1-combined-Makefile.patch"
+    patch2="mingw32-ocaml-3.11.0+beta1-disable-cmxs.patch"
+    patch3="mingw32-ocaml-3.11.0+beta1-filename-win32-dirsep.patch"
+    patch4="mingw32-ocaml-3.11.0+beta1-i386-profiling.patch"
+    patch5="mingw32-ocaml-3.11.0+beta1-no-stdlib-dir.patch"
+    patch6="mingw32-ocaml-3.11.0+beta1-win32-fixes.patch"
+    patch7="mingw32-ocaml-3.11.0+beta1-win32unix-path.patch"
+    
+    cd "$srcdir/$_pkgname-$_pkgver"
+
+    for patch in "$patch1" "$patch2" "$patch3" "$patch4" "$patch5" "$patch6"
+    do
+	patch -p1 < ../"$patch"
+    done
+    patch -p0 < ../"$patch7"
+
+# Build native ocamlrun and ocamlc which contain the
+# filename-win32-dirsep patch.
+#
+# Note that we must build a 32 bit compiler, even on 64 bit build
+# architectures, because this compiler will try to do strength
+# reduction optimizations using its internal int type, and that must
+# match Windows' int type.  (That's what -cc and -host are for).    
+    ./configure \
+	-no-tk \
+	-bindir $my_prefix/bin \
+	-libdir $my_prefix/lib/${mingw32prefix}-ocaml \
+	-mandir $my_prefix/share/man/man1 \
+	-cc "gcc -m32" \
+	-host i386-pc-linux \
+	-x11lib /usr/lib/ \
+	-verbose
+
+    make world
+
+# Now move the working ocamlrun, ocamlc into the boot/ directory,
+# overwriting the binary versions which ship with the compiler with
+# ones that contain the above filename-win32-dirsep patch.  
+    make coreboot
+    
+# Now replace the compiler configuration (config/{s.h,m.h,Makefile})
+# with ones as they would be on a 32 bit Windows system.
+    pushd config
+
+# config/m.h can just be copied from config/m-nt.h which ships.
+    rm -f m.h
+    cp m-nt.h m.h
+
+# config/s.h can just be copied from config/s-nt.h which ships.
+    rm -f s.h
+    cp s-nt.h s.h
+
+# config/Makefile is a custom one which we supply.
+    rm -f Makefile
+    sed \
+	-e "s,@prefix@,${my_prefix},g" \
+	-e "s,@bindir@,${my_prefix}/bin,g" \
+	-e "s,@libdir@,${my_prefix}/lib,g" \
+	-e "s,@target@,${mingw32prefix},g" \
+	-e "s,@otherlibraries@,${otherlibraries},g" \
+  < $srcdir/Makefile-mingw.in > Makefile
+
+    popd
+
+# We're going to build in otherlibs/win32unix and otherlibs/win32graph
+# directories, but since they would normally only be built under
+# Windows, they only have the Makefile.nt files.  Just symlink
+# Makefile -> Makefile.nt for these cases.
+#    for d in otherlibs/win32unix otherlibs/win32graph; do
+#	ln -fs Makefile.nt $d/Makefile
+#    done
+    (cd otherlibs/win32unix && mv Makefile.nt Makefile)
+    (cd otherlibs/win32graph && mv Makefile.nt Makefile)
+
+# Now clean the temporary files from the previous build.  This
+# will also cause asmcomp/arch.ml (etc) to be linked to the 32 bit
+# i386 versions, essentially causing ocamlopt to use the Win/i386 code
+# generator.
+    make partialclean
+
+# Just rebuild some small bits that we need for the following
+# 'make opt' to work.  Note that 'make all' fails here.
+    make -C byterun libcamlrun.a
+    make ocaml ocamlc
+    make -C stdlib
+    make -C tools ocamlmklib
+
+# Build ocamlopt
+    make opt
+}
+
+
+package() {
+  cd "$srcdir/$_pkgname-$_pkgver"
+
+
+  mkdir -p $pkg_prefix/bin
+  mkdir -p $pkg_prefix/lib/${mingw32prefix}-ocaml
+  mkdir -p $pkg_prefix/lib/${mingw32prefix}-ocaml/threads
+  mkdir -p $pkg_prefix/lib/${mingw32prefix}-ocaml/stublibs
+
+# This is the equivalent of 'make install installopt', but
+# we only want to install the parts which are really necessary
+# for the cross-compiler.  eg. We don't need any of the native
+# tools like ocamllex or ocamldoc.
+  makearg="BINDIR=$pkg_prefix/bin LIBDIR=$pkg_prefix/lib/${mingw32prefix}-ocaml"
+  make $makearg -C byterun install
+  make $makearg -C stdlib install
+  for i in $otherlibraries
+  do
+      make $makearg -C otherlibs/$i install
+  done
+  make $makearg -C tools install
+  make $makearg installopt
+
+  install -m 0755 ocamlc ${pkg_prefix}/bin
+
+  cp config/Makefile \
+      $pkg_prefix/lib/${mingw32prefix}-ocaml/Makefile.config
+
+# Rename all the binaries to target-binary.
+  pushd $pkg_prefix/bin
+  for f in ocamlc ocamlcp ocamldep ocamlmklib ocamlmktop ocamlopt ocamlprof; do
+      mv $f ${mingw32prefix}-$f
+  done
+  popd
+
+# Don't install ocamlrun, use native one.
+  rm $pkg_prefix/bin/ocamlrun
+}
+
+# vim:set ts=2 sw=2 et:
