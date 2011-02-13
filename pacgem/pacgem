@@ -3,7 +3,7 @@
 require 'optparse'
 
 module Pacgem
-  VERSION = '0.9.1'
+  VERSION = '0.9.2'
 
   module Util
     def which?(name)
@@ -19,6 +19,22 @@ module Pacgem
       s = s.to_s
       s.length > max ? s[0...max] + omission : s
     end
+
+    def ruby
+      @ruby ||= if RUBY_VERSION > '1.9'
+                  'ruby'
+                elsif Gem.ruby.include?('ruby-enterprise')
+                  'ruby-enterprise'
+                else
+                  'ruby1.8'
+                end
+    end
+
+    def pacman_parse(args)
+      `LC_ALL=C pacman #{args} 2>/dev/null`
+    end
+
+    extend self
   end
 
   class Logger
@@ -143,16 +159,27 @@ module Pacgem
     def initialize(name, version, uri)
       @gemname = name
       @name = build_name(name)
-      @version, @uri = version, uri
+      @version, @uri = version.to_s, uri
     end
 
     def explicit?
+      unless instance_variable_defined?(:@explicit)
+        @explicit = pacman_parse("-Qqe #{name}").chomp == name
+      end
       @explicit
     end
 
+    def installed_version
+      unless instance_variable_defined?(:@installed_version)
+        installed = pacman_parse("-Q #{name.shellescape}").strip.split(/\s+/, 2)
+        installed[1] =~ /^(.*?)\-\d+$/
+        @installed_version = $1
+      end
+      @installed_version
+    end
+
     def installed?
-      installed = pacman_parse("-Q #{name.shellescape}").strip.split(/\s+/, 2)
-      installed[1] =~ /^#{version}\-\d+$/
+      installed_version == version
     end
 
     def install(options, logger)
@@ -161,7 +188,11 @@ module Pacgem
         gemfile = download
         gen_pkgbuild(gemfile, options)
         pkgfile = makepkg(options)
-        namcap(pkgfile, logger)
+        if options[:nonamcap]
+          logger.warning "Skipping namcap checks."
+        else
+          namcap(pkgfile, logger)
+        end
         installpkg(pkgfile, logger) unless options[:create]
       end
     end
@@ -169,21 +200,7 @@ module Pacgem
     private
 
     def build_name(gemname)
-      "#{Package.ruby}-#{gemname.downcase.tr('_', '-')}"
-    end
-
-    def pacman_parse(args)
-      `LC_ALL=C pacman #{args} 2>/dev/null`
-    end
-
-    def self.ruby
-      @ruby ||= if RUBY_VERSION > '1.9'
-                    'ruby'
-                  elsif Gem.ruby.include?('ruby-enterprise')
-                    'ruby-enterprise'
-                  else
-                    'ruby1.8'
-                  end
+      "#{ruby}-#{gemname.downcase.sub(/^ruby-/, '').tr('_', '-')}"
     end
 
     def download
@@ -199,7 +216,7 @@ module Pacgem
     def gen_pkgbuild(gemfile, options)
       spec = Gem::Format.from_file_by_path(gemfile).spec
 
-      depends = [Package.ruby]
+      depends = [ruby]
       spec.runtime_dependencies.each do |dep|
         dep.requirement.requirements.each do |comp, ver|
           comp = '>=' if comp == '~>'
@@ -231,7 +248,8 @@ module Pacgem
       pkg['arch']        = spec.extensions.empty? ? %w(any) : %w(i686 x86_64)
       pkg['url']         = spec.homepage
       pkg['license']     = [*spec.license || 'Ruby']
-      pkg['makedepends'] = %W(#{Package.ruby} binutils)
+      pkg['groups']      = %w(pacgem) # Mark this package as installed by pacgem
+      pkg['makedepends'] = %W(#{ruby} binutils)
       pkg['depends']     = depends
       pkg['optdepends']  = optdepends
       pkg['source']      = %W(#{uri}gems/$_gemname-$pkgver.gem)
@@ -273,32 +291,52 @@ module Pacgem
   end
 
   class Installer
+    include Util
+
     def initialize(options, logger)
       @options, @logger = options, logger
       @list = []
       @packages = {}
     end
 
-    def install
-      @list.reject! {|pkg| pkg.installed? } unless @options[:create]
+    def run
       @list.each {|pkg| pkg.install(@options, @logger) }
     end
 
-    def resolve(name, version = nil)
-      pkg = resolve_dep(Gem::Dependency.new(name, version))
-      pkg.explicit = true
+    def install(name, version = nil)
+      resolve(Gem::Dependency.new(name, version)).explicit = true
+    end
+
+    def update
+      Gem.source_index.each do |_, spec|
+        specfile = File.join(Gem.dir, 'specifications', spec.full_name + '.gemspec')
+        name = pacman_parse("-Qqo #{specfile.shellescape}").chomp
+        if name.empty?
+          @logger.msg2 "Not managed by pacman: #{spec.full_name}"
+        elsif pacman_parse("-Qi #{name}") !~ /^Groups\s+:\s+pacgem$/
+          @logger.msg2 "Not installed by pacgem: #{spec.full_name} (Package #{name})"
+        else
+          resolve(Gem::Dependency.new(spec.name, nil))
+        end
+      end
     end
 
     private
 
-    def resolve_dep(dep)
+    def resolve(dep)
       @packages[dep.name] ||= begin
         spec, uri = Gem::SpecFetcher.fetcher.fetch(dep, true).last
         raise "Gem #{dep} not found" unless spec
-        @logger.msg2 "#{spec.full_name}: #{spec.summary}"
-        spec.runtime_dependencies.each {|d| resolve_dep(d) }
         pkg = Package.new(dep.name, spec.version, uri)
-        @list << pkg
+        if pkg.installed?
+          @logger.msg2 "(Up-to-date) #{spec.full_name}: #{spec.summary}"
+        elsif pkg.installed_version
+          @logger.msg2 "(Update from #{pkg.installed_version}) #{spec.full_name}: #{spec.summary}"
+        else
+          @logger.msg2 "(New) #{spec.full_name}: #{spec.summary}"
+        end
+        spec.runtime_dependencies.each {|d| resolve(d) }
+        @list << pkg if @options[:create] || !pkg.installed?
         pkg
       end
     end
@@ -341,7 +379,12 @@ module Pacgem
     end
 
     def process
-      if @args.length < 1
+      if @options[:update]
+        if !@args.empty?
+          STDERR.puts 'Error: --update accepts no arguments.'
+          exit 1
+        end
+      elsif @args.length < 1
         STDERR.puts 'Error: No operation specified (use -h for help)'
         exit 1
       end
@@ -370,15 +413,19 @@ module Pacgem
         Dir.chdir(dir) do
           installer = Installer.new(@options, @logger)
           @logger.msg 'Resolving gems...'
-          @args.each do |gem|
-            if gem =~ /^([-\w]+)((?:[<>]=?|=|~>|-)\d+(?:\.\d+)*)?$/
-              name, version = $1, $2
-              installer.resolve(name, version =~ /^-/ ? version[1..-1] : version)
-            else
-              installer.resolve(gem)
+          if @options[:update]
+            installer.update
+          else
+            @args.each do |gem|
+              if gem =~ /^([-\w]+)((?:[<>]=?|=|~>|-)\d+(?:\.\d+)*)?$/
+                name, version = $1, $2
+                installer.install(name, version =~ /^-/ ? version[1..-1] : version)
+              else
+                installer.install(gem)
+              end
             end
           end
-          installer.install
+          installer.run
         end
       ensure
         FileUtils.remove_entry_secure(dir) unless @options[:destdir]
@@ -409,8 +456,16 @@ Options:
         @options[:destdir] = Dir.pwd
       end
 
+      opts.on('-u', '--update', :NONE, 'Update all installed gems') do
+        @options[:update] = true
+      end
+
       opts.on('--noautodepends', :NONE, 'Disable automatic dependency generation for shared objects (*.so)') do
         @options[:noautodepends] = true
+      end
+
+      opts.on('--nonamcap', :NONE, 'Disable package checking with namcap') do
+        @options[:nonamcap] = true
       end
 
       opts.on('--nocolor', :NONE, 'Disable colored output') do
