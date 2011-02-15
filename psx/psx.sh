@@ -1,5 +1,4 @@
 #!/bin/sh
 
-# Launch pSX
-cd ~/.pSX
+cd $HOME/.pSX
 psx.real $*
