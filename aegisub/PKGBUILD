@@ -1,15 +1,14 @@
 pkgname=aegisub
-pkgver=4809
-pkgrel=1
+pkgver=4853
+pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
 license=('GPL' 'BSD')
-depends=('intltool' 'ffmpeg>=23619' 'lua' 'openal' 'wxgtk>=2.8.11' 'hunspell')
+depends=('intltool' 'ffmpeg>=23619' 'lua' 'openal' 'wxgtk>=2.8.11' 'hunspell' 'libidn')
 makedepends=('imagemagick>=6.6.2.10' 'pkg-config')
 optdepends=('asa: for subtitle rendering'
             'libass: for subtitle rendering')
-#options=(!libtool)
 source=(aegisub-2.1.8-as_needed.patch dist.patch license.txt)
 
 _svntrunk=http://svn.aegisub.org/branches/aegisub_2.1.9/aegisub
@@ -38,7 +37,7 @@ build() {
   patch -Np0 -i $srcdir/dist.patch
 
   sed -i 's/cv_agi_with_ffmpeg/with_ffmpeg/' configure
-  CPPFLAGS="-D__STDC_CONSTANT_MACROS"  ./configure --prefix=/usr \
+  ICONV_LDFLAGS="-lidn" CPPFLAGS="-D__STDC_CONSTANT_MACROS"  ./configure --prefix=/usr \
   --with-player-audio=openal --without-{portaudio,alsa,oss} || return 1
 
   make || return 1
