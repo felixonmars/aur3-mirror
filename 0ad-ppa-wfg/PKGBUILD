@@ -3,7 +3,7 @@
 
 pkgname=0ad-ppa-wfg
 pkgver=alpha_3_r8832
-pkgrel=2
+pkgrel=3
 pkgdesc="0ad build from the wildfire games PPA at launchpad.net"
 arch=('i686' 'x86_64')
 url="http://www.wildfiregames.com/0ad"
@@ -47,8 +47,8 @@ build() {
   cd $pkgdir/usr/lib/games/0ad/libfix
   ln -s /usr/lib/libjpeg.so ./libjpeg.so.62
   ln -s /usr/lib/libtiff.so ./libtiff.so.4
-  #ln -s /usr/lib/libboost_filesystem.so ./libboost_filesystem.so.1.42.0
-  #ln -s /usr/lib/libboost_system.so ./libboost_system.so.1.42.0
+  ln -s /usr/lib/libboost_filesystem.so ./libboost_filesystem.so.1.42.0
+  ln -s /usr/lib/libboost_system.so ./libboost_system.so.1.42.0
   ln -s /usr/lib/libenet.so ./libenet.so.0debian1
   
   # Install .desktop file
