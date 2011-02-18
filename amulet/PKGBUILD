@@ -5,13 +5,13 @@
 
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=amulet
-pkgver=20110218
+pkgver=20110219
 pkgrel=1
 pkgdesc="Audio converter based on ffmpeg."
 arch=('i686' 'x86_64')
 url="http://gitorious.org/amulet"
 license=('GPL')
-depends=('ffmpeg' 'qt')
+depends=('ffmpeg' 'qt' 'git')
 makedepends=()
 source=()
 
