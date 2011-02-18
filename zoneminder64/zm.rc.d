@@ -5,8 +5,8 @@
 . /etc/rc.d/functions
 
 prog=ZoneMinder
-ZM_VERSION="1.24.0"
-ZM_PATH_BIN="/usr/lib/zm/bin"
+ZM_VERSION="1.24.2"
+ZM_PATH_BIN="/usr/bin"
 ZM_CONFIG="/etc/zm.conf"
 command="zmpkg.pl"
 
