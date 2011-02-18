@@ -1,12 +1,12 @@
 pkgname=aegisub
 pkgver=4853
-pkgrel=2
+pkgrel=3
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
 license=('GPL' 'BSD')
 depends=('intltool' 'ffmpeg>=23619' 'lua' 'openal' 'wxgtk>=2.8.11' 'hunspell' 'libidn')
-makedepends=('imagemagick>=6.6.2.10' 'pkg-config')
+makedepends=('imagemagick>=6.6.2.10' 'pkg-config' 'subversion')
 optdepends=('asa: for subtitle rendering'
             'libass: for subtitle rendering')
 source=(aegisub-2.1.8-as_needed.patch dist.patch license.txt)
