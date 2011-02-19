@@ -1,7 +1,7 @@
 # Maintainer: Andrea Scarpino <andrea@archlinux.org>
 
 pkgname=abrt-netbook-git
-pkgver=20110218
+pkgver=20110219
 pkgrel=1
 pkgdesc="Control Panel Applet for abrt"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://meego.com"
 license=('GPL')
 groups=('meego')
 depends=('meego-gnome-control-center-git')
-makedepends=('git')
+makedepends=('git' 'intltool')
 provides=('abrt-netbook')
 conflicts=('abrt-netbook')
 options=('!libtool')
