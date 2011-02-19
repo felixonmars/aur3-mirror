@@ -2,79 +2,104 @@
 
 . /etc/rc.conf
 . /etc/rc.d/functions
-. /etc/vbox/vbox.cfg
+. /etc/conf.d/vbox
 
-MODLIST=()
-LOG="/var/log/vbox-install.log"
-
-if [ -n "$INSTALL_DIR" ]; then
+if [[ -n "$INSTALL_DIR" ]]; then
   VBOXMANAGE="$INSTALL_DIR/VBoxManage"
   BUILDVBOXDRV="$INSTALL_DIR/src/vboxhost/vboxdrv/build_in_tmp"
   BUILDVBOXNETFLT="$INSTALL_DIR/src/vboxhost/vboxnetflt/build_in_tmp"
   BUILDVBOXNETADP="$INSTALL_DIR/src/vboxhost/vboxnetadp/build_in_tmp"
 else
-  echo "missing vbox.cfg"
+  echo "Missing vbox config file"
   exit 0
 fi
 
+load() {
+  if [[ "$START_BUILD" =~ yes|YES ]]; then
+    # check if module exists
+    c=$(find /lib/modules/`uname -r` -name "vbox*" 2>/dev/null | wc -l)
+    [[ $c -eq 0 ]] && setup
+  fi
+  stat_busy "Loading VirtualBox kernel modules"
+  # trivial loading
+  for module in vbox{netflt,netadp,drv}; do
+      modprobe $module &>/dev/null
+  done
+  # check
+  for module in vbox{netflt,netadp,drv}; do
+    if ! grep -q "^${module}" /proc/modules; then
+      stat_fail
+      return 1
+    fi
+  done
+  stat_done
+}
+
+unload() {
+  stat_busy "Unloading VirtualBox kernel modules"
+  # trivial unload
+  for module in vbox{netflt,netadp,drv}; do
+    if grep -q "^${module}" /proc/modules; then
+      modprobe -r $module &>/dev/null
+    fi
+  done
+  # check
+  for module in vbox{netflt,netadp,drv}; do
+    if grep -q "^${module}" /proc/modules; then
+      stat_fail
+      return 1
+    fi
+  done
+  stat_done
+}
+
+remove() {
+  stat_busy "Removing VirtualBox kernel modules"
+  'rm' -f "/lib/modules/$(uname -r)/misc/"{vboxdrv,vboxnetadp,vboxnetflt}.ko
+  stat_done
+}
+
+setup() {
+  remove
+  stat_busy "Compiling VirtualBox kernel modules"
+  LOG="/tmp/vbox-install.log"
+  if ! $BUILDVBOXDRV \
+    --save-module-symvers /tmp/vboxdrv-Module.symvers \
+    --no-print-directory install > $LOG 2>&1; then
+    echo  "Look at $LOG to find out what went wrong"
+  fi
+  if ! $BUILDVBOXNETFLT \
+    --use-module-symvers /tmp/vboxdrv-Module.symvers \
+    --no-print-directory install >> $LOG 2>&1; then
+    echo "Look at $LOG to find out what went wrong"
+  fi
+  if ! $BUILDVBOXNETADP \
+    --use-module-symvers /tmp/vboxdrv-Module.symvers \
+    --no-print-directory install >> $LOG 2>&1; then
+    echo "Look at $LOG to find out what went wrong"
+  fi
+  stat_done
+}
+
 case "$1" in
+  start)
+    load
+    ;;
+  stop)
+      unload
+      ;;
+  restart)
+      unload
+      load
+      ;;
   setup)
-    stat_busy "Unloading VirtualBox kernel modules"
-    for module in vbox{netflt,netadp,drv}; do
-      if grep -q "^${module}" /proc/modules; then
-        MODLIST+=($module)
-        modprobe -r $module
-      fi
-    done
-    stat_done
-    for p in /lib/modules/*; do
-      if [ ! -d "$p/kernel" ]; then
-        if [ -e "$p/misc/vboxdrv.ko" ]; then
-          stat_busy "Removing old VirtualBox kernel modules from $p"
-          rm -f "$p/misc/vbox"{drv,netadp,netflt}.ko 2>/dev/null
-          rmdir -p --ignore-fail-on-non-empty "$p/misc/" 2>/dev/null
-          stat_done
-        fi
-      fi
-    done
-    if find /lib/modules/`uname -r` -name "vboxnetadp\.*" 2>/dev/null|grep -q vboxnetadp; then
-      stat_busy "Removing old VirtualBox netadp kernel module"
-      find /lib/modules/`uname -r` -name "vboxnetadp\.*" 2>/dev/null|xargs rm -f 2>/dev/null
-      stat_done
-    fi
-    if find /lib/modules/`uname -r` -name "vboxnetflt\.*" 2>/dev/null|grep -q vboxnetflt; then
-      stat_busy "Removing old VirtualBox netflt kernel module"
-      find /lib/modules/`uname -r` -name "vboxnetflt\.*" 2>/dev/null|xargs rm -f 2>/dev/null
-      stat_done
-    fi
-    if find /lib/modules/`uname -r` -name "vboxdrv\.*" 2>/dev/null|grep -q vboxdrv; then
-      stat_busy "Removing old VirtualBox kernel module"
-      find /lib/modules/`uname -r` -name "vboxdrv\.*" 2>/dev/null|xargs rm -f 2>/dev/null
-      stat_done
-    fi
-    stat_busy "Recompiling VirtualBox kernel modules"
-    if ! $BUILDVBOXDRV \
-      --save-module-symvers /tmp/vboxdrv-Module.symvers \
-      --no-print-directory install > $LOG 2>&1; then
-      echo  "Look at $LOG to find out what went wrong"
-    fi
-    if ! $BUILDVBOXNETFLT \
-      --use-module-symvers /tmp/vboxdrv-Module.symvers \
-      --no-print-directory install >> $LOG 2>&1; then
-      echo "Look at $LOG to find out what went wrong"
-    fi
-    if ! $BUILDVBOXNETADP \
-      --use-module-symvers /tmp/vboxdrv-Module.symvers \
-      --no-print-directory install >> $LOG 2>&1; then
-      echo "Look at $LOG to find out what went wrong"
-    fi
-    stat_done
-    stat_busy "Reloading VirtualBox kernel modules"
-    for module in "${MODLIST[@]}"; do
-      modprobe $module
-    done
-    stat_done
+    setup
+    ;;
+  remove)
+    remove
     ;;
   *)
-    echo "usage: $0 {setup}"
+    echo "usage: $0 {start|stop|restart|setup|remove}"
 esac
+
+# vim:set ts=2 sw=2 ft=sh et:
