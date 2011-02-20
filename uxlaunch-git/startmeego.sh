@@ -8,4 +8,4 @@ export XDG_DATA_DIRS=$HOME/.local/share/applications:/usr/share
 test -r /etc/X11/Xmodmap && xmodmap /etc/X11/Xmodmap
 test -r $HOME/.Xmodmap && xmodmap $HOME/.Xmodmap
  
-exec /usr/sbin/uxlaunch -x-v > ~/.uxlaunch.log 2>&1
+exec /usr/sbin/uxlaunch -x -v > ~/.uxlaunch.log 2>&1
