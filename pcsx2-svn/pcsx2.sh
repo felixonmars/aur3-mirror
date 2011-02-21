@@ -1,10 +1,13 @@
 #!/bin/sh
 
-# Use this to start the PCSX2 emulator
-if [ -x /opt/pcsx2/pcsx2 ]; then
-   cd /opt/pcsx2
-   ./pcsx2
-else
-   echo "Failed to start PCSX2"
-   exit 1
+# Launch PCSX2 in any build mode
+cd /opt/pcsx2/
+for i in pcsx2-dbg pcsx2-dev pcsx2 fail; do
+	if [ -x $i ]; then
+		./$i $*
+		exit $?
+	fi
+done
+# If did not find, then...
+echo "PCSX2 executable not found" && echo 1
 
