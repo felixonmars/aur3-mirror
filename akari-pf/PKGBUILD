@@ -6,10 +6,10 @@ _pkgname=akari
 pkgver=1.0.10
 _timestamp=20110215
 _basever=2.6.37
-_kernpkgver=-pf2
+_kernpkgver=-pf3
 _kernver=${_basever}-pf
 _ccstoolsver=1.8.0.20110214
-pkgrel=1
+pkgrel=2
 pkgdesc='TOMOYO Linux 1.8.x Linux Kernel Module for kernel26-pf'
 arch=('i686' 'x86_64')
 url='http://akari.sourceforge.jp/'
@@ -28,11 +28,11 @@ build()
   cd "${srcdir}/linux-${_kernver}"
 # extract akari into the kernel source
   tar -xf "${srcdir}/${_pkgname}-${pkgver}-${_timestamp}.tar.gz"
-  echo
-  msg "You must select \"Enable dirrerent security models\" and \"TOMOYO Linux support\" under"
-  msg  "\"Security options\" in the main options configuration menu. Press <ENTER> to continue."
-  read
-  make menuconfig
+# echo
+# msg "You must select \"Enable dirrerent security models\" and \"TOMOYO Linux support\" under"
+# msg  "\"Security options\" in the main options configuration menu. Press <ENTER> to continue."
+# read
+# make menuconfig
 # dirty work around failing but necessary make prepare
   make prepare || make SUBDIRS=akari modules
 }

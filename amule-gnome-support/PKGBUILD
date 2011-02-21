@@ -2,8 +2,8 @@
 
 pkgname=amule-gnome-support
 pkgver=2.2.6
-pkgrel=2
-pkgdesc="eD2k links handling support for web browsers"
+pkgrel=3
+pkgdesc="eD2k links handling support for GNOME web browsers"
 arch=('any')
 url="http://www.amule.org"
 license=('GPL')
@@ -12,11 +12,7 @@ install=${pkgname}.install
 source=(${pkgname}.schemas)
 md5sums=('a0178f3a302a706d8dc49b4fc053e65e')
 
-build() {
-  /bin/true
-}
-
 package() {
-  install -Dm644 ${srcdir}/${pkgname}.schemas \
-            ${pkgdir}/usr/share/gconf/schemas/${pkgname}.schemas
+  install -d -m755 ${pkgdir}/usr/share/gconf/schemas
+  install -m644 ${srcdir}/${pkgname}.schemas ${pkgdir}/usr/share/gconf/schemas/
 }
