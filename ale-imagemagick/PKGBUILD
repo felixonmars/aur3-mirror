@@ -1,9 +1,10 @@
 # Contributor: Tibor Bamhor <tiborb95 at gmail dot com>
+# Edit for ImageMagick support: Sylvain Brunerie <sylvain.brunerie {at} gmail {dot} com>
 
 pkgname=ale-imagemagick
 pkgver=0.8.11.2
 pkgrel=1
-pkgdesc="Anti-Lamenessing Engine - image enhancement tools (with ImageMagick support)"
+pkgdesc="Anti-Lamenessing Engine - image enhancement tools (with ImageMagick support). Based on ale package by TiborB."
 url="http://auricle.dyndns.org/ALE/"
 license="GPL"
 arch=('i686' 'x86_64')
@@ -13,7 +14,7 @@ source=(http://auricle.dyndns.org/ALE/download/ale-${pkgver}.tar.gz)
 md5sums=('1ed83d080a4bf80f88ed78acb5149c26')
 
 build() {
-  cd $srcdir/$pkgname-$pkgver
+  cd $srcdir/ale-$pkgver
 #folowing is to support GC 4.3
 # sed -i '/assert.h/a\
 #\#include <cstring>' ui/ui.h || exit 0
