@@ -2,8 +2,8 @@
 
 pkgname=alsa-tools-ice1712
 _pkgbasename=alsa-tools
-pkgver=1.0.23
-pkgrel=2
+pkgver=1.0.24.1
+pkgrel=1
 pkgdesc="envy24control - Control tool for Envy24 (ice1712) based soundcards"
 arch=('i686' 'x86_64')
 url="http://alsa-project.org"
@@ -11,7 +11,7 @@ license=('GPL')
 depends=('alsa-lib' 'gtk2')
 source=(ftp://ftp.alsa-project.org/pub/tools/$_pkgbasename-$pkgver.tar.bz2
 	envy24control.desktop)
-md5sums=('f286616cf781c81b1636899a104129d1'
+md5sums=('08fe93a12006093e590d7ecc02b119dd'
          '3deb35cf4da901994e70619276613831')
 
 build() {

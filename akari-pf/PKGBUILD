@@ -9,7 +9,7 @@ _basever=2.6.37
 _kernpkgver=-pf3
 _kernver=${_basever}-pf
 _ccstoolsver=1.8.0.20110214
-pkgrel=2
+pkgrel=1
 pkgdesc='TOMOYO Linux 1.8.x Linux Kernel Module for kernel26-pf'
 arch=('i686' 'x86_64')
 url='http://akari.sourceforge.jp/'
@@ -34,7 +34,8 @@ build()
 # read
 # make menuconfig
 # dirty work around failing but necessary make prepare
-  make prepare || make SUBDIRS=akari modules
+# make prepare || make SUBDIRS=akari modules
+  make SUBDIRS=akari SYSSRC=/lib/modules/${_kernver}/build modules || return 1
 }
 
 package()
