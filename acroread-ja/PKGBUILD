@@ -3,7 +3,7 @@
 # Contributor: noonov <noonov@gmail.com>
 
 pkgname=acroread-ja
-pkgver=9.4.1
+pkgver=9.4.2
 pkgrel=1
 pkgdesc="Adobe Reader is a PDF file viewer. Japanese version"
 arch=('i686' 'x86_64')
@@ -22,7 +22,7 @@ fi
 options=('!strip')
 install=acroread.install
 source=(ftp://ftp.adobe.com/pub/adobe/reader/unix/9.x/$pkgver/jpn/AdbeRdr$pkgver-1_i486linux_jpn.tar.bz2)
-md5sums=('20b8996413f81e732b9681da34708a67')
+md5sums=('2d270d69f7667b5a26ee2badd26ea42c')
 
 build() {
 	cd "$srcdir/AdobeReader"
