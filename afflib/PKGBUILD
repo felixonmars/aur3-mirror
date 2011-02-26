@@ -1,14 +1,14 @@
 # Contributor: Abakus <java5 at arcor dot de>
 pkgname=afflib
-pkgver=3.6.2
+pkgver=3.6.6
 pkgrel=1
 pkgdesc="is an extensible open format for the storage of disk images and related forensic information."
 arch=('i686' 'x86_64')
 url="http://www.afflib.org"
 license=('GPL')
 depends=('zlib' 'openssl' 'fuse')
-source=("http://afflib.org/downloads/${pkgname}-${pkgver}.tar.gz")
-md5sums=('c30468c762c8e06776410ca8fb56b782')
+source=("http://www.afflib.org/downloads/${pkgname}-${pkgver}.tar.gz")
+md5sums=('b7ff4d2945882018eb1536cad182ad01')
 
 build() {
 	cd $srcdir/$pkgname-$pkgver
