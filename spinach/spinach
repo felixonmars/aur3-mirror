@@ -1,0 +1,99 @@
+#!/bin/bash
+
+UA="Spinach/0.1"
+AURINFO="info"
+AURSEARCH="search"
+AURPC="https://aur.archlinux.org/rpc.php?type=%s&arg=%s"
+AURDO="https://aur.archlinux.org/packages/%s/%s.tar.gz"
+IGNORE="$(cat /etc/pacman.conf | grep -E ^IgnorePkg | sed -e "s/.*=\ //g")"
+
+aur_download() {
+    package="$1"
+
+	#file exists?
+	if [ -e "$package/" ]; then
+		echo "Exists: $package/"
+	else
+		#download if it exists
+    	if [ "$(curl "$(printf $AURPC $AURSEARCH $package)" 2>/dev/null | grep 'No results found')" == "" ]; then
+	        wget -U "$UA" "$(printf $AURDO $package $package)" -O "$package.tar.gz" || return 1
+	        tar xzf "$package.tar.gz" || return 1
+	        rm "$package.tar.gz" || return 1
+			echo "Saved package to $package/"
+	    else
+	        echo "No results found."
+	    fi
+	fi
+}
+
+aur_update() {
+	quiet="$1"
+    packages="$(pacman -Qmq)"
+
+	#get rid of ignored packages
+	for i in $IGNORE; do
+		packages="$(echo "$packages" | grep -v "$i")"
+	done
+    
+	#update
+    for i in $packages; do
+        updateversion=$(curl -A "$UA" "$(printf $AURPC $AURINFO $i)" 2>/dev/null | sed -re 's/.*Version\":\"([^\"]*)\".*/\1/g')
+		currentversion=$(pacman -Qi "$i" | grep -m 1 Version | sed -re 's/.*:\ //g')
+
+		if [ "$(echo "$updateversion" | grep "No result found")" == "" ] && [ "$updateversion" != "$currentversion" ]; then
+			if [ "$quiet" == "" ]; then
+				echo "$i ($currentversion => $updateversion)"
+			else
+				echo "$i"
+			fi
+		fi
+    done
+}
+
+aur_info() {
+	package="$1"
+	curl -A "$UA" "$(printf $AURPC $AURINFO $package)" 2>/dev/null | sed -re "s/.*No result found.*/Package not found./g" | sed -e 's/\\\"/\&QUOT;/g' | sed -re 's/.*results\":\{(.*)}}/\1/g' | sed -e 's/,/\n/g' | sed -e 's/\\\//\//g' | sed -e 's/\"//g' | sed -re 's/^([^:]*):/\1: /g' | sed -e 's/\\\\/\\/g' | sed -e 's/\&QUOT;/\"/g' | sed -e 's/^URLPath: /URLPath: https:\/\/aur.archlinux.org/g'
+	echo
+}
+
+aur_search() {
+	query="$1"
+	curl -A "$UA" "$(printf $AURPC $AURSEARCH $query)" 2>/dev/null | sed -re "s/.*No results found.*/Package not found.\n/g" | sed -e 's/\\\"/\&QUOT;/g' | sed -re 's/.*\[(.*)\]}/\1/g' | sed -re 's/\{[^}]*"Name":"([^"]*)",[^}]*,"Description":"([^"]*)"[^}]*\}/\1: \2\n/g' | sed -e 's/^,//g' | sed -e 's/\\\//\//g' | sed -e 's/\\\\/\\/g' | sed -e 's/\&QUOT;/\"/g'
+}
+
+aur_download_updates() {
+	updates=$(aur_update quiet)
+	for i in $updates; do
+		aur_download "$i"
+	done
+}
+
+aur_spinach_help() {
+	echo -e "Usage: $0 [options] [package]\n\t-d\tDownload specified package\n\t-i\tPrint info for specified package\n\t-s\tSearch for a package\n\t-u\tList out-of-date packages\n\t-du\tDownload all updates"
+}
+
+blank_arg() {
+	if [ "$1" == "" ]; then
+		echo "Please specify a package."
+		exit 1
+	fi
+}
+
+#help message
+if [ "$1" == "" ]; then
+	aur_spinach_help
+fi
+
+#for terminal usage
+while [ "$1" != "" ]; do
+	case "$1" in
+		"-u") aur_update;;
+		"-h") aur_spinach_help;;
+		"-du") aur_download_updates;;
+		"-i") shift; blank_arg "$1"; aur_info "$1";;
+		"-s") shift; blank_arg "$1"; aur_search "$1";;
+		"-d") shift; blank_arg "$1"; aur_download "$1";;
+		"--version") echo "$UA";; 
+	esac
+	shift
+done
