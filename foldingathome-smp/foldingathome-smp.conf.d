@@ -12,6 +12,7 @@ FAH_USER=""
 FAH_GRP=""
 
 # Place any additional Folding@Home client flags here
+# Note that "-smp" will always be added
 
-FAH_CLIENT_FLAGS="-smp -verbosity 9 -forceasm"
+FAH_CLIENT_FLAGS="-verbosity 9 -forceasm"
 

@@ -15,19 +15,21 @@ case "$1" in
         if [ ! -z "$FAH_USER" ] ; then
             if [ ! -d "/opt/fah-smp/$FAH_USER" ] ; then
                 mkdir /opt/fah-smp/$FAH_USER
-                chown $FAH_USER /opt/fah-smp/$FAH_USER
+				if [ -f /opt/fah-smp/client.cfg ] ; then
+					cp /opt/fah-smp/client.cfg "/opt/fah-smp/$FAH_USER/client.cfg"
+				fi
+                chown -R $FAH_USER /opt/fah-smp/$FAH_USER
                 if [ ! -z "$FAH_GRP" ] ; then
-                    chgrp $FAH_GRP /opt/fah-smp/$FAH_USER
+                    chgrp -R $FAH_GRP /opt/fah-smp/$FAH_USER
                 else
-                    chgrp users /opt/fah-smp/$FAH_USER
+                    chgrp -R users /opt/fah-smp/$FAH_USER
                 fi
-				ln -s /opt/fah-smp/mpiexec /opt/fah-smp/$FAH_USER/mpiexec
             fi
             cd /opt/fah-smp/$FAH_USER
-            su $FAH_USER -c "/opt/fah-smp/fah6 $FAH_CLIENT_FLAGS &> /opt/fah-smp/$FAH_USER/myfah.log" &
+            su $FAH_USER -c "/opt/fah-smp/fah6 -smp $FAH_CLIENT_FLAGS > /opt/fah-smp/$FAH_USER/myfah.log" &
         else
             cd /opt/fah-smp
-            /opt/fah-smp/fah6 $FAH_CLIENT_FLAGS &> /opt/fah-smp/myfah.log &
+            /opt/fah-smp/fah6 -smp $FAH_CLIENT_FLAGS > /opt/fah-smp/myfah.log &
         fi
     fi
     if [ ! -z "$PID" -o $? -gt 0 ]; then
