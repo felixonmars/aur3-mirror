@@ -1,6 +1,6 @@
 pkgname=aegisub
-pkgver=4853
-pkgrel=3
+pkgver=5376
+pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
@@ -9,42 +9,39 @@ depends=('intltool' 'ffmpeg>=23619' 'lua' 'openal' 'wxgtk>=2.8.11' 'hunspell' 'l
 makedepends=('imagemagick>=6.6.2.10' 'pkg-config' 'subversion')
 optdepends=('asa: for subtitle rendering'
             'libass: for subtitle rendering')
-source=(aegisub-2.1.8-as_needed.patch dist.patch license.txt)
+source=(license.txt)
+md5sums=('3e13350007702bd7117e8f35bac376f1')
 
 _svntrunk=http://svn.aegisub.org/branches/aegisub_2.1.9/aegisub
 _svnmod=aegisub
 
 
-md5sums=('e42833e4acca069a8d13b95f57954aed'
-         'fce9fb182e9701ee3be3d41eb08df43f'
-         '3e13350007702bd7117e8f35bac376f1')
-
 build() {
   cd $srcdir
   
   if [ -d $_svnmod ]; then
-    cd $_svnmod && svn revert -R . && svn up
+    cd $_svnmod && svn up
   else
     svn co $_svntrunk $_svnmod
-  fi  
-  
-  cd $srcdir/$_svnmod
-  
-  patch -Np0 -i $srcdir/aegisub-2.1.8-as_needed.patch
+  fi
 
+  if [ -d $srcdir/$_svnmod-build ]; then
+    rm -rf $srcdir/$_svnmod-build
+  fi
+
+  cp -r $srcdir/$_svnmod $srcdir/$_svnmod-build
+  
+  cd $srcdir/$_svnmod-build
+  
   ./autogen.sh
-
-  patch -Np0 -i $srcdir/dist.patch
-
-  sed -i 's/cv_agi_with_ffmpeg/with_ffmpeg/' configure
-  ICONV_LDFLAGS="-lidn" CPPFLAGS="-D__STDC_CONSTANT_MACROS"  ./configure --prefix=/usr \
+  ICONV_LIBS="-lidn" ./configure --prefix=/usr \
   --with-player-audio=openal --without-{portaudio,alsa,oss} || return 1
 
   make || return 1
 }
 
 package() {
-  cd ${srcdir}/$_svnmod
+  cd ${srcdir}/$_svnmod-build
   make DESTDIR=$pkgdir install || return 1
 
   # menu icon fix
