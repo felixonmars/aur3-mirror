@@ -3,13 +3,11 @@
 # Alexander Rødseth <rodseth@gmail.com>
 # BSD license
 # 24032009
+# 28022011
 
 from sys import argv
-from os import mkdir
-from os import system
-from os import environ
-from os.path import join
-from os.path import exists
+from os.path import join, exists
+from os import mkdir, system, environ
 
 def main():
     arguments = argv[1:]
@@ -21,7 +19,10 @@ def main():
     if not exists(where):
         mkdir(where)
         system('cp /usr/share/tiddlywiki/empty.html %s' % (goal))
-    system('/usr/bin/xdg-open %s' % (goal))
+    if environ['BROWSER']:
+        system(environ['BROWSER'] + " " + goal)
+    else:
+        system("/usr/bin/gnome-open " + goal)
 
 if __name__ == "__main__":
     main()
