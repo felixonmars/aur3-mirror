@@ -5,15 +5,17 @@
 
 pkgname=amdstream
 pkgver=2.3
-pkgrel=5
-pkgdesc="AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support"
+pkgrel=6
+_OpenCL_ver_major=1
+_OpenCL_ver_minor=1
+pkgdesc="AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support (libcl)"
 arch=('i686' 'x86_64')
 url="http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx"
 license=("custom")
-install=note.install
+install=install
 
 provides=('opencl' 'libcl')
-depends=('libatical>=10.11' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'opencl-headers')
+depends=('libatical>=10.11' 'opencl-headers' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
 optdepends=('catalyst: for CAL and OpenCL GPU acceleration on AMD ATi graphics cards')
 makedepends=('perl' 'llvm')
 conflicts=('nvidia-opencl' )
@@ -36,7 +38,7 @@ sha256sums=('07fd15a51a678c4378767f61466daf9da21d0bab6088a97a70136dd8c976aca6')
 build()
 {
   cd "$srcdir/ati-stream-sdk-v$pkgver-lnx$_bits"
-  make -j1
+  make -j1    #Wiht -j other than one, build failes on ceratin configurations
 }
 
 package()
@@ -66,15 +68,22 @@ package()
 
   #Symlink binaries
   mkdir -p $pkgdir/usr/bin
-  ln -s /opt/amdstream/bin/$_arch/clc $pkgdir/usr/bin/
+  ln -s /opt/amdstream/bin/$_arch/clc $pkgdir/usr/bin/clc
 
-  #Add stream libs to shared library path
-  mkdir -p $pkgdir/etc/ld.so.conf.d
-  cd $pkgdir/etc/ld.so.conf.d
-  echo /opt/amdstream/lib/$_arch > amdstream.conf
-  echo /opt/amdstream/lib/gpu >> amdstream.conf
+  #Add stream libs to shared library path  - No, no, a bad idea!, this is not done any more
+  #mkdir -p $pkgdir/etc/ld.so.conf.d
+  #cd $pkgdir/etc/ld.so.conf.d
+  #echo /opt/amdstream/lib/$_arch > amdstream.conf
+  #echo /opt/amdstream/lib/gpu >> amdstream.conf
 
-  #More docs and export
+  #Symlink libs (instead)
+  mkdir -p $pkgdir/usr/lib
+  ln -s /opt/amdstream/lib/$_arch/libOpenCL.so $pkgdir/usr/lib/libOpenCL.so.$_OpenCL_ver_major.$_OpenCL_ver_minor
+  ln -s /usr/lib/libOpenCL.so.$_OpenCL_ver_major.$_OpenCL_ver_minor $pkgdir/usr/lib/libOpenCL.so.$_OpenCL_ver_major
+  ln -s /usr/lib/libOpenCL.so.$_OpenCL_ver_major.$_OpenCL_ver_minor $pkgdir/usr/lib/libOpenCL.so
+  ln -s /opt/amdstream/lib/$_arch/libatiocl64.so $pkgdir/usr/lib/libatiocl64.so
+
+  #Env vars
   mkdir -p $pkgdir/etc/profile.d
   cd $pkgdir/etc/profile.d
   echo "#!/bin/sh" > amdstream.sh

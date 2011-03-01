@@ -1,7 +1,7 @@
 # Maintainer: Alexander Rødseth <rodseth@gmail.com>
 pkgname=addinclude
 pkgver=0.9
-pkgrel=2
+pkgrel=3
 pkgdesc="A utility to easily add includes to C header- and sourcefiles"
 arch=('x86_64' 'i686')
 url="http://addinclude.roboticoverlords.org/"
@@ -13,10 +13,12 @@ options=(!strip)
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
+
   msg2 "Compiling..."
-  GOROOT=/usr/lib/go make
+  make || GOROOT=/usr/lib/go make
   install -Dm755 "$pkgname" \
     "$pkgdir/usr/bin/$pkgname"
+
   msg2 "Packaging..."
   install -Dm644 "$pkgname.1.gz" \
     "$pkgdir/usr/share/man/man1/$pkgname.1.gz"
