@@ -23,11 +23,13 @@ set -u
 mkdir -p images
 cd images
 
-convert -type TrueColorMatte -depth 8 -size $_size xc:black -fill black -draw 'color 0,0 reset' \
+png_args="-define png:color-type=6" # png:bit-depth=8"
+
+convert $png_args -type TrueColorMatte -depth 8 -size $_size xc:black -fill black -draw 'color 0,0 reset' \
 	silent-$_size.png
-convert -type TrueColorMatte -depth 8 -size $_size xc:black -fill '#051e2a' -draw 'color 0,0 reset' \
+convert $png_args -type TrueColorMatte -depth 8 -size $_size xc:black -fill '#051e2a' -draw 'color 0,0 reset' \
 	backgnd-$_size.png
-composite -geometry +$(( _width - 640 ))+$(( _height - 200 )) \
+composite $png_args -geometry +$(( _width - 640 ))+$(( _height - 200 )) \
 	banner_2.png backgnd-$_size.png \
 	verbose-$_size.png
 

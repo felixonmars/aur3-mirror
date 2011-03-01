@@ -39,9 +39,11 @@ err() {
 mkdir -p images
 cd images
 
+png_args="-define png:color-type=6" # png:bit-depth=8"
+
 # make banner images
-convert -depth 8 -background none ${_banner_silent} -trim +repage banner.png
-convert -background none ${_banner_verbose} banner_2.png
+convert $png_args -depth 8 -background none ${_banner_silent} -trim +repage banner.png
+convert $png_args -background none ${_banner_verbose} banner_2.png
 
 # logo/banner size
 if [[ $( convert banner.png -identify /dev/null ) =~ [[:space:]]([0-9]+x[0-9]+)[[:space:]] ]]; then
@@ -55,7 +57,7 @@ fi
 _progress_height=$lh
 
 # make blue separator image
-convert -type TrueColorMatte -depth 8 \
+convert $png_args -type TrueColorMatte -depth 8 \
 	-size ${_sep_width}x${_sep_height} xc:black \
 	-fill '#2979a2' -draw \
 		"rectangle 1,0 $(( _sep_width - 2 )),${_sep_height}" \
@@ -64,7 +66,7 @@ convert -type TrueColorMatte -depth 8 \
 	separator.png
 
 # make red separator image
-convert -type TrueColorMatte -depth 8 \
+convert $png_args -type TrueColorMatte -depth 8 \
 	-size ${_sep_width}x${_sep_height} xc:black \
 	-fill '#a22929' -draw \
 		"rectangle 1,0 $(( _sep_width - 2 )),3" \
@@ -73,15 +75,15 @@ convert -type TrueColorMatte -depth 8 \
 	separator-red.png
 
 # make dummy daemon icon
-convert -type TrueColorMatte -depth 8 -size 1x1 xc:transparent dummy.png
+convert $png_args -type TrueColorMatte -depth 8 -size 1x1 xc:transparent dummy.png
 
 # make black (background) cover for icons
-convert -type TrueColorMatte -depth 8 -size ${_icon_size}x${_icon_size} \
+convert $png_args -type TrueColorMatte -depth 8 -size ${_icon_size}x${_icon_size} \
 	xc:black -fill black -draw 'color 0,0 reset' \
 	cover.png
 
 # make semi transparent cover for icons
-convert -type TrueColorMatte -depth 8 -size ${_icon_size}x${_icon_size} \
+convert $png_args -type TrueColorMatte -depth 8 -size ${_icon_size}x${_icon_size} \
 	xc:transparent -fill 'RGBA(0,0,0,0.5)' -draw 'color 0,0 reset' \
 	cover-a50.png
 
@@ -95,7 +97,7 @@ for (( i=_progress_height; i>0; i-=increment )) do
 	while [ ${#ii} -lt $digits ]; do
 		ii=0$ii
 	done
-	convert -type TrueColorMatte -depth 8 \
+	convert $png_args -type TrueColorMatte -depth 8 \
 		-size ${_progress_width}x${_progress_height} xc:black \
 		-fill '#0a3f5a' -draw "rectangle 0,0 ${_progress_width},${_progress_height}" \
 		-fill '#000000' -draw "polygon $(( _progress_width/3   )),$((_progress_height-i                   )) ${_progress_width},$((_progress_height-i-stripe_height/2                   )) ${_progress_width},$((_progress_height-i+stripe_height/2                   ))" \
