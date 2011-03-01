@@ -13,10 +13,11 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
     # list from servers defined in pacman.conf.
     def install
         pacman "--noconfirm", "--noprogressbar", "-Sy", @resource[:name]
-
-        unless self.query
+				
+				ret = self.query
+				unless ret.has_key?(:ensure)
             raise Puppet::ExecutionFailure.new(
-            "Could not find package %s" % self.name
+								"Could not find package %s" % self.name
             )
         end
     end
@@ -28,7 +29,7 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
 # Fetch the list of packages currently installed on the system.
     def self.instances
         packages = []
-            begin execpipe(listcmd()) do |process|
+        begin execpipe(listcmd()) do |process|
             # pacman -Q output is 'packagename version-rel'
             regex = %r{^(\S+)\s(\S+)}
             fields = [:name, :ensure]
@@ -71,18 +72,18 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
 
     # Querys the pacman master list for information about the package.
     def query
-     begin
-      hash = {}
-      output = pacman("-Qi", @resource[:name])
+      begin
+        hash = {}
+        output = pacman("-Qi", @resource[:name])
 
-      if output =~ /Version.*:\s(.+)/
-          hash[:ensure] = $1
-      end
+        if output =~ /Version.*:\s(.+)/
+            hash[:ensure] = $1
+        end
             rescue Puppet::ExecutionFailure
                 return {:ensure => :purged, :status => 'missing',
                     :name => @resource[:name], :error => 'ok'}
-     end
-      return hash
+        end
+        return hash
     end
 
     # Removes a package from the system.
