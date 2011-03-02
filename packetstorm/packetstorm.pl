@@ -8,6 +8,7 @@ eval("use LWP 5.6.9;");  die "[err] LWP 5.6.9 or greater required.\n" if $@;
 use Term::ANSIColor qw(:constants);
 use Getopt::Std;
 use Term::ANSIColor qw(:constants);
+use File::Find;
 $Getopt::Std::STANDARD_HELP_VERSION = 1;
 
 my $SPLOIT_DIR = undef;
@@ -20,21 +21,21 @@ my %opt = undef;
 getopts ('s:', \%opt);
 
 if ( ! $< == 0 ) {
-	die BOLD, RED "\nThis script requires root privledges!", RESET;
+	die BOLD, RED, "\nThis script requires root privledges!", RESET;
 }
 
 if ( ! $ARGV[0] ) {
 	$SPLOIT_DIR = "/opt/packetstorm";
 	if ( ! -d $SPLOIT_DIR && mkdir $SPLOIT_DIR) {
-                print BOLD, BLUE "[" . BOLD, CYAN "*" . BOLD, BLUE "]" . RED, BOLD, " $SPLOIT_DIR" . RESET, BOLD " directory created, all downloads will be dumped here\n";
+                print BOLD, BLUE, "[" . BOLD, CYAN, "*" . BOLD, BLUE, "]" . RED, BOLD, " $SPLOIT_DIR" . RESET, BOLD, " directory created, all downloads will be dumped here\n";
 }
 
 } else {
       	$SPLOIT_DIR = $ARGV[0];
 	if ( ! -d $SPLOIT_DIR && mkdir $SPLOIT_DIR) {
-		print BOLD, BLUE "[" . BOLD, CYAN "*" . BOLD, BLUE "]" . RED, BOLD, " $SPLOIT_DIR" . RESET, BOLD " directory created, all downloads will be dumped here\n";
+		print BOLD, BLUE, "[" . BOLD, CYAN, "*" . BOLD, BLUE, "]" . RED, BOLD, " $SPLOIT_DIR" . RESET, BOLD, " directory created, all downloads will be dumped here\n";
 	} else {
-		print BOLD, BLUE "[" . BOLD, CYAN "*" . BOLD, BLUE "]" . RESET, BOLD, " all downloads will be placed in " . RED, BOLD "$SPLOIT_DIR" . RESET "\n";
+		print BOLD, BLUE, "[" . BOLD, CYAN, "*" . BOLD, BLUE, "]" . RESET, BOLD, " all downloads will be placed in " . RED, BOLD, "$SPLOIT_DIR" . RESET, "\n";
        	}
 }
 
@@ -53,23 +54,23 @@ foreach $YEAR (@yeararray) {
 	$YEAR =~ m/(\d\d)$/g; $YEAR =~ s/\s+$//;
 	my $TWO_DIGIT_YEAR = $1;
 	my $stormurl = 'http://dl.packetstormsecurity.net/'."$TWO_DIGIT_YEAR".'12-exploits/'."$YEAR".'-exploits.tgz';
-	print BOLD, BLUE "[" . BOLD, CYAN "*" . BOLD, BLUE "]" . BOLD, CYAN, " \'" . BOLD, RED "$YEAR-exploits.tgz" . BOLD, CYAN, "\'" . RESET, BOLD " @ packetstormsecurity.net" . BOLD, BLUE " >> " . RESET "\n";
+	print BOLD, BLUE, "[" . BOLD, CYAN, "*" . BOLD, BLUE, "]" . BOLD, CYAN, " \'" . BOLD, RED, "$YEAR-exploits.tgz" . BOLD, CYAN, "\'" . RESET, BOLD, " @ packetstormsecurity.net" . BOLD, BLUE, " >> " . RESET, "\n";
 	my $ua = LWP::UserAgent->new( );
 	my $result = $ua->head($stormurl);
 	my $remote_headers = $result->headers;
 	$total_size = $remote_headers->content_length;
 	if ($total_size <= 500) {
-		print BOLD, BLUE "[" . BOLD, RED "!" . BOLD, BLUE "]" . RESET, BOLD, " NO yearly archive available for ->" . BOLD, RED " $YEAR" . RESET "\n";
+		print BOLD, BLUE, "[" . BOLD, RED, "!" . BOLD, BLUE, "]" . RESET, BOLD, " NO yearly archive available for ->" . BOLD, RED, " $YEAR" . RESET, "\n";
 		monthly("$YEAR","$CURRENT_YEAR","$TWO_DIGIT_YEAR");
 	} else {
 		chdir $SPLOIT_DIR;
 		if ( -f "$YEAR-exploits.tgz" ) {
-			print BOLD, BLUE "[" . BOLD, RED "!" . BOLD, BLUE "]" . RESET, BOLD, " file already exists for ->" . BOLD, RED " $YEAR" . RESET, BOLD " it will not be downloaded" . RESET "\n";
+			print BOLD, BLUE, "[" . BOLD, RED, "!" . BOLD, BLUE, "]" . RESET, BOLD, " file already exists for ->" . BOLD, RED, " $YEAR" . RESET, BOLD, " it will not be downloaded" . RESET, "\n";
 		} else {
-	        	open (VID,">$YEAR-exploits.tgz") or die "$!";
+	        	open (EXP,">$YEAR-exploits.tgz") or die "$!";
 			my $response = $ua->get($stormurl, ':content_cb' => \&callback );
 			`tar xzf "$YEAR"-exploits.tgz`;
-			`chmod -R a+r,go-wx *`
+			&find;
 	}
 }
 }
@@ -88,23 +89,23 @@ my $TWO_DIGIT_YEAR = $_[2];
 	        $LONG_MONTH = `date -d 1"$MONTH" +%B`; $LONG_MONTH =~ s/\s+$//;
 	      	$NUMERIC_MONTH = `date -d 1$MONTH +%m`; $NUMERIC_MONTH =~ s/\s+$//;
 	   	my $pstormurl = 'http://dl.packetstormsecurity.net/'."$TWO_DIGIT_YEAR"."$NUMERIC_MONTH".'-exploits/'."$TWO_DIGIT_YEAR"."$NUMERIC_MONTH".'-exploits.tgz';
-		print BOLD, BLUE "[" . BOLD, GREEN "-" . BOLD, BLUE "]" . RESET, BOLD, " ..grabbing monthly archives for the year ->" . BOLD, RED " $YEAR" . RESET, BOLD ".." . RESET "\n";
-	        print BOLD, BLUE "[" . BOLD, CYAN "*" . BOLD, BLUE "]" . BOLD, CYAN, " \'" . BOLD, RED "$TWO_DIGIT_YEAR"."$NUMERIC_MONTH".'-exploits.tgz' . BOLD, CYAN, "\'" . RESET, BOLD " @ packetstormsecurity.net" . BOLD, BLUE " >> " . RESET "\n";
+		print BOLD, BLUE, "[" . BOLD, GREEN, "-" . BOLD, BLUE, "]" . RESET, BOLD, " ..grabbing monthly archives for the year ->" . BOLD, RED, " $YEAR" . RESET, BOLD, ".." . RESET, "\n";
+	        print BOLD, BLUE, "[" . BOLD, CYAN, "*" . BOLD, BLUE, "]" . BOLD, CYAN, " \'" . BOLD, RED, "$TWO_DIGIT_YEAR"."$NUMERIC_MONTH".'-exploits.tgz' . BOLD, CYAN, "\'" . RESET, BOLD, " @ packetstormsecurity.net" . BOLD, BLUE, " >> " . RESET, "\n";
 	        my $agent = LWP::UserAgent->new( );
 	        my $res = $agent->head($pstormurl);
 	        my $rmt_headers = $res->headers;
 	        $total_size = $rmt_headers->content_length;
 	   	if ($total_size <= 500) {
-	        	print BOLD, BLUE "[" . BOLD, RED "!" . BOLD, BLUE "]" . RESET, BOLD, " NO monthly archive available for ->" . BOLD, RED " $LONG_MONTH" . RESET, BOLD "," . BOLD, RED " $YEAR" . RESET, "\n";
+	        	print BOLD, BLUE, "[" . BOLD, RED, "!" . BOLD, BLUE, "]" . RESET, BOLD, " NO monthly archive available for ->" . BOLD, RED, " $LONG_MONTH" . RESET, BOLD, "," . BOLD, RED, " $YEAR" . RESET, "\n";
 	       	} else {
 	             	chdir $SPLOIT_DIR;
 			if ( -f "$TWO_DIGIT_YEAR$NUMERIC_MONTH-exploits.tgz" ) {
-                        	print BOLD, BLUE "[" . BOLD, RED "!" . BOLD, BLUE "]" . RESET, BOLD, " file already exists for ->" . BOLD, RED " $YEAR" . RESET, BOLD " it will not be downloaded" . RESET "\n";
+                        	print BOLD, BLUE, "[" . BOLD, RED, "!" . BOLD, BLUE, "]" . RESET, BOLD, " file already exists for ->" . BOLD, RED, " $YEAR" . RESET, BOLD, " it will not be downloaded" . RESET, "\n";
                 	} else {
-	              	open (VID,">$TWO_DIGIT_YEAR$NUMERIC_MONTH-exploits.tgz") or die "$!";
+	              	open (EXP,">$TWO_DIGIT_YEAR$NUMERIC_MONTH-exploits.tgz") or die "$!";
 	              	my $response = $agent->get($pstormurl, ':content_cb' => \&callback );
 			`tar xzf "$TWO_DIGIT_YEAR$NUMERIC_MONTH"-exploits.tgz`;
-			`chmod -R a+r,go-wx *`
+			&find;
 	      		}
 		}
 	}
@@ -112,7 +113,7 @@ my $TWO_DIGIT_YEAR = $_[2];
 
 sub callback {
     my ($data, $response, $protocol) = @_;
-    print VID "$data";
+    print EXP "$data";
     $final_data .= $data;
     print progress_bar( length($final_data), $total_size, 25, '=' );
 }
@@ -126,19 +127,26 @@ sub progress_bar {
 		$got, $total, 100*$got/+$total;
 }
 
+sub find {
+	chdir $SPLOIT_DIR;
+	-f && chmod 0664, $_; \
+	-d && chmod 02775, $_;
+	`chown -R root:users *`;
+}
+
 sub VERSION_MESSAGE { my $fh = shift;
-	print $fh ".::[" . RESET, BOLD, " packetstormsecurity.net exploit archive 133ch3r v1.0 " . RESET "]::.\n";
+	print $fh ".::[" . RESET, BOLD, " packetstormsecurity.net exploit archive 133ch3r v1.0 " . RESET, "]::.\n";
 }
 
 sub HELP_MESSAGE { my $fh = shift; 
 	print $fh BOLD, RED, "\n  USAGE: ", RESET;
-	print $fh BOLD, BLUE, "./packetstorm.pl " . BOLD, BLUE "[" . BOLD, CYAN, "<directory>" . BOLD, BLUE, "|" . BOLD, CYAN, "-s <search>" . BOLD, BLUE "]\n\n", RESET;
+	print $fh BOLD, BLUE, "./packetstorm.pl " . BOLD, BLUE, "[" . BOLD, CYAN, "<directory>" . BOLD, BLUE, "|" . BOLD, CYAN, "-s <search>" . BOLD, BLUE, "]\n\n", RESET;
 	print $fh "\tCOMMAND LINE ARGUMENTS" . BOLD, RED, "\t\t*ROOT level access REQUIRED*\n". RESET;
-	print $fh RESET, BOLD, "\tDEFAULT" . RESET, "\t\t" . RESET "=> download all packetstormsecurity.net exploit archives to " . RESET, BOLD, "\'/opt/packetstorm\'\n";
-	print $fh BOLD, BLUE, "\t<" . RESET, BOLD, "folder" . BOLD, BLUE, ">" . RESET, "\t" . RESET "=> place all packetstormsecurity.net exploit archives in specified folder\n";
-	print $fh BOLD, BLUE, "\t-s <" . RESET, BOLD "search" . BOLD, BLUE, ">\t" . RESET "=> search " . RESET, BOLD, "local" . RESET, " exploit archives for specific search string (" . RESET, BOLD "/opt/packetstorm" . RESET, ")\n";
-	print $fh BOLD, BLUE, "\t--help\t\t" . RESET "=> displays help\n";
-	print $fh BOLD, BLUE, "\t--version\t" . RESET "=> displays version information\n";
+	print $fh RESET, BOLD, "\tDEFAULT" . RESET, "\t\t" . RESET, "=> download all packetstormsecurity.net exploit archives to " . RESET, BOLD, "\'/opt/packetstorm\'\n";
+	print $fh BOLD, BLUE, "\t<" . RESET, BOLD, "folder" . BOLD, BLUE, ">" . RESET, "\t" . RESET, "=> place all packetstormsecurity.net exploit archives in specified folder\n";
+	print $fh BOLD, BLUE, "\t-s <" . RESET, BOLD, "search" . BOLD, BLUE, ">\t" . RESET, "=> search " . RESET, BOLD, "local" . RESET, " exploit archives for specific search string (" . RESET, BOLD, "/opt/packetstorm" . RESET, ")\n";
+	print $fh BOLD, BLUE, "\t--help\t\t" . RESET, "=> displays help\n";
+	print $fh BOLD, BLUE, "\t--version\t" . RESET, "=> displays version information\n";
 	print $fh "\n";
 	print $fh "\t\tEXAMPLEs:  " . BOLD, BLUE, "packetstorm.pl\n", RESET;
 	print $fh "\t\t           " . BOLD, BLUE, "packetstorm.pl /tmp\n", RESET;
