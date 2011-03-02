@@ -70,7 +70,8 @@ foreach $YEAR (@yeararray) {
 	        	open (EXP,">$YEAR-exploits.tgz") or die "$!";
 			my $response = $ua->get($stormurl, ':content_cb' => \&callback );
 			`tar xzf "$YEAR"-exploits.tgz`;
-			&find;
+			find(\&finder, "$SPLOIT_DIR");
+			`chown -R root:users *`;
 	}
 }
 }
@@ -105,8 +106,9 @@ my $TWO_DIGIT_YEAR = $_[2];
 	              	open (EXP,">$TWO_DIGIT_YEAR$NUMERIC_MONTH-exploits.tgz") or die "$!";
 	              	my $response = $agent->get($pstormurl, ':content_cb' => \&callback );
 			`tar xzf "$TWO_DIGIT_YEAR$NUMERIC_MONTH"-exploits.tgz`;
-			&find;
-	      		}
+			`chown -R root:users *`;
+			find(\&finder, "$SPLOIT_DIR");
+			}
 		}
 	}
 }
@@ -127,11 +129,9 @@ sub progress_bar {
 		$got, $total, 100*$got/+$total;
 }
 
-sub find {
-	chdir $SPLOIT_DIR;
-	-f && chmod 0664, $_; \
-	-d && chmod 02775, $_;
-	`chown -R root:users *`;
+sub finder {
+	-f && chmod 0644, $_;
+	-d && chmod 0755, $_;
 }
 
 sub VERSION_MESSAGE { my $fh = shift;
