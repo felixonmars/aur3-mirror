@@ -1,7 +1,7 @@
-# Contributor: stanislaw <i@archuser.pp.ru>
+# Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-biysk
-pkgver=28
+pkgver=29
 pkgrel=1
 pkgdesc="Map of Biysk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Biysk-${pkgver}.orig.zip")
-md5sums=('7959dbf9617fab0c1a42e0f438c1d007')
+md5sums=('0909cecc5d78375d405c80335bf3929c')
 
 build() {
 

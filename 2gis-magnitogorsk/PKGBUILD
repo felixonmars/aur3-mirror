@@ -1,7 +1,7 @@
 # Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-magnitogorsk
-pkgver=10
+pkgver=11
 pkgrel=1
 pkgdesc="Map of Magnitogorsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Magnitogorsk-${pkgver}.orig.zip")
-md5sums=('9badcea0fcaf880af2294e09d5d53fbf')
+md5sums=('da5c1c3c32b53510ea9bd7b2dc08d926')
 
 build() {
 

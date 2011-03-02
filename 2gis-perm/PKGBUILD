@@ -1,20 +1,19 @@
-# Contributor: stanislaw <i@archuser.pp.ru>
-# Contributor: wido <widomaker2k7@gmail.com>
+# Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-perm
-pkgver=38
+pkgver=39
 pkgrel=1
 pkgdesc="Map of Perm for 2GIS"
-arch=('any')
+arch=('i686' 'x86_64')
 url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Perm-${pkgver}.orig.zip")
-md5sums=('b3800aa9eaa7af538e83188ff6a3afdb')
+md5sums=('42c034beb1987437f847c4fcab4b14b2')
 
 build() {
 
-  cd ${startdir}
+  cd $startdir
 
 # Installing to /opt/2gis
   install -D -m 644 ${startdir}/src/2gis/3.0/Data_Perm.dgdat "${startdir}/pkg/opt/2gis/perm.dgdat" || return 1

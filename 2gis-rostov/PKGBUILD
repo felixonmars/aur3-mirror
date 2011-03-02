@@ -1,7 +1,7 @@
-# Contributor Nebulosa nebulosa2007 na yandexe
+# Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-rostov
-pkgver=11
+pkgver=12
 pkgrel=1
 pkgdesc="Map of Rostov for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Rostov-${pkgver}.orig.zip")
-md5sums=('0fae1421234ca718488c83cad6da4537')
+md5sums=('58438cc02b54fcb392c75e27dfb8190b')
 
 build() {
 

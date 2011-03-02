@@ -1,7 +1,7 @@
 # Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-gornoaltaysk
-pkgver=10
+pkgver=11
 pkgrel=1
 pkgdesc="Map of Gornoaltaysk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Gornoaltaysk-${pkgver}.orig.zip")
-md5sums=('9ab08de0e9e48100755bf1bf44b1530e')
+md5sums=('fc6bbfa877ed0337ad54e0b60e5313ed')
 
 build() {
 

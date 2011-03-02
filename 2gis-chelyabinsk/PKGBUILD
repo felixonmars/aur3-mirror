@@ -1,7 +1,7 @@
-# Contributor: stanislaw <i@archuser.pp.ru>
+# Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-chelyabinsk
-pkgver=42
+pkgver=43
 pkgrel=1
 pkgdesc="Map of Chelyabinsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Chelyabinsk-${pkgver}.orig.zip")
-md5sums=('36a6c46170e22a5ed5bfaa0ecfc16149')
+md5sums=('6e49827f6cfe90d556e5fa3f16080cea')
 
 build() {
 

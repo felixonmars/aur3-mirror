@@ -1,20 +1,19 @@
-# Contributor: stanislaw <i@archuser.pp.ru>
-# Contributor: wido <widomaker2k7@gmail.com>
+# Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-ekaterinburg
-pkgver=62
+pkgver=63
 pkgrel=1
 pkgdesc="Map of Ekaterinburg for 2GIS"
-arch=('any')
+arch=('i686' 'x86_64')
 url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ekaterinburg-${pkgver}.orig.zip")
-md5sums=('196baca3c4e1dabb1f78ae42a86fdcb9')
+md5sums=('d629ad9ba97bb09fa282f42c506d047c')
 
 build() {
 
-  cd ${startdir}
+  cd $startdir
 
 # Installing to /opt/2gis
   install -D -m 644 ${startdir}/src/2gis/3.0/Data_Ekaterinburg.dgdat "${startdir}/pkg/opt/2gis/ekaterinburg.dgdat" || return 1

@@ -1,7 +1,7 @@
-# Contributor Nebulosa nebulosa2007 na yandexe
+# Contributor: Nebulosa <nebulosa2007 na yandekse>
 
 pkgname=2gis-vladivostok
-pkgver=11
+pkgver=12
 pkgrel=1
 pkgdesc="Map of Vladivostok for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Vladivostok-${pkgver}.orig.zip")
-md5sums=('0496dcd3a1232c19337280ff405bb477')
+md5sums=('5199178ffc2b27605bd857e5d7b7714f')
 
 build() {
 
