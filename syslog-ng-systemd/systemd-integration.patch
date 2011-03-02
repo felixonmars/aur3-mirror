@@ -1,19 +1,124 @@
-From e22582bf1a2ac49bd1550980b7a6d55ede450c60 Mon Sep 17 00:00:00 2001
-From: Marius Tomaschewski <mt@suse.de>
-Date: Fri, 10 Dec 2010 18:39:57 +0100
-Subject: [PATCH 1/6] First version of systemd socket activation support
+From 82b455ccaf35be7b036cc0924dc99ab2e766a143 Mon Sep 17 00:00:00 2001
+From: Gergely Nagy <algernon@balabit.hu>
+Date: Thu, 10 Feb 2011 20:19:55 +0100
+Subject: [PATCH] systemd socket activation support.
 
-First version of systemd socket activation support for unix-dgram
-sockets (not only /dev/log) in foreground mode. The sd-daemon.[ch]
-files are available at
-  http://cgit.freedesktop.org/systemd/plain/src/sd-daemon.[ch]
+Implements systemd socket activation support for unix sockets (not
+only /dev/log).
+
+systemd-managed sockets will automatically be recognised, while the
+rest will be handled by syslog-ng the same way it always did.
+
+Original implementation by Marius Tomaschewski, refactored by Balazs
+Scheidler, and minor cleanups by Gergely Nagy.
+
+Signed-off-by: Marius Tomaschewski <mt@suse.de>
+Signed-off-by: Gergely Nagy <algernon@balabit.hu>
+Signed-off-by: Balazs Scheidler <bazsi@balabit.hu>
 ---
- modules/afsocket/Makefile.am |    6 +++-
- modules/afsocket/afsocket.c  |   23 ++++++++++++++++++++-
- modules/afsocket/afsocket.h  |    1 +
- modules/afsocket/afunix.c    |   44 +++++++++++++++++++++++++++++++++++++++++-
- 4 files changed, 69 insertions(+), 5 deletions(-)
+ lib/gprocess.c               |   60 ++++++
+ modules/afsocket/Makefile.am |    6 +-
+ modules/afsocket/afsocket.c  |    8 +-
+ modules/afsocket/afsocket.h  |   10 +
+ modules/afsocket/afunix.c    |   61 ++++++
+ modules/afsocket/sd-daemon.c |  436 ++++++++++++++++++++++++++++++++++++++++++
+ modules/afsocket/sd-daemon.h |  265 +++++++++++++++++++++++++
+ 7 files changed, 842 insertions(+), 4 deletions(-)
+ create mode 100644 modules/afsocket/sd-daemon.c
+ create mode 100644 modules/afsocket/sd-daemon.h
 
+diff --git a/lib/gprocess.c b/lib/gprocess.c
+index 363d030..d9a2dfb 100644
+--- a/lib/gprocess.c
++++ b/lib/gprocess.c
+@@ -140,6 +140,56 @@ static struct
+   .gid = -1
+ };
+ 
++/**
++ * Inherits systemd socket activation from parent process updating the pid
++ * in LISTEN_PID to the pid of the child process.
++ *
++ * @return same as sd_listen_fds
++ *   r == 0: no socket activation or this process is not responsible
++ *   r >  0: success, number of sockets
++ *   r <  0: an error occured
++ */
++static int
++inherit_systemd_activation(void)
++{
++  const char *e;
++  char buf[24] = { '\0' };
++  char *p = NULL;
++  unsigned long l;
++
++  /* fetch listen pid */
++  if (!(e = getenv("LISTEN_PID")))
++    return 0;
++
++  errno = 0;
++  l = strtoul(e, &p, 10);
++  if (errno != 0 || !p || *p || l == 0)
++    return (errno) ? -errno : -EINVAL;
++
++  /* was it for our parent? */
++  if (getppid() != (pid_t)l)
++    return 0;
++
++  /* verify listen fds */
++  if (!(e = getenv("LISTEN_FDS")))
++    return 0;
++
++  errno = 0;
++  l = strtoul(e, &p, 10);
++  if (errno != 0 || !p || *p)
++    return (errno) ? -errno : -EINVAL;
++
++  /* update the listen pid to ours */
++  snprintf(buf, sizeof(buf), "%d", getpid());
++  if (errno != 0 || !*buf)
++    return (errno) ? -errno : -EINVAL;
++
++  if (setenv("LISTEN_PID", buf, 1) == 0)
++    return (int)l;
++
++  return -1;
++}
++
+ #if ENABLE_LINUX_CAPS
+ 
+ /**
+@@ -1125,6 +1175,10 @@ g_process_perform_supervise(void)
+           process_kind = G_PK_DAEMON;
+           close(init_result_pipe[0]);
+           init_result_pipe[0] = -1;
++
++          /* update systemd socket activation pid */
++          inherit_systemd_activation();
++
+           memcpy(process_opts.argv_start, process_opts.argv_orig, process_opts.argv_env_len);
+           return;
+         }
+@@ -1180,6 +1234,9 @@ g_process_start(void)
+       /* shut down init_result_pipe read side */
+       close(init_result_pipe[0]);
+       init_result_pipe[0] = -1;
++
++      /* update systemd socket activation pid */
++      inherit_systemd_activation();
+     }
+   else if (process_opts.mode == G_PM_SAFE_BACKGROUND)
+     {
+@@ -1213,6 +1270,9 @@ g_process_start(void)
+       close(startup_result_pipe[0]);
+       startup_result_pipe[0] = -1;
+       
++      /* update systemd socket activation pid */
++      inherit_systemd_activation();
++
+       process_kind = G_PK_SUPERVISOR;
+       g_process_perform_supervise();
+       /* we only return in the daamon process here */
 diff --git a/modules/afsocket/Makefile.am b/modules/afsocket/Makefile.am
 index 40d9dd8..fdd2ee6 100644
 --- a/modules/afsocket/Makefile.am
@@ -39,76 +144,64 @@ index 40d9dd8..fdd2ee6 100644
  libafsocket_tls_la_LIBADD = ../../lib/libsyslog-ng.la $(OPENSSL_LIBS) $(ZLIB_LIBS) $(LIBNET_LIBS) $(LIBWRAP_LIBS)
  libafsocket_tls_la_LDFLAGS = -avoid-version -module -no-undefined
 diff --git a/modules/afsocket/afsocket.c b/modules/afsocket/afsocket.c
-index 499cfb1..18b6fff 100644
+index 499cfb1..2595285 100644
 --- a/modules/afsocket/afsocket.c
 +++ b/modules/afsocket/afsocket.c
-@@ -529,6 +529,16 @@ afsocket_sd_init(LogPipe *s)
-   gboolean res = FALSE;
-   GlobalConfig *cfg = log_pipe_get_config(s);
+@@ -570,7 +570,9 @@ afsocket_sd_init(LogPipe *s)
  
-+  if (self->systemd_sock != -1)
-+    {
-+      /* TODO: another socket types */
-+      if ((self->bind_addr->sa.sa_family != AF_UNIX) || !(self->flags & AFSOCKET_DGRAM))
-+        {
-+          msg_error("Systemd activation implemented for unix datagram sockets only", NULL);
-+          return FALSE;
-+        }
-+    }
-+
- #if ENABLE_SSL
-   if (self->flags & AFSOCKET_REQUIRE_TLS && !self->tls_context)
-     {
-@@ -604,14 +614,22 @@ afsocket_sd_init(LogPipe *s)
+       if (sock == -1)
+         {
+-          if (!afsocket_open_socket(self->bind_addr, !!(self->flags & AFSOCKET_STREAM), &sock))
++          if (!afsocket_sd_acquire_socket(self, &sock))
++            return self->super.optional;
++          if (sock == -1 && !afsocket_open_socket(self->bind_addr, !!(self->flags & AFSOCKET_STREAM), &sock))
+             return self->super.optional;
+         }
+ 
+@@ -604,7 +606,9 @@ afsocket_sd_init(LogPipe *s)
      {
        if (!self->connections)
          {
 -          if (!afsocket_open_socket(self->bind_addr, !!(self->flags & AFSOCKET_STREAM), &sock))
-+          if (self->systemd_sock != -1)
-+            {
-+	      sock = self->systemd_sock;
-+              g_fd_set_nonblock(sock, TRUE);
-+              self->bind_addr->sa_funcs->sa_bind = NULL;
-+              self->bind_addr->sa_funcs->sa_bind_prepare = NULL;
-+            }
-+          else if (!afsocket_open_socket(self->bind_addr, !!(self->flags & AFSOCKET_STREAM), &sock))
++          if (!afsocket_sd_acquire_socket(self, &sock))
++            return self->super.optional;
++          if (sock == -1 && !afsocket_open_socket(self->bind_addr, !!(self->flags & AFSOCKET_STREAM), &sock))
              return self->super.optional;
          }
        self->fd = -1;
- 
-       if (!self->setup_socket(self, sock))
-         {
--          close(sock);
-+          if (self->systemd_sock != -1)
-+            close(sock);
-           return FALSE;
-         }
- 
-@@ -738,6 +756,7 @@ afsocket_sd_init_instance(AFSocketSourceDriver *self, SocketOptions *sock_option
-   self->setup_socket = afsocket_sd_setup_socket;
-   self->max_connections = 10;
-   self->listen_backlog = 255;
-+  self->systemd_sock = -1;
-   self->flags = flags | AFSOCKET_KEEP_ALIVE;
-   log_reader_options_defaults(&self->reader_options);
- 
 diff --git a/modules/afsocket/afsocket.h b/modules/afsocket/afsocket.h
-index bf1c74f..f172db8 100644
+index bf1c74f..1f48a84 100644
 --- a/modules/afsocket/afsocket.h
 +++ b/modules/afsocket/afsocket.h
 @@ -77,6 +77,7 @@ struct _AFSocketSourceDriver
    GList *connections;
    SocketOptions *sock_options_ptr;
    gboolean (*setup_socket)(AFSocketSourceDriver *s, gint fd);
-+  gint systemd_sock;
++  gboolean (*acquire_socket)(AFSocketSourceDriver *s, gint *fd);
  };
  
  void afsocket_sd_set_keep_alive(LogDriver *self, gint enable);
+@@ -87,6 +88,15 @@ void afsocket_sd_set_tls_context(LogDriver *s, TLSContext *tls_context);
+ #define afsocket_sd_set_tls_context(s, t)
+ #endif
+ 
++static inline gboolean
++afsocket_sd_acquire_socket(AFSocketSourceDriver *s, gint *fd)
++{
++  if (s->acquire_socket)
++    return s->acquire_socket(s, fd);
++  *fd = -1;
++  return TRUE;
++}
++
+ gboolean afsocket_sd_init(LogPipe *s);
+ gboolean afsocket_sd_deinit(LogPipe *s);
+ 
 diff --git a/modules/afsocket/afunix.c b/modules/afsocket/afunix.c
-index b486b6b..bf82c5f 100644
+index b486b6b..e97a0f5 100644
 --- a/modules/afsocket/afunix.c
 +++ b/modules/afsocket/afunix.c
-@@ -25,6 +25,7 @@
+@@ -25,12 +25,14 @@
  #include "misc.h"
  #include "messages.h"
  #include "gprocess.h"
@@ -116,97 +209,6 @@ index b486b6b..bf82c5f 100644
  
  #include <sys/types.h>
  #include <sys/socket.h>
-@@ -67,6 +68,29 @@ afunix_sd_init(LogPipe *s)
- {
-   AFUnixSourceDriver *self = (AFUnixSourceDriver *) s;
-   cap_t saved_caps;
-+  int fds, fd, t, r;
-+
-+  fds = sd_listen_fds(0);
-+  if (fds < 0)
-+    {
-+      msg_error("Failed to acquire systemd sockets", NULL);
-+      return FALSE;
-+    }
-+  else if (fds > 0)
-+    {
-+      fd = SD_LISTEN_FDS_START;
-+      for (fd = SD_LISTEN_FDS_START; fd < SD_LISTEN_FDS_START + fds; fd++)
-+        {
-+          t = (self->super.flags & AFSOCKET_STREAM) ? SOCK_STREAM : SOCK_DGRAM;
-+          r = sd_is_socket_unix(fd, t, -1, self->filename, 0);
-+          if (r == 1)
-+            {
-+              /* OK, remember this systemd socket */
-+              self->super.systemd_sock = fd;
-+              break;
-+            }
-+        }
-+    }
- 
-   if (afsocket_sd_init(s))
-     {
-@@ -83,9 +107,27 @@ afunix_sd_init(LogPipe *s)
-       if (self->perm >= 0)
-         chmod(self->filename, (mode_t) self->perm);
-       g_process_cap_restore(saved_caps);
-+
-+      if (self->super.systemd_sock != -1)
-+        {
-+          msg_verbose("Acquired systemd socket",
-+                      evt_tag_int("systemd-sock-fd", fd),
-+                      evt_tag_str("systemd-sock-name", self->filename),
-+                      NULL);
-+        }
-       return TRUE;
-     }
--  return FALSE;
-+  else
-+    {
-+      if (self->super.systemd_sock != -1)
-+        {
-+          msg_error("Failed to acquire systemd socket",
-+                    evt_tag_int("systemd-sock-fd", fd),
-+                    evt_tag_str("systemd-sock-name", self->filename),
-+                    NULL);
-+        }
-+      return FALSE;
-+    }
- }
- 
- static void
--- 
-1.7.4.1
-
-
-From febacf0bb5740e3f6454fd524f8d0e9e76c20e31 Mon Sep 17 00:00:00 2001
-From: Marius Tomaschewski <mt@suse.de>
-Date: Mon, 17 Jan 2011 17:23:09 +0100
-Subject: [PATCH 2/6] Cleaned up systemd socket activation
-
----
- modules/afsocket/afsocket.c |    2 +-
- modules/afsocket/afunix.c   |   12 +++++++++---
- 2 files changed, 10 insertions(+), 4 deletions(-)
-
-diff --git a/modules/afsocket/afsocket.c b/modules/afsocket/afsocket.c
-index 18b6fff..67f9499 100644
---- a/modules/afsocket/afsocket.c
-+++ b/modules/afsocket/afsocket.c
-@@ -628,7 +628,7 @@ afsocket_sd_init(LogPipe *s)
- 
-       if (!self->setup_socket(self, sock))
-         {
--          if (self->systemd_sock != -1)
-+          if (self->systemd_sock == -1)
-             close(sock);
-           return FALSE;
-         }
-diff --git a/modules/afsocket/afunix.c b/modules/afsocket/afunix.c
-index bf82c5f..4d45c60 100644
---- a/modules/afsocket/afunix.c
-+++ b/modules/afsocket/afunix.c
-@@ -32,6 +32,7 @@
  #include <sys/un.h>
  #include <sys/stat.h>
  #include <unistd.h>
@@ -214,244 +216,86 @@ index bf82c5f..4d45c60 100644
  
  void
  afunix_sd_set_uid(LogDriver *s, gchar *owner)
-@@ -70,7 +71,13 @@ afunix_sd_init(LogPipe *s)
-   cap_t saved_caps;
-   int fds, fd, t, r;
+@@ -63,6 +65,63 @@ afunix_sd_set_perm(LogDriver *s, gint perm)
+ }
  
-+  fd  = -1;
-   fds = sd_listen_fds(0);
-+  msg_debug( "Systemd socket activation",
-+              evt_tag_int("systemd-sockets", fds),
-+              evt_tag_str("systemd-listen-pid", getenv("LISTEN_PID")),
-+              evt_tag_str("systemd-listen-fds", getenv("LISTEN_FDS")),
-+	       NULL);
-   if (fds < 0)
-     {
-       msg_error("Failed to acquire systemd sockets", NULL);
-@@ -78,7 +85,6 @@ afunix_sd_init(LogPipe *s)
-     }
-   else if (fds > 0)
-     {
--      fd = SD_LISTEN_FDS_START;
-       for (fd = SD_LISTEN_FDS_START; fd < SD_LISTEN_FDS_START + fds; fd++)
-         {
-           t = (self->super.flags & AFSOCKET_STREAM) ? SOCK_STREAM : SOCK_DGRAM;
-@@ -111,7 +117,7 @@ afunix_sd_init(LogPipe *s)
-       if (self->super.systemd_sock != -1)
-         {
-           msg_verbose("Acquired systemd socket",
--                      evt_tag_int("systemd-sock-fd", fd),
-+                      evt_tag_int("systemd-sock-fd", self->super.systemd_sock),
-                       evt_tag_str("systemd-sock-name", self->filename),
-                       NULL);
-         }
-@@ -122,7 +128,7 @@ afunix_sd_init(LogPipe *s)
-       if (self->super.systemd_sock != -1)
-         {
-           msg_error("Failed to acquire systemd socket",
--                    evt_tag_int("systemd-sock-fd", fd),
-+                    evt_tag_int("systemd-sock-fd", self->super.systemd_sock),
-                     evt_tag_str("systemd-sock-name", self->filename),
-                     NULL);
-         }
--- 
-1.7.4.1
-
-
-From 65e27c1855dc9601f1c67b0359c60ec60da3d4bf Mon Sep 17 00:00:00 2001
-From: Marius Tomaschewski <mt@suse.de>
-Date: Tue, 18 Jan 2011 14:03:29 +0100
-Subject: [PATCH 3/6] Enabled systemd socket activation in forking mode
-
----
- lib/gprocess.c |  137 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
- 1 files changed, 137 insertions(+), 0 deletions(-)
-
-diff --git a/lib/gprocess.c b/lib/gprocess.c
-index 363d030..1eec539 100644
---- a/lib/gprocess.c
-+++ b/lib/gprocess.c
-@@ -140,6 +140,133 @@ static struct
-   .gid = -1
- };
- 
-+/**
-+ * Inherits systemd socket activation from parent process updating the pid
-+ * in LISTEN_PID to the pid of the child process.
-+ *
-+ * @return same as sd_listen_fds
-+ *   r == 0: no socket activation or this process is not responsible
-+ *   r >  0: success, number of sockets
-+ *   r <  0: an error occured
-+ */
-+static int
-+inherit_systemd_activation(void)
+ static gboolean
++afunix_sd_acquire_socket(AFSocketSourceDriver *s, gint *result_fd)
 +{
-+  const char *e;
-+  char buf[24] = { '\0' };
-+  char *p = NULL;
-+  unsigned long l;
-+  int r = -1;
++  AFUnixSourceDriver *self = (AFUnixSourceDriver *) s;
++  gint fd, fds, t, r;
 +
-+  /* fetch listen pid */
-+  if (!(e = getenv("LISTEN_PID")))
++  *result_fd = -1;
++  fd = -1;
++  fds = sd_listen_fds(0);
++
++  if (fds == 0)
++    return TRUE;
++
++  msg_debug("Systemd socket activation",
++	    evt_tag_int("systemd-sockets", fds),
++	    evt_tag_str("systemd-listen-pid", getenv("LISTEN_PID")),
++	    evt_tag_str("systemd-listen-fds", getenv("LISTEN_FDS")),
++	    NULL);
++
++  if (fds < 0)
 +    {
-+      r = 0;
-+      goto finish;
++      msg_error("Failed to acquire systemd sockets, incorrectly set LISTEN_FDS environment variable?",
++		NULL);
++      return FALSE;
 +    }
-+
-+  errno = 0;
-+  l = strtoul(e, &p, 10);
-+  if (errno != 0)
++  else if (fds > 0)
 +    {
-+      r = -errno;
-+      goto finish;
++      for (fd = SD_LISTEN_FDS_START; fd < SD_LISTEN_FDS_START + fds; fd++)
++	{
++	  t = (self->super.flags & AFSOCKET_STREAM) ? SOCK_STREAM : SOCK_DGRAM;
++	  r = sd_is_socket_unix(fd, t, -1, self->filename, 0);
++	  if (r == 1)
++	    {
++	      *result_fd = fd;
++	      break;
++	    }
++	}
 +    }
++  else
++    return TRUE;
 +
-+  if (!p || *p || l <= 0)
++  if (*result_fd != -1)
 +    {
-+      r = -EINVAL;
-+      goto finish;
++      msg_verbose("Acquired systemd socket",
++		  evt_tag_str("filename", self->filename),
++		  evt_tag_int("systemd-sock-fd", *result_fd),
++		  NULL);
 +    }
-+
-+  /* was it for our parent? */
-+  if (getppid() != (pid_t)l)
++  else
 +    {
-+      r = 0;
-+      goto finish;
++      msg_debug("Failed to acquire systemd socket, opening nevertheless",
++		evt_tag_str("filename", self->filename),
++		NULL);
 +    }
-+
-+  /* verify listen fds */
-+  if (!(e = getenv("LISTEN_FDS")))
-+    {
-+      r = 0;
-+      goto finish;
-+    }
-+
-+  errno = 0;
-+  l = strtoul(e, &p, 10);
-+  if (errno != 0)
-+    {
-+      r = -errno;
-+      goto finish;
-+    }
-+
-+  if (!p || *p)
-+    {
-+      r = -EINVAL;
-+      goto finish;
-+    }
-+
-+#ifdef inherit_systemd_activation__disable_close_on_exec
-+/*
-+ * not needed -- the close-on-exec flag is set in sd_listen_fds
-+ */
-+#ifndef SD_LISTEN_FDS_START
-+#define SD_LISTEN_FDS_START 3
-+#endif
-+    {
-+      int fd;
-+
-+      for (fd=SD_LISTEN_FDS_START; fd < SD_LISTEN_FDS_START + (int)l; fd++)
-+        {
-+          int flags;
-+
-+          errno = 0;
-+          if ((flags = fcntl(fd, F_GETFD)) < 0)
-+            {
-+              r = -errno;
-+              goto finish;
-+            }
-+
-+          if ( !(flags & FD_CLOEXEC))
-+            continue;
-+
-+          flags ^= FD_CLOEXEC;
-+
-+          errno = 0;
-+          if (fcntl(fd, F_SETFD, flags) < 0)
-+            {
-+              r = -errno;
-+              goto finish;
-+            }
-+        }
-+    }
-+#endif
-+
-+  /* update the listen pid to ours */
-+  errno = 0;
-+  snprintf(buf, sizeof(buf), "%d", getpid());
-+  if (errno != 0)
-+    {
-+      r = -errno;
-+      goto finish;
-+    }
-+
-+  if (!*buf)
-+    {
-+      r = -EINVAL;
-+      goto finish;
-+    }
-+
-+  if (setenv("LISTEN_PID", buf, 1) == 0)
-+    {
-+      r = (int)l;
-+    }
-+
-+finish:
-+  return r;
++  return TRUE;
 +}
 +
- #if ENABLE_LINUX_CAPS
- 
- /**
-@@ -1125,6 +1252,10 @@ g_process_perform_supervise(void)
-           process_kind = G_PK_DAEMON;
-           close(init_result_pipe[0]);
-           init_result_pipe[0] = -1;
++static gboolean
+ afunix_sd_init(LogPipe *s)
+ {
+   AFUnixSourceDriver *self = (AFUnixSourceDriver *) s;
+@@ -83,6 +142,7 @@ afunix_sd_init(LogPipe *s)
+       if (self->perm >= 0)
+         chmod(self->filename, (mode_t) self->perm);
+       g_process_cap_restore(saved_caps);
 +
-+          /* update systemd socket activation pid */
-+          inherit_systemd_activation();
-+
-           memcpy(process_opts.argv_start, process_opts.argv_orig, process_opts.argv_env_len);
-           return;
-         }
-@@ -1180,6 +1311,9 @@ g_process_start(void)
-       /* shut down init_result_pipe read side */
-       close(init_result_pipe[0]);
-       init_result_pipe[0] = -1;
-+
-+      /* update systemd socket activation pid */
-+      inherit_systemd_activation();
+       return TRUE;
      }
-   else if (process_opts.mode == G_PM_SAFE_BACKGROUND)
-     {
-@@ -1213,6 +1347,9 @@ g_process_start(void)
-       close(startup_result_pipe[0]);
-       startup_result_pipe[0] = -1;
-       
-+      /* update systemd socket activation pid */
-+      inherit_systemd_activation();
-+
-       process_kind = G_PK_SUPERVISOR;
-       g_process_perform_supervise();
-       /* we only return in the daamon process here */
--- 
-1.7.4.1
-
-
-From 7f8154cd014bb78dfb1365dae8114b59e488a591 Mon Sep 17 00:00:00 2001
-From: Gergely Nagy <algernon@balabit.hu>
-Date: Tue, 1 Feb 2011 11:07:43 +0100
-Subject: [PATCH 4/6] systemd: Added sd-daemon.c & sd-daemon.h.
-
----
- modules/afsocket/sd-daemon.c |  436 ++++++++++++++++++++++++++++++++++++++++++
- modules/afsocket/sd-daemon.h |  265 +++++++++++++++++++++++++
- 2 files changed, 701 insertions(+), 0 deletions(-)
- create mode 100644 modules/afsocket/sd-daemon.c
- create mode 100644 modules/afsocket/sd-daemon.h
-
+   return FALSE;
+@@ -111,6 +171,7 @@ afunix_sd_new(gchar *filename, guint32 flags)
+   self->super.bind_addr = g_sockaddr_unix_new(filename);
+   self->super.super.super.init = afunix_sd_init;
+   self->super.super.super.free_fn = afunix_sd_free;
++  self->super.acquire_socket = afunix_sd_acquire_socket;
+   self->filename = g_strdup(filename);
+   self->owner = -1;
+   self->group = -1;
 diff --git a/modules/afsocket/sd-daemon.c b/modules/afsocket/sd-daemon.c
 new file mode 100644
 index 0000000..6d1eebf
@@ -1165,367 +1009,6 @@ index 0000000..d0a0a94
 +#endif
 +
 +#endif
--- 
-1.7.4.1
-
-
-From 72acf3efef71400d7aacf5137c9727a698dbde19 Mon Sep 17 00:00:00 2001
-From: Gergely Nagy <algernon@balabit.hu>
-Date: Tue, 1 Feb 2011 11:15:07 +0100
-Subject: [PATCH 5/6] systemd: Code cleanup.
-
-Cleaned up inherit_systemd_activation(): removing unused code, turning
-gotos into returns and merging a few ifs together.
-
-Signed-off-by: Gergely Nagy <algernon@balabit.hu>
----
- lib/gprocess.c |   99 ++++++-------------------------------------------------
- 1 files changed, 11 insertions(+), 88 deletions(-)
-
-diff --git a/lib/gprocess.c b/lib/gprocess.c
-index 1eec539..d9a2dfb 100644
---- a/lib/gprocess.c
-+++ b/lib/gprocess.c
-@@ -156,115 +156,38 @@ inherit_systemd_activation(void)
-   char buf[24] = { '\0' };
-   char *p = NULL;
-   unsigned long l;
--  int r = -1;
- 
-   /* fetch listen pid */
-   if (!(e = getenv("LISTEN_PID")))
--    {
--      r = 0;
--      goto finish;
--    }
-+    return 0;
- 
-   errno = 0;
-   l = strtoul(e, &p, 10);
--  if (errno != 0)
--    {
--      r = -errno;
--      goto finish;
--    }
--
--  if (!p || *p || l <= 0)
--    {
--      r = -EINVAL;
--      goto finish;
--    }
-+  if (errno != 0 || !p || *p || l == 0)
-+    return (errno) ? -errno : -EINVAL;
- 
-   /* was it for our parent? */
-   if (getppid() != (pid_t)l)
--    {
--      r = 0;
--      goto finish;
--    }
-+    return 0;
- 
-   /* verify listen fds */
-   if (!(e = getenv("LISTEN_FDS")))
--    {
--      r = 0;
--      goto finish;
--    }
-+    return 0;
- 
-   errno = 0;
-   l = strtoul(e, &p, 10);
--  if (errno != 0)
--    {
--      r = -errno;
--      goto finish;
--    }
--
--  if (!p || *p)
--    {
--      r = -EINVAL;
--      goto finish;
--    }
--
--#ifdef inherit_systemd_activation__disable_close_on_exec
--/*
-- * not needed -- the close-on-exec flag is set in sd_listen_fds
-- */
--#ifndef SD_LISTEN_FDS_START
--#define SD_LISTEN_FDS_START 3
--#endif
--    {
--      int fd;
--
--      for (fd=SD_LISTEN_FDS_START; fd < SD_LISTEN_FDS_START + (int)l; fd++)
--        {
--          int flags;
--
--          errno = 0;
--          if ((flags = fcntl(fd, F_GETFD)) < 0)
--            {
--              r = -errno;
--              goto finish;
--            }
--
--          if ( !(flags & FD_CLOEXEC))
--            continue;
--
--          flags ^= FD_CLOEXEC;
--
--          errno = 0;
--          if (fcntl(fd, F_SETFD, flags) < 0)
--            {
--              r = -errno;
--              goto finish;
--            }
--        }
--    }
--#endif
-+  if (errno != 0 || !p || *p)
-+    return (errno) ? -errno : -EINVAL;
- 
-   /* update the listen pid to ours */
--  errno = 0;
-   snprintf(buf, sizeof(buf), "%d", getpid());
--  if (errno != 0)
--    {
--      r = -errno;
--      goto finish;
--    }
--
--  if (!*buf)
--    {
--      r = -EINVAL;
--      goto finish;
--    }
-+  if (errno != 0 || !*buf)
-+    return (errno) ? -errno : -EINVAL;
- 
-   if (setenv("LISTEN_PID", buf, 1) == 0)
--    {
--      r = (int)l;
--    }
-+    return (int)l;
- 
--finish:
--  return r;
-+  return -1;
- }
- 
- #if ENABLE_LINUX_CAPS
--- 
-1.7.4.1
-
-
-From 3128ea4f2f0c2af9ff8ff2bd674c59657f42eb65 Mon Sep 17 00:00:00 2001
-From: Gergely Nagy <algernon@balabit.hu>
-Date: Tue, 1 Feb 2011 14:09:28 +0100
-Subject: [PATCH 6/6] gsockaddr: Make ->sa_funcs per-instance.
-
-Instead of initializing GSockAddr->sa_funcs to a static value, that
-points to an internal structure, make it per-instance, so one can
-override parts of it later on, without breaking the rest of the
-instances that share the address family.
-
-Signed-off-by: Gergely Nagy <algernon@balabit.hu>
----
- lib/gsockaddr.c |   94 +++++++++++++++++++++++++++++-------------------------
- 1 files changed, 50 insertions(+), 44 deletions(-)
-
-diff --git a/lib/gsockaddr.c b/lib/gsockaddr.c
-index dc1a093..ebee377 100644
---- a/lib/gsockaddr.c
-+++ b/lib/gsockaddr.c
-@@ -143,10 +143,13 @@ g_sockaddr_unref(GSockAddr *a)
-       if (g_atomic_counter_dec_and_test(&a->refcnt))
-         {
-           if (!a->sa_funcs->freefn)
--            g_free(a);
--          else
--            a->sa_funcs->freefn(a);
--        }
-+	    {
-+	      g_free(a->sa_funcs);
-+	      g_free(a);
-+	    }
-+	  else
-+	    a->sa_funcs->freefn(a);
-+	}
-     }
- }
- 
-@@ -198,21 +201,18 @@ g_sockaddr_inet_format(GSockAddr *addr, gchar *text, gulong n, gint format)
- void
- g_sockaddr_inet_free(GSockAddr *addr)
- {
-+  g_free(addr->sa_funcs);
-   g_free(addr);
- }
- 
--static GSockAddrFuncs inet_sockaddr_funcs = 
--{
--  g_sockaddr_inet_bind_prepare,
--  NULL,
--  g_sockaddr_inet_format,
--  g_sockaddr_inet_free
--};
--
- gboolean
- g_sockaddr_inet_check(GSockAddr *a)
- {
--  return a->sa_funcs == &inet_sockaddr_funcs;
-+  return (a->sa_funcs &&
-+	  a->sa_funcs->sa_bind_prepare == g_sockaddr_inet_bind_prepare &&
-+	  a->sa_funcs->sa_bind == NULL &&
-+	  a->sa_funcs->sa_format == g_sockaddr_inet_format &&
-+	  a->sa_funcs->freefn == g_sockaddr_inet_free);
- }
- 
- /*+
-@@ -243,7 +243,10 @@ g_sockaddr_inet_new(gchar *ip, guint16 port)
-       addr->sin.sin_family = AF_INET;
-       addr->sin.sin_port = htons(port);
-       addr->sin.sin_addr = ina;
--      addr->sa_funcs = &inet_sockaddr_funcs;
-+      addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+      addr->sa_funcs->sa_bind_prepare = g_sockaddr_inet_bind_prepare;
-+      addr->sa_funcs->sa_format = g_sockaddr_inet_format;
-+      addr->sa_funcs->freefn = g_sockaddr_inet_free;
-     }
-   return (GSockAddr *) addr;
- }
-@@ -269,7 +272,10 @@ g_sockaddr_inet_new2(struct sockaddr_in *sin)
-   addr->flags = 0;
-   addr->salen = sizeof(struct sockaddr_in);
-   addr->sin = *sin;
--  addr->sa_funcs = &inet_sockaddr_funcs;
-+  addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+  addr->sa_funcs->sa_bind_prepare = g_sockaddr_inet_bind_prepare;
-+  addr->sa_funcs->sa_format = g_sockaddr_inet_format;
-+  addr->sa_funcs->freefn = g_sockaddr_inet_free;
-   
-   return (GSockAddr *) addr;
- }
-@@ -331,14 +337,6 @@ g_sockaddr_inet_range_bind(int sock, GSockAddr *a)
-   return G_IO_STATUS_ERROR;
- }
- 
--static GSockAddrFuncs inet_range_sockaddr_funcs = 
--{
--  NULL,
--  g_sockaddr_inet_range_bind,
--  g_sockaddr_inet_format,
--  g_sockaddr_inet_free,
--};
--
- GSockAddr *
- g_sockaddr_inet_range_new(gchar *ip, guint16 min_port, guint16 max_port)
- {
-@@ -350,7 +348,13 @@ g_sockaddr_inet_range_new(gchar *ip, guint16 min_port, guint16 max_port)
-   addr->sin.sin_family = AF_INET;
-   inet_aton(ip, &addr->sin.sin_addr);
-   addr->sin.sin_port = 0;
--  addr->sa_funcs = &inet_range_sockaddr_funcs;
-+
-+  addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+  addr->sa_funcs->sa_bind_prepare = NULL;
-+  addr->sa_funcs->sa_bind = g_sockaddr_inet_range_bind;
-+  addr->sa_funcs->sa_format = g_sockaddr_inet_format;
-+  addr->sa_funcs->freefn = g_sockaddr_inet_free;
-+
-   if (max_port > min_port)
-     {
-       addr->last_port = (rand() % (max_port - min_port)) + min_port;
-@@ -405,21 +409,18 @@ g_sockaddr_inet6_format(GSockAddr *addr, gchar *text, gulong n, gint format)
- static void
- g_sockaddr_inet6_free(GSockAddr *addr)
- {
-+  g_free(addr->sa_funcs);
-   g_free(addr);
- }
- 
--static GSockAddrFuncs inet6_sockaddr_funcs = 
--{
--  g_sockaddr_inet_bind_prepare,
--  NULL,
--  g_sockaddr_inet6_format,
--  g_sockaddr_inet6_free
--};
--
- gboolean
- g_sockaddr_inet6_check(GSockAddr *a)
- {
--  return a->sa_funcs == &inet6_sockaddr_funcs;
-+  return (a->sa_funcs &&
-+	  a->sa_funcs->sa_bind_prepare == g_sockaddr_inet_bind_prepare &&
-+	  a->sa_funcs->sa_bind == NULL &&
-+	  a->sa_funcs->sa_format == g_sockaddr_inet6_format &&
-+	  a->sa_funcs->freefn == g_sockaddr_inet6_free);
- }
- 
- 
-@@ -446,7 +447,10 @@ g_sockaddr_inet6_new(gchar *ip, guint16 port)
-   addr->sin6.sin6_family = AF_INET6;
-   inet_pton(AF_INET6, ip, &addr->sin6.sin6_addr);
-   addr->sin6.sin6_port = htons(port);
--  addr->sa_funcs = &inet6_sockaddr_funcs;
-+  addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+  addr->sa_funcs->sa_bind_prepare = g_sockaddr_inet_bind_prepare;
-+  addr->sa_funcs->sa_format = g_sockaddr_inet6_format;
-+  addr->sa_funcs->freefn = g_sockaddr_inet6_free;
-   
-   return (GSockAddr *) addr;
- }
-@@ -473,7 +477,10 @@ g_sockaddr_inet6_new2(struct sockaddr_in6 *sin6)
-   addr->flags = 0;
-   addr->salen = sizeof(struct sockaddr_in6);
-   addr->sin6 = *sin6;
--  addr->sa_funcs = &inet6_sockaddr_funcs;
-+  addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+  addr->sa_funcs->sa_bind_prepare = g_sockaddr_inet_bind_prepare;
-+  addr->sa_funcs->sa_format = g_sockaddr_inet6_format;
-+  addr->sa_funcs->freefn = g_sockaddr_inet6_free;
-   
-   return (GSockAddr *) addr;
- }
-@@ -501,13 +508,6 @@ static GIOStatus g_sockaddr_unix_bind_prepare(int sock, GSockAddr *addr);
- static GIOStatus g_sockaddr_unix_bind(int sock, GSockAddr *addr);
- static gchar *g_sockaddr_unix_format(GSockAddr *addr, gchar *text, gulong n, gint format);
- 
--static GSockAddrFuncs unix_sockaddr_funcs = 
--{
--  g_sockaddr_unix_bind_prepare,
--  g_sockaddr_unix_bind,
--  g_sockaddr_unix_format
--};
--
- /* anonymous if name == NULL */
- 
- /*+
-@@ -528,7 +528,10 @@ g_sockaddr_unix_new(const gchar *name)
-   
-   g_atomic_counter_set(&addr->refcnt, 1);
-   addr->flags = 0;
--  addr->sa_funcs = &unix_sockaddr_funcs;
-+  addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+  addr->sa_funcs->sa_bind_prepare = g_sockaddr_unix_bind_prepare;
-+  addr->sa_funcs->sa_bind = g_sockaddr_unix_bind;
-+  addr->sa_funcs->sa_format = g_sockaddr_unix_format;
-   addr->saun.sun_family = AF_UNIX;
-   if (name)
-     {
-@@ -564,7 +567,10 @@ g_sockaddr_unix_new2(struct sockaddr_un *saun, int sunlen)
-   
-   g_atomic_counter_set(&addr->refcnt, 1);
-   addr->flags = 0;
--  addr->sa_funcs = &unix_sockaddr_funcs;
-+  addr->sa_funcs = g_new0(GSockAddrFuncs, 1);
-+  addr->sa_funcs->sa_bind_prepare = g_sockaddr_unix_bind_prepare;
-+  addr->sa_funcs->sa_bind = g_sockaddr_unix_bind;
-+  addr->sa_funcs->sa_format = g_sockaddr_unix_format;
-   addr->salen = sunlen;
-   addr->saun = *saun;
-   return (GSockAddr *) addr;
 -- 
 1.7.4.1
 
