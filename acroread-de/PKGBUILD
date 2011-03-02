@@ -5,14 +5,12 @@
 # Contributor: Dogukan Korkmazturk <d.korkmazturk@gmail.com>
 
 pkgname=acroread-de
-pkgver=9.4
-_pkgver=9.4.0
-pkgrel=3
+pkgver=9.4.2
+pkgrel=1
 pkgdesc="Adobe Reader is a PDF file viewer - german version / deutschsprachige Version"
 arch=('i686' 'x86_64')
 url="http://www.adobe.com/de/products/reader/"
 license=('custom')
-depends=('atk' 'fontconfig' 'freetype2' 'gcc-libs' 'gdk-pixbuf2' 'glib2' 'glibc' 'gtk2' 'libgl' 'libidn' 'libx11' 'libxext' 'libxml2' 'libxt' 'mesa' 'pango' 'zlib')
 depends=('desktop-file-utils' 'libidn')
 
 if [[ "$CARCH" == 'i686' ]]; then
@@ -25,8 +23,8 @@ replaces=('bin32-acroread-de')
 conflicts=('acroread')
 options=('!strip')
 install=acroread-de.install
-source=(ftp://ftp.adobe.com/pub/adobe/reader/unix/9.x/$_pkgver/deu/AdbeRdr$pkgver-1_i486linux_deu.tar.bz2)
-md5sums=('a916a6ce85a7fcbf288beef9f3c7b55b')
+source=(ftp://ftp.adobe.com/pub/adobe/reader/unix/9.x/$pkgver/deu/AdbeRdr$pkgver-1_i486linux_deu.tar.bz2)
+md5sums=('b3219924f6d38ca37e0e52e41bef1578')
 
 build() {
 	true
