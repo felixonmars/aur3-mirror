@@ -1,13 +1,18 @@
+# Maintainer: Sigitas Mazaliauskas <sigisnn at gmail dot com>
 # Contributor: Roman Kyrylych <roman@archlinux.org>
 
 pkgname=abyssws
 pkgver=2.6
-pkgrel=1
+pkgrel=2
 pkgdesc="Abyss Web Server X1 - a compact full-featured web server"
-arch=('i686') # does not work on x86_64: closed source app
+arch=('i686' 'x86_64')
 url="http://www.aprelium.com/abyssws/"
 license=('custom')
+if [[ "$CARCH" == 'i686' ]]; then
 depends=('glibc')
+else
+depends=('lib32-glibc')
+fi
 backup=('opt/abyssws/abyss.conf' 'etc/conf.d/abyssws')
 _lurl=http://www.aprelium.com/abyssws/languages/a/
 source=(http://www.aprelium.com/data/abwsx1.tgz
@@ -69,7 +74,7 @@ md5sums=('20b98deb45c6ec4eaf352b9a95dab0a0'
          'b9309f3458f15d84c8485715e27ad679'
          'b9a4567de4433ddbbc3767f0175f4448'
          'ff3bb82cb25e14c34647de72b1992f64'
-         '45fd09afccbb429da271145c41d31769'
+         '35ed534d630e50650a9efceabac1b65e'
          '8e294c6a190323d73658e21bab0aca8e'
          '92c9079247c1ea79506361c82216bbdb')
 
@@ -80,8 +85,9 @@ build() {
   install -m644 abyss.conf ${pkgdir}/opt/abyssws/abyss.conf
   install -Dm755 abyssws.rc.d ${pkgdir}/etc/rc.d/abyssws
   install -Dm644 abyssws.conf.d ${pkgdir}/etc/conf.d/abyssws
-  cp -af *.lng ${pkgdir}/opt/abyssws/lang/
+  install -Dm644 *.lng ${pkgdir}/opt/abyssws/lang/
   install -Dm644 ${srcdir}/abyssws/license.txt \
     ${pkgdir}/usr/share/licenses/${pkgname}/LICENSE
-  rm ${pkgdir}/opt/abyssws/{Installation\ Instructions.html,license.txt}
+  rm ${pkgdir}/opt/abyssws/{Installation\ Instructions.html,license.txt,autostart-setup}
+  rm -rf ${pkgdir}/opt/abyssws/htdocs
 }
