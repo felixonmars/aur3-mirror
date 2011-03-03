@@ -1,7 +1,7 @@
 # Contributor: max1m <keyworker@rambler.ru>
 
 pkgname=2gis-nabchelny
-pkgver=8
+pkgver=9
 pkgrel=1
 pkgdesc="Map of Naberezhnye Chelny for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-${pkgver}.orig.zip")
-md5sums=('c2bc0330d3ddfa5ff335003a265338d2')
+md5sums=('c3b2aaeb7701aa40bbe86076119595b0')
 
 build() {
 
