@@ -32,8 +32,7 @@ build() {
   
   cd $srcdir/$_svnmod-build
   
-  ./autogen.sh
-  ICONV_LIBS="-lidn" ./configure --prefix=/usr \
+  ICONV_LIBS="-lidn" ./autogen.sh --prefix=/usr \
   --with-player-audio=openal --without-{portaudio,alsa,oss}
 
   make
