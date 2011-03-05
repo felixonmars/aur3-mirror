@@ -5,7 +5,7 @@
 # Maintainer: David Adler <david dot jo dot adler aet gmail dot com>
 
 pkgname=ams-cvs
-pkgver=20100606
+pkgver=20110305
 pkgrel=1
 pkgdesc="Alsa Modular Synth, a realtime modular synthesizer and effect processor"
 arch=('i686' 'x86_64')
@@ -42,6 +42,10 @@ build() {
   #
   autoreconf -i
   ./configure --prefix=/usr
-  make || return 1
-  make DESTDIR="$pkgdir/" install || return 1
+  make
+}
+
+package() {
+  cd "$srcdir/$_cvsmod-build"
+  make DESTDIR="$pkgdir/" install
 }
