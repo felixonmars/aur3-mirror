@@ -12,18 +12,20 @@
 
 [[ $PREVLEVEL && $RUNLEVEL ]] || return 0
 
-# Do nothing if improved scripts are installed
-[ -r /etc/rc.d/functions.d/fbsplash-extras.sh ] && return
+# Do nothing if advanced script is installed
+[[ -r /etc/rc.d/functions.d/fbsplash-extras.sh ]] && return
 
 # Only do this where needed
 # Since we use BASH, all important functions and variables are exported
 case ${0#/etc/rc.} in sysinit | multi | shutdown )
-	export SPLASH_PUSH_MESSAGES="no"
-	export SPLASH_VERBOSE_ON_ERRORS="no"
+	# splash-functions.sh will run splash_setup which needs /proc
+	# code line copied from /etc/rc.sysinit
+	/bin/mountpoint -q /proc || /bin/mount -n -t proc proc /proc -o nosuid,noexec,nodev
+	export SPLASH_PUSH_MESSAGES SPLASH_VERBOSE_ON_ERRORS
 	. /sbin/splash-functions.sh # /etc/conf.d/splash is also sourced by this
 	unset options opt i # eliminate splash_setup non local vars   ## FIX ME ##
-	declare -ix SPLASH_STEPS=3 # sysinit steps
-	declare -ix SPLASH_STEPS_DONE=0
+	SPLASH_STEPS=3 # sysinit steps
+	SPLASH_STEPS_DONE=0
 esac
 
 # Verbose mode is handled by fbcondecor kernel patch and daemon script
@@ -59,7 +61,7 @@ case $0 in /etc/rc.sysinit )
 		splash_progress
 	}
 	splash_sysinit_postfsck() { # fsck failure emergency exit
-		[ ${fsckret} -gt 1 -a ${fsckret} -ne 32 ] && chvt 1
+		(( fsckret > 1 && fsckret != 32 )) && chvt 1
 	}
 	splash_sysinit_end() {
 		splash_progress
@@ -131,7 +133,7 @@ splash_progress_init() {
 		case $daemon in $SPLASH_XSERVICE | @$SPLASH_XSERVICE ) break
 		;; \!* |@* ) continue
 		esac
-		SPLASH_STEPS+=1
+		(( SPLASH_STEPS++ ))
 	done
 }
 
@@ -141,7 +143,6 @@ splash_progress() {
 }
 
 # Start the splash daemon - using upstream function
-splash_set_event_dev() { :; } # override - Never grab the keyboard
 splash_begin() {
 	if ! [[ $( /bin/pidof -o %PPID $spl_daemon ) ]]; then
 		stat_busy "Starting Fbsplash daemon"
