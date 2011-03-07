@@ -21,12 +21,11 @@ SPLASH_SLEEP_STEPS=$(( ( 5000 + 1000 ) / SPLASH_SLEEP_INTERVAL ))
 
 # Only do this where needed,
 # since we use BASH, all important functions and variables are exported.
-if ! [[ $spl_cachedir && $spl_fifo && $spl_pidfile ]]; then
+if ! [[ $( type -t splash_setup ) = function ]]; then
 	# splash-functions.sh will run splash_setup which needs /proc
 	# code line copied from /etc/rc.sysinit
 	/bin/mountpoint -q /proc || /bin/mount -n -t proc proc /proc -o nosuid,noexec,nodev
-	export SPLASH_PUSH_MESSAGES
-	export SPLASH_VERBOSE_ON_ERRORS
+	export SPLASH_PUSH_MESSAGES SPLASH_VERBOSE_ON_ERRORS
 	# /etc/conf.d/splash is also sourced by this
 	. /sbin/splash-functions.sh
 	# eliminate some non local vars from splash_setup    ## FIXME ##
@@ -146,6 +145,14 @@ splash_svc_init() {
 		# rc.sysinit 'services'
 		splash_initscript_svcs_get /etc/rc.sysinit >|$spl_cachedir/svcs_start
 		echo $SPLASH_STEPS >|$spl_cachedir/steps_sysinit
+		# save assoc. array in case we're called from mkinitcpio
+		(
+			echo 'SPLASH_STEPS_BUSY=('
+			for key in "${!SPLASH_STEPS_BUSY[@]}"; do
+				echo "  ['$key']=${SPLASH_STEPS_BUSY[$key]}"
+			done
+			echo ')'
+		) >|$spl_cachedir/steps_busy.bash
 		# rc.multi services
 		(( SPLASH_STEPS++ )) # rc.local
 		local daemon
@@ -198,6 +205,34 @@ splash_busy_step() {
 		SPLASH_STEPS_DONE=$step
 		splash_update_progress
 	fi
+}
+
+# Function for preparing a cache (faking sysinit) for adding it to an initcpio
+splash_cache_prep_initcpio() {
+	(
+		SPLASH_MODE_REQ=silent
+		export PREVLEVEL=N RUNLEVEL=S
+		. /etc/rc.conf
+		( splash_cache_prep ) || exit 1
+		splash_svc_init sysinit
+		declare -A done=()
+		for theme in $SPLASH_THEMES; do
+			theme=${theme%%/*}
+			(( done[$theme] )) && continue
+			SPLASH_THEME=$theme splash_run_hook pre rc_init sysinit $RUNLEVEL
+			done[$theme]=1
+		done
+		exit 0
+	) || return 1
+	# Add function call to trap for unmounting the tmpfs on mkinitcpio exit
+	if [[ $( trap -p EXIT ) =~ ^(trap )(-- )['](.*)[']( EXIT)|$ ]]; then
+		local cmd=${BASH_REMATCH[3]%;}
+		[[ $cmd ]] && cmd+="; "
+		trap "${cmd}splash_cache_cleanup" EXIT
+	else
+		splash_msg "WARNING: Unable to add commmand to exit trap for unmounting '$spl_cachedir'" >&2
+	fi
+	return 0
 }
 
 # Create or append to a file within the tmpfs if [still] mounted
@@ -405,8 +440,9 @@ splash_verbose() {
 	fi
 }
 
-# Always write debug log, regardless of SPLASH_PROFILE
+# Bashified for speed
 splash_profile() {
+	[[ $SPLASH_PROFILE = on ]] || return 0
 	local time rest; read time rest </proc/uptime
 	echo "$time: $*" >>$spl_cachedir/profile
 }
@@ -605,10 +641,13 @@ in /etc/rc.sysinit )
 		/bin/mount --move /dev/.splash-cache $spl_cachedir || return 0
 		splash_msg "Using initcpio daemon"
 		splash_comm_send set message "$SPLASH_BOOT_MESSAGE"
-		splash_set_event_dev # grab the keyboard
-		# Set up step counting
-		splash_svc_init sysinit
-		# *no* pre hook script should exist when daemon started in initcpio!
+		# if pre-rc_init hook was run from mkinitcpio, just set the variables
+		if [[ -f $spl_cachedir/steps_busy.bash ]]; then
+			source $spl_cachedir/steps_busy.bash # set SPLASH_STEPS_BUSY
+			read SPLASH_STEPS <$spl_cachedir/steps_bootup
+		else # set up step counting
+			splash_svc_init sysinit
+		fi
 		splash_run_hook post rc_init sysinit $RUNLEVEL
 	# Mount a new tmpfs and start splash ASAP
 	else
@@ -664,9 +703,11 @@ in /etc/rc.sysinit )
 	}
 	splash_sysinit_udevsettled() {
 		splash_profile info "sysinit_udevsettled"
-		# Grab the keyboard again - early grab seems not to work always
 		if (( ! SPLASH_START_PENDING )); then
-			splash_set_event_dev
+			# Just try to grab the keyboard again - but not if started in initcpio
+			if [[ ! -e /dev/.splash-cache ]]; then
+				splash_set_event_dev
+			fi
 			return
 		fi
 		if [[ $( /bin/pidof -o %PPID fbcondecor_helper ) ]]; then
@@ -704,8 +745,11 @@ in /etc/rc.sysinit )
 		splash_update_progress
 		# Just run theme hooks
 		splash rc_exit
-		# Release the keyboard to be save in case of no rc.multi (messed inittab)
-		splash_comm_send "set event dev /dev/null"
+		# If we can grab it again later, release the keyboard
+		# to be save in case of no rc.multi (messed inittab)
+		if [[ ! -e /dev/.splash-cache ]]; then
+			splash_comm_send "set event dev /dev/null"
+		fi
 		# If Single-user boot, drop splash and umount tmpfs to allow clean mkinitcpio
 		[[ " "$( </proc/cmdline )" " =~ " "(s|S|single|1)" " ]] || return 0
 		splash_exit force
@@ -717,8 +761,10 @@ in /etc/rc.sysinit )
 	if /bin/mountpoint -q $spl_cachedir; then
 		read SPLASH_STEPS_DONE <$spl_cachedir/steps_sysinit
 		read SPLASH_STEPS      <$spl_cachedir/steps_bootup
-		# Grab the keyboard again
-		splash_set_event_dev
+		# If possible, grab the keyboard again
+		if [[ ! -e /dev/.splash-cache ]]; then
+			splash_set_event_dev
+		fi
 		# Run any theme hooks
 		splash rc_init boot
 	fi
