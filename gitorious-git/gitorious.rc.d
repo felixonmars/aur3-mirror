@@ -4,6 +4,7 @@
 . /etc/rc.d/functions
 
 GITDIR="/usr/share/webapps/gitorious"
+BUNDLE="/opt/ruby-enterprise/bin/bundle"
 
 PIDF_GITD="$GITDIR/log/git-daemon.pid"
 PIDF_POLLER="$GITDIR/tmp/pids/poller0.pid"
@@ -39,7 +40,7 @@ wait_pid() {
 case "$1" in
 	start)
 		stat_busy "Starting git daemon"
-		check_pid "$PIDF_GITD" || su - git -c "$GITDIR/script/git-daemon -d"
+		check_pid "$PIDF_GITD" || su - git -c "cd $GITDIR && $BUNDLE exec script/git-daemon -d"
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
@@ -52,7 +53,7 @@ case "$1" in
 			mkdir "$GITDIR/tmp/pids"
 			chown git:git "$GITDIR/tmp/pids"
 		fi
-		check_pid "$PIDF_POLLER" || su - git -c "env RAILS_ENV=production $GITDIR/script/poller run" > /dev/null 2>&1 &
+		check_pid "$PIDF_POLLER" || su - git -c "cd $GITDIR && env RAILS_ENV=production $BUNDLE exec script/poller run" > /dev/null 2>&1 &
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
