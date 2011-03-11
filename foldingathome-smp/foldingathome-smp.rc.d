@@ -26,10 +26,10 @@ case "$1" in
                 fi
             fi
             cd /opt/fah-smp/$FAH_USER
-            su $FAH_USER -c "/opt/fah-smp/fah6 -smp $FAH_CLIENT_FLAGS > /opt/fah-smp/$FAH_USER/myfah.log" &
+            su $FAH_USER -c "/opt/fah-smp/fah6 -smp $FAH_CLIENT_FLAGS &> /opt/fah-smp/$FAH_USER/myfah.log" &
         else
             cd /opt/fah-smp
-            /opt/fah-smp/fah6 -smp $FAH_CLIENT_FLAGS > /opt/fah-smp/myfah.log &
+            /opt/fah-smp/fah6 -smp $FAH_CLIENT_FLAGS &> /opt/fah-smp/myfah.log &
         fi
     fi
     if [ ! -z "$PID" -o $? -gt 0 ]; then
