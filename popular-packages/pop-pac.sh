@@ -23,21 +23,23 @@
 
 # Constants
 Author="Xavion"
-Purpose="Lists popular packages not installed"
 AppName="Popular Packages"
-Version="0.1.0"
+Purpose="Lists popular packages not installed"
+Version="0.2.0"
 Details="${AppName} v${Version} by ${Author}"
-Usage="Usage: `basename "$0"` [-d] [-m<minimum>]"
+Usage="Usage: `basename "$0"` [-c] [-d] [-m<minimum>]"
 Pacman=`which pacman`
 PSURL="https://www.archlinux.de/?page=PackageStatistics"
 
 # Variables
+Colourise=1
 ShowDesc=1
 Minimum=30
 
 # Arguments
 for Argument; do
 	case "${Argument}" in
+	-c) Colourise=0;;
 	-d) ShowDesc=0;;
 	-m*) Minimum=`echo "${Argument}" | awk -F '-m' '{print $2}'`;;
 	*-h*) echo -e "${Details}\n${Purpose}"; echo -e "\n${Usage}"; exit;;
@@ -53,8 +55,23 @@ Stats="`wget -qO- ${PSURL} | grep -e '<tr><td style="width: 200px;">' -e '&nbsp;
 if [ "${Stats}" ]; then
 	#echo -e "Packages with ~${Minimum}% or higher popularity will be shown."
 
+	# ANSI
+	if [ ${Colourise} == 1 ]; then
+		# Colours
+		Reset="\E[0m"
+		Bold="\033[1m"
+		UnBold="\033[0m"
+		Blue="\E[34m"
+		Cyan="\E[36m"
+		Green="\E[32m"
+		Magenta="\E[35m"
+		Red="\E[31m"
+		Yellow="\E[33m"
+	fi
+
 	# Inits
-	LineNum=1
+	LineNumIn=0
+	LineNumOut=0
 	NumLines=`echo "${Stats}" | wc -l`
 	Repository=""
 	Popularity=100
@@ -64,8 +81,8 @@ if [ "${Stats}" ]; then
 	echo "${Stats}" | while read StatLine; do
 
 		# Progress
-		let LineNum=${LineNum}+1
-		
+		let LineNumIn=${LineNumIn}+1
+
 		# Repository
 		if [ "`echo ${StatLine} | grep '<tr><th>'`" ]; then
 			Repository=`echo ${StatLine} | awk -F '<tr><th>' '{print $2}' | awk -F '</th><td>' '{print $1}'`
@@ -79,10 +96,10 @@ if [ "${Stats}" ]; then
 			
 			Popularity=100
 
-			echo -e "\n\nListing '${Repository}' repository packages ...\n"
+			echo -e "\n\nListing '${Magenta}${Bold}${Repository}${UnBold}${Reset}' repository packages ...\n"
 
-			printf "%-15s%-15s%-30s%-s\n" "Progress" "Popularity" "Package" "Description"
-			printf "%-15s%-15s%-30s%-s\n" "--------" "----------" "-------" "-----------"
+			printf "%s%-15s%-15s%-30s%-s%s\n" "`echo -e ${Bold}`" "Progress" "Popularity" "Package" "Description" "`echo -e ${Reset}`"
+			printf "%s\n" "--------------------------------------------------------------------------------------------------------------------------------------------"
 		fi
 
 		# Entry
@@ -95,8 +112,13 @@ if [ "${Stats}" ]; then
 				Popularity=`echo ${StatLine} | awk -F '.' '{print $1}'`
 				PacLine=`echo "${Packages}" | grep "${Package} "`
 
+				# Absent
 				if [ ! "${PacLine}" ]; then
-					let Progress=100*${LineNum}/${NumLines}
+
+					# Progress
+					let Progress=100*${LineNumIn}/${NumLines}
+					let LineNumOut=${LineNumOut}+1
+					let OddLine=${LineNumOut}%2
 
 					# Description
 					if [ ${ShowDesc} == 1 ] && [ ${RepoActive} == 1 ]; then
@@ -104,8 +126,15 @@ if [ "${Stats}" ]; then
 					else
 						Description=""
 					fi
+					
+					# Colour
+					if [ ${OddLine} == 1 ]; then
+						Colour=${Cyan}
+					else
+						Colour=${Yellow}
+					fi
 
-					printf "%-15s%-15s%-30s%-s\n" "${Progress}%" "${Popularity}%" "${Package}" "${Description}"
+					printf "%s%-15s%-15s%s%-30s%s%-s%s\n" "`echo -e ${Colour}`" "${Progress}%" "${Popularity}%" "`echo -e ${Bold}`" "${Package}" "`echo -e ${UnBold}${Colour}`" "${Description}" "`echo -e ${Reset}`"
 				fi
 			fi
 		fi
