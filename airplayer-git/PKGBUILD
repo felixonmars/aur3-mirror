@@ -1,7 +1,7 @@
 # Contributor: Nicolas Quiénot < niQo at aur > 
 
 pkgname=airplayer-git
-pkgver=20110122
+pkgver=20110312
 pkgrel=1
 pkgdesc='Python script to make media playing software Apple Airplay compatible. Currently supports XBMC, Plex and Boxee.'
 arch=('any')
