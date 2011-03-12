@@ -155,12 +155,13 @@ static void startelem(struct inner_file *fp, const xmlChar *name,
 static char *parse_home(struct chmFile *file, unsigned char *buffer,
         const char *current)
 {
-    struct inner_file fp = { .file = file, .path = NULL,
-        .size = 0, .current = (const xmlChar *)current };
+    struct inner_file fp = { .file = file, .path = NULL, .size = 0,
+        .current = xmlURIEscapeStr((const xmlChar *)current, NULL) };
     htmlSAXHandler sax = { .startElement = (startElementSAXFunc)startelem };
 
     htmlSAXParseDoc(buffer, NULL, &sax, &fp);
 
+    free((void *)fp.current);
     return (char *)fp.path;
 }
 
