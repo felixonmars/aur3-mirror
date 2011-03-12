@@ -73,13 +73,6 @@ prompt() {
 # uses eval to process --option=value type arguments
 runtime_flag() { eval ${1/--/}; }
 
-# prints one array element per line
-#print_array() {
-#  local x
-#
-#  for x in "$@"; do echo $x; done
-#}
-
 # check for development
 is_devel() { echo "$1" | grep -q -- "$development_regex"; }
 
@@ -205,7 +198,7 @@ prompt_to_edit() {
   pkgbuild="$1"; shift
   reason="${*:-sourcing for deps}"
 
-  [[ ! -f "$pkgbuild" ]] && errorout 'pkgbuild not found'
+  [[ ! -f "$pkgbuild" ]] && errorout "$pkgbuild: file not found."
 
   # default is to prompt
   case "${edit_pkgbuilds:-prompt}" in
@@ -263,7 +256,11 @@ print_pkgbuild() {
   for name in "${args[@]}"; do
     $multiple && display "$name/PKGBUILD ==>"
     url="$aur_pkgs/$(url_encode "$name/$name")/PKGBUILD"
-    wget -q -O - "$url" 2>/dev/null || ret=1
+    if ! wget -q -O - "$url" 2>/dev/null; then
+      url="$aur_pkgs/$(url_encode "$name")/PKGBUILD"
+      # new url scheme
+      wget -q -O - "$url" 2>/dev/null || ret=1
+    fi
     $multiple && echo
   done
 
@@ -436,11 +433,16 @@ build_package() {
   local dep="$1" pkgbuild
 
   display 'Building package...'
-  pkgbuild="$(find "$_srcdir/" -name 'PKGBUILD' -print -quit)"
-  prompt_to_edit "$pkgbuild" 'building package' || continue
+  #pkgbuild="$(find "$_srcdir/" -name 'PKGBUILD' -print -quit)"
+  pkgbuild="$_srcdir/PKGBUILD"
+  if ! prompt_to_edit "$pkgbuild" 'building package'; then
+    try_discard "$_srcdir" 
+    continue
+  fi
 
   # explicitly set env vars b/c we don't know if they came from makepkg.conf
-  pushd "${pkgbuild%/*}" &>/dev/null || errorout 'failed to change directory'
+  #pushd "${pkgbuild%/*}" &>/dev/null || errorout 'failed to change directory'
+  pushd "$_srcdir" &>/dev/null || errorout 'failed to change directory'
 
   # if we fail building, errorout on dep or just return 1 on
   # non-dep
@@ -501,8 +503,11 @@ source_for_deps() {
 
   # if this errors, we know it's not aur-available so return 1
   if ! wget -q -O "$pkgbuild" "$aur/packages/$(url_encode "$1/$1")/PKGBUILD"; then
-    touch "$pkgbuild"
-    return 1
+    # new url scheme
+    if ! wget -q -O "$pkgbuild" "$aur/packages/$(url_encode "$1")/PKGBUILD"; then
+      touch "$pkgbuild"
+      return 1
+    fi
   else
     prompt_to_edit "$pkgbuild" 'sourcing for deps' && source_pkgbuild "$pkgbuild" || continue
   fi
@@ -521,12 +526,6 @@ dep_check() {
     n=${#all_deps[@]}
 
     for name in "${args[@]}" "${all_deps[@]}"; do
-
-#      echo '--->'
-#      echo looping through:
-#      print_array ${args[@]} ${all_deps[@]}
-#      echo + currently on $name
-
       # keep args out of deps so error messages are more sane
       if ! source_for_deps "$name"; then
         # assume it's a pacman dep for now
@@ -536,7 +535,6 @@ dep_check() {
 
         # filter satasfied deps, clear versioning
         depends=( $(pacman -T -- ${depends[@]} ${makedepends[@]}) )
-        #depends=( $(print_array "${depends[@]}" | sed -e 's/=.*//' -e 's/>.*//' -e 's/<.*//') )
         depends=( "${depends[@]%>*}" )
         depends=( "${depends[@]%=*}" )
         depends=( "${depends[@]%<*}" )
@@ -546,14 +544,6 @@ dep_check() {
 
         # track unsatisfied deps
         [[ ${#depends[@]} -ne 0 ]] && all_deps+=( "${depends[@]}" )
-
-#        echo ++ depends found as
-#        print_array ${depends[@]}
-#        echo +++ planning to install
-#        print_array ${aur_deps[@]}
-#        print_array ${args[@]}
-#        echo '<---'
-
       fi
     done
 
