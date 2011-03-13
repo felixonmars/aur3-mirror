@@ -24,7 +24,7 @@
 # Constants
 Author="Xavion"
 AppName="Popular Packages"
-Version="0.3.0"
+Version="0.3.1"
 Purpose="Lists popular packages not installed"
 Details="${AppName} v${Version} by ${Author}"
 Filename="`basename "$0"`"
@@ -105,7 +105,7 @@ Stats="`wget -qO- ${PSURL} | grep -e '<tr><td style="width: 200px;">' -e '&nbsp;
 
 # Retrieved
 if [ "${Stats}" ]; then
-	echo -e "${Green}Information${Reset}: Packages with ${Blue}${Bold}${Minimum}${UnBold}${Reset}-${Blue}${Bold}${Maximum}${UnBold}${Reset}% popularity are permitted."
+	echo -e "${Green}Information${Reset}: Packages with ${Blue}${Bold}${Minimum}${UnBold}${Reset}-${Blue}${Bold}${Maximum}${UnBold}${Reset}% popularity will be considered."
 
 	# Inits
 	LineNumIn=0
@@ -165,10 +165,10 @@ if [ "${Stats}" ]; then
 						if [ ${ShowDesc} == 1 ]; then
 							# Sync
 							if [ ${RepoActive} == 1 ]; then
-								Description=`${PackageQuery} -S -f %d ${Package} 2> /dev/null`
+								Description=`${PackageQuery} -S -1 -f %d ${Package} 2> /dev/null`
 							# AUR
 							elif [ "${Repository}" == "unknown" ] && [ ${AUR} == 1 ]; then
-								Description=`${PackageQuery} -A -f %d ${Package} 2> /dev/null`
+								Description=`${PackageQuery} -A -1 -f %d ${Package} 2> /dev/null`
 							fi
 						fi
 
