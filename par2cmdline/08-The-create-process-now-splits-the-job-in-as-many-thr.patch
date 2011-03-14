@@ -1,0 +1,272 @@
+--- a/par2creator.cpp
++++ b/par2creator.cpp
+@@ -18,6 +18,8 @@
+ //  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ 
+ #include "par2cmdline.h"
++#include <sys/types.h>
++#include <sys/sysctl.h>
+ 
+ #ifdef _MSC_VER
+ #ifdef _DEBUG
+@@ -27,6 +29,27 @@ static char THIS_FILE[]=__FILE__;
+ #endif
+ #endif
+ 
++// Multiple thread support
++
++struct CreateThreadParams
++{
++	Par2Creator *This;
++	size_t blocklength;
++	u32 inputindex;
++	u32 aStartBlockNo;
++	u32 aEndBlockNo;
++};
++
++void *Par2Creator::CreateParityBlockRangeFunc (void *aParams)
++{
++	assert (aParams);
++	CreateThreadParams *lParams = (CreateThreadParams *) aParams;
++	lParams->This->CreateParityBlockRange (lParams->blocklength, lParams->inputindex, 
++										   lParams->aStartBlockNo, lParams->aEndBlockNo);
++	free (aParams);		// Done with it
++	return NULL;
++}
++
+ Par2Creator::Par2Creator(void)
+ : noiselevel(CommandLine::nlUnknown)
+ , blocksize(0)
+@@ -46,8 +69,19 @@ Par2Creator::Par2Creator(void)
+ , mainpacket(0)
+ , creatorpacket(0)
+ 
++, previouslyReportedFraction (0)
+ , deferhashcomputation(false)
+ {
++	// Some stuff for the multi-thread optimization
++	pthread_mutex_init (&progressMutex, NULL);
++	// Go and find number of CPU's in this machine
++	int lName [2] = { CTL_HW, HW_NCPU };
++	size_t lLen = sizeof (numCPUs);
++	if (sysctl(lName, 2, &numCPUs, &lLen, NULL, 0) != 0)
++	{
++		assert (false);
++		numCPUs = 1;		// Default value if we have an error in sysctl
++	}
+ }
+ 
+ Par2Creator::~Par2Creator(void)
+@@ -64,6 +98,7 @@ Par2Creator::~Par2Creator(void)
+     delete *sourcefile;
+     ++sourcefile;
+   }
++  pthread_mutex_destroy (&progressMutex);
+ }
+ 
+ Result Par2Creator::Process(const CommandLine &commandline)
+@@ -148,6 +183,7 @@ Result Par2Creator::Process(const CommandLine &commandline)
+     // Set the total amount of data to be processed.
+     progress = 0;
+     totaldata = blocksize * sourceblockcount * recoveryblockcount;
++	previouslyReportedFraction = -10000000;	// Big negative
+ 
+     // Start at an offset of 0 within a block.
+     u64 blockoffset = 0;
+@@ -917,29 +953,10 @@ bool Par2Creator::ProcessData(u64 blockoffset, size_t blocklength)
+       (*sourcefile)->UpdateHashes(sourceindex, inputbuffer, blocklength);
+     }
+ 
+-    // For each output block
+-    for (u32 outputblock=0; outputblock<recoveryblockcount; outputblock++)
+-    {
+-      // Select the appropriate part of the output buffer
+-      void *outbuf = &((u8*)outputbuffer)[chunksize * outputblock];
+-
+-      // Process the data through the RS matrix
+-      rs.Process(blocklength, inputblock, inputbuffer, outputblock, outbuf);
+-
+-      if (noiselevel > CommandLine::nlQuiet)
+-      {
+-        // Update a progress indicator
+-        u32 oldfraction = (u32)(1000 * progress / totaldata);
+-        progress += blocklength;
+-        u32 newfraction = (u32)(1000 * progress / totaldata);
+-
+-        if (oldfraction != newfraction)
+-        {
+-          cout << "Processing: " << newfraction/10 << '.' << newfraction%10 << "%\r" << flush;
+-        }
+-      }
+-    }
+-
++	// Function that does the subtask in multiple threads if appropriate.
++	if (!this->CreateParityBlocks (blocklength, inputblock))
++		return false;
++	
+     // Work out which source file the next block belongs to
+     if (++sourceindex >= (*sourcefile)->BlockCount())
+     {
+@@ -974,6 +991,126 @@ bool Par2Creator::ProcessData(u64 blockoffset, size_t blocklength)
+   return true;
+ }
+ 
++//-----------------------------------------------------------------------------
++bool Par2Creator::CreateParityBlocks (size_t blocklength, u32 inputindex)
++{
++	// Used from within ProcessData.
++	/*
++	 * I re-designed this part to become multi-threaded, so it can benefit from a machine
++	 * with multiple processors (or multiple cores). It seems this will become more and more
++	 * common and will soon be the standard.
++	 * Depending on the number of threads to be started, the total range of blocks to
++	 * be processed (0 to recoveryblockcount - 1), is subdivided into a number of ranges. 
++	 * Each range is delegated to a separate thread. If the number of recovery blocks is less
++	 * than the number of threads requested, too bad, then we leave one or more processors
++	 * unused. On the other hand, in that case the efforts are probably not very high anyway.
++	 * Note that the main thread (this one) also takes part, so when the max number of threads
++	 * is 1, effectively nothing special happens.
++	 * Thread synchronization is pretty trivial. All threads use the same, immutable input
++	 * buffer, and they all write to separate parts of the output buffer. The only shared
++	 * resource is the progression, which is reported by each thread individually. This is
++	 * protected using a simple non-recursive mutex.
++	 * This function (CreateParityBlocks) exits when all spawned threads have finished.
++	 */
++	
++	static const unsigned int cMaxThreadsSupported = 8;
++	
++	if (recoveryblockcount == 0)
++		return true;		// Nothing to do, actually
++	
++	bool rv = true;		// Optimistic default
++	pthread_t lSpawnedThreads [cMaxThreadsSupported - 1];
++	unsigned int lNumThreads = numCPUs;
++	if (lNumThreads > cMaxThreadsSupported)
++		lNumThreads = cMaxThreadsSupported;
++	
++	// First, establish the number of blocks to be processed by each thread. Of course the last
++	// one started might get some less...
++	int lNumBlocksPerThread = (recoveryblockcount - 1) / lNumThreads + 1;		// Round up
++	u32 lCurrentStartBlockNo = 0;
++	u32 lNumSpawnedThreads = 0;
++	
++	while (lCurrentStartBlockNo < recoveryblockcount)
++	{
++		u32 lNextStartBlockNo = lCurrentStartBlockNo + lNumBlocksPerThread;
++		if (lNextStartBlockNo > recoveryblockcount)
++			lNextStartBlockNo = recoveryblockcount;		// Constrain
++		// The first bunches run in separate threads; the last one in the main thread.
++		if (lNextStartBlockNo == recoveryblockcount)
++		{
++			// This is the last one
++			this->CreateParityBlockRange (blocklength, inputindex, lCurrentStartBlockNo, lNextStartBlockNo);
++		}
++		else
++		{
++			assert (lNumSpawnedThreads < lNumThreads - 1);
++			// Make a new thread. Put the parameters, as well as our "this" pointer, in an allocated struct;
++			// the thread will free the strct after it is done with it.
++			CreateThreadParams *lParams = (CreateThreadParams *) malloc (sizeof (CreateThreadParams));
++			if (!lParams)
++			{
++				rv = false;
++				break;				// Should really not happen!
++			}
++			lParams->This = this;
++			lParams->blocklength = blocklength;
++			lParams->inputindex = inputindex;
++			lParams->aStartBlockNo = lCurrentStartBlockNo;
++			lParams->aEndBlockNo = lNextStartBlockNo;
++			int lResult = pthread_create (lSpawnedThreads + lNumSpawnedThreads, NULL,
++										  Par2Creator::CreateParityBlockRangeFunc, lParams);
++			assert (lResult == 0);
++			if (lResult == 0)
++				lNumSpawnedThreads++;		// So we know which ones are valid in lSpawnedThreads
++			else
++			{
++				rv = false;		// Don't expect this to really happen
++				break;
++			}
++		}
++		lCurrentStartBlockNo = lNextStartBlockNo;
++	}
++	// Wait till all the spawned threads have finished.
++	for (u32 i = 0; i < lNumSpawnedThreads; i++)
++	{
++		int lResult = pthread_join (lSpawnedThreads [i], NULL);
++		assert (lResult == 0);
++	}
++	return rv;
++}
++
++//-----------------------------------------------------------------------------
++void Par2Creator::CreateParityBlockRange (size_t blocklength, u32 inputindex, u32 aStartBlockNo, u32 aEndBlockNo)
++{
++	// This function runs in multiple threads.
++	// For each output block
++	for (u32 outputindex=aStartBlockNo; outputindex<aEndBlockNo; outputindex++)
++	{
++		// Select the appropriate part of the output buffer
++		void *outbuf = &((u8*)outputbuffer)[chunksize * outputindex];
++		
++		// Process the data
++		rs.Process(blocklength, inputindex, inputbuffer, outputindex, outbuf);
++		
++		if (noiselevel > CommandLine::nlQuiet)
++		{
++			// Update a progress indicator. This is thread-safe with a simple mutex
++			pthread_mutex_lock (&progressMutex);
++			progress += blocklength;
++			u32 newfraction = (u32)(1000 * progress / totaldata);
++			
++			// Only report "Processing" when a certain amount of progress has been made
++			// since last time, or when the progress is 100%
++			if ((newfraction - previouslyReportedFraction >= 10) || (newfraction == 1000))
++			{
++				cout << "Processing: " << newfraction/10 << '.' << newfraction%10 << "%\r" << flush;
++				previouslyReportedFraction = newfraction;
++			}
++			pthread_mutex_unlock (&progressMutex);
++		}
++	}
++}
++
+ // Finish computation of the recovery packets and write the headers to disk.
+ bool Par2Creator::WriteRecoveryPacketHeaders(void)
+ {
+--- a/par2creator.h
++++ b/par2creator.h
+@@ -20,6 +20,8 @@
+ #ifndef __PAR2CREATOR_H__
+ #define __PAR2CREATOR_H__
+ 
++#include <pthread.h>
++
+ class MainPacket;
+ class CreatorPacket;
+ class CriticalPacket;
+@@ -90,6 +92,12 @@ protected:
+   // Close all files.
+   bool CloseFiles(void);
+ 
++  // Submethods of ProcessData
++  bool CreateParityBlocks (size_t blocklength, u32 inputindex);
++  // In the next function, aEndBlockNo is the last block number + 1.
++  void CreateParityBlockRange (size_t blocklength, u32 inputindex, u32 aStartBlockNo, u32 aEndBlockNo);
++  // Thread start function
++  static void *CreateParityBlockRangeFunc (void *aParams);
+ protected:
+   CommandLine::NoiseLevel noiselevel; // How noisy we should be
+ 
+@@ -135,7 +143,10 @@ protected:
+ 
+   u64 progress;     // How much data has been processed.
+   u64 totaldata;    // Total amount of data to be processed.
+-
++  int						previouslyReportedFraction;
++  pthread_mutex_t			progressMutex;
++  int						numCPUs;
++  
+   bool deferhashcomputation; // If we have enough memory to compute all recovery data
+                              // in one pass, then we can defer the computation of
+                              // the full file hash and block crc and hashes until
