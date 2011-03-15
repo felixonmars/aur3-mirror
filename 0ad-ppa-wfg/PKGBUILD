@@ -3,7 +3,7 @@
 
 pkgname=0ad-ppa-wfg
 pkgver=alpha_4_9049
-pkgrel=1
+pkgrel=2
 pkgdesc="0ad build from the wildfire games PPA at launchpad.net"
 arch=('i686' 'x86_64')
 url="http://www.wildfiregames.com/0ad"
@@ -16,7 +16,7 @@ _arch=$CARCH
 [ $CARCH == x86_64 ] && _arch="amd64"
 source=( https://launchpad.net/~wfg/+archive/0ad/+files/0ad_0.0.0%2Br09049-1~10.10~wfg1_$_arch.deb https://launchpad.net/~wfg/+archive/0ad/+files/0ad-data_0.0.0%2Br09049-1~10.10~wfg1_all.deb http://trac.wildfiregames.com/attachment/ticket/492/0ad.packaging.tar.gz?format=raw 0ad.sh http://ubuntu.mirror.cambrium.nl/ubuntu//pool/universe/b/boost1.40/libboost-filesystem1.40.0_1.40.0-6ubuntu1_$_arch.deb http://ubuntu.mirror.cambrium.nl/ubuntu//pool/universe/b/boost1.40/libboost-system1.40.0_1.40.0-6ubuntu1_$_arch.deb)
 md5sums=(  db41aa9ac0ce3ccfc0cc49771cc14a37 8fa8b4cb4dce94882b6b0efb636f3a79 b6c74d2ee0fa4b54b7e617c25794ca3e 9677c33dddf6e20c16f042ae0621082c d685a2421f7e070df57c6b1624a25455 4c34d6a96877b6d79d4cb6d99d805826 )
-[ $CARCH == i686 ] && md5sums=( 3a692ce770cc9de4a3b87926a0087ead 8fa8b4cb4dce94882b6b0efb636f3a79 b6c74d2ee0fa4b54b7e617c25794ca3e 9677c33dddf6e20c16f042ae0621082c c516c0edfd025a0925baf2ae6b44790e eb948da264a58a7d6282cce37f9d67ff )
+[ $CARCH == i686 ] && md5sums=( a85dbe6e54d0f9f9af87f363abd5b8b7 8fa8b4cb4dce94882b6b0efb636f3a79 b6c74d2ee0fa4b54b7e617c25794ca3e 9677c33dddf6e20c16f042ae0621082c c516c0edfd025a0925baf2ae6b44790e eb948da264a58a7d6282cce37f9d67ff )
 
 conflicts=('0ad' '0ad-svn')
 
