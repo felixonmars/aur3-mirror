@@ -105,11 +105,14 @@ GdkPixbuf *scale_image(GdkPixbuf *original, int size)
     return gdk_pixbuf_scale_simple(original, width, height, type);
 }
 
+static const double lambda = 0.993;
+
 struct inner_file
 {
     struct chmFile *file;
     xmlChar *path;
     int size;
+    double w;
     const xmlChar *current;
 };
 
@@ -136,7 +139,9 @@ static void startelem(struct inner_file *fp, const xmlChar *name,
             if (!xmlStrcasecmp(*atts, (const xmlChar *)"src"))
             {
                 uri = xmlBuildURI(atts[1], fp->current);
-                size = get_content_length(fp->file, (const char *)uri);
+                size = get_content_length(fp->file, (const char *)uri) *
+                    fp->w;
+                fp->w *= lambda;
                 if (size > fp->size)
                 {
                     free(fp->path);
@@ -155,7 +160,7 @@ static void startelem(struct inner_file *fp, const xmlChar *name,
 static char *parse_home(struct chmFile *file, unsigned char *buffer,
         const char *current)
 {
-    struct inner_file fp = { .file = file, .path = NULL, .size = 0,
+    struct inner_file fp = { .file = file, .path = NULL, .size = 0, .w = 1.0,
         .current = xmlURIEscapeStr((const xmlChar *)current, NULL) };
     htmlSAXHandler sax = { .startElement = (startElementSAXFunc)startelem };
 
