@@ -23,14 +23,17 @@ build() {
   
   cd ${srcdir}
   patch -p0 < ${pkgname}_${pkgver}-${_pkgrel_deb}.diff
-  
+  cd ${srcdir}/${pkgname}-${pkgver}
+  ./configure --prefix=${pkgdir}/usr
+  make
+}
+
+package() {
   cd ${srcdir}/${pkgname}-${pkgver}
   
   install -dm755 \
   ${pkgdir}/{etc/rc.d,sbin,usr/{sbin,share/{licenses/${pkgname},doc/${pkgname}}}}
   
-  ./configure --prefix=${pkgdir}/usr
-  make
   make bindir=${pkgdir}/sbin install
   
   install -m644 ChangeLog ${pkgdir}/usr/share/doc/${pkgname}/changelog
