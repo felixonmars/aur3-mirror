@@ -1,8 +1,9 @@
 #!/bin/sh
-if [ -e "/usr/lib/openoffice/basis-link/program/" ]; then
- export PYTHONPATH="$PYTHONPATH:/usr/lib/openoffice/basis-link/program/"
-elif [ -e "/usr/lib/libreoffice/basis3.3/program/" ]; then
- export PYTHONPATH="$PYTHONPATH:/usr/lib/libreoffice/basis3.3/program/"
-fi
+for i in libreoffice openoffice.org{,-devel}; do
+ if [ -e "/usr/lib/$i/basis3.3/program/uno.py" ]; then
+  export PYTHONPATH="$PYTHONPATH:/usr/lib/$i/basis-link/program/"
+  break
+ fi
+done
 
 /usr/bin/openlp.pyw $@
