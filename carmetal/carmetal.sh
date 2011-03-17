@@ -1,2 +1,2 @@
-#!/bin/bash
-exec java -jar /opt/carmetal/CaRMetal.jar
+#!/bin/sh
+exec java -jar /usr/share/java/carmetal/CaRMetal.jar "$@"
