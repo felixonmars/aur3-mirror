@@ -457,7 +457,7 @@ splash_exit() {
 		# Reset status message
 		if [[ $SPLASH_PUSH_MESSAGES = yes ]]; then
 			splash_comm_send set message "$( splash_get_boot_message )"
-			splash_comm_send paint
+			splash_comm_send repaint # needed if daemon started with --type other than bootup
 		fi
 		SPLASH_PUSH_MESSAGES="no" \
 			stat_busy "Stopping Fbsplash daemon"
@@ -480,7 +480,7 @@ splash_exit() {
 	fi
 	# Umount the tmpfs copying most important files to the disk
 	# (for any remaining services theme hooks and also for debugging)
-	splash_cache_cleanup profile svcs_start steps_sysinit steps_bootup
+	splash_cache_cleanup svcs_start steps_sysinit steps_bootup
 }
 
 # Do something usefull
@@ -501,6 +501,7 @@ stat_busy() {
 	SPLASH_BUSY_MSG=$1
 	if [[ $SPLASH_PUSH_MESSAGES = yes ]]; then
 		splash_comm_send set message "${1}"
+		splash_comm_send repaint # needed if daemon started with --type other than bootup
 	fi
 	case $0
 	in /etc/rc.sysinit )
