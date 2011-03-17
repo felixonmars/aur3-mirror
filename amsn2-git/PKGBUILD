@@ -4,13 +4,13 @@
 
 pkgname=amsn2-git
 _pkgname=amsn2
-pkgver=20110120
+pkgver=20110317
 pkgrel=1
 pkgdesc="New Generation of AMSN"
 url="http://github.com/drf/amsn2/tree"
 license=('GPL')
 arch=('i686' 'x86_64')
-depends=('python2' 'pygtk' 'libmimic' 'python2-qt' 'papyon-git' 'pycrypto' 'pyopenssl' 'python-imaging')
+depends=('pygtk' 'libmimic' 'python2-qt' 'papyon-git' 'python-imaging')
 makedepends=('git')
 conflicts=()
 replaces=('amsn2-svn')
@@ -44,14 +44,14 @@ fi
 msg "GIT checkout done."
 
 # Copying files
-mkdir -p $startdir/pkg/usr/bin
-mkdir -p $startdir/pkg/usr/share/${_pkgname}
+mkdir -p $pkgdir/usr/bin
+mkdir -p $pkgdir/usr/share/${_pkgname}
 
-cp -r $srcdir/$_gitname/* $startdir/pkg/usr/share/${_pkgname}
+cp -r $srcdir/$_gitname/* $pkgdir/usr/share/${_pkgname}
 
 # install startup file
-install -Dm755 $startdir/src/${_pkgname}.run $startdir/pkg/usr/bin/${_pkgname}
+install -Dm755 $srcdir/${_pkgname}.run $pkgdir/usr/bin/${_pkgname}
 
 # install desktop file
-install -Dm644 $startdir/src/${_pkgname}.desktop $startdir/pkg/usr/share/applications/${_pkgname}.desktop
+install -Dm644 $srcdir/${_pkgname}.desktop $pkgdir/usr/share/applications/${_pkgname}.desktop
 }
