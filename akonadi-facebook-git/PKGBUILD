@@ -7,6 +7,7 @@ pkgdesc="Facebook support for KDE PIM"
 arch=('i686' 'x86_64')
 url="http://www.kde.org"
 license=('GPL')
+depends=('libxslt' 'qjson')
 makedepends=('pkgconfig' 'cmake' 'git')
  
 _gitroot="git://anongit.kde.org/akonadi-facebook"
