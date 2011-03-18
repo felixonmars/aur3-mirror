@@ -1,8 +1,8 @@
 #!/bin/bash
-UA="Spinach/0.2.2"
+UA="Spinach/0.2.3"
 ssl='';col='';nc=''
-AURPC="http%s://aur.archlinux.org/rpc.php?type=%s&arg=%s"
-AURDO="http%s://aur.archlinux.org/packages/%s/%s.tar.gz"
+AURURL="http%s://aur.archlinux.org"
+AURPC="$AURURL/rpc.php?type=%s&arg=%s"
 
 #functions so you can `. spinach -col -ssl`
 aur_download() {
@@ -12,16 +12,17 @@ aur_download() {
 		echo -ne "${col}Exists${nc}: "; echo "$p"
 		return 1
 	else
-		#is it in AUR
-    		if [ -z "$(curl "$(printf $AURPC "$ssl" info $p)" 2>/dev/null \
-		| grep 'No result found')" ]; then
-			curl -A "$UA" "$(printf $AURDO "$ssl" $p $p)" \
-				-O "$p.tar.gz" 2>/dev/null || return 1
-		        tar xzf "$p.tar.gz" || return 1
-		        rm "$p.tar.gz" || return 1
+		url="$(curl -sf -A "$UA" "$(printf $AURPC "$ssl" info "$p")" | sed -r '
+			s/.*No result found.*//g
+			s/.*URLPath":"([^"]+)".*/\1/g
+			s/\\\//\//g')"
+    		if [ -n "$url" ]; then
+			curl -sf -A "$UA" "$(printf "$AURURL$url" "$ssl")" -O "$p.tar.gz"
+			tar xzf "$p.tar.gz" || return 1
+			rm "$p.tar.gz" || return 1
 			echo -ne "${col}Saved${nc}: "; echo "$p/"
 		else
-	        	echo -ne "${col}Not Found${nc}: "; echo "$p"
+			echo -ne "${col}Not Found${nc}: "; echo "$p"
 			return 1
 		fi
 	fi
@@ -33,10 +34,10 @@ aur_download_deps() {
 	#get PKGBUILD depends
 	if [ -e "$p/PKGBUILD" ]; then
 		depends="$(cat "$p/PKGBUILD" | tr '\n' ' ' | \
-			grep -Eo " (make)?depends=\([^)]*\)" 2>/dev/null | sed -re "
+			grep -Eo " (make)?depends=\([^)]*\)" 2>/dev/null | sed -r "
 			s/.*\((.*)\).*/\1/mg
 			s/(['\"])([^><=']*)[><=]+[^'\"]*\1/\2/mg
-			s/['\"]//mg" | tr '\n' ' ' | sed -re "s/\\\$[^ ]+ //mg")"
+			s/['\"]//mg" | tr '\n' ' ' | sed -r "s/\\\$[^ ]+ //mg")"
 	else
 		echo -ne "${col}Does not exist${nc}: "; echo "$p/PKGBUILD"
 		return 1
@@ -45,7 +46,7 @@ aur_download_deps() {
 	#find AUR, non-installed depends
 	for i in $depends; do
 		pacman -Qi $(pacman -Qsq "$i"||echo -h) | \
-			grep -E "^(Name|Provides)" | sed -re '
+			grep -E "^(Name|Provides)" | sed -r '
 			s/^[^:]*: //mg
 			s/=[^ ]*//mg' | tr ' ' '\n' | grep "^$i$" &>/dev/null
 		provided="$?"
@@ -70,11 +71,11 @@ aur_update() {
 	#find updates
 	for i in $p; do
 		#up-to-date version
-		up=$(curl -A "$UA" "$(printf $AURPC "$ssl" info "$i")" 2>/dev/null \
-			| sed -re 's/.*Version\":\"([^\"]*)\".*/\1/g')
+		up=$(curl -q -A "$UA" "$(printf $AURPC "$ssl" info "$i")" \
+			| sed -r 's/.*Version\":\"([^\"]*)\".*/\1/g')
 		#installed version
 		in=$(pacman -Qi "$i" 2>/dev/null | grep -m 1 Version \
-			| sed -re 's/.*:\ //g')
+			| sed -r 's/.*:\ //g')
 	
 		if [ -z "$(echo "$up" | grep "No result found")" ] \
 		&& [ -n "$up" ] && [ -n "$in" ] && [ "$up" != "$in" ]; then
@@ -98,7 +99,7 @@ aur_display_color() {
 	fi
 }
 aur_info() {
-	curl -A "$UA" "$(printf $AURPC "$ssl" info "$1")" 2>/dev/null | sed -re '
+	curl -A "$UA" "$(printf $AURPC "$ssl" info "$1")" 2>/dev/null | sed -r '
 	s/.*No result found.*/Error: Package not found/g
 	s/\\"/\&QUOT;/g
 	s/.*results":\{(.*)\}\}/\1/g
@@ -112,7 +113,7 @@ aur_info() {
 	echo
 }
 aur_search() {
-	curl -A "$UA" "$(printf $AURPC "$ssl" search "$1")" 2>/dev/null | sed -re '
+	curl -A "$UA" "$(printf $AURPC "$ssl" search "$1")" 2>/dev/null | sed -r '
 	s/.*(No results found).*/\1\n/g
 	s/\\"/\&QUOT;/g
 	s/.*\[([^"]*)\]}}/\1/g
