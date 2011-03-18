@@ -1,3 +1,2 @@
 #!/bin/bash
-cd
-java -jar /usr/share/car/zirkel.jar
+exec java -jar /usr/share/java/car/zirkel.jar "$@"
