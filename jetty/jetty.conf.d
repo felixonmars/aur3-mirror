@@ -5,5 +5,8 @@
 # or set your variant
 #JAVA_HOME=/somewhere
 
-# Jetty's variables
+# Other Java options
+#JAVA_OPTS=
 
+# Jetty's variables
+#JETTY_OPTS=
