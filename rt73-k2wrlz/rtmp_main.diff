@@ -1,0 +1,162 @@
+*** rtmp_main.c	2009-05-19 21:23:26.000000000 +0200
+--- rtmp_main.c.orig	2011-03-19 11:06:46.260002232 +0100
+***************
+*** 34,40 ****
+   ***************************************************************************/
+  
+  #include "rt_config.h"
+! 
+  
+  ULONG	RTDebugLevel = RT_DEBUG_OFF;
+  static ULONG	debug = RT_DEBUG_OFF;
+--- 34,43 ----
+   ***************************************************************************/
+  
+  #include "rt_config.h"
+! /* genuine hack - no longer defined in 2.6.31 */
+! #ifndef FIRMWARE_NAME_MAX
+! #define FIRMWARE_NAME_MAX 30
+! #endif
+  
+  ULONG	RTDebugLevel = RT_DEBUG_OFF;
+  static ULONG	debug = RT_DEBUG_OFF;
+***************
+*** 58,64 ****
+  MODULE_LICENSE("GPL");
+  
+  MODULE_PARM_DESC(debug, "Debug mask: n selects filter, 0 for none");
+! MODULE_PARM_DESC(ifname, "Network device name (default rausb%d)");
+  MODULE_PARM_DESC(firmName, "Permit to load a different firmware: (default: rt73.bin) ");
+  MODULE_PARM_DESC(txPowerTuning, "Adds the given value to the card's default Transmit Power. CAN DAMAGE YOUR HARDWARE!");
+  
+--- 61,67 ----
+  MODULE_LICENSE("GPL");
+  
+  MODULE_PARM_DESC(debug, "Debug mask: n selects filter, 0 for none");
+! MODULE_PARM_DESC(ifname, "Network device name (default ralan%d)");
+  MODULE_PARM_DESC(firmName, "Permit to load a different firmware: (default: rt73.bin) ");
+  MODULE_PARM_DESC(txPowerTuning, "Adds the given value to the card's default Transmit Power. CAN DAMAGE YOUR HARDWARE!");
+  
+***************
+*** 177,182 ****
+--- 180,206 ----
+  	return &pAd->stats;
+  }
+  
++ /* for support of netdev_ops */
++ /*
++  * since COMPAT_NET_DEV_OPS has been removed from the kernel, we're kinda stuck with using the new
++  * net_device_ops API.  This change occured at 2.6.31.  This supports the new 
++  * interface
++  */
++ static int usb_rtusb_open(struct net_device *net_dev);
++ static int usb_rtusb_close(struct net_device *net_dev);
++ struct net_device_stats *rt73_get_ether_stats(
++     IN  struct net_device *net_dev);
++ static const struct net_device_ops rt73_netdev_ops = {
++ 	.ndo_open = usb_rtusb_open,
++ 	.ndo_stop = usb_rtusb_close,
++ 	.ndo_start_xmit = RTMPSendPackets,
++ 	.ndo_tx_timeout = 0,
++ 	.ndo_set_multicast_list = 0,
++ 	.ndo_do_ioctl = rt73_ioctl,
++ 	.ndo_get_stats = rt73_get_ether_stats,
++ 	.ndo_set_mac_address = 0,
++ 	.ndo_change_mtu = 0,
++ };
+  #if WIRELESS_EXT >= 12
+  /*
+  	========================================================================
+***************
+*** 1899,1904 ****
+--- 1923,1930 ----
+  	}
+  
+  	pAd = get_netdev_priv(netdev);
++ 	/* added for new kernel api */
++ 	netdev->netdev_ops = &rt73_netdev_ops;
+  	//netdev->priv = pAd;	//Not needed, because of using alloc_etherdev() now.
+  	pAd->net_dev = netdev;
+  	netif_stop_queue(netdev);
+***************
+*** 1941,1947 ****
+          struct  usb_endpoint_descriptor *ep;
+  
+      	if (ifname == NULL)
+! 			strcpy(netdev->name, "rausb%d");
+      	else
+  			strncpy(netdev->name, ifname, IFNAMSIZ);
+  
+--- 1967,1973 ----
+          struct  usb_endpoint_descriptor *ep;
+  
+      	if (ifname == NULL)
+! 			strcpy(netdev->name, "ralan%d");
+      	else
+  			strncpy(netdev->name, ifname, IFNAMSIZ);
+  
+***************
+*** 2113,2120 ****
+  		KPRINT(KERN_CRIT, "alloc_etherdev failed\n");
+  		goto out_nonetdev;
+  	}
+- 
+  	pAd = get_netdev_priv(netdev);
+  	//netdev->priv = pAd;	//Not needed, because of using alloc_etherdev() now.
+  	pAd->net_dev = netdev;
+  	netif_stop_queue(netdev);
+--- 2139,2147 ----
+  		KPRINT(KERN_CRIT, "alloc_etherdev failed\n");
+  		goto out_nonetdev;
+  	}
+  	pAd = get_netdev_priv(netdev);
++ 	/* added to support new kernel API 04-nov-2009 */
++ 	netdev->netdev_ops = &rt73_netdev_ops;
+  	//netdev->priv = pAd;	//Not needed, because of using alloc_etherdev() now.
+  	pAd->net_dev = netdev;
+  	netif_stop_queue(netdev);
+***************
+*** 2122,2140 ****
+  	pAd->pUsb_Dev = dev;
+  	SET_MODULE_OWNER(netdev);
+  	ether_setup(netdev);
+! 
+  	netdev->open = usb_rtusb_open;
+  	netdev->stop = usb_rtusb_close;
+  	netdev->hard_start_xmit = RTMPSendPackets;
+  	netdev->get_stats = rt73_get_ether_stats;
+! 
+  #if WIRELESS_EXT >= 12
+  #if WIRELESS_EXT < 17
+  	netdev->get_wireless_stats = rt73_get_wireless_stats;
+  #endif
+  	netdev->wireless_handlers = (struct iw_handler_def *) &rt73_iw_handler_def;
+  #endif
+! 	netdev->do_ioctl = rt73_ioctl;
+  
+  	netdev->hard_header_len = 14;
+  	netdev->mtu = 1500;
+--- 2149,2171 ----
+  	pAd->pUsb_Dev = dev;
+  	SET_MODULE_OWNER(netdev);
+  	ether_setup(netdev);
+! 	/* is this right? */
+! 	netdev->watchdog_timeo = 5 * HZ;
+! /* 03-nov-2009 - removed because no more CONFIG_COMPAT_NET_DEV_OPS */
+! /*
+  	netdev->open = usb_rtusb_open;
+  	netdev->stop = usb_rtusb_close;
+  	netdev->hard_start_xmit = RTMPSendPackets;
+  	netdev->get_stats = rt73_get_ether_stats;
+! */
+  #if WIRELESS_EXT >= 12
+  #if WIRELESS_EXT < 17
+  	netdev->get_wireless_stats = rt73_get_wireless_stats;
+  #endif
+  	netdev->wireless_handlers = (struct iw_handler_def *) &rt73_iw_handler_def;
+  #endif
+! /* 03-nov-2009 - removed because no more CONFIG_COMPAT_NET_DEV_OPS */
+! 	/* netdev->do_ioctl = rt73_ioctl;  */
+  
+  	netdev->hard_header_len = 14;
+  	netdev->mtu = 1500;
