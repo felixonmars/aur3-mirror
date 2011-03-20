@@ -1,10 +1,10 @@
 #!/bin/bash
-UA="Spinach/0.3.0"
+UA="Spinach/0.3.1"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
 
-#functions so you can `. spinach -col -ssl`
+#functions so you can `. spinach -col`
 aur_download() {
 	p="$1" #package
 	
@@ -59,8 +59,14 @@ aur_download_deps() {
 		fi
 	done
 	#install
-	if [ "$inst" == "install" ] && [ -e "$p/PKGBUILD" ]; then
-		cd "$p" && aur_run_install
+	if [ "$inst" == "install" ]; then
+		if [ -e "$p/PKGBUILD" ]; then
+			cd "$p" && aur_run_install
+		else
+			echo -ne "${col}Not Found${nc}:"
+			echo "$p/PKGBUILD"
+			rm -rf "$p/" &>/dev/null
+		fi
 	fi
 }
 aur_updates() {
@@ -141,11 +147,12 @@ aur_download_updates() {
 }
 aur_install_updates() {
 	blank_editor || return 1
-	aur_create_tmp || return 1
-
+	aur_create_tmp _update || return 1
+	trap "rm -rf \"$tmp/\" &>/dev/null;echo;exit 1" 2 15
 	cd "$tmp"
+	#get
 	aur_download_updates
-
+	#install
 	for i in */; do
 		if [ -e "$i/PKGBUILD" ]; then
 			cd "$i"
@@ -154,16 +161,26 @@ aur_install_updates() {
 			cd "$tmp"
 		fi
 	done
-	
-	rm -r "$tmp" &>/dev/null
+	#clean
+	rm -rf "$tmp" &>/dev/null
+	trap - 2 15
 }
 aur_install() {
 	blank_editor || return 1
+	#from repos
+	if [ -n "$rep" ]; then
+		if pacman -Si "$1" &>/dev/null; then
+			type sudo &>/dev/null && runsudo="sudo" || runsudo="su -c"
+			echo -en "${col}Running${nc}: "
+			echo "$runsudo pacman -S $1"
+			$runsudo pacman -S "$1"
+			return $?
+		fi
+	fi
+	#from AUR
 	aur_create_tmp || return 1
-	
 	cd "$tmp"
 	aur_download_deps "$1" install
-	rm -r "$tmp" &>/dev/null
 }
 
 #functions used in above functions
@@ -171,31 +188,32 @@ aur_run_install() {
 	$EDITOR PKGBUILD
 	inst="$(grep ^install= PKGBUILD | cut -d= -f2 | tr -d "'\"")"
 	[ -e "$inst"  ] && $EDITOR "$inst"
-
+	#clean if killed
+	pwd="$(pwd)"
+	trap "[ -e \"$pwd/PKGBUILD\" ] && rm -rf \"$pwd/\" &>/dev/null;echo;exit 1" 2 15
+	#install
 	ask_yes_no "Install?"
 	[ "$response" == "y" ] && makepkg -sirc
+	#clean
+	rm -rf "$pwd/" &>/dev/null
+	trap - 2 15
 }
 aur_create_tmp() {
+	suffix="$1"
 	[ -z "$TMPDIR" ] && TMPDIR="/tmp"
-	tmp="$TMPDIR/aur_spinach"
-	#remove if empty
-	if [ -e "$tmp" ]; then
-		rmdir "$tmp" &>/dev/null
-		if [ "$?" != "0" ]; then
-			echo -ne "${col}Exists${nc}: "
+	tmp="$TMPDIR/aur_spinach$suffix"
+	#check if it exists only when updating
+	if [ -z "$suffix" ] || [ ! -e "$tmp" ]; then
+		if ! mkdir -p "$tmp" &>/dev/null; then
+			echo -ne "${col}Error${nc}: could not create "
 			echo "$tmp"
 			return 1
 		fi
-	fi
-	#create
-	mkdir -p "$tmp" &>/dev/null
-	if [ "$?" != "0" ]; then
-		echo -ne "${col}Error${nc}: could not create "
+	else
+		echo -ne "${col}Exists${nc}: "
 		echo "$tmp"
 		return 1
 	fi
-	
-	trap "rm -r \"$tmp\" &>/dev/null;echo;exit 1" 2 15
 }
 aur_display_color() {
 	if [ -n "$col" ] && type xargs &>/dev/null; then
@@ -206,10 +224,7 @@ aur_display_color() {
 	fi
 }
 blank_arg() {
-	if [ -z "$1" ]; then
-		echo -e "${col}Error${nc}: Please specify a package."
-		exit 1
-	fi
+	[ -z "$1" ] && echo -e "${col}Error${nc}: Please specify a package." && exit 1
 }
 ask_yes_no() {
 	while true; do
@@ -244,13 +259,13 @@ aur_spinach_help() {
 	Options:
 	-ssl	Use SSL
 	-col	Use color
-	-rep	Also use pacman repos for search
+	-rep	Also use pacman with -s and -i
 	
 	Common operations:
 	-s	Search for package
-	-i	Install package and dependencies
-	-p	Print info about package
-	-u	Update AUR packages
+	-i	Install package
+	-p	Print package info
+	-u	Update packages
 	
 	Do-it-yourself operations:
 	-d	Download package
