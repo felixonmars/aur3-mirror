@@ -1,5 +1,5 @@
 #!/bin/bash
-UA="Spinach/0.2.9"
+UA="Spinach/0.3.0"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
@@ -18,9 +18,11 @@ aur_download() {
 			s/\\\//\//g')"
     		if [ -n "$url" ]; then
 			curl -sf -A "$UA" "$(printf "$AURURL$url" "$ssl")" -o "$p.tar.gz"
-			tar xzf "$p.tar.gz" || return 1
-			rm "$p.tar.gz" || return 1
-			echo -ne "${col}Saved${nc}: "; echo "$p/"
+			tar xzf "$p.tar.gz" &>/dev/null
+			[ "$?" -gt "0" ] &&	echo -ne "${col}Not Saved${nc}:" || \
+						echo -ne "${col}Saved${nc}: "
+			echo "$p/"
+			rm "$p.tar.gz" &>/dev/null || return 1
 		else
 			echo -ne "${col}Not Found${nc}: "; echo "$p"
 			return 1
@@ -29,7 +31,7 @@ aur_download() {
 }
 aur_download_deps() {
 	p="$1" #package
-
+	inst="$2" #whether to install
 	aur_download "$p" || return 1
 	#get PKGBUILD depends
 	if [ -e "$p/PKGBUILD" ]; then
@@ -53,13 +55,12 @@ aur_download_deps() {
 		official="$?"
 		
 		if [ "$official$provided" == "11" ] && [ ! -e "$i/" ]; then
-			aur_download_deps "$i" "$2" || return 1
+			aur_download_deps "$i" "$inst" || return 1
 		fi
 	done
-
-	if [ "$2" == "install" ] && [ -e "$p/PKGBUILD" ]; then
-		cd "$p"
-		aur_run_install
+	#install
+	if [ "$inst" == "install" ] && [ -e "$p/PKGBUILD" ]; then
+		cd "$p" && aur_run_install
 	fi
 }
 aur_updates() {
@@ -102,17 +103,9 @@ aur_updates() {
 		fi
 	done
 }
-aur_display_color() {
-	if [ -n "$col" ] && type xargs &>/dev/null; then
-		cat /dev/stdin | sed -r 's/^([^: \t]+[^:]*): +/\'$col'\1\'$nc': /g' \
-			| xargs -0 echo -en
-	else
-		cat /dev/stdin
-	fi
-}
 aur_info() {
 	curl -A "$UA" "$(printf $AURPC "$ssl" info "$1")" 2>/dev/null | sed -r '
-	s/.*No result found.*/Error: Package not found/g
+	s/.*No result found.*/Error:Package not found/g
 	s/\\"/\&QUOT;/g
 	s/.*results":\{(.*)\}\}/\1/g
 	s/\",\"/\"\n\"/g
@@ -148,23 +141,16 @@ aur_download_updates() {
 }
 aur_install_updates() {
 	blank_editor || return 1
-	tmp="$(mktemp -d --suffix=_spinach)"
-	trap "rm -rf \"$tmp\" &>/dev/null" 2 15
-	
+	aur_create_tmp || return 1
+
 	cd "$tmp"
 	aur_download_updates
 
 	for i in */; do
-		p="$i" #directory
-		
-		if [ -e "$p/PKGBUILD" ]; then
-			cd "$p"
-			echo -n "y/n: View ${p:0:-1}? "
-			read response
-			
-			if [ "$response" == "y" ]; then
-				aur_run_install
-			fi
+		if [ -e "$i/PKGBUILD" ]; then
+			cd "$i"
+			ask_yes_no "View ${i:0:-1}?"
+			[ "$response" == "y" ] && aur_run_install
 			cd "$tmp"
 		fi
 	done
@@ -172,47 +158,52 @@ aur_install_updates() {
 	rm -r "$tmp" &>/dev/null
 }
 aur_install() {
-	p="$1" #package
 	blank_editor || return 1
-        tmp="$(mktemp -d --suffix=_spinach)"
-        trap "rm -rf \"$tmp\"" 2 15
+	aur_create_tmp || return 1
 	
 	cd "$tmp"
-	aur_download_deps "$p" install
+	aur_download_deps "$1" install
 	rm -r "$tmp" &>/dev/null
 }
+
+#functions used in above functions
 aur_run_install() {
 	$EDITOR PKGBUILD
+	inst="$(grep ^install= PKGBUILD | cut -d= -f2 | tr -d "'\"")"
+	[ -e "$inst"  ] && $EDITOR "$inst"
 
-	inst="$(grep ^install= PKGBUILD | cut -d= -f2)"
-	if [ -e "$inst"  ]; then
-		$EDITOR "$inst"
-	fi
-	
-	echo -n "y/n: Install? "
-	read response
-
-	if [ "$response" == "y" ]; then
-		makepkg -sirc
-	fi
+	ask_yes_no "Install?"
+	[ "$response" == "y" ] && makepkg -sirc
 }
-aur_spinach_help() {
-	echo -e "${col}Usage${nc}: spinach [options] [operations] [package]
-	Options:
-	-ssl	Use SSL
-	-col	Use color
-	-rep	Also use repos for search
+aur_create_tmp() {
+	[ -z "$TMPDIR" ] && TMPDIR="/tmp"
+	tmp="$TMPDIR/aur_spinach"
+	#remove if empty
+	if [ -e "$tmp" ]; then
+		rmdir "$tmp" &>/dev/null
+		if [ "$?" != "0" ]; then
+			echo -ne "${col}Exists${nc}: "
+			echo "$tmp"
+			return 1
+		fi
+	fi
+	#create
+	mkdir -p "$tmp" &>/dev/null
+	if [ "$?" != "0" ]; then
+		echo -ne "${col}Error${nc}: could not create "
+		echo "$tmp"
+		return 1
+	fi
 	
-	Operations:
-	-s	Search for package
-	-i	Download and install package and depends (need \$EDITOR)
-	-u	Auto upgrade (need \$EDITOR)
-	
-	-d	Download package
-	-dd	Download package and AUR dependencies
-	-p	Print info about package
-	-o	List out-of-date packages
-	-do	Download out-of-date packages"
+	trap "rm -r \"$tmp\" &>/dev/null;echo;exit 1" 2 15
+}
+aur_display_color() {
+	if [ -n "$col" ] && type xargs &>/dev/null; then
+		cat /dev/stdin | sed -r 's/^([^: \t]+[^:]*): +/\'$col'\1\'$nc': /g' \
+			| xargs -0 echo -en
+	else
+		cat /dev/stdin
+	fi
 }
 blank_arg() {
 	if [ -z "$1" ]; then
@@ -220,28 +211,73 @@ blank_arg() {
 		exit 1
 	fi
 }
+ask_yes_no() {
+	while true; do
+		echo -n "y/n: $1 "
+		read resp
+		
+		if [ "$resp" == "y" ] || [ "$resp" == "n" ]; then
+			response="$resp"
+			return 0
+		fi
+	done
+}
 blank_editor() {
 	if [ -z "$EDITOR" ]; then
-		echo -e "${col}Error:${nc} set \$EDITOR (e.g. EDITOR=vim spinach ...)"
-		return 1
+		eds=(vim vi emacs nano most less more cat)
+		for i in $eds; do
+			if type $i &>/dev/null; then
+				EDITOR="$i"
+				echo -en "${col}Note${nc}: No \$EDITOR, using " \
+					&& echo "'$i'"
+				break
+			fi
+		done
+		if [ -z "$EDITOR" ]; then
+			echo -e "${col}Error${nc}: set \$EDITOR"
+			return 1
+		fi
 	fi
+}
+aur_spinach_help() {
+	echo -e "${col}Usage${nc}: spinach [options] [operation] [package]
+	Options:
+	-ssl	Use SSL
+	-col	Use color
+	-rep	Also use pacman repos for search
+	
+	Common operations:
+	-s	Search for package
+	-i	Install package and dependencies
+	-p	Print info about package
+	-u	Update AUR packages
+	
+	Do-it-yourself operations:
+	-d	Download package
+	-dd	Download package and AUR dependencies
+	-o	List out-of-date packages
+	-do	Download out-of-date packages"
 }
 
 while [ -n "$1" ]; do
 	case "$1" in
-		"-s") shift; blank_arg "$1"; aur_search "$1";;
-		"-i") shift; blank_arg "$1"; aur_install "$1";;
-		"-u") aur_install_updates;;
-		"-d") shift; blank_arg "$1"; aur_download "$1";;
-		"-dd") shift; blank_arg "$1"; aur_download_deps "$1";;
-		"-p") shift; blank_arg "$1"; aur_info "$1";;
-		"-o") aur_updates;;
-		"-do") aur_download_updates;;
+		#options
 		"-ssl") ssl="s";;
 		"-col") col='\e[0;31m'; nc='\e[0m';;
 		"-rep") rep="y";;
+		#common
+		"-s") shift; blank_arg "$1"; aur_search "$1";;
+		"-i") shift; blank_arg "$1"; aur_install "$1";;
+		"-p") shift; blank_arg "$1"; aur_info "$1";;
+		"-u") aur_install_updates;;
+		#diy
+		"-d") shift; blank_arg "$1"; aur_download "$1";;
+		"-dd") shift; blank_arg "$1"; aur_download_deps "$1";;
+		"-o") aur_updates;;
+		"-do") aur_download_updates;;
+		#other
 		"--version") echo "$UA";; 
-		"-h"|"--help") aur_spinach_help;;
+		"-h"|"--help") aur_spinach_help; exit 0;;
 	esac
 	shift
 done
