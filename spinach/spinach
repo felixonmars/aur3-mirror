@@ -1,5 +1,5 @@
 #!/bin/bash
-UA="Spinach/0.3.1"
+UA="Spinach/0.3.2"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
@@ -9,7 +9,7 @@ aur_download() {
 	p="$1" #package
 	
 	if [ -e "$p" ]; then
-		echo -ne "${col}Exists${nc}: "; echo "$p"
+		printf "${col}Exists${nc}: %s\n" "$p"
 		return 1
 	else
 		url="$(curl -sf -A "$UA" "$(printf $AURPC "$ssl" info "$p")" | sed -r '
@@ -19,12 +19,11 @@ aur_download() {
     		if [ -n "$url" ]; then
 			curl -sf -A "$UA" "$(printf "$AURURL$url" "$ssl")" -o "$p.tar.gz"
 			tar xzf "$p.tar.gz" &>/dev/null
-			[ "$?" -gt "0" ] &&	echo -ne "${col}Not Saved${nc}:" || \
-						echo -ne "${col}Saved${nc}: "
-			echo "$p/"
+			[ "$?" -gt "0" ] && saved="Not " || saved=""
+			printf "${col}%sSaved${nc}: %s/\n" "$saved" "$p"
 			rm "$p.tar.gz" &>/dev/null || return 1
 		else
-			echo -ne "${col}Not Found${nc}: "; echo "$p"
+			printf "${col}Not Found${nc}: %s\n" "$p"
 			return 1
 		fi
 	fi
@@ -41,7 +40,7 @@ aur_download_deps() {
 			s/(['\"])([^><=']*)[><=]+[^'\"]*\1/\2/mg
 			s/['\"]//mg" | tr '\n' ' ' | sed -r "s/\\\$[^ ]+ //mg")"
 	else
-		echo -ne "${col}Does not exist${nc}: "; echo "$p/PKGBUILD"
+		printf "${col}Does not exist${nc}: %s\n" "$p/PKGBUILD"
 		return 1
 	fi
 	#find AUR, non-installed depends
@@ -63,14 +62,13 @@ aur_download_deps() {
 		if [ -e "$p/PKGBUILD" ]; then
 			cd "$p" && aur_run_install
 		else
-			echo -ne "${col}Not Found${nc}:"
-			echo "$p/PKGBUILD"
+			printf "${col}Not Found${nc}: %s\n" "$p/PKGBUILD"
 			rm -rf "$p/" &>/dev/null
 		fi
 	fi
 }
 aur_updates() {
-	quiet="$1"
+	update="$1"
 	p="$(pacman -Qmq 2>/dev/null)" #packages
 	#remove ignored
 	ignore="$(grep ^IgnorePkg /etc/pacman.conf | sed -e "s/.*=\ //g")"
@@ -100,28 +98,86 @@ aur_updates() {
 		
 		if [ -z "$(echo "$up" | grep "No result found")" ] \
 		&& [ -n "$up" ] && [ -n "$in" ] && [ "$up" != "$in" ]; then
-			if [ -n "$quiet" ]; then
-				echo "$name"
-			else
-				echo -ne "${col}"; echo -n "$name"
-				echo -ne "${nc}"; echo " ($in => $up)"
-			fi
+			[ -n "$update" ] && download="$download $name"
+			printf "${col}%s${nc} (%s => %s)\n" "$name" "$in" "$up"
 		fi
 	done
 }
+aur_install() {
+	blank_editor || return 1
+	#from repos
+	if [ -n "$rep" ]; then
+		if pacman -Si "$1" &>/dev/null; then
+			type sudo &>/dev/null && runsudo="sudo" || runsudo="su -c"
+			printf "${col}Running${nc}: $runsudo pacman -S %s\n" "$1"
+			$runsudo pacman -S "$1"
+			return $?
+		fi
+	fi
+	#from AUR
+	aur_create_tmp || return 1
+	cd "$tmp"
+	aur_download_deps "$1" install
+}
+aur_download_updates() {
+	aur_updates u #outputs to $download
+	IFS=$' '
+	for i in $download; do
+		aur_download "$i"
+	done
+}
+aur_install_updates() {
+	blank_editor || return 1
+	aur_create_tmp || return 1
+	#lock
+	[ -e "$tmp/update.lock" ] && echo -e "${col}Error${nc}: update lock exists" && return 1
+	touch "$tmp/update.lock"
+	#clean on kill
+	trap "for i in \$download; do rm -rf \"$tmp/\$i/\" &>/dev/null;done;
+		rm \"$tmp/update.lock\";echo;exit 1" 2 15
+	cd "$tmp"
+	#get (list in $download)
+	aur_download_updates
+	#install
+	for i in */; do
+		if echo "$download" | tr ' ' '\n' | grep "^${i:0:-1}$" &>/dev/null && \
+		[ -e "$i/PKGBUILD" ]; then
+			cd "$i"
+			ask_yes_no "View ${i:0:-1}?"
+			[ "$response" == "y" ] && aur_run_install notrap
+			cd "$tmp"
+		fi
+	done
+	#clean
+	for i in $download; do
+		rm -rf "$i/" &>/dev/null
+	done
+	rm "update.lock"
+	trap - 2 15
+}
 aur_info() {
-	curl -A "$UA" "$(printf $AURPC "$ssl" info "$1")" 2>/dev/null | sed -r '
-	s/.*No result found.*/Error:Package not found/g
-	s/\\"/\&QUOT;/g
-	s/.*results":\{(.*)\}\}/\1/g
-	s/\",\"/\"\n\"/g
-	s/\\\//\//mg
-	s/"//mg
-	s/^([^:]*):/\1: /mg
-	s/\\\\/\\/mg
-	s/\&QUOT;/"/mg
-	s/^URLPath: /URLPath: https:\/\/aur.archlinux.org/mg' | aur_display_color
-	echo
+	if [ -n "$rep" ]; then
+		info="$(pacman -Si "$1" 2>/dev/null)"
+		gotinfo=$?
+		
+		if [ -n "$info" ]; then
+			echo "$info" | aur_display_color
+		fi
+	fi
+	if [ -z "$rep" ] || [ "$gotinfo" != "0" ]; then
+		curl -A "$UA" "$(printf $AURPC "$ssl" info "$1")" 2>/dev/null | sed -r '
+		s/.*No result found.*/Error:Package not found/g
+		s/\\"/\&QUOT;/g
+		s/.*results":\{(.*)\}\}/\1/g
+		s/\",\"/\"\n\"/g
+		s/\\\//\//mg
+		s/"//mg
+		s/^([^:]*):/\1: /mg
+		s/\\\\/\\/mg
+		s/\&QUOT;/"/mg
+		s/^URLPath: /URLPath: https:\/\/aur.archlinux.org/mg' | aur_display_color
+		echo
+	fi
 }
 aur_search() {
 	if [ -n "$rep" ]; then
@@ -139,80 +195,34 @@ aur_search() {
 	s/\&QUOT;/"/mg
 	s/^]}//mg' | aur_display_color
 }
-aur_download_updates() {
-	updates="$(aur_updates q)"
-	for i in $updates; do
-		aur_download "$i"
-	done
-}
-aur_install_updates() {
-	blank_editor || return 1
-	aur_create_tmp _update || return 1
-	trap "rm -rf \"$tmp/\" &>/dev/null;echo;exit 1" 2 15
-	cd "$tmp"
-	#get
-	aur_download_updates
-	#install
-	for i in */; do
-		if [ -e "$i/PKGBUILD" ]; then
-			cd "$i"
-			ask_yes_no "View ${i:0:-1}?"
-			[ "$response" == "y" ] && aur_run_install
-			cd "$tmp"
-		fi
-	done
-	#clean
-	rm -rf "$tmp" &>/dev/null
-	trap - 2 15
-}
-aur_install() {
-	blank_editor || return 1
-	#from repos
-	if [ -n "$rep" ]; then
-		if pacman -Si "$1" &>/dev/null; then
-			type sudo &>/dev/null && runsudo="sudo" || runsudo="su -c"
-			echo -en "${col}Running${nc}: "
-			echo "$runsudo pacman -S $1"
-			$runsudo pacman -S "$1"
-			return $?
-		fi
-	fi
-	#from AUR
-	aur_create_tmp || return 1
-	cd "$tmp"
-	aur_download_deps "$1" install
-}
 
 #functions used in above functions
 aur_run_install() {
+	trap="$1"
+	pwd="$(pwd)"
 	$EDITOR PKGBUILD
 	inst="$(grep ^install= PKGBUILD | cut -d= -f2 | tr -d "'\"")"
 	[ -e "$inst"  ] && $EDITOR "$inst"
 	#clean if killed
-	pwd="$(pwd)"
-	trap "[ -e \"$pwd/PKGBUILD\" ] && rm -rf \"$pwd/\" &>/dev/null;echo;exit 1" 2 15
+	if [ -z "$trap" ]; then
+		trap "[ -e \"$pwd/PKGBUILD\" ] && rm -rf \"$pwd/\" \
+			&>/dev/null;echo;exit 1" 2 15
+	fi
 	#install
 	ask_yes_no "Install?"
 	[ "$response" == "y" ] && makepkg -sirc
 	#clean
 	rm -rf "$pwd/" &>/dev/null
-	trap - 2 15
+	[ -z "$trap" ] && trap - 2 15
 }
 aur_create_tmp() {
-	suffix="$1"
 	[ -z "$TMPDIR" ] && TMPDIR="/tmp"
-	tmp="$TMPDIR/aur_spinach$suffix"
-	#check if it exists only when updating
-	if [ -z "$suffix" ] || [ ! -e "$tmp" ]; then
+	tmp="$TMPDIR/aur_spinach"
+	if [ ! -e "$tmp" ]; then
 		if ! mkdir -p "$tmp" &>/dev/null; then
-			echo -ne "${col}Error${nc}: could not create "
-			echo "$tmp"
+			printf "${col}Error${nc}: could not create %s\n" "$tmp"
 			return 1
 		fi
-	else
-		echo -ne "${col}Exists${nc}: "
-		echo "$tmp"
-		return 1
 	fi
 }
 aur_display_color() {
@@ -243,8 +253,7 @@ blank_editor() {
 		for i in $eds; do
 			if type $i &>/dev/null; then
 				EDITOR="$i"
-				echo -en "${col}Note${nc}: No \$EDITOR, using " \
-					&& echo "'$i'"
+				printf "${col}Note${nc}: No \$Editor, using '%s'\n" "$i"
 				break
 			fi
 		done
@@ -259,7 +268,7 @@ aur_spinach_help() {
 	Options:
 	-ssl	Use SSL
 	-col	Use color
-	-rep	Also use pacman with -s and -i
+	-rep	Also use pacman with -s, -i, and -p
 	
 	Common operations:
 	-s	Search for package
