@@ -1,5 +1,5 @@
 #!/bin/bash
-UA="Spinach/0.2.7"
+UA="Spinach/0.2.8"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
@@ -53,9 +53,14 @@ aur_download_deps() {
 		official="$?"
 		
 		if [ "$official$provided" == "11" ] && [ ! -e "$i/" ]; then
-			aur_download_deps "$i" || return 1
+			aur_download_deps "$i" "$2" || return 1
 		fi
 	done
+
+	if [ "$2" == "install" ] && [ -e "$p/PKGBUILD" ]; then
+		cd "$p"
+		aur_run_install
+	fi
 }
 aur_update() {
 	quiet="$1"
@@ -141,44 +146,55 @@ aur_download_updates() {
 		aur_download "$i"
 	done
 }
-aur_auto_install() {
-	if [ -z "$EDITOR" ]; then
-		echo -e "${col}Error:${nc} set \$EDITOR (e.g. EDITOR=vim spinach -a)"
-		return 1
-	fi
+aur_install() {
+	p="$1" #package
+	blank_editor || return 1
+        tmp="$(mktemp -d --suffix=_spinach)"
+        trap "rm -rf \"$tmp\"" 2 15
 	
+	cd "$tmp"
+	aur_download_deps "$p" install
+	rm -r "$tmp" &>/dev/null
+}
+aur_install_updates() {
+	blank_editor || return 1
 	tmp="$(mktemp -d --suffix=_spinach)"
-	trap "rm -rf \"$tmp\"" 2 15
+	trap "rm -rf \"$tmp\" &>/dev/null" 2 15
 	
 	cd "$tmp"
 	aur_download_updates
 
 	for i in */; do
-		if [ -e "$i/PKGBUILD" ]; then
-			cd "$i"
-			echo -n "y/n: View ${i:0:-1}? "
+		p="$i" #directory
+		
+		if [ -e "$p/PKGBUILD" ]; then
+			cd "$p"
+			echo -n "y/n: View ${p:0:-1}? "
 			read response
 			
 			if [ "$response" == "y" ]; then
-				$EDITOR PKGBUILD
-				
-				if [ -e *.install ]; then
-					$EDITOR *.install
-				fi
-				
-				echo -n "y/n: Install? "
-				read response
-
-				if [ "$response" == "y" ]; then
-					makepkg -sirc
-				fi
+				aur_run_install
 			fi
-			
-			cd ..
+			cd "$tmp"
 		fi
 	done
 	
 	rm -r "$tmp" &>/dev/null
+}
+aur_run_install() {
+	$EDITOR PKGBUILD
+
+	inst="$(grep ^install= PKGBUILD | cut -d= -f2)"
+	if [ -e "$inst"  ]; then
+		$EDITOR "$inst"
+	fi
+	
+	echo -n "y/n: Install? "
+	read response
+
+	if [ "$response" == "y" ]; then
+		makepkg -sirc
+	fi
 }
 aur_spinach_help() {
 	echo -e "${col}Usage${nc}: spinach [options] [operations] [package]
@@ -188,10 +204,11 @@ aur_spinach_help() {
 	-rep	Also use repos for search
 	
 	Operations:
-	-d	Download a package
-	-dd	Download a package and AUR dependencies
-	-i	Print info for a package
-	-s	Search for a package
+	-d	Download package
+	-dd	Download package and AUR dependencies
+	-di	Download and install package and depends (need \$EDITOR)
+	-i	Info about package
+	-s	Search for package
 	-u	List out-of-date packages
 	-du	Download all updates
 	-a	Auto upgrade (need \$EDITOR)"
@@ -202,15 +219,22 @@ blank_arg() {
 		exit 1
 	fi
 }
+blank_editor() {
+	if [ -z "$EDITOR" ]; then
+		echo -e "${col}Error:${nc} set \$EDITOR (e.g. EDITOR=vim spinach ...)"
+		return 1
+	fi
+}
 
 while [ -n "$1" ]; do
 	case "$1" in
 		"-u") aur_update;;
 		"-du") aur_download_updates;;
-		"-a") aur_auto_install;;
+		"-a") aur_install_updates;;
 		"-i") shift; blank_arg "$1"; aur_info "$1";;
 		"-s") shift; blank_arg "$1"; aur_search "$1";;
 		"-d") shift; blank_arg "$1"; aur_download "$1";;
+		"-di") shift; blank_arg "$1"; aur_install "$1";;
 		"-dd") shift; blank_arg "$1"; aur_download_deps "$1";;
 		"-ssl") ssl="s";;
 		"-col") col='\e[0;31m'; nc='\e[0m';;
