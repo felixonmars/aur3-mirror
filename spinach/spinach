@@ -1,5 +1,5 @@
 #!/bin/bash
-UA="Spinach/0.3.4"
+UA="Spinach/0.3.5"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
@@ -29,18 +29,16 @@ aur_download() {
 	fi
 }
 aur_download_deps() {
-	p="$1" #package
-	inst="$2" #whether to install
-	aur_download "$p" || return 1
+	aur_download "$1" && downloaded="$downloaded $1" || return 1
 	#get PKGBUILD depends
-	if [ -e "$p/PKGBUILD" ]; then
-		depends="$(cat "$p/PKGBUILD" | tr '\n' ' ' | \
+	if [ -e "$1/PKGBUILD" ]; then
+		depends="$(cat "$1/PKGBUILD" | tr '\n' ' ' | \
 			grep -Eo " (make)?depends=\([^)]*\)" 2>/dev/null | sed -r "
 			s/.*\((.*)\).*/\1/mg
 			s/(['\"])([^><=']*)[><=]+[^'\"]*\1/\2/mg
 			s/['\"]//mg" | tr '\n' ' ' | sed -r "s/\\\$[^ ]+ //mg")"
 	else
-		aur_message "$p/PKGBUILD" "Does not exist"
+		aur_message "$1/PKGBUILD" "Does not exist"
 		return 1
 	fi
 	#find AUR, non-installed depends
@@ -54,16 +52,18 @@ aur_download_deps() {
 		official="$?"
 		
 		if [ "$official$provided" == "11" ] && [ ! -e "$i/" ]; then
-			aur_download_deps "$i" "$inst" || return 1
+			aur_download_deps "$i" "$2"
 		fi
 	done
 	#install
-	if [ "$inst" == "install" ]; then
-		if [ -e "$p/PKGBUILD" ]; then
-			cd "$p" && aur_run_install
+	if [ "$2" == "install" ]; then
+		if [ -e "$1/PKGBUILD" ]; then
+			cd "$1"
+			aur_run_install
+			cd ..
 		else
-			aur_message "$p/PKGBUILD" "Not Found"
-			rm -rf "$p/" &>/dev/null
+			aur_message "$1/PKGBUILD" "Does not exist"
+			rm -rf "$1/" &>/dev/null
 		fi
 	fi
 }
@@ -108,16 +108,25 @@ aur_install() {
 	#from repos
 	if [ -n "$rep" ]; then
 		if pacman -Si "$1" &>/dev/null; then
-			type sudo &>/dev/null && runsudo="sudo" || runsudo="su -c"
-			aur_message "$runsudo pacman -S $1" "Running"
-			$runsudo pacman -S "$1"
+			if type sudo &>/dev/null; then
+				aur_message "sudo pacman -S $1" "Running"
+				sudo pacman -S "$1"
+			else
+				aur_message "su -c 'pacman -S $1'" "Running"
+				su -c "pacman -S \"$1\""
+			fi
+			
 			return $?
 		fi
 	fi
 	#from AUR
 	aur_create_tmp || return 1
 	cd "$tmp/build"
+	downloaded=""
+	trap "for i in \$downloaded; do rm -rf \"$tmp/build/\$i/\" &>/dev/null;done;
+		echo;exit 1" 2 15
 	aur_download_deps "$1" install
+	trap - 2 15
 }
 aur_download_updates() {
 	aur_updates u #outputs to $download
@@ -127,6 +136,7 @@ aur_download_updates() {
 	done
 }
 aur_install_updates() {
+	downloaded=""
 	blank_editor || return 1
 	aur_create_tmp || return 1
 	#lock
@@ -146,7 +156,7 @@ aur_install_updates() {
 			if aur_download "$i"; then
 				downloaded="$downloaded $i"
 				if [ -e "$i/PKGBUILD" ]; then
-					cd "$i" && aur_run_install notrap
+					cd "$i" && aur_run_install
 				else
 					aur_message "$tmp/build/$i/PKGBUILD" "Does not exist"
 				fi
@@ -209,28 +219,22 @@ aur_run_install() {
 	$EDITOR PKGBUILD
 	inst="$(grep ^install= PKGBUILD | cut -d= -f2 | tr -d "'\"")"
 	[ -e "$inst"  ] && $EDITOR "$inst"
-	#clean if killed
-	if [ -z "$trap" ]; then
-		trap "[ -e \"$pwd/PKGBUILD\" ] && rm -rf \"$pwd/\" \
-			&>/dev/null;echo;exit 1" 2 15
-	fi
 	#install
 	ask_yes_no "Install?"
-	[ "$response" == "y" ] && makepkg -sirc
-	#copy to cache
-	mv *.pkg.tar.xz "../../cache" &>/dev/null
+	if [ "$response" == "y" ]; then
+		makepkg -sirc
+		#copy to cache
+		mv *.pkg.tar.xz "../../cache" &>/dev/null
+	fi
 	#clean
 	rm -rf "$pwd/" &>/dev/null
-	[ -z "$trap" ] && trap - 2 15
 }
 aur_create_tmp() {
 	[ -z "$TMPDIR" ] && TMPDIR="/tmp"
 	tmp="$TMPDIR/spinach"
-	if [ ! -e "$tmp" ]; then
-		if ! mkdir -p "$tmp" "$tmp/cache" "$tmp/build" &>/dev/null; then
-			aur_message "could not create $tmp"
-			return 1
-		fi
+	if ! mkdir -p "$tmp" "$tmp/cache" "$tmp/build" &>/dev/null; then
+		aur_message "could not create $tmp"
+		return 1
 	fi
 }
 aur_display_color() {
