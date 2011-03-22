@@ -3,11 +3,11 @@
 require 'optparse'
 
 module Pacgem
-  VERSION = '0.9.2'
+  VERSION = '0.9.3'
 
   module Util
     def which?(name)
-      `which #{name} 2>/dev/null`
+      `which #{name.shellescape} 2>/dev/null`
       $?.success?
     end
 
@@ -20,18 +20,26 @@ module Pacgem
       s.length > max ? s[0...max] + omission : s
     end
 
-    def ruby
-      @ruby ||= if RUBY_VERSION > '1.9'
-                  'ruby'
-                elsif Gem.ruby.include?('ruby-enterprise')
-                  'ruby-enterprise'
-                else
-                  'ruby1.8'
-                end
+    def ruby_package
+      @ruby_package ||= if RUBY_VERSION > '1.9'
+                          'ruby'
+                        elsif Gem.ruby.include?('ruby-enterprise')
+                          'ruby-enterprise'
+                        else
+                          'ruby1.8'
+                        end
     end
 
     def pacman_parse(args)
       `LC_ALL=C pacman #{args} 2>/dev/null`
+    end
+
+    def each_gem
+      Gem.source_index.gems.sort.each do |_, spec|
+        name = pacman_parse("-Qqo #{spec.loaded_from.shellescape}").chomp
+        yield(spec, name.empty? ? nil : name, !name.empty? &&
+              !pacman_parse("-Qi #{name.shellescape}").match(/^Groups\s+:\s+pacgem$/).nil?)
+      end
     end
 
     extend self
@@ -164,7 +172,7 @@ module Pacgem
 
     def explicit?
       unless instance_variable_defined?(:@explicit)
-        @explicit = pacman_parse("-Qqe #{name}").chomp == name
+        @explicit = pacman_parse("-Qqe #{name.shellescape}").chomp == name
       end
       @explicit
     end
@@ -200,7 +208,7 @@ module Pacgem
     private
 
     def build_name(gemname)
-      "#{ruby}-#{gemname.downcase.sub(/^ruby-/, '').tr('_', '-')}"
+      "#{ruby_package}-#{gemname.downcase.sub(/^ruby-/, '').tr('_', '-')}"
     end
 
     def download
@@ -216,7 +224,7 @@ module Pacgem
     def gen_pkgbuild(gemfile, options)
       spec = Gem::Format.from_file_by_path(gemfile).spec
 
-      depends = [ruby]
+      depends = [ruby_package]
       spec.runtime_dependencies.each do |dep|
         dep.requirement.requirements.each do |comp, ver|
           comp = '>=' if comp == '~>'
@@ -230,7 +238,7 @@ module Pacgem
         optdepends << "#{build_name dep.name}: #{truncate(optspec.summary, 80)}" if optspec
       end
 
-      builder = %w(build fix)
+      builder = %w(install fix)
       unless spec.extensions.empty?
         builder << 'cleanext'
         builder << 'autodepends' unless options[:noautodepends]
@@ -247,9 +255,9 @@ module Pacgem
       pkg['pkgdesc']     = spec.summary
       pkg['arch']        = spec.extensions.empty? ? %w(any) : %w(i686 x86_64)
       pkg['url']         = spec.homepage
-      pkg['license']     = [*spec.license || 'Ruby']
+      pkg['license']     = spec.licenses.empty? ? %w(Ruby) : spec.licenses
       pkg['groups']      = %w(pacgem) # Mark this package as installed by pacgem
-      pkg['makedepends'] = %W(#{ruby} binutils)
+      pkg['makedepends'] = %W(#{ruby_package} binutils)
       pkg['depends']     = depends
       pkg['optdepends']  = optdepends
       pkg['source']      = %W(#{uri}gems/$_gemname-$pkgver.gem)
@@ -267,7 +275,7 @@ module Pacgem
     def namcap(pkgfile, logger)
       if which?('namcap')
         logger.msg "Checking #{pkgfile} with namcap..."
-        system("namcap #{pkgfile}")
+        system("namcap #{pkgfile.shellescape}")
       else
         logger.warning 'namcap is not installed'
       end
@@ -308,15 +316,13 @@ module Pacgem
     end
 
     def update
-      Gem.source_index.each do |_, spec|
-        specfile = File.join(Gem.dir, 'specifications', spec.full_name + '.gemspec')
-        name = pacman_parse("-Qqo #{specfile.shellescape}").chomp
-        if name.empty?
-          @logger.msg2 "Not managed by pacman: #{spec.full_name}"
-        elsif pacman_parse("-Qi #{name}") !~ /^Groups\s+:\s+pacgem$/
+      each_gem do |spec, name, pacgem|
+        if pacgem
+          resolve(Gem::Dependency.new(spec.name, nil))
+        elsif name
           @logger.msg2 "Not installed by pacgem: #{spec.full_name} (Package #{name})"
         else
-          resolve(Gem::Dependency.new(spec.name, nil))
+          @logger.msg2 "Not managed by pacman: #{spec.full_name}"
         end
       end
     end
@@ -497,7 +503,7 @@ Pacgem::Command.new(ARGV).run if $0 == __FILE__
 
 __END__
 
-_gem_build() {
+_gem_install() {
   msg 'Installing gem...'
 
   # Install the gem
@@ -516,7 +522,12 @@ _gem_fix() {
   local mandir="$_gemdir/gems/$_gemname-$pkgver/man"
   if [[ -d $mandir ]]; then
     install -d -m755 $_mandir
-    mv $mandir/* $_mandir
+    for file in $(find $mandir -type f -and -name *.[0-9]); do
+      dir=$_mandir/man${file##*.}
+      install -d -m755 $dir
+      mv $file $dir
+    done
+    rm -rf $mandir
   fi
 
   # Remove cached gem file
