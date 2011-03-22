@@ -1,5 +1,5 @@
 #!/bin/bash
-UA="Spinach/0.3.3"
+UA="Spinach/0.3.4"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
@@ -9,7 +9,7 @@ aur_download() {
 	p="$1" #package
 	
 	if [ -e "$p" ]; then
-		printf "${col}Exists${nc}: %s\n" "$p"
+		aur_message "$p" "Exists"
 		return 1
 	else
 		url="$(curl -sf -A "$UA" "$(printf $AURPC "$ssl" info "$p")" | sed -r '
@@ -20,10 +20,10 @@ aur_download() {
 			curl -sf -A "$UA" "$(printf "$AURURL$url" "$ssl")" -o "$p.tar.gz"
 			tar xzf "$p.tar.gz" &>/dev/null
 			[ "$?" -gt "0" ] && saved="Not " || saved=""
-			printf "${col}%sSaved${nc}: %s/\n" "$saved" "$p"
+			aur_message "$p/" "${saved}Saved"
 			rm "$p.tar.gz" &>/dev/null || return 1
 		else
-			printf "${col}Not Found${nc}: %s\n" "$p"
+			aur_message "$p" "Not Found"
 			return 1
 		fi
 	fi
@@ -40,7 +40,7 @@ aur_download_deps() {
 			s/(['\"])([^><=']*)[><=]+[^'\"]*\1/\2/mg
 			s/['\"]//mg" | tr '\n' ' ' | sed -r "s/\\\$[^ ]+ //mg")"
 	else
-		printf "${col}Does not exist${nc}: %s\n" "$p/PKGBUILD"
+		aur_message "$p/PKGBUILD" "Does not exist"
 		return 1
 	fi
 	#find AUR, non-installed depends
@@ -62,7 +62,7 @@ aur_download_deps() {
 		if [ -e "$p/PKGBUILD" ]; then
 			cd "$p" && aur_run_install
 		else
-			printf "${col}Not Found${nc}: %s\n" "$p/PKGBUILD"
+			aur_message "$p/PKGBUILD" "Not Found"
 			rm -rf "$p/" &>/dev/null
 		fi
 	fi
@@ -109,14 +109,14 @@ aur_install() {
 	if [ -n "$rep" ]; then
 		if pacman -Si "$1" &>/dev/null; then
 			type sudo &>/dev/null && runsudo="sudo" || runsudo="su -c"
-			printf "${col}Running${nc}: $runsudo pacman -S %s\n" "$1"
+			aur_message "$runsudo pacman -S $1" "Running"
 			$runsudo pacman -S "$1"
 			return $?
 		fi
 	fi
 	#from AUR
 	aur_create_tmp || return 1
-	cd "$tmp"
+	cd "$tmp/build"
 	aur_download_deps "$1" install
 }
 aur_download_updates() {
@@ -130,30 +130,35 @@ aur_install_updates() {
 	blank_editor || return 1
 	aur_create_tmp || return 1
 	#lock
-	[ -e "$tmp/update.lock" ] && echo -e "${col}Error${nc}: update lock exists" \
-		&& return 1
+	[ -e "$tmp/update.lock" ] && aur_message "update lock exists" && return 1
 	touch "$tmp/update.lock"
 	#clean on kill
-	trap "for i in \$download; do rm -rf \"$tmp/\$i/\" &>/dev/null;done;
+	trap "for i in \$downloaded; do rm -rf \"$tmp/build/\$i/\" &>/dev/null;done;
 		rm \"$tmp/update.lock\";echo;exit 1" 2 15
-	cd "$tmp"
-	#get (list in $download)
-	aur_download_updates
-	#install
-	for i in */; do
-		if echo "$download" | tr ' ' '\n' | grep "^${i:0:-1}$" &>/dev/null && \
-		[ -e "$i/PKGBUILD" ]; then
-			cd "$i"
-			ask_yes_no "View ${i:0:-1}?"
-			[ "$response" == "y" ] && aur_run_install notrap
-			cd "$tmp"
+	cd "$tmp/build"
+	#get list (outputs to $download)
+	aur_updates u
+	#download and install after confirming
+	IFS=$' '
+	for i in $download; do
+		ask_yes_no "Update ${i}?"
+		if [ "$response" == "y" ]; then
+			if aur_download "$i"; then
+				downloaded="$downloaded $i"
+				if [ -e "$i/PKGBUILD" ]; then
+					cd "$i" && aur_run_install notrap
+				else
+					aur_message "$tmp/build/$i/PKGBUILD" "Does not exist"
+				fi
+			fi
+			cd "$tmp/build"
 		fi
 	done
 	#clean
-	for i in $download; do
+	for i in $downloaded; do
 		rm -rf "$i/" &>/dev/null
 	done
-	rm "update.lock"
+	rm "$tmp/update.lock"
 	trap - 2 15
 }
 aur_info() {
@@ -213,18 +218,17 @@ aur_run_install() {
 	ask_yes_no "Install?"
 	[ "$response" == "y" ] && makepkg -sirc
 	#copy to cache
-	mkdir -p ../spinach_cache &>/dev/null && \
-		mv *.pkg.tar.xz ../spinach_cache &>/dev/null
+	mv *.pkg.tar.xz "../../cache" &>/dev/null
 	#clean
 	rm -rf "$pwd/" &>/dev/null
 	[ -z "$trap" ] && trap - 2 15
 }
 aur_create_tmp() {
 	[ -z "$TMPDIR" ] && TMPDIR="/tmp"
-	tmp="$TMPDIR/aur_spinach"
+	tmp="$TMPDIR/spinach"
 	if [ ! -e "$tmp" ]; then
-		if ! mkdir -p "$tmp" &>/dev/null; then
-			printf "${col}Error${nc}: could not create %s\n" "$tmp"
+		if ! mkdir -p "$tmp" "$tmp/cache" "$tmp/build" &>/dev/null; then
+			aur_message "could not create $tmp"
 			return 1
 		fi
 	fi
@@ -237,12 +241,16 @@ aur_display_color() {
 		cat /dev/stdin
 	fi
 }
+aur_message() {
+	[ -n "$2" ] && e="$2" || e="Error"
+	printf "${col}%s${nc}: %s\n" "$e" "$1"
+}
 blank_arg() {
-	[ -z "$1" ] && echo -e "${col}Error${nc}: Please specify a package." && exit 1
+	[ -z "$1" ] && aur_message "Please specify a package." && exit 1
 }
 ask_yes_no() {
 	while true; do
-		echo -n "y/n: $1 "
+		printf "${col}y/n${nc}: %s " "$1"
 		read resp
 		
 		if [ "$resp" == "y" ] || [ "$resp" == "n" ]; then
@@ -257,12 +265,12 @@ blank_editor() {
 		for i in $eds; do
 			if type $i &>/dev/null; then
 				EDITOR="$i"
-				printf "${col}Note${nc}: No \$Editor, using '%s'\n" "$i"
+				aur_message "No \$EDITOR, using '$i'"
 				break
 			fi
 		done
 		if [ -z "$EDITOR" ]; then
-			echo -e "${col}Error${nc}: set \$EDITOR"
+			aur_message "set \$EDITOR"
 			return 1
 		fi
 	fi
