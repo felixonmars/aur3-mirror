@@ -6,6 +6,7 @@ pkgdesc="an init system based on plan9 make - rc init scripts"
 arch=('i686' 'x86_64')
 url="http://9fans.net/archive/2009/10/375"
 license=('MIT')
+install=('9mkinit.install')
 source=('archpath1.patch' 'archpath2.patch')
 md5sums=('2f7db22ca295b963152d1b628533385c' '0546f2aeb1d16c5865167b6d69c0d672')
 depends=("9base") #alternative dependency: plan9port
@@ -36,7 +37,18 @@ build() {
     rm $srcdir/build/src/mkinit
     cp $srcdir/build/src/mkinit.rc $srcdir/build/src/mkinit
 
+    cd $srcdir/build
     mk all
-    mk DESTDIR=$pkgdir install
+}
+
+package() {
+    install -d "$pkgdir/etc"
+    install -d "$pkgdir/sbin"
+    install -d "$pkgdir/lib/mkinit/bin"
+    install -d "$pkgdir/lib/mkinit/state"
+
+    install -t $pkgdir/lib/mkinit/bin $srcdir/build/src/{mkinit,service,respawn,initctld}
+    install -t $pkgdir/etc $srcdir/build/init.mk
+
     msg "WARNING: this is a highly experimental package. Make sure that you know what you are doing before installing"
 }
