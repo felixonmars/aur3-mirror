@@ -1,6 +1,6 @@
 #!/bin/bash
 UA="Spinach"
-VE="0.3.7"
+VE="0.3.8"
 ssl='';col='';nc=''
 AURURL="http%s://aur.archlinux.org"
 AURPC="$AURURL/rpc.php?type=%s&arg=%s"
@@ -52,14 +52,7 @@ aur_install() {
 	if [ -n "$rep" ]; then
 		if pacman -Si "$1" &>/dev/null || [ "$(pacman -Sgq "$1" 2>/dev/null | \
 		wc -l)" -gt "0" ]; then
-			if type sudo &>/dev/null; then
-				aur_message "Running" "sudo pacman -S $1"
-				sudo pacman -S "$1"
-			else
-				aur_message "Running" "su -c 'pacman -S $1'"
-				su -c "pacman -S \"$1\""
-			fi
-			
+			pacman_run -S $1
 			return $?
 		fi
 	fi
@@ -129,7 +122,7 @@ aur_download() {
 		fi
 	fi
 }
-aur_download_deps() {
+aur_download_deps() { # $1=package; $2=whether to install; $3=install with --asdeps
 	aur_download "$1" && downloaded="$downloaded $1" || return 1
 	#get PKGBUILD depends
 	if [ -e "$1/PKGBUILD" ]; then
@@ -152,14 +145,14 @@ aur_download_deps() {
 			s/=[^ ]*//mg' | tr ' ' '\n' | grep "^$i$" &>/dev/null
 		
 		if [ "$?" == "1" ] && [ ! -e "$i/" ]; then
-			aur_download_deps "$i" "$2"
+			aur_download_deps "$i" "$2" "asdep"
 		fi
 	done
 	#install
 	if [ "$2" == "install" ]; then
 		if [ -e "$1/PKGBUILD" ]; then
 			cd "$1"
-			aur_run_install
+			aur_run_install "$3"
 			cd ..
 		else
 			aur_message "Missing" "$(pwd)/$1/PKGBUILD"
@@ -212,7 +205,6 @@ aur_download_updates() {
 }
 #sub-functions
 aur_run_install() {
-	trap="$1"
 	pwd="$(pwd)"
 	$EDITOR PKGBUILD
 	inst="$(grep ^install= PKGBUILD | cut -d= -f2 | tr -d "'\"")"
@@ -220,16 +212,22 @@ aur_run_install() {
 	#install
 	ask_yes_no "Install?"
 	if [ "$response" == "y" ]; then
-		makepkg -sirc
+		makepkg -src
+		#install
+		pkg=*.pkg.tar.xz
+		[ -n "$1" ] && asdep="--asdeps" || asdep=""
+		pacman_run $asdep -U $pkg
 		#copy to cache
-		mv *.pkg.tar.xz "../../cache" &>/dev/null
+		mv $pkg "../../cache" &>/dev/null
 	fi
 	#clean
 	rm -rf "$pwd/" &>/dev/null
 }
 aur_create_tmp() {
-	[ -z "$TMPDIR" ] && TMPDIR="/tmp"
-	tmp="$TMPDIR/spinach"
+	if [ -z "$SPINTMPDIR" ]; then
+		[ -n "$TMPDIR" ] && SPINTMPDIR="$TMPDIR" && SPINTMPDIR="/tmp"
+	fi
+	tmp="$SPINTMPDIR/spinach"
 	if ! mkdir -p "$tmp" "$tmp/cache" "$tmp/build" &>/dev/null; then
 		aur_message "Error" "could not create $tmp"
 		return 1
@@ -244,7 +242,8 @@ aur_display_color() {
 	fi
 }
 aur_message() {
-	printf "${col}%s${nc}: %s\n" "$1" "$2"
+	message="$1";shift;rest="$@"
+	printf "${col}%s${nc}: %s\n" "$message" "$rest"
 }
 blank_arg() {
 	[ -z "$1" ] && aur_message "Please specify a package." && exit 1
@@ -260,9 +259,20 @@ ask_yes_no() {
 		fi
 	done
 }
+pacman_run() {
+	if type sudo &>/dev/null; then
+		aur_message "Running" "sudo pacman $@"
+		sudo pacman $@
+	else
+		aur_message "Running" "su -c 'pacman $@"
+		su -c "pacman $@"
+	fi
+	
+	return $?
+}
 blank_editor() {
 	if [ -z "$EDITOR" ]; then
-		for i in vim vi emacs nano most less more cat; do
+		for i in vim emacs vi nano most less more cat; do
 			if type $i &>/dev/null; then
 				EDITOR="$i"
 				aur_message "Note" "No \$EDITOR, using '$i'"
@@ -292,7 +302,11 @@ aur_spinach_help() {
 	-d	Download package
 	-dd	Download package and AUR dependencies
 	-o	List out-of-date packages
-	-do	Download out-of-date packages"
+	-do	Download out-of-date packages
+	
+	Variables:
+	\$EDITOR		defaults to vim, emacs, etc.
+	\$SPINTMPDIR	defaults to \$TMPDIR or /tmp"
 }
 
 while [ -n "$1" ]; do
