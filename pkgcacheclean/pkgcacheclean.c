@@ -1,6 +1,7 @@
 #include <argp.h>
 #include <dirent.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <regex.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,8 +33,6 @@ static struct argp_option options[] =
     { .doc = NULL }
 };
 
-static char cachedir[1024] = CACHEDIR;
-static int len;
 static regex_t pkgnamesplit;
 static regex_t pkgnametest;
 
@@ -163,7 +162,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 int main(const int argc, char ** __restrict__ argv)
 {
-    int i, n, m, count = 0;
+    int i, n, m, len, count = 0;
     off_t total_size = 0;
     pmdb_t *db;
     alpm_list_t *pkglist;
@@ -171,6 +170,7 @@ int main(const int argc, char ** __restrict__ argv)
     struct pkginfo **cachepkg, **localpkg;
     struct pkginfo **hit = NULL;
     const char *current = "", *name;
+    char cachedir[PATH_MAX] = CACHEDIR;
     struct argp arg_parser = { .options = options, .parser = parse_opt,
         .args_doc = args_doc, .doc = doc };
     struct arguments args = { .preserve = 0, .verbose = 0 };
@@ -199,7 +199,7 @@ int main(const int argc, char ** __restrict__ argv)
     qsort(cachepkg, n, sizeof(struct pkginfo *), pkgcomp);
 
     alpm_option_set_dbpath(DBPATH);
-    db = alpm_db_register_local();
+    db = alpm_option_get_localdb();
     pkglist = alpm_db_get_pkgcache(db);
     m = alpm_list_count(pkglist);
     localpkg = malloc(sizeof(struct pkginfo *) * m);
@@ -208,7 +208,6 @@ int main(const int argc, char ** __restrict__ argv)
     qsort(localpkg, m, sizeof(struct pkginfo *), pkgnamecomp);
     alpm_list_free_inner(pkglist, (alpm_list_fn_free)alpm_pkg_free);
     alpm_list_free(pkglist);
-    alpm_db_unregister(db);
 
     for (i = 0; i < n; i++)
     {
