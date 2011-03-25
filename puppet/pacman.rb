@@ -6,18 +6,18 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
     commands :pacman => "/usr/bin/pacman"
     defaultfor :operatingsystem => :archlinux
     confine    :operatingsystem => :archlinux
-		has_feature :upgradeable
+    has_feature :upgradeable
 
     # Install a package using 'pacman'.
     # Installs quietly, without confirmation or progressbar, updates package
     # list from servers defined in pacman.conf.
     def install
         pacman "--noconfirm", "--noprogressbar", "-Sy", @resource[:name]
-				
-				ret = self.query
-				unless ret.has_key?(:ensure)
+
+        ret = self.query
+        unless ret.has_key?(:ensure)
             raise Puppet::ExecutionFailure.new(
-								"Could not find package %s" % self.name
+                "Could not find package %s" % self.name
             )
         end
     end
@@ -26,7 +26,7 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
         [command(:pacman), " -Q"]
     end
 
-# Fetch the list of packages currently installed on the system.
+    # Fetch the list of packages currently installed on the system.
     def self.instances
         packages = []
         begin execpipe(listcmd()) do |process|
@@ -43,7 +43,7 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
 
                     name = hash[:name]
                     hash[:provider] = self.name
-                    
+
                     packages << new(hash)
                     hash = {}
                 else
@@ -63,22 +63,22 @@ Puppet::Type.type(:package).provide :pacman, :parent => Puppet::Provider::Packag
         # Install in pacman can be used for update, too
         self.install
     end
-		    
-		def latest
-				pacman "-Sy"
-				output = pacman "-Sp", "--print-format", "%v", @resource[:name]
-				return output.chomp
+
+    def latest
+        pacman "-Sy"
+        output = pacman "-Sp", "--print-format", "%v", @resource[:name]
+        return output.chomp
     end
 
     # Querys the pacman master list for information about the package.
     def query
-      begin
-        hash = {}
-        output = pacman("-Qi", @resource[:name])
+        begin
+            hash = {}
+            output = pacman("-Qi", @resource[:name])
 
-        if output =~ /Version.*:\s(.+)/
-            hash[:ensure] = $1
-        end
+            if output =~ /Version.*:\s(.+)/
+                hash[:ensure] = $1
+            end
             rescue Puppet::ExecutionFailure
                 return {:ensure => :purged, :status => 'missing',
                     :name => @resource[:name], :error => 'ok'}
