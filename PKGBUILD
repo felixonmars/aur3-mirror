@@ -1,45 +1,31 @@
-# Contributor: Yildirim Zaynal <asil.jinn@gmail.com>
-pkgname=wxhaskell-darcs
-pkgver=20071020
+#$Id: $
+#Maintainer: Mirko Messer <mirk@chao.ch>
+#-*-mode:sh-*-
+#Contributor: 
+#Comments:
+pkgname=wmmemfree
+pkgver=0.7
 pkgrel=1
-pkgdesc="wxHaskell is a portable and native GUI library for Haskell"
-arch=(i686)
-url="http://wxhaskell.sourceforge.net/"
-license=('GPL')
-source=()
-depends=('gtk')
-makedepends=('wxgtk' 'wxgtk-2.6' 'darcs' 'ghc')
-md5sums=()
-
-_darcsmod="wxhaskell"
-_darcstrunk="http://darcs.haskell.org/"
+pkgdesc="dockapp which displays mem"
+url="http://dockapps.org/file.php/id/165/"
+license=""
+depends=('xorg')
+makedepends=()
+conflicts=()
+replaces=()
+backup=()
+install=
+source=(http://dockapps.org/download.php/id/250/wmmemfree-0.7.tar.bz2 \
+1.patch
+)
+md5sums=('6b478209d907dd2955828e71319af757' '774edf24c30d3a66df194c974cc7bb0c')
 
 build() {
-  cd $startdir/src/
-  # Erasing previous build
-  msg "Checking for previous build"
-  # get the sources
-  if [[ -d $_darcsmod/_darcs ]]
-  then
-    msg "Retrieving missing patches"
-    cd $_darcsmod
-    darcs pull -a $_darcstrunk/$_darcsmod
-  else
-    msg "Retrieving complete sources"
-    darcs get --partial --set-scripts-executable $_darcstrunk/$_darcsmod
-    cd $_darcsmod
-  fi
-  
-  #building 
-  msg "Starting build"
-  
-  cp $startdir/configure.patch .
-  #INSTALLDIR="$startdir/src/wxhaskell/"
-  #cd $INSTALLDIR
-  patch -p0 < configure.patch 
-  ./configure --prefix=/usr --with-opengl
-  make || return 1
-  make DESTDIR="$startdir/pkg" install
-  make DESTDIR="$startdir/pkg" wx 
-  make DESTDIR="$startdir/pkg" wx-install 
+        mkdir -p $startdir/pkg/usr/bin
+	cd $startdir/src/$pkgname-$pkgver
+        patch -p0 < ../../1.patch
+	make
+        install -m 755 wmmemfree $startdir/pkg/usr/bin
 }
+ 
+ 

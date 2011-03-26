@@ -1,0 +1,3240 @@
+--- nautilus-2.28.4/libnautilus-private/Makefile.in	2009-10-20 13:17:56.000000000 +0200
++++ nautilus-2.28.4/libnautilus-private/Makefile.in	2010-01-15 15:08:42.000000000 +0100
+@@ -142,7 +142,8 @@ am__libnautilus_private_la_SOURCES_DIST 
+ 	nautilus-window-slot-info.h nautilus-search-engine-beagle.c \
+ 	nautilus-search-engine-beagle.h \
+ 	nautilus-search-engine-tracker.c \
+-	nautilus-search-engine-tracker.h
++	nautilus-search-engine-tracker.h \
++	nautilus-undostack-manager.h nautilus-undostack-manager.c 
+ am__objects_1 =
+ am__objects_2 = nautilus-search-engine-beagle.lo
+ @HAVE_BEAGLE_TRUE@am__objects_3 = $(am__objects_2)
+@@ -185,6 +186,7 @@ am_libnautilus_private_la_OBJECTS = naut
+ 	nautilus-undo.lo nautilus-users-groups-cache.lo \
+ 	nautilus-vfs-directory.lo nautilus-vfs-file.lo \
+ 	nautilus-view-factory.lo nautilus-view.lo \
++	nautilus-undostack-manager.lo \
+ 	nautilus-window-info.lo nautilus-window-slot-info.lo \
+ 	$(am__objects_1) $(am__objects_3) $(am__objects_5)
+ libnautilus_private_la_OBJECTS = $(am_libnautilus_private_la_OBJECTS)
+@@ -540,6 +542,7 @@ libnautilus_private_la_SOURCES = nautilu
+ 	nautilus-view-factory.c nautilus-view-factory.h \
+ 	nautilus-view.c nautilus-view.h nautilus-window-info.c \
+ 	nautilus-window-info.h nautilus-window-slot-info.c \
++	nautilus-undostack-manager.h nautilus-undostack-manager.c \
+ 	nautilus-window-slot-info.h $(NULL) $(am__append_1) \
+ 	$(am__append_2)
+ BEAGLE_SOURCES = \
+diff --git nautilus-2.28.4/libnautilus-private/Makefile.am nautilus-2.28.4/libnautilus-private/Makefile.am
+index b2a47ce..713cbc5 100644
+--- nautilus-2.28.4/libnautilus-private/Makefile.am
++++ nautilus-2.28.4/libnautilus-private/Makefile.am
+@@ -193,6 +193,8 @@ libnautilus_private_la_SOURCES = \
+ 	nautilus-window-info.h \
+ 	nautilus-window-slot-info.c \
+ 	nautilus-window-slot-info.h \
++	nautilus-undostack-manager.c \
++	nautilus-undostack-manager.h \
+ 	$(NULL)
+ 
+ BEAGLE_SOURCES = \
+diff --git nautilus-2.28.4/libnautilus-private/nautilus-file-operations.c nautilus-2.28.4/libnautilus-private/nautilus-file-operations.c
+index 9f3503e..46ed725 100644
+--- nautilus-2.28.4/libnautilus-private/nautilus-file-operations.c
++++ nautilus-2.28.4/libnautilus-private/nautilus-file-operations.c
+@@ -66,6 +66,7 @@
+ #include "nautilus-autorun.h"
+ #include "nautilus-trash-monitor.h"
+ #include "nautilus-file-utilities.h"
++#include "nautilus-undostack-manager.h"
+ 
+ static gboolean confirm_trash_auto_value;
+ 
+@@ -86,6 +87,7 @@ typedef struct {
+ 	gboolean merge_all;
+ 	gboolean replace_all;
+ 	gboolean delete_all;
++	NautilusUndoStackActionData* undo_redo_data;
+ } CommonJob;
+ 
+ typedef struct {
+@@ -956,6 +958,12 @@ finalize_common (CommonJob *common)
+ 	if (common->skip_readdir_error) {
+ 		g_hash_table_destroy (common->skip_readdir_error);
+ 	}
++
++	// Start UNDO-REDO
++	nautilus_undostack_manager_add_action (nautilus_undostack_manager_instance(),
++										   common->undo_redo_data);
++	// End UNDO-REDO
++
+ 	g_object_unref (common->progress);
+ 	g_object_unref (common->cancellable);
+ 	g_free (common);
+@@ -1753,6 +1761,8 @@ trash_files (CommonJob *job, GList *files, int *files_skipped)
+ 	char *primary, *secondary, *details;
+ 	int response;
+ 
++	guint64 mtime;
++
+ 	if (job_aborted (job)) {
+ 		return;
+ 	}
+@@ -1769,6 +1779,9 @@ trash_files (CommonJob *job, GList *files, int *files_skipped)
+ 		file = l->data;
+ 
+ 		error = NULL;
++
++		mtime = nautilus_undostack_manager_get_file_modification_time (file);
++
+ 		if (!g_file_trash (file, job->cancellable, &error)) {
+ 			if (job->skip_all_error) {
+ 				(*files_skipped)++;
+@@ -1816,6 +1829,10 @@ trash_files (CommonJob *job, GList *files, int *files_skipped)
+ 		} else {
+ 			nautilus_file_changes_queue_file_removed (file);
+ 			
++			// Start UNDO-REDO
++			nautilus_undostack_manager_data_add_trashed_file (job->undo_redo_data, file, mtime);
++			// End UNDO-REDO
++
+ 			files_trashed++;
+ 			report_trash_progress (job, files_trashed, total_files);
+ 		}
+@@ -1961,6 +1978,16 @@ trash_or_delete_internal (GList                  *files,
+ 		inhibit_power_manager ((CommonJob *)job, _("Deleting Files"));
+ 	}
+ 	
++	// Start UNDO-REDO
++	// FIXME: Disabled, because of missing mechanism to restore a file from trash in a clean way
++	// see http://www.mail-archive.com/nautilus-list@gnome.org/msg04664.html
++	if (try_trash && !nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_MOVETOTRASH, g_list_length(files));
++		GFile* src_dir = g_file_get_parent (files->data);
++		nautilus_undostack_manager_data_set_src_dir (job->common.undo_redo_data, src_dir);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (delete_job,
+ 			   job,
+ 			   NULL,
+@@ -3331,6 +3358,11 @@ create_dest_dir (CommonJob *job,
+ 		return CREATE_DEST_DIR_FAILED;
+ 	}
+ 	nautilus_file_changes_queue_file_added (*dest);
++
++	// Start UNDO-REDO
++	nautilus_undostack_manager_data_add_origin_target_pair (job->undo_redo_data, src, *dest);
++	// End UNDO-REDO
++
+ 	return CREATE_DEST_DIR_SUCCESS;
+ }
+ 
+@@ -3841,6 +3873,8 @@ copy_move_file (CopyMoveJob *copy_job,
+ 
+ 	unique_name_nr = 1;
+ 
++	// TODO: Here we should get the previous file name UNDO
++
+ 	/* another file in the same directory might have handled the invalid
+ 	 * filename condition for us
+ 	 */
+@@ -3983,6 +4017,10 @@ copy_move_file (CopyMoveJob *copy_job,
+ 						   FALSE);
+ 		}
+ 			
++		// Start UNDO-REDO
++		nautilus_undostack_manager_data_add_origin_target_pair (job->undo_redo_data, src, dest);
++		// End UNDO-REDO
++			
+ 		g_object_unref (dest);
+ 		return;
+ 	}
+@@ -4429,6 +4467,16 @@ nautilus_file_operations_copy (GList *files,
+ 
+ 	inhibit_power_manager ((CommonJob *)job, _("Copying Files"));
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_COPY, g_list_length(files));
++		GFile* src_dir = g_file_get_parent (files->data);
++		nautilus_undostack_manager_data_set_src_dir (job->common.undo_redo_data, src_dir);
++		g_object_ref (target_dir);
++		nautilus_undostack_manager_data_set_dest_dir (job->common.undo_redo_data, target_dir);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (copy_job,
+ 			   job,
+ 			   NULL, /* destroy notify */
+@@ -4585,6 +4633,10 @@ move_file_prepare (CopyMoveJob *move_job,
+ 			nautilus_file_changes_queue_schedule_position_remove (dest);
+ 		}
+ 		
++		// Start UNDO-REDO
++		nautilus_undostack_manager_data_add_origin_target_pair (job->undo_redo_data, src, dest);
++		// End UNDO-REDO
++
+ 		return;
+ 	}
+ 
+@@ -4970,6 +5022,20 @@ nautilus_file_operations_move (GList *files,
+ 
+ 	inhibit_power_manager ((CommonJob *)job, _("Moving Files"));
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++	  if (g_file_has_uri_scheme (g_list_first(files)->data, "trash")) {
++	    job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_RESTOREFROMTRASH, g_list_length(files));
++	  } else {
++	    job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_MOVE, g_list_length(files));
++	  }
++		GFile* src_dir = g_file_get_parent (files->data);
++		nautilus_undostack_manager_data_set_src_dir (job->common.undo_redo_data, src_dir);
++		g_object_ref (target_dir);
++		nautilus_undostack_manager_data_set_dest_dir (job->common.undo_redo_data, target_dir);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (move_job,
+ 				 job,
+ 				 NULL, /* destroy notify */
+@@ -5063,6 +5129,11 @@ link_file (CopyMoveJob *job,
+ 					      path, 
+ 					      common->cancellable,
+ 					      &error)) {
++
++		// Start UNDO-REDO
++		nautilus_undostack_manager_data_add_origin_target_pair (common->undo_redo_data, src, dest);
++		// End UNDO-REDO
++
+ 		g_free (path);
+ 		if (debuting_files) {
+ 			g_hash_table_replace (debuting_files, g_object_ref (dest), GINT_TO_POINTER (TRUE));
+@@ -5273,6 +5344,16 @@ nautilus_file_operations_link (GList *files,
+ 	}
+ 	job->debuting_files = g_hash_table_new_full (g_file_hash, (GEqualFunc)g_file_equal, g_object_unref, NULL);
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_CREATELINK, g_list_length(files));
++		GFile* src_dir = g_file_get_parent (files->data);
++		nautilus_undostack_manager_data_set_src_dir (job->common.undo_redo_data, src_dir);
++		g_object_ref (target_dir);
++		nautilus_undostack_manager_data_set_dest_dir (job->common.undo_redo_data, target_dir);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (link_job,
+ 			   job,
+ 			   NULL, /* destroy notify */
+@@ -5304,6 +5385,16 @@ nautilus_file_operations_duplicate (GList *files,
+ 	}
+ 	job->debuting_files = g_hash_table_new_full (g_file_hash, (GEqualFunc)g_file_equal, g_object_unref, NULL);
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_DUPLICATE, g_list_length(files));
++		GFile* src_dir = g_file_get_parent (files->data);
++		nautilus_undostack_manager_data_set_src_dir (job->common.undo_redo_data, src_dir);
++		g_object_ref (src_dir);
++		nautilus_undostack_manager_data_set_dest_dir (job->common.undo_redo_data, src_dir);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (copy_job,
+ 			   job,
+ 			   NULL, /* destroy notify */
+@@ -5373,6 +5464,11 @@ set_permissions_file (SetPermissionsJob *job,
+ 	if (!job_aborted (common) &&
+ 	    g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_UNIX_MODE)) {
+ 		current = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_MODE);
++		
++		// Start UNDO-REDO
++		nautilus_undostack_manager_data_add_file_permissions(common->undo_redo_data, file, current);
++		// End UNDO-REDO
++		
+ 		current = (current & ~mask) | value;
+ 
+ 		g_file_set_attribute_uint32 (file, G_FILE_ATTRIBUTE_UNIX_MODE,
+@@ -5456,6 +5552,15 @@ nautilus_file_set_permissions_recursive (const char *directory,
+ 	job->done_callback = callback;
+ 	job->done_callback_data = callback_data;
+ 	
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS, 1);
++		g_object_ref (job->file);
++		nautilus_undostack_manager_data_set_dest_dir (job->common.undo_redo_data, job->file);
++		nautilus_undostack_manager_data_set_recursive_permissions(job->common.undo_redo_data, file_permissions, file_mask, dir_permissions, dir_mask);
++	}
++	// End UNDO-REDO
++	
+ 	g_io_scheduler_push_job (set_permissions_job,
+ 			   job,
+ 			   NULL,
+@@ -5546,6 +5651,7 @@ nautilus_file_operations_copy_move (const GList *item_uris,
+ 		if (target_dir == NULL ||
+ 		    (src_dir != NULL &&
+ 		     g_file_equal (src_dir, dest))) {
++
+ 			nautilus_file_operations_duplicate (locations,
+ 							    relative_item_points,
+ 							    parent_window,
+@@ -5568,11 +5674,13 @@ nautilus_file_operations_copy_move (const GList *item_uris,
+ 			cb_data = g_slice_new0 (MoveTrashCBData);
+ 			cb_data->real_callback = done_callback;
+ 			cb_data->real_data = done_callback_data;
++
+ 			nautilus_file_operations_trash_or_delete (locations,
+ 								  parent_window,
+ 								  (NautilusDeleteCallback) callback_for_move_to_trash,
+ 								  cb_data);
+ 		} else {
++
+ 			nautilus_file_operations_move (locations,
+ 						       relative_item_points,
+ 						       dest,
+@@ -5580,6 +5688,7 @@ nautilus_file_operations_copy_move (const GList *item_uris,
+ 						       done_callback, done_callback_data);
+ 		}
+ 	} else {
++
+ 		nautilus_file_operations_link (locations,
+ 					       relative_item_points,
+ 					       dest,
+@@ -5700,6 +5809,13 @@ create_job (GIOSchedulerJob *io_job,
+ 		res = g_file_make_directory (dest,
+ 					     common->cancellable,
+ 					     &error);
++		// Start UNDO-REDO
++		if (res) {
++			nautilus_undostack_manager_data_set_create_data(common->undo_redo_data,
++					g_file_get_uri(dest),
++					NULL);
++		}
++		// End UNDO-REDO
+ 	} else {
+ 		if (job->src) {
+ 			res = g_file_copy (job->src,
+@@ -5708,6 +5824,13 @@ create_job (GIOSchedulerJob *io_job,
+ 					   common->cancellable,
+ 					   NULL, NULL,
+ 					   &error);
++			// Start UNDO-REDO
++			if (res) {
++				nautilus_undostack_manager_data_set_create_data(common->undo_redo_data,
++						g_file_get_uri(dest),
++						g_file_get_uri(job->src));
++			}
++			// End UNDO-REDO
+ 		} else {
+ 			data = "";
+ 			length = 0;
+@@ -5730,6 +5853,12 @@ create_job (GIOSchedulerJob *io_job,
+ 					res = g_output_stream_close (G_OUTPUT_STREAM (out),
+ 								     common->cancellable,
+ 								     &error);
++
++					if (res) {
++						nautilus_undostack_manager_data_set_create_data(common->undo_redo_data,
++								g_file_get_uri(dest),
++								g_strdup(data));
++					}
+ 				}
+ 
+ 				/* This will close if the write failed and we didn't close */
+@@ -5894,6 +6023,12 @@ nautilus_file_operations_new_folder (GtkWidget *parent_view,
+ 		job->has_position = TRUE;
+ 	}
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_CREATEFOLDER, 1);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (create_job,
+ 			   job,
+ 			   NULL, /* destroy notify */
+@@ -5932,6 +6067,12 @@ nautilus_file_operations_new_file_from_template (GtkWidget *parent_view,
+ 		job->src = g_file_new_for_uri (template_uri);
+ 	}
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE, 1);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (create_job,
+ 			   job,
+ 			   NULL, /* destroy notify */
+@@ -5969,6 +6110,12 @@ nautilus_file_operations_new_file (GtkWidget *parent_view,
+ 	job->length = length;
+ 	job->filename = g_strdup (target_filename);
+ 
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		job->common.undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_CREATEEMPTYFILE, 1);
++	}
++	// End UNDO-REDO
++
+ 	g_io_scheduler_push_job (create_job,
+ 			   job,
+ 			   NULL, /* destroy notify */
+@@ -6032,6 +6179,8 @@ empty_trash_job_done (gpointer user_data)
+ 		job->done_callback (job->done_callback_data);
+ 	}
+ 	
++	nautilus_undostack_manager_trash_has_emptied(nautilus_undostack_manager_instance());
++
+ 	finalize_common ((CommonJob *)job);
+ 	return FALSE;
+ }
+diff --git nautilus-2.28.4/libnautilus-private/nautilus-file-private.h nautilus-2.28.4/libnautilus-private/nautilus-file-private.h
+index 1d3b2bf..6099351 100644
+--- nautilus-2.28.4/libnautilus-private/nautilus-file-private.h
++++ nautilus-2.28.4/libnautilus-private/nautilus-file-private.h
+@@ -30,6 +30,7 @@
+ #include <libnautilus-private/nautilus-monitor.h>
+ #include <eel/eel-glib-extensions.h>
+ #include <eel/eel-string.h>
++#include <libnautilus-private/nautilus-undostack-manager.h>
+ 
+ #define NAUTILUS_FILE_LARGE_TOP_LEFT_TEXT_MAXIMUM_CHARACTERS_PER_LINE 80
+ #define NAUTILUS_FILE_LARGE_TOP_LEFT_TEXT_MAXIMUM_LINES               24
+@@ -237,6 +238,7 @@ typedef struct {
+ 	
+ 	gpointer data;
+ 	GDestroyNotify free_data;
++	NautilusUndoStackActionData* undo_redo_data;
+ } NautilusFileOperation;
+ 
+ 
+diff --git nautilus-2.28.4/libnautilus-private/nautilus-file.c nautilus-2.28.4/libnautilus-private/nautilus-file.c
+index fdb1bdc..e0893a9 100644
+--- nautilus-2.28.4/libnautilus-private/nautilus-file.c
++++ nautilus-2.28.4/libnautilus-private/nautilus-file.c
+@@ -1621,6 +1621,12 @@ nautilus_file_operation_free (NautilusFileOperation *op)
+ 	if (op->free_data) {
+ 		op->free_data (op->data);
+ 	}
++
++	// Start UNDO-REDO
++	nautilus_undostack_manager_add_action (nautilus_undostack_manager_instance(),
++										   op->undo_redo_data);
++	// End UNDO-REDO
++
+ 	g_free (op);
+ }
+ 
+@@ -1725,6 +1731,11 @@ rename_callback (GObject *source_object,
+ 						   res, &error);
+ 
+ 	if (new_file != NULL) {
++
++		/* Undo redo stuff */
++		nautilus_undostack_manager_data_set_rename_information(op->undo_redo_data, G_FILE (source_object), new_file);
++		/* End undo redo stuff */
++
+ 		g_file_query_info_async (new_file,
+ 					 NAUTILUS_FILE_DEFAULT_ATTRIBUTES,
+ 					 0,
+@@ -1890,6 +1901,13 @@ nautilus_file_rename (NautilusFile *file,
+ 	/* Do the renaming. */
+ 
+ 	location = nautilus_file_get_location (file);
++
++	// Start UNDO-REDO
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		op->undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_RENAME, 1);
++	}
++	// End UNDO-REDO
++
+ 	g_file_set_display_name_async (location,
+ 				       new_name,
+ 				       G_PRIORITY_DEFAULT,
+@@ -5004,10 +5022,20 @@ nautilus_file_set_permissions (NautilusFile *file,
+ 		(* callback) (file, NULL, NULL, callback_data);
+ 		return;
+ 	}
++	
++	/* Undo redo stuff */
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		NautilusUndoStackActionData* undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_SETPERMISSIONS, 1);
++		nautilus_undostack_manager_data_set_file_permissions(undo_redo_data, nautilus_file_get_uri(file), file->details->permissions, new_permissions);
++		nautilus_undostack_manager_add_action (nautilus_undostack_manager_instance(),
++										   undo_redo_data);
++	}
++	/* End undo redo stuff */
+ 
+ 	info = g_file_info_new ();
+ 	g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_MODE, new_permissions);
+ 	nautilus_file_set_attributes (file, info, callback, callback_data);
++	
+ 	g_object_unref (info);
+ }
+ 
+@@ -5307,6 +5335,18 @@ nautilus_file_set_owner (NautilusFile *file,
+ 		(* callback) (file, NULL, NULL, callback_data);
+ 		return;
+ 	}
++	
++	/* Undo redo stuff */
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		char* current_owner = nautilus_file_get_owner_as_string (file, FALSE);
++		NautilusUndoStackActionData* undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_CHANGEOWNER, 1);
++		nautilus_undostack_manager_data_set_owner_change_information(undo_redo_data, nautilus_file_get_uri(file), current_owner, user_name_or_id);
++		nautilus_undostack_manager_add_action (nautilus_undostack_manager_instance(),
++										   undo_redo_data);
++        g_free(current_owner);
++	}
++	/* End undo redo stuff */
++	
+ 
+ 	info = g_file_info_new ();
+ 	g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_UID, new_id);
+@@ -5571,6 +5611,16 @@ nautilus_file_set_group (NautilusFile *file,
+ 		return;
+ 	}
+ 
++	/* Undo redo stuff */
++	if (!nautilus_undostack_manager_is_undo_redo(nautilus_undostack_manager_instance())) {
++		char* current_group = nautilus_file_get_group_name (file);
++		NautilusUndoStackActionData* undo_redo_data = nautilus_undostack_manager_data_new (NAUTILUS_UNDOSTACK_CHANGEGROUP, 1);
++		nautilus_undostack_manager_data_set_group_change_information(undo_redo_data, nautilus_file_get_uri(file), current_group, group_name_or_id);
++		nautilus_undostack_manager_add_action (nautilus_undostack_manager_instance(),
++										   undo_redo_data);
++        g_free(current_group);
++	}
++	/* End undo redo stuff */
+ 
+ 	info = g_file_info_new ();
+ 	g_file_info_set_attribute_uint32 (info, G_FILE_ATTRIBUTE_UNIX_GID, new_id);
+diff --git nautilus-2.28.4/libnautilus-private/nautilus-undostack-manager.c nautilus-2.28.4/libnautilus-private/nautilus-undostack-manager.c
+new file mode 100644
+index 0000000..defba0c
+--- /dev/null
++++ nautilus-2.28.4/libnautilus-private/nautilus-undostack-manager.c
+@@ -0,0 +1,1976 @@
++/* -*- Mode: C; indent-tabs-mode: t; c-basic-offset: 8; tab-width: 8 -*- */
++
++/* NautilusUndoStackManager - Manages undo of file operations (implementation)
++ *
++ * Copyright (C) 2007-2010 Amos Brocco
++ *
++ * Author: Amos Brocco <amos.brocco@unifr.ch>
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 02111-1307, USA.
++ */
++
++#include "nautilus-undostack-manager.h"
++#include "nautilus-file-operations.h"
++#include "nautilus-file.h"
++#include <gio/gio.h>
++#include <glib/gprintf.h>
++#include <glib-object.h>
++#include <glib/gi18n.h>
++#include <locale.h>
++#include <gdk/gdk.h>
++#include <eel/eel-glib-extensions.h>
++
++/* *****************************************************************
++ Private fields
++ ***************************************************************** */
++
++struct _NautilusUndoStackActionData
++{
++  /* Common stuff */
++  NautilusUndoStackActionType type;
++  gboolean isValid;
++  gboolean locked;              /* True if the action is being undone/redone */
++  gboolean freed;               /* True if the action must be freed after undo/redo */
++  guint count;                  /* Size of affected uris (count of items) */
++  NautilusUndoStackManager *manager;    /* Pointer to the manager */
++
++  /* Copy / Move stuff */
++  GFile *src_dir;
++  GFile *dest_dir;
++  GList *sources;               /* Relative to src_dir */
++  GList *destinations;          /* Relative to dest_dir */
++
++  /* Cached labels/descriptions */
++  char *undo_label;
++  char *undo_description;
++  char *redo_label;
++  char *redo_description;
++
++  /* Create new file/folder stuff/set permissions */
++  char *template;
++  char *target_uri;
++
++  /* Rename stuff */
++  char *old_uri;
++  char *new_uri;
++
++  /* Trash stuff */
++  GHashTable *trashed;
++
++  /* Recursive change permissions stuff */
++  GHashTable *original_permissions;
++  guint32 dir_mask;
++  guint32 dir_permissions;
++  guint32 file_mask;
++  guint32 file_permissions;
++
++  /* Single file change permissions stuff */
++  guint32 current_permissions;
++  guint32 new_permissions;
++
++  /* Group */
++  char *original_group_name_or_id;
++  char *new_group_name_or_id;
++
++  /* Owner */
++  char *original_user_name_or_id;
++  char *new_user_name_or_id;
++
++};
++
++struct _NautilusUndoStackManagerPrivate
++{
++  /* Private fields */
++  GQueue *stack;
++  guint undo_levels;
++  guint index;
++  GMutex *mutex;                /* Used to protect access to stack (because of async file ops) */
++  gboolean dispose_has_run;
++  gboolean undo_redo_flag;
++  gboolean confirm_delete;
++};
++
++#define NAUTILUS_UNDOSTACK_MANAGER_GET_PRIVATE(o)  \
++   (G_TYPE_INSTANCE_GET_PRIVATE ((o), TYPE_NAUTILUS_UNDOSTACK_MANAGER, NautilusUndoStackManagerPrivate))
++
++/* *****************************************************************
++ Properties management prototypes
++ ***************************************************************** */
++enum
++{
++  PROP_UNDOSTACK_MANAGER_0, PROP_UNDO_LEVELS, PROP_CONFIRM_DELETE
++};
++
++static void nautilus_undostack_manager_set_property (GObject * object,
++    guint prop_id, const GValue * value, GParamSpec * pspec);
++
++static void nautilus_undostack_manager_get_property (GObject * object,
++    guint prop_id, GValue * value, GParamSpec * pspec);
++
++/* *****************************************************************
++ Destructors prototypes
++ ***************************************************************** */
++static void nautilus_undostack_manager_finalize (GObject * object);
++
++static void nautilus_undostack_manager_dispose (GObject * object);
++
++/* *****************************************************************
++ Type definition
++ ***************************************************************** */
++G_DEFINE_TYPE (NautilusUndoStackManager, nautilus_undostack_manager,
++    G_TYPE_OBJECT);
++
++/* *****************************************************************
++ Private methods prototypes
++ ***************************************************************** */
++
++static void stack_clear_n_oldest (GQueue * stack, guint n);
++
++static void stack_fix_size (NautilusUndoStackManagerPrivate * priv);
++
++static gboolean can_undo (NautilusUndoStackManagerPrivate * priv);
++
++static gboolean can_redo (NautilusUndoStackManagerPrivate * priv);
++
++static void stack_push_action (NautilusUndoStackManagerPrivate * priv,
++    NautilusUndoStackActionData * action);
++
++static NautilusUndoStackActionData
++    * stack_scroll_left (NautilusUndoStackManagerPrivate * priv);
++
++static NautilusUndoStackActionData
++    * stack_scroll_right (NautilusUndoStackManagerPrivate * priv);
++
++static NautilusUndoStackActionData
++    * get_next_redo_action (NautilusUndoStackManagerPrivate * priv);
++
++static NautilusUndoStackActionData
++    * get_next_undo_action (NautilusUndoStackManagerPrivate * priv);
++
++static gchar *get_undo_label (NautilusUndoStackActionData * action);
++
++static gchar *get_undo_description (NautilusUndoStackActionData * action);
++
++static gchar *get_redo_label (NautilusUndoStackActionData * action);
++
++static gchar *get_redo_description (NautilusUndoStackActionData * action);
++
++static void do_menu_update (NautilusUndoStackManager * manager);
++
++static void free_undostack_action (gpointer data, gpointer user_data);
++
++static void undostack_dispose_all (GQueue * queue);
++
++static void undo_redo_done_transfer_callback (GHashTable * debuting_uris,
++    gpointer data);
++
++static void undo_redo_op_callback (gpointer callback_data);
++
++static void undo_redo_done_rename_callback (NautilusFile * file,
++    GFile * result_location, GError * error, gpointer callback_data);
++
++static void undo_redo_done_delete_callback (GHashTable * debuting_uris,
++    gboolean user_cancel, gpointer callback_data);
++
++static void undo_redo_done_create_callback (GFile * new_file,
++    gpointer callback_data);
++
++static void clear_redo_actions (NautilusUndoStackManagerPrivate * priv);
++
++static gchar *get_first_target_short_name (NautilusUndoStackActionData *
++    action);
++
++static GList *construct_gfile_list (const GList * urilist, GFile * parent);
++
++static GList *construct_gfile_list_from_uri (char *uri);
++
++static GList *uri_list_to_gfile_list (GList * urilist);
++
++static char *get_uri_basename (char *uri);
++
++static char *get_uri_parent (char *uri);
++
++static char *get_uri_parent_path (char *uri);
++
++static GHashTable *retrieve_files_to_restore (GHashTable * trashed);
++
++/* *****************************************************************
++ Base functions
++ ***************************************************************** */
++static void
++nautilus_undostack_manager_class_init (NautilusUndoStackManagerClass * klass)
++{
++  GParamSpec *undo_levels;
++  GParamSpec *confirm_delete;
++  GObjectClass *g_object_class;
++
++  /* Add private structure */
++  g_type_class_add_private (klass, sizeof (NautilusUndoStackManagerPrivate));
++
++  /* Create properties */
++  undo_levels = g_param_spec_uint ("undo-levels", "undo levels",
++      "Number of undo levels to be stored",
++      1, UINT_MAX, 30, G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
++
++  confirm_delete =
++      g_param_spec_boolean ("confirm-delete", "confirm delete",
++      "Always confirm file deletion", FALSE,
++      G_PARAM_READWRITE | G_PARAM_CONSTRUCT);
++
++  /* Set properties get/set methods */
++  g_object_class = G_OBJECT_CLASS (klass);
++
++  g_object_class->set_property = nautilus_undostack_manager_set_property;
++  g_object_class->get_property = nautilus_undostack_manager_get_property;
++
++  /* Install properties */
++  g_object_class_install_property (g_object_class, PROP_UNDO_LEVELS,
++      undo_levels);
++
++  g_object_class_install_property (g_object_class, PROP_CONFIRM_DELETE,
++      confirm_delete);
++
++  /* The UI menu needs to update its status */
++  g_signal_new ("request-menu-update",
++      G_TYPE_FROM_CLASS (klass),
++      G_SIGNAL_RUN_LAST | G_SIGNAL_NO_RECURSE |
++      G_SIGNAL_NO_HOOKS, 0, NULL, NULL,
++      g_cclosure_marshal_VOID__POINTER, G_TYPE_NONE, 1, G_TYPE_POINTER);
++
++  /* Hook deconstructors */
++  g_object_class->dispose = nautilus_undostack_manager_dispose;
++  g_object_class->finalize = nautilus_undostack_manager_finalize;
++}
++
++static void
++nautilus_undostack_manager_init (NautilusUndoStackManager * self)
++{
++  NautilusUndoStackManagerPrivate *priv;
++
++  priv = NAUTILUS_UNDOSTACK_MANAGER_GET_PRIVATE (self);
++
++  self->priv = priv;
++
++  /* Initialize private fields */
++  priv->stack = g_queue_new ();
++  priv->mutex = g_mutex_new ();
++  priv->index = 0;
++  priv->dispose_has_run = FALSE;
++  priv->undo_redo_flag = FALSE;
++  priv->confirm_delete = FALSE;
++}
++
++static void
++nautilus_undostack_manager_dispose (GObject * object)
++{
++  NautilusUndoStackManager *self = NAUTILUS_UNDOSTACK_MANAGER (object);
++  NautilusUndoStackManagerPrivate *priv = self->priv;
++
++  if (priv->dispose_has_run)
++    return;
++
++  g_mutex_lock (priv->mutex);
++
++  /* Free each undoable action in the stack and the stack itself */
++  undostack_dispose_all (priv->stack);
++  g_queue_free (priv->stack);
++  g_mutex_unlock (priv->mutex);
++
++  g_mutex_free (priv->mutex);
++
++  priv->dispose_has_run = TRUE;
++
++  G_OBJECT_CLASS (nautilus_undostack_manager_parent_class)->dispose (object);
++}
++
++static void
++nautilus_undostack_manager_finalize (GObject * object)
++{
++  G_OBJECT_CLASS (nautilus_undostack_manager_parent_class)->finalize (object);
++}
++
++/* *****************************************************************
++ Property management
++ ***************************************************************** */
++static void
++nautilus_undostack_manager_set_property (GObject * object, guint prop_id,
++    const GValue * value, GParamSpec * pspec)
++{
++  g_return_if_fail (IS_NAUTILUS_UNDOSTACK_MANAGER (object));
++
++  NautilusUndoStackManager *manager = NAUTILUS_UNDOSTACK_MANAGER (object);
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++  guint new_undo_levels;
++
++  switch (prop_id) {
++    case PROP_UNDO_LEVELS:
++      new_undo_levels = g_value_get_uint (value);
++      if (new_undo_levels > 0 && (priv->undo_levels != new_undo_levels)) {
++        priv->undo_levels = new_undo_levels;
++        g_mutex_lock (priv->mutex);
++        stack_fix_size (priv);
++        g_mutex_unlock (priv->mutex);
++        do_menu_update (manager);
++      }
++      break;
++    case PROP_CONFIRM_DELETE:
++      priv->confirm_delete = g_value_get_boolean (value);
++      break;
++    default:
++      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++      break;
++  }
++}
++
++static void
++nautilus_undostack_manager_get_property (GObject * object, guint prop_id,
++    GValue * value, GParamSpec * pspec)
++{
++  g_return_if_fail (IS_NAUTILUS_UNDOSTACK_MANAGER (object));
++
++  NautilusUndoStackManager *manager = NAUTILUS_UNDOSTACK_MANAGER (object);
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++
++  switch (prop_id) {
++    case PROP_UNDO_LEVELS:
++      g_value_set_uint (value, priv->undo_levels);
++      break;
++
++    default:
++      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++      break;
++  }
++}
++
++/* *****************************************************************
++ Public methods
++ ***************************************************************** */
++
++/** ****************************************************************
++ * Returns the undo stack manager instance (singleton pattern)
++ ** ****************************************************************/
++NautilusUndoStackManager *
++nautilus_undostack_manager_instance (void)
++{
++  static NautilusUndoStackManager *manager = NULL;
++
++  if (manager == NULL) {
++    manager =
++        g_object_new (TYPE_NAUTILUS_UNDOSTACK_MANAGER, "undo-levels", 32, NULL);
++  }
++
++  return manager;
++}
++
++/** ****************************************************************
++ * True if undoing / redoing
++ ** ****************************************************************/
++gboolean
++nautilus_undostack_manager_is_undo_redo (NautilusUndoStackManager * manager)
++{
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++  if (priv->undo_redo_flag) {
++    priv->undo_redo_flag = FALSE;
++    return TRUE;
++  }
++
++  return FALSE;
++}
++
++void
++nautilus_undostack_manager_request_menu_update (NautilusUndoStackManager *
++    manager)
++{
++  do_menu_update (manager);
++}
++
++/** ****************************************************************
++ * Redoes the last file operation
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_redo (NautilusUndoStackManager * manager,
++    GtkWidget * parent_view, NautilusUndostackFinishCallback cb)
++{
++  GList *uris;
++  NautilusFile *file;
++  char *new_name;
++  char *puri;
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++
++  g_mutex_lock (priv->mutex);
++
++  NautilusUndoStackActionData *action = stack_scroll_left (priv);
++
++  /* Action will be NULL if redo is not possible */
++  if (action != NULL) {
++    action->locked = TRUE;
++  }
++
++  g_mutex_unlock (priv->mutex);
++
++  do_menu_update (manager);
++
++  if (action != NULL) {
++    action->locked = TRUE;      /* Remember to unlock when redo is finished */
++    priv->undo_redo_flag = TRUE;
++    switch (action->type) {
++      case NAUTILUS_UNDOSTACK_COPY:
++        uris = construct_gfile_list (action->sources, action->src_dir);
++        nautilus_file_operations_copy (uris, NULL,
++            action->dest_dir, NULL, undo_redo_done_transfer_callback, action);
++        eel_g_object_list_free (uris);
++        break;
++      case NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE:
++        puri = get_uri_parent (action->target_uri);
++        new_name = get_uri_basename (action->target_uri);
++        nautilus_file_operations_new_file_from_template (NULL,
++            NULL,
++            puri,
++            new_name, action->template, undo_redo_done_create_callback, action);
++        g_free (puri);
++        g_free (new_name);
++        break;
++      case NAUTILUS_UNDOSTACK_DUPLICATE:
++        uris = construct_gfile_list (action->sources, action->src_dir);
++        nautilus_file_operations_duplicate (uris, NULL, NULL,
++            undo_redo_done_transfer_callback, action);
++        eel_g_object_list_free (uris);
++        break;
++      case NAUTILUS_UNDOSTACK_RESTOREFROMTRASH:
++      case NAUTILUS_UNDOSTACK_MOVE:
++        uris = construct_gfile_list (action->sources, action->src_dir);
++        nautilus_file_operations_move (uris, NULL,
++            action->dest_dir, NULL, undo_redo_done_transfer_callback, action);
++        eel_g_object_list_free (uris);
++        break;
++      case NAUTILUS_UNDOSTACK_RENAME:
++        new_name = get_uri_basename (action->new_uri);
++        file = nautilus_file_get_by_uri (action->old_uri);
++        nautilus_file_rename (file, new_name,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        g_free (new_name);
++        break;
++      case NAUTILUS_UNDOSTACK_CREATEEMPTYFILE:
++        puri = get_uri_parent (action->target_uri);
++        new_name = get_uri_basename (action->target_uri);
++        nautilus_file_operations_new_file (NULL, NULL, puri,
++            new_name,
++            action->template,
++            undo_redo_done_create_callback, action);
++        g_free (puri);
++        g_free (new_name);
++        break;
++      case NAUTILUS_UNDOSTACK_CREATEFOLDER:
++        puri = get_uri_parent (action->target_uri);
++        nautilus_file_operations_new_folder (NULL, NULL, puri,
++            undo_redo_done_create_callback, action);
++        g_free (puri);
++        break;
++      case NAUTILUS_UNDOSTACK_MOVETOTRASH:
++        if (g_hash_table_size (action->trashed) > 0) {
++          GList *uri_to_trash = g_hash_table_get_keys (action->trashed);
++          uris = uri_list_to_gfile_list (uri_to_trash);
++          nautilus_file_operations_trash_or_delete
++              (uris, NULL, undo_redo_done_delete_callback, action);
++          g_list_free (uri_to_trash);
++          eel_g_object_list_free (uris);
++        }
++        break;
++      case NAUTILUS_UNDOSTACK_CREATELINK:
++        uris = construct_gfile_list (action->sources, action->src_dir);
++        nautilus_file_operations_link (uris, NULL,
++            action->dest_dir, NULL, undo_redo_done_transfer_callback, action);
++        eel_g_object_list_free (uris);
++        break;
++      case NAUTILUS_UNDOSTACK_SETPERMISSIONS:
++        file = nautilus_file_get_by_uri (action->target_uri);
++        nautilus_file_set_permissions (file,
++            action->new_permissions, undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        break;
++      case NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS:
++        puri = g_file_get_uri (action->dest_dir);
++        nautilus_file_set_permissions_recursive (puri,
++            action->file_permissions,
++            action->file_mask,
++            action->dir_permissions,
++            action->dir_mask, undo_redo_op_callback, action);
++        g_free (puri);
++        break;
++      case NAUTILUS_UNDOSTACK_CHANGEGROUP:
++        file = nautilus_file_get_by_uri (action->target_uri);
++        nautilus_file_set_group (file,
++            action->new_group_name_or_id,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        break;
++      case NAUTILUS_UNDOSTACK_CHANGEOWNER:
++        file = nautilus_file_get_by_uri (action->target_uri);
++        nautilus_file_set_owner (file,
++            action->new_user_name_or_id,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        break;
++      default:
++        priv->undo_redo_flag = FALSE;
++        break;                  /* We shouldn't be here */
++    }
++  }
++
++  (*cb) ((gpointer) parent_view);
++}
++
++/** ****************************************************************
++ * Undoes the last file operation
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_undo (NautilusUndoStackManager * manager,
++    GtkWidget * parent_view, NautilusUndostackFinishCallback cb)
++{
++  GList *uris = NULL;
++  GHashTable *files_to_restore;
++  NautilusFile *file;
++  char *new_name;
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++
++  g_mutex_lock (priv->mutex);
++
++  NautilusUndoStackActionData *action = stack_scroll_right (priv);
++
++  if (action != NULL) {
++    action->locked = TRUE;
++  }
++
++  g_mutex_unlock (priv->mutex);
++
++  do_menu_update (manager);
++
++  if (action != NULL) {
++    priv->undo_redo_flag = TRUE; // Note: Internal managed ops have to call nautilus_undostack_manager_is_undo_redo (manager);
++    switch (action->type) {
++      case NAUTILUS_UNDOSTACK_CREATEEMPTYFILE:
++      case NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE:
++      case NAUTILUS_UNDOSTACK_CREATEFOLDER:
++        uris = construct_gfile_list_from_uri (action->target_uri);
++      case NAUTILUS_UNDOSTACK_COPY:
++      case NAUTILUS_UNDOSTACK_DUPLICATE:
++      case NAUTILUS_UNDOSTACK_CREATELINK:
++        if (!uris) {
++          uris = construct_gfile_list (action->destinations, action->dest_dir);
++          uris = g_list_reverse (uris); // Deleting must be done in reverse
++        }
++        if (priv->confirm_delete) {
++          nautilus_file_operations_delete (uris, NULL,
++              undo_redo_done_delete_callback, action);
++          eel_g_object_list_free (uris);
++        } else {
++		  nautilus_undostack_manager_is_undo_redo (manager);
++          /* We skip the confirmation message
++           */
++          GList *f;
++          for (f = uris; f != NULL; f = f->next) {
++            char *name;
++            name = g_file_get_uri (f->data);
++            g_free (name);
++            g_file_delete (f->data, NULL, NULL);
++            g_object_unref (f->data);
++          }
++          g_list_free (uris);
++          /* Here we must do what's necessary for the callback */
++          undo_redo_done_transfer_callback (NULL, action);
++        }
++        break;
++      case NAUTILUS_UNDOSTACK_RESTOREFROMTRASH:
++        uris = construct_gfile_list (action->destinations, action->dest_dir);
++        nautilus_file_operations_trash_or_delete (uris, NULL,
++            undo_redo_done_delete_callback, action);
++        eel_g_object_list_free (uris);
++        break;
++      case NAUTILUS_UNDOSTACK_MOVETOTRASH:
++		nautilus_undostack_manager_is_undo_redo (manager);
++        files_to_restore = retrieve_files_to_restore (action->trashed);
++        if (g_hash_table_size (files_to_restore) > 0) {
++          GList *l;
++          GList *gfiles_in_trash = g_hash_table_get_keys (files_to_restore);
++          GFile *item;
++          GFile *dest;
++          char *value;
++
++          for (l = gfiles_in_trash; l != NULL; l = l->next) {
++            item = l->data;
++            value = g_hash_table_lookup (files_to_restore, item);
++            dest = g_file_new_for_uri (value);
++            g_file_move (item, dest,
++                G_FILE_COPY_NOFOLLOW_SYMLINKS, NULL, NULL, NULL, NULL);
++            g_object_unref (dest);
++          }
++
++          g_list_free (gfiles_in_trash);
++        }
++        g_hash_table_destroy (files_to_restore);
++        /* Here we must do what's necessary for the callback */
++        undo_redo_done_transfer_callback (NULL, action);
++        break;
++      case NAUTILUS_UNDOSTACK_MOVE:
++        uris = construct_gfile_list (action->destinations, action->dest_dir);
++        nautilus_file_operations_move (uris, NULL,
++            action->src_dir, NULL, undo_redo_done_transfer_callback, action);
++        eel_g_object_list_free (uris);
++        break;
++      case NAUTILUS_UNDOSTACK_RENAME:
++        new_name = get_uri_basename (action->old_uri);
++        file = nautilus_file_get_by_uri (action->new_uri);
++        nautilus_file_rename (file, new_name,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        g_free (new_name);
++        break;
++      case NAUTILUS_UNDOSTACK_SETPERMISSIONS:
++        file = nautilus_file_get_by_uri (action->target_uri);
++        nautilus_file_set_permissions (file,
++            action->current_permissions,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        break;
++      case NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS:
++        nautilus_undostack_manager_is_undo_redo (manager);
++        if (g_hash_table_size (action->original_permissions) > 0) {
++          GList *gfiles_list =
++              g_hash_table_get_keys (action->original_permissions);
++          guint32 *perm;
++          GList *l;
++          GFile *dest;
++          char *item;
++
++          for (l = gfiles_list; l != NULL; l = l->next) {
++            item = l->data;
++            perm = g_hash_table_lookup (action->original_permissions, item);
++            dest = g_file_new_for_uri (item);
++            g_file_set_attribute_uint32 (dest,
++                G_FILE_ATTRIBUTE_UNIX_MODE,
++                *perm, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, NULL);
++            g_object_unref (dest);
++          }
++
++          g_list_free (gfiles_list);
++          /* Here we must do what's necessary for the callback */
++          undo_redo_done_transfer_callback (NULL, action);
++        }
++        break;
++      case NAUTILUS_UNDOSTACK_CHANGEGROUP:
++        file = nautilus_file_get_by_uri (action->target_uri);
++        nautilus_file_set_group (file,
++            action->original_group_name_or_id,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        break;
++      case NAUTILUS_UNDOSTACK_CHANGEOWNER:
++        file = nautilus_file_get_by_uri (action->target_uri);
++        nautilus_file_set_owner (file,
++            action->original_user_name_or_id,
++            undo_redo_done_rename_callback, action);
++        g_object_unref (file);
++        break;
++      default:
++        priv->undo_redo_flag = FALSE;
++        break;                  /* We shouldn't be here */
++    }
++  }
++
++  (*cb) ((gpointer) parent_view);
++}
++
++/** ****************************************************************
++ * Adds an operation to the stack
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_add_action (NautilusUndoStackManager * manager,
++    NautilusUndoStackActionData * action)
++{
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++
++  if (!action)
++    return;
++
++  if (!(action && action->isValid)) {
++    free_undostack_action ((gpointer) action, NULL);
++    return;
++  }
++
++  action->manager = manager;
++
++  g_mutex_lock (priv->mutex);
++
++  stack_push_action (priv, action);
++
++  g_mutex_unlock (priv->mutex);
++
++  do_menu_update (manager);
++
++}
++
++/** ****************************************************************
++ * Callback after emptying the trash
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_trash_has_emptied (NautilusUndoStackManager *
++    manager)
++{
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++
++  /* Clear actions from the oldest to the newest move to trash */
++
++  g_mutex_lock (priv->mutex);
++
++  clear_redo_actions (priv);
++
++  /* Search newest move to trash */
++  guint i;
++  guint length = g_queue_get_length (priv->stack);
++  guint newest_move_to_trash_position = -1;
++  NautilusUndoStackActionData *action = NULL;
++
++  for (i = 0; i < length; i++) {
++    action = (NautilusUndoStackActionData *)
++        g_queue_peek_nth (priv->stack, i);
++    if (action->type == NAUTILUS_UNDOSTACK_MOVETOTRASH) {
++      newest_move_to_trash_position = i;
++      break;
++    }
++  }
++
++  if (newest_move_to_trash_position >= 0) {
++    guint to_clear = length - newest_move_to_trash_position;
++    stack_clear_n_oldest (priv->stack, to_clear);
++  }
++
++  g_mutex_unlock (priv->mutex);
++}
++
++/** ****************************************************************
++ * Returns the modification time for the given file (used for undo trash)
++ ** ****************************************************************/
++guint64
++nautilus_undostack_manager_get_file_modification_time (GFile * file)
++{
++  GFileInfo *info;
++  guint64 mtime;
++
++  info = g_file_query_info (file, G_FILE_ATTRIBUTE_TIME_MODIFIED,
++      G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, FALSE, NULL);
++  if (info == NULL) {
++    return -1;
++  }
++
++  mtime = g_file_info_get_attribute_uint64 (info,
++      G_FILE_ATTRIBUTE_TIME_MODIFIED);
++
++  g_object_unref (info);
++
++  return mtime;
++}
++
++/** ****************************************************************
++ * Returns a new undo data container
++ ** ****************************************************************/
++NautilusUndoStackActionData *
++nautilus_undostack_manager_data_new (NautilusUndoStackActionType type,
++    gint items_count)
++{
++  NautilusUndoStackActionData *data =
++      g_slice_new0 (NautilusUndoStackActionData);
++  data->type = type;
++  data->count = items_count;
++
++  if (type == NAUTILUS_UNDOSTACK_MOVETOTRASH) {
++    data->trashed =
++        g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
++  } else if (type == NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS) {
++    data->original_permissions =
++        g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
++  }
++
++  return data;
++}
++
++/** ****************************************************************
++ * Sets the source directory
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_data_set_src_dir (NautilusUndoStackActionData *
++    data, GFile * src)
++{
++  if (!data)
++    return;
++
++  data->src_dir = src;
++}
++
++/** ****************************************************************
++ * Sets the destination directory
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_data_set_dest_dir (NautilusUndoStackActionData *
++    data, GFile * dest)
++{
++  if (!data)
++    return;
++
++  data->dest_dir = dest;
++}
++
++/** ****************************************************************
++ * Pushes an origin, target pair in an existing undo data container
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_add_origin_target_pair
++    (NautilusUndoStackActionData * data, GFile * origin, GFile * target)
++{
++
++  if (!data)
++    return;
++
++  char *src_relative = g_file_get_relative_path (data->src_dir, origin);
++  data->sources = g_list_append (data->sources, src_relative);
++  char *dest_relative = g_file_get_relative_path (data->dest_dir, target);
++  data->destinations = g_list_append (data->destinations, dest_relative);
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Pushes an trashed file with modification time in an existing undo data container
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_data_add_trashed_file (NautilusUndoStackActionData
++    * data, GFile * file, guint64 mtime)
++{
++
++  if (!data)
++    return;
++
++  guint64 *modificationTime;
++  modificationTime = (guint64 *) malloc (sizeof (guint64));
++  *modificationTime = mtime;
++
++  char *originalURI = g_file_get_uri (file);
++
++  g_hash_table_insert (data->trashed, originalURI, modificationTime);
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Pushes a recursive permission change data in an existing undo data container
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_add_file_permissions
++    (NautilusUndoStackActionData * data, GFile * file, guint32 permission)
++{
++
++  if (!data)
++    return;
++
++  guint32 *currentPermission;
++  currentPermission = (guint32 *) malloc (sizeof (guint32));
++  *currentPermission = permission;
++
++  char *originalURI = g_file_get_uri (file);
++
++  g_hash_table_insert (data->original_permissions, originalURI,
++      currentPermission);
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Sets the original file permission in an existing undo data container
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_set_file_permissions
++    (NautilusUndoStackActionData * data, char *uri,
++    guint32 current_permissions, guint32 new_permissions)
++{
++
++  if (!data)
++    return;
++
++  data->target_uri = uri;
++
++  data->current_permissions = current_permissions;
++  data->new_permissions = new_permissions;
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Sets the change owner information in an existing undo data container
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_set_owner_change_information
++    (NautilusUndoStackActionData * data, char *uri,
++    const char *current_user, const char *new_user)
++{
++
++  if (!data)
++    return;
++
++  data->target_uri = uri;
++
++  data->original_user_name_or_id = g_strdup (current_user);
++  data->new_user_name_or_id = g_strdup (new_user);
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Sets the change group information in an existing undo data container
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_set_group_change_information
++    (NautilusUndoStackActionData * data, char *uri,
++    const char *current_group, const char *new_group)
++{
++
++  if (!data)
++    return;
++
++  data->target_uri = uri;
++
++  data->original_group_name_or_id = g_strdup (current_group);
++  data->new_group_name_or_id = g_strdup (new_group);
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Sets the permission change mask
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_set_recursive_permissions
++    (NautilusUndoStackActionData * data, guint32 file_permissions,
++    guint32 file_mask, guint32 dir_permissions, guint32 dir_mask)
++{
++
++  if (!data)
++    return;
++
++  data->file_permissions = file_permissions;
++  data->file_mask = file_mask;
++  data->dir_permissions = dir_permissions;
++  data->dir_mask = dir_mask;
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Sets create file information
++ ** ****************************************************************/
++void
++nautilus_undostack_manager_data_set_create_data (NautilusUndoStackActionData *
++    data, char *target_uri, char *template)
++{
++
++  if (!data)
++    return;
++
++  data->template = g_strdup (template);
++  data->target_uri = g_strdup (target_uri);
++
++  data->isValid = TRUE;
++}
++
++/** ****************************************************************
++ * Sets rename information
++ ** ****************************************************************/
++void nautilus_undostack_manager_data_set_rename_information
++    (NautilusUndoStackActionData * data, GFile * old_file, GFile * new_file)
++{
++
++  if (!data)
++    return;
++
++  data->old_uri = g_file_get_uri (old_file);
++  data->new_uri = g_file_get_uri (new_file);
++
++  data->isValid = TRUE;
++}
++
++/* *****************************************************************
++ Private methods (nothing to see here, move along)
++ ***************************************************************** */
++
++static NautilusUndoStackActionData *
++stack_scroll_right (NautilusUndoStackManagerPrivate * priv)
++{
++  gpointer data = NULL;
++
++  if (!can_undo (priv))
++    return NULL;
++
++  data = g_queue_peek_nth (priv->stack, priv->index);
++  if (priv->index < g_queue_get_length (priv->stack)) {
++    priv->index++;
++  }
++
++  return data;
++}
++
++/** ---------------------------------------------------------------- */
++static NautilusUndoStackActionData *
++stack_scroll_left (NautilusUndoStackManagerPrivate * priv)
++{
++  gpointer data = NULL;
++
++  if (!can_redo (priv))
++    return NULL;
++
++  priv->index--;
++  data = g_queue_peek_nth (priv->stack, priv->index);
++
++  return data;
++}
++
++/** ---------------------------------------------------------------- */
++static void
++stack_clear_n_oldest (GQueue * stack, guint n)
++{
++  NautilusUndoStackActionData *action;
++  guint i;
++
++  for (i = 0; i < n; i++) {
++    action = (NautilusUndoStackActionData *)
++        g_queue_pop_tail (stack);
++    if (action->locked) {
++      action->freed = TRUE;
++    } else {
++      free_undostack_action (action, NULL);
++    }
++  }
++}
++
++/** ---------------------------------------------------------------- */
++static void
++stack_fix_size (NautilusUndoStackManagerPrivate * priv)
++{
++  guint length = g_queue_get_length (priv->stack);
++
++  if (length > priv->undo_levels) {
++    if (priv->index > (priv->undo_levels + 1)) {
++      /* If the index will fall off the stack
++       * move it back to the maximum position */
++      priv->index = priv->undo_levels + 1;
++    }
++    stack_clear_n_oldest (priv->stack, length - (priv->undo_levels));
++  }
++}
++
++/** ---------------------------------------------------------------- */
++static void
++clear_redo_actions (NautilusUndoStackManagerPrivate * priv)
++{
++  while (priv->index > 0) {
++    NautilusUndoStackActionData *head = (NautilusUndoStackActionData *)
++        g_queue_pop_head (priv->stack);
++    free_undostack_action (head, NULL);
++    priv->index--;
++  }
++}
++
++/** ---------------------------------------------------------------- */
++static void
++stack_push_action (NautilusUndoStackManagerPrivate * priv,
++    NautilusUndoStackActionData * action)
++{
++  guint length;
++
++  clear_redo_actions (priv);
++
++  g_queue_push_head (priv->stack, (gpointer) action);
++  length = g_queue_get_length (priv->stack);
++
++  if (length > priv->undo_levels) {
++    stack_fix_size (priv);
++  }
++}
++
++/** ---------------------------------------------------------------- */
++static gchar *
++get_first_target_short_name (NautilusUndoStackActionData * action)
++{
++  GList *targets_first;
++  gchar *file_name;
++
++  targets_first = g_list_first (action->destinations);
++  file_name = (gchar *) g_strdup (targets_first->data);
++
++  return file_name;
++}
++
++/** ---------------------------------------------------------------- */
++static gchar *
++get_undo_description (NautilusUndoStackActionData * action)
++{
++  gchar *description = NULL;
++  gchar *source = NULL;
++  guint count;
++
++  if (action != NULL) {
++    if (action->undo_description == NULL) {
++      if (action->src_dir) {
++        source = g_file_get_path (action->src_dir);
++      }
++      count = action->count;
++      switch (action->type) {
++        case NAUTILUS_UNDOSTACK_COPY:
++          if (count != 1) {
++            description = g_strdup_printf (_("Delete %d copied items"), count);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description = g_strdup_printf (_("Delete '%s'"), name);
++            g_free (name);
++          }
++          break;
++        case NAUTILUS_UNDOSTACK_DUPLICATE:
++          if (count != 1) {
++            description =
++                g_strdup_printf (_("Delete %d duplicated items"), count);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description = g_strdup_printf (_("Delete '%s'"), name);
++            g_free (name);
++          }
++          break;
++        case NAUTILUS_UNDOSTACK_MOVE:
++          if (count != 1) {
++            description =
++                g_strdup_printf (_
++                ("Move %d items back to '%s'"), count, source);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description =
++                g_strdup_printf (_("Move '%s' back to '%s'"), name, source);
++            g_free (name);
++          }
++          break;
++        case NAUTILUS_UNDOSTACK_RENAME:
++        {
++          char *from_name = get_uri_basename (action->new_uri);
++          char *to_name = get_uri_basename (action->old_uri);
++          description =
++              g_strdup_printf (_("Rename '%s' as '%s'"), from_name, to_name);
++          g_free (from_name);
++          g_free (to_name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE:
++        case NAUTILUS_UNDOSTACK_CREATEEMPTYFILE:
++        case NAUTILUS_UNDOSTACK_CREATEFOLDER:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description = g_strdup_printf (_("Delete '%s'"), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_MOVETOTRASH:
++        {
++          count = g_hash_table_size (action->trashed);
++          if (count != 1) {
++            description =
++                g_strdup_printf (_("Restore %d items from trash"), count);
++          } else {
++            GList *keys = g_hash_table_get_keys (action->trashed);
++            GList *first = g_list_first (keys);
++            char *item = (char *) first->data;
++            char *name = get_uri_basename (item);
++            char *orig_path = get_uri_parent_path (item);
++            description =
++                g_strdup_printf (_("Restore '%s' to '%s'"), name, orig_path);
++            g_free (name);
++            g_free (orig_path);
++            g_list_free (keys);
++          }
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_RESTOREFROMTRASH:
++        {
++          if (count != 1) {
++            description =
++                g_strdup_printf (_("Move %d items back to trash"), count);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description = g_strdup_printf (_("Move '%s' back to trash"), name);
++            g_free (name);
++          }
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CREATELINK:
++        {
++          if (count != 1) {
++            description =
++                g_strdup_printf (_("Delete links to %d items"), count);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description = g_strdup_printf (_("Delete link to '%s'"), name);
++            g_free (name);
++          }
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS:
++        {
++          char *name = g_file_get_path (action->dest_dir);
++          description =
++              g_strdup_printf (_
++              ("Restore original permissions of items enclosed in '%s'"), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_SETPERMISSIONS:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description =
++              g_strdup_printf (_("Restore original permissions of '%s'"), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEGROUP:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description =
++              g_strdup_printf (_
++              ("Restore group of '%s' to '%s'"),
++              name, action->original_group_name_or_id);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEOWNER:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description =
++              g_strdup_printf (_
++              ("Restore owner of '%s' to '%s'"),
++              name, action->original_user_name_or_id);
++          g_free (name);
++        }
++          break;
++        default:
++          break;
++      }
++      if (source) {
++        g_free (source);
++      }
++      action->undo_description = description;
++    } else {
++      return action->undo_description;
++    }
++  }
++
++  return description;
++}
++
++/** ---------------------------------------------------------------- */
++static gchar *
++get_redo_description (NautilusUndoStackActionData * action)
++{
++  gchar *description = NULL;
++  gchar *destination = NULL;
++  guint count;
++
++  if (action != NULL) {
++    if (action->redo_description == NULL) {
++      if (action->dest_dir) {
++        destination = g_file_get_path (action->dest_dir);
++      }
++      count = action->count;
++      switch (action->type) {
++        case NAUTILUS_UNDOSTACK_COPY:
++          if (count != 1) {
++            description =
++                g_strdup_printf (_
++                ("Copy %d items to '%s'"), count, destination);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description =
++                g_strdup_printf (_("Copy '%s' to '%s'"), name, destination);
++            g_free (name);
++          }
++          break;
++        case NAUTILUS_UNDOSTACK_DUPLICATE:
++          if (count != 1) {
++            description =
++                g_strdup_printf (_
++                ("Duplicate of %d items in '%s'"), count, destination);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description =
++                g_strdup_printf (_
++                ("Duplicate '%s' in '%s'"), name, destination);
++            g_free (name);
++          }
++          break;
++        case NAUTILUS_UNDOSTACK_MOVE:
++          if (count != 1) {
++            description =
++                g_strdup_printf (_
++                ("Move %d items to '%s'"), count, destination);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description =
++                g_strdup_printf (_("Move '%s' to '%s'"), name, destination);
++            g_free (name);
++          }
++          break;
++        case NAUTILUS_UNDOSTACK_RENAME:
++        {
++          char *from_name = get_uri_basename (action->old_uri);
++          char *to_name = get_uri_basename (action->new_uri);
++          description =
++              g_strdup_printf (_("Rename '%s' as '%s'"), from_name, to_name);
++          g_free (from_name);
++          g_free (to_name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description =
++              g_strdup_printf (_("Create new file '%s' from template "), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEEMPTYFILE:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description = g_strdup_printf (_("Create an empty file '%s'"), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFOLDER:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description = g_strdup_printf (_("Create a new folder '%s'"), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_MOVETOTRASH:
++        {
++          count = g_hash_table_size (action->trashed);
++          if (count != 1) {
++            description = g_strdup_printf (_("Move %d items to trash"), count);
++          } else {
++            GList *keys = g_hash_table_get_keys (action->trashed);
++            GList *first = g_list_first (keys);
++            char *item = (char *) first->data;
++            char *name = get_uri_basename (item);
++            description = g_strdup_printf (_("Move '%s' to trash"), name);
++            g_free (name);
++            g_list_free (keys);
++          }
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_RESTOREFROMTRASH:
++        {
++          if (count != 1) {
++            description =
++                g_strdup_printf (_("Restore %d items from trash"), count);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description = g_strdup_printf (_("Restore '%s' from trash"), name);
++            g_free (name);
++          }
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CREATELINK:
++        {
++          if (count != 1) {
++            description =
++                g_strdup_printf (_("Create links to %d items"), count);
++          } else {
++            gchar *name = get_first_target_short_name (action);
++            description = g_strdup_printf (_("Create link to '%s'"), name);
++            g_free (name);
++          }
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS:
++        {
++          char *name = g_file_get_path (action->dest_dir);
++          description =
++              g_strdup_printf (_("Set permissions of items enclosed in '%s'"),
++              name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_SETPERMISSIONS:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description = g_strdup_printf (_("Set permissions of '%s'"), name);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEGROUP:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description =
++              g_strdup_printf (_
++              ("Set group of '%s' to '%s'"),
++              name, action->new_group_name_or_id);
++          g_free (name);
++        }
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEOWNER:
++        {
++          char *name = get_uri_basename (action->target_uri);
++          description =
++              g_strdup_printf (_
++              ("Set owner of '%s' to '%s'"), name, action->new_user_name_or_id);
++          g_free (name);
++        }
++          break;
++        default:
++          break;
++      }
++      if (destination) {
++        g_free (destination);
++      }
++      action->redo_description = description;
++    } else {
++      return action->redo_description;
++    }
++  }
++
++  return description;
++}
++
++/** ---------------------------------------------------------------- */
++static gchar *
++get_undo_label (NautilusUndoStackActionData * action)
++{
++  gchar *label = NULL;
++  guint count;
++
++  if (action != NULL) {
++    if (action->undo_label == NULL) {
++      count = action->count;
++      switch (action->type) {
++        case NAUTILUS_UNDOSTACK_COPY:
++          label = g_strdup_printf (ngettext
++              ("_Undo copy of %d item",
++                  "_Undo copy of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_DUPLICATE:
++          label = g_strdup_printf (ngettext
++              ("_Undo duplicate of %d item",
++                  "_Undo duplicate of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_MOVE:
++          label = g_strdup_printf (ngettext
++              ("_Undo move of %d item",
++                  "_Undo move of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_RENAME:
++          label = g_strdup_printf (ngettext
++              ("_Undo rename of %d item",
++                  "_Undo rename of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEEMPTYFILE:
++          label = g_strdup_printf (_("_Undo creation of an empty file"));
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE:
++          label = g_strdup_printf (_("_Undo creation of a file from template"));
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFOLDER:
++          label = g_strdup_printf (ngettext
++              ("_Undo creation of %d folder",
++                  "_Undo creation of %d folders", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_MOVETOTRASH:
++          label = g_strdup_printf (ngettext
++              ("_Undo move to trash of %d item",
++                  "_Undo move to trash of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_RESTOREFROMTRASH:
++          label = g_strdup_printf (ngettext
++              ("_Undo restore from trash of %d item",
++                  "_Undo restore from trash of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CREATELINK:
++          label = g_strdup_printf (ngettext
++              ("_Undo create link to %d item",
++                  "_Undo create link to %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS:
++          label = g_strdup_printf (ngettext
++              ("Undo recursive change permissions of %d item",
++                  "Undo recursive change permissions of %d items",
++                  count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_SETPERMISSIONS:
++          label = g_strdup_printf (ngettext
++              ("Undo change permissions of %d item",
++                  "Undo change permissions of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEGROUP:
++          label = g_strdup_printf (ngettext
++              ("Undo change group of %d item",
++                  "Undo change group of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEOWNER:
++          label = g_strdup_printf (ngettext
++              ("Undo change owner of %d item",
++                  "Undo change owner of %d items", count), count);
++          break;
++        default:
++          break;
++      }
++      action->undo_label = label;
++    } else {
++      return action->undo_label;
++    }
++  }
++
++  return label;
++}
++
++/** ---------------------------------------------------------------- */
++static gchar *
++get_redo_label (NautilusUndoStackActionData * action)
++{
++  gchar *label = NULL;
++  guint count;
++
++  if (action != NULL) {
++    if (action->redo_label == NULL) {
++      count = action->count;
++      switch (action->type) {
++        case NAUTILUS_UNDOSTACK_COPY:
++          label = g_strdup_printf (ngettext
++              ("_Redo copy of %d item",
++                  "_Redo copy of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_DUPLICATE:
++          label = g_strdup_printf (ngettext
++              ("_Redo duplicate of %d item",
++                  "_Redo duplicate of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_MOVE:
++          label = g_strdup_printf (ngettext
++              ("_Redo move of %d item",
++                  "_Redo move of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_RENAME:
++          label = g_strdup_printf (ngettext
++              ("_Redo rename of %d item",
++                  "_Redo rename of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEEMPTYFILE:
++          label = g_strdup_printf (_("_Redo creation of an empty file"));
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE:
++          label = g_strdup_printf (_("_Redo creation of a file from template"));
++          break;
++        case NAUTILUS_UNDOSTACK_CREATEFOLDER:
++          label = g_strdup_printf (ngettext
++              ("_Redo creation of %d folder",
++                  "_Redo creation of %d folders", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_MOVETOTRASH:
++          label = g_strdup_printf (ngettext
++              ("_Redo move to trash of %d item",
++                  "_Redo move to trash of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_RESTOREFROMTRASH:
++          label = g_strdup_printf (ngettext
++              ("_Redo restore from trash of %d item",
++                  "_Redo restore from trash of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CREATELINK:
++          label = g_strdup_printf (ngettext
++              ("_Redo create link to %d item",
++                  "_Redo create link to %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS:
++          label = g_strdup_printf (ngettext
++              ("Redo recursive change permissions of %d item",
++                  "Redo recursive change permissions of %d items",
++                  count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_SETPERMISSIONS:
++          label = g_strdup_printf (ngettext
++              ("Redo change permissions of %d item",
++                  "Redo change permissions of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEGROUP:
++          label = g_strdup_printf (ngettext
++              ("Redo change group of %d item",
++                  "Redo change group of %d items", count), count);
++          break;
++        case NAUTILUS_UNDOSTACK_CHANGEOWNER:
++          label = g_strdup_printf (ngettext
++              ("Redo change owner of %d item",
++                  "Redo change owner of %d items", count), count);
++          break;
++        default:
++          break;
++      }
++      action->redo_label = label;
++    } else {
++      return action->redo_label;
++    }
++  }
++
++  return label;
++}
++
++/** ---------------------------------------------------------------- */
++static void
++undo_redo_done_transfer_callback (GHashTable * debuting_uris, gpointer data)
++{
++  NautilusUndoStackActionData *action;
++
++  action = (NautilusUndoStackActionData *) data;
++
++  /* If the action needed to be freed but was locked, free now */
++  if (action->freed) {
++    free_undostack_action (action, NULL);
++  } else {
++    action->locked = FALSE;
++  }
++
++  /* Update menus */
++  do_menu_update (action->manager);
++}
++
++/** ---------------------------------------------------------------- */
++static void
++undo_redo_done_delete_callback (GHashTable *
++    debuting_uris, gboolean user_cancel, gpointer callback_data)
++{
++  undo_redo_done_transfer_callback (debuting_uris, callback_data);
++}
++
++/** ---------------------------------------------------------------- */
++static void
++undo_redo_done_create_callback (GFile * new_file, gpointer callback_data)
++{
++  undo_redo_done_transfer_callback (NULL, callback_data);
++}
++
++/** ---------------------------------------------------------------- */
++static void
++undo_redo_op_callback (gpointer callback_data)
++{
++  undo_redo_done_transfer_callback (NULL, callback_data);
++}
++
++/** ---------------------------------------------------------------- */
++static void
++undo_redo_done_rename_callback (NautilusFile * file,
++    GFile * result_location, GError * error, gpointer callback_data)
++{
++  undo_redo_done_transfer_callback (NULL, callback_data);
++}
++
++/** ---------------------------------------------------------------- */
++static void
++free_undostack_action (gpointer data, gpointer user_data)
++{
++  NautilusUndoStackActionData *action = (NautilusUndoStackActionData *) data;
++
++  if (!action)
++    return;
++
++  g_free (action->template);
++  g_free (action->target_uri);
++  g_free (action->old_uri);
++  g_free (action->new_uri);
++
++  g_free (action->undo_label);
++  g_free (action->undo_description);
++  g_free (action->redo_label);
++  g_free (action->redo_description);
++
++  g_free (action->original_group_name_or_id);
++  g_free (action->original_user_name_or_id);
++  g_free (action->new_group_name_or_id);
++  g_free (action->new_user_name_or_id);
++
++  if (action->sources) {
++    g_list_foreach (action->sources, (GFunc) g_free, NULL);
++    g_list_free (action->sources);
++  }
++  if (action->destinations) {
++    g_list_foreach (action->destinations, (GFunc) g_free, NULL);
++    g_list_free (action->destinations);
++  }
++
++  if (action->trashed) {
++    g_hash_table_destroy (action->trashed);
++  }
++
++  if (action->original_permissions) {
++    g_hash_table_destroy (action->original_permissions);
++  }
++
++  if (action->src_dir)
++    g_object_unref (action->src_dir);
++  if (action->dest_dir)
++    g_object_unref (action->dest_dir);
++
++  if (action)
++    g_slice_free (NautilusUndoStackActionData, action);
++}
++
++/** ---------------------------------------------------------------- */
++static void
++undostack_dispose_all (GQueue * queue)
++{
++  g_queue_foreach (queue, free_undostack_action, NULL);
++}
++
++/** ---------------------------------------------------------------- */
++static gboolean
++can_undo (NautilusUndoStackManagerPrivate * priv)
++{
++  return (get_next_undo_action (priv) != NULL);
++}
++
++/** ---------------------------------------------------------------- */
++static gboolean
++can_redo (NautilusUndoStackManagerPrivate * priv)
++{
++  return (get_next_redo_action (priv) != NULL);
++}
++
++/** ---------------------------------------------------------------- */
++static NautilusUndoStackActionData *
++get_next_redo_action (NautilusUndoStackManagerPrivate * priv)
++{
++  if (g_queue_is_empty (priv->stack)) {
++    return NULL;
++  }
++
++  if (priv->index == 0) {
++    /* ... no redo actions */
++    return NULL;
++  }
++
++  NautilusUndoStackActionData *action = g_queue_peek_nth (priv->stack,
++      priv->index - 1);
++
++  if (action->locked) {
++    return NULL;
++  } else {
++    return action;
++  }
++}
++
++/** ---------------------------------------------------------------- */
++static NautilusUndoStackActionData *
++get_next_undo_action (NautilusUndoStackManagerPrivate * priv)
++{
++  if (g_queue_is_empty (priv->stack)) {
++    return NULL;
++  }
++
++  guint stack_size = g_queue_get_length (priv->stack);
++
++  if (priv->index == stack_size) {
++    return NULL;
++  }
++
++  NautilusUndoStackActionData *action = g_queue_peek_nth (priv->stack,
++      priv->index);
++
++  if (action->locked) {
++    return NULL;
++  } else {
++    return action;
++  }
++}
++
++/** ---------------------------------------------------------------- */
++static void
++do_menu_update (NautilusUndoStackManager * manager)
++{
++
++  if (!manager)
++    return;
++
++  NautilusUndoStackActionData *action;
++  NautilusUndoStackManagerPrivate *priv = manager->priv;
++  NautilusUndoStackMenuData *data = g_slice_new0 (NautilusUndoStackMenuData);
++
++  g_mutex_lock (priv->mutex);
++
++  action = get_next_undo_action (priv);
++  data->undo_label = get_undo_label (action);
++  data->undo_description = get_undo_description (action);
++
++  action = get_next_redo_action (priv);
++
++  data->redo_label = get_redo_label (action);
++  data->redo_description = get_redo_description (action);
++
++  g_mutex_unlock (priv->mutex);
++
++  /* Update menus */
++  g_signal_emit_by_name (manager, "request-menu-update", data);
++
++  /* Free the signal data */
++  // Note: we do not own labels and descriptions, they are part of the action.
++  g_slice_free (NautilusUndoStackMenuData, data);
++}
++
++/** ---------------------------------------------------------------- */
++static GList *
++construct_gfile_list (const GList * urilist, GFile * parent)
++{
++  const GList *l;
++  GList *file_list = NULL;
++  GFile *file;
++
++  for (l = urilist; l != NULL; l = l->next) {
++    file = g_file_get_child (parent, l->data);
++    file_list = g_list_append (file_list, file);
++  }
++
++  return file_list;
++}
++
++/** ---------------------------------------------------------------- */
++static GList *
++construct_gfile_list_from_uri (char *uri)
++{
++  GList *file_list = NULL;
++  GFile *file;
++
++  file = g_file_new_for_uri (uri);
++  file_list = g_list_append (file_list, file);
++
++  return file_list;
++}
++
++/** ---------------------------------------------------------------- */
++static GList *
++uri_list_to_gfile_list (GList * urilist)
++{
++  const GList *l;
++  GList *file_list = NULL;
++  GFile *file;
++
++  for (l = urilist; l != NULL; l = l->next) {
++    file = g_file_new_for_uri (l->data);
++    file_list = g_list_append (file_list, file);
++  }
++
++  return file_list;
++}
++
++/** ---------------------------------------------------------------- */
++static char *
++get_uri_basename (char *uri)
++{
++  GFile *f = g_file_new_for_uri (uri);
++  char *basename = g_file_get_basename (f);
++  g_object_unref (f);
++  return basename;
++}
++
++/** ---------------------------------------------------------------- */
++static char *
++get_uri_parent (char *uri)
++{
++  GFile *f = g_file_new_for_uri (uri);
++  GFile *p = g_file_get_parent (f);
++  char *parent = g_file_get_uri (p);
++  g_object_unref (f);
++  g_object_unref (p);
++  return parent;
++}
++
++/** ---------------------------------------------------------------- */
++static char *
++get_uri_parent_path (char *uri)
++{
++  GFile *f = g_file_new_for_uri (uri);
++  GFile *p = g_file_get_parent (f);
++  char *parent = g_file_get_path (p);
++  g_object_unref (f);
++  g_object_unref (p);
++  return parent;
++}
++
++/** ---------------------------------------------------------------- */
++static GHashTable *
++retrieve_files_to_restore (GHashTable * trashed)
++{
++  GFileEnumerator *enumerator;
++  GFileInfo *info;
++  GFile *trash;
++  GFile *item;
++  guint64 mtime_item;
++  guint64 *mtime;
++  char *origpath;
++  GFile *origfile;
++  char *origuri;
++  gpointer lookupvalue;
++  GHashTable *to_restore;
++
++  to_restore =
++      g_hash_table_new_full (g_direct_hash,
++      g_direct_equal, g_object_unref, g_free);
++
++  trash = g_file_new_for_uri ("trash:");
++
++  enumerator = g_file_enumerate_children (trash,
++      G_FILE_ATTRIBUTE_STANDARD_NAME
++      ","
++      G_FILE_ATTRIBUTE_TIME_MODIFIED
++      ",trash::orig-path", G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, FALSE, NULL);
++
++  mtime = 0;
++  if (enumerator) {
++    while ((info =
++            g_file_enumerator_next_file (enumerator, NULL, NULL)) != NULL) {
++      /* Retrieve the original file uri */
++      origpath = g_file_info_get_attribute_as_string (info, "trash::orig-path");
++      origfile = g_file_new_for_path (origpath);
++      origuri = g_file_get_uri (origfile);
++      g_object_unref (origfile);
++      g_free (origpath);
++
++      lookupvalue = g_hash_table_lookup (trashed, origuri);
++
++      if (lookupvalue) {
++        mtime = (guint64 *)
++            lookupvalue;
++        mtime_item =
++            g_file_info_get_attribute_uint64
++            (info, G_FILE_ATTRIBUTE_TIME_MODIFIED);
++        if (*mtime == mtime_item) {
++          item = g_file_get_child (trash, g_file_info_get_name (info)); /* File in the trash */
++          g_hash_table_insert (to_restore, item, origuri);
++        }
++      } else {
++        g_free (origuri);
++      }
++
++    }
++    g_file_enumerator_close (enumerator, FALSE, NULL);
++    g_object_unref (enumerator);
++  }
++  g_object_unref (trash);
++
++  return to_restore;
++}
++
++/** ---------------------------------------------------------------- */
+diff --git nautilus-2.28.4/libnautilus-private/nautilus-undostack-manager.h nautilus-2.28.4/libnautilus-private/nautilus-undostack-manager.h
+new file mode 100644
+index 0000000..ba5b3a4
+--- /dev/null
++++ nautilus-2.28.4/libnautilus-private/nautilus-undostack-manager.h
+@@ -0,0 +1,181 @@
++/* -*- Mode: C; indent-tabs-mode: t; c-basic-offset: 8; tab-width: 8 -*- */
++
++/* NautilusUndoStackManager - Manages undo of file operations (header)
++ *
++ * Copyright (C) 2007-2010 Amos Brocco
++ *
++ * Author: Amos Brocco <amos.brocco@unifr.ch>
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public
++ * License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 02111-1307, USA.
++ */
++
++#ifndef NAUTILUS_UNDOSTACK_MANAGER_H
++#define NAUTILUS_UNDOSTACK_MANAGER_H
++
++#include <glib.h>
++#include <glib-object.h>
++#include <gtk/gtkwidget.h>
++#include <gio/gio.h>
++
++/* Begin action structures */
++
++typedef enum
++{
++  NAUTILUS_UNDOSTACK_COPY,
++  NAUTILUS_UNDOSTACK_DUPLICATE,
++  NAUTILUS_UNDOSTACK_MOVE,
++  NAUTILUS_UNDOSTACK_RENAME,
++  NAUTILUS_UNDOSTACK_CREATEEMPTYFILE,
++  NAUTILUS_UNDOSTACK_CREATEFILEFROMTEMPLATE,
++  NAUTILUS_UNDOSTACK_CREATEFOLDER,
++  NAUTILUS_UNDOSTACK_MOVETOTRASH,
++  NAUTILUS_UNDOSTACK_CREATELINK,
++  NAUTILUS_UNDOSTACK_RESTOREFROMTRASH,
++  NAUTILUS_UNDOSTACK_SETPERMISSIONS,
++  NAUTILUS_UNDOSTACK_RECURSIVESETPERMISSIONS,
++  NAUTILUS_UNDOSTACK_CHANGEOWNER,
++  NAUTILUS_UNDOSTACK_CHANGEGROUP
++} NautilusUndoStackActionType;
++
++typedef struct _NautilusUndoStackActionData NautilusUndoStackActionData;
++
++typedef struct _NautilusUndoStackMenuData NautilusUndoStackMenuData;
++
++struct _NautilusUndoStackMenuData {
++  char* undo_label;
++  char* undo_description;
++  char* redo_label;
++  char* redo_description;
++};
++
++/* End action structures */
++
++typedef void
++(*NautilusUndostackFinishCallback)(gpointer data);
++
++typedef struct _NautilusUndoStackManagerPrivate NautilusUndoStackManagerPrivate;
++
++typedef struct _NautilusUndoStackManager
++{
++  GObject parent_instance;
++
++  NautilusUndoStackManagerPrivate* priv;
++
++} NautilusUndoStackManager;
++
++typedef struct _NautilusUndoStackManagerClass
++{
++  GObjectClass parent_class;
++  
++} NautilusUndoStackManagerClass;
++
++#define TYPE_NAUTILUS_UNDOSTACK_MANAGER (nautilus_undostack_manager_get_type())
++
++#define NAUTILUS_UNDOSTACK_MANAGER(object) \
++ (G_TYPE_CHECK_INSTANCE_CAST((object), TYPE_NAUTILUS_UNDOSTACK_MANAGER, NautilusUndoStackManager))
++
++#define NAUTILUS_UNDOSTACK_MANAGER_CLASS(klass) \
++ (G_TYPE_CHECK_CLASS_CAST((klass), TYPE_NAUTILUS_UNDOSTACK_MANAGER, NautilusUndoStackManagerClass))
++
++#define IS_NAUTILUS_UNDOSTACK_MANAGER(object) \
++ (G_TYPE_CHECK_INSTANCE_TYPE((object), TYPE_NAUTILUS_UNDOSTACK_MANAGER))
++
++#define IS_NAUTILUS_UNDOSTACK_MANAGER_CLASS(klass) \
++ (G_TYPE_CHECK_CLASS_TYPE((klass), TYPE_NAUTILUS_UNDOSTACK_MANAGER))
++
++#define NAUTILUS_UNDOSTACK_MANAGER_GET_CLASS(object) \
++ (G_TYPE_INSTANCE_GET_CLASS((object), TYPE_NAUTILUS_UNDOSTACK_MANAGER, NautilusUndoStackManagerClass))
++ 
++GType
++nautilus_undostack_manager_get_type (void);
++
++void
++nautilus_undostack_manager_add_action(NautilusUndoStackManager* manager,
++    NautilusUndoStackActionData* action);
++
++void
++nautilus_undostack_manager_undo(NautilusUndoStackManager* manager,
++    GtkWidget *parent_view, NautilusUndostackFinishCallback cb);
++
++void
++nautilus_undostack_manager_redo(NautilusUndoStackManager* manager,
++    GtkWidget *parent_view, NautilusUndostackFinishCallback cb);
++
++NautilusUndoStackActionData*
++nautilus_undostack_manager_data_new(NautilusUndoStackActionType type,
++    gint items_count);
++
++gboolean
++nautilus_undostack_manager_is_undo_redo(NautilusUndoStackManager* manager);
++
++void
++nautilus_undostack_manager_trash_has_emptied(NautilusUndoStackManager* manager);
++
++NautilusUndoStackManager*
++nautilus_undostack_manager_instance(void);
++
++void
++nautilus_undostack_manager_data_set_src_dir(NautilusUndoStackActionData* data,
++    GFile* src);
++
++void
++nautilus_undostack_manager_data_set_dest_dir(NautilusUndoStackActionData* data,
++    GFile* dest);
++
++void
++nautilus_undostack_manager_data_add_origin_target_pair(
++    NautilusUndoStackActionData* data, GFile* origin, GFile* target);
++
++void
++nautilus_undostack_manager_data_set_create_data(
++    NautilusUndoStackActionData* data, char* target_uri, char* template_uri);
++
++void
++nautilus_undostack_manager_data_set_rename_information(
++    NautilusUndoStackActionData* data, GFile* old_file, GFile* new_file);
++
++guint64
++nautilus_undostack_manager_get_file_modification_time(GFile* file);
++
++void
++nautilus_undostack_manager_data_add_trashed_file(
++    NautilusUndoStackActionData* data, GFile* file, guint64 mtime);
++
++void
++nautilus_undostack_manager_request_menu_update(NautilusUndoStackManager* manager);
++
++void
++nautilus_undostack_manager_data_add_file_permissions(
++    NautilusUndoStackActionData* data, GFile* file, guint32 permission);
++    
++void
++nautilus_undostack_manager_data_set_recursive_permissions(
++    NautilusUndoStackActionData* data, guint32 file_permissions, guint32 file_mask,
++	guint32 dir_permissions, guint32 dir_mask);
++    
++void
++nautilus_undostack_manager_data_set_file_permissions(
++    NautilusUndoStackActionData* data, char* uri, guint32 current_permissions, guint32 new_permissions);
++    
++void
++nautilus_undostack_manager_data_set_owner_change_information(
++    NautilusUndoStackActionData* data, char* uri, const char* current_user, const char* new_user);
++    
++void
++nautilus_undostack_manager_data_set_group_change_information(
++    NautilusUndoStackActionData* data, char* uri, const char* current_group, const char* new_group);    
++
++#endif /* NAUTILUS_UNDOSTACK_MANAGER_H */
+diff --git nautilus-2.28.4/src/file-manager/fm-actions.h nautilus-2.28.4/src/file-manager/fm-actions.h
+index 002a250..2ea25ef 100644
+--- nautilus-2.28.4/src/file-manager/fm-actions.h
++++ nautilus-2.28.4/src/file-manager/fm-actions.h
+@@ -106,5 +106,7 @@
+ #define FM_ACTION_STRETCH "Stretch"
+ #define FM_ACTION_UNSTRETCH "Unstretch"
+ #define FM_ACTION_ZOOM_ITEMS "Zoom Items"
++#define FM_ACTION_UNDO "Undo"
++#define FM_ACTION_REDO "Redo"
+ 
+ #endif /* FM_ACTIONS_H */
+diff --git nautilus-2.28.4/src/file-manager/fm-directory-view.c nautilus-2.28.4/src/file-manager/fm-directory-view.c
+index a4dfead..5c09646 100644
+--- nautilus-2.28.4/src/file-manager/fm-directory-view.c
++++ nautilus-2.28.4/src/file-manager/fm-directory-view.c
+@@ -81,6 +81,7 @@
+ #include <libnautilus-private/nautilus-signaller.h>
+ #include <libnautilus-private/nautilus-autorun.h>
+ #include <libnautilus-private/nautilus-icon-names.h>
++#include <libnautilus-private/nautilus-undostack-manager.h>
+ 
+ /* Minimum starting update inverval */
+ #define UPDATE_INTERVAL_MIN 100
+@@ -259,6 +260,13 @@ struct FMDirectoryViewDetails
+ 	gboolean allow_moves;
+ 
+ 	GdkPoint context_menu_position;
++
++	gboolean undo_active;
++	gboolean redo_active;
++	gchar* undo_action_description;
++	gchar* undo_action_label;
++	gchar* redo_action_description;
++	gchar* redo_action_label;
+ };
+ 
+ typedef struct {
+@@ -393,6 +401,22 @@ static inline void fm_directory_view_widget_to_file_operation_position (FMDirect
+ static void        fm_directory_view_widget_to_file_operation_position_xy (FMDirectoryView *view,
+ 									   int *x, int *y);
+ 
++/* undo-related actions */
++
++static void undo_redo_menu_update_callback (NautilusUndoStackManager* manager, gpointer arg1, gpointer data);
++
++static void undo_update_menu (FMDirectoryView *view);
++
++static void finish_undoredo_callback (gpointer data);
++
++static void real_action_undo (FMDirectoryView *view);
++
++static void real_action_redo (FMDirectoryView *view);
++
++static void action_undo_callback (GtkAction *action, gpointer callback_data);
++
++static void action_redo_callback (GtkAction *action, gpointer callback_data);
++
+ EEL_CLASS_BOILERPLATE (FMDirectoryView, fm_directory_view, GTK_TYPE_SCROLLED_WINDOW)
+ 
+ EEL_IMPLEMENT_MUST_OVERRIDE_SIGNAL (fm_directory_view, add_file)
+@@ -1964,6 +1988,21 @@ fm_directory_view_init (FMDirectoryView *view)
+ 				      sort_directories_first_changed_callback, view);
+ 	eel_preferences_add_callback (NAUTILUS_PREFERENCES_LOCKDOWN_COMMAND_LINE,
+ 				      lockdown_disable_command_line_changed_callback, view);
++
++	/* Update undo actions stuff and connect signals from the undostack manager */
++	view->details->undo_active = FALSE;
++	view->details->redo_active = FALSE;
++	view->details->undo_action_description = NULL;
++	view->details->undo_action_label = NULL;
++	view->details->redo_action_description = NULL;
++	view->details->redo_action_label = NULL;
++
++	NautilusUndoStackManager* manager = nautilus_undostack_manager_instance ();
++
++	g_signal_connect_object (G_OBJECT(manager), "request-menu-update",
++		   G_CALLBACK(undo_redo_menu_update_callback), view, 0);
++
++	nautilus_undostack_manager_request_menu_update (nautilus_undostack_manager_instance());
+ }
+ 
+ static void
+@@ -2641,6 +2680,8 @@ copy_move_done_callback (GHashTable *debuting_files, gpointer data)
+ 					       (GClosureNotify) debuting_files_data_free,
+ 					       G_CONNECT_AFTER);
+ 		}
++		/* Schedule menu update for undo items */
++		schedule_update_menus (directory_view);
+ 	}
+ 
+ 	copy_move_done_data_free (copy_move_done_data);
+@@ -3098,6 +3139,20 @@ schedule_changes (FMDirectoryView *view)
+ }
+ 
+ static void
++action_undo_callback (GtkAction *action,
++			gpointer callback_data)
++{
++	real_action_undo (FM_DIRECTORY_VIEW (callback_data));
++}
++
++static void
++action_redo_callback (GtkAction *action,
++			gpointer callback_data)
++{
++	real_action_redo (FM_DIRECTORY_VIEW (callback_data));
++}
++
++static void
+ files_added_callback (NautilusDirectory *directory,
+ 		      GList *files,
+ 		      gpointer callback_data)
+@@ -6171,6 +6226,32 @@ action_paste_files_into_callback (GtkAction *action,
+ }
+ 
+ static void
++real_action_undo (FMDirectoryView *view)
++{
++	NautilusUndoStackManager *manager = nautilus_undostack_manager_instance ();
++
++	/* Disable menus because they are in an untrustworthy status */
++	view->details->undo_active = FALSE;
++	view->details->redo_active = FALSE;
++	fm_directory_view_update_menus (view);
++
++	nautilus_undostack_manager_undo (manager, GTK_WIDGET (view), finish_undoredo_callback);
++}
++
++static void
++real_action_redo (FMDirectoryView *view)
++{
++	NautilusUndoStackManager *manager = nautilus_undostack_manager_instance ();
++
++	/* Disable menus because they are in an untrustworthy status */
++	view->details->undo_active = FALSE;
++	view->details->redo_active = FALSE;
++	fm_directory_view_update_menus (view);
++
++	nautilus_undostack_manager_redo (manager, GTK_WIDGET (view), finish_undoredo_callback);
++}
++
++static void
+ real_action_rename (FMDirectoryView *view,
+ 		    gboolean select_all)
+ {
+@@ -7264,6 +7345,14 @@ static const GtkActionEntry directory_view_entries[] = {
+   /* label, accelerator */       N_("_Restore"), NULL,
+ 				 NULL,
+                                  G_CALLBACK (action_restore_from_trash_callback) },
++ /* name, stock id */		   { FM_ACTION_UNDO, GTK_STOCK_UNDO,
++ /* label, accelerator */		 N_("_Undo"), "<control>Z",
++ /* tooltip */ 				 	 N_("Undo the last action"),
++								 G_CALLBACK (action_undo_callback) },
++ /* name, stock id */		   { FM_ACTION_REDO, GTK_STOCK_REDO,
++ /* label, accelerator */	     N_("_Redo"), "<control>Y",
++ /* tooltip */     			 	 N_("Redo the last undone action"),
++								 G_CALLBACK (action_redo_callback) },
+   /*
+    * multiview-TODO: decide whether "Reset to Defaults" should
+    * be window-wide, and not just view-wide.
+@@ -8973,6 +9062,8 @@ real_update_menus (FMDirectoryView *view)
+ 
+ 	real_update_menus_volumes (view, selection, selection_count);
+ 
++	undo_update_menu (view);
++
+ 	nautilus_file_list_free (selection);
+ 
+ 	if (view->details->scripts_invalid) {
+@@ -9562,6 +9653,14 @@ metadata_for_files_in_directory_ready_callback (NautilusDirectory *directory,
+ 	finish_loading_if_all_metadata_loaded (view);
+ }
+ 
++static void
++finish_undoredo_callback (gpointer data)
++{
++	FMDirectoryView *view;
++
++	view = FM_DIRECTORY_VIEW (data);
++}
++
+ char **
+ fm_directory_view_get_emblem_names_to_exclude (FMDirectoryView *view)
+ {
+@@ -10972,3 +11071,72 @@ fm_directory_view_class_init (FMDirectoryViewClass *klass)
+ 	klass->trash = real_trash;
+ 	klass->delete = real_delete;
+ }
++
++static void
++undo_redo_menu_update_callback (NautilusUndoStackManager* manager, gpointer arg, gpointer data)
++{
++	FMDirectoryView *view;
++	view = FM_DIRECTORY_VIEW (data);
++
++	NautilusUndoStackMenuData* menudata = (NautilusUndoStackMenuData*) arg;
++
++	g_free(view->details->undo_action_label);
++	g_free(view->details->undo_action_description);
++	g_free(view->details->redo_action_label);
++	g_free(view->details->redo_action_description);
++
++        view->details->undo_active = menudata->undo_label ? TRUE : FALSE;
++        view->details->redo_active = menudata->redo_label ? TRUE : FALSE;
++
++        view->details->undo_action_label = g_strdup (menudata->undo_label);
++        view->details->undo_action_description = g_strdup (menudata->undo_description);
++        view->details->redo_action_label = g_strdup (menudata->redo_label);
++        view->details->redo_action_description =  g_strdup (menudata->redo_description);
++
++	schedule_update_menus (view);
++}
++
++static void
++undo_update_menu (FMDirectoryView *view)
++{
++	GtkAction *action;
++	gboolean available = FALSE;
++	gchar* label;
++	gchar* tooltip;
++
++	/* Update undo entry */
++	action = gtk_action_group_get_action (view->details->dir_action_group,
++					      FM_ACTION_UNDO);
++	available = view->details->undo_active;
++	if (available) {
++		label = view->details->undo_action_label;
++		tooltip = view->details->undo_action_description;
++	} else {
++		/* Reset to default info */
++		label = _("Undo");
++		tooltip = _("Undo the last action");
++	}
++	g_object_set (action,
++		      "label", label,
++		      "tooltip", tooltip,
++		      NULL);
++	gtk_action_set_sensitive (action, available);
++
++    /* Update redo entry */
++    action = gtk_action_group_get_action (view->details->dir_action_group,
++					      FM_ACTION_REDO);
++	available = view->details->redo_active;
++	if (available) {
++		label = view->details->redo_action_label;
++		tooltip = view->details->redo_action_description;
++	} else {
++		/* Reset to default info */
++		label = _("Redo");
++		tooltip = _("Redo the last undone action");
++	}
++	g_object_set (action,
++		      "label", label,
++		      "tooltip", tooltip,
++		      NULL);
++	gtk_action_set_sensitive (action, available);
++}
+diff --git nautilus-2.28.4/src/file-manager/nautilus-directory-view-ui.xml nautilus-2.28.4/src/file-manager/nautilus-directory-view-ui.xml
+index b857226..ab7b005 100644
+--- nautilus-2.28.4/src/file-manager/nautilus-directory-view-ui.xml
++++ nautilus-2.28.4/src/file-manager/nautilus-directory-view-ui.xml
+@@ -58,6 +58,10 @@
+ 			<menuitem name="Copy" action="Copy"/>
+ 			<menuitem name="Paste" action="Paste"/>
+ 		</placeholder>
++		<placeholder name="Undostack Actions">
++			<menuitem name="Undo" action="Undo"/>
++			<menuitem name="Redo" action="Redo"/>
++		</placeholder>
+ 		<placeholder name="Select Items">
+ 		<menuitem name="Select All" action="Select All"/>
+ 		<menuitem name="Select Pattern" action="Select Pattern"/>
+diff --git nautilus-2.28.4/src/nautilus-shell-ui.xml nautilus-2.28.4/src/nautilus-shell-ui.xml
+index 05ad73e..2895b47 100644
+--- nautilus-2.28.4/src/nautilus-shell-ui.xml
++++ nautilus-2.28.4/src/nautilus-shell-ui.xml
+@@ -21,6 +21,8 @@
+ 		<menuitem name="Close" action="Close"/>
+ 	</menu>
+ 	<menu action="Edit">
++		<placeholder name="Undostack Actions"/>
++		<separator/>
+ 		<placeholder name="Clipboard Actions">
+                 </placeholder>
+ 		<separator/>
+diff --git nautilus-2.28.4/src/nautilus-window-menus.c nautilus-2.28.4/src/nautilus-window-menus.c
+index 372c396..6961097 100644
+--- nautilus-2.28.4/src/nautilus-window-menus.c
++++ nautilus-2.28.4/src/nautilus-window-menus.c
+@@ -266,6 +266,7 @@ action_stop_callback (GtkAction *action,
+ 	nautilus_window_slot_stop_loading (slot);
+ }
+ 
++#ifdef TEXT_CHANGE_UNDO
+ static void
+ action_undo_callback (GtkAction *action, 
+ 		      gpointer user_data) 
+@@ -273,6 +274,7 @@ action_undo_callback (GtkAction *action,
+ 	nautilus_undo_manager_undo
+ 		(NAUTILUS_WINDOW (user_data)->application->undo_manager);
+ }
++#endif
+ 
+ static void
+ action_home_callback (GtkAction *action, 
+@@ -797,9 +799,11 @@ static const GtkActionEntry main_entries[] = {
+                                  N_("Prefere_nces"),               
+                                  NULL, N_("Edit Nautilus preferences"),
+                                  G_CALLBACK (action_preferences_callback) },
++#ifdef TEXT_CHANGE_UNDO
+   /* name, stock id, label */  { "Undo", NULL, N_("_Undo"),
+                                  "<control>Z", N_("Undo the last text change"),
+                                  G_CALLBACK (action_undo_callback) },
++#endif
+   /* name, stock id, label */  { "Up", GTK_STOCK_GO_UP, N_("Open _Parent"),
+                                  "<alt>Up", N_("Open the parent folder"),
+                                  G_CALLBACK (action_up_callback) },
+                                  
+--- nautilus-2.28.4/src/nautilus-navigation-window-ui.xml	2010-04-02 03:54:27.056600000 -0300
++++ nautilus-2.28.4/src/nautilus-navigation-window-ui.xml	2010-05-08 03:10:27.000000000 -0300
+@@ -1,4 +1,10 @@
+ <ui>
++<accelerator action="ShowSearch"/>
++<accelerator action="SplitViewNextPane"/>
++<accelerator action="TabsPrevious"/>
++<accelerator action="TabsNext"/>
++<accelerator action="TabsMoveLeft"/>
++<accelerator action="TabsMoveRight"/>
+ <menubar name="MenuBar">
+ 	<menu action="File">
+ 		<placeholder name="New Items Placeholder">
+@@ -18,6 +24,7 @@
+ 			<menuitem name="Show Hide Sidebar" action="Show Hide Sidebar"/>
+ 			<menuitem name="Show Hide Location Bar" action="Show Hide Location Bar"/>
+ 			<menuitem name="Show Hide Statusbar" action="Show Hide Statusbar"/>
++			<menuitem name="Show Hide Extra Pane" action="Show Hide Extra Pane"/>
+ 		</placeholder>
+ 	</menu>
+         <placeholder name="Other Menus">
+@@ -26,6 +33,7 @@
+ 			<menuitem name="Up" action="Up"/>
+ 			<menuitem name="Back" action="Back"/>
+ 			<menuitem name="Forward"  action="Forward"/>
++			<menuitem name="SplitViewSameLocationMenu" action="SplitViewSameLocation"/>
+ 	                </placeholder>
+ 	                <separator/>
+ 			<menuitem name="Home" action="Home"/>
+@@ -65,11 +73,15 @@
+ 	<toolitem name="Forward" action="Forward"/>
+ 
+ 	<toolitem name="Up" action="Up"/>
+-	<toolitem name="Stop" action="Stop"/>
+ 	<toolitem name="Reload" action="Reload"/>
+ 	<separator/>
+ 	<toolitem name="Home" action="Home"/>
+ 	<toolitem name="Computer" action="Go to Computer"/>
++	<toolitem name="New Folder" action="New Folder"/>
++	<toolitem name="New Tab" action="New Tab"/>
++	<separator/>
++	<toolitem name="Paste" action="Paste"/>
++	<toolitem name="Cut" action="Cut"/>
++	<toolitem name="Copy" action="Copy"/>
+ 	<separator/>
+-	<toolitem name="Search" action="Search"/>
+ 	<placeholder name="Extra Buttons Placeholder">
+ 	
+--- nautilus-2.28.4/po/es.po	2009-10-20 08:04:43.000000000 -0300
++++ nautilus-2.28.4/po/es.po	2010-05-08 03:38:54.572235695 -0300
+@@ -7723,7 +7723,8 @@
+ "Pablo Gonzalo del Campo <pablodc@bigfoot.com>, 2000-2004\n"
+ "Carlos Perelló Marín <carlos@gnome-db.org>, 2000, 2002\n"
+ "Ismael Olea <ismael@olea.org>, 2001\n"
+-"Jorge Carrasquilla Soares <jorge@conectiva.com.br>, 2000"
++"Jorge Carrasquilla Soares <jorge@conectiva.com.br>, 2000\n"
++"Aguilera Dario Ignacio <dario_21_06@hotmail.com>, 2010"
+ 
+ # src/nautilus-window-manage-views.c:184
+ # src/nautilus-window-manage-views.c:217
+@@ -7798,6 +7799,8 @@
+ # src/nautilus-first-time-druid.c:290
+ #. name, stock id, label
+ #: ../src/nautilus-window-menus.c:795
++#: ../src/file-manager/fm-directory-view.c:7122
++#: ../src/nautilus-window-menus.c:803
+ msgid "_Undo"
+ msgstr "_Deshacer"
+ 
+@@ -8349,3 +8352,167 @@
+ # src/file-manager/fm-directory-view.c:2145
+ #~ msgid "Move to Trash"
+ #~ msgstr "Mover a la papelera"
++
++
++#: ../src/file-manager/fm-directory-view.c:7126
++msgid "_Redo"
++msgstr "_Rehacer"
++
++
++#: ../libnautilus-private/nautilus-undostack-manager.c:1466
++msgid "_Undo copy of %d item"
++msgstr "_Deshacer copia de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1467
++msgid "_Undo copy of %d items"
++msgstr "_deshacer copia de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1471
++msgid "_Undo duplicate of %d item"
++msgstr "_Deshacer duplicado de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1472
++msgid "_Undo duplicate of %d items"
++msgstr "_Deshacer duplicado de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1476
++msgid "_Undo move of %d item"
++msgstr "_Deshacer mover %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1477
++msgid "_Undo move of %d items"
++msgstr "_Deshacer mover %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1481
++msgid "_Undo rename of %d item"
++msgstr "_Deshacer renombrado de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1482
++msgid "_Undo rename of %d items"
++msgstr "_Deshacer renombrado de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1485
++msgid "_Undo creation of an empty file"
++msgstr "_Deshacer la creacion de un elemento nuevo"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1488
++msgid "_Undo creation of a file from template"
++msgstr "_Deshacer creacion de un archivo desde una plantilla"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1492
++msgid "_Undo creation of %d folder"
++msgstr "_Deshacer creacion de %d carpeta"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1493
++msgid "_Undo creation of %d folders"
++msgstr "_Deshacer creacion de %d carpetas"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1497
++msgid "_Undo move to trash of %d item"
++msgstr "_Deshacer mover a la papelera %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1498
++msgid "_Undo move to trash of %d items"
++msgstr "_Deshacer mover a la papelera %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1502
++msgid "_Undo restore from trash of %d item"
++msgstr "_Deshacer restaurar desde papelera %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1503
++msgid "_Undo restore from trash of %d items"
++msgstr "_Deshacer restaurar desde papelera %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1507
++msgid "_Undo create link to %d item"
++msgstr "_Deshacer crear enlace a %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1508
++msgid "_Undo create link to %d items"
++msgstr "_Deshacer crear enlace a %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1512
++msgid "Undo recursive change permissions of %d item"
++msgstr "Deshacer cambio recursivo de permisos de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1513
++msgid "Undo recursive change permissions of %d items"
++msgstr "Deshacer cambio recursivo de permisos de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1518
++msgid "Undo change permissions of %d item"
++msgstr "Deshacer cambio de permisos de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1519
++msgid "Undo change permissions of %d items"
++msgstr "Deshacer cambio de permisos de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1523
++msgid "Undo change group of %d item"
++msgstr "Deshacer cambio de grupo de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1524
++msgid "Undo change group of %d items"
++msgstr "Deshacer cambio de grupo de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1528
++msgid "Undo change owner of %d item"
++msgstr "Deshacer cambio de propietario de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1529
++msgid "Undo change owner of %d items"
++msgstr "Deshacer cambio de propietario de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1556
++msgid "_Redo copy of %d item"
++msgstr "_Rehacer copia de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1557
++msgid "_Redo copy of %d items"
++msgstr "_Rehacer copia de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1561
++msgid "_Redo duplicate of %d item"
++msgstr "_Rehacer duplicado de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1562
++msgid "_Redo duplicate of %d items"
++msgstr "_Rehacer duplicado de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1566
++msgid "_Redo move of %d item"
++msgstr "_Rehacer mover %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1567
++msgid "_Redo move of %d items"
++msgstr "_Rehacer mover %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1571
++msgid "_Redo rename of %d item"
++msgstr "_Rehacer renombrar %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1572
++msgid "_Redo rename of %d items"
++msgstr "_Rehacer renombrar %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1575
++msgid "_Redo creation of an empty file"
++msgstr "_Rehacer crear archivo vacio"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1578
++msgid "_Redo creation of a file from template"
++msgstr "_Rehacer crear archivo desde una plantilla"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1582
++msgid "_Redo creation of %d folder"
++msgstr "_Rehacer crear %d carpeta"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1583
++msgid "_Redo creation of %d folders"
++msgstr "_Rehacer crear %d carpetas"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1587
++msgid "_Redo move to trash of %d item"
++msgstr "_Rehacer mover a papelera de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1588
++msgid "_Redo move to trash of %d items"
++msgstr "_Rehacer mover a papelera de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1592
++msgid "_Redo restore from trash of %d item"
++msgstr "_Rehacer restarurar desde papelera de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1593
++msgid "_Redo restore from trash of %d items"
++msgstr "_Rehacer restarurar desde papelera de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1597
++msgid "_Redo create link to %d item"
++msgstr "_Rehacer crear enlace a %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1598
++msgid "_Redo create link to %d items"
++msgstr "_Rehacer crear enlace a %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1602
++msgid "Redo recursive change permissions of %d item"
++msgstr "Rehacer cambio reursivo de permisos de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1603
++msgid "Redo recursive change permissions of %d items"
++msgstr "Rehacer cambio reursivo de permisos de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1608
++msgid "Redo change permissions of %d item"
++msgstr "Rehacer cambio de permisos de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1609
++msgid "Redo change permissions of %d items"
++msgstr "Rehacer cambio de permisos de %d elementos"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1613
++msgid "Redo change group of %d item"
++msgstr "Rehacer cambio de grupo de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1614
++msgid "Redo change group of %d items"
++msgstr "Rehacer cambio de grupo de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1618
++msgid "Redo change owner of %d item"
++msgstr "Rehacer cambio de propietario de %d elemento"
++#: ../libnautilus-private/nautilus-undostack-manager.c:1619
++msgid "Redo change owner of %d items"
++msgstr "Rehacer cambio de propietario de %d elementos"
++
