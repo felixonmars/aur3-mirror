@@ -7,8 +7,14 @@
 # Builds 'kernel26-pae' and 'kernel26-pae-headers' binary packages.
 # Creates source PKG for AUR.
 #
+# buildpae [ -c | -t ]
+#
+#	-c	core
+#	-t	testing
+#
 # Tom Wizetek <tom@wizetek.com>
 #
+# update 9: 2011-03-26 new resync action, new automated build process via command arguments
 # update 8: 2010-12-11
 # update 7: 2010-11-28
 # update 6: 2010-11-26
@@ -25,10 +31,17 @@
 _BUILDPATH=~/builds
 ##########################
 
-kernelver() {
+# automated build process
+case $1 in
+  -c) _syncabs=c && _repo=core && _splitpkg=b && _buildnow=y ;;
+  -t) _syncabs=t && _repo=testing && _splitpkg=b && _buildnow=y ;;
+  *) echo "Unrecognized option: $1"
+esac
+
+kernelver()
+{
   _kverinst=$(pacman -Q kernel26 2>/dev/null | awk '{print $2}')
   _kverpae=$(pacman -Q kernel26-pae 2>/dev/null | awk '{print $2}')
-
   _pbcore=/var/abs/core/kernel26/PKGBUILD
   _pbtesting=/var/abs/testing/kernel26/PKGBUILD
   _kvercore=$(grep '_basekernel=' ${_pbcore} 2>/dev/null | cut -d'=' -f2)
@@ -39,35 +52,44 @@ kernelver() {
   _kvertesting=${_kvertesting}-$(grep 'pkgrel=' ${_pbtesting} 2>/dev/null | cut -d'=' -f2)
   echo -e "\nKernel version info:\n\ninstalled stock ARCH\t${_kverinst}\ninstalled PAE\t\t${_kverpae}\navailable ABS core\t${_kvercore}\navailable ABS testing\t${_kvertesting}\n"
 }
+
 kernelver
 
-syncabs() {
-  echo -en "Sync 'kernel26' from ABS repo: [c]ore, [t]esting or [B]oth?  [s]kip, [q]uit =>"
-  read -n 1 _syncabs
-  [[ ${_syncabs} ]] && echo
+syncabs()
+{
+  if ! [[ ${_syncabs} ]]
+  then
+    echo -en "Sync 'kernel26' from ABS repo: [c]ore, [t]esting or [B]oth?  [s]kip, [q]uit =>"
+    read -n 1 _syncabs
+    [[ ${_syncabs} ]] && echo
+  fi
   case ${_syncabs} in
     c|C) abs core/kernel26 || sudo abs core/kernel26 && kernelver ;;
     t|T) abs testing/kernel26 || sudo abs testing/kernel26 && kernelver ;;
-    b|B|'') abs core/kernel26 && abs testing/kernel26 || sudo abs core/kernel26 && sudo abs testing/kernel26 && kernelver ;;
-    s|S) echo ;;
+    b|B|'') _syncabs=b ; abs core/kernel26 && abs testing/kernel26 || sudo abs core/kernel26 && sudo abs testing/kernel26 && kernelver ;;
+    s|S) unset _syncabs ; echo ;;
     q|Q) echo -e "\nQuit!\n" ; exit 1 ;;
-    *) syncabs ;;
+    *) unset _syncabs ; syncabs ;;
   esac
 }
-[[ ${_syncabs} ]] || syncabs
 
-absrepo() {
-  echo -en "Build from ABS repo: [C]ore or [t]esting?  [q]uit =>"
+syncabs
+
+absrepo()
+{
+  echo -en "Build from ABS repo: [C]ore or [t]esting?  [r]esync, [q]uit =>"
   read -n 1 _absrepo
   [[ ${_absrepo} ]] && echo
   case ${_absrepo} in
     c|C|'') _repo='core' ;;
     t|T) _repo='testing' ;;
+    r|R) echo ; syncabs ; absrepo ;;
     q|Q) echo -e "\nQuit!\n" ; exit 1 ;;
     *) absrepo ;;
   esac
 }
-[[ ${_absrepo} ]] || absrepo
+
+[[ ${_repo} ]] || absrepo
 
 _PKGBUILD=/var/abs/${_repo}/kernel26/PKGBUILD
 [[ ! -e ${_PKGBUILD} ]] && echo -e "\nCould not find ${_PKGBUILD}\nSync ABS later again before building package.\n" && exit 1
@@ -102,10 +124,14 @@ CONFIG_I2O_EXT_ADAPTEC_DMA64=y' config
 sed -i '/^pkgbase=/i\# Contributor: Tom Wizetek <tom@wizetek.com>' PKGBUILD
 sed -i 's/^pkgbase="kernel26/&-pae/' PKGBUILD
 
-splitpkg() {
-  echo -en "Package(s) to build: [k]ernel only or [B]oth kernel and headers?  [q]uit =>"
-  read -n 1 _splitpkg
-  [[ ${_splitpkg} ]] && echo
+splitpkg()
+{
+  if ! [[ ${_splitpkg} ]]
+  then
+    echo -en "Package(s) to build: [k]ernel only or [B]oth kernel and headers?  [q]uit =>"
+    read -n 1 _splitpkg
+    [[ ${_splitpkg} ]] && echo
+  fi
   case ${_splitpkg} in
     k|K) sed -i '/^pkgname=/ s/(.*/kernel26-pae/' PKGBUILD ;;
     b|B|'') sed -i "/^pkgname=/ s/' .*/-pae' 'kernel26-pae-headers')/" PKGBUILD ;;
@@ -113,7 +139,8 @@ splitpkg() {
     *) splitpkg ;;
   esac
 }
-[[ ${_splitpkg} ]] || splitpkg
+
+splitpkg
 
 sed -i '/^# pkgname=/d' PKGBUILD
 sed -i '/^makedepends=/d' PKGBUILD
@@ -162,20 +189,21 @@ rm config.x86_64
 #
 # Build bin & src PKGs.
 #
-buildnow() {
-  echo -en "Modifications completed. Build package now? [Y/n/q] =>"
+buildnow()
+{
+  echo -en "Modifications completed. Build package now? [Y/n|q] =>"
   read -n 1 _buildnow
   [[ ${_buildnow} ]] && echo
   case ${_buildnow} in
     y|Y|'') ;;
-    n|N|q|Q) echo -e "\nTo build package(s) later using current configuration, run: makepkg\n" ; exit 1 ;;
+    n|N|q|Q) echo -e "\nTo build package(s) later using current configuration, run $(basename $0) again or manually run makepkg.\n" ; exit 1 ;;
     *) buildnow
   esac
 }
+
 [[ ${_buildnow} ]] || buildnow
 
-makepkg -L || makepkg -LRf || (rm -r ${_path}/{src,pkg} ; makepkg -L)
-[[ $? = 0 ]] && makepkg --source -f
+(makepkg -L || makepkg -LRf || (rm -r ${_path}/{src,pkg} && makepkg -L)) && makepkg --source -f
 
 #
 # Install bin PKG(s).
