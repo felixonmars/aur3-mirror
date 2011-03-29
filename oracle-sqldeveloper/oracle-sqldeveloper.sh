@@ -1,3 +1,3 @@
 #!/bin/bash
 
-export PATH=$PATH:/opt/oracle-sqldeveloper/bin
+exec /opt/oracle-sqldeveloper/sqldeveloper.sh -J-Dsdev.insight=false
