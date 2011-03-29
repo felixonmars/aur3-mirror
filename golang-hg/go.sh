@@ -1,3 +1,3 @@
-export GOROOT=/usr/lib/go
+export GOROOT=/opt/go/
 export GOOS=linux
-export GOBIN=/usr/bin
+export GOBIN=/opt/go/bin
