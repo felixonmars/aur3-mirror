@@ -1,35 +1,36 @@
-# $Id: $
-# Maintainer: Paulo Matias <matiasΘarchlinux-br·org>
+# Maintainer : SpepS <dreamspepser at yahoo dot it>
+# Contributor: Paulo Matias <matiasΘarchlinux-br·org>
 
-pkgname="alliance"
-pkgver="5.0_20090901"
+pkgname=alliance
+pkgver=5.0_20110203
 pkgrel=1
 pkgdesc="Free CAD tools and libraries for VLSI design (complete design flow from VHDL to layout)"
 arch=('i686' 'x86_64')
-url="http://www-asim.lip6.fr/recherche/alliance"
-depends=('gcc-libs' 'lesstif' 'libxpm' 'bash')
-makedepends=('gcc34')
-source=("http://www-asim.lip6.fr/pub/${pkgname}/distribution/${pkgver/_*}/${pkgname}-${pkgver/_/-}.tar.gz"
-        "patches.diff") 
-md5sums=('f3b692c4ea9e54c040280f660b3cf170'
-         '37c57d3111802404d16f254a158f319b')
+url="http://www-asim.lip6.fr/recherche/alliance/"
 license=('GPL')
-options=()
+depends=('lesstif' 'libxpm')
+optdepends=('zsh: bench script')
+options=('!libtool')
+source=("${url/recherche/pub}distribution/${pkgver/_*}/${pkgname}-${pkgver/_/-}.tar.gz")
+md5sums=('fad7ddc0f74beac0d0abb2701f50fec5')
 
 build() {
-    cd "${srcdir}/${pkgname}-${pkgver/_*}"
-    # Patches to work with the latest bison.
-    patch -b -p1 < "${srcdir}/patches.diff" || return 1
-    # I could patch it to compile correctly in gcc4, but then it
-    # causes random untraceable runtime errors in the druc tool.
-    # So I found it more trustworthy to use gcc 3.4 rather trying
-    # some ugly hack in druc, because I don't know if a hidden
-    # bug would otherwise show up in another tool.
-    export CC="gcc-3.4"
-    export CXX="g++-3.4"
-    # Compiling procedure as described in README.
-    export ALLIANCE_TOP="/opt/${pkgname}-${pkgver/_*}"
-    ./configure --prefix="${ALLIANCE_TOP}" --enable-alc-shared || return 1
-    make DESTDIR="${pkgdir}" install || return 1
+  cd "$srcdir/$pkgname-${pkgver/_*}"
+
+  # Does not build with -Wl,--as-needed
+  export LDFLAGS="${LDFLAGS//-Wl,--as-needed}"
+
+  ./configure --prefix=/opt/$pkgname \
+              --mandir=/usr/share/man \
+              --libdir=/usr/lib \
+              --includedir=/usr/include/$pkgname \
+              --enable-alc-shared \
+              --enable-static=no
+  make
 }
 
+package() {
+  cd "$srcdir/$pkgname-${pkgver/_*}"
+
+  make DESTDIR="$pkgdir/" install
+}
