@@ -27,6 +27,7 @@ solutions = [
       "src/o3d/samples": None,
       "src/third_party/lighttpd": None,
       "src/third_party/WebKit/LayoutTests": None,
+      "src/third_party/skia": None,
       "src/webkit/data/layout_tests": None,
       "src/webkit/tools/test/reference_build": None,
       "src/third_party/ffmpeg/binaries/chromium/linux/ia32": None,
