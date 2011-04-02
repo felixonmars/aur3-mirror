@@ -17,7 +17,7 @@ check_program()
 
 print_header()
 {
-    echo "many2flac converter version 1.0, (c) m0rph, 2011"
+    echo "many2flac converter version 1.1, (c) m0rph, 2011"
     echo "email: m0rph.mailbox@gmail.com"
     echo "supported input formats: ALAC, APE"
     echo ""
@@ -31,6 +31,7 @@ print_help()
     echo "         -h, --help         display this help and exit"
     echo "         -e, --erase        erase input file(s) after success conversion"
     echo "         -f, --force        force overwrite output file(s)"
+    echo "         -n, --native-flac  use native flac encoder instead of ffmpeg"
     echo "         -r, --replay-gain  calculate ReplayGain and store in FLAC tags"
     echo "         -0, --fast         use compression level 0"
     echo "         -1                 use compression level 1"
@@ -54,11 +55,43 @@ check_format()
 }
 
 
+process_file()
+{
+    ffmpeg -y -i "$1" -aq $compression "$2" &> /dev/null
+
+    if [ $replay_gain_flag == 1 ]; then
+        flac --force --replay-gain "$2" &> /dev/null
+    fi
+}
+
+
+process_file_native()
+{
+    title=$(ffmpeg -i "$1" 2>&1 | grep "    title           :" | cut -d ':' -f 2 | sed 's/^ *//')
+    artist=$(ffmpeg -i "$1" 2>&1 | grep "    artist          :" | cut -d ':' -f 2 | sed 's/^ *//')
+    album=$(ffmpeg -i "$1" 2>&1 | grep "    album           :" | cut -d ':' -f 2 | sed 's/^ *//')
+    year=$(ffmpeg -i "$1" 2>&1 | grep "    date            :" | cut -d ':' -f 2 | sed 's/^ *//')
+    track=$(ffmpeg -i "$1" 2>&1 | grep "    track           :" | cut -d ':' -f 2 | sed 's/^ *//')
+    genre=$(ffmpeg -i "$1" 2>&1 | grep "    genre           :" | cut -d ':' -f 2 | sed 's/^ *//')
+
+    pipe=`mktemp -u -t many2flac.pipe.XXXXXX`
+    mkfifo "$pipe"
+    mplayer -ao pcm -ao pcm:file="$pipe" "$1" -noconsolecontrols &> /dev/null &
+    if [ $replay_gain_flag == 1 ]; then
+        flac --force --replay-gain "$pipe" -o "$2" &> /dev/null
+    else
+        flac --force "$pipe" -T TITLE="$title" -T ARTIST="$artist" -T ALBUM="$album" \
+        -T DATE="$year" -T TRACKNUMBER="$track" -T GENRE="$genre" -o "$2" &> /dev/null
+    fi
+}
+
+
 print_header
 
 compression=5
 erase_flag=0
 force_flag=0
+native_flag=0
 replay_gain_flag=0
 files=()
 
@@ -73,6 +106,9 @@ while [[ $# > 0 ]]; do
         ;;
     -f|--force)
         force_flag=1
+        ;;
+    -n|--native)
+        native_flag=1
         ;;
     -r|--replay-gain)
         replay_gain_flag=1
@@ -136,6 +172,7 @@ fi
 
 check_program ffmpeg
 check_program flac
+check_program mplayer
 
 for input_file in "${files[@]}"; do
     check_format "$input_file"
@@ -146,12 +183,17 @@ for input_file in "${files[@]}"; do
 
     echo -n "converting $input_file"
     output_file=${input_file%.*}.flac
-    if [[ -f $output_file && $force_flag == 0 ]]; then
+    if [[ -f "$output_file" && $force_flag == 0 ]]; then
         echo " - failure (file exists)"
         continue
     fi
 
-    ffmpeg -y -i "$input_file" -aq $compression "$output_file" &> /dev/null
+    if [ $native_flag == 1 ]; then
+        process_file_native "$input_file" "$output_file"
+    else
+        process_file "$input_file" "$output_file"
+    fi
+
     if [ $? == 0 ]; then
         echo " - done"
         if [ $erase_flag == 1 ]; then
@@ -161,13 +203,4 @@ for input_file in "${files[@]}"; do
         echo " - failure"
     fi
 
-    if [ $replay_gain_flag == 1 ]; then
-        echo -n "calculating ReplayGain for $output_file"
-        flac --force --replay-gain "$output_file" &> /dev/null
-        if [ $? == 0 ]; then
-            echo " - done"
-        else
-            echo " - failure"
-        fi
-    fi
 done
