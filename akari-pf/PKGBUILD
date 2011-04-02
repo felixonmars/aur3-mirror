@@ -3,12 +3,12 @@
 
 pkgname=akari-pf
 _pkgname=akari
-pkgver=1.0.10
-_timestamp=20110215
+pkgver=1.0.11
+_timestamp=20110401
 _basever=2.6.37
-_kernpkgver=-pf3
+_kernpkgver=-pf
 _kernver=${_basever}-pf
-_ccstoolsver=1.8.0.20110214
+_ccstoolsver=1.8.1.20110401
 pkgrel=1
 pkgdesc='TOMOYO Linux 1.8.x Linux Kernel Module for kernel26-pf'
 arch=('i686' 'x86_64')
@@ -19,7 +19,7 @@ optdepends=("ccs-tools>=${_ccstoolsver}")
 install=akari.install
 source=("http://sourceforge.jp/frs/redir.php?f=/akari/49272/${_pkgname}-${pkgver}-${_timestamp}.tar.gz")
 noextract=("${_pkgname}-${pkgver}-${_timestamp}.tar.gz")
-sha256sums=('833751c6e28bf2906a514e3a0ebca3f7f7b0feb58efe5ae72b022de6c03d605b')
+sha256sums=('ab718cf3415c49bbf3dbe42240c6f336cd70e8f7549d3c261c02b6d14744b6b3')
 
 build()
 {
