@@ -8,7 +8,7 @@ case "$1" in
     start)
         stat_busy "Starting ccs-auditd"
         [ -z "$PID" ] && /usr/sbin/ccs-auditd
-        if [ $? -gt 0 ]; then
+        if [ $? -ne 0 ]; then
             stat_fail
         else
             add_daemon ccs-auditd
@@ -18,7 +18,7 @@ case "$1" in
     stop)
         stat_busy "Stopping ccs-auditd"
         [ ! -z "$PID" ] && kill "$PID" &> /dev/null
-        if [ $? -gt 0 ]; then
+        if [ $? -ne 0 ]; then
             stat_fail
         else
             rm_daemon ccs-auditd
