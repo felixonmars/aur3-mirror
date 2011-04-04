@@ -1,3 +1,3 @@
 #/bin/bash
 
-python /usr/share/drpython/drpython.pyw
+python2 /usr/share/drpython/drpython.pyw
