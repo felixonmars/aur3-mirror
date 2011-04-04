@@ -1,6 +1,6 @@
 pkgname=3dslicer-svn
 pkgver=15809
-pkgrel=1
+pkgrel=2
 url="http://www.slicer.org/"
 pkgdesc="A Multi-Platform, free and open source software package for visualization and medical image computing"
 license=('custom:License.txt')
@@ -11,7 +11,7 @@ arch=('i686' 'x86_64')
 source=()
 
 depends=('qt>=4.6')
-makedepends=('cmake' 'subversion' )
+makedepends=('cmake' 'subversion' 'cvs')
 md5sums=()
 _svntrunk=http://svn.slicer.org/Slicer4/trunk
 _svnmod=trunk
