@@ -1,3 +1,4 @@
+# maintainer: Techlive Zheng <techlivezheng [at] gmail [dot] com>
 # contributor: fnord0 [fnord0 <AT> riseup <DOT> net]
 pkgname=airdrop-ng-svn
 pkgdesc="Used for targeted, rule-based deauthentication of users. It can target based on MAC address, type of hardware, (OUI lookup) or completely deauthenticate ALL users"
