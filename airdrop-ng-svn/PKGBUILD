@@ -1,7 +1,8 @@
-# maintainer: Techlive Zheng <techlivezheng [at] gmail [dot] com>
-# contributor: fnord0 [fnord0 <AT> riseup <DOT> net]
+# Maintainer: fnord0 [fnord0 <AT> riseup <DOT> net]
+# Contributor: Techlive Zheng <techlivezheng [at] gmail [dot] com>
+
 pkgname=airdrop-ng-svn
-pkgdesc="Used for targeted, rule-based deauthentication of users. It can target based on MAC address, type of hardware, (OUI lookup) or completely deauthenticate ALL users"
+pkgdesc="A rule based deauth tool on aircrack-ng"
 pkgver=1763
 pkgrel=1
 arch=('i686' 'x86_64')
@@ -23,7 +24,7 @@ build() {
   msg "Connecting to SVN server...."
   if [ -d ${_svnmod}/.svn ]; then
     msg "Updating airdrop-ng SVN..."
-    svn up ${_svnmod}
+    svn up ${_svnmod} -r ${pkgver}
   else
     msg "Checking out airdrop-ng SVN..."
     svn co ${_svntrunk} -r ${pkgver} ${_svnmod}
