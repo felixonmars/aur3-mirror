@@ -1,15 +1,15 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-nnovgorod
-pkgver=30
+pkgver=31
 pkgrel=1
-pkgdesc="Map of N_Novgorod for 2GIS"
+pkgdesc="Map of Nizhny Novgorod for 2GIS"
 arch=('i686' 'x86_64')
 url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-${pkgver}.orig.zip")
-md5sums=('61afb13f5444dcf26a5f60c34e230356')
+md5sums=('621d67f1787bcf01fbf7a98736346520')
 
 build() {
 

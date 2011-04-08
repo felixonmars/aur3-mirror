@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-astrakhan
-pkgver=64
+pkgver=65
 pkgrel=1
 pkgdesc="Map of Astrakhan for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-${pkgver}.orig.zip")
-md5sums=('0c13e2e90cd0639e0ab9f77b5336ad13')
+md5sums=('bddfeb60d17243a5d8c88a43ed3dcd72')
 
 build() {
 

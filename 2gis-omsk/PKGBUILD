@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-omsk
-pkgver=79
+pkgver=80
 pkgrel=1
 pkgdesc="Map of Omsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Omsk-${pkgver}.orig.zip")
-md5sums=('70aa3683c9281d56aa24753c4c5e03e5')
+md5sums=('cf0127ba9c6cf3b653fcd882cdc65980')
 
 build() {
 

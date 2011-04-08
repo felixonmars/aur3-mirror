@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-kurgan
-pkgver=60
+pkgver=61
 pkgrel=1
 pkgdesc="Map of Kurgan for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kurgan-${pkgver}.orig.zip")
-md5sums=('87c63e61fc355f12dcaca2e58eda50b4')
+md5sums=('daab6487d00ced826444598f515858d0')
 
 build() {
 

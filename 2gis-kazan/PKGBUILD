@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-kazan
-pkgver=28
+pkgver=29
 pkgrel=1
 pkgdesc="Map of Kazan for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kazan-${pkgver}.orig.zip")
-md5sums=('f45cb15cb5d0bda1c30ba34f4925c1c8')
+md5sums=('38a030230b49588cd58e9e306d249e67')
 
 build() {
 

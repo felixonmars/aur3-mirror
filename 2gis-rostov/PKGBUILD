@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-rostov
-pkgver=12
+pkgver=13
 pkgrel=1
 pkgdesc="Map of Rostov for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Rostov-${pkgver}.orig.zip")
-md5sums=('58438cc02b54fcb392c75e27dfb8190b')
+md5sums=('f7708e76dbeeb4e8d8a6520e5f9a6504')
 
 build() {
 

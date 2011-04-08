@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-samara
-pkgver=32
+pkgver=33
 pkgrel=1
 pkgdesc="Map of Samara for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Samara-${pkgver}.orig.zip")
-md5sums=('370680c731b4d470b210e2cebbd8412c')
+md5sums=('da888447cfd024f8bc13f572334f965a')
 
 build() {
 

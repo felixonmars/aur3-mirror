@@ -1,7 +1,7 @@
-# Contributor: Nebulosa <nebulosa2007 na yandekse>
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-perm
-pkgver=39
+pkgver=40
 pkgrel=1
 pkgdesc="Map of Perm for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Perm-${pkgver}.orig.zip")
-md5sums=('42c034beb1987437f847c4fcab4b14b2')
+md5sums=('f508cdae6f79679a60e7bef0c9517df8')
 
 build() {
 
