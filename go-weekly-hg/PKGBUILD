@@ -4,10 +4,10 @@
 # Contributor: Matthew Bauer <mjbauer95 gmail>
 # Contributor: Vesa Kaihlavirta <vegai iki fi>
 
-pkgname=go-hg
+pkgname=go-weekly-hg
 pkgver=8038
 pkgrel=1
-pkgdesc='Google Go compiler and tools (hg tip)'
+pkgdesc='Google Go compiler and tools (hg weekly)'
 arch=(i686 x86_64)
 url=http://golang.org/
 license=(custom)
@@ -25,6 +25,7 @@ _hgrepo=go
 build() {
   unset GOARCH GOBIN GOOS GOROOT
   cd $srcdir/$_hgrepo/src
+  hg update weekly
   LC_ALL=C GOROOT_FINAL=/opt/go ./make.bash
 }
 
