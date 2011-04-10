@@ -2,12 +2,12 @@
 
 pkgname=alienblaster
 pkgver=1.1.0
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 pkgdesc="Action-loaded 2D arcade shooter game with Fedora's patches"
 url="http://www.schwardtnet.de/alienblaster/"
 depends=('sdl_mixer')
-license=('GPL2')
+license=('GPL')
 source=(http://www.schwardtnet.de/alienblaster/archives/alienblaster-${pkgver}.tgz
         alienblaster-1.1.0-64bit.patch
         alienblaster-1.1.0-fullscreen.patch
@@ -22,14 +22,13 @@ md5sums=('27412a868f7d4ae0949036aeb29a6691'
          '9c1adb2664e92fe7fc6e0b0248ba3ea6')
 
 build() {
-    cd $srcdir/$pkgname
+    cd $pkgname
     patch -Np1 -i ../alienblaster-1.1.0-64bit.patch
     patch -Np1 -i ../alienblaster-1.1.0-fullscreen.patch
     make
 }
 
 package() {
-    cd $srcdir
     install -Dm755 alienblaster.sh $pkgdir/usr/bin/alienblaster.sh
     
     mkdir -p $pkgdir/usr/share/{applications,pixmaps}
