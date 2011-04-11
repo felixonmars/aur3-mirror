@@ -1,6 +1,0 @@
-20 ctime=1286611691
-20 atime=1286611691
-84 SCHILY.acl.access=user::rw-,group::rwx,other::r--,user:piecia:rwx:1000,mask::r--
-19 SCHILY.dev=2055
-22 SCHILY.ino=1097982
-18 SCHILY.nlink=1
