@@ -1,11 +1,11 @@
 # Maintainer: TJ Vanderpoel <tj@rubyists.com>
 pkgname=lighttpd2-git
 pkgver=20110410
-pkgrel=4
+pkgrel=5
 pkgdesc="The new Lighty: A small, secure, scalable, flexible webserver"
 arch=(i686 x86_64)
 url="http://redmine.lighttpd.net/wiki/lighttpd2/"
-license=('BSD')
+license=('MIT')
 depends=(libev ragel lua zlib bzip2 openssl glib2)
 optdepends=("valgrind: for deep debuggins")
 makedepends=(pkg-config)
