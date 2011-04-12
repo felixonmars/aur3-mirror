@@ -27,9 +27,6 @@ package() {
 
   make DESTDIR="$pkgdir/" install
 
-  rm $pkgdir/usr/share/info/dir
-  gzip $pkgdir/usr/share/info/*
-
   # Renaming last
   mv "$pkgdir/usr/bin/last" "$pkgdir/usr/bin/last-acct"
   mv "$pkgdir/usr/share/man/man1/last.1" "$pkgdir/usr/share/man/man1/last-acct.1"
