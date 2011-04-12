@@ -1,58 +1,42 @@
-# contributor: fnord0 [fnord0 <AT> riseup <DOT> net] 
-pkgname=airdrop-ng
-pkgver=1786
-pkgrel=3
-pkgdesc="Used for targeted, rule-based deauthentication of users. It can target based on MAC address, type of hardware, (OUI lookup) or completely deauthenticate ALL users"
-arch=('i686' 'x86_64')
-url="http://www.aircrack-ng.org/doku.php?id=airdrop-ng"
-license=('GPLv2')
-depends=('python2' 'lorcon-old-svn' 'pylorcon')
-makedepends=('subversion')
-optdepends=("psyco: JIT compiler for python")
-source=()
-md5sums=() 
+# Maintainer: Techlive Zheng <techlivezheng [at] gmail [dot] com>
 
-_svntrunk="http://trac.aircrack-ng.org/svn/trunk/scripts/airdrop-ng"
+_pkgbase=aircrack-ng
+pkgname=airdrop-ng
+pkgdesc="A rule based deauth tool on aircrack-ng"
+pkgver=1.1
+pkgrel=1
+arch=('i686' 'x86_64')
+url="http://www.aircrack-ng.org"
+license=('GPLv2')
+depends=('python2' 'pylorcon' 'lorcon-old-svn')
+conflicts=('aircrack-ng-scripts')
+source=("http://download.aircrack-ng.org/${_pkgbase}-${pkgver}.tar.gz")
+
 
 build() {
-        cd ${startdir}/src
-
-        if [ -d ${pkgname}/.svn ]; then
-        msg "Updating airdrop-ng SVN..."
-                cd ${pkgname} && svn up
-        else
-        msg "Checking out airdrop-ng SVN..."
-                svn co ${_svntrunk} -r ${pkgver} ${pkgname}
-        fi
-
-        msg "SVN checkout done or server timeout"
-        msg "Starting make..."
-        cd ${startdir}/src/${pkgname}
-	if [ -d ${pkgname}build/ ]; then
-		rm -rf ${pkgname}build
-		msg "Build exists, cleaning it up... "
-		install -d build
-	else
-		msg "Creating build folder... "
-		install -d build
-	fi
-	cp -p airdrop-ng build/ && cp -pr lib build/ && cp -pr docs/airdrop-ng.1 build/ && cp -p README docs/*.txt build/ && cp -p docs/*.example build/ || return 1
-	grep -rl python build/ | xargs sed -i 's|python|python2|g' || return 1
-	cd build
-	install -d ${pkgdir}/usr/bin || return 1
-	install -d ${pkgdir}/usr/lib/airdrop-ng || return 1
-	install -d ${pkgdir}/usr/share/man/man1 || return 1
-	install -d ${pkgdir}/usr/share/airdrop-ng || return 1
-	cp -p airdrop-ng ${pkgdir}/usr/bin/ || return 1
-	cp -p lib/* ${pkgdir}/usr/lib/airdrop-ng/ || return 1
-	cp -p *.txt ${pkgdir}/usr/share/airdrop-ng || return 1
-	cp -p *.example ${pkgdir}/usr/share/airdrop-ng || return 1
-	cp -p README ${pkgdir}/usr/share/airdrop-ng || return 1
-	cp -p airdrop-ng.1 ${pkgdir}/usr/share/man/man1/ || return 1
-	cd ..
-	rm -rf ${svnmod}/build || return 1
-	echo -e ""
-	echo -e "\e[1;34m[\e[0m\e[1;31m*\e[0m\e[1;34m]\e[0m \e[1;31mrun \e[1;34m'\e[0m\e[1;31m/usr/bin/airdrop-ng -u\e[1;34m'\e[0m\e[1;31m to update the OUI file\e[0m"
-	echo -e "\e[1;34m>>>\e[0m \e[1;31mthe file \e[1;34m'\e[0m\e[1;31m/usr/share/airdrop-ng/dropRules.conf.example\e[1;34m'\e[0m\e[1;31m explains the config file syntax via examples\e[0m"
-	echo -e ""
+  return
 }
+
+package() {
+  cd ${srcdir}/${_pkgbase}-${pkgver}/scripts
+
+  sed -i "s/python/python2/g" airdrop-ng/airdrop-ng.py
+
+  # airdrop-ng bin
+  install -Dm755 airdrop-ng/airdrop-ng.py               ${pkgdir}/usr/bin/airdrop-ng                              || return 1
+
+  # airdrop-ng doc
+  install -Dm644 airdrop-ng/README                      ${pkgdir}/usr/share/doc/airdrop-ng/README                 || return 1
+  install -Dm644 airdrop-ng/docs/Apple.sample.txt       ${pkgdir}/usr/share/doc/airdrop-ng/Apple.sample.txt       || return 1
+  install -Dm644 airdrop-ng/docs/dropRules.conf.example ${pkgdir}/usr/share/doc/airdrop-ng/dropRules.conf.example || return 1
+
+  # airdrop-ng man page
+  install -Dm644 airdrop-ng/docs/airdrop-ng.1           ${pkgdir}/usr/share/man/man1/airdrop-ng.1                 || return 1
+
+  # airdrop-ng libs
+  install -Dm644 airdrop-ng/lib/colorize.py             ${pkgdir}/usr/lib/airdrop-ng/colorize.py                  || return 1
+  install -Dm644 airdrop-ng/lib/libOuiParse.py          ${pkgdir}/usr/lib/airdrop-ng/libOuiParse.py               || return 1
+  install -Dm644 airdrop-ng/lib/libDumpParse.py         ${pkgdir}/usr/lib/airdrop-ng/libDumpParse.py              || return 1
+}
+
+md5sums=('f7a24ed8fad122c4187d06bfd6f998b4')
