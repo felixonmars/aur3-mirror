@@ -3,15 +3,16 @@
 
 pkgname=ailurus
 pkgver=10.10.3
-pkgrel=2
+pkgrel=3
 pkgdesc="A simple application installer and GNOME tweaker"
-arch=('i686' 'x86_64')
+arch=('any')
 license=('GPLv2')
 url="http://code.google.com/p/ailurus/"
-depends=('dbus-python' 'polkit-gnome' 'python-distutils-extra' 'python-gnomekeyring' 'python-notify' 'unzip' 'vte' 'xterm')
+depends=('dbus-python' 'polkit-gnome' 'python-gnomekeyring' 'python-notify' 'unzip' 'vte' 'xterm')
+makedepends=('python-distutils-extra')
 optdepends=("polkit-kde: for KDE integration")
-source=("http://$pkgname.googlecode.com/files/$pkgname-$pkgver.tar.gz")
-md5sums=('41b5c618e2ddadbeb2f454a9b822229d')
+source=("http://dl.dropbox.com/u/162810/$pkgname-$pkgver.tar.xz")
+md5sums=('54957f09ac41760a69c1b93b41cae9e6')
 
 build() {
        cd $srcdir/$pkgname-$pkgver
