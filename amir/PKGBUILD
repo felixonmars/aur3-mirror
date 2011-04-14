@@ -10,8 +10,8 @@ license=('GPL')
 depends=('python2' 'pygobject' 'pygtk' 'python2-cairo' 'python2-sqlalchemy' 'python2-tempita' 'python2-migrate')
 makedepends=('bzr')
 #options=(!strip)
-source=(patch.patch)
-md5sums=('f43ca13a499d9c7f5fa0bdf89ec6aaa0')
+#source=()
+
 _bzrtrunk="lp:amir"
 _bzrmod="amir"
 
@@ -30,8 +30,6 @@ build() {
   msg "BZR checkout done or server timeout"
   msg "Starting make..."
 
-  patch -p1 -i patch.patch
-  
   cd "${_bzrmod}"
 
   # python2 fix
