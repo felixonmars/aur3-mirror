@@ -51,7 +51,7 @@ case "$1" in
                     ;;
                 esac
                 ;;
-            CPU0)	
+            CPU0)
                 ;;
             *)  logger "ACPI action undefined: $2" ;;
         esac
