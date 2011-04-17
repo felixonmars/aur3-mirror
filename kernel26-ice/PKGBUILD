@@ -45,7 +45,7 @@ file_bfs_b="2637-bfs363-nonhotplug_fix.patch"
 options=(!strip)
 source=(http://kernel.org/pub/linux/kernel/v2.6/linux-${_basekernel}.tar.bz2
         http://www.kernel.org/pub/linux/kernel/v2.6/patch-${_basekernel}.${_minor_patch}.bz2
-        http://www.kernel.org/pub/linux/kernel/projects/rt/${file_rt}
+        http://www.kernel.org/pub/linux/kernel/projects/rt/older/${file_rt}
         http://www.kernel.org/pub/linux/kernel/people/edward/reiser4/reiser4-for-2.6/${file_reiser4}
         http://www.tuxonice.net/files/${file_toi}
         http://ck.kolivas.org/patches/bfs/${_basekernel}/${file_bfs}
