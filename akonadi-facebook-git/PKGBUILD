@@ -1,45 +1,49 @@
-# Contributor: Dan Vratil <vratil@progdansoft.com>
+# Contributor: Frank Scheffold <fscheffold(at)gmail.com>
+
 
 pkgname=akonadi-facebook-git
-pkgver=20110318
+pkgver=20110417
 pkgrel=1
-pkgdesc="Facebook support for KDE PIM"
+pkgdesc="Makes events, contacts, notes and messages from Facebook available in KDE."
 arch=('i686' 'x86_64')
-url="http://www.kde.org"
+url="https://projects.kde.org/projects/playground/pim/akonadi-facebook/"
 license=('GPL')
-depends=('libxslt' 'qjson')
-makedepends=('pkgconfig' 'cmake' 'git')
- 
+depends=('kdelibs' 'boost-libs' 'akonadi')
+makedepends=('cmake' 'automoc4' 'boost' 'git')
+source=()
+md5sums=()
+
 _gitroot="git://anongit.kde.org/akonadi-facebook"
 _gitname="akonadi-facebook"
- 
+
 build() {
-  cd $srcdir
-  msg "Connecting to the GIT server...."
-  
-  if [ -d $srcdir/$_gitname ] ; then
-    cd $_gitname
-    git pull origin
-    msg "The local files are updated."
-  else
-    git clone $_gitroot
-  fi
-  
-  msg "GIT checkout done"
-  msg "Starting make..."
-  
-  if [ ! -d ${srcdir}/$_gitname-build ]; then
-	  mkdir $srcdir/$_gitname-build
-  fi
-  
-  cd $srcdir/$_gitname-build
- 
-  cmake $startdir/src/$_gitname -DCMAKE_BUILD_TYPE=debugfull -DCMAKE_INSTALL_PREFIX=/usr
-  make
-}
- 
-package() {
-  cd ${srcdir}/$_gitname-build
-  make DESTDIR=${pkgdir} install
-  rm -r $srcdir/$_gitname-build
+    cd "$srcdir"
+    msg "Connecting to GIT server...."
+
+    if [ -d $_gitname ] ; then
+        cd $_gitname
+
+        # Change remote url to anongit
+        if [ -z $(git branch -v | grep anongit) ] ; then
+            git remote set-url origin ${_gitroot}
+        fi
+
+        git pull origin
+        msg "The local files are updated."
+    else
+        git clone $_gitroot $_gitname
+    fi
+
+    msg "GIT checkout done or server timeout"
+    msg "Starting make..."
+
+    mkdir -p "$srcdir/build"
+    cd "$srcdir/build"
+
+    cmake ../${_gitname} \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=RELWITHDEBINFO
+
+    make || return 1
+    make DESTDIR=${pkgdir} install || return 1
 }
