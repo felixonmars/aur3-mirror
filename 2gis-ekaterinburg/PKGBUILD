@@ -2,7 +2,7 @@
 
 pkgname=2gis-ekaterinburg
 pkgver=64
-pkgrel=1
+pkgrel=2
 pkgdesc="Map of Ekaterinburg for 2GIS"
 arch=('i686' 'x86_64')
 url="http://help.2gis.ru/linux/"
