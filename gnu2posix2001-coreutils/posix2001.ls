@@ -1,0 +1,15 @@
+awk
+csplit
+ed
+egrep
+expr
+fgrep
+find
+getconf
+grep
+ls
+nawk
+nl
+pax
+pg
+sed
