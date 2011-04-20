@@ -28,6 +28,7 @@ static char args_doc[] = "[preserve_number]";
 static struct argp_option options[] =
 {
     { .doc = "" },
+    { .name = "dry-run", .key = 'n', .doc = "Perform a trial run with no changes made" },
     { .name = "verbose", .key = 'v', .doc = "Verbose output" },
     { .name = "quiet", .key = 'q', .doc = "Suppress output, default" },
     { .doc = NULL }
@@ -45,6 +46,7 @@ struct pkginfo
 
 struct arguments
 {
+    int dry_run;
     int preserve;
     int verbose;
 };
@@ -140,6 +142,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
     switch (key)
     {
+        case 'n':
+            argument->dry_run = 1;
+            break;
         case 'v':
             argument->verbose = 1;
             break;
@@ -173,13 +178,13 @@ int main(const int argc, char ** __restrict__ argv)
     char cachedir[PATH_MAX] = CACHEDIR;
     struct argp arg_parser = { .options = options, .parser = parse_opt,
         .args_doc = args_doc, .doc = doc };
-    struct arguments args = { .preserve = 0, .verbose = 0 };
+    struct arguments args = { .dry_run = 0, .preserve = 0, .verbose = 0 };
 
     argp_parse(&arg_parser, argc, argv, 0, NULL, &args);
     if (!args.preserve)
         args.preserve = 2;
 
-    if (getuid())
+    if (!args.dry_run && getuid())
     {
         puts("please run as root.");
         exit(EXIT_FAILURE);
@@ -231,13 +236,14 @@ int main(const int argc, char ** __restrict__ argv)
                     printf("remove: %s\n", cachepkg[i]->filename);
                     total_size += get_file_size(cachedir);
                 }
-                unlink(cachedir);
+                if (!args.dry_run)
+                    unlink(cachedir);
             }
         }
     }
 
     if (args.verbose)
-        printf("\ntotal: %"PRIuMAX"\n", (uintmax_t)total_size);
+        printf("\ntotal: %"PRIuMAX" bytes\n", (uintmax_t)total_size);
 
     free_pkginfo_array(cachepkg, n);
     free_pkginfo_array(localpkg, m);
