@@ -14,7 +14,7 @@
 #define DBPATH "/var/lib/pacman/"
 #define CACHEDIR "/var/cache/pacman/pkg/"
 
-const char *argp_program_version = "pkgcacheclean 1.3";
+const char *argp_program_version = "pkgcacheclean "VERSION;
 const char *argp_program_bug_address = "auguste@gmail.com";
 
 static char doc[] =
