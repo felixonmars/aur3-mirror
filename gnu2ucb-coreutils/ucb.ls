@@ -1,0 +1,15 @@
+basename
+chown
+deroff
+df
+du
+echo
+groups
+install
+ln
+ls
+ps
+stty
+sum
+test
+tr

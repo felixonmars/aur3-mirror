@@ -1,0 +1,12 @@
+chmod
+date
+file
+id
+mkdir
+nohup
+od
+rm
+rmdir
+sort
+touch
+who
