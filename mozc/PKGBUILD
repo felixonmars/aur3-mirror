@@ -9,20 +9,28 @@ _ibus_mozc="yes"
 ## If you will be using mozc.el on Emacs, uncomment below.
 #_emacs_mozc="yes"
 
+## You can add Japanese zip code provided by Japan Post.
+## If you want to use it, uncomment below.
+#_zipcode="yes"
+## zip code data is as of 2011-03-31.
+
 pkgbase=mozc
 pkgname=mozc
 true && pkgname=('mozc-server' 'mozc-utils-gui')
 pkgver=1.1.690.102
-pkgrel=4
+pkgrel=5
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/mozc/"
 license=('BSD' 'custom')
 makedepends=('pkg-config' 'python2' 'curl' 'qt' 'gtest' 'zinnia' 'protobuf' )
 changelog=${pkgbase}.ChangeLog
-source=(http://mozc.googlecode.com/files/mozc-${pkgver}.tar.bz2)
-sha1sums=('2305e57b63bb5fc631f3e64eab1f1bfffffd3bf0')
 _copt=Release
 #_copt=Debug
+source=(http://mozc.googlecode.com/files/mozc-${pkgver}.tar.bz2
+        mozc-1.1.690.102-ibus-lang_panel.patch
+)
+sha1sums=('2305e57b63bb5fc631f3e64eab1f1bfffffd3bf0'
+          'ac0c9bef87b3ca3efe16554c00713ad1b4dc4cf8')
 
 if [[ "$_ibus_mozc" = "yes" ]]; then
     true && pkgname=(${pkgname[@]} 'ibus-mozc')
@@ -34,6 +42,20 @@ if [[ "$_scim_mozc" = "yes" ]]; then
 fi
 if [[ "$_emacs_mozc" = "yes" ]]; then
     true && pkgname=(${pkgname[@]} 'emacs-mozc' 'emacs-mozc-bin')
+fi
+
+if [[ "$_zipcode" = "yes" ]]; then
+    source=(${source[@]}
+            'http://www.post.japanpost.jp/zipcode/dl/kogaki/lzh/ken_all.lzh'
+            'http://www.post.japanpost.jp/zipcode/dl/jigyosyo/lzh/jigyosyo.lzh')
+    md5sums=(${md5sums[@]}
+            '729b682fb3a7ea34c082b36ac104f214'
+            '48edd2077fa330c3a9c25b65970ec4c0')
+  if [[ "$CARCH" = "x86_64" ]]; then
+      makedepends=(${makedepends[@]} 'bin32-lha')
+  else
+      makedepends=(${makedepends[@]} 'lha')
+  fi
 fi
 
 build() {
@@ -48,31 +70,33 @@ build() {
   cd "${srcdir}/${pkgbase}-${pkgver}"
 
   # Adjust to use python2
-  sed -i '1s|python.*$|python2|' `find . -name \*.py -type f -print`
-  sed -i "s|'python'|'python2'|" `grep -lR \'python\' * --include=*.gyp{,i}`
+  sed -i '1s|python.*$|python2|'  `find . -name \*.py -type f -print`
+  sed -i "s|'python'|'python2'|g" `grep -lR \'python\' * --include=*.gyp{,i}`
 
-  # build mozc server and tools
-  python2 build_mozc.py gyp
+  # Add zip code
+  if [[ "$_zipcode" = "yes" ]]; then
+      msg "Generating zip code seed..."
+      cd data/dictionary
+      lha x "${srcdir}/ken_all.lzh"
+      lha x "${srcdir}/jigyosyo.lzh"
+      python2 ../../dictionary/gen_zip_code_seed.py --zip_code=ken_all.csv --jigyosyo=jigyosyo.csv > zip_code_seed.tsv
+      cd -
+  fi
+
+  # patch to add some tool's menu items into lang panel by Vine Linux. Thx Vine!
+  patch -p1 -i "${srcdir}/mozc-1.1.690.102-ibus-lang_panel.patch"
+
+  _target="server/server.gyp:mozc_server gui/gui.gyp:mozc_tool"
+  [[ "$_emacs_mozc" = "yes" ]] && _target="${_target} unix/emacs/emacs.gyp:mozc_emacs_helper"
+  [[ "$_ibus_mozc"  = "yes" ]] && _target="${_target} unix/ibus/ibus.gyp:ibus_mozc"
+  [[ "$_scim_mozc"  = "yes" ]] && _target="${_target} unix/scim/scim.gyp:scim_mozc unix/scim/scim.gyp:scim_mozc_setup"
+
+  python2 build_mozc.py gyp --channel_dev=0
   python2 build_mozc.py build_tools -c $_copt
-  python2 build_mozc.py build -c $_copt \
-      server/server.gyp:mozc_server \
-      gui/gui.gyp:mozc_tool
+  python2 build_mozc.py build -c $_copt $_target
 
-  # build mozc_emacs_helper
-  if [[ "$_emacs_mozc" = "yes" ]]; then
-      python2 build_mozc.py build -c $_copt unix/emacs/emacs.gyp:mozc_emacs_helper
-  fi
-
-  # build ibus-mozc
   if [[ "$_ibus_mozc" = "yes" ]]; then
-      python2 build_mozc.py build -c $_copt unix/ibus/ibus.gyp:ibus_mozc
-      sed -i 's|/usr/libexec/ibus-engine-mozc|/usr/lib/ibus-mozc/ibus-engine-mozc|' \
-              out_linux/${_copt}/obj/gen/unix/ibus/mozc.xml
-  fi
-
-  # build scim-mozc
-  if [[ "$_scim_mozc" = "yes" ]]; then
-      python2 build_mozc.py build -c $_copt unix/scim/scim.gyp:scim_mozc unix/scim/scim.gyp:scim_mozc_setup
+      sed -i 's|/usr/libexec/|/usr/lib/ibus-mozc/|g' out_linux/${_copt}/obj/gen/unix/ibus/mozc.xml
   fi
 }
 
@@ -94,9 +118,11 @@ package_mozc-utils-gui() {
   pkgdesc="Mozc GUI uitilities, such as the configuration dialog, user dictionary tool and about dialog"
   arch=('i686' 'x86_64')
   depends=('mozc-server' 'qt')
+  optdepends=('zinnia: hand-writing input support (Experimental)'
+              'tegaki-models-zinnia-japanese: hand-writing input support (Experimental)')
 
   cd "${srcdir}/${pkgbase}-${pkgver}"
-   install -D -m 755 out_linux/${_copt}/mozc_tool "${pkgdir}/usr/lib/mozc/mozc_tool"
+  install -D -m 755 out_linux/${_copt}/mozc_tool "${pkgdir}/usr/lib/mozc/mozc_tool"
 }
 
 package_emacs-mozc() {
@@ -160,5 +186,6 @@ package_scim-mozc() {
   install    -m 644 data/images/unix/ui-alpha_full.png    "${pkgdir}${_icondir}/scim-mozc-alpha_full.png"
 }
 
+# Global pkgdesc and depends are here so that they will be picked up by AUR
 pkgdesc="A Japanese input method originates from Google Japanese Input"
 depends=('curl' 'protobuf' 'qt')
