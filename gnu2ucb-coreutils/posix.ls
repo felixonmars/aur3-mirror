@@ -1,5 +1,4 @@
 chmod
-cp
 date
 file
 id
