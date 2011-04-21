@@ -10,7 +10,7 @@ esac
 SAVE_LLP=$LD_LIBRARY_PATH
 
 RETVAL=0
-ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe/u01/app/oracle/product/11.2.0/xe
+ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe
 ORACLE_OWNER=oracle
 ORACLE_SID=XE
 LSNR=$ORACLE_HOME/bin/lsnrctl
@@ -18,6 +18,7 @@ SQLPLUS=$ORACLE_HOME/bin/sqlplus
 SU=/bin/su
 export ORACLE_HOME
 export ORACLE_SID
+export ORACLE_BASE=/u01/app/oracle
 export PATH=$ORACLE_HOME/bin:$PATH
 LOG="$ORACLE_HOME_LISTNER/listener.log"
 
@@ -29,7 +30,7 @@ then
     exit 1
 fi
 
-CONFIG_NAME=oracle-xe-11g2-beta
+CONFIG_NAME=oracle-xe
 CONFIGURATION="/etc/sysconfig/$CONFIG_NAME"
 
 if [ -f /etc/arch-release ]
@@ -131,16 +132,17 @@ EOF
 # sets the password,start the listener,and adds database to inittab
 # if necessary
 
-configure_perform() {
+configure_perform()
+{
 	
-	sed -i "s/%sga_target%/$SGA_SIZE/g" $ORACLE_HOME/config/scripts/init.ora
-	sed -i "s/%pga_aggregate_target%/$PGA_SIZE/g" $ORACLE_HOME/config/scripts/init.ora
-	/bin/chown oracle:dba $ORACLE_HOME/config/scripts/init.ora
+    sed -i "s/%sga_target%/$SGA_SIZE/g" $ORACLE_HOME/config/scripts/init.ora
+    sed -i "s/%pga_aggregate_target%/$PGA_SIZE/g" $ORACLE_HOME/config/scripts/init.ora
+    /bin/chown oracle:dba $ORACLE_HOME/config/scripts/init.ora
 	
-	sed -i "s/%sga_target%/$SGA_SIZE/g" $ORACLE_HOME/config/scripts/initXETemp.ora
-	sed -i "s/%pga_aggregate_target%/$PGA_SIZE/g" $ORACLE_HOME/config/scripts/initXETemp.ora
+    sed -i "s/%sga_target%/$SGA_SIZE/g" $ORACLE_HOME/config/scripts/initXETemp.ora
+    sed -i "s/%pga_aggregate_target%/$PGA_SIZE/g" $ORACLE_HOME/config/scripts/initXETemp.ora
 	/bin/chown oracle:dba $ORACLE_HOME/config/scripts/initXETemp.ora
-	
+
     sed -i "s/%hostname%/`hostname`/g" $ORACLE_HOME/network/admin/listener.ora
     sed -i "s/%port%/$LISTENER_PORT/g" $ORACLE_HOME/network/admin/listener.ora
     /bin/chown oracle:dba $ORACLE_HOME/network/admin/listener.ora
@@ -189,11 +191,8 @@ EOF
 
     fi
 
-    sed -i "s/%httpport%/$HTTP_PORT/g" $ORACLE_HOME/config/scripts/DatabaseHomePage.sh
-    /bin/chown oracle:dba $ORACLE_HOME/config/scripts/DatabaseHomePage.sh
-
-    sed -i "s/%httpport%/$HTTP_PORT/g" $ORACLE_HOME/config/scripts/readonlinehelp.sh
-    /bin/chown oracle:dba $ORACLE_HOME/config/scripts/readonlinehelp.sh
+   sed -i "s/%httpport%/$HTTP_PORT/g" $ORACLE_HOME/config/scripts/gettingstarted.sh
+    /bin/chown oracle:dba $ORACLE_HOME/config/scripts/gettingstarted.sh
 
     homedir=`echo $HOME`
     if [ "$homedir" = "/root" ]
@@ -201,39 +200,46 @@ EOF
         homedir=`sh -c "echo ~$USER"`
     fi
 
-    if [ -f $homedir/.gnome-desktop/oraclexe-gettingstarteddesktop.desktop ]  
-    then
-    	    /bin/chown oracle:dba $homedir/.gnome-desktop/oraclexe-gettingstarteddesktop.desktop
-    	    /bin/chmod 664  $homedir/.gnome-desktop/oraclexe-gettingstarteddesktop.desktop
-    fi
-    if [ -f $homedir/Desktop/oraclexe-gettingstarteddesktop.desktop ]
-    then
-	/bin/chown oracle:dba $homedir/Desktop/oraclexe-gettingstarteddesktop.desktop
-	/bin/chmod 664  $homedir/Desktop/oraclexe-gettingstarteddesktop.desktop
-    fi
-
     if [ -f $ORACLE_HOME/bin/tnslsnr ]  
     then
      	echo -n "Starting Oracle Net Listener..."
-       	$SU -s /bin/bash $ORACLE_OWNER -c "$LSNR  start" ## > /dev/null 2>&1
+       	su -s /bin/bash $ORACLE_OWNER -c "$LSNR  start" > /dev/null 2>&1
 	echo "Done"
     fi
 
-    echo -n "Configuring Database..."
-    $SU -s /bin/bash $ORACLE_OWNER -c "$ORACLE_HOME/config/scripts/XE.sh" ## > /dev/null 2>&1
-    err=`grep "ORA-44410" $ORACLE_HOME/config/log/*.log`
-    if test "$err" != ""
+    echo -n "Configuring database..."
+    su -s /bin/bash $ORACLE_OWNER -c "$ORACLE_HOME/config/scripts/XE.sh" > /dev/null 2>&1
+    if [ -d $ORACLE_HOME/config/log ]
     then
-	echo "Database Configuration failed.  Look into $ORACLE_HOME/config/log for details"
-	exit 1
+            err=`grep "ORA-44410" $ORACLE_HOME/config/log/*.log`
+            out=`grep "ORA-01034" $ORACLE_HOME/config/log/*.log`
+            if [ "$err" != "" ] || [ "$out" != "" ]
+            then
+                echo
+                echo "Database Configuration failed.  Look into $ORACLE_HOME/config/log for details"
+                exit 1
+            fi
+     fi
+
+    pmon=`ps -ef | egrep pmon_$ORACLE_SID'\>' | grep -v grep`
+
+    if [ "$pmon" = "" ];
+    then
+        echo
+        echo "Database Configuration failed.  Look into $ORACLE_HOME/config/log for details"
+        exit 1
     fi
-    echo  alter user sys identified by \"$ORACLE_PASSWORD\"\; | $SU -s /bin/bash $ORACLE_OWNER -c "$SQLPLUS -s / as sysdba" ## > /dev/null 2>&1
- 	echo  alter user system identified by \"$ORACLE_PASSWORD\"\; | $SU -s /bin/bash $ORACLE_OWNER -c "$SQLPLUS -s / as sysdba" ## > /dev/null 2>&1
+
+    echo  alter user sys identified by \"$ORACLE_PASSWORD\"\; | su -s /bin/bash $ORACLE_OWNER -c "$SQLPLUS -s / as sysdba" > /dev/null 2>&1
+    echo  alter user system identified by \"$ORACLE_PASSWORD\"\; | su -s /bin/bash $ORACLE_OWNER -c "$SQLPLUS -s / as sysdba" > /dev/null 2>&1
+
+    echo @$ORACLE_HOME/apex/apxxepwd.sql \"$ORACLE_PASSWORD\"\; | su -s /bin/bash $ORACLE_OWNER -c "$SQLPLUS -s / as sysdba" > /dev/null 2>&1
     echo "Done"
 
-    /bin/chmod -R 640 /usr/lib/oracle/xe/oradata/XE
-    /bin/chmod 750 /usr/lib/oracle/xe/oradata/XE
-     rm -fr $ORACLE_HOME/config/seeddb 
+    /bin/chmod -R 640 /u01/app/oracle/oradata/XE
+    /bin/chmod 750 /u01/app/oracle/oradata/XE
+    /bin/chmod -R 775 /u01/app/oracle/diag
+    rm -fr $ORACLE_HOME/config/seeddb 
 
     if [ -f /etc/oratab ]
     then
@@ -241,19 +247,19 @@ EOF
     else
    	echo "XE:$ORACLE_HOME:N" >> /etc/oratab
 	/bin/chown oracle:dba /etc/oratab
-	/bin/chmod 644 /etc/oratab
+	/bin/chmod 664 /etc/oratab
     fi
     
-   echo -n "Starting Oracle Database 10g Express Edition Instance..."
+   echo -n "Starting Oracle Database 11g Express Edition instance..."
    pmon=`ps -ef | egrep pmon_$ORACLE_SID'\>' | grep -v grep`
 
    if [ "$pmon" = "" ];
    then
-	   $SU -s /bin/bash  $ORACLE_OWNER -c "$SQLPLUS -s /nolog @$ORACLE_HOME/config/scripts/startdb.sql" ## > /dev/null 2>&1
+	   su -s /bin/bash  $ORACLE_OWNER -c "$SQLPLUS -s /nolog @$ORACLE_HOME/config/scripts/startdb.sql" > /dev/null 2>&1
    fi
    echo "Done"
 
-   echo "Installation Completed Successfully."
+   echo "Installation completed successfully."
 
 	
    return 0
@@ -265,19 +271,19 @@ EOF
 # Ask configuration questions,setting the variables.
 #
 
-configure_ask() {
+configure_ask()
+{
 	cat <<EOF
 
-Oracle Database 10g Express Edition Configuration
+Oracle Database 11g Express Edition Configuration
 -------------------------------------------------
-This will configure on-boot properties of Oracle Database 10g Express 
+This will configure on-boot properties of Oracle Database 11g Express 
 Edition.  The following questions will determine whether the database should 
 be starting upon system boot, the ports it will use, and the passwords that 
 will be used for database accounts.  Press <Enter> to accept the defaults. 
 Ctrl-C will abort.
 
 EOF
-
     #get the http port value
 	while :
 	do
@@ -289,11 +295,19 @@ EOF
             then
                 LINE=8080
             fi
-            port=`netstat -n --tcp --listen | grep :$LINE | awk '{print $4}' | cut -d':' -f2`
+	    echo
+	    port=`netstat -n --tcp --listen | grep :$LINE | awk -F: '{print $4}' | sed 's/ //g'`
             if [ "$port" = "$LINE" ]
             then
-                echo Port $port appears to be in use by another application.\
-                Please specify a different port.
+		if [ ! -z $1 ]
+		then
+			echo
+			echo "Port $LINE appears to be in use by another application. Specify a different
+port and retry the configuration."
+			trap "rm -fr $1" exit
+			exit
+		fi
+                echo "Port $port appears to be in use by another application. Specify a different port."
             else
                 break;
             fi
@@ -312,11 +326,10 @@ EOF
             ;;
 	    esac
 	done
-    
+	
     #get the listener port value
 	while : 
 	do
-        echo 
         while [ 1 ]
         do
             echo -n Specify a port that will be used for the database listener [1521]:
@@ -326,11 +339,19 @@ EOF
                 LINE=1521
             fi
             echo
-            port=`netstat -n --tcp --listen | grep :$LINE | awk '{print $4}' | cut -d':' -f2`
+            port=`netstat -n --tcp --listen | grep :$LINE | awk -F: '{print $4}' | sed 's/ //g'`
             if [ "$port" = "$LINE" ]
             then	
+		if [ ! -z $1 ]
+		then
+			echo
+			echo "Port $LISTENER_PORT appears to be in use by another application. Specify a different
+port and retry the configuration."
+			trap "rm -fr $1" exit
+			exit
+		fi
                 echo Port $port appears to be in use by another application.\
-                Please specify a different port.
+                Specify a different port.
             else
                 break;
             fi
@@ -410,7 +431,7 @@ EOF
             ;;
 	    esac
 	done
-	
+    
     #get the database password
 	    while :
 	    do
@@ -418,9 +439,9 @@ EOF
 password will be used for SYS and SYSTEM.  Oracle recommends the use of 
 different passwords for each database account.  This can be done after 
 initial configuration:"
-	   while [ 1 ]
-	   do
-	     /bin/stty -echo ## > /dev/null 2>&1
+	     while [ 1 ]
+             do
+	     /bin/stty -echo > /dev/null 2>&1
 	     temp=`echo $IFS`
              export IFS="\n"	
 	     while [ 1 ]
@@ -437,7 +458,7 @@ initial configuration:"
 	     if [ $result != 0 ];
 	     then
              	echo 
-	        echo -n "The password you entered contains invalid characters. Enter password:"	
+		        echo -n "The password you entered contains invalid characters. Enter password:"	
 	     else
 		break
 	     fi
@@ -448,31 +469,67 @@ initial configuration:"
 		echo
                 if [ "$LINE" != "$LINE1" ];
 		then
+			if [ ! -z $1 ]
+			then
+				echo
+				echo "Passwords do not match. Specify the same password for both ORACLE_PASSSWORD and 
+ORACLE_CONFIRM_PASSWORD, and retry the configuration."
+				trap "rm -fr $1" exit
+				exit
+			fi
 			echo    
 			echo -n "Passwords do not match.  Enter the password:"
 		else
 			break
 		fi
 	done
-            /bin/stty echo ## > /dev/null 2>&1
+            /bin/stty echo > /dev/null 2>&1
             ORACLE_PASSWORD=$LINE
 	    export IFS=$temp
             break;
 	done
 
-	if [ "$ORACLE_DBENABLED" = "true" ]
+	while :
+	do
+        if [ "$ORACLE_DBENABLED" = "true" ]
+        then
+            CUR=y
+        else
+            CUR=n
+        fi
+	echo
+        echo -n "Do you want Oracle Database 11g Express Edition to be started on boot (y/n) [y]:"
+        read LINE
+	if [ -z $LINE ]
 	then
-		CUR=y
-	else
-		CUR=n
+		ORACLE_DBENABLED=true
 	fi
-	
-    ORACLE_DBENABLED=true
-          
-	
+        echo
+        case "$LINE" in
+        "") 
+            break
+            ;;
+        y|Y)
+            ORACLE_DBENABLED=true
+            break
+            ;;
+        n|N)
+            ORACLE_DBENABLED=false
+            break
+            ;;
+        *)
+            echo "Invalid response: $LINE " >&2
+            break
+        esac
+	done
 }
 
 configure() {
+	if test -f "$CONFIGURATION"
+	then
+		echo "Oracle Database 11g Express Edition is already configured"
+	exit 1
+	fi
 	configure_ask
 	configure_perform
 	CONFIGURE_RUN=true
