@@ -14,6 +14,7 @@ case "$1" in
     if [ $? -gt 0 ]; then
       stat_fail
     else
+      add_daemon ferm
       stat_done
     fi
     ;;
@@ -23,6 +24,7 @@ case "$1" in
     if [ $? -gt 0 ]; then
       stat_fail
     else
+      rm_daemon ferm      
       stat_done
     fi
     ;;
