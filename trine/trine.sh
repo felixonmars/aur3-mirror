@@ -1,5 +1,5 @@
 #!/bin/sh
 
-cd /opt/Trine
+cd /opt/trine
 ./trine-bin $@
  
