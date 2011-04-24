@@ -1,0 +1,221 @@
+# Maintainer: Tianjiao Yin <ytj000(at)gmail(dot)(see)(oh)(em)>
+# Contributor: Tianjiao Yin <ytj000(at)gmail(dot)(see)(oh)(em)>
+
+pkgname=boost-svn
+_svntrunk='http://svn.boost.org/svn/boost/trunk'
+# svn log http://svn.boost.org/svn/boost/trunk --limit 1 | grep -m 1 -o r.* | cut -d \| -f 1 | sed s@r@@g
+pkgver=71451 
+pkgrel=2
+arch=('i686' 'x86_64')
+url="http://www.boost.org/"
+license=('custom')
+
+makedepends=('icu' 'python' 'python2' 'openmpi')
+depends=('icu' 'python' 'python2' 'openmpi' 'docbook-xml' 'docbook-xsl' 'libxslt' 'doxygen')
+
+conflicts=('boost' 'boost-libs' 'boost-build' 'boost-book' 'boost-wave')
+provides=('boost' 'boost-libs' 'boost-build' 'boost-book' 'boost-wave')
+
+pkgdesc="Free peer-reviewed portable C++ source libraries. Include boost tools."
+
+source=()
+md5sums=()
+
+_stagedir="${srcdir}/stagedir"
+_boostdir="boost-trunk"
+
+build() {
+
+	# Check out from svn
+	svn co ${_svntrunk} ${_boostdir} -r ${pkgver}
+
+	# set python path for bjam
+
+	_py2ver=$(python2 --version 2>&1 | sed -r 's/Python ([0-9]+)\.([0-9]+).*/\1.\2/')
+	_py3ver=$(python3 --version 2>&1 | sed -r 's/Python ([0-9]+)\.([0-9]+).*/\1.\2/')
+
+	_py2_incdir="/usr/include/python${_py2ver}mu"
+	if [ ! -d ${_py2_incdir} ]; then
+		_py2_incdir="/usr/include/python${_py2ver}"
+	fi
+
+	_py3_incdir="/usr/include/python${_py3ver}mu"
+	if [ ! -d ${_py3_incdir} ]; then
+		_py3_incdir="/usr/include/python${_py3ver}"
+	fi
+
+	rm -f ${srcdir}/${_boostdir}/tools/build/v2/site-config.jam
+	rm -f ${srcdir}/${_boostdir}/tools/build/v2/user-config.jam
+
+	_user_cfg="${srcdir}/${_boostdir}/tools/build/v2/user-config.jam"
+	echo "using gcc ;" > ${_user_cfg}
+	echo "using python : $_py2ver : /usr/bin/python2 : $_py2_incdir : /usr/lib ;" >> ${_user_cfg}
+	echo "using python : $_py3ver : /usr/bin/python3 : $_py3_incdir : /usr/lib ;" >> ${_user_cfg}
+	echo "using mpi ;" >> ${_user_cfg}
+
+	# build bjam
+	cd "${srcdir}/${_boostdir}/tools/build/v2/engine"
+	./build.sh
+
+	_bindir="bin.linuxx86"
+	[ "${CARCH}" = "x86_64" ] && _bindir="bin.linuxx86_64"
+
+	# Don't install bjam now.
+	install -d "${_stagedir}"/usr/bin
+	# install ${_bindir}/bjam "${_stagedir}"/usr/bin/bjam
+
+	# build bcp
+	cd "${srcdir}/${_boostdir}/tools/bcp"
+	../build/v2/engine/${_bindir}/bjam --toolset=gcc
+	install -m755 "${srcdir}/${_boostdir}/dist/bin/bcp" "${_stagedir}/usr/bin/bcp"
+
+	# build libs
+	cd "${srcdir}/${_boostdir}"
+	#python 3.2 support
+	#https://svn.boost.org/trac/boost/ticket/4994
+	#patch -Np0 -i "${srcdir}/4994-compile-fix-for-Python32-v2.patch"
+	#patch -Np0 -i "${srcdir}/boost-1.46.0-spirit.patch"
+
+	# default "minimal" install: "release link=shared,static
+	# runtime-link=shared threading=single,multi"
+	# --layout=tagged will add the "-mt" suffix for multithreaded libraries
+	# and installs includes in /usr/include/boost.
+	# --layout=system no longer adds the -mt suffix for multi-threaded libs.
+	# install to ${_stagedir} in preparation for split packaging
+
+	./tools/build/v2/engine/${_bindir}/bjam \
+		release debug-symbols=off threading=multi \
+		runtime-link=shared link=shared,static \
+		cflags=-fno-strict-aliasing \
+		toolset=gcc \
+		--prefix="${_stagedir}" \
+		-sTOOLS=gcc \
+		--layout=system \
+		${MAKEFLAGS} \
+		install
+
+	# We don't build and install pyste: the code doesn't work with Python
+	# 2.6, because it doesn't manage to import the elementtree library
+	# correctly.
+	# pyste is unmaintained: http://www.boost.org/doc/libs/1_46_0/libs/python/doc/index.html
+	# build pyste
+	# cd "${srcdir}/${_boostdir}/libs/python/pyste/install"
+	# python2 setup.py install --root=${_stagedir} --optimize=1
+
+	# Unfortunily
+
+
+	# =======================          Boost           ======================= #
+
+	#pkgdesc="Free peer-reviewed portable C++ source libraries - Development"
+	#depends=("boost-libs-svn=${pkgver}")
+	#optdepends=('python: for python bindings' 'python2: for python2 bindings')
+	#conflicts=('boost')
+	#provides=('boost')
+
+	install -d "${pkgdir}"/usr/{include,lib}
+	# headers/source files
+	cp -r "${_stagedir}"/include/ "${pkgdir}"/usr/
+
+	# static libs
+	cp -r "${_stagedir}"/lib/*.a "${pkgdir}"/usr/lib/
+
+	# utilities (!bjam, bcp, !pyste)
+	cp -r "${_stagedir}"/usr/* "${pkgdir}"/usr/
+
+	# license
+	install -D -m644 "${srcdir}/${_boostdir}/LICENSE_1_0.txt" \
+		"${pkgdir}"/usr/share/licenses/boost/LICENSE_1_0.txt
+
+	# clean svn directory
+	#find ${pkgdir} -type d -name ".svn" | xargs rm -rf
+
+	# =======================        Boost Libs        ======================= #
+
+	#pkgdesc="Free peer-reviewed portable C++ source libraries - Runtime"
+	#depends=('gcc-libs' 'icu')
+	#optdepends=('openmpi: for mpi support')
+	#conflicts=('boost-libs')
+	#provides=('boost-libs')
+
+	install -d "${pkgdir}/usr/lib"
+	#shared libs
+	cp -r "${_stagedir}"/lib/*.so{,.*} "${pkgdir}/usr/lib/"
+
+	# license
+	install -D -m644 "${srcdir}/${_boostdir}/LICENSE_1_0.txt" \
+		"${pkgdir}"/usr/share/licenses/boost-libs/LICENSE_1_0.txt
+
+	# clean svn directory
+	find ${pkgdir} -type d -name ".svn" | xargs rm -rf
+
+	# =======================        BoostBuild        ======================= #
+
+	#pkgdesc="An easy way to build C++ projects, everywhere."
+	#depends=("python" "openmpi")
+	#conflicts=('boost-build')
+	#provides=('boost-build')
+
+	install -d "${pkgdir}/usr/share"
+
+	_bindir="bin.linuxx86"
+	[ "${CARCH}" = "x86_64" ] && _bindir="bin.linuxx86_64"
+
+	cd "${srcdir}/${_boostdir}/tools/build/"
+	install -D -m755 "v2/engine/${_bindir}/bjam" "${pkgdir}/usr/bin/bjam"
+	cp -R "v2" "${pkgdir}/usr/share/boost-build"
+	rm -rf "${pkgdir}/usr/share/boost-build/engine"
+
+	# clean svn directory
+	#find ${pkgdir} -type d -name ".svn" | xargs rm -rf
+
+	# =======================        Boost Book        ======================= #
+
+	#pkgdesc="An extension of DocBook, an SGML- or XML-based format for describing documentation."
+	#depends=("boost-build-svn=${pkgver}" "docbook-xml" "docbook-xsl" "libxslt" "doxygen")
+	#optdepends=('fop: generate PDF and PostScript output')
+	#conflicts=('boost-book')
+	#provides=('boost-book')
+
+	# set docbook path and doxygen for boost book
+	_site_cfg="${pkgdir}/usr/share/boost-build/site-config.jam"
+	DOCBOOK_XSL_DIR="/usr/share/xml/docbook/xsl-stylesheets-1.76.1"
+	DOCBOOK_DTD_DIR="/usr/share/xml/docbook/xml-dtd-4.5"
+	BOOSTBOOK_DIR="/usr/share/boost-build/boostbook"
+
+	install -d "${pkgdir}/usr/share/boost-build/"
+	echo "using boostbook : $DOCBOOK_XSL_DIR : $DOCBOOK_DTD_DIR : $BOOSTBOOK_DIR ;" > ${_site_cfg}
+	echo "using doxygen ;" >> ${_site_cfg}
+	echo "using quickbook ;" >> ${_site_cfg}
+
+	_bookdir="${srcdir}/${_boostdir}/tools/boostbook"
+	cd "${_bookdir}"
+	cd "${srcdir}"
+	cp -R "${_bookdir}" "${pkgdir}/usr/share/boost-build"
+	cd "${pkgdir}/usr/share/boost-build/boostbook"
+	rm -rf doc index.html setup_boostbook.py setup_boostbook.sh test
+
+	# package quick book.
+	_quickdir="${srcdir}/${_boostdir}/tools/quickbook"
+	cd $_quickdir
+	../build/v2/engine/${_bindir}/bjam --toolset=gcc
+	install -D -m755 "${srcdir}/${_boostdir}/dist/bin/quickbook" "${pkgdir}/usr/bin/"
+
+	# clean svn directory
+	#find ${pkgdir} -type d -name ".svn" | xargs rm -rf
+
+	# =======================        Boost Wave        ======================= #
+
+	#pkgdesc="A Standards conformant C/C++ preprocessor usable on top of any other compiler."
+	#depends=("boost-svn=${pkgver}" "openmpi")
+	#conflicts=('boost-wave')
+	#provides=('boost-wave')
+
+	_wavedir="${srcdir}/${_boostdir}/tools/wave/"
+	cd "${_wavedir}/build"
+	../build/v2/engine/${_bindir}/bjam --toolset=gcc
+	install -D -m755 "${srcdir}/${_boostdir}/dist/bin/wave" "${pkgdir}/usr/bin/"
+
+	# clean svn directory
+	find ${pkgdir} -type d -name ".svn" | xargs rm -rf
+}
