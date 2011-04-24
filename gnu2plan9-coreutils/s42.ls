@@ -1,0 +1,3 @@
+cp
+mv
+priocntl

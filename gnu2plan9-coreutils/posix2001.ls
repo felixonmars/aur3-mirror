@@ -1,0 +1,10 @@
+csplit
+egrep
+expr
+fgrep
+find
+getconf
+nawk
+nl
+pax
+pg
