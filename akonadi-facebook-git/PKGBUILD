@@ -1,49 +1,44 @@
-# Contributor: Frank Scheffold <fscheffold(at)gmail.com>
-
-
+# Maintainer: Juho Rutila <juho.rutila@gmail.com>
 pkgname=akonadi-facebook-git
-pkgver=20110417
+pkgver=20110425
 pkgrel=1
-pkgdesc="Makes events, contacts, notes and messages from Facebook available in KDE."
+pkgdesc="Facebook support in KDEPIM"
 arch=('i686' 'x86_64')
-url="https://projects.kde.org/projects/playground/pim/akonadi-facebook/"
-license=('GPL')
-depends=('kdelibs' 'boost-libs' 'akonadi')
-makedepends=('cmake' 'automoc4' 'boost' 'git')
-source=()
-md5sums=()
+url="https://thomasmcguire.wordpress.com/2011/02/27/facebook-support-in-kdepim/"
+license=('unknown')
+depends=('qjson' 'boost' 'libxslt')
+makedepends=('git')
+provides=('akonadi-facebook')
 
 _gitroot="git://anongit.kde.org/akonadi-facebook"
 _gitname="akonadi-facebook"
 
 build() {
-    cd "$srcdir"
-    msg "Connecting to GIT server...."
+  cd "$srcdir"
+  msg "Connecting to GIT server...."
 
-    if [ -d $_gitname ] ; then
-        cd $_gitname
+  if [ -d $_gitname ] ; then
+    cd $_gitname && git pull origin
+    msg "The local files are updated."
+  else
+    git clone $_gitroot $_gitname
+  fi
 
-        # Change remote url to anongit
-        if [ -z $(git branch -v | grep anongit) ] ; then
-            git remote set-url origin ${_gitroot}
-        fi
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
 
-        git pull origin
-        msg "The local files are updated."
-    else
-        git clone $_gitroot $_gitname
-    fi
+  rm -rf "$srcdir/$_gitname-build"
+  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
 
-    msg "GIT checkout done or server timeout"
-    msg "Starting make..."
-
-    mkdir -p "$srcdir/build"
-    cd "$srcdir/build"
-
-    cmake ../${_gitname} \
-        -DCMAKE_INSTALL_PREFIX=/usr \
-        -DCMAKE_BUILD_TYPE=RELWITHDEBINFO
-
-    make || return 1
-    make DESTDIR=${pkgdir} install || return 1
+  #
+  # BUILD HERE
+  #
+  cmake -DCMAKE_INSTALL_PREFIX="/usr" .
+  make
 }
+
+package() {
+  cd "$srcdir/$_gitname-build"
+  make DESTDIR="$pkgdir/" install
+} 
