@@ -1,3 +1,0 @@
-cp
-mv
-priocntl
