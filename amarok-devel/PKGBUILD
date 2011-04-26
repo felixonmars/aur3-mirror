@@ -6,7 +6,7 @@ pkgname=amarok-devel
 _appname=amarok
 pkgver=2.4.1beta1
 _pkgver=2.4.0.90
-pkgrel=1
+pkgrel=2
 pkgdesc="A media player for KDE - Unstable version"
 arch=("i686" "x86_64")
 url="http://amarok.kde.org"
@@ -25,6 +25,7 @@ md5sums=('b32cf034fb4bdcfcff75fae70d43caa9')
 
 build() {
   cd ${srcdir}
+  sed -i 's/s_pluginFrameworkVersion = 60/s_pluginFrameworkVersion = 61/' ${_appname}-${_pkgver}/src/PluginManager.cpp
   mkdir build
   cd build
   cmake ../${_appname}-${_pkgver} \
