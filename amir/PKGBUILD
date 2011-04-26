@@ -1,7 +1,7 @@
 # Maintainer: Bersam <Bersam [dot] k [at] gmail>
 
 pkgname=amir
-pkgver=70
+pkgver=84
 pkgrel=1
 pkgdesc="Just another accounting software designed mainly for persian users"
 arch=('any')
@@ -10,9 +10,9 @@ license=('GPL')
 depends=('python2' 'pygobject' 'pygtk' 'python2-cairo' 'python2-sqlalchemy' 'python2-tempita' 'python2-migrate')
 makedepends=('bzr')
 #options=(!strip)
-#source=()
-
-_bzrtrunk="lp:amir"
+source=()
+md5sums=()
+_bzrtrunk="lp:amir/0.1"
 _bzrmod="amir"
 
 build() {
@@ -29,14 +29,10 @@ build() {
 
   msg "BZR checkout done or server timeout"
   msg "Starting make..."
-
-  cd "${_bzrmod}"
-
-  # python2 fix
-  for file in $(find . -t f -print); do
-  sed -i 's_#!/usr/bin/env python_#!/usr/bin/env python2_' ${file}
-  sed -i 's_#!/usr/bin/python_#!/usr/bin/python2_' ${file}
-  done
+  
+  rm -rf "${_bzrmod}-build"
+  cp -r "${_bzrmod}" "${_bzrmod}-build"
+  cd "${_bzrmod}-build"
 
   export PYTHON="/usr/bin/python2"
 
