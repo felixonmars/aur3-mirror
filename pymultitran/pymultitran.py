@@ -44,7 +44,7 @@ def ltrunc( page, sub ):
 
 def remove_crap( page ):
 
-    page = ltrunc(page, "createAutoComplete();\r\n</script>\r\n")
+    page = ltrunc(page, """document.translation.s.select()\r\ndocument.translation.s.focus()""")
 
     endsign = """|<span STYLE="color:black">&nbsp;<a href="#start"><FONT SIZE=2>в начало</FONT></a></td></tr></table>"""
     end = page.find(endsign)
