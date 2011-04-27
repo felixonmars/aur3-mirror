@@ -1,18 +1,16 @@
-# Contributor: Chris Schwaab christopher.schwaab gmail
+# Old Contributor: Chris Schwaab christopher.schwaab gmail
 # Adapter for i686 by Roger Braun
+# Contributor: twa022 <twa022@gmail.com>
 pkgname=amazonmp3
 pkgver=1.0.3
-pkgrel=1
+pkgrel=2
 pkgdesc="The MP3 downloader with self contained library deps"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
 license=('custom')
-depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2')
+depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl098')
 makedepends=('deb2targz')
-provides=('amazonmp3')
-conflicts=('amazonmp3')
-
-source=('http://mirrors.kernel.org/ubuntu/pool/main/g/gtkmm2.4/libgtkmm-2.4-1c2a_2.14.1-0ubuntu1_i386.deb'
+source=('http://mirrors.kernel.org/ubuntu/pool/main/g/gtkmm2.4/libgtkmm-2.4-1c2a_2.16.0-1_i386.deb'
         'http://mirrors.kernel.org/ubuntu/pool/main/c/cairomm/libcairomm-1.0-1_1.8.0-1build1_i386.deb'
         'http://mirrors.kernel.org/ubuntu/pool/main/g/glibmm2.4/libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.deb'
         'http://mirrors.kernel.org/ubuntu/pool/main/p/pangomm/libpangomm-1.4-1_2.24.0-1_i386.deb'
@@ -24,7 +22,7 @@ source=('http://mirrors.kernel.org/ubuntu/pool/main/g/gtkmm2.4/libgtkmm-2.4-1c2a
         'http://amazonm-002.vo.llnwd.net/u/d1/clients/amazonmp3_1.0.3~gutsy_i386.deb'
         'http://security.ubuntu.com/ubuntu/pool/main/b/bzip2/libbz2-1.0_1.0.4-2ubuntu4_i386.deb')
 
-md5sums=('9f57c64d4cc07f52605f22f28b805c03'
+md5sums=('f54f91dbfcd72988a7174bc7854f58d3'
          '3f36242c965cea7b79853aec5284c698'
          '3cf0dd57b78d00b0681e9c38b9519e5e'
          'eb9c503696acbb1318d7466da764b9af'
