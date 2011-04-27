@@ -4,17 +4,17 @@
 
 pkgname=acerhk
 pkgver=0.5.35
-pkgrel=22
+pkgrel=23
 pkgdesc="Acer hotkey driver"
 url="http://www.cakey.de/acerhk/"
 arch=('i686') # Unavailable for x86_64
 license=('GPL')
-depends=('kernel26>=2.6.36' 'kernel26<2.6.38')
-makedepends=('kernel26-headers>=2.6.36' 'kernel26-headers<2.6.38')
+depends=('kernel26>=2.6.36' 'kernel26<2.6.39')
+makedepends=('kernel26-headers>=2.6.36' 'kernel26-headers<2.6.39')
 source=(http://www.cakey.de/acerhk/archives/${pkgname}-${pkgver}.tgz acerhk.rc
         2.6.30.patch kernelversion.patch 5100.patch 2.6.36.patch)
 install=acerhk.install
-_kernver=2.6.37-ARCH
+_kernver=2.6.38-ARCH
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
@@ -23,6 +23,7 @@ build() {
   patch -Np1 -i "${srcdir}/2.6.30.patch" || return 1
   patch -Np0 -i "${srcdir}/2.6.36.patch" || return 1
   patch -N -p1 < "$srcdir/kernelversion.patch" || return 1
+  sed -i 's@linux/config.h@linux/input.h@' "${srcdir}/${pkgname}-${pkgver}/acerhk.c"
   # Set KERNELSRC.  The makefile tries to autodetect it with uname,
   # but that is unreliable.
   make KERNELSRC="/lib/modules/${_kernver}/build" acerhk.ko || return 1
