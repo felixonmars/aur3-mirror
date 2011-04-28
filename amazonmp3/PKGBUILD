@@ -3,7 +3,7 @@
 # Contributor: twa022 <twa022@gmail.com>
 pkgname=amazonmp3
 pkgver=1.0.3
-pkgrel=2
+pkgrel=3
 pkgdesc="The MP3 downloader with self contained library deps"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
@@ -35,7 +35,7 @@ md5sums=('f54f91dbfcd72988a7174bc7854f58d3'
          'cc754012baa0d400bd15811c93aa735e')
 
 build() {
-        deb2targz libgtkmm-2.4-1c2a_2.14.1-0ubuntu1_i386.deb \
+        deb2targz libgtkmm-2.4-1c2a_2.16.0-1_i386.deb \
                   libcairomm-1.0-1_1.8.0-1build1_i386.deb \
                   libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.deb \
                   libpangomm-1.4-1_2.24.0-1_i386.deb \
@@ -47,7 +47,7 @@ build() {
                   libbz2-1.0_1.0.4-2ubuntu4_i386.deb \
                   amazonmp3_1.0.3~gutsy_i386.deb || return 1
 
-        tar -xzf libgtkmm-2.4-1c2a_2.14.1-0ubuntu1_i386.tar.gz || return 1
+        tar -xzf libgtkmm-2.4-1c2a_2.16.0-1_i386.tar.gz || return 1
         tar -xzf libcairomm-1.0-1_1.8.0-1build1_i386.tar.gz || return 1
         tar -xzf libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.tar.gz || return 1
         tar -xzf libpangomm-1.4-1_2.24.0-1_i386.tar.gz || return 1
