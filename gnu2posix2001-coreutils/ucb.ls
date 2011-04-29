@@ -1,2 +1,0 @@
-chown
-install
