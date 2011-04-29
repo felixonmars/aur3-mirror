@@ -5,18 +5,19 @@
 
 pkgname=amdstream
 pkgver=2.4
-pkgrel=1
+pkgrel=2
 _OpenCL_ver_major=1
 _OpenCL_ver_minor=1
-pkgdesc="AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support (libcl)"
+pkgdesc="AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support"
 arch=('i686' 'x86_64')
 url="http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx"
 license=("custom")
 install=install
 
 provides=('opencl' 'libcl')
-depends=('libatical>=11.3' 'opencl-headers' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
-optdepends=('catalyst: for CAL and OpenCL GPU acceleration on AMD ATi graphics cards')
+depends=('opencl-headers' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
+  #'libatical>=11.3'
+optdepends=('catalyst: for OpenCL on AMD GPU')
 makedepends=('perl' 'llvm')
 conflicts=('nvidia-opencl' )
 
