@@ -1,0 +1,74 @@
+When kswapd is awoken due to reclaim by a running task, set the priority of
+kswapd to that of the calling task thus making memory reclaim cpu activity
+affected by nice level.
+
+Signed-off-by: Con Kolivas <kernel@kolivas.org>
+
+ mm/vmscan.c |   33 ++++++++++++++++++++++++++++++++-
+ 1 file changed, 32 insertions(+), 1 deletion(-)
+
+Index: linux-2.6.35.11-ck1/mm/vmscan.c
+===================================================================
+--- linux-2.6.35.11-ck1.orig/mm/vmscan.c	2011-03-29 22:12:01.124555385 +1100
++++ linux-2.6.35.11-ck1/mm/vmscan.c	2011-03-29 22:12:01.298555385 +1100
+@@ -1711,6 +1711,33 @@ static void shrink_zone(int priority, st
+ }
+ 
+ /*
++ * Helper functions to adjust nice level of kswapd, based on the priority of
++ * the task (p) that called it. If it is already higher priority we do not
++ * demote its nice level since it is still working on behalf of a higher
++ * priority task. With kernel threads we leave it at nice 0.
++ *
++ * We don't ever run kswapd real time, so if a real time task calls kswapd we
++ * set it to highest SCHED_NORMAL priority.
++ */
++static inline int effective_sc_prio(struct task_struct *p)
++{
++	if (likely(p->mm)) {
++		if (rt_task(p))
++			return -20;
++		return task_nice(p);
++	}
++	return 0;
++}
++
++static void set_kswapd_nice(struct task_struct *kswapd, int active)
++{
++	long nice = effective_sc_prio(current);
++
++	if (task_nice(kswapd) > nice || !active)
++		set_user_nice(kswapd, nice);
++}
++
++/*
+  * This is the direct reclaim path, for page-allocating processes.  We only
+  * try to reclaim pages from zones which will satisfy the caller's allocation
+  * request.
+@@ -2336,6 +2363,7 @@ static int kswapd(void *p)
+ 				}
+ 			}
+ 
++			set_user_nice(tsk, 0);
+ 			order = pgdat->kswapd_max_order;
+ 		}
+ 		finish_wait(&pgdat->kswapd_wait, &wait);
+@@ -2360,6 +2388,7 @@ static int kswapd(void *p)
+ void wakeup_kswapd(struct zone *zone, int order)
+ {
+ 	pg_data_t *pgdat;
++	int active;
+ 
+ 	if (!populated_zone(zone))
+ 		return;
+@@ -2407,7 +2407,9 @@ void wakeup_kswapd(struct zone *zone, in
+ 	pgdat = zone->zone_pgdat;
+ 	if (pgdat->kswapd_max_order < order)
+ 		pgdat->kswapd_max_order = order;
+-	if (!waitqueue_active(&pgdat->kswapd_wait))
++	active = waitqueue_active(&pgdat->kswapd_wait);
++	set_kswapd_nice(pgdat->kswapd, active);
++	if (!active)
+ 		return;
+ 	if (zone_watermark_ok_safe(zone, order, low_wmark_pages(zone), 0, 0))
+ 		return;
