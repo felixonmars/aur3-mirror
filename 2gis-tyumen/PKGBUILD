@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-tyumen
-pkgver=53
+pkgver=54
 pkgrel=1
 pkgdesc="Map of Tyumen for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Tyumen-${pkgver}.orig.zip")
-md5sums=('da1b83c90d3321834207ec999999c824')
+md5sums=('40641b171de8d8fb6bcc3432f9835692')
 
 build() {
 

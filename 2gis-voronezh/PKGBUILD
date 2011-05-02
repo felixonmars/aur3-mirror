@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-voronezh
-pkgver=9
+pkgver=10
 pkgrel=1
 pkgdesc="Map of Voronezh for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Voronezh-${pkgver}.orig.zip")
-md5sums=('d67944c7b2b04b9e3895a61e1cfb8988')
+md5sums=('8f8ceb1d842a20d6b3985c6e708650b4')
 
 build() {
 

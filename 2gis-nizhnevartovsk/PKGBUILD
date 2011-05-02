@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-nizhnevartovsk
-pkgver=59
+pkgver=60
 pkgrel=1
 pkgdesc="Map of Nizhnevartovsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Nizhnevartovsk-${pkgver}.orig.zip")
-md5sums=('4e18e85a315b5ef94d6cfd678985ef39')
+md5sums=('077a5569c23ed38c5cd1b6dfa5db2172')
 
 build() {
 

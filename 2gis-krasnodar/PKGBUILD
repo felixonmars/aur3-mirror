@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-krasnodar
-pkgver=15
+pkgver=16
 pkgrel=1
 pkgdesc="Map of Krasnodar for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Krasnodar-${pkgver}.orig.zip")
-md5sums=('54ff5781a1c3b48f55fc8accd50dbdbf')
+md5sums=('ac316ee30fd9dc0bdfb3c18f6b9c8f2e')
 
 build() {
 
