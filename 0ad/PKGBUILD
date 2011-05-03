@@ -4,7 +4,7 @@
 pkgname=0ad
 pkgver=alpha_4
 _pkgver=r09049-alpha
-pkgrel=1
+pkgrel=2
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
@@ -39,7 +39,8 @@ build(){
 
   cd "$srcdir/$pkgname-$_pkgver/build/workspaces/gcc"
 
-  make CONFIG=Release -j3
+  make CONFIG=Debug
+  #make CONFIG=Release -j3
 }
 
 package(){  
@@ -48,10 +49,10 @@ package(){
  
   # Removing useless stuff.
   # This might change between releases:
-  rm -r ${pkgdir}/opt/${pkgname}/system/*r
-  rm -r ${pkgdir}/opt/${pkgname}/system/*.a
-  rm -r ${pkgdir}/opt/${pkgname}/system/*t
-  rm -r ${pkgdir}/opt/${pkgname}/system/*debug.so
+  #rm -r ${pkgdir}/opt/${pkgname}/system/*r
+  #rm -r ${pkgdir}/opt/${pkgname}/system/*.a
+  #rm -r ${pkgdir}/opt/${pkgname}/system/*t
+  #rm -r ${pkgdir}/opt/${pkgname}/system/*debug.so
 
   install -D -m755 ${srcdir}/${pkgname}.sh ${pkgdir}/usr/bin/${pkgname}
   install -D -m755 ${srcdir}/${pkgname}-editor.sh ${pkgdir}/usr/bin/${pkgname}-editor
