@@ -2,7 +2,7 @@
 
 pkgname=acroread-es
 pkgver=8.1.7
-pkgrel=1
+pkgrel=2
 pkgdesc="Adobe Acrobat Reader for viewing PDF files. Spanish version"
 arch=('i686')
 url="http://www.adobe.com/products/acrobat/main.html"
@@ -11,7 +11,7 @@ depends=('gtk2' 'bash' 'mesa')
 makedepends=('rpmextract')
 source=(http://ardownload.adobe.com/pub/adobe/reader/unix/8.x/${pkgver}/esp/AdobeReader_esp-${pkgver}-1.i486.rpm \
 	acroread-scim.patch)
-md5sums=('dc22d8373b41b03adbf08b6397435cdf' '8422bddbb8c03535704a245f9858465e')
+md5sums=('517af4a798ac1ab894fa220af8d93718' '8422bddbb8c03535704a245f9858465e')
 
 build() {
   cd ${startdir}/src
@@ -36,7 +36,7 @@ build() {
   ln -sf /opt/acrobat/bin/acroread ${startdir}/pkg/usr/bin/acroread
 
   install -D -m755 Browser/intellinux/nppdf.so \
-    ${startdir}/pkg/opt/mozilla/lib/plugins/nppdf.so
+    ${startdir}/pkg/usr/lib/mozilla/plugins/nppdf.so
 
   install -D -m644 Reader/Legal/en_US/License.txt \
     ${startdir}/pkg/usr/share/licenses/${pkgname}/License.txt
