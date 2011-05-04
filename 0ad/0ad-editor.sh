@@ -1,3 +1,3 @@
 #!/bin/sh
 cd /opt/0ad/system
-./pyrogenesis -editor
+./pyrogenesis_dbg -editor

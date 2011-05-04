@@ -4,7 +4,7 @@
 pkgname=0ad
 pkgver=alpha_4
 _pkgver=r09049-alpha
-pkgrel=2
+pkgrel=3
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
@@ -21,14 +21,14 @@ source=("http://releases.wildfiregames.com/$pkgname-$_pkgver-unix-build.tar.xz"
 	"${pkgname}-editor.desktop"
 	"${pkgname}.png"
 	"${pkgname}.install")
-md5sums=('3ebb1b322cd947c855da75828ebcd539'
-         '30c289cdbffd552cc29e62778cd718d4'
-         '0a8abdb0fc32af6d48ea235c46be5b7c'
-         '52a54a776cb55237810295f47772d6ed'
-         '1a54a2b4ab72424d14ffc42a01925ff3'
-         'd0ec0adc2cea51337103a31272cb4b32'
-         '51559438e79c0eb8576b98213a5d92d1'
-         '92575ff82bd29369b7b0ee0ce307b39e')
+sha256sums=('18dc2508ff0535d3553135ef0c3ad4c179313fa5de398938a467794d9980fcd8'
+            '0324cc5d8e15da8637336705ccadc7f6145364b7b4dfc62a6a6ec51c232992e3'
+            'd7ea528d1adc97021a6804c46f31925e299f9978325fe3cc2af2980ba295b95b'
+            'c0d3b95acfe321aad11d72d68418412817fb05fcb186f94be51cccd49a1f3ebb'
+            '06ec2bdf186d8f3aa445e394c32d444e948fd773f15431b19970ea8c2496ffaa'
+            '5ba93f9f0dcc24f4b05f77ab4b2f585c51c67156568d7255c72ba3d765b2fdc9'
+            '76923e3c1a83e24a173ce7ed79b6992467843d6b25a4a3df680fe7ad8e50e8f0'
+            'e0e79e936447e2d1833f423aae3323eac6da74cb23519be98b3de2753f0cac60')
 
 build(){
   cd "$srcdir/$pkgname-$_pkgver/build/workspaces"
