@@ -5,7 +5,7 @@
 
 # Maintainer: Kevin Berry <kb@rubyists.com>
 pkgname='runit-run-git'
-pkgver=20110411
+pkgver=20110505
 pkgrel=2
 pkgdesc="A SysV replacement init scheme with parallel start-up and flexible service directories"
 arch=('i686' 'x86_64')
@@ -20,7 +20,7 @@ install='runit-run.install'
 source=('COPYRIGHT')
 md5sums=('00378d23a0f0d8bb6dbc60d9f0578b7c')
 
-_gitroot="https://github.com/deathsyn/runit-run.git"
+_gitroot="https://github.com/rubyists/runit-run.git"
 _gitname="runit-run"
 
 build() {
