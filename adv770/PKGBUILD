@@ -1,7 +1,7 @@
 # Maintainer: loafer <davemorgan353 at btinternet dot com>
 
 pkgname=adv770
-pkgver=2.03
+pkgver=2.04
 pkgrel=1
 pkgdesc="770 points version of Adventure"
 arch=('i686')
@@ -20,4 +20,4 @@ package() {
   install -D -m644 Adv770.desktop "$pkgdir"/usr/share/applications/Adv770.desktop
   install -D -m644 adv770.png "$pkgdir"/usr/share/icons/HighContrast/128x128/apps/adv770.png
 }
-md5sums=('331749199d688fa2e32a7abc340a409b')
+md5sums=('0b118a44b6177d687f853682eaa8d071')
