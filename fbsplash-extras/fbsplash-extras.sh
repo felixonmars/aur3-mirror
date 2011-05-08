@@ -73,19 +73,23 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 			echo $SPLASH_STEPS $svc "$msg"
 			continue
 		esac
-		# Try to sort out inactive
+		# Sort out some inactive
+		# ignoring /proc, /sys and kernel parameters which might be not mounted (or wrong if mkinitcpio)
 		case $msg
-		in "Loading Modules"     ) ! [[ $load_modules = off ]]
-		;; *RAID*                ) splash_test_file -f /etc/mdadm.conf 'ARRAY.*'
-		;; *LVM*                 ) [[ $USELVM = yes || $USELVM = YES ]]
-		;; *"encrypted volumes"* ) splash_test_file -f /etc/crypttab
-		;; "Setting Hostname"*   ) [[ $HOSTNAME ]]
+		in "Loading Modules"      ) [[ ${MODULES[@]/!*/} ]]
+		;; *SoftRAID*             ) [[ $USEMDADM  =~ yes|YES && -x /sbin/mdadm  ]]
+		;; *FakeRAID*             ) [[ $USEDMRAID =~ yes|YES && -x /sbin/dmraid ]]
+		;; *BTRFS*                ) [[ $USEBTRFS  =~ yes|YES && -x /sbin/btrfs  ]]
+		;; *LVM2*                 ) [[ $USELVM    =~ yes|YES && -x /sbin/lvm    ]]
+		;; *encrypted*            ) splash_test_file -f /etc/crypttab
+		;; "Checking Filesystems" ) [[ -x /sbin/fsck ]]
+		;; *"Time Zone"*          ) [[ $TIMEZONE ]]
+		;; "Setting Hostname"*    ) [[ $HOSTNAME ]]
 		;; "Setting NIS Domain Name"* )
-			(	[ -r /etc/conf.d/nisdomainname ] && . /etc/conf.d/nisdomainname
-				[[ $NISDOMAINNAME ]] )
+			( [[ -r /etc/conf.d/nisdomainname ]] && . /etc/conf.d/nisdomainname; [[ $NISDOMAINNAME ]] )
 		;; "Loading Keyboard Map"* ) [[ $KEYMAP ]]
-		;; "Setting Consoles to UTF-8 mode"  ) [[ ${LOCALE,,*} == *utf* ]]
-		;; "Setting Consoles to legacy mode" ) ! [[ ${LOCALE,,*} == *utf* ]]
+		;; "Setting Consoles to UTF-8 mode"  )   [[ ${LOCALE,,} =~ utf ]]
+		;; "Setting Consoles to legacy mode" ) ! [[ ${LOCALE,,} =~ utf ]]
 		;; "Adding persistent cdrom udev rules" )
 			[ -f /dev/.udev/tmp-rules--70-persistent-cd.rules ]
 		;; "Adding persistent network udev rules" )
@@ -173,7 +177,7 @@ splash_svc_init() {
 		SPLASH_STEPS_BUSY=()
 		local daemon
 		# daemons NOT in the DAEMONS array are shut down first
-		for daemon in /var/run/daemons/*; do
+		for daemon in /run/daemons/*; do
 			[[ -f $daemon ]] || continue
 			daemon=${daemon##*/}
 			in_array "$daemon" "${DAEMONS[@]}" && continue
@@ -596,38 +600,38 @@ add_omit_pids() {
 	omit_pids+=( $@ )
 }
 kill_everything() {
-    # $1 = where we are being called from.
-    # This is used to determine which hooks to run.
-    # Find daemons NOT in the DAEMONS array. Shut these down first
-    for daemon in /var/run/daemons/*; do
-        [[ -f $daemon ]] || continue
-        daemon=${daemon##*/}
-	in_array "$daemon" "${DAEMONS[@]}" || stop_daemon "$daemon"
-    done
+	# $1 = where we are being called from.
+	# This is used to determine which hooks to run.
+	# Find daemons NOT in the DAEMONS array. Shut these down first
+	for daemon in /run/daemons/*; do
+		[[ -f $daemon ]] || continue
+		daemon=${daemon##*/}
+		in_array "$daemon" "${DAEMONS[@]}" || stop_daemon "$daemon"
+	done
 
-    # Shutdown daemons in reverse order
-    for ((i=${#DAEMONS[@]}-1; i>=0; i--)); do
-	[[ ${DAEMONS[$i]:0:1} = '!' ]] && continue
-	ck_daemon ${DAEMONS[$i]#@} || stop_daemon ${DAEMONS[$i]#@}
-    done
+	# Shutdown daemons in reverse order
+	for ((i=${#DAEMONS[@]}-1; i>=0; i--)); do
+		[[ ${DAEMONS[$i]:0:1} = '!' ]] && continue
+		ck_daemon ${DAEMONS[$i]#@} || stop_daemon ${DAEMONS[$i]#@}
+	done
 
 	# Terminate all processes
-    stat_busy "Sending SIGTERM To Processes"
+	stat_busy "Sending SIGTERM To Processes"
 	run_hook "${1}"_prekillall
 	local pid k5args=""
 	for pid in ${omit_pids[@]}; do
 		k5args+=" -o $pid"
 	done
 	/sbin/killall5 -15 $k5args &> /dev/null
-    /bin/sleep 5
-    stat_done
+	/bin/sleep 5
+	stat_done
 
-    stat_busy "Sending SIGKILL To Processes"
+	stat_busy "Sending SIGKILL To Processes"
 	/sbin/killall5 -9 $k5args &> /dev/null
-    /bin/sleep 1
-    stat_done
+	/bin/sleep 1
+	stat_done
 
-    run_hook "$1_postkillall"
+	run_hook "$1_postkillall"
 }
 ##
 
@@ -690,7 +694,6 @@ in /etc/rc.sysinit )
 		# Just prepare devices required by the daemon before doing all udev
 		if [[ $( /bin/pidof -o %PPID /sbin/udevd ) ]]; then
 			splash_profile info "udevadm trigger"
-			/sbin/udevadm control --property=STARTUP=1
 			/sbin/udevadm trigger --action=add --subsystem-match={tty,graphics,input}
 			/sbin/udevadm settle ${UDEV_TIMEOUT:+--timeout=$UDEV_TIMEOUT}
 		fi
