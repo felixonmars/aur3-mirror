@@ -1,5 +1,5 @@
-#!/bin/bash
+#!/bin/sh
 
-java -jar /usr/share/java/mdb-sqlite.jar $*
+java -jar /usr/share/java/mdb-sqlite.jar "$@"
 
 # vim: set noet ff=unix
