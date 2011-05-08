@@ -1,4 +1,4 @@
 #!/bin/sh
 
 cd /opt/cosmicbreak
-wine CosmicBreak.exe &
+WINEARCH=win32 wine CosmicBreak.exe &
