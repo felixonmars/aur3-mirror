@@ -1,0 +1,203 @@
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+### GStreamer Spectrum Dump ####
+# Version 0.1 by Scott Garrett #
+# Wintervenom [(at)] gmail.com #
+################################
+# Dependencies:
+#
+# pygobject
+# gst-python (gstreamer0.10-python)
+# gstreamer0.10-good
+#
+# Optional Dependencies:
+# gconf (python2-gconf)
+#
+#################################
+# License:
+#
+# This program is free software. It comes without any warranty, to
+# the extent permitted by applicable law. You can redistribute it
+# and/or modify it under the terms of the Do What The Fuck You Want
+# To Public License, Version 2, as published by Sam Hocevar. See
+# http://sam.zoy.org/wtfpl/COPYING for more details.
+
+try:
+    import gconf
+except ImportError:
+    pass
+import sys
+import getopt
+import gobject
+import pprint
+import pygst
+pygst.require('0.10')
+import gst
+import os
+
+
+VERSION = 0.1
+
+
+def stderr(message):
+    """
+    Writes a message to STDERR.
+    """
+    sys.stderr.write("{0}\n".format(message))
+    sys.stderr.flush()
+
+
+def fatal(error):
+    """
+    Output an error message to STDERR and exit with status 1.
+    """
+    stderr("Error: {0}".format(error))
+    sys.exit(1)
+
+
+def usage():
+    text = """
+    GStreamer Spectrum Analyzer Dump 0.1
+    Version {0} by Scott Garrett
+    Wintervenom [(at)] gmail.com
+
+    Usage: gst-spectrumdump [opts]
+        -h --help       Obvious.  ;)
+        -p --precision  Number of decimal places to round magnitudes.
+                        A precision of zero will round to integers (0-16).
+        -b --bands      Number of frequency bands to output (1-128).
+    """
+    text = text.format(os.path.basename(sys.argv[0]), VERSION)
+    stderr(textwrap.dedent(text))
+    sys.exit(2)
+
+
+def iec_scale(db, precision=None):
+    """
+    Decibel to IEC scale converter.
+    Borrowed from gst-python's VU meter, modified to add result rounding.
+    """
+    pct = 0.0
+    if db < -70.0:
+        pct = 0.0
+    elif db < -60.0:
+        pct = (db + 70.0) * 0.25
+    elif db < -50.0:
+        pct = (db + 60.0) * 0.5 + 2.5
+    elif db < -40.0:
+        pct = (db + 50.0) * 0.75 + 7.5
+    elif db < -30.0:
+        pct = (db + 40.0) * 1.5 + 15.0
+    elif db < -20.0:
+        pct = (db + 30.0) * 2.0 + 30.0
+    elif db < 0.0:
+        pct = (db + 20.0) * 2.5 + 50.0
+    else:
+        pct = 100.0
+    if precision:
+        pct = round(pct, precision)
+    elif precision == 0:
+        pct = int(pct)
+    return pct
+
+
+class GstSpectrumDump(object):
+    """
+    Dumps the spectrum magnitudes of incoming audio as volume units per band.
+
+    Optional arguments:
+    <precision>: How many decimal places to round the magnitudes to (default: 16).
+    <bands>: How many frequency bands to output (default: 128).
+    <quiet>: Don't output to STDERR (default: False).
+    <callback>: Return the magnitude list to this function (default: None).
+    """
+    def __init__(self, precision=None, bands=128, quiet=False, callback=None):
+        self.precision = precision
+        self.bands = bands
+        self.quiet = quiet
+        self.callback = callback
+        self.source = 'alsasrc'
+        self.pipeline = None
+        try:
+            conf = gconf.client_get_default()
+            source = conf.get('/system/gstreamer/%d.%d/default/audiosrc' %
+                              gst.gst_version[:-1])
+            if source:
+                self.source = source.get_string()
+        except NameError:
+            stderr('Python2 GConf module not installed; using default source.')
+        stderr('Source: {0}.'.format(self.source))
+
+
+    def on_message(self, bus, message):
+        if message.structure.get_name() == 'spectrum':
+            s = message.structure['magnitude']
+            magnitudes = (iec_scale(m, self.precision) for m in s)
+            if not self.quiet:
+                print(' '.join((str(m) for m in magnitudes)))
+            if self.callback:
+                self.callback(magnitudes)
+        return True
+
+
+    def start_pipeline(self):
+        pipeline = '{0} ! spectrum message=true bands={1} threshold=-70 ! fakesink'
+        pipeline = pipeline.format(self.source, self.bands)
+        self.pipeline = gst.parse_launch(pipeline)
+        self.bus = self.pipeline.get_bus()
+        self.bus.enable_sync_message_emission()
+        self.bus.add_signal_watch()
+        self.conn = self.bus.connect("message::element", self.on_message)
+        self.pipeline.set_state(gst.STATE_PLAYING)
+
+
+    def stop_pipeline(self):
+        if self.pipeline:
+            self.bus.disconnect(self.conn)
+            self.bus.remove_signal_watch()
+            self.pipeline.set_state(gst.STATE_NULL)
+
+
+    def run(self):
+        try:
+            self.start_pipeline()
+            loop = gobject.MainLoop(is_running=True)
+            while loop.is_running():
+                try:
+                    loop.run()
+                except KeyboardInterrupt:
+                    break
+            self.stop_pipeline()
+            sys.exit(0)
+        except gobject.GError as error:
+            stderr("Error creating pipeline: {0}".format(error))
+            stderr("Do you have gstreamer0.10-good installed?")
+            sys.exit(1)
+
+def main():
+    opt_precision = None
+    opt_bands = 128
+    try:
+        longopts = ['precision=', 'bands=', 'help']
+        opts, args = getopt.getopt(sys.argv[1:], 'p:b:h', longopts)
+    except getopt.GetoptError as error:
+        fatal(error)
+    for o, a in opts:
+        if o in ('-p', '--precision'):
+            if a.isdigit():
+                opt_precision = int(a)
+            else:
+                fatal('Precision should be an integer greater than zero.')
+        elif o in ('-b', '--bands'):
+            if a.isdigit():
+                opt_bands = max(1, min(128, int(a)))
+            else:
+                fatal('Bands should be an integer between 1 and 128.')
+        elif o in ('-h', '--help'):
+            usage()
+    spectrum = GstSpectrumDump(opt_precision, opt_bands)
+    spectrum.run()
+
+
+if __name__ == "__main__":
+    main()
