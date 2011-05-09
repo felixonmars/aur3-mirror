@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 ### GStreamer Spectrum Dump ####
-# Version 0.1 by Scott Garrett #
+# Version 0.2 by Scott Garrett #
 # Wintervenom [(at)] gmail.com #
 ################################
 # Dependencies:
@@ -72,9 +72,14 @@ def usage():
 
     Usage: gst-spectrumdump [opts]
         -h --help       Obvious.  ;)
+        -s --source     GST source of audio stream (default: gconf setting or
+                        'alsasrc').
         -p --precision  Number of decimal places to round magnitudes.
                         A precision of zero will round to integers (0-16).
         -b --bands      Number of frequency bands to output (1-128).
+        -v --vu         Return VU meter dump instead of spectrum dump.
+                        The band option will be the maxiumum number of
+                        channels to output.
     """
     text = text.format(os.path.basename(sys.argv[0]), VERSION)
     stderr(textwrap.dedent(text))
@@ -86,43 +91,40 @@ class GstSpectrumDump(object):
     Dumps the spectrum magnitudes of incoming audio as volume units per band.
 
     Optional arguments:
+    <source>: Source of the audio (default: alsasrc or gconf setting).
     <precision>: How many decimal places to round the magnitudes to (default: 16).
     <bands>: How many frequency bands to output (default: 128).
+    <threshold>: Minimal magnitude of a band.
+    <vumeter>: Return VU meter output instead of spectrum (bands=channels).
     <quiet>: Don't output to STDERR (default: False).
     <callback>: Return the magnitude list to this function (default: None).
     """
-    def __init__(self, precision=None, bands=128, quiet=False, callback=None):
-        self.precision = precision
-        self.bands = bands
-        self.threshold = 100
-        self.quiet = quiet
-        self.callback = callback
-        self.source = 'alsasrc'
+    def __init__(self, **opts):
+        self.source = opts.get('source')
+        self.precision = opts.get('precision')
+        self.bands = opts.get('bands', 128)
+        self.threshold = opts.get('threshold', 70)
+        self.vumeter = opts.get('vumeter', False)
+        self.quiet = opts.get('quiet', False)
+        self.callback = opts.get('callback')
         self.pipeline = None
-        try:
-            conf = gconf.client_get_default()
-            source = conf.get('/system/gstreamer/%d.%d/default/audiosrc' %
-                              gst.gst_version[:-1])
-            if source:
-                self.source = source.get_string()
-        except NameError:
-            stderr('Python2 GConf module not installed; using default source.')
+        if not self.source:
+            defaultsrc = 'alsasrc'
+            try:
+                conf = gconf.client_get_default()
+                source = conf.get('/system/gstreamer/%d.%d/default/audiosrc' %
+                                  gst.gst_version[:-1])
+                if source:
+                    self.source = source.get_string()
+                else:
+                    self.source = defaultsrc
+            except NameError:
+                stderr('Python2 GConf module not installed; using default source.')
+                self.source = defaultsrc
         stderr('Source: {0}.'.format(self.source))
 
 
-    def topct(self, db, precision=None):
-        """
-        Decibel to percentage converter.
-        """
-        pct = (self.threshold + db) * self.threshold / 100.0
-        if precision:
-            pct = round(pct, precision)
-        elif precision == 0:
-            pct = int(pct)
-        return pct
-
-
-    def toiec(self, db, precision=None):
+    def dbtoiec(self, db, precision=None):
         """
         Decibel to IEC scale converter.
         Borrowed from gst-python's VU meter, modified to add result rounding.
@@ -151,25 +153,39 @@ class GstSpectrumDump(object):
         return pct
 
 
-
     def on_message(self, bus, message):
-        if message.structure.get_name() == 'spectrum':
-            s = message.structure['magnitude']
-            magnitudes = (self.topct(m, self.precision) for m in s)
-            if not self.quiet:
-                try:
-                    print(' '.join((str(m) for m in magnitudes)))
-                except IOError:
-                    self.loop.quit()
-            if self.callback:
-                self.callback(magnitudes)
+        s = message.structure
+        name = s.get_name()
+        if name == 'spectrum':
+            magnitudes = (self.dbtoiec(m, self.precision) for m in s['magnitude'])
+        elif name == 'level':
+            magnitudes = []
+            for channel in range(0, min(self.bands, len(s['peak']))):
+                peak = max(-90, min(0, s['peak'][channel]))
+                decay = max(-90, min(0, s['decay'][channel]))
+                magnitudes.append(self.dbtoiec(peak, self.precision))
+                magnitudes.append(self.dbtoiec(decay, self.precision))
+        else:
+            return True
+        if not self.quiet:
+            try:
+                print(' '.join((str(m) for m in magnitudes)))
+            except IOError:
+                self.loop.quit()
+        if self.callback:
+            self.callback(magnitudes)
         return True
 
 
     def start_pipeline(self):
-        pipeline = '{0} ! spectrum message=true bands={1} threshold=-{2} ! fakesink'
-        pipeline = pipeline.format(self.source, self.bands, self.threshold)
-        self.pipeline = gst.parse_launch(pipeline)
+        pipeline = [self.source]
+        if self.vumeter:
+            pipeline.append('level message=true')
+        else:
+            spectrum='spectrum message=true bands={0} threshold=-{1}'
+            pipeline.append(spectrum.format(self.bands, self.threshold))
+        pipeline.append('fakesink')
+        self.pipeline = gst.parse_launch(' ! '.join(pipeline))
         self.bus = self.pipeline.get_bus()
         self.bus.enable_sync_message_emission()
         self.bus.add_signal_watch()
@@ -200,16 +216,24 @@ class GstSpectrumDump(object):
             stderr("Do you have gstreamer0.10-good installed?")
             sys.exit(1)
 
+
 def main():
     opt_precision = None
     opt_bands = 128
+    opt_vumeter = False
+    opt_source = None
     try:
-        longopts = ['precision=', 'bands=', 'help']
-        opts, args = getopt.getopt(sys.argv[1:], 'p:b:h', longopts)
+        longopts = ['source=', 'precision=', 'bands=', 'vu', 'help']
+        opts, args = getopt.getopt(sys.argv[1:], 's:p:b:vh', longopts)
     except getopt.GetoptError as error:
         fatal(error)
     for o, a in opts:
-        if o in ('-p', '--precision'):
+        if o in ('-s', '--source'):
+            if a.isalnum():
+                opt_source = a
+            else:
+                fatal('Invalid audio source.')
+        elif o in ('-p', '--precision'):
             if a.isdigit():
                 opt_precision = int(a)
             else:
@@ -219,9 +243,12 @@ def main():
                 opt_bands = max(1, min(128, int(a)))
             else:
                 fatal('Bands should be an integer between 1 and 128.')
+        elif o in ('-v', '--vu'):
+            opt_vumeter = True
         elif o in ('-h', '--help'):
             usage()
-    spectrum = GstSpectrumDump(opt_precision, opt_bands)
+    spectrum = GstSpectrumDump(source=opt_source, precision=opt_precision,
+                               bands=opt_bands, vumeter=opt_vumeter)
     spectrum.run()
 
 
