@@ -7,6 +7,7 @@ pkgdesc="A linkable library for Git"
 arch=('i686' 'x86_64')
 url="http://libgit2.github.com/"
 depends=('zlib')
+makedepends=('python')
 license=('GPL2')
 source=("$pkgname-$pkgver.tar.gz::https://www.github.com/libgit2/libgit2/tarball/v$pkgver")
 md5sums=('ebd196c19663385c3ef8c8c8fac90c5b')
