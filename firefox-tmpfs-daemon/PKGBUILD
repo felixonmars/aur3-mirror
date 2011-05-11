@@ -2,7 +2,7 @@
 
 pkgname=firefox-tmpfs-daemon
 pkgver=0.4
-pkgrel=1
+pkgrel=2
 pkgdesc="Sync all ~/.mozilla directories to tmpfs at boot and stop time"
 arch=(any)
 url=https://bbs.archlinux.org/viewtopic.php?id=118576
@@ -17,8 +17,8 @@ md5sums=( 51916fe06a4b9afa39591a093b537458
 backup=(etc/conf.d/firefox-tmpfs)
 
 package() {
-  install -D $srcdir/rc.firefox-tmpfs $pkgdir/etc/rc.d/firefox-tmpfs
-  install -D $srcdir/confd.firefox-tmpfs $pkgdir/etc/conf.d/firefox-tmpfs
+  install -m 755 -D $srcdir/rc.firefox-tmpfs $pkgdir/etc/rc.d/firefox-tmpfs
+  install -m 644 -D $srcdir/confd.firefox-tmpfs $pkgdir/etc/conf.d/firefox-tmpfs
   echo ">> Add firefox-tmpfs to the DAEMONS array in /etc/rc.conf"
   echo ">> DAEMONS=(... @firefox-tmpfs ...)"
   echo ">> Change default configuration in /etc/config/firefox-tmpfs"
