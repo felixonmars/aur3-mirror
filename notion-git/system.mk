@@ -17,7 +17,7 @@
 # Main binaries
 BINDIR=$(PREFIX)/bin
 # Configuration .lua files
-ETCDIR=$(PREFIX)/etc/notion
+ETCDIR=$(PREFIX)/share/notion/etc
 # Some .lua files and ion-* shell scripts
 SHAREDIR=$(PREFIX)/share/notion
 # Manual pages
