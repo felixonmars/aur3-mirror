@@ -6,7 +6,7 @@
 arch=('i686' 'x86_64')
 pkgname=aacgain
 pkgver=1.8
-pkgrel=4
+pkgrel=6
 pkgdesc="Adjusts the volume of music files (mp4/m4a/QT/mp3) using ReplayGain algorithm."
 url="http://altosdesign.com/aacgain"
 license=('GPL')
