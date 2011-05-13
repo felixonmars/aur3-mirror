@@ -1,28 +1,33 @@
-# Contributor: Majki <majki@majki.hu>
-pkgname=tsclient2
-pkgver=2.0.1
-pkgrel=8
-pkgdesc="Terminal Server Client [tsclient] is a GTK2 frontend for rdesktop and other remote desktop tools."
-arch=('i686' 'x86_64')
-url="http://sourceforge.net/projects/tsclient"
-license=('GPL')
-depends=('rdesktop>=1.3' 'gnome-panel>=2.0' 'networkmanager>=0.7.0')
-makedepends=('sed' 'perlxml' 'sharutils' 'pkgconfig')
-conflicts=('tsclient')
-source=(http://downloads.sourceforge.net/sourceforge/tsclient/tsclient-$pkgver.tar.bz2)
-md5sums=('3de7131156f37c5ef1028a5f03ed021b')
-install=${pkgname}.install
+pkgname='perl-sql-library'
+pkgver='0.0.3'
+pkgrel='1'
+pkgdesc="A module for managing simple SQL libraries stored in INI-like files."
+arch=('any')
+url='http://search.cpan.org/~dgorley/SQL-Library-0.0.3/lib/SQL/Library.pm'
+license=('PerlArtistic' 'GPL')
+depends=('perl')
+
+options=('!emptydirs')
+
+source=('http://search.cpan.org/CPAN/authors/id/D/DG/DGORLEY/SQL-Library-0.0.3.tar.gz')
+md5sums=('75b80cb27775bb61f90fbd5b835032ec')
 
 build() {
-  cd "$srcdir/tsclient-$pkgver"
+  DIST_DIR="${srcdir}/SQL-Library-0.0.3"
+  export PERL_MM_USE_DEFAULT=1 PERL5LIB=""                 \
+    PERL_AUTOINSTALL=--skipdeps                            \
+    PERL_MM_OPT="INSTALLDIRS=vendor DESTDIR='$pkgdir'"     \
+    PERL_MB_OPT="--installdirs vendor --destdir '$pkgdir'" \
+    MODULEBUILDRC=/dev/null
+  {
+	cd "$DIST_DIR" &&
+    perl Makefile.PL INSTALLDIRS=vendor &&
+    make &&
+    make test &&
+    make DESTDIR="$pkgdir" install;
+  } || return 1;
 
-  sed -i '/PKG_CONFIG.*libgnome-2.0/s/libgnome-2.0/libgnome-2.0\ libgnomeui-2.0/' configure
-  sed -i '/Exec/s/.*/Exec=tsclient/' data/tsclient.desktop.in
-  sed -i '/notify_notification_new/s/, NULL//' src/plugins/default/tsc-rdp-connection.c
-  sed -i '/notify_notification_new/s/, NULL//' src/plugins/default/tsc-vnc-connection.c
-  sed -i 's/libnm_glib/libnm-glib/g' configure
-  ./configure --prefix=/usr
-  make || return 1
-  make DESTDIR="$pkgdir" install
+  find "$pkgdir" -name .packlist -o -name perllocal.pod -delete
+
 }
 
