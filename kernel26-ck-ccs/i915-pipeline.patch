@@ -1,0 +1,76 @@
+From 3b936797f5e4623ae1b80a5f0c4df30a17360bf5 Mon Sep 17 00:00:00 2001
+From: Chris Wilson <chris@chris-wilson.co.uk>
+Date: Thu, 17 Mar 2011 15:23:22 +0000
+Subject: drm/i915: Fix pipelined fencing
+
+Bugzilla: https://bugs.freedesktop.org/show_bug.cgi?id=34584
+Cc: Andy Whitcroft <apw@canonical.com>
+Cc: Daniel Vetter <daniel.vetter@ffwll.ch>
+Signed-off-by: Chris Wilson <chris@chris-wilson.co.uk>
+---
+diff --git a/drivers/gpu/drm/i915/i915_gem.c b/drivers/gpu/drm/i915/i915_gem.c
+index 36e66cc..10378a3 100644
+--- a/drivers/gpu/drm/i915/i915_gem.c
++++ b/drivers/gpu/drm/i915/i915_gem.c
+@@ -2544,8 +2544,25 @@ i915_gem_object_get_fence(struct drm_i915_gem_object *obj,
+ 		reg = &dev_priv->fence_regs[obj->fence_reg];
+ 		list_move_tail(&reg->lru_list, &dev_priv->mm.fence_list);
+ 
+-		if (!obj->fenced_gpu_access && !obj->last_fenced_seqno)
+-			pipelined = NULL;
++		if (obj->tiling_changed) {
++			ret = i915_gem_object_flush_fence(obj,
++							  pipelined,
++							  interruptible);
++			if (ret)
++				return ret;
++
++			if (!obj->fenced_gpu_access && !obj->last_fenced_seqno)
++				pipelined = NULL;
++
++			if (pipelined) {
++				reg->setup_seqno =
++					i915_gem_next_request_seqno(dev, pipelined);
++				obj->last_fenced_seqno = reg->setup_seqno;
++				obj->last_fenced_ring = pipelined;
++			}
++
++			goto update;
++		}
+ 
+ 		if (!pipelined) {
+ 			if (reg->setup_seqno) {
+@@ -2568,31 +2585,6 @@ i915_gem_object_get_fence(struct drm_i915_gem_object *obj,
+ 							  interruptible);
+ 			if (ret)
+ 				return ret;
+-		} else if (obj->tiling_changed) {
+-			if (obj->fenced_gpu_access) {
+-				if (obj->base.write_domain & I915_GEM_GPU_DOMAINS) {
+-					ret = i915_gem_flush_ring(obj->base.dev, obj->ring,
+-								  0, obj->base.write_domain);
+-					if (ret)
+-						return ret;
+-				}
+-
+-				obj->fenced_gpu_access = false;
+-			}
+-		}
+-
+-		if (!obj->fenced_gpu_access && !obj->last_fenced_seqno)
+-			pipelined = NULL;
+-		BUG_ON(!pipelined && reg->setup_seqno);
+-
+-		if (obj->tiling_changed) {
+-			if (pipelined) {
+-				reg->setup_seqno =
+-					i915_gem_next_request_seqno(dev, pipelined);
+-				obj->last_fenced_seqno = reg->setup_seqno;
+-				obj->last_fenced_ring = pipelined;
+-			}
+-			goto update;
+ 		}
+ 
+ 		return 0;
+--
+cgit v0.8.3-6-g21f6
