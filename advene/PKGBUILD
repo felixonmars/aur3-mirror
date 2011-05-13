@@ -2,12 +2,12 @@
 
 pkgname=advene
 pkgver=0.46
-pkgrel=1
+pkgrel=2
 pkgdesc="Share, edit and visualize hypervideos."
 arch=(any)
 url="http://liris.cnrs.fr/advene/index.html"
 license=('GPL')
-depends=('pygtk' 'cherrypy' 'python2-simpletal' 'gstreamer0.10-python' 'gstreamer0.10-base-plugins')
+depends=('pygtk' 'python2-cherrypy' 'python2-simpletal' 'gstreamer0.10-python' 'gstreamer0.10-base-plugins')
 optdepends=('gstreamer0.10-good-plugins: good codecs support'
             'gstreamer0.10-bad-plugins: bad codecs support'
             'gstreamer0.10-ugly-plugins: ugly codecs support')
