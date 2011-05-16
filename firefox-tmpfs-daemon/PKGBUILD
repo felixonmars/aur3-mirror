@@ -2,7 +2,7 @@
 
 pkgname=firefox-tmpfs-daemon
 pkgver=0.4
-pkgrel=2
+pkgrel=3
 pkgdesc="Sync all ~/.mozilla directories to tmpfs at boot and stop time"
 arch=(any)
 url=https://bbs.archlinux.org/viewtopic.php?id=118576
@@ -11,7 +11,7 @@ depends=('firefox' 'rsync')
 conflicts=('firefox-sync')
 source=(  rc.firefox-tmpfs
           confd.firefox-tmpfs )
-md5sums=( 51916fe06a4b9afa39591a093b537458
+md5sums=( 45dbc8d64b90ed2f3559ea5b91a01bcb
           fa5d47bc7bfa10b58212aa66c39fd960 )
 
 backup=(etc/conf.d/firefox-tmpfs)
