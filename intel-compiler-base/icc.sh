@@ -8,7 +8,7 @@ else
 fi
 
 . /opt/intel/composerxe/bin/compilervars.sh <arch>
-. /opt/intel/composerxe/bin/iccvars.sh <arch>
+#. /opt/intel/composerxe/bin/iccvars.sh <arch>
 
 PATH=$PATH:/opt/intel/bin
 export PATH
