@@ -1,22 +1,29 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
-pkgver=2.5.1
+pkgver=2.7.4
 pkgrel=1
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
-arch=('i686')
+arch=('i686' 'x86_64')
+[[ $CARCH == i686 ]] && _ARCH=86
+[[ $CARCH == x86_64 ]] && _ARCH=64
 url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
 license=('custom')
-depends=('libusb>=1.0' 'gcc-libs')
+depends=('libusb>=1.0')
 install=adept-runtime.install
-source=('digilent.adept.runtime_2.5.1-i686.tar.gz::http://www.digilentinc.com/Cart/Download.cfm?DURL=/Data/Products/ADEPT2/digilent.adept.runtime_2.5.1-i686.tar.gz&ProductID=Adept2.5.1-L-86')
-md5sums=('01c895731dba1ea5526fe0f1b756dd80')
+source=("digilent.adept.runtime_2.7.4-$CARCH.tar.gz::http://www.digilentinc.com/Cart/Download.cfm?DURL=/Data/Products/ADEPT2/digilent.adept.runtime_2.7.4-$CARCH.tar.gz&ProductID=Adept2.7.4-L-$_ARCH")
+[[ $CARCH == i686 ]] && md5sums=('86bda1dc016bec8d5286fef3335a4f18')
+[[ $CARCH == x86_64 ]] && md5sums=('4f2237ea00af113192a43db490e48aa5')
 
 package() {
-  cd "$srcdir/digilent.adept.runtime_$pkgver-i686"
+  cd "$srcdir/digilent.adept.runtime_$pkgver-$CARCH"
 
   # shared libraries
   mkdir -p "$pkgdir/usr/lib/digilent/adept"
-  cp -d lib/* "$pkgdir/usr/lib/digilent/adept"
+  if [[ $CARCH == i686 ]]; then
+    cp -d lib/* "$pkgdir/usr/lib/digilent/adept"
+  elif [[ $CARCH == x86_64 ]]; then
+    cp -d lib64/* "$pkgdir/usr/lib/digilent/adept"
+  fi
   chmod -R 755 "$pkgdir/usr/lib/digilent/adept"
 
   # firmware images
@@ -39,13 +46,28 @@ package() {
   sed -i 's_usr/local/share_usr/share_' digilent-adept.conf
   install -m 644 digilent-adept.conf "$pkgdir/etc"
 
+  # module unloader binary
+  # ("This application detaches any kernel drivers that are attached
+  #   to the interfaces of the device, ensuring that the Runtime will
+  #   be able to communicate with the device using libusb.")
+  mkdir "$pkgdir/usr/sbin"
+  if [[ $CARCH == i686 ]]; then
+    install -m 755 bin/dftdrvdtch "$pkgdir/usr/sbin"
+  elif [[ $CARCH == x86_64 ]]; then
+    install -m 755 bin64/dftdrvdtch "$pkgdir/usr/sbin"
+  fi
+
   # udev rules
   mkdir -p "$pkgdir/etc/udev/rules.d"
+  sed -i 's_usr/local/sbin_usr/sbin_' 52-digilent-usb.rules
   install -m 644 52-digilent-usb.rules "$pkgdir/etc/udev/rules.d"
 
   # library configuration file
   mkdir "$pkgdir/etc/ld.so.conf.d"
   sed -i -e 's_local/lib_lib_' -e '/lib64/,$d' digilent-adept-libraries.conf
+  if [[ $CARCH == x86_64 ]]; then
+    sed -i 's_32-bit_64-bit_' digilent-adept-libraries.conf
+  fi
   install -m 644 digilent-adept-libraries.conf "$pkgdir/etc/ld.so.conf.d"
 
   # EULA
