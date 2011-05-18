@@ -1,18 +1,24 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
 pkgver=2.7.4
-pkgrel=1
+pkgrel=2
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
-[[ $CARCH == i686 ]] && _ARCH=86
-[[ $CARCH == x86_64 ]] && _ARCH=64
 url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
 license=('custom')
 depends=('libusb>=1.0')
 install=adept-runtime.install
-source=("digilent.adept.runtime_2.7.4-$CARCH.tar.gz::http://www.digilentinc.com/Cart/Download.cfm?DURL=/Data/Products/ADEPT2/digilent.adept.runtime_2.7.4-$CARCH.tar.gz&ProductID=Adept2.7.4-L-$_ARCH")
-[[ $CARCH == i686 ]] && md5sums=('86bda1dc016bec8d5286fef3335a4f18')
-[[ $CARCH == x86_64 ]] && md5sums=('4f2237ea00af113192a43db490e48aa5')
+
+# hack to make sure a valid URL shows up
+# on the AUR page - taken from the Dropbox PKGBUILD
+_arch1=i686
+[[ $CARCH == x86_64 ]] && _arch1=x86_64
+_arch2=86
+[[ $CARCH == x86_64 ]] && _arch2=64
+source=("digilent.adept.runtime_2.7.4-$_arch1.tar.gz::http://www.digilentinc.com/Cart/Download.cfm?DURL=/Data/Products/ADEPT2/digilent.adept.runtime_2.7.4-$_arch1.tar.gz&ProductID=Adept2.7.4-L-$_arch2")
+
+md5sums=('86bda1dc016bec8d5286fef3335a4f18')
+[[ $CARCH == x86_64 ]] && md5sums[0]='4f2237ea00af113192a43db490e48aa5'
 
 package() {
   cd "$srcdir/digilent.adept.runtime_$pkgver-$CARCH"
