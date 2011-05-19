@@ -12,8 +12,8 @@
 SCRIPT_NAME='Aurget'
 SCRIPT_DESCRIPTION='A simple pacman-like interface to the AUR'
 SCRIPT_AUTHOR='Patrick Brisbin <pbrisbin@gmail.com>'
-SCRIPT_VERSION='3.2.7'
-SCRIPT_DATE='3/12/2011'
+SCRIPT_VERSION='3.2.8'
+SCRIPT_DATE='5/18/2011'
 
 # }}}
 
@@ -27,8 +27,18 @@ errorout() {
 
   [[ -d "$tmpdir" ]] && rm -r "$tmpdir"
 
-  set_lock_file -r
+  exit 1
+}
 
+dieonlock() {
+  cat << EOF
+
+   Lock file found at $lock_file.
+
+   Another aurget process is currently running. Please wait until it has
+   finished.
+
+EOF
   exit 1
 }
 
@@ -76,36 +86,8 @@ runtime_flag() { eval ${1/--/}; }
 # check for development
 is_devel() { echo "$1" | grep -q -- "$development_regex"; }
 
-# set or remove our lock file
-set_lock_file() {
-  local lock_file='/tmp/aurget.lock'
-
-  if [[ "$1" = '-r' ]]; then
-    if [[ -f "$lock_file" ]]; then
-      rm "$lock_file" || errorout 'error removing lock file'
-    fi
-
-    return 0
-  fi
-
-  if [[ -f "$lock_file" ]]; then
-    cat << EOF
-
- $lock_file exists. if you're certain that no other aurget
- process is running, remove this file and try again.
-
-EOF
-  exit 1
-
-  fi
-
-  touch "$lock_file" || errorout 'error setting lock file'
-}
-
 # clear our temp dir
 clear_temp() {
-  tmpdir='/tmp/aurget'
-
   [[ -d "$tmpdir" ]] && rm -r "$tmpdir"
   mkdir -p "$tmpdir"
 }
@@ -206,7 +188,7 @@ prompt_to_edit() {
     prompt) prompt "edit PKGBUILD before $reason" || return 0 ;;
   esac
 
-  $editor $pkgbuild || errorout 'problem editing PKGBUILD'
+  $editor "$pkgbuild" || errorout 'problem editing PKGBUILD'
   prompt "continue $reason"
 }
 
@@ -216,7 +198,7 @@ prompt_to_edit() {
 source_pkgbuild() {
   local pkgbuild="$1"
 
-  [[ ! -f $pkgbuild ]] && errorout 'pkgbuild not found'
+  [[ ! -f "$pkgbuild" ]] && errorout 'pkgbuild not found'
 
   # source pkgbuild variables
   source <(awk '/^build.*(.*)|^function.*build.*(.*)/{exit};1' "$pkgbuild")
@@ -293,24 +275,21 @@ search_aur() {
   [[ "$search_mode" = 'print' ]] && print_pkgbuild "${args[@]}"
 
   # continue with other searches
-  local awkscript results term name Name Version Description URL URLPath OutOfDate
+  local awkscript results term Name Version Description URL URLPath OutOfDate
 
   term="${args[*]}"
 
-  # do we need exact match or not?
-  [[ "$search_mode" = 'info' ]] && name="\"$term\"" || name=''
-
   awkscript='
-  /Name":|var/      { printf "%s", $3 }
-  /Version":/       { printf "|%s", $3 }
-  /Description":/   { printf "|%s", $3 }
-  /URL":/           { printf "|%s", $3 }
-  /URLPath":/       { printf "|%s", $3 }
-  /OutOfDate":/     { printf "|%s\n", $3 }
+  /Name":/        { printf "%s", $3 }
+  /Version":/     { printf "|%s", $3 }
+  /Description":/ { printf "|%s", $3 }
+  /URL":/         { printf "|%s", $3 }
+  /URLPath":/     { printf "|%s", $3 }
+  /OutOfDate":/   { printf "|%s\n", $3 }
   '
 
   # parse JSON data
-  results="$(wget -q -O - "${aur_srch}$(url_encode "$term")" | awk -F'"' -v RS='","' -v var="$name" "$awkscript")"
+  results="$(wget -q -O - "${aur_srch}$(url_encode "$term")" | awk -F'"' -v RS='","' "$awkscript")"
 
   # no results
   [[ -z "$results" ]] && clean_exit 1
@@ -318,6 +297,7 @@ search_aur() {
   # sed-parse that file
   while IFS='|' read -r Name Version Description URL URLPath OutOfDate; do
     [[ -z "$Name" ]] && continue
+    [[ "$search_mode" = 'info' ]] && [[ "$Name" != "$term" ]] && continue
 
     # FYI: http://old.nabble.com/echo-interrupted-by-SIGCHLD-from-a-dying-coprocess-td28028050.html
     case "$search_mode" in
@@ -435,7 +415,7 @@ build_package() {
   display 'Building package...'
   #pkgbuild="$(find "$_srcdir/" -name 'PKGBUILD' -print -quit)"
   pkgbuild="$_srcdir/PKGBUILD"
-  if ! prompt_to_edit "$pkgbuild" 'building package'; then
+  if ! prompt_to_edit "$pkgbuild" "building $Name"; then
     try_discard "$_srcdir" 
     continue
   fi
@@ -510,7 +490,7 @@ source_for_deps() {
     fi
   fi
 
-  prompt_to_edit "$pkgbuild" 'sourcing for deps' && source_pkgbuild "$pkgbuild" || continue
+  prompt_to_edit "$pkgbuild" "sourcing $1 for deps" && source_pkgbuild "$pkgbuild" || continue
 }
 
 # }}}
@@ -670,11 +650,6 @@ process_targets() {
 
 # }}}
 
-# clean_entrance {{{
-clean_entrance() { set_lock_file; clear_temp; }
-
-# }}}
-
 # set_defaults {{{
 set_defaults() {
   # just true/false and non-config options
@@ -705,27 +680,25 @@ set_defaults() {
 source_config() {
   local config _sourced=false
 
-  # global config file
+  # global config file is always sourced
   config='/etc/aurgetrc'
   if [[ -r "$config" ]]; then
     . "$config" || errorout "$config: invalid configuration"
     _sourced=true
   fi
 
-  # try xdg directory
-  if [[ -n "$XDG_CONFIG_HOME" ]]; then
-    config="$XDG_CONFIG_HOME/aurgetrc"
-    if [[ -f "$config" ]]; then
-      . "$config" || errorout "$config: invalid configuration"
-      _sourced=true
-    fi
-  fi
-
-  # user config file
-  config="$HOME/.aurgetrc"
+  # try xdg directory first
+  config="${XDG_CONFIG_HOME:-$HOME/.config}/aurgetrc"
   if [[ -r "$config" ]]; then
     . "$config" || errorout "$config: invalid configuration"
     _sourced=true
+  else
+    # use home dot-file
+    config="$HOME/.aurgetrc"
+    if [[ -r "$config" ]]; then
+      . "$config" || errorout "$config: invalid configuration"
+      _sourced=true
+    fi
   fi
 
   if ! $_sourced; then
@@ -893,13 +866,37 @@ main() {
 
 # clean_exit {{{
 clean_exit() { 
-  set_lock_file -r
-
   [[ -d "$tmpdir" ]] && rm -r "$tmpdir"
 
   exit ${1:-0}
 }
 
+# }}}
+
+# boot_strap {{{
+boot_strap() {
+  [[ "$1" != 'bootstrap' ]] && return
+
+  cat << EOF
+
+  Boot-strapping aurget...
+
+  Once built, please use pacman to install the package in this 
+  directory.
+
+EOF
+
+  clear_temp
+  set_defaults
+
+  args=( 'aurget' )
+  sync_mode='build'
+  makepkg='makepkg'
+  build_directory="$tmpdir/bootstrap"
+
+  source_makepkg
+  setup_targets
+}
 # }}}
 
 # clean up if we catch signals
@@ -910,13 +907,21 @@ aur_srch="$aur/rpc.php?type=search&arg="
 aur_info="$aur/rpc.php?type=info&arg="
 aur_pkgs="$aur/packages"
 
-clean_entrance
+tmpdir='/tmp/aurget'
+lock_file="$tmpdir/aurget.lock"
 
-set_defaults
-source_config
-source_makepkg
-parse_options "$@"
-main
+boot_strap "$1"
+
+clear_temp
+
+(
+  flock -n 9 || dieonlock
+  set_defaults
+  source_config
+  source_makepkg
+  parse_options "$@"
+  main
+) 9>"$lock_file"
 
 clean_exit
 
