@@ -27,6 +27,7 @@ function svdir {
   echo $svdir
 }
 
+# Add sudo if we don't own the directory in question
 function check_owner {
   lndir=$1
   if [ ! -w $lndir ];then
@@ -64,6 +65,7 @@ function disable {
   $(check_owner $ln_dir) rm $ln_dir/$service
 }
 
+# Generic list, of one service or all
 function list {
   svdir=$(svdir)
   if [ ! -z "$1" ];then
@@ -74,14 +76,38 @@ function list {
   fi
 }
 
+# Usage
+function usage {
+  cmd=$1
+  case "$cmd" in
+    sv-enable) echo "sv-enable <service> - Enable a service and start it (will restart on boots)";;
+    sv-disable) echo "sv-disable <service> - Disable a service from starting (also stop the service)";;
+    svls) echo "svls [<service>] - Show list of services (Default: all services, pass a service name to see just one)";;
+    sv-find) echo "sv-find <service> - Find a service, if it exists";;
+    sv-list) echo "sv-list - List available services";;
+    *) echo "Invalid command (sv-list svls sv-find sv-enable sv-disable)";;
+  esac
+}
+
 # Start main program
+
 cmd=$(basename $0) # Get the command
+
+# help
+while getopts h options
+do
+  case $options in
+    h) echo $(usage $cmd)
+       exit;;
+  esac
+done
+
 case "$cmd" in
   sv-enable) enable $@;;
   sv-disable) disable $@;;
   svls) list $@;;
   sv-find) find_service $@;;
   sv-list) find $(find_service) -maxdepth 1 -mindepth 1 -type d -exec basename {} \; ;;
-  *) echo "Unknown command: '$cmd'";
+  *) usage;
     break;;
 esac
