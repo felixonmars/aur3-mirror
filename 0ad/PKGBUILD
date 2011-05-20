@@ -2,9 +2,9 @@
 # Contributor: AdriÃ¡n Chaves FernÃ¡ndez (Gallaecio) <adriyetichaves@gmail.com>
 
 pkgname=0ad
-pkgver=alpha_4
-_pkgver=r09049-alpha
-pkgrel=3
+pkgver=alpha_5
+_pkgver=r09530-alpha
+pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
@@ -21,8 +21,8 @@ source=("http://releases.wildfiregames.com/$pkgname-$_pkgver-unix-build.tar.xz"
 	"${pkgname}-editor.desktop"
 	"${pkgname}.png"
 	"${pkgname}.install")
-sha256sums=('18dc2508ff0535d3553135ef0c3ad4c179313fa5de398938a467794d9980fcd8'
-            '0324cc5d8e15da8637336705ccadc7f6145364b7b4dfc62a6a6ec51c232992e3'
+sha256sums=('4cbad45b085b412b48c4f3e27e8d808ff64d51d3ae479fd2ac108768af6a5336'
+            '646f79b17f92872ff9a67d80ee5702d07219f8b3e3c91b438ce79fac2c33ed14'
             'd7ea528d1adc97021a6804c46f31925e299f9978325fe3cc2af2980ba295b95b'
             'c0d3b95acfe321aad11d72d68418412817fb05fcb186f94be51cccd49a1f3ebb'
             '06ec2bdf186d8f3aa445e394c32d444e948fd773f15431b19970ea8c2496ffaa'
