@@ -1,7 +1,7 @@
 # Maintainer: TJ Vanderpoel <tj@rubyists.com>
 pkgname=runit-dietlibc
 pkgver=2.1.1
-pkgrel=2
+pkgrel=4
 pkgdesc="A service supervision scheme, compiled with dietlibc"
 url="http://smarden.org/runit/"
 license=('custom')
@@ -12,11 +12,12 @@ conflicts=("runit")
 makedepends=('dietlibc')
 optdepends=("runit-services: a collection of commonly used service directories" "runit-run: to replace SysV init with runit init scheme")
 install=runit.install
-source=( http://smarden.org/runit/runit-$pkgver.tar.gz)
-md5sums=('8fa53ea8f71d88da9503f62793336bc3')
+source=(rsvlog  http://smarden.org/runit/runit-$pkgver.tar.gz)
+md5sums=('2a51bc353820054c2bb4a60a46a76ef6'
+         '8fa53ea8f71d88da9503f62793336bc3')
 
 build() {
-  cd $srcdir/admin/runit-$pkgver/src
+  cd "$srcdir/admin/runit-$pkgver/src"
 
   # configure 
   # we build static against dietlibc
@@ -29,24 +30,27 @@ build() {
   make || return 1
   make check || return 1
 
-  install -d $pkgdir/etc/runit/runsvdir/runit-default
-  install -d $pkgdir/var
-  ln -s ../etc/runit/runsvdir/current ${pkgdir}/var/service || return 1
+  install -d "$pkgdir/etc/runit/runsvdir/runit-default"
+  install -d "$pkgdir/var"
+  ln -s ../etc/runit/runsvdir/current "${pkgdir}/var/service" || return 1
 
   # install binaries
-  install -d -m0755 ${pkgdir}/sbin || return 1
-  for i in `cat $srcdir/admin/runit-$pkgver/package/commands`
+  install -d -m0755 "${pkgdir}/sbin" || return 1
+  for i in `cat "$srcdir/admin/runit-$pkgver/package/commands"`
   do
-    install -s -m0755 $srcdir/admin/runit-$pkgver/src/$i ${pkgdir}/sbin || return 1
+    install -s -m0755 "$srcdir/admin/runit-$pkgver/src/$i" "${pkgdir}/sbin" || return 1
   done
-
   # man-pages
-  install -d -m0755 ${pkgdir}/usr/share/man/man8 || return 1
-  install -m0644 $srcdir/admin/runit-$pkgver/man/* ${pkgdir}/usr/share/man/man8 || return 1
+  install -d -m0755 "${pkgdir}/usr/share/man/man8" || return 1
+  install -m0644 "$srcdir/admin/runit-$pkgver/man/"* "${pkgdir}/usr/share/man/man8" || return 1
 
   # doc
-  install -d -m0755 ${pkgdir}/usr/share/doc/runit || return 1
-  install -m0644 $srcdir/admin/runit-$pkgver/doc/*.html ${pkgdir}/usr/share/doc/runit  || return 1
+  install -d -m0755 "${pkgdir}/usr/share/doc/runit" || return 1
+  install -m0644 "$srcdir/admin/runit-$pkgver/doc/"*.html "${pkgdir}/usr/share/doc/runit"  || return 1
   
-  install -D $srcdir/admin/runit-$pkgver/package/COPYING $pkgdir/usr/share/licenses/runit/COPYING
+  install -D "$srcdir/admin/runit-$pkgver/package/COPYING" "$pkgdir/usr/share/licenses/runit/COPYING"
+}
+
+package() {
+  install -D -m0755 "rsvlog" "$pkgdir/usr/bin/rsvlog"
 }
