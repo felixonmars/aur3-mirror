@@ -11,8 +11,8 @@ url="http://www.kokkinizita.net/linuxaudio/aeolus/index.html"
 license=('GPL')
 depends=('clalsadrv>=2.0.0' 'readline' 'clxclient>=3.6.1' 'jack')
 install=('aeolus.install')
-source=(http://www.kokkinizita.net/linuxaudio/downloads/${pkgname}-${pkgver}.tar.bz2 \
-http://www.kokkinizita.net/linuxaudio/downloads/stops-0.3.0.tar.bz2 \
+source=(http://kokkinizita.linuxaudio.org/linuxaudio/downloads/${pkgname}-${pkgver}.tar.bz2 \
+http://kokkinizita.linuxaudio.org/linuxaudio/downloads/stops-0.3.0.tar.bz2 \
 ${pkgname}.conf
 ${pkgname}.patch
 )
