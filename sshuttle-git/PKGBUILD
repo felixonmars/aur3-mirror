@@ -1,7 +1,7 @@
 # Contributor: alphazo <alphazo@gmail.com>
 # This version fetches and install master branch from Git repo.
 pkgname=sshuttle-git
-pkgver=20110208
+pkgver=20110521
 pkgrel=1
 pkgdesc="Transparent proxy server that works as a poor man's VPN. Forwards all TCP packets over ssh (and even DNS requests when using --dns option). Doesn't require admin privileges on the server side."
 arch=('any')
@@ -18,7 +18,7 @@ backup=()
 options=()
 
 source=(arch-install.patch)
-md5sums=('04885351d376734ca0502cbf93566d36')
+md5sums=('15ed72e2b68dd07ef97abfdcb828d188')
 
 
 _gitroot="git://github.com/apenwarr/sshuttle.git"
