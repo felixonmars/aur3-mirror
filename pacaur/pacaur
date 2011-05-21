@@ -5,10 +5,10 @@
 #
 
 name="pacaur"
-version="v0.9.3"
+version="v0.9.4"
 description="A simple cower wrapper to fetch PKGBUILDS from aur & abs"
 author="Remy Marquis"
-date="2011/05/20"
+date="2011/05/21"
 
 # TODO
 # - pacman fallback
@@ -94,6 +94,44 @@ DownloadDepsAur() {
     if [[ $(echo $deps | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
         exit
     fi
+}
+
+FindDepsAur() {
+    # Find dependencies
+    adeps=($($pacaur -ii $@ --format '%D%M' | awk -F "\n" '{print}' | awk -F " " '{print}' | sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+
+    # Exit if curl or package name error
+    if [[ $(echo $adeps | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
+        exit
+    fi
+
+    # if no dependency, no need to continue
+    if [[ ${#adeps[*]} -eq 0 ]]; then
+        return
+    fi
+
+    local i=0
+    for package in ${adeps[@]}; do
+        # Remove versioning from package names
+        adeps[$i]=${package%%=*}
+        adeps[$i]=${adeps[$i]%%>*}
+        adeps[$i]=${adeps[$i]%%<*}
+        # Remove packages found in repo
+        if [[ $(pacman -Sql | grep -x ${adeps[$i]}) == ${adeps[$i]} ]]; then
+            unset adeps[$i]
+        fi
+        ((i++))
+    done
+
+    adeps=$(echo ${adeps[@]} | awk -F "\n" '{print}' | awk -F " " '{print}')
+    adeps=( $adeps );
+
+    if [[ ${#adeps[*]} -gt 0 ]]; then
+        # Save AUR dependencies then continue"
+        deps=("$@" "${deps[@]}" "${adeps[@]}")
+        FindDepsAur ${adeps[@]} 
+    fi
+
 }
 
 CheckAur() {
@@ -185,8 +223,8 @@ CleanUp() {
 MakePkgs() {
 
     # Reverse deps order
-    deps=$(echo $deps | awk -F "\n" '{for (i=NF;i>=1;i--) print $i}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}')
-    deps=( $deps );
+    deps=($(echo ${deps[@]} | awk -F "\n" '{for (i=NF;i>=1;i--) print $i}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
+
     notice "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
 
     # Set architecture variables
@@ -253,10 +291,12 @@ usage() {
     echo -e "   -s, --search    search AUR repository for matching strings"
     echo -e "   -i, --info      view package information -- pass twice for details"
     echo -e "   -d, --download  download target(s) -- pass twice to download AUR dependencies"
+    echo -e "   -b, --build     use existing PKGBUILD and make target(s)"
     echo -e "   -m, --makepkg   download and make target(s)"
     echo -e "   -y, --sync      download, make and install target(s)"
     echo -e "   -q, --check     check for AUR update(s)"
     echo -e "   -u, --update    update AUR package(s)"
+    echo -e "   -c, --clean     clean target(s) existing PKGBUILD"
     echo -e "   -abs, --abs     copy target(s) from ABS directory to build directory"
     echo -e ""
     echo -e "options:"
@@ -356,6 +396,49 @@ main() {
         ;;
         esac
     ;;
+    # build
+    -b | --build)
+        case $2 in
+        -f | --force)
+            force=true
+            case $3 in
+            -e | --edit)
+                shift 3
+                FindDepsAur $@
+                EditPkgs ${deps[@]}
+                MakePkgs ${deps[@]}
+            ;;
+            *)
+                shift 2
+                FindDepsAur $@
+                MakePkgs ${deps[@]}
+            ;;
+            esac
+        ;;
+        -e | --edit)
+            case $3 in
+            -f | --force)
+                force=true
+                shift 3
+                FindDepsAur $@
+                EditPkgs ${deps[@]}
+                MakePkgs ${deps[@]}
+            ;;
+            *)
+                shift 2
+                FindDepsAur $@
+                EditPkgs ${deps[@]}
+                MakePkgs ${deps[@]}
+            ;;
+            esac
+        ;;
+        *)
+            shift
+            FindDepsAur $@
+            MakePkgs ${deps[@]}
+        ;;
+        esac
+    ;;
     # makepkg
     -m | --makepkg)
         case $2 in
@@ -363,7 +446,7 @@ main() {
             force=true
             case $3 in
             -e | --edit)
-                shift 2
+                shift 3
                 DownloadDepsAur $@ -f
                 EditPkgs $deps
                 MakePkgs $@
@@ -381,7 +464,7 @@ main() {
             case $3 in
             -f | --force)
                 force=true
-                shift 2
+                shift 3
                 DownloadDepsAur $@ -f
                 EditPkgs $deps
                 MakePkgs $@
@@ -550,6 +633,18 @@ main() {
     -ddfe | -ddef)
         shift
         pacaur -d -d -f -e $@
+    ;;
+    -be)
+        shift
+        pacaur -b -e $@
+    ;;
+    -bf)
+        shift
+        pacaur -b -f $@
+    ;;
+    -bef | -bfe)
+        shift
+        pacaur -b -e -f $@
     ;;
     -me)
         shift
