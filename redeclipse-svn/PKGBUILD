@@ -1,60 +1,93 @@
 # Contributor: J.W. Birdsong <jwbirdsongATgmailDOTcom>
+# Updated by Arand Nash <ienorand@gmail.com>
+# Based on the AUR package for version 1.0 by Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
 pkgname=redeclipse-svn
-pkgver=2168
+# svn automagic seems to override the $pkgver anyways..
+pkgver=2633
 pkgrel=1
 pkgdesc="A single-player and multi-player first-person ego-shooter, built as a total conversion of Cube Engine 2, "
 arch=('i686' 'x86_64')
 url="http://redeclipse.net"
-license=('custom' 'ZLIB')
-depends=('sdl_image'  'libgl' 'sdl_mixer')
-makedepends=('subversion' 'mesa')
-provides=(redeclipse)
-conflicts=(redeclipse)
-source=(redeclipse.desktop 'redeclipse.patch')
+license=('custom' 'ZLIB' 'MIT' 'CC-BY-SA')
+depends=('sdl_image' 'libgl' 'sdl_mixer')
+makedepends=('subversion' 'mesa' 'imagemagick')
 
 _svntrunk=https://redeclipse.svn.sourceforge.net/svnroot/redeclipse
 _svnmod=redeclipse
-md5sums=('d905ff937b097fd946e9e5b3113aee3c'
-         '09d8edaab64a382d3a818c210e423894')
-                                           
+
 build() {
-  cd "$srcdir"
+	cd "$srcdir"
 
-  if [ -d $_svnmod/.svn ]; then
-    (cd $_svnmod && svn up -r $pkgver)
-  else
-    svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
-  fi
+	# update/checkout svn
+	if [ -d "$_svnmod"/.svn ]; then
+		msg "Updating existing SVN checkout"
+		(cd "$_svnmod" && svn up -r "$pkgver")
+	else
+		msg "New checkout from SVN"
+		svn co "$_svntrunk" --config-dir ./ -r "$pkgver" "$_svnmod"
+	fi
 
-  msg "SVN checkout done or server timeout"
-  msg "Starting make..."
+	msg "SVN checkout done (or server timeout)"
+	msg "SVN export to clean build directory"
 
-  rm -rf "$srcdir/$_svnmod-build"
-  cp -r "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
-  cd "$srcdir/$_svnmod-build"
+	# export to get rid of .svn metadata
+	rm -rf "$srcdir/$pkgname"
+	svn export "$srcdir/$_svnmod" "$srcdir/$pkgname"
 
-  #
-  # BUILD
-  #
- cd "$srcdir"/${_svnmod}-build/src
-  make
-  make DESTDIR="$srcdir/" clean install 
+	msg "Starting make"
 
-cd ..
-install -d "$pkgdir"/usr/{share/$_svnmod/,}bin/
-  sed -i "s|RE_DATA=.|RE_DATA=/usr/share/$_svnmod|" $_svnmod.sh
-  patch -p2 < ../redeclipse.patch
-  install -m755 $_svnmod.sh "$pkgdir/usr/bin/$_svnmod"
-  install -m755 bin/re{server*,client*} "$pkgdir/usr/share/$_svnmod/bin/"
-  cp -rf  data/ "$pkgdir/usr/share/$_svnmod"
-
-  #  license and icons
-  install -Dm644 "$srcdir/$_svnmod.desktop"  $pkgdir/usr/share/applications/$pkgname.desktop
-  install -Dm644 src/redeclipse.ico  "$pkgdir/usr/share/pixmaps/$_svnmod.png"
-  install -Dm644 "$srcdir/$_svnmod-build/license.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-  rm -rf ${pkgdir}/usr/share/${_svnmod}/bin/re{server,client}_freebsd* 
-  rm -rf ${pkgdir}/usr/share/${_svnmod}/bin/re{server,client}.exe
+	# build in exported directory
+	cd "$srcdir/$pkgname/src"
+	make
 }
 
-# vim:set ts=2 sw=2 et:
+package() {
+	msg "Starting install phase"
+	cd "$srcdir/$pkgname"
 
+	# create directories
+	install -d "$pkgdir"/usr/{share/"$pkgname",}/bin
+	# this isn't really necessary since we use a custom script anyways
+	sed -i "s|RE_DATA=.|RE_DATA=/usr/share/$pkgname|" "redeclipse.sh"
+
+	msg "Installing binaries"
+	install -m755 src/re{server,client} "$pkgdir/usr/share/$pkgname/bin/"
+	msg "Installing data directory"
+	cp -rf  data/ "$pkgdir/usr/share/$pkgname"
+
+	msg "Creating wrapper scripts"
+	# wrapper scripts for client and server, these are -svn specific in
+	# order to not conflict with standard redeclipse
+	cat <<'EOF' > "$pkgdir/usr/bin/$pkgname"
+#!/bin/sh
+RE_OPTIONS="-r -h$HOME/.redeclipse-svn"
+cd "/usr/share/redeclipse-svn"
+exec bin/reclient ${RE_OPTIONS} ${1+"$@"}
+# ${1+"$@"} is a portability hack, keyword "wrapper script"
+EOF
+
+	cat <<'EOF' > "$pkgdir/usr/bin/$pkgname-server"
+#!/bin/sh
+RE_OPTIONS="-h$HOME/.redeclipse-svn"
+cd "/usr/share/redeclipse-svn"
+exec bin/reserver ${RE_OPTIONS} ${1+"$@"}
+# ${1+"$@"} is a portability hack, keyword "wrapper script"
+EOF
+
+	chmod 755 "$pkgdir/usr/bin/$pkgname"
+	chmod 755 "$pkgdir/usr/bin/$pkgname-server"
+
+	msg "Installing desktop file, icon, license"
+	install -Dm644 src/install/nix/redeclipse.desktop  "$pkgdir/usr/share/applications/$pkgname.desktop"
+	# change desktop file to use our scripts, and to refer to SVN instead
+	sed -e 's/redeclipse/redeclipse-svn/' \
+	-e 's/bin\/reclient\ -r/redeclipse-svn/' \
+	-e 's/Eclipse\(.*\)/Eclipse\1\ SVN/' \
+	-i "$pkgdir/usr/share/applications/$pkgname.desktop"
+	# create directory for icon
+	install -d "$pkgdir/usr/share/icons/hicolor/48x48/apps/"
+	# Extract the image we want from the layered .ico file and convert to
+	# png using imagemagick (<3)
+	convert -resize 48x48 'src/redeclipse.ico[2]' "$pkgdir/usr/share/icons/hicolor/48x48/apps/$pkgname.png"
+	install -Dm644 license.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
