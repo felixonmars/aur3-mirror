@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cd /opt/jstock
-"$JAVA_HOME/bin/java" -Xms64m -Xmx512m -jar 'jstock.jar'
+cd /opt/jbackpack
+"$JAVA_HOME/bin/java" -Xms64m -Xmx512m -jar 'jbackpack.jar'
