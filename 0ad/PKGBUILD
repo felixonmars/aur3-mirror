@@ -4,13 +4,13 @@
 pkgname=0ad
 pkgver=alpha_5
 _pkgver=r09530-alpha
-pkgrel=1
+pkgrel=2
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
 license=('GPL2' 'CCPL')
-depends=('binutils' 'boost' 'crypto++' 'curl' 'devil' 'enet-old' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'mesa' 'nasm' 'openal' 'python' 'sdl' 'wxgtk' 'zip' 'zlib')
-makedepends=('cmake')
+depends=('binutils' 'boost-libs' 'crypto++' 'curl' 'devil' 'enet-old' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'mesa' 'nasm' 'openal' 'python' 'sdl' 'wxgtk' 'zip' 'zlib')
+makedepends=('boost' 'cmake')
 conflicts=('0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
 source=("http://releases.wildfiregames.com/$pkgname-$_pkgver-unix-build.tar.xz"
