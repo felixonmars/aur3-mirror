@@ -5,17 +5,17 @@
 #
 
 name="pacaur"
-version="v0.9.5"
+version="v0.9.6"
 description="A simple cower wrapper to fetch PKGBUILDS from aur & abs"
 author="Remy Marquis"
-date="2011/05/22"
+date="2011/05/24"
 
 #
 # Default config
 #
 
 pacmanBin="pacman"              # pacman binary
-editor=${EDITOR}                # PKBUILD editor
+editor=$EDITOR                  # PKBUILD editor
 buildDir=/home/aur/build        # build directory
 clean=true                      # cleanup after install
 fallback=true                   # pacman fallback
@@ -65,7 +65,7 @@ installPkg=false
 force=false
 
 #
-# Primary functions
+# Functions
 #
 
 SearchAur() {
@@ -88,20 +88,14 @@ DownloadDepsAur() {
     # Download dependencies recursively and return AUR deps only
     deps=$($pacaur -dd $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
-    # Exit if curl or package name error
-    if [[ $(echo $deps | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
-        exit
-    fi
+    ErrorExit $deps
 }
 
 FindDepsAur() {
     # Find dependencies
     adeps=($($pacaur -ii $@ --format '%D%M' | awk -F "\n" '{print}' | awk -F " " '{print}' | sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
-    # Exit if curl or package name error
-    if [[ $(echo $adeps | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
-        exit
-    fi
+    ErrorExit $adeps
 
     # if no dependency, no need to continue
     if [[ ${#adeps[*]} -eq 0 ]]; then
@@ -129,7 +123,6 @@ FindDepsAur() {
         deps=("$@" "${deps[@]}" "${adeps[@]}")
         FindDepsAur ${adeps[@]} 
     fi
-
 }
 
 CheckAur() {
@@ -146,10 +139,7 @@ UpgradeAur() {
         exit   
     fi
 
-    # Exit if curl or package name error
-    if [[ $(echo $CheckUpdatesAur | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
-        exit
-    fi
+    ErrorExit $CheckUpdatesAur
 
     echo -e ""
     notice "Proceed with installation? [Y/n]"
@@ -177,20 +167,12 @@ UpgradeAur() {
 CopyAbs() {
     for i in "$@"
     do
-        if [ -e $buildDir/$i/PKGBUILD ]; then
+        if [[ -e $buildDir/$i/PKGBUILD && $force != true ]]; then
             failed "${colorW}$i${reset} PKBUILD already exists in $buildDir. Use -f to overwrite."
         else
             cp -r `find /var/abs -name "$i"` $buildDir || error "${colorW}$i${reset} not found"
             success "${colorW}$i${reset} copied in $buildDir"
         fi
-    done
-}
-
-CopyAbsForced() {
-    for i in "$@"
-    do
-        cp -r `find /var/abs -name "$i"` $buildDir || error "${colorW}$i${reset} not found"
-        success "${colorW}$i${reset} copied in $buildDir"
     done
 }
 
@@ -218,7 +200,6 @@ CleanUp() {
 }
 
 MakePkgs() {
-
     # Reverse deps order
     deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
 
@@ -261,9 +242,12 @@ MakePkgs() {
     done
 }
 
-#
-# Utility functions
-#
+ErrorExit(){
+    # Exit if curl or package name error
+    if [[ $(echo $@ | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
+        exit
+    fi
+}
 
 error() {
     echo -e "${colorR}::${reset} $1"
@@ -283,7 +267,7 @@ notice() {
 }
 
 usage() {
-    echo -e "usage:  pacaur <operation> [options] [package(s)]"
+    echo -e "usage:  ${name} <operation> [options] [package(s)]"
     echo -e "operations:"
     echo -e "   -s, --search    search AUR repository for matching strings"
     echo -e "   -i, --info      view package information -- pass twice for details"
@@ -297,8 +281,8 @@ usage() {
     echo -e "   -c, --clean     clean existing target(s) PKGBUILD"
     echo -e ""
     echo -e "options:"
-    echo -e "   -f, --force     force operation -- can be combined with the -d, -m flags"
-    echo -e "   -e, --edit      edit target PKBUILD -- can be combined with the -d, -m, -y, -u, -abs flags"
+    echo -e "   -f, --force     force operation -- can be combined with the -d, -b, -m flags"
+    echo -e "   -e, --edit      edit target PKBUILD -- can be combined with the -d, -b, -m, -y, -u, -abs flags"
     echo -e ""
     echo -e "pacman options:"
     echo -e "   -a, --aur       only search or install packages from AUR, eg."
@@ -553,7 +537,8 @@ main() {
             case $3 in
             -f | --force)
                 shift 3 
-                CopyAbsForced $@
+                force=true
+                CopyAbs $@
                 EditPkgs $@
             ;;
             *)
@@ -567,12 +552,14 @@ main() {
             case $3 in
             -e | --edit)
                 shift 3 
-                CopyAbsForced $@
+                force=true
+                CopyAbs $@
                 EditPkgs $@
             ;;
             *)
                 shift 2
-                CopyAbsForced $@
+                force=true
+                CopyAbs $@
             ;;
             esac
         ;;
@@ -734,7 +721,7 @@ main() {
             *)
                 shift 2
                 if $fallback; then
-                    result=$(sudo $pacmanBin -Sw $@ 2>&1)
+                    result=$($pacmanBin -Sw --print $@ 2>&1)
                     if [[ $(echo $result | grep -v "error: target not found") == "" ]]; then
                         failed "package ${colorW}$@${reset} was not found in repositories, trying ${colorM}aur${reset}..."
                         pacaur -S -w -a $@
@@ -755,9 +742,19 @@ main() {
             ;;
             *)
                 shift 2
-                sudo $pacmanBin -Su $@
                 if $fallback; then
-                    pacaur -S -u -a $@
+                    result=$($pacmanBin -Su --print $@ 2>&1)
+                    if [[ $(echo $result | grep -v "error: target not found") == "" ]]; then
+                        failed "package ${colorW}$@${reset} was not found in repositories, trying ${colorM}aur${reset}..."
+                        pacaur -S -u -a $@
+                    elif [[ ! $@ ]]; then
+                        sudo $pacmanBin -Su $@
+                        pacaur -S -u -a $@
+                    else
+                        sudo $pacmanBin -Su $@
+                    fi
+                else
+                    sudo $pacmanBin -Su $@
                 fi
             ;;
             esac
@@ -796,9 +793,16 @@ main() {
         ;;
         *)
             shift
-            sudo $pacmanBin -S $@
             if $fallback; then
-                pacaur -S -a $@
+                result=$($pacmanBin -S --print $@ 2>&1)
+                if [[ $(echo $result | grep -v "error: target not found") == "" ]]; then
+                    failed "package ${colorW}$@${reset} was not found in repositories, trying ${colorM}aur${reset}..."
+                    pacaur -S -a $@
+                else
+                    sudo $pacmanBin -S $@
+                fi
+            else
+                sudo $pacmanBin -S $@
             fi
         esac
     ;;
