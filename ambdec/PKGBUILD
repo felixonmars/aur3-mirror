@@ -1,22 +1,18 @@
 #Maintainer: masutu <masutu dot arch at googlemail dot com>
 #Contributor: masutu <masutu dot arch at googlemail dot com>
 pkgname=ambdec
-pkgver=0.4.2
+pkgver=0.4.4
 pkgrel=1
 pkgdesc='An Ambisonic decoder for up to 36 speakers using JACK.'
 arch=('i686' 'x86_64')
-url='http://www.kokkinizita.net/linuxaudio/'
+url='http://kokkinizita.linuxaudio.org'
 license=('GPL')
-depends=('clxclient' 'jack' 'libpng')
-source=('http://www.kokkinizita.net/linuxaudio/downloads/ambdec-0.4.2.tar.bz2' 'Makefile.patch')
-md5sums=('2bebbc3317ba894d014803a1920330f9'
-         'a7b77f01412f12f3b35504dc7637bf0f')
+depends=('clthreads' 'clxclient' 'jack' 'libpng')
+source=($url/linuxaudio/downloads/${pkgname}-${pkgver}.tar.bz2)
+md5sums=('232930b86fba2c3ed4eda0568cd75ea1')
+
 build() {
   cd "$srcdir/$pkgname-$pkgver/source"
-  patch -p1 < ../../../Makefile.patch
   make || return 1
-  make install
-  mv temp/usr $pkgdir
+  make PREFIX=$pkgdir/usr install
 }
-
-# vim:set ts=2 sw=2 et:
