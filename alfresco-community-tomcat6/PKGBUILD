@@ -2,7 +2,7 @@
 
 pkgname=alfresco-community-tomcat6
 pkgver=3.4.d
-pkgrel=1
+pkgrel=2
 pkgdesc="Installs the Alfresco instance in a Tomcat 6 servlet container."
 url="http://www.alfresco.com"
 license=('custom:PD')
@@ -25,7 +25,7 @@ package() {
 	#
 	# tomcat directory structure modification
 	#
-	tomcat_share=$pkgdir/usr/share/tomcat/shared
+	tomcat_share=$pkgdir/usr/share/tomcat6/shared
 	mkdir -p $tomcat_share/classes
 	mkdir -p $tomcat_share/lib
 	cd $tomcat_share/classes
@@ -43,7 +43,7 @@ package() {
 	# Deploy the app by placing the context fragment in Tomcat's 
 	# config directory
 	# 
-	tomcat_conf=$pkgdir/etc/tomcat.d/Catalina/localhost
+	tomcat_conf=$pkgdir/etc/tomcat6/Catalina/localhost
 	mkdir -p $tomcat_conf
 	cp $startdir/alfresco.xml $tomcat_conf
 	cp $startdir/share.xml $tomcat_conf
