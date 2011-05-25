@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Krasnodar-${pkgver}.orig.zip")
-md5sums=('ac316ee30fd9dc0bdfb3c18f6b9c8f2e')
+md5sums=('9c7ef875b9a1be934493d529e4364549')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Rostov-${pkgver}.orig.zip")
-md5sums=('a154252b5d322329705fec13f98434fe')
+md5sums=('25e1406cc319efe194256b3bdbb1258e')
 
 build() {
 

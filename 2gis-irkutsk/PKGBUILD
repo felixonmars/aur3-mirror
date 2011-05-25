@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Irkutsk-${pkgver}.orig.zip")
-md5sums=('40b80f9d06442366f4f88f11659ee9ed')
+md5sums=('accda8513a72cc3c5c0e73683eb27f1a')
 
 build() {
 

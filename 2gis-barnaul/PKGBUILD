@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Barnaul-${pkgver}.orig.zip")
-md5sums=('4be111bf3621da8341ff61f33716500c')
+md5sums=('7b70e97f1b92acfac5074c4c533f1bb5')
 
 build() {
 

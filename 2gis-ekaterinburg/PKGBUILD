@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ekaterinburg-${pkgver}.orig.zip")
-md5sums=('93e97c481e946220d1e20eaeebc47f78')
+md5sums=('ee23511c0d8a1356ccaeb64beba517bd')
 
 build() {
 

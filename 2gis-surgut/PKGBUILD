@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Surgut-${pkgver}.orig.zip")
-md5sums=('be5291a65bedc9a3372b1aff7cde324b')
+md5sums=('60812b4cc3027ce624f1f376e9eed056')
 
 build() {
 

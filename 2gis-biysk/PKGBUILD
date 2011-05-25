@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Biysk-${pkgver}.orig.zip")
-md5sums=('18fb0e3a5eb7f0968d24f61707ea9ef4')
+md5sums=('53ce62ff9f927e4cb85a7b7ffa9567a1')
 
 build() {
 

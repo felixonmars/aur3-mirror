@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Magnitogorsk-${pkgver}.orig.zip")
-md5sums=('336685c18112ae1ee2628aa87112b7de')
+md5sums=('30c6c0ccd4fad6758b0072118d71305c')
 
 build() {
 

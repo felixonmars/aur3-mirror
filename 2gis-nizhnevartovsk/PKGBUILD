@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Nizhnevartovsk-${pkgver}.orig.zip")
-md5sums=('077a5569c23ed38c5cd1b6dfa5db2172')
+md5sums=('bc202922015d53079c349090867cd904')
 
 build() {
 

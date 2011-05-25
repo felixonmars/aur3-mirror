@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Volgograd-${pkgver}.orig.zip")
-md5sums=('3ab8fab1d9cc831e4952785612f62800')
+md5sums=('5e9da22a888687706da1794effad5b54')
 
 build() {
 

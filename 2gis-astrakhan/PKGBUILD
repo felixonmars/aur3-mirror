@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-${pkgver}.orig.zip")
-md5sums=('89ab396e01d18e190821dc51f371254e')
+md5sums=('2987e113b31388984b9825a7a4a102d4')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-${pkgver}.orig.zip")
-md5sums=('a2cd910c110ce49ae16e373cdc85664e')
+md5sums=('5b5e406a65a8c00fa1c78b99258482fb')
 
 build() {
 

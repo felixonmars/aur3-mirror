@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kurgan-${pkgver}.orig.zip")
-md5sums=('251a9f345e4fedd7f21bde5b2bec7ab3')
+md5sums=('d83009af38eb1a4c85d7552056490e8e')
 
 build() {
 

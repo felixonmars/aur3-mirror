@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Yaroslavl-${pkgver}.orig.zip")
-md5sums=('3d26d172f13645e98e150232027c7f7c')
+md5sums=('19e6a094ef0807277954f5f812363104')
 
 build() {
 

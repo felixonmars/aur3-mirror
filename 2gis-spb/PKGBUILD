@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Spb-${pkgver}.orig.zip")
-md5sums=('56701c175da693e6dfdf70ca471628b0')
+md5sums=('4ef8c2ac254262d030c1181b3d21b578')
 
 build() {
 

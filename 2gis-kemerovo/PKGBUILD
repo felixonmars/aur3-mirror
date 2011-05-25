@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kemerovo-${pkgver}.orig.zip")
-md5sums=('13846e4bc8fbc05f4715c1f4d13425cf')
+md5sums=('8df4b72631221e983121176b59478413')
 
 build() {
 

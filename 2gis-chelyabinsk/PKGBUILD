@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Chelyabinsk-${pkgver}.orig.zip")
-md5sums=('ed683eb101721d73ab57923c143782d0')
+md5sums=('ff8213a24af2a140cd1216f537671735')
 
 build() {
 

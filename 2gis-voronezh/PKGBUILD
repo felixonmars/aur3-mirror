@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Voronezh-${pkgver}.orig.zip")
-md5sums=('8f8ceb1d842a20d6b3985c6e708650b4')
+md5sums=('fd37716c90f7a9f444f65a5ee5f496ca')
 
 build() {
 

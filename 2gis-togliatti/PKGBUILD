@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Togliatti-${pkgver}.orig.zip")
-md5sums=('e23786b1e935294afee57e488e13e1a1')
+md5sums=('61b970b13b974135fc4c4c0406aa7217')
 
 build() {
 

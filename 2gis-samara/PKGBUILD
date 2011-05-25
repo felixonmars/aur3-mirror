@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Samara-${pkgver}.orig.zip")
-md5sums=('8c69e7873e740c983091afc2a2718b54')
+md5sums=('880aa5f21f57926911a046b741ca4c11')
 
 build() {
 

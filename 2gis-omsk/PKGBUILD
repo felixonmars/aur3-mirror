@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Omsk-${pkgver}.orig.zip")
-md5sums=('9f353d776c1d3f3b44f7d0933a981ebb')
+md5sums=('da4a8c9e6a6d8f2317833392d5f84192')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Vladivostok-${pkgver}.orig.zip")
-md5sums=('7cedbc28781613eba94752c7665a212b')
+md5sums=('4c643a380b2a010dd733659e98f12fe9')
 
 build() {
 

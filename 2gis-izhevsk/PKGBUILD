@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Izhevsk-${pkgver}.orig.zip")
-md5sums=('755590f16f326c9b9d8eb2e092a01d9d')
+md5sums=('737eb0ccbea8c23f5f4c8c69efff5e96')
 
 build() {
 

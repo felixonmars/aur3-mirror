@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Tomsk-${pkgver}.orig.zip")
-md5sums=('8fffea0ed095e1e5ba7e9bb877b9a03a')
+md5sums=('7c52c11b52686a8358211c96cf896c08')
 
 build() {
 

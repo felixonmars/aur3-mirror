@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Tyumen-${pkgver}.orig.zip")
-md5sums=('40641b171de8d8fb6bcc3432f9835692')
+md5sums=('6b88a8396d80d8c337fc0d2b0f22d141')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Perm-${pkgver}.orig.zip")
-md5sums=('d4f31d9c203602cadca0441faaa173fe')
+md5sums=('f8dff33156f10214b25cf40ad8917495')
 
 build() {
 

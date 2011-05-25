@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ufa-${pkgver}.orig.zip")
-md5sums=('9ccddeb4a323ba193055e9bf91f6762a')
+md5sums=('0b861c935fb8559ebc91bb548981bc87')
 
 build() {
 

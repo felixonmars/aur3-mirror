@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Odessa-${pkgver}.orig.zip")
-md5sums=('9e7cfd319e15d4dd4188ec1c98d524e7')
+md5sums=('d8779e646671cf213ca29529148e9b4a')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Tula-${pkgver}.orig.zip")
-md5sums=('d92c1ea1c7eaa68e43ce16bcdf73e514')
+md5sums=('16db247d38da1d5f461661a4a9971601')
 
 build() {
 

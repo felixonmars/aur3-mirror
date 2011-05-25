@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Sochi-${pkgver}.orig.zip")
-md5sums=('53deae6000f7f2c68bacf83b0f92ccd6')
+md5sums=('a9c3ad7ea10cf5c6db2192f9ed4d9485')
 
 build() {
 

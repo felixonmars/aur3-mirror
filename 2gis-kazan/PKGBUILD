@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kazan-${pkgver}.orig.zip")
-md5sums=('51969cd657253e378f0cfc99af25d7d1')
+md5sums=('fbd47fb7da74bc63bb79da187904a466')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Khabarovsk-${pkgver}.orig.zip")
-md5sums=('134f896255919ce3677631dcab4792b0')
+md5sums=('4c0b998f71b5301068e52376aad486b4')
 
 build() {
 

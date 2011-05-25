@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-${pkgver}.orig.zip")
-md5sums=('e76e1157625b0247b89dd9408b72daa0')
+md5sums=('a7ffe582d68f9fb1adb306dce2bfe51d')
 
 build() {
 

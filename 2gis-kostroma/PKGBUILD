@@ -1,4 +1,4 @@
-# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
+# Contributor: max1m <mr[dot]mxm87[at]gmail[dot]com>
 
 pkgname=2gis-kostroma
 pkgver=7
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kostroma-${pkgver}.orig.zip")
-md5sums=('cdbbdf800f10b329e43399e9711575ee')
+md5sums=('a7707f94ad8c0c57c835320b4ca14688')
 
 build() {
 

@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Gornoaltaysk-${pkgver}.orig.zip")
-md5sums=('0873ad5dc2eb5058ffadaeccc3798010')
+md5sums=('9214936ef2063e64ad88df7a83348816')
 
 build() {
 
