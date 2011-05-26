@@ -10,6 +10,20 @@
 
 #include <gnome-keyring.h>
 
+gchar* cleanurl( const gchar *url )
+{
+    gchar *cleaned, *id;
+    gssize il = -1;
+    gsize lprt;
+    if ( ( id = g_strstr_len(url,il,"?") ) != NULL )
+    {
+        lprt = id - url;
+        cleaned = g_strndup(url,lprt);
+    }
+    else
+        cleaned = g_strdup(url);
+    return cleaned;
+}
 
 int main( int argc, char **argv ) {
 
@@ -19,17 +33,18 @@ int main( int argc, char **argv ) {
    }
 
    if ( gnome_keyring_is_available() ) {
-      guint32 item_id;
+      guint32 item_id; gchar *cleaned = cleanurl(argv[1]);
       gnome_keyring_set_network_password_sync(NULL,
                                               argv[2],
                                               "midori",
-                                              argv[1],
+                                              cleaned,
                                               NULL,
                                               NULL,
                                               NULL,
                                               0,
                                               argv[3],
                                               &item_id);
+      g_free(cleaned);
       g_print("Created Gnome Keyring entry # %d\n",item_id);
    } else {
       g_print("Gnome Keyring not available!\n");
