@@ -54,9 +54,24 @@ passwman_prepare_js ()
    return TRUE;
 }
 
+static gchar*
+cleanurl( const gchar *url )
+{
+    gchar *cleaned, *id;
+    gssize il = -1;
+    gsize lprt;
+    if ( ( id = g_strstr_len(url,il,"?") ) != NULL )
+    {
+        lprt = id - url;
+        cleaned = g_strndup(url,lprt);
+    }
+    else
+        cleaned = g_strdup(url);
+    return cleaned;
+}
 
 static gchar*
-passwman_build_js ( const gchar *url )
+passwman_build_js( const gchar *url )
 {
     gchar* script, *array;
 
@@ -75,8 +90,6 @@ passwman_build_js ( const gchar *url )
     return script;
 }
 
-
-
 static gboolean
 passwman_navigation_decision_cb (WebKitWebView*             web_view,
                                  WebKitWebFrame*            web_frame,
@@ -85,8 +98,8 @@ passwman_navigation_decision_cb (WebKitWebView*             web_view,
                                  WebKitWebPolicyDecision*   decision,
                                  MidoriExtension*           extension)
 {
-    const gchar* url;
-    url = webkit_web_view_get_uri(web_view);
+    gchar* url;
+    url = cleanurl( webkit_web_view_get_uri(web_view) );
     if ( log_pass )
     {
         gchar *array, *script;
@@ -156,6 +169,7 @@ passwman_navigation_decision_cb (WebKitWebView*             web_view,
         }
         g_free(script);
     }
+    g_free(url);
     return FALSE;
 }
 
@@ -165,13 +179,14 @@ passwman_window_object_cleared_cb (WebKitWebView*  web_view,
                                    JSContextRef    js_context,
                                    JSObjectRef     js_window)
 {
-    const gchar* url; gchar* script;
-    url = webkit_web_view_get_uri(web_view);
+    gchar* url; gchar* script;
+    url = cleanurl( webkit_web_view_get_uri(web_view) );
     script = passwman_build_js (url);
     if ( script ) {
         sokoke_js_script_eval (js_context, script, NULL);
         g_free (script);
     }
+    g_free(url);
 }
 
 static void
