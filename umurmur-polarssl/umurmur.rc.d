@@ -7,11 +7,11 @@ CONF=/etc/conf.d/umurmur
 
 [ -f $CONF ] && . $CONF
 
-PID=$(pidof -o %PPID /usr/sbin/umurmurd)
+PID=$(pidof -o %PPID /usr/bin/umurmurd)
 case "$1" in
   start)
     stat_busy "Starting umurmur"
-    [ -z "$PID" ] && /usr/sbin/umurmurd $UMURMUR_ARGS
+    [ -z "$PID" ] && /usr/bin/umurmurd $UMURMUR_ARGS
     if [ $? -gt 0 ]; then
       stat_fail
     else
