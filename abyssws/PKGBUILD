@@ -2,26 +2,23 @@
 # Contributor: Roman Kyrylych <roman@archlinux.org>
 
 pkgname=abyssws
-pkgver=2.6
-pkgrel=2
+pkgver=2.7
+pkgrel=1
 pkgdesc="Abyss Web Server X1 - a compact full-featured web server"
 arch=('i686' 'x86_64')
 url="http://www.aprelium.com/abyssws/"
 license=('custom')
-if [[ "$CARCH" == 'i686' ]]; then
 depends=('glibc')
-else
-depends=('lib32-glibc')
-fi
 backup=('opt/abyssws/abyss.conf' 'etc/conf.d/abyssws')
 _lurl=http://www.aprelium.com/abyssws/languages/a/
 source=(http://www.aprelium.com/data/abwsx1.tgz
-        $_lurl/ar.lng
+    $_lurl/ar.lng
 	$_lurl/bg.lng
 	$_lurl/cz.lng
 	$_lurl/de.lng
+	$_lurl/dk.lng
 	$_lurl/en.lng
-        $_lurl/es.lng
+    $_lurl/es.lng
 	$_lurl/fr.lng
 	$_lurl/gr.lng
 	$_lurl/hr.lng
@@ -31,26 +28,27 @@ source=(http://www.aprelium.com/data/abwsx1.tgz
 	$_lurl/jp.lng
 	$_lurl/mk.lng
 	$_lurl/ms.lng
-        $_lurl/nl.lng
+    $_lurl/nl.lng
 	$_lurl/nn-no.lng
 	$_lurl/no.lng
 	$_lurl/pl.lng
-        $_lurl/pt-br.lng
+    $_lurl/pt-br.lng
 	$_lurl/pt.lng
 	$_lurl/ru.lng
 	$_lurl/sl.lng
-        $_lurl/sv.lng
+    $_lurl/sv.lng
 	$_lurl/tr.lng
 	$_lurl/zh-cn.lng
 	$_lurl/zh-tw.lng
-        'abyss.conf'
+    'abyss.conf'
 	'abyssws.rc.d'
 	'abyssws.conf.d')
-md5sums=('20b98deb45c6ec4eaf352b9a95dab0a0'
+md5sums=('f3d0e85b69c068c0004097285ca09220'
          '9acc9ac324872ab6e7b8309e6460d741'
          '7d0d16ef1329271af6669e497dd010aa'
          'b7545f4fdbbe2962919c499e9258b446'
          'ff562d8113c393728b4f80a4be004d61'
+         'c012b963d0a12c453b1aa3d3b4358fa6'
          'd212694cb63a9c29bb7eab5ab053fb36'
          'e1b2cd53d79fdfb46e430cd9f98b4a41'
          '3ac9bcd72d854a91a00a45bb7ba9285e'
@@ -74,7 +72,7 @@ md5sums=('20b98deb45c6ec4eaf352b9a95dab0a0'
          'b9309f3458f15d84c8485715e27ad679'
          'b9a4567de4433ddbbc3767f0175f4448'
          'ff3bb82cb25e14c34647de72b1992f64'
-         '35ed534d630e50650a9efceabac1b65e'
+         '7eff46b7e04f9a2ec13d87c873421283'
          '8e294c6a190323d73658e21bab0aca8e'
          '92c9079247c1ea79506361c82216bbdb')
 
@@ -89,5 +87,14 @@ build() {
   install -Dm644 ${srcdir}/abyssws/license.txt \
     ${pkgdir}/usr/share/licenses/${pkgname}/LICENSE
   rm ${pkgdir}/opt/abyssws/{Installation\ Instructions.html,license.txt,autostart-setup}
+
+  if [[ "$CARCH" == 'i686' ]]; then
+  rm ${pkgdir}/opt/abyssws/abyssws-x64
+  mv ${pkgdir}/opt/abyssws/abyssws-x86 ${pkgdir}/opt/abyssws/abyssws
+  else
+  rm ${pkgdir}/opt/abyssws/abyssws-x86
+  mv ${pkgdir}/opt/abyssws/abyssws-x64 ${pkgdir}/opt/abyssws/abyssws
+  fi
+  
   rm -rf ${pkgdir}/opt/abyssws/htdocs
 }
