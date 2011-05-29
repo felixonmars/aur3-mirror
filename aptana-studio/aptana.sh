@@ -1,2 +1,2 @@
 #!/bin/bash
-/usr/share/aptana/AptanaStudio $@
+/usr/share/aptana/AptanaStudio3 $@
