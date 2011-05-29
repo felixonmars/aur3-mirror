@@ -63,7 +63,7 @@ static int psipublish_pluginmessage(uint32_t id, uintptr_t ctx, uint32_t p1, uin
 }
 
 int psipublish_pluginstart(void) {
-    sprintf(tunefilepath, "%s/.psi/tune", getenv("HOME"));
+    sprintf(tunefilepath, "%s/.cache/Psi+/tune", getenv("HOME"));
     return 0;
 }
 
