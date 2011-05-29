@@ -9,9 +9,9 @@ pkgname=kernel26-ice
 backup=(etc/mkinitcpio.d/$pkgname.preset)
 _kernelname=${pkgname#kernel26}
 _basekernel=2.6.38
-_minor_patch=6
+_minor_patch=7
 pkgver=${_basekernel}
-pkgrel=2
+pkgrel=3
 install=$pkgname.install
 makedepends=('xmlto' 'docbook-xsl')
 arch=(i686 x86_64)
@@ -48,7 +48,7 @@ source=(http://kernel.org/pub/linux/kernel/v2.6/linux-${_basekernel}.tar.bz2
         config config.x86_64
         $pkgname.preset)
 md5sums=('7d471477bfa67546f902da62227fa976'
-         '527fab8162c682ad849eb21fc30d28ef'
+         '2639b4b98a2dcfc8b7f091543f289205'
          'f9f3f59a2a4cbbef3be3944fe350bfc9'
          'e0e0bb351ff773cf3ad80a65b6671c51'
          '55174ad997e84d7e29ee480ef13e64c7'
