@@ -1,55 +1,71 @@
 # Contributor: Alexander Rødseth <rodseth@gmail.com>
 pkgname=agena
-pkgver=1.0.3
+pkgver=1.4.0
 pkgrel=1
 pkgdesc="A procedural programming language based on Lua"
-arch=('i686' 'x86_64')
+arch=('x86_64' 'i686')
 url="http://agena.sourceforge.net/"
 license=('LGPL')
-depends=('readline' 'ncurses')
-optdeps=('gnumeric') # for the .xls
+depends=('readline')
+optdeps=("gnumeric: for reading /usr/share/doc/$pkgname/$pkgname.xls")
 source=("http://downloads.sourceforge.net/$pkgname/$pkgname-$pkgver-src.tar.gz"
         "arch.patch")
-md5sums=('b228258484cae0a2c7f0a40a1a8df3f7'
-         '34b9190e0ff782792349be5dcb6a4b25')
+md5sums=('ac82cdbfbd116e679b160c2344063b61'
+         'fa431cc8c7171ace90809cd2c1dbfa3d')
 
 build() {
-  cd "$srcdir"
+  cd "$srcdir/$pkgname-$pkgver"
 
-  msg "Patching..."
-  patch -p0 < ../arch.patch || return 1
+  msg2 "Patching..."
+  patch -p1 < ../arch.patch
 
-  msg "Compiling..."
-  make -C src config || return 1
-  make -C src linux || return 1
+  msg2 "Compiling..."
+  make -C src config
+  make CFLAGS+="-fPIC" -C src linux
 
-  echo "export AGENAPATH=/usr/lib/agena" >> agena.sh
-  install -Dm755 agena.sh "$pkgdir/etc/profile.d/agena.sh"
+  msg2 "Creating wrapperscript..."
+  echo '#!/bin/sh' > run
+  echo 'if [ ! -f $AGENAPATH/library.agn ]; then' >> run
+  echo '  AGENAPATH=/usr/lib/agena agena.elf $*' >> run
+  echo 'else' >> run
+  echo '  agena.elf $*' >> run
+  echo 'fi' >> run
 
-  msg "Packaging include files..."
+  msg2 "Creating script for /etc/profile.d..."
+  echo "export AGENAPATH=/usr/lib/agena" > $pkgname.sh
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  msg2 "Packaging scripts..."
+  install -Dm755 $pkgname.sh "$pkgdir/etc/profile.d/$pkgname.sh"
+  install -Dm755 run "$pkgdir/usr/bin/$pkgname"
+
+  msg2 "Packaging include files..."
   mkdir -p "$pkgdir/usr/include/"
   cp include/*.h "$pkgdir/usr/include"
 
-  msg "Packaging executables..."
-  install -Dm755 src/agena "$pkgdir/usr/bin/agena" || return 1
-  install -Dm644 src/libagena.so "$pkgdir/usr/lib/libagena.so" || return 1
+  msg2 "Packaging executables..."
+  install -Dm755 src/$pkgname "$pkgdir/usr/bin/$pkgname.elf"
+  install -Dm644 src/lib$pkgname.so "$pkgdir/usr/lib/lib$pkgname.so"
 
-  msg "Packaging library files..."
+  msg2 "Packaging library files..."
   mkdir -p "$pkgdir/usr/lib/$pkgname/"
   cp lib/* "$pkgdir/usr/lib/$pkgname/"
 
-  msg "Packaging documentation..."
+  msg2 "Packaging documentation..."
   mkdir -p "$pkgdir/usr/share/doc/$pkgname/"
-  cp doc/agena* "$pkgdir/usr/share/doc/$pkgname/"
+  cp doc/$pkgname* "$pkgdir/usr/share/doc/$pkgname/"
 
-  msg "Packaging icons..."
+  msg2 "Packaging icons..."
   mkdir -p "$pkgdir/usr/share/pixmaps/"
   cp share/*.png "$pkgdir/usr/share/pixmaps/"
   cp share/*.gif "$pkgdir/usr/share/pixmaps/"
 
-  msg "Packaging license..."
+  msg2 "Packaging license..."
   install -Dm644 src/licence \
-    "$pkgdir/usr/share/licenses/$pkgname/LICENSE" || return 1
-
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
+
 # vim:set ts=2 sw=2 et:
