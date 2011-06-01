@@ -1,12 +1,12 @@
-#Maintainer: Simone Sclavi 'Ito' darkhado@gmail.com
+#Maintainer: Simone Sclavi 'Ito' <darkhado@gmail.com>
 
 pkgname=alienblaster
 pkgver=1.1.0
-pkgrel=2
+pkgrel=3
 arch=('i686' 'x86_64')
 pkgdesc="Action-loaded 2D arcade shooter game with Fedora's patches"
 url="http://www.schwardtnet.de/alienblaster/"
-depends=('sdl_mixer')
+depends=('sdl_mixer' 'bash' 'gcc-libs')
 license=('GPL')
 source=(http://www.schwardtnet.de/alienblaster/archives/alienblaster-${pkgver}.tgz
         alienblaster-1.1.0-64bit.patch
