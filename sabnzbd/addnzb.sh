@@ -7,7 +7,7 @@
 nzbname=`basename "$1"`
 TEMP_NZB="/var/tmp/$nzbname"
 
-cp "$1" "$TEMP_NZB"
-curl -f `perl -MURI::Escape -e "print '$SABNZBD_PROTOCOL://'.uri_escape('$SABNZBD_USPW$SABNZBD_IP').':$SABNZBD_PORT/sabnzbd/api?mode=addlocalfile&name='.uri_escape('$TEMP_NZB').'&pp=1&priority=-1&apikey='.uri_escape('$NZB_KEY')"`
+curl -s "$1" -o "$TEMP_NZB"
+curl -f `python2 -c "import urllib;print '$SABNZBD_PROTOCOL://'+urllib.quote('$SABNZBD_USPW$SABNZBD_IP')+':$SABNZBD_PORT/sabnzbd/api?mode=addlocalfile&name='+urllib.quote('$TEMP_NZB')+'&apikey='+urllib.quote('$NZB_KEY')"`
 rm "$TEMP_NZB"
 exit 0
