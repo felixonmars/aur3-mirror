@@ -315,22 +315,6 @@ passwman_activate_cb (MidoriExtension* extension,
     g_object_unref (browsers);
 }
 
-#if G_ENABLE_DEBUG
-/*
-<html>
-    <head>
-        <title>autosuggest testcase</title>
-    </head>
-    <body>
-        <form method=post>
-        <p><input type="text" id="txt1" /></p>
-        <p><input type="text" name="txt2" /></p>
-        <input type=submit>
-        </form>
-    </body>
-</html> */
-#endif
-
 MidoriExtension*
 extension_init (void)
 {
@@ -341,7 +325,7 @@ extension_init (void)
 
     if ( passwman_prepare_js() && gnome_keyring_is_available() )
     {
-        ver = "0.1";
+        ver = "0.2";
         desc = g_strdup (_("Stores login/password data"));
     }
     else
