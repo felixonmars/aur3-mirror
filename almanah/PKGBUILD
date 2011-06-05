@@ -2,7 +2,7 @@
 # Contributor: Christoph Zeiler <archNOSPAM_at_moonblade.dot.org>
 
 pkgname=almanah
-pkgver=0.7.3
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="An encrypted personal diary application"
 arch=('i686' 'x86_64')
@@ -12,7 +12,7 @@ depends=('evolution-data-server' 'gtkspell>=2.0' 'seahorse')
 makedepends=('intltool>=0.35' 'pkgconfig>=0.9')
 install=almanah.install
 source=(http://ftp.gnome.org/pub/GNOME/sources/$pkgname/${pkgver%.*}/$pkgname-$pkgver.tar.bz2)
-md5sums=('41a59446e712caa81702c4ac994cb1d7')
+md5sums=('64064ad790b66417803da513c7ce521e')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
@@ -20,7 +20,7 @@ build() {
       --with-gconf-schema-file-dir=/usr/share/gconf/schemas \
       --disable-static --disable-schemas-install \
       CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64"
-  make || return 1
+  make
 }
 
 package() {
