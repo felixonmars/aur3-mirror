@@ -19,6 +19,7 @@ GeoGebra options:
   --showAlgebraWindow=<boolean>    show/hide algebra window
   --showSpreadsheet=<boolean>      show/hide spreadsheet
   --fontSize=<number>              set default font size
+  --showSplash=<boolean>           enable/disable the splash screen
   --enableUndo=<boolean>           enable/disable Undo
 _USAGE
 }
@@ -29,21 +30,21 @@ for i in "$@"; do
 	--help | --hel | --he | --h )
 		func_usage; exit 0 ;;
 	esac
-	if [ $(expr match "$i" ".*-Xm") -eq 0 ]; then
-		if [ $(expr match "$i" ".*--") -eq 0 ]; then
-			GGB_PATH="$i"
+	if [ $(expr match "$i" '.*-Xm') -ne 0 ]; then
+		if [ -z "$JAVA_OPTS" ]; then
+			JAVA_OPTS="$i"
 		else
+			JAVA_OPTS="$JAVA_OPTS $i"
+		fi
+		shift $((1))
+	else
+		if [ $(expr match "$i" '.*--') -ne 0 ]; then
 			if [ -z "$GG_OPTS" ]; then
 				GG_OPTS="$i"
 			else
 				GG_OPTS="$GG_OPTS $i"
 			fi
-		fi
-	else
-		if [ -z "$JAVA_OPTS" ]; then
-			JAVA_OPTS="$i"
-		else
-			JAVA_OPTS="$JAVA_OPTS $i"
+			shift $((1))
 		fi
 	fi
 done
@@ -58,8 +59,4 @@ if [ $(expr match "$JAVA_OPTS" ".*-Xms") -eq 0 ]; then
 fi
 
 # run
-if [ -z "$GGB_PATH" ]; then
-	exec java $JAVA_OPTS -jar /usr/share/java/geogebra/geogebra.jar --showSplash=false $GG_OPTS
-else
-	exec java $JAVA_OPTS -jar /usr/share/java/geogebra/geogebra.jar --showSplash=false $GG_OPTS "$GGB_PATH"
-fi
+exec java $JAVA_OPTS -jar /usr/share/java/geogebra/geogebra.jar $GG_OPTS "$@"
