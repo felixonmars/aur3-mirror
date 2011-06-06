@@ -3,15 +3,15 @@
 # Maintainer: Laszlo Papp <djszapi2@gmail.com>
 pkgname=bitbake
 pkgver=1.12.0
-pkgrel=1
+pkgrel=2
 pkgdesc="A simple tool for task execution derived from Gentoo's portage"
 arch=('any')
 url="http://developer.berlios.de/projects/bitbake/"
 license=('GPL' 'custom:MIT')
 
-# "Python(2)-progressbar" is only required for the "knotty" UI, but is a
+# "Python2-progressbar" is only required for the "knotty" UI, but is a
 # mandatory dependency here because that is the default UI
-depends=(python2 python2-ply python-progressbar)
+depends=(python2 python2-ply python2-progressbar)
 
 makedepends=(python2 python2-ply)
 source=(http://download.berlios.de/bitbake/${pkgname}-${pkgver}.tar.gz)
