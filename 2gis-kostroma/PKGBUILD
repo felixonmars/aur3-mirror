@@ -1,7 +1,7 @@
-# Contributor: max1m <mr[dot]mxm87[at]gmail[dot]com>
-
+# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
+     
 pkgname=2gis-kostroma
-pkgver=7
+pkgver=8
 pkgrel=1
 pkgdesc="Map of Kostroma for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,14 +9,15 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kostroma-${pkgver}.orig.zip")
-md5sums=('a7707f94ad8c0c57c835320b4ca14688')
-
+md5sums=('2bbf6775677d59c305e38b0f144ad92c')
+     
 build() {
-
-  cd $startdir
-
+     
+   cd $startdir
+     
 # Installing to /opt/2gis
-  install -D -m 744 ${startdir}/src/2gis/3.0/Data_Kostroma.dgdat "${startdir}/pkg/opt/2gis/kostroma.dgdat" || return 1
-  install -D -m 744 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Kostroma.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Kostroma.dglf" || return 1
-
+  install -D -m 644 ${startdir}/src/2gis/3.0/Data_Kostroma.dgdat "${startdir}/pkg/opt/2gis/kostroma.dgdat" || return 1
+  install -D -m 644 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Kostroma.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Kostroma.dglf" || return 1
+     
 }
+

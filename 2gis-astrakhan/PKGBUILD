@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
-
+     
 pkgname=2gis-astrakhan
-pkgver=66
+pkgver=67
 pkgrel=1
 pkgdesc="Map of Astrakhan for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,14 +9,15 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-${pkgver}.orig.zip")
-md5sums=('2987e113b31388984b9825a7a4a102d4')
-
+md5sums=('2c3dc509429569303051138a45b45717')
+     
 build() {
-
-  cd $startdir
-
+     
+   cd $startdir
+     
 # Installing to /opt/2gis
   install -D -m 644 ${startdir}/src/2gis/3.0/Data_Astrakhan.dgdat "${startdir}/pkg/opt/2gis/astrakhan.dgdat" || return 1
   install -D -m 644 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Astrakhan.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Astrakhan.dglf" || return 1
-
+     
 }
+

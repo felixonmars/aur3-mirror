@@ -1,22 +1,23 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
-
+     
 pkgname=2gis-nabchelny
-pkgver=11
+pkgver=12
 pkgrel=1
-pkgdesc="Map of Naberezhnye Chelny for 2GIS"
+pkgdesc="Map of Nabchelny for 2GIS"
 arch=('i686' 'x86_64')
 url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-${pkgver}.orig.zip")
-md5sums=('a7ffe582d68f9fb1adb306dce2bfe51d')
-
+md5sums=('4293931b9ade7272d5dfe02777ba7ff7')
+     
 build() {
-
-  cd $startdir
-
+     
+   cd $startdir
+     
 # Installing to /opt/2gis
   install -D -m 644 ${startdir}/src/2gis/3.0/Data_Nabchelny.dgdat "${startdir}/pkg/opt/2gis/nabchelny.dgdat" || return 1
   install -D -m 644 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Nabchelny.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Nabchelny.dglf" || return 1
-
+     
 }
+
