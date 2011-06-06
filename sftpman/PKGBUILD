@@ -1,7 +1,7 @@
 # Maintainer: Slavi Pantaleev <s.pantaleev at gmail.com>
 
 pkgname=sftpman
-pkgver=20110525
+pkgver=20110606
 pkgrel=1
 pkgdesc="Command Line and GTK application that handles sshfs/sftp file systems mounting."
 arch=('any')
