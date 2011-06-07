@@ -30,7 +30,7 @@ _CLHEPweirdver=9
   #echo " ###########################################  " > $Makefile
   echo "#   Makefile for BDSIM                       " >> $Makefile
   echo "#   Generated automatically                  " >> $Makefile
-  echo "#   by  $(USER)                             " >> $Makefile
+  echo "#   by  ${USER}                             " >> $Makefile
   echo "#   on $(date)                               " >> $Makefile
   #echo "#                                            " >> $Makefile
   #echo " ###########################################  " >> $Makefile
