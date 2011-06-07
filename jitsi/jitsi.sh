@@ -11,7 +11,7 @@ then
     CLIENTARGS="-client -Xmx256m"
 fi
 
-javabin=/usr/bin/java
+javabin=$JAVA_HOME/bin/java
 
 SCDIR=/usr/lib/jitsi
 LIBPATH=$SCDIR/lib
