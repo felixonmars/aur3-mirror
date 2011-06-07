@@ -5,14 +5,14 @@ kega_sharedir="/usr/share/kega-fusion"
 kega_localdir="$HOME/.Kega Fusion"
 
 # create local plugins directory if not present
-if ! [ -d "${kega_localdir}/Plugins" ]; then
-  mkdir -p "${kega_localdir}/Plugins"
-fi
+mkdir -p "${kega_localdir}/Plugins"
 
 # create links for every included plugin
-for i in ${kega_libdir}/plugins/*; do
-  ln -sf "$i" "${kega_localdir}/Plugins/$(basename "$i")"
-done
+if [ $(ls -1A ${kega_libdir}/plugins | wc -l) -gt 0 ]; then
+  for i in ${kega_libdir}/plugins/*; do
+    ln -sf "$i" "${kega_localdir}/Plugins/$(basename "$i")"
+  done
+fi
 
 # copy configuration file if not present
 if ! [ -f "${kega_localdir}/Fusion.ini" ]; then
