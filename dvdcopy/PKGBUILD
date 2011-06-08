@@ -1,6 +1,6 @@
 # Author: Patrick Brisbin <pbrisbin@gmail.com>
 pkgname=dvdcopy
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Provides a means to easily backup a DVD9 to DVD5, among other things"
 arch=('any')
@@ -13,4 +13,4 @@ build() {
   # install script
   install -D -m755 ./$pkgname "$pkgdir/usr/bin/$pkgname" || return 1
 }
-md5sums=('fe1cb71eb81af990016f6c5d1342962c')
+md5sums=('109e73745bdf1c7502b99c83bb5d5be1')
