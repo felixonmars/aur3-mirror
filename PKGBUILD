@@ -1,33 +1,19 @@
-pkgname='perl-sql-library'
-pkgver='0.0.3'
-pkgrel='1'
-pkgdesc="A module for managing simple SQL libraries stored in INI-like files."
+# Maintainer: Testuser_01 <arch@nico-siebler.de>
+# Contributor: Testuser_01 <arch@nico-siebler.de>
+pkgname='fastoggenc'
+pkgver=0.1.4
+pkgrel=1
+pkgdesc="fastoggenc is a free software python script (GPL v3) which converts mp3, m4a, wma, wav and other audio formats into ogg-vorbis format. It is a fork from dir2ogg script that was previously insipred by the perl script mp32ogg. Due to the parallel encoding processes whcih can be seen as sort of multithreading, it's very fast in encoding several files when owning a multicore processor."
 arch=('any')
-url='http://search.cpan.org/~dgorley/SQL-Library-0.0.3/lib/SQL/Library.pm'
-license=('PerlArtistic' 'GPL')
-depends=('perl')
-
-options=('!emptydirs')
-
-source=('http://search.cpan.org/CPAN/authors/id/D/DG/DGORLEY/SQL-Library-0.0.3.tar.gz')
-md5sums=('75b80cb27775bb61f90fbd5b835032ec')
+url='http://www.tuxamito.com/joomla/index.php/en/component/content/article/46-fastoggenc/86-fastoggenc'
+depends=(mplayer mpg123 lame flac faad2 vorbis-tools wavpack musepack-tools cdparanoia cdrkit)
+license=('GPLv3')
+source=("http://software.tuxamito.com/$pkgname/$pkgname-$pkgver.tar.gz")
+md5sums=('db8576f9d49741680c06a23940a38885')
 
 build() {
-  DIST_DIR="${srcdir}/SQL-Library-0.0.3"
-  export PERL_MM_USE_DEFAULT=1 PERL5LIB=""                 \
-    PERL_AUTOINSTALL=--skipdeps                            \
-    PERL_MM_OPT="INSTALLDIRS=vendor DESTDIR='$pkgdir'"     \
-    PERL_MB_OPT="--installdirs vendor --destdir '$pkgdir'" \
-    MODULEBUILDRC=/dev/null
-  {
-	cd "$DIST_DIR" &&
-    perl Makefile.PL INSTALLDIRS=vendor &&
-    make &&
-    make test &&
-    make DESTDIR="$pkgdir" install;
-  } || return 1;
-
-  find "$pkgdir" -name .packlist -o -name perllocal.pod -delete
-
+  mkdir -p "${pkgdir}/usr/bin/" || return 1
+  sed -e 's@#!/usr/bin/python@#!/usr/bin/python2@' -i "fastoggenc/fastoggenc" || return 1
+  install -m755 -D "fastoggenc/fastoggenc" "${pkgdir}/usr/bin/" || return 1
 }
 
