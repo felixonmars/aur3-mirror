@@ -3,7 +3,7 @@
 pkgname='fastoggenc'
 pkgver=0.1.4
 pkgrel=1
-pkgdesc="fastoggenc is a free software python script (GPL v3) which converts mp3, m4a, wma, wav and other audio formats into ogg-vorbis format. It is a fork from dir2ogg script that was previously insipred by the perl script mp32ogg. Due to the parallel encoding processes whcih can be seen as sort of multithreading, it's very fast in encoding several files when owning a multicore processor."
+pkgdesc="fastoggenc is a free software python script (GPL v3) which converts mp3, m4a, wma, wav and other audio formats into ogg-vorbis format. It is a fork from dir2ogg script that was previously insipred by the perl script mp32ogg. Due to parallel encoding processes which can be seen as sort of multithreading, it's very fast in encoding several files when owning a multicore processor."
 arch=('any')
 url='http://www.tuxamito.com/joomla/index.php/en/component/content/article/46-fastoggenc/86-fastoggenc'
 depends=(mplayer mpg123 lame flac faad2 vorbis-tools wavpack musepack-tools cdparanoia cdrkit)
