@@ -594,47 +594,6 @@ stop_daemon() {
 	return $retval
 }
 
-## FIXME ## initscripts overrides - https://bugs.archlinux.org/task/10536
-declare -a omit_pids
-add_omit_pids() {
-	omit_pids+=( $@ )
-}
-kill_everything() {
-	# $1 = where we are being called from.
-	# This is used to determine which hooks to run.
-	# Find daemons NOT in the DAEMONS array. Shut these down first
-	for daemon in /run/daemons/*; do
-		[[ -f $daemon ]] || continue
-		daemon=${daemon##*/}
-		in_array "$daemon" "${DAEMONS[@]}" || stop_daemon "$daemon"
-	done
-
-	# Shutdown daemons in reverse order
-	for ((i=${#DAEMONS[@]}-1; i>=0; i--)); do
-		[[ ${DAEMONS[$i]:0:1} = '!' ]] && continue
-		ck_daemon ${DAEMONS[$i]#@} || stop_daemon ${DAEMONS[$i]#@}
-	done
-
-	# Terminate all processes
-	stat_busy "Sending SIGTERM To Processes"
-	run_hook "${1}"_prekillall
-	local pid k5args=""
-	for pid in ${omit_pids[@]}; do
-		k5args+=" -o $pid"
-	done
-	/sbin/killall5 -15 $k5args &> /dev/null
-	/bin/sleep 5
-	stat_done
-
-	stat_busy "Sending SIGKILL To Processes"
-	/sbin/killall5 -9 $k5args &> /dev/null
-	/bin/sleep 1
-	stat_done
-
-	run_hook "$1_postkillall"
-}
-##
-
 ## Activate splash in rc.{sysinit,shutdown} and then
 ## (or when changing between Single- and Multi-user)
 ## hook into initscripts
