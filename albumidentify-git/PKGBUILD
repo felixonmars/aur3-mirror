@@ -7,7 +7,7 @@ url="https://github.com/scottr/albumidentify"
 arch=('any')
 license=('Custom')
 depends=('python2' 'python-musicbrainz2' 'libofa')
-optdepends=('mpg123' 'mp3gain' 'flac' 'vorbis-tools' 'vorbisgain' 'cdrdao' 'cueconvert' 'bchunk')
+optdepends=('mpg123' 'mp3gain' 'flac' 'vorbis-tools' 'vorbisgain' 'cdrdao' 'cuetools' 'bchunk')
 makedepends=('git')
 install=('albumidentify.install')
 
