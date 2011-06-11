@@ -32,8 +32,8 @@ package() {
   cp -r "$srcdir/albumidentify" "$srcdir/albumidentify-build"
   cd "$srcdir/albumidentify-build"
   
-  for f in $(find -type f); do
-    sed -i -r 's|^\#\!/usr/bin/(env )?python2?$|\#\!/usr/bin/python2|i' "$f"
+  for _f in $(find -type f); do
+    sed -i -r 's|^\#\!/usr/bin/(env )?python2?$|\#\!/usr/bin/python2|i' "$_f"
   done
 
   python2 setup.py install --root "$pkgdir"
