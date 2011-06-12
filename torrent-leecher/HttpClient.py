@@ -21,7 +21,7 @@ class HttpClient:
 			return False
 		try:
 			response = conn.getresponse()
-			output = {"status":response.status, "reason":response.reason, "data":response.read()}
+			output = {"status":response.status, "reason":response.reason, "data":response.read(), "headers":response.getheaders()}
 		except:
 			output = False
 		conn.close()

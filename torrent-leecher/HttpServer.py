@@ -59,7 +59,8 @@ class Handler(BaseHTTPRequestHandler):
 					self.server.Parent.Logs.log("ERROR: "+str(output["status"])+" "+str(output["reason"]))
 				try:
 					self.send_response(output["status"])
-					self.send_header("Content-type", "text/html")
+					for header in output["headers"]:
+						self.send_header(header[0], header[1])
 					self.end_headers()
 					if output["data"]:
 						self.wfile.write(output["data"])
@@ -69,7 +70,7 @@ class Handler(BaseHTTPRequestHandler):
 			else:
 				try:
 					self.send_response(503)
-					self.send_header("Content-type", "text/html")
+					self.send_header("Content-type", "text/plain")
 					self.end_headers()
 					self.server.Parent.Logs.log("ERROR: Couldn't connect to tracker.")
 				except:
@@ -82,7 +83,7 @@ class Handler(BaseHTTPRequestHandler):
 				self.server.Parent.Logs.log("ERROR: Invalid request")
 			try:
 				self.send_response(400)
-				self.send_header("Content-type", "text/html")
+				self.send_header("Content-type", "text/plain")
 				self.end_headers()
 				self.wfile.write(bytes("d14:failure reason36:Missing or bad info_hash in request.e", encoding="utf8"))
 			except:

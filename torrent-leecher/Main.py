@@ -1,6 +1,10 @@
 #! /usr/bin/env python
 # -*- coding: utf-8 -*-
 
+#Librarys
+###################################################################################
+import sys, os
+
 #Files
 ###################################################################################
 from Configs import Configs
@@ -25,5 +29,25 @@ class Main:
 		self.HttpServer.start()
 #Run
 ###################################################################################
-TorrentLeecher = Main()
-TorrentLeecher.start()
+if __name__ == "__main__":
+	#First fork
+	try: 
+		pid = os.fork() 
+		if pid > 0:
+			sys.exit(0) 
+	except OSError as e:
+		sys.exit(1)
+	#Enviroment
+	os.chdir("/") 
+	os.setsid() 
+	os.umask(0)
+	#Second fork 
+	try: 
+		pid = os.fork() 
+		if pid > 0:
+			sys.exit(0) 
+	except OSError as e: 
+		sys.exit(1)
+	#Start 
+	TorrentLeecher = Main()
+	TorrentLeecher.start()
