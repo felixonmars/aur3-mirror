@@ -1,6 +1,6 @@
 # Maintainer: dryes <joswiseman@gmail>
 pkgname=albumidentify-git
-pkgver=20110611
+pkgver=20110613
 pkgrel=1
 pkgdesc="Tools to identify and manage music albums."
 url="https://github.com/scottr/albumidentify"
@@ -10,6 +10,7 @@ depends=('python2' 'python-musicbrainz2' 'libofa')
 optdepends=('mpg123' 'mp3gain' 'flac' 'vorbis-tools' 'vorbisgain' 'cdrdao' 'cuetools' 'bchunk')
 makedepends=('git')
 install=('albumidentify.install')
+provides=('albumidentify')
 
 _gitroot="git://github.com/scottr/albumidentify.git"
 _gitname="albumidentify"
