@@ -2,7 +2,7 @@
 # Based on gnome-agenda-svn PKGBUILD by Maxime de Roucy
 
 pkgname=agenda
-pkgver=0.3.1.4
+pkgver=0.3.1.6
 pkgrel=1
 pkgdesc="Display calendars on the GNOME desktop tray. Supports Google Calendar, Novell Groupwise, Evolution and iCalendar"
 arch=('i686' 'x86_64')
@@ -26,4 +26,4 @@ build() {
 	python2 setup.py install --root=${pkgdir} || return 1
 }
 
-md5sums=('61ed73f52c35773eee5273dc2672479a')
+md5sums=('047bcf0c4002da158b2508172f213339')
