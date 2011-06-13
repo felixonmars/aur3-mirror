@@ -1,22 +1,22 @@
 # Maintainer: Testuser_01 <arch@nico-siebler.de>
 
-pkgname=mod_antiloris
-pkgver=0.4
+pkgname=mod_qos
+pkgver=9.57
 pkgrel=1
-pkgdesc="With this module, apache is protected against the slowloris attack. The module limits the number of threads in READ state on a per IP basis."
-url="http://mod-antiloris.sourceforge.net/"
+pkgdesc="mod_qos is a Quality-of-Service (QoS) module for the Apache HTTP server implementing control mechanisms that can provide different priority to different requests."
+url="http://opensource.adnovum.ch/${pkgname}/"
 arch=('any')
 install=("${pkgname}.install")
-license=('Apache License V2.0')
-depends=('apache>=2.2')
-source=("http://downloads.sourceforge.net/project/mod-antiloris/${pkgname}-${pkgver}.tar.bz2")
+license=('GPL')
+depends=('apache>=2.2' 'openssl' 'pcre' 'mod_parp')
+source=("http://downloads.sourceforge.net/project/mod-qos/${pkgname}-${pkgver}.tar.gz")
 
-md5sums=('66862bf10e9be3a023e475604a28a0b4')
+md5sums=('6e9f7a5cf5710f9a12d1d3fb83423acb')
 
 
 build() {
 	cd "${srcdir}" || return 1 
-	cd ${pkgname}-${pkgver} || return 1
-	apxs -c "${pkgname}.c" || return 1
-        install -D -m 0775 ".libs/${pkgname}.so" "${pkgdir}/usr/lib/httpd/modules/${pkgname}.so" || return 1
+	cd ${pkgname}-${pkgver}/apache2 || return 1
+        mkdir -p "${pkgdir}/usr/lib/httpd/modules/" || return 1
+        apxs -i -S LIBEXECDIR="${pkgdir}/usr/lib/httpd/modules/" -c "${pkgname}.c" || return 1
 }
