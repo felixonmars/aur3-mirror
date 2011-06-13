@@ -1,19 +1,22 @@
 # Maintainer: Testuser_01 <arch@nico-siebler.de>
-# Contributor: Testuser_01 <arch@nico-siebler.de>
-pkgname='fastoggenc'
-pkgver=0.1.4
+
+pkgname=mod_qos
+pkgver=9.57
 pkgrel=1
-pkgdesc="fastoggenc is a free software python script (GPL v3) which converts mp3, m4a, wma, wav and other audio formats into ogg-vorbis format. It is a fork from dir2ogg script that was previously insipred by the perl script mp32ogg. Due to parallel encoding processes which can be seen as sort of multithreading, it's very fast in encoding several files when owning a multicore processor."
+pkgdesc="mod_qos is a Quality-of-Service (QoS) module for the Apache HTTP server implementing control mechanisms that can provide different priority to different requests."
+url="http://opensource.adnovum.ch/${pkgname}/"
 arch=('any')
-url='http://www.tuxamito.com/joomla/index.php/en/component/content/article/46-fastoggenc/86-fastoggenc'
-depends=(mplayer mpg123 lame flac faad2 vorbis-tools wavpack musepack-tools cdparanoia cdrkit)
-license=('GPLv3')
-source=("http://software.tuxamito.com/$pkgname/$pkgname-$pkgver.tar.gz")
-md5sums=('db8576f9d49741680c06a23940a38885')
+install=("${pkgname}.install")
+license=('GPL')
+depends=('apache>=2.2' 'openssl' 'pcre' 'mod_parp')
+source=("http://downloads.sourceforge.net/project/mod-qos/${pkgname}-${pkgver}.tar.gz")
+
+md5sums=('6e9f7a5cf5710f9a12d1d3fb83423acb')
+
 
 build() {
-  mkdir -p "${pkgdir}/usr/bin/" || return 1
-  sed -e 's@#!/usr/bin/python@#!/usr/bin/python2@' -i "fastoggenc/fastoggenc" || return 1
-  install -m755 -D "fastoggenc/fastoggenc" "${pkgdir}/usr/bin/" || return 1
+	cd "${srcdir}" || return 1 
+	cd ${pkgname}-${pkgver}/apache2 || return 1
+	apxs -c "${pkgname}.c" || return 1
+	install -D -m 0775 ".libs/${pkgname}.so" "${pkgdir}/usr/lib/httpd/modules/${pkgname}.so" || return 1
 }
-
