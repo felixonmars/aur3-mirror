@@ -4,7 +4,7 @@
 
 pkgname=acerhk
 pkgver=0.5.35
-pkgrel=24
+pkgrel=25
 pkgdesc="Acer hotkey driver"
 url="http://www.cakey.de/acerhk/"
 arch=('i686') # Unavailable for x86_64
@@ -26,7 +26,7 @@ build() {
   sed -i 's@linux/config.h@linux/input.h@' "${srcdir}/${pkgname}-${pkgver}/acerhk.c"
   # Set KERNELSRC.  The makefile tries to autodetect it with uname,
   # but that is unreliable.
-  make KERNELSRC="/lib/modules/${_kernver}/build" acerhk.ko || return 1
+  make CONFIG_FUNCTION_TRACER= KERNELSRC="/lib/modules/${_kernver}/build" acerhk.ko || return 1
   install -Dm644 "${srcdir}/${pkgname}-${pkgver}/acerhk.ko" \
     "${pkgdir}/lib/modules/${_kernver}/kernel/drivers/block/acerhk.ko" || return 1
   install -Dm755 "${srcdir}/acerhk.rc" "${pkgdir}/etc/rc.d/acerhk" || return 1
