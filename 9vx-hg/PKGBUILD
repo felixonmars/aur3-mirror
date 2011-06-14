@@ -2,14 +2,14 @@
 
 pkgname=9vx-hg
 pkgver=20110614
-pkgrel=1
+pkgrel=2
 pkgdesc="An x86 virtual machine for running Plan9"
 arch=('i686' 'x86_64')
 license=('LGPLv2.1' 'BSD' 'LPL')
 url="https://bitbucket.org/rminnich/vx32"
 makedepends=('mercurial')
 source=('GNUmakefile')
-md5sums=('525b5600111f1d8aa8d966150313658a')
+md5sums=('eacbf36d5d14b0760cd88902c1066e90')
 
 
 build() {
@@ -27,8 +27,8 @@ build() {
   cp -ar $srcdir/vx32 $srcdir/build
   cd $srcdir/build/src
   cp $srcdir/GNUmakefile $srcdir/build/src/
-  mkdir -p $pkgdir/usr/local/bin
-  mkdir -p $pkgdir/usr/local/lib
+  mkdir -p $pkgdir/opt/vx32/bin
+  mkdir -p $pkgdir/opt/vx32/lib
   make
 }
 

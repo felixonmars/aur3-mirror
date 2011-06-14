@@ -10,7 +10,7 @@
 top_srcdir	= .
 top_builddir	= .
 
-prefix		= ../../../pkg/usr/local
+prefix		= ../../../pkg/opt/vx32
 exec_prefix	= ${prefix}
 INCDIR		= ${prefix}/include
 BINDIR		= ${exec_prefix}/bin
