@@ -232,7 +232,8 @@ splash_cache_prep_initcpio() {
 	if [[ $( trap -p EXIT ) =~ ^(trap )(-- )['](.*)[']( EXIT)|$ ]]; then
 		local cmd=${BASH_REMATCH[3]%;}
 		[[ $cmd ]] && cmd+="; "
-		trap "${cmd}splash_cache_cleanup" EXIT
+		# not using splash_cache_cleanup - fails silently in chroot because of mount --move
+		trap "${cmd}umount ${spl_cachedir}" EXIT
 	else
 		splash_msg "WARNING: Unable to add commmand to exit trap for unmounting '$spl_cachedir'" >&2
 	fi
