@@ -2,7 +2,7 @@
 # Maintainer: kfgz <kfgz at interia pl>
 
 pkgname=alure-git
-pkgver=20110317
+pkgver=20110615
 pkgrel=1
 pkgdesc="Utility library to help manage common tasks with OpenAL applications."
 arch=('i686' 'x86_64')
@@ -12,8 +12,8 @@ depends=('openal')
 makedepends=('cmake')
 conflicts=('alure')
 provides=('alure')
-optdepends=('sndfile: Uncompressed audio support'
-            'vorbisfile: OGG Vorbis support'
+optdepends=('libsndfile: Uncompressed audio support'
+            'libsdnfile: OGG Vorbis support'
             'flac: FLAC support')
 
 _gitroot="git://repo.or.cz/alure.git alure"
