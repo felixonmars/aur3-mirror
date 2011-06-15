@@ -1,53 +1,57 @@
 # Maintainer: Roman Beslik <rabeslik@gmail.com>
 # Contributor: Allan McRae <allan@archlinux.org>
 
-# toolchain build order: linux-api-headers->glibc->binutils->gcc->binutils->glibc
-
 # why does GHC need patched "ld": http://www.haskell.org/pipermail/glasgow-haskell-users/2010-April/018722.html
 # "this package" = "core/binutils" + "binutils-2.18-tune-bfd-hash.patch"
 # toolchain build order: linux-api-headers->glibc->binutils->gcc->binutils->glibc
 
 pkgname=binutils-tune-bfd-hash
-pkgver=2.20.1
-pkgrel=2
-_date=20100521
-pkgdesc="A set of programs to assemble and manipulate binary and object files, ld optimized for object files with small symbol table. Useful for Haskell.GHC."
+pkgver=2.21
+pkgrel=8
+_date=20110430
+pkgdesc="A set of programs to assemble and manipulate binary and object files"
 arch=('i686' 'x86_64')
 url="http://www.gnu.org/software/binutils/"
 license=('GPL')
 groups=('base')
-depends=('glibc>=2.12-1' 'zlib')
+depends=('glibc>=2.13' 'zlib')
+makedepends=('dejagnu')
 options=('!libtool' '!distcc' '!ccache')
 install=binutils.install
-source=(ftp://ftp.archlinux.org/other/binutils/binutils-${pkgver}_${_date}.tar.bz2 binutils-2.18-tune-bfd-hash.patch)
-md5sums=('67053ffd8582e646e171fccd55b2f0f6' '1e83e3f18e0f0414eb522ccd8187a192')
+source=(ftp://ftp.archlinux.org/other/binutils/binutils-${pkgver}_${_date}.tar.bz2
+        binutils-2.21-strip-segfault.patch
+        binutils-2.18-tune-bfd-hash.patch)
+md5sums=('7b3e28fb35cb8bb371cc47291e1c6dec'
+         '98e8dfaf1c0ededa586823ebfb27825a'
+         "1e83e3f18e0f0414eb522ccd8187a192")
 provides=("binutils=$pkgver" "binutils")
 conflicts=('binutils')
 
 mksource() {
   mkdir ${pkgname}-${_date}
   cd ${pkgname}-${_date}
-  export _TAG=binutils-2_20-branch
+  export _TAG=binutils-2_21-branch
   export 'CVSROOT=:pserver:anoncvs@sourceware.org:/cvs/src'
   cvs -z9 co -r $_TAG binutils || return 1
-  cd src && tar -cvjf ../../binutils-${pkgver}_${_date}.tar.bz2 *
+  mv src binutils
+  tar -cvjf ../binutils-${pkgver}_${_date}.tar.bz2 binutils/*
 }
 
 build() {
-  cd ${srcdir}
-  patch -p1 < binutils-2.18-tune-bfd-hash.patch || return 1
-  mkdir build && cd build
+  cd ${srcdir}/binutils
+  patch -p1 < ${srcdir}/binutils-2.18-tune-bfd-hash.patch || return 1
+  # http://sourceware.org/bugzilla/show_bug.cgi?id=12632 
+  patch -Np1 -i $srcdir/binutils-2.21-strip-segfault.patch
 
-  CC="gcc -L`pwd`/bfd/.libs/"
-  if [ "${CARCH}" = "x86_64" ]; then
-    ../configure --prefix=/usr --mandir=/usr/share/man --infodir=/usr/share/info --enable-shared --enable-64-bit-bfd --disable-multilib 
-  else
-    ../configure --prefix=/usr --mandir=/usr/share/man --infodir=/usr/share/info --enable-shared
-  fi
-  # fix man files install path
-  sed -i -e "s:mandir \= \/usr\/share:mandir \= ${pkgdir}\/usr\/share:" ${srcdir}/build/Makefile
-  # fix info files install path
-  sed -i -e "s:infodir \= \/usr\/share:infodir \= ${pkgdir}\/usr\/share:" ${srcdir}/build/Makefile 
+  cd ${srcdir}
+  mkdir binutils-build && cd binutils-build
+
+  [[ $CARCH == "x86_64" ]] && CONFIGFLAG="--enable-64-bit-bfd --disable-multilib"
+
+  ${srcdir}/binutils/configure --prefix=/usr \
+    --enable-ld=default --enable-gold \
+    --enable-plugins --enable-threads \
+    --enable-shared $CONFIGFLAG
 
   # This checks the host environment and makes sure all the necessary tools are available to compile Binutils.
   make configure-host
@@ -55,11 +59,20 @@ build() {
   make tooldir=${pkgdir}/usr
 }
 
+check() {
+  cd ${srcdir}/binutils-build
+
+  # do not abort on errors - manually check log files
+  make -k -j1 check || true
+}
+
 package() {
-  cd ${srcdir}/build
+  cd ${srcdir}/binutils-build
   make prefix=${pkgdir}/usr tooldir=${pkgdir}/usr install
-  install -m644 ${srcdir}/include/libiberty.h ${pkgdir}/usr/include
-  install -m644 ${srcdir}/include/demangle.h ${pkgdir}/usr/include
+  
+  # Add some useful headers
+  install -m644 ${srcdir}/binutils/include/libiberty.h ${pkgdir}/usr/include
+  install -m644 ${srcdir}/binutils/include/demangle.h ${pkgdir}/usr/include
 
   # Rebuild libiberty.a with -fPIC
   make -C libiberty clean
@@ -72,9 +85,10 @@ package() {
   make CFLAGS="$CFLAGS -fPIC -fvisibility=hidden" -C bfd
   install -m644 bfd/libbfd.a ${pkgdir}/usr/lib
 
+  # Remove Windows/Novell specific man pages
   rm -f ${pkgdir}/usr/share/man/man1/{dlltool,nlmconv,windres,windmc}*
 
-  # Remove these symlinks, with binutils prereleases they are not ABI stable.
+  # Remove these symlinks, they are not ABI stable.
   # Programs should compile static to the .a file.
   rm -f ${pkgdir}/usr/lib/lib{bfd,opcodes}.so
   echo "INPUT ( /usr/lib/libbfd.a -liberty -lz )" >${pkgdir}/usr/lib/libbfd.so
