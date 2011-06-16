@@ -1,71 +1,98 @@
-#Extremely based on the original PKGBUILD made by Corrado Primier <bardo@aur.archlinux.org> and William Rea <sillywilly@gmail.com>
-#Contributor: Lorenzo Nizzi Grifi Gargiolli <lorenzo.nizzi.grifi@gmail.com>
+# Maintainer: Clément Démoulins <clement@archivel.fr>
+# Contributor: Jan "heftig" Steffens <jan.steffens@gmail.com>
+# Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
+# Contributor: Corrado Primier <bardo@aur.archlinux.org>
+# Contributor: William Rea <sillywilly@gmail.com>
+# Contributor: Lorenzo Nizzi Grifi Gargiolli <lorenzo.nizzi.grifi@gmail.com>
 
-pkgname=pulseaudio-git
-pkgver=20091020
+pkgname="pulseaudio-git"
+_pkgname="pulseaudio"
+pkgdesc="A featureful, general-purpose sound server"
+pkgver=20110616
 pkgrel=1
-pkgdesc="A networked sound server - Development version"
-arch=('i686' 'x86_64')
+arch=(i686 x86_64)
 url="http://pulseaudio.org/"
 license=('GPL' 'LGPL')
-depends=('consolekit' 'gdbm' 'hal' 'libasyncns' 'libcap' 'liboil' 'libsamplerate'
-         'libtool' 'policykit' 'speex')
-makedepends=('autoconf' 'avahi' 'bluez' 'gconf' 'intltool' 'jack-audio-connection-kit'
-             'libatomic_ops' 'lirc-utils' 'pkgconfig' 'tcp_wrappers')
+makedepends=(git libasyncns attr libxtst libsm tcp_wrappers libsndfile
+             libtool rtkit speex libsamplerate tdb udev dbus-core xcb-util
+             avahi bluez gconf intltool jack lirc-utils pkgconfig openssl
+             json-c fftw orc sh)
+depends=('rtkit' 'libtool' 'speex' 'libsamplerate' 'tdb' 'udev' 'fftw' 'orc'
+         'json-c' 'tcp_wrappers' 'xcb-util' 'libasyncns' 'libxtst' 'libsm'
+         'libsamplerate' 'json-c')
 optdepends=('alsa-plugins: ALSA support'
-            'avahi: network support'
+            'avahi: zeroconf support'
             'bluez: bluetooth support'
-            'glib'
-            'jack-audio-connection-kit: jack support'
-            'lirc-utils'
-            'tcp_wrappers')
-provides=('polypaudio' 'pulseaudio=0.9.15')
-conflicts=('polypauio' 'pulseaudio')
-replaces=('polypaudio' 'pulseaudio')
-options=('emptydirs' '!libtool' '!makeflags')
-backup=('etc/pulse/client.conf' 'etc/pulse/daemon.conf' 'etc/pulse/default.pa')
-install=pulseaudio.install
-source=(pulseaudio.conf pulseaudio.rc)
-md5sums=('d4a7d4ad51b406588ba7ac7931c5dd88' 'c5aa09c1d3e2217dc3bb23138e2a5a1d')
+            'gconf: configuration through gconf'
+            'jack: jack support'
+            'lirc-utils: infra-red support'
+            'openssl: RAOP support')
+backup=(etc/pulse/{daemon.conf,default.pa,system.pa,client.conf})
+provides=('pulseaudio=0.9.23' 'libpulse=0.9.23')
+conflicts=('pulseaudio' 'libpulse')
+replaces=('pulseaudio' 'libpulse')
+options=(!emptydirs !libtool !makeflags)
+
+source=(${_pkgname}.xinit)
+md5sums=('eb1cfae28eb2e4d3fdbe45a90e4318ab')
 
 
 _gitroot="http://git.0pointer.de/repos/pulseaudio.git/"
 _gitname="pulseaudio"
 
 build() {
-  cd ${srcdir}
-  msg "Connecting to freedesktop GIT server...."
+  cd "$srcdir"
+  msg "Connecting to GIT server...."
 
-  if [ -d ${srcdir}/$_gitname ] ; then
-  cd $_gitname && git pull origin
-  msg "The local files are updated."
+  if [ -d $_gitname ] ; then
+    cd $_gitname && git pull origin
+    msg "The local files are updated."
   else
-  git clone $_gitroot
+    git clone $_gitroot $_gitname
   fi
 
   msg "GIT checkout done or server timeout"
   msg "Starting make..."
 
-  git clone $_gitname $_gitname-build
-  cd ${srcdir}/$_gitname-build
+  rm -rf "$srcdir/$_gitname-build"
+  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
 
- ./autogen.sh --host=${CHOST} \
+  #
+  # BUILD HERE
+  #
+
+ ./autogen.sh --prefix=/usr \
+              --sysconfdir=/etc \
               --libexecdir=/usr/lib \
               --localstatedir=/var \
-              --prefix=/usr \
-              --sysconfdir=/etc
-  export LDFLAGS="${LDFLAGS//Wl, --as-needed}"
-  make || return 1
-  make DESTDIR=${pkgdir} install
+              --with-database=tdb \
+              --disable-hal \
+              --disable-rpath \
+              --disable-default-build-tests
 
-  install -Dm755 ${srcdir}/pulseaudio.rc ${pkgdir}/etc/rc.d/pulseaudio || return 1
-  install -Dm644 ${srcdir}/pulseaudio.conf ${pkgdir}/etc/conf.d/pulseaudio || return 1
-  install -dm755 ${pkgdir}/var/run/pulse || return 1
-
-  # Ugly fix for pulseaudio system users
-  install -dm755 ${pkgdir}/var/pulse || return 1
-  echo -e '\n### Automatically restore volumes\nload-module module-volume-restore table="/var/pulse/volume-restore.table"' \
-    >> ${pkgdir}/etc/pulse/system.pa || return 1
+  make
 }
 
+package() {
+  cd "$srcdir/$_gitname-build"
+  make DESTDIR="$pkgdir" install
+
+  # Lower resample quality
+  sed -e '/resample-method/iresample-method=speex-float-0' \
+      -i "$pkgdir/etc/pulse/daemon.conf"
+
+  # Disable cork-request module, can result in e.g. media players unpausing
+  # when there's a Skype call incoming
+  sed -e 's|/usr/bin/pactl load-module module-x11-cork-request|#&|' \
+      -i "$pkgdir/usr/bin/start-${_pkgname}-x11"
+
+  # Make module-console-kit optional
+  sed -e $'/module-console-kit/{i.nofail\n;a.fail\n;}' \
+      -i "$pkgdir/etc/pulse/default.pa"
+
+  install -Dm755 "$srcdir/${_pkgname}.xinit" "$pkgdir/etc/X11/xinit/xinitrc.d/${_pkgname}"
+
+  rm "$pkgdir/etc/dbus-1/system.d/${_pkgname}-system.conf"
+}
 

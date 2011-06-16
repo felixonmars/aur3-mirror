@@ -3,11 +3,9 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-GITDIR="/usr/share/webapps/gitorious"
+GITORIOUS_HOME="/usr/share/webapps/gitorious"
 BUNDLE="/opt/ruby-enterprise/bin/bundle"
-
-PIDF_GITD="$GITDIR/log/git-daemon.pid"
-PIDF_POLLER="$GITDIR/tmp/pids/poller0.pid"
+PID_FILE="$GITORIOUS_HOME/tmp/pids/poller0.pid"
 
 check_pid() {
 	local PIDFILE="$1"
@@ -39,21 +37,12 @@ wait_pid() {
 
 case "$1" in
 	start)
-		stat_busy "Starting git daemon"
-		check_pid "$PIDF_GITD" || su - git -c "cd $GITDIR && $BUNDLE exec script/git-daemon -d"
-		if [ $? -gt 0 ]; then
-			stat_fail
-		else
-			add_daemon git-daemon
-			stat_done
-		fi
-
 		stat_busy "Starting gitorious poller"
-		if [ ! -d "$GITDIR/tmp/pids" ]; then
-			mkdir "$GITDIR/tmp/pids"
-			chown git:git "$GITDIR/tmp/pids"
+		if [ ! -d "$GITORIOUS_HOME/tmp/pids" ]; then
+			mkdir "$GITORIOUS_HOME/tmp/pids"
+			chown git:git "$GITORIOUS_HOME/tmp/pids"
 		fi
-		check_pid "$PIDF_POLLER" || su - git -c "cd $GITDIR && env RAILS_ENV=production $BUNDLE exec script/poller run" > /dev/null 2>&1 &
+		check_pid "$PID_FILE" || su - git -c "env RAILS_ENV=production $BUNDLE exec script/poller start" > /dev/null 2>&1
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
@@ -62,16 +51,8 @@ case "$1" in
 		fi
 		;;
 	stop)
-		stat_busy "Stopping git daemon"
-		if ! kill_pid "$PIDF_GITD"; then
-			stat_fail
-		else
-			rm_daemon git-daemon
-			stat_done
-		fi
-
 		stat_busy "Stopping gitorious poller"
-		if ! kill_pid "$PIDF_POLLER"; then
+		if ! kill_pid "$PID_FILE"; then
 			stat_fail
 		else
 			rm_daemon gitorious-poller
@@ -80,8 +61,7 @@ case "$1" in
 		;;
 	restart)
 		$0 stop
-		wait_pid "$PIDF_GITD"
-		wait_pid "$PIDF_POLLER"
+		wait_pid "$PID_FILE"
 		$0 start
 		;;
 	*)
