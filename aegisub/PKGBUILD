@@ -1,6 +1,6 @@
 pkgname=aegisub
-pkgver=5376
-pkgrel=3
+pkgver=5430
+pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
@@ -42,8 +42,9 @@ package() {
   cd ${srcdir}/$_svnmod-build
   make DESTDIR=$pkgdir install
 
-  # menu icon fix
-  sed -i 's/Icon=aegisub/Icon=\/usr\/share\/icons\/hicolor\/scalable\/apps\/aegisub.svg/' $pkgdir/usr/share/applications/aegisub.desktop
+  # menu icon and mimetype fix
+  sed -i -e 's/Icon=aegisub/Icon=\/usr\/share\/icons\/hicolor\/scalable\/apps\/aegisub.svg/' \
+	-e 's/application\/x-srt/application\/x-subrip/'  $pkgdir/usr/share/applications/aegisub.desktop
 
   # install the BSD license, although it is ruled by GPL according to the wiki:
   # (http://www.malakith.net/aegiwiki/Subtitling_software_comparison)

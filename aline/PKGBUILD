@@ -1,7 +1,7 @@
 # Maintainer: Stefan Seemayer <mail@semicolonsoftware.de>
 pkgname=aline
 pkgver=011208
-pkgrel=1
+pkgrel=2
 pkgdesc="An Extensible WYSIWYG Protein Sequence Alignment Editor for Publication Quality Figures"
 arch=(any)
 url="http://crystal.bcs.uwa.edu.au/px/charlie/software/aline/"
@@ -30,7 +30,7 @@ package() {
   mkdir -p "$pkgdir/usr/share/" "$pkgdir/usr/bin"
   mv "$srcdir/aline_$pkgver/" "$pkgdir/usr/share/aline";
   
-  ln -s "$pkgdir/usr/share/aline/bin/aline" "$pkgdir/usr/bin/aline"
+  ln -s "/usr/share/aline/bin/aline" "$pkgdir/usr/bin/aline"
   install -Dm644 "$srcdir/aline.png" "$pkgdir/usr/share/pixmaps/aline.png"
   install -Dm644 "$srcdir/aline.desktop" "$pkgdir/usr/share/applications/aline.desktop"
 }
