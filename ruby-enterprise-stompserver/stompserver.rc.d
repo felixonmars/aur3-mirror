@@ -36,7 +36,7 @@ wait_pid() {
 case "$1" in
 	start)
 		stat_busy "Starting stompserver"
-		check_pid "$PID_FILE" || su - "${USER:-nobody}" -c "/opt/ruby-enterprise/bin/stompserver -C /etc/stompserver.conf &> /dev/null"
+		check_pid "$PID_FILE" || /opt/ruby-enterprise/bin/stompserver -C /etc/stompserver.conf &> /dev/null
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
