@@ -1,11 +1,11 @@
 pkgname=aiccu
 pkgver=20070115
-pkgrel=5
+pkgrel=6
 pkgdesc="SixXS Automatic IPv6 Connectivity Client Utility - AICCU"
 arch=('i686' 'x86_64')
-url="http://www.sixxs.net/archive/tools/aiccu/"
-license=('custom')
-depends=('gnutls')
+url="http://www.sixxs.net/tools/aiccu/"
+license=('BSD')
+depends=('gnutls' 'iproute2')
 makedepends=('glibc' 'libgpg-error' 'libtasn1' 'libgcrypt' 'zlib')
 backup=(etc/aiccu.conf)
 source=(http://www.sixxs.net/archive/sixxs/aiccu/unix/${pkgname}_${pkgver}.tar.gz aiccu.rc.d)
@@ -17,8 +17,8 @@ build() {
 
   sed -i 's|Installing Debian-style init.d||' Makefile
 
-  LDFLAGS="" make || return 1
-  make DESTDIR=$pkgdir install || return 1
+  LDFLAGS="" make
+  make DESTDIR=$pkgdir install
 
   install -D -m600 doc/aiccu.conf $pkgdir/etc/aiccu.conf
   install -D -m755 $startdir/aiccu.rc.d $pkgdir/etc/rc.d/aiccu
