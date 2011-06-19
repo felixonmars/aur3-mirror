@@ -1,54 +1,23 @@
 # Old Contributor: Chris Schwaab christopher.schwaab gmail
 # Adapter for i686 by Roger Braun
-# Contributor: twa022 <twa022@gmail.com>
+# Old Contributor: twa022 <twa022@gmail.com>
+# Contributor: jwbwater <jwbwater@gmail.com>
 pkgname=amazonmp3
 pkgver=1.0.3
 pkgrel=3
-pkgdesc="The MP3 downloader with self contained library deps"
+pkgdesc="The Amazon MP3 downloader"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
 license=('custom')
-depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl098' 'gtkmm' 'pangomm')
+depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl098' 'gtkmm' 'pangomm' 'cairomm' 'glibmm' 'libsigc++' 'boost-libs' 'bzip2')
 makedepends=('deb2targz')
-source=('http://mirrors.kernel.org/ubuntu/pool/main/c/cairomm/libcairomm-1.0-1_1.8.0-1build1_i386.deb'
-        'http://mirrors.kernel.org/ubuntu/pool/main/g/glibmm2.4/libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.deb'
-        'http://mirrors.kernel.org/ubuntu/pool/main/libs/libsigc++-2.0/libsigc++-2.0-0c2a_2.0.17-2ubuntu3_i386.deb'
-        'http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.deb'
-        'http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-signals1.34.1_1.34.1-4ubuntu3_i386.deb'
-        'http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-iostreams1.34.1_1.34.1-4ubuntu3_i386.deb'
-        'http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-thread1.34.1_1.34.1-4ubuntu3_i386.deb'
-        'http://amazonm-002.vo.llnwd.net/u/d1/clients/amazonmp3_1.0.3~gutsy_i386.deb'
-        'http://security.ubuntu.com/ubuntu/pool/main/b/bzip2/libbz2-1.0_1.0.4-2ubuntu4_i386.deb')
+source=('http://amazonm-002.vo.llnwd.net/u/d1/clients/amazonmp3_1.0.3~gutsy_i386.deb')
 
-md5sums=('3f36242c965cea7b79853aec5284c698'
-         '3cf0dd57b78d00b0681e9c38b9519e5e'
-         '0a314b01a63155be5b5248807b23ea05'
-         '8a92592ff53bfd88e4ef30702bc3a5c0'
-         '1c1e73957bb3df7991b8ba625e42dc3e'
-         'ab12bd95053d2dfaf5384b8fec0ef928'
-         '718b975d711d3e3d7d7288a1ca73fae4'
-         '0a9b986e2e9ba5be7e412e9742688ebb'
-         'cc754012baa0d400bd15811c93aa735e')
+md5sums=('0a9b986e2e9ba5be7e412e9742688ebb')
 
 build() {
-        deb2targz libcairomm-1.0-1_1.8.0-1build1_i386.deb \
-                  libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.deb \
-                  libsigc++-2.0-0c2a_2.0.17-2ubuntu3_i386.deb \
-                  libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.deb \
-                  libboost-signals1.34.1_1.34.1-4ubuntu3_i386.deb \
-                  libboost-iostreams1.34.1_1.34.1-4ubuntu3_i386.deb \
-                  libboost-thread1.34.1_1.34.1-4ubuntu3_i386.deb \
-                  libbz2-1.0_1.0.4-2ubuntu4_i386.deb \
-                  amazonmp3_1.0.3~gutsy_i386.deb || return 1
+        deb2targz amazonmp3_1.0.3~gutsy_i386.deb || return 1
 
-        tar -xzf libcairomm-1.0-1_1.8.0-1build1_i386.tar.gz || return 1
-        tar -xzf libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.tar.gz || return 1
-        tar -xzf libsigc++-2.0-0c2a_2.0.17-2ubuntu3_i386.tar.gz || return 1
-        tar -xzf libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.tar.gz || return 1
-        tar -xzf libboost-signals1.34.1_1.34.1-4ubuntu3_i386.tar.gz || return 1
-        tar -xzf libboost-iostreams1.34.1_1.34.1-4ubuntu3_i386.tar.gz || return 1
-        tar -xzf libboost-thread1.34.1_1.34.1-4ubuntu3_i386.tar.gz || return 1
-        tar -xzf libbz2-1.0_1.0.4-2ubuntu4_i386.tar.gz || return 1
         tar -zxf amazonmp3_1.0.3~gutsy_i386.tar.gz || return 1
 
         mkdir -p $pkgdir/opt/amazonmp3
