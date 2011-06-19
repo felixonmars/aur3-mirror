@@ -8,12 +8,10 @@ pkgdesc="The MP3 downloader with self contained library deps"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
 license=('custom')
-depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl098')
+depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl098' 'gtkmm' 'pangomm')
 makedepends=('deb2targz')
-source=('http://mirrors.kernel.org/ubuntu/pool/main/g/gtkmm2.4/libgtkmm-2.4-1c2a_2.16.0-1_i386.deb'
-        'http://mirrors.kernel.org/ubuntu/pool/main/c/cairomm/libcairomm-1.0-1_1.8.0-1build1_i386.deb'
+source=('http://mirrors.kernel.org/ubuntu/pool/main/c/cairomm/libcairomm-1.0-1_1.8.0-1build1_i386.deb'
         'http://mirrors.kernel.org/ubuntu/pool/main/g/glibmm2.4/libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.deb'
-        'http://mirrors.kernel.org/ubuntu/pool/main/p/pangomm/libpangomm-1.4-1_2.24.0-1_i386.deb'
         'http://mirrors.kernel.org/ubuntu/pool/main/libs/libsigc++-2.0/libsigc++-2.0-0c2a_2.0.17-2ubuntu3_i386.deb'
         'http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.deb'
         'http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-signals1.34.1_1.34.1-4ubuntu3_i386.deb'
@@ -22,10 +20,8 @@ source=('http://mirrors.kernel.org/ubuntu/pool/main/g/gtkmm2.4/libgtkmm-2.4-1c2a
         'http://amazonm-002.vo.llnwd.net/u/d1/clients/amazonmp3_1.0.3~gutsy_i386.deb'
         'http://security.ubuntu.com/ubuntu/pool/main/b/bzip2/libbz2-1.0_1.0.4-2ubuntu4_i386.deb')
 
-md5sums=('f54f91dbfcd72988a7174bc7854f58d3'
-         '3f36242c965cea7b79853aec5284c698'
+md5sums=('3f36242c965cea7b79853aec5284c698'
          '3cf0dd57b78d00b0681e9c38b9519e5e'
-         'eb9c503696acbb1318d7466da764b9af'
          '0a314b01a63155be5b5248807b23ea05'
          '8a92592ff53bfd88e4ef30702bc3a5c0'
          '1c1e73957bb3df7991b8ba625e42dc3e'
@@ -35,10 +31,8 @@ md5sums=('f54f91dbfcd72988a7174bc7854f58d3'
          'cc754012baa0d400bd15811c93aa735e')
 
 build() {
-        deb2targz libgtkmm-2.4-1c2a_2.16.0-1_i386.deb \
-                  libcairomm-1.0-1_1.8.0-1build1_i386.deb \
+        deb2targz libcairomm-1.0-1_1.8.0-1build1_i386.deb \
                   libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.deb \
-                  libpangomm-1.4-1_2.24.0-1_i386.deb \
                   libsigc++-2.0-0c2a_2.0.17-2ubuntu3_i386.deb \
                   libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.deb \
                   libboost-signals1.34.1_1.34.1-4ubuntu3_i386.deb \
@@ -47,10 +41,8 @@ build() {
                   libbz2-1.0_1.0.4-2ubuntu4_i386.deb \
                   amazonmp3_1.0.3~gutsy_i386.deb || return 1
 
-        tar -xzf libgtkmm-2.4-1c2a_2.16.0-1_i386.tar.gz || return 1
         tar -xzf libcairomm-1.0-1_1.8.0-1build1_i386.tar.gz || return 1
         tar -xzf libglibmm-2.4-1c2a_2.16.4-0ubuntu1_i386.tar.gz || return 1
-        tar -xzf libpangomm-1.4-1_2.24.0-1_i386.tar.gz || return 1
         tar -xzf libsigc++-2.0-0c2a_2.0.17-2ubuntu3_i386.tar.gz || return 1
         tar -xzf libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.tar.gz || return 1
         tar -xzf libboost-signals1.34.1_1.34.1-4ubuntu3_i386.tar.gz || return 1
