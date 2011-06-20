@@ -30,7 +30,7 @@ if [ "$1" = "--uninstall" ]; then
 	cd ${OOO_INSTALLATION_DIR}
 	rm soffice
 	mv soffice1 soffice
-	mv soffice1.bin soffice.bin
+#	mv soffice1.bin soffice.bin
 	exit
 fi
 
@@ -48,10 +48,11 @@ echo env GTK2_RC_FILES=/usr/share/themes/Clearlooks/gtk-2.0/gtkrc env OOO_FORCE_
 
 # Make the new script executable
 echo 'Giving new script executable permissions...'
-chmod +x soffice
+chmod 755 soffice
 
 # Rename the binary so it will correctly launch
-echo 'Renaming binary for compatibility...'
-mv soffice.bin soffice1.bin
+# echo 'Renaming binary for compatibility...'
+# This line seems to screw up with newer versions of Libreoffice and is no longer needed, may still be needed on other versions, not sure
+# mv soffice.bin soffice1.bin
 
 echo 'Complete :)'
