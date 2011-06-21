@@ -30,7 +30,7 @@ do
 done
 for f in BGM movie ME screenshot SE sys_se
 do
-  cp -r "$DISC_PATH/$f" "$UMINEKO_PATH/$f/"
+  cp -r "$DISC_PATH/$f" "$UMINEKO_PATH/"
 done
 
 # Install icon file.
