@@ -110,19 +110,13 @@ case $0 in /etc/rc.sysinit )
 	splash_shutdown_start() {
 		splash_begin
 	}
-	## http://bugs.archlinux.org/task/10536                       ## FIX ME ##
-	splash_shutdown_prekillall() { /bin/sleep .1; }
-	splash_shutdown_postkillall() {
-		if [[ $( $spl_bindir/fgconsole ) = $SPLASH_TTY ]]; then
-			stat_busy "Restarting Fbsplash daemon"
-			PROGRESS=$(( 65535*2/3 )) splash_start
-			if [[ -e $spl_cachedir/stop_failed-fbsplash-dummy ]]; then
-				splash_comm_send update_svc fbsplash-dummy svc_stop_failed
-			fi
-			stat_done
-		fi
+	splash_shutdown_prekillall() {
+		splash_comm_send progress $(( 65535*1/3 )); splash_comm_send paint
+		[[ -r $spl_pidfile ]] && add_omit_pids $( <$spl_pidfile )
 	}
-	##
+	splash_shutdown_postkillall() {
+		splash_comm_send progress $(( 65535*2/3 )); splash_comm_send paint
+	}
 	splash_shutdown_poweroff() {
 		SPLASH_EXIT_TYPE=staysilent splash_stop
 	}
