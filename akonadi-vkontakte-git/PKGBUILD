@@ -1,15 +1,15 @@
 # Contributor: Nikolay Rysev <mad.f3ka@gmail.com>
 pkgname=akonadi-vkontakte-git
 pkgver=20110623
-pkgrel=3
-pkgdesc="Akonadi plugin for Vkontakte, git version"
+pkgrel=5
+pkgdesc="VKontakte Resource for Akonadi"
 arch=('i686' 'x86_64')
-url="http://quickgit.kde.org/?p=scratch%2Faspotashev%2Fakonadi-vkontakte.git&a=summary"
+url="https://projects.kde.org/projects/playground/pim/akonadi-vkontakte"
 license=('GPL')
 depends=('kdepimlibs>=4.6.0' 'qjson' 'boost' 'libxslt')
 makedepends=('pkgconfig' 'automoc4' 'git' 'cmake')
-_gitroot='git://anongit.kde.org/scratch/aspotashev/akonadi-vkontakte.git'
-_gitname='akonadi-vkontakte'
+_gitname="akonadi-vkontakte"
+_gitroot="git://anongit.kde.org/${_gitname}"
 
 build() {
   cd ${srcdir}
