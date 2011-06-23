@@ -2,13 +2,12 @@
 
 #
 # pacaur: A simple cower and burp wrapper to fetch PKGBUILDS from aur & abs
+# by Remy Marquis (Spyhawk)
 #
 
 name="pacaur"
-version="1.1.1"
+version="1.2.0"
 description="A simple cower wrapper to fetch PKGBUILDS from aur & abs"
-author="Remy Marquis"
-date="23/06/2011"
 
 #
 # Default config
@@ -71,6 +70,18 @@ devel=false
 # Functions
 #
 
+runasroot() {
+    if [[ $UID -eq 0 ]]; then
+        "$@"
+    elif sudo -v &>/dev/null && sudo -l "$@" &>/dev/null; then
+        sudo "$@"
+    else
+        echo -n "root "
+        # Hack: need to echo to make sure all of the args get in the single set of quotes
+        su root -c "$(echo $@)"
+    fi
+}
+
 SearchAur() {
     $pacaur -s $@
 }
@@ -88,14 +99,14 @@ DownloadAur() {
 }
 
 DownloadDepsAur() {
-    # Download dependencies recursively and return AUR deps only
+    # download dependencies recursively and return AUR deps only
     deps=$($pacaur -dd $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
     ErrorExit $deps
 }
 
 FindDepsAur() {
-    # Find dependencies
+    # find dependencies
     adeps=($($pacaur -ii $@ --format '%D%M' | awk -F "\n" '{print}' | awk -F " " '{print}' | sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
     ErrorExit $adeps
@@ -107,11 +118,11 @@ FindDepsAur() {
 
     local i=0
     for package in ${adeps[@]}; do
-        # Remove versioning from package names
+        # remove versioning from package names
         adeps[$i]=${package%%=*}
         adeps[$i]=${adeps[$i]%%>*}
         adeps[$i]=${adeps[$i]%%<*}
-        # Remove packages found in repo
+        # remove packages found in repo
         if [[ $(expac -S %n | grep -x ${adeps[$i]}) == ${adeps[$i]} ]]; then
             unset adeps[$i]
         fi
@@ -122,19 +133,17 @@ FindDepsAur() {
     adeps=( $adeps );
 
     if [[ ${#adeps[*]} -gt 0 ]]; then
-        # Save AUR dependencies then continue"
+        # save AUR dependencies then continue"
         deps=("$@" "${deps[@]}" "${adeps[@]}")
         FindDepsAur ${adeps[@]} 
     fi
 }
 
 CheckAur() {
-    #notice "${colorW}Checking AUR for package updates...${reset}"
     $pacaur -u $@
 }
 
 CheckRepo() {
-    #notice "${colorW}Checking repositories for package updates...${reset}"
     outofdate=($($pacmanBin -Quq $@))
     if [[ ${outofdate[@]} != "" ]]; then
         Qversion=($(expac -Q %v ${outofdate[@]}))
@@ -145,12 +154,6 @@ CheckRepo() {
             notice "${colorW}${outofdate[$i]} ${colorR}${Qversion[$i]} ${reset}-> ${colorG}${Sversion[$i]}${reset}"
             ((i++))
         done
-    fi
-}
-
-DownloadPkgbuild() {
-    if ! [[ -f "$tmpdir/$package.PKGBUILD" ]]; then
-        curl -Lfs "https://aur.archlinux.org/packages/$package/PKGBUILD" > "$tmpdir/$package.PKGBUILD"
     fi
 }
 
@@ -169,7 +172,7 @@ UpgradeAur() {
         local i=0
         for package in ${aurpkgs[@]}; do
             DownloadPkgbuild ${aurpkgs[$i]} &
-            nap
+            ParaExec
             ((i++))
         done
         wait
@@ -251,22 +254,24 @@ CleanUp() {
         for i in $@
         do
             notice "Cleaning up ${colorW}$i${reset}... "
+            # hack for cvs protected files
+            chmod -R 755 $i
             rm -r $i && success "${colorW}$i${reset} cleaned" || failed "Could not clean ${colorW}$i${reset}"
         done
     fi
 }
 
 MakePkgs() {
-    # Reverse deps order
+    # reverse deps order
     deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
     notice "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
 
-    # Remember explicitly installed packages
+    # remember explicitly installed packages
     if [[ $expl == "" ]]; then
       read -ra expl <<< ${@}
     fi
 
-    # Set architecture variables
+    # set architecture variables
     if ! $confSourced; then
         source /etc/makepkg.conf
         source /etc/abs.conf
@@ -285,8 +290,8 @@ MakePkgs() {
                 else
                     makepkg -si
                 fi
-                # If AUR dep, install as --asdeps
-                # If upgrade, do no change status
+                # if AUR dep, install as --asdeps
+                # if upgrade, do no change status
                 if [[ ! $upgrade ]]; then
                     isexpl=false
                     for k in ${expl[@]}; do
@@ -295,7 +300,7 @@ MakePkgs() {
                         fi
                     done
                     if [[ $isexpl != true ]]; then
-                        sudo $pacmanBin -D --asdeps $j &>/dev/null
+                        runasroot $pacmanBin -D --asdeps $j &>/dev/null
                     fi
                 fi
             elif $force; then
@@ -311,7 +316,14 @@ MakePkgs() {
     done
 }
 
-nap() {
+DownloadPkgbuild() {
+    if ! [[ -f "$tmpdir/$package.PKGBUILD" ]]; then
+        curl -Lfs "https://aur.archlinux.org/packages/$package/PKGBUILD" > "$tmpdir/$package.PKGBUILD"
+    fi
+}
+
+ParaExec() {
+    # parallel execution
     while (( $(jobs | wc -l) >= 10 )); do
         sleep 0.1
         jobs > /dev/null
@@ -319,7 +331,7 @@ nap() {
 }
 
 ErrorExit(){
-    # Exit if curl or package name error
+    # exit if curl or package name error
     if [[ $(echo $@ | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
         exit
     fi
@@ -364,7 +376,7 @@ usage() {
     echo -e " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Syu operations"
     echo -e "   -r, --repo      only search or install packages from the repositories"
     echo -e "   -a, --aur       only search or install packages from the AUR"
-    echo -e "   --devel         update devel packages -- can be combined with the -Su flag"
+    echo -e "   --devel         update AUR devel packages -- can be combined with the -Sua flag"
     echo -e ""
     echo -e "general options:"
     echo -e "   -v, --version   display version information"
@@ -374,8 +386,7 @@ usage() {
 
 version() {
     echo -e "\n    ${colorW}$name ${colorG}$version${reset}"
-    echo -e "    $description"
-    echo -e "    -${colorW}$author ${colorG}($date)\n"
+    echo -e "    $description\n"
 }
 
 
@@ -850,7 +861,7 @@ main() {
             ;;
             -r | --repo)
                 shift 3
-                sudo $pacmanBin -Sw $@
+                runasroot $pacmanBin -Sw $@
             ;;
             *)
                 shift 2
@@ -860,10 +871,10 @@ main() {
                         failed "Package(s) ${colorW}$@${reset} not found in repositories, trying ${colorM}aur${reset}..."
                         pacaur -S -w -a $@
                     else
-                        sudo $pacmanBin -Sw $@
+                        runasroot $pacmanBin -Sw $@
                     fi
                 else
-                    sudo $pacmanBin -Sw $@
+                    runasroot $pacmanBin -Sw $@
                 fi
             ;;
             esac
@@ -884,12 +895,12 @@ main() {
             ;;
             -r | --repo)
                 shift 3
-                sudo $pacmanBin -Su $@
+                runasroot $pacmanBin -Su $@
             ;;
             --devel)
                 if $fallback; then
                     shift 5
-                    sudo $pacmanBin -Su $@
+                    runasroot $pacmanBin -Su $@
                     pacaur -S -u -a --devel $@
                 else
                     echo "$pacmanBin: unrecognized option '--devel'"
@@ -900,16 +911,16 @@ main() {
                 if $fallback; then
                     result=$($pacmanBin -Su --print $@ 2>&1)
                     if [[ ! $@ ]]; then
-                        sudo $pacmanBin -Su
+                        runasroot $pacmanBin -Su
                         pacaur -S -u -a
                     elif [[ $(echo $result | grep -v "error: target not found") == "" ]]; then
                         failed "Package(s) ${colorW}$@${reset} not found in repositories, trying ${colorM}aur${reset}..."
                         pacaur -S -u -a $@
                     else
-                        sudo $pacmanBin -Su $@
+                        runasroot $pacmanBin -Su $@
                     fi
                 else
-                    sudo $pacmanBin -Su $@
+                    runasroot $pacmanBin -Su $@
                 fi
             ;;
             esac
@@ -918,27 +929,36 @@ main() {
             case $3 in
             -a | --aur)
                 shift 3
-                sudo $pacmanBin -Sy
+                runasroot $pacmanBin -Sy
                 pacaur -y -e $@
             ;;
             -r | --repo)
                 shift 3
-                sudo $pacmanBin -Sy $@
+                runasroot $pacmanBin -Sy $@
             ;;
             -u | --sysupgrade)
                 case $4 in
                 -a | --aur)
                     shift 4
-                    sudo $pacmanBin -Syu # fallback here
+                    runasroot $pacmanBin -Syu # fallback here
                     pacaur -u -e $@
                 ;;
                 -r | --repo)
                     shift 4
-                    sudo $pacmanBin -Syu
+                    runasroot $pacmanBin -Syu
+                ;;
+                --devel)
+                    if $fallback; then
+                        shift 4
+                        runasroot $pacmanBin -Syu $@
+                        pacaur -u -e --devel $@
+                    else
+                        runasroot $pacmanBin -Syu $@
+                    fi
                 ;;
                 *)
                     shift 3
-                    sudo $pacmanBin -Syu $@
+                    runasroot $pacmanBin -Syu $@
                     if $fallback; then
                         pacaur -S -u -a $@
                     fi
@@ -947,7 +967,7 @@ main() {
             ;;
             *)
                 shift 2
-                sudo $pacmanBin -Sy $@ # no fallback here
+                runasroot $pacmanBin -Sy $@ # no fallback here
             esac
         ;;
         -a | --aur)
@@ -956,7 +976,7 @@ main() {
         ;;
         -r | --repo)
             shift 2
-            sudo $pacmanBin -S $@
+            runasroot $pacmanBin -S $@
         ;;
         *)
             shift
@@ -966,10 +986,10 @@ main() {
                     failed "Package(s) ${colorW}$@${reset} not found in repositories, trying ${colorM}aur${reset}..."
                     pacaur -S -a $@
                 else
-                    sudo $pacmanBin -S $@
+                    runasroot $pacmanBin -S $@
                 fi
             else
-                sudo $pacmanBin -S $@
+                runasroot $pacmanBin -S $@
             fi
         esac
     ;;
@@ -1270,22 +1290,22 @@ main() {
         pacaur -Q -u -r $@
     ;;
     -D* | --database)
-        sudo $pacmanBin $@
+        runasroot $pacmanBin $@
     ;;
     -Q* | --query)
         $pacmanBin $@
     ;;
     -R* | --remove)
-        sudo $pacmanBin $@
+        runasroot $pacmanBin $@
     ;;
     -S* | --sync)
-        sudo $pacmanBin $@
+        runasroot $pacmanBin $@
     ;;
     -T* | --deptest)
-        sudo $pacmanBin $@
+        runasroot $pacmanBin $@
     ;;
     -U* | --upgrade)
-        sudo $pacmanBin $@
+        runasroot $pacmanBin $@
     ;;
     -V | --Version)
         $pacmanBin $@
@@ -1295,7 +1315,7 @@ main() {
         $pacmanBin $@
     ;;
     --*)
-        sudo $pacmanBin $@
+        runasroot $pacmanBin $@
     ;;
     *)
         usage
