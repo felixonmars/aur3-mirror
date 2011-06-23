@@ -5,10 +5,10 @@
 #
 
 name="pacaur"
-version="1.1.0"
+version="1.1.1"
 description="A simple cower wrapper to fetch PKGBUILDS from aur & abs"
 author="Remy Marquis"
-date="22/06/2011"
+date="23/06/2011"
 
 #
 # Default config
@@ -28,6 +28,8 @@ colorB="\e[1;34m"
 colorM="\e[1;35m"
 colorC="\e[1;36m"
 colorW="\e[1;37m"
+
+tmpdir="${TMPDIR:-/tmp}/pacaurtmp-$UID"
 
 #
 # Source user config
@@ -146,6 +148,12 @@ CheckRepo() {
     fi
 }
 
+DownloadPkgbuild() {
+    if ! [[ -f "$tmpdir/$package.PKGBUILD" ]]; then
+        curl -Lfs "https://aur.archlinux.org/packages/$package/PKGBUILD" > "$tmpdir/$package.PKGBUILD"
+    fi
+}
+
 UpgradeAur() {
     notice "${colorW}Starting AUR upgrade...${reset}"
     CheckUpdatesAur=$($pacaur -u $@ | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
@@ -154,16 +162,30 @@ UpgradeAur() {
     if $devel; then
         aurpkgs=( $($pacmanBin -Qmq) )
         Qversion=($(expac -Q %v ${aurpkgs[@]}))
-        Qname=($(expac -Q %n ${aurpkgs[@]}))
+
+        # set tmpdir
+        mkdir -p "$tmpdir"
 
         local i=0
         for package in ${aurpkgs[@]}; do
-            if [[ ${Qversion[$i]} =~ [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9] ]]; then
-                aurdevel=("${aurdevel[@]}" "${Qname[$i]}")
-                notice "${colorW}${Qname[$i]} ${colorY}${Qversion[$i]} ${reset}"
-            fi
+            DownloadPkgbuild ${aurpkgs[$i]} &
+            nap
             ((i++))
         done
+        wait
+        local j=0
+        for package in ${aurpkgs[@]}; do
+            unset _darcstrunk _cvsroot _gitroot _svntrunk _bzrtrunk _hgroot
+            . "$tmpdir/$package.PKGBUILD"
+            if [[ ${_darcstrunk} || ${_cvsroot} || ${_gitroot} || ${_svntrunk} || ${_bzrtrunk} || ${_hgroot} ]]; then
+                aurdevel=("${aurdevel[@]}" "${aurpkgs[$j]}")
+                notice "${colorW}${aurpkgs[$j]} ${colorY}${Qversion[$j]} ${reset}"
+            fi
+            ((j++))
+        done
+
+        # clean tmpdir
+        rm -rf "$tmpdir" &>/dev/null
 
         CheckUpdatesAur=("${CheckUpdatesAur[@]}" "${aurdevel[@]}")
         CheckUpdatesAur=$(echo ${CheckUpdatesAur[@]} | awk -F "\n" '{print}' | awk -F " " '{print}')
@@ -286,6 +308,13 @@ MakePkgs() {
         else
             error "Could not open ${colorW}$j${reset} PKGBUILD"
         fi
+    done
+}
+
+nap() {
+    while (( $(jobs | wc -l) >= 10 )); do
+        sleep 0.1
+        jobs > /dev/null
     done
 }
 
@@ -572,6 +601,31 @@ main() {
             ;;
             esac
         ;;
+        --devel)
+            case $3 in
+            -e | --edit)
+                shift 3
+                devel=true
+                UpgradeAur
+                DownloadDepsAur $u -f
+                EditPkgs $u
+                force=true
+                installPkg=true
+                MakePkgs $u 
+                CleanUp $u
+            ;;
+            *)
+                shift 2
+                devel=true
+                UpgradeAur
+                DownloadDepsAur $u -f
+                force=true
+                installPkg=true
+                MakePkgs $u 
+                CleanUp $u
+            ;;
+            esac
+        ;;
         *)
             shift
             UpgradeAur
@@ -833,8 +887,9 @@ main() {
                 sudo $pacmanBin -Su $@
             ;;
             --devel)
-                shift 3
-                if $fallback;then
+                if $fallback; then
+                    shift 5
+                    sudo $pacmanBin -Su $@
                     pacaur -S -u -a --devel $@
                 else
                     echo "$pacmanBin: unrecognized option '--devel'"
@@ -1018,7 +1073,7 @@ main() {
         ;;
         --devel)
             if $fallback;then
-                pacaur -S -u -a --devel $@
+                pacaur -S -u --devel $@
             else
                 echo "$pacmanBin: unrecognized option '--devel'"
             fi
