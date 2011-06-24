@@ -7,7 +7,7 @@
 . /etc/rc.d/functions
 . /etc/conf.d/foldingathome-gpu
 
-PID=`pidof -o %PPID Folding@home-Win32-GPU.exe`
+PID=`pidof -o %PPID Folding@home-Win32-gpu.exe`
 
 function pause(){
 read -s -n 1 -p "Press any key to continue . . ."
@@ -22,7 +22,7 @@ if [ "$FAH_GPUS" -ge 1 ]; then
   echo "Client 1 needs to be configured!"
   pause
   cd /opt/fah-gpu/alpha
-  WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe -configonly $GPU_TYPE
+  WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe -configonly $GPU_TYPE
  fi
 fi
 if [ "$FAH_GPUS" -ge 2 ]; then
@@ -103,42 +103,42 @@ fi
 function runem(){
 if [ "$FAH_GPUS" -ge 1 ]; then
  cd /opt/fah-gpu/alpha
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 0 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 0 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 2 ]; then
  cd /opt/fah-gpu/bravo
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 1 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 1 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 3 ]; then
  cd /opt/fah-gpu/charlie
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 2 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 2 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 4 ]; then
  cd /opt/fah-gpu/delta
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 3 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 3 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 5 ]; then
  cd /opt/fah-gpu/echo
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 4 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 4 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 6 ]; then
  cd /opt/fah-gpu/foxtrot
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 5 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 5 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 7 ]; then
  cd /opt/fah-gpu/golf
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 6 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 6 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 if [ "$FAH_GPUS" -ge 8 ]; then
  cd /opt/fah-gpu/hotel
- WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-GPU.exe $GPU_TYPE -gpu 7 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
+ WINEPREFIX=/opt/fah-gpu/ wine /opt/fah-gpu/Folding@home-Win32-gpu.exe $GPU_TYPE -gpu 7 $FAH_CLIENT_FLAGS >> /dev/null 2>&1 &
  sleep 1
 fi
 }
