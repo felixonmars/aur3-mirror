@@ -29,13 +29,15 @@ if not pynotify.init("mounty"):
 
 class application:
     def __init__(self):
+# Begin XFCEpatch
 #        self.ind = appindicator.Indicator ("mounty", "mounty", appindicator.CATEGORY_APPLICATION_STATUS)
 #        self.ind.set_status (appindicator.STATUS_ACTIVE)
-
         self.statusIcon = gtk.StatusIcon()
         self.statusIcon.set_from_stock(gtk.STOCK_CDROM)
         self.statusIcon.set_visible(True)
         self.statusIcon.set_tooltip("Mounty")
+        self.statusIcon.connect("popup-menu", self.on_right_click)
+# End XFCEpatch
 
         self.isos = {}
         
@@ -142,23 +144,33 @@ class application:
         item.show()
         menu.append(item)
                 
-        item = gtk.MenuItem(_('Quit'))
-        item.connect("activate", self.quit)
-        item.show()
-        menu.append(item)
+# Begin XFCEpatch
+#        item = gtk.MenuItem(_('Quit'))
+#        item.connect("activate", self.quit)
+#        item.show()
+#        menu.append(item)
 #        self.ind.set_menu(menu)
         try:
             self.statusIcon.disconnect(self.handlerid)
         except:
             pass
-        self.handlerid = self.statusIcon.connect('popup-menu', self.popup_menu_cb, menu)
+        self.handlerid = self.statusIcon.connect("activate", self.on_left_click, menu)
 
-    def popup_menu_cb(self, widget, button, time, data = None):
-        if button == 3:
-            if data:
-                data.show_all()
-                data.popup(None, None, gtk.status_icon_position_menu, 3, time, self.statusIcon)
+    def on_left_click(self, widget, data):
+        data.show_all()
+        data.popup(None, None, gtk.status_icon_position_menu, 1, gtk.get_current_event_time(), self.statusIcon)
 
+    def on_right_click(self, button, time, data):
+        quit_menu = gtk.Menu()
+        quit_menu_item = gtk.MenuItem("Quit")
+        quit_menu_item.connect("activate", self.on_quit, self.statusIcon)
+        quit_menu.append(quit_menu_item)
+        quit_menu.show_all()
+        quit_menu.popup(None, None, gtk.status_icon_position_menu, 1, gtk.get_current_event_time(), self.statusIcon)
+
+    def on_quit(self, widget, event):
+        gtk.main_quit()
+# End XFCEpatch
         
     def show_about(self, widget, data = None):
         about = gtk.AboutDialog()
