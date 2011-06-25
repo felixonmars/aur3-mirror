@@ -11,6 +11,8 @@
 #                                                                            #
 #  Distributed under the terms of the GNU General Public License (GPL)       #
 
+[[ -f /sbin/splash-functions.sh ]] || return 0
+	
 ## Parameters for the time based part of shutdown progress (miliseconds)
 
 SPLASH_SLEEP_INTERVAL=500
@@ -40,11 +42,25 @@ typeset -A SPLASH_STEPS_BUSY
 # set up busy steps assoc. array and count steps
 # for triggering splash progress and events
 splash_initscript_svcs_get() {        # args: <initscript> ['list']
-	local fd line msg svc
+	local fd line msg svc func_name=""
 	exec {fd}<"$1" || return
+	# assoc. array containing the last busy message for each function name
+	local -A func_msgs=()
+	while read line; do
+		# start of function definition
+		if [[ $line =~ ^(function[[:blank:]]+)?([-_[:alnum:]]+)[[:blank:]]*'()' ]]; then
+			func_name=${BASH_REMATCH[2]}
+		# end of function definition
+		elif [[ $line = '}'* ]]; then
+			func_name=""
+		# busy message within function body
+		elif [[ $func_name ]] && msg=$( splash_match_busymsg "$line" ); then
+			func_msgs[$func_name]=$msg
+		fi
+	done < /etc/rc.d/functions
 	while read -u $fd line ; do
 		# Daemon start/stop with literal daemon name (for customized rc.{sysinit,shutdown})
-		if [[ $line =~ (^|[[:space:]])(start|stop)_(daemon|daemon_bkgd)[[:space:]]+([^\$[:space:]]+)([[:space:]]|$) ]]; then
+		if [[ $line =~ (^|[[:blank:]])(start|stop)_(daemon|daemon_bkgd)[[:blank:]]+([^\$[:blank:]]+)([[:blank:]]|$) ]]; then
 			svc=${BASH_REMATCH[4]}
 			msg="${BASH_REMATCH[2]}_${BASH_REMATCH[3]} $svc" # command string
 			# Do not print nor count backgrounded
@@ -53,10 +69,9 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 			else
 				(( SPLASH_STEPS++ ))
 			fi
-		else
-			# Busy-Message
-			[[ $line =~ (^|[[:space:]])(stat_busy|status)[[:space:]]+(\"([^\"]+)\")? ]] || continue
-			msg=${BASH_REMATCH[4]}
+		# Busy-Message or function call with known message
+		elif msg=$( splash_match_busymsg "$line" ) || 
+		     msg=$( splash_get_funcmsg "$line" ) ; then
 			# Sort out skipped
 			case $msg
 			in *SIGTERM* | *SIGKILL* ) continue # time based progress
@@ -67,6 +82,9 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 			[[ ${SPLASH_STEPS_BUSY[$svc]} ]] && continue
 			# Set up busy steps assoc. array
 			SPLASH_STEPS_BUSY[$svc]=$((++SPLASH_STEPS))
+			
+		else
+			continue
 		fi
 		# Print full list
 		case ${2} in list )
@@ -76,24 +94,17 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 		# Sort out some inactive
 		# ignoring /proc, /sys and kernel parameters which might be not mounted (or wrong if mkinitcpio)
 		case $msg
-		in "Loading Modules"      ) [[ ${MODULES[@]/!*/} ]]
-		;; *SoftRAID*             ) [[ $USEMDADM  =~ yes|YES && -x /sbin/mdadm  ]]
-		;; *FakeRAID*             ) [[ $USEDMRAID =~ yes|YES && -x /sbin/dmraid ]]
-		;; *BTRFS*                ) [[ $USEBTRFS  =~ yes|YES && -x /sbin/btrfs  ]]
-		;; *LVM2*                 ) [[ $USELVM    =~ yes|YES && -x /sbin/lvm    ]]
-		;; *encrypted*            ) splash_test_file -f /etc/crypttab
-		;; "Checking Filesystems" ) [[ -x /sbin/fsck ]]
-		;; *"Time Zone"*          ) [[ $TIMEZONE ]]
-		;; "Setting Hostname"*    ) [[ $HOSTNAME ]]
-		;; "Setting NIS Domain Name"* )
-			( [[ -r /etc/conf.d/nisdomainname ]] && . /etc/conf.d/nisdomainname; [[ $NISDOMAINNAME ]] )
+		in "Loading Modules"       ) [[ -f /proc/modules ]] && (( ${#MODULES[*]} ))
+		;; *FakeRAID*              ) [[ $USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
+		;; *BTRFS*                 ) [[ $USEBTRFS  = [Yy][Ee][Ss] && -x $(type -P btrfs) ]]
+		;; *LVM2*                  ) [[ $USELVM    = [Yy][Ee][Ss] && -x $(type -P lvm) && -d /sys/block ]]
+		;; *encrypted*             ) [[ $CS ]] && splash_test_file -f /etc/crypttab
+		;; "Checking Filesystems"  ) [[ -x $(type -P fsck) ]]
+		;; *"Time Zone"*           ) [[ $TIMEZONE ]]
+		;; "Setting Hostname"*     ) [[ $HOSTNAME ]]
 		;; "Loading Keyboard Map"* ) [[ $KEYMAP ]]
 		;; "Setting Consoles to UTF-8 mode"  )   [[ ${LOCALE,,} =~ utf ]]
 		;; "Setting Consoles to legacy mode" ) ! [[ ${LOCALE,,} =~ utf ]]
-		;; "Adding persistent cdrom udev rules" )
-			[ -f /dev/.udev/tmp-rules--70-persistent-cd.rules ]
-		;; "Adding persistent network udev rules" )
-			[ -f /dev/.udev/tmp-rules--70-persistent-net.rules ]
 		esac || continue
 		# echo a service name
 		echo $svc
@@ -103,8 +114,19 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 
 # Test a file and check if it contains any significant lines
 splash_test_file() {            # args: <test-operator> <file> [<regex>]
-	local regex=${3:-'[[:space:]]*[^#[:space:]].*'}
+	local regex=${3:-'[[:blank:]]*[^#[:blank:]].*'}
 	test ${1} "${2}" && [[ $( <"${2}" ) =~ (^|$'\n')${regex}($'\n'|$) ]]
+}
+
+splash_match_busymsg() {
+	[[ $1 =~ (^|[[:blank:]])(stat_busy|status)[[:blank:]]+(\"([^\"]+)\")? ]] &&
+	echo "${BASH_REMATCH[4]}"
+}
+
+splash_get_funcmsg() {
+	[[ $1 =~ ^(if[[:blank:]]+)?([-_[:alnum:]]+)([[:blank:]]|$) ]] || return 1
+	local msg=${func_msgs[${BASH_REMATCH[2]}]}
+	[[ $msg ]] && echo "$msg"
 }
 
 # Generate a 'service' name from a initscript stat_busy message text
@@ -130,9 +152,11 @@ splash_msg_to_svc() {           # args: <message>
 	fi
 	# Convert whitespace
 	svc=${svc//[ $'\t']/_}
-	# Fix remaining non-matches
+	# Fix very long and remaining non-matches
 	case $svc
-	in   mount_filesystems ) svc=mount_local_filesystems
+	in   adjust_system_time_and_setting_kernel_timezone ) svc=adjust_system_time
+	;;   mount_filesystems                 ) svc=mount_local_filesystems
+	;;   remount_root_filesystem_read-only ) svc=mount_root_read-only
 	esac
 	# Use some 'namespace' to allow distinguishing from daemons
 	echo _init_$svc
@@ -246,8 +270,11 @@ splash_cache_prep_initcpio() {
 splash_cache_write() {
 	(
 		[[ $spl_cachedir ]] && cd "$spl_cachedir" && /bin/mountpoint -q . || exit 1
-		file=$1; shift
-		if (( $# > 0 )); then echo "$@"; fi >>"${file}"
+		file=$1
+		shift
+		if (( $# )); then
+			echo "$@"
+		fi >>"${file}"
 	)
 }
 
@@ -284,7 +311,8 @@ splash_exit_boot() {
 		set_consolefont
 	# Prevent X from doing a chvt back to uggly console on exit
 	elif [[ $SPLASH_EXIT_TYPE = staysilent && $( /usr/bin/fgconsole ) != $SPLASH_TTY ]]; then
-		splash_msg "Switching to splash tty for starting X"; chvt $SPLASH_TTY
+		splash_msg "Switching to splash tty for starting X"
+		chvt $SPLASH_TTY
 	fi
 }
 
@@ -313,7 +341,8 @@ splash_fsck_push_d() {
 		fsck_pgr_msg=""
 		fsck_comm_pid=""
 		while :; do
-			read -t 2 phase step total fs; ret=$?
+			read -t 2 phase step total fs
+			ret=$?
 			if (( ret == 0 )); then
 				new_pgr=$(( 100 * step / total ))
 				(( new_pgr == fsck_pgr )) && continue
@@ -321,14 +350,20 @@ splash_fsck_push_d() {
 				fsck_pgr_msg="[ ${fs}  phase ${phase}  ${fsck_pgr}% ]"
 				# avoid Fbsplash autoverbose
 				if [[ ! $spl_pgr_pid ]]; then
-					( comm_pid=""; while /bin/sleep .5; do [[ $comm_pid ]] && kill $comm_pid
-						echo progress $spl_pgr >"${spl_fifo}" & comm_pid=$!
-					done ) &
+					(
+						comm_pid=""
+						while /bin/sleep .5; do
+							[[ $comm_pid ]] && kill $comm_pid
+							echo progress $spl_pgr >"${spl_fifo}" &
+							comm_pid=$!
+						done
+					) &
 					spl_pgr_pid=$!
 				fi
 			else
 				if [[ $spl_pgr_pid ]]; then
-					kill $spl_pgr_pid; spl_pgr_pid=""
+					kill $spl_pgr_pid
+					spl_pgr_pid=""
 				fi
 				if (( ret <= 128 )); then # not a timeout
 					break
@@ -351,12 +386,14 @@ splash_fsck_push_d() {
 
 splash_start_daemon() {
 	splash svc_start "$1"
-	/etc/rc.d/"$1" start; local retval=$?
+	/etc/rc.d/"$1" start
+	local retval=$?
 	if [[ -e $spl_cachedir/start_failed-$1 ]]; then
 		splash svc_start_failed $1 $retval
 	else
 		if [[ $1 = gpm ]]; then
-			splash_comm_send set gpm; splash_comm_send repaint
+			splash_comm_send set gpm
+			splash_comm_send repaint
 		fi
 		splash svc_started "$1" $retval
 	fi
@@ -448,7 +485,8 @@ splash_verbose() {
 # Bashified for speed
 splash_profile() {
 	[[ $SPLASH_PROFILE = on ]] || return 0
-	local time rest; read time rest </proc/uptime
+	local time rest
+	read time rest </proc/uptime
 	echo "$time: $*" >>$spl_cachedir/profile
 }
 
@@ -472,8 +510,7 @@ splash_exit() {
 			sleep .1
 			# Fadeout/Stop the daemon
 			splash_comm_send exit $SPLASH_EXIT_TYPE
-			splash_wait $spl_daemon &&
-				/bin/rm -f $spl_pidfile
+			splash_wait $spl_daemon && /bin/rm -f $spl_pidfile
 			ret=$?
 		else
 			splash_msg "No Fbsplash daemon running!"
@@ -555,7 +592,8 @@ start_daemon() {
 	if [[ $1 = $SPLASH_XSERVICE ]]; then
 		SPLASH_EXIT_TYPE=staysilent splash_exit_boot
 	fi
-	splash_start_daemon "$1"; local retval=$?
+	splash_start_daemon "$1"
+	local retval=$?
 	# Only step if SPLASH_STEPS is set (not exported!)
 	if (( SPLASH_STEPS > 0 )); then
 		(( SPLASH_STEPS_DONE++ ))
@@ -575,7 +613,8 @@ start_daemon_bkgd() {
 
 stop_daemon() {
 	splash svc_stop "$1"
-	/etc/rc.d/"$1" stop; local retval=$?
+	/etc/rc.d/"$1" stop
+	local retval=$?
 	if [[ -e $spl_cachedir/stop_failed-$1 ]]
 	then splash svc_stop_failed "$1" $retval
 	else splash svc_stopped     "$1" $retval
@@ -586,9 +625,8 @@ stop_daemon() {
 		splash_update_progress
 	fi
 	# Change to console after Xorg exit if going Singe-user or to restore 'verbose on errors'
-	if [[ $1 = $SPLASH_XSERVICE && \
-	    ( $0 = /etc/rc.single || \
-	      $SPLASH_VERBOSE_ON_ERRORS = yes && -e $spl_cachedir/stop_failed-fbsplash-dummy ) ]]; then
+	if [[ $1 = $SPLASH_XSERVICE && ( $0 = /etc/rc.single || $SPLASH_VERBOSE_ON_ERRORS = yes &&
+			-e $spl_cachedir/stop_failed-fbsplash-dummy ) ]]; then
 		splash_wait /usr/bin/Xorg
 		splash_verbose # chvt
 	fi
@@ -691,7 +729,7 @@ in /etc/rc.sysinit )
 	}
 	splash_sysinit_prefsck() {
 		stat_append " (progress forwarded to Fbsplash)"
-		echo # newline!                                        ## FIXME ##
+		echo # newline!
 		splash_fsck_push_d
 	}
 	splash_sysinit_postfsck() {
@@ -770,7 +808,8 @@ in /etc/rc.sysinit )
 		   ck_daemon $SPLASH_XSERVICE; then # *no* 'daemon' to stop
 			splash_wait /usr/bin/Xorg
 			if [[ $( $spl_bindir/fgconsole ) = $SPLASH_TTY ]]; then
-				splash_msg "Switching away from splash tty to enable fadein"; chvt 63
+				splash_msg "Switching away from splash tty to enable fadein"
+				chvt 63
 			fi
 		fi
 		# Set up step counting and start splash
@@ -778,7 +817,8 @@ in /etc/rc.sysinit )
 		splash  rc_init shutdown
 		# Prevent gpm from garbling the splash
 		if ! ck_daemon gpm; then
-			splash_comm_send set gpm; splash_comm_send repaint
+			splash_comm_send set gpm
+			splash_comm_send repaint
 		fi
 	}
 	splash_shutdown_prekillall() {
