@@ -11,7 +11,6 @@ user=greylist
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-
 # See if the daemon is present
 test -x "$daemon" || exit 0
 
@@ -28,26 +27,21 @@ case "$1" in
 	    exit 1
 	fi
 
-	echo -n "Starting greylisting daemon: "
 	start-stop-daemon --start --background \
 	    --chuid "$user" \
 	    --pidfile "$pidfile" --make-pidfile \
-	    --exec "$daemon" &&
-	    echo "${daemon##*/}."
+	    --exec "$daemon"
         add_daemon greylistd
         stat_done
 	;;
 
-
     stop)
-	echo -n "Stopping greylisting daemon: "
+	stat_busy "Stopping Greylistd"
 	start-stop-daemon --stop --pidfile "$pidfile" &&
-	    rm -f "$pidfile" &&
-	    echo "${daemon##*/}."
+	    rm -f "$pidfile"
         rm_daemon greylistd
         stat_done
 	;;
-
 
     reload|force-reload)
 	"$client" reload
@@ -57,13 +51,11 @@ case "$1" in
 	"$client" stats
 	;;
 
-
     restart)
 	$0 stop
 	sleep 2
 	$0 start
 	;;
-
 
     *)
 	echo "Usage: $0 {start|stop|restart|reload|force-reload|status}" >&2
