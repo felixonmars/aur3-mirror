@@ -1,6 +1,6 @@
 pkgname=nexuspersonal
 pkgver=4.18.0.10751
-pkgrel=1
+pkgrel=3
 pkgdesc="BankID software for Linux"
 url="http://www.bankid.com"
 license=('custom')
@@ -8,6 +8,7 @@ arch=('i686')
 source=('https://install.bankid.com/InstallBankidCom/InstallFiles/personal-4.18.0.10751.tar.gz')
 md5sums=('6af3664fac24f1c4e8d185d2a23c7d1c')
 depends=('libsm' 'gtk2' 'bash' 'zlib' 'libidn' 'libpng12')
+install='nexuspersonal.install'
 
 build() {
     cd $startdir/src/personal-$pkgver
@@ -50,4 +51,5 @@ build() {
     ln -s $REAL_INSTALL_DIR/personal/personal.sh $PKG_DIR/usr/local/bin/personal
     ln -s $REAL_INSTALL_DIR/personal/persadm.sh $PKG_DIR/usr/local/bin/persadm
     ln -s $REAL_INSTALL_DIR/personal/libplugins.so $PKG_DIR/usr/lib/mozilla/plugins/libplugins.so
+
 }
