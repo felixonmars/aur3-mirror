@@ -21,7 +21,7 @@ _svnmod=aegisub
 
 build() {
   cd "$srcdir"
-  
+
   if [ -d $_svnmod ]; then
     cd $_svnmod && svn up
   else
@@ -33,11 +33,11 @@ build() {
   fi
 
   cp -r "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
-  
+
   cd "$srcdir/$_svnmod-build"
-  
+
   ICONV_LIBS="-lidn" ./autogen.sh --prefix=/usr \
-  --with-player-audio=openal --without-{portaudio,alsa,oss}
+    --with-player-audio=openal --without-{portaudio,alsa,oss}
 
   make
 }
@@ -48,11 +48,11 @@ package() {
 
   # menu icon and mimetype fix
   sed -i -e 's/Icon=aegisub/Icon=\/usr\/share\/icons\/hicolor\/scalable\/apps\/aegisub.svg/' \
-	-e 's/application\/x-srt/application\/x-subrip/' \
-	 "$pkgdir"/usr/share/applications/aegisub.desktop
+  -e 's/application\/x-srt/application\/x-subrip/' \
+  "$pkgdir"/usr/share/applications/aegisub.desktop
 
   # install the BSD license, although it is ruled by GPL according to the wiki:
   # (http://www.malakith.net/aegiwiki/Subtitling_software_comparison)
   install -D -m644 "$srcdir"/license.txt \
-      "$pkgdir"/usr/share/licenses/$_pkgname/license.txt
+    "$pkgdir"/usr/share/licenses/$_pkgname/license.txt
 }
