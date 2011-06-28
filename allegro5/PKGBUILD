@@ -1,7 +1,7 @@
 # Contributor: Nicolas Martyanoff <khaelin@gmail.com>
-
+# Maintainer: Clayton G. Hobbs <clay@lakeserv.net>
 pkgname=allegro5
-pkgver=5.0.0
+pkgver=5.0.3
 pkgrel=1
 pkgdesc="The last version of the Allegro multimedia library"
 arch=(i686 x86_64)
@@ -11,7 +11,7 @@ depends=('libsndfile' 'libjpeg' 'libxcursor' 'libgl' 'libpng' 'libvorbis' 'mesa'
 makedepends=('cmake')
 provides=('allegro5')
 source=(http://kent.dl.sourceforge.net/sourceforge/alleg/allegro-$pkgver.tar.gz)
-md5sums=('99ef472e2f99972d5e833794bf2f57bf')
+md5sums=('159ca85ea51c0447d951d720b06079f2')
 
 build() {
   cd ${startdir}/src/allegro-$pkgver
