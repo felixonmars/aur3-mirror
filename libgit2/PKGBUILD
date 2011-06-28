@@ -1,30 +1,31 @@
 # Maintainer: Dave Reisner <d@falconindy.com>
 
 pkgname=libgit2
-pkgver=0.12.0
+pkgver=0.13.0
 pkgrel=1
 pkgdesc="A linkable library for Git"
 arch=('i686' 'x86_64')
 url="http://libgit2.github.com/"
 depends=('zlib')
-makedepends=('python')
+makedepends=('cmake')
 license=('GPL2')
 source=("$pkgname-$pkgver.tar.gz::https://www.github.com/libgit2/libgit2/tarball/v$pkgver")
-md5sums=('fce95228dde9a0022dd45772842ba1b4')
+md5sums=('086e58c8f324c289eb940b2bfcc05194')
 
 build() {
   dirname=$(tar tf "$srcdir/$pkgname-$pkgver.tar.gz" | sed 1q);
 
   cd "$srcdir/$dirname"
 
-  ./waf configure --prefix=/usr
-  ./waf
+  mkdir build && cd build
+  builddir=`pwd`
+  cmake .. -DCMAKE_INSTALL_PREFIX=/usr
+  make || return 1
 }
 
 package() {
   dirname=$(tar tf "$srcdir/$pkgname-$pkgver.tar.gz" | sed 1q);
-
-  cd "$srcdir/$dirname"
-  ./waf install --destdir="$pkgdir"
+  cd "$srcdir/$dirname/build"
+  make DESTDIR="$pkgdir" install
 }
 # vim: ft=sh syn=sh
