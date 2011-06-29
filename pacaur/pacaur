@@ -5,8 +5,7 @@
 #
 
 name="pacaur"
-version="2.0.0"
-description="A simple cower wrapper to fetch PKGBUILDS from aur & abs"
+version="2.1.0"
 
 #
 # Default config
@@ -73,7 +72,7 @@ runasroot() {
 }
 
 SearchAur() {
-    $cower -s $@
+    [[ $quiet ]] && $cower -sq --color=never $@ || $cower -s $@
 }
 
 InfoAur() {
@@ -136,7 +135,7 @@ CheckRepo() {
 
 UpgradeAur() {
     notice "${colorW}Starting AUR upgrade...${reset}"
-    pkgs=$($cower -u $@ | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+    pkgs=$($cower -u ${ignorepkgs[@]} $@ | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
     # add devel packages
     if [[ $devel ]]; then
@@ -178,25 +177,21 @@ UpgradeAur() {
 
     ErrorExit $pkgs
 
-    echo -e "\nProceed with installation? [Y/n]"
+    echo -ne "\nProceed with installation? [Y/n] "
     
-    while true; do
+    if ! [[ $noconfirm ]]; then
         read yn
         case $yn in
-        [Yy]* | Yes | yes)
-            pkgs=${pkgs}
-            break
-        ;;
-        [Nn]* | No | no)
-            exit
-            break
+        [Yy]|[Yy]es|'')
+            return
         ;;
         *)
             exit
-            break
         ;;
         esac
-    done
+    else
+        echo ""
+    fi
 }
 
 CopyAbs() {
@@ -212,7 +207,7 @@ CopyAbs() {
 }
 
 EditPkgs() {
-    if [[ $edit ]]; then
+    if [[ $edit && ! $noedit ]]; then
     for i in "$@"
     do
         if [ -e $buildDir/$i/PKGBUILD ]; then
@@ -269,7 +264,7 @@ MakePkgs() {
             notice "Building ${colorW}$j${reset} package..."
             cd $buildDir/$j
             if [[ $install ]]; then
-                $makepkg -sfi
+                $makepkg -sfi ${pacopts[@]}
                 # if AUR dep, install as --asdeps
                 # if upgrade, do no change status
                 if [[ ! $upgrade ]]; then
@@ -280,11 +275,11 @@ MakePkgs() {
                         fi
                     done
                     if [[ $isexpl != true ]]; then
-                        runasroot $pacmanBin -D --asdeps $j &>/dev/null
+                        runasroot $pacmanBin -D --asdeps $j ${pacopts[@]} &>/dev/null
                     fi
                 fi
             else
-                $makepkg -sf
+                $makepkg -sf ${pacopts[@]}
             fi
         else
             error "Could not open ${colorW}$j${reset} PKGBUILD"
@@ -337,7 +332,7 @@ usage() {
     echo "   -b, --build     use existing PKGBUILD and make target(s)"
     echo "   -m, --makepkg   download and make target(s)"
     echo "   -y, --sync      download, make and install target(s)"
-    echo "   -q, --check     check for AUR update(s)"
+    echo "   -k, --check     check for AUR update(s)"
     echo "   -u, --update    update AUR package(s)"
     echo "   -abs, --abs     copy target(s) from ABS directory to build directory"
     echo ""
@@ -350,7 +345,11 @@ usage() {
     echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Syu operations"
     echo "   -r, --repo      only search or install packages from the repositories"
     echo "   -a, --aur       only search or install packages from the AUR"
-    echo "   --devel         update AUR devel packages -- can be combined with the -Su flag"
+    echo "   -q, --quiet     show less information for query and search"
+    echo "   --devel         consider AUR developement packages upgrade"
+    echo "   --ignore        ignore a package upgrade (can be used more than once)"
+    echo "   --noconfirm     do not prompt for any confirmation"
+    echo "   --noedit        do not prompt to edit files"
     echo ""
     echo "general options:"
     echo "   -v, --version   display version information"
@@ -360,8 +359,7 @@ usage() {
 }
 
 version() {
-    echo -e "\n    ${colorW}$name ${colorG}$version${reset}"
-    echo -e "    $description\n"
+    echo "$name $version"
 }
 
 
@@ -380,13 +378,15 @@ while [[ $1 ]]; do
         '-b'|'--build') operation=build ;;
         '-m'|'--makepkg') operation=makepkg ;;
         '-y'|'--sync') operation=makepkg ; install=true ;;
-        '-q'|'--check') operation=check ;;
+        '-k'|'--check') operation=check ;;
         '-u'|'--update') operation=makepkg; upgrade=true; force=true; install=true ;;
         '-abs'|'--abs') operation=abs ;;
         '-c'|'--clean') clean=true; cleanpkg=true ;;
         '-f'|'--force') force=true ;;
         '-e'|'--edit') edit=true ;;
+        '-q'|'--quiet') quiet=true ;;
         # shortcuts
+        '-sq') operation=search; quiet=true ;;
         '-ii') operation=info; count='2' ;;
         '-dd') operation=download; count='2' ;;
         '-df') operation=download; count=$[$count+1]; force=true ;;
@@ -422,6 +422,9 @@ while [[ $1 ]]; do
         '-Sr') option=sync; install=true; force=true; edit=true; repo='1' ;;
         '-Ssa') option=search; aur='1' ;;
         '-Ssr') option=search; repo='1' ;;
+        '-Ssq') option=search; quiet=true ;;
+        '-Ssqa'|'-Ssaq') option=search; quiet=true; aur='1' ;;
+        '-Ssqr'|'-Ssrq') option=search; quiet=true; repo='1' ;;
         '-Sia') option=info; count=$[$count+1]; aur='1' ;;
         '-Sir') option=info; count=$[$count+1]; repo='1' ;;
         '-Siia') option=info; count='2'; aur='1' ;;
@@ -437,6 +440,9 @@ while [[ $1 ]]; do
         # others
         '--devel') devel=true ;;
         '--asroot') asroot=true ;;
+        '--ignore') ignorepkgs+=("--ignore" "$2") ; shift ;;
+        '--noconfirm') noconfirm=true; pacopts+=("--noconfirm") ;;
+        '--noedit') noedit=true ;;
         -D* | '--database') runasroot $pacmanBin $@; exit ;;
         -Q* | '--query') $pacmanBin $@; exit ;;
         -R* | '--remove') runasroot $pacmanBin $@; exit ;;
@@ -465,12 +471,8 @@ Core() {
 }
 
 # sanity check
-if [[ ! -d $buildDir ]]; then
-  error "Build directory does not exist!\nCheck configuration in /etc/${name}.conf"
-fi
-if [[ ! -f /usr/bin/$pacmanBin ]]; then
-  error "Pacman binary does not exist!\nCheck configuration in /etc/${name}.conf"
-fi
+[[ ! -d $buildDir ]] && error "Build directory does not exist!\nCheck configuration in /etc/${name}.conf"
+[[ ! -f /usr/bin/$pacmanBin ]] && error "Pacman binary does not exist!\nCheck configuration in /etc/${name}.conf"
 
 # search (-s) handling
 if [[ $operation = search ]]; then
@@ -511,7 +513,7 @@ if [[ $operation = makepkg ]]; then
     exit
 fi
 
-# check (-q) handling
+# check (-k) handling
 if [[ $operation = check ]]; then
     CheckAur ${pkgs[@]}
     exit
@@ -537,14 +539,14 @@ if [[ $option = sync ]]; then
             [[ $aur ]] && Core ${pkgs[@]} || error "no results found for ${colorW}${pkgs[@]}${reset}"
         fi
     else
-        [[ ! $aur ]] && [[ $install ]] && runasroot $pacmanBin -S ${pkgs[@]} || [[ ! $aur ]] && [[ ! $install ]] && runasroot $pacmanBin -Sw ${pkgs[@]}
+        [[ ! $aur ]] && [[ $install ]] && runasroot $pacmanBin -S ${pacopts[@]} ${pkgs[@]} || [[ ! $aur ]] && [[ ! $install ]] && runasroot $pacmanBin -Sw ${pacopts[@]} ${pkgs[@]}
     fi
     exit
 fi
 
 # pacman search (-Ss) handling
 if [[ $option = search ]]; then
-        [[ ! $aur ]] && $pacmanBin -Ss ${pkgs[@]}
+        [[ ! $aur ]] && [[ ! $quiet ]] && $pacmanBin -Ss ${pkgs[@]} || [[ ! $aur ]] && [[ $quiet ]] && $pacmanBin -Ssq ${pkgs[@]}
         if [[ $fallback = true ]]; then
             [[ ! $repo ]] && SearchAur ${pkgs[@]}
         else
@@ -573,7 +575,7 @@ fi
 # pacman sysupgrade (-Su) handling
 # pacman refresh (-Sy) handling
 if [[ $option = sysupgrade ]]; then
-    [[ ! $aur ]] && runasroot $pacmanBin "$pacmanarg"
+    [[ ! $aur ]] && runasroot $pacmanBin $pacmanarg ${pacopts[@]} ${ignorepkgs[@]}
     if [[ $fallback = true ]]; then
         [[ ! $repo ]] && [[ $upgrade ]] && UpgradeAur
         [[ ! $repo ]] && Core ${pkgs[@]}
@@ -596,7 +598,7 @@ if [[ $option = upgrades ]]; then
 fi
 
 # edit (-e) handling
-if [[ $edit ]]; then
+if [[ $edit && ! $noedit ]]; then
     EditPkgs ${pkgs[@]}
     exit
 fi

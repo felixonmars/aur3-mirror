@@ -12,8 +12,8 @@
 #  Distributed under the terms of the GNU General Public License (GPL)       #
 
 [[ -f /sbin/splash-functions.sh ]] || return 0
-	
-## Parameters for the time based part of shutdown progress (miliseconds)
+
+## Parameters for the time based part of shutdown progress (milliseconds)
 
 SPLASH_SLEEP_INTERVAL=500
 # sum of the rc.shutdown SIGTERM/SIGKILL sleeps devided by the interval
@@ -42,91 +42,110 @@ typeset -A SPLASH_STEPS_BUSY
 # set up busy steps assoc. array and count steps
 # for triggering splash progress and events
 splash_initscript_svcs_get() {        # args: <initscript> ['list']
-	local fd line msg svc func_name=""
-	exec {fd}<"$1" || return
-	# assoc. array containing the last busy message for each function name
+	local file_fd cmd_line msg
+	# build assoc. array containing all the busy message text lines for each function name
+	exec {file_fd}< <(
+		# grep for:
+		# * left aligned function beginnings/endings
+		# * status message commands
+		unset GREP_OPTIONS
+		LC_ALL=C grep -owE '^\w+ *\(\)[^}]*$|^\}|stat(us|_busy) "[^"]*"' /etc/rc.d/functions 2>/dev/null
+	)
 	local -A func_msgs=()
-	while read line; do
-		# start of function definition
-		if [[ $line =~ ^(function[[:blank:]]+)?([-_[:alnum:]]+)[[:blank:]]*'()' ]]; then
-			func_name=${BASH_REMATCH[2]}
-		# end of function definition
-		elif [[ $line = '}'* ]]; then
+	local func_name=""
+	while read -u $file_fd cmd_line; do
+		case $cmd_line
+		# start of function definition (left aligned)
+		in *\(\)* )
+			func_name=${cmd_line%%[( ]*}
+			continue
+		# end of function definition (left aligned)
+		;; '}'* )
 			func_name=""
-		# busy message within function body
-		elif [[ $func_name ]] && msg=$( splash_match_busymsg "$line" ); then
-			func_msgs[$func_name]=$msg
-		fi
-	done < /etc/rc.d/functions
-	while read -u $fd line ; do
-		# Daemon start/stop with literal daemon name (for customized rc.{sysinit,shutdown})
-		if [[ $line =~ (^|[[:blank:]])(start|stop)_(daemon|daemon_bkgd)[[:blank:]]+([^\$[:blank:]]+)([[:blank:]]|$) ]]; then
-			svc=${BASH_REMATCH[4]}
-			msg="${BASH_REMATCH[2]}_${BASH_REMATCH[3]} $svc" # command string
-			# Do not print nor count backgrounded
-			if [[ ${BASH_REMATCH[3]} == daemon_bkgd ]]; then
-				[[ $2 = list ]] && continue
-			else
-				(( SPLASH_STEPS++ ))
-			fi
-		# Busy-Message or function call with known message
-		elif msg=$( splash_match_busymsg "$line" ) || 
-		     msg=$( splash_get_funcmsg "$line" ) ; then
-			# Sort out skipped
+		esac
+		[[ $func_name ]] || continue
+		# status message command line within function
+		msg=$( splash_match_busymsg "$cmd_line" ) || continue
+		# Store one (pseudo) busy message text line
+		func_msgs[$func_name]+=$msg$'\n'
+	done
+	exec {file_fd}<&-
+	exec {file_fd}< <(
+		# grep for:
+		# * status message commands
+		# * calls of known functions
+		func_names=${!func_msgs[*]}
+		func_names_re=${func_names// /|}
+		unset GREP_OPTIONS
+		LC_ALL=C grep -owE 'stat(us|_busy) "[^"]*"|(^\t*|if |;) *'"$func_names_re" "$1"
+	)
+	local msgs
+	while read -u $file_fd cmd_line ; do
+		# Get one or more busy message text lines
+		msgs=$( splash_match_busymsg "$cmd_line" ) ||
+		msgs=$( splash_get_funcmsgs "$cmd_line" ) || continue
+		local msgs_fd svc
+		exec {msgs_fd}< <( echo "$msgs" )
+		while read -u $msgs_fd -r msg; do
 			case $msg
-			in *SIGTERM* | *SIGKILL* ) continue # time based progress
+			in *SIGTERM* | *SIGKILL* )
+				continue # skip - time based progress
 			esac
 			# Generate a 'service' name
 			svc=$( splash_msg_to_svc "$msg" )
 			# Skip ignored steps and any dupes
 			[[ ${SPLASH_STEPS_BUSY[$svc]} ]] && continue
 			# Set up busy steps assoc. array
-			SPLASH_STEPS_BUSY[$svc]=$((++SPLASH_STEPS))
-			
-		else
-			continue
-		fi
-		# Print full list
-		case ${2} in list )
-			echo $SPLASH_STEPS $svc "$msg"
-			continue
-		esac
-		# Sort out some inactive
-		# ignoring /proc, /sys and kernel parameters which might be not mounted (or wrong if mkinitcpio)
-		case $msg
-		in "Loading Modules"       ) [[ -f /proc/modules ]] && (( ${#MODULES[*]} ))
-		;; *FakeRAID*              ) [[ $USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
-		;; *BTRFS*                 ) [[ $USEBTRFS  = [Yy][Ee][Ss] && -x $(type -P btrfs) ]]
-		;; *LVM2*                  ) [[ $USELVM    = [Yy][Ee][Ss] && -x $(type -P lvm) && -d /sys/block ]]
-		;; *encrypted*             ) [[ $CS ]] && splash_test_file -f /etc/crypttab
-		;; "Checking Filesystems"  ) [[ -x $(type -P fsck) ]]
-		;; *"Time Zone"*           ) [[ $TIMEZONE ]]
-		;; "Setting Hostname"*     ) [[ $HOSTNAME ]]
-		;; "Loading Keyboard Map"* ) [[ $KEYMAP ]]
-		;; "Setting Consoles to UTF-8 mode"  )   [[ ${LOCALE,,} =~ utf ]]
-		;; "Setting Consoles to legacy mode" ) ! [[ ${LOCALE,,} =~ utf ]]
-		esac || continue
-		# echo a service name
-		echo $svc
+			SPLASH_STEPS_BUSY[$svc]=$(( ++SPLASH_STEPS ))
+			# Print full list
+			if [[ $2 = list ]]; then
+				echo $SPLASH_STEPS $svc "$msg"
+				continue
+			fi
+			# Sort out some inactive
+			# ignoring kernel parameters and /proc, /sys which might be not mounted (or wrong if mkinitcpio)
+			case $msg
+			in "Adjusting system time"* ) [[ $HARDWARECLOCK =~ ^(|UTC|localtime)$ ]]
+			;; "Loading Modules"        ) (( ${#MODULES[*]} ))
+			;; *FakeRAID*               ) [[ $USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
+			;; *BTRFS*                  ) [[ $USEBTRFS  = [Yy][Ee][Ss] && -x $(type -P btrfs) ]]
+			;; *LVM2*                   ) [[ $USELVM    = [Yy][Ee][Ss] && -x $(type -P lvm) && -d /sys/block ]]
+			;; *encrypted*              ) [[ $CS ]] && splash_test_file -f /etc/crypttab
+			;; "Checking Filesystems"   ) [[ -x $(type -P fsck) ]]
+			;; *"Time Zone"*            ) [[ $TIMEZONE ]]
+			;; "Setting Hostname"*      ) [[ $HOSTNAME ]]
+			;; "Loading Keyboard Map"*  ) [[ $KEYMAP ]]
+			;; "Setting Consoles to UTF-8 mode"  )   [[ ${LOCALE,,} =~ utf ]]
+			;; "Setting Consoles to legacy mode" ) ! [[ ${LOCALE,,} =~ utf ]]
+			esac || continue
+			# echo a service name
+			echo $svc
+		done
+		exec {msgs_fd}<&-
 	done
-	exec {fd}<&-
+	exec {file_fd}<&-
 }
 
-# Test a file and check if it contains any significant lines
+# Test a configuration file and check if it contains any significant lines
 splash_test_file() {            # args: <test-operator> <file> [<regex>]
 	local regex=${3:-'[[:blank:]]*[^#[:blank:]].*'}
 	test ${1} "${2}" && [[ $( <"${2}" ) =~ (^|$'\n')${regex}($'\n'|$) ]]
 }
 
+# Get busy message (if any) from given command line
+# otherwise return 1
 splash_match_busymsg() {
-	[[ $1 =~ (^|[[:blank:]])(stat_busy|status)[[:blank:]]+(\"([^\"]+)\")? ]] &&
-	echo "${BASH_REMATCH[4]}"
+	[[ $1 =~ ^(stat_busy|status)\ +\"(.*)\" ]] || return 1
+	echo "${BASH_REMATCH[2]}"
 }
 
-splash_get_funcmsg() {
-	[[ $1 =~ ^(if[[:blank:]]+)?([-_[:alnum:]]+)([[:blank:]]|$) ]] || return 1
-	local msg=${func_msgs[${BASH_REMATCH[2]}]}
-	[[ $msg ]] && echo "$msg"
+# Get busy message text lines for function called in given command line
+# (if any) from assoc. array, otherwise return 1
+splash_get_funcmsgs() {
+	[[ $1 =~ (^|.*[\t; ])(.+) ]] || return 1
+	local msgs=${func_msgs[${BASH_REMATCH[2]}]}
+	[[ $msgs ]] || return 1
+	echo -n "$msgs"
 }
 
 # Generate a 'service' name from a initscript stat_busy message text

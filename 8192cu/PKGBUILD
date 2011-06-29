@@ -12,7 +12,7 @@ install='install.8192cu'
 md5sums=('8bb0c1c9614e2a20b878c56096bfad11' 'd6bf00749f8b2f95cb3600366982f371' '7fde0e422cee13edc0c8a61a578ff469')
 fileprefix=''
 
-login="WebUser:fH7s5YL"
+login="WebUser:2mG8dBW"
 mirror1=58.211.24.153
 mirror2=202.134.71.21
 mirror3=207.232.93.28
