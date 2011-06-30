@@ -1,29 +1,20 @@
 # Contributor: Tocer Deng <tocer.deng@gmail.com>
 pkgname=acnchess
-_mainver=0.0.1
-_subver=69
-pkgver=${_mainver}_${_subver}
-pkgrel=5
+pkgver=0.0.1
+pkgrel=6
 pkgdesc="another Chinese chess game coded by Alf"
 arch=('i686' 'x86_64')
-url="http://code.google.com/p/acnchess/"
+url="http://naihe2010.github.com/acnchess"
 license=('GPL2')
-depends=('gtk2>=2.6.0' 'rpmextract' 'openssl')
-source=("http://acnchess.googlecode.com/files/$pkgname-${_mainver}-${_subver}.src.rpm")
-md5sums=('a21cd520eaab3ceeb0604704f10da869')
+depends=('gtk2>=2.6.0' 'openssl')
+source=("https://github.com/downloads/naihe2010/acnchess/$pkgname-$pkgver.tar.gz")
+md5sums=('4db844ea4c036cf51223c86b77cf3d1c')
 
 build() {
-  # compile fail if delele the following lines
-  export LDFLAGS="${LDFLAGS//-Wl,--as-needed}"
-  export LDFLAGS="${LDFLAGS//,--as-needed}"
-  export LDFLAGS="${LDFLAGS//--as-needed}"
-
-  cd $srcdir
-  rpmextract.sh $pkgname-${_mainver}-${_subver}.src.rpm
-  bsdtar -xf $pkgname-${_mainver}.tar.gz
-  cd "$srcdir/$pkgname-${_mainver}"
-
-  ./configure --prefix=/usr
+  cd $srcdir/$pkgname-$pkgver
+  mkdir -p build
+  cd build
+  cmake .. 
   make || return 1
   make DESTDIR="$pkgdir/" install
 }
