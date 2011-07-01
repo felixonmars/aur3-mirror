@@ -1,54 +1,77 @@
-# $Id: PKGBUILD 73155 2010-03-23 10:23:39Z jgc $
 # Contributor: Jakub Schmidtke <sjakub@gmail.com>
 
 pkgname=firefox-qt
-pkgver=3.6.3
-pkgrel=2
-_xulver=1.9.2.3
+pkgver=5.0
+pkgrel=1
 pkgdesc="Standalone web browser from mozilla.org"
-arch=(i686 x86_64)
+arch=('i686' 'x86_64')
 license=('MPL' 'GPL' 'LGPL')
-depends=("xulrunner-qt=${_xulver}" 'desktop-file-utils')
-makedepends=('zip' 'pkgconfig' 'diffutils' 'qt' 'python' 'wireless_tools' 'patch')
-replaces=('firefox3')
-install=firefox.install
+depends=('qt' 'gcc-libs' 'libidl2' 'mozilla-common' 'nss>=3.12.10' 'libxt'
+         'libxrender' 'hunspell' 'startup-notification' 'mime-types' 'dbus-glib'
+         'alsa-lib' 'libevent' 'sqlite3>=3.7.4' 'desktop-file-utils'
+         'libvpx' 'lcms' 'nspr>=4.8.8' 'libevent' 'libpng' 'cairo')
+makedepends=('zip' 'pkg-config' 'diffutils' 'python2' 'wireless_tools'
+             'yasm' 'mesa' 'autoconf2.13' 'xorg-server-xvfb')
+provides=("firefox=$pkgver")
+conflicts=('firefox')
 url="http://www.mozilla.org/projects/firefox"
+install=firefox.install
 source=(http://releases.mozilla.org/pub/mozilla.org/firefox/releases/${pkgver}/source/firefox-${pkgver}.source.tar.bz2
-        mozconfig
-        firefox-qt.desktop
-        firefox-qt-safe.desktop
-        mozilla-firefox-1.0-lang.patch
-        browser-defaulturls.patch
-        firefox-version.patch)
-
-md5sums=('5e4541ab23084b7b14ba228291ce2688'
-         'c3a62a73278a069fff0f16e391f79670'
-         '55d930b5bec8778d222d0a7946bdd676'
-         'a2958ad90a26e16f66508d91b43d2683'
-         'bd5db57c23c72a02a489592644f18995'
-         '8bf21158090c89fd834bb711aae0602e'
-         '78b9b0bded64cff20a73d8a3ad3fc38b')
+        mozconfig firefox.desktop mozilla-firefox-1.0-lang.patch)
+md5sums=('9f64a01e86a5d424e12a8e3305c5debe'
+         '253309f9ab07e704e0a9c092114c2de5'
+         'bdeb0380c7fae30dd0ead6d2d3bc5873'
+         'bd5db57c23c72a02a489592644f18995')
 
 build() {
-  cd "${srcdir}/mozilla-1.9.2"
-  patch -Np1 -i "${srcdir}/mozilla-firefox-1.0-lang.patch"
-  patch -Np0 -i "${srcdir}/browser-defaulturls.patch"
-  patch -Np1 -i "${srcdir}/firefox-version.patch"
+  cd "$srcdir/mozilla-release"
 
-  cp "${srcdir}/mozconfig" .mozconfig
-  unset CFLAGS
-  unset CXXFLAGS
+  cp "$srcdir/mozconfig" .mozconfig
+  patch -Np1 -i "$srcdir/mozilla-firefox-1.0-lang.patch"
 
-  export LDFLAGS="-Wl,-rpath,/opt/ffqt/lib/firefox-3.6"
+  # Kill @PRE_RELEASE_SUFFIX@ from browser.xul because it
+  # gets set to \177 for an unknown reason
+  sed -i 's/@PRE_RELEASE_SUFFIX@//g' \
+    browser/base/content/browser.xul
 
-  make -j1 -f client.mk build MOZ_MAKE_FLAGS="${MAKEFLAGS}" || return 1
-  make -j1 DESTDIR="${pkgdir}" install || return 1
+  ## Don't generate startup cache. Unbreaks make install
+  sed -i 's/^GENERATE_CACHE .*/GENERATE_CACHE = true/' \
+    toolkit/mozapps/installer/packager.mk
 
-  rm -f ${pkgdir}/opt/ffqt/lib/firefox-3.6/libjemalloc.so
+  export LDFLAGS="-Wl,-rpath,/usr/lib/firefox-$pkgver -Wl,-O1,--sort-common,--hash-style=gnu,--as-needed"
+  export PYTHON="/usr/bin/python2"
 
-  install -m755 -d ${pkgdir}/opt/ffqt/share/applications
-  install -m755 -d ${pkgdir}/opt/ffqt/share/pixmaps
-  install -m644 ${srcdir}/mozilla-1.9.2/browser/branding/unofficial/default48.png ${pkgdir}/opt/ffqt/share/pixmaps/firefox.png || return 1
-  install -m644 ${srcdir}/firefox-qt.desktop ${pkgdir}/opt/ffqt/share/applications/ || return 1
-  install -m644 ${srcdir}/firefox-qt-safe.desktop ${pkgdir}/opt/ffqt/share/applications/ || return 1
+  # PGO
+  sed -i '/^NO_PROFILE_GUIDED_OPTIMIZE = 1$/d' \
+    memory/jemalloc/Makefile.in
+  echo 'LDFLAGS += -lX11 -lXrender' \
+    >> layout/build/Makefile.in
+
+  make -j1 -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS"
+
+  LD_PRELOAD="" /usr/bin/Xvfb -nolisten tcp -extension GLX :99 &
+  LD_PRELOAD="" DISPLAY=:99 make -j1 -f client.mk profiledbuild MOZ_MAKE_FLAGS="$MAKEFLAGS"
+  kill $! || true
+}
+
+package() {
+  cd "$srcdir/mozilla-release"
+  make -j1 -f client.mk DESTDIR="$pkgdir" install
+
+  for i in 16x16 22x22 24x24 32x32 48x48 256x256; do
+      install -Dm644 other-licenses/branding/firefox/default${i/x*/}.png \
+        "$pkgdir/usr/share/icons/hicolor/$i/apps/firefox.png"
+  done
+
+  install -Dm644 "$srcdir/firefox.desktop" \
+    "$pkgdir/usr/share/applications/firefox.desktop"
+
+  # Remove included dictionaries, add symlink to system myspell path
+  # Note: this will cause file conflicts when users have installed dictionaries in the old location
+  rm -rf "${pkgdir}/usr/lib/firefox-$pkgver/dictionaries"
+  ln -sf /usr/share/myspell/dicts \
+    "${pkgdir}/usr/lib/firefox-$pkgver/dictionaries"
+
+  # We don't want the development stuff
+  rm -r "$pkgdir"/usr/{include,lib/firefox-devel-$pkgver,share/idl}
 }
