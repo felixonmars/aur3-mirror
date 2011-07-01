@@ -1,13 +1,13 @@
+# Maintainer: Leif Warner <abimelech@gmail.com>
 # Contributor: Christophe Gueret <christophe.gueret@gmail.com>
 pkgname=4store-git
-pkgver=20100217
+pkgver=20110701
 pkgrel=1
 pkgdesc="4store is an efficient, scalable and stable RDF database"
 arch=('i686' 'x86_64')
 url="http://4store.org/"
 license=('GPL')
-depends=('raptor' 'rasqal' 'glib2' 'libxml2' 'pcre' 'ncurses' 'readline')
-optdepends=('avahi')
+depends=('rasqal-latest' 'avahi')
 makedepends=('git')
 provides=('4store')
 conflicts=('4store')
@@ -37,9 +37,13 @@ build() {
   # BUILD HERE
   #
 
-  find -name 'Makefile' -exec sed -i'' -e's/local\///' {} \;
+  export LDFLAGS=${LDFLAGS//-Wl,--as-needed}
+  ./autogen.sh
+  ./configure --prefix=/usr
+  make
+}
 
-  ./configure
-  make || return 1
+package() {
+  cd "$srcdir/$_gitname-build"
   make DESTDIR="$pkgdir/" install
 } 
