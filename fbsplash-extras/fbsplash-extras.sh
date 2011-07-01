@@ -13,35 +13,35 @@
 
 [[ -f /sbin/splash-functions.sh ]] || return 0
 
-## Parameters for the time based part of shutdown progress (milliseconds)
-
-SPLASH_SLEEP_INTERVAL=500
-# sum of the rc.shutdown SIGTERM/SIGKILL sleeps devided by the interval
-SPLASH_SLEEP_STEPS=$(( ( 5000 + 1000 ) / SPLASH_SLEEP_INTERVAL ))
-
-## Set up splash-functions and configuration
+# Set up splash-functions and configuration
 
 # Only do this where needed,
 # since we use BASH, all important functions and variables are exported.
 if ! [[ $( type -t splash_setup ) = function ]]; then
 	# splash-functions.sh will run splash_setup which needs /proc
 	# code line copied from /etc/rc.sysinit
-	/bin/mountpoint -q /proc || /bin/mount -n -t proc proc /proc -o nosuid,noexec,nodev
+	mountpoint -q /proc || mount -n -t proc proc /proc -o nosuid,noexec,nodev
 	export SPLASH_PUSH_MESSAGES SPLASH_VERBOSE_ON_ERRORS
 	# /etc/conf.d/splash is also sourced by this
 	. /sbin/splash-functions.sh
-	# eliminate some non local vars from splash_setup    ## FIXME ##
+	# eliminate some non local splash_setup varsiables             ## FIXME ##
 	unset options opt i
 fi
 
-typeset -A SPLASH_STEPS_BUSY
+# Extra functions
 
-## Extra functions
+# Assoc. array of booleans
+# '1' if stat_busy block should trigger a progress step
+# '0' if already seen
+# indexed by rc.{sysinit,shutdown} pseudo service names
+declare -A SPLASH_STEPS_BUSY=()
 
-# Get a (rough) list of 'services' to start/stop from given initscript,
-# set up busy steps assoc. array and count steps
-# for triggering splash progress and events
-splash_initscript_svcs_get() {        # args: <initscript> ['list']
+# Generate a (rough) list of pseudo services from given initscript and functions
+# Count steps
+# Set up the assoc. array
+# Echo the list
+# args: <initscript> ['list']
+splash_initscript_svcs_get() {
 	local file_fd cmd_line msg
 	# build assoc. array containing all the busy message text lines for each function name
 	exec {file_fd}< <(
@@ -87,38 +87,44 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 		local msgs_fd svc
 		exec {msgs_fd}< <( echo "$msgs" )
 		while read -u $msgs_fd -r msg; do
-			case $msg
-			in *SIGTERM* | *SIGKILL* )
-				continue # skip - time based progress
-			esac
-			# Generate a 'service' name
+			# Generate a pseudo service name
 			svc=$( splash_msg_to_svc "$msg" )
 			# Skip ignored steps and any dupes
 			[[ ${SPLASH_STEPS_BUSY[$svc]} ]] && continue
-			# Set up busy steps assoc. array
-			SPLASH_STEPS_BUSY[$svc]=$(( ++SPLASH_STEPS ))
 			# Print full list
 			if [[ $2 = list ]]; then
-				echo $SPLASH_STEPS $svc "$msg"
+				SPLASH_STEPS_BUSY[$svc]=1
+				echo $(( ++SPLASH_STEPS )) $svc "$msg"
 				continue
 			fi
-			# Sort out some inactive
-			# ignoring kernel parameters and /proc, /sys which might be not mounted (or wrong if mkinitcpio)
-			case $msg
-			in "Adjusting system time"* ) [[ $HARDWARECLOCK =~ ^(|UTC|localtime)$ ]]
-			;; "Loading Modules"        ) (( ${#MODULES[*]} ))
-			;; *FakeRAID*               ) [[ $USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
-			;; *BTRFS*                  ) [[ $USEBTRFS  = [Yy][Ee][Ss] && -x $(type -P btrfs) ]]
-			;; *LVM2*                   ) [[ $USELVM    = [Yy][Ee][Ss] && -x $(type -P lvm) && -d /sys/block ]]
-			;; *encrypted*              ) [[ $CS ]] && splash_test_file -f /etc/crypttab
-			;; "Checking Filesystems"   ) [[ -x $(type -P fsck) ]]
-			;; *"Time Zone"*            ) [[ $TIMEZONE ]]
-			;; "Setting Hostname"*      ) [[ $HOSTNAME ]]
-			;; "Loading Keyboard Map"*  ) [[ $KEYMAP ]]
-			;; "Setting Consoles to UTF-8 mode"  )   [[ ${LOCALE,,} =~ utf ]]
-			;; "Setting Consoles to legacy mode" ) ! [[ ${LOCALE,,} =~ utf ]]
-			esac || continue
-			# echo a service name
+			# Sort out as much inactive as possible
+			(
+				# Conditional expressions code snipplets copied from initscripts
+				# (with some refactoring)
+				# Note: Kernel stuff tests like /proc, /sys, cmdline might be wrong
+				#       in case of mkinitcpio if kernel configuration differs.
+				#       (This would cause progress to be a bit more jumpy.)
+				# * ignore exact wording
+				# * ignore upper/lowercase changes except for common uppercase abbreviations
+				shopt -s nocasematch
+				case "$msg ${msg,,} ${msg,,}"
+				in *system*time*    ) [[ $HARDWARECLOCK =~ ^(|UTC|localtime)$ ]]
+				;; *modules*        ) [[ -f /proc/modules ]] && (( ${#MODULES[*]} ))
+				;; *RAID*           ) [[ $USEDMRAID = [Yy][Ee][Ss] && -x $(type -P dmraid) ]]
+				;; *BTRFS*          ) [[ $USEBTRFS  = [Yy][Ee][Ss] && -x $(type -P btrfs) ]]
+				;; *LVM*            ) [[ $USELVM    = [Yy][Ee][Ss] && -x $(type -P lvm) && -d /sys/block ]]
+				;; *crypt*          ) [[ -f /etc/crypttab && $CS ]] && grep -q ^[^#] /etc/crypttab
+				;; *filesys*check*  ) [[ -x $(type -P fsck) ]]
+				;; *time*zone*      ) [[ $TIMEZONE ]]
+				;; *host*name*      ) [[ $HOSTNAME ]]
+				;; *keyboard*       ) [[ $KEYMAP ]]
+				;; *UTF*8*console*  )   [[ ${LOCALE,,} =~ utf ]]
+				;; *legacy*console* ) ! [[ ${LOCALE,,} =~ utf ]]
+				esac
+			) || continue
+			SPLASH_STEPS_BUSY[$svc]=1
+			(( SPLASH_STEPS++ ))
+			# Echo pseudo service name
 			echo $svc
 		done
 		exec {msgs_fd}<&-
@@ -126,14 +132,7 @@ splash_initscript_svcs_get() {        # args: <initscript> ['list']
 	exec {file_fd}<&-
 }
 
-# Test a configuration file and check if it contains any significant lines
-splash_test_file() {            # args: <test-operator> <file> [<regex>]
-	local regex=${3:-'[[:blank:]]*[^#[:blank:]].*'}
-	test ${1} "${2}" && [[ $( <"${2}" ) =~ (^|$'\n')${regex}($'\n'|$) ]]
-}
-
-# Get busy message (if any) from given command line
-# otherwise return 1
+# Get busy message (if any) from given command line otherwise return 1
 splash_match_busymsg() {
 	[[ $1 =~ ^(stat_busy|status)\ +\"(.*)\" ]] || return 1
 	echo "${BASH_REMATCH[2]}"
@@ -148,8 +147,9 @@ splash_get_funcmsgs() {
 	echo -n "$msgs"
 }
 
-# Generate a 'service' name from a initscript stat_busy message text
-splash_msg_to_svc() {           # args: <message>
+# Generate a pseudo service name from a initscript stat_busy message text
+# args: <message>
+splash_msg_to_svc() {
 	local msg=${1}
 	msg=${msg,,*}    # make lowercase
 	msg=${msg%%:*}   # remove variables part
@@ -181,85 +181,76 @@ splash_msg_to_svc() {           # args: <message>
 	echo _init_$svc
 }
 
-# Write list file for splash_svclist_get,
-# set up progress steps assoc. array and count steps
+# * Set up progress steps assoc. array
+# * Count steps and if sysinit, write to file(s)
+# * If not already there from initcpio, write svclist file
+#   (for themes using splash_svclist_get)
 splash_svc_init() {
 	splash_profile info splash_svc_init $1
 	case $1
 	in sysinit )
+		local svclist_file=$spl_cachedir/svcs_start
+		[[ -f $svclist_file ]] && svclist_file=/dev/null
 		SPLASH_STEPS=0
-		SPLASH_STEPS_BUSY=()
-		# rc.sysinit 'services'
-		splash_initscript_svcs_get /etc/rc.sysinit >|$spl_cachedir/svcs_start
+		# pseudo services
+		splash_initscript_svcs_get /etc/rc.sysinit >|$svclist_file
 		echo $SPLASH_STEPS >|$spl_cachedir/steps_sysinit
-		# save assoc. array in case we're called from mkinitcpio
-		(
-			echo 'SPLASH_STEPS_BUSY=('
-			for key in "${!SPLASH_STEPS_BUSY[@]}"; do
-				echo "  ['$key']=${SPLASH_STEPS_BUSY[$key]}"
-			done
-			echo ')'
-		) >|$spl_cachedir/steps_busy.bash
-		# rc.multi services
-		(( SPLASH_STEPS++ )) # rc.local
+		# rc.local
+		(( SPLASH_STEPS++ ))
+		# daemon services
 		local daemon
 		for daemon in "${DAEMONS[@]}"; do
 			case $daemon
-			in $SPLASH_XSERVICE | '@'$SPLASH_XSERVICE )
-				(( SPLASH_STEPS-- )) # revert rc.local
+			in '!'* )
+				continue
+			;; $SPLASH_XSERVICE | '@'$SPLASH_XSERVICE )
+				(( SPLASH_STEPS-- )) # rc.local won't be seen
 				break
-			;; '!'* ) continue
-			;; '@'* ) :
-			;;    * ) (( SPLASH_STEPS++ ))
+			;; [^@]* )
+				(( SPLASH_STEPS++ ))
 			esac
 			echo ${daemon#@}
-		done >>$spl_cachedir/svcs_start
+		done >>$svclist_file
 		echo $SPLASH_STEPS >|$spl_cachedir/steps_bootup
 	;; shutdown )
-		SPLASH_STEPS=0
-		SPLASH_STEPS_BUSY=()
-		local daemon
-		# daemons NOT in the DAEMONS array are shut down first
-		for daemon in /run/daemons/*; do
-			[[ -f $daemon ]] || continue
-			daemon=${daemon##*/}
-			in_array "$daemon" "${DAEMONS[@]}" && continue
-			(( SPLASH_STEPS++ ))
-			echo "$daemon"
-		done >|$spl_cachedir/svcs_stop
-		# remaining daemons in reverse order
-		local i
-		for (( i=${#DAEMONS[@]}-1; i>=0; i-- )) do
-			[[ ${DAEMONS[i]} == '!'* ]] && continue
-			daemon=${DAEMONS[i]#@}
-			ck_daemon "$daemon" && continue
-			(( SPLASH_STEPS++ ))
-			echo "$daemon"
-		done >>$spl_cachedir/svcs_stop
-		(( SPLASH_STEPS+=SPLASH_SLEEP_STEPS ))
-		# rc.shutdown 'services'
-		splash_initscript_svcs_get /etc/rc.shutdown >>$spl_cachedir/svcs_stop
+		local svclist_file=$spl_cachedir/svcs_stop
+		: >|$svclist_file
+		# rc.local.shutdown
+		SPLASH_STEPS=1
+		# daemon services
+		SPLASH_STEPS=$(
+			stop_daemon() {
+				(( SPLASH_STEPS++ ))
+				echo "$1" >>$svclist_file
+			}
+			stat_busy() { :; }
+			stat_done() { :; }
+			stat_fail() { :; }
+			killall5() { :; }
+			# run_hook() is readonly - just use empty hook lists
+			kill_everything splash_extras_noop
+			echo $SPLASH_STEPS
+		)
+		# pseudo services
+		splash_initscript_svcs_get /etc/rc.shutdown >>$svclist_file
 	esac
 }
 
 splash_busy_step() {
-	local step=${SPLASH_STEPS_BUSY[$SPLASH_BUSY_SVC]}
-	# ignore the step if splash not yet started
-	# or if empty SPLASH_STEPS_BUSY (not exported!)
-	if [[ -z $step ]]; then
-		SPLASH_STEPS_BUSY[$SPLASH_BUSY_SVC]=0
-	elif (( step > SPLASH_STEPS_DONE )); then
-		SPLASH_STEPS_DONE=$step
+	if (( SPLASH_STEPS_BUSY[$SPLASH_BUSY_SVC] )); then
+		(( SPLASH_STEPS_DONE++ ))
 		splash_update_progress
 	fi
+	# ignore the step if splash not yet started or when repeated
+	SPLASH_STEPS_BUSY[$SPLASH_BUSY_SVC]=0
 }
 
 # Function for preparing a cache (faking sysinit) for adding it to an initcpio
 splash_cache_prep_initcpio() {
 	(
-		SPLASH_MODE_REQ=silent
 		export PREVLEVEL=N RUNLEVEL=S
 		. /etc/rc.conf
+		SPLASH_MODE_REQ=silent
 		( splash_cache_prep ) || exit 1
 		splash_svc_init sysinit
 		declare -A done=()
@@ -275,7 +266,7 @@ splash_cache_prep_initcpio() {
 	if [[ $( trap -p EXIT ) =~ ^(trap )(-- )['](.*)[']( EXIT)|$ ]]; then
 		local cmd=${BASH_REMATCH[3]%;}
 		[[ $cmd ]] && cmd+="; "
-		# not using splash_cache_cleanup - fails silently in chroot because of mount --move
+		# not using splash_cache_cleanup - mount --move fails silently in chroot
 		trap "${cmd}umount ${spl_cachedir}" EXIT
 	else
 		splash_msg "WARNING: Unable to add commmand to exit trap for unmounting '$spl_cachedir'" >&2
@@ -288,7 +279,7 @@ splash_cache_prep_initcpio() {
 # args: <simple-file-name> [text]...
 splash_cache_write() {
 	(
-		[[ $spl_cachedir ]] && cd "$spl_cachedir" && /bin/mountpoint -q . || exit 1
+		[[ $spl_cachedir ]] && cd "$spl_cachedir" && mountpoint -q . || exit 1
 		file=$1
 		shift
 		if (( $# )); then
@@ -303,7 +294,8 @@ splash_msg() {
 }
 
 # Run theme hook script (if any)
-splash_run_hook() {             # args: 'pre'|'post' <event> [arg]...
+# args: 'pre'|'post' <event> [arg]...
+splash_run_hook() {
 	local hook_name=${2}-${1}
 	local hook_script=/etc/splash/$SPLASH_THEME/scripts/$hook_name
 	# source is faster, but not supported by old/foreign themes
@@ -321,26 +313,26 @@ splash_run_hook() {             # args: 'pre'|'post' <event> [arg]...
 
 # Deactivate splash and maybe prepare X start
 splash_exit_boot() {
-	if /bin/mountpoint -q $spl_cachedir; then
+	if mountpoint -q $spl_cachedir; then
 		SPLASH_STEPS_DONE=$SPLASH_STEPS
 		splash_update_progress
 		# Stop splash (or just run theme hooks in case of sysinit)
 		splash rc_exit
-		# The infamous blah-blah...
+		# Deferred from sysinit
 		set_consolefont
-	# Prevent X from doing a chvt back to uggly console on exit
-	elif [[ $SPLASH_EXIT_TYPE = staysilent && $( /usr/bin/fgconsole ) != $SPLASH_TTY ]]; then
+	# Prevent X from doing a chvt back to ugly console on exit
+	elif [[ $SPLASH_EXIT_TYPE = staysilent && $( fgconsole ) != $SPLASH_TTY ]]; then
 		splash_msg "Switching to splash tty for starting X"
 		chvt $SPLASH_TTY
 	fi
 }
 
-# Wait until timeout or given binary dies
+# Wait until given binary dies or timeout
 splash_wait() {
 	local i
 	for (( i=0; i<100; i++ )); do
-		[[ $( /bin/pidof -o %PPID "${1}" ) ]] || return 0
-		/bin/sleep .1
+		[[ $( pidof -o %PPID "${1}" ) ]] || return 0
+		sleep .1
 	done
 	splash_msg "Timeout waiting on '$1' to die!"
 	return 1
@@ -349,10 +341,10 @@ splash_wait() {
 # Get a file descriptor and start a daemon for pushing progress info
 # from 'fsck -C$FSCK_FD' to the splash status message line
 splash_fsck_push_d() {
-	[[ -w $spl_fifo && $( /bin/pidof -o %PPID $spl_daemon ) ]] || return
+	[[ -w $spl_fifo && $( pidof -o %PPID $spl_daemon ) ]] || return 1
 	local fsck_fifo=$spl_cachedir/fsck_fifo
 	# drop any old fifo and create a new one
-	/bin/rm -f $fsck_fifo && /bin/mkfifo -m 600 $fsck_fifo || return
+	rm -f $fsck_fifo && mkfifo -m 600 $fsck_fifo || return 1
 	(
 		spl_pgr=$(( 65535 * SPLASH_STEPS_DONE / SPLASH_STEPS ))
 		spl_pgr_pid=""
@@ -371,7 +363,7 @@ splash_fsck_push_d() {
 				if [[ ! $spl_pgr_pid ]]; then
 					(
 						comm_pid=""
-						while /bin/sleep .5; do
+						while sleep .5; do
 							[[ $comm_pid ]] && kill $comm_pid
 							echo progress $spl_pgr >"${spl_fifo}" &
 							comm_pid=$!
@@ -405,9 +397,9 @@ splash_fsck_push_d() {
 
 splash_start_daemon() {
 	splash svc_start "$1"
-	/etc/rc.d/"$1" start
+	have_daemon "$1" && /etc/rc.d/"$1" start
 	local retval=$?
-	if [[ -e $spl_cachedir/start_failed-$1 ]]; then
+	if (( retval )) || [[ -e $spl_cachedir/start_failed-$1 ]]; then
 		splash svc_start_failed $1 $retval
 	else
 		if [[ $1 = gpm ]]; then
@@ -419,27 +411,28 @@ splash_start_daemon() {
 	return $retval
 }
 
-## Don't go further if no splash is demanded (in kernel cmdline)
-## 'verbose' splash mode is handled by fbcondecor kernel patch and daemon script
+# Don't go further if no splash is demanded (in kernel cmdline)
+# 'verbose' splash mode is handled by fbcondecor daemon script
 
 [[ $SPLASH_MODE_REQ = silent ]] || return 0
 
-## Override some splash-functions
+# Override some splash-functions
 
 # This is the main function which handles splash events
-# Allow cache tmpfs already mounted
-# Don't write ugly generic messages to the splash log
-# Provide a general failure status (dummy service)
-# Support sourcing of theme hook scripts
+# Changes:
+# * Allow cache tmpfs already mounted
+# * Don't write ugly generic messages to the splash log
+# * Provide a general failure status (dummy service)
+# * Support sourcing of theme hook scripts
 # args: <event> [arg]...
 splash() {
-	[[ $SPLASH_MODE_REQ = off ]] && return
+	[[ $SPLASH_MODE_REQ = off ]] && return 0
 	local event=$1; shift
 	case $event
 	in   rc_init ) # args: sysinit|boot|shutdown
 		if [[ $1 != boot ]]; then
 			# rc_init-hooks may write some files - only allow with tmpfs mounted
-			/bin/mountpoint -q $spl_cachedir || ( splash_cache_prep ) || return
+			mountpoint -q $spl_cachedir || ( splash_cache_prep ) || return 1
 		fi
 		set -- "$1" $RUNLEVEL
 	;;   rc_exit )
@@ -464,9 +457,7 @@ splash() {
 		splash_comm_send update_svc fbsplash-dummy $event
 		splash_comm_send paint
 		# Simple/upstream way of error handling
-		if [[ $SPLASH_VERBOSE_ON_ERRORS = yes ]]; then
-			splash_verbose # chvt
-		fi
+		[[ $SPLASH_VERBOSE_ON_ERRORS = yes ]] && splash_verbose # chvt
 		# Save for chvt restore after X exit
 		splash_cache_write "${event#svc_}"-fbsplash-dummy
 	;;&  svc_* ) # args: <name> [exit-code]
@@ -483,11 +474,11 @@ splash() {
 }
 
 # Send a command to the splash daemon
-# Avoiding /bin/pidof here for speed
+# Using kill builtin instead of pidof binary for speed
 splash_comm_send() {
 	[[ -r $spl_pidfile ]] || return 1
 	if ! kill -0 $( <"$spl_pidfile" ) 2>&-; then
-		/bin/rm -f "$spl_pidfile"
+		rm -f "$spl_pidfile"
 		return 1
 	fi
 	splash_profile comm "$@"
@@ -496,9 +487,9 @@ splash_comm_send() {
 
 # Explain what's going on
 splash_verbose() {
-	if [[ $( $spl_bindir/fgconsole ) != 1 ]]; then
-		splash_msg "Switching to console"; chvt 1
-	fi
+	[[ $( $spl_bindir/fgconsole ) = 1 ]] && return 0
+	splash_msg "Switching to console"
+	chvt 1
 }
 
 # Bashified for speed
@@ -511,9 +502,8 @@ splash_profile() {
 
 # Finish the splash, stop the daemon and umount cache tmpfs
 splash_exit() {
-	if [[ $0 = /etc/rc.sysinit || $PREVLEVEL:$RUNLEVEL = N:S ]]; then
-		[[ $1 = force ]] || return 0
-	fi
+	# If not Single-user boot, just theme hooks are run
+	[[ $1 != single ]] && [[ $0 = /etc/rc.sysinit || $PREVLEVEL:$RUNLEVEL = N:S ]] && return 0
 	splash_profile info "splash_exit"
 	if [[ $SPLASH_MODE_REQ = silent ]]; then
 		# Reset status message
@@ -524,35 +514,34 @@ splash_exit() {
 		SPLASH_PUSH_MESSAGES="no" \
 			stat_busy "Stopping Fbsplash daemon"
 		local ret=1
-		if [[ $( /bin/pidof -o %PPID $spl_daemon ) ]]; then
+		if [[ $( pidof -o %PPID $spl_daemon ) ]]; then
 			# Let the daemon do the message update
 			sleep .1
 			# Fadeout/Stop the daemon
 			splash_comm_send exit $SPLASH_EXIT_TYPE
-			splash_wait $spl_daemon && /bin/rm -f $spl_pidfile
+			splash_wait $spl_daemon && rm -f $spl_pidfile
 			ret=$?
 		else
 			splash_msg "No Fbsplash daemon running!"
 		fi
-		if (( ret == 0 ))
-		then stat_done; splash_profile info "splash_exit done"
-		else stat_fail; splash_profile info "splash_exit failed"
+		if (( ret ))
+		then stat_fail; splash_profile info "splash_exit failed"
+		else stat_done; splash_profile info "splash_exit done"
 		fi
 	fi
 	# Umount the tmpfs copying most important files to the disk
-	# (for any remaining services theme hooks and also for debugging)
+	# (for any remaining services theme hooks and for debugging)
 	splash_cache_cleanup svcs_start steps_sysinit steps_bootup
 }
 
 # Do something usefull
 splash_update_progress() {
-	if (( SPLASH_STEPS > 0 )); then
-		splash_comm_send progress $(( 65535 * SPLASH_STEPS_DONE / SPLASH_STEPS ))
-		splash_comm_send paint
-	fi
+	(( SPLASH_STEPS > 0 )) || return 0
+	splash_comm_send progress $(( 65535 * SPLASH_STEPS_DONE / SPLASH_STEPS ))
+	splash_comm_send paint
 }
 
-## Override some initscripts functions
+# Override some initscripts functions
 
 stat_busy() {
 	printf "${C_OTHER}${PREFIX_REG} ${C_MAIN}${1}${C_CLEAR} "
@@ -626,15 +615,16 @@ start_daemon_bkgd() {
 		SPLASH_EXIT_TYPE=staysilent splash_exit_boot
 	fi
 	stat_bkgd "Starting $1"
+	have_daemon "$1" &&
 	( SPLASH_PUSH_MESSAGES="no" SPLASH_VERBOSE_ON_ERRORS="no" \
 		splash_start_daemon "$1" ) &>/dev/null &
 }
 
 stop_daemon() {
 	splash svc_stop "$1"
-	/etc/rc.d/"$1" stop
+	have_daemon "$1" && /etc/rc.d/"$1" stop
 	local retval=$?
-	if [[ -e $spl_cachedir/stop_failed-$1 ]]
+	if (( retval )) || [[ -e $spl_cachedir/stop_failed-$1 ]]
 	then splash svc_stop_failed "$1" $retval
 	else splash svc_stopped     "$1" $retval
 	fi
@@ -643,50 +633,105 @@ stop_daemon() {
 		(( SPLASH_STEPS_DONE++ ))
 		splash_update_progress
 	fi
-	# Change to console after Xorg exit if going Singe-user or to restore 'verbose on errors'
-	if [[ $1 = $SPLASH_XSERVICE && ( $0 = /etc/rc.single || $SPLASH_VERBOSE_ON_ERRORS = yes &&
-			-e $spl_cachedir/stop_failed-fbsplash-dummy ) ]]; then
-		splash_wait /usr/bin/Xorg
+	# After Xorg exit change to console if 'verbose on errors' or going Singe-user
+	if [[ $1 = $SPLASH_XSERVICE ]] &&
+	   [[ $0 = /etc/rc.single || $SPLASH_VERBOSE_ON_ERRORS = yes &&
+	       -e $spl_cachedir/stop_failed-fbsplash-dummy ]]; then
+		splash_wait Xorg
 		splash_verbose # chvt
 	fi
 	return $retval
 }
 
-## Activate splash in rc.{sysinit,shutdown} and then
-## (or when changing between Single- and Multi-user)
-## hook into initscripts
+## TODO ##      Merge into initscripts /etc/rc.d/functions        ## FIXME ##
+## Commit messages:
+#
+# kill_everything: Strip absolute paths from binaries as allways
+#   This also allows some more customizing like overriding killall5 by some [null-]function
+#   to be able to use kill_everything() for counting shutdown steps before the actual thing happens.
+#
+# kill_everything: Add/move hooks {single,shutdown}_{pre_daemon_stop,prekillall}
+#   This allows customizing how daemons will be stopped without the need to override the whole function.
+#
+#   There is no need any more to deferre the prekillall hooks to get the stat_busy message to a splash screen
+#   because the splash system can avoid being killed by using add_omit_pids().
+#   So revert e39ec61b7d642b36368d84f240b96eeda3c43b2f.
+#
+# kill_everything: Avoid sleeping longer than needed by recogizing killall5 exit code 2
+#   Run killall5 in a loop until no more signals were sent or timeout.
+#
+kill_everything() {
+	# $1 = where we are being called from.
+	# This is used to determine which hooks to run.
+
+	run_hook "$1_pre_daemon_stop"
+
+	# Find daemons NOT in the DAEMONS array. Shut these down first
+	local daemon
+	for daemon in /run/daemons/*; do
+		[[ -f $daemon ]] || continue
+		daemon=${daemon##*/}
+		in_array "$daemon" "${DAEMONS[@]}" || stop_daemon "$daemon"
+	done
+
+	# Shutdown daemons in reverse order
+	local i
+	for (( i=${#DAEMONS[@]}-1; i>=0; i-- )); do
+		[[ ${DAEMONS[i]} = '!'* ]] && continue
+		ck_daemon ${DAEMONS[i]#@} || stop_daemon ${DAEMONS[i]#@}
+	done
+
+	run_hook "$1_prekillall"
+
+	# Terminate all processes
+
+	stat_busy "Sending SIGTERM To Processes"
+		local i
+		for (( i=0; i<500; i+=25 )); do
+			killall5 -15 ${omit_pids[@]/#/-o } &>/dev/null
+			(( $? == 2 )) && break
+			sleep .25
+		done
+	stat_done
+
+	stat_busy "Sending SIGKILL To Processes"
+		local i
+		for (( i=0; i<100; i+=25 )); do
+			killall5 -9 ${omit_pids[@]/#/-o } &>/dev/null
+			(( $? == 2 )) && break
+			sleep .25
+		done
+	stat_done
+
+	run_hook "$1_postkillall"
+}
+
+# Activate splash in rc.{sysinit,shutdown} and then hook into initscripts
+# (or when changing between Single- and Multi-user)
 
 case $0
 in /etc/rc.sysinit )
 	# Continue to use a splash daamon started in initcpio
-	if /bin/mountpoint -q /dev/.splash-cache; then
-		/bin/mount --move /dev/.splash-cache $spl_cachedir || return 0
+	if mountpoint -q /dev/.splash-cache; then
+		mount --move /dev/.splash-cache $spl_cachedir || return 0
 		splash_msg "Using initcpio daemon"
 		splash_comm_send set message "$SPLASH_BOOT_MESSAGE"
-		# if pre-rc_init hook was run from mkinitcpio, just set the variables
-		if [[ -f $spl_cachedir/steps_busy.bash ]]; then
-			source $spl_cachedir/steps_busy.bash # set SPLASH_STEPS_BUSY
-			read SPLASH_STEPS <$spl_cachedir/steps_bootup
-		else # set up step counting
-			splash_svc_init sysinit
-		fi
+		splash_svc_init sysinit
+		# pre-rc_init hook should be run during mkinitcpio
 		splash_run_hook post rc_init sysinit $RUNLEVEL
 	# Mount a new tmpfs and start splash ASAP
 	else
 		( splash_cache_prep ) || return 0
 		SPLASH_START_PENDING=1
-		if [[ $( /bin/pidof -o %PPID fbcondecor_helper ) ]]; then
+		if [[ $( pidof -o %PPID fbcondecor_helper ) ]]; then
 			splash_profile info "fbcondecor_helper running"
-		# Set up step counting and start splash
-		# using dev-FS from initcpio or kernel devtmpfs
+		# device node provided by initcpio or kernel devtmpfs
 		elif [[ -c /dev/fb0 ]]; then
-			splash_svc_init sysinit
-			splash  rc_init sysinit
-			unset SPLASH_START_PENDING
+			splash_sysinit_splash_start
 		# Paint the initial splash if not done in initcpio
 		elif [[ $( $spl_bindir/fgconsole ) != $SPLASH_TTY ]]; then
 			BOOT_MSG=$SPLASH_BOOT_MESSAGE \
-				/sbin/fbcondecor_helper 2 init $SPLASH_TTY 0 $SPLASH_THEME
+				fbcondecor_helper 2 init $SPLASH_TTY 0 $SPLASH_THEME
 			splash_profile info "fbcondecor_helper exit-code $?"
 		fi
 	fi
@@ -704,20 +749,16 @@ in /etc/rc.sysinit )
 		(( SPLASH_START_PENDING )) || return 0
 		splash_profile info "sysinit_udevlaunched"
 		# Deferre if helper still doing fadein
-		if [[ $( /bin/pidof -o %PPID fbcondecor_helper ) ]]; then
+		if [[ $( pidof -o %PPID fbcondecor_helper ) ]]; then
 			splash_profile info "fbcondecor_helper running"
-			return
+			return 0
 		fi
-		# Just prepare devices required by the daemon before doing all udev
-		if [[ $( /bin/pidof -o %PPID /sbin/udevd ) ]]; then
-			splash_profile info "udevadm trigger"
-			/sbin/udevadm trigger --action=add --subsystem-match={tty,graphics,input}
-			/sbin/udevadm settle ${UDEV_TIMEOUT:+--timeout=$UDEV_TIMEOUT}
-		fi
+		# Try to prepare devices required by the daemon
+		splash_profile info "udevadm trigger"
+		udevadm trigger --action=add --subsystem-match={tty,graphics,input}
+		udevadm settle --timeout=1
 		if [[ -c /dev/fb0 ]]; then
-			splash_svc_init sysinit
-			splash  rc_init sysinit
-			unset SPLASH_START_PENDING
+			splash_sysinit_splash_start
 		else
 			splash_profile info "still no framebuffer device!"
 		fi
@@ -725,23 +766,22 @@ in /etc/rc.sysinit )
 	splash_sysinit_udevsettled() {
 		splash_profile info "sysinit_udevsettled"
 		if (( ! SPLASH_START_PENDING )); then
-			# Just try to grab the keyboard again - but not if started in initcpio
-			if [[ ! -e /dev/.splash-cache ]]; then
-				splash_set_event_dev
-			fi
-			return
-		fi
-		if [[ $( /bin/pidof -o %PPID fbcondecor_helper ) ]]; then
+			# If possible, try again to grab the keyboard
+			[[ -e /dev/.splash-cache ]] || splash_set_event_dev
+		elif [[ $( pidof -o %PPID fbcondecor_helper ) ]]; then
 			splash_profile info "splash_wait fbcondecor_helper"
 			stat_busy "Waiting for FbConDecor Helper to finish fadein"
 			if splash_wait fbcondecor_helper; then
 				stat_done
+				splash_sysinit_splash_start
 			else
 				stat_fail
 				splash_msg "Broken framebuffer driver?"
-				return
 			fi
 		fi
+	}
+	# Setup step counting and start splash
+	splash_sysinit_splash_start() {
 		splash_svc_init sysinit
 		splash  rc_init sysinit
 		unset SPLASH_START_PENDING
@@ -766,33 +806,29 @@ in /etc/rc.sysinit )
 		splash_update_progress
 		# Just run theme hooks
 		splash rc_exit
-		# If we can grab it again later, release the keyboard
-		# to be save in case of no rc.multi (messed inittab)
-		if [[ ! -e /dev/.splash-cache ]]; then
-			splash_comm_send "set event dev /dev/null"
-		fi
-		# If Single-user boot, drop splash and umount tmpfs to allow clean mkinitcpio
+		# If possible, release the keyboard to be save in case of messed inittab
+		[[ -e /dev/.splash-cache ]] || splash_comm_send "set event dev /dev/null"
+		# If Single-user boot, drop splash and unmount to allow clean mkinitcpio
 		[[ " "$( </proc/cmdline )" " =~ " "(s|S|single|1)" " ]] || return 0
-		splash_exit force
+		splash_exit single
 		splash_verbose # chvt
 		# The infamous blah-blah...
 		CONSOLEFONT=$SPLASH_CONSOLEFONT set_consolefont
 	}
 ;; /etc/rc.multi )
-	if /bin/mountpoint -q $spl_cachedir; then
+	if mountpoint -q $spl_cachedir; then
 		read SPLASH_STEPS_DONE <$spl_cachedir/steps_sysinit
 		read SPLASH_STEPS      <$spl_cachedir/steps_bootup
 		# If possible, grab the keyboard again
-		if [[ ! -e /dev/.splash-cache ]]; then
-			splash_set_event_dev
-		fi
+		[[ -e /dev/.splash-cache ]] || splash_set_event_dev
 		# Run any theme hooks
 		splash rc_init boot
 	fi
 	add_hook multi_end splash_multi_end
 	splash_multi_end() {
-		# Always stop/paint/fadeout before X does chvt (black screen)
-		# Even with inactive splash some chvt magic may be done
+		# Always stop/paint/fadeout before X does chvt
+		# Even when splash was killed because booting via single-user
+		# some chvt magic is needed to keep X from switching to VT1
 		if ! in_array "$SPLASH_XSERVICE" "${DAEMONS[@]}"; then
 			if [[ $RUNLEVEL = 5 ]]
 			then SPLASH_EXIT_TYPE=staysilent splash_exit_boot
@@ -802,31 +838,30 @@ in /etc/rc.sysinit )
 	}
 ;; /etc/rc.single )
 	[[ $PREVLEVEL = N ]] && return 0
-	# Just override X exit chvt to avoid black screen,
-	# but only do it here if stop_daemon doesn't
-	if ! [[ $( /bin/pidof -o %PPID /usr/bin/Xorg ) ]]; then
+	# Override X exit chvt to avoid black screen
+	if ! [[ $( pidof -o %PPID Xorg ) ]]; then
 		splash_verbose # chvt
 	elif ck_daemon "$SPLASH_XSERVICE"; then
 		add_hook single_postkillall splash_single_postkillall
 	fi
 	splash_single_postkillall() {
-		splash_wait /usr/bin/Xorg
+		splash_wait Xorg
 		splash_verbose # chvt
 	}
 ;; /etc/rc.shutdown )
 	( splash_cache_prep ) || return 0
 	# No deferred start on SPLASH_XSERVICE to avoid missing errors
-	# X should chvt back to SPLASH_TTY and we don't do daemons progress
-	add_hook shutdown_start       splash_shutdown_start
-	add_hook shutdown_prekillall  splash_shutdown_prekillall
-	add_hook shutdown_postkillall splash_shutdown_postkillall
-	add_hook shutdown_poweroff    splash_shutdown_poweroff
+	# X should chvt back to SPLASH_TTY
+	add_hook shutdown_start           splash_shutdown_start
+	add_hook shutdown_pre_daemon_stop splash_shutdown_pre_daemon_stop
+	add_hook shutdown_prekillall      splash_shutdown_prekillall
+	add_hook shutdown_poweroff        splash_shutdown_poweroff
 	splash_shutdown_start() {
-		# Override X exit chvt to avoid loosing fadein
+		# wait for X if stopped by init, override chvt to avoid loosing fadein
 		if [[ $PREVLEVEL:,$SPLASH_EFFECTS, == 5:*,fadein,* ]] &&
-		   ck_daemon $SPLASH_XSERVICE; then # *no* 'daemon' to stop
-			splash_wait /usr/bin/Xorg
-			if [[ $( $spl_bindir/fgconsole ) = $SPLASH_TTY ]]; then
+		   ck_daemon $SPLASH_XSERVICE; then
+			splash_wait Xorg
+			if [[ $( fgconsole ) = $SPLASH_TTY ]]; then
 				splash_msg "Switching away from splash tty to enable fadein"
 				chvt 63
 			fi
@@ -840,27 +875,13 @@ in /etc/rc.sysinit )
 			splash_comm_send repaint
 		fi
 	}
-	splash_shutdown_prekillall() {
-		if [[ -r $spl_pidfile ]]; then
-			add_omit_pids $( <$spl_pidfile )
-			# Time based part of shutdown progress
-			(
-				# format miliseconds to [n]n.nnn seconds
-				s=$( printf "%.4d" $SPLASH_SLEEP_INTERVAL )
-				s=${s%???}.${s:((-3))}
-				for (( i=0; i<SPLASH_SLEEP_STEPS; i++ )) do
-					/bin/sleep $s
-					(( SPLASH_STEPS_DONE++ ))
-					splash_update_progress
-				done
-			) &
-			splash_sleep_pid=$!
-			add_omit_pids $splash_sleep_pid
-		fi
+	splash_shutdown_pre_daemon_stop() {
+		# rc.local.shutdown done
+		(( SPLASH_STEPS_DONE++ ))
+		splash_update_progress
 	}
-	splash_shutdown_postkillall() {
-		wait $splash_sleep_pid
-		(( SPLASH_STEPS_DONE+=SPLASH_SLEEP_STEPS ))
+	splash_shutdown_prekillall() {
+		[[ -r $spl_pidfile ]] && add_omit_pids $( <$spl_pidfile )
 	}
 	splash_shutdown_poweroff() {
 		SPLASH_STEPS_DONE=$SPLASH_STEPS
