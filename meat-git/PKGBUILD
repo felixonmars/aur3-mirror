@@ -1,7 +1,7 @@
 # Contributor: Daniel Mills <danielmills1@gmail.com>
 
 pkgname=meat-git
-pkgver=20110630
+pkgver=20110702
 pkgrel=1
 pkgdesc="Bash wrapper for Cower"
 arch=('i686' 'x86_64')
