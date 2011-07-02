@@ -21,4 +21,8 @@ done
 
 cd /usr/share/starfarer
 
-exec java -Djava.library.path=/usr/lib/starfarer -Xms256m -Xmx256m -cp $CP -Dcom.fs.starfarer.settings.paths.saves=~/.starfarer/saves -Dcom.fs.starfarer.settings.paths.screenshots=~/.starfarer/screenshots -Dcom.fs.starfarer.settings.paths.mods=./mods com.fs.starfarer.StarfarerLauncher
+SAVEPATH=~/.starfarer/saves
+MODPATH=~/.starfarer/mods
+SCRPATH=~/.starfarer/screenshots
+
+exec java -Djava.library.path=/usr/lib/starfarer -Xms256m -Xmx256m -cp $CP -Dcom.fs.starfarer.settings.paths.saves=$SAVEPATH -Dcom.fs.starfarer.settings.paths.screenshots=$SCRPATH -Dcom.fs.starfarer.settings.paths.mods=$MODPATH com.fs.starfarer.StarfarerLauncher
