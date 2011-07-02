@@ -492,8 +492,7 @@ splash_exit() {
 			splash_comm_send set message "$( splash_get_boot_message )"
 			splash_comm_send repaint # needed if daemon started with --type other than bootup
 		fi
-		SPLASH_PUSH_MESSAGES="no" \
-			stat_busy "Stopping Fbsplash daemon"
+		splash_msg "Stopping Fbsplash daemon"
 		local ret=1
 		if [[ $( pidof -o %PPID $spl_daemon ) ]]; then
 			# Let the daemon do the message update
@@ -624,23 +623,8 @@ stop_daemon() {
 	return $retval
 }
 
-## TODO ##      Merge into initscripts /etc/rc.d/functions        ## FIXME ##
-## Commit messages:
-#
-# kill_everything: Strip absolute paths from binaries as allways
-#
-# kill_everything: Avoid sleeping longer than needed by recogizing killall5 exit code 2
-#   Run killall5 in a loop until no more signals were sent or timeout.
-#
-# kill_everything: Add/move hooks {single,shutdown}_{prestopdaemons,prekillall}
-#   This allows customizing how daemons will be stopped without the need to override the function.
-#
-#   Note: There is no need any more to deferre the prekillall hooks to get the stat_busy message to a splash screen
-#   because the splash system can avoid being killed by using add_omit_pids().
-#   So revert e39ec61b7d642b36368d84f240b96eeda3c43b2f.
-#
-# Add stop_all_daemons()
-#   This allows splash systems to get a list of daemons to be stopped, simply by overriding stop_daemon().
+## -- cut here - ##
+## FIXME ## Remove these as soon as merged into initscripts and released to core
 
 # Stop all daemons
 # This function should *never* ever perform any other actions beside calling stop_daemon()!
@@ -694,6 +678,7 @@ kill_everything() {
 
 	run_hook "$1_postkillall"
 }
+## -- cut here - ##
 
 # Activate splash in rc.{sysinit,shutdown} and then hook into initscripts
 # (or when changing between Single- and Multi-user)
@@ -776,8 +761,7 @@ in /etc/rc.sysinit )
 		unset SPLASH_START_PENDING
 	}
 	splash_sysinit_prefsck() {
-		stat_append " (progress forwarded to Fbsplash)"
-		echo # newline!
+		splash_msg "Grabbing filesystem check progress output"
 		splash_fsck_push_d
 	}
 	splash_sysinit_postfsck() {
