@@ -14,7 +14,7 @@ NCD_EXEC="/usr/bin/badvpn-ncd"
 PID=
 if [[ -e ${NCD_PIDFILE} ]]; then
 	PID=$(cat "${NCD_PIDFILE}" 2>/dev/null)
-	if [[ $( readlink /proc/$PID/exe 2>/dev/null ) != "${NCD_EXEC}" ]]; then
+	if ! [[ $( readlink /proc/$PID/exe 2>/dev/null ) =~ ^${NCD_EXEC}(" (deleted)")?$ ]]; then
 		PID=
 		rm "${NCD_PIDFILE}" 2>/dev/null
 	fi
