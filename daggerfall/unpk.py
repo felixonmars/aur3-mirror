@@ -503,7 +503,7 @@ def unpack_archive(archive, directory, offset=0):
                 if not os.path.exists(to):
                         os.mkdir(to)
                 names.append(to)
-	print "Found",nfiles,"files\n"
+	print "Found %s files in archive %s at offset %s.\n"%(nfiles,archive,offset)
 	for i in xrange(nfiles):
 		print "Extracting file %s of %s,"%(i+1,nfiles),
 		unpack_header(f, start+i*25, names, offset)

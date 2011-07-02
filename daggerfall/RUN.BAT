@@ -1,4 +1,3 @@
 @ECHO OFF
-set dos4gvm=@dagger.vmc
-FALL.EXE Z.CFG
+@DOS32A FALL.EXE Z.CFG
 
