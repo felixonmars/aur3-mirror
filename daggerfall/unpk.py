@@ -468,31 +468,32 @@ def unpack_file(f, out, length):
 		stream.write(g)
 	g.close()
 
-def unpack_header(f, at, names):
-	f.seek(at)
+def unpack_header(f, at, names, offset):
+	f.seek(offset+at)
 	length, = struct.unpack('I', f.read(4))
 	to = names[struct.unpack('I',f.read(4))[0]]
 	name = f.read(13).strip('\x00')
 	start, = struct.unpack('I', f.read(4))
 	out = os.path.join(to, name)
-	f.seek(start)
+	f.seek(offset+start)
 	print "\"%s\" (length: %s bytes)"%(out,length)
 	unpack_file(f, out, length)
 	print "File \"%s\" unpacked\n"%out
 
-def unpack_archive(archive, directory):
+def unpack_archive(archive, directory, offset=0):
 	f = open(archive, "rb")
+	f.seek(offset)
 	start,end = struct.unpack('II', f.read(8))
 	nfiles = (end-start)/25
 	if not os.path.exists(directory):
 		os.mkdir(directory)
 	ndirs = 0
-	f.seek(start+4)
+	f.seek(offset+start+4)
 	for i in xrange(nfiles):
 		ndirs=max(ndirs, struct.unpack('I',f.read(4))[0])
 		f.seek(21,1)
 	names = []
-	f.seek(end)
+	f.seek(offset+end)
 	for i in xrange(ndirs+1):
                 name = f.read(60).strip('\x00').replace("\\",os.path.sep)
 		if name!=".":
@@ -504,13 +505,15 @@ def unpack_archive(archive, directory):
                 names.append(to)
 	print "Found",nfiles,"files\n"
 	for i in xrange(nfiles):
-		print "Extracting file %s,"%(i+1),
-		unpack_header(f, start+i*25, names)
+		print "Extracting file %s of %s,"%(i+1,nfiles),
+		unpack_header(f, start+i*25, names, offset)
 	f.close()
 
 if __name__ == "__main__":
 	if len(sys.argv)==3:
 		unpack_archive(*map(os.path.expandvars,map(os.path.expanduser,sys.argv[1:])))
+	elif len(sys.argv)==4:
+		unpack_archive(*map(os.path.expandvars,map(os.path.expanduser,sys.argv[1:3])),offset=int(sys.argv[3]))
 	else:
-		print "usage: python2 unpk.py <archive> <target directory>"
+		print "usage: python2 unpk.py <archive> <target directory> [offset]"
 
