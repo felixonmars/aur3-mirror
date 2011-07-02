@@ -657,22 +657,24 @@ kill_everything() {
 	run_hook "$1_prekillall"
 
 	# Terminate all processes
-
+	# and wait until timeout or killall5 reports all done
+	# Unfortunately killall5 does not support the 0 signal, so just
+	# use SIGCONT for checking (which should be ignored).
 	stat_busy "Sending SIGTERM To Processes"
 		local i
-		for (( i=0; i<500; i+=25 )); do
-			killall5 -15 ${omit_pids[@]/#/-o } &>/dev/null
-			(( $? == 2 )) && break
-			sleep .25
+		killall5 -15 ${omit_pids[@]/#/-o } &>/dev/null
+		for (( i=0; i<20 && $?!=2; i++ )); do
+			sleep .25 # 1/4 second
+			killall5 -18 ${omit_pids[@]/#/-o } &>/dev/null
 		done
 	stat_done
 
 	stat_busy "Sending SIGKILL To Processes"
 		local i
-		for (( i=0; i<100; i+=25 )); do
-			killall5 -9 ${omit_pids[@]/#/-o } &>/dev/null
-			(( $? == 2 )) && break
-			sleep .25
+		killall5 -9 ${omit_pids[@]/#/-o } &>/dev/null
+		for (( i=0; i<4 && $?!=2; i++ )); do
+			sleep .25 # 1/4 second
+			killall5 -18 ${omit_pids[@]/#/-o } &>/dev/null
 		done
 	stat_done
 
