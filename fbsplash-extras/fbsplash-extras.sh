@@ -223,12 +223,7 @@ splash_svc_init() {
 				(( SPLASH_STEPS++ ))
 				echo "$1" >>$svclist_file
 			}
-			stat_busy() { :; }
-			stat_done() { :; }
-			stat_fail() { :; }
-			killall5() { :; }
-			# run_hook() is readonly - just use empty hook lists
-			kill_everything splash_extras_noop
+			stop_all_daemons
 			echo $SPLASH_STEPS
 		)
 		# pseudo services
@@ -338,56 +333,42 @@ splash_wait() {
 	return 1
 }
 
-# Get a file descriptor and start a daemon for pushing progress info
-# from 'fsck -C$FSCK_FD' to the splash status message line
+# Daemon for pushing progress info from 'fsck -C$FSCK_FD'
+# to the splash status message line
 splash_fsck_push_d() {
 	[[ -w $spl_fifo && $( pidof -o %PPID $spl_daemon ) ]] || return 1
 	local fsck_fifo=$spl_cachedir/fsck_fifo
-	# drop any old fifo and create a new one
+	# Drop any old fifo and create a new one
 	rm -f $fsck_fifo && mkfifo -m 600 $fsck_fifo || return 1
 	(
-		spl_pgr=$(( 65535 * SPLASH_STEPS_DONE / SPLASH_STEPS ))
-		spl_pgr_pid=""
-		fsck_pgr=-1
-		fsck_pgr_msg=""
-		fsck_comm_pid=""
+		# don't rely on catching the previous stat_busy
+		busy_msg="Checking Filesystems"
+		spl_progress=$(( 65535 * SPLASH_STEPS_DONE / SPLASH_STEPS ))
+		spl_comm_pid=""
+		fsck_progress=-1
+		fsck_progress_msg=""
 		while :; do
 			read -t 2 phase step total fs
 			ret=$?
 			if (( ret == 0 )); then
 				new_pgr=$(( 100 * step / total ))
-				(( new_pgr == fsck_pgr )) && continue
-				fsck_pgr=$new_pgr
-				fsck_pgr_msg="[ ${fs}  phase ${phase}  ${fsck_pgr}% ]"
-				# avoid Fbsplash autoverbose
-				if [[ ! $spl_pgr_pid ]]; then
-					(
-						comm_pid=""
-						while sleep .5; do
-							[[ $comm_pid ]] && kill $comm_pid
-							echo progress $spl_pgr >"${spl_fifo}" &
-							comm_pid=$!
-						done
-					) &
-					spl_pgr_pid=$!
-				fi
-			else
-				if [[ $spl_pgr_pid ]]; then
-					kill $spl_pgr_pid
-					spl_pgr_pid=""
-				fi
-				if (( ret <= 128 )); then # not a timeout
-					break
-				elif (( fsck_pgr >= 100 )); then # timeout and phase complete
-					# for some FS-types fsck doesn't provide progress
-					fsck_pgr=-1
-					fsck_pgr_msg=""
-				fi
+				(( new_pgr == fsck_progress )) && continue
+				fsck_progress=$new_pgr
+				fsck_progress_msg="[ ${fs}  phase ${phase}  ${fsck_progress}% ]"
+				# Cancel obsolete message to avoid flooding the FIFO
+				[[ $spl_comm_pid ]] && kill $spl_comm_pid
+				(	# avoid Fbsplash autoverbose as long as we have text progress
+					echo progress $spl_progress
+					echo set message "${busy_msg} ${fsck_progress_msg}"
+				) >$spl_fifo &
+				spl_comm_pid=$!
+			elif (( ret <= 128 )); then # not a timeout
+				break
+			elif (( fsck_progress >= 100 )); then # timeout and phase complete
+				# for some FS-types fsck doesn't provide progress, so wipe it
+				fsck_progress=-1
+				echo set message "${busy_msg}" >$spl_fifo &
 			fi
-			# cancel obsolete message
-			[[ $fsck_comm_pid ]] && kill $fsck_comm_pid
-			echo "set message $SPLASH_BUSY_MSG ${fsck_pgr_msg}" >"${spl_fifo}" &
-			fsck_comm_pid=$!
 		done
 		# Reset status message
 		splash_comm_send set message "$( splash_get_boot_message )"
@@ -647,25 +628,24 @@ stop_daemon() {
 ## Commit messages:
 #
 # kill_everything: Strip absolute paths from binaries as allways
-#   This also allows some more customizing like overriding killall5 by some [null-]function
-#   to be able to use kill_everything() for counting shutdown steps before the actual thing happens.
-#
-# kill_everything: Add/move hooks {single,shutdown}_{pre_daemon_stop,prekillall}
-#   This allows customizing how daemons will be stopped without the need to override the whole function.
-#
-#   There is no need any more to deferre the prekillall hooks to get the stat_busy message to a splash screen
-#   because the splash system can avoid being killed by using add_omit_pids().
-#   So revert e39ec61b7d642b36368d84f240b96eeda3c43b2f.
 #
 # kill_everything: Avoid sleeping longer than needed by recogizing killall5 exit code 2
 #   Run killall5 in a loop until no more signals were sent or timeout.
 #
-kill_everything() {
-	# $1 = where we are being called from.
-	# This is used to determine which hooks to run.
+# kill_everything: Add/move hooks {single,shutdown}_{prestopdaemons,prekillall}
+#   This allows customizing how daemons will be stopped without the need to override the function.
+#
+#   Note: There is no need any more to deferre the prekillall hooks to get the stat_busy message to a splash screen
+#   because the splash system can avoid being killed by using add_omit_pids().
+#   So revert e39ec61b7d642b36368d84f240b96eeda3c43b2f.
+#
+# Add stop_all_daemons()
+#   This allows splash systems to get a list of daemons to be stopped, simply by overriding stop_daemon().
 
-	run_hook "$1_pre_daemon_stop"
-
+# Stop all daemons
+# This function should *never* ever perform any other actions beside calling stop_daemon()!
+# It might be used by a splash system to count or get a list of daemons to be stopped.
+stop_all_daemons() {
 	# Find daemons NOT in the DAEMONS array. Shut these down first
 	local daemon
 	for daemon in /run/daemons/*; do
@@ -680,6 +660,15 @@ kill_everything() {
 		[[ ${DAEMONS[i]} = '!'* ]] && continue
 		ck_daemon ${DAEMONS[i]#@} || stop_daemon ${DAEMONS[i]#@}
 	done
+}
+
+kill_everything() {
+	# $1 = where we are being called from.
+	# This is used to determine which hooks to run.
+
+	run_hook "$1_prestopdaemons"
+
+	stop_all_daemons
 
 	run_hook "$1_prekillall"
 
@@ -852,10 +841,10 @@ in /etc/rc.sysinit )
 	( splash_cache_prep ) || return 0
 	# No deferred start on SPLASH_XSERVICE to avoid missing errors
 	# X should chvt back to SPLASH_TTY
-	add_hook shutdown_start           splash_shutdown_start
-	add_hook shutdown_pre_daemon_stop splash_shutdown_pre_daemon_stop
-	add_hook shutdown_prekillall      splash_shutdown_prekillall
-	add_hook shutdown_poweroff        splash_shutdown_poweroff
+	add_hook shutdown_start          splash_shutdown_start
+	add_hook shutdown_prestopdaemons splash_shutdown_pre_stop_daemons
+	add_hook shutdown_prekillall     splash_shutdown_prekillall
+	add_hook shutdown_poweroff       splash_shutdown_poweroff
 	splash_shutdown_start() {
 		# wait for X if stopped by init, override chvt to avoid loosing fadein
 		if [[ $PREVLEVEL:,$SPLASH_EFFECTS, == 5:*,fadein,* ]] &&
@@ -875,7 +864,7 @@ in /etc/rc.sysinit )
 			splash_comm_send repaint
 		fi
 	}
-	splash_shutdown_pre_daemon_stop() {
+	splash_shutdown_pre_stop_daemons() {
 		# rc.local.shutdown done
 		(( SPLASH_STEPS_DONE++ ))
 		splash_update_progress
