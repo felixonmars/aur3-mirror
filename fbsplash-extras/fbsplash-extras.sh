@@ -505,8 +505,8 @@ splash_exit() {
 			splash_msg "No Fbsplash daemon running!"
 		fi
 		if (( ret ))
-		then stat_fail; splash_profile info "splash_exit failed"
-		else stat_done; splash_profile info "splash_exit done"
+		then splash_profile info "splash_exit failed"
+		else splash_profile info "splash_exit done"
 		fi
 	fi
 	# Umount the tmpfs copying most important files to the disk
