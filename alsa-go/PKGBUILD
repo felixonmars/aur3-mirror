@@ -2,14 +2,14 @@
 
 pkgname=alsa-go
 pkgver=0.0
-pkgrel=2
+pkgrel=3
 pkgdesc="ALSA wrapper for C alsa-lib library."
 arch=('i686' 'x86_64')
 url="https://github.com/vchumushuk/alsa-go"
 license=('GPL3')
 depends=('alsa-lib' 'go')
-source=('https://download.github.com/vchumushuk-alsa-go-b0db83c.tar.gz')
-md5sums=('d2077f7f3400354f2130105349c920fc')
+source=('https://download.github.com/vchumushuk-alsa-go-29d3cf4.tar.gz')
+md5sums=('f27ff631a20737090f37b09e45c79cbc')
 options=(!strip)
 
 build() {
@@ -17,7 +17,7 @@ build() {
 
     # cd "$startdir/src/$pkgname-$pkgver" || return 1
     cd "$startdir/src" || return 1
-    mv vchumushuk-alsa-go-b0db83c "$pkgname-$pkgver" || return 1
+    mv vchumushuk-alsa-go-29d3cf4 "$pkgname-$pkgver" || return 1
     cd "$pkgname-$pkgver"
 
     make || return 1

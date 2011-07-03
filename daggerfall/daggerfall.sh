@@ -147,6 +147,47 @@ do
     fi
   fi
 
+  if [[ $arg == --list-mods ]]
+  then
+    option_recognized=true
+    if $first_option
+    then
+      list_mods=true
+      run_dosbox=false
+      first_option=false
+    else
+      requests=$(($requests+1))
+    fi
+  fi
+
+  if [[ $arg == --enable-mod=* ]]
+  then
+    option_recognized=true
+    if $first_option
+    then
+      enable_mod=true
+      mod=`echo $arg | sed 's/.*=//'`
+      run_dosbox=false
+      first_option=false
+    else
+      requests=$(($requests+1))
+    fi
+  fi
+
+  if [[ $arg == --disable-mod=* ]]
+  then
+    option_recognized=true
+    if $first_option
+    then
+      disable_mod=true
+      mod=`echo $arg | sed 's/.*=//'`
+      run_dosbox=false
+      first_option=false
+    else
+      requests=$(($requests+1))
+    fi
+  fi
+
   if [[ $arg == --restore-palettes ]]
   then
     option_recognized=true
@@ -287,8 +328,8 @@ do
   then
     option_recognized=true
     touch /usr/share/games/daggerfall/terms-accepted
-    chmod g+w /usr/share/games/daggerfall/terms-accepted
-    chgrp games /usr/share/games/daggerfall/terms-accepted
+    chmod -f g+w /usr/share/games/daggerfall/terms-accepted
+    chgrp -f games /usr/share/games/daggerfall/terms-accepted
   fi
 
   if [[ $arg == --help ]]
@@ -377,6 +418,9 @@ echo "                          can be used only with --restore-save"
 echo "  --restore-dont-ask      assume yes to confirm restore process. Avoid this option unless"
 echo "                          you are creating batch scripts"
 echo "                          can be used only with --restore-save"
+echo "  --list-mods             returns list of available mods"
+echo "  --enable-mod=mod        enables given mod"
+echo "  --disable-mod=mod       disables given mod"
 echo ""
 echo "available extra options (you can mix those with any other valid options):"
 echo "  --accept-license        accept the terms of use"
@@ -393,8 +437,8 @@ then
   if [[ ! -d /usr/share/games/daggerfall/palettes ]]
   then
     mkdir /usr/share/games/daggerfall/palettes
-    chmod g+w /usr/share/games/daggerfall/palettes
-    chgrp games /usr/share/games/daggerfall/palettes
+    chmod -f g+w /usr/share/games/daggerfall/palettes
+    chgrp -f games /usr/share/games/daggerfall/palettes
   fi
   cp --preserve=mode,ownership /usr/share/games/daggerfall/DAGGER/DATA/DAGGER.COL /usr/share/games/daggerfall/palettes
   cp --preserve=mode,ownership /usr/share/games/daggerfall/DAGGER/ARENA2/{PAL.RAW,ART_PAL.COL,DANKBMAP.COL,FMAP_PAL.COL,NIGHTSKY.COL,MAP.PAL,OLDMAP.PAL,OLDPAL.PAL,PAL.PAL} /usr/share/games/daggerfall/palettes
@@ -508,13 +552,13 @@ then
     if [ ! -d /usr/share/games/daggerfall/backup ]
     then
       mkdir /usr/share/games/daggerfall/backup
-      chmod g+w /usr/share/games/daggerfall/backup
-      chgrp games /usr/share/games/daggerfall/backup
+      chmod -f g+w /usr/share/games/daggerfall/backup
+      chgrp -f games /usr/share/games/daggerfall/backup
     fi
     cd /usr/share/games/daggerfall/DAGGER/SAVE$saveslot
     tar -cJf "../../backup/$filename.tar.xz" *
-    chmod g+w "/usr/share/games/daggerfall/backup/$filename.tar.xz"
-    chgrp games "/usr/share/games/daggerfall/backup/$filename.tar.xz"
+    chmod -f g+w "/usr/share/games/daggerfall/backup/$filename.tar.xz"
+    chgrp -f games "/usr/share/games/daggerfall/backup/$filename.tar.xz"
     echo "backed up $filename.tar.xz"
   else
     echo "No save game in slot $saveslot"
@@ -557,9 +601,234 @@ then
     cd /usr/share/games/daggerfall/DAGGER/SAVE$restore_to
     rm -rf ./*
     tar -xJf ../../backup/$data.tar.xz
-    chmod -R g+w ./*
-    chgrp -R games ./*
+    chmod -f -R g+w ./*
+    chgrp -f -R games ./*
   fi
+fi
+
+if [[ $list_mods == "true" ]]
+then
+  if [ -d /usr/share/games/daggerfall/mods ]
+  then
+    mods=`ls /usr/share/games/daggerfall/mods | sed 's/\..*//' | sort | uniq`
+    if [[ `echo $mods | wc -l` == "0" ]]
+    then
+      echo "No installed mods found"
+    else
+      for mod in $mods
+      do
+        if [ -f /usr/share/games/daggerfall/mods/$mod.enabled ]
+        then
+          echo "$mod (enabled)"
+        else
+          echo "$mod"
+        fi
+      done
+    fi
+  else
+    echo "No installed mods found"
+  fi
+fi
+
+if [[ $disable_mod == "true" ]]
+then
+  if [ ! -d /usr/share/games/daggerfall/mods ]
+  then
+    echo "Mod \"$mod\" not installed or enabled"
+    exit 1
+  fi
+  if [ ! -d /usr/share/games/daggerfall/mods/$mod ]
+  then
+    if [ ! -f /usr/share/games/daggerfall/mods/$mod.extends ]
+    then
+      echo "Mod \"$mod\" not installed or enabled"
+      exit 1
+    fi
+  fi
+  if [ ! -f /usr/share/games/daggerfall/mods/$mod.enabled ]
+  then
+    echo "Mod \"$mod\" not enabled"
+    exit
+  fi
+  enabled=`find /usr/share/games/daggerfall/mods/*.enabled | sed 's/.enabled$//;s+.*/++'`
+  deps=false
+  for file in $enabled
+  do
+    if [[ $file != $mod ]]
+    then
+      if [ -f /usr/share/games/daggerfall/mods/$file.extends ]
+      then
+        if [[ `cat /usr/share/games/daggerfall/mods/$file.extends | grep $mod | wc -l` != "0" ]]
+        then
+          echo "Mod \"$file\" depends on \"$mod\", cannot remove"
+          deps=true
+        fi
+      fi
+    fi
+  done
+  if [[ $deps == "true" ]]
+  then
+    exit 1
+  fi
+  if [[ -d /usr/share/games/daggerfall/mods/$mod ]]
+  then
+    cd /usr/share/games/daggerfall/mods/$mod
+    for file in `find . -type f | sed 's+^\./++'`
+    do
+      copy=`find /usr/share/games/daggerfall/modbackup/$file* | tail -1`
+      if [[ `echo $copy | sed 's/.*-//'` != $mod ]]
+      then
+        echo "Error disabling mod, sorry :("
+        exit 1
+      fi
+      if [[ $copy == "/usr/share/games/daggerfall/modbackup/$file-0-$mod" ]]
+      then
+        rm $copy
+        rm /usr/share/games/daggerfall/DAGGER/$file
+      else
+        mv $copy /usr/share/games/daggerfall/DAGGER/$file
+        if [[ `echo $copy | grep "\-1\-$mod$" | wc -l` == "1" ]]
+        then
+          rm /usr/share/games/daggerfall/modbackup/$file-0-orig
+        fi
+      fi
+    done
+    for dir in `find . -type d | tail -n+2 | sed 's+^\./++'`
+    do
+      if [[ `find /usr/share/games/daggerfall/DAGGER/$dir | wc -l` == "1" ]]
+      then
+        rm -rf /usr/share/games/daggerfall/DAGGER/$dir
+      fi
+    done
+    for dir in `find . -type d | tail -n+2 | sed 's+^\./++'`
+    do
+      if [[ `find /usr/share/games/daggerfall/modbackup/$dir | wc -l` == "1" ]]
+      then
+        rm -rf /usr/share/games/daggerfall/modbackup/$dir
+      fi
+    done
+  fi
+  rm /usr/share/games/daggerfall/mods/$mod.enabled
+  echo "Mod \"$mod\" disabled"
+fi
+
+if [[ $enable_mod == "true" ]]
+then
+  if [ ! -d /usr/share/games/daggerfall/mods ]
+  then
+    echo "No mod \"$mod\" found"
+    exit 1
+  fi
+  if [ ! -d /usr/share/games/daggerfall/mods/$mod ]
+  then
+    if [ ! -f /usr/share/games/daggerfall/mods/$mod.extends ]
+    then
+      echo "No mod \"$mod\" found"
+      exit 1
+    fi
+  fi
+  if [ -f /usr/share/games/daggerfall/mods/$mod.enabled ]
+  then
+    echo "Mod \"$mod\" already enabled"
+    exit 1
+  fi
+  if [ -f /usr/share/games/daggerfall/mods/$mod.extends ]
+  then
+    for dep in `cat /usr/share/games/daggerfall/mods/$mod.extends`
+    do
+      if [ ! -f /usr/share/games/daggerfall/mods/$dep.enabled ]
+      then 
+        $0 --enable-mod=$dep
+        if [[ $? == "1" ]]
+        then
+          echo "Error enabling dependency \"$dep\" of \"$mod\""
+          exit 1
+        fi
+      fi
+    done
+  fi
+  if [ ! -d /usr/share/games/daggerfall/modbackup ]
+  then
+    mkdir /usr/share/games/daggerfall/modbackup
+    chmod -f -R g+w /usr/share/games/daggerfall/modbackup
+    chgrp -f -R games /usr/share/games/daggerfall/modbackup
+  fi
+  if [ -d /usr/share/games/daggerfall/mods/$mod ]
+  then
+    cd /usr/share/games/daggerfall/mods/$mod
+    for file in `find . -type f | sed 's/^.\///'`
+    do
+      last=`find /usr/share/games/daggerfall/modbackup | grep /usr/share/games/daggerfall/modbackup/$file | sort | tail -1 | sed 's/.*-//'`
+      if [[ $last ]]
+      then
+        if [ -f /usr/share/games/daggerfall/mods/$mod.extends ]
+        then
+          conflict=true
+          for dep in `cat /usr/share/games/daggerfall/mods/$mod.extends`
+          do
+            if [[ $dep == $last ]]
+            then
+              conflict=false
+            fi
+          done
+          if [[ $conflict == "true" ]]
+          then
+            echo "found file conflict ($file) with mod \"$last\""
+            exit 1
+          fi
+        else
+          echo "found file conflict ($file) with mod \"$last\""
+          exit 1
+        fi
+      fi
+    done
+    for file in `find . |  tail -n+2 | sed 's+^\./++'`
+    do
+      if [ -d $file ]
+      then
+        if [ ! -d /usr/share/games/daggerfall/DAGGER/$file ]
+        then
+          mkdir /usr/share/games/daggerfall/DAGGER/$file
+          chmod -f -R g+w /usr/share/games/daggerfall/DAGGER/$file
+          chgrp -f -R games /usr/share/games/daggerfall/DAGGER/$file
+        fi
+        if [ ! -d /usr/share/games/daggerfall/modbackup/$file ]
+        then
+          mkdir /usr/share/games/daggerfall/modbackup/$file
+          chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file
+          chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file
+        fi
+      else
+        if [ ! -f /usr/share/games/daggerfall/DAGGER/$file ]
+        then
+          cp $file /usr/share/games/daggerfall/DAGGER/$file
+          chmod -f -R g+w /usr/share/games/daggerfall/DAGGER/$file
+          chgrp -f -R games /usr/share/games/daggerfall/DAGGER/$file
+          touch /usr/share/games/daggerfall/modbackup/$file-0-$mod
+          chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file-0-$mod
+          chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file-0-$mod
+        else
+          if [ ! -f /usr/share/games/daggerfall/modbackup/$file-0-orig ]
+          then
+            touch /usr/share/games/daggerfall/modbackup/$file-0-orig
+            chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file-0-orig
+            chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file-0-orig
+          fi
+          id=`find /usr/share/games/daggerfall/modbackup | grep /usr/share/games/daggerfall/modbackup/$file | wc -l`
+          cp /usr/share/games/daggerfall/DAGGER/$file /usr/share/games/daggerfall/modbackup/$file-$id-$mod
+          chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file-$id-$mod
+          chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file-$id-$mod
+          cp $file /usr/share/games/daggerfall/DAGGER/$file
+          chmod -f -R g+w /usr/share/games/daggerfall/DAGGER/$file
+          chgrp -f -R games /usr/share/games/daggerfall/DAGGER/$file
+        fi
+      fi
+    done
+  fi
+  echo "Mod \"$mod\" enabled"
+  touch /usr/share/games/daggerfall/mods/$mod.enabled
+  chmod -f -R g+w /usr/share/games/daggerfall/mods/$mod.enabled
+  chgrp -f -R games /usr/share/games/daggerfall/mods/$mod.enabled
 fi
 
 if [[ $run_dosbox == "true" ]]
@@ -569,25 +838,25 @@ then
   if [[ $skillmode == "off" ]]
   then
     sed "s/OPTION/\/u/" /usr/share/games/daggerfall/dagger-skills.skel > /usr/share/games/daggerfall/dagger-skills.conf
-    chmod g+w /usr/share/games/daggerfall/dagger-skills.conf
-    chgrp games /usr/share/games/daggerfall/dagger-skills.conf
+    chmod -f g+w /usr/share/games/daggerfall/dagger-skills.conf
+    chgrp -f games /usr/share/games/daggerfall/dagger-skills.conf
   else
     sed "s/OPTION//" /usr/share/games/daggerfall/dagger-skills.skel > /usr/share/games/daggerfall/dagger-skills.conf
-    chmod g+w /usr/share/games/daggerfall/dagger-skills.conf
-    chgrp games /usr/share/games/daggerfall/dagger-skills.conf
+    chmod -f g+w /usr/share/games/daggerfall/dagger-skills.conf
+    chgrp -f games /usr/share/games/daggerfall/dagger-skills.conf
   fi
 fi
 if [[ $set_gamma == "true" ]]
 then
   sed "s/OPTION/$gamma/" /usr/share/games/daggerfall/dagger-gamma.skel > /usr/share/games/daggerfall/dagger-gamma.conf
-  chmod g+w /usr/share/games/daggerfall/dagger-gamma.conf
-  chgrp games /usr/share/games/daggerfall/dagger-gamma.conf
+  chmod -f g+w /usr/share/games/daggerfall/dagger-gamma.conf
+  chgrp -f games /usr/share/games/daggerfall/dagger-gamma.conf
 fi
 if [[ $set_wagon == "true" ]]
 then
   sed "s/OPTION/$weight/" /usr/share/games/daggerfall/dagger-wagon.skel > /usr/share/games/daggerfall/dagger-wagon.conf
-  chmod g+w /usr/share/games/daggerfall/dagger-wagon.conf
-  chgrp games /usr/share/games/daggerfall/dagger-wagon.conf
+  chmod -f g+w /usr/share/games/daggerfall/dagger-wagon.conf
+  chgrp -f games /usr/share/games/daggerfall/dagger-wagon.conf
 fi
 dosbox -conf /usr/share/games/daggerfall/$conf
 chmod -f -R g+w /usr/share/games/daggerfall/DAGGER
