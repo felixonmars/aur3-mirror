@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-gornoaltaysk
-pkgver=14
+pkgver=15
 pkgrel=1
 pkgdesc="Map of Gornoaltaysk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Gornoaltaysk-${pkgver}.orig.zip")
-md5sums=('29fd47d386cbfc0ea2dd719c36c3159c')
+md5sums=('f53e91f27e121d7969c29c32cb7342be')
      
 build() {
      

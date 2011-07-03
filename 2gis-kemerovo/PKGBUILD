@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kemerovo
-pkgver=74
+pkgver=75
 pkgrel=1
 pkgdesc="Map of Kemerovo for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kemerovo-${pkgver}.orig.zip")
-md5sums=('cbd78ba983cf884078f4d0df8950bb47')
+md5sums=('7b6e16d91c7543dccaf391193a3bdb77')
      
 build() {
      

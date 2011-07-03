@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-irkutsk
-pkgver=62
+pkgver=63
 pkgrel=1
 pkgdesc="Map of Irkutsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Irkutsk-${pkgver}.orig.zip")
-md5sums=('c120a334ec04bbd9d8ff7f4c56367a5c')
+md5sums=('9f77b11fdcd665dad3f6f1d373ed18a6')
      
 build() {
      

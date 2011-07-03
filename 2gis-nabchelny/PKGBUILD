@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-nabchelny
-pkgver=12
+pkgver=13
 pkgrel=1
 pkgdesc="Map of Nabchelny for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-${pkgver}.orig.zip")
-md5sums=('4293931b9ade7272d5dfe02777ba7ff7')
+md5sums=('5c54d87ed5c2f66b09becbbc3046e38f')
      
 build() {
      

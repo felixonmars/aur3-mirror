@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-novokuznetsk
-pkgver=70
+pkgver=71
 pkgrel=1
 pkgdesc="Map of Novokuznetsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Novokuznetsk-${pkgver}.orig.zip")
-md5sums=('31074f385047423b8dfe11a6a3cea748')
+md5sums=('f04a7248d9b245e33a4f87b89cc37ce9')
      
 build() {
      
