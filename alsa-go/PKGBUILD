@@ -2,20 +2,24 @@
 
 pkgname=alsa-go
 pkgver=0.0
-pkgrel=1
+pkgrel=2
 pkgdesc="ALSA wrapper for C alsa-lib library."
 arch=('i686' 'x86_64')
 url="https://github.com/vchumushuk/alsa-go"
 license=('GPL3')
 depends=('alsa-lib' 'go')
-source=('https://github.com/downloads/vchumushuk/alsa-go/alsa-go-0.0.tar.gz')
-md5sums=('b40bb23976477451e8e35c680d35ad77')
+source=('https://download.github.com/vchumushuk-alsa-go-b0db83c.tar.gz')
+md5sums=('d2077f7f3400354f2130105349c920fc')
 options=(!strip)
 
 build() {
     . /etc/profile.d/go.sh
 
-    cd "$startdir/src/$pkgname-$pkgver" || return 1
+    # cd "$startdir/src/$pkgname-$pkgver" || return 1
+    cd "$startdir/src" || return 1
+    mv vchumushuk-alsa-go-b0db83c "$pkgname-$pkgver" || return 1
+    cd "$pkgname-$pkgver"
+
     make || return 1
     make test || return 1
     make DESTDIR="$startdir/pkg" arch-install || return 1
