@@ -429,9 +429,6 @@ echo "available forcing options (selecting those will discard any other used opt
 echo "  --help                  this help information"
 else
 
-if [ -f /usr/share/games/daggerfall/terms-accepted ]
-then
-
 if [[ $store_pal == "true" ]]
 then
   if [[ ! -d /usr/share/games/daggerfall/palettes ]]
@@ -689,7 +686,10 @@ then
         mv $copy /usr/share/games/daggerfall/DAGGER/$file
         if [[ `echo $copy | grep "\-1\-$mod$" | wc -l` == "1" ]]
         then
-          rm /usr/share/games/daggerfall/modbackup/$file-0-orig
+          if [ -f /usr/share/games/daggerfall/modbackup/$file-0-orig ]
+          then
+            rm /usr/share/games/daggerfall/modbackup/$file-0-orig
+          fi
         fi
       fi
     done
@@ -808,13 +808,14 @@ then
           chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file-0-$mod
           chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file-0-$mod
         else
-          if [ ! -f /usr/share/games/daggerfall/modbackup/$file-0-orig ]
+          id=`find /usr/share/games/daggerfall/modbackup | grep /usr/share/games/daggerfall/modbackup/$file | wc -l`
+          if [[ $id == "0" ]]
           then
             touch /usr/share/games/daggerfall/modbackup/$file-0-orig
             chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file-0-orig
             chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file-0-orig
+            id=1
           fi
-          id=`find /usr/share/games/daggerfall/modbackup | grep /usr/share/games/daggerfall/modbackup/$file | wc -l`
           cp /usr/share/games/daggerfall/DAGGER/$file /usr/share/games/daggerfall/modbackup/$file-$id-$mod
           chmod -f -R g+w /usr/share/games/daggerfall/modbackup/$file-$id-$mod
           chgrp -f -R games /usr/share/games/daggerfall/modbackup/$file-$id-$mod
@@ -831,8 +832,38 @@ then
   chgrp -f -R games /usr/share/games/daggerfall/mods/$mod.enabled
 fi
 
+
 if [[ $run_dosbox == "true" ]]
 then
+
+if [[ $conf == "dagger.conf" ]]
+then
+if [ ! -f /usr/share/games/daggerfall/terms-accepted ]
+then
+cat /usr/share/licenses/daggerfall/license
+echo ""
+while true
+do
+read -p "Do you accept the license? (yes/no) "
+if [ "$REPLY" == "yes" ]
+then
+  touch /usr/share/games/daggerfall/terms-accepted
+  chmod -f g+w /usr/share/games/daggerfall/terms-accepted
+  chgrp -f games /usr/share/games/daggerfall/terms-accepted
+  break
+else
+  if [ "$REPLY" == "no" ]
+  then
+    echo "You should uninstall Daggerfall at once!"
+    exit 1
+  else
+    echo "Please answer with yes or no"
+  fi
+fi
+done
+fi
+fi
+
 if [[ $switch_skills == "true" ]]
 then
   if [[ $skillmode == "off" ]]
@@ -861,29 +892,6 @@ fi
 dosbox -conf /usr/share/games/daggerfall/$conf
 chmod -f -R g+w /usr/share/games/daggerfall/DAGGER
 chgrp -f -R games /usr/share/games/daggerfall/DAGGER
-fi
-
-else
-cat /usr/share/licenses/daggerfall/license
-while true
-do
-
-read -p "Do you accept the license? (yes/no) "
-if [ "$REPLY" == "yes" ]
-then
-  $0 $@ --accept-license
-  break
-else
-  if [ "$REPLY" == "no" ]
-  then
-    echo "You should uninstall Daggerfall at once!"
-    break
-  else
-    echo "Please answer with yes or no"
-  fi
-fi
-
-done
 fi
 fi
 
