@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-volgograd
-pkgver=9
+pkgver=10
 pkgrel=1
 pkgdesc="Map of Volgograd for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Volgograd-${pkgver}.orig.zip")
-md5sums=('a8e8f6fe1fb827fc76802c15b79a5d0b')
+md5sums=('fa98086e7af883b74a505fa746ee4593')
      
 build() {
      

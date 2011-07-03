@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ufa
-pkgver=39
+pkgver=40
 pkgrel=1
 pkgdesc="Map of Ufa for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ufa-${pkgver}.orig.zip")
-md5sums=('4cad975df8c47ac34dd9fc899321b04b')
+md5sums=('7403c1bd78d0edc283525d738177c3b2')
      
 build() {
      

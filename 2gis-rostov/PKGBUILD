@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-rostov
-pkgver=15
+pkgver=16
 pkgrel=1
 pkgdesc="Map of Rostov for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Rostov-${pkgver}.orig.zip")
-md5sums=('beb2a32d113f2a310f4b51089f57a641')
+md5sums=('d9e038ba16237fdc72414215bb6102a8')
      
 build() {
      

@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ryazan
-pkgver=2
+pkgver=3
 pkgrel=1
 pkgdesc="Map of Ryazan for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ryazan-${pkgver}.orig.zip")
-md5sums=('d764c5f62641875ca0a9773f8eee42b3')
+md5sums=('93c756bc96cdfaae486b69079c972007')
      
 build() {
      

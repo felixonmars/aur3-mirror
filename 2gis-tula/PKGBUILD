@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-tula
-pkgver=7
+pkgver=8
 pkgrel=1
 pkgdesc="Map of Tula for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Tula-${pkgver}.orig.zip")
-md5sums=('6b4d13acff790b27ac8051f502c6bc94')
+md5sums=('473e01511f82e2917b34257b409f8fa9')
      
 build() {
      

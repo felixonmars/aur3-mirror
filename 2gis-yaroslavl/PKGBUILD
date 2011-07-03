@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-yaroslavl
-pkgver=12
+pkgver=13
 pkgrel=1
 pkgdesc="Map of Yaroslavl for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Yaroslavl-${pkgver}.orig.zip")
-md5sums=('da401777d8b8401651cd0e628549760f')
+md5sums=('6d900a8f5e203a8d758f334a2d163a24')
      
 build() {
      
