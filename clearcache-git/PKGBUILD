@@ -1,7 +1,7 @@
 # Contributor: Daniel Mills <danielmills1@gmail.com>
 
 pkgname=clearcache-git
-pkgver=20110705
+pkgver=20110706
 pkgrel=1
 pkgdesc="Simple tool for selectively clearing the pacman cache"
 arch=('i686' 'x86_64')
