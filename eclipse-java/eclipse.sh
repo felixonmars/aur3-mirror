@@ -1,5 +1,5 @@
 #!/bin/bash
 
-export ECLIPSE_HOME=/opt/eclipse
-export PATH=$PATH:$ECLIPSE_HOME
-export MOZILLA_FIVE_HOME=/usr/lib/firefox
+export ECLIPSE_HOME=/usr/share/eclipse
+export GDK_NATIVE_WINDOWS=true
+${ECLIPSE_HOME}/eclipse "$@"
