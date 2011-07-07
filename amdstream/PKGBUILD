@@ -7,7 +7,7 @@
 
 pkgname=amdstream
 pkgver=2.4
-pkgrel=3
+pkgrel=4
 
 pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support'
 arch=('i686' 'x86_64')
@@ -42,42 +42,46 @@ _ipath='/opt/amdstream'
 
 build()
 {
-  cd "${srcdir}/AMD-APP-SDK-v$pkgver-lnx${_bits}"
+  cd "${srcdir}/AMD-APP-SDK-v${pkgver}-lnx${_bits}"
   make -j1    #With -j other than one, build failes on ceratin configurations
 }
 
 package()
 {
-  cd "${srcdir}/AMD-APP-SDK-v$pkgver-lnx${_bits}"
+  cd "${srcdir}/AMD-APP-SDK-v${pkgver}-lnx${_bits}"
 
   #Install SDK
   mkdir -p "${pkgdir}/${_ipath}"
   cp -r {glut_notice.txt,docs,include,samples} "${pkgdir}/${_ipath}/"
-  mkdir -p "${pkgdir}/${_ipath}"/{bin/${_arch},lib,samples}
-  cp -r "./bin/${_arch}/clinfo" "${pkgdir}/${_ipath}/bin/${_arch}/clinfo"
-  cp -r "./lib/${_arch}" "${pkgdir}/${_ipath}/lib/"
+  mkdir -p "${pkgdir}/${_ipath}/"{bin,lib,samples}
+  cp -r "./bin/${_arch}/clinfo" "${pkgdir}/${_ipath}/bin/clinfo"
+  cp -r "./lib/${_arch}/"* "${pkgdir}/${_ipath}/lib/"
   rm -rf "${pkgdir}/${_ipath}/samples/opencl/bin/${_other_arch}"
   rm -rf "${pkgdir}/${_ipath}/samples/cal/bin/${_other_arch}"
 
+  #Install Profiler
+  cp "tools/AMDAPPProfiler-2.2/${_arch}/"* "${pkgdir}/${_ipath}/bin/"
+  mkdir -p "${pkgdir}/${_ipath}/docs/AMDAPPProfiler"
+  cp 'tools/AMDAPPProfiler-2.2/html/'* "${pkgdir}/${_ipath}/docs/AMDAPPProfiler/"
+  cp 'tools/AMDAPPProfiler-2.2/AMDAPPProfiler.html' "${pkgdir}/${_ipath}/docs/AMDAPPProfiler-ReleaseNotes.html"
+
   #Register ICD
   mkdir -p "${pkgdir}/etc/OpenCL/vendors"
-  echo "${_ipath}/lib/${_arch}/libamdocl${_bits}.so" > "${pkgdir}/etc/OpenCL/vendors/amd.icd"
+  echo "${_ipath}/lib/libamdocl${_bits}.so" > "${pkgdir}/etc/OpenCL/vendors/amd.icd"
   # The OpenCL ICD specifications: http://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt
 
   #Insall includes
   mkdir -p "${pkgdir}/usr/include/"{CAL,OVDecode}
   install -m644 ./include/CAL/{calcl.h,cal_ext.h,cal_ext_counter.h,cal.h} "${pkgdir}/usr/include/CAL/"
-  #install -m644 ./include/CL/{cl_agent_amd.h,cl_icd.h} "${pkgdir}/usr/include/CL/"
   install -m644 ./include/OVDecode/{OVDecode.h,OVDecodeTypes.h} "${pkgdir}/usr/include/OVDecode"
 
   #Symlink libs
   mkdir -p "${pkgdir}/usr/lib"
-  ln -s "${_ipath}/lib/${_arch}/libOpenCL.so" "${pkgdir}/usr/lib/libOpenCL.so"
-  ln -s "${_ipath}/lib/${_arch}/libamdocl${_bits}.so" "${pkgdir}/usr/lib/libamdocl${_bits}.so"
+  ln -s "${_ipath}/lib/libOpenCL.so" "${pkgdir}/usr/lib/libOpenCL.so"
 
   #Symlink binaries
   mkdir -p "${pkgdir}/usr/bin"
-  ln -s "${_ipath}/bin/${_arch}/clinfo" "${pkgdir}/usr/bin/clinfo"
+  ln -s "${_ipath}/bin/clinfo" "${pkgdir}/usr/bin/clinfo"
 
   #Env vars
   mkdir -p "${pkgdir}/etc/profile.d"
@@ -88,7 +92,7 @@ package()
 
   #Fix modes
   find "${pkgdir}/${_ipath}/" -type f -exec chmod 644 {} \;
-  chmod 755 "${pkgdir}/${_ipath}/bin/${_arch}/clinfo"
-  chmod 755 "${pkgdir}/${_ipath}/lib/${_arch}/"*.so
+  chmod 755 "${pkgdir}/${_ipath}/bin/"*
+  chmod 755 "${pkgdir}/${_ipath}/lib/"*
   find "${pkgdir}/${_ipath}/samples/" -type f -not -name "*.*" -path "*/${_arch}/*" -exec chmod 755 {} \;
 }
