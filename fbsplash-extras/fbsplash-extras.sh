@@ -474,8 +474,9 @@ splash_verbose() {
 }
 
 # Bashified for speed
+# Avoid shutdown read-only filesystem errors
 splash_profile() {
-	[[ $SPLASH_PROFILE = on ]] || return 0
+	[[ $SPLASH_PROFILE = on && -w $spl_cachedir/profile ]] || return 0
 	local time rest
 	read time rest </proc/uptime
 	echo "$time: $*" >>$spl_cachedir/profile
@@ -635,7 +636,7 @@ stop_all_daemons() {
 	for daemon in /run/daemons/*; do
 		[[ -f $daemon ]] || continue
 		daemon=${daemon##*/}
-		in_array "$daemon" "${DAEMONS[@]}" || stop_daemon "$daemon"
+		ck_autostart "$daemon" && stop_daemon "$daemon"
 	done
 
 	# Shutdown daemons in reverse order
@@ -646,16 +647,7 @@ stop_all_daemons() {
 	done
 }
 
-kill_everything() {
-	# $1 = where we are being called from.
-	# This is used to determine which hooks to run.
-
-	run_hook "$1_prestopdaemons"
-
-	stop_all_daemons
-
-	run_hook "$1_prekillall"
-
+kill_all() {
 	# Terminate all processes
 	# and wait until timeout or killall5 reports all done
 	# Unfortunately killall5 does not support the 0 signal, so just
@@ -677,6 +669,19 @@ kill_everything() {
 			killall5 -18 ${omit_pids[@]/#/-o } &>/dev/null
 		done
 	stat_done
+}
+
+kill_everything() {
+	# $1 = where we are being called from.
+	# This is used to determine which hooks to run.
+
+	run_hook "$1_prestopdaemons"
+
+	stop_all_daemons
+
+	run_hook "$1_prekillall"
+
+	kill_all
 
 	run_hook "$1_postkillall"
 }
@@ -772,7 +777,7 @@ in /etc/rc.sysinit )
 			unset FSCK_FD
 		fi
 		# fsck failure emergency exit
-		if [[ $fsckret -gt 1 && $fsckret -ne 32 ]]; then
+		if (( ( fsckret | fsckret_loop | 33 ) != 33 )); then
 			splash_verbose # chvt
 		fi
 	}
@@ -804,7 +809,7 @@ in /etc/rc.sysinit )
 		# Always stop/paint/fadeout before X does chvt
 		# Even when splash was killed because booting via single-user
 		# some chvt magic is needed to keep X from switching to VT1
-		if ! in_array "$SPLASH_XSERVICE" "${DAEMONS[@]}"; then
+		if ck_autostart "$SPLASH_XSERVICE"; then
 			if [[ $RUNLEVEL = 5 ]]
 			then SPLASH_EXIT_TYPE=staysilent splash_exit_boot
 			else splash_exit_boot
@@ -827,29 +832,26 @@ in /etc/rc.sysinit )
 	( splash_cache_prep ) || return 0
 	# No deferred start on SPLASH_XSERVICE to avoid missing errors
 	# X should chvt back to SPLASH_TTY
-	add_hook shutdown_start          splash_shutdown_start
+	# wait for X if stopped by init, override chvt to avoid loosing fadein
+	if [[ $PREVLEVEL:,$SPLASH_EFFECTS, == 5:*,fadein,* ]] &&
+	   ck_daemon $SPLASH_XSERVICE; then
+		splash_wait Xorg
+		if [[ $( fgconsole ) = $SPLASH_TTY ]]; then
+			splash_msg "Switching away from splash tty to enable fadein"
+			chvt 63
+		fi
+	fi
+	# Set up step counting and start splash
+	splash_svc_init shutdown
+	splash  rc_init shutdown
+	# Prevent gpm from garbling the splash
+	if ! ck_daemon gpm; then
+		splash_comm_send set gpm
+		splash_comm_send repaint
+	fi
 	add_hook shutdown_prestopdaemons splash_shutdown_pre_stop_daemons
 	add_hook shutdown_prekillall     splash_shutdown_prekillall
 	add_hook shutdown_poweroff       splash_shutdown_poweroff
-	splash_shutdown_start() {
-		# wait for X if stopped by init, override chvt to avoid loosing fadein
-		if [[ $PREVLEVEL:,$SPLASH_EFFECTS, == 5:*,fadein,* ]] &&
-		   ck_daemon $SPLASH_XSERVICE; then
-			splash_wait Xorg
-			if [[ $( fgconsole ) = $SPLASH_TTY ]]; then
-				splash_msg "Switching away from splash tty to enable fadein"
-				chvt 63
-			fi
-		fi
-		# Set up step counting and start splash
-		splash_svc_init shutdown
-		splash  rc_init shutdown
-		# Prevent gpm from garbling the splash
-		if ! ck_daemon gpm; then
-			splash_comm_send set gpm
-			splash_comm_send repaint
-		fi
-	}
 	splash_shutdown_pre_stop_daemons() {
 		# rc.local.shutdown done
 		(( SPLASH_STEPS_DONE++ ))
