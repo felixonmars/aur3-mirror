@@ -7,7 +7,7 @@
 
 pkgname=amdstream
 pkgver=2.4
-pkgrel=4
+pkgrel=5
 
 pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support'
 arch=('i686' 'x86_64')
@@ -15,12 +15,11 @@ url="http://developer.amd.com/gpu/ATIStreamSDK/Pages/default.aspx"
 license=("custom")
 install=install
 
-provides=('opencl' 'libcl')
-depends=('opencl-headers' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
+provides=('opencl')
+depends=('opencl-headers' 'libopencl' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
   #'libatical>=11.3'
 optdepends=('catalyst: for OpenCL on AMD GPU')
 makedepends=('perl' 'llvm')
-conflicts=('nvidia-opencl' )
 
 #Architecture resolution
 _arch='x86'
@@ -76,12 +75,14 @@ package()
   install -m644 ./include/OVDecode/{OVDecode.h,OVDecodeTypes.h} "${pkgdir}/usr/include/OVDecode"
 
   #Symlink libs
-  mkdir -p "${pkgdir}/usr/lib"
-  ln -s "${_ipath}/lib/libOpenCL.so" "${pkgdir}/usr/lib/libOpenCL.so"
+  #mkdir -p "${pkgdir}/usr/lib"
+  #ln -s "${_ipath}/lib/libOpenCL.so" "${pkgdir}/usr/lib/libOpenCL.so"
 
   #Symlink binaries
-  mkdir -p "${pkgdir}/usr/bin"
-  ln -s "${_ipath}/bin/clinfo" "${pkgdir}/usr/bin/clinfo"
+  #mkdir -p "${pkgdir}/usr/bin"
+  #ln -s "${_ipath}/bin/clinfo" "${pkgdir}/usr/bin/clinfo"
+
+  # - moved to libopencl
 
   #Env vars
   mkdir -p "${pkgdir}/etc/profile.d"
