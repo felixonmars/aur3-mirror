@@ -17,6 +17,7 @@
 // begin FOR_XFCE
 #include <libxfce4panel/xfce-panel-convenience.h>
 #include <libxfce4panel/xfce-panel-plugin.h>
+#include <libxfce4util/libxfce4util.h>
 typedef XfcePanelPlugin AppletType;
 const gchar* MAIN_LABEL_TEXT = "Xfce";
 #elif FOR_GNOME
@@ -298,7 +299,7 @@ static const char* get_application_name(WnckWindow* window, MacMenu* mmb)
   return aname;
 }
 
-static void desktop_active_window_changed(WnckScreen* screen, MacMenu* mmb)
+static void desktop_active_window_changed(WnckScreen* screen, WnckWindow *previous_window, MacMenu* mmb)
 {
   WnckWindow* awin = wnck_screen_get_active_window(screen);
   GtkWidget* sck = NULL;
