@@ -5,13 +5,13 @@
 
 pkgname=darktable-git
 pkgrel=1
-pkgver=20110206
+pkgver=20110710
 pkgdesc="A virtual lighttable and darkroom for photographers"
 arch=(i686 x86_64)
 url=http://darktable.sourceforge.net/
 license=(GPL3)
-depends=(gconf libglade hicolor-icon-theme desktop-file-utils lcms2 lensfun
-         exiv2 openexr librsvg libgphoto2 libgnome-keyring curl)
+depends=(sqlite3 gconf hicolor-icon-theme desktop-file-utils lcms2 lensfun
+	 exiv2 openexr librsvg libgphoto2 sdl mesa libgnome-keyring flickcurl)
 makedepends=(git intltool cmake)
 optdepends=()
 provides=(darktable)
