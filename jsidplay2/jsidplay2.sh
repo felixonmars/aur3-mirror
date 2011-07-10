@@ -1,3 +1,3 @@
 #!/bin/sh
 
-java -jar /usr/share/jsidplay2/jsidplay2.jar "$@"
+java -Djava.library.path=/usr/lib/jsidplay2 -jar /usr/share/jsidplay2/jsidplay2.jar "$@"
