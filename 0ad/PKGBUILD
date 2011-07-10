@@ -2,14 +2,14 @@
 # Contributor: AdriÃ¡n Chaves FernÃ¡ndez (Gallaecio) <adriyetichaves@gmail.com>
 
 pkgname=0ad
-pkgver=alpha_5
-_pkgver=r09530-alpha
-pkgrel=2
+pkgver=alpha_6
+_pkgver=r09786-alpha
+pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
 license=('GPL2' 'CCPL')
-depends=('binutils' 'boost-libs' 'crypto++' 'curl' 'devil' 'enet-old' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'mesa' 'nasm' 'openal' 'python' 'sdl' 'wxgtk' 'zip' 'zlib')
+depends=('binutils' 'boost-libs' 'crypto++' 'curl' 'devil' 'enet' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'mesa' 'nasm' 'openal' 'python' 'sdl' 'wxgtk' 'zip' 'zlib')
 makedepends=('boost' 'cmake')
 conflicts=('0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
@@ -21,8 +21,8 @@ source=("http://releases.wildfiregames.com/$pkgname-$_pkgver-unix-build.tar.xz"
 	"${pkgname}-editor.desktop"
 	"${pkgname}.png"
 	"${pkgname}.install")
-sha256sums=('4cbad45b085b412b48c4f3e27e8d808ff64d51d3ae479fd2ac108768af6a5336'
-            '646f79b17f92872ff9a67d80ee5702d07219f8b3e3c91b438ce79fac2c33ed14'
+sha256sums=('d2b3b06d3396197de36b1ddce109b0d306a0d9a01b634b4aa1e669f44bddcffa'
+            '5c55bd36a0096d61d410a549fe8e89875f236847cce137eb5a8e89f6a67e49af'
             'd7ea528d1adc97021a6804c46f31925e299f9978325fe3cc2af2980ba295b95b'
             'c0d3b95acfe321aad11d72d68418412817fb05fcb186f94be51cccd49a1f3ebb'
             '06ec2bdf186d8f3aa445e394c32d444e948fd773f15431b19970ea8c2496ffaa'
@@ -35,7 +35,7 @@ build(){
 
   sed -i 's/unix_names = { "boost_signals-mt", "boost_filesystem-mt", "boost_system-mt" },/unix_names = { "boost_signals", "boost_filesystem", "boost_system" },/g' "${srcdir}/${pkgname}-${_pkgver}/build/premake/extern_libs.lua"
 
-  ./update-workspaces.sh
+  ./update-workspaces.sh --with-system-enet
 
   cd "$srcdir/$pkgname-$_pkgver/build/workspaces/gcc"
 
