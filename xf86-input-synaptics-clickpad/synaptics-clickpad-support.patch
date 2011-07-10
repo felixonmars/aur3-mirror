@@ -1,22 +1,244 @@
---- xf86-input-synaptics-1.4.0/src/eventcomm.c-orig	2011-03-24 13:33:29.640001111 +0700
-+++ xf86-input-synaptics-1.4.0/src/eventcomm.c	2011-03-24 13:40:06.433001138 +0700
-@@ -277,6 +277,13 @@
- 	}
+diff -uprN a/include/synaptics-properties.h b/include/synaptics-properties.h
+--- a/include/synaptics-properties.h	2011-02-20 20:46:37.000000000 -0500
++++ b/include/synaptics-properties.h	2011-03-19 18:07:43.268845823 -0400
+@@ -155,6 +155,15 @@
+ /* 32 bit, 4 values, left, right, top, bottom */
+ #define SYNAPTICS_PROP_AREA "Synaptics Area"
  
- 	xf86Msg(X_PROBED, "%s: buttons:%s\n", pInfo->name, buf);
++/* 8 bit (BOOL, read-only), has_led */
++#define SYNAPTICS_PROP_LED "Synaptics LED"
++
++/* 8 bit (BOOL), led_status (on/off) */
++#define SYNAPTICS_PROP_LED_STATUS "Synaptics LED Status"
++
++/* 8 bit (BOOL), double-tap action on LED corner (on/off) */
++#define SYNAPTICS_PROP_LED_DOUBLE_TAP "Synaptics LED Dobule Tap"
++
+ /* 32 Bit Integer, 2 values, horizontal hysteresis, vertical hysteresis */
+ #define SYNAPTICS_PROP_NOISE_CANCELLATION "Synaptics Noise Cancellation"
+ 
+diff -uprN a/man/synaptics.man b/man/synaptics.man
+--- a/man/synaptics.man	2011-02-20 20:50:51.000000000 -0500
++++ b/man/synaptics.man	2011-03-19 18:07:43.269845760 -0400
+@@ -564,6 +564,19 @@ coordinates are less than MaxTapMove uni
+ A "touch" event happens when the Z value goes above FingerHigh, and an
+ "untouch" event happens when the Z value goes below FingerLow.
+ .
++.TP
++.BI "Option \*qLEDDoubleTap\*q \*q" boolean \*q
++.
++Enables/disables the touchpad-control by double-tapping on the top-left
++corner LED.
++.
++Some devices have an LED on the top-left corner to indicate the
++touchpad state.  User can double-tap on the LED to toggle the touchpad
++state.  This option controls whether this action is enabled or not.
++The double-tap size is same as specified in MaxDoubleTapTime.
++The default value is ON.
++Property: "Synaptics LED Double Tap"
++.
+ .LP
+ The MaxDoubleTapTime parameter has the same function as the MaxTapTime
+ parameter, but for the second, third, etc tap in a tap sequence.
+@@ -753,6 +766,15 @@ and finger movement distance.
+ Trackstick mode is exited when the finger pressure drops below
+ FingerLow or when the finger is moved further than MaxTapMove away
+ from the initial position.
++.
++When the input device reports a device with a single left button
++and without multi-fingers, the driver assumes it's a Synaptics
++Clickpad device and handles it in ClickZone mode.  In this mode,
++a left/right/middle button event is generated according to the
++position you click.  When Clickpad is enabled, the touchpad area
++is shrunk as default in 20% and the bottom area is used as the
++click-button area.  The area can be configurable via options or
++properties below.
+ 
+ .SH "DEVICE PROPERTIES"
+ Synaptics 1.0 and higher support input device properties if the driver is
+@@ -927,6 +949,19 @@ right button, two-finger detection, thre
+ .BI "Synaptics Pad Resolution"
+ 32 bit unsigned, 2 values (read-only), vertical, horizontal in units/millimeter.
+ 
++.TP 7
++.BI "Synaptics LED"
++8 bit (BOOL, read-only), indicating whether the device has an embedded
++LED support or not.
++
++.TP 7
++.BI "Synaptics LED Status"
++8 bit (BOOL), the light status of the embedded LED.
++
++.TP 7
++.BI "Synaptics LED Double Tap"
++8 bit (BOOL), enable/disable the double-tap on LED.
++
+ .SH "NOTES"
+ There is an example hal policy file in
+ .I ${sourcecode}/fdi/11-x11-synaptics.fdi
+diff -uprN a/src/eventcomm.c b/src/eventcomm.c
+--- a/src/eventcomm.c	2011-03-03 21:35:56.000000000 -0500
++++ b/src/eventcomm.c	2011-03-19 18:07:39.623954123 -0400
+@@ -51,6 +51,8 @@
+ #define LONG(x)  ((x) / LONG_BITS)
+ #define TEST_BIT(bit, array) ((array[LONG(bit)] >> OFF(bit)) & 1)
+ 
++#define SYNAPTICS_LED_SYS_FILE	"/sys/class/leds/psmouse::synaptics/brightness"
++
+ /*****************************************************************************
+  *	Function Definitions
+  ****************************************************************************/
+@@ -166,6 +168,32 @@ event_query_info(InputInfoPtr pInfo)
+     }
+ }
+ 
++static void
++event_query_led(InputInfoPtr pInfo)
++{
++    SynapticsPrivate *priv = (SynapticsPrivate *)pInfo->private;
++
++    priv->synpara.has_led = 1;
++}
++
++static void EventUpdateLED(InputInfoPtr pInfo)
++{
++    SynapticsPrivate *priv = (SynapticsPrivate *)pInfo->private;
++
++    if (priv->synpara.has_led) {
++        char *val = priv->synpara.led_status ? "255" : "0";
++        int fd = open(SYNAPTICS_LED_SYS_FILE, O_WRONLY);
++        int err;
++
++        if (fd < 0)
++            return;
++        err = write(fd, val, strlen(val));
++        close(fd);
++        if (err < 0)
++	    xf86Msg(X_WARNING, "%s can't write LED value %s\n", pInfo->name, val);
++    }
++}
++
+ /* Query device for axis ranges */
+ static void
+ event_query_axis_ranges(InputInfoPtr pInfo)
+@@ -266,6 +294,13 @@ event_query_axis_ranges(InputInfoPtr pIn
+ 	   strcat(buf, " double");
+ 	if ((priv->has_triple = (TEST_BIT(BTN_TOOL_TRIPLETAP, keybits) != 0)))
+ 	   strcat(buf, " triple");
 +	
 +	/* clickpad device reports only the single left button mask */
 +	if (priv->has_left && !priv->has_right && !priv->has_middle) {
 +	    priv->is_clickpad = TRUE;
 +	    xf86Msg(X_INFO, "%s: is Clickpad device\n", pInfo->name);
-+	}
++  }
 +
-     }
+ 
+ 	if ((TEST_BIT(BTN_0, keybits) != 0) ||
+ 	    (TEST_BIT(BTN_1, keybits) != 0) ||
+@@ -436,6 +471,7 @@ EventReadDevDimensions(InputInfoPtr pInf
+     if (event_query_is_touchpad(pInfo->fd, (need_grab) ? *need_grab : TRUE))
+ 	event_query_axis_ranges(pInfo);
+     event_query_info(pInfo);
++    event_query_led(pInfo);
  }
-
---- xf86-input-synaptics-1.4.0/xf86-input-synaptics-1.4.0/src/synaptics.c-orig	2011-03-24 13:34:01.809001113 +0700
-+++ xf86-input-synaptics-1.4.0/src/synaptics.c	2011-03-24 13:50:09.042001182 +0700
-@@ -513,6 +513,18 @@
+ 
+ static Bool
+@@ -495,5 +531,6 @@ struct SynapticsProtocolOperations event
+     EventQueryHardware,
+     EventReadHwState,
+     EventAutoDevProbe,
+-    EventReadDevDimensions
++    EventReadDevDimensions,
++    EventUpdateLED,
+ };
+diff -uprN a/src/properties.c b/src/properties.c
+--- a/src/properties.c	2011-02-20 20:46:37.000000000 -0500
++++ b/src/properties.c	2011-03-19 18:07:43.271845640 -0400
+@@ -82,6 +82,9 @@ Atom prop_gestures              = 0;
+ Atom prop_capabilities          = 0;
+ Atom prop_resolution            = 0;
+ Atom prop_area                  = 0;
++Atom prop_led                   = 0;
++Atom prop_led_status            = 0;
++Atom prop_led_double_tap        = 0;
+ Atom prop_noise_cancellation    = 0;
+ 
+ static Atom
+@@ -280,6 +283,11 @@ InitDeviceProperties(InputInfoPtr pInfo)
+     values[3] = para->area_bottom_edge;
+     prop_area = InitAtom(pInfo->dev, SYNAPTICS_PROP_AREA, 32, 4, values);
+ 
++    prop_led = InitAtom(pInfo->dev, SYNAPTICS_PROP_LED, 8, 1, &para->has_led);
++    prop_led_status = InitAtom(pInfo->dev, SYNAPTICS_PROP_LED_STATUS, 8, 1, &para->led_status);
++    prop_led_double_tap = InitAtom(pInfo->dev, SYNAPTICS_PROP_LED_DOUBLE_TAP, 8, 1, &para->led_double_tap);
++
++
+     values[0] = para->hyst_x;
+     values[1] = para->hyst_y;
+     prop_noise_cancellation = InitAtom(pInfo->dev,
+@@ -510,6 +518,19 @@ SetProperty(DeviceIntPtr dev, Atom prope
+             return BadValue;
+ 
+         para->touchpad_off = off;
++        if (!checkonly && para->has_led &&
++	    para->led_status != para->touchpad_off) {
++            para->led_status = para->touchpad_off;
++            if (priv->proto_ops && priv->proto_ops->UpdateLED)
++                priv->proto_ops->UpdateLED(pInfo);
++        }
++    } else if (property == prop_led_double_tap)
++    {
++        if (prop->size != 1 || prop->format != 8 || prop->type != XA_INTEGER)
++            return BadMatch;
++ 
++        para->led_double_tap = *(CARD8*)prop->data;
++
+     } else if (property == prop_gestures)
+     {
+         BOOL *gestures;
+@@ -656,6 +677,16 @@ SetProperty(DeviceIntPtr dev, Atom prope
+         para->area_right_edge  = area[1];
+         para->area_top_edge    = area[2];
+         para->area_bottom_edge = area[3];
++    } else if (property == prop_led_status)
++    {
++        if (prop->size != 1 || prop->format != 8 || prop->type != XA_INTEGER)
++            return BadMatch;
++
++        if (para->has_led) {
++            para->led_status = *(BOOL*)prop->data;
++            if (priv->proto_ops && priv->proto_ops->UpdateLED)
++                priv->proto_ops->UpdateLED(pInfo);
++        }
+     } else if (property == prop_noise_cancellation) {
+         INT32 *hyst;
+         if (prop->size != 2 || prop->format != 32 || prop->type != XA_INTEGER)
+@@ -671,3 +702,13 @@ SetProperty(DeviceIntPtr dev, Atom prope
+     return Success;
+ }
+ 
++void SynapticsToggleOffProperty(DeviceIntPtr dev, Bool off)
++{
++        uint8_t val;
++
++        if (!prop_off)
++                return;
++        val = off;
++        XIChangeDeviceProperty(dev, prop_off, XA_INTEGER, 8,
++                               PropModeReplace, 1, &val, FALSE);
++}
+diff -uprN a/src/synaptics.c b/src/synaptics.c
+--- a/src/synaptics.c	2011-03-03 21:36:15.000000000 -0500
++++ b/src/synaptics.c	2011-03-19 18:07:43.273845526 -0400
+@@ -134,6 +134,7 @@ static void CalculateScalingCoeffs(Synap
+ void InitDeviceProperties(InputInfoPtr pInfo);
+ int SetProperty(DeviceIntPtr dev, Atom property, XIPropertyValuePtr prop,
+                 BOOL checkonly);
++void SynapticsToggleOffProperty(DeviceIntPtr dev, Bool off);
+ 
+ InputDriverRec SYNAPTICS = {
+     1,
+@@ -513,6 +514,18 @@ static void set_default_parameters(Input
          vertResolution = priv->resy;
      }
  
@@ -26,8 +248,8 @@
 +	/* Clickpad devices usually the button area at the bottom, and
 +	 * its size seems ca. 20% of the touchpad height no matter how
 +	 * large the pad is.
-+	 */
-+	button_bottom = priv->maxy - (abs(priv->maxy - priv->miny) * 20) / 100;
++	 */ 
++	button_bottom = priv->maxy - (abs(priv->maxy - priv->miny) * 20) / 100; 
 +	if (button_bottom < b && button_bottom >= t)
 +	    b = button_bottom;
 +    }
@@ -35,13 +257,131 @@
      /* set the parameters */
      pars->left_edge = xf86SetIntOption(opts, "LeftEdge", l);
      pars->right_edge = xf86SetIntOption(opts, "RightEdge", r);
-@@ -1091,6 +1103,59 @@
+@@ -593,6 +606,7 @@ static void set_default_parameters(Input
+     pars->tap_and_drag_gesture = xf86SetBoolOption(opts, "TapAndDragGesture", TRUE);
+     pars->resolution_horiz = xf86SetIntOption(opts, "HorizResolution", horizResolution);
+     pars->resolution_vert = xf86SetIntOption(opts, "VertResolution", vertResolution);
++    pars->led_double_tap = xf86SetBoolOption(opts, "LEDDoubleTap", TRUE);
+ 
+     /* Warn about (and fix) incorrectly configured TopEdge/BottomEdge parameters */
+     if (pars->top_edge > pars->bottom_edge) {
+@@ -876,6 +890,10 @@ DeviceOn(DeviceIntPtr dev)
+     xf86AddEnabledDevice(pInfo);
+     dev->public.on = TRUE;
+ 
++    /* update LED */
++    if (priv->proto_ops && priv->proto_ops->UpdateLED)
++        priv->proto_ops->UpdateLED(pInfo);
++
      return Success;
  }
  
+@@ -1213,6 +1231,7 @@ timerFunc(OsTimerPtr timer, CARD32 now,
+ {
+     InputInfoPtr pInfo = arg;
+     SynapticsPrivate *priv = (SynapticsPrivate *) (pInfo->private);
++    SynapticsParameters *para = &priv->synpara;
+     struct SynapticsHwState hw;
+     int delay;
+     int sigstate;
+@@ -1224,6 +1243,13 @@ timerFunc(OsTimerPtr timer, CARD32 now,
+     hw.millis = now;
+     delay = HandleState(pInfo, &hw);
+ 
++#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 3
++    if (priv->prop_change_pending & 1) {
++	SynapticsToggleOffProperty(pInfo->dev, para->touchpad_off);
++	priv->prop_change_pending = 0;
++    }
++#endif
++
+     /*
+      * Workaround for wraparound bug in the TimerSet function. This bug is already
+      * fixed in CVS, but this driver needs to work with XFree86 versions 4.2.x and
+@@ -1274,6 +1300,10 @@ ReadInput(InputInfoPtr pInfo)
+ 	hw.millis = GetTimeInMillis();
+ 	priv->hwState = hw;
+ 	delay = HandleState(pInfo, &hw);
++#if GET_ABI_MAJOR(ABI_XINPUT_VERSION) >= 3
++	if (priv->prop_change_pending)
++	    delay = MIN(10, delay);
++#endif
+ 	newDelay = TRUE;
+     }
+ 
+@@ -2241,6 +2271,125 @@ handle_clickfinger(SynapticsParameters *
+     }
+ }
+ 
++#define LED_TOGGLE_X_AREA	0.10
++#define LED_TOGGLE_Y_AREA	0.08
++
++static int
++in_led_toggle_area(InputInfoPtr pInfo, struct SynapticsHwState *hw)
++{
++    SynapticsPrivate *priv = (SynapticsPrivate *) (pInfo->private);
++    int click_led_x, click_led_y;
++
++    click_led_x = (priv->maxx - priv->minx) * LED_TOGGLE_X_AREA + priv->minx;
++    click_led_y = (priv->maxy - priv->miny) * LED_TOGGLE_Y_AREA + priv->miny;
++    return (hw->x < click_led_x && hw->y < click_led_y);
++}
++
++/* clicpad button toggle point:
++ * some devices have a LED at the upper-left corner, and double-tapping it
++ * toggles the touchpad enable/disable
++ */
++static int
++handle_toggle_led(InputInfoPtr pInfo, struct SynapticsHwState *hw, int finger)
++{
++    SynapticsPrivate *priv = (SynapticsPrivate *) (pInfo->private);
++    SynapticsParameters *para = &priv->synpara;
++    int diff;
++
++    if (finger) {
++        if (!in_led_toggle_area(pInfo, hw)) {
++            /* outside the toggle area */
++            priv->led_touch_state = FALSE;
++            priv->led_tapped = FALSE;
++            return finger;
++        }
++        if (!priv->led_touch_state) {
++            /* touch start */
++            priv->led_touch_millis = hw->millis;
++            priv->led_touch_state = TRUE;
++        }
++        return 0; /* already processed; ignore this finger event */
++    }
++
++    if (!priv->led_touch_state)
++        return finger; /* nothing happened */
++
++    /* touch-released */
++    priv->led_touch_state = FALSE;
++    diff = TIME_DIFF(priv->led_touch_millis + para->tap_time, hw->millis);
++    if (diff < 0) { /* non-tap? */
++	priv->led_tapped = FALSE;
++        return finger;
++    }
++    if (priv->led_tapped) {
++        /* double-tapped? */
++        diff = TIME_DIFF(priv->led_tap_millis + para->tap_time_2, hw->millis);
++        if (diff >= 0) {
++            para->touchpad_off = !para->touchpad_off;
++            if (priv->proto_ops && priv->proto_ops->UpdateLED)
++                priv->proto_ops->UpdateLED(pInfo);
++	    priv->prop_change_pending = 1;
++            priv->led_tapped = FALSE;
++        }
++    } else
++        priv->led_tapped = TRUE;
++    priv->led_tap_millis = hw->millis;
++    return 0; /* already processed; ignore this finger event */
++}
++
 +/* clickpad event handling */
 +static void
-+HandleClickpad(InputInfoPtr pInfo, struct SynapticsHwState *hw, edge_type edge)
++handle_clickpad(InputInfoPtr pInfo, struct SynapticsHwState *hw, edge_type edge)
 +{
 +    SynapticsPrivate *priv = (SynapticsPrivate *) (pInfo->private);
 +    SynapticsParameters *para = &priv->synpara;
@@ -93,39 +433,93 @@
 +    priv->prev_hw = *hw;
 +}
  
- /*
-  * Convert from absolute X/Y coordinates to a coordinate system where
-@@ -2313,6 +2378,13 @@
- {
+ /* Update the hardware state in shared memory. This is read-only these days,
+  * nothing in the driver reads back from SHM. SHM configuration is a thing of the past.
+@@ -2314,6 +2463,12 @@ update_hw_button_state(const InputInfoPt
      SynapticsPrivate *priv = (SynapticsPrivate *) (pInfo->private);
      SynapticsParameters *para = &priv->synpara;
-+    edge_type edge = NO_EDGE;
-+
-+    edge = edge_detection(priv, hw->x, hw->y);
+ 
++    edge_type edge = edge_detection(priv, hw->x, hw->y);
 +
 +    /* Clickpad handling for button area */
-+    if (priv->is_clickpad)
-+       HandleClickpad(pInfo, hw, edge);
- 
++    if (para->touchpad_off != 1 && priv->is_clickpad)
++	handle_clickpad(pInfo, hw, edge);
++
      /* Treat the first two multi buttons as up/down for now. */
      hw->up |= hw->multi[0];
-@@ -2469,7 +2540,7 @@
+     hw->down |= hw->multi[1];
+@@ -2429,7 +2584,7 @@ HandleState(InputInfoPtr pInfo, struct S
+     update_shm(pInfo, hw);
  
-     /* no edge or finger detection outside of area */
-     if (inside_active_area) {
--	edge = edge_detection(priv, hw->x, hw->y);
-+	/*edge = edge_detection(priv, hw->x, hw->y);*/
+     /* If touchpad is switched off, we skip the whole thing and return delay */
+-    if (para->touchpad_off == 1)
++    if (para->touchpad_off == 1 && !(para->has_led && para->led_double_tap))
+ 	return delay;
+ 
+     /* apply hysteresis before doing anything serious. This cancels
+@@ -2473,6 +2628,15 @@ HandleState(InputInfoPtr pInfo, struct S
  	finger = SynapticsDetectFinger(priv, hw);
      }
-
---- xf86-input-synaptics-1.4.0/src/synapticsstr.h-orig	2011-03-24 13:34:49.909001117 +0700
-+++ xf86-input-synaptics-1.4.0/src/synapticsstr.h	2011-03-24 13:52:14.511001191 +0700
-@@ -239,6 +239,8 @@
+ 
++    if (para->has_led && para->led_double_tap) {
++	if (inside_active_area)
++		finger = handle_toggle_led(pInfo, hw, finger);
++        if (para->touchpad_off == 1) {
++            priv->finger_state = finger;
++            return delay;
++        }
++    }
++
+     /* tap and drag detection. Needs to be performed even if the finger is in
+      * the dead area to reset the state. */
+     timeleft = HandleTapProcessing(priv, hw, finger, inside_active_area);
+diff -uprN a/src/synapticsstr.h b/src/synapticsstr.h
+--- a/src/synapticsstr.h	2011-03-03 21:35:56.000000000 -0500
++++ b/src/synapticsstr.h	2011-03-19 18:07:43.276845370 -0400
+@@ -160,6 +160,9 @@ typedef struct _SynapticsParameters
+     unsigned int resolution_horiz;          /* horizontal resolution of touchpad in units/mm */
+     unsigned int resolution_vert;           /* vertical resolution of touchpad in units/mm */
+     int area_left_edge, area_right_edge, area_top_edge, area_bottom_edge; /* area coordinates absolute */
++    Bool has_led;                           /* has an embedded LED */
++    Bool led_status;                        /* Current status of LED (1=on) */
++    Bool led_double_tap;		    /* double-tap period in ms for touchpad LED control */
+     int hyst_x, hyst_y;                     /* x and y width of hysteresis box */
+ } SynapticsParameters;
+ 
+@@ -239,6 +242,14 @@ typedef struct _SynapticsPrivateRec
      Bool has_pressure;			/* device reports pressure */
      Bool has_width;			/* device reports finger width */
      Bool has_scrollbuttons;		/* device has physical scrollbuttons */
-+    Bool is_clickpad;                  /* is Clickpad device (one-button) */
-+    struct SynapticsHwState prev_hw;   /* previous h/w state (for clickpad) */
++    Bool is_clickpad;			/* is Clickpad device (one-button) */
++    struct SynapticsHwState prev_hw;	/* previous h/w state (for clickpad) */
++    int prop_change_pending;
++    Bool led_touch_state;
++    Bool led_tapped;
++    int led_touch_millis;
++    int led_tap_millis;
++
  
      enum TouchpadModel model;          /* The detected model */
  } SynapticsPrivate;
+diff -uprN a/src/synproto.h b/src/synproto.h
+--- a/src/synproto.h	2011-03-03 21:35:56.000000000 -0500
++++ b/src/synproto.h	2011-03-19 18:07:39.626953966 -0400
+@@ -91,6 +91,7 @@ struct SynapticsProtocolOperations {
+ 			struct CommData *comm, struct SynapticsHwState *hwRet);
+     Bool (*AutoDevProbe)(InputInfoPtr pInfo);
+     void (*ReadDevDimensions)(InputInfoPtr pInfo);
++    void (*UpdateLED)(InputInfoPtr pInfo);
+ };
+ 
+ extern struct SynapticsProtocolOperations psaux_proto_operations;
+diff -uprN a/tools/synclient.c b/tools/synclient.c
+--- a/tools/synclient.c	2011-02-16 19:59:16.000000000 -0500
++++ b/tools/synclient.c	2011-03-19 18:07:43.277845322 -0400
+@@ -143,6 +143,8 @@ static struct Parameter params[] = {
+     {"AreaRightEdge",         PT_INT,    0, 10000, SYNAPTICS_PROP_AREA,	32,	1},
+     {"AreaTopEdge",           PT_INT,    0, 10000, SYNAPTICS_PROP_AREA,	32,	2},
+     {"AreaBottomEdge",        PT_INT,    0, 10000, SYNAPTICS_PROP_AREA,	32,	3},
++    {"LEDStatus",             PT_BOOL,   0, 1,     SYNAPTICS_PROP_LED_STATUS,	8,	0},
++    {"LEDDoubleTap",          PT_BOOL,   0, 1,     SYNAPTICS_PROP_LED_DOUBLE_TAP,	8,	0},
+     { NULL, 0, 0, 0, 0 }
+ };
