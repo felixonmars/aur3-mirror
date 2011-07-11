@@ -1,22 +1,42 @@
-# Contributor: Tocer Deng <tocer.deng@gmail.com>
+# Maintainer: Alf <naihe2010@126.com>
+
 pkgname=acnchess
-pkgver=0.0.1
-pkgrel=6
+pkgver=0.0.2
+pkgrel=1
 pkgdesc="another Chinese chess game coded by Alf"
+
 arch=('i686' 'x86_64')
-url="http://naihe2010.github.com/acnchess"
-license=('GPL2')
-depends=('gtk2>=2.6.0' 'openssl')
-source=("https://github.com/downloads/naihe2010/acnchess/$pkgname-$pkgver.tar.gz")
-md5sums=('4db844ea4c036cf51223c86b77cf3d1c')
+url='http://naihe2010.github.com/acnchess/index.html'
+license=('GPLv2')
+depends=('gtk2>=2.6.0' 'openssl>=0.9.8')
+makedepends=('git' 'cmake')
+
+source=('https://github.com/naihe2010/acnchess/zipball/v0.0.2')
+sourcedir=naihe2010-$pkgname-2da52bc
+md5sums=('c1803dc5a0f98741bc9158f07bf4cabd')
+
+options=(!buildflags)
+
 
 build() {
-  cd $srcdir/$pkgname-$pkgver
+  cd "$srcdir/$sourcedir/libs"
+  if [ -d libttdht/.git ]; then
+    cd libttdht && git pull origin
+  else
+    git clone http://github.com/naihe2010/libttdht.git --depth=1
+  fi
+
+  cd "$srcdir/$sourcedir"
   mkdir -p build
   cd build
-  cmake .. 
-  make || return 1
-  make DESTDIR="$pkgdir/" install
+
+  cmake -DCMAKE_INSTALL_PREFIX=/usr ..
+  make
 }
 
-# vim:set ts=2 sw=2 et:
+package() {
+  cd "$srcdir/$sourcedir/build"
+  make DESTDIR="$pkgdir/" install
+
+  make clean
+}
