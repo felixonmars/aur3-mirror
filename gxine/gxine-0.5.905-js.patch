@@ -1,0 +1,477 @@
+diff -up gxine-0.5.905/src/engine.c.js gxine-0.5.905/src/engine.c
+--- gxine-0.5.905/src/engine.c.js	2009-12-19 17:18:41.000000000 +0100
++++ gxine-0.5.905/src/engine.c	2011-04-18 17:03:35.694078468 +0200
+@@ -154,6 +154,7 @@ int engine_exec_obj (const char *cmd, se
+     JSBool b;
+   } num;
+   char *str;
++  char *str_tmp;
+ 
+ #ifdef LOG
+   /* this is probably harmless */
+@@ -181,12 +182,13 @@ int engine_exec_obj (const char *cmd, se
+ 
+   se_eval_ext (gse, cmd, obj, cb, cb_data, ecb, src);
+ 
+-  if ((str = se_result_str (gse)))
++  if ((str_tmp = se_result_str (gse)))
+   {
+     /* JS output. Could end up in a terminal or the JS console. */
+-    str = g_strdup_printf (_("result: %s"), str);
++    str = g_strdup_printf (_("result: %s"), str_tmp);
+     cb (cb_data, "%s", str);
+     free (str);
++    free (str_tmp);
+   }
+   else if (se_result_double (gse, &num.d))
+   {
+diff -up gxine-0.5.905/src/key_events.c.js gxine-0.5.905/src/key_events.c
+--- gxine-0.5.905/src/key_events.c.js	2009-12-19 17:18:41.000000000 +0100
++++ gxine-0.5.905/src/key_events.c	2011-04-18 17:03:35.694078468 +0200
+@@ -1294,7 +1294,7 @@ JSBool js_event_generic (JSContext *cx, 
+   }
+ 
+   str = JS_ValueToString (cx, argv[0]);
+-  evstr = JS_GetStringBytes (str);
++  evstr = JS_EncodeString (cx, str);
+   event.type = 0;
+ 
+   va_start (ap, prefix);
+@@ -1305,9 +1305,7 @@ JSBool js_event_generic (JSContext *cx, 
+   if (!event.type)
+     event.type = kb_xine_event_lookup (NULL, evstr);
+ 
+-  if (!event.type)
+-    return JS_TRUE;
+-
++  if (event.type) {
+   if (event.type != -1)
+   {
+     event.data = NULL;
+@@ -1315,8 +1313,9 @@ JSBool js_event_generic (JSContext *cx, 
+     logprintf ("js_%s: sending event %d\n", func, event.type);
+     xine_event_send (stream, &event);
+   }
+-
+   *rval = JSVAL_TRUE;
++  }
++  JS_free(cx, evstr); 
+   return JS_TRUE;
+ }
+ 
+diff -up gxine-0.5.905/src/player.c.js gxine-0.5.905/src/player.c
+--- gxine-0.5.905/src/player.c.js	2009-12-21 15:49:37.000000000 +0100
++++ gxine-0.5.905/src/player.c	2011-04-18 17:03:35.789089589 +0200
+@@ -408,11 +408,13 @@ static JSBool set_postproc_chain (const 
+ 				  JSContext *cx, JSObject *obj,
+ 				  uintN argc, jsval *argv, jsval *rval)
+ {
++  char *tmp;
+   se_log_fncall (func);
+   se_argc_check (1, func);
+   se_arg_is_string (0, func);
+   update_postproc_chain (pref,
+-			 JS_GetStringBytes (JS_ValueToString (cx, argv[0])));
++			 tmp = JS_EncodeString (cx, JS_ValueToString (cx, argv[0])));
++  JS_free(cx, tmp);
+   return JS_TRUE;
+ }
+ 
+@@ -462,8 +464,8 @@ static JSBool get_pos (JSContext *cx, JS
+   se_log_fncall ("get_pos");
+   xine_get_pos_length (stream, &pos, &pos_time, &len);
+ 
+-  jsdouble *pos_percent = JS_NewDouble (cx, pos / 655.35);
+-  *rval = DOUBLE_TO_JSVAL (pos_percent);
++  jsdouble *pos_percent = DOUBLE_TO_JSVAL (pos / 655.35);
++  *rval = DOUBLE_TO_JSVAL (*pos_percent);
+   return JS_TRUE;
+ }
+ 
+@@ -895,11 +897,14 @@ static JSBool js_snapshot (JSContext *cx
+   case 1:
+     se_arg_is_string (0, "snapshot");
+     str = JS_ValueToString (cx, argv[0]);
+-    fname = JS_GetStringBytes (str);
++    fname = JS_EncodeString (cx, str);
+   }
+ 
+   make_snapshot (fname, scale, blend);
+ 
++  if(fname)
++    JS_free(cx, fname);
++
+   return JS_TRUE;
+ }
+ 
+@@ -925,8 +930,9 @@ static JSBool controls_play (JSContext *
+ 
+       str = JS_ValueToString (cx, argv[0]);
+ 
+-      mrl = JS_GetStringBytes (str);
++      mrl = JS_EncodeString (cx, str);
+       se_log ("playing '%s' from start\n", mrl);
++      JS_free (cx, mrl);
+     }
+     break;
+ 
+@@ -935,7 +941,7 @@ static JSBool controls_play (JSContext *
+       se_arg_is_number (0, "play");
+       se_arg_is_int (1, "play");
+ 
+-      jsdouble *posv = JS_NewDouble (cx, 0); /* when is this freed? */
++      jsdouble *posv = DOUBLE_TO_JSVAL (0); /* when is this freed? */
+       JS_ValueToNumber (cx, argv[0], posv);
+       pos = (*posv >= 0 && *posv < 100) ? *posv * 655.35 : -1;
+       JS_ValueToInt32 (cx, argv[1], &pos_time);
+@@ -951,12 +957,13 @@ static JSBool controls_play (JSContext *
+       se_arg_is_int (2, "play");
+ 
+       JSString *str = JS_ValueToString (cx, argv[0]);
+-      jsdouble *posv = JS_NewDouble (cx, 0); /* when is this freed? */
++      jsdouble *posv = DOUBLE_TO_JSVAL (0); /* when is this freed? */
+       JS_ValueToNumber (cx, argv[1], posv);
+       pos = (*posv >= 0 && *posv < 100) ? *posv * 655.35 : -1;
+       JS_ValueToInt32 (cx, argv[2], &pos_time);
+-      mrl = JS_GetStringBytes (str);
++      mrl = JS_EncodeString (cx, str);
+       se_log ("playing '%s' from %d, %d\n", mrl, pos, pos_time);
++      JS_free(cx, str);
+     }
+     break;
+   }
+diff -up gxine-0.5.905/src/playlist.c.js gxine-0.5.905/src/playlist.c
+--- gxine-0.5.905/src/playlist.c.js	2009-12-19 17:18:41.000000000 +0100
++++ gxine-0.5.905/src/playlist.c	2011-04-18 17:03:35.822093396 +0200
+@@ -2158,11 +2158,13 @@ static JSBool js_playlist_load (JSContex
+   se_argc_check (1, "playlist_load");
+   se_arg_is_string_or_null (0, "playlist_load");
+ 
+-  char *mrl = JS_GetStringBytes (JS_ValueToString (cx, argv[0]));
++  char *mrl = JS_EncodeString (cx, JS_ValueToString (cx, argv[0]));
+ 
+   logprintf ("playlist_load: file=%s\n", mrl);
+   playlist_load_any (mrl);
+ 
++  JS_free(cx, mrl);
++
+   *rval = JSVAL_VOID;
+   return JS_TRUE;
+ }
+@@ -2176,18 +2178,20 @@ static JSBool js_playlist_add (JSContext
+   se_argc_check_range (1, 2, "playlist_add");
+   se_arg_is_string (0, "playlist_add");
+ 
+-  char *mrl = JS_GetStringBytes (JS_ValueToString (cx, argv[0]));
++  char *mrl = JS_EncodeString (cx, JS_ValueToString (cx, argv[0]));
+   int item;
+ 
+   if (argc > 1)
+   {
+     se_arg_is_string_or_null (1, "playlist_add");
+-    char *title = JSVAL_IS_STRING (argv[1])
+-		  ? JS_GetStringBytes (JS_ValueToString (cx, argv[1]))
++    char *tmp = NULL, *title = JSVAL_IS_STRING (argv[1])
++		  ? tmp = JS_EncodeString (cx, JS_ValueToString (cx, argv[1]))
+ 		  : NULL;
+     logprintf ("playlist_add: MRL=%s title=%s\n", mrl, title);
+     play_item_t *play_item = play_item_new (title, mrl, 0, 0);
+     item = playlist_add (play_item, -1);
++    if(tmp)
++      JS_free(cx, tmp);
+   }
+   else
+   {
+@@ -2197,6 +2201,8 @@ static JSBool js_playlist_add (JSContext
+ 
+   *rval = INT_TO_JSVAL (item);
+ 
++  JS_free(cx, mrl);
++
+   return JS_TRUE;
+ }
+ 
+diff -up gxine-0.5.905/src/script_engine.c.js gxine-0.5.905/src/script_engine.c
+--- gxine-0.5.905/src/script_engine.c.js	2009-12-19 17:18:41.000000000 +0100
++++ gxine-0.5.905/src/script_engine.c	2011-04-19 10:51:52.109514263 +0200
+@@ -34,7 +34,9 @@
+ #include <stdarg.h>
+ 
+ #include <gdk/gdkkeysyms.h>
+-#include <jsstr.h>
++#include <jsapi.h>
++#include <jsval.h>
++//#include <jsstr.h>
+ 
+ #include "script_engine.h"
+ #include "ui.h"
+@@ -190,11 +192,14 @@ int se_eval (se_t *se, const gchar *scri
+ 
+ gchar *se_result_str (se_t *se)
+ {
++  char *tmp;
+   if (!JSVAL_IS_STRING (se->rval))
+     return NULL;
+ 
+-  se->str = JS_ValueToString (se->cx, se->rval);
+-  return JS_GetStringBytes (se->str);
++  se->str = JS_ValueToString (se->cx, se->rval);  
++  char *ret = g_strdup((tmp = JS_EncodeString (se->cx, se->str)));
++  JS_free(se->cx, tmp);
++  return ret;
+ }
+ 
+ int se_result_int (se_t *se, JSInt32 *num)
+@@ -325,10 +330,12 @@ js_callback (JSContext *cx, JSObject *ob
+   se_arg_is_string (0, "callback");
+   if (argc > 1)
+     se_arg_is_object (1, "callback");
+-  engine_queue_push (JS_GetStringBytes (JS_ValueToString (cx, argv[0])),
++  char *tmp = JS_EncodeString(cx, JS_ValueToString (cx, argv[0]));
++  engine_queue_push (tmp,
+ 		     JS_GetPrivate (cx, argc > 1 ? JSVAL_TO_OBJECT (argv[1])
+ 						 : se->global),
+ 		     NULL, NULL, NULL, _("JS callback"));
++  JS_free(cx, tmp);
+   *rval = JSVAL_VOID;
+   return JS_TRUE;
+ }
+@@ -342,8 +349,10 @@ js_xine_cfg_get (JSContext *cx, JSObject
+   se_arg_is_string (0, "xine_cfg_get");
+ 
+   xine_cfg_entry_t entry;
+-  char *cfg = JS_GetStringBytes (JS_ValueToString (cx, argv[0]));
+-  if (!xine_config_lookup_entry (xine, cfg, &entry))
++  char *cfg = JS_EncodeString (cx, JS_ValueToString (cx, argv[0]));
++  int ret = xine_config_lookup_entry (xine, cfg, &entry);
++  JS_free(cx, cfg);
++  if (!ret)
+   {
+     *rval = JSVAL_NULL;
+     return JS_TRUE;
+@@ -383,8 +392,12 @@ js_xine_cfg_set (JSContext *cx, JSObject
+   se_arg_is_string (0, "xine_cfg_set");
+ 
+   xine_cfg_entry_t entry;
+-  char *cfg = JS_GetStringBytes (JS_ValueToString (cx, argv[0]));
+-  if (!xine_config_lookup_entry (xine, cfg, &entry))
++  entry.str_value = NULL;
++
++  char *cfg = JS_EncodeString (cx, JS_ValueToString (cx, argv[0]));
++  int ret = xine_config_lookup_entry (xine, cfg, &entry);
++  JS_free(cx, cfg);
++  if (!ret)
+   {
+     *rval = JSVAL_VOID;
+     return JS_TRUE;
+@@ -413,18 +426,19 @@ js_xine_cfg_set (JSContext *cx, JSObject
+ 
+   case XINE_CONFIG_TYPE_STRING:
+     se_arg_is_string (1, "xine_cfg_set");
+-    entry.str_value = JS_GetStringBytes (JS_ValueToString (cx, argv[1]));
++    entry.str_value = JS_EncodeString (cx, JS_ValueToString (cx, argv[1]));
+     break;
+ 
+   case XINE_CONFIG_TYPE_ENUM:
+     se_arg_is_string (1, "xine_cfg_set");
+-    char *v = JS_GetStringBytes (JS_ValueToString (cx, argv[1]));
++    char *v = JS_EncodeString (cx, JS_ValueToString (cx, argv[1]));
+     int i;
+     for (i = 0; entry.enum_values[i]; ++i)
+       if (!strcmp (v, entry.enum_values[i]))
+-	break;
++	    break;
+     if (entry.enum_values[i])
+       entry.num_value = i;
++    JS_free(cx, v);
+     break;
+ 
+   default:
+@@ -434,6 +448,9 @@ js_xine_cfg_set (JSContext *cx, JSObject
+ 
+   preferences_update_entry (&entry);
+ 
++  if(entry.str_value)
++    JS_free(cx, entry.str_value);
++
+   *rval = JSVAL_VOID;
+   return JS_TRUE;
+ }
+@@ -652,8 +669,8 @@ static jsval get_prop_jsval (se_t *se, s
+ 
+   case SE_TYPE_DOUBLE:
+     {
+-      jsdouble *d = JS_NewDouble (se->cx, get_prop_double (se, o, p));
+-      return DOUBLE_TO_JSVAL (d);
++      jsdouble *d = DOUBLE_TO_JSVAL (get_prop_double (se, o, p));
++      return DOUBLE_TO_JSVAL (*d);
+     }
+ 
+   case SE_TYPE_BOOL:
+@@ -692,7 +709,7 @@ static void set_prop_jsval (se_t *se, se
+ 
+   case SE_TYPE_DOUBLE:
+     if (JSVAL_IS_NUMBER(*v))
+-      se_prop_set_double (se, o, p->id, *JSVAL_TO_DOUBLE(*v));
++      se_prop_set_double (se, o, p->id, JSVAL_TO_DOUBLE(*v));
+     else
+       se->print_cb (se->print_cb_data, _("\n%s.%s: value must be numeric\n"),
+ 		    o->id, p->id);
+@@ -709,8 +726,9 @@ static void set_prop_jsval (se_t *se, se
+   case SE_TYPE_STRING:
+     {
+       JSString *str = JSVAL_TO_STRING(*v);
+-      char     *string = JS_GetStringBytes (str);
++      char     *string = JS_EncodeString (se->cx, str);
+       se_prop_set (se, o, p->id, string);
++      JS_free(se->cx, string); 
+     }
+     return;
+ 
+@@ -726,7 +744,7 @@ static void set_prop_jsval (se_t *se, se
+  */
+ 
+ static JSBool
+-generic_JSGetProperty (JSContext *cx, JSObject *obj, jsval id, jsval *vp)
++generic_JSGetProperty (JSContext *cx, JSObject *obj, jsid id, jsval *vp)
+ {
+   se_t   *se = (se_t *) JS_GetContextPrivate(cx);
+   se_log_fncall ("generic get property");
+@@ -735,7 +753,8 @@ generic_JSGetProperty (JSContext *cx, JS
+   if (JSVAL_IS_STRING (id))
+   {
+     JSString *str = JS_ValueToString (cx, id);
+-    char     *prop = str ? JS_GetStringBytes (str) : "";
++    char     *encoded = NULL;
++    char     *prop = str ? (encoded = JS_EncodeString (cx, str)) : "";
+     GList    *n;
+ 
+     logprintf ("script_engine: looking for generic property '%s' in '%s'\n",
+@@ -749,6 +768,8 @@ generic_JSGetProperty (JSContext *cx, JS
+       if (!strcasecmp (p->id, prop))
+       {
+ 	*vp = get_prop_jsval (se, o, p);
++    if(encoded)
++      JS_free(cx,encoded);
+ 	return JS_TRUE;
+       }
+     }
+@@ -765,14 +786,19 @@ generic_JSGetProperty (JSContext *cx, JS
+ 	  prop = se_js_string_val (cx, ".");
+ 	if (!generic_JSGetProperty (cx, p->obj, prop, vp))
+ 	  *vp = OBJECT_TO_JSVAL (p->obj);
++    if(encoded)
++      JS_free(cx,encoded);
+ 	return JS_TRUE;
+       }
+     }
+ 
+-    if (*prop && o->parent)
+-      return generic_JSGetProperty (cx, o->parent->obj, id, vp);
++    int ret = (*prop && o->parent) ? 
++              generic_JSGetProperty (cx, o->parent->obj, id, vp) : JS_TRUE;
+ 
+-    return JS_TRUE;
++    if(encoded)
++      JS_free(cx,encoded);
++
++    return ret;
+   }
+ 
+   *vp = JSVAL_VOID;
+@@ -781,7 +807,7 @@ generic_JSGetProperty (JSContext *cx, JS
+ }
+ 
+ static JSBool
+-generic_JSSetProperty(JSContext *cx, JSObject *obj, jsval id, jsval *vp)
++generic_JSSetProperty(JSContext *cx, JSObject *obj, jsid id, jsval *vp)
+ {
+   se_t   *se = (se_t *) JS_GetContextPrivate(cx);
+   se_o_t *o;
+@@ -790,10 +816,10 @@ generic_JSSetProperty(JSContext *cx, JSO
+ 
+   o = JS_GetPrivate (cx, obj);
+ 
+-  if (JSVAL_IS_STRING (id))
++  if (JSID_IS_STRING (id))
+   {
+     JSString *str = JS_ValueToString (cx, id);
+-    char     *prop = JS_GetStringBytes (str);
++    char     *prop = JS_EncodeString (cx, str);
+     GList    *n;
+ 
+     logprintf ("script_engine: looking for generic property '%s' in '%s'\n",
+@@ -808,6 +834,7 @@ generic_JSSetProperty(JSContext *cx, JSO
+       {
+ 	if (!p->constant)
+ 	  set_prop_jsval (se, o, p, vp);
++    JS_free(cx, prop);
+ 	return JS_TRUE;
+       }
+     }
+@@ -819,16 +846,22 @@ generic_JSSetProperty(JSContext *cx, JSO
+       se_o_t *p = (se_o_t *) n->data;
+       if (!strcasecmp (p->id, prop))
+       {
+-	if (!generic_JSSetProperty (cx, p->obj, STRING_TO_JSVAL("."), vp))
+-	  *vp = OBJECT_TO_JSVAL (p->obj);
+-	return JS_TRUE;
++        jsid id;
++        if(JS_ValueToId(cx, STRING_TO_JSVAL("."), &id)) {
++          if (!generic_JSSetProperty (cx, p->obj, id, vp))
++            *vp = OBJECT_TO_JSVAL (p->obj);
++        }
++        JS_free(cx, prop);
++	    return JS_TRUE;
+       }
+     }
+ 
+-    if (*prop && o->parent)
+-      return generic_JSSetProperty (cx, o->parent->obj, id, vp);
+ 
+-    return JS_TRUE;
++    int ret = (*prop && o->parent) ? 
++              generic_JSSetProperty (cx, o->parent->obj, id, vp) : JS_TRUE;
++    JS_free(cx, prop);
++
++    return ret;
+   }
+ 
+   *vp = JSVAL_VOID;
+@@ -1542,7 +1575,7 @@ se_t *se_new (void)
+ {
+   se_t    *se;
+   static JSClass global_class = {
+-    "global", JSCLASS_HAS_PRIVATE,
++    "global", JSCLASS_HAS_PRIVATE|JSCLASS_GLOBAL_FLAGS,
+     JS_PropertyStub,JS_PropertyStub,JS_PropertyStub,JS_PropertyStub,
+     JS_EnumerateStub,JS_ResolveStub,JS_ConvertStub,JS_FinalizeStub
+   };
+@@ -1564,7 +1597,7 @@ se_t *se_new (void)
+   se = malloc (sizeof (se_t));
+ 
+   se->cx       = JS_NewContext (rt, 0x1000);
+-  se->global   = JS_NewObject (se->cx, &global_class, NULL, NULL);
++  se->global   = JS_NewCompartmentAndGlobalObject (se->cx, &global_class, NULL);
+ 
+   pthread_mutexattr_t attr;
+   pthread_mutexattr_init (&attr);
+diff -up gxine-0.5.905/src/vis.c.js gxine-0.5.905/src/vis.c
+--- gxine-0.5.905/src/vis.c.js	2009-12-19 17:18:41.000000000 +0100
++++ gxine-0.5.905/src/vis.c	2011-04-18 17:03:35.868098835 +0200
+@@ -69,12 +69,14 @@ void vis_set (const char *str)
+ static JSBool js_set_vis (JSContext *cx, JSObject *obj, uintN argc,
+ 			  jsval *argv, jsval *rval)
+ {
++  char *tmp;
+   se_log_fncall ("js_set_vis");
+   se_argc_check (1, "set_vis");
+   se_arg_is_string (0, "set_vis");
+ 
+   JSString *str = JS_ValueToString (cx, argv[0]);
+-  vis_set (JS_GetStringBytes (str));
++  vis_set ((tmp = JS_EncodeString (cx, str)));
++  JS_free(cx, tmp);
+ 
+   return JS_TRUE;
+ }
