@@ -58,32 +58,49 @@ conn = httplib.HTTPConnection("login.vk.com:80")
 conn.request("POST", "/", authParams, headers)
 response = conn.getresponse()
 html = response.read()
-#print response.getheaders()
-#print html
-#print fetchCookies(response)
 
-print " > Parsing cookies..."
+print " > Parsing post-authoriation cookies and proceeding login..."
 headers["Cookie"] = fetchCookies(response);
 
-start=html.index("name='s' value='")+16
-end=html.index("' />", start)
-s=html[start:end]
+redirect=response.getheaders()[6][1]
+redirect=redirect[redirect.rfind('/'):1000]
 
-authParams2 = urllib.urlencode({
-	's':s,
-	'op':'slogin',
-	'redirect':1,
-	'expire':0,
-	'to':''
-	})
-conn.close()
-
-print " > Authorizing..."
 conn = httplib.HTTPConnection("m.vk.com:80")
-conn.request("POST", "/login", authParams2, headers);
+conn.request("GET", redirect, '', headers);
+#print "GETTING" + redirect;
+
 response = conn.getresponse()
+#print response.getheaders()
+html=response.read()
+#print html
+
 headers["Cookie"] += fetchCookies(response)
-#print headers["Cookie"];
+
+#print " > ..."
+
+###conn = httplib.HTTPConnection("m.vk.com:80")
+###conn.request("GET", "/", '', headers);
+
+###response = conn.getresponse()
+#print response.getheaders()
+###html=response.read()
+#print html
+
+#authParams2 = urllib.urlencode({
+#	's':s,
+#	'op':'slogin',
+#	'redirect':1,
+#	'expire':0,
+#	'to':''
+#	})
+#conn.close()
+
+#print " > Authorizing..."
+#conn = httplib.HTTPConnection("m.vk.com:80")
+#conn.request("POST", "/login", authParams2, headers);
+#response = conn.getresponse()
+#headers["Cookie"] += fetchCookies(response)
+##print headers["Cookie"];
 
 #searchParams = urllib.urlencode({
 #	'from':'audio',
@@ -96,9 +113,6 @@ conn = httplib.HTTPConnection("vk.com")
 conn.request("GET", "/gsearch.php?from=audio&q="+sys.argv[1].replace(' ','+')+"&section=audio", "", headers)
 response = conn.getresponse()
 html = response.read()
-#print response.status
-#print response.getheaders()
-#print html
 
 print " > Fetching URL..."
 try:
@@ -120,4 +134,4 @@ print " > Done!"
 print " > Track name: "+track
 print " > Track URL: "+url
 
-os.system('wget '+url+' -O "'+track+'.mp3"')
+os.system('wget -c '+url+' -O "'+track+'.mp3"')
