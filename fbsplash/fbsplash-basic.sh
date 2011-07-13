@@ -40,8 +40,8 @@ case $0 in /etc/rc.sysinit )
 	# Prevent splash destruction
 	CONSOLEFONT=""
 	# Continue to use a splash daamon started in initcpio
-	if /bin/mountpoint -q /dev/.splash-cache; then
-		/bin/mount --move /dev/.splash-cache $spl_cachedir || return
+	if /bin/mountpoint -q /run/.splash-cache; then
+		/bin/mount --move /run/.splash-cache $spl_cachedir || return
 		splash_comm_send set message "$SPLASH_BOOT_MESSAGE"
 	# Mount a tmpfs
 	else
