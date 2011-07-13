@@ -293,8 +293,8 @@ sub fix_dirs
 
 sub run_dosbox
 {
-	my ($app, $exit) = @_;
-	terms_accepted or die "Terms of usage not accepted";
+	my ($app, $exit, $no_terms) = @_;
+	$no_terms or terms_accepted or die "Terms of usage not accepted";
 	my $run = catfile($daggerfall_path, $daggerfall_dir, $app);
 	( -e $run) or die "Cannot find requested application";
 	my $cfg = catfile($daggerfall_path, $dosbox_config);
@@ -309,22 +309,22 @@ sub run_dosbox
 
 sub run_daggerfall
 {
-	run_dosbox "RUN.BAT", 1;
+	run_dosbox "RUN.BAT", 1, 0;
 }
 
 sub run_setup
 {
-	run_dosbox "SETUP.EXE", 1;
+	run_dosbox "SETUP.EXE", 1, 1;
 }
 
 sub run_fixsave
 {
-	run_dosbox "FIXSAVE.EXE", 0;
+	run_dosbox "FIXSAVE.EXE", 0, 1;
 }
 
 sub run_fixmaps
 {
-	run_dosbox "FIXMAPS.EXE", 0;
+	run_dosbox "FIXMAPS.EXE", 0, 1;
 }
 
 sub get_brightness
@@ -827,6 +827,13 @@ sub is_mod
 	return ( -d catfile($daggerfall_path, $mods_dir, $mod) );
 }
 
+sub has_patch
+{
+	my $mod = shift;
+	( is_mod $mod) or return 0;
+	return ( -e catfile($daggerfall_path, $mods_dir, $mod.".patch") );
+}
+
 sub was_mod
 {
 	my $mod = shift;
@@ -872,8 +879,9 @@ sub get_mods
 	my @files = readdir(DIR);
 	closedir(DIR);
 	@files = grep(!/^\./,@files);
-	@files = grep(!/enabled$/,@files);
-	@mods = grep(!/extends$/,@files);
+	@files = grep(!/\.enabled$/,@files);
+	@files = grep(!/\.patch$/,@files);
+	@mods = grep(!/\.extends$/,@files);
 	return sort @mods;
 }
 
@@ -897,17 +905,14 @@ sub get_enabled_mods
 
 sub get_mod_groups
 {
-	my @mods = ();
+	my @mods = get_mods;
 	my @groups = ();
 	my $dir = catfile($daggerfall_path, $mods_dir);
 	( -d $dir ) or return @mods;
 	opendir(DIR, $dir) or die "Cannot access mods directory";
 	my @files = readdir(DIR);
 	closedir(DIR);
-	@files = grep(!/^\./,@files);
-	@files = grep(!/enabled$/,@files);
-	@mods = grep(!/extends$/,@files);
-	foreach my $modex (grep(/extends$/,@files)) {
+	foreach my $modex (grep(/\.extends$/,@files)) {
 		my $mod = $modex;
 		$mod =~ s/.extends$//;
 		my @temp = grep(/^$mod$/,@mods);
@@ -928,6 +933,7 @@ sub get_mod_dependencies
 			( ! -d $file) or return;
 			($file =~ /$mod$/) or return;
 			$file =~ s/^$dir.//;
+			($file !~ /^FALL\.EXE/) or return;
 			my $temp = $file;
 			$file =~ s/-[0-9]*-$mod$//;
 			$temp =~ s/.*-([0-9]*)-$mod$/$1/;
@@ -1087,6 +1093,92 @@ sub get_file_in_mods_count
 	return (1+$#backups);
 }
 
+sub rm
+{
+	my $file = shift;
+	( -e $file ) or return;
+	( ! -d $file ) or return;
+	unlink @{[$file]} or die "Cannot delete file";
+}
+
+sub dir_empty
+{
+	my $dir = shift;
+	( -d $dir ) or return 0;
+	opendir(DIR, $dir);
+	my @files = readdir(DIR);
+	closedir(DIR);
+	return ($#files == 1);
+}
+
+sub enable_patch
+{
+	my $mod = shift;
+	my $file = catfile($daggerfall_path, $mods_dir, $mod.".patch");
+	open(FILE, "<$file") or die "Cannot open patch file";
+	my @lines = <FILE>;
+	close(FILE);
+	$file = catfile($daggerfall_path, $mod_backup_dir, "FALL.EXE-$mod");
+	open(FILE, ">$file") or die "Cannot create FALL.EXE backup";
+	my $fall = catfile($daggerfall_path, $daggerfall_dir, "FALL.EXE");
+	open(FALL, "<$fall") or die "Cannot open FALL.EXE file";
+	binmode(FALL);
+	my $buffer;
+	read(FALL, $buffer, 1864183);
+	foreach my $part (@lines) {
+		$part =~ s/\r|\n//g;
+		my @data = split(/\ /, $part);
+		my $offset = $data[0];
+		shift @data;
+		my $length = $data[0];
+		shift @data;
+		my $out = pack("C*", @data);
+		seek FALL, $offset, 0;
+		my $buf;
+		read FALL, $buf, $length;
+		my @orig = unpack("C*", $buf);
+		my $origval = join(" ", @orig);
+		print FILE "$offset $length $origval\n";
+		substr($buffer, $offset, $length, $out);
+	}
+	close(FILE);
+	close(FALL);
+	open(FALL, ">$fall") or die "Cannot open FALL.EXE file";
+	binmode(FALL);
+	print FALL $buffer;
+	close(FALL);
+}
+
+sub disable_patch
+{
+	my $mod = shift;
+	my $file = catfile($daggerfall_path, $mod_backup_dir, "FALL.EXE-$mod");
+	open(FILE, "<$file") or die "Cannot read FALL.EXE backup";
+	my @lines = <FILE>;
+	close(FILE);
+	my $fall = catfile($daggerfall_path, $daggerfall_dir, "FALL.EXE");
+	open(FALL, "<$fall") or die "Cannot open FALL.EXE file";
+	binmode(FALL);
+	my $buffer;
+	read(FALL, $buffer, 1864183);
+	close(FALL);
+	foreach my $part (@lines) {
+		$part =~ s/\r|\n//g;
+		my @data = split(/\ /, $part);
+		my $offset = $data[0];
+		shift @data;
+		my $length = $data[0];
+		shift @data;
+		my $out = pack("C*", @data);
+		substr($buffer, $offset, $length, $out);
+	}
+	open(FALL, ">$fall") or die "Cannot open FALL.EXE file";
+	binmode(FALL);
+	print FALL $buffer;
+	close(FALL);
+	rm $file;
+}
+
 sub enable_mod
 {
 	my $mod = shift;
@@ -1109,8 +1201,9 @@ sub enable_mod
 	find sub {
 		my $source = $File::Find::name;
 		my $file = $source;
-		$file =~ s/^$moddir.//;
 		($file ne $moddir) or return;
+		$file =~ s/^$moddir.//;
+		( $file !~ /^FALL.EXE$/ ) or die "Bad mod, FALL.EXE can be modded only trough patches";
 		my $target = catfile($daggerfall_path, $daggerfall_dir, $file);
 		my $backup = catfile($dir, $file);
 		if ( -d $source ) {
@@ -1151,28 +1244,13 @@ sub enable_mod
 			}
 		}
 	}, $moddir;
+	if ( has_patch $mod ) {
+		enable_patch $mod;
+	}
 	open(FILE, ">$moddir.enabled") or die "Cannot create file";
 	close(FILE);
 	chmod 0664, "$moddir.enabled";
 	chown -1, $gid, "$moddir.enabled";
-}
-
-sub rm
-{
-	my $file = shift;
-	( -e $file ) or return;
-	( ! -d $file ) or return;
-	unlink @{[$file]} or die "Cannot delete file";
-}
-
-sub dir_empty
-{
-	my $dir = shift;
-	( -d $dir ) or return 0;
-	opendir(DIR, $dir);
-	my @files = readdir(DIR);
-	closedir(DIR);
-	return ($#files == 1);
 }
 
 sub disable_mod
@@ -1191,19 +1269,23 @@ sub disable_mod
 		($file =~ /$mod$/) or return;
 		my $id = $file;
 		$file =~ s/-[0-9]*-$mod$//;
-		$id =~ s/^$file-//;
-		$id =~ s/-$mod$//;
-		my $source = catfile($dir, "$file-$id-$mod");
-		my $target = catfile($daggerfall_path, $daggerfall_dir, $file);
-		if ($id == 0) {
-			rm($source);
-			rm($target);
+		if ($file =~ /FALL.EXE/) {
+			disable_patch $mod;
 		} else {
-			move($source, $target) or die "Cannot restore backup";
-			chmod 0664, $target;
-			chown -1, $gid, $target;
-			if ($id == 1) {
-				rm(catfile($dir, "$file-0-orig"));
+			$id =~ s/^$file-//;
+			$id =~ s/-$mod$//;
+			my $source = catfile($dir, "$file-$id-$mod");
+			my $target = catfile($daggerfall_path, $daggerfall_dir, $file);
+			if ($id == 0) {
+				rm($source);
+				rm($target);
+			} else {
+				move($source, $target) or die "Cannot restore backup";
+				chmod 0664, $target;
+				chown -1, $gid, $target;
+				if ($id == 1) {
+					rm(catfile($dir, "$file-0-orig"));
+				}
 			}
 		}
 	}, $dir;
