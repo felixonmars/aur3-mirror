@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.1
+# ff-downloader v0.2
 ## Copyright 2011 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -137,21 +137,22 @@ chomp $ARCH;
 
 $| = 1; # turn on autoflush;
 
+my $ff_path = "/pub/firefox/releases/${VER}/linux-${ARCH}/${i18n[$choice - 1]{code}}/firefox-${VER}.tar.bz2";
 my $ff_url = URI->new('ftp://ftp.mozilla.org');
-$ff_url->path("/pub/firefox/releases/${VER}/linux-${ARCH}/${i18n[$choice - 1]{code}}/firefox-6.0b1.tar.bz2");
+$ff_url->path($ff_path);
 
 my $browser = LWP::UserAgent->new();
 $browser->env_proxy( ); # in case  we're behind a firewall
 $browser->timeout(30);
 print ':: please wait while downloading firefox (sorry, no progress bar available yet) ... ';
 my $resp = $browser->get($ff_url, ':content_file' => "firefox-${VER}.tar.bz2");
-die ':: oops, got error |', $resp->status_line, "|, exiting ...\n" unless $resp->is_success;
+die "\n:: oops, got error ||", $resp->status_line, "||, exiting ...\n" unless $resp->is_success;
 say 'DONE';
 
-$ff_url->path("/pub/firefox/releases/${VER}/linux-${ARCH}/${i18n[$choice -  1]{code}}/firefox-${VER}.tar.bz2.asc");
+$ff_url->path("${ff_path}.asc");
 print ':: downloading signature ... ';
 $resp = $browser->get($ff_url, ':content_file' => "firefox-${VER}.tar.bz2.asc");
-die ':: oops, got error |', $resp->status_line, "|, exiting ...\n" unless $resp->is_success;
+die "\n:: oops, got error ||", $resp->status_line, "||, exiting ...\n" unless $resp->is_success;
 say 'DONE';
 
 print ':: verifying gnupg signature ... ';
