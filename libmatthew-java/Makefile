@@ -1,4 +1,5 @@
-CC=gcc
+CC?=gcc
+LD?=gcc
 CFLAGS+=-Wall -Os -pedantic -Werror
 CSTD?=-std=c99
 CSHAREFLAG+=-fpic -fno-stack-protector
@@ -13,10 +14,12 @@ LDSHAREFLAGS+=-lc
 endif
 
 PREFIX?=/usr
-JARDIR?=$(PREFIX)/share/java/libmatthew-java
-LIBDIR?=$(PREFIX)/lib/libmatthew-java
+JARDIR?=$(PREFIX)/share/java/libmatthew-java/
+DOCDIR?=$(PREFIX)/share/doc/libmatthew-java/
+LIBDIR?=$(PREFIX)/lib/
 
-MATTVER=0.7.2
+MATTVER=0.8
+
 DEBUG?=disable
 
 all: libcgi-java.so libunix-java.so
