@@ -5,7 +5,7 @@
 #
 
 name="pacaur"
-version="2.1.4"
+version="2.1.5"
 
 #
 # Default config
@@ -80,20 +80,13 @@ InfoAur() {
 }
 
 DownloadAur() {
-    if [[ ! $force ]]; then
-        $cower -d $@ -t $buildDir
-    else
-        $cower -d -f $@ -t $buildDir
-    fi
+    [[ ! $force ]] && $cower -d $@ -t $buildDir || $cower -d -f $@ -t $buildDir
 }
 
 DownloadDepsAur() {
     # download dependencies recursively and return AUR deps only
-    if [[ ! $force ]]; then
-        deps=$($cower -dd $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
-    else
-        deps=$($cower -dd -f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
-    fi
+    [[ $force ]] && f="-f"
+    deps=$($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
     ErrorExit $deps
 }
@@ -123,14 +116,14 @@ CheckRepo() {
 
         local i=0
         for package in ${outofdate[@]}; do
-            [[ ! $quiet ]] && notice "${colorW}${outofdate[$i]} ${colorR}${Qversion[$i]} ${reset}-> ${colorG}${Sversion[$i]}${reset}" || echo ${outofdate[$i]}
+            [[ ! $quiet ]] && info "${colorW}${outofdate[$i]} ${colorR}${Qversion[$i]} ${reset}-> ${colorG}${Sversion[$i]}${reset}" || echo ${outofdate[$i]}
             ((i++))
         done
     fi
 }
 
 UpgradeAur() {
-    notice "${colorW}Starting AUR upgrade...${reset}"
+    info "${colorW}Starting AUR upgrade...${reset}"
     pkgs=$($cower -u ${ignorepkgs[@]} $@ | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 
     # add devel packages
@@ -160,7 +153,7 @@ UpgradeAur() {
                 if [[ "${ignoredpkgs[@]}" =~ "${aurpkgs[$j]}" ]]; then
                     continue
                 fi
-                notice "${colorW}${aurpkgs[$j]} ${colorY}${Qversion[$j]} ${reset}"
+                info "${colorW}${aurpkgs[$j]} ${colorY}${Qversion[$j]} ${reset}"
                 aurdevel=("${aurdevel[@]}" "${aurpkgs[$j]}")
             fi
         done
@@ -199,7 +192,7 @@ UpgradeAur() {
 CopyAbs() {
     for i in "$@"; do
         if [[ -e $buildDir/$i/PKGBUILD && ! $force ]]; then
-            failed "${colorW}$i${reset} PKGBUILD already exists in $buildDir. Use -f to overwrite."
+            warn "${colorW}$i${reset} PKGBUILD already exists in $buildDir. Use -f to overwrite."
         else
             cp -r `find /var/abs -name "$i"` $buildDir || error "${colorW}$i${reset} not found"
             success "${colorW}$i${reset} copied in $buildDir"
@@ -209,25 +202,21 @@ CopyAbs() {
 
 EditPkgs() {
     if [[ $edit && ! $noedit ]]; then
-    for i in "$@"; do
-        if [ -e $buildDir/$i/PKGBUILD ]; then
-            $editor $buildDir/$i/PKGBUILD
-            success "${colorW}$i${reset} PKGBUILD edited"
-        else
-            error "Could not open ${colorW}$i${reset} PKGBUILD"
-        fi
-    done
+        info "Editing ${colorW}$@${reset}... "
+        for i in "$@"; do
+            [[ -e $buildDir/$i/PKGBUILD ]] && $editor $buildDir/$i/PKGBUILD && success "${colorW}$i${reset} PKGBUILD edited" || error "Could not open ${colorW}$i${reset} PKGBUILD"
+        done
     fi
 }
 
 CleanUp() {
     if [[ $clean == true ]]; then
+        info "Cleaning up ${colorW}$@${reset}... "
         cd $buildDir
-        for i in $@; do
-            notice "Cleaning up ${colorW}$i${reset}... "
+        for i in "$@"; do
             # hack for cvs protected files
             chmod -R 755 $i &>/dev/null
-            rm -r $i && success "${colorW}$i${reset} cleaned" || failed "Could not clean ${colorW}$i${reset}"
+            rm -r $i && success "${colorW}$i${reset} cleaned" || warn "Could not clean ${colorW}$i${reset}"
         done
     fi
 }
@@ -235,7 +224,7 @@ CleanUp() {
 MakePkgs() {
     # reverse deps order
     deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
-    notice "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
+    info "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
 
     # remember explicitly installed packages
     if [[ $expl == "" ]]; then
@@ -253,7 +242,7 @@ MakePkgs() {
     local j
     for j in "${deps[@]}"; do
         if [ -e $buildDir/$j/PKGBUILD ]; then
-            notice "Building ${colorW}$j${reset} package..."
+            info "Building ${colorW}$j${reset} package..."
             cd $buildDir/$j
             if [[ $install ]]; then
                 makepkg -sfi ${makeopts[@]}
@@ -277,6 +266,56 @@ MakePkgs() {
             error "Could not open ${colorW}$j${reset} PKGBUILD"
         fi
     done
+}
+
+CleanCache() {
+    # set cache variables
+    source /etc/makepkg.conf
+    export PACMAN=$pacmanBin
+
+    if [[ $PKGDEST && $PKGDEST != '/var/cache/pacman/pkg/' ]]; then
+
+        echo -e "\n${colorW}AUR cache directory:${reset} $PKGDEST"
+
+        if [[ $count != 2 ]]; then
+
+            echo -e "${colorW}Packages to keep:${reset}\n  All locally installed packages"
+            echo -ne "Do you want to remove all other packages from AUR cache? [Y/n] "
+
+            read yn
+            case $yn in
+            [Yy]|[Yy]es|'')
+                echo "removing old packages from cache..."
+                for package in $(ls $PKGDEST | sed "s#\(.*\)-.*#\1#g" ); do
+                    pkgname=$(echo $package | sed "s#\(.*\)-.*-.*#\1#g")
+                    if [[ $package != $(expac -Q '%n-%v' $pkgname) ]]; then
+                        rm $PKGDEST/$package-*
+                    fi
+                done
+            ;;
+            *)
+                exit
+            ;;
+            esac
+
+        else
+
+            echo -ne "Do you want to remove ALL files from AUR cache? [y/N] "
+
+            read yn
+            case $yn in
+            [Yy]|[Yy]es)
+                echo "removing all files from AUR cache..."
+                rm $PKGDEST/* &>/dev/null
+            ;;
+            *)
+                exit
+            ;;
+            esac
+
+        fi
+
+    fi
 }
 
 DownloadPkgbuild() {
@@ -307,11 +346,11 @@ success() {
     echo -e "${colorG}::${reset} $1"
 }
 
-failed() {
+warn() {
     echo -e "${colorY}::${reset} $1"
 }
 
-notice() {
+info() {
     echo -e "${colorB}::${reset} $1"
 }
 
@@ -334,7 +373,7 @@ usage() {
     echo "   -c, --clean     clean existing target(s) PKGBUILD -- can be combined with the -b, -m, -y, -abs flags"
     echo ""
     echo "pacman options:"
-    echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Syu operations"
+    echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Sc operations"
     echo "   -r, --repo      only search or install packages from the repositories"
     echo "   -a, --aur       only search or install packages from the AUR"
     echo "   -q, --quiet     show less information for query and search"
@@ -406,8 +445,8 @@ while [[ $1 ]]; do
         '-Sii'|'--info') option=info; count=2 ;;
         '-Sw'|'--downloadonly') option=sync; force=true; edit=true ;;
         '-Qu'|'--upgrades') option=upgrades ;;
-        '-Su'|'--sysupgrade'|'-Suu'|'-Syu'|'-Syyu'|'-Syuu'|'-Syyuu'|'-Suy'|'-Suyy'|'-Syuy'|'-Suuy'|'-Suyu'|'-Suuyy'|'-Syuyu'|'-Syuuy'|'-Suyuy')
-              option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1" ;;
+        '-Sc'|'--clean') option=cleancache; ((count++)); pacmanarg="$1" ;;
+        '-Scc'|'--clean') option=cleancache; count=2; pacmanarg="$1" ;;
         '-r'|'--repo') repo='1' ;;
         '-a'|'--aur') aur='1' ;;
         # pacman shortcuts
@@ -429,10 +468,13 @@ while [[ $1 ]]; do
         '-Quq') option=upgrades; quiet=true ;;
         '-Quqa') option=upgrades; quiet=true; aur='1' ;;
         '-Quqr') option=upgrades; quiet=true; repo='1' ;;
-        '-Sua'|'-Suua'|'-Syua'|'-Syyua'|'-Syuua'|'-Syyuua'|'-Suya'|'-Suyya'|'-Syuya'|'-Suuya'|'-Suyua'|'-Suuyya'|'-Syuyua'|'-Syuuya'|'-Suyuya')
-              option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; aur='1' ;;
-        '-Sur'|'-Suur'|'-Syur'|'-Syyur'|'-Syuur'|'-Syyuur'|'-Suyr'|'-Suyyr'|'-Syuyr'|'-Suuyr'|'-Suyur'|'-Suuyyr'|'-Syuyur'|'-Syuuyr'|'-Suyuyr')
-              option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; repo='1' ;;
+        -S*u*a) option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; aur='1' ;;
+        -S*u*r) option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; repo='1' ;;
+        -S*u*|'--sysupgrade') option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1" ;;
+        '-Sca') option=cleancache; ((count++)); pacmanarg="$1"; aur='1' ;;
+        '-Scr') option=cleancache; ((count++)); pacmanarg="$1"; repo='1' ;;
+        '-Scca') option=cleancache; count=2; pacmanarg="$1"; aur='1' ;;
+        '-Sccr') option=cleancache; count=2; pacmanarg="$1"; repo='1' ;;
         # others
         '--devel') devel=true ;;
         '--asroot') makeopts+=("--asroot") ;;
@@ -529,7 +571,7 @@ if [[ $option = sync ]]; then
     [[ ! $aur ]] && result=$($pacmanBin -S --print ${pkgs[@]} 2>&1)
     if [[ $(echo $result | grep -v "error: target not found") == "" ]]; then
         if [[ $fallback = true ]]; then
-            [[ ! $aur ]] && [[ ! $repo ]] && failed "Package(s) ${colorW}${pkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
+            [[ ! $aur ]] && [[ ! $repo ]] && warn "Package(s) ${colorW}${pkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
             [[ ! $repo ]] && Core ${pkgs[@]}
             [[ $repo ]] && error "no results found for ${colorW}${pkgs[@]}${reset}"
         else
@@ -557,7 +599,7 @@ if [[ $option = info ]]; then
     [[ ! $aur ]] && result=$($pacmanBin -Si --print ${pkgs[@]} 2>&1)
     if [[ $(echo $result | grep -v "error: package") == "" ]]; then
         if [[ $fallback = true ]]; then
-            [[ ! $aur ]] && [[ ! $repo ]] && failed "Package(s) ${colorW}${pkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
+            [[ ! $aur ]] && [[ ! $repo ]] && warn "Package(s) ${colorW}${pkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
             [[ ! $repo ]] && InfoAur ${pkgs[@]}
             [[ $repo ]] && error "no results found for ${colorW}${pkgs[@]}${reset}"
         else
@@ -591,6 +633,18 @@ if [[ $option = upgrades ]]; then
         [[ ! $repo ]] && CheckAur ${pkgs[@]}
     else
         [[ $aur ]] && CheckAur ${pkgs[@]}
+    fi
+    exit
+fi
+
+# pacman clean (-Sc) handling
+if [[ $option = cleancache ]]; then
+    [[ $(echo $pacmanarg | grep -v "r$") == "" ]] && pacmanarg=${pacmanarg%?}
+    [[ ! $aur ]] && runasroot $pacmanBin $pacmanarg
+    if [[ $fallback = true ]]; then
+        [[ ! $repo ]] && CleanCache ${pkgs[@]}
+    else
+        [[ $aur ]] && CleanCache ${pkgs[@]}
     fi
     exit
 fi
