@@ -3,7 +3,7 @@
 
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=acr-hg
-pkgver=36
+pkgver=42
 pkgrel=1
 pkgdesc="A fully compatible autoconf replacement" 
 arch=('i686' 'x86_64')
@@ -42,11 +42,6 @@ build() {
 
 package() {
   cd ${srcdir}/${_hgrepo}-build
-
-  sed -i "s|BINDIR?|DESTIR?=/\nBINDIR?|g" Makefile
-  sed -i "s|\${BINDIR}|\${DESTDIR}\${BINDIR}|g" Makefile
-  sed -i "s|\${MANDIR}|\${DESTDIR}\${MANDIR}|g" Makefile
-  sed -i "s|\${DATADIR}|\${DESTDIR}\${DATADIR}|g" Makefile
 
   make DESTDIR=${pkgdir} install
   cd ${srcdir}
