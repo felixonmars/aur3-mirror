@@ -1,13 +1,13 @@
 # Maintainer: Leif Warner <abimelech@gmail.com>
 # Contributor: Christophe Gueret <christophe.gueret@gmail.com>
 pkgname=4store-git
-pkgver=20110701
-pkgrel=1
+pkgver=20110717
+pkgrel=2
 pkgdesc="4store is an efficient, scalable and stable RDF database"
 arch=('i686' 'x86_64')
 url="http://4store.org/"
 license=('GPL')
-depends=('rasqal-latest' 'avahi')
+depends=('rasqal>=0.9.22' 'avahi')
 makedepends=('git')
 provides=('4store')
 conflicts=('4store')
