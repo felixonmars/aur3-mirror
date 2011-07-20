@@ -13,7 +13,7 @@ case "$1" in
    if [ $? -gt 0 ]; then
      stat_fail
    else
-     add_daemon in.shellinaboxd
+     add_daemon shellinaboxd
      stat_done
    fi
    ;;
@@ -23,7 +23,7 @@ case "$1" in
    if [ $? -gt 0 ]; then
      stat_fail
    else
-     rm_daemon in.shellinboxd
+     rm_daemon shellinboxd
      stat_done
    fi
    ;;
