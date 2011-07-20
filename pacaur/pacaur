@@ -5,7 +5,7 @@
 #
 
 name="pacaur"
-version="2.1.6"
+version="2.1.7"
 
 #
 # Default config
@@ -72,11 +72,13 @@ runasroot() {
 }
 
 SearchAur() {
-    [[ $quiet ]] && $cower -sq --color=never $@ || $cower -s $@
+    [[ ! $quiet ]] && $cower -s $@
+    [[ $quiet ]] && $cower -sq --color=never $@
 }
 
 InfoAur() {
-    [[ $count -eq 1 ]] && $cower -i $@ || $cower -ii $@
+    [[ $count -eq 1 ]] && $cower -i $@
+    [[ $count -ne 1 ]] && $cower -ii $@
 }
 
 DownloadAur() {
@@ -88,7 +90,7 @@ DownloadDepsAur() {
     [[ $force ]] && f="-f"
     deps=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
 
-    ErrorExit ${deps[@]}
+    timeout ${deps[@]}
 }
 
 FindDepsAur() {
@@ -98,7 +100,7 @@ FindDepsAur() {
     # check dependencies recursively and return AUR deps only
     deps=($($cower -dd $@ -t $tmpDir | tee 1>/dev/null >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
 
-    ErrorExit ${deps[@]}
+    timeout ${deps[@]}
 
     # clean tmpdir
     rm -rf "$tmpDir" &>/dev/null
@@ -142,7 +144,7 @@ UpgradeAur() {
         local i=0
         for package in ${aurpkgs[@]}; do
             DownloadPkgbuild ${aurpkgs[$i]} &
-            ParaExec
+            paraexec
             ((i++))
         done
         wait
@@ -170,7 +172,7 @@ UpgradeAur() {
         exit   
     fi
 
-    ErrorExit ${pkgs[@]}
+    timeout ${pkgs[@]}
 }
 
 Proceed() {
@@ -225,15 +227,15 @@ CleanUp() {
 }
 
 MakePkgs() {
-    # reverse deps order
-    deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
-
     #info "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
     echo -e "\n${colorY}AUR Targets (${#deps[@]}):${reset} ${deps[@]}"
 
     Proceed
 
     EditPkgs ${deps[@]}
+
+    # reverse deps order
+    deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
 
     # remember explicitly installed packages
     if [[ $expl == "" ]]; then
@@ -283,11 +285,8 @@ CleanCache() {
     export PACMAN=$pacmanBin
 
     if [[ $PKGDEST && $PKGDEST != '/var/cache/pacman/pkg/' ]]; then
-
         echo -e "\n${colorW}AUR cache directory:${reset} $PKGDEST"
-
-        if [[ $count != 2 ]]; then
-
+        if [[ $count -eq 1 ]]; then
             echo -e "${colorW}Packages to keep:${reset}\n  All locally installed packages"
             echo -ne "Do you want to remove all other packages from AUR cache? [Y/n] "
 
@@ -306,9 +305,7 @@ CleanCache() {
                 exit
             ;;
             esac
-
         else
-
             echo -ne "Do you want to remove ALL files from AUR cache? [y/N] "
 
             read yn
@@ -321,9 +318,7 @@ CleanCache() {
                 exit
             ;;
             esac
-
         fi
-
     fi
 }
 
@@ -333,22 +328,21 @@ DownloadPkgbuild() {
     fi
 }
 
-ParaExec() {
+paraexec() {
     while (( $(jobs | wc -l) >= 10 )); do
         sleep 0.1
         jobs > /dev/null
     done
 }
 
-ErrorExit(){
-    if [[ $(echo $@ | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then 
+timeout(){
+    if [[ $(echo $@ | grep -v "Couldn't resolve host name" | grep -v "no results found for") == "" ]]; then
         exit
     fi
 }
 
 error() {
-    echo -e "${colorR}::${reset} $1"
-    exit
+    echo -e "${colorR}::${reset} $1" && exit
 }
 
 success() {
@@ -382,7 +376,7 @@ usage() {
     echo "   -c, --clean     clean existing target(s) PKGBUILD -- can be combined with the -b, -m, -y, -abs flags"
     echo ""
     echo "pacman options:"
-    echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Sc operations"
+    echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Sc, -Scc operations"
     echo "   -r, --repo      only search or install packages from the repositories"
     echo "   -a, --aur       only search or install packages from the AUR"
     echo "   -q, --quiet     show less information for query and search"
@@ -468,8 +462,8 @@ while [[ $1 ]]; do
         '-Ssqr'|'-Ssrq') option=search; quiet=true; repo='1' ;;
         '-Sia') option=info; ((count++)); aur='1' ;;
         '-Sir') option=info; ((count++)); repo='1' ;;
-        '-Siia') option=info; count='2'; aur='1' ;;
-        '-Siir') option=info; count='2'; repo='1' ;;
+        '-Siia') option=info; count=2; aur='1' ;;
+        '-Siir') option=info; count=2; repo='1' ;;
         '-Swa') option=sync; force=true; edit=true; aur='1' ;;
         '-Swr') option=sync; force=true; edit=true; repo='1' ;;
         '-Qua') option=upgrades; aur='1' ;;
@@ -477,9 +471,9 @@ while [[ $1 ]]; do
         '-Quq') option=upgrades; quiet=true ;;
         '-Quqa') option=upgrades; quiet=true; aur='1' ;;
         '-Quqr') option=upgrades; quiet=true; repo='1' ;;
-        -S*u*a) option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; aur='1' ;;
-        -S*u*r) option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; repo='1' ;;
-        -S*u*|'--sysupgrade') option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1" ;;
+        -S*u*a) option=sysupgrade; force=true; edit=true; install=true; pacmanarg="$1"; aur='1' ;;
+        -S*u*r) option=sysupgrade; force=true; edit=true; install=true; pacmanarg="$1"; repo='1' ;;
+        -S*u*|'--sysupgrade') option=sysupgrade; force=true; edit=true; install=true; pacmanarg="$1" ;;
         '-Sca') option=cleancache; ((count++)); pacmanarg="$1"; aur='1' ;;
         '-Scr') option=cleancache; ((count++)); pacmanarg="$1"; repo='1' ;;
         '-Scca') option=cleancache; count=2; pacmanarg="$1"; aur='1' ;;
@@ -516,10 +510,25 @@ Core() {
     CleanUp ${deps[@]}
 }
 
+ClassifyPkgs() {
+    if [[ $fallback = true ]]; then
+        [[ $repo ]] && repopkgs=${pkgs[@]}
+        [[ $aur ]] && aurpkgs=${pkgs[@]}
+        if [[ ! $repo && ! $aur ]]; then
+            for package in ${pkgs[@]}; do
+                [[ $($pacmanBin -S --print $package 2>&1 | grep -v "error:") == "" ]] && aurpkgs+=("$package") || repopkgs+=("$package")
+            done
+        fi
+    else
+        [[ ! $aur ]] && repopkgs=${pkgs[@]} || aurpkgs=${pkgs[@]}
+    fi
+}
+
 # sanity check
 [[ ! -d $buildDir ]] && error "Build directory does not exist!\nCheck configuration in /etc/${name}.conf"
 [[ ! -f /usr/bin/$pacmanBin ]] && error "Pacman binary does not exist!\nCheck configuration in /etc/${name}.conf"
 [[ ! $operation && ! $option && ! $cleanpkg && ! $editpkg ]] && error "no operation specified (use -h for help)"
+[[ $repo && $aur ]] && error "target not found"
 
 # search (-s) handling
 if [[ $operation = search ]]; then
@@ -572,75 +581,55 @@ if [[ $operation = abs ]]; then
     exit
 fi
 
-# pacman sync (-S) handling
-# pacman downloadonly (-Sw) handling
-if [[ $option = sync ]]; then
-    [[ ! $aur ]] && result=$($pacmanBin -S --print ${pkgs[@]} 2>&1)
-    if [[ $(echo $result | grep -v "error: target not found") == "" ]]; then
-        if [[ $fallback = true ]]; then
-            [[ ! $aur ]] && [[ ! $repo ]] && warn "Package(s) ${colorW}${pkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
-            [[ ! $repo ]] && Core ${pkgs[@]}
-            [[ $repo ]] && error "no results found for ${colorW}${pkgs[@]}${reset}"
-        else
-            [[ $aur ]] && Core ${pkgs[@]} || error "no results found for ${colorW}${pkgs[@]}${reset}"
-        fi
-    else
-        [[ ! $aur ]] && [[ $install ]] && runasroot $pacmanBin -S ${pacopts[@]} ${pkgs[@]} || [[ ! $aur ]] && [[ ! $install ]] && runasroot $pacmanBin -Sw ${pacopts[@]} ${pkgs[@]}
-    fi
+# pacman search (-Ss) handling
+if [[ $option = search ]]; then
+    [[ ! $aur ]] && [[ ! $quiet ]] && $pacmanBin -Ss ${pkgs[@]}
+    [[ ! $aur ]] && [[ $quiet ]] && $pacmanBin -Ssq ${pkgs[@]}
+    [[ ! $repo ]] && [[ $fallback = true || $aur ]] && SearchAur ${pkgs[@]}
     exit
 fi
 
-# pacman search (-Ss) handling
-if [[ $option = search ]]; then
-        [[ ! $aur ]] && [[ ! $quiet ]] && $pacmanBin -Ss ${pkgs[@]} || [[ ! $aur ]] && [[ $quiet ]] && $pacmanBin -Ssq ${pkgs[@]}
-        if [[ $fallback = true ]]; then
-            [[ ! $repo ]] && SearchAur ${pkgs[@]}
-        else
-            [[ $aur ]] && SearchAur ${pkgs[@]}
-        fi
+# pacman sync (-S) handling
+# pacman downloadonly (-Sw) handling
+if [[ $option = sync ]]; then
+    ClassifyPkgs ${pkgs[@]}
+    if [[ ${repopkgs[@]} ]]; then
+        [[ $install ]] && runasroot $pacmanBin -S ${pacopts[@]} ${repopkgs[@]}
+        [[ ! $install ]] && runasroot $pacmanBin -Sw ${pacopts[@]} ${repopkgs[@]}
+    fi
+    if [[ ${aurpkgs[@]} ]]; then
+        [[ $fallback = true && ! $aur ]] && warn "Package(s) ${colorW}${aurpkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
+        Core ${aurpkgs[@]}
+    fi
     exit
 fi
 
 # pacman info (-Si) handling
 if [[ $option = info ]]; then
-    [[ ! $aur ]] && result=$($pacmanBin -Si --print ${pkgs[@]} 2>&1)
-    if [[ $(echo $result | grep -v "error: package") == "" ]]; then
-        if [[ $fallback = true ]]; then
-            [[ ! $aur ]] && [[ ! $repo ]] && warn "Package(s) ${colorW}${pkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
-            [[ ! $repo ]] && InfoAur ${pkgs[@]}
-            [[ $repo ]] && error "no results found for ${colorW}${pkgs[@]}${reset}"
-        else
-            [[ $aur ]] && InfoAur ${pkgs[@]} || error "no results found for ${colorW}${pkgs[@]}${reset}"
-        fi
-    else
-        [[ ! $aur ]] && [[ $count -eq 1 ]] && $pacmanBin -Si ${pkgs[@]} || [[ ! $aur ]] && [[ $count -ne 1 ]] && $pacmanBin -Sii ${pkgs[@]}
+    ClassifyPkgs ${pkgs[@]}
+    if [[ ${repopkgs[@]} ]]; then
+        [[ $count -eq 1 ]] && $pacmanBin -Si ${repopkgs[@]}
+        [[ $count -ne 1 ]] && $pacmanBin -Sii ${repopkgs[@]}
+    fi
+    if [[ ${aurpkgs[@]} ]]; then
+        [[ $fallback = true && ! $aur ]] && warn "Package(s) ${colorW}${aurpkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
+        InfoAur ${aurpkgs[@]}
     fi
     exit
 fi
 
 # pacman sysupgrade (-Su) handling
-# pacman refresh (-Sy) handling
 if [[ $option = sysupgrade ]]; then
     [[ $(echo $pacmanarg | grep -v "r$") == "" ]] && pacmanarg=${pacmanarg%?}
     [[ ! $aur ]] && runasroot $pacmanBin $pacmanarg ${pacopts[@]} ${ignorepkgs[@]}
-    if [[ $fallback = true ]]; then
-        [[ ! $repo ]] && [[ $upgrade ]] && UpgradeAur
-        [[ ! $repo ]] && Core ${pkgs[@]}
-    else
-        [[ $aur ]] && [[ $upgrade ]] && UpgradeAur
-        [[ $aur ]] && Core ${pkgs[@]}
-    fi
+    [[ ! $repo ]] && [[ $fallback = true || $aur ]] && UpgradeAur && Core ${pkgs[@]}
     exit
 fi
 
 # pacman upgrades (-Qu) handling
 if [[ $option = upgrades ]]; then
     [[ ! $aur ]] && CheckRepo ${pkgs[@]}
-    if [[ $fallback = true ]]; then
-        [[ ! $repo ]] && CheckAur ${pkgs[@]}
-    else
-        [[ $aur ]] && CheckAur ${pkgs[@]}
-    fi
+    [[ ! $repo ]] && [[ $fallback = true || $aur ]] && CheckAur ${pkgs[@]}
     exit
 fi
 
@@ -648,11 +637,7 @@ fi
 if [[ $option = cleancache ]]; then
     [[ $(echo $pacmanarg | grep -v "r$") == "" ]] && pacmanarg=${pacmanarg%?}
     [[ ! $aur ]] && runasroot $pacmanBin $pacmanarg
-    if [[ $fallback = true ]]; then
-        [[ ! $repo ]] && CleanCache ${pkgs[@]}
-    else
-        [[ $aur ]] && CleanCache ${pkgs[@]}
-    fi
+    [[ ! $repo ]] && [[ $fallback = true || $aur ]] && CleanCache ${pkgs[@]}
     exit
 fi
 
