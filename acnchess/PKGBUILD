@@ -1,7 +1,7 @@
 # Maintainer: Alf <naihe2010@126.com>
 
 pkgname=acnchess
-pkgver=0.0.3
+pkgver=0.0.4
 pkgrel=1
 pkgdesc="another Chinese chess game coded by Alf"
 arch=('i686' 'x86_64')
@@ -9,10 +9,10 @@ url='http://naihe2010.github.com/acnchess/index.html'
 license=('GPLv2')
 depends=('gtk2>=2.6.0' 'openssl>=0.9.8')
 makedepends=('git' 'cmake')
-source=('https://github.com/naihe2010/acnchess/zipball/v0.0.3')
-_sourcedir=naihe2010-$pkgname-4eb2312
+source=('https://github.com/naihe2010/acnchess/zipball/v0.0.4')
+_sourcedir=naihe2010-$pkgname-f208e1a
 options=(!buildflags)
-md5sums=('73d0dfd490cd668e94f7147b98146d2b')
+md5sums=('2a1d9246f5c9b99ea9b644d2a185763f')
 
 build() {
   cd "$srcdir/$_sourcedir/libs"
