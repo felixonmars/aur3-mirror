@@ -3,7 +3,7 @@
 
 pkgname=android-notifier-desktop
 pkgver=0.5.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Multi-platform client for the androd-notifier app."
 url="http://android-notifier.googlecode.com"
 arch=('i686' 'x86_64')
@@ -37,6 +37,7 @@ build() {
   install -D android-notifier-desktop.png $pkgdir/usr/share/pixmaps/
 
   cd $srcdir/${pkgname}
+  sed -i 's#android-notifier-desktop.jar#/usr/share/android-notifier-desktop/android-notifier-desktop.jar#' run.sh
   install -D android-notifier-desktop.jar $pkgdir/usr/share/android-notifier-desktop/
   install -D run.sh $pkgdir/usr/share/android-notifier-desktop/
   install -D lib/* $pkgdir/usr/share/android-notifier-desktop/lib/
