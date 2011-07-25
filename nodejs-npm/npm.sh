@@ -3,5 +3,3 @@
 # Set npm global config file to /etc/npmrc
 export npm_config_globalconfig=/etc/npmrc
 export NODE_PATH=/usr/lib/node_modules:/usr/local/lib/node
-
-# Shell completion function. support both bash and zsh
