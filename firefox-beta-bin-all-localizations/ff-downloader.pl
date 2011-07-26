@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.2
+# ff-downloader v0.3
 ## Copyright 2011 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@ use feature 'say';
 use Getopt::Long qw(:config no_ignore_case);
 use URI;
 use LWP;
-use GnuPG qw( :algo );
 
 my $VER;
 my $res = GetOptions("version|v=s" => \$VER);	
@@ -144,19 +143,23 @@ $ff_url->path($ff_path);
 my $browser = LWP::UserAgent->new();
 $browser->env_proxy( ); # in case  we're behind a firewall
 $browser->timeout(30);
-print ':: please wait while downloading firefox (sorry, no progress bar available yet) ... ';
+$browser->show_progress(1);
+##Downloading firefox##
 my $resp = $browser->get($ff_url, ':content_file' => "firefox-${VER}.tar.bz2");
 die "\n:: oops, got error ||", $resp->status_line, "||, exiting ...\n" unless $resp->is_success;
-say 'DONE';
 
+##downloading signature##
 $ff_url->path("${ff_path}.asc");
-print ':: downloading signature ... ';
 $resp = $browser->get($ff_url, ':content_file' => "firefox-${VER}.tar.bz2.asc");
 die "\n:: oops, got error ||", $resp->status_line, "||, exiting ...\n" unless $resp->is_success;
-say 'DONE';
+
+##downloading public key
+$ff_url->path("pub/firefox/releases/${VER}/KEY");
+$resp = $browser->get($ff_url, ':content_file' => "KEY");
+die "\n:: oops, got error ||", $resp->status_line, "||, exiting ...\n" unless $resp->is_success;
+
 
 print ':: verifying gnupg signature ... ';
-system qq{gpg --keyserver hkp://keys.gnupg.net --recv-keys 17785FE8  > /dev/null 2>&1};
-my $gpg = new GnuPG();
-$gpg->verify( signature => "firefox-${VER}.tar.bz2.asc", file => "firefox-${VER}.tar.bz2" );
+(system qq#gpg --import KEY > /dev/null 2>&1#) == 0 or die "FAILED TO IMPORT PUBLIC KEY\n";
+(system qq#gpg --verify firefox-${VER}.tar.bz2.asc > /dev/null 2>&1#) == 0 or die "FAILED\n"; 
 say 'DONE';
