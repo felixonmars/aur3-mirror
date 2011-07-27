@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #
-# pacaur: A fast workflow AUR wrapper using cower as backend
+# pacaur: a fast workflow AUR wrapper using cower as backend
 #
 
 name="pacaur"
-version="2.1.9"
+version="2.1.10"
 
 #
 # Default config
@@ -70,28 +70,30 @@ InfoAur() {
 }
 
 DownloadAur() {
-    [[ ! $force ]] && $cower -d $@ -t $buildDir || $cower -d -f $@ -t $buildDir
+    [[ $force ]] && f="-f"
+    deps=($($cower -d $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
 }
 
 DownloadDepsAur() {
-    # download dependencies recursively and return AUR deps only
-    [[ $force ]] && f="-f"
-    deps=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
+    if [[ ! $build ]]; then
+        [[ $force ]] && f="-f"
+        # return AUR pkgs only
+        [[ ! $option ]] && deps=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
+        [[ $option ]] && deps=($($cower -dd $f $@ -t $buildDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+        # return AUR depends pkgs only
+        if [[ ! $noconfirm && ${ignorepkgs[@]} ]]; then
+            aurdepspkgs=(${deps[@]})
+            for ((i=0; i<${#@}; i++)); do
+                unset aurdepspkgs[$i]
+            done
+        fi
+    else
+        mkdir -p "$tmpDir"
+        deps=($($cower -dd $@ -t $tmpDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+        rm -rf "$tmpDir" &>/dev/null
+    fi
 
     timeout ${deps[@]}
-}
-
-FindDepsAur() {
-    # set tmpdir
-    mkdir -p "$tmpDir"
-
-    # check dependencies recursively and return AUR deps only
-    deps=($($cower -dd $@ -t $tmpDir | tee 1>/dev/null >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
-
-    timeout ${deps[@]}
-
-    # clean tmpdir
-    rm -rf "$tmpDir" &>/dev/null
 }
 
 CheckAur() {
@@ -114,51 +116,42 @@ CheckRepo() {
 
 UpgradeAur() {
     info "${colorW}Starting AUR upgrade...${reset}"
-    pkgs=$($cower -u ${ignorepkgs[@]} $@ | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+    aurpkgs=($($cower -u $@ | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
 
     # add devel packages
     if [[ $devel ]]; then
-        aurpkgs=($($pacmanBin -Qmq))
-        Qversion=($(expac -Q %v ${aurpkgs[@]}))
-
-        # ignored packages
-        ignoredpkgs+=( $(grep '^ *IgnorePkg' '/etc/pacman.conf' | cut -d '=' -f 2-) )
-        ignoredpkgs+=( $(grep '^ *IgnorePkg' "$HOME/.config/cower/config" | cut -d '=' -f 2-) )
-        ignoredpkgs=(${ignoredpkgs[@]//,/ })
+        allaurpkgs=($($pacmanBin -Qmq))
+        Qversion=($(expac -Q %v ${allaurpkgs[@]}))
 
         # set tmpdir
         mkdir -p "$tmpDir"
 
-        for i in ${aurpkgs[@]}; do
+        for i in ${allaurpkgs[@]}; do
             DownloadPkgbuild $i &
             paraexec
         done
         wait
-        for ((i=0; i<${#aurpkgs[@]}; i++)); do
+        for ((i=0; i<${#allaurpkgs[@]}; i++)); do
             unset _darcstrunk _cvsroot _gitroot _svntrunk _bzrtrunk _hgroot
-            . "$tmpDir/${aurpkgs[$i]}.PKGBUILD"
+            . "$tmpDir/${allaurpkgs[$i]}.PKGBUILD"
             if [[ ${_darcstrunk} || ${_cvsroot} || ${_gitroot} || ${_svntrunk} || ${_bzrtrunk} || ${_hgroot} ]]; then
-                if [[ "${ignoredpkgs[@]}" =~ "${aurpkgs[$i]}" ]]; then
-                    continue
-                fi
-                info "${colorW}${aurpkgs[$i]} ${colorY}${Qversion[$i]} ${reset}"
-                aurdevel=("${aurdevel[@]}" "${aurpkgs[$i]}")
+                info "${colorW}${allaurpkgs[$i]} ${colorY}${Qversion[$i]} ${reset}"
+                aurdevel=("${aurdevel[@]}" "${allaurpkgs[$i]}")
             fi
         done
 
         # clean tmpdir
         rm -rf "$tmpDir" &>/dev/null
 
-        [[ ! ${pkgs[@]} ]] && pkgs=("${aurdevel[@]}") || pkgs=("${pkgs[@]}" "${aurdevel[@]}")
-        pkgs=($(echo ${pkgs[@]} | awk -F "\n" '{print}' | awk -F " " '{print}'))
+        [[ ! ${aurpkgs[@]} ]] && aurpkgs=("${aurdevel[@]}") || aurpkgs=("${aurpkgs[@]}" "${aurdevel[@]}")
     fi
 
-    if [[ -z "$pkgs" ]]; then
+    if [[ -z "$aurpkgs" ]]; then
         echo " there is nothing to do"
         exit   
     fi
 
-    timeout ${pkgs[@]}
+    timeout ${aurpkgs[@]}
 }
 
 CopyAbs() {
@@ -188,18 +181,25 @@ EditPkgs() {
 
 CleanUp() {
     if [[ $clean = true ]]; then
-        info "Cleaning up ${colorW}$@${reset}... "
         cd $buildDir
         for i in "$@"; do
             # hack for cvs protected files
             chmod -R 755 $i &>/dev/null
-            rm -r $i && success "${colorW}$i${reset} cleaned" || warn "Could not clean ${colorW}$i${reset}"
+            rm -r $i &>/dev/null && success "${colorW}$i${reset} cleaned" || warn "Could not clean ${colorW}$i${reset}"
         done
     fi
 }
 
 MakePkgs() {
-    echo -e "\n${colorY}AUR Targets (${#deps[@]}):${reset} ${deps[@]}"
+    # warning checks
+    [[ ${ignoredpkgs[@]} ]] && IgnoreChecks ${deps[@]}
+    ReinstallChecks ${deps[@]}
+    mkdir -p "$tmpDir"
+    OutofdateChecks ${deps[@]}
+    rm -rf "$tmpDir" &>/dev/null
+
+    [[ $option ]] && echo -e "\n${colorY}AUR Targets (${#deps[@]}):${reset} ${deps[@]}"
+    [[ ! $option ]] && echo "" && info "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
     echo ""
 
     if [[ ! $noconfirm ]]; then
@@ -210,14 +210,10 @@ MakePkgs() {
         fi
     fi
 
-    #info "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
     EditPkgs ${deps[@]}
 
     # reverse deps order
     deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
-
-    # remember explicitly installed packages
-    [[ -z "$expl" ]] && read -ra expl <<< ${pkgs[@]}
 
     # set architecture variables
     if [[ ! $confSourced ]]; then
@@ -237,7 +233,7 @@ MakePkgs() {
                 # if upgrade, do no change status
                 if [[ ! $upgrade ]]; then
                     isexpl=false
-                    for j in ${expl[@]}; do
+                    for j in ${pkgs[@]}; do
                         [[ $j = $i ]] && isexpl=true
                     done
                     [[ $isexpl != true ]] && runasroot $pacmanBin -D --asdeps $i ${pacopts[@]} &>/dev/null
@@ -289,9 +285,84 @@ CleanCache() {
     fi
 }
 
+OutofdateChecks() {
+    for i in ${deps[@]}; do
+        DownloadJson $i &
+        paraexec
+    done
+    wait
+    for i in ${deps[@]}; do
+        [[ -n $(grep '"OutOfDate":"1"}}' "$tmpDir/$i.json") ]] && warn "$i is flagged ${colorR}out of date${reset}"
+    done
+}
+
+ReinstallChecks() {
+    for i in "${deps[@]}"; do
+        if [[ -n $(expac -Q %n $i) ]]; then
+            exist+=("$i")
+        fi
+    done
+    if [[ ${exist[@]} ]]; then
+        Qversion=($(expac -Q %v ${exist[@]}))
+        for ((i=0; i<${#exist[@]}; i++)); do
+            Apkgver[$i]=$(grep '^pkgver' "$buildDir/${exist[$i]}/PKGBUILD" | cut -d '=' -f 2-)
+            Apkgrel[$i]=$(grep '^pkgrel' "$buildDir/${exist[$i]}/PKGBUILD" | cut -d '=' -f 2-)
+            Aversion[$i]=${Apkgver[$i]}-${Apkgrel[$i]}
+            [[ $(vercmp "${Aversion[$i]}" "${Qversion[$i]}") -gt 0 ]] && continue || warn "${exist[$i]}-${Qversion[$i]} is up to date -- reinstalling"
+        done
+    fi
+}
+
+IgnoreChecks() {
+    unset deps
+    if [[ ! $upgrade && ! $noconfirm ]]; then
+        # check targets
+        for i in "${aurpkgs[@]}"; do
+            if [[ " ${ignoredpkgs[@]} " =~ " $i " ]]; then
+                echo -ne "${colorY}::${reset} $i is in IgnorePkg/IgnoreGroup. Install anyway? [Y/n] "
+                if ! proceed; then
+                    continue
+                fi
+            fi
+            deps+=("$i")
+        done
+        # check depends
+        for i in "${aurdepspkgs[@]}"; do
+            if [[ " ${ignoredpkgs[@]} " =~ " $i " ]]; then
+                echo -ne "${colorY}::${reset} $i is in IgnorePkg/IgnoreGroup. Install anyway? [Y/n] "
+                if ! proceed; then
+                    error "Unresolved dependency '${colorW}$i${reset}'"
+                fi
+            fi
+            deps+=("$i")
+        done
+    else
+        # ignore upgrades
+        for i in "${aurpkgs[@]}"; do
+            if [[ " ${ignoredpkgs[@]} " =~ " $i " ]]; then
+                warn "${colorW}$i${reset}: ignoring package upgrade"
+                continue
+            fi
+            deps+=("$i")
+        done
+    fi
+}
+
+GetIgnoredPkgs() {
+    ignoredpkgs+=( $(grep '^ *IgnorePkg' '/etc/pacman.conf' | cut -d '=' -f 2-) )
+    ignoredpkgs+=( $(grep '^ *IgnorePkg' "$HOME/.config/cower/config" | cut -d '=' -f 2-) )
+    ignoredpkgs=(${ignoredpkgs[@]//,/ })
+}
+
 DownloadPkgbuild() {
     if [[ ! -f "$tmpDir/$i.PKGBUILD" ]]; then
         curl -Lfs "https://aur.archlinux.org/packages/$i/PKGBUILD" > "$tmpDir/$i.PKGBUILD"
+    fi
+}
+
+DownloadJson() {
+    if [[ ! -f "$tmpDir/$i.PKGBUILD" ]]; then
+        curl -Lfs "http://aur.archlinux.org/rpc.php?type=info&arg=$i" > "$tmpDir/$i.json"
     fi
 }
 
@@ -365,8 +436,8 @@ usage() {
     echo ""
     echo "pacman options:"
     echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Sc, -Scc operations"
-    echo "   -r, --repo      only search or install packages from the repositories"
     echo "   -a, --aur       only search or install packages from the AUR"
+    echo "   -r, --repo      only search or install packages from the repositories"
     echo "   -q, --quiet     show less information for query and search"
     echo "   --devel         consider AUR development packages upgrade"
     echo "   --ignore        ignore a package upgrade (can be used more than once)"
@@ -397,15 +468,15 @@ while [[ $1 ]]; do
         '-s'|'--search') operation=search;;
         '-i'|'--info') operation=info; ((count++));;
         '-d'|'--download') operation=download; ((count++));;
-        '-b'|'--build') operation=build;;
+        '-b'|'--build') operation=makepkg; build=true;;
         '-m'|'--makepkg') operation=makepkg;;
         '-y'|'--sync') operation=makepkg ; install=true;;
         '-k'|'--check') operation=check;;
         '-u'|'--update') operation=makepkg; upgrade=true; force=true; install=true;;
         '-abs'|'--abs') operation=abs;;
-        '-c'|'--clean') clean=true; cleanpkg=true;;
         '-f'|'--force') force=true;;
         '-e'|'--edit') edit=true; editpkg=true;;
+        '-c'|'--clean') clean=true; cleanpkg=true;;
         '-q'|'--quiet') quiet=true;;
         # shortcuts
         '-sq') operation=search; quiet=true;;
@@ -417,15 +488,15 @@ while [[ $1 ]]; do
         '-ddf') operation=download; count=2; force=true;;
         '-dde') operation=download; count=2; edit=true;;
         '-ddef'|'-ddfe') operation=download; count=2; edit=true; force=true;;
-        '-be') operation=build; edit=true;;
+        '-be') operation=makepkg; build=true; edit=true;;
         '-me') operation=makepkg; edit=true;;
         '-mf') operation=makepkg; force=true;;
         '-mef'|'-mfe') operation=makepkg; force=true; edit=true;;
         '-ye') operation=makepkg; edit=true; install=true;;
         '-yf') operation=makepkg; force=true; install=true;;
         '-yfe'|'-yef') operation=makepkg; force=true; edit=true; install=true;;
-        '-ue') operation=makepkg; upgrade=true; force=true; edit=true; install=true;;
         '-kq') operation=check; quiet=true;;
+        '-ue') operation=makepkg; upgrade=true; force=true; edit=true; install=true;;
         '-abse') operation=abs; edit=true;;
         '-absf') operation=abs; force=true;;
         '-absef'|'-absfe') operation=abs; force=true; edit=true;;
@@ -459,12 +530,12 @@ while [[ $1 ]]; do
         '-Quq') option=upgrades; quiet=true;;
         '-Quqa') option=upgrades; quiet=true; aur='1';;
         '-Quqr') option=upgrades; quiet=true; repo='1';;
-        -S*u*w*a|-S*w*u*a) option=sysupgrade; force=true; edit=true; pacmanarg="$1"; aur='1' ;;
-        -S*u*w*r|-S*w*u*r) option=sysupgrade; force=true; edit=true; pacmanarg="$1"; repo='1' ;;
-        -S*u*w*|-S*w*u*) option=sysupgrade; force=true; edit=true; pacmanarg="$1" ;;
-        -S*u*a) option=sysupgrade; force=true; edit=true; install=true; pacmanarg="$1"; aur='1';;
-        -S*u*r) option=sysupgrade; force=true; edit=true; install=true; pacmanarg="$1"; repo='1';;
-        -S*u*|'--sysupgrade') option=sysupgrade; force=true; edit=true; install=true; pacmanarg="$1";;
+        -S*u*w*a|-S*w*u*a) option=sysupgrade; upgrade=true; force=true; edit=true; pacmanarg="$1"; aur='1' ;;
+        -S*u*w*r|-S*w*u*r) option=sysupgrade; upgrade=true; force=true; edit=true; pacmanarg="$1"; repo='1' ;;
+        -S*u*w*|-S*w*u*) option=sysupgrade; upgrade=true; force=true; edit=true; pacmanarg="$1" ;;
+        -S*u*a) option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; aur='1';;
+        -S*u*r) option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1"; repo='1';;
+        -S*u*|'--sysupgrade') option=sysupgrade; upgrade=true; force=true; edit=true; install=true; pacmanarg="$1";;
         '-Sca') option=cleancache; ((count++)); pacmanarg="$1"; aur='1';;
         '-Scr') option=cleancache; ((count++)); pacmanarg="$1"; repo='1';;
         '-Scca') option=cleancache; count=2; pacmanarg="$1"; aur='1';;
@@ -472,7 +543,7 @@ while [[ $1 ]]; do
         # others
         '--devel') devel=true;;
         '--asroot') makeopts+=("--asroot");;
-        '--ignore') ignoredpkgs+=("$2"); ignorepkgs+=("--ignore" "$2") ; shift;;
+        '--ignore') ignoredpkgs+=("$2"); ignorepkgs+=("--ignore" "$2"); shift;;
         '--noconfirm') noconfirm=true; pacopts+=("--noconfirm");;
         '--noedit') noedit=true;;
         -D* | '--database') runasroot $pacmanBin $@; exit;;
@@ -483,8 +554,8 @@ while [[ $1 ]]; do
         -U* | '--upgrade') runasroot $pacmanBin $@; exit;;
         '-h'|'--help') usage; exit;;
         '-v'|'--version') version; exit;;
-        --*) runasroot $pacmanBin $@; exit;;
-        -*) echo "$name: invalid option -- '$1'" ; exit;;
+        --*) pacopts+=("$1");;
+        -*) echo "$name: invalid option -- '$1'"; exit;;
         *) pkgs+=("$1");;
     esac
     shift
@@ -503,15 +574,17 @@ Core() {
 
 ClassifyPkgs() {
     if [[ $fallback = true ]]; then
-        [[ $repo ]] && repopkgs=${pkgs[@]}
-        [[ $aur ]] && aurpkgs=${pkgs[@]}
+        [[ $repo ]] && repopkgs=(${pkgs[@]})
+        [[ $aur ]] && aurpkgs=(${pkgs[@]})
+        ignoredgrps+=( $(grep '^ *IgnoreGroup' '/etc/pacman.conf' | cut -d '=' -f 2-) )
         if [[ ! $repo && ! $aur ]]; then
             for i in ${pkgs[@]}; do
+                [[ " ${ignoredgrps[@]} " =~ " $i " ]] && repopkgs+=("$i") && continue
                 [[ -z "$($pacmanBin -S --print $i 2>&1 | grep -v "error:")" ]] && aurpkgs+=("$i") || repopkgs+=("$i")
             done
         fi
     else
-        [[ ! $aur ]] && repopkgs=${pkgs[@]} || aurpkgs=${pkgs[@]}
+        [[ ! $aur ]] && repopkgs=(${pkgs[@]}) || aurpkgs=(${pkgs[@]})
     fi
 }
 
@@ -535,27 +608,19 @@ fi
 
 # download (-d) handling
 if [[ $operation = download ]]; then
-    [[ $count -eq 1 ]] && DownloadAur ${pkgs[@]} || DownloadDepsAur ${pkgs[@]}
-    [[ ! $deps ]] && deps=("${pkgs[@]}")
+    [[ $count -eq 1 ]] && DownloadAur ${pkgs[@]}
+    [[ $count -ne 1 ]] && DownloadDepsAur ${pkgs[@]}
     EditPkgs ${deps[@]}
     exit
 fi
 
 # build (-b) handling
-if [[ $operation = build ]]; then
-    FindDepsAur ${pkgs[@]}
-    [[ ! $deps ]] && deps=("${pkgs[@]}")
-    MakePkgs ${deps[@]}
-    CleanUp ${deps[@]}
-    exit
-fi
-
 # makepkg (-m) handling
 # sync (-y) handling
 # update (-u) handling
 if [[ $operation = makepkg ]]; then
     [[ $upgrade ]] && UpgradeAur
-    Core ${pkgs[@]}
+    GetIgnoredPkgs && Core ${aurpkgs[@]}
     exit
 fi
 
@@ -590,7 +655,7 @@ if [[ $option = sync ]]; then
     fi
     if [[ ${aurpkgs[@]} ]]; then
         [[ $fallback = true && ! $aur ]] && warn "Package(s) ${colorW}${aurpkgs[@]}${reset} not found in repositories, trying ${colorM}aur${reset}..."
-        Core ${aurpkgs[@]}
+        GetIgnoredPkgs && Core ${aurpkgs[@]}
     fi
     exit
 fi
@@ -613,7 +678,7 @@ fi
 if [[ $option = sysupgrade ]]; then
     [[ -z "$(echo $pacmanarg | grep -v "r$")" ]] && pacmanarg=${pacmanarg%?}
     [[ ! $aur ]] && runasroot $pacmanBin $pacmanarg ${pacopts[@]} ${ignorepkgs[@]}
-    [[ ! $repo ]] && [[ $fallback = true || $aur ]] && UpgradeAur && Core ${pkgs[@]}
+    [[ ! $repo ]] && [[ $fallback = true || $aur ]] && GetIgnoredPkgs && UpgradeAur && Core ${aurpkgs[@]}
     exit
 fi
 
