@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.3
+# ff-downloader v0.3.1
 ## Copyright 2011 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -21,6 +21,8 @@ use feature 'say';
 use Getopt::Long qw(:config no_ignore_case);
 use URI;
 use LWP;
+use GnuPG qw( :algo );
+
 
 my $VER;
 my $res = GetOptions("version|v=s" => \$VER);	
@@ -158,8 +160,8 @@ $ff_url->path("pub/firefox/releases/${VER}/KEY");
 $resp = $browser->get($ff_url, ':content_file' => "KEY");
 die "\n:: oops, got error ||", $resp->status_line, "||, exiting ...\n" unless $resp->is_success;
 
-
 print ':: verifying gnupg signature ... ';
-(system qq#gpg --import KEY > /dev/null 2>&1#) == 0 or die "FAILED TO IMPORT PUBLIC KEY\n";
-(system qq#gpg --verify firefox-${VER}.tar.bz2.asc > /dev/null 2>&1#) == 0 or die "FAILED\n"; 
+my $gpg = new GnuPG();
+$gpg->import_keys( keys => 'KEY');
+$gpg->verify ( signature => "firefox-${VER}.tar.bz2.asc", file => "firefox-${VER}.tar.bz2");
 say 'DONE';
