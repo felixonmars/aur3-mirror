@@ -1,5 +1,10 @@
-#!/bin/sh
-# simple script to start GeoGebra
+#!/bin/bash
+#---------------------------------------------
+# Script to start GeoGebra
+#---------------------------------------------
+
+#---------------------------------------------
+# Define usage function
 
 func_usage()
 {
@@ -26,7 +31,9 @@ GeoGebra options:
 _USAGE
 }
 
-# check for option --help and pass memory options to Java, others to GeoGebra
+#---------------------------------------------
+# Check for option --help and pass memory options to Java, others to GeoGebra
+
 for i in "$@"; do
 	case "$i" in
 	--help | --hel | --he | --h )
@@ -51,13 +58,17 @@ for i in "$@"; do
 	fi
 done
 
-# if memory not set, change to GeoGebra defaults
-if [ $(expr match "$JAVA_OPTS" ".*-Xmx") -eq 0 ]; then
+#---------------------------------------------
+# If memory not set, change to GeoGebra defaults
+
+if [ $(expr match "$JAVA_OPTS" '.*-Xmx') -eq 0 ]; then
 	JAVA_OPTS="$JAVA_OPTS -Xmx512m"
 fi
-if [ $(expr match "$JAVA_OPTS" ".*-Xms") -eq 0 ]; then
+if [ $(expr match "$JAVA_OPTS" '.*-Xms') -eq 0 ]; then
 	JAVA_OPTS="$JAVA_OPTS -Xms32m"
 fi
 
-# run
-exec java $JAVA_OPTS -jar /usr/share/java/geogebra/geogebra.jar --CAS=Maxima $GG_OPTS "$@"
+#---------------------------------------------
+# Run
+
+exec java $JAVA_OPTS -jar "/usr/share/java/geogebra/geogebra.jar" --CAS=Maxima $GG_OPTS "$@"
