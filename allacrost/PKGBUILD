@@ -2,7 +2,7 @@
 # Contributor: Christoph Zeiler <rabyte*gmail>
 
 pkgname=allacrost
-pkgver=20110612
+pkgver=20110717
 _pkgver=0.1.0
 pkgrel=1
 pkgdesc='A single player 2D role-playing game inspired by classic console RPGs'
@@ -12,8 +12,8 @@ license=('GPL2')
 depends=('libgl' 'mesa' 'qt' 'openal' 'libvorbis' 'sdl_net' 'sdl_ttf' 'luabind')
 makedepends=('boost')
 options=('!emptydirs')
-source=("http://downloads.sourceforge.net/project/${pkgname}/unstable releases/${pkgname}_unstable_source_${pkgver}.tar.gz")
-md5sums=('16cbe75442c8282987b147edf6596dac')
+source=("http://downloads.sourceforge.net/project/${pkgname}/development releases/${pkgname}_development_source_${pkgver}.tar.gz")
+md5sums=('dbc17a9af7a912ecdf4e146f3e9ee5c3')
 
 build() {
 
