@@ -1,0 +1,185 @@
+#!/bin/sh
+ver=0.4
+#
+# Aurvote, a tool to vote for favorite packages on AUR for inclusion in [community]
+# <wain@archlinux.fr>
+#
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+TMPDIR=$(mktemp -d)
+CONFIGFILE=~/.config/aurvote
+AUR_URL="https://aur.archlinux.org/packages.php"
+AUR_URL2="https://aur.archlinux.org/rpc.php?type=info&arg="
+AUR_URL3="https://aur.archlinux.org/packages.php?setlang=en&ID="
+
+
+version() {
+   echo "aurvote - version $ver"
+   echo
+   echo "        http://archlinux.fr/"
+   die 0
+}
+usage() {
+   echo "aurvote - version $ver"
+   echo
+   echo "usage: aurvote <option> <pkgname1> <pkgname2> ..."
+   echo
+   echo "aurvote --version, -V       shows version"
+   echo "aurvote --help,    -h       shows this help"
+   echo "aurvote --vote,    -v       vote for packages"
+   echo "aurvote --unvote,  -u       unvote packages"
+   echo "aurvote --check,   -c       check for voted packages"
+   echo
+   echo " example:  aurvote --vote yaourt shake bfilter"
+   echo
+   echo "written by <wain@archlinux.fr>"
+   echo " homepage: http://archlinux.fr/"
+}
+
+die() {
+	if [ -d "$TMPDIR" ]; then
+		rm -r "$TMPDIR"
+	fi
+	exit $1
+}
+urlencode(){
+echo $@ | LANG=C awk '
+    BEGIN {
+        split ("1 2 3 4 5 6 7 8 9 A B C D E F", hextab, " ")
+        hextab [0] = 0
+        for ( i=1; i<=255; ++i ) ord [ sprintf ("%c", i) "" ] = i + 0
+    }
+    {
+        encoded = ""
+        for ( i=1; i<=length ($0); ++i ) {
+            c = substr ($0, i, 1)
+            if ( c ~ /[a-zA-Z0-9.-]/ ) {
+                encoded = encoded c             # safe character
+            } else if ( c == " " ) {
+                encoded = encoded "+"   # special handling
+            } else {
+                # unsafe character, encode it as a two-digit hex-number
+                lo = ord [c] % 16
+                hi = int (ord [c] / 16);
+                encoded = encoded "%" hextab [hi] hextab [lo]
+            }
+        }
+            print encoded
+    }
+    END {
+    }
+'
+}
+
+### MAIN PROGRAM ###
+ACTION="vote"
+IDMODE=0
+while [ "$#" -ne "0" ]; do
+	case $1 in
+		--help|-h)
+			usage
+			die 0
+			;;
+		--version|-V) version;;
+		--check|-c) ACTION="check";;
+		--vote|-v) ACTION="vote";;
+		--unvote|-u) ACTION="unvote";;
+		# IDMODE is designed to be used with yaourt: aur -c --id packagename/aurid
+		--id) IDMODE=1;; 
+		--*|-*)
+			usage
+			die 0
+			;;
+		*)
+			pkgnames[${#pkgnames[@]}]=$1
+			;;
+	esac
+	shift
+done
+		
+if [ ${#pkgnames[@]} -eq 0 ]; then
+	usage
+	die 0
+fi
+
+# Check config file
+if [ -r ~/.aurvote ] && [ ! -r "$CONFIGFILE" ]; then
+	echo "Moving ~/.aurvote to $CONFIGFILE"
+	mv ~/.aurvote $CONFIGFILE
+elif [ ! -r $CONFIGFILE ]; then
+   echo "You have to create ~/.config/aurvote with inside:"
+   echo "user=YOUR_AUR_USERNAME"
+   echo "pass=YOUR_AUR_PASS"
+   echo
+   echo "To create a new account just go to:"
+   echo "http://aur.archlinux.org/account.php"
+   die 1
+fi
+  
+source $CONFIGFILE || die 1
+
+# Log into AUR
+# from Linas: use --post-file instead of --post-data
+umask 077
+echo -n "user=${user}&passwd=$(urlencode $pass)" > "$TMPDIR/.aurvote.postdata"
+wget --quiet --keep-session-cookie --save-cookies "$TMPDIR/.aurvote.cookies" \
+--post-file="$TMPDIR/.aurvote.postdata" http://aur.archlinux.org \
+-O "$TMPDIR/aurvote.login" || die 1
+if grep --quiet "'error'>Bad username or password" "$TMPDIR/aurvote.login";then
+	echo "incorrect password: check $CONFIGFILE file"
+	die 1
+fi
+
+# vote/unvote/check for each package
+for pkgname in ${pkgnames[@]}; do
+	if [ $IDMODE -eq 1 ]; then
+		aurid=${pkgname#*/}
+		pkgname=${pkgname%/*}
+	else
+		aurid=$(wget --quiet "${AUR_URL2}${pkgname}" -O - | \
+		sed 's/.*"ID":"\([^"]*\)".*/\1/;q')
+		if [ -z "$aurid" ]; then
+			echo "$pkgname was not found on AUR"
+			continue
+		fi
+	fi
+	if [ "$ACTION" = "check" ]; then
+		[ $IDMODE -eq 0 ] && echo -n "$pkgname:  "
+		wget --quiet --load-cookies="$TMPDIR/.aurvote.cookies" \
+		"${AUR_URL3}${aurid}" -O "$TMPDIR/$pkgname" || echo "ERROR: Can't access $AUR_URL3"
+		if grep -q "type='submit' class='button' name='do_UnVote'" $TMPDIR/$pkgname; then
+			echo "already voted"
+		elif grep -q "type='submit' class='button' name='do_Vote'" $TMPDIR/$pkgname; then
+			echo "not voted"
+		else
+			echo "voted status not found"
+		fi
+	elif [ "$ACTION" = "vote" ]; then
+		if wget --quiet --load-cookies="$TMPDIR/.aurvote.cookies" \
+		--post-data="IDs[${aurid}]=1&ID=${aurid}&do_Vote=1" \
+		$AUR_URL -O "$TMPDIR/$pkgname"; then
+			echo "$pkgname now voted"
+		else
+			echo "ERROR: Can't access $AUR_URL"
+		fi
+	elif [ "$ACTION" = "unvote" ]; then
+		if wget --quiet --load-cookies="$TMPDIR/.aurvote.cookies" \
+		--post-data="IDs[${aurid}]=1&ID=${aurid}&do_UnVote=1" \
+		$AUR_URL -O "$TMPDIR/$pkgname"; then
+			echo "$pkgname now unvoted"
+		else
+			echo "ERROR: Can't access $AUR_URL"
+		fi
+	fi
+done
+
+die 0
