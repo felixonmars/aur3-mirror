@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 
 #include <libnotify/notify.h>
 
@@ -49,8 +50,8 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	struct nlattr * tb[IFLA_MAX + 1] = {};
 	struct ifinfomsg * ifm = mnl_nlmsg_get_payload(nlh);
 
-	// This is anything but fine... But it works as long as the notification is no longer than 50 chars.
-	char notification [50];
+	char * notification = NULL;
+	char * interface = NULL;
 	NotifyNotification * netlink;
 	unsigned int i;
 
@@ -59,8 +60,10 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 
 	mnl_attr_parse(nlh, sizeof(* ifm), data_attr_cb, tb);
 
-	sprintf(notification, "Interface %s is %s.", mnl_attr_get_str(tb[IFLA_IFNAME]), (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
-	printf("%s: Interface %s (index %d) is %s.\n", program, mnl_attr_get_str(tb[IFLA_IFNAME]), ifm->ifi_index, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
+	interface = (char *) mnl_attr_get_str(tb[IFLA_IFNAME]);
+	notification = (char *) malloc(strlen(interface) + 25); /* we assume message and device index has a maximum size of 25 bytes */
+	sprintf(notification, "Interface %s is %s.", interface, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
+	printf("%s: Interface %s (index %d) is %s.\n", program, interface, ifm->ifi_index, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
 
 	if (netlinksize < ifm->ifi_index) {
 		netlinkref = realloc(netlinkref, (ifm->ifi_index + 1) * sizeof(size_t));
@@ -93,6 +96,8 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 			exit(EXIT_FAILURE);
 		}
 	}
+
+	free(notification);
 
 	return MNL_CB_OK;
 }
