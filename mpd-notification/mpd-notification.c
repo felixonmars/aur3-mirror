@@ -12,12 +12,14 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char ** argv) {
 	struct mpd_connection * conn = mpd_connection_new(NULL, 0, 30000);
-
-	// Well... This is really bad design. This will probably crash if the notification is longer than 500 chars.
-        char notification [500];
+	char * title = NULL;
+	char * artist = NULL;
+	char * album = NULL;
+	char * notification = NULL;
         NotifyNotification * netlink;
 
 	GError * error = NULL;
@@ -45,10 +47,12 @@ int main(int argc, char ** argv) {
 
 		song = mpd_recv_song(conn);
 
-		sprintf(notification, "<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>",
-			mpd_song_get_tag(song, MPD_TAG_TITLE, 0),
-			mpd_song_get_tag(song, MPD_TAG_ARTIST, 0),
-			mpd_song_get_tag(song, MPD_TAG_ALBUM, 0));
+		title = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_TITLE, 0), -1);
+		artist = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ARTIST, 0), -1);
+		album = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ALBUM, 0), -1);
+
+		notification = (char *) malloc(strlen(title) + strlen(artist) + strlen(album) + 32); /* we need 32 character for the formatting */
+		sprintf(notification, "<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>", title, artist, album);
 
 	        netlink = notify_notification_new("MPD Notification", notification, "sound");
 
@@ -64,6 +68,7 @@ int main(int argc, char ** argv) {
 			}
 		}
 
+		free(notification);
 		mpd_response_finish(conn);
 		mpd_song_free(song);
 	}
