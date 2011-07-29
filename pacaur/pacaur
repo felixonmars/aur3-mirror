@@ -5,44 +5,47 @@
 #
 
 name="pacaur"
-version="2.1.11"
+version="2.2.0"
 
 #
 # Default config
 #
 
-pacmanBin="pacman-color"        # pacman binary
+# tmpdir
+tmpDir="${TMPDIR:-/tmp}/${name}tmp-$USER"
+[[ -d "$tmpDir" ]] && rm -rf "$tmpDir" &>/dev/null && mkdir -p "$tmpDir"
+
+buildDir="$tmpDir"              # build directory
 editor=${EDITOR:-vi}            # PKGBUILD editor
-buildDir=/home/aur/build        # build directory
+color=true                      # enable color
 clean=true                      # cleanup after install
 fallback=true                   # pacman fallback
-color=true                      # enable color
-
-tmpDir="${TMPDIR:-/tmp}/${name}tmp-$USER"
-
-colorR="\e[1;31m"
-colorG="\e[1;32m"
-colorY="\e[1;33m"
-colorB="\e[1;34m"
-colorM="\e[1;35m"
-colorC="\e[1;36m"
-colorW="\e[1;37m"
 
 #
-# Source user config
+# Source config
 #
 
 source /etc/${name}.conf
+[[ -r "$HOME/.config/${name}/config" ]] && source "$HOME/.config/${name}/config"
 
 #
 # Color
 #
 
 if $color; then
+    pacmanBin="pacman-color"
     cower='cower --color=always'
     bold=$(tput bold)
     reset=$(tput sgr0)
+    colorR="\e[1;31m"
+    colorG="\e[1;32m"
+    colorY="\e[1;33m"
+    colorB="\e[1;34m"
+    colorM="\e[1;35m"
+    colorC="\e[1;36m"
+    colorW="\e[1;37m"
 else
+    pacmanBin="pacman"
     cower='cower'
     bold=''
     reset=''
@@ -75,22 +78,16 @@ DownloadAur() {
 }
 
 DownloadDepsAur() {
-    if [[ ! $build ]]; then
-        [[ $force ]] && f="-f"
-        # return AUR pkgs only
-        [[ ! $option ]] && deps=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
-        [[ $option ]] && deps=($($cower -dd $f $@ -t $buildDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
-        # return AUR depends pkgs only
-        if [[ ! $noconfirm && ${ignorepkgs[@]} ]]; then
-            aurdepspkgs=(${deps[@]})
-            for ((i=0; i<${#@}; i++)); do
-                unset aurdepspkgs[$i]
-            done
-        fi
-    else
-        mkdir -p "$tmpDir"
-        deps=($($cower -dd $@ -t $tmpDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
-        rm -rf "$tmpDir" &>/dev/null
+    [[ $force ]] && f="-f"
+    # return AUR pkgs only
+    [[ ! $option ]] && deps=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
+    [[ $option ]] && deps=($($cower -dd $f $@ -t $buildDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+    # return AUR depends pkgs only
+    if [[ ! $noconfirm && ${ignorepkgs[@]} ]]; then
+        aurdepspkgs=(${deps[@]})
+        for ((i=0; i<${#@}; i++)); do
+            unset aurdepspkgs[$i]
+        done
     fi
 
     timeout ${deps[@]}
@@ -105,10 +102,13 @@ CheckRepo() {
     if [[ -n "${outofdate[@]}" ]]; then
         Qversion=($(expac -Q %v ${outofdate[@]}))
         Sversion=($(expac -S -1 %v ${outofdate[@]}))
-
+        for ((i=0; i<${#outofdate[@]}; i++)); do
+            Qgroup[$i]=$(expac -Q '%G' ${outofdate[$i]})
+        done
         local i=0
         for j in ${outofdate[@]}; do
-            [[ ! $quiet ]] && info "${colorW}$j ${colorR}${Qversion[$i]} ${reset}-> ${colorG}${Sversion[$i]}${reset}" || echo $j
+            [[ -n "${Qgroup[$i]}" ]] && Qgroup[$i]="(${Qgroup[$i]})"
+            [[ ! $quiet ]] && info "${colorW}$j ${colorR}${Qversion[$i]} ${reset}-> ${colorG}${Sversion[$i]}${reset} ${colorB}${Qgroup[$i]}${reset}" || echo $j
             ((i++))
         done
     fi
@@ -122,9 +122,6 @@ UpgradeAur() {
     if [[ $devel ]]; then
         allaurpkgs=($($pacmanBin -Qmq))
         Qversion=($(expac -Q %v ${allaurpkgs[@]}))
-
-        # set tmpdir
-        mkdir -p "$tmpDir"
 
         for i in ${allaurpkgs[@]}; do
             DownloadPkgbuild $i &
@@ -140,9 +137,6 @@ UpgradeAur() {
             fi
         done
 
-        # clean tmpdir
-        rm -rf "$tmpDir" &>/dev/null
-
         [[ ! ${aurpkgs[@]} ]] && aurpkgs=("${aurdevel[@]}") || aurpkgs=("${aurpkgs[@]}" "${aurdevel[@]}")
     fi
 
@@ -154,23 +148,11 @@ UpgradeAur() {
     timeout ${aurpkgs[@]}
 }
 
-CopyAbs() {
-    for i in "$@"; do
-        if [[ -e $buildDir/$i/PKGBUILD && ! $force ]]; then
-            warn "${colorW}$i${reset} PKGBUILD already exists in $buildDir. Use -f to overwrite."
-        else
-            cp -r `find /var/abs -name "$i"` $buildDir || error "${colorW}$i${reset} not found"
-            success "${colorW}$i${reset} copied in $buildDir"
-        fi
-    done
-}
-
 EditPkgs() {
     if [[ $edit && ! $noedit ]]; then
         for i in "$@"; do
             if [[ $option ]]; then
-                echo -ne "${colorB}::${reset} Edit ${colorW}$i${reset} PKGBUILD? [Y/n] "
-                if ! proceed; then
+                if ! proceedY "${colorB}::${reset} Edit ${colorW}$i${reset} PKGBUILD?"; then
                     continue
                 fi
             fi
@@ -181,12 +163,19 @@ EditPkgs() {
 
 CleanUp() {
     if [[ $clean = true ]]; then
-        cd $buildDir
-        for i in "$@"; do
+        if [[ $count -eq 1 ]]; then
+            cd $buildDir
+            for i in "$@"; do
+                # hack for cvs protected files
+                chmod -R 755 $i &>/dev/null
+                rm -r $i &>/dev/null && success "${colorW}$i${reset} cleaned" || warn "Could not clean ${colorW}$i${reset}"
+            done
+        fi
+        if [[ $count -ne 1 ]]; then
             # hack for cvs protected files
-            chmod -R 755 $i &>/dev/null
-            rm -r $i &>/dev/null && success "${colorW}$i${reset} cleaned" || warn "Could not clean ${colorW}$i${reset}"
-        done
+            chmod -R 755 $buildDir/* &>/dev/null
+            rm -r $buildDir/* &>/dev/null && success "Build directory ${colorW}$buildDir${reset} cleaned" || warn "Could not clean build directory ${colorW}$buildDir${reset}"
+        fi
     fi
 }
 
@@ -194,17 +183,14 @@ MakePkgs() {
     # warning checks
     [[ ${ignoredpkgs[@]} ]] && IgnoreChecks ${deps[@]}
     ReinstallChecks ${deps[@]}
-    mkdir -p "$tmpDir"
     OutofdateChecks ${deps[@]}
-    rm -rf "$tmpDir" &>/dev/null
 
     [[ $option ]] && echo -e "\n${colorY}AUR Targets (${#deps[@]}):${reset} ${deps[@]}"
     [[ ! $option ]] && echo "" && info "AUR package(s) to build: ${colorW}${deps[@]}${reset}"
     echo ""
 
     if [[ ! $noconfirm ]]; then
-        echo -n "Proceed with installation? [Y/n] "
-        if ! proceed; then
+        if ! proceedY "Proceed with installation?"; then
             CleanUp ${deps[@]} &>/dev/null
             exit
         fi
@@ -222,6 +208,9 @@ MakePkgs() {
         export PACMAN=$pacmanBin
         confSourced=true
     fi
+
+    # makepkg options
+    [[ $color != true ]] && makeopts+=("--nocolor")
 
     for i in "${deps[@]}"; do
         if [ -e $buildDir/$i/PKGBUILD ]; then
@@ -259,8 +248,7 @@ CleanCache() {
         echo -e "${colorW}AUR cache directory:${reset} $PKGDEST"
         if [[ $count -eq 1 ]]; then
             echo -e "${colorW}Packages to keep:${reset}\n  All locally installed packages"
-            echo -ne "Do you want to remove all other packages from AUR cache? [Y/n] "
-            if ! proceed; then
+            if ! proceedY "Do you want to remove all other packages from AUR cache?"; then
                 exit
             fi
 
@@ -270,19 +258,10 @@ CleanCache() {
                 [[ $i != $(expac -Q '%n-%v' $pkgname) ]] && rm $PKGDEST/$i-*
             done
         else
-            echo -ne "Do you want to remove ALL files from AUR cache? [y/N] "
-
-            read -n 1 yn
-            echo ""
-            case $yn in
-            [Yy]|[Yy]es)
+            if ! proceedN "Do you want to remove ALL files from AUR cache?"; then
                 echo "removing all files from AUR cache..."
                 rm $PKGDEST/* &>/dev/null
-            ;;
-            *)
-                exit
-            ;;
-            esac
+            fi
         fi
     fi
 }
@@ -321,8 +300,7 @@ IgnoreChecks() {
         # check targets
         for i in "${aurpkgs[@]}"; do
             if [[ " ${ignoredpkgs[@]} " =~ " $i " ]]; then
-                echo -ne "${colorY}::${reset} $i is in IgnorePkg/IgnoreGroup. Install anyway? [Y/n] "
-                if ! proceed; then
+                if ! proceedY "${colorY}::${reset} $i is in IgnorePkg/IgnoreGroup. Install anyway?"; then
                     continue
                 fi
             fi
@@ -331,8 +309,7 @@ IgnoreChecks() {
         # check depends
         for i in "${aurdepspkgs[@]}"; do
             if [[ " ${ignoredpkgs[@]} " =~ " $i " ]]; then
-                echo -ne "${colorY}::${reset} $i is in IgnorePkg/IgnoreGroup. Install anyway? [Y/n] "
-                if ! proceed; then
+                if ! proceedY "${colorY}::${reset} $i is in IgnorePkg/IgnoreGroup. Install anyway?"; then
                     error "Unresolved dependency '${colorW}$i${reset}'"
                 fi
             fi
@@ -384,11 +361,22 @@ runasroot() {
     fi
 }
 
-proceed() {
+proceedY() {
+    echo -ne "$* [Y/n] "
     read -n 1 yn
     echo ""
     case $yn in
         [Yy]|[Yy]es|'') return 0;;
+        *) return 1;;
+    esac
+}
+
+proceedN() {
+    echo -ne "$* [y/N] "
+    read -n 1 ny
+    echo ""
+    case $ny in
+        [Nn]|[Nn]o|'') return 0;;
         *) return 1;;
     esac
 }
@@ -428,17 +416,15 @@ usage() {
     echo "   -s, --search    search AUR repository for matching strings"
     echo "   -i, --info      view package information -- pass twice for details"
     echo "   -d, --download  download target(s) -- pass twice to download AUR dependencies"
-    echo "   -b, --build     use existing PKGBUILD and make target(s)"
     echo "   -m, --makepkg   download and make target(s)"
     echo "   -y, --sync      download, make and install target(s)"
     echo "   -k, --check     check for AUR update(s)"
     echo "   -u, --update    update AUR package(s)"
-    echo "   -abs, --abs     copy target(s) from ABS directory to build directory"
     echo ""
     echo "options:"
     echo "   -f, --force     force operation -- can be combined with the -d, -m, -y, -abs flags"
     echo "   -e, --edit      edit target PKGBUILD -- can be combined with the -d, -b, -m, -y, -u, -abs flags"
-    echo "   -c, --clean     clean existing target(s) PKGBUILD -- can be combined with the -b, -m, -y, -abs flags"
+    echo "   -c, --clean     clean target(s) build files -- pass twice to clean the entire build directory"
     echo ""
     echo "pacman options:"
     echo " can be used with the -S, -Ss, -Si, -Sii, -Sw, -Su, -Qu, -Sc, -Scc operations"
@@ -474,15 +460,13 @@ while [[ $1 ]]; do
         '-s'|'--search') operation=search;;
         '-i'|'--info') operation=info; ((count++));;
         '-d'|'--download') operation=download; ((count++));;
-        '-b'|'--build') operation=makepkg; build=true;;
         '-m'|'--makepkg') operation=makepkg;;
         '-y'|'--sync') operation=makepkg ; install=true;;
         '-k'|'--check') operation=check;;
         '-u'|'--update') operation=makepkg; upgrade=true; force=true; install=true;;
-        '-abs'|'--abs') operation=abs;;
         '-f'|'--force') force=true;;
         '-e'|'--edit') edit=true; editpkg=true;;
-        '-c'|'--clean') clean=true; cleanpkg=true;;
+        '-c'|'--clean') clean=true; cleanpkg=true; ((count++));;
         '-q'|'--quiet') quiet=true;;
         # shortcuts
         '-sq') operation=search; quiet=true;;
@@ -494,7 +478,6 @@ while [[ $1 ]]; do
         '-ddf') operation=download; count=2; force=true;;
         '-dde') operation=download; count=2; edit=true;;
         '-ddef'|'-ddfe') operation=download; count=2; edit=true; force=true;;
-        '-be') operation=makepkg; build=true; edit=true;;
         '-me') operation=makepkg; edit=true;;
         '-mf') operation=makepkg; force=true;;
         '-mef'|'-mfe') operation=makepkg; force=true; edit=true;;
@@ -503,9 +486,7 @@ while [[ $1 ]]; do
         '-yfe'|'-yef') operation=makepkg; force=true; edit=true; install=true;;
         '-kq') operation=check; quiet=true;;
         '-ue') operation=makepkg; upgrade=true; force=true; edit=true; install=true;;
-        '-abse') operation=abs; edit=true;;
-        '-absf') operation=abs; force=true;;
-        '-absef'|'-absfe') operation=abs; force=true; edit=true;;
+        '-cc') clean=true; cleanpkg=true; count=2;;
         # pacman
         '-S'|'--sync') option=sync; install=true; force=true; edit=true;;
         '-Ss'|'--search') option=search;;
@@ -596,7 +577,7 @@ ClassifyPkgs() {
 
 # sanity check
 [[ ! -d $buildDir ]] && error "Build directory does not exist!\nCheck configuration in /etc/${name}.conf"
-[[ ! -f /usr/bin/$pacmanBin ]] && error "Pacman binary does not exist!\nCheck configuration in /etc/${name}.conf"
+[[ ! -f /usr/bin/$pacmanBin ]] && error "The binary ${colorW}$pacmanBin${reset} is not installed.\nCheck configuration in /etc/${name}.conf"
 [[ ! $operation && ! $option && ! $cleanpkg && ! $editpkg ]] && error "no operation specified (use -h for help)"
 [[ $repo && $aur ]] && error "target not found"
 
@@ -620,7 +601,6 @@ if [[ $operation = download ]]; then
     exit
 fi
 
-# build (-b) handling
 # makepkg (-m) handling
 # sync (-y) handling
 # update (-u) handling
@@ -633,13 +613,6 @@ fi
 # check (-k) handling
 if [[ $operation = check ]]; then
     CheckAur ${pkgs[@]}
-    exit
-fi
-
-# abs (-abs) handling
-if [[ $operation = abs ]]; then
-    CopyAbs ${pkgs[@]}
-    EditPkgs ${pkgs[@]}
     exit
 fi
 
