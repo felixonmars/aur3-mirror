@@ -24,7 +24,7 @@ _prefix='/usr/lib/acroread/'
 
 build() {
     cd "$srcdir"
-    find $srcdir -name LANG\*.TAR -exec tar -xvf {} \;    
+    find $srcdir -name LANG\*.TAR -exec tar -xf {} \;    
     rm Adobe/Reader9/Resource/CMap/Identity-[HV]
 }
 
