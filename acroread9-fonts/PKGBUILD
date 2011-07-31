@@ -7,8 +7,9 @@ pkgrel=3
 pkgdesc="Chinese Simplified, Chinese Traditional, Japanese, Korean and Extended Language font packs for Adobe Acrobat Reader 9"
 url="http://www.adobe.com/support/downloads/product.jsp?platform=unix&product=10"
 license=('custom')
-arch=(i686 x86_64)
-depends=('acroread>=9.1.0')
+arch=('any')
+depends=("acroread>=$pkgver" "acroread<10")
+
 source=("http://ardownload.adobe.com/pub/adobe/reader/unix/9.x/9.1/misc/FontPack910_chs_i486-linux.tar.bz2" 
         "http://ardownload.adobe.com/pub/adobe/reader/unix/9.x/9.1/misc/FontPack910_cht_i486-linux.tar.bz2"
         "http://ardownload.adobe.com/pub/adobe/reader/unix/9.x/9.1/misc/FontPack910_jpn_i486-linux.tar.bz2"
@@ -24,7 +25,7 @@ _prefix='/usr/lib/acroread/'
 
 build() {
     cd "$srcdir"
-    find $srcdir -name LANG\*.TAR -exec tar -xf {} \;    
+    find $srcdir -iname LANG\*.TAR -exec tar -pxf {} \;    
     rm Adobe/Reader9/Resource/CMap/Identity-[HV]
 }
 
