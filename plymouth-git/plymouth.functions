@@ -1,65 +1,66 @@
-ply_client() {
-	[ -x /bin/plymouth ] && /bin/plymouth "$@"
-}
 
-ply_daemon() {
-	[ -x /sbin/plymouthd ] && /sbin/plymouthd "$@"
-}
+if [[ -x /bin/plymouth && -x /sbin/plymouthd ]]; then
 
-stat_busy() {
-	case "$1" in
-		"Mounting Local Filesystems")
-			ply_client --newroot=/
-		;;
-		"Activating Swap")
-			ply_client --sysinit
-		;;
-	esac
+	ply_client() { /bin/plymouth --ping && /bin/plymouth "$@"; }
+	ply_daemon() { /sbin/plymouthd "$@"; }
 
-	ply_client --update="$1"
-	ply_client message --text="$1"
+	# save a function under a new name
+	save_function() { 
+		local ORIG=$(declare -f $1)
+		eval "$2${ORIG#$1}"
+	}
 
-	printf "${C_OTHER}${PREFIX_REG} ${C_MAIN}${1}${C_CLEAR} "
-	printf "${SAVE_POSITION}"
-	deltext
-	printf "   ${C_OTHER}[${C_BUSY}BUSY${C_OTHER}]${C_CLEAR} "
-}
+	save_function stat_busy std_stat_busy
+	save_function stat_fail std_stat_fail
 
-stat_fail() {
-	ply_client --quit
+	# overwrite status functions
+	stat_busy() {
+		ply_client --update="$1"
+		ply_client message --text="$1"
+		std_stat_busy  "$@"
+	}
 
-	deltext
-	printf "   ${C_OTHER}[${C_FAIL}FAIL${C_OTHER}]${C_CLEAR} \n"
-}
+	stat_fail() {
+		ply_client --quit
+		std_stat_fail "$@"
+	}
 
-ply_end(){
-if [ "$0" == "/etc/rc.shutdown" ]; then
-	XPID=`pidof X`
-	if [ "$XPID" ]; then
-		RUNLEVEL=`runlevel`
-			if [ "${RUNLEVEL:2:4}" != '5' ]; then
-				[ -e /var/run/daemons/slim ] && /etc/rc.d/slim stop
-				[ -e /var/run/daemons/gdm ] && /etc/rc.d/gdm stop
-				[ -e /var/run/daemons/kdm ] && /etc/rc.d/kdm stop
-				[ -e /var/run/daemons/xdm ] && /etc/rc.d/xdm stop
-				[ -e /var/run/daemons/entrance ] && /etc/rc.d/entrance stop
+	# update after local filesystems are mounted
+	ply_sysinit_postmount() { ply_client --sysinit; }
+	add_hook sysinit_postmount ply_sysinit_postmount
+
+	# stop plymouth after rc.multi
+	ply_quit_boot() { 
+		ply_client quit --retain-splash 
+	}
+	add_hook multi_end ply_quit_boot
+
+	# stop plymouth before shutdown
+	ply_quit_shutdown() {
+		ply_quit_boot
+		[[ $(ps h $(cat /tmp/plymouthd)) ]] && kill -9 $(cat /tmp/plymouthd)
+	}
+	add_hook shutdown_poweroff ply_quit_shutdown
+
+	# start plymouth at the beginning of rc.shutdown
+	ply_shutdown_start(){
+		XPID=`pidof X`
+		if [ "$XPID" ]; then
+			if [ "`runlevel | cut -c 3`" != '5' ]; then
+				local DM
+				for DM in slim gdm kdm xdm entrance; do
+					ck_daemon "$DM" || stop_daemon "$DM"
+				done
 			fi
-		kill -9 $XPID &> /dev/null
-	fi
+			kill -9 $XPID &> /dev/null
+		fi
+		ply_daemon --mode=shutdown --pid-file=/tmp/plymouthd
+		ply_client --show-splash
 
-	ply_daemon --mode=shutdown --pid-file=/tmp/plymouthd
-	ply_client --show-splash
-
-	while [[ ( $(ps h $(cat /tmp/plymouthd)) ) && ( $ply_wait -lt 3 ) ]]; do
-		ply_wait=$(( $ply_wait + 1 ))
-		sleep 1
-	done
-
-	[[ $(ps h $(cat /tmp/plymouthd)) ]] && kill -9 $(cat /tmp/plymouthd)
+		# don't get killed by kill_all
+		add_omit_pids `cat /tmp/plymouthd`
+	}
+	add_hook shutdown_start ply_shutdown_start
 
 fi
-
-	ply_client quit --retain-splash
-
-}
-add_hook multi_end ply_end
+# vim: set ts=2 sw=2 ft=sh noet:
