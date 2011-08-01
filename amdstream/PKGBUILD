@@ -7,7 +7,7 @@
 
 pkgname=amdstream
 pkgver=2.4
-pkgrel=5
+pkgrel=6
 
 pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support'
 arch=('i686' 'x86_64')
@@ -16,9 +16,10 @@ license=("custom")
 install=install
 
 provides=('opencl')
-depends=('opencl-headers' 'libopencl' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
+depends=('opencl-headers' 'libcl' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
   #'libatical>=11.3'
-optdepends=('catalyst: for OpenCL on AMD GPU')
+optdepends=('catalyst: for OpenCL on AMD GPU'
+	    'libopencl: Alternative libcl provider (original AMD-APP one) - supports OpenCL 1.1')
 makedepends=('perl' 'llvm')
 
 #Architecture resolution
@@ -42,7 +43,7 @@ _ipath='/opt/amdstream'
 build()
 {
   cd "${srcdir}/AMD-APP-SDK-v${pkgver}-lnx${_bits}"
-  make -j1    #With -j other than one, build failes on ceratin configurations
+  make -j1    #With -j other than one, build failes on ceratin configurations 				#TODO: is this still true?
 }
 
 package()
