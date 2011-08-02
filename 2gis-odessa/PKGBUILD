@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-odessa
-pkgver=53
+pkgver=54
 pkgrel=1
 pkgdesc="Map of Odessa for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Odessa-${pkgver}.orig.zip")
-md5sums=('9f857e0db232b673e14c14294b475611')
+md5sums=('b36cf86be31d57d040ada1d5e7ce6dca')
      
 build() {
      

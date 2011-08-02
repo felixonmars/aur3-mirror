@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-biysk
-pkgver=33
+pkgver=34
 pkgrel=1
 pkgdesc="Map of Biysk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Biysk-${pkgver}.orig.zip")
-md5sums=('6d9d2aa2b20ae0f33565137f1f373f47')
+md5sums=('e55cd064dd3dee95d736be3b11c24302')
      
 build() {
      

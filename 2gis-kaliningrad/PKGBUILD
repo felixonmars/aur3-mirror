@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kaliningrad
-pkgver=3
+pkgver=4
 pkgrel=1
 pkgdesc="Map of Kaliningrad for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kaliningrad-${pkgver}.orig.zip")
-md5sums=('00992b16589f55acd42b72b2641100e1')
+md5sums=('127cc4e11b8e94feda1e9c11dccd018b')
      
 build() {
      

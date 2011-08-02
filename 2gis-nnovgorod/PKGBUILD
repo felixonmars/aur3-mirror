@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-nnovgorod
-pkgver=34
+pkgver=35
 pkgrel=1
 pkgdesc="Map of N_Novgorod for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-${pkgver}.orig.zip")
-md5sums=('e075820bcc2f2206c70ec8667325eea9')
+md5sums=('1146d2e66ff2790d6d0dc6c58a099bb6')
      
 build() {
      

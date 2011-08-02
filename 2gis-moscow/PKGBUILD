@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-moscow
-pkgver=3
+pkgver=4
 pkgrel=1
 pkgdesc="Map of Moscow for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Moscow-${pkgver}.orig.zip")
-md5sums=('8667c857ed84138bbd77a31ac2ec83d3')
+md5sums=('2c0d6b3cecf7d738e191ad804dd5241d')
      
 build() {
      

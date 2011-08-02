@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-togliatti
-pkgver=36
+pkgver=37
 pkgrel=1
 pkgdesc="Map of Togliatti for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Togliatti-${pkgver}.orig.zip")
-md5sums=('ae0341088f267fb54eeff03a97287c7f')
+md5sums=('51135cc64583dec2e03677022872f30e')
      
 build() {
      

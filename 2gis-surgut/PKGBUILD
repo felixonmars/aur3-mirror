@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-surgut
-pkgver=5
+pkgver=6
 pkgrel=1
 pkgdesc="Map of Surgut for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Surgut-${pkgver}.orig.zip")
-md5sums=('50a3080ca23c327b83edd06df37ce427')
+md5sums=('6cc73644aabde2cf5e65663d629db345')
      
 build() {
      

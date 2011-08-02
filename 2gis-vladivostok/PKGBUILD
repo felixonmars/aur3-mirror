@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-vladivostok
-pkgver=15
+pkgver=16
 pkgrel=1
 pkgdesc="Map of Vladivostok for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Vladivostok-${pkgver}.orig.zip")
-md5sums=('b9f949c2c2f7840c25c39d4958492e82')
+md5sums=('03292928c16f0eec37c78b23d78dba70')
      
 build() {
      
