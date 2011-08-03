@@ -1,22 +1,22 @@
-# Maintainer: Testuser_01 <arch@nico-siebler.de>
-
-pkgname=mod_antiloris
-pkgver=0.4
+pkgname=perl-authen-captcha
+pkgver=1.023
 pkgrel=1
-pkgdesc="With this module, apache is protected against the slowloris attack. The module limits the number of threads in READ state on a per IP basis."
-url="http://mod-antiloris.sourceforge.net/"
+pkgdesc="Authen::Captcha - Perl extension for creating captcha's to verify the human element in transactions."
 arch=('any')
-install=("${pkgname}.install")
-license=('Apache License V2.0')
-depends=('apache>=2.2')
-source=("http://downloads.sourceforge.net/project/mod-antiloris/${pkgname}-${pkgver}.tar.bz2")
-
-md5sums=('66862bf10e9be3a023e475604a28a0b4')
-
+url="http://search.cpan.org/~unrtst/Authen-Captcha-1.023/Captcha.pm"
+license=('GPL' 'PerlArtistic')
+depends=('perl' 'perl-digest-md5' 'perl-gd')
+options=('!emptydirs')
+source=(http://search.cpan.org/CPAN/authors/id/U/UN/UNRTST/Authen-Captcha-$pkgver.tar.gz)
+md5sums=('7c20090844dd2406e4ef6a894c66348b')
 
 build() {
-	cd "${srcdir}" || return 1 
-	cd ${pkgname}-${pkgver} || return 1
-	mkdir -p "${pkgdir}/usr/lib/httpd/modules/" || return 1
-	apxs -i -S LIBEXECDIR="${pkgdir}/usr/lib/httpd/modules/" -c "${pkgname}.c" || return 1
+  cd  "$srcdir/Authen-Captcha-$pkgver" || return 1
+
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
+  make &&
+  make DESTDIR="$pkgdir" install || return 1
+
+  find "$pkgdir" -name '.packlist' -delete
+  find "$pkgdir" -name '*.pod' -delete
 }
