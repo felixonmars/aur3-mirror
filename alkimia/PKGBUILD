@@ -1,7 +1,7 @@
-# Contributor: gumper <gumper@gmail.com>
+# Contributor: gumper <gumper1034@gmail.com>
 
 pkgname=alkimia	
-pkgver=4.3.0
+pkgver=4.3.1
 pkgrel=1
 pkgdesc="A library with common classes and functionality used by finance applications for the KDE SC."
 depends=()
@@ -12,7 +12,7 @@ license=('LGPL')
 arch=('i686' 'x86_64')
 
 source=("http://kde-apps.org/CONTENT/content-files/137323-libalkimia-$pkgver.tar.bz2")
-md5sums=('61e3e95f0494a015b25dc0143cd6e00e')
+md5sums=('73d7f1365118019030b2045d95c92456')
  
 build() 
 
