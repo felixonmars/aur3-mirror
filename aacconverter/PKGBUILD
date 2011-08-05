@@ -1,7 +1,7 @@
 pkgname=aacconverter
 pkgver=1.0
-pkgrel=1
-pkgdesc="Nero AAC encoder GUI"
+pkgrel=2
+pkgdesc="NeroAacEnc GUI. Converts aac, flac, mp3, m4a, ogg, wav into aac or m4a audio file with given bitrate"
 url="http://docd.zx6.ru"
 depends=('java-runtime' 'neroaacenc' 'neroaacdec' 'lame' 'flac')
 optdepends=('faad' 'ffmpeg')
@@ -13,4 +13,4 @@ package() {
 	install -D -m755 "${srcdir}/bin/aacconverter" "${pkgdir}/usr/bin/aacconverter"
 	install -D -m644 "${srcdir}/lib/AACconverter.jar" "${pkgdir}/usr/lib/AACconverter/AACconverter.jar"
 }
-md5sums=('bd6bb19d2486181813de25f04bda6712')
+md5sums=('6cde7843ece31ad6a89cc91e933a6b63')
