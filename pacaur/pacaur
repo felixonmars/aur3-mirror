@@ -5,7 +5,7 @@
 #
 
 name="pacaur"
-version="2.2.1"
+version="2.2.2"
 
 #
 # Default config
@@ -104,7 +104,7 @@ CheckRepo() {
         Qversion=($(expac -Q %v ${outofdate[@]}))
         Sversion=($(expac -S -1 %v ${outofdate[@]}))
         for ((i=0; i<${#outofdate[@]}; i++)); do
-            Qgroup[$i]=$(expac -Q '%G' ${outofdate[$i]})
+            Qgroup[$i]=$(expac -Q -l " " '%G' ${outofdate[$i]})
         done
         local i=0
         for j in ${outofdate[@]}; do
@@ -215,28 +215,38 @@ MakePkgs() {
     [[ $color != true ]] && makeopts+=("--nocolor")
 
     for i in "${deps[@]}"; do
-        if [ -e $buildDir/$i/PKGBUILD ]; then
-            info "Building ${colorW}$i${reset} package..."
-            cd $buildDir/$i
+        # check package cache
+        [[ $PKGDEST && ! $rebuild ]] && GetAurVersion $i && FindCachedPkg "$i-$Aversion"
+        if [[ $cachedpkg ]]; then
             if [[ $install ]]; then
-                makepkg -sfi ${makeopts[@]} --noconfirm
-                # if AUR dep, install as --asdeps
-                # if upgrade, do no change status
-                if [[ ! $upgrade ]]; then
-                    isexpl=false
-                    for j in ${pkgs[@]}; do
-                        [[ $j = $i ]] && isexpl=true
-                    done
-                    [[ $isexpl != true ]] && runasroot $pacmanBin -D $i --asdeps ${pacopts[@]} &>/dev/null
-                fi
-                [[ " ${pacopts[@]} " =~ " --asdeps " ]] && runasroot $pacmanBin -D $i --asdeps ${pacopts[@]} &>/dev/null
-                [[ " ${pacopts[@]} " =~ " --asexplicit " ]] && runasroot $pacmanBin -D $i --asexplicit ${pacopts[@]} &>/dev/null
+                info "Installing ${colorW}$i${reset} cached package..."
+                runasroot $pacmanBin -U $cachedpkg ${pacopts[@]} --noconfirm
             else
-                makepkg -sf ${makeopts[@]} --noconfirm
+                info "Package ${colorW}$i${reset} already available in cache"
             fi
         else
-            error "Could not open ${colorW}$i${reset} PKGBUILD"
+
+            # build and install
+            if [ -e $buildDir/$i/PKGBUILD ]; then
+                info "Building ${colorW}$i${reset} package..."
+                cd $buildDir/$i
+                [[ $install ]] && makepkg -sfi ${makeopts[@]} --noconfirm || makepkg -sf ${makeopts[@]} --noconfirm
+            else
+                error "Could not open ${colorW}$i${reset} PKGBUILD"
+            fi
+
         fi
+
+        # set dep status
+        if [[ $install && ! $upgrade ]]; then
+            isexpl=false
+            for j in ${pkgs[@]}; do
+                [[ $j = $i ]] && isexpl=true
+            done
+            [[ $isexpl != true ]] && runasroot $pacmanBin -D $i --asdeps ${pacopts[@]} &>/dev/null
+        fi
+        [[ $install ]] && [[ " ${pacopts[@]} " =~ " --asdeps " ]] && runasroot $pacmanBin -D $i --asdeps ${pacopts[@]} &>/dev/null
+        [[ $install ]] && [[ " ${pacopts[@]} " =~ " --asexplicit " ]] && runasroot $pacmanBin -D $i --asexplicit ${pacopts[@]} &>/dev/null
     done
 }
 
@@ -270,6 +280,18 @@ CleanCache() {
     fi
 }
 
+GetAurVersion() {
+    Apkgver=$(grep '^pkgver' "$buildDir/$@/PKGBUILD" | cut -d '=' -f 2-)
+    Apkgrel=$(grep '^pkgrel' "$buildDir/$@/PKGBUILD" | cut -d '=' -f 2-)
+    Aversion=$Apkgver-$Apkgrel
+}
+
+FindCachedPkg() {
+    cachedpkg="$PKGDEST/$@-${CARCH}${PKGEXT}"
+    [[ ! -f "$cachedpkg" ]] && cachedpkg="$PKGDEST/$@-any${PKGEXT}"
+    [[ ! -f "$cachedpkg" ]] && cachedpkg=""
+}
+
 OutofdateChecks() {
     for i in ${deps[@]}; do
         DownloadJson $i &
@@ -290,10 +312,8 @@ ReinstallChecks() {
     if [[ ${exist[@]} ]]; then
         Qversion=($(expac -Q %v ${exist[@]}))
         for ((i=0; i<${#exist[@]}; i++)); do
-            Apkgver[$i]=$(grep '^pkgver' "$buildDir/${exist[$i]}/PKGBUILD" | cut -d '=' -f 2-)
-            Apkgrel[$i]=$(grep '^pkgrel' "$buildDir/${exist[$i]}/PKGBUILD" | cut -d '=' -f 2-)
-            Aversion[$i]=${Apkgver[$i]}-${Apkgrel[$i]}
-            [[ $(vercmp "${Aversion[$i]}" "${Qversion[$i]}") -gt 0 ]] && continue || warn "${exist[$i]}-${Qversion[$i]} is up to date -- reinstalling"
+            GetAurVersion ${exist[$i]}
+            [[ $(vercmp "$Aversion" "${Qversion[$i]}") -gt 0 ]] && continue || warn "${exist[$i]}-${Qversion[$i]} is up to date -- reinstalling"
         done
     fi
 }
@@ -439,6 +459,7 @@ usage() {
     echo "   --ignore        ignore a package upgrade (can be used more than once)"
     echo "   --noconfirm     do not prompt for any confirmation"
     echo "   --noedit        do not prompt to edit files"
+    echo "   --rebuild       always rebuild package"
     echo ""
     echo "general options:"
     echo "   -v, --version   display version information"
@@ -537,6 +558,7 @@ while [[ $1 ]]; do
         '--ignore') ignoredpkgs+=("$2"); ignorepkgs+=("--ignore" "$2"); shift;;
         '--noconfirm') noconfirm=true; pacopts+=("--noconfirm");;
         '--noedit') noedit=true;;
+        '--rebuild') rebuild=true;;
         -D* | '--database') runasroot $pacmanBin $@; exit;;
         -Q* | '--query') $pacmanBin $@; exit;;
         -R* | '--remove') runasroot $pacmanBin $@; exit;;
