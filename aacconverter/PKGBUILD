@@ -1,9 +1,9 @@
 pkgname=aacconverter
 pkgver=1.0
-pkgrel=2
+pkgrel=3
 pkgdesc="NeroAacEnc GUI. Converts aac, flac, mp3, m4a, ogg, wav into aac or m4a audio file with given bitrate"
 url="http://docd.zx6.ru"
-depends=('java-runtime' 'neroaacenc' 'neroaacdec' 'lame' 'flac')
+depends=('java-runtime' 'neroaacenc' 'neroaacdec' 'lame' 'flac' 'vorbis-tools')
 optdepends=('faad' 'ffmpeg')
 license=("unknown")
 source=(http://docd.zx6.ru/proj/j2se/AACconverter-${pkgver}.zip)
