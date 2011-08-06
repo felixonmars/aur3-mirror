@@ -11,14 +11,14 @@ depends=('android-sdk')
 _sdk=android-sdk
 _platform="opt/${_sdk}/platforms"
 
-source=("http://dl-ssl.google.com/android/repository/android-2.3_r01-linux.zip")
+source=("http://dl-ssl.google.com/android/repository/android-2.3.3_r01-linux.zip")
 
-md5sums=('6c8212972a379499de544bdcd42b2f67')
+md5sums=('29216ec75126560b90f8768a6cdc49fe')
 
 package() {
   cd "$pkgdir"
   mkdir -p $_platform
    
-  mv "$srcdir/android-2.3_r01-linux" $pkgdir/$_platform/$pkgname
+  mv "$srcdir/android-2.3.3_r01-linux" $pkgdir/$_platform/$pkgname
 
 }
