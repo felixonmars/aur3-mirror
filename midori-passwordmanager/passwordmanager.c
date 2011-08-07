@@ -60,7 +60,7 @@ cleanurl( const gchar *url )
     gchar *cleaned, *id;
     gssize il = -1;
     gsize lprt;
-    if ( ( id = g_strstr_len(url,il,"?") ) != NULL )
+    if ( ( id = g_strstr_len(url+8,il,"/") ) != NULL )
     {
         lprt = id - url;
         cleaned = g_strndup(url,lprt);
@@ -325,7 +325,7 @@ extension_init (void)
 
     if ( passwman_prepare_js() && gnome_keyring_is_available() )
     {
-        ver = "0.2";
+        ver = "0.3";
         desc = g_strdup (_("Stores login/password data"));
     }
     else

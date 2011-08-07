@@ -74,14 +74,6 @@ PassMan.fillp = function( np, lp ) {
 PassMan.storelp = function( np, lp ) {
    var newlog = ( this.il == -1 ) ? "dummy": this.inptg[this.il].value,
        newpass = this.inptg[this.ip].value;
-   if ( newpass.length == 0 ) {
-      var foundlog = newlog.length > 0;
-      for( var i = this.ip+1; i < this.inptg.length; i++ )
-         if ( this.inptg[i].value.length > 0 ) {
-            if ( foundlog ) { newpass = this.inptg[i].value; break; }
-            else { foundlog = true; newlog = this.inptg[i].value; }
-         }
-   }
    if( newpass.length == 0 || newlog.length == 0 ) return;
    var jl = 0, jp;
    for( var i = 0; i < np; i++ ) {

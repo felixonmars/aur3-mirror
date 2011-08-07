@@ -15,7 +15,7 @@ gchar* cleanurl( const gchar *url )
     gchar *cleaned, *id;
     gssize il = -1;
     gsize lprt;
-    if ( ( id = g_strstr_len(url,il,"?") ) != NULL )
+    if ( ( id = g_strstr_len(url + 8,il,"/") ) != NULL )
     {
         lprt = id - url;
         cleaned = g_strndup(url,lprt);
