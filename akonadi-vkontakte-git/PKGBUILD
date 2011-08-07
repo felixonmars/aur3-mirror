@@ -1,12 +1,12 @@
 # Contributor: Nikolay Rysev <mad.f3ka@gmail.com>
 pkgname=akonadi-vkontakte-git
-pkgver=20110623
-pkgrel=5
+pkgver=20110807
+pkgrel=1
 pkgdesc="VKontakte Resource for Akonadi"
 arch=('i686' 'x86_64')
 url="https://projects.kde.org/projects/playground/pim/akonadi-vkontakte"
 license=('GPL')
-depends=('kdepimlibs>=4.6.0' 'qjson' 'boost' 'libxslt')
+depends=('kdepimlibs>=4.6.0' 'qjson' 'boost' 'libxslt' 'libkvkontakte-git')
 makedepends=('pkgconfig' 'automoc4' 'git' 'cmake')
 _gitname="akonadi-vkontakte"
 _gitroot="git://anongit.kde.org/${_gitname}"
