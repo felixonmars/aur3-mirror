@@ -5,7 +5,7 @@
 #
 
 name="pacaur"
-version="2.2.2"
+version="2.2.3"
 
 #
 # Default config
@@ -73,16 +73,25 @@ InfoAur() {
     [[ $count -ne 1 ]] && $cower -ii $@
 }
 
+DownloadAurPkgs() {
+    for i in ${pkgs[@]}; do
+        DownloadPkgbuild $i &
+        paraexec
+    done
+    wait
+}
+
 DownloadAur() {
     [[ $force ]] && f="-f"
-    deps=($($cower -d $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
+    [[ ! $option ]] && deps+=($($cower -d $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
+    [[ $option ]] && deps+=($($cower -d $f $@ -t $buildDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
 }
 
 DownloadDepsAur() {
     [[ $force ]] && f="-f"
     # return AUR pkgs only
-    [[ ! $option ]] && deps=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
-    [[ $option ]] && deps=($($cower -dd $f $@ -t $buildDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
+    [[ ! $option ]] && deps+=($($cower -dd $f $@ -t $buildDir | tee 1>&2 >(awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g")))
+    [[ $option ]] && deps+=($($cower -dd $f $@ -t $buildDir | awk -F " " '{print $2}'| sed -r "s:\x1B\[[0-9;]*[mK]::g"))
     # return AUR depends pkgs only
     if [[ ! $noconfirm && ${ignorepkgs[@]} ]]; then
         aurdepspkgs=(${deps[@]})
@@ -125,7 +134,7 @@ UpgradeAur() {
         Qversion=($(expac -Q %v ${allaurpkgs[@]}))
 
         for i in ${allaurpkgs[@]}; do
-            DownloadPkgbuild $i &
+            DownloadPkgbuildTmp $i &
             paraexec
         done
         wait
@@ -182,7 +191,31 @@ CleanUp() {
     fi
 }
 
+SourcePkgs() {
+    for i in ${pkgs[@]}; do
+        . "$buildDir/$i/PKGBUILD"
+        sourcedpkgs+=($(echo -e "${depends[*]}" | sed -e 's/=.*//' -e 's/>.*//' -e 's/<.*//'| sort -u))
+    done
+    # remove installed deps
+    local j=0
+    for i in ${sourcedpkgs[@]}; do
+        [[ -z $(expac -Q %n $i) ]] && pkgsdeps[$j]="$i"
+        ((j++))
+    done
+    [[ ${pkgsdeps[@]} ]] && DownloadDepsAur ${pkgsdeps[@]}
+    deps+=(${pkgs[@]})
+}
+
 MakePkgs() {
+    # set architecture variables
+    if [[ ! $confSourced ]]; then
+        source /etc/makepkg.conf
+        export PACMAN=$pacmanBin
+        confSourced=true
+    fi
+
+    SourcePkgs ${pkgs[@]}
+
     # warning checks
     [[ ${ignoredpkgs[@]} ]] && IgnoreChecks ${deps[@]}
     ReinstallChecks ${deps[@]}
@@ -204,13 +237,6 @@ MakePkgs() {
     # reverse deps order
     deps=($(echo ${deps[@]} | awk -F "\n" '{print}' | awk -F " " '{for (i=NF;i>=1;i--) print $i}'))
 
-    # set architecture variables
-    if [[ ! $confSourced ]]; then
-        source /etc/makepkg.conf
-        export PACMAN=$pacmanBin
-        confSourced=true
-    fi
-
     # makepkg options
     [[ $color != true ]] && makeopts+=("--nocolor")
 
@@ -227,7 +253,7 @@ MakePkgs() {
         else
 
             # build and install
-            if [ -e $buildDir/$i/PKGBUILD ]; then
+            if [[ -e $buildDir/$i/PKGBUILD ]]; then
                 info "Building ${colorW}$i${reset} package..."
                 cd $buildDir/$i
                 [[ $install ]] && makepkg -sfi ${makeopts[@]} --noconfirm || makepkg -sf ${makeopts[@]} --noconfirm
@@ -352,16 +378,23 @@ IgnoreChecks() {
 }
 
 GetIgnoredPkgs() {
-    ignoredpkgs+=( $(grep '^ *IgnorePkg' '/etc/pacman.conf' | cut -d '=' -f 2-) )
-    [[ -e "$HOME/.config/cower/config" ]] && ignoredpkgs+=( $(grep '^ *IgnorePkg' "$HOME/.config/cower/config" | cut -d '=' -f 2-) )
+    ignoredpkgs+=($(grep '^ *IgnorePkg' '/etc/pacman.conf' | cut -d '=' -f 2-))
+    [[ -e "$HOME/.config/cower/config" ]] && ignoredpkgs+=($(grep '^ *IgnorePkg' "$HOME/.config/cower/config" | cut -d '=' -f 2-))
     ignoredpkgs=(${ignoredpkgs[@]//,/ })
 }
 
 GetIgnoredGrps() {
-    ignoredgrps+=( $(grep '^ *IgnoreGroup' '/etc/pacman.conf' | cut -d '=' -f 2-) )
+    ignoredgrps+=($(grep '^ *IgnoreGroup' '/etc/pacman.conf' | cut -d '=' -f 2-))
 }
 
 DownloadPkgbuild() {
+    mkdir -p "$buildDir/$i"
+    if [[ ! -f "$buildDir/$i/PKGBUILD" ]]; then
+        curl -Lfs "https://aur.archlinux.org/packages/$i/PKGBUILD" > "$buildDir/$i/PKGBUILD"
+    fi
+}
+
+DownloadPkgbuildTmp() {
     if [[ ! -f "$tmpDir/$i.PKGBUILD" ]]; then
         curl -Lfs "https://aur.archlinux.org/packages/$i/PKGBUILD" > "$tmpDir/$i.PKGBUILD"
     fi
@@ -486,7 +519,7 @@ while [[ $1 ]]; do
         '-i'|'--info') operation=info; ((count++));;
         '-d'|'--download') operation=download; ((count++));;
         '-m'|'--makepkg') operation=makepkg;;
-        '-y'|'--sync') operation=makepkg ; install=true;;
+        '-y'|'--sync') operation=makepkg; install=true;;
         '-k'|'--check') operation=check;;
         '-u'|'--update') operation=makepkg; upgrade=true; force=true; install=true;;
         '-f'|'--force') force=true;;
@@ -580,7 +613,7 @@ done
 #
 
 Core() {
-    DownloadDepsAur $@
+    DownloadAurPkgs $@
     MakePkgs ${deps[@]}
     CleanUp ${deps[@]}
 }
