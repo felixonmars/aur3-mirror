@@ -1,8 +1,8 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=acpi_call-git
-pkgver=20110801
-pkgrel=2
+pkgver=20110807
+pkgrel=1
 pkgdesc="kernel module allowing one to call parameterless ACPI methods by writing the method name to /proc/acpi/call, e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
 url=("http://github.com/mkottman/acpi_call")
@@ -47,7 +47,8 @@ package() {
   install -Dm644 README \
     ${pkgdir}/usr/share/${_gitname}/README
 
-  for _kernver in $(file /boot/* | sed -n '/Linux kernel/s/.* version \([0-9]\.[0-9]\.[-[:alnum:]_]\+\).*/\1/p' | xargs); do
+  #for _kernver in $(file /boot/* | sed -n '/Linux kernel/s/.* version \(2\.6\.[-[:alnum:]_]\+\).*/\1/p'); do
+  for _kernver in $(file /boot/* | sed -n '/Linux kernel/s/.* version \([:alnum:]\.[:alnum:]\.[-[:alnum:]_]\+\).*/\1/p'); do
     msg2 "Building module for $_kernver..."
 
     # KDIR is necessary even when cleaning
