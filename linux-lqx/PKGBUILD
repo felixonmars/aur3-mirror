@@ -1,0 +1,260 @@
+# Maintainer: Michael Duell <akurei at luamail dot net>
+###########################################################################################################
+#                                          Patch and Build Options
+###########################################################################################################
+_menu="n"	     # menuconfig option [m = make menuconfig; x = make xconfig; n = none]
+_config="pkg"	 # "local":  make localmod config - compile ONLY probed modules - see notes below!
+               # "old":    make with old config (/proc/config.gz)
+               # "pkg":    use this package's config
+###########################################################################################################
+## LOCALMODCONFIG OPTION
+ # As of mainline 2.6.32, running with this option will only build the modules that you currently have
+ # probed in your system VASTLY reducing the number of modules build.
+ #
+ # WARNING - make CERTAIN that all modules are modprobed BEFORE you begin making the pkg!
+ # Read, https://bbs.archlinux.org/viewtopic.php?pid=830221#p830221
+ # To keep track of which modules are needed for your specific system/hardware, give graysky's module_db script
+ # a try: http://aur.archlinux.org/packages.php?ID=41689
+ #
+ # Note that if you use graysky's script, this PKGBUILD will auto run the reload_data base for you to probe
+ # all the modules you have logged!
+ #
+
+_basekernel=2.6.39
+pkgver=${_basekernel}.4
+pkgrel=3
+_kernelname=-lqx
+pkgname=linux${_kernelname}
+_lqxpatchname="39.4-1.patch"
+arch=('i686' 'x86_64')
+pkgdesc="Linux kernel and modules with Liquorix patches"
+license=('GPL2')
+groups=('base')
+url="http://liquorix.net/"
+backup=(etc/mkinitcpio.d/${pkgname}.preset)
+depends=('coreutils' 'linux-firmware' 'module-init-tools>=3.12-2' 'mkinitcpio>=0.6.8-2')
+optdepends=('crda: to set the correct wireless channels of your country')
+if [ "$_menu" = "x" ]; then
+   makedepends=('qt')
+fi
+options=(!strip)
+# pwc, ieee80211 and hostap-driver26 modules are included in kernel26 now
+# nforce package support was abandoned by nvidia, kernel modules should cover everything now.
+# kernel24 support is dropped since glibc24
+replaces=('kernel24' 'kernel24-scsi' 'kernel26-scsi'
+          'alsa-driver' 'ieee80211' 'hostap-driver26'
+          'pwc' 'nforce' 'squashfs' 'unionfs' 'ivtv'
+          'zd1211' 'kvm-modules' 'iwlwifi' 'rt2x00-cvs'
+          'gspcav1' 'atl2' 'wlan-ng26' 'aufs' 'rt2500' 'kernel26-lqx')
+install='linux-lqx.install'
+source=(ftp://ftp.kernel.org/pub/linux/kernel/v2.6/linux-$_basekernel.tar.bz2
+http://liquorix.net/sources/${_lqxpatchname}.gz
+http://liquorix.net/sources/39/config.i386
+http://liquorix.net/sources/39/config.amd64
+linux-lqx.preset)
+
+provides=('linux-headers' "linux=$pkgver") # for when you have no other kernel
+sha512sums=('06cb5aba7c53c68d43afcebbbb9507d8b398b3e994d8a237c66a49374ca569237f074adaa3fccba7f908eab4f51f99bae40656793eab5c2f5ce03cd3a65fa02c'
+            '75247a39257eb01d2a4d92c6dacf17ecb03aefc0abb11c5defe00a1926b8db82b2c87319a823cc26a16af3d789140868ddce1df36b8caf5645d4716b14353744'
+            '87bad4d035ebfa260099b1d16cb09bdd9fdbf1852b0d9bcc1d06fc4978caf0b5a38229964a1edc1a80d62668504166b18555013e828206b56808a8836298f460'
+            'f3ecb78aa31064f52276f7168042628d0d37a1912a13a9cd5158b852706b14ab7a443661efdbe7336ccb92bf660e9dfc48c22cb10c27fe87c4c9c0a18c9aac09'
+            '8604400f16a9e566824dda090bde5a77dcf4d1d460679a7b15eb21060e7e9d63bbc23283e82e0718c10027f7db45fdb41f7aa03d900ae1f6d3d96ebc35408f4d')
+
+
+build() {
+  KARCH=x86
+  sed -i -e "s/+EXTRAVERSION = -lqx${_lqxrel}/+EXTRAVERSION =/" ${_lqxpatchname}
+  cd ${srcdir}/linux-${_basekernel}
+
+  # Add Liquorix patches
+  patch -Np1 -i ${srcdir}/$_lqxpatchname
+   
+  # Trying oldcfg if possible and if selected
+  if [ "$_config" = "old" ]; then
+    if [ -e /proc/config.gz ]; then
+      zcat /proc/config.gz > ./.config
+    else
+      echo "WARNING: There's no /proc/config.gz... You cannot use the old config. Aborting..."
+      exit 1
+    fi         
+  else
+    if [ "$CARCH" = "x86_64" ]; then
+      cat ../config.amd64 >./.config
+    else
+      cat ../config.i386 >./.config
+    fi
+  fi
+
+  if [ "${_kernelname}" != "" ]; then
+    sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
+  fi
+
+  # get kernel version
+  make prepare
+  _kernver="$(make kernelrelease)"
+
+  ### Optionally load needed modules for the make localmodconfig
+  # See http://aur.archlinux.org/packages.php?ID=41689
+  if [ $_config = "local" ]; then
+    msg "If you have modprobe_db installed, running reload_database now"
+    if [ -e /usr/bin/reload_database ]; then
+      /usr/bin/reload_database
+    fi
+    msg "Running Steven Rostedt's make localmodconfig now"
+    make localmodconfig
+  else
+    yes "" | make config
+  fi
+
+  if [ $_menu = "m" -o $_menu = "y" ]; then
+    msg "Running make menuconfig"
+    make menuconfig
+  fi
+  if [ $_menu = "x" ]; then
+    msg "Running make xconfig"
+    make xconfig
+  fi
+
+  # build!
+  make bzImage modules
+
+  ### package_kernel26
+
+  mkdir -p ${pkgdir}/{lib/modules,lib/firmware,boot}
+  make INSTALL_MOD_PATH=${pkgdir} modules_install
+
+  cp System.map ${pkgdir}/boot/System.map26${_kernelname}
+  cp arch/$KARCH/boot/bzImage ${pkgdir}/boot/vmlinuz26${_kernelname}
+
+  # add vmlinux
+  #cp vmlinux ${pkgdir}/usr/src/linux-${_kernver}
+  install -m644 -D vmlinux ${pkgdir}/usr/src/linux-${_kernver}/vmlinux
+
+  # install fallback mkinitcpio.conf file and preset file for kernel
+  install -m644 -D ${srcdir}/linux-lqx.preset ${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset
+
+  # set correct depmod command for install
+  sed \
+    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/g" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
+    -i ${startdir}/linux-lqx.install
+  sed \
+    -e "s|source .*|source /etc/mkinitcpio.d/kernel26${_kernelname}.kver|g" \
+    -e "s|default_image=.*|default_image=\"/boot/${pkgname}.img\"|g" \
+    -e "s|fallback_image=.*|fallback_image=\"/boot/${pkgname}-fallback.img\"|g" \
+    -i ${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset
+
+  echo -e "# DO NOT EDIT THIS FILE\nALL_kver='${_kernver}'" > ${pkgdir}/etc/mkinitcpio.d/${pkgname}.kver
+
+  ### package_kernel26-headers
+
+  install -D -m644 Makefile \
+    ${pkgdir}/usr/src/linux-${_kernver}/Makefile
+  install -D -m644 kernel/Makefile \
+    ${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile
+  install -D -m644 .config \
+    ${pkgdir}/usr/src/linux-${_kernver}/.config
+
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/include
+  for i in acpi asm-generic config generated linux math-emu media net pcmcia scsi sound trace video xen; do
+    cp -a include/$i ${pkgdir}/usr/src/linux-${_kernver}/include/
+  done
+
+  # copy arch includes for external modules
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/arch/x86
+  cp -a arch/x86/include ${pkgdir}/usr/src/linux-${_kernver}/arch/x86/
+
+  # copy files necessary for later builds, like nvidia and vmware
+  cp Module.symvers ${pkgdir}/usr/src/linux-${_kernver}
+  cp -a scripts ${pkgdir}/usr/src/linux-${_kernver}
+
+  # fix permissions on scripts dir
+  chmod og-w -R ${pkgdir}/usr/src/linux-${_kernver}/scripts
+
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/kernel
+
+  cp arch/$KARCH/Makefile ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/
+  if [ "$CARCH" = "i686" ]; then
+    cp arch/$KARCH/Makefile_32.cpu ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/
+  fi
+  cp arch/$KARCH/kernel/asm-offsets.s ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/kernel/
+
+  # add headers for lirc package
+  # note: zc0301 removed due to compiling errors
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video
+  cp drivers/media/video/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/
+  for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102; do
+    mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/$i
+    cp -a drivers/media/video/$i/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/$i
+  done
+
+  # add docbook makefile
+  install -D -m644 Documentation/DocBook/Makefile \
+    ${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile
+
+  # add dm headers
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/md
+  cp drivers/md/*.h  ${pkgdir}/usr/src/linux-${_kernver}/drivers/md
+
+  # add inotify.h
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/include/linux
+  cp include/linux/inotify.h ${pkgdir}/usr/src/linux-${_kernver}/include/linux/
+
+  # add wireless headers
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/
+  cp net/mac80211/*.h ${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/
+
+  # add dvb headers for external modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/9912
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core
+  cp drivers/media/dvb/dvb-core/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/
+
+  # add dvb headers for external modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/11194
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/
+  [[ -e include/config/dvb/ ]] && cp include/config/dvb/*.h ${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/
+
+  # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
+  # in reference to:
+  # http://bugs.archlinux.org/task/13146
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+  cp drivers/media/dvb/frontends/lgdt330x.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+  cp drivers/media/video/msp3400-driver.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+
+  # add xfs and shmem for aufs building
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/fs/xfs
+  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/mm
+  cp fs/xfs/xfs_sb.h ${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h
+
+  # add headers for virtualbox
+  # in reference to:
+  # http://bugs.archlinux.org/task/14568
+  cp -a include/drm ${pkgdir}/usr/src/linux-${_kernver}/include/
+
+  # add headers for broadcom wl
+  # in reference to:
+  # http://bugs.archlinux.org/task/14568
+  cp -a include/trace ${pkgdir}/usr/src/linux-${_kernver}/include/
+
+  # copy in Kconfig files
+  for i in `find . -name "Kconfig*"`; do
+    mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/`echo $i | sed 's|/Kconfig.*||'`
+    cp $i ${pkgdir}/usr/src/linux-${_kernver}/$i
+  done
+
+  chown -R root.root ${pkgdir}/usr/src/linux-${_kernver}
+  find ${pkgdir}/usr/src/linux-${_kernver} -type d -exec chmod 755 {} \;
+  cd ${pkgdir}/lib/modules/${_kernver} && \
+    (rm -f source build; ln -sf ../../../usr/src/linux-${_kernver} build)
+
+  # remove unneeded architectures
+  rm -rf ${pkgdir}/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+  # remove the firmware
+  rm -rf ${pkgdir}/lib/firmware
+}
+
+# vim:ts=2:sw=2:expandtab
+# eof
