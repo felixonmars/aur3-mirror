@@ -2,20 +2,22 @@
 # Contributor: Hasee Wu <hasee.wu@gmail.com>
 # Contributor:  midoriumi <gs@bbxy.net>
 pkgname=amule-dlp
-pkgver=2.2.6_DLP4302
-pkgrel=1
+pkgver=2.2.6
+_dlpver=DLP4401
+_ver=${pkgver}-${_dlpver}
+pkgrel=2
 pkgdesc="An eMule-like client for ed2k p2p network with DLP patch enhanced by Bill Lee"
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/amule-dlp/"
 license=('GPL')
 depends=('wxgtk' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
 conflicts=('amule')
-provides=('amule=2.2.6')
-source=("http://amule-dlp.googlecode.com/files/aMule-2.2.6-DLP4302.tar.bz2")
-md5sums=('8b295fdcab60519f8e1fcd4c266acb46')
+provides=('amule=${pkgver}')
+source=(http://amule-dlp.googlecode.com/files/aMule-${_ver}.tar.bz2)
+md5sums=('88696f9d68f12ba589b8a683297a768e')
 
 build() {
-  cd "${srcdir}/aMule-2.2.6-DLP4302"
+  cd "${srcdir}/aMule-${pkgver}"
 
   ./configure --prefix=/usr \
     --mandir=/usr/share/man \
@@ -37,7 +39,7 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/aMule-2.2.6-DLP4302"
+  cd "${srcdir}/aMule-${pkgver}"
 
   make DESTDIR=${pkgdir}/ install
 }
