@@ -3,11 +3,11 @@
 # Based on official package maintained by Tobias Powalowski <tpowa@archlinux.org>
 
 pkgname=gnupg2-git
-pkgver=20110724
-pkgrel=2
+pkgver=20110809
+pkgrel=1
 pkgdesc="GNU Privacy Guard 2 - a PGP replacement tool. Development version. Do not use in production environments. Test new ECC algorithm by using --expert with --gen-key"
 arch=('i686' 'x86_64')
-depends=('libldap' 'curl' 'bzip2' 'zlib' 'libksba-latest>=1.2' 'libgpg-error>=1.1' 'libgcrypt>=1.5'
+depends=('libldap' 'curl' 'bzip2' 'zlib' 'libksba>=1.2' 'libgpg-error>=1.1' 'libgcrypt>=1.5'
 	'pth' 'libusb-compat' 'libassuan>=2.0' 'texinfo' 'readline' 'pinentry')
 license=('GPL')
 url="http://www.gnupg.org/"
