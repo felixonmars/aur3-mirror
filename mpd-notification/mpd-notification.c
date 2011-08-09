@@ -19,8 +19,9 @@ int main(int argc, char ** argv) {
 	char * title = NULL;
 	char * artist = NULL;
 	char * album = NULL;
+        NotifyNotification * netlink = NULL;
+	struct mpd_song * song = NULL;
 	char * notification = NULL;
-        NotifyNotification * netlink;
 
 	GError * error = NULL;
 
@@ -36,25 +37,31 @@ int main(int argc, char ** argv) {
         }
 
 	while(mpd_run_idle_mask(conn, MPD_IDLE_PLAYER)) {
-		struct mpd_song * song;
-
 		mpd_command_list_begin(conn, true);
 		mpd_send_status(conn);
 		mpd_send_current_song(conn);
 		mpd_command_list_end(conn); 
 
-		mpd_response_next(conn);
+		if (mpd_status_get_state(mpd_recv_status(conn)) == MPD_STATE_PLAY) {
+			mpd_response_next(conn);
 
-		song = mpd_recv_song(conn);
+			song = mpd_recv_song(conn);
 
-		title = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_TITLE, 0), -1);
-		artist = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ARTIST, 0), -1);
-		album = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ALBUM, 0), -1);
+			title = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_TITLE, 0), -1);
+			artist = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ARTIST, 0), -1);
+			album = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ALBUM, 0), -1);
 
-		notification = (char *) malloc(strlen(title) + strlen(artist) + strlen(album) + 32); /* we need 32 character for the formatting */
-		sprintf(notification, "<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>", title, artist, album);
+			mpd_song_free(song);
 
-	        netlink = notify_notification_new("MPD Notification", notification, "sound");
+			notification = (char *) malloc(strlen(title) + strlen(artist) + strlen(album) + 40); /* we need 40 character for the formatting */
+			sprintf(notification, "Playing\n<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>", title, artist, album);
+
+		} else {
+			notification = (char *) malloc(17);
+			sprintf(notification, "Stopped playback");
+		}
+
+		netlink = notify_notification_new("MPD Notification", notification, "sound");
 
 		while(!notify_notification_show(netlink, &error)) {
 			g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
@@ -70,7 +77,6 @@ int main(int argc, char ** argv) {
 
 		free(notification);
 		mpd_response_finish(conn);
-		mpd_song_free(song);
 	}
 	mpd_connection_free(conn);
 
