@@ -1,7 +1,7 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=acpi_call-git
-pkgver=20110807
+pkgver=20110808
 pkgrel=1
 pkgdesc="kernel module allowing one to call parameterless ACPI methods by writing the method name to /proc/acpi/call, e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
@@ -42,13 +42,13 @@ package() {
   install -d ${pkgdir}/usr/share/${_gitname}/doc || return 1
   cp -a  ${srcdir}/${_gitname}-build/test_off.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
+  chmod 755 ${pkgdir}/usr/share/${_gitname}/test_off.sh || return 1
   ln -s /usr/share/${_gitname}/test_off.sh \
     ${pkgdir}/usr/bin/test_off.sh || return 1
   install -Dm644 README \
     ${pkgdir}/usr/share/${_gitname}/README
 
-  #for _kernver in $(file /boot/* | sed -n '/Linux kernel/s/.* version \(2\.6\.[-[:alnum:]_]\+\).*/\1/p'); do
-  for _kernver in $(file /boot/* | sed -n '/Linux kernel/s/.* version \([:alnum:]\.[:alnum:]\.[-[:alnum:]_]\+\).*/\1/p'); do
+  for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*version //g' -e 's/ .*$//g' | xargs); do
     msg2 "Building module for $_kernver..."
 
     # KDIR is necessary even when cleaning
