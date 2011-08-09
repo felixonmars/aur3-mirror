@@ -1,0 +1,319 @@
+---
+ PKLAEntry.cpp                        |    5 +-
+ PKLAEntry.h                          |   13 +++++-
+ helper/CMakeLists.txt                |    3 +
+ helper/org.kde.polkitkde1.helper.xml |    6 +-
+ helper/polkitkde1helper.cpp          |   69 +++++++++++++++++++++++++--------
+ helper/polkitkde1helper.h            |    2 +-
+ polkitactions/ActionWidget.cpp       |    4 +-
+ polkitactions/PolkitActionsKCM.cpp   |   33 +++++++++++++---
+ 8 files changed, 103 insertions(+), 32 deletions(-)
+
+diff --git a/PKLAEntry.cpp b/PKLAEntry.cpp
+index 85cf85b..48f4f2c 100644
+--- a/PKLAEntry.cpp
++++ b/PKLAEntry.cpp
+@@ -15,7 +15,7 @@ QDBusArgument& operator<<(QDBusArgument& argument, const PKLAEntry& entry)
+ {
+     argument.beginStructure();
+     argument << entry.title << entry.identity << entry.action << entry.resultAny << entry.resultInactive << entry.resultActive
+-             << entry.filePriority << entry.fileOrder;
++	     << entry.filePriority << entry.fileOrder;
+     argument.endStructure();
+     return argument;
+ }
+@@ -24,11 +24,12 @@ const QDBusArgument& operator>>(const QDBusArgument& argument, PKLAEntry& entry)
+ {
+     argument.beginStructure();
+     argument >> entry.title >> entry.identity >> entry.action >> entry.resultAny >> entry.resultInactive >> entry.resultActive
+-             >> entry.filePriority >> entry.fileOrder;
++	     >> entry.filePriority >> entry.fileOrder;
+     argument.endStructure();
+     return argument;
+ }
+ 
++
+ PolkitQt1::ActionDescription::ImplicitAuthorization PKLAEntry::implFromText(const QString& text)
+ {
+     if (text == "yes") {
+diff --git a/PKLAEntry.h b/PKLAEntry.h
+index e6f6a5b..cecc23c 100644
+--- a/PKLAEntry.h
++++ b/PKLAEntry.h
+@@ -12,6 +12,7 @@
+ #define PKLAENTRY_H
+ 
+ #include <QMetaType>
++#include <QDBusMetaType>
+ #include <PolkitQt1/ActionDescription>
+ 
+ class QDBusArgument;
+@@ -31,12 +32,20 @@ class PKLAEntry {
+     // Static utils for PKLA
+     static PolkitQt1::ActionDescription::ImplicitAuthorization implFromText(const QString& text);
+     static QString textFromImpl(PolkitQt1::ActionDescription::ImplicitAuthorization implicit);
++    
++    /*PKLAEntry()
++    {
++	
++    };
++    ~PKLAEntry() {};*/
++    private:
+ };
+-Q_DECLARE_METATYPE(PKLAEntry)
+-
+ typedef QList<PKLAEntry> PKLAEntryList;
++Q_DECLARE_METATYPE(PKLAEntry);
++Q_DECLARE_METATYPE(QList<PKLAEntry>);
+ 
+ QDBusArgument& operator<<(QDBusArgument& argument, const PKLAEntry& entry);
+ const QDBusArgument& operator>>(const QDBusArgument& argument, PKLAEntry& entry);
+ 
++
+ #endif // PKLAENTRY_H
+diff --git a/helper/CMakeLists.txt b/helper/CMakeLists.txt
+index af20165..71d3efd 100644
+--- a/helper/CMakeLists.txt
++++ b/helper/CMakeLists.txt
+@@ -32,6 +32,9 @@ set(polkitkde1helper_SRCS
+     ../PKLAEntry.cpp
+ )
+ 
++#set(polkitkde1_helper_xml ${CMAKE_CURRENT_SOURCE_DIR}/org.kde.polkitkde1.helper.xml)
++#set_source_files_properties(${polkitkde1_helper_xml} PROPERTIES INCLUDE "${CMAKE_CURRENT_SOURCE_DIR}/polkitkde1helper.h")
++
+ qt4_add_dbus_adaptor(polkitkde1helper_SRCS
+     org.kde.polkitkde1.helper.xml
+     polkitkde1helper.h
+diff --git a/helper/org.kde.polkitkde1.helper.xml b/helper/org.kde.polkitkde1.helper.xml
+index 862c178..03f5670 100644
+--- a/helper/org.kde.polkitkde1.helper.xml
++++ b/helper/org.kde.polkitkde1.helper.xml
+@@ -12,9 +12,9 @@
+            <arg direction="out" type="av" />
+        </method>
+        <method name="writePolicy" >
+-           <annotation name="com.trolltech.QtDBus.QtTypeName.In0" value="QVariantList"/>
+-           <arg direction="in" type="av" />
++           <arg direction="in" type="a(ssssssii)" name="policy" />
++	   <annotation name="com.trolltech.QtDBus.QtTypeName.In0" value="QList&lt;PKLAEntry&gt;"/>
++	   <arg direction="out" type="b" />
+        </method>
+-
+    </interface>
+ </node>
+\ No newline at end of file
+diff --git a/helper/polkitkde1helper.cpp b/helper/polkitkde1helper.cpp
+index 081bde4..532db9b 100644
+--- a/helper/polkitkde1helper.cpp
++++ b/helper/polkitkde1helper.cpp
+@@ -29,6 +29,7 @@ PolkitKde1Helper::PolkitKde1Helper(QObject* parent)
+     : QObject(parent)
+ {
+     qDBusRegisterMetaType<PKLAEntry>();
++    qDBusRegisterMetaType< QList<PKLAEntry> >();
+     (void) new HelperAdaptor(this);
+     // Register the DBus service
+     if (!QDBusConnection::systemBus().registerService("org.kde.polkitkde1.helper")) {
+@@ -105,7 +106,7 @@ QVariantList PolkitKde1Helper::retrievePolicies()
+     QVariantList retlist;
+ 
+     // Iterate over the directory and find out everything
+-    QDir baseDir("/var/lib/polkit-1/localauthority/");
++    QDir baseDir("/etc/polkit-1/localauthority/");
+     QFileInfoList baseList = baseDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+ 
+     foreach (const QFileInfo &info, baseList) {
+@@ -180,36 +181,70 @@ QVariantList PolkitKde1Helper::entriesFromFile(int filePriority, const QString&
+     return retlist;
+ }
+ 
+-void PolkitKde1Helper::writePolicy(const QVariantList& policy)
++bool PolkitKde1Helper::writePolicy( const QList< PKLAEntry > &policy)
+ {
+     PKLAEntryList entries;
+-    foreach (const QVariant &variant, policy) {
++    
++    if (policy.empty())
++	return true;
++    
++    
++    /*foreach (const QVariant &variant, policy) {
+         entries.append(variant.value<PKLAEntry>());
+-    }
++    }*/
++    
++    entries = policy;
++    
+     qSort(entries.begin(), entries.end(), orderByPriorityLessThan);
+-
++    
+     QSettings kdesettings("/etc/polkit-1/polkit-kde-1.conf", QSettings::IniFormat);
+     kdesettings.beginGroup("General");
+-
+-    QString path = QString("/var/lib/polkit-1/localauthority/%1-polkitkde/%2.conf")
+-                          .arg(kdesettings.value("PoliciesPriority",75).toInt()).arg(entries.first().action);
+-
+-    if (QFile::exists(path)) {
+-        QFile::remove(path);
++    
++    QString path_name = QString("/etc/polkit-1/localauthority/%1-polkitkde.d/")
++                          .arg(kdesettings.value("PoliciesPriority",75).toInt());
++			  
++    QDir path = QDir(path_name);
++    QString filename = QString("%1.pkla")
++			  .arg(entries.first().action);
++			  
++    // Check if path exists. If not, create it.
++    if (!path.exists())
++    {
++	if (!path.mkpath(path.path()))
++	    return false;
+     }
+-
++	  
++    if (QFile::exists(path_name + filename)) {
++        QFile::remove(path_name + filename);
++    }
++    
+     QString contents;
+ 
+     foreach (const PKLAEntry &entry, entries) {
+         contents.append(formatPKLAEntry(entry));
+         contents.append('\n');
+     }
+-
+-    QFile wfile(path);
+-    wfile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
+-    wfile.write(contents.toUtf8());
+-    wfile.flush();
++    contents.append('\0');
++
++    bool success = true;
++    QFile wfile(path_name + filename);
++    success = wfile.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
++    if (!success)
++	goto err_open;
++    
++    if (wfile.write(contents.toUtf8()) < 0)
++    {
++	success = false;
++	goto err_write;
++    }
++    
++    success = wfile.flush();
++     
++    err_write:
+     wfile.close();
++    
++    err_open:
++    return success;
+ }
+ 
+ QString PolkitKde1Helper::formatPKLAEntry(const PKLAEntry& entry)
+diff --git a/helper/polkitkde1helper.h b/helper/polkitkde1helper.h
+index 530c13d..f94c997 100644
+--- a/helper/polkitkde1helper.h
++++ b/helper/polkitkde1helper.h
+@@ -28,7 +28,7 @@ class PolkitKde1Helper : public QObject, protected QDBusContext
+     public Q_SLOTS:
+         void saveGlobalConfiguration(const QString &adminIdentities, int systemPriority, int policiesPriority);
+         QVariantList retrievePolicies();
+-        void writePolicy(const QVariantList &policy);
++        bool writePolicy(const QList< PKLAEntry > &policy);
+ 
+     private:
+         QVariantList entriesFromFile(int filePriority, const QString &fileContents);
+diff --git a/polkitactions/ActionWidget.cpp b/polkitactions/ActionWidget.cpp
+index c9b3748..3697999 100644
+--- a/polkitactions/ActionWidget.cpp
++++ b/polkitactions/ActionWidget.cpp
+@@ -104,7 +104,8 @@ void ActionWidget::computeActionPolicies()
+     qSort(m_entries.begin(), m_entries.end(), orderByPriorityLessThan);
+     foreach (const PKLAEntry &entry, m_entries) {
+         QStringList realActions = entry.action.split(';');
+-        kDebug() << entry.action << m_action.actionId();
++	kDebug() << "entry.title: " << entry.title;
++        kDebug() << "entry.action: " << m_action.actionId();
+         if (realActions.contains(m_action.actionId())) {
+             // Match! Is it, actually, an implicit override?
+             if (entry.title == "PolkitKdeOverrideImplicit") {
+@@ -328,6 +329,7 @@ void ActionWidget::removePKLAEntry()
+     for (PKLAEntryList::iterator it = m_entries.begin(); it != m_entries.end(); ++it) {
+         if ((*it).title == item->text()) {
+             // Remove it
++            kDebug() << "Deleting found match!";
+             it = m_entries.erase(it);
+             break;
+         }
+diff --git a/polkitactions/PolkitActionsKCM.cpp b/polkitactions/PolkitActionsKCM.cpp
+index 87134b4..2c35976 100644
+--- a/polkitactions/PolkitActionsKCM.cpp
++++ b/polkitactions/PolkitActionsKCM.cpp
+@@ -24,6 +24,8 @@
+ #include <QDBusMessage>
+ #include <QDBusConnection>
+ #include <qdbuspendingcall.h>
++#include <QMessageBox>
++#include <KDebug>
+ 
+ K_PLUGIN_FACTORY(KCMPolkitActionsFactory,
+                  registerPlugin<PolkitActionsKCM>();
+@@ -46,6 +48,9 @@ PolkitActionsKCM::PolkitActionsKCM(QWidget* parent, const QVariantList& args)
+     setAboutData(about);
+ 
+     qRegisterMetaType<PolkitQt1::ActionDescription>();
++    qRegisterMetaType<PKLAEntry>("PKLAEntry");
++    qDBusRegisterMetaType<PKLAEntry>();
++    qDBusRegisterMetaType< QList<PKLAEntry> >();
+ 
+     // Build the UI
+     m_ui->setupUi(this);
+@@ -84,21 +89,37 @@ void PolkitActionsKCM::save()
+     if (m_actionWidget.isNull()) {
+         return;
+     }
++    if (m_actionWidget.data()->entries().isEmpty())
++	return;
+ 
+     QDBusMessage message = QDBusMessage::createMethodCall("org.kde.polkitkde1.helper",
+                                                           "/Helper",
+                                                           "org.kde.polkitkde1.helper",
+                                                           QLatin1String("writePolicy"));
+-    QList<QVariant> argumentList;
+-    QVariantList policies;
++    QVariantList argumentList;
++    QList< PKLAEntry > policies;
+     foreach (const PKLAEntry &entry, m_actionWidget.data()->entries()) {
+-        policies << QVariant::fromValue(entry);
++        policies << entry;
+     }
+-    argumentList << policies;
+-
++    
++    argumentList << qVariantFromValue(policies);
++    
+     message.setArguments(argumentList);
+ 
+-    QDBusPendingCall reply = QDBusConnection::systemBus().asyncCall(message);
++    QDBusMessage reply = QDBusConnection::systemBus().call(message,QDBus::Block);
++
++    if (reply.type() != QDBusMessage::ReplyMessage)
++    {
++	QMessageBox mbox(QMessageBox::Critical, reply.errorName(), "D-Bus error occurred: " + reply.errorMessage());
++	mbox.exec();
++	return;
++    }
++    
++    if (!reply.arguments().first().value<bool>())
++    {
++	QMessageBox mbox(QMessageBox::Critical, "", "Error occurred when writting settings");
++	mbox.exec();
++    }
+ }
+ 
+ void PolkitActionsKCM::defaults()
+-- 
+1.7.6
+
+
