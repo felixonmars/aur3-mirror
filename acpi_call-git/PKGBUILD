@@ -2,14 +2,14 @@
 
 pkgname=acpi_call-git
 pkgver=20110808
-pkgrel=1
+pkgrel=2
 pkgdesc="kernel module allowing one to call parameterless ACPI methods by writing the method name to /proc/acpi/call, e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
 url=("http://github.com/mkottman/acpi_call")
 license=('GPL')
 provides=('acpi_call')
 makedepends=('git')
-optdepends=('kernel26-headers: needed if using ARCH provided kernel')
+optdepends=('linux-headers: needed if using ARCH provided kernel')
 install=acpi_call.install
 _gitroot=("http://github.com/mkottman/acpi_call.git")
 _gitname=("acpi_call")
@@ -39,12 +39,18 @@ package() {
   cd ${srcdir}/${_gitname}-build
   install -d ${pkgdir}/usr/share/${_gitname} || return 1
   install -d ${pkgdir}/usr/bin || return 1
-  install -d ${pkgdir}/usr/share/${_gitname}/doc || return 1
-  cp -a  ${srcdir}/${_gitname}-build/test_off.sh \
+  install -Dm755  ${srcdir}/${_gitname}-build/asus1215n.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
-  chmod 755 ${pkgdir}/usr/share/${_gitname}/test_off.sh || return 1
+  install -Dm755  ${srcdir}/${_gitname}-build/m11xr2.sh \
+    ${pkgdir}/usr/share/${_gitname} || return 1
+  install -Dm755  ${srcdir}/${_gitname}-build/query_dsdt.pl \
+    ${pkgdir}/usr/share/${_gitname} || return 1
+  install -Dm755  ${srcdir}/${_gitname}-build/test_off.sh \
+    ${pkgdir}/usr/share/${_gitname} || return 1
   ln -s /usr/share/${_gitname}/test_off.sh \
     ${pkgdir}/usr/bin/test_off.sh || return 1
+  cp -R windump_hack \
+    ${pkgdir}/usr/share/${_gitname}/
   install -Dm644 README \
     ${pkgdir}/usr/share/${_gitname}/README
 
