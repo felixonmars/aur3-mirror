@@ -6,7 +6,7 @@ pkgrel=1
 pkgdesc="adb host for Linux"
 arch=("i686" "x86_64")
 license=('Apache')
-url="http://www.renpy.org"
+url="http://www.android.com"
 makedepends=('git' 'autoconf')
 
 __giturl="git://github.com/zhangn1985/adb.git"
