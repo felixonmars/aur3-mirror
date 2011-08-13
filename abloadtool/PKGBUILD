@@ -3,7 +3,9 @@
 # KDE-OPTION 				KDE-OPTION
 ###########################################################################################################
 #
-## Set this to "y" if you want a right-click menu action for abloadtool ('upload in background' and 'open in abload'). This works only for KDE! Be careful, it works for multiple images.
+## Set this to "y" if you want a right-click menu action for abloadtool ('upload in background' and 
+## 'open in abload'). This is only for KDE and will work for example in Dolphin, Konqueror or Krusader! 
+## Be careful, it works for multiple image files.
 #
 _kdemenu="n"
 
