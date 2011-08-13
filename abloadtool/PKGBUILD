@@ -1,35 +1,58 @@
+# PKGBUILD by hasufell <jd.o@gmx.de>
+###########################################################################################################
+# KDE-OPTION 				KDE-OPTION
+###########################################################################################################
+#
+## Set this to "y" if you want a right-click menu action for abloadtool ('upload in background' and 'open in abload'). This works only for KDE! Be careful, it works for multiple images.
+#
+_kdemenu="n"
+
+
+###########################################################################################################
 pkgname=abloadtool
 pkgver=3.0
-pkgrel=1
-pkgdesc="abload upload tool"
-arch=('i686')
+pkgrel=2
+pkgdesc="upload tool for the imagehoster abload"
+arch=('i686' 'x86_64')
 url="http://www.abload.de/tool.php"
 license=('LGPL2')
 depends=('qt')
-source=('http://download.abloadtool.de/linux-32/abloadtool-3.0-i386.tar.gz'
-'http://www.abload.de/res/imgs/blog/a5546f805e.jpg'
-'abloadtool.desktop')
-md5sums=('30c53c269b13d00f44ef8cc3dd7e1244'
-         '9cca897331da8068fc1abc28fb450d13'
-         '5d1c5b739724da0364e27c698dd85418')
+makedepends=('libarchive')
 
-build() {
-cd $startdir/src/abloadtool-tar
+if [ "$CARCH" = "i686" ]; then
+    _arch='i386'
+    _file="${pkgname}-${pkgver}.${_arch}.deb"
+    source=("http://download.abloadtool.de/ubuntu-32/${pkgname}-${pkgver}.${_arch}.deb"
+	    'abloadaction.desktop')
+    md5sums=('7c0d8a0cb375578727ead6b3ce7a2629'
+             '370a428be3150051c147cede5d90aecd')
 
-  install -D -m755 ./abloadtool \
-  $pkgdir/usr/bin/abloadtool
-  install -D -m644 ./libabload.so \
-  $pkgdir/usr/lib/libabload.so
+elif [ "$CARCH" = "x86_64" ]; then
+    _arch='x86_64'
+    _file="${pkgname}-${pkgver}.${_arch}.deb"
+    source=("http://download.abloadtool.de/ubuntu-64/${pkgname}-${pkgver}.${_arch}.deb"
+	    'abloadaction.desktop')
+    md5sums=('fc731447e64a580fc2250f014b631b59'
+             '370a428be3150051c147cede5d90aecd')
+
+fi
+
+build() 
+{
+
+cd $srcdir
+  bsdtar -xf "${_file}" data.tar.gz
+  bsdtar -xf data.tar.gz -C "${pkgdir}"
+  rm data.tar.gz
 
 cd $pkgdir/usr/lib
-
+  rm libabload.so.*
   ln -sf ./libabload.so ./libabload.so.0
   ln -sf ./libabload.so ./libabload.so.0.1
   ln -sf ./libabload.so ./libabload.so.0.1.0
 
-  install -D -m644 $srcdir/abloadtool.desktop \
-  $pkgdir/usr/share/applications/abloadtool.desktop
-  install -D -m644 $srcdir/a5546f805e.jpg \
-  $pkgdir/usr/share/pixmaps/abload-logo.png 
+if [ "$_kdemenu" = "y" ]; then
+  install -Dm644 "${srcdir}"/abloadaction.desktop "${pkgdir}"/usr/share/kde4/services/ServiceMenus/abloadaction.desktop
+fi
 
 }
