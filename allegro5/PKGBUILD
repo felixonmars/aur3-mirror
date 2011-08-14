@@ -1,8 +1,8 @@
 # Maintainer: Clayton G. Hobbs <clay@lakeserv.net>
 pkgname=allegro5
-pkgver=5.0.3
-pkgrel=2
-pkgdesc="The last version of the Allegro multimedia library"
+pkgver=5.0.4
+pkgrel=1
+pkgdesc="The latest version of the Allegro multimedia library"
 arch=(i686 x86_64)
 url="http://alleg.sourceforge.net/"
 license=('custom')
@@ -10,7 +10,7 @@ depends=('libsndfile' 'libjpeg' 'libxcursor' 'libgl' 'libpng' 'libvorbis' 'mesa'
 makedepends=('cmake')
 provides=('allegro5')
 source=(http://downloads.sourceforge.net/project/alleg/allegro/$pkgver/allegro-$pkgver.tar.gz)
-md5sums=('159ca85ea51c0447d951d720b06079f2')
+md5sums=('e2e314ee7116c7efddd0497d6c885e46')
 
 build() {
   cd "$srcdir/allegro-$pkgver"
