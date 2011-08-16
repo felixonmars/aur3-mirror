@@ -50,7 +50,7 @@ RANLIB	= ranlib
 # These four are typical settings for optimized code with gcc.  The
 # last two also work with icc/ecc.
 #ICFLAGS	= -g -O6 -Wall
-ICFLAGS	= -g -O6
+ICFLAGS	= -g -O6 -fPIC
 #ICFLAGS	= -g -O3 -Wall
 #ICFLAGS	= -g -O3
 
@@ -62,7 +62,7 @@ ICFLAGS	= -g -O6
 #  Linux
 #
 # Gcc 2.8.1 or higher on i686.
-XCFLAGS	= -march=pentiumpro -malign-double -DHAVE_IEEE_754 -DBSD
+#XCFLAGS	= -march=pentiumpro -malign-double -DHAVE_IEEE_754 -DBSD
 # Gcc 3.2.2 or higher on i686.
 #XCFLAGS	= -mcpu=pentium4 -malign-double -DHAVE_IEEE_754 -DBSD
 # Icc on i686.
