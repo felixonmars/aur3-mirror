@@ -2,11 +2,11 @@
 
 pkgname="librbus-git"
 pkgver=0.1
-pkgrel=2
+pkgrel=3
 pkgdesc="The lastest Realdesktop Bus library"
 url="http://rbus.enodev.org"
 license="BSD"
-arch=("i686" "x86_64" "arm" "arm7h")
+arch=("i686" "x86_64" "arm" "armv7h")
 makedepends=("git")
 provides=("librbus")
 source=()
@@ -42,12 +42,12 @@ build() {
     cd $srcdir/${__gitname}-build
     
     msg "Starting build process."
-    make
+    make ${__flags[@]}
 }
 
 package() {
     cd $srcdir/${__gitname}-build
-    make ${__flags[@]} install COMPONENTS="libixp librbus"
+    make ${__flags[@]} install
 }
 
 # vim: set noet ff=unix
