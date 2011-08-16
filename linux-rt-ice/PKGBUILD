@@ -9,9 +9,9 @@ pkgname=linux-rt-ice
 backup=(etc/mkinitcpio.d/$pkgname.preset)
 _kernelname=${pkgname#linux}
 _basekernel=3.0
-_minor_patch=0
+_minor_patch=1
 pkgver=${_basekernel}
-pkgrel=1
+pkgrel=2
 install=$pkgname.install
 provides=('kernel26-rt-ice')
 conflicts=('kernel26-rt-ice')
@@ -38,7 +38,7 @@ enable_reiser4=${enable_reiser4:-0}
 ###
 
 ### Files / Versions
-file_rt="patch-3.0-rt6.patch.bz2"
+file_rt="patch-3.0.1-rt11.patch.bz2"
 file_reiser4="reiser4-for-2.6.33.patch.bz2"
 file_toi="current-tuxonice-for-3.0.patch.bz2"
 file_bfs="2.6.38.3-sched-bfs-401.patch"
@@ -47,7 +47,7 @@ file_bfs="2.6.38.3-sched-bfs-401.patch"
 options=(!strip)
 source=(http://kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2
         http://www.kernel.org/pub/linux/kernel/projects/rt/${file_rt}
-        # http://www.kernel.org/pub/linux/kernel/v3.0/patch-${_basekernel}.${_minor_patch}.bz2
+        http://www.kernel.org/pub/linux/kernel/v3.0/patch-${_basekernel}.${_minor_patch}.bz2
         # http://www.kernel.org/pub/linux/kernel/people/edward/reiser4/reiser4-for-2.6/${file_reiser4}
         http://www.tuxonice.net/files/${file_toi}
         # http://ck.kolivas.org/patches/bfs/${_basekernel}/${file_bfs}
@@ -57,10 +57,11 @@ source=(http://kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2
         ${pkgname}.preset
         fix-i915.patch)
 md5sums=('398e95866794def22b12dfbc15ce89c0'
-         '607492a1ea16e9f38c9d71e1106b090f'
+         'cae25ea86cfa577ca180e547be82c249'
+         'ac49f7907f1fc85fbab92d0f1aa1552a'
          'afbd01926c57fc5b82ee6034dc9311e5'
-         '6c355b2e1dcffb6ff783069be6570301'
-         '144400971a7a5c4e4d55222dd73a9654'
+         '33d49dcc53b8debb529028ff7d01d15a'
+         '8dba1de4134491279764beae95dd0313'
          '7c9725208ab6834602c8b9d645ed001d'
          '263725f20c0b9eb9c353040792d644e5')
 
