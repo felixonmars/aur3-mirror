@@ -28,24 +28,24 @@ _remove_docs=false
 ########################################
 
 _year='2011'
-_v_a='4'
-_v_b='191'
+_v_a='5'
+_v_b='220'
 
 pkgver=${_year}.${_v_a}.${_v_b}
 
-pkgrel=2
+pkgrel=1
 
 _icc_ver='12.0'
 _ipp_ver='7.0-4'
-_mkl_ver='10.3-4'
-_openmp_ver='12.0-4'
-_sourcechecker_ver='12.0-4'
+_mkl_ver='10.3-5'
+_openmp_ver='12.0-5'
+_sourcechecker_ver='12.0-5'
 
-_tbb_ver='3.0-7'
+_tbb_ver='3.0-8'
 _tbb_arch='cc4.1.0_libc2.4_kernel2.6.16.21'
 _tbb_not_arch='cc3.4.3_libc2.3.4_kernel2.6.9'
 
-_dir_nr='2136'
+_dir_nr='2264'
 
 if $_amd_64 ; then
   _not_arch_64='intel64'
@@ -86,13 +86,13 @@ if [ "$CARCH" = "i686" ]; then
     _i_arch='ia32'
     _i_arch2='i486'
     _not_arch='intel64'
-    md5sums=('83188d22ad54eaa8414c0b95f349e98f' ${md5sums[@]} )
+    md5sums=('24bbea122400f6b442fe518fa38fa949' ${md5sums[@]} )
 else
     _i_arch='intel64'
   
     _i_arch2='x86_64'
     _not_arch='ia32' 
-    md5sums=('e00b9f0162f3051095d9f2a0cf0e128e' ${md5sums[@]} )
+    md5sums=('d1f5e0463be6de605294e54fd7e611e6' ${md5sums[@]} )
 fi
 
 source=("http://registrationcenter-download.intel.com/akdlm/irc_nas/${_dir_nr}/l_ccompxe_${_i_arch}_${pkgver}.tgz" ${source[@]})
