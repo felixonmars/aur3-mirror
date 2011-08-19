@@ -39,12 +39,12 @@ pkgbase=mozc-ut
 pkgname=mozc-ut
 true && pkgname=('mozc-server-ut' 'mozc-utils-gui-ut')
 _origname=mozc
-_mozcver=1.1.773.102
+_mozcver=1.2.809.102
 _utver=20110803
-_uimmozcrev=279
+_uimmozcrev=285
 _protobuf_ver=2.4.1
 pkgver=${_mozcver}.${_utver}
-pkgrel=2
+pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.geocities.jp/ep3797/mozc_01.html"
 license=('BSD' 'GPL' 'custom')
@@ -55,12 +55,11 @@ _copt=Release
 source=(http://mozc.googlecode.com/files/mozc-${_mozcver}.tar.bz2
         http://downloads.sourceforge.net/mdk-ut/mozcdic-ut-${_utver}.tar.bz2
         mozc-1.1.690.102-ibus-lang_panel.patch
-        libpng.patch
 )
-sha1sums=('8552b89d428571b034f757161a08995d725fc4aa'
+sha1sums=('303515507b8643a5e9e9409f053ccdbbfb24f4f6'
           'eb73ba563f078033c272369216713507c599df84'
           'ac0c9bef87b3ca3efe16554c00713ad1b4dc4cf8'
-          '676f199afaa41800f4633e3ae700ae9242e3206a')
+)
 
 if [[ "$_ibus_mozc" = "yes" ]]; then
     true && pkgname+=('ibus-mozc-ut')
@@ -78,7 +77,8 @@ if [[ "$_uim_mozc"  = "yes" ]]; then
     true && pkgname+=('uim-mozc-ut')
     makedepends+=('uim' 'subversion')
     source+=(http://protobuf.googlecode.com/files/protobuf-${_protobuf_ver}.tar.bz2)
-    sha1sums+=('df5867e37a4b51fb69f53a8baf5b994938691d6d')
+    sha1sums+=('df5867e37a4b51fb69f53a8baf5b994938691d6d') #2.4.1
+    #sha1sums+=('db0fbdc58be22a676335a37787178a4dfddf93c6') # 2.3.0
 else
     depends+=('protobuf')
 fi
@@ -108,15 +108,12 @@ build() {
     msg "SVN checkout done or server timeout"
   fi
 
-  # Adjust for python2
-  find . -name  \*.py        -type f | xargs sed -i "1s|python.*$|python2|"
-  find . -regex ".*\.gypi?$" -type f | xargs sed -i "s|'python'|'python2'|g"
-
   # Generate mozc-ut dictionary seeds
   cd "${srcdir}/mozcdic-ut-${_utver}"
   # Adjust for Ruby>=1.9, makepkg, etc.
   find . -name \*.rb -type f | xargs sed -i -e "2i #-*- encoding: utf-8 -*-" -e "s/\]\.length /\]\.bytesize /g"
-  sed -i -e 's|^rm -rf \.\./mozc-$MOZCVER|#&|' \
+  sed -i -e "s|^MOZCVER=.*|MOZCVER=\"${_mozcver}\"|" \
+         -e 's|^rm -rf \.\./mozc-$MOZCVER|#&|' \
          -e 's|^tar jxf mozc-$MOZCVER.tar.bz2|#&|' \
          -e "s/^ruby.*/& || exit 1/g" \
          generate-mozc-ut.sh
@@ -125,16 +122,6 @@ build() {
   sh ./generate-mozc-ut.sh
   msg "Done."
 
-  if [[ "$_zipcode" = "yes" ]]; then
-      msg "Generating zip code seed..."
-      # fix zipcode generator
-      cp -f zipcode/gen_zip_code_seed.py ../${pkgbase}-${_mozcver}/data/dictionary/
-      # generate zipcode
-      cd ../${pkgbase}-${_mozcver}/data/dictionary/
-      python2 gen_zip_code_seed.py --zip_code="${srcdir}/KEN_ALL.CSV" --jigyosyo="${srcdir}/JIGYOSYO.CSV" >> dictionary09.txt
-      msg "Done."
-  fi
-
   cd "${srcdir}/${pkgbase}-${_mozcver}"
 
   # uim-mozc
@@ -142,36 +129,53 @@ build() {
       # patch to link protobuf statically
       cp -rf "${srcdir}/protobuf-${_protobuf_ver}" protobuf/files
       patch -p0 -i "${srcdir}/uim-mozc/mozc-linux-protobuf.diff"
+      if [[ "$_protobuf_ver" = "2.3.0" ]]; then
+        patch -p0 -i "${srcdir}/uim-mozc/mozc-linux-protobuf230.diff"
+      fi
       cp -rf "${srcdir}/uim-mozc/uim" unix/
       patch -p0 -i "${srcdir}/uim-mozc/mozc-kill-line.diff"
       # Extract license part of uim-mozc
       cd unix/uim
-      sed -n '2,31p' mozc.cc > LICENSE
+      head -n 32 mozc.cc > LICENSE
       cd ~-
+  fi
+
+  # Adjust for python2
+  find . -name  \*.py        -type f | xargs sed -i "1s|python.*$|python2|"
+  find . -regex ".*\.gypi?$" -type f | xargs sed -i "s|'python'|'python2'|g"
+
+  # Add zip code
+  if [[ "$_zipcode" = "yes" ]]; then
+      msg "Generating zip code seed..."
+      cd data/dictionary
+      python2 ../../dictionary/gen_zip_code_seed.py --zip_code="${srcdir}/KEN_ALL.CSV" --jigyosyo="${srcdir}/JIGYOSYO.CSV" >> dictionary09.txt
+      cd ~-
+      msg "Done."
   fi
 
   # patch to add some (hidden) tool's menu items into lang panel of ibus by Vine Linux.
   patch -p1 -i "${srcdir}/mozc-1.1.690.102-ibus-lang_panel.patch"
-  # fix build error if QTDIR= is specified.
-  #patch -p1 -i "${srcdir}/libpng14.patch"
-  patch -p1 -i "${srcdir}/libpng.patch"
 
   msg "Starting make..."
 
-  _targets="server/server.gyp:mozc_server gui/gui.gyp:mozc_tool"
+  # Get make -j option from $MAKEFLAGS
+  _jobs=`sed -n -e "s/.*--jobs=\([0-9]\+\).*/\1/p" -e "s/.*-j *\([0-9]\+\).*/\1/p" <<< "$MAKEFLAGS"`
+  [[ -z $_jobs ]] && _jobs=1
+
   [[ "$_emacs_mozc" = "yes" ]] && _targets+=" unix/emacs/emacs.gyp:mozc_emacs_helper"
   [[ "$_ibus_mozc"  = "yes" ]] && _targets+=" unix/ibus/ibus.gyp:ibus_mozc"
   [[ "$_scim_mozc"  = "yes" ]] && _targets+=" unix/scim/scim.gyp:scim_mozc unix/scim/scim.gyp:scim_mozc_setup"
   [[ "$_uim_mozc"   = "yes" ]] && _targets+=" unix/uim/uim.gyp:uim-mozc"
 
   python2 build_mozc.py gyp --channel_dev=0
-  python2 build_mozc.py build_tools -c $_copt
-  python2 build_mozc.py build -c $_copt $_targets
+  python2 build_mozc.py build_tools -c $_copt -j $_jobs
+  python2 build_mozc.py build -c $_copt -j $_jobs server/server.gyp:mozc_server gui/gui.gyp:mozc_tool
+  python2 build_mozc.py build -c $_copt -j $_jobs $_targets
 
   [[ "$_ibus_mozc" = "yes" ]] && sed -i 's|/usr/libexec/|/usr/lib/ibus-mozc/|g' out_linux/${_copt}/obj/gen/unix/ibus/mozc.xml
 
   # Extract liccense part of mozc
-  sed -n '1,28p' server/mozc_server.cc > LICENSE
+  head -n 28 server/mozc_server.cc > LICENSE
 }
 
 package_mozc-server-ut() {
@@ -208,7 +212,7 @@ package_mozc-utils-gui-ut() {
   pkgdesc="Mozc GUI uitilities, such as the configuration dialog, user dictionary tool and about dialog"
   arch=('i686' 'x86_64')
   groups=('mozc-ut')
-  depends=('mozc-server-ut' 'qt')
+  depends=("mozc-server-ut=${pkgver}" 'qt')
   optdepends=('zinnia: hand-writing recognition support (Experimental)'
               'tegaki-models-zinnia-japanese: hand-writing recognition support (Experimental)')
   provides=('mozc-utils-gui')
@@ -222,7 +226,7 @@ package_emacs-mozc-ut() {
   pkgdesc="Mozc for Emacs"
   arch=('any')
   groups=('mozc-ut')
-  depends=('emacs-mozc-bin-ut' 'emacs')
+  depends=("emacs-mozc-bin-ut=${pkgver}" 'emacs')
   install=emacs-mozc.install
   provides=('emacs-mozc')
   conflicts=('emacs-mozc')
@@ -235,7 +239,7 @@ package_emacs-mozc-bin-ut() {
   pkgdesc="Helper module for emacs-mozc"
   arch=('i686' 'x86_64')
   groups=('mozc-ut')
-  depends=('mozc-server-ut')
+  depends=("mozc-server-ut=${pkgver}")
   provides=('emacs-mozc-bin')
   conflicts=('emacs-mozc-bin')
 
@@ -247,7 +251,7 @@ package_ibus-mozc-ut() {
   pkgdesc="IBus engine module for Mozc"
   arch=('i686' 'x86_64')
   groups=('mozc-ut')
-  depends=('mozc-server-ut' 'ibus')
+  depends=("mozc-server-ut=${pkgver}" 'ibus')
   provides=('ibus-mozc')
   conflicts=('ibus-mozc')
 
@@ -270,7 +274,7 @@ package_scim-mozc-ut() {
   pkgdesc="SCIM IMEngine module for Mozc"
   arch=('i686' 'x86_64')
   groups=('mozc-ut')
-  depends=('mozc-server-ut' 'scim')
+  depends=("mozc-server-ut=${pkgver}" 'scim')
   provides=('scim-mozc')
   conflicts=('scim-mozc')
 
@@ -295,7 +299,7 @@ package_uim-mozc-ut() {
   pkgdesc="uim IMEngine module for Mozc"
   arch=('i686' 'x86_64')
   groups=('mozc-ut')
-  depends=('mozc-server-ut' 'uim')
+  depends=("mozc-server-ut=${pkgver}" 'uim')
   install=uim-mozc.install
   provides=('uim-mozc')
   conflicts=('uim-mozc')
