@@ -2,7 +2,7 @@
 
 pkgname=adb
 pkgver=2.3
-pkgrel=1
+pkgrel=2
 pkgdesc="adb host for Linux"
 arch=("i686" "x86_64")
 license=('Apache')
