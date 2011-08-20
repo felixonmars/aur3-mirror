@@ -1,1 +1,0 @@
-UTSERVER_USER="utserver"

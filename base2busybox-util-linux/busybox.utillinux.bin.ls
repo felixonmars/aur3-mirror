@@ -1,4 +1,0 @@
-dmesg
-more
-mount
-umount

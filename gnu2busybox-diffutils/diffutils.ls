@@ -1,2 +1,0 @@
-cmp
-diff 

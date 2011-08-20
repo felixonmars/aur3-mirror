@@ -1,1 +1,0 @@
-java -jar /usr/share/java/jskat-svn/JSkat.jar

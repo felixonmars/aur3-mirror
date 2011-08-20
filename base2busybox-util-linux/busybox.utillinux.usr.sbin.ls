@@ -1,3 +1,0 @@
-fdformat
-readprofile
-rtcwake

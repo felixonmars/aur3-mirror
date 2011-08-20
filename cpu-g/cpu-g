@@ -1,3 +1,0 @@
-#!/bin/sh
-cd /usr/share/cpu-g
-python2 cpu-g

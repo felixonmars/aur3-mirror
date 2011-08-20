@@ -1,1 +1,0 @@
-setenv DESTINATION/bin/PKGNAMEvars.sh INTELARCH

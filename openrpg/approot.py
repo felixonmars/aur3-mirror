@@ -1,1 +1,0 @@
-basedir = "/usr/share/openrpg"

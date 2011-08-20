@@ -1,2 +1,0 @@
-APACHE_SOLR_OPTIONS=""
-

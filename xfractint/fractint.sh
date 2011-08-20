@@ -1,1 +1,0 @@
-export FRACTDIR=/usr/share/xfractint
