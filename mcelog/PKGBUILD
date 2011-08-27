@@ -1,0 +1,30 @@
+# Contributor: Thomas Mudrunka <harvie@@email..cz>
+# Maintainer: Thomas Mudrunka <harvie@@email..cz>
+# You can also contact me on http://blog.harvie.cz/
+
+pkgname=mcelog
+pkgver=1.0pre3
+pkgrel=2
+pkgdesc="Print machine check event log from x86-64 kernel"
+url="http://freshmeat.net/projects/mcelog/"
+license="GPL"
+arch=('i686' 'x86_64')
+depends=()
+source=("ftp://ftp.kernel.org/pub/linux/utils/cpu/mce/${pkgname}-${pkgver}.tar.gz"
+        "${pkgname}.rc")
+md5sums=('b42f2214de6f4feb992556149edc67fa'
+         'f039a77d7bde3518d3d695b144816e8a')
+
+build() {
+	cd "${srcdir}/${pkgname}-${pkgver}"
+	make
+
+	mkdir -p "${pkgdir}/usr/sbin/"
+	cp mcelog "${pkgdir}/usr/sbin/"
+	cp mcelog.cron "${pkgdir}/usr/sbin/"
+
+	mkdir -p "${pkgdir}/etc/rc.d/"
+	cp "${srcdir}/mcelog.rc" "${pkgdir}/etc/rc.d/mcelog"
+
+	chmod -R 755 "${pkgdir}/"
+}

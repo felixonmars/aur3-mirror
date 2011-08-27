@@ -1,0 +1,88 @@
+# Maintainer: Arch Linux Pro Audio <archaudio-devel@archaudio.org>
+# Contributor: Björn Lindig <bjoern.lindig@googlemail.com>
+# Contributor: Bernardo Barros <bernardobarros@gmail.com>
+
+pkgname=supercollider-with-extras-git
+pkgver=20110511
+pkgver_plugins=453
+pkgrel=1
+pkgdesc="An environment and programming language for real time audio synthesis and algorithmic composition. Extended package with SC3-Plugins."
+url="http://supercollider.sourceforge.net/"
+arch=('i686' 'x86_64')
+license=('GPL')
+depends=('jack' 'fftw' 'avahi' 'ruby' 'icu' 'cwiid' 'rsync')
+makedepends=('git' 'libsndfile>=1.0' 'emacs' 'vim' 'gedit' 'pkgconfig>=0.14.0' 'cmake' 'alsa-lib')
+optdepends=('emacs' 'vim' 'ruby' 'gedit')
+conflicts=('supercollider' 'supercute')
+provides=('supercollider')
+
+install=sc3.install
+
+# Official git repo:
+_gitroot="git://supercollider.git.sourceforge.net/gitroot/supercollider/supercollider"
+_gitname="supercollider"
+
+# SC3-plugins:
+_gitroot2="git://sc3-plugins.git.sourceforge.net/gitroot/sc3-plugins/sc3-plugins"
+_gitname2="sc3-plugins"
+
+
+build() {
+
+  export LDFLAGS="${LDFLAGS//-Wl,--as-needed}"
+
+  cd $srcdir
+  msg "Connecting to GIT server...."
+
+  if [ -d $_gitname ] ; then
+    (cd $_gitname && git pull origin && git submodule update)
+    msg "The local files are updated."
+  else
+    git clone --recursive $_gitroot
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
+
+  cd $_gitname
+  git submodule init && git submodule update
+  cd ..
+
+  rm -rf $_gitname-build
+  cp -r $_gitname $_gitname-build
+  cd $_gitname-build/
+
+  # if have a processor which supports it you can also enable SSE42 with -DSSE42=1 
+  cmake . -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DNOVA_SIMD=1 -DNATIVE=1 -DSC_WII=1 -DSUPERNOVA=1 -DSC_QT=1
+
+  make
+  make DESTDIR=$pkgdir/ install
+
+  rm -rf $srcdir/$_gitname2-build
+
+  msg "Done building SuperCollider"
+  msg "Starting built of SC3-Plugins"
+
+  cd $srcdir
+  msg "Connecting to GIT server...."
+
+  if [ -d $_gitname2 ] ; then
+    (cd $_gitname2 && git pull origin)
+    msg "The local files are updated."
+  else
+    git clone $_gitroot2
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
+
+  cp -r $_gitname2 $_gitname2-build
+  cd $_gitname2-build
+
+  cmake . -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DSC_PATH=$srcdir/supercollider-build -DSUPERNOVA=1 #-DAY=1
+  make
+  make DESTDIR=$pkgdir/ install
+
+  rm -rf $srcdir/$_gitname2-build
+}
+

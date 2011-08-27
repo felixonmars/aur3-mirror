@@ -1,0 +1,1 @@
+export XUVTOP=/opt/chianti

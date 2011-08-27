@@ -1,0 +1,16 @@
+#!/bin/sh
+
+DRODAE_HOME="/opt/drod-ae"
+
+if test "x$LD_LIBRARY_PATH" = "x"; then
+	LD_LIBRARY_PATH="$DRODAE_HOME/Libs"
+else
+	LD_LIBRARY_PATH="$DRODAE_HOME/Libs:$LD_LIBRARY_PATH"
+fi
+
+DROD_1_6_RES_PATH="$DRODAE_HOME/Data"
+DROD_1_6_DAT_PATH="$DRODAE_HOME/Data"
+
+export LD_LIBRARY_PATH DROD_1_6_RES_PATH DROD_1_6_DAT_PATH
+
+"$DRODAE_HOME/drod-ae.bin" "$@"

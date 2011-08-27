@@ -1,0 +1,125 @@
+Add support for sendbox (primary send path)
+
+This patch adds support for Courier IMAP's Outbox feature. It adds the setting
+"sendbox" which specifies a mailbox to which sent messages should be saved,
+overriding the sendmail and smtp_url settings.  This patch only affects the
+primary send path, bounce is handled in a follow-on patch.
+
+Signed-off-by: Aron Griffis <agrif...@n01se.net>
+
+diff -r 4119b2394228 -r a1d30c527520 configure.ac
+--- a/configure.ac      Tue Apr 28 11:17:31 2009 -0400
++++ b/configure.ac      Tue Apr 28 11:17:31 2009 -0400
+@@ -652,6 +652,11 @@
+ 
+ dnl -- end imap dependencies --
+ 
++AC_ARG_ENABLE(sendbox, AC_HELP_STRING([--enable-sendbox], [Enable support for Courier-style Outbox]),
++       [if test $enableval = yes; then
++               AC_DEFINE(USE_SENDBOX, 1, [Define if you want support for Courier-style Outbox])
++       fi])
++
+ AC_ARG_WITH(ssl, AC_HELP_STRING([--with-ssl@<:@=PFX@:>@], [Enable TLS support using OpenSSL]),
+ [       if test "$with_ssl" != "no"
+         then
+diff -r 4119b2394228 -r a1d30c527520 globals.h
+--- a/globals.h Tue Apr 28 11:17:31 2009 -0400
++++ b/globals.h Tue Apr 28 11:17:31 2009 -0400
+@@ -114,6 +114,9 @@
+ WHERE char *QueryFormat;
+ WHERE char *Realname;
+ WHERE short SearchContext;
++#ifdef USE_SENDBOX
++WHERE char *Sendbox;
++#endif
+ WHERE char *SendCharset;
+ WHERE char *Sendmail;
+ WHERE char *Shell;
+diff -r 4119b2394228 -r a1d30c527520 init.h
+--- a/init.h    Tue Apr 28 11:17:31 2009 -0400
++++ b/init.h    Tue Apr 28 11:17:31 2009 -0400
+@@ -2464,6 +2464,18 @@
+   ** In case the text cannot be converted into one of these exactly,
+   ** mutt uses $$charset as a fallback.
+   */
++#ifdef USE_SENDBOX
++  { "sendbox",         DT_PATH,  R_NONE, UL &Sendbox, 0 },
++  /*
++  ** .pp
++  ** Specifies a special mailbox that will
++  ** \fBsend\fP mail when written. When \fIset\fP, this variable overrides
++  ** \fIsmtp_url\fP and \fIsendmail\fP.
++  ** To make use of this, you probably want a Courier IMAP server configured for
++  ** sending, see 
++  ** http://www.inter7.com/courierimap/INSTALL.html#imapsend
++  */
++#endif
+   { "sendmail",		DT_PATH, R_NONE, UL &Sendmail, UL SENDMAIL " -oem -oi" },
+   /*
+   ** .pp
+diff -r 4119b2394228 -r a1d30c527520 protos.h
+--- a/protos.h  Tue Apr 28 11:17:31 2009 -0400
++++ b/protos.h  Tue Apr 28 11:17:31 2009 -0400
+@@ -349,6 +349,9 @@
+ int _mutt_save_message (HEADER *, CONTEXT *, int, int, int);
+ int mutt_save_message (HEADER *, int, int, int, int *);
+ int mutt_search_command (int, int);
++#ifdef USE_SENDBOX
++int mutt_sendbox_send (HEADER *);
++#endif
+ #ifdef USE_SMTP
+ int mutt_smtp_send (const ADDRESS *, const ADDRESS *, const ADDRESS *,
+                     const ADDRESS *, const char *, int);
+diff -r 4119b2394228 -r a1d30c527520 send.c
+--- a/send.c    Tue Apr 28 11:17:31 2009 -0400
++++ b/send.c    Tue Apr 28 11:17:31 2009 -0400
+@@ -984,6 +984,15 @@
+   short old_write_bcc;
+ #endif
+   
++#ifdef USE_SENDBOX
++  /* Some imap servers can send mail by saving to a special folder.
++   * In this case, there's no need for the intermediate tempfile because
++   * we'll write directly to the folder.
++   */
++  if (Sendbox)
++    return mutt_sendbox_send (msg);
++#endif
++
+   /* Write out the message in MIME form. */
+   mutt_mktemp (tempfile, sizeof (tempfile));
+   if ((tempfp = safe_fopen (tempfile, "w")) == NULL)
+diff -r 4119b2394228 -r a1d30c527520 sendlib.c
+--- a/sendlib.c Tue Apr 28 11:17:31 2009 -0400
++++ b/sendlib.c Tue Apr 28 11:17:31 2009 -0400
+@@ -2929,3 +2929,30 @@
+   set_noconv_flags (hdr->content, 0);
+   return ret;
+ }
++
++#ifdef USE_SENDBOX
++int mutt_sendbox_send (HEADER *hdr)
++{
++  struct mutt_message_handle *mh;
++  CONTEXT ctx;
++  MESSAGE *msg;
++  short old_write_bcc;
++
++  hdr->read = 0; /* make sure to put it in the `new' directory (maildir) */
++
++  mh = mutt_start_message (Sendbox, hdr, &ctx, &msg, 0);
++  if (!mh)
++    return -1;
++
++  /* need to write the bcc in the headers */
++  old_write_bcc = option (OPTWRITEBCC);
++  set_option (OPTWRITEBCC);
++
++  mutt_write_rfc822_header (msg->fp, hdr->env, hdr->content, 0, 0);
++
++  if (!old_write_bcc)
++    unset_option (OPTWRITEBCC);
++
++  return mutt_finish_message (mh, Sendbox, hdr, &ctx, &msg, 1);
++}
++#endif

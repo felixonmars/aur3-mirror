@@ -1,0 +1,101 @@
+# Maintainer: Florian Léger <florian6 dot leger at laposte dot net>
+# Contributor: Weng Xuetian <wengxt@gmail.com>
+
+# Based on xulrunner-oss and xulrunner-kde-opensuse
+
+pkgname=xulrunner-oss-kde-opensuse
+pkgver=2.0.1
+_ffoxver=4.0.1
+pkgrel=1
+pkgdesc="Mozilla Runtime Environment with OSS support and OpenSUSE patch, integrates better with KDE"
+arch=('i686' 'x86_64')
+license=('MPL' 'GPL' 'LGPL')
+depends=('gtk2' 'gcc-libs' 'libidl2' 'mozilla-common' 'nss' 'libxt' 'libxrender' 'hunspell' 'startup-notification' 'mime-types' 'dbus-glib' 'libevent' 'sqlite3>=3.7.4' 'libnotify' 'libproxy' 'kmozillahelper>=0.6')
+makedepends=('zip' 'pkg-config' 'diffutils' 'python2' 'wireless_tools' 'yasm' 'mesa')
+provides=("xulrunner=${pkgver}" "xulrunner-oss=${pkgver}" "xulrunner-kde-opensuse=${pkgver}")
+conflicts=('xulrunner' 'xulrunner-oss' 'xulrunner-kde-opensuse')
+url="http://wiki.mozilla.org/XUL:Xul_Runner"
+source=(http://releases.mozilla.org/pub/mozilla.org/firefox/releases/${_ffoxver}/source/firefox-${_ffoxver}.source.tar.bz2
+        mozconfig
+        mozilla-pkgconfig.patch
+        xulrunner-version.patch
+        xulrunner-omnijar.patch
+        idldir.patch
+        mozilla-nongnome-proxies.patch
+        mozilla-gcc46.patch
+        mozilla-kde.patch
+        oss.patch
+)
+options=('!emptydirs')
+
+md5sums=('9abda7d23151e97913c8555a64c13f34'
+         '7625b2f0bd4bc86e93cd1388456dd6c7'
+         '639ea80e823543dd415b90c0ee804186'
+         'a0236f6c3e55f60b7888d8cf137ff209'
+         '0bf82bc6677e3ce57fd20a147fe8d7b1'
+         '54aace328c9b95d9549dd01e75422fb4'
+         'ea37f26534d1bab452da7945695e2b32'
+         '3747e1fbede28b59302f72d099911baf'
+         '28b32d439df94f99a553424c101a113c'
+         '81032ce49c2a5ac15d62155bcc42d3ed')
+
+build() {
+  cd "${srcdir}/mozilla-2.0"
+  cp "${srcdir}/mozconfig" .mozconfig
+
+  rm -f toolkit/xre/nsKDEUtils.cpp \
+        toolkit/xre/nsKDEUtils.h \
+        uriloader/exthandler/unix/nsCommonRegistry.cpp \
+        uriloader/exthandler/unix/nsCommonRegistry.h \
+        uriloader/exthandler/unix/nsKDERegistry.cpp \
+        uriloader/exthandler/unix/nsKDERegistry.h \
+        toolkit/content/widgets/dialog-kde.xml \
+        toolkit/content/widgets/preferences-kde.xml
+
+  #fix libdir/sdkdir - fedora
+  patch -Np1 -i "${srcdir}/mozilla-pkgconfig.patch"
+
+  #Force installation to the same path for every version
+  patch -Np1 -i "${srcdir}/xulrunner-version.patch"
+
+  #https://bugzilla.mozilla.org/show_bug.cgi?id=620931
+  patch -Np1 -i "${srcdir}/xulrunner-omnijar.patch"
+
+  patch -Np0 -i "${srcdir}/oss.patch"
+  sed -i 's/sydney_audio_alsa/sydney_audio_oss/' media/libsydneyaudio/src/Makefile.in
+  sed -i '/EXTRA_DSO_LDOPTS += $(MOZ_ALSA_LIBS)/d' layout/build/Makefile.in
+  sed -i '/EXTRA_DSO_LDOPTS += $(MOZ_ALSA_LIBS)/d' toolkit/library/libxul-config.mk
+  
+  msg "patch idldir.patch"
+  patch -Np0 -i "${srcdir}/idldir.patch" || return 1
+
+  msg "patch mozilla-nongnome-proxies"
+  patch -Np0 -i "${srcdir}/mozilla-nongnome-proxies.patch" || return 1
+
+  msg "patch mozilla-kde"
+  patch -Np1 -i "${srcdir}/mozilla-kde.patch" || return 1
+
+  msg "patch mozilla-gcc46"
+  patch -Np1 -i "${srcdir}/mozilla-gcc46.patch" || return 1
+  
+  unset CFLAGS
+  unset CXXFLAGS
+
+  export CXXFLAGS="-fpermissive"
+
+  make -j1 -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS"
+}
+
+package() {
+  cd "${srcdir}/mozilla-2.0"
+  make -j1 -f client.mk DESTDIR="${pkgdir}" install
+
+  #Remove included dictionaries, add symlink to system myspell path.
+  #Note: this will cause file conflicts when users have installed dictionaries in the old location
+  rm -rf "${pkgdir}/usr/lib/xulrunner-2.0/dictionaries"
+  ln -sf /usr/share/myspell/dicts "${pkgdir}/usr/lib/xulrunner-2.0/dictionaries"
+
+  # add xulrunner library path to ld.so.conf
+  install -d ${pkgdir}/etc/ld.so.conf.d
+  echo "/usr/lib/xulrunner-2.0" > ${pkgdir}/etc/ld.so.conf.d/xulrunner.conf
+}

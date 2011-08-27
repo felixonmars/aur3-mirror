@@ -1,0 +1,234 @@
+diff -u --new-file qmail-1.03-orig/Makefile qmail-1.03/Makefile
+--- qmail-1.03-orig/Makefile	2006-03-21 17:17:24.000000000 -0300
++++ qmail-1.03/Makefile	2006-03-21 17:19:21.000000000 -0300
+@@ -1264,9 +1264,11 @@
+ 
+ qmail-popup: \
+ load qmail-popup.o commands.o timeoutread.o timeoutwrite.o now.o \
++envread.o ucspitls.o \
+ case.a fd.a sig.a wait.a stralloc.a alloc.a substdio.a error.a str.a \
+ fs.a socket.lib
+ 	./load qmail-popup commands.o timeoutread.o timeoutwrite.o \
++	envread.o ucspitls.o \
+ 	now.o case.a fd.a sig.a wait.a stralloc.a alloc.a \
+ 	substdio.a error.a str.a fs.a  `cat socket.lib`
+ 
+@@ -1509,11 +1511,13 @@
+ qmail-smtpd: \
+ load qmail-smtpd.o rcpthosts.o commands.o timeoutread.o \
+ timeoutwrite.o ip.o ipme.o ipalloc.o control.o constmap.o received.o \
++ucspitls.o \
+ date822fmt.o now.o qmail.o cdb.a fd.a wait.a datetime.a getln.a \
+ open.a sig.a case.a env.a stralloc.a alloc.a substdio.a error.a str.a \
+ fs.a auto_qmail.o socket.lib
+ 	./load qmail-smtpd rcpthosts.o commands.o timeoutread.o \
+ 	timeoutwrite.o ip.o ipme.o ipalloc.o control.o constmap.o \
++	ucspitls.o \
+ 	received.o date822fmt.o now.o qmail.o cdb.a fd.a wait.a \
+ 	datetime.a getln.a open.a sig.a case.a env.a stralloc.a \
+ 	alloc.a substdio.a error.a str.a fs.a auto_qmail.o  `cat \
+diff -u --new-file qmail-1.03-orig/qmail-popup.c qmail-1.03/qmail-popup.c
+--- qmail-1.03-orig/qmail-popup.c	2006-03-21 17:17:24.000000000 -0300
++++ qmail-1.03/qmail-popup.c	2006-03-21 17:21:56.000000000 -0300
+@@ -13,6 +13,8 @@
+ #include "readwrite.h"
+ #include "timeoutread.h"
+ #include "timeoutwrite.h"
++#include "env.h"
++#include "ucspitls.h"
+ 
+ void die() { _exit(1); }
+ 
+@@ -61,6 +63,7 @@
+ void die_fork() { err("unable to fork"); die(); }
+ void die_childcrashed() { err("aack, child crashed"); }
+ void die_badauth() { err("authorization failed"); }
++void die_tls() { err("TLS startup failed"); die(); }
+ 
+ void err_syntax() { err("syntax error"); }
+ void err_wantuser() { err("USER first"); }
+@@ -77,7 +80,8 @@
+ char **childargs;
+ substdio ssup;
+ char upbuf[128];
+-
++int tls_available = 0;
++int tls_started = 0;
+ 
+ void doanddie(user,userlen,pass)
+ char *user;
+@@ -156,11 +160,36 @@
+   doanddie(arg,space - arg,space);
+ }
+ 
++void pop3_capa(arg) char *arg;
++{
++  puts("+OK capability list follows\r\n");
++  if (tls_available && !tls_started)
++    puts("STLS\r\n");
++  puts(".\r\n");
++  flush();
++}
++void pop3_stls(arg) char *arg;
++{
++  if (!tls_available || tls_started)
++    return err("STLS not available");
++  puts("+OK starting TLS negotiation\r\n");
++  flush();
++
++  if (!ucspitls())
++    die_tls();
++
++  tls_started = 1;
++  /* reset state */
++  seenuser = 0;
++}
++
+ struct commands pop3commands[] = {
+   { "user", pop3_user, 0 }
+ , { "pass", pop3_pass, 0 }
+ , { "apop", pop3_apop, 0 }
+ , { "quit", pop3_quit, 0 }
++, { "capa", pop3_capa, 0 }
++, { "stls", pop3_stls, 0 }
+ , { "noop", okay, 0 }
+ , { 0, err_authoriz, 0 }
+ } ;
+@@ -176,7 +205,8 @@
+   if (!hostname) die_usage();
+   childargs = argv + 2;
+   if (!*childargs) die_usage();
+- 
++  tls_available = !!env_get("UCSPITLS"); 
++
+   pop3_greet();
+   commands(&ssin,pop3commands);
+   die();
+Subdirectorios comunes: qmail-1.03-orig/qmail-rhinit y qmail-1.03/qmail-rhinit
+diff -u --new-file qmail-1.03-orig/qmail-smtpd.c qmail-1.03/qmail-smtpd.c
+--- qmail-1.03-orig/qmail-smtpd.c	2006-03-21 17:17:24.000000000 -0300
++++ qmail-1.03/qmail-smtpd.c	2006-03-21 17:24:19.000000000 -0300
+@@ -23,10 +23,13 @@
+ #include "timeoutread.h"
+ #include "timeoutwrite.h"
+ #include "commands.h"
++#include "ucspitls.h"
+ 
+ #define MAXHOPS 100
+ unsigned int databytes = 0;
+ int timeout = 1200;
++int tls_available = 0;
++int tls_started = 0;
+ 
+ int safewrite(fd,buf,len) int fd; char *buf; int len;
+ {
+@@ -48,6 +51,7 @@
+ void die_control() { out("421 unable to read controls (#4.3.0)\r\n"); flush(); _exit(1); }
+ void die_ipme() { out("421 unable to figure out my IP addresses (#4.3.0)\r\n"); flush(); _exit(1); }
+ void straynewline() { out("451 See http://pobox.com/~djb/docs/smtplf.html.\r\n"); flush(); _exit(1); }
++void die_syserr() { out("421 system error (#4.3.0)\r\n"); flush(); _exit(1); }
+ 
+ void err_bmf() { out("553 sorry, your envelope sender is in my badmailfrom list (#5.7.1)\r\n"); }
+ void err_nogateway() { out("553 sorry, that domain isn't in my list of allowed rcpthosts (#5.7.1)\r\n"); }
+@@ -229,7 +233,10 @@
+ }
+ void smtp_ehlo(arg) char *arg;
+ {
+-  smtp_greet("250-"); out("\r\n250-PIPELINING\r\n250 8BITMIME\r\n");
++  smtp_greet("250-");
++  if (tls_available && !tls_started)
++    out("\r\n250-STARTTLS");
++  out("\r\n250-PIPELINING\r\n250 8BITMIME\r\n");
+   seenmail = 0; dohelo(arg);
+ }
+ void smtp_rset()
+@@ -264,6 +271,22 @@
+   out("250 ok\r\n");
+ }
+ 
++void smtp_starttls(arg) char *arg; {
++  unsigned long long_fd;
++  int fd;
++  char *fdstr;
++  if (!tls_available || tls_started)
++    return err_unimpl(arg);
++  out("220 2.0.0 Ready to start TLS\r\n");
++  flush();
++
++  if (!ucspitls())
++    die_syserr();
++
++  tls_started = 1;
++  /* reset SMTP state */
++  seenmail = 0;
++}
+ 
+ int saferead(fd,buf,len) int fd; char *buf; int len;
+ {
+@@ -405,6 +428,7 @@
+ , { "help", smtp_help, flush }
+ , { "noop", err_noop, flush }
+ , { "vrfy", err_vrfy, flush }
++, { "starttls", smtp_starttls, flush }
+ , { 0, err_unimpl, flush }
+ } ;
+ 
+@@ -414,6 +438,7 @@
+   if (chdir(auto_qmail) == -1) die_control();
+   setup();
+   if (ipme_init() != 1) die_ipme();
++  tls_available = !!env_get("UCSPITLS");
+   smtp_greet("220 ");
+   out(" ESMTP\r\n");
+   if (commands(&ssin,&smtpcommands) == 0) die_read();
+diff -u --new-file qmail-1.03-orig/TARGETS qmail-1.03/TARGETS
+--- qmail-1.03-orig/TARGETS	2006-03-21 17:17:24.000000000 -0300
++++ qmail-1.03/TARGETS	2006-03-21 17:24:39.000000000 -0300
+@@ -281,6 +281,7 @@
+ forward
+ preline.o
+ preline
++ucspitls.o
+ condredirect.o
+ condredirect
+ bouncesaying.o
+diff -u --new-file qmail-1.03-orig/ucspitls.c qmail-1.03/ucspitls.c
+--- qmail-1.03-orig/ucspitls.c	1969-12-31 21:00:00.000000000 -0300
++++ qmail-1.03/ucspitls.c	2006-03-21 17:24:59.000000000 -0300
+@@ -0,0 +1,31 @@
++#include "scan.h"
++#include "env.h"
++
++int ucspitls(void)
++{
++  unsigned long fd;
++  char *fdstr;
++   
++  if (!(fdstr=env_get("SSLCTLFD")))
++    return 0;
++  if (!scan_ulong(fdstr,&fd))
++    return 0;
++  if (write((int)fd, "y", 1) < 1)
++    return 0;
++ 
++  if (!(fdstr=env_get("SSLREADFD")))
++    return 0;
++  if (!scan_ulong(fdstr,&fd))
++    return 0;
++  if (dup2((int)fd,0) == -1)
++    return 0;
++ 
++  if (!(fdstr=env_get("SSLWRITEFD")))
++    return 0; 
++  if (!scan_ulong(fdstr,&fd))
++    return 0;
++  if (dup2((int)fd,1) == -1)
++    return 0;
++ 
++  return 1;
++}
+diff -u --new-file qmail-1.03-orig/ucspitls.h qmail-1.03/ucspitls.h
+--- qmail-1.03-orig/ucspitls.h	1969-12-31 21:00:00.000000000 -0300
++++ qmail-1.03/ucspitls.h	2006-03-21 17:25:09.000000000 -0300
+@@ -0,0 +1 @@
++int ucspitls(void);

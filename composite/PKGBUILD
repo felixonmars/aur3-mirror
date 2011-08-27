@@ -1,0 +1,43 @@
+# Maintainer: SpepS <dreamspepser at yahoo dot it>
+
+pkgname=composite
+pkgver=0.006.2
+pkgrel=1
+pkgdesc="A software application/system for real-time, in-performance sequencing, sampling, and looping."
+arch=('i686' 'x86_64')
+url="http://gabe.is-a-geek.org/composite/"
+license=('GPL')
+depends=('qt' 'jack' 'libarchive' 'python2')
+makedepends=('cmake' 'liblrdf' 'lv2core')
+optdepends=('liblrdf: LADSPA support')
+install="$pkgname.install"
+source=("http://gabe.is-a-geek.org/$pkgname/releases/$pkgname-$pkgver.tar.bz2")
+md5sums=('6aece9cd2c6cb3acb59651ab59d36d44')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  # Does not build with as-needed
+  export LDFLAGS="${LDFLAGS//-Wl,--as-needed}"
+
+  # python2 fix
+  sed -i "s|\(env python\).*|\12|" `grep -rl "env python" .`
+
+  [ -d build ] || mkdir build && cd build
+
+  cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DWANT_LRDF=ON
+
+  make
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver/build"
+
+  make DESTDIR="$pkgdir/" install
+
+  # Install pixmaps
+  install -Dm644 ../data/img/gray/icon64.png "$pkgdir/usr/share/pixmaps/$pkgname-icon.png"
+}

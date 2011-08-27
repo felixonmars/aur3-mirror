@@ -1,0 +1,237 @@
+--- Dirac-0.0.1/dirac_encoder.pyx	2005-09-09 09:37:51.000000000 -0700
++++ Dirac-0.0.1-new/dirac_encoder.pyx	2006-01-27 16:23:10.000000000 -0800
+@@ -35,6 +35,10 @@
+ from dirac_common cimport dirac_framebuf_t
+ 
+ 
++cdef extern from "limits.h":
++    ctypedef enum __:
++        INT_MAX
++
+ cdef extern from "dirac/libdirac_encoder/dirac_encoder.h":
+     ctypedef enum dirac_encoder_state_t:
+         ENC_STATE_INVALID = -1
+@@ -144,3 +148,223 @@
+     cdef int                    dirac_encoder_end_sequence (dirac_encoder_t *encoder)
+     cdef void                   dirac_encoder_close (dirac_encoder_t *encoder)
+ 
++
++
++cdef extern from "Python.h": 
++    object PyString_FromStringAndSize(char *, int)
++    cdef char* PyString_AsString(object)
++
++
++
++cdef class DiracEncoder:
++
++    cdef dirac_encoder_t *encoder
++    cdef dirac_encoder_context_t context
++    cdef object inputframe
++    cdef object outbuffer
++    cdef object outbuffersize
++
++    def __new__(self, preset=None, bufsize = 1024*1024, verbose=False, encParams = {}, seqParams = {}, instrumentation=False, localDecoded=False):
++        cdef int cverbose
++        cverbose = 0
++        if verbose:
++            cverbose = 1
++
++        self.__presetContext(preset)
++        self.__loadEncParams(**encParams)
++        self.__loadSeqParams(**seqParams)
++
++        if instrumentation:
++            self.context.instr_flag = 1
++        else:
++            self.context.instr_flag = 0
++
++        if localDecoded:
++            self.context.decode_flag = 1
++        else:
++            self.context.decode_flag = 0
++
++        self.encoder = dirac_encoder_init( &self.context, cverbose )
++        if self.encoder == NULL:
++            raise "FAILURE"
++
++        self.outbuffersize = bufsize
++        self.__allocOutBuffer()
++        self.__setOutBuffer()
++
++
++    def __dealloc__(self):
++        dirac_encoder_close(self.encoder)
++
++
++    def getCompressedData(self):
++        cdef dirac_encoder_state_t state
++
++        self.__setOutBuffer()
++        state = dirac_encoder_output(self.encoder)
++
++        if state == ENC_STATE_INVALID:
++            print "z"
++            raise "ENCODERERROR"
++
++        elif state == ENC_STATE_BUFFER:
++            raise "NEEDDATA"
++
++        elif state == ENC_STATE_AVAIL:
++            data = self.outbuffer[:self.encoder.enc_buf.size]
++            self.__allocOutBuffer()
++            return data
++
++        else:
++            raise "INTERNALFAULT"
++
++
++    def sendFrameForEncode(self, yuvdata):
++        cdef unsigned char *bytes
++        cdef int size
++        cdef int result
++
++        self.inputframe = yuvdata
++
++        bytes = <unsigned char*>PyString_AsString(yuvdata)
++        size = int(len(self.inputframe))
++
++        result = dirac_encoder_load(self.encoder, bytes, size)
++
++        if result == -1:
++            print "y"
++            raise "ENCODERERROR"
++
++
++    def getEndSequence(self):
++        cdef int result
++        self.__setOutBuffer()
++        result = dirac_encoder_end_sequence(self.encoder)
++        if result == -1:
++            raise "ENCODERERROR"
++        else:
++            data = self.outbuffer[:self.encoder.enc_buf.size]
++            return data
++
++
++    def getFrameStats(self):
++        ##############################################
++        pass
++
++    def getSeqStats(self):
++        ##############################################
++        pass
++
++    def getInstrumentation(self):
++        ##############################################
++        pass
++
++    def getLocallyDecodedFrame(self):
++        ##############################################
++        pass
++
++    def __allocOutBuffer(self):
++        self.outbuffer = PyString_FromStringAndSize(NULL, self.outbuffersize)
++
++    def __setOutBuffer(self):
++        self.encoder.enc_buf.buffer = <unsigned char*>PyString_AsString(self.outbuffer)
++        self.encoder.enc_buf.size   = self.outbuffersize
++
++
++    def __presetContext(self, preset=None):
++        cdef dirac_encoder_presets_t cpreset
++
++        if preset=="CIF":
++            cpreset=CIF
++        elif preset=="SD576":
++            cpreset=SD576
++        elif preset=="HD720":
++            cpreset=HD720
++        elif preset=="HD1080":
++            cpreset=HD1080
++        else:
++            raise ValueError("Not valid preset")
++
++        dirac_encoder_context_init( &self.context, cpreset)
++
++
++    def __loadSeqParams(self, **params):
++        if "width" in params:
++            self.context.seq_params.width = int(params['width'])
++
++        if "height" in params:
++            self.context.seq_params.height = int(params['height'])
++
++        if "chroma" in params:
++            self.context.seq_params.chroma = __chromatypemap(params['chroma'])
++
++        if "chroma_width" in params:
++            self.context.seq_params.chroma_width = int(params['chroma_width'])
++
++        if "chroma_height" in params:
++            self.context.seq_params.chroma_height = int(params['chroma_height'])
++
++        if "frame_rate" in params:
++            self.context_seq_params.frame_rate.numerator   = params['frame_rate'][0]
++            self.context_seq_params.frame_rate.denominator = params['frame_rate'][1]
++
++        if "interlace" in params:
++            if params['interlace']:
++                self.context.seq_params.interlace = 1
++            else:
++                self.context.seq_params.interlace = 0
++
++        if "topfieldfirst" in params:
++            if params['topfieldfirst']:
++                self.context.seq_params.topfieldfirst = 1
++            else:
++                self.context.seq_params.topfieldfirst = 0
++
++
++    def __loadEncParams(self, **params):
++        if "qf" in params:
++            self.context.enc_params.qf = float(params['qf'])
++
++        if "L1_sep" in params:
++            self.context.enc_params.L1_sep = int(params['L1_sep'])
++
++        if "num_L1" in params:
++            self.context.enc_params.num_L1 = int(params['num_L1'])
++
++        if "cpd" in params:
++            self.context.enc_params.cpd = float(params['cpd'])
++
++        if "xblen" in params:
++            self.context.enc_params.xblen = int(params['xblen'])
++
++        if "yblen" in params:
++            self.context.enc_params.yblen = int(params['yblen'])
++
++        if "xbsep" in params:
++            self.context.enc_params.xbsep = int(params['xbsep'])
++
++        if "ybsep" in params:
++            self.context.enc_params.ybsep = int(params['ybsep'])
++
++
++    
++
++
++cdef dirac_chroma_t __chromatypemap(object c):
++    if c == "Yonly":
++        return Yonly
++    elif c == "422":
++        return format422
++    elif c == "444":
++        return format444
++    elif c == "420":
++        return format420
++    elif c == "411":
++        return format411
++    elif c == "NK":
++        return formatNK
++    else:
++        raise ValueError("Unknown chroma type")
++
++
++

@@ -1,0 +1,34 @@
+# Maintainer: Philipp Überbacher <murks at lavabit dot com>
+# Contributor: Nate Slottow (m00tp01nt) <nslottow AT gmail DOT com>
+# Contributor: SpepS <dreamspepser at yahoo dot it>
+
+pkgname=zynjacku
+pkgver=6
+pkgrel=1
+pkgdesc="JACK based host for LV2 synths and effects (also containing lv2rack)."
+arch=('i686' 'x86_64')
+url="http://home.gna.org/zynjacku/"
+license=('GPL')
+depends=('jack' 'python2' 'lash' 'gtk2' 'lv2dynparam1>=2')
+makedepends=('lv2core')
+options=('!libtool')
+source=(http://download.gna.org/zynjacku/${pkgname}-${pkgver}.tar.bz2)
+md5sums=('4fe6bb1322ee5784280c7e71c77b636c')
+
+build() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  # Python2 fixes
+  export PYTHON="python2"
+  sed -i "s_env python_&2_" `grep -rlE "env python" .`
+
+  ./configure --prefix="/usr"
+  make
+}
+
+package() {
+
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  make DESTDIR="${pkgdir}" install
+}

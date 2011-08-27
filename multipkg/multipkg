@@ -1,0 +1,2355 @@
+#!/bin/bash -e
+#
+#   makepkg - make packages compatible for use with pacman
+#   Generated from makepkg.in; do not edit by hand.
+#
+#   Copyright (c) 2006-2010 Pacman Development Team <pacman-dev@archlinux.org>
+#   Copyright (c) 2002-2006 by Judd Vinet <jvinet@zeroflux.org>
+#   Copyright (c) 2005 by Aurelien Foret <orelien@chez.com>
+#   Copyright (c) 2006 by Miklos Vajna <vmiklos@frugalware.org>
+#   Copyright (c) 2005 by Christian Hamar <krics@linuxforum.hu>
+#   Copyright (c) 2006 by Alex Smith <alex@alex-smith.me.uk>
+#   Copyright (c) 2006 by Andras Voroskoi <voroskoi@frugalware.org>
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+# makepkg uses quite a few external programs during its execution. You
+# need to have at least the following installed for makepkg to function:
+#   bsdtar (libarchive), bzip2, coreutils, fakeroot, file, find (findutils),
+#   gettext, grep, gzip, openssl, sed, tput (ncurses), xz
+
+# gettext initialization
+export TEXTDOMAIN='pacman'
+export TEXTDOMAINDIR='/usr/share/locale'
+
+# file -i does not work on Mac OSX unless legacy mode is set
+export COMMAND_MODE='legacy'
+
+myver='3.4.1'
+confdir='/etc'
+BUILDSCRIPT='PKGBUILD'
+startdir="$PWD"
+srcdir="$startdir/src"
+pkgdir="$startdir/pkg"
+
+packaging_options=('strip' 'docs' 'libtool' 'emptydirs' 'zipman' 'purge')
+other_options=('ccache' 'distcc' 'makeflags' 'force')
+splitpkg_overrides=('pkgver' 'pkgrel' 'pkgdesc' 'arch' 'license' 'groups' \
+                    'depends' 'optdepends' 'provides' 'conflicts' 'replaces' \
+                    'backup' 'options' 'install' 'changelog')
+readonly -a packaging_options other_options splitpkg_overrides
+
+# Options
+ASROOT=0
+CLEANUP=0
+CLEANCACHE=0
+DEP_BIN=0
+FORCE=0
+INFAKEROOT=0
+GENINTEG=0
+SKIPINTEG=0
+INSTALL=0
+NOBUILD=0
+NOBUILDFUNC=0
+FORCEARCH=0
+NODEPS=0
+NOEXTRACT=0
+RMDEPS=0
+REPKG=0
+LOGGING=0
+SOURCEONLY=0
+IGNOREARCH=0
+HOLDVER=0
+BUILDFUNC=0
+PKGFUNC=0
+SPLITPKG=0
+PKGLIST=()
+
+# Forces the pkgver of the current PKGBUILD. Used by the fakeroot call
+# when dealing with svn/cvs/etc PKGBUILDs.
+FORCE_VER=""
+
+PACMAN_OPTS=
+
+### SUBROUTINES ###
+
+plain() {
+	local mesg=$1; shift
+	printf "${BOLD}    ${mesg}${ALL_OFF}\n" "$@" >&2
+}
+
+msg() {
+	local mesg=$1; shift
+	printf "${GREEN}==>${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
+}
+
+msg2() {
+	local mesg=$1; shift
+	printf "${BLUE}  ->${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
+}
+
+warning() {
+	local mesg=$1; shift
+	printf "${YELLOW}==> $(gettext "WARNING:")${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
+}
+
+error() {
+	local mesg=$1; shift
+	printf "${RED}==> $(gettext "ERROR:")${ALL_OFF}${BOLD} ${mesg}${ALL_OFF}\n" "$@" >&2
+}
+
+
+##
+# Special exit call for traps, Don't print any error messages when inside,
+# the fakeroot call, the error message will be printed by the main call.
+##
+trap_exit() {
+	if (( ! INFAKEROOT )); then
+		echo
+		error "$@"
+	fi
+	[[ -n $srclinks ]] && rm -rf "$srclinks"
+	exit 1
+}
+
+
+##
+# Clean up function. Called automatically when the script exits.
+##
+clean_up() {
+	local EXIT_CODE=$?
+
+	if (( INFAKEROOT )); then
+		# Don't clean up when leaving fakeroot, we're not done yet.
+		return
+	fi
+
+	if (( ! EXIT_CODE && CLEANUP )); then
+		# If it's a clean exit and -c/--clean has been passed...
+		msg "$(gettext "Cleaning up...")"
+		rm -rf "$pkgdir" "$srcdir"
+		if [[ -n $pkgbase ]]; then
+			# Can't do this unless the BUILDSCRIPT has been sourced.
+			if (( BUILDFUNC )); then
+				rm -f "${pkgbase}-${pkgver}-${pkgrel}-${CARCH}-build.log"*
+			fi
+			if (( PKGFUNC )); then
+				rm -f "${pkgbase}-${pkgver}-${pkgrel}-${CARCH}-package.log"*
+			elif (( SPLITPKG )); then
+				for pkg in ${pkgname[@]}; do
+					rm -f "${pkgbase}-${pkgver}-${pkgrel}-${CARCH}-package_${pkg}.log"*
+				done
+			fi
+
+			# clean up dangling symlinks to packages
+			for pkg in ${pkgname[@]}; do
+				for file in ${pkg}-*-*-${CARCH}${PKGEXT}; do
+					if [[ -h $file && ! -e $file ]]; then
+						rm -f $file
+					fi
+				done
+			done
+		fi
+	fi
+
+	remove_deps
+}
+
+
+##
+# Signal Traps
+##
+set -E
+trap 'clean_up' 0
+trap 'trap_exit "$(gettext "TERM signal caught. Exiting...")"' TERM HUP QUIT
+trap 'trap_exit "$(gettext "Aborted by user! Exiting...")"' INT
+trap 'trap_exit "$(gettext "An unknown error has occurred. Exiting...")"' ERR
+
+# a source entry can have two forms :
+# 1) "filename::http://path/to/file"
+# 2) "http://path/to/file"
+
+# Return the absolute filename of a source entry
+#
+# This function accepts a source entry or the already extracted filename of a
+# source entry as input
+get_filepath() {
+	local file="$(get_filename "$1")"
+
+	if [[ -f "$startdir/$file" ]]; then
+		file="$startdir/$file"
+	elif [[ -f "$SRCDEST/$file" ]]; then
+		file="$SRCDEST/$file"
+	else
+		return 1
+	fi
+
+	echo "$file"
+}
+
+# Print 'source not found' error message and exit makepkg
+missing_source_file() {
+	error "$(gettext "Unable to find source file %s.")" "$(get_filename "$1")"
+	plain "$(gettext "Aborting...")"
+	exit 1 # $E_MISSING_FILE
+}
+
+# extract the filename from a source entry
+get_filename() {
+	# if a filename is specified, use it
+	local filename="${1%%::*}"
+	# if it is just an URL, we only keep the last component
+	echo "${filename##*/}"
+}
+
+# extract the URL from a source entry
+get_url() {
+	# strip an eventual filename
+	echo "${1#*::}"
+}
+
+##
+# Checks to see if options are present in makepkg.conf or PKGBUILD;
+# PKGBUILD options always take precedence.
+#
+#  usage : check_option( $option )
+# return : y - enabled
+#          n - disabled
+#          ? - not found
+##
+check_option() {
+	local ret=$(in_opt_array "$1" ${options[@]})
+	if [[ $ret != '?' ]]; then
+		echo $ret
+		return
+	fi
+
+	# fall back to makepkg.conf options
+	ret=$(in_opt_array "$1" ${OPTIONS[@]})
+	if [[ $ret != '?' ]]; then
+		echo $ret
+		return
+	fi
+
+	echo '?' # Not Found
+}
+
+
+##
+# Check if option is present in BUILDENV
+#
+#  usage : check_buildenv( $option )
+# return : y - enabled
+#          n - disabled
+#          ? - not found
+##
+check_buildenv() {
+	echo $(in_opt_array "$1" ${BUILDENV[@]})
+}
+
+
+##
+#  usage : in_opt_array( $needle, $haystack )
+# return : y - enabled
+#          n - disabled
+#          ? - not found
+##
+in_opt_array() {
+	local needle=$(tr '[:upper:]' '[:lower:]' <<< $1); shift
+
+	local opt
+	for opt in "$@"; do
+		opt=$(tr '[:upper:]' '[:lower:]' <<< $opt)
+		if [[ $opt = $needle ]]; then
+			echo 'y' # Enabled
+			return
+		elif [[ $opt = "!$needle" ]]; then
+			echo 'n' # Disabled
+			return
+		fi
+	done
+
+	echo '?' # Not Found
+}
+
+
+##
+#  usage : in_array( $needle, $haystack )
+# return : 0 - found
+#          1 - not found
+##
+in_array() {
+	local needle=$1; shift
+	[[ -z $1 ]] && return 1 # Not Found
+	local item
+	for item in "$@"; do
+		[[ $item = $needle ]] && return 0 # Found
+	done
+	return 1 # Not Found
+}
+
+get_downloadclient() {
+	# $1 = URL with valid protocol prefix
+	local url=$1
+	local proto="${url%%://*}"
+
+	# loop through DOWNLOAD_AGENTS variable looking for protocol
+	local i
+	for i in "${DLAGENTS[@]}"; do
+		local handler="${i%%::*}"
+		if [[ $proto = $handler ]]; then
+			agent="${i##*::}"
+			break
+		fi
+	done
+
+	# if we didn't find an agent, return an error
+	if [[ -z $agent ]]; then
+		error "$(gettext "There is no agent set up to handle %s URLs. Check %s.")" "$proto" "$MAKEPKG_CONF"
+		plain "$(gettext "Aborting...")"
+		exit 1 # $E_CONFIG_ERROR
+	fi
+
+	# ensure specified program is installed
+	local program="${agent%% *}"
+	if [[ ! -x $program ]]; then
+		local baseprog=$(basename $program)
+		error "$(gettext "The download program %s is not installed.")" "$baseprog"
+		plain "$(gettext "Aborting...")"
+		exit 1 # $E_MISSING_PROGRAM
+	fi
+
+	echo "$agent"
+}
+
+download_file() {
+	# download command
+	local dlcmd=$1
+	# URL of the file
+	local url=$2
+	# destination file
+	local file=$3
+	# temporary download file, default to last component of the URL
+	local dlfile="${url##*/}"
+
+	# replace %o by the temporary dlfile if it exists
+	if [[ $dlcmd = *%o* ]]; then
+		dlcmd=${dlcmd//\%o/\"$file.part\"}
+		dlfile="$file.part"
+	fi
+	# add the URL, either in place of %u or at the end
+	if [[ $dlcmd = *%u* ]]; then
+		dlcmd=${dlcmd//\%u/\"$url\"}
+	else
+		dlcmd="$dlcmd \"$url\""
+	fi
+
+	local ret=0
+	eval "$dlcmd || ret=\$?"
+	if (( ret )); then
+		[[ ! -s $dlfile ]] && rm -f -- "$dlfile"
+		return $ret
+	fi
+
+	# rename the temporary download file to the final destination
+	if [[ $dlfile != $file ]]; then
+		mv -f "$SRCDEST/$dlfile" "$SRCDEST/$file"
+	fi
+}
+
+run_pacman() {
+	local cmd
+	printf -v cmd "%q " "$PACMAN" $PACMAN_OPTS "$@"
+	if (( ! ASROOT )) && [[ $1 != "-T" && $1 != "-Qq" ]]; then
+		if [ "$(type -p sudo)" ]; then
+			cmd="sudo $cmd"
+		else
+			cmd="su -c '$cmd'"
+		fi
+	fi
+	eval "$cmd"
+}
+
+check_deps() {
+	(( $# > 0 )) || return 0
+
+	# Disable error trap in pacman subshell call as this breaks bash-3.2 compatibility
+	# Also, a non-zero return value is not unexpected and we are manually dealing them
+	set +E
+	local ret=0
+	pmout=$(run_pacman -T "$@") || ret=$?
+	set -E 
+	
+	if (( ret == 127 )); then #unresolved deps
+		echo "$pmout"
+	elif (( ret )); then
+		error "$(gettext "'%s' returned a fatal error (%i): %s")" "$PACMAN" "$ret" "$pmout"
+		exit 1
+	fi
+}
+
+handle_deps() {
+	local R_DEPS_SATISFIED=0
+	local R_DEPS_MISSING=1
+
+	(( $# == 0 )) && return $R_DEPS_SATISFIED
+
+	local deplist="$*"
+
+	if (( ! DEP_BIN )); then
+		return $R_DEPS_MISSING
+	fi
+
+	if (( DEP_BIN )); then
+		# install missing deps from binary packages (using pacman -S)
+		msg "$(gettext "Installing missing dependencies...")"
+
+		if ! run_pacman -S --asdeps $deplist; then
+			error "$(gettext "'%s' failed to install missing dependencies.")" "$PACMAN"
+			exit 1 # TODO: error code
+		fi
+	fi
+
+	# we might need the new system environment
+	# avoid triggering the ERR trap
+	local restoretrap=$(trap -p ERR)
+	trap - ERR
+	source /etc/profile &>/dev/null
+	eval $restoretrap
+
+	return $R_DEPS_SATISFIED
+}
+
+resolve_deps() {
+	local R_DEPS_SATISFIED=0
+	local R_DEPS_MISSING=1
+
+	local deplist="$(check_deps $*)"
+	if [[ -z $deplist ]]; then
+		return $R_DEPS_SATISFIED
+	fi
+
+	if handle_deps $deplist; then
+		# check deps again to make sure they were resolved
+		deplist="$(check_deps $*)"
+		[[ -z $deplist ]] && return $R_DEPS_SATISFIED
+	elif (( DEP_BIN )); then
+		error "$(gettext "Failed to install all missing dependencies.")"
+	fi
+
+	msg "$(gettext "Missing Dependencies:")"
+	local dep
+	for dep in $deplist; do
+		msg2 "$dep"
+	done
+
+	return $R_DEPS_MISSING
+}
+
+remove_deps() {
+	(( ! RMDEPS )) && return
+
+	# check for packages removed during dependency install (e.g. due to conflicts)
+	# removing all installed packages is risky in this case
+	if [[ -n  $(comm -23 <(printf "%s\n" "${original_pkglist[@]}") \
+			<(printf "%s\n" "${current_pkglist[@]}")) ]]; then
+	  warning "$(gettext "Failed to remove installed dependencies.")"
+	  return 0
+	fi
+
+	local deplist=($(comm -13  <(printf "%s\n" "${original_pkglist[@]}") \
+			<(printf "%s\n" "${current_pkglist[@]}")))
+	(( ${#deplist[@]} == 0 )) && return
+
+	msg "Removing installed dependencies..."
+	# exit cleanly on failure to remove deps as package has been built successfully
+	if ! run_pacman -Rn ${deplist[@]}; then
+		warning "$(gettext "Failed to remove installed dependencies.")"
+		return 0
+	fi
+}
+
+download_sources() {
+	msg "$(gettext "Retrieving Sources...")"
+
+	pushd "$SRCDEST" &>/dev/null
+
+	local netfile
+	for netfile in "${source[@]}"; do
+		local file
+		if file=$(get_filepath "$netfile"); then
+			msg2 "$(gettext "Found %s")" "${file##*/}"
+			ln -sf "$file" "$srcdir/"
+			continue
+		fi
+
+		file=$(get_filename "$netfile")
+		local url=$(get_url "$netfile")
+
+		# if we get here, check to make sure it was a URL, else fail
+		if [[ $file = $url ]]; then
+			error "$(gettext "%s was not found in the build directory and is not a URL.")" "$file"
+			exit 1 # $E_MISSING_FILE
+		fi
+
+		# find the client we should use for this URL
+		local dlclient=$(get_downloadclient "$url") || exit $?
+
+		msg2 "$(gettext "Downloading %s...")" "$file"
+		# fix flyspray bug #3289
+		local ret=0
+		download_file "$dlclient" "$url" "$file" || ret=$?
+		if (( ret )); then
+			error "$(gettext "Failure while downloading %s")" "$file"
+			plain "$(gettext "Aborting...")"
+			exit 1
+		fi
+		rm -f "$srcdir/$file"
+		ln -s "$SRCDEST/$file" "$srcdir/"
+	done
+
+	popd &>/dev/null
+}
+
+get_integlist() {
+	local integ
+	local integlist=()
+
+	for integ in md5 sha1 sha256 sha384 sha512; do
+		local integrity_sums=($(eval echo "\${${integ}sums[@]}"))
+		if [[ -n "$integrity_sums" ]]; then
+			integlist=(${integlist[@]} $integ)
+		fi
+	done
+
+	if (( ${#integlist[@]} > 0 )); then
+		echo ${integlist[@]}
+	else
+		echo ${INTEGRITY_CHECK[@]}
+	fi
+}
+
+generate_checksums() {
+	msg "$(gettext "Generating checksums for source files...")"
+	plain ""
+
+	if [ ! $(type -p openssl) ]; then
+		error "$(gettext "Cannot find openssl.")"
+		exit 1 # $E_MISSING_PROGRAM
+	fi
+
+	local integlist
+	if (( $# == 0 )); then
+		integlist=$(get_integlist)
+	else
+		integlist=$@
+	fi
+
+	local integ
+	for integ in ${integlist[@]}; do
+		integ=$(tr '[:upper:]' '[:lower:]' <<< "$integ")
+		case "$integ" in
+			md5|sha1|sha256|sha384|sha512) : ;;
+			*)
+				error "$(gettext "Invalid integrity algorithm '%s' specified.")" "$integ"
+				exit 1;; # $E_CONFIG_ERROR
+		esac
+
+		local ct=0
+		local numsrc=${#source[@]}
+		echo -n "${integ}sums=("
+
+		local i
+		local indent=''
+		for (( i = 0; i < ${#integ} + 6; i++ )); do
+			indent="$indent "
+		done
+
+		local netfile
+		for netfile in "${source[@]}"; do
+			local file="$(get_filepath "$netfile")" || missing_source_file "$netfile"
+			local sum="$(openssl dgst -${integ} "$file")"
+			sum=${sum##* }
+			(( ct )) && echo -n "$indent"
+			echo -n "'$sum'"
+			ct=$(($ct+1))
+			(( $ct < $numsrc )) && echo
+		done
+
+		echo ")"
+	done
+}
+
+check_checksums() {
+	(( ! ${#source[@]} )) && return 0
+
+	if [ ! $(type -p openssl) ]; then
+		error "$(gettext "Cannot find openssl.")"
+		exit 1 # $E_MISSING_PROGRAM
+	fi
+
+	local correlation=0
+	local integ required
+	for integ in md5 sha1 sha256 sha384 sha512; do
+		local integrity_sums=($(eval echo "\${${integ}sums[@]}"))
+		if (( ${#integrity_sums[@]} == ${#source[@]} )); then
+			msg "$(gettext "Validating source files with %s...")" "${integ}sums"
+			correlation=1
+			local errors=0
+			local idx=0
+			local file
+			for file in "${source[@]}"; do
+				local found=1
+				file="$(get_filename "$file")"
+				echo -n "    $file ... " >&2
+
+				if ! file="$(get_filepath "$file")"; then
+					echo "$(gettext "NOT FOUND")" >&2
+					errors=1
+					found=0
+				fi
+
+				if (( $found )) ; then
+					local expectedsum=$(tr '[:upper:]' '[:lower:]' <<< "${integrity_sums[$idx]}")
+					local realsum="$(openssl dgst -${integ} "$file")"
+					realsum="${realsum##* }"
+					if [[ $expectedsum = $realsum ]]; then
+						echo "$(gettext "Passed")" >&2
+					else
+						echo "$(gettext "FAILED")" >&2
+						errors=1
+					fi
+				fi
+
+				idx=$((idx + 1))
+			done
+
+			if (( errors )); then
+				error "$(gettext "One or more files did not pass the validity check!")"
+				exit 1 # TODO: error code
+			fi
+		elif (( ${#integrity_sums[@]} )); then
+			error "$(gettext "Integrity checks (%s) differ in size from the source array.")" "$integ"
+			exit 1 # TODO: error code
+		fi
+	done
+
+	if (( ! correlation )); then
+		error "$(gettext "Integrity checks are missing.")"
+		exit 1 # TODO: error code
+	fi
+}
+
+extract_sources() {
+	msg "$(gettext "Extracting Sources...")"
+	local netfile
+	for netfile in "${source[@]}"; do
+		file=$(get_filename "$netfile")
+		if in_array "$file" ${noextract[@]}; then
+			#skip source files in the noextract=() array
+			#  these are marked explicitly to NOT be extracted
+			continue
+		fi
+
+
+		# fix flyspray #6246
+		local file_type=$(file -bizL "$file")
+		local ext=${file##*.}
+		local cmd=''
+		case "$file_type" in
+			*application/x-tar*|*application/zip*|*application/x-zip*|*application/x-cpio*)
+				cmd="bsdtar" ;;
+			*application/x-gzip*)
+				case "$ext" in
+					gz|z|Z) cmd="gzip" ;;
+					*) continue;;
+				esac ;;
+			*application/x-bzip*)
+				case "$ext" in
+					bz2|bz) cmd="bzip2" ;;
+					*) continue;;
+				esac ;;
+			*application/x-xz*)
+				case "$ext" in
+					xz) cmd="xz" ;;
+					*) continue;;
+				esac ;;
+			*)
+				# Don't know what to use to extract this file,
+				# skip to the next file
+				continue;;
+		esac
+
+		local ret=0
+		msg2 "$(gettext "Extracting %s with %s")" "$file" "$cmd"
+		if [[ $cmd = bsdtar ]]; then
+			$cmd -xf "$file" || ret=$?
+		else
+			rm -f "${file%.*}"
+			$cmd -dcf "$file" > "${file%.*}" || ret=$?
+		fi
+		if (( ret )); then
+			error "$(gettext "Failed to extract %s")" "$file"
+			plain "$(gettext "Aborting...")"
+			exit 1
+		fi
+	done
+
+	if (( EUID == 0 )); then
+		# change perms of all source files to root user & root group
+		chown -R 0:0 "$srcdir"
+	fi
+}
+
+error_function() {
+	if [[ -p $logpipe ]]; then
+		rm "$logpipe"
+	fi
+	# first exit all subshells, then print the error
+	if (( ! BASH_SUBSHELL )); then
+		plain "$(gettext "Aborting...")"
+		remove_deps
+	fi
+	exit 2 # $E_BUILD_FAILED
+}
+
+run_function() {
+	if [[ -z $1 ]]; then
+		return 1
+	fi
+	pkgfunc="$1"
+
+	# clear user-specified makeflags if requested
+	if [[ $(check_option makeflags) = "n" ]]; then
+		MAKEFLAGS=""
+	fi
+
+	msg "$(gettext "Starting %s()...")" "$pkgfunc"
+	cd "$srcdir"
+
+	# ensure all necessary build variables are exported
+	export CFLAGS CXXFLAGS LDFLAGS MAKEFLAGS CHOST
+	# save our shell options so pkgfunc() can't override what we need
+	local shellopts=$(shopt -p)
+
+	local ret=0
+	if (( LOGGING )); then
+		BUILDLOG="${startdir}/${pkgbase}-${pkgver}-${pkgrel}-${CARCH}-$pkgfunc.log"
+		if [[ -f $BUILDLOG ]]; then
+			local i=1
+			while true; do
+				if [[ -f $BUILDLOG.$i ]]; then
+					i=$(($i +1))
+				else
+					break
+				fi
+			done
+			mv "$BUILDLOG" "$BUILDLOG.$i"
+		fi
+
+		# ensure overridden package variables survive tee with split packages
+		logpipe=$(mktemp -u "$startdir/logpipe.XXXXXXXX")
+		mknod "$logpipe" p
+		exec 3>&1
+		tee "$BUILDLOG" < "$logpipe" &
+		exec 1>"$logpipe" 2>"$logpipe"
+		restoretrap=$(trap -p ERR)
+		trap 'error_function' ERR
+		$pkgfunc 2>&1
+		eval $restoretrap
+		sync
+		exec 1>&3 2>&3 3>&-
+		rm "$logpipe"
+	else
+		restoretrap=$(trap -p ERR)
+		trap 'error_function' ERR
+		$pkgfunc 2>&1
+		eval $restoretrap
+	fi
+	# reset our shell options
+	eval "$shellopts"
+}
+
+run_build() {
+	# use distcc if it is requested (check buildenv and PKGBUILD opts)
+	if [[ $(check_buildenv distcc) = "y" && $(check_option distcc) != "n" ]]; then
+		[[ -d /usr/lib/distcc/bin ]] && export PATH="/usr/lib/distcc/bin:$PATH"
+		export DISTCC_HOSTS
+	elif [[ $(check_option distcc) = "n" ]]; then
+		# if it is not wanted, clear the makeflags too
+		MAKEFLAGS=""
+	fi
+
+	# use ccache if it is requested (check buildenv and PKGBUILD opts)
+	if [[ $(check_buildenv ccache) = "y" && $(check_option ccache) != "n" ]]; then
+		[[ -d /usr/lib/ccache/bin ]] && export PATH="/usr/lib/ccache/bin:$PATH"
+	fi
+
+	if [[ $arch = "any" ]]; then
+		PKGARCH="any"
+	else
+		PKGARCH=$CARCH
+	fi
+	
+	if [[ "$FORCEARCH" != "0" ]]; then
+		PKGARCH=$FORCEARCH
+	fi
+
+	if (( ! NOBUILDFUNC )); then
+		run_function "build"
+	else
+		msg "$(gettext "Skipping build()...")"
+	fi
+}
+
+run_package() {
+	if [[ -z $1 ]]; then
+		pkgfunc="package"
+	else
+		pkgfunc="package_$1"
+	fi
+
+	run_function "$pkgfunc"
+}
+
+tidy_install() {
+	cd "$pkgdir"
+	msg "$(gettext "Tidying install...")"
+
+	if [[ $(check_option docs) = "n" && -n ${DOC_DIRS[*]} ]]; then
+		msg2 "$(gettext "Removing doc files...")"
+		rm -rf ${DOC_DIRS[@]}
+	fi
+
+	if [[ $(check_option purge) = "y" && -n ${PURGE_TARGETS[*]} ]]; then
+		msg2 "$(gettext "Purging other files...")"
+		local pt
+		for pt in "${PURGE_TARGETS[@]}"; do
+			if [[ ${pt} = ${pt//\/} ]]; then
+				find . -type f -name "${pt}" -exec rm -f -- '{}' \;
+			else
+				rm -f ${pt}
+			fi
+		done
+	fi
+
+	if [[ $(check_option zipman) = "y" && -n ${MAN_DIRS[*]} ]]; then
+		msg2 "$(gettext "Compressing man and info pages...")"
+		local manpage ext file link hardlinks hl
+		find ${MAN_DIRS[@]} -type f 2>/dev/null |
+		while read manpage ; do
+			ext="${manpage##*.}"
+			file="${manpage##*/}"
+			if [[ $ext != gz && $ext != bz2 ]]; then
+				# update symlinks to this manpage
+				find ${MAN_DIRS[@]} -lname "$file" 2>/dev/null |
+				while read link ; do
+					rm -f "$link"
+					ln -sf "${file}.gz" "${link}.gz"
+				done
+
+				# check file still exists (potentially already compressed due to hardlink)
+				if [[ -f ${manpage} ]]; then
+					# find hard links and remove them
+					#   the '|| true' part keeps the script from bailing if find returned an
+					#   error, such as when one of the man directories doesn't exist
+					hardlinks="$(find ${MAN_DIRS[@]} \! -name "$file" -samefile "$manpage" 2>/dev/null)" || true
+					for hl in ${hardlinks}; do
+						rm -f "${hl}";
+					done
+					# compress the original
+					gzip -9 "$manpage"
+					# recreate hard links removed earlier
+					for hl in ${hardlinks}; do
+						ln "${manpage}.gz" "${hl}.gz"
+						chmod 644 ${hl}.gz
+					done
+				fi
+			fi
+		done
+	fi
+
+	if [[ $(check_option strip) = y && -n ${STRIP_DIRS[*]} ]]; then
+		msg2 "$(gettext "Stripping unneeded symbols from binaries and libraries...")"
+		# make sure library stripping variables are defined to prevent excess stripping
+		[[ -z ${STRIP_SHARED+x} ]] && STRIP_SHARED="-S"
+		[[ -z ${STRIP_STATIC+x} ]] && STRIP_STATIC="-S"
+		local binary
+		find ${STRIP_DIRS[@]} -type f -perm -u+w 2>/dev/null | while read binary ; do
+			case "$(file -bi "$binary")" in
+				*application/x-sharedlib*)  # Libraries (.so)
+					/usr/bin/strip $STRIP_SHARED "$binary";;
+				*application/x-archive*)    # Libraries (.a)
+					/usr/bin/strip $STRIP_STATIC "$binary";;
+				*application/x-executable*) # Binaries
+					/usr/bin/strip $STRIP_BINARIES "$binary";;
+			esac
+		done
+	fi
+
+	if [[ $(check_option libtool) = "n" ]]; then
+		msg2 "$(gettext "Removing libtool .la files...")"
+		find . ! -type d -name "*.la" -exec rm -f -- '{}' \;
+	fi
+
+	if [[ $(check_option emptydirs) = "n" ]]; then
+		msg2 "$(gettext "Removing empty directories...")"
+		find . -depth -type d -empty -delete
+	fi
+}
+
+write_pkginfo() {
+	msg2 "$(gettext "Generating .PKGINFO file...")"
+	echo "# Generated by makepkg $myver" >.PKGINFO
+	if (( INFAKEROOT )); then
+		echo "# using $(fakeroot -v)" >>.PKGINFO
+	fi
+	echo "# $(LC_ALL=C date -u)" >>.PKGINFO
+	echo "pkgname = $1" >>.PKGINFO
+	(( SPLITPKG )) && echo pkgbase = $pkgbase >>.PKGINFO
+	echo "pkgver = $pkgver-$pkgrel" >>.PKGINFO
+	echo "pkgdesc = $pkgdesc" >>.PKGINFO
+	echo "url = $url" >>.PKGINFO
+	echo "builddate = $builddate" >>.PKGINFO
+	echo "packager = $packager" >>.PKGINFO
+	echo "size = $size" >>.PKGINFO
+	echo "arch = $PKGARCH" >>.PKGINFO
+	if [[ $(check_option force) = "y" ]]; then
+		echo "force = true" >> .PKGINFO
+	fi
+
+	local it
+	for it in "${license[@]}"; do
+		echo "license = $it" >>.PKGINFO
+	done
+	for it in "${replaces[@]}"; do
+		echo "replaces = $it" >>.PKGINFO
+	done
+	for it in "${groups[@]}"; do
+		echo "group = $it" >>.PKGINFO
+	done
+	for it in "${depends[@]}"; do
+		echo "depend = $it" >>.PKGINFO
+	done
+	for it in "${optdepends[@]}"; do
+		echo "optdepend = $it" >>.PKGINFO
+	done
+	for it in "${conflicts[@]}"; do
+		echo "conflict = $it" >>.PKGINFO
+	done
+	for it in "${provides[@]}"; do
+		echo "provides = $it" >>.PKGINFO
+	done
+	for it in "${backup[@]}"; do
+		echo "backup = $it" >>.PKGINFO
+	done
+	for it in "${packaging_options[@]}"; do
+		local ret="$(check_option $it)"
+		if [[ $ret != "?" ]]; then
+			if [[ $ret = y ]]; then
+				echo "makepkgopt = $it" >>.PKGINFO
+			else
+				echo "makepkgopt = !$it" >>.PKGINFO
+			fi
+		fi
+	done
+
+	# TODO maybe remove this at some point
+	# warn if license array is not present or empty
+	if [[ -z $license ]]; then
+		warning "$(gettext "Please add a license line to your %s!")" "$BUILDSCRIPT"
+		plain "$(gettext "Example for GPL\'ed software: license=('GPL').")"
+	fi
+}
+
+write_debcontrol() {
+  msg2 "$(gettext "Generating control file...")"
+
+	local control_files="control md5sums"
+
+	echo "Package: $nameofpkg" >>control
+	echo "Version: ${pkgver}-${pkgrel}" >>control
+	echo "Installed-Size: $(expr $size / 1024)" >>control
+	if [[ -n $pkglongdesc ]]; then pkgdesc=$(echo $pkglongdesc | sed 's/^$/./'); fi
+	echo "Description: $pkgdesc" >>control
+	if [ "$PKGARCH" == "i686" ]; then PKGARCH=i386; fi
+	if [ "$PKGARCH" == "x86_64" ]; then PKGARCH=amd64; fi
+	echo "Architecture: $PKGARCH" >>control
+	echo "Maintainer: $packager" >>control
+	if [[ -n $debsection ]]; then echo "Section: $debsection" >>control;	fi
+	if [[ -n $debpriority ]]; then echo "Priority: $debpriority" >>control; fi
+	echo "Origin: $deboriginal" >>control
+	if [[ -n $bugsurl ]]; then echo "Bugs: $bugsurl" >>control; fi
+	echo "Homepage: $url" >>control
+
+	if [[ -n $debtags ]]; then
+		echo -n "Tag: " >> control
+		for it in "${debtags[@]}"; do
+			echo -n "$it" >>control
+			if [ ! $n = "${#debtags[@]}" ]
+			then
+				echo -n ", " >>control
+			fi
+		done
+		echo >> control
+	fi
+
+	if [[ -n $debsrcpkg ]]; then echo "Source: $debsrcpkg" >>control; fi
+
+	if [[ -n $debdepends ]]; then
+		echo -n "Depends: " >>control
+		n=0
+		for it in "${debdepends[@]}"; do
+			n=$(expr $n + 1)
+			echo -n "$it" >>control
+			if [ ! $n = "${#debdepends[@]}" ]
+			then
+				echo -n ", ">>control
+			fi
+		done
+		echo >>control
+	fi
+
+	if [[ -n $debpredepends ]]; then
+		echo -n "Pre-Depends: " >>control
+		n=0
+		for it in "${debpredepends[@]}"; do
+			n=$(expr $n + 1)
+			echo -n "$it" >>control
+			if [ ! $n = "${#debpredepends[@]}" ]
+			then
+				echo -n ", ">>control
+			fi
+		done
+		echo >>control
+	fi
+
+	if [[ -n $debrecommends ]]; then
+		echo -n "Recommends: " >> control
+		for it in "${debrecommends[@]}"; do
+			echo -n "$it" >>control
+			if [ ! $n = "${#debrecommends[@]}" ]
+			then
+				echo -n ", " >>control
+			fi
+		done
+		echo >> control
+	fi
+
+	if [[ -n $debsuggests ]]; then
+		echo -n "Suggests: " >> control
+		for it in "${debsuggests[@]}"; do
+			echo -n "$it" >>control
+			if [ ! $n = "${#debsuggests[@]}" ]
+			then
+				echo -n ", " >>control
+			fi
+		done
+		echo >> control
+	fi
+
+	if [[ -n $debconflicts ]]; then
+		echo -n "Conflicts: ">>control
+		n=0
+		for it in "${debconflicts[@]}"; do
+			n=$(expr $n + 1)
+			echo -n "$it" >>control
+			if [ ! $n = "${#debconflicts[@]}" ]
+			then
+				echo -n ", " >>control
+			fi
+		done
+		echo >>control
+	fi
+
+	if [[ -n $debreplaces ]]; then
+		echo -n "Replaces: " >> control
+		for it in "${debreplaces[@]}"; do
+			echo -n "$it" >>control
+			if [ ! $n = "${#debreplaces[@]}" ]
+			then
+				echo -n ", " >>control
+			fi
+		done
+		echo >> control
+	fi
+
+	if [[ -n $debprovides ]]; then
+		echo -n "Provides: " >> control
+		for it in "${debprovides[@]}"; do
+			echo -n "$it" >>control
+			if [ ! $n = "${#debprovides[@]}" ]
+			then
+				echo -n ", " >>control
+			fi
+		done
+		echo >> control
+	fi
+
+	msg2 "$(gettext "Adding install scripts...")"
+	if [[ -n $debpostinst ]]; then
+		cp $startdir/$debpostinst postinst
+		control_files="$control_files postinst"
+	fi
+
+	if [[ -n $debpostrm ]]; then
+		cp $startdir/$debpostrm postrm
+		control_files="$control_files postrm"
+	fi
+
+	if [[ -n $debpreinst ]]; then
+		cp $startdir/$debpreinst preinst
+		control_files="$control_files preinst"
+	fi
+
+	if [[ -n $debprerm ]]; then
+		cp $startdir/$debprerm prerm
+		control_files="$control_files prerm"
+	fi
+
+	msg2 "$(gettext "Generating md5sums...")"
+	for file in $(find); do
+		if [ -f $file ]; then
+			if [ "$file" != "./data.tar.gz" ] &&
+			   [ "$file" != "./control" ] &&
+			   [ "$file" != "./postinst" ] &&
+			   [ "$file" != "./postrm" ] &&
+			   [ "$file" != "./preinst" ] &&
+			   [ "$file" != "./prerm" ]; then
+				md5sum ${file} | sed 's/\.\//\//' >>md5sums
+			fi
+		fi
+	done
+
+	msg2 "$(gettext "Compressing control.tar.gz...")"
+	tar cf "control.tar" $control_files
+	gzip -f -n "control.tar"
+
+	rm $control_files
+}
+
+check_package() {
+	cd "$pkgdir"
+
+	# check existence of backup files
+	local file
+	for file in "${backup[@]}"; do
+		if [[ ! -f $file ]]; then
+			warning "$(gettext "Invalid backup entry : %s")" "$file"
+		fi
+	done
+
+	# check for references to the build directory
+	if find "${pkgdir}" -type f -exec grep -q "${srcdir}" {} +; then
+		warning "$(gettext "Package contains reference to %s")" "\$srcdir"
+	fi
+}
+
+create_package() {
+	if [[ ! -d $pkgdir ]]; then
+		error "$(gettext "Missing pkg/ directory.")"
+		plain "$(gettext "Aborting...")"
+		exit 1 # $E_MISSING_PKGDIR
+	fi
+
+	check_package
+
+	cd "$pkgdir"
+
+	if [[ -z $1 ]]; then
+		nameofpkg="$pkgname"
+	else
+		nameofpkg="$1"
+	fi
+
+	if [[ -n $PACKAGER ]]; then
+		local packager="$PACKAGER"
+	else
+		local packager="Unknown Packager"
+	fi
+
+	local size="$(du -sk)"
+	size="$(( ${size%%[^0-9]*} * 1024 ))"
+
+	local builddate=$(date -u "+%s")
+
+	local ret=0
+
+	case "$PKGEXT" in
+		.pacman) PKGEXT=.pkg.tar.xz; create_package_pacman $1 ;;
+		.deb) create_package_deb $1 ;;
+		.f) create_package_rpm $1 ;;
+		.lzm) create_package_lzm $1 ;;
+		*) create_package_pacman $1;;
+	esac
+
+	if (( ret )); then
+		error "$(gettext "Failed to create package file.")"
+		exit 1 # TODO: error code
+	fi
+
+	if (( ! ret )) && [[ "$PKGDEST" != "${startdir}" ]]; then
+		ln -sf "${pkg_file}" "${pkg_file/$PKGDEST/$startdir}"
+		ret=$?
+	fi
+
+	if (( ret )); then
+		warning "$(gettext "Failed to create symlink to package file.")"
+	fi
+}
+
+create_package_pacman() {
+	msg "$(gettext "Creating pacman package...")"
+
+	write_pkginfo $nameofpkg
+
+	local comp_files=".PKGINFO"
+
+	# check for an install script
+	if [[ -n $install ]]; then
+		msg2 "$(gettext "Adding install script...")"
+		cp "$startdir/$install" .INSTALL
+		chmod 644 .INSTALL
+		comp_files="$comp_files .INSTALL"
+	fi
+
+	# do we have a changelog?
+	if [[ -n $changelog ]]; then
+		msg2 "$(gettext "Adding package changelog...")"
+		cp "$startdir/$changelog" .CHANGELOG
+		chmod 644 .CHANGELOG
+		comp_files="$comp_files .CHANGELOG"
+	fi
+
+	# tar it up
+	msg2 "$(gettext "Compressing pacman package...")"
+
+	case "$PKGEXT" in
+		*tar.gz)  EXT=${PKGEXT%.gz} ;;
+		*tar.bz2) EXT=${PKGEXT%.bz2} ;;
+		*tar.xz)  EXT=${PKGEXT%.xz} ;;
+		*) error "$(gettext "'%s' is not a valid archive extension.")" \
+		"$PKGEXT" ; EXT=$PKGEXT ;;
+	esac
+	local tar_file="$PKGDEST/${nameofpkg}-${pkgver}-${pkgrel}-${PKGARCH}${EXT}"
+	local pkg_file="$PKGDEST/${nameofpkg}-${pkgver}-${pkgrel}-${PKGARCH}${PKGEXT}"
+
+	# when fileglobbing, we want * in an empty directory to expand to
+	# the null string rather than itself
+	shopt -s nullglob
+	bsdtar -cf - $comp_files * > "$tar_file" || ret=$?
+	shopt -u nullglob
+
+	if (( ! ret )); then
+		case "$PKGEXT" in
+			*tar.gz)  gzip -f -n "$tar_file" ;;
+			*tar.bz2) bzip2 -f "$tar_file" ;;
+			*tar.xz)  xz -z -f "$tar_file" ;;
+		esac
+		ret=$?
+	fi
+}
+
+create_package_deb() {
+	msg "$(gettext "Creating debian package...")"
+
+	msg2 "$(gettext "Compressing data.tar.gz...")"
+	tar cf "data.tar" *
+	gzip -f -n "data.tar"
+
+	write_debcontrol $nameofpkg
+
+	echo "2.0" > debian-binary
+
+	msg2 "$(gettext "Compressing debian package...")"
+
+	local files="control.tar.gz data.tar.gz"
+	local pkg_file="$PKGDEST/${nameofpkg}_${pkgver}-${pkgrel}_${PKGARCH}${PKGEXT}"
+	rm -f $pkg_file 
+	ar rcs $pkg_file "debian-binary" || ret=$?
+	ar q $pkg_file $files || ret=$?
+}
+
+create_package_rpm() {
+	msg "$(gettext "Creating RPM package...")"
+
+	local pkg_file="$PKGDEST/${nameofpkg}-${pkgver}-${pkgrel}.${PKGARCH}${PKGEXT}"
+	
+	msg2 "$(gettext "Writing RPM lead...")"
+	
+	# RPM Identifier
+	echo -ne '\xED\xAB\xEE\xDB' > $pkg_file
+	
+	# RPM format version
+	echo -ne '\x03\x00' >> $pkg_file
+	
+	# Package type (binary)
+	echo -ne '\x00\x00' >> $pkg_file
+	
+	# Package architecture (for now, left as i386)
+	echo -ne '\x00\x01' >> $pkg_file
+
+	# Ensure that package name is 66 bytes
+	pkgnamebytes=${nameofpkg}-${pkgver}-${pkgrel}
+	extrabytes=$(seq $(expr 66 - $(expr length "$pkgnamebytes")))
+	if [[ $(expr $(expr length "$pkgnamebytes") \> 66) == 1 ]]; then
+		error "$(gettext "Package name ($pkgnamebytes) is longer than 66 characters.")"
+	fi
+	for i in $extrabytes; do
+		pkgnamebytes="$pkgnamebytes"'\x00'
+	done
+	
+	# Package name
+	echo -ne $pkgnamebytes >> $pkg_file
+	
+	# Package OS (linux)
+	echo -ne '\x00\x01' >> $pkg_file
+	
+	# Package signature version
+	echo -ne '\x00\x05' >> $pkg_file
+	
+	# Reserved bytes
+	for i in $(seq 16); do
+		echo -ne '\x00' >> $pkg_file
+	done
+	
+	msg2 "$(gettext "Writing RPM header...")"
+	
+	# Header identfier
+	echo -ne '\x8e\xAD\xe8' >> $pkg_file
+	
+	# Header version
+	echo -ne '\x01' >> $pkg_file
+	
+	# Reserved bytes
+	for i in $(seq 4); do
+		echo -ne '\x00' >> $pkg_file
+	done
+	
+	msg2 "$(gettext "Compressing cpio archive...")"
+	
+	# Append archive
+	find $pkgdir -depth | grep -v ^\.$ | cpio -co >> $pkg_file 2> /dev/null
+}
+
+create_package_lzm() {
+	msg "$(gettext "Creating slackware package...")"
+
+	mkdir install
+	msg2 "$(gettext "Adding post-install script...")"
+	if [[ -n $lzmpostinst ]]; then
+		cp $startdir/$lzmpostinst install/doinst.sh
+	else
+		touch install/doinst.sh
+	fi
+	
+	if [[ ! -n $pkglzmdesc ]]; then pkglzmdesc=$pkgdesc; fi
+	echo -n $pkgdesc > install/slack-desc
+
+	msg2 "$(gettext "Compressing slackware package...")"
+	local tar_file="$PKGDEST/${nameofpkg}-${pkgver}-${PKGARCH}-${pkgrel}"
+	local pkg_file="$PKGDEST/${nameofpkg}-${pkgver}-${PKGARCH}-${pkgrel}${PKGEXT}"
+	
+	shopt -s nullglob
+	bsdtar -cf - * > "$tar_file.tar" || ret=$?
+	shopt -u nullglob
+	bzip2 -f "$tar_file.tar" || ret=$?
+	mv $tar_file.tar.bz2 $pkg_file
+}
+
+create_srcpackage() {
+	cd "$startdir"
+
+	# Get back to our src directory so we can begin with sources.
+	mkdir -p "$srcdir"
+	chmod a-s "$srcdir"
+	cd "$srcdir"
+	if (( ! SKIPINTEG || SOURCEONLY == 2 )); then
+		download_sources
+	fi
+	if (( ! SKIPINTEG )); then
+		# We can only check checksums if we have all files.
+		check_checksums
+	else
+		warning "$(gettext "Skipping integrity checks.")"
+	fi
+	cd "$startdir"
+
+	msg "$(gettext "Creating source package...")"
+	local srclinks="$(mktemp -d "$startdir"/srclinks.XXXXXXXXX)"
+	mkdir "${srclinks}"/${pkgbase}
+
+	msg2 "$(gettext "Adding %s...")" "$BUILDSCRIPT"
+	ln -s "${BUILDFILE}" "${srclinks}/${pkgbase}/${BUILDSCRIPT}"
+
+	local file
+	for file in "${source[@]}"; do
+		if [[ -f $file ]]; then
+			msg2 "$(gettext "Adding %s...")" "$file"
+			ln -s "${startdir}/$file" "$srclinks/$pkgbase"
+		elif (( SOURCEONLY == 2 )); then
+			local absfile=$(get_filepath "$file") || missing_source_file "$file"
+			msg2 "$(gettext "Adding %s...")" "${absfile##*/}"
+			ln -s "$absfile" "$srclinks/$pkgbase"
+		fi
+	done
+
+	local i
+	for i in 'changelog' 'install' 'debpostinst' 'debpostrm' 'debpreinst' 'debprerm' 'lzmpostinst'; do
+		local filelist=$(sed -n "s/^[[:space:]]*$i=//p" "$BUILDSCRIPT")
+		local file
+		for file in $filelist; do
+			# evaluate any bash variables used
+			eval file=${file}
+			if [[ ! -f "${srclinks}/${pkgbase}/$file" ]]; then
+				if [ "$i" == "debpostinst" ]; then i="debian post-install"; fi
+				if [ "$i" == "debpostrm" ]; then i="debian post-remove"; fi
+				if [ "$i" == "debpreinst" ]; then i="debian pre-install"; fi
+				if [ "$i" == "debprerm" ]; then i="debian pre-remove"; fi
+				if [ "$i" == "lzmpostinst" ]; then i="slackware post-install"; fi
+				msg2 "$(gettext "Adding %s file (%s)...")" "$i" "${file}"
+				ln -s "${startdir}/$file" "${srclinks}/${pkgbase}/"
+			fi
+		done
+	done
+
+	local TAR_OPT
+	case "$SRCEXT" in
+		*tar.gz)  TAR_OPT="z" ;;
+		*tar.bz2) TAR_OPT="j" ;;
+		*tar.xz)  TAR_OPT="J" ;;
+		*) warning "$(gettext "'%s' is not a valid archive extension.")" \
+		"$SRCEXT" ;;
+	esac
+
+	local pkg_file="$SRCPKGDEST/${pkgbase}-${pkgver}-${pkgrel}${SRCEXT}"
+
+	# tar it up
+	msg2 "$(gettext "Compressing source package...")"
+	cd "${srclinks}"
+	if ! bsdtar -c${TAR_OPT}Lf "$pkg_file" ${pkgbase}; then
+		error "$(gettext "Failed to create source package file.")"
+		exit 1 # TODO: error code
+	fi
+	cd "${startdir}"
+	rm -rf "${srclinks}"
+}
+
+install_package() {
+	(( ! INSTALL )) && return
+
+	if (( ! SPLITPKG )); then
+		msg "$(gettext "Installing package %s with %s -U...")" "$pkgname" "$PACMAN"
+	else
+		msg "$(gettext "Installing %s package group with %s -U...")" "$pkgbase" "$PACMAN"
+	fi
+
+	local pkglist
+	for pkg in ${pkgname[@]}; do
+		if [[ -f $PKGDEST/${pkg}-${pkgver}-${pkgrel}-${PKGARCH}${PKGEXT} ]]; then
+			pkglist="${pkglist} $PKGDEST/${pkg}-${pkgver}-${pkgrel}-${PKGARCH}${PKGEXT}"
+		else
+			pkglist="${pkglist} $PKGDEST/${pkg}-${pkgver}-${pkgrel}-any${PKGEXT}"
+		fi
+	done
+
+	if ! run_pacman -U $pkglist; then
+		warning "$(gettext "Failed to install built package(s).")"
+		return 0
+	fi
+}
+
+check_sanity() {
+	# check for no-no's in the build script
+	if [[ -z $pkgname ]]; then
+		error "$(gettext "%s is not allowed to be empty.")" "pkgname"
+		return 1
+	fi
+	if [[ -z $pkgver ]]; then
+		error "$(gettext "%s is not allowed to be empty.")" "pkgver"
+		return 1
+	fi
+	if [[ -z $pkgrel ]]; then
+		error "$(gettext "%s is not allowed to be empty.")" "pkgrel"
+		return 1
+	fi
+
+	local name
+	for name in "${pkgname[@]}"; do
+		if [[ ${name:0:1} = "-" ]]; then
+			error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgname"
+			return 1
+		fi
+	done
+
+	if [[ ${pkgbase:0:1} = "-" ]]; then
+		error "$(gettext "%s is not allowed to start with a hyphen.")" "pkgbase"
+		return 1
+	fi
+	if [[ $pkgver != ${pkgver//-/} ]]; then
+		error "$(gettext "%s is not allowed to contain hyphens.")" "pkgver"
+		return 1
+	fi
+	if [[ $pkgrel != ${pkgrel//-/} ]]; then
+		error "$(gettext "%s is not allowed to contain hyphens.")" "pkgrel"
+		return 1
+	fi
+
+	if [[ $arch != 'any' ]]; then
+		if ! in_array $CARCH ${arch[@]}; then
+			if (( ! IGNOREARCH )); then
+				error "$(gettext "%s is not available for the '%s' architecture.")" "$pkgbase" "$CARCH"
+				plain "$(gettext "Note that many packages may need a line added to their %s")" "$BUILDSCRIPT"
+				plain "$(gettext "such as arch=('%s').")" "$CARCH"
+				return 1
+			fi
+		fi
+	fi
+
+	local provide
+	for provide in ${provides[@]}; do
+		if [[ $provide != ${provide//</} || $provide != ${provide//>/} ]]; then
+			error "$(gettext "Provides array cannot contain comparison (< or >) operators.")"
+			return 1
+		fi
+	done
+
+	local file
+	for file in "${backup[@]}"; do
+		if [[ ${file:0:1} = "/" ]]; then
+			error "$(gettext "Invalid backup entry : %s")" "$file"
+			return 1
+		fi
+	done
+
+	local optdepend
+	for optdepend in "${optdepends[@]}"; do
+		pkg=${optdepend%%:*}
+		if [[ ! $pkg =~ ^[[:alnum:]\>\<\=\.\+\_\-]*$ ]]; then
+			error "$(gettext "Invalid syntax for optdepend : '%s'")" "$optdepend"
+		fi
+	done
+
+	local i
+	for i in 'changelog' 'install'; do
+		local filelist=$(sed -n "s/^[[:space:]]*$i=//p" "$BUILDFILE") 
+		local file
+		for file in $filelist; do
+			# evaluate any bash variables used
+			eval file=${file}
+			if [[ ! -f $file ]]; then
+				error "$(gettext "%s file (%s) does not exist.")" "$i" "$file"
+				return 1
+			fi
+		done
+	done
+
+	local valid_options=1
+	local opt known kopt
+	for opt in ${options[@]}; do
+		known=0
+		# check if option matches a known option or its inverse
+		for kopt in ${packaging_options[@]} ${other_options[@]}; do
+			if [[ ${opt} = ${kopt} || ${opt} = "!${kopt}" ]]; then
+				known=1
+			fi
+		done
+		if (( ! known )); then
+			error "$(gettext "options array contains unknown option '%s'")" "$opt"
+			valid_options=0
+		fi
+	done
+	if (( ! valid_options )); then
+		return 1
+	fi
+
+	if (( ${#pkgname[@]} > 1 )); then
+		for pkg in ${pkgname[@]}; do
+			if [ "$(type -t package_${pkg})" != "function" ]; then
+				error "$(gettext "missing package function for split package '%s'")" "$pkg"
+				return 1
+			fi
+		done
+	fi
+
+	if [[ -n "${PKGLIST[@]}" ]]; then
+		for pkg in ${PKGLIST[@]}; do
+			if ! in_array $pkg ${pkgname[@]}; then
+				error "$(gettext "requested package %s is not provided in %s")" "$pkg" "$BUILDFILE"
+				return 1
+			fi
+		done
+	fi
+
+	return 0
+}
+
+devel_check() {
+	newpkgver=""
+
+	# Do not update pkgver if --holdver is set, when building a source package, repackaging,
+	# reading PKGBUILD from pipe (-f), or if we cannot write to the file (-w)
+	if (( HOLDVER || SOURCEONLY || REPKG )) \
+		            || [[ ! -f $BUILDFILE || ! -w $BUILDFILE ]]; then
+		return
+	fi
+
+	if [[ -z $FORCE_VER ]]; then
+		# Check if this is a svn/cvs/etc PKGBUILD; set $newpkgver if so.
+		# This will only be used on the first call to makepkg; subsequent
+		# calls to makepkg via fakeroot will explicitly pass the version
+		# number to avoid having to determine the version number twice.
+		# Also do a brief check to make sure we have the VCS tool available.
+		oldpkgver=$pkgver
+		if [[ -n ${_darcstrunk} && -n ${_darcsmod} ]] ; then
+			[ $(type -p darcs) ] || return 0
+			msg "$(gettext "Determining latest darcs revision...")"
+			newpkgver=$(date +%Y%m%d)
+		elif [[ -n ${_cvsroot} && -n ${_cvsmod} ]] ; then
+			[ $(type -p cvs) ] || return 0
+			msg "$(gettext "Determining latest cvs revision...")"
+			newpkgver=$(date +%Y%m%d)
+		elif [[ -n ${_gitroot} && -n ${_gitname} ]] ; then
+			[ $(type -p git) ] || return 0
+			msg "$(gettext "Determining latest git revision...")"
+			newpkgver=$(date +%Y%m%d)
+		elif [[ -n ${_svntrunk} && -n ${_svnmod} ]] ; then
+			[ $(type -p svn) ] || return 0
+			msg "$(gettext "Determining latest svn revision...")"
+			newpkgver=$(LC_ALL=C svn info $_svntrunk | sed -n 's/^Last Changed Rev: \([0-9]*\)$/\1/p')
+		elif [[ -n ${_bzrtrunk} && -n ${_bzrmod} ]] ; then
+			[ $(type -p bzr) ] || return 0
+			msg "$(gettext "Determining latest bzr revision...")"
+			newpkgver=$(bzr revno ${_bzrtrunk})
+		elif [[ -n ${_hgroot} && -n ${_hgrepo} ]] ; then
+			[ $(type -p hg) ] || return 0
+			msg "$(gettext "Determining latest hg revision...")"
+			if [[ -d ./src/$_hgrepo ]] ; then
+				cd ./src/$_hgrepo
+				hg pull
+				hg update
+			else
+				[[ ! -d ./src/ ]] && mkdir ./src/
+				hg clone $_hgroot/$_hgrepo ./src/$_hgrepo
+				cd ./src/$_hgrepo
+			fi
+			newpkgver=$(hg tip --template "{rev}")
+			cd ../../
+		fi
+
+		if [[ -n $newpkgver ]]; then
+			msg2 "$(gettext "Version found: %s")" "$newpkgver"
+		fi
+
+	else
+		# Version number retrieved from fakeroot->makepkg argument
+		newpkgver=$FORCE_VER
+	fi
+}
+
+devel_update() {
+	# This is lame, but if we're wanting to use an updated pkgver for
+	# retrieving svn/cvs/etc sources, we'll update the PKGBUILD with
+	# the new pkgver and then re-source it. This is the most robust
+	# method for dealing with PKGBUILDs that use, e.g.:
+	#
+	#  pkgver=23
+	#  ...
+	#  _foo=pkgver
+	#
+	if [[ -n $newpkgver ]]; then
+		if [[ $newpkgver != $pkgver ]]; then
+			if [[ -f $BUILDFILE && -w $BUILDFILE ]]; then
+				sed -i "s/^pkgver=[^ ]*/pkgver=$newpkgver/" "$BUILDFILE"
+				sed -i "s/^pkgrel=[^ ]*/pkgrel=1/" "$BUILDFILE"
+				source "$BUILDFILE"
+			fi
+		fi
+	fi
+}
+
+backup_package_variables() {
+	for var in ${splitpkg_overrides[@]}; do
+		indirect="${var}_backup"
+		eval "${indirect}=(\"\${$var[@]}\")"
+	done
+}
+
+restore_package_variables() {
+	for var in ${splitpkg_overrides[@]}; do
+		indirect="${var}_backup"
+		if [[ -n ${!indirect} ]]; then
+			eval "${var}=(\"\${$indirect[@]}\")"
+		else
+			unset ${var}
+		fi
+	done
+}
+
+# getopt like parser
+parse_options() {
+	local short_options=$1; shift;
+	local long_options=$1; shift;
+	local ret=0;
+	local unused_options=""
+
+	while [[ -n $1 ]]; do
+		if [[ ${1:0:2} = '--' ]]; then
+			if [[ -n ${1:2} ]]; then
+				local match=""
+				for i in ${long_options//,/ }; do
+					if [[ ${1:2} = ${i//:} ]]; then
+						match=$i
+						break
+					fi
+				done
+				if [[ -n $match ]]; then
+					if [[ ${1:2} = $match ]]; then
+						printf ' %s' "$1"
+					else
+						if [[ -n $2 ]]; then
+							printf ' %s' "$1"
+							shift
+							printf " '%s'" "$1"
+						else
+							echo "makepkg: option '$1' $(gettext "requires an argument")" >&2
+							ret=1
+						fi
+					fi
+				else
+					echo "makepkg: $(gettext "unrecognized option") '$1'" >&2
+					ret=1
+				fi
+			else
+				shift
+				break
+			fi
+		elif [[ ${1:0:1} = '-' ]]; then
+			for ((i=1; i<${#1}; i++)); do
+				if [[ $short_options =~ ${1:i:1} ]]; then
+					if [[ $short_options =~ "${1:i:1}:" ]]; then
+						if [[ -n ${1:$i+1} ]]; then
+							printf ' -%s' "${1:i:1}"
+							printf " '%s'" "${1:$i+1}"
+						else
+							if [[ -n $2 ]]; then
+								printf ' -%s' "${1:i:1}"
+								shift
+								printf " '%s'" "${1}"
+							else
+								echo "makepkg: option $(gettext "requires an argument") -- '${1:i:1}'" >&2
+								ret=1
+							fi
+						fi
+						break
+					else
+						printf ' -%s' "${1:i:1}"
+					fi
+				else
+					echo "makepkg: $(gettext "invalid option") -- '${1:i:1}'" >&2
+					ret=1
+				fi
+			done
+		else
+			unused_options="${unused_options} '$1'"
+		fi
+		shift
+	done
+
+	printf " --"
+	if [[ -n $unused_options ]]; then
+		for i in ${unused_options[@]}; do
+			printf ' %s' "$i"
+		done
+	fi
+	if [[ -n $1 ]]; then
+		while [[ -n $1 ]]; do
+			printf " '%s'" "${1}"
+			shift
+		done
+	fi
+	printf "\n"
+
+	return $ret
+}
+
+usage() {
+	printf "multipkg (pacman) %s\n" "$myver"
+	echo
+	printf "$(gettext "Usage: %s [options]")\n" "$0"
+	echo
+	echo "$(gettext "Options:")"
+	printf "$(gettext "  -A, --ignorearch Ignore incomplete arch field in %s")\n" "$BUILDSCRIPT"
+	echo "$(gettext "  -c, --clean      Clean up work files after build")"
+	echo "$(gettext "  -C, --cleancache Clean up source files from the cache")"
+	echo "$(gettext "  -d, --nodeps     Skip all dependency checks")"
+	echo "$(gettext "  -e, --noextract  Do not extract source files (use existing src/ dir)")"
+	echo "$(gettext "  -f, --force      Overwrite existing package")"
+	echo "$(gettext "  -g, --geninteg   Generate integrity checks for source files")"
+	echo "$(gettext "  -h, --help       This help")"
+	echo "$(gettext "  -i, --install    Install package after successful build")"
+	echo "$(gettext "  -L, --log        Log package build process")"
+	echo "$(gettext "  -m, --nocolor    Disable colorized output messages")"
+	echo "$(gettext "  -o, --nobuild    Download and extract files only")"
+	printf "$(gettext "  -p <file>        Use an alternate build script (instead of '%s')")\n" "$BUILDSCRIPT"
+	echo "$(gettext "  -P <format>      Specify the format the package")"
+	echo "$(gettext "  -r, --rmdeps     Remove installed dependencies after a successful build")"
+	echo "$(gettext "  -R, --repackage  Repackage contents of the package without rebuilding")"
+	echo "$(gettext "  -s, --syncdeps   Install missing dependencies with pacman")"
+	echo "$(gettext "  --allsource      Generate a source-only tarball including downloaded sources")"
+	echo "$(gettext "  --asroot         Allow makepkg to run as root user")"
+	printf "$(gettext "  --config <file>  Use an alternate config file (instead of '%s')")\n" "$confdir/makepkg.conf"
+	echo "$(gettext "  --holdver        Prevent automatic version bumping for development PKGBUILDs")"
+	echo "$(gettext "  --pkg <list>     Only build listed packages from a split package")"
+	echo "$(gettext "  --skipinteg      Do not fail when integrity checks are missing")"
+	echo "$(gettext "  --source         Generate a source-only tarball without downloaded sources")"
+	echo
+	echo "$(gettext "These options can be passed to pacman:")"
+	echo
+	echo "$(gettext "  --noconfirm      Do not ask for confirmation when resolving dependencies")"
+	echo "$(gettext "  --noprogressbar  Do not show a progress bar when downloading files")"
+	echo
+	printf "$(gettext "If -p is not specified, makepkg will look for '%s'")\n" "$BUILDSCRIPT"
+	echo
+}
+
+version() {
+	printf "multipkg (pacman) %s\n" "$myver"
+	printf "$(gettext "\
+Copyright (c) 2006-2010 Pacman Development Team <pacman-dev@archlinux.org>.\n\
+Copyright (C) 2002-2006 Judd Vinet <jvinet@zeroflux.org>.\n\n\
+This is free software; see the source for copying conditions.\n\
+There is NO WARRANTY, to the extent permitted by law.\n")"
+}
+
+# PROGRAM START
+
+# determine whether we have gettext; make it a no-op if we do not
+if [ ! $(type -t gettext) ]; then
+	gettext() {
+		echo "$@"
+	}
+fi
+
+ARGLIST=("$@")
+
+# Parse Command Line Options.
+OPT_SHORT="AcCdefFghiLmop:P:rRsV"
+OPT_LONG="allsource,asroot,ignorearch,clean,cleancache,nodeps"
+OPT_LONG="$OPT_LONG,noextract,force,forcever:,forcearch:,geninteg,help,holdver"
+OPT_LONG="$OPT_LONG,install,log,nocolor,nobuild,nobuildfunc,pkg:,rmdeps,repackage,skipinteg"
+OPT_LONG="$OPT_LONG,source,syncdeps,version,config:"
+# Pacman Options
+OPT_LONG="$OPT_LONG,noconfirm,noprogressbar"
+OPT_TEMP="$(parse_options $OPT_SHORT $OPT_LONG "$@" || echo 'PARSE_OPTIONS FAILED')"
+if [[ $OPT_TEMP = *'PARSE_OPTIONS FAILED'* ]]; then
+	# This is a small hack to stop the script bailing with 'set -e'
+	echo; usage; exit 1 # E_INVALID_OPTION;
+fi
+eval set -- "$OPT_TEMP"
+unset OPT_SHORT OPT_LONG OPT_TEMP
+
+while true; do
+	case "$1" in
+		# Pacman Options
+		--noconfirm)      PACMAN_OPTS="$PACMAN_OPTS --noconfirm" ;;
+		--noprogressbar)  PACMAN_OPTS="$PACMAN_OPTS --noprogressbar" ;;
+
+		# Makepkg Options
+		--allsource)      SOURCEONLY=2 ;;
+		--asroot)         ASROOT=1 ;;
+		-A|--ignorearch)  IGNOREARCH=1 ;;
+		-c|--clean)       CLEANUP=1 ;;
+		-C|--cleancache)  CLEANCACHE=1 ;;
+		--config)         shift; MAKEPKG_CONF=$1 ;;
+		-d|--nodeps)      NODEPS=1 ;;
+		-e|--noextract)   NOEXTRACT=1 ;;
+		-f|--force)       FORCE=1 ;;
+		#hidden opt used by fakeroot call for svn/cvs/etc PKGBUILDs to set pkgver
+		--forcever)       shift; FORCE_VER=$1;;
+		#hidden opt to force architecture used to identify the package
+		--forcearch)      shift; FORCEARCH=$1  ;;
+		-F)               INFAKEROOT=1 ;;
+		-g|--geninteg)    GENINTEG=1 ;;
+		--holdver)        HOLDVER=1 ;;
+		-i|--install)     INSTALL=1 ;;
+		-L|--log)         LOGGING=1 ;;
+		-m|--nocolor)     USE_COLOR='n' ;;
+		-o|--nobuild)     NOBUILD=1 ;;
+		--nobuildfunc)    NOBUILDFUNC=1 ;;
+		-p)               shift; BUILDFILE=$1 ;;
+		-P)               shift; PKGEXT=$(echo -n $1 | tr 'A-Z' 'a-z')
+														 if [ "${PKGEXT:0:1}" != "." ]; then
+															 PKGEXT=".${PKGEXT}"
+														 fi
+														 ;;
+		--pkg)            shift; PKGLIST=($1) ;;
+		-r|--rmdeps)      RMDEPS=1 ;;
+		-R|--repackage)   REPKG=1 ;;
+		--skipinteg)      SKIPINTEG=1 ;;
+		--source)         SOURCEONLY=1 ;;
+		-s|--syncdeps)    DEP_BIN=1 ;;
+
+		-h|--help)        usage; exit 0 ;; # E_OK
+		-V|--version)     version; exit 0 ;; # E_OK
+
+		--)               OPT_IND=0; shift; break;;
+		*)                usage; exit 1 ;; # E_INVALID_OPTION
+	esac
+	shift
+done
+NEWPKGEXT=$PKGEXT
+
+#preserve environment variables
+_PKGDEST=${PKGDEST}
+_SRCDEST=${SRCDEST}
+_SRCPKGDEST=${SRCPKGDEST}
+
+# default config is makepkg.conf
+MAKEPKG_CONF=${MAKEPKG_CONF:-$confdir/makepkg.conf}
+
+# Source the config file; fail if it is not found
+if [[ -r $MAKEPKG_CONF ]]; then
+	source "$MAKEPKG_CONF"
+else
+	error "$(gettext "%s not found.")" "$MAKEPKG_CONF"
+	plain "$(gettext "Aborting...")"
+	exit 1 # $E_CONFIG_ERROR
+fi
+
+# Source user-specific makepkg.conf overrides
+if [[ -r ~/.makepkg.conf ]]; then
+	source ~/.makepkg.conf
+fi
+
+# Fix package extension
+if [[ -n $NEWPKGEXT ]]; then PKGEXT=$NEWPKGEXT; fi
+
+# set pacman command if not already defined
+PACMAN=${PACMAN:-pacman}
+
+# check if messages are to be printed using color
+unset ALL_OFF BOLD BLUE GREEN RED YELLOW
+if [[ -t 2 && ! $USE_COLOR = "n" && $(check_buildenv color) = "y" ]]; then
+	# prefer terminal safe colored and bold text when tput is supported
+	if tput setaf 0 &>/dev/null; then
+		ALL_OFF="$(tput sgr0)"
+		BOLD="$(tput bold)"
+		BLUE="${BOLD}$(tput setaf 4)"
+		GREEN="${BOLD}$(tput setaf 2)"
+		RED="${BOLD}$(tput setaf 1)"
+		YELLOW="${BOLD}$(tput setaf 3)"
+	else
+		ALL_OFF="\033[1;0m"
+		BOLD="\033[1;1m"
+		BLUE="${BOLD}\033[1;34m"
+		GREEN="${BOLD}\033[1;32m"
+		RED="${BOLD}\033[1;31m"
+		YELLOW="${BOLD}\033[1;33m"
+	fi
+fi
+readonly ALL_OFF BOLD BLUE GREEN RED YELLOW
+
+# override settings with an environment variable for batch processing
+PKGDEST=${_PKGDEST:-$PKGDEST}
+PKGDEST=${PKGDEST:-$startdir} #default to $startdir if undefined
+if [[ ! -w $PKGDEST ]]; then
+	error "$(gettext "You do not have write permission to store packages in %s.")" "$PKGDEST"
+	plain "$(gettext "Aborting...")"
+	exit 1
+fi
+
+SRCDEST=${_SRCDEST:-$SRCDEST}
+SRCDEST=${SRCDEST:-$startdir} #default to $startdir if undefined
+if [[ ! -w $SRCDEST ]] ; then
+	error "$(gettext "You do not have write permission to store downloads in %s.")" "$SRCDEST"
+	plain "$(gettext "Aborting...")"
+	exit 1
+fi
+
+SRCPKGDEST=${_SRCPKGDEST:-$SRCPKGDEST}
+SRCPKGDEST=${SRCPKGDEST:-$PKGDEST} #default to $PKGDEST if undefined
+
+
+if (( HOLDVER )) && [[ -n $FORCE_VER ]]; then
+	# The '\\0' is here to prevent gettext from thinking --holdver is an option
+	error "$(gettext "\\0--holdver and --forcever cannot both be specified" )"
+	exit 1
+fi
+
+if (( CLEANCACHE )); then
+	#fix flyspray feature request #5223
+	if [[ -n $SRCDEST && $SRCDEST != $startdir ]]; then
+		msg "$(gettext "Cleaning up ALL files from %s.")" "$SRCDEST"
+		echo -n "$(gettext "    Are you sure you wish to do this? ")"
+		echo -n "$(gettext "[y/N]")"
+		read answer
+		answer=$(tr '[:lower:]' '[:upper:]' <<< "$answer")
+		if [[ $answer = $(gettext YES) || $answer = $(gettext Y) ]]; then
+			rm "$SRCDEST"/*
+			if (( $? )); then
+				error "$(gettext "Problem removing files; you may not have correct permissions in %s")" "$SRCDEST"
+				exit 1
+			else
+				# removal worked
+				msg "$(gettext "Source cache cleaned.")"
+				exit 0
+			fi
+		else
+			# answer = no
+			msg "$(gettext "No files have been removed.")"
+			exit 0
+		fi
+	else
+		# $SRCDEST is $startdir, two possibilities
+		error "$(gettext "Source destination must be defined in %s.")" "$MAKEPKG_CONF"
+		plain "$(gettext "In addition, please run makepkg -C outside of your cache directory.")"
+		exit 1
+	fi
+fi
+
+if (( ! INFAKEROOT )); then
+	if (( EUID == 0 && ! ASROOT )); then
+		# Warn those who like to live dangerously.
+		error "$(gettext "Running makepkg as root is a BAD idea and can cause")"
+		plain "$(gettext "permanent, catastrophic damage to your system. If you")"
+		plain "$(gettext "wish to run as root, please use the --asroot option.")"
+		exit 1 # $E_USER_ABORT
+	elif (( EUID > 0 && ASROOT )); then
+		# Warn those who try to use the --asroot option when they are not root
+		error "$(gettext "The --asroot option is meant for the root user only.")"
+		plain "$(gettext "Please rerun makepkg without the --asroot flag.")"
+		exit 1 # $E_USER_ABORT
+	elif [[ $(check_buildenv fakeroot) = "y" ]] && (( EUID > 0 )); then
+		if [ ! $(type -p fakeroot) ]; then
+			error "$(gettext "Fakeroot must be installed if using the 'fakeroot' option")"
+			plain "$(gettext "in the BUILDENV array in %s.")" "$MAKEPKG_CONF"
+			exit 1
+		fi
+	elif (( EUID > 0 )); then
+		warning "$(gettext "Running makepkg as an unprivileged user will result in non-root")"
+		plain "$(gettext "ownership of the packaged files. Try using the fakeroot environment by")"
+		plain "$(gettext "placing 'fakeroot' in the BUILDENV array in %s.")" "$MAKEPKG_CONF"
+		sleep 1
+	fi
+else
+	if [[ -z $FAKEROOTKEY ]]; then
+		error "$(gettext "Do not use the '-F' option. This option is only for use by makepkg.")"
+		exit 1 # TODO: error code
+	fi
+fi
+
+# check for sudo if we will need it during makepkg execution
+if (( ! ( ASROOT || INFAKEROOT ) && ( DEP_BIN || RMDEPS || INSTALL ) )); then
+	if [ ! "$(type -p sudo)" ]; then
+		warning "$(gettext "Sudo can not be found. Will use su to acquire root privileges.")"
+	fi
+fi
+
+unset pkgname pkgbase pkgver pkgrel pkgdesc url license groups provides
+unset md5sums replaces depends conflicts backup source install changelog build
+unset makedepends optdepends options noextract
+
+BUILDFILE=${BUILDFILE:-$BUILDSCRIPT}
+if [[ ! -f $BUILDFILE ]]; then
+	if [[ -t 0 ]]; then
+		error "$(gettext "%s does not exist.")" "$BUILDFILE"
+		exit 1
+	else
+		# PKGBUILD passed through a pipe
+		BUILDFILE=/dev/stdin
+		source "$BUILDFILE"
+	fi
+else
+	crlftest=$(file "$BUILDFILE" | grep -F 'CRLF' || true)
+	if [[ -n $crlftest ]]; then
+		error "$(gettext "%s contains CRLF characters and cannot be sourced.")" "$BUILDFILE"
+		exit 1
+	fi
+
+	if [[ ${BUILDFILE:0:1} != "/" ]]; then
+		BUILDFILE="$startdir/$BUILDFILE"
+	fi
+	source "$BUILDFILE"
+fi
+
+if (( GENINTEG )); then
+	mkdir -p "$srcdir"
+	chmod a-s "$srcdir"
+	cd "$srcdir"
+	download_sources
+	generate_checksums
+	exit 0 # $E_OK
+fi
+
+# check the PKGBUILD for some basic requirements
+check_sanity || exit 1
+
+# We need to run devel_update regardless of whether we are in the fakeroot
+# build process so that if the user runs makepkg --forcever manually, we
+# 1) output the correct pkgver, and 2) use the correct filename when
+# checking if the package file already exists - fixes FS #9194
+devel_check
+devel_update
+
+if (( ${#pkgname[@]} > 1 )); then
+	SPLITPKG=1
+fi
+
+# test for available PKGBUILD functions
+# The exclamation mark is required here to avoid triggering the ERR trap when
+# a tested function does not exist.
+if [[ $(! type -t build) = "function" ]]; then
+	BUILDFUNC=1
+fi
+if [ "$(type -t package)" = "function" ]; then
+	PKGFUNC=1
+elif [ $SPLITPKG -eq 0 -a "$(type -t package_${pkgname})" = "function" ]; then
+	SPLITPKG=1
+fi
+
+pkgbase=${pkgbase:-${pkgname[0]}}
+
+if [[ -n "${PKGLIST[@]}" ]]; then
+	unset pkgname
+	pkgname=("${PKGLIST[@]}")
+fi
+
+if (( ! SPLITPKG )); then
+	if [[ -f $PKGDEST/${pkgname}-${pkgver}-${pkgrel}-${CARCH}${PKGEXT} \
+	     || -f $PKGDEST/${pkgname}-${pkgver}-${pkgrel}-any${PKGEXT} ]] \
+			 && ! (( FORCE || SOURCEONLY || NOBUILD )); then
+		if (( INSTALL )); then
+			warning "$(gettext "A package has already been built, installing existing package...")"
+			install_package
+			exit $?
+		else
+			error "$(gettext "A package has already been built. (use -f to overwrite)")"
+			exit 1
+		fi
+	fi
+else
+	allpkgbuilt=1
+	somepkgbuilt=0
+	for pkg in ${pkgname[@]}; do
+		if [[ -f $PKGDEST/${pkg}-${pkgver}-${pkgrel}-${CARCH}${PKGEXT} \
+		     || -f $PKGDEST/${pkg}-${pkgver}-${pkgrel}-any${PKGEXT} ]]; then
+			somepkgbuilt=1
+		else
+			allpkgbuilt=0
+		fi
+	done
+	if ! (( FORCE || SOURCEONLY || NOBUILD )); then
+		if (( allpkgbuilt )); then
+			if (( INSTALL )); then
+				warning "$(gettext "The package group has already been built, installing existing packages...")"
+				install_package
+				exit $?
+			else
+				error "$(gettext "The package group has already been built. (use -f to overwrite)")"
+				exit 1
+			fi
+		fi
+		if (( somepkgbuilt )); then
+			error "$(gettext "Part of the package group has already been built. (use -f to overwrite)")"
+			exit 1
+		fi
+	fi
+	unset allpkgbuilt somepkgbuilt
+fi
+
+# Run the bare minimum in fakeroot
+if (( INFAKEROOT )); then
+	if (( ! SPLITPKG )); then
+		if (( ! PKGFUNC )); then
+			if (( ! REPKG )); then
+				if (( BUILDFUNC )); then
+					run_build
+					tidy_install
+				fi
+			else
+				warning "$(gettext "Repackaging without the use of a package() function is deprecated.")"
+				plain "$(gettext "File permissions may not be preserved.")"
+			fi
+		else
+			run_package
+			tidy_install
+		fi
+		create_package
+	else
+		for pkg in ${pkgname[@]}; do
+			pkgdir="$pkgdir/$pkg"
+			mkdir -p "$pkgdir"
+			chmod a-s "$pkgdir"
+			backup_package_variables
+			run_package $pkg
+			tidy_install
+			create_package $pkg
+			restore_package_variables
+			pkgdir="${pkgdir%/*}"
+		done
+	fi
+
+	msg "$(gettext "Leaving fakeroot environment.")"
+	exit 0 # $E_OK
+fi
+
+msg "$(gettext "Making package: %s")" "$pkgbase $pkgver-$pkgrel ($(date))"
+
+# if we are creating a source-only package, go no further
+if (( SOURCEONLY )); then
+	if [[ -f $SRCPKGDEST/${pkgbase}-${pkgver}-${pkgrel}${SRCEXT} ]] \
+	     && (( ! FORCE )); then
+		error "$(gettext "A source package has already been built. (use -f to overwrite)")"
+		exit 1
+	fi
+	create_srcpackage
+	msg "$(gettext "Source package created: %s")" "$pkgbase ($(date))"
+	exit 0
+fi
+
+if (( NODEPS || ( (NOBUILD || REPKG) && !DEP_BIN ) )); then
+	# no warning message needed for nobuild, repkg
+	if (( NODEPS || ( REPKG && PKGFUNC ) )); then
+		warning "$(gettext "Skipping dependency checks.")"
+	fi
+elif [ $(type -p "${PACMAN%% *}") ]; then
+	if (( RMDEPS )); then
+		original_pkglist=($(run_pacman -Qq | sort))    # required by remove_dep
+	fi
+	deperr=0
+
+	msg "$(gettext "Checking Runtime Dependencies...")"
+	resolve_deps ${depends[@]} || deperr=1
+
+	msg "$(gettext "Checking Buildtime Dependencies...")"
+	resolve_deps ${makedepends[@]} || deperr=1
+
+	if (( RMDEPS )); then
+		current_pkglist=($(run_pacman -Qq | sort))    # required by remove_deps
+	fi
+
+	if (( deperr )); then
+		error "$(gettext "Could not resolve all dependencies.")"
+		exit 1
+	fi
+else
+	warning "$(gettext "%s was not found in PATH; skipping dependency checks.")" "${PACMAN%% *}"
+fi
+
+# ensure we have a sane umask set
+umask 0022
+
+# get back to our src directory so we can begin with sources
+mkdir -p "$srcdir"
+chmod a-s "$srcdir"
+cd "$srcdir"
+
+if (( NOEXTRACT )); then
+	warning "$(gettext "Skipping source retrieval        -- using existing src/ tree")"
+	warning "$(gettext "Skipping source integrity checks -- using existing src/ tree")"
+	warning "$(gettext "Skipping source extraction       -- using existing src/ tree")"
+
+	if (( NOEXTRACT )) && [[ -z $(ls "$srcdir" 2>/dev/null) ]]; then
+		error "$(gettext "The source directory is empty, there is nothing to build!")"
+		plain "$(gettext "Aborting...")"
+		exit 1
+	fi
+elif (( REPKG )); then
+	if (( ! PKGFUNC && ! SPLITPKG )) \
+	     && [[ ! -d $pkgdir || -z $(ls "$pkgdir" 2>/dev/null) ]]; then
+		error "$(gettext "The package directory is empty, there is nothing to repackage!")"
+		plain "$(gettext "Aborting...")"
+		exit 1
+	fi
+else
+	download_sources
+	if (( ! SKIPINTEG )); then
+		check_checksums
+	else
+		warning "$(gettext "Skipping integrity checks.")"
+	fi
+	extract_sources
+fi
+
+if (( NOBUILD )); then
+	msg "$(gettext "Sources are ready.")"
+	exit 0 #E_OK
+else
+	# check for existing pkg directory; don't remove if we are repackaging
+	if [[ -d $pkgdir ]] && (( ! REPKG || PKGFUNC || SPLITPKG )) && (( ! NOBUILDFUNC )); then
+		msg "$(gettext "Removing existing pkg/ directory...")"
+		rm -rf "$pkgdir"
+	fi
+	mkdir -p "$pkgdir"
+	chmod a-s "$pkgdir"
+	cd "$startdir"
+
+	# if we are root or if fakeroot is not enabled, then we don't use it
+	if [[ $(check_buildenv fakeroot) != "y" ]] || (( EUID == 0 )); then
+		if (( ! REPKG )); then
+			devel_update
+			(( BUILDFUNC )) && run_build
+		fi
+		if (( ! SPLITPKG )); then
+			if (( PKGFUNC )); then
+				run_package
+				tidy_install
+			else
+				if (( ! REPKG )); then
+					tidy_install
+				else
+					warning "$(gettext "Repackaging without the use of a package() function is deprecated.")"
+					plain "$(gettext "File permissions may not be preserved.")"
+				fi
+			fi
+			create_package
+		else
+			for pkg in ${pkgname[@]}; do
+				pkgdir="$pkgdir/$pkg"
+				mkdir -p "$pkgdir"
+				chmod a-s "$pkgdir"
+				backup_package_variables
+				run_package $pkg
+				tidy_install
+				create_package $pkg
+				restore_package_variables
+				pkgdir="${pkgdir%/*}"
+			done
+		fi
+	else
+		if (( ! REPKG && ( PKGFUNC || SPLITPKG ) )); then
+			devel_update
+			(( BUILDFUNC )) && run_build
+			cd "$startdir"
+		fi
+
+		msg "$(gettext "Entering fakeroot environment...")"
+
+		if [[ -n $newpkgver ]]; then
+			fakeroot -- $0 --forcever $newpkgver -F "${ARGLIST[@]}" || exit $?
+		else
+			fakeroot -- $0 -F "${ARGLIST[@]}" || exit $?
+		fi
+	fi
+fi
+
+msg "$(gettext "Finished making: %s")" "$pkgbase $pkgver-$pkgrel ($(date))"
+
+install_package
+
+exit 0 #E_OK
+
+# vim: set ts=2 sw=2 noet:

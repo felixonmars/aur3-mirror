@@ -1,0 +1,157 @@
+commit 123e185c2c9eb5b2036e963a2ecb26263fb5a43a
+Author: Ismael Barros <razielmine@gmail.com>
+Date:   Thu Jan 14 16:24:39 2010 +0100
+
+    Enable Xrandr
+
+diff --git a/include/synaptics-properties.h b/include/synaptics-properties.h
+index cf330d8..91e0599 100644
+--- a/include/synaptics-properties.h
++++ b/include/synaptics-properties.h
+@@ -155,4 +155,7 @@
+ /* 32 bit, 4 values, left, right, top, bottom */
+ #define SYNAPTICS_PROP_AREA "Synaptics Area"
+ 
++/* 8 bit, valid values (0, 1, 2, 3) */
++#define SYNAPTICS_PROP_ROTATION "Synaptics Rotation"
++
+ #endif /* _SYNAPTICS_PROPERTIES_H_ */
+diff --git a/src/eventcomm.c b/src/eventcomm.c
+index d8138d4..6ab5e2b 100644
+--- a/src/eventcomm.c
++++ b/src/eventcomm.c
+@@ -379,11 +379,21 @@ EventReadHwState(LocalDevicePtr local,
+ 	case EV_ABS:
+ 	    switch (ev.code) {
+ 	    case ABS_X:
+-		hw->x = ev.value;
+-		break;
++	        switch (para->rotation) {
++	        case R_NORMAL:   hw->x =  ev.value; break;
++	        case R_LEFT:     hw->y =  ev.value; break;
++	        case R_INVERTED: hw->x = -ev.value; break;
++	        case R_RIGHT:    hw->y = -ev.value; break;
++	        }
++	        break;
+ 	    case ABS_Y:
+-		hw->y = ev.value;
+-		break;
++	        switch (para->rotation) {
++	        case R_NORMAL:   hw->y =  ev.value; break;
++	        case R_LEFT:     hw->x = -ev.value; break;
++	        case R_INVERTED: hw->y = -ev.value; break;
++	        case R_RIGHT:    hw->x =  ev.value; break;
++	        }
++	        break;
+ 	    case ABS_PRESSURE:
+ 		hw->z = ev.value;
+ 		break;
+diff --git a/src/properties.c b/src/properties.c
+index 4366034..344d3d2 100644
+--- a/src/properties.c
++++ b/src/properties.c
+@@ -84,6 +84,7 @@ Atom prop_gestures              = 0;
+ Atom prop_capabilities          = 0;
+ Atom prop_resolution            = 0;
+ Atom prop_area                  = 0;
++Atom prop_rotation              = 0;
+ 
+ static Atom
+ InitAtom(DeviceIntPtr dev, char *name, int format, int nvalues, int *values)
+@@ -274,6 +275,8 @@ InitDeviceProperties(LocalDevicePtr local)
+     values[2] = para->area_top_edge;
+     values[3] = para->area_bottom_edge;
+     prop_area = InitAtom(local->dev, SYNAPTICS_PROP_AREA, 32, 4, values);
++
++    prop_rotation = InitAtom(local->dev, SYNAPTICS_PROP_ROTATION, 8, 1, &para->grab_event_device);
+ }
+ 
+ int
+@@ -642,6 +645,41 @@ SetProperty(DeviceIntPtr dev, Atom property, XIPropertyValuePtr prop,
+         para->area_right_edge  = area[1];
+         para->area_top_edge    = area[2];
+         para->area_bottom_edge = area[3];
++    } else if (property == prop_rotation)
++    {
++        if (prop->size != 1 || prop->format != 8 || prop->type != XA_INTEGER)
++            return BadMatch;
++
++        para->rotation = *(CARD8*)prop->data;
++        if (para->rotation > 3)
++            return BadValue;
++
++        switch ( para->rotation ) {
++        case R_NORMAL:
++            para->left_edge   = para->left_edge;
++            para->right_edge  = para->right_edge;
++            para->top_edge    = para->top_edge;
++            para->bottom_edge = para->bottom_edge;
++            break;
++        case R_LEFT:
++            para->left_edge   = para->right_edge;
++            para->right_edge  = para->left_edge;
++            para->top_edge    = para->bottom_edge;
++            para->bottom_edge = para->top_edge;
++            break;
++        case R_INVERTED:
++            para->left_edge   = para->bottom_edge;
++            para->right_edge  = para->top_edge;
++            para->top_edge    = para->left_edge;
++            para->bottom_edge = para->right_edge;
++            break;
++        case R_RIGHT:
++            para->left_edge   = para->top_edge;
++            para->right_edge  = para->bottom_edge;
++            para->top_edge    = para->right_edge;
++            para->bottom_edge = para->left_edge;
++            break;
++        }
+     }
+ 
+     return Success;
+diff --git a/src/synaptics.c b/src/synaptics.c
+index e9d1833..3f80d4a 100644
+--- a/src/synaptics.c
++++ b/src/synaptics.c
+@@ -536,6 +536,7 @@ static void set_default_parameters(LocalDevicePtr local)
+     pars->tap_and_drag_gesture = xf86SetBoolOption(opts, "TapAndDragGesture", TRUE);
+     pars->resolution_horiz = xf86SetIntOption(opts, "HorizResolution", horizResolution);
+     pars->resolution_vert = xf86SetIntOption(opts, "VertResolution", vertResolution);
++    pars->rotation = xf86SetIntOption(opts, "Rotation", 0);
+ 
+     /* Warn about (and fix) incorrectly configured TopEdge/BottomEdge parameters */
+     if (pars->top_edge > pars->bottom_edge) {
+diff --git a/src/synapticsstr.h b/src/synapticsstr.h
+index 2986173..53f30fc 100644
+--- a/src/synapticsstr.h
++++ b/src/synapticsstr.h
+@@ -149,9 +149,17 @@ typedef struct _SynapticsParameters
+     unsigned int resolution_horiz;          /* horizontal resolution of touchpad in units/mm */
+     unsigned int resolution_vert;           /* vertical resolution of touchpad in units/mm */
+     int area_left_edge, area_right_edge, area_top_edge, area_bottom_edge; /* area coordinates absolute */
++    int rotation;
+ } SynapticsParameters;
+ 
+ 
++enum Rotation {
++    R_NORMAL,
++    R_LEFT,
++    R_INVERTED,
++    R_RIGHT
++};
++
+ typedef struct _SynapticsPrivateRec
+ {
+     SynapticsParameters synpara;            /* Default parameter settings, read from
+diff --git a/tools/synclient.c b/tools/synclient.c
+index 032b129..617bdef 100644
+--- a/tools/synclient.c
++++ b/tools/synclient.c
+@@ -143,6 +143,7 @@ static struct Parameter params[] = {
+     {"AreaRightEdge",         PT_INT,    0, 10000, SYNAPTICS_PROP_AREA,	32,	1},
+     {"AreaTopEdge",           PT_INT,    0, 10000, SYNAPTICS_PROP_AREA,	32,	2},
+     {"AreaBottomEdge",        PT_INT,    0, 10000, SYNAPTICS_PROP_AREA,	32,	3},
++    {"Rotation",              PT_INT,    0, 3,     SYNAPTICS_PROP_ROTATION,	8,	0},
+     { NULL, 0, 0, 0, 0 }
+ };
+ 

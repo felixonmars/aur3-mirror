@@ -1,0 +1,63 @@
+# Contributor: Alexander Fehr <pizzapunk gmail com>
+# Contributor: Jose Valecillos <valecillosjg (at) gmail (dot) com>
+# Contributor: noonov <noonov@gmail.com>
+
+pkgname=acroread-ja
+pkgver=9.4.2
+pkgrel=1
+pkgdesc="Adobe Reader is a PDF file viewer. Japanese version"
+arch=('i686' 'x86_64')
+url="http://www.adobe.com/products/reader/"
+license=('custom')
+depends=('desktop-file-utils')
+
+if [[ "$CARCH" == 'i686' ]]; then
+  depends+=('gtk2' 'mesa')
+  optdepends=('libcanberra: XDG sound support')
+else
+  depends+=('lib32'-{'gtk2','mesa','libxml2','xcb-util'})
+  optdepends=('lib32-libcanberra: XDG sound support')
+fi
+
+options=('!strip')
+install=acroread.install
+source=(ftp://ftp.adobe.com/pub/adobe/reader/unix/9.x/$pkgver/jpn/AdbeRdr$pkgver-1_i486linux_jpn.tar.bz2)
+md5sums=('2d270d69f7667b5a26ee2badd26ea42c')
+
+build() {
+	cd "$srcdir/AdobeReader"
+	bsdtar -xf COMMON.TAR || return 1
+	bsdtar -xf ILINXR.TAR || return 1
+	cd Adobe/Reader9
+
+	msg2 "Installing Main Files..."
+	mkdir -p "$pkgdir/usr/lib/acroread" || return 1
+	cp -a * "$pkgdir/usr/lib/acroread" || return 1
+	echo done
+
+	msg2 "Installing Bin Files..."
+	mkdir -p "$pkgdir/usr/bin" || return 1
+	ln -s /usr/lib/acroread/bin/acroread "$pkgdir/usr/bin" || return 1
+	install -Dm644 Resource/Shell/acroread.1.gz ${pkgdir}/usr/share/man/man1/acroread.1.gz || return 1
+	install -Dm644 Resource/Shell/acroread_tab ${pkgdir}/etc/bash_completion.d/acroread || return 1
+	echo done
+
+	msg2 "Installing Broswer Plugin..."
+	mkdir -p "$pkgdir/usr/lib/mozilla/plugins" || return 1
+	ln -s /usr/lib/acroread/Browser/intellinux/nppdf.so "$pkgdir/usr/lib/mozilla/plugins" || return 1
+	echo done
+	
+	msg2 "Installing Icon Resource..."
+	install -D -m644 Resource/Support/AdobeReader.desktop \
+	"$pkgdir/usr/share/applications/acroread.desktop" || return 1
+	sed -i '/^Icon/s|AdobeReader9|acroread|' \
+	"$pkgdir/usr/share/applications/acroread.desktop"
+	install -D -m644 Resource/Icons/64x64/AdobeReader9.png \
+	"$pkgdir/usr/share/pixmaps/acroread.png" || return 1
+	echo done
+
+	msg2 "Installing License..."
+	install -D -m644 Reader/Legal/en_US/License.txt \
+	"$pkgdir/usr/share/licenses/acroread/License.txt" || return 1
+	echo done
+}

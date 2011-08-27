@@ -1,0 +1,28 @@
+# Contributor: Elena ``of Valhalla'' Grandi <elena.valhalla@gmail.com>
+pkgname=python-numpydoc
+pkgver=0.4
+pkgrel=1
+pkgdesc="Sphinx extension to support docstrings in Numpy format"
+arch=('any')
+url="http://projects.scipy.org/numpy/browser/trunk/doc/sphinxext"
+license=('BSD')
+depends=('python2' 'python-sphinx')
+backup=()
+options=(!emptydirs)
+install=
+source=(http://pypi.python.org/packages/source/n/numpydoc/numpydoc-$pkgver.tar.gz)
+md5sums=('e5bdd98f84f2bb220373819e20c27091') #generate with 'makepkg -g'
+
+build() {
+
+  cd "$srcdir/numpydoc-$pkgver"
+
+  python2 setup.py install --root=$pkgdir/ --optimize=1 || return 1
+
+  install -D -m644 "$srcdir/numpydoc-$pkgver/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  chmod 644 "$pkgdir"/usr/lib/python*/site-packages/numpydoc-$pkgver-py*.egg-info/*
+
+}
+
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,946 @@
+diff -crB apf-9.7-1/CHANGELOG apf-9.7-2/CHANGELOG
+*** apf-9.7-1/CHANGELOG	2011-01-02 10:25:19.000000000 -0500
+--- apf-9.7-2/CHANGELOG	2011-03-04 04:01:08.257021602 -0500
+***************
+*** 1,4 ****
+--- 1,15 ----
+  - 9.7
++ (rev:2)
++ [Fix] vnetget now exits with an error if NET is unassigned 
++ [Fix] firewall now exits with an error if it fails to load
++ [Fix] correct detection of the xt_recent module via check_rab()
++ [Change] code that used absolute paths before now expand preset variables from internals.conf
++          default values may be incorrect for some distros
++ [Change] added '-i' switch which calls getdeps() to update the dependencies in internals.conf
++ [Change] apf -i is now executed at the end of the installation
++ [Change] changed path in devm() from init script to /usr/loca/sbin/apf
++ 
++ - 9.7
+  (rev:1)
+  [Fix] bt.rules and associated import of deny_hosts now loads into FW before allow rules
+  [Fix] added stricter checking of local addresses in the trust system
+diff -crB apf-9.7-1/files/apf apf-9.7-2/files/apf
+*** apf-9.7-1/files/apf	2009-03-17 08:36:16.000000000 -0400
+--- apf-9.7-2/files/apf	2011-03-03 23:24:14.654063373 -0500
+***************
+*** 32,38 ****
+  }
+  
+  if [ -f "$CNF" ] && [ ! "$CNF" == "" ]; then
+!    source $CNF
+  else
+     head
+     echo "\$CNF not found, aborting."
+--- 32,38 ----
+  }
+  
+  if [ -f "$CNF" ] && [ ! "$CNF" == "" ]; then
+!    source $CNF 2>/dev/null
+  else
+     head
+     echo "\$CNF not found, aborting."
+***************
+*** 148,170 ****
+          touch $ALLOW_HOSTS
+          chmod 600 $ALLOW_HOSTS
+  fi
+  # check devel mode
+  devm
+  # generate vnet rules
+  $INSTALL_PATH/vnet/vnetgen
+  # start main firewall script
+  $INSTALL_PATH/firewall
+  # check for/load bandmin
+  LOAD=`cat /proc/loadavg | tr '.' ' ' | awk '{print$1}'`
+   if [ ! "$LOAD" -gt "10" ]; then
+  	bandmin
+   fi
+! eout "{glob} firewall initalized"
+  if [ "$MD5_FIRSTRUN" == "1" ]; then
+          $MD5 $MD5_FILES > $INSTALL_PATH/internals/.md5.cores 2> /dev/null
+  fi
+  
+! firewall_on=`iptables -L --numeric | grep -vE "Chain|destination"`
+  if [ ! "$DEVEL_ON" == "1" ] && [ ! "$firewall_on" == "" ]; then
+  	$IPTS > $INSTALL_PATH/internals/.apf.restore
+  	eout "{glob} fast load snapshot saved"
+--- 148,172 ----
+          touch $ALLOW_HOSTS
+          chmod 600 $ALLOW_HOSTS
+  fi
++ rc=0
+  # check devel mode
+  devm
+  # generate vnet rules
+  $INSTALL_PATH/vnet/vnetgen
+  # start main firewall script
+  $INSTALL_PATH/firewall
++ rc=$?
+  # check for/load bandmin
+  LOAD=`cat /proc/loadavg | tr '.' ' ' | awk '{print$1}'`
+   if [ ! "$LOAD" -gt "10" ]; then
+  	bandmin
+   fi
+! [ "$rc" = "0" ] && eout "{glob} firewall initalized"
+  if [ "$MD5_FIRSTRUN" == "1" ]; then
+          $MD5 $MD5_FILES > $INSTALL_PATH/internals/.md5.cores 2> /dev/null
+  fi
+  
+! firewall_on=`$IPT -L --numeric | grep -vE "Chain|destination"`
+  if [ ! "$DEVEL_ON" == "1" ] && [ ! "$firewall_on" == "" ]; then
+  	$IPTS > $INSTALL_PATH/internals/.apf.restore
+  	eout "{glob} fast load snapshot saved"
+***************
+*** 174,179 ****
+--- 176,206 ----
+          fi
+  }
+  
++ getdeps() {
++ 	local deps="ifconfig=/sbin/ifconfig \
++ 	ip=/sbin/ip \
++ 	IPT=/sbin/iptables \
++ 	MPB=/sbin/modprobe \
++ 	LSM=/sbin/lsmod \
++ 	RMM=/sbin/rmmod \
++ 	IPTS=/sbin/iptables-save \
++ 	IPTR=/sbin/iptables-restore \
++ 	DIFF=/usr/bin/diff \
++ 	WGET=/usr/bin/wget \
++ 	MD5=/usr/bin/md5sum \
++ 	UNAME=/bin/uname"
++ 	local d v n
++ 	local rc=0
++ 	cd $INSTALL_PATH/internals
++ 	for d in $deps; do
++ 		v=$(echo $d | cut -f1 -d=)
++ 		n=$(echo $d | cut -f2 -d= | sed 's/.*\///g')
++ 		n="$v=$(which $n)"
++ 		[ "$n" = "$v=" ] && rc=1 || perl -pi -e "s|^$v\=.*|$n|" internals.conf
++ 	done
++ 	return $rc
++ }
++ 
+  case "$1" in
+  -s|--start)
+  	start
+***************
+*** 212,220 ****
+  	head
+  	ovars
+  	;;
+  *)
+  	head
+  	help
+  esac
+  
+! exit 0
+--- 239,251 ----
+  	head
+  	ovars
+  	;;
++ -i)
++ 	getdeps || echo -e "\nPlease install any missing dependencies before running apf.\n"
++ 	exit $?
++ 	;;
+  *)
+  	head
+  	help
+  esac
+  
+! exit $rc
+diff -crB apf-9.7-1/files/firewall apf-9.7-2/files/firewall
+*** apf-9.7-1/files/firewall	2011-01-02 10:26:06.000000000 -0500
+--- apf-9.7-2/files/firewall	2011-03-03 10:04:29.000000000 -0500
+***************
+*** 23,29 ****
+  CNF="/etc/apf/conf.apf"
+  
+  if [ -f "$CNF" ] && [ ! "$CNF" == "" ]; then
+!    source $CNF
+  else
+     head
+     echo "\$CNF not found; aborting"
+--- 23,29 ----
+  CNF="/etc/apf/conf.apf"
+  
+  if [ -f "$CNF" ] && [ ! "$CNF" == "" ]; then
+!    source $CNF 2>/dev/null
+  else
+     head
+     echo "\$CNF not found; aborting"
+***************
+*** 43,49 ****
+  
+  if [ ! "$IF" == "" ]; then
+   for i in `echo $IF`; do
+!   VAL_IF=`/sbin/route -n | grep -w $i`
+  	if [ "$VAL_IF" == "" ]; then
+  		eout "{glob} could not verify that interface $IF is routed to a network, aborting."
+  	        if [ ! "$SET_VERBOSE" == "1" ]; then
+--- 43,49 ----
+  
+  if [ ! "$IF" == "" ]; then
+   for i in `echo $IF`; do
+!   VAL_IF=`route -n 2>/dev/null | grep -w $i`
+  	if [ "$VAL_IF" == "" ]; then
+  		eout "{glob} could not verify that interface $IF is routed to a network, aborting."
+  	        if [ ! "$SET_VERBOSE" == "1" ]; then
+***************
+*** 55,61 ****
+  fi
+  if [ ! "$IFACE_TRUSTED" == "" ]; then
+   for i in `echo $IFACE_TRUSTED`; do
+!   VAL_IFACE_TRUSTED=`/sbin/route -n | grep -w $i`
+          if [ "$VAL_IFACE_TRUSTED" == "" ]; then
+                  eout "{glob} could not verify that interface $IFACE_TRUSTED is routed to a network, aborting."
+  	        if [ ! "$SET_VERBOSE" == "1" ]; then
+--- 55,61 ----
+  fi
+  if [ ! "$IFACE_TRUSTED" == "" ]; then
+   for i in `echo $IFACE_TRUSTED`; do
+!   VAL_IFACE_TRUSTED=`route -n 2>/dev/null| grep -w $i`
+          if [ "$VAL_IFACE_TRUSTED" == "" ]; then
+                  eout "{glob} could not verify that interface $IFACE_TRUSTED is routed to a network, aborting."
+  	        if [ ! "$SET_VERBOSE" == "1" ]; then
+***************
+*** 87,93 ****
+  # Allow all traffic on trusted interfaces
+  if [ ! "$IFACE_TRUSTED" == "" ]; then
+  for i in `echo $IFACE_TRUSTED | tr ',' ' '`; do
+! VAL_IF=`/sbin/ip addr list | grep -w $i`
+  if [ "$VAL_IF" == "" ]; then
+          eout "{glob} unable to verify status of interface $i; assuming untrusted"
+  else
+--- 87,93 ----
+  # Allow all traffic on trusted interfaces
+  if [ ! "$IFACE_TRUSTED" == "" ]; then
+  for i in `echo $IFACE_TRUSTED | tr ',' ' '`; do
+! VAL_IF=`$ip addr list | grep -w $i`
+  if [ "$VAL_IF" == "" ]; then
+          eout "{glob} unable to verify status of interface $i; assuming untrusted"
+  else
+***************
+*** 316,318 ****
+--- 316,320 ----
+  $IPT -A INPUT -p tcp -j $TCP_STOP
+  $IPT -A INPUT -p udp -j $UDP_STOP
+  $IPT -A INPUT -p all -j $ALL_STOP
++ 
++ exit 0
+diff -crB apf-9.7-1/files/internals/functions.apf apf-9.7-2/files/internals/functions.apf
+*** apf-9.7-1/files/internals/functions.apf	2010-07-23 20:30:29.000000000 -0400
+--- apf-9.7-2/files/internals/functions.apf	2011-03-04 00:27:35.870657812 -0500
+***************
+*** 41,60 ****
+  	eout "{glob} !!DEVELOPMENT MODE ENABLED!! - firewall will flush every 5 minutes."
+  	echo "!!DEVELOPMENT MODE ENABLED!! - firewall will flush every 5 minutes."
+   fi
+! APF_CJ=`cat $CRON | grep -w /etc/init.d/apf`
+          if [ "$APF_CJ" == "" ]; then
+                  cp -f $CRON $CRON.bk
+                  cat > $TMP_CJ <<EOF
+  
+! */5 * * * * root /etc/init.d/apf stop >> /dev/null 2>&1
+  EOF
+                  cat $TMP_CJ >> $CRON
+                  rm -f $TMP_CJ
+          fi
+  elif [ "$DEVEL_MODE" == "0" ]; then
+! APF_CJ=`cat $CRON | grep -w /etc/init.d/apf`
+          if [ ! "$APF_CJ" == "" ]; then
+!                 cat $CRON | grep -vw "/etc/init.d/apf" > $CRON.tmp
+                  cp -f $CRON $CRON.bk
+                  mv $CRON.tmp $CRON
+                  chmod 644 $CRON
+--- 41,60 ----
+  	eout "{glob} !!DEVELOPMENT MODE ENABLED!! - firewall will flush every 5 minutes."
+  	echo "!!DEVELOPMENT MODE ENABLED!! - firewall will flush every 5 minutes."
+   fi
+! APF_CJ=`cat $CRON | grep -w /usr/loca/sbin/apf`
+          if [ "$APF_CJ" == "" ]; then
+                  cp -f $CRON $CRON.bk
+                  cat > $TMP_CJ <<EOF
+  
+! */5 * * * * root /usr/loca/sbin/apf -f > /dev/null 2>&1
+  EOF
+                  cat $TMP_CJ >> $CRON
+                  rm -f $TMP_CJ
+          fi
+  elif [ "$DEVEL_MODE" == "0" ]; then
+! APF_CJ=`cat $CRON | grep -w /usr/loca/sbin/apf`
+          if [ ! "$APF_CJ" == "" ]; then
+!                 cat $CRON | grep -vw "/usr/loca/sbin/apf" > $CRON.tmp
+                  cp -f $CRON $CRON.bk
+                  mv $CRON.tmp $CRON
+                  chmod 644 $CRON
+***************
+*** 152,162 ****
+  }
+  
+  check_rab() {
+! if [ ! -f "/lib/modules/$(uname -r)/kernel/net/ipv4/netfilter/ipt_recent.$MEXT" ] || [ ! -f "/lib/modules/$(uname -r)/kernel/net/ipv4/netfilter/xt_recent.$MEXT" ]; then
+!  if [ "$RAB" == "1" ]; then
+  	RAB="0"
+  	eout "{rab} force set RAB disabled, kernel module ipt_recent not found."
+-  fi
+  fi
+  }
+  
+--- 152,160 ----
+  }
+  
+  check_rab() {
+! if [ -z "$(cat /proc/net/ip_tables_matches | grep '^recent')" ] && [ "$RAB" == "1" ]; then
+  	RAB="0"
+  	eout "{rab} force set RAB disabled, kernel module ipt_recent not found."
+  fi
+  }
+  
+***************
+*** 232,256 ****
+          $IPT -D TGDENY -s $DIP -j $ALL_STOP
+          $IPT -D TGDENY -d $DIP -j $ALL_STOP
+  
+! 	val=`cat /etc/apf/allow_hosts.rules | grep "$DIP"`
+  	if [ ! "$val" == "" ]; then
+! 		cat /etc/apf/allow_hosts.rules | grep -v "$DIP" > /etc/apf/allow_hosts.rules.new
+! 		mv /etc/apf/allow_hosts.rules.new /etc/apf/allow_hosts.rules
+  	fi
+! 	val=`cat /etc/apf/deny_hosts.rules | grep "$DIP"`
+          if [ ! "$val" == "" ]; then
+!         	cat /etc/apf/deny_hosts.rules | grep -v "$DIP" > /etc/apf/deny_hosts.rules.new
+! 	        mv /etc/apf/deny_hosts.rules.new /etc/apf/deny_hosts.rules
+  	fi
+! 	val=`cat /etc/apf/glob_allow_hosts.rules | grep "$DIP"`
+          if [ ! "$val" == "" ]; then
+!         	cat /etc/apf/glob_allow_hosts.rules | grep -v "$DIP" > /etc/apf/glob_allow_hosts.rules.new
+! 	        mv /etc/apf/glob_allow_hosts.rules.new /etc/apf/glob_allow_hosts.rules
+  	fi
+! 	val=`cat /etc/apf/glob_deny_hosts.rules | grep "$DIP"`
+          if [ ! "$val" == "" ]; then
+!         	cat /etc/apf/glob_deny_hosts.rules | grep -v "$DIP" > /etc/apf/glob_deny_hosts.rules.new
+! 	        mv /etc/apf/glob_deny_hosts.rules.new /etc/apf/glob_deny_hosts.rules
+  	fi
+  
+  	dil=`$IPT --numeric --list INPUT --line-numbers | grep $DIP | awk '{print$1}'`
+--- 230,254 ----
+          $IPT -D TGDENY -s $DIP -j $ALL_STOP
+          $IPT -D TGDENY -d $DIP -j $ALL_STOP
+  
+! 	val=`cat $INSTALL_PATH/allow_hosts.rules | grep "$DIP"`
+  	if [ ! "$val" == "" ]; then
+! 		cat $INSTALL_PATH/allow_hosts.rules | grep -v "$DIP" > $INSTALL_PATH/allow_hosts.rules.new
+! 		mv $INSTALL_PATH/allow_hosts.rules.new $INSTALL_PATH/allow_hosts.rules
+  	fi
+! 	val=`cat $INSTALL_PATH/deny_hosts.rules | grep "$DIP"`
+          if [ ! "$val" == "" ]; then
+!         	cat $INSTALL_PATH/deny_hosts.rules | grep -v "$DIP" > $INSTALL_PATH/deny_hosts.rules.new
+! 	        mv $INSTALL_PATH/deny_hosts.rules.new $INSTALL_PATH/deny_hosts.rules
+  	fi
+! 	val=`cat $INSTALL_PATH/glob_allow_hosts.rules | grep "$DIP"`
+          if [ ! "$val" == "" ]; then
+!         	cat $INSTALL_PATH/glob_allow_hosts.rules | grep -v "$DIP" > $INSTALL_PATH/glob_allow_hosts.rules.new
+! 	        mv $INSTALL_PATH/glob_allow_hosts.rules.new $INSTALL_PATH/glob_allow_hosts.rules
+  	fi
+! 	val=`cat $INSTALL_PATH/glob_deny_hosts.rules | grep "$DIP"`
+          if [ ! "$val" == "" ]; then
+!         	cat $INSTALL_PATH/glob_deny_hosts.rules | grep -v "$DIP" > $INSTALL_PATH/glob_deny_hosts.rules.new
+! 	        mv $INSTALL_PATH/glob_deny_hosts.rules.new $INSTALL_PATH/glob_deny_hosts.rules
+  	fi
+  
+  	dil=`$IPT --numeric --list INPUT --line-numbers | grep $DIP | awk '{print$1}'`
+***************
+*** 285,291 ****
+          val_rev=`cat $ALLOW_HOSTS | grep -w $HOST`
+          val_rev2=`cat $GALLOW_HOSTS | grep -w $HOST`
+          val_rev3=`cat $GDENY_HOSTS | grep -w $HOST`
+!         val_rev4=`/sbin/ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $HOST`
+          if [ ! "$val" == "" ]; then
+                  echo "$HOST already exists in $DENY_HOSTS"
+          elif [ ! "$val_rev" == "" ]; then
+--- 283,289 ----
+          val_rev=`cat $ALLOW_HOSTS | grep -w $HOST`
+          val_rev2=`cat $GALLOW_HOSTS | grep -w $HOST`
+          val_rev3=`cat $GDENY_HOSTS | grep -w $HOST`
+!         val_rev4=`$ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $HOST`
+          if [ ! "$val" == "" ]; then
+                  echo "$HOST already exists in $DENY_HOSTS"
+          elif [ ! "$val_rev" == "" ]; then
+***************
+*** 326,332 ****
+          val_rev=`cat $ALLOW_HOSTS | grep -w $HOST`
+  	val_rev2=`cat $GALLOW_HOSTS | grep -w $HOST`
+  	val_rev3=`cat $GDENY_HOSTS | grep -w $HOST`
+!         val_rev4=`/sbin/ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $HOST`
+          if [ ! "$val" == "" ]; then
+                 	echo "$HOST already exists in $DENY_HOSTS"
+  	elif [ ! "$val_rev" == "" ]; then
+--- 324,330 ----
+          val_rev=`cat $ALLOW_HOSTS | grep -w $HOST`
+  	val_rev2=`cat $GALLOW_HOSTS | grep -w $HOST`
+  	val_rev3=`cat $GDENY_HOSTS | grep -w $HOST`
+!         val_rev4=`$ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $HOST`
+          if [ ! "$val" == "" ]; then
+                 	echo "$HOST already exists in $DENY_HOSTS"
+  	elif [ ! "$val_rev" == "" ]; then
+***************
+*** 359,365 ****
+  }
+  
+  flush() {
+! firewall_on=`iptables -L --numeric | grep -vE "Chain|destination"`
+  if [ "$SET_FASTLOAD" == "1" ] && [ ! "$1" == "1" ] && [ ! "$DEVEL_ON" == "1" ] && [ ! "$firewall_on" == "" ]; then
+  	$IPTS > $INSTALL_PATH/internals/.apf.restore
+  	eout "{glob} fast load snapshot saved"
+--- 357,363 ----
+  }
+  
+  flush() {
+! firewall_on=`$IPT -L --numeric | grep -vE "Chain|destination"`
+  if [ "$SET_FASTLOAD" == "1" ] && [ ! "$1" == "1" ] && [ ! "$DEVEL_ON" == "1" ] && [ ! "$firewall_on" == "" ]; then
+  	$IPTS > $INSTALL_PATH/internals/.apf.restore
+  	eout "{glob} fast load snapshot saved"
+***************
+*** 380,395 ****
+  
+  list() {
+  echo "Loading chain rules..."
+! iptc=/etc/apf/.ipt.chains
+  :> $iptc ; chmod 600 $iptc
+  $IPT --verbose --numeric --line-numbers --list >> $iptc
+  echo "Opening editor"
+! if [ -f "/usr/bin/pico" ]; then
+! 	/usr/bin/pico -w $iptc
+  elif [ -f "/usr/bin/nano" ]; then
+  	/usr/bin/nano -w $iptc
+! elif [ -f "/bin/vi" ]; then
+! 	/bin/vi $iptc
+  fi
+  clear
+  rm -f $iptc
+--- 378,393 ----
+  
+  list() {
+  echo "Loading chain rules..."
+! iptc=$INSTALL_PATH/.ipt.chains
+  :> $iptc ; chmod 600 $iptc
+  $IPT --verbose --numeric --line-numbers --list >> $iptc
+  echo "Opening editor"
+! if [ -f "/usr/bin/vim" ]; then
+! 	/usr/bin/vim $iptc
+  elif [ -f "/usr/bin/nano" ]; then
+  	/usr/bin/nano -w $iptc
+! elif [ -f "/usr/bin/vi" ]; then
+! 	/usr/bin/vi $iptc
+  fi
+  clear
+  rm -f $iptc
+***************
+*** 407,420 ****
+          echo "-f|--stop........ .................. stop (flush) all firewall rules"
+          echo "-l|--list .......................... list all firewall rules"
+          echo "-t|--status ........................ output firewall status log"
+! 	echo "-e|--refresh ....................... refresh & resolve dns names in trust rules"
+          echo "-a HOST CMT|--allow HOST COMMENT ... add host (IP/FQDN) to allow_hosts.rules and"
+          echo "                                     immediately load new rule into firewall"
+          echo "-d HOST CMT|--deny HOST COMMENT .... add host (IP/FQDN) to deny_hosts.rules and"
+          echo "                                     immediately load new rule into firewall"
+! 	echo "-u|--remove HOST ................... remove host from [glob]*_hosts.rules"
+! 	echo "                                     and immediately remove rule from firewall"
+! 	echo "-o|--ovars ......................... output all configuration options"
+  }
+  
+  tospreroute() {
+--- 405,419 ----
+          echo "-f|--stop........ .................. stop (flush) all firewall rules"
+          echo "-l|--list .......................... list all firewall rules"
+          echo "-t|--status ........................ output firewall status log"
+!         echo "-e|--refresh ....................... refresh & resolve dns names in trust rules"
+          echo "-a HOST CMT|--allow HOST COMMENT ... add host (IP/FQDN) to allow_hosts.rules and"
+          echo "                                     immediately load new rule into firewall"
+          echo "-d HOST CMT|--deny HOST COMMENT .... add host (IP/FQDN) to deny_hosts.rules and"
+          echo "                                     immediately load new rule into firewall"
+!         echo "-u|--remove HOST ................... remove host from [glob]*_hosts.rules"
+!         echo "                                     and immediately remove rule from firewall"
+!         echo "-o|--ovars ......................... output all configuration options"
+!         echo "-i| ................................ update the dependencies in internals.conf"
+  }
+  
+  tospreroute() {
+***************
+*** 521,527 ****
+  }
+  
+  ovars() {
+! 	nice -n 16 cat /etc/apf/conf.apf /etc/apf/internals/internals.conf | grep -v "#" | grep "=" | tr '=' ' ' | awk '{print""$"$1"}'
+  }
+  
+  allow_hosts() {
+--- 520,526 ----
+  }
+  
+  ovars() {
+! 	nice -n 16 cat $INSTALL_PATH/conf.apf $INSTALL_PATH/internals/internals.conf | grep -v "#" | grep "=" | tr '=' ' ' | awk '{print""$"$1"}'
+  }
+  
+  allow_hosts() {
+***************
+*** 530,536 ****
+          #
+          #
+          for i in `cat $ALLOW_HOSTS | grep -v "#" | grep -v ":" | grep -v "="`; do
+!                 val=`/sbin/ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $i`
+                  if [ ! "$val" ]; then
+                   if [ ! "$i" == "" ] && [ -f "$ALLOW_HOSTS" ]; then
+                          eout "{trust} allow all to/from $i"
+--- 529,535 ----
+          #
+          #
+          for i in `cat $ALLOW_HOSTS | grep -v "#" | grep -v ":" | grep -v "="`; do
+!                 val=`$ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $i`
+                  if [ ! "$val" ]; then
+                   if [ ! "$i" == "" ] && [ -f "$ALLOW_HOSTS" ]; then
+                          eout "{trust} allow all to/from $i"
+***************
+*** 822,828 ****
+          #
+          #
+          for i in `cat $DENY_HOSTS | grep -v "#" | grep -v ":" | grep -v "="`; do
+!                 val=`/sbin/ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $i`
+                  if [ ! "$val" ]; then
+                   if [ ! "$i" == "" ] && [ -f "$DENY_HOSTS" ]; then
+                          eout "{trust} deny all to/from $i"
+--- 821,827 ----
+          #
+          #
+          for i in `cat $DENY_HOSTS | grep -v "#" | grep -v ":" | grep -v "="`; do
+!                 val=`$ip addr list $IFACE_IN | grep -w inet | grep -v inet6 | tr '/' ' ' | awk '{print$2}' | grep -w $i`
+                  if [ ! "$val" ]; then
+                   if [ ! "$i" == "" ] && [ -f "$DENY_HOSTS" ]; then
+                          eout "{trust} deny all to/from $i"
+***************
+*** 1128,1134 ****
+          chmod 600 $RESNET $RESNET.bk
+   fi
+  if [ -f "$WGET" ] && [ -f "$RESNET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+     rm -rf $URL_TMP
+     URL_FILE=`echo $DLIST_RESERVED_URL | tr '/' '\n' | grep "." | tail -n 1`
+     RD_CON="$DLIST_RESERVED_URL_PROT://$DLIST_RESERVED_URL"
+--- 1127,1133 ----
+          chmod 600 $RESNET $RESNET.bk
+   fi
+  if [ -f "$WGET" ] && [ -f "$RESNET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+     rm -rf $URL_TMP
+     URL_FILE=`echo $DLIST_RESERVED_URL | tr '/' '\n' | grep "." | tail -n 1`
+     RD_CON="$DLIST_RESERVED_URL_PROT://$DLIST_RESERVED_URL"
+***************
+*** 1147,1153 ****
+  	 fi
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+   if [ -f "$RESNET" ]; then
+  	cp $RESNET.bk $RESNET
+--- 1146,1152 ----
+  	 fi
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+   if [ -f "$RESNET" ]; then
+  	cp $RESNET.bk $RESNET
+***************
+*** 1158,1165 ****
+  
+  dlist_php() {
+  if [ ! "$DLIST_PHP_URL_PROT" == "" ] && [ ! "$DLIST_PHP_URL" == "" ] && [ "$DLIST_PHP" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+!    rm -rf $URL_TMP /etc/apf/.apf-*
+     URL_FILE=`echo $DLIST_PHP_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_PHP_URL_PROT://$DLIST_PHP_URL"
+     mkdir $URL_TMP
+--- 1157,1164 ----
+  
+  dlist_php() {
+  if [ ! "$DLIST_PHP_URL_PROT" == "" ] && [ ! "$DLIST_PHP_URL" == "" ] && [ "$DLIST_PHP" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+!    rm -rf $URL_TMP $INSTALL_PATH/.apf-*
+     URL_FILE=`echo $DLIST_PHP_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_PHP_URL_PROT://$DLIST_PHP_URL"
+     mkdir $URL_TMP
+***************
+*** 1180,1186 ****
+          eout "{php} download of $DLIST_PHP_URL_PROT://$DLIST_PHP_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+     rm -f $PHP_HOSTS
+     touch $PHP_HOSTS
+--- 1179,1185 ----
+          eout "{php} download of $DLIST_PHP_URL_PROT://$DLIST_PHP_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+     rm -f $PHP_HOSTS
+     touch $PHP_HOSTS
+***************
+*** 1209,1216 ****
+  
+  dlist_dshield() {
+  if [ ! "$DLIST_DSHIELD_URL_PROT" == "" ] && [ ! "$DLIST_DSHIELD_URL" == "" ] && [ "$DLIST_DSHIELD" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+!    rm -rf $URL_TMP /etc/apf/.apf-*
+     URL_FILE=`echo $DLIST_DSHIELD_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_DSHIELD_URL_PROT://$DLIST_DSHIELD_URL"
+     mkdir $URL_TMP
+--- 1208,1215 ----
+  
+  dlist_dshield() {
+  if [ ! "$DLIST_DSHIELD_URL_PROT" == "" ] && [ ! "$DLIST_DSHIELD_URL" == "" ] && [ "$DLIST_DSHIELD" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+!    rm -rf $URL_TMP $INSTALL_PATH/.apf-*
+     URL_FILE=`echo $DLIST_DSHIELD_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_DSHIELD_URL_PROT://$DLIST_DSHIELD_URL"
+     mkdir $URL_TMP
+***************
+*** 1231,1237 ****
+          eout "{dshield} download of $DLIST_DSHIELD_URL_PROT://$DLIST_DSHIELD_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+     rm -f $DS_HOSTS
+     touch $DS_HOSTS
+--- 1230,1236 ----
+          eout "{dshield} download of $DLIST_DSHIELD_URL_PROT://$DLIST_DSHIELD_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+     rm -f $DS_HOSTS
+     touch $DS_HOSTS
+***************
+*** 1260,1267 ****
+  
+  dlist_spamhaus() {
+  if [ ! "$DLIST_SPAMHAUS_URL_PROT" == "" ] && [ ! "$DLIST_SPAMHAUS_URL" == "" ] && [ "$DLIST_SPAMHAUS" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+!    rm -rf $URL_TMP /etc/apf/.apf-*
+     URL_FILE=`echo $DLIST_SPAMHAUS_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_SPAMHAUS_URL_PROT://$DLIST_SPAMHAUS_URL"
+     mkdir $URL_TMP
+--- 1259,1266 ----
+  
+  dlist_spamhaus() {
+  if [ ! "$DLIST_SPAMHAUS_URL_PROT" == "" ] && [ ! "$DLIST_SPAMHAUS_URL" == "" ] && [ "$DLIST_SPAMHAUS" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+!    rm -rf $URL_TMP $INSTALL_PATH/.apf-*
+     URL_FILE=`echo $DLIST_SPAMHAUS_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_SPAMHAUS_URL_PROT://$DLIST_SPAMHAUS_URL"
+     mkdir $URL_TMP
+***************
+*** 1282,1288 ****
+          eout "{sdrop} download of $DLIST_SPAMHAUS_URL_PROT://$DLIST_SPAMHAUS_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+     rm -f $DROP_HOSTS
+     touch $DROP_HOSTS
+--- 1281,1287 ----
+          eout "{sdrop} download of $DLIST_SPAMHAUS_URL_PROT://$DLIST_SPAMHAUS_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+     rm -f $DROP_HOSTS
+     touch $DROP_HOSTS
+***************
+*** 1312,1319 ****
+  
+  dlist_ecnshame() {
+  if [ ! "$DLIST_ECNSHAME_URL_PROT" == "" ] && [ ! "$DLIST_ECNSHAME_URL" == "" ] && [ "$DLIST_ECNSHAME" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+!    rm -rf $URL_TMP /etc/apf/.apf-*
+     URL_FILE=`echo $DLIST_ECNSHAME_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_ECNSHAME_URL_PROT://$DLIST_ECNSHAME_URL"
+     mkdir $URL_TMP
+--- 1311,1318 ----
+  
+  dlist_ecnshame() {
+  if [ ! "$DLIST_ECNSHAME_URL_PROT" == "" ] && [ ! "$DLIST_ECNSHAME_URL" == "" ] && [ "$DLIST_ECNSHAME" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+!    rm -rf $URL_TMP $INSTALL_PATH/.apf-*
+     URL_FILE=`echo $DLIST_ECNSHAME_URL | tr '/' '\n' | grep "." | tail -n 1`
+     URL_CON="$DLIST_ECNSHAME_URL_PROT://$DLIST_ECNSHAME_URL"
+     mkdir $URL_TMP
+***************
+*** 1334,1340 ****
+          eout "{ecnshame} download of $DLIST_ECNSHAME_URL_PROT://$DLIST_ECNSHAME_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+     rm -f $ECNSHAME_HOSTS
+     touch $ECNSHAME_HOSTS
+--- 1333,1339 ----
+          eout "{ecnshame} download of $DLIST_ECNSHAME_URL_PROT://$DLIST_ECNSHAME_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+     rm -f $ECNSHAME_HOSTS
+     touch $ECNSHAME_HOSTS
+***************
+*** 1355,1361 ****
+  
+  glob_allow_download() {
+  if [ ! "$GA_URL_PROT" == "" ] && [ ! "$GA_URL" == "" ] && [ "$USE_RGT" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+     rm -rf $URL_TMP
+     URL_FILE=`echo $GA_URL | tr '/' '\n' | grep "." | tail -n 1`
+     GA_URL_CON="$GA_URL_PROT://$GA_URL"
+--- 1354,1360 ----
+  
+  glob_allow_download() {
+  if [ ! "$GA_URL_PROT" == "" ] && [ ! "$GA_URL" == "" ] && [ "$USE_RGT" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+     rm -rf $URL_TMP
+     URL_FILE=`echo $GA_URL | tr '/' '\n' | grep "." | tail -n 1`
+     GA_URL_CON="$GA_URL_PROT://$GA_URL"
+***************
+*** 1370,1376 ****
+          eout "{trust} download of $GA_URL_PROT://$GA_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+     rm -f $GALLOW_HOSTS
+     touch $GALLOW_HOSTS
+--- 1369,1375 ----
+          eout "{trust} download of $GA_URL_PROT://$GA_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+     rm -f $GALLOW_HOSTS
+     touch $GALLOW_HOSTS
+***************
+*** 1380,1386 ****
+  
+  glob_deny_download() {
+  if [ ! "$GD_URL_PROT" == "" ] && [ ! "$GD_URL" == "" ] && [ "$USE_RGT" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="/etc/apf/.apf-$$"
+     rm -rf $URL_TMP
+     URL_FILE=`echo $GD_URL | tr '/' '\n' | grep "." | tail -n 1`
+     GD_URL_CON="$GD_URL_PROT://$GD_URL"
+--- 1379,1385 ----
+  
+  glob_deny_download() {
+  if [ ! "$GD_URL_PROT" == "" ] && [ ! "$GD_URL" == "" ] && [ "$USE_RGT" == "1" ] && [ -f "$WGET" ]; then
+!    URL_TMP="$INSTALL_PATH/.apf-$$"
+     rm -rf $URL_TMP
+     URL_FILE=`echo $GD_URL | tr '/' '\n' | grep "." | tail -n 1`
+     GD_URL_CON="$GD_URL_PROT://$GD_URL"
+***************
+*** 1395,1401 ****
+          eout "{trust} download of $GD_URL_PROT://$GD_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd /etc/apf
+  else
+     rm -f $GDENY_HOSTS
+     touch $GDENY_HOSTS
+--- 1394,1400 ----
+          eout "{trust} download of $GD_URL_PROT://$GD_URL failed"
+     fi
+     rm -rf $URL_TMP
+!    cd $INSTALL_PATH
+  else
+     rm -f $GDENY_HOSTS
+     touch $GDENY_HOSTS
+***************
+*** 1481,1489 ****
+  
+  refresh() {
+  	eout "{glob} refreshing trust system rules."
+! 	/sbin/iptables-save | grep -E "TDENY|TGDENY" | grep -E '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print$4}' | sort -n | uniq  | sort > /etc/apf/internals/refresh.drop.temp
+  	$IPT -F TMP_DROP
+!         for i in `cat /etc/apf/internals/refresh.drop.temp | grep -v "#"`; do
+  		if [ ! "$i" == "" ]; then
+          	 $IPT -A TMP_DROP -s $i -d 0/0 -j $ALL_STOP
+  	         $IPT -A TMP_DROP -d $i -s 0/0 -j $ALL_STOP
+--- 1480,1488 ----
+  
+  refresh() {
+  	eout "{glob} refreshing trust system rules."
+! 	$IPTS | grep -E "TDENY|TGDENY" | grep -E '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print$4}' | sort -n | uniq  | sort > $INSTALL_PATH/internals/refresh.drop.temp
+  	$IPT -F TMP_DROP
+!         for i in `cat $INSTALL_PATH/internals/refresh.drop.temp | grep -v "#"`; do
+  		if [ ! "$i" == "" ]; then
+          	 $IPT -A TMP_DROP -s $i -d 0/0 -j $ALL_STOP
+  	         $IPT -A TMP_DROP -d $i -s 0/0 -j $ALL_STOP
+***************
+*** 1509,1515 ****
+  cat<<EOF > $INSTALL_PATH/internals/cron.refresh
+  MAILTO=
+  SHELL=/bin/bash
+! */$SET_REFRESH * * * * root /etc/apf/apf --refresh >> /dev/null 2>&1 &
+  EOF
+  	chmod 644 $INSTALL_PATH/internals/cron.refresh
+  	ln -fs $INSTALL_PATH/internals/cron.refresh /etc/cron.d/refresh.apf
+--- 1508,1514 ----
+  cat<<EOF > $INSTALL_PATH/internals/cron.refresh
+  MAILTO=
+  SHELL=/bin/bash
+! */$SET_REFRESH * * * * root $INSTALL_PATH/apf --refresh >> /dev/null 2>&1 &
+  EOF
+  	chmod 644 $INSTALL_PATH/internals/cron.refresh
+  	ln -fs $INSTALL_PATH/internals/cron.refresh /etc/cron.d/refresh.apf
+Only in apf-9.7-2/files/internals: internals.conf~
+diff -crB apf-9.7-1/files/sysctl.rules apf-9.7-2/files/sysctl.rules
+*** apf-9.7-1/files/sysctl.rules	2007-06-03 16:23:44.000000000 -0400
+--- apf-9.7-2/files/sysctl.rules	2011-03-02 20:46:07.426178096 -0500
+***************
+*** 9,14 ****
+--- 9,16 ----
+  echo $SYSCTL_CONNTRACK > /proc/sys/net/ipv4/ip_conntrack_max
+  echo 1 > /proc/sys/net/ipv4/icmp_ignore_bogus_error_responses
+  echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_broadcasts
++ # echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
++ # echo 1 > /proc/sys/net/netfilter/nf_conntrack_acct
+  
+  if [ "$SYSCTL_LOGMARTIANS" == "1" ]; then
+  	eout "{glob} setting sysctl_logmartians enabled"
+diff -crB apf-9.7-1/files/vnet/vnetgen apf-9.7-2/files/vnet/vnetgen
+*** apf-9.7-1/files/vnet/vnetgen	2009-03-17 08:37:05.000000000 -0400
+--- apf-9.7-2/files/vnet/vnetgen	2011-03-03 10:15:58.440789555 -0500
+***************
+*** 21,27 ****
+  #
+  CNF="/etc/apf/conf.apf"
+  if [ -f $CNF ]; then
+!    source $CNF
+  else
+     echo "$CNF not found, aborting."
+     exit 1
+--- 21,27 ----
+  #
+  CNF="/etc/apf/conf.apf"
+  if [ -f $CNF ]; then
+!    source $CNF 2>/dev/null
+  else
+     echo "$CNF not found, aborting."
+     exit 1
+***************
+*** 36,47 ****
+          exit 1
+  fi
+  
+  if [ ! -f "$ip" ] && [ ! -f "$ifconfig" ]; then
+          eout "{glob} $ip and $ifconfig not found; aborting"
+  	echo "$ip and $ifconfig not found; aborting"
+          exit 1
+  elif [ -f "$ip" ]; then
+!  for addr in `/sbin/ip addr list | tr '/' ' ' | grep -w inet | grep -w $IF | grep -v 127.0.0.1 | grep -vw $NET | awk '{print$2}'`; do
+    if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+--- 36,49 ----
+          exit 1
+  fi
+  
++ [ -z "$NET" ] && exit 1
++ 
+  if [ ! -f "$ip" ] && [ ! -f "$ifconfig" ]; then
+          eout "{glob} $ip and $ifconfig not found; aborting"
+  	echo "$ip and $ifconfig not found; aborting"
+          exit 1
+  elif [ -f "$ip" ]; then
+!  for addr in `$ip addr list | tr '/' ' ' | grep -w inet | grep -w $IF | grep -v 127.0.0.1 | grep -vw $NET | awk '{print$2}'`; do
+    if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+***************
+*** 49,56 ****
+    fi
+   done
+  elif [ -f "$ifconfig" ]; then
+! for iface in `ifconfig | grep -w $IF | awk '{print$1}'`; do
+!   for addr in `ifconfig $iface | grep -w inet | tr ':' ' ' | grep -vw $NET | awk '{print$3}'`; do
+      if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+--- 51,58 ----
+    fi
+   done
+  elif [ -f "$ifconfig" ]; then
+! for iface in `$ifconfig | grep -w $IF | awk '{print$1}'`; do
+!   for addr in `$ifconfig $iface | grep -w inet | tr ':' ' ' | grep -vw $NET | awk '{print$3}'`; do
+      if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+***************
+*** 63,73 ****
+  
+  if [ "$SET_ADDIFACE" == "1" ]; then
+   ## associate a vnet rule for ip's on additional interfaces other than the main
+!  for anet in `ifconfig | grep Link | grep -vwE "inet|inet6|lo|$IFACE_IN|$IFACE_OUT" | awk '{print$1}'`; do
+    if [ -f "$ip" ]; then
+    valtif=`echo $TIF | grep $anet`
+     if [ "$valtif" == "" ]; then
+!     for addr in `/sbin/ip addr list | tr '/' ' ' | grep -w inet | grep -w $anet | grep -v 127.0.0.1 | grep -vw $NET | awk '{print$2}'`; do
+       if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+--- 65,75 ----
+  
+  if [ "$SET_ADDIFACE" == "1" ]; then
+   ## associate a vnet rule for ip's on additional interfaces other than the main
+!  for anet in `$ifconfig | grep Link | grep -vwE "inet|inet6|lo|$IFACE_IN|$IFACE_OUT" | awk '{print$1}'`; do
+    if [ -f "$ip" ]; then
+    valtif=`echo $TIF | grep $anet`
+     if [ "$valtif" == "" ]; then
+!     for addr in `$ip addr list | tr '/' ' ' | grep -w inet | grep -w $anet | grep -v 127.0.0.1 | grep -vw $NET | awk '{print$2}'`; do
+       if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+***************
+*** 76,85 ****
+      done
+     fi
+    elif [ -f "$ifconfig" ]; then
+!    for iface in `ifconfig | grep -w $anet | awk '{print$1}'`; do
+      valtif=`echo $TIF | grep $anet`
+      if [ "$valtif" == "" ]; then 
+!      for addr in `ifconfig $iface | grep -w inet | tr ':' ' ' | grep -vw $NET | awk '{print$3}'`; do
+        if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+--- 78,87 ----
+      done
+     fi
+    elif [ -f "$ifconfig" ]; then
+!    for iface in `$ifconfig | grep -w $anet | awk '{print$1}'`; do
+      valtif=`echo $TIF | grep $anet`
+      if [ "$valtif" == "" ]; then 
+!      for addr in `$ifconfig $iface | grep -w inet | tr ':' ' ' | grep -vw $NET | awk '{print$3}'`; do
+        if [ ! -f "$INSTALL_PATH/vnet/$addr.rules" ]; then
+          touch $INSTALL_PATH/vnet/$addr.rules
+          chmod 600 $INSTALL_PATH/vnet/$addr.rules
+diff -crB apf-9.7-1/install.sh apf-9.7-2/install.sh
+*** apf-9.7-1/install.sh	2009-03-17 08:37:05.000000000 -0400
+--- apf-9.7-2/install.sh	2011-03-03 23:29:16.012179198 -0500
+***************
+*** 118,120 ****
+--- 118,121 ----
+  fi
+  
+  rm -f .conf.apf
++ apf -i

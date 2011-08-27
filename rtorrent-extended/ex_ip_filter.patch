@@ -1,0 +1,1265 @@
+diff --git a/configure.ac b/configure.ac
+index 3e51887..be5f395 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -3,6 +3,7 @@ AC_INIT(rtorrent, 0.8.6, jaris@ifi.uio.no)
+ AM_INIT_AUTOMAKE
+ AM_CONFIG_HEADER(config.h)
+ 
++AC_CHECK_FUNCS(getline)
+ AC_PROG_CXX
+ AC_PROG_LIBTOOL
+ 
+diff --git a/src/command_network.cc b/src/command_network.cc
+index 34f75ab..15a14a3 100644
+--- a/src/command_network.cc
++++ b/src/command_network.cc
+@@ -36,6 +36,11 @@
+ 
+ #include "config.h"
+ 
++#include <string>
++#include <sstream>
++#include <list>
++#include <unistd.h>
++
+ #include <functional>
+ #include <cstdio>
+ #include <rak/address_info.h>
+@@ -62,6 +67,10 @@
+ #include "control.h"
+ #include "command_helpers.h"
+ 
++#include "utils/pattern.h" 
++#include "core/ip_filter.h"
++
++
+ torrent::Object
+ apply_throttle(bool up, const torrent::Object& rawArgs) {
+   const torrent::Object::list_type& args = rawArgs.as_list();
+@@ -209,6 +218,59 @@ apply_encryption(const torrent::Object& rawArgs) {
+ }
+ 
+ torrent::Object
++apply_ip_filter(const torrent::Object& rawArgs) {
++  const torrent::Object::list_type& args = rawArgs.as_list();
++
++  std::list<std::string> files;
++
++  for (torrent::Object::list_const_iterator itr = args.begin(), last = args.end(); itr != last; itr++) {
++    std::string file( itr->as_string() );
++    utils::trim( file );
++    if( access(file.c_str(),F_OK | R_OK) ) 
++      throw torrent::input_error("IpFilter file '" + file + "' does not exist or not readable. Filter could not be loaded");
++    files.push_back( file );
++  }
++
++  std::stringstream logMsg; 
++  if( files.empty() ) {
++    logMsg << "IpFilter is empty";
++    control->core()->push_log( logMsg.str().c_str() );
++  }
++  else {
++    core::IpFilter* f = new core::IpFilter();
++    logMsg << "IpFilter is initialized with files: ";
++    int entries = 0;
++    clock_t time_start = clock();
++    for( std::list<std::string>::iterator itr = files.begin(); itr != files.end(); itr++) {
++      std::cout << "Loading IP filters from '" << *itr << "'...";
++      std::cout.flush();
++      if( itr != files.begin() )
++        logMsg << ", ";
++      logMsg << *itr;
++      int merges = f->add_from_file( *itr );
++      if( merges < 0 ) {
++        std::cout << "error" << std::endl;
++        std::cout.flush();
++        throw torrent::input_error("IpFilter could not load file '" + *itr + "'");
++      }
++      std::cout << "done. Loaded " << (f->size()-entries) << " ranges. " << merges << " ranges were merged." << std::endl;
++      std::cout.flush();
++      entries = f->size();
++    }
++    control->core()->push_log( logMsg.str().c_str() );
++    std::stringstream logMsg2("IpFilter loaded with "); 
++    logMsg2 << f->size() << " ranges total. " << f->get_merges() << " ranges were merged.";
++    control->core()->push_log( logMsg2.str().c_str() );
++    std::cout << logMsg2.str() << std::endl;
++    std::cout << "IP_Filters loaded in " << (double)(clock()-time_start)/CLOCKS_PER_SEC << " seconds" << std::endl;
++    std::cout.flush();
++    control->core()->set_ip_filter( f );
++  }
++
++  return torrent::Object();
++}
++
++torrent::Object
+ apply_tos(const torrent::Object& rawArg) {
+   rpc::Command::value_type value;
+   torrent::ConnectionManager* cm = torrent::connection_manager();
+@@ -492,6 +554,9 @@ initialize_command_network() {
+ 
+   ADD_VARIABLE_BOOL("peer_exchange", true);
+ 
++  ADD_COMMAND_VOID("reload_ip_filter",          rak::make_mem_fun(control->core(), &core::Manager::reload_ip_filter));
++  ADD_COMMAND_LIST("ip_filter",          	rak::ptr_fn(&apply_ip_filter));
++
+   // Not really network stuff:
+   ADD_VARIABLE_BOOL  ("handshake_log", false);
+   ADD_VARIABLE_STRING("log.tracker", "");
+diff --git a/src/core/Makefile.am b/src/core/Makefile.am
+index fe07cbf..ba732ee 100644
+--- a/src/core/Makefile.am
++++ b/src/core/Makefile.am
+@@ -36,6 +36,17 @@ libsub_core_a_SOURCES = \
+ 	view.cc \
+ 	view.h \
+ 	view_manager.cc \
+-	view_manager.h
++	view_manager.h \
++	ip_address.cc \
++	ip_address.h \
++	ip_filter.cc \
++	ip_filter.h \
++	ip_range.cc \
++	ip_range.h \
++	printable.h \
++	regex_namespace.h \
++	ip_filter_statics.cc \
++	getline.h \
++	getline.cc
+ 
+ INCLUDES = -I$(srcdir) -I$(srcdir)/.. -I$(top_srcdir)
+diff --git a/src/core/Makefile.in b/src/core/Makefile.in
+index 24b7eb4..6a1e01e 100644
+--- a/src/core/Makefile.in
++++ b/src/core/Makefile.in
+@@ -63,7 +63,12 @@ am_libsub_core_a_OBJECTS = curl_get.$(OBJEXT) curl_socket.$(OBJEXT) \
+ 	manager.$(OBJEXT) poll_manager.$(OBJEXT) \
+ 	poll_manager_epoll.$(OBJEXT) poll_manager_kqueue.$(OBJEXT) \
+ 	poll_manager_select.$(OBJEXT) view.$(OBJEXT) \
+-	view_manager.$(OBJEXT)
++	view_manager.$(OBJEXT) \
++	ip_address.$(OBJEXT) \
++	ip_filter.$(OBJEXT) \
++	ip_range.$(OBJEXT) \
++	ip_filter_statics.$(OBJEXT) \
++	getline.$(OBJEXT)
+ libsub_core_a_OBJECTS = $(am_libsub_core_a_OBJECTS)
+ DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
+ depcomp = $(SHELL) $(top_srcdir)/depcomp
+@@ -252,7 +257,18 @@ libsub_core_a_SOURCES = \
+ 	view.cc \
+ 	view.h \
+ 	view_manager.cc \
+-	view_manager.h
++	view_manager.h \
++	ip_address.cc \
++	ip_address.h \
++	ip_filter.cc \
++	ip_filter.h \
++	ip_range.cc \
++	ip_range.h \
++	printable.h \
++	regex_namespace.h \
++	ip_filter_statics.cc \
++	getline.cc \
++	getline.h
+ 
+ INCLUDES = -I$(srcdir) -I$(srcdir)/.. -I$(top_srcdir)
+ all: all-am
+@@ -320,6 +336,10 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/poll_manager_select.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/view.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/view_manager.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ip_address.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ip_range.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ip_filter_statics.Po@am__quote@  
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/getline.Po@am__quote@
+ 
+ .cc.o:
+ @am__fastdepCXX_TRUE@	$(CXXCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+diff --git a/src/core/getline.cc b/src/core/getline.cc
+new file mode 100644
+index 0000000..30a6e0a
+--- /dev/null
++++ b/src/core/getline.cc
+@@ -0,0 +1,117 @@
++#include <string>
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <limits.h>
++#include <errno.h>
++
++namespace core {
++
++/* getline.c ---  Implementation of replacement getline function.
++   Copyright (C) 1994, 1996, 1997, 1998, 2001, 2003, 2005 Free
++   Software Foundation, Inc.
++
++/* Ported from glibc by Simon Josefsson. */
++
++#ifndef SIZE_MAX
++# define SIZE_MAX ((size_t) -1)
++#endif
++#ifndef SSIZE_MAX
++# define SSIZE_MAX ((ssize_t) (SIZE_MAX / 2))
++#endif
++#if !HAVE_FLOCKFILE
++# undef flockfile
++# define flockfile(x) ((void) 0)
++#endif
++#if !HAVE_FUNLOCKFILE
++# undef funlockfile
++# define funlockfile(x) ((void) 0)
++#endif
++
++/* Read up to (and including) a DELIMITER from FP into *LINEPTR (and
++   NUL-terminate it).  *LINEPTR is a pointer returned from malloc (or
++   NULL), pointing to *N characters of space.  It is realloc'ed as
++   necessary.  Returns the number of characters read (not including
++   the null terminator), or -1 on error or EOF.  */
++
++ssize_t getline (char **lineptr, size_t *n, FILE *fp)
++{
++  ssize_t result;
++  size_t cur_len = 0;
++
++  if (lineptr == NULL || n == NULL || fp == NULL)
++    {
++      errno = EINVAL;
++      return -1;
++    }
++
++  flockfile (fp);
++
++  if (*lineptr == NULL || *n == 0)
++    {
++      *n = 120;
++      *lineptr = (char *) malloc (*n);
++      if (*lineptr == NULL)
++{
++  result = -1;
++  goto unlock_return;
++}
++    }
++
++  for (;;)
++    {
++      int i;
++
++      i = getc (fp);
++      if (i == EOF)
++{
++  result = -1;
++  break;
++}
++
++      /* Make enough space for len+1 (for final NUL) bytes.  */
++      if (cur_len + 1 >= *n)
++{
++  size_t needed_max =
++    SSIZE_MAX < SIZE_MAX ? (size_t) SSIZE_MAX + 1 : SIZE_MAX;
++  size_t needed = 2 * *n + 1;   /* Be generous. */
++  char *new_lineptr;
++
++  if (needed_max < needed)
++    needed = needed_max;
++  if (cur_len + 1 >= needed)
++    {
++      result = -1;
++      goto unlock_return;
++    }
++
++  new_lineptr = (char *) realloc (*lineptr, needed);
++  if (new_lineptr == NULL)
++    {
++      result = -1;
++
++
++
++      goto unlock_return;
++    }
++
++  *lineptr = new_lineptr;
++  *n = needed;
++}
++
++      (*lineptr)[cur_len] = i;
++      cur_len++;
++
++      if (i == '\n')
++break;
++    }
++  (*lineptr)[cur_len] = '\0';
++  result = cur_len ? cur_len : result;
++
++ unlock_return:
++  funlockfile (fp);
++  return result;
++}
++
++}
+diff --git a/src/core/getline.h b/src/core/getline.h
+new file mode 100644
+index 0000000..c2081a5
+--- /dev/null
++++ b/src/core/getline.h
+@@ -0,0 +1,25 @@
++#include <string>
++#include <stdio.h>
++#include <stdlib.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <limits.h>
++#include <errno.h>
++
++namespace core {
++
++/* getline.c ---  Implementation of replacement getline function.
++   Copyright (C) 1994, 1996, 1997, 1998, 2001, 2003, 2005 Free
++   Software Foundation, Inc.
++
++/* Ported from glibc by Simon Josefsson. */
++
++/* Read up to (and including) a DELIMITER from FP into *LINEPTR (and
++   NUL-terminate it).  *LINEPTR is a pointer returned from malloc (or
++   NULL), pointing to *N characters of space.  It is realloc'ed as
++   necessary.  Returns the number of characters read (not including
++   the null terminator), or -1 on error or EOF.  */
++
++ssize_t getline (char **lineptr, size_t *n, FILE *fp);
++
++}
+diff --git a/src/core/ip_address.cc b/src/core/ip_address.cc
+new file mode 100644
+index 0000000..a9a9251
+--- /dev/null
++++ b/src/core/ip_address.cc
+@@ -0,0 +1,25 @@
++#include <cstdlib>
++#include <string>
++#include <arpa/inet.h>
++
++#include "ip_address.h"
++#include "utils/pattern.h"
++
++namespace core {
++
++std::pair<bool,uint32_t> IpAddress::to_int( const std::string& address ) {
++	uint32_t a;
++	int r = inet_pton( AF_INET, address.c_str(), &a);
++	if( r )
++		a = ntohl( a );
++	return std::pair<bool,uint32_t>( (r!=0), a );
++}
++
++std::string IpAddress::to_string() const {
++	char buf[128] = "";
++	uint32_t a = htonl( m_address );
++	inet_ntop( AF_INET, &a, buf, sizeof(buf) );
++	return std::string( buf );
++}
++
++}
+diff --git a/src/core/ip_address.h b/src/core/ip_address.h
+new file mode 100644
+index 0000000..a9ad142
+--- /dev/null
++++ b/src/core/ip_address.h
+@@ -0,0 +1,65 @@
++#ifndef IPADDRESS_H
++#define IPADDRESS_H
++
++#include <inttypes.h> 
++#include <string>
++
++#include "printable.h"
++#include "utils/pattern.h"
++#include "regex_namespace.h"
++
++namespace core {
++
++class IpAddress : public Printable {
++	friend class IpRange;
++	
++	private: // constants
++		static const std::string	PATTERN_IP_EXPRESSION;
++		static const std::string	PATTERN_IP_BYTES_EXPRESSION;
++		static const regex::Pattern	PATTERN_IP_BYTES;
++
++		static const int		GRP_IP_FIRST_BYTE;
++		static const int		GRP_IP_BYTES_COUNT;
++
++	private: // fields
++		uint32_t			m_address;
++	
++	private: // static methods
++	
++	private: // dynamic methods
++		IpAddress() : m_address(0) {}
++	
++		void copy( const IpAddress& addr ) { m_address = addr.m_address;}
++	
++	public: // static methods
++		static std::pair<bool,uint32_t> to_int( const std::string& strAddress );
++		static IpAddress* parse( const std::string& strAddress ) {
++			std::pair<bool,uint32_t> result = to_int( strAddress );
++			return ( !result.first ) ? NULL : new IpAddress( result.second );
++		}
++	
++	public: // dynamic methods
++		IpAddress( uint32_t address ) : m_address(address) {}
++		IpAddress( const IpAddress& addr ) { copy( addr ); }
++		IpAddress& operator= ( const IpAddress& addr ) { copy( addr ); return *this; } 
++
++		operator uint32_t() const { return m_address; }
++
++		bool operator>= ( const IpAddress& ip ) const { return (m_address >=    ip.m_address); }
++		bool operator<= ( const IpAddress& ip ) const { return (m_address <=    ip.m_address); }
++		bool operator<  ( const IpAddress& ip ) const { return (m_address <     ip.m_address); }
++		bool operator>  ( const IpAddress& ip ) const { return (m_address >     ip.m_address); }
++		bool operator== ( const IpAddress& ip ) const { return (m_address ==    ip.m_address); }
++		bool operator!= ( const IpAddress& ip ) const { return (m_address !=    ip.m_address); }
++
++		bool operator>= ( uint32_t ip ) const { return (m_address >= ip); }
++		bool operator<= ( uint32_t ip ) const { return (m_address <= ip); }
++		bool operator<  ( uint32_t ip ) const { return (m_address <  ip); }
++		bool operator>  ( uint32_t ip ) const { return (m_address >  ip); }
++		bool operator== ( uint32_t ip ) const { return (m_address == ip); }
++		bool operator!= ( uint32_t ip ) const { return (m_address != ip); }
++
++		std::string to_string() const;
++	};
++}
++#endif
+diff --git a/src/core/ip_filter.cc b/src/core/ip_filter.cc
+new file mode 100644
+index 0000000..3ae8ce4
+--- /dev/null
++++ b/src/core/ip_filter.cc
+@@ -0,0 +1,175 @@
++#include <sstream>
++#include <string>
++#include <map>
++#include <list>
++#include <fstream>
++#include <stdio.h>
++#include <stdlib.h>
++
++#ifdef HAVE_CONFIG_H
++#include <config.h>
++#endif
++
++#ifndef __linux__
++#ifndef HAVE_GETLINE
++#include "getline.h"
++#endif
++#endif
++
++#include "ip_filter.h"
++
++namespace core {
++
++int IpFilter::merge_and_insert( range_map* rs, IpRange* r ) {
++	if( !r || !r->get_from() )
++		return 0;
++
++	std::pair<const IpAddress,IpRange::ptr> p( *r->get_from(), IpRange::ptr(r) );
++	std::pair<range_itr,bool> duo = rs->insert( p );
++
++	range_itr idx = duo.first;
++	bool wasInserted = duo.second;
++	IpRange* curr = NULL;
++	int mergeCount = 0;
++
++	if( !wasInserted ) { // exactly the same start address already exists
++		curr = idx->second;
++		if( *curr->get_to() < *r->get_to() )
++			curr->set_to( r->get_to() );
++		delete r;
++		r = curr;
++		mergeCount++;
++	}
++	else {
++		if( idx != rs->begin() ) {
++			--idx;
++		curr = idx->second; // previous
++		if( *r->get_from() <= *curr->get_to() )
++			r = curr;
++		else
++			++idx;
++		}
++	}
++
++	if( idx != rs->end() )
++		++idx;
++
++	while( idx != rs->end() ) {
++		curr = idx->second;
++		if( *r->get_to() < *curr->get_from() )
++			break;
++
++		std::string d = r->get_description();
++		d += " / " + curr->get_description();
++		r->set_description( d );
++		if( *r->get_to() < *curr->get_to() )
++			r->set_to( curr->get_to() );
++		rs->erase( idx++ );
++		delete curr;
++		mergeCount++;
++	}
++	return mergeCount;
++}
++
++int IpFilter::add_from_file( const std::string& fileName, range_map* rs, str_list* files ) {
++	FILE *f = fopen(fileName.c_str(),"r");
++	int mergeCount = 0;
++	if (f==0) return -1;
++	char *line = (char *)malloc(64);
++	size_t sz=64;
++	int charsread = 0;
++	int linesread=0;
++	while( (charsread=getline(&line,&sz,f)) >=0 ) {
++		if( (line[0] == '#' ) || ( charsread <= 1 ) ) 
++			continue;
++		
++		IpRange* ir = IpRange::parse( line, charsread );
++		if( !ir || !ir->get_from() || !ir->get_to() )
++			continue;
++
++		mergeCount += merge_and_insert( rs, ir );
++	}
++	free(line);
++	files->push_back( std::string(fileName) );
++	fclose(f);
++	m_merges += mergeCount;
++	return mergeCount;
++}
++
++int IpFilter::add_from_file( const std::string& fileName ) {
++	if( !m_ranges )
++		m_ranges = new range_map();
++	if( !m_loadedFiles )
++		m_loadedFiles = new std::list<std::string>();
++
++	return add_from_file( fileName, m_ranges, m_loadedFiles );
++}
++
++int IpFilter::reload() {
++	if( !m_loadedFiles || m_loadedFiles->empty() )
++		return 0;
++
++	range_map* rs = new range_map();
++	str_list* files = new str_list();
++	int mergeCount = 0;
++	for( str_list::const_iterator it = m_loadedFiles->begin(), end = m_loadedFiles->end(); it != end; it++ )
++		mergeCount += add_from_file( *it, rs, files );
++
++	range_map* rsOld = m_ranges;
++	m_ranges = rs;
++	if( rsOld ) {
++		clear( rsOld );
++		delete rsOld;
++	}
++
++	str_list* filesOld = m_loadedFiles;
++	m_loadedFiles = files;
++	if( filesOld ) {
++		clear( filesOld );
++		delete filesOld;
++	}
++
++	m_merges = mergeCount;
++	return mergeCount;
++}
++
++IpRange* IpFilter::find_range( uint32_t ip ) const {
++	if( (ip >= 0) && m_ranges && !m_ranges->empty() ) {
++		range_itr idx = m_ranges->upper_bound( ip );
++		if( idx != m_ranges->begin() )
++			--idx;
++		IpRange* curr = idx->second;
++		if( curr->includes( ip ) )
++			return curr;
++	}
++	return NULL;
++}
++
++std::string IpFilter::to_string() const {
++	std::stringstream result;
++	if( !m_ranges )
++		result << "NULL" << std::endl;
++	else {
++		for( range_map::const_iterator it = m_ranges->begin() ; it != m_ranges->end(); it++ ) {
++			const IpAddress a = it->first;
++			IpRange* ir = it->second;
++			result << a << ": " << *ir << std::endl;
++		}
++	}
++	return result.str();
++}
++
++void IpFilter::clear( range_map* map ) {
++	if( map ) {
++		for( range_itr i = map->begin(), j = map->end(); i != j; i++ )
++			delete i->second;
++		map->clear();
++	}
++}
++
++void IpFilter::clear( str_list* list ) {
++	if( list )
++		list->clear();
++}
++
++}
+diff --git a/src/core/ip_filter.h b/src/core/ip_filter.h
+new file mode 100644
+index 0000000..07f2004
+--- /dev/null
++++ b/src/core/ip_filter.h
+@@ -0,0 +1,85 @@
++#ifndef IPFILTER_H
++#define IPFILTER_H
++
++#include <string>
++#include <map>
++#include <list>
++
++#include "printable.h"
++#include "ip_address.h"
++#include "ip_range.h"
++
++namespace core {
++
++typedef std::map<const IpAddress,IpRange::ptr>	range_map;
++typedef range_map::iterator			range_itr;
++typedef std::list<std::string>			str_list;
++
++class IpFilter : public Printable {
++	private: // fields
++		int m_merges;
++		range_map* m_ranges;
++		str_list* m_loadedFiles;
++
++	private: // static methods
++		static void clear( range_map* map );
++		static void clear( str_list* list );
++
++	private: // dynamic methods
++		void init_members(void) { // to avoid long constructor lines for every ctor
++			m_ranges = NULL;
++			m_loadedFiles = NULL;
++			m_merges = 0;
++		}
++		int merge_and_insert( range_map* rs, IpRange* r );
++		int add_from_file( const std::string& fileName, range_map* rs, str_list* files );
++
++	public: // static methods
++
++	public: // dynamic methods
++		IpFilter() { init_members(); }
++		~IpFilter() {
++			clear();
++			if( m_ranges ) delete m_ranges;
++			if( m_loadedFiles ) delete m_loadedFiles;
++			m_ranges = NULL;
++			m_loadedFiles = NULL;
++		}
++		IpFilter( std::string* files, int size ) {
++			init_members();
++			for( int i = 0; i < size; i++, files++ )
++				add_from_file( *files );
++		}
++		IpFilter( str_list& files ) {
++			init_members();
++			for( str_list::const_iterator i = files.begin(), last = files.end(); i != last; i++ )
++				add_from_file( *i );
++		}
++		IpFilter( IpFilter& f ) {
++			init_members();
++			m_ranges = new range_map( *f.m_ranges );
++			m_loadedFiles = new str_list( *f.m_loadedFiles );
++		}
++
++		int reload();
++		int add_from_file( const std::string& fileName );
++		int add_from_file( char* fileName ) { std::string s( fileName ); return add_from_file(s); }
++		void clear() { clear( m_ranges ); clear( m_loadedFiles ); }
++
++		IpRange* find_range( uint32_t ip ) const;
++
++		bool is_filtered( uint32_t ip ) const { return (find_range( ip ) != NULL); }
++		bool is_filtered( std::string ip ) const { 
++			static std::pair<bool,uint32_t> ipInt = IpAddress::to_int( ip );
++			return (!ipInt.first ? false : is_filtered( ipInt.second )); 
++		}
++
++		std::string to_string() const;
++
++		int size(void) { return ( m_ranges ? m_ranges->size() : 0 ); }
++		int get_merges(void) { return m_merges; }
++		void set_files( str_list& files) { m_loadedFiles = new str_list( files ); }
++};
++
++}
++#endif
+diff --git a/src/core/ip_filter_statics.cc b/src/core/ip_filter_statics.cc
+new file mode 100644
+index 0000000..042377d
+--- /dev/null
++++ b/src/core/ip_filter_statics.cc
+@@ -0,0 +1,21 @@
++#include "ip_address.h"
++#include "ip_range.h"
++#include "utils/pattern.h"
++
++namespace core {
++
++const std::string		IpAddress::PATTERN_IP_EXPRESSION		= "(([0-9]{1,3}\\.){3}[0-9]{1,3})";
++const std::string		IpAddress::PATTERN_IP_BYTES_EXPRESSION		= "([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})";
++const regex::Pattern		IpAddress::PATTERN_IP_BYTES			= PATTERN_IP_BYTES_EXPRESSION;
++
++const int			IpAddress::GRP_IP_FIRST_BYTE			= 1;
++const int			IpAddress::GRP_IP_BYTES_COUNT			= 4;
++
++const std::string		IpRange::PATTERN_RANGE_EXPRESSION		= "[[:space:]]*(.*)[[:space:]]*:[[:space:]]*" + IpAddress::PATTERN_IP_EXPRESSION + "[[:space:]]*-[[:space:]]*" + IpAddress::PATTERN_IP_EXPRESSION + "[[:space:]]*";
++const regex::Pattern		IpRange::PATTERN_RANGE				= PATTERN_RANGE_EXPRESSION;
++
++const int			IpRange::GRP_DESCRIPTION			= 1;
++const int			IpRange::GRP_FIRST_IP				= 2;
++const int			IpRange::GRP_SECOND_IP				= 4;
++
++}
+diff --git a/src/core/ip_range.cc b/src/core/ip_range.cc
+new file mode 100644
+index 0000000..3923e53
+--- /dev/null
++++ b/src/core/ip_range.cc
+@@ -0,0 +1,112 @@
++#include <sstream>
++#include <string>
++
++#include "ip_range.h"
++#include "utils/pattern.h"
++#include "regex_namespace.h"
++
++namespace core {
++
++IpRange* IpRange::parse( const std::string& s ) {
++	regex::Match m = PATTERN_RANGE.match( s );
++		
++	if( !m.matches() ) {
++		std::cout << "!! range format is invalid: '" << s << "'" << std::endl;
++		return NULL;
++	}
++
++	std::string     description     = m.group( GRP_DESCRIPTION );
++	std::string     ip1             = m.group( GRP_FIRST_IP );
++	std::string     ip2             = m.group( GRP_SECOND_IP );
++	IpAddress*      from            = IpAddress::parse( ip1 );
++	IpAddress*      to              = IpAddress::parse( ip2 );
++
++	if( !from ) {
++		std::cout << "!! from is invalid: description='" << description << ", ip1=" << ip1 << ", ip2=" << ip2 << std::endl;
++		return NULL;
++	}
++	if( !to ) {
++		std::cout << "!! to is invalid: description='" << description << ", ip1=" << ip1 << ", ip2=" << ip2 << std::endl;
++		return NULL;
++	}
++
++//	if( !from || !to || (*to < *from) )
++//		return NULL;
++
++	IpRange* r = new IpRange();
++
++	r->m_description        = description;
++	r->m_from               = from;
++	r->m_to                 = to;
++
++	if( to && from && (*to < *from) ) {
++		std::cout << "!! to < from: " << r->to_string() << std::endl;
++		delete r;
++		return NULL;
++	}
++
++	return r;
++}
++
++//fast version
++IpRange* IpRange::parse( const char *s, const int size ){
++	static char description[256];
++	static char ip1[24], ip2[24];
++	int pos=0, post=0, enddesc=size-1;
++	while (enddesc>0 && s[enddesc]!=':') enddesc--; //find last ':' in the line
++	while((pos<enddesc) && (unsigned char)s[pos]<=' ') pos++; // strip from start
++	while ((pos<enddesc)){
++	  if (post<255) description[post++]=s[pos];
++	  pos++;
++	} 
++	description[post]=0;
++	if (s[pos]==':') pos++;
++	  post=0;
++	  while ((pos<size) && s[pos]!='-'){
++	    if (post<23) ip1[post++]=s[pos];
++	    pos++;
++	  } 
++	  ip1[post]=0;
++	  if (s[pos]=='-'){
++	    pos++;
++	    post=0;
++		while ((pos<size) && s[pos]>' '){
++	      if (post<23) ip2[post++]=s[pos];
++	      pos++;
++		}
++		ip2[post]=0;
++	  } else ip2[0]=0;
++
++	IpAddress*      from            = IpAddress::parse(ip1);
++	IpAddress*      to            = IpAddress::parse(ip2);
++
++	if( !from ) {
++		std::cout << "!! from is invalid: description='" << description << ", ip1=" << ip1 << ", ip2=" << ip2 << std::endl;
++		return NULL;
++	}
++	if( !to ) {
++		std::cout << "!! to is invalid: description='" << description << ", ip1=" << ip1 << ", ip2=" << ip2 << std::endl;
++		return NULL;
++	}
++
++	IpRange* r = new IpRange();
++	r->m_description        = description;
++	r->m_from               = from;
++	r->m_to                 = to;
++
++	if( (*to < *from) ) {
++		std::cout << "!! to < from: " << r->to_string() << std::endl;
++		delete r;
++		return NULL;
++	}
++	
++	return r;
++}
++
++std::string IpRange::to_string() const {
++	std::stringstream result;
++	result << m_description << ": [" << m_from->to_string() << " - " << m_to->to_string() << ']';
++	return result.str();
++}
++
++}
+diff --git a/src/core/ip_range.h b/src/core/ip_range.h
+new file mode 100644
+index 0000000..1fb2322
+--- /dev/null
++++ b/src/core/ip_range.h
+@@ -0,0 +1,67 @@
++#ifndef IPRANGE_H
++#define IPRANGE_H
++
++#include <string>
++
++#include "printable.h"
++#include "ip_address.h"
++#include "utils/pattern.h"
++#include "regex_namespace.h"
++
++namespace core {
++
++class IpRange : public Printable {
++	public: // constants
++		static const std::string	PATTERN_RANGE_EXPRESSION;
++		static const regex::Pattern	PATTERN_RANGE;
++
++		static const int			GRP_DESCRIPTION;
++		static const int			GRP_FIRST_IP;
++		static const int			GRP_SECOND_IP;
++
++	private: // fields
++		std::string					m_description;
++		const IpAddress*			m_from;
++		const IpAddress*			m_to;
++
++	private: // dynamic methods
++		IpRange() : m_description(), m_from(NULL), m_to(NULL) {}
++	
++	public: // static methods
++		typedef IpRange* ptr;
++		static IpRange* parse( const std::string& s );
++		static IpRange* parse( const char *s, const int size );
++	
++	public: // dynamic methods
++		IpRange( IpRange& rng ) { copy(rng); }
++		IpRange& operator= ( IpRange& rng ) { copy(rng); return *this; }
++	
++		void copy( IpRange& rng ) {
++			m_description = rng.m_description;
++			m_from = (!rng.m_from) ? NULL : new IpAddress( *rng.m_from );
++			m_to = (!rng.m_to) ? NULL : new IpAddress( *rng.m_to );
++		}
++	
++		const std::string&      get_description ( void ) const  { return m_description; }
++		const IpAddress*        get_from        ( void ) const  { return m_from; }
++		const IpAddress*        get_to          ( void ) const  { return m_to; }
++		
++		void    set_description ( const std::string&    description )   { m_description = description; }
++		void    set_from        ( const IpAddress*      from )          { if( m_from ) delete m_from; m_from = new IpAddress( *from ); }
++		void    set_to          ( const IpAddress*      to )            { if( m_to ) delete m_to; m_to = new IpAddress( *to ); }
++		
++		bool    includes( const IpAddress& ip ) const { return includes((uint32_t)ip); }
++		bool    includes( uint32_t ip ) const { return (*m_from <= ip) && (*m_to >= ip); }
++		
++		~IpRange() {
++			delete m_from;
++			m_from = NULL;
++			delete m_to;
++			m_to = NULL;
++		}
++
++	std::string to_string() const;
++};
++
++}
++#endif
+diff --git a/src/core/manager.cc b/src/core/manager.cc
+index 2a422c8..9c1d004 100644
+--- a/src/core/manager.cc
++++ b/src/core/manager.cc
+@@ -153,6 +153,24 @@ Manager::handshake_log(const sockaddr* sa, int msg, int err, const torrent::Hash
+   }
+ }
+ 
++uint32_t
++Manager::filter_ip(const sockaddr* sa) {
++  IpRange* r = NULL;
++  // if something's wrong with filter or address it's gonna be allowed
++  if( m_ipFilter && sa ) {
++    const rak::socket_address* socketAddress = rak::socket_address::cast_from(sa);
++    if( socketAddress->is_valid() && (socketAddress->family() == rak::socket_address::af_inet) )
++      r = m_ipFilter->find_range( socketAddress->sa_inet()->address_h() );
++    if( r )
++      m_logComplete.push_front("Address '" + socketAddress->address_str() + "' is rejected by IP filter range '" + r->to_string());
++    else
++    if( rpc::call_command_value("get_handshake_log") )
++      m_logComplete.push_front("IP Filter allowed connection with '" + socketAddress->address_str() + "'");
++  }
++  return (r==NULL);
++}
++
++
+ void
+ Manager::push_log(const char* msg) {
+   m_logImportant.push_front(msg);
+@@ -160,7 +178,8 @@ Manager::push_log(const char* msg) {
+ }
+ 
+ Manager::Manager() :
+-  m_hashingView(NULL)
++  m_hashingView(NULL),
++  m_ipFilter(NULL)
+ //   m_pollManager(NULL) {
+ {
+   m_downloadStore   = new DownloadStore();
+@@ -181,6 +200,8 @@ Manager::~Manager() {
+   delete m_downloadStore;
+   delete m_httpQueue;
+   delete m_fileStatusCache;
++
++  set_ip_filter( NULL );
+ }
+ 
+ void
+@@ -226,6 +247,7 @@ Manager::initialize_second() {
+   CurlStack::global_init();
+ 
+   torrent::connection_manager()->set_signal_handshake_log(sigc::mem_fun(this, &Manager::handshake_log));
++  torrent::connection_manager()->set_filter(sigc::mem_fun(this, &Manager::filter_ip));
+ }
+ 
+ void
+@@ -585,4 +607,13 @@ Manager::receive_hashing_changed() {
+   }
+ }
+ 
++void Manager::reload_ip_filter(void) {
++  if( m_ipFilter ) {
++    push_log("Reloading IP filter");
++    m_ipFilter->reload();
++    std::stringstream logMsg("IpFilter reloaded with "); 
++    logMsg << m_ipFilter->size() << " ranges total. " << m_ipFilter->get_merges() << " ranges were merged.";
++    push_log( logMsg.str().c_str() );
++}
++}
+ }
+diff --git a/src/core/manager.h b/src/core/manager.h
+index 16902af..ac01981 100644
+--- a/src/core/manager.h
++++ b/src/core/manager.h
+@@ -47,6 +47,8 @@
+ #include "range_map.h"
+ #include "log.h"
+ 
++#include "ip_filter.h"
++
+ namespace torrent {
+   class Bencode;
+ }
+@@ -118,6 +120,15 @@ public:
+ 
+   void                handshake_log(const sockaddr* sa, int msg, int err, const torrent::HashString* hash);
+ 
++  uint32_t            filter_ip(const sockaddr* sa);
++
++  void                set_ip_filter( IpFilter* ipFilter ) {
++                        IpFilter* old = m_ipFilter;
++                        m_ipFilter = ipFilter;
++                        if( old ) delete old;
++                      }
++  void                reload_ip_filter(void);
++
+   static const int create_start    = 0x1;
+   static const int create_tied     = 0x2;
+   static const int create_quiet    = 0x4;
+@@ -154,6 +165,8 @@ private:
+ 
+   Log                 m_logImportant;
+   Log                 m_logComplete;
++
++  IpFilter*           m_ipFilter;
+ };
+ 
+ // Meh, cleanup.
+diff --git a/src/core/printable.h b/src/core/printable.h
+new file mode 100644
+index 0000000..8520af4
+--- /dev/null
++++ b/src/core/printable.h
+@@ -0,0 +1,16 @@
++#ifndef PRINTABLE_H
++#define PRINTABLE_H
++
++#include <iostream>
++
++class Printable {
++	public:
++		virtual std::string to_string() const = 0;
++};
++
++template<typename _CharT,class _Traits> inline std::basic_ostream<_CharT,_Traits>&
++	operator<<( std::basic_ostream<_CharT,_Traits>& out, const Printable& val) {
++	return out << val.to_string();
++}
++
++#endif
+diff --git a/src/core/regex_namespace.h b/src/core/regex_namespace.h
+new file mode 100644
+index 0000000..6e10b3c
+--- /dev/null
++++ b/src/core/regex_namespace.h
+@@ -0,0 +1,6 @@
++#ifndef REGEXNAMESPACE_H
++#define REGEXNAMESPACE_H
++
++namespace regex = utils;
++
++#endif
+diff --git a/src/utils/Makefile.am b/src/utils/Makefile.am
+index 55ea9ff..cdad48a 100644
+--- a/src/utils/Makefile.am
++++ b/src/utils/Makefile.am
+@@ -9,6 +9,8 @@ libsub_utils_a_SOURCES = \
+ 	lockfile.cc \
+ 	lockfile.h \
+ 	socket_fd.cc \
+-	socket_fd.h
++	socket_fd.h \
++	pattern.cc \
++	pattern.h
+ 
+ INCLUDES = -I$(srcdir) -I$(srcdir)/.. -I$(top_srcdir)
+diff --git a/src/utils/Makefile.in b/src/utils/Makefile.in
+index a684a9c..ca2913e 100644
+--- a/src/utils/Makefile.in
++++ b/src/utils/Makefile.in
+@@ -58,7 +58,7 @@ libsub_utils_a_AR = $(AR) $(ARFLAGS)
+ libsub_utils_a_LIBADD =
+ am_libsub_utils_a_OBJECTS = directory.$(OBJEXT) \
+ 	file_status_cache.$(OBJEXT) lockfile.$(OBJEXT) \
+-	socket_fd.$(OBJEXT)
++	socket_fd.$(OBJEXT) pattern.$(OBJEXT)
+ libsub_utils_a_OBJECTS = $(am_libsub_utils_a_OBJECTS)
+ DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
+ depcomp = $(SHELL) $(top_srcdir)/depcomp
+@@ -220,7 +220,9 @@ libsub_utils_a_SOURCES = \
+ 	lockfile.cc \
+ 	lockfile.h \
+ 	socket_fd.cc \
+-	socket_fd.h
++	socket_fd.h \
++	pattern.cc \
++	pattern.h
+ 
+ INCLUDES = -I$(srcdir) -I$(srcdir)/.. -I$(top_srcdir)
+ all: all-am
+@@ -275,6 +277,7 @@ distclean-compile:
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/file_status_cache.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lockfile.Po@am__quote@
+ @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/socket_fd.Po@am__quote@
++@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pattern.Po@am__quote@
+ 
+ .cc.o:
+ @am__fastdepCXX_TRUE@	$(CXXCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
+diff --git a/src/utils/pattern.cc b/src/utils/pattern.cc
+new file mode 100644
+index 0000000..c44bb38
+--- /dev/null
++++ b/src/utils/pattern.cc
+@@ -0,0 +1,79 @@
++#include <string>
++#include <sys/types.h>
++#include <ctype.h>
++#include <regex.h>
++
++#include "pattern.h"
++
++namespace utils {
++
++int Pattern::countGroups( const std::string& str ) {
++	int count1 = 0;
++	int count2 = 0;
++
++	for( size_t index = -1; (index = str.find( '(', index+1 )) != std::string::npos;  )
++		count1++;
++	for( size_t index = -1; (index = str.find( ')', index+1 )) != std::string::npos;  )
++		count2++;
++
++	return (count1 < count2) ? count1 : count2;
++}
++
++Pattern::Pattern( const std::string& pattern, Flags flags ) :	lastResult(-1),
++								preg(NULL) {
++	int regFlags = REG_EXTENDED | REG_ICASE | REG_NEWLINE;
++	if( !(flags & CASE_SENSITIVE) )
++		regFlags ^= REG_ICASE;
++	if( (flags & DOT_MATCH_NEWLINE) )
++		regFlags ^= REG_NEWLINE;
++
++	preg = new regex_t;
++	numGroups = countGroups( pattern ) + 1;
++
++	lastResult = regcomp( preg, pattern.c_str(), regFlags );
++}
++
++Pattern::~Pattern() {
++	regfree( preg );
++	delete( preg );
++}
++
++std::string Pattern::getLastError() const {
++	char errBuf[1024];
++	regerror( lastResult, preg, errBuf, sizeof(errBuf) );
++	return std::string(errBuf);
++}
++
++Match Pattern::match( const std::string& expression ) const {
++
++	regmatch_t* pmatch = new regmatch_t[numGroups];
++	int res = regexec( preg, expression.c_str(), numGroups, pmatch, 0 );
++	return Match( expression, numGroups, pmatch, res, getLastError() );
++}
++
++Match::Match( const std::string& expr, int ngroups, regmatch_t* groups, int result, const std::string& message ) : 
++	expression( expr ), 
++	nmatch( ngroups ), 
++	pmatch( groups ),
++	matchResult( result ),
++	matchMessage( message ) {
++}
++
++std::string Match::group( int i ) {
++	if( (i >= nmatch) || (pmatch[i].rm_so < 0) )
++		return "";
++
++	return expression.substr( pmatch[i].rm_so, pmatch[i].rm_eo - pmatch[i].rm_so );
++}
++
++std::string& trim( std::string& str ) {
++	std::string::iterator it;
++	for( it = str.begin(); (it < str.end()) && ( isspace(*it) || (*it == 0) ) ; it++ );
++	str.erase( str.begin(), it );
++  	for( it = str.end()-1; (it >= str.begin()) && ( isspace(*it) || (*it == 0) ) ; it-- );
++	str.erase( ++it, str.end() );
++	return str;
++}
++
++}
++
+diff --git a/src/utils/pattern.h b/src/utils/pattern.h
+new file mode 100644
+index 0000000..99e95a4
+--- /dev/null
++++ b/src/utils/pattern.h
+@@ -0,0 +1,59 @@
++#ifndef PATTERN_H
++#define PATTERN_H
++
++#include <string>
++#include <sys/types.h>
++#include <ctype.h>
++#include <regex.h>
++
++namespace utils {
++
++class Match {
++	public:
++		Match( const std::string& expr, int ngroups, regmatch_t* pmatch, int matchResult, const std::string& matchMessage );
++		~Match() { delete[] pmatch; }
++		std::string group( int i );
++		bool found() { return (matchResult == 0); }
++		bool matches() { return found(); }
++		std::string& getMatchMessage() { return matchMessage; }
++
++	private:
++		std::string	expression;
++		int		nmatch;
++		regmatch_t*	pmatch;
++		int		matchResult;
++		std::string	matchMessage;
++};
++
++class Pattern {
++	public:
++		enum Flags {
++			DEFAULT = 0,		// REG_EXTENDED | REG_ICASE | REG_NEWLINE
++			CASE_SENSITIVE,
++			DOT_MATCH_NEWLINE
++		};
++
++	public:
++		Pattern( const std::string& pattern, Flags f = Pattern::DEFAULT );
++		~Pattern();
++		bool isSuccess() { return (lastResult == 0); }
++		std::string getLastError() const;
++		Match match( const std::string& expression ) const;
++
++	private:
++		int countGroups( const std::string& str );
++
++	private:
++		regex_t*	preg;
++		int		lastResult;
++		int		numGroups;
++};
++
++
++std::string& trim( std::string& str );
++
++}
++
++// end of ifdef PATTERN_H
++#endif
++

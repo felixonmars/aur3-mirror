@@ -1,0 +1,518 @@
+Description: Add support for synchronous brightness notifications using notify-osd.
+ The patch is based around gsd-osd-notification.[ch] which is shared with gsd
+Author: Chris Coulson <chris.coulson@canonical.com>
+Forwarded: no
+
+Index: gnome-power-manager-2.31.6/src/Makefile.am
+===================================================================
+--- gnome-power-manager-2.31.6.orig/src/Makefile.am	2010-08-06 16:31:02.000000000 +0200
++++ gnome-power-manager-2.31.6/src/Makefile.am	2010-08-13 09:21:11.063803003 +0200
+@@ -176,6 +176,8 @@
+ 	gsd-media-keys-window.c				\
+ 	gpm-engine.h					\
+ 	gpm-engine.c					\
++	gsd-osd-notification.h			\
++	gsd-osd-notification.c			\
+ 	$(NULL)
+ 
+ gnome_power_manager_LDADD =				\
+Index: gnome-power-manager-2.31.6/src/gsd-osd-notification.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gnome-power-manager-2.31.6/src/gsd-osd-notification.c	2010-08-13 09:21:11.000000000 +0200
+@@ -0,0 +1,286 @@
++/* -*- Mode: C; indent-tabs-mode: nil; c-basic-offset: 8; tab-width: 8 -*- */
++/*
++ * gsd-osd-notification.c
++ * Copyright (C) 2010 Chris Coulson <chrisccoulson@ubuntu.com>
++ * Copyright (C) 2009 Canonical Ltd
++ * 
++ * gsd-osd-notification.c is free software: you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the
++ * Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ * 
++ * gsd-osd-notification.c is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License along
++ * with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include <libnotify/notify.h>
++#include "gsd-osd-notification.h"
++
++struct _GsdOsdNotificationPrivate
++{
++        NotifyNotification *notification;
++        char **icon_names;
++        char *hint;
++        guint icon_array_size;
++};
++
++#define GSD_OSD_NOTIFICATION_PRIVATE(o)  (G_TYPE_INSTANCE_GET_PRIVATE ((o), GSD_TYPE_OSD_NOTIFICATION, GsdOsdNotificationPrivate))
++
++enum
++{
++	PROP_0,
++	PROP_ICON_NAMES,
++        PROP_HINT
++};
++
++#define NOTIFY_CAP_PRIVATE_SYNCHRONOUS "x-canonical-private-synchronous"
++#define NOTIFY_CAP_PRIVATE_ICON_ONLY "x-canonical-private-icon-only"
++#define NOTIFY_HINT_TRUE "true"
++
++G_DEFINE_TYPE (GsdOsdNotification, gsd_osd_notification, G_TYPE_OBJECT);
++
++static const char*
++_calculate_icon (GsdOsdNotification *notifier, guint value, gboolean muted)
++{
++        guint s;
++
++        s = (notifier->priv->icon_array_size -1) * value / 100 + 1;
++        s = MAX (s, 1);
++        s = MIN (s, notifier->priv->icon_array_size -1);
++        if (value <= 0)
++                s = 0;
++
++        return muted ? notifier->priv->icon_names[0] : notifier->priv->icon_names[s];
++}
++
++void
++gsd_osd_notification_set_icon_array (GsdOsdNotification *notifier, const char **icon_names)
++{
++        g_return_if_fail (GSD_IS_OSD_NOTIFICATION (notifier));
++
++        g_strfreev (notifier->priv->icon_names);
++        notifier->priv->icon_names = g_strdupv ((gchar **) icon_names);
++
++        notifier->priv->icon_array_size = g_strv_length ((gchar **) icon_names);
++}
++
++void
++gsd_osd_notification_set_hint (GsdOsdNotification *notifier, const char *hint)
++{
++        g_return_if_fail (GSD_IS_OSD_NOTIFICATION (notifier));
++
++        g_free (notifier->priv->hint);
++        notifier->priv->hint = g_strdup (hint);
++}
++
++gboolean
++gsd_osd_notification_is_supported (void)
++{
++        GList *caps;
++        gboolean has_cap;
++
++        caps = notify_get_server_caps ();
++        has_cap = (g_list_find_custom (caps, NOTIFY_CAP_PRIVATE_SYNCHRONOUS, (GCompareFunc) g_strcmp0) != NULL);
++        g_list_foreach (caps, (GFunc) g_free, NULL);
++        g_list_free (caps);
++
++        return has_cap;
++}
++
++gboolean
++gsd_osd_notification_show_icon_only (const char *icon, const char *hint)
++{
++        NotifyNotification *notification;
++
++        g_return_val_if_fail (icon != NULL, FALSE);
++        g_return_val_if_fail (hint != NULL, FALSE);
++
++        if (!gsd_osd_notification_is_supported ())
++                return FALSE;
++
++        notification = notify_notification_new (" ", "", NULL);
++
++        if (notification != NULL) {
++                notify_notification_set_hint_string (notification, NOTIFY_CAP_PRIVATE_SYNCHRONOUS, hint);
++                notify_notification_set_hint_string (notification, NOTIFY_CAP_PRIVATE_ICON_ONLY, NOTIFY_HINT_TRUE);
++                notify_notification_update (notification, " ", "", icon);
++        } else {
++                return FALSE;
++        }
++
++        if (!notify_notification_show (notification, NULL)) {
++                g_object_unref (notification);
++                return FALSE;
++        }
++
++        g_object_unref (notification);
++
++        return TRUE;
++}
++
++gboolean
++gsd_osd_notification_show_value (GsdOsdNotification *notifier, gint value, gboolean muted)
++{
++        const char *icon;
++
++        g_return_val_if_fail (GSD_IS_OSD_NOTIFICATION (notifier), FALSE);
++        g_return_val_if_fail (notifier->priv->icon_names != NULL, FALSE);
++        g_return_val_if_fail (notifier->priv->hint != NULL, FALSE);
++
++        if (!gsd_osd_notification_is_supported ())
++                return FALSE;
++
++        if (notifier->priv->notification == NULL) {
++                notifier->priv->notification = notify_notification_new (" ", "", NULL);
++                notify_notification_set_hint_string (notifier->priv->notification, NOTIFY_CAP_PRIVATE_SYNCHRONOUS, notifier->priv->hint);
++}
++        if (notifier->priv->notification != NULL) {
++                value = MIN (value, 101);
++                value = MAX (value, -1);
++                icon = _calculate_icon (notifier, value, muted);
++                notify_notification_set_hint_int32(notifier->priv->notification, "value", (muted && value > 0) ? 0 : value);
++                notify_notification_update (notifier->priv->notification, " ", "", icon);
++        } else {
++                return FALSE;
++        }
++
++        if (!notify_notification_show (notifier->priv->notification, NULL))
++                return FALSE;
++
++        return TRUE;
++}
++
++gboolean
++gsd_osd_notification_show_overshoot (GsdOsdNotification *notifier, GsdOsdNotifierOvershootType type)
++{
++        gint value;
++        gboolean muted;
++
++        g_return_val_if_fail (type == GSD_OSD_NOTIFICATION_UNDERSHOOT || type == GSD_OSD_NOTIFICATION_OVERSHOOT, FALSE);
++
++        switch (type)
++        {
++        case GSD_OSD_NOTIFICATION_UNDERSHOOT:
++                value = -1;
++                muted = TRUE;
++                break;
++        case GSD_OSD_NOTIFICATION_OVERSHOOT:
++                value = 101;
++                muted = FALSE;
++                break;
++        default:
++                g_assert_not_reached ();
++                break;
++        }
++
++        return gsd_osd_notification_show_value (notifier, value, muted);
++}
++
++GsdOsdNotification*
++gsd_osd_notification_new (const char **icon_names, const char *hint)
++{
++        return (GsdOsdNotification *) g_object_new (GSD_TYPE_OSD_NOTIFICATION,
++                                                    "icon-names", icon_names,
++                                                    "hint", hint,
++                                                    NULL);
++}
++
++static void
++gsd_osd_notification_init (GsdOsdNotification *object)
++{
++        object->priv = GSD_OSD_NOTIFICATION_PRIVATE (object);
++
++        if (!notify_is_initted ())
++                notify_init (g_get_application_name ());
++
++        object->priv->hint = NULL;
++        object->priv->icon_names = NULL;
++        object->priv->notification = NULL;
++}
++
++static void
++gsd_osd_notification_finalize (GObject *object)
++{
++        GsdOsdNotification *notifier = GSD_OSD_NOTIFICATION (object);
++
++        g_strfreev (notifier->priv->icon_names);
++        g_free (notifier->priv->hint);
++
++        if (notifier->priv->notification)
++                g_object_unref (notifier->priv->notification);
++
++        G_OBJECT_CLASS (gsd_osd_notification_parent_class)->finalize (object);
++}
++
++static void
++gsd_osd_notification_set_property (GObject *object, guint prop_id, const GValue *value, GParamSpec *pspec)
++{
++	g_return_if_fail (GSD_IS_OSD_NOTIFICATION (object));
++        GsdOsdNotification *notifier = GSD_OSD_NOTIFICATION (object);
++
++	switch (prop_id)
++	{
++	case PROP_ICON_NAMES:
++		gsd_osd_notification_set_icon_array (notifier, (const char**) g_value_get_boxed (value));
++		break;
++        case PROP_HINT:
++                gsd_osd_notification_set_hint (notifier, (char**) g_value_get_string (value));
++                break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++		break;
++	}
++}
++
++static void
++gsd_osd_notification_get_property (GObject *object, guint prop_id, GValue *value, GParamSpec *pspec)
++{
++	g_return_if_fail (GSD_IS_OSD_NOTIFICATION (object));
++        GsdOsdNotification *notifier = GSD_OSD_NOTIFICATION (object);
++
++	switch (prop_id)
++	{
++	case PROP_ICON_NAMES:
++		g_value_set_boxed (value, notifier->priv->icon_names);
++		break;
++        case PROP_HINT:
++                g_value_set_string (value, notifier->priv->hint);
++                break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++		break;
++	}
++}
++
++static void
++gsd_osd_notification_class_init (GsdOsdNotificationClass *klass)
++{
++        GObjectClass* object_class = G_OBJECT_CLASS (klass);
++
++        object_class->finalize = gsd_osd_notification_finalize;
++	object_class->set_property = gsd_osd_notification_set_property;
++	object_class->get_property = gsd_osd_notification_get_property;
++
++	g_object_class_install_property (object_class,
++	                                 PROP_ICON_NAMES,
++	                                 g_param_spec_boxed ("icon-names",
++	                                                     "Icon name array",
++	                                                     "An array of icon names for the notification",
++	                                                     G_TYPE_STRV,
++	                                                     G_PARAM_WRITABLE | G_PARAM_CONSTRUCT));
++
++        g_object_class_install_property (object_class,
++	                                 PROP_HINT,
++	                                 g_param_spec_string ("hint",
++	                                                     "Notification hint",
++	                                                     "Hint for the notification",
++	                                                     NULL,
++	                                                     G_PARAM_WRITABLE | G_PARAM_CONSTRUCT));
++
++        g_type_class_add_private (klass, sizeof (GsdOsdNotificationPrivate));
++}
+Index: gnome-power-manager-2.31.6/src/gsd-osd-notification.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gnome-power-manager-2.31.6/src/gsd-osd-notification.h	2010-08-13 09:21:11.000000000 +0200
+@@ -0,0 +1,75 @@
++/* -*- Mode: C; indent-tabs-mode: nil; c-basic-offset: 8; tab-width: 8 -*- */
++/*
++ * gsd-osd-notification.c
++ * Copyright (C) 2010 Chris Coulson <chrisccoulson@ubuntu.com>
++ * Copyright (C) 2009 Canonical Ltd
++ * 
++ * gsd-osd-notification.c is free software: you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the
++ * Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ * 
++ * gsd-osd-notification.c is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
++ * See the GNU General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License along
++ * with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#ifndef _GSD_OSD_NOTIFICATION_H_
++#define _GSD_OSD_NOTIFICATION_H_
++
++#include <glib-object.h>
++
++G_BEGIN_DECLS
++
++#define GSD_TYPE_OSD_NOTIFICATION             (gsd_osd_notification_get_type ())
++#define GSD_OSD_NOTIFICATION(obj)             (G_TYPE_CHECK_INSTANCE_CAST ((obj), GSD_TYPE_OSD_NOTIFICATION, GsdOsdNotification))
++#define GSD_OSD_NOTIFICATION_CLASS(klass)     (G_TYPE_CHECK_CLASS_CAST ((klass), GSD_TYPE_OSD_NOTIFICATION, GsdOsdNotificationClass))
++#define GSD_IS_OSD_NOTIFICATION(obj)          (G_TYPE_CHECK_INSTANCE_TYPE ((obj), GSD_TYPE_OSD_NOTIFICATION))
++#define GSD_IS_OSD_NOTIFICATION_CLASS(klass)  (G_TYPE_CHECK_CLASS_TYPE ((klass), GSD_TYPE_OSD_NOTIFICATION))
++#define GSD_OSD_NOTIFICATION_GET_CLASS(obj)   (G_TYPE_INSTANCE_GET_CLASS ((obj), GSD_TYPE_OSD_NOTIFICATION, GsdOsdNotificationClass))
++
++typedef struct _GsdOsdNotificationClass GsdOsdNotificationClass;
++typedef struct _GsdOsdNotification GsdOsdNotification;
++typedef struct _GsdOsdNotificationPrivate GsdOsdNotificationPrivate;
++
++struct _GsdOsdNotificationClass
++{
++        GObjectClass parent_class;
++};
++
++struct _GsdOsdNotification
++{
++        GObject parent_instance;
++
++        GsdOsdNotificationPrivate *priv;
++};
++
++typedef enum {
++        GSD_OSD_NOTIFICATION_NO_OVERSHOOT = 0,
++        GSD_OSD_NOTIFICATION_UNDERSHOOT,
++        GSD_OSD_NOTIFICATION_OVERSHOOT,
++} GsdOsdNotifierOvershootType;
++
++GType                   gsd_osd_notification_get_type           (void) G_GNUC_CONST;
++GsdOsdNotification*     gsd_osd_notification_new                (const char                 **icon_names,
++                                                                 const char                  *hint);
++void                    gsd_osd_notification_set_icon_array     (GsdOsdNotification          *notifier, 
++                                                                 const char                 **icon_names);
++void                    gsd_osd_notification_set_hint           (GsdOsdNotification          *notifier,
++                                                                 const char                  *hint);
++gboolean                gsd_osd_notification_is_supported       (void);
++gboolean                gsd_osd_notification_show_value         (GsdOsdNotification          *notifier,
++                                                                 gint                        value,
++                                                                 gboolean                     muted);
++gboolean                gsd_osd_notification_show_overshoot     (GsdOsdNotification          *notifier,
++                                                                 GsdOsdNotifierOvershootType  type);
++gboolean                gsd_osd_notification_show_icon_only     (const char                  *icon,
++                                                                 const char                  *hint);
++
++G_END_DECLS
++
++#endif /* _GSD_OSD_NOTIFICATION_H_ */
+Index: gnome-power-manager-2.31.6/src/gpm-backlight.c
+===================================================================
+--- gnome-power-manager-2.31.6.orig/src/gpm-backlight.c	2010-08-06 16:28:52.000000000 +0200
++++ gnome-power-manager-2.31.6/src/gpm-backlight.c	2010-08-13 09:21:11.063803003 +0200
+@@ -55,6 +55,7 @@
+ #include "gpm-stock-icons.h"
+ #include "gpm-prefs-server.h"
+ #include "egg-console-kit.h"
++#include "gsd-osd-notification.h"
+ 
+ #define GPM_BACKLIGHT_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), GPM_TYPE_BACKLIGHT, GpmBacklightPrivate))
+ 
+@@ -69,6 +70,7 @@
+ 	GpmDpms			*dpms;
+ 	GpmIdle			*idle;
+ 	EggConsoleKit		*consolekit;
++	GsdOsdNotification	*notifier;
+ 	gboolean		 can_dim;
+ 	gboolean		 system_is_idle;
+ 	GTimer			*idle_timer;
+@@ -83,6 +85,15 @@
+ 
+ static guint signals [LAST_SIGNAL] = { 0 };
+ 
++static const char *backlight_icons[] = {
++        "notification-display-brightness-off",
++	"notification-display-brightness-low",
++	"notification-display-brightness-medium",
++	"notification-display-brightness-high",
++	"notification-display-brightness-full",
++	NULL
++};
++
+ G_DEFINE_TYPE (GpmBacklight, gpm_backlight, G_TYPE_OBJECT)
+ 
+ /**
+@@ -349,10 +360,12 @@
+ 
+ 	/* only show dialog if interactive */
+ 	if (interactive) {
+-		gpm_backlight_dialog_init (backlight);
+-		gsd_media_keys_window_set_volume_level (GSD_MEDIA_KEYS_WINDOW (backlight->priv->popup),
+-							round (brightness));
+-		gpm_backlight_dialog_show (backlight);
++		if (!gsd_osd_notification_show_value (backlight->priv->notifier, round (brightness), FALSE)) {
++			gpm_backlight_dialog_init (backlight);
++			gsd_media_keys_window_set_volume_level (GSD_MEDIA_KEYS_WINDOW (backlight->priv->popup),
++								round (brightness));
++			gpm_backlight_dialog_show (backlight);
++		}
+ 	}
+ 
+ 	ret = gpm_brightness_set (backlight->priv->brightness, value, &hw_changed);
+@@ -433,8 +446,14 @@
+ 	GError *error = NULL;
+ 	guint percentage;
+ 	gboolean hw_changed;
++	gboolean brightness_at_0;
++	gboolean brightness_at_100;
+ 	egg_debug ("Button press event type=%s", type);
+ 
++	gpm_brightness_get (backlight->priv->brightness, &percentage);
++	brightness_at_100 = percentage == 100 ? TRUE : FALSE;
++	brightness_at_0 = percentage == 0 ? TRUE : FALSE;
++
+ 	if (strcmp (type, GPM_BUTTON_BRIGHT_UP) == 0) {
+ 		/* go up one step */
+ 		ret = gpm_brightness_up (backlight->priv->brightness, &hw_changed);
+@@ -442,10 +461,17 @@
+ 		/* show the new value */
+ 		if (ret) {
+ 			gpm_brightness_get (backlight->priv->brightness, &percentage);
+-			gpm_backlight_dialog_init (backlight);
+-			gsd_media_keys_window_set_volume_level (GSD_MEDIA_KEYS_WINDOW (backlight->priv->popup),
+-								percentage);
+-			gpm_backlight_dialog_show (backlight);
++			if (brightness_at_100) {
++				ret = gsd_osd_notification_show_overshoot (backlight->priv->notifier, GSD_OSD_NOTIFICATION_OVERSHOOT);		
++			} else {
++				ret = gsd_osd_notification_show_value (backlight->priv->notifier, percentage, FALSE);			
++			}
++			if (!ret) {
++				gpm_backlight_dialog_init (backlight);
++				gsd_media_keys_window_set_volume_level (GSD_MEDIA_KEYS_WINDOW (backlight->priv->popup),
++									percentage);
++				gpm_backlight_dialog_show (backlight);
++			}
+ 			/* save the new percentage */
+ 			backlight->priv->master_percentage = percentage;
+ 		}
+@@ -461,10 +487,17 @@
+ 		/* show the new value */
+ 		if (ret) {
+ 			gpm_brightness_get (backlight->priv->brightness, &percentage);
+-			gpm_backlight_dialog_init (backlight);
+-			gsd_media_keys_window_set_volume_level (GSD_MEDIA_KEYS_WINDOW (backlight->priv->popup),
+-								percentage);
+-			gpm_backlight_dialog_show (backlight);
++			if (brightness_at_0) {
++				ret = gsd_osd_notification_show_overshoot (backlight->priv->notifier, GSD_OSD_NOTIFICATION_UNDERSHOOT);		
++			} else {
++				ret = gsd_osd_notification_show_value (backlight->priv->notifier, percentage, FALSE);			
++			}
++			if (!ret) {
++				gpm_backlight_dialog_init (backlight);
++				gsd_media_keys_window_set_volume_level (GSD_MEDIA_KEYS_WINDOW (backlight->priv->popup),
++									percentage);
++				gpm_backlight_dialog_show (backlight);
++			}
+ 			/* save the new percentage */
+ 			backlight->priv->master_percentage = percentage;
+ 		}
+@@ -687,6 +720,7 @@
+ 	g_object_unref (backlight->priv->idle);
+ 	g_object_unref (backlight->priv->brightness);
+ 	g_object_unref (backlight->priv->consolekit);
++	g_object_unref (backlight->priv->notifier);
+ 
+ 	g_return_if_fail (backlight->priv != NULL);
+ 	G_OBJECT_CLASS (gpm_backlight_parent_class)->finalize (object);
+@@ -793,6 +827,8 @@
+ 						 TRUE);
+         gtk_window_set_position (GTK_WINDOW (backlight->priv->popup), GTK_WIN_POS_NONE);
+ 
++	backlight->priv->notifier = gsd_osd_notification_new (backlight_icons, "brightness");
++
+ 	/* DPMS mode poll class */
+ 	backlight->priv->dpms = gpm_dpms_new ();
+ 

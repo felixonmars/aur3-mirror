@@ -1,0 +1,528 @@
+diff -Naur ../evince-2.26.2-original/libview/ev-view.c ./libview/ev-view.c
+--- ../evince-2.26.2-original/libview/ev-view.c	2009-06-14 12:08:05.000000000 +0200
++++ ./libview/ev-view.c	2009-06-14 12:09:24.000000000 +0200
+@@ -287,6 +287,10 @@
+ static void       jump_to_find_page                          (EvView             *view, 
+ 							      EvViewFindDirection direction,
+ 							      gint                shift);
++static void       synctex_open_editor                        (EvView             *view,
++							      gint page,
++							      gint doc_point_x,
++							      gint doc_point_y);
+ 
+ /*** Selection ***/
+ static void       compute_selections                         (EvView             *view,
+@@ -1316,7 +1320,7 @@
+ 						view->current_page);
+ }
+ 
+-static void
++void
+ ev_view_goto_dest (EvView *view, EvLinkDest *dest)
+ {
+ 	EvLinkDestType type;
+@@ -2627,6 +2631,25 @@
+ 	
+ 	view->pressed_button = event->button;
+ 	view->selection_info.in_drag = FALSE;
++ 
++	/* Doubleclick in document: open editor via synctex */
++	if( event->button==1 && event->type==GDK_2BUTTON_PRESS ){
++		/* First: get pagenumber and doc_point where doubleclick happened */
++		gint page=0;
++		gint offset_x=0, offset_y=0;
++		gint doc_point_x=0, doc_point_y=0;
++		
++		find_page_at_location(view, event->x+view->scroll_x, event->y+view->scroll_y,
++			&page, &offset_x, &offset_y);
++			
++		get_doc_point_from_offset(view, page, offset_x, offset_y,
++			&doc_point_x, &doc_point_y);
++
++		if ( page > -1 ){ /* Clicked inside a page: open editor and return */
++			synctex_open_editor(view, page, doc_point_x, doc_point_y);
++			return TRUE;
++		}
++	}
+ 
+ 	if (view->scroll_info.autoscrolling)
+ 		return TRUE;
+@@ -4421,6 +4444,13 @@
+ 	ev_pixbuf_cache_clear (view->pixbuf_cache);
+ 	view_update_range_and_current_page (view);
+ }
++ 
++void
++ev_view_set_uri (EvView *view, gchar *uri)
++{
++	view->uri = uri;
++	return;
++}
+ 
+ /*** Zoom and sizing mode ***/
+ 
+@@ -5151,6 +5181,76 @@
+ {
+ 	view->find_pages = NULL;
+ }
++ 
++void
++ev_view_highlight_rect (EvView *view, EvRectangle *rect)
++{
++		gint i, page, n_pages;
++		gdouble width, height;
++		EvPoint point;
++
++		page = ev_page_cache_get_current_page (view->page_cache);
++		n_pages = ev_page_cache_get_n_pages (view->page_cache);
++
++		view->find_pages = (GList**)g_malloc( sizeof(gpointer) * n_pages );
++		for( i=0; i<n_pages; i++){
++			view->find_pages[i] = NULL;
++		}
++		view->find_pages[page] = g_list_append ( view->find_pages[page], rect );
++		view->highlight_find_results=TRUE;
++		
++		width = (gdouble)ev_view_get_width(view) / ev_view_get_zoom(view);
++		height = (gdouble)ev_view_get_height(view) / ev_view_get_zoom(view);
++		
++		point.x = (rect->x1+rect->x2)/2.0 - width/2.0;
++		if (point.x<0){
++			point.x=0;
++		}
++		point.y = (rect->y1+rect->y2)/2.0 - height/2.0;
++		if (point.y<0){
++			point.y=0;
++		}
++		view->pending_point = point;
++		view->pending_scroll = SCROLL_TO_PAGE_POSITION;
++		return;
++}
++
++#define MAX_SYNCTEX_ARG    2048
++
++static void 
++synctex_open_editor(EvView *view, gint page, gint doc_point_x, gint doc_point_y)
++{
++	GFile  *f = g_file_new_for_uri(view->uri);
++	GFile  *dir = g_file_get_parent(f);
++	gchar  *filename = g_file_get_path(f);
++	gchar  *dirname = g_file_get_path(dir);
++	gchar   synctex_arg[MAX_SYNCTEX_ARG];
++	gchar **argv;
++	gint    len;
++
++	g_object_unref(f);
++	g_object_unref(dir);
++
++	/* Build synctex argument with location information */
++	page += 1;  /* Page should be 1-based */
++	len = g_snprintf(synctex_arg, MAX_SYNCTEX_ARG, "%d:%d:%d:%s", page, doc_point_x, doc_point_y, filename);
++	g_free(filename);
++	if (len <= 0 || len > MAX_SYNCTEX_ARG) {
++		g_warning("synctex_open_editor: g_snprintf returned %d\n", len);
++		return;
++	}
++
++	/* Execute synctex command */
++	argv = g_new(gchar*, 7);
++	argv[0] = "synctex";
++	argv[1] = "edit";
++	argv[2] = "-o";
++	argv[3] = synctex_arg;
++	argv[4] = "-x";
++	argv[5] = "SED_SYNCTEX_EDITOR";
++	argv[6] = NULL;
++	g_spawn_async(dirname, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, NULL);
++}
+ 
+ /*** Selections ***/
+ 
+diff -Naur ../evince-2.26.2-original/libview/ev-view.h ./libview/ev-view.h
+--- ../evince-2.26.2-original/libview/ev-view.h	2009-06-14 12:08:05.000000000 +0200
++++ ./libview/ev-view.h	2009-06-14 12:09:24.000000000 +0200
+@@ -57,6 +57,8 @@
+ void 		ev_view_set_loading       (EvView 	  *view,
+ 				           gboolean        loading);
+ void            ev_view_reload            (EvView         *view);
++void            ev_view_set_uri           (EvView         *view,
++                                                           gchar *uri);
+ 
+ /* Clipboard */
+ void		ev_view_copy		  (EvView         *view);
+@@ -118,6 +120,8 @@
+ 						   GList         **results,
+ 						   gint            page);
+ void            ev_view_find_cancel               (EvView         *view);
++void            ev_view_highlight_rect            (EvView *view,
++						   EvRectangle *rect);
+ 
+ /* Cursor */
+ void           ev_view_hide_cursor        (EvView         *view);
+@@ -129,6 +133,8 @@
+ 					   gboolean        horizontal);
+ void	       ev_view_handle_link        (EvView         *view,
+ 					   EvLink         *link);
++void           ev_view_goto_dest          (EvView         *view,
++                                           EvLinkDest *dest);
+ gboolean       ev_view_next_page	  (EvView         *view);
+ gboolean       ev_view_previous_page	  (EvView         *view);
+ gchar*         ev_view_page_label_from_dest (EvView *view, EvLinkDest *dest);
+diff -Naur ../evince-2.26.2-original/libview/ev-view-private.h ./libview/ev-view-private.h
+--- ../evince-2.26.2-original/libview/ev-view-private.h	2009-06-14 12:08:05.000000000 +0200
++++ ./libview/ev-view-private.h	2009-06-14 12:09:24.000000000 +0200
+@@ -178,6 +178,8 @@
+ 	GtkWidget *goto_entry;
+ 
+ 	EvTransitionAnimation *animation;
++	
++	gchar *uri;
+ };
+ 
+ struct _EvViewClass {
+diff -Naur ../evince-2.26.2-original/shell/ev-application.c ./shell/ev-application.c
+--- ../evince-2.26.2-original/shell/ev-application.c	2009-06-14 12:08:05.000000000 +0200
++++ ./shell/ev-application.c	2009-06-14 12:09:24.000000000 +0200
+@@ -358,16 +358,23 @@
+ get_destination_from_args (GHashTable *args)
+ {
+ 	EvLinkDest *dest = NULL;
+-	GValue     *value = NULL;
++	GValue     *page_value = NULL;
++	GValue     *absolute_value = NULL;
+ 	
+ 	g_assert (args != NULL);
+ 	
+-	value = g_hash_table_lookup (args, "page-label");
+-	if (value) {
++	page_value = g_hash_table_lookup (args, "page-label");
++	absolute_value= g_hash_table_lookup (args, "use-absolute-page");
++	
++	if (page_value) {
+ 		const gchar *page_label;
+ 
+-		page_label = g_value_get_string (value);
+-		dest = ev_link_dest_new_page_label (page_label);
++		page_label = g_value_get_string(page_value);
++		if ( g_value_get_boolean( absolute_value ) ){
++			dest = ev_link_dest_new_page( atol(page_label)-1 );
++		} else{
++			dest = ev_link_dest_new_page_label(page_label);
++		}
+ 	}
+ 
+ 	return dest;
+@@ -384,6 +391,34 @@
+ 	
+ 	return value ? g_value_get_string (value) : NULL;
+ }
++ 
++static EvRectangle *
++get_highlight_rect_from_args (GHashTable *args)
++{
++	GValue      *value = NULL;
++	EvRectangle *rect = NULL;
++	
++	g_assert (args != NULL);
++	rect = g_new(EvRectangle, 1);
++	
++	value = g_hash_table_lookup (args, "highlight-rect-x1");
++	if (!value) {	return NULL;	}
++	rect->x1 = g_value_get_double (value);
++
++	value = g_hash_table_lookup (args, "highlight-rect-x2");
++	if (!value) {	return NULL;	}
++	rect->x2 = g_value_get_double (value);
++
++	value = g_hash_table_lookup (args, "highlight-rect-y1");
++	if (!value) {	return NULL;	}
++	rect->y1 = g_value_get_double (value);
++
++	value = g_hash_table_lookup (args, "highlight-rect-y2");
++	if (!value) {	return NULL;	}
++	rect->y2 = g_value_get_double (value);
++
++	return rect;
++}
+ 
+ /**
+  * get_unlink_temp_file_from_args:
+@@ -593,6 +628,7 @@
+ 				 EvLinkDest     *dest,
+ 				 EvWindowRunMode mode,
+ 				 const gchar    *search_string,
++				 EvRectangle    *highlight_rect,
+ 				 gboolean        unlink_temp_file,
+ 				 const gchar    *print_settings, 
+ 				 guint           timestamp)
+@@ -619,7 +655,7 @@
+ 	/* We need to load uri before showing the window, so
+ 	   we can restore window size without flickering */	
+ 	ev_window_open_uri (new_window, uri, dest, mode, search_string, 
+-			    unlink_temp_file, print_settings);
++			    highlight_rect, unlink_temp_file, print_settings);
+ 
+ 	if (!GTK_WIDGET_REALIZED (GTK_WIDGET (new_window)))
+ 		gtk_widget_realize (GTK_WIDGET (new_window));
+@@ -660,12 +696,14 @@
+ 	gboolean         unlink_temp_file = FALSE;
+ 	const gchar     *print_settings = NULL;
+ 	GdkScreen       *screen = NULL;
++	EvRectangle	*highlight_rect = NULL;
+ 
+ 	if (args) {
+ 		screen = get_screen_from_args (args);
+ 		dest = get_destination_from_args (args);
+ 		mode = get_window_run_mode_from_args (args);
+ 		search_string = get_find_string_from_args (args);
++		highlight_rect = get_highlight_rect_from_args (args);
+ 		unlink_temp_file = (mode == EV_WINDOW_MODE_PREVIEW &&
+ 				    get_unlink_temp_file_from_args (args));
+ 		print_settings = get_print_settings_from_args (args);
+@@ -673,7 +711,7 @@
+ 	
+ 	ev_application_open_uri_at_dest (application, uri, screen,
+ 					 dest, mode, search_string,
+-					 unlink_temp_file,
++					 highlight_rect, unlink_temp_file,
+ 					 print_settings, timestamp);
+ 
+ 	if (dest)
+@@ -693,7 +731,7 @@
+ 	for (l = uri_list; l != NULL; l = l->next) {
+ 		ev_application_open_uri_at_dest (application, (char *)l->data,
+ 						 screen, NULL, 0, NULL,
+-						 FALSE, NULL, timestamp);
++						 NULL, FALSE, NULL, timestamp);
+ 	}
+ }
+ 
+diff -Naur ../evince-2.26.2-original/shell/ev-application.h ./shell/ev-application.h
+--- ../evince-2.26.2-original/shell/ev-application.h	2009-06-14 12:08:05.000000000 +0200
++++ ./shell/ev-application.h	2009-06-14 12:09:24.000000000 +0200
+@@ -69,6 +69,7 @@
+ 						      EvLinkDest      *dest,
+ 						      EvWindowRunMode  mode,
+ 						      const gchar     *search_string,
++						      EvRectangle     *highlight_rect, 
+ 						      gboolean         unlink_temp_file,
+ 						      const gchar     *print_settings, 
+ 						      guint32          timestamp);
+diff -Naur ../evince-2.26.2-original/shell/ev-print-operation.c ./shell/ev-print-operation.c
+--- ../evince-2.26.2-original/shell/ev-print-operation.c	2009-06-14 12:08:05.000000000 +0200
++++ ./shell/ev-print-operation.c	2009-06-14 12:09:24.000000000 +0200
+@@ -774,6 +774,7 @@
+ 						 NULL,
+ 						 EV_WINDOW_MODE_PREVIEW,
+ 						 NULL,
++						 NULL,
+ 						 TRUE,
+ 						 print_settings_file,
+ 						 GDK_CURRENT_TIME);
+diff -Naur ../evince-2.26.2-original/shell/ev-window.c ./shell/ev-window.c
+--- ../evince-2.26.2-original/shell/ev-window.c	2009-06-14 12:08:05.000000000 +0200
++++ ./shell/ev-window.c	2009-06-14 12:09:24.000000000 +0200
+@@ -200,6 +200,7 @@
+ 	EvLinkDest       *dest;
+ 	gchar            *search_string;
+ 	EvWindowRunMode   window_mode;
++	EvRectangle      *highlight_rect;
+ 
+ 	EvJob            *load_job;
+ 	EvJob            *reload_job;
+@@ -1374,6 +1375,7 @@
+ 
+ 	g_assert (job_load->uri);
+ 
++	ev_view_set_uri(EV_VIEW (ev_window->priv->view), g_strdup (job_load->uri));
+ 	ev_view_set_loading (EV_VIEW (ev_window->priv->view), FALSE);
+ 
+ 	/* Success! */
+@@ -1410,6 +1412,11 @@
+ 			link = ev_link_new (NULL, link_action);
+ 			ev_view_handle_link (EV_VIEW (ev_window->priv->view), link);
+ 		    	g_object_unref (link);
++			
++			if (ev_window->priv->highlight_rect) {
++				ev_view_highlight_rect ( EV_VIEW (ev_window->priv->view),
++					ev_window->priv->highlight_rect );
++			}
+ 
+ 			/* Already unrefed by ev_link_action
+ 			 * FIXME: link action should inc dest ref counting
+@@ -1803,6 +1810,7 @@
+ 		    EvLinkDest     *dest,
+ 		    EvWindowRunMode mode,
+ 		    const gchar    *search_string, 
++		    EvRectangle    *highlight_rect,
+ 		    gboolean        unlink_temp_file,
+ 		    const gchar    *print_settings)
+ {
+@@ -1813,6 +1821,19 @@
+ 	if (ev_window->priv->uri &&
+ 	    g_ascii_strcasecmp (ev_window->priv->uri, uri) == 0) {
+ 		ev_window_reload_document (ev_window);
++
++		if (dest){
++			if (ev_window->priv->dest){
++				g_object_unref (ev_window->priv->dest);
++			}
++			ev_window->priv->dest = dest ? g_object_ref (dest) : NULL;
++			ev_view_goto_dest(EV_VIEW (ev_window->priv->view), dest);
++
++			if (highlight_rect){
++				ev_window->priv->highlight_rect = highlight_rect;
++				ev_view_highlight_rect( EV_VIEW (ev_window->priv->view), highlight_rect );
++			}
++		}
+ 		return;
+ 	}
+ 
+@@ -1848,6 +1869,8 @@
+ 		g_object_unref (ev_window->priv->dest);
+ 	ev_window->priv->dest = dest ? g_object_ref (dest) : NULL;
+ 
++	ev_window->priv->highlight_rect = highlight_rect;
++
+ 	setup_size_from_metadata (ev_window);
+ 
+ 	ev_window->priv->load_job = ev_job_load_new (uri);
+@@ -2178,6 +2201,7 @@
+ 					 dest,
+ 					 0,
+ 					 NULL, 
++					 NULL, 
+ 					 TRUE,
+ 					 NULL,
+ 					 GDK_CURRENT_TIME);
+@@ -2213,7 +2237,7 @@
+ 	
+ 	ev_application_open_uri_at_dest (EV_APP, uri,
+ 					 gtk_window_get_screen (GTK_WINDOW (window)),
+-					 NULL, 0, NULL, FALSE, NULL, 
++					 NULL, 0, NULL, NULL, FALSE, NULL, 
+ 					 GDK_CURRENT_TIME);
+ }
+ 
+@@ -2224,7 +2248,7 @@
+ {
+ 	ev_application_open_uri_at_dest (EV_APP, uri,
+ 					 gtk_window_get_screen (GTK_WINDOW (window)),
+-					 NULL, 0, NULL, FALSE, NULL, 
++					 NULL, 0, NULL, NULL, FALSE, NULL, 
+ 					 GDK_CURRENT_TIME);
+ }
+ 
+@@ -5563,6 +5587,7 @@
+ 					 ev_link_action_get_dest (action),
+ 					 0,
+ 					 NULL, 
++					 NULL, 
+ 					 FALSE,
+ 					 NULL,
+ 					 GDK_CURRENT_TIME);
+diff -Naur ../evince-2.26.2-original/shell/ev-window.h ./shell/ev-window.h
+--- ../evince-2.26.2-original/shell/ev-window.h	2009-06-14 12:08:05.000000000 +0200
++++ ./shell/ev-window.h	2009-06-14 12:09:24.000000000 +0200
+@@ -78,6 +78,7 @@
+ 					   EvLinkDest     *dest,
+ 					   EvWindowRunMode mode,
+ 					   const gchar    *search_string,
++					   EvRectangle    *highlight_rect,
+ 					   gboolean        unlink_temp_file,
+ 					   const gchar    *print_settings);
+ gboolean	ev_window_is_empty	  (const EvWindow *ev_window);
+diff -Naur ../evince-2.26.2-original/shell/main.c ./shell/main.c
+--- ../evince-2.26.2-original/shell/main.c	2009-06-14 12:08:05.000000000 +0200
++++ ./shell/main.c	2009-06-14 12:09:24.000000000 +0200
+@@ -43,6 +43,8 @@
+ #endif
+ 
+ static gchar   *ev_page_label;
++static gboolean use_absolute_page = FALSE;
++static gchar   *ev_highlight_rect;
+ static gchar   *ev_find_string;
+ static gboolean preview_mode = FALSE;
+ static gboolean fullscreen_mode = FALSE;
+@@ -66,6 +68,8 @@
+ static const GOptionEntry goption_options[] =
+ {
+ 	{ "page-label", 'p', 0, G_OPTION_ARG_STRING, &ev_page_label, N_("The page of the document to display."), N_("PAGE")},
++	{ "use-absolute-page", 'a', 0, G_OPTION_ARG_NONE, &use_absolute_page, N_("PAGE is absolute page number (first page is 1). Use with -p"), NULL},
++	{ "highlight-rect", 'h', 0, G_OPTION_ARG_STRING, &ev_highlight_rect, N_("Highlight a rectangle in the document. Two possible formats: \"x:y\" ( x and y center of box) or \"x:y:w:h\" (x and y top-left corner of box, w and h width and height."), N_("COORDS")},
+ 	{ "fullscreen", 'f', 0, G_OPTION_ARG_NONE, &fullscreen_mode, N_("Run evince in fullscreen mode"), NULL },
+ 	{ "presentation", 's', 0, G_OPTION_ARG_NONE, &presentation_mode, N_("Run evince in presentation mode"), NULL },
+ 	{ "preview", 'w', 0, G_OPTION_ARG_NONE, &preview_mode, N_("Run evince as a previewer"), NULL },
+@@ -135,6 +139,7 @@
+ 	g_hash_table_insert (args, g_strdup ("screen"), value);
+ 
+ 	if (ev_page_label) {
++		/* ev_page_label */
+ 		value = g_new0 (GValue, 1);
+ 		g_value_init (value, G_TYPE_STRING);
+ 		g_value_set_string (value, ev_page_label);
+@@ -143,6 +148,64 @@
+ 
+ 		g_free (ev_page_label);
+ 		ev_page_label = NULL;
++
++		/* use_absolute_page */
++		value = g_new0 (GValue, 1);
++		g_value_init (value, G_TYPE_BOOLEAN);
++		g_value_set_boolean (value, use_absolute_page);
++
++		g_hash_table_insert (args, g_strdup ("use-absolute-page"), value);
++	}
++	
++	if (ev_highlight_rect) {
++		int i;
++		gdouble x1, x2, y1, y2;
++		gchar **strings;
++		
++		strings = g_strsplit( ev_highlight_rect, ":", 5);		
++		for (i=0; strings[i]!=NULL; i++);
++		
++		if ( i==2 ) {
++			x1 = atof(strings[0]) - 10;
++			x2 = atof(strings[0]) + 10;
++			y1 = atof(strings[1]) - 10;
++			y2 = atof(strings[1]) + 10;
++		} else if ( i==4 ) {
++			x1 = atof(strings[0]);
++			x2 = atof(strings[0]) + atof(strings[2]);
++			y1 = atof(strings[1]);
++			y2 = atof(strings[1]) + atof(strings[3]);
++		}
++
++		if ( (i==2||i==4) && (x2-x1)>0 && (y2-y1)>0 ){
++			value = g_new0 (GValue, 1);
++			g_value_init (value, G_TYPE_DOUBLE);
++			g_value_set_double (value, x1);
++			g_hash_table_insert (args, g_strdup ("highlight-rect-x1"), value);
++			
++			value = g_new0 (GValue, 1);
++			g_value_init (value, G_TYPE_DOUBLE);
++			g_value_set_double (value, x2);
++			g_hash_table_insert (args, g_strdup ("highlight-rect-x2"), value);
++			
++			value = g_new0 (GValue, 1);
++			g_value_init (value, G_TYPE_DOUBLE);
++			g_value_set_double (value, y1);
++			g_hash_table_insert (args, g_strdup ("highlight-rect-y1"), value);
++			
++			value = g_new0 (GValue, 1);
++			g_value_init (value, G_TYPE_DOUBLE);
++			g_value_set_double (value, y2);
++			g_hash_table_insert (args, g_strdup ("highlight-rect-y2"), value);
++		} else {
++			/* FIXME: Should GError or something else be used for error handling?
++			 * 		  It would be best to quit after printing the error */
++			printf("Evince: Invalid argument for -h (or --highlight). Ignoring\n");
++		}
++
++		g_strfreev(strings);
++		g_free (ev_highlight_rect);
++		ev_highlight_rect = NULL;
+ 	}
+ 
+ 	if (ev_find_string) {

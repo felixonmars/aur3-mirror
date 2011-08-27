@@ -1,0 +1,1365 @@
+diff -u netqmail-1.06.save/dns.c netqmail-1.06/dns.c
+--- netqmail-1.06.save/dns.c	2009-10-12 00:07:49.731681373 +0400
++++ netqmail-1.06/dns.c	2009-10-12 00:54:46.291399716 +0400
+@@ -3,6 +3,7 @@
+ #include <sys/types.h>
+ #include <netinet/in.h>
+ #include <arpa/nameser.h>
++#include <sys/socket.h>
+ #include <resolv.h>
+ #include <errno.h>
+ extern int res_query();
+@@ -27,6 +28,9 @@
+ static int numanswers;
+ static char name[MAXDNAME];
+ static struct ip_address ip;
++#ifdef INET6
++static struct ip6_address ip6;
++#endif
+ unsigned short pref;
+ 
+ static stralloc glue = {0};
+@@ -140,6 +144,43 @@
+  return 0;
+ }
+ 
++#ifdef INET6
++static int findip6(wanttype)
++int wanttype;
++{
++ unsigned short rrtype;
++ unsigned short rrdlen;
++ int i;
++
++ if (numanswers <= 0) return 2;
++ --numanswers;
++ if (responsepos == responseend) return DNS_SOFT;
++
++ i = dn_expand(response.buf,responseend,responsepos,name,MAXDNAME);
++ if (i < 0) return DNS_SOFT;
++ responsepos += i;
++
++ i = responseend - responsepos;
++ if (i < 4 + 3 * 2) return DNS_SOFT;
++   
++ rrtype = getshort(responsepos);
++ rrdlen = getshort(responsepos + 8);
++ responsepos += 10;
++
++ if (rrtype == wanttype)
++  {
++   if (rrdlen < 16)
++     return DNS_SOFT;
++   bcopy(&responsepos[0], &ip6.d, 16);
++   responsepos += rrdlen;
++   return 1;
++  }
++   
++ responsepos += rrdlen;
++ return 0;
++}
++#endif
++
+ static int findmx(wanttype)
+ int wanttype;
+ {
+@@ -261,6 +302,57 @@
+  return DNS_HARD;
+ }
+ 
++#ifdef INET6
++static int iaafmt6(s,ip)
++char *s;
++struct ip6_address *ip;
++{
++ unsigned int i;
++ int j;
++ unsigned int len;
++ static char data[] = "0123456789abcdef";
++ len = 0;
++
++ if (s) {
++   for (j = 15; j >= 0; j--) {
++     *s++ = data[ip->d[j] & 0x0f];
++     *s++ = '.';
++     *s++ = data[(ip->d[j] >> 4) & 0x0f];
++     *s++ = '.';
++   }
++   strcpy(s, "ip6.int");
++ }
++ return 71;
++ /* 1.2.3.4.5.6.7.8.9.a.b.c.d.e.f.1.2.3.4.5.6.7.8.9.a.b.c.d.e.f.ip6.int */
++}
++
++int dns_ptr6(sa,ip)
++stralloc *sa;
++struct ip6_address *ip;
++{
++ int r;
++
++ if (!stralloc_ready(sa,iaafmt6((char *) 0,ip))) return DNS_MEM;
++ sa->len = iaafmt6(sa->s,ip);
++ switch(resolve(sa,T_PTR)) 
++  {
++   case DNS_MEM: return DNS_MEM;
++   case DNS_SOFT: return DNS_SOFT;
++   case DNS_HARD: return DNS_HARD;
++  }
++ while ((r = findname(T_PTR)) != 2)
++  {
++   if (r == DNS_SOFT) return DNS_SOFT;
++   if (r == 1)
++    {
++     if (!stralloc_copys(sa,name)) return DNS_MEM;
++     return 0;
++    }
++  }
++ return DNS_HARD;
++}
++#endif
++
+ static int dns_ipplus(ia,sa,pref)
+ ipalloc *ia;
+ stralloc *sa;
+@@ -268,35 +360,73 @@
+ {
+  int r;
+  struct ip_mx ix = {0};
++ int err4 = 0, err6 = 0;
+ 
+  if (!stralloc_copy(&glue,sa)) return DNS_MEM;
+  if (!stralloc_0(&glue)) return DNS_MEM;
+  if (glue.s[0]) {
+-   if (!glue.s[ip_scan(glue.s,&ix.ip)] || !glue.s[ip_scanbracket(glue.s,&ix.ip)])
++   ix.pref = 0;
++   ix.af = AF_INET;
++   if (!glue.s[ip_scan(glue.s,&ix.addr.ip)] || !glue.s[ip_scanbracket(glue.s,&ix.addr.ip)])
+     {
+      if (!ipalloc_append(ia,&ix)) return DNS_MEM;
+      return 0;
+     }
+  }
+ 
+- switch(resolve(sa,T_A))
++#ifdef INET6
++ switch(resolve(sa,T_AAAA))
+   {
+-   case DNS_MEM: return DNS_MEM;
+-   case DNS_SOFT: return DNS_SOFT;
+-   case DNS_HARD: return DNS_HARD;
++   case DNS_MEM: err6 = DNS_MEM; break;
++   case DNS_SOFT: err6 = DNS_SOFT; break;
++   case DNS_HARD: err6 = DNS_HARD; break;
++   default:
++     while ((r = findip6(T_AAAA)) != 2)
++      {
++        ix.af = AF_INET6;
++        ix.addr.ip6 = ip6;
++        ix.pref = pref;
++        if (r == DNS_SOFT) { err6 = DNS_SOFT; break; }
++        if (r == 1) {
++#ifdef IX_FQDN
++          ix.fqdn = glue.s;
++#endif
++          if (!ipalloc_append(ia,&ix)) { err6 = DNS_MEM; break; }
++        }
++      }
++     break;
+   }
+- while ((r = findip(T_A)) != 2)
++#endif
++
++ switch(resolve(sa,T_A))
+   {
+-   ix.ip = ip;
+-   ix.pref = pref;
+-   if (r == DNS_SOFT) return DNS_SOFT;
+-   if (r == 1) {
++   case DNS_MEM: err4 = DNS_MEM; break;
++   case DNS_SOFT: err4 = DNS_SOFT; break;
++   case DNS_HARD: err4 = DNS_HARD; break;
++   default:
++     while ((r = findip(T_A)) != 2)
++      {
++       ix.af = AF_INET;
++       ix.addr.ip = ip;
++       ix.pref = pref;
++       if (r == DNS_SOFT) { err4 = DNS_SOFT; break; }
++       if (r == 1) {
+ #ifdef IX_FQDN
+-     ix.fqdn = glue.s;
++         ix.fqdn = glue.s;
+ #endif
+-     if (!ipalloc_append(ia,&ix)) return DNS_MEM;
++         if (!ipalloc_append(ia,&ix)) { err4 = DNS_MEM; break; }
++       }
++      }
++     break;
+   }
++
++#ifdef INET6
++ if (err4 != 0 && err6 != 0) {
++   return err4;
+   }
++#else
++ if (err4 != 0) return err4;
++#endif
+ #ifdef IX_FQDN
+  glue.s = 0;
+ #endif
+@@ -331,8 +461,10 @@
+  if (!stralloc_copy(&glue,sa)) return DNS_MEM;
+  if (!stralloc_0(&glue)) return DNS_MEM;
+  if (glue.s[0]) {
+-   if (!glue.s[ip_scan(glue.s,&ix.ip)] || !glue.s[ip_scanbracket(glue.s,&ix.ip)])
++   ix.pref = 0;
++   if (!glue.s[ip_scan(glue.s,&ix.addr.ip)] || !glue.s[ip_scanbracket(glue.s,&ix.addr.ip)])
+     {
++     ix.af = AF_INET;
+      if (!ipalloc_append(ia,&ix)) return DNS_MEM;
+      return 0;
+     }
+diff -u netqmail-1.06.save/dnsfq.c netqmail-1.06/dnsfq.c
+--- netqmail-1.06.save/dnsfq.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/dnsfq.c	2009-10-12 00:24:03.974918125 +0400
+@@ -1,3 +1,5 @@
++#include <sys/types.h>
++#include <sys/socket.h>
+ #include "substdio.h"
+ #include "subfd.h"
+ #include "stralloc.h"
+@@ -25,7 +27,12 @@
+   {
+    substdio_putsflush(subfderr,"no IP addresses\n"); _exit(100);
+   }
+- dnsdoe(dns_ptr(&sa,&ia.ix[0].ip));
++ if (ia.ix[0].af == AF_INET)
++	dnsdoe(dns_ptr(&sa,&ia.ix[0].addr.ip));
++#ifdef INET6
++ else
++	dnsdoe(dns_ptr6(&sa,&ia.ix[0].addr.ip6));
++#endif
+  substdio_putflush(subfdout,sa.s,sa.len);
+  substdio_putsflush(subfdout,"\n");
+  _exit(0);
+diff -u netqmail-1.06.save/dnsip.c netqmail-1.06/dnsip.c
+--- netqmail-1.06.save/dnsip.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/dnsip.c	2009-10-12 00:24:03.974918125 +0400
+@@ -1,3 +1,5 @@
++#include <sys/types.h>
++#include <sys/socket.h>
+ #include "substdio.h"
+ #include "subfd.h"
+ #include "stralloc.h"
+@@ -27,7 +29,19 @@
+  dnsdoe(dns_ip(&ia,&sa));
+  for (j = 0;j < ia.len;++j)
+   {
+-   substdio_put(subfdout,temp,ip_fmt(temp,&ia.ix[j].ip));
++   switch(ia.ix[j].af) {
++   case AF_INET:
++      substdio_put(subfdout,temp,ip_fmt(temp,&ia.ix[j].addr.ip));
++      break;
++#ifdef INET6
++   case AF_INET6:
++      substdio_put(subfdout,temp,ip6_fmt(temp,&ia.ix[j].addr.ip6));
++      break;
++#endif
++   default:
++      substdio_puts(subfdout,"Unknown address family = ");
++      substdio_put(subfdout,temp,fmt_ulong(temp,ia.ix[j].af));
++   }
+    substdio_putsflush(subfdout,"\n");
+   }
+  _exit(0);
+diff -u netqmail-1.06.save/dnsmxip.c netqmail-1.06/dnsmxip.c
+--- netqmail-1.06.save/dnsmxip.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/dnsmxip.c	2009-10-12 00:24:03.974918125 +0400
+@@ -1,3 +1,5 @@
++#include <sys/types.h>
++#include <sys/socket.h>
+ #include "substdio.h"
+ #include "subfd.h"
+ #include "stralloc.h"
+@@ -31,7 +33,19 @@
+  dnsdoe(dns_mxip(&ia,&sa,r));
+  for (j = 0;j < ia.len;++j)
+   {
+-   substdio_put(subfdout,temp,ip_fmt(temp,&ia.ix[j].ip));
++   switch(ia.ix[j].af) {
++   case AF_INET:
++      substdio_put(subfdout,temp,ip_fmt(temp,&ia.ix[j].addr.ip));
++      break;
++#ifdef INET6
++   case AF_INET6:
++      substdio_put(subfdout,temp,ip6_fmt(temp,&ia.ix[j].addr.ip6));
++      break;
++#endif
++   default:
++      substdio_puts(subfdout,"Unknown address family = ");
++      substdio_put(subfdout,temp,fmt_ulong(temp,ia.ix[j].af));
++   }
+    substdio_puts(subfdout," ");
+    substdio_put(subfdout,temp,fmt_ulong(temp,(unsigned long) ia.ix[j].pref));
+    substdio_putsflush(subfdout,"\n");
+diff -u netqmail-1.06.save/error.c netqmail-1.06/error.c
+--- netqmail-1.06.save/error.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/error.c	2009-10-12 00:24:03.974918125 +0400
+@@ -93,3 +93,10 @@
+ #else
+ -13;
+ #endif
++
++int error_refused =
++#ifdef ECONNREFUSED
++ECONNREFUSED;
++#else
++-14;
++#endif
+diff -u netqmail-1.06.save/error.h netqmail-1.06/error.h
+--- netqmail-1.06.save/error.h	2007-11-30 23:22:54.000000000 +0300
++++ netqmail-1.06/error.h	2009-10-12 00:24:03.974918125 +0400
+@@ -16,6 +16,7 @@
+ extern int error_pipe;
+ extern int error_perm;
+ extern int error_acces;
++extern int error_refused;
+ 
+ extern char *error_str();
+ extern int error_temp();
+diff -u netqmail-1.06.save/hier.c netqmail-1.06/hier.c
+--- netqmail-1.06.save/hier.c	2009-10-12 00:08:52.145008491 +0400
++++ netqmail-1.06/hier.c	2009-10-12 00:24:03.978250815 +0400
+@@ -3,6 +3,8 @@
+ #include "auto_uids.h"
+ #include "fmt.h"
+ #include "fifo.h"
++#include "ipalloc.h"
++#include "tcpto.h"
+ 
+ char buf[100 + FMT_ULONG];
+ 
+@@ -62,7 +64,7 @@
+   dsplit("queue/remote",auto_uids,0700);
+ 
+   d(auto_qmail,"queue/lock",auto_uidq,auto_gidq,0750);
+-  z(auto_qmail,"queue/lock/tcpto",1024,auto_uidr,auto_gidq,0644);
++  z(auto_qmail,"queue/lock/tcpto",sizeof(struct tcpto_buf)*TCPTO_BUFSIZ,auto_uidr,auto_gidq,0644);
+   z(auto_qmail,"queue/lock/sendmutex",0,auto_uids,auto_gidq,0600);
+   p(auto_qmail,"queue/lock/trigger",auto_uids,auto_gidq,0622);
+ 
+diff -u netqmail-1.06.save/ip.c netqmail-1.06/ip.c
+--- netqmail-1.06.save/ip.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/ip.c	2009-10-12 00:24:03.978250815 +0400
+@@ -51,3 +51,32 @@
+   if (s[len + 1] != ']') return 0;
+   return len + 2;
+ }
++
++#ifdef INET6
++int fmt_hexbyte(char *s, unsigned char byte)
++{
++  static char data[] = "0123456789abcdef";
++
++  if (s) {
++    *s++ = data[(byte >> 4) & 0xf];
++    *s = data[byte & 0xf];
++  }
++  return 2;
++}
++
++unsigned int ip6_fmt(s,ip6)
++char *s;
++struct ip6_address *ip6;
++{
++  unsigned int len;
++  unsigned int i, j, k;
++ 
++  len = 0;
++  for (j = 0, len = 0, k = 0; j < 8; j++) {
++    i = fmt_hexbyte(s, ip6->d[k++]); len += i; if (s) s += i;
++    i = fmt_hexbyte(s, ip6->d[k++]); len += i; if (s) s += i;
++    i = fmt_str(s,":"); len += i; if (s) s += i;
++  }
++  return len-1;
++}
++#endif
+diff -u netqmail-1.06.save/ip.h netqmail-1.06/ip.h
+--- netqmail-1.06.save/ip.h	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/ip.h	2009-10-12 00:24:03.978250815 +0400
+@@ -2,10 +2,20 @@
+ #define IP_H
+ 
+ struct ip_address { unsigned char d[4]; } ;
++#ifdef INET6
++struct ip6_address { unsigned char d[16]; } ;
++#endif
+ 
+ extern unsigned int ip_fmt();
++#ifdef INET6
++extern unsigned int ip6_fmt();
++#define IPFMT 72
++#else
+ #define IPFMT 19
++#endif
+ extern unsigned int ip_scan();
+ extern unsigned int ip_scanbracket();
+ 
++#define HOSTNAMELEN	1025
++
+ #endif
+diff -u netqmail-1.06.save/ipalloc.h netqmail-1.06/ipalloc.h
+--- netqmail-1.06.save/ipalloc.h	2009-10-12 00:07:49.731681373 +0400
++++ netqmail-1.06/ipalloc.h	2009-10-12 00:58:20.621378291 +0400
+@@ -7,11 +7,19 @@
+ # define IX_FQDN 1
+ #endif
+ 
++struct ip_mx {
++  unsigned short af;
++  union {
++    struct ip_address ip;
++#ifdef INET6
++    struct ip6_address ip6;
++#endif
++   } addr;
++  int pref;
+ #ifdef IX_FQDN
+-struct ip_mx { struct ip_address ip; int pref; char *fqdn; } ;
+-#else
+-struct ip_mx { struct ip_address ip; int pref; } ;
++  char *fqdn;
+ #endif
++ };
+ 
+ #include "gen_alloc.h"
+ 
+diff -u netqmail-1.06.save/ipme.c netqmail-1.06/ipme.c
+--- netqmail-1.06.save/ipme.c	2007-11-30 23:22:54.000000000 +0300
++++ netqmail-1.06/ipme.c	2009-10-12 01:43:51.291105297 +0400
+@@ -24,11 +24,24 @@
+   int i;
+   if (ipme_init() != 1) return -1;
+   for (i = 0;i < ipme.len;++i)
+-    if (byte_equal(&ipme.ix[i].ip,4,ip))
++    if (ipme.ix[i].af == AF_INET && byte_equal(&ipme.ix[i].addr.ip,4,ip))
+       return 1;
+   return 0;
+ }
+ 
++#ifdef INET6
++int ipme_is6(ip)
++struct ip6_address *ip;
++{
++  int i;
++  if (ipme_init() != 1) return -1;
++  for (i = 0;i < ipme.len;++i)
++    if (ipme.ix[i].af == AF_INET6 && byte_equal(&ipme.ix[i].addr.ip6,16,ip))
++      return 1;
++  return 0;
++}
++#endif
++
+ static stralloc buf = {0};
+ 
+ int ipme_init()
+@@ -37,6 +50,9 @@
+   char *x;
+   struct ifreq *ifr;
+   struct sockaddr_in *sin;
++#ifdef INET6
++  struct sockaddr_in6 *sin6;
++#endif
+   int len;
+   int s;
+   struct ip_mx ix;
+@@ -49,7 +65,7 @@
+   /* 0.0.0.0 is a special address which always refers to 
+    * "this host, this network", according to RFC 1122, Sec. 3.2.1.3a.
+   */
+-  byte_copy(&ix.ip,4,"\0\0\0\0");
++  byte_copy(&ix.addr.ip,4,"\0\0\0\0");
+   if (!ipalloc_append(&ipme,&ix)) { return 0; }
+   if ((s = socket(AF_INET,SOCK_STREAM,0)) == -1) return -1;
+  
+@@ -76,11 +92,22 @@
+       len = sizeof(*ifr);
+     if (ifr->ifr_addr.sa_family == AF_INET) {
+       sin = (struct sockaddr_in *) &ifr->ifr_addr;
+-      byte_copy(&ix.ip,4,&sin->sin_addr);
++      byte_copy(&ix.addr.ip,4,&sin->sin_addr);
++      ix.af = AF_INET;
++      if (ioctl(s,SIOCGIFFLAGS,x) == 0)
++        if (ifr->ifr_flags & IFF_UP)
++          if (!ipalloc_append(&ipme,&ix)) { close(s); return 0; }
++    }
++#ifdef INET6
++	else if (ifr->ifr_addr.sa_family == AF_INET6) {
++      sin6 = (struct sockaddr_in6 *) &ifr->ifr_addr;
++      byte_copy(&ix.addr.ip6,16,&sin6->sin6_addr);
++      ix.af = AF_INET6;
+       if (ioctl(s,SIOCGIFFLAGS,x) == 0)
+         if (ifr->ifr_flags & IFF_UP)
+           if (!ipalloc_append(&ipme,&ix)) { close(s); return 0; }
+     }
++#endif
+ #else
+     len = sizeof(*ifr);
+     if (ioctl(s,SIOCGIFFLAGS,x) == 0)
+@@ -88,10 +115,19 @@
+         if (ioctl(s,SIOCGIFADDR,x) == 0)
+ 	  if (ifr->ifr_addr.sa_family == AF_INET) {
+ 	    sin = (struct sockaddr_in *) &ifr->ifr_addr;
+-	    byte_copy(&ix.ip,4,&sin->sin_addr);
++        ix.af = AF_INET;
++	    byte_copy(&ix.addr.ip,4,&sin->sin_addr);
++	    if (!ipalloc_append(&ipme,&ix)) { close(s); return 0; }
++	  }
++#ifdef INET6
++      else if (ifr->ifr_addr.sa_family == AF_INET6) {
++	    sin6 = (struct sockaddr_in6 *) &ifr->ifr_addr;
++        ix.af = AF_INET6;
++	    byte_copy(&ix.addr.ip6,16,&sin6->sin6_addr);
+ 	    if (!ipalloc_append(&ipme,&ix)) { close(s); return 0; }
+ 	  }
+ #endif
++#endif
+     x += len;
+   }
+   close(s);
+diff -u netqmail-1.06.save/ipmeprint.c netqmail-1.06/ipmeprint.c
+--- netqmail-1.06.save/ipmeprint.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/ipmeprint.c	2009-10-12 00:24:03.978250815 +0400
+@@ -1,3 +1,5 @@
++#include <sys/types.h>
++#include <sys/socket.h>
+ #include "subfd.h"
+ #include "substdio.h"
+ #include "ip.h"
+@@ -16,7 +18,19 @@
+   }
+  for (j = 0;j < ipme.len;++j)
+   {
+-   substdio_put(subfdout,temp,ip_fmt(temp,&ipme.ix[j].ip));
++   switch(ipme.ix[j].af) {
++   case AF_INET:
++      substdio_put(subfdout,temp,ip_fmt(temp,&ipme.ix[j].addr.ip));
++      break;
++#ifdef INET6
++   case AF_INET6:
++      substdio_put(subfdout,temp,ip6_fmt(temp,&ipme.ix[j].addr.ip6));
++      break;
++#endif
++   default:
++      substdio_puts(subfdout,"Unknown address family = ");
++      substdio_put(subfdout,temp,fmt_ulong(temp,ipme.ix[j].af));
++   }
+    substdio_puts(subfdout,"\n");
+   }
+  substdio_flush(subfdout);
+Общие подкаталоги: netqmail-1.06.save/old-patches и netqmail-1.06/old-patches
+Общие подкаталоги: netqmail-1.06.save/other-patches и netqmail-1.06/other-patches
+diff -u netqmail-1.06.save/qmail-remote.c netqmail-1.06/qmail-remote.c
+--- netqmail-1.06.save/qmail-remote.c	2009-10-12 00:07:49.735014771 +0400
++++ netqmail-1.06/qmail-remote.c	2009-10-12 01:02:37.934685921 +0400
+@@ -46,7 +46,7 @@
+ 
+ saa reciplist = {0};
+ 
+-struct ip_address partner;
++struct ip_mx partner;
+ 
+ #ifdef TLS
+ # include <sys/stat.h>
+@@ -100,7 +100,15 @@
+ void outhost()
+ {
+   char x[IPFMT];
+-  if (substdio_put(subfdoutsmall,x,ip_fmt(x,&partner)) == -1) _exit(0);
++#ifdef INET6
++  if (partner.af == AF_INET) {
++#endif
++  if (substdio_put(subfdoutsmall,x,ip_fmt(x,&partner.addr.ip)) == -1) _exit(0);
++#ifdef INET6
++  } else {
++  if (substdio_put(subfdoutsmall,x,ip6_fmt(x,&partner.addr.ip6)) == -1) _exit(0);
++  }
++#endif
+ }
+ 
+ int flagcritical = 0;
+@@ -667,6 +675,33 @@
+   }
+ }
+ 
++#ifdef INET6
++int ipme_is46(mxip)
++struct ip_mx *mxip;
++{
++  switch(mxip->af) {
++  case AF_INET:
++    return ipme_is(&mxip->addr.ip);
++  case AF_INET6:
++    return ipme_is6(&mxip->addr.ip6);
++  }
++  return 0;
++}
++#endif
++
++int timeoutconn46(fd, ix, port, timeout)
++int fd;
++struct ip_mx *ix;
++int port;
++int timeout;
++{
++#ifdef INET6
++	if (ix->af == AF_INET6)
++		return timeoutconn6(fd, &ix->addr.ip6, port, timeout);
++#endif
++	return timeoutconn(fd, &ix->addr.ip, port, timeout);
++}
++
+ void main(argc,argv)
+ int argc;
+ char **argv;
+@@ -735,7 +770,11 @@
+  
+   prefme = 100000;
+   for (i = 0;i < ip.len;++i)
+-    if (ipme_is(&ip.ix[i].ip))
++#ifdef INET6
++   if (ipme_is46(&ip.ix[i]))
++#else
++   if (ipme_is(&ip.ix[i].addr.ip))
++#endif
+       if (ip.ix[i].pref < prefme)
+         prefme = ip.ix[i].pref;
+  
+@@ -750,20 +789,24 @@
+     perm_ambigmx();
+  
+   for (i = 0;i < ip.len;++i) if (ip.ix[i].pref < prefme) {
+-    if (tcpto(&ip.ix[i].ip)) continue;
++    if (tcpto(&ip.ix[i])) continue;
+  
+-    smtpfd = socket(AF_INET,SOCK_STREAM,0);
++    smtpfd = socket(ip.ix[i].af,SOCK_STREAM,0);
+     if (smtpfd == -1) temp_oserr();
+  
+-    if (timeoutconn(smtpfd,&ip.ix[i].ip,(unsigned int) port,timeoutconnect) == 0) {
+-      tcpto_err(&ip.ix[i].ip,0);
+-      partner = ip.ix[i].ip;
++    if (timeoutconn46(smtpfd,&ip.ix[i],(unsigned int) port,timeoutconnect) == 0) {
++      tcpto_err(&ip.ix[i],0);
++      partner = ip.ix[i];
+ #ifdef TLS
+       partner_fqdn = ip.ix[i].fqdn;
+ #endif
+       smtp(); /* does not return */
+     }
+-    tcpto_err(&ip.ix[i].ip,errno == error_timeout);
++    tcpto_err(&ip.ix[i],errno == error_timeout
++#ifdef TCPTO_REFUSED
++                        || errno == error_refused
++#endif
++    );
+     close(smtpfd);
+   }
+   
+diff -u netqmail-1.06.save/qmail-rspawn.c netqmail-1.06/qmail-rspawn.c
+--- netqmail-1.06.save/qmail-rspawn.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/qmail-rspawn.c	2009-10-12 00:24:03.981583955 +0400
+@@ -4,6 +4,7 @@
+ #include "exit.h"
+ #include "fork.h"
+ #include "error.h"
++#include "ipalloc.h"
+ #include "tcpto.h"
+ 
+ void initialize(argc,argv)
+diff -u netqmail-1.06.save/qmail-tcpok.c netqmail-1.06/qmail-tcpok.c
+--- netqmail-1.06.save/qmail-tcpok.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/qmail-tcpok.c	2009-10-12 00:24:03.981583955 +0400
+@@ -5,10 +5,12 @@
+ #include "readwrite.h"
+ #include "auto_qmail.h"
+ #include "exit.h"
++#include "ipalloc.h"
++#include "tcpto.h"
+ 
+ #define FATAL "qmail-tcpok: fatal: "
+ 
+-char buf[1024]; /* XXX: must match size in tcpto_clean.c, tcpto.c */
++struct tcpto_buf buf[TCPTO_BUFSIZ];
+ substdio ss;
+ 
+ void main()
+diff -u netqmail-1.06.save/qmail-tcpto.c netqmail-1.06/qmail-tcpto.c
+--- netqmail-1.06.save/qmail-tcpto.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/qmail-tcpto.c	2009-10-12 00:24:03.991584053 +0400
+@@ -1,5 +1,7 @@
+ /* XXX: this program knows quite a bit about tcpto's internals */
+ 
++#include <sys/types.h>
++#include <sys/socket.h>
+ #include "substdio.h"
+ #include "subfd.h"
+ #include "auto_qmail.h"
+@@ -10,6 +12,8 @@
+ #include "exit.h"
+ #include "datetime.h"
+ #include "now.h"
++#include "ipalloc.h"
++#include "tcpto.h"
+ 
+ void die(n) int n; { substdio_flush(subfdout); _exit(n); }
+ 
+@@ -28,7 +32,7 @@
+ void die_lock() { warn("fatal: unable to lock tcpto"); die(111); }
+ void die_read() { warn("fatal: unable to read tcpto"); die(111); }
+ 
+-char tcpto_buf[1024];
++struct tcpto_buf tcpto_buf[TCPTO_BUFSIZ];
+ 
+ char tmp[FMT_ULONG + IPFMT];
+ 
+@@ -38,8 +42,7 @@
+  int fd;
+  int r;
+  int i;
+- char *record;
+- struct ip_address ip;
++ int af;
+  datetime_sec when;
+  datetime_sec start;
+ 
+@@ -56,29 +59,31 @@
+  close(fdlock);
+ 
+  if (r == -1) die_read();
+- r >>= 4;
++ r /= sizeof(tcpto_buf[0]);
+ 
+  start = now();
+ 
+- record = tcpto_buf;
+  for (i = 0;i < r;++i)
+   {
+-   if (record[4] >= 1)
++   if (tcpto_buf[i].flag >= 1)
+     {
+-     byte_copy(&ip,4,record);
+-     when = (unsigned long) (unsigned char) record[11];
+-     when = (when << 8) + (unsigned long) (unsigned char) record[10];
+-     when = (when << 8) + (unsigned long) (unsigned char) record[9];
+-     when = (when << 8) + (unsigned long) (unsigned char) record[8];
++     af = tcpto_buf[i].af;
++     when = tcpto_buf[i].when;
+ 
+-     substdio_put(subfdout,tmp,ip_fmt(tmp,&ip));
++#ifdef INET6
++     if (af == AF_INET)
++       substdio_put(subfdout,tmp,ip_fmt(tmp,&tcpto_buf[i].addr.ip));
++     else
++       substdio_put(subfdout,tmp,ip6_fmt(tmp,&tcpto_buf[i].addr.ip6));
++#else
++     substdio_put(subfdout,tmp,ip_fmt(tmp,&tcpto_buf[i].addr.ip));
++#endif
+      substdio_puts(subfdout," timed out ");
+      substdio_put(subfdout,tmp,fmt_ulong(tmp,(unsigned long) (start - when)));
+      substdio_puts(subfdout," seconds ago; # recent timeouts: ");
+-     substdio_put(subfdout,tmp,fmt_ulong(tmp,(unsigned long) (unsigned char) record[4]));
++     substdio_put(subfdout,tmp,fmt_ulong(tmp,tcpto_buf[i].flag));
+      substdio_puts(subfdout,"\n");
+     }
+-   record += 16;
+   }
+ 
+  die(0);
+diff -u netqmail-1.06.save/remoteinfo.c netqmail-1.06/remoteinfo.c
+--- netqmail-1.06.save/remoteinfo.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/remoteinfo.c	2009-10-12 00:24:03.998250615 +0400
+@@ -23,33 +23,62 @@
+   return timeoutread(t,fd,buf,len);
+ }
+ 
+-char *remoteinfo_get(ipr,rp,ipl,lp,timeout)
+-struct ip_address *ipr;
+-unsigned long rp;
+-struct ip_address *ipl;
+-unsigned long lp;
++union sockunion {
++	struct sockaddr     sa;
++	struct sockaddr_in  sa4;
++#ifdef INET6
++	struct sockaddr_in6 sa6;
++#endif
++};
++
++char *remoteinfo_get(saremote, salocal, timeout)
++union sockunion *saremote, *salocal;
+ int timeout;
+ {
+   char *x;
+   int s;
+-  struct sockaddr_in sin;
++  union sockunion sa;
+   substdio ss;
+   char buf[32];
+-  unsigned int len;
++  unsigned int len, rp, lp;
+   int numcolons;
+   char ch;
+ 
+   t = timeout;
+  
+-  s = socket(AF_INET,SOCK_STREAM,0);
++  s = socket(saremote->sa.sa_family,SOCK_STREAM,0);
++  if (s == -1) return 0;
++ 
++  switch(saremote->sa.sa_family) {
++  case AF_INET:
++    rp = ntohs(saremote->sa4.sin_port);
++    lp = ntohs(salocal->sa4.sin_port);
++    byte_zero(&sa,sizeof(sa));
++    sa.sa4.sin_family = AF_INET;
++    byte_copy(&sa.sa4.sin_addr, 4, &salocal->sa4.sin_addr);
++    sa.sa4.sin_port = 0;
++    if (bind(s,(struct sockaddr *) &sa.sa,sizeof(sa.sa4)) == -1) { close(s); return 0; }
++    if (timeoutconn(s,&saremote->sa4.sin_addr,113,timeout) == -1) { close(s); return 0; }
++    break;
++#ifdef INET6
++  case AF_INET6:
++    rp = ntohs(saremote->sa6.sin6_port);
++    lp = ntohs(salocal->sa6.sin6_port);
++    s = socket(PF_INET6, SOCK_STREAM, 0);
+   if (s == -1) return 0;
++    byte_zero(&sa,sizeof(sa));
++    sa.sa6.sin6_family = AF_INET;
++    byte_copy(&sa.sa6.sin6_addr, 16, &salocal->sa6.sin6_addr);
++    sa.sa6.sin6_port = 0;
++    sa.sa6.sin6_flowinfo = 0;
++    if (bind(s,(struct sockaddr *) &sa.sa,sizeof(sa.sa6)) == -1) { close(s); return 0; }
++    if (timeoutconn6(s,&saremote->sa6.sin6_addr,113,timeout) == -1) { close(s); return 0; }
++    break;
++#endif
++  default:
++    return 0;
++  }
+  
+-  byte_zero(&sin,sizeof(sin));
+-  sin.sin_family = AF_INET;
+-  byte_copy(&sin.sin_addr,4,ipl);
+-  sin.sin_port = 0;
+-  if (bind(s,(struct sockaddr *) &sin,sizeof(sin)) == -1) { close(s); return 0; }
+-  if (timeoutconn(s,ipr,113,timeout) == -1) { close(s); return 0; }
+   fcntl(s,F_SETFL,fcntl(s,F_GETFL,0) & ~O_NDELAY);
+  
+   len = 0;
+diff -u netqmail-1.06.save/tcp-env.c netqmail-1.06/tcp-env.c
+--- netqmail-1.06.save/tcp-env.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/tcp-env.c	2009-10-12 00:24:04.001584040 +0400
+@@ -2,6 +2,7 @@
+ #include <sys/socket.h>
+ #include <sys/param.h>
+ #include <netinet/in.h>
++#include <netdb.h>
+ #include "sig.h"
+ #include "stralloc.h"
+ #include "str.h"
+@@ -15,20 +16,50 @@
+ #include "remoteinfo.h"
+ #include "exit.h"
+ #include "case.h"
++#include "hassalen.h"
+ 
+ void die() { _exit(111); }
+ 
+-struct sockaddr_in salocal;
++union sockunion {
++	struct sockaddr     sa;
++	struct sockaddr_in  sa4;
++#ifdef INET6
++	struct sockaddr_in6 sa6;
++#endif
++};
++
++char temp[HOSTNAMELEN];
++
++union sockunion salocal;
+ unsigned long localport;
+-struct ip_address iplocal;
+ stralloc localname = {0};
+ 
+-struct sockaddr_in saremote;
++union sockunion saremote;
+ unsigned long remoteport;
+-struct ip_address ipremote;
+ stralloc remotename = {0};
+ 
+-char temp[IPFMT + FMT_ULONG];
++#if defined(IN6_IS_ADDR_V4MAPPED) && defined(INET6)
++void mappedtov4(union sockunion *sa)
++{
++	struct sockaddr_in sin;
++	struct sockaddr_in6 *sin6 = &sa->sa6;
++
++	bzero(&sin, sizeof(sin));
++	if (sin6->sin6_family == AF_INET6 &&
++	  IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr) ) {
++		memcpy(&sin.sin_addr, sin6->sin6_addr.s6_addr+12, sizeof(sin.sin_addr));
++		sin.sin_port = sin6->sin6_port;
++		sin.sin_family = AF_INET;
++#ifdef HASSALEN
++		sin.sin_len = sizeof(sin);
++#endif
++		memcpy(&sa->sa4, &sin, sizeof(sin));
++	}
++		
++}
++#else
++#define mappedtov4(A)
++#endif
+ 
+ void main(argc,argv)
+ int argc;
+@@ -39,6 +70,7 @@
+  int opt;
+  int flagremoteinfo;
+  unsigned long timeout;
++ struct sockaddr_in *v4;
+ 
+  sig_pipeignore();
+ 
+@@ -65,17 +97,16 @@
+ 
+    dummy = sizeof(salocal);
+    if (getsockname(0,(struct sockaddr *) &salocal,&dummy) == -1) die();
++   mappedtov4(&salocal);
+ 
+-   localport = ntohs(salocal.sin_port);
++   switch(salocal.sa.sa_family) {
++   case AF_INET:
++	localport = ntohs(salocal.sa4.sin_port);
+    temp[fmt_ulong(temp,localport)] = 0;
+    if (!env_put2("TCPLOCALPORT",temp)) die();
+-
+-   byte_copy(&iplocal,4,&salocal.sin_addr);
+-   temp[ip_fmt(temp,&iplocal)] = 0;
++	temp[ip_fmt(temp, &salocal.sa4.sin_addr)] = 0;
+    if (!env_put2("TCPLOCALIP",temp)) die();
+-
+-   switch(dns_ptr(&localname,&iplocal))
+-    {
++	switch(dns_ptr(&localname,&salocal.sa4.sin_addr)) {
+      case DNS_MEM: die();
+      case DNS_SOFT:
+        if (!stralloc_copys(&localname,"softdnserror")) die();
+@@ -87,20 +118,64 @@
+      default:
+        if (!env_unset("TCPLOCALHOST")) die();
+     }
++	break;
++#ifdef INET6
++   case AF_INET6:
++	localport = ntohs(salocal.sa6.sin6_port);
++        temp[fmt_ulong(temp,localport)] = 0;
++        if (!env_put2("TCPLOCALPORT",temp)) die();
++	temp[ip6_fmt(temp, &salocal.sa6.sin6_addr)] = 0;
++	if (!env_put2("TCPLOCALIP",temp)) die();
++	switch(dns_ptr6(&localname,&salocal.sa6.sin6_addr)) {
++	case DNS_MEM: die();
++	case DNS_SOFT:
++	  if (!stralloc_copys(&localname,"softdnserror")) die();
++	case 0:
++	  if (!stralloc_0(&localname)) die();
++	  case_lowers(localname.s);
++	  if (!env_put2("TCPLOCALHOST",localname.s)) die();
++	  break;
++	default:
++	  if (!env_unset("TCPLOCALHOST")) die();
++	}
++	break;
++#endif
++   default:
++	die();
++   }
+ 
+    dummy = sizeof(saremote);
+    if (getpeername(0,(struct sockaddr *) &saremote,&dummy) == -1) die();
++   mappedtov4(&saremote);
+ 
+-   remoteport = ntohs(saremote.sin_port);
++   switch(saremote.sa.sa_family) {
++   case AF_INET:
++	remoteport = ntohs(saremote.sa4.sin_port);
+    temp[fmt_ulong(temp,remoteport)] = 0;
+    if (!env_put2("TCPREMOTEPORT",temp)) die();
+-
+-   byte_copy(&ipremote,4,&saremote.sin_addr);
+-   temp[ip_fmt(temp,&ipremote)] = 0;
++	temp[ip_fmt(temp, &saremote.sa4.sin_addr)] = 0;
+    if (!env_put2("TCPREMOTEIP",temp)) die();
+-
+-   switch(dns_ptr(&remotename,&ipremote))
+-    {
++	switch(dns_ptr(&remotename,&saremote.sa4.sin_addr)) {
++	case DNS_MEM: die();
++	case DNS_SOFT:
++	  if (!stralloc_copys(&remotename,"softdnserror")) die();
++	case 0:
++	  if (!stralloc_0(&remotename)) die();
++	  case_lowers(remotename.s);
++	  if (!env_put2("TCPREMOTEHOST",remotename.s)) die();
++	  break;
++	default:
++	  if (!env_unset("TCPREMOTEHOST")) die();
++	}
++	break;
++#ifdef INET6
++   case AF_INET6:
++	remoteport = ntohs(saremote.sa6.sin6_port);
++        temp[fmt_ulong(temp,remoteport)] = 0;
++	if (!env_put2("TCPREMOTEPORT",temp)) die();
++	temp[ip6_fmt(temp, &saremote.sa6.sin6_addr)] = 0;
++	if (!env_put2("TCPREMOTEIP",temp)) die();
++	switch(dns_ptr6(&remotename,&saremote.sa6.sin6_addr)) {
+      case DNS_MEM: die();
+      case DNS_SOFT:
+        if (!stralloc_copys(&remotename,"softdnserror")) die();
+@@ -112,12 +187,18 @@
+      default:
+        if (!env_unset("TCPREMOTEHOST")) die();
+     }
++	break;
++#endif
++   default:
++	die();
++   }
+ 
+    if (!env_unset("TCPREMOTEINFO")) die();
++
+    if (flagremoteinfo)
+     {
+      char *rinfo;
+-     rinfo = remoteinfo_get(&ipremote,remoteport,&iplocal,localport,(int) timeout);
++     rinfo = remoteinfo_get(&saremote, &salocal,(int) timeout);
+      if (rinfo)
+        if (!env_put2("TCPREMOTEINFO",rinfo)) die();
+     }
+diff -u netqmail-1.06.save/tcpto.c netqmail-1.06/tcpto.c
+--- netqmail-1.06.save/tcpto.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/tcpto.c	2009-10-12 01:33:42.307624839 +0400
+@@ -1,14 +1,19 @@
++#include <sys/types.h>
++#include <sys/uio.h>
++#include <sys/socket.h>
++#include <unistd.h>
++#include "ipalloc.h"
+ #include "tcpto.h"
+ #include "open.h"
+ #include "lock.h"
+ #include "seek.h"
+ #include "now.h"
+ #include "ip.h"
++#include "ipalloc.h"
+ #include "byte.h"
+ #include "datetime.h"
+-#include "readwrite.h"
+ 
+-char tcpto_buf[1024];
++struct tcpto_buf tcpto_buf[TCPTO_BUFSIZ];
+ 
+ static int flagwasthere;
+ static int fdlock;
+@@ -23,19 +28,19 @@
+  fd = open_read("queue/lock/tcpto");
+  if (fd == -1) { close(fdlock); return 0; }
+  if (lock_ex(fdlock) == -1) { close(fdlock); close(fd); return 0; }
+- r = read(fd,tcpto_buf,sizeof(tcpto_buf));
++ r = read(fd,&tcpto_buf,sizeof(tcpto_buf));
+  close(fd);
+  if (r < 0) { close(fdlock); return 0; }
+- r >>= 4;
++ r /= sizeof(tcpto_buf[0]);
+  if (!r) close(fdlock);
+  return r;
+ }
+ 
+-int tcpto(ip) struct ip_address *ip;
++int tcpto(ix)
++struct ip_mx *ix;
+ {
+  int n;
+  int i;
+- char *record;
+  datetime_sec when;
+ 
+  flagwasthere = 0;
+@@ -44,37 +49,35 @@
+  if (!n) return 0;
+  close(fdlock);
+ 
+- record = tcpto_buf;
+  for (i = 0;i < n;++i)
+   {
+-   if (byte_equal(ip->d,4,record))
++#ifdef INET6
++   if (ix->af == tcpto_buf[i].af && (ix->af == AF_INET ? byte_equal(&ix->addr.ip, sizeof(ix->addr.ip), &tcpto_buf[i].addr.ip) : byte_equal(&ix->addr.ip6, sizeof(ix->addr.ip6), &tcpto_buf[i].addr.ip6)))
++#else
++   if (byte_equal(&ix->addr.ip, sizeof(ix->addr.ip), &tcpto_buf[i].addr.ip))
++#endif
+     {
+      flagwasthere = 1;
+-     if (record[4] >= 2)
++     if (tcpto_buf[i].flag >= 2)
+       {
+-       when = (unsigned long) (unsigned char) record[11];
+-       when = (when << 8) + (unsigned long) (unsigned char) record[10];
+-       when = (when << 8) + (unsigned long) (unsigned char) record[9];
+-       when = (when << 8) + (unsigned long) (unsigned char) record[8];
+-
++       when = tcpto_buf[i].when;
+        if (now() - when < ((60 + (getpid() & 31)) << 6))
+ 	 return 1;
+       }
+      return 0;
+     }
+-   record += 16;
+   }
+  return 0;
+ }
+ 
+-void tcpto_err(ip,flagerr) struct ip_address *ip; int flagerr;
++void tcpto_err(ix,flagerr)
++struct ip_mx *ix; int flagerr;
+ {
+  int n;
+  int i;
+- char *record;
+  datetime_sec when;
+- datetime_sec firstwhen;
+- int firstpos;
++ datetime_sec firstwhen=0;
++ int firstpos=-1;
+  datetime_sec lastwhen;
+ 
+  if (!flagerr)
+@@ -84,80 +87,68 @@
+  n = getbuf();
+  if (!n) return;
+ 
+- record = tcpto_buf;
+  for (i = 0;i < n;++i)
+   {
+-   if (byte_equal(ip->d,4,record))
++#ifdef INET6
++   if (ix->af == tcpto_buf[i].af && (ix->af == AF_INET ? byte_equal(&ix->addr.ip, sizeof(ix->addr.ip), &tcpto_buf[i].addr.ip) : byte_equal(&ix->addr.ip6, sizeof(ix->addr.ip6), &tcpto_buf[i].addr.ip6)))
++#else
++   if (byte_equal(&ix->addr.ip, sizeof(ix->addr.ip), &tcpto_buf[i].addr.ip))
++#endif
+     {
+      if (!flagerr)
+-       record[4] = 0;
++       tcpto_buf[i].flag = 0;
+      else
+       {
+-       lastwhen = (unsigned long) (unsigned char) record[11];
+-       lastwhen = (lastwhen << 8) + (unsigned long) (unsigned char) record[10];
+-       lastwhen = (lastwhen << 8) + (unsigned long) (unsigned char) record[9];
+-       lastwhen = (lastwhen << 8) + (unsigned long) (unsigned char) record[8];
++       lastwhen = tcpto_buf[i].when;
+        when = now();
+ 
+-       if (record[4] && (when < 120 + lastwhen)) { close(fdlock); return; }
++       if (tcpto_buf[i].flag && (when < 120 + lastwhen)) { close(fdlock); return; }
+ 
+-       if (++record[4] > 10) record[4] = 10;
+-       record[8] = when; when >>= 8;
+-       record[9] = when; when >>= 8;
+-       record[10] = when; when >>= 8;
+-       record[11] = when;
++       if (++tcpto_buf[i].flag > 10) tcpto_buf[i].flag = 10;
++       tcpto_buf[i].when = when;
+       }
+-     if (seek_set(fdlock,i << 4) == 0)
+-       if (write(fdlock,record,16) < 16)
++     if (seek_set(fdlock,sizeof(tcpto_buf[0])*i) == 0)
++       if (write(fdlock,&tcpto_buf[i],sizeof(tcpto_buf[0])) < sizeof(tcpto_buf[0]))
+          ; /*XXX*/
+      close(fdlock);
+      return;
+     }
+-   record += 16;
+   }
+ 
+  if (!flagerr) { close(fdlock); return; }
+ 
+- record = tcpto_buf;
+  for (i = 0;i < n;++i)
+-  {
+-   if (!record[4]) break;
+-   record += 16;
+-  }
++   if (tcpto_buf[i].flag == 0) break;
+ 
+  if (i >= n)
+   {
+    firstpos = -1;
+-   record = tcpto_buf;
+    for (i = 0;i < n;++i)
+     {
+-     when = (unsigned long) (unsigned char) record[11];
+-     when = (when << 8) + (unsigned long) (unsigned char) record[10];
+-     when = (when << 8) + (unsigned long) (unsigned char) record[9];
+-     when = (when << 8) + (unsigned long) (unsigned char) record[8];
+-     when += (record[4] << 10);
++     when = tcpto_buf[i].when;
++     when += (tcpto_buf[i].flag << 10);
+      if ((firstpos < 0) || (when < firstwhen))
+       {
+        firstpos = i;
+        firstwhen = when;
+       }
+-     record += 16;
+     }
+    i = firstpos;
+   }
+ 
+  if (i >= 0)
+   {
+-   record = tcpto_buf + (i << 4);
+-   byte_copy(record,4,ip->d);
+-   when = now();
+-   record[8] = when; when >>= 8;
+-   record[9] = when; when >>= 8;
+-   record[10] = when; when >>= 8;
+-   record[11] = when;
+-   record[4] = 1;
+-   if (seek_set(fdlock,i << 4) == 0)
+-     if (write(fdlock,record,16) < 16)
++   tcpto_buf[i].af = ix->af;
++#ifdef INET6
++   if (ix->af == AF_INET6)
++     byte_copy(&tcpto_buf[i].addr.ip6, 16, &ix->addr.ip6);
++   else
++#endif
++     byte_copy(&tcpto_buf[i].addr.ip, 4, &ix->addr.ip);
++   tcpto_buf[i].when = now();
++   tcpto_buf[i].flag = 1;
++   if (seek_set(fdlock,sizeof(tcpto_buf[0])*i) == 0)
++     if (write(fdlock,&tcpto_buf[i],sizeof(tcpto_buf[0])) < sizeof(tcpto_buf[0]))
+        ; /*XXX*/
+   }
+ 
+diff -u netqmail-1.06.save/tcpto.h netqmail-1.06/tcpto.h
+--- netqmail-1.06.save/tcpto.h	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/tcpto.h	2009-10-12 00:24:04.011583902 +0400
+@@ -1,8 +1,23 @@
+ #ifndef TCPTO_H
+ #define TCPTO_H
+ 
+-extern int tcpto();
+-extern void tcpto_err();
+-extern void tcpto_clean();
++#define	TCPTO_BUFSIZ	64
++
++struct tcpto_buf {
++	unsigned char af;
++	unsigned char flag;
++	unsigned long when;
++	union {
++		struct ip_address ip;
++#ifdef INET6
++		struct ip6_address ip6;
++#endif
++		unsigned char dummy[16];
++	} addr;
++};
++
++extern int tcpto(struct ip_mx *ix);
++extern void tcpto_err(struct ip_mx *ix, int flagerr);
++extern void tcpto_clean(void);
+ 
+ #endif
+diff -u netqmail-1.06.save/tcpto_clean.c netqmail-1.06/tcpto_clean.c
+--- netqmail-1.06.save/tcpto_clean.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/tcpto_clean.c	2009-10-12 00:24:04.028250659 +0400
+@@ -1,9 +1,10 @@
++#include "ipalloc.h"
+ #include "tcpto.h"
+ #include "open.h"
+ #include "substdio.h"
+ #include "readwrite.h"
+ 
+-char tcpto_cleanbuf[1024];
++struct tcpto_buf tcpto_cleanbuf[TCPTO_BUFSIZ];
+ 
+ void tcpto_clean() /* running from queue/mess */
+ {
+diff -u netqmail-1.06.save/timeoutconn.c netqmail-1.06/timeoutconn.c
+--- netqmail-1.06.save/timeoutconn.c	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/timeoutconn.c	2009-10-12 00:24:04.028250659 +0400
+@@ -57,3 +57,52 @@
+   errno = error_timeout; /* note that connect attempt is continuing */
+   return -1;
+ }
++
++#ifdef INET6
++int timeoutconn6(s,ip,port,timeout)
++int s;
++struct ip6_address *ip;
++unsigned int port;
++int timeout;
++{
++  char ch;
++  struct sockaddr_in6 sin;
++  char *x;
++  fd_set wfds;
++  struct timeval tv;
++ 
++  byte_zero(&sin,sizeof(sin));
++  byte_copy(&sin.sin6_addr,16,ip);
++  sin.sin6_port = htons(port);;
++  sin.sin6_family = AF_INET6;
++ 
++  if (ndelay_on(s) == -1) return -1;
++ 
++  /* XXX: could bind s */
++ 
++  if (connect(s,(struct sockaddr *) &sin,sizeof(sin)) == 0) {
++    ndelay_off(s);
++    return 0;
++  }
++  if ((errno != error_inprogress) && (errno != error_wouldblock)) return -1;
++ 
++  FD_ZERO(&wfds);
++  FD_SET(s,&wfds);
++  tv.tv_sec = timeout; tv.tv_usec = 0;
++ 
++  if (select(s + 1,(fd_set *) 0,&wfds,(fd_set *) 0,&tv) == -1) return -1;
++  if (FD_ISSET(s,&wfds)) {
++    int dummy;
++    dummy = sizeof(sin);
++    if (getpeername(s,(struct sockaddr *) &sin,&dummy) == -1) {
++      read(s,&ch,1);
++      return -1;
++    }
++    ndelay_off(s);
++    return 0;
++  }
++ 
++  errno = error_timeout; /* note that connect attempt is continuing */
++  return -1;
++}
++#endif
+diff -u netqmail-1.06.save/timeoutconn.h netqmail-1.06/timeoutconn.h
+--- netqmail-1.06.save/timeoutconn.h	1998-06-15 14:53:16.000000000 +0400
++++ netqmail-1.06/timeoutconn.h	2009-10-12 00:24:04.031583882 +0400
+@@ -2,5 +2,6 @@
+ #define TIMEOUTCONN_H
+ 
+ extern int timeoutconn();
++extern int timeoutconn6();
+ 
+ #endif

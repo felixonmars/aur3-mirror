@@ -1,0 +1,438 @@
+diff --git a/src/display/canvas.cc b/src/display/canvas.cc
+index 4e621df..35244eb 100644
+--- a/src/display/canvas.cc
++++ b/src/display/canvas.cc
+@@ -92,6 +92,14 @@ Canvas::initialize() {
+   m_isInitialized = true;
+ 
+   initscr();
++  
++  //colors
++  start_color();
++  use_default_colors();
++  init_pair(1, COLOR_RED, -1);
++  init_pair(2, COLOR_YELLOW, -1);
++  init_pair(3, COLOR_GREEN, -1);
++  
+   raw();
+   noecho();
+   nodelay(stdscr, TRUE);
+diff --git a/src/display/utils.cc b/src/display/utils.cc
+index d2f1af4..400b940 100644
+--- a/src/display/utils.cc
++++ b/src/display/utils.cc
+@@ -34,6 +34,9 @@
+ //           Skomakerveien 33
+ //           3185 Skoppum, NORWAY
+ 
++// interface modifications by karabaja4
++// <karabaja4@archlinux.us>
++
+ #include "config.h"
+ 
+ #include <cstring>
+@@ -52,6 +55,10 @@
+ #include <torrent/data/file_list.h>
+ #include <torrent/peer/client_info.h>
+ 
++//peers
++#include <torrent/peer/connection_list.h>
++#include <torrent/peer/peer_list.h>
++
+ #include "core/download.h"
+ #include "core/manager.h"
+ #include "rpc/parse_commands.h"
+@@ -96,9 +103,9 @@ print_hhmmss_local(char* first, char* last, time_t t) {
+ char*
+ print_ddhhmm(char* first, char* last, time_t t) {
+   if (t / (24 * 3600) < 100)
+-    return print_buffer(first, last, "%2id %2i:%02i", (int)t / (24 * 3600), ((int)t / 3600) % 24, ((int)t / 60) % 60);
++    return print_buffer(first, last, "%id:%ih:%im", (int)t / (24 * 3600), ((int)t / 3600) % 24, ((int)t / 60) % 60);
+   else
+-    return print_buffer(first, last, "--d --:--");
++    return print_buffer(first, last, "--d:--h:--m");
+ }
+ 
+ char*
+@@ -127,91 +134,121 @@ print_address(char* first, char* last, const sockaddr* sa) {
+ 
+ char*
+ print_download_title(char* first, char* last, core::Download* d) {
+-  return print_buffer(first, last, " %s", d->download()->name().c_str());
++  
++	first = print_buffer(first, last, " %s", d->download()->name().c_str());
++	
++	if (first > last)
++		throw torrent::internal_error("print_download_status(...) wrote past end of the buffer.");
++
++	return first;
++	
+ }
+ 
+ char*
+-print_download_info(char* first, char* last, core::Download* d) {
+-  if (!d->download()->is_open())
+-    first = print_buffer(first, last, "[CLOSED]  ");
+-  else if (!d->download()->is_active())
+-    first = print_buffer(first, last, "[OPEN]    ");
+-  else
+-    first = print_buffer(first, last, "          ");
++print_download_title_extra(char* first, char* last, core::Download* d) {
++	
++	if (d->is_hash_checking()) {
++		first = print_buffer(first, last, " | Checking hash [%2i%%]",
++                            (d->download()->chunks_hashed() * 100) / d->download()->file_list()->size_chunks());
++	}
++	else if (d->tracker_list()->has_active() && d->tracker_list()->focus() < d->tracker_list()->end()) {
++    
++		torrent::TrackerList* tl = d->tracker_list();
++		char status[128];
++
++		(*tl->focus())->get_status(status, sizeof(status));
++		first = print_buffer(first, last, " | Tracker[%i:%i]: Connecting to %s %s",
++							(*tl->focus())->group(), tl->focus_index(), (*tl->focus())->url().c_str(), status);
++	}
++	else if (!d->message().empty()) {
++		first = print_buffer(first, last, " | %s", d->message().c_str());
++	}
++	else {
++		*first = '\0';
++	}
++	
++	if (first > last)
++		throw torrent::internal_error("print_download_status(...) wrote past end of the buffer.");
++
++	return first;
++	
++}
+ 
+-  if (d->is_done())
+-    first = print_buffer(first, last, "done %10.1f MB", (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+-  else
+-    first = print_buffer(first, last, "%6.1f / %6.1f MB",
+-                         (double)d->download()->bytes_done() / (double)(1 << 20),
+-                         (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+-  
+-  first = print_buffer(first, last, " Rate: %5.1f / %5.1f KB Uploaded: %7.1f MB",
+-                       (double)d->download()->up_rate()->rate() / (1 << 10),
+-                       (double)d->download()->down_rate()->rate() / (1 << 10),
+-                       (double)d->download()->up_rate()->total() / (1 << 20));
+-
+-  if (d->download()->is_active() && !d->is_done()) {
+-    first = print_buffer(first, last, " ");
+-    first = print_download_percentage_done(first, last, d);
+-
+-    first = print_buffer(first, last, " ");
+-    first = print_download_time_left(first, last, d);
+-  } else {
+-    first = print_buffer(first, last, "                ");
+-  }
++char*
++print_download_info(char* first, char* last, core::Download* d) {
++	
++	if (!d->download()->is_open()) {
++		first = print_buffer(first, last, " CLOSED |");
++	}
++	else if (!d->download()->is_active()) {
++		first = print_buffer(first, last, " PAUSED |");
++	}
++	else {
++		first = print_buffer(first, last, " ACTIVE |");
++	}
++
++	if (d->is_done()) {
++		first = print_buffer(first, last, " finished %.1f MB [100%%] |", (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
++	}
++	else {
++		first = print_buffer(first, last, " %.1f / %.1f MB [%i%%] |",
++							(double)d->download()->bytes_done() / (double)(1 << 20),
++							(double)d->download()->file_list()->size_bytes() / (double)(1 << 20),
++							(int)(((double)d->download()->bytes_done() / (double)d->download()->file_list()->size_bytes()) * 100));
++	}
++	
++	//speed
++	first = print_buffer(first, last, " Speed: %.1f / %.1f KB",
++						(double)d->download()->down_rate()->rate() / (1 << 10),
++						(double)d->download()->up_rate()->rate() / (1 << 10));
++
++	if (d->download()->is_active() && !d->is_done()) {
++		
++		//peers
++		first = print_buffer(first, last, " | Peers: %i(%i)",
++							(int)d->download()->connection_list()->size(),
++							(int)d->download()->peer_list()->available_list_size());
++
++		//eta
++		first = print_buffer(first, last, " | ETA: ");
++		first = print_download_time_left(first, last, d);
++		
++	}
++
++	if (first > last)
++		throw torrent::internal_error("print_download_info(...) wrote past end of the buffer.");
++
++	return first;
++}
+ 
+-  first = print_buffer(first, last, " [%c%c R: %4.2f",
+-                       rpc::call_command_string("d.get_tied_to_file", rpc::make_target(d)).empty() ? ' ' : 'T',
+-                       rpc::call_command_value("d.get_ignore_commands", rpc::make_target(d)) == 0 ? ' ' : 'I',
+-                       (double)rpc::call_command_value("d.get_ratio", rpc::make_target(d)) / 1000.0);
++char*
++print_download_info_extra(char* first, char* last, core::Download* d) {
++	
++	first = print_buffer(first, last, "[%c%c R: %4.2f",
++						 rpc::call_command_string("d.get_tied_to_file", rpc::make_target(d)).empty() ? ' ' : 'T',
++						 rpc::call_command_value("d.get_ignore_commands", rpc::make_target(d)) == 0 ? ' ' : 'I',
++						 (double)rpc::call_command_value("d.get_ratio", rpc::make_target(d)) / 1000.0);
+ 
+-  if (d->priority() != 2)
+-    first = print_buffer(first, last, " %s", rpc::call_command_string("d.get_priority_str", rpc::make_target(d)).c_str());
++	if (d->priority() != 2)
++		first = print_buffer(first, last, " %s", rpc::call_command_string("d.get_priority_str", rpc::make_target(d)).c_str());
+ 
+-  if (!d->bencode()->get_key("rtorrent").get_key_string("throttle_name").empty())
+-    first = print_buffer(first, last , " %s", rpc::call_command_string("d.get_throttle_name", rpc::make_target(d)).c_str());
++	if (!d->bencode()->get_key("rtorrent").get_key_string("throttle_name").empty())
++		first = print_buffer(first, last , " %s", rpc::call_command_string("d.get_throttle_name", rpc::make_target(d)).c_str());
+ 
+-  first = print_buffer(first, last , "]");
++	first = print_buffer(first, last , "]");
+ 
+-  if (first > last)
+-    throw torrent::internal_error("print_download_info(...) wrote past end of the buffer.");
++	if (first > last)
++		throw torrent::internal_error("print_download_info(...) wrote past end of the buffer.");
+ 
+-  return first;
++	return first;
+ }
+ 
+ char*
+ print_download_status(char* first, char* last, core::Download* d) {
+-  if (d->is_active())
+-    ;
+-  else if (rpc::call_command_value("d.get_hashing", rpc::make_target(d)) != 0)
+-    first = print_buffer(first, last, "Hashing: ");
+-  else if (!d->is_active())
+-    first = print_buffer(first, last, "Inactive: ");
+-
+-  if (d->is_hash_checking()) {
+-    first = print_buffer(first, last, "Checking hash [%2i%%]",
+-                         (d->download()->chunks_hashed() * 100) / d->download()->file_list()->size_chunks());
+-
+-  } else if (d->tracker_list()->has_active() && d->tracker_list()->focus() < d->tracker_list()->end()) {
+-    torrent::TrackerList* tl = d->tracker_list();
+-    char status[128];
+-
+-    (*tl->focus())->get_status(status, sizeof(status));
+-    first = print_buffer(first, last, "Tracker[%i:%i]: Connecting to %s %s",
+-                         (*tl->focus())->group(), tl->focus_index(), (*tl->focus())->url().c_str(), status);
+-
+-  } else if (!d->message().empty()) {
+-    first = print_buffer(first, last, "%s", d->message().c_str());
+-
+-  } else {
+-    *first = '\0';
+-  }
+-
+-  if (first > last)
+-    throw torrent::internal_error("print_download_status(...) wrote past end of the buffer.");
+ 
++  *first = '\0';
+   return first;
++  
+ }
+ 
+ char*
+@@ -219,7 +256,7 @@ print_download_time_left(char* first, char* last, core::Download* d) {
+   uint32_t rate = d->download()->down_rate()->rate();
+ 
+   if (rate < 512)
+-    return print_buffer(first, last, "--d --:--");
++    return print_buffer(first, last, "--d:--h:--m");
+   
+   time_t remaining = (d->download()->file_list()->size_bytes() - d->download()->bytes_done()) / (rate & ~(uint32_t)(512 - 1));
+ 
+@@ -230,9 +267,9 @@ char*
+ print_download_percentage_done(char* first, char* last, core::Download* d) {
+   if (!d->is_open() || d->is_done())
+     //return print_buffer(first, last, "[--%%]");
+-    return print_buffer(first, last, "     ");
++    return print_buffer(first, last, "   ");
+   else
+-    return print_buffer(first, last, "[%2u%%]", (d->download()->file_list()->completed_chunks() * 100) / d->download()->file_list()->size_chunks());
++    return print_buffer(first, last, "%u%%", (d->download()->file_list()->completed_chunks() * 100) / d->download()->file_list()->size_chunks());
+ }
+ 
+ char*
+@@ -255,19 +292,19 @@ print_client_version(char* first, char* last, const torrent::ClientInfo& clientI
+ 
+ char*
+ print_status_info(char* first, char* last) {
+-  if (!torrent::up_throttle_global()->is_throttled())
++  if (!torrent::down_throttle_global()->is_throttled())
+     first = print_buffer(first, last, "[Throttle off");
+   else
+-    first = print_buffer(first, last, "[Throttle %3i", torrent::up_throttle_global()->max_rate() / 1024);
++    first = print_buffer(first, last, "[Throttle %3i", torrent::down_throttle_global()->max_rate() / 1024);
+ 
+-  if (!torrent::down_throttle_global()->is_throttled())
++  if (!torrent::up_throttle_global()->is_throttled())
+     first = print_buffer(first, last, "/off KB]");
+   else
+-    first = print_buffer(first, last, "/%3i KB]", torrent::down_throttle_global()->max_rate() / 1024);
++    first = print_buffer(first, last, "/%3i KB]", torrent::up_throttle_global()->max_rate() / 1024);
+   
+   first = print_buffer(first, last, " [Rate %5.1f/%5.1f KB]",
+-                       (double)torrent::up_rate()->rate() / 1024.0,
+-                       (double)torrent::down_rate()->rate() / 1024.0);
++                       (double)torrent::down_rate()->rate() / 1024.0,
++                       (double)torrent::up_rate()->rate() / 1024.0);
+ 
+   first = print_buffer(first, last, " [Port: %i]", (unsigned int)torrent::connection_manager()->listen_port());
+ 
+diff --git a/src/display/utils.h b/src/display/utils.h
+index 3d69021..c9145dd 100644
+--- a/src/display/utils.h
++++ b/src/display/utils.h
+@@ -66,7 +66,9 @@ char*       print_ddhhmm(char* first, char* last, time_t t);
+ char*       print_ddmmyyyy(char* first, char* last, time_t t);
+ 
+ char*       print_download_title(char* first, char* last, core::Download* d);
++char*       print_download_title_extra(char* first, char* last, core::Download* d);
+ char*       print_download_info(char* first, char* last, core::Download* d);
++char*       print_download_info_extra(char* first, char* last, core::Download* d);
+ char*       print_download_status(char* first, char* last, core::Download* d);
+ char*       print_download_time_left(char* first, char* last, core::Download* d);
+ char*       print_download_percentage_done(char* first, char* last, core::Download* d);
+diff --git a/src/display/window_download_list.cc b/src/display/window_download_list.cc
+index 71efec0..353f6b5 100644
+--- a/src/display/window_download_list.cc
++++ b/src/display/window_download_list.cc
+@@ -34,6 +34,9 @@
+ //           Skomakerveien 33
+ //           3185 Skoppum, NORWAY
+ 
++// interface modifications by karabaja4
++// <karabaja4@archlinux.us>
++
+ #include "config.h"
+ 
+ #include <rak/algorithm.h>
+@@ -81,30 +84,90 @@ WindowDownloadList::redraw() {
+   Range range = rak::advance_bidirectional(m_view->begin_visible(),
+                                            m_view->focus() != m_view->end_visible() ? m_view->focus() : m_view->begin_visible(),
+                                            m_view->end_visible(),
+-                                           m_canvas->height() / 3);
++                                           (m_canvas->height() - 1) / 3);
+ 
+   // Make sure we properly fill out the last lines so it looks like
+   // there are more torrents, yet don't hide it if we got the last one
+   // in focus.
+   if (range.second != m_view->end_visible())
+-    ++range.second;
++	++range.second;
+ 
+-  int pos = 1;
++  int pos = 2;
+ 
+   while (range.first != range.second) {
+     char buffer[m_canvas->width() + 1];
+     char* position;
+     char* last = buffer + m_canvas->width() - 2 + 1;
+-
++    int title_length;
++    
++    //1 = red
++    //2 = yellow
++    //3 = green
++	
++	//do not print on last lines if cannot show whole torrent
++	if (pos >= (m_canvas->height() - 1))
++		break;
++	
++	//print title
+     position = print_download_title(buffer, last, *range.first);
+-    m_canvas->print(0, pos++, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
++    title_length = strlen(buffer);
++    m_canvas->print(0, pos, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
++    
++    //title color
++    if ((*range.first)->is_done()) {
++		//finished
++		m_canvas->set_attr(3, pos, (title_length - 1), A_NORMAL, 3);
++	}
++	else {
++		//not finished
++		m_canvas->set_attr(3, pos, (title_length - 1), A_NORMAL, 2);
++	}
++    
++    //print title extra
++    position = print_download_title_extra(buffer, last, *range.first);
++    
++    //do not let title extra get off screen
++    buffer[m_canvas->width() - title_length - 2] = '\0';
+     
++	m_canvas->print((title_length + 2), pos++, "%s", buffer);
++    
++    //print info
+     position = print_download_info(buffer, last, *range.first);
+-    m_canvas->print(0, pos++, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
+-
+-    position = print_download_status(buffer, last, *range.first);
+-    m_canvas->print(0, pos++, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
+-
++    m_canvas->print(0, pos, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
++    
++    //info color
++    if (!(*range.first)->download()->is_open()) {
++		//closed
++		m_canvas->set_attr(3, pos, 6, A_NORMAL, 1);
++	}
++	else if (!(*range.first)->download()->is_active()) {
++		//paused
++		m_canvas->set_attr(3, pos, 6, A_NORMAL, 2);
++	}
++	else {
++		//active
++		m_canvas->set_attr(3, pos, 6, A_NORMAL, 3);
++	}
++	
++	if ((*range.first)->is_done()) {
++		//finished
++		m_canvas->set_attr(12, pos, 8, A_NORMAL, 3);
++	}
++    
++    //do not print info extra if it collides with info
++    if ((strlen(buffer) + 2) <= (m_canvas->width() - 16)) {
++		
++		//print info extra
++		position = print_download_info_extra(buffer, last, *range.first);
++		m_canvas->print((m_canvas->width() - 17), pos++, "%s", buffer);
++		
++	}
++	else {
++		pos++;
++	}
++		
++    //skip one line
++    pos++;
+     ++range.first;
+   }    
+ }
+diff --git a/src/display/window_title.cc b/src/display/window_title.cc
+index 300f655..c0e7fe5 100644
+--- a/src/display/window_title.cc
++++ b/src/display/window_title.cc
+@@ -48,6 +48,10 @@ WindowTitle::redraw() {
+ 
+   m_canvas->print(std::max(0, ((int)m_canvas->width() - (int)m_title.size()) / 2 - 4), 0,
+                   "*** %s ***", m_title.c_str());
++  
++  //set color in title
++  m_canvas->set_attr((((int)m_canvas->width() - (int)m_title.size()) / 2 - 4), 0, 3, A_NORMAL, 2);
++  m_canvas->set_attr( ((((int)m_canvas->width() - (int)m_title.size()) / 2) + (int)m_title.size() + 1), 0, 3, A_NORMAL, 2);
+ }
+ 
+ }

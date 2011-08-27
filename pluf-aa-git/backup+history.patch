@@ -1,0 +1,179 @@
+diff --git a/src/Admin/Views.php b/src/Admin/Views.php
+index 2552f3e..abbdf9b 100644
+--- a/src/Admin/Views.php
++++ b/src/Admin/Views.php
+@@ -264,11 +264,63 @@ class Admin_Views
+         return Pluf_Shortcuts_RenderToResponse('admin/add-item.html', $context,
+                                                $request);
+     }
++
++    /**
++     * redirects to Admin_Views::downloadModel with correct url
++     */
++    public $backupModel_precond = array('Pluf_Precondition::staffRequired');
++    function backupModel($request, $match)
++    {
++      $model_name = Admin_Admin::getModelName($match[1], $match[2]);
++      if (false == $model_name) {
++        throw new Pluf_HTTP_Error404();
++      }
++
++      $url = Pluf_HTTP_URL_urlForView('Admin_Views::downloadModel', array($model_name));
++      return new Pluf_HTTP_Response_Redirect($url);
++    }
++
++    /**
++     * returns (plain/text) JSON file of specified model
++     */
++    public $downloadModel_precond = array('Pluf_Precondition::staffRequired');
++    function downloadModel($request, $match)
++    {
++      //$mime = 'text/plain; charset=utf-8'; // DEBUG
++      $mime = 'application/json; charset=utf-8';
++
++      $content = Pluf_Test_Fixture::dump($match[1]);
++      return new Pluf_HTTP_Response($content, $mime);
++    }
++
++    /**
++     * Show history
++     */
++    public $history_precond = array('Pluf_Precondition::staffRequired');
++    function history($request, $match)
++    {
++        /* TODO:
++         *
++         *  1) use paginator
++         *  2) change required to admin only (also display in template)
++         *  3) support searching and date selection (?)
++         */
++
++        $list = Pluf::factory('Admin_Log')->getList();
++        return Pluf_Shortcuts_RenderToResponse(
++          'admin/history.html',
++          array(
++            'page_title' => _('History'),
++            'user' => $request->user,
++            'list' => $list
++        ));
++    } // end history()
+ }
+ 
+ 
++
+ function Admin_Views_ucfirst($str)
+ {
+     return mb_strtoupper(mb_substr($str, 0, 1, 'UTF-8'))
+         .mb_substr($str, 1, mb_strlen($str), 'UTF-8');
+-}
+\ No newline at end of file
++}
+diff --git a/src/Admin/conf/urls.php b/src/Admin/conf/urls.php
+index ffd8236..7b07fde 100644
+--- a/src/Admin/conf/urls.php
++++ b/src/Admin/conf/urls.php
+@@ -37,6 +37,24 @@ return array(
+                    'name' => 'logout_view',
+                    'params' => '/'),
+ 
++             // ---- mainiak add-ons ----------
++
++             array('regex' => '#^/history/$#',
++                   'base' => $base_admin,
++                   'model' => 'Admin_Views',
++                   'method' => 'history',
++                   'name' => 'history_view'),
++
++             array('regex' => '#^/([\w\_]+)/([\w\_]+)/backup/$#',
++                    'base' => $base_admin,
++                    'model' => 'Admin_Views',
++                    'method' => 'backupModel'),
++
++             array('regex' => '#^/download/([\w\_]+).json$#',
++                   'base' => $base_admin,
++                   'model' => 'Admin_Views',
++                   'method' => 'downloadModel'),
++
+              // ---- views are very general by nature ----------
+ 
+              array('regex' => '#^/$#',
+@@ -64,3 +82,4 @@ return array(
+                    'model' => 'Admin_Views',
+                    'method' => 'deleteItem'),
+              );
++
+diff --git a/src/Admin/templates/admin/base.html b/src/Admin/templates/admin/base.html
+index 3f420aa..ed927b9 100644
+--- a/src/Admin/templates/admin/base.html
++++ b/src/Admin/templates/admin/base.html
+@@ -17,9 +17,8 @@
+   <div id="pa-user-tools">Welcome, <strong>{$user}</strong>. <a href="{url 'logout_view'}">Log out</a></div>
+         <br class="clear" />
+     <div class="breadcrumbs">
+-{block breadcrumbs} <a href="{url 'Admin_Views::index'}">Home</a>{/block}
+-</div>
+-
++    {block breadcrumbs}<a href="{url 'Admin_Views::index'}">Home</a>{/block}
++    </div>
+ </div>
+ 
+ <div id="bd">
+diff --git a/src/Admin/templates/admin/history.html b/src/Admin/templates/admin/history.html
+new file mode 100644
+index 0000000..3d9e1e6
+--- /dev/null
++++ b/src/Admin/templates/admin/history.html
+@@ -0,0 +1,30 @@
++{extends "admin/base.html"}
++
++{block breadcrumbs}
++  <a href="{url 'Admin_Views::index'}">Home</a> ||
++  <a href="{url 'Admin_Views::downloadModel', array('Admin_Log')}">Download Logs</a>
++{/block}
++
++{block content-main}
++{if $list}
++{foreach $list as $entry}
++<div>
++  {$entry.id}
++  | {$entry.action_dtime}
++  | {$entry.get_user}
++  | {$entry.object_class} #{$entry.object_id}
++  | {$entry.object_repr}
++{if $entry.action_flag == 1}
++  | {trans 'addition'}
++{elseif $entry.action_flag == 2}
++  | {trans 'change'}
++{elseif $entry.action_flag == 3}
++  | {trans 'deletion'}
++{else}
++  | {trans 'never happen!'}
++{/if}
++  | {$entry.change_message}
++</div>
++{/foreach}
++{/if}
++{/block}
+diff --git a/src/Admin/templates/admin/index.html b/src/Admin/templates/admin/index.html
+index a637068..3332d39 100644
+--- a/src/Admin/templates/admin/index.html
++++ b/src/Admin/templates/admin/index.html
+@@ -1,4 +1,5 @@
+ {extends "admin/base.html"}
++{block breadcrumbs}{superblock} | <a href="{url 'history_view'}">History</a>{/block}
+ 
+ {block content-main}
+ 
+@@ -9,7 +10,11 @@
+ {foreach $app.models as $model}
+ <tr>
+ <td><a href="{url 'Admin_Views::listItems', array($app.path, $model.path)}">{$model.name}</a></td>
+-<td class="action"><a class="pa-addlink" href="{url 'Admin_Views::addItem', array($app.path, $model.path)}">{trans 'Add'}</a> <a href="{url 'Admin_Views::listItems', array($app.path, $model.path)}">{trans 'Change'}</a></td>
++<td class="action">
++  <a class="pa-addlink" href="{url 'Admin_Views::addItem', array($app.path, $model.path)}">{trans 'Add'}</a>
++  <a href="{url 'Admin_Views::listItems', array($app.path, $model.path)}">{trans 'Change'}</a>
++  | <a href="{url 'Admin_Views::backupModel', array($app.path, $model.path)}">{trans 'Backup'}</a>
++</td>
+ 
+ {/foreach}
+ </table>

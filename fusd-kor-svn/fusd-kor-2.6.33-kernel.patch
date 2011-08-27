@@ -1,0 +1,255 @@
+diff -Naur fusd-kor.old/include/kfusd.h fusd-kor.new/include/kfusd.h
+--- fusd-kor.old/include/kfusd.h	2010-05-16 21:11:25.000000000 +0200
++++ fusd-kor.new/include/kfusd.h	2010-05-16 17:00:40.000000000 +0200
+@@ -44,6 +44,7 @@
+ #define __KFUSD_H__
+ 
+ #include "fusd_msg.h"
++#include <linux/version.h>
+ 
+ /* magic numbers for structure checking; unique w.r.t
+  * /usr/src/linux/Documentation/magic-number.txt */
+@@ -125,7 +126,11 @@
+   char *dev_name;
+   struct CLASS *clazz;
+   int owns_class;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+   struct class_device *class_device;
++#else
++  struct device *class_device;
++#endif
+   
+   void *private_data;		/* User's private data */
+   struct cdev* handle;
+diff -Naur fusd-kor.old/kfusd/kfusd.c fusd-kor.new/kfusd/kfusd.c
+--- fusd-kor.old/kfusd/kfusd.c	2010-05-16 21:11:30.000000000 +0200
++++ fusd-kor.new/kfusd/kfusd.c	2010-05-16 18:04:45.000000000 +0200
+@@ -58,7 +58,6 @@
+ #include <linux/modversions.h>
+ #endif
+ 
+-//#include <linux/config.h>
+ #include <linux/stddef.h>
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+@@ -68,7 +67,6 @@
+ #include <linux/mm.h>
+ #include <linux/slab.h>
+ #include <linux/vmalloc.h>
+-//#include <linux/devfs_fs_kernel.h>
+ #include <linux/poll.h>
+ #include <linux/version.h>
+ #include <linux/major.h>
+@@ -86,7 +84,7 @@
+ #define STATIC
+ 
+ /* Define this if you want to emit debug messages (adds ~8K) */
+-#define CONFIG_FUSD_DEBUG
++/*#define CONFIG_FUSD_DEBUG*/
+ 
+ /* Default debug level for FUSD messages.  Has no effect unless
+  * CONFIG_FUSD_DEBUG is defined. */
+@@ -121,23 +119,37 @@
+ #define CLASS_DEVICE_CREATE(a, b, c, d, e) class_device_create(a, c, d, e)
+ 
+ #else
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+ 
+ #define CLASS_DEVICE_CREATE(a, b, c, d, e) class_device_create(a, b, c, d, e)
+ 
++#else
++
++#define CLASS_DEVICE_CREATE(a, b, c, d, e) device_create(a, b, c, d, e)
++#define class_device_destroy(a, b) device_destroy(a, b)
++
++#endif
++
+ #endif
+ 
+ #endif
+ 
+ static inline struct kobject * to_kobj(struct dentry * dentry)
+ {
+-  struct sysfs_dirent * sd = dentry->d_fsdata;
+-  if(sd)
+-    return ((struct kobject *) sd->s_element);
++  struct kobject * penis = {0};
++  penis->sd = (struct sysfs_dirent *) dentry->d_fsdata;
++  if(penis->sd)
++    return (penis);
+   else
+     return NULL;
+ }
+ 
+-#define to_class(obj) container_of(obj, struct class, subsys.kset.kobj)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
++#   define to_class(obj) container_of(obj, struct class, subsys.kset.kobj)
++#else
++#   define to_class(obj) container_of(obj, struct class, dev_kobj)
++#endif
++
+ 
+ /**************************************************************************/
+ 
+@@ -157,8 +169,13 @@
+ 
+ static struct CLASS *fusd_class;
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+ static struct class_device *fusd_control_class_device;
+ static struct class_device *fusd_status_class_device;
++#else
++static struct device *fusd_control_class_device;
++static struct device *fusd_status_class_device;
++#endif
+ 
+ extern struct CLASS *sound_class;
+ 
+@@ -175,10 +192,8 @@
+ LIST_HEAD(fusd_devlist_head);
+ DECLARE_MUTEX(fusd_devlist_sem);
+ 
+-//#ifdef MODULE_LICENSE
+ MODULE_AUTHOR("Jeremy Elson <jelson@acm.org> (c)2001");
+ MODULE_LICENSE("GPL");
+-//#endif
+ 
+ /***************************Debugging Support*****************************/
+ 
+@@ -739,8 +754,10 @@
+ 
+   /* fill the rest of the structure */
+   fusd_msg->parm.fops_msg.pid = current->pid;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+   fusd_msg->parm.fops_msg.uid = current->uid;
+   fusd_msg->parm.fops_msg.gid = current->gid;
++#endif
+   fusd_msg->parm.fops_msg.flags = fusd_file->file->f_flags;
+   fusd_msg->parm.fops_msg.offset = fusd_file->file->f_pos;
+   fusd_msg->parm.fops_msg.device_info = fusd_dev->private_data;
+@@ -1562,6 +1579,7 @@
+ }
+ static void fusd_client_mm_open(struct vm_area_struct * vma);
+ static void fusd_client_mm_close(struct vm_area_struct * vma);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+ static struct page* fusd_client_nopage(struct vm_area_struct* vma, unsigned long address, int* type);
+ static struct vm_operations_struct fusd_remap_vm_ops =
+ {
+@@ -1569,6 +1587,15 @@
+   close: fusd_client_mm_close,
+   nopage: fusd_client_nopage,
+ };
++#else
++static int  fusd_client_fault(struct vm_area_struct* vma, struct vm_fault *vmf, int* type);
++static struct vm_operations_struct fusd_remap_vm_ops =
++{
++ .fault = fusd_client_fault,
++ .open  = fusd_client_mm_open,
++ .close = fusd_client_mm_close,
++};
++#endif
+ 
+ struct fusd_mmap_instance
+ {
+@@ -1665,6 +1692,7 @@
+   return -EPIPE;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,29)
+ static struct page* fusd_client_nopage(struct vm_area_struct* vma, unsigned long address,
+                                 int* type)
+ {
+@@ -1697,8 +1725,44 @@
+ out:
+   return page;
+ 
++}
++
++#else
+ 
++static int fusd_client_fault(struct vm_area_struct* vma, struct vm_fault *vmf,
++  int* type)
++{
++ struct fusd_mmap_instance* mmap_instance = (struct fusd_mmap_instance*) vma->vm_private_data;
++ unsigned long offset;
++ int result;
++ struct page *page = NULL;
++ offset = ((unsigned long)vmf->virtual_address - vma->vm_start) + (vma->vm_pgoff << PAGE_SHIFT);
++ // todo: worry about size
++ if(offset > mmap_instance->size)
++ goto out;
++
++ down_read(&mmap_instance->fusd_dev->task->mm->mmap_sem);
++ result = get_user_pages(mmap_instance->fusd_dev->task, mmap_instance->fusd_dev->task->mm, mmap_instance->addr + offset, 1, 1, 0, &page, NULL);
++ up_read(&mmap_instance->fusd_dev->task->mm->mmap_sem);
++
++
++ if(PageAnon(page))
++ {
++ RDEBUG(2, "Cannot mmap anonymous pages. Be sure to allocate your shared buffer with MAP_SHARED | MAP_ANONYMOUS");
++ return VM_FAULT_SIGBUS;
++ }
++
++ if(result > 0)
++ {
++ get_page(page);
++ vmf->page = page;
++ if (type)
++ *type = VM_FAULT_MINOR;
++ }
++out:
++ return 0;
+ }
++#endif
+ 
+ 
+ /*
+@@ -2596,13 +2660,17 @@
+ 
+ 
+ STATIC struct file_operations fusd_fops = {
+-  owner:    THIS_MODULE,
+-  open:     fusd_open,
+-  read:     fusd_read,
+-  write:    fusd_write,
+-  writev:   fusd_writev,
+-  release:  fusd_release,
+-  poll:     fusd_poll,
++  owner:        THIS_MODULE,
++  open:         fusd_open,
++  read:         fusd_read,
++  write:        fusd_write,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,33)
++  writev:       fusd_writev,
++#else
++  aio_write:    fusd_writev,
++#endif
++  release:      fusd_release,
++  poll:         fusd_poll,
+ };
+   
+ 
+diff -Naur fusd-kor.old/kfusd/Makefile fusd-kor.new/kfusd/Makefile
+--- fusd-kor.old/kfusd/Makefile	2010-05-16 21:11:30.000000000 +0200
++++ fusd-kor.new/kfusd/Makefile	2010-05-16 14:36:54.000000000 +0200
+@@ -1,15 +1,16 @@
+ ifneq ($(KERNELRELEASE),)
+ obj-m := kfusd.o
+ else
+-KDIR	?= /lib/modules/$(shell uname -r)/build
+-PWD	:= $(shell pwd)
++KREL    := $(shell uname -r)
++KDIR	?= /lib/modules/$(KREL)/build
++PWD	    := $(shell pwd)
+ 
+ default:
+ 	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) EXTRA_CFLAGS=-I$(PWD)/../include modules
+ 
+ install: 
+-	$(INSTALL) -d -m 0755 /lib/modules/$(shell uname -r)/kernel/drivers/misc
+-	$(INSTALL) -m 0755 kfusd.ko /lib/modules/$(shell uname -r)/kernel/drivers/misc
++	$(INSTALL) -d -m 0755 /lib/modules/$(KREL)/kernel/drivers/misc
++	$(INSTALL) -m 0755 kfusd.ko /lib/modules/$(KREL)/kernel/drivers/misc
+ 	/sbin/depmod -a
+ 
+ clean:

@@ -1,0 +1,20 @@
+# Maintainer: Oleg Chiruhin <hedin.pr AT gmail DOT com>
+# Category: devel
+
+pkgname=jdk-community-stable-x32
+shortname=jdk
+pkgver="6u26"
+pkgrel="1"
+pkgdesc="32bit version of J2SE Development Kit from stable community repo"
+arch=("i686" "x86_64")
+depends=(glibc jre-community-stable-x32)
+makedepends=()
+url="http://java.sun.com/javase/"
+license="custom"
+source=(ftp://ftp.archlinux.org/community/os/i686/$shortname-$pkgver-$pkgrel-i686.pkg.tar.xz)
+md5sums=('bbaf944177e28de3f56b2629cf7973b1')
+
+build() {
+  mkdir -p $pkgdir/opt/java-community-stable-x32
+  cp -R $srcdir/opt/java/* $pkgdir/opt/java-community-stable-x32/
+}

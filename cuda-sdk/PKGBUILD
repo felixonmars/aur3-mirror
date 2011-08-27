@@ -1,0 +1,124 @@
+# Maintainer: Thomas Jost <schnouki@schnouki.net>
+# Contributor: Carson Reynolds <carson@k2.t.u-tokyo.ac.jp>
+#
+# A x86_64 binary version of this package is available from my custom
+# repository. If you wish to use it, just add the following lines to your
+# /etc/pacman.conf:
+#   [schnouki]
+#   Server = http://repo.schnouki.net/archlinux/$arch
+# Then run "pacman -Sy cuda-sdk" as root.
+
+pkgname=cuda-sdk
+pkgver=4.0.17
+pkgrel=2
+pkgdesc="NVIDIA's CUDA architecture can be programmed in the only C language environment that unlocks the processing power of GPUs to solve the most complex compute-intensive challenges."
+arch=('i686' 'x86_64')
+[ "$CARCH" = "i686"   ] && ARCH=x86
+[ "$CARCH" = "x86_64" ] && ARCH=x86_64
+url="http://www.nvidia.com/object/cuda_home.html"
+license=('custom')
+depends=("cuda-toolkit>=${pkgver}"
+         'nvidia>=270.41'
+	 'freeglut'
+	 'gcc44')
+source=(http://developer.download.nvidia.com/compute/cuda/4_0/sdk/gpucomputingsdk_${pkgver}_linux.run
+	makefiles.patch
+        data-paths.patch)
+md5sums=('07393c5eb702485deaa06a37747391ea'
+         '61dcee30a4ca23e118edb862d55222ff'
+         '7c01194a59fdce68651f0a2b8f8c32aa')
+
+#PKGEXT=".pkg.tar.gz"
+
+build() {
+  cd "$srcdir"
+
+  # Extract the SDK
+  msg2 "Uncompressing the CUDA SDK..."  
+  sh gpucomputingsdk_${pkgver}_linux.run --noexec --keep --nox11 >/dev/null
+  
+  # Inspection hook
+  #echo "Inspect srcdir"
+  #read 
+
+  # Patch Makefiles. It used to be simple, but CUDALibraries is a mess. Really.
+  msg2 "Patching Makefiles..."
+  patch -p0 -i "$srcdir/makefiles.patch"
+
+  # Funny stuff: some examples from CUDALibraries don't work when installed in
+  # /usr/... because they use wrong hard-coded relative paths. And the
+  # "shrFindFile()" function causes all OpenCL examples to fail because it does
+  # not look in the correct path.
+  msg2 "Patching paths to data files..."
+  patch -p0 -i "$srcdir/data-paths.patch"
+
+  # Ease building for people with hybrid nVidia graphics and "bumblebee"
+  # installed (courtesy of yl3gdy)
+  if [ -d /usr/lib/nvidia-bumblebee ]; then
+    export LIBRARY_PATH=/usr/lib:/usr/lib/nvidia-bumblebee
+  fi
+
+  # Build all the examples. The little "sed" lines are here to enable parallel
+  # builds and to avoid being spammed with a warning message (see
+  # http://www.gnu.org/s/hello/manual/make/Error-Messages.html for details)
+  msg2 "Building the CUDA libraries examples..."
+  cd "$srcdir/pkg/sdk/CUDALibraries"
+  sed -i 's/make/$(MAKE)/' Makefile
+  make
+
+  msg2 "Building the CUDA C examples..."
+  cd "$srcdir/pkg/sdk/C"
+  sed -i 's/make/$(MAKE)/' Makefile
+  make
+
+  msg2 "Building the OpenCL examples..."
+  cd "$srcdir/pkg/sdk/OpenCL"
+  sed -i 's/make/$(MAKE)/' Makefile
+  make
+}
+
+package() {
+  # Make directories
+  mkdir -p "$pkgdir"/usr/share/licenses/$pkgname
+  mkdir -p "$pkgdir"/usr/share/doc/$pkgname/{C,CUDALibraries,OpenCL}/releaseNotesData
+  mkdir -p "$pkgdir"/usr/share/$pkgname/{C,CUDALibraries,OpenCL}/bin/data
+  
+  # Install the binaries
+  for d in C CUDALibraries OpenCL; do
+    install -m755 "$srcdir"/pkg/sdk/$d/bin/linux/release/* "$pkgdir"/usr/share/$pkgname/$d/bin
+  done
+ 
+  # Install documentation files
+  cp -R "$srcdir"/pkg/sdk/doc/* "$pkgdir"/usr/share/doc/$pkgname
+  cp -R "$srcdir"/pkg/sdk/C/doc/* "$srcdir"/pkg/sdk/C/Samples.html "$pkgdir"/usr/share/doc/$pkgname/C
+  cp -R "$srcdir"/pkg/sdk/C/releaseNotesData/* "$pkgdir"/usr/share/doc/$pkgname/C/releaseNotesData
+  cp -R "$srcdir"/pkg/sdk/CUDALibraries/Samples.html "$pkgdir"/usr/share/doc/$pkgname/CUDALibraries
+  cp -R "$srcdir"/pkg/sdk/CUDALibraries/releaseNotesData/* "$pkgdir"/usr/share/doc/$pkgname/CUDALibraries/releaseNotesData
+  cp -R "$srcdir"/pkg/sdk/OpenCL/doc/* "$srcdir"/pkg/sdk/OpenCL/Samples.html "$pkgdir"/usr/share/doc/$pkgname/OpenCL
+  cp -R "$srcdir"/pkg/sdk/OpenCL/releaseNotesData/* "$pkgdir"/usr/share/doc/$pkgname/OpenCL/releaseNotesData
+
+  # Install license information
+  ln -s ../../doc/$pkgname/C/cudpp_license.txt "$pkgdir"/usr/share/licenses/$pkgname
+  ln -s ../../doc/$pkgname/C/License.txt "$pkgdir"/usr/share/licenses/$pkgname
+
+  # Copy over source and lib folders
+  cp -R "$srcdir"/pkg/sdk/C/{common,lib,src} "$pkgdir"/usr/share/$pkgname/C
+  cp -R "$srcdir"/pkg/sdk/CUDALibraries/{common,src} "$pkgdir"/usr/share/$pkgname/CUDALibraries
+  cp -R "$srcdir"/pkg/sdk/OpenCL/{common,src} "$pkgdir"/usr/share/$pkgname/OpenCL
+  cp -R "$srcdir"/pkg/sdk/shared "$pkgdir"/usr/share/$pkgname
+
+  # Remove left-over object and ptx files
+  find "$pkgdir"/usr/share/$pkgname -depth -type d -name 'obj' -exec rm -rf "{}" \;
+  find "$pkgdir"/usr/share/$pkgname -type f -name '*.ptx' -exec rm -rf "{}" \;
+
+  # Copy data files for SDK
+  for d in C CUDALibraries OpenCL; do
+    find "$srcdir"/pkg/sdk/$d/ -path '*/data/*' | \
+      xargs -I '{}' cp '{}' "$pkgdir"/usr/share/$pkgname/$d/bin/data
+  done
+}
+
+# NOTE: demos such as bandwidthTest, dxtc and simpleTexture may pass tests 
+#       when run as root since the data directory is not writable by default.
+# NOTE: when building your own programs with nvcc, use the following flags:
+#       --compiler-bindir=/opt/gcc-4.4

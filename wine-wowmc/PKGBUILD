@@ -1,0 +1,178 @@
+# Maintainer: Dmitry <dmitry923@gmail.com>
+
+pkgname=wine-wowmc
+pkgver=1.3.16
+pkgrel=1
+
+
+pkgdesc="A compatibility layer for running Windows programs. Experimental multicore support for WoW added."
+url="http://www.winehq.com"
+arch=(i686 x86_64)
+license=(LGPL)
+
+depends=(
+  fontconfig      lib32-fontconfig
+  mesa            lib32-mesa 
+  libxcursor      lib32-libxcursor
+  libxrandr       lib32-libxrandr
+  libxdamage      lib32-libxdamage
+  libxxf86dga     lib32-libxxf86dga
+  alsa-lib        lib32-alsa-lib
+)
+
+makedepends=(autoconf ncurses bison perl fontforge flex prelink
+  'gcc>=4.5.0-2'  'gcc-multilib>=4.5.0-2'
+  giflib          lib32-giflib
+  libxpm          lib32-libxpm
+  libpng          lib32-libpng
+  libxinerama     lib32-libxinerama
+  libxcomposite   lib32-libxcomposite
+  libxmu          lib32-libxmu
+  libxxf86vm      lib32-libxxf86vm
+  libxml2         lib32-libxml2
+  libxslt         lib32-libxslt
+  libldap         lib32-libldap
+  lcms            lib32-lcms
+  mpg123          lib32-mpg123
+  openal          lib32-openal
+  jack            lib32-jack
+  libcups         lib32-libcups
+  gnutls          lib32-gnutls
+  v4l-utils       lib32-v4l-utils
+)
+  
+optdepends=(
+  giflib          lib32-giflib
+  libpng          lib32-libpng
+  libldap         lib32-libldap
+  lcms            lib32-lcms
+  libxml2         lib32-libxml2
+  mpg123          lib32-mpg123
+  openal          lib32-openal
+  jack            lib32-jack
+  libcups         lib32-libcups
+  gnutls          lib32-gnutls
+  v4l-utils       lib32-v4l-utils
+)
+
+if [[ $CARCH == i686 ]]; then
+  # Strip lib32 etc. on i686
+  depends=(${depends[@]/*32-*/})
+  makedepends=(${makedepends[@]/*32-*/})
+  makedepends=(${makedepends[@]/*-multilib*/})
+  optdepends=(${optdepends[@]/*32-*/})
+else
+  provides=("wine=$pkgver" "bin32-wine=$pkgver" "wine-wow64=$pkgver")
+  conflicts=("wine" 'bin32-wine' 'wine-wow64')
+  replaces=("wine" 'bin32-wine')
+fi
+
+source=(http://sourceforge.net/projects/wine/files/Source/wine-${pkgver}.tar.bz2)
+md5sums=('74627787556240473a85daaf51d4f620')
+
+build() {
+  cd "$srcdir"
+
+  # Get rid of old build dirs
+  rm -rf $pkgname-{32,64}-build
+  mkdir $pkgname-32-build
+
+  # Fetching the patch source files if not already fetched
+  if [[ "`ls | grep rgl.patch.gz`" != "rgl.patch.gz" ]]; then
+     wget http://www.aewi.info/rgl/rgl.patch.gz
+     gunzip rgl.patch.gz
+  fi
+
+
+  #msg "Connecting to GIT server...."
+
+  #if [ -d ${srcdir}/$pkgname ] ; then
+  #  cd $pkgname && git pull origin master
+  #  msg "Local repository updated."
+  #else
+  #  git clone $_gitroot $pkgname
+  #fi
+
+  # Patching Wine
+  cd "$srcdir/wine-$pkgver"
+  patch -p1 < ../rgl.patch
+  echo "Do you wish to apply rgl_max.patch? It improves performance even a little bit more than the main patch but some players faced some sound and graphical glitches (like black screen inside flying ships). (y/n):"
+  until [[ $Answer = "y" || $Answer = "n" ]];do
+        read Answer
+        if [[ "$Answer" = "y" ]];then
+           cd "$srcdir"
+           if [[ "`ls | grep rgl_max.patch`" != "rgl_max.patch" ]]; then
+              wget http://www.aewi.info/rgl/rgl_max.patch
+           fi
+           echo "Applying the patch"
+           cd "$srcdir/wine-$pkgver"
+           patch -p1 < ../rgl_max.patch
+        fi
+  done
+
+ 
+  #cd $srcdir/wine-$pkgver
+  #patch -p1 < ../rgl.patch || return 1
+  #patch -p1 < ../rgl_max.patch || return 1
+
+  cd "$srcdir" 
+  if [[ $CARCH == x86_64 ]]; then
+
+    msg2 "Building Wine-64..."
+
+    mkdir $pkgname-64-build
+    cd "$srcdir/$pkgname-64-build"
+    ../wine-$pkgver/configure \
+      --prefix=/usr \
+      --sysconfdir=/etc \
+      --libdir=/usr/lib \
+      --with-x \
+      --enable-win64
+
+    make
+
+    # Wine32 build needs a patched ldd
+    # Do it here until it's patched in glibc
+    cp /usr/bin/ldd "$srcdir/ldd"
+    sed -i '/^RTLDLIST=/s:"$: /lib/ld-linux.so.2&:' "$srcdir/ldd"
+
+    _wine32opts=(
+      LDD="$srcdir/ldd"
+      --libdir=/usr/lib32
+      --with-wine64="$srcdir/$pkgname-64-build"
+    )
+
+    export PKG_CONFIG_PATH="/usr/lib32/pkgconfig"
+  fi
+
+  msg2 "Building Wine-32..."
+  cd "$srcdir/$pkgname-32-build"
+  ../wine-$pkgver/configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --with-x \
+    "${_wine32opts[@]}"
+
+  make
+}
+
+package() {
+  msg2 "Packaging Wine-32..."
+  cd "$srcdir/$pkgname-32-build"
+
+  if [[ $CARCH == i686 ]]; then
+    make prefix="$pkgdir/usr" install
+  else
+    make prefix="$pkgdir/usr" \
+      libdir="$pkgdir/usr/lib32" \
+      dlldir="$pkgdir/usr/lib32/wine" install
+
+    msg2 "Packaging Wine-64..."
+    cd "$srcdir/$pkgname-64-build"
+    make prefix="$pkgdir/usr" \
+      libdir="$pkgdir/usr/lib" \
+      dlldir="$pkgdir/usr/lib/wine" install
+  fi
+}
+
+# vim:set ts=8 sts=2 sw=2 et:

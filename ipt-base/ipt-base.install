@@ -1,0 +1,99 @@
+. /etc/rc.conf
+. /etc/rc.d/functions
+
+post_install()
+{
+
+   #logsnorter user and group will be needed for starting up the daemon more securely (not as root)
+   stat_busy "Creating logsnorter group..."
+     groupadd logsnorter
+   stat_done
+   stat_busy "Creating logsnorter user that has the ability parse logs..."
+     useradd logsnorter -c "The iptables log parser user" -d /dev/null -g logsnorter -s /bin/false
+   stat_done
+
+   #the following is not needed when a central logging server is implemented
+   stat_busy "Changing iptables.log's permissions - group to logsnorter and rights to 640"
+     chown root.logsnorter /var/log/iptables.log
+     chmod 640 /var/log/iptables.log
+   stat_done
+
+   stat_busy "Setting up the needed pear modules"
+     pear install Image_Color
+     pear install Log
+     pear install Numbers_Roman
+     pear install http://pear.php.net/get/Numbers_Words-0.13.1.tgz
+     pear install http://pear.php.net/get/Image_Graph-0.3.0dev4.tgz
+   stat_done
+
+#the following would be needed only if the central logging server is implemented
+#   stat_busy "Securing /var/log/probes..." 
+#     chown logsnorter.root /var/log/probes
+#     chmod 420 /var/log/probes
+#   stat_done
+
+/bin/cat <<THEEND
+
+There is some more to do:
+
+  1. set password for the user logsnorter 
+
+  2. to make faster analysis possible, event cache autoupdate has been disabled in the config file.
+     Instead add these lines to crontab (crontab -e)
+
+     */5 * * * * lwp-request http://localhost/base/base_maintenance.php?submit=Update+Alert+Cache > /dev/null
+     */5 * * * * lwp-request http://localhost/base/base_maintenance.php?submit=Update+IP+Cache > /dev/null
+     */5 * * * * lwp-request http://localhost/base/base_maintenance.php?submit=Update+Whois+Cache > /dev/null
+  
+  3. Customize logsnorter script to match your firewall. The included script is for iptables and Firestarter
+     Here is an example:
+
+     Log file lines are in this format:
+          
+         Jul 27 15:05:53 localhost Inbound IN=eth0 OUT= MAC=00:0c:76:41:a7:04:00:11:bb:ee:d5:c4:08:00 SRC=61.152.158.105 
+         DST=58.73.110.25 LEN=514 TOS=0x00 PREC=0x00 TTL=48 ID=0 DF PROTO=UDP SPT=45842 DPT=1027 LEN=498        
+         
+     A line that parses one entry from iptables.log in function parse_iptables_logs looks like this:
+         if (/^(\w+)\s+([0-9]+) ([0-9]+):([0-9]+):([0-9]+) ([^\s]+) Inbound IN=(\w+[0-9]+) OUT= (MAC=)?([a-f,0-9,:]*)\s?SRC=([0-9\.]+)
+           DST=([0-9\.]+) LEN=([0-9]+) TOS=(\w+) PREC=(\w+) TTL=([0-9]+) ID=([0-9]+) (DF\s)?PROTO=(\w+) SPT=([0-9]+) DPT=([0-9]+) 
+           WINDOW=([0-9]+) ([\w+\s]+)/) {
+           #If we audited an incoming TCP packet
+           . . . 
+
+     Look for those Inbound/Outbound texts on the first line and write there the prefix that your firewall inserts to log lines. In this
+     example case it is ' Inbound IN='.
+     See also the description below each parsing if - condition to write the right kind of prefix for each protocol.
+   
+  5. start up /etc/rc.d/snorterd and surf to localhost/base :)
+
+
+${EXTRATEXT}
+THEEND
+}
+
+pre_remove()
+{
+
+  #stopping the daemon if it is running
+  if [ "`pidof -o %PPID /usr/bin/logsnorter`" != "" ]; then
+       /etc/rc.d/snorterd stop
+  fi
+}
+
+post_remove()
+{
+
+  #removing the user
+  stat_busy "Deleting logsnorter user..."
+    userdel logsnorter
+  stat_done
+
+  stat_busy "Changing iptables.log's permissions back to normal - group to root and rights to 600"
+     chown root.root /var/log/iptables.log
+     chmod 600 /var/log/iptables.log
+  stat_done 
+}
+
+op=$1
+shift
+$op $*

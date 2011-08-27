@@ -1,0 +1,268 @@
+#!/usr/bin/perl
+
+use IPC::Open2;
+
+sub buildcommands()
+{
+	my $filters = "$crop,$deinterlace,$scale";
+	$filters =~ s/,,/,/g;
+	$filters =~ s/^,//;
+	$filters =~ s/,$//;
+
+	my $count = 0;
+
+	for(my $i=0; $i<=$#split; $i++)
+	{
+		$commands[$count] = "rm -vf frameno.avi divx2pass.log";
+		$count++;
+		$commands[$count] = "mencoder dvd://$title -dvd-device $dvdlocation -chapter $split[$i]{'start'}-$split[$i]{'end'} -oac mp3lame -lameopts abr:br=$abitrate -ovc frameno -o frameno.avi";
+		$count++;
+		$commands[$count] = "mencoder dvd://$title -dvd-device $dvdlocation -chapter $split[$i]{'start'}-$split[$i]{'end'}";
+		$commands[$count] = $commands[$count]." -alang $language" if($language ne "");
+		$commands[$count] = $commands[$count]." -oac copy -ovc lavc -lavcopts vcodec=mpeg4:vhq:v4mv:vqmin=2:vbitrate=$split[$i]{'vbitrate'}:vpass=1";
+		$commands[$count] = $commands[$count]." -vf $filters" if($filters ne "");
+		$commands[$count] = $commands[$count]." -o /dev/null";
+		$count++;
+		my $part = $i+1;
+		$commands[$count] = "mencoder dvd://$title -dvd-device $dvdlocation -chapter $split[$i]{'start'}-$split[$i]{'end'}";
+		$commands[$count] = $commands[$count]." -alang $language" if($language ne "");
+		$commands[$count] = $commands[$count]." -oac copy -ovc lavc -lavcopts vcodec=mpeg4:vhq:v4mv:vqmin=2:vbitrate=$split[$i]{'vbitrate'}:vpass=2";
+		$commands[$count] = $commands[$count]." -vf $filters" if($filters ne "");
+		$commands[$count] = $commands[$count]." -o $outputfile-part$part.avi";
+		$count++;
+		$commands[$count] = "rm -vf frameno.avi divx2pass.log";
+		$count++;
+	}
+}
+
+sub calculatevbitrate()
+{
+	my $length;
+	for(my $i=0; $i<=$#split; $i++)
+	{
+		$length = $split[$i]{'length'};
+		$split[$i]{'vbitrate'} = int((($filesize * 8192) / $length) - $abitrate);
+		if($split[$i]{'$vbitrate'} > 5000)
+		{
+			print("Video bitrate ($split[$i]{'$vbitrate'}) excessive, capping to 5000\n");
+			$vbitrate = 5000;
+		}
+		if($split[$i]{'$vbitrate'} < 0)
+		{
+			print("Video bitrate ($split[$i]{'$vbitrate'}) came out stupidly\n");
+			exit(1);
+		}
+	}
+}
+
+sub cropdetect()
+{
+	print("Running crop detect.  Quit mplayer at largest scene\n");
+	&tracecommand("cropdetect","mplayer dvd://$title -dvd-device $dvdlocation -vf cropdetect 2>&1");
+	print("Crop argument: -c=$crop\n");
+	exit(0);
+}
+
+sub cropparse()
+{
+	my $line = $_[0];
+	my $string = undef;
+	if("$line" =~ m/vf crop/)
+	{
+		(undef,$string) = split(m/\(-vf /,$line);
+		($string,undef) = split(m/\)/,$string);
+		$crop = $string;
+	}
+}
+
+sub dvdinfo()
+{
+	foreach my $line (@titles)
+	{
+		next if($line =~ m/^$/);
+		print("$line\n");
+	}
+	print("Longest title: $longesttitle\n");
+	exit(0);
+}
+
+sub getdvdinfo()
+{
+	foreach my $line (`lsdvd $dvdlocation 2> /dev/null`)
+	{
+		next if($line =~ m/^$/);
+		$line =~ s/\n//g;
+		push(@titles,$line) if($line =~ m/^Title:/);
+		(undef,$longesttitle) = split(": ",$line) if($line =~ m/Longest track:/);
+	}
+}
+
+sub help()
+{
+	print("Usage: mencode [switches]\n");
+	print("Switches:\n");
+	print("\t-a=\tSet audio bitrate\n");
+	print("\t-c=\tSet crop range (from cropdetect)\n");
+	print("\t-d=\tSet deinterlacer\n");
+	print("\t-f=\tSet desired file size\n");
+	print("\t-l=\tSet audio language\n");
+	print("\t-L=\tSet dvd location\n");
+	print("\t-o=\tSet output file\n");
+	print("\t-p=\tSet number of files to split to\n");
+	print("\t-s=\tSet scale string (scale=x:y)\n");
+	print("\t-t=\tSet title to encode\n");
+	print("\t-v=\tSet video bitrate\n");
+	print("\t-y\tDon't wait before encode\n");
+	print("\t-C\tRun crop detect (requires title to be set)\n");
+	print("\t-D\tPrint DVD information\n");
+	print("Note: if video bitrate and file size are specified, video bitrate is used\n");
+	exit(0);
+}
+
+
+sub pause()
+{
+	print("Process information:\n");
+	print("\tAudio bitrate: $abitrate\n");
+	print("\tCrop range: $crop\n");
+	print("\tDeinterlacer: $deinterlace\n");
+	print("\tDVD location: $dvdlocation\n");
+	print("\tFile size: $filesize\n");
+	print("\tLanguage: $language\n");
+	print("\tOutput file: $outputfile\n");
+	print("\tParts: $parts\t");
+	for(my $i=0; $i<=$#split; $i++)
+	{
+		print("($split[$i]{'start'}-$split[$i]{'end'}) ");
+	}
+	print("\n");
+	print("\tScale: $scale\n");
+	print("\tTitle to encode: $title\n");
+	print("\tVideo bitrate: ");
+	for(my $i=0; $i<=$#split; $i++)
+	{
+		print("$split[$i]{'vbitrate'}\t");
+	}
+	print("Commands to be ran:\n");
+	foreach my $command (@commands)
+	{
+		print("\t$command\n");
+	}
+	print("Press enter to proceed, or Ctrl+C to quit ");
+	my $dump = <STDIN>;
+}
+
+sub processargs()
+{
+	&help() if($#_ < 0);
+	foreach my $arg (@_)
+	{
+		(undef,$abitrate) = split("a=",$arg) if($arg =~ m/^-a=/);
+		(undef,$crop) = split("c=",$arg) if($arg =~ m/^-c=/);
+		(undef,$deinterlace) = split("d=",$arg) if($arg =~ m/^-d=/);
+		(undef,$dvdlocation) = split("L=",$arg) if($arg =~ m/^-L=/);
+		(undef,$filesize) = split("f=",$arg) if($arg =~ m/^-f=/);
+		(undef,$language) = split("l=",$arg) if($arg =~ m/^-l=/);
+		(undef,$outputfile) = split("o=",$arg) if($arg =~ m/^-o=/);
+		(undef,$parts) = split("p=",$arg) if($arg =~ m/^-p=/);
+		(undef,$scale) = split("s=",$arg) if($arg =~ m/^-s=/);
+		(undef,$title) = split("t=",$arg) if($arg =~ m/^-t=/);
+		$mode = "cropdetect" if($arg =~ m/^-C/);
+		$mode = "dvdinfo" if($arg =~ m/^-D/);
+		$pause = "no" if($arg =~ m/^-y/);
+	}
+}
+
+sub run()
+{
+	print("Running mencoder\n");
+	foreach my $command (@commands)
+	{
+		system("$command");
+	}
+}
+
+sub splittitle()
+{
+	my $chapters = 0;
+	my $found = 0;
+	my $length = 0;
+	my $target = 0;
+	my $tmpfile = "/tmp/mencode";
+	
+	system("lsdvd -c -Op $dvdlocation 2> /dev/null > $tmpfile");
+	require "$tmpfile";
+	system("rm $tmpfile");
+	
+	$length = $lsdvd{'track'}[$title-1]{'length'};
+	$target = $length / $parts;
+	
+	while($found eq 0)
+	{
+		if($lsdvd{'track'}[$title-1]{'chapter'}[$chapters]{'length'} ne "") { $chapters++; }
+		else { $found = 1; }
+	}
+	
+	my $count = 0;
+	my $partsize = 0;
+	my $previsze = 0;
+	$split[$count]{'start'} = 1;
+	for(my $i=0; $i<=$chapters; $i++)
+	{
+		$partsize += $lsdvd{'track'}[$title-1]{'chapter'}[$i]{'length'};
+		if($prevsize < $target && $partsize > $target)
+		{
+			$split[$count]{'length'} = $partsize;
+			$split[$count]{'end'} = $i;
+			$count++;
+			$split[$count]{'start'} = $i+1;
+			$partsize = 0;
+		}
+		$prevsize = $partsize;
+	}
+	$split[$count]{'length'} = $partsize;
+	$split[$count]{'end'} = $chapters;
+}
+
+sub tracecommand()
+{
+	my $mode = $_[0];
+	my $cmd = $_[1];
+	print("$mode\t$cmd\n");
+	my $pid = open2(\*CHLD_OUT,undef,"$cmd");
+	while(my $return = <CHLD_OUT>)
+	{
+		$return =~ s/\n//;
+		&cropparse($return) if($mode eq "cropdetect");
+		print("$mode: $return\n") if($mode =~ m/Pass/);
+	}
+	close(CHLD_OUT);
+}
+
+$abitrate = "128";
+@commands = "";
+$crop = "";
+$deinterlace = "pullup,pp=md";
+$dvdlocation = "/dev/dvd";
+$filesize = "700";
+$language = "";
+$mode = "encode";
+$outputfile = "";
+$parts = 1;
+$pause="yes";
+$scale = "scale=720:-2";
+@split = "";
+$title = "";
+
+$longesttitle = -1;
+@titles = undef;
+
+&processargs(@ARGV);
+&getdvdinfo();
+&cropdetect() if($mode eq "cropdetect");
+&dvdinfo() if($mode eq "dvdinfo");
+&splittitle();
+&calculatevbitrate() if($vbitrate eq "");
+&buildcommands();
+&pause() if($pause eq "yes");
+&run();

@@ -1,0 +1,16 @@
+cal
+chrt
+flock
+getopt
+hexdump
+ipcrm
+ipcs
+linux32
+linux64
+logger
+renice
+rev
+script
+setarch
+setsid
+taskset

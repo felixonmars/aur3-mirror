@@ -1,0 +1,395 @@
+--- /src/rastertokmlf.c	2006-11-17 09:49:53.297930424 +0100
++++ /src/rastertokmlf.c.new	2006-11-17 09:49:53.252954942 +0100
+@@ -131,353 +131,6 @@
+ int write_bmp_header(cups_page_header_t *header, FILE *file);
+ #endif
+ 
+-int                  /* 1 = success, 0 = failure */
+-   find_printer_make(const char *deviceuri, /* I - URI to connect on */
+-                     char *make,
+-                     int msize) 
+-{
+-   http_t *http;                 /* HTTP connection to server */
+-   char method[HTTP_MAX_URI],    /* URI method */
+-      userpass[HTTP_MAX_URI],    /* username:password */
+-      server[HTTP_MAX_URI],      /* Server */
+-      resource[HTTP_MAX_URI];    /* Resource path */
+-   int    port;                  /* Port number */
+-   ipp_t *request,               /* IPP request */
+-      *response;                 /* IPP response */
+-   ipp_attribute_t *attrptr;     /* Attribute pointer */
+-   int    pass=2;                /* Did we pass the test? */
+-   char printer_uri[HTTP_MAX_URI];
+-   char *delim;                  /* Delimiter in file */
+-
+-#ifdef __linux
+-   char   device[IPP_MAX_NAME],  /* Device filename */
+-      probefile[IPP_MAX_NAME],   /* Probe filename */
+-      basedevice[IPP_MAX_NAME];  /* Base device filename for ports */
+-
+-   FILE   *probe;                /* /proc/parport/n/autoprobe file */
+-   char   line[1024],            /* Line from file */
+-      //device_id[1024],           /* Device ID string */
+-      mfg[IPP_MAX_NAME],
+-      //make[IPP_MAX_NAME],      /* Make from file */
+-      model[IPP_MAX_NAME];       /* Model from file */
+-   int i=0;
+-   //int fd;
+-   //int length;
+-#endif
+-
+-   if (!strncmp(deviceuri, "usb:",4))
+-   {
+-      if (!strncmp(deviceuri, "usb://",6))
+-      {
+-         strlcpy(make, deviceuri + 6, IPP_MAX_NAME);
+-
+-         if ((delim = strchr(make, '/')) != NULL)
+-            *delim = '\0';
+-         if (make[0])
+-            pass = 1;
+-         //if(!strncmp(deviceuri+6,"KONICA",6))
+-         //pass = 1;
+-         //else
+-         //pass = 0;
+-      }
+-#ifdef __linux
+-      else
+-      {
+-         if ((probe = fopen("/proc/bus/usb/devices", "r")) != NULL)
+-         {
+-            i = 0;
+-
+-            memset(mfg, 0, sizeof(mfg));
+-            memset(model, 0, sizeof(model));
+-
+-            while (fgets(line, sizeof(line), probe) != NULL)
+-            {
+-               /*
+-                *  Strip trailing newline.
+-                */
+-
+-               if ((delim = strrchr(line, '\n')) != NULL)
+-                  *delim = '\0';
+-               /*
+-                * See if it is a printer device ("P: ...")
+-                */
+-
+-               if (strncmp(line, "S:", 2) == 0)
+-               {
+-                  /*
+-                   * String attribute...
+-                   */
+-
+-                  if (strncmp(line, "S:  Manufacturer=", 17) == 0)
+-                  {
+-                     strlcpy(mfg, line + 17, sizeof(mfg));
+-                     fprintf(stderr, "DEBUG: mfg is %s usb %d\n", mfg, i);
+-                     if (strcmp(mfg, "Hewlett-Packard") == 0)
+-                        strcpy(mfg, "HP");
+-                  }
+-                  else if (strncmp(line, "S:  Product=", 12) == 0)
+-                     strlcpy(model, line + 12, sizeof(model));
+-               }
+-               else if (strncmp(line, "I:", 2) == 0 &&
+-                        (strstr(line, "Driver=printer") != NULL ||
+-                         strstr(line, "Driver=usblp") != NULL) &&
+-                        mfg[0] && model[0])
+-               {
+-                  /*
+-                   * We were processing a printer device; send the info out...
+-                   */
+-
+-                  sprintf(device, "/dev/usb/lp%d", i);
+-                  if (access(device, 0))
+-                  {
+-                     sprintf(device, "/dev/usb/usblp%d", i);
+-
+-                     if (access(device, 0))
+-                        sprintf(device, "/dev/usblp%d", i);
+-                  }
+-
+-                  fprintf(stderr, "DEBUG: direct usb:%s \"%s %s\" \"USB Printer #%d\"\n",
+-                          device, mfg, model, i + 1);
+-
+-                  if (!strncmp(deviceuri+4,device,sizeof(device)))
+-                  {
+-                     strlcpy(make, mfg, IPP_MAX_NAME);
+-                     pass = 1;
+-                     break;
+-                  }
+-
+-                  i ++;
+-
+-                  memset(mfg, 0, sizeof(mfg));
+-                  memset(model, 0, sizeof(model));
+-               }
+-            }
+-            fclose(probe);
+-         }
+-         else
+-         {
+-            /*
+-             * Just check manually for USB devices...
+-             */
+-            for (i = 0; i < 16; i ++)
+-            {
+-               sprintf(device, "/dev/usb/lp%d", i);
+-
+-               if (access(device, 0))
+-               {
+-                  sprintf(device, "/dev/usb/usblp%d", i);
+-
+-                  if (access(device, 0))
+-                  {
+-                     sprintf(device, "/dev/usblp%d", i);
+-
+-                     if (access(device, 0))
+-                        continue;
+-                  }
+-               }
+-
+-               fprintf(stderr, "DEBUG: direct usb:%s \"Unknown\" \"USB Printer #%d\"\n", device, i + 1);
+-               pass = 0;
+-            }
+-         }
+-      }
+-#endif
+-   }
+-   else if (!strncmp(deviceuri, "socket:",7) ||
+-            !strncmp(deviceuri, "lpd:",4))
+-   {
+-      /*
+-       * Connect to the server...
+-       */
+-      httpSeparate(deviceuri, method, userpass, server, &port, resource);
+-      port = 80;
+-      snprintf(printer_uri, sizeof(printer_uri),
+-               "http://%s:%d/ipp.cgi",server,port);
+-
+-      //httpSeparate(printer_uri, method, userpass, server, &port, resource);
+-      if ((http = httpConnect(server, port)) == NULL)
+-      {
+-         fprintf(stderr, "DEBUG: Unable to connect to %s on port %d\n", server, port);
+-         return(0);
+-      }
+-
+-      /*
+-       * Initialize things...
+-       */
+-
+-      pass    = 1;
+-      request      = ippNew();
+-
+-      /*
+-       * Submit the IPP request...
+-       */
+-
+-      request->request.op.version[1]   = 1;
+-      request->request.op.operation_id = IPP_GET_PRINTER_ATTRIBUTES;
+-      request->request.op.request_id   = 1;
+-
+-      ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_CHARSET,
+-                   "attributes-charset", NULL,
+-                   "utf-8");
+-      ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_LANGUAGE,
+-                   "attributes-natural-language", NULL,
+-                   "en");
+-      ippAddString(request, IPP_TAG_OPERATION, IPP_TAG_URI,
+-                   "printer-uri", NULL, printer_uri);
+-
+-      response = cupsDoRequest(http, request, "/ipp.cgi"); //resource);
+-
+-      if (response == NULL)
+-      {
+-         time_t curtime;
+-         curtime = time(NULL);
+-
+-         fprintf(stderr, "DEBUG: \b\b\b\b\bFAIL]\n");
+-         fprintf(stderr, "DEBUG:        ERROR %x\n", cupsLastError());
+-         fprintf(stderr, "DEBUG:        (%s) @ %s\n",
+-         ippErrorString(cupsLastError()), ctime(&curtime));
+-         pass = 0;
+-      }
+-      else
+-      {
+-         attrptr=ippFindAttribute(response, "printer-make-and-model" , IPP_TAG_ZERO);
+-
+-         if (attrptr==NULL)
+-         {
+-            if (pass)
+-            {
+-               fprintf(stderr, "DEBUG: \b\b\b\b\bFAIL]\n");
+-               fprintf(stderr, "DEBUG:        (%lu bytes in response)\n",
+-                       (unsigned long)ippLength(response));
+-               pass = 0;
+-            }
+-         }
+-
+-         if (pass)
+-         {
+-            //fprintf(stderr, "DEBUG: \b\b\b\b\bPASS]\n");
+-            //fprintf(stderr, "DEBUG:        (%lu bytes in response)\n",
+-            //     (unsigned long)ippLength(response));
+-            fprintf(stderr, "DEBUG: printer maker is %s\n", attrptr->values[0].string.text);
+-            strlcpy(make,attrptr->values[0].string.text,msize);
+-         }
+-         else
+-         {
+-            fputs("DEBUG: RECEIVED", stderr);
+-            fprintf(stderr, "DEBUG:        status-code = %04x\n",
+-                    response->request.status.status_code);
+-         }
+-         ippDelete(response);
+-      }
+-      httpClose(http);  
+-   }
+-#ifdef __linux
+-   else if (!strncmp(deviceuri, "parallel:",9))
+-   {
+-      strlcpy(basedevice, "/dev/unknown-parallel",sizeof(basedevice));
+-      for (i = 0; i < 4; i ++)
+-      {
+-         /*
+-          * First compare the device with deviceuri
+-          */ 
+-         sprintf(device, "/dev/lp%d", i);
+-         if (!strncmp(deviceuri+9,device,8))
+-         {
+-            strlcpy(basedevice, "/dev/lp",sizeof(basedevice));
+-            break;
+-         }
+-
+-         sprintf(device, "/dev/parallel/%d", i);
+-         if (!strncmp(deviceuri+9,device,15))
+-         {
+-            strlcpy(basedevice, "/dev/parallel/", sizeof(basedevice));
+-            break;
+-         }
+-
+-         sprintf(device, "/dev/par%d", i);
+-         if (!strncmp(deviceuri+9,device,9))
+-         {
+-            strlcpy(basedevice, "/dev/par",sizeof(basedevice));
+-            break;
+-         }
+-
+-         sprintf(device, "/dev/printers/%d", i);
+-         if (!strncmp(deviceuri+9,device,14))
+-         {
+-            strlcpy(basedevice, "/dev/printers/",sizeof(basedevice));
+-            break;
+-         }
+-      }
+-
+-      /*
+-       * Then try looking at the probe file...
+-       */
+-
+-      /*
+-       * Linux 2.4 kernel has different path...
+-       */
+-
+-      sprintf(probefile, "/proc/sys/dev/parport/parport%d/autoprobe", i);
+-      probe = fopen(probefile, "r");
+-
+-      if (probe != NULL)
+-      {
+-         /*
+-          * Found a probe file!
+-          */
+-
+-         memset(make, 0, msize);
+-         memset(model, 0, sizeof(model));
+-         strlcpy(model, "Unknown",sizeof(model));
+-
+-         while (fgets(line, sizeof(line), probe) != NULL)
+-         {
+-            /*
+-             * Strip trailing ; and/or newline.
+-             */
+-            if ((delim = strrchr(line, ';')) != NULL)
+-               *delim = '\0';
+-            else if ((delim = strrchr(line, '\n')) != NULL)
+-               *delim = '\0';
+-
+-            /*
+-             * Look for MODEL and MANUFACTURER lines...
+-             */
+-
+-            if (strncmp(line, "MODEL:", 6) == 0 &&
+-                strncmp(line, "MODEL:Unknown", 13) != 0)
+-            {
+-               strlcpy(model, line + 6, sizeof(model));
+-            }
+-            else if (strncmp(line, "MANUFACTURER:", 13) == 0 &&
+-                     strncmp(line, "MANUFACTURER:Unknown", 20) != 0)
+-            {
+-               strlcpy(make, line + 13, msize);
+-               break;
+-            }
+-         }
+-         fclose(probe);
+-
+-         if (make[0])
+-         {
+-            fprintf(stderr, "DEBUG: direct parallel:%s%d \"%s %s\" \"Parallel Port #%d\"\n",
+-                    basedevice, i, make, model, i + 1);
+-            pass = 1;
+-         }
+-         else
+-         {
+-            fprintf(stderr, "DEBUG: direct parallel:%s%d \"%s\" \"Parallel Port #%d\"\n",
+-                    basedevice, i, model, i + 1);
+-            pass = 0;
+-         }
+-      }
+-   }
+-#endif
+-
+-   return(pass);
+-}
+-
+-
+ /*
+  * 'Setup()' - Prepare the printer for printing.
+  */
+@@ -488,8 +141,6 @@
+    const char    *device_uri;    /* The device for the printer... */
+    cups_lang_t  *language;  /* Language information */
+ 
+-   int ret;
+-
+ 	//reset colormatching flag
+ 	pImage = (PIMAGEHEADER)malloc(sizeof(IMAGEHEADER));
+    pImage->InitCM_HT = 0;
+@@ -505,29 +156,7 @@
+ 
+    if (device_uri)
+    {
+-      char make[IPP_MAX_NAME];
+       fprintf(stderr, "DEBUG: deviceuri is %s\n",device_uri);
+-
+-	  //temporarily disable model check for magicolor 5430 DL
+-      //ret = find_printer_make(device_uri, make, sizeof(make));
+-	  ret=2;
+-      
+-      if (!ret)
+-      {
+-         //fprintf(stderr, "ERROR: No Printer Information!\n");
+-         fprintf(stderr, "ERROR: Printer Not Found!\n");
+-         return(-1);
+-      }
+-      else if ( (1==ret) && (strncmp(make ,"KONICA", 6) ))
+-      {
+-         //fprintf(stderr, "ERROR: Wrong Printer Found!\n");// %s\n",make);
+-         fprintf(stderr, "ERROR: Printer Not Found!\n");
+-         return(-1);   
+-      }
+-      else if (2==ret)
+-      {
+-         fprintf(stderr, "DEBUG: ipp/mdsn case, let it pass!\n");
+-      }
+    }
+    else
+    {

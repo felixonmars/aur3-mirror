@@ -1,0 +1,22 @@
+# Maintainer: Nicolo' Barbon <smilzoboboz@gmail.com>
+pkgname=camsensor
+pkgver=0.0.4
+pkgrel=1
+pkgdesc="Transitional package for Calise"
+arch=(any)
+url="http://sourceforge.net/projects/calise/"
+license=('GPL3')
+groups=()
+depends=('calise')
+makedepends=()
+optdepends=()
+provides=('calise')
+conflicts=()
+replaces=()
+backup=()
+options=()
+#install=
+#changelog=
+#source=
+#noextract=()
+#md5sums=

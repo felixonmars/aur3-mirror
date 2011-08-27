@@ -1,0 +1,13 @@
+blockdev 
+fdisk
+fsck
+fsck.minix
+hwclock
+losetup
+mkfs
+mkfs.minix
+mkswap
+pivot_root
+swapoff
+swapon
+switch_root

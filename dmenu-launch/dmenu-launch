@@ -1,0 +1,165 @@
+#!/bin/bash
+### Dmenu Launcher #############
+# Version 0.5 by Scott Garrett #
+# Wintervenom [(at)] gmail.com #
+################################
+# Depends on:  dmenu           #
+################################
+# Changelog                    #
+# 0.4.1   + Read DMENU_OPTIONS #
+#           for colors         #
+# 0.5     + Clean-up code      #
+#         + Cache XDG items to #
+#           speed up look-up   #
+#         + Added Terminal     #
+#           option.            #
+# 0.5.1   + Fix '=' parse bug  #
+################################
+
+###############
+### Globals ###
+###############
+
+# Path to XDG shortcut (*.desktop) directories.
+xdg_paths=(
+    /usr/share/applications
+    /usr/local/share/applications
+    ~/.local/share/applications
+)
+
+# Path to Dmenu Launcher configuration file.
+config="$HOME/.config/dmenu-launch/config"
+
+# Path to Dmenu Launcher cache will be stored.
+cache="$HOME/.cache/dmenu-launch.cache"
+
+# Path to history file (TODO).
+hist="$HOME/.config/dmenu-launch/history"
+
+# Dmenu command.
+dm="dmenu -i $DMENU_OPTIONS"
+
+# Run in Terminal flag.
+flag_terminal='no'
+
+# Show Binaries flag.
+flag_binaries='yes'
+
+# Show XDG Names flag.
+flag_xdg_names='yes'
+
+# Terminal to use.
+terminal='urxvt'
+
+# Configuration items.
+config_menu=('Run in Terminal' 'Terminal' 'Show Binaries' 'Show XDG Names')
+
+
+#################
+### Functions ###
+#################
+
+set_option () {
+    value="$2"
+    # If the caller wanted to flip a "yes" to a "no" or vise versa...
+    if [[ "$3" == 'flip' ]]; then
+        [[ "$3" == 'flip' && "$value" == 'yes' ]] && value='no' || value='yes'
+    fi
+    # Create configuration directory if it doesn't exist.
+    mkdir -p "${config%/*}"
+    # Remove the old setting.
+    sed -i "s:^$1=.*::g" "$config"
+    # Append the new setting.
+    echo "$1=\"$value\"" >> "$config"
+    # Reload the configuraton file so it takes effect.
+    . "$config"
+}
+
+build_menu () {
+    # Create cache directory if it doesn't exist.
+    mkdir -p "${cache%/*}"
+    # Cache names and executable paths of XDG shortcuts.
+    for file in $(printf '%s/*.desktop\n' "${xdg_paths[@]}"); do
+        # Grab the friendly name and path of the executable.
+        # (Thanks, <geirha@freenode/#awk>.)
+        awk -F'=' '$1 == "Name" {sub(/Name=/, "", $0); name=$0}
+                   $1 == "Exec" {sub(/Exec=/, "", $0); exec=$0}
+                   END { print name "|" exec }' "$file" 2> /dev/null
+    done > "$cache"
+    # Start printing out the menu items, starting with the configuration...
+    echo "[${config_menu[0]}: $flag_terminal]"
+    echo "[${config_menu[1]}: $terminal]"
+    echo "[${config_menu[2]}: $flag_binaries]"
+    echo "[${config_menu[3]}: $flag_xdg_names]"
+    # Then, the XDG shortcut names...
+    sed 's/|.*$//' "$cache" | sort -u
+    # And the binary names.
+    (IFS=':'; lsx $PATH | sort -u)
+}
+
+program_exists () {
+    which "$1" &> /dev/null
+}
+
+launch () {
+    $* </dev/null &>/dev/null & disown
+}
+
+
+
+############
+### Main ###
+############
+
+# Load configuration
+. "$config"
+
+while :; do
+    # Ask the user to select a program to launch.
+    app=$(build_menu | $dm -p 'Execute:')
+    case "$app" in
+        *"[${config_menu[0]}"*)
+            set_option flag_terminal $flag_terminal flip
+            ;;
+        *"[${config_menu[1]}"*)
+            new_value=$(echo '[Cancel]' | $dm -p 'Set terminal:')
+            [[ -z "$new_value" || "$new_value" == '[Cancel]' ]] && continue
+            if ! which "$new_value"; then
+                echo '[OK]' | $dm -p 'No such binary.'
+                continue
+            fi
+            set_option terminal "$new_value"
+            ;;
+        *"[${config_menu[2]}"*)
+            set_option flag_binaries $flag_binaries flip
+            ;;
+        *"[${config_menu[3]}"*)
+            set_option flag_xdg_names $flag_xdg_names flip
+            ;;
+        *)
+            # Quit if nothing was selected.
+            [[ -z "$app" ]] && exit
+            selection=$app
+            # If the selection doesn't exist, see if it's an XDG shortcut.
+            if ! program_exists $app; then
+                app=$(grep -F "$app|" "$cache" | sed 's/.*|//;s/ %.//g')
+                # If there's more than one, ask which binary to use.
+                [[ "$(echo "$app" | wc -l)" != '1' ]] &&
+                    app=$(echo "$app" | $dm -p 'Which one?')
+                [[ -z "$app" ]] && exit
+            fi
+
+            # Check and see if the binary exists, and launch it, if so.
+            if program_exists $app; then
+                # mkdir -p "${hist%/*}" - TODO
+                [[ $flag_terminal = 'no' ]] &&
+                    launch $app ||
+                    launch $terminal -e $app
+                exit
+            else
+                echo '[OK]' | $dm -p 'No such binary.'
+            fi
+            ;;
+    esac
+
+done

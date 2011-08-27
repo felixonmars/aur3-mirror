@@ -1,0 +1,130 @@
+diff -u --new-file qmail-1.03-orig/qmail-remote.8 qmail-1.03/qmail-remote.8
+--- qmail-1.03-orig/qmail-remote.8	2006-03-21 17:44:54.000000000 -0300
++++ qmail-1.03/qmail-remote.8	2006-03-21 17:47:14.000000000 -0300
+@@ -218,8 +218,9 @@
+ .I smtproutes
+ Artificial SMTP routes.
+ Each route has the form
+-.IR domain\fB:\fIrelay ,
+-without any extra spaces.
++.IR domain\fB:\fIrelay 
++.I user password, 
++with user and password being optional for smarthosts that require authentication.
+ If
+ .I domain
+ matches
+diff -u --new-file qmail-1.03-orig/qmail-remote.c qmail-1.03/qmail-remote.c
+--- qmail-1.03-orig/qmail-remote.c	2006-03-21 17:44:54.000000000 -0300
++++ qmail-1.03/qmail-remote.c	2006-03-21 17:52:32.000000000 -0300
+@@ -47,6 +47,8 @@
+ struct constmap maproutes;
+ stralloc host = {0};
+ stralloc sender = {0};
++stralloc auth_smtp_user = {0};
++stralloc auth_smtp_pass = {0};
+ 
+ saa reciplist = {0};
+ 
+@@ -227,19 +229,58 @@
+   unsigned long code;
+   int flagbother;
+   int i;
++  stralloc slop = {0};
+  
+   if (smtpcode() != 220) quit("Z Connected to "," but greeting failed");
+- 
+-  substdio_puts(&smtpto,"HELO ");
++
++  substdio_puts(&smtpto,"EHLO "); 
+   substdio_put(&smtpto,helohost.s,helohost.len);
+   substdio_puts(&smtpto,"\r\n");
+   substdio_flush(&smtpto);
+-  if (smtpcode() != 250) quit("Z Connected to "," but my name was rejected");
+- 
+-  substdio_puts(&smtpto,"MAIL FROM:<");
+-  substdio_put(&smtpto,sender.s,sender.len);
+-  substdio_puts(&smtpto,">\r\n");
+-  substdio_flush(&smtpto);
++
++
++  if (smtpcode() != 250) {
++    substdio_puts(&smtpto,"HELO ");
++    substdio_put(&smtpto,helohost.s,helohost.len);
++    substdio_puts(&smtpto,"\r\n");
++    substdio_flush(&smtpto);
++    if (smtpcode() != 250) quit("ZConnected to "," but my name was rejected");
++  }
++  i = 0; 
++  while((i += str_chr(smtptext.s+i,'\n') + 1) && (i+14 < smtptext.len) &&
++        str_diffn(smtptext.s+i+4,"AUTH LOGIN\n",11) &&
++        str_diffn(smtptext.s+i+4,"AUTH LOGIN ",11) &&
++        str_diffn(smtptext.s+i+4,"AUTH PLAIN LOGIN\n",17) &&
++        str_diffn(smtptext.s+i+4,"AUTH PLAIN LOGIN ",17) &&
++        str_diffn(smtptext.s+i+4,"AUTH=LOGIN\n",11) &&
++        str_diffn(smtptext.s+i+4,"AUTH=LOGIN ",11));
++  if ((i+14 < smtptext.len) && auth_smtp_user.len && auth_smtp_pass.len)  {
++    substdio_puts(&smtpto,"AUTH LOGIN\r\n");
++    substdio_flush(&smtpto);
++    if (smtpcode() != 334) quit("ZConnected to "," but authentication was rejected (AUTH LOGIN)");
++    if (b64encode(&auth_smtp_user,&slop) < 0) temp_nomem();
++    substdio_put(&smtpto,slop.s,slop.len);
++    substdio_puts(&smtpto,"\r\n");
++    substdio_flush(&smtpto);
++    if (smtpcode() != 334) quit("ZConnected to "," but authentication was rejected (username)");
++    if (b64encode(&auth_smtp_pass,&slop) < 0) temp_nomem();
++    substdio_put(&smtpto,slop.s,slop.len);
++    substdio_puts(&smtpto,"\r\n");
++    substdio_flush(&smtpto);
++    if (smtpcode() != 235) quit("ZConnected to "," but authentication was rejected (password)");
++    substdio_puts(&smtpto,"MAIL FROM:<");
++    substdio_put(&smtpto,sender.s,sender.len);
++    substdio_puts(&smtpto,"> AUTH=<");
++    substdio_put(&smtpto,sender.s,sender.len);
++    substdio_puts(&smtpto,">\r\n");
++    substdio_flush(&smtpto);
++  } else {
++    substdio_puts(&smtpto,"MAIL FROM:<");
++    substdio_put(&smtpto,sender.s,sender.len);
++    substdio_puts(&smtpto,">\r\n");
++    substdio_flush(&smtpto);
++  }
++
+   code = smtpcode();
+   if (code >= 500) quit("D Connected to "," but sender was rejected");
+   if (code >= 400) quit("Z Connected to "," but sender was rejected");
+@@ -457,7 +498,7 @@
+ char **argv;
+ {
+   static ipalloc ip = {0};
+-  int i;
++  int i,j;
+   unsigned long random;
+   char **recips;
+   unsigned long prefme;
+@@ -472,6 +513,8 @@
+  
+  
+   if (!stralloc_copys(&host,argv[1])) temp_nomem();
++  if (!stralloc_copys(&auth_smtp_user,"")) temp_nomem();
++  if (!stralloc_copys(&auth_smtp_pass,"")) temp_nomem();
+  
+   relayhost = 0;
+   for (i = 0;i <= host.len;++i)
+@@ -483,6 +526,16 @@
+   if (!stralloc_copys(&protocol,"smtp")) temp_nomem(); /* smtp is the default */
+ 
+   if (relayhost) {
++    i = str_chr(relayhost,' ');
++    if (relayhost[i]) {
++      j = str_chr(relayhost + i + 1,' ');
++      if (relayhost[j]) {
++	relayhost[i] = 0;
++	relayhost[i + j + 1] = 0;
++	if (!stralloc_copys(&auth_smtp_user,relayhost + i + 1)) temp_nomem();
++	if (!stralloc_copys(&auth_smtp_pass,relayhost + i + j + 2)) temp_nomem();
++      }
++    }
+     i = str_chr(relayhost,':');
+     if (relayhost[i]) {
+ 
+Subdirectorios comunes: qmail-1.03-orig/qmail-rhinit y qmail-1.03/qmail-rhinit

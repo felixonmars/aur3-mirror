@@ -1,0 +1,263 @@
+# Contributor: graysky <graysky AT archlinux dot us>
+# Contributor: Tobias Powalowski <tpowa@archlinux.org>
+# Contributor: Thomas Baechler <thomas@archlinux.org>
+
+pkgbase=kernel26-lts-ck
+pkgname=('kernel26-lts-ck')
+true && pkgname=('kernel26-lts-ck' 'kernel26-lts-ck-headers')
+_basekernel=2.6.35
+pkgver=${_basekernel}.14
+pkgrel=1
+_kernelname=${pkgname#kernel26}
+_ckpatchversion=1
+_ckpatchname="${_basekernel}.12-ck${_ckpatchversion}-broken-out"
+_ckupdate="2.6.35.13-sched-bfs-404.patch"
+_fixed="mm-kswapd_inherit_prio-1.patch"
+arch=('i686' 'x86_64')
+license=('GPL2')
+url="http://www.kernel.org"
+source=(ftp://ftp.kernel.org/pub/linux/kernel/v2.6/linux-$_basekernel.tar.bz2
+        ftp://ftp.kernel.org/pub/linux/kernel/v2.6/longterm/v2.6.35/patch-$pkgver.bz2
+        config config.x86_64	# the main kernel config files
+	${pkgname}.preset	# standard config files for mkinitcpio ramdisk
+	${_ckpatchname}.tar
+	http://ck.kolivas.org/patches/bfs/2.6.35/${_ckupdate}
+	${_fixed}) # fixed by Hador
+options=(!strip)
+build() {
+
+### Make ck1 patchset with updated bfs v0.404 # 20-Apr-2011
+  # Thanks for Hador for fixing mm-kswapd_inherit_prio-1 to work!
+  cd "$srcdir"/patches
+  cat "$srcdir"/${_ckupdate} sched-add-above-background-load-function.patch mm-zero_swappiness.patch \
+  mm-enable_swaptoken_only_when_swap_full.patch  mm-drop_swap_cache_aggressively.patch "$srcdir"/${_fixed} \
+  mm-background_scan.patch mm-idleprio_prio-1.patch mm-lru_cache_add_lru_tail.patch kconfig-expose_vmsplit_option.patch \
+  hz-default_1000.patch hz-no_default_250.patch hz-raise_max.patch preempt-desktop-tune.patch cpufreq-bfs_tweaks.patch \
+  ck1-version.patch > "$srcdir"/unified.patch
+
+  cd "$srcdir"/linux-$_basekernel
+  if [ "$_basekernel" != "$pkgver" ]; then
+    # add latest kernel stable patch
+    msg "Patching base source $_basekernel to $pkgver"
+    patch -Np1 -i "$srcdir"/patch-$pkgver
+  fi
+
+  # Fix double name in EXTRAVERSION
+  sed -i -re "s/^(.EXTRAVERSION).*$/\1 = /" "$srcdir"/unified.patch
+
+  # patch with new unified patch
+  msg "Patching source with ck1 + bfs v0.404"
+  patch -Np1 -i "$srcdir"/unified.patch
+
+  # clean tree and get config
+  msg "Running make mrproper to clean source tree"
+  make mrproper
+
+  if [ "$CARCH" = "x86_64" ]; then
+    cat ../config.x86_64 >./.config
+  else
+    cat ../config >./.config
+  fi
+  if [ "${_kernelname}" != "" ]; then
+    sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
+  fi
+  # remove the extraversion from Makefile
+  # this ensures our kernel version is always 2.6.XX-lts-ck
+  # this way, minor kernel updates will not break external modules
+  sed -i 's|^EXTRAVERSION = .*$|EXTRAVERSION = |g' Makefile
+  # get kernel version
+  make prepare
+  # make localmodconfig
+  # load configuration
+  # Configure the kernel. Replace the line below with one of your choice.
+  #make menuconfig # CLI menu for configuration
+  #make nconfig # new CLI menu for configuration
+  #make xconfig # X-based configuration
+  #make oldconfig # using old config from previous kernel version
+  # ... or manually edit .config
+  ####################
+  # stop here
+  # this is useful to configure the kernel
+  #msg "Stopping build"
+  # return 1
+  ####################
+  yes "" | make config
+  # build!
+  make ${MAKEFLAGS} bzImage modules
+}
+
+package_kernel26-lts-ck() {
+  pkgdesc="Longtime supported kernel package suitable for servers patched with backported Brain Fuck Scheduler v0.401."
+  backup=(etc/mkinitcpio.d/${pkgname}.preset)
+  depends=('coreutils' 'linux-firmware>=2.6.34' 'module-init-tools>=3.12-2' 'mkinitcpio>=0.6.8-2')
+  provides=("kernel26-lts-ck=${pkgver}")
+  install=${pkgname}.install
+  optdepends=('crda: to set the correct wireless channels of your country'
+  'nvidia-lts-ck: nVidia drivers for kernel26-lts-ck')
+  KARCH=x86
+  cd "$srcdir"/linux-$_basekernel
+  # get kernel version
+  _kernver="$(make kernelrelease)"
+  mkdir -p "$pkgdir"/{lib/modules,lib/firmware,boot}
+  msg "Running make modules_install"
+  make INSTALL_MOD_PATH="$pkgdir" modules_install
+  cp System.map "$pkgdir"/boot/System.map26${_kernelname}
+  cp arch/$KARCH/boot/bzImage "$pkgdir"/boot/vmlinuz26${_kernelname}
+  # add vmlinux
+  install -m644 -D vmlinux "$pkgdir"/usr/src/linux-${_kernver}/vmlinux
+
+  # install fallback mkinitcpio.conf file and preset file for kernel
+  install -m644 -D "$srcdir"/${pkgname}.preset "$pkgdir"/etc/mkinitcpio.d/${pkgname}.preset
+  # set correct depmod command for install
+  sed \
+    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/g" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
+    -i $startdir/${pkgname}.install
+  sed \
+    -e "s|source .*|source /etc/mkinitcpio.d/kernel26${_kernelname}.kver|g" \
+    -e "s|default_image=.*|default_image=\"/boot/${pkgname}.img\"|g" \
+    -e "s|fallback_image=.*|fallback_image=\"/boot/${pkgname}-fallback.img\"|g" \
+    -i "$pkgdir"/etc/mkinitcpio.d/${pkgname}.preset
+
+  echo -e "# DO NOT EDIT THIS FILE\nALL_kver='${_kernver}'" > "$pkgdir"/etc/mkinitcpio.d/${pkgname}.kver
+  # remove build and source links
+  rm -f "$pkgdir"/lib/modules/${_kernver}/{source,build}
+  # remove the firmware
+  rm -rf "$pkgdir"/lib/firmware
+
+  # gzip -9 all modules to save 100MB of space
+  find "$pkgdir" -name '*.ko' -exec gzip -9 {} \;
+}
+
+package_kernel26-lts-ck-headers() {
+  pkgdesc="Header files and scripts for building modules for kernel26-lts-ck."
+  provides=("kernel26-lts-ck-headers=${pkgver}")
+  mkdir -p "$pkgdir"/lib/modules/${_kernver}
+  cd "$pkgdir"/lib/modules/${_kernver}
+  ln -sf ../../../usr/src/linux-${_kernver} build
+  cd "$srcdir"/linux-$_basekernel
+  install -D -m644 Makefile \
+    "$pkgdir"/usr/src/linux-${_kernver}/Makefile
+  install -D -m644 kernel/Makefile \
+    "$pkgdir"/usr/src/linux-${_kernver}/kernel/Makefile
+  install -D -m644 .config \
+    "$pkgdir"/usr/src/linux-${_kernver}/.config
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/include
+
+  for i in acpi asm-generic config generated linux math-emu media net pcmcia scsi sound trace video xen; do
+    cp -a include/$i "$pkgdir"/usr/src/linux-${_kernver}/include/
+  done
+
+  # copy arch includes for external modules
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/arch/x86
+  cp -a arch/x86/include "$pkgdir"/usr/src/linux-${_kernver}/arch/x86/
+
+  # copy files necessary for later builds, like nvidia and vmware
+  cp Module.symvers "$pkgdir"/usr/src/linux-${_kernver}
+  cp -a scripts "$pkgdir"/usr/src/linux-${_kernver}
+  # fix permissions on scripts dir
+  chmod og-w -R "$pkgdir"/usr/src/linux-${_kernver}/scripts
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/.tmp_versions
+
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/arch/$KARCH/kernel
+
+  cp arch/$KARCH/Makefile "$pkgdir"/usr/src/linux-${_kernver}/arch/$KARCH/
+  if [ "$CARCH" = "i686" ]; then
+    cp arch/$KARCH/Makefile_32.cpu "$pkgdir"/usr/src/linux-${_kernver}/arch/$KARCH/
+  fi
+  cp arch/$KARCH/kernel/asm-offsets.s "$pkgdir"/usr/src/linux-${_kernver}/arch/$KARCH/kernel/
+
+  # add headers for lirc package
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/video
+  cp drivers/media/video/*.h  "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/video/
+  for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102 usbvideo; do
+   mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/video/$i
+   cp -a drivers/media/video/$i/*.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/video/$i
+  done
+  # add docbook makefile
+  install -D -m644 Documentation/DocBook/Makefile \
+    "$pkgdir"/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile
+  # add dm headers
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/md
+  cp drivers/md/*.h  "$pkgdir"/usr/src/linux-${_kernver}/drivers/md
+  # add inotify.h
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/include/linux
+  cp include/linux/inotify.h "$pkgdir"/usr/src/linux-${_kernver}/include/linux/
+  # add wireless headers
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/net/mac80211/
+  cp net/mac80211/*.h "$pkgdir"/usr/src/linux-${_kernver}/net/mac80211/
+  # add dvb headers for external modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/9912
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core
+  cp drivers/media/dvb/dvb-core/*.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/
+  # add dvb headers for external modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/11194
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/include/config/dvb/
+  [[ -e include/config/dvb/ ]] && cp include/config/dvb/*.h "$pkgdir"/usr/src/linux-${_kernver}/include/config/dvb/
+  # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
+  # in reference to:
+  # http://bugs.archlinux.org/task/13146
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+  cp drivers/media/dvb/frontends/lgdt330x.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+  cp drivers/media/video/msp3400-driver.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+  # add dvb headers
+  # in reference to:
+  # http://bugs.archlinux.org/task/20402
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb
+  cp drivers/media/dvb/dvb-usb/*.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb/
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/frontends
+  cp drivers/media/dvb/frontends/*.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/common/tuners
+  cp drivers/media/common/tuners/*.h "$pkgdir"/usr/src/linux-${_kernver}/drivers/media/common/tuners/
+  # add xfs and shmem for aufs building
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/fs/xfs
+  mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/mm
+  cp fs/xfs/xfs_sb.h "$pkgdir"/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h
+  # add headers for virtualbox
+  # in reference to:
+  # http://bugs.archlinux.org/task/14568
+  cp -a include/drm $pkgdir/usr/src/linux-${_kernver}/include/
+
+  # add headers for broadcom wl
+  # in reference to:
+  # http://bugs.archlinux.org/task/14568
+  cp -a include/trace $pkgdir/usr/src/linux-${_kernver}/include/
+  # add headers for crypto modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/22081
+  cp -a include/crypto $pkgdir/usr/src/linux-${_kernver}/include/
+
+  # copy in Kconfig files
+  for i in `find . -name "Kconfig*"`; do
+   mkdir -p "$pkgdir"/usr/src/linux-${_kernver}/`echo $i | sed 's|/Kconfig.*||'`
+   cp $i "$pkgdir"/usr/src/linux-${_kernver}/$i
+  done
+
+  chown -R root.root "$pkgdir"/usr/src/linux-${_kernver}
+  find "$pkgdir"/usr/src/linux-${_kernver} -type d -exec chmod 755 {} \;
+  # strip scripts directory
+  find "$pkgdir"/usr/src/linux-${_kernver}/scripts  -type f -perm -u+w 2>/dev/null | while read binary ; do
+  case "$(file -bi "$binary")" in
+    *application/x-sharedlib*) # Libraries (.so)
+    /usr/bin/strip $STRIP_SHARED "$binary";;
+    *application/x-archive*) # Libraries (.a)
+    /usr/bin/strip $STRIP_STATIC "$binary";;
+    *application/x-executable*) # Binaries
+    /usr/bin/strip $STRIP_BINARIES "$binary";;
+    esac
+  done
+  # remove unneeded architectures
+  rm -rf "$pkgdir"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+}
+# Global pkgdesc and depends are here so that they will be picked up by AUR
+pkgdesc="Longtime supported kernel package suitable for servers patched with backported Brain Fuck Scheduler v0.404."
+sha256sums=('18b2e2c336032e366c942622b77302cb05fc034fb19018f086a4ebc9ed41bfcf'
+            '57c820dfb7a587c01a90d6317c9d7e2ae1471b923970ad305c384dbb1d67b182'
+            '0137856303974334d4fd94202b778bd231abddfcb84d33c649345f07aaf4a864'
+            '7d28ec354062e91f572ec6003f5c2728ea91bf39e99eb200e3c43c96b130afed'
+            '7ff760dca07545df7430b498447f053ee081555f37d2e8825bd2d62632d25947'
+            '00a28d8ac9a4e73f87aa0c583bca8898ada2cdbaf0867c3255d4ddf3d6e91862'
+            'a7512630adc4e3b8ca34ce960911d1ccc12d65c07b880185e91aea34eded583a'
+            '10c76cad6bc6b4a862e89e64505ad52a062831380fde143132a44936fccbfeac')

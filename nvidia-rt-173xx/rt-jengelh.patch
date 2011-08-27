@@ -1,0 +1,115 @@
+Index: nvidia173-kernel/nv-linux.h
+===================================================================
+--- nvidia173-kernel.orig/nv-linux.h
++++ nvidia173-kernel/nv-linux.h
+@@ -720,16 +720,7 @@ static inline int nv_execute_on_all_cpus
+ #define nv_down(lock)                   down(&lock)
+ #define nv_up(lock)                     up(&lock)
+ 
+-#if defined(CONFIG_PREEMPT_RT)
+-#define NV_INIT_MUTEX(mutex) init_MUTEX(mutex)
+-#else
+-#define NV_INIT_MUTEX(mutex)                       \
+-    {                                              \
+-        struct semaphore __mutex =                 \
+-            __SEMAPHORE_INITIALIZER(*(mutex), 1);  \
+-        *(mutex) = __mutex;                        \
+-    }
+-#endif
++#define NV_INIT_MUTEX(mutex) sema_init((mutex), 1)
+ 
+ #if defined (KERNEL_2_4)
+ #  define NV_IS_SUSER()                 suser()
+Index: nvidia173-kernel/os-interface.c
+===================================================================
+--- nvidia173-kernel.orig/os-interface.c
++++ nvidia173-kernel/os-interface.c
+@@ -87,10 +87,16 @@ typedef struct os_sema_s
+ {
+     nv_stack_t        *sp;
+     struct completion  completion;
+-#if defined(CONFIG_PREEMPT_RT)
+-    raw_spinlock_t     lock;
++#ifdef CONFIG_PREEMPT_RT
++    atomic_spinlock_t lock;
++#define nv_spin_lock_init(x) atomic_spin_lock_init(x)
++#define nv_spin_lock_irqsave(x, f) atomic_spin_lock_irqsave((x), (f))
++#define nv_spin_unlock_irqrestore(x, f) atomic_spin_unlock_irqrestore((x), (f))
+ #else
+     spinlock_t         lock;
++#define nv_spin_lock_init(x) spin_lock_init(x)
++#define nv_spin_lock_irqsave(x, f) spin_lock_irqsave((x), (f))
++#define nv_spin_unlock_irqrestore(x, f) spin_unlock_irqrestore((x), (f))
+ #endif
+     S032               count;
+ } os_sema_t;
+@@ -127,7 +133,7 @@ RM_STATUS NV_API_CALL os_alloc_sema
+     os_sema = (os_sema_t *)*ppSema;
+     os_sema->sp = sp;
+     init_completion(&os_sema->completion);
+-    spin_lock_init(&os_sema->lock);
++    nv_spin_lock_init(&os_sema->lock);
+     os_sema->count = 1;
+ 
+     return RM_OK;
+@@ -171,18 +177,18 @@ RM_STATUS NV_API_CALL os_acquire_sema
+     os_sema_t *os_sema = (os_sema_t *)pSema;
+     unsigned long old_irq;
+ 
+-    spin_lock_irqsave(&os_sema->lock, old_irq);
++    nv_spin_lock_irqsave(&os_sema->lock, old_irq);
+     if (os_sema->count <= 0)
+     {
+         os_sema->count--;
+-        spin_unlock_irqrestore(&os_sema->lock, old_irq);
++        nv_spin_unlock_irqrestore(&os_sema->lock, old_irq);
+         wait_for_completion(&os_sema->completion);
+     }
+     else
+     {
+         os_sema->count--;
+         rm_disable_interrupts(os_sema->sp);
+-        spin_unlock_irqrestore(&os_sema->lock, old_irq);
++        nv_spin_unlock_irqrestore(&os_sema->lock, old_irq);
+     }
+ 
+     return RM_OK;
+@@ -205,17 +211,17 @@ BOOL NV_API_CALL os_cond_acquire_sema
+     os_sema_t *os_sema = (os_sema_t *)pSema;
+     unsigned long old_irq;
+ 
+-    spin_lock_irqsave(&os_sema->lock, old_irq);
++    nv_spin_lock_irqsave(&os_sema->lock, old_irq);
+     if (os_sema->count <= 0)
+     {
+-        spin_unlock_irqrestore(&os_sema->lock, old_irq);
++        nv_spin_unlock_irqrestore(&os_sema->lock, old_irq);
+         return FALSE;
+     }
+     else
+     {
+         os_sema->count--;
+         rm_disable_interrupts(os_sema->sp);
+-        spin_unlock_irqrestore(&os_sema->lock, old_irq);
++        nv_spin_unlock_irqrestore(&os_sema->lock, old_irq);
+         return TRUE;
+     }
+ 
+@@ -239,7 +245,7 @@ RM_STATUS NV_API_CALL os_release_sema
+     unsigned long old_irq;
+     BOOL doWakeup;
+ 
+-    spin_lock_irqsave(&os_sema->lock, old_irq);
++    nv_spin_lock_irqsave(&os_sema->lock, old_irq);
+     if (os_sema->count < 0)
+     {
+         doWakeup = TRUE;
+@@ -250,7 +256,7 @@ RM_STATUS NV_API_CALL os_release_sema
+         rm_enable_interrupts(os_sema->sp);
+     }
+     os_sema->count++;
+-    spin_unlock_irqrestore(&os_sema->lock, old_irq);
++    nv_spin_unlock_irqrestore(&os_sema->lock, old_irq);
+ 
+     if (doWakeup)
+         complete(&os_sema->completion);

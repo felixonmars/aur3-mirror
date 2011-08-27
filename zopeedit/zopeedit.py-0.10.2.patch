@@ -1,0 +1,199 @@
+--- old/zopeedit.py	2010-04-19 12:06:41.000000000 +0200
++++ zopeedit.py	2010-04-19 12:06:52.000000000 +0200
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python2.5
++#!/usr/bin/env python
+ ##############################################################################
+ #
+ # Copyright (c) 2001, 2002 Zope Corporation and Contributors.
+@@ -34,6 +34,7 @@
+ import rfc822
+ import traceback
+ import logging
++import hashlib
+ import urllib
+ import shutil
+ import glob
+@@ -45,6 +46,7 @@
+ import socket
+ import base64
+ from urlparse import urlparse
++from urllib2 import parse_http_list, parse_keqv_list
+ 
+ LOG_LEVELS = {'debug': logging.DEBUG,
+               'info': logging.INFO,
+@@ -119,6 +121,7 @@
+     
+     def __init__(self, input_file):
+         self.input_file = input_file
++        self.identity = None
+         # Setup logging.
+         global log_file
+         #log_file = NamedTemporaryFile(suffix='-zopeedit-log.txt')
+@@ -794,7 +797,72 @@
+         headers = {'Lock-Token':self.lock_token}
+         response = self.zopeRequest('UNLOCK', headers)
+         return response
+-        
++
++    def _get_authorization(self, host, method, selector, cookie, ssl,
++                           old_response):
++        #get the challenge
++        if ssl is True:
++            h = HTTPSConnection(host)
++        else:
++            h = HTTPConnection(host)
++        if cookie is not None:
++            headers = {'Cookie': cookie}
++        else:
++            headers = {}
++        h.request('HEAD', selector, headers=headers)
++        r = h.getresponse()
++        if r.status != 401:
++            return None
++        auth_header = r.getheader('www-authenticate').strip()
++        if auth_header is None or not auth_header.lower().startswith('digest'):
++            return None
++        # XXX undocumented functions
++        chal = parse_keqv_list(parse_http_list(auth_header[7:]))
++
++        #get the user/password
++        if self.identity is not None:
++            username, password = self.identity
++        else:
++            # XXX undocumented functions
++            username = parse_keqv_list(parse_http_list(old_response[7:])
++                                       )['username']
++            password = askPassword(chal['realm'], username)
++            self.identity = (username, password)
++
++        #compute the authorization
++        algorithm = chal.get('algorithm', 'MD5')
++        if algorithm == 'MD5':
++            H = lambda x: hashlib.md5(x).hexdigest()
++        elif algorithm == 'SHA':
++            H = lambda x: hashlib.sha1(x).hexdigest()
++        # XXX MD5-sess not implemented
++        KD = lambda s, d: H("%s:%s" % (s, d))
++
++        nonce = chal['nonce']
++        res = ('Digest username="%s", realm="%s", nonce="%s", algorithm="%s", '
++               'uri="%s"' % (username, chal['realm'], nonce, chal['algorithm'],
++                             selector))
++        if 'opaque' in chal:
++            res += ', opaque="%s"' % chal['opaque']
++
++        A1 = '%s:%s:%s' % (username, chal['realm'], password)
++        A2 = '%s:%s' % (method, selector)
++
++        if 'qop' in chal:
++            # XXX auth-int not implemented
++            qop = chal['qop']
++            nc = '00000001'
++            cnonce = '12345678'
++            res += ', qop="%s", nc="%s", cnonce="%s"' % (qop, nc, cnonce)
++
++            response = KD( H(A1), '%s:%s:%s:%s:%s' % (nonce, nc, cnonce, qop,
++                                                      H(A2)))
++        else:
++            response = KD( H(A1), '%s:%s' % (nonce, H(A2)) )
++
++        res += ', response="%s"' % response
++        return res
++
+     def zopeRequest(self, method, headers={}, body='', command=''):
+         """Send a request back to Zope"""
+         if self.proxy == '':
+@@ -851,8 +919,17 @@
+                 for header, value in headers.items():
+                     h.putheader(header, value)
+                 h.putheader("Content-Length", str(len(body)))
+-                if self.metadata.get('auth','').lower().startswith('basic'):
++                #authentication
++                auth_header = self.metadata.get('auth','')
++                if auth_header.lower().startswith('basic'):
+                     h.putheader("Authorization", self.metadata['auth'])
++                if auth_header.lower().startswith('digest'):
++                    authorization = self._get_authorization(host, method, url,
++                                                self.metadata.get('cookie'),
++                                                False, auth_header)
++                    if authorization is not None:
++                        h.putheader("Authorization", authorization)
++                #cookie
+                 if self.metadata.get('cookie'):
+                     h.putheader("Cookie", self.metadata['cookie'])
+ 
+@@ -872,8 +949,18 @@
+             for header, value in headers.items():
+                 h.putheader(header, value)
+             h.putheader("Content-Length", str(len(body)))
+-            if self.metadata.get('auth','').lower().startswith('basic'):
++            #authentication
++            auth_header = self.metadata.get('auth','')
++            if auth_header.lower().startswith('basic'):
+                 h.putheader("Authorization", self.metadata['auth'])
++            if auth_header.lower().startswith('digest'):
++                authorization = self._get_authorization(host, method, url,
++                                            self.metadata.get('cookie'),
++                                            self.ssl and not self.proxy,
++                                            auth_header)
++                if authorization is not None:
++                    h.putheader("Authorization", authorization)
++            #cookie
+             if self.metadata.get('cookie'):
+                 h.putheader("Cookie", self.metadata['cookie'])
+ 
+@@ -1100,6 +1187,30 @@
+         return False
+ 
+ ## Platform specific declarations ##
++def has_tk():
++    """Sets up a suitable tk root window if one has not
++       already been setup. Returns true if tk is happy,
++       false if tk throws an error (like its not available)"""
++        # create a hidden root window to make Tk happy
++    if not locals().has_key('tk_root'):
++        try:
++            global tk_root
++            from Tkinter import Tk
++            tk_root = Tk()
++            tk_root.withdraw()
++            return 1
++        except:
++            return 0
++    return 1
++
++#askPassword is common to win32 and Posix
++def askPassword(realm, username):
++    if has_tk():
++        from tkSimpleDialog import askstring
++        r = askstring(title, "Please enter the password for '%s' in '%s'" %
++                              (username, realm), show='*')
++        has_tk()
++        return r
+ 
+ if win32:
+     import Plugins # Assert dependancy
+@@ -1130,22 +1241,6 @@
+     from time import sleep
+     import re
+ 
+-    def has_tk():
+-        """Sets up a suitable tk root window if one has not
+-           already been setup. Returns true if tk is happy,
+-           false if tk throws an error (like its not available)"""
+-            # create a hidden root window to make Tk happy
+-        if not locals().has_key('tk_root'):
+-            try:
+-                global tk_root
+-                from Tkinter import Tk
+-                tk_root = Tk()
+-                tk_root.withdraw()
+-                return 1
+-            except:
+-                return 0
+-        return 1
+-
+     def errorDialog(message):
+         """Error dialog box"""
+         try:
