@@ -1,0 +1,150 @@
+diff -urN vpnclient.orig/Makefile vpnclient/Makefile
+--- vpnclient.orig/Makefile	2008-06-23 17:59:12.000000000 +0100
++++ vpnclient/Makefile	2008-07-09 23:16:54.000000000 +0100
+@@ -12,7 +12,9 @@
+ SOURCE_OBJS := linuxcniapi.o frag.o IPSecDrvOS_linux.o interceptor.o linuxkernelapi.o
+ 
+ ifeq ($(SUBARCH),x86_64)
+-CFLAGS += -mcmodel=kernel -mno-red-zone
++# Must NOT fiddle with CFLAGS
++# CFLAGS += -mcmodel=kernel -mno-red-zone
++EXTRA_CFLAGS += -mcmodel=kernel -mno-red-zone
+ NO_SOURCE_OBJS := libdriver64.so
+ else
+ NO_SOURCE_OBJS := libdriver.so
+diff -urN vpnclient.orig/frag.c vpnclient/frag.c
+--- vpnclient.orig/frag.c	2008-06-23 17:59:12.000000000 +0100
++++ vpnclient/frag.c	2008-07-09 23:16:54.000000000 +0100
+@@ -22,7 +22,9 @@
+ #include "frag.h"
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-#define SKB_IPHDR(skb) ((struct iphdr*)skb->network_header)
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ */
++#define SKB_IPHDR(skb) ((struct iphdr*)skb_network_header)
+ #else
+ #define SKB_IPHDR(skb) skb->nh.iph
+ #endif
+diff -urN vpnclient.orig/interceptor.c vpnclient/interceptor.c
+--- vpnclient.orig/interceptor.c	2008-06-23 17:59:12.000000000 +0100
++++ vpnclient/interceptor.c	2008-07-09 23:34:51.000000000 +0100
+@@ -637,19 +637,30 @@
+ 
+     reset_inject_status(&pBinding->recv_stat);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    if (skb->mac_header)
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ */
++    if (skb_mac_header_was_set(skb))
+ #else
+     if (skb->mac.raw)
+ #endif
+     {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-        hard_header_len = skb->data - skb->mac_header;
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ */
++        hard_header_len = skb->data - skb_mac_header(skb);
+ #else
+         hard_header_len = skb->data - skb->mac.raw;
+ #endif
+         if ((hard_header_len < 0) || (hard_header_len > skb_headroom(skb)))
+         {
+             printk(KERN_DEBUG "bad hh len %d\n", hard_header_len);
++
++            printk(KERN_DEBUG "bad hh len %d, mac: %d, data: %p, head: %p\n",
++                hard_header_len,
++                skb->mac_header,    /* actualy ptr in 32-bit */
++                skb->data,
++                skb->head);
++
+             hard_header_len = 0;
+         }
+     }
+@@ -664,7 +675,9 @@
+     {
+     case ETH_HLEN:
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-        CniNewFragment(ETH_HLEN, skb->mac_header, &MacHdr, CNI_USE_BUFFER);
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ */
++        CniNewFragment(ETH_HLEN, skb_mac_header(skb), &MacHdr, CNI_USE_BUFFER);
+ #else
+         CniNewFragment(ETH_HLEN, skb->mac.raw, &MacHdr, CNI_USE_BUFFER);
+ #endif
+@@ -782,7 +795,9 @@
+ #endif //LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0)
+     reset_inject_status(&pBinding->send_stat);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    hard_header_len = skb->network_header - skb->data;
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ */
++    hard_header_len = skb_network_header(skb) - skb->data;
+ #else
+     hard_header_len = skb->nh.raw - skb->data;
+ #endif
+diff -urN vpnclient.orig/linuxcniapi.c vpnclient/linuxcniapi.c
+--- vpnclient.orig/linuxcniapi.c	2008-06-23 17:59:12.000000000 +0100
++++ vpnclient/linuxcniapi.c	2008-07-09 23:16:54.000000000 +0100
+@@ -338,8 +338,12 @@
+     skb->ip_summed = CHECKSUM_UNNECESSARY;
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->network_header = (sk_buff_data_t) skb->data;
+-    skb->mac_header = (sk_buff_data_t)pMac;
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ * We have to use (pMac - skb->data) to get an offset.
++ * We need to cast ptrs to byte ptrs and take the difference.
++ */
++    skb_reset_network_header(skb);
++    skb_set_mac_header(skb, (int)((void *)pMac - (void *)skb->data));
+ #else
+     skb->nh.iph = (struct iphdr *) skb->data;
+     skb->mac.raw = pMac;
+@@ -478,8 +482,12 @@
+     skb->dev = pBinding->pDevice;
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->mac_header = (sk_buff_data_t)pMac;
+-    skb->network_header = (sk_buff_data_t)pIP;
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ * We have to use (pIP/pMac - skb->data) to get an offset.
++ * We need to cast ptrs to byte ptrs and take the difference.
++ */
++    skb_set_mac_header(skb, (int)((void *)pMac - (void *)skb->data));
++    skb_set_network_header(skb, (int)((void *)pIP - (void *)skb->data));
+ #else
+     skb->mac.raw = pMac;
+     skb->nh.raw = pIP;
+@@ -487,8 +495,13 @@
+ 
+     /*ip header length is in 32bit words */
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->transport_header = (sk_buff_data_t)
+-      (pIP + (((struct iphdr*)(skb->network_header))->ihl * 4));
++/* 2.6.22 added an inline function for 32-/64-bit usage here, so use it.
++ * We have to use (pIP - skb->data) to get an offset.
++ * We need to cast ptrs to byte ptrs and take the difference.
++ */
++    skb_set_transport_header(skb,
++        ((int)((void *)pIP - (void *)skb->data) +
++           (((struct iphdr*)(skb_network_header(skb)))->ihl * 4)));
+ #else
+     skb->h.raw = pIP + (skb->nh.iph->ihl * 4);
+ #endif
+diff -urN vpnclient.orig/linuxkernelapi.c vpnclient/linuxkernelapi.c
+--- vpnclient.orig/linuxkernelapi.c	2008-06-23 17:59:12.000000000 +0100
++++ vpnclient/linuxkernelapi.c	2008-07-09 23:16:54.000000000 +0100
+@@ -9,7 +9,10 @@
+     void*rc = kmalloc(size, GFP_ATOMIC);
+     if(NULL == rc)
+     {
+-        printk("<1> os_malloc size %d failed\n",size);
++/* Allow for 32- or 64-bit size        
++ *        printk("<1> os_malloc size %d failed\n",size);
++ */
++        printk("<1> os_malloc size %ld failed\n", (long)size);
+     }
+ 
+     return rc;
