@@ -1,17 +1,40 @@
 #!/bin/bash
 
-link='/media/'
-if [ "$1" == 1 ] && [ "$2" ]; then
+while [ $# != 0 ]; do
+	if [[ "$1" =~ ^[1MUEm]$ ]]; then
+		a=$1
+	elif [[ "$1" =~ ^[-u]$ ]]; then
+		uid=$2
+		shift 1
+	elif [[ "$1" =~ ^[-c]$ ]]; then
+		cp=$2
+		shift 1
+	elif [[ "$1" =~ ^[-i]$ ]]; then
+		ich=$2
+		shift 1
+	elif [[ "$1" =~ ^[-l]$ ]]; then
+		test -d "$2" && link="$2"
+		shift 1
+	fi
 	shift 1
-	while [ "$1" ]; do
-		fl=$(file "$1")
+done
+
+test $uid || uid='root'
+test $cp || cp=852
+test $ich || ich=utf8
+test $link || link='/media/'
+export link
+if [ "$a" == 1 ] && [ "$2" ]; then
+	shift 1
+	while [ "$a" ]; do
+		fl=$(file "$a")
 		if [[ "$fl" =~ 'symbolic link' ]]; then
 			file=$(echo "$fl" | sed 's/.*\///' | sed "s/'//g")
 			del=rm
 			touch "/mnt/${file}.u"
 			echo link
 		else
-			file="$1"
+			file="$a"
 			del=rmdir
 			touch "${file}.u"
 		fi
@@ -19,25 +42,27 @@ if [ "$1" == 1 ] && [ "$2" ]; then
 		umount "/dev/disk/by-id/${file}"
 		[ -e "/mnt/${file}" ] && rmdir "/mnt/${file}"
 		[ -e "${file}" ] && rmdir "${file}"
-		$del "$1"
+		$del "$a"
 		echo "$file"
 		shift 1
 	done
-elif [ $1 == 'M' ]; then
+elif [ $a == 'M' ]; then
 	(
 		cd /dev/disk/by-id
 		for file in *; do
-			if [ "$file" != '*' ] && [[ "$file" =~ ^usb- ]]; then
+			if [[ "$file" =~ ^wwn- ]]; then
+				echo 0 > /dev/null
+			elif [ "$file" != ata-ASUS_DRW-22B2ST ] && [ "$file" != ata-WDC_WD20EVDS-63T3B0_WD-WCAVY5955663 ] && [ "$file" != ata-WDC_WD20EVDS-63T3B0_WD-WCAVY5955663-part1 ] && [ "$file" != ata-WDC_WD3200AAJB-00TYA0_WD-WCAPZ4136683 ] && [ "$file" != ata-WDC_WD3200AAJB-00TYA0_WD-WCAPZ4136683-part1 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part1 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part2 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part3 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part4 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part5 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part6 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part7 ] && [ "$file" != dm-name-disk2 ] && [ "$file" != dm-name-disk427 ] && [ "$file" != dm-uuid-CRYPT-LUKS1-b8c3cdc814174711ae6380e8dd58cc7b-disk427 ] && [ "$file" != dm-uuid-CRYPT-LUKS1-ded60f2d52f0471cac7f83957afb0e76-disk2 ] && [ "$file" != scsi-SATA_WDC_WD20EVDS-63_WD-WCAVY5955663 ] && [ "$file" != scsi-SATA_WDC_WD20EVDS-63_WD-WCAVY5955663-part1 ] && [ "$file" != scsi-SATA_WDC_WD3200AAJB-_WD-WCAPZ4136683 ] && [ "$file" != scsi-SATA_WDC_WD3200AAJB-_WD-WCAPZ4136683-part1 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part1 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part2 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part3 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part4 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part5 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part6 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part7 ]; then
 				echo "$file"
 				ii=$(did "/dev/disk/by-id/$i")
 				[ -e "/mnt/${file}" ] || mkdir "/mnt/${file}"
-				mount "/dev/disk/by-id/${file}" "/mnt/${file}" -o uid=tom,codepage=852,iocharset=utf8 || mount "/dev/disk/by-id/${file}" "/mnt/${file}"
+				mount "/dev/disk/by-id/${file}" "/mnt/${file}" -o uid=$uid,codepage=$cp,iocharset=$ich || mount "/dev/disk/by-id/${file}" "/mnt/${file}"
 				[ -e "${link}${filen}" ] || ln -s "/mnt/${file}" "${link}${filen}"
 				echo "$file"
 			fi &
 		done
 	) | zenity --progress --auto-kill --auto-close --text 'Připojování vyměnitelných disků' --class focus-down
-elif [ $1 == 'U' ]; then
+elif [ $a == 'U' ]; then
 	(
 #		cd /dev/disk/by-id
 #		for file in *; do
@@ -63,7 +88,7 @@ elif [ $1 == 'U' ]; then
 			fi
 		done
 	) | zenity --progress --auto-kill --auto-close --text 'Odpojování vyměnitelných disků' --class focus-down
-elif [ $1 == 'E' ]; then
+elif [ $a == 'E' ]; then
 	(
 		cd /dev
 		for file in sd[qwertzuiopsdfghjklyxvnm]*; do
@@ -74,23 +99,22 @@ elif [ $1 == 'E' ]; then
 			)
 		done
 	) | zenity --progress --auto-kill --auto-close --text 'Chyby připojování vyměnitelných disků'
-elif [ $1 == 'm' ]; then
+elif [ $a == 'm' ]; then
 	while [ 0 ]; do
 		cd /dev/disk/by-id
 		for file in *; do
 			if [ "$file" != '*' ]; then
-				if [ -e "/mnt/$file" ]; then
+				if [[ "$file" =~ ^wwn- ]]; then
+					echo 0 > /dev/null
+				elif [ -e "/mnt/$file" ]; then
 					echo "m:$file"
 				elif [ -e "/mnt/$file.u" ]; then
 					echo "u:$file"
-				elif [[ "$file" =~ ^usb- ]]; then
+				elif [ "$file" != ata-ASUS_DRW-22B2ST ] && [ "$file" != ata-WDC_WD20EVDS-63T3B0_WD-WCAVY5955663 ] && [ "$file" != ata-WDC_WD20EVDS-63T3B0_WD-WCAVY5955663-part1 ] && [ "$file" != ata-WDC_WD3200AAJB-00TYA0_WD-WCAPZ4136683 ] && [ "$file" != ata-WDC_WD3200AAJB-00TYA0_WD-WCAPZ4136683-part1 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part1 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part2 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part3 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part4 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part5 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part6 ] && [ "$file" != ata-WDC_WD5000AVVS-63M8B0_WD-WCAV91654735-part7 ] && [ "$file" != dm-name-disk2 ] && [ "$file" != dm-name-disk427 ] && [ "$file" != dm-uuid-CRYPT-LUKS1-b8c3cdc814174711ae6380e8dd58cc7b-disk427 ] && [ "$file" != dm-uuid-CRYPT-LUKS1-ded60f2d52f0471cac7f83957afb0e76-disk2 ] && [ "$file" != scsi-SATA_WDC_WD20EVDS-63_WD-WCAVY5955663 ] && [ "$file" != scsi-SATA_WDC_WD20EVDS-63_WD-WCAVY5955663-part1 ] && [ "$file" != scsi-SATA_WDC_WD3200AAJB-_WD-WCAPZ4136683 ] && [ "$file" != scsi-SATA_WDC_WD3200AAJB-_WD-WCAPZ4136683-part1 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part1 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part2 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part3 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part4 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part5 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part6 ] && [ "$file" != scsi-SATA_WDC_WD5000AVVS-_WD-WCAV91654735-part7 ]; then
 					echo "$file"
-
 					[ -e "/mnt/${file}" ] || mkdir "/mnt/${file}"
-					mount "/dev/disk/by-id/${file}" "/mnt/${file}" -o uid=tom,codepage=852,iocharset=utf8 || mount "/dev/disk/by-id/${file}" "/mnt/${file}"
+					mount "/dev/disk/by-id/${file}" "/mnt/${file}" -o uid=$uid,codepage=$cp,iocharset=$ich || mount "/dev/disk/by-id/${file}" "/mnt/${file}"
 					[ -e "${link}${filen}" ] && rm "${link}${filen}"
-#					mount | grep "${file} " && ln -s "/mnt/${file}" "${link}${file}"
-#					ln -s "/mnt/${file}" "${link}${file}"
 					echo "$file"
 				fi
 			fi
