@@ -1,0 +1,169 @@
+diff -up xf86-video-intel-2.14.0.bak/src/intel_display.c.copy-fb xf86-video-intel-2.14.0.bak/src/intel_display.c
+--- xf86-video-intel-2.14.0.bak/src/intel_display.c.copy-fb	2010-12-16 06:42:43.000000000 -0500
++++ xf86-video-intel-2.14.0.bak/src/intel_display.c	2011-03-11 12:55:21.370817438 -0500
+@@ -29,6 +29,7 @@
+ #include "config.h"
+ #endif
+ 
++#include <sys/ioctl.h>
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <fcntl.h>
+@@ -1645,6 +1657,99 @@ intel_mode_remove_fb(intel_screen_privat
+ 	}
+ }
+ 
++static PixmapPtr
++intel_create_pixmap_for_fbcon(ScrnInfoPtr scrn)
++{
++	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(scrn);
++	struct intel_crtc *intel_crtc = xf86_config->crtc[0]->driver_private;
++	ScreenPtr pScreen = screenInfo.screens[scrn->scrnIndex];
++	intel_screen_private *intel = intel_get_screen_private(scrn);
++	struct intel_mode *mode = intel->modes;
++	drmModeFBPtr fbcon = NULL;
++	struct drm_gem_flink flink;
++	drm_intel_bo *bo;
++	PixmapPtr pixmap = NULL;
++	int i;
++
++	for (i = 0; i < mode->mode_res->count_crtcs; i++) {
++		intel_crtc = xf86_config->crtc[i]->driver_private;
++		if (intel_crtc->mode_crtc->buffer_id == 0)
++			continue;
++		fbcon = drmModeGetFB(mode->fd,
++				     intel_crtc->mode_crtc->buffer_id);
++		if (fbcon != NULL)
++			break;
++	}
++	if (fbcon == NULL)
++		return NULL;
++
++	flink.handle = fbcon->handle;
++	if (ioctl(mode->fd, DRM_IOCTL_GEM_FLINK, &flink) < 0) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't flink fbcon handle\n");
++		return NULL;
++	}
++
++	bo = drm_intel_bo_gem_create_from_name(intel->bufmgr,
++					       "fbcon", flink.name);
++	if (bo == NULL) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't allocate bo for fbcon handle\n");
++		return NULL;
++	}
++
++	pixmap = GetScratchPixmapHeader(pScreen,
++					fbcon->width, fbcon->height,
++					fbcon->depth, fbcon->bpp,
++					fbcon->pitch, NULL);
++	if (pixmap == NULL) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't allocate pixmap fbcon contents\n");
++		return NULL;
++	}
++
++	intel_set_pixmap_bo(pixmap, bo);
++	drm_intel_bo_unreference(bo);
++	drmModeFreeFB(fbcon);
++
++	return pixmap;
++}
++
++void intel_copy_fb(ScrnInfoPtr scrn)
++{
++	ScreenPtr pScreen = screenInfo.screens[scrn->scrnIndex];
++	intel_screen_private *intel = intel_get_screen_private(scrn);
++	PixmapPtr src, dst;
++	unsigned int pitch = scrn->displayWidth * intel->cpp;
++
++	src = intel_create_pixmap_for_fbcon(scrn);
++	if (src == NULL) {
++		xf86DrvMsg(scrn->scrnIndex, X_ERROR,
++			   "Couldn't create pixmap for fbcon\n");
++		return;
++	}
++
++	/* We dont have a screen Pixmap yet */
++	dst = GetScratchPixmapHeader(pScreen,
++				     scrn->virtualX, scrn->virtualY,
++				     scrn->depth, scrn->bitsPerPixel,
++				     pitch,
++				     NULL);
++	intel_set_pixmap_bo(dst, intel->front_buffer);
++
++	intel->uxa_driver->prepare_copy(src, dst, -1, -1, GXcopy, FB_ALLONES);
++
++	intel->uxa_driver->copy(dst, 0, 0, 0, 0,
++				scrn->virtualX, scrn->virtualY);
++
++	intel->uxa_driver->done_copy(dst);
++
++	intel_batch_submit(scrn, TRUE);
++
++	(*pScreen->DestroyPixmap)(src);
++	(*pScreen->DestroyPixmap)(dst);
++}
++
+ void
+ intel_mode_fini(intel_screen_private *intel)
+ {
+diff -up xf86-video-intel-2.14.0.bak/src/intel_driver.c.copy-fb xf86-video-intel-2.14.0.bak/src/intel_driver.c
+--- xf86-video-intel-2.14.0.bak/src/intel_driver.c.copy-fb	2011-01-03 18:06:09.000000000 -0500
++++ xf86-video-intel-2.14.0.bak/src/intel_driver.c	2011-03-11 15:01:41.405246824 -0500
+@@ -960,6 +960,9 @@ I830ScreenInit(int scrnIndex, ScreenPtr 
+ #endif
+ 	struct pci_device *const device = intel->PciInfo;
+ 	int fb_bar = IS_GEN2(intel) ? 0 : 2;
++	int result;
++
++	screen->canDoBGNoneRoot = TRUE;
+ 
+ 	/*
+ 	 * The "VideoRam" config file parameter specifies the maximum amount of
+@@ -1083,9 +1086,6 @@ I830ScreenInit(int scrnIndex, ScreenPtr 
+ 	 * later memory should be bound when allocating, e.g rotate_mem */
+ 	scrn->vtSema = TRUE;
+ 
+-	if (!I830EnterVT(scrnIndex, 0))
+-		return FALSE;
+-
+ 	intel->BlockHandler = screen->BlockHandler;
+ 	screen->BlockHandler = I830BlockHandler;
+ 
+@@ -1159,7 +1159,12 @@ I830ScreenInit(int scrnIndex, ScreenPtr 
+ 	I830UeventInit(scrn);
+ #endif
+ 
+-	return uxa_resources_init(screen);
++	result = uxa_resources_init(screen);
++
++	if (!I830EnterVT(scrnIndex, 0))
++		return FALSE;
++
++	return result;
+ }
+ 
+ static void i830AdjustFrame(int scrnIndex, int x, int y, int flags)
+@@ -1222,6 +1227,8 @@ static Bool I830EnterVT(int scrnIndex, i
+ 
+ 	intel_set_gem_max_sizes(scrn);
+ 
++	intel_copy_fb(scrn);
++
+ 	if (!xf86SetDesiredModes(scrn))
+ 		return FALSE;
+ 
+diff -up xf86-video-intel-2.14.0.bak/src/intel.h.copy-fb xf86-video-intel-2.14.0.bak/src/intel.h
+--- xf86-video-intel-2.14.0.bak/src/intel.h.copy-fb	2011-01-04 09:30:57.000000000 -0500
++++ xf86-video-intel-2.14.0.bak/src/intel.h	2011-03-11 12:39:40.637186138 -0500
+@@ -501,6 +501,7 @@ extern void intel_mode_fini(intel_screen
+ extern int intel_get_pipe_from_crtc_id(drm_intel_bufmgr *bufmgr, xf86CrtcPtr crtc);
+ extern int intel_crtc_id(xf86CrtcPtr crtc);
+ extern int intel_output_dpms_status(xf86OutputPtr output);
++extern void intel_copy_fb(ScrnInfoPtr scrn);
+ 
+ extern Bool intel_do_pageflip(intel_screen_private *intel,
+ 			      dri_bo *new_front,
+
