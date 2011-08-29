@@ -1,7 +1,7 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-utilities
 pkgver=2.1.1
-pkgrel=3
+pkgrel=4
 pkgdesc="utilities to manage and communicate with Digilent's devices"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
@@ -11,11 +11,9 @@ install=adept-utilities.install
 
 # hack to make sure a valid URL shows up
 # on the AUR page - taken from the Dropbox PKGBUILD
-_arch1=i686
-[[ $CARCH == x86_64 ]] && _arch1=x86_64
-_arch2=86
-[[ $CARCH == x86_64 ]] && _arch2=64
-source=("digilent.adept.utilities_2.1.1-$_arch1.tar.gz::http://www.digilentinc.com/Cart/Download.cfm?DURL=/Data/Products/ADEPT2/digilent.adept.utilities_2.1.1-$_arch1.tar.gz&ProductID=Adept2.1.1-L-$_arch2")
+_arch=i686
+[[ $CARCH == x86_64 ]] && _arch=x86_64
+source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.utilities_$pkgver-$_arch.tar.gz")
 
 md5sums=('8eb4717d0ca997fa6c5f812dc23ef5a1')
 [[ $CARCH == x86_64 ]] && md5sums[0]='2bfcdc40cf12bf823ddf76e2d7bb5455'

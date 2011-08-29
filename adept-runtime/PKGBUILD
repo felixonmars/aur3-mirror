@@ -1,7 +1,7 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
 pkgver=2.8.2
-pkgrel=2
+pkgrel=3
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
@@ -11,7 +11,8 @@ install=adept-runtime.install
 
 # hack to make sure a valid URL shows up
 # on the AUR page - taken from the Dropbox PKGBUILD
-_arch=$CARCH
+_arch=i686
+[[ $CARCH == x86_64 ]] && _arch=x86_64
 source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_2.8.2-$_arch.tar.gz")
 
 md5sums=('900ca1fac221b72ba89ff0ea2ac71d0c')
