@@ -1,2 +1,2 @@
-cd /opt/CrayonPhysicsDeluxe
+cd /usr/share/CrayonPhysicsDeluxe
 exec ./launcher "$@"
