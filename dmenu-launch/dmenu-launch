@@ -1,9 +1,10 @@
 #!/bin/bash
 ### Dmenu Launcher ###############
-# Version 0.5.5 by Scott Garrett #
+# Version 0.5.6 by Scott Garrett #
 # Wintervenom [(at)] gmail.com   #
 ##################################
 # Depends on:  dmenu             #
+#   Optional:  slmenu            #
 ##################################
 # Changelog                      #
 # 0.4.1   + Read DMENU_OPTIONS   #
@@ -24,8 +25,15 @@
 # 0.5.5   + Use `slmenu` (if it  #
 #           is installed) when   #
 #           running from a non-  #
-#           dumb terminal.       #
+#           dumb terminal        #
+# 0.5.6   + Added Detach option  #
+#           in terminal mode     #
+#         + Added Cache option:  #
+#           generate menu for    #
+#           the next run in the  #
+#           background           #
 ##################################
+
 
 ###############
 ### Globals ###
@@ -50,10 +58,12 @@ hist="$HOME/.config/dmenu-launch/history"
 # Dmenu command.
 dm="dmenu -i $DMENU_OPTIONS"
 if tty &> /dev/null && [[ "$TERM" != 'dumb' ]]; then
-    which 'slmenu' &> /dev/null &&
+    if which 'slmenu' &> /dev/null; then
         dm='slmenu -i'
-else
-    [[ -z "$DISPLAY" ]] && exit 1
+        term_mode=1
+    fi
+elif [[ -z "$DISPLAY" ]]; then
+    exit 1
 fi
 
 # Run in Terminal flag.
@@ -65,11 +75,15 @@ flag_binaries='yes'
 # Show XDG Names flag.
 flag_xdg_names='yes'
 
+# Cache and re-use last generated menu.
+flag_cache='yes'
+
 # Terminal to use.
 terminal='urxvt'
 
 # Configuration items.
-config_menu=('Clear History' 'Run in Terminal' 'Terminal' 'Show Binaries' 'Show XDG Names')
+config_menu=('Clear History' 'Run in Terminal' 'Terminal' 'Detach'
+             'Show Binaries' 'Show XDG Names' 'Cache')
 
 
 #################
@@ -104,16 +118,21 @@ build_menu () {
                    $1 == "Exec" {sub(/Exec=/, "", $0); exec=$0}
                    END { print name "|" exec }' "$file" 2> /dev/null
     done > "$cache"
-    # Start printing out the menu items, starting with the configuration...
-    echo "[${config_menu[0]}]"
-    echo "[${config_menu[1]}: $flag_terminal]"
-    echo "[${config_menu[2]}: $terminal]"
-    echo "[${config_menu[3]}: $flag_binaries]"
-    echo "[${config_menu[4]}: $flag_xdg_names]"
-    # Then, the XDG shortcut names...
+    # Start printing out the menu items, starting with XDG shortcut names...
     sed 's/|.*$//' "$cache" | sort -u
-    # And the binary names.
+    # ...then, the binary names...
     (IFS=':'; lsx $PATH | sort -u)
+    # ...then, the configuration options.
+    echo "[${config_menu[6]}: $flag_cache]"
+    echo "[${config_menu[5]}: $flag_xdg_names]"
+    echo "[${config_menu[4]}: $flag_binaries]"
+    echo "[${config_menu[0]}]"
+    if [[ "$flag_detach" == 'yes' ]]; then
+        echo "[${config_menu[2]}: $terminal]"
+        echo "[${config_menu[1]}: $flag_terminal]"
+    fi
+    [[ "$term_mode" ]] &&
+        echo "[${config_menu[3]}: $flag_detach]"
 }
 
 update_history () {
@@ -142,11 +161,15 @@ program_exists () {
 }
 
 launch () {
-    # Shouldn't be set when there won't be a terminal attached anymore...
-    export TERM='dumb'
-    # ...and won't be interactive...
-    unset PS1
-    $* </dev/null &>/dev/null & disown
+    if [[ "$flag_detach" == 'yes' ]]; then
+        # Shouldn't be set when there won't be a terminal attached anymore...
+        export TERM='dumb'
+        # ...and won't be interactive...
+        unset PS1
+        $* </dev/null &>/dev/null & disown
+    else
+        $*
+    fi
 }
 
 
@@ -158,9 +181,20 @@ launch () {
 # Load configuration
 [[ -f "$config" ]] && . "$config"
 
+# Launch processes in background, detached and disowned from shell.
+[[ "$term_mode" ]] && flag_detach='no' || flag_detach='yes'
+
 while :; do
     # Ask the user to select a program to launch.
-    app=$(build_hist_menu | $dm -p 'Execute:')
+    if [[ "$flag_cache" == 'yes' ]]; then
+        [[ ! -f "${cache}-menu" ]] &&
+            build_hist_menu > "${cache}-menu"
+        app=$($dm -p 'Execute:' < "${cache}-menu")
+    else
+        app=$(build_hist_menu | $dm -p 'Execute:')
+    fi
+    [[ -z "$term_mode" ]] && flag_detach='yes'
+    [[ "$flag_detach" == 'no' ]] && flag_terminal='no'
     case "$app" in
         *"[${config_menu[0]}"*)
             confirm=$(printf '%s\n' '[Yes]' '[No]' | $dm -p 'Clear history?')
@@ -181,12 +215,22 @@ while :; do
             set_option terminal "$new_value"
             ;;
         *"[${config_menu[3]}"*)
-            set_option flag_binaries $flag_binaries flip
+            set_option flag_detach $flag_detach flip
             ;;
         *"[${config_menu[4]}"*)
+            set_option flag_binaries $flag_binaries flip
+            ;;
+        *"[${config_menu[5]}"*)
             set_option flag_xdg_names $flag_xdg_names flip
             ;;
+        *"[${config_menu[6]}"*)
+            set_option flag_cache $flag_cache flip
+            [[ -f "${cache}-menu" ]] && rm -f "${cache}-menu"
+            ;;
         *)
+            # Regenerate a new menu for next time in the background.
+            (build_hist_menu > "${cache}-menu.new"; mv "${cache}-menu"{.new,}) &
+
             # Quit if nothing was selected.
             [[ -z "$app" ]] && exit
             selection=$app
