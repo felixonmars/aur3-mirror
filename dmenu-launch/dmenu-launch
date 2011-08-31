@@ -32,6 +32,7 @@
 #           generate menu for    #
 #           the next run in the  #
 #           background           #
+#         + History optional     #
 ##################################
 
 
@@ -75,6 +76,9 @@ flag_binaries='yes'
 # Show XDG Names flag.
 flag_xdg_names='yes'
 
+# Remember launch history.
+flag_history='yes'
+
 # Cache and re-use last generated menu.
 flag_cache='yes'
 
@@ -83,7 +87,7 @@ terminal='urxvt'
 
 # Configuration items.
 config_menu=('Clear History' 'Run in Terminal' 'Terminal' 'Detach'
-             'Show Binaries' 'Show XDG Names' 'Cache')
+             'Show Binaries' 'Show XDG Names' 'History' 'Cache')
 
 
 #################
@@ -107,7 +111,7 @@ set_option () {
     . "$config"
 }
 
-build_menu () {
+build_list () {
     # Create cache directory if it doesn't exist.
     mkdir -p "${cache%/*}"
     # Cache names and executable paths of XDG shortcuts.
@@ -122,11 +126,30 @@ build_menu () {
     sed 's/|.*$//' "$cache" | sort -u
     # ...then, the binary names...
     (IFS=':'; lsx $PATH | sort -u)
+}
+
+cache_menu () {
+    build_list > "${cache}-menu.new"
+    mv "${cache}-menu"{.new,}
+}
+
+build_menu () {
+    if [[ "$flag_cache" == 'yes' ]]; then
+        if [[ ! -f "${cache}-menu" ]]; then
+            cache_menu
+        else
+            cat "${cache}-menu"
+        fi
+    else
+        build_list
+    fi
     # ...then, the configuration options.
-    echo "[${config_menu[6]}: $flag_cache]"
+    echo "[${config_menu[7]}: $flag_cache]"
+    echo "[${config_menu[6]}: $flag_history]"
     echo "[${config_menu[5]}: $flag_xdg_names]"
     echo "[${config_menu[4]}: $flag_binaries]"
-    echo "[${config_menu[0]}]"
+    [[ "$flag_history" == 'yes' ]] &&
+        echo "[${config_menu[0]}]"
     if [[ "$flag_detach" == 'yes' ]]; then
         echo "[${config_menu[2]}: $terminal]"
         echo "[${config_menu[1]}: $flag_terminal]"
@@ -178,6 +201,12 @@ launch () {
 ### Main ###
 ############
 
+# So caching can be done in the background without locking the script up.
+if [[ "$1" == 'cache' ]]; then
+    cache_menu
+    exit
+fi
+
 # Load configuration
 [[ -f "$config" ]] && . "$config"
 
@@ -186,12 +215,10 @@ launch () {
 
 while :; do
     # Ask the user to select a program to launch.
-    if [[ "$flag_cache" == 'yes' ]]; then
-        [[ ! -f "${cache}-menu" ]] &&
-            build_hist_menu > "${cache}-menu"
-        app=$($dm -p 'Execute:' < "${cache}-menu")
-    else
+    if [[ "$flag_history" == 'yes' ]]; then
         app=$(build_hist_menu | $dm -p 'Execute:')
+    else
+        app=$(build_menu | $dm -p 'Execute:')
     fi
     [[ -z "$term_mode" ]] && flag_detach='yes'
     [[ "$flag_detach" == 'no' ]] && flag_terminal='no'
@@ -204,6 +231,7 @@ while :; do
             ;;
         *"[${config_menu[1]}"*)
             set_option flag_terminal $flag_terminal flip
+            echo yes
             ;;
         *"[${config_menu[2]}"*)
             new_value=$(echo '[Cancel]' | $dm -p 'Set terminal:')
@@ -224,13 +252,17 @@ while :; do
             set_option flag_xdg_names $flag_xdg_names flip
             ;;
         *"[${config_menu[6]}"*)
+            set_option flag_history $flag_history flip
+            ;;
+        *"[${config_menu[7]}"*)
             set_option flag_cache $flag_cache flip
             [[ -f "${cache}-menu" ]] && rm -f "${cache}-menu"
             ;;
         *)
-            # Regenerate a new menu for next time in the background.
-            (build_hist_menu > "${cache}-menu.new"; mv "${cache}-menu"{.new,}) &
-
+            # Cache in the background.
+            if [[ "$flag_cache" == 'yes' ]]; then
+                $0 cache &
+            fi
             # Quit if nothing was selected.
             [[ -z "$app" ]] && exit
             selection=$app
