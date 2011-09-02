@@ -9,9 +9,9 @@ pkgname=linux-ice
 backup=(etc/mkinitcpio.d/$pkgname.preset)
 _kernelname=${pkgname#linux}
 _basekernel=3.0
-_minor_patch=3
+_minor_patch=4
 pkgver=${_basekernel}
-pkgrel=5
+pkgrel=6
 install=$pkgname.install
 provides=('kernel26-ice')
 conflicts=('kernel26-ice')
@@ -54,7 +54,7 @@ source=(http://kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2
         ${pkgname}.preset
         fix-i915.patch)
 md5sums=('398e95866794def22b12dfbc15ce89c0'
-         '1757786b9a9ffbd48ad9642199ff5bd7'
+         '62ca5f3caed233617127b2b3b7a87d15'
          'afbd01926c57fc5b82ee6034dc9311e5'
          '0399ec35c4c0998ce423e656094b91ac'
          'c466c85e967fe004455aacd26b89e1fb'
