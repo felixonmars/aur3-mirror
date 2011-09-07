@@ -1,17 +1,17 @@
-pkgname=perl-plack-test-externalserver
-pkgver=0.01
+pkgname=perl-plack-middleware-reverseproxy
+pkgver=0.10
 pkgrel=1
-pkgdesc="Plack::Test::ExternalServer - Run HTTP tests on external live servers"
+pkgdesc="Plack::Middleware::ReverseProxy - Supports app to run as a reverse proxy backend"
 arch=('any')
-url="http://search.cpan.org/~flora/Plack-Test-ExternalServer-0.01/lib/Plack/Test/ExternalServer.pm"
+url="http://search.cpan.org/~danjou/Plack-Middleware-ReverseProxy-0.10/lib/Plack/Middleware/ReverseProxy.pm"
 license=('GPL' 'PerlArtistic')
-depends=('perl' 'perl-test-simple' 'perl-plack')
+depends=('perl' 'perl-plack' 'perl-yaml')
 options=('!emptydirs')
-source=(http://search.cpan.org/CPAN/authors/id/F/FL/FLORA/Plack-Test-ExternalServer-0.01.tar.gz)
-md5sums=('bb0806b4e5bc61064e3736991dd8640c')
+source=(http://search.cpan.org/CPAN/authors/id/D/DA/DANJOU/Plack-Middleware-ReverseProxy-0.10.tar.gz)
+md5sums=('f5cf26d8f6bae56195ff5dec848351e8')
 
 build() {
-  cd  "$srcdir/Plack-Test-ExternalServer-$pkgver" || return 1
+  cd  "$srcdir/Plack-Middleware-ReverseProxy-$pkgver" || return 1
 
   PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
   make &&
