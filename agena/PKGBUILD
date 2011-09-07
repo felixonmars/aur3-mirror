@@ -1,6 +1,6 @@
 # Contributor: Alexander Rødseth <rodseth@gmail.com>
 pkgname=agena
-pkgver=1.4.0
+pkgver=1.4.1
 pkgrel=1
 pkgdesc="A procedural programming language based on Lua"
 arch=('x86_64' 'i686')
@@ -10,11 +10,11 @@ depends=('readline')
 optdeps=("gnumeric: for reading /usr/share/doc/$pkgname/$pkgname.xls")
 source=("http://downloads.sourceforge.net/$pkgname/$pkgname-$pkgver-src.tar.gz"
         "arch.patch")
-md5sums=('ac82cdbfbd116e679b160c2344063b61'
+md5sums=('b28b1d1d146791d0644300ba01049c4b'
          'fa431cc8c7171ace90809cd2c1dbfa3d')
 
 build() {
-  cd "$srcdir/$pkgname-$pkgver"
+  cd "$srcdir/$pkgname-$pkgver-src"
 
   msg2 "Patching..."
   patch -p1 < ../arch.patch
@@ -36,7 +36,7 @@ build() {
 }
 
 package() {
-  cd "$srcdir/$pkgname-$pkgver"
+  cd "$srcdir/$pkgname-$pkgver-src"
 
   msg2 "Packaging scripts..."
   install -Dm755 $pkgname.sh "$pkgdir/etc/profile.d/$pkgname.sh"

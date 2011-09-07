@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kostroma
-pkgver=10
+pkgver=11
 pkgrel=1
 pkgdesc="Map of Kostroma for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Kostroma-${pkgver}.orig.zip")
-md5sums=('5e1aabc29c5f352f61d24bf5e30ca428')
+md5sums=('752dfba09e513b8b1b58fe75b912baac')
      
 build() {
      

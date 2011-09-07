@@ -29,7 +29,7 @@ case "$1" in
     ;;
   restart)
     $0 stop
-    sleep 3
+    sleep 10
     $0 start
     ;;
   *)

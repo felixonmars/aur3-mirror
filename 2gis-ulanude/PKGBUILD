@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ulanude
-pkgver=7
+pkgver=8
 pkgrel=1
 pkgdesc="Map of Ulanude for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ulanude-${pkgver}.orig.zip")
-md5sums=('cd7a988fbe4dadb9c6c300c77aaf9c7b')
+md5sums=('2568afd2b15a55e8a9b954ad53e48575')
      
 build() {
      

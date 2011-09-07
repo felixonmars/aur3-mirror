@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-tomsk
-pkgver=80
+pkgver=81
 pkgrel=1
 pkgdesc="Map of Tomsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Tomsk-${pkgver}.orig.zip")
-md5sums=('82f8189805d11dfa927c19de4a3971cb')
+md5sums=('f971e20e7797a5c40ab8e77b43d9b0bb')
      
 build() {
      

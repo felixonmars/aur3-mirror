@@ -5,13 +5,38 @@
 
 ACTIVEMQ_HOME=/opt/activemq
 PIDFILE="$ACTIVEMQ_HOME/data/activemq.pid"
-PID=`cat $PIDFILE`
 umask=077
+
+check_pid() {
+	[ ! -f "$PIDFILE" ] && return 1
+	local PID=$(cat "$PIDFILE" 2> /dev/null)
+	[ -z "$PID" ] && return 1
+	if [ ! -d "/proc/$PID" ]; then
+		rm -f "$PIDFILE" 2> /dev/null
+		return 1
+	fi
+	return 0
+}
+
+kill_pid() {
+	if check_pid; then
+		local PID=$(cat "$PIDFILE" 2> /dev/null)
+		kill $PID &> /dev/null
+		local RET=$?
+		check_pid
+		return $RET
+	fi
+	return 1
+}
+
+wait_pid() {
+	while check_pid; do sleep 1; done
+}
 
 case "$1" in
 	start)
 		stat_busy "Starting ActiveMQ"
-		[ -z "$PID" -o ! -d "/proc/$PID" ] && JAVA_HOME=/opt/java $ACTIVEMQ_HOME/bin/activemq start >/dev/null 2>&1 &
+		check_pid || JAVA_HOME=/opt/java $ACTIVEMQ_HOME/bin/activemq start >/dev/null 2>&1 &
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
@@ -21,9 +46,7 @@ case "$1" in
 		;;
 	stop)
 		stat_busy "Stopping ActiveMQ"
-		[ ! -z "$PID" -a -d "/proc/$PID" ] && kill $PID &> /dev/null
-		: > $PIDFILE
-		if [ $? -gt 0 ]; then
+		if ! kill_pid; then
 			stat_fail
 		else
 			rm_daemon activemq
@@ -32,7 +55,7 @@ case "$1" in
 		;;
 	restart)
 		$0 stop
-		while [ ! -z "$PID" -a -d "/proc/$PID" ]; do sleep 1; done
+		wait_pid
 		$0 start
 		;;
 	*)

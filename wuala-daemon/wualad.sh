@@ -8,8 +8,8 @@ source /etc/profile
 RUNNING=`pgrep -f "wuala -nogui" | wc --lines`
 case "$1" in
   start)
-    stat_busy "Starting wuala"
-    [ $RUNNING -eq 0 ] && su --command "~/wuala/wuala -nogui login WualaLoginName WualaPassword &" LinuxLoginName &> /dev/null;
+    stat_busy "Starting wualad"
+    [ $RUNNING -eq 0 ] && su --command "/etc/rc.d/wualad_login &" LinuxLoginName &> /dev/null;
     if [ $? -gt 0 ]; then
       stat_fail
     else
@@ -18,7 +18,7 @@ case "$1" in
     fi
     ;;
   stop)
-    stat_busy "Stopping wuala"
+    stat_busy "Stopping wualad"
     [ $RUNNING -gt 0 ] && su --command "~/wuala/wuala exit &" LinuxLoginName &> /dev/null;
     if [ $? -gt 0 ]; then
       stat_fail
@@ -29,7 +29,7 @@ case "$1" in
     ;;
   restart)
     $0 stop
-    sleep 3
+    sleep 20
     $0 start
     ;;
   *)

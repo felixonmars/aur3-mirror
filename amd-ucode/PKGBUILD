@@ -3,17 +3,15 @@
 pkgname=amd-ucode
 pkgver=2011.01.11
 _pkgver=${pkgver//./-}
-pkgrel=1
+pkgrel=2
 pkgdesc="AMD Family 10h, 11h and 14h microcode patch data"
 arch=('any')
 url="http://www.amd64.org/support/microcode.html"
 license=('custom')
-depends=('kernel26')
+depends=('linux')
 install=amd-ucode.install
-source=(http://www.amd64.org/pub/microcode/$pkgname-$_pkgver.tar
-        amd-ucode.install)
-sha256sums=('60c42629f3c91f97a350bc6a3ad0a256f7b794bfab1f143d7f1924a70728f4ec'
-            '415f3d1f99d8e2b991d459b7e962de79975357c2cfe15fb2245e35211f8d927a')
+source=(http://www.amd64.org/pub/microcode/$pkgname-$_pkgver.tar)
+sha256sums=('60c42629f3c91f97a350bc6a3ad0a256f7b794bfab1f143d7f1924a70728f4ec')
 
 package() {
   cd "$srcdir/$pkgname-$_pkgver"

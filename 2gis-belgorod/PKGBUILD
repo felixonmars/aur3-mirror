@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-belgorod
-pkgver=2
+pkgver=3
 pkgrel=1
 pkgdesc="Map of Belgorod for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Belgorod-${pkgver}.orig.zip")
-md5sums=('37678cbf93c010cdf80e7075ba8d2f9c')
+md5sums=('be6f0a3ef1d021fc34e40c64c572156b')
      
 build() {
      

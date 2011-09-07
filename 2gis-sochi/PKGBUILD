@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-sochi
-pkgver=13
+pkgver=14
 pkgrel=1
 pkgdesc="Map of Sochi for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Sochi-${pkgver}.orig.zip")
-md5sums=('6223f4e6b82b265b62501dec54e657c3')
+md5sums=('df12226393f804c4905957c6e99bd733')
      
 build() {
      

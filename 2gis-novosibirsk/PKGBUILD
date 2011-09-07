@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-novosibirsk
-pkgver=155
+pkgver=156
 pkgrel=1
 pkgdesc="Map of Novosibirsk for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Novosibirsk-${pkgver}.orig.zip")
-md5sums=('85fe09002919f16df2604af945a23c92')
+md5sums=('96cfb189b7a4c5a85268c70af1a4403a')
      
 build() {
      

@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ntagil
-pkgver=2
+pkgver=3
 pkgrel=1
 pkgdesc="Map of Ntagil for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Ntagil-${pkgver}.orig.zip")
-md5sums=('1b336707726b18deb3170b612b413da0')
+md5sums=('d9cdecf41f3d05d84f3419e851d9d599')
      
 build() {
      
