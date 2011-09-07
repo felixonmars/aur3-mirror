@@ -1,31 +1,22 @@
-#$Id: $
-#Maintainer: Mirko Messer <mirk@chao.ch>
-#-*-mode:sh-*-
-#Contributor: 
-#Comments:
-pkgname=wmmemfree
-pkgver=0.7
+pkgname=perl-plack-test-externalserver
+pkgver=0.01
 pkgrel=1
-pkgdesc="dockapp which displays mem"
-url="http://dockapps.org/file.php/id/165/"
-license=""
-depends=('xorg')
-makedepends=()
-conflicts=()
-replaces=()
-backup=()
-install=
-source=(http://dockapps.org/download.php/id/250/wmmemfree-0.7.tar.bz2 \
-1.patch
-)
-md5sums=('6b478209d907dd2955828e71319af757' '774edf24c30d3a66df194c974cc7bb0c')
+pkgdesc="Plack::Test::ExternalServer - Run HTTP tests on external live servers"
+arch=('any')
+url="http://search.cpan.org/~flora/Plack-Test-ExternalServer-0.01/lib/Plack/Test/ExternalServer.pm"
+license=('GPL' 'PerlArtistic')
+depends=('perl' 'perl-test-simple' 'perl-plack')
+options=('!emptydirs')
+source=(http://search.cpan.org/CPAN/authors/id/F/FL/FLORA/Plack-Test-ExternalServer-0.01.tar.gz)
+md5sums=('bb0806b4e5bc61064e3736991dd8640c')
 
 build() {
-        mkdir -p $startdir/pkg/usr/bin
-	cd $startdir/src/$pkgname-$pkgver
-        patch -p0 < ../../1.patch
-	make
-        install -m 755 wmmemfree $startdir/pkg/usr/bin
+  cd  "$srcdir/Plack-Test-ExternalServer-$pkgver" || return 1
+
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
+  make &&
+  make DESTDIR="$pkgdir" install || return 1
+
+  find "$pkgdir" -name '.packlist' -delete
+  find "$pkgdir" -name '*.pod' -delete
 }
- 
- 
