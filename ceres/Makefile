@@ -19,7 +19,7 @@ USEJACK=-DUSEJACK
 SOUNDLIBNAME=snd
 
 ADDITIONALCFLAGS= -O3 -g -fPIC --fast-math -I/usr/include
-ADDITIONALLDFLAGS= /usr/lib/libsndlib.so -L/usr/lib -lsndfile -ljack -lm -lpthread -dl -L.
+ADDITIONALLDFLAGS= /usr/lib/libsndlib.so -L/usr/lib -lsndfile -ljack -lm -lpthread -dl -L. -lesd
 
 PYTHONEXE=/usr/bin/env python2
 
