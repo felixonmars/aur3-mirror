@@ -2,7 +2,7 @@
 
 pkgname=airpac
 pkgver=0.1.2
-pkgrel=1
+pkgrel=2
 pkgdesc="aria2c wrapper for pacman"
 arch=('any')
 url="http://www.darwin.uk.to"
@@ -17,7 +17,7 @@ md5sums=('549aeb86e9ee5c24706b63afcc08f882'
          'bdd6f749670605e621857bd97a4530c0')
 
 build() {
-  python setup.py install --optimize 1 --root=$pkgdir
+  python2 setup.py install --optimize 1 --root=${pkgdir}/
 }
 
 # vim:set ts=2 sw=2 et:
