@@ -3,7 +3,7 @@
 # Contributor: aericson <de.ericson@gmail.com>
 
 pkgname=aarchup
-pkgver=1.6.5
+pkgver=1.6.6
 pkgrel=1
 pkgdesc="Fork of archup a small and lightweight update-notifier for archlinux."
 url="https://github.com/aericson/aarchup"
@@ -12,7 +12,7 @@ license="GPL"
 depends=('pacman' 'libnotify' 'gtk2')
 makedepends=('libnotify' 'autoconf' 'gzip')
 source=(https://github.com/downloads/aericson/aarchup/$pkgname-$pkgver.tar.gz)
-md5sums=('9d1f078c8dae1797ad4f123bcb7ed9ab')
+md5sums=('edd4c5298c9047fd7f5dc9241d36e1bc')
 optdepends=('cower: AUR support(--aur)')
 install=('aarchup.install')
 
