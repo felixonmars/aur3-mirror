@@ -1,18 +1,23 @@
-#Maintainer: masutu <masutu dot arch at googlemail dot com>
+#Maintainer: Philipp Überbacher <murks at lavabit dot com>
 #Contributor: masutu <masutu dot arch at googlemail dot com>
 pkgname=ambdec
-pkgver=0.4.4
+pkgver=0.5.1
 pkgrel=1
-pkgdesc='An Ambisonic decoder for up to 36 speakers using JACK.'
+pkgdesc='An Ambisonic decoder for up to 3rd Order.'
 arch=('i686' 'x86_64')
 url='http://kokkinizita.linuxaudio.org'
 license=('GPL')
 depends=('clthreads' 'clxclient' 'jack' 'libpng')
-source=($url/linuxaudio/downloads/${pkgname}-${pkgver}.tar.bz2)
-md5sums=('232930b86fba2c3ed4eda0568cd75ea1')
+source=(http://kokkinizita.linuxaudio.org/linuxaudio/downloads/${pkgname}-${pkgver}.tar.bz2)
+md5sums=('62a6e0f172d887a20ebd566f9ccb6205')
 
 build() {
-  cd "$srcdir/$pkgname-$pkgver/source"
-  make || return 1
-  make PREFIX=$pkgdir/usr install
+  cd "${srcdir}/${pkgname}-${pkgver}/source"
+  make
+}
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}/source"
+
+  make PREFIX=${pkgdir}/usr install
 }
