@@ -1,4 +1,4 @@
-# Maintainer: dan saul <aur@cryingwolf.org>
+# Maintainer: Maskawanian <aur@cryingwolf.org>
 pkgname=alac2flac
 pkgver=2009.04.25
 pkgrel=4
