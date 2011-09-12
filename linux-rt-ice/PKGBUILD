@@ -9,9 +9,9 @@ pkgname=linux-rt-ice
 backup=(etc/mkinitcpio.d/$pkgname.preset)
 _kernelname=${pkgname#linux}
 _basekernel=3.0
-_minor_patch=3
+_minor_patch=4
 pkgver=${_basekernel}
-pkgrel=4
+pkgrel=5
 install=$pkgname.install
 provides=('kernel26-rt-ice')
 conflicts=('kernel26-rt-ice')
@@ -38,7 +38,7 @@ enable_reiser4=${enable_reiser4:-0}
 ###
 
 ### Files / Versions
-file_rt="patch-3.0.1-rt11.patch.bz2"
+file_rt="patch-3.0.4-rt13.patch.gz"
 file_reiser4="reiser4-for-2.6.33.patch.bz2"
 file_toi="current-tuxonice-for-3.0.patch.bz2"
 file_bfs="2.6.38.3-sched-bfs-401.patch"
@@ -46,6 +46,8 @@ file_bfs="2.6.38.3-sched-bfs-401.patch"
 
 options=(!strip)
 source=(http://kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2
+        # http://www.kernel.org/pub/linux/kernel/projects/rt/${file_rt}
+        https://tglx.de/~tglx/rt/${file_rt}
         http://www.kernel.org/pub/linux/kernel/projects/rt/${file_rt}
         http://www.kernel.org/pub/linux/kernel/v3.0/patch-${_basekernel}.${_minor_patch}.bz2
         # http://www.kernel.org/pub/linux/kernel/people/edward/reiser4/reiser4-for-2.6/${file_reiser4}
@@ -57,11 +59,12 @@ source=(http://kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2
         ${pkgname}.preset
         fix-i915.patch)
 md5sums=('398e95866794def22b12dfbc15ce89c0'
-         'cae25ea86cfa577ca180e547be82c249'
-         '1757786b9a9ffbd48ad9642199ff5bd7'
+         'e887537019666fb7a0bea67231a6bb09'
+         'e887537019666fb7a0bea67231a6bb09'
+         '62ca5f3caed233617127b2b3b7a87d15'
          'afbd01926c57fc5b82ee6034dc9311e5'
-         '33d49dcc53b8debb529028ff7d01d15a'
-         '8dba1de4134491279764beae95dd0313'
+         '509d1f6abfe91b530fb570e2a654cc6b'
+         'e04d5d55947d86d0147e1a432167b18f'
          '7c9725208ab6834602c8b9d645ed001d'
          '263725f20c0b9eb9c353040792d644e5')
 
@@ -86,7 +89,7 @@ build() {
   if [ "$realtime_patch" = "1" ]; then
     echo "Applying real time patch"
     # Strip './Makefile' changes
-    bzip2 -dkc ${srcdir}/${file_rt} \
+    gzip -dc ${srcdir}/${file_rt} \
       | sed '/diff --git a\/Makefile b\/Makefile/,/*DOCUMENTATION*/d' \
       | patch -Np1 || { echo "Failed Realtime patch '${file_rt}'"; return 1 ; }
   fi
@@ -107,9 +110,9 @@ build() {
         #| sed 's/printk(KERN_INFO "PM: Creating hibernation image:\\n/printk(KERN_INFO "PM: Creating hibernation image: \\n/' \
         #| patch -Np1 || { echo "Failed TOI w/rt" ; return 1 ; }
     #else
-      #bzip2 -dck ${srcdir}/${file_toi} \
-        #| sed 's/printk(KERN_INFO "PM: Creating hibernation image:\\n/printk(KERN_INFO "PM: Creating hibernation image: \\n/' \
-        #| patch -Np1 -F4 || { echo "Failed TOI"; return 1 ; }
+      bzip2 -dck ${srcdir}/${file_toi} \
+        | sed 's/printk(KERN_INFO "PM: Creating hibernation image:\\n/printk(KERN_INFO "PM: Creating hibernation image: \\n/' \
+        | patch -Np1 -F4 || { echo "Failed TOI"; return 1 ; }
     #fi
   fi
 
