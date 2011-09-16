@@ -1,3 +1,3 @@
 #!/bin/bash
 CLASSPATH="/usr/share/java/josm/josm.jar"
-java -jar "${CLASSPATH}" $@
+java -cp "${CLASSPATH}" org.openstreetmap.josm.gui.MainApplication "$@"
