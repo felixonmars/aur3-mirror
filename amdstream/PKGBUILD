@@ -3,9 +3,12 @@
 # Contributor: Vi0L0
 # Contributor: caust1c
 
+# TODO: license in proper dir
+
+
 pkgname=amdstream
 pkgver=2.5
-pkgrel=1
+pkgrel=2
 _profiler_ver=2.3
 
 pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support'
@@ -15,8 +18,9 @@ license=("custom")
 install=install
 
 provides=('opencl')
-depends=('opencl-headers' 'libcl' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
-optdepends=('catalyst: for OpenCL on AMD GPU'
+depends=( 'libcl' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
+optdepends=('opencl-headers: for developmen'
+            'catalyst: for OpenCL on AMD GPU'
             'libopencl: Alternative libcl provider (original AMD-APP one) - supports OpenCL 1.1')
 makedepends=('perl' 'llvm')
 
@@ -24,8 +28,8 @@ makedepends=('perl' 'llvm')
 _arch="${CARCH/i6/x}"
 _bits=${_arch/x86/32}
 _bits=${_bits/32_/}
-[ "$CARCH" = 'x86_64' ] && _hash='b121183f4ce5d296d5195ec2fbb8f857f44ec79fc2daceaf8aea815189351787' \
-                        || _hash='01ff3b55f2f5a702bd54bb8641c67b86397d383e9a8b8c1ba629181f86da15ca'
+[ "$CARCH" = 'x86_64' ] && _hash='3949f6f1c0fced64ff08462cfd23e9249dcf201b0234852afb155a34c3cb4875' \
+                        || _hash='1e86cd615e6b51afa04c0121c28505def3174285429fb2e235f0fd086afe1ed4'
 
 #Sources
 source=("http://developer.amd.com/Downloads/AMD-APP-SDK-v${pkgver}-lnx${_bits}.tgz" 

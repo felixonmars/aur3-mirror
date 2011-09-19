@@ -7,7 +7,7 @@
 
 pkgname=adzapper
 pkgver=20110716
-pkgrel=6
+pkgrel=7
 pkgdesc="Ad Zapping With Squid"
 arch=('any')
 url="http://adzapper.sourceforge.net"
@@ -30,7 +30,7 @@ build() {
       $startdir/pkg/usr/share/licenses/$pkgname/bsd-license
 }
 
-md5sums=('bd4040980b48a7096e388fdae0ba622a'
+md5sums=('ee78f2bf5a82cde6f5d122642a99504f'
          '52663be9becbaebb8af1f70fd0084de8'
          '8f8b7ae87a99f266b43f0bea5db68e1b'
          'd69b948083a0b60b2a29b8c78842fb56')
