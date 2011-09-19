@@ -4,17 +4,17 @@
 
 pkgname=acerhk
 pkgver=0.5.35
-pkgrel=25
+pkgrel=26
 pkgdesc="Acer hotkey driver"
 url="http://www.cakey.de/acerhk/"
 arch=('i686') # Unavailable for x86_64
 license=('GPL')
-depends=('kernel26>=2.6.36' 'kernel26<2.6.40')
-makedepends=('kernel26-headers>=2.6.36' 'kernel26-headers<2.6.40')
+depends=('linux>=3.0.0')
+makedepends=('linux-headers>=3.0.0')
 source=(http://www.cakey.de/acerhk/archives/${pkgname}-${pkgver}.tgz acerhk.rc
         2.6.30.patch kernelversion.patch 5100.patch 2.6.36.patch)
 install=acerhk.install
-_kernver=2.6.39-ARCH
+_kernver=3.0-ARCH
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
