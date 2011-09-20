@@ -1,0 +1,387 @@
+diff -urbN vpnclient.old/frag.c vpnclient/frag.c
+--- vpnclient.old/frag.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/frag.c	2011-04-26 19:50:38.000000000 +0200
+@@ -1,5 +1,7 @@
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+@@ -22,7 +24,7 @@
+ #include "frag.h"
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-#define SKB_IPHDR(skb) ((struct iphdr*)skb->network_header)
++#define SKB_IPHDR(skb) ((struct iphdr*)skb_network_header)
+ #else
+ #define SKB_IPHDR(skb) skb->nh.iph
+ #endif
+diff -urbN vpnclient.old/interceptor.c vpnclient/interceptor.c
+--- vpnclient.old/interceptor.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/interceptor.c	2011-04-26 19:50:41.000000000 +0200
+@@ -9,7 +9,9 @@
+ * This module implements the linux driver.
+ ***************************************************************************/
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+@@ -111,6 +113,15 @@
+     .name = interceptor_name,
+     .init = interceptor_init
+ };
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++static struct net_device_ops interceptor_netdev_ops = {
++ .ndo_start_xmit = interceptor_tx,
++ .ndo_do_ioctl = interceptor_ioctl,
++ .ndo_get_stats = interceptor_stats,
++};
++#endif
++
+ static struct notifier_block interceptor_notifier = {
+     .notifier_call = handle_netdev_event,
+ };
+@@ -129,9 +139,13 @@
+ {
+     ether_setup(dev);
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    dev->netdev_ops = &interceptor_netdev_ops;
++#else
+     dev->hard_start_xmit = interceptor_tx;
+     dev->get_stats = interceptor_stats;
+     dev->do_ioctl = interceptor_ioctl;
++#endif
+ 
+     dev->mtu = ETH_DATA_LEN-MTU_REDUCTION;
+     kernel_memcpy(dev->dev_addr, interceptor_eth_addr,ETH_ALEN);
+@@ -268,9 +282,16 @@
+     Bindings[i].original_mtu = dev->mtu;
+ 
+     /*replace the original send function with our send function */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    Bindings[i].InjectSend = dev->netdev_ops->ndo_start_xmit;
++    Bindings[i].netdev_opsp = dev->netdev_ops;
++    Bindings[i].netdev_ops  = *dev->netdev_ops;
++    Bindings[i].netdev_ops.ndo_start_xmit = replacement_dev_xmit;
++    dev->netdev_ops = &Bindings[i].netdev_ops;
++#else
+     Bindings[i].InjectSend = dev->hard_start_xmit;
+     dev->hard_start_xmit = replacement_dev_xmit;
+-
++#endif
+     /*copy in the ip packet handler function and packet type struct */
+     Bindings[i].InjectReceive = original_ip_handler.orig_handler_func;
+     Bindings[i].pPT = original_ip_handler.pt;
+@@ -291,7 +312,11 @@
+     if (b)
+     {   
+         rc = 0;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++        dev->netdev_ops = b->netdev_opsp;
++#else
+         dev->hard_start_xmit = b->InjectSend;
++#endif
+         kernel_memset(b, 0, sizeof(BINDING));
+     }
+     else
+@@ -637,19 +662,26 @@
+ 
+     reset_inject_status(&pBinding->recv_stat);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    if (skb->mac_header)
++    if (skb_mac_header_was_set(skb))
+ #else
+     if (skb->mac.raw)
+ #endif
+     {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-        hard_header_len = skb->data - skb->mac_header;
++        hard_header_len = skb->data - skb_mac_header(skb);
+ #else
+         hard_header_len = skb->data - skb->mac.raw;
+ #endif
+         if ((hard_header_len < 0) || (hard_header_len > skb_headroom(skb)))
+         {
+             printk(KERN_DEBUG "bad hh len %d\n", hard_header_len);
++
++            printk(KERN_DEBUG "bad hh len %d, mac: %ld, data: %p, head: %p\n",
++                hard_header_len,
++                (long) skb->mac_header,
++                skb->data,
++                skb->head);
++
+             hard_header_len = 0;
+         }
+     }
+@@ -664,7 +696,7 @@
+     {
+     case ETH_HLEN:
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-        CniNewFragment(ETH_HLEN, skb->mac_header, &MacHdr, CNI_USE_BUFFER);
++        CniNewFragment(ETH_HLEN, skb_mac_header(skb), &MacHdr, CNI_USE_BUFFER);
+ #else
+         CniNewFragment(ETH_HLEN, skb->mac.raw, &MacHdr, CNI_USE_BUFFER);
+ #endif
+@@ -782,7 +814,7 @@
+ #endif //LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0)
+     reset_inject_status(&pBinding->send_stat);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    hard_header_len = skb->network_header - skb->data;
++    hard_header_len = skb_network_header(skb) - skb->data;
+ #else
+     hard_header_len = skb->nh.raw - skb->data;
+ #endif
+diff -urbN vpnclient.old/IPSecDrvOS_linux.c vpnclient/IPSecDrvOS_linux.c
+--- vpnclient.old/IPSecDrvOS_linux.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/IPSecDrvOS_linux.c	2011-04-26 19:50:38.000000000 +0200
+@@ -12,7 +12,9 @@
+ *
+ ***************************************************************************/
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+diff -urbN vpnclient.old/linuxcniapi.c vpnclient/linuxcniapi.c
+--- vpnclient.old/linuxcniapi.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/linuxcniapi.c	2011-04-26 19:50:38.000000000 +0200
+@@ -10,7 +10,9 @@
+  * Linux Interceptor driver.
+  ***************************************************************************/
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+@@ -338,8 +340,8 @@
+     skb->ip_summed = CHECKSUM_UNNECESSARY;
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->network_header = (sk_buff_data_t) skb->data;
+-    skb->mac_header = (sk_buff_data_t)pMac;
++    skb_reset_network_header(skb);
++    skb_set_mac_header(skb, (int)((void *)pMac - (void *)skb->data));
+ #else
+     skb->nh.iph = (struct iphdr *) skb->data;
+     skb->mac.raw = pMac;
+@@ -478,8 +480,8 @@
+     skb->dev = pBinding->pDevice;
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->mac_header = (sk_buff_data_t)pMac;
+-    skb->network_header = (sk_buff_data_t)pIP;
++    skb_set_mac_header(skb, (int)((void *)pMac - (void *)skb->data));
++    skb_set_network_header(skb, (int)((void *)pIP - (void *)skb->data));
+ #else
+     skb->mac.raw = pMac;
+     skb->nh.raw = pIP;
+@@ -487,8 +489,9 @@
+ 
+     /*ip header length is in 32bit words */
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->transport_header = (sk_buff_data_t)
+-      (pIP + (((struct iphdr*)(skb->network_header))->ihl * 4));
++    skb_set_transport_header(skb,
++        ((int)((void *)pIP - (void *)skb->data) +
++           (((struct iphdr*)(skb_network_header(skb)))->ihl * 4)));
+ #else
+     skb->h.raw = pIP + (skb->nh.iph->ihl * 4);
+ #endif
+diff -urbN vpnclient.old/linuxcniapi.h vpnclient/linuxcniapi.h
+--- vpnclient.old/linuxcniapi.h	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/linuxcniapi.h	2011-04-26 19:50:41.000000000 +0200
+@@ -38,6 +38,10 @@
+ 
+     inject_status send_stat;
+     inject_status recv_stat;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    struct net_device_ops const *netdev_opsp;
++    struct net_device_ops netdev_ops;
++#endif
+ } BINDING, *PBINDING;
+ 
+ /********************************************************************************/
+diff -urbN vpnclient.old/linuxkernelapi.c vpnclient/linuxkernelapi.c
+--- vpnclient.old/linuxkernelapi.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/linuxkernelapi.c	2011-04-26 19:50:38.000000000 +0200
+@@ -9,7 +9,7 @@
+     void*rc = kmalloc(size, GFP_ATOMIC);
+     if(NULL == rc)
+     {
+-        printk("<1> os_malloc size %d failed\n",size);
++        printk("<1> os_malloc size %ld failed\n", (long)size);
+     }
+ 
+     return rc;
+diff -urbN vpnclient.old/Makefile vpnclient/Makefile
+--- vpnclient.old/Makefile	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient/Makefile	2011-04-26 19:50:38.000000000 +0200
+@@ -12,7 +12,7 @@
+ SOURCE_OBJS := linuxcniapi.o frag.o IPSecDrvOS_linux.o interceptor.o linuxkernelapi.o
+ 
+ ifeq ($(SUBARCH),x86_64)
+-CFLAGS += -mcmodel=kernel -mno-red-zone
++EXTRA_CFLAGS += -mcmodel=kernel -mno-red-zone
+ NO_SOURCE_OBJS := libdriver64.so
+ else
+ NO_SOURCE_OBJS := libdriver.so
+diff -Nur vpnclient/GenDefs.h vpnclient.new/GenDefs.h
+--- vpnclient/GenDefs.h	2007-08-22 21:30:31.000000000 +0200
++++ vpnclient.new/GenDefs.h	2008-01-25 08:56:46.000000000 +0100
+@@ -105,6 +105,12 @@
+ #define _INTPTR_T_DEFINED
+ #endif
+ 
++/* uintptr_t has been defined in include/linux/types.h in 2.6.24.
++ * No need to define it here again (will only lead to compile errors)
++ *
++ * by Alexander Griesser <work@tuxx-home.at>, 2008-01-11
++ */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+ #ifndef _UINTPTR_T_DEFINED
+ #if defined(_LP64)
+ #warning 64 bit
+@@ -114,6 +120,7 @@
+ #endif
+ #define _UINTPTR_T_DEFINED
+ #endif
++#endif
+ 
+ 
+ typedef int 	BOOL;
+diff -Nur vpnclient/interceptor.c vpnclient.new/interceptor.c
+--- vpnclient/interceptor.c	2007-08-22 21:30:31.000000000 +0200
++++ vpnclient.new/interceptor.c	2008-01-25 09:50:52.000000000 +0100
+@@ -28,6 +28,10 @@
+ #include <linux/udp.h>
+ #include <net/protocol.h>
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++#include <net/net_namespace.h>
++#endif
++
+ #include "linux_os.h"
+ 
+ #include "vpn_ioctl_linux.h"
+@@ -48,7 +52,7 @@
+ unsigned long rx_bytes;
+ 
+ /*methods of the cipsec network device*/
+-static int interceptor_init(struct net_device *);
++static void interceptor_init(struct net_device *);
+ static struct net_device_stats *interceptor_stats(struct net_device *dev);
+ static int interceptor_ioctl(struct net_device *dev, struct ifreq *ifr,
+                              int cmd);
+@@ -109,10 +109,18 @@
+
+ BINDING Bindings[MAX_INTERFACES];
+
++/* 2.6.24 handles net_devices a little bit different
++ *
++ * by Alexander Griesser <work@tuxx-home.at>, 2008-01-11
++ */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++static struct net_device* interceptor_dev;
++#else
+ static struct net_device interceptor_dev = {
+     .name = interceptor_name,
+     .init = interceptor_init
+ };
++#endif
+
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ static struct net_device_ops interceptor_netdev_ops = {
+@@ -127,9 +135,9 @@
+ };
+
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-static int
++static void
+ #else
+-static int __init
++static void __init
+ #endif
+ interceptor_init(struct net_device *dev)
+ {
+@@ -133,8 +146,6 @@
+     dev->flags |= IFF_NOARP;
+     dev->flags &= ~(IFF_BROADCAST | IFF_MULTICAST);
+     kernel_memset(dev->broadcast, 0xFF, ETH_ALEN);
+-
+-    return 0;
+ }
+ 
+ static struct net_device_stats *
+@@ -362,8 +373,13 @@
+ 
+     dp = NULL;
+     num_target_devices = 0;
++
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    for_each_netdev(dp)
++    for_each_netdev(
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++                    &init_net,
++#endif
++                    dp)
+ #else
+     for (dp = dev_base; dp != NULL; dp = dp->next)
+ #endif
+@@ -919,15 +935,29 @@
+ 
+     rc = CniPluginLoad(&pcDeviceName, &PCNICallbackTable);
+ 
++/* 2.6.24 needs to allocate each netdevice before registering it, otherwise
++ * the kernel BUG()s.
++ *
++ * by Alexander Griesser <work@tuxx-home.at>, 2008-01-11
++ */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++    if(! (interceptor_dev = alloc_netdev(sizeof(struct net_device), interceptor_name, interceptor_init)))
++      return 0;
++#endif
++
+     if (CNI_IS_SUCCESS(rc))
+     {
+ 
+         CNICallbackTable = *PCNICallbackTable;
+         CniPluginDeviceCreated();
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++	if ((status = register_netdev(interceptor_dev)) != 0)
++#else
+         if ((status = register_netdev(&interceptor_dev)) != 0)
++#endif
+         {
+             printk(KERN_INFO "%s: error %d registering device \"%s\".\n",
+-                   LINUX_VPN_IFNAME, status, interceptor_dev.name);
++                   LINUX_VPN_IFNAME, status, interceptor_name);
+             CniPluginUnload();
+ 
+         }
+@@ -947,7 +977,11 @@
+     cleanup_frag_queue();
+     CniPluginUnload();
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,24)
++    unregister_netdev(interceptor_dev);
++#else
+     unregister_netdev(&interceptor_dev);
++#endif
+     unregister_netdevice_notifier(&interceptor_notifier);
+ 
+     return;
