@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /usr/share/applications/foldit
+cd /usr/share/games/foldit
 ./Foldit
