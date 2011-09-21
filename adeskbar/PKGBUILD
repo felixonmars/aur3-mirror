@@ -4,7 +4,7 @@
  
 pkgname=adeskbar
 pkgver=0.4.3
-pkgrel=1
+pkgrel=2
 pkgdesc="A quick and lightweight application launcher."
 arch=('any')
 url="http://adeskbar.tuxfamily.org/"
@@ -13,7 +13,7 @@ depends=('pyxdg' 'gnome-menus' 'pygtk')
 optdepends=('python-xlib: systray plugin'
             'python-wnck: intellihide mode and tasklist plugin'
             'python-pyalsaaudio: volume plugin'
-            'pyinotify: menu plugin'
+            'python2-pyinotify: menu plugin'
             'vte: terminal plugin')
 conflicts=("$pkgname-bzr" "$pkgname-archbang")
 install="$pkgname.install"
@@ -31,7 +31,7 @@ build() {
   # .desktop fix
   sed -i '$d' $pkgname.desktop
 
-  # patch to let menu plugin from load
+  # patch to let menu plugin load
   # when handling & < > etc
   patch -p1 -i ../$pkgname-escape.patch
 }
