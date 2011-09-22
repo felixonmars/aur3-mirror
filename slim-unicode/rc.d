@@ -1,13 +1,14 @@
 #!/bin/bash
 
 . /etc/rc.conf
+export DAEMON_LOCALE=yes
 . /etc/rc.d/functions
 
 PID=`pidof -o %PPID /usr/share/slim/bin/slim`
 case "$1" in
   start)
     stat_busy "Starting Simple Login Manager"
-    [ -z "$PID" ] && /usr/bin/slim -d &> /dev/null
+    [ -z "$PID" ] && /usr/share/slim/bin/slim -d &> /dev/null
     if [ $? -gt 0 ]; then
       stat_fail
     else
