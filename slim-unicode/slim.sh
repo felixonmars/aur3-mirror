@@ -11,4 +11,4 @@ if [ -z "$LANG" ]; then
 	fi
 fi
 
-exec /usr/share/slim/slim "$@"
+exec /usr/share/slim/bin/slim "$@"
