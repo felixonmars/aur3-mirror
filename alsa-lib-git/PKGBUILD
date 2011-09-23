@@ -2,14 +2,14 @@
 # Contributor: Luca Bennati <lucak3 at gmail dot com>
 
 pkgname=alsa-lib-git
-pkgver=20110827
+pkgver=20110923
 pkgrel=1
 pkgdesc="An alternative implementation of Linux sound support - GIT version"
 arch=('i686' 'x86_64')
 url="http://www.alsa-project.org"
 depends=('glibc')
-optdepends=('python')
-makedepends=('python' 'git')
+optdepends=('python2')
+makedepends=('python2' 'git')
 license=('GPL')
 options=(!libtool)
 conflicts=('alsa-lib')
