@@ -1,4 +1,8 @@
 #!/bin/bash
-cd /opt/desura
 export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
-./desura
+
+if [[ ! -f "/opt/desura/desura" ]]; then
+    /opt/desura/bin/desura
+else
+    /opt/desura/desura
+fi
