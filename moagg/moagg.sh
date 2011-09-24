@@ -1,3 +1,3 @@
 #!/bin/sh
 cd /usr/share/moagg/
-./run.sh
+sh ./run.sh
