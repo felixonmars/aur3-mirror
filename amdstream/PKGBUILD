@@ -8,7 +8,7 @@
 
 pkgname=amdstream
 pkgver=2.5
-pkgrel=2
+pkgrel=3
 _profiler_ver=2.3
 
 pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL support'
