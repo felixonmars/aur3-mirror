@@ -8,7 +8,7 @@ then
     
     JAVA_OPTS="-Dserviio.home=$SERVIIO_CONSOLE_HOME -Djava.net.preferIPv4Stack=true"
     
-    java -Xmx384M $JAVA_OPTS -cp $CP org.serviio.console.ServiioConsole "$@"
+    java -Xmx384M $JAVA_OPTS -classpath $CP org.serviio.console.ServiioConsole "$@"
 else
     echo "Must be run as root."
 fi
