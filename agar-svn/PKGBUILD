@@ -1,7 +1,8 @@
 # Maintainer:   Andrea Agosti <cifvts at gmail dot com>
-#
+# Contributor:  josephgbr
+
 pkgname=agar-svn
-pkgver=9026
+pkgver=9041
 pkgrel=1
 pkgdesc="Modern cross-platform toolkit for graphical applications 
 implemented in C, C++ and Ada - svn"
@@ -38,13 +39,16 @@ build() {
 	  --bindir=/usr/bin/	\
 	  --libdir=/usr/lib/${_svnname} \
 	  --infodir=/usr/share/info \
-	  --sharedir=/usr/share
+	  --sharedir=/usr/share \
+	  --with-gl=/usr
 
   make 
   }
 package() {
   cd "${srcdir}/${_svnmod}"
   msg "make  DESTDIR="${pkgdir}" MANDIR=/usr/share/man install"
+  mkdir -p ${pkgdir}/usr/share/agar/fonts
   make  DESTDIR="${pkgdir}" MANDIR=/usr/share/man install
+  msg "install -Dm644 ada-core/LICENSE ${pkgdir}/usr/share/licenses/${_svnname}/LICENSE"
   install -Dm644 ada-core/LICENSE ${pkgdir}/usr/share/licenses/${_svnname}/LICENSE
 }
