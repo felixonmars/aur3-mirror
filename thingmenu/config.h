@@ -7,3 +7,6 @@ static const char *pressfgcolor = "#000000";
 static const char *highlightbgcolor = "#bbbbbb";
 static const char *highlightfgcolor = "#000000";
 
+static float widthscaling = 1.5;
+static float heightscaling = 2.0;
+
