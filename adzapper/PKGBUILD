@@ -6,13 +6,13 @@
 # Contributor: Manolis Tzanidakis
 
 pkgname=adzapper
-pkgver=20110716
-pkgrel=7
+pkgver=20110915
+pkgrel=2
 pkgdesc="Ad Zapping With Squid"
 arch=('any')
 url="http://adzapper.sourceforge.net"
 license=('BSD')
-depends=('perl')
+depends=('perl' 'squid')
 optdepends=('squid: adzapper works with squid' 'polipo: you can use adzapper with polipo too, add line in config - redirector = /usr/bin/adzapper')
 
 install=$pkgname.install
