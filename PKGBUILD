@@ -1,17 +1,17 @@
-pkgname=perl-plack-middleware-reverseproxy
-pkgver=0.10
-pkgrel=2
-pkgdesc="Plack::Middleware::ReverseProxy - Supports app to run as a reverse proxy backend"
+pkgname=perl-mysql-tableinfo
+pkgver=1.01
+pkgrel=1
+pkgdesc="MySQL::TableInfo - Perl extension for getting access into mysql's column information."
 arch=('any')
-url="http://search.cpan.org/~danjou/Plack-Middleware-ReverseProxy-0.10/lib/Plack/Middleware/ReverseProxy.pm"
+url="http://search.cpan.org/~sherzodr/MySQL-TableInfo-1.01/TableInfo.pm"
 license=('GPL' 'PerlArtistic')
-depends=('perl' 'perl-plack' 'perl-yaml')
+depends=('perl')
 options=('!emptydirs')
-source=(http://search.cpan.org/CPAN/authors/id/D/DA/DANJOU/Plack-Middleware-ReverseProxy-0.10.tar.gz)
-md5sums=('9473223e9b2415611f3e11b9e02eaa8f')
+source=(http://search.cpan.org/CPAN/authors/id/S/SH/SHERZODR/MySQL-TableInfo-$pkgver.tar.gz)
+md5sums=('8713c947acaa10c5899d96c5f58e705b')
 
 build() {
-  cd  "$srcdir/Plack-Middleware-ReverseProxy-$pkgver" || return 1
+  cd  "$srcdir/MySQL-TableInfo-$pkgver" || return 1
 
   PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
   make &&
