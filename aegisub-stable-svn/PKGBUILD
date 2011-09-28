@@ -1,18 +1,18 @@
 # Maintainer: Hilinus
 
 pkgname=aegisub-stable-svn
-_pkgname=aegisub
-pkgver=5551
+pkgver=5610
 pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
 license=('GPL' 'BSD')
-depends=('ffmpegsource2-svn' 'lua' 'openal' 'wxgtk>=2.8.11' 'hunspell' 'libidn' 'libass')
+depends=('ffmpegsource2-svn' 'lua' 'wxgtk>=2.8.11' 'hunspell' 'libass' 'hicolor-icon-theme' 'desktop-file-utils')
 makedepends=('imagemagick>=6.6.2.10' 'subversion' 'intltool')
 provides=('aegisub')
 conflicts=('aegisub')
 source=(license.txt)
+install=aegisub-stable-svn.install
 md5sums=('3e13350007702bd7117e8f35bac376f1')
 
 _svntrunk=http://svn.aegisub.org/branches/aegisub_2.1.9/aegisub
@@ -36,8 +36,8 @@ build() {
 
   cd "$srcdir/$_svnmod-build"
 
-  ICONV_LIBS="-lidn" ./autogen.sh --prefix=/usr \
-    --with-player-audio=openal --without-{portaudio,alsa,oss}
+  ./autogen.sh --prefix=/usr \
+  --with-player-audio=alsa --without-{portaudio,openal,oss,pulseaudio}
 
   make
 }
@@ -54,5 +54,5 @@ package() {
   # install the BSD license, although it is ruled by GPL according to the wiki:
   # (http://www.malakith.net/aegiwiki/Subtitling_software_comparison)
   install -D -m644 "$srcdir"/license.txt \
-    "$pkgdir"/usr/share/licenses/$_pkgname/license.txt
+    "$pkgdir"/usr/share/licenses/$pkgname/license.txt
 }
