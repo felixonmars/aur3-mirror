@@ -34,7 +34,7 @@ wait_pid() {
 case "$1" in
 	start)
 		stat_busy "Starting graylog2"
-		check_pid || /opt/java/bin/java -jar /usr/lib/graylog2-server.jar > /dev/null &
+		check_pid || java -jar /usr/lib/graylog2-server.jar > /dev/null &
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
