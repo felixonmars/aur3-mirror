@@ -1,44 +1,29 @@
-# Maintainer Kevin <arc.mission at gmail>
-
+# Maintainer : Alucryd <alucryd@gmail.com>
 pkgname=aegisub-svn
-pkgver=4749
+pkgver=5686
 pkgrel=1
-pkgdesc="A general-purpose subtitle editor with ASS/SSA support (SVN version)"
-arch=('i686' 'x86_64')
+pkgdesc="Aegisub Advanced Subtitle Editor"
 url="http://www.aegisub.org"
-license=('GPL' 'BSD')
-depends=('ffmpeg' 'wxgtk-2.9' 'hunspell' 'lua')
-makedepends=('subversion') 
-optdepends=('pulseaudio: PulseAudio support'
-	    'alsa-lib: ALSA support'
-	    'openal: OpenAL support'
-	    'portaudio: Portaudio support')
-provides=("aegisub")
-conflicts=("aegisub")
-
-_svntrunk=http://svn.aegisub.org/trunk/aegisub
-_svnmod=aegisub
-
+arch=('i686' 'x86_64')
+license=('BSD')
+depends=('wxgtk' 'pulseaudio' 'lua' 'ffmpegsource' 'libass' 'hunspell' 'fontconfig')
+makedepends=('subversion' 'intltool')
+install=('icon.install')
+ 
 build() {
-  cd "$srcdir"
-
-  if [ -d $_svnmod/.svn ]; then
-    (cd $_svnmod && svn up -r $pkgver)
+  cd ${srcdir}
+  if [ -d aegisub ]; then
+    cd aegisub && svn up
   else
-    svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
+    svn co http://svn.aegisub.org/branches/aegisub_2.1.9/aegisub
+    cd aegisub
   fi
-
-  msg "SVN checkout done or server timeout"
-  msg "Starting make..."
-
-  rm -rf "$srcdir/$_svnmod-build"
-  cp -r "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
-  cd "$srcdir/$_svnmod-build"
-
-  #
-  # BUILD
-  #
-  ./autogen.sh --prefix=/usr --with-wx-config=/usr/bin/wx-config-2.9
-  make || return 1
-  make DESTDIR="$pkgdir/" install
+  ./autogen.sh --prefix=/usr --without-{portaudio,openal}
+  make
+}
+ 
+package() {
+  cd ${srcdir}/aegisub
+  make DESTDIR="${pkgdir}" install
+  make distclean
 }
