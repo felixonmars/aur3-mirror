@@ -4,12 +4,12 @@
 
 pkgname=alacarte
 pkgver=0.13.2
-pkgrel=4
+pkgrel=5
 pkgdesc="Menu editor for gnome (with debian patchset)"
 arch=(any)
 license=('LGPL')
 url="http://www.gnome.org"
-depends=('gnome-menus>=2.30.4' 'gnome-panel>=2.32.0' 'hicolor-icon-theme' 'pygtk')
+depends=('gnome-menus2' 'gnome-panel>=2.32.0' 'hicolor-icon-theme' 'pygtk')
 makedepends=('intltool')
 install=alacarte.install
 options=('!libtool')
