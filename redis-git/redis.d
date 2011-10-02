@@ -5,43 +5,48 @@ daemon_name=redis
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-get_pid() {
-  pidof -o %PPID $daemon_name-server
-}
+REDISPORT=6379
+EXEC=/usr/bin/redis-server
+CLIEXEC=/usr/bin/redis-cli
+
+PIDFILE=/var/run/redis.pid
+WORKDIR=/var/lib/redis
+CONF="/etc/redis.conf"
 
 case "$1" in
   start)
-    stat_busy "Starting $daemon_name daemon"
-    [ -d /var/lib/$daemon_name ] || mkdir /var/lib/$daemon_name
+    stat_busy "Starting $daemon_name"
+    [ -d $WORKDIR ] || mkdir $WORKDIR
 
-    if [ -z "$(get_pid)" ]; then
-      [ -f /var/run/$daemon_name.pid ] && rm -f /var/run/$daemon_name.pid
-      /usr/bin/$daemon_name-server /etc/conf.d/$daemon_name.conf >/dev/null
+    if [ -f $PIDFILE ]; then
+      stat_fail
+      exit 1
+    else
+      $EXEC $CONF >/dev/null
 
       if [ $? -gt 0 ]; then
         stat_fail
         exit 1
       else
-        # Redis itself writes the pid file
-        # echo $(get_pid) >/var/run/$daemon_name.pid
         add_daemon $daemon_name
         stat_done
       fi
-    else
-      stat_fail
-      exit 1
     fi
     ;;
 
   stop)
-    stat_busy "Stopping $daemon_name daemon"
-    PID=$(get_pid)
-    [ ! -z "$PID" ] && kill $PID &>/dev/null
-    if [ $? -gt 0 ]; then
+    stat_busy "Stopping $daemon_name"
+
+    if [ ! -f $PIDFILE ]; then
       stat_fail
       exit 1
     else
-      rm -f /var/run/$daemon_name.pid &>/dev/null
+
+      PID=$(cat $PIDFILE)
+      $CLIEXEC -p $REDISPORT shutdown
+      while [ -x /proc/${PID} ]; do
+        sleep 1
+      done
       rm_daemon $daemon_name
       stat_done
     fi
