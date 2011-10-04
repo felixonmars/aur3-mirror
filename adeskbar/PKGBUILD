@@ -4,12 +4,12 @@
  
 pkgname=adeskbar
 pkgver=0.4.3
-pkgrel=2
+pkgrel=3
 pkgdesc="A quick and lightweight application launcher."
 arch=('any')
 url="http://adeskbar.tuxfamily.org/"
 license=('GPL3')
-depends=('pyxdg' 'gnome-menus' 'pygtk')
+depends=('pyxdg' 'gnome-menus2' 'pygtk')
 optdepends=('python-xlib: systray plugin'
             'python-wnck: intellihide mode and tasklist plugin'
             'python-pyalsaaudio: volume plugin'
