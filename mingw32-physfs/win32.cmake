@@ -4,6 +4,7 @@ set(CMAKE_SYSTEM_NAME Windows)
 # which compilers to use for C and C++
 set(CMAKE_C_COMPILER i486-mingw32-gcc)
 set(CMAKE_CXX_COMPILER i486-mingw32-g++)
+set(CMAKE_RC_COMPILER i486-mingw32-windres)
 
 # here is the target environment located
 set(CMAKE_FIND_ROOT_PATH /usr/i486-mingw32)
