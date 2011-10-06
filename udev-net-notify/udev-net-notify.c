@@ -14,11 +14,20 @@
 
 #include <libudev.h>
 
-#define EVENT_ADD "network-wired"
-#define EVENT_REMOVE "network-offline"
-#define EVENT_MOVE "dialog-information"
-#define EVENT_CHANGE "dialog-warning"
-#define EVENT_DEFAULT "dialog-warning"
+#define NOTIFICATION_TIMEOUT	10000
+
+#define ICON_ADD	"network-wired"
+#define ICON_REMOVE	"network-offline"
+#define ICON_MOVE	"dialog-information"
+#define ICON_CHANGE	"dialog-warning"
+#define ICON_DEFAULT	"dialog-warning"
+
+#define TEXT_ADD	"Device %s appeared."
+#define TEXT_REMOVE	"Device %s disappeared."
+#define TEXT_MOVE	"Device %s was renamed."
+#define TEXT_CHANGE	"Anything for device %s changed."
+#define TEXT_DEFAULT	"Anything happend to %s... Don't know."
+
 
 int main (int argc, char ** argv) {
 	struct udev * udev;
@@ -60,37 +69,42 @@ int main (int argc, char ** argv) {
 			dev = udev_monitor_receive_device(mon);
 			if(dev) {
 				device = (char *) udev_device_get_sysname(dev);
-				notification = (char *) malloc(strlen(device) + 36); /* Depending on the message we need up to 36 characters in addition to the device. */
+
 				switch(udev_device_get_action(dev)[0]) {
 					case 'a':
 						// a: add
-						sprintf(notification, "Device %s appeared.", device);
-						icon = EVENT_ADD;
+						notification = (char *) malloc(strlen(TEXT_ADD) + strlen(device));
+						sprintf(notification, TEXT_ADD, device);
+						icon = ICON_ADD;
 						break;
 					case 'r':
 						// r: remove
-						sprintf(notification, "Device %s disappeared.", device);
-						icon = EVENT_REMOVE;
+						notification = (char *) malloc(strlen(TEXT_REMOVE) + strlen(device));
+						sprintf(notification, TEXT_REMOVE, device);
+						icon = ICON_REMOVE;
 						break;
 					case 'm':
 						// m: move
-						sprintf(notification, "Device %s was renamed.", device);
-						icon = EVENT_MOVE;
+						notification = (char *) malloc(strlen(TEXT_MOVE) + strlen(device));
+						sprintf(notification, TEXT_MOVE, device);
+						icon = ICON_MOVE;
 						break;
 					case 'c':
 						// c: change
-						sprintf(notification, "Anything for device %s changed.", device);
-						icon = EVENT_CHANGE;
+						notification = (char *) malloc(strlen(TEXT_CHANGE) + strlen(device));
+						sprintf(notification, TEXT_CHANGE, device);
+						icon = ICON_CHANGE;
 						break;
 					default:
 						// we should never get here I think...
-						sprintf(notification, "Anything happend to %s... Don't know.", device);
-						icon = EVENT_DEFAULT;
+						notification = (char *) malloc(strlen(TEXT_DEFAULT) + strlen(device));
+						sprintf(notification, TEXT_DEFAULT, device);
+						icon = ICON_DEFAULT;
 				}
 				printf("%s: %s\n", argv[0], notification);
 				netlink = notify_notification_new("Udev-Net", notification, icon);
 	
-			        notify_notification_set_timeout(netlink, 5000);
+			        notify_notification_set_timeout(netlink, NOTIFICATION_TIMEOUT);
 				notify_notification_set_category(netlink, "Udev-Net");
 				notify_notification_set_urgency (netlink, NOTIFY_URGENCY_NORMAL);
 	

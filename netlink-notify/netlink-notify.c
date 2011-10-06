@@ -17,6 +17,11 @@
 #include <linux/if_link.h>
 #include <linux/rtnetlink.h>
 
+#define NOTIFICATION_TIMEOUT	10000
+
+#define NOTIFICATION_TEXT	"Interface %s is %s."
+#define NOTIFICATION_TEXT_DEBUG	"%s: Interface %s (index %d) is %s.\n"
+
 unsigned int netlinksize = 0;
 NotifyNotification ** netlinkref;
 char * program;
@@ -61,9 +66,9 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	mnl_attr_parse(nlh, sizeof(* ifm), data_attr_cb, tb);
 
 	interface = (char *) mnl_attr_get_str(tb[IFLA_IFNAME]);
-	notification = (char *) malloc(strlen(interface) + 25); /* we assume message and device index has a maximum size of 25 bytes */
-	sprintf(notification, "Interface %s is %s.", interface, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
-	printf("%s: Interface %s (index %d) is %s.\n", program, interface, ifm->ifi_index, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
+	notification = (char *) malloc(strlen(interface) + strlen(NOTIFICATION_TEXT));
+	sprintf(notification, NOTIFICATION_TEXT, interface, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
+	printf(NOTIFICATION_TEXT_DEBUG, program, interface, ifm->ifi_index, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
 
 	if (netlinksize < ifm->ifi_index) {
 		netlinkref = realloc(netlinkref, (ifm->ifi_index + 1) * sizeof(size_t));
@@ -81,13 +86,13 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 		notify_notification_update(netlink, "Netlink", notification, (ifm->ifi_flags & IFF_RUNNING ? "network-transmit-receive" : "network-error"));
 	}
 
-	notify_notification_set_timeout(netlink, 5000);
+	notify_notification_set_timeout(netlink, NOTIFICATION_TIMEOUT);
 	notify_notification_set_category(netlink, "Netlink");
 	notify_notification_set_urgency (netlink, NOTIFY_URGENCY_NORMAL);
 
 	while(!notify_notification_show(netlink, &error)) {
 		g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", program, error->message);
-		g_error_free (error);
+		g_error_free(error);
 		error = NULL;
 
 		notify_uninit();

@@ -22,13 +22,15 @@
 #define ICON_CHANGE	"media-flash"
 #define ICON_DEFAULT	"media-flash"
 
-#define TEXT_ADD	"<b>Device %s appeared</b>.\nlabel: %s\nuuid: %s\ntype: %s"
-#define TEXT_REMOVE	"<b>Device %s disappeared</b>."
-#define TEXT_MOVE	"<b>Device %s was renamed</b>.\nlabel: %s\nuuid: %s\ntype: %s"
-#define TEXT_CHANGE	"<b>Device %s media changed</b>.\nlabel: %s\nuuid: %s\ntype: %s"
-#define TEXT_DEFAULT	"<b>Anything happend to %s...</b> Don't know.\nlabel: %s\nuuid: %s\ntype: %s"
+#define TEXT_ADD	"<b>Device %s (%i:%i) appeared</b>."
+#define TEXT_REMOVE	"<b>Device %s (%i:%i) disappeared</b>."
+#define TEXT_MOVE	"<b>Device %s (%i:%i) was renamed</b>."
+#define TEXT_CHANGE	"<b>Device %s (%i:%i) media changed</b>."
+#define TEXT_DEFAULT	"<b>Anything happend to %s (%i:%i)...</b> Don't know.\n"
 
-#define TEXT_NONE	"<i>none</i>"
+#define INFO_LABEL	"%s\nlabel: %s"
+#define INFO_FSTYPE	"%s\nfstype: %s"
+#define INFO_UUID	"%s\nuuid: %s"
 
 int main (int argc, char ** argv) {
 	struct udev * udev;
@@ -37,18 +39,20 @@ int main (int argc, char ** argv) {
    	struct udev_monitor * mon = NULL;
 	fd_set readfds;
 	int fdcount;
+	int devnum;
+	unsigned short int i, major, minor;
+	short int * maxminor;
 
 	char * notification = NULL;
 	char * icon = NULL;
         NotifyNotification * netlink;
+        NotifyNotification *** netlinkref;
 
 	blkid_cache cache = NULL;
 	char *read = NULL;
 	blkid_tag_iterate iter;
 	const char *type, *value, *devname;
-	char *devfile;
 	blkid_dev blkdev;
-	const char *fstype, *label, *uuid;
 
 	GError * error = NULL;
 
@@ -67,6 +71,13 @@ int main (int argc, char ** argv) {
 	udev_monitor_filter_add_match_subsystem_devtype(mon, "block", NULL);
 	udev_monitor_enable_receiving(mon);
 
+	netlinkref = malloc(256 * sizeof(size_t));
+	for(i = 0; i < 256; i++)
+		netlinkref[i] = NULL;
+	maxminor = malloc(256 * sizeof(short int));
+	for(i = 0; i < 256; i++)
+		maxminor[i] = -1;
+
 	while (1) {
                 FD_ZERO(&readfds);
                 if (mon != NULL)
@@ -77,77 +88,82 @@ int main (int argc, char ** argv) {
                 if ((mon != NULL) && FD_ISSET(udev_monitor_get_fd(mon), &readfds)) {
 			dev = udev_monitor_receive_device(mon);
 			if(dev) {
-				label = NULL;
-				fstype = NULL;
-				uuid = NULL;
-
 				device = (char *) udev_device_get_sysname(dev);
+				devnum = udev_device_get_devnum(dev);
+				major = devnum / 256;
+				minor = devnum - (major * 256);
 
-				devfile = (char *) malloc(6 + strlen(device));
-				sprintf(devfile, "/dev/%s", device);
+				switch(udev_device_get_action(dev)[0]) {
+					case 'a':
+						// a: add
+						notification = (char *) malloc(strlen(TEXT_ADD) + strlen(device));
+						sprintf(notification, TEXT_ADD, device, major, minor);
+						icon = ICON_ADD;
+						break;
+					case 'r':
+						// r: remove
+						notification = (char *) malloc(strlen(TEXT_REMOVE) + strlen(device));
+						sprintf(notification, TEXT_REMOVE, device, major, minor);
+						icon = ICON_REMOVE;
+						break;
+					case 'm':
+						// m: move
+						notification = (char *) malloc(strlen(TEXT_MOVE) + strlen(device));
+						sprintf(notification, TEXT_MOVE, device, major, minor);
+						icon = ICON_MOVE;
+						break;
+					case 'c':
+						// c: change
+						notification = (char *) malloc(strlen(TEXT_CHANGE) + strlen(device));
+						sprintf(notification, TEXT_CHANGE, device, major, minor);
+						icon = ICON_CHANGE;
+						break;
+					default:
+						// we should never get here I think...
+						notification = (char *) malloc(strlen(TEXT_DEFAULT) + strlen(device));
+						sprintf(notification, TEXT_CHANGE, device, major, minor);
+						icon = ICON_DEFAULT;
+				}
 
 				blkid_get_cache(&cache, read);
-				blkdev = blkid_get_dev(cache, devfile, BLKID_DEV_NORMAL);
-				free(devfile);
+				blkdev = blkid_get_dev(cache, udev_device_get_devnode(dev), BLKID_DEV_NORMAL);
 			
 				if (blkdev) {
 					iter = blkid_tag_iterate_begin(blkdev);
 			
 					while (blkid_tag_next(iter, &type, &value) == 0) {
-						if (!strcmp(type, "UUID"))
-							uuid = value;
-						if (!strcmp(type, "TYPE"))
-							fstype = value;
-						if (!strcmp(type, "LABEL"))
-							label = value;
+						if (!strcmp(type, "LABEL")) {
+							notification = (char *) realloc(notification, strlen(notification) + strlen(INFO_LABEL) + strlen(value));
+							sprintf(notification, INFO_LABEL, notification, value);
+						} else if (!strcmp(type, "TYPE")) {
+							notification = (char *) realloc(notification, strlen(notification) + strlen(INFO_FSTYPE) + strlen(value));
+							sprintf(notification, INFO_FSTYPE, notification, value);
+						} else if (!strcmp(type, "UUID")) {
+							notification = (char *) realloc(notification, strlen(notification) + strlen(INFO_UUID) + strlen(value));
+							sprintf(notification, INFO_UUID, notification, value);
+						}
 					}
-				}
 
-				if (uuid == NULL)
-					uuid = TEXT_NONE;
-				if (fstype == NULL)
-					fstype = TEXT_NONE;
-				if (label == NULL)
-					label = TEXT_NONE;
-			
-				switch(udev_device_get_action(dev)[0]) {
-					case 'a':
-						// a: add
-						notification = (char *) malloc(strlen(TEXT_ADD) + strlen(device) + strlen(label) + strlen(uuid) + strlen(fstype));
-						sprintf(notification, TEXT_ADD, device, label, uuid, fstype);
-						icon = ICON_ADD;
-						break;
-					case 'r':
-						// r: remove
-						notification = (char *) malloc(strlen(TEXT_REMOVE) + strlen(device) + strlen(label) + strlen(uuid) + strlen(fstype));
-						sprintf(notification, TEXT_REMOVE, device);
-						icon = ICON_REMOVE;
-						break;
-					case 'm':
-						// m: move
-						notification = (char *) malloc(strlen(TEXT_MOVE) + strlen(device) + strlen(label) + strlen(uuid) + strlen(fstype));
-						sprintf(notification, TEXT_MOVE, device, label, uuid, fstype);
-						icon = ICON_MOVE;
-						break;
-					case 'c':
-						// c: change
-						notification = (char *) malloc(strlen(TEXT_CHANGE) + strlen(device) + strlen(label) + strlen(uuid) + strlen(fstype));
-						sprintf(notification, TEXT_CHANGE, device, label, uuid, fstype);
-						icon = ICON_CHANGE;
-						break;
-					default:
-						// we should never get here I think...
-						notification = (char *) malloc(strlen(TEXT_DEFAULT) + strlen(device) + strlen(label) + strlen(uuid) + strlen(fstype));
-						sprintf(notification, TEXT_CHANGE, device, label, uuid, fstype);
-						icon = ICON_DEFAULT;
+					blkid_tag_iterate_end(iter);
+					blkid_put_cache(cache);
 				}
-
-				blkid_tag_iterate_end(iter);
-				blkid_put_cache(cache);
 
 				printf("%s: %s\n", argv[0], notification);
-				netlink = notify_notification_new("Udev-Block", notification, icon);
-	
+
+				if (maxminor[major] < minor) {
+					netlinkref[major] = realloc(netlinkref[major], (minor + 1) * sizeof(size_t));
+			                while(maxminor[major] < minor)
+			                        netlinkref[major][++maxminor[major]] = NULL;
+			        }
+					
+				if (netlinkref[major][minor] == NULL) {
+					netlink = notify_notification_new("Udev-Block", notification, icon);
+					netlinkref[major][minor] = netlink;
+				} else {
+					netlink = netlinkref[major][minor];
+					notify_notification_update(netlink, "Udev-Block", notification, icon);
+				}
+
 			        notify_notification_set_timeout(netlink, NOTIFICATION_TIMEOUT);
 				notify_notification_set_category(netlink, "Udev-Block");
 				notify_notification_set_urgency (netlink, NOTIFY_URGENCY_NORMAL);
