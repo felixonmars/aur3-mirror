@@ -14,6 +14,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define NOTIFICATION_TIMEOUT	10000
+
+#define TEXT_PLAY	"Playing\n<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>"
+#define TEXT_STOP	"Stopped playback"
+
 int main(int argc, char ** argv) {
 	struct mpd_connection * conn = mpd_connection_new(NULL, 0, 30000);
 	char * title = NULL;
@@ -53,15 +58,21 @@ int main(int argc, char ** argv) {
 
 			mpd_song_free(song);
 
-			notification = (char *) malloc(strlen(title) + strlen(artist) + strlen(album) + 40); /* we need 40 character for the formatting */
-			sprintf(notification, "Playing\n<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>", title, artist, album);
+			notification = (char *) malloc(strlen(TEXT_PLAY) + strlen(title) + strlen(artist) + strlen(album));
+			sprintf(notification, TEXT_PLAY, title, artist, album);
 
 		} else {
-			notification = (char *) malloc(17);
-			sprintf(notification, "Stopped playback");
+			notification = (char *) malloc(strlen(TEXT_STOP));
+			sprintf(notification, TEXT_STOP);
 		}
 
+		printf("%s: %s\n", argv[0], notification);
+
 		netlink = notify_notification_new("MPD Notification", notification, "sound");
+
+		notify_notification_set_timeout(netlink, NOTIFICATION_TIMEOUT);
+		notify_notification_set_category(netlink, "MPD-Notification");
+		notify_notification_set_urgency (netlink, NOTIFY_URGENCY_NORMAL);
 
 		while(!notify_notification_show(netlink, &error)) {
 			g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
