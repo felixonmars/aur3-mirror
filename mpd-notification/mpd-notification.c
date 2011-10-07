@@ -41,6 +41,8 @@ int main(int argc, char ** argv) {
                 exit(EXIT_FAILURE);
         }
 
+	netlink = notify_notification_new("MPD Notification", NULL, "sound");
+
 	while(mpd_run_idle_mask(conn, MPD_IDLE_PLAYER)) {
 		mpd_command_list_begin(conn, true);
 		mpd_send_status(conn);
@@ -68,7 +70,7 @@ int main(int argc, char ** argv) {
 
 		printf("%s: %s\n", argv[0], notification);
 
-		netlink = notify_notification_new("MPD Notification", notification, "sound");
+		notify_notification_update(netlink, "MPD Notification", notification, "sound");
 
 		notify_notification_set_timeout(netlink, NOTIFICATION_TIMEOUT);
 		notify_notification_set_category(netlink, "MPD-Notification");
