@@ -1,7 +1,7 @@
 # Maintainer: Clayton G. Hobbs <clay@lakeserv.net>
 pkgname=allegro5
 pkgver=5.0.4
-pkgrel=1
+pkgrel=2
 pkgdesc="The latest version of the Allegro multimedia library"
 arch=(i686 x86_64)
 url="http://alleg.sourceforge.net/"
@@ -14,15 +14,22 @@ md5sums=('e2e314ee7116c7efddd0497d6c885e46')
 
 build() {
   cd "$srcdir/allegro-$pkgver"
+  if [ ! -d build ]; then
+    mkdir build
+  fi
+  cd build
 
-  cmake -D CMAKE_INSTALL_PREFIX=/usr .
+  cmake -D CMAKE_INSTALL_PREFIX=/usr ..
 
-  ccmake .
+  cmake ..
   make || return 1
 }
 
 package() {
-  cd "$srcdir/allegro-$pkgver"
+  cd "$srcdir/allegro-$pkgver/build"
+  if [ ! -f LICENSE.txt ]; then
+    cp ../LICENSE.txt .
+  fi
 
   make DESTDIR="$pkgdir/" install
 
