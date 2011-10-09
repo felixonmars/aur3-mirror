@@ -1,2 +1,2 @@
 setenv CWPROOT /opt/cwpsu
-setenv PATH    ${PATH}:${CWPBIN}
+setenv PATH    ${PATH}:${CWPROOT}/bin
