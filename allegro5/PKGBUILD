@@ -1,7 +1,7 @@
 # Maintainer: Clayton G. Hobbs <clay@lakeserv.net>
 pkgname=allegro5
 pkgver=5.0.4
-pkgrel=2
+pkgrel=3
 pkgdesc="The latest version of the Allegro multimedia library"
 arch=(i686 x86_64)
 url="http://alleg.sourceforge.net/"
@@ -19,7 +19,7 @@ build() {
   fi
   cd build
 
-  cmake -D CMAKE_INSTALL_PREFIX=/usr ..
+  cmake -D CMAKE_INSTALL_PREFIX=/usr -D CMAKE_BUILD_TYPE=Release ..
 
   cmake ..
   make || return 1
