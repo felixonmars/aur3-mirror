@@ -63,7 +63,7 @@ echo "0.6" > ${WORKINGDIR}/version
 # TODO: we should probably not touch it but use if/else to check if its there, see above
 touch ${WORKINGDIR}/pacman_now.log
 
-# copy the pacmam log as pacman_tmp to our working dir.
+# copy the pacmam log as pacman_tmp.log to our working dir.
 # this way, log entries that have been made while the script run won't get lost' so we can proceed it later
 
 cp /var/log/pacman.log ${WORKINGDIR}/pacman_tmp.log
@@ -83,7 +83,7 @@ diff -u ${WORKINGDIR}/pacman_now.log /var/log/pacman.log | grep "^+" | sed -e 's
 ORIGSIZE=`du ${WORKINGDIR}/proceed.log | awk '{print $1}'`
 ORIGLINES=`cat ${WORKINGDIR}/proceed.log | wc -l`
 
-echo "Purging pacman.log ( ${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to /tmp/."
+echo "Purging pacman.log ( ${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WORKINGDIR}."
 cat  ${WORKINGDIR}/proceed.log | sed -e 's/\[/\n[/g' | sed -e '/^$/d' | grep "]\ installed\|]\ upgraded\|]\ removed"  > ${LOGTOBEPROCESSED}
 
 PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
