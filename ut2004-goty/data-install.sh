@@ -1,4 +1,4 @@
-#! /bin/bash -e
+#!/bin/bash -e
 
 export UT2004_PATH="/opt/ut2004"
     
@@ -7,12 +7,12 @@ if [ "$(whoami)" != "root" ]; then
     exit 1
 fi
 
-UT2004_MOUNT=`mount -l | grep '\[UT2004_DVD\]' | cut -d' ' -f3`
+UT2004_MOUNT=$(mount -l | grep '\[UT2004_DVD\]' | cut -d' ' -f3)
 
 if [ -d "$UT2004_MOUNT" ]; then
   echo -e "\nUT2004-GOTY disc mountpoint auto-detected."
 else
-  echo -e "\nUnable to auto-detect disc.\nEnter the UT2004-GOTY disc mount location: (i.e. /media/UT2004_DVD)"
+  echo -e "\nUnable to auto-detect disc.\nEnter the UT2004-GOTY disc mount location (i.e. /media/UT2004_DVD):"
   read UT2004_MOUNT
   if ! [ -d "$UT2004_MOUNT" ]; then
     echo "$UT2004_MOUNT does not exist."
@@ -34,7 +34,7 @@ find "$UT2004_PATH" -iname *.exe -delete
 rm -rf DirectX9
 chmod -R 755 "$UT2004_PATH"
 
-echo -e "\nPlease enter your UT2004 CD-Key, it should be in the format XXXXX-XXXXX-XXXXX-XXXXX."
+echo -e "\nPlease enter your UT2004 CD-Key (in the format XXXXX-XXXXX-XXXXX-XXXXX):"
 read UT2004_KEY
 echo "$UT2004_KEY" > "$UT2004_PATH/System/CDkey"
 
