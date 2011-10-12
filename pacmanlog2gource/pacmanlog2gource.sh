@@ -49,19 +49,18 @@ timestart
 
 
 #check if we already have a working dir, of not, create one
-if [ -d ${WORKINGDIR} ] ; then
-	echo "Working directory exists."
-else
-	echo "No working directory found, creating one. \( ${WORKINGDIR} \)"
+if [ ! -d ${WORKINGDIR} ] ; then
+	echo "No working directory found, creating one. (${WORKINGDIR})"
 	mkdir ${WORKINGDIR}
 fi
 
-echo "0.6" > ${WORKINGDIR}/version
+echo "0.7" > ${WORKINGDIR}/version
 
 
-# make the file
-# TODO: we should probably not touch it but use if/else to check if its there, see above
-touch ${WORKINGDIR}/pacman_now.log
+# create empty logfile if non exists
+if [ ! -a  ${WORKINGDIR}/pacman_now.log ] ; then
+	touch ${WORKINGDIR}/pacman_now.log
+fi
 
 # copy the pacmam log as pacman_tmp.log to our working dir.
 # this way, log entries that have been made while the script run won't get lost' so we can proceed it later
@@ -83,8 +82,8 @@ diff -u ${WORKINGDIR}/pacman_now.log /var/log/pacman.log | grep "^+" | sed -e 's
 ORIGSIZE=`du ${WORKINGDIR}/proceed.log | awk '{print $1}'`
 ORIGLINES=`cat ${WORKINGDIR}/proceed.log | wc -l`
 
-echo "Purging pacman.log ( ${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WORKINGDIR}."
-cat  ${WORKINGDIR}/proceed.log | sed -e 's/\[/\n[/g' | sed -e '/^$/d' | grep "]\ installed\|]\ upgraded\|]\ removed"  > ${LOGTOBEPROCESSED}
+echo "Purging pacman.log (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WORKINGDIR}."
+cat ${WORKINGDIR}/proceed.log | sed -e 's/\[/\n[/g' | sed -e '/^$/d' | grep "]\ installed\|]\ upgraded\|]\ removed" > ${LOGTOBEPROCESSED}
 
 PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
 PURGEDONELINES=`cat ${LOGTOBEPROCESSED} | wc -l`
@@ -113,79 +112,79 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 	PKG=`echo ${CURLINE} | awk '{print $4}'`
 # add extensions to the package name
 # this way we can have the packages grouped and nicely colored in gource
-	if [[ `echo "${PKG}" | grep -o "lib" | grep -v "libreoffice" | head -n1` == "lib" ]] ; then
+	if [[ `echo "${PKG}" | grep -o "lib" | grep -v "libreoffice"` == *lib* ]] ; then
 		PKG=`echo "lib/${PKG}.lib"`
 	else
-		if [[ `echo "${PKG}" | grep -o "xorg" | head -n1` == "xorg" ]] ; then
+		if [[ "${PKG}" == *xorg* ]] ; then
 			PKG=`echo "xorg/${PKG}.xorg"`
 		else
-			if [[ `echo "${PKG}" | grep -o "ttf" | head -n1` == "ttf" ]] ; then
+			if [[ "${PKG}" == *ttf* ]] ; then
 				PKG=`echo "ttf/${PKG}.ttf"`
 			else
-				if [[ `echo "${PKG}" | grep -o "xfce" | head -n1` == "xfce" ]] ; then
+				if [[ "${PKG}" == *xfce* ]] ; then
 					PKG=`echo "xfce/${PKG}.xfce"`
 				else
-					if [[ `echo "${PKG}" | grep -o "sdl" | head -n1` == "sdl" ]] ; then
+					if [[ "${PKG}" == *sdl* ]] ; then
 						PKG=`echo "sdl/${PKG}.sdl"`
 					else
-						if [[ `echo "${PKG}" | grep -o "xf86" | head -n1` == "xf86" ]] ; then
+						if [[ "${PKG}" == "xf86" ]] ; then
 							PKG=`echo "xf86/${PKG}.xf86"`
 						else
-							if [[ `echo "${PKG}" | grep -o "perl" | head -n1` == "perl" ]] ; then
+							if [[ "${PKG}" == *perl* ]] ; then
 								PKG=`echo "perl/${PKG}.perl"`
 							else
-								if [[ `echo "${PKG}" | grep -o "gnome" | head -n1` == "gnome" ]] ; then
+								if [[ "${PKG}" == *gnome* ]] ; then
 									PKG=`echo "gnome/${PKG}.gnome"`
 								else
-									if [[ `echo "${PKG}" | grep -o "libreoffice" | head -n1` == "libreoffice" ]] ; then
+									if [[ "${PKG}" == *libreoffice* ]] ; then
 										PKG=`echo "libreoffice/${PKG}.libreoffice"`
 									else
-										if [[ `echo "${PKG}" | grep -o "gtk" | head -n1` == "gtk" ]] ; then
+										if [[ "${PKG}" == *gtk* ]] ; then
 											PKG=`echo "gtk/${PKG}.gtk"`
 										else
-											if [[ `echo "${PKG}" | grep -o "gstreamer" | head -n1` == "gstreamer" ]] ; then
+											if [[ "${PKG}" == *gstreamer* ]] ; then
 												PKG=`echo "gstreamer/${PKG}.gstreamer"`
 											else
-												if [[ `echo "${PKG}" | grep -o "kde" | head -n1` == "kde" ]] ; then
+												if [[ "${PKG}" == *kde* ]] ; then
 													PKG=`echo "kde/${PKG}.kde"`	
 												else
-													if [[ `echo "${PKG}" | grep -o "python | head -n1"` == "python" ]] ; then
+													if [[ "${PKG}" == *python* ]] ; then
 														PKG=`echo "python/${PKG}.python"`
 													else
-														if [[ `echo "${PKG}" | grep -o "^py" | head -n1` == "py" ]] ; then
+														if [[ "${PKG}" == *py* ]] ; then
 															PKG=`echo "python/${PKG}.python"`
 														else
-															if [[ `echo "${PKG}" | grep -o "lxde" | head -n1` == "lxde" ]] ; then
+															if [[ "${PKG}" == *lxde* ]] ; then
 																PKG=`echo "lxde/${PKG}.lxde"`
 															else
-																if [[ `echo "${PKG}" | grep -o "^lx" | head -n1` == "lx" ]] ; then
+																if [[ "${PKG}" == ^lx* ]] ; then
 																	PKG=`echo "lxde/${PKG}.lxde"`
 																else
-																	if [[ `echo "${PKG}" | grep -o "php" | head -n1` == "php" ]] ; then
+																	if [[ "${PKG}" == *php* ]] ; then
 																		PKG=`echo "php/${PKG}.php"`
 																	else
-																		if [[ `echo "${PKG}" | grep -o "alsa" | head -n1` == "alsa" ]] ; then
+																		if [[ "${PKG}" == *alsa* ]] ; then
 																			PKG=`echo "alsa/${PKG}.alsa"`
 																		else
-																			if [[ `echo "${PKG}" | grep -o "compiz" | head -n1` == "compiz" ]] ; then
+																			if [[ "${PKG}" == *compiz* ]] ; then
 																				PKG=`echo "compiz/${PKG}.compiz"`
 																			else
-																				if [[ `echo "${PKG}" | grep -o "dbus" | head -n1` == "dbugs" ]] ; then
+																				if [[ "${PKG}" == *dbugs* ]] ; then
 																					PKG=`echo "dbus/${PKG}.dbus"`
 																				else
-																					if [[ `echo "${PKG}" | grep -o "gambas" | head -n1` == "gambas" ]] ; then
+																					if [[ "${PKG}" == *gambas* ]] ; then
 																						PKG=`echo "gambas/${PKG}.gambas"`
 																					else
-																						if [[ `echo "${PKG}" | grep -o "qt" | head -n1` == "qt" ]] ; then
+																						if [[ "${PKG}" == *qt* ]] ; then
 																							PKG=`echo "qt/${PKG}.qt"`
 																						else
-																							if [[ `echo "${PKG}" | grep -o "firefox" | head -n1` == "firefox" ]] ; then
+																							if [[ "${PKG}" == *firefox* ]] ; then
 																								PKG=`echo "mozilla/${PKG}.mozilla"`
 																							else
-																								if [[ `echo "${PKG}" | grep -o "thunderbird" | head -n1` == "thunderbird" ]] ; then
+																								if [[ "${PKG}" == *thunderbird* ]] ; then
 																									PKG=`echo "mozilla/${PKG}.mozilla"`
 																								else
-																									if [[ `echo "${PKG}" | grep -o "seamonky" | head -n1` == "seamonky" ]] ; then
+																									if [[ "${PKG}" == *seamonky* ]] ; then
 																										PKG=`echo "mozilla/${PKG}.mozilla"`
 																									fi
 																								fi
@@ -215,7 +214,7 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 # yes, the code above sucks
 
 # write the important stuff into our logfile
-	echo "${UDATE}|root|${STATE}|${PKG}" | grep "^[0-9]*|root|A|\|^[0-9]*|root|D|\|^[0-9]*|root|M|" >> ${WORKINGDIR}/pacman_gource.log
+	echo "${UDATE}|root|${STATE}|${PKG}" | grep "^[0-9]*|root|A|\|^[0-9]*|root|D|\|^[0-9]*|root|M|" >> ${WORKINGDIR}/pacman_gource_tree.log
 
 # here we print how log the script already runs and try to estimate how log it will run until finished
 # but we only update this every 250 lines
@@ -238,26 +237,26 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 done
 
 
+mv ${WORKINGDIR}/pacman_tmp.log ${WORKINGDIR}/pacman_now.log
 
+rm ${WORKINGDIR}/pacman_purged.log ${WORKINGDIR}/proceed.log
 
+# take the existing log and remove the paths so we have our pie-like log again
+cat ${WORKINGDIR}/pacman_gource_tree.log | sed 's/D|.*\//D\|/' | sed 's/M|.*\//M\|/' | sed 's/A|.*\//A\|/' > ${WORKINGDIR}/pacman_gource_pie.log
 
 # time it took to run the script
 TIMEFINAL=`echo "${TDG}" | grep -o "[0-9]*\.\?[0-9]\?[0-9]" | head -n1`
 
 echo -e "100 % done after ${TIMEFINAL}s.\n"
 
-echo "Output file is ./pacman_gource.log"
+echo "Output file is ./pacman_gource_tree.log"
 
 # this is how we can visualize the log
 echo "If you have \"gource\" installed, run"
-echo -e "\tgource ${WORKINGDIR}/pacman_gource${VERSION}.log -1200x720 -key --camera-mode overview --highlight-all-users -i 0 -a 0.001 -s 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001"
+echo -e "\tgource ${WORKINGDIR}/pacman_gource_tree.log -1200x720 -key --camera-mode overview --highlight-all-users -i 0 -a 0.001 -s 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001"
 echo -e "to visualize the log using gource.\n"
 echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
-echo -e "\t--output-ppm-stream - | ffmpeg  -f image2pipe -vcodec ppm -i - -vcodec libtheora -y -b 100000K -r 30  -threads 2 pacmanlog2gource_`date +%b\_%d\_%Y`.ogv"
+echo -e "\t--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -vcodec libtheora -y -b 100000K -r 30 -threads 2 pacmanlog2gource_`date +%b\_%d\_%Y`.ogv"
 echo "to the first command."
 echo "\"gource -H\" will give you more information on how to use gource."
-
-
-mv ${WORKINGDIR}/pacman_tmp.log  ${WORKINGDIR}/pacman_now.log
-
-rm ${WORKINGDIR}/pacman_purged.log ${WORKINGDIR}/proceed.log
+echo "Alternatively, you can also replace \"tree\" with \"pie\" as source-logfile to get all packages in a pie-formation."
