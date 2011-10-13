@@ -22,11 +22,11 @@
 
 # variables
 
-WORKINGDIR=~/.pacmanlog2gource
+DATADIR=~/.pacmanlog2gource
 
-LOGTOBEPROCESSED=${WORKINGDIR}/pacman_purged.log
+LOGTOBEPROCESSED=${DATADIR}/pacman_purged.log
 
-
+TIMECOUNTCOOKIE=0
 
 # timer functions
 
@@ -41,49 +41,51 @@ timeend()
 	TDG=`calc $TEG - $TSG`
 }
 
-
-
+# start the time
 timestart
 
-# print the version into a file so we handle file formats being out of date properly later
 
 
-#check if we already have a working dir, of not, create one
-if [ ! -d ${WORKINGDIR} ] ; then
-	echo "No working directory found, creating one. (${WORKINGDIR})"
-	mkdir ${WORKINGDIR}
+#check if we already have datadir, if not, create one
+if [ ! -d ${DATADIR} ] ; then
+	echo "No directory ${DATADIR} found, creating one."
+	mkdir ${DATADIR}
 fi
 
-echo "0.7" > ${WORKINGDIR}/version
+# print the version into a file so we handle file formats being out of date properly later
+echo "0.8" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | grep -v "0.8"` ]] ; then
+	echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script."
+	sleep 4
+fi
 
 
 # create empty logfile if non exists
-if [ ! -a  ${WORKINGDIR}/pacman_now.log ] ; then
-	touch ${WORKINGDIR}/pacman_now.log
+if [ ! -a  ${DATADIR}/pacman_now.log ] ; then
+	touch ${DATADIR}/pacman_now.log
 fi
 
-# copy the pacmam log as pacman_tmp.log to our working dir.
-# this way, log entries that have been made while the script run won't get lost' so we can proceed it later
+# copy the pacmam log as pacman_tmp.log to our datadir
+# this way, log entries that have been made while the script run won't get lost' so we can proceed them next time we run the script
 
-cp /var/log/pacman.log ${WORKINGDIR}/pacman_tmp.log
+cp /var/log/pacman.log ${DATADIR}/pacman_tmp.log
 
 # we only want to proceed new entries, old ones are already included in the log
-diff -u ${WORKINGDIR}/pacman_now.log /var/log/pacman.log | grep "^+" | sed -e 's/^+//' > ${WORKINGDIR}/proceed.log
+diff -u ${DATADIR}/pacman_now.log /var/log/pacman.log | grep "^+" | sed -e 's/^+//' > ${DATADIR}/process.log
 
 
 
-
-# this is our temporary file
-
-#now we actually start running the script
+#
+# core of the script
+#
 
 
 # get lines and size of the pacman log
-ORIGSIZE=`du ${WORKINGDIR}/proceed.log | awk '{print $1}'`
-ORIGLINES=`cat ${WORKINGDIR}/proceed.log | wc -l`
+ORIGSIZE=`du ${DATADIR}/process.log | awk '{print $1}'`
+ORIGLINES=`cat ${DATADIR}/process.log | wc -l`
 
-echo "Purging pacman.log (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WORKINGDIR}."
-cat ${WORKINGDIR}/proceed.log | sed -e 's/\[/\n[/g' | sed -e '/^$/d' | grep "]\ installed\|]\ upgraded\|]\ removed" > ${LOGTOBEPROCESSED}
+echo "Purging pacman.log (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${DATADIR}."
+cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' | sed -e '/^$/d' | grep "]\ installed\|]\ upgraded\|]\ removed" > ${LOGTOBEPROCESSED}
 
 PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
 PURGEDONELINES=`cat ${LOGTOBEPROCESSED} | wc -l`
@@ -93,7 +95,7 @@ LINE=1
 LINEPRCOUT=1
 MAXLINES=`cat ${LOGTOBEPROCESSED} | wc -l`
 
-echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kb)...\n"
+echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kB)...\n"
 
 # proceed each line of LOGTOBEPROCESSED and extract important information
 
@@ -104,7 +106,7 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 	CURLINE=`cat ${LOGTOBEPROCESSED} | awk NR==${LINE}`
 # the date of the entry
 	DATE=`echo ${CURLINE} | grep -o "[0-9]\{4\}\-[0-9][0-9]\-[0-9]\{2\}\ [0-9]\{2\}\:[0-9]\{2\}"`
-# convert the date into unix time
+# convert the date into unix time which can be read by gource
 	UDATE=`date +"%s" -d "${DATE}"`
 # find out if the package was installed, upgraded or removed
 	STATE=`echo ${CURLINE} | awk '{print $3}' | sed 's/installed/A/' | sed 's/upgraded/M/' | sed 's/removed/D/'`
@@ -112,80 +114,84 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 	PKG=`echo ${CURLINE} | awk '{print $4}'`
 # add extensions to the package name
 # this way we can have the packages grouped and nicely colored in gource
+#
+# todo:  do things like:
+# first find everthing that contains an x, then, continue searching only these for xorg, xf86 etc and not everything
+#
 	if [[ `echo "${PKG}" | grep -o "lib" | grep -v "libreoffice"` == *lib* ]] ; then
-		PKG=`echo "lib/${PKG}.lib"`
+		PKG=lib/${PKG}.lib
 	else
 		if [[ "${PKG}" == *xorg* ]] ; then
-			PKG=`echo "xorg/${PKG}.xorg"`
+			PKG=xorg/${PKG}.xorg
 		else
 			if [[ "${PKG}" == *ttf* ]] ; then
-				PKG=`echo "ttf/${PKG}.ttf"`
+				PKG=ttf/${PKG}.ttf
 			else
 				if [[ "${PKG}" == *xfce* ]] ; then
-					PKG=`echo "xfce/${PKG}.xfce"`
+					PKG=xfce/${PKG}.xfce
 				else
 					if [[ "${PKG}" == *sdl* ]] ; then
-						PKG=`echo "sdl/${PKG}.sdl"`
+						PKG=sdl/${PKG}.sdl
 					else
-						if [[ "${PKG}" == "xf86" ]] ; then
-							PKG=`echo "xf86/${PKG}.xf86"`
+						if [[ "${PKG}" == *xf86* ]] ; then
+							PKG=xf86/${PKG}.xf86
 						else
 							if [[ "${PKG}" == *perl* ]] ; then
-								PKG=`echo "perl/${PKG}.perl"`
+								PKG=perl/${PKG}.perl
 							else
 								if [[ "${PKG}" == *gnome* ]] ; then
-									PKG=`echo "gnome/${PKG}.gnome"`
+									PKG=gnome/${PKG}.gnome
 								else
 									if [[ "${PKG}" == *libreoffice* ]] ; then
-										PKG=`echo "libreoffice/${PKG}.libreoffice"`
+										PKG=libreoffice/${PKG}.libreoffice
 									else
 										if [[ "${PKG}" == *gtk* ]] ; then
-											PKG=`echo "gtk/${PKG}.gtk"`
+											PKG=gtk/${PKG}.gtk
 										else
 											if [[ "${PKG}" == *gstreamer* ]] ; then
-												PKG=`echo "gstreamer/${PKG}.gstreamer"`
+												PKG=gstreamer/${PKG}.gstreamer
 											else
 												if [[ "${PKG}" == *kde* ]] ; then
-													PKG=`echo "kde/${PKG}.kde"`	
+													PKG=kde/${PKG}.kde
 												else
 													if [[ "${PKG}" == *python* ]] ; then
-														PKG=`echo "python/${PKG}.python"`
+														PKG=python/${PKG}.python
 													else
 														if [[ "${PKG}" == *py* ]] ; then
-															PKG=`echo "python/${PKG}.python"`
+															PKG=python/${PKG}.python
 														else
 															if [[ "${PKG}" == *lxde* ]] ; then
-																PKG=`echo "lxde/${PKG}.lxde"`
+																PKG=lxde/${PKG}.lxde
 															else
 																if [[ "${PKG}" == ^lx* ]] ; then
-																	PKG=`echo "lxde/${PKG}.lxde"`
+																	PKG=lxde/${PKG}.lxde
 																else
 																	if [[ "${PKG}" == *php* ]] ; then
-																		PKG=`echo "php/${PKG}.php"`
+																		PKG=php/${PKG}.php
 																	else
 																		if [[ "${PKG}" == *alsa* ]] ; then
-																			PKG=`echo "alsa/${PKG}.alsa"`
+																			PKG=alsa/${PKG}.alsa
 																		else
 																			if [[ "${PKG}" == *compiz* ]] ; then
-																				PKG=`echo "compiz/${PKG}.compiz"`
+																				PKG=compiz/${PKG}.compiz
 																			else
-																				if [[ "${PKG}" == *dbugs* ]] ; then
-																					PKG=`echo "dbus/${PKG}.dbus"`
+																				if [[ "${PKG}" == *dbus* ]] ; then
+																					PKG=dbus/${PKG}.dbus
 																				else
 																					if [[ "${PKG}" == *gambas* ]] ; then
-																						PKG=`echo "gambas/${PKG}.gambas"`
+																						PKG=gambas/${PKG}.gambas
 																					else
 																						if [[ "${PKG}" == *qt* ]] ; then
-																							PKG=`echo "qt/${PKG}.qt"`
+																							PKG=qt/${PKG}.qt
 																						else
 																							if [[ "${PKG}" == *firefox* ]] ; then
-																								PKG=`echo "mozilla/${PKG}.mozilla"`
+																								PKG=mozilla/${PKG}.mozilla
 																							else
 																								if [[ "${PKG}" == *thunderbird* ]] ; then
-																									PKG=`echo "mozilla/${PKG}.mozilla"`
+																									PKG=mozilla/${PKG}.mozilla
 																								else
 																									if [[ "${PKG}" == *seamonky* ]] ; then
-																										PKG=`echo "mozilla/${PKG}.mozilla"`
+																										PKG=mozilla/${PKG}.mozilla
 																									fi
 																								fi
 																							fi
@@ -214,11 +220,16 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 # yes, the code above sucks
 
 # write the important stuff into our logfile
-	echo "${UDATE}|root|${STATE}|${PKG}" | grep "^[0-9]*|root|A|\|^[0-9]*|root|D|\|^[0-9]*|root|M|" >> ${WORKINGDIR}/pacman_gource_tree.log
+	echo "${UDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
 
-# here we print how log the script already runs and try to estimate how log it will run until finished
-# but we only update this every 250 lines
-	if [ "${LINEPERCOUT}" == "250" ] ; then
+
+# here we print how log the script already took to run and try to estimate how log it will run until it finishes'
+# but we only update this every 500 lines to avoid unneccesary spamming
+# this will mostly be printed when initially obtaining the log
+	if [ "${LINEPERCOUT}" == "500" ] ; then
+
+		LINECOUNTCOOKIE=1
+
 		LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
 		LINEPERCOUT=`echo ${LINEPERC} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" | head -n1`
 		timeend
@@ -230,22 +241,30 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 		LINEPERCOUT=0
 	fi
 
-# set switch to next line and re-start the loop
+# switch to next line and re-start the loop
 	LINE=`expr ${LINE} + 1`
 	LINEPERCOUT=`expr ${LINEPERCOUT} + 1`
 
 done
 
 
-mv ${WORKINGDIR}/pacman_tmp.log ${WORKINGDIR}/pacman_now.log
+mv ${DATADIR}/pacman_tmp.log ${DATADIR}/pacman_now.log
 
-rm ${WORKINGDIR}/pacman_purged.log ${WORKINGDIR}/proceed.log
+rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log
 
-# take the existing log and remove the paths so we have our pie-like log again
-cat ${WORKINGDIR}/pacman_gource_tree.log | sed 's/D|.*\//D\|/' | sed 's/M|.*\//M\|/' | sed 's/A|.*\//A\|/' > ${WORKINGDIR}/pacman_gource_pie.log
+# take the existing log and remove the paths so we have our pie-like log again which I had at the beginning of the developmen process of this script :)
+cat ${DATADIR}/pacman_gource_tree.log | sed 's/D|.*\//D\|/' | sed 's/M|.*\//M\|/' | sed 's/A|.*\//A\|/' > ${DATADIR}/pacman_gource_pie.log
 
-# time it took to run the script
-TIMEFINAL=`echo "${TDG}" | grep -o "[0-9]*\.\?[0-9]\?[0-9]" | head -n1`
+
+# how log did the script took to run?
+timeend
+
+if [[ ${LINECOUNTCOOKIE} == "1" ]] ; then
+	TIMEFINAL=`echo "${TDG}" | grep -o "[0-9]*\.\?[0-9]\?[0-9]" | head -n1`
+else
+	TIMEFINAL=`echo "${TDG}" | grep -o "[0-9]*\.\?[0-9]\{5\}" | head -n1`
+fi
+
 
 echo -e "100 % done after ${TIMEFINAL}s.\n"
 
@@ -253,10 +272,10 @@ echo "Output file is ./pacman_gource_tree.log"
 
 # this is how we can visualize the log
 echo "If you have \"gource\" installed, run"
-echo -e "\tgource ${WORKINGDIR}/pacman_gource_tree.log -1200x720 -key --camera-mode overview --highlight-all-users -i 0 -a 0.001 -s 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001"
+echo -e "\t\e[3;32mgource ${DATADIR}/pacman_gource_tree.log -1200x720 -key --camera-mode overview --highlight-all-users -i 0 -a 0.001 -s 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
 echo -e "to visualize the log using gource.\n"
 echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
-echo -e "\t--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -vcodec libtheora -y -b 100000K -r 30 -threads 2 pacmanlog2gource_`date +%b\_%d\_%Y`.ogv"
+echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -vcodec libtheora -y -b 100000K -r 30 -threads 2 pacmanlog2gource_`date +%b\_%d\_%Y`.ogv\e[0m"
 echo "to the first command."
-echo "\"gource -H\" will give you more information on how to use gource."
+echo  -e "\e[3;32mgource -H\e[0m will give you more information on how to use gource."
 echo "Alternatively, you can also replace \"tree\" with \"pie\" as source-logfile to get all packages in a pie-formation."
