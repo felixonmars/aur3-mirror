@@ -1,8 +1,8 @@
 pkgname=acpi-support
 pkgver=0.138
-pkgrel=1
-pkgdesc="Ubuntu Acpi Support Package"  
-depends=('acpid' 'netkit-bsd-finger')
+pkgrel=3
+pkgdesc="Ubuntu ACPI support package"  
+depends=('acpid' 'netkit-bsd-finger' 'dmidecode')
 makedepends=('make')
 provides=('acpi-support' 'acpi_fakekey')
 conflicts=('acpi_fakekey')
