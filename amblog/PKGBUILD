@@ -1,12 +1,12 @@
 # Maintainer: Alf <naihe2010@126.com>
 pkgname=amblog
-pkgver=20110908
+pkgver=20111014
 pkgrel=1
 pkgdesc="amblog is a multiple blog post"
 arch=('i686' 'x64')
-url="http://github.com/naihe2010/amblog"
+url="http://naihe2010.github.com/amblog"
 license=('GPL')
-depends=('perl' 'perl-gtk2-webkit' 'perl-net-oauth' 'perl-xmlrpc-frontier')
+depends=('gtk2' 'gtkhtml' 'curl' 'liboauth' 'openssl')
 makedepends=('git')
 source=()
 _gitroot='http://github.com/naihe2010/amblog.git'
@@ -31,14 +31,15 @@ build() {
   git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
 
-  #
-  # BUILD HERE
-  #
+  mkdir build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX=/usr ..
+  make
 }
 
 package() {
-  cd "$srcdir/$_gitname-build"
-  make DESTDIR="$pkgdir/usr" install
+  cd "$srcdir/$_gitname-build/build"
+  make DESTDIR="$pkgdir" install
 }
 
 # vim:set ts=2 sw=2 et:
