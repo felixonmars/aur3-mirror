@@ -1,4 +1,4 @@
 #!/bin/bash
-cd /usr/lib/ugene
+cd /usr/share/ugene
 ugene -ui
 
