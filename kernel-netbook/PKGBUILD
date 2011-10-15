@@ -9,7 +9,7 @@ makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware')
 optdepends=('hibernate-script: tux on ice default script' 'tuxonice-userui: graphical interface for toi [AUR]')
 _basekernel=3.0
 pkgver=${_basekernel}.6
-pkgrel=1
+pkgrel=2
 pkgdesc="Static kernel for netbooks with Intel Atom N270/N280/N450/N550 such as eeepc with the add-on of external firmware (broadcom-wl) and patchset (BFS + TOI + BFQ optional) - Only Intel GPU - Give more power to your netbook!"
 options=('!strip')
 arch=('i686')
@@ -51,16 +51,20 @@ _bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.0.0"
 #TuxOnIce:
 _toipatch="current-tuxonice-for-3.0.patch.bz2"
 
+newserver="http://kernelorg.mirrors.tds.net/pub/linux/kernel"
+
 ##### Sources #####
 source=( #kernel sources and arch patchset
-	"ftp://ftp.kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2"
+	#"ftp://ftp.kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2"
+	"${newserver}/v3.0/linux-${_basekernel}.tar.bz2"
 	#"ftp://ftp.kernel.org/pub/linux/kernel/v3.0/patch-${pkgver}.bz2"
 	"ftp://ftp.archlinux.org/other/linux/patch-${pkgver}.gz"
 	#external drivers:
 	"http://www.broadcom.com/docs/linux_sta/${broadcom}.tar.gz"
 	#"http://switch.dl.sourceforge.net/sourceforge/syntekdriver/stk11xx-$stk11xx_ver.tar.gz"
 	#BFS patch:
-	"http://www.kernel.org/pub/linux/kernel/people/ck/patches/3.0/${_basekernel}.0-ck${_ckpatchversion}/${_ckpatchname}.bz2"
+	#"http://www.kernel.org/pub/linux/kernel/people/ck/patches/3.0/${_basekernel}.0-ck${_ckpatchversion}/${_ckpatchname}.bz2"
+	"${newserver}/people/ck/patches/${_basekernel}/${_basekernel}.0-ck${_ckpatchversion}/${_ckpatchname}.bz2"
 	#BFQ patch:
 	"${_bfqpath}/0001-block-prepare-I-O-context-code-for-BFQ-v3-for-3.0.patch"
 	"${_bfqpath}/0002-block-cgroups-kconfig-build-bits-for-BFQ-v3-3.0.patch"
