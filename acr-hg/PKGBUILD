@@ -3,7 +3,7 @@
 
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=acr-hg
-pkgver=42
+pkgver=44
 pkgrel=1
 pkgdesc="A fully compatible autoconf replacement" 
 arch=('i686' 'x86_64')
@@ -14,7 +14,7 @@ makedepends=('mercurial')
 provides=('acr')
 conflicts=('acr')
 
-_hgroot="http://youterm.com/hg"
+_hgroot="http://hg.youterm.com/"
 _hgrepo="acr"
 
 build() {
