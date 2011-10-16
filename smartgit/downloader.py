@@ -35,6 +35,7 @@ class Downloader():
 		self.download_request = download_html + '?file=' + file_path
 
 	def suck(self):
+		sys.stderr.write( 'Negotiating with ' + self.host + '...\n' )
 		conn = http.client.HTTPConnection(self.host, timeout=5)
                 
 		refer = "http://" + self.host + self.download_request
@@ -50,7 +51,9 @@ class Downloader():
 		#redo request with cookie
 		conn.request("GET", self.download_request, headers=self.header)
 		response = conn.getresponse()
-		dom = xml.dom.minidom.parseString(response.read().decode('UTF-8'))
+		htmlstring = response.read().decode('UTF-8')
+		htmlstring = htmlstring.replace('value/>', 'value=""/>')
+		dom = xml.dom.minidom.parseString(htmlstring)
 		formElem = dom.getElementsByTagName("form")[1]
 		action = formElem.getAttribute('action')[2:]
 		idvar = ''
@@ -72,16 +75,18 @@ class Downloader():
 			#redo request with cookie
 			conn.request("GET", response.getheader('Location'), headers=self.header)
 			response = conn.getresponse()
-			dom = xml.dom.minidom.parseString(response.read().decode('UTF-8'))
+			htmlstring = response.read().decode('UTF-8')
+			htmlstring = htmlstring.replace('value/>', 'value=""/>')
+			dom = xml.dom.minidom.parseString(htmlstring)
 			meta_refresh = dom.getElementsByTagName("meta")[1]
 			content = meta_refresh.getAttribute('content')
 			fileurl = content[len("1; URL="):]
 		
-			print('Downloading ' + self.filename )
+			sys.stderr.write('Downloading ' + self.filename + '...\n' )
 			urllib.request.urlretrieve( 'http://' + self.host + fileurl, self.filename)
-			print('Finished')
+			sys.stderr.write('Download finished\n')
 		else:
-			print( 'Not moved :(')
+			sys.stderr.write( 'Not moved :(\n')
 		conn.close()
 
 if __name__ == '__main__':
