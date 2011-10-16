@@ -52,8 +52,8 @@ if [ ! -d ${DATADIR} ] ; then
 fi
 
 # print the version into a file so we handle file formats being out of date properly later
-echo "0.8" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8/'` ]] ; then
+echo "1.0" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0'/` ]] ; then
 	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
 	sleep 4
 fi
@@ -69,6 +69,8 @@ fi
 
 cp /var/log/pacman.log ${DATADIR}/pacman_tmp.log
 
+
+echo -e "Getting diff between \e[4;02m/var/log/pacman.log\e[0m and local copy."
 # we only want to proceed new entries, old ones are already included in the log
 diff -u ${DATADIR}/pacman_now.log /var/log/pacman.log | awk /'^+'/ | sed -e 's/^+//' > ${DATADIR}/process.log
 
@@ -83,7 +85,7 @@ diff -u ${DATADIR}/pacman_now.log /var/log/pacman.log | awk /'^+'/ | sed -e 's/^
 ORIGSIZE=`du ${DATADIR}/process.log | awk '{print $1}'`
 ORIGLINES=`cat ${DATADIR}/process.log | wc -l`
 
-echo -e "Purging \e[4;02mpacman.log\e[0m (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to \e[4;02m${DATADIR}\e[0m."
+echo -e "Purging the diff (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to \e[4;02m${DATADIR}\e[0m."
 cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' -e '/^$/d' | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
 
 PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
@@ -256,19 +258,20 @@ cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/
 timeend
 
 if [[ ${LINECOUNTCOOKIE} == "1" ]] ; then
-	TIMEFINAL=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+	TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*\.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
 else
-	TIMEFINAL=`echo ${TDG} | awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}'`
+	TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}'`
 fi
 
 
 echo -e "100 % done after \e[1;31m${TIMEFINAL}\e[0ms.\n"
 
-echo -e "Output file is \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m"
+echo -e "Output files are \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m"
+echo -e "\t     and \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m.\n\n"
 
 # this is how we can visualize the log
 echo "If you have \"gource\" installed (should be, since it is set as dependency), run"
-echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 -key --camera-mode overview --highlight-all-users -i 0 -a 0.001 -s 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
+echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
 echo -e "to visualize the log using gource.\n"
 echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
 echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -vcodec libtheora -y -b 100000K -r 30 -threads 2 pacmanlog2gource_`date +%b\_%d\_%Y`.ogv\e[0m"
