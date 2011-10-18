@@ -1,4 +1,5 @@
 #!/bin/sh
 
-cd /usr/share/freeorion
+cd /opt/freeorion-svn
 ./freeorion $@
+
