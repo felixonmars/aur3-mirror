@@ -85,8 +85,7 @@ class EncodingWindowHelper:
     def update_ui(self):
         self._action_group.set_sensitive(self._window.get_active_document() != None)
 
-    
-    def reopen_document(self, action, _dummy, enc):
+    def reopen_document(self, action, _dummy = None, enc = None):
         doc = self._window.get_active_document()
         if doc and doc.get_location():
             line_pos = doc.get_iter_at_mark(doc.get_insert()).get_line()

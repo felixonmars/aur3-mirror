@@ -186,7 +186,7 @@ class ToggleTextWrapHelper:
             return
 
 
-    def on_toggle_linebreak(self, action, _dummy):
+    def on_toggle_linebreak(self, action, _dummy = None):
         if self._DEBUG:
             print "Plugin", plugin_name, "action in", self._window
         _active_view = self._window.get_active_view()
