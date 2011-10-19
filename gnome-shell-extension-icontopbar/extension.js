@@ -9,6 +9,7 @@ function enable() {
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['gajim.py'] = 'gajim.py';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['xchat'] = 'xchat';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['instantbird'] = 'instantbird';
+    StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['emesene'] = 'emesene';
 
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['transmission-gtk'] = 'transmission-gtk';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['opera'] = 'opera';
