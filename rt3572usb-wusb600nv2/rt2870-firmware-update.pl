@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# rt2870-firmware-update v0.2
+# rt2870-firmware-update v0.2.1
 ## Copyright 2011 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -50,9 +50,8 @@ exit 1;
 }
 die ":: root privileges required!\n" unless ($> == 0 or $< == 0) ;
 
-my $ralink_url = URI->new('http://www.ralinktech.com');
-$ralink_url->path('/download.php');
-$ralink_url->query('t=U0wyRnpjMlYwY3k4eU1ERXdMekF6THpNeEwyUnZkMjVzYjJGa01UWXpPRGs1T0Rnek5pNTZhWEE5UFQxU1ZESTROekJmUm1seWJYZGhjbVZmVmpJeUM=');
+my $ralink_url = URI->new('http://mirror.thebasementserver.com');
+$ralink_url->path('/soft/ralink/linux/RT2870_Firmware_V22.zip');
 
 my $browser = LWP::UserAgent->new();
 $browser->env_proxy( ); # in case  we're behind a firewall
