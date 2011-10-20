@@ -21,6 +21,7 @@ function enable() {
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['deadbeef'] = 'deadbeef';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['banshee'] = 'banshee';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['clementine'] = 'clementine';
+    StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['audacious'] = 'audacious';
 
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['parcellite'] = 'parcellite';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['radiotray'] = 'radiotray';
@@ -30,6 +31,8 @@ function enable() {
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['keepassx'] = 'keepassx';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['truecrypt'] = 'truecrypt';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['wicd-client.py'] = 'wicd-gtk';
+    StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['gigolo'] = 'gigolo';
+    StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['quicksynergy'] = 'quicksynergy';
 
 }
 
