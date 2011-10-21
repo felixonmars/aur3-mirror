@@ -33,6 +33,8 @@ function enable() {
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['wicd-client.py'] = 'wicd-gtk';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['gigolo'] = 'gigolo';
     StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['quicksynergy'] = 'quicksynergy';
+    StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['pac'] = 'pac';
+    StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['remmina'] = 'remmina';
 
 }
 
