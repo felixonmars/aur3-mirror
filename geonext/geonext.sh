@@ -1,3 +1,3 @@
 #!/bin/sh
 
-java -cp /opt/geonext/geonext.jar geonext/Geonext
+java -cp /usr/share/java/geonext/geonext.jar geonext/Geonext
