@@ -15,7 +15,7 @@ makedepends=('wget' 'make' 'tar' 'linux-headers')
 options=('!libtool')
 
 build() {
-    wget -c http://ftp.kernel.org/pub/linux/kernel/people/tiwai/alsa/alsa-driver/alsa-driver-unstable-snapshot.tar.bz2
+    wget -c http://ftp.riken.go.jp/Linux/kernel/people/tiwai/snapshot/alsa-driver-unstable-snapshot.tar.bz2
 
     tar -xf alsa-driver-unstable-snapshot.tar.bz2
     k_updates=${pkgdir}/lib/modules/$(uname -r)/updates
