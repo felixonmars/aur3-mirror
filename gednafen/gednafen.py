@@ -11,7 +11,7 @@
 
 # Nome: Gednafen
 # Versão: 2011.10.1
-# Requerimentos: Python 2.7xx, e Pygtk 2.xx
+# Requerimentos: Python 2.7xx, Pygtk 2.xx e Mednafen
 # Autor: Smarch < silveriomm@bol.com.br >
 
 ###############################################################################
