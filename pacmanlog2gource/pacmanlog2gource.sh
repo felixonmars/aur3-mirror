@@ -52,8 +52,8 @@ if [ ! -d ${DATADIR} ] ; then
 fi
 
 # print the version into a file so we handle file formats being out of date properly later
-echo "1.1" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1/'` ]] ; then
+echo "1.2" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2/'` ]] ; then
 	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
 	sleep 4
 fi
@@ -121,104 +121,56 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 #
 	if [[ "${PKG}" == *lib* ]] && [[ "${PKG}" != *libreoffice* ]] ; then
 		PKG=lib/${PKG}.lib
-	else
-		if [[ "${PKG}" == *xorg* ]] ; then
-			PKG=xorg/${PKG}.xorg
-		else
-			if [[ "${PKG}" == *ttf* ]] ; then
-				PKG=ttf/${PKG}.ttf
-			else
-				if [[ "${PKG}" == *xfce* ]] ; then
-					PKG=xfce/${PKG}.xfce
-				else
-					if [[ "${PKG}" == *sdl* ]] ; then
-						PKG=sdl/${PKG}.sdl
-					else
-						if [[ "${PKG}" == *xf86* ]] ; then
-							PKG=xf86/${PKG}.xf86
-						else
-							if [[ "${PKG}" == *perl* ]] ; then
-								PKG=perl/${PKG}.perl
-							else
-								if [[ "${PKG}" == *gnome* ]] ; then
-									PKG=gnome/${PKG}.gnome
-								else
-									if [[ "${PKG}" == *libreoffice* ]] ; then
-										PKG=libreoffice/${PKG}.libreoffice
-									else
-										if [[ "${PKG}" == *gtk* ]] ; then
-											PKG=gtk/${PKG}.gtk
-										else
-											if [[ "${PKG}" == *gstreamer* ]] ; then
-												PKG=gstreamer/${PKG}.gstreamer
-											else
-												if [[ "${PKG}" == *kde* ]] ; then
-													PKG=kde/${PKG}.kde
-												else
-													if [[ "${PKG}" == *python* ]] ; then
-														PKG=python/${PKG}.python
-													else
-														if [[ "${PKG}" == *py* ]] ; then
-															PKG=python/${PKG}.python
-														else
-															if [[ "${PKG}" == *lxde* ]] ; then
-																PKG=lxde/${PKG}.lxde
-															else
-																if [[ "${PKG}" == ^lx* ]] ; then
-																	PKG=lxde/${PKG}.lxde
-																else
-																	if [[ "${PKG}" == *php* ]] ; then
-																		PKG=php/${PKG}.php
-																	else
-																		if [[ "${PKG}" == *alsa* ]] ; then
-																			PKG=alsa/${PKG}.alsa
-																		else
-																			if [[ "${PKG}" == *compiz* ]] ; then
-																				PKG=compiz/${PKG}.compiz
-																			else
-																				if [[ "${PKG}" == *dbus* ]] ; then
-																					PKG=dbus/${PKG}.dbus
-																				else
-																					if [[ "${PKG}" == *gambas* ]] ; then
-																						PKG=gambas/${PKG}.gambas
-																					else
-																						if [[ "${PKG}" == *qt* ]] ; then
-																							PKG=qt/${PKG}.qt
-																						else
-																							if [[ "${PKG}" == *firefox* ]] ; then
-																								PKG=mozilla/${PKG}.mozilla
-																							else
-																								if [[ "${PKG}" == *thunderbird* ]] ; then
-																									PKG=mozilla/${PKG}.mozilla
-																								else
-																									if [[ "${PKG}" == *seamonky* ]] ; then
-																										PKG=mozilla/${PKG}.mozilla
-																									fi
-																								fi
-																							fi
-																						fi
-																					fi
-																				fi
-																			fi
-																		fi
-																	fi
-																fi
-															fi
-														fi
-													fi
-												fi
-											fi
-										fi
-									fi
-								fi
-							fi
-						fi
-					fi
-				fi
-			fi
-		fi
+	elif [[ "${PKG}" == *xorg* ]]		 ; then
+		PKG=xorg/${PKG}.xorg
+	elif [[ "${PKG}" == *ttf* ]]		 ; then
+		PKG=ttf/${PKG}.ttf
+	elif [[ "${PKG}" == *xfce* ]]		 ; then
+		PKG=xfce/${PKG}.xfce
+	elif [[ "${PKG}" == *sdl* ]]		 ; then
+		PKG=sdl/${PKG}.sdl
+	elif [[ "${PKG}" == *xf86* ]]		 ; then
+		PKG=xf86/${PKG}.xf86
+	elif [[ "${PKG}" == *perl* ]]		 ; then
+		PKG=perl/${PKG}.perl
+	elif [[ "${PKG}" == *gnome* ]]		 ; then
+		PKG=gnome/${PKG}.gnome
+	elif [[ "${PKG}" == *libreoffice* ]] ; then
+		PKG=libreoffice/${PKG}.libreoffice
+	elif [[ "${PKG}" == *gtk* ]]		 ; then
+		PKG=gtk/${PKG}.gtk
+	elif [[ "${PKG}" == *gstreamer* ]]	 ; then
+		PKG=gstreamer/${PKG}.gstreamer
+	elif [[ "${PKG}" == *kde* ]]		 ; then
+		PKG=kde/${PKG}.kde
+	elif [[ "${PKG}" == *python* ]]		 ; then
+		PKG=python/${PKG}.python
+	elif [[ "${PKG}" == *py* ]]			 ; then
+		PKG=python/${PKG}.python
+	elif [[ "${PKG}" == *lxde* ]]		 ; then
+		PKG=lxde/${PKG}.lxde
+	elif [[ "${PKG}" == ^lx* ]]			 ; then
+		PKG=lxde/${PKG}.lxde
+	elif [[ "${PKG}" == *php* ]]		 ; then
+		PKG=php/${PKG}.php
+	elif [[ "${PKG}" == *alsa* ]]		 ; then
+		PKG=alsa/${PKG}.alsa
+	elif [[ "${PKG}" == *compiz* ]]		 ; then
+		PKG=compiz/${PKG}.compiz
+	elif [[ "${PKG}" == *dbus* ]]		 ; then
+		PKG=dbus/${PKG}.dbus
+	elif [[ "${PKG}" == *gambas* ]]		 ; then
+		PKG=gambas/${PKG}.gambas
+	elif [[ "${PKG}" == *qt* ]]			 ; then
+		PKG=qt/${PKG}.qt
+	elif [[ "${PKG}" == *firefox* ]]	 ; then
+		PKG=mozilla/${PKG}.mozilla
+	elif [[ "${PKG}" == *thunderbird* ]] ; then
+		PKG=mozilla/${PKG}.mozilla
+	elif [[ "${PKG}" == *seamonky* ]]	 ; then
+		PKG=mozilla/${PKG}.mozilla
 	fi
-# yes, the code above sucks
+
 
 # write the important stuff into our logfile
 	echo "${UDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
