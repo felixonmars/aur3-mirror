@@ -52,15 +52,15 @@ if [ ! -d ${DATADIR} ] ; then
 fi
 
 # print the version into a file so we handle file formats being out of date properly later
-echo "1.0" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0'/` ]] ; then
+echo "1.1" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1/'` ]] ; then
 	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
 	sleep 4
 fi
 
 
 # create empty logfile if non exists
-if [ ! -a  ${DATADIR}/pacman_now.log ] ; then
+if [ ! -a ${DATADIR}/pacman_now.log ] ; then
 	touch ${DATADIR}/pacman_now.log
 fi
 
@@ -110,13 +110,13 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 # convert the date into unix time which can be read by gource
 	UDATE=`date +"%s" -d "${DATE}"`
 # find out if the package was installed, upgraded or removed
-	STATE=`echo ${CURLINE} | awk '{print $3}' | sed  -e 's/installed/A/' -e 's/upgraded/M/' -e 's/removed/D/'`
+	STATE=`echo ${CURLINE} | awk '{print $3}' | sed -e 's/installed/A/' -e 's/upgraded/M/' -e 's/removed/D/'`
 # get the actual package name
 	PKG=`echo ${CURLINE} | awk '{print $4}'`
 # add extensions to the package name
 # this way we can have the packages grouped and nicely colored in gource
 #
-# todo:  do things like:
+# todo: do things like:
 # first find everything that contains an x, then, continue searching only these for xorg, xf86 etc and not everything
 #
 	if [[ "${PKG}" == *lib* ]] && [[ "${PKG}" != *libreoffice* ]] ; then
@@ -231,7 +231,7 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 		LINECOUNTCOOKIE=1
 		LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
 		timeend
-		# same as  echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" #  | head -n1
+		# same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
 		TGDOUT=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
 		TIMEDONEONE=`calc -p "100 / ${LINEPERC:0:4} *${TDG}" | sed 's/\~//'`
 		TIMEDONEFINAL=`calc -p "${TIMEDONEONE} - ${TDG}" | sed 's/\~//' | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
@@ -267,14 +267,14 @@ fi
 echo -e "100 % done after \e[1;31m${TIMEFINAL}\e[0ms.\n"
 
 echo -e "Output files are \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m"
-echo -e "\t     and \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m.\n\n"
+echo -e "\t and \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m.\n\n"
 
 # this is how we can visualize the log
 echo "If you have \"gource\" installed (should be, since it is set as dependency), run"
 echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
 echo -e "to visualize the log using gource.\n"
 echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
-echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -vcodec libtheora -y -b 100000K -r 30 -threads 2 pacmanlog2gource_`date +%b\_%d\_%Y`.ogv\e[0m"
+echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -threads 4 -b 3000k -maxrate 8000k -bufsize 10000k \e[4;32mpacmanlog2gource_`date +%b\_%d\_%Y`.mp4\e[0m"
 echo "to the first command."
 echo -e "Alternatively, you can also replace \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m with \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m as source-logfile to get all packages in a pie-formation."
 echo -e "To skip the package names, replace \e[0;32m--hide progress,mouse\e[0m by \e[0;32m--hide progress,mouse,filenames\e[0m."
