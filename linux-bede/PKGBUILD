@@ -9,15 +9,14 @@ true && pkgname=("linux${_kernelname}" "linux${_kernelname}-headers")
 _basekernel=3.1
 _patchver=0
 pkgver=${_basekernel}
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
 options=(!strip)
 
 source=(
-	#"http://www.kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2"
-	"http://www.herecura.be/files/linux/linux-${_basekernel}.tar.xz"
+	"http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.xz"
 	# the main kernel config files
 	"config-${_basekernel}-desktop.i686"
 	"config-${_basekernel}-desktop.x86_64"
@@ -28,7 +27,7 @@ source=(
 	"sysctl-desktop.x86_64"
 )
 sha256sums=(
-	'd0aeec82964a73a61cc285126ea3d7262a57e7e89eda41e633aedb66a5f894b5'
+	'6f220258f3ce9f11d0e53860ccc2d9fe746117056212099876dbe5ee1de80af3'
 	'3fd18971eacc1efe8c4305940ac087ebfd2b805b8cb010635f7de7cc18ed5671'
 	'c69883c592a378a7767d0832e6e112e330134ac08569af1687a72117b4f7f8c2'
 	'd5bb4aabbd556f8a3452198ac42cad6ecfae020b124bcfea0aa7344de2aec3b5'
@@ -41,8 +40,7 @@ if [ ${_patchver} -ne 0 ]; then
 	pkgver=${_basekernel}.${_patchver}
 	_patchname="patch-${pkgver}"
 	source=( "${source[@]}"
-		#"http://www.kernel.org/pub/linux/kernel/v3.0/${_patchname}.gz"
-		"http://www.herecura.be/files/linux/${_patchname}.gz"
+		"http://www.kernel.org/pub/linux/kernel/v3.x/${_patchname}.gz"
 	)
 	sha256sums=( "${sha256sums[@]}"
 		''
@@ -65,10 +63,16 @@ fi
 
 # some stuff for the AUR parser :p
 if [ "aur" == "there" ]; then
-	source=("ftp://ftp.kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2"
-			"config-${_basekernel}-desktop.i686"
-			"config-${_basekernel}-desktop.x86_64"
-			"linux${_kernelname}.preset"
+	source=(
+		"http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.xz"
+		# the main kernel config files
+		"config-${_basekernel}-desktop.i686"
+		"config-${_basekernel}-desktop.x86_64"
+		# standard config files for mkinitcpio ramdisk
+		"linux${_kernelname}.preset"
+		# sysctl updates for desktop usage picked up from opensuse
+		"sysctl-desktop.i686"
+		"sysctl-desktop.x86_64"
 	)
 fi
 
@@ -86,6 +90,8 @@ build() {
 		patch -Np1 -i ${srcdir}/${patch}
 	done
 
+	# set configuration
+	msg2 "copy configuration"
 	if [ "$CARCH" = "x86_64" ]; then
 		cat ../config-${_basekernel}-desktop.x86_64 >./.config
 	else
@@ -95,15 +101,16 @@ build() {
 		sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"\U${_kernelname}\"|g" ./.config
 	fi
 
-	# remove the sublevel from Makefile
-	# this ensures our kernel version is always 3.X-BEDE
-	# this way, minor kernel updates will not break external modules
-	sed -ri 's|^(SUBLEVEL =).*|\1|' Makefile
+	# set extraversion to pkgrel
+	msg2 "set extraversion to ${pkgrel}"
+	sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
 
 	# hack to prevent output kernel from being marked as dirty or git
+	msg2 "apply hack to prevent kernel tree being marked dirty"
 	echo "" > ${srcdir}/linux-${_basekernel}/.scmversion
 
 	# get kernel version
+	msg2 "prepare"
 	make prepare
 	# load configuration
 	# Configure the kernel. Replace the line below with one of your choice.
@@ -119,6 +126,7 @@ build() {
 	####################
 	# yes "" | make config
 	# build!
+	msg2 "build"
 	make ${MAKEFLAGS} bzImage modules
 }
 
@@ -148,7 +156,11 @@ package_linux-bede() {
 
 	# get kernel version
 	_kernver=$(make kernelrelease)
+
+	# install modules
 	make INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=${pkgdir} modules_install
+
+	# copy System.map and bzImage
 	cp System.map ${pkgdir}/boot/System.map${_kernelname}
 	cp arch/$KARCH/boot/bzImage ${pkgdir}/boot/vmlinuz${_kernelname}
 
@@ -180,6 +192,13 @@ package_linux-bede() {
 
 	# remove the firmware
 	rm -rf ${pkgdir}/lib/firmware
+
+	_fldkernelname=$(echo ${_kernelname} | tr "[:lower:]" "[:upper:]")
+	# make room for external modules
+	ln -s "../${_basekernel}${_fldkernelname}-external" "${pkgdir}/lib/modules/${_kernver}/external"
+	# add real version for building modules and running depmod from post_install/upgrade
+	mkdir -p "${pkgdir}/lib/modules/${_basekernel}${_fldkernelname}-external"
+	echo "${_kernver}" > "${pkgdir}/lib/modules/${_basekernel}${_fldkernelname}-external/version"
 
 	# gzip all modules
 	find ${pkgdir} -name '*.ko' -exec gzip -9 {} \;
