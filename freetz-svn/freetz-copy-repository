@@ -1,0 +1,50 @@
+#!/bin/bash
+
+DEST_DIR="${HOME}"
+FREETZ_REPO="/opt/freetz-svn/"
+
+if [ $UID -eq 0 ]; then
+	printf "  \033[1;34;40m-> \033[1;37;40mroot access denies, you need to start this as normal user, it won't build with the root account.\033[0;0m\n"
+	exit 1
+fi
+
+if [ ! -d "${FREETZ_REPO}/freetz-svn-trunk/.svn" ]; then
+	printf "  \033[1;34;40m-> \033[1;37;40mPlease update your repository first with ther AUR package: freetz-svn\033[0;0m\n"
+	exit 1
+fi
+
+get_dest_dir() {
+        printf "  \033[1;34;40m-> \033[1;37;40mPlease specify the path where we should copy the repository to (none=${HOME}):\033[0;0m "
+        read DEST_DIR
+        [ -z "${DEST_DIR}" ] && DEST_DIR="${HOME}"
+}
+
+get_dest_dir
+
+while [ -z "${DEST_DIR}" ] || [ ! -d "${DEST_DIR}" ]; do
+	get_dest_dir
+done
+
+printf "  \033[1;34;40m         -> Copying repository"
+cp -fR -- "${FREETZ_REPO}" "${DEST_DIR}" &2>/dev/null &
+while ps aux | grep -i "${FREETZ_REPO} ${DEST_DIR}" | grep -v grep &>/dev/null; do 
+	printf '.'
+	sleep 0.2
+done
+printf "\033[0;0m\n"
+if [ "$?" -eq 1 ]; then
+	printf "  \033[1;34;40m-> \033[1;37;40mError: abort.\033[0;0m\n"
+	exit 1
+fi
+
+printf "  \033[1;34;40m         -> Done.\033[0;0m\n\n"
+printf "  \033[1;34;40m-> \033[1;37;40mAccording to licenses you need to compile your image yourself, this package only delivers the updated build environment.\033[0;0m\n"
+printf "  \033[1;34;40m-> \033[1;37;40mUse the following commands to setup the make configuration then in the specified directory ${DEST_DIR%/}/`basename ${FREETZ_REPO}`:\033[0;0m\n"
+printf "  \033[1;34;40m         -> make clean && make menuconfig\033[0;0m\n\n"
+printf "  \033[1;34;40m-> \033[1;37;40mFinally build your image with:\033[0;0m\n"
+printf "  \033[1;34;40m         -> make\033[0;0m\n\n"
+printf "  \033[1;34;40m-> \033[1;37;40mYour image will be stored in the directory images/ \033[0;0m\n"
+printf "  \033[1;34;40m-> \033[1;37;40mIf you need help or are unsure about ANYTHING(!), DO visit www.freetz.org for more information!\033[0;0m\n"
+printf "  \033[1;34;40m-> \033[1;37;40mYou CAN damage your device if you do something wrong!\033[0;0m\n"
+
+exit 0
