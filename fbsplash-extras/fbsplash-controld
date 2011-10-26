@@ -1,0 +1,679 @@
+#!/bin/bash
+
+#  fbsplash-controld                                                         #
+
+#  Daemon for controlling the Fbsplash daemon                                #
+#                                                                            #
+#  Author:                Kurt J. Bosch    <kjb-temp-2009 at alpenjodel.de>  #
+#  Based on the work of:  Michal Januszewski          <spock at gentoo.org>  #
+#                         and others                                         #
+#                                                                            #
+#  Distributed under the terms of the GNU General Public License (GPL)       #
+
+#  Features and Tweaks
+#
+#  * Replace splash main event shell-function by a process maintaining state
+#  * Provide smooth animation like progress (self learning, time based)
+#  * Support filesystem check progress (via status message text)
+#  * Provide a general failure status (dummy service event)
+#  * Support splash daemon started in initcpio
+#  * Wait until fbcondecor_helper fadein done before starting the daemon
+#  * Prevent auto-verbose timeout as long as message is updated
+#  * Support random splash log messages instead of writing ugly generic ones
+#  * Update splash even on 'verbose error'
+#  * On gpm start, wait until socket ready before using
+#  * Reserve some progress for late stuff to avoid looking freezed
+#  * Avoid adding to profile (splash_manager replay log) after splash exit
+#  * If in configuration, make the splash daemon fade in even on shutdown
+#  * If not available, provide a fake SysV-Init environment for theme hooks
+
+#  Usage
+#
+#  'start' 'early' [<mountpoint> [svcs-fg-file]]     Start control daemon for a bootup splash daemon started in initrd
+#  'start' 'bootup'|'shutdown'|'reboot' [svcs-fg-file [svcs-start-file [svcs-stop-file]]]
+#                                                    Start control daemon and splash daemon
+#    mountpoint      is the directory where the splash cache tmpfs was mounted by the initrd.
+#    svcs-fg-file    services started (stopped if reboot/shutdown) in foreground (those relevant for progress) - one per line.
+#                    (Current working directory when reading is the splash cache tmpfs root.)
+#    svcs-start-file and svcs-stop-file
+#                    are copied to svcs_start and svcs_stop in the splash cache tmpfs for theme hooks using splash_svclist_get().
+#  'stop' ['force']                                  Stop (or abort) splash and control daemons (if running) and wait until gone
+#  'comms' <splash-daemon-command>...                Send one or more commands to the splash daemon (if running)
+#  'ping'                                            Returns a zero exit-code if control daemon is running
+#  'fsckd' 'start'|'stop'                            Start/stop a daemon for pushing filesystem check progress info to the splash
+#                                                    status message line ( {FSCK_FD}>/run/fbsplash-fsckd.fifo; fsck -C$FSCK_FD )
+#  <command>|<splash-event>                          Send a command or event to the control daemon FIFO (non blocking)
+#
+#    FIFO Commands:
+#
+#  'comm' <splash-daemon-command>                    Send a command to the splash daemon
+#  'message <text>'                                  Update the main status message and reset the auto verbose timeout
+#  'push-message <text>'                             Like message if SPLASH_PUSH_MESSAGES="yes" in configuration
+#  'default-message'                                 Reset message to default
+#  'log <text>'                                      Send a message to the log textbox
+#  'svc-error'                                       Set general failure service 'fbsplash-dummy' to failed (w/o a splash event)
+#  'store'                                           Save messured services start/stop time values to the disk
+#
+#    FIFO Events - similar as for /sbin/splash-function.sh splash():
+#
+#  'critical'                                        Change to console (Virtual Terminal # 1)
+#  '<svc-event> <service-name>'                      Update splash (and run theme hooks)
+#    Special case: 'svc_start'|'svc_started'|'svc_start_failed' 'fbsplash-boot-dummy'
+#                       Pseudo service for SysV-Init 'boot' stage and
+#                       running theme hooks for sysinit end as well as entering multi-user
+#
+
+# Runtime Interface
+PID_FILE=/run/fbsplash-controld.pid
+    FIFO=/run/fbsplash-controld.fifo
+PID_LINK=/run/fbsplashd.pid
+
+# Internal Persistent Data Cache
+CACHE_DIR=/lib/fbsplash-controld/cache
+
+# Fade takes 2 sec. normally, but some machines are broken
+SPLASH_FADE_WAIT=10 # seconds
+
+. /sbin/fbsplash-control-functions.bash
+
+# Wait until given processes die or return 1 if timeout
+# args: <seconds> [<pid>...]
+splash_wait() {
+	local t=$(( $1 * 10 ))
+	shift
+	while kill -0 -- $* &>/dev/null; do
+		(( -- t >= 0 )) && sleep .1 && continue
+		echo "Timeout waiting for processes to die: $*" >&2
+		return 1
+	done
+}
+
+case $1
+in ping | stop )
+	pid=""
+	pids=""
+	error=0
+	[[ -f $PID_FILE ]] && read pid pids <"$PID_FILE" && (( pid )) && kill -0 -- $pid || error=1
+;;& ping )
+	[[ -p $FIFO ]] || error=1
+	exit $error
+;;& stop )
+	splash_control "$@"
+	splash_wait "$(( SPLASH_FADE_WAIT + 2 ))" $pid $pids || exit 1 # wait a bit longer than for splash exit
+	# Never error if no daemon running, except for ping
+	exit 0
+;; start )
+	:
+;; fsckd )
+	# Daemon for pushing progress info from 'fsck -C$FSCK_FD' to the splash status message line
+	pid_file="/run/fbsplash-fsckd.pid"
+	    fifo="/run/fbsplash-fsckd.fifo"
+	case $2
+	in start )
+		# Avoid starting multiple instances
+		[[ ! -e $pid_file ]] && mkfifo -m 600 "$fifo" || exit 1
+		(
+			trap "rm -f '$pid_file' '$fifo'" EXIT
+			trap 'exit 0' TERM # avoid terminated message
+			fsck_progress=-1
+			while read phase step total fs; do
+				new_pgr=$(( 100 * step / total ))
+				(( fsck_progress == new_pgr )) && continue
+				fsck_progress=$new_pgr
+				printf -v fsck_msg '[ %s  phase %s  %2i%% ]' "$fs" "$phase" $fsck_progress
+				splash_control progress-message "Checking Filesystems ${fsck_msg}"
+			done
+		) &>/dev/null <"$fifo" &
+		echo $! >|"$pid_file"
+	;; stop )
+		[[ -f "$pid_file" ]] || exit 0
+		read pid <"$pid_file" && kill $pid &>/dev/null && splash_wait 5 $pid
+		splash_control progress-message # restore message
+	esac
+	exit $?
+;; * )
+	splash_control "$@"
+	exit 0
+esac
+
+## Set up environment, splash-functions and configuration
+
+# Allow to start splash w/o SysV-Init, in custom pm-utils scripts, for testing ...
+# RUNLEVEL is needed for hooks, splash_start() and splash_get_boot_message()
+# (export to be save in case hooks use it directly)
+export PREVLEVEL RUNLEVEL
+[[ $PREVLEVEL = ? ]] || PREVLEVEL=5
+case $2
+in early | bootup )
+	PREVLEVEL="N"
+	RUNLEVEL="S"
+;; reboot )
+	RUNLEVEL=6
+;; shutdown )
+	RUNLEVEL=0
+;; * )
+	echo "Usage: ${0##*/} start bootup|early|shutdown|reboot [arg]..." >&2
+	exit 1
+esac
+
+# Note: /proc needs to be mounted at this point!
+# /etc/conf.d/splash is also sourced by this
+. /sbin/splash-functions.sh || exit 1
+# Eliminate some non local splash_setup variables              ## FIXME ##
+unset -v options opt i
+# Add path for miscsplashutils fgconsole (needed in case /usr not mounted)
+[[ -d $spl_bindir ]] && PATH+=":${spl_bindir}"
+# Resolution variables (might also be required by some themes)
+res=$( "$spl_util" -c getres -t "$SPLASH_THEME" )
+export SPLASH_XRES=${res%x*} SPLASH_YRES=${res#*x}
+
+# Defaults, Configuration
+SPLASH_SMOOTH_PROGRESS="yes"
+. /etc/conf.d/splash-extras
+
+# If already started, don't allow to override splash mode
+[[ $2 = early ]] && SPLASH_MODE_REQ="silent"
+
+# Sleep interval for progress updates
+ms_tick=33 # milliseconds
+
+# If verbose mode, just change to console
+[[ $SPLASH_MODE_REQ = verbose && $PREVLEVEL != N ]] && splash_verbose
+# If off, do nothing
+[[ $SPLASH_MODE_REQ = silent ]] || exit 0
+
+## Overrides (exported for theme hooks and used by upstream functions)
+
+splash_get_boot_message() {
+	# Use a space instead of an empty message to avoid tonns of 'Text has zero width.'  ## FIXME ##
+	case $RUNLEVEL
+	in 6 ) echo "${SPLASH_REBOOT_MESSAGE:- }"
+	;; 0 ) echo "${SPLASH_SHUTDOWN_MESSAGE:- }"
+	;; * ) echo "${SPLASH_BOOT_MESSAGE:- }"
+	esac
+}
+
+# Send a command to the (non blocking) splash daemon fifo w/o forking
+splash_comm_send() {
+	# Avoid using SysV-Init pidof
+	pgrep -x -f "$spl_daemon .*" >/dev/null || return 1
+	splash_fifo_send "$*"
+}
+
+# Write a line to the splash profile log file
+splash_profile() {
+	splash_profile_write "$*"
+}
+
+# Open a non blocking file descriptor for the splash daemon fifo
+# Send zero ore more commands
+export splash_fifo_fd=""
+splash_fifo_send() {
+	if [[ -z $splash_fifo_fd ]]; then
+		[[ -p $spl_fifo ]] && exec {splash_fifo_fd}<>"$spl_fifo" || return 0
+	fi
+	(( $# )) || return 0
+	splash_profile_write comm "$@"
+	printf '%s\n' "$@" >&$splash_fifo_fd
+}
+export -f splash_fifo_send
+
+# Open a file descriptor for the splash profile log file
+# Write zero or more lines
+# args: [<prefix> <text>...]
+export splash_profile_fd=""
+splash_profile_write() {
+	[[ $SPLASH_PROFILE = on ]] || return 0
+	if [[ -z $splash_profile_fd ]]; then
+		# Avoid read-only filesystem error on shutdown
+		# Append to contents written in initcpio
+		[[ -w $spl_cachedir ]] && exec {splash_profile_fd}>>$spl_cachedir/profile || return 0
+	fi
+	(( $# )) || return 0
+	local uptime rest
+	read uptime rest </proc/uptime
+	printf "$uptime: ${1} %s\n" "${@:2}" >&$splash_profile_fd
+}
+
+## Prepare for starting
+
+unset -v ticker_pid
+cleanup() {
+	[[ $ticker_pid ]] && kill -- $ticker_pid
+	# Send SIGKILL to any stale splash daemon and unmount the tmpfs copying
+	# the profile log file to the disk for splash_manager replay and debugging
+	# Note: If no tmpfs is mounted, this does nothing at all.
+	cd /
+	splash_cache_cleanup
+	rm -f "$PID_FILE" "$PID_LINK" "$FIFO"
+}
+
+trap cleanup EXIT
+
+silent_err() {
+	# If silent splash VT active, change to console
+	[[ $( fgconsole ) = "$SPLASH_TTY" ]] && splash_verbose
+	(( $# )) || return 0
+	echo "ERROR: $*" >&2
+}
+
+cache_check() {
+	findmnt -n -r -t "$spl_cachetype" -T "$1" >/dev/null && return 0
+	silent_err "Unable to find the splash cache filesystem at: '${1/#./$PWD}'"
+	return 1
+}
+
+if [[ $2 = early ]]; then
+	cachedir=${3:-$spl_cachedir}
+	cache_check "$cachedir" || exit 1
+	[[ $cachedir = "$spl_cachedir" ]] || mount --move "$cachedir" "$spl_cachedir" || exit 1
+	set -- "$1" "$2" "$4"
+else
+	# On shutdown we might already have some control/ticker/splash daemons
+	# running (if splash_manager is in use etc.)
+	pids=" "$( pgrep -d " " -x -f "($BASH ${0}|${spl_daemon})( .*)?" )" "
+	pids=${pids// $$ /}
+	# Kill daemons to allow starting
+	kill -- $pids &>/dev/null
+	# No fadeout should happen when killed
+	splash_wait 5 $pids || exit 1
+	# Make sure the splash cache tmpfs is gone
+	SPLASH_PROFILE="off" splash_cache_cleanup
+	# Mount a new empty splash cache tmpfs
+	( splash_cache_prep ) || exit 1
+fi
+
+case $2
+in reboot | shutdown )
+	softlevel="shutdown"
+	action="stop"
+	action_done="stopped"
+;; * )
+	softlevel="sysinit"
+	action="start"
+	action_done="started"
+esac
+
+svcs_fg_file=$3
+svcs_start=$4
+svcs_stop=$5
+
+# Avoid loosing the splash cache tmpfs (on shutdown) and writing to the harddisk
+cd "$spl_cachedir" && cache_check . || exit 1
+
+## Create and open the control daemon fifo non blocking and hold it to avoid loosing input or getting eof
+mkfifo -m 600 "$FIFO" && exec {control_fifo_fd}<>"$FIFO" || exit 1
+
+# Run theme hook script (if any)
+# args: 'pre'|'post' <event> [arg]...
+run_hook() {
+	local pre_post=$1 event=$2 args=( "${@:3}" )
+	local hook_name=${event}-${pre_post}
+	local hook_script=/etc/splash/$SPLASH_THEME/scripts/$hook_name
+	# Profile might be reused by splash_manager replay with different theme,
+	# so this is added even if hook isn't there.
+	splash_profile_write "$pre_post" "$event ${args[*]}"
+	# source is faster, but not supported by old/foreign themes
+	if [[ -r ${hook_script}.sh ]]; then
+		# Export hook name to support symlinked generic scripts
+		( SPLASH_HOOK=$hook_name source "${hook_script}.sh" "${args[@]}" )
+	elif [[ -x $hook_script ]]; then
+		"$hook_script" "${args[@]}"
+	fi
+}
+
+# Wrapper for updating the splash main status message (if needed)
+splash_set_message() {
+	local msg=$1
+	# Send a NBSP instead of an empty/space string to avoid splash daemon crash  ## FIXME ##
+	[[ $msg =~ ^[[:space:]]*$ ]] && msg=$'\xC2\xA0'
+	[[ $splash_message = $msg ]] && return 0
+	splash_message=$msg
+	# Reset autoverbose timeout (but only if needed to keep the profile clean)
+	(( SPLASH_AUTOVERBOSE > 0 )) && splash_fifo_send "progress $progress_elapsed"
+	# 'repaint' needed at least for 'set message' if daemon not started with '--type=bootup'
+	splash_fifo_send "set message $splash_message" "repaint"
+}
+
+## Start splash daemon and/or open splash daemon fifo
+
+if [[ $2 = early ]]; then
+	# Override (unknown) initcpio boot message
+	splash_message="$SPLASH_BOOT_MESSAGE -- invalid --"
+	splash_set_message "$SPLASH_BOOT_MESSAGE"
+else
+	# Copy services list files into the splash cache for hooks using splash_svclist_get()
+	[[ $svcs_start ]] && echo "$( <"$svcs_start" )" >|"svcs_start"
+	[[ $svcs_stop  ]] && echo "$( <"$svcs_stop"  )" >|"svcs_stop"
+	# Wait for initcpio helper fadein
+	if ! splash_wait "$SPLASH_FADE_WAIT" $( pgrep fbcondecor_helper ); then
+		silent_err "Your framebuffer seems to be to slow. Please disable splash fade effects!"
+		exit 1
+	fi
+	# Run any pre rc_init hook
+	# Note: For splash_manager replay, pre rc_init needs to be the first line in the profile
+	run_hook pre rc_init $softlevel $RUNLEVEL
+	# Enable shutdown fadein hack
+	[[ $PREVLEVEL != N && ,$SPLASH_EFFECTS, = *,fadein,* && $( fgconsole ) = "$SPLASH_TTY" ]] && chvt 63
+	# Start the splash daemon or (on boot) let the user read the error message on the splash VT
+	splash_start || exit 1
+	splash_message=$( splash_get_boot_message )
+	# Prevent gpm from garbling the splash
+	[[ -S /dev/gpmctl ]] && splash_control comms "set gpm" "repaint"
+fi
+
+# Symlink splash daemon PID file
+ln -sfT "$spl_pidfile" "$PID_LINK"
+
+# Run any post rc_init hook
+run_hook post rc_init $softlevel $RUNLEVEL
+
+# Avoid blackscreen (in spite of splash daemon running) or stale fbcondecor helper splash
+# if theme is missing or video mode and theme do not match
+# Give some error infos additional to those of the daemon to direct users in the right direction
+# Unfortunately we can't check a theme loaded in the initcpio, so just hope there is no difference.
+file=/etc/splash/$SPLASH_THEME/${SPLASH_XRES}x${SPLASH_YRES}.cfg
+pic="silentpic"
+if ! [[ -f $file ]]; then
+	silent_err "File not found: '$file'" >&2
+elif ! [[ $( <"$file" ) =~ (^|$'\n')[[:blank:]]*${pic}(256)?=[^[:space:]] ]]; then
+	silent_err "Silent splash mode not supported in: '$file'"
+elif
+	read bpp </sys/class/graphics/fb0/bits_per_pixel && [[ $bpp = 8 ]] && pic+="256"
+	! [[ $( <"$file" ) =~ (^|$'\n')[[:blank:]]*${pic}=[^[:space:]] ]]; then
+	silent_err "Splash theme / video mode bit depth mismatch."
+fi
+
+## Ticker daemon
+(
+	trap cleanup EXIT
+	trap 'exit 0' TERM
+	printf -v sleep '.%03i' $ms_tick
+	while :; do
+		sleep $sleep
+		echo tick >"${FIFO}"
+	done
+) </dev/null &>/dev/null &
+ticker_pid=$!
+
+# Run half way bootup hooks once in order to make sure any extra voodoo is done
+splash_rc_exit_sysinit() {
+	[[ $softlevel = "sysinit" ]] || return 0
+	run_hook pre  rc_exit "S"
+	run_hook post rc_exit "S"
+	softlevel="boot"
+}
+
+splash_rc_init_boot() {
+	splash_rc_exit_sysinit
+	[[ $softlevel = "boot" ]] || return 0
+	read PREVLEVEL RUNLEVEL < <( runlevel 2>/dev/null )
+	[[ $PREVLEVEL =   ?   ]] || PREVLEVEL="N"
+	[[  $RUNLEVEL = [^Ss] ]] ||  RUNLEVEL=5
+	run_hook pre  rc_init boot $RUNLEVEL
+	run_hook post rc_init boot $RUNLEVEL
+	softlevel=""
+}
+
+## Control daemon
+(
+	# Stop ticker and remove pid file no matter how we exit
+	trap cleanup EXIT
+	# Abort avoiding terminated message
+	trap 'exit 0' TERM
+	# Names of progress (foreground) services (those done until splash stopped)
+	declare -a SPLASH_SVCS_FG=( )
+	# Avarage services start times in ms
+	declare -A SPLASH_SVC_TIMES_MS=( )
+	# Weighted count of starts * 100
+	declare -A SPLASH_SVC_TIMES_N100=( )
+	# New services start times in ms
+	declare -A SPLASH_SVC_TIMES_MS_NEW=( )
+
+	times_file=${CACHE_DIR}/svc_${action}_times
+
+	# Read in stored times
+	if [[ -f $times_file ]]; then
+		while read line; do
+			# Ignore garbled and empty lines to be save
+			[[ $line =~ ^(.+)" "([0-9]+)" "([0-9]+)[[:blank:]]*$ ]] || continue
+			SPLASH_SVC_TIMES_MS["${BASH_REMATCH[1]}"]=${BASH_REMATCH[2]}
+			SPLASH_SVC_TIMES_N100["${BASH_REMATCH[1]}"]=${BASH_REMATCH[3]}
+		done <"$times_file"
+	fi
+
+	ms_elapsed_add() {
+		local ms=${SPLASH_SVC_TIMES_MS["$1"]}
+		# Fall back to one tick per foreground service run
+		if [[ $SPLASH_SMOOTH_PROGRESS = yes && $ms ]]
+		then (( ms_elapsed += ms ))
+		else (( ms_elapsed += ms_tick ))
+		fi
+	}
+	# Read in foreground daemons and sum up relevant services times for progress
+	ms_elapsed=0
+	if [[ $svcs_fg_file ]]; then
+		while read -r svc; do
+			[[ $svc ]] || continue
+			SPLASH_SVCS_FG+=( "$svc" )
+			ms_elapsed_add "$svc"
+		done <"$svcs_fg_file"
+	fi
+	ms_total=$ms_elapsed
+	ms_elapsed=0
+	# If in environment, start at PROGRESS as the splash daemon does
+	progress_elapsed=${PROGRESS:-0}
+	# Reserve some progress at the end and only let 'stop' do 100%
+	progress_max=$(( 65535 - 65535 / 100 )) # assume 100 pixel minimum progress bar length
+	# Update progress per tick to avoid jumping in favour of accelleration in case services skipped
+	progress_tick_set() {
+		local ms_remain=$1
+		if (( ms_remain > 0 && progress_max > progress_elapsed ))
+		then progress_tick=$(( ( progress_max - progress_elapsed ) * ms_tick / ms_remain ))
+		else progress_tick=0
+		fi
+	}
+	progress_tick_set $(( ms_total - ms_elapsed ))
+
+	svc_fg=""
+	# Disable progress until first foreground service event
+	svc_fg_ticks=0
+	svc_fg_ticks_elapsed=0
+
+	# Normal status message
+	normal_message() {
+		(( $# )) && message_normal=$1
+		splash_set_message "$message_normal"
+		# Cancel any previous text progress message
+		message_progress=""
+		message_progress_ticks=0
+		message_push=""
+		message_push_ticks=0
+	}
+	normal_message "$( splash_get_boot_message )"
+
+	while read -r cmd args <"${FIFO}"; do
+		event=""; svc=""
+		case $cmd
+		in tick )
+			(( svc_fg_ticks_elapsed ++ ))
+			# Text progress - Override status message for some time
+			if [[ $message_progress ]]; then
+				splash_set_message "$message_progress"
+				message_progress=""
+				message_progress_ticks=$(( 3000 / ms_tick ))
+			elif (( message_progress_ticks > 0 )); then
+				# On timeout, fallback to push-message or restore
+				if (( -- message_progress_ticks == 0 )); then
+					SPLASH_AUTOVERBOSE=0 splash_set_message "${message_push:-$message_normal}"
+					message_push_ticks=0
+				fi
+			# Graphical progress
+			elif [[ $SPLASH_SMOOTH_PROGRESS = yes ]] &&
+			   (( svc_fg_ticks_elapsed <= svc_fg_ticks && progress_elapsed < progress_max )); then
+				(( progress_elapsed += progress_tick ))
+				splash_fifo_send "progress $progress_elapsed" "paint"
+			# No progress - Override status message after timeout
+			elif (( message_push_ticks > 0 )); then
+				(( -- message_push_ticks == 0 )) && splash_set_message "$message_push"
+			fi
+		;; comm ) splash_fifo_send "$args"
+		;; log  )
+			# Ignore empty messages to avoid splash daemon crash     ## FIXME ##
+			# 'repaint' needed at least for 'set message' if daemon not started with '--type=bootup'
+			[[ $args ]] && splash_fifo_send "log ${args}" "repaint"
+		;; progress-message )
+			if [[ $args ]]; then
+				message_progress=$args
+				# Cancel graphical progress for current service
+				svc_fg_ticks=0
+			elif [[ $message_progress ]] || (( message_progress_ticks )); then
+				# Restore message
+				normal_message
+			fi
+		;; push-message    )
+			# Temporary override after progress timeout
+			if [[ $SPLASH_PUSH_DELAY = yes ]]; then
+				message_push=$args
+				message_push_ticks=$(( 1000 / ms_tick ))
+			# Simple old mode: Just change it until next or exit
+			elif [[ $SPLASH_PUSH_MESSAGES = yes ]]; then
+				normal_message "$args"
+			fi
+		;; message )
+			normal_message "$args"
+		;; default-message )
+			normal_message "$( splash_get_boot_message )"
+		;; stop )
+			splash_rc_init_boot
+			run_hook pre rc_exit $RUNLEVEL
+			# Reset status message
+			splash_set_message "$( splash_get_boot_message )"
+			# If not aborting, set 100% progress now because we reserved some
+			[[ $args = force ]] || splash_fifo_send "progress 65535" "paint"
+			splash_fifo_send "exit staysilent"
+			splash_wait "$SPLASH_FADE_WAIT" $( pgrep -x -f "$spl_daemon .*" )
+			trap - EXIT
+			cleanup
+			# Reopen moved profile for post rc_exit
+			# Note: If not bootup, the post rc_exit hook shouldn't try to write anything to the filesystem.
+			[[ $splash_profile_fd ]] && exec {splash_profile_fd}<&-
+			unset -v splash_profile_fd
+			run_hook post rc_exit $RUNLEVEL
+			exit 0
+		;; store )
+			[[ -d ${CACHE_DIR} ]] || mkdir -p "${CACHE_DIR}"
+			for svc in "${!SPLASH_SVC_TIMES_MS[@]}"; do
+				# Lower weight of old values by factor 0.98 on each boot - 0.98^34 = 0.5
+				n_100=$(( ${SPLASH_SVC_TIMES_N100["$svc"]:-0} * 98 / 100 ))
+				ms_avg=${SPLASH_SVC_TIMES_MS["$svc"]:-0}
+				ms_new=${SPLASH_SVC_TIMES_MS_NEW["$svc"]}
+				if [[ $ms_new ]]; then
+					echo $svc $(( ( 100 * ms_new + n_100 * ms_avg )/( 100 + n_100 ) )) $(( 100 + n_100 ))
+				elif (( n_100 > 0 )); then
+					echo $svc $ms_avg $n_100
+				fi
+			done >|"$times_file"
+		;; svc-error )
+			# Allow to set the general failure status explicitely (w/o a splash event)
+			splash_fifo_send "update_svc fbsplash-dummy ${action}_failed" "paint"
+		;; critical )
+			event=$cmd
+			hook_args=( )
+		;; svc_* )
+			# Avoid null/blank string crashing the splash daemon    ## FIXME ##
+			[[ $args =~ ^\ *$ ]] && continue
+			event=$cmd
+			svc=$args
+			hook_args=( "$svc" )
+		;;& svc_started | svc_stopped )
+			# Backwards compatibility: Add 0 exit code to hook args.
+			hook_args+=( 0 )
+		esac # Ignore any garbage
+
+		[[ $event ]] || continue
+
+		case $event
+		in svc_started | svc_start_failed )
+			[[ $svc = fbsplash-boot-dummy ]] && splash_rc_init_boot
+		esac
+		run_hook pre "$event" "${hook_args[@]}"
+		case $event
+		in critical )
+			splash_verbose
+		;; svc_input_begin )
+			# Cancel graphical progress for current service
+			svc_fg_ticks=0
+			splash_input_begin "$svc"
+		;; svc_input_end )
+			splash_input_end "$svc"
+		# Service update events
+		;; svc_started )
+			if [[ $1 = gpm ]]; then
+				# This loop shouldn't be needed as newer gpm puts itself in the background
+				# after started (like a daemon), but splashutils-gentoo does this also.
+				for i in {1..10}; do
+					[[ -S /dev/gpmctl ]] && break
+					sleep .1
+				done
+				splash_fifo_send "set gpm" "repaint"
+			fi
+		;;& svc_$action )
+			ifs=$IFS
+			IFS=$'\n'
+			if [[ ${IFS}${SPLASH_SVCS_FG[*]}${IFS} = *"${IFS}${svc}${IFS}"* ]]; then
+				svc_fg=$svc
+				svc_fg_ms=${SPLASH_SVC_TIMES_MS["$svc"]}
+				if [[ $SPLASH_SMOOTH_PROGRESS = yes && $svc_fg_ms ]]
+				# Allow one more tick than calculated to avoid jumpiness
+				then svc_fg_ticks=$(( svc_fg_ms / ms_tick + 1 ))
+				else svc_fg_ticks=1
+				fi
+				# Silent step skipping
+				for i in "${!SPLASH_SVCS_FG[@]}"; do
+					svc_i=${SPLASH_SVCS_FG[i]}
+					[[ $svc_i = "$svc_fg" ]] && break
+					unset -v SPLASH_SVCS_FG[i]
+					ms_elapsed_add "$svc_i"
+				done
+				progress_tick_set $(( ms_total - ms_elapsed ))
+			fi
+			IFS=$ifs
+		;;& svc_${action_done} )
+			# Save new time value (taking the first one in case of repeat)
+			if [[ $svc_fg = "$svc" ]] && (( svc_fg_ticks > 0 )) &&
+			   [[ $SPLASH_SMOOTH_PROGRESS = yes && -z ${SPLASH_SVC_TIMES_MS_NEW["$svc"]} ]]; then
+				SPLASH_SVC_TIMES_MS_NEW["$svc"]=$(( svc_fg_ticks_elapsed * ms_tick ))
+				SPLASH_SVC_TIMES_MS["$svc"]+=""
+			fi
+		;;& svc_${action_done} | svc_${action}_failed )
+			if [[ $svc_fg = "$svc" ]]; then
+				# One tick per service mode
+				if [[ $SPLASH_SMOOTH_PROGRESS != yes ]]; then
+					(( progress_elapsed += progress_tick ))
+					splash_fifo_send "progress $progress_elapsed"
+				fi
+				svc_fg=""
+				svc_fg_ticks=1
+				svc_fg_ticks_elapsed=0
+				# Restore message
+				normal_message
+			fi
+		;;& svc_start_failed | svc_stop_failed )
+			# Provide a general failure status
+			splash_fifo_send "update_svc fbsplash-dummy $event"
+			# Simple/upstream way of error handling
+			# Assume error messages are shown on console even if background service
+			[[ $SPLASH_VERBOSE_ON_ERRORS = yes ]] && splash_verbose
+		;;& svc_* )
+			splash_fifo_send "update_svc $svc $event" "paint"
+		esac
+		run_hook post "$event" "${hook_args[@]}"
+		[[ $event = svc_start && $svc = fbsplash-boot-dummy ]] && splash_rc_exit_sysinit
+	done
+) &
+echo $! $ticker_pid >>"$PID_FILE"
+trap - EXIT
+exit 0
+
+# EOF #
