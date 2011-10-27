@@ -43,6 +43,8 @@ int main (int argc, char ** argv) {
 
 	GError * error = NULL;
 
+	printf("%s: %s v%s (compiled: %s)\n", argv[0], PROGNAME, VERSION, DATE);
+
 	if(!notify_init("Udev-Net-Notification")) {
 		fprintf(stderr, "%s: Can't create notify.\n", argv[0]);
 		exit(EXIT_FAILURE);

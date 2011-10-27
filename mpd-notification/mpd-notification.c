@@ -30,6 +30,8 @@ int main(int argc, char ** argv) {
 
 	GError * error = NULL;
 
+	printf("%s: %s v%s (compiled: %s)\n", argv[0], PROGNAME, VERSION, DATE);
+
 	if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) {
 		fprintf(stderr,"%s: %s\n", argv[0], mpd_connection_get_error_message(conn));
 		mpd_connection_free(conn);

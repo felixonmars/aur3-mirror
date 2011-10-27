@@ -28,10 +28,6 @@
 #define TEXT_CHANGE	"<b>Device %s (%i:%i) media changed</b>."
 #define TEXT_DEFAULT	"<b>Anything happend to %s (%i:%i)...</b> Don't know.\n"
 
-#define INFO_LABEL	"%s\nlabel: %s"
-#define INFO_FSTYPE	"%s\nfstype: %s"
-#define INFO_UUID	"%s\nuuid: %s"
-
 int main (int argc, char ** argv) {
 	struct udev * udev;
 	struct udev_device * dev;
@@ -55,6 +51,8 @@ int main (int argc, char ** argv) {
 	blkid_dev blkdev;
 
 	GError * error = NULL;
+
+	printf("%s: %s v%s (compiled: %s)\n", argv[0], PROGNAME, VERSION, DATE);
 
 	if(!notify_init("Udev-Block-Notification")) {
 		fprintf(stderr, "%s: Can't create notify.\n", argv[0]);
@@ -132,16 +130,8 @@ int main (int argc, char ** argv) {
 					iter = blkid_tag_iterate_begin(blkdev);
 			
 					while (blkid_tag_next(iter, &type, &value) == 0) {
-						if (!strcmp(type, "LABEL")) {
-							notification = (char *) realloc(notification, strlen(notification) + strlen(INFO_LABEL) + strlen(value));
-							sprintf(notification, INFO_LABEL, notification, value);
-						} else if (!strcmp(type, "TYPE")) {
-							notification = (char *) realloc(notification, strlen(notification) + strlen(INFO_FSTYPE) + strlen(value));
-							sprintf(notification, INFO_FSTYPE, notification, value);
-						} else if (!strcmp(type, "UUID")) {
-							notification = (char *) realloc(notification, strlen(notification) + strlen(INFO_UUID) + strlen(value));
-							sprintf(notification, INFO_UUID, notification, value);
-						}
+						notification = (char *) realloc(notification, strlen(notification) + strlen(type) + strlen(value) + 4);
+						sprintf(notification, "%s\n%s: %s", notification, type, value);
 					}
 
 					blkid_tag_iterate_end(iter);
