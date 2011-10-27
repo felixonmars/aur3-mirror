@@ -8,6 +8,7 @@ arch=('i686' 'x86_64')
 url="http://code.google.com/p/amule-dlp/"
 license=('GPL')
 depends=('wxgtk' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
+makedepends=('mercurial')
 conflicts=('amule')
 provides=('amule', 'amule-dlp')
 
