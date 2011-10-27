@@ -1,3 +1,9 @@
+4.4.2 on Thu Oct 27 22:54:37 EEST 2011 @871 /Internet Time/
+---
+* 4.4.2
+* Add `background` option to jedit-bin
+* Change license to GPL
+
 4.4pre2-1 on Sun Apr 17 00:01:43 EEST 2011 @917 /Internet Time/
 ----------------------------------------------------------------
 * Pre 2 on Tue Apr 5 00:11:23 2011
