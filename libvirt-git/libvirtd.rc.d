@@ -14,6 +14,10 @@ PID=`pidof -o %PPID /usr/sbin/libvirtd`
 case "$1" in
     start)
 	stat_busy "Starting libvirtd"
+	export RADVD=/usr/sbin/radvd
+	for i in /var/run/libvirt/qemu /var/run/libvirt/lxc /var/run/libvirt/uml /var/run/libvirt/network; do
+		[ -d $i ] || mkdir -p $i
+	done
 	[ -z "$PID" ] && (
 		mkdir -p /var/{cache,run}/libvirt
 		rm -rf /var/cache/libvirt/*
@@ -37,7 +41,7 @@ case "$1" in
 	if [ $? -gt 0 ]; then
 		stat_fail
 	else
-		rm_daemon acpid
+		rm_daemon libvirtd
 		stat_done
 	fi
 	;;
