@@ -37,7 +37,7 @@ fi
 #---------------------------------------------
 # Set GeoGebra default options
 
-GG_OPTS=(--primary=true)
+GG_OPTS=()
 
 #---------------------------------------------
 # Define usage function
@@ -95,4 +95,4 @@ done
 #---------------------------------------------
 # Run
 
-exec java "${JAVA_OPTS[@]}" -jar "/usr/share/java/geogebra5-beta/geogebra.jar" "${GG_OPTS[@]}" "$@"
+exec java "${JAVA_OPTS[@]}" -Djava.library.path=/usr/lib/ -jar "/usr/share/java/geogebra5-beta/geogebra.jar" "${GG_OPTS[@]}" "$@"
