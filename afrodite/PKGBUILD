@@ -2,7 +2,7 @@
 pkgname=afrodite
 pkgver=0.12.0_beta5
 pkgrel=1
-pkgdesc="ibrary containing the completion engine for Vala language"
+pkgdesc="Library containing the completion engine for Vala language"
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/vtg"
 license=('GPL')

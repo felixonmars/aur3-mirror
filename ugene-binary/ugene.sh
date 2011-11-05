@@ -1,4 +1,3 @@
 #!/bin/bash
-cd /usr/share/ugene
-ugene -ui
+cd /usr/share/ugene && ugene -ui &
 
