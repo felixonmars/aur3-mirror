@@ -1,13 +1,13 @@
 #!/usr/bin/python2
 # -*- coding: utf-8 -*-
-##Modification: - fusermount avec l'option -z
-#					 - ajout de script pout tuer le process sshfs en cas de coupure non prevue de la connection (entraine un bug dans l'arborescence des fichiers)
-#					 - desactivation de la creation automatique du nom du point de montage
-#					 - Champs vident par defaut (sauf le port)
-#					 - Case de l'ouverture des dossiers decochée par defaut
-#					 - forcer le montage dans un dossier non vide
-#A faire	-cocher/decocher par defaut la suppression du dossier de montage
-#			- creation d un bouton de sauvegarde de profil
+##changing: - Add fusermount -z option
+#				- Add killall -KILL sshfs after fusermount to kill sshfs process when connection if turned off. unexpectedly (make file manager froze).
+#				- Removed mount point in home folder as the unique choice, we can choose whatever folder.
+#				- Empty fields as default (expect port)
+#				- "Open directory" box unchecked as default
+#				- Force mounting in a none empty folder (-o nonempty)
+#To do:		- Check/uncheck as default delete mount point when disconnect
+#				- Create a button to save profile
 ##
 #   Quick mount sshfs
 #
@@ -218,9 +218,9 @@ class UI:
         BoxBase.pack_end(BoxControls, False)
 
         self.window.add(BoxBase)
-#desactive la creation auto du point de montage
-#       self.User_entry.connect("changed", self.auto_mountpoint)
-#        self.Host_entry.connect("changed", self.auto_mountpoint)
+#turn off auto mountpoint
+        #self.User_entry.connect("changed", self.auto_mountpoint)
+        #self.Host_entry.connect("changed", self.auto_mountpoint)
 
         self.update_mountedfs()
 
@@ -275,8 +275,8 @@ class UI:
             if self.check_remove.get_active():
                 os.rmdir(self.Mounted_fs_combo.get_active_text())
             self.update_mountedfs()
-## creation du bouton de sauvegarde de profil
-	#def save_profile(self, widget):
+## button ton save profile
+    #def save_profile(self, widget):
 
     def update_mountedfs(self):
         self.mounted_fs_tab = get_mounted_fs()
@@ -295,7 +295,8 @@ class UI:
         Host = self.Host_entry.get_text()
         Dir = self.Dir_entry.get_text()
 
-        Mountpoint = os.getenv('HOME') + '/' + self.Mountpoint_entry.get_text()
+        Mountpoint = self.Mountpoint_entry.get_text()
+		  #Mountpoint = os.getenv('HOME') + '/' + self.Mountpoint_entry.get_text()
 
         if not os.path.exists(Mountpoint):
             os.mkdir(Mountpoint)
