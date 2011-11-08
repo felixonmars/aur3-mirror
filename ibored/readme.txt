@@ -1,5 +1,5 @@
-About iBored, version 1.1.5
-Written by and Copyright © 2006-2010 Thomas Tempelmann
+About iBored, version 1.1.8
+Written by and Copyright © 2006-2011 Thomas Tempelmann
 http://apps.tempel.org/iBored/
 
 This is a free program for Mac OS X, Windows and Linux. It was formerly
@@ -255,7 +255,16 @@ Version History
 • Scan operation expanded: Can now run a custom script on every block, and can backwards.
 • GPT support improved for manual Boot Camp installation (still a bit incomplete, though).
 • Scripting and Templates documentation included now.
-
+1.1.6, 27 May 11:
+• Added Scripting chapter to this documentation.
+• Fixed "Scan..." operation for used blocks when working on subranges with non-physical block sizes.
+• Fixed a potential hard crash in "TemplateView.TemplateView.selectRange" when switching to Template view.
+• HFS+ catalog file is now using the correct nodeSize when opened from the Structure window.
+1.1.7, 19 Jul 11:
+• Fixed Remote Disk access - no more internal error when trying to view the remote disks.
+• No more "$$" where one $ is enough as a lead-in for hex values.
+1.1.8, 21 Jul 11:
+• Fixed Templates matching related potential crash and occasional misses.
 
 Acknowledgements
 
