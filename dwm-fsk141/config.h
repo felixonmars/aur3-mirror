@@ -2,19 +2,19 @@
 
 /* appearance */
 static const char font[]            = "-*-terminus-medium-r-*-*-16-*-*-*-*-*-*-*";
-static const char normbordercolor[] = "#cccccc";
-static const char normbgcolor[]     = "#cccccc";
-static const char normfgcolor[]     = "#000000";
-static const char selbordercolor[]  = "#0066ff";
-static const char selbgcolor[]      = "#0066ff";
-static const char selfgcolor[]      = "#ffffff";
+static const char normbordercolor[] = "#3E3E3E";
+static const char normbgcolor[]     = "#2D2D2D";
+static const char normfgcolor[]     = "#CCCCCC";
+static const char selbordercolor[]  = "#FFFFFF";
+static const char selbgcolor[]      = "#4C4C4C";
+static const char selfgcolor[]      = "#CCCCCC";
 static const unsigned int borderpx  = 1;        /* border pixel of windows */
 static const unsigned int snap      = 32;       /* snap pixel */
 static const Bool showbar           = True;     /* False means no bar */
 static const Bool topbar            = True;     /* False means bottom bar */
 
 /* tagging */
-static const char *tags[] = { "1", "2", "3", "4", "5", "6", "web", "8", "9" };
+static const char *tags[] = { "1", "2", "3", "4", "5", "6", "web", "tor", "com" };
 
 static const Rule rules[] = {
 	/* class      instance    title       tags mask     isfloating   monitor */
@@ -28,17 +28,19 @@ static const Bool resizehints = True; /* True means respect size hints in tiled 
 
 #include "bstack.c"
 #include "bstackhoriz.c"
+
 static const Layout layouts[] = {
 	/* symbol     arrange function */
-	{ "TTT",      bstack },
-	{ "[]=",      tile },    /* first entry is default */
+	{ "TTT",      bstack }, /* default */
+	{ "===",      bstackhoriz },
+	{ "[]=",      tile }, 
 	{ "><>",      NULL },    /* no layout function means floating behavior */
 	{ "[M]",      monocle },
-	{ "===",      bstackhoriz },
 };
 
 /* key definitions */
 #define MODKEY Mod1Mask
+#define WINKEY Mod4Mask
 #define TAGKEYS(KEY,TAG) \
 	{ MODKEY,                       KEY,      view,           {.ui = 1 << TAG} }, \
 	{ MODKEY|ControlMask,           KEY,      toggleview,     {.ui = 1 << TAG} }, \
@@ -63,12 +65,12 @@ static Key keys[] = {
 	{ MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
 	{ MODKEY,                       XK_Return, zoom,           {0} },
 	{ MODKEY,                       XK_Tab,    view,           {0} },
-	{ MODKEY|ShiftMask,             XK_c,      killclient,     {0} },
-	{ MODKEY,                       XK_w,      setlayout,      {.v = &layouts[0]} },
-	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[1]} },
-	{ MODKEY,                       XK_f,      setlayout,      {.v = &layouts[2]} },
-	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[3]} },
-	{ MODKEY,                       XK_r,      setlayout,      {.v = &layouts[4]} },
+	{ MODKEY|ShiftMask,                       XK_c,      killclient,     {0} },
+	{ WINKEY,             XK_1,      setlayout,      {.v = &layouts[0]} },
+	{ WINKEY,             XK_2,      setlayout,      {.v = &layouts[1]} },
+	{ WINKEY,             XK_3,      setlayout,      {.v = &layouts[2]} },
+	{ WINKEY,             XK_4,      setlayout,      {.v = &layouts[3]} },
+	{ WINKEY,             XK_5,      setlayout,      {.v = &layouts[4]} },
 	{ MODKEY,                       XK_space,  setlayout,      {0} },
 	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
 	{ MODKEY,                       XK_0,      view,           {.ui = ~0 } },
