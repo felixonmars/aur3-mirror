@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /opt/sumwars
+cd /usr/share/games/sumwars
 ./sumwars 
