@@ -1,4 +1,5 @@
-System tray icon plugin system for SNI
+Introduce a plugin system for QSystemTrayIcon. Designed to be used with sni-qt
+(https://launchpad.net/sni-qt)
 diff --git a/examples/desktop/systray/window.cpp b/examples/desktop/systray/window.cpp
 index 4091358..50c4ca6 100644
 --- a/examples/desktop/systray/window.cpp
@@ -162,7 +163,7 @@ index 0000000..0c4f7ae
 +#endif
 diff --git a/src/gui/util/qabstractsystemtrayiconsys_p.h b/src/gui/util/qabstractsystemtrayiconsys_p.h
 new file mode 100644
-index 0000000..65ca2f6
+index 0000000..f120bd4
 --- /dev/null
 +++ b/src/gui/util/qabstractsystemtrayiconsys_p.h
 @@ -0,0 +1,106 @@
@@ -259,7 +260,7 @@ index 0000000..65ca2f6
 +    virtual void updateIcon() = 0;
 +    virtual void updateToolTip() = 0;
 +    virtual void updateMenu() = 0;
-+    virtual void showMessage(const QString &message, const QString &title,
++    virtual void showMessage(const QString &title, const QString &message,
 +                     QSystemTrayIcon::MessageIcon icon, int msecs) = 0;
 +
 +    void sendActivated(QSystemTrayIcon::ActivationReason);
@@ -420,10 +421,10 @@ index 14495ee..2596658 100644
  QT_END_NAMESPACE
  
 diff --git a/src/gui/util/qsystemtrayicon_x11.cpp b/src/gui/util/qsystemtrayicon_x11.cpp
-index 86c2749..33f672b 100644
+index 86c2749..2047dd2 100644
 --- a/src/gui/util/qsystemtrayicon_x11.cpp
 +++ b/src/gui/util/qsystemtrayicon_x11.cpp
-@@ -38,311 +38,114 @@
+@@ -38,311 +38,122 @@
  ** $QT_END_LICENSE$
  **
  ****************************************************************************/
@@ -658,6 +659,10 @@ index 86c2749..33f672b 100644
 +        if (trayIconPrivate->sys) {
 +            delete trayIconPrivate->sys;
 +            trayIconPrivate->sys = 0;
++        }
++        // When visible is true, sys is usually not 0 but it can be 0 if the
++        // call to install_sys() failed.
++        if (trayIconPrivate->visible) {
 +            trayIconPrivate->install_sys();
 +        }
      }
@@ -674,24 +679,24 @@ index 86c2749..33f672b 100644
 -    memcpy((char *)&ev.xclient.data, (const char *) l, sizeof(l));
 -    XSendEvent(display, sysTrayWindow, False, 0, &ev);
 -    setMinimumSize(22, 22); // required at least on GNOME
- }
- 
+-}
+-
 -void QSystemTrayIconSys::updateIcon()
-+void QSystemTrayIconSysFactory::registerSystemTrayIconPrivate(QSystemTrayIconPrivate* trayIconPrivate)
- {
+-{
 -    update();
-+    trayIconPrivates.insert(trayIconPrivate);
  }
  
 -void QSystemTrayIconSys::resizeEvent(QResizeEvent *re)
-+void QSystemTrayIconSysFactory::unregisterSystemTrayIconPrivate(QSystemTrayIconPrivate* trayIconPrivate)
++void QSystemTrayIconSysFactory::registerSystemTrayIconPrivate(QSystemTrayIconPrivate* trayIconPrivate)
  {
 -     QWidget::resizeEvent(re);
 -     updateIcon();
--}
--
++    trayIconPrivates.insert(trayIconPrivate);
+ }
+ 
 -void QSystemTrayIconSys::paintEvent(QPaintEvent*)
--{
++void QSystemTrayIconSysFactory::unregisterSystemTrayIconPrivate(QSystemTrayIconPrivate* trayIconPrivate)
+ {
 -    QPainter p(this);
 -    if (!getSysTrayVisualInfo()) {
 -        const QRegion oldSystemClip = p.paintEngine()->systemClip();
@@ -733,43 +738,43 @@ index 86c2749..33f672b 100644
 -        emit q->activated(QSystemTrayIcon::Context);
 -    else if (ev->button() == Qt::MidButton)
 -        emit q->activated(QSystemTrayIcon::MiddleClick);
-+    return f->create(trayIcon);
- }
- 
+-}
+-
 -void QSystemTrayIconSys::mouseDoubleClickEvent(QMouseEvent *ev)
-+bool QSystemTrayIconSysFactory::isAvailable() const
- {
+-{
 -    if (ev->button() == Qt::LeftButton)
 -        emit q->activated(QSystemTrayIcon::DoubleClick);
-+    return factory();
- }
- 
+-}
+-
 -#ifndef QT_NO_WHEELEVENT
 -void QSystemTrayIconSys::wheelEvent(QWheelEvent *e)
-+////////////////////////////////////////////////
-+QSystemTrayIconPrivate::~QSystemTrayIconPrivate()
- {
--    QApplication::sendEvent(q, e);
--}
--#endif
--
--bool QSystemTrayIconSys::event(QEvent *e)
 -{
+-    QApplication::sendEvent(q, e);
++    return f->create(trayIcon);
+ }
+-#endif
+ 
+-bool QSystemTrayIconSys::event(QEvent *e)
++bool QSystemTrayIconSysFactory::isAvailable() const
+ {
 -    if (e->type() == QEvent::ToolTip) {
 -        return QApplication::sendEvent(q, e);
 -    }
 -    return QWidget::event(e);
++    return factory();
+ }
+ 
+-bool QSystemTrayIconSys::x11Event(XEvent *event)
++////////////////////////////////////////////////
++QSystemTrayIconPrivate::~QSystemTrayIconPrivate()
+ {
+-    if (event->type == ReparentNotify)
+-        show();
+-    return QWidget::x11Event(event);
 +    qt_guiSystemTrayIconSysFactory()->unregisterSystemTrayIconPrivate(this);
 +    delete sys;
  }
  
--bool QSystemTrayIconSys::x11Event(XEvent *event)
--{
--    if (event->type == ReparentNotify)
--        show();
--    return QWidget::x11Event(event);
--}
--
 -////////////////////////////////////////////////////////////////////////////
  void QSystemTrayIconPrivate::install_sys()
  {
@@ -777,11 +782,15 @@ index 86c2749..33f672b 100644
 -    if (!sys)
 -        sys = new QSystemTrayIconSys(q);
 +    if (!sys) {
++        // Register ourself even if create() fails: our "sys" will get created
++        // later by refreshTrayIconPrivates() if a systemtray becomes
++        // available. This situation can happen for applications which are
++        // started at login time, while the desktop itself is starting up.
++        qt_guiSystemTrayIconSysFactory()->registerSystemTrayIconPrivate(this);
 +        sys = qt_guiSystemTrayIconSysFactory()->create(q);
 +        if (!sys) {
 +            return;
 +        }
-+        qt_guiSystemTrayIconSysFactory()->registerSystemTrayIconPrivate(this);
 +    }
 +    sys->updateVisibility();
  }
@@ -797,7 +806,7 @@ index 86c2749..33f672b 100644
  }
  
  void QSystemTrayIconPrivate::remove_sys()
-@@ -350,35 +153,35 @@ void QSystemTrayIconPrivate::remove_sys()
+@@ -350,35 +161,35 @@ void QSystemTrayIconPrivate::remove_sys()
      if (!sys)
          return;
      QBalloonTip::hideBalloon();
@@ -841,7 +850,7 @@ index 86c2749..33f672b 100644
  }
  
  bool QSystemTrayIconPrivate::supportsMessages_sys()
-@@ -389,12 +192,9 @@ bool QSystemTrayIconPrivate::supportsMessages_sys()
+@@ -389,12 +200,9 @@ bool QSystemTrayIconPrivate::supportsMessages_sys()
  void QSystemTrayIconPrivate::showMessage_sys(const QString &message, const QString &title,
                                     QSystemTrayIcon::MessageIcon icon, int msecs)
  {
@@ -1467,3 +1476,5 @@ index d1c4ff8..c225183 100644
 -}
 \ No newline at end of file
 +}
+
+
