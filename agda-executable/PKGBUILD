@@ -5,13 +5,13 @@ _licensefile=LICENSE
 # PKGBUILD options/directives
 pkgname=agda-executable
 pkgver=2.2.10
-pkgrel=2
+pkgrel=3
 pkgdesc="Command-line program for type-checking and compiling Agda programs"
 url="http://wiki.portal.chalmers.se/agda/"
 license=("OtherLicense")
 arch=('i686' 'x86_64')
 makedepends=("ghc=7.0.3-2"
-             "haskell-agda=2.2.10-2")
+             "haskell-agda=2.2.10-3")
 depends=()
 options=('strip')
 source=("http://hackage.haskell.org/packages/archive/${_hkgname}/${pkgver}/${_hkgname}-${pkgver}.tar.gz")
