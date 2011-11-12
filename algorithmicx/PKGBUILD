@@ -1,15 +1,16 @@
-# Contributor: Andrzej Zbrzezny <zbrzezny@pnet.pl>
+# Contributor: Andrzej Zbrzezny <a.zbrzezny@gmail.com>
 
 pkgname=algorithmicx
 pkgver=20050428
-pkgrel=1
+pkgrel=2
 pkgdesc="Provides many possibilities to customize the layout of algorithms"
-url="http://www.tug.org/tex-archive/macros/latex/contrib"
+arch=('any')
+url="http://www.ctan.org/tex-archive/macros/latex/contrib/algorithmicx/"
 license=('custom:"LPPL"')
 depends=('tetex')
 install=algorithmicx.install
-source=(http://www.tug.org/tex-archive/macros/latex/contrib/algorithmicx.zip)
-md5sums=('0c3dc7becfa549948a273139a40a3f17')
+source=(http://tug.ctan.org/pub/tex-archive/macros/latex/contrib/algorithmicx.zip)
+md5sums=('9bca5e09830f3d84e3beb037690f10e7')
 
 build() {
   cd $startdir/src/$pkgname
