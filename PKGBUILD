@@ -1,22 +1,41 @@
-pkgname=perl-net-scp-expect
-pkgver=0.16
+pkgname=gmtk-svn
+pkgver=65
 pkgrel=1
-pkgdesc="Net::SCP::Expect - Wrapper for scp that allows passwords via Expect."
-arch=('any')
-url="http://search.cpan.org/~rybskej/Net-SCP-Expect-0.16/Expect.pm"
-license=('GPL' 'PerlArtistic')
-depends=('perl' 'perl-net-ipv6addr' 'perl-term-read-password' 'perl-expect')
-options=('!emptydirs')
-source=(http://search.cpan.org/CPAN/authors/id/R/RY/RYBSKEJ/Net-SCP-Expect-$pkgver.tar.gz)
-md5sums=('a3d8f5e6a34ba3df8527aea098f64a58')
-
+pkgdesc='Gnome MPlayer support library'
+arch=('i686' 'x86_64')
+url='http://gmtk.googlecode.com/'
+license=('GPL')
+depends=('dconf' 'fontconfig' 'pulseaudio')
+makedepends=('subversion')
+provides=('gmtk')
+ 
+_svntrunk=http://gmtk.googlecode.com/svn/trunk
+_svnmod=gmtk-read-only
+ 
 build() {
-  cd  "$srcdir/Net-SCP-Expect-$pkgver" || return 1
-
-  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
-  make &&
-  make DESTDIR="$pkgdir" install || return 1
-
-  find "$pkgdir" -name '.packlist' -delete
-  find "$pkgdir" -name '*.pod' -delete
+cd "${srcdir}"
+ 
+msg2 "Checking out the repository..."
+if [ -d $_svnmod/.svn ]; then
+(cd $_svnmod && svn up -r $pkgver)
+else
+svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
+fi
+ 
+msg2 "SVN checkout done or server timeout."
+ 
+rm -rf "$srcdir/$_svnmod-build"
+cp -r "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
+cd "$srcdir/$_svnmod-build"
+ 
+msg2 "Configuring..."
+./autogen.sh --prefix=/usr --sysconfdir=/etc --with-pulseaudio
+msg2 "Building..."
+make
+}
+ 
+package() {
+cd "$srcdir/$_svnmod-build"
+ 
+make DESTDIR="$pkgdir/" install
 }
