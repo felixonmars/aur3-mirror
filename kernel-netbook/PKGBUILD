@@ -8,7 +8,7 @@ true && pkgname=('kernel-netbook' 'kernel-netbook-headers')
 makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware')
 optdepends=('hibernate-script: tux on ice default script' 'tuxonice-userui: graphical interface for toi [AUR]')
 _basekernel=3.1
-pkgver=${_basekernel}
+pkgver=${_basekernel}.1
 pkgrel=1
 pkgdesc="Static kernel for netbooks with Intel Atom N270/N280/N450/N550 such as eeepc with the add-on of external firmware (broadcom-wl) and patchset (BFS + TOI + BFQ optional) - Only Intel GPU - Give more power to your netbook!"
 options=('!strip')
@@ -18,6 +18,7 @@ url=('http://code.google.com/p/kernel-netbook')
 
 ####################################
 md5sums=('8d43453f8159b2332ad410b19d86a931'
+	 '8eb92cc70e7f8d1d18a349ba8c029d7d'
          '62d04d148b99f993ef575a71332593a9'
          'a4c69095403ff44d5dfd8a935c3aca5a'
          'e470805b4ef9d469a85b6e2f811ac337'
@@ -37,8 +38,6 @@ md5sums=('8d43453f8159b2332ad410b19d86a931'
          '52d41fa61e80277ace2b994412a0c856'
          'de12ec5c342f945a95b2f12c2b85e6bf'
          'a9c018cb0b9caa90f03ee90b71a2c457'
-         'b5d7e11b3623f53a1fa8fbed493ba308'
-         '88a0aebd33974334080e322a6f34533e'
          '9f9a1ba7ddb030d78aa1606229b18532')
 ###################################
 #  external drivers  and firmware #
@@ -58,8 +57,8 @@ _toipatch="current-tuxonice-for-3.0.patch.bz2"
 
 ##### Sources #####
 source=( #kernel sources and arch patchset
-	"http://www.kernel.org/pub/linux/kernel/v3.x/linux-${pkgver}.tar.bz2"
-	#"ftp://ftp.kernel.org/pub/linux/kernel/v3.0/patch-${pkgver}.bz2"
+	"http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.bz2"
+	"http://ftp.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.bz2"
 	#"ftp://ftp.archlinux.org/other/linux/patch-${pkgver}.gz"
 	##external drivers:
 	"http://www.broadcom.com/docs/linux_sta/${broadcom}.tar.gz"
@@ -87,8 +86,6 @@ source=( #kernel sources and arch patchset
 	"usb-add-reset-resume-quirk-for-several-webcams.patch"
 	"md-raid10-fix-bug-when-activating-a-hot-spare.patch"
 	"kernel-netbook.preset"
-	"http://ck.kolivas.org/patches/bfs/3.0.0/3.0-ck1-bfs-406-413.patch"
-	"ck1-3.0.0_to_3.0.7"
 	"config")
 	
 build() {
