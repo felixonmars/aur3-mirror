@@ -5,27 +5,31 @@
 pkgname=linux-ccs
 true && pkgname=('linux-ccs' 'linux-ccs-headers')
 _kernelname=${pkgname#linux}
-_basekernel=3.0
-pkgver=${_basekernel}.7
-pkgrel=2
+_basekernel=3.1
+pkgver=${_basekernel}
+pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 options=('!strip')
-_ccspatchver=1.8.3-20111025
+_ccspatchver=1.8.3-20111111
 _ccstoolsver=1.8.3.20111025
 _url="http://www.kernel.org/pub/linux/kernel/v2.6"
 _url_ccs="http://sourceforge.jp/frs/redir.php?f=/tomoyo/49684"
 source=("ftp://ftp.kernel.org/pub/linux/kernel/v3.0/linux-${_basekernel}.tar.bz2"
         #"ftp://ftp.kernel.org/pub/linux/kernel/v3.0/patch-${pkgver}.gz"
-        "ftp://ftp.archlinux.org/other/linux/patch-${pkgver}.gz"
         "${_url_ccs}/ccs-patch-${_ccspatchver}.tar.gz"
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         "${pkgname}.preset"
-        'fix-i915.patch'
-        'change-default-console-loglevel.patch')
+        'change-default-console-loglevel.patch'
+        'i915-fix-ghost-tv-output.patch'
+        'i915-fix-incorrect-error-message.patch'
+        'iwlagn-fix-NULL-pointer-dereference.patch'
+        'dib0700-fix.patch'
+        'usb-add-reset-resume-quirk-for-several-webcams.patch'
+        'md-raid10-fix-bug-when-activating-a-hot-spare.patch')
 noextract=(ccs-patch-${_ccspatchver}.tar.gz)
 
 build() {
@@ -38,8 +42,39 @@ build() {
 
   msg "Patching source with Arch Linux fixes..."
 
-  # fix #19234 i1915 display size
-  patch -Np1 -i "${srcdir}/fix-i915.patch"
+  # Some chips detect a ghost TV output
+  # mailing list discussion: http://lists.freedesktop.org/archives/intel-gfx/2011-April/010371.html
+  # Arch Linux bug report: FS#19234
+  #
+  # It is unclear why this patch wasn't merged upstream, it was accepted,
+  # then dropped because the reasoning was unclear. However, it is clearly
+  # needed.
+  patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
+
+  # In 3.1.0, a DRM_DEBUG message is falsely declared as DRM_ERROR. This
+  # worries users, as this message is displayed even at loglevel 4. Fix
+  # this.
+  patch -Np1 -i "${srcdir}/i915-fix-incorrect-error-message.patch"
+
+  # iwlagn has a critical bug that hangs the system on 3.1.0. A patch
+  # was posted, but didn't make it into the tree in time.
+  # http://marc.info/?l=linux-wireless&m=131840748927629&w=2
+  # FS#26674
+  patch -Np1 -i "${srcdir}/iwlagn-fix-NULL-pointer-dereference.patch"
+
+  # Fix dib0700 driver
+  # http://git.linuxtv.org/pb/media_tree.git/shortlog/refs/heads/for_v3.0
+  # FS#25939
+  patch -Np1 -i "${srcdir}/dib0700-fix.patch"
+
+  # Add the USB_QUIRK_RESET_RESUME for several webcams
+  # FS#26528
+  patch -Np1 -i "${srcdir}/usb-add-reset-resume-quirk-for-several-webcams.patch"
+
+  # Fix RAID10 hot spare activation (critical)
+  # https://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git;a=blob_plain;f=queue-3.1/md-raid10-fix-bug-when-activating-a-hot-spare.patch;h=880849db5b7089b523f72c4d67a473e5330037fc;hb=HEAD
+  # FS#26767
+  patch -Np1 -i "${srcdir}/md-raid10-fix-bug-when-activating-a-hot-spare.patch"
 
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
@@ -62,11 +97,8 @@ build() {
     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
   fi
 
-  # remove the sublevel from Makefile
-  # this ensures our kernel version is always 3.X-ARCH
-  # this way, minor kernel updates will not break external modules
-  # we need to change this soon, see FS#16702
-  sed -ri 's|^(SUBLEVEL =).*|\1|' Makefile
+  # set extraversion to pkgrel
+  sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
 
   # get kernel version
   make prepare
@@ -133,8 +165,13 @@ package_linux-ccs() {
   rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
   # remove the firmware
   rm -rf "${pkgdir}/lib/firmware"
-  # gzip -9 all modules to safe 100MB of space
+  # gzip -9 all modules to save 100MB of space
   find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  # make room for external modules
+  ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+  # add real version for building modules and running depmod from post_install/upgrade
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
 }
 
 package_linux-ccs-headers() {
@@ -265,14 +302,18 @@ package_linux-ccs-headers() {
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
 }
 
-# information for AUR
+# Information for AUR.
 pkgdesc="The Linux Kernel patched with TOMOYO Linux 1.8.x"
 depends=('coreutils' 'linux-firmware' 'module-init-tools>=3.16' 'mkinitcpio>=0.7')
-sha256sums=('64b0228b54ce39b0b2df086109a7b737cde58e3df4f779506ddcaccee90356a0'
-            'fdc8e43022bd4d7905a565936e77cbe329962290ceb7d566687b06d96d650db9'
-            '006528fc11f1426a23c1be9d6c08afa28cb67545164394ed0eed3aff2c4f3aae'
-            '4d5bca37a2b2190259dd6eada468f0c9d303ae766daee3073b6b87af7b9cef9b'
-            '5d2ed43ed3b33adcce08c1dfd0aed0d90760fc9783f50a1d68080ebbada15f7e'
+sha256sums=('2573d2378c754b0c602b57586e9311e5b38c5d1e6c137f02873833633a4b9359'
+            '8a92774308f60bf394a1161b809ed570595e238167022270facacd181554dceb'
+            'a59bc1b5d4a9c6868edcb61bfb0d3d6545aa65e66cbf53db57d19a934184cc9b'
+            'f7101eb12e60e6ed9a11551e21e72660ad801f136de52bf611c1093488050ac7'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
+            'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4'
             '9ccadbe3eb30bb283af3eb869c3a4bdb764628854811cc616a2e02e9ef398705'
-            'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
+            '6f2af62930ba30e219e50418931cd87966990b4b446d406d9a8ebc56190a9277'
+            'd2bc969b25b686107791668a4674c485725963b499193a1e1e7c0ff30313d7cd'
+            '1739c9928368ddd46673a2d070ff1f3af94d42d183e498b880cbb495fa90e8f8'
+            'ffc2f8a4899e225d26600cbb4636fd6002ddd9c00c6cfa5e309a89a33baff49d'
+            'd8bc0389c6310b9088fcd1f4483fcc005149e0a3a0ac52cfe6d44265ca4b2fea')
