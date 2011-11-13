@@ -15,7 +15,7 @@ _pfpatchname="patch-${_basekernel}.${_pfrel}${_kernelname}.bz2"
 
 pkgname=linux-pf
 pkgver=${_basekernel}.${_pfrel}
-pkgrel=2
+pkgrel=3
 arch=(i686 x86_64)
 _pkgdesc="Linux kernel and modules with pf-kernel patch [-ck patchset (BFS included), TuxOnIce, BFQ], aufs3 and squashfs-lzma."
 pkgdesc=${_pkgdesc}
@@ -55,8 +55,12 @@ source=(ftp://www.kernel.org/pub/linux/kernel/v${_major}.x/linux-${_basekernel}.
 	logo_linux_vga16.ppm.bz2
 	channel-negative-one-maxim.patch	# hopefully fix "channel -1" aireplay-ng error
 	interactive-governor.tar.gz::https://gist.github.com/gists/1172524/download
-	fix-i915.patch
+	change-default-console-loglevel.patch
+	i915-fix-ghost-tv-output.patch
+	i915-fix-incorrect-error-message.patch
+	usb-add-reset-resume-quirk-for-several-webcams.patch
 	${_pfpatchhome}${_pfpatchname})	# the -pf patchset
+
 _aufs3git="git://aufs.git.sourceforge.net/gitroot/aufs/aufs3-standalone.git"
 _aufs3name=aufs3
 
@@ -65,7 +69,7 @@ _aufs3name=aufs3
 build() {
   cd ${srcdir}/linux-${_basekernel}
   # This is for me, to test the PKGBUILD
-  if [[ $NOEXTRACT = "0" ]]; then
+if [[ $NOEXTRACT = "0" ]]; then
      # Arch linux logo
      msg "Replacing penguins with arches"
      bzip2 -dk ${startdir}/logo_linux_*.bz2
@@ -97,20 +101,47 @@ build() {
         fi
     fi
 
-     msg "Patching for restless souls"
-     patch -Np1 < ${srcdir}/channel-negative-one-maxim.patch
+  # add latest fixes from stable queue, if needed
+  # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
 
-     # Interactive governor patch
-     # broken for now
-     #mv ${srcdir}/gist*/gistfile1.diff ${srcdir}
-     #patch -Np1 < ${srcdir}/gistfile1.diff
+  # Some chips detect a ghost TV output
+  # mailing list discussion: http://lists.freedesktop.org/archives/intel-gfx/2011-April/010371.html
+  # Arch Linux bug report: FS#19234
+  #
+  # It is unclear why this patch wasn't merged upstream, it was accepted,
+  # then dropped because the reasoning was unclear. However, it is clearly
+  # needed.
+  patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
 
-     if [ "$CARCH" = "x86_64" ]; then
+  # In 3.1.1, a DRM_DEBUG message is falsely declared as DRM_ERROR. This
+  # worries users, as this message is displayed even at loglevel 4. Fix
+  # this.
+  patch -Np1 -i "${srcdir}/i915-fix-incorrect-error-message.patch"
+
+  # Add the USB_QUIRK_RESET_RESUME for several webcams
+  # FS#26528
+  patch -Np1 -i "${srcdir}/usb-add-reset-resume-quirk-for-several-webcams.patch"
+
+  # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
+  # remove this when a Kconfig knob is made available by upstream
+  # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
+  patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
+ 
+   msg "Patching for restless souls"
+   patch -Np1 < ${srcdir}/channel-negative-one-maxim.patch
+
+   # Interactive governor patch
+   # broken for now
+   msg "Interactice CPU governor patch"
+   mv ${srcdir}/gist*/gistfile1.diff ${srcdir}
+   patch -Np1 < ${srcdir}/gistfile1.diff
+
+   if [ "$CARCH" = "x86_64" ]; then
 	cat ${startdir}/config.x86_64 >| .config
-     else
+   else
 	cat ${startdir}/config >| .config
-     fi
-  fi
+   fi
+fi
   sed -i "s/EXTRAVERSION = -${_pfrel}/EXTRAVERSION = ${_kernelname}/" Makefile
   _arch=$CARCH
 
@@ -332,83 +363,110 @@ package() {
      -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
      -i ${startdir}/${_pkgname}.install
   sed \
+     -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${_pkgname}\"|g" \
      -e "s|default_image=.*|default_image=\"/boot/initramfs-${_pkgname}.img\"|g" \
      -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${_pkgname}-fallback.img\"|g" \
-     -i ${pkgdir}/etc/mkinitcpio.d/${_pkgname}.preset
+     -i "${pkgdir}/etc/mkinitcpio.d/${_pkgname}.preset"
 
   # remove build and source links
   rm -f ${pkgdir}/lib/modules/${_kernver}/{source,build}
-  # add compat symlink for the kernel image
-  ln -sf vmlinuz-${_pkgname} ${pkgdir}/boot/vmlinuz26${_kernelname}
   # remove the firmware
   rm -rf ${pkgdir}/lib/firmware
+  # gzip -9 all modules to save 100MB of space
+  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  # make room for external modules
+  ln -s "../extramodules-${_basekernel}${_kernelname:--pf}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+  # add real version for building modules and running depmod from post_install/upgrade
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--pf}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--pf}/version"
 
+# Directly copied from linux-ARCH
   ### package_linux-pf-headers
-  mkdir -p ${pkgdir}/lib/modules/${_kernver}
-  cd ${pkgdir}/lib/modules/${_kernver}
+  mkdir -p "${pkgdir}/lib/modules/${_kernver}"
+
+  cd "${pkgdir}/lib/modules/${_kernver}"
   ln -sf ../../../usr/src/linux-${_kernver} build
-  cd ${srcdir}/linux-$_basekernel
+
+  cd "${srcdir}/linux-${_basekernel}"
   install -D -m644 Makefile \
-    ${pkgdir}/usr/src/linux-${_kernver}/Makefile
+    "${pkgdir}/usr/src/linux-${_kernver}/Makefile"
   install -D -m644 kernel/Makefile \
-    ${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile
+    "${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile"
   install -D -m644 .config \
-    ${pkgdir}/usr/src/linux-${_kernver}/.config
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/include
+    "${pkgdir}/usr/src/linux-${_kernver}/.config"
+
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include"
 
   for i in acpi asm-generic config crypto drm generated linux math-emu \
     media net pcmcia scsi sound trace video xen; do
-    cp -a include/$i ${pkgdir}/usr/src/linux-${_kernver}/include/
+    cp -a include/${i} "${pkgdir}/usr/src/linux-${_kernver}/include/"
   done
 
   # copy arch includes for external modules
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/arch/x86
-  cp -a arch/x86/include ${pkgdir}/usr/src/linux-${_kernver}/arch/x86/
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/x86"
+  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${_kernver}/arch/x86/"
 
   # copy files necessary for later builds, like nvidia and vmware
-  cp Module.symvers ${pkgdir}/usr/src/linux-${_kernver}
-  cp -a scripts ${pkgdir}/usr/src/linux-${_kernver}
+  cp Module.symvers "${pkgdir}/usr/src/linux-${_kernver}"
+  cp -a scripts "${pkgdir}/usr/src/linux-${_kernver}"
+
   # fix permissions on scripts dir
-  chmod og-w -R ${pkgdir}/usr/src/linux-${_kernver}/scripts
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions
+  chmod og-w -R "${pkgdir}/usr/src/linux-${_kernver}/scripts"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions"
 
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/kernel
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel"
 
-  cp arch/$KARCH/Makefile ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/
-  if [ "$CARCH" = "i686" ]; then
-    cp arch/$KARCH/Makefile_32.cpu ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/
+  cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+
+  if [ "${CARCH}" = "i686" ]; then
+    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
   fi
-  cp arch/$KARCH/kernel/asm-offsets.s ${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/kernel/
+
+  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel/"
 
   # add headers for lirc package
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video
-  cp drivers/media/video/*.h  ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video"
+
+  cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/"
+
   for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102; do
-   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/$i
-   cp -a drivers/media/video/$i/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/$i
+    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+    cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
   done
+
   # add docbook makefile
   install -D -m644 Documentation/DocBook/Makefile \
-    ${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile
+    "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
+
   # add dm headers
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/md
-  cp drivers/md/*.h  ${pkgdir}/usr/src/linux-${_kernver}/drivers/md
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+  cp drivers/md/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+
   # add inotify.h
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/include/linux
-  cp include/linux/inotify.h ${pkgdir}/usr/src/linux-${_kernver}/include/linux/
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/linux"
+  cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${_kernver}/include/linux/"
+
   # add wireless headers
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/
-  cp net/mac80211/*.h ${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+  cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+
   # add dvb headers for external modules
   # in reference to:
   # http://bugs.archlinux.org/task/9912
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core
-  cp drivers/media/dvb/dvb-core/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/
-  # add dvb headers for external modules
-  # in reference to:
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core"
+  cp drivers/media/dvb/dvb-core/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/"
+  # and...
   # http://bugs.archlinux.org/task/11194
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/
-  [[ -e include/config/dvb/ ]] && cp include/config/dvb/*.h ${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+  cp include/config/dvb/*.h "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+
+  # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
+  # in reference to:
+  # http://bugs.archlinux.org/task/13146
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  cp drivers/media/dvb/frontends/lgdt330x.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  cp drivers/media/video/msp3400-driver.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+
   # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
   # in reference to:
   # http://bugs.archlinux.org/task/13146
@@ -424,47 +482,49 @@ package() {
   cp drivers/media/dvb/frontends/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners
   cp drivers/media/common/tuners/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners/
+
   # add xfs and shmem for aufs building
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/fs/xfs
-  mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/mm
-  cp fs/xfs/xfs_sb.h ${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/mm"
+  cp fs/xfs/xfs_sb.h "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h"
+
   # copy in Kconfig files
   for i in `find . -name "Kconfig*"`; do
-    mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/`echo $i | sed 's|/Kconfig.*||'`
-    cp $i ${pkgdir}/usr/src/linux-${_kernver}/$i
+    mkdir -p "${pkgdir}"/usr/src/linux-${_kernver}/`echo ${i} | sed 's|/Kconfig.*||'`
+    cp ${i} "${pkgdir}/usr/src/linux-${_kernver}/${i}"
   done
 
-  chown -R root.root ${pkgdir}/usr/src/linux-${_kernver}
-  find ${pkgdir}/usr/src/linux-${_kernver} -type d -exec chmod 755 {} \;
+  chown -R root.root "${pkgdir}/usr/src/linux-${_kernver}"
+  find "${pkgdir}/usr/src/linux-${_kernver}" -type d -exec chmod 755 {} \;
+
   # strip scripts directory
-  find ${pkgdir}/usr/src/linux-${_kernver}/scripts  -type f -perm -u+w 2>/dev/null | while read binary ; do
-  case "$(file -bi "$binary")" in
-    *application/x-sharedlib*) # Libraries (.so)
-    /usr/bin/strip $STRIP_SHARED "$binary";;
-    *application/x-archive*) # Libraries (.a)
-    /usr/bin/strip $STRIP_STATIC "$binary";;
-    *application/x-executable*) # Binaries
-    /usr/bin/strip $STRIP_BINARIES "$binary";;
+  find "${pkgdir}/usr/src/linux-${_kernver}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
+    case "$(file -bi "${binary}")" in
+      *application/x-sharedlib*) # Libraries (.so)
+        /usr/bin/strip ${STRIP_SHARED} "${binary}";;
+      *application/x-archive*) # Libraries (.a)
+        /usr/bin/strip ${STRIP_STATIC} "${binary}";;
+      *application/x-executable*) # Binaries
+        /usr/bin/strip ${STRIP_BINARIES} "${binary}";;
     esac
   done
-  # remove unneeded architectures
-  rm -rf ${pkgdir}/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
 
-  # gzip -9 all modules to save 100MB of space
-  msg "Compressing modules..."
-  find "$pkgdir" -name '*.ko' -exec gzip -9 {} \;
+  # remove unneeded architectures
+  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
 }
 
 # makepkg -g >>PKGBUILD
-
 sha256sums=('6f220258f3ce9f11d0e53860ccc2d9fe746117056212099876dbe5ee1de80af3'
-            '26230ebb251a94a6360f73115d58b75725bf507ae4359956eb3da2ca61acddbe'
-            'ef62748489c754253c1b4791edc4562ed3fef8e492c78bf821e248c09bf4128d'
+            '0c507805af50c2c6e2a4a7a35d4a0b82062733e50e5d949dffefd9ff698f8a0a'
+            '75b9097f75012930151db0debcb4e000c1e49090806d57daa2084b917bea2146'
             '82d660caa11db0cd34fd550a049d7296b4a9dcd28f2a50c81418066d6e598864'
             '03ed4eb4a35d42ae6beaaa5e6fdbada4244ed6c343944bba6462defaa6fed0bf'
             '51ea665cfec42d9f9c7796af2b060b7edbdeb367e42811f8c02667ad729f6b19'
             '9e1e81d80afac6f316e53947e1b081017090081cd30e6c4c473420b77af4b52b'
             '19f7fc0753636c32026e444e23bd101bd21cfeb59661284678bf157dc35212f2'
             'd537a358c9f8b9cbcad34ba99f88af070f54d99c66d3e5d3d4734576ed2fb6e1'
-            '9ccadbe3eb30bb283af3eb869c3a4bdb764628854811cc616a2e02e9ef398705'
+            '2fc60ad91d7afe5b1e7c7a0cac7555a2dddf2b9fc1f7a044e211904991e10e83'
+            '4bc5a3fc40bf60bd4b362b519219cae56141a9f209bd2cf6bed25c1bd434e2cc'
+            '7985cb06e73d0c6a14aae45711958694ee206e504c3702aaeb24b7d32edb3db4'
+            '549a33278c17af6aa9ca5d3cf2abe3a0b1010d7c66e53d2a357a38ace25f8ea1'
             '11b06a308b7c1b1b909f079910c2f256b30aa49a1ffcb2dbd1c8c44d8e045c7c')
