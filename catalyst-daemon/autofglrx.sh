@@ -27,7 +27,7 @@ build_fglrx() {
 check_fglrx() {
 	compare=$(uname -v)
 
-	if [ -e /lib/modules/${kernel}/video/fglrx.ko ]
+	if [[ -e /lib/modules/${kernel}/video/fglrx.ko ]] || [[ -e /lib/modules/${kernel}/extramodules/fglrx.ko ]]
 	then
 		  test=$(modinfo -F description fglrx | grep "__unv:") || stat_die
 	else
