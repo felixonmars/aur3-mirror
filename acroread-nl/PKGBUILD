@@ -1,7 +1,7 @@
 # Contributor: van Rilland Bath <vanrillandbath yahoo co uk>
 
 pkgname=acroread-nl
-pkgver=8.1.3
+pkgver=8.1.7
 pkgrel=1
 pkgdesc="Adobe Reader is a PDF file viewer. Dutch version."
 arch=('i686')
@@ -11,8 +11,8 @@ depends=('gtk2' 'mesa' 'desktop-file-utils')
 conflicts=('acroread')
 options=('!strip')
 install=acroread.install
-source=(http://ardownload.adobe.com/pub/adobe/reader/unix/8.x/8.1.3/nld/AdobeReader_nld-8.1.3-1.i486.tar.bz2)
-md5sums=('0683c7772a22216bad80a850e3a795c0')
+source=(http://ardownload.adobe.com/pub/adobe/reader/unix/8.x/$pkgver/nld/AdobeReader_nld-$pkgver-1.i486.tar.bz2)
+md5sums=('f9071519a1860bb185a5a09f6db91d13')
 
 build() {
   cd "$srcdir/AdobeReader"
