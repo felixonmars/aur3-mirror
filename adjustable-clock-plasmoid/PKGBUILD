@@ -4,7 +4,7 @@ pkgname=adjustable-clock-plasmoid
 pkgver=2.6.1
 pkgrel=1
 pkgdesc="Customizable kdeplasma clock plasmoid."
-arch=('any')
+arch=(i686 x86_64)
 url="http://www.kde-look.org/content/show.php/Adjustable+Clock?content=92825"
 license=('GPL')
 depends=('kdebase-workspace')
