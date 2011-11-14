@@ -1,10 +1,10 @@
 #define TAGS		"xnlhtr01uiva-"
-#define TAGS_SAVED	TAGS
 #define SHELL		"ksh"
 #define MAIL		"mailx"
 #define EDITOR		"vi"
 
 #define TINYFONT	"/path/to/tinyfont/file.tf"
+#define TINYFONT_BOLD	"/path/to/tinyfont/file.tf"
 
 #define FGCOLOR		0
 #define BGCOLOR		7
@@ -35,7 +35,7 @@
 #define COLOR15		0xdedede
 
 /* where to write the screen shot */
-#define SCREENSHOT	"/tmp/scr"
+#define SCRSHOT		"/tmp/scr"
 
 /* framebuffer depth */
 typedef unsigned int fbval_t;
