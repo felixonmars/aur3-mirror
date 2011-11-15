@@ -1,7 +1,7 @@
-From 31ce479ecab2638892f4fba191d300aa5a9d9746 Mon Sep 17 00:00:00 2001
-From: Arianna Avanzini <73628@studenti.unimore.it>
-Date: Mon, 12 Sep 2011 22:40:31 +0200
-Subject: [PATCH 1/3] block: prepare I/O context code for BFQ-v3 for 3.0
+From c3fae37fd2ed5b983d31d5d6e1ffcee4b2f7d01a Mon Sep 17 00:00:00 2001
+From: Arianna Avanzini <avanzini.arianna@gmail.com>
+Date: Tue, 18 Oct 2011 21:22:45 +0200
+Subject: [PATCH 1/3] block: prepare I/O context code for BFQ-v3r1 for 3.1
 
 BFQ uses struct cfq_io_context to store its per-process per-device data,
 reusing the same code for cic handling of CFQ.  The code is not shared
@@ -86,7 +86,7 @@ index 3199b76..5905452 100644
  
  endmenu
 diff --git a/block/blk-ioc.c b/block/blk-ioc.c
-index 342eae9..21f13b1 100644
+index 6f9bbd9..d0d16d4 100644
 --- a/block/blk-ioc.c
 +++ b/block/blk-ioc.c
 @@ -5,6 +5,7 @@
@@ -159,26 +159,26 @@ index 342eae9..21f13b1 100644
  }
  
 @@ -89,12 +91,14 @@ struct io_context *alloc_io_context(gfp_t gfp_flags, int node)
- 		atomic_long_set(&ret->refcount, 1);
- 		atomic_set(&ret->nr_tasks, 1);
- 		spin_lock_init(&ret->lock);
--		ret->ioprio_changed = 0;
-+		bitmap_zero(ret->ioprio_changed, IOC_IOPRIO_CHANGED_BITS);
- 		ret->ioprio = 0;
- 		ret->last_waited = 0; /* doesn't matter... */
- 		ret->nr_batch_requests = 0; /* because this is 0 */
- 		INIT_RADIX_TREE(&ret->radix_root, GFP_ATOMIC | __GFP_HIGH);
- 		INIT_HLIST_HEAD(&ret->cic_list);
-+		INIT_RADIX_TREE(&ret->bfq_radix_root, GFP_ATOMIC | __GFP_HIGH);
-+		INIT_HLIST_HEAD(&ret->bfq_cic_list);
- 		ret->ioc_data = NULL;
+ 		atomic_long_set(&ioc->refcount, 1);
+ 		atomic_set(&ioc->nr_tasks, 1);
+ 		spin_lock_init(&ioc->lock);
+-		ioc->ioprio_changed = 0;
++		bitmap_zero(ioc->ioprio_changed, IOC_IOPRIO_CHANGED_BITS);
+ 		ioc->ioprio = 0;
+ 		ioc->last_waited = 0; /* doesn't matter... */
+ 		ioc->nr_batch_requests = 0; /* because this is 0 */
+ 		INIT_RADIX_TREE(&ioc->radix_root, GFP_ATOMIC | __GFP_HIGH);
+ 		INIT_HLIST_HEAD(&ioc->cic_list);
++		INIT_RADIX_TREE(&ioc->bfq_radix_root, GFP_ATOMIC | __GFP_HIGH);
++		INIT_HLIST_HEAD(&ioc->bfq_cic_list);
+ 		ioc->ioc_data = NULL;
  #if defined(CONFIG_BLK_CGROUP) || defined(CONFIG_BLK_CGROUP_MODULE)
- 		ret->cgroup_changed = 0;
+ 		ioc->cgroup_changed = 0;
 diff --git a/block/cfq-iosched.c b/block/cfq-iosched.c
-index ae21919..b581793 100644
+index 16ace89..ec4bcf1 100644
 --- a/block/cfq-iosched.c
 +++ b/block/cfq-iosched.c
-@@ -2919,7 +2919,6 @@ static void changed_ioprio(struct io_context *ioc, struct cfq_io_context *cic)
+@@ -2934,7 +2934,6 @@ static void changed_ioprio(struct io_context *ioc, struct cfq_io_context *cic)
  static void cfq_ioc_set_ioprio(struct io_context *ioc)
  {
  	call_for_each_cic(ioc, changed_ioprio);
@@ -186,7 +186,7 @@ index ae21919..b581793 100644
  }
  
  static void cfq_init_cfqq(struct cfq_data *cfqd, struct cfq_queue *cfqq,
-@@ -3204,8 +3203,13 @@ cfq_get_io_context(struct cfq_data *cfqd, gfp_t gfp_mask)
+@@ -3219,8 +3218,13 @@ cfq_get_io_context(struct cfq_data *cfqd, gfp_t gfp_mask)
  		goto err_free;
  
  out:
@@ -235,10 +235,10 @@ index 7da2a06..95a6c2b 100644
  
  	task_unlock(task);
 diff --git a/include/linux/iocontext.h b/include/linux/iocontext.h
-index b2eee89..7cbace3 100644
+index 5037a0a..69fdd58 100644
 --- a/include/linux/iocontext.h
 +++ b/include/linux/iocontext.h
-@@ -1,14 +1,14 @@
+@@ -1,10 +1,10 @@
  #ifndef IOCONTEXT_H
  #define IOCONTEXT_H
  
@@ -247,6 +247,10 @@ index b2eee89..7cbace3 100644
  #include <linux/rcupdate.h>
  
 -struct cfq_queue;
+ struct cfq_ttime {
+ 	unsigned long last_end_request;
+ 
+@@ -16,7 +16,7 @@ struct cfq_ttime {
  struct cfq_io_context {
  	void *key;
  
@@ -255,7 +259,7 @@ index b2eee89..7cbace3 100644
  
  	struct io_context *ioc;
  
-@@ -28,6 +28,16 @@ struct cfq_io_context {
+@@ -32,6 +32,16 @@ struct cfq_io_context {
  };
  
  /*
@@ -272,7 +276,7 @@ index b2eee89..7cbace3 100644
   * I/O subsystem state of the associated processes.  It is refcounted
   * and kmalloc'ed. These could be shared between processes.
   */
-@@ -39,7 +49,7 @@ struct io_context {
+@@ -43,7 +53,7 @@ struct io_context {
  	spinlock_t lock;
  
  	unsigned short ioprio;
@@ -281,7 +285,7 @@ index b2eee89..7cbace3 100644
  
  #if defined(CONFIG_BLK_CGROUP) || defined(CONFIG_BLK_CGROUP_MODULE)
  	unsigned short cgroup_changed;
-@@ -53,6 +63,8 @@ struct io_context {
+@@ -57,6 +67,8 @@ struct io_context {
  
  	struct radix_tree_root radix_root;
  	struct hlist_head cic_list;
@@ -291,5 +295,5 @@ index b2eee89..7cbace3 100644
  };
  
 -- 
-1.7.4.1
+1.7.2.5
 
