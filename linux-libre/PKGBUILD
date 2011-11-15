@@ -9,8 +9,8 @@ pkgname=linux-libre
 true && pkgname=('linux-libre' 'linux-libre-headers' 'linux-libre-docs') # Build stock -LIBRE kernel
 # pkgname=linux-custom       # Build kernel with a different name
 _kernelname=${pkgname#linux-libre}
-_basekernel=3.0
-pkgver=${_basekernel}.4
+_basekernel=3.1
+pkgver=${_basekernel}
 pkgrel=2
 arch=('i686' 'x86_64')
 url="http://linux-libre.fsfla.org/"
@@ -18,33 +18,55 @@ license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl')
 options=('!strip')
 source=("http://linux-libre.fsfla.org/pub/linux-libre/releases/${_basekernel}-libre/linux-${_basekernel}-libre.tar.xz"
-        "http://linux-libre.fsfla.org/pub/linux-libre/releases/${pkgver}-libre/patch-${_basekernel}-libre-${pkgver}-libre.xz"
+        # "http://linux-libre.fsfla.org/pub/linux-libre/releases/${pkgver}-libre/patch-${_basekernel}-libre-${pkgver}-libre.xz"
         # the main kernel config files
         'config.i686' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         "${pkgname}.preset"
         'boot-logo.patch'
-        'fix-i915.patch'
-        'change-default-console-loglevel.patch')
-md5sums=('44e7bc20c235a193f9b6123a8d5e9509'
-         'f17e9c5f801be0b17efe78aaff0f2a0e'
-         'bb679e0e61c53a8f1a22b8d46f89f47e'
-         '68d2fc73ce1d9057678f91235f6e22c6'
-         'a8a3843046926eb7ab81312cd438c5c5'
-         '04b21c79df0a952c22d681dd4f4562df'
-         '263725f20c0b9eb9c353040792d644e5'
-         '9d3c56a4b999c8bfbd4018089a62f662')
+        'change-default-console-loglevel.patch'
+        'i915-fix-ghost-tv-output.patch'
+        'i915-fix-incorrect-error-message.patch'
+        'iwlagn-fix-NULL-pointer-dereference.patch'
+        'dib0700-fix.patch'
+        'usb-add-reset-resume-quirk-for-several-webcams.patch')
 
 build() {
   cd "${srcdir}/linux-${_basekernel}"
 
-  patch -Np1 -i "${srcdir}/patch-${_basekernel}-libre-${pkgver}-libre"
+#  patch -Np1 -i "${srcdir}/patch-${_basekernel}-libre-${pkgver}-libre"
 
   # Add freedo as boot logo
   patch -Np1 -i "${srcdir}/boot-logo.patch"
 
-  # fix #19234 i1915 display size
-  patch -Np1 -i "${srcdir}/fix-i915.patch"
+  # Some chips detect a ghost TV output
+  # mailing list discussion: http://lists.freedesktop.org/archives/intel-gfx/2011-April/010371.html
+  # Arch Linux bug report: FS#19234
+  #
+  # It is unclear why this patch wasn't merged upstream, it was accepted,
+  # then dropped because the reasoning was unclear. However, it is clearly
+  # needed.
+  patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
+
+  # In 3.1.0, a DRM_DEBUG message is falsely declared as DRM_ERROR. This
+  # worries users, as this message is displayed even at loglevel 4. Fix
+  # this.
+  patch -Np1 -i "${srcdir}/i915-fix-incorrect-error-message.patch"
+
+  # iwlagn has a critical bug that hangs the system on 3.1.0. A patch
+  # was posted, but didn't make it into the tree in time.
+  # http://marc.info/?l=linux-wireless&m=131840748927629&w=2
+  # FS#26674
+  patch -Np1 -i "${srcdir}/iwlagn-fix-NULL-pointer-dereference.patch"
+
+  # Fix dib0700 driver
+  # http://git.linuxtv.org/pb/media_tree.git/shortlog/refs/heads/for_v3.0
+  # FS#25939
+  patch -Np1 -i "${srcdir}/dib0700-fix.patch"
+
+  # Add the USB_QUIRK_RESET_RESUME for several webcams
+  # FS#26528
+  patch -Np1 -i "${srcdir}/usb-add-reset-resume-quirk-for-several-webcams.patch"
 
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
@@ -57,14 +79,8 @@ build() {
     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
   fi
 
-  # remove the "-libre" extraversion from Makefile
-  sed -i 's|^EXTRAVERSION =.*$|EXTRAVERSION =|g' Makefile
-
-  # remove the sublevel from Makefile
-  # this ensures our kernel version is always 3.X-LIBRE
-  # this way, minor kernel updates will not break external modules
-  # we need to change this soon, see FS#16702
-  sed -ri 's|^(SUBLEVEL =).*|\1|' Makefile
+  # set extraversion to pkgrel
+  sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
 
   # get kernel version
   make prepare
@@ -133,8 +149,13 @@ package_linux-libre() {
   rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
   # remove the firmware
   rm -rf "${pkgdir}/lib/firmware"
-  # gzip -9 all modules to safe 100MB of space
+  # gzip -9 all modules to save 100MB of space
   find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  # make room for external modules
+  ln -s "../extramodules-${_basekernel}${_kernelname:--LIBRE}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+  # add real version for building modules and running depmod from post_install/upgrade
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--LIBRE}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--LIBRE}/version"
 }
 
 package_linux-libre-headers() {
@@ -277,12 +298,22 @@ package_linux-libre-docs() {
   cd "${srcdir}/linux-${_basekernel}"
 
   mkdir -p "${pkgdir}/usr/src/linux-${_kernver}"
-  cp -r Documentation "${pkgdir}/usr/src/linux-${_kernver}"
+  cp -al Documentation "${pkgdir}/usr/src/linux-${_kernver}"
   find "${pkgdir}" -type f -exec chmod 444 {} \;
   find "${pkgdir}" -type d -exec chmod 755 {} \;
 
   # remove a file already in linux package
   rm -f "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
 }
-
+md5sums=('d73df15ab1d36fe3c102755d8f42117f'
+         'a7cbd8c216a1f4c6068625c4dc746164'
+         '616e05f7436572a7e83500b5daa7e958'
+         'a8a3843046926eb7ab81312cd438c5c5'
+         '04b21c79df0a952c22d681dd4f4562df'
+         '9d3c56a4b999c8bfbd4018089a62f662'
+         'fe04ae7274a1f76ba2a8054aec60ef08'
+         'fa2dcb6ceadb7fab2b18843537087614'
+         'dba7bedf258f89046012c4af616ebba9'
+         '442334d777475e2a37db92d199672a28'
+         'ec9cd0cda886136b4aa896e4883d6f5f')
 pkgdesc="The Linux-libre Kernel and modules"
