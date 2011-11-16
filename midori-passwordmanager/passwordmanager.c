@@ -32,13 +32,31 @@ static gchar* jspassm;
 static gboolean
 passwman_prepare_js ()
 {
-   gchar* data_name;
+   gchar* passwordmanager;
+   guint i;
+   gchar* file;
+
+   file = sokoke_find_data_filename ("passwordmanager.js", TRUE);
+   if (!g_file_get_contents (file, &passwordmanager, NULL, NULL))
+   {
+       g_free (file);
+       return FALSE;
+   }
+   g_strchomp (passwordmanager);
+
+   jspassm = g_strdup_printf ( "%s", passwordmanager );
+   g_strstrip (jspassm);
+   g_free (file);
+   g_free (passwordmanager);
+
+   return TRUE;
+/*   gchar* data_name;
    gchar* data_path;
    gchar* passwordmanager;
    gchar* file;
 
    data_name = g_build_filename (PACKAGE_NAME, "res", NULL);
-   data_path = sokoke_find_data_filename (data_name);
+   data_path = sokoke_find_data_filename (data_name,TRUE);
    g_free (data_name);
    file = g_build_filename(data_path,G_DIR_SEPARATOR_S,\
           "passwordmanager.js",NULL);
@@ -51,7 +69,7 @@ passwman_prepare_js ()
    g_free (data_path);
    g_free (file);
    g_free (passwordmanager);
-   return TRUE;
+   return TRUE;*/
 }
 
 static gchar*
@@ -325,7 +343,7 @@ extension_init (void)
 
     if ( passwman_prepare_js() && gnome_keyring_is_available() )
     {
-        ver = "0.3";
+        ver = "0.3" MIDORI_VERSION_SUFFIX;
         desc = g_strdup (_("Stores login/password data"));
     }
     else
