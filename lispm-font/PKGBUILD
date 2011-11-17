@@ -2,7 +2,7 @@
 
 pkgname=lispm-font
 pkgver=0.1
-pkgrel=1 
+pkgrel=2
 pkgdesc='M.I.T. "CADR LispMachine" main console font'
 url="http://www.eurogaran.com/downloads/lispmfont/"
 arch=('any')
