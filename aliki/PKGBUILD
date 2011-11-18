@@ -1,7 +1,7 @@
 # Maintainer: Bjoern Lindig <bjoern.lindig at googlemail dot com>
 pkgname=aliki
 pkgver=0.1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="An integrated system for Impulse Response measurements."
 arch=('i686' 'x86_64')
 url="http://www.kokkinizita.net/linuxaudio/downloads/index.html"
