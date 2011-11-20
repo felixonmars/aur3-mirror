@@ -3,8 +3,8 @@
 # Contributor: Ronan Rabouin <darkbaboon@gmail.com>
  
 pkgname=adeskbar
-pkgver=0.4.3
-pkgrel=3
+pkgver=0.5
+pkgrel=1
 pkgdesc="A quick and lightweight application launcher."
 arch=('any')
 url="http://adeskbar.tuxfamily.org/"
@@ -18,15 +18,13 @@ optdepends=('python-xlib: systray plugin'
 conflicts=("$pkgname-bzr" "$pkgname-archbang")
 install="$pkgname.install"
 source=("http://download.tuxfamily.org/$pkgname/sources/$pkgname-$pkgver.tar.bz2"
-        "$pkgname-escape.patch")
-md5sums=('255cd98ada4057e333a7c9069245eb88'
-         '39265cc022a513ab1f1f8b98dbd74f0e')
+        "$pkgname-escape.patch" "$pkgname.sh")
+md5sums=('df12efb1f97c4c45fb90e5e03e693b54'
+         '39265cc022a513ab1f1f8b98dbd74f0e'
+         '58cc954001b1c4ed33ed758337e05e78')
  
 build() {
   cd "$srcdir/$pkgname-$pkgver"
-
-  # Python2 fix
-  sed -i "s|\(bin/python\).*|\12|" `grep -rl bin/python .`
 
   # .desktop fix
   sed -i '$d' $pkgname.desktop
@@ -52,6 +50,8 @@ package() {
     "$pkgdir/usr/share/applications/$pkgname.desktop"
 
   # launcher
-  install -d "$pkgdir/usr/bin"
-  ln -s "/usr/share/$pkgname/main.py" "$pkgdir/usr/bin/adeskbar"
+  install -Dm755 ../adeskbar.sh "$pkgdir/usr/bin/adeskbar"
+
+  # python2 fix
+  sed -i "s|bin/python$|&2|" `grep -rl bin/python "$pkgdir"`
 }
