@@ -11,6 +11,6 @@ function disable() {
 }
 
 // gnome-shell extension entry point
-function init() {
+function init(metadata) {
     //do nothing?..//
 }
