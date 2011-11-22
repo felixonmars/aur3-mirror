@@ -1,5 +1,4 @@
 #!/bin/sh
 
 cd /opt/trine
-./trine-bin $@
- 
+./trine-bin ${@}
