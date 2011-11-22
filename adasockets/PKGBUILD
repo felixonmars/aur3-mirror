@@ -1,16 +1,18 @@
 # Maintainer: Samuel Tardieu <sam@rfc1149.net>
 
 pkgname=adasockets
-pkgver=1.8.8
-pkgrel=2
+pkgver=1.8.9
+pkgrel=1
 arch=('i686' 'x86_64')
 pkgdesc="BSD sockets in Ada"
 url="http://www.rfc1149.net/devel/adasockets"
 license=('custom:GNAT_Modified_GPL')
-depends=('gcc-ada' 'sh')
-makedepends=('autogen')
-source=(http://www.rfc1149.net/download/${pkgname}/${pkgname}-${pkgver}.tar.gz)
-md5sums=('01351fafa823d8960e912e0f6cde5fc5')
+depends=('sh' 'gcc-libs')
+makedepends=('gcc-ada' 'autogen')
+options=('!libtool')
+install=adasockets.install
+source=(https://www.github.com/downloads/samueltardieu/${pkgname}/${pkgname}-${pkgver}.tar.gz)
+md5sums=('30a1c69332ec68b925f404441865cf18')
 
 build() {
   cd $srcdir/${pkgname}-${pkgver} || return 1
@@ -22,3 +24,4 @@ build() {
     return 1
 }
 
+# vim:set ts=2 sw=2 et:
