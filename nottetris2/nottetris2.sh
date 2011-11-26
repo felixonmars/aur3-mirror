@@ -1,4 +1,3 @@
 #!/bin/bash
-# Game Not Tetris 2
-
+cat /usr/share/games/nottetris2/readme
 love /usr/share/games/nottetris2/nottetris2.love

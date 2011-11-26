@@ -52,8 +52,8 @@ if [ ! -d ${DATADIR} ] ; then
 fi
 
 # print the version into a file so we handle file formats being out of date properly later
-echo "1.2" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2/'` ]] ; then
+echo "1.3" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3'/` ]] ; then
 	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
 	sleep 4
 fi
@@ -226,7 +226,7 @@ echo "If you have \"gource\" installed (should be, since it is set as dependency
 echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
 echo -e "to visualize the log using gource.\n"
 echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
-echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -threads 4 -b 3000k -maxrate 8000k -bufsize 10000k \e[4;32mpacmanlog2gource_`date +%b\_%d\_%Y`.mp4\e[0m"
+echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k \e[4;32mpacmanlog2gource_`date +%b\_%d\_%Y`.mp4\e[0m"
 echo "to the first command."
 echo -e "Alternatively, you can also replace \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m with \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m as source-logfile to get all packages in a pie-formation."
 echo -e "To skip the package names, replace \e[0;32m--hide progress,mouse\e[0m by \e[0;32m--hide progress,mouse,filenames\e[0m."
