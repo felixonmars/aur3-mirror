@@ -2,7 +2,7 @@
 # Maintainer: William Díaz <wdiaz [at] archlinux [dot] us>
 
 pkgname=amsn-extras-svn
-pkgver=12021
+pkgver=12345
 pkgrel=1
 pkgdesc="aMSN Extras like plugins and skins"
 url="http://amsn.sourceforge.net"
@@ -10,6 +10,8 @@ license=('GPL')
 arch=('i686' 'x86_64')
 optdepends=('python: Depends for amsn' 'amsn: For apply in amsn' 'zenity: For plugin Desktop Integration')
 makedepends=('subversion')
+depends=('amsn-svn')
+conflitcs=('amsn')
 
 _svntrunk="https://amsn.svn.sourceforge.net/svnroot/amsn/trunk/amsn-extras"
 _svnmod="amsn-extras"
