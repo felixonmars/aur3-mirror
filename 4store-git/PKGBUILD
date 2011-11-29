@@ -1,8 +1,8 @@
 # Maintainer: Leif Warner <abimelech@gmail.com>
 # Contributor: Christophe Gueret <christophe.gueret@gmail.com>
 pkgname=4store-git
-pkgver=20110717
-pkgrel=2
+pkgver=20111128
+pkgrel=1
 pkgdesc="4store is an efficient, scalable and stable RDF database"
 arch=('i686' 'x86_64')
 url="http://4store.org/"
@@ -37,7 +37,7 @@ build() {
   # BUILD HERE
   #
 
-  export LDFLAGS=${LDFLAGS//-Wl,--as-needed}
+  export LDFLAGS=${LDFLAGS//,--as-needed}
   ./autogen.sh
   ./configure --prefix=/usr
   make
