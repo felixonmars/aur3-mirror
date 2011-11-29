@@ -1,0 +1,100 @@
+                                                                                                                                                                                                                                                               
+Delivered-To: jwboyer@gmail.com
+Received: by 10.220.45.11 with SMTP id c11cs62970vcf;
+        Mon, 31 Oct 2011 08:56:49 -0700 (PDT)
+Received: by 10.101.15.19 with SMTP id s19mr2706064ani.103.1320076596057;
+        Mon, 31 Oct 2011 08:56:36 -0700 (PDT)
+Return-Path: <linux-kernel-owner@vger.kernel.org>
+Received: from vger.kernel.org (vger.kernel.org. [209.132.180.67])
+        by mx.google.com with ESMTP id x8si7676575ani.27.2011.10.31.08.56.32;
+        Mon, 31 Oct 2011 08:56:36 -0700 (PDT)
+Received-SPF: pass (google.com: best guess record for domain of linux-kernel-owner@vger.kernel.org designates 209.132.180.67 as permitted sender) client-ip=209.132.180.67;
+Authentication-Results: mx.google.com; spf=pass (google.com: best guess record for domain of linux-kernel-owner@vger.kernel.org designates 209.132.180.67 as permitted sender) smtp.mail=linux-kernel-owner@vger.kernel.org
+Received: (majordomo@vger.kernel.org) by vger.kernel.org via listexpand
+	id S934545Ab1JaP4X (ORCPT <rfc822;mel.lkml@gmail.com> + 99 others);
+	Mon, 31 Oct 2011 11:56:23 -0400
+Received: from mx1.redhat.com ([209.132.183.28]:23653 "EHLO mx1.redhat.com"
+	rhost-flags-OK-OK-OK-OK) by vger.kernel.org with ESMTP
+	id S934538Ab1JaP4X (ORCPT <rfc822;linux-kernel@vger.kernel.org>);
+	Mon, 31 Oct 2011 11:56:23 -0400
+Received: from int-mx09.intmail.prod.int.phx2.redhat.com (int-mx09.intmail.prod.int.phx2.redhat.com [10.5.11.22])
+	by mx1.redhat.com (8.14.4/8.14.4) with ESMTP id p9VFuHOO027543
+	(version=TLSv1/SSLv3 cipher=DHE-RSA-AES256-SHA bits=256 verify=OK);
+	Mon, 31 Oct 2011 11:56:18 -0400
+Received: from dhcp-26-164.brq.redhat.com (dhcp-26-164.brq.redhat.com [10.34.26.164])
+	by int-mx09.intmail.prod.int.phx2.redhat.com (8.14.4/8.14.4) with ESMTP id p9VFuEK3018476;
+	Mon, 31 Oct 2011 11:56:15 -0400
+From:	Frantisek Hrbata <fhrbata@redhat.com>
+To:	rientjes@google.com
+Cc:	linux-mm@kvack.org, linux-kernel@vger.kernel.org,
+	akpm@linux-foundation.org, kosaki.motohiro@jp.fujitsu.com,
+	oleg@redhat.com, minchan.kim@gmail.com, stable@kernel.org,
+	eteo@redhat.com, pmatouse@redhat.com
+Subject: [PATCH v2] oom: fix integer overflow of points in oom_badness
+Date:	Mon, 31 Oct 2011 16:56:09 +0100
+Message-Id: <1320076569-23872-1-git-send-email-fhrbata@redhat.com>
+In-Reply-To: <1320048865-13175-1-git-send-email-fhrbata@redhat.com>
+References: <1320048865-13175-1-git-send-email-fhrbata@redhat.com>
+X-Scanned-By: MIMEDefang 2.68 on 10.5.11.22
+Sender:	linux-kernel-owner@vger.kernel.org
+Precedence: bulk
+List-ID: <linux-kernel.vger.kernel.org>
+X-Mailing-List:	linux-kernel@vger.kernel.org
+
+An integer overflow will happen on 64bit archs if task's sum of rss, swapents
+and nr_ptes exceeds (2^31)/1000 value. This was introduced by commit
+
+f755a04 oom: use pte pages in OOM score
+
+where the oom score computation was divided into several steps and it's no
+longer computed as one expression in unsigned long(rss, swapents, nr_pte are
+unsigned long), where the result value assigned to points(int) is in
+range(1..1000). So there could be an int overflow while computing
+
+176          points *= 1000;
+
+and points may have negative value. Meaning the oom score for a mem hog task
+will be one.
+
+196          if (points <= 0)
+197                  return 1;
+
+For example:
+[ 3366]     0  3366 35390480 24303939   5       0             0 oom01
+Out of memory: Kill process 3366 (oom01) score 1 or sacrifice child
+
+Here the oom1 process consumes more than 24303939(rss)*4096~=92GB physical
+memory, but it's oom score is one.
+
+In this situation the mem hog task is skipped and oom killer kills another and
+most probably innocent task with oom score greater than one.
+
+The points variable should be of type long instead of int to prevent the int
+overflow.
+
+Signed-off-by: Frantisek Hrbata <fhrbata@redhat.com>
+---
+ mm/oom_kill.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/mm/oom_kill.c b/mm/oom_kill.c
+index 626303b..e9a1785 100644
+--- a/mm/oom_kill.c
++++ b/mm/oom_kill.c
+@@ -162,7 +162,7 @@ static bool oom_unkillable_task(struct task_struct *p,
+ unsigned int oom_badness(struct task_struct *p, struct mem_cgroup *mem,
+ 		      const nodemask_t *nodemask, unsigned long totalpages)
+ {
+-	int points;
++	long points;
+ 
+ 	if (oom_unkillable_task(p, mem, nodemask))
+ 		return 0;
+-- 
+1.7.6.4
+
+--
+To unsubscribe from this list: send the line "unsubscribe linux-kernel" in
+the body of a message to majordomo@vger.kernel.org
+More majordomo info at  http://vger.kernel.org/majordomo-info.html
+Please read the FAQ at  http://www.tux.org/lkml/

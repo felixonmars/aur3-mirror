@@ -1,0 +1,118 @@
+From: Andy Adamson <andros@xxxxxxxxxx>
+
+The NFSv4 bitmap size is unbounded: a server can return an arbitrary
+sized bitmap in an FATTR4_WORD0_ACL request.  Replace using the
+nfs4_fattr_bitmap_maxsz as a guess to the maximum bitmask returned by a server
+with the inclusion of the bitmap (xdr length plus bitmasks) and the acl data
+xdr length to the (cached) acl page data.
+
+This is a general solution to commit e5012d1f "NFSv4.1: update
+nfs4_fattr_bitmap_maxsz" and fixes hitting a BUG_ON in xdr_shrink_bufhead
+when getting ACLs.
+
+Cc:stable@xxxxxxxxxx
+Signed-off-by: Andy Adamson <andros@xxxxxxxxxx>
+---
+ fs/nfs/nfs4proc.c |   20 ++++++++++++++++++--
+ fs/nfs/nfs4xdr.c  |   15 ++++++++++++---
+ 2 files changed, 30 insertions(+), 5 deletions(-)
+
+diff --git a/fs/nfs/nfs4proc.c b/fs/nfs/nfs4proc.c
+index deb88d9..97014dd 100644
+--- a/fs/nfs/nfs4proc.c
++++ b/fs/nfs/nfs4proc.c
+@@ -3671,6 +3671,22 @@ static void nfs4_zap_acl_attr(struct inode *inode)
+ 	nfs4_set_cached_acl(inode, NULL);
+ }
+ 
++/*
++ * The bitmap xdr length, bitmasks, and the attr xdr length are stored in
++ * the acl cache to handle variable length bitmasks. Just copy the acl data.
++ */
++static void nfs4_copy_acl(char *buf, char *acl_data, size_t acl_len)
++{
++	__be32 *q, *p = (__be32 *)acl_data;
++	int32_t len;
++
++	len = be32_to_cpup(p); /* number of bitmasks */
++	len += 2;  /* add words for bitmap and attr xdr len */
++	q = p + len;
++	len = len << 2; /* convert to bytes for acl_len math */
++	memcpy(buf, (char *)q, acl_len - len);
++}
++
+ static inline ssize_t nfs4_read_cached_acl(struct inode *inode, char *buf, size_t buflen)
+ {
+ 	struct nfs_inode *nfsi = NFS_I(inode);
+@@ -3688,7 +3704,7 @@ static inline ssize_t nfs4_read_cached_acl(struct inode *inode, char *buf, size_
+ 	ret = -ERANGE; /* see getxattr(2) man page */
+ 	if (acl->len > buflen)
+ 		goto out;
+-	memcpy(buf, acl->data, acl->len);
++	nfs4_copy_acl(buf, acl->data, acl->len);
+ out_len:
+ 	ret = acl->len;
+ out:
+@@ -3763,7 +3779,7 @@ static ssize_t __nfs4_get_acl_uncached(struct inode *inode, void *buf, size_t bu
+ 		if (res.acl_len > buflen)
+ 			goto out_free;
+ 		if (localpage)
+-			memcpy(buf, resp_buf, res.acl_len);
++			nfs4_copy_acl(buf, resp_buf, res.acl_len);
+ 	}
+ 	ret = res.acl_len;
+ out_free:
+diff --git a/fs/nfs/nfs4xdr.c b/fs/nfs/nfs4xdr.c
+index f9fd96d..9c07380 100644
+--- a/fs/nfs/nfs4xdr.c
++++ b/fs/nfs/nfs4xdr.c
+@@ -2513,7 +2513,7 @@ static void nfs4_xdr_enc_getacl(struct rpc_rqst *req, struct xdr_stream *xdr,
+ 	encode_compound_hdr(xdr, req, &hdr);
+ 	encode_sequence(xdr, &args->seq_args, &hdr);
+ 	encode_putfh(xdr, args->fh, &hdr);
+-	replen = hdr.replen + op_decode_hdr_maxsz + nfs4_fattr_bitmap_maxsz + 1;
++	replen = hdr.replen + op_decode_hdr_maxsz + 1;
+ 	encode_getattr_two(xdr, FATTR4_WORD0_ACL, 0, &hdr);
+ 
+ 	xdr_inline_pages(&req->rq_rcv_buf, replen << 2,
+@@ -4955,7 +4955,7 @@ decode_restorefh(struct xdr_stream *xdr)
+ static int decode_getacl(struct xdr_stream *xdr, struct rpc_rqst *req,
+ 		size_t *acl_len)
+ {
+-	__be32 *savep;
++	__be32 *savep, *bm_p;
+ 	uint32_t attrlen,
+ 		 bitmap[3] = {0};
+ 	struct kvec *iov = req->rq_rcv_buf.head;
+@@ -4964,6 +4964,7 @@ static int decode_getacl(struct xdr_stream *xdr, struct rpc_rqst *req,
+ 	*acl_len = 0;
+ 	if ((status = decode_op_hdr(xdr, OP_GETATTR)) != 0)
+ 		goto out;
++	bm_p = xdr->p;
+ 	if ((status = decode_attr_bitmap(xdr, bitmap)) != 0)
+ 		goto out;
+ 	if ((status = decode_attr_length(xdr, &attrlen, &savep)) != 0)
+@@ -4972,12 +4973,20 @@ static int decode_getacl(struct xdr_stream *xdr, struct rpc_rqst *req,
+ 	if (unlikely(bitmap[0] & (FATTR4_WORD0_ACL - 1U)))
+ 		return -EIO;
+ 	if (likely(bitmap[0] & FATTR4_WORD0_ACL)) {
+-		size_t hdrlen;
++		size_t hdrlen, len;
+ 		u32 recvd;
+ 
++		/*The bitmap (xdr len + bitmasks) and the attr xdr len words
++		 * are stored with the acl data to handle the problem of
++		 * variable length bitmasks.*/
++		xdr->p = bm_p;
++		len = be32_to_cpup(bm_p);
++		len += 2; /* add bitmap and attr xdr len words */
++
+ 		/* We ignore &savep and don't do consistency checks on
+ 		 * the attr length.  Let userspace figure it out.... */
+ 		hdrlen = (u8 *)xdr->p - (u8 *)iov->iov_base;
++		attrlen += len << 2; /* attrlen is in bytes */
+ 		recvd = req->rq_rcv_buf.len - hdrlen;
+ 		if (attrlen > recvd) {
+ 			dprintk("NFS: server cheating in getattr"
+-- 
+1.7.6.4

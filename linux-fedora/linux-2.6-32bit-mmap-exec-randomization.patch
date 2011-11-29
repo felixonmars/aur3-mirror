@@ -152,7 +152,7 @@ Main executable randomisation (PIE)      : 12 bits (guessed)
  struct vm_area_struct *find_vma(struct mm_struct *mm, unsigned long addr)
 --- a/arch/x86/mm/mmap.c
 +++ b/arch/x86/mm/mmap.c
-@@ -124,13 +124,16 @@ static unsigned long mmap_legacy_base(void)
+@@ -124,13 +124,19 @@ static unsigned long mmap_legacy_base(void)
   */
  void arch_pick_mmap_layout(struct mm_struct *mm)
  {
@@ -163,9 +163,12 @@ Main executable randomisation (PIE)      : 12 bits (guessed)
  	} else {
  		mm->mmap_base = mmap_base();
  		mm->get_unmapped_area = arch_get_unmapped_area_topdown;
++#ifdef CONFIG_X86_32
 +		if (!(current->personality & READ_IMPLIES_EXEC)
++		    && !(__supported_pte_mask & _PAGE_NX)
 +		    && mmap_is_ia32())
 +			mm->get_unmapped_exec_area = arch_get_unmapped_exec_area;
++#endif
  		mm->unmap_area = arch_unmap_area_topdown;
  	}
  }
@@ -224,3 +227,25 @@ Main executable randomisation (PIE)      : 12 bits (guessed)
  		if (new_addr & ~PAGE_MASK) {
  			ret = new_addr;
  			goto out;
+diff --git a/arch/x86/kernel/process.c b/arch/x86/kernel/process.c
+index 57d1868..29c0c35 100644
+--- a/arch/x86/kernel/process.c
++++ b/arch/x86/kernel/process.c
+@@ -669,6 +669,16 @@ unsigned long arch_align_stack(unsigned long sp)
+ unsigned long arch_randomize_brk(struct mm_struct *mm)
+ {
+ 	unsigned long range_end = mm->brk + 0x02000000;
+-	return randomize_range(mm->brk, range_end, 0) ? : mm->brk;
++	unsigned long bump = 0;
++#ifdef CONFIG_X86_32
++	/* in the case of NX emulation, shove the brk segment way out of the
++	   way of the exec randomization area, since it can collide with
++	   future allocations if not. */
++	if ( (mm->get_unmapped_exec_area == arch_get_unmapped_exec_area) &&
++	     (mm->brk < 0x08000000) ) {
++		bump = (TASK_SIZE/6);
++	}
++#endif
++	return bump + (randomize_range(mm->brk, range_end, 0) ? : mm->brk);
+ }
+ 
