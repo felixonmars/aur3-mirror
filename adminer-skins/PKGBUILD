@@ -2,7 +2,7 @@
 
 pkgname=adminer-skins
 pkgver=20111130
-pkgrel=1
+pkgrel=2
 pkgdesc="Adminer skins GIT version."
 url="http://www.adminer.org"
 arch=('any')
@@ -14,7 +14,7 @@ makedepends=('git')
 
 
 # Uncomment one of these skins
-_skinName="brade"
+#_skinName="brade"
 #_skinName="bueltge"
 #_skinName="cvicebni-ubor"
 #_skinName="haeckel"
