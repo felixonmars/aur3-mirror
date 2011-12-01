@@ -1,5 +1,5 @@
 pkgname=selenium-server-standalone
-pkgver=2.9.0
+pkgver=2.14.0
 pkgrel=1
 pkgdesc="selenium server"
 arch=(any)
@@ -11,7 +11,7 @@ noextract=(selenium-server-standalone-$pkgver.jar)
 source=(http://selenium.googlecode.com/files/selenium-server-standalone-$pkgver.jar
 	selenium-server.conf.d
 	selenium-server.rc)
-md5sums=('cca1866751c769ab43cbec0110ad01c0'
+md5sums=('e2ea889c59e58d3c621c4cfd84d48cc7'
          '52d7774f2997c16a7e6b7672ae40d6ca'
          'ca9ee88f1b527db010980cdacb77e371')
 
