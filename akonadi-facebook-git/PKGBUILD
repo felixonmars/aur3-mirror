@@ -1,4 +1,4 @@
-# Maintainer: Andrea Scarpino <andrea@archlinux.org>
+# Maintainer: yimm
 
 pkgname=akonadi-facebook-git
 pkgver=20111117
@@ -8,7 +8,7 @@ arch=('i686' 'x86_64')
 url="https://projects.kde.org/projects/playground/pim/akonadi-facebook"
 license=('GPL')
 depends=('kdepimlibs')
-makedepends=('git' 'cmake' 'qjson')
+makedepends=('git' 'cmake' 'qjson' 'boost')
 
 _gitroot="git://anongit.kde.org/akonadi-facebook"
 _gitname="akonadi-facebook"
