@@ -5,7 +5,7 @@
 
 pkgname=darktable-git
 pkgrel=1
-pkgver=20110710
+pkgver=20111202
 pkgdesc="A virtual lighttable and darkroom for photographers"
 arch=(i686 x86_64)
 url=http://darktable.sourceforge.net/
@@ -50,6 +50,7 @@ build() {
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_USERMANUAL=False \
       -DDONT_INSTALL_GCONF_SCHEMAS=True \
+      -DUSE_GCONF_BACKEND=True \
       ..
   make
 }
