@@ -1,0 +1,127 @@
+From ee4cbc035710adb219b77f27577b73df5cb1a060 Mon Sep 17 00:00:00 2001
+From: Jukka Rissanen <jukka.rissanen@linux.intel.com>
+Date: Wed, 24 Aug 2011 12:08:53 +0200
+Subject: [PATCH] connection: Default gateway is changed when reorganizing
+ services
+
+Fixes BMC#22540
+---
+ src/connection.c |   89 ++++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 1 files changed, 87 insertions(+), 2 deletions(-)
+
+diff --git a/src/connection.c b/src/connection.c
+index 84e3ab4..d8d95f3 100644
+--- a/src/connection.c
++++ b/src/connection.c
+@@ -326,6 +326,69 @@ done:
+ 	__connman_service_indicate_default(data->service);
+ }
+ 
++static void unset_default_gateway(struct gateway_data *data,
++				enum connman_ipconfig_type type)
++{
++	int index;
++	int do_ipv4 = FALSE, do_ipv6 = FALSE;
++
++	if (type == CONNMAN_IPCONFIG_TYPE_IPV4)
++		do_ipv4 = TRUE;
++	else if (type == CONNMAN_IPCONFIG_TYPE_IPV6)
++		do_ipv6 = TRUE;
++	else
++		do_ipv4 = do_ipv6 = TRUE;
++
++	DBG("type %d gateway ipv4 %p ipv6 %p", type, data->ipv4_gateway,
++						data->ipv6_gateway);
++
++	if (do_ipv4 == TRUE && data->ipv4_gateway != NULL &&
++					data->ipv4_gateway->vpn == TRUE) {
++		connman_inet_del_host_route(data->index,
++						data->ipv4_gateway->vpn_ip);
++		connman_inet_clear_gateway_address(data->index,
++						data->ipv4_gateway->vpn_ip);
++		data->ipv4_gateway->active = FALSE;
++
++		return;
++	}
++
++	if (do_ipv6 == TRUE && data->ipv6_gateway != NULL &&
++					data->ipv6_gateway->vpn == TRUE) {
++		connman_inet_del_ipv6_host_route(data->index,
++						data->ipv6_gateway->vpn_ip);
++		connman_inet_clear_ipv6_gateway_address(data->index,
++						data->ipv6_gateway->vpn_ip);
++		data->ipv6_gateway->active = FALSE;
++
++		return;
++	}
++
++	index = __connman_service_get_index(data->service);
++
++	if (do_ipv4 == TRUE && data->ipv4_gateway != NULL &&
++			g_strcmp0(data->ipv4_gateway->gateway,
++							"0.0.0.0") == 0) {
++		connman_inet_clear_gateway_interface(index);
++		return;
++	}
++
++	if (do_ipv6 == TRUE && data->ipv6_gateway != NULL &&
++			g_strcmp0(data->ipv6_gateway->gateway,
++							"::") == 0) {
++		connman_inet_clear_ipv6_gateway_interface(index);
++		return;
++	}
++
++	if (do_ipv6 == TRUE && data->ipv6_gateway != NULL)
++		connman_inet_clear_ipv6_gateway_address(index,
++						data->ipv6_gateway->gateway);
++
++	if (do_ipv4 == TRUE && data->ipv4_gateway != NULL)
++		connman_inet_clear_gateway_address(index,
++						data->ipv4_gateway->gateway);
++}
++
+ static struct gateway_data *find_default_gateway(void)
+ {
+ 	struct gateway_data *found = NULL;
+@@ -684,14 +747,36 @@ gboolean __connman_connection_update_gateway(void)
+ 	if (gateway_hash == NULL)
+ 		return updated;
+ 
++	active_gateway = find_active_gateway();
++
+ 	update_order();
+ 
+-	active_gateway = find_active_gateway();
+ 	default_gateway = find_default_gateway();
+ 
+-	if (active_gateway && active_gateway != default_gateway)
++	if (active_gateway && active_gateway != default_gateway) {
+ 		updated = TRUE;
+ 
++		if (active_gateway->ipv4_gateway)
++			unset_default_gateway(active_gateway,
++					CONNMAN_IPCONFIG_TYPE_IPV4);
++
++		if (active_gateway->ipv6_gateway)
++			unset_default_gateway(active_gateway,
++					CONNMAN_IPCONFIG_TYPE_IPV6);
++
++		__connman_service_downgrade_state(active_gateway->service);
++
++		if (default_gateway) {
++			if (default_gateway->ipv4_gateway)
++				set_default_gateway(default_gateway,
++						CONNMAN_IPCONFIG_TYPE_IPV4);
++
++			if (default_gateway->ipv6_gateway)
++				set_default_gateway(default_gateway,
++						CONNMAN_IPCONFIG_TYPE_IPV6);
++		}
++	}
++
+ 	return updated;
+ }
+ 
+-- 
+1.7.6.1
+
