@@ -1,5 +1,5 @@
 #!/bin/sh
 
-cd /usr/share/tibia
+cd /usr/share/tibia-game
 ./Tibia $*
 
