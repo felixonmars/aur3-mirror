@@ -6,7 +6,7 @@
 
 pkgname=amazonmp3
 pkgver=1.0.9
-pkgrel=2
+pkgrel=3
 pkgdesc="The Amazon MP3 downloader"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
@@ -43,10 +43,10 @@ package() {
     tar -zxf "$i"
   done
 
+  sed -i 's/0.9.8/1.0.0/' "$pkgdir/usr/bin/amazonmp3"
+
   ln -s /usr/lib/libicui18n.so "${pkgdir}/usr/lib/libicui18n.so.38"
   ln -s /usr/lib/libicuuc.so "${pkgdir}/usr/lib/libicuuc.so.38"
-  ln -s /usr/lib/libcrypto.so "${pkgdir}/usr/lib/libcrypto.so.0.9.8"
-  ln -s /usr/lib/libssl.so "${pkgdir}/usr/lib/libssl.so.0.9.8"
 
   rm "${pkgdir}"/{control,md5sums,postinst,postrm}
 }
