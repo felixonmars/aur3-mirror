@@ -1,8 +1,8 @@
 # Maintainer: Guten Ye <ywzhaifei [at] gmail [dot] com>
 
 pkgname="chromium-tmpfs"
-pkgver=0.4
-pkgrel=5
+pkgver=0.5
+pkgrel=1
 pkgdesc="Sync all ~/.config/chromium and ~/.cache/chromium directories to tmpfs"
 arch=(any)
 url="https://github.com/GutenYe/chromium-tmpfs"
@@ -10,7 +10,7 @@ license=('MIT-LIENCE')
 depends=('chromium' 'rsync')
 source=(  rc.chromium-tmpfs
           confd.chromium-tmpfs )
-md5sums=('5c5aecc8944aa252412b248fb9b3b7e0'
+md5sums=('97275c59bd11787c327f86f403e0ca24'
          'fa5d47bc7bfa10b58212aa66c39fd960')
 
 backup=(etc/conf.d/chromium-tmpfs)
