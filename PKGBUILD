@@ -1,17 +1,17 @@
-pkgname=perl-plack-middleware-reverseproxy
-pkgver=0.11
+pkgname=perl-mime-lite-tt
+pkgver=0.02
 pkgrel=1
-pkgdesc="Plack::Middleware::ReverseProxy - Supports app to run as a reverse proxy backend"
+pkgdesc="MIME::Lite::TT - TT enabled MIME::Lite wrapper"
 arch=('any')
-url="http://search.cpan.org/~danjou/Plack-Middleware-ReverseProxy/"
+url="http://search.cpan.org/~horiuchi/MIME-Lite-TT-0.02/lib/MIME/Lite/TT.pm"
 license=('GPL' 'PerlArtistic')
-depends=('perl' 'perl-plack' 'perl-yaml' 'perl-test-base')
+depends=('perl' 'perl-mime-lite' 'perl-template-toolkit')
 options=('!emptydirs')
-source=(http://search.cpan.org/CPAN/authors/id/D/DA/DANJOU/Plack-Middleware-ReverseProxy-$pkgver.tar.gz)
-md5sums=('99748914ad37508ff8a122903e6da2b6')
+source=("http://search.cpan.org/CPAN/authors/id/H/HO/HORIUCHI/MIME-Lite-TT-$pkgver.tar.gz")
+md5sums=('82ac8e6dd4b0274ce552d5d2ace23eb4')
 
 build() {
-  cd  "$srcdir/Plack-Middleware-ReverseProxy-$pkgver" || return 1
+  cd  "$srcdir/MIME-Lite-TT-$pkgver" || return 1
 
   PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
   make &&
