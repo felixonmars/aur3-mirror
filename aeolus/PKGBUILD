@@ -4,10 +4,10 @@
 # Maintainer: Philipp Überbacher <murks at lavabit dot com>
 pkgname=aeolus
 pkgver=0.8.4
-pkgrel=2
+pkgrel=3
 pkgdesc="A high quality pipe organ emulator using additive synthesis."
 arch=('i686' 'x86_64')
-url="http://www.kokkinizita.net/linuxaudio/aeolus/index.html"
+url="http://kokkinizita.linuxaudio.org/linuxaudio/aeolus/index.html"
 license=('GPL')
 depends=('clalsadrv>=2.0.0' 'readline' 'clxclient>=3.6.1' 'jack')
 install=('aeolus.install')
@@ -15,11 +15,13 @@ source=(http://kokkinizita.linuxaudio.org/linuxaudio/downloads/${pkgname}-${pkgv
 http://kokkinizita.linuxaudio.org/linuxaudio/downloads/stops-0.3.0.tar.bz2 \
 ${pkgname}.conf
 ${pkgname}.patch
+DSO.patch
 )
 md5sums=('0dcbfb2ab386419f306e1d947815163a'
          '2a7b1cae820408fa1cc655800d08d88f'
          '5df78c88f1f5c2d4cf0e50a18b784025'
-         '022a2d3b62924b989796413873426937')
+         '022a2d3b62924b989796413873426937'
+         '7de49cefb008d76ca012a35e013c9bab')
 
 build() {
 
@@ -28,6 +30,7 @@ build() {
   cd "${srcdir}/${pkgname}-${pkgver}/source"
 
   patch < ${srcdir}/${pkgname}.patch
+  patch < ${srcdir}/DSO.patch
   make DESTDIR=${pkgdir} PREFIX="/usr" LIBDIR=lib
 }
 
