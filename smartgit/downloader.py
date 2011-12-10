@@ -30,12 +30,13 @@ class Downloader():
 
 	def __init__(self, product, filename):
 		self.filename = filename
+		sys.stderr.write( 'Initiating ' + self.filename + ' download from ' + self.host + '...\n' )
 		download_html = '/' + product + '/download.html'
 		file_path = product + '/' + filename
 		self.download_request = download_html + '?file=' + file_path
 
 	def suck(self):
-		sys.stderr.write( 'Negotiating with ' + self.host + '...\n' )
+		sys.stderr.write( 'Connecting to ' + self.host + '...\n' )
 		conn = http.client.HTTPConnection(self.host, timeout=5)
                 
 		refer = "http://" + self.host + self.download_request
