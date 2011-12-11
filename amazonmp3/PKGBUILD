@@ -6,13 +6,12 @@
 
 pkgname=amazonmp3
 pkgver=1.0.9
-pkgrel=3
+pkgrel=4
 pkgdesc="The Amazon MP3 downloader"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
 license=('custom')
 depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl' 'gtkmm' 'pangomm' 'cairomm' 'glibmm' 'libsigc++' 'bzip2')
-makedepends=('deb2targz')
 source=('http://mirrors.kernel.org/ubuntu/pool/universe/b/boost/libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.deb' \
 	'http://mirrors.kernel.org/ubuntu/pool/universe/b/boost/libboost-iostreams1.34.1_1.34.1-4ubuntu3_i386.deb' \
 	'http://mirrors.kernel.org/ubuntu/pool/universe/b/boost/libboost-signals1.34.1_1.34.1-4ubuntu3_i386.deb' \
@@ -32,7 +31,9 @@ build() {
   cd "${srcdir}"
 
   for i in *.deb; do
-    deb2targz "$i"
+    ar xv "$i" control.tar.gz data.tar.gz
+    mv control.tar.gz "$i-control.tar.gz"
+    mv data.tar.gz "$i-data.tar.gz"
   done
 }
 
