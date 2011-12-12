@@ -1,11 +1,12 @@
-# Maintainer: Maxime de Roucy <maxime.deroucy@gmail.com>
+# Maintainer: Dmitry Korzhevin <dkorzhevin at gmail dot com>
+# Contributor: Maxime de Roucy <maxime.deroucy@gmail.com>
 # Contributor: Shacristo <shacristo at gmail dot com>
 # Contributor: Andrea Scarpino <bash.lnx@gmail.com>
 # Contributor: William Rea <sillywilly@gmail.com>
 # Contributor: Stefan Husmann <stefanh-husmann@t-online.de>
 
 pkgname=alexandria
-pkgver=0.6.6
+pkgver=0.6.7
 pkgrel=1
 pkgdesc="A GNOME application to help you manage your book collection"
 arch=('any')
@@ -15,9 +16,8 @@ depends=('ruby-libglade' 'ruby-gconf2' 'ruby-gettext' 'ruby-gnome2>=0.90.5'  'hi
 makedepends=('intltool' 'rake' 'rarian')
 source=("http://files.rubyforge.vm.bytemark.co.uk/alexandria/${pkgname}-${pkgver}.tar.gz"
 	"${pkgname}.patch")
-md5sums=('76bc7054b19e033c1448346fa3232d64'
+md5sums=('bb399ec7568f4829ce11ca1c5c49c958'
          'edef76e94d65b5d5a51de0d2c462ef59')
-
 install=$pkgname.install
 
 build(){
