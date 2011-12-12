@@ -1,16 +1,15 @@
 # Maintainer: SpepS <dreamspepser at yahoo dot it>
 
 pkgname=adlmidi
-pkgver=1.1.1
+pkgver=1.1.2
 pkgrel=1
 pkgdesc="A commandline program that plays MIDI files using software OPL3 emulation (FM synthesis)."
 arch=(i686 x86_64)
 url="http://bisqwit.iki.fi/source/adlmidi.html"
 license=('GPL')
 depends=('sdl')
-makedepends=('php')
 source=("http://bisqwit.iki.fi/src/arch/$pkgname-$pkgver.tar.bz2")
-md5sums=('c1a9d39777259cc6f27578714d1fedbf')
+md5sums=('a7d139042970394752e4b95117dc34c7')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
@@ -22,8 +21,13 @@ build() {
 package() {
   cd "$srcdir/$pkgname-$pkgver"
 
+  # folders
   install -d "$pkgdir"/usr/{bin,share/$pkgname}
+
+  # bins
   install -Dm 755 `find . -perm -a=x -type f` "$pkgdir/usr/bin"
+
+  # data
   cp -a `find * -type d` "$pkgdir/usr/share/$pkgname"
 }
 
