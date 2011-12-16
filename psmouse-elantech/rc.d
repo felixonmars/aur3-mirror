@@ -5,8 +5,8 @@
 
 case "$1" in
   start)
-  	if [ -f "/lib/modules/`uname -r`/updates/drivers/input/mouse/psmouse.ko.gz" ]; then
-		/usr/sbin/psmouse-elantech-rebuild
+  	if [ ! -f "/lib/modules/`uname -r`/updates/drivers/input/mouse/psmouse.ko.gz" ]; then
+		/usr/sbin/psmouse-elantech-build
 	fi
 	;;
   stop)

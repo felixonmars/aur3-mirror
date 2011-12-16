@@ -1,7 +1,7 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20110221
+pkgver=20111213
 pkgrel=1
 pkgdesc="AmaroK - a media player for KDE. Without lastfm, mp3tunes, mtp and ipod support. GIT version"
 arch=('i686' 'x86_64')
@@ -33,16 +33,26 @@ build() {
   # strigi -> optional
   #sed -i 's/strigi.sourceforge.net\" TRUE/strigi.sourceforge.net\" FALSE/' CMakeLists.txt
   # switch off services
+  sed -i '/amazon/d' src/services/CMakeLists.txt
   sed -i '/magnatune/d' src/services/CMakeLists.txt
   sed -i '/ampache/d' src/services/CMakeLists.txt
   sed -i '/mp3tunes/d' src/services/CMakeLists.txt
   sed -i '/jamendo/d' src/services/CMakeLists.txt
+  sed -i '/opmldirectory/d' src/services/CMakeLists.txt
   
   mkdir amarok-build
   cd amarok-build
 
-  cmake .. -DCMAKE_INSTALL_PREFIX=`kde4-config --prefix` -DCMAKE_BUILD_TYPE=Release \
-  -DWITH_LibLastFm=OFF -DWITH_MP3Tunes=OFF -DWITH_Mtp=OFF -DWITH_IPOD=OFF -DWITH_LibOFA=OFF|| return 1
+  cmake .. -DCMAKE_INSTALL_PREFIX=`kde4-config --prefix` \
+	   -DCMAKE_BUILD_TYPE=Release \
+	   -DWITH_LibLastFm=OFF \
+	   -DWITH_MP3Tunes=OFF \
+	   -DWITH_Mtp=OFF \
+	   -DWITH_IPOD=OFF \
+	   -DWITH_LibOFA=OFF \
+	   -DWITH_QJSON=OFF \
+	   -DWITH_Mygpo-qt=OFF \
+	   || return 1
 
   make || return 1
   make DESTDIR=${pkgdir} install || return 1

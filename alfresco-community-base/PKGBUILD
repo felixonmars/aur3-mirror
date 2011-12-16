@@ -2,7 +2,7 @@
 
 pkgname=alfresco-community-base
 pkgver=3.4.d
-pkgrel=1
+pkgrel=2
 pkgdesc="The most scalable Java content repository that runs on commodity hardware and software."
 url="http://www.alfresco.com"
 replaces=(alfresco-community-mmt)
@@ -13,7 +13,7 @@ source=(http://sourceforge.net/projects/alfresco/files/Alfresco%203.4.d%20Commun
 md5sums=('2bc3fe66ed7cb24fb6b449eb7a36abd4'
          'b1f609689db57b917f8ae569fe073108'
          '9304799397c0546936bc56a3748a1712')
-depends=('java-runtime>=6' 'libreoffice')
+depends=('java-runtime>=6' 'libreoffice-common')
 optdepends=('imagemagick: Image manipulation and preview')
 groups=('alfresco')
 makedepends=( )
@@ -36,8 +36,8 @@ package() {
 
 	# Copy command line files to /usr/bin
 	mkdir -p $pkgdir/usr/bin
-	install --mode=755 $startdir/apply_amps.sh $pkgdir/usr/bin
-	install --mode=755 $startdir/mmt $pkgdir/usr/bin
+	install --mode=755 $srcdir/apply_amps.sh $pkgdir/usr/bin
+	install --mode=755 $srcdir/mmt $pkgdir/usr/bin
 
 	# Install the WARfiles.
 	mv $srcdir/web-server/webapps/*.war $alf_dir

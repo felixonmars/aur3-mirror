@@ -4,12 +4,12 @@
 # Maintainer: Philipp Überbacher <murks at lavabit dot com>
 pkgname=aeolus
 pkgver=0.8.4
-pkgrel=4
+pkgrel=5
 pkgdesc="A high quality pipe organ emulator using additive synthesis."
 arch=('i686' 'x86_64')
 url="http://kokkinizita.linuxaudio.org/linuxaudio/aeolus/index.html"
 license=('GPL')
-depends=('clalsadrv>=2.0.0' 'readline' 'clxclient>=3.6.1' 'jack')
+depends=('clthreads>=2.4.0' 'clalsadrv>=2.0.0' 'clxclient>=3.6.1' 'jack')
 install=aeolus.install
 source=(http://kokkinizita.linuxaudio.org/linuxaudio/downloads/${pkgname}-${pkgver}.tar.bz2 \
 http://kokkinizita.linuxaudio.org/linuxaudio/downloads/stops-0.3.0.tar.bz2 \

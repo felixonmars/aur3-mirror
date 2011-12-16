@@ -1,0 +1,341 @@
+Index: ibus/enginedesc.py
+diff --git a/ibus/enginedesc.py b/ibus/enginedesc.py
+index 3ca7f2484cc406e92a80663e16a88f3e9763bb26..055a3a0d7587bd7b4f9a8ce2c6f0bdfe3fa2153e 100644
+--- a/ibus/enginedesc.py
++++ b/ibus/enginedesc.py
+@@ -31,7 +31,7 @@ from serializable import *
+ class EngineDesc(Serializable):
+     __gtype_name__ = "PYIBusEngineDesc"
+     __NAME__ = "IBusEngineDesc"
+-    def __init__(self, name="", longname="", description="", language="", license="", author="", icon="", layout="", hotkeys="", rank=0, symbol=""):
++    def __init__(self, name="", longname="", description="", language="", license="", author="", icon="", layout="", hotkeys="", rank=0, symbol="", setup=""):
+         super(EngineDesc, self).__init__()
+         self.__name = name
+         self.__longname = longname
+@@ -44,6 +44,7 @@ class EngineDesc(Serializable):
+         self.__rank = rank
+         self.__hotkeys = hotkeys
+         self.__symbol = symbol
++        self.__setup = setup
+ 
+     def get_name(self):
+         return self.__name
+@@ -78,6 +79,9 @@ class EngineDesc(Serializable):
+     def get_symbol(self):
+         return self.__symbol
+ 
++    def get_setup(self):
++        return self.__setup
++
+     name        = property(get_name)
+     longname    = property(get_longname)
+     description = property(get_description)
+@@ -89,6 +93,7 @@ class EngineDesc(Serializable):
+     rank        = property(get_rank)
+     hotkeys     = property(get_hotkeys)
+     symbol      = property(get_symbol)
++    setup       = property(get_setup)
+ 
+     def serialize(self, struct):
+         super(EngineDesc, self).serialize(struct)
+@@ -103,6 +108,7 @@ class EngineDesc(Serializable):
+         struct.append(dbus.UInt32(self.__rank))
+         struct.append(dbus.String(self.__hotkeys))
+         struct.append(dbus.String(self.__symbol))
++        struct.append(dbus.String(self.__setup))
+ 
+     def deserialize(self, struct):
+         super(EngineDesc, self).deserialize(struct)
+@@ -117,9 +123,10 @@ class EngineDesc(Serializable):
+         self.__rank = struct.pop(0)
+         self.__hotkeys = struct.pop(0)
+         self.__symbol = struct.pop(0)
++        self.__setup  = struct.pop(0)
+ 
+ def test():
+-    engine = EngineDesc("Hello", "", "", "", "", "", "", "", "", 0, "")
++    engine = EngineDesc("Hello", "", "", "", "", "", "", "", "", 0, "", "")
+     value = serialize_object(engine)
+     engine = deserialize_object(value)
+ 
+Index: setup/ibus-setup.in
+diff --git a/setup/ibus-setup.in b/setup/ibus-setup.in
+index 72bc1a4f2282ec9a016fea8be2332ad96a53b8eb..f3c37309bce8a828ef422230b679af693f87ff80 100644
+--- a/setup/ibus-setup.in
++++ b/setup/ibus-setup.in
+@@ -23,8 +23,10 @@
+ prefix=@prefix@
+ exec_prefix=@exec_prefix@
+ datarootdir=@datarootdir@
++libexecdir=@libexecdir@
+ export IBUS_PREFIX=@prefix@
+ export IBUS_DATAROOTDIR=@datarootdir@
+ export IBUS_LOCALEDIR=@localedir@
++export IBUS_LIBEXECDIR=${libexecdir}
+ exec @PYTHON@ @prefix@/share/ibus/setup/main.py $@
+ 
+Index: setup/main.py
+diff --git a/setup/main.py b/setup/main.py
+index a22bb0c3ef87464044e329aed3af415087ce4b6b..6c0fb0e086f1088129f54c585a89313d65ebfb97 100644
+--- a/setup/main.py
++++ b/setup/main.py
+@@ -238,6 +238,10 @@ class Setup(object):
+         button = self.__builder.get_object("button_engine_about")
+         button.connect("clicked", self.__button_engine_about_cb)
+ 
++        self.__engine_setup_exec_list = {}
++        button = self.__builder.get_object("button_engine_preferences")
++        button.connect("clicked", self.__button_engine_preferences_cb)
++
+         self.__combobox.connect("notify::active-engine", self.__combobox_notify_active_engine_cb)
+         self.__treeview.connect("notify", self.__treeview_notify_cb)
+ 
+@@ -246,6 +250,24 @@ class Setup(object):
+         button = self.__builder.get_object("button_engine_add")
+         button.set_sensitive(engine != None and engine not in self.__treeview.get_engines())
+ 
++    def __get_engine_setup_exec_args(self, engine):
++        args = []
++        if engine == None:
++           return args
++        setup = str(engine.setup)
++        if len(setup) != 0:
++            args = setup.split()
++            args.insert(1, path.basename(args[0]))
++            return args
++        name = str(engine.name)
++        libexecdir = os.environ['IBUS_LIBEXECDIR']
++        setup_path = (libexecdir + '/' + 'ibus-setup-' if libexecdir != None \
++            else 'ibus-setup-') + name.split(':')[0]
++        if path.exists(setup_path):
++            args.append(setup_path)
++            args.append(path.basename(setup_path))
++        return args
++
+     def __treeview_notify_cb(self, treeview, property):
+         if property.name != "active-engine" and property.name != "engines":
+             return
+@@ -258,6 +280,12 @@ class Setup(object):
+         self.__builder.get_object("button_engine_up").set_sensitive(engine not in engines[:1])
+         self.__builder.get_object("button_engine_down").set_sensitive(engine not in engines[-1:])
+ 
++        obj = self.__builder.get_object("button_engine_preferences")
++        if len(self.__get_engine_setup_exec_args(engine)) != 0:
++            obj.set_sensitive(True)
++        else:
++            obj.set_sensitive(False)
++
+         if property.name == "engines":
+             engine_names = map(lambda e: e.name, engines)
+             self.__config.set_list("general", "preload_engines", engine_names, "s")
+@@ -273,6 +301,24 @@ class Setup(object):
+             about.run()
+             about.destroy()
+ 
++    def __button_engine_preferences_cb(self, button):
++        engine = self.__treeview.get_active_engine()
++        args = self.__get_engine_setup_exec_args(engine)
++        if len(args) == 0:
++            return
++        name = engine.name
++        if name in self.__engine_setup_exec_list.keys():
++            try:
++                wpid, sts = os.waitpid(self.__engine_setup_exec_list[name],
++                                       os.WNOHANG)
++                # the setup is still running.
++                if wpid == 0:
++                    return
++            except OSError:
++                pass
++            del self.__engine_setup_exec_list[name]
++        self.__engine_setup_exec_list[name] = os.spawnl(os.P_NOWAIT, *args)
++
+     def __init_bus(self):
+         try:
+             self.__bus = ibus.Bus()
+Index: setup/setup.ui
+diff --git a/setup/setup.ui b/setup/setup.ui
+index 0a69df8c1e093786de434709feb49eeeab18a34c..c7ff564097e65239103167ac6851e409d30ab0d6 100644
+--- a/setup/setup.ui
++++ b/setup/setup.ui
+@@ -726,6 +726,22 @@
+                                     <property name="position">4</property>
+                                   </packing>
+                                 </child>
++                                <child>
++                                  <object class="GtkButton" id="button_engine_preferences">
++                                    <property name="label">gtk-preferences</property>
++                                    <property name="visible">True</property>
++                                    <property name="sensitive">False</property>
++                                    <property name="can_focus">True</property>
++                                    <property name="receives_default">True</property>
++                                    <property name="tooltip_text" translatable="yes">Show setup of the selected input method</property>
++                                    <property name="use_stock">True</property>
++                                  </object>
++                                  <packing>
++                                    <property name="expand">False</property>
++                                    <property name="fill">False</property>
++                                    <property name="position">5</property>
++                                  </packing>
++                                </child>
+                               </object>
+                             </child>
+                           </object>
+Index: src/ibusenginedesc.c
+diff --git a/src/ibusenginedesc.c b/src/ibusenginedesc.c
+index fa3a76820f15fae68d6b3fb8f9ed21b906fbe371..48ecb07d6baf5c3d8b47dd6929d766ca757e31a0 100644
+--- a/src/ibusenginedesc.c
++++ b/src/ibusenginedesc.c
+@@ -40,6 +40,7 @@ enum {
+     PROP_RANK,
+     PROP_HOTKEYS,
+     PROP_SYMBOL,
++    PROP_SETUP,
+ };
+ 
+ 
+@@ -56,6 +57,7 @@ struct _IBusEngineDescPrivate {
+     guint       rank;
+     gchar      *hotkeys;
+     gchar      *symbol;
++    gchar      *setup;
+ };
+ 
+ #define IBUS_ENGINE_DESC_GET_PRIVATE(o)  \
+@@ -247,6 +249,19 @@ ibus_engine_desc_class_init (IBusEngineDescClass *class)
+                         "The icon symbol chars of engine description",
+                         "",
+                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
++
++    /**
++     * IBusEngineDesc:setup:
++     *
++     * The exec lists of the engine setup command
++     */
++    g_object_class_install_property (gobject_class,
++                    PROP_SETUP,
++                    g_param_spec_string ("setup",
++                        "setup args",
++                        "The exec lists of the engine setup command",
++                        "",
++                        G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+ }
+ 
+ static void
+@@ -265,6 +280,7 @@ ibus_engine_desc_init (IBusEngineDesc *desc)
+     desc->priv->rank = 0;
+     desc->priv->hotkeys = NULL;
+     desc->priv->symbol = NULL;
++    desc->priv->setup = NULL;
+ }
+ 
+ static void
+@@ -280,6 +296,7 @@ ibus_engine_desc_destroy (IBusEngineDesc *desc)
+     g_free (desc->priv->layout);
+     g_free (desc->priv->hotkeys);
+     g_free (desc->priv->symbol);
++    g_free (desc->priv->setup);
+ 
+     IBUS_OBJECT_CLASS (ibus_engine_desc_parent_class)->destroy (IBUS_OBJECT (desc));
+ }
+@@ -334,6 +351,10 @@ ibus_engine_desc_set_property (IBusEngineDesc *desc,
+         g_assert (desc->priv->symbol == NULL);
+         desc->priv->symbol = g_value_dup_string (value);
+         break;
++    case PROP_SETUP:
++        g_assert (desc->priv->setup == NULL);
++        desc->priv->setup = g_value_dup_string (value);
++        break;
+     default:
+         G_OBJECT_WARN_INVALID_PROPERTY_ID (desc, prop_id, pspec);
+     }
+@@ -379,6 +400,9 @@ ibus_engine_desc_get_property (IBusEngineDesc *desc,
+     case PROP_SYMBOL:
+         g_value_set_string (value, ibus_engine_desc_get_symbol (desc));
+         break;
++    case PROP_SETUP:
++        g_value_set_string (value, ibus_engine_desc_get_setup (desc));
++        break;
+     default:
+         G_OBJECT_WARN_INVALID_PROPERTY_ID (desc, prop_id, pspec);
+     }
+@@ -410,6 +434,7 @@ ibus_engine_desc_serialize (IBusEngineDesc  *desc,
+     g_variant_builder_add (builder, "u", desc->priv->rank);
+     g_variant_builder_add (builder, "s", NOTNULL (desc->priv->hotkeys));
+     g_variant_builder_add (builder, "s", NOTNULL (desc->priv->symbol));
++    g_variant_builder_add (builder, "s", NOTNULL (desc->priv->setup));
+ #undef NOTNULL
+ 
+     return TRUE;
+@@ -439,6 +464,7 @@ ibus_engine_desc_deserialize (IBusEngineDesc *desc,
+     g_variant_get_child (variant, retval++, "u", &desc->priv->rank);
+     g_variant_get_child (variant, retval++, "s", &desc->priv->hotkeys);
+     g_variant_get_child (variant, retval++, "s", &desc->priv->symbol);
++    g_variant_get_child (variant, retval++, "s", &desc->priv->setup);
+ 
+     return retval;
+ }
+@@ -464,6 +490,7 @@ ibus_engine_desc_copy (IBusEngineDesc       *dest,
+     dest->priv->rank             = src->priv->rank;
+     dest->priv->hotkeys          = g_strdup (src->priv->hotkeys);
+     dest->priv->symbol           = g_strdup (src->priv->symbol);
++    dest->priv->setup            = g_strdup (src->priv->setup);
+     return TRUE;
+ }
+ 
+@@ -502,6 +529,7 @@ ibus_engine_desc_output (IBusEngineDesc *desc,
+     OUTPUT_ENTRY_1(layout);
+     OUTPUT_ENTRY_1(hotkeys);
+     OUTPUT_ENTRY_1(symbol);
++    OUTPUT_ENTRY_1(setup);
+     g_string_append_indent (output, indent + 1);
+     g_string_append_printf (output, "<rank>%u</rank>\n", desc->priv->rank);
+ #undef OUTPUT_ENTRY
+@@ -536,6 +564,7 @@ ibus_engine_desc_parse_xml_node (IBusEngineDesc *desc,
+         PARSE_ENTRY_1(layout);
+         PARSE_ENTRY_1(hotkeys);
+         PARSE_ENTRY_1(symbol);
++        PARSE_ENTRY_1(setup);
+ #undef PARSE_ENTRY
+ #undef PARSE_ENTRY_1
+         if (g_strcmp0 (sub_node->name , "rank") == 0) {
+@@ -565,6 +594,7 @@ IBUS_ENGINE_DESC_GET_PROPERTY (layout, const gchar *)
+ IBUS_ENGINE_DESC_GET_PROPERTY (rank, guint)
+ IBUS_ENGINE_DESC_GET_PROPERTY (hotkeys, const gchar *)
+ IBUS_ENGINE_DESC_GET_PROPERTY (symbol, const gchar *)
++IBUS_ENGINE_DESC_GET_PROPERTY (setup, const gchar *)
+ #undef IBUS_ENGINE_DESC_GET_PROPERTY
+ 
+ IBusEngineDesc *
+@@ -613,6 +643,7 @@ ibus_engine_desc_new_varargs (const gchar *first_property_name, ...)
+     g_assert (desc->priv->layout);
+     g_assert (desc->priv->hotkeys);
+     g_assert (desc->priv->symbol);
++    g_assert (desc->priv->setup);
+ 
+     return desc;
+ }
+Index: src/ibusenginedesc.h
+diff --git a/src/ibusenginedesc.h b/src/ibusenginedesc.h
+index 76a7adcf09cb43977ba388eb83b9944e730833ee..928743e863dfc0d6c1fa853d6907bbda5cb76856 100644
+--- a/src/ibusenginedesc.h
++++ b/src/ibusenginedesc.h
+@@ -255,8 +255,16 @@ const gchar     *ibus_engine_desc_get_hotkeys   (IBusEngineDesc *info);
+  *
+  * Return the symbol property in IBusEngineDesc. It should not be freed.
+  */
+-const gchar     *ibus_engine_desc_get_symbol
+-                                                (IBusEngineDesc *info);
++const gchar     *ibus_engine_desc_get_symbol    (IBusEngineDesc *info);
++
++/**
++ * ibus_engine_desc_get_setup:
++ * @info: An IBusEngineDesc
++ * @returns: setup property in IBusEngineDesc
++ *
++ * Return the setup property in IBusEngineDesc. It should not be freed.
++ */
++const gchar     *ibus_engine_desc_get_setup     (IBusEngineDesc *info);
+ 
+ /**
+  * ibus_engine_desc_output:

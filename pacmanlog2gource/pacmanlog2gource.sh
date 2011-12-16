@@ -45,17 +45,19 @@ timeend()
 timestart
 
 
-#check if we already have datadir, if not, create one
+#check if we already have the datadir, if not, create it
 if [ ! -d ${DATADIR} ] ; then
 	echo -e "No directory \e[4;02m${DATADIR}\e[0m found, creating one."
 	mkdir ${DATADIR}
 fi
 
 # print the version into a file so we handle file formats being out of date properly later
-echo "1.3" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3'/` ]] ; then
+echo "1.4" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4'/` ]] ; then
 	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
 	sleep 4
+	echo "Exiting..."
+	exit 1
 fi
 
 
@@ -65,7 +67,7 @@ if [ ! -a ${DATADIR}/pacman_now.log ] ; then
 fi
 
 # copy the pacmam log as pacman_tmp.log to our datadir
-# this way, log entries that have been made while the script run won't get lost' so we can proceed them next time we run the script
+# this way, log entries that have been made while the script run won't get lost, so we can process them next time we run the script
 
 cp /var/log/pacman.log ${DATADIR}/pacman_tmp.log
 
@@ -206,7 +208,7 @@ rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log
 cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/' -e 's/A|.*\//A\|/' > ${DATADIR}/pacman_gource_pie.log
 
 
-# how log did the script took to run?
+# how log did the script take to run?
 timeend
 
 if [[ ${LINECOUNTCOOKIE} == "1" ]] ; then

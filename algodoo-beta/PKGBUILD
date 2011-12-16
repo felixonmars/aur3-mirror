@@ -8,15 +8,9 @@ arch=(i686)
 url="http://www.algodoo.com/"
 license=('custom:commercial')
 depends=(boost-libs sdl_image libjpeg6 libzip mesa libpng12 curl pango glew)
-source=("http://www.algodoo.com/download/algodoo_${_realver}-i386.tgz"
-        algodoo.desktop
-        libcv.so.1 libcxcore.so.1 libhighgui.so.1)
+source=(algodoo.desktop)
 
-md5sums=('dbb6dbec78fd510880ce216c857ef699'
-         'c6de80d5c8ff78724877d68ae2a3aedd'
-         '9a8a6a0d4e43a43025c3303b98cc5fd0'
-         '03f759ecdef072364b2d7174011202c1'
-         '324c23266d6f0f2e81962f96f61182f2')
+md5sums=( 'c6de80d5c8ff78724877d68ae2a3aedd' )
 
 build() {
   mkdir -p "$pkgdir/opt/Algodoo/lib"
