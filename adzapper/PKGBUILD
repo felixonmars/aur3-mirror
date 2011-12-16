@@ -1,13 +1,14 @@
 # $Id: PKGBUILD 356 2008-04-18 22:56:27Z aaron $
+# Contributor: Manolis Tzanidakis
 # Maintainer: Peter Lobsinger <plobsing at gmail dot com>
 # Maintainer: Travis Willard <travisw@wmpub.ca>
 # Maintainer: eric <eric@archlinux.org>
 # Maintainer: Vinilox <vinilox@vinilox.eu>
-# Contributor: Manolis Tzanidakis
+
 
 pkgname=adzapper
 pkgver=20110915
-pkgrel=2
+pkgrel=3
 pkgdesc="Ad Zapping With Squid"
 arch=('any')
 url="http://adzapper.sourceforge.net"
@@ -30,8 +31,7 @@ build() {
       $startdir/pkg/usr/share/licenses/$pkgname/bsd-license
 }
 
-md5sums=('ee78f2bf5a82cde6f5d122642a99504f'
-         '52663be9becbaebb8af1f70fd0084de8'
-         '8f8b7ae87a99f266b43f0bea5db68e1b'
-         'd69b948083a0b60b2a29b8c78842fb56')
-
+md5sums=('acbfce12b4d9c3a6103da73adfe612b3'
+	'52663be9becbaebb8af1f70fd0084de8'
+	'8f8b7ae87a99f266b43f0bea5db68e1b'
+	'd69b948083a0b60b2a29b8c78842fb56')
