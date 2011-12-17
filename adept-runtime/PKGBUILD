@@ -1,7 +1,7 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
 pkgver=2.8.2
-pkgrel=3
+pkgrel=4
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
@@ -63,7 +63,9 @@ package() {
 
   # udev rules
   mkdir -p "$pkgdir/etc/udev/rules.d"
-  sed -i 's_usr/local/sbin_usr/sbin_' 52-digilent-usb.rules
+  # the udev script uses the legacy SYSFS attribute; replace it with
+  # the newer ATTR syntax
+  sed -i 's_usr/local/sbin_usr/sbin_; s_SYSFS_ATTR_g' 52-digilent-usb.rules
   install -m 644 52-digilent-usb.rules "$pkgdir/etc/udev/rules.d"
 
   # library configuration file
