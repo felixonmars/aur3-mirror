@@ -1,4 +1,4 @@
-pkgver=20111217
+pkgver=20111218
 pkgrel=1
 pkgname="absolution"
 pkgdesc="A very rudimentary bash script to make the use of abs easier"
@@ -12,17 +12,16 @@ _gitroot="http://github.com/t4k1t/Absolution.git"
 _gitname="Absolution"
 
 build() {
-    cd "$startdir/src"
+    cd "$srcdir"
   
     msg "Connecting to github GIT server...."
     
-    if [[ -d "$startdir/src/$_gitname" ]]; then
+    if [[ -d "$srcdir/$_gitname" ]]; then
         cd $_gitname && git pull origin
     else
         git clone "$_gitroot"
         cd $_gitname
     fi
       
-    mkdir -p "$startdir/pkg/usr/bin/"
-    install -m 755 absolution "$startdir/pkg/usr/bin/absolution"
+    install -Dm 755 absolution "$pkgdir/usr/bin/absolution"
 }
