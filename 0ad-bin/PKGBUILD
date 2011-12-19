@@ -1,5 +1,5 @@
 pkgname=0ad-bin
-pkgver=alpha_7_10288
+pkgver=alpha_7
 _pkgver=r10288-2.20
 _dataver=r10288-1.2
 pkgrel=1
