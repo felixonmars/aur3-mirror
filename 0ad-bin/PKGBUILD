@@ -1,6 +1,6 @@
 pkgname=0ad-bin
 pkgver=alpha_7
-_pkgver=r10288-2.20
+_pkgver=r10288-2.23
 _dataver=r10288-1.2
 pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE prebuilt)"
@@ -13,9 +13,9 @@ conflicts=('0ad' '0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
 source=(http://download.opensuse.org/repositories/games/openSUSE_Factory/x86_64/0ad-$_pkgver.x86_64.rpm
 	http://download.opensuse.org/repositories/games/openSUSE_Factory/noarch/0ad-data-$_dataver.noarch.rpm)
-[ $CARCH = 'i686' ] && source[0]=http://download.opensuse.org/repositories/games/openSUSE_Factory/i586/0ad-r10288-2.21.i586.rpm
 md5sums=(`wget ${source[0]}.md5 -qO - | cut -d " " -f1`
          `wget ${source[1]}.md5 -qO - | cut -d " " -f1`)
+[ $CARCH = 'i686' ] && source[0]=http://download.opensuse.org/repositories/games/openSUSE_Factory/i586/0ad-$_pkgver.i586.rpm && md5sums[0]='60bb7c610177e61464e69780ff330c6a'
 
 package() {
   mv -f usr/share/doc/{packages/0ad,0ad}
