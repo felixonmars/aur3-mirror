@@ -1,5 +1,5 @@
 pkgname=0ad-bin
-pkgver=alpha_7
+pkgver=alpha_7_10288
 _pkgver=r10288-2.20
 _dataver=r10288-1.2
 pkgrel=1
@@ -10,7 +10,7 @@ _arch='x86_64'
 [ $CARCH = 'i686' ] && _arch='i586'
 license=('GPL2' 'CCPL')
 depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'wxgtk' 'zip' 'zlib' 'libjpeg6')
-makedepends=('boost' 'cmake' 'libarchive')
+makedepends=('boost' 'libarchive')
 conflicts=('0ad' '0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
 source=(http://download.opensuse.org/repositories/games/openSUSE_Factory/$_arch/0ad-$_pkgver.$_arch.rpm
