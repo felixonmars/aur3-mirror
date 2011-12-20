@@ -24,7 +24,7 @@ package() {
 
   if [ ! -f /usr/lib/libboost_system.so.1.46.1 ]; then
     cd usr/lib*/0ad
-    ln -fs `find /usr -type f -name libboost_system.so.1.\* -print 2>/dev/null | head -n 1` libboost_system.so.1.46.1
+    ln -fs `find /usr/lib -type f -name libboost_system.so.1.\* -print 2>/dev/null | head -n 1` libboost_system.so.1.46.1
   fi
 
   mv -f "$srcdir/usr" "$pkgdir/"
