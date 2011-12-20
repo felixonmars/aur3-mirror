@@ -72,10 +72,10 @@ pwd
 # Check for python. If freeorionca binary is missing it, use
 # the shipped version.
 if ldd /usr/bin/freeorionca | grep "libpython.*not found"; then
-    echo "python2.5 missing. Using shipped version."
+    #echo "python2.5 missing. Using shipped version."
     PYTHON_USE_SHIPPED=1
 else 
-    echo "python2.5 found. Using it."
+    #echo "python2.5 found. Using it."
     PYTHON_USE_SHIPPED=0
 fi
 
