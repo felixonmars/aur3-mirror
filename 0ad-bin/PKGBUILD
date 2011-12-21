@@ -9,8 +9,8 @@ arch=('i686' 'x86_64')
 _arch='x86_64'
 [ $CARCH = 'i686' ] && _arch='i586'
 license=('GPL2' 'CCPL')
-depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'wxgtk' 'zip' 'zlib' 'libjpeg6')
-makedepends=('boost' 'libarchive')
+depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
+makedepends=('boost' 'libarchive' 'wget')
 conflicts=('0ad' '0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
 source=(http://download.opensuse.org/repositories/games/openSUSE_Factory/$_arch/0ad-$_pkgver.$_arch.rpm
@@ -22,9 +22,18 @@ package() {
   mv -f usr/share/doc/{packages/0ad,0ad}
   rm -rf usr/share/doc/packages
 
+  # Linking Boost libs
   if [ ! -f /usr/lib/libboost_system.so.1.46.1 ]; then
     cd usr/lib*/0ad
     ln -fs `find /usr/lib -type f -name libboost_system.so.1.\* -print 2>/dev/null | head -n 1` libboost_system.so.1.46.1
+  fi
+
+  # libjpeg6
+  if [ ! -f /usr/lib/libjpeg.so.62 ]; then
+    cd "$srcdir"
+    wget http://download.opensuse.org/factory/repo/oss/suse/$_arch/libjpeg62-62.0.0-14.3.$_arch.rpm -qO - | \
+    bsdtar -xf -
+    mv -f usr/lib*/libjpeg.so* usr/lib*/0ad
   fi
 
   mv -f "$srcdir/usr" "$pkgdir/"
