@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 . /etc/rc.conf
 . /etc/rc.d/functions
@@ -125,6 +125,8 @@ start_configs() {
 			start_server && stat_done || stat_fail
 		fi
 	done
+
+	add_daemon $NAME
 }
 
 stop_configs() {
@@ -144,6 +146,9 @@ stop_configs() {
 			fi
 		fi
 	done
+
+	rm_daemon $NAME
+
 	return 0
 }
 
