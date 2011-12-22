@@ -1,14 +1,10 @@
 #!/bin/bash
 
-# change these parameters in /etc/plexmediaserver.conf
-export PLEX_MEDIA_SERVER_MAX_PLUGIN_PROCS=6
+PLEX_MEDIA_SERVER_USER=root
+
+. /etc/conf.d/plexmediaserver
+
 export PLEX_MEDIA_SERVER_HOME=/usr/lib/plexmediaserver
-export PLEX_MEDIA_SERVER_MAX_STACK_SIZE=3000
-export PLEX_MEDIA_SERVER_TMPDIR=/tmp
-export PLEX_MEDIA_SERVER_APPLICATION_SUPPORT_DIR="${HOME}/Library/Application Support"
-
-. /etc/plexmediaserver.conf
-
 export LD_LIBRARY_PATH="${PLEX_MEDIA_SERVER_HOME}"
 export TMPDIR="${PLEX_MEDIA_SERVER_TMPDIR}"
 
@@ -20,7 +16,7 @@ PID=`pidof -o %PPID /usr/lib/plexmediaserver/Plex\ Media\ Server`
 case "$1" in
   start)
     stat_busy "Starting Plex Media Server"
-    [ -z "$PID" ] && su -c " /usr/lib/plexmediaserver/Plex\ Media\ Server &" > /var/log/plexmediaserver.log
+    [ -z "$PID" ] && su -c " /usr/lib/plexmediaserver/Plex\ Media\ Server > /var/log/plexmediaserver.log &" $PLEX_MEDIA_SERVER_USER
     if [ $? -gt 0 ]; then
       stat_fail
     else
