@@ -2,7 +2,7 @@
 
 pkgname=ike
 pkgver=2.1.7
-pkgrel=1
+pkgrel=2
 pkgdesc='Shrew Soft VPN client for Linux'
 arch=(i686 x86_64)
 url='http://www.shrew.net'
@@ -18,7 +18,7 @@ build () {
     cmake -DCMAKE_INSTALL_PREFIX=/usr -DQTGUI=YES -DETCDIR=/etc -DNATT=YES \
         -DQT_QT_LIBRARY=/opt/qt/lib/libqt-mt.so \
         -DQT_INCLUDE_DIR=/opt/qt/include -DQT_MOC_EXECUTABLE=/opt/qt/bin/moc \
-        -DQT_UIC_EXECUTABLE=/opt/qt/bin/uic
+        -DQT_UIC_EXECUTABLE=/opt/qt/bin/uic -DMANDIR=/usr/share/man
     make
 }
 
