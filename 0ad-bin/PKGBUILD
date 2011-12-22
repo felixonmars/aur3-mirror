@@ -18,6 +18,11 @@ source=(http://download.opensuse.org/repositories/games/openSUSE_Factory/$_arch/
 md5sums=(`wget ${source[0]}.md5 -qO - | cut -d " " -f1`
          `wget ${source[1]}.md5 -qO - | cut -d " " -f1`)
 
+# Don't compress the package because of the long compression time
+# Delete this line if you want to keep the installation package
+# or if you have less than 500mb of free space in your TMP folder
+PKGEXT='.pkg.tar'
+
 package() {
   mv -f usr/share/doc/{packages/0ad,0ad}
   rm -rf usr/share/doc/packages
