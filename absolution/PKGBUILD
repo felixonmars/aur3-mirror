@@ -1,13 +1,13 @@
-pkgver=20111218
+pkgver=20111223
 pkgrel=1
 pkgname="absolution"
 pkgdesc="A very rudimentary bash script to make the use of abs easier"
 url="http://github.com/t4k1t/Absolution"
-license="GPLv3"
+license="GPL3"
 arch=("any")
 makedepends=("git")
-depends=("findutils" "bash" "pacman" "abs" "vim")
-optdepends=()
+depends=("findutils" "sh" "pacman" "abs" "vim")
+optdepends=("sudo: updating abs tree as user")
 _gitroot="http://github.com/t4k1t/Absolution.git"
 _gitname="Absolution"
 
