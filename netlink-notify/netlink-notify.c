@@ -114,6 +114,8 @@ int main(int argc, char ** argv) {
 
 	program = argv[0];
 
+	printf("%s: %s v%s (compiled: %s)\n", argv[0], PROGNAME, VERSION, DATE);
+
 	if(!notify_init("Netlink-Notification")) {
 		fprintf(stderr, "%s: Can't create notify.\n", argv[0]);
 		exit(EXIT_FAILURE);
