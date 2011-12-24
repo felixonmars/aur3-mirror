@@ -1,7 +1,7 @@
 # Contributor: Alessio Biancalana <dottorblaster@gmail.com>
 
 pkgname=amsynth
-pkgver=1.2.3
+pkgver=1.3.0
 pkgrel=1
 pkgdesc="Analogue Modeling SYNTHesizer"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://code.google.com/p/amsynth/"
 license=('GPL')
 depends=('gtkmm' 'jack')
 source=(http://amsynth.googlecode.com/files/amSynth-${pkgver}.tar.gz)
-md5sums=('bd92761b29161d9f748d6909e1bf14ce')
+md5sums=('2ce5ee9adda16badf3f4f2792001fb4d')
 
 build() {
   cd ${srcdir}/amSynth-${pkgver}
