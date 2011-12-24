@@ -1,2 +1,2 @@
 # options to start freeswitch with
-FREESWITCH_OPTS="-nc"
+FREESWITCH_OPTS="-nc -nonat"

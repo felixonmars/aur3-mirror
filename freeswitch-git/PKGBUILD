@@ -37,6 +37,7 @@ _sounds=""
 # applications/mod_callcenter - Inbound call queueing system
 _enabled_modules=(xml_int/mod_xml_curl
                   xml_int/mod_xml_cdr
+                  formats/mod_shout
                   applications/mod_callcenter)
 
 # DISABLED MODULES
@@ -60,7 +61,7 @@ _disabled_modules=(languages/mod_spidermonkey
 # Uncomment this to enable backgrounded concurrent bootstrap operations.
 # You will suffer a lot of autotools scroll from this, Fair Warning.
 
-#_concurrent="-j"
+_concurrent="-j"
 
 # BUILD CONFIGURATION ENDS                     #
 #                                              #
@@ -68,8 +69,8 @@ _disabled_modules=(languages/mod_spidermonkey
 #                                              #
 
 pkgname=freeswitch-git
-pkgver=20111203
-pkgrel=3
+pkgver=20111223
+pkgrel=1
 pkgdesc="Open Source soft switch (telephony engine) built from git"
 arch=('i686' 'x86_64')
 url="http://freeswitch.org"
@@ -81,11 +82,14 @@ optdepends=('unixodbc: for odbc support in the core'
 provides=('freeswitch')
 conflicts=('freeswitch')
 install=freeswitch.install
-source=('freeswitch.conf.d' 'freeswitch.rc.conf' 'README.freeswitch')
+source=('freeswitch.conf.d' 'freeswitch.rc.conf' 'README.freeswitch' 'run.freeswitch' 'run_log.freeswitch' 'conf_log.freeswitch')
 changelog='ChangeLog'
-md5sums=('418ac2e771833fd37d3ec880916feba8'
+md5sums=('51bb8b9c03b36b7c8cb7143341b49248'
          '160e21eff0d0e969a6104d3b308cd5fe'
-         'bfa0c6c70c8173bc78fd228bd42a98ef')
+         'bfa0c6c70c8173bc78fd228bd42a98ef'
+         '80c08a9bcf6470f863f585ecb6ce21b0'
+         'e9f0bdde366bca6fd29a9202818f3591'
+         'e6411d793501c29ec4afd6d54018de1b')
 
 _gitroot="git://git.freeswitch.org/freeswitch.git"
 _gitname="freeswitch"
@@ -212,4 +216,7 @@ package() {
   done
 
   mv $pkgdir/etc/freeswitch/* $pkgdir/usr/share/doc/freeswitch/examples/conf.archlinux/
+  install -D -m 0755 "$srcdir/run.freeswitch" $pkgdir/etc/sv/freeswitch/run
+  install -D -m 0755 "$srcdir/run_log.freeswitch" $pkgdir/etc/sv/freeswitch/log/run
+  install -D -m 0644 "$srcdir/conf_log.freeswitch" $pkgdir/etc/sv/freeswitch/log/conf
 } 
