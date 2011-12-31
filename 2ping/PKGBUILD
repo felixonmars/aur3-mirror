@@ -1,19 +1,25 @@
-#Maintainer: Tehacjusz Flovus (thc_flow) <flow@krolnet.pl>
+# Maintainer: kfgz <kfgz at interia pl>
+# Contributor: Tehacjusz Flovus (thc_flow) <flow at krolnet dot pl>
 
 pkgname=2ping
-pkgver=1.0
-pkgrel=2
-arch=('any')
+pkgver=1.2
+pkgrel=1
+arch=('i686' 'x86_64')
 pkgdesc="Bi-directional ping utility"
 url="http://www.finnie.org/software/2ping/"
 license=('GPL')
-depends=('perl>=5.6.0 perl-digest-sha1 perl-digest-hmac')
+depends=('perl>=5.6.0' 'perl-digest-sha1' 'perl-digest-hmac')
 makedepends=('pkgconfig')
-source=("http://www.finnie.org/software/2ping/$pkgname-$pkgver.tar.gz")
-md5sums=('049f246274618e17d24d2ac0323e8061')
+optdepends=('perl-io-socket-inet6: IPv6 support')
+source=(http://www.finnie.org/software/2ping/${pkgname}-${pkgver}.tar.gz)
+md5sums=('6c94df3b3b4de6b76212cfc47398931d')
 
 build() {
-  cd $srcdir/$pkgname-$pkgver
-  make test &&
-  make PREFIX=$pkgdir/usr install
+  cd "${srcdir}"/${pkgname}-${pkgver}
+  make
+}
+
+package() {
+  cd "${srcdir}"/${pkgname}-${pkgver}
+  make PREFIX="${pkgdir}"/usr install
 }

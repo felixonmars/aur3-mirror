@@ -1,12 +1,12 @@
 # Maintainer: Mark Foxwell <fastfret79@archlinux.org.uk>
 pkgname=alot-git
-pkgver=20111224
+pkgver=20111229
 pkgrel=1
 pkgdesc="A terminal interface for notmuch mail written in python using the urwid toolkit."
 arch=('any')
 url="https://github.com/pazz/alot"
 license=('GPL')
-depends=('python-urwid-git' 'notmuch-git' 'twisted' 'python2' 'python2-magic')
+depends=('python-urwid-git' 'notmuch-git' 'twisted' 'python2' 'python-magic>=5.04')
 makedepends=('git')
 provides=('alot')
 conflicts=('alot')

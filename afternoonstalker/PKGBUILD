@@ -3,17 +3,17 @@
 # Contributor: Gerson E. Ruotolo <gersonruotolo@globo.com>
 
 pkgname=afternoonstalker
-pkgver=1.1.3
+pkgver=1.1.4
 pkgrel=1
 pkgdesc="Afternoon Stalker is a clone of the 1981 Intellivision game Night Stalker. "
 arch=('i686' 'x86_64')
 url="http://perso.b2b2c.ca/sarrazip/dev/afternoonstalker.html"
 license=('GPL')
-depends=('flatzebra>=0.1.4')
-makedepends=('flatzebra>=0.1.4')
+depends=('flatzebra>=0.1.5')
+makedepends=('flatzebra>=0.1.5')
 options=('!libtool' '!emptydirs')
 source=(http://perso.b2b2c.ca/sarrazip/dev/${pkgname}-${pkgver}.tar.gz)
-md5sums=('8d2966d570284d57a3dade828d17b95a')
+md5sums=('547a85977df795750c85729ba137a358')
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"

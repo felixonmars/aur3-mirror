@@ -1,22 +1,31 @@
-pkgname=perl-mime-lite-tt
-pkgver=0.02
+#$Id: $
+#Maintainer: Mirko Messer <mirk@chao.ch>
+#-*-mode:sh-*-
+#Contributor: 
+#Comments:
+pkgname=wmmemfree
+pkgver=0.7
 pkgrel=1
-pkgdesc="MIME::Lite::TT - TT enabled MIME::Lite wrapper"
-arch=('any')
-url="http://search.cpan.org/~horiuchi/MIME-Lite-TT-0.02/lib/MIME/Lite/TT.pm"
-license=('GPL' 'PerlArtistic')
-depends=('perl' 'perl-mime-lite' 'perl-template-toolkit')
-options=('!emptydirs')
-source=("http://search.cpan.org/CPAN/authors/id/H/HO/HORIUCHI/MIME-Lite-TT-$pkgver.tar.gz")
-md5sums=('82ac8e6dd4b0274ce552d5d2ace23eb4')
+pkgdesc="dockapp which displays mem"
+url="http://dockapps.org/file.php/id/165/"
+license=""
+depends=('xorg')
+makedepends=()
+conflicts=()
+replaces=()
+backup=()
+install=
+source=(http://dockapps.org/download.php/id/250/wmmemfree-0.7.tar.bz2 \
+1.patch
+)
+md5sums=('6b478209d907dd2955828e71319af757' '774edf24c30d3a66df194c974cc7bb0c')
 
 build() {
-  cd  "$srcdir/MIME-Lite-TT-$pkgver" || return 1
-
-  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor &&
-  make &&
-  make DESTDIR="$pkgdir" install || return 1
-
-  find "$pkgdir" -name '.packlist' -delete
-  find "$pkgdir" -name '*.pod' -delete
+        mkdir -p $startdir/pkg/usr/bin
+	cd $startdir/src/$pkgname-$pkgver
+        patch -p0 < ../../1.patch
+	make
+        install -m 755 wmmemfree $startdir/pkg/usr/bin
 }
+ 
+ 

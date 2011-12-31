@@ -7,12 +7,19 @@ datadir=/var/lib/greylistd
 pidfile=$rundir/pid
 socket=$rundir/socket
 user=greylist
+group=greylist
 
 . /etc/rc.conf
 . /etc/rc.d/functions
 
 # See if the daemon is present
 test -x "$daemon" || exit 0
+
+# Make sure /var/run/greylistd exists (/var/run may be a tmpfs)
+test -d "$rundir" || {
+	mkdir -p "$rundir"
+	chown "$user:$group" "$rundir"
+}
 
 case "$1" in
     start)
