@@ -28,8 +28,6 @@ package() {
   rm -rf usr/share/doc/packages
   
   sed -i 's|/usr|LD_LIBRARY_PATH=/usr/lib64/0ad /usr|' usr/bin/0ad
-  
-  lynx -dump http://download.opensuse.org/distribution/openSUSE-stable/repo/oss/suse/$_arch/ | grep -o http.*rpm > tmp.txt
 
   # Linking Boost libs
   if [ ! -f /usr/lib/libboost_system.so.1.46.1 ]; then
