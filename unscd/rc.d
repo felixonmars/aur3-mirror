@@ -4,7 +4,7 @@
 . /etc/rc.d/functions
 . /etc/conf.d/unscd
 
-BIN=/usr/bin/unscd
+BIN=/usr/sbin/unscd
 PID=$(pidof -o %PPID $BIN)
 
 case "$1" in
