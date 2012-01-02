@@ -4,43 +4,44 @@
 pkgname=chromium-dev
 pkgver=17.0.963.12
 pkgrel=1
-pepper=pepper_`echo "${pkgver}" | cut -d "." -f1`
+_pepper=pepper_`echo "${pkgver}" | cut -d "." -f1`
 _buildtype=Release
 [ "x${DEBUG}" = "xyes" ] && _buildtype=Debug
 pkgdesc='The open-source project behind Google Chrome (Dev channel)'
 arch=('i686' 'x86_64')
 url='http://www.chromium.org/'
 license=('BSD')
-depends=('alsa-lib' 'hicolor-icon-theme' 'libevent' 'libxss' 'nss' 'libxslt' 'desktop-file-utils' 'gtk2' 'speex' 'flac' 'libwebp' 'libpng') # 'v8' 'icu' 'libjpeg' 'sqlite3' 'hunspell' 'libvpx'
+depends=('alsa-lib' 'hicolor-icon-theme' 'libevent' 'libxss' 'nss' 'libxslt' 'desktop-file-utils' 'gtk2' 'speex' 'flac' 'libwebp' 'libpng' 'libjpeg') # 'v8' 'icu' 'sqlite3' 'hunspell' 'libvpx'
 makedepends=('python2' 'gperf' 'yasm' 'mesa' 'bison' 'xdg-utils' 'elfutils')
 optdepends=()
+options=()
 [ "${_buildtype}" = "Debug" ] && options+=('!strip')
-# http://crbug.com/104569
-options=('!buildflags')
 install="${pkgname}".install
 source=(http://gsdview.appspot.com/chromium-browser-official/chromium-"${pkgver}".tar.bz2
         "${pkgname}".desktop 
         "${pkgname}".sh
-        filter-sp.patch)
+        nacl-cflags-remove-fstack-protector.patch
+        chromium-revert-jpeg-swizzle-r0.patch)
 md5sums=('b4dd064f610c6e1ab77ed0757f75534d'
          '4d3824048614dd10fcd83d7e5c8ea091'
          'eaeaf4a71707d8a767be9a7d467bb809'
-         '249623d6e8e70f919ae0392cf2c42f9b')
+         '249623d6e8e70f919ae0392cf2c42f9b'
+         'f4998854b29c27bd4f4d71a5044868da')
 
 ## BUILD OPTIONS ##	
 
 # Build "ffmpegsumo.so" (0) | Use system ffmpeg (1)
 _use_ffmpeg_system_libs=0
-if [ "${_use_ffmpeg_system_libs}" = 1 ]; then
+if [ "${_use_ffmpeg_system_libs}" = "1" ]; then
   depends+=('ffmpeg')
-  use_ffmpeg_system="_system_ffmpeg=1 _build_ffmpegsumo=0"
+  _use_system_ffmpeg="use_system_ffmpeg=1 build_ffmpegsumo=0"
 else
-  use_ffmpeg_system="_system_ffmpeg=0 _build_ffmpegsumo=1"
+  _use_system_ffmpeg="use_system_ffmpeg=0 build_ffmpegsumo=1"
 fi
 
 # Enable/Disable NACL ( 1 = Enable | 0 = Disable )
 _use_nacl=1
-if [ "${_use_nacl}" = 1 ]; then
+if [ "${_use_nacl}" = "1" ]; then
   source+=('http://commondatastorage.googleapis.com/nativeclient-mirror/nacl/nacl_sdk/nacl_sdk.zip')
   md5sums+=('1c0c8108b2a9d5d93d9dc077802fb578')
   # Needed for the NaCl toolchain
@@ -69,18 +70,18 @@ fi
 ####################
 
 build() {
-   cd "${srcdir}"
-if [ -d chromium-"${pkgver}" ]; then
-     rm -fr chromium-build
-     mv chromium-"${pkgver}" chromium-build
-fi
-   cd "${srcdir}"/chromium-build
+  cd "${srcdir}"
+  if [ -d chromium-"${pkgver}" ]; then
+   rm -fr chromium-build
+   mv chromium-"${pkgver}" chromium-build
+  fi
+  cd "${srcdir}"/chromium-build
 
-## PATCHES ##
+  ## PATCHES ##
 
   msg "Patching sources..."
 
-  msg "Save configuration in ~/.config/${pkgname}"
+  msg "Save configuration in ~/.config/"${pkgname}""
    sed -e "s|'filename': 'chromium-browser'|'filename': '${pkgname}'|" -e "s|'confdir': 'chromium'|'confdir': '${pkgname}'|" -i "${srcdir}"/chromium-build/chrome/chrome_exe.gypi
    sed -e "s|config_dir.Append(\"chromium\")|config_dir.Append(\"${pkgname}\")|" -e "s|config_dir.Append(\"chrome-frame\")|config_dir.Append(\"chrome-frame-${pkgname#chromium-}\")|" -i "${srcdir}"/chromium-build/chrome/common/chrome_paths_linux.cc
   msg2 "Done"
@@ -100,7 +101,6 @@ fi
     \! -path 'third_party/icu/*' \
     \! -path 'third_party/iccjpeg/*' \
     \! -path 'third_party/jsoncpp/*' \
-    \! -path 'third_party/libjpeg_turbo/*' \
     \! -path 'third_party/khronos/*' \
     \! -path 'third_party/launchpad_translations/*' \
     \! -path 'third_party/leveldb/*' \
@@ -144,6 +144,10 @@ fi
    sed -i '1i#define OF(x) x' third_party/zlib/contrib/minizip/{ioapi,{,un}zip}.c  chrome/common/zip*.cc
   msg2 "Done"
 
+  msg "Revert WebKit changeset responsible for http://crbug.com/106954 bug"
+   patch -p0 < ../chromium-revert-jpeg-swizzle-r0.patch
+  msg2 "Done"
+
   msg "Force usage Python2"
    rm -rf "${srcdir}"/python
    mkdir "${srcdir}"/python
@@ -157,35 +161,39 @@ fi
    find third_party -type f -path '*.gyp' -print0 | xargs -0 sed -i "s|'type': 'settings',|'type': 'none',|g"
   msg2 "Done"
 
-if [ "${_use_nacl}" = 1 ]; then
-  msg "Patch, Update and Copy NACL SDK for NACL support"
-    [ -d "${srcdir}"/nacl_sdk/"${pepper}" ] && rm -fr "${srcdir}"/nacl_sdk/"${pepper}"
-  pushd "${srcdir}"/nacl_sdk
-  ./naclsdk update "${pepper}"
-  popd
-  # http://crbug.com/104569
-  patch -p0 < ../filter-sp.patch
-  ln -s "${srcdir}"/nacl_sdk/"${pepper}"/toolchain/linux_x86_newlib "${srcdir}"/chromium-build/native_client/toolchain/linux_x86_newlib
-  msg2 "Done"
-fi
+  if [ "${_use_nacl}" = 1 ]; then
+    msg "Patch, Update and Copy NACL SDK for NACL support"
+     [ -d "${srcdir}"/nacl_sdk/"${_pepper}" ] && rm -fr "${srcdir}"/nacl_sdk/"${_pepper}"
+     pushd "${srcdir}"/nacl_sdk
+     ./naclsdk update "${_pepper}"
+     popd
+     # http://crbug.com/104569
+     patch -p0 < ../nacl-cflags-remove-fstack-protector.patch
+     ln -s "${srcdir}"/nacl_sdk/"${_pepper}"/toolchain/linux_x86_newlib "${srcdir}"/chromium-build/native_client/toolchain/linux_x86_newlib
+    msg2 "Done"
+  fi
 
   msg "Patching Sources Sucessfull"
 
 ############## 
 
   msg "Building Chromium..."
-  chromium_arch=ia32
-  [ "${CARCH}" = "x86_64" ] && chromium_arch=x64
+   [ "${CARCH}" = "i686" ] && _chromium_arch=ia32
+   [ "${CARCH}" = "x86_64" ] && _chromium_arch=x64
 
-# use_system_libjpeg (http://crbug.com/106954)
-# use_system_icu (http://crbug.com/103360)
-# use_system_ssl (http://crbug.com/58087)
-# use_system_sqlite (http://crbug.com/22208)
-# use_system_hunspell (upstream changes needed)
-# use_system_v8 (update +3.7.6 needed)
-# use_system_vpx (TODO)
-# use_system_ffmpeg (TODO?)
-# release_extra_cflags (http://crbug.com/41887)
+  # use_system_icu=0 (http://crbug.com/103360)
+  # use_system_ssl=0 (http://crbug.com/58087)
+  # use_system_sqlite=0 (http://crbug.com/22208)
+  # use_system_hunspell (upstream changes needed)
+  # use_system_v8=0 (update +3.7.6 needed)
+  # use_system_vpx=0 (TODO)
+  # _use_system_ffmpeg (TODO?)
+
+  # CFLAGS are passed through release_extra_cflags below
+  export -n CFLAGS CXXFLAGS
+
+  #http://crbug.com/41887
+  CFLAGS+=" -fno-ipa-cp"
 
   GYP_DEFINES="\
 gcc_version=46 \
@@ -193,8 +201,8 @@ werror= \
 no_strict_aliasing=1 \
 linux_sandbox_path=/usr/lib/"${pkgname}"/chromium-sandbox \
 linux_sandbox_chrome_path=/usr/lib/"${pkgname}"/chromium \
-release_extra_cflags="-fno-ipa-cp" \
-"${use_system_ffmpeg}" \
+release_extra_cflags=\""${CFLAGS}"\" \
+"${_use_system_ffmpeg}" \
 ffmpeg_branding=Chrome \
 proprietary_codecs=1 \
 use_system_vpx=0 \
@@ -209,7 +217,7 @@ use_system_libexpat=1 \
 use_system_v8=0 \
 use_system_sqlite=0 \
 use_system_libpng=1 \
-use_system_libjpeg=0 \
+use_system_libjpeg=1 \
 use_system_yasm=1 \
 use_system_libevent=1 \
 use_system_icu=0 \
@@ -221,11 +229,15 @@ use_gconf="${_use_gnome}" \
 use_gnome_keyring="${_use_gnome}" \
 linux_link_gnome_keyring="${_use_gnome}" \
 disable_nacl="${_nacl}" \
-target_arch="${chromium_arch}" \
+target_arch="${_chromium_arch}" \
 "
-  [ "${CARCH}" = i686 ] && GYP_DEFINES+="disable_sse2=1"
+  [ "${CARCH}" = "i686" ] && GYP_DEFINES+="disable_sse2=1 "
   [ "${_buildtype}" = "Release" ] && GYP_DEFINES+="linux_strip_binary=1 remove_webcore_debug_symbols=1"
   export GYP_DEFINES
+
+#echo
+#echo $GYP_DEFINES
+#echo
 
   python2 build/gyp_chromium -f make --depth=. build/all.gyp
   make ${MAKEFLAGS} BUILDTYPE="${_buildtype}" chrome chrome_sandbox
@@ -236,23 +248,23 @@ target_arch="${chromium_arch}" \
 package() {
   cd "${srcdir}"/chromium-build
 
-  chromium_home="${pkgdir}"/usr/lib/"${pkgname}"
+  _chromium_home="${pkgdir}"/usr/lib/"${pkgname}"
+
+  install -d "${_chromium_home}"
   
   msg "Install "${pkgname}""
-  install -Dm755 -D out/"${_buildtype}"/chrome "${chromium_home}"/chromium
-  install -Dm4555 -o root -g root -D out/"${_buildtype}"/chrome_sandbox "${chromium_home}"/chromium-sandbox
-  install -Dm644 out/"${_buildtype}"/chrome.pak "${chromium_home}"/chrome.pak
-  install -Dm644 out/"${_buildtype}"/resources.pak "${chromium_home}"/resources.pak
+  install -Dm755 out/"${_buildtype}"/chrome "${_chromium_home}"/chromium
+  install -Dm4555 -o root -g root out/"${_buildtype}"/chrome_sandbox "${_chromium_home}"/chromium-sandbox
+  install -Dm644 out/"${_buildtype}"/{chrome,resources}.pak "${_chromium_home}"/
   
-  cp -a out/"${_buildtype}"/locales out/"${_buildtype}"/resources "${chromium_home}"/
-
-  find "${chromium_home}" -type f -name '*.d' -delete
+  cp -a out/"${_buildtype}"/locales out/"${_buildtype}"/resources "${_chromium_home}"/
 
   install -Dm644 out/"${_buildtype}"/chrome.1 "${pkgdir}"/usr/share/man/man1/"${pkgname}".1
 
   install -Dm644 "${srcdir}"/"${pkgname}".desktop "${pkgdir}"/usr/share/applications/"${pkgname}".desktop
-  for size in 16 22 24 32 48 128 256; do
-    install -Dm644 chrome/app/theme/chromium/product_logo_"${size}".png "${pkgdir}"/usr/share/icons/hicolor/"${size}"x"${size}"/apps/"${pkgname}".png
+
+  for _size in 16 22 24 32 48 128 256; do
+    install -Dm644 chrome/app/theme/chromium/product_logo_"${_size}".png "${pkgdir}"/usr/share/icons/hicolor/"${_size}"x"${_size}"/apps/"${pkgname}".png
   done
 
   install -Dm755 "${srcdir}"/"${pkgname}".sh "${pkgdir}"/usr/bin/"${pkgname}"
@@ -262,30 +274,26 @@ package() {
 
   msg "Install FFMPEG libs"
   if [ "${_use_ffmpeg_system_libs}" = 1 ]; then
-    for n in avcodec avdevice avfilter avformat avutil postproc swscale; do
-      if [ -e /usr/lib/lib"${n}".so.[0-9] ]; then
-        f=`echo /usr/lib/lib"${n}".so.[0-9]`
+    for _n in avcodec avdevice avfilter avformat avutil postproc swscale; do
+      if [ -e /usr/lib/lib"${_n}".so.[0-9] ]; then
+        _f=`echo /usr/lib/lib"${_n}".so.[0-9]`
       else
-        f=`echo /usr/lib/lib"${n}".so.[0-9][0-9]`
+        _f=`echo /usr/lib/lib"${_n}".so.[0-9][0-9]`
       fi
-      f=`basename "${f}"`
-      ln -s ../"${f}" "${chromium_home}"/"${f}"
+      _f=`basename "${_f}"`
+      ln -s ../"${_f}" "${_chromium_home}"/"${_f}"
     done
   else
-    install -Dm644 out/"${_buildtype}"/libffmpegsumo.so "${chromium_home}"/libffmpegsumo.so
+    install -Dm775 out/"${_buildtype}"/libffmpegsumo.so "${_chromium_home}"/
   fi
   msg2 "Done"
  
   if [ "${_use_nacl}" = 1 ]; then
     msg "Install NACL components"
-    install -Dm755 out/"${_buildtype}"/libppGoogleNaClPluginChrome.so "${chromium_home}"/libppGoogleNaClPluginChrome.so
-     if [ "${CARCH}" = "i686" ]; then 
-       install -Dm755 out/"${_buildtype}"/nacl_irt_x86_32.nexe "${chromium_home}"/nacl_irt_x86_32.nexe
-     else
-       install -Dm755 out/"${_buildtype}"/nacl_irt_x86_64.nexe "${chromium_home}"/nacl_irt_x86_64.nexe
-     fi
-    install -Dm755 out/"${_buildtype}"/nacl_helper "${chromium_home}"/nacl_helper
-    install -Dm755 out/"${_buildtype}"/nacl_helper_bootstrap "${chromium_home}"/nacl_helper_bootstrap
+    install -Dm755 out/"${_buildtype}"/libppGoogleNaClPluginChrome.so "${_chromium_home}"/
+    [ "${CARCH}" = "i686" ] && install -Dm755 out/"${_buildtype}"/nacl_irt_x86_32.nexe "${_chromium_home}"/
+    [ "${CARCH}" = "x86_64" ] && install -Dm755 out/"${_buildtype}"/nacl_irt_x86_64.nexe "${_chromium_home}"/
+    install -Dm755 out/"${_buildtype}"/nacl_helper{,_bootstrap} "${_chromium_home}"/
     msg2 "Done"
   fi
 }
