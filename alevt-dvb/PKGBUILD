@@ -1,6 +1,6 @@
 # Maintainer: Heiko Baums <heiko@baums-on-web.de>
 # Contributor: Nagy Gabor <ngaba@@bibl..u-szeged..hu>
-# Based on the PKGBUILD of Víctor Martínez Romanos <vmromanos@gmail.com>
+# Contributor: Víctor Martínez Romanos <vmromanos@gmail.com>
 
 pkgname=alevt-dvb
 _pkgbasename=alevt
@@ -14,14 +14,13 @@ depends=('libpng' 'libx11')
 optdepends=('zenity: for starting alevt-dvb from the menu (alevt.desktop)')
 install=alevt.install
 source=(http://www.goron.de/~froese/alevt/$_pkgbasename-$pkgver.tar.gz
-	#http://dl.blackbone-ev.de/pluto/alevt-dvb-demux.patch.tar.bz2
-	alevt-dvb-demux.patch
+	http://dl.blackbone-ev.de/pluto/alevt-dvb-demux.patch.tar.bz2
 	alevt.desktop
 	alevt-cap.desktop
 	TeletextDVB.sh
 	TeletextDVB-capture.sh)
 md5sums=('e5a32776e7eff48ec48449b3c3c1cc23'
-         '8aa5fdb54949836402db42e969770ad8'
+         'a7f45416afa1ac649d629f856c511396'
          '66ddc95409e5fd660682bc8b90c877da'
          '1d49c7e53fac043b9d414172fd6790f0'
          '7f6d3e7d62242644919bee6e4c8c1bba'
