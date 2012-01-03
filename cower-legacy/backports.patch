@@ -1,0 +1,515 @@
+diff --git a/cower.c b/cower.c
+index 03e1256..9382d3c 100644
+--- a/cower.c
++++ b/cower.c
+@@ -55,6 +55,7 @@
+ #define STREQ(x,y)            (strcmp((x),(y)) == 0)
+ #define STR_STARTS_WITH(x,y)  (strncmp((x),(y), strlen(y)) == 0)
+ #define NCFLAG(val, flag)     (!cfg.color && (val)) ? (flag) : ""
++#define KEY_IS(k)             (strncmp(p->key, (k), p->keysz) == 0)
+ 
+ #define COWER_USERAGENT       "cower/3.x"
+ 
+@@ -70,6 +71,7 @@
+ #define AUR_QUERY_TYPE_SEARCH "search"
+ #define AUR_QUERY_TYPE_MSRCH  "msearch"
+ #define AUR_QUERY_ERROR       "error"
++#define AUR_QUERY_RESULTCOUNT "resultcount"
+ 
+ #define NAME                  "Name"
+ #define VERSION               "Version"
+@@ -195,32 +197,33 @@ struct strings_t {
+ };
+ 
+ struct aurpkg_t {
+-  const char *id;
+-  const char *name;
+-  const char *maint;
+-  const char *ver;
+-  const char *desc;
+-  const char *url;
+-  const char *lic;
+-  const char *votes;
++  char *desc;
++  char *lic;
++  char *maint;
++  char *name;
++  char *url;
+   char *urlpath;
++  char *ver;
+   int cat;
++  int id;
+   int ood;
++  int votes;
+   time_t firstsub;
+   time_t lastmod;
+-
++  alpm_list_t *conflicts;
+   alpm_list_t *depends;
+   alpm_list_t *makedepends;
+   alpm_list_t *optdepends;
+   alpm_list_t *provides;
+-  alpm_list_t *conflicts;
+   alpm_list_t *replaces;
+ };
+ 
+ struct yajl_parser_t {
+   alpm_list_t *pkglist;
++  int resultcount;
+   struct aurpkg_t *aurpkg;
+-  char curkey[32];
++  char key[32];
++  size_t keysz;
+   int json_depth;
+ };
+ 
+@@ -247,8 +250,8 @@ static int alpm_pkg_is_foreign(pmpkg_t*);
+ static const char *alpm_provides_pkg(const char*);
+ static int archive_extract_file(const struct response_t*);
+ static int aurpkg_cmp(const void*, const void*);
++static struct aurpkg_t *aurpkg_dup(const struct aurpkg_t *pkg);
+ static void aurpkg_free(void*);
+-static struct aurpkg_t *aurpkg_new(void);
+ static CURL *curl_init_easy_handle(CURL*);
+ static char *curl_get_url_as_buffer(CURL*, const char*);
+ static size_t curl_write_response(void*, size_t, size_t, void*);
+@@ -261,6 +264,7 @@ static char *get_file_as_buffer(const char*);
+ static int getcols(void);
+ static void indentprint(const char*, int);
+ static int json_end_map(void*);
++static int json_integer(void *ctx, long long val);
+ static int json_map_key(void*, const unsigned char*, size_t);
+ static int json_start_map(void*);
+ static int json_string(void*, const unsigned char*, size_t);
+@@ -327,7 +331,7 @@ struct openssl_mutex_t openssl_lock;
+ static yajl_callbacks callbacks = {
+   NULL,             /* null */
+   NULL,             /* boolean */
+-  NULL,             /* integer */
++  json_integer,     /* integer */
+   NULL,             /* double */
+   NULL,             /* number */
+   json_string,      /* string */
+@@ -502,6 +506,16 @@ int aurpkg_cmp(const void *p1, const void *p2) { /* {{{ */
+   return strcmp((const char*)pkg1->name, (const char*)pkg2->name);
+ } /* }}} */
+ 
++struct aurpkg_t *aurpkg_dup(const struct aurpkg_t *pkg) /* {{{ */
++{
++  struct aurpkg_t *newpkg;
++
++  MALLOC(newpkg, sizeof(struct aurpkg_t), return NULL);
++  memcpy(newpkg, pkg, sizeof(struct aurpkg_t));
++
++  return newpkg;
++} /* }}} */
++
+ void aurpkg_free(void *pkg) { /* {{{ */
+   struct aurpkg_t *it;
+ 
+@@ -511,14 +525,12 @@ void aurpkg_free(void *pkg) { /* {{{ */
+ 
+   it = (struct aurpkg_t*)pkg;
+ 
+-  FREE(it->id);
+   FREE(it->name);
+   FREE(it->maint);
+   FREE(it->ver);
+   FREE(it->desc);
+   FREE(it->url);
+   FREE(it->lic);
+-  FREE(it->votes);
+ 
+   FREELIST(it->depends);
+   FREELIST(it->makedepends);
+@@ -530,14 +542,6 @@ void aurpkg_free(void *pkg) { /* {{{ */
+   FREE(it);
+ } /* }}} */
+ 
+-struct aurpkg_t *aurpkg_new() { /* {{{ */
+-  struct aurpkg_t *pkg;
+-
+-  CALLOC(pkg, 1, sizeof *pkg, return NULL);
+-
+-  return pkg;
+-} /* }}} */
+-
+ int cwr_asprintf(char **string, const char *format, ...) { /* {{{ */
+   int ret = 0;
+   va_list args;
+@@ -823,77 +827,113 @@ void indentprint(const char *str, int indent) { /* {{{ */
+   free(wcstr);
+ } /* }}} */
+ 
+-int json_end_map(void *ctx) { /* {{{ */
+-  struct yajl_parser_t *parse_struct = (struct yajl_parser_t*)ctx;
++int json_end_map(void *ctx) /* {{{ */
++{
++	struct yajl_parser_t *p = (struct yajl_parser_t*)ctx;
+ 
+-  if (--parse_struct->json_depth > 0) {
+-    parse_struct->pkglist = alpm_list_add_sorted(parse_struct->pkglist,
+-        parse_struct->aurpkg, aurpkg_cmp);
+-  }
++	p->json_depth--;
++	if(p->json_depth > 0) {
++		p->pkglist = alpm_list_add_sorted(p->pkglist, aurpkg_dup(p->aurpkg), aurpkg_cmp);
++	}
+ 
+-  return 1;
++	return 1;
+ } /* }}} */
+ 
+-int json_map_key(void *ctx, const unsigned char *data, size_t size) { /* {{{ */
+-  struct yajl_parser_t *parse_struct = (struct yajl_parser_t*)ctx;
+-
+-  strncpy(parse_struct->curkey, (const char*)data, size);
+-  parse_struct->curkey[size] = '\0';
+-
+-  return 1;
++int json_integer(void *ctx, long long val) /* {{{ */
++{
++	struct yajl_parser_t *p = (struct yajl_parser_t*)ctx;
++
++	if(KEY_IS(AUR_ID)) {
++		p->aurpkg->id = (int)val;
++	} else if(KEY_IS(AUR_CAT)) {
++		p->aurpkg->cat = (int)val;
++	} else if(KEY_IS(AUR_VOTES)) {
++		p->aurpkg->votes = (int)val;
++	} else if(KEY_IS(AUR_OOD)) {
++		p->aurpkg->ood = (int)val;
++	} else if(KEY_IS(AUR_FIRSTSUB)) {
++		p->aurpkg->firstsub = (time_t)val;
++	} else if(KEY_IS(AUR_LASTMOD)) {
++		p->aurpkg->lastmod = (time_t)val;
++	} else if(KEY_IS(AUR_QUERY_RESULTCOUNT)) {
++		p->resultcount = (int)val;
++	}
++
++	return 1;
+ } /* }}} */
+ 
+-int json_start_map(void *ctx) { /* {{{ */
+-  struct yajl_parser_t *parse_struct = (struct yajl_parser_t*)ctx;
++int json_map_key(void *ctx, const unsigned char *data, size_t size) /* {{{ */
++{
++	struct yajl_parser_t *p = (struct yajl_parser_t*)ctx;
+ 
+-  if (parse_struct->json_depth++ >= 1) {
+-    parse_struct->aurpkg = aurpkg_new();
+-  }
++	p->keysz = size;
++	memcpy(p->key, (const char*)data, size);
++	p->key[size] = '\0';
+ 
+-  return 1;
++	return 1;
+ } /* }}} */
+ 
+-int json_string(void *ctx, const unsigned char *data, size_t size) { /* {{{ */
+-  struct yajl_parser_t *parse_struct = (struct yajl_parser_t*)ctx;
+-  const char *val = (const char*)data;
+-  char buffer[32];
++int json_start_map(void *ctx) /* {{{ */
++{
++	struct yajl_parser_t *p = (struct yajl_parser_t*)ctx;
+ 
+-  if (STREQ(parse_struct->curkey, AUR_QUERY_TYPE) &&
+-      STR_STARTS_WITH(val, AUR_QUERY_ERROR)) {
+-    return 1;
+-  }
++	p->json_depth++;
++	if(p->json_depth > 1) {
++		memset(p->aurpkg, 0, sizeof(struct aurpkg_t));
++	}
+ 
+-  if (STREQ(parse_struct->curkey, AUR_ID)) {
+-    parse_struct->aurpkg->id = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, NAME)) {
+-    parse_struct->aurpkg->name = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, PKG_MAINT)) {
+-    parse_struct->aurpkg->maint = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, VERSION)) {
+-    parse_struct->aurpkg->ver = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, AUR_CAT)) {
+-    parse_struct->aurpkg->cat = atoi(val);
+-  } else if (STREQ(parse_struct->curkey, AUR_DESC)) {
+-    parse_struct->aurpkg->desc = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, URL)) {
+-    parse_struct->aurpkg->url = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, URLPATH)) {
+-    parse_struct->aurpkg->urlpath = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, AUR_LICENSE)) {
+-    parse_struct->aurpkg->lic = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, AUR_VOTES)) {
+-    parse_struct->aurpkg->votes = strndup(val, size);
+-  } else if (STREQ(parse_struct->curkey, AUR_OOD)) {
+-    parse_struct->aurpkg->ood = strncmp(val, "1", 1) == 0 ? 1 : 0;
+-  } else if (STREQ(parse_struct->curkey, AUR_FIRSTSUB)) {
+-    snprintf(buffer, size + 1, "%s", val);
+-    parse_struct->aurpkg->firstsub = strtol(buffer, NULL, 10);
+-  } else if (STREQ(parse_struct->curkey, AUR_LASTMOD)) {
+-    snprintf(buffer, size + 1, "%s", val);
+-    parse_struct->aurpkg->lastmod = strtol(buffer, NULL, 10);
+-  }
++	return 1;
++} /* }}} */
+ 
+-  return 1;
++int json_string(void *ctx, const unsigned char *data, size_t size) /* {{{ */
++{
++	struct yajl_parser_t *p = (struct yajl_parser_t*)ctx;
++	char buffer[32];
++
++	if(KEY_IS(AUR_QUERY_TYPE) &&
++			STR_STARTS_WITH((const char*)data, AUR_QUERY_ERROR)) {
++		return 1;
++	}
++
++#define VALDUPE(dest, src, n) \
++	dest = malloc(n + 1); \
++	memcpy(dest, src, n); \
++	dest[n] = '\0';
++
++#define NUMCOPY(dest, src, n) \
++	memcpy(buffer, src, n); \
++	buffer[n] = '\0'; \
++	dest = strtol(buffer, NULL, 10);
++
++	if(KEY_IS(AUR_ID)) {
++		NUMCOPY(p->aurpkg->id, data, size);
++	} else if(KEY_IS(NAME)) {
++		VALDUPE(p->aurpkg->name, data, size);
++	} else if(KEY_IS(PKG_MAINT)) {
++		VALDUPE(p->aurpkg->maint, data, size);
++	} else if(KEY_IS(VERSION)) {
++		VALDUPE(p->aurpkg->ver, data, size);
++	} else if(KEY_IS(AUR_CAT)) {
++		NUMCOPY(p->aurpkg->cat, data, size);
++	} else if(KEY_IS(AUR_DESC)) {
++		VALDUPE(p->aurpkg->desc, data, size);
++	} else if(KEY_IS(URL)) {
++		VALDUPE(p->aurpkg->url, data, size);
++	} else if(KEY_IS(URLPATH)) {
++		VALDUPE(p->aurpkg->urlpath, data, size);
++	} else if(KEY_IS(AUR_LICENSE)) {
++		VALDUPE(p->aurpkg->lic, data, size);
++	} else if(KEY_IS(AUR_VOTES)) {
++		NUMCOPY(p->aurpkg->votes, data, size);
++	} else if(KEY_IS(AUR_OOD)) {
++		p->aurpkg->ood = *data - 48;
++	} else if(KEY_IS(AUR_FIRSTSUB)) {
++		NUMCOPY(p->aurpkg->firstsub, data, size);
++	} else if(KEY_IS(AUR_LASTMOD)) {
++		NUMCOPY(p->aurpkg->lastmod, data, size);
++	}
++
++	return 1;
+ } /* }}} */
+ 
+ void openssl_crypto_cleanup() { /* {{{ */
+@@ -1443,22 +1483,23 @@ void print_extinfo_list(alpm_list_t *list, const char *fieldname, const char *de
+   putchar('\n');
+ } /* }}} */
+ 
+-void print_pkg_formatted(struct aurpkg_t *pkg) { /* {{{ */
++void print_pkg_formatted(struct aurpkg_t *pkg) /* {{{ */
++{
+   const char *p, *end;
+   char fmt[32], buf[64];
+   int len;
+ 
+   end = rawmemchr(cfg.format, '\0');
+ 
+-  for (p = cfg.format; p < end; p++) {
++  for(p = cfg.format; p < end; p++) {
+     len = 0;
+-    if (*p == '%') {
++    if(*p == '%') {
+       len = strspn(p + 1 + len, printf_flags);
+       len += strspn(p + 1 + len, digits);
+       snprintf(fmt, len + 3, "%ss", p);
+       fmt[len + 1] = 's';
+       p += len + 1;
+-      switch (*p) {
++      switch(*p) {
+         /* simple attributes */
+         case 'a':
+           snprintf(buf, 64, "%ld", pkg->lastmod);
+@@ -1471,22 +1512,24 @@ void print_pkg_formatted(struct aurpkg_t *pkg) { /* {{{ */
+           printf(fmt, pkg->desc);
+           break;
+         case 'i':
+-          printf(fmt, pkg->id);
++          snprintf(buf, 64, "%d", pkg->id);
++          printf(fmt, buf);
+           break;
+         case 'l':
+           printf(fmt, pkg->lic);
+           break;
+         case 'm':
+-          printf(fmt, pkg->maint);
++          printf(fmt, pkg->maint ? pkg->maint : "(orphan)");
+           break;
+         case 'n':
+           printf(fmt, pkg->name);
+           break;
+         case 'o':
+-          printf(fmt, pkg->votes);
++          snprintf(buf, 64, "%d", pkg->votes);
++          printf(fmt, buf);
+           break;
+         case 'p':
+-          snprintf(buf, 64, AUR_PKG_URL_FORMAT "%s", cfg.proto, pkg->id);
++          snprintf(buf, 64, AUR_PKG_URL_FORMAT "%d", cfg.proto, pkg->id);
+           printf(fmt, buf);
+           break;
+         case 's':
+@@ -1522,48 +1565,49 @@ void print_pkg_formatted(struct aurpkg_t *pkg) { /* {{{ */
+           print_extinfo_list(pkg->replaces, NULL, cfg.delim, 0);
+           break;
+         case '%':
+-          putchar('%');
++          fputc('%', stdout);
+           break;
+         default:
+-          putchar('?');
++          fputc('?', stdout);
+           break;
+       }
+-    } else if (*p == '\\') {
++    } else if(*p == '\\') {
+       char ebuf[3];
+       ebuf[0] = *p;
+       ebuf[1] = *++p;
+       ebuf[2] = '\0';
+       print_escaped(ebuf);
+     } else {
+-      putchar(*p);
++      fputc(*p, stdout);
+     }
+   }
+ 
+   return;
+ } /* }}} */
+ 
+-void print_pkg_info(struct aurpkg_t *pkg) { /* {{{ */
+-  pmpkg_t *ipkg;
++void print_pkg_info(struct aurpkg_t *pkg) /* {{{ */
++{
+   char datestring[42];
+   struct tm *ts;
++  pmpkg_t *ipkg;
+ 
+   printf(PKG_REPO "     : %saur%s\n", colstr->repo, colstr->nc);
+   printf(NAME "           : %s%s%s", colstr->pkg, pkg->name, colstr->nc);
+-  if ((ipkg = alpm_db_get_pkg(db_local, pkg->name))) {
++  if((ipkg = alpm_db_get_pkg(db_local, pkg->name))) {
+     const char *instcolor;
+-    if (alpm_pkg_vercmp(pkg->ver, alpm_pkg_get_version(ipkg)) > 0) {
++    if(alpm_pkg_vercmp(pkg->ver, alpm_pkg_get_version(ipkg)) > 0) {
+       instcolor = colstr->ood;
+     } else {
+       instcolor = colstr->utd;
+     }
+     printf(" %s[%sinstalled%s]%s", colstr->url, instcolor, colstr->url, colstr->nc);
+   }
+-  putchar('\n');
++  fputc('\n', stdout);
+ 
+   printf(VERSION "        : %s%s%s\n",
+       pkg->ood ? colstr->ood : colstr->utd, pkg->ver, colstr->nc);
+   printf(URL "            : %s%s%s\n", colstr->url, pkg->url, colstr->nc);
+-  printf(PKG_AURPAGE "       : %s" AUR_PKG_URL_FORMAT "%s%s\n",
++  printf(PKG_AURPAGE "       : %s" AUR_PKG_URL_FORMAT "%d%s\n",
+       colstr->url, cfg.proto, pkg->id, colstr->nc);
+ 
+   print_extinfo_list(pkg->depends, PKG_DEPENDS, LIST_DELIM, 1);
+@@ -1571,11 +1615,11 @@ void print_pkg_info(struct aurpkg_t *pkg) { /* {{{ */
+   print_extinfo_list(pkg->provides, PKG_PROVIDES, LIST_DELIM, 1);
+   print_extinfo_list(pkg->conflicts, PKG_CONFLICTS, LIST_DELIM, 1);
+ 
+-  if (pkg->optdepends) {
++  if(pkg->optdepends) {
+     const alpm_list_t *i;
+-    printf(PKG_OPTDEPENDS "  : %s\n", (const char*)alpm_list_getdata(pkg->optdepends));
+-    for (i = pkg->optdepends->next; i; i = alpm_list_next(i)) {
+-      printf("%-*s%s\n", INFO_INDENT, "", (const char*)alpm_list_getdata(i));
++    printf(PKG_OPTDEPENDS "  : %s\n", (const char*)pkg->optdepends->data);
++    for(i = pkg->optdepends->next; i; i = alpm_list_next(i)) {
++      printf("%-*s%s\n", INFO_INDENT, "", (const char*)i->data);
+     }
+   }
+ 
+@@ -1583,13 +1627,13 @@ void print_pkg_info(struct aurpkg_t *pkg) { /* {{{ */
+ 
+   printf(PKG_CAT "       : %s\n"
+          PKG_LICENSE "        : %s\n"
+-         PKG_NUMVOTES "          : %s\n"
++         PKG_NUMVOTES "          : %d\n"
+          PKG_OOD "    : %s%s%s\n",
+          aur_cat[pkg->cat], pkg->lic, pkg->votes,
+          pkg->ood ? colstr->ood : colstr->utd,
+          pkg->ood ? "Yes" : "No", colstr->nc);
+ 
+-  printf(PKG_MAINT "     : %s\n", pkg->maint);
++  printf(PKG_MAINT "     : %s\n", pkg->maint ? pkg->maint : "(orphan)");
+ 
+   ts = localtime(&pkg->firstsub);
+   strftime(datestring, 42, PKG_TIMEFMT, ts);
+@@ -1604,17 +1648,18 @@ void print_pkg_info(struct aurpkg_t *pkg) { /* {{{ */
+   printf("\n\n");
+ } /* }}} */
+ 
+-void print_pkg_search(struct aurpkg_t *pkg) { /* {{{ */
+-  if (cfg.quiet) {
++void print_pkg_search(struct aurpkg_t *pkg) /* {{{ */
++{
++  if(cfg.quiet) {
+     printf("%s%s%s\n", colstr->pkg, pkg->name, colstr->nc);
+   } else {
+     pmpkg_t *ipkg;
+-    printf("%saur/%s%s%s %s%s%s%s (%s)", colstr->repo, colstr->nc, colstr->pkg,
++    printf("%saur/%s%s%s %s%s%s%s (%d)", colstr->repo, colstr->nc, colstr->pkg,
+         pkg->name, pkg->ood ? colstr->ood : colstr->utd, pkg->ver,
+         NCFLAG(pkg->ood, " <!>"), colstr->nc, pkg->votes);
+-    if ((ipkg = alpm_db_get_pkg(db_local, pkg->name))) {
++    if((ipkg = alpm_db_get_pkg(db_local, pkg->name))) {
+       const char *instcolor;
+-      if (alpm_pkg_vercmp(pkg->ver, alpm_pkg_get_version(ipkg)) > 0) {
++      if(alpm_pkg_vercmp(pkg->ver, alpm_pkg_get_version(ipkg)) > 0) {
+         instcolor = colstr->ood;
+       } else {
+         instcolor = colstr->utd;
+@@ -1623,7 +1668,7 @@ void print_pkg_search(struct aurpkg_t *pkg) { /* {{{ */
+     }
+     printf("\n    ");
+     indentprint(pkg->desc, SRCH_INDENT);
+-    putchar('\n');
++    fputc('\n', stdout);
+   }
+ } /* }}} */
+ 
+@@ -1948,9 +1993,8 @@ void *task_query(CURL *curl, void *arg) { /* {{{ */
+     argstr = arg;
+   }
+ 
+-  MALLOC(parse_struct, sizeof *parse_struct, return NULL);
+-  parse_struct->pkglist = NULL;
+-  parse_struct->json_depth = 0;
++  CALLOC(parse_struct, 1, sizeof(struct yajl_parser_t), return NULL);
++  CALLOC(parse_struct->aurpkg, 1, sizeof(struct aurpkg_t), return NULL);
+   yajl_hand = yajl_alloc(&callbacks, NULL, (void*)parse_struct);
+ 
+   curl = curl_init_easy_handle(curl);
+@@ -2172,7 +2216,8 @@ void version() { /* {{{ */
+          "             Cower....\n\n");
+ } /* }}} */
+ 
+-size_t yajl_parse_stream(void *ptr, size_t size, size_t nmemb, void *stream) { /* {{{ */
++size_t yajl_parse_stream(void *ptr, size_t size, size_t nmemb, void *stream) /* {{{ */
++{
+   struct yajl_handle_t *hand;
+   size_t realsize = size * nmemb;
+ 
