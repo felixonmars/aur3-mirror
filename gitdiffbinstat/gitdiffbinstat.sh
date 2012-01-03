@@ -18,13 +18,21 @@
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA  02110-1301 USA
 
+if [ -z "$1" ] ; then
+	echo "Usage: \"gitdiffbinstat [<commit/branch>]\""
+	exit 1
+fi
 obj=$1
 git diff $obj --shortstat ./
 diffstat=`git diff $obj --stat ./ | awk '/>/' `
 
-old=`echo "${diffstat}" | awk '{ sum+=$4} END {print sum}'`
+old=`echo -n "${diffstat}" | awk '{ sum+=$4} END {print sum}'`
 
-new=`echo "${diffstat}" | awk '{ sum+=$6} END {print sum}'`
+new=`echo -n "${diffstat}" | awk '{ sum+=$6} END {print sum}'`
 
-files=`echo "${diffstat}" | wc -l`
-echo -e " $files binary files changed, \e[033;31m$old\e[0m -> \e[033;32m$new\e[0m bytes"
+files=`echo -n "${diffstat}" | wc -l`
+if [ $files = 0 ] ; then
+	echo -e " 0 binary files changed"
+else
+	echo -e " $files binary files changed, \e[033;31m$old\e[0m -> \e[033;32m$new\e[0m bytes"
+fi
