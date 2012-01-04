@@ -2,14 +2,16 @@
 
 use Getopt::Std;
 use Device::Gsm::Pdu;
+use Text::Iconv;
 
 # defaults
 $opt_r = "/dev/ttyUSB2";
 $opt_s = "/dev/ttyUSB0";
+$conv = Text::Iconv->new('utf16be','utf8');
 
 my $USAGE = <<__EOU;
 
-Usage: $0 [-r input_port] [-s output_port] [-n] [-h] [-v] [-w] ussd_msg
+Usage: $0 [-r input_port] [-s output_port] [-n] [-h] [-v] [-w] [-i] ussd_msg
 
 Description:
   Send and receive 7-bit PDU-encoded USSD messages.
@@ -21,12 +23,13 @@ Options:
   -n        Do not send any data to port. Useful with -v.
   -h        Print this help.
   -v        Be verbose.
+  -i        Use iconv [from utf16be to utf8] to reply
   -w        reply workaround (try it if script can not decode reply)
 __EOU
 
 sub HELP_MESSAGE {print "$USAGE\n"; exit;}
 sub VERSION_MESSAGE {};
-getopts ('r:s:hnvw');
+getopts ('r:s:hnvwi');
 HELP_MESSAGE() and exit if (! $ARGV[0]) or defined($opt_h);
 
 print "USSD MSG: $ARGV[0]\n" if $opt_v;
@@ -54,8 +57,9 @@ if (! $opt_n) {
 }
 
 if ($ussd_reply) {
+    $iconved_reply = $conv->convert(pack('H*', $ussd_reply));
     $decoded_ussd_reply = $opt_w ? pack('H*', $ussd_reply) : Device::Gsm::Pdu::decode_text7('00'.$ussd_reply);
-    print STDOUT "USSD REPLY: $decoded_ussd_reply\n";
+    print STDOUT "USSD REPLY: ".($opt_i ? $iconved_reply: $decoded_ussd_reply)."\n";
 }
 else
 {
