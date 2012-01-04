@@ -8,7 +8,7 @@ pkgname="linux${_kernelname}"
 true && pkgname=("linux${_kernelname}" "linux${_kernelname}-headers")
 _basekernel=3.1
 pkgver=${_basekernel}
-pkgrel=6
+pkgrel=7
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -31,10 +31,10 @@ sha256sums=(
 
 # extra patches
 _extrapatches=(
-	"http://www.kernel.org/pub/linux/kernel/v3.x/patch-3.1.6.gz"
+	"http://www.kernel.org/pub/linux/kernel/v3.x/patch-3.1.7.gz"
 )
 _extrapatchessums=(
-	'4982e155022a70f8c04c4228a147bebf54aa8af04410bcbebf6976df53bb412f'
+	'c9085ee65c1b9829e09cecc73229683c5f81d0a82b1e650ab12dba6aae615eca'
 )
 if [ ${#_extrapatches[@]} -ne 0 ]; then
 	source=( "${source[@]}"
