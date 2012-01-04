@@ -2,21 +2,28 @@
 #
 # pbrisbin 2009, 2010, 2011
 #
-# Note: dvdauthor 0.7.0 throws a non-zero exit status even though all's
-# well, try using --keep_going if you find this to be an issue.
-#
 ###
 
 logger()   { echo -e "$(date +'[ %d %b %H:%M ]') :: $*"; }
-errorout() { echo -e "\aerror: $*" >/dev/stdout; exit 1; }
+errorout() { echo -e "\aerror: $*" >/dev/stderr; exit 1; }
 
-process_error() {
+process_error() { # {{{
   if $keep_going; then
     echo "warning: $*" >&2
   else
     errorout "$*"
   fi
 }
+# }}}
+
+with_ionice() { # {{{
+  if $ionice; then
+    ionice -t -c 3 "$@"
+  else
+    "$@"
+  fi
+}
+# }}}
 
 prompt() { # {{{
   echo -en "\a$*? [Y/n/q] " && read A
@@ -29,9 +36,9 @@ prompt() { # {{{
 } # }}}
 
 requirements() { # {{{
-  local reqs=('bc'      'perl'      'tcprobe'
-              'vobcopy' 'mencoder'  'dvdauthor'
-              'mkisofs' 'growisofs')
+  local reqs=('awk' 'perl' 'tcprobe' 'vobcopy'
+              'mencoder' 'dvdauthor' 'mkisofs'
+              'growisofs')
 
   for req in ${reqs[@]}; do
     which $req &>/dev/null || errorout "$req required, not installed."
@@ -53,7 +60,7 @@ cleanup() { # {{{
 } # }}}
 
 get_dvd_info() { # {{{
-  local count=0
+  local count=0 ch_found=true
 
   logger 'gathering DVD info...'
 
@@ -79,27 +86,33 @@ get_dvd_info() { # {{{
 
   # a check on the chapters, so far it can always be fixed by picking
   # title 1
-  if ! grep -q [1-9] "$directory/ch.list"; then
+  if ! grep -q '[1-9]' "$directory/ch.list"; then
     prompt 'no chapters were found, continue' || exit 1
+    ch_found=false
   fi
 
-  # calculate the vbr
-  l=$(awk '/^V\:/ {print $4}' "$directory/probe.txt")
-  a=$(awk '/^A\:/ {print $5}' "$directory/probe.txt")
-  a=$(echo "$a/8" | bc)
-  vbr=$(echo "(($size-($a*$l))/$l)*8" | bc)
+  # calculate vbr to stay under $size
+  vbr=$(awk -v size=$size '
+    /^V\:/ { l = $4   }
+    /^A\:/ { a = $5/8 }
+    END {
+      printf("%d\n", (((size-(a*l))/l)*8) + 0.5)
+    }' "$directory/probe.txt")
 
   logger "found device   : $device"
   logger "found title    : $title"
   logger "found name     : $name_lower"
   logger "found bitrate  : $vbr kbit/s"
-  logger "found chapters : "
 
-  chapters=( $(sed 's/\,/\n/g' "$directory/ch.list") )
+  if $ch_found; then
+    logger "found chapters : "
 
-  for ((i=0; i<${#chapters[@]}; i++)); do
-    logger "               : chapter $((i+1))\t${chapters[$i]}"
-  done
+    chapters=( $(sed 's/\,/\n/g' "$directory/ch.list") )
+
+    for ((i=0; i<${#chapters[@]}; i++)); do
+      logger "               : chapter $((i+1))\t${chapters[$i]}"
+    done
+  fi
 
   $info_only && exit 0
 } # }}}
@@ -114,13 +127,14 @@ make_mpeg() { # {{{
     logger "adding mencoder option(s) \`$options'..."
   fi
 
-  mencoder dvd://$title -dvd-device "$device" -mc 0 $options \
-    -ovc lavc -of mpeg -mpegopts format=dvd:tsaf -vf scale=720:480,harddup \
-    -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=9800:vbitrate=${vbr}:keyint=18:vstrict=0:aspect=16/9 \
-    -ofps 30000/1001 -oac copy -o "$directory/movie.mpeg" || process_error "mencoder failed reading disc"
+  mencoder dvd://$title -dvd-device "$device" $options \
+    -mc 0 -of mpeg -mpegopts format=dvd:tsaf \
+    -oac copy -ovc lavc -vf scale=720:480,pullup,softskip,harddup \
+    -lavcopts vcodec=mpeg2video:vrc_buf_size=1835:vrc_maxrate=9800:vbitrate=${vbr}:keyint=18:vstrict=0:aspect=16/9:ilme:ildct \
+    -ofps 24000/1001 -o "$directory/movie.mpeg" || process_error "mencoder failed reading disc"
 
   # save it if desired
-  [[ -n "$mpeg_dir" ]] && ionice -t -c 3 cp -v "$directory/movie.mpeg" "$mpeg_dir/$name_lower.mpeg"
+  [[ -n "$mpeg_dir" ]] && with_ionice cp -v "$directory/movie.mpeg" "$mpeg_dir/$name_lower.mpeg"
 
   # exit if desired
   $mpeg_only && exit 0
@@ -130,15 +144,15 @@ author_dvd() { # {{{
   logger "authoring DVD..."
 
   if [[ -f "$directory/ch.list" ]]; then
-    ionice -t -c 3 dvdauthor -t -c $(cat "$directory/ch.list") -o "$directory/MOVIE" "$directory/movie.mpeg" || process_error 'dvdauthor failed writing movie'
+    with_ionice dvdauthor -t -c $(cat "$directory/ch.list") -o "$directory/MOVIE" "$directory/movie.mpeg" || process_error 'dvdauthor failed writing movie'
   else
-    ionice -t -c 3 dvdauthor -t -o "$directory/MOVIE" "$directory/movie.mpeg" || process_error 'dvdauthor failed writing movie'
+    with_ionice dvdauthor -t -o "$directory/MOVIE" "$directory/movie.mpeg" || process_error 'dvdauthor failed writing movie'
   fi
 
-  ionice -t -c 3 dvdauthor -T -o "$directory/MOVIE" || process_error 'dvdauthor failed writing title'
+  with_ionice dvdauthor -T -o "$directory/MOVIE" || process_error 'dvdauthor failed writing title'
 
   # save it if desired
-  [[ -n "$dvd_dir" ]] && ionice -t -c 3 cp -rv "$directory/MOVIE" "$dvd_dir/${name_lower^^}"
+  [[ -n "$dvd_dir" ]] && with_ionice cp -rv "$directory/MOVIE" "$dvd_dir/${name_lower^^}"
 
   # exit if desired
   $dvd_only && exit 0
@@ -147,10 +161,10 @@ author_dvd() { # {{{
 build_iso() { # {{{
   logger 'generating ISO...'
 
-  ionice -t -c 3 mkisofs -dvd-video -o "$directory/movie.iso" "$directory/MOVIE" || process_error 'mkisofs failed creating image'
+  with_ionice mkisofs -dvd-video -o "$directory/movie.iso" "$directory/MOVIE" || process_error 'mkisofs failed creating image'
 
   # save it if desired
-  [[ -n "$iso_dir" ]] && ionice -t -c 3 cp -v "$directory/movie.iso" "$iso_dir/$name_lower.iso"
+  [[ -n "$iso_dir" ]] && with_ionice cp -v "$directory/movie.iso" "$iso_dir/$name_lower.iso"
 
   # exit if desired
   $iso_only && exit 0
@@ -186,8 +200,6 @@ message() { # {{{
     ~/.dvdcopy.conf will be read first if it's found (even if --config
     is passed). for syntax, see the help entry for the --config option.
     commandline arguments will overrule what's defined in the config
-
-    invalid options may lead to odd behavior
 
     options:
 
@@ -233,6 +245,7 @@ message() { # {{{
                                     read/burn before giving up, default
                                     is 15
 
+      --info_only                   stop after printing the dvd information
       --mpeg_only                   stop after transcoding the mpeg
       --dvd_only                    stop after authoring the dvd
       --iso_only                    stop after generating the iso
@@ -262,6 +275,9 @@ message() { # {{{
 
       --force                       disable any options validation,
                                     useful if ripping from an image file
+
+      --ionice                      use ionice (if available) with
+                                    I/O-heavy commands
 
       --help                        print this
 
@@ -296,6 +312,7 @@ set_defaults() { # {{{
   quiet=false
   verbose=false
   force=false
+  ionice=false
 
   exec 2>/dev/null
 } # }}}
@@ -315,8 +332,15 @@ parse_options() { # {{{
       -q|--quiet)      quiet=true              ;;
       -v|--verbose)    verbose=true            ;;
       -f|--force)      force=true              ;;
+      -n|--ionice)     ionice=true             ;;
       -h|--help)       message                 ;;
-      *)               eval "${1/--/}"         ;; # all other options
+
+      # all other options are handled by a simple eval, we rely on the
+      # case pattern to do the validation
+      --directory=*|--device=*|--title=*|--size=*|--limit=*|--mpeg_dir=*|--dvd_dir=*|--iso_dir=*|--mencoder_option=*)
+        eval "${1/--/}" ;;
+
+      *) message ;;
     esac
     shift
   done
@@ -348,7 +372,13 @@ validate_options() { # {{{
 
   $quiet   && exec 1>/dev/null
   $verbose && exec 2>/dev/stdout
+
+  if $ionice && ! which ionice &>/dev/null; then
+    ionice=false
+  fi
 } # }}}
+
+export VIDEO_FORMAT=NTSC
 
 requirements       # check that we have all required apps
 set_defaults       # set sane defaults
