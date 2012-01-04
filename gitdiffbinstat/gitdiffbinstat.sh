@@ -38,18 +38,25 @@ curcommit=` git log -1 | grep commit | sed s/commit\ //`
 echo " $obj -> $curbranch"
 echo " $obj -> $curcommit"
 git diff $obj --shortstat ./
-diffstat=`git diff $obj --stat ./ | awk '/>/' `
+diffstat=/tmp/gitdiffstat.tmp
+git diff $obj --stat ./ | awk '/>/' > $diffstat
 
-old=`echo -n "${diffstat}" | awk '{ sum+=$4} END {print sum}'`
+old=`awk '{ sum+=$4} END {print sum}' $diffstat`
 
-new=`echo -n "${diffstat}" | awk '{ sum+=$6} END {print sum}'`
+new=`awk '{ sum+=$6} END {print sum}' $diffstat`
 
-files=`echo -n "${diffstat}" | wc -l`
+files=`wc -l $diffstat | awk '{print $1}'`
 
 
 if [ $files = 0 ] ; then
 	echo -e " 0 binary files changed"
 else
+	newfiles=`awk '/Bin\ 0/' $diffstat | wc -l`
+	delfiles=`awk '/->\ 0\ bytes/' $diffstat | wc -l`
+	chfiles=`expr $files - $newfiles - $delfiles`
+	echo -e " Binary files: $chfiles modified, \e[033;32m$newfiles\e[0m added, \e[033;31m$delfiles\e[0m deleted."
+
+
 	changeval=`calc -p "$new-$old"`
 
 	if [ "$changeval" -gt 0 ] ; then
@@ -141,3 +148,5 @@ else
 
 	fi
 fi
+
+rm $diffstat
