@@ -20,9 +20,23 @@
 
 if [ -z "$1" ] ; then
 	echo "Usage: \"gitdiffbinstat [<commit/branch>]\""
+	echo "Make sure to be in a git repo!"
 	exit 1
 fi
+
+gitcheck=`git tag |& grep -o "fatal:\ Not\ a\ git\ repository\ "`
+if [ "$gitcheck" ] ; then
+	echo "fatal: Not a git repository!"
+	echo "Make sure to be in a git repo!"
+	exit 1
+fi
+
 obj=$1
+
+curbranch=`git branch  | grep "\*" | sed s/\*\ //`
+curcommit=` git log -1 | grep commit | sed s/commit\ //`
+echo " $obj -> $curbranch"
+echo " $obj -> $curcommit"
 git diff $obj --shortstat ./
 diffstat=`git diff $obj --stat ./ | awk '/>/' `
 
@@ -31,8 +45,99 @@ old=`echo -n "${diffstat}" | awk '{ sum+=$4} END {print sum}'`
 new=`echo -n "${diffstat}" | awk '{ sum+=$6} END {print sum}'`
 
 files=`echo -n "${diffstat}" | wc -l`
+
+
 if [ $files = 0 ] ; then
 	echo -e " 0 binary files changed"
 else
-	echo -e " $files binary files changed, \e[033;31m$old\e[0m -> \e[033;32m$new\e[0m bytes"
+	changeval=`calc -p "$new-$old"`
+
+	if [ "$changeval" -gt 0 ] ; then
+		echo -e " $files binary files changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;32m+$changeval bytes\e[0m)"
+		else
+		changeval1=`echo "$changeval" | sed s/-//`
+		echo -e " $files binary files changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;31m-$changeval1 bytes\e[0m)"
+	fi
+
+
+	newunit=b
+	newval=$new
+	((newkilo=$new/1024))
+	if [ ! "$newkilo" == 0 ] ; then
+		newunit=kb
+		newval=$newkilo
+		((newmega=$newkilo/1024))
+		if [ ! "$newmega" == 0 ] ; then
+			newunit=Mb
+			newval=$newmega
+			((newgiga=$newmega/1024))
+			if [ ! "$newgiga" == 0 ] ; then
+				newunit=Gb
+				newval=$newgiga
+			fi
+		fi
+	fi
+
+
+	oldunit=b
+	oldval=$old
+	((oldkilo=$old/1024))
+	if [ ! "$oldkilo" == 0 ] ; then
+		oldunit=kb
+		oldval=$oldkilo
+		((oldmega=$oldkilo/1024))
+		if [ ! "$oldmega" == 0 ] ; then
+			oldunit=Mb
+			oldval=$oldmega
+			((oldgiga=$oldmega/1024))
+			if [ ! "$oldgiga" == 0 ] ; then
+				oldunit=Gb
+				oldval=$oldgiga
+			fi
+		fi
+	fi
+
+
+	if [ "$changeval" -gt 0 ] ; then
+		changevalunit=b
+		changevalval=$changeval
+		((changevalkilo=$changeval/1024))
+		if [ ! "$changevalkilo" == 0 ] ; then
+			changevalunit=kb
+			changevalval=$changevalkilo
+			((changevalmega=$changevalkilo/1024))
+			if [ ! "$changevalmega" == 0 ] ; then
+				changevalunit=Mb
+				changevalval=$changevalmega
+				((changevalgiga=$changevalmega/1024))
+				if [ ! "$changevalgiga" == 0 ] ; then
+					changedvalunit=Gb
+					changevalval=$changvalgiga
+				fi
+			fi
+		fi
+		echo -e " $files binary files changed, \e[033;31m$oldval $oldunit\e[0m -> \e[033;32m$newval$newunit\e[0m (\e[033;32m+$changevalval$changevalunit\e[0m)"
+
+	else
+		changeval=`echo "$changeval" | sed s/-//`
+		changevalunit=b
+		changevalval=$changeval
+		((changevalkilo=$changeval/1024))
+		if [ ! "$changevalkilo" == 0 ] ; then
+			changevalunit=kb
+			changevalval=$changevalkilo
+			((changevalmega=$changevalkilo/1024))
+			if [ ! "$changevalmega" == 0 ] ; then
+				changevalunit=Mb
+				changevalval=$changevalmega
+				((changevalgiga=$changevalmega/1024))
+				if [ ! "$changevalgiga" == 0 ] ; then
+					changedvalunit=Gb
+					changevalval=$changvalgiga
+				fi
+			fi
+		fi
+		echo -e " $files binary files changed, \e[033;31m$oldval $oldunit\e[0m -> \e[033;32m$newval $newunit\e[0m (\e[033;31m-$changevalval $changevalunit\e[0m)"
+
+	fi
 fi
