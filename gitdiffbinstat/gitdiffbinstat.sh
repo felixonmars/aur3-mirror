@@ -44,10 +44,33 @@ curcommit=`git rev-parse HEAD`
 # print what we compare in   git diff
 echo " $obj -> $curbranch"
 echo " $obj -> $curcommit"
-# show the shortstat
-git diff $obj --shortstat ./
+
+
 # get the actuall diff we process
 git diff $obj --stat ./ | awk '/>/' > $diffstat
+
+# If there are no changes, exit
+checksum=`cat $diffstat | wc -l`
+if [ $checksum == 0 ] ; then
+	echo " No changes, exiting..."
+	exit 1
+fi
+
+# generate our own  git diff --shortstat
+gst=`git diff $obj --shortstat ./`
+gstins=`echo $gst | awk '{print $4}'`
+gstdels=`echo $gst | awk '{print $6}'`
+gstchval=`expr $gstins - $gstdels`
+gstchfiles=`echo $gst | awk '{print $1}'`
+
+if [ "$gstchval" -gt 0 ] ; then
+	echo -e " $gstchfiles files changed, \e[033;32m$gstins \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m$gstdels\e[0m deletions(\e[033;31m-\e[0m) (\e[033;32m+$gstchval lines\e[0m)"
+else
+	echo -e " $gstchfiles files changed, \e[033;32m$gstins \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m$gstdels\e[0m deletions(\e[033;31m-\e[0m) (\e[033;31m$gstchval lines\e[0m)"
+fi
+
+
+
 # size (b) of all bin files of obj
 old=`awk '{ sum+=$4} END {print sum}' $diffstat`
 # size (b) of all bin files of curbranch/curcommit
@@ -64,8 +87,15 @@ else
 	# "Bin x -> 0 bytes" : file has been deleted
 	delfiles=`awk '/->\ 0\ bytes/' $diffstat | wc -l`
 	# all files - new files - deleted files  = modified files
-	chfiles=`expr $files - $newfiles - $delfiles`
-	echo -e " Binary files: $chfiles modified, \e[033;32m$newfiles\e[0m added, \e[033;31m$delfiles\e[0m deleted."
+	binchval=`expr $newfiles - $delfiles`
+	chfiles=`expr $files - $binchval`
+
+	if [ "$binchval" -gt 0 ] ; then
+		echo -e " Binary files: $chfiles modified, \e[033;32m$newfiles\e[0m added, \e[033;31m$delfiles\e[0m deleted. (\e[033;32m+$binchval files\e[0m)"
+	else
+		echo -e " Binary files: $chfiles modified, \e[033;32m$newfiles\e[0m added, \e[033;31m$delfiles\e[0m deleted. (\e[033;31m$binchval files\e[0m)"
+	fi
+
 
 	# find out how many bytes bigger/smaller the repo got
 	changeval=`calc -p "$new-$old"`
