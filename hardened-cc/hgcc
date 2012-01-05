@@ -7,78 +7,119 @@ use File::Basename;
 my @args = ();
 my $enabled = 1;
 
+# Refer to the GCC manual or your favourite search engine.
+# If in doubt: The defaults are a decent choice.
+
 $enabled = 1;
-my $force_stack = 1;
-my $force_fortify = 1;
-my $force_format = 0;
-my $force_pie = 1;
-my $force_fPIE = 1;
+my $force_stack = 1;		# Lightweight SSP.
+my $force_stack_all = 0;	# Expensive SSP. (-fstack-protector-all)
+my $force_fortify = 1;		# Fortify.
+my $force_format = 0;		# -Wformat-security and req. Breaks quite a few builds due to -Werror=..
+				# ^^ -- Warnings often erroneous.
+my $force_fPIE = 1;		# Generate Position Independent Executables, negligible overhead on 64bit.
+my $force_pie = 1;              # ^^ -- Link with -pie if possible
+my $force_bindnow = 1;		# Enable -Wl,-z,now.
+				# ^^ -- Also adds --hash-style=gnu just to make sure its there.
+				# ^^ --- According to Kees Cook overhead of the dynamic linker
+				# ^^ --- is negligible even with huge applications.
+my $force_trampolines = 0;	# -Wtrampolines -Werror=trampolines
+my $force_noexec = 0;		# Adds -Wa,--noexecstack. Required by OpenSSL etc.
+my $force_unstrict = 0;		# Use -fno-strict-aliasing/overflow. (OpenBSD default?)
+my $force_nullptr = 0;		# Available here for the sake of completeness.
+				# ^^ Typically unneeded. (Used by the Linux kernel.)
+
 
 if ($enabled) {
-    # Scan arguments 
-    my $linking = 1;
-    foreach my $arg (@ARGV) {
-        if ($arg eq "-fno-PIC" ||
-            $arg eq "-fno-pic" ||
-            $arg eq "-fno-PIE" ||
-            $arg eq "-fno-pie" ||
-            $arg eq "-nopie" ||
-            $arg eq "-static" ||
-            $arg eq "-shared" ||
-            $arg eq "-D__KERNEL__" ||
-            $arg eq "-nostdlib" ||
-            $arg eq "-nostartfiles")
-        {
-            $force_fPIE = 0;
-            $force_pie = 0;
-        }
-        if ($arg eq "-fPIC" ||
-            $arg eq "-fpic")
-        {
-            $force_fPIE = 0;
-        }
-        if ($arg eq "-c") {
-            $linking = 0;
-        }
-        if ($arg =~ /^-D_FORTIFY_SOURCE(=|$)/) {
-            $force_fortify = 0;
-        }
-        if ($arg eq "-nostdlib" ||
-            $arg eq "-ffreestanding") {
-            $force_stack = 0;
-        }
-    }
+	# Scan arguments
+	my $linking = 1;
+	foreach my $arg (@ARGV) {
+		if ($arg eq "-fno-PIC" ||
+			$arg eq "-fno-pic" ||
+			$arg eq "-fno-PIE" ||
+			$arg eq "-fno-pie" ||
+			$arg eq "-nopie" ||
+			$arg eq "-static" ||
+			$arg eq "-shared" ||
+			$arg eq "-D__KERNEL__" ||
+			$arg eq "-nostdlib" ||
+			$arg eq "-nostartfiles")
+		{
+			$force_fPIE = 0;
+			$force_pie = 0;
+		}
+		if ($arg eq "-fPIC" ||
+			$arg eq "-fpic")
+		{
+			$force_fPIE = 0;
+		}
+		if ($arg eq "-c") {
+			$linking = 0;
+		}
+		if ($arg =~ /^-D_FORTIFY_SOURCE(=|$)/) {
+			$force_fortify = 0;
+		}
 
-    if ($force_stack) {
-        push(@args,'-fstack-protector', '--param=ssp-buffer-size=4');
-	if ($linking) {
-	  push(@args, '-Wl,-z,relro', '-Wl,-z,now');
+		if ($arg eq "-fno-stack-protector" ||
+			$arg eq "-fno-stack-protector-all" ||
+			$arg eq "-nostdlib" ||
+			$arg eq "-ffreestanding") {
+			$force_stack = 0;
+			$force_stack_all = 0;
+		}
+
 	}
-    }
 
-    if ($force_fPIE) {
-        push(@args, '-DPIC', '-fPIE');
-    }
+	if ($force_stack) {
+		push(@args,'-fstack-protector', '--param=ssp-buffer-size=4');
+	}
 
-    if ($force_pie) {
-        if ($linking) {
-            push(@args, '-pie');
-        }
-    }
+	if ($force_stack_all) {
+		push(@args,'-fstack-protector-all');
+	}
 
-    if ($force_fortify) {
-        push(@args,'-D_FORTIFY_SOURCE=2');
-    }
+	if ($force_fPIE) {
+		push(@args,'-DPIC', '-fPIE');
+		if ($linking) {
+			push(@args, '-pie');
+		}
+	}
 
-    if ($force_format) {
-        push(@args,'-Wformat','-Wformat-security','-Werror=format-security');
-    }
+	if ($linking) { # Unconditional, but I have yet to see something break.
+		push(@args,'-Wl,-z,relro');
+		if ($force_bindnow) {
+			push(@args,'-Wl,--hash-style=gnu', '-Wl,-z,now');
+		}
+	}
+
+	if ($force_fortify) {
+		push(@args,'-D_FORTIFY_SOURCE=2');
+	}
+
+	if ($force_format) {
+		push(@args,'-Wformat', '-Wformat-security', '-Werror=format-security');
+	}
+
+	if ($force_trampolines) {
+		push(@args,'-Wtrampolines', '-Werror=trampolines');
+	}
+
+	if ($force_unstrict) {
+		push(@args,'-fno-strict-aliasing', '-fno-strict-overflow');
+	}
+
+	if ($force_nullptr) {
+		push(@args,'-fno-delete-null-pointer-checks');
+	}
+
+	if ($force_noexec) {
+		push(@args,'-Wa,--noexecstack');
+	}
+
+	my $arg0 = File::Spec->rel2abs(basename($0),dirname($0));
+
+	my $tool = "/usr/bin/gcc";
+
+	my @target = ($tool, @args, @ARGV);
+
+	exec @target or die "Unable to exec $target[0]: $!\n";
 }
-
-my $arg0 = File::Spec->rel2abs(basename($0),dirname($0));
-
-my $tool = "/usr/bin/gcc";
-
-my @target = ($tool, @args, @ARGV);
-
-exec @target or die "Unable to exec $target[0]: $!\n";
