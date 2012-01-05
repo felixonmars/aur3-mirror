@@ -1,24 +1,23 @@
-# Maintainer: Figo.zhang <figo1802@gmail.com>
+# Maintainer: wilson <bugs@pandorica.net>
 
 pkgname=android-2.2
-pkgver=r02
+pkgver=r03
 pkgrel=1
-pkgdesc='Platform for Google Android SDK 2.2'
+pkgdesc='Platform for Google Android SDK'
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
 license=('custom')
-depends=('android-sdk')
+depends=('android-sdk>=r12')
 _sdk=android-sdk
 _platform="opt/${_sdk}/platforms"
 
-source=("http://dl-ssl.google.com/android/repository/android-2.2_$pkgver-linux.zip")
+source=("https://dl-ssl.google.com/android/repository/${pkgname}_${pkgver}-linux.zip")
 
-md5sums=('d11d4b3be48648ff68db05a75f26155d')
+md5sums=('8a43976aeba296144c82905ad88e8ee9')
 
 package() {
-  cd "$pkgdir"
-  mkdir -p $_platform
-   
-  mv "$srcdir/android-2.2_r02-linux" $pkgdir/$_platform/$pkgname
+  cd "${pkgdir}"
+  mkdir -p ${_platform}
 
+  mv "${srcdir}/${pkgname}_${pkgver}-linux" ${pkgdir}/${_platform}/${_android_ver}
 }
