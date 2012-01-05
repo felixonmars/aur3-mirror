@@ -18,9 +18,13 @@
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA  02110-1301 USA
 
+# in order to avoid conflicts when starting the script twice, get unix time + nanoseconds and
+# append them to the diffstat file
+
+timestamp=`date +%s%N`
 
 obj=$1
-diffstat=/tmp/gitdiffstat.tmp
+diffstat=/tmp/gitdiffstat.$timestamp
 
 # If no argument is given, print this how-to.
 if [ -z "$obj" ] ; then
@@ -57,16 +61,23 @@ gstdels=`echo $gst | awk '{print $6}'`
 gstchval=`expr $gstins - $gstdels`
 gstchfiles=`echo $gst | awk '{print $1}'`
 
-if [ "$gstchval" -gt 0 ] ; then
-	echo -e " $gstchfiles files changed, \e[033;32m$gstins \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m$gstdels\e[0m deletions(\e[033;31m-\e[0m) (\e[033;32m+$gstchval lines\e[0m)"
+if [ "$gstchfiles" == 1 ] ; then
+	gstfiles=file
 else
-	echo -e " $gstchfiles files changed, \e[033;32m$gstins \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m$gstdels\e[0m deletions(\e[033;31m-\e[0m) (\e[033;31m$gstchval lines\e[0m)"
+	gstfiles=files
+fi
+# say file/files correctly if we have only 0, one or several files
+if [ "$gstchval" -gt 0 ] ; then
+	echo -e " $gstchfiles $gstfiles changed, \e[033;32m$gstins \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m$gstdels\e[0m deletions(\e[033;31m-\e[0m) (\e[033;32m+$gstchval lines\e[0m)"
+else
+	echo -e " $gstchfiles $gstfiles changed, \e[033;32m$gstins \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m$gstdels\e[0m deletions(\e[033;31m-\e[0m) (\e[033;31m$gstchval lines\e[0m)"
 fi
 
 # If there are no changes, exit
 checksum=`cat $diffstat | wc -l`
 if [ $checksum == 0 ] ; then
 	echo " No binary files changed, exiting..."
+	rm $diffstat
 	exit 1
 fi
 
@@ -100,11 +111,19 @@ fi
 # find out how many bytes bigger/smaller the repo got
 changeval=`calc -p "$new-$old"`
 # print the result in different colors :)
+
+# say file/files correctly if we have only 0, one or several files
+if [ "$files" == 1 ] ; then
+	somefiles=file
+else
+	somefiles=files
+fi
+
 if [ "$changeval" -gt 0 ] ; then
-	echo -e " $files binary files changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;32m+$changeval bytes\e[0m)"
+	echo -e " $files binary $somefiles changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;32m+$changeval bytes\e[0m)"
 	else
 	changeval1=`echo "$changeval" | sed s/-//`
-	echo -e " $files binary files changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;31m-$changeval1 bytes\e[0m)"
+	echo -e " $files binary $somefiles changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;31m-$changeval1 bytes\e[0m)"
 fi
 
 # rather ugly foo to get nicer output numbers
@@ -164,7 +183,7 @@ if [ "$changeval" -gt 0 ] ; then
 			fi
 		fi
 	fi
-	echo -e " $files binary files changed, \e[033;31m$oldval $oldunit\e[0m -> \e[033;32m$newval$newunit\e[0m (\e[033;32m+$changevalval$changevalunit\e[0m)"
+	echo -e " $files binary $somefiles changed, \e[033;31m$oldval $oldunit\e[0m -> \e[033;32m$newval$newunit\e[0m (\e[033;32m+$changevalval$changevalunit\e[0m)"
 
 else
 	changeval=`echo "$changeval" | sed s/-//`
@@ -185,7 +204,7 @@ else
 			fi
 		fi
 	fi
-	echo -e " $files binary files changed, \e[033;31m$oldval $oldunit\e[0m -> \e[033;32m$newval $newunit\e[0m (\e[033;31m-$changevalval $changevalunit\e[0m)"
+	echo -e " $files binary $somefiles changed, \e[033;31m$oldval $oldunit\e[0m -> \e[033;32m$newval $newunit\e[0m (\e[033;31m-$changevalval $changevalunit\e[0m)"
 
 fi
 # remove the diffstat, we don't need it anymore
