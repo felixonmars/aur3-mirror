@@ -18,12 +18,18 @@
 #    along with this program; if not, write to the Free Software
 #    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston MA  02110-1301 USA
 
-if [ -z "$1" ] ; then
-	echo "Usage: \"gitdiffbinstat [<commit/branch>]\""
+
+obj=$1
+diffstat=/tmp/gitdiffstat.tmp
+
+# If no argument is given, print this how-to.
+if [ -z "$obj" ] ; then
+	echo "Usage: \"gitdiffbinstat [<commit/branch/tag>]\""
 	echo "Make sure to be in a git repo!"
 	exit 1
 fi
 
+# Check if we are actually in a git repo
 gitcheck=`git tag |& grep -o "fatal:\ Not\ a\ git\ repository\ "`
 if [ "$gitcheck" ] ; then
 	echo "fatal: Not a git repository!"
@@ -31,34 +37,39 @@ if [ "$gitcheck" ] ; then
 	exit 1
 fi
 
-obj=$1
-
-curbranch=`git branch  | grep "\*" | sed s/\*\ //`
-curcommit=` git log -1 | grep commit | sed s/commit\ //`
+# get currend branch
+curbranch=`git branch  | awk '/^\*\ /' | sed -e 's/\*\ //'`
+# get current rev hash
+curcommit=`git rev-parse HEAD`
+# print what we compare in   git diff
 echo " $obj -> $curbranch"
 echo " $obj -> $curcommit"
+# show the shortstat
 git diff $obj --shortstat ./
-diffstat=/tmp/gitdiffstat.tmp
+# get the actuall diff we process
 git diff $obj --stat ./ | awk '/>/' > $diffstat
-
+# size (b) of all bin files of obj
 old=`awk '{ sum+=$4} END {print sum}' $diffstat`
-
+# size (b) of all bin files of curbranch/curcommit
 new=`awk '{ sum+=$6} END {print sum}' $diffstat`
-
+# amount of changed files
 files=`wc -l $diffstat | awk '{print $1}'`
 
 
 if [ $files = 0 ] ; then
 	echo -e " 0 binary files changed"
 else
+	# "Bin 0 -> x bytes" :  file has been added
 	newfiles=`awk '/Bin\ 0/' $diffstat | wc -l`
+	# "Bin x -> 0 bytes" : file has been deleted
 	delfiles=`awk '/->\ 0\ bytes/' $diffstat | wc -l`
+	# all files - new files - deleted files  = modified files
 	chfiles=`expr $files - $newfiles - $delfiles`
 	echo -e " Binary files: $chfiles modified, \e[033;32m$newfiles\e[0m added, \e[033;31m$delfiles\e[0m deleted."
 
-
+	# find out how many bytes bigger/smaller the repo got
 	changeval=`calc -p "$new-$old"`
-
+	# print the result in different colors :)
 	if [ "$changeval" -gt 0 ] ; then
 		echo -e " $files binary files changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;32m+$changeval bytes\e[0m)"
 		else
@@ -66,7 +77,7 @@ else
 		echo -e " $files binary files changed, \e[033;31m$old bytes\e[0m -> \e[033;32m$new bytes\e[0m (\e[033;31m-$changeval1 bytes\e[0m)"
 	fi
 
-
+	# rather ugly foo to get nicer output numbers
 	newunit=b
 	newval=$new
 	((newkilo=$new/1024))
@@ -148,5 +159,5 @@ else
 
 	fi
 fi
-
+# remove the diffstat, we don't need it anymore
 rm $diffstat
