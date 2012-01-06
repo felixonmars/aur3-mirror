@@ -9,7 +9,7 @@ true && pkgname=("linux${_kernelname}" "linux${_kernelname}-headers")
 _basekernel=3.2
 _patchver=0
 pkgver=${_basekernel}
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -28,8 +28,8 @@ source=(
 )
 sha256sums=(
 	'dd96ed02b53fb5d57762e4b1f573460909de472ca588f81ec6660e4a172e7ba7'
-	'b6c470af0e96d4a96d69d9dca3af319ee161c3b4ef4cfdd9dfd5a46968b28bd6'
-	'039ff6dddd32c773127a632c5900aab34b507fc8c382591c2d9aa87fe9a47735'
+	'683eeaabdeac6065d6004d128c442208008c48d745573f66774ff82b02c3c13f'
+	'85a52950e8c7e6bb9a323b779a86c61c017ab545e071a7fbb908255d4383427b'
 	'd5bb4aabbd556f8a3452198ac42cad6ecfae020b124bcfea0aa7344de2aec3b5'
 	'cce2cd65f49ef30e9f2c977210fcb3f21707b53088615eb737e2bb53c67ca7c9'
 	'5d59b290f2ec7354048e24cc52048e104fa91a3ac4c393adbb0e268c129d03e2'
