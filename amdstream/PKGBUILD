@@ -11,8 +11,7 @@ pkgver=2.6
 pkgrel=1
 _profiler_ver=2.4
 
-pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI
-         Stream, now wtih limited OpenCL 1.2 support'
+pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih limited OpenCL 1.2 support'
 arch=('i686' 'x86_64')
 url="http://developer.amd.com/sdks/AMDAPPSDK/Pages/default.aspx"
 license=("custom")
