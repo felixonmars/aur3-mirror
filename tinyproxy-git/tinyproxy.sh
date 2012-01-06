@@ -8,7 +8,7 @@ PID=$(pidof -o %PPID /usr/sbin/tinyproxy)
 start() {
   stat_busy "Starting Tinyproxy"
 
-  [ -z "$PID" ] && rm -f /var/run/tinyproxy.pid && \
+  [ -z "$PID" ] && rm -f /var/run/tinyproxy/tinyproxy.pid && \
     /usr/sbin/tinyproxy -c /etc/tinyproxy/tinyproxy.conf 2>/dev/null
 
   if [ $? -gt 0 ]; then
