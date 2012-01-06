@@ -7,11 +7,12 @@
 
 
 pkgname=amdstream
-pkgver=2.5
-pkgrel=4
-_profiler_ver=2.3
+pkgver=2.6
+pkgrel=1
+_profiler_ver=2.4
 
-pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih OpenCL 1.1 support'
+pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI
+         Stream, now wtih limited OpenCL 1.2 support'
 arch=('i686' 'x86_64')
 url="http://developer.amd.com/sdks/AMDAPPSDK/Pages/default.aspx"
 license=("custom")
@@ -27,28 +28,33 @@ makedepends=('perl' 'llvm')
 _arch="${CARCH/i6/x}"
 _bits=${_arch/x86/32}
 _bits=${_bits/32_/}
-[ "$CARCH" = 'x86_64' ] && _hash='3949f6f1c0fced64ff08462cfd23e9249dcf201b0234852afb155a34c3cb4875' \
-                        || _hash='1e86cd615e6b51afa04c0121c28505def3174285429fb2e235f0fd086afe1ed4'
+[ "$CARCH" = 'x86_64' ] && _hash='3042dafb0fbe3e61585b53f23f9d2d568888df01f39cbb12ee74118dca2845ba' \
+                        || _hash='b50516cf4372c61199698bc204fa12feafea83b0c87bfdcd002639422ede7e0f'
 
 #Sources
-source=("http://developer.amd.com/Downloads/AMD-APP-SDK-v${pkgver}-lnx${_bits}.tgz" 
-        "AMD-APP-SDK-v2.5-RC2-lnx${_bits}.tgz")
+source=("http://developer.amd.com/Downloads/AMD-APP-SDK-v${pkgver}-lnx${_bits}.tgz" \
+        '01-implicit-linking.patch')
 
 #sha256sums
-sha256sums=($_hash 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
+sha256sums=($_hash '25781556b6441c26449e5577ea068eda74fb2dc520004897c64482cedb6fac0e' )
+
+_subdir="AMD-APP-SDK-v2.6-RC3-lnx${_bits}"
 
 #Install path
 _ipath='opt/amdstream'
 
 build()
 {
-  cd "${srcdir}/AMD-APP-SDK-v2.5-RC2-lnx${_bits}"
+  cd "${srcdir}"
+  tar xf ${_subdir}.tgz
+  cd "${_subdir}"
+  patch -p0 < ../../01-implicit-linking.patch
   make -j1   # With -j other than one, build fails (at least on ceratin configurations).
 }
 
 package()
 {
-  cd "${srcdir}/AMD-APP-SDK-v2.5-RC2-lnx${_bits}"
+  cd "${srcdir}/${_subdir}"
 
   #Install SDK
   mkdir -p "${pkgdir}/${_ipath}"
@@ -76,23 +82,19 @@ package()
   install -m644 "./tools/AMDAPPProfiler-${_profiler_ver}/License.txt" "${pkgdir}/${_ipath}/licenses/LICENSE-profiler.txt"
   install -m644 "./tools/AMDAPPProfiler-${_profiler_ver}/License.txt" "${pkgdir}/usr/share/licenses/LICENSE-profiler.txt"
 
-  #Register ICD ---> moved to catalyst-utils
-  #mkdir -p "${pkgdir}/etc/OpenCL/vendors"
-  #echo "/${_ipath}/lib/libamdocl${_bits}.so" > "${pkgdir}/etc/OpenCL/vendors/amd.icd"
-  ## The OpenCL ICD specifications: http://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt
+  #Register ICD
+  mkdir -p "${pkgdir}/etc/OpenCL/vendors"
+  echo "/${_ipath}/lib/libamdocl${_bits}.so" > "${pkgdir}/etc/OpenCL/vendors/amd.icd"
+  # The OpenCL ICD specifications: http://www.khronos.org/registry/cl/extensions/khr/cl_khr_icd.txt
 
-  #Insall includes
-  mkdir -p "${pkgdir}/usr/include/"{CAL,OVDecode}
+  #Install includes
+  mkdir -p "${pkgdir}/usr/include/"{CAL,OpenVideo}
   install -m644 './include/CAL/'{calcl.h,cal_ext.h,cal_ext_counter.h,cal.h} "${pkgdir}/usr/include/CAL/"
-  install -m644 './include/OVDecode/'{OVDecode.h,OVDecodeTypes.h} "${pkgdir}/usr/include/OVDecode/"
+  install -m644 './include/OpenVideo/'{OVDecode.h,OVDecodeTypes.h} "${pkgdir}/usr/include/OpenVideo/"
 
-  #Symlink libs ---> moved to libcl
-  #mkdir -p "${pkgdir}/usr/lib"
-  #ln -s "/${_ipath}/lib/libOpenCL.so" "${pkgdir}/usr/lib/libOpenCL.so"
-
-  #Symlink binaries ---> moved to catalyst-utils
-  #mkdir -p "${pkgdir}/usr/bin"
-  #ln -s "/${_ipath}/bin/clinfo" "${pkgdir}/usr/bin/clinfo"
+  #Symlink binaries
+  mkdir -p "${pkgdir}/usr/bin"
+  ln -s "/${_ipath}/bin/clinfo" "${pkgdir}/usr/bin/clinfo"
 
   #Env vars
   mkdir -p "${pkgdir}/etc/profile.d"
