@@ -1,4 +1,13 @@
-ChangeLog is on http://code.google.com/p/grub4dos-chenall/source/list
+========
+Document
+========
+
+Try these to fill the hole of lack of document.
+
+* Best grub4dos Guide (17th May 2009) http://diddy.boot-land.net/grub4dos/Grub4dos.htm
+* online help of grub4dos( usage: help <command> )
+* google search
+* changelog files in /usr/share/doc/grub4dos
 
 =======
 INSTALL
@@ -44,8 +53,6 @@ cp /grub/menu.lst /mnt/sda1/grub # copy default menu, edit it
 Read document which come from this package in /usr/share/doc/grub4dos.
 After install, you can remove this package.
 
-Ref: Best grub4dos manual http://diddy.boot-land.net/grub4dos/Grub4dos.htm
-
 STEP 4 (optional)
 -----------------
 if you want to use 'default' option in menu.lst
@@ -58,13 +65,7 @@ cp /grub/grub.exe /mnt/sda1/grub
 
 STEP 5 (optional)
 -----------------
-For unicode menu read http://chenall.net/post/grub4dos_unifont/ .
+if you want display unicode modify menu.lst, add graphicsmode and font command.
 
 mkdir -p /mnt/sda1/grub # make a directory to put related files.
-cp /grub/unifont /mnt/sda1/grub
-cp /grub/arialuni_U16.bin.gz /mnt/sda1/grub
-
-edit /mnt/sda1/grub/menu.lst like this
-  unifont /grub/arialuni_U16.bin.gz
-  ...
-  title utf-8 title is workable # first boot entry
+cp /grub/unifont.hex.gz /mnt/sda1/grub
