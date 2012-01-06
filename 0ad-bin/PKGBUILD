@@ -1,6 +1,6 @@
 pkgname=0ad-bin
 pkgver=alpha_8
-_pkgver=r10803-3.4
+_pkgver=r10803-3.3
 _dataver=r10803-1.1
 pkgrel=3
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE prebuilt)"
@@ -13,8 +13,8 @@ depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2
 makedepends=('boost' 'libarchive' 'wget' 'lynx')
 conflicts=('0ad' '0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
-source=(http://download.opensuse.org/repositories/games/openSUSE_Factory/$_arch/0ad-$_pkgver.$_arch.rpm
-	http://download.opensuse.org/repositories/games/openSUSE_Factory/noarch/0ad-data-$_dataver.noarch.rpm)
+source=(http://download.opensuse.org/repositories/games/openSUSE_Tumbleweed/$_arch/0ad-$_pkgver.$_arch.rpm
+	http://download.opensuse.org/repositories/games/openSUSE_Tumbleweed/noarch/0ad-data-$_dataver.noarch.rpm)
 md5sums=(`wget ${source[0]}.md5 -qO - | cut -d " " -f1`
          `wget ${source[1]}.md5 -qO - | cut -d " " -f1`)
 
