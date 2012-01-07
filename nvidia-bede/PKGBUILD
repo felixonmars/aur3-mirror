@@ -5,7 +5,7 @@ _pkgname=nvidia
 pkgname=${_pkgname}-bede
 pkgver=290.10
 _extramodules=3.2-BEDE-external
-pkgrel=2
+pkgrel=3
 pkgdesc="NVIDIA drivers for linux-bede"
 arch=('i686' 'x86_64')
 url="http://www.nvidia.com/"
@@ -50,8 +50,8 @@ package() {
 	install -Dm644 $srcdir/${_pkg}/kernel/nvidia.ko \
 		$pkgdir/lib/modules/${_extramodules}/${_pkgname}/nvidia.ko
 
-	install -dm755 $pkgdir/etc/modprobe.d
-	echo "blacklist nouveau" >> $pkgdir/etc/modprobe.d/${pkgname}_nouveau_blacklist.conf
+	install -dm755 $pkgdir/lib/modprobe.d
+	echo "blacklist nouveau" >> $pkgdir/lib/modprobe.d/${pkgname}_nouveau_blacklist.conf
 
 	# gzip all modules
 	find ${pkgdir} -name '*.ko' -exec gzip -9 {} \;
