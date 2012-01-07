@@ -1,2 +1,3 @@
 # options to start freeswitch with
-FREESWITCH_OPTS="-nc -nonat"
+# We default to -nonat, if you need nat, remove it
+FREESWITCH_OPTS="-nonat"
