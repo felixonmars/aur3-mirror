@@ -3,15 +3,15 @@
 
 pkgname=agenda
 pkgver=0.3.1.6
-pkgrel=1
+pkgrel=2
 pkgdesc="Display calendars on the GNOME desktop tray. Supports Google Calendar, Novell Groupwise, Evolution and iCalendar"
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/gnome-agenda/"
 license=('GPL2')
 provides=('gnome-agenda')
 replaces=('gnome-agenda')
-depends=('python-pysqlite>=2.4.0' 'python-vobject>=0.5' 'python-configobj>=4.4.0.2' 
-         'python-lxml>=2.1' 'dbus-python' 'python-dateutil' 'python-sexy' 'gnome-icon-theme')
+depends=('python-pysqlite>=2.4.0' 'python2-vobject>=0.5' 'python-configobj>=4.4.0.2' 
+         'python-lxml>=2.1' 'dbus-python' 'python2-dateutil' 'python-sexy' 'gnome-icon-theme')
 optdepends=('python-evolution: Evolution plugin'
             'python-gdata: Google calendar plugin')
 makedepends=('python2-distribute')
