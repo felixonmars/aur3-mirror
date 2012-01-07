@@ -5,8 +5,8 @@
 . /etc/rc.d/functions
 
 prog=ZoneMinder
-ZM_VERSION="1.24.0"
-ZM_PATH_BIN="/usr/lib/zm/bin"
+ZM_VERSION="1.25.0"
+ZM_PATH_BIN="/srv/zoneminder/bin"
 ZM_CONFIG="/etc/zm.conf"
 command="$ZM_PATH_BIN/zmpkg.pl"
 
@@ -110,7 +110,7 @@ start()
 	chown -R $ZM_WEB_USER:$ZM_WEB_GROUP  /var/log/zm
 	$command start
 	RETVAL=$?
-	[ $RETVAL = 0 ] && stat_done
+	[ $RETVAL = 0 ] && stat_done && add_daemon zm
 	[ $RETVAL != 0 ] && stat_fail
 	#[ $RETVAL = 0 ] && touch /var/lock/subsys/zm
 	return $RETVAL
@@ -121,7 +121,7 @@ stop()
 	stat_busy "Stopping $prog"
 	$command stop
 	RETVAL=$?
-	[ $RETVAL = 0 ] && stat_done
+	[ $RETVAL = 0 ] && stat_done && rm_daemon zm
 	[ $RETVAL != 0 ] && stat_fail
 	#[ $RETVAL = 0 ] && rm -f /var/lock/subsys/zm
 }
