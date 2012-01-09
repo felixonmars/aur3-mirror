@@ -1,15 +1,15 @@
 # Maintainer: Sergio A. Morales <sergiomorales@archlinux.cl>
 # Contributor: Sergio A. Morales <sergiomorales@archlinux.cl>
 pkgname=389-dsgw
-pkgver=1.1.5
-pkgrel=2
+pkgver=1.1.7
+pkgrel=1
 pkgdesc="389 Directory Server Gateway (dsgw)"
 arch=('i686' 'x86_64')
 url="http://directory.fedoraproject.org"
 license=(GPL)
 depends=('389-admin')
 source=("$url/sources/$pkgname-$pkgver.tar.bz2")
-md5sums=("8a9931ea00229d6fd0aaca4f87389e10")
+md5sums=('367537e786006adf8f204974b62c282b')
 
 build() {
 	cd $startdir/src/$pkgname-$pkgver
