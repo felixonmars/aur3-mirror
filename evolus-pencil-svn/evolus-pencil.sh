@@ -1,5 +1,5 @@
 #!/bin/sh
-cd `dirname $0`
+cd /usr/lib/evolus-pencil-svn/
 DIR=`pwd`
 APP_INI=$DIR/app/application.ini
 
