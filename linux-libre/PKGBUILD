@@ -6,33 +6,37 @@
 
 pkgbase=linux-libre
 pkgname=linux-libre
-true &&pkgname=('linux-libre' 'linux-libre-headers' 'linux-libre-docs') # Build stock -LIBRE kernel
+true && pkgname=('linux-libre' 'linux-libre-headers' 'linux-libre-docs') # Build stock -LIBRE kernel
 # pkgname=linux-custom       # Build kernel with a different name
 _kernelname=${pkgname#linux-libre}
-_basekernel=3.1
-pkgver=${_basekernel}.5
+_basekernel=3.2
+pkgver=${_basekernel}
 pkgrel=1
-arch=('i686' 'x86_64')
+arch=('i686' 'x86_64' 'mips64el')
 url="http://linux-libre.fsfla.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl')
 options=('!strip')
 source=("http://linux-libre.fsfla.org/pub/linux-libre/releases/${_basekernel}-libre/linux-${_basekernel}-libre.tar.xz"
-        "http://linux-libre.fsfla.org/pub/linux-libre/releases/${pkgver}-libre/patch-${_basekernel}-libre-${pkgver}-libre.xz"
+#        "http://linux-libre.fsfla.org/pub/linux-libre/releases/${pkgver}-libre/patch-${_basekernel}-libre-${pkgver}-libre.xz"
+        "http://www.linux-libre.fsfla.org/pub/linux-libre/lemote/gnewsense/pool/linux-patches-${pkgver}-libre-lemote_0lxo_mipsel.tar.bz2"
         # the main kernel config files
         'config.i686' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         "${pkgname}.preset"
+        'Kbuild'
+        'Kbuild.platforms'
         'boot-logo.patch'
         'change-default-console-loglevel.patch'
         'i915-fix-ghost-tv-output.patch'
-        'i915-fix-incorrect-error-message.patch'
         'usb-add-reset-resume-quirk-for-several-webcams.patch')
 
 build() {
   cd "${srcdir}/linux-${_basekernel}"
 
-  patch -Np1 -i "${srcdir}/patch-${_basekernel}-libre-${pkgver}-libre"
+  if [ "${_basekernel}" != "${pkgver}" ]; then
+    patch -Np1 -i "${srcdir}/patch-${_basekernel}-libre-${pkgver}-libre"
+  fi
 
   # Add freedo as boot logo
   patch -Np1 -i "${srcdir}/boot-logo.patch"
@@ -46,11 +50,6 @@ build() {
   # needed.
   patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
 
-  # In 3.1.1, a DRM_DEBUG message is falsely declared as DRM_ERROR. This
-  # worries users, as this message is displayed even at loglevel 4. Fix
-  # this.
-  patch -Np1 -i "${srcdir}/i915-fix-incorrect-error-message.patch"
-
   # Add the USB_QUIRK_RESET_RESUME for several webcams
   # FS#26528
   patch -Np1 -i "${srcdir}/usb-add-reset-resume-quirk-for-several-webcams.patch"
@@ -60,7 +59,21 @@ build() {
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
 
-  cat "${srcdir}/config.${CARCH}" > ./.config # simpler
+  if [ "$CARCH" == "mips64el" ]; then
+    sed -i "s|^EXTRAVERSION.*|EXTRAVERSION =-libre|" Makefile
+    msg2 "Adding loongson-community patches"
+    patch -Np1 -i ${srcdir}/${_basekernel}.*-*-loongson-community.patch
+    patch -Np0 -i "${srcdir}/lxo-config.patch"
+
+# ensure N32, add localversion and remove uevent helper as per
+# https://git.kernel.org/?p=linux/hotplug/udev.git;a=blob_plain;f=README
+    sed -i -e "s|CONFIG_MIPS32_N32=.*|CONFIG_MIPS32_N32=y|g" \
+        -e "s|CONFIG_MIPS32_N32=.*|CONFIG_MIPS32_N32=y|g" \
+        -e "s|CONFIG_UEVENT_HELPER_PATH=.*|CONFIG_UEVENT_HELPER_PATH=\"\"|g" \
+        -e "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"-LIBRE\"|g" ./.config
+  else
+    cat "${srcdir}/config.${CARCH}" > ./.config # simpler
+  fi
 
   if [ "${_kernelname}" != "" ]; then
     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
@@ -90,7 +103,11 @@ build() {
   yes "" | make config
 
   # build!
-  make ${MAKEFLAGS} bzImage modules
+  if [ "$CARCH" == "mips64el" ]; then
+    make ${MAKEFLAGS} vmlinuz modules
+  else
+    make ${MAKEFLAGS} bzImage modules
+  fi
 }
 
 package_linux-libre() {
@@ -107,13 +124,19 @@ package_linux-libre() {
   cd "${srcdir}/linux-${_basekernel}"
 
   KARCH=x86
+  [ $CARCH = "mips64el" ] && KARCH=mips
 
   # get kernel version
   _kernver="$(make kernelrelease)"
 
   mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
   make INSTALL_MOD_PATH="${pkgdir}" modules_install
-  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgname}"
+
+  if [ "$CARCH" == "mips64el" ]; then
+    cp vmlinuz "${pkgdir}/boot/vmlinuz-${pkgname}"
+  else
+    cp "arch/${KARCH}/boot/bzImage" "${pkgdir}/boot/vmlinuz-${pkgname}"
+  fi
 
   # add vmlinux
   install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
@@ -131,6 +154,12 @@ package_linux-libre() {
     -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgname}.img\"|g" \
     -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgname}-fallback.img\"|g" \
     -i "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+
+# mkinitcpio 0.7 relies on bzImage to find the kernel version
+  if [ "$CARCH" == "mips64el" ]; then
+    sed -e "s|ALL_kver=.*|ALL_kver=\"${_kernver}\"|g" \
+        -i "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+  fi
 
   # remove build and source links
   rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
@@ -150,6 +179,15 @@ package_linux-libre-headers() {
   provides=('kernel26-headers' "linux-headers=${pkgver}")
   conflicts=('kernel26-headers' 'kernel26-libre-headers' 'linux-headers')
   replaces=('kernel26-headers' 'kernel26-libre-headers' 'linux-headers')
+
+  KARCH=x86
+  [ $CARCH = "mips64el" ] && KARCH=mips
+
+# In case of repackaging this is empty
+  if [ -z "${_kernver}" ]; then
+    cd ${srcdir}/linux-$pkgver
+    _kernver="$(make kernelrelease)"
+  fi
 
   mkdir -p "${pkgdir}/lib/modules/${_kernver}"
 
@@ -172,12 +210,18 @@ package_linux-libre-headers() {
   done
 
   # copy arch includes for external modules
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/x86"
-  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${_kernver}/arch/x86/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}"
+  cp -a "arch/${KARCH}/include" "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
 
   # copy files necessary for later builds
   cp Module.symvers "${pkgdir}/usr/src/linux-${_kernver}"
   cp -a scripts "${pkgdir}/usr/src/linux-${_kernver}"
+
+  if [ "$CARCH" = "mips64el" ]; then
+    cp "arch/${KARCH}/Kbuild" "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+    cp "arch/${KARCH}/loongson" "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+    cp "${srcdir}/Kbuild.platforms" "${pkgdir}/usr/src/linux-${_kernver}/arch/$KARCH/"
+  fi
 
   # fix permissions on scripts dir
   chmod og-w -R "${pkgdir}/usr/src/linux-${_kernver}/scripts"
@@ -273,7 +317,12 @@ package_linux-libre-headers() {
   done
 
   # remove unneeded architectures
-  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+  if [ "$CARCH" = "mips64el" ]; then
+    rm -rf ${pkgdir}/usr/src/linux-${_kernver}/arch/x86
+  else
+    rm -rf ${pkgdir}/usr/src/linux-${_kernver}/arch/mips
+  fi
 }
 
 package_linux-libre-docs() {
@@ -292,14 +341,15 @@ package_linux-libre-docs() {
   # remove a file already in linux package
   rm -f "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
 }
-md5sums=('d73df15ab1d36fe3c102755d8f42117f'
-         '06b461d4db995ddcbecbf345ae3b8987'
-         '7d8fac41f4c4c2d14d8c65645fb676bd'
-         '2a0302eda795903d3b01e41ba807c91e'
+pkgdesc="The Linux-libre Kernel and modules"
+md5sums=('27c641c4f6785fc647cdd3e44963a55c'
+         'd9e69aab2078d0f4bfed3034867a611a'
+         'eb37c323f6993d6cc963c61a1f482956'
+         '4e9be096386838d247672963f9af9ea8'
          'a8a3843046926eb7ab81312cd438c5c5'
+         '2967cecc3af9f954ccc822fd63dca6ff'
+         '8267264d9a8966e57fdacd1fa1fc65c4'
          '04b21c79df0a952c22d681dd4f4562df'
          '9d3c56a4b999c8bfbd4018089a62f662'
          '263725f20c0b9eb9c353040792d644e5'
-         'a50c9076012cb2dda49952dc6ec3e9c1'
          '52d41fa61e80277ace2b994412a0c856')
-pkgdesc="The Linux-libre Kernel and modules"
