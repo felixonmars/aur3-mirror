@@ -1,26 +1,36 @@
 # Maintainer: fauno <fauno@kiwwwi.com.ar>
 # Maintainer: Hilton Medeiros <medeiros.hilton at gmail dot com>
+# Contributor: Jonne Haß <me@mrzyx.de>
 # Contributor: Splashy <splash at open-web dot fr>
 
 # After installing, see the Diaspora wiki page for more information:
 # https://wiki.archlinux.org/index.php/Diaspora
 
+pkgbase=diaspora-git
 pkgname=diaspora-git
-pkgver=20110623
+true && pkgname=('diaspora-mysql-git' 'diaspora-postgresql-git')
+pkgver=20120105
 pkgrel=1
 pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network"
 arch=('i686' 'x86_64')
-url="http://www.joindiaspora.com/"
+url="https://diasporafoundation.org/"
 license=('AGPL3')
-depends=('ruby' 'mysql-ruby' 'redis' 'imagemagick' 'libxslt')
-makedepends=('git' 'ruby-headers')
+depends=('ruby' 'redis' 'imagemagick' 'libxslt' 'net-tools')
+makedepends=('git' 'libmysqlclient' 'postgresql-libs')
+provides=('diaspora')
 install=diaspora.install
 source=('diaspora.bin'
         'diaspora.rc'
         'diaspora.logrotate'
-        'diaspora.pam')
+        'diaspora.pam'
+        'diaspora.bashrc')
+md5sums=('547b0015c83da22bd739dc85fd79f9b9'
+         'b7a893271d9ba778f74569eff4190c06'
+         '60f6b3972c73cbc6b1c9ab87c88fb655'
+         '96f82c38f3f540b53f3e5144900acf17'
+         '53867bfd389dd267eefcefb053fecc5b')
 
-_gitroot="http://github.com/diaspora/diaspora.git"
+_gitroot="git://github.com/diaspora/diaspora.git"
 _gitname="diaspora"
 
 build() {
@@ -30,11 +40,11 @@ build() {
 
   if [[ -d $_gitname ]] ; then
     pushd $_gitname
-    git pull origin
+    tsocks git pull origin
     msg "The local files are updated."
     popd
   else
-    git clone $_gitroot
+    tsocks git clone $_gitroot
     msg "Git clone done."
   fi
 
@@ -42,60 +52,123 @@ build() {
 
   [[ -d $_gitname-build ]] && rm -fr $_gitname-build
   git clone $_gitname $_gitname-build
+  cd ${srcdir}/${_gitname}-build
 
-  # Recover gems cache
-  rm -fr $_gitname-gems
-  mkdir -p $_gitname-gems
-  [[ -d cache ]] && mv cache $_gitname-gems
+  # Symlink configs 
+  ln -s /etc/webapps/$_gitname/application.yml config/application.yml
+  ln -s /etc/webapps/$_gitname/database.yml config/database.yml
+  ln -s /etc/webapps/$_gitname/script_server.yml config/script_server.yml
+  ln -s /etc/webapps/$_gitname/oauth_keys.yml config/oauth_keys.yml
 
-# Include all gems
-  export GEM_HOME="$srcdir/$_gitname-gems"
-  export GEM_PATH="$srcdir/$_gitname-gems"
-  export PATH="${PATH}:${GEM_PATH}/bin"
+  # Set version header
+  sed "s|git_cmd = \`git log -1 --pretty=\"format:%H %ci\"\`|git_cmd = \"$(git log -1 --pretty="format:%H %ci")\"|" \
+      -i config/initializers/version_header.rb
 
-  gem install bundler
-
-  # Patch ruby_core_source to not install the headers in the system
-  # Remove this if you are behind a proxy and install the ruby-headers package instead
-#  gem install ruby_core_source
-#  sed -i "s@^  dest_dir.*@  dest_dir = \"$srcdir/rubyhdrs/\" + ruby_dir@" \
-#    $_gitname-gems/gems/ruby_core_source*/lib/ruby_core_source.rb
-
-  pushd $_gitname-build
-  bundle install --path vendor
+  # Preconfigure config/script_server.yml.example
+  sed 's|rails_env: "development"|rails_env: "production"|' \
+      -i config/script_server.yml.example
+  
+  # Preconfigure right ca_file
+  sed "s|ca_file: '/etc/pki/tls/certs/ca-bundle.crt' # CentOS|ca_file: '/etc/ssl/certs/ca-certificates.crt' # Arch|" \
+      -i config/application.yml.example
 
   # We make this now because we do not install the git history
+  # Comply with AGPLv3
   tar czf public/source.tar.gz  `git ls-tree -r master | awk '{print $4}'`
 
+  # Remove git repo
   rm -fr .git
-  popd
 
-  # Keep the gems cache
-  mv $_gitname-gems/cache "$srcdir"
+  # Create gem cache
+  mkdir -p ${srcdir}/gem-cache
 }
 
-package() {
-  cd "$srcdir"
-  options=(!strip)
+# Helper
+_package() {
+  cd "${srcdir}"
 
-  usrdir="$pkgdir/usr/share/webapps"
+  usrdir="${pkgdir}/usr/share/webapps"
 
-  install -d "$usrdir"
-  cp -r $_gitname-build "$usrdir/$_gitname"
-  #cp -r $_gitname-gems "$usrdir/"
-  find "$usrdir/$_gitname-gems" \
-    -type d -name ".git" -exec rm -fr '{}' \; &>/dev/null || true
+  install -d "${usrdir}"
+  cp -a ${_gitname}-build "${usrdir}/${_gitname}"
 
   install -Dm755 $_gitname.bin "$pkgdir/usr/bin/$_gitname"
   install -Dm755 $_gitname.rc "$pkgdir/etc/rc.d/$_gitname"
   install -Dm644 $_gitname.logrotate "$pkgdir/etc/logrotate.d/$_gitname"
   install -Dm644 $_gitname.pam "$pkgdir/etc/pam.d/$_gitname"
+  install -Dm644 $_gitname.bashrc "$usrdir/$_gitname/.bashrc"
+
+# Set the DB in the environment
+  sed -i "s/-DB-/$DB/g" "$usrdir/$_gitname/.bashrc"
+  sed -i "s/-DB-/$_db_rc/g" "$pkgdir/etc/rc.d/$_gitname"
+
+  install -Dm644 $_gitname-build/config/application.yml.example "$pkgdir/etc/webapps/$_gitname/application.yml"
+  install -Dm644 $_gitname-build/config/database.yml.example "$pkgdir/etc/webapps/$_gitname/database.yml"
+  install -Dm644 $_gitname-build/config/script_server.yml.example "$pkgdir/etc/webapps/$_gitname/script_server.yml"
+  install -Dm644 $_gitname-build/config/oauth_keys.yml.example "$pkgdir/etc/webapps/$_gitname/oauth_keys.yml"
+
+  # Include all gems
+  cd "${usrdir}/${_gitname}"
+  mkdir -p ${usrdir}/${_gitname}/vendor/ruby/1.9.1/
+  ln -s ${srcdir}/gem-cache ${usrdir}/${_gitname}/vendor/cache
+  ln -s ${srcdir}/gem-cache ${usrdir}/${_gitname}/vendor/ruby/1.9.1/cache
+
+  export GEM_HOME="${PWD}/vendor"
+  export GEM_PATH="${PWD}/vendor"
+  export PATH="${GEM_PATH}/bin:${PATH}"
+
+# TODO extract mysql2 version from Gemfile
+  case $DB in
+    mysql)
+      tsocks gem install mysql2 -v "0.2.17" -- --with-mysql-config=/usr/bin/mysql_config
+
+      ;;
+    posgres)
+      tsocks gem install pg -- --with-pg-config=/usr/bin/pg_config
+
+      # Preconfigure right subsection in database.yml.example
+      sed -e "s/<<: \*mysql/#<<: \*mysql/" \
+          -e "s/#<<: \*postgres/<<: \*postgres/" \
+          -i $_gitname-build/config/database.yml.example
+      
+      # Preconfigure right db in script_server.yml
+      sed "s/db: \"mysql\"/db: \"postgres\"/" \
+          -i $_gitname-build/config/script_server.yml.example
+      
+  esac
+
+  tsocks gem install bundler
+  tsocks bundle install --path ${GEM_PATH} --without development test heroku
 
   install -d $pkgdir/usr/share/licenses/$_gitname/
   install -Dm644 ${srcdir}/$_gitname-build/{AUTHORS,COPYRIGHT,GNU-AGPL-3.0} \
                  $pkgdir/usr/share/licenses/$_gitname/
+
+  msg "Removing gem cache"
+  rm -vr ${usrdir}/${_gitname}/vendor/{,ruby/1.9.1/}cache
 }
-md5sums=('7e7402127f9a05bc58aff0adc5057d1c'
-         '7bffaaee41b515247ba19a19c77dc5bf'
-         '60f6b3972c73cbc6b1c9ab87c88fb655'
-         '96f82c38f3f540b53f3e5144900acf17')
+
+package_diaspora-mysql-git() {
+    pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network (MySQL version)"
+    provides=('diaspora-mysql' 'diaspora')
+    depends=('ruby' 'redis' 'imagemagick' 'libxslt' 'net-tools' 'mysql' 'libmysqlclient')
+    options=(!strip)
+
+    export DB="mysql"
+    export _db_rc="mysqld"
+
+    _package
+}
+
+package_diaspora-postgresql-git() {
+    pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network (PostgreSQL version)"
+    provides=('diaspora-postgresql' 'diaspora')
+    depends=('ruby' 'redis' 'imagemagick' 'libxslt' 'net-tools' 'postgresql')
+    options=(!strip)
+
+    export DB="postgres"
+    export _db_rc="postgresql"
+
+    _package
+}
+pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network"
