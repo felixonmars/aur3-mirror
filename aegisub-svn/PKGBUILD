@@ -1,17 +1,16 @@
-# Maintainer : Alucryd <alucryd at gmail dot com>
+# Maintainer: Alucryd <alucryd at gmail dot com>
+# Contributor: 	G_Syme <demichan at mail dot upb dot de>
 pkgname=aegisub-svn
-pkgver=6189
+pkgver=6268
 pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
 license=('GPL' 'BSD')
-depends=('ffmpegsource2-svn' 'lua' 'wxgtk-2.9' 'hunspell' 'libass' 'fftw' 'hicolor-icon-theme' 'desktop-file-utils')
+depends=('ffmpegsource2-svn' 'lua' 'wxgtk-2.9>=2.9.2' 'hunspell' 'libass' 'fftw' 'hicolor-icon-theme')
 makedepends=('imagemagick' 'subversion' 'intltool')
 provides=('aegisub')
-conflicts=('aegisub-bin' 'aegisub-stable-svn')
-source=('base.patch' 'automation.patch' 'desktop.patch' 'po.patch')
-md5sums=('49672af4ccc35fe2d9514d7542ecc3b5' '3f288d301bb60bc5d0a32dd657cc671f' 'f394c239b6897f770bdc9325e1a9e2fd' '4ed1f7d183fc59d99d9a09562ab8e456')
+conflicts=('aegisub' 'aegisub-bin' 'aegisub-stable-svn')
 install=icon.install
 
 _svntrunk=http://svn.aegisub.org/trunk/aegisub/
@@ -27,15 +26,9 @@ build() {
         svn co "$_svntrunk" --config-dir ./ -r "$pkgver" "$_svnmod"
     fi
     msg "SVN checkout done or server timeout"
-    
-# Applying DESTDIR patches
-    patch -p0 < base.patch
-    patch -p0 < automation.patch
-    patch -p0 < desktop.patch
-    patch -p0 < po.patch
 
     cd "$_svnmod"
-    ./autogen.sh --prefix=/usr --without-{portaudio,openal,oss,pulseaudio} --with-wxdir=/usr/include/wx-2.9 --with-wx-config=/usr/bin/wx-config-2.9
+    ./autogen.sh --prefix=/usr --without-{portaudio,openal,oss,libpulse} --with-wxdir=/usr/include/wx-2.9 --with-wx-config=/usr/bin/wx-config-2.9
     make
 }
 
