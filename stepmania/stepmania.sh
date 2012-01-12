@@ -1,2 +1,3 @@
 #!/bin/bash
-exec /opt/stepmania/stepmania
+cd /opt/stepmania
+exec ./stepmania
