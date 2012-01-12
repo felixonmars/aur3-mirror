@@ -2,7 +2,7 @@
 
 
 #    pacmanlog2gource - converts /var/log/pacman.log into gource-readeable format
-#    Copyright (C) 2011  Matthias Krüger
+#    Copyright (C) 2012  Matthias Krüger
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -26,6 +26,10 @@ DATADIR=~/.pacmanlog2gource
 
 LOGTOBEPROCESSED=${DATADIR}/pacman_purged.log
 
+PACMANLOG=/var/log/pacman.log
+
+LOGNOW=${DATADIR}/pacman_now.log
+
 TIMECOUNTCOOKIE=0
 
 # timer functions
@@ -45,15 +49,15 @@ timeend()
 timestart
 
 
-#check if we already have the datadir, if not, create it
+# check if we already have the datadir, if we don't, create it
 if [ ! -d ${DATADIR} ] ; then
 	echo -e "No directory \e[4;02m${DATADIR}\e[0m found, creating one."
 	mkdir ${DATADIR}
 fi
 
 # print the version into a file so we handle file formats being out of date properly later
-echo "1.4" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4'/` ]] ; then
+echo "1.5" >> ${DATADIR}/version
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5/'` ]] ; then
 	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
 	sleep 4
 	echo "Exiting..."
@@ -62,19 +66,19 @@ fi
 
 
 # create empty logfile if non exists
-if [ ! -a ${DATADIR}/pacman_now.log ] ; then
-	touch ${DATADIR}/pacman_now.log
+if [ ! -a ${LOGNOW} ] ; then
+	touch ${LOGNOW}
 fi
 
-# copy the pacmam log as pacman_tmp.log to our datadir
+# copy the pacman log as pacman_tmp.log to our datadir
 # this way, log entries that have been made while the script run won't get lost, so we can process them next time we run the script
 
-cp /var/log/pacman.log ${DATADIR}/pacman_tmp.log
+cp ${PACMANLOG} ${DATADIR}/pacman_tmp.log
 
 
-echo -e "Getting diff between \e[4;02m/var/log/pacman.log\e[0m and local copy."
+echo -e "Getting diff between \e[4;02m${PACMANLOG}\e[0m and an older local copy."
 # we only want to proceed new entries, old ones are already included in the log
-diff -u ${DATADIR}/pacman_now.log /var/log/pacman.log | awk /'^+'/ | sed -e 's/^+//' > ${DATADIR}/process.log
+diff -u ${LOGNOW} ${PACMANLOG} | awk /'^+'/ | sed -e 's/^+//' > ${DATADIR}/process.log
 
 
 
@@ -91,8 +95,6 @@ echo -e "Purging the diff (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the res
 cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' -e '/^$/d' | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
 
 PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
-PURGEDONELINES=`cat ${LOGTOBEPROCESSED} | wc -l`
-
 
 LINE=1
 LINEPRCOUT=1
@@ -100,13 +102,13 @@ MAXLINES=`cat ${LOGTOBEPROCESSED} | wc -l`
 
 echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kB)...\n"
 
-# proceed each line of LOGTOBEPROCESSED and extract important information
+# process each line of LOGTOBEPROCESSED and extract important information
 
 while [ "$LINE" -le "$MAXLINES" ]; do
 #### processing the log ####
 
 # the line we are on
-	CURLINE=`cat ${LOGTOBEPROCESSED} | awk NR==${LINE}`
+	CURLINE=`awk NR==${LINE} ${LOGTOBEPROCESSED}`
 # the date of the entry, get characters 2-17
 	DATE="${CURLINE:1:16}"
 # convert the date into unix time which can be read by gource
@@ -183,6 +185,7 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 # this will mostly be printed when initially obtaining the log
 	if [ "${LINEPERCOUT}" == "500" ] ; then
 		LINECOUNTCOOKIE=1
+		# can we use  expr  here, or something more simple?
 		LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
 		timeend
 		# same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
@@ -200,7 +203,7 @@ while [ "$LINE" -le "$MAXLINES" ]; do
 done
 
 
-mv ${DATADIR}/pacman_tmp.log ${DATADIR}/pacman_now.log
+mv ${DATADIR}/pacman_tmp.log ${LOGNOW}
 
 rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log
 
