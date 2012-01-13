@@ -1,0 +1,1066 @@
+--- xfce4-mailwatch-plugin-1.1.0.orig/libmailwatch-core/Makefile.am	2008-08-26 02:42:36.000000000 +0000
++++ xfce4-mailwatch-plugin-1.1.0/libmailwatch-core/Makefile.am	2011-04-19 18:31:44.857798016 +0000
+@@ -1,6 +1,7 @@
+-# gmail is not always built
++# gmail and hotmail are not always built
+ EXTRA_DIST = \
+-	mailwatch-mailbox-gmail.c
++	mailwatch-mailbox-gmail.c \
++	mailwatch-mailbox-hotmail.c
+ 
+ noinst_LTLIBRARIES = libmailwatch-core.la
+ 
+@@ -21,7 +22,9 @@
+ 	mailwatch.h
+ 
+ if HAVE_SSL_SUPPORT
+-libmailwatch_core_la_SOURCES += mailwatch-mailbox-gmail.c
++libmailwatch_core_la_SOURCES += \
++	mailwatch-mailbox-gmail.c \
++	mailwatch-mailbox-hotmail.c
+ endif
+ 
+ libmailwatch_core_la_CFLAGS = \
+--- xfce4-mailwatch-plugin-1.1.0.orig/po/POTFILES.in	2008-08-16 07:35:33.000000000 +0000
++++ xfce4-mailwatch-plugin-1.1.0/po/POTFILES.in	2011-04-19 19:08:16.763919229 +0000
+@@ -1,5 +1,6 @@
+ # List of source files containing translatable strings.
+ 
++libmailwatch-core/mailwatch-mailbox-hotmail.c
+ libmailwatch-core/mailwatch-mailbox-gmail.c
+ libmailwatch-core/mailwatch-mailbox-imap.c
+ libmailwatch-core/mailwatch-mailbox-maildir.c
+--- xfce4-mailwatch-plugin-1.1.0.orig/libmailwatch-core/mailwatch.c	2008-09-11 04:43:38.000000000 +0000
++++ xfce4-mailwatch-plugin-1.1.0/libmailwatch-core/mailwatch.c	2011-04-19 18:23:35.146468204 +0000
+@@ -85,6 +85,7 @@
+ extern XfceMailwatchMailboxType builtin_mailbox_type_mh;
+ #ifdef HAVE_SSL_SUPPORT
+ extern XfceMailwatchMailboxType builtin_mailbox_type_gmail;
++extern XfceMailwatchMailboxType builtin_mailbox_type_hotmail;
+ #endif
+ 
+ XfceMailwatchMailboxType *builtin_mailbox_types[] = {
+@@ -92,6 +93,7 @@
+     &builtin_mailbox_type_pop3,
+ #ifdef HAVE_SSL_SUPPORT
+     &builtin_mailbox_type_gmail,
++    &builtin_mailbox_type_hotmail,
+ #endif
+     &builtin_mailbox_type_maildir,
+     &builtin_mailbox_type_mbox,
+--- xfce4-mailwatch-plugin-1.1.0.orig/libmailwatch-core/mailwatch-mailbox-hotmail.c	1970-01-01 00:00:00.000000000 +0000
++++ xfce4-mailwatch-plugin-1.1.0/libmailwatch-core/mailwatch-mailbox-hotmail.c	2011-04-23 20:29:48.946439685 +0000
+@@ -0,0 +1,1013 @@
++/*
++ *  xfce4-mailwatch-plugin - a mail notification applet for the xfce4 panel
++ *  Copyright (c) 2005-2008 Brian Tarricone <bjt23@cornell.edu>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License ONLY.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU Library General Public License for more details.
++ *
++ *  You should have received a copy of the GNU General Public License
++ *  along with this program; if not, write to the Free Software
++ *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include <config.h>
++#endif
++
++#include <stdio.h>
++
++#ifdef HAVE_UNISTD_H
++#include <unistd.h>
++#endif
++
++#ifdef HAVE_STDLIB_H
++#include <stdlib.h>
++#endif
++
++#ifdef HAVE_STRING_H
++#include <string.h>
++#endif
++
++#ifdef HAVE_SYS_TYPES_H
++#include <sys/types.h>
++#endif
++
++#include <glib.h>
++#include <gtk/gtk.h>
++
++#include <libxfce4util/libxfce4util.h>
++#include <libxfcegui4/libxfcegui4.h>
++
++#include "mailwatch-utils.h"
++#include "mailwatch.h"
++#include "mailwatch-net-conn.h"
++
++#define BORDER         8
++#define HOTMAIL_HOST   "pop3.live.com"
++
++#define XFCE_MAILWATCH_HOTMAIL_MAILBOX(ptr) ((XfceMailwatchHotmailMailbox *)ptr)
++#define HOTMAIL_MAILBOX_STATUS(ptr) ((HotmailMailboxStatus *)ptr)
++
++/**
++ * A structure to categorise messages of a mailbox into one of the following:
++ *   - new: Where the message is new since this monitoring instance has begun.
++ *   - existing: Where the message existed prior to this monitoring instance 
++ *               beginning.
++ */
++typedef struct
++{
++    /* This is an array of g_str_hash(uidl) of no more than size elements. */
++    guint *data;
++    gsize size;
++    /* The number of elements in the 'new' category. */
++    gsize new_length;
++    /* The number of elements in the 'existing' category. */
++    gsize existing_length;
++} HotmailMailboxStatus;
++
++
++typedef struct
++{
++    XfceMailwatchMailbox mailbox;
++
++    GMutex *config_mx;
++
++    /* Configurable settings */    
++    gchar *email;
++    gchar *password;
++    guint timeout;
++
++    XfceMailwatch *mailwatch;
++
++    /* Track the new and existing messages of the POP3 mailbox.
++     * If this value is NULL then it means this status needs to 
++     * determined at the next mailbox check.
++     */
++    HotmailMailboxStatus *status;
++
++    /* state related to the current connection (if any) */
++    gint running;
++    gpointer th;  /* really a GThread *, but avoids casts later */
++    XfceMailwatchNetConn *net_conn;
++    guint check_id;
++} XfceMailwatchHotmailMailbox;
++
++
++static HotmailMailboxStatus*
++hotmail_status_new(gsize items)
++{
++    HotmailMailboxStatus *status = g_new0(HotmailMailboxStatus, 1);
++    if ( items > 0 ) {
++        status->data = g_new0(guint, items);
++        status->size = items;
++    }
++    return status;
++}
++
++static void 
++hotmail_status_free(HotmailMailboxStatus *status)
++{
++    if ( NULL != status ) {
++        g_free(status->data);
++        g_free(status);
++    }
++}
++
++static inline guint
++hotmail_status_make_uidl_hash(const gchar *uidl)
++{
++    /* The message's unique identifier is hashed to keep memory utilisation 
++     * low for large numbers of messages.
++     *
++     * The Hotmail POP3 Servers report UIDLs as GUIDs of the form 
++     * XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX.  Storing UIDLs in memory is not
++     * cost effective.  i.e.: 4 byte hash c.f. 36 bytes (string format) or 
++     * 16 bytes (binary format).
++     */
++    return g_str_hash(uidl);
++}
++
++static gsize
++hotmail_status_new_uidl_count(const HotmailMailboxStatus* status)
++{
++    return status->new_length;
++}
++
++static gsize
++hotmail_status_existing_uidl_count(const HotmailMailboxStatus* status)
++{
++    return status->new_length;
++}
++
++static gboolean
++hotmail_status_is_existing_uidl(const HotmailMailboxStatus *status,
++                                const gchar *uidl)
++{
++    gboolean result = FALSE;
++    guint hash = hotmail_status_make_uidl_hash(uidl);
++    gsize i;
++
++    for(i = status->size - status->existing_length; i < status->size; ++i) {
++        if ( status->data[i] == hash ) {
++            result = TRUE;
++            break;
++        }
++    }
++    return result;
++}
++
++static gboolean
++hotmail_status_add_new_uidl(HotmailMailboxStatus *status,
++                            const gchar *uidl)
++{
++    gboolean result = FALSE;
++    guint hash = hotmail_status_make_uidl_hash(uidl);
++    gsize i = status->new_length;
++
++    if ( i < status->size - status->existing_length ) {
++        status->data[i] = hash;
++        status->new_length++;
++        result = TRUE;
++    }
++    return result;
++}
++
++static gboolean
++hotmail_status_add_existing_uidl(HotmailMailboxStatus *status,
++                                 const gchar *uidl)
++{
++    gboolean result = FALSE;
++    guint hash = hotmail_status_make_uidl_hash(uidl);
++    gsize i = status->existing_length;
++
++    if ( i < status->size - status->new_length ) {
++        status->data[status->size - 1 - i] = hash;
++        status->existing_length++;
++        result = TRUE;
++    }
++    return result;
++}
++
++static gboolean
++hotmail_should_continue(XfceMailwatchNetConn *net_conn,
++                     gpointer user_data)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(user_data);
++    return g_atomic_int_get(&hmailbox->running);
++}
++
++static gssize
++hotmail_send(XfceMailwatchHotmailMailbox *hmailbox, const gchar *buf)
++{
++    GError *error = NULL;
++    gssize sent;
++
++    sent = xfce_mailwatch_net_conn_send_data(hmailbox->net_conn,
++                                             (guchar *)buf, strlen(buf),
++                                             &error);
++    if(sent < 0) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   error->message);
++        g_error_free(error);
++    }
++
++    return sent;
++}
++
++static gssize
++hotmail_recv(XfceMailwatchHotmailMailbox *hmailbox, gchar *buf, gsize len)
++{
++    GError *error = NULL;
++    gssize recvd;
++
++    recvd = xfce_mailwatch_net_conn_recv_line(hmailbox->net_conn,
++                                              buf, len, &error);
++    if(recvd < 0) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   error->message);
++        g_error_free(error);
++        buf[0] = 0;
++        return -1;
++    }
++
++    if(recvd == len)
++        return -1;
++
++    buf[recvd] = '\n';
++    buf[++recvd] = 0;
++
++    return recvd;
++}
++
++static gssize
++hotmail_recv_command(XfceMailwatchHotmailMailbox *hmailbox,
++                  gchar *buf,
++                  gsize len,
++                  gboolean multiline)
++{
++    gssize bin, tot = 0;
++    gboolean got_ok = FALSE;
++
++    if(len)
++        *buf = 0;
++
++    while(len - tot > 0) {
++        DBG("trying to get line");
++        bin = hotmail_recv(hmailbox, buf+tot, len-tot);
++        DBG("got line: %s", bin > 0 ? buf+tot : "(nada)");
++        if(bin <= 0)
++            return -1;
++        if(!strncmp(buf+tot, "-ERR", 4))
++            return -1;
++
++        if(multiline && got_ok) {
++            if(!strcmp(buf+tot, ".\n"))
++                return tot + bin;
++        } else if(!strncmp(buf+tot, "+OK", 3)) {
++            if(!multiline)
++                return tot + bin;
++            got_ok = TRUE;
++        }
++
++        tot += bin;
++
++        if(!xfce_mailwatch_net_conn_should_continue(hmailbox->net_conn))
++            return -1;
++    }
++
++    g_critical("hotmail_recv_command(): buffer full!");
++
++    return -1;
++}
++
++static gboolean
++hotmail_send_login_info(XfceMailwatchHotmailMailbox *hmailbox, const gchar *email,
++        const gchar *password)
++{
++#define BUFSIZE 8191
++    gint bin, bout;
++    gchar buf[BUFSIZE+1];
++
++    /* The Hotmail POP3 Servers only support USER/PASS 
++     * authentication.  This is evident by the fact that 
++     * the CAPA request is not supported by their servers.
++     *
++     * Also, the server banner issued at connection does 
++     * not contain an APOP timestamp so their servers 
++     * do not support APOP either.
++     */
++
++    /* send the username */
++    g_snprintf(buf, BUFSIZE, "USER %s\r\n", email);
++    bout = hotmail_send(hmailbox, buf);
++    DBG("sent user (%d)", bout);
++    if(bout != strlen(buf))
++        return FALSE;
++
++    /* check for OK response */
++    bin = hotmail_recv_command(hmailbox, buf, BUFSIZE, FALSE);
++    DBG("response from USER (%d): %s", bin, bin>0?buf:"(nada)");
++    if(bin <= 0)
++        return FALSE;
++
++    /* send the password */
++    g_snprintf(buf, BUFSIZE, "PASS %s\r\n", password);
++    bout = hotmail_send(hmailbox, buf);
++    DBG("sent password (%d)", bout);
++    if(bout != strlen(buf))
++        return FALSE;
++
++    /* check for OK response */
++    bin = hotmail_recv_command(hmailbox, buf, BUFSIZE, FALSE);
++    DBG("response from PASS (%d): %s", bin, bin>0?buf:"(nada)");
++    if(bin <= 0) {
++        if(bin < 0) {
++            if(strstr(buf, "-ERR")) {
++                xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                           XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                           XFCE_MAILWATCH_LOG_ERROR,
++                                           _("Authentication failed.  Perhaps your email or password is incorrect?"));
++            }
++        }
++        return FALSE;
++    }
++
++    TRACE("leaving (success)");
++
++    return TRUE;
++#undef BUFSIZE
++}
++
++static gboolean
++hotmail_negotiate_ssl(XfceMailwatchHotmailMailbox *hmailbox)
++{
++    gboolean ret;
++    GError *error = NULL;
++
++    ret = xfce_mailwatch_net_conn_make_secure(hmailbox->net_conn, &error);
++
++    if(!ret) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   _("TLS handshake failed: %s"),
++                                   error->message);
++        g_error_free(error);
++    }
++
++    return ret;
++}
++
++static gboolean
++hotmail_connect(XfceMailwatchHotmailMailbox *hmailbox, 
++        const gchar *service)
++{
++    GError *error = NULL;
++
++    TRACE("entering (%s)", service);
++
++    xfce_mailwatch_net_conn_set_service(hmailbox->net_conn, service);
++
++    if(xfce_mailwatch_net_conn_connect(hmailbox->net_conn, &error))
++        return TRUE;
++    else {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   "%s", error->message);
++        g_error_free(error);
++        return FALSE;
++    }
++}
++
++static inline gboolean
++hotmail_slurp_banner(XfceMailwatchHotmailMailbox *hmailbox)
++{
++    gchar buf[2048];
++    gint bin;
++
++    /* Hotmail POP3 Servers only issue a one-line banner 
++     * announcing that the session with the server is ready 
++     * and in the AUTHORIZATION state.
++     *
++     * Because the Hotmail POP3 Servers indicate that APOP 
++     * is not supported by not providing an APOP timestamp 
++     * in the banner then we can safely discard the response 
++     * entirely.
++     */    
++    bin = hotmail_recv_command(hmailbox, buf, 2047, FALSE);
++    if(bin < 0) {
++        DBG("failed to get banner");
++    } else {
++        DBG("got banner, discarding: %s\n", buf);
++    }
++
++    return (bin != -1);
++}
++
++static gboolean
++hotmail_authenticate(XfceMailwatchHotmailMailbox *hmailbox, 
++        const gchar *email, const gchar *password)
++{
++    gboolean ret = FALSE;
++
++    ret = hotmail_connect(hmailbox, "pop3s");
++    if(ret)
++        ret = hotmail_negotiate_ssl(hmailbox);
++    if(ret)
++        ret = hotmail_slurp_banner(hmailbox);
++    if(ret)
++        ret = hotmail_send_login_info(hmailbox, email, password);
++
++    return ret;
++}
++
++static gboolean
++hotmail_categorise_message(const gchar *uidl, 
++                           const HotmailMailboxStatus *previous_status,
++                           HotmailMailboxStatus *current_status)
++{
++    gboolean result;
++
++    if ( NULL == previous_status ) {
++        /* At startup the previous status is not known so all messages in 
++         * the mailbox are categorised as existing.
++         */
++        result = hotmail_status_add_existing_uidl(current_status, uidl);
++    } else if ( hotmail_status_is_existing_uidl(previous_status, uidl) ) {
++        /* If a message has been found to be pre-existing (i.e.: not deleted 
++         * yet by the end-user) then categorise the message also as existing.
++         */
++        result = hotmail_status_add_existing_uidl(current_status, uidl);
++    } else {
++        /* If a message has been found not to be existing (i.e.: recently
++         * delivered) then categorise the message as new.
++         */
++        result = hotmail_status_add_new_uidl(current_status, uidl);
++    }
++    return result;
++}
++
++static gboolean
++hotmail_check_message_uidls(XfceMailwatchHotmailMailbox *hmailbox,
++                            const HotmailMailboxStatus *previous_status)
++{
++#define BUFSIZE 8191
++    gchar buf[BUFSIZE+1];
++    gssize bin;
++    gboolean got_ok;
++    gchar *p;
++
++    if(hotmail_send(hmailbox, "UIDL\r\n") != 6) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   "Unable to query unique message identifiers");
++        return FALSE;
++    }
++
++    got_ok = FALSE;
++    while(TRUE) {
++        DBG("trying to get line");
++        bin = hotmail_recv(hmailbox, buf, BUFSIZE);
++        DBG("got line: %s", bin > 0 ? buf : "(nada)");
++        if(bin <= 0) {
++            xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                       XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                       XFCE_MAILWATCH_LOG_ERROR,
++                                       "Unable to receive response to query unique message identifiers");
++            return FALSE;
++        }
++        if(0 == strncmp(buf, "-ERR", 4)) {
++            xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                       XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                       XFCE_MAILWATCH_LOG_ERROR,
++                                       "Unable to determine unique message identifiers");
++            return FALSE;
++        }
++
++        if(got_ok) {
++            if(0 == strcmp(buf, ".\n")) {
++                break;
++            } else {
++                p = strstr(buf, "\n");
++                if(!p) {
++                    xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                               XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                               XFCE_MAILWATCH_LOG_ERROR,
++                                               "Incomplete response to query unique message identifiers");
++                    return FALSE;
++                }
++                *p = 0;
++
++                p = strstr(buf, " ");
++                if(!p) {
++                    xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                               XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                               XFCE_MAILWATCH_LOG_ERROR,
++                                               "Malformed response to query unique message identifiers");
++                    return FALSE;
++                }
++                p++;
++                if ( !hotmail_categorise_message(p, previous_status, hmailbox->status) ) {
++                    xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                               XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                               XFCE_MAILWATCH_LOG_ERROR,
++                                               "Unable to process unique message identifier");
++                    return FALSE;
++                }
++            }
++        } else if(0 == strncmp(buf, "+OK", 3)) {
++            got_ok = TRUE;
++        }
++
++        if(!xfce_mailwatch_net_conn_should_continue(hmailbox->net_conn)) {
++            return FALSE;
++        }
++    }
++
++    return TRUE;
++#undef BUFSIZE
++}
++
++static guint
++hotmail_check_inbox(XfceMailwatchHotmailMailbox *hmailbox)
++{
++    gchar buf[1024], *p;
++    gint bin;
++    gint num_messages;
++    HotmailMailboxStatus *previous;
++
++    /* The POP3 protocol is flawed in the sense that it's not possible to 
++     * ascertain whether a particular message is read or unread.
++     *
++     * Most Hotmail end-users tend to keep their mail on the server which 
++     * means that an inbox can have thousands of read messages left on the 
++     * server.
++     *
++     * The response to the STAT request will reflect the total number of 
++     * read and unread messages.
++     *
++     * One way to ascertain whether there has been any new messages 
++     * delivered is to watch for changes in the number of messages in the 
++     * mailbox.  If it increases then 'you have mail'.  If it decreases then 
++     * the end-user has been deleting some messages.
++     *
++     * However, if there is no change then one of the following has happened:
++     *   1. The end-user has deleted N messages and N messages have then been 
++     *      delivered.
++     *   2. There has not been any messages delivered nor has the end-user 
++     *      deleted any messages.
++     *
++     * To address this problem we track the unique identifiers for all the 
++     * messages in the mailbox.  If a new identifier appears then it must be
++     * a new message.  If an identifier disappears then the message has been
++     * deleted.
++     */
++
++    if(hotmail_send(hmailbox, "STAT\r\n") != 6) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   "Unable to query mailbox size");
++        return 0;
++    }
++
++    bin = hotmail_recv_command(hmailbox, buf, 1023, FALSE);
++    if(bin <= 0) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   "Unable to receive response to query mailbox size");
++        return 0;
++    }
++    DBG("got response from STAT (%d): %s", bin, buf);
++
++    p = strstr(buf, "\n");
++    if(!p) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   "Incomplete response to query mailbox size");
++        return 0;
++    }
++    *p = 0;
++
++    /* Ignore the '+OK ' part of the response and parse the number of messages 
++     * currently reported to be in the mailbox.
++     */
++    num_messages = atoi(buf+4);
++    if(num_messages < 0) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_ERROR,
++                                   "Unable to determine mailbox size");
++        return 0;
++    }
++
++    /* Determine whether new messages have been delivered based on what was 
++     * determined in our last check of unique message identifiers.
++     */
++    previous = hmailbox->status;
++    hmailbox->status = hotmail_status_new(num_messages);
++    if ( !hotmail_check_message_uidls(hmailbox, previous) ) {
++        hotmail_status_free(hmailbox->status);
++        hmailbox->status = previous;
++        return 0;
++    }
++    hotmail_status_free(previous);
++
++    return hotmail_status_new_uidl_count(hmailbox->status);
++}
++
++static gpointer
++hotmail_check_mail_th(gpointer user_data)
++{
++#define BUFSIZE 1024
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(user_data);
++    gchar email[BUFSIZE], password[BUFSIZE];
++    guint new_messages = 0;
++
++    while(!g_atomic_pointer_get(&hmailbox->th)
++          && g_atomic_int_get(&hmailbox->running))
++    {
++        g_thread_yield();
++    }
++
++    if(!g_atomic_int_get(&hmailbox->running)) {
++        g_atomic_pointer_set(&hmailbox->th, NULL);
++        return NULL;
++    }
++
++    g_mutex_lock(hmailbox->config_mx);
++
++    if(!hmailbox->email || !hmailbox->password) {
++        g_mutex_unlock(hmailbox->config_mx);
++        g_atomic_pointer_set(&hmailbox->th, NULL);
++        return NULL;
++    }
++
++    g_strlcpy(email, hmailbox->email, BUFSIZE);
++    g_strlcpy(password, hmailbox->password, BUFSIZE);
++
++    g_mutex_unlock(hmailbox->config_mx);
++
++    hmailbox->net_conn = xfce_mailwatch_net_conn_new(HOTMAIL_HOST, NULL);
++    xfce_mailwatch_net_conn_set_should_continue_func(hmailbox->net_conn,
++                                                     hotmail_should_continue,
++                                                     hmailbox);
++    if(hotmail_authenticate(hmailbox, email, password))
++    {
++        new_messages = hotmail_check_inbox(hmailbox);
++        DBG("checked inbox, %d new messages", new_messages);
++
++        xfce_mailwatch_signal_new_messages(hmailbox->mailwatch,
++                XFCE_MAILWATCH_MAILBOX(hmailbox), new_messages);
++    }
++
++    if(xfce_mailwatch_net_conn_is_connected(hmailbox->net_conn))
++        hotmail_send(hmailbox, "QUIT\r\n");
++
++    if(hmailbox->net_conn) {
++        xfce_mailwatch_net_conn_destroy(hmailbox->net_conn);
++        hmailbox->net_conn = NULL;
++    }
++
++    g_atomic_pointer_set(&hmailbox->th, NULL);
++    return NULL;
++#undef BUFSIZE
++}
++
++static gboolean
++hotmail_check_mail_timeout(gpointer data)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(data);
++    GThread *th;
++
++    if(g_atomic_pointer_get(&hmailbox->th)) {
++        xfce_mailwatch_log_message(hmailbox->mailwatch,
++                                   XFCE_MAILWATCH_MAILBOX(hmailbox),
++                                   XFCE_MAILWATCH_LOG_WARNING,
++                                   _("Previous thread hasn't exited yet, not checking mail this time."));
++        return TRUE;
++    }
++
++    th = g_thread_create(hotmail_check_mail_th, hmailbox, FALSE, NULL);
++    g_atomic_pointer_set(&hmailbox->th, th);
++
++    return TRUE;
++}
++
++static XfceMailwatchMailbox *
++hotmail_mailbox_new(XfceMailwatch *mailwatch, XfceMailwatchMailboxType *type)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = g_new0(XfceMailwatchHotmailMailbox, 1);
++    hmailbox->mailbox.type = type;
++    hmailbox->mailwatch = mailwatch;
++    hmailbox->timeout = XFCE_MAILWATCH_DEFAULT_TIMEOUT;
++    hmailbox->config_mx = g_mutex_new();
++
++    xfce_mailwatch_net_conn_init();
++
++    return XFCE_MAILWATCH_MAILBOX(hmailbox);
++}
++
++static void
++hotmail_set_activated(XfceMailwatchMailbox *mailbox, gboolean activated)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(mailbox);
++
++    if(activated == g_atomic_int_get(&hmailbox->running))
++        return;
++
++    if(activated) {
++        g_atomic_int_set(&hmailbox->running, TRUE);
++        hmailbox->check_id = g_timeout_add(hmailbox->timeout * 1000,
++                                           hotmail_check_mail_timeout,
++                                           hmailbox);
++    } else {
++        g_atomic_int_set(&hmailbox->running, FALSE);
++        g_source_remove(hmailbox->check_id);
++        hmailbox->check_id = 0;
++    }
++}
++
++static void
++hotmail_force_update_cb(XfceMailwatchMailbox *mailbox)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(mailbox);
++
++    if(!g_atomic_pointer_get(&hmailbox->th)) {
++        gboolean restart = FALSE;
++
++        if(hmailbox->check_id) {
++            g_source_remove(hmailbox->check_id);
++            restart = TRUE;
++        }
++
++        hotmail_check_mail_timeout(hmailbox);
++
++        if(restart) {
++            hmailbox->check_id = g_timeout_add(hmailbox->timeout * 1000,
++                                               hotmail_check_mail_timeout,
++                                               hmailbox);
++        }
++    }
++}
++
++static gboolean
++hotmail_email_entry_focus_out_cb(GtkWidget *w, GdkEventFocus *evt,
++        gpointer user_data)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(user_data);
++    gchar *str;
++
++    str = gtk_editable_get_chars(GTK_EDITABLE(w), 0, -1);
++
++    g_mutex_lock(hmailbox->config_mx);
++
++    g_free(hmailbox->email);
++    if(!str || !*str) {
++        hmailbox->email = NULL;
++        g_free(str);
++    } else
++        hmailbox->email = str;
++
++    g_mutex_unlock(hmailbox->config_mx);
++
++    return FALSE;
++}
++
++static gboolean
++hotmail_password_entry_focus_out_cb(GtkWidget *w, GdkEventFocus *evt,
++        gpointer user_data)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(user_data);
++    gchar *str;
++
++    str = gtk_editable_get_chars(GTK_EDITABLE(w), 0, -1);
++
++    g_mutex_lock(hmailbox->config_mx);
++
++    g_free(hmailbox->password);
++    if(!str || !*str) {
++        hmailbox->password = NULL;
++        g_free(str);
++    } else
++        hmailbox->password = str;
++
++    g_mutex_unlock(hmailbox->config_mx);
++
++    return FALSE;
++}
++
++static void
++hotmail_config_timeout_spinbutton_changed_cb(GtkSpinButton *sb,
++                                          gpointer user_data)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(user_data);
++    gint value = gtk_spin_button_get_value_as_int(sb) * 60;
++
++    if(value == hmailbox->timeout)
++        return;
++
++    hmailbox->timeout = value;
++
++    if(g_atomic_int_get(&hmailbox->running)) {
++        /* probably shouldn't do this so frequently */
++        if(hmailbox->check_id)
++            g_source_remove(hmailbox->check_id);
++        hmailbox->check_id = g_timeout_add(hmailbox->timeout * 1000,
++                                           hotmail_check_mail_timeout,
++                                           hmailbox);
++    }
++}
++
++static GtkContainer *
++hotmail_get_setup_page(XfceMailwatchMailbox *mailbox)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(mailbox);
++    GtkWidget *topvbox, *vbox, *hbox, *frame, *frame_bin, *lbl, *entry,
++              *sbtn;
++    GtkSizeGroup *sg;
++
++    topvbox = gtk_vbox_new(FALSE, BORDER/2);
++    gtk_widget_show(topvbox);
++
++    frame = xfce_mailwatch_create_framebox(_("Hotmail Server"), &frame_bin);
++    gtk_widget_show(frame);
++    gtk_box_pack_start(GTK_BOX(topvbox), frame, FALSE, FALSE, 0);
++
++    sg = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
++
++    vbox = gtk_vbox_new(FALSE, BORDER/2);
++    gtk_widget_show(vbox);
++    gtk_container_add(GTK_CONTAINER(frame_bin), vbox);
++
++    hbox = gtk_hbox_new(FALSE, BORDER/2);
++    gtk_widget_show(hbox);
++    gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
++
++    lbl = gtk_label_new_with_mnemonic(_("_Email:"));
++    gtk_misc_set_alignment(GTK_MISC(lbl), 0.0, 0.5);
++    gtk_widget_show(lbl);
++    gtk_box_pack_start(GTK_BOX(hbox), lbl, FALSE, FALSE, 0);
++    gtk_size_group_add_widget(sg, lbl);
++
++    entry = gtk_entry_new();
++    gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
++    if(hmailbox->email)
++        gtk_entry_set_text(GTK_ENTRY(entry), hmailbox->email);
++    gtk_widget_show(entry);
++    gtk_box_pack_start(GTK_BOX(hbox), entry, TRUE, TRUE, 0);
++    g_signal_connect(G_OBJECT(entry), "focus-out-event",
++            G_CALLBACK(hotmail_email_entry_focus_out_cb), hmailbox);
++    gtk_label_set_mnemonic_widget(GTK_LABEL(lbl), entry);
++
++    hbox = gtk_hbox_new(FALSE, BORDER/2);
++    gtk_widget_show(hbox);
++    gtk_box_pack_start(GTK_BOX(vbox), hbox, FALSE, FALSE, 0);
++
++    lbl = gtk_label_new_with_mnemonic(_("_Password:"));
++    gtk_misc_set_alignment(GTK_MISC(lbl), 0.0, 0.5);
++    gtk_widget_show(lbl);
++    gtk_box_pack_start(GTK_BOX(hbox), lbl, FALSE, FALSE, 0);
++    gtk_size_group_add_widget(sg, lbl);
++
++    entry = gtk_entry_new();
++    gtk_entry_set_activates_default(GTK_ENTRY(entry), TRUE);
++    gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE);
++    if(hmailbox->password)
++        gtk_entry_set_text(GTK_ENTRY(entry), hmailbox->password);
++    gtk_widget_show(entry);
++    gtk_box_pack_start(GTK_BOX(hbox), entry, TRUE, TRUE, 0);
++    g_signal_connect(G_OBJECT(entry), "focus-out-event",
++            G_CALLBACK(hotmail_password_entry_focus_out_cb), hmailbox);
++    gtk_label_set_mnemonic_widget(GTK_LABEL(lbl), entry);
++
++    hbox = gtk_hbox_new(FALSE, BORDER/2);
++    gtk_widget_show(hbox);
++    gtk_box_pack_start(GTK_BOX(topvbox), hbox, FALSE, FALSE, 0);
++
++    lbl = gtk_label_new_with_mnemonic(_("Check for _new messages every"));
++    gtk_widget_show(lbl);
++    gtk_box_pack_start(GTK_BOX(hbox), lbl, FALSE, FALSE, 0);
++
++    /* The Hotmail POP3 Servers will throttle access to the 
++     * mailbox back to 15 minutes intervals.  We shouldn't 
++     * really attempt to poll the mailbox in periods of less 
++     * than 5 minutes.
++     */
++    sbtn = gtk_spin_button_new_with_range(5.0, 1440.0, 1.0);
++    gtk_spin_button_set_numeric(GTK_SPIN_BUTTON(sbtn), TRUE);
++    gtk_spin_button_set_wrap(GTK_SPIN_BUTTON(sbtn), FALSE);
++    gtk_spin_button_set_value(GTK_SPIN_BUTTON(sbtn), hmailbox->timeout/60);
++    gtk_widget_show(sbtn);
++    gtk_box_pack_start(GTK_BOX(hbox), sbtn, FALSE, FALSE, 0);
++    g_signal_connect(G_OBJECT(sbtn), "value-changed",
++            G_CALLBACK(hotmail_config_timeout_spinbutton_changed_cb),
++            hmailbox);
++    gtk_label_set_mnemonic_widget(GTK_LABEL(lbl), sbtn);
++
++    lbl = gtk_label_new(_("minute(s)."));
++    gtk_widget_show(lbl);
++    gtk_box_pack_start(GTK_BOX(hbox), lbl, FALSE, FALSE, 0);
++
++    return GTK_CONTAINER(topvbox);
++}
++
++static void
++hotmail_restore_param_list(XfceMailwatchMailbox *mailbox, GList *params)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(mailbox);
++    GList *l;
++
++    g_mutex_lock(hmailbox->config_mx);
++
++    for(l = params; l; l = l->next) {
++        XfceMailwatchParam *param = l->data;
++
++        if(!strcmp(param->key, "email"))
++            hmailbox->email = g_strdup(param->value);
++        else if(!strcmp(param->key, "password"))
++            hmailbox->password = g_strdup(param->value);
++        else if(!strcmp(param->key, "timeout"))
++            hmailbox->timeout = atoi(param->value);
++    }
++
++    g_mutex_unlock(hmailbox->config_mx);
++}
++
++static GList *
++hotmail_save_param_list(XfceMailwatchMailbox *mailbox)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(mailbox);
++    GList *params = NULL;
++    XfceMailwatchParam *param;
++
++    g_mutex_lock(hmailbox->config_mx);
++
++    param = g_new(XfceMailwatchParam, 1);
++    param->key = g_strdup("email");
++    param->value = g_strdup(hmailbox->email);
++    params = g_list_prepend(params, param);
++
++    /* FIXME: probably would be nice to obscure this somewhat to deter casual
++     * accidental exposure */
++    param = g_new(XfceMailwatchParam, 1);
++    param->key = g_strdup("password");
++    param->value = g_strdup(hmailbox->password);
++    params = g_list_prepend(params, param);
++
++    param = g_new(XfceMailwatchParam, 1);
++    param->key = g_strdup("timeout");
++    param->value = g_strdup_printf("%u", hmailbox->timeout);
++    params = g_list_prepend(params, param);
++
++    g_mutex_unlock(hmailbox->config_mx);
++
++    return g_list_reverse(params);
++}
++
++static void 
++hotmail_mailbox_free(XfceMailwatchMailbox *mailbox)
++{
++    XfceMailwatchHotmailMailbox *hmailbox = XFCE_MAILWATCH_HOTMAIL_MAILBOX(mailbox);
++
++    hotmail_set_activated(mailbox, FALSE);
++    while(g_atomic_pointer_get(&hmailbox->th))
++        g_thread_yield();
++
++    g_mutex_free(hmailbox->config_mx);
++
++    hotmail_status_free(hmailbox->status);
++
++    g_free(hmailbox->email);
++    g_free(hmailbox->password);
++
++    g_free(hmailbox);
++}
++
++XfceMailwatchMailboxType builtin_mailbox_type_hotmail = {
++    "hotmail",
++    N_("Remote Hotmail Mailbox"),
++    N_("The Hotmail plugin can connect to Windows Live's mail server and securely retrieve the number of new messages."),
++
++    hotmail_mailbox_new,
++    hotmail_set_activated,
++    hotmail_force_update_cb,
++    hotmail_get_setup_page,
++    hotmail_restore_param_list,
++    hotmail_save_param_list,
++    hotmail_mailbox_free
++};
