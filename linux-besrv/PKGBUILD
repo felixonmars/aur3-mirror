@@ -6,9 +6,10 @@ _kernelname=-besrv
 pkgbase="linux${_kernelname}"
 pkgname="linux${_kernelname}"
 true && pkgname=("linux${_kernelname}" "linux${_kernelname}-headers")
-_basekernel=3.1
+_basekernel=3.0
+_patchver=17
 pkgver=${_basekernel}
-pkgrel=8
+pkgrel=1
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -23,18 +24,28 @@ source=(
 	"linux${_kernelname}.preset"
 )
 sha256sums=(
-	'6f220258f3ce9f11d0e53860ccc2d9fe746117056212099876dbe5ee1de80af3'
-	'ae1a1a734ff8b01e7f04aa7e52add925bb8e2da7880ac60e4a0ce2948b1e3894'
-	'83c483e99d52b71fbb261dea63cfb04cc54b35e8fd5d43d43016d229a4265520'
+	'ef5e8c2dedb20a6eab01bb379e9982cd7d47cf95bd87c9ee3e872272e85c24b6'
+	'ec4eb0d9427d1a6f758d7b4cde11258b1d390abd3c43a1d9eddc6948244eeef0'
+	'0345cc7bb539c72938af1d2371ca0d4aca1dabb3c8b924f8030b47afe8a02ba8'
 	'64b2cf77834533ae7bac0c71936087857d8787d0e2a349037795eb7e42d23dde'
 )
 
+# revision patches
+if [ ${_patchver} -ne 0 ]; then
+	pkgver=${_basekernel}.${_patchver}
+	_patchname="patch-${pkgver}"
+	source=( "${source[@]}"
+		"http://www.kernel.org/pub/linux/kernel/v3.x/${_patchname}.gz"
+	)
+	sha256sums=( "${sha256sums[@]}"
+		'b1b8bb0537fcb6e0baba989ef8a91f7108de930aa727cde021f10aaa7ee153c4'
+	)
+fi
+
 # extra patches
 _extrapatches=(
-	"http://www.kernel.org/pub/linux/kernel/v3.x/patch-3.1.8.gz"
 )
 _extrapatchessums=(
-	'e6f6ddc34788ada49d0b504a1937d2ba884c8dc03f73b3cec27051de12777d8f'
 )
 if [ ${#_extrapatches[@]} -ne 0 ]; then
 	source=( "${source[@]}"
@@ -56,6 +67,11 @@ fi
 
 build() {
 	cd ${srcdir}/linux-${_basekernel}
+	# Add revision patches
+	if [ ${_patchver} -ne 0 ]; then
+		msg2 "apply ${_patchname}"
+		patch -Np1 -i ${srcdir}/${_patchname}
+	fi
 
 	# extra patches
 	for patch in ${_extrapatches[@]}; do
@@ -232,7 +248,7 @@ package_linux-besrv-headers() {
 			*application/x-executable*) # Binaries
 				/usr/bin/strip $STRIP_BINARIES "$binary"
 			;;
-		esac 
+		esac
 	done
 
 	chown -R root.root ${pkgdir}/usr/src/linux-${_kernver}
