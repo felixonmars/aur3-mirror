@@ -1,0 +1,157 @@
+=== modified file 'configure.ac'
+--- configure.ac	2012-01-05 19:33:08 +0000
++++ configure.ac	2012-01-10 17:23:55 +0000
+@@ -126,11 +126,11 @@
+ GLIB_REQUIRED=2.26
+ GTK_REQUIRED=3.2
+ GDK_REQUIRED=3.2
+-DEE_REQUIRED=0.5.19
++DEE_REQUIRED=1.0.0
+ DBUSMENU_REQUIRED=0.4
+ INDICATE_REQUIRED=0.5
+ LIBNOTIFY_REQUIRED=0.7
+-UNITY_REQUIRED=4.0.0
++UNITY_REQUIRED=4.99.99
+ PKG_CHECK_MODULES(BASE,
+                   glib-2.0 >= $GLIB_REQUIRED
+                   gobject-2.0 >= $GLIB_REQUIRED
+
+=== modified file 'lens/src/daemon.vala'
+--- lens/src/daemon.vala	2012-01-10 16:34:32 +0000
++++ lens/src/daemon.vala	2012-01-10 17:23:55 +0000
+@@ -44,8 +44,6 @@
+     private Dee.Filter _sort_filter;
+     /* Keep track of the previous search, so we can determine when to
+      * filter down the result set instead of rebuilding it */
+-    private LensSearch? previous_search;
+-    private bool is_dirty;
+     private unowned Dee.ModelIter _stream_iter_first = null;
+     private unowned Dee.ModelIter _stream_iter_last = null;
+ 
+@@ -69,39 +67,38 @@
+       lens.add_local_scope (scope);
+ 
+       /* Listen for filter changes */
+-      scope.filters_changed.connect (() => {
+-        if (scope.active_search != null)
++      scope.notify["active"].connect(() =>
++      {
++        if (scope.active)
+         {
+-          is_dirty = true;
+-          scope.notify_property ("active-search");
++          scope.queue_search_changed (SearchType.DEFAULT);
+         }
+       });
+ 
++      scope.search_changed.connect ((lens_search, search_type, cancellable) =>
++      {
++        if (search_type == SearchType.DEFAULT)
++          update_scope_search.begin (lens_search, cancellable);
++        else
++          update_global_search.begin (lens_search, cancellable);
++      });
++
+       lens.notify["active"].connect ((obj, pspec) => {
+-        if (lens.active && scope.active_search != null)
++        if (lens.active && scope.active)
+         {
+           if (_stream_iter_first != _model.get_first_iter () || _stream_iter_last != _model.get_last_iter ())
+           {
+-            is_dirty = true;
+-            scope.notify_property ("active-search");
++            if (scope.active)
++            {
++              scope.queue_search_changed (SearchType.DEFAULT);
++            }
+           }
+         }
+       });
+ 
+-      /* Listen for changes to the lens entry search */
+-      scope.notify["active-search"].connect ((obj, pspec) => {
+-        var search = scope.active_search;
+-        is_dirty = false;
+-        update_search (search);
+-        previous_search = search;
+-      });
+-     
+-      scope.notify["active-global-search"].connect ((obj, pspec) => {
+-        var search = scope.active_global_search;
+-        if (search_is_invalid (search))
+-          return;
+-        update_global_search (search);
+-        previous_search = search;
++      scope.filters_changed.connect (() =>
++      {
++        scope.queue_search_changed (SearchType.DEFAULT);
+       });
+ 
+       try
+@@ -245,7 +242,7 @@
+     }
+ 
+ 
+-    private void update_global_search (LensSearch search)
++    private async void update_global_search (LensSearch search, Cancellable cancellable)
+     {
+       var results_model = scope.global_results_model;
+ 
+@@ -204,11 +204,6 @@
+           return;
+         }
+ 
+-      /* Prevent concurrent searches and concurrent updates of our models,
+-       * by preventing any notify signals from propagating to us.
+-       * Important: Remeber to thaw the notifys again! */
+-      scope.freeze_notify ();
+-
+       var search_string = prepare_search_string (search);
+ 
+       /* FIXME
+@@ -224,26 +219,12 @@
+       }
+       */
+ 
+-      /* Allow new searches once we enter an idle again.
+-       * We don't do it directly from here as that could mean we start
+-       * changing the model even before we had flushed out current changes
+-       */
+-      Idle.add (() => {
+-        scope.thaw_notify ();
+-        return false;
+-      });
+-
+       search.finished ();
+     }
+ 
+-    private void update_search  (LensSearch search)
++    private async void update_scope_search  (LensSearch search, Cancellable cancellable)
+     {
+-      var results_model = scope.results_model;
+-
+-      /* Prevent concurrent searches and concurrent updates of our models,
+-       * by preventing any notify signals from propagating to us.
+-       * Important: Remeber to thaw the notifys again! */
+-      scope.freeze_notify ();
++      var results_model = search.results_model;
+ 
+       var search_string = prepare_search_string (search);
+ 
+@@ -263,15 +244,6 @@
+       }
+       */
+ 
+-      /* Allow new searches once we enter an idle again.
+-       * We don't do it directly from here as that could mean we start
+-       * changing the model even before we had flushed out current changes
+-       */
+-      Idle.add (() => {
+-        scope.thaw_notify ();
+-        return false;
+-      });
+-
+       search.finished ();
+     }
+ 
+
