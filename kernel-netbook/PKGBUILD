@@ -1,6 +1,7 @@
+
 # Maintainer: Dieghen89 <dieghen89@gmail.com>
 
-BFQ_IO_SCHEDULER="y"
+BFQ_IO_SCHEDULER="not_available"
 TUX_ON_ICE="n"
 BROADCOM_WL="n"
 
@@ -8,8 +9,8 @@ pkgname=kernel-netbook
 true && pkgname=('kernel-netbook' 'kernel-netbook-headers')
 makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware')
 optdepends=('hibernate-script: tux on ice default script' 'tuxonice-userui: graphical interface for toi [AUR]')
-_basekernel=3.1
-pkgver=${_basekernel}.6
+_basekernel=3.2
+pkgver=${_basekernel}.1
 pkgrel=1
 pkgdesc="Static kernel for netbooks with Intel Atom N270/N280/N450/N550 such as eeepc with the add-on of external firmware (broadcom-wl) and patchset (BFS + TOI + BFQ optional) - Only Intel GPU - Give more power to your netbook!"
 options=('!strip')
@@ -18,10 +19,10 @@ license=('GPL2')
 url=('http://code.google.com/p/kernel-netbook')
 
 ####################################
-md5sums=('8d43453f8159b2332ad410b19d86a931'
-         'b815dda0a05f7774a0ed0b705b8cfd4c'
+md5sums=('7ceb61f87c097fc17509844b71268935'
+         '31fc34340f11118873463a1d59d47b7f'
          '62d04d148b99f993ef575a71332593a9'
-         'a4c69095403ff44d5dfd8a935c3aca5a'
+         '18d5f982d4d21446a32843f9eb766ff0'
          'e470805b4ef9d469a85b6e2f811ac337'
          '61ca56c06bf197c0548ecd9fe01b2515'
          '93e1b461374ae8b5147bba9887964cbe'
@@ -34,10 +35,9 @@ md5sums=('8d43453f8159b2332ad410b19d86a931'
          'aee89fe7f034aea2f2ca95322774c1b5'
          '9d3c56a4b999c8bfbd4018089a62f662'
          '263725f20c0b9eb9c353040792d644e5'
-         'a50c9076012cb2dda49952dc6ec3e9c1'
-         '52d41fa61e80277ace2b994412a0c856'
+         'e787ef4bc66e2d9a7883eaece7a915b9'
          'a9c018cb0b9caa90f03ee90b71a2c457'
-         '6587a43af34dbceee5f28c98ce5e069b')
+         '9c68d69c85645b053edca2ae47bd0aeb')
 ###################################
 #  external drivers  and firmware #
 ###################################
@@ -46,8 +46,9 @@ md5sums=('8d43453f8159b2332ad410b19d86a931'
 broadcom_ver=5.100.82.112
 broadcom="hybrid-portsrc_x86_32-v${broadcom_ver//./_}"
 #BFS: - http://users.on.net/~ckolivas/kernel/ -
-_ckpatchversion=2
-_ckpatchname="patch-${_basekernel}.0-ck${_ckpatchversion}"
+#_ckpatchversion=2
+#_ckpatchname="patch-${_basekernel}.0-ck${_ckpatchversion}"
+_ckpatchname="3.2-sched-bfs-416.patch"
 #BFQ: - http://algo.ing.unimo.it/people/paolo/disk_sched/ -
 _bfqpatchversion="1"
 _bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.1.0-v3r1"
@@ -63,7 +64,8 @@ source=( #kernel sources and arch patchset
 	"http://www.broadcom.com/docs/linux_sta/${broadcom}.tar.gz"
 	#"http://switch.dl.sourceforge.net/sourceforge/syntekdriver/stk11xx-$stk11xx_ver.tar.gz"
 	#BFS patch:
-	"http://ck.kolivas.org/patches/3.0/3.1/${_basekernel}.0-ck${_ckpatchversion}/${_ckpatchname}.bz2"
+	#"http://ck.kolivas.org/patches/3.0/3.1/${_basekernel}.0-ck${_ckpatchversion}/${_ckpatchname}.bz2"
+	"http://ck.kolivas.org/patches/bfs/3.2.0/${_ckpatchname}"
 	#BFQ patch:
 	"${_bfqpath}/0001-block-prepare-I-O-context-code-for-BFQ-v3r1-for-3.1.patch"
 	"${_bfqpath}/0002-block-cgroups-kconfig-build-bits-for-BFQ-v3r1-3.1.patch"
@@ -80,18 +82,23 @@ source=( #kernel sources and arch patchset
 	"semaphore.patch"
         "change-default-console-loglevel.patch"
 	"i915-fix-ghost-tv-output.patch"
-	"i915-fix-incorrect-error-message.patch"
-	"usb-add-reset-resume-quirk-for-several-webcams.patch"
+	"i915-gpu-finish.patch"
 	"kernel-netbook.preset"
 	"config")
 	
 build() {
+
   cd ${srcdir}/linux-$_basekernel
 
   # Patching Time:
 
   # minorversion patch:
+  msg "Minorversion patch"
   patch -p1 -i "${srcdir}/patch-${pkgver}"
+
+  # fix FS#27883
+  # drm/i915: Only clear the GPU domains upon a successful finish
+  patch -Np1 -i "${srcdir}/i915-gpu-finish.patch"
 
   # Some chips detect a ghost TV output
   # mailing list discussion: http://lists.freedesktop.org/archives/intel-gfx/2011-April/010371.html
@@ -101,11 +108,6 @@ build() {
   # then dropped because the reasoning was unclear. However, it is clearly
   # needed.
   patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
-
-  # In 3.1.0, a DRM_DEBUG message is falsely declared as DRM_ERROR. This
-  # worries users, as this message is displayed even at loglevel 4. Fix
-  # this.
-  patch -Np1 -i "${srcdir}/i915-fix-incorrect-error-message.patch"
 
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
@@ -123,7 +125,7 @@ build() {
   sed -i -e "s/-ck${_ckpatchversion}//g" ${srcdir}/${_ckpatchname}
   #patching time
   patch -Np1 -i ${srcdir}/${_ckpatchname}
-
+  
   # --> TOI
   if [ $TUX_ON_ICE = "y" ] ; then
     msg "Patching source with TuxOnIce patch"
@@ -140,8 +142,7 @@ build() {
     done
   fi
 
-
-  ### Clean tree and copy ARCH config over
+  ### Clean tree and copy config file over
   msg "Running make mrproper to clean source tree"
   make mrproper
 
