@@ -43,7 +43,7 @@ if [ "${gitcheck}" ] ; then
 fi
 
 # get currend branch
-curbranch=`git branch  | awk '/^\*\ /' | sed -e 's/\*\ //'`
+curbranch=`git branch | awk '/^\*\ /' | sed -e 's/\*\ //'`
 # get current rev hash
 curcommit=`git rev-parse HEAD`
 # print what we compare in   git diff
@@ -51,9 +51,32 @@ echo " ${obj} -> ${curbranch}"
 echo " ${obj} -> ${curcommit}"
 
 
+# ${PWD} = current directory we are in
+#set -x
+gitrootdirpre=`git rev-parse --show-toplevel`
+# if we have a dir named "…·µ@", this part of the script will fail, but I think it's quite unlikely
+# and yes, it's a hack
+gitrootdir=`echo -n ${gitrootdirpre} | tr "/" "…·µ@"`
+pwd2=`echo ${PWD} | tr "/" "…·µ@"`
+dir=`echo  ${pwd2} | sed  s/^${gitrootdir}// | tr "…·µ@" "/" | sed -e 's/^\//.\//'`
+if [ -z "${dir}" ] ; then
+	dir=./
+fi
+echo " Recursively getting stat for path \"${dir}\" from repo root."
+
+
+
 # get the actuall diff we are going to process
 git diff ${obj} --stat ./ | awk '/>/' > ${diffstat}
 
+
+# If there are no changes, exit
+checksum=`cat ${diffstat} | wc -l`
+if [ ${checksum} == 0 ] ; then
+	echo " No binary files changed, exiting..."
+	rm ${diffstat}
+	exit 1
+fi
 
 # generate our own  git diff --shortstat
 gst=`git diff ${obj} --shortstat ./`
@@ -61,6 +84,7 @@ gstins=`echo ${gst} | awk '{print $4}'`
 gstdels=`echo ${gst} | awk '{print $6}'`
 gstchval=`expr ${gstins} - ${gstdels}`
 gstchfiles=`echo ${gst} | awk '{print $1}'`
+
 
 if [ "${gstchfiles}" == 1 ] ; then
 	gstfiles=file
@@ -72,14 +96,6 @@ if [ "${gstchval}" -gt 0 ] ; then
 	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (\e[033;32m+${gstchval} lines\e[0m)"
 else
 	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (\e[033;31m${gstchval} lines\e[0m)"
-fi
-
-# If there are no changes, exit
-checksum=`cat ${diffstat} | wc -l`
-if [ ${checksum} == 0 ] ; then
-	echo " No binary files changed, exiting..."
-	rm ${diffstat}
-	exit 1
 fi
 
 
