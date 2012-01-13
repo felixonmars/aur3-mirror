@@ -4,6 +4,7 @@
 . /etc/rc.d/functions
 . /etc/conf.d/nginx
 
+[ -d "/var/run/nginx" ] || mkdir -p "/var/run/nginx"
 PID="/var/run/nginx/nginx.pid"
 [ -z "$NGINX_CONFIG" ] && NGINX_CONFIG="/etc/nginx/nginx.conf"
 
