@@ -1,20 +1,27 @@
-# Maintainer:
+# Maintainer: Stefan Husmann <stefan-husmann@t-online.de>
 # Contributor: Brad Fanella <bradfanella@archlinux.us>
 # Contributor: Zerial <fernando@zerial.org>
 # Contributor: Dalius <dagis@takas.lt>
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
 pkgname=amaya
 pkgver=11.3.1
-pkgrel=9
-pkgdesc="W3C's Editor/Browser"
+pkgrel=10
+pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
 license=('W3C')
 depends=('wxgtk' 'libgl' 'raptor1' 'libxt')
-makedepends=('imake' 'chrpath')
+makedepends=('chrpath')
 options=('!makeflags')
 install=$pkgname.install
-source=(amaya-fix-amaya-wxfile.patch amaya-fix-thotlib-png14.patch amaya-fix-thotlib-wxfile.patch amaya-splitmode.patch amaya-wakeupidle.patch amaya-wxyield.patch explicite_linking.patch http://www.w3.org/Amaya/Distribution/$pkgname-sources-$pkgver.tgz)
+source=(amaya-fix-amaya-wxfile.patch \
+  amaya-fix-thotlib-png14.patch \
+  amaya-fix-thotlib-wxfile.patch \
+  amaya-splitmode.patch \
+  amaya-wakeupidle.patch \
+  amaya-wxyield.patch \
+  explicite_linking.patch \
+  http://www.w3.org/Amaya/Distribution/$pkgname-sources-$pkgver.tgz)
 md5sums=('4e79692553e88de93a3f56c40dd442dc'
          '0418f3a614e6d0a8e27ae038c78d8c4d'
          '6501c87f7ab45e6c1a3ef214a6ed583e'
@@ -36,17 +43,21 @@ build() {
 	patch -p1 < $srcdir/explicite_linking.patch
 
 	cd Amaya
-	if [ ! -d ./WX ]; then
-		mkdir WX
+	if [ -d ./WX ]; then
+	  rm -rf WX
+	  mkdir WX
 	fi
 	cd WX
 
 	if [ "$CARCH" = "x86_64" ] ; then
-		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86-64 ../../Mesa/configs/current
+		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86-64 \
+		  ../../Mesa/configs/current
 	else
-		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86 ../../Mesa/configs/current
+		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86 \
+		  ../../Mesa/configs/current
 	fi
-	../configure --prefix=/usr/share --exec=/usr/share --datadir=/usr/share --enable-system-raptor --enable-system-wx
+	../configure --prefix=/usr/share --exec=/usr/share \
+	  --datadir=/usr/share --enable-system-raptor --enable-system-wx
 
 	 make
 }
