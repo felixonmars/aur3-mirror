@@ -6,98 +6,85 @@
 . /etc/rc.d/functions
 
 NAME=bumblebeed
-BIN='/usr/bin/bumblebeed'
+CLIENT="$(which optirun)"
+BIN="$(which $NAME)"
 PIDFILE=/var/run/$NAME.pid
 
-# returns 0 if running, non-zero otherwise
-status() {
-	local pid
-	# program is not running
-	[ -s "$PIDFILE" ] || return 3
-
-	pid="$(cat "$PIDFILE" 2>/dev/null)"
-
-	# process is not running, pid file not properly cleared
-	kill -0 "$pid" 2>/dev/null || return 1
-
-	# process is running
-	return 0
-}
-
 start() {
-	# program is not installed
-	[ -x "$BIN" ] || return 5
-
-	# return if already started
-	status && return 0 || true
-	"$BIN" --daemon 2>/dev/null
-	status && return 0 || return 1
+    # Start the daemon only if there is not another instance running
+    stat_busy "Starting Bumblebee"
+    "$CLIENT" --status >/dev/null 2>&1
+    case $? in
+      0) ;; # already running
+      1) # Can be started
+        "$BIN" --daemon >/dev/null
+        add_daemon $NAME
+        stat_done
+        return 0
+        ;;
+    esac
+    stat_fail
+    return 1
 }
 
 stop() {
-	local retries=10
-	local pid="$(cat "$PIDFILE" 2>/dev/null)"
-
-	# not running, we're done
-	status || return 0
-
-	# first ask the daemon nicely to quit
-	kill "$pid" || true
-	# and check whether it listened
-	while [ $retries -gt 0 ]; do
-		retries=$((retries - 1))
-
-		# process has gone, return success
-		status || return 0
-		# wait for half a minut before polling again
-		sleep .5
-	done
-	# failed to stop or timeout
-	return 1
+    # Stop the daemon only if there is an instance running
+    stat_busy "Stopping Bumblebee"
+    "$CLIENT" --status >/dev/null 2>&1
+    case $? in
+      0) # Alive and running
+        local pid="$(cat "$PIDFILE" 2>/dev/null)"
+        kill -TERM $pid >/dev/null
+        # give it time to end gracefully...
+        local retries=10
+        while [ $retries -gt 0 ]; do
+            retries=$(expr $retries - 1)
+            "$CLIENT" --status >/dev/null 2>&1
+            case $? in
+              0) # not ready
+                sleep .5
+                ;;
+              *) # no need for polling anymore
+                break
+                ;;
+            esac
+        done
+        # ... otherwhise just terminate it.
+        "$CLIENT" --status >/dev/null 2>&1
+        case $? in
+          0) # still alive > Kill
+            kill -KILL $pid >/dev/null
+            ;;
+          *)
+            ;;
+        esac
+        rm_daemon $NAME
+        stat_done
+        ;;
+      1) # Not started
+        stat_done
+        ;;
+    esac
 }
 
 restart() {
-	stop && start
+	stop 
+    sleep 0.5
+    start
 }
 
 case "$1" in
-  start)
-	stat_busy "Starting Bumblebee"
-    if start; then
-        stat_done
-        add_daemon $NAME
-    else
-        stat_fail
-    fi
-	;;
-  stop)
-	stat_busy "Stopping Bumblebee"
-    if stop; then
-        stat_done
-        rm_daemon $NAME
-    else
-        stat_fail
-    fi
-	;;
-  restart)
-    stat_busy "Stopping Bumblebee"
-    if stop; then
-        stat_done
-        rm_daemon $NAME
-    else
-        stat_fail
-    fi
-    sleep 1
-    stat_busy "Starting Bumblebee"
-    if start; then
-        stat_done
-        add_daemon $NAME
-    else
-        stat_fail
-    fi
+    start)
+        start
     ;;
-  *)
-	echo "Usage: $0 {start|stop|restart|status}"
-	exit 1
+    stop)
+        stop
+    ;;
+    restart)
+        restart
+    ;;
+    *)
+	    echo "Usage: $0 {start|stop|restart|status}"
+	    exit 1
 	;;
 esac
