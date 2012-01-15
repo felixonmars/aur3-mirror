@@ -5,7 +5,7 @@
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
 pkgname=amaya
 pkgver=11.3.1
-pkgrel=10
+pkgrel=11
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
@@ -45,9 +45,8 @@ build() {
 	cd Amaya
 	if [ -d ./WX ]; then
 	  rm -rf WX
-	  mkdir WX
 	fi
-	cd WX
+	mkdir WX; cd WX
 
 	if [ "$CARCH" = "x86_64" ] ; then
 		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86-64 \
