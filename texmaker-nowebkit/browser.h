@@ -25,10 +25,10 @@ protected slots:
     void adjustTitle();
     void setProgress(int p);
     void finishLoading(bool);
-private slots:
+/*private slots:
   void Index();
   void Print();
-  void Find();
+  void Find();*/
 };
 
 #endif

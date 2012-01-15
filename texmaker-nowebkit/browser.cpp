@@ -37,7 +37,7 @@ void Browser::finishLoading(bool)
 {
 
 }
-
+/*
 void Browser::Index()
 {
 
@@ -52,3 +52,4 @@ void Browser::Find()
 {
 
 }
+*/
