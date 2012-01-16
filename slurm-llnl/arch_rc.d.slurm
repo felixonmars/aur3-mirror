@@ -5,10 +5,10 @@
 #              resources and distributes work to those resources.
 #
 # processname: /usr/sbin/slurmd
-# pidfile: /var/run/slurmd.pid
+# pidfile: /run/slurmd.pid
 #
 # processname: /usr/sbin/slurmctld
-# pidfile: /var/run/slurmctld.pid
+# pidfile: /run/slurmctld.pid
 #
 # config: /etc/default/slurm
 #
@@ -115,7 +115,7 @@ slurmstatus() {
 	pidfile=${pidfile##*=}
 	pidfile=${pidfile%#*}
     else
-	pidfile=/var/run/${base}.pid
+	pidfile=/run/${base}.pid
     fi
 
     pid=`pidof -o $$ -o $$PPID -o %PPID -x $1 || \
