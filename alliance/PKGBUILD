@@ -19,7 +19,7 @@ build() {
   cd "$srcdir/$pkgname-${pkgver/_*}"
 
   # Does not build with -Wl,--as-needed
-  export LDFLAGS="${LDFLAGS//-Wl,--as-needed}"
+  export LDFLAGS="${LDFLAGS//,--as-needed}"
 
   # profile.d script fix
   sed -e "s|SYSCONF_TOP=\$ALLIANCE_TOP|&/etc|" \
