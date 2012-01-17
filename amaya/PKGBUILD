@@ -5,12 +5,12 @@
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
 pkgname=amaya
 pkgver=11.3.1
-pkgrel=11
+pkgrel=12
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
 license=('W3C')
-depends=('wxgtk' 'libgl' 'raptor1' 'libxt')
+depends=('wxgtk' 'mesa' 'raptor1')
 makedepends=('chrpath')
 options=('!makeflags')
 install=$pkgname.install
@@ -48,32 +48,16 @@ build() {
 	fi
 	mkdir WX; cd WX
 
-	if [ "$CARCH" = "x86_64" ] ; then
-		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86-64 \
-		  ../../Mesa/configs/current
-	else
-		[ $NOEXTRACT -eq 1 ] || cp ../../Mesa/configs/linux-x86 \
-		  ../../Mesa/configs/current
-	fi
+	rm $srcdir/Amaya$pkgver/Mesa/Makefile # to use system's mesa
 	../configure --prefix=/usr/share --exec=/usr/share \
 	  --datadir=/usr/share --enable-system-raptor --enable-system-wx
 
-	 make
+	make
 }
 
 package() {
 	cd $srcdir/Amaya$pkgver/Amaya/WX
-
-	install -d $pkgdir/usr/bin
 	make prefix=$pkgdir/usr/share install
-
-	ln -f -s ../share/Amaya/wx/bin/amaya $pkgdir/usr/bin/amaya
-#	install -Dm644 $srcdir/Amaya$pkgver/Amaya/amaya/COPYRIGHT \
-#		$pkgdir/usr/share/licenses/$pkgname/COPYRIGHT
-
-	mkdir -p $pkgdir/usr/share/Amaya/lib
-	cp -a $srcdir/Amaya$pkgver/Amaya/WX/Mesa/lib/libGL.so.1* $pkgdir/usr/share/Amaya/lib/
-	cp -a $srcdir/Amaya$pkgver/Amaya/WX/Mesa/lib/libGLU.so.1* $pkgdir/usr/share/Amaya/lib/
-	chrpath -r /usr/share/Amaya/lib $pkgdir/usr/share/Amaya/wx/bin/amaya_bin
-	chrpath -r /usr/share/Amaya/lib $pkgdir/usr/share/Amaya/wx/bin/print
+	install -Dm755 $pkgdir/usr/share/Amaya/wx/bin/amaya $pkgdir/usr/bin/amaya
+	rm $pkgdir/usr/share/Amaya/wx/bin/amaya
 }
