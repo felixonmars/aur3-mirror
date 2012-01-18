@@ -1,17 +1,25 @@
 # Maintainer: Christian Bühler <christian at cbuehler dot de>
+# Contributor: Zsolt Udvari <udvzsolt@gmail.com>
 pkgname=activdriver
 pkgver=5.7.22
 pkgrel=1
 pkgdesc="The kernel mode and X11 drivers for Promethean ActivBoard and ActivHub."
-arch=('x86_64')
+arch=('i686' 'x86_64')
 url="http://www.prometheanworld.com/"
 license=('unknown')
 depends=(bash)
 makedepends=(kernel26-headers)
 install=$pkgname.install
-source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/oss/a/$pkgname/${pkgname}_$pkgver-12~ubuntu~1010_amd64.deb
+if [ "$CARCH" = "i686" ]; then
+  _arch='i386'
+  _md5sum='18716673e50014616feca6b8447c0b01'
+elif [ "$CARCH" = "x86_64" ]; then
+  _arch='amd64'
+  _md5sum='6fd906eef0bc1c3f94fa3740ce78ebaf'
+fi
+source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/oss/a/$pkgname/${pkgname}_$pkgver-12~ubuntu~1010_$_arch.deb
         10-promethean.conf)
-md5sums=('6fd906eef0bc1c3f94fa3740ce78ebaf'
+md5sums=( $_md5sum
          '11effc25fd592acacb9f9f3108618963')
 
 build() {
