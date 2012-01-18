@@ -11,6 +11,7 @@
 
 #include <alpm.h>
 
+#define ROOT "/"
 #define DBPATH "/var/lib/pacman/"
 #define CACHEDIR "/var/cache/pacman/pkg/"
 
@@ -77,7 +78,7 @@ static struct pkginfo * get_pkginfo_from_filename(const char * const filename)
     return ret;
 }
 
-static struct pkginfo * get_pkginfo_from_pmpkg(pmpkg_t *pmpkg)
+static struct pkginfo * get_pkginfo_from_pmpkg(alpm_pkg_t *pmpkg)
 {
     struct pkginfo *ret;
 
@@ -169,9 +170,11 @@ int main(const int argc, char ** __restrict__ argv)
 {
     int i, n, m, len, count = 0;
     off_t total_size = 0;
-    pmdb_t *db;
+    alpm_handle_t *handle;
+    alpm_db_t *db;
     alpm_list_t *pkglist;
     struct dirent **dir;
+    enum _alpm_errno_t error;
     struct pkginfo **cachepkg, **localpkg;
     struct pkginfo **hit = NULL;
     const char *current = "", *name;
@@ -194,7 +197,7 @@ int main(const int argc, char ** __restrict__ argv)
     regcomp(&pkgnamesplit, "^(.*)-([^-]*-[^-]*)-[^-]*$", REG_EXTENDED);
     regcomp(&pkgnametest, "^.*-("CARCH"|any).[^-]*$", REG_EXTENDED);
 
-    alpm_initialize();
+    handle = alpm_initialize(ROOT, DBPATH, &error);
 
     n = scandir(cachedir, &dir, ispackage, NULL);
     cachepkg = malloc(sizeof(struct pkginfo *) * n);
@@ -203,8 +206,7 @@ int main(const int argc, char ** __restrict__ argv)
     free(dir);
     qsort(cachepkg, n, sizeof(struct pkginfo *), pkgcomp);
 
-    alpm_option_set_dbpath(DBPATH);
-    db = alpm_option_get_localdb();
+    db = alpm_option_get_localdb(handle);
     pkglist = alpm_db_get_pkgcache(db);
     m = alpm_list_count(pkglist);
     localpkg = malloc(sizeof(struct pkginfo *) * m);
@@ -248,7 +250,7 @@ int main(const int argc, char ** __restrict__ argv)
     free_pkginfo_array(cachepkg, n);
     free_pkginfo_array(localpkg, m);
 
-    alpm_release();
+    alpm_release(handle);
     regfree(&pkgnametest);
     regfree(&pkgnamesplit);
 
