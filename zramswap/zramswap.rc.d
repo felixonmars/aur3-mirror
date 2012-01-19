@@ -19,7 +19,7 @@ case "$1" in
     mem_total=$((mem_total_kb * 1024))
 
     # load dependency modules
-    modprobe zram num_devices=$num_cpus
+    modprobe zram zram_num_devices=$num_cpus || modprobe zram num_devices=$num_cpus
 
     # initialize the devices
     for i in $(seq 0 $decr_num_cpus); do
