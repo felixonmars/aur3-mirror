@@ -28,7 +28,7 @@ diffstat=/tmp/gitdiffstat.${timestamp}
 
 # If no argument is given, print this how-to.
 if [ -z "${obj}" ] ; then
-	echo "Usage: \"gitdiffbinstat [<commit/branch/tag>]\""
+	echo "Usage: \"gitdiffbinstat [<commit/branch/tag/HEAD>]\""
 	echo "Make sure to be in a git repo!"
 	exit 1
 fi
@@ -46,7 +46,7 @@ fi
 curbranch=`git branch | awk '/^\*\ /' | sed -e 's/\*\ //'`
 # get current rev hash
 curcommit=`git rev-parse HEAD`
-# print what we compare in   git diff
+# print what we compare with   git diff
 echo " ${obj} -> ${curbranch}"
 echo " ${obj} -> ${curcommit}"
 
