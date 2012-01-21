@@ -25,7 +25,7 @@ build() {
         git clone ${_gitroot}
     fi
 
-    msg "GIT checkout done or server timeout"
+    msg "GIT checkout done or server timeout."
 }
 
 package() {
