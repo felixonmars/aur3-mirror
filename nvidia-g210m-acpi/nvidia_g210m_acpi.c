@@ -24,8 +24,9 @@
 
 #include <acpi/acpi.h>
 #include <linux/suspend.h>
+#include <linux/module.h>
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE( "GPL" );
 
 static acpi_handle root_handle;
 
