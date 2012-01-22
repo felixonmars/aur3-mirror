@@ -1,5 +1,6 @@
 # Author: Andreas Krist <group@amok.am>
 # Contributor: Xi0N <grayfox.i0n@gmail.com>
+
 pkgname=amok-exif-sorter
 pkgver=2.56
 pkgrel=1
@@ -8,7 +9,6 @@ arch=(i686 x86_64)
 url="http://www.amok.am/en/freeware/amok_exif_sorter/" 
 license=(FREEWARE)
 depends=('java-runtime')
-noextract=(${source[@]##*/})
 
 _source_arch="32Bit"
 [ "$CARCH" = "x86_64" ] && _source_arch="64Bit"
@@ -23,8 +23,8 @@ source=("http://www.amok.am/files/releases/AmoK_Exif_Sorter_v${pkgver}_(Linux_${
 	"amok-exif-sorter.png")
 
 build() {
-	mkdir -p $pkgdir/opt/AmokExifSorter/
-	install -D amok-exif-sorter.png $pkgdir/opt/AmokExifSorter/
 	install -D amok-exif-sorter.desktop $pkgdir/usr/share/applications/amok-exif-sorter.desktop
-	cp -rp $srcdir/* $pkgdir/opt/AmokExifSorter/
+	mkdir -p $pkgdir/opt/AmokExifSorter
+	cp amok-exif-sorter.png $pkgdir/opt/AmokExifSorter/
+	cp * $pkgdir/opt/AmokExifSorter -rp
 }
