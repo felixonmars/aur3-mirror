@@ -14,13 +14,13 @@ _source_arch="32Bit"
 [ "$CARCH" = "x86_64" ] && _source_arch="64Bit"
 
 md5sums=('144f34d48eedf82e93b42426a5c01e50'
-	'75dfb58bc9a737255e313de70b8326bf'
-	'cbae880ef6fce7d00f1a928679c3d252')
+	'cbd5d4291964779ec98e75c941f21b57'
+	'43d8104af166aefe26016ff011af0f37')
 [ "$CARCH" = "x86_64" ] && md5sums[0]='084587577652e01835fcc306f3a55773'
 
 source=("http://www.amok.am/files/releases/AmoK_Exif_Sorter_v${pkgver}_(Linux_${_source_arch}).tar.bz2"
 	"amok-exif-sorter.desktop"
-	"amok-exif-sorter.png")
+	"aes.ico")
 
 build() {
 	install -D amok-exif-sorter.desktop $pkgdir/usr/share/applications/amok-exif-sorter.desktop
