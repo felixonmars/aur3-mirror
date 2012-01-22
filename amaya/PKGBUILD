@@ -1,17 +1,15 @@
-# Maintainer: Stefan Husmann <stefan-husmann@t-online.de>
 # Contributor: Brad Fanella <bradfanella@archlinux.us>
 # Contributor: Zerial <fernando@zerial.org>
 # Contributor: Dalius <dagis@takas.lt>
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
 pkgname=amaya
 pkgver=11.3.1
-pkgrel=12
+pkgrel=13
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
 license=('W3C')
 depends=('wxgtk' 'mesa' 'raptor1')
-makedepends=('chrpath')
 options=('!makeflags')
 install=$pkgname.install
 source=(amaya-fix-amaya-wxfile.patch \
@@ -56,8 +54,10 @@ build() {
 }
 
 package() {
-	cd $srcdir/Amaya$pkgver/Amaya/WX
-	make prefix=$pkgdir/usr/share install
-	install -Dm755 $pkgdir/usr/share/Amaya/wx/bin/amaya $pkgdir/usr/bin/amaya
-	rm $pkgdir/usr/share/Amaya/wx/bin/amaya
-}
+  cd $srcdir/Amaya$pkgver/Amaya/WX
+  install -d $pkgdir/usr/share/Amaya/resources/{svg,icons/16x16}
+  make prefix=$pkgdir/usr/share install
+  install -Dm755 $pkgdir/usr/share/Amaya/wx/bin/amaya $pkgdir/usr/bin/amaya
+  rm $pkgdir/usr/share/Amaya/wx/bin/amaya
+
+  }
