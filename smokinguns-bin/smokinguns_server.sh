@@ -1,3 +1,3 @@
 #!/bin/sh
 
-exec /opt/SmokinGuns/smokinguns_dedicated.$(arch) "$@"
+exec /opt/SmokinGuns/smokinguns_dedicated.bin "$@"
