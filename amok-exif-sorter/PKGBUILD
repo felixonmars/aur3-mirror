@@ -24,7 +24,6 @@ source=("http://www.amok.am/files/releases/AmoK_Exif_Sorter_v${pkgver}_(Linux_${
 
 build() {
 	install -D amok-exif-sorter.desktop $pkgdir/usr/share/applications/amok-exif-sorter.desktop
-	mkdir -p $pkgdir/opt/AmokExifSorter
-	cp amok-exif-sorter.png $pkgdir/opt/AmokExifSorter/
-	cp * $pkgdir/opt/AmokExifSorter -rp
+	mkdir -p $pkgdir/opt/AmokExifSorter/
+	cp -Lrp * $pkgdir/opt/AmokExifSorter/
 }
