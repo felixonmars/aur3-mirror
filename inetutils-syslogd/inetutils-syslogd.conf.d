@@ -1,4 +1,4 @@
 #
 # Parameters to be passed to syslogd
 #
-INETUTILS_SYSLOGD_ARGS="-c4"
+INETUTILS_SYSLOGD_ARGS=""
