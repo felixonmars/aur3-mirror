@@ -9,7 +9,7 @@ true && pkgname=("linux${_kernelname}" "linux${_kernelname}-headers")
 _basekernel=3.0
 _patchver=17
 pkgver=${_basekernel}
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -44,8 +44,10 @@ fi
 
 # extra patches
 _extrapatches=(
+	'proc-clean-up-and-fix-proc-pid-mem-handling.patch'
 )
 _extrapatchessums=(
+	'bdea354373eaf9861b6c5e820324e04ca28d93923a260120b7af187a3baa0f4a'
 )
 if [ ${#_extrapatches[@]} -ne 0 ]; then
 	source=( "${source[@]}"
