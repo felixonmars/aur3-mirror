@@ -6,5 +6,5 @@ if [[ $CARCH == 'x86_64' ]]; then
 fi
 
 cd "/usr/share/games/machinarium"
-./Machinarium "$@"
+./Machinarium "machinarium-browser.swf"
 return "$?"
