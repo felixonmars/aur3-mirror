@@ -1,4 +1,3 @@
-#!/bin/bash
+#!/bin/sh
 
-cd /opt/smokinguns
-./smokinguns.bin +set cl_curllib /usr/lib/libcurl.so $*
+exec /opt/SmokinGuns/smokinguns.bin "$@"
