@@ -1,4 +1,4 @@
 #!/bin/sh
 
-java -jar /usr/bin/parbench.jar $@
+java -jar /usr/share/java/parbench/parbench.jar $@
 
