@@ -7,9 +7,9 @@ pkgbase="linux${_kernelname}"
 pkgname="linux${_kernelname}"
 true && pkgname=("linux${_kernelname}" "linux${_kernelname}-headers")
 _basekernel=3.0
-_patchver=17
+_patchver=18
 pkgver=${_basekernel}
-pkgrel=2
+pkgrel=1
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -38,16 +38,14 @@ if [ ${_patchver} -ne 0 ]; then
 		"http://www.kernel.org/pub/linux/kernel/v3.x/${_patchname}.gz"
 	)
 	sha256sums=( "${sha256sums[@]}"
-		'b1b8bb0537fcb6e0baba989ef8a91f7108de930aa727cde021f10aaa7ee153c4'
+		'29d97cbd3c4ee816a638cbb5e1e1dd8b1ed9033de4bc2517c258ca4034292a66'
 	)
 fi
 
 # extra patches
 _extrapatches=(
-	'proc-clean-up-and-fix-proc-pid-mem-handling.patch'
 )
 _extrapatchessums=(
-	'bdea354373eaf9861b6c5e820324e04ca28d93923a260120b7af187a3baa0f4a'
 )
 if [ ${#_extrapatches[@]} -ne 0 ]; then
 	source=( "${source[@]}"
