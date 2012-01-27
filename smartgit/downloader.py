@@ -18,9 +18,10 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
+import os.path
 import sys
+import re
 import http.client, urllib, urllib.request
-import xml.dom.minidom
 
 class Downloader():
 	host = 'www.syntevo.com'
@@ -28,18 +29,17 @@ class Downloader():
 	download_request = ''
 	header = {}
 
-	def __init__(self, product, filename):
-		self.filename = filename
+	def __init__(self, request_path, file_param):
+		self.filename = os.path.basename(file_param)
 		sys.stderr.write( 'Initiating ' + self.filename + ' download from ' + self.host + '...\n' )
-		download_html = '/' + product + '/download.html'
-		file_path = product + '/' + filename
-		self.download_request = download_html + '?file=' + file_path
+		self.download_request = '/' + request_path + '?file=' + file_param
 
 	def suck(self):
 		sys.stderr.write( 'Connecting to ' + self.host + '...\n' )
 		conn = http.client.HTTPConnection(self.host, timeout=5)
-                
+
 		refer = "http://" + self.host + self.download_request
+		sys.stderr.write( 'Request URL: ' + refer + '\n' )
 		conn.request("GET", self.download_request)
 		response = conn.getresponse()
 		#get our cookie
@@ -53,23 +53,23 @@ class Downloader():
 		conn.request("GET", self.download_request, headers=self.header)
 		response = conn.getresponse()
 		htmlstring = response.read().decode('UTF-8')
-		htmlstring = htmlstring.replace('value/>', 'value=""/>')
-		dom = xml.dom.minidom.parseString(htmlstring)
-		formElem = dom.getElementsByTagName("form")[1]
-		action = formElem.getAttribute('action')[2:]
-		idvar = ''
-		for inputElem in formElem.getElementsByTagName("input"):
-			if inputElem.getAttribute('type') == 'hidden':
-				idvar = inputElem.getAttribute('name')
-
 		conn.close()
-		
+
+		sys.stderr.write( 'Agreeing with the license...\n' )
+		form_match = re.search( '\<form action\="\.\.(\/\?[^"]+)" .+\<input type\="hidden" name\="([^"]+)"',
+								htmlstring, re.MULTILINE + re.DOTALL )
+		if not form_match:
+			raise RuntimeError( 'Error parsing license agreement html\n' )
+		action = form_match.group(1)
+		idvar = form_match.group(2)
 		data = { idvar: '', 'accept': 'on' }
 		data = urllib.parse.urlencode(data)
 		header = self.header.copy()
 		header["Content-type"] =  "application/x-www-form-urlencoded"
 		conn = http.client.HTTPConnection(self.host, timeout=5)
 		conn.request("POST", action, data, header)
+
+		sys.stderr.write( 'Getting file URL...\n' )
 		response = conn.getresponse()
 		if response.status == 302:
 			conn = http.client.HTTPConnection(self.host, timeout=5)
@@ -77,18 +77,20 @@ class Downloader():
 			conn.request("GET", response.getheader('Location'), headers=self.header)
 			response = conn.getresponse()
 			htmlstring = response.read().decode('UTF-8')
-			htmlstring = htmlstring.replace('value/>', 'value=""/>')
-			dom = xml.dom.minidom.parseString(htmlstring)
-			meta_refresh = dom.getElementsByTagName("meta")[1]
-			content = meta_refresh.getAttribute('content')
-			fileurl = content[len("1; URL="):]
+			conn.close()
+
+			meta_match = re.search( '\<meta http-equiv="refresh" content="1\; URL\=([^"]+)"',
+			                        htmlstring, re.MULTILINE + re.DOTALL )
+			if not meta_match:
+				raise RuntimeError( 'Error parsing file download location\n' )
+			fileurl = meta_match.group(1)
 		
 			sys.stderr.write('Downloading ' + self.filename + '...\n' )
 			urllib.request.urlretrieve( 'http://' + self.host + fileurl, self.filename)
 			sys.stderr.write('Download finished\n')
 		else:
 			sys.stderr.write( 'Not moved :(\n')
-		conn.close()
+			conn.close()
 
 if __name__ == '__main__':
 	downloader = Downloader(sys.argv[1],sys.argv[2])
