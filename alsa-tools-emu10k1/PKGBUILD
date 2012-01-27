@@ -1,6 +1,6 @@
 # Contributor: 3ED <krzysztof1987@gmail.com>
 pkgname=alsa-tools-emu10k1
-pkgver=1.0.24.1
+pkgver=1.0.25
 pkgrel=1
 pkgdesc="ALSA tools package for emu10k1 sound card"
 backup=(etc/rc.d/alsa-emu10k1d etc/conf.d/alsa-emu10k1d)
@@ -9,15 +9,18 @@ arch=('i686' 'x86_64')
 license=('GPL')
 depends=('alsa-lib' 'alsa-utils')
 optdepends=("alsa-tools-emu10k1-gui: dsp editor with gui in qt3")
-sha256sums=('17d43de93ab2db98886d89a53e45341daa46a4ef6edd405db87f4b5a5dc64a05'
+sha256sums=('a974d0f3e837796f67d04df88c783aebcf4ac3c5f9ac31e2b65c10e8cb4b1dca'
             '4db2b08b8391b60bc4306977090562ba226761e7fcd3932d5780dbf8b34480ff'
             '7f6c82a038ed891fe706552baf401eec65b5b396634d217d8e6a9f1f37d45dfe')
+
 source=("ftp://ftp.alsa-project.org/pub/tools/alsa-tools-$pkgver.tar.bz2"
         "alsa-emu10k1d"
         "alsa-emu10k1d.conf")
+
 install=alsa-tools-emu10k1.install
 
-alsa_tools_mods=(ac3dec as10k1 ld10k1 seq)
+[ -n "$alsa_tools_mods" ] || \
+  alsa_tools_mods=(ac3dec as10k1 ld10k1 seq)
 
 build() {
   cd "$srcdir/alsa-tools-$pkgver"
