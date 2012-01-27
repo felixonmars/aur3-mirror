@@ -1,7 +1,7 @@
 # Maintainer: Spencer Judd <spencercjudd@gmail.com>
 
 pkgname=paest-cli-git
-pkgver=20120120
+pkgver=20120127
 pkgrel=1
 pkgdesc="A command-line interface for pae.st, the pastebin for hardcore programmers."
 arch=('any')
