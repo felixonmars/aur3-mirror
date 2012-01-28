@@ -3,16 +3,14 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-BACULA_SD_CONF=/etc/bacula/bacula-sd.conf
-PID=`pidof -o %PPID /usr/sbin/bacula-sd`
-
-USER=bacula
-GROUP=bacula
-
-case $1 in
+case "$1" in
   start)
+
+    [ -d /var/run/bacula ] || mkdir -p /var/run/bacula
+	chown bacula:bacula /var/run/bacula
+
     stat_busy "Starting Bacula Storage Daemon"
-    [ -z "$PID" ] && /usr/sbin/bacula-sd -u $USER -g $GROUP -c $BACULA_SD_CONF
+    /usr/sbin/bacula-sd
     if [ $? -gt 0 ]; then
       stat_fail
     else
@@ -20,10 +18,9 @@ case $1 in
       stat_done
     fi
     ;;
-
   stop)
     stat_busy "Stopping Bacula Storage Daemon"
-    [ ! -z "$PID" ] && kill $PID &>/dev/null
+    killall bacula-sd > /dev/null
     if [ $? -gt 0 ]; then
       stat_fail
     else
@@ -31,13 +28,14 @@ case $1 in
       stat_done
     fi
     ;;
- restart)
+  restart)
     $0 stop
-    sleep 3
+    sleep 1
     $0 start
     ;;
   *)
     echo "usage: $0 {start|stop|restart}"  
 esac
 exit 0
-
+~                                                                                                                                                         
+~         

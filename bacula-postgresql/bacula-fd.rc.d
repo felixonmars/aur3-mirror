@@ -3,13 +3,14 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-BACULA_FD_CONF=/etc/bacula/bacula-fd.conf
-PID=`pidof -o %PPID /usr/sbin/bacula-fd`
-
-case $1 in
+case "$1" in
   start)
+
+    [ -d /var/run/bacula ] || mkdir -p /var/run/bacula
+	chown bacula:bacula /var/run/bacula
+
     stat_busy "Starting Bacula File Daemon"
-    [ -z "$PID" ] && /usr/sbin/bacula-fd -c $BACULA_FD_CONF
+    /usr/sbin/bacula-fd
     if [ $? -gt 0 ]; then
       stat_fail
     else
@@ -17,10 +18,9 @@ case $1 in
       stat_done
     fi
     ;;
-
   stop)
     stat_busy "Stopping Bacula File Daemon"
-    [ ! -z "$PID" ] && kill $PID &>/dev/null
+    killall bacula-fd > /dev/null
     if [ $? -gt 0 ]; then
       stat_fail
     else
@@ -28,13 +28,14 @@ case $1 in
       stat_done
     fi
     ;;
- restart)
+  restart)
     $0 stop
-    sleep 3
+    sleep 1
     $0 start
     ;;
   *)
     echo "usage: $0 {start|stop|restart}"  
 esac
 exit 0
-
+~                                                                                                                                                         
+~         
