@@ -30,6 +30,7 @@ case $1 in
     ;;
   restart)
     $0 stop
+    sleep 2
     $0 start
     ;;
   *)
