@@ -30,7 +30,7 @@ fi
 export JAVA_HOME=${JAVA_HOME:=/opt/java}
 
 export SONAR_HOME=${SONAR_HOME:=/opt/sonar}
-export SONAR_RUN_DIR=${SONAR_RUN_DIR:=/var/run/sonar}
+export SONAR_RUN_DIR=${SONAR_RUN_DIR:=/opt/sonar/run}
 export SONAR_ETC_DIR=${SONAR_ETC_DIR:=/etc/sonar}
 export SONAR_LOG_DIR=${SONAR_LOG_DIR:=/var/log/sonar}
 
