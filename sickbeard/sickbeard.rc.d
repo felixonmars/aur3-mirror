@@ -5,7 +5,6 @@
 
 DAEMON=sickbeard
 
-[ -r /etc/default/$DAEMON ] && . /etc/default/$DAEMON
 [ -r /etc/conf.d/$DAEMON ] && . /etc/conf.d/$DAEMON
 
 PID=$(get_pid $DAEMON)

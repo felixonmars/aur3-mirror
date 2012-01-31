@@ -1,5 +1,5 @@
 # Configuration file for Sick-Beard daemon.
-# See /etc/default/sickbeard and /etc/rc.d/sickbeard.
+# See /etc/rc.d/sickbeard.
 
 # Path to executable to use.
 SB_BIN=/usr/bin/sickbeard
