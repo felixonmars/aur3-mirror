@@ -1,20 +1,61 @@
-x2go_user=x2gouser
-x2go_dir=/var/lib/x2go
-
 fix_permissions()
 {
-  chown root:$x2go_user /usr/lib/x2go
-  chmod 0770 /usr/lib/x2go
-  chown root:$x2go_user /usr/lib/x2go/x2gosqlitewrapper
-  chmod 2755 /usr/lib/x2go/x2gosqlitewrapper
+  # make sure db permissions are set correctly
+  chown root:x2gouser /var/lib/x2go
+  # egid x2gouser needs write access to the db dir (for temporary db journal file)
+  chmod 0770          /var/lib/x2go
+  # ... and to the db file itself, of course
+  chmod 0660 /var/lib/x2go/x2go_sessions
+  # we may be upgrading versions of x2goserver that had
+  # /usr/lib/x2go/x2gosqlitewrapper.pl set to setuid x2gouser.
+  chown root:x2gouser /usr/lib/x2go/x2gosqlitewrapper
+  chmod 2755          /usr/lib/x2go/x2gosqlitewrapper
 }
 
-post_install() {
-  if ! getent passwd $x2go_user &> /dev/null; then
-    [[ ! -d $x2go_dir ]] && mkdir -p $x2go_dir
-    useradd -r -U -d $x2go_dir -s /bin/false $x2go_user &> /dev/null
-    passwd -l $x2go_user &> /dev/null
-    echo "  ==> User and group '$x2go_user' created"
+pre_install()
+{
+  # cleanup old x2goserver installations
+  rm -Rfv /var/db/x2go/
+  if getent group x2gousers >/dev/null; then
+    echo "The ,,x2gousers'' is no longer used by x2go and can be"
+    echo "removed as soon as no users are members of this group."
+  fi
+}
+
+pre_upgrade()
+{
+  pre_install
+}
+
+post_install()
+{
+  # setup x2gouser and group
+  if ! getent group x2gouser >/dev/null; then
+    echo "  ==> Creating x2gouser group."
+    addgroup --system x2gouser
+  else
+    echo "Group x2gouser already exists."
+  fi
+
+  if ! getent passwd x2gouser &> /dev/null; then
+    echo "  ==> Creating x2gouser group."
+    test ! -d /var/lib/x2go && mkdir -p /var/lib/x2go
+    useradd -r -U -d /var/lib/x2go -s /bin/false x2gouser &> /dev/null
+    passwd -l x2gouser &> /dev/null
+  else
+    echo "User x2gouser already exists."
+    # make sure all settings are appropriate
+    if [ "`id -gn x2gouser`" != "x2gouser" ]; then
+      usermod --gid x2gouser x2gouser
+      test -d /var/lib/x2go && \
+        usermod --home /var/lib/x2go x2gouser || \
+        usermod --move-home --home /var/lib/x2go x2gouser
+    fi
+    if [ "`ls -1d ~x2gouser`" != "/var/lib/x2go" ]; then
+      usermod --move-home --home /var/lib/x2go x2gouser
+    fi
+    # we leave user shell alone. we have never set this wrongly
+    # and we need to respect the administrator's choices
   fi
 
   fix_permissions
@@ -31,8 +72,20 @@ post_upgrade()
   fix_permissions
 }
 
-post_remove() {
-  userdel $x2go_user &> /dev/null
-  groupdel $x2go_user &> /dev/null
-  echo "  ==> User and group '$x2go_user' removed"
+pre_remove()
+{
+  if [ -x "/etc/rc.d/x2goserver" ]; then
+        /etc/rc.d/x2goserver stop || exit $?
+  fi
 }
+
+post_remove()
+{
+  echo "Removing x2go session database"
+  rm -vf /var/lib/x2go/x2go_sessions
+  rmdir -vf /var/lib/x2go
+  getent passwd x2gouser > /dev/null && userdel  x2gouser
+  getent group  x2gouser > /dev/null && groupdel x2gouser
+  echo "  ==> User and group x2gouser removed."
+}
+
