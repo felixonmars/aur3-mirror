@@ -1,13 +1,13 @@
 # Maintainer: Alucryd <alucryd at gmail dot com>
 # Contributor: 	G_Syme <demichan at mail dot upb dot de>
 pkgname=aegisub-svn
-pkgver=6268
+pkgver=6387
 pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
 license=('GPL' 'BSD')
-depends=('ffmpegsource2-svn' 'lua' 'wxgtk-2.9>=2.9.2' 'hunspell' 'libass' 'fftw' 'hicolor-icon-theme')
+depends=('ffmpegsource' 'lua' 'wxgtk-2.9>=2.9.2' 'hunspell' 'libass' 'fftw' 'hicolor-icon-theme')
 makedepends=('imagemagick' 'subversion' 'intltool')
 provides=('aegisub')
 conflicts=('aegisub' 'aegisub-bin' 'aegisub-stable-svn')
