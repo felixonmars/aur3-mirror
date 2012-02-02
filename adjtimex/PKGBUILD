@@ -10,15 +10,15 @@ license=('custom')
 source=(ftp://ftp.debian.org/debian/pool/main/a/${pkgname}/${pkgname}_${pkgver}.orig.tar.gz
         ftp://ftp.debian.org/debian/pool/main/a/${pkgname}/${pkgname}_${pkgver}-${pkgrel}.diff.gz
         ${pkgname})
-install=('adjtimex.install')
+install=adjtimex.install
 md5sums=('7ff7731baf829fdf6ad9af963a526cda'
          '14c2789549a12097547176afba5a51a8'
          'e5862c394d35f4eceb0e640c78a3c6de')
          
 build() {
   #sed -i "s/${pkgname}-${pkgver}/src\/${pkgname}-${pkgver}/g" \
-  #${srcdir}/${pkgname}_${pkgver}-${_pkgrel_deb}.diff
-  #patch -Np1 -i ${srcdir}/${pkgname}_${pkgver}-${_pkgrel_deb}.diff
+  #${srcdir}/${pkgname}_${pkgver}-${pkgrel}.diff
+  #patch -Np1 -i ${srcdir}/${pkgname}_${pkgver}-${pkgrel}.diff
   
   cd "${srcdir}"
   patch -p0 < ${pkgname}_${pkgver}-${pkgrel}.diff
@@ -43,7 +43,7 @@ package() {
   sed -i "s/init.d/rc.d/g" adjtimexconfig
   sed -i "s/init.d/rc.d/g" adjtimexconfig.8
   install -m755 adjtimexconfig "${pkgdir}"/usr/sbin
-  install -m755 "${srcdir}"/${pkgname} ${pkgdir}/etc/rc.d
+  install -m755 "${srcdir}"/${pkgname} "${pkgdir}"/etc/rc.d
   install -m644 copyright "${pkgdir}"/usr/share/licenses/${pkgname}
   install -m644 adjtimexconfig.8 "${pkgdir}"/usr/share/man/man8
   ln -s "/var/lib/hwclock/adjtime" "${pkgdir}"/etc/adjtime
