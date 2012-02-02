@@ -2,14 +2,14 @@
 # Contributor: whacath <koaxialkabel@gmail.com>
 
 pkgname=nexuspersonal
-pkgver=4.18.1.10899
-pkgrel=3
+pkgver=4.19.0.11351
+pkgrel=1
 pkgdesc="BankID software for Linux"
 url="http://www.bankid.com"
 license=('custom')
 arch=('i686')
-source=('https://install.bankid.com/Repository/BISP-4.18.1.10899.tar.gz')
-md5sums=('c9a1a4d872848a48d4b00f6be7e1e661')
+source=('https://install.bankid.com/Repository/BISP-4.19.0.11351.tar.gz')
+md5sums=('1074dd24b06366455129a769a34516b2')
 depends=('libsm' 'gtk2' 'bash' 'zlib' 'libidn' 'libpng12')
 install='nexuspersonal.install'
 
