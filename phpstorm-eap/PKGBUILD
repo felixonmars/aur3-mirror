@@ -4,7 +4,8 @@
 
 pkgname=phpstorm-eap
 _pkgname=PhpStorm # Directory name in the tar file
-pkgver=111.217
+pkgver=3.0.1
+pkgbuild=111.271
 pkgrel=1
 pkgdesc="Lightweight and Smart PHP IDE. 30-day free trial."
 arch=('i686' 'x86_64')
@@ -12,13 +13,15 @@ url="http://www.jetbrains.com/phpstorm/"
 license=('custom')
 depends=('java-runtime>=6')
 conflicts=('phpstorm')
-source=(http://download.jetbrains.com/webide/PhpStorm-EAP-$pkgver.tar.gz)
-md5sums=('b42ae3954a6593a4870e72cc77732808')
+#source=(http://download.jetbrains.com/webide/PhpStorm-EAP-$pkgbuild.tar.gz)
+source=(http://download.jetbrains.com/webide/PhpStorm-${pkgver}.tar.gz)
+md5sums=('dcf1e1e39dd8e873bdcf2139bdba7ab0')
 
 build() {
   cd ${srcdir}
   mkdir -p ${pkgdir}/opt/${pkgname} || return 1
-  cp -R ${srcdir}/${_pkgname}-${pkgver}/* ${pkgdir}/opt/${pkgname} || return 1
+  cp -R ${srcdir}/${_pkgname}-${pkgbuild}/* ${pkgdir}/opt/${pkgname} || return 1
+#  cp -R ${srcdir}/${_pkgname}-${pkgver}/* ${pkgdir}/opt/${pkgname} || return 1
   if [[ $CARCH = 'i686' ]]; then
     rm -f ${pkgdir}/opt/${pkgname}/bin/libyjpagent64.so
     rm -f ${pkgdir}/opt/${pkgname}/bin/libbreakgen64.so
@@ -50,5 +53,5 @@ EOF
   mkdir -p ${pkgdir}/usr/share/licenses/${pkgname}/ || return 1
   install -m 644 ${startdir}/phpstorm.desktop ${pkgdir}/usr/share/applications/
   install -m 644 ${pkgdir}/opt/${pkgname}/bin/webide.png ${pkgdir}/usr/share/pixmaps/phpstorm.png
-  install -m 644 ${srcdir}/${_pkgname}-${pkgver}/license/${_pkgname}_license.txt ${pkgdir}/usr/share/licenses/${pkgname}/${_pkgname}_license.txt
+  install -m 644 ${srcdir}/${_pkgname}-${pkgbuild}/license/${_pkgname}_license.txt ${pkgdir}/usr/share/licenses/${pkgname}/${_pkgname}_license.txt
 }
