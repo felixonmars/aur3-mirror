@@ -10,11 +10,14 @@ SB_CONF=/etc/sickbeard/config.ini
 # Path to Sick-Beard data directory.
 SB_DATA=/var/lib/sickbeard
 
-# Protocol used for Sick-Beard web interface.
-SB_PROTOCOL=http
-
 # Port used for Sick-Beard web interface.
 SB_PORT=8081
 
 # User running the daemon.
 SB_USER=sickbeard
+
+# Path of daemon PID file.
+SB_PID_FILE=/var/run/sickbeard/sickbeard.pid
+
+# Time to wait for Sick-Beard to shutdown (seconds).
+SB_SHUTDOWN_TIMEOUT=30
