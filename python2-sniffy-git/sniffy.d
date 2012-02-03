@@ -5,6 +5,8 @@ daemon_name=sniffy
 . /etc/rc.conf
 . /etc/rc.d/functions
 
+. /etc/conf.d/$daemon_name
+
 get_pid() {
     pidof -o %PPID python2 $daemon_name
 }
@@ -16,11 +18,7 @@ case "$1" in
     PID=$(get_pid)
     if [ -z "$PID" ]; then
       [ -f /var/run/$daemon_name.pid ] && rm -f /var/run/$daemon_name.pid
-      # RUN
-      # XXX: nasty
-      export DISPLAY=:0
-      $daemon_name &
-      #
+      DISPLAY=$DISPLAY_NAME $daemon_name $SNIFFY_ARGS &
       if [ $? -gt 0 ]; then
         stat_fail
         exit 1
