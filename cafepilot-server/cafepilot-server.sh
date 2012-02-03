@@ -1,4 +1,3 @@
 #!/bin/bash
 
-cd /opt/CafePilot_Server
-'/usr/lib/jvm/java-6-openjdk/bin/java' -classpath -jar CafePilot_Server.jar
+java -classpath /opt/CafePilot_Server/ -jar /opt/CafePilot_Server/CafePilot_Server.jar
