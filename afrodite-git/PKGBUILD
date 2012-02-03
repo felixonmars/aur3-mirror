@@ -1,14 +1,14 @@
 # Maintainer: Jesse Jaara <gmail.com: jesse.jaara>
 
 pkgname=afrodite-git
-pkgver=20111106
+pkgver=20120203
 pkgrel=1
 pkgdesc="Library containing the completion engine for Vala language"
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/vtg/"
 license=('GPL2')
 depends=('vala')
-makedepends=('git')
+makedepends=('git' 'gnome-common')
 options=(!libtool)
 provides=('afrodite')
 conflicts=('afrodite')
