@@ -2,7 +2,7 @@
 # Maintainer: Brit Butler <redline6561@gmail.com>
 
 pkgname=paktahn
-pkgver=0.9.6.0
+pkgver=0.9.7.0
 libver=0.9.3
 pkgrel=1
 pkgdesc="The kick-ass package manager for Arch Linux!"
@@ -48,6 +48,6 @@ build() {
 }
 
 md5sums=('aa71c5e639e86bee3afe7d4e27653649'
-         '2afeedbbf3da14bc1fbd45f91e0d4a66')
+         'b70e3693a489183d6ddc3cb1b0e44cd7')
 sha1sums=('1fb3e04732d00c68e7b8aa7ae0a18e9f98359e5f'
-          'cc5941cc93b483f331d346151b5aa0f69c2c59f7')
+          'fa7527635d6892dbda2929dba46c5d856be5b146')
