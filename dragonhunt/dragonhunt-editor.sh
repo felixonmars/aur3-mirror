@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cd /usr/share/dragonhunt/code
-exec python map_editor.py "$@"
+cd /opt/dragonhunt/code
+exec python2 map_editor.py "$@"

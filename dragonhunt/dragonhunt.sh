@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cd /usr/share/dragonhunt/code
-exec python rpg.py "$@"
+cd /opt/dragonhunt/code
+exec python2 rpg.py "$@"

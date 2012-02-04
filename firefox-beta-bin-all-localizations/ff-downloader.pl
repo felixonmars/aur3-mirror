@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.6
+# ff-downloader v0.5.7
 ## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -70,20 +70,22 @@ HEADER
             return $lang_code;
     }   
 }
-my ($VER, $PACKAGE, $LANG);
+my ($VER, $PACKAGE, $LANG, $REAL);
+my $SUFF = '';
 my $pkg = 'ff'; #default value for "--package"
 my $res = GetOptions("version|v=s" => \$VER,
+                     "real|r"=>\$REAL,
                      "package|p=s" => \$pkg );	
 
-die ":: usage: $0 -p|--package=<package name [ff|tb]> -v|--version=<version number>\n" unless $res and (scalar @ARGV == 0);
+die ":: usage: $0 -p|--package=<package name [ff|tb]> -v|--version=<version number> -r|--real\n" unless $res and (scalar @ARGV == 0);
 given ($pkg)
 {
     when ('ff')  { $PACKAGE = 'firefox' }
     when ('tb')  { $PACKAGE = 'thunderbird'}
     default { die qq{:: "$pkg" is not a valid value for "--package"! Please use "ff" or "tb"\n}}  
-    }
+}
 die qq{:: "--version" option is mandatory!\n} unless $VER;
-
+$SUFF = '-real' if $REAL;
 $LANG = read_config($pkg);
 
 if (!$LANG)
@@ -139,6 +141,7 @@ if (!$LANG)
     { language => 'Korean', code => 'ko' },
     { language => 'Kurdish', code => 'ku' },
     { language => 'Ganda', code => 'lg' },
+    { language => 'Ligurian', code => 'lij' },
     { language => 'Lithuanian', code => 'lt' },
     { language => 'Latvian', code => 'lv' },
     { language => 'Maithili', code => 'mai' },
@@ -203,7 +206,9 @@ if (!$LANG)
     { language => 'Gaelic (Scotland)', code => 'gd' },
     { language => 'Galician', code => 'gl' },
     { language => 'Hebrew', code => 'he' },
+    { language => 'Croatian', code => 'hr' },
     { language => 'Hungarian', code => 'hu' },
+    { language => 'Armenian', code => 'hy-AM' },
     { language => 'Indonesian', code => 'id' },
     { language => 'Icelandic', code => 'is' },
     { language => 'Italian', code => 'it' },
@@ -263,23 +268,30 @@ chomp $ARCH;
 
 $| = 1; # turn on autoflush;
 
-my $ff_path = "/pub/${PACKAGE}/releases/${VER}/linux-${ARCH}/${LANG}/${PACKAGE}-${VER}.tar.bz2";
+my $ff_path = "/pub/${PACKAGE}/releases/${VER}${SUFF}/linux-${ARCH}/${LANG}/${PACKAGE}-${VER}.tar.bz2";
 my $ff_url = URI->new('ftp://ftp.mozilla.org');
 $ff_url->path($ff_path);
 
 ##Downloading firefox##
 get_url( $ff_url, "${PACKAGE}-${VER}.tar.bz2" ) or die qq(:: ERROR - can't download "${PACKAGE}-${VER}.tar.bz2"\n); 
 
+########################################
+#strangely there are no signature files 
+#for this firefox release ... so as a
+#quick & dirty  workaround we skip the 
+#next section 
+########################################
+
 ##downloading signature##
-$ff_url->path("${ff_path}.asc");
-get_url( $ff_url, "$PACKAGE-${VER}.tar.bz2.asc" ) or die qq(:: ERROR - can't download "${PACKAGE}-${VER}.tar.bz2.asc"\n); 
+#$ff_url->path("${ff_path}.asc");
+#get_url( $ff_url, "$PACKAGE-${VER}.tar.bz2.asc" ) or die qq(:: ERROR - can't download "${PACKAGE}-${VER}.tar.bz2.asc"\n); 
 
 ##downloading public key
-$ff_url->path("pub/${PACKAGE}/releases/${VER}/KEY");
-get_url( $ff_url, "KEY" ) or die qq(:: ERROR - can't download 'KEY'\n); 
+#$ff_url->path("pub/${PACKAGE}/releases/${VER}${SUFF}/KEY");
+#get_url( $ff_url, "KEY" ) or die qq(:: ERROR - can't download 'KEY'\n); 
 
-print ':: verifying gnupg signature ... ';
-my $gpg = new GnuPG();
-$gpg->import_keys( keys => 'KEY');
-$gpg->verify ( signature => "${PACKAGE}-${VER}.tar.bz2.asc", file => "${PACKAGE}-${VER}.tar.bz2");
-say 'DONE';
+#print ':: verifying gnupg signature ... ';
+#my $gpg = new GnuPG();
+#$gpg->import_keys( keys => 'KEY');
+#$gpg->verify ( signature => "${PACKAGE}-${VER}.tar.bz2.asc", file => "${PACKAGE}-${VER}.tar.bz2");
+#say 'DONE';
