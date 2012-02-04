@@ -1,0 +1,26 @@
+# Maintainer: György Balló <ballogy@freestart.hu>
+_pkgname=popper
+pkgname=indicator-$_pkgname
+pkgver=0.30.2
+pkgrel=1
+pkgdesc="Reads the new emails from POP3 and IMAP email servers and notifies about the number, subject, sender and time of new emails in the indicator applet and via a notification bubble"
+arch=('any')
+url="https://launchpad.net/popper"
+license=('GPL')
+depends=('python-gnomekeyring' 'python-notify' 'libindicate')
+true && depends=('python-gnomekeyring' 'python-notify' 'libindicate-gtk2')
+source=(https://launchpad.net/~ralf.hersel/+archive/rhersel-ppa/+files/${_pkgname}_$pkgver.orig.tar.gz)
+md5sums=('ec49c58bd7d9b96994e43cd96d28d776')
+
+build() {
+  cd "$srcdir/${_pkgname}_$pkgver"
+  sed -i 's@#!.*python@#!/usr/bin/python2@' popper/popper{,_config,_list}.py
+  sed -i 's@python @python2 @' popper/popper{,_config}.sh
+}
+
+package() {
+  cd "$srcdir/${_pkgname}_$pkgver"
+
+  mkdir -p "$pkgdir/usr/share"
+  cp -r popper locale applications "$pkgdir/usr/share"
+}

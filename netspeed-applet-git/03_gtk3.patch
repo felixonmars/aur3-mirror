@@ -1,0 +1,603 @@
+From f1ac39d327ef8f57a8d284a79bda9d37eb71f089 Mon Sep 17 00:00:00 2001
+From: Carlos Garcia Campos <carlosgc@gnome.org>
+Date: Wed, 16 Feb 2011 19:43:09 +0100
+Subject: [PATCH 2/2] Port to GTK+ 3
+
+---
+ Makefile.am    |    2 +-
+ configure.in   |    4 +-
+ src/netspeed.c |  382 ++++++++++++++++++++++----------------------------------
+ 3 files changed, 154 insertions(+), 234 deletions(-)
+
+diff --git a/Makefile.am b/Makefile.am
+index 2a7d33f..11a04ca 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1,6 +1,6 @@
+ SUBDIRS = help icons po src
+ 
+-appletdir = $(datadir)/gnome-panel/applets
++appletdir = $(LIBPANEL_APPLET_DIR)
+ applet_in_files = org.gnome.panel.Netspeed.panel-applet.in
+ applet_DATA = $(applet_in_files:.panel-applet.in=.panel-applet)
+ 
+diff --git a/configure.in b/configure.in
+index 0a8330b..b070de3 100644
+--- a/configure.in
++++ b/configure.in
+@@ -20,8 +20,10 @@ GETTEXT_PACKAGE=netspeed_applet
+ AC_SUBST(GETTEXT_PACKAGE)
+ AC_DEFINE_UNQUOTED(GETTEXT_PACKAGE, "$GETTEXT_PACKAGE", GETTEXT_PACKAGE)
+ 
+-PKG_CHECK_MODULES(NETSPEED, libpanelapplet-3.0 >= 2.32 libgtop-2.0 >= 2.14.2)
++PKG_CHECK_MODULES(NETSPEED, libpanelapplet-4.0 >= 2.32 libgtop-2.0 >= 2.14.2)
++LIBPANEL_APPLET_DIR=`$PKG_CONFIG --variable=libpanel_applet_dir libpanelapplet-4.0`
+ 
++AC_SUBST(LIBPANEL_APPLET_DIR)
+ AC_SUBST(NETSPEED_APPLET_CFLAGS)
+ AC_SUBST(NETSPEED_APPLET_LIBS)
+ 
+diff --git a/src/netspeed.c b/src/netspeed.c
+index 6371b65..8a41535 100644
+--- a/src/netspeed.c
++++ b/src/netspeed.c
+@@ -27,7 +27,6 @@
+ #include <glib/gi18n.h>
+ #include <panel-applet.h>
+ #include <panel-applet-gconf.h>
+-#include <gconf/gconf-client.h>
+ #include "backend.h"
+ 
+  /* Icons for the interfaces */
+@@ -119,21 +118,6 @@ update_tooltip(NetspeedApplet* applet);
+ static void
+ device_change_cb(GtkComboBox *combo, NetspeedApplet *applet);
+ 
+-static gboolean
+-open_uri (GtkWidget *parent, const char *url, GError **error)
+-{
+-	gboolean ret;
+-	char *cmdline;
+-	GdkScreen *screen;
+-
+-	screen = gtk_widget_get_screen (parent);
+-	cmdline = g_strconcat ("xdg-open ", url, NULL);
+-	ret = gdk_spawn_command_line_on_screen (screen, cmdline, error);
+-	g_free (cmdline);
+-
+-	return ret;
+-}
+-
+ /* Adds a Pango markup "size" to a bytestring
+  */
+ static void
+@@ -169,12 +153,12 @@ applet_change_size_or_orient(PanelApplet *applet_widget, int arg1, NetspeedApple
+ 	size = panel_applet_get_size(applet_widget);
+ 	orient = panel_applet_get_orient(applet_widget);
+ 	
+-	gtk_widget_ref(applet->pix_box);
+-	gtk_widget_ref(applet->in_pix);
+-	gtk_widget_ref(applet->in_label);
+-	gtk_widget_ref(applet->out_pix);
+-	gtk_widget_ref(applet->out_label);
+-	gtk_widget_ref(applet->sum_label);
++	g_object_ref(applet->pix_box);
++	g_object_ref(applet->in_pix);
++	g_object_ref(applet->in_label);
++	g_object_ref(applet->out_pix);
++	g_object_ref(applet->out_label);
++	g_object_ref(applet->sum_label);
+ 
+ 	if (applet->in_box) {
+ 		gtk_container_remove(GTK_CONTAINER(applet->in_box), applet->in_label);
+@@ -228,12 +212,12 @@ applet_change_size_or_orient(PanelApplet *applet_widget, int arg1, NetspeedApple
+ 	gtk_box_pack_start(GTK_BOX(applet->sum_box), applet->sum_label, TRUE, TRUE, 0);
+ 	gtk_box_pack_start(GTK_BOX(applet->box), applet->pix_box, FALSE, FALSE, 0);
+ 	
+-	gtk_widget_unref(applet->pix_box);
+-	gtk_widget_unref(applet->in_pix);
+-	gtk_widget_unref(applet->in_label);
+-	gtk_widget_unref(applet->out_pix);
+-	gtk_widget_unref(applet->out_label);
+-	gtk_widget_unref(applet->sum_label);
++	g_object_unref(applet->pix_box);
++	g_object_unref(applet->in_pix);
++	g_object_unref(applet->in_label);
++	g_object_unref(applet->out_pix);
++	g_object_unref(applet->out_label);
++	g_object_unref(applet->sum_label);
+ 
+ 	if (applet->show_sum) {
+ 		gtk_box_pack_start(GTK_BOX(applet->box), applet->sum_box, TRUE, TRUE, 0);
+@@ -246,41 +230,6 @@ applet_change_size_or_orient(PanelApplet *applet_widget, int arg1, NetspeedApple
+ 	gtk_container_add(GTK_CONTAINER(applet->applet), applet->box);
+ }
+ 
+-/* Change the background of the applet according to
+- * the panel background.
+- */
+-static void 
+-change_background_cb(PanelApplet *applet_widget, 
+-				PanelAppletBackgroundType type,
+-				GdkColor *color, GdkPixmap *pixmap, 
+-				NetspeedApplet *applet)
+-{
+-	GtkStyle *style;
+-	GtkRcStyle *rc_style = gtk_rc_style_new ();
+-	gtk_widget_set_style (GTK_WIDGET (applet_widget), NULL);
+-	gtk_widget_modify_style (GTK_WIDGET (applet_widget), rc_style);
+-	gtk_rc_style_unref (rc_style);
+-
+-	switch (type) {
+-		case PANEL_PIXMAP_BACKGROUND:
+-			style = gtk_style_copy (GTK_WIDGET (applet_widget)->style);
+-			if(style->bg_pixmap[GTK_STATE_NORMAL])
+-				g_object_unref (style->bg_pixmap[GTK_STATE_NORMAL]);
+-			style->bg_pixmap[GTK_STATE_NORMAL] = g_object_ref (pixmap);
+-			gtk_widget_set_style (GTK_WIDGET(applet_widget), style);
+-			g_object_unref (style);
+-			break;
+-
+-		case PANEL_COLOR_BACKGROUND:
+-			gtk_widget_modify_bg(GTK_WIDGET(applet_widget), GTK_STATE_NORMAL, color);
+-			break;
+-
+-		case PANEL_NO_BACKGROUND:
+-			break;
+-	}
+-}
+-
+-
+ /* Change the icons according to the selected device
+  */
+ static void
+@@ -316,8 +265,8 @@ change_icons(NetspeedApplet *applet)
+ 
+ 	gtk_image_set_from_pixbuf(GTK_IMAGE(applet->out_pix), out_arrow);
+ 	gtk_image_set_from_pixbuf(GTK_IMAGE(applet->in_pix), in_arrow);
+-	gdk_pixbuf_unref(in_arrow);
+-	gdk_pixbuf_unref(out_arrow);
++	g_object_unref(in_arrow);
++	g_object_unref(out_arrow);
+ 	
+ 	if (applet->devinfo.running) {
+ 		gtk_widget_show(applet->in_box);
+@@ -429,100 +378,6 @@ bytes_to_string(double bytes, gboolean per_sec, gboolean bits)
+ 	return g_strdup_printf(format, bytes, gettext(unit));
+ }
+ 
+-
+-/* Redraws the graph drawingarea
+- * Some really black magic is going on in here ;-)
+- */
+-static void
+-redraw_graph(NetspeedApplet *applet)
+-{
+-	GdkGC *gc;
+-	GdkColor color;
+-	GtkWidget *da = GTK_WIDGET(applet->drawingarea);
+-	GdkWindow *window, *real_window = da->window;
+-	GdkRectangle ra;
+-	GtkStateType state;
+-	GdkPoint in_points[GRAPH_VALUES], out_points[GRAPH_VALUES];
+-	PangoLayout *layout;
+-	PangoRectangle logical_rect;
+-	char *text; 
+-	int i, offset, w, h;
+-	double max_val;
+-	
+-	gc = gdk_gc_new (real_window);
+-	gdk_drawable_get_size(real_window, &w, &h);
+-
+-	/* use doublebuffering to avoid flickering */
+-	window = gdk_pixmap_new(real_window, w, h, -1);
+-	
+-	/* the graph hight should be: hight/2 <= applet->max_graph < hight */
+-	for (max_val = 1; max_val < applet->max_graph; max_val *= 2) ;
+-	
+-	/* calculate the polygons (GdkPoint[]) for the graphs */ 
+-	offset = 0;
+-	for (i = (applet->index_graph + 1) % GRAPH_VALUES; applet->in_graph[i] < 0; i = (i + 1) % GRAPH_VALUES)
+-		offset++;
+-	for (i = offset + 1; i < GRAPH_VALUES; i++)
+-	{
+-		int index = (applet->index_graph + i) % GRAPH_VALUES;
+-		out_points[i].x = in_points[i].x = ((w - 6) * i) / GRAPH_VALUES + 4;
+-		in_points[i].y = h - 6 - (int)((h - 8) * applet->in_graph[index] / max_val);
+-		out_points[i].y = h - 6 - (int)((h - 8) * applet->out_graph[index] / max_val);
+-	}	
+-	in_points[offset].x = out_points[offset].x = ((w - 6) * offset) / GRAPH_VALUES + 4;
+-	in_points[offset].y = in_points[(offset + 1) % GRAPH_VALUES].y;
+-	out_points[offset].y = out_points[(offset + 1) % GRAPH_VALUES].y;
+-	
+-	/* draw the background */
+-	gdk_gc_set_rgb_fg_color (gc, &da->style->black);
+-	gdk_draw_rectangle (window, gc, TRUE, 0, 0, w, h);
+-	
+-	color.red = 0x3a00; color.green = 0x8000; color.blue = 0x1400;
+-	gdk_gc_set_rgb_fg_color(gc, &color);
+-	gdk_draw_rectangle (window, gc, FALSE, 2, 2, w - 6, h - 6);
+-	
+-	for (i = 0; i < GRAPH_LINES; i++) {
+-		int y = 2 + ((h - 6) * i) / GRAPH_LINES; 
+-		gdk_draw_line(window, gc, 2, y, w - 4, y);
+-	}
+-	
+-	/* draw the polygons */
+-	gdk_gc_set_line_attributes(gc, 2, GDK_LINE_SOLID, GDK_CAP_ROUND, GDK_JOIN_ROUND);
+-	gdk_gc_set_rgb_fg_color(gc, &applet->in_color);
+-	gdk_draw_lines(window, gc, in_points + offset, GRAPH_VALUES - offset);
+-	gdk_gc_set_rgb_fg_color(gc, &applet->out_color);
+-	gdk_draw_lines(window, gc, out_points + offset, GRAPH_VALUES - offset);
+-
+-	/* draw the 2 labels */
+-	state = GTK_STATE_NORMAL;
+-	ra.x = 0; ra.y = 0;
+-	ra.width = w; ra.height = h;
+-	
+-	text = bytes_to_string(max_val, TRUE, applet->show_bits);
+-	add_markup_fgcolor(&text, "white");
+-	layout = gtk_widget_create_pango_layout (da, NULL);
+-	pango_layout_set_markup(layout, text, -1);
+-	g_free (text);
+-	gtk_paint_layout(da->style, window, state,	FALSE, &ra, da, "max_graph", 3, 2, layout);
+-	g_object_unref(G_OBJECT(layout));
+-
+-	text = bytes_to_string(0.0, TRUE, applet->show_bits);
+-	add_markup_fgcolor(&text, "white");
+-	layout = gtk_widget_create_pango_layout (da, NULL);
+-	pango_layout_set_markup(layout, text, -1);
+-	pango_layout_get_pixel_extents (layout, NULL, &logical_rect);
+-	g_free (text);
+-	gtk_paint_layout(da->style, window, state,	FALSE, &ra, da, "max_graph", 3, h - 4 - logical_rect.height, layout);
+-	g_object_unref(G_OBJECT(layout));
+-
+-	/* draw the pixmap to the real window */	
+-	gdk_draw_drawable(real_window, gc, window, 0, 0, 0, 0, w, h);
+-	
+-	g_object_unref(G_OBJECT(gc));
+-	g_object_unref(G_OBJECT(window));
+-}
+-
+-
+ static gboolean
+ set_applet_devinfo(NetspeedApplet* applet, const char* iface)
+ {
+@@ -680,8 +535,8 @@ update_applet(NetspeedApplet *applet)
+ 	}
+ 	/* Redraw the graph of the Infodialog */
+ 	if (applet->drawingarea)
+-		redraw_graph(applet);
+-	
++                gtk_widget_queue_draw (GTK_WIDGET (applet->drawingarea));
++
+ 	/* Save old values... */
+ 	applet->in_old[applet->index_old] = applet->devinfo.rx;
+ 	applet->out_old[applet->index_old] = applet->devinfo.tx;
+@@ -742,7 +597,7 @@ display_help (GtkWidget *dialog, const gchar *section)
+ 	else
+ 		uri = g_strdup ("ghelp:netspeed_applet");
+ 
+-	ret = open_uri (dialog, uri, &error);
++	ret = gtk_show_uri (gtk_widget_get_screen (dialog), uri, GDK_CURRENT_TIME, &error);
+ 	g_free (uri);
+ 	if (ret == FALSE) {
+ 		GtkWidget *error_dialog = gtk_message_dialog_new (NULL,
+@@ -769,45 +624,6 @@ help_cb (GtkAction *action, NetspeedApplet *ap)
+ 	display_help (GTK_WIDGET (ap->applet), NULL);
+ }
+ 
+-enum {
+-	LINK_TYPE_EMAIL,
+-	LINK_TYPE_URL
+-};
+-
+-/* handle the links of the about dialog */
+-static void
+-handle_links (GtkAboutDialog *about, const gchar *link, gpointer data)
+-{
+-	gchar *new_link;
+-	GError *error = NULL;
+-	gboolean ret;
+-	GtkWidget *dialog;
+-
+-	switch (GPOINTER_TO_INT (data)){
+-	case LINK_TYPE_EMAIL:
+-		new_link = g_strdup_printf ("mailto:%s", link);
+-		break;
+-	case LINK_TYPE_URL:
+-		new_link = g_strdup (link);
+-		break;
+-	default:
+-		g_assert_not_reached ();
+-	}
+-
+-	ret = open_uri (GTK_WIDGET (about), new_link, &error);
+-
+-	if (ret == FALSE) {
+-    		dialog = gtk_message_dialog_new (GTK_WINDOW (dialog), 
+-						 GTK_DIALOG_DESTROY_WITH_PARENT, 
+-						 GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, 
+-				                 _("Failed to show:\n%s"), new_link); 
+-    		gtk_dialog_run (GTK_DIALOG (dialog));
+-    		gtk_widget_destroy (dialog);
+-		g_error_free(error);
+-	}
+-	g_free (new_link);
+-}
+-
+ /* Just the about window... If it's already open, just fokus it
+  */
+ static void
+@@ -821,13 +637,7 @@ about_cb(GtkAction *action, gpointer data)
+ 		"Benoît Dejean <benoit@placenet.org>",
+ 		NULL
+ 	};
+-    
+-	gtk_about_dialog_set_email_hook ((GtkAboutDialogActivateLinkFunc) handle_links,
+-					 GINT_TO_POINTER (LINK_TYPE_EMAIL), NULL);
+-	
+-	gtk_about_dialog_set_url_hook ((GtkAboutDialogActivateLinkFunc) handle_links,
+-				       GINT_TO_POINTER (LINK_TYPE_URL), NULL);
+-	
++
+ 	gtk_show_about_dialog (NULL, 
+ 			       "version", VERSION, 
+ 			       "copyright", "Copyright 2002 - 2010 Jörgen Scheibengruber",
+@@ -945,6 +755,7 @@ settings_cb(GtkAction *action, gpointer data)
+ 	GtkWidget *show_sum_checkbutton;
+ 	GtkWidget *show_bits_checkbutton;
+ 	GtkWidget *change_icon_checkbutton;
++        GtkWidget *dialog_vbox;
+ 	GtkSizeGroup *category_label_size_group;
+ 	GtkSizeGroup *category_units_size_group;
+   	gchar *header_str;
+@@ -964,8 +775,7 @@ settings_cb(GtkAction *action, gpointer data)
+   
+ 	applet->settings = GTK_DIALOG(gtk_dialog_new_with_buttons(_("Netspeed Preferences"), 
+ 								  NULL, 
+-								  GTK_DIALOG_DESTROY_WITH_PARENT |
+-								  GTK_DIALOG_NO_SEPARATOR,	
++								  GTK_DIALOG_DESTROY_WITH_PARENT,
+ 								  GTK_STOCK_HELP, GTK_RESPONSE_HELP, 
+ 								  GTK_STOCK_CLOSE, GTK_RESPONSE_ACCEPT, 
+ 								  NULL));
+@@ -1012,15 +822,15 @@ settings_cb(GtkAction *action, gpointer data)
+ 	gtk_size_group_add_widget(category_label_size_group, network_device_label);
+ 	gtk_box_pack_start(GTK_BOX (network_device_hbox), network_device_label, FALSE, FALSE, 0);
+ 	
+-	applet->network_device_combo = gtk_combo_box_new_text();
++	applet->network_device_combo = gtk_combo_box_text_new();
+ 	gtk_label_set_mnemonic_widget(GTK_LABEL(network_device_label), applet->network_device_combo);
+ 	gtk_box_pack_start (GTK_BOX (network_device_hbox), applet->network_device_combo, TRUE, TRUE, 0);
+ 
+ 	/* Default means device with default route set */
+-	gtk_combo_box_append_text(GTK_COMBO_BOX(applet->network_device_combo), _("Default"));
++	gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(applet->network_device_combo), _("Default"));
+ 	ptr = devices = get_available_devices();
+ 	for (i = 1; ptr; ptr = g_list_next(ptr)) {
+-		gtk_combo_box_append_text(GTK_COMBO_BOX(applet->network_device_combo), ptr->data);
++		gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(applet->network_device_combo), ptr->data);
+ 		if (g_str_equal(ptr->data, applet->devinfo.name)) active = i;
+ 		++i;
+ 	}
+@@ -1057,20 +867,130 @@ settings_cb(GtkAction *action, gpointer data)
+ 	g_signal_connect(G_OBJECT (applet->settings), "response",
+ 			 G_CALLBACK(pref_response_cb), (gpointer)applet);
+ 
+-	gtk_container_add(GTK_CONTAINER(applet->settings->vbox), vbox); 
++        dialog_vbox = gtk_dialog_get_content_area (GTK_DIALOG (applet->settings));
++	gtk_container_add(GTK_CONTAINER(dialog_vbox), vbox);
+ 
+ 	gtk_widget_show_all(GTK_WIDGET(applet->settings));
+ }
+ 
++/* Redraws the graph drawingarea
++ * Some really black magic is going on in here ;-)
++ */
+ static gboolean
+-da_expose_event(GtkWidget *widget, GdkEventExpose *event, gpointer data)
++da_draw(GtkWidget *widget, cairo_t *cr, gpointer data)
+ {
+ 	NetspeedApplet *applet = (NetspeedApplet*)data;
+-	
+-	redraw_graph(applet);
+-	
++        GtkStyleContext *context;
++        GtkStateFlags state;
++	GdkWindow *window;
++	GdkPoint in_points[GRAPH_VALUES], out_points[GRAPH_VALUES];
++	PangoLayout *layout;
++	PangoRectangle logical_rect;
++        GdkColor color;
++	char *text;
++        gint width, height;
++	int i, offset;
++	double max_val;
++        cairo_surface_t *surface;
++        cairo_t *tmp_cr;
++
++        state = gtk_widget_get_state_flags (widget);
++        context = gtk_widget_get_style_context (widget);
++        gtk_style_context_save (context);
++
++        gtk_style_context_set_state (context, state);
++
++        window = gtk_widget_get_window (widget);
++        width = gtk_widget_get_allocated_width (widget);
++        height = gtk_widget_get_allocated_height (widget);
++
++	/* use doublebuffering to avoid flickering */
++        surface = gdk_window_create_similar_surface (window, CAIRO_CONTENT_COLOR, width, height);
++
++        tmp_cr = cairo_create (surface);
++
++	/* the graph hight should be: hight/2 <= applet->max_graph < hight */
++	for (max_val = 1; max_val < applet->max_graph; max_val *= 2) ;
++
++	/* calculate the polygons (GdkPoint[]) for the graphs */
++	offset = 0;
++	for (i = (applet->index_graph + 1) % GRAPH_VALUES; applet->in_graph[i] < 0; i = (i + 1) % GRAPH_VALUES)
++		offset++;
++	for (i = offset + 1; i < GRAPH_VALUES; i++)
++	{
++		int index = (applet->index_graph + i) % GRAPH_VALUES;
++		out_points[i].x = in_points[i].x = ((width - 6) * i) / GRAPH_VALUES + 4;
++		in_points[i].y = height - 6 - (int)((height - 8) * applet->in_graph[index] / max_val);
++		out_points[i].y = height - 6 - (int)((height - 8) * applet->out_graph[index] / max_val);
++	}
++	in_points[offset].x = out_points[offset].x = ((width - 6) * offset) / GRAPH_VALUES + 4;
++	in_points[offset].y = in_points[(offset + 1) % GRAPH_VALUES].y;
++	out_points[offset].y = out_points[(offset + 1) % GRAPH_VALUES].y;
++
++	/* draw the background */
++        cairo_set_source_rgb (tmp_cr, 0., 0., 0.);
++        cairo_rectangle (tmp_cr, 0, 0, width, height);
++        cairo_fill (tmp_cr);
++
++        cairo_set_line_width (tmp_cr, 1.);
++	color.red = 0x3a00; color.green = 0x8000; color.blue = 0x1400;
++        gdk_cairo_set_source_color (tmp_cr, &color);
++        cairo_rectangle (tmp_cr, 2.5, 2.5, width - 6.5, height - 6.5);
++        cairo_stroke (tmp_cr);
++
++	for (i = 0; i < GRAPH_LINES; i++) {
++		int y = 2 + ((height - 6) * i) / GRAPH_LINES;
++                cairo_move_to (tmp_cr, 2.5, y + 0.5);
++                cairo_line_to (tmp_cr, width - 4.5, y - 0.5);
++                cairo_stroke (tmp_cr);
++	}
++
++	/* draw the polygons */
++        cairo_set_line_width (tmp_cr, 2.);
++        cairo_set_line_join (tmp_cr, CAIRO_LINE_JOIN_ROUND);
++        cairo_set_line_cap (tmp_cr, CAIRO_LINE_CAP_ROUND);
++
++        gdk_cairo_set_source_color (tmp_cr, &applet->in_color);
++        cairo_move_to (tmp_cr, in_points[offset].x, in_points[offset].y);
++        for (i = offset + 1; i < GRAPH_VALUES; i++)
++                cairo_line_to (tmp_cr, in_points[i].x, in_points[i].y);
++        cairo_stroke (tmp_cr);
++
++        gdk_cairo_set_source_color (tmp_cr, &applet->out_color);
++        cairo_move_to (tmp_cr, out_points[offset].x, out_points[offset].y);
++        for (i = offset + 1; i < GRAPH_VALUES; i++)
++                cairo_line_to (tmp_cr, out_points[i].x, out_points[i].y);
++        cairo_stroke (tmp_cr);
++
++	/* draw the 2 labels */
++        gtk_style_context_set_state (context, GTK_STATE_FLAG_NORMAL);
++
++	text = bytes_to_string(max_val, TRUE, applet->show_bits);
++	add_markup_fgcolor(&text, "white");
++	layout = gtk_widget_create_pango_layout (widget, NULL);
++	pango_layout_set_markup(layout, text, -1);
++	g_free (text);
++        gtk_render_layout (context, tmp_cr, 3, 2, layout);
++	g_object_unref(G_OBJECT(layout));
++
++	text = bytes_to_string(0.0, TRUE, applet->show_bits);
++	add_markup_fgcolor(&text, "white");
++	layout = gtk_widget_create_pango_layout (widget, NULL);
++	pango_layout_set_markup(layout, text, -1);
++	pango_layout_get_pixel_extents (layout, NULL, &logical_rect);
++	g_free (text);
++        gtk_render_layout (context, tmp_cr, 3, height - 4 - logical_rect.height, layout);
++	g_object_unref(G_OBJECT(layout));
++
++        cairo_destroy (tmp_cr);
++
++	/* draw the surface to the real window */
++        cairo_set_source_surface (cr, surface, 0, 0);
++        cairo_paint (cr);
++        cairo_surface_destroy (surface);
++
+ 	return FALSE;
+-}	
++}
+ 
+ static void
+ incolor_changed_cb (GtkColorButton *cb, gpointer data)
+@@ -1139,6 +1059,7 @@ showinfo_cb(GtkAction *action, gpointer data)
+ 	GtkWidget *inbytes_label, *outbytes_label;
+ 	GtkWidget *incolor_sel, *incolor_label;
+ 	GtkWidget *outcolor_sel, *outcolor_label;
++        GtkWidget *dialog_vbox;
+ 	char *title;
+ 	
+ 	g_assert(applet);
+@@ -1152,8 +1073,7 @@ showinfo_cb(GtkAction *action, gpointer data)
+ 	title = g_strdup_printf(_("Device Details for %s"), applet->devinfo.name);
+ 	applet->details = GTK_DIALOG(gtk_dialog_new_with_buttons(title, 
+ 		NULL, 
+-		GTK_DIALOG_DESTROY_WITH_PARENT |
+-	 	GTK_DIALOG_NO_SEPARATOR,
++                GTK_DIALOG_DESTROY_WITH_PARENT,
+ 		GTK_STOCK_CLOSE, GTK_RESPONSE_ACCEPT, 
+ 		GTK_STOCK_HELP, GTK_RESPONSE_HELP,
+ 		NULL));
+@@ -1289,26 +1209,27 @@ showinfo_cb(GtkAction *action, gpointer data)
+ 		gtk_table_attach_defaults (GTK_TABLE (table), essid_text, 1, 4, 4, 5);
+ 	}
+ 
+-	g_signal_connect(G_OBJECT(applet->drawingarea), "expose_event",
+-			 GTK_SIGNAL_FUNC(da_expose_event),
++	g_signal_connect(applet->drawingarea, "draw",
++			 G_CALLBACK(da_draw),
+ 			 (gpointer)applet);
+ 
+-	g_signal_connect(G_OBJECT(incolor_sel), "color_set", 
++	g_signal_connect(incolor_sel, "color_set",
+ 			 G_CALLBACK(incolor_changed_cb),
+ 			 (gpointer)applet);
+ 	
+-	g_signal_connect(G_OBJECT(outcolor_sel), "color_set",
++	g_signal_connect(outcolor_sel, "color_set",
+ 			 G_CALLBACK(outcolor_changed_cb),
+ 			 (gpointer)applet);
+ 
+-	g_signal_connect(G_OBJECT(applet->details), "response",
++	g_signal_connect(applet->details, "response",
+ 			 G_CALLBACK(info_response_cb), (gpointer)applet);
+ 
+ 	gtk_box_pack_start(GTK_BOX(box), da_frame, TRUE, TRUE, 0);
+ 	gtk_box_pack_start(GTK_BOX(box), hbox, FALSE, FALSE, 0);
+ 	gtk_box_pack_start(GTK_BOX(box), table, FALSE, FALSE, 0);
+ 
+-	gtk_container_add(GTK_CONTAINER(applet->details->vbox), box); 
++        dialog_vbox = gtk_dialog_get_content_area (GTK_DIALOG (applet->details));
++	gtk_container_add(GTK_CONTAINER(dialog_vbox), box);
+ 	gtk_widget_show_all(GTK_WIDGET(applet->details));
+ }	
+ 
+@@ -1639,7 +1560,7 @@ netspeed_applet_factory(PanelApplet *applet_widget, const gchar *iid, gpointer d
+ 	panel_applet_set_flags(applet_widget, PANEL_APPLET_EXPAND_MINOR);
+ 	
+ 	applet->timeout_id = g_timeout_add(applet->refresh_time,
+-                           (GtkFunction)timeout_function,
++                           (GSourceFunc)timeout_function,
+                            (gpointer)applet);
+ 
+ 	g_signal_connect(G_OBJECT(applet_widget), "change_size",
+@@ -1654,10 +1575,6 @@ netspeed_applet_factory(PanelApplet *applet_widget, const gchar *iid, gpointer d
+                            G_CALLBACK(applet_change_size_or_orient),
+                            (gpointer)applet);
+ 
+-	g_signal_connect(G_OBJECT(applet_widget), "change_background",
+-                           G_CALLBACK(change_background_cb),
+-			   (gpointer)applet);
+-		       
+ 	g_signal_connect(G_OBJECT(applet->in_label), "size_request",
+                            G_CALLBACK(label_size_request_cb),
+                            (gpointer)applet);
+@@ -1686,6 +1603,7 @@ netspeed_applet_factory(PanelApplet *applet_widget, const gchar *iid, gpointer d
+ 			 G_CALLBACK(netspeed_enter_cb),
+ 			 (gpointer)applet);
+ 
++        panel_applet_set_background_widget (applet_widget, GTK_WIDGET (applet_widget));
+ 
+ 	action_group = gtk_action_group_new("Netspeed Applet Actions");
+ 	gtk_action_group_set_translation_domain(action_group, GETTEXT_PACKAGE);
+-- 
+1.7.1
+

@@ -1,0 +1,1667 @@
+1 patch for repository http://code.haskell.org/xmobar:
+
+Sat Nov  6 20:29:31 EET 2010  Oleg Smirnov <oleg.smirnov@gmail.com>
+  * New (and optional) GMail monitor.
+
+New patches:
+
+[New (and optional) GMail monitor.
+Oleg Smirnov <oleg.smirnov@gmail.com>**20101106182931
+ Ignore-this: 2a8b36bb18952561eb319802efbe565c
+] {
+hunk ./Plugins/Monitors.hs 40
+ #ifdef LIBMPD
+ import Plugins.Monitors.MPD
+ #endif
++#ifdef GMAIL
++import Plugins.Monitors.GMail
++#endif
+ 
+ data Monitors = Weather  Station    Args Rate
+               | Network  Interface  Args Rate
+hunk ./Plugins/Monitors.hs 65
+ #ifdef LIBMPD
+               | MPD      Args       Rate
+ #endif
++#ifdef GMAIL
++              | GMail    Account    Pass Args Rate
++#endif
+                 deriving (Show,Read,Eq)
+ 
+ type Args      = [String]
+hunk ./Plugins/Monitors.hs 78
+ type Interface = String
+ type Rate      = Int
+ type DiskSpec  = [(String, String)]
++type Account   = String
++type Pass      = String
+ 
+ instance Exec Monitors where
+     alias (Weather  s _ _) = s
+hunk ./Plugins/Monitors.hs 103
+ #ifdef LIBMPD
+     alias (MPD        _ _) = "mpd"
+ #endif
++#ifdef GMAIL
++    alias (GMail  u _ _ _) = u
++#endif
+     start (Weather  s a r) = runM (a ++ [s]) weatherConfig  runWeather    r
+     start (Network  i a r) = runM (a ++ [i]) netConfig      runNet        r
+     start (Thermal  z a r) = runM (a ++ [z]) thermalConfig  runThermal    r
+hunk ./Plugins/Monitors.hs 127
+ #ifdef LIBMPD
+     start (MPD        a r) = runM a          mpdConfig      runMPD        r
+ #endif
+-
++#ifdef GMAIL
++    start (GMail  u p a r) = runM ([u, p] ++ a) gmailConfig runGMail      r
++#endif
+addfile ./Plugins/Monitors/GMail.hs
+hunk ./Plugins/Monitors/GMail.hs 1
++-----------------------------------------------------------------------------
++-- |
++-- Module      :  Plugins.Monitors.GMail
++-- Copyright   :  (c) Oleg Smirnov
++-- License     :  BSD-style (see LICENSE)
++-- 
++-- Maintainer  :  Oleg Smirnov <oleg.smirnov@gmail.com>
++-- Stability   :  unstable
++-- Portability :  unportable
++--
++-- A GMail checker for Xmobar
++--
++-----------------------------------------------------------------------------
++
++module Plugins.Monitors.GMail where
++
++import Plugins.Monitors.Common
++
++import Control.Monad (when)
++import System.Process
++import System.Exit
++import System.IO
++
++import Text.ParserCombinators.Parsec
++
++gmailConfig :: IO MConfig
++gmailConfig = mkMConfig "<account>: <count>" ["account", "count"]
++
++data GMailInfo =
++    GI { account :: String
++       , count   :: Int
++       } deriving (Show)
++
++pCount :: Parser Int
++pCount = do s <- manyTill digit $ (char '<')
++            return $ read s
++
++parseData :: Parser [GMailInfo]
++parseData = 
++    do skipRestOfLine
++       skipRestOfLine
++       skipTillString "<title>"
++       skipTillString "Gmail - Inbox for "
++       acc <- getAllBut "<"
++       skipRestOfLine
++       skipRestOfLine
++       skipTillString "<fullcount>"
++       cnt <- pCount
++       manyTill skipRestOfLine eof
++       return $ [GI acc cnt]
++
++defUrl :: String
++defUrl = "https://mail.google.com/a/"
++
++defFeed :: String
++defFeed = "/feed/atom"
++
++getDomain :: String -> String
++getDomain s = 
++    if '@' `elem` s
++       then tail $ dropWhile (/= '@') s
++       else "gmail.com"
++
++getData :: String -> String -> IO String
++getData acct pass =
++        do (i,o,e,p) <- runInteractiveCommand ("curl " ++" -u " ++
++                                               acct ++ ":" ++ pass ++ " " ++
++                                               defUrl ++ (getDomain acct) ++ defFeed)
++           exit <- waitForProcess p
++           let closeHandles = do hClose o
++                                 hClose i
++                                 hClose e
++           case exit of
++             ExitSuccess -> do str <- hGetContents o
++                               when (str == str) $ return ()
++                               closeHandles
++                               return str
++             _ -> do closeHandles
++                     return "Could not retrieve data"
++
++formatGMail :: [GMailInfo] -> Monitor String
++formatGMail [(GI acc cnt)] =
++    do cnt_ <- showWithColors show cnt
++       parseTemplate [acc, cnt_]
++formatGMail _ = return "N/A"
++
++runGMail :: [String] -> Monitor String
++runGMail str =
++    do d <- io $ getData (head str) (head . tail $ str)
++       i <- io $ runP parseData d
++       formatGMail i
+hunk ./README 500
+   a space in front of the printed string (when it's not empty); it
+   can be used in the template with the alias `mbox`.
+ 
++`GMail Account Pass Args RefreshRate`
++
++- aliases to account name: `GMail "user.name" "pAsS321" []` can be accessed
++  via `%user.name%`
++- Account: Google Mail or Google Apps account in `username@domain` format.
++  Domain `gmail.com` can be omitted.
++- Pass: password for the account
++- Args: the argument list (see below)
++- Default template: `<account>: <count>`
++- Example: `Run GMail "user.name@gmail.com" "pAsS321" ["-t", "GMail: <count>"] 600`
++- This monitor will only be compiled if you enable it with the `with_gmail` flag.
++
+ ## Monitor Plugins Commands Arguments
+ 
+ These are the arguments that can be used for internal commands in the
+hunk ./xmobar.cabal 43
+   description: mpd support. Needs libmpd installed.
+   default: False
+ 
++flag with_gmail
++  description: Gmail support.
++  default: False
++
+ executable xmobar
+     main-is:            Main.hs
+     other-modules:      Xmobar, Config, Parsers, Commands, XUtil, StatFS, Runnable, Plugins
+hunk ./xmobar.cabal 89
+     if flag(with_mpd)
+        build-depends: libmpd > 0.4
+        cpp-options: -DLIBMPD
++
++    if flag(with_gmail)
++       cpp-options: -DGMAIL
+}
+
+Context:
+
+[Fix strange formatting of CPU frequencies
+Norbert Zeh <nzeh@cs.dal.ca>**20100604144153
+ Ignore-this: 8c7108dbb071318135c54f0ff830c065
+ 
+ This patch displays frequencies under 1GHz as MHz and above 1GHz as GHz.
+ Unfortunately, it was also necessary to touch CoreCommon.hs and CoreTemp.hs to
+ implement this.
+] 
+[Fix right-alignment of strings
+Norbert Zeh <nzeh@cs.dal.ca>**20090731025448
+ Ignore-this: c8788007de87e0832575047b9ba4780b
+ 
+ The alignment of right-aligned content was off by one.  Fixed that.
+] 
+[Full-height colour boxes around text
+Norbert Zeh <nzeh@cs.dal.ca>**20090731025556
+ Ignore-this: b1339bf8b7ed3ee816233d1dd386bd0a
+ 
+ Didn't like the fact that strings with the non-default background had two
+ pixels of default background above and below it.  Made the boxes with the
+ custom background colour extend to the full height of the status bar.
+] 
+[fix type - thanks to Taylan Ulrich B. for reporting it
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100527100616
+ Ignore-this: 08b07a8398bdbf974bfa21287c779340a68b9381
+] 
+[Fix for issue 23 (compat with iwlib 29)
+Jose A Ortega Ruiz <jao@gnu.org>**20100519124333
+ Ignore-this: 8bf9b8b8cd84d4a27dc12cce6ba45121
+] 
+[TAG 0.11.1
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100517114228
+ Ignore-this: b4950eeceab8b58b0a279a68e87b2eb85470a0a5
+] 
+[bump version number
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100517101734
+ Ignore-this: d49b78b77b388e3e4e5e1233ed3e99baa32f53bf
+] 
+[formatting
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100517101227
+ Ignore-this: bea18b2ff60e618fb33eecac65a388d3615ffafa
+] 
+[make StatFS compile on FreeBSD.
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100517100947
+ Ignore-this: 9975e535184471c048871630237ff8b4f570c172
+ Courteously from  Gabor PALI (pgj at FreeBSD.org)  
+] 
+[fix the README file
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100515170109
+ Ignore-this: a06a5682f8986100bc23bb6a0d2f9a2cefcec6d8
+] 
+[TAG 0.11
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100515120713
+ Ignore-this: 8299afebb85b4f1b9e4bb76c413da11e69138e31
+] 
+[bump version number
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100515120702
+ Ignore-this: e6b0401a13363b6ca1bca7b2e917e09a1b9ee768
+] 
+[utf8 is optional
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100515113132
+ Ignore-this: a818a1a16ebc59161f60f9143cfd2e78caa8ea21
+ utf8 as a default dependency was added because of this:
+ http://www.haskell.org/pipermail/haskell/2010-April/022039.html
+] 
+[Some tweaks to the MBox monitor.
+Jose A Ortega Ruiz <jao@gnu.org>**20100415211616
+ Ignore-this: 9d59cfdd0596e777051d318c1c5226e2
+] 
+[More options for the MBox plugin.
+Jose A Ortega Ruiz <jao@gnu.org>**20100330234636
+ Ignore-this: d3996ea695c38897088bc2c0851ce992
+] 
+[New (and optional) MPD monitor.
+Jose A Ortega Ruiz <jao@gnu.org>**20100330193129
+ Ignore-this: 405d2dcf63efe90ea243df1c99db8ead
+] 
+[Tiny refactoring.
+Jose A Ortega Ruiz <jao@gnu.org>**20100329010552
+ Ignore-this: 5572afe54ca8aa3d13ebb34e431baa91
+] 
+[Cleaner Top.hs
+Jose A Ortega Ruiz <jao@gnu.org>**20100327023850
+ Ignore-this: 5f1c77125b77d40b7d5e3a3db052c9c
+] 
+[More Top improvements and cleanups.
+Jose A Ortega Ruiz <jao@gnu.org>**20100326205417
+ Ignore-this: 32354a5348abae22ab7646e1aef43b4
+] 
+[Less resource hungry Top monitors.
+Jose A Ortega Ruiz <jao@gnu.org>**20100326030956
+ Ignore-this: f963302295a675773ab3bfd54e458a0d
+] 
+[Artificial bound in relative load computation removed.
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100323213332
+ Ignore-this: d8577938430d9c8614c04a6bcee14dfd
+] 
+[Missing build-depends
+Jose A Ortega Ruiz <jao@gnu.org>**20100323202310
+ Ignore-this: 463a4b021313f6d85ceb8dd3d35c122d
+] 
+[More precise relative load computation in Top.
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100323202242
+ Ignore-this: c28a3077e02becc839b630077a5e1fb6
+] 
+[Bars for DiskIO
+Jose A Ortega Ruiz <jao@gnu.org>**20100320020848
+ Ignore-this: 50ae0b5d07377a8563acdede4dba31cf
+] 
+[Bar background, foreground and width configurable
+Jose A Ortega Ruiz <jao@gnu.org>**20100319212604
+ Ignore-this: 24bcec9b7517ddc1ff09bc0546be9170
+] 
+[Usage bars
+Jose A Ortega Ruiz <jao@gnu.org>**20100319203324
+ Ignore-this: 63fd21a117029674e33a9c4419dbc4de
+ 
+ ASCII art bars for a bunch of monitors.
+ 
+] 
+[Top monitor: top activity bounds checking.
+Jose A Ortega Ruiz <jao@gnu.org>**20100224232639
+ Ignore-this: 70e061f2fb06dbfaffb9758086c3c33f
+] 
+[Nits
+Jose A Ortega Ruiz <jao@gnu.org>**20100223002350
+ Ignore-this: f696da8b5b9877b65786b1146fddaefb
+] 
+[Wireless monitor: correctly computing link qualities
+Jose A Ortega Ruiz <jao@gnu.org>**20100222164729
+ Ignore-this: d03b31a12d52cf482841aae0fcf6829b
+] 
+[Wireless monitor: better boundary checks
+Jose A Ortega Ruiz <jao@gnu.org>**20100222144226
+ Ignore-this: cfb69e10b2eaff6924a2df32b1e51bf0
+] 
+[Getting the padding right
+Jose A Ortega Ruiz <jao@gnu.org>**20100222095913
+ Ignore-this: 6bf3b6c26ba135f473a355a480fb7efa
+] 
+[Respect padding in the blank string above
+Jose A Ortega Ruiz <jao@gnu.org>**20100221223426
+ Ignore-this: fd7a44d61a0cd2e795417f459afc8a3e
+] 
+[Wireless monitor: using a blank string for non-available quality
+Jose A Ortega Ruiz <jao@gnu.org>**20100221223019
+ Ignore-this: 68911cd8edff9f75ecb843a0c43aa866
+] 
+[New Wireless monitor
+Jose A Ortega Ruiz <jao@gnu.org>**20100221203809
+ Ignore-this: b1b66ffa9077f8d41a5c0e962ee0bff3
+] 
+[Using ByteStrings to more resilient MBox counting
+Jose A Ortega Ruiz <jao@gnu.org>**20100220002325
+ Ignore-this: 3fd6e381a8c2810f330131491d03afef
+] 
+[Documenting that flags must be passed to cabal _install_
+Jose A Ortega Ruiz <jao@gnu.org>**20100216215656
+ Ignore-this: 30cf6bf6382573808029b6650a20564
+] 
+[Whitespace
+Jose A Ortega Ruiz <jao@gnu.org>**20100216205419
+ Ignore-this: c75954e6f50c420d71ca14c7b24d1ef4
+] 
+[Little nits
+Jose A Ortega Ruiz <jao@gnu.org>**20100216090535
+ Ignore-this: fa0ddad969589fae157da12b7957a9f3
+] 
+[Unused import in Mail plugin removed
+Jose A Ortega Ruiz <jao@gnu.org>**20100214205444
+ Ignore-this: 585895d442a3e0ad3511ffaeb5af1e7e
+] 
+[Trying again to make xmonad.cabal merge cleanly
+Jose A Ortega Ruiz <jao@gnu.org>**20100214203653
+ Ignore-this: 80131d664b8148257758492ed5f17c3d
+] 
+[Fix for error while merging xmonad.cabal
+Jose A Ortega Ruiz <jao@gnu.org>**20100214202209
+ Ignore-this: 10d67f7e3e1511e4d382697b47202d77
+] 
+[Merge conflict resolutions in Parsers.hs and Batt.hs
+Jose A Ortega Ruiz <jao@gnu.org>**20100214191544
+ Ignore-this: 12bf0ec7afc4ac855a69375ee1b3d163
+] 
+[Merge conflict in xmonad.cabal resolved
+Jose A Ortega Ruiz <jao@gnu.org>**20100214190413
+ Ignore-this: c65b5ae251b4c3cde6d26b2930a50cb
+] 
+[Protect against IO failres in MBox
+Jose A Ortega Ruiz <jao@gnu.org>**20100214175647
+ Ignore-this: cd42eea2c51ae7fa959319be6463da14
+] 
+[A few redundant bang patterns removed
+Jose A Ortega Ruiz <jao@gnu.org>**20100214134235
+ Ignore-this: aaac0bc989a6c19c548c9917739bdf46
+] 
+[Less resource hungry top monitors
+Jose A Ortega Ruiz <jao@gnu.org>**20100214030823
+ Ignore-this: 920f60d81166f87370d20d779ed738c9
+] 
+[hlinting
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100212221459
+ Ignore-this: ab56894a498e5d5b2b551fbadafade08
+] 
+[Using plain IORef instead of MVar in TopCpu
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100212204520
+ Ignore-this: cb81e0c1b5ba9b3837924199f731b20f
+] 
+[Cleaner strictness annotations in Top.hs
+Jose A Ortega Ruiz <jao@gnu.org>**20100212134843
+ Ignore-this: 9561a7cb943dede21eeeb792ec74bcf5
+] 
+[Using /sys to read battery status
+Jose A Ortega Ruiz <jao@gnu.org>**20100212023509
+ Ignore-this: 5f2a97fd8be36211afd02ce488a2a7f1
+] 
+[New monitor argument to set both max and min widths (-w)
+Jose A Ortega Ruiz <jao@gnu.org>**20100212003829
+ Ignore-this: 27650f63b928ee0ae2bf4d4bf19919e5
+] 
+[Documentation for the TopCpu/TopMem monitors
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100212000337
+ Ignore-this: 792790b0fc73b9feb5a80df9a8602b1
+] 
+[Cosmetics
+Jose A Ortega Ruiz <jao@gnu.org>**20100211235821
+ Ignore-this: eb0c478fb8547f3cd20ded3cd195b06c
+] 
+[Improvements to the top monitors
+Jose A Ortega Ruiz <jao@gnu.org>**20100211225048
+ Ignore-this: 2b5970ea557f40775a8fca0291049e68
+] 
+[Tweaks to top monitors
+Jose A Ortega Ruiz <jao@gnu.org>**20100211144331
+ Ignore-this: 5080c889f37d103d6b1c1552b5daee73
+] 
+[First stab at top monitors
+Jose A Ortega Ruiz <jao@gnu.org>**20100211003857
+ Ignore-this: c89a13a99236d416cba2ba285099a2d7
+] 
+[New mail monitor for mbox files (MBox)
+Jose A Ortega Ruiz <jao@gnu.org>**20100205221330
+ Ignore-this: abfbb44ff7c6407fa3b8cdf1a456c614
+] 
+[DiskU/DiskIO documented in README
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100204150450
+ Ignore-this: 138c669d641aee601ab76523cfd250e9
+] 
+[New DiskU and DiskIO monitors
+Jose A Ortega Ruiz <jao@gnu.org>**20100204015455
+ Ignore-this: b72a9ad54c9ae478f2c3fbdcda4d26c8
+ New monitors for disk usage and throughput, replacing Disk.
+] 
+[add positions with height information
+Daniel Wagner <daniel@wagner-home.com>**20091230074604
+ Ignore-this: 1244d13c44610fc3b1d9b73a0ebfac59
+] 
+[allow escaping in string constants in the configuration
+Daniel Wagner <daniel@wagner-home.com>**20091230070139
+ Ignore-this: 2d6a4b3a08e5f52033e27a6db92f37a
+] 
+[Allow comments and leading whitespace in config (Adam Vogt)
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100128183302
+ Ignore-this: 121d37987dbb55c41ee5799a5ec94e57
+] 
+[Another tiny refactoring.
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100125204839
+ Ignore-this: 50e76f6d7eb97924b10842a597a00066
+] 
+[Inconsequential refactoring of Disk.
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100125201807
+ Ignore-this: b1d249892a8a8a44bdbe0dad9e366bcb
+] 
+[Documentation for the Disk monitor
+Jose A Ortega Ruiz <jao@gnu.org>**20100125032850
+ Ignore-this: 6ad4fcf176b34efc1527973f4f18e12
+] 
+[Disk: better error recovery
+Jose Antonio Ortega Ruiz <jao@gnu.org>**20100125031534
+ Ignore-this: 9a4573711403eb432c20e99efe176811
+] 
+[hlinting the previous patch
+Jose A Ortega Ruiz <jao@gnu.org>**20100125025511
+ Ignore-this: 9d5eba79f7a89ec7cea59d6b36089cba
+] 
+[New disk i/o monitor
+Jose A Ortega Ruiz <jao@gnu.org>**20100125023112
+ Ignore-this: f12c861c05fbaa80271f577dee952c69
+] 
+[CoreTemps: revert to non-rounding by default
+Jose A. Ortega Ruiz <jao@gnu.org>**20100121123451
+ Ignore-this: b8e96bb91956ea8235c7cae5dba4f4b1
+ We can control now whether to print decimals using -M
+] 
+[New options in Monitors (padding and width)
+Jose A. Ortega Ruiz <jao@gnu.org>**20100121123111
+ Ignore-this: c49cd3f7a80073e897cddaab88143f56
+ Maximum/minimum field width, padding characters and padding alignment
+ can now be specified as options (-M, -m, -c, -a).
+] 
+[README updated
+Jose A. Ortega Ruiz <jao@gnu.org>**20100120221754
+ Ignore-this: 48b90288174eb8b78e0b66b892d63e
+] 
+[New Monitor option to specify minimum percentage width
+Jose A. Ortega Ruiz <jao@gnu.org>**20100120215608
+ Ignore-this: 5e0413c218f257c0db06f83665bd2e5
+ The new option, -p, is a number specifying how many characters the numerical part
+ of percentages should take. Padding consists of whitespace. 
+ E.g. -p 3 makes '3%' appear as '  3%'. The default value is 0, which means padding
+ is disabled.
+] 
+[MultiCpus: hlinting
+Jose A. Ortega Ruiz <jao@gnu.org>**20100119222347
+ Ignore-this: 3052c410453447cc9ff89950df4c0077
+] 
+[CoreTemp: round temperatures instead of truncating them
+Jose A. Ortega Ruiz <jao@gnu.org>**20100119194726
+ Ignore-this: dd5d719c37169216ad664f916d2bb590
+] 
+[CoreTemp: return temperatures as integer values
+Jose A. Ortega Ruiz <jao@gnu.org>**20100119191955
+ Ignore-this: ce917bed99a2d812238d4581fbbff3d6
+] 
+[Tiny refactoring
+Jose A. Ortega Ruiz <jao@gnu.org>**20100119021753
+ Ignore-this: 404b0000887a9c4dfc5209a9f647d561
+] 
+[MultiCpus: pad percentages
+Jose A. Ortega Ruiz <jao@gnu.org>**20100119020244
+ Ignore-this: 6b8133d37a7ed40ae8b3dbc4d31920fa
+] 
+[MultiCpus: average only over two samples
+Jose A. Ortega Ruiz <jao@gnu.org>**20100118010702
+ Ignore-this: bb8498323409ea15d452f46ab64f31cb
+] 
+[Small refactoring
+Jose A. Ortega Ruiz <jao@gnu.org>**20100118010639
+ Ignore-this: 886cfda3510443d12f90c6184bf7f6e6
+] 
+[Export only public functions in MultiCpu
+Jose A. Ortega Ruiz <jao@gnu.org>**20100117233534
+ Ignore-this: efde63978ca9b2ff9450f5f173700f18
+] 
+[Checking for division by 0 in MultiCpus
+Jose A. Ortega Ruiz <jao@gnu.org>**20100117233109
+ Ignore-this: 37834de5acc423c47e29c9e0a492b71c
+] 
+[New MultiCpu monitor that works like Cpu for multiple CPU cores
+Jose A. Ortega Ruiz <jao@gnu.org>**20100117221500
+ Ignore-this: 64152f888f1e007612dc8e1f1eace875
+] 
+[TAG 0.10
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100515101447
+ Ignore-this: 9bbabc8f86c0874cd7bf875db744d3dee4b6c034
+] 
+[correctly parse static position in config
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100212132309
+ Ignore-this: c998e16a07bc65f0543ab26c5b155cb5e2b8f536
+] 
+[fix issue 19 - a small reegression in the config parser
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100211135118
+ Ignore-this: cea42efaa2e4c13ed3580154172008592d6e4970
+] 
+[fix issue 5
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100210135923
+ Ignore-this: afbb42721d0f68dee3a764185564a32f8c5d01e5
+] 
+[fix issue 7
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100210135212
+ Ignore-this: 97784bd32e2fba31eb1a54f24f57f702b04a067d
+] 
+[fix ghc-6.12.1 warnings andd fix issue 17
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100210122927
+ Ignore-this: 868a877e7a107ddc8bc4085f3eb7fc8ae64597ee
+ ghc-6.12.1 has native support for locales (very cool indeed!!), which
+ simplify the code - unless for the compatibility layer with past ghc
+ versions. xmobar has now support for every locale supported by ghc.
+ 
+ The rest of the patch are just redundant import warnings and some
+ xmobar.cabal updates.
+] 
+[Batt: read energy_ if charge_ is not present
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100210114505
+ Ignore-this: 76a24d0c8d89c239a2c9d8136f77f409ccb34f1a
+] 
+[bump version and set default value for xft and hinotify
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100209110028
+ Ignore-this: c7a12d3137f383eaed154196768c907a1c8333f2
+] 
+[Suppress warning for half-baked code
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100209105751
+ Ignore-this: 26aaa6c769e8bb80533c6247a591a66a20e9a87b
+] 
+[Monitors: display exceptions
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100209104236
+ Ignore-this: 46f86b3dcf9f41ec35a904e97e96013a656b08d5
+] 
+[Batt: use sysfs to retrieve information
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100209104107
+ Ignore-this: 06b7e637c2898c3abcc0959a077b8e418c0c15d4
+] 
+[update my email
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100209094548
+ Ignore-this: afbb205e54c523b9f091d4495f9ba176dd3db971
+] 
+[Partial fix for issue 14.
+Michal Terepeta <michal.terepeta@gmail.com>**20100130214452
+ Ignore-this: 93060e4b19a975843eaab1185af52545
+] 
+[get rid of action-permutations and use parsec permutation library instead
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20100206003909
+ Ignore-this: 73dbcd588c961bd8bb4dd6d0c931cb3760e2949e
+ code gets shorter and error messages maybe meaningful 
+] 
+[Since ACPI reads can be slow, use a helper /bin/cat process to perform them
+svein.ove@aas.no**20091102173811
+ Ignore-this: ae34afa8524d6cfb6baab8eb6c3a3b85
+] 
+[Also avoid excessive precision in memory displays
+John Goerzen <jgoerzen@complete.org>**20080917031153] 
+[Don't show tenths of items
+John Goerzen <jgoerzen@complete.org>**20080917025306
+ 
+ This is more precision than needed for CPU, Mem, Swap, etc. and 
+ consumes valuable space on small devices
+] 
+[Use native utf-8 input in GHC 6.12
+svein.ove@aas.no**20100102193207
+ Ignore-this: f307e7ee3f4b04a692b1a4183f3de83e
+] 
+[Add very experimental EWMH plugin
+Spencer Janssen <sjanssen@cse.unl.edu>**20091209021620
+ Ignore-this: 9837736ecbe1f4595f7f892bbfa3f620
+] 
+[xmonadpropwrite: pass input unchanged, UTF8 not needed
+Tomas Janousek <tomi@nomi.cz>**20091120234024
+ Ignore-this: 54b2aa3a8c9fa566d10474b5b09d0017
+] 
+[extend XMonadLog with XPropertyLog
+Tomas Janousek <tomi@nomi.cz>**20091120144426
+ Ignore-this: baec7062f93ab5950f57c44876c2f
+ 
+ XMonadLog can be even more awesome with the ability to gather input from
+ custom sources. This patch adds exactly that, along with a script to read from
+ pipe and write to xmobar using an X property.
+] 
+[Depend on Cabal 1.6, required for "4.*" dependency
+Spencer Janssen <sjanssen@cse.unl.edu>**20091119044609
+ Ignore-this: 39c28d9851787420eddb6e910903d376
+] 
+[Add XMonadLog.
+Spencer Janssen <sjanssen@cse.unl.edu>**20091107010104
+ Ignore-this: 99ce96d00494d6bd681ef524bb93f8c7
+ Support for writing WM status to a root window property was just added to
+ xmonad, this is the accompanying xmobar plugin.  The idea is to use XMonadLog
+ rather than StdinReader with xmonad, this should hopefully be more robust than
+ communicating over a pipe.
+] 
+[use whatever version of parsec we have
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20091014091406
+ Ignore-this: 0c7a7a10292e4e8cd3a379b178afd5d63950b775
+] 
+[reference to i3status in the README
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20091014091339
+ Ignore-this: 77464d96a83855eba1772c6b099314be5c84f3b0
+] 
+[Strip '--' comments in xmobarrc
+Adam Vogt <vogt.adam@gmail.com>**20091011035541
+ Ignore-this: f58bb2b32a2257d48c039bb8866b5b65
+] 
+[Use a newtype for the backtracking Parsec Alternative instance
+Adam Vogt <vogt.adam@gmail.com>**20091011035512
+ Ignore-this: e79b4134f53f7449f54b08c4fc4dc787
+] 
+[Support for base 4 without base-3 compatibility
+Adam Vogt <vogt.adam@gmail.com>**20091011015618
+ Ignore-this: 6846a123ade5dc1164841e62beabbf71
+] 
+[Distribute xmobar.config-sample
+Adam Vogt <vogt.adam@gmail.com>**20090918153425
+ Ignore-this: 78b3c774c43357cf143dde0c980a5b8c
+] 
+[Fix for PipeReader contents feching.
+jao@pobox.com**20090926215132
+ Ignore-this: d3362cb2b00c407b9ccc6adc97fdbf0d
+ 
+ Apparently, a pipe has to be opened in r/w mode for xmobar to update the
+ display of its contents when the latter changes in time. I don't see the
+ reason for this, but the fact remains that opening the pipe in ReadMode does
+ not work.
+ 
+] 
+[Fix parsing in Plugins.Monitors.Net
+wirtwolff@gmail.com**20090826211324
+ Ignore-this: 49586807b8118e3dfee9e8e57888175c
+ To close http://code.google.com/p/xmobar/issues/detail?id=9
+ Parse /proc/net/dev correctly with or without spaces after ':'
+] 
+[fix a few warnings, clean up some recently added stuff, and restrict parsec to <3
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090925192159
+ Ignore-this: df12dd4ab0ccec4de18b15e77a6150c484bd5ec5
+ Parsec 3 adds Applicative and Alternative instances which conflict
+ with the ones needed for version 2 (no other reasons I'm aware of
+ bind us to parsec-2).
+] 
+[Output to stdout whenever fields are defaulted in a config.
+Adam Vogt <vogt.adam@gmail.com>**20090923022835
+ Ignore-this: 3bf71f10543f14aa17b6b403480bcdde
+ 
+ This is done without a command line flag, but perhaps it should be.
+] 
+[Parse config file more intelligently.
+Adam Vogt <vogt.adam@gmail.com>**20090914023921
+ Ignore-this: 9d6cd7536b6df73f3af44b7a74b826a1
+   
+ Using parsec and action-permutations, config options may be permuted or left
+ out (to be replaced by the default configuration option).
+ 
+ This patch improves forwards compatibility with xmobar (ex. the addition of
+ lowerOnStart broke many configs), and provides some help to find typos in the
+ config. The commands section is still parsed with Read however.
+] 
+[clean up a bit the previous patch
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090925115655
+ Ignore-this: 464ed4ec3e01439d3b927778a916d700c8b9673d
+] 
+[fixed "Abnormally high cpu load on X" (11 issue in tracker)
+Sergei Trofimovich <slyfox@inbox.ru>**20090814194103
+ Ignore-this: f9c79a48b39c163b56393723b7215c72
+ 
+ Steps to reproduce are described in
+ http://code.google.com/p/xmobar/issues/detail?id=11
+ 
+ I've noticed large bunch of XAllocNamedColor calls/sec
+ in xmobar ltrace log.
+ This patch introduces simple hackish color cachig. It's more PoC,
+ than real fix.
+] 
+[Accept the outermost OnScreen XPosition
+Adam Vogt <vogt.adam@gmail.com>**20090420005732
+ Ignore-this: 9db9f39958618cf4c9ea91330f162aec
+ 
+ Takes the outermost directive. This implementation has the potentially
+ desirable side-effect of causing xmobar to run when given OnScreen 1, when
+ there is only 1 screen.
+] 
+[Add command line option for picking a screen
+Adam Vogt <vogt.adam@gmail.com>**20090420003639
+ Ignore-this: 5d9ddc7847f9000346b2ad18f95262db
+] 
+[TAG 0.9.2
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090411104528
+ Ignore-this: 35bbf68e1e0152b7f3591580d41a8dc5
+] 
+[bump version
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090411104518
+ Ignore-this: 90a227f6d7dfb7a4b612c58e1948bcf5
+] 
+[README updates
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090411103900
+ Ignore-this: 5d93cd3a16eb81ae279c07030f75fac4
+] 
+[Wrapped pixel allocation in DynPixel type
+nzeh@cs.dal.ca**20090409124658
+ 
+ The (Bool, Pixel) pair for controlling the allocation and deallocation of
+ pixels seemed hackish.  This version is a compromise between not having to
+ add too much boilerplate and being more expressive.
+] 
+[trailing space and variable name for the XFT version of printString
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090409113819
+ Ignore-this: f39d8322665f04683ec99758d290cf49
+] 
+[Fix colour allocation leak
+nzeh@cs.dal.ca**20090324001123] 
+[Drop Parsers.endOfLine and Parsers.tryString
+nzeh@cs.dal.ca**20090324001930
+ 
+ These were wrappers around eof and (try . string) and are no longer used.
+] 
+[Handle nested colour tags
+nzeh@cs.dal.ca**20090324001759
+ 
+ Parsers.parseString now handles nested colour tags.
+] 
+[Replaced inside with between
+nzeh@cs.dal.ca**20090324001622
+ 
+ Parsers.inside does the same as Text.Parsec.Combinators.between.
+ So I switched to using this standard function.
+] 
+[Parsers.hs reduced export list
+nzeh@cs.dal.ca**20090324001358
+ 
+ The old export list exported everything, making it unclear
+ which functions were actually used outside this module.
+] 
+[Allow color markup in monitor output templates
+nzeh@cs.dal.ca**20090318225152
+ 
+ With this patch, colors can be included in the output template of
+ a monitor.  E.g., ["-t", "TX <fc=#ff0000><tx></fc>"] for the Network
+ monitor.  This didn't work before.
+] 
+[TAG 0.9.1
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090308220659
+ Ignore-this: fa4f524e897f9e1a676fb3c1134ec594
+] 
+[bump version
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090308220646
+ Ignore-this: c1f029f3ddfd5174ff4def8a5a1d1b00
+] 
+[wraning fix in Plugins.Monitors.CoreCommon
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090130165325
+ Ignore-this: 5121b9fc93d1f6db6ff825a638c2d580
+] 
+[Workaround for ghc-6.10.1 bug + cleanup
+Juraj Hercek <juhe_xmonad@hck.sk>**20090128161846
+ Ignore-this: ee8d4e0e29796729d55b90eddf481af1
+] 
+[fix warning in Commands.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20090129152704
+ Ignore-this: 1914e04ea85fe033631c19085f94c477
+] 
+[handle successful commands with empty output
+daniel@wagner-home.com**20090125164724
+ Ignore-this: dbf3cac5cd8130bdf186e3487e5915ce
+] 
+[Compile without optimization on x86_64 and ghc-6.10.1
+wirtwolff@gmail.com**20090127014723
+ Workaround for issue http://hackage.haskell.org/trac/ghc/ticket/2961
+ "Incorrect FFI code generated with -O" on x86_64, applies to xmobar also.
+] 
+[Create _NEW_WM_STRUT_PARTIAL properties for Static position
+Andrew Sackville-West <andrew@swclan.homelinux.org>**20081207202334] 
+[Unicode support for Com
+Roman Cheplyaka <roma@ro-che.info>**20081207105822] 
+[Don't use base 4
+Spencer Janssen <sjanssen@cse.unl.edu>**20081124024201
+ Ignore-this: de03e51f0d05667656f23df80e6154bb
+] 
+[Catch exceptions from monitors, should fix problems with cpufreq
+Spencer Janssen <sjanssen@cse.unl.edu>**20081120120606
+ Ignore-this: 175b1d160eaaff1f2f2a2290d514f76e
+] 
+[Make lowerOnStart configurable.  Note this breaks config backwards compatibility
+Spencer Janssen <sjanssen@cse.unl.edu>**20081008050009] 
+[Cleaned up so that we watch the exit code
+John Goerzen <jgoerzen@complete.org>**20080916053600] 
+[Fixed build error
+John Goerzen <jgoerzen@complete.org>**20080916052656] 
+[Documented CommandReader
+John Goerzen <jgoerzen@complete.org>**20080916052137] 
+[Added CommandReader
+John Goerzen <jgoerzen@complete.org>**20080916052025] 
+[Lower the window, so as not to cover other windows
+Spencer Janssen <sjanssen@cse.unl.edu>**20080918213721] 
+[code formatting
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080901180020] 
+[xmobar_different_heights_generalized
+Jan Vornberger <jan@uos.de>**20080901124315
+ Set _NET_WM_STRUT_PARTIAL correctly when dealing with
+ multiple screens of different heights
+] 
+[onscreen-pos-strut-property-fix
+Jan Vornberger <jan@uos.de>**20080831171930
+ The _NET_WM_STRUT_PARTIAL property is now also set
+ correctly when using the position command OnScreen
+] 
+[Add documentation for Mail plugin
+Roman Cheplyaka <roma@ro-che.info>**20080822204746] 
+[Fix README to use :*:
+Roman Cheplyaka <roma@ro-che.info>**20080822202604] 
+[Typos
+Roman Cheplyaka <roma@ro-che.info>**20080822191327] 
+[use LANGUAGE pragmas
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080823112141] 
+[README: better links
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080730120345] 
+[A brief comment for Plugins.Mail
+Spencer Janssen <sjanssen@cse.unl.edu>**20080806205537] 
+[Use type operators to reduce ))))))) madness
+Spencer Janssen <sjanssen@cse.unl.edu>**20080806205051] 
+[Add Support for positioning on certain screens
+Spencer Janssen <sjanssen@cse.unl.edu>**20080806205029] 
+[Add mail watcher plugin
+Spencer Janssen <sjanssen@cse.unl.edu>**20080806204047] 
+[cabal: remove useless flags
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080501095808] 
+[TAG 0.9 release
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080501082629] 
+[style, pointfree and trailing spaces
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429125953] 
+[Parsers: code and comment cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429123603] 
+[cabal update
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429122729] 
+[README: updated to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429103312] 
+[email address, copyright date and more
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429103242] 
+[bump cabal version to 0.9
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429103215] 
+[Weather: close handles when successfully retrieving the data
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429102944] 
+[style
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429102848] 
+[Parser: '<' and '>' are not reserved characters anymore and can be used in the template
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080429094341
+ 
+ Consider this the first 0.9 release candidate.
+ 
+] 
+[config-sample: use Top for positioning
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080419090032
+ With Static xmobar does not set _NET_WM_STRUT_PARTIAL, which causes
+ troubles to novice xmonad users. 
+] 
+[Remove -threaded from ghc-options.
+Spencer Janssen <sjanssen@cse.unl.edu>**20080418185336
+ GHC's -threaded scheduler seems to wake up more frequently even when all
+ threads are idle.  These frequent wakeups are detrimental to laptop battery
+ life.
+] 
+[move "use_xft" to "with_xft"
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080330203722] 
+[XUtil: fix UTF-8 check.
+Dmitry Kurochkin <dmitry.kurochkin@gmail.com>**20080330200115] 
+[Fix _NET_WM_STRUT_PARTIAL implementation
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080330091537] 
+[Set _NET_WM_STRUT_PARTIAL instead of _NET_WM_STRUT and change mkUnmanageWindow to newWindow
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080329103834] 
+[Automate version generation
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080318101858] 
+[README: typos
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080317122327] 
+[README: updated to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080316164642] 
+[Add BatteryP a monitor for batteries
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080316160115
+ 
+ With this monitor is possible to set specific location where to
+ retrieve battery information.
+ 
+ For example:
+ Run BatteryP ["BAT0","BAT1","BAT2"] [] 10
+ 
+ this will read the following files:
+ /proc/acpi/battery/BAT0/info and /proc/acpi/battery/BAT0/state
+ /proc/acpi/battery/BAT1/info and /proc/acpi/battery/BAT1/state
+ /proc/acpi/battery/BAT1/info and /proc/acpi/battery/BAT2/state
+] 
+[Config: use more xmonad friendly defaults
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080316122805] 
+[add XFT support and make UTF-8 support configurable
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080316121100
+ This patch includes many changes:
+ - moved font and printing functions to XUtil.hs and created an
+   abstraction layer to font management;
+ - ported the core, StdinReader and PipeReader to the new font
+   management system.
+ 
+ To enable UTF-8 support configure with the "with_utf8" flag (requires
+ utf8-string):
+ runhaskell Setup.lhs configure --flags="with_utf8"
+ 
+ To enable XFT (which will turn on UTF-8 support too) configure with the
+ "with_utf8" flag (requires utf8-string and X11-xft):
+ runhaskell Setup.lhs configure --flags="use_xft"
+] 
+[Date: haddock fixes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080227190051] 
+[remove xmobar.css from repository
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080227133829] 
+[Add reference to curl dependency of the Weather plugin in the README
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080226151918
+ and remove README.html from the repository
+] 
+[Xmobar: vertical align after wc string
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080219011909] 
+[Adjusted filter used for digging out information from /sys directory
+Juraj Hercek <juhe_haskell@hck.sk>**20080216160650
+   - As of 2.4.24 kernel you might experience same frequency for all cores,
+     because cpufreq directory is a link for cores 1 and higher
+] 
+[cabal: remove unneeded -liconv linker flag
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216081458] 
+[PipeReader: add utf8 support
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216080421] 
+[StdinReader: add utf8 support
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216080306] 
+[add utf8 support to the core system
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216080151] 
+[cabal: add HsLocale and dependency on utf8-string
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216080104] 
+[Add HsLocale to support utf8
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216080026] 
+[trailing spaces
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080216075842] 
+[Set strut value for BottomW and TopW too
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20080109094354] 
+[Added documentation.
+Juraj Hercek <juhe_haskell@hck.sk>**20071222231419
+   - added Thermal, CoreTemp, CpuFreq documentation to README file
+   - added haddock documentation
+] 
+[Adjusted thermal monitor.
+Juraj Hercek <juhe_haskell@hck.sk>**20071222231039
+   - Thermal monitor can handle more thermal zones now
+] 
+[Remove -O2 -fasm from ghc-options, allow Cabal to determine the best flags
+Spencer Janssen <sjanssen@cse.unl.edu>**20071216001326] 
+[cabal: directory needed only with small_base
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071204145449] 
+[Added thermal, cpufreq and coretemp monitors.
+Juraj Hercek <juhe_haskell@hck.sk>**20071130205430
+ Prerequisities:
+ thermal
+ - thermal module should be loaded/compiled in kernel
+ - available in (at least) intel centrino processors
+ cpufreq
+ - acpi_cpufreq module should be loaded/compiled in kernel
+ - available in modern processors
+ coretemp
+ - coretemp module should be loaded/compiled in kernel
+ - available (at least) in core 2 duo processors
+] 
+[Typo fixes
+Alexander Solovyov <piranha@piranha.org.ua>**20071118120723] 
+[Now that a cold winter is approaching I added a new feature to Weather: the capacity of reading negative temperature.
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071115134905
+ This feature is generally not needed in Summertime. 
+] 
+[README: typo
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071114074708] 
+[TAG 0_8_release
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071111163112] 
+[cabal: updated cabal file to work with 1.2 and both ghc-6.6 and 6.8
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071111095956] 
+[README: added reference to a source tree that works with Cabal-1.1.x
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071111095919] 
+[StdinReader: exit when stdin has been closed
+Spencer Janssen <sjanssen@cse.unl.edu>**20071107231028] 
+[Plugins/Monitors/Common.hs: fix a bug in stringParser
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071105102354] 
+[README:updated to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104175856] 
+[A new implementation of the position configuration option
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104174551
+ WARNING: this patch breaks previous configuration files.
+ A new implementation of the position configuration option:
+ - Top and Bottom have non arguments
+ - TopW and BottomW have now 2 arguments: Align (L, C or R) and Int
+ - setting a width % greater than 100 means a 100% width
+] 
+[helloworld.config updated to recent changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104153244] 
+[Preserve backward compatibility
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104152626
+ WARNING: this patch changes the configuration file
+ This patch reintroduces backward compatibility with recent changes in
+ the configuration option. Now Top and Bottom do not take any argument.
+ To set the width and alignment used TopW (Align Int) and BottomW
+ (Align Int) instead, where Align is either C, L or R.
+] 
+[helloworld.config: updated to latest configuration changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104112106] 
+[Added an argument to Top and Bottom type contructors
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104111731] 
+[Added an argument to Top and Bottom type contructors
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104111655] 
+[Added possibility to set the main window's width
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104111221
+ WARNING: this patch breaks previous configuration files!
+ 
+ Changed the position configuration option: now Top and Bottom require
+ one argument, the width of the main window. 4 possibilities are given:
+ - A means all the screen width
+ - C Int means centered, with the Int percentage of screen width
+ - L Int means left aligned, with the Int percentage of screen width
+ - R Int means right aligned, with the Int percentage of screen width
+ 
+ Examples:
+ position = Top A
+ or
+ position = Bottom (C 50)
+] 
+[Window is mapped after properties have been set
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104111200] 
+[Fixed a compilation issue on non 32bit machines
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071104111111] 
+[Removed X11-extras-0.4 and bump X11 to 1.3.0
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071103130306] 
+[README: added reference to a screenshot
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071101091109] 
+[README: added link to xmonad home page
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031113714] 
+[README updated darcs repository link
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031112810] 
+[README added position examples
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031112507] 
+[css: fixed a validation error
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031105834] 
+[README add link to Ion
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031104933] 
+[Added README.html and xmobar.css
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031104247] 
+[README now uses pandoc: this way we can also generate a nice home page
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031103900] 
+[Bump version to 0.8 and updated homepage
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071031103831] 
+[Code formatting only
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071029073826] 
+[Avoid irrefutable pattern in handling text alignment
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028223837] 
+[README: latest updates
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028220305] 
+[Added support for alignment commands in the output template
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028215651] 
+[Main: removed align and added alignSep configuration option
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028215515] 
+[Added support for text alignment commands in the output template
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028214720
+ WARNING: this patch breaks old configuration files.
+ - removed align configuration option
+ - added alignSep configuration option, a 2 character string: the text
+   before the first character will be align to left, the text in
+   between the 2 characters will be centered, and the text after the
+   second character will be align to the right. For instance:
+   with alignSep="][" the following output template
+   "left text ] %date% [ right text"
+   will display "left text" aligned to the left, a centered date, and
+   "right text" aligned to the right
+ See xmobar.config-sample or /Plugins/helloworld.config for examples
+] 
+[README: added credits to Lennart Kolmodin
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028154923] 
+[Bump version requirement of X11-extras to 0.4
+Lennart Kolmodin <kolmodin@gentoo.org>**20071028134451
+ The constructor ExposeEvent appered in X11-extras-0.4
+] 
+[README: updated to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028132804] 
+[Now we use information returned by getScreenInfo to draw the main window and more
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028131956
+ - we now cache the FontStruct
+ - position is automatically calculated and updated in reposn to XRandR events
+] 
+[Main: removed old options and added the new ones
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028131910] 
+[updated config-sample to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028124034] 
+[updated config-sample to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028124010] 
+[Removed xPos yPos width and height configuration option and added position
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071028123638
+ WARNING: this patch breaks old configuration files:
+ - removed xPos, yPos, width and height
+ - a "position" configuration option has been added: this can be set to:
+   Top
+   Bottom
+   Static {xpos = Int, ypos = Int, width = Int, height = Int}
+ See xmobar.config-sample for an example
+] 
+[We must listen for ConfigureNotify events on the root window for xrandr
+Spencer Janssen <sjanssen@cse.unl.edu>**20071027220550] 
+[Added credits to Dmitry Kurochkin
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027220135] 
+[README screenshot url
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027114437] 
+[README some updates
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027113325] 
+[Added XRandR support
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027111127
+ - Added support for XRandR: if the screen configuration changes,
+   Xmobar will use the configured width only if smaller than the screen
+   width, otherwise the later will be used instead.
+ - Now Xmonad will set _NET_WM_STRUT and will present itself as a DOCK
+   application
+] 
+[Bump version to 0.8
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027111032] 
+[Main will now open the connection with the X server
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027110932] 
+[Added X11-extras dependeny
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071027110834] 
+[Fix text vertical alignment.
+Dmitry Kurochkin <dmitry.kurochkin@gmail.com>**20071023165430] 
+[Allow setting the foreground color
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071012193944
+ Now it is possible dynamically set the foreground color of strings to
+ be displayed with the <fc=foreground,background>string</fc> tag.
+] 
+[Parser: semplify color parsing
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071012193920] 
+[The MVar is needed to avoid a race condition
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071011203029
+ As Spencer noted the checker thread may be throwing an exception
+ immediately, thus producing a race condition.
+] 
+[Remove MVar from eventLoop.
+Dmitry Kurochkin <dmitry.kurochkin@gmail.com>**20071006105447] 
+[Use dynamic exceptions.
+Dmitry Kurochkin <dmitry.kurochkin@gmail.com>**20071003085806] 
+[Fix race conditions in Xmobar.eventLoop
+Spencer Janssen <sjanssen@cse.unl.edu>**20071004223921] 
+[Weather plugin: accept temperatures with decimal points
+Spencer Janssen <sjanssen@cse.unl.edu>**20071004000348] 
+[README updated to recent API changes (the last hopefully)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071003142758] 
+[Date: now implemented using rate and run
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071003142700] 
+[Reintroduced rate with a default implementation (1 second) to be used in the default implementation of start
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071003142549] 
+[README: updated to recent API change
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071003110814] 
+[HelloWorld defines only run
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071003110743] 
+[reintroduced run as an Exec method: this way it is possible to write plugins by defining either run or start
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071003110609] 
+[more code formatting
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002184500] 
+[coding style consistency
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002184057] 
+[updated README
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002181134] 
+[Removed unneeded stuff
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002150404
+ Removed StateT: now we only use a ReaderT
+ Some more code and comments cleanup
+] 
+[updated helloworld.config-sample to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002115319] 
+[updated config-sample to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002115244] 
+[cabal: added stm to the dependency list
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002115049] 
+[Updated Parsers to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002115014] 
+[updated Main to lates changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002114937] 
+[Config: removed the refresh configuration option
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002114813
+ WARNING: this patch breaks previous configuration files. To update
+ just get rid of the refresh configuration option ;)
+] 
+[Now Xmobar uses STM concurrency
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20071002114538
+ Now every time a TVar is updated the output window is redrawn. 
+] 
+[Added a plugin to read from stdin
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070928120432
+ Try it with: xmobar -t "%StdinReader%" -c '[Run StdinReader]'
+ then start writing ;)
+] 
+[Removed unused rate method
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070928120413] 
+[code formatting
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070928120344] 
+[Removed unused rate method
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070928120255] 
+[Removed unused rate method
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070928120218] 
+[more cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927194026] 
+[PipeReader: added a configurable alias
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927175144] 
+[Monitors: updated to recent API changes - code formatting
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173711] 
+[HelloWorld: updated to recent API changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173651] 
+[Date: updated to recent API changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173557] 
+[Added a plugin to read named pipes (such as an XMonad logger)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173529] 
+[Confg.hs: added PipeReader to the default configuration
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173449] 
+[Setup: waiting for Cabal-1.2 :)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173151] 
+[Main.hs: updated to reflect the API change - code formatting and cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927173109] 
+[Xmobas.hs: updated to reflect the API change - code formatting and cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927172951] 
+[Added Show instance to Runnable
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927172924] 
+[Plugins: added tenthSeconds to the exported API
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927172848] 
+[Updated Runnable to the new API - added Show instance
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927172751] 
+[API change in the Exec class
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070927172506
+ Changed run :: a ->  IO String to
+ start :: a -> (String -> IO ()) -> IO ()
+ Suggested by Spencer Janssen.
+] 
+[code formatting
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070915163846] 
+[Added Date to default config
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070915163633] 
+[Added a date plugin
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070915140143] 
+[Added creadits to Jens
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070914163019] 
+[Parse the temperature separately in Celcius and Fahrenheit.
+Jens Petersen <petersen@haskell.org>**20070912070949
+ Parse the pressure in hPa.
+ Generalize showWithColors to (Num a, Ord a) so it works for both Int's and Float's.
+ Use an Int for temperature, pressure, and relative humidity.
+] 
+[only use 1 decimal place for showing floating numbers
+Jens Petersen <petersen@haskell.org>**20070912065803] 
+[include BAT0 acpi battery status too
+Jens Petersen <petersen@haskell.org>**20070912065420] 
+[README: fixed some types
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070909222051] 
+[Plugins.Swap: check for SwapFree and SwapTotal
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070827105902
+ In some system SwapFree and SwapTotal are in different position, so we
+ need to check for the string.
+ Reported by Stan Behrens
+] 
+[Monitors.Common: parseString must use ByteStrings
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724203554] 
+[loadQueryFont must be protected by catch
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724173047
+ Expecially now that fonts can be easily choose with a command line options.
+] 
+[Batt: we check if the file exists instead of catching an exception
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724170643] 
+[Monitors.Commons: more code cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724142205] 
+[Config.hs: removed %memory%" from default template
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724133244] 
+[README: some more editing
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724131658] 
+[if an invalid color name or value is given the black pixel will used instead
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724125120] 
+[README: added an example of command line options usage
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724120131] 
+[better error handling in Main.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724120106] 
+[Batt: better error handling
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724114047] 
+[./Plugins/Monitors.hs: corrected module information
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724111019] 
+[README: added download information
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724110541] 
+[changed home page to http://gorgias.mine.nu/xmobar/
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724102226] 
+[README: updated to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724101322] 
+[The help output must be visible in a terminal 80 characters wide
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724100029] 
+[code and output cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724094435] 
+[Batt.hs: refactor to reduce resource usage
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724094402] 
+[Monitors.Common: parseString will not produce exceptions anymore
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724092701
+ An empty string will be returned instead.
+] 
+[Main.hs: removed exception
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070724092551
+ Check for default configuration file existence instead.
+] 
+[Added support for command line options
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070723200852
+ Configuration options will override configuration files, or default
+ configuration.
+] 
+[the normal color is set when normal > low
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070723114936] 
+[Moved battery line parsing into the Maybe monad.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070719101505] 
+[Safer parsing without parsec in battery monitor
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070719015530] 
+[Fix parsing and processing data in Batt monitor.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070716003448
+ Sometimes the monitor would crash due to bad index given to (!!). Now it
+ should be safe, as parsing is done differently.
+] 
+[X code cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070720113917] 
+[oops, I forgot to add Monitors.hs (it's not possible to build xmobar without it!)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070719054059] 
+[Get rid of floats in scientific notation.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070712013626
+ Use 'showDigits n' instead of 'show . takeDigits n'. As this example shows
+ explicit precision specifications would be appreciated ;)
+] 
+[Allow reverse "high" and "low" thresholds
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070712010911] 
+[Monitors are now a Plugin that can be removed from Config.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070718151211] 
+[Use asynchronous exceptions to obviate the need for forkOS and threaded
+Spencer Janssen <sjanssen@cse.unl.edu>**20070717225131] 
+[execCommands is a mapM
+Spencer Janssen <sjanssen@cse.unl.edu>**20070717211138] 
+[threads are now started with forkOS
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070717171307
+ This is required by the fact that calling nextEvent will block all other
+ running threads. So we need forkOS, which requires the -threaded ghc flag 
+] 
+[cabal: corrected x11-extras version number
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070717161200] 
+[XEvents code cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070717160756] 
+[XExposeEvent handling: that requires X11-extras
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070717131411
+ XExposeEvent is now properly (sort of) handled, with an hackish approch:
+ before nextEvent, that will block Xmobar since an Expose event is captured,
+ we create a background thread that will send an Expose event after the
+ configured refresh interval. So, either a real of a fake Expose event will
+ reach our window within the configured interval. Quite cool, after all.
+ 
+] 
+[changed runXmobar to runXbar
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070717091438] 
+[README and Cabal edits
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070714103913
+ Added some more credits, corrected typos, updated darcs version to 0.7,
+ changed name to Xmonbar and removed references to XMonad. Xmobar is now just
+ a minimalistic text based status bar for any kind of WM (the XMonad
+ community adopted the more advanced and stable dzen, after all ;-)
+] 
+[haddock tuning
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713123707] 
+[cabal: added Plugins to the list of modules
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713111302] 
+[Plugins.hs: some haddock corrections
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713111229] 
+[README: updated to the latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713111148] 
+[Config.hs: more code cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713101329] 
+[Runnable: cleanup and some comments
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713093647] 
+[added Plugins.hs for exporting the needed plugin API
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713093613] 
+[Plugins now import Plugins.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713093516] 
+[Commands.hs: more code cleanup
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070713093402] 
+[removed the Show instance requirement for plugins
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070712215615] 
+[cabal updates
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070712180516] 
+[added a plugin example with the needed runtime configuration file
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070712180434] 
+[credits to Claus Reinke and removed debugging code
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070712180405] 
+[use of existential types for plugin support
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070712175034
+ This patch, which *changes the configuration format*, adds easy plugin support
+ by using an existential type for storing the list of commands to be
+ executed. Adding a plugin is just a matter of writing the appropriate
+ instance of the Exec class, after importing Commands.hs.
+ I must thank Claus Reinke for the help in understanding the mysteries of
+ reading existential types. The Read instance of Runnable must be credited to
+ him. See here:
+ http://www.haskell.org/pipermail/haskell-cafe/2007-July/028227.html
+] 
+[Commands.hs: monitors take only one action now
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711183131] 
+[Weather.hs: code clean up
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711182221] 
+[config-sample: eyes candy
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711180630] 
+[more unused stuff removed
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711180437] 
+[updated README to latest changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711165426] 
+[Net.hs: removed parserc. Now using list function to parse
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711165247
+ Profiling shows that Net.hs and getNumbers specifically takes a huge ammount
+ of resources. Hope to reduce them with this patch.
+] 
+[removed from monitors code not used anymore
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711165035] 
+[Net.hs: removed old code
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711164819] 
+[some colors please!
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711150221
+ Krzysztof says that we cannot set default colors without embedding a
+ Turing-complete language in the templates, so that we can take account of
+ different unit of measurement. May I set some colors in the configuration
+ example??
+] 
+[gettin' rid of Krzysztof's object-oriented attitude...;-)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070711150201] 
+[Formatting usedratio in Monitors.Swap
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070710141550] 
+[Fix takeDigits so it doesn't use read.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070710141406] 
+[Typos in Monitors.Common
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070710141329] 
+[Clean up default options for monitors.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070710140845
+  * Moved default configuration to Monitors.Common
+  * Colors are optional and are off by default
+] 
+[Read default configuration from ~/.xmobarrc
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070705160320
+ I am not sure if handling of other exceptions is acceptable, the assumption is
+ that failure to read ~/.xmobarrc because of other errors than parsing should
+ not blow up the whole program. Otherwise explicit test for file existence
+ would be required etc.
+] 
+[new working version and named colors in config-sample
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070709002947] 
+[comments only
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070709001203] 
+[fixes a bug in the copyArea function
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708234304] 
+[added a short-hand for fromintegral (much used here)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708232338] 
+[This should fix the flickering problem on window's updates
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708224854] 
+[typo
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708183742] 
+[editing to README
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708171330] 
+[added info to Commands.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708171309] 
+[TAG 0.5
+Andrea Rossato <andrea.rossatoo@unibz.it>**20070708102841] 
+[updated to version 0.5
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708102459] 
+[updated (I actually wrote some) documentation about configuring XMobar
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708102418] 
+[hope this fixes the "flickering text" problem reported by Krzysztof
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708101702] 
+[some monitors are now run internally
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708101628] 
+[updated configurations to reflect code changes
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708101430] 
+[the output template is now parsed with the help of a finite map
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708101208
+ This way we can quickly implement program name aliasing.
+] 
+[monitors are now run internally
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708101033] 
+[better error handling when parsing weather information
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708100320] 
+[better error handling when parsing weather information
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708100148] 
+[added runM to run monitors internally
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708100120] 
+[added Commands
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070708095521
+ Command is the data type for configuring command execution in XMobar. The
+ idea came in a discussion with Spencer Janssen. At first XMobar was intended
+ to be used only to display the output of external commands, but it came
+ clear that the main performance bottle neck was running external programs.
+ Now, some monitors are run internally, even if in separated threads. 
+] 
+[Add support for named colors.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070706010124
+ If bad color name is specified then exception is thrown by Xlib.
+ This should be probably handled in a more elegant way.
+] 
+[Fix centered text align.
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070706024814] 
+[Swap: usedratio reported free ratio
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705204721] 
+[Fix few config name typos
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070705152815] 
+[Add dependency on filepath
+Krzysztof Kosciuszkiewicz <k.kosciuszkiewicz@gmail.com>**20070705150407] 
+[TAG 0.4
+Andrea Rossato <andrea.rossatoo@unibz.it>**20070705132814] 
+[updated sample configuration
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705132427] 
+[updated to version 0.4 and added new monitors
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705132221] 
+[updated to use the new Common.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705132145] 
+[updated to use the new Common.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705132115] 
+[added a swap monitor
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705132022] 
+[updated to use the new Common.hs and split the swap part in a new monitor
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705131949] 
+[updated Cpu.hs to work with the new Common.hs
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705131915] 
+[added a small library for writing monitors
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705131835] 
+[added a battery monitor
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705131749] 
+[minor
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070705131611] 
+[Cpu.hs more code clean up
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070627221346] 
+[Cpu.hs now requires -threaded
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070627214957] 
+[typos
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070627214913] 
+[Cpu.hs: removed Parsec and switched to ByteString
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070627214531] 
+[possibility to delay a thread for more than (maxBound :: Int) microseconds
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070627094446] 
+[version 0.3.1
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626225538] 
+[default is Glasgow ;-)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626225234] 
+[fixed an out of bount bug that could cause a flood to http://weather.noaa.gov/
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626225156] 
+[removed debug output
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626184542] 
+[added cabal and config reference to the weather monitor
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626180714] 
+[corrected the threadDelay arguments
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626180627] 
+[added a weather monitor to retrieve weather information from http://weather.noaa.gov/
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626180537] 
+[splitted files
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626113948] 
+[now the Xbar monad is similar to the one of XMonad
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626110104] 
+[cosmetics
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626094452] 
+[Added -threaded option for ghc
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626094357] 
+[added refresh rate config option for each command to be run
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626080619] 
+[now each command is run in a separate thread and MVars are used for interprocess communication
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626074239] 
+[better error handling
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626051747] 
+[createWin will now return Xbar (Display, Window)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070626051622] 
+[updated the README
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070625164419] 
+[* fixes some memory leak problems
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070625122159
+ After calling loadQueryFont the FontStruct returned must be freed after using it.
+ runInteractiveProcess leaks memory. runInteractiveCommand does not.
+] 
+[README and description
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622130709] 
+[updated example config
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622125303] 
+[cabal updates
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622125229] 
+[added some monitors with output formatted for xmobar
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622125152] 
+[comments
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622125133] 
+[removed monitor.hs (useless now)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622105128] 
+[big update: this is a status bar now
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070622104852
+ Added a lot of features.
+] 
+[added a refresh rate configuration option
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070619174006] 
+[haddock and other minor editing
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070619105235] 
+[added cabal support
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070619105150] 
+[added license (bsd3)
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070619105132] 
+[added a sample config file
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070619091216] 
+[added license and some info
+Andrea Rossato <andrea.rossato@ing.unitn.it>**20070619090018] 
+[some changes to monitor.hs to test xmobar
+Andrea Rossato <andrea.rossatoo@unibz.it>**20070619080745] 
+[added a monitoring script found here http://blog.csdn.net/danranx/archive/2007/06/10/1646608.aspx
+Andrea Rossato <andrea.rossatoo@unibz.it>**20070619080625] 
+[init
+Andrea Rossato <andrea.rossatoo@unibz.it>**20070619080355] 
+Patch bundle hash:
+5d5615993680cf9e711b303674f2324d4d894db6

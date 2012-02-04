@@ -1,0 +1,703 @@
+Index: configure.in
+===================================================================
+--- configure.in	(revisão 480)
++++ configure.in	(cópia de trabalho)
+@@ -266,6 +266,42 @@
+ 
+ 
+ dnl-----------------------------------------------------------------------------
++dnl link PULSEAUDIO sound system if requested 
++dnl-----------------------------------------------------------------------------
++AC_SUBST(PULSEAUDIO_INCFLAGS)
++AC_SUBST(PULSEAUDIO_LDFLAGS)
++
++AC_ARG_WITH(pulseaudio,
++[  --with-pulseaudio             use PULSEAUDIO sound system [yes] ],
++    USE_PULSEAUDIO=${withval}, USE_PULSEAUDIO="yes" )
++AC_ARG_WITH(pulseaudio-prefix,
++[  --with-pulseaudio-prefix=DIR      alternate location for PULSEAUDIO [/usr]
++                              look for libraries in PULSEAUDIO-PREFIX/lib,
++                              for headers in PULSEAUDIO-PREFIX/include],
++    CONFIG_PULSEAUDIO_PREFIX="${withval}", CONFIG_PULSEAUDIO_PREFIX="/usr")
++
++if test "x${USE_PULSEAUDIO}" = "xyes" ; then
++    AC_MSG_CHECKING( [for pulseaudio libraries at ${CONFIG_PULSEAUDIO_PREFIX}] )
++    LA_SEARCH_LIB( PULSEAUDIO_LIB_LOC, PULSEAUDIO_INC_LOC, libasound.so, pulseaudio/asoundlib.h,
++                   ${CONFIG_PULSEAUDIO_PREFIX})
++
++    if test "x${PULSEAUDIO_LIB_LOC}" != "x" ; then
++
++        AC_DEFINE( HAVE_PULSEAUDIO_LIB, 1, [build with PULSEAUDIO sound system] )
++        if test "x${PULSEAUDIO_INC_LOC}" != "x${SYSTEM_INCLUDE}" ; then
++            PULSEAUDIO_INCFLAGS="-I${PULSEAUDIO_INC_LOC}"
++        fi
++        PULSEAUDIO_LDFLAGS="-L${PULSEAUDIO_LIB_LOC} -lpulse-simple"
++        AC_MSG_RESULT( [found at ${CONFIG_PULSEAUDIO_PREFIX}] )
++    else
++        AC_MSG_WARN( [not found, building without PULSEAUDIO support])
++    fi
++else
++    AC_MSG_RESULT( [building without PULSEAUDIO support] )
++fi
++
++
++dnl-----------------------------------------------------------------------------
+ dnl link JACK sound server if requested 
+ dnl-----------------------------------------------------------------------------
+ AC_SUBST(JACK_CFLAGS)
+Index: src/PulseAudioDspSource.cpp
+===================================================================
+--- src/PulseAudioDspSource.cpp	(revisão 0)
++++ src/PulseAudioDspSource.cpp	(revisão 0)
+@@ -0,0 +1,220 @@
++/*------------------------------------------------------------------------------
++
++   Copyright (c) 2000-2007 Tyrell Corporation. All rights reserved.
++
++   Copyright (c) 2004
++   LS Informationstechnik (LIKE)
++   University of Erlangen Nuremberg
++   All rights reserved.
++
++   Tyrell DarkIce
++
++   File     : PulseAudioDspSource.cpp
++   Version  : $Revision: 461 $
++   Author   : $Author: rafael@riseup.net $
++   Location : $HeadURL$
++   
++   Copyright notice:
++
++    This program is free software; you can redistribute it and/or
++    modify it under the terms of the GNU General Public License  
++    as published by the Free Software Foundation; either version 2
++    of the License, or (at your option) any later version.
++   
++    This program is distributed in the hope that it will be useful,
++    but WITHOUT ANY WARRANTY; without even the implied warranty of 
++    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
++    GNU General Public License for more details.
++   
++    You should have received a copy of the GNU General Public License
++    along with this program; if not, write to the Free Software
++    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++------------------------------------------------------------------------------*/
++
++/* ============================================================ include files */
++
++#include "AudioSource.h"
++
++// compile only if configured for PULSEAUDIO
++#ifdef SUPPORT_PULSEAUDIO_DSP
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include "Util.h"
++#include "Exception.h"
++#include "PulseAudioDspSource.h"
++
++
++/* ===================================================  local data structures */
++
++
++/* ================================================  local constants & macros */
++
++/*------------------------------------------------------------------------------
++ *  File identity
++ *----------------------------------------------------------------------------*/
++static const char fileid[] = "$Id: PulseAudioDspSource.cpp 461 2009-12-01 12:57:31Z rafael@riseup.net $";
++
++
++/* ===============================================  local function prototypes */
++
++
++/* =============================================================  module code */
++
++
++/*------------------------------------------------------------------------------
++ *  Initialize the object
++ *----------------------------------------------------------------------------*/
++void
++PulseAudioDspSource :: init (  const char      * paSourceName )    throw ( Exception )
++{
++
++    if (paSourceName == NULL)
++    {
++        throw Exception( __FILE__, __LINE__, "no paSourceName specified");
++    }
++    Reporter::reportEvent( 1, "Using PulseAudio source: ", paSourceName);
++    Util::strEq( paSourceName , "default" );
++    if (Util::strEq( paSourceName , "default" ))
++    {
++        sourceName = NULL;
++    }
++    else
++    {
++        sourceName = Util::strDup( paSourceName);
++    }
++    ss.channels = getChannel();
++    ss.rate = getSampleRate();
++    
++    //Supported for some bits per sample, both Big and Little endian
++    if (isBigEndian())
++    {
++       switch (getBitsPerSample())
++       {
++         case 8: 
++                 ss.format = PA_SAMPLE_U8;
++                 break;
++         case 16:
++                 ss.format = PA_SAMPLE_S16BE;
++                 break;
++         case 24:
++                 ss.format = PA_SAMPLE_S24BE;
++                 break;
++         case 32:
++                 ss.format = PA_SAMPLE_S32BE;
++                 break;
++         default:
++                 ss.format = PA_SAMPLE_INVALID;
++       }
++    }
++    else 
++    {
++       switch (getBitsPerSample())
++       {
++         case 8: 
++                 ss.format = PA_SAMPLE_U8;
++                 break;
++         case 16:
++                 ss.format = PA_SAMPLE_S16LE;
++                 break;
++         case 24:
++                 ss.format = PA_SAMPLE_S24LE;
++                 break;
++         case 32:
++                 ss.format = PA_SAMPLE_S32LE;
++                 break;
++         default:
++                 ss.format = PA_SAMPLE_INVALID;
++       }
++    }
++}
++
++
++/*------------------------------------------------------------------------------
++ *  De-initialize the object
++ *----------------------------------------------------------------------------*/
++void
++PulseAudioDspSource :: strip ( void )                      throw ( Exception )
++{
++    if ( isOpen() ) {
++        close();
++    }
++
++    delete[] sourceName;
++}
++
++
++/*------------------------------------------------------------------------------
++ *  Open the audio source
++ *----------------------------------------------------------------------------*/
++bool
++PulseAudioDspSource :: open ( void )                       throw ( Exception )
++{
++    char         client_name[255];
++
++    //to identify each darkice on pulseaudio server
++    snprintf(client_name, 255, "darkice-%d", getpid());
++
++    if (!(s = pa_simple_new(NULL, client_name, PA_STREAM_RECORD, sourceName, "darkice record", &ss, NULL, NULL, &error))) {
++        throw Exception( __FILE__, __LINE__, ": pa_simple_new() failed: %s\n", pa_strerror(error));
++    }
++
++    return true;
++}
++
++
++/*------------------------------------------------------------------------------
++ *  Check wether read() would return anything
++ *----------------------------------------------------------------------------*/
++bool
++PulseAudioDspSource :: canRead ( unsigned int    sec,
++                           unsigned int    usec )    throw ( Exception )
++{
++//this seems to be a problem. 
++//to explore in the future
++/*    if ( !isOpen() ) {
++        return false;
++    }
++*/
++
++    /*
++     * FIXME How to check if it can read?
++     */
++    return true; // bad!!
++}
++
++
++/*------------------------------------------------------------------------------
++ *  Read from the audio source
++ *----------------------------------------------------------------------------*/
++unsigned int
++PulseAudioDspSource :: read (    void          * buf,
++                           unsigned int    len )     throw ( Exception )
++{
++    int ret;
++
++    ret = pa_simple_read(s, buf, len, &error);
++    if ( ret < 0) {
++        throw Exception(__FILE__, __LINE__, ": pa_simple_read() failed: %s\n", pa_strerror(error));
++    }
++    return len;
++}
++
++
++/*------------------------------------------------------------------------------
++ *  Close the audio source
++ *----------------------------------------------------------------------------*/
++void
++PulseAudioDspSource :: close ( void )                  throw ( Exception )
++{
++    if ( !isOpen() ) {
++        return;
++    }
++
++    pa_simple_free(s);
++}
++
++#endif // HAVE_PULSEAUDIO_LIB
+Index: src/AudioSource.h
+===================================================================
+--- src/AudioSource.h	(revisão 480)
++++ src/AudioSource.h	(cópia de trabalho)
+@@ -56,6 +56,11 @@
+ #define SUPPORT_ALSA_DSP 1
+ #endif
+ 
++#if defined( HAVE_PULSEAUDIO_LIB )
++// we have an PULSEAUDIO sound system available
++#define SUPPORT_PULSEAUDIO_DSP 1
++#endif
++
+ #if defined( HAVE_SYS_SOUNDCARD_H )
+ // we have an OSS DSP sound source device available
+ #define SUPPORT_OSS_DSP 1
+@@ -76,6 +81,7 @@
+ #endif
+ 
+ #if !defined( SUPPORT_ALSA_DSP ) \
++    && !defined( SUPPORT_PULSEAUDIO_DSP ) \
+     && !defined( SUPPORT_OSS_DSP ) \
+     && !defined( SUPPORT_JACK_DSP ) \
+     && !defined( SUPPORT_SOLARIS_DSP ) \
+@@ -264,6 +270,8 @@
+          *  the supplied DSP name parameter.
+          *
+          *  @param deviceName the audio device (/dev/dspX, hwplug:0,0, etc)
++         *  @param jackClientName the source name for jack server
++         *  @param paSourceName the pulse audio source
+          *  @param sampleRate samples per second (e.g. 44100 for 44.1kHz).
+          *  @param bitsPerSample bits per sample (e.g. 16 bits).
+          *  @param channel number of channels of the audio source
+@@ -273,6 +281,7 @@
+         static AudioSource *
+         createDspSource( const char    * deviceName,
+                          const char    * jackClientName,
++                         const char    * paSourceName,
+                          int             sampleRate    = 44100,
+                          int             bitsPerSample = 16,
+                          int             channel       = 2) throw ( Exception );
+@@ -289,6 +298,10 @@
+ #include "AlsaDspSource.h"
+ #endif
+ 
++#if defined( SUPPORT_PULSEAUDIO_DSP )
++#include "PulseAudioDspSource.h"
++#endif
++
+ #if defined( SUPPORT_OSS_DSP )
+ #include "OssDspSource.h"
+ #endif
+Index: src/PulseAudioDspSource.h
+===================================================================
+--- src/PulseAudioDspSource.h	(revisão 0)
++++ src/PulseAudioDspSource.h	(revisão 0)
+@@ -0,0 +1,247 @@
++/*------------------------------------------------------------------------------
++
++   Copyright (c) 2000-2007 Tyrell Corporation. All rights reserved.
++
++   Copyright (c) 2004 
++   LS Informationstechnik (LIKE)
++   University of Erlangen Nuremberg
++   All rights reserved.
++
++   Tyrell DarkIce
++
++   File     : PulseAudioDspSource.h
++   Version  : $Revision: 394 $
++   Author   : $Author: darkeye $
++   Location : $HeadURL$
++   
++   Copyright notice:
++
++    This program is free software; you can redistribute it and/or
++    modify it under the terms of the GNU General Public License  
++    as published by the Free Software Foundation; either version 2
++    of the License, or (at your option) any later version.
++   
++    This program is distributed in the hope that it will be useful,
++    but WITHOUT ANY WARRANTY; without even the implied warranty of 
++    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
++    GNU General Public License for more details.
++   
++    You should have received a copy of the GNU General Public License
++    along with this program; if not, write to the Free Software
++    Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
++
++------------------------------------------------------------------------------*/
++#ifndef PULSEAUDIO_SOURCE_H
++#define PULSEAUDIO_SOURCE_H
++
++#ifndef __cplusplus
++#error This is a C++ include file
++#endif
++
++/* ============================================================ include files */
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include "Reporter.h"
++#include "AudioSource.h"
++
++#ifdef HAVE_PULSEAUDIO_LIB
++
++#include <pulse/simple.h>
++#include <pulse/error.h>
++#include <pulse/gccmacro.h>
++#else
++#error configure for PULSEAUDIO 
++#endif
++
++/* ================================================================ constants */
++
++/* =================================================================== macros */
++
++/* =============================================================== data types */
++
++/**
++ *  An audio input based on the PULSEAUDIO sound system 
++ *
++ *  @author  $Author: darkeye $
++ *  @version $Revision: 394 $
++ */
++class PulseAudioDspSource : public AudioSource, public virtual Reporter
++{
++    private:
++
++        /**
++         *  Name of the capture PCM stream.
++         */
++        char *sourceName;
++
++        /**
++         *  Handle for PulseAudio 
++         */
++        pa_simple *s ;
++
++        /**
++         * format definitions for pulseaudio
++          */
++        pa_sample_spec ss;
++
++        int error;
++
++    protected:
++
++        /**
++         *  Default constructor. Always throws an Exception.
++         *
++         *  @exception Exception
++         */
++        inline
++        PulseAudioDspSource ( void )                       throw ( Exception )
++        {
++            throw Exception( __FILE__, __LINE__);
++        }
++
++        /**
++         *  Initialize the object
++         *
++         *  @param name the PCM to open.
++         *  @exception Exception
++         */
++        void
++        init (  const char    * name )              throw ( Exception );
++
++        /**
++         *  De-iitialize the object
++         *
++         *  @exception Exception
++         */
++        void
++        strip ( void )                              throw ( Exception );
++
++
++    public:
++
++        /**
++         *  Constructor.
++         *
++         *  @param name the PCM (e.g. "hwplug:0,0").
++         *  @param sampleRate samples per second (e.g. 44100 for 44.1kHz).
++         *  @param bitsPerSample bits per sample (e.g. 16 bits).
++         *  @param channel number of channels of the audio source
++         *                 (e.g. 1 for mono, 2 for stereo, etc.).
++         *  @exception Exception
++         */
++        inline
++        PulseAudioDspSource (  const char    * paSourceName,
++                         int             sampleRate    = 44100,
++                         int             bitsPerSample = 16,
++                         int             channel       = 2 )
++                                                        throw ( Exception )
++                    : AudioSource( sampleRate, bitsPerSample, channel)
++        {
++            init( paSourceName);
++        }
++
++        /**
++         *  Copy Constructor.
++         *
++         *  @param ds the object to copy.
++         *  @exception Exception
++         */
++        inline
++        PulseAudioDspSource (  const PulseAudioDspSource &    ds )    throw ( Exception )
++                    : AudioSource( ds )
++        {
++            init( ds.sourceName);
++        }
++
++        /**
++         *  Destructor.
++         *
++         *  @exception Exception
++         */
++        inline virtual
++        ~PulseAudioDspSource ( void )                          throw ( Exception )
++        {
++            strip();
++        }
++
++        /**
++         *  Assignment operator.
++         *
++         *  @param ds the object to assign to this one.
++         *  @return a reference to this object.
++         *  @exception Exception
++         */
++        inline virtual PulseAudioDspSource &
++        operator= (     const PulseAudioDspSource &     ds )   throw ( Exception )
++        {
++            if ( this != &ds ) {
++                strip();
++                AudioSource::operator=( ds);
++                init( ds.sourceName);
++            }
++            return *this;
++        }
++
++        /**
++         *  Open the PulseAudioDspSource.
++         *
++         *  @return true if opening was successful, false otherwise
++         *  @exception Exception
++         */
++        virtual bool
++        open ( void )                                   throw ( Exception );
++
++        /**
++         *  Check if the PulseAudioDspSource is open.
++         *
++         *  @return true if the PulseAudioDspSource is open, false otherwise.
++         */
++        inline virtual bool
++        isOpen ( void ) const                           throw ()
++        {
++            return s==NULL;
++        }
++
++        /**
++         *  Check if the PulseAudioDspSource can be read from.
++         *
++         *  @param sec the maximum seconds to block.
++         *  @param usec micro seconds to block after the full seconds.
++         *  @return true if the PulseAudioDspSource is ready to be read from,
++         *          false otherwise.
++         *  @exception Exception
++         */
++        virtual bool
++        canRead (               unsigned int    sec,
++                                unsigned int    usec )  throw ( Exception );
++
++        /**
++         *  Read from the PulseAudioDspSource.
++         *
++         *  @param buf the buffer to read into.
++         *  @param len the number of bytes to read into buf
++         *  @return the number of bytes read (may be less than len).
++         *  @exception Exception
++         */
++        virtual unsigned int
++        read (                  void          * buf,
++                                unsigned int    len )   throw ( Exception );
++
++        /**
++         *  Close the PulseAudioDspSource.
++         *
++         *  @exception Exception
++         */
++        virtual void
++        close ( void )                                  throw ( Exception );
++
++};
++
++/* ================================================= external data structures */
++
++/* ====================================================== function prototypes */
++
++#endif  /* PULSEAUDIO_SOURCE_H */
+Index: src/DarkIce.cpp
+===================================================================
+--- src/DarkIce.cpp	(revisão 480)
++++ src/DarkIce.cpp	(cópia de trabalho)
+@@ -144,6 +144,7 @@
+     bool                     reconnect;
+     const char             * device;
+     const char             * jackClientName;
++    const char             * paSourceName;
+ 
+     // the [general] section
+     if ( !(cs = config.get( "general")) ) {
+@@ -178,9 +179,11 @@
+     channel       = Util::strToL( str);
+     device        = cs->getForSure( "device", " missing in section [input]");
+     jackClientName = cs->get ( "jackClientName");
++    paSourceName = cs->get ( "paSourceName");
+ 
+     dsp             = AudioSource::createDspSource( device,
+                                                     jackClientName,
++                                                    paSourceName,
+                                                     sampleRate,
+                                                     bitsPerSample,
+                                                     channel );
+@@ -1191,7 +1194,7 @@
+             (dsp->getBitsPerSample() / 8UL) *
+             dsp->getChannel() *
+             duration;
+-                                                
++                                 
+     len = encConnector->transfer( bytes, 4096, 1, 0 );
+ 
+     reportEvent( 1, len, "bytes transfered to the encoders");
+Index: src/AudioSource.cpp
+===================================================================
+--- src/AudioSource.cpp	(revisão 480)
++++ src/AudioSource.cpp	(cópia de trabalho)
+@@ -61,6 +61,7 @@
+ AudioSource *
+ AudioSource :: createDspSource( const char    * deviceName,
+                                 const char    * jackClientName,
++                                const char    * paSourceName,
+                                 int             sampleRate,
+                                 int             bitsPerSample,
+                                 int             channel)
+@@ -111,6 +112,18 @@
+                              "trying to open JACK device without "
+                              "support compiled", deviceName);
+ #endif
++	} else if ( Util::strEq( deviceName, "pulseaudio", 10) ) {
++#if defined( SUPPORT_PULSEAUDIO_DSP )
++        Reporter::reportEvent( 1, "Using PulseAudio audio server as input device.");
++        return new PulseAudioDspSource( paSourceName,
++                                        sampleRate,
++                                        bitsPerSample,
++                                        channel);
++#else
++        throw Exception( __FILE__, __LINE__,
++                             "trying to open PulseAudio device without "
++                             "support compiled", deviceName);
++#endif
+     } else {
+ #if defined( SUPPORT_ALSA_DSP )
+         Reporter::reportEvent( 1, "Using ALSA DSP input device:", deviceName);
+Index: src/Makefile.am
+===================================================================
+--- src/Makefile.am	(revisão 480)
++++ src/Makefile.am	(cópia de trabalho)
+@@ -2,9 +2,9 @@
+ AM_CXXFLAGS = -O2 -pedantic -Wall @DEBUG_CXXFLAGS@ @PTHREAD_CFLAGS@
+ 			  @JACK_CFLAGS@ 
+ INCLUDES = @LAME_INCFLAGS@ @VORBIS_INCFLAGS@ @FAAC_INCFLAGS@ @AACPLUS_INCFLAGS@ @TWOLAME_INCFLAGS@ \
+-		@ALSA_INCFLAGS@ @JACK_INCFLAGS@ @SRC_INCFLAGS@
++		@ALSA_INCFLAGS@ @PULSEAUDIO_INCFLAGS@ @JACK_INCFLAGS@ @SRC_INCFLAGS@
+ LDADD = @PTHREAD_LIBS@ @LAME_LDFLAGS@ @VORBIS_LDFLAGS@ @FAAC_LDFLAGS@ @AACPLUS_LDFLAGS@ @TWOLAME_LDFLAGS@ \
+-		@ALSA_LDFLAGS@ @JACK_LDFLAGS@ @SRC_LDFLAGS@
++		@ALSA_LDFLAGS@ @PULSEAUDIO_LDFLAGS@ @JACK_LDFLAGS@ @SRC_LDFLAGS@
+ 
+ if HAVE_SRC_LIB
+ AFLIB_SOURCE = 
+@@ -74,6 +74,8 @@
+                     Reporter.cpp\
+                     AlsaDspSource.h\
+                     AlsaDspSource.cpp\
++                    PulseAudioDspSource.h\
++                    PulseAudioDspSource.cpp\
+                     JackDspSource.h\
+                     JackDspSource.cpp\
+                     main.cpp \
+Index: man/darkice.1
+===================================================================
+--- man/darkice.1	(revisão 480)
++++ man/darkice.1	(cópia de trabalho)
+@@ -13,6 +13,7 @@
+     * ALSA audio devices
+     * Solaris audio interface
+     * Jack sources
++    * PulseAudio sources
+ 
+ DarkIce can encode in the following formats:
+ 
+Index: man/darkice.cfg.5
+===================================================================
+--- man/darkice.cfg.5	(revisão 480)
++++ man/darkice.cfg.5	(cópia de trabalho)
+@@ -74,9 +74,10 @@
+ .TP
+ .I device
+ Specify the device to record from, which can be an OSS DSP device,
+-an ALSA source or you can use Jack audio.
++an ALSA source, PulseAudio source or you can use Jack audio.
+ - OSS DSP audio device to record from (e.g. /dev/dsp)
+ - ALSA DSP device name (e.g. hwplug:0,0)
++- for PulseAudio use "pulseaudio"
+ - the string 'jack', to have an unconnected Jack port, or
+   'jack_auto' to automatically make Jack connect to the first source.
+ .TP
+@@ -94,6 +95,9 @@
+ .I jackClientName
+ The name of the jack input channel created by darkice if device=jack
+ is specified.
++.TP
++.I paSourceName
++The name of the PulseAudio source to use. It can be "default", an index or a device string obtained from running "pactl list"
+ 
+ .PP
+ .B [icecast-x]

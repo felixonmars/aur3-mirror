@@ -1,0 +1,102 @@
+#!/bin/bash
+#
+#	/etc/rc.d/firefox-tmpfs
+#
+# Sync mozilla preferences to tmpfs 
+#
+# An initial backup is always kept in ~/.mozilla_ref
+# In case of crash, firefox-tmpfs tries to recover your old profile at startup
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+
+# source application-specific settings
+[ -f /etc/conf.d/firefox-tmpfs ] && . /etc/conf.d/firefox-tmpfs
+
+# exit if $TMPFS does not exist
+[ ! -z "$TMPFS" ] && [ ! -d "$TMPFS" ] && exit 1
+
+# delete repeated users in configuration file
+[ -n "$USERS" ] && USERS=`echo $USERS | tr " " "\n" | uniq`
+
+# set defaults
+[ -z "$TMPFS" ] && TMPFS=/dev/shm
+[ -z "$USERS" ] && USERS="`ls -d -c1 /home/*/.mozilla | cut -d/ -f3`"
+
+case "$1" in
+  start)
+    stat_busy "Sync firefox profiles from hd to tmpfs"
+
+    for user in $USERS ; do
+
+      if [ -h /home/$user/.mozilla ] && [ -d /home/$user/.mozilla_ref ] ; then
+      
+        # In case of crash, if old symlinks to $TMPFS still exists, use the old profile
+
+        rm /home/$user/.mozilla
+        mv /home/$user/.mozilla_ref /home/$user/.mozilla
+
+      fi
+
+      if [ -d /home/$user/.mozilla ] && [ ! -d /home/$user/.mozilla_ref ] ; then
+
+        # Create a directory in $TMPFS, symlink it with ~/.mozilla
+        mkdir -p $TMPFS/$user.mozilla
+        mv /home/$user/.mozilla /home/$user/.mozilla_ref
+
+        ln -s $TMPFS/$user.mozilla /home/$user/.mozilla
+
+        # sync mozilla directory to tmpfs
+        rsync -a -q /home/$user/.mozilla_ref/ /home/$user/.mozilla/
+
+      fi
+
+    done
+
+    add_daemon firefox-tmpfs
+
+    stat_done
+
+    ;;
+  stop)
+    stat_busy "Sync firefox profiles from tmpfs to hd"
+
+    for user in $USERS ; do
+
+      if [ -h /home/$user/.mozilla ] && [ -d /home/$user/.mozilla_ref ] ; then
+
+        rsync -a -q --delete /home/$user/.mozilla/ /home/$user/.mozilla_ref/
+
+        rm /home/$user/.mozilla
+        mv /home/$user/.mozilla_ref /home/$user/.mozilla
+
+      fi
+
+    done
+
+    rm_daemon firefox-tmpfs
+    stat_done
+    ;;
+  restart)
+    $0 stop
+    $0 start
+    ;;
+  save)
+    stat_busy "Sync firefox profiles from tmpfs to hd"
+
+    for user in $USERS ; do
+
+      if [ -h /home/$user/.mozilla ] && [ -d /home/$user/.mozilla_ref ] ; then
+        rsync -a -q --delete /home/$user/.mozilla/ /home/$user/.mozilla_ref/
+      fi
+
+    done
+
+    stat_done
+    ;;
+  *)
+    echo "usage: $0 {start|stop|restart|save}"
+esac
+exit 0
+
+# vim:set ts=2 sw=2 ft=sh et:

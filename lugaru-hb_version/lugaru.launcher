@@ -1,0 +1,6 @@
+#!/bin/bash
+
+cd "/opt/Lugaru"
+./lugaru $*
+exit $?
+

@@ -1,0 +1,769 @@
+diff -u -r kio-sysinfo-1.8.2/src/ksysinfopart.cpp kio-sysinfo-10.3/src/ksysinfopart.cpp
+--- kio-sysinfo-1.8.2/src/ksysinfopart.cpp	2006-05-20 14:21:16.000000000 -0300
++++ kio-sysinfo-10.3/src/ksysinfopart.cpp	2007-08-14 13:09:50.000000000 -0300
+@@ -84,6 +84,10 @@
+    rescanTimer=new QTimer(this);
+    connect(rescanTimer, SIGNAL(timeout()), SLOT(rescan()));
+    rescanTimer->start(20000, true);
++   setJScriptEnabled(false);
++   setJavaEnabled(false);
++   setPluginsEnabled(false);
++   setMetaRefreshEnabled(false);
+ 
+    connectDCOPSignal("kded", "networkstatus", "statusChange(QString,int)", "rescan()", false);
+    installEventFilter( this );
+Somente em kio-sysinfo-1.8.2/src: Makefile
+diff -u -r kio-sysinfo-1.8.2/src/Makefile.am kio-sysinfo-10.3/src/Makefile.am
+--- kio-sysinfo-1.8.2/src/Makefile.am	2006-05-20 14:21:16.000000000 -0300
++++ kio-sysinfo-10.3/src/Makefile.am	2007-08-14 13:07:17.000000000 -0300
+@@ -1,10 +1,11 @@
++SUBDIRS = .
+ 
+ INCLUDES = $(all_includes) `pkg-config --cflags hal`
+ 
+ kde_module_LTLIBRARIES = kio_sysinfo.la libksysinfopart.la
+ 
+ kio_sysinfo_la_SOURCES = sysinfo.cpp
+-kio_sysinfo_la_LIBADD = $(LIB_KIO) -lGL
++kio_sysinfo_la_LIBADD = $(LIB_KIO) -lhd -lGL
+ kio_sysinfo_la_LDFLAGS = -module -avoid-version $(all_libraries) $(KDE_PLUGIN) $$(pkg-config --libs hal)
+ 
+ kde_services_DATA = sysinfo.protocol ksysinfopart.desktop
+@@ -15,13 +16,11 @@
+ 
+ xdg_apps_DATA = kfmclient_sysinfo.desktop
+ 
+-podir=../po
+-COMMAND=$(XGETTEXT) --foreign-user -C -ci18n -ki18n -ktr2i18n -kI18N_NOOP -kI18N_NOOP2 -kaliasLocale
+ messages:
+-	$(COMMAND) *.cpp -o $(podir)/kio_sysinfo.pot
++	$(XGETTEXT) *.cpp -o $(podir)/kio_sysinfo.pot
+ 
+ METASOURCES = AUTO
+ 
+ apps_DATA = x-sysinfo.desktop
+-appsdir = $(kde_mimedir)/applications
++appsdir = $(kde_mimedir)/application
+ 
+Somente em kio-sysinfo-1.8.2/src: Makefile.in
+diff -u -r kio-sysinfo-1.8.2/src/sysinfo.cpp kio-sysinfo-10.3/src/sysinfo.cpp
+--- kio-sysinfo-1.8.2/src/sysinfo.cpp	2007-08-21 08:12:15.000000000 -0300
++++ kio-sysinfo-10.3/src/sysinfo.cpp	2007-09-21 13:41:53.000000000 -0300
+@@ -25,7 +25,6 @@
+ 
+ #include <qfile.h>
+ #include <qdir.h>
+-#include <qregexp.h>
+ 
+ #include <stdlib.h>
+ #include <math.h>
+@@ -56,22 +55,22 @@
+ #include <kglobalsettings.h>
+ #include <ktempfile.h>
+ 
+-
+ #include "sysinfo.h"
+ 
+ 
+ using namespace KIO;
+ #define BR "<br>"
+ 
+-static QString formattedUnit( unsigned long long value, int post=1 )
++static QString formattedUnit( Q_UINT64 value, int post=1 )
+ {
+-     if (value > (1024 * 1024))
+-        if (value > (1024 * 1024 * 1024))
+-            return i18n("%1 GB").arg(KGlobal::locale()->formatNumber(value / (1024 * 1024 * (post == 0 ? 1024 : 1024.0)), post));
++    if (value >= (1024 * 1024))
++        if (value >= (1024 * 1024 * 1024))
++            return i18n("%1 GB").arg(KGlobal::locale()->formatNumber(value / (1024 * 1024 * 1024.0),
++                        post));
+         else
+-            return i18n("%1 MB").arg(KGlobal::locale()->formatNumber(value / (1024 * (post == 0 ? 1024 : 1024.0)), post));
++            return i18n("%1 MB").arg(KGlobal::locale()->formatNumber(value / (1024 * 1024.0), post));
+     else
+-        return i18n("%1 KB").arg(KGlobal::locale()->formatNumber(value / (post == 0 ? 1024 : 1024.0), post));
++        return i18n("%1 KB").arg(KGlobal::locale()->formatNumber(value / 1024.0, post));
+ }
+ 
+ static QString htmlQuote(const QString& _s)
+@@ -124,46 +123,39 @@
+ 
+ void kio_sysinfoProtocol::get( const KURL & /*url*/ )
+ {
+-    FILE *fp;  //this pointer is used to open file
+-
+     mimeType( "application/x-sysinfo" );
+ 
++    // CPU info
++    infoMessage( i18n( "Looking for CPU information..." ) );
++    cpuInfo();
++
+     // header
+     QString location = locate( "data", "sysinfo/about/my-computer.html" );
+     QFile f( location );
+     f.open( IO_ReadOnly );
+     QTextStream t( &f );
+-
+-    infoMessage(i18n("Looking for hardware information..."));
+-
+     QString content = t.read();
+-    content = content.arg( i18n( "My Computer" ) ); // <title>
+-
+-    content = content.arg( "file:" + locate( "data", "sysinfo/about/style.css" ) );
+-
+-    content = content.arg( i18n( "My Computer" ) ); // <h1>
+-    content = content.arg( i18n( "Folders, Harddisks, Removable Devices, System Information and more..." ) ); // catchphrase
++    content = content.arg( i18n( "My Computer" ),
++                           htmlQuote("file:" + locate( "data", "sysinfo/about/style.css" )),
++                           i18n( "My Computer"),
++                           i18n( "Folders, Harddisks, Removable Devices, System Information and more..." ));
+ 
+     QString sysInfo = "<div id=\"column2\">"; // table with 2 cols
+     QString dummy;
+ 
+     // disk info
+-    sysInfo += "<h2 id=\"hdds\">" + i18n( "Disks Information" ) + "</h2>";
++    infoMessage( i18n( "Looking for disk information..." ) );
++    sysInfo += "<h2 id=\"hdds\">" + i18n( "Disk Information" ) + "</h2>";
+     sysInfo += diskInfo();
+ 
+     osInfo();
+     sysInfo += "<h2 id=\"sysinfo\">" +i18n( "OS Information" ) + "</h2>";
+     sysInfo += "<table>";
+-    sysInfo += "<tr><td>" + i18n( "OS:" ) + "</td><td>" + m_info[OS_SYSNAME] + " " + m_info[OS_RELEASE] + " " + m_info[OS_MACHINE] + "</td></tr>";
+-    sysInfo += "<tr><td>" + i18n( "Current user:" ) + "</td><td>" + m_info[OS_USER] + "@" + m_info[OS_HOSTNAME] + "</td></tr>";
+-    sysInfo += "<tr><td>" + i18n( "System:" ) +  "</td><td>" + m_info[OS_SYSTEM] + "</td></tr>";
+-
+-    if((fp =fopen ("/etc/lsb-release", "r"))!=NULL) {
+-	fclose(fp);
+-    	sysInfo += "<tr><td>" + i18n( "Version:" ) +  "</td><td>" + m_info[OS_VERSION] + "</td></tr>";
+-
+-    }
+-
++    sysInfo += "<tr><td>" + i18n( "OS:" ) + "</td><td>" + htmlQuote(m_info[OS_SYSNAME]) + " " +
++        htmlQuote(m_info[OS_RELEASE]) + " " + htmlQuote(m_info[OS_MACHINE]) + "</td></tr>";
++    sysInfo += "<tr><td>" + i18n( "Current user:" ) + "</td><td>" + htmlQuote(m_info[OS_USER]) + "@"
++        + htmlQuote(m_info[OS_HOSTNAME]) + "</td></tr>";
++    sysInfo += "<tr><td>" + i18n( "System:" ) +  "</td><td>" + htmlQuote(m_info[OS_SYSTEM]) + "</td></tr>";
+     sysInfo += "<tr><td>" + i18n( "KDE:" ) + "</td><td>" + KDE::versionString() + "</td></tr>";
+     sysInfo += "</table>";
+ 
+@@ -172,34 +164,30 @@
+     {
+         sysInfo += "<h2 id=\"display\">" + i18n( "Display Info" ) + "</h2>";
+         sysInfo += "<table>";
+-        sysInfo += "<tr><td>" + i18n( "Vendor:" ) + "</td><td>" + m_info[GFX_VENDOR] +  "</td></tr>";
+-        sysInfo += "<tr><td>" + i18n( "Model:" ) + "</td><td>" + m_info[GFX_MODEL] + "</td></tr>";
++        sysInfo += "<tr><td>" + i18n( "Vendor:" ) + "</td><td>" + htmlQuote(m_info[GFX_VENDOR]) +  "</td></tr>";
++        sysInfo += "<tr><td>" + i18n( "Model:" ) + "</td><td>" + htmlQuote(m_info[GFX_MODEL]) + "</td></tr>";
+ 	if (!m_info[GFX_DRIVER].isNull())
+-	  sysInfo += "<tr><td>" + i18n( "Driver:" ) + "</td><td>" + m_info[GFX_DRIVER] + "</td></tr>";
++	  sysInfo += "<tr><td>" + i18n( "Driver:" ) + "</td><td>" + htmlQuote(m_info[GFX_DRIVER]) + "</td></tr>";
+         sysInfo += "</table>";
+     }
+ 
+     sysInfo += "</div><div id=\"column1\">"; // second column
+ 
+     // OS info
++    infoMessage( i18n( "Getting OS information...." ) );
+ 
+     // common folders
+-    sysInfo += "<h2 id=\"dirs\">" + i18n( "Common Folders" ) + "</h2>";
+-    sysInfo += "<ul>";
+-
+-    sysInfo += QString( "<li><a href=\"file:%1\">" ).arg( QDir::homeDirPath() ) + i18n( "My Home Folder" ) + "</a></li>";
+-    sysInfo += QString( "<li><a href=\"file:%1\">" ).arg( QDir::rootDirPath() ) + i18n( "Root Folder" ) + "</a></li>";
+-
+-    if((fp =fopen ("/usr/lib/kde3/kio_apt.so", "r"))!=NULL) {
+-    	sysInfo += "<li><a href=\"apt:/\">" + i18n( "Repository" ) + "</a></li>";
+-	fclose(fp);
+-    }
+-	//sysInfo += "<li><a href=\"programs:/\">" + i18n( "Application" ) + "</a></li>";
+-
++    sysInfo += "<h2 id=\"dirs\">" + i18n( "Common Folders" ) + "</h2>"; sysInfo += "<ul>";
++    if ( KStandardDirs::exists( KGlobalSettings::documentPath() + "/" ) )
++        sysInfo += QString( "<li><a href=\"file:%1\">" ).arg( htmlQuote(KGlobalSettings::documentPath()) ) 
++            + i18n( "My Documents" ) + "</a></li>";
++    sysInfo += QString( "<li><a href=\"file:%1\">" ).arg( htmlQuote(QDir::homeDirPath()) ) + i18n( "My Home Folder" ) + "</a></li>";
++    sysInfo += QString( "<li><a href=\"file:%1\">" ).arg( htmlQuote(QDir::rootDirPath()) ) + i18n( "Root Folder" ) + "</a></li>";
+     sysInfo += "<li><a href=\"remote:/\">" + i18n( "Network Folders" ) + "</a></li>";
+     sysInfo += "</ul>";
+ 
+     // net info
++    infoMessage( i18n( "Looking up network status..." ) );
+     int state = netInfo();
+     if (state > 1) { // assume no network manager / networkstatus
+       sysInfo += "<h2 id=\"net\">" + i18n( "Network Status" ) + "</h2>";
+@@ -208,8 +196,6 @@
+       sysInfo += "</ul>";
+     }
+ 
+-    // CPU info
+-    cpuInfo();
+     if ( !m_info[CPU_MODEL].isNull() )
+     {
+         sysInfo += "<h2 id=\"cpu\">" + i18n( "CPU Information" ) + "</h2>";
+@@ -231,30 +217,17 @@
+     }
+ 
+     // memory info
++    infoMessage( i18n( "Looking for memory information..." ) );
+     memoryInfo();
+     sysInfo += "<h2 id=\"memory\">" + i18n( "Memory Information" ) + "</h2>";
+     sysInfo += "<table>";
+     sysInfo += "<tr><td>" + i18n( "Total memory (RAM):" ) + "</td><td>" + m_info[MEM_TOTALRAM] + "</td></tr>";
+     sysInfo += "<tr><td>" + i18n( "Free memory:" ) + "</td><td>" + m_info[MEM_FREERAM] + "</td></tr>";
+     dummy = i18n( "Used Memory" );
+-    sysInfo += "<tr><td>" + i18n( "Total Swap:" ) + "</td><td>" + m_info[MEM_TOTALSWAP] + "</td></tr>";
+-    sysInfo += "<tr><td>" + i18n( " Free Swap:" ) + "</td><td>" + m_info[MEM_FREESWAP] + "</td></tr>";
++    dummy += "<tr><td>" + i18n( "Total swap:" ) + "</td><td>" + m_info[MEM_TOTALSWAP] + "</td></tr>";
++    sysInfo += "<tr><td>" + i18n( "Free swap:" ) + "</td><td>" + m_info[MEM_FREESWAP] + "</td></tr>";
+     sysInfo += "</table>";
+ 
+-  //   hw info
+-    if (!m_info[TYPE].isNull() || !m_info[MANUFACTURER].isNull() || !m_info[PRODUCT].isNull() 
+-        || !m_info[BIOSVENDOR].isNull() || !m_info[ BIOSVERSION ].isNull())
+-    {
+-        sysInfo += "<h2 id=\"hwinfo\">" +i18n( "Hardware Information" ) + "</h2>";
+-        sysInfo += "<table>";
+-        sysInfo += "<tr><td>" + i18n( "Type:" ) + "</td><td>" + m_info[ TYPE ] + "</td></tr>";
+-        sysInfo += "<tr><td>" + i18n( "Vendor:" ) + "</td><td>" + m_info[ MANUFACTURER ] + "</td></tr>";
+-        sysInfo += "<tr><td>" + i18n( "Model:" ) + "</td><td>" + m_info[ PRODUCT ] + "</td></tr>";
+-        sysInfo += "<tr><td>" + i18n( "Bios Vendor:" ) + "</td><td>" + m_info[ BIOSVENDOR ] + "</td></tr>";
+-        sysInfo += "<tr><td>" + i18n( "Bios Version:" ) + "</td><td>" + m_info[ BIOSVERSION ] + "</td></tr>";
+-        sysInfo += "</table>";
+-    }
+-
+     sysInfo += "</div>";
+ 
+     // Send the data
+@@ -278,11 +251,11 @@
+     unsigned long int val = 0;
+     if ( sscanf( b + strlen( key ), ": %lu", &val ) != 1 )
+         return 0;
+-    kdDebug() << "scan_one " << key << " " << val << endl;
++    kdDebug(1242) << "scan_one " << key << " " << val << endl;
+     return val;
+ }
+ 
+-static unsigned long int calculateFreeRam()
++static Q_UINT64 calculateFreeRam()
+ {
+     FILE *fd = fopen( "/proc/meminfo", "rt" );
+     if ( !fd )
+@@ -291,10 +264,10 @@
+     QTextIStream is( fd );
+     QString MemInfoBuf = is.read();
+ 
+-    unsigned long int MemFree = scan_one( MemInfoBuf.latin1(), "MemFree" );
+-    unsigned long int Buffers = scan_one( MemInfoBuf.latin1(), "Buffers" );
+-    unsigned long int Cached  = scan_one( MemInfoBuf.latin1(), "Cached" );
+-    unsigned long int Slab    = scan_one( MemInfoBuf.latin1(), "Slab" );
++    Q_UINT64 MemFree = scan_one( MemInfoBuf.latin1(), "MemFree" );
++    Q_UINT64 Buffers = scan_one( MemInfoBuf.latin1(), "Buffers" );
++    Q_UINT64 Cached  = scan_one( MemInfoBuf.latin1(), "Cached" );
++    Q_UINT64 Slab    = scan_one( MemInfoBuf.latin1(), "Slab" );
+     fclose( fd );
+ 
+     MemFree += Cached + Buffers + Slab;
+@@ -310,19 +283,19 @@
+ 
+     if ( retval !=-1 )
+     {
+-        const int mem_unit = info.mem_unit;
++        Q_UINT64 mem_unit = info.mem_unit;
+ 
+-        m_info[MEM_TOTALRAM] = formattedUnit( info.totalram * mem_unit );
+-        unsigned long int totalFree = calculateFreeRam() * 1024;
+-        kdDebug() << "total " << totalFree << " free " << info.freeram << " unit " << mem_unit << endl;
++        m_info[MEM_TOTALRAM] = formattedUnit( Q_UINT64(info.totalram) * mem_unit );
++        Q_UINT64 totalFree = calculateFreeRam() * 1024;
++        kdDebug(1242) << "total " << totalFree << " free " << info.freeram << " unit " << mem_unit << endl;
+         if ( totalFree > info.freeram * info.mem_unit || true )
+-            m_info[MEM_FREERAM] = i18n("%1 (+ %2 Caches)").arg(formattedUnit( info.freeram * mem_unit ))
++            m_info[MEM_FREERAM] = i18n("%1 (+ %2 Caches)").arg(formattedUnit( Q_UINT64(info.freeram) * mem_unit ))
+                                   .arg( formattedUnit( totalFree - info.freeram * mem_unit ));
+         else
+-            m_info[MEM_FREERAM] = formattedUnit( info.freeram * mem_unit );
++            m_info[MEM_FREERAM] = formattedUnit( Q_UINT64(info.freeram) * mem_unit );
+ 
+-        m_info[MEM_TOTALSWAP] = formattedUnit( info.totalswap * mem_unit );
+-        m_info[MEM_FREESWAP] = formattedUnit( info.freeswap * mem_unit );
++        m_info[MEM_TOTALSWAP] = formattedUnit( Q_UINT64(info.totalswap) * mem_unit );
++        m_info[MEM_FREESWAP] = formattedUnit( Q_UINT64(info.freeswap) * mem_unit );
+ 
+         m_info[SYSTEM_UPTIME] = convertSeconds( info.uptime );
+     }
+@@ -346,6 +319,7 @@
+         m_info[CPU_TEMP] =
+             readFromFile(QString("/proc/acpi/thermal_zone/%1/temperature").arg(names[i]), "temperature", ":");
+         m_info[CPU_TEMP] = m_info[CPU_TEMP].stripWhiteSpace();
++        m_info[CPU_TEMP].replace(" C",QString::fromUtf8("°C"));
+         if (!m_info[CPU_TEMP].isEmpty())
+             break;
+     }
+@@ -355,9 +329,12 @@
+          m_info[CPU_MODEL] = readFromFile( "/proc/cpuinfo", "cpu", ":" );
+ }
+ 
++
+ QString kio_sysinfoProtocol::diskInfo()
+ {
+-    QString result = "<table>";
++    QString result = "<table><tr><th>" + i18n( "Device" ) + "</th><th>" + i18n( "Filesystem" ) + "</th><th>" +
++                     i18n( "Total space" ) + "</th><th>" + i18n( "Available space" ) + "</th></tr>";
++
+     if ( fillMediaDevices() )
+     {
+         for ( QValueList<DiskInfo>::ConstIterator it = m_devices.constBegin(); it != m_devices.constEnd(); ++it )
+@@ -365,74 +342,72 @@
+             QString tooltip = i18n("Press the right mouse button for more options like Mount or Eject");
+ 
+             DiskInfo di = ( *it );
+-            QString label = di.userLabel.isEmpty() ? di.label : di.userLabel;
++            unsigned int percent = 0;
++            Q_UINT64 usage = di.total - di.avail;
++            if (di.total)
++                percent = usage / ( di.total / 100);
++
++            KURL media;
++            media.setProtocol("media");
++            media.setPath("/" + di.name);
++
++            result += QString( "<tr><td>%1 <a href=\"%2\" title=\"%7\">%3</a></td><td>%4</td><td>%5</td><td>%6</td></tr>\n" ).
++                      arg( icon( di.iconName ) ).arg( media.htmlURL() ).arg( htmlQuote(di.label) ).arg( di.fsType ).
++                      arg( di.total ? formattedUnit( di.total) : QString::null).arg(di.mounted ?
++                              formattedUnit (di.avail ) : QString::null).arg( htmlQuote(tooltip) );
++            if (di.mounted) {
++                QColor c;
++                c.setHsv(100-percent, 180, 230);
++                result += QString("<tr><td colspan=\"4\" class=\"bar\" width=\"100%\">"
++                                  "<div class=\"filled\" style=\"width: %1%; height: 1em; background-color: %3\">"
++                                  "%2</div></td></tr>\n")
++                    .arg(percent).arg(formattedUnit(usage).replace(" ", "&nbsp;")).arg(c.name());
++            }
++        }
++    }
++    else // fall back to fstab parsing
++    {
++        FILE * fp;
++        if ( !( fp = setmntent( "/etc/fstab", "r" ) ) )
++        {
++            kdDebug(1242) << k_funcinfo << "Failed to open /etc/fstab" << endl;
++            return QString::null;
++        }
++
++#define FS_NAME        mnt_ent->mnt_fsname     // device-name
++#define FS_FILE        mnt_ent->mnt_dir        // mount-point
++#define FS_TYPE        mnt_ent->mnt_type       // fs-type
++
++        struct statfs sfs;
++        struct mntent *mnt_ent;
++        unsigned long long total, avail;
+ 
+-            unsigned long long usage,percent,peer;
+-            usage = di.total - di.avail;
+-            peer = di.total / 100;
+-
+-            peer == 0 ? percent = 0 : percent = usage / peer;
+-
+-	    if (percent < 20) {
+-	    result += QString( "<tr>"
+-                               "    <td>%1</td>"
+-                               "    <td width=\"90%\">"
+-                              "        <table width=\"100%\">"
+-                               "            <tr>"
+-                               "                    <a href=\"media:/%2\" title=\"%3\">%4</a> <b class=\"disk_text_color\"> [%5]"
+-                               "                    " + i18n("Total") + ": <b>%6</b> " + i18n("Available") + ": <b>%7</b> </b>"
+-                               "                </td>"
+-                               "                <td width=\"40%\" class=\"bar\">"
+-                               "                    <div style=\"width: %8%; height:10px;\"></div><span style=\"float:left;  padding-top:2px\">&nbsp%9&nbsp</span>"
+-                               "            </tr>"
+-                               "        </table>"
+-                               "    </td>"
+-                               "</tr>"
+-                               "<tr></tr>" ).
+-
+-				arg( icon( di.iconName, 32 ) ).
+-                                arg( di.name ).
+-                                arg( tooltip).
+-                                arg( label ).
+-                                arg( di.fsType ).
+-                                arg( formattedUnit( di.total,0 ) ).
+-                                arg( formattedUnit( di.avail,0 ) ).
+-                                arg( di.mounted ? percent : 0).
+-                                arg( di.mounted ? formattedUnit( usage ) : QString::null );
+-
+-		    }
+-
+-	    else {
+-
+-            result += QString( "<tr>"
+-                               "    <td>%1</td>"
+-                               "    <td width=\"90%\">"
+-                              "        <table width=\"100%\">"
+-                               "            <tr>"
+-                               "                    <a href=\"media:/%2\" title=\"%3\">%4</a> <b class=\"disk_text_color\"> [%5]"
+-                               "                    " + i18n("Total") + ": <b>%6</b> " + i18n("Available") + ": <b>%7</b> </b>"
+-                               "                </td>"
+-                               "                <td width=\"40%\" class=\"bar\">"
+-                               "                    <div style=\"width: %8%; height:10px;\">%9&nbsp</div>"
+-                               "            </tr>"
+-                               "        </table>"
+-                               "    </td>"
+-                               "</tr>"
+-                               "<tr></tr>" ).
+-
+-				arg( icon( di.iconName, 32 ) ).
+-                                arg( di.name ).
+-                                arg( tooltip).
+-                                arg( label ).
+-                                arg( di.fsType ).
+-                                arg( formattedUnit( di.total,0 ) ).
+-                                arg( formattedUnit( di.avail,0 ) ).
+-                                arg( di.mounted ? percent : 0).
+-                                arg( di.mounted ? formattedUnit( usage ) : QString::null );
+-		    }
++        while ( ( mnt_ent = getmntent( fp ) ) != NULL )
++        {
++            total = avail = 0;
++            if ( statfs( FS_FILE, &sfs ) == 0 )
++            {
++                total = ( unsigned long long )sfs.f_blocks * sfs.f_bsize;
++                if ( total > 0 && strcmp( FS_TYPE, "subdomainfs" ) != 0 ) // discard empty or otherwise strange devices
++                {
++                    avail = ( unsigned long long )( getuid() ? sfs.f_bavail : sfs.f_bfree ) * sfs.f_bsize;
++                    int lastSlash = QString( FS_NAME ).findRev( '/' );
++                    QString deviceName = lastSlash != -1 ? QString( FS_NAME ).mid( lastSlash + 1 ) : QString( FS_NAME );
++                    //kdDebug(1242) << k_funcinfo << "Device name: " << deviceName << endl;
++                    QString model = deviceName.left( deviceName.length() - 1 );
++                    model = readFromFile( "/proc/ide/" + model + "/model" );
++                    QString devIcon = icon( iconForDevice( deviceName ), KIcon::SizeSmall );
++                    result += QString( "<tr><td>%1 <a href=\"file:%2\" title=\"%7\">%3</a></td><td>%4</td><td>%5</td><td>%6</td></tr>" )
++                              .arg( devIcon ).arg( FS_FILE ).arg( FS_FILE ).arg( FS_TYPE ).arg( formattedUnit( total ) )
++                              .arg( formattedUnit( avail ) ).arg( model );
++                }
++            }
+         }
++        endmntent( fp );
+     }
++
+     result += "</table>";
++
+     return result;
+ }
+ 
+@@ -442,12 +417,12 @@
+     // query kded.networkstatus.status(QString host)
+     DCOPRef nsd( "kded", "networkstatus" );
+     nsd.setDCOPClient( m_dcopClient );
+-    DCOPReply reply = nsd.call( "status", QString( "www.google.com" ) );
++    DCOPReply reply = nsd.call( "status", QString( "www.mandriva.com" ) );
+ 
+     if ( reply.isValid() )
+         return reply;
+ 
+-    kdDebug() << k_funcinfo << "Reply is invalid" << endl;
++    kdDebug(1242) << k_funcinfo << "Reply is invalid" << endl;
+ 
+     return 0;
+ }
+@@ -539,7 +514,6 @@
+ #endif
+ }
+ 
+-#define INFO_DRI "/proc/dri/0/name"
+ 
+ bool kio_sysinfoProtocol::glInfo()
+ {
+@@ -621,7 +595,6 @@
+     return true;
+ }
+ 
+-
+ QString kio_sysinfoProtocol::netStatus( int code ) const
+ {
+     if ( code == 1 || code == 2 )
+@@ -641,7 +614,8 @@
+ QString kio_sysinfoProtocol::icon( const QString & name, int size ) const
+ {
+     QString path = KGlobal::iconLoader()->iconPath( name, -size );
+-    return QString( "<img src=\"file:%1\" width=\"%2\" height=\"%3\" valign=\"center\"/>" ).arg( path ).arg( size ).arg( size );
++    return QString( "<img src=\"file:%1\" width=\"%2\" height=\"%3\" valign=\"bottom\"/>" ).arg(
++            htmlQuote(path) ).arg( size ).arg( size );
+ }
+ 
+ QString kio_sysinfoProtocol::iconForDevice( const QString & name ) const
+@@ -659,7 +633,6 @@
+ 
+ void kio_sysinfoProtocol::osInfo()
+ {
+-    FILE *fp;
+     struct utsname uts;
+     uname( &uts );
+     m_info[ OS_SYSNAME ] = uts.sysname;
+@@ -670,14 +643,8 @@
+ 
+     m_info[ OS_USER ] = KUser().loginName();
+ 
+-    if((fp =fopen ("/etc/lsb-release", "r"))==NULL)
+-        m_info[ OS_SYSTEM ] = readFromFile( "/etc/issue" );
+-   else
+-  {      fclose(fp);
+-           m_info[ OS_SYSTEM ] = readFromFile( "/etc/lsb-release", "DISTRIB_DESCRIPTION", "=" );
+-	    m_info[ OS_VERSION ] = readFromFile( "/etc/lsb-release", "DISTRIB_CODENAME", "=" );
+-  }
+-
++    m_info[ OS_SYSTEM ] = readFromFile( "/etc/mandriva-release" );
++    m_info[ OS_SYSTEM ].replace("X86-64","x86_64");
+ }
+ 
+ static const KCmdLineOptions options[] =
+@@ -698,10 +665,10 @@
+       KCmdLineArgs::addCmdLineOptions( options );
+       KApplication app( false, true );
+ 
+-        kdDebug(7101) << "*** Starting kio_sysinfo " << endl;
++        kdDebug(1242) << "*** Starting kio_sysinfo " << endl;
+ 
+         if (argc != 4) {
+-            kdDebug(7101) << "Usage: kio_sysinfo  protocol domain-socket1 domain-socket2" << endl;
++            kdDebug(1242) << "Usage: kio_sysinfo  protocol domain-socket1 domain-socket2" << endl;
+             exit(-1);
+         }
+ 
+@@ -710,7 +677,7 @@
+         kio_sysinfoProtocol slave( args->arg(1), args->arg(2));
+         slave.dispatchLoop();
+ 
+-        kdDebug(7101) << "*** kio_sysinfo Done" << endl;
++        kdDebug(1242) << "*** kio_sysinfo Done" << endl;
+         return 0;
+     }
+ }
+@@ -723,15 +690,15 @@
+     if ( devices.isEmpty() )
+         return false;
+ 
+-    kdDebug() << devices << endl;
++    kdDebug(1242) << devices << endl;
+ 
+     m_devices.clear();
+ 
+     LibHalContext  *m_halContext = libhal_ctx_new();
+     if (!m_halContext)
+       {
+-	kdDebug(1219) << "Failed to initialize HAL!" << endl;
+-	return false;
++	kdDebug(1242) << "Failed to initialize HAL!" << endl;
++        return false;
+       }
+ 
+     DBusError error;
+@@ -786,30 +753,26 @@
+         struct statfs sfs;
+         if ( di.mounted && statfs( QFile::encodeName( di.mountPoint ), &sfs ) == 0 )
+         {
+-            di.total = ( unsigned long long ) sfs.f_blocks * sfs.f_bsize;
++            di.total = ( unsigned long long )sfs.f_blocks * sfs.f_bsize;
+             di.avail = ( unsigned long long )( getuid() ? sfs.f_bavail : sfs.f_bfree ) * sfs.f_bsize;
+         } else if (m_halContext && di.id.startsWith("/org/freedesktop/Hal/" ) )
+-        {
+-            dbus_error_init(&error);
+-            di.total = libhal_device_get_property_uint64(m_halContext, di.id.latin1(), "volume.size", &error);
+-            if (dbus_error_is_set(&error))
+-                di.total = 0;
+-            }
++	{
++	  dbus_error_init(&error);
++	  di.total = libhal_device_get_property_uint64(m_halContext, di.id.latin1(), "volume.size", &error);
++	  if (dbus_error_is_set(&error))
++	    di.total = 0;
++	}
+ 
+-            di.model = libhal_device_get_property_string(  m_halContext, di.id.latin1(  ), "block.storage_device", &error );
+-            di.model = libhal_device_get_property_string( m_halContext, di.model.latin1( ), "storage.model", &error );
++        // guess the model
++        QString ideName = di.name;
++        ideName.truncate( 3 );
++        di.model = readFromFile( "/proc/ide/" + ideName + "/model" );
+ 
+-            ++it; // skip separator
++        ++it; // skip separator
+ 
+-            m_devices.append( di );
++        m_devices.append( di );
+     }
+ 
+-    m_info[PRODUCT ] = libhal_device_get_property_string(  m_halContext, "/org/freedesktop/Hal/devices/computer", "smbios.system.product", &error );
+-    m_info[MANUFACTURER ] = libhal_device_get_property_string(  m_halContext, "/org/freedesktop/Hal/devices/computer", "smbios.system.manufacturer", &error );
+-    m_info[TYPE] = libhal_device_get_property_string( m_halContext, "/org/freedesktop/Hal/devices/computer", "smbios.chassis.type", &error );
+-    m_info[BIOSVENDOR] = libhal_device_get_property_string( m_halContext, "/org/freedesktop/Hal/devices/computer", "smbios.bios.vendor", &error );
+-    m_info[BIOSVERSION] = libhal_device_get_property_string( m_halContext, "/org/freedesktop/Hal/devices/computer", "smbios.bios.version", &error );
+-
+     libhal_ctx_free(m_halContext);
+ 
+     return true;
+diff -u -r kio-sysinfo-1.8.2/src/sysinfo.h kio-sysinfo-10.3/src/sysinfo.h
+--- kio-sysinfo-1.8.2/src/sysinfo.h	2007-08-21 08:13:36.000000000 -0300
++++ kio-sysinfo-10.3/src/sysinfo.h	2007-08-14 13:10:29.000000000 -0300
+@@ -51,7 +51,7 @@
+     QString iconName;
+ 
+     // own stuff
+-    unsigned long long total, avail; // space on device
++    Q_UINT64 total, avail; // space on device
+     QString model;              // physical device model (name)
+ };
+ 
+@@ -78,12 +78,11 @@
+         MEM_FREERAM,
+         MEM_TOTALSWAP,
+         MEM_FREESWAP,
+-        STEPPING,               //speedstep
+         SYSTEM_UPTIME,          // in seconds
+         CPU_MODEL,
+         CPU_SPEED,              // in MHz
+-	CPU_CORES,
+-	CPU_TEMP,
++        CPU_CORES,
++        CPU_TEMP,
+         OS_SYSNAME,             // man 2 uname
+         OS_RELEASE,
+         OS_VERSION,
+@@ -94,31 +93,16 @@
+         GFX_VENDOR,              // Display stuff
+         GFX_MODEL,
+         GFX_DRIVER,
+-        SYSINFO_LAST,
+-        PRODUCT,
+-        MANUFACTURER,
+-        TYPE,
+-        BIOSVENDOR,
+-        BIOSVERSION
++        SYSINFO_LAST
+     };
+ 
+ private:
+     /**
+-     * Read sysinfo from (proc) filesystem. The data is assumed to be separated by newlines, with key:value pairs
+-     *
+-     * @param filename file to read from
+-     * @param info requested field (if empty, return the first line from the file)
+-     * @param sep separator
+-     * NOT USED YET
+-     */
+- //   QString readFromFile( const QString & filename, const QString & info = QString::null, const char * sep = 0 ) const;
+-
+-    /**
+      * Gather basic memory info
+      */
+     void memoryInfo();
+ 
+-     /**
++    /**
+      * Gather CPU info
+      */
+     void cpuInfo();
+diff -u -r kio-sysinfo-1.8.2/admin/acinclude.m4.in kio-sysinfo-10.3/admin/acinclude.m4.in
+--- kio-sysinfo-1.8.2/admin/acinclude.m4.in	2006-08-31 15:56:03.000000000 -0300
++++ kio-sysinfo-10.3/admin/acinclude.m4.in	2007-03-19 13:45:09.000000000 -0300
+@@ -983,7 +983,7 @@
+   X_INCLUDES="-I$x_includes"
+ fi
+ 
+-if test -z "$kde_x_libraries" || test "x$kde_x_libraries" = xNONE; then
++if test -z "$kde_x_libraries" || test "x$kde_x_libraries" = xNONE || test "$kde_x_libraries" = "/usr/lib"; then
+   X_LDFLAGS=""
+   x_libraries="/usr/lib"; dnl better than nothing :-
+  else
+@@ -3198,7 +3198,7 @@
+         case $host in
+           *-*-linux-gnu)	
+             CFLAGS="-std=iso9899:1990 -W -Wall -Wchar-subscripts -Wshadow -Wpointer-arith -Wmissing-prototypes -Wwrite-strings -D_XOPEN_SOURCE=500 -D_BSD_SOURCE $CFLAGS"
+-            CXXFLAGS="-ansi -D_XOPEN_SOURCE=500 -D_BSD_SOURCE -Wcast-align -Wconversion -Wchar-subscripts $CXXFLAGS"
++            CXXFLAGS="-ansi -D_XOPEN_SOURCE=500 -D_BSD_SOURCE -Wcast-align -Wchar-subscripts $CXXFLAGS"
+             KDE_CHECK_COMPILER_FLAG(Wmissing-format-attribute, [CXXFLAGS="$CXXFLAGS -Wformat-security -Wmissing-format-attribute"])
+             KDE_CHECK_C_COMPILER_FLAG(Wmissing-format-attribute, [CFLAGS="$CFLAGS -Wformat-security -Wmissing-format-attribute"])
+           ;;
+@@ -4624,12 +4624,14 @@
+ 
+ AC_DEFUN([KDE_CHECK_PYTHON],
+ [
+-  KDE_CHECK_PYTHON_INTERN("2.4",
+-   [KDE_CHECK_PYTHON_INTERN("2.3", 
+-     [KDE_CHECK_PYTHON_INTERN("2.2", 
+-       [KDE_CHECK_PYTHON_INTERN("2.1", 
+-         [KDE_CHECK_PYTHON_INTERN("2.0", 
+-           [KDE_CHECK_PYTHON_INTERN($1, $2) ])
++  KDE_CHECK_PYTHON_INTERN("2.5",
++    [KDE_CHECK_PYTHON_INTERN("2.4",
++     [KDE_CHECK_PYTHON_INTERN("2.3", 
++       [KDE_CHECK_PYTHON_INTERN("2.2", 
++         [KDE_CHECK_PYTHON_INTERN("2.1", 
++           [KDE_CHECK_PYTHON_INTERN("2.0", 
++             [KDE_CHECK_PYTHON_INTERN($1, $2) ])
++           ])
+          ])
+        ])
+      ])
+@@ -5213,9 +5215,10 @@
+       for dir in $javadirs; do
+           dnl Check for the java executable
+ 	  if test -x "$dir/java"; then
++	      sane_path=$(cd $dir; /bin/pwd)
+ 	      dnl And also check for a libjvm.so somewhere under there
+ 	      dnl Since we have to go to the parent dir, /usr/bin is excluded, /usr is too big.
+-              if test "$dir" != "/usr/bin"; then
++              if test "$sane_path" != "/usr/bin"; then
+                   libjvmdir=`find $dir/.. -name libjvm.so | sed 's,libjvm.so,,'|head -n 1`
+ 		  if test ! -f $libjvmdir/libjvm.so; then continue; fi
+ 		  jredirs="$jredirs $dir"
+Somente em kio-sysinfo-1.8.2/admin: cvs-clean.pl
+diff -u -r kio-sysinfo-1.8.2/admin/cvs.sh kio-sysinfo-10.3/admin/cvs.sh
+--- kio-sysinfo-1.8.2/admin/cvs.sh	2006-08-31 15:56:03.000000000 -0300
++++ kio-sysinfo-10.3/admin/cvs.sh	2007-05-14 04:16:15.000000000 -0300
+@@ -68,7 +68,7 @@
+     echo "*** KDE requires automake $required_automake_version"
+     exit 1
+     ;;
+-  automake*1.6.* | automake*1.7* | automake*1.8* | automake*1.9*)
++  automake*1.6.* | automake*1.7* | automake*1.8* | automake*1.9* | automake*1.10*)
+     echo "*** $AUTOMAKE_STRING found."
+     UNSERMAKE=no
+     ;;
+@@ -316,7 +316,7 @@
+    fi
+ fi
+ if test -z "$VERSION" || test "$VERSION" = "@VERSION@"; then
+-     VERSION="\"3.5.4\""
++     VERSION="\"3.5.7\""
+ fi
+ if test -z "$modulename" || test "$modulename" = "@MODULENAME@"; then
+    modulename=`pwd`; 
+diff -u -r kio-sysinfo-1.8.2/admin/detect-autoconf.pl kio-sysinfo-10.3/admin/detect-autoconf.pl
+--- kio-sysinfo-1.8.2/admin/detect-autoconf.pl	2006-08-31 15:56:03.000000000 -0300
++++ kio-sysinfo-10.3/admin/detect-autoconf.pl	2007-08-14 10:26:09.000000000 -0300
+@@ -46,6 +46,8 @@
+ 
+ 	    ($version) = $file =~ /$prefix\/$program-?(.*)$/;
+ 	    $version =~ s/-|\.//g;
++	    # Don't check the -wrapper ones
++	    next if $version eq "wrapper";
+ 
+ 	    # Special case some programs to make sure it has a minimum version.
+ 	    if (not $version and exists $minimumVersions{$program})
+Somente em kio-sysinfo-1.8.2/admin: detect-autoconf.sh
+diff -u -r kio-sysinfo-1.8.2/admin/libtool.m4.in kio-sysinfo-10.3/admin/libtool.m4.in
+--- kio-sysinfo-1.8.2/admin/libtool.m4.in	2006-08-31 15:56:03.000000000 -0300
++++ kio-sysinfo-10.3/admin/libtool.m4.in	2007-04-23 16:19:55.000000000 -0300
+@@ -1424,7 +1424,7 @@
+   libsuff=
+   if test "x$LINUX_64_MODE" = x64; then
+     # Some platforms are per default 64-bit, so there's no /lib64
+-    if test -d /lib64; then
++    if test -d /lib64 -a ! -h /lib64; then
+       libsuff=64
+     fi
+   fi

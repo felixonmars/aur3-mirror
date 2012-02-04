@@ -1,0 +1,60 @@
+# Maintainer: SpepS <dreamspepser at yahoo dot it>
+
+pkgname=sndlib
+pkgver=2011.08.17
+pkgrel=1
+pkgdesc="The Snd/CLM sound library"
+arch=('i686' 'x86_64')
+url="http://ccrma-ftp.stanford.edu/"
+license=('GPL')
+depends=('alsa-lib' 'jack' 'portaudio' 'esound' 'gsl')
+source=("ftp://ccrma-ftp.stanford.edu/pub/Lisp/$pkgname.tar.gz")
+md5sums=(`wget -qO- $source | md5sum | cut -c -32`)
+
+build() {
+  cd "$srcdir/$pkgname"
+
+  # x86_64 fPIC
+  export CFLAGS="$CFLAGS -fPIC"
+
+  # add missing LDFLAGS
+  export LDFLAGS="$LDFLAGS `pkg-config --libs alsa jack esound portaudio-2.0`"
+
+  # use gcc -shared instead of ld
+  sed -i "s|@SO_LD@|gcc -shared|" makefile.in
+
+  # replace repeated -lm with missing -lesd in sndlib-config
+  sed -i "s|lm|lesd|" sndlib-config.in
+
+  # enable most
+  ./configure --prefix=/usr \
+              --with-esd \
+              --with-alsa \
+              --with-oss \
+              --with-jack \
+              --with-doubles \
+              --with-gsl \
+              --with-s7 \
+              --with-portaudio
+
+  make
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+
+  # prepare dirs
+  install -d "$pkgdir"/usr/{bin,include,lib}
+
+  # config tool
+  install -Dm 755 sndlib-config "$pkgdir/usr/bin"
+
+  # shared lib
+  install -Dm 755 libsndlib.so "$pkgdir/usr/lib"
+
+  # static lib
+  install -Dm 644 libsndlib.a "$pkgdir/usr/lib"
+
+  # headers
+  install -Dm 644 [^_]*.h "$pkgdir/usr/include"
+}

@@ -1,0 +1,3 @@
+#!/bin/sh
+
+pkexec "/usr/sbin/gparted" "$@"

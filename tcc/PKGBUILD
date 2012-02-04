@@ -1,0 +1,43 @@
+# Maintainer : Gergely Imreh <imrehgATgmailDOTcom>
+# Contributor : dschauer <dschauerATgmailDOTcom>
+# Contributor : Stefan Husmann <stefan-husmann@t-online.de>
+# Contributor : Jeremy Cowgar <jeremy@cowgar.com>
+
+pkgname=tcc
+pkgver=0.9.25
+pkgrel=2
+pkgdesc="Tiny C Compiler"
+arch=('i686' 'x86_64')
+url="http://bellard.org/tcc/"
+license=('LGPL')
+makedepends=('gcc')
+source=(http://download.savannah.nongnu.org/releases/tinycc/${pkgname}-${pkgver}.tar.bz2)
+options=(docs)
+build() {
+  cd ${srcdir}/${pkgname}-${pkgver}
+
+ #sed fixes from Gentoo ebuild, cheers!
+  # Don't strip
+  sed -i -e 's|$(INSTALL) -s|$(INSTALL)|' Makefile
+
+  # Fix examples
+  sed -i -e '1{
+    i#! /usr/bin/tcc -run
+    /^#!/d
+  }' examples/ex*.c
+  sed -i -e '1s/$/ -lX11/' examples/ex4.c
+  
+  ./configure --prefix=/usr
+  make || return 1
+  make tccdir=${pkgdir}/usr/lib/tcc libdir=${pkgdir}/usr/lib \
+    mandir=${pkgdir}/usr/share/man bindir=${pkgdir}/usr/bin \
+    includedir=${pkgdir}/usr/include \
+    docdir=${pkgdir}/usr/share/doc/tcc \
+    install
+
+  make clean
+  make CFLAGS="-fPIC" libtcc.o || return 1
+  ld -shared -soname libtcc.so -o libtcc.so libtcc.o || return 1
+  install -D -m 755 libtcc.so "${pkgdir}/usr/lib/libtcc.so"
+}
+md5sums=('991c2a1986cce15f03ca6ddc86ea5f43')

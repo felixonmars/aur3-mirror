@@ -1,0 +1,1926 @@
+diff -Naur linux-2.6.39//drivers/acpi/acpi_igd_opregion.c linux-2.6.39-kamal//drivers/acpi/acpi_igd_opregion.c
+--- linux-2.6.39//drivers/acpi/acpi_igd_opregion.c	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.39-kamal//drivers/acpi/acpi_igd_opregion.c	2011-06-18 11:52:38.079928407 -0500
+@@ -0,0 +1,418 @@
++/*
++ * Copyright 2008 Intel Corporation <hong.liu@intel.com>
++ * Copyright 2008 Red Hat <mjg@redhat.com>
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining
++ * a copy of this software and associated documentation files (the
++ * "Software"), to deal in the Software without restriction, including
++ * without limitation the rights to use, copy, modify, merge, publish,
++ * distribute, sub license, and/or sell copies of the Software, and to
++ * permit persons to whom the Software is furnished to do so, subject to
++ * the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the
++ * next paragraph) shall be included in all copies or substantial
++ * portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
++ * NON-INFRINGEMENT.  IN NO EVENT SHALL INTEL AND/OR ITS SUPPLIERS BE
++ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
++ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
++ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++ * SOFTWARE.
++ *
++ */
++
++#include <linux/acpi.h>
++#include <linux/acpi_io.h>
++#include <acpi/video.h>
++#include <acpi/acpi_igd_opregion.h>
++#include <drm/drmP.h>
++
++#define PCI_ASLE 0xe4
++#define PCI_ASLS 0xfc
++
++#define OPREGION_HEADER_OFFSET 0
++#define OPREGION_ACPI_OFFSET   0x100
++#define   ACPI_CLID 0x01ac /* current lid state indicator */
++#define   ACPI_CDCK 0x01b0 /* current docking state indicator */
++#define OPREGION_SWSCI_OFFSET  0x200
++#define OPREGION_ASLE_OFFSET   0x300
++#define OPREGION_VBT_OFFSET    0x400
++
++#define OPREGION_SIGNATURE "IntelGraphicsMem"
++#define MBOX_ACPI      (1<<0)
++#define MBOX_SWSCI     (1<<1)
++#define MBOX_ASLE      (1<<2)
++
++/* ASLE irq request bits */
++#define ASLE_SET_ALS_ILLUM     (1 << 0)
++#define ASLE_SET_BACKLIGHT     (1 << 1)
++#define ASLE_SET_PFIT          (1 << 2)
++#define ASLE_SET_PWM_FREQ      (1 << 3)
++#define ASLE_REQ_MSK           0xf
++
++/* response bits of ASLE irq request */
++#define ASLE_ALS_ILLUM_FAILED	(1<<10)
++#define ASLE_BACKLIGHT_FAILED	(1<<12)
++#define ASLE_PFIT_FAILED	(1<<14)
++#define ASLE_PWM_FREQ_FAILED	(1<<16)
++
++/* ASLE backlight brightness to set */
++#define ASLE_BCLP_VALID                (1<<31)
++#define ASLE_BCLP_MSK          (~(1<<31))
++
++/* ASLE panel fitting request */
++#define ASLE_PFIT_VALID         (1<<31)
++#define ASLE_PFIT_CENTER (1<<0)
++#define ASLE_PFIT_STRETCH_TEXT (1<<1)
++#define ASLE_PFIT_STRETCH_GFX (1<<2)
++
++/* PWM frequency and minimum brightness */
++#define ASLE_PFMB_BRIGHTNESS_MASK (0xff)
++#define ASLE_PFMB_BRIGHTNESS_VALID (1<<8)
++#define ASLE_PFMB_PWM_MASK (0x7ffffe00)
++#define ASLE_PFMB_PWM_VALID (1<<31)
++
++#define ASLE_CBLV_VALID         (1<<31)
++
++#define ACPI_OTHER_OUTPUT (0<<8)
++#define ACPI_VGA_OUTPUT (1<<8)
++#define ACPI_TV_OUTPUT (2<<8)
++#define ACPI_DIGITAL_OUTPUT (3<<8)
++#define ACPI_LVDS_OUTPUT (4<<8)
++
++#ifdef CONFIG_ACPI
++/* Disable asle_set_backlight; let userspace manage the backlight. */
++static int asle_backlight_enable = 0;
++module_param_named(asle_backlight, asle_backlight_enable, int, 0600);
++
++static u32 asle_set_backlight(struct opregion_dev *dev, u32 bclp)
++{
++	struct opregion_asle *asle = dev->opregion.asle;
++	u32 max = dev->max_backlight;
++
++	if (asle_backlight_enable == 0)
++		return 0;
++
++	if (!(bclp & ASLE_BCLP_VALID))
++		return ASLE_BACKLIGHT_FAILED;
++
++	bclp &= ASLE_BCLP_MSK;
++	if (bclp > 255)
++		return ASLE_BACKLIGHT_FAILED;
++
++	if (dev->set_backlight)
++		dev->set_backlight(dev->drm_dev, bclp * max / 255);
++
++	asle->cblv = (bclp*0x64)/0xff | ASLE_CBLV_VALID;
++
++	return 0;
++}
++
++static u32 asle_set_als_illum(struct opregion_dev *dev, u32 alsi)
++{
++	if (dev->set_als_illum)
++		dev->set_als_illum(dev->drm_dev, alsi);
++	return 0;
++}
++
++static u32 asle_set_pwm_freq(struct opregion_dev *dev, u32 pfmb)
++{
++	if (pfmb & ASLE_PFMB_PWM_VALID) {
++		if (dev->set_pwm_freq)
++			dev->set_pwm_freq(dev->drm_dev, pfmb);
++	}
++	return 0;
++}
++
++static u32 asle_set_pfit(struct opregion_dev *dev, u32 pfit)
++{
++	if (!(pfit & ASLE_PFIT_VALID))
++		return ASLE_PFIT_FAILED;
++
++	if (dev->set_pfit)
++		dev->set_pfit(dev->drm_dev, pfit);
++
++	return 0;
++}
++
++void igd_opregion_intr(struct opregion_dev *dev)
++{
++	struct opregion_asle *asle = dev->opregion.asle;
++	u32 asle_stat = 0;
++	u32 asle_req;
++
++	if (!asle)
++		return;
++
++	asle_req = asle->aslc & ASLE_REQ_MSK;
++
++	if (!asle_req) {
++		DRM_DEBUG_DRIVER("non asle set request??\n");
++		return;
++	}
++
++	if (asle_req & ASLE_SET_ALS_ILLUM)
++		asle_stat |= asle_set_als_illum(dev, asle->alsi);
++
++	if (asle_req & ASLE_SET_BACKLIGHT)
++		asle_stat |= asle_set_backlight(dev, asle->bclp);
++
++	if (asle_req & ASLE_SET_PFIT)
++		asle_stat |= asle_set_pfit(dev, asle->pfit);
++
++	if (asle_req & ASLE_SET_PWM_FREQ)
++		asle_stat |= asle_set_pwm_freq(dev, asle->pfmb);
++
++	asle->aslc = asle_stat;
++}
++EXPORT_SYMBOL(igd_opregion_intr);
++
++#define ASLE_ALS_EN    (1<<0)
++#define ASLE_BLC_EN    (1<<1)
++#define ASLE_PFIT_EN   (1<<2)
++#define ASLE_PFMB_EN   (1<<3)
++
++void igd_opregion_enable_asle(struct opregion_dev *dev)
++{
++	struct opregion_asle *asle = dev->opregion.asle;
++
++	if (asle && dev->enable_asle) {
++		dev->enable_asle(dev->drm_dev);
++
++		asle->tche = ASLE_ALS_EN | ASLE_BLC_EN | ASLE_PFIT_EN |
++			ASLE_PFMB_EN;
++		asle->ardy = 1;
++	}
++}
++EXPORT_SYMBOL(igd_opregion_enable_asle);
++
++#define ACPI_EV_DISPLAY_SWITCH (1<<0)
++#define ACPI_EV_LID            (1<<1)
++#define ACPI_EV_DOCK           (1<<2)
++
++static struct igd_opregion *system_opregion;
++
++static int igd_opregion_video_event(struct notifier_block *nb,
++				      unsigned long val, void *data)
++{
++	/* The only video events relevant to opregion are 0x80. These indicate
++	   either a docking event, lid switch or display switch request. In
++	   Linux, these are handled by the dock, button and video drivers.
++	   We might want to fix the video driver to be opregion-aware in
++	   future, but right now we just indicate to the firmware that the
++	   request has been handled */
++
++	struct opregion_acpi *acpi;
++
++	if (!system_opregion)
++		return NOTIFY_DONE;
++
++	acpi = system_opregion->acpi;
++	acpi->csts = 0;
++
++	return NOTIFY_OK;
++}
++
++static struct notifier_block igd_opregion_notifier = {
++	.notifier_call = igd_opregion_video_event,
++};
++
++/*
++ * Initialise the DIDL field in opregion. This passes a list of devices to
++ * the firmware. Values are defined by section B.4.2 of the ACPI specification
++ * (version 3)
++ */
++
++static void igd_didl_outputs(struct opregion_dev *dev)
++{
++	struct igd_opregion *opregion = &dev->opregion;
++	struct drm_connector *connector;
++	acpi_handle handle;
++	struct acpi_device *acpi_dev, *acpi_cdev, *acpi_video_bus = NULL;
++	unsigned long long device_id;
++	acpi_status status;
++	int i = 0;
++
++	handle = DEVICE_ACPI_HANDLE(&dev->drm_dev->pdev->dev);
++	if (!handle || ACPI_FAILURE(acpi_bus_get_device(handle, &acpi_dev)))
++		return;
++
++	if (acpi_is_video_device(acpi_dev))
++		acpi_video_bus = acpi_dev;
++	else {
++		list_for_each_entry(acpi_cdev, &acpi_dev->children, node) {
++			if (acpi_is_video_device(acpi_cdev)) {
++				acpi_video_bus = acpi_cdev;
++				break;
++			}
++		}
++	}
++
++	if (!acpi_video_bus) {
++		printk(KERN_WARNING "No ACPI video bus found\n");
++		return;
++	}
++
++	list_for_each_entry(acpi_cdev, &acpi_video_bus->children, node) {
++		if (i >= 8) {
++			dev_printk(KERN_ERR, &dev->drm_dev->pdev->dev,
++				   "More than 8 outputs detected\n");
++			return;
++		}
++		status =
++			acpi_evaluate_integer(acpi_cdev->handle, "_ADR",
++						NULL, &device_id);
++		if (ACPI_SUCCESS(status)) {
++			if (!device_id)
++				goto blind_set;
++			opregion->acpi->didl[i] = (u32)(device_id & 0x0f0f);
++			i++;
++		}
++	}
++
++end:
++	/* If fewer than 8 outputs, the list must be null terminated */
++	if (i < 8)
++		opregion->acpi->didl[i] = 0;
++	return;
++
++blind_set:
++	i = 0;
++	list_for_each_entry(connector, &dev->drm_dev->mode_config.connector_list, head) {
++		int output_type = ACPI_OTHER_OUTPUT;
++		if (i >= 8) {
++			dev_printk(KERN_ERR, &dev->drm_dev->pdev->dev,
++				   "More than 8 outputs detected\n");
++			return;
++		}
++		switch (connector->connector_type) {
++		case DRM_MODE_CONNECTOR_VGA:
++		case DRM_MODE_CONNECTOR_DVIA:
++			output_type = ACPI_VGA_OUTPUT;
++			break;
++		case DRM_MODE_CONNECTOR_Composite:
++		case DRM_MODE_CONNECTOR_SVIDEO:
++		case DRM_MODE_CONNECTOR_Component:
++		case DRM_MODE_CONNECTOR_9PinDIN:
++			output_type = ACPI_TV_OUTPUT;
++			break;
++		case DRM_MODE_CONNECTOR_DVII:
++		case DRM_MODE_CONNECTOR_DVID:
++		case DRM_MODE_CONNECTOR_DisplayPort:
++		case DRM_MODE_CONNECTOR_HDMIA:
++		case DRM_MODE_CONNECTOR_HDMIB:
++			output_type = ACPI_DIGITAL_OUTPUT;
++			break;
++		case DRM_MODE_CONNECTOR_LVDS:
++			output_type = ACPI_LVDS_OUTPUT;
++			break;
++		}
++		opregion->acpi->didl[i] |= (1<<31) | output_type | i;
++		i++;
++	}
++	goto end;
++}
++
++void igd_opregion_init(struct opregion_dev *dev)
++{
++	struct igd_opregion *opregion = &dev->opregion;
++
++	if (!opregion->header)
++		return;
++
++	if (opregion->acpi) {
++		if (drm_core_check_feature(dev->drm_dev, DRIVER_MODESET))
++			igd_didl_outputs(dev);
++
++		/* Notify BIOS we are ready to handle ACPI video ext notifs.
++		 * Right now, all the events are handled by the ACPI video module.
++		 * We don't actually need to do anything with them. */
++		opregion->acpi->csts = 0;
++		opregion->acpi->drdy = 1;
++
++		system_opregion = opregion;
++		register_acpi_notifier(&igd_opregion_notifier);
++	}
++
++	if (opregion->asle)
++		dev->enable_asle(dev->drm_dev);
++}
++EXPORT_SYMBOL(igd_opregion_init);
++
++void igd_opregion_fini(struct opregion_dev *dev)
++{
++	struct igd_opregion *opregion = &dev->opregion;
++
++	if (!opregion->header)
++		return;
++
++	if (opregion->acpi) {
++		opregion->acpi->drdy = 0;
++
++		system_opregion = NULL;
++		unregister_acpi_notifier(&igd_opregion_notifier);
++	}
++
++	/* just clear all opregion memory pointers now */
++	iounmap(opregion->header);
++	opregion->header = NULL;
++	opregion->acpi = NULL;
++	opregion->swsci = NULL;
++	opregion->asle = NULL;
++	opregion->vbt = NULL;
++}
++EXPORT_SYMBOL(igd_opregion_fini);
++#endif
++
++int igd_opregion_setup(struct opregion_dev *dev)
++{
++	struct igd_opregion *opregion = &dev->opregion;
++	void *base;
++	u32 asls, mboxes;
++	int err = 0;
++
++	pci_read_config_dword(dev->drm_dev->pdev, PCI_ASLS, &asls);
++	DRM_DEBUG_DRIVER("graphic opregion physical addr: 0x%x\n", asls);
++	if (asls == 0) {
++		DRM_DEBUG_DRIVER("ACPI OpRegion not supported!\n");
++		return -ENOTSUPP;
++	}
++
++	base = acpi_os_ioremap(asls, OPREGION_SIZE);
++	if (!base)
++		return -ENOMEM;
++
++	if (memcmp(base, OPREGION_SIGNATURE, 16)) {
++		DRM_DEBUG_DRIVER("opregion signature mismatch\n");
++		err = -EINVAL;
++		goto err_out;
++	}
++	opregion->header = base;
++	opregion->vbt = base + OPREGION_VBT_OFFSET;
++
++	mboxes = opregion->header->mboxes;
++	if (mboxes & MBOX_ACPI) {
++		DRM_DEBUG_DRIVER("Public ACPI methods supported\n");
++		opregion->acpi = base + OPREGION_ACPI_OFFSET;
++	}
++
++	if (mboxes & MBOX_SWSCI) {
++		DRM_DEBUG_DRIVER("SWSCI supported\n");
++		opregion->swsci = base + OPREGION_SWSCI_OFFSET;
++	}
++	if (mboxes & MBOX_ASLE) {
++		DRM_DEBUG_DRIVER("ASLE supported\n");
++		opregion->asle = base + OPREGION_ASLE_OFFSET;
++	}
++
++	return 0;
++
++err_out:
++	iounmap(base);
++	return err;
++}
++EXPORT_SYMBOL(igd_opregion_setup);
+diff -Naur linux-2.6.39//drivers/acpi/Kconfig linux-2.6.39-kamal//drivers/acpi/Kconfig
+--- linux-2.6.39//drivers/acpi/Kconfig	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/acpi/Kconfig	2011-06-18 11:29:54.956612976 -0500
+@@ -382,4 +382,12 @@
+ 
+ source "drivers/acpi/apei/Kconfig"
+ 
++config ACPI_IGD_OPREGION
++       tristate "ACPI Integrated Graphics Device OpRegion support"
++       help
++         This driver adds support for the Intel ACPI Integrated Graphics
++	 Device OpRegion specification, allowing communication between
++	 the firmware and graphics driver on mobile systems with Intel
++	 graphics
++
+ endif	# ACPI
+diff -Naur linux-2.6.39//drivers/acpi/Kconfig.orig linux-2.6.39-kamal//drivers/acpi/Kconfig.orig
+--- linux-2.6.39//drivers/acpi/Kconfig.orig	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.39-kamal//drivers/acpi/Kconfig.orig	2011-05-18 23:06:34.000000000 -0500
+@@ -0,0 +1,385 @@
++#
++# ACPI Configuration
++#
++
++menuconfig ACPI
++	bool "ACPI (Advanced Configuration and Power Interface) Support"
++	depends on !IA64_HP_SIM
++	depends on IA64 || X86
++	depends on PCI
++	select PNP
++	default y
++	help
++	  Advanced Configuration and Power Interface (ACPI) support for 
++	  Linux requires an ACPI-compliant platform (hardware/firmware),
++	  and assumes the presence of OS-directed configuration and power
++	  management (OSPM) software.  This option will enlarge your 
++	  kernel by about 70K.
++
++	  Linux ACPI provides a robust functional replacement for several 
++	  legacy configuration and power management interfaces, including
++	  the Plug-and-Play BIOS specification (PnP BIOS), the 
++	  MultiProcessor Specification (MPS), and the Advanced Power 
++	  Management (APM) specification.  If both ACPI and APM support 
++	  are configured, ACPI is used.
++
++	  The project home page for the Linux ACPI subsystem is here:
++	  <http://www.lesswatts.org/projects/acpi/>
++
++	  Linux support for ACPI is based on Intel Corporation's ACPI
++	  Component Architecture (ACPI CA).  For more information on the
++	  ACPI CA, see:
++	  <http://acpica.org/>
++
++	  ACPI is an open industry specification co-developed by
++	  Hewlett-Packard, Intel, Microsoft, Phoenix, and Toshiba.
++	  The specification is available at:
++	  <http://www.acpi.info>
++
++if ACPI
++
++config ACPI_SLEEP
++	bool
++	depends on SUSPEND || HIBERNATION
++	default y
++
++config ACPI_PROCFS
++	bool "Deprecated /proc/acpi files"
++	depends on PROC_FS
++	help
++	  For backwards compatibility, this option allows
++	  deprecated /proc/acpi/ files to exist, even when
++	  they have been replaced by functions in /sys.
++
++	  This option has no effect on /proc/acpi/ files
++	  and functions which do not yet exist in /sys.
++
++	  Say N to delete /proc/acpi/ files that have moved to /sys/
++
++config ACPI_PROCFS_POWER
++	bool "Deprecated power /proc/acpi directories"
++	depends on PROC_FS
++	help
++	  For backwards compatibility, this option allows
++          deprecated power /proc/acpi/ directories to exist, even when
++          they have been replaced by functions in /sys.
++          The deprecated directories (and their replacements) include:
++	  /proc/acpi/battery/* (/sys/class/power_supply/*)
++	  /proc/acpi/ac_adapter/* (sys/class/power_supply/*)
++	  This option has no effect on /proc/acpi/ directories
++	  and functions, which do not yet exist in /sys
++	  This option, together with the proc directories, will be
++	  deleted in 2.6.39.
++
++	  Say N to delete power /proc/acpi/ directories that have moved to /sys/
++
++config ACPI_POWER_METER
++	tristate "ACPI 4.0 power meter"
++	depends on HWMON
++	help
++	  This driver exposes ACPI 4.0 power meters as hardware monitoring
++	  devices.  Say Y (or M) if you have a computer with ACPI 4.0 firmware
++	  and a power meter.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called power-meter.
++
++config ACPI_EC_DEBUGFS
++	tristate "EC read/write access through /sys/kernel/debug/ec"
++	default n
++	help
++	  Say N to disable Embedded Controller /sys/kernel/debug interface
++
++	  Be aware that using this interface can confuse your Embedded
++	  Controller in a way that a normal reboot is not enough. You then
++	  have to power off your system, and remove the laptop battery for
++	  some seconds.
++	  An Embedded Controller typically is available on laptops and reads
++	  sensor values like battery state and temperature.
++	  The kernel accesses the EC through ACPI parsed code provided by BIOS
++	  tables. This option allows to access the EC directly without ACPI
++	  code being involved.
++	  Thus this option is a debug option that helps to write ACPI drivers
++	  and can be used to identify ACPI code or EC firmware bugs.
++
++config ACPI_PROC_EVENT
++	bool "Deprecated /proc/acpi/event support"
++	depends on PROC_FS
++	default y
++	help
++	  A user-space daemon, acpid, typically reads /proc/acpi/event
++	  and handles all ACPI-generated events.
++
++	  These events are now delivered to user-space either
++	  via the input layer or as netlink events.
++
++	  This build option enables the old code for legacy
++	  user-space implementation.  After some time, this will
++	  be moved under CONFIG_ACPI_PROCFS, and then deleted.
++
++	  Say Y here to retain the old behaviour.  Say N if your
++	  user-space is newer than kernel 2.6.23 (September 2007).
++
++config ACPI_AC
++	tristate "AC Adapter"
++	depends on X86
++	select POWER_SUPPLY
++	default y
++	help
++	  This driver supports the AC Adapter object, which indicates
++	  whether a system is on AC or not.  If you have a system that can
++	  switch between A/C and battery, say Y.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called ac.
++
++config ACPI_BATTERY
++	tristate "Battery"
++	depends on X86
++	select POWER_SUPPLY
++	default y
++	help
++	  This driver adds support for battery information through
++	  /proc/acpi/battery. If you have a mobile system with a battery, 
++	  say Y.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called battery.
++
++config ACPI_BUTTON
++	tristate "Button"
++	depends on INPUT
++	default y
++	help
++	  This driver handles events on the power, sleep, and lid buttons.
++	  A daemon reads /proc/acpi/event and perform user-defined actions
++	  such as shutting down the system.  This is necessary for
++	  software-controlled poweroff.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called button.
++
++config ACPI_VIDEO
++	tristate "Video"
++	depends on X86 && BACKLIGHT_CLASS_DEVICE && VIDEO_OUTPUT_CONTROL
++	depends on INPUT
++	select THERMAL
++	help
++	  This driver implements the ACPI Extensions For Display Adapters
++	  for integrated graphics devices on motherboard, as specified in
++	  ACPI 2.0 Specification, Appendix B.  This supports basic operations
++	  such as defining the video POST device, retrieving EDID information,
++	  and setting up a video output.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called video.
++
++config ACPI_FAN
++	tristate "Fan"
++	select THERMAL
++	default y
++	help
++	  This driver supports ACPI fan devices, allowing user-mode
++	  applications to perform basic fan control (on, off, status).
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called fan.
++
++config ACPI_DOCK
++	bool "Dock"
++	depends on EXPERIMENTAL
++	help
++	  This driver supports ACPI-controlled docking stations and removable
++	  drive bays such as the IBM Ultrabay and the Dell Module Bay.
++
++config ACPI_PROCESSOR
++	tristate "Processor"
++	select THERMAL
++	select CPU_IDLE
++	default y
++	help
++	  This driver installs ACPI as the idle handler for Linux and uses
++	  ACPI C2 and C3 processor states to save power on systems that
++	  support it.  It is required by several flavors of cpufreq
++	  performance-state drivers.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called processor.
++config ACPI_IPMI
++	tristate "IPMI"
++	depends on EXPERIMENTAL && IPMI_SI && IPMI_HANDLER
++	default n
++	help
++	  This driver enables the ACPI to access the BMC controller. And it
++	  uses the IPMI request/response message to communicate with BMC
++	  controller, which can be found on on the server.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called as acpi_ipmi.
++
++config ACPI_HOTPLUG_CPU
++	bool
++	depends on ACPI_PROCESSOR && HOTPLUG_CPU
++	select ACPI_CONTAINER
++	default y
++
++config ACPI_PROCESSOR_AGGREGATOR
++	tristate "Processor Aggregator"
++	depends on ACPI_PROCESSOR
++	depends on EXPERIMENTAL
++	depends on X86
++	help
++	  ACPI 4.0 defines processor Aggregator, which enables OS to perform
++	  specific processor configuration and control that applies to all
++	  processors in the platform. Currently only logical processor idling
++	  is defined, which is to reduce power consumption. This driver
++	  supports the new device.
++
++config ACPI_THERMAL
++	tristate "Thermal Zone"
++	depends on ACPI_PROCESSOR
++	select THERMAL
++	default y
++	help
++	  This driver supports ACPI thermal zones.  Most mobile and
++	  some desktop systems support ACPI thermal zones.  It is HIGHLY
++	  recommended that this option be enabled, as your processor(s)
++	  may be damaged without it.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called thermal.
++
++config ACPI_NUMA
++	bool "NUMA support"
++	depends on NUMA
++	depends on (X86 || IA64)
++	default y if IA64_GENERIC || IA64_SGI_SN2
++
++config ACPI_CUSTOM_DSDT_FILE
++	string "Custom DSDT Table file to include"
++	default ""
++	depends on !STANDALONE
++	help
++	  This option supports a custom DSDT by linking it into the kernel.
++	  See Documentation/acpi/dsdt-override.txt
++
++	  Enter the full path name to the file which includes the AmlCode
++	  declaration.
++
++	  If unsure, don't enter a file name.
++
++config ACPI_CUSTOM_DSDT
++	bool
++	default ACPI_CUSTOM_DSDT_FILE != ""
++
++config ACPI_BLACKLIST_YEAR
++	int "Disable ACPI for systems before Jan 1st this year" if X86_32
++	default 0
++	help
++	  Enter a 4-digit year, e.g., 2001, to disable ACPI by default
++	  on platforms with DMI BIOS date before January 1st that year.
++	  "acpi=force" can be used to override this mechanism.
++
++	  Enter 0 to disable this mechanism and allow ACPI to
++	  run by default no matter what the year.  (default)
++
++config ACPI_DEBUG
++	bool "Debug Statements"
++	default n
++	help
++	  The ACPI subsystem can produce debug output.  Saying Y enables this
++	  output and increases the kernel size by around 50K.
++
++	  Use the acpi.debug_layer and acpi.debug_level kernel command-line
++	  parameters documented in Documentation/acpi/debug.txt and
++	  Documentation/kernel-parameters.txt to control the type and
++	  amount of debug output.
++
++config ACPI_DEBUG_FUNC_TRACE
++	bool "Additionally enable ACPI function tracing"
++	default n
++	depends on ACPI_DEBUG
++	help
++	  ACPI Debug Statements slow down ACPI processing. Function trace
++	  is about half of the penalty and is rarely useful.
++
++config ACPI_PCI_SLOT
++	tristate "PCI slot detection driver"
++	depends on SYSFS
++	default n
++	help
++	  This driver creates entries in /sys/bus/pci/slots/ for all PCI
++	  slots in the system.  This can help correlate PCI bus addresses,
++	  i.e., segment/bus/device/function tuples, with physical slots in
++	  the system.  If you are unsure, say N.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called pci_slot.
++
++config X86_PM_TIMER
++	bool "Power Management Timer Support" if EXPERT
++	depends on X86
++	default y
++	help
++	  The Power Management Timer is available on all ACPI-capable,
++	  in most cases even if ACPI is unusable or blacklisted.
++
++	  This timing source is not affected by power management features
++	  like aggressive processor idling, throttling, frequency and/or
++	  voltage scaling, unlike the commonly used Time Stamp Counter
++	  (TSC) timing source.
++
++	  You should nearly always say Y here because many modern
++	  systems require this timer. 
++
++config ACPI_CONTAINER
++	tristate "Container and Module Devices (EXPERIMENTAL)"
++	depends on EXPERIMENTAL
++	default (ACPI_HOTPLUG_MEMORY || ACPI_HOTPLUG_CPU || ACPI_HOTPLUG_IO)
++	help
++	  This driver supports ACPI Container and Module devices (IDs
++	  ACPI0004, PNP0A05, and PNP0A06).
++
++	  This helps support hotplug of nodes, CPUs, and memory.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called container.
++
++config ACPI_HOTPLUG_MEMORY
++	tristate "Memory Hotplug"
++	depends on MEMORY_HOTPLUG
++	default n
++	help
++	  This driver supports ACPI memory hotplug.  The driver
++	  fields notifications on ACPI memory devices (PNP0C80),
++	  which represent memory ranges that may be onlined or
++	  offlined during runtime.
++
++	  If your hardware and firmware do not support adding or
++	  removing memory devices at runtime, you need not enable
++	  this driver.
++
++	  To compile this driver as a module, choose M here:
++	  the module will be called acpi_memhotplug.
++
++config ACPI_SBS
++	tristate "Smart Battery System"
++	depends on X86
++	select POWER_SUPPLY
++	help
++	  This driver supports the Smart Battery System, another
++	  type of access to battery information, found on some laptops.
++
++	  To compile this driver as a module, choose M here:
++	  the modules will be called sbs and sbshc.
++
++config ACPI_HED
++	tristate "Hardware Error Device"
++	help
++	  This driver supports the Hardware Error Device (PNP0C33),
++	  which is used to report some hardware errors notified via
++	  SCI, mainly the corrected errors.
++
++source "drivers/acpi/apei/Kconfig"
++
++endif	# ACPI
+diff -Naur linux-2.6.39//drivers/acpi/Makefile linux-2.6.39-kamal//drivers/acpi/Makefile
+--- linux-2.6.39//drivers/acpi/Makefile	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/acpi/Makefile	2011-06-18 11:29:54.959946309 -0500
+@@ -62,6 +62,7 @@
+ obj-$(CONFIG_ACPI_POWER_METER)	+= power_meter.o
+ obj-$(CONFIG_ACPI_HED)		+= hed.o
+ obj-$(CONFIG_ACPI_EC_DEBUGFS)	+= ec_sys.o
++obj-$(CONFIG_ACPI_IGD_OPREGION)	+= acpi_igd_opregion.o
+ 
+ # processor has its own "processor." module_param namespace
+ processor-y			:= processor_driver.o processor_throttling.o
+diff -Naur linux-2.6.39//drivers/acpi/video_detect.c linux-2.6.39-kamal//drivers/acpi/video_detect.c
+--- linux-2.6.39//drivers/acpi/video_detect.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/acpi/video_detect.c	2011-06-18 11:52:32.749928477 -0500
+@@ -42,7 +42,15 @@
+ ACPI_MODULE_NAME("video");
+ #define _COMPONENT		ACPI_VIDEO_COMPONENT
+ 
++#if 0
+ static long acpi_video_support;
++#else
++/*
++ * Set "acpi_backlight=vendor" by default to disable acpi_video0 backlight
++ * interface and allow use of intel_backlight instead.
++ */
++static long acpi_video_support = ACPI_VIDEO_BACKLIGHT_FORCE_VENDOR;
++#endif
+ static bool acpi_video_caps_checked;
+ 
+ static acpi_status
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/i915_debugfs.c linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_debugfs.c
+--- linux-2.6.39//drivers/gpu/drm/i915/i915_debugfs.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_debugfs.c	2011-06-18 11:29:54.993279642 -0500
+@@ -1129,7 +1129,7 @@
+ 	struct drm_info_node *node = (struct drm_info_node *) m->private;
+ 	struct drm_device *dev = node->minor->dev;
+ 	drm_i915_private_t *dev_priv = dev->dev_private;
+-	struct intel_opregion *opregion = &dev_priv->opregion;
++	struct igd_opregion *opregion = &dev_priv->opregion_dev.opregion;
+ 	int ret;
+ 
+ 	ret = mutex_lock_interruptible(&dev->struct_mutex);
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/i915_dma.c linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_dma.c
+--- linux-2.6.39//drivers/gpu/drm/i915/i915_dma.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_dma.c	2011-06-18 11:29:54.993279642 -0500
+@@ -1990,7 +1990,14 @@
+ 	/* Try to make sure MCHBAR is enabled before poking at it */
+ 	intel_setup_mchbar(dev);
+ 	intel_setup_gmbus(dev);
+-	intel_opregion_setup(dev);
++
++	if (IS_MOBILE(dev)) {
++		dev_priv->opregion_dev.max_backlight = intel_panel_get_max_backlight(dev);
++		dev_priv->opregion_dev.set_backlight = intel_panel_set_backlight;
++	}
++	dev_priv->opregion_dev.enable_asle = intel_enable_asle;
++	dev_priv->opregion_dev.drm_dev = dev;
++	igd_opregion_setup(&dev_priv->opregion_dev);
+ 
+ 	/* Make sure the bios did its job and set up vital registers */
+ 	intel_setup_bios(dev);
+@@ -2049,7 +2056,7 @@
+ 	}
+ 
+ 	/* Must be done after probing outputs */
+-	intel_opregion_init(dev);
++	igd_opregion_init(&dev_priv->opregion_dev);
+ 	acpi_video_register();
+ 
+ 	setup_timer(&dev_priv->hangcheck_timer, i915_hangcheck_elapsed,
+@@ -2138,7 +2145,7 @@
+ 	if (dev->pdev->msi_enabled)
+ 		pci_disable_msi(dev->pdev);
+ 
+-	intel_opregion_fini(dev);
++	igd_opregion_fini(&dev_priv->opregion_dev);
+ 
+ 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+ 		/* Flush any outstanding unpin_work. */
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/i915_drv.c linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_drv.c
+--- linux-2.6.39//drivers/gpu/drm/i915/i915_drv.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_drv.c	2011-06-18 11:29:54.993279642 -0500
+@@ -316,7 +316,7 @@
+ 
+ 	i915_save_state(dev);
+ 
+-	intel_opregion_fini(dev);
++	igd_opregion_fini(&dev_priv->opregion_dev);
+ 
+ 	/* Modeset on resume, not lid events */
+ 	dev_priv->modeset_on_lid = 0;
+@@ -366,7 +366,7 @@
+ 	}
+ 
+ 	i915_restore_state(dev);
+-	intel_opregion_setup(dev);
++	igd_opregion_setup(&dev_priv->opregion_dev);
+ 
+ 	/* KMS EnterVT equivalent */
+ 	if (drm_core_check_feature(dev, DRIVER_MODESET)) {
+@@ -386,7 +386,7 @@
+ 			ironlake_enable_rc6(dev);
+ 	}
+ 
+-	intel_opregion_init(dev);
++	igd_opregion_init(&dev_priv->opregion_dev);
+ 
+ 	dev_priv->modeset_on_lid = 0;
+ 
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/i915_drv.h linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_drv.h
+--- linux-2.6.39//drivers/gpu/drm/i915/i915_drv.h	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_drv.h	2011-06-18 11:36:54.996607459 -0500
+@@ -33,9 +33,11 @@
+ #include "i915_reg.h"
+ #include "intel_bios.h"
+ #include "intel_ringbuffer.h"
++#include <linux/backlight.h>
+ #include <linux/io-mapping.h>
+ #include <linux/i2c.h>
+ #include <drm/intel-gtt.h>
++#include <acpi/acpi_igd_opregion.h>
+ 
+ /* General customization:
+  */
+@@ -102,21 +104,6 @@
+ 	struct drm_file *file_priv; /* NULL: free, -1: heap, other: real files */
+ };
+ 
+-struct opregion_header;
+-struct opregion_acpi;
+-struct opregion_swsci;
+-struct opregion_asle;
+-
+-struct intel_opregion {
+-	struct opregion_header *header;
+-	struct opregion_acpi *acpi;
+-	struct opregion_swsci *swsci;
+-	struct opregion_asle *asle;
+-	void *vbt;
+-	u32 __iomem *lid_state;
+-};
+-#define OPREGION_SIZE            (8*1024)
+-
+ struct intel_overlay;
+ struct intel_overlay_error_state;
+ 
+@@ -322,7 +309,7 @@
+ 	int cfb_plane;
+ 	int cfb_y;
+ 
+-	struct intel_opregion opregion;
++	struct opregion_dev opregion_dev;
+ 
+ 	/* overlay */
+ 	struct intel_overlay *overlay;
+@@ -673,6 +660,7 @@
+ 	int child_dev_num;
+ 	struct child_device_config *child_dev;
+ 	struct drm_connector *int_lvds_connector;
++	struct backlight_device *backlight;
+ 
+ 	bool mchbar_need_disable;
+ 
+@@ -1238,22 +1226,6 @@
+ }
+ extern void intel_i2c_reset(struct drm_device *dev);
+ 
+-/* intel_opregion.c */
+-extern int intel_opregion_setup(struct drm_device *dev);
+-#ifdef CONFIG_ACPI
+-extern void intel_opregion_init(struct drm_device *dev);
+-extern void intel_opregion_fini(struct drm_device *dev);
+-extern void intel_opregion_asle_intr(struct drm_device *dev);
+-extern void intel_opregion_gse_intr(struct drm_device *dev);
+-extern void intel_opregion_enable_asle(struct drm_device *dev);
+-#else
+-static inline void intel_opregion_init(struct drm_device *dev) { return; }
+-static inline void intel_opregion_fini(struct drm_device *dev) { return; }
+-static inline void intel_opregion_asle_intr(struct drm_device *dev) { return; }
+-static inline void intel_opregion_gse_intr(struct drm_device *dev) { return; }
+-static inline void intel_opregion_enable_asle(struct drm_device *dev) { return; }
+-#endif
+-
+ /* intel_acpi.c */
+ #ifdef CONFIG_ACPI
+ extern void intel_register_dsm_handler(void);
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/i915_irq.c linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_irq.c
+--- linux-2.6.39//drivers/gpu/drm/i915/i915_irq.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/i915_irq.c	2011-06-18 11:45:16.816600869 -0500
+@@ -496,7 +496,7 @@
+ 		notify_ring(dev, &dev_priv->ring[BCS]);
+ 
+ 	if (de_iir & DE_GSE)
+-		intel_opregion_gse_intr(dev);
++		igd_opregion_intr(&dev_priv->opregion_dev);
+ 
+ 	if (de_iir & DE_PLANEA_FLIP_DONE) {
+ 		intel_prepare_page_flip(dev, 0);
+@@ -1205,7 +1205,7 @@
+ 
+ 
+ 		if (blc_event || (iir & I915_ASLE_INTERRUPT))
+-			intel_opregion_asle_intr(dev);
++			igd_opregion_intr(&dev_priv->opregion_dev);
+ 
+ 		/* With MSI, interrupts are only generated when iir
+ 		 * transitions from zero to nonzero.  If another bit got
+@@ -1762,7 +1762,7 @@
+ 		I915_WRITE(PORT_HOTPLUG_EN, hotplug_en);
+ 	}
+ 
+-	intel_opregion_enable_asle(dev);
++	igd_opregion_enable_asle(&dev_priv->opregion_dev);
+ 
+ 	return 0;
+ }
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_bios.c linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_bios.c
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_bios.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_bios.c	2011-06-18 11:29:54.996612975 -0500
+@@ -611,15 +611,15 @@
+ 
+ 	init_vbt_defaults(dev_priv);
+ 
+-	/* XXX Should this validation be moved to intel_opregion.c? */
+-	if (dev_priv->opregion.vbt) {
+-		struct vbt_header *vbt = dev_priv->opregion.vbt;
++	/* XXX Should this validation be moved to acpi_igd_opregion.c? */
++	if (dev_priv->opregion_dev.opregion.vbt) {
++		struct vbt_header *vbt = dev_priv->opregion_dev.opregion.vbt;
+ 		if (memcmp(vbt->signature, "$VBT", 4) == 0) {
+ 			DRM_DEBUG_DRIVER("Using VBT from OpRegion: %20s\n",
+ 					 vbt->signature);
+ 			bdb = (struct bdb_header *)((char *)vbt + vbt->bdb_offset);
+ 		} else
+-			dev_priv->opregion.vbt = NULL;
++			dev_priv->opregion_dev.opregion.vbt = NULL;
+ 	}
+ 
+ 	if (bdb == NULL) {
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_display.c linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_display.c
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_display.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_display.c	2011-06-18 11:29:54.999946308 -0500
+@@ -6502,8 +6502,6 @@
+ 		encoder->base.possible_clones =
+ 			intel_encoder_clones(dev, encoder->clone_mask);
+ 	}
+-
+-	intel_panel_setup_backlight(dev);
+ }
+ 
+ static void intel_user_framebuffer_destroy(struct drm_framebuffer *fb)
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_dp.c linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_dp.c
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_dp.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_dp.c	2011-06-18 11:29:55.003279641 -0500
+@@ -1747,6 +1747,11 @@
+ static void
+ intel_dp_destroy (struct drm_connector *connector)
+ {
++	struct intel_dp *intel_dp = intel_attached_dp(connector);
++
++	if (is_edp(intel_dp))
++		intel_panel_destroy_backlight(connector);
++
+ 	drm_sysfs_connector_remove(connector);
+ 	drm_connector_cleanup(connector);
+ 	kfree(connector);
+@@ -1989,6 +1994,7 @@
+ 					DRM_MODE_TYPE_PREFERRED;
+ 			}
+ 		}
++		intel_panel_setup_backlight(connector);
+ 	}
+ 
+ 	intel_dp_add_properties(intel_dp, connector);
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_drv.h linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_drv.h
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_drv.h	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_drv.h	2011-06-18 11:29:55.003279641 -0500
+@@ -266,7 +266,8 @@
+ extern u32 intel_panel_get_max_backlight(struct drm_device *dev);
+ extern u32 intel_panel_get_backlight(struct drm_device *dev);
+ extern void intel_panel_set_backlight(struct drm_device *dev, u32 level);
+-extern void intel_panel_setup_backlight(struct drm_device *dev);
++extern int intel_panel_setup_backlight(struct drm_connector *dev);
++extern void intel_panel_destroy_backlight(struct drm_connector *dev);
+ extern void intel_panel_enable_backlight(struct drm_device *dev);
+ extern void intel_panel_disable_backlight(struct drm_device *dev);
+ extern enum drm_connector_status intel_panel_detect(struct drm_device *dev);
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_lvds.c linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_lvds.c
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_lvds.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_lvds.c	2011-06-18 11:29:55.003279641 -0500
+@@ -584,6 +584,9 @@
+ 
+ 	if (dev_priv->lid_notifier.notifier_call)
+ 		acpi_lid_notifier_unregister(&dev_priv->lid_notifier);
++
++	intel_panel_destroy_backlight(connector);
++
+ 	drm_sysfs_connector_remove(connector);
+ 	drm_connector_cleanup(connector);
+ 	kfree(connector);
+@@ -825,7 +828,7 @@
+ 		 * additional data.  Trust that if the VBT was written into
+ 		 * the OpRegion then they have validated the LVDS's existence.
+ 		 */
+-		if (dev_priv->opregion.vbt)
++		if (dev_priv->opregion_dev.opregion.vbt)
+ 			return true;
+ 	}
+ 
+@@ -1033,6 +1036,9 @@
+ 	/* keep the LVDS connector */
+ 	dev_priv->int_lvds_connector = connector;
+ 	drm_sysfs_connector_add(connector);
++
++	intel_panel_setup_backlight(connector);
++
+ 	return true;
+ 
+ failed:
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_opregion.c linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_opregion.c
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_opregion.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_opregion.c	1969-12-31 19:00:00.000000000 -0500
+@@ -1,516 +0,0 @@
+-/*
+- * Copyright 2008 Intel Corporation <hong.liu@intel.com>
+- * Copyright 2008 Red Hat <mjg@redhat.com>
+- *
+- * Permission is hereby granted, free of charge, to any person obtaining
+- * a copy of this software and associated documentation files (the
+- * "Software"), to deal in the Software without restriction, including
+- * without limitation the rights to use, copy, modify, merge, publish,
+- * distribute, sub license, and/or sell copies of the Software, and to
+- * permit persons to whom the Software is furnished to do so, subject to
+- * the following conditions:
+- *
+- * The above copyright notice and this permission notice (including the
+- * next paragraph) shall be included in all copies or substantial
+- * portions of the Software.
+- *
+- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+- * NON-INFRINGEMENT.  IN NO EVENT SHALL INTEL AND/OR ITS SUPPLIERS BE
+- * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+- * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+- * SOFTWARE.
+- *
+- */
+-
+-#include <linux/acpi.h>
+-#include <linux/acpi_io.h>
+-#include <acpi/video.h>
+-
+-#include "drmP.h"
+-#include "i915_drm.h"
+-#include "i915_drv.h"
+-#include "intel_drv.h"
+-
+-#define PCI_ASLE 0xe4
+-#define PCI_ASLS 0xfc
+-
+-#define OPREGION_HEADER_OFFSET 0
+-#define OPREGION_ACPI_OFFSET   0x100
+-#define   ACPI_CLID 0x01ac /* current lid state indicator */
+-#define   ACPI_CDCK 0x01b0 /* current docking state indicator */
+-#define OPREGION_SWSCI_OFFSET  0x200
+-#define OPREGION_ASLE_OFFSET   0x300
+-#define OPREGION_VBT_OFFSET    0x400
+-
+-#define OPREGION_SIGNATURE "IntelGraphicsMem"
+-#define MBOX_ACPI      (1<<0)
+-#define MBOX_SWSCI     (1<<1)
+-#define MBOX_ASLE      (1<<2)
+-
+-struct opregion_header {
+-       u8 signature[16];
+-       u32 size;
+-       u32 opregion_ver;
+-       u8 bios_ver[32];
+-       u8 vbios_ver[16];
+-       u8 driver_ver[16];
+-       u32 mboxes;
+-       u8 reserved[164];
+-} __attribute__((packed));
+-
+-/* OpRegion mailbox #1: public ACPI methods */
+-struct opregion_acpi {
+-       u32 drdy;       /* driver readiness */
+-       u32 csts;       /* notification status */
+-       u32 cevt;       /* current event */
+-       u8 rsvd1[20];
+-       u32 didl[8];    /* supported display devices ID list */
+-       u32 cpdl[8];    /* currently presented display list */
+-       u32 cadl[8];    /* currently active display list */
+-       u32 nadl[8];    /* next active devices list */
+-       u32 aslp;       /* ASL sleep time-out */
+-       u32 tidx;       /* toggle table index */
+-       u32 chpd;       /* current hotplug enable indicator */
+-       u32 clid;       /* current lid state*/
+-       u32 cdck;       /* current docking state */
+-       u32 sxsw;       /* Sx state resume */
+-       u32 evts;       /* ASL supported events */
+-       u32 cnot;       /* current OS notification */
+-       u32 nrdy;       /* driver status */
+-       u8 rsvd2[60];
+-} __attribute__((packed));
+-
+-/* OpRegion mailbox #2: SWSCI */
+-struct opregion_swsci {
+-       u32 scic;       /* SWSCI command|status|data */
+-       u32 parm;       /* command parameters */
+-       u32 dslp;       /* driver sleep time-out */
+-       u8 rsvd[244];
+-} __attribute__((packed));
+-
+-/* OpRegion mailbox #3: ASLE */
+-struct opregion_asle {
+-       u32 ardy;       /* driver readiness */
+-       u32 aslc;       /* ASLE interrupt command */
+-       u32 tche;       /* technology enabled indicator */
+-       u32 alsi;       /* current ALS illuminance reading */
+-       u32 bclp;       /* backlight brightness to set */
+-       u32 pfit;       /* panel fitting state */
+-       u32 cblv;       /* current brightness level */
+-       u16 bclm[20];   /* backlight level duty cycle mapping table */
+-       u32 cpfm;       /* current panel fitting mode */
+-       u32 epfm;       /* enabled panel fitting modes */
+-       u8 plut[74];    /* panel LUT and identifier */
+-       u32 pfmb;       /* PWM freq and min brightness */
+-       u8 rsvd[102];
+-} __attribute__((packed));
+-
+-/* ASLE irq request bits */
+-#define ASLE_SET_ALS_ILLUM     (1 << 0)
+-#define ASLE_SET_BACKLIGHT     (1 << 1)
+-#define ASLE_SET_PFIT          (1 << 2)
+-#define ASLE_SET_PWM_FREQ      (1 << 3)
+-#define ASLE_REQ_MSK           0xf
+-
+-/* response bits of ASLE irq request */
+-#define ASLE_ALS_ILLUM_FAILED	(1<<10)
+-#define ASLE_BACKLIGHT_FAILED	(1<<12)
+-#define ASLE_PFIT_FAILED	(1<<14)
+-#define ASLE_PWM_FREQ_FAILED	(1<<16)
+-
+-/* ASLE backlight brightness to set */
+-#define ASLE_BCLP_VALID                (1<<31)
+-#define ASLE_BCLP_MSK          (~(1<<31))
+-
+-/* ASLE panel fitting request */
+-#define ASLE_PFIT_VALID         (1<<31)
+-#define ASLE_PFIT_CENTER (1<<0)
+-#define ASLE_PFIT_STRETCH_TEXT (1<<1)
+-#define ASLE_PFIT_STRETCH_GFX (1<<2)
+-
+-/* PWM frequency and minimum brightness */
+-#define ASLE_PFMB_BRIGHTNESS_MASK (0xff)
+-#define ASLE_PFMB_BRIGHTNESS_VALID (1<<8)
+-#define ASLE_PFMB_PWM_MASK (0x7ffffe00)
+-#define ASLE_PFMB_PWM_VALID (1<<31)
+-
+-#define ASLE_CBLV_VALID         (1<<31)
+-
+-#define ACPI_OTHER_OUTPUT (0<<8)
+-#define ACPI_VGA_OUTPUT (1<<8)
+-#define ACPI_TV_OUTPUT (2<<8)
+-#define ACPI_DIGITAL_OUTPUT (3<<8)
+-#define ACPI_LVDS_OUTPUT (4<<8)
+-
+-#ifdef CONFIG_ACPI
+-static u32 asle_set_backlight(struct drm_device *dev, u32 bclp)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct opregion_asle *asle = dev_priv->opregion.asle;
+-	u32 max;
+-
+-	if (!(bclp & ASLE_BCLP_VALID))
+-		return ASLE_BACKLIGHT_FAILED;
+-
+-	bclp &= ASLE_BCLP_MSK;
+-	if (bclp > 255)
+-		return ASLE_BACKLIGHT_FAILED;
+-
+-	max = intel_panel_get_max_backlight(dev);
+-	intel_panel_set_backlight(dev, bclp * max / 255);
+-	asle->cblv = (bclp*0x64)/0xff | ASLE_CBLV_VALID;
+-
+-	return 0;
+-}
+-
+-static u32 asle_set_als_illum(struct drm_device *dev, u32 alsi)
+-{
+-	/* alsi is the current ALS reading in lux. 0 indicates below sensor
+-	   range, 0xffff indicates above sensor range. 1-0xfffe are valid */
+-	return 0;
+-}
+-
+-static u32 asle_set_pwm_freq(struct drm_device *dev, u32 pfmb)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	if (pfmb & ASLE_PFMB_PWM_VALID) {
+-		u32 blc_pwm_ctl = I915_READ(BLC_PWM_CTL);
+-		u32 pwm = pfmb & ASLE_PFMB_PWM_MASK;
+-		blc_pwm_ctl &= BACKLIGHT_DUTY_CYCLE_MASK;
+-		pwm = pwm >> 9;
+-		/* FIXME - what do we do with the PWM? */
+-	}
+-	return 0;
+-}
+-
+-static u32 asle_set_pfit(struct drm_device *dev, u32 pfit)
+-{
+-	/* Panel fitting is currently controlled by the X code, so this is a
+-	   noop until modesetting support works fully */
+-	if (!(pfit & ASLE_PFIT_VALID))
+-		return ASLE_PFIT_FAILED;
+-	return 0;
+-}
+-
+-void intel_opregion_asle_intr(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct opregion_asle *asle = dev_priv->opregion.asle;
+-	u32 asle_stat = 0;
+-	u32 asle_req;
+-
+-	if (!asle)
+-		return;
+-
+-	asle_req = asle->aslc & ASLE_REQ_MSK;
+-
+-	if (!asle_req) {
+-		DRM_DEBUG_DRIVER("non asle set request??\n");
+-		return;
+-	}
+-
+-	if (asle_req & ASLE_SET_ALS_ILLUM)
+-		asle_stat |= asle_set_als_illum(dev, asle->alsi);
+-
+-	if (asle_req & ASLE_SET_BACKLIGHT)
+-		asle_stat |= asle_set_backlight(dev, asle->bclp);
+-
+-	if (asle_req & ASLE_SET_PFIT)
+-		asle_stat |= asle_set_pfit(dev, asle->pfit);
+-
+-	if (asle_req & ASLE_SET_PWM_FREQ)
+-		asle_stat |= asle_set_pwm_freq(dev, asle->pfmb);
+-
+-	asle->aslc = asle_stat;
+-}
+-
+-/* Only present on Ironlake+ */
+-void intel_opregion_gse_intr(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct opregion_asle *asle = dev_priv->opregion.asle;
+-	u32 asle_stat = 0;
+-	u32 asle_req;
+-
+-	if (!asle)
+-		return;
+-
+-	asle_req = asle->aslc & ASLE_REQ_MSK;
+-
+-	if (!asle_req) {
+-		DRM_DEBUG_DRIVER("non asle set request??\n");
+-		return;
+-	}
+-
+-	if (asle_req & ASLE_SET_ALS_ILLUM) {
+-		DRM_DEBUG_DRIVER("Illum is not supported\n");
+-		asle_stat |= ASLE_ALS_ILLUM_FAILED;
+-	}
+-
+-	if (asle_req & ASLE_SET_BACKLIGHT)
+-		asle_stat |= asle_set_backlight(dev, asle->bclp);
+-
+-	if (asle_req & ASLE_SET_PFIT) {
+-		DRM_DEBUG_DRIVER("Pfit is not supported\n");
+-		asle_stat |= ASLE_PFIT_FAILED;
+-	}
+-
+-	if (asle_req & ASLE_SET_PWM_FREQ) {
+-		DRM_DEBUG_DRIVER("PWM freq is not supported\n");
+-		asle_stat |= ASLE_PWM_FREQ_FAILED;
+-	}
+-
+-	asle->aslc = asle_stat;
+-}
+-#define ASLE_ALS_EN    (1<<0)
+-#define ASLE_BLC_EN    (1<<1)
+-#define ASLE_PFIT_EN   (1<<2)
+-#define ASLE_PFMB_EN   (1<<3)
+-
+-void intel_opregion_enable_asle(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct opregion_asle *asle = dev_priv->opregion.asle;
+-
+-	if (asle) {
+-		if (IS_MOBILE(dev))
+-			intel_enable_asle(dev);
+-
+-		asle->tche = ASLE_ALS_EN | ASLE_BLC_EN | ASLE_PFIT_EN |
+-			ASLE_PFMB_EN;
+-		asle->ardy = 1;
+-	}
+-}
+-
+-#define ACPI_EV_DISPLAY_SWITCH (1<<0)
+-#define ACPI_EV_LID            (1<<1)
+-#define ACPI_EV_DOCK           (1<<2)
+-
+-static struct intel_opregion *system_opregion;
+-
+-static int intel_opregion_video_event(struct notifier_block *nb,
+-				      unsigned long val, void *data)
+-{
+-	/* The only video events relevant to opregion are 0x80. These indicate
+-	   either a docking event, lid switch or display switch request. In
+-	   Linux, these are handled by the dock, button and video drivers.
+-	   We might want to fix the video driver to be opregion-aware in
+-	   future, but right now we just indicate to the firmware that the
+-	   request has been handled */
+-
+-	struct opregion_acpi *acpi;
+-
+-	if (!system_opregion)
+-		return NOTIFY_DONE;
+-
+-	acpi = system_opregion->acpi;
+-	acpi->csts = 0;
+-
+-	return NOTIFY_OK;
+-}
+-
+-static struct notifier_block intel_opregion_notifier = {
+-	.notifier_call = intel_opregion_video_event,
+-};
+-
+-/*
+- * Initialise the DIDL field in opregion. This passes a list of devices to
+- * the firmware. Values are defined by section B.4.2 of the ACPI specification
+- * (version 3)
+- */
+-
+-static void intel_didl_outputs(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct intel_opregion *opregion = &dev_priv->opregion;
+-	struct drm_connector *connector;
+-	acpi_handle handle;
+-	struct acpi_device *acpi_dev, *acpi_cdev, *acpi_video_bus = NULL;
+-	unsigned long long device_id;
+-	acpi_status status;
+-	int i = 0;
+-
+-	handle = DEVICE_ACPI_HANDLE(&dev->pdev->dev);
+-	if (!handle || ACPI_FAILURE(acpi_bus_get_device(handle, &acpi_dev)))
+-		return;
+-
+-	if (acpi_is_video_device(acpi_dev))
+-		acpi_video_bus = acpi_dev;
+-	else {
+-		list_for_each_entry(acpi_cdev, &acpi_dev->children, node) {
+-			if (acpi_is_video_device(acpi_cdev)) {
+-				acpi_video_bus = acpi_cdev;
+-				break;
+-			}
+-		}
+-	}
+-
+-	if (!acpi_video_bus) {
+-		printk(KERN_WARNING "No ACPI video bus found\n");
+-		return;
+-	}
+-
+-	list_for_each_entry(acpi_cdev, &acpi_video_bus->children, node) {
+-		if (i >= 8) {
+-			dev_printk (KERN_ERR, &dev->pdev->dev,
+-				    "More than 8 outputs detected\n");
+-			return;
+-		}
+-		status =
+-			acpi_evaluate_integer(acpi_cdev->handle, "_ADR",
+-						NULL, &device_id);
+-		if (ACPI_SUCCESS(status)) {
+-			if (!device_id)
+-				goto blind_set;
+-			opregion->acpi->didl[i] = (u32)(device_id & 0x0f0f);
+-			i++;
+-		}
+-	}
+-
+-end:
+-	/* If fewer than 8 outputs, the list must be null terminated */
+-	if (i < 8)
+-		opregion->acpi->didl[i] = 0;
+-	return;
+-
+-blind_set:
+-	i = 0;
+-	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
+-		int output_type = ACPI_OTHER_OUTPUT;
+-		if (i >= 8) {
+-			dev_printk (KERN_ERR, &dev->pdev->dev,
+-				    "More than 8 outputs detected\n");
+-			return;
+-		}
+-		switch (connector->connector_type) {
+-		case DRM_MODE_CONNECTOR_VGA:
+-		case DRM_MODE_CONNECTOR_DVIA:
+-			output_type = ACPI_VGA_OUTPUT;
+-			break;
+-		case DRM_MODE_CONNECTOR_Composite:
+-		case DRM_MODE_CONNECTOR_SVIDEO:
+-		case DRM_MODE_CONNECTOR_Component:
+-		case DRM_MODE_CONNECTOR_9PinDIN:
+-			output_type = ACPI_TV_OUTPUT;
+-			break;
+-		case DRM_MODE_CONNECTOR_DVII:
+-		case DRM_MODE_CONNECTOR_DVID:
+-		case DRM_MODE_CONNECTOR_DisplayPort:
+-		case DRM_MODE_CONNECTOR_HDMIA:
+-		case DRM_MODE_CONNECTOR_HDMIB:
+-			output_type = ACPI_DIGITAL_OUTPUT;
+-			break;
+-		case DRM_MODE_CONNECTOR_LVDS:
+-			output_type = ACPI_LVDS_OUTPUT;
+-			break;
+-		}
+-		opregion->acpi->didl[i] |= (1<<31) | output_type | i;
+-		i++;
+-	}
+-	goto end;
+-}
+-
+-void intel_opregion_init(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct intel_opregion *opregion = &dev_priv->opregion;
+-
+-	if (!opregion->header)
+-		return;
+-
+-	if (opregion->acpi) {
+-		if (drm_core_check_feature(dev, DRIVER_MODESET))
+-			intel_didl_outputs(dev);
+-
+-		/* Notify BIOS we are ready to handle ACPI video ext notifs.
+-		 * Right now, all the events are handled by the ACPI video module.
+-		 * We don't actually need to do anything with them. */
+-		opregion->acpi->csts = 0;
+-		opregion->acpi->drdy = 1;
+-
+-		system_opregion = opregion;
+-		register_acpi_notifier(&intel_opregion_notifier);
+-	}
+-
+-	if (opregion->asle)
+-		intel_opregion_enable_asle(dev);
+-}
+-
+-void intel_opregion_fini(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct intel_opregion *opregion = &dev_priv->opregion;
+-
+-	if (!opregion->header)
+-		return;
+-
+-	if (opregion->acpi) {
+-		opregion->acpi->drdy = 0;
+-
+-		system_opregion = NULL;
+-		unregister_acpi_notifier(&intel_opregion_notifier);
+-	}
+-
+-	/* just clear all opregion memory pointers now */
+-	iounmap(opregion->header);
+-	opregion->header = NULL;
+-	opregion->acpi = NULL;
+-	opregion->swsci = NULL;
+-	opregion->asle = NULL;
+-	opregion->vbt = NULL;
+-}
+-#endif
+-
+-int intel_opregion_setup(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct intel_opregion *opregion = &dev_priv->opregion;
+-	void *base;
+-	u32 asls, mboxes;
+-	int err = 0;
+-
+-	pci_read_config_dword(dev->pdev, PCI_ASLS, &asls);
+-	DRM_DEBUG_DRIVER("graphic opregion physical addr: 0x%x\n", asls);
+-	if (asls == 0) {
+-		DRM_DEBUG_DRIVER("ACPI OpRegion not supported!\n");
+-		return -ENOTSUPP;
+-	}
+-
+-	base = acpi_os_ioremap(asls, OPREGION_SIZE);
+-	if (!base)
+-		return -ENOMEM;
+-
+-	if (memcmp(base, OPREGION_SIGNATURE, 16)) {
+-		DRM_DEBUG_DRIVER("opregion signature mismatch\n");
+-		err = -EINVAL;
+-		goto err_out;
+-	}
+-	opregion->header = base;
+-	opregion->vbt = base + OPREGION_VBT_OFFSET;
+-
+-	opregion->lid_state = base + ACPI_CLID;
+-
+-	mboxes = opregion->header->mboxes;
+-	if (mboxes & MBOX_ACPI) {
+-		DRM_DEBUG_DRIVER("Public ACPI methods supported\n");
+-		opregion->acpi = base + OPREGION_ACPI_OFFSET;
+-	}
+-
+-	if (mboxes & MBOX_SWSCI) {
+-		DRM_DEBUG_DRIVER("SWSCI supported\n");
+-		opregion->swsci = base + OPREGION_SWSCI_OFFSET;
+-	}
+-	if (mboxes & MBOX_ASLE) {
+-		DRM_DEBUG_DRIVER("ASLE supported\n");
+-		opregion->asle = base + OPREGION_ASLE_OFFSET;
+-	}
+-
+-	return 0;
+-
+-err_out:
+-	iounmap(base);
+-	return err;
+-}
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/intel_panel.c linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_panel.c
+--- linux-2.6.39//drivers/gpu/drm/i915/intel_panel.c	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/intel_panel.c	2011-06-18 11:51:56.376595621 -0500
+@@ -250,6 +250,76 @@
+ 	I915_WRITE(BLC_PWM_CTL, tmp | level);
+ }
+ 
++#ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
++static int intel_panel_update_brightness(struct backlight_device *bd)
++{
++	struct drm_device *dev = bl_get_data(bd);
++
++	intel_panel_set_backlight(dev, bd->props.brightness);
++	return 0;
++}
++
++static int intel_panel_get_brightness(struct backlight_device *bd)
++{
++	struct drm_device *dev = bl_get_data(bd);
++
++	return intel_panel_get_backlight(dev);
++}
++
++static const struct backlight_ops intel_panel_bl_ops = {
++	.update_status = intel_panel_update_brightness,
++	.get_brightness = intel_panel_get_brightness,
++};
++
++int intel_panel_setup_backlight(struct drm_connector *connector)
++{
++	struct drm_device *dev = connector->dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	struct backlight_properties props;
++
++	dev_priv->backlight_level = intel_panel_get_backlight(dev);
++	dev_priv->backlight_enabled = dev_priv->backlight_level != 0;
++
++	props.max_brightness = intel_panel_get_max_backlight(dev);
++	props.type = BACKLIGHT_RAW;
++	dev_priv->backlight = backlight_device_register("intel_backlight",
++			   &connector->kdev, dev, &intel_panel_bl_ops, &props);
++
++	if (IS_ERR(dev_priv->backlight)) {
++		DRM_ERROR("Failed to register backlight: %ld\n",
++			  PTR_ERR(dev_priv->backlight));
++		dev_priv->backlight = NULL;
++		return -ENODEV;
++	}
++
++	dev_priv->backlight->props.brightness = intel_panel_get_backlight(dev);
++	return 0;
++}
++
++void intel_panel_destroy_backlight(struct drm_connector *connector)
++{
++	struct drm_device *dev = connector->dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++
++	if (dev_priv->backlight)
++		backlight_device_unregister(dev_priv->backlight);
++}
++#else
++int intel_panel_setup_backlight(struct drm_connector *connector)
++{
++	struct drm_device *dev = connector->dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++
++	dev_priv->backlight_level = intel_panel_get_backlight(dev);
++	dev_priv->backlight_enabled = dev_priv->backlight_level != 0;
++}
++
++void intel_panel_destroy_backlight(struct drm_connector *connector)
++{
++	return;
++}
++#endif
++
+ void intel_panel_disable_backlight(struct drm_device *dev)
+ {
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+@@ -273,14 +343,6 @@
+ 	dev_priv->backlight_enabled = true;
+ }
+ 
+-void intel_panel_setup_backlight(struct drm_device *dev)
+-{
+-	struct drm_i915_private *dev_priv = dev->dev_private;
+-
+-	dev_priv->backlight_level = intel_panel_get_backlight(dev);
+-	dev_priv->backlight_enabled = dev_priv->backlight_level != 0;
+-}
+-
+ enum drm_connector_status
+ intel_panel_detect(struct drm_device *dev)
+ {
+diff -Naur linux-2.6.39//drivers/gpu/drm/i915/Makefile linux-2.6.39-kamal//drivers/gpu/drm/i915/Makefile
+--- linux-2.6.39//drivers/gpu/drm/i915/Makefile	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/i915/Makefile	2011-06-18 11:29:54.989946309 -0500
+@@ -28,7 +28,6 @@
+ 	  intel_dvo.o \
+ 	  intel_ringbuffer.o \
+ 	  intel_overlay.o \
+-	  intel_opregion.o \
+ 	  dvo_ch7xxx.o \
+ 	  dvo_ch7017.o \
+ 	  dvo_ivch.o \
+diff -Naur linux-2.6.39//drivers/gpu/drm/Kconfig linux-2.6.39-kamal//drivers/gpu/drm/Kconfig
+--- linux-2.6.39//drivers/gpu/drm/Kconfig	2011-05-18 23:06:34.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/Kconfig	2011-06-18 11:29:54.976612977 -0500
+@@ -101,6 +101,7 @@
+ 	select INPUT if ACPI
+ 	select ACPI_VIDEO if ACPI
+ 	select ACPI_BUTTON if ACPI
++	select ACPI_IGD_OPREGION if ACPI
+ 	help
+ 	  Choose this option if you have a system that has "Intel Graphics
+ 	  Media Accelerator" or "HD Graphics" integrated graphics,
+diff -Naur linux-2.6.39//drivers/gpu/drm/radeon/Kconfig.rej linux-2.6.39-kamal//drivers/gpu/drm/radeon/Kconfig.rej
+--- linux-2.6.39//drivers/gpu/drm/radeon/Kconfig.rej	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.39-kamal//drivers/gpu/drm/radeon/Kconfig.rej	2011-06-18 11:29:37.113279877 -0500
+@@ -0,0 +1,10 @@
++--- drivers/gpu/drm/radeon/Kconfig
+++++ drivers/gpu/drm/radeon/Kconfig
++@@ -1,6 +1,7 @@
++ config DRM_RADEON_KMS
++ 	bool "Enable modesetting on radeon by default - NEW DRIVER"
++ 	depends on DRM_RADEON
+++	select BACKLIGHT_CLASS_DEVICE
++ 	help
++ 	  Choose this option if you want kernel modesetting enabled by default.
++ 
+diff -Naur linux-2.6.39//include/acpi/acpi_igd_opregion.h linux-2.6.39-kamal//include/acpi/acpi_igd_opregion.h
+--- linux-2.6.39//include/acpi/acpi_igd_opregion.h	1969-12-31 19:00:00.000000000 -0500
++++ linux-2.6.39-kamal//include/acpi/acpi_igd_opregion.h	2011-06-18 11:29:55.006612975 -0500
+@@ -0,0 +1,105 @@
++#ifndef __ACPI_IGD_OPREGION_H__
++#define __ACPI_IGD_OPREGION_H__
++
++#include <drm/drmP.h>
++
++#define OPREGION_SIZE            (8*1024)
++
++struct opregion_header {
++	u8 signature[16];
++	u32 size;
++	u32 opregion_ver;
++	u8 bios_ver[32];
++	u8 vbios_ver[16];
++	u8 driver_ver[16];
++	u32 mboxes;
++	u8 reserved[164];
++} __packed;
++
++/* OpRegion mailbox #1: public ACPI methods */
++struct opregion_acpi {
++	u32 drdy;       /* driver readiness */
++	u32 csts;       /* notification status */
++	u32 cevt;       /* current event */
++	u8 rsvd1[20];
++	u32 didl[8];    /* supported display devices ID list */
++	u32 cpdl[8];    /* currently presented display list */
++	u32 cadl[8];    /* currently active display list */
++	u32 nadl[8];    /* next active devices list */
++	u32 aslp;       /* ASL sleep time-out */
++	u32 tidx;       /* toggle table index */
++	u32 chpd;       /* current hotplug enable indicator */
++	u32 clid;       /* current lid state*/
++	u32 cdck;       /* current docking state */
++	u32 sxsw;       /* Sx state resume */
++	u32 evts;       /* ASL supported events */
++	u32 cnot;       /* current OS notification */
++	u32 nrdy;       /* driver status */
++	u8 rsvd2[60];
++} __packed;
++
++/* OpRegion mailbox #2: SWSCI */
++struct opregion_swsci {
++	u32 scic;       /* SWSCI command|status|data */
++	u32 parm;       /* command parameters */
++	u32 dslp;       /* driver sleep time-out */
++	u8 rsvd[244];
++} __packed;
++
++/* OpRegion mailbox #3: ASLE */
++struct opregion_asle {
++	u32 ardy;       /* driver readiness */
++	u32 aslc;       /* ASLE interrupt command */
++	u32 tche;       /* technology enabled indicator */
++	u32 alsi;       /* current ALS illuminance reading */
++	u32 bclp;       /* backlight brightness to set */
++	u32 pfit;       /* panel fitting state */
++	u32 cblv;       /* current brightness level */
++	u16 bclm[20];   /* backlight level duty cycle mapping table */
++	u32 cpfm;       /* current panel fitting mode */
++	u32 epfm;       /* enabled panel fitting modes */
++	u8 plut[74];    /* panel LUT and identifier */
++	u32 pfmb;       /* PWM freq and min brightness */
++	u8 rsvd[102];
++} __packed;
++
++struct igd_opregion {
++	struct opregion_header *header;
++	struct opregion_acpi *acpi;
++	struct opregion_swsci *swsci;
++	struct opregion_asle *asle;
++	void *vbt;
++};
++
++struct opregion_dev {
++	struct drm_device *drm_dev;
++	u32 max_backlight;
++	void (*set_backlight)(struct drm_device *dev, u32 value);
++	void (*set_als_illum)(struct drm_device *dev, u32 alsi);
++	void (*set_pwm_freq)(struct drm_device *dev, u32 pfmb);
++	void (*set_pfit)(struct drm_device *dev, u32 pfit);
++	void (*enable_asle)(struct drm_device *drm_dev);
++	struct igd_opregion opregion;
++};
++
++#if (defined CONFIG_ACPI_IGD_OPREGION || defined CONFIG_ACPI_IGD_OPREGION_MODULE)
++
++int igd_opregion_setup(struct opregion_dev *dev);
++void igd_opregion_init(struct opregion_dev *dev);
++void igd_opregion_fini(struct opregion_dev *dev);
++void igd_opregion_intr(struct opregion_dev *dev);
++void igd_opregion_enable_asle(struct opregion_dev *dev);
++
++#else
++
++static inline int igd_opregion_setup(struct opregion_dev *dev)
++{
++	return 0;
++}
++
++static inline void igd_opregion_init(struct opregion_dev *dev) {};
++static inline void igd_opregion_fini(struct opregion_dev *dev) {};
++static inline void igd_opregion_intr(struct opregion_dev *dev) {};
++static inline void igd_opregion_enable_asle(struct opregion_dev *dev) {};
++#endif
++#endif
+--- linux-2.6.39/../config   2011-06-18 12:31:53.539897468 -0500
++++ linux-2.6.39/../config-2 2011-06-18 12:39:10.646558395 -0500
+@@ -498,6 +498,7 @@
+ CONFIG_ACPI_APEI_PCIEAER=y
+ CONFIG_ACPI_APEI_EINJ=m
+ CONFIG_ACPI_APEI_ERST_DEBUG=m
++CONFIG_ACPI_IGD_OPREGION=m
+ CONFIG_SFI=y
+ CONFIG_X86_APM_BOOT=y
+ CONFIG_APM=y
+--- linux-2.6.39/../config.x86_64    2011-06-18 12:32:15.536563848 -0500
++++ linux-2.6.39/../config.x86_64-2  2011-06-18 12:39:04.799891804 -0500
+@@ -491,6 +491,7 @@
+ CONFIG_ACPI_APEI_PCIEAER=y
+ CONFIG_ACPI_APEI_EINJ=m
+ CONFIG_ACPI_APEI_ERST_DEBUG=m
++CONFIG_ACPI_IGD_OPREGION=m
+ CONFIG_SFI=y
+ 
+ #

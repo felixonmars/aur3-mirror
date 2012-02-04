@@ -1,0 +1,146 @@
+diff -uNr src.orig//etc/init.d/xe-linux-distribution src/etc/init.d/xe-linux-distribution
+--- src.orig//etc/init.d/xe-linux-distribution	2010-05-20 13:19:02.000000000 +0200
++++ src/etc/init.d/xe-linux-distribution	2010-10-04 14:45:11.000000000 +0200
+@@ -18,24 +18,8 @@
+ LANG="C"
+ export LANG
+ 
+-if [ -f /etc/init.d/functions ] ; then
+-. /etc/init.d/functions
+-else
+-action()
+-{
+-    descr=$1 ; shift
+-    cmd=$@
+-    echo -n "$descr "
+-    $cmd
+-    ret=$?
+-    if [ $ret -eq 0 ] ; then
+-	echo "OK"
+-    else
+-	echo "Failed"
+-    fi
+-    return $ret
+-}
+-fi
++. /etc/rc.conf
++. /etc/rc.d/functions
+ 
+ XE_LINUX_DISTRIBUTION=/usr/sbin/xe-linux-distribution
+ XE_LINUX_DISTRIBUTION_CACHE=/var/cache/xe-linux-distribution
+@@ -48,35 +32,59 @@
+ 
+ start()
+ {
++    if [ -e /proc/xen/capabilities ] && grep -q control_d /proc/xen/capabilities ; then
++	# Do not want daemon in domain 0
++	exit 0
++    fi
++
++    stat_busy "Detecting Linux distribution version"
++    ${XE_LINUX_DISTRIBUTION} ${XE_LINUX_DISTRIBUTION_CACHE}
++    if [ $? -gt 0 ]; then
++       stat_fail
++    else
++       stat_done
++    fi
++
+     if [ ! -e /proc/xen/xenbus ] ; then
+ 	if [ ! -d /proc/xen ] ; then
+-	    action $"Mounting xenfs on /proc/xen:" /bin/false
++	    stat_busy "Mounting xenfs on /proc/xen"
+ 	    echo "Could not find /proc/xen directory."
+ 	    echo "You need a post 2.6.29-rc1 kernel with CONFIG_XEN_COMPAT_XENFS=y and CONFIG_XENFS=y|m"
+-	    exit 1
++	    stat_die 1
+ 	else 
+ 	    # This is needed post 2.6.29-rc1 when /proc/xen support was pushed upstream as a xen filesystem
+-	    action $"Mounting xenfs on /proc/xen:" mount -t xenfs none /proc/xen
++	    stat_busy "Mounting xenfs on /proc/xen"
++	    mount -t xenfs none /proc/xen
++	    if [ $? -gt 0 ]; then
++		stat_fail
++	    else
++		stat_done
++	    fi 
+ 	fi
+     fi
+ 
+-    if [ -e /proc/xen/capabilities ] && grep -q control_d /proc/xen/capabilities ; then
+-	# Do not want daemon in domain 0
+-	exit 0
+-    fi
+-
+-    action $"Detecting Linux distribution version:" \
+-	${XE_LINUX_DISTRIBUTION} ${XE_LINUX_DISTRIBUTION_CACHE}
+-
+-    action $"Starting xe daemon: " /bin/true
++    stat_busy "Starting xe daemon"
+     mkdir -p $(dirname ${XE_DAEMON_PIDFILE})
+     # This is equivalent to daemon() in C
+     ( exec &>/dev/null ; ${XE_DAEMON} -p ${XE_DAEMON_PIDFILE} & )
++    if [ $? -gt 0 ]; then
++       stat_fail
++    else
++       add_daemon xe-linux-distribution
++       stat_done
++    fi 
+ }
+ 
+ stop()
+ {
+-    action $"Stopping xe daemon: "   kill -TERM $(cat ${XE_DAEMON_PIDFILE})
++    stat_busy "Stopping xe daemon"
++    killall $(basename ${XE_DAEMON}) -TERM
++    if [ $? -gt 0 ]; then
++       stat_fail
++    else
++       rm_daemon xe-linux-distribution
++       stat_done
++    fi
+ }
+ 
+ # fail silently if not running xen
+@@ -91,7 +99,7 @@
+   stop)
+ 	stop
+ 	;;
+-  force-reload|restart)
++  restart)
+ 	stop
+ 	start
+ 	;;
+diff -uNr src.orig//usr/sbin/xe-linux-distribution src/usr/sbin/xe-linux-distribution
+--- src.orig//usr/sbin/xe-linux-distribution	2010-05-20 13:19:02.000000000 +0200
++++ src/usr/sbin/xe-linux-distribution	2010-10-04 14:44:37.000000000 +0200
+@@ -51,6 +51,22 @@
+     return 0
+ }
+ 
++identify_archlinux()
++{
++    local archlinux_version="$1"
++    local major
++    local minor
++    
++    if [ ! -f "${archlinux_version}" ] ; then
++	return 1
++    fi
++
++    eval $(LC_ALL=C pacman -Qi initscripts |grep Version |sed "s/^.*: //" | \
++	    awk -F. '{print "major="$1 ; print "minor="$2 ; exit 0 }' )
++    write_to_output "archlinux" "${major}" "${minor}" "Arch Linux ${major}.${minor}"
++    
++}
++
+ identify_debian()
+ {
+     local debian_version="$1"
+@@ -258,6 +274,7 @@
+     identify_sles   /etc/SuSE-release   && exit 0
+     identify_lsb    lsb_release         && exit 0
+     identify_debian /etc/debian_version && exit 0
++    identify_archlinux /etc/arch-release && exit 0
+ 
+     if [ $# -eq 1 ] ; then
+ 	rm -f "$1"

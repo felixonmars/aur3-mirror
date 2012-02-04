@@ -1,0 +1,180 @@
+# This file was created by bitsed (http://community.electricsheep.org/node/192)
+# Edited by Daniel Cocks to work with version 5.08
+# Edited 25 Sep 2009 to work with version 5.10
+#
+# As at 25 Sep 2009, the above link is invalid.
+
+
+--- xscreensaver-5.03/driver/demo-Gtk.c	2007-04-09 18:56:40.000000000 -0700
++++ xscreensaver-5.03-passkeys/driver/demo-Gtk.c	2007-12-10 15:47:55.920319966 -0800
+@@ -1486,6 +1486,7 @@
+   MINUTES  (&p2->cycle,           "cycle_spinbutton");
+   CHECKBOX (p2->lock_p,           "lock_button");
+   MINUTES  (&p2->lock_timeout,    "lock_spinbutton");
++  CHECKBOX (p2->pass_keys_p,      "passkeys_button");
+ 
+   CHECKBOX (p2->dpms_enabled_p,  "dpms_button");
+   MINUTES  (&p2->dpms_standby,    "dpms_standby_spinbutton");
+@@ -1575,6 +1576,7 @@
+   COPY(cycle,          "cycle");
+   COPY(lock_p,         "lock_p");
+   COPY(lock_timeout,   "lock_timeout");
++  COPY(pass_keys_p,    "passkeys_button");
+ 
+   COPY(dpms_enabled_p, "dpms_enabled_p");
+   COPY(dpms_standby,   "dpms_standby");
+@@ -2708,6 +2710,7 @@
+   TOGGLE_ACTIVE ("capture_button",    p->capture_stderr_p);
+   TOGGLE_ACTIVE ("splash_button",     p->splash_p);
+ #endif
++  TOGGLE_ACTIVE ("passkeys_button",   p->pass_keys_p);
+   TOGGLE_ACTIVE ("dpms_button",       p->dpms_enabled_p);
+   TOGGLE_ACTIVE ("grab_desk_button",  p->grab_desktop_p);
+   TOGGLE_ACTIVE ("grab_video_button", p->grab_video_p);
+@@ -4887,7 +4890,7 @@
+                                     strlen (progclass) +
+                                     strlen (s1) + strlen (s3) +
+                                     100);
+-    sprintf (window_title, "%s  (%s %s, %s)", base_title, progclass, s1, s3);
++    sprintf (window_title, "%s  (%s %s <PASS_KEYS_VERSION>, %s)", base_title, progclass, s1, s3);
+     gtk_window_set_title (GTK_WINDOW (s->toplevel_widget), window_title);
+     gtk_window_set_title (GTK_WINDOW (s->popup_widget),    window_title);
+     free (v);
+--- xscreensaver-5.03/driver/prefs.c	2006-05-23 15:03:47.000000000 -0700
++++ xscreensaver-5.03-passkeys/driver/prefs.c	2007-12-10 15:47:55.943314485 -0800
+@@ -258,6 +258,7 @@
+   "splash",
+   "splashDuration",
+   "quad",
++  "passKeys",
+   "demoCommand",
+   "prefsCommand",
+   "newLoginCommand",
+@@ -792,6 +793,7 @@
+ # else  /* !QUAD_MODE */
+       CHECK("quad")		continue;  /* don't save */
+ # endif /* !QUAD_MODE */
++      CHECK("passKeys")		type = pref_bool, b = p->pass_keys_p;
+       CHECK("demoCommand")	type = pref_str,  s = p->demo_command;
+       CHECK("prefsCommand")	type = pref_str,  s = p->prefs_command;
+ /*    CHECK("helpURL")		type = pref_str,  s = p->help_url; */
+@@ -1051,6 +1053,7 @@
+ # ifdef QUAD_MODE
+   p->quad_p         = get_boolean_resource (dpy, "quad", "Boolean");
+ # endif
++  p->pass_keys_p    = get_boolean_resource (dpy, "passKeys", "Boolean");
+   p->capture_stderr_p = get_boolean_resource (dpy, "captureStderr", "Boolean");
+   p->ignore_uninstalled_p = get_boolean_resource (dpy, 
+                                                   "ignoreUninstalledPrograms",
+--- xscreensaver-5.03/driver/timers.c	2005-11-28 02:14:22.000000000 -0800
++++ xscreensaver-5.03-passkeys/driver/timers.c	2007-12-10 15:47:55.945315444 -0800
+@@ -927,7 +927,43 @@
+ 	 */
+ 	if (!until_idle_p)
+ 	  {
+-	    if (si->demoing_p &&
++#define PASS_MOUSE 0
++	    char s[2];
++	    int size, was_pass_key;
++	    if (si->prefs.pass_keys_p &&
++		((PASS_MOUSE && (event.x_event.xany.type == MotionNotify ||
++				 event.x_event.xany.type == ButtonPress ||
++				 event.x_event.xany.type == ButtonRelease)) ||
++		 event.x_event.xany.type == KeyPress ||
++		 event.x_event.xany.type == KeyRelease)) {
++	      if (PASS_MOUSE && (event.x_event.xany.type == MotionNotify ||
++				 event.x_event.xany.type == ButtonPress ||
++				 event.x_event.xany.type == ButtonRelease)) {
++		was_pass_key = 1;
++	      } else {
++		size = XLookupString ((XKeyEvent *) &event, s, 1, 0, 0);
++		/* enter, return, space, esc all exit */
++		was_pass_key = (1 != size) ||
++		  ((*s != '\012') && (*s != '\015') &&
++		   (*s != '\040') && (*s != '\033'));
++	      }
++	    } else
++	      was_pass_key = 0;
++
++	    if (si->prefs.pass_keys_p && was_pass_key) {
++		/* avoid infinite loop on our own events */
++		if (!event.x_event.xany.send_event) {
++		    int i;
++		    for (i = 0; i < si->nscreens; i++) {
++			saver_screen_info *ssi = &si->screens[i];
++			if (!XSendEvent(si->dpy, ssi->screensaver_window, False,
++					KeyPressMask|KeyReleaseMask, &event)) {
++			    fprintf(stderr, "pass key event failed\n");
++			}
++		    }
++		}
++	    } else if (!si->prefs.pass_keys_p &&
++	        si->demoing_p &&
+ 		(event.x_event.xany.type == MotionNotify ||
+ 		 event.x_event.xany.type == KeyRelease))
+ 	      /* When we're demoing a single hack, mouse motion doesn't
+--- xscreensaver-5.03/driver/types.h	2007-03-15 01:32:27.000000000 -0700
++++ xscreensaver-5.03-passkeys/driver/types.h	2007-12-10 15:47:55.947314619 -0800
+@@ -93,6 +93,7 @@
+ # ifdef QUAD_MODE
+   Bool quad_p;			/* whether to run four savers per monitor */
+ # endif
++  Bool pass_keys_p;             /* pass most keypresses to the hack rather than driver */
+ 
+   screenhack **screenhacks;	/* the programs to run */
+   int screenhacks_count;
+--- xscreensaver-5.03/driver/xscreensaver.c	2007-03-15 01:33:00.000000000 -0700
++++ xscreensaver-5.03-passkeys/driver/xscreensaver.c	2007-12-10 15:47:55.970307145 -0800
+@@ -228,7 +228,7 @@
+   fflush (stdout);
+   fflush (stderr);
+   fprintf (stdout, "\
+-xscreensaver %s, copyright (c) 1991-2008 by Jamie Zawinski <jwz@jwz.org>\n\
++xscreensaver %s <PASS_KEYS_VERSION> , copyright (c) 1991-2006 by Jamie Zawinski <jwz@jwz.org>\n\
+ \n\
+   All xscreensaver configuration is via the `~/.xscreensaver' file.\n\
+   Rather than editing that file by hand, just run `xscreensaver-demo':\n\
+--- xscreensaver-5.03/driver/xscreensaver-command.c	2006-03-30 18:21:41.000000000 -0800
++++ xscreensaver-5.03-passkeys/driver/xscreensaver-command.c	2007-12-10 15:47:55.971307719 -0800
+@@ -65,7 +65,7 @@
+ usage: %s -<option>\n\
+ \n\
+   This program provides external control of a running xscreensaver process.\n\
+-  Version %s, copyright (c) 1991-2008 Jamie Zawinski <jwz@jwz.org>.\n\
++  Version %s <PASS_KEYS_VERSION>, copyright (c) 1991-2003 Jamie Zawinski <jwz@jwz.org>.\n\
+ \n\
+   The xscreensaver program is a daemon that runs in the background.\n\
+   You control a running xscreensaver process by sending it messages\n\
+--- xscreensaver-5.03/driver/xscreensaver-demo.glade2	2005-08-09 01:37:05.000000000 -0700
++++ xscreensaver-5.03-passkeys/driver/xscreensaver-demo.glade2	2007-12-10 15:48:17.977100072 -0800
+@@ -223,6 +223,30 @@
+ 			</packing>
+ 		      </child>
+ 
++			  <child>
++			<widget class="GtkCheckButton" id="passkeys_button">
++			  <property name="visible">True</property>
++			  <property name="tooltip" translatable="yes">Use pass keys hack for electricsheep voting</property>
++			  <property name="can_focus">True</property>
++			  <property name="label" translatable="yes">_Pass Keys Enabled</property>
++			  <property name="use_underline">True</property>
++			  <property name="relief">GTK_RELIEF_NORMAL</property>
++			  <property name="focus_on_click">True</property>
++			  <property name="active">True</property>
++			  <property name="inconsistent">False</property>
++			  <property name="draw_indicator">True</property>
++			  <signal name="toggled" handler="pref_changed_cb"/>
++			</widget>
++			<packing>
++			  <property name="left_attach">0</property>
++			  <property name="right_attach">3</property>
++			  <property name="top_attach">3</property>
++			  <property name="bottom_attach">4</property>
++			  <property name="x_options">fill</property>
++			  <property name="y_options"></property>
++			</packing>
++			  </child>
++
+ 		      <child>
+ 			<widget class="GtkSpinButton" id="timeout_spinbutton">
+ 			  <property name="visible">True</property>

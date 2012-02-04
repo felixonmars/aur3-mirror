@@ -1,0 +1,28 @@
+# Maintainer: mosra <mosra@centrum.cz>
+pkgname=kate-filetree-plugin
+pkgver=0.01
+pkgrel=1
+pkgdesc="Document Tree View plugin for Kate"
+arch=('i686' 'x86_64')
+url="http://kde-apps.org/content/show.php/Kate+File+Tree+Plugin?content=132383"
+license=('GPL')
+groups=('kde' 'kdesdk-kate-plugins')
+depends=('kdesdk-kate')
+makedepends=('cmake' 'automoc4')
+source=("http://kde-apps.org/CONTENT/content-files/132383-kate-filetree-${pkgver}.tar.bz2")
+md5sums=('f13a623e23bde0908829bfe36fd0b81b')
+
+build() {
+    cd "$srcdir"
+
+    mkdir -p build && cd build
+    cmake ../kate-filetree-$pkgver \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release
+    make
+}
+
+package() {
+    cd "$srcdir/build"
+    make DESTDIR="$pkgdir/" install
+}

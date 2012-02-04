@@ -1,0 +1,240 @@
+diff --git a/src/core/download_factory.cc b/src/core/download_factory.cc
+index e2d8ee8..49ac3fa 100644
+--- a/src/core/download_factory.cc
++++ b/src/core/download_factory.cc
+@@ -69,6 +69,12 @@ is_network_uri(const std::string& uri) {
+     std::strncmp(uri.c_str(), "ftp://", 6) == 0;
+ }
+ 
++bool
++is_magnet_uri(const std::string& uri) {
++  return
++    std::strncmp(uri.c_str(), "magnet:?", 8) == 0;
++}
++
+ DownloadFactory::DownloadFactory(Manager* m) :
+   m_manager(m),
+   m_stream(NULL),
+@@ -133,6 +139,13 @@ DownloadFactory::receive_load() {
+ 
+     m_variables["tied_to_file"] = (int64_t)false;
+ 
++  } else if (is_magnet_uri(m_uri)) {
++    m_stream = new std::stringstream();
++    *m_stream << "d10:magnet-uri" << m_uri.length() << ":" << m_uri << "e";
++
++    m_variables["tied_to_file"] = (int64_t)false;
++    receive_loaded();
++
+   } else {
+     std::fstream* stream = new std::fstream(rak::path_expand(m_uri).c_str(), std::ios::in | std::ios::binary);
+     m_stream = stream;
+@@ -177,6 +190,16 @@ DownloadFactory::receive_success() {
+ 
+   torrent::Object* root = download->bencode();
+ 
++  if (download->download()->is_meta_download()) {
++    torrent::Object& meta = root->insert_key("rtorrent_meta_download", torrent::Object::create_map());
++    meta.insert_key("start", m_start);
++    meta.insert_key("print_log", m_printLog);
++
++    torrent::Object::list_type& commands = meta.insert_key("commands", torrent::Object::create_list()).as_list();
++    for (command_list_type::iterator itr = m_commands.begin(); itr != m_commands.end(); ++itr)
++      commands.push_back(*itr);
++  }
++
+   if (!m_session) {
+     // We only allow session torrents to keep their
+     // 'rtorrent/libtorrent' sections. The "fast_resume" section
+@@ -229,7 +252,7 @@ DownloadFactory::receive_success() {
+     rpc::call_command("d.set_directory_base", rtorrent->get_key("directory"), rpc::make_target(download));
+ 
+   if (!m_session && m_variables["tied_to_file"].as_value())
+-    rpc::call_command("d.set_tied_to_file", m_uri, rpc::make_target(download));
++    rpc::call_command("d.set_tied_to_file", m_uri.empty() ? m_variables["tied_file"] : m_uri, rpc::make_target(download));
+ 
+   rpc::call_command("d.set_peer_exchange", rpc::call_command_value("get_peer_exchange"), rpc::make_target(download));
+ 
+diff --git a/src/core/download_factory.h b/src/core/download_factory.h
+index 045c9dc..3cc9622 100644
+--- a/src/core/download_factory.h
++++ b/src/core/download_factory.h
+@@ -112,6 +112,7 @@ private:
+ };
+ 
+ bool is_network_uri(const std::string& uri);
++bool is_magnet_uri(const std::string& uri);
+ 
+ }
+ 
+diff --git a/src/core/download_list.cc b/src/core/download_list.cc
+index 551f873..13df725 100644
+--- a/src/core/download_list.cc
++++ b/src/core/download_list.cc
+@@ -37,10 +37,12 @@
+ #include "config.h"
+ 
+ #include <algorithm>
++#include <fstream>
+ #include <iostream>
+ #include <sigc++/adaptors/bind.h>
+ #include <rak/functional.h>
+ #include <rak/string_manip.h>
++#include <torrent/data/file.h>
+ #include <torrent/exceptions.h>
+ #include <torrent/download.h>
+ #include <torrent/hash_string.h>
+@@ -452,6 +454,9 @@ DownloadList::hash_done(Download* download) {
+   int64_t hashing = rpc::call_command_value("d.get_hashing", rpc::make_target(download));
+   rpc::call_command_set_value("d.set_hashing", Download::variable_hashing_stopped, rpc::make_target(download));
+ 
++  if (download->is_done() && download->download()->is_meta_download())
++    return process_meta_download(download);
++
+   switch (hashing) {
+   case Download::variable_hashing_initial:
+   case Download::variable_hashing_rehash:
+@@ -543,6 +548,9 @@ void
+ DownloadList::confirm_finished(Download* download) {
+   check_contains(download);
+ 
++  if (download->download()->is_meta_download())
++    return process_meta_download(download);
++
+   rpc::call_command("d.set_complete", (int64_t)1, rpc::make_target(download));
+ 
+   rpc::call_command("d.set_connection_current", rpc::call_command_void("d.get_connection_seed", rpc::make_target(download)), rpc::make_target(download));
+@@ -576,4 +584,36 @@ DownloadList::confirm_finished(Download* download) {
+     resume(download, torrent::Download::start_no_create | torrent::Download::start_skip_tracker | torrent::Download::start_keep_baseline);
+ }
+ 
++void
++DownloadList::process_meta_download(Download* download) {
++  rpc::call_command("d.stop", torrent::Object(), rpc::make_target(download));
++  rpc::call_command("d.close", torrent::Object(), rpc::make_target(download));
++
++  std::string metafile = (*download->file_list()->begin())->frozen_path();
++  std::fstream file(metafile.c_str(), std::ios::in | std::ios::binary);
++  if (!file.is_open()) {
++    control->core()->push_log("Could not read download metadata.");
++    return;
++  }
++
++  torrent::Object* bencode = new torrent::Object(torrent::Object::create_map());
++  file >> bencode->insert_key("info", torrent::Object());
++  if (file.fail()) {
++    delete bencode;
++    control->core()->push_log("Could not create download, the input is not a valid torrent.");
++    return;
++  }
++  file.close();
++
++  // Steal the keys we still need. The old download has no use for them.
++  bencode->insert_key("rtorrent_meta_download", torrent::Object()).swap(download->bencode()->get_key("rtorrent_meta_download"));
++  if (download->bencode()->has_key("announce"))
++    bencode->insert_key("announce", torrent::Object()).swap(download->bencode()->get_key("announce"));
++  if (download->bencode()->has_key("announce-list"))
++    bencode->insert_key("announce-list", torrent::Object()).swap(download->bencode()->get_key("announce-list"));
++
++  erase_ptr(download);
++  control->core()->try_create_download_from_meta_download(bencode, metafile);
++}
++
+ }
+diff --git a/src/core/download_list.h b/src/core/download_list.h
+index f7828ea..8ecffa0 100644
+--- a/src/core/download_list.h
++++ b/src/core/download_list.h
+@@ -161,6 +161,8 @@ private:
+ 
+   void                received_finished(Download* d);
+   void                confirm_finished(Download* d);
++
++  void                process_meta_download(Download* d);
+ };
+ 
+ }
+diff --git a/src/core/manager.cc b/src/core/manager.cc
+index 62738ca..2a422c8 100644
+--- a/src/core/manager.cc
++++ b/src/core/manager.cc
+@@ -39,6 +39,7 @@
+ #include <cstdio>
+ #include <cstring>
+ #include <fstream>
++#include <sstream>
+ #include <unistd.h>
+ #include <sys/select.h>
+ #include <rak/address_info.h>
+@@ -52,6 +53,7 @@
+ #include <torrent/connection_manager.h>
+ #include <torrent/error.h>
+ #include <torrent/exceptions.h>
++#include <torrent/object_stream.h>
+ #include <torrent/resume.h>
+ #include <torrent/tracker_list.h>
+ #include <torrent/throttle.h>
+@@ -395,6 +397,7 @@ Manager::try_create_download(const std::string& uri, int flags, const command_li
+   if ((flags & create_tied) &&
+       !(flags & create_raw_data) &&
+       !is_network_uri(uri) &&
++      !is_magnet_uri(uri) &&
+       !file_status_cache()->insert(uri, 0))
+     return;
+ 
+@@ -416,6 +419,31 @@ Manager::try_create_download(const std::string& uri, int flags, const command_li
+   f->commit();
+ }
+ 
++void
++Manager::try_create_download_from_meta_download(torrent::Object* bencode, const std::string& metafile) {
++  DownloadFactory* f = new DownloadFactory(this);
++
++  f->variables()["tied_to_file"] = (int64_t)true;
++  f->variables()["tied_file"] = metafile;
++
++  torrent::Object& meta = bencode->get_key("rtorrent_meta_download");
++  torrent::Object::list_type& commands = meta.get_key_list("commands");
++  for (torrent::Object::list_type::const_iterator itr = commands.begin(); itr != commands.end(); ++itr)
++    f->commands().insert(f->commands().end(), itr->as_string());
++
++  f->set_start(meta.get_key_value("start"));
++  f->set_print_log(meta.get_key_value("print_log"));
++  f->slot_finished(sigc::bind(sigc::ptr_fun(&rak::call_delete_func<core::DownloadFactory>), f));
++
++  // Bit of a waste to create the bencode repesentation here
++  // only to have the DownloadFactory decode it.
++  std::stringstream s;
++  s.imbue(std::locale::classic());
++  s << *bencode;
++  f->load_raw_data(s.str());
++  f->commit();
++}
++
+ utils::Directory
+ path_expand_transform(std::string path, const utils::directory_entry& entry) {
+   return path + entry.d_name;
+diff --git a/src/core/manager.h b/src/core/manager.h
+index 3b23da3..16902af 100644
+--- a/src/core/manager.h
++++ b/src/core/manager.h
+@@ -128,6 +128,7 @@ public:
+   // Temporary, find a better place for this.
+   void                try_create_download(const std::string& uri, int flags, const command_list_type& commands);
+   void                try_create_download_expand(const std::string& uri, int flags, command_list_type commands = command_list_type());
++  void                try_create_download_from_meta_download(torrent::Object* bencode, const std::string& metafile);
+ 
+ private:
+   typedef RangeMap<uint32_t, torrent::ThrottlePair> AddressThrottleMap;
+diff --git a/src/core/view.cc b/src/core/view.cc
+index 8e2d997..f3b4f0d 100644
+--- a/src/core/view.cc
++++ b/src/core/view.cc
+@@ -90,6 +90,7 @@ struct view_downloads_filter : std::unary_function<Download*, bool> {
+       case torrent::Object::TYPE_STRING: return !result.as_string().empty();
+       case torrent::Object::TYPE_LIST:   return !result.as_list().empty();
+       case torrent::Object::TYPE_MAP:    return !result.as_map().empty();
++      case torrent::Object::TYPE_SSTRING:return !result.as_sstring().empty();
+       }
+ 
+       // The default filter action is to return true, to not filter

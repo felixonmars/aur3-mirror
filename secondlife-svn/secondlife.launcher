@@ -1,0 +1,6 @@
+#!/bin/sh
+
+cd "/opt/secondlife/"
+./secondlife $*
+exit $?
+

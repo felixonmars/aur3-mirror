@@ -1,0 +1,91 @@
+pkgname=apparmor-essentials
+_pkgname=apparmor
+pkgver=2.7.0
+_pkgver=$pkgver
+pkgrel=4
+pkgdesc="AppArmor Linux application security framework - mandatory access control for programs"
+arch=('i686' 'x86_64')
+url="https://launchpad.net/apparmor"
+license=('GPL2' 'LGPL2.1')
+depends=('python2' 'gcc-libs' 'pam' 'perl-locale-gettext' 'perl-term-readkey' 'perl-file-tail' 'perl-rpc-xml')
+# Cover the following AUR packages, we are only (?) missing the Ruby bindings:
+provides=('apparmor' 'apparmor-parser' 'apparmor-libapparmor' 'apparmor-utils' 'apparmor-pam')
+conflicts=('apparmor' 'apparmor-parser' 'apparmor-libapparmor' 'apparmor-utils' 'apparmor-pam')
+makedepends=('swig' 'chrpath')
+options=('!libtool' '!emptydirs')
+source=("https://launchpad.net/$_pkgname/${pkgver%.*}/$pkgver/+download/$_pkgname-$pkgver.tar.gz"{,.asc}
+        'dlopen.c')
+backup=('etc/apparmor/subdomain.conf'
+        'etc/apparmor/severity.db'
+        'etc/apparmor/parser.conf'
+        'etc/apparmor/logprof.conf'
+        'etc/apparmor/notify.conf')
+sha256sums=('ff8a2f49f902faa78e502590c65d3850fb9a2a3453bef0dc1f99e947c52fc60f'
+            '3808a43701da8b8fd16ef7e8bc48ecafffb37083b4d317ac5b66c1e893488bcd'
+            'd1758f84a69173a852e598fa55e69df0d73b8b62c6993b0ba04aa21d539213e6')
+
+# 1024D/AC931271 2006-02-13 AppArmor Development Team (AppArmor signing key) <apparmor@lists.ubuntu.com>
+# Primary key fingerprint: 31C1 A553 DAC7 2D85 DDEE  5BF7 8137 98B9 AC93 1271
+
+build() {
+
+  # export LDFLAGS="${LDFLAGS} -Wl,--fatal-warnings,--no-undefined"
+
+  core_perl_dir='/usr/bin/core_perl'
+  export PYTHON='/usr/bin/python2'
+  export MAKEFLAGS+=" POD2MAN=${core_perl_dir}/pod2man"
+  export MAKEFLAGS+=" POD2HTML=${core_perl_dir}/pod2html"
+  export MAKEFLAGS+=" PROVE=${core_perl_dir}/prove"
+
+  cd "$srcdir/$_pkgname-$_pkgver/libraries/libapparmor"
+
+  # We need perl and python anyway, may as well build the bindings...
+
+  ./autogen.sh
+  ./configure --prefix=/usr --sysconfdir=/etc \
+	  --disable-static --enable-shared --with-perl --with-python --with-pic 
+
+  sed -i "s|pdflatex|true|g" ../../parser/Makefile # texlive-bin is a huge makedepend for little gain. (techdoc.pdf)
+
+  make
+  make -C ../../utils
+  make -C ../../parser \
+    AARE_LDFLAGS="$LDFLAGS -Wl,--as-needed -lstdc++" AAREOBJECTS=libapparmor_re/libapparmor_re.a # Fix static linking.
+  make -C ../../changehat/pam_apparmor LIBS="$LDFLAGS -lpam -lapparmor"
+
+}
+
+check() {
+  # For the moment this deals only with the parser:
+  make -k -C "$srcdir/$_pkgname-$_pkgver/parser" -j1 check || true # Check for non-trivial errors.
+}
+
+package() {
+	
+  export MAKEFLAGS+=" DESTDIR=${pkgdir}"
+
+  cd "$srcdir/$_pkgname-$_pkgver/libraries/libapparmor"
+
+  make install
+  make -C ../../utils install
+  make -C ../../parser \
+    AARE_LDFLAGS="$LDFLAGS -Wl,--as-needed -lstdc++" AAREOBJECTS=libapparmor_re/libapparmor_re.a install 
+  make -C ../../changehat/pam_apparmor install
+
+  cp 'swig/perl/LibAppArmor.pm' "$pkgdir/usr/lib/perl5/vendor_perl"
+  sed -i '1s/python$/python2/' "$pkgdir/usr/sbin/aa-status"
+  chrpath -d "$pkgdir/usr/lib/perl5/vendor_perl/auto/LibAppArmor/LibAppArmor.so"
+  rm -rv "$pkgdir/lib/apparmor" # Nothing useful in there.
+
+  gcc -O2 "$srcdir/dlopen.c" -o dlopen -ldl
+
+  for module in "$pkgdir"/lib/security/*.so ; do
+	  if ! env LD_PRELOAD='' LD_LIBRARY_PATH="$pkgdir/usr/lib" ./dlopen ${module} ; then
+		  error "Sanity check failed: ${module} cannot be loaded, exiting."
+		  exit 1
+	  fi
+  done
+
+}
+
+# vim:set ts=2 sw=2 et:

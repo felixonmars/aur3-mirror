@@ -1,0 +1,257 @@
+Index: src/game/server/entities/character.cpp
+===================================================================
+--- src/game/server/entities/character.cpp	(revision 1937)
++++ src/game/server/entities/character.cpp	(working copy)
+@@ -56,6 +56,13 @@
+ 	last_weapon = WEAPON_HAMMER;
+ 	queued_weapon = -1;
+ 	
++	if(game.controller->is_instagib())
++	{
++		active_weapon = WEAPON_RIFLE;
++		last_weapon = WEAPON_RIFLE;
++		queued_weapon = -1;
++	}
++	
+ 	//clear();
+ 	this->player = player;
+ 	this->pos = pos;
+@@ -662,6 +669,16 @@
+ 	dbg_msg("game", "kill killer='%d:%s' victim='%d:%s' weapon=%d special=%d",
+ 		killer, server_clientname(killer),
+ 		player->client_id, server_clientname(player->client_id), weapon, mode_special);
++	
++	if(on_spree())
++	{
++		game.create_sound(pos, SOUND_GRENADE_EXPLODE);
++		game.create_explosion(pos, player->client_id, WEAPON_RIFLE, true);
++	}
++	
++	if(game.get_player_char(killer))
++		game.get_player_char(killer)->spree_add();
++	spree_end(killer);
+ 
+ 	// send the kill message
+ 	NETMSG_SV_KILLMSG msg;
+@@ -694,12 +711,56 @@
+ 	player->respawn_tick = server_tick()+server_tickspeed()/2;
+ }
+ 
++char spree_note[4][32] = { "is on a killing spree", "is on a rampage", "is dominating", "is unstoppable" };
++
++void CHARACTER::spree_add()
++{
++	spree++;
++	if(spree % 5 == 0)
++	{
++		int p = (int)spree/5-1;
++		if(p > 3)
++			p = 3;
++		char buf[256];
++		str_format(buf, sizeof(buf), "%s %s with %d kills!", server_clientname(player->client_id), spree_note[p], spree);
++		game.send_chat(-1, GAMECONTEXT::CHAT_ALL, buf);
++	}
++}
++
++void CHARACTER::spree_end(int killer)
++{
++	if(spree >= 5)
++	{
++		char buf[256];
++		str_format(buf, sizeof(buf), "%s %d-kills killing spree was ended by %s", server_clientname(player->client_id), spree, server_clientname(killer));
++		game.send_chat(-1, GAMECONTEXT::CHAT_ALL, buf);
++	}
++	spree = 0;
++}
++
++bool CHARACTER::on_spree()
++{
++	if(spree >= 5)
++		return true;
++	return false;
++}
++
+ bool CHARACTER::take_damage(vec2 force, int dmg, int from, int weapon)
+ {
+ 	core.vel += force;
+ 	
+ 	if(game.controller->is_friendly_fire(player->client_id, from) && !config.sv_teamdamage)
+ 		return false;
++	
++	if(game.controller->is_instagib() && weapon == WEAPON_GAME)
++		return false;
++	
++	if(game.controller->is_instagib())
++	{
++		game.create_sound(pos, SOUND_HIT, cmask_one(from));
++		die(from, weapon);
++		return true;
++	}
+ 
+ 	// player only inflicts half damage on self
+ 	if(from == player->client_id)
+Index: src/game/server/entities/character.hpp
+===================================================================
+--- src/game/server/entities/character.hpp	(revision 1937)
++++ src/game/server/entities/character.hpp	(working copy)
+@@ -83,6 +83,8 @@
+ 	//int score;
+ 	int team;
+ 	int player_state; // if the client is chatting, accessing a menu or so
++	
++	int spree;
+ 
+ 	// the player core for the physics	
+ 	CHARACTER_CORE core;
+@@ -113,6 +115,10 @@
+ 	void fire_weapon();
+ 
+ 	void die(int killer, int weapon);
++	
++	void spree_add();
++	void spree_end(int killer);
++	bool on_spree();
+ 
+ 	bool take_damage(vec2 force, int dmg, int from, int weapon);	
+ 
+Index: src/game/server/entities/laser.cpp
+===================================================================
+--- src/game/server/entities/laser.cpp	(revision 1937)
++++ src/game/server/entities/laser.cpp	(working copy)
+@@ -1,5 +1,6 @@
+ /* copyright (c) 2007 magnus auvinen, see licence.txt for more info */
+ #include <engine/e_server_interface.h>
++#include <engine/e_config.h>
+ #include <game/generated/g_protocol.hpp>
+ #include <game/server/gamecontext.hpp>
+ #include "laser.hpp"
+@@ -72,6 +73,9 @@
+ 				energy = -1;
+ 				
+ 			game.create_sound(pos, SOUND_RIFLE_BOUNCE);
++			
++			if(bounces == 1 && config.sv_laserjumps)
++				game.create_explosion(pos, owner, WEAPON_GAME, false);
+ 		}
+ 	}
+ 	else
+Index: src/game/server/gamecontroller.cpp
+===================================================================
+--- src/game/server/gamecontroller.cpp	(revision 1937)
++++ src/game/server/gamecontroller.cpp	(working copy)
+@@ -29,6 +29,7 @@
+ 	
+ 	unbalanced_tick = -1;
+ 	force_balanced = false;
++	instagib = false;
+ 	
+ 	num_spawn_points[0] = 0;
+ 	num_spawn_points[1] = 0;
+@@ -145,7 +146,7 @@
+ 		subtype = WEAPON_NINJA;
+ 	}
+ 	
+-	if(type != -1)
++	if(type != -1 && !is_instagib())
+ 	{
+ 		PICKUP *pickup = new PICKUP(type, subtype);
+ 		pickup->pos = pos;
+@@ -329,10 +330,18 @@
+ 	chr->health = 10;
+ 	
+ 	// give default weapons
+-	chr->weapons[WEAPON_HAMMER].got = 1;
+-	chr->weapons[WEAPON_HAMMER].ammo = -1;
+-	chr->weapons[WEAPON_GUN].got = 1;
+-	chr->weapons[WEAPON_GUN].ammo = 10;
++	if(is_instagib())
++	{
++		chr->weapons[WEAPON_RIFLE].got = 1;
++		chr->weapons[WEAPON_RIFLE].ammo = -1;
++	}
++	else
++	{
++		chr->weapons[WEAPON_HAMMER].got = 1;
++		chr->weapons[WEAPON_HAMMER].ammo = -1;
++		chr->weapons[WEAPON_GUN].got = 1;
++		chr->weapons[WEAPON_GUN].ammo = 10;
++	}
+ }
+ 
+ void GAMECONTROLLER::do_warmup(int seconds)
+@@ -471,7 +480,17 @@
+ 	server_setbrowseinfo(gametype, prog);
+ }
+ 
++void GAMECONTROLLER::make_instagib(char *new_gametype)
++{
++	instagib = true;
++	gametype = new_gametype;
++}
+ 
++bool GAMECONTROLLER::is_instagib() const
++{
++	return instagib;
++}
++
+ bool GAMECONTROLLER::is_teamplay() const
+ {
+ 	return game_flags&GAMEFLAG_TEAMS;
+Index: src/game/server/gamecontroller.hpp
+===================================================================
+--- src/game/server/gamecontroller.hpp	(revision 1937)
++++ src/game/server/gamecontroller.hpp	(working copy)
+@@ -50,10 +50,14 @@
+ 	int game_flags;
+ 	int unbalanced_tick;
+ 	bool force_balanced;
++	bool instagib;
+ 	
+ public:
+ 	const char *gametype;
+ 
++	void make_instagib(char *gametype);
++	bool is_instagib() const;
++
+ 	bool is_teamplay() const;
+ 	
+ 	GAMECONTROLLER();
+Index: src/game/server/hooks.cpp
+===================================================================
+--- src/game/server/hooks.cpp	(revision 1937)
++++ src/game/server/hooks.cpp	(working copy)
+@@ -531,7 +531,22 @@
+ 	//players = new PLAYER[MAX_CLIENTS];
+ 
+ 	// select gametype
+-	if(strcmp(config.sv_gametype, "mod") == 0)
++	if(strcmp(config.sv_gametype, "ictf") == 0)
++	{
++		game.controller = new GAMECONTROLLER_CTF;
++		game.controller->make_instagib("iCTF");
++	}
++	else if(strcmp(config.sv_gametype, "itdm") == 0)
++	{
++		game.controller = new GAMECONTROLLER_TDM;
++		game.controller->make_instagib("iTDM");
++	}
++	else if(strcmp(config.sv_gametype, "idm") == 0)
++	{
++		game.controller = new GAMECONTROLLER_DM;
++		game.controller->make_instagib("iDM");
++	}
++	else if(strcmp(config.sv_gametype, "mod") == 0)
+ 		game.controller = new GAMECONTROLLER_MOD;
+ 	else if(strcmp(config.sv_gametype, "ctf") == 0)
+ 		game.controller = new GAMECONTROLLER_CTF;
+Index: src/game/variables.hpp
+===================================================================
+--- src/game/variables.hpp	(revision 1937)
++++ src/game/variables.hpp	(working copy)
+@@ -71,3 +71,6 @@
+ 
+ MACRO_CONFIG_INT(dbg_focus, 0, 0, 1, CFGFLAG_CLIENT, "")
+ MACRO_CONFIG_INT(dbg_tuning, 0, 0, 1, CFGFLAG_CLIENT, "")
++
++/* instagib */
++MACRO_CONFIG_INT(sv_laserjumps, 1, 0, 1, CFGFLAG_SERVER, "Enable laser jumps")

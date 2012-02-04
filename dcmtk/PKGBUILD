@@ -1,0 +1,88 @@
+# Author: Miguel Useche <migueluseche@skatox.com>
+# Maintainer: Miguel Useche <migueluseche@skatox.com>
+# Contributor: Xiao-Long Chen <chenxiaolong@cxl.epac.to>
+
+# Most of this PKGBUILD + patches were taken from Fedora's dcmtk spec file, so thanks to the Fedora packagers for making this package work!
+
+pkgname=dcmtk
+pkgver=3.6.0
+
+# Fedora release (from Koji)
+_fedora_rel=8.fc17
+# Newer Fedora releases in the future can be found at http://koji.fedoraproject.org/
+
+pkgrel=1
+pkgdesc="a collection of libraries and applications implementing large parts the DICOM standard"
+arch=('i686' 'x86_64')
+url="http://dicom.offis.de/dcmtk"
+license=('other')
+depends=('zlib' 'libpng' 'libtiff' 'libxml2' 'openssl' 'charls' 'libssh')
+source=("ftp://dicom.offis.de/pub/dicom/offis/software/dcmtk/dcmtk360/${pkgname}-${pkgver}.tar.gz"
+        "http://kojipkgs.fedoraproject.org/packages/dcmtk/${pkgver}/${_fedora_rel}/src/${pkgname}-${pkgver}-${_fedora_rel}.src.rpm")
+noextract=("${pkgname}-${pkgver}-${_fedora_rel}.src.rpm")
+sha512sums=('2a9d866bafcaea72d889d24b51ff2341ee39c717aacf9ae5825c8588cd5cb01c3e341b6173abce751f6cb32c45be8888e81ccb08967cae2cca7fdcb2b61be53c'
+            '974542666dc82f57513f4d9709d6889e9d48c463416b9da1e2bf02b812508167e409f307facbd4333ded4c4bccd8563872274c04ebc9d64d147124380b843e67')
+
+build() {
+  cd "${srcdir}"
+
+  # Extract RPM into another directory
+  mkdir fedora
+  pushd fedora
+  bsdtar -xf "../${pkgname}-${pkgver}-${_fedora_rel}.src.rpm"
+  popd
+
+  # Verify the authenticity of both the Fedora source and the upstream source
+  if [[ $(sha512sum ${pkgname}-${pkgver}.tar.gz) != $(sha512sum ${pkgname}-${pkgver}.tar.gz) ]]; then
+    error "sha512 sums of Fedora's source and upstream source do not match!"
+  fi
+
+  cd "${pkgname}-${pkgver}"
+
+  # Apply Fedora patches (fixes build)
+  for i in $(cat "${srcdir}/fedora/${pkgname}.spec" | grep "Patch[0-9]*:" | awk '{print $2}'); do
+    patch -Np1 -i "${srcdir}/fedora/${i}"
+  done
+
+  # Remove bundled charls
+  rm -rf dcmjpls/libcharls/
+
+  # Fix linker flags
+  export LDFLAGS="-lssh -lz ${LDFLAGS}"
+
+  # Use CMake instead of autotools (./configure)
+  # Must build from the root directory or the man pages won't get installed
+  cmake . \
+    -DCMAKE_BUILD_TYPE:STRING="Release" \
+    -DBUILD_SHARED_LIBS:BOOL=ON \
+    -DDCMTK_WITH_OPENSSL:BOOL=ON \
+    -DDCMTK_WITH_PNG:BOOL=ON \
+    -DDCMTK_WITH_PRIVATE_TAGS:BOOL=ON \
+    -DDCMTK_WITH_TIFF:BOOL=ON \
+    -DDCMTK_WITH_XML:BOOL=ON \
+    -DDCMTK_WITH_CHARLS=ON \
+    -DDCMTK_WITH_ZLIB:BOOL=ON \
+    -DCMAKE_INSTALL_PREFIX=/usr
+
+  make ${MAKEFLAGS}
+}
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  make DESTDIR="${pkgdir}/" install
+
+  # Move configuration files from /usr/etc to /etc
+  mv "${pkgdir}/usr/etc/" "${pkgdir}/"
+
+  # Remove empty files (0 length)
+  find "${pkgdir}" -type f -empty -exec rm -v {} \;
+
+  # Store libraries in it's own directory
+  mv "${pkgdir}/usr/lib" "${pkgdir}/usr/lib_tmp"
+  install -dm755 "${pkgdir}/usr/lib/"
+  mv "${pkgdir}/usr/lib_tmp" "${pkgdir}/usr/lib/${pkgname}"
+
+  # Install ld config file
+  install -dm755 "${pkgdir}/etc/ld.so.conf.d/"
+  echo "/usr/lib/${pkgname}" > "${pkgdir}/etc/ld.so.conf.d/${pkgname}.conf"
+}

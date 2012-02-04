@@ -1,0 +1,395 @@
+Index: main.cpp
+===================================================================
+--- main.cpp	(revision 155)
++++ main.cpp	(working copy)
+@@ -2719,7 +2719,7 @@
+     try
+     {
+         vnThreadsRunning[3]++;
+-        BitcoinMiner();
++        BitcoinMiner(vnThreadsRunning[3]==1);
+         vnThreadsRunning[3]--;
+     }
+     catch (std::exception& e) {
+@@ -2859,10 +2859,31 @@
+ 
+ extern unsigned int ScanHash_4WaySSE2(char* pmidstate, char* pblock, char* phash1, char* phash, unsigned int& nHashesDone);
+ 
++extern "C" unsigned int ScanHash_CUDA(char* pmidstate, char* pblock, char* phash1, char* phash, unsigned char zeros, unsigned int& nHashesDone);
+ 
++// (char* pin, char* initstate, char* midstate, char* padding, char zeros, unsigned int& nHashesDone);
+ 
++/*
++ * Print a 32-byte hash value.
++ */
++static void PrintHash(unsigned char *hash)
++{
++	printf("%02X%02X %02X%02X %02X%02X %02X%02X "
++	       "%02X%02X %02X%02X %02X%02X %02X%02X "
++	       "%02X%02X %02X%02X %02X%02X %02X%02X "
++	       "%02X%02X %02X%02X %02X%02X %02X%02X\n",
++		   hash[0], hash[1], hash[2], hash[3],
++		   hash[4], hash[5], hash[6], hash[7],
++		   hash[8], hash[9], hash[10], hash[11],
++		   hash[12], hash[13], hash[14], hash[15],
++		   hash[16], hash[17], hash[18], hash[19],
++		   hash[20], hash[21], hash[22], hash[23],
++		   hash[24], hash[25], hash[26], hash[27],
++		   hash[28], hash[29], hash[30], hash[31]);
++}
+ 
+-void BitcoinMiner()
++
++void BitcoinMiner(bool gpu)
+ {
+     printf("BitcoinMiner started\n");
+     SetThreadPriority(THREAD_PRIORITY_LOWEST);
+@@ -3012,20 +3033,39 @@
+         uint256 hashTarget = CBigNum().SetCompact(pblock->nBits).getuint256();
+         uint256 hashbuf[2];
+         uint256& hash = *alignup<16>(hashbuf);
++	unsigned char zeros = 0;
++	while (((unsigned char*)&hashTarget)[sizeof(hash)-zeros-1] == 0)
++	  zeros++;
++
+         loop
+         {
+             unsigned int nHashesDone = 0;
+             unsigned int nNonceFound;
+-
++	    
++ 	    if (gpu) {
++	      unsigned int& nNonce = *(unsigned int*)(((char*)&tmp.block + 64) + 12);
++	      nNonce++;
++	      nNonceFound = ScanHash_CUDA((char*)&midstate, (char*)&tmp.block + 64, (char*)&tmp.hash1, (char*)&hash, zeros, nHashesDone);
++	      if (nNonceFound != -1) {
++		nNonce = nNonceFound;
++		printf("Found at nNonce=%u\n", nNonce);
++		SHA256Transform((char*)&tmp.hash1, (char*)&tmp.block + 64, (char*)&midstate);
++		SHA256Transform((char*)&hash, (char*)&tmp.hash1, pSHA256InitState);
++		PrintHash((unsigned char*)&hash);
++	      } else {
++		nNonce += nHashesDone - 1;
++	      }
++	    } else {
+ #ifdef FOURWAYSSE2
+-            if (f4WaySSE2)
++	      if (f4WaySSE2) {
+                 // tcatm's 4-way 128-bit SSE2 SHA-256
+                 nNonceFound = ScanHash_4WaySSE2((char*)&midstate, (char*)&tmp.block + 64, (char*)&tmp.hash1, (char*)&hash, nHashesDone);
+-            else
++	      } else {
+ #endif
+                 // Crypto++ SHA-256
+                 nNonceFound = ScanHash_CryptoPP((char*)&midstate, (char*)&tmp.block + 64, (char*)&tmp.hash1, (char*)&hash, nHashesDone);
+-
++	      }
++	    //} I EDITED THE PATCH HERE. THIS LINE SEEMED TO BE A MISTAKE AND BROKE THE BUILD.
+             // Check if something found
+             if (nNonceFound != -1)
+             {
+Index: init.cpp
+===================================================================
+--- init.cpp	(revision 155)
++++ init.cpp	(working copy)
+@@ -79,7 +79,7 @@
+             fCommandLine = true;
+     fDaemon = !fCommandLine;
+ 
+-#ifdef __WXGTK__
++#ifndef __WXMSW__
+     if (!fCommandLine)
+     {
+         // Daemonize
+Index: makefile.osx
+===================================================================
+--- makefile.osx	(revision 155)
++++ makefile.osx	(working copy)
+@@ -5,34 +5,48 @@
+ # Mac OS X makefile for bitcoin
+ # Laszlo Hanyecz (solar@heliacal.net)
+ 
++
+ CXX=llvm-g++
+-DEPSDIR=/Users/macosuser/bitcoin/deps
++DEPSDIR=/opt/local
+ 
+ INCLUDEPATHS= \
+- -I"$(DEPSDIR)/include"
++ -I"$(DEPSDIR)/include"  -I"$(DEPSDIR)/include/db46"
+ 
+ LIBPATHS= \
+- -L"$(DEPSDIR)/lib"
++ -L"$(DEPSDIR)/lib"  -L"$(DEPSDIR)/lib/db46"
+ 
+-WXLIBS=$(shell $(DEPSDIR)/bin/wx-config --libs --static)
++WXLIBS=
+ 
+ LIBS= -dead_strip \
+- $(DEPSDIR)/lib/libdb_cxx-4.8.a \
+- $(DEPSDIR)/lib/libboost_system.a \
+- $(DEPSDIR)/lib/libboost_filesystem.a \
+- $(DEPSDIR)/lib/libboost_program_options.a \
+- $(DEPSDIR)/lib/libboost_thread.a \
++ $(DEPSDIR)/lib/db46/libdb_cxx-4.6.a \
++ $(DEPSDIR)/lib/libboost_system-mt.a \
++ $(DEPSDIR)/lib/libboost_filesystem-mt.a \
++ $(DEPSDIR)/lib/libboost_program_options-mt.a \
++ $(DEPSDIR)/lib/libboost_thread-mt.a \
+  $(DEPSDIR)/lib/libcrypto.a 
+ 
+-DEFS=$(shell $(DEPSDIR)/bin/wx-config --cxxflags) -D__WXMAC_OSX__ -DNOPCH -DMSG_NOSIGNAL=0
++DEFS=-D__WXMAC_OSX__ -DNOPCH -DMSG_NOSIGNAL=0 -DFOURWAYSSE2
+ 
+ DEBUGFLAGS=-g -DwxDEBUG_LEVEL=0
+ # ppc doesn't work because we don't support big-endian
+-CFLAGS=-mmacosx-version-min=10.5 -arch i386 -arch x86_64 -O3 -Wno-invalid-offsetof -Wformat $(DEBUGFLAGS) $(DEFS) $(INCLUDEPATHS)
++CFLAGS=-mmacosx-version-min=10.5 -arch x86_64 -O3 -Wno-invalid-offsetof -Wformat $(DEBUGFLAGS) $(DEFS) $(INCLUDEPATHS)
+ HEADERS=headers.h strlcpy.h serialize.h uint256.h util.h key.h bignum.h base58.h \
+     script.h db.h net.h irc.h main.h rpc.h uibase.h ui.h noui.h init.h
+ 
++CUDAROOT = "/Developer/GPU Computing"
++
++CUDALIBPATHS= \
++ -L$(CUDAROOT)/C/lib \
++ -L$(CUDAROOT)/C/common/lib/darwin \
++ -L$(CUDAROOT)/shared/lib \
++ -L/usr/local/cuda/lib
++
++CUDALIBS= -lcudart -lcutil_x86_64 -lshrutil_x86_64
++
++CUDAFLAGS=-fPIC -Xlinker -rpath /usr/local/cuda/lib $(CUDALIBPATHS) $(CUDALIBS)
++
+ OBJS= \
++    obj/sha256_kernel.cuo \
+     obj/util.o \
+     obj/script.o \
+     obj/db.o \
+@@ -42,6 +56,7 @@
+     obj/rpc.o \
+     obj/init.o \
+     cryptopp/obj/sha.o \
++    obj/sha256.o \
+     cryptopp/obj/cpu.o
+ 	
+ 
+@@ -55,14 +70,17 @@
+ 	$(CXX) -c $(CFLAGS) -O3 -DCRYPTOPP_DISABLE_ASM -o $@ $<
+ 
+ bitcoin: $(OBJS) obj/ui.o obj/uibase.o
+-	$(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(WXLIBS) $(LIBS)
++	$(CXX) $(shell $(DEPSDIR)/bin/wx-config --cxxflags) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(shell $(DEPSDIR)/bin/wx-config --libs --static) $(LIBS)
+ 
+ 
+ obj/nogui/%.o: %.cpp $(HEADERS)
+ 	$(CXX) -c $(CFLAGS) -o $@ $<
+ 
++obj/nogui/%.cuo: %.cu
++	    /usr/local/cuda/bin/nvcc  -gencode=arch=compute_10,code=\"sm_10,compute_10\"  -gencode=arch=compute_20,code=\"sm_20,compute_20\"  -m64 --compiler-options -fno-strict-aliasing  -I. -I/usr/local/cuda/include -I$(CUDAROOT)/C/common/inc -I$(CUDAROOT)/shared/inc -DUNIX -O3   -o $@ -c $<
++
+ bitcoind: $(OBJS:obj/%=obj/nogui/%)
+-	$(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $^ $(LIBS)
++	$(CXX) $(CFLAGS) -o $@ $(LIBPATHS) $(CUDAFLAGS) $^ $(LIBS)
+ 
+ 
+ clean:
+Index: main.h
+===================================================================
+--- main.h	(revision 155)
++++ main.h	(working copy)
+@@ -83,7 +83,7 @@
+ string SendMoneyToBitcoinAddress(string strAddress, int64 nValue, CWalletTx& wtxNew, bool fAskFee=false);
+ void GenerateBitcoins(bool fGenerate);
+ void ThreadBitcoinMiner(void* parg);
+-void BitcoinMiner();
++void BitcoinMiner(bool gpu);
+ bool CheckProofOfWork(uint256 hash, unsigned int nBits);
+ bool IsInitialBlockDownload();
+ string GetWarnings(string strFor);
+Index: sha256_kernel.cu
+===================================================================
+--- sha256_kernel.cu	(revision 0)
++++ sha256_kernel.cu	(revision 0)
+@@ -0,0 +1,182 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <cutil_inline.h>
++
++typedef unsigned int word32;
++
++//#include "cryptopp/misc.h"
++//#include "cryptopp/sha.h"
++
++__device__ word32 rotrFixed(word32 t, unsigned int y)
++{
++	return word32((t>>y) | (t<<(sizeof(t)*8-y)));
++}
++
++__device__ __constant__ static unsigned int const K[64] = {
++	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
++	0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
++	0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
++	0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
++	0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
++	0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
++	0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
++	0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
++	0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
++	0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
++	0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
++	0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
++	0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
++	0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
++	0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
++	0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
++};
++
++#define blk0(i) (W[i] = (nonce>0&&i==3)?nonce : data[i])
++#define blk2(i) (W[i&15]+=s1(W[(i-2)&15])+W[(i-7)&15]+s0(W[(i-15)&15]))
++
++#define Ch(x,y,z) (z^(x&(y^z)))
++#define Maj(x,y,z) (y^((x^y)&(y^z)))
++
++#define a(i) T[(0-i)&7]
++#define b(i) T[(1-i)&7]
++#define c(i) T[(2-i)&7]
++#define d(i) T[(3-i)&7]
++#define e(i) T[(4-i)&7]
++#define f(i) T[(5-i)&7]
++#define g(i) T[(6-i)&7]
++#define h(i) T[(7-i)&7]
++
++#define R(i) h(i)+=S1(e(i))+Ch(e(i),f(i),g(i))+K[i+j]+(j?blk2(i):blk0(i));\
++	d(i)+=h(i);h(i)+=S0(a(i))+Maj(a(i),b(i),c(i))
++
++// for SHA256
++#define S0(x) (rotrFixed(x,2)^rotrFixed(x,13)^rotrFixed(x,22))
++#define S1(x) (rotrFixed(x,6)^rotrFixed(x,11)^rotrFixed(x,25))
++#define s0(x) (rotrFixed(x,7)^rotrFixed(x,18)^(x>>3))
++#define s1(x) (rotrFixed(x,17)^rotrFixed(x,19)^(x>>10))
++
++#define	SHA256_HASH_SIZE		32
++__device__ void Transform(word32 *state, const word32 *data, word32 nonce)
++{
++	word32 W[16];
++	word32 T[8];
++    /* Copy context->state[] to working vars */
++	memcpy(T, state, sizeof(T));
++    /* 64 operations, partially loop unrolled */
++	for (unsigned int j=0; j<64; j+=16)
++	{
++		R( 0); R( 1); R( 2); R( 3);
++		R( 4); R( 5); R( 6); R( 7);
++		R( 8); R( 9); R(10); R(11);
++		R(12); R(13); R(14); R(15);
++	}
++    /* Add the working vars back into context.state[] */
++    state[0] += a(0);
++    state[1] += b(0);
++    state[2] += c(0);
++    state[3] += d(0);
++    state[4] += e(0);
++    state[5] += f(0);
++    state[6] += g(0);
++    state[7] += h(0);
++}
++
++// Kernel that executes on the CUDA device
++__global__ void sha256_2(char* rv, word32* block, word32* hash, word32 nonce, int N)
++{
++  word32 hashdata[16];
++
++  word32 out[8] = {
++    0x6a09e667,
++    0xbb67ae85,
++    0x3c6ef372,
++    0xa54ff53a,
++    0x510e527f,
++    0x9b05688c,
++    0x1f83d9ab,
++    0x5be0cd19
++   };
++
++  int idx = blockIdx.x * blockDim.x + threadIdx.x;
++  if (idx < N) {
++
++    memcpy(&hashdata[0], hash, 64);
++  
++    Transform(&hashdata[0], block, nonce + idx);
++    Transform(&out[0], &hashdata[0], 0);
++
++    int zcount = 0;
++    rv[idx] = 0;
++    for (int i=7; i>=0; i++) {
++      if ((out[i] & 0xFF) != 0x00) {
++        rv[idx] = zcount;
++	return;
++      }
++      zcount++;
++      if (((out[i]>>8) & 0xFF) != 0x00) {
++        rv[idx] = zcount;
++	return;
++      }
++      zcount++;
++      if (((out[i]>>16) & 0xFF) != 0x00) {
++        rv[idx] = zcount;
++	return;
++      }
++      zcount++;
++      if (((out[i]>>24) & 0xFF) != 0x00) {
++        rv[idx] = zcount;
++	return;
++      }
++      zcount++;
++    }
++
++  }
++}
++
++#define N 64000
++
++extern "C" unsigned int ScanHash_CUDA (char* pmidstate, char* pblock, char* phash1, char* phash, unsigned char zeros, unsigned int& nHashesDone) {
++
++//(word32* pin, word32* initstate, word32* midstate, word32* padding, char zeros, int N) {
++
++  char* pout_d;
++  word32* pin_d;
++  word32* phash_d;
++
++  cudaMalloc((void**) &pout_d, N);
++  cudaMalloc((void**) &pin_d, sizeof(word32)*16);
++  cudaMalloc((void**) &phash_d, sizeof(word32)*16);
++
++  unsigned int nonce = *(((unsigned int*)pblock)+3);
++
++  cudaMemcpy(pin_d, pblock, sizeof(word32)*16, cudaMemcpyHostToDevice);
++  cudaMemcpy(phash_d , pmidstate, sizeof(word32)*8, cudaMemcpyHostToDevice);
++  cudaMemcpy(phash_d+8, phash1+32, sizeof(word32)*8, cudaMemcpyHostToDevice);
++
++  int threadsPerBlock = 64;
++  int numBlocks = N/threadsPerBlock + (N%threadsPerBlock == 0 ? 0:1);
++
++  sha256_2 <<< numBlocks, threadsPerBlock >>> (pout_d, pin_d, phash_d, nonce, N);
++
++  char rv[N];
++
++  cudaMemcpy(&rv[0], pout_d, N, cudaMemcpyDeviceToHost);
++
++  unsigned int out = N;
++
++  while (out > 0) {
++    if (rv[out-1] >= zeros) {
++      printf("%u on %u\n", rv[out-1], out+nonce-1);
++      break;
++    }
++    out--;
++  }
++
++  cudaFree(pout_d);
++  cudaFree(pin_d);
++  cudaFree(phash_d);
++
++  nHashesDone = N;
++  
++  return out>0 ?out + nonce - 1 : 0xFFFFFFFF;
++}

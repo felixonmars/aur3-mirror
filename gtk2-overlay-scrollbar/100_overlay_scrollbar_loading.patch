@@ -1,0 +1,334 @@
+## Description: enable overlay scrollbars
+## Origin/Author: Andrea Cimitan <andrea.cimitan@canonical.com>
+=== modified file 'gtk/gtkmain.c'
+Index: gtk+2.0-2.24.4/gtk/gtkmain.c
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkmain.c	2011-05-17 22:38:32.790683626 +0200
++++ gtk+2.0-2.24.4/gtk/gtkmain.c	2011-05-17 22:38:33.078685054 +0200
+@@ -752,6 +752,9 @@
+ 
+   _gtk_accel_map_init ();
+   _gtk_rc_init ();
++  ubuntu_gtk_scrolled_window_init ();
++  ubuntu_gtk_hscrollbar_init ();
++  ubuntu_gtk_vscrollbar_init ();
+ 
+   /* Set the 'initialized' flag.
+    */
+Index: gtk+2.0-2.24.4/gtk/gtkscrolledwindow.c
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkscrolledwindow.c	2011-05-17 22:37:27.946362079 +0200
++++ gtk+2.0-2.24.4/gtk/gtkscrolledwindow.c	2011-05-17 22:39:03.706836932 +0200
+@@ -144,6 +144,8 @@
+ 
+ static guint signals[LAST_SIGNAL] = {0};
+ 
++static gboolean use_overlay_scrollbar = FALSE;
++
+ G_DEFINE_TYPE (GtkScrolledWindow, gtk_scrolled_window, GTK_TYPE_BIN)
+ 
+ static void
+@@ -1030,7 +1032,7 @@
+ 
+       gtk_widget_style_get (widget, "scrollbars-within-bevel", &scrollbars_within_bevel, NULL);
+       
+-      if (!scrollbars_within_bevel)
++      if (!scrollbars_within_bevel && use_overlay_scrollbar == FALSE)
+         {
+           gtk_scrolled_window_relative_allocation (widget, &relative_allocation);
+ 
+@@ -1490,7 +1492,7 @@
+ 
+       if (scrolled_window->shadow_type != GTK_SHADOW_NONE)
+ 	{
+-          if (!scrollbars_within_bevel)
++          if (!scrollbars_within_bevel && use_overlay_scrollbar == FALSE)
+             {
+               child_allocation.x -= widget->style->xthickness;
+               child_allocation.width += 2 * widget->style->xthickness;
+@@ -1542,7 +1544,7 @@
+ 
+       if (scrolled_window->shadow_type != GTK_SHADOW_NONE)
+ 	{
+-          if (!scrollbars_within_bevel)
++          if (!scrollbars_within_bevel && use_overlay_scrollbar == FALSE)
+             {
+               child_allocation.y -= widget->style->ythickness;
+ 	      child_allocation.height += 2 * widget->style->ythickness;
+@@ -1763,6 +1765,58 @@
+ }
+ 
+ /*
++ * ubuntu_gtk_scrolled_window_init:
++ *
++ * Initialize local use of the overlay-scrollbar module.
++ * 
++ * If the module is installed, this code checks both a whitelist
++ * and a blacklist to decide whether to activate the replacement
++ * scrollbars.
++ *
++ * It is possible to force the feature to be disabled by setting
++ * the LIBOVERLAY_SCROLLBAR environment variable to either '0' or an
++ * empty value.
++ */
++void
++ubuntu_gtk_scrolled_window_init (void)
++{
++  static gboolean init_once = FALSE;
++
++  if (init_once == FALSE)
++    {
++      GModule *module = NULL;
++      gpointer symbol = NULL;
++
++      gchar *flag = (gchar*) g_getenv ("LIBOVERLAY_SCROLLBAR");
++
++      /* check if LIBOVERLAY_SCROLLBAR is set to 0 or an empty value
++         and disable the feature in this case */
++      if (flag != NULL && (*flag == '\0' || *flag == '0'))
++        goto skip_loading;
++
++      /* default extension library to use for this release */
++      gchar *path = "/usr/lib/liboverlay-scrollbar-0.2.so.0";
++
++      module = g_module_open (path, G_MODULE_BIND_LOCAL);
++      if (module == NULL)
++        goto skip_loading;
++
++      /* check the blacklist, in all cases */
++      if (g_module_symbol (module, "os_utils_is_blacklisted", &symbol))
++        {
++          gboolean (*os_utils_is_blacklisted) (const gchar*) = symbol;
++          if (os_utils_is_blacklisted (g_get_prgname ()) == TRUE)
++            goto skip_loading;
++        }
++
++      use_overlay_scrollbar = TRUE;
++
++skip_loading:
++      init_once = TRUE;
++    }
++}
++
++/*
+  * _gtk_scrolled_window_get_spacing:
+  * @scrolled_window: a scrolled window
+  * 
+@@ -1780,6 +1834,9 @@
+ 
+   class = GTK_SCROLLED_WINDOW_GET_CLASS (scrolled_window);
+ 
++  if (use_overlay_scrollbar)
++    return 0;
++
+   if (class->scrollbar_spacing >= 0)
+     return class->scrollbar_spacing;
+   else
+Index: gtk+2.0-2.24.4/gtk/gtkscrolledwindow.h
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkscrolledwindow.h	2011-05-17 22:37:27.886361784 +0200
++++ gtk+2.0-2.24.4/gtk/gtkscrolledwindow.h	2011-05-17 22:38:33.082685078 +0200
+@@ -127,6 +127,7 @@
+ void	       gtk_scrolled_window_add_with_viewport (GtkScrolledWindow *scrolled_window,
+ 						      GtkWidget		*child);
+ 
++void ubuntu_gtk_scrolled_window_init            (void);
+ gint _gtk_scrolled_window_get_scrollbar_spacing (GtkScrolledWindow *scrolled_window);
+ 
+ 
+Index: gtk+2.0-2.24.4/gtk/gtkhscrollbar.c
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkhscrollbar.c	2011-05-17 22:37:27.978362244 +0200
++++ gtk+2.0-2.24.4/gtk/gtkhscrollbar.c	2011-05-17 22:38:33.082685078 +0200
+@@ -32,6 +32,9 @@
+ #include "gtkintl.h"
+ #include "gtkalias.h"
+ 
++static GtkWidget* (*os_scrollbar_new) (GtkOrientation, GtkAdjustment*) = NULL;
++static gboolean use_overlay_scrollbar = FALSE;
++
+ G_DEFINE_TYPE (GtkHScrollbar, gtk_hscrollbar, GTK_TYPE_SCROLLBAR)
+ 
+ static void
+@@ -61,10 +64,70 @@
+   g_return_val_if_fail (adjustment == NULL || GTK_IS_ADJUSTMENT (adjustment),
+                         NULL);
+ 
++  if (use_overlay_scrollbar)
++    return os_scrollbar_new (GTK_ORIENTATION_HORIZONTAL, adjustment);
++
+   return g_object_new (GTK_TYPE_HSCROLLBAR,
+                        "adjustment", adjustment,
+                        NULL);
+ }
+ 
++/*
++ * ubuntu_gtk_hscrollbar_init:
++ *
++ * Initialize local use of the overlay-scrollbar module.
++ * 
++ * If the module is installed, this code checks both a whitelist
++ * and a blacklist to decide whether to activate the remplacement
++ * scrollbars.
++ *
++ * It is possible to force the feature to be disabled by setting
++ * the LIBOVERLAY_SCROLLBAR environment variable to either '0' or an
++ * empty value.
++ */
++void
++ubuntu_gtk_hscrollbar_init (void)
++{
++  static gboolean init_once = FALSE;
++
++  if (init_once == FALSE)
++    {
++      GModule *module = NULL;
++      gpointer symbol = NULL;
++
++      gchar *flag = (gchar*) g_getenv ("LIBOVERLAY_SCROLLBAR");
++
++      /* check if LIBOVERLAY_SCROLLBAR is set to 0 or an empty value
++         and disable the feature in this case */
++      if (flag != NULL && (*flag == '\0' || *flag == '0'))
++        goto skip_loading;
++
++      /* default extension library to use for this release */
++      gchar *path = "/usr/lib/liboverlay-scrollbar-0.2.so.0";
++
++      module = g_module_open (path, G_MODULE_BIND_LOCAL);
++      if (module == NULL)
++        goto skip_loading;
++
++      /* check the blacklist, in all cases */
++      if (g_module_symbol (module, "os_utils_is_blacklisted", &symbol))
++        {
++          gboolean (*os_utils_is_blacklisted) (const gchar*) = symbol;
++          if (os_utils_is_blacklisted (g_get_prgname ()) == TRUE)
++            goto skip_loading;
++        }
++
++      /* all controls are positive: the feature can be activated now */
++      if (g_module_symbol (module, "os_scrollbar_new", &symbol))
++        {
++          os_scrollbar_new = symbol;
++          use_overlay_scrollbar = TRUE;
++        }
++
++skip_loading:
++      init_once = TRUE;
++    }
++}
++
+ #define __GTK_HSCROLLBAR_C__
+ #include "gtkaliasdef.c"
+Index: gtk+2.0-2.24.4/gtk/gtkhscrollbar.h
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkhscrollbar.h	2011-05-17 22:37:27.862361665 +0200
++++ gtk+2.0-2.24.4/gtk/gtkhscrollbar.h	2011-05-17 22:38:33.082685078 +0200
+@@ -62,7 +62,7 @@
+ 
+ GType      gtk_hscrollbar_get_type (void) G_GNUC_CONST;
+ GtkWidget* gtk_hscrollbar_new      (GtkAdjustment *adjustment);
+-
++void       ubuntu_gtk_hscrollbar_init (void);
+ 
+ G_END_DECLS
+ 
+Index: gtk+2.0-2.24.4/gtk/gtkvscrollbar.c
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkvscrollbar.c	2011-05-17 22:37:27.906361887 +0200
++++ gtk+2.0-2.24.4/gtk/gtkvscrollbar.c	2011-05-17 22:38:33.082685078 +0200
+@@ -32,6 +32,9 @@
+ #include "gtkintl.h"
+ #include "gtkalias.h"
+ 
++static GtkWidget* (*os_scrollbar_new) (GtkOrientation, GtkAdjustment*) = NULL;
++static gboolean use_overlay_scrollbar = FALSE;
++
+ /**
+  * SECTION:gtkvscrollbar
+  * @Short_description: A vertical scrollbar
+@@ -75,10 +78,70 @@
+   g_return_val_if_fail (adjustment == NULL || GTK_IS_ADJUSTMENT (adjustment),
+                         NULL);
+ 
++  if (use_overlay_scrollbar)
++    return os_scrollbar_new (GTK_ORIENTATION_VERTICAL, adjustment);
++
+   return g_object_new (GTK_TYPE_VSCROLLBAR,
+                        "adjustment", adjustment,
+                        NULL);
+ }
+ 
++/*
++ * ubuntu_gtk_vscrollbar_init:
++ *
++ * Initialize local use of the overlay-scrollbar module.
++ * 
++ * If the module is installed, this code checks both a whitelist
++ * and a blacklist to decide whether to activate the remplacement
++ * scrollbars.
++ *
++ * It is possible to force the feature to be disabled by setting
++ * the LIBOVERLAY_SCROLLBAR environment variable to either '0' or an
++ * empty value.
++ */
++void
++ubuntu_gtk_vscrollbar_init (void)
++{
++  static gboolean init_once = FALSE;
++
++  if (init_once == FALSE)
++    {
++      GModule *module = NULL;
++      gpointer symbol = NULL;
++
++      gchar *flag = (gchar*) g_getenv ("LIBOVERLAY_SCROLLBAR");
++
++      /* check if LIBOVERLAY_SCROLLBAR is set to 0 or an empty value
++         and disable the feature in this case */
++      if (flag != NULL && (*flag == '\0' || *flag == '0'))
++        goto skip_loading;
++
++      /* default extension library to use for this release */
++      gchar *path = "/usr/lib/liboverlay-scrollbar-0.2.so.0";
++
++      module = g_module_open (path, G_MODULE_BIND_LOCAL);
++      if (module == NULL)
++        goto skip_loading;
++
++      /* check the blacklist, in all cases */
++      if (g_module_symbol (module, "os_utils_is_blacklisted", &symbol))
++        {
++          gboolean (*os_utils_is_blacklisted) (const gchar*) = symbol;
++          if (os_utils_is_blacklisted (g_get_prgname ()) == TRUE)
++            goto skip_loading;
++        }
++
++      /* all controls are positive: the feature can be activated now */
++      if (g_module_symbol (module, "os_scrollbar_new", &symbol))
++        {
++          os_scrollbar_new = symbol;
++          use_overlay_scrollbar = TRUE;
++        }
++
++skip_loading:
++      init_once = TRUE;
++    }
++}
++
+ #define __GTK_VSCROLLBAR_C__
+ #include "gtkaliasdef.c"
+Index: gtk+2.0-2.24.4/gtk/gtkvscrollbar.h
+===================================================================
+--- gtk+2.0-2.24.4.orig/gtk/gtkvscrollbar.h	2011-05-17 22:37:27.958362141 +0200
++++ gtk+2.0-2.24.4/gtk/gtkvscrollbar.h	2011-05-17 22:38:33.082685078 +0200
+@@ -68,7 +68,7 @@
+ 
+ GType      gtk_vscrollbar_get_type (void) G_GNUC_CONST;
+ GtkWidget* gtk_vscrollbar_new      (GtkAdjustment *adjustment);
+-
++void       ubuntu_gtk_vscrollbar_init (void);
+ 
+ G_END_DECLS
+ 

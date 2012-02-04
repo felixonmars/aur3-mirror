@@ -1,0 +1,239 @@
+From: Neil Horman <nhorman@tuxdriver.com>
+Date: Thu, 6 Oct 2011 18:08:18 +0000 (-0400)
+Subject: PCI/sysfs: add per pci device msi[x] irq listing (v5)
+X-Git-Url: http://git.kernel.org/?p=linux%2Fkernel%2Fgit%2Fjbarnes%2Fpci.git;a=commitdiff_plain;h=933aa5c1f69aa650f59ba783307fc7ed7cc5fafa
+
+PCI/sysfs: add per pci device msi[x] irq listing (v5)
+
+This patch adds a per-pci-device subdirectory in sysfs called:
+/sys/bus/pci/devices/<device>/msi_irqs
+
+This sub-directory exports the set of msi vectors allocated by a given
+pci device, by creating a numbered sub-directory for each vector beneath
+msi_irqs.  For each vector various attributes can be exported.
+Currently the only attribute is called mode, which tracks the
+operational mode of that vector (msi vs. msix)
+
+Acked-by: Greg Kroah-Hartman <gregkh@suse.de>
+Signed-off-by: Jesse Barnes <jbarnes@virtuousgeek.org>
+---
+
+diff --git a/Documentation/ABI/testing/sysfs-bus-pci b/Documentation/ABI/testing/sysfs-bus-pci
+index 349ecf2..34f5110 100644
+--- a/Documentation/ABI/testing/sysfs-bus-pci
++++ b/Documentation/ABI/testing/sysfs-bus-pci
+@@ -66,6 +66,24 @@ Description:
+ 		re-discover previously removed devices.
+ 		Depends on CONFIG_HOTPLUG.
+ 
++What:		/sys/bus/pci/devices/.../msi_irqs/
++Date:		September, 2011
++Contact:	Neil Horman <nhorman@tuxdriver.com>
++Description:
++		The /sys/devices/.../msi_irqs directory contains a variable set
++		of sub-directories, with each sub-directory being named after a
++		corresponding msi irq vector allocated to that device.  Each
++		numbered sub-directory N contains attributes of that irq.
++		Note that this directory is not created for device drivers which
++		do not support msi irqs
++
++What:		/sys/bus/pci/devices/.../msi_irqs/<N>/mode
++Date:		September 2011
++Contact:	Neil Horman <nhorman@tuxdriver.com>
++Description:
++		This attribute indicates the mode that the irq vector named by
++		the parent directory is in (msi vs. msix)
++
+ What:		/sys/bus/pci/devices/.../remove
+ Date:		January 2009
+ Contact:	Linux PCI developers <linux-pci@vger.kernel.org>
+diff --git a/drivers/pci/msi.c b/drivers/pci/msi.c
+index 2f10328..73613e2 100644
+--- a/drivers/pci/msi.c
++++ b/drivers/pci/msi.c
+@@ -322,6 +322,8 @@ static void free_msi_irqs(struct pci_dev *dev)
+ 			if (list_is_last(&entry->list, &dev->msi_list))
+ 				iounmap(entry->mask_base);
+ 		}
++		kobject_del(&entry->kobj);
++		kobject_put(&entry->kobj);
+ 		list_del(&entry->list);
+ 		kfree(entry);
+ 	}
+@@ -402,6 +404,98 @@ void pci_restore_msi_state(struct pci_dev *dev)
+ }
+ EXPORT_SYMBOL_GPL(pci_restore_msi_state);
+ 
++
++#define to_msi_attr(obj) container_of(obj, struct msi_attribute, attr)
++#define to_msi_desc(obj) container_of(obj, struct msi_desc, kobj)
++
++struct msi_attribute {
++	struct attribute        attr;
++	ssize_t (*show)(struct msi_desc *entry, struct msi_attribute *attr,
++			char *buf);
++	ssize_t (*store)(struct msi_desc *entry, struct msi_attribute *attr,
++			 const char *buf, size_t count);
++};
++
++static ssize_t show_msi_mode(struct msi_desc *entry, struct msi_attribute *atr,
++			     char *buf)
++{
++	return sprintf(buf, "%s\n", entry->msi_attrib.is_msix ? "msix" : "msi");
++}
++
++static ssize_t msi_irq_attr_show(struct kobject *kobj,
++				 struct attribute *attr, char *buf)
++{
++	struct msi_attribute *attribute = to_msi_attr(attr);
++	struct msi_desc *entry = to_msi_desc(kobj);
++
++	if (!attribute->show)
++		return -EIO;
++
++	return attribute->show(entry, attribute, buf);
++}
++
++static const struct sysfs_ops msi_irq_sysfs_ops = {
++	.show = msi_irq_attr_show,
++};
++
++static struct msi_attribute mode_attribute =
++	__ATTR(mode, S_IRUGO, show_msi_mode, NULL);
++
++
++struct attribute *msi_irq_default_attrs[] = {
++	&mode_attribute.attr,
++	NULL
++};
++
++void msi_kobj_release(struct kobject *kobj)
++{
++	struct msi_desc *entry = to_msi_desc(kobj);
++
++	pci_dev_put(entry->dev);
++}
++
++static struct kobj_type msi_irq_ktype = {
++	.release = msi_kobj_release,
++	.sysfs_ops = &msi_irq_sysfs_ops,
++	.default_attrs = msi_irq_default_attrs,
++};
++
++static int populate_msi_sysfs(struct pci_dev *pdev)
++{
++	struct msi_desc *entry;
++	struct kobject *kobj;
++	int ret;
++	int count = 0;
++
++	pdev->msi_kset = kset_create_and_add("msi_irqs", NULL, &pdev->dev.kobj);
++	if (!pdev->msi_kset)
++		return -ENOMEM;
++
++	list_for_each_entry(entry, &pdev->msi_list, list) {
++		kobj = &entry->kobj;
++		kobj->kset = pdev->msi_kset;
++		pci_dev_get(pdev);
++		ret = kobject_init_and_add(kobj, &msi_irq_ktype, NULL,
++				     "%u", entry->irq);
++		if (ret)
++			goto out_unroll;
++
++		count++;
++	}
++
++	return 0;
++
++out_unroll:
++	list_for_each_entry(entry, &pdev->msi_list, list) {
++		if (!count)
++			break;
++		kobject_del(&entry->kobj);
++		kobject_put(&entry->kobj);
++		count--;
++	}
++	return ret;
++}
++
+ /**
+  * msi_capability_init - configure device's MSI capability structure
+  * @dev: pointer to the pci_dev data structure of MSI device function
+@@ -453,6 +547,13 @@ static int msi_capability_init(struct pci_dev *dev, int nvec)
+ 		return ret;
+ 	}
+ 
++	ret = populate_msi_sysfs(dev);
++	if (ret) {
++		msi_mask_irq(entry, mask, ~mask);
++		free_msi_irqs(dev);
++		return ret;
++	}
++
+ 	/* Set MSI enabled bits	 */
+ 	pci_intx_for_msi(dev, 0);
+ 	msi_set_enable(dev, pos, 1);
+@@ -573,6 +674,12 @@ static int msix_capability_init(struct pci_dev *dev,
+ 
+ 	msix_program_entries(dev, entries);
+ 
++	ret = populate_msi_sysfs(dev);
++	if (ret) {
++		ret = 0;
++		goto error;
++	}
++
+ 	/* Set MSI-X enabled bits and unmask the function */
+ 	pci_intx_for_msi(dev, 0);
+ 	dev->msix_enabled = 1;
+@@ -731,6 +838,8 @@ void pci_disable_msi(struct pci_dev *dev)
+ 
+ 	pci_msi_shutdown(dev);
+ 	free_msi_irqs(dev);
++	kset_unregister(dev->msi_kset);
++	dev->msi_kset = NULL;
+ }
+ EXPORT_SYMBOL(pci_disable_msi);
+ 
+@@ -829,6 +938,8 @@ void pci_disable_msix(struct pci_dev *dev)
+ 
+ 	pci_msix_shutdown(dev);
+ 	free_msi_irqs(dev);
++	kset_unregister(dev->msi_kset);
++	dev->msi_kset = NULL;
+ }
+ EXPORT_SYMBOL(pci_disable_msix);
+ 
+diff --git a/include/linux/msi.h b/include/linux/msi.h
+index 05acced..ce93a34 100644
+--- a/include/linux/msi.h
++++ b/include/linux/msi.h
+@@ -1,6 +1,7 @@
+ #ifndef LINUX_MSI_H
+ #define LINUX_MSI_H
+ 
++#include <linux/kobject.h>
+ #include <linux/list.h>
+ 
+ struct msi_msg {
+@@ -44,6 +45,8 @@ struct msi_desc {
+ 
+ 	/* Last set MSI message */
+ 	struct msi_msg msg;
++
++	struct kobject kobj;
+ };
+ 
+ /*
+diff --git a/include/linux/pci.h b/include/linux/pci.h
+index 7cda65b..84225c7 100644
+--- a/include/linux/pci.h
++++ b/include/linux/pci.h
+@@ -336,6 +336,7 @@ struct pci_dev {
+ 	struct bin_attribute *res_attr_wc[DEVICE_COUNT_RESOURCE]; /* sysfs file for WC mapping of resources */
+ #ifdef CONFIG_PCI_MSI
+ 	struct list_head msi_list;
++	struct kset *msi_kset;
+ #endif
+ 	struct pci_vpd *vpd;
+ #ifdef CONFIG_PCI_ATS

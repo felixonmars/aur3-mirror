@@ -1,0 +1,31 @@
+pkgname=mint-z-theme-git
+pkgver=20111105
+pkgrel=1
+pkgdesc="Linux Mint Z theme for Gnome and Gnome-shell from Linux Mint 12 (git version)"
+arch=('any')
+url="https://github.com/linuxmint/mint-z-theme"
+license=('GPL3')
+depends=('gtk-engine-murrine' 'gtk-engine-unico')
+makedepends=('git')
+
+_gitroot="https://github.com/linuxmint/mint-z-theme.git"
+_gitname="mint-z-theme"
+
+build() {
+    cd ${srcdir}
+    msg "Connecting to the GIT server..."
+    if [[ -d ${srcdir}/${_gitname} ]] ; then
+        cd ${_gitname}
+        git pull origin
+        msg "The local files are updated..."
+    else
+        git clone ${_gitroot} ${_gitname}
+        cd ${_gitname}
+    fi
+    msg "GIT checkout done."
+}
+
+package() {
+    cd $srcdir/${_gitname}/
+    cp -r ./usr $pkgdir/
+}

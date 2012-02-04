@@ -1,0 +1,61 @@
+# Maintainer: Florian Léger <florian6 dot leger at laposte dot net>
+
+pkgname=rebelassault2
+pkgver=1.14
+pkgrel=1
+pkgdesc="Action game set in the Star Wars universe (uses DOSBox, CD-ROMs required)"
+arch=("any")
+depends=("dosbox")
+makedepends=("convmv")
+license=("custom")
+url="http://www.lucasarts.com"
+source=("http://icons.iconarchive.com/icons/3xhumed/mega-games-pack-29/256/Star-Wars-Rebel-Assault-II-1-icon.png"
+        "lib${pkgname}.sh"
+        "${pkgname}.sh"
+        "${pkgname}.desktop")
+md5sums=('1ee5bc6ef662b37911b56ddcb2ea3454'
+         'd9e5c2e6ad6292900ba142aee661dc31'
+         '1374efa3321cec7bac1ef14cb52266c2'
+         'f0e00ec865503c6ebbb1314afb597c38')
+install="${pkgname}.install"
+
+# Change this to the path where your Rebel Assault CDROMs are mounted
+: ${CD_DIR1:="$HOME/media/Rebel_Assault_II__The_Hidden_Empire_CD1.iso/"}
+: ${CD_DIR2:="$HOME/media/Rebel_Assault_II__The_Hidden_Empire_CD2.iso/"}
+
+package() {
+  local diskDir="${pkgdir}/usr/share/games/${pkgname}"
+  local f
+
+  # Copy data (case insensitive)
+  cd "${CD_DIR1}"
+
+  for f in "./rebel2.exe" "./credits/*" "./lev*/*" "./open/*" "./systm/*" "./launch/*.bat" \
+           "./launch/bootdisk.exe" "./launch/ra2.exe" "./launch/kanji.fnt" "./launch/launch.trs" \
+           "./launch/pictfont.nut" "./launch/sdtct.exe" "./launch/uvconfig.exe" "./drivers/dos4gw.exe"; do
+    find . -iwholename "${f}" -exec install -Dm644 "{}" "${diskDir}/{}" \;
+  done
+
+  cd "${CD_DIR2}"
+  for f in "./lev*/*"  "./final/*"; do
+    find . -iwholename "${f}" -exec install -Dm644 "{}" "${diskDir}/{}" \;
+  done
+
+  # Do some linking
+  install -d "${diskDir}/drivers"
+  ln -s "../launch/uvconfig.exe" "${diskDir}/drivers/uvconfig.exe"
+
+  # Fix case
+  cd "${diskDir}"
+  convmv --lower --notest -r *
+
+  # Shell scripts
+  install -Dm644 "${srcdir}/lib${pkgname}.sh" "${pkgdir}/usr/lib/lib${pkgname}.sh"
+  install -Dm755 "${srcdir}/${pkgname}.sh" "${pkgdir}/usr/bin/${pkgname}"
+
+  # .desktop file
+  install -Dm644 "${srcdir}/${pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+
+  # Icon
+  install -Dm644 "${srcdir}/Star-Wars-Rebel-Assault-II-1-icon.png" "${pkgdir}/usr/share/pixmaps/${pkgname}.png"
+}

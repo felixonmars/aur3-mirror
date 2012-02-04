@@ -1,0 +1,708 @@
+diff --git a/gtk/add-dialog.c b/gtk/add-dialog.c
+index f2bf20a..5e81d0a 100644
+--- a/gtk/add-dialog.c
++++ b/gtk/add-dialog.c
+@@ -90,6 +90,7 @@ struct AddData
+     GtkWidget *  run_check;
+     GtkWidget *  trash_check;
+     GtkWidget *  priority_combo;
++    GtkWidget *  cheatMode_combo;
+     char *       filename;
+     char *       downloadDir;
+     TrTorrent *  gtor;
+@@ -127,6 +128,8 @@ addResponseCB( GtkDialog * dialog,
+
+             tr_torrentSetPriority( tor, gtr_priority_combo_get_value( data->priority_combo ) );
+
++            tr_torrentSetCheatMode( tor, gtr_cheatMode_combo_get_value( data->cheatMode_combo ) );
++
+             if( gtk_toggle_button_get_active( GTK_TOGGLE_BUTTON( data->run_check ) ) )
+                 tr_torrentStart( tor );
+
+@@ -293,6 +296,9 @@ addSingleTorrentDialog( GtkWindow * parent, TrCore * core, tr_ctor * ctor )
+     data->priority_combo = gtr_priority_combo_new( );
+     gtr_priority_combo_set_value( data->priority_combo, TR_PRI_NORMAL );
+
++    data->cheatMode_combo = gtr_cheatMode_combo_new( );
++    gtr_cheatMode_combo_set_value( data->cheatMode_combo, TR_CHEAT_DEACT );
++
+     g_signal_connect( G_OBJECT( d ), "response",
+                       G_CALLBACK( addResponseCB ), data );
+
+@@ -352,6 +358,14 @@ addSingleTorrentDialog( GtkWindow * parent, TrCore * core, tr_ctor * ctor )
+
+     ++row;
+     col = 0;
++    w = gtk_label_new_with_mnemonic( _( "Cheat Mode:" ) );
++    gtk_misc_set_alignment( GTK_MISC( w ), 0.0f, 0.5f );
++    gtk_table_attach( GTK_TABLE( t ), w, col, col + 1, row, row + 1, ~0, 0, 0, 0 );
++    ++col;
++    gtk_table_attach( GTK_TABLE( t ), data->cheatMode_combo, col, col + 1, row, row + 1, ~0, 0, 0, 0 );
++
++    ++row;
++    col = 0;
+     w = data->run_check;
+     if( tr_ctorGetPaused( ctor, TR_FORCE, &flag ) )
+         g_assert_not_reached( );
+diff --git a/gtk/details.c b/gtk/details.c
+index 57f47fa..142c782 100644
+--- a/gtk/details.c
++++ b/gtk/details.c
+@@ -45,6 +45,7 @@ struct DetailsImpl
+     GtkWidget * downLimitedCheck;
+     GtkWidget * downLimitSpin;
+     GtkWidget * bandwidthCombo;
++    GtkWidget * cheatModeCombo;
+     GtkWidget * seedGlobalRadio;
+     GtkWidget * seedForeverRadio;
+     GtkWidget * seedCustomRadio;
+@@ -57,6 +57,7 @@ struct DetailsImpl
+     guint downLimitSpinTag;
+     guint upLimitSpinTag;
+     guint bandwidthComboTag;
++    guint cheatModeComboTag;
+     guint seedForeverRadioTag;
+     guint seedGlobalRadioTag;
+     guint seedCustomRadioTag;
+@@ -269,6 +270,22 @@ refreshOptions( struct DetailsImpl * di, tr_torrent ** torrents, int n )
+             unset_combo( di->bandwidthCombo, di->bandwidthComboTag );
+     }
+
++    /* cheatModeCombo */
++    if( n ) {
++        const tr_cheatMode_t baseline = tr_torrentGetCheatMode( torrents[0] );
++        int i;
++        for( i=1; i<n; ++i)
++            if( baseline != tr_torrentGetCheatMode( torrents[i] ) )
++                break;
++        if( i == n ) {
++            g_signal_handler_block( di->cheatModeCombo, di->cheatModeComboTag );
++            gtr_cheatMode_combo_set_value( di->cheatModeCombo, baseline);
++            g_signal_handler_unblock( di->cheatModeCombo, di->cheatModeComboTag );
++        }
++        else
++            unset_combo( di->cheatModeCombo, di->cheatModeComboTag );
++    }
++
+     /* seedGlobalRadio */
+     /* seedForeverRadio */
+     /* seedCustomRadio */
+@@ -433,6 +450,20 @@ new_priority_combo( struct DetailsImpl * di )
+     return w;
+ }
+
++static void
++onCheatModeChanged( GtkComboBox * w, struct DetailsImpl * di )
++{
++    const uint8_t cheatMode = gtr_cheatMode_combo_get_value( GTK_WIDGET( w ) );
++    torrent_set_int( di, "cheatMode", cheatMode );
++}
++
++static GtkWidget*
++new_cheatMode_combo ( struct DetailsImpl * di )
++{
++    GtkWidget * w = gtr_cheatMode_combo_new( );
++    di->cheatModeComboTag = g_signal_connect( w, "changed", G_CALLBACK( onCheatModeChanged ), di );
++    return w;
++}
+
+ static GtkWidget*
+ options_page_new( struct DetailsImpl * d )
+@@ -478,6 +509,16 @@ options_page_new( struct DetailsImpl * d )
+     hig_workarea_add_row( t, &row, _( "Torrent _priority:" ), w, NULL );
+     d->bandwidthCombo = w;
+
++    /**/
++
++    w = new_cheatMode_combo( d );
++    hig_workarea_add_section_divider( t, &row );
++    hig_workarea_add_section_title( t, &row, _( "Cheat" ));
++    hig_workarea_add_row( t, &row, _( "Cheat Mode:" ), w, NULL );
++    d->cheatModeCombo = w;
++
++    /**/
++
+     hig_workarea_add_section_divider( t, &row );
+     hig_workarea_add_section_title( t, &row, _( "Seed-Until Ratio" ) );
+
+diff --git a/gtk/util.c b/gtk/util.c
+index 3c407d9..3e72c9b 100644
+--- a/gtk/util.c
++++ b/gtk/util.c
+@@ -713,6 +713,86 @@ gtr_priority_combo_new( void )
+     return w;
+ }
+
++void
++gtr_cheatMode_combo_set_value( GtkWidget * w, tr_cheatMode_t value )
++{
++    int i;
++    int currentValue;
++    const int column = 0;
++    GtkTreeIter iter;
++    GtkComboBox * combobox = GTK_COMBO_BOX( w );
++    GtkTreeModel * model = gtk_combo_box_get_model( combobox );
++
++    /* do the value and current value match? */
++    if( gtk_combo_box_get_active_iter( combobox, &iter ) ) {
++        gtk_tree_model_get( model, &iter, column, &currentValue, -1 );
++        if( currentValue == value )
++            return;
++    }
++
++    /* find the one to select */
++    i = 0;
++    while(( gtk_tree_model_iter_nth_child( model, &iter, NULL, i++ ))) {
++        gtk_tree_model_get( model, &iter, column, &currentValue, -1 );
++        if( currentValue == value ) {
++            gtk_combo_box_set_active_iter( combobox, &iter );
++            return;
++        }
++    }
++}
++
++tr_cheatMode_t
++gtr_cheatMode_combo_get_value( GtkWidget * w )
++{
++    int value = 0;
++    GtkTreeIter iter;
++    GtkComboBox * combo_box = GTK_COMBO_BOX( w );
++
++    if( gtk_combo_box_get_active_iter( combo_box, &iter ) )
++        gtk_tree_model_get( gtk_combo_box_get_model( combo_box ), &iter, 0, &value, -1 );
++
++    return value;
++}
++
++GtkWidget *
++gtr_cheatMode_combo_new ( void )
++{
++    int i;
++    GtkWidget * w;
++    GtkCellRenderer * r;
++    GtkListStore * store;
++    const struct {
++        uint8_t value;
++        const char * text;
++    } items[] = {
++        { TR_CHEAT_DEACT,    N_("No Cheat (default)") },
++        { TR_CHEAT_ALWSEED,  N_("Always Leecher, report 0%") },
++        { TR_CHEAT_ALWLEECH, N_("Always Seeder, report real up, no down") },
++        { TR_CHEAT_2RATIO,   N_("Report a ratio of ~2") },
++        { TR_CHEAT_4RATIO,   N_("Report a ratio of ~4") },
++        { TR_CHEAT_200UP,    N_("Report an up of 200k")}
++    };
++
++    store = gtk_list_store_new( 2, G_TYPE_INT, G_TYPE_STRING );
++    for( i=0; i<(int)G_N_ELEMENTS(items); i++) {
++        GtkTreeIter iter;
++        gtk_list_store_append( store, &iter );
++        gtk_list_store_set( store, &iter,
++            0, items[i].value,
++            1, _( items[i].text ),
++            -1
++        );
++    }
++
++    w = gtk_combo_box_new_with_model( GTK_TREE_MODEL( store ) );
++    r = gtk_cell_renderer_text_new( );
++    gtk_cell_layout_pack_start( GTK_CELL_LAYOUT( w ), r, TRUE );
++    gtk_cell_layout_set_attributes( GTK_CELL_LAYOUT( w ), r, "text", 1, NULL );
++
++    g_object_unref( store );
++    return w;
++}
++
+ /***
+ ****
+ ***/
+diff --git a/gtk/util.h b/gtk/util.h
+index 157a49c..65e475c 100644
+--- a/gtk/util.h
++++ b/gtk/util.h
+@@ -151,6 +151,12 @@ tr_priority_t gtr_priority_combo_get_value( GtkWidget * w );
+
+ GtkWidget * gtr_priority_combo_new( void );
+
++void gtr_cheatMode_combo_set_value( GtkWidget * w, tr_cheatMode_t value );
++
++tr_cheatMode_t gtr_cheatMode_combo_get_value( GtkWidget * w );
++
++GtkWidget * gtr_cheatMode_combo_new( void );
++
+ /***
+ ****
+ ***/
+diff --git a/libtransmission/announcer.c b/libtransmission/announcer.c
+index d471991..34134a6 100644
+--- a/libtransmission/announcer.c
++++ b/libtransmission/announcer.c
+@@ -698,6 +698,72 @@ publishNewPeersCompact6( tr_tier * tier, tr_bool allAreSeeds,
+     return peerCount;
+ }
+
++static void
++letsCheat( const tr_tier * tier,
++           uint64_t * up,
++           uint64_t * down,
++           uint64_t * corrupt,
++           uint64_t * left,
++           char ** eventName )
++{
++    uint8_t cheatMode = tr_torrentGetCheatMode( tier->tor );
++
++    if(cheatMode == 0) // no cheat
++    {
++        *up       = tier->byteCounts[TR_ANN_UP];
++        *down     = tier->byteCounts[TR_ANN_DOWN];
++        *corrupt  = tier->byteCounts[TR_ANN_CORRUPT];
++        *left     = tr_cpLeftUntilComplete( &tier->tor->completion );
++    }
++    else if(cheatMode == 1) // always leecher
++    {
++        *up       = 0;
++        *down     = 0;
++        *corrupt  = 0;
++        *left     = tr_torrentInfo( tier->tor )->totalSize;
++        if( !strcmp( *eventName, "completed" ) )
++        {
++            *eventName = 0;
++        }
++    }
++    else if(cheatMode == 2) // always seeder, report real upload
++    {
++        *up       = tier->byteCounts[TR_ANN_UP];
++        *down     = 0;
++        *corrupt  = 0;
++        *left     = 0;
++        if( !strcmp( *eventName, "completed" ) )
++        {
++            *eventName = 0;
++        }
++    }
++    else if(cheatMode == 3) // report (download * 1.95 <=> 2.05) upload
++    {
++        *up       = (int64_t)((1.9+tier->tor->cheatRand)*tier->byteCounts[TR_ANN_DOWN]);
++        *down     = tier->byteCounts[TR_ANN_DOWN];
++        *corrupt  = tier->byteCounts[TR_ANN_CORRUPT];
++        *left     = tr_cpLeftUntilComplete( &tier->tor->completion );
++    }
++
++    else if(cheatMode == 4) // report (download * 3.95 <=> 4.05) upload
++    {
++           *up       = (int64_t)((3.9+tier->tor->cheatRand)*tier->byteCounts[TR_ANN_DOWN]);
++           *down     = tier->byteCounts[TR_ANN_DOWN];
++           *corrupt  = tier->byteCounts[TR_ANN_CORRUPT];
++           *left     = tr_cpLeftUntilComplete( &tier->tor->completion );
++    }
++
++    else if(cheatMode == 5) //report upload to 200~
++    {
++        *up       = (int64_t)(tier->byteCounts[TR_ANN_DOWN]+tier->tor->cheatRand/2);
++        *down     = tier->byteCounts[TR_ANN_DOWN];
++        *corrupt  = tier->byteCounts[TR_ANN_CORRUPT];
++        *left     = tr_cpLeftUntilComplete( &tier->tor->completion );
++        printf("\nUP:%d\n",up);
++        printf("\nDOWN:%d\n",down);
++   }
++}
++
+ static char*
+ createAnnounceURL( const tr_announcer     * announcer,
+                    const tr_torrent       * torrent,
+@@ -713,6 +747,10 @@ createAnnounceURL( const tr_announcer     * announcer,
+     const char * str;
+     const unsigned char * ipv6;
+
++    uint64_t up = 0, down = 0, corrupt = 0, left = 0;
++
++    letsCheat( tier, &up, &down, &corrupt, &left, (char**)&eventName );
++
+     evbuffer_expand( buf, 2048 );
+
+     evbuffer_add_printf( buf, "%s"
+@@ -732,17 +770,17 @@ createAnnounceURL( const tr_announcer     * announcer,
+                               torrent->info.hashEscaped,
+                               torrent->peer_id,
+                               (int)tr_sessionGetPeerPort( announcer->session ),
+-                              tier->byteCounts[TR_ANN_UP],
+-                              tier->byteCounts[TR_ANN_DOWN],
+-                              tr_cpLeftUntilComplete( &torrent->completion ),
++                              up,
++                              down,
++                              left,
+                               numwant,
+                               tracker->key_param );
+
+     if( announcer->session->encryptionMode == TR_ENCRYPTION_REQUIRED )
+         evbuffer_add_printf( buf, "&requirecrypto=1" );
+
+-    if( tier->byteCounts[TR_ANN_CORRUPT] )
+-        evbuffer_add_printf( buf, "&corrupt=%" PRIu64, tier->byteCounts[TR_ANN_CORRUPT] );
++    if( corrupt )
++        evbuffer_add_printf( buf, "&corrupt=%" PRIu64, corrupt );
+
+     str = eventName;
+     if( str && *str )
+diff --git a/libtransmission/resume.c b/libtransmission/resume.c
+index ddfb176..54287ae 100644
+--- a/libtransmission/resume.c
++++ b/libtransmission/resume.c
+@@ -55,6 +58,7 @@
+ #define KEY_SPEEDLIMIT_UP_MODE     "up-mode"
+ #define KEY_RATIOLIMIT_RATIO       "ratio-limit"
+ #define KEY_RATIOLIMIT_MODE        "ratio-mode"
++#define KEY_CHEATMODE              "cheat-mode"
+
+ #define KEY_PROGRESS_MTIMES   "mtimes"
+ #define KEY_PROGRESS_BITFIELD "bitfield"
+@@ -290,6 +289,13 @@ saveRatioLimits( tr_benc * dict, const tr_torrent * tor )
+ }
+
+ static void
++saveCheatMode( tr_benc * dict, const tr_torrent * tor )
++{
++    tr_bencDictReserve( dict, 1 );
++    tr_bencDictAddInt( dict, KEY_CHEATMODE, tr_torrentGetCheatMode( tor ) );
++}
++
++static void
+ loadSingleSpeedLimit( tr_benc * d, tr_direction dir, tr_torrent * tor )
+ {
+     int64_t i;
+@@ -371,6 +377,21 @@ loadRatioLimits( tr_benc *    dict,
+
+     return ret;
+ }
++
++static uint64_t
++loadCheatMode( tr_benc * dict, tr_torrent * tor)
++{
++    uint64_t ret = 0;
++    int64_t val;
++
++    if( tr_bencDictFindInt( dict, KEY_CHEATMODE, &val ) )
++    {
++        tr_torrentSetCheatMode( tor, (uint8_t) val );
++        ret = TR_FR_CHEATMODE;
++    }
++
++    return ret;
++}
+ /***
+ ****
+ ***/
+@@ -535,6 +535,7 @@ tr_torrentSaveResume( const tr_torrent * tor )
+     }
+     saveSpeedLimits( &top, tor );
+     saveRatioLimits( &top, tor );
++    saveCheatMode( &top, tor );
+
+     filename = getResumeFilename( tor );
+     tr_bencToFile( &top, TR_FMT_BENC, filename );
+@@ -670,6 +683,9 @@ loadFromFile( tr_torrent * tor,
+     if( fieldsToLoad & TR_FR_RATIOLIMIT )
+         fieldsLoaded |= loadRatioLimits( &top, tor );
+
++    if( fieldsToLoad & TR_FR_CHEATMODE )
++        fieldsLoaded |= loadCheatMode( &top, tor );
++
+     /* loading the resume file triggers of a lot of changes,
+      * but none of them needs to trigger a re-saving of the
+      * same resume information... */
+diff --git a/libtransmission/resume.h b/libtransmission/resume.h
+index 1e21408..559a73f 100644
+--- a/libtransmission/resume.h
++++ b/libtransmission/resume.h
+@@ -35,7 +35,8 @@ enum
+     TR_FR_ADDED_DATE          = ( 1 << 13 ),
+     TR_FR_DONE_DATE           = ( 1 << 14 ),
+     TR_FR_ACTIVITY_DATE       = ( 1 << 15 ),
+-    TR_FR_RATIOLIMIT          = ( 1 << 16 )
++    TR_FR_RATIOLIMIT          = ( 1 << 16 ),
++    TR_FR_CHEATMODE           = ( 1 << 17 )
+ };
+
+ /**
+diff --git a/libtransmission/rpcimpl.c b/libtransmission/rpcimpl.c
+index 0d614a1..97028d0 100644
+--- a/libtransmission/rpcimpl.c
++++ b/libtransmission/rpcimpl.c
+@@ -466,6 +462,8 @@ addField( const tr_torrent * tor, tr_benc * d, const char * key )
+         tr_bencDictAddInt( d, key, st->addedDate );
+     else if( tr_streq( key, keylen, "bandwidthPriority" ) )
+         tr_bencDictAddInt( d, key, tr_torrentGetPriority( tor ) );
++    else if( tr_streq( key, keylen, "cheatMode" ) )
++        tr_bencDictAddInt( d, key, tr_torrentGetCheatMode( tor ) );
+     else if( tr_streq( key, keylen, "comment" ) )
+         tr_bencDictAddStr( d, key, inf->comment ? inf->comment : "" );
+     else if( tr_streq( key, keylen, "corruptEver" ) )
+@@ -774,6 +770,8 @@ torrentSet( tr_session               * session,
+         if( tr_bencDictFindInt( args_in, "bandwidthPriority", &tmp ) )
+             if( tr_isPriority( tmp ) )
+                 tr_torrentSetPriority( tor, tmp );
++        if( tr_bencDictFindInt( args_in, "cheatMode", &tmp ) )
++                tr_torrentSetCheatMode( tor, tmp );
+         if( !errmsg && tr_bencDictFindList( args_in, "files-unwanted", &files ) )
+             errmsg = setFileDLs( tor, FALSE, files );
+         if( !errmsg && tr_bencDictFindList( args_in, "files-wanted", &files ) )
+diff --git a/libtransmission/torrent.c b/libtransmission/torrent.c
+index b40e540..441f7c8 100644
+--- a/libtransmission/torrent.c
++++ b/libtransmission/torrent.c
+@@ -194,6 +194,27 @@ tr_torrentUsesSessionLimits( const tr_torrent * tor )
+ ***/
+
+ void
++tr_torrentSetCheatMode( tr_torrent * tor, tr_cheatMode_t mode )
++{
++    assert( tr_isTorrent( tor ) );
++
++    if( ( mode >= 0 && mode <= 5 ) && mode != tor->cheatMode )
++    {
++        tor->cheatMode = mode;
++
++        tr_torrentSetDirty( tor );
++    }
++}
++
++tr_cheatMode_t
++tr_torrentGetCheatMode( const tr_torrent * tor )
++{
++    assert( tr_isTorrent( tor ) );
++
++    return tor->cheatMode;
++}
++
++void
+ tr_torrentSetRatioMode( tr_torrent *  tor, tr_ratiolimit mode )
+ {
+     assert( tr_isTorrent( tor ) );
+@@ -723,6 +697,13 @@ torrentInit( tr_torrent * tor, const tr_ctor * ctor )
+         tr_torrentSetRatioLimit( tor, tr_sessionGetRatioLimit( tor->session ) );
+     }
+
++    if( !( loaded & TR_FR_CHEATMODE ) )
++    {
++        tr_torrentSetCheatMode( tor, 0 );
++    }
++    // random float, range 0.0 to 0.1
++    tor->cheatRand = (float)tr_cryptoRandInt(100000)/1000000;
++
+     {
+         tr_torrent * it = NULL;
+         tr_torrent * last = NULL;
+diff --git a/libtransmission/torrent.h b/libtransmission/torrent.h
+index e4f20e1..7b201c4 100644
+--- a/libtransmission/torrent.h
++++ b/libtransmission/torrent.h
+@@ -252,6 +249,9 @@ struct tr_torrent
+     double                     desiredRatio;
+     tr_ratiolimit              ratioLimitMode;
+
++    uint8_t                    cheatMode;
++    float                      cheatRand;
++
+     uint64_t                   preVerifyTotal;
+ };
+
+diff --git a/libtransmission/transmission.h b/libtransmission/transmission.h
+index 992e295..6d38755 100644
+--- a/libtransmission/transmission.h
++++ b/libtransmission/transmission.h
+@@ -1120,6 +1111,27 @@ tr_bool  tr_torrentUsesSessionLimits  ( const tr_torrent * );
+
+
+ /****
++*****  Cheat
++****/
++
++typedef int8_t tr_cheatMode_t;
++
++enum
++{
++    TR_CHEAT_DEACT     =  0,
++    TR_CHEAT_ALWSEED  =  1, /* always seeder */
++    TR_CHEAT_ALWLEECH =  2, /* always leecher */
++    TR_CHEAT_2RATIO    =  3,  /* report a ratio of ~2 */
++    TR_CHEAT_4RATIO    =  4,  /* report a ratio of ~4 */
++    TR_CHEAT_200UP    =  5  /* report upload at 200~ */
++};
++
++void           tr_torrentSetCheatMode( tr_torrent * tor, tr_cheatMode_t mode );
++
++tr_cheatMode_t tr_torrentGetCheatMode( const tr_torrent * tor );
++
++
++/****
+ *****  Ratio Limits
+ ****/
+
+diff --git a/web/index.html b/web/index.html
+index 082e0d0..b0b2cd8 100755
+--- a/web/index.html
++++ b/web/index.html
+@@ -96,6 +96,10 @@
+                    <div class="inspector_label">Comment:</div>
+ 						<div id="torrent_inspector_comment"></div>
+ 					</div>
++					<div class="inspector_row">
++						<div class="inspector_label">Cheat Mode:</div>
++						<div id="torrent_inspector_cheat_mode"></div>
++					</div>
+ 				</div><!-- class="inspector_group"-->
+
+ 				<div class="inspector_group">
+@@ -474,6 +474,18 @@
+ 				<li class="separator"></li>
+ 				<li id="context_toggle_inspector">Show Inspector</li>
+ 				<li class="separator"></li>
++				<li id="cheatMode">
++					Cheat Mode:
++					<select id="cheatModeSelect">
++					<option value="0">No Cheat (default)</option>
++					<option value="1">Always Leecher, report 0%</option>
++					<option value="2">Always Seeder, report real up, no down</option>
++					<option value="3">Report a ratio of ~2</option>
++					<option value="4">Report a ratio of ~4</option>
++					<option value="5">Report an upload of 200</option>
++					</select>
++				</li>
++				<li class="separator"></li>
+ 				<li id="context_select_all" class="context_select_all">Select All</li>
+ 				<li id="context_deselect_all" class="context_deselect_all">Deselect All</li>
+ 			</ul>
+diff --git a/web/javascript/torrent.js b/web/javascript/torrent.js
+index bdea747..db1f5de 100644
+--- a/web/javascript/torrent.js
++++ b/web/javascript/torrent.js
+@@ -42,7 +42,7 @@ Torrent._DynamicFields = [ 'downloadedEver', 'error', 'errorString', 'eta',
+     'haveUnchecked', 'haveValid', 'leftUntilDone', 'metadataPercentComplete', 'peersConnected',
+     'peersGettingFromUs', 'peersSendingToUs', 'rateDownload', 'rateUpload',
+     'recheckProgress', 'sizeWhenDone', 'status', 'trackerStats', 'desiredAvailable',
+-    'uploadedEver', 'uploadRatio', 'seedRatioLimit', 'seedRatioMode', 'downloadDir', 'isFinished' ]
++    'uploadedEver', 'uploadRatio', 'seedRatioLimit', 'seedRatioMode', 'downloadDir', 'isFinished', 'cheatMode' ]
+
+ Torrent.prototype =
+ {
+@@ -211,6 +267,25 @@ Torrent.prototype =
+ 			default:                      return -1;
+ 		}
+ 	},
++	cheatMode: function() {
++		return this._cheat_mode;
++	},
++	cheatModeChanged: function(event, newvalue) {
++		to = this;
++		if(newvalue >= 0 && newvalue <= 5) {
++			var o = {
++				method: 'torrent-set',
++				arguments: {
++					ids: this._id,
++					cheatMode: newvalue
++				}
++			};
++
++			this._controller.remote.sendRequest( o, function( data ) {
++				to._controller.refreshTorrents(to._id);
++			});
++		}
++	},
+
+ 	/*--------------------------------------------
+ 	 *
+@@ -394,6 +410,7 @@ Torrent.prototype =
+		this._metadataPercentComplete = data.metadataPercentComplete;
+		this._isFinishedSeeding       = data.isFinished;
+		this._desiredAvailable        = data.desiredAvailable;
++		this._cheat_mode            = data.cheatMode;
+
+ 		if (data.fileStats)
+ 			this.refreshFileModel( data );
+diff --git a/web/javascript/transmission.js b/web/javascript/transmission.js
+index 53b921a..4fede1b 100644
+--- a/web/javascript/transmission.js
++++ b/web/javascript/transmission.js
+@@ -90,6 +90,7 @@ Transmission.prototype =
+ 		var ti = '#torrent_inspector_';
+ 		this._inspector = { };
+ 		this._inspector._info_tab = { };
++		this._inspector._info_tab.cheat_mode = $(ti+'cheat_mode')[0];
+		this._inspector._info_tab.availability = $(ti+'availability')[0];
+ 		this._inspector._info_tab.comment = $(ti+'comment')[0];
+ 		this._inspector._info_tab.creator_date = $(ti+'creator_date')[0];
+ 		this._inspector._info_tab.creator = $(ti+'creator')[0];
+@@ -307,8 +308,19 @@ Transmission.prototype =
+ 			onContextMenu:     function(e) {
+ 				tr.setSelectedTorrent( $(e.target).closest('.torrent')[0]._torrent, true );
+ 				return true;
++			},
++			onShowMenu:        function(e, menu) {
++				cheatMode = tr.getSelectedTorrents()[0].cheatMode();
++				option = $('#cheatModeSelect option[value='+cheatMode+']', menu);
++				if(typeof option.attr == 'function')
++					option.attr("selected", "selected");
++				return menu;
+ 			}
+ 		});
++		$('#cheatModeSelect').change(function(e) {
++			selectedTorrent = tr.getSelectedTorrents()[0];
++			selectedTorrent.cheatModeChanged(e, e.target.selectedIndex);
++		});
+ 	},
+
+ 	/*
+@@ -1135,6 +1147,7 @@ Transmission.prototype =
+ 		var date_created = 'N/A';
+ 		var error = '';
+ 		var hash = 'N/A';
++		var cheat_mode = 'N/A';
+ 		var have_public = false;
+ 		var have_private = false;
+ 		var name;
+@@ -1162,6 +1175,7 @@ Transmission.prototype =
+ 			setInnerHTML( tab.name, 'No Selection' );
+ 			setInnerHTML( tab.size, na );
+ 			setInnerHTML( tab.pieces, na );
++			setInnerHTML( tab.cheat_mode, na );
+ 			setInnerHTML( tab.hash, na );
+ 			setInnerHTML( tab.state, na );
+ 			setInnerHTML( tab.download_speed, na );
+@@ -1204,6 +1218,25 @@ Transmission.prototype =
+
+ 			hash = t.hash();
+ 			pieces = t._pieceCount + ', ' + Math.formatBytes(t._pieceSize);
++			switch( t.cheatMode() ) {
++				case 0:
++					cheat_mode = "No Cheat (default)";
++				break;
++				case 1:
++					cheat_mode = "Always Leecher, report 0%";
++				break;
++				case 2:
++					cheat_mode = "Always Seeder, report real up, no down";
++				break;
++				case 3:
++					cheat_mode = "Report a ratio of ~2";
++				break;
++				case 4:
++					cheat_mode = "Report a ratio of ~4";
++				break;
++				case 5:
++					cheat_mode = "Report an upload of 200";
++				break;
++				default:
++					cheat_mode = "???";
++			}
+ 			date_created = Math.formatTimestamp( t._creator_date );
+ 		}
+
+@@ -1237,6 +1270,7 @@ Transmission.prototype =
+ 		setInnerHTML( tab.name, name );
+ 		setInnerHTML( tab.size, torrents.length ? Math.formatBytes( total_size ) : na );
+ 		setInnerHTML( tab.pieces, pieces );
++		setInnerHTML( tab.cheat_mode, cheat_mode );
+ 		setInnerHTML( tab.hash, hash );
+ 		setInnerHTML( tab.state, total_state );
+ 		setInnerHTML( tab.download_speed, torrents.length ? Math.formatBytes( total_download_speed ) + '/s' : na );
+

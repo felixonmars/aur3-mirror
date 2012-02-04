@@ -1,0 +1,191 @@
+# HG changeset patch
+# Parent 6030a90ae3ac82273dbb9dff32752b8d3634271b
+
+diff -r 6030a90ae3ac Makefile.target
+--- a/Makefile.target	Fri Aug 27 04:45:05 2010 -0400
++++ b/Makefile.target	Mon Aug 30 13:03:18 2010 -0400
+@@ -154,6 +154,7 @@
+ ifdef CONFIG_SOFTMMU
+ 
+ obj-y = vl.o async.o monitor.o pci.o pci_host.o pcie_host.o machine.o gdbstub.o
++obj-y += pcap.o
+ # virtio has to be here due to weird dependency between PCI and virtio-net.
+ # need to fix this properly
+ obj-y += virtio-blk.o virtio-balloon.o virtio-net.o virtio-console.o virtio-pci.o
+diff -r 6030a90ae3ac net/slirp.c
+--- a/net/slirp.c	Fri Aug 27 04:45:05 2010 -0400
++++ b/net/slirp.c	Mon Aug 30 13:03:18 2010 -0400
+@@ -31,6 +31,8 @@
+ #include "qemu_socket.h"
+ #include "slirp/libslirp.h"
+ 
++#include "pcap.h"
++
+ static int get_str_sep(char *buf, int buf_size, const char **pp, int sep)
+ {
+     const char *p, *p1;
+@@ -104,6 +106,7 @@
+ {
+     SlirpState *s = opaque;
+ 
++    pcap_dump(pkt, pkt_len);
+     qemu_send_packet(&s->nc, pkt, pkt_len);
+ }
+ 
+@@ -111,6 +114,7 @@
+ {
+     SlirpState *s = DO_UPCAST(SlirpState, nc, nc);
+ 
++    pcap_dump(buf, size);
+     slirp_input(s->slirp, buf, size);
+ 
+     return size;
+diff -r 6030a90ae3ac pcap.c
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/pcap.c	Mon Aug 30 13:03:18 2010 -0400
+@@ -0,0 +1,61 @@
++#include <assert.h>
++#include <stdio.h>
++#include <sys/time.h>
++#include <time.h>
++
++#include "pcap.h"
++
++static int started = 0;
++static FILE *cap_file;
++
++static void
++pcap_write(const char *b, int l) {
++	size_t c = fwrite(b, 1, l, cap_file);
++	assert(c == l);
++	fflush(cap_file);
++}
++
++void
++pcap_dump_init(const char *fname) {
++	pcap_hdr_t pcap_hdr;
++
++	if (!fname)
++		fname = "slirp.cap";
++
++	cap_file = fopen(fname, "wb");
++	if (!cap_file) {
++		perror("pcap_dump_init:");
++		return;
++	}
++
++	pcap_hdr.magic_number = PCAP_MAGIC;
++	pcap_hdr.version_major = PCAP_VMAJOR;
++	pcap_hdr.version_minor = PCAP_VMINOR;
++	pcap_hdr.thiszone = 0;
++	pcap_hdr.sigfigs = 0;
++	pcap_hdr.snaplen = 65535;
++	pcap_hdr.network = 1; // Ethernet
++
++	pcap_write((char *)&pcap_hdr, sizeof(pcap_hdr));
++
++	started = 1;
++}
++
++void
++pcap_dump(const uint8_t *pkt, int len) {
++	pcaprec_hdr_t pkt_hdr;
++	struct timeval tv;
++
++	if (!started)
++		return;
++
++	gettimeofday(&tv, 0);
++
++	pkt_hdr.ts_sec = tv.tv_sec;
++	pkt_hdr.ts_usec = tv.tv_usec;
++	pkt_hdr.incl_len = len;
++	pkt_hdr.orig_len = len;
++
++	pcap_write((char *)&pkt_hdr, sizeof(pkt_hdr));
++	pcap_write((char *)pkt, len);
++}
+diff -r 6030a90ae3ac pcap.h
+--- /dev/null	Thu Jan 01 00:00:00 1970 +0000
++++ b/pcap.h	Mon Aug 30 13:03:18 2010 -0400
+@@ -0,0 +1,34 @@
++#ifndef _PCAP_H_
++#define _PCAP_H_
++
++#include "qemu-common.h"
++
++/*
++ * Used http://wiki.wireshark.org/Development/LibpcapFileFormat to get the pcap file format
++ */
++
++#define PCAP_MAGIC	0xa1b2c3d4
++#define PCAP_VMAJOR	2
++#define PCAP_VMINOR	4
++
++typedef struct pcap_hdr_s {
++        uint32_t magic_number;   /* magic number */
++        uint16_t version_major;  /* major version number */
++        uint16_t version_minor;  /* minor version number */
++        int32_t  thiszone;       /* GMT to local correction */
++        uint32_t sigfigs;        /* accuracy of timestamps */
++        uint32_t snaplen;        /* max length of captured packets, in octets */
++        uint32_t network;        /* data link type */
++} pcap_hdr_t;
++
++typedef struct pcaprec_hdr_s {
++        uint32_t ts_sec;         /* timestamp seconds */
++        uint32_t ts_usec;        /* timestamp microseconds */
++        uint32_t incl_len;       /* number of octets of packet saved in file */
++        uint32_t orig_len;       /* actual length of packet */
++} pcaprec_hdr_t;
++
++void pcap_dump_init(const char *fname);
++void pcap_dump(const uint8_t *pkt, int len);
++
++#endif //_PCAP_H_
+diff -r 6030a90ae3ac qemu-options.hx
+--- a/qemu-options.hx	Fri Aug 27 04:45:05 2010 -0400
++++ b/qemu-options.hx	Mon Aug 30 13:03:18 2010 -0400
+@@ -1394,6 +1394,16 @@
+ @end table
+ ETEXI
+ 
++#ifdef CONFIG_SLIRP
++DEF("pcap", HAS_ARG, QEMU_OPTION_pcap,
++"-pcap <file>\n"
++"                when -net user is enabled, dump packets to file\n")
++#endif
++STEXI
++@item -pcap @var{file}
++When -net user is enabled, dump packets to @var{file}.
++ETEXI
++
+ DEFHEADING()
+ 
+ DEFHEADING(Linux/Multiboot boot specific:)
+diff -r 6030a90ae3ac vl.c
+--- a/vl.c	Fri Aug 27 04:45:05 2010 -0400
++++ b/vl.c	Mon Aug 30 13:03:18 2010 -0400
+@@ -168,6 +168,10 @@
+ 
+ #include "qemu-queue.h"
+ 
++#ifdef CONFIG_SLIRP
++#include "pcap.h"
++#endif
++
+ //#define DEBUG_NET
+ //#define DEBUG_SLIRP
+ 
+@@ -5192,6 +5196,11 @@
+                 }
+                 break;
+ #ifdef CONFIG_SLIRP
++            case QEMU_OPTION_pcap:
++                pcap_dump_init(optarg);
++                break;
++#endif
++#ifdef CONFIG_SLIRP
+             case QEMU_OPTION_tftp:
+                 legacy_tftp_prefix = optarg;
+                 break;

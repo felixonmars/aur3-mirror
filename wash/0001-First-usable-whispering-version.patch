@@ -1,0 +1,390 @@
+From 1027bb94d92fac0f1d463136f8c43c239a1dcdd4 Mon Sep 17 00:00:00 2001
+From: shpelda <shpelda@gmail.com>
+Date: Wed, 14 Dec 2011 22:31:53 +0100
+Subject: [PATCH] First usable whispering version
+
+---
+ bash-4.2/lib/readline/complete.c |  333 ++++++++++++++++++++++++++++++++++++++
+ bash-4.2/lib/readline/readline.c |    2 +
+ bash-4.2/lib/readline/readline.h |    1 +
+ 3 files changed, 336 insertions(+), 0 deletions(-)
+
+diff --git a/bash-4.2/lib/readline/complete.c b/bash-4.2/lib/readline/complete.c
+index e67cfeb..db5c04e 100644
+--- a/bash-4.2/lib/readline/complete.c
++++ b/bash-4.2/lib/readline/complete.c
+@@ -380,6 +380,336 @@ static int completion_changed_buffer;
+ /* The result of the query to the user about displaying completion matches */
+ static int completion_y_or_n;
+ 
++/**
++ * Whenever a key is processed, rl_whispering_hook is invoked,
++ * displaying completions
++ */
++void rl_whispering_hook(){
++	if(RL_ISSTATE(RL_STATE_COMPLETING))
++	{
++		return;
++	}
++	rl_complete_internal('W');
++	return;
++}
++
++static int whisper_height = 5;
++/**
++ * Prepare empty lines to display whispers
++ */
++static void initialize_whisper_display(whispers_count)
++	int whispers_count;
++{
++	int i;
++	for(i = 0;i <= whisper_height; i++)
++	{
++		fprintf(rl_outstream,"%s", tigetstr("il1"));
++//		fprintf(rl_outstream,"%s", tigetstr("cuu1"));
++	}
++	for(;i>=0;i--){
++		fprintf(rl_outstream, "%s",  tigetstr("cud1"));
++	}
++
++}
++
++static int max_length(char** matches)
++{
++  int len, max, i;
++  char *temp;
++  for (max = 0, i = 0; matches[i]; i++)
++    {
++      temp = printable_part (matches[i]);
++      len = fnwidth (temp);
++
++      if (len > max)
++	max = len;
++    }
++    return max;
++}
++/**
++    return count of items in a NULL terminated array
++*/
++static int count(matches)
++    char** matches;
++{
++    int i;
++    for(i=0;matches[i];i++)
++        ;
++    return i;
++}
++
++static int
++__unique_NULL_terminate(int from_pos, char** argv)
++{
++	int i;
++	for(i=from_pos; argv[i];i++)
++	{
++		argv[i]=NULL;
++	}
++}
++/**
++    Removes duplicit entries from an sorted array.
++    returns count of elements in sorted array.
++    strings removed from array are freed.
++*/
++static int 
++unique(int argc, char** argv)
++{
++    char empty_slot='\0';
++    int i;
++    int j;
++    for(i=0; i<argc;i=j)
++    {
++        for(j=i+1;j< argc && (strcmp(argv[i], argv[j])==0);j++)
++        {
++           free(argv[j]);
++           argv[j]=&empty_slot; 
++        }
++    }
++
++    int fe;
++    int fne;
++    for(i=0; i< argc;i++)
++    {
++        if(argv[i] == &empty_slot){
++            fe = i;
++            break;
++        }
++    }
++    if(i>=argc)
++    {
++        return argc;
++    }
++    for(i=fe;i< argc;i++)
++    {
++        if(argv[i] != &empty_slot)
++        {
++            fne=i;
++            break;
++        }
++    }
++    if(i>=argc)
++    {
++    	__unique_NULL_terminate(fe, argv);
++        return fe;
++    }
++
++    while(fe<argc && argv[fe] == &empty_slot)
++    {
++       argv[fe] = argv[fne];
++       argv[fne] = &empty_slot;
++       for(i=fe;i< argc;i++)
++       {
++          if(argv[i]==&empty_slot){
++            fe=i;
++            break;
++          }
++       }
++       if(i>=argc){
++            break;
++        }
++       for(i=fe;i< argc;i++)
++       {
++          if(argv[i]!=&empty_slot){
++            fne=i;
++            break;
++          }
++       }
++       if(i>=argc){
++            break;
++        }
++    }
++    __unique_NULL_terminate(fe, argv);
++    return fe;
++}
++
++/**
++    reduce strings in array so that max length of string in array is reduced by ratio
++    returns new NULL terminated array.
++*/
++static char** reduce( matches,  ratio)
++    float ratio;
++    char** matches;
++{
++    int max = max_length(matches);
++    int desired_max = (int) (max * ratio);
++    int cnt = count(matches);
++    if(cnt <1)
++    {
++        return NULL;
++    }
++    char** result = malloc((sizeof(char*))*cnt+1);
++    int i;
++    int len;
++    int rlen;
++    char* entry; 
++    int j;
++    for(i=0;matches[i];i++)
++    {
++        len = strlen(matches[i]);
++        rlen = len > desired_max ? desired_max : len;
++        entry=(char*)malloc(sizeof(char)*(rlen+1));
++        strncpy(entry, matches[i], rlen+1);
++        entry[rlen]='\0';
++        result[i]=entry;
++    }
++    result[i]=NULL;
++    if(result){
++      cnt = count(result);
++	  qsort (result, cnt, sizeof(char *), (QSFUNC *)_rl_qsort_string_compare);
++      unique (cnt, result);
++    }
++    return result; 
++}
++
++static void display_whispers(matches, len, max)
++	char** matches;
++	int len;
++	int max;
++    
++{
++    char** reduced=NULL;
++    int display_width=_rl_screenwidth;
++    int i;
++    int maxiter=10;//TODO safety break - should be removed
++
++    {//we want to display only printable part
++    	int startat=0;
++    	int cnt=count(matches);
++    	if(matches[1]){//not just lcd
++    		startat=1;
++    		cnt--;
++    	}
++    	reduced = (char**)malloc(cnt * sizeof(char*) );
++    	if(reduced==NULL)
++    	{
++    		exit(10);
++    	}
++    	for(i=startat;matches[i];i++)
++    		{
++				char* printable = printable_part(matches[i]);
++				char* new=malloc(strlen(printable)+1);
++				strcpy(new, printable );
++				reduced[i-startat]=new;
++    		}
++    	reduced[i-startat]=NULL;
++
++    	cnt=count(reduced);
++    	qsort (reduced, cnt, sizeof(char *), (QSFUNC *)_rl_qsort_string_compare);
++        unique (cnt, reduced);
++    }
++
++
++
++    if(!reduced)//FIXME cannot happen
++    {
++			fprintf(rl_outstream, "%s%s%s",  tigetstr("cuu1"),tigetstr("cr"),tigetstr("el"));
++			fprintf(rl_outstream, "%s%s", matches[0],  tigetstr("cud1"));
++	    	reduced=reduce(matches,(float)1);
++    }
++
++
++    while( (display_width * whisper_height) < ((max_length(reduced)+2) * count(reduced)))
++    {
++    
++       char** _reduced = reduced;
++       reduced=reduce(reduced, (float)(.75));
++        //FIXME memory leak here - old array should be freed
++
++       if(--maxiter <0)
++            break;
++    }
++    //now, we have got a reduced list that should fit in display area
++    int cnt = count(reduced);
++    int column_width = max_length(reduced)+2;
++    int column_count = display_width / (column_width);
++    int row_count = cnt / column_count;
++    if(row_count < 1){
++    	row_count = 1;
++    }
++
++    //cursor up
++    for(i=0; i< row_count; i++)
++    {
++			fprintf(rl_outstream, "%s%s%s",  tigetstr("cuu1"),tigetstr("cr"),tigetstr("el"));
++    }
++    //print whispers
++    for(i=0; i< row_count;i++)
++    {
++            int j;
++            for(j=0;j<column_count & (i+j*row_count)<cnt;j++)
++            {
++                char* entry = reduced[i+j*row_count];
++                fprintf(rl_outstream, "%s", entry);
++                int z;
++                int strlen_entry=strlen(entry);
++                if(strlen_entry<column_width){
++					for(z=0;z<(column_width-strlen(entry));z++)
++					{
++						fprintf(rl_outstream, " ");
++					}
++                }
++
++            }
++			fprintf(rl_outstream, "%s",  tigetstr("cud1"));
++    }
++}
++
++static void clear_whispers(void)
++{
++	int i;
++	for (i=0;i<whisper_height;i++)
++	{
++		fprintf(rl_outstream, "%s%s%s",  tigetstr("cuu1"),tigetstr("cr"),tigetstr("el"));
++	}
++	for(;i>0;i--){
++		fprintf(rl_outstream, "%s",  tigetstr("cud1"));
++	}
++}
++
++static void
++display_whispering (matches)
++     char **matches;
++{
++	int max;
++	int len;
++	int i;
++	char* temp;
++	//TODO: this is pasted from display_matches, as display matches
++	//this function cannot be simply binded there.
++	//just fires a single line if there is just one completion available
++	// use shared function instead
++	  for (max = 0, i = 0; matches[i]; i++)
++	    {
++	      temp = printable_part (matches[i]);
++	      len = fnwidth (temp);
++
++	      if (len > max)
++		max = len;
++	    }
++
++	  len = i;
++
++
++		static int initialized = 0;
++		if(rl_done){
++			initialized = 0;
++			return;
++		}
++		if(!initialized){
++			initialize_whisper_display(len);
++			initialized = 1;
++		}
++		clear_whispers();
++
++		display_whispers(matches, len, max);
++		fprintf(rl_outstream, "%s%s", tigetstr("el"),tigetstr("cr"));
++		rl_on_new_line();
++		rl_redisplay();
++}
++
++
++
+ /*************************************/
+ /*				     */
+ /*    Bindable completion functions  */
+@@ -1924,6 +2254,9 @@ rl_complete_internal (what_to_do)
+     case '?':
+       display_matches (matches);
+       break;
++    case 'W':
++      display_whispering(matches);
++      break;
+ 
+     default:
+       _rl_ttymsg ("bad value %d for what_to_do in rl_complete", what_to_do);
+diff --git a/bash-4.2/lib/readline/readline.c b/bash-4.2/lib/readline/readline.c
+index f2e4d93..0ce5f91 100644
+--- a/bash-4.2/lib/readline/readline.c
++++ b/bash-4.2/lib/readline/readline.c
+@@ -550,6 +550,8 @@ readline_internal_charloop ()
+ 
+       lastc = c;
+       _rl_dispatch ((unsigned char)c, _rl_keymap);
++
++      rl_whispering_hook();
+       RL_CHECK_SIGNALS ();
+ 
+       /* If there was no change in _rl_last_command_was_kill, then no kill
+diff --git a/bash-4.2/lib/readline/readline.h b/bash-4.2/lib/readline/readline.h
+index 0de168c..830199f 100644
+--- a/bash-4.2/lib/readline/readline.h
++++ b/bash-4.2/lib/readline/readline.h
+@@ -72,6 +72,7 @@ typedef struct _funmap {
+ 
+ extern FUNMAP **funmap;
+ 
++extern void rl_whispering_hook(void);
+ /* **************************************************************** */
+ /*								    */
+ /*	     Functions available to bind to key sequences	    */
+-- 
+1.7.8
+

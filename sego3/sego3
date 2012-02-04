@@ -1,0 +1,383 @@
+#! /bin/bash
+# superego3 - an id3 tag formatter/file renamer script
+# 0.55 by chochem
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# wishlist: 
+# 1) compile lists of artists and albums
+# 2) allow editing of existing fields, rather than replacing
+# 3) more choice
+
+# FUNCTIONS #
+
+printhelp () {
+printf "superego3/sego3 is a script intended to automatize adding music to your music 
+collection. Running superego3 on a batch of newly acquired files will tag and name 
+them consistent with your standards and move the files to a specfied location. The cover 
+art feature has been disabled. Instead it will check to see if the originating folder contains
+any jpegs and suggest using one of them for a folder.jpg file.
+
+A word of warning: 
+This is a work in progress - please make backup copies of the files you try this on, 
+until you feel comfortable using the script. For more information, please see the code comments.
+
+Syntax:
+sego3 [files/directories]
+Examples:
+sego3 ~/download
+sego3 ~/download/*.mp3
+sego3 ./* ~/download ~/p2p
+
+superego3 requires a configuration file (~/.sego3) - you can generate one by running
+the script as \"sego3 --setup\". The options there should explain what the script can do.
+
+REQUIRES: eyeD3 (a python based tagger), and readid3 (small python script for 
+reading out tags accompanying this bash script). feh (minimalist image viewer) is required
+in order to display info about jpegs in source folder.
+
+TECHNICAL: The script loops through the files four times, one after the other 
+(see #CORE ROUTINE): the first reads all the found files' tags into arrays, 
+the second goes through those array entries doing some quick routine adjustments
+that require no user intervention, the third asks the user to verify or edit 
+the information on a per album basis, and the fourth and final writes the 
+entries back into the files and the files are moved/renamed. This way user 
+interaction is concentrated in one dose and once that is completed, the script
+will finish the job by itself.
+"
+}
+
+
+setupConfFile () {
+rm ~/.sego3 &> /dev/null
+printf "Entering sego3 configuration. This will produce a configuration file
+(.sego3) in your home directory in order to save your settings.
+
+"
+# file naming and moving
+read -p "Where do you wish sego3 to move the files, once retagged and renamed? (e.g. '/home/user/music') " destfolder
+if [ -d "$destfolder" ]; then 
+	echo "destfolder=${destfolder}" >> ~/.sego3
+else 
+	echo "Not a directory. Please try again."
+	exit
+fi
+echo "sego3 needs to know the renaming structure you wish to use. 
+Allowed tags are: %artist%, %album%, %track%, %title%, %genre%, %year%.
+You will be asked to give folder and filename structure patterns for
+both 'standard' albums (one artist) and 'various artists' style
+albums (as some prefer these to be given an alternative folder/filename
+structure). You can tell sego3 that an album should be considered a
+various artists album once you're tagging."
+echo
+echo "Please enter the folder structure (without filename) for standard albums,
+e.g. '%genre%/%artist%/%album%' tog get a directory tree like 'hiphop/wu-tang clan/wu-tang forever':"
+read folderstructure_std
+echo "folderstructure_std=${folderstructure_std}" >> ~/.sego3
+echo "
+Please enter the filename structure (without file type) for standard albums,
+e.g. '%track% %title%' to get filenames like '07 no quarter.mp3':"
+read filestructure_std
+echo "filestructure_std=${filestructure_std}" >> ~/.sego3
+echo 
+echo "Please enter the folder structure (without filename) for various artists albums,
+e.g. '%genre%/%year%/various artists/%album%' tog get a directory tree like 'garage rock/1972/various artists/nuggets':"
+read folderstructure_var
+echo "folderstructure_var=${folderstructure_var}" >> ~/.sego3
+echo "
+Please enter the filename structure (without file type) for various artists albums,
+e.g. '%track% %artist% - %title%' to get filenames like '08 - elvis costello - sleepless nights.mp3':"
+read filestructure_var
+echo "filestructure_var=${filestructure_var}" >> ~/.sego3
+echo 
+
+# various options / functions
+read -p "Do you wish sego3 to lowercase all text fields, uppercase all first characters in text field words or neither? (l/u/n) " reply
+case "$reply" in 
+	u) echo "charcase=uppercase" >> ~/.sego3 && echo "You've chosen to uppercase first character.";;
+	l) echo "charcase=lowercase" >> ~/.sego3 && echo "You've chosen to lowercase all text.";;
+	*) echo "charcase=lowercase" >> ~/.sego3 && echo "You've chosen not to change case.";;
+esac
+read -p "Do you wish sego3 to harmonize track numbering? (total track number info will be removed, all single digit track numbers will get a 0 in front) (y/n) " reply
+case "$reply" in 
+	y) echo "trackharm=1" >> ~/.sego3 && echo "You've chosen to harmonize track numbering.";;
+	*) echo "trackharm=0" >> ~/.sego3 && echo "You've chosen not to harmonize track numbering.";;
+esac
+echo
+echo "Thanks for configuring sego3. Hope you enjoy it."
+exit
+}
+
+# Function readTags: reads the file's tags out into shell variables (arrays)
+# It bypasses the eyeD3 _script_ but uses the module with a small python script of my own
+readTags () {
+artist[$c]="$(readid3 "$filename" art)"
+album[$c]="$(readid3 "$filename" alb)"
+title[$c]="$(readid3 "$filename" tit)"
+track[$c]="$(readid3 "$filename" tra | grep -o -E '[0-9]+' | head -1)"
+year[$c]="$(readid3 "$filename" yea)"
+genre[$c]="$(readid3 "$filename" gen | sed -e 's/([0-9]*)//g')"
+parent[$c]="$(dirname "$filename")"
+}
+
+# tr filters out all punctutation characters (leaving alphanumeric and spaces) prior to renaming
+filterCharacters () {
+artist[$i]="$(echo ${artist[$i]} | tr -d [:punct:])"
+album[$i]="$(echo ${album[$i]} | tr -d [:punct:])"
+title[$i]="$(echo ${title[$i]} | tr -d [:punct:])"
+}
+
+
+# Function fieldCheck: the first track on a new album is spotted and albumwide info is submitted to the user for verification and correction
+fieldCheck () {
+albumi=$i
+varart[$i]=0
+z=0
+clear
+echo "This album has the following data"
+echoTags
+echo -e "\033[1mThe parent folder contains the following jpegs:\033[0m "
+ORIGINAL_IFS=$IFS
+IFS=$'\n'
+feh --customlist "%w;%h;%f;%n" "${parent[$i]}"/*.jpg 2> /dev/null > /tmp/imglist
+for jpg in $(cat /tmp/imglist); do 
+	[[ "$jpg" =~ "feh" ]] && continue
+	let z++
+	jpegwidth="$(echo "$jpg" | cut -d ';' -f 1)"
+	jpegheight="$(echo "$jpg" | cut -d ';' -f 2)"
+	jpegname[$z]="$(echo "$jpg" | cut -d ';' -f 3)"
+	jpegnameshort="$(echo "$jpg" | cut -d ';' -f 4)"
+	echo "${z}) ${jpegnameshort}		$jpegwidth x $jpegheight"
+done
+IFS=$ORIGINAL_IFS
+echo
+echo -e "\033[7ma\033[0m for artist
+\033[7ml\033[0m for album
+\033[7my\033[0m for year
+\033[7mg\033[0m for genre
+\033[7mv\033[0m to toggle 'various artists' flag
+\033[7mc\033[0m to choose a jpeg to use as folder image 
+\033[7menter\033[0m to continue"
+j=1
+while [ $j -eq 1 ]; do
+	echo -en "\033[1mEnter the key for the field you wish to change:\033[0m "
+	read -n 1 k; echo
+	case $k in
+		a) read -p "Please enter correct artist name: " correctedartist[$i];;
+		l) read -p "Please enter correct album name: " correctedalbum[$i] ;;
+		y) read -p "Please enter correct year: " correctedyear[$i] ;;
+		g) read -p "Please enter correct genre: " correctedgenre[$i] ;;
+		v) if [ ${varart[$i]} -eq 0 ]; then varart[$i]=1; else varart[$i]=0; fi; echo "various artists = " ${varart[$i]};;
+		c) read -p "Please enter the number of the jpeg you wish to use: " jpegnumber; mogrify -resize "${maxdim}x${maxdim}>" "${jpegname[$jpegnumber]}"; folderimage[$i]=${jpegname[$jpegnumber]};;
+		*) declare j=0; break;;
+	esac
+done
+}
+
+# Function lowerCase: makes all text fields lowercase
+lowerCase () {
+artist[$i]=$(echo ${artist[$i]} | tr [:upper:] [:lower:])
+album[$i]=$(echo ${album[$i]} | tr [:upper:] [:lower:])
+title[$i]=$(echo ${title[$i]} | tr [:upper:] [:lower:])
+genre[$i]=$(echo ${genre[$i]} | tr [:upper:] [:lower:])
+}
+
+# Function firstUpperCase: makes all text field words begin with a capital letter (doesn't change the rest of the word)
+firstUpperCase () {
+artist[$i]=$(echo ${artist[$i]} | awk '{ for ( i=1; i <= NF; i++) {   sub(".", substr(toupper($i),1,1) , $i)  }  print }' )
+album[$i]=$(echo ${album[$i]} | awk '{ for ( i=1; i <= NF; i++) {   sub(".", substr(toupper($i),1,1) , $i)  }  print }' )
+title[$i]=$(echo ${title[$i]} | awk '{ for ( i=1; i <= NF; i++) {   sub(".", substr(toupper($i),1,1) , $i)  }  print }' )
+genre[$i]=$(echo ${genre[$i]} | awk '{ for ( i=1; i <= NF; i++) {   sub(".", substr(toupper($i),1,1) , $i)  }  print }' )
+}
+
+# Function doubleDigitTrack: dumb-as-f*** function that adds a zero in front of all single digit track numbers (and removes possible total track info)
+doubleDigitTrack () {
+track[$i]=$(echo ${track[$i]} | sed -e 's/\/.*//g' )
+if [ ${#track[$i]} -eq 1 ]; then 
+    track[$i]="0${track[$i]}"
+fi
+}    
+
+# Function echoTags: prints out all the variables containing tag info; currently used for reviewing in fieldCheck
+echoTags () {
+echo -e "\033[1mArtist:\033[0m ${artist[$i]}"
+echo -e "\033[1mAlbum:\033[0m  ${album[$i]}"
+echo -e "\033[1mYear:\033[0m   ${year[$i]}"
+echo -e "\033[1mGenre:\033[0m  ${genre[$i]}"
+}
+
+# Function writeTags: removes old tags from files then writes the variables back into new tag fields
+# --set-encoding="$encoding" --to-v${id3version} 
+writeTags () {
+echo -n "$((${i}+1))/${totalfiles}: ${title[$i]}... "
+eyeD3 --remove-v1 --v2 --artist="${artist[$i]}" --album="${album[$i]}" --title="${title[$i]}" --track="${track[$i]}" --year="${year[$i]}" --genre="${genre[$i]}" "${filenamearray[$i]}" &> /dev/null && echo -en "\033[1mTagged\033[0m... " || (errorflag_tag=1 && echo -en "\033[1mError tagging\033[0m... ")
+}
+
+# Function renameFile: renames/moves the file (plus any associated cover image) to the new directory
+renameFile () {
+case ${varart[$rp]} in 
+	0) foltemp="$folderstructure_std";filtemp="$filestructure_std";;
+	1) foltemp="$folderstructure_var";filtemp="$filestructure_var";;
+esac
+folstr="$(echo "$foltemp" | sed -e "s/%artist%/${artist[$i]}/g" -e "s/%title%/${title[$i]}/g" -e "s/%album%/${album[$i]}/g" -e "s/%track%/${track[$i]}/g" -e "s/%genre%/${genre[$i]}/g" -e "s/%year%/${year[$i]}/g" )"
+filstr="$(echo "$filtemp" | sed -e "s/%artist%/${artist[$i]}/g" -e "s/%title%/${title[$i]}/g" -e "s/%album%/${album[$i]}/g" -e "s/%track%/${track[$i]}/g" -e "s/%genre%/${genre[$i]}/g" -e "s/%year%/${year[$i]}/g" )"
+mkdir -p "${destfolder}/${folstr}" &> /dev/null
+mv "${filenamearray[$i]}" "${destfolder}/${folstr}/${filstr}.mp3" || errorflag_move=1
+mv "${folderimage[$i]}" "${destfolder}/${folstr}/folder.jpg"  &> /dev/null
+echo -e "\033[1mMoved\033[0m."
+}
+
+quitter () {
+	echo "Destination not present. Quitting."
+	exit
+}
+
+# CORE ROUTINE #
+
+# help the clueless
+if [ -z "$*" -o "$*" = "-h" -o "$*" = "--help" ]; then 
+	printhelp
+	exit
+elif [ "$*" = "--setup" ]; then
+	setupConfFile
+fi
+
+# check for conf file & destfolder
+ORIGINAL_IFS=$IFS
+IFS=$'\n'
+if [ -f ~/.sego3 ]; then
+	for setting in $(cat ~/.sego3); do
+		export "$setting"
+	done
+	[ -d "$destfolder" ] || quitter
+else
+	setupConfFile
+fi
+
+# 1) Reading the tags into arrays (one for each category, i.e. artist, album, title, etc.)
+wmctrl -r :ACTIVE: -T sego3console
+totalfiles=$(find "$@" -type f | grep -iE \.mp3$ 2> /dev/null | wc -l)
+if [ $totalfiles -eq 0 ]; then 
+	echo "Please specify either an mp3 file or a directory containing mp3 files."
+	exit
+fi
+echo "Reading..."
+c=0
+for filename in $(find "$@" -type f | grep -iE \.mp3$ | sort); do
+	echo "$(($c+1))/${totalfiles} ${filename}"
+	readTags
+	filenamearray[$c]="$filename"
+	let c++
+done
+IFS=$ORIGINAL_IFS
+
+# 2) Automatic checks and transformations (no user input required)
+i=0
+while [ $i -lt $c ]; do
+	if [ -z "${track[$i]}" -o -z "${title[$i]}" ]; then
+		echo $i >> /tmp/missingtag
+	fi
+	case "$charcase" in 
+		lowercase) lowerCase;;
+		uppercase) firstUpperCase;;
+		*) ;;
+	esac
+	if [ $trackharm -eq 1 ]; then doubleDigitTrack; fi
+	let i++
+done
+if [ -f /tmp/missingtag ]; then
+	clear
+	echo "The following files were found to be missing either track or title tags:"
+	cat /tmp/missingtag | while read missingtagfile; do
+ 		echo "${filenamearray[$missingtagfile]}"
+	done
+	rm /tmp/missingtag
+	read -p "Do you wish to continue? (y/n) " reply
+	if [ "$reply" != "y" ]; then exit; fi
+fi		
+
+
+# 3) User review (manual transformation on album basis)
+# the first file found associated with an album is designated the referencepoint for that album
+# any corrections to this file's tags are later assigned to all files with the same album tag.
+i=0
+while [ $i -lt $c ]; do
+	if [ $i -eq 0 ]; then
+		fieldCheck
+	elif [ "${album[$i]}" != "${album[$(($i-1))]}" ]; then
+		fieldCheck
+	fi
+	referencepoint[$i]=$albumi
+	let i++
+done
+
+# 4) File operations
+if [ ! -d "$destfolder" ]; then mkdir "${destfolder}"; fi
+errorflag_tag=0;errorflag_move=0
+i=0
+while [ $i -lt $c ]; do
+	rp=${referencepoint[$i]}
+	# updating the 	main entries with corrections from the reference point files
+	if [ -n "${correctedartist[$rp]}" ]; then declare artist[$i]="${correctedartist[$rp]}"; fi
+ 	if [ -n "${correctedalbum[$rp]}" ]; then declare album[$i]="${correctedalbum[$rp]}"; fi
+ 	if [ -n "${correctedyear[$rp]}" ]; then declare year[$i]="${correctedyear[$rp]}"; fi
+ 	if [ -n "${correctedgenre[$rp]}" ]; then declare genre[$i]="${correctedgenre[$rp]}"; fi
+
+	writeTags
+	if [ $errorflag_tag -eq 0 ]; then
+		filterCharacters
+		renameFile
+	else
+		echo "Tag writing was unsuccessful. File will not be moved."
+	fi
+		
+	let i++
+done
+
+# 5) Final report and cleanup
+if [ $errorflag_tag -eq 1 ]; then echo "
+One or more tagging attempts were unsuccessful. The files in question 
+have not been tagged nor have they been moved. Please inspect your 
+source folder."
+fi
+
+if [ $errorflag_move -eq 1 ]; then echo "
+One or more moving attempts were unsuccessful. The files in question 
+have been tagged but they could not be moved. Please inspect your 
+source folder."; fi
+
+if [ $errorflag_move -eq 0 -a $errorflag_tag -eq 0 ]; then 
+	remains=$(find "$@" -type f)
+	echo
+	if [ -n "$remains" ]; then
+		echo "Some files remain in the old directory structure:"
+		echo "$remains"
+	else
+		echo "No files remaining in the old directory structure."
+	fi
+
+	read -n 1 -p "Do you wish to delete the old directory structure? (y/n) " reply
+	if [ "$reply" = "y" ]; then
+		echo
+		echo "Deleting directory structure..."
+		rm -r "$@"
+	else echo; echo "Leaving old directory structure intact"
+	fi
+
+echo "
+All tagging and moving operations have been successfully completed.
+Please see $destfolder for your files.
+"
+
+fi

@@ -1,0 +1,434 @@
+Index: liferea-ubuntu/configure.ac
+===================================================================
+--- liferea-ubuntu.orig/configure.ac	2011-08-10 23:11:11.654309000 -0400
++++ liferea-ubuntu/configure.ac	2011-08-10 23:18:16.625899496 -0400
+@@ -28,6 +28,7 @@
+ AC_ARG_ENABLE(dbus,      AS_HELP_STRING([--disable-dbus],[compile without DBUS support]),,enable_dbus=yes)
+ AC_ARG_ENABLE(nm,        AS_HELP_STRING([--disable-nm],[compile without NetworkManager support]),,enable_nm=yes)
+ AC_ARG_ENABLE(libnotify, AS_HELP_STRING([--disable-libnotify],[don't compile the libnotify plugin]),,enable_libnotify=yes)
++AC_ARG_ENABLE(libindicate, AS_HELP_STRING([--disable-libindicate],[compile without libindicate support]),,enable_libindicate=yes)
+ AC_ARG_ENABLE(lua,       AS_HELP_STRING([--disable-lua],[don't compile with LUA scripting support]),,enable_lua=yes)
+ dnl AC_ARG_ENABLE(avahi,     AS_HELP_STRING([--disable-avahi],[don't compile with AVAHI support]),,enable_avahi=yes)
+ 
+@@ -100,6 +101,24 @@
+ 
+ AM_CONDITIONAL(WITH_LUA, test "x$enable_lua" = "xyes")
+ 
++dnl *********
++dnl libindicate
++dnl *********
++
++if test "x$enable_libindicate" = "xyes"; then
++   PKG_CHECK_MODULES([LIBINDICATE], indicate-0.6 indicate-gtk-0.6,enable_libindicate=yes,enable_libindicate=no)
++   AC_SUBST(LIBINDICATE_CFLAGS)
++   AC_SUBST(LIBINDICATE_LIBS)
++else
++   enable_libindicate=no
++fi
++
++if test "x$enable_libindicate" = "xyes"; then
++  AC_DEFINE(HAVE_LIBINDICATE, 1, [Define if libindicate support is enabled])
++fi
++
++AM_CONDITIONAL(WITH_LIBINDICATE, test "x$enable_libindicate" = "xyes")
++
+ dnl *****
+ dnl AVAHI
+ dnl *****
+@@ -240,6 +259,7 @@
+ echo "Use X Session Management........ : $enable_sm"
+ echo "Use DBUS........................ : $enable_dbus"
+ echo "Use NetworkManager.............. : $enable_nm"
++echo "Use libindicate................. : $enable_libindicate"
+ dnl echo "AVAHI Support................... : $enable_avahi"
+ echo
+ eval eval echo Liferea will be installed in $bindir.
+Index: liferea-ubuntu/src/Makefile.am
+===================================================================
+--- liferea-ubuntu.orig/src/Makefile.am	2011-08-10 23:11:11.654309000 -0400
++++ liferea-ubuntu/src/Makefile.am	2011-08-10 23:17:29.495830366 -0400
+@@ -91,3 +91,9 @@
+ liferea_LDFLAGS = -Wl,--export-all-symbols,--out-implib,liferea.a
+ 
+ endif
++
++if WITH_LIBINDICATE
++
++liferea_LDADD += $(LIBINDICATE_LIBS)
++
++endif
+Index: liferea-ubuntu/src/ui/liferea_shell.c
+===================================================================
+--- liferea-ubuntu.orig/src/ui/liferea_shell.c	2011-08-10 23:11:11.654309000 -0400
++++ liferea-ubuntu/src/ui/liferea_shell.c	2011-08-10 23:17:29.585830499 -0400
+@@ -46,6 +46,7 @@
+ #include "ui/liferea_dialog.h"
+ #include "ui/ui_common.h"
+ #include "ui/ui_feedlist.h"
++#include "ui/ui_indicator.h"
+ #include "ui/ui_itemlist.h"
+ #include "ui/ui_prefs.h"
+ #include "ui/ui_script.h"
+@@ -489,7 +490,7 @@
+ static gboolean
+ on_close (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+ {
+-	if ((ui_tray_get_count() == 0) || (conf_get_bool_value (DONT_MINIMIZE_TO_TRAY))) {
++	if (!ui_indicator_is_visible () && (ui_tray_get_count() == 0 || (conf_get_bool_value (DONT_MINIMIZE_TO_TRAY)))) {
+ 		liferea_shutdown ();
+ 		return TRUE;
+ 	}
+@@ -1264,6 +1265,8 @@
+ 	shell->priv->feedlist = feedlist_create ();
+ 	
+ 	ui_tray_enable (conf_get_bool_value (SHOW_TRAY_ICON));		/* init tray icon */
++	
++	ui_indicator_init ();
+ 
+ 	liferea_shell_restore_state ();
+ 	
+@@ -1329,6 +1332,7 @@
+ {
+ 	ui_feedlist_select (NULL);
+ 	liferea_shell_save_position ();
++	ui_indicator_destroy ();
+ 	ui_tray_enable (FALSE);
+ 	notification_enable (FALSE);
+ 	g_object_unref (shell->priv->tabs);
+@@ -1346,6 +1350,7 @@
+ 		liferea_shell_restore_position ();
+ 
+ 	gtk_window_present (shell->priv->window);
++	gdk_window_raise (gtk_widget_get_window (mainwindow));
+ }
+ 
+ void
+Index: liferea-ubuntu/src/ui/Makefile.am
+===================================================================
+--- liferea-ubuntu.orig/src/ui/Makefile.am	2011-08-10 23:11:11.654309000 -0400
++++ liferea-ubuntu/src/ui/Makefile.am	2011-08-10 23:17:29.515830403 -0400
+@@ -8,7 +8,7 @@
+ 
+ noinst_LIBRARIES = libliui.a
+ 
+-libliui_a_CFLAGS = $(PACKAGE_CFLAGS) $(DBUS_CFLAGS)
++libliui_a_CFLAGS = $(PACKAGE_CFLAGS) $(DBUS_CFLAGS)	$(LIBINDICATE_CFLAGS)
+ libliui_a_SOURCES = \
+ 	auth_dialog.c auth_dialog.h \
+ 	browser_tabs.c browser_tabs.h \
+@@ -25,6 +25,7 @@
+ 	ui_dnd.c ui_dnd.h \
+ 	ui_feedlist.c ui_feedlist.h \
+ 	ui_folder.c ui_folder.h \
++	ui_indicator.c ui_indicator.h \
+ 	ui_itemlist.c ui_itemlist.h \
+ 	ui_node.c ui_node.h \
+ 	ui_popup.c ui_popup.h \
+Index: liferea-ubuntu/src/ui/ui_indicator.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ liferea-ubuntu/src/ui/ui_indicator.c	2011-08-10 23:11:11.654309000 -0400
+@@ -0,0 +1,195 @@
++/*
++ * @file ui_indicator.c  libindicate support
++ *
++ * Copyright (C) 2010 Maia Kozheva <sikon@ubuntu.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ * 
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Library General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor Boston, MA 02110-1301,  USA
++ */
++
++#include "ui_indicator.h"
++
++#ifdef HAVE_LIBINDICATE
++
++#include <gtk/gtk.h>
++#include <libindicate/server.h>
++#include <libindicate/indicator.h>
++#include <libindicate-gtk/indicator.h>
++#include <libindicate/interests.h>
++#include "ui_tray.h"
++#include "feedlist.h"
++#include "vfolder.h"
++
++#define MAX_INDICATORS      6
++#define SET_DRAW_ATTENTION  FALSE
++
++static struct indicator_priv {
++	IndicateServer *server;
++	gboolean visible;
++	GPtrArray *indicators;
++} *indicator_priv = NULL;
++
++static const char *DESKTOP_FILE = PACKAGE_DATA_DIR G_DIR_SEPARATOR_S "applications" G_DIR_SEPARATOR_S "liferea.desktop";
++
++static void
++remove_all_indicators () {
++	g_ptr_array_set_size (indicator_priv->indicators, 0);
++}
++
++static void
++on_indicator_server_clicked (IndicateServer *server, gchar *type, gpointer user_data)
++{
++	liferea_shell_present ();
++	remove_all_indicators ();
++}
++
++static void
++on_indicator_interest_added (IndicateServer *server, guint interest, gpointer user_data)
++{
++	if (interest != INDICATE_INTEREST_SERVER_SIGNAL)
++		return;
++
++	indicator_priv->visible = TRUE;
++	ui_tray_update ();
++}
++
++static void
++on_indicator_interest_removed (IndicateServer *server, guint interest, gpointer user_data)
++{
++	if (interest != INDICATE_INTEREST_SERVER_SIGNAL)
++		return;
++
++	indicator_priv->visible = FALSE;
++	ui_tray_update ();
++}
++
++static void
++on_indicator_clicked (IndicateIndicator *indicator, guint timestamp, gpointer user_data)
++{
++	ui_feedlist_select ((nodePtr) user_data);
++	liferea_shell_present ();
++	remove_all_indicators ();
++}
++
++static void
++destroy_indicator (gpointer indicator)
++{
++	if (indicator_priv->server == NULL || indicator == NULL) 
++		return;
++	
++	indicate_server_remove_indicator (indicator_priv->server, INDICATE_INDICATOR(indicator));
++	g_object_unref (G_OBJECT (indicator));
++}
++
++void
++ui_indicator_init ()
++{
++	g_assert (!indicator_priv);
++	indicator_priv = g_new0 (struct indicator_priv, 1);
++	indicator_priv->visible = FALSE;
++	indicator_priv->indicators = g_ptr_array_new_with_free_func (destroy_indicator);
++	
++	indicator_priv->server = indicate_server_ref_default();
++	indicate_server_set_type (indicator_priv->server, "message.im");
++	indicate_server_set_desktop_file (indicator_priv->server, DESKTOP_FILE);
++	
++	g_signal_connect (G_OBJECT (indicator_priv->server), "server-display", G_CALLBACK (on_indicator_server_clicked), NULL);
++	g_signal_connect (G_OBJECT (indicator_priv->server), "interest-added", G_CALLBACK (on_indicator_interest_added), NULL);
++	g_signal_connect (G_OBJECT (indicator_priv->server), "interest-removed", G_CALLBACK (on_indicator_interest_removed), NULL);
++	
++	indicate_server_show (indicator_priv->server);
++	ui_indicator_update ();
++}
++
++void
++ui_indicator_destroy ()
++{
++	remove_all_indicators ();
++	g_object_unref (indicator_priv->server);
++	indicator_priv->server = NULL;
++	g_ptr_array_free (indicator_priv->indicators, TRUE);
++	g_free (indicator_priv);
++	indicator_priv = NULL;
++}
++
++static void
++add_node_indicator (nodePtr node)
++{
++	IndicateIndicator *indicator;
++	GdkPixbuf *pixbuf;
++	gchar count[10];
++	
++	if (indicator_priv->indicators->len >= MAX_INDICATORS)
++		return;
++
++	if (IS_VFOLDER(node) || g_slist_length (node->children) > 0) {
++		// Not a feed - walk children and do nothing more
++		node_foreach_child (node, add_node_indicator);
++		return;
++	}
++
++	if (!node->unreadCount)
++		return;
++	
++	indicator = indicate_indicator_new_with_server (indicator_priv->server);
++	g_signal_connect (indicator, "user-display", G_CALLBACK (on_indicator_clicked), node);
++
++	// load favicon
++	pixbuf = gdk_pixbuf_new_from_file (node->iconFile, NULL);
++
++	// display favicon
++	indicate_gtk_indicator_set_property_icon (indicator, "icon", pixbuf);
++	gdk_pixbuf_unref (pixbuf);
++
++	sprintf (count, "%u", node->unreadCount);
++	indicate_indicator_set_property (indicator, "name", node->title);
++	indicate_indicator_set_property (indicator, "count", count);
++#if SET_DRAW_ATTENTION
++	indicate_indicator_set_property_bool (indicator, "draw-attention", TRUE);
++#endif
++	g_ptr_array_add (indicator_priv->indicators, indicator);
++}
++
++void
++ui_indicator_update ()
++{
++	guint index;
++
++	if (!indicator_priv || gtk_window_is_active (GTK_WINDOW (liferea_shell_get_window ())))
++		return;
++
++	// Remove all previous indicators from the menu
++	remove_all_indicators ();
++	// ...then walk the tree and add an indicator for each unread feed
++	feedlist_foreach (add_node_indicator);
++
++	// revert order of items
++	for (index = indicator_priv->indicators->len; index > 0; index--)
++		indicate_indicator_show (g_ptr_array_index (indicator_priv->indicators, index - 1));	
++}
++
++gboolean
++ui_indicator_is_visible ()
++{
++	return indicator_priv && indicator_priv->visible;
++}
++
++#else
++
++void ui_indicator_init () {}
++void ui_indicator_destroy () {}
++void ui_indicator_update () {}
++gboolean ui_indicator_is_visible () { return FALSE; }
++
++#endif  /* HAVE_LIBINDICATE */
+Index: liferea-ubuntu/src/ui/ui_indicator.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ liferea-ubuntu/src/ui/ui_indicator.h	2011-08-10 23:11:11.654309000 -0400
+@@ -0,0 +1,35 @@
++/*
++ * @file ui_indicator.h  libindicate support
++ *
++ * Copyright (C) 2010 Maia Kozheva <sikon@ubuntu.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ * 
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU Library General Public License for more details.
++ * 
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin Street, Fifth Floor Boston, MA 02110-1301,  USA
++ */
++
++#ifndef _UI_INDICATOR_H
++#define _UI_INDICATOR_H
++
++#ifdef HAVE_CONFIG_H
++	#include <config.h>
++#endif
++
++#include <glib.h>
++
++void ui_indicator_init ();
++void ui_indicator_destroy ();
++void ui_indicator_update ();
++gboolean ui_indicator_is_visible ();
++
++#endif  /* _UI_INDICATOR_H */
+Index: liferea-ubuntu/src/ui/ui_prefs.c
+===================================================================
+--- liferea-ubuntu.orig/src/ui/ui_prefs.c	2011-08-10 23:11:11.654309000 -0400
++++ liferea-ubuntu/src/ui/ui_prefs.c	2011-08-10 23:11:11.654309000 -0400
+@@ -767,9 +767,15 @@
+ 		widget = liferea_dialog_lookup (prefdialog, "popupwindowsoptionbtn");
+ 		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (widget), conf_get_bool_value (SHOW_POPUP_WINDOWS));
+ 		
++		// If we have an indicator, we always act as if the tray icon is shown (but it's actually hidden)
++		if (ui_indicator_is_visible ())
++			conf_set_bool_value (SHOW_TRAY_ICON, TRUE);
++
+ 		widget = liferea_dialog_lookup (prefdialog, "trayiconoptionbtn");
+ 		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (widget), conf_get_bool_value (SHOW_TRAY_ICON));
+ 
++		gtk_widget_set_visible (gtk_widget_get_parent (widget), !ui_indicator_is_visible ());
++
+ 		widget = liferea_dialog_lookup (prefdialog, "newcountintraybtn");
+ 		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (widget), conf_get_bool_value (SHOW_NEW_COUNT_IN_TRAY));
+ 		gtk_widget_set_sensitive (liferea_dialog_lookup (prefdialog, "newcountintraybtn"), conf_get_bool_value (SHOW_TRAY_ICON));
+@@ -782,6 +788,14 @@
+ 		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (widget), conf_get_bool_value (START_IN_TRAY));
+ 		gtk_widget_set_sensitive (liferea_dialog_lookup (prefdialog, "startintraybtn"), conf_get_bool_value (SHOW_TRAY_ICON));
+ 
++		if (ui_indicator_is_visible ()) {
++			gtk_widget_reparent (liferea_dialog_lookup (prefdialog, "startintraybtn"),
++				gtk_widget_get_parent (liferea_dialog_lookup (prefdialog, "popupwindowsoptionbtn")));
++			
++			gtk_button_set_label (liferea_dialog_lookup (prefdialog, "startintraybtn"),
++				_("Start minimized to the messaging menu"));
++		}
++
+ 		/* tool bar settings */	
+ 		widget = liferea_dialog_lookup (prefdialog, "hidetoolbarbtn");
+ 		gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (widget), conf_get_bool_value(DISABLE_TOOLBAR));
+Index: liferea-ubuntu/src/ui/ui_tray.c
+===================================================================
+--- liferea-ubuntu.orig/src/ui/ui_tray.c	2011-08-10 23:11:11.654309000 -0400
++++ liferea-ubuntu/src/ui/ui_tray.c	2011-08-10 23:17:29.545830446 -0400
+@@ -35,6 +35,7 @@
+ #include "net.h"
+ #include "ui/liferea_shell.h"
+ #include "ui/ui_common.h"
++#include "ui/ui_indicator.h"
+ #include "ui/ui_popup.h"
+ #include "ui/ui_tray.h"
+ 
+@@ -185,10 +186,19 @@
+ {
+ 	gint	newItems, unreadItems;
+ 	gchar	*msg, *tmp;
+-	
++
++	ui_indicator_update ();
++
+ 	if (!trayIcon_priv)
+ 		return;
+ 
++	if (ui_indicator_is_visible ()) {
++		gtk_status_icon_set_visible (trayIcon_priv->status_icon, FALSE);
++		return;
++	} else {
++		gtk_status_icon_set_visible (trayIcon_priv->status_icon, TRUE);
++	}
++
+ 	newItems = feedlist_get_new_item_count ();
+ 	unreadItems = feedlist_get_unread_item_count ();
+ 		

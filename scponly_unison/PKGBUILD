@@ -1,0 +1,39 @@
+# $Id: PKGBUILD 3563 2009-10-06 07:21:28Z spupykin $
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Roberto Alsina <ralsina@kde.org>
+
+pkgname=scponly_unison
+real_pkgname=scponly
+provides=scponly
+conflicts=scponly
+pkgver=4.8
+pkgrel=1
+pkgdesc="A limited shell for ssh/scp, with Unison compatibility enabled"
+arch=(i686 x86_64)
+url="http://www.sublimation.org/scponly/"
+depends=('glibc')
+license=('custom')
+options=(docs)
+source=(http://downloads.sourceforge.net/sourceforge/scponly/scponly-$pkgver.tgz
+	setup_chroot.sh)
+md5sums=('139ac9abd7f3b8dbc5c5520745318f8a'
+         '3318e648c106b1e7ed7826296c296d1a')
+
+build() {
+  cd $startdir/src/$real_pkgname-$pkgver
+
+  [ $NOEXTRACT -eq 1 ] || ./configure --prefix=/usr --sysconfdir=/etc \
+	--enable-scp-compat --enable-winscp-compat --enable-chrooted-binary \
+	--enable-unison-compat
+
+  sed -i 's|^#elif|#else|' helper.c
+
+  make || return 1
+  make DESTDIR=$startdir/pkg install || return 1
+
+  install -D -m0644 COPYING $startdir/pkg/usr/share/licenses/scponly/COPYING && \
+  mv $pkgdir/usr/man $pkgdir/usr/share/ || return 1
+
+  mkdir -p $pkgdir/usr/share/doc/scponly && \
+  cp $srcdir/setup_chroot.sh config.h $pkgdir/usr/share/doc/scponly/
+}

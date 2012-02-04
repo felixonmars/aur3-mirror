@@ -1,0 +1,203 @@
+From 42b05fa1b5a3f4a1bbab77f6acb80e0346c8ff72 Mon Sep 17 00:00:00 2001
+From: Paul Gideon Dann <pdgiddie@gmail.com>
+Date: Wed, 20 May 2009 11:42:28 +0100
+Subject: [PATCH 1/4] Cairo backend added to Qt4 wrapper
+
+---
+ qt4/src/CMakeLists.txt      |   15 +++++++++++++
+ qt4/src/poppler-document.cc |    3 ++
+ qt4/src/poppler-page.cc     |   50 +++++++++++++++++++++++++++++++++++++++++++
+ qt4/src/poppler-private.h   |   12 ++++++++++
+ qt4/src/poppler-qt4.h       |    3 +-
+ qt4/tests/CMakeLists.txt    |    5 ++++
+ 6 files changed, 87 insertions(+), 1 deletions(-)
+
+diff --git a/qt4/src/CMakeLists.txt b/qt4/src/CMakeLists.txt
+index 8ce8ff4..9d8e75d 100644
+--- a/qt4/src/CMakeLists.txt
++++ b/qt4/src/CMakeLists.txt
+@@ -6,6 +6,11 @@ include_directories(
+   ${CMAKE_CURRENT_BINARY_DIR}
+ )
+ 
++if (HAVE_CAIRO)
++  include_directories(${CAIRO_INCLUDE_DIRS})
++  add_definitions(${CAIRO_CFLAGS})
++endif (HAVE_CAIRO)
++
+ set(poppler_qt4_SRCS
+   poppler-annotation.cc
+   poppler-document.cc
+@@ -27,10 +32,20 @@ set(poppler_qt4_SRCS
+   poppler-page-transition.cc
+   ${CMAKE_SOURCE_DIR}/poppler/ArthurOutputDev.cc
+ )
++if (HAVE_CAIRO)
++  set(poppler_qt4_SRCS ${poppler_qt4_SRCS}
++    ${CMAKE_SOURCE_DIR}/poppler/CairoOutputDev.cc
++    ${CMAKE_SOURCE_DIR}/poppler/CairoRescaleBox.cc
++    ${CMAKE_SOURCE_DIR}/poppler/CairoFontEngine.cc
++  )
++endif(HAVE_CAIRO)
+ qt4_automoc(${poppler_qt4_SRCS})
+ add_library(poppler-qt4 SHARED ${poppler_qt4_SRCS})
+ set_target_properties(poppler-qt4 PROPERTIES VERSION 3.7.0 SOVERSION 3)
+ target_link_libraries(poppler-qt4 poppler ${QT4_QTCORE_LIBRARY} ${QT4_QTGUI_LIBRARY} ${QT4_QTXML_LIBRARY})
++if (HAVE_CAIRO)
++  target_link_libraries(poppler-qt4 ${CAIRO_LIBRARIES})
++endif (HAVE_CAIRO)
+ if(MSVC)
+ target_link_libraries(poppler-qt4 poppler ${poppler_LIBS})
+ endif(MSVC)
+diff --git a/qt4/src/poppler-document.cc b/qt4/src/poppler-document.cc
+index 7b3e1af..681dc80 100644
+--- a/qt4/src/poppler-document.cc
++++ b/qt4/src/poppler-document.cc
+@@ -509,6 +509,9 @@ namespace Poppler {
+         ret << Document::SplashBackend;
+ #endif
+         ret << Document::ArthurBackend;
++#if defined(HAVE_CAIRO)
++        ret << Document::CairoBackend;
++#endif
+         return ret;
+     }
+ 
+diff --git a/qt4/src/poppler-page.cc b/qt4/src/poppler-page.cc
+index f76700a..ce93442 100644
+--- a/qt4/src/poppler-page.cc
++++ b/qt4/src/poppler-page.cc
+@@ -35,6 +35,7 @@
+ #include <QtGui/QPainter>
+ 
+ #include <config.h>
++#include <math.h>
+ #include <PDFDoc.h>
+ #include <Catalog.h>
+ #include <Form.h>
+@@ -258,6 +259,53 @@ QImage Page::renderToImage(double xres, double yres, int x, int y, int w, int h,
+       img = tmpimg;
+       break;
+     }
++    case Poppler::Document::CairoBackend:
++    {
++#if defined(HAVE_CAIRO)
++      CairoOutputDev *output_dev =
++        static_cast<CairoOutputDev *>(m_page->parentDoc->getOutputDev());
++      double width, height;
++      int buffer_width, buffer_height, rotate;
++      cairo_surface_t *surface;
++      cairo_t *cairo;
++
++      rotate = rotation + m_page->page->getRotate();
++      if (rotate == 90 || rotate == 270) {
++        height = m_page->page->getCropWidth();
++        width = m_page->page->getCropHeight();
++      } else {
++        height = m_page->page->getCropHeight();
++        width = m_page->page->getCropWidth();
++      }
++
++      const double xscale = xres / 72.0;
++      const double yscale = yres / 72.0;
++      buffer_width = (int) ceil(width * xscale);
++      buffer_height = (int) ceil(height * yscale);
++
++      img = QImage(buffer_width, buffer_height, QImage::Format_ARGB32);
++      img.fill(Qt::white);  // Never transparent
++
++      surface = cairo_image_surface_create_for_data(
++                  img.bits(),
++                  CAIRO_FORMAT_ARGB32,
++                  buffer_width, buffer_height,
++                  img.bytesPerLine());
++
++      cairo = cairo_create(surface);
++      output_dev->setCairo(cairo);
++
++      m_page->parentDoc->doc->displayPageSlice(
++        output_dev, m_page->index + 1, xres, yres, rotation, false, true,
++        false, x, y, w, h);
++
++      // Clean up
++      output_dev->setCairo(NULL);
++      cairo_destroy(cairo);
++      cairo_surface_destroy(surface);
++#endif
++      break;
++    }
+   }
+ 
+   return img;
+@@ -300,6 +348,8 @@ bool Page::renderToPainter(QPainter* painter, double xres, double yres, int x, i
+          painter->restore();
+       return true;
+     }
++    case Poppler::Document::CairoBackend:
++      return false;
+   }
+   return false;
+ }
+diff --git a/qt4/src/poppler-private.h b/qt4/src/poppler-private.h
+index b4383d8..a15ea4f 100644
+--- a/qt4/src/poppler-private.h
++++ b/qt4/src/poppler-private.h
+@@ -41,6 +41,9 @@
+ #if defined(HAVE_SPLASH)
+ #include <SplashOutputDev.h>
+ #endif
++#if defined(HAVE_CAIRO)
++#include <CairoOutputDev.h>
++#endif
+ 
+ #include "poppler-qt4.h"
+ #include "poppler-embeddedfile-private.h"
+@@ -136,6 +139,15 @@ namespace Poppler {
+ #endif
+ 			break;
+ 			}
++			case Document::CairoBackend:
++			{
++#if defined(HAVE_CAIRO)
++			CairoOutputDev *cairoOutputDev = new CairoOutputDev();
++			cairoOutputDev->startDoc(doc->getXRef(), doc->getCatalog());
++			m_outputDev = cairoOutputDev;
++#endif
++			break;
++			}
+ 			}
+ 		}
+ 		return m_outputDev;
+diff --git a/qt4/src/poppler-qt4.h b/qt4/src/poppler-qt4.h
+index 9a4373f..eedf55a 100644
+--- a/qt4/src/poppler-qt4.h
++++ b/qt4/src/poppler-qt4.h
+@@ -794,7 +794,8 @@ delete it;
+ 	*/
+ 	enum RenderBackend {
+ 	    SplashBackend,   ///< Splash backend
+-	    ArthurBackend   ///< Arthur (Qt4) backend
++	    ArthurBackend,   ///< Arthur (Qt4) backend
++	    CairoBackend     ///< Cairo backend
+ 	};
+ 
+ 	/**
+diff --git a/qt4/tests/CMakeLists.txt b/qt4/tests/CMakeLists.txt
+index d0ba762..f7121b6 100644
+--- a/qt4/tests/CMakeLists.txt
++++ b/qt4/tests/CMakeLists.txt
+@@ -7,6 +7,11 @@ include_directories(
+   ${QT4_INCLUDE_DIR}
+ )
+ 
++if (HAVE_CAIRO)
++  include_directories(${CAIRO_INCLUDE_DIRS})
++  add_definitions(${CAIRO_CFLAGS})
++endif (HAVE_CAIRO)
++
+ macro(QT4_ADD_SIMPLETEST exe source)
+   string(REPLACE "-" "" test_name ${exe})
+   set(${test_name}_SOURCES
+-- 
+1.7.8.4
+

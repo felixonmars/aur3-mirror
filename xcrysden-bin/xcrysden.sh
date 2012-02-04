@@ -1,0 +1,3 @@
+export XCRYSDEN_TOPDIR=/opt/XCrySDen-1.5.24-bin-shared
+export XCRYSDEN_SCRATCH=/tmp
+export PATH="$XCRYSDEN_TOPDIR:$PATH:$XCRYSDEN_TOPDIR/scripts:$XCRYSDEN_TOPDIR/util"

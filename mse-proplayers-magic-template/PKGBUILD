@@ -1,0 +1,22 @@
+# Maintainer: ShadowKyogre <shadowkyogre@aim.com>
+pkgname=mse-proplayers-magic-template
+pkgver=2.0.0
+pkgrel=3
+pkgdesc="Style for the 2005 version of Magic: the Gathering Pro Players cards"
+arch=('any')
+url="http://magicseteditor.sourceforge.net/additional-templates"
+license=('GPL')
+depends=('mse-mtg' 'ttf-masterforce-solid')
+
+source=("magic-proplayers-2005.zip::http://mtg.pifro.com/download/file.php?id=1785")
+md5sums=('ea2b6127353bc67a18b12e169d72dd23')
+
+build() {
+	cd $srcdir
+	mkdir -p $pkgdir/usr/share/magicseteditor/data
+	bsdtar -xf magic-proplayers-2005.mse-installer
+	chmod -x ./*.mse-style/*
+	cp -r ./*.mse-style $pkgdir/usr/share/magicseteditor/data
+}
+
+# vim:set ts=2 sw=2 et:

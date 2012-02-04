@@ -1,0 +1,113 @@
+diff -u qmail-1.03-orig/Makefile qmail-1.03/Makefile
+--- qmail-1.03-orig/Makefile	Mon Jun 15 04:53:16 1998
++++ qmail-1.03/Makefile	Thu Jun 25 23:12:16 1998
+@@ -1333,10 +1333,10 @@
+ 
+ qmail-qmqpc: \
+ load qmail-qmqpc.o slurpclose.o timeoutread.o timeoutwrite.o \
+-timeoutconn.o ip.o control.o auto_qmail.o sig.a ndelay.a open.a \
++timeoutconn.o constmap.o case.a ip.o control.o auto_qmail.o sig.a ndelay.a open.a \
+ getln.a substdio.a stralloc.a alloc.a error.a str.a fs.a socket.lib
+ 	./load qmail-qmqpc slurpclose.o timeoutread.o \
+-	timeoutwrite.o timeoutconn.o ip.o control.o auto_qmail.o \
++	timeoutwrite.o timeoutconn.o constmap.o case.a ip.o control.o auto_qmail.o \
+ 	sig.a ndelay.a open.a getln.a substdio.a stralloc.a alloc.a \
+ 	error.a str.a fs.a  `cat socket.lib`
+ 
+@@ -1438,12 +1438,12 @@
+ 	./compile qmail-queue.c
+ 
+ qmail-remote: \
+-load qmail-remote.o control.o constmap.o timeoutread.o timeoutwrite.o \
+-timeoutconn.o tcpto.o now.o dns.o ip.o ipalloc.o ipme.o quote.o \
++load qmail-remote.o control.o timeoutread.o timeoutwrite.o \
++timeoutconn.o constmap.o tcpto.o now.o dns.o ip.o ipalloc.o ipme.o quote.o \
+ ndelay.a case.a sig.a open.a lock.a seek.a getln.a stralloc.a alloc.a \
+ substdio.a error.a str.a fs.a auto_qmail.o dns.lib socket.lib
+-	./load qmail-remote control.o constmap.o timeoutread.o \
+-	timeoutwrite.o timeoutconn.o tcpto.o now.o dns.o ip.o \
++	./load qmail-remote control.o timeoutread.o \
++	timeoutwrite.o timeoutconn.o constmap.o tcpto.o now.o dns.o ip.o \
+ 	ipalloc.o ipme.o quote.o ndelay.a case.a sig.a open.a \
+ 	lock.a seek.a getln.a stralloc.a alloc.a substdio.a error.a \
+ 	str.a fs.a auto_qmail.o  `cat dns.lib` `cat socket.lib`
+@@ -2067,8 +2067,10 @@
+ tcp-env: \
+ load tcp-env.o dns.o remoteinfo.o timeoutread.o timeoutwrite.o \
+ timeoutconn.o ip.o ipalloc.o case.a ndelay.a sig.a env.a getopt.a \
+-stralloc.a alloc.a substdio.a error.a str.a fs.a dns.lib socket.lib
++stralloc.a alloc.a substdio.a error.a str.a fs.a dns.lib socket.lib \
++constmap.o control.o open.a getln.a
+ 	./load tcp-env dns.o remoteinfo.o timeoutread.o \
++	constmap.o control.o open.a getln.a \
+ 	timeoutwrite.o timeoutconn.o ip.o ipalloc.o case.a ndelay.a \
+ 	sig.a env.a getopt.a stralloc.a alloc.a substdio.a error.a \
+ 	str.a fs.a  `cat dns.lib` `cat socket.lib`
+diff -u qmail-1.03-orig/timeoutconn.c qmail-1.03/timeoutconn.c
+--- qmail-1.03-orig/timeoutconn.c	Mon Jun 15 04:53:16 1998
++++ qmail-1.03/timeoutconn.c	Thu Jun 25 23:11:28 1998
+@@ -10,6 +10,54 @@
+ #include "byte.h"
+ #include "timeoutconn.h"
+ 
++#define BIND_SOCKET 1 /* 0 to ignore bind fail, 1 to tempfail and requeue */
++#ifdef BIND_SOCKET
++#include "control.h"
++#include "constmap.h"
++#include "stralloc.h"
++
++int bind_socket(s,ip)
++int s;
++struct ip_address *ip;
++{
++  struct sockaddr_in salocal;
++  struct ip_address iplocal;
++  char *ipstr, ipstring[IPFMT+1];
++  int iplen;
++  stralloc routes = {0};
++  struct constmap bindroutes;
++  char *bindroute = (char *)0;
++
++  /* Right, do we actually have any bind routes? */
++  switch(control_readfile(&routes,"control/bindroutes",0))
++   {
++    case 0: return 0; /* no file, no bind to worry about */
++    case -1: return -2; /* buggered up somewhere, urgh! */
++    case 1: if (!constmap_init(&bindroutes,routes.s,routes.len,1)) return -3;
++   }
++
++  ipstring[0] = '.'; /* "cheating", but makes the loop check easier below! */
++  ipstr = ipstring+1;
++  iplen = ip_fmt(ipstr,ip); /* Well, Dan seems to trust its output! */
++
++  /* check d.d.d.d, d.d.d., d.d., d., none */
++  bindroute = constmap(&bindroutes,ipstr,iplen);
++  if (!bindroute) while (iplen--)  /* no worries - the lost char must be 0-9 */
++    if (ipstring[iplen] == '.') 
++      if (bindroute = constmap(&bindroutes,ipstr,iplen)) break;
++  if (!bindroute || !*bindroute) return 0; /* no bind required */
++  if (!ip_scan(bindroute,&iplocal)) return -4; /* wasn't an ip returned */
++
++  byte_zero(&salocal,sizeof(salocal));
++  salocal.sin_family = AF_INET;
++  byte_copy(&salocal.sin_addr,4,&iplocal);
++
++  if (bind(s, (struct sockaddr *)&salocal,sizeof(salocal))) return BIND_SOCKET;
++  return 0;
++}
++
++#endif
++
+ int timeoutconn(s,ip,port,timeout)
+ int s;
+ struct ip_address *ip;
+@@ -31,6 +79,9 @@
+   if (ndelay_on(s) == -1) return -1;
+  
+   /* XXX: could bind s */
++#ifdef BIND_SOCKET
++  if (ch = bind_socket(s,ip)) return ch;
++#endif
+  
+   if (connect(s,(struct sockaddr *) &sin,sizeof(sin)) == 0) {
+     ndelay_off(s);

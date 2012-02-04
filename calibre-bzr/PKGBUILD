@@ -1,0 +1,89 @@
+# Maintainer: Andrea Fagiani <andfagiani _at_ gmail dot com>
+pkgname=calibre-bzr
+pkgver=11315
+pkgrel=1
+pkgdesc="E-book library management application"
+arch=('i686' 'x86_64') 
+url="http://calibre.kovidgoyal.net/"
+license=('GPL3')
+depends=('chmlib' 'coffee-script-git' 'desktop-file-utils' 'imagemagick'
+         'libusb' 'libwmf' 'podofo>=0.8.4' 'poppler>=0.12.0' 'python2-qt'
+         'python-beautifulsoup' 'python2-cherrypy' 'python2-cssutils' 'python2-dateutil'
+         'python-dnspython' 'python-imaging' 'python-lxml'
+         'python-mechanize' 'python-pypdf' 'shared-mime-info' 'unrar')
+makedepends=('bzr' 'python2-pycountry' 'python2-distribute')
+optdepends=('ipython: to use calibre-debug')
+provides=('calibre')
+conflicts=('calibre')
+install=calibre.install
+source=(desktop_integration.patch)
+md5sums=('1a2f4984d68c10a34edc6291ddb88056')
+
+_bzrtrunk="lp:calibre"
+_bzrmod="calibre"
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to Bazaar server...."
+
+  if [ -d $_bzrmod ] ; then
+    cd $_bzrmod && bzr pull -r $pkgver
+    msg "The local files are updated."
+  else
+    bzr branch $_bzrtrunk $_bzrmod -r $pkgver
+  fi
+
+  msg "Bazaar checkout done or server timeout"
+  msg "Starting make..."
+
+  rm -rf "$srcdir/$_bzrmod-build"
+  cp -r "$srcdir/$_bzrmod" "$srcdir/$_bzrmod-build"
+  cd "$srcdir/$_bzrmod-build"
+
+  #
+  # BUILD HERE
+  #
+
+  rm -rf src/{cherrypy,pyPdf}
+
+  sed -i -e "s/ldflags = shlex.split(ldflags)/ldflags = shlex.split(ldflags) + ['-fPIC']/" setup/extensions.py
+
+  sed -i -e 's:\(#!/usr/bin/env[ ]\+python$\|#!/usr/bin/python$\):\12:g' \
+    $(find . -regex ".*.py\|.*.recipe")
+
+  python2 setup.py build
+  python2 setup.py resources
+  python2 setup.py translations
+} 
+
+package() {
+  cd "$srcdir/$_bzrmod-build"
+
+  patch -Np1 -i $srcdir/desktop_integration.patch
+
+  # disable update checking by default
+  sed -i -e 's/\(--no-update-check.*\)False\(.*\)store_true/\1True\2store_false/g' src/calibre/gui2/main.py
+
+  # More on desktop integration (e.g. enforce arch defaults)
+  sed -i -e "/self.create_uninstaller()/,/os.rmdir(config_dir)/d" \
+      -e "s|self.opts.staging_sharedir, 'man/man1'|self.opts.staging_root, 'usr/share/man/man1'|" \
+      -e "s|manpath, prog+'.1'+__appname__+'.bz2'|manpath, prog+'.1'+'.bz2'|" \
+      -e "s|old_udev = '/etc|old_udev = '${pkgdir}/etc|" \
+      -e "s/^Name=calibre/Name=Calibre/g" src/calibre/linux.py
+
+  # Fix the environment module location
+  sed -i -e "s|(prefix=.*)|(prefix='$pkgdir/usr')|g" setup/install.py
+
+  mkdir -p ${pkgdir}/usr/lib/python2.7/site-packages
+  python2 setup.py install --root=${pkgdir}/ --prefix=/usr \
+    --staging-bindir=${pkgdir}/usr/bin \
+    --staging-libdir=${pkgdir}/usr/lib \
+    --staging-sharedir=${pkgdir}/usr/share
+
+  find ${pkgdir} -type d -empty -delete
+
+  # Decompress the man pages so makepkg will do it for us.
+  for decom in ${pkgdir}/usr/share/man/man1/*.bz2; do
+    bzip2 -d ${decom}
+  done
+}

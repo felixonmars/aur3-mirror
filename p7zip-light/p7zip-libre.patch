@@ -1,0 +1,6540 @@
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHandler.cpp p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHandler.cpp
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHandler.cpp	2011-01-08 06:41:37.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHandler.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,869 +0,0 @@
+-// RarHandler.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "Common/ComTry.h"
+-#include "Common/IntToString.h"
+-#include "Common/StringConvert.h"
+-
+-#include "Windows/PropVariant.h"
+-#include "Windows/PropVariantUtils.h"
+-#include "Windows/Time.h"
+-
+-#include "../../IPassword.h"
+-
+-#include "../../Common/CreateCoder.h"
+-#include "../../Common/FilterCoder.h"
+-#include "../../Common/MethodId.h"
+-#include "../../Common/ProgressUtils.h"
+-
+-#include "../../Compress/CopyCoder.h"
+-
+-#include "../../Crypto/Rar20Crypto.h"
+-#include "../../Crypto/RarAes.h"
+-
+-#include "../Common/ItemNameUtils.h"
+-#include "../Common/OutStreamWithCRC.h"
+-
+-#include "RarHandler.h"
+-
+-using namespace NWindows;
+-using namespace NTime;
+-
+-namespace NArchive {
+-namespace NRar {
+-
+-static const wchar_t *kHostOS[] =
+-{
+-  L"MS DOS",
+-  L"OS/2",
+-  L"Win32",
+-  L"Unix",
+-  L"Mac OS",
+-  L"BeOS"
+-};
+-
+-static const int kNumHostOSes = sizeof(kHostOS) / sizeof(kHostOS[0]);
+-
+-static const wchar_t *kUnknownOS = L"Unknown";
+-
+-static const CUInt32PCharPair k_Flags[] =
+-{
+-  { 0, "Volume" },
+-  { 1, "Comment" },
+-  { 2, "Lock" },
+-  { 3, "Solid" },
+-  { 4, "NewVolName" }, // pack_comment in old versuons
+-  { 5, "Authenticity" },
+-  { 6, "Recovery" },
+-  { 7, "BlockEncryption" },
+-  { 8, "FirstVolume" },
+-  { 9, "EncryptVer" }
+-};
+-
+-static const STATPROPSTG kProps[] =
+-{
+-  { NULL, kpidPath, VT_BSTR},
+-  { NULL, kpidIsDir, VT_BOOL},
+-  { NULL, kpidSize, VT_UI8},
+-  { NULL, kpidPackSize, VT_UI8},
+-  { NULL, kpidMTime, VT_FILETIME},
+-  { NULL, kpidCTime, VT_FILETIME},
+-  { NULL, kpidATime, VT_FILETIME},
+-  { NULL, kpidAttrib, VT_UI4},
+-
+-  { NULL, kpidEncrypted, VT_BOOL},
+-  { NULL, kpidSolid, VT_BOOL},
+-  { NULL, kpidCommented, VT_BOOL},
+-  { NULL, kpidSplitBefore, VT_BOOL},
+-  { NULL, kpidSplitAfter, VT_BOOL},
+-  { NULL, kpidCRC, VT_UI4},
+-  { NULL, kpidHostOS, VT_BSTR},
+-  { NULL, kpidMethod, VT_BSTR},
+-  { NULL, kpidUnpackVer, VT_UI1}
+-};
+-
+-static const STATPROPSTG kArcProps[] =
+-{
+-  { NULL, kpidCharacts, VT_BSTR},
+-  { NULL, kpidSolid, VT_BOOL},
+-  { NULL, kpidNumBlocks, VT_UI4},
+-  // { NULL, kpidEncrypted, VT_BOOL},
+-  { NULL, kpidIsVolume, VT_BOOL},
+-  { NULL, kpidNumVolumes, VT_UI4},
+-  { NULL, kpidPhySize, VT_UI8}
+-  // { NULL, kpidCommented, VT_BOOL}
+-};
+-
+-IMP_IInArchive_Props
+-IMP_IInArchive_ArcProps
+-
+-UInt64 CHandler::GetPackSize(int refIndex) const
+-{
+-  const CRefItem &refItem = _refItems[refIndex];
+-  UInt64 totalPackSize = 0;
+-  for (int i = 0; i < refItem.NumItems; i++)
+-    totalPackSize += _items[refItem.ItemIndex + i].PackSize;
+-  return totalPackSize;
+-}
+-
+-STDMETHODIMP CHandler::GetArchiveProperty(PROPID propID, PROPVARIANT *value)
+-{
+-  COM_TRY_BEGIN
+-  NWindows::NCOM::CPropVariant prop;
+-  switch(propID)
+-  {
+-    case kpidSolid: prop = _archiveInfo.IsSolid(); break;
+-    case kpidCharacts: FLAGS_TO_PROP(k_Flags, _archiveInfo.Flags, prop); break;
+-    // case kpidEncrypted: prop = _archiveInfo.IsEncrypted(); break; // it's for encrypted names.
+-    case kpidIsVolume: prop = _archiveInfo.IsVolume(); break;
+-    case kpidNumVolumes: prop = (UInt32)_archives.Size(); break;
+-    case kpidOffset: if (_archiveInfo.StartPosition != 0) prop = _archiveInfo.StartPosition; break;
+-    // case kpidCommented: prop = _archiveInfo.IsCommented(); break;
+-    case kpidNumBlocks:
+-    {
+-      UInt32 numBlocks = 0;
+-      for (int i = 0; i < _refItems.Size(); i++)
+-        if (!IsSolid(i))
+-          numBlocks++;
+-      prop = (UInt32)numBlocks;
+-      break;
+-    }
+-    case kpidError: if (!_errorMessage.IsEmpty()) prop = _errorMessage; break;
+-  }
+-  prop.Detach(value);
+-  return S_OK;
+-  COM_TRY_END
+-}
+-
+-STDMETHODIMP CHandler::GetNumberOfItems(UInt32 *numItems)
+-{
+-  *numItems = _refItems.Size();
+-  return S_OK;
+-}
+-
+-static bool RarTimeToFileTime(const CRarTime &rarTime, FILETIME &result)
+-{
+-  if (!DosTimeToFileTime(rarTime.DosTime, result))
+-    return false;
+-  UInt64 value =  (((UInt64)result.dwHighDateTime) << 32) + result.dwLowDateTime;
+-  value += (UInt64)rarTime.LowSecond * 10000000;
+-  value += ((UInt64)rarTime.SubTime[2] << 16) +
+-    ((UInt64)rarTime.SubTime[1] << 8) +
+-    ((UInt64)rarTime.SubTime[0]);
+-  result.dwLowDateTime = (DWORD)value;
+-  result.dwHighDateTime = DWORD(value >> 32);
+-  return true;
+-}
+-
+-static void RarTimeToProp(const CRarTime &rarTime, NWindows::NCOM::CPropVariant &prop)
+-{
+-  FILETIME localFileTime, utcFileTime;
+-  if (RarTimeToFileTime(rarTime, localFileTime))
+-  {
+-    if (!LocalFileTimeToFileTime(&localFileTime, &utcFileTime))
+-      utcFileTime.dwHighDateTime = utcFileTime.dwLowDateTime = 0;
+-  }
+-  else
+-    utcFileTime.dwHighDateTime = utcFileTime.dwLowDateTime = 0;
+-  prop = utcFileTime;
+-}
+-
+-STDMETHODIMP CHandler::GetProperty(UInt32 index, PROPID propID,  PROPVARIANT *value)
+-{
+-  COM_TRY_BEGIN
+-  NWindows::NCOM::CPropVariant prop;
+-  const CRefItem &refItem = _refItems[index];
+-  const CItemEx &item = _items[refItem.ItemIndex];
+-  switch(propID)
+-  {
+-    case kpidPath:
+-    {
+-      UString u;
+-      if (item.HasUnicodeName() && !item.UnicodeName.IsEmpty())
+-        u = item.UnicodeName;
+-      else
+-        u = MultiByteToUnicodeString(item.Name, CP_OEMCP);
+-      prop = (const wchar_t *)NItemName::WinNameToOSName(u);
+-      break;
+-    }
+-    case kpidIsDir: prop = item.IsDir(); break;
+-    case kpidSize: prop = item.Size; break;
+-    case kpidPackSize: prop = GetPackSize(index); break;
+-    case kpidMTime: RarTimeToProp(item.MTime, prop); break;
+-    case kpidCTime: if (item.CTimeDefined) RarTimeToProp(item.CTime, prop); break;
+-    case kpidATime: if (item.ATimeDefined) RarTimeToProp(item.ATime, prop); break;
+-    case kpidAttrib: prop = item.GetWinAttributes(); break;
+-    case kpidEncrypted: prop = item.IsEncrypted(); break;
+-    case kpidSolid: prop = IsSolid(index); break;
+-    case kpidCommented: prop = item.IsCommented(); break;
+-    case kpidSplitBefore: prop = item.IsSplitBefore(); break;
+-    case kpidSplitAfter: prop = _items[refItem.ItemIndex + refItem.NumItems - 1].IsSplitAfter(); break;
+-    case kpidCRC:
+-    {
+-      const CItemEx &lastItem = _items[refItem.ItemIndex + refItem.NumItems - 1];
+-      prop = ((lastItem.IsSplitAfter()) ? item.FileCRC : lastItem.FileCRC);
+-      break;
+-    }
+-    case kpidUnpackVer: prop = item.UnPackVersion; break;
+-    case kpidMethod:
+-    {
+-      UString method;
+-      if (item.Method >= Byte('0') && item.Method <= Byte('5'))
+-      {
+-        method = L"m";
+-        wchar_t temp[32];
+-        ConvertUInt64ToString(item.Method - Byte('0'), temp);
+-        method += temp;
+-        if (!item.IsDir())
+-        {
+-          method += L":";
+-          ConvertUInt64ToString(16 + item.GetDictSize(), temp);
+-          method += temp;
+-        }
+-      }
+-      else
+-      {
+-        wchar_t temp[32];
+-        ConvertUInt64ToString(item.Method, temp);
+-        method += temp;
+-      }
+-      prop = method;
+-      break;
+-    }
+-    case kpidHostOS: prop = (item.HostOS < kNumHostOSes) ? (kHostOS[item.HostOS]) : kUnknownOS; break;
+-  }
+-  prop.Detach(value);
+-  return S_OK;
+-  COM_TRY_END
+-}
+-
+-class CVolumeName
+-{
+-  bool _first;
+-  bool _newStyle;
+-  UString _unchangedPart;
+-  UString _changedPart;
+-  UString _afterPart;
+-public:
+-  CVolumeName(): _newStyle(true) {};
+-
+-  bool InitName(const UString &name, bool newStyle)
+-  {
+-    _first = true;
+-    _newStyle = newStyle;
+-    int dotPos = name.ReverseFind('.');
+-    UString basePart = name;
+-    if (dotPos >= 0)
+-    {
+-      UString ext = name.Mid(dotPos + 1);
+-      if (ext.CompareNoCase(L"rar") == 0)
+-      {
+-        _afterPart = name.Mid(dotPos);
+-        basePart = name.Left(dotPos);
+-      }
+-      else if (ext.CompareNoCase(L"exe") == 0)
+-      {
+-        _afterPart = L".rar";
+-        basePart = name.Left(dotPos);
+-      }
+-      else if (!_newStyle)
+-      {
+-        if (ext.CompareNoCase(L"000") == 0 ||
+-            ext.CompareNoCase(L"001") == 0 ||
+-            ext.CompareNoCase(L"r00") == 0 ||
+-            ext.CompareNoCase(L"r01") == 0)
+-        {
+-          _afterPart.Empty();
+-          _first = false;
+-          _changedPart = ext;
+-          _unchangedPart = name.Left(dotPos + 1);
+-          return true;
+-        }
+-      }
+-    }
+-
+-    if (!_newStyle)
+-    {
+-      _afterPart.Empty();
+-      _unchangedPart = basePart + UString(L".");
+-      _changedPart = L"r00";
+-      return true;
+-    }
+-
+-    int numLetters = 1;
+-    if (basePart.Right(numLetters) == L"1" || basePart.Right(numLetters) == L"0")
+-    {
+-      while (numLetters < basePart.Length())
+-      {
+-        if (basePart[basePart.Length() - numLetters - 1] != '0')
+-          break;
+-        numLetters++;
+-      }
+-    }
+-    else
+-      return false;
+-    _unchangedPart = basePart.Left(basePart.Length() - numLetters);
+-    _changedPart = basePart.Right(numLetters);
+-    return true;
+-  }
+-
+-  UString GetNextName()
+-  {
+-    UString newName;
+-    if (_newStyle || !_first)
+-    {
+-      int i;
+-      int numLetters = _changedPart.Length();
+-      for (i = numLetters - 1; i >= 0; i--)
+-      {
+-        wchar_t c = _changedPart[i];
+-        if (c == L'9')
+-        {
+-          c = L'0';
+-          newName = c + newName;
+-          if (i == 0)
+-            newName = UString(L'1') + newName;
+-          continue;
+-        }
+-        c++;
+-        newName = UString(c) + newName;
+-        i--;
+-        for (; i >= 0; i--)
+-          newName = _changedPart[i] + newName;
+-        break;
+-      }
+-      _changedPart = newName;
+-    }
+-    _first = false;
+-    return _unchangedPart + _changedPart + _afterPart;
+-  }
+-};
+-
+-HRESULT CHandler::Open2(IInStream *stream,
+-    const UInt64 *maxCheckStartPosition,
+-    IArchiveOpenCallback *openCallback)
+-{
+-  {
+-    CMyComPtr<IArchiveOpenVolumeCallback> openVolumeCallback;
+-    CMyComPtr<ICryptoGetTextPassword> getTextPassword;
+-    CMyComPtr<IArchiveOpenCallback> openArchiveCallbackWrap = openCallback;
+-    
+-    CVolumeName seqName;
+-
+-    UInt64 totalBytes = 0;
+-    UInt64 curBytes = 0;
+-
+-    if (openCallback)
+-    {
+-      openArchiveCallbackWrap.QueryInterface(IID_IArchiveOpenVolumeCallback, &openVolumeCallback);
+-      openArchiveCallbackWrap.QueryInterface(IID_ICryptoGetTextPassword, &getTextPassword);
+-    }
+-
+-    for (;;)
+-    {
+-      CMyComPtr<IInStream> inStream;
+-      if (!_archives.IsEmpty())
+-      {
+-        if (!openVolumeCallback)
+-          break;
+-        
+-        if (_archives.Size() == 1)
+-        {
+-          if (!_archiveInfo.IsVolume())
+-            break;
+-          UString baseName;
+-          {
+-            NCOM::CPropVariant prop;
+-            RINOK(openVolumeCallback->GetProperty(kpidName, &prop));
+-            if (prop.vt != VT_BSTR)
+-              break;
+-            baseName = prop.bstrVal;
+-          }
+-          seqName.InitName(baseName, _archiveInfo.HaveNewVolumeName());
+-        }
+-
+-        UString fullName = seqName.GetNextName();
+-        HRESULT result = openVolumeCallback->GetStream(fullName, &inStream);
+-        if (result == S_FALSE)
+-          break;
+-        if (result != S_OK)
+-          return result;
+-        if (!stream)
+-          break;
+-      }
+-      else
+-        inStream = stream;
+-
+-      UInt64 endPos = 0;
+-      RINOK(stream->Seek(0, STREAM_SEEK_END, &endPos));
+-      RINOK(stream->Seek(0, STREAM_SEEK_SET, NULL));
+-      if (openCallback)
+-      {
+-        totalBytes += endPos;
+-        RINOK(openCallback->SetTotal(NULL, &totalBytes));
+-      }
+-      
+-      NArchive::NRar::CInArchive archive;
+-      RINOK(archive.Open(inStream, maxCheckStartPosition));
+-
+-      if (_archives.IsEmpty())
+-        archive.GetArchiveInfo(_archiveInfo);
+-     
+-      CItemEx item;
+-      for (;;)
+-      {
+-        if (archive.m_Position > endPos)
+-        {
+-          AddErrorMessage("Unexpected end of archive");
+-          break;
+-        }
+-        bool decryptionError;
+-        AString errorMessageLoc;
+-        HRESULT result = archive.GetNextItem(item, getTextPassword, decryptionError, errorMessageLoc);
+-        if (errorMessageLoc)
+-          AddErrorMessage(errorMessageLoc);
+-        if (result == S_FALSE)
+-        {
+-          if (decryptionError && _items.IsEmpty())
+-            return S_FALSE;
+-          break;
+-        }
+-        RINOK(result);
+-        if (item.IgnoreItem())
+-          continue;
+-
+-        bool needAdd = true;
+-        if (item.IsSplitBefore())
+-        {
+-          if (!_refItems.IsEmpty())
+-          {
+-            CRefItem &refItem = _refItems.Back();
+-            refItem.NumItems++;
+-            needAdd = false;
+-          }
+-        }
+-        if (needAdd)
+-        {
+-          CRefItem refItem;
+-          refItem.ItemIndex = _items.Size();
+-          refItem.NumItems = 1;
+-          refItem.VolumeIndex = _archives.Size();
+-          _refItems.Add(refItem);
+-        }
+-        _items.Add(item);
+-        if (openCallback && _items.Size() % 100 == 0)
+-        {
+-          UInt64 numFiles = _items.Size();
+-          UInt64 numBytes = curBytes + item.Position;
+-          RINOK(openCallback->SetCompleted(&numFiles, &numBytes));
+-        }
+-      }
+-      curBytes += endPos;
+-      _archives.Add(archive);
+-    }
+-  }
+-  return S_OK;
+-}
+-
+-STDMETHODIMP CHandler::Open(IInStream *stream,
+-    const UInt64 *maxCheckStartPosition,
+-    IArchiveOpenCallback *openCallback)
+-{
+-  COM_TRY_BEGIN
+-  Close();
+-  try
+-  {
+-    HRESULT res = Open2(stream, maxCheckStartPosition, openCallback);
+-    if (res != S_OK)
+-      Close();
+-    return res;
+-  }
+-  catch(const CInArchiveException &) { Close(); return S_FALSE; }
+-  catch(...) { Close(); throw; }
+-  COM_TRY_END
+-}
+-
+-STDMETHODIMP CHandler::Close()
+-{
+-  COM_TRY_BEGIN
+-  _errorMessage.Empty();
+-  _refItems.Clear();
+-  _items.Clear();
+-  _archives.Clear();
+-  return S_OK;
+-  COM_TRY_END
+-}
+-
+-struct CMethodItem
+-{
+-  Byte RarUnPackVersion;
+-  CMyComPtr<ICompressCoder> Coder;
+-};
+-
+-
+-STDMETHODIMP CHandler::Extract(const UInt32 *indices, UInt32 numItems,
+-    Int32 testMode, IArchiveExtractCallback *extractCallback)
+-{
+-  COM_TRY_BEGIN
+-  CMyComPtr<ICryptoGetTextPassword> getTextPassword;
+-  UInt64 censoredTotalUnPacked = 0,
+-        // censoredTotalPacked = 0,
+-        importantTotalUnPacked = 0;
+-        // importantTotalPacked = 0;
+-  bool allFilesMode = (numItems == (UInt32)-1);
+-  if (allFilesMode)
+-    numItems = _refItems.Size();
+-  if (numItems == 0)
+-    return S_OK;
+-  int lastIndex = 0;
+-  CRecordVector<int> importantIndexes;
+-  CRecordVector<bool> extractStatuses;
+-
+-  for (UInt32 t = 0; t < numItems; t++)
+-  {
+-    int index = allFilesMode ? t : indices[t];
+-    const CRefItem &refItem = _refItems[index];
+-    const CItemEx &item = _items[refItem.ItemIndex];
+-    censoredTotalUnPacked += item.Size;
+-    // censoredTotalPacked += item.PackSize;
+-    int j;
+-    for (j = lastIndex; j <= index; j++)
+-      // if (!_items[_refItems[j].ItemIndex].IsSolid())
+-      if (!IsSolid(j))
+-        lastIndex = j;
+-    for (j = lastIndex; j <= index; j++)
+-    {
+-      const CRefItem &refItem = _refItems[j];
+-      const CItemEx &item = _items[refItem.ItemIndex];
+-
+-      // const CItemEx &item = _items[j];
+-
+-      importantTotalUnPacked += item.Size;
+-      // importantTotalPacked += item.PackSize;
+-      importantIndexes.Add(j);
+-      extractStatuses.Add(j == index);
+-    }
+-    lastIndex = index + 1;
+-  }
+-
+-  RINOK(extractCallback->SetTotal(importantTotalUnPacked));
+-  UInt64 currentImportantTotalUnPacked = 0;
+-  UInt64 currentImportantTotalPacked = 0;
+-  UInt64 currentUnPackSize, currentPackSize;
+-
+-  CObjectVector<CMethodItem> methodItems;
+-
+-  NCompress::CCopyCoder *copyCoderSpec = new NCompress::CCopyCoder;
+-  CMyComPtr<ICompressCoder> copyCoder = copyCoderSpec;
+-
+-  CFilterCoder *filterStreamSpec = new CFilterCoder;
+-  CMyComPtr<ISequentialInStream> filterStream = filterStreamSpec;
+-
+-  NCrypto::NRar20::CDecoder *rar20CryptoDecoderSpec = NULL;
+-  CMyComPtr<ICompressFilter> rar20CryptoDecoder;
+-  NCrypto::NRar29::CDecoder *rar29CryptoDecoderSpec = NULL;
+-  CMyComPtr<ICompressFilter> rar29CryptoDecoder;
+-
+-  CFolderInStream *folderInStreamSpec = NULL;
+-  CMyComPtr<ISequentialInStream> folderInStream;
+-
+-  CLocalProgress *lps = new CLocalProgress;
+-  CMyComPtr<ICompressProgressInfo> progress = lps;
+-  lps->Init(extractCallback, false);
+-
+-  bool solidStart = true;
+-  for (int i = 0; i < importantIndexes.Size(); i++,
+-      currentImportantTotalUnPacked += currentUnPackSize,
+-      currentImportantTotalPacked += currentPackSize)
+-  {
+-    lps->InSize = currentImportantTotalPacked;
+-    lps->OutSize = currentImportantTotalUnPacked;
+-    RINOK(lps->SetCur());
+-    CMyComPtr<ISequentialOutStream> realOutStream;
+-
+-    Int32 askMode;
+-    if (extractStatuses[i])
+-      askMode = testMode ?
+-          NExtract::NAskMode::kTest :
+-          NExtract::NAskMode::kExtract;
+-    else
+-      askMode = NExtract::NAskMode::kSkip;
+-
+-    UInt32 index = importantIndexes[i];
+-
+-    const CRefItem &refItem = _refItems[index];
+-    const CItemEx &item = _items[refItem.ItemIndex];
+-
+-    currentUnPackSize = item.Size;
+-
+-    currentPackSize = GetPackSize(index);
+-
+-    if (item.IgnoreItem())
+-      continue;
+-
+-    RINOK(extractCallback->GetStream(index, &realOutStream, askMode));
+-
+-    if (!IsSolid(index))
+-      solidStart = true;
+-    if (item.IsDir())
+-    {
+-      RINOK(extractCallback->PrepareOperation(askMode));
+-      RINOK(extractCallback->SetOperationResult(NExtract::NOperationResult::kOK));
+-      continue;
+-    }
+-
+-    bool mustBeProcessedAnywhere = false;
+-    if (i < importantIndexes.Size() - 1)
+-    {
+-      // const CRefItem &nextRefItem = _refItems[importantIndexes[i + 1]];
+-      // const CItemEx &nextItemInfo = _items[nextRefItem.ItemIndex];
+-      // mustBeProcessedAnywhere = nextItemInfo.IsSolid();
+-      mustBeProcessedAnywhere = IsSolid(importantIndexes[i + 1]);
+-    }
+-    
+-    if (!mustBeProcessedAnywhere && !testMode && !realOutStream)
+-      continue;
+-    
+-    if (!realOutStream && !testMode)
+-      askMode = NExtract::NAskMode::kSkip;
+-
+-    RINOK(extractCallback->PrepareOperation(askMode));
+-
+-    COutStreamWithCRC *outStreamSpec = new COutStreamWithCRC;
+-    CMyComPtr<ISequentialOutStream> outStream(outStreamSpec);
+-    outStreamSpec->SetStream(realOutStream);
+-    outStreamSpec->Init();
+-    realOutStream.Release();
+-    
+-    /*
+-    for (int partIndex = 0; partIndex < 1; partIndex++)
+-    {
+-    CMyComPtr<ISequentialInStream> inStream;
+-
+-    // item redefinition
+-    const CItemEx &item = _items[refItem.ItemIndex + partIndex];
+-
+-    NArchive::NRar::CInArchive &archive = _archives[refItem.VolumeIndex + partIndex];
+-
+-    inStream.Attach(archive.CreateLimitedStream(item.GetDataPosition(),
+-      item.PackSize));
+-    */
+-    if (!folderInStream)
+-    {
+-      folderInStreamSpec = new CFolderInStream;
+-      folderInStream = folderInStreamSpec;
+-    }
+-
+-    folderInStreamSpec->Init(&_archives, &_items, refItem);
+-
+-    UInt64 packSize = currentPackSize;
+-
+-    // packedPos += item.PackSize;
+-    // unpackedPos += 0;
+-    
+-    CMyComPtr<ISequentialInStream> inStream;
+-    if (item.IsEncrypted())
+-    {
+-      CMyComPtr<ICryptoSetPassword> cryptoSetPassword;
+-      if (item.UnPackVersion >= 29)
+-      {
+-        if (!rar29CryptoDecoder)
+-        {
+-          rar29CryptoDecoderSpec = new NCrypto::NRar29::CDecoder;
+-          rar29CryptoDecoder = rar29CryptoDecoderSpec;
+-          // RINOK(rar29CryptoDecoder.CoCreateInstance(CLSID_CCryptoRar29Decoder));
+-        }
+-        rar29CryptoDecoderSpec->SetRar350Mode(item.UnPackVersion < 36);
+-        CMyComPtr<ICompressSetDecoderProperties2> cryptoProperties;
+-        RINOK(rar29CryptoDecoder.QueryInterface(IID_ICompressSetDecoderProperties2,
+-            &cryptoProperties));
+-        RINOK(cryptoProperties->SetDecoderProperties2(item.Salt, item.HasSalt() ? sizeof(item.Salt) : 0));
+-        filterStreamSpec->Filter = rar29CryptoDecoder;
+-      }
+-      else if (item.UnPackVersion >= 20)
+-      {
+-        if (!rar20CryptoDecoder)
+-        {
+-          rar20CryptoDecoderSpec = new NCrypto::NRar20::CDecoder;
+-          rar20CryptoDecoder = rar20CryptoDecoderSpec;
+-          // RINOK(rar20CryptoDecoder.CoCreateInstance(CLSID_CCryptoRar20Decoder));
+-        }
+-        filterStreamSpec->Filter = rar20CryptoDecoder;
+-      }
+-      else
+-      {
+-        outStream.Release();
+-        RINOK(extractCallback->SetOperationResult(NExtract::NOperationResult::kUnSupportedMethod));
+-        continue;
+-      }
+-      RINOK(filterStreamSpec->Filter.QueryInterface(IID_ICryptoSetPassword,
+-          &cryptoSetPassword));
+-
+-      if (!getTextPassword)
+-        extractCallback->QueryInterface(IID_ICryptoGetTextPassword, (void **)&getTextPassword);
+-      if (getTextPassword)
+-      {
+-        CMyComBSTR password;
+-        RINOK(getTextPassword->CryptoGetTextPassword(&password));
+-        if (item.UnPackVersion >= 29)
+-        {
+-          CByteBuffer buffer;
+-          UString unicodePassword(password);
+-          const UInt32 sizeInBytes = unicodePassword.Length() * 2;
+-          buffer.SetCapacity(sizeInBytes);
+-          for (int i = 0; i < unicodePassword.Length(); i++)
+-          {
+-            wchar_t c = unicodePassword[i];
+-            ((Byte *)buffer)[i * 2] = (Byte)c;
+-            ((Byte *)buffer)[i * 2 + 1] = (Byte)(c >> 8);
+-          }
+-          RINOK(cryptoSetPassword->CryptoSetPassword(
+-            (const Byte *)buffer, sizeInBytes));
+-        }
+-        else
+-        {
+-          AString oemPassword = UnicodeStringToMultiByte(
+-            (const wchar_t *)password, CP_OEMCP);
+-          RINOK(cryptoSetPassword->CryptoSetPassword(
+-            (const Byte *)(const char *)oemPassword, oemPassword.Length()));
+-        }
+-      }
+-      else
+-      {
+-        RINOK(cryptoSetPassword->CryptoSetPassword(0, 0));
+-      }
+-      filterStreamSpec->SetInStream(folderInStream);
+-      inStream = filterStream;
+-    }
+-    else
+-    {
+-      inStream = folderInStream;
+-    }
+-    CMyComPtr<ICompressCoder> commonCoder;
+-    switch(item.Method)
+-    {
+-      case '0':
+-      {
+-        commonCoder = copyCoder;
+-        break;
+-      }
+-      case '1':
+-      case '2':
+-      case '3':
+-      case '4':
+-      case '5':
+-      {
+-        /*
+-        if (item.UnPackVersion >= 29)
+-        {
+-          outStream.Release();
+-          RINOK(extractCallback->SetOperationResult(NExtract::NOperationResult::kUnSupportedMethod));
+-          continue;
+-        }
+-        */
+-        int m;
+-        for (m = 0; m < methodItems.Size(); m++)
+-          if (methodItems[m].RarUnPackVersion == item.UnPackVersion)
+-            break;
+-        if (m == methodItems.Size())
+-        {
+-          CMethodItem mi;
+-          mi.RarUnPackVersion = item.UnPackVersion;
+-
+-          mi.Coder.Release();
+-          if (item.UnPackVersion <= 30)
+-          {
+-            UInt32 methodID = 0x040300;
+-            if (item.UnPackVersion < 20)
+-              methodID += 1;
+-            else if (item.UnPackVersion < 29)
+-              methodID += 2;
+-            else
+-              methodID += 3;
+-            RINOK(CreateCoder(EXTERNAL_CODECS_VARS methodID, mi.Coder, false));
+-          }
+-         
+-          if (mi.Coder == 0)
+-          {
+-            outStream.Release();
+-            RINOK(extractCallback->SetOperationResult(NExtract::NOperationResult::kUnSupportedMethod));
+-            continue;
+-          }
+-
+-          m = methodItems.Add(mi);
+-        }
+-        CMyComPtr<ICompressCoder> decoder = methodItems[m].Coder;
+-
+-        CMyComPtr<ICompressSetDecoderProperties2> compressSetDecoderProperties;
+-        RINOK(decoder.QueryInterface(IID_ICompressSetDecoderProperties2,
+-            &compressSetDecoderProperties));
+-        
+-        Byte isSolid = (Byte)((IsSolid(index) || item.IsSplitBefore()) ? 1: 0);
+-        if (solidStart)
+-        {
+-          isSolid = false;
+-          solidStart = false;
+-        }
+-
+-
+-        RINOK(compressSetDecoderProperties->SetDecoderProperties2(&isSolid, 1));
+-          
+-        commonCoder = decoder;
+-        break;
+-      }
+-      default:
+-        outStream.Release();
+-        RINOK(extractCallback->SetOperationResult(NExtract::NOperationResult::kUnSupportedMethod));
+-        continue;
+-    }
+-    HRESULT result = commonCoder->Code(inStream, outStream, &packSize, &item.Size, progress);
+-    if (item.IsEncrypted())
+-      filterStreamSpec->ReleaseInStream();
+-    if (result == S_FALSE)
+-    {
+-      outStream.Release();
+-      RINOK(extractCallback->SetOperationResult(NExtract::NOperationResult::kDataError));
+-      continue;
+-    }
+-    if (result != S_OK)
+-      return result;
+-
+-    /*
+-    if (refItem.NumItems == 1 &&
+-        !item.IsSplitBefore() && !item.IsSplitAfter())
+-    */
+-    {
+-      const CItemEx &lastItem = _items[refItem.ItemIndex + refItem.NumItems - 1];
+-      bool crcOK = outStreamSpec->GetCRC() == lastItem.FileCRC;
+-      outStream.Release();
+-      RINOK(extractCallback->SetOperationResult(crcOK ?
+-          NExtract::NOperationResult::kOK:
+-          NExtract::NOperationResult::kCRCError));
+-    }
+-    /*
+-    else
+-    {
+-      bool crcOK = true;
+-      for (int partIndex = 0; partIndex < refItem.NumItems; partIndex++)
+-      {
+-        const CItemEx &item = _items[refItem.ItemIndex + partIndex];
+-        if (item.FileCRC != folderInStreamSpec->CRCs[partIndex])
+-        {
+-          crcOK = false;
+-          break;
+-        }
+-      }
+-      RINOK(extractCallback->SetOperationResult(crcOK ?
+-          NExtract::NOperationResult::kOK:
+-          NExtract::NOperationResult::kCRCError));
+-    }
+-    */
+-  }
+-  return S_OK;
+-  COM_TRY_END
+-}
+-
+-IMPL_ISetCompressCodecsInfo
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHandler.h p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHandler.h
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHandler.h	2011-01-08 06:41:27.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHandler.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,66 +0,0 @@
+-// Rar/Handler.h
+-
+-#ifndef __RAR_HANDLER_H
+-#define __RAR_HANDLER_H
+-
+-#include "../IArchive.h"
+-
+-#include "../../Common/CreateCoder.h"
+-
+-#include "RarIn.h"
+-#include "RarVolumeInStream.h"
+-
+-namespace NArchive {
+-namespace NRar {
+-
+-class CHandler:
+-  public IInArchive,
+-  PUBLIC_ISetCompressCodecsInfo
+-  public CMyUnknownImp
+-{
+-  CRecordVector<CRefItem> _refItems;
+-  CObjectVector<CItemEx> _items;
+-  CObjectVector<CInArchive> _archives;
+-  NArchive::NRar::CInArchiveInfo _archiveInfo;
+-  AString _errorMessage;
+-
+-  DECL_EXTERNAL_CODECS_VARS
+-
+-  UInt64 GetPackSize(int refIndex) const;
+-
+-  bool IsSolid(int refIndex)
+-  {
+-    const CItemEx &item = _items[_refItems[refIndex].ItemIndex];
+-    if (item.UnPackVersion < 20)
+-    {
+-      if (_archiveInfo.IsSolid())
+-        return (refIndex > 0);
+-      return false;
+-    }
+-    return item.IsSolid();
+-  }
+-  void AddErrorMessage(const AString &s)
+-  {
+-    if (!_errorMessage.IsEmpty())
+-      _errorMessage += '\n';
+-    _errorMessage += s;
+-  }
+-
+-  HRESULT Open2(IInStream *stream,
+-      const UInt64 *maxCheckStartPosition,
+-      IArchiveOpenCallback *openCallback);
+-
+-public:
+-  MY_QUERYINTERFACE_BEGIN2(IInArchive)
+-  QUERY_ENTRY_ISetCompressCodecsInfo
+-  MY_QUERYINTERFACE_END
+-  MY_ADDREF_RELEASE
+-  
+-  INTERFACE_IInArchive(;)
+-
+-  DECL_ISetCompressCodecsInfo
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHeader.cpp p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHeader.cpp
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHeader.cpp	2008-08-14 06:11:25.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHeader.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,21 +0,0 @@
+-// Archive/Rar/Headers.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "RarHeader.h"
+-
+-namespace NArchive{
+-namespace NRar{
+-namespace NHeader{
+-
+-Byte kMarker[kMarkerSize] = {0x52 + 1, 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00};
+-  
+-class CMarkerInitializer
+-{
+-public:
+-  CMarkerInitializer() { kMarker[0]--; };
+-};
+-
+-static CMarkerInitializer markerInitializer;
+-
+-}}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHeader.h p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHeader.h
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarHeader.h	2011-01-08 06:41:27.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarHeader.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,205 +0,0 @@
+-// Archive/RarHeader.h
+-
+-#ifndef __ARCHIVE_RAR_HEADER_H
+-#define __ARCHIVE_RAR_HEADER_H
+-
+-#include "Common/Types.h"
+-
+-namespace NArchive {
+-namespace NRar {
+-namespace NHeader {
+-
+-const int kMarkerSize = 7;
+-extern Byte kMarker[kMarkerSize];
+-  
+-const int kArchiveSolid = 0x1;
+-
+-namespace NBlockType
+-{
+-  enum EBlockType
+-  {
+-    kMarker = 0x72,
+-    kArchiveHeader,
+-    kFileHeader,
+-    kCommentHeader,
+-    kOldAuthenticity,
+-    kOldSubBlock,
+-    kRecoveryRecord,
+-    kAuthenticity,
+-    kSubBlock,
+-    kEndOfArchive
+-  };
+-}
+-
+-namespace NArchive
+-{
+-  const UInt16 kVolume  = 1;
+-  const UInt16 kComment = 2;
+-  const UInt16 kLock    = 4;
+-  const UInt16 kSolid   = 8;
+-  const UInt16 kNewVolName = 0x10; // ('volname.partN.rar')
+-  const UInt16 kAuthenticity  = 0x20;
+-  const UInt16 kRecovery = 0x40;
+-  const UInt16 kBlockEncryption  = 0x80;
+-  const UInt16 kFirstVolume = 0x100; // (set only by RAR 3.0 and later)
+-  const UInt16 kEncryptVer = 0x200; // RAR 3.6 there is EncryptVer Byte in End of MainHeader
+-
+-  const int kHeaderSizeMin = 7;
+-  
+-  const int kArchiveHeaderSize = 13;
+-
+-  const int kBlockHeadersAreEncrypted = 0x80;
+-
+-}
+-
+-namespace NFile
+-{
+-  const int kSplitBefore = 1 << 0;
+-  const int kSplitAfter  = 1 << 1;
+-  const int kEncrypted   = 1 << 2;
+-  const int kComment     = 1 << 3;
+-  const int kSolid       = 1 << 4;
+-  
+-  const int kDictBitStart     = 5;
+-  const int kNumDictBits  = 3;
+-  const int kDictMask         = (1 << kNumDictBits) - 1;
+-  const int kDictDirectoryValue  = 0x7;
+-  
+-  const int kSize64Bits    = 1 << 8;
+-  const int kUnicodeName   = 1 << 9;
+-  const int kSalt          = 1 << 10;
+-  const int kOldVersion    = 1 << 11;
+-  const int kExtTime       = 1 << 12;
+-  // const int kExtFlags      = 1 << 13;
+-  // const int kSkipIfUnknown = 1 << 14;
+-
+-  const int kLongBlock    = 1 << 15;
+-  
+-  /*
+-  struct CBlock
+-  {
+-    // UInt16 HeadCRC;
+-    // Byte Type;
+-    // UInt16 Flags;
+-    // UInt16 HeadSize;
+-    UInt32 PackSize;
+-    UInt32 UnPackSize;
+-    Byte HostOS;
+-    UInt32 FileCRC;
+-    UInt32 Time;
+-    Byte UnPackVersion;
+-    Byte Method;
+-    UInt16 NameSize;
+-    UInt32 Attributes;
+-  };
+-  */
+-
+-  /*
+-  struct CBlock32
+-  {
+-    UInt16 HeadCRC;
+-    Byte Type;
+-    UInt16 Flags;
+-    UInt16 HeadSize;
+-    UInt32 PackSize;
+-    UInt32 UnPackSize;
+-    Byte HostOS;
+-    UInt32 FileCRC;
+-    UInt32 Time;
+-    Byte UnPackVersion;
+-    Byte Method;
+-    UInt16 NameSize;
+-    UInt32 Attributes;
+-    UInt16 GetRealCRC(const void *aName, UInt32 aNameSize,
+-        bool anExtraDataDefined = false, Byte *anExtraData = 0) const;
+-  };
+-  struct CBlock64
+-  {
+-    UInt16 HeadCRC;
+-    Byte Type;
+-    UInt16 Flags;
+-    UInt16 HeadSize;
+-    UInt32 PackSizeLow;
+-    UInt32 UnPackSizeLow;
+-    Byte HostOS;
+-    UInt32 FileCRC;
+-    UInt32 Time;
+-    Byte UnPackVersion;
+-    Byte Method;
+-    UInt16 NameSize;
+-    UInt32 Attributes;
+-    UInt32 PackSizeHigh;
+-    UInt32 UnPackSizeHigh;
+-    UInt16 GetRealCRC(const void *aName, UInt32 aNameSize) const;
+-  };
+-  */
+-  
+-  const int kLabelFileAttribute            = 0x08;
+-  const int kWinFileDirectoryAttributeMask = 0x10;
+-  
+-  enum CHostOS
+-  {
+-    kHostMSDOS = 0,
+-      kHostOS2   = 1,
+-      kHostWin32 = 2,
+-      kHostUnix  = 3,
+-      kHostMacOS = 4,
+-      kHostBeOS = 5
+-  };
+-}
+-
+-namespace NBlock
+-{
+-  const UInt16 kLongBlock = 1 << 15;
+-  struct CBlock
+-  {
+-    UInt16 CRC;
+-    Byte Type;
+-    UInt16 Flags;
+-    UInt16 HeadSize;
+-    //  UInt32 DataSize;
+-  };
+-}
+-
+-/*
+-struct CSubBlock
+-{
+-  UInt16 HeadCRC;
+-  Byte HeadType;
+-  UInt16 Flags;
+-  UInt16 HeadSize;
+-  UInt32 DataSize;
+-  UInt16 SubType;
+-  Byte Level; // Reserved : Must be 0
+-};
+-
+-struct CCommentBlock
+-{
+-  UInt16 HeadCRC;
+-  Byte HeadType;
+-  UInt16 Flags;
+-  UInt16 HeadSize;
+-  UInt16 UnpSize;
+-  Byte UnpVer;
+-  Byte Method;
+-  UInt16 CommCRC;
+-};
+-
+-
+-struct CProtectHeader
+-{
+-  UInt16 HeadCRC;
+-  Byte HeadType;
+-  UInt16 Flags;
+-  UInt16 HeadSize;
+-  UInt32 DataSize;
+-  Byte Version;
+-  UInt16 RecSectors;
+-  UInt32 TotalBlocks;
+-  Byte Mark[8];
+-};
+-*/
+-
+-}}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarIn.cpp p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarIn.cpp
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarIn.cpp	2011-01-08 06:41:37.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarIn.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,478 +0,0 @@
+-// Archive/RarIn.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "../../../../C/7zCrc.h"
+-#include "../../../../C/CpuArch.h"
+-
+-#include "Common/StringConvert.h"
+-#include "Common/UTFConvert.h"
+-
+-#include "../../Common/LimitedStreams.h"
+-#include "../../Common/StreamUtils.h"
+-
+-#include "../Common/FindSignature.h"
+-
+-#include "RarIn.h"
+-
+-#define Get16(p) GetUi16(p)
+-#define Get32(p) GetUi32(p)
+-#define Get64(p) GetUi64(p)
+-
+-namespace NArchive {
+-namespace NRar {
+-
+-static const char *k_UnexpectedEnd = "Unexpected end of archive";
+-static const char *k_DecryptionError = "Decryption Error";
+-
+-void CInArchive::ThrowExceptionWithCode(
+-    CInArchiveException::CCauseType cause)
+-{
+-  throw CInArchiveException(cause);
+-}
+-
+-HRESULT CInArchive::Open(IInStream *inStream, const UInt64 *searchHeaderSizeLimit)
+-{
+-  try
+-  {
+-    Close();
+-    HRESULT res = Open2(inStream, searchHeaderSizeLimit);
+-    if (res == S_OK)
+-      return res;
+-    Close();
+-    return res;
+-  }
+-  catch(...) { Close(); throw; }
+-}
+-
+-void CInArchive::Close()
+-{
+-  m_Stream.Release();
+-}
+-
+-HRESULT CInArchive::ReadBytesSpec(void *data, size_t *resSize)
+-{
+-  if (m_CryptoMode)
+-  {
+-    size_t size = *resSize;
+-    *resSize = 0;
+-    const Byte *bufData = m_DecryptedDataAligned;
+-    UInt32 bufSize = m_DecryptedDataSize;
+-    size_t i;
+-    for (i = 0; i < size && m_CryptoPos < bufSize; i++)
+-      ((Byte *)data)[i] = bufData[m_CryptoPos++];
+-    *resSize = i;
+-    return S_OK;
+-  }
+-  return ReadStream(m_Stream, data, resSize);
+-}
+-
+-bool CInArchive::ReadBytesAndTestSize(void *data, UInt32 size)
+-{
+-  size_t processed = size;
+-  if (ReadBytesSpec(data, &processed) != S_OK)
+-    return false;
+-  return processed == size;
+-}
+-
+-HRESULT CInArchive::Open2(IInStream *stream, const UInt64 *searchHeaderSizeLimit)
+-{
+-  m_CryptoMode = false;
+-  RINOK(stream->Seek(0, STREAM_SEEK_SET, &m_StreamStartPosition));
+-  m_Position = m_StreamStartPosition;
+-
+-  UInt64 arcStartPos;
+-  RINOK(FindSignatureInStream(stream, NHeader::kMarker, NHeader::kMarkerSize,
+-      searchHeaderSizeLimit, arcStartPos));
+-  m_Position = arcStartPos + NHeader::kMarkerSize;
+-  RINOK(stream->Seek(m_Position, STREAM_SEEK_SET, NULL));
+-  Byte buf[NHeader::NArchive::kArchiveHeaderSize + 1];
+-
+-  RINOK(ReadStream_FALSE(stream, buf, NHeader::NArchive::kArchiveHeaderSize));
+-  AddToSeekValue(NHeader::NArchive::kArchiveHeaderSize);
+-
+-
+-  UInt32 blockSize = Get16(buf + 5);
+-
+-  _header.EncryptVersion = 0;
+-  _header.Flags = Get16(buf + 3);
+-
+-  UInt32 headerSize = NHeader::NArchive::kArchiveHeaderSize;
+-  if (_header.IsThereEncryptVer())
+-  {
+-    if (blockSize <= headerSize)
+-      return S_FALSE;
+-    RINOK(ReadStream_FALSE(stream, buf + NHeader::NArchive::kArchiveHeaderSize, 1));
+-    AddToSeekValue(1);
+-    _header.EncryptVersion = buf[NHeader::NArchive::kArchiveHeaderSize];
+-    headerSize += 1;
+-  }
+-  if (blockSize < headerSize ||
+-      buf[2] != NHeader::NBlockType::kArchiveHeader ||
+-      (UInt32)Get16(buf) != (CrcCalc(buf + 2, headerSize - 2) & 0xFFFF))
+-    return S_FALSE;
+-
+-  size_t commentSize = blockSize - headerSize; 
+-  _comment.SetCapacity(commentSize);
+-  RINOK(ReadStream_FALSE(stream, _comment, commentSize));
+-  AddToSeekValue(commentSize);
+-  m_Stream = stream;
+-  _header.StartPosition = arcStartPos;
+-  return S_OK;
+-}
+-
+-void CInArchive::GetArchiveInfo(CInArchiveInfo &archiveInfo) const
+-{
+-  archiveInfo = _header;
+-}
+-
+-static void DecodeUnicodeFileName(const char *name, const Byte *encName,
+-    int encSize, wchar_t *unicodeName, int maxDecSize)
+-{
+-  int encPos = 0;
+-  int decPos = 0;
+-  int flagBits = 0;
+-  Byte flags = 0;
+-  Byte highByte = encName[encPos++];
+-  while (encPos < encSize && decPos < maxDecSize)
+-  {
+-    if (flagBits == 0)
+-    {
+-      flags = encName[encPos++];
+-      flagBits = 8;
+-    }
+-    switch(flags >> 6)
+-    {
+-      case 0:
+-        unicodeName[decPos++] = encName[encPos++];
+-        break;
+-      case 1:
+-        unicodeName[decPos++] = (wchar_t)(encName[encPos++] + (highByte << 8));
+-        break;
+-      case 2:
+-        unicodeName[decPos++] = (wchar_t)(encName[encPos] + (encName[encPos + 1] << 8));
+-        encPos += 2;
+-        break;
+-      case 3:
+-        {
+-          int length = encName[encPos++];
+-          if (length & 0x80)
+-          {
+-            Byte correction = encName[encPos++];
+-            for (length = (length & 0x7f) + 2;
+-                length > 0 && decPos < maxDecSize; length--, decPos++)
+-              unicodeName[decPos] = (wchar_t)(((name[decPos] + correction) & 0xff) + (highByte << 8));
+-          }
+-          else
+-            for (length += 2; length > 0 && decPos < maxDecSize; length--, decPos++)
+-              unicodeName[decPos] = name[decPos];
+-        }
+-        break;
+-    }
+-    flags <<= 2;
+-    flagBits -= 2;
+-  }
+-  unicodeName[decPos < maxDecSize ? decPos : maxDecSize - 1] = 0;
+-}
+-
+-void CInArchive::ReadName(CItemEx &item, int nameSize)
+-{
+-  item.UnicodeName.Empty();
+-  if (nameSize > 0)
+-  {
+-    m_NameBuffer.EnsureCapacity(nameSize + 1);
+-    char *buffer = (char *)m_NameBuffer;
+-
+-    for (int i = 0; i < nameSize; i++)
+-      buffer[i] = ReadByte();
+-
+-    int mainLen;
+-    for (mainLen = 0; mainLen < nameSize; mainLen++)
+-      if (buffer[mainLen] == '\0')
+-        break;
+-    buffer[mainLen] = '\0';
+-    item.Name = buffer;
+-
+-    if(item.HasUnicodeName())
+-    {
+-      if(mainLen < nameSize)
+-      {
+-        int unicodeNameSizeMax = MyMin(nameSize, (0x400));
+-        _unicodeNameBuffer.EnsureCapacity(unicodeNameSizeMax + 1);
+-        DecodeUnicodeFileName(buffer, (const Byte *)buffer + mainLen + 1,
+-            nameSize - (mainLen + 1), _unicodeNameBuffer, unicodeNameSizeMax);
+-        item.UnicodeName = _unicodeNameBuffer;
+-      }
+-      else if (!ConvertUTF8ToUnicode(item.Name, item.UnicodeName))
+-        item.UnicodeName.Empty();
+-    }
+-  }
+-  else
+-    item.Name.Empty();
+-}
+-
+-Byte CInArchive::ReadByte()
+-{
+-  if (m_CurPos >= m_PosLimit)
+-    throw CInArchiveException(CInArchiveException::kIncorrectArchive);
+-  return m_CurData[m_CurPos++];
+-}
+-
+-UInt16 CInArchive::ReadUInt16()
+-{
+-  UInt16 value = 0;
+-  for (int i = 0; i < 2; i++)
+-  {
+-    Byte b = ReadByte();
+-    value |= (UInt16(b) << (8 * i));
+-  }
+-  return value;
+-}
+-
+-UInt32 CInArchive::ReadUInt32()
+-{
+-  UInt32 value = 0;
+-  for (int i = 0; i < 4; i++)
+-  {
+-    Byte b = ReadByte();
+-    value |= (UInt32(b) << (8 * i));
+-  }
+-  return value;
+-}
+-
+-void CInArchive::ReadTime(Byte mask, CRarTime &rarTime)
+-{
+-  rarTime.LowSecond = (Byte)(((mask & 4) != 0) ? 1 : 0);
+-  int numDigits = (mask & 3);
+-  rarTime.SubTime[0] = rarTime.SubTime[1] = rarTime.SubTime[2] = 0;
+-  for (int i = 0; i < numDigits; i++)
+-    rarTime.SubTime[3 - numDigits + i] = ReadByte();
+-}
+-
+-void CInArchive::ReadHeaderReal(CItemEx &item)
+-{
+-  item.Flags = m_BlockHeader.Flags;
+-  item.PackSize = ReadUInt32();
+-  item.Size = ReadUInt32();
+-  item.HostOS = ReadByte();
+-  item.FileCRC = ReadUInt32();
+-  item.MTime.DosTime = ReadUInt32();
+-  item.UnPackVersion = ReadByte();
+-  item.Method = ReadByte();
+-  int nameSize = ReadUInt16();
+-  item.Attrib = ReadUInt32();
+-
+-  item.MTime.LowSecond = 0;
+-  item.MTime.SubTime[0] =
+-      item.MTime.SubTime[1] =
+-      item.MTime.SubTime[2] = 0;
+-
+-  if((item.Flags & NHeader::NFile::kSize64Bits) != 0)
+-  {
+-    item.PackSize |= ((UInt64)ReadUInt32() << 32);
+-    item.Size |= ((UInt64)ReadUInt32() << 32);
+-  }
+-
+-  ReadName(item, nameSize);
+-
+-  if (item.HasSalt())
+-    for (int i = 0; i < sizeof(item.Salt); i++)
+-      item.Salt[i] = ReadByte();
+-
+-  // some rar archives have HasExtTime flag without field.
+-  if (m_CurPos < m_PosLimit && item.HasExtTime())
+-  {
+-    Byte accessMask = (Byte)(ReadByte() >> 4);
+-    Byte b = ReadByte();
+-    Byte modifMask = (Byte)(b >> 4);
+-    Byte createMask = (Byte)(b & 0xF);
+-    if ((modifMask & 8) != 0)
+-      ReadTime(modifMask, item.MTime);
+-    item.CTimeDefined = ((createMask & 8) != 0);
+-    if (item.CTimeDefined)
+-    {
+-      item.CTime.DosTime = ReadUInt32();
+-      ReadTime(createMask, item.CTime);
+-    }
+-    item.ATimeDefined = ((accessMask & 8) != 0);
+-    if (item.ATimeDefined)
+-    {
+-      item.ATime.DosTime = ReadUInt32();
+-      ReadTime(accessMask, item.ATime);
+-    }
+-  }
+-
+-  UInt16 fileHeaderWithNameSize = (UInt16)m_CurPos;
+-  
+-  item.Position = m_Position;
+-  item.MainPartSize = fileHeaderWithNameSize;
+-  item.CommentSize = (UInt16)(m_BlockHeader.HeadSize - fileHeaderWithNameSize);
+-
+-  if (m_CryptoMode)
+-    item.AlignSize = (UInt16)((16 - ((m_BlockHeader.HeadSize) & 0xF)) & 0xF);
+-  else
+-    item.AlignSize = 0;
+-  AddToSeekValue(m_BlockHeader.HeadSize);
+-}
+-
+-void CInArchive::AddToSeekValue(UInt64 addValue)
+-{
+-  m_Position += addValue;
+-}
+-
+-HRESULT CInArchive::GetNextItem(CItemEx &item, ICryptoGetTextPassword *getTextPassword, bool &decryptionError, AString &errorMessage)
+-{
+-  decryptionError = false;
+-  for (;;)
+-  {
+-    SeekInArchive(m_Position);
+-    if (!m_CryptoMode && (_header.Flags &
+-        NHeader::NArchive::kBlockHeadersAreEncrypted) != 0)
+-    {
+-      m_CryptoMode = false;
+-      if (getTextPassword == 0)
+-        return S_FALSE;
+-      if (!m_RarAES)
+-      {
+-        m_RarAESSpec = new NCrypto::NRar29::CDecoder;
+-        m_RarAES = m_RarAESSpec;
+-      }
+-      m_RarAESSpec->SetRar350Mode(_header.IsEncryptOld());
+-
+-      // Salt
+-      const UInt32 kSaltSize = 8;
+-      Byte salt[kSaltSize];
+-      if(!ReadBytesAndTestSize(salt, kSaltSize))
+-        return S_FALSE;
+-      m_Position += kSaltSize;
+-      RINOK(m_RarAESSpec->SetDecoderProperties2(salt, kSaltSize))
+-      // Password
+-      CMyComBSTR password;
+-      RINOK(getTextPassword->CryptoGetTextPassword(&password))
+-      UString unicodePassword(password);
+-
+-      CByteBuffer buffer;
+-      const UInt32 sizeInBytes = unicodePassword.Length() * 2;
+-      buffer.SetCapacity(sizeInBytes);
+-      for (int i = 0; i < unicodePassword.Length(); i++)
+-      {
+-        wchar_t c = unicodePassword[i];
+-        ((Byte *)buffer)[i * 2] = (Byte)c;
+-        ((Byte *)buffer)[i * 2 + 1] = (Byte)(c >> 8);
+-      }
+-
+-      RINOK(m_RarAESSpec->CryptoSetPassword((const Byte *)buffer, sizeInBytes));
+-
+-      const UInt32 kDecryptedBufferSize = (1 << 12);
+-      if (m_DecryptedData.GetCapacity() == 0)
+-      {
+-        const UInt32 kAlign = 16;
+-        m_DecryptedData.SetCapacity(kDecryptedBufferSize + kAlign);
+-        m_DecryptedDataAligned = (Byte *)((ptrdiff_t)((Byte *)m_DecryptedData + kAlign - 1) & ~(ptrdiff_t)(kAlign - 1));
+-      }
+-      RINOK(m_RarAES->Init());
+-      size_t decryptedDataSizeT = kDecryptedBufferSize;
+-      RINOK(ReadStream(m_Stream, m_DecryptedDataAligned, &decryptedDataSizeT));
+-      m_DecryptedDataSize = (UInt32)decryptedDataSizeT;
+-      m_DecryptedDataSize = m_RarAES->Filter(m_DecryptedDataAligned, m_DecryptedDataSize);
+-
+-      m_CryptoMode = true;
+-      m_CryptoPos = 0;
+-    }
+-
+-    m_FileHeaderData.EnsureCapacity(7);
+-    size_t processed = 7;
+-    RINOK(ReadBytesSpec((Byte *)m_FileHeaderData, &processed));
+-    if (processed != 7)
+-    {
+-      if (processed != 0)
+-        errorMessage = k_UnexpectedEnd;
+-      return S_FALSE;
+-    }
+-
+-    m_CurData = (Byte *)m_FileHeaderData;
+-    m_CurPos = 0;
+-    m_PosLimit = 7;
+-    m_BlockHeader.CRC = ReadUInt16();
+-    m_BlockHeader.Type = ReadByte();
+-    m_BlockHeader.Flags = ReadUInt16();
+-    m_BlockHeader.HeadSize = ReadUInt16();
+-
+-    if (m_BlockHeader.HeadSize < 7)
+-      ThrowExceptionWithCode(CInArchiveException::kIncorrectArchive);
+-
+-    if (m_BlockHeader.Type == NHeader::NBlockType::kEndOfArchive)
+-      return S_FALSE;
+-
+-    if (m_BlockHeader.Type == NHeader::NBlockType::kFileHeader)
+-    {
+-      m_FileHeaderData.EnsureCapacity(m_BlockHeader.HeadSize);
+-      m_CurData = (Byte *)m_FileHeaderData;
+-      m_PosLimit = m_BlockHeader.HeadSize;
+-      if (!ReadBytesAndTestSize(m_CurData + m_CurPos, m_BlockHeader.HeadSize - 7))
+-      {
+-        errorMessage = k_UnexpectedEnd;
+-        return S_FALSE;
+-      }
+-
+-      ReadHeaderReal(item);
+-      if ((CrcCalc(m_CurData + 2,
+-          m_BlockHeader.HeadSize - item.CommentSize - 2) & 0xFFFF) != m_BlockHeader.CRC)
+-        ThrowExceptionWithCode(CInArchiveException::kFileHeaderCRCError);
+-
+-      FinishCryptoBlock();
+-      m_CryptoMode = false;
+-      SeekInArchive(m_Position); // Move Position to compressed Data;
+-      AddToSeekValue(item.PackSize);  // m_Position points to next header;
+-      return S_OK;
+-    }
+-    if (m_CryptoMode && m_BlockHeader.HeadSize > (1 << 10))
+-    {
+-      decryptionError = true;
+-      errorMessage = k_DecryptionError;
+-      return S_FALSE;
+-    }
+-    if ((m_BlockHeader.Flags & NHeader::NBlock::kLongBlock) != 0)
+-    {
+-      m_FileHeaderData.EnsureCapacity(7 + 4);
+-      m_CurData = (Byte *)m_FileHeaderData;
+-      if (!ReadBytesAndTestSize(m_CurData + m_CurPos, 4))
+-      {
+-        errorMessage = k_UnexpectedEnd;
+-        return S_FALSE;
+-      }
+-      m_PosLimit = 7 + 4;
+-      UInt32 dataSize = ReadUInt32();
+-      AddToSeekValue(dataSize);
+-      if (m_CryptoMode && dataSize > (1 << 27))
+-      {
+-        decryptionError = true;
+-        errorMessage = k_DecryptionError;
+-        return S_FALSE;
+-      }
+-      m_CryptoPos = m_BlockHeader.HeadSize;
+-    }
+-    else
+-      m_CryptoPos = 0;
+-    AddToSeekValue(m_BlockHeader.HeadSize);
+-    FinishCryptoBlock();
+-    m_CryptoMode = false;
+-  }
+-}
+-
+-void CInArchive::SeekInArchive(UInt64 position)
+-{
+-  m_Stream->Seek(position, STREAM_SEEK_SET, NULL);
+-}
+-
+-ISequentialInStream* CInArchive::CreateLimitedStream(UInt64 position, UInt64 size)
+-{
+-  CLimitedSequentialInStream *streamSpec = new CLimitedSequentialInStream;
+-  CMyComPtr<ISequentialInStream> inStream(streamSpec);
+-  SeekInArchive(position);
+-  streamSpec->SetStream(m_Stream);
+-  streamSpec->Init(size);
+-  return inStream.Detach();
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarIn.h p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarIn.h
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarIn.h	2011-01-08 06:41:27.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarIn.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,123 +0,0 @@
+-// RarIn.h
+-
+-#ifndef __ARCHIVE_RAR_IN_H
+-#define __ARCHIVE_RAR_IN_H
+-
+-#include "Common/DynamicBuffer.h"
+-#include "Common/MyCom.h"
+-
+-#include "../../ICoder.h"
+-#include "../../IStream.h"
+-
+-#include "../../Common/StreamObjects.h"
+-
+-#include "../../Crypto/RarAes.h"
+-
+-#include "RarHeader.h"
+-#include "RarItem.h"
+-
+-namespace NArchive {
+-namespace NRar {
+-
+-class CInArchiveException
+-{
+-public:
+-  enum CCauseType
+-  {
+-    kUnexpectedEndOfArchive = 0,
+-    kArchiveHeaderCRCError,
+-    kFileHeaderCRCError,
+-    kIncorrectArchive
+-  }
+-  Cause;
+-  CInArchiveException(CCauseType cause) :   Cause(cause) {}
+-};
+-
+-
+-struct CInArchiveInfo
+-{
+-  UInt32 Flags;
+-  Byte EncryptVersion;
+-  UInt64 StartPosition;
+-  
+-  bool IsSolid() const { return (Flags & NHeader::NArchive::kSolid) != 0; }
+-  bool IsCommented() const {  return (Flags & NHeader::NArchive::kComment) != 0; }
+-  bool IsVolume() const {  return (Flags & NHeader::NArchive::kVolume) != 0; }
+-  bool HaveNewVolumeName() const {  return (Flags & NHeader::NArchive::kNewVolName) != 0; }
+-  bool IsEncrypted() const { return (Flags & NHeader::NArchive::kBlockEncryption) != 0; }
+-  bool IsThereEncryptVer() const { return (Flags & NHeader::NArchive::kEncryptVer) != 0; }
+-  bool IsEncryptOld() const { return (!IsThereEncryptVer() || EncryptVersion < 36); }
+-};
+-
+-class CInArchive
+-{
+-  CMyComPtr<IInStream> m_Stream;
+-  
+-  UInt64 m_StreamStartPosition;
+-  
+-  CInArchiveInfo _header;
+-  CDynamicBuffer<char> m_NameBuffer;
+-  CDynamicBuffer<wchar_t> _unicodeNameBuffer;
+-
+-  CByteBuffer _comment;
+-  
+-  void ReadName(CItemEx &item, int nameSize);
+-  void ReadHeaderReal(CItemEx &item);
+-  
+-  HRESULT ReadBytesSpec(void *data, size_t *size);
+-  bool ReadBytesAndTestSize(void *data, UInt32 size);
+-  
+-  HRESULT Open2(IInStream *stream, const UInt64 *searchHeaderSizeLimit);
+-
+-  void ThrowExceptionWithCode(CInArchiveException::CCauseType cause);
+-  void ThrowUnexpectedEndOfArchiveException();
+-  
+-  void AddToSeekValue(UInt64 addValue);
+-  
+-  CDynamicBuffer<Byte> m_FileHeaderData;
+-  
+-  NHeader::NBlock::CBlock m_BlockHeader;
+-
+-  NCrypto::NRar29::CDecoder *m_RarAESSpec;
+-  CMyComPtr<ICompressFilter> m_RarAES;
+-  
+-  Byte *m_CurData; // it must point to start of Rar::Block
+-  UInt32 m_CurPos;
+-  UInt32 m_PosLimit;
+-  Byte ReadByte();
+-  UInt16 ReadUInt16();
+-  UInt32 ReadUInt32();
+-  void ReadTime(Byte mask, CRarTime &rarTime);
+-
+-  CBuffer<Byte> m_DecryptedData;
+-  Byte *m_DecryptedDataAligned;
+-  UInt32 m_DecryptedDataSize;
+-
+-  bool m_CryptoMode;
+-  UInt32 m_CryptoPos;
+-  void FinishCryptoBlock()
+-  {
+-    if (m_CryptoMode)
+-      while ((m_CryptoPos & 0xF) != 0)
+-      {
+-        m_CryptoPos++;
+-        m_Position++;
+-      }
+-  }
+-
+-public:
+-  UInt64 m_Position;
+-
+-  HRESULT Open(IInStream *inStream, const UInt64 *searchHeaderSizeLimit);
+-  void Close();
+-  HRESULT GetNextItem(CItemEx &item, ICryptoGetTextPassword *getTextPassword, bool &decryptionError, AString &errorMessage);
+-  
+-  void GetArchiveInfo(CInArchiveInfo &archiveInfo) const;
+-  
+-  void SeekInArchive(UInt64 position);
+-  ISequentialInStream *CreateLimitedStream(UInt64 position, UInt64 size);
+-};
+-  
+-}}
+-  
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarItem.cpp p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarItem.cpp
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarItem.cpp	2008-08-14 06:11:25.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarItem.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,55 +0,0 @@
+-// RarItem.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "RarItem.h"
+-
+-namespace NArchive{
+-namespace NRar{
+-
+-bool CItem::IgnoreItem() const
+-{
+-  switch(HostOS)
+-  {
+-    case NHeader::NFile::kHostMSDOS:
+-    case NHeader::NFile::kHostOS2:
+-    case NHeader::NFile::kHostWin32:
+-      return ((Attrib & NHeader::NFile::kLabelFileAttribute) != 0);
+-  }
+-  return false;
+-}
+-
+-bool CItem::IsDir() const
+-{
+-  if (GetDictSize() == NHeader::NFile::kDictDirectoryValue)
+-    return true;
+-  switch(HostOS)
+-  {
+-    case NHeader::NFile::kHostMSDOS:
+-    case NHeader::NFile::kHostOS2:
+-    case NHeader::NFile::kHostWin32:
+-      if ((Attrib & FILE_ATTRIBUTE_DIRECTORY) != 0)
+-        return true;
+-  }
+-  return false;
+-}
+-
+-UInt32 CItem::GetWinAttributes() const
+-{
+-  UInt32 winAttributes;
+-  switch(HostOS)
+-  {
+-    case NHeader::NFile::kHostMSDOS:
+-    case NHeader::NFile::kHostOS2:
+-    case NHeader::NFile::kHostWin32:
+-      winAttributes = Attrib;
+-      break;
+-    default:
+-      winAttributes = 0; // must be converted from unix value;
+-  }
+-  if (IsDir())
+-    winAttributes |= NHeader::NFile::kWinFileDirectoryAttributeMask;
+-  return winAttributes;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarItem.h p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarItem.h
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarItem.h	2008-08-14 06:11:12.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarItem.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,79 +0,0 @@
+-// RarItem.h
+-
+-#ifndef __ARCHIVE_RAR_ITEM_H
+-#define __ARCHIVE_RAR_ITEM_H
+-
+-#include "Common/Types.h"
+-#include "Common/MyString.h"
+-
+-#include "RarHeader.h"
+-
+-namespace NArchive{
+-namespace NRar{
+-
+-struct CRarTime
+-{
+-  UInt32 DosTime;
+-  Byte LowSecond;
+-  Byte SubTime[3];
+-};
+-
+-struct CItem
+-{
+-  UInt64 Size;
+-  UInt64 PackSize;
+-  
+-  CRarTime CTime;
+-  CRarTime ATime;
+-  CRarTime MTime;
+-
+-  UInt32 FileCRC;
+-  UInt32 Attrib;
+-
+-  UInt16 Flags;
+-  Byte HostOS;
+-  Byte UnPackVersion;
+-  Byte Method;
+-
+-  bool CTimeDefined;
+-  bool ATimeDefined;
+-
+-  AString Name;
+-  UString UnicodeName;
+-
+-  Byte Salt[8];
+-  
+-  bool IsEncrypted()   const { return (Flags & NHeader::NFile::kEncrypted) != 0; }
+-  bool IsSolid()       const { return (Flags & NHeader::NFile::kSolid) != 0; }
+-  bool IsCommented()   const { return (Flags & NHeader::NFile::kComment) != 0; }
+-  bool IsSplitBefore() const { return (Flags & NHeader::NFile::kSplitBefore) != 0; }
+-  bool IsSplitAfter()  const { return (Flags & NHeader::NFile::kSplitAfter) != 0; }
+-  bool HasSalt()       const { return (Flags & NHeader::NFile::kSalt) != 0; }
+-  bool HasExtTime()    const { return (Flags & NHeader::NFile::kExtTime) != 0; }
+-  bool HasUnicodeName()const { return (Flags & NHeader::NFile::kUnicodeName) != 0; }
+-  bool IsOldVersion()  const { return (Flags & NHeader::NFile::kOldVersion) != 0; }
+-  
+-  UInt32 GetDictSize() const { return (Flags >> NHeader::NFile::kDictBitStart) & NHeader::NFile::kDictMask; }
+-  bool IsDir() const;
+-  bool IgnoreItem() const;
+-  UInt32 GetWinAttributes() const;
+-  
+-  CItem(): CTimeDefined(false), ATimeDefined(false) {}
+-};
+-
+-class CItemEx: public CItem
+-{
+-public:
+-  UInt64 Position;
+-  UInt16 MainPartSize;
+-  UInt16 CommentSize;
+-  UInt16 AlignSize;
+-  UInt64 GetFullSize()  const { return MainPartSize + CommentSize + AlignSize + PackSize; };
+-  //  DWORD GetHeaderWithCommentSize()  const { return MainPartSize + CommentSize; };
+-  UInt64 GetCommentPosition() const { return Position + MainPartSize; };
+-  UInt64 GetDataPosition()    const { return GetCommentPosition() + CommentSize + AlignSize; };
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarRegister.cpp p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarRegister.cpp
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarRegister.cpp	2009-12-21 08:46:32.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarRegister.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,13 +0,0 @@
+-// RarRegister.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "../../Common/RegisterArc.h"
+-
+-#include "RarHandler.h"
+-static IInArchive *CreateArc() { return new NArchive::NRar::CHandler; }
+-
+-static CArcInfo g_ArcInfo =
+-  { L"Rar", L"rar r00", 0, 3, {0x52 , 0x61, 0x72, 0x21, 0x1a, 0x07, 0x00}, 7, false, CreateArc, 0,  };
+-
+-REGISTER_ARC(Rar)
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.cpp p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.cpp
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.cpp	2009-05-30 17:19:19.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,78 +0,0 @@
+-// RarVolumeInStream.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "../../../../C/7zCrc.h"
+-
+-#include "RarVolumeInStream.h"
+-
+-namespace NArchive {
+-namespace NRar {
+-
+-void CFolderInStream::Init(
+-    CObjectVector<CInArchive> *archives,
+-    const CObjectVector<CItemEx> *items,
+-    const CRefItem &refItem)
+-{
+-  _archives = archives;
+-  _items = items;
+-  _refItem = refItem;
+-  _curIndex = 0;
+-  CRCs.Clear();
+-  _fileIsOpen = false;
+-}
+-
+-HRESULT CFolderInStream::OpenStream()
+-{
+-  while (_curIndex < _refItem.NumItems)
+-  {
+-    const CItemEx &item = (*_items)[_refItem.ItemIndex + _curIndex];
+-    _stream.Attach((*_archives)[_refItem.VolumeIndex + _curIndex].
+-        CreateLimitedStream(item.GetDataPosition(), item.PackSize));
+-    _curIndex++;
+-    _fileIsOpen = true;
+-    _crc = CRC_INIT_VAL;
+-    return S_OK;
+-  }
+-  return S_OK;
+-}
+-
+-HRESULT CFolderInStream::CloseStream()
+-{
+-  CRCs.Add(CRC_GET_DIGEST(_crc));
+-  _stream.Release();
+-  _fileIsOpen = false;
+-  return S_OK;
+-}
+-
+-STDMETHODIMP CFolderInStream::Read(void *data, UInt32 size, UInt32 *processedSize)
+-{
+-  UInt32 realProcessedSize = 0;
+-  while ((_curIndex < _refItem.NumItems || _fileIsOpen) && size > 0)
+-  {
+-    if (_fileIsOpen)
+-    {
+-      UInt32 localProcessedSize;
+-      RINOK(_stream->Read(
+-          ((Byte *)data) + realProcessedSize, size, &localProcessedSize));
+-      _crc = CrcUpdate(_crc, ((Byte *)data) + realProcessedSize, localProcessedSize);
+-      if (localProcessedSize == 0)
+-      {
+-        RINOK(CloseStream());
+-        continue;
+-      }
+-      realProcessedSize += localProcessedSize;
+-      size -= localProcessedSize;
+-      break;
+-    }
+-    else
+-    {
+-      RINOK(OpenStream());
+-    }
+-  }
+-  if (processedSize != 0)
+-    *processedSize = realProcessedSize;
+-  return S_OK;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.h p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.h
+--- p7zip_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.h	2008-08-14 06:11:12.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Archive/Rar/RarVolumeInStream.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,49 +0,0 @@
+-// RarVolumeInStream.h
+-
+-#ifndef __RAR_VOLUME_IN_STREAM_H
+-#define __RAR_VOLUME_IN_STREAM_H
+-
+-#include "../../IStream.h"
+-#include "RarIn.h"
+-
+-namespace NArchive {
+-namespace NRar {
+-
+-struct CRefItem
+-{
+-  int VolumeIndex;
+-  int ItemIndex;
+-  int NumItems;
+-};
+-
+-class CFolderInStream:
+-  public ISequentialInStream,
+-  public CMyUnknownImp
+-{
+-public:
+-  MY_UNKNOWN_IMP
+-
+-  STDMETHOD(Read)(void *data, UInt32 size, UInt32 *processedSize);
+-
+-private:
+-  CObjectVector<CInArchive> *_archives;
+-  const CObjectVector<CItemEx> *_items;
+-  CRefItem _refItem;
+-  int _curIndex;
+-  UInt32 _crc;
+-  bool _fileIsOpen;
+-  CMyComPtr<ISequentialInStream> _stream;
+-
+-  HRESULT OpenStream();
+-  HRESULT CloseStream();
+-public:
+-  void Init(CObjectVector<CInArchive> *archives,
+-      const CObjectVector<CItemEx> *items,
+-      const CRefItem &refItem);
+-
+-  CRecordVector<UInt32> CRCs;
+-};
+-  
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Bundles/Format7zFree/makefile p7zip-libre_9.20.1/CPP/7zip/Bundles/Format7zFree/makefile
+--- p7zip_9.20.1/CPP/7zip/Bundles/Format7zFree/makefile	2010-11-07 12:41:43.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Bundles/Format7zFree/makefile	2011-09-07 15:42:04.000000000 -0300
+@@ -158,14 +158,6 @@
+   NsisIn.o \
+   NsisRegister.o \
+ 
+-RAR_OBJS = \
+-  RarHandler.o \
+-  RarHeader.o \
+-  RarIn.o \
+-  RarItem.o \
+-  RarVolumeInStream.o \
+-  RarRegister.o \
+-
+ TAR_OBJS = \
+   TarHandler.o \
+   TarHandlerOut.o \
+@@ -243,13 +235,6 @@
+   ZlibEncoder.o \
+   ZDecoder.o \
+ 
+-COMPRESS_OBJS_NON_FREE = \
+-  Rar1Decoder.o \
+-  Rar2Decoder.o \
+-  Rar3Decoder.o \
+-  Rar3Vm.o \
+-  RarCodecsRegister.o \
+-
+ CRYPTO_OBJS = \
+   7zAes.o \
+   7zAesRegister.o \
+@@ -257,8 +242,6 @@
+   MyAes.o \
+   Pbkdf2HmacSha1.o \
+   RandGen.o \
+-  Rar20Crypto.o \
+-  RarAes.o \
+   Sha1.o \
+   WzAes.o \
+   ZipCrypto.o \
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar/makefile p7zip-libre_9.20.1/CPP/7zip/Compress/Rar/makefile
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar/makefile	2010-03-16 17:21:18.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar/makefile	1969-12-31 21:00:00.000000000 -0300
+@@ -1,34 +0,0 @@
+-PROG=../../../../bin/Codecs/Rar29.so
+-
+-LOCAL_FLAGS=$(CC_SHARED) -DUNICODE -D_UNICODE
+-
+-MY_WINDOWS=
+-
+-include ../../../../makefile.crc32
+-include ../../../../makefile.machine
+-
+-LOCAL_SHARED=$(LINK_SHARED)
+-LIBS=$(LOCAL_LIBS)
+-
+-OBJS = \
+-MyWindows.o \
+-CRC.o\
+-MyVector.o\
+-CodecExports.o \
+-DllExports.o \
+-Rar1Decoder.o \
+-Rar2Decoder.o \
+-Rar3Decoder.o \
+-Rar3Vm.o \
+-RarCodecsRegister.o \
+-$(OBJ_CRC32) \
+-InBuffer.o \
+-OutBuffer.o \
+-StreamUtils.o \
+-LzOutWindow.o \
+-Ppmd7.o \
+-Ppmd7Dec.o \
+-Alloc.o
+-
+-include ../../../../makefile.glb
+-
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar/makefile.depend p7zip-libre_9.20.1/CPP/7zip/Compress/Rar/makefile.depend
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar/makefile.depend	2011-02-19 06:33:10.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar/makefile.depend	1969-12-31 21:00:00.000000000 -0300
+@@ -1,158 +0,0 @@
+-CRC.o: ../../../Common/CRC.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../Common/../../C/7zCrc.h \
+- ../../../Common/../../C/Types.h
+-MyWindows.o: ../../../Common/MyWindows.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../Common/MyWindows.h
+-MyVector.o: ../../../Common/MyVector.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../Common/MyVector.h \
+- ../../../Common/Defs.h
+-InBuffer.o: ../../Common/InBuffer.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../Common/../../../C/Alloc.h \
+- ../../Common/InBuffer.h ../../Common/../IStream.h \
+- ../../Common/../../Common/MyUnknown.h \
+- ../../Common/../../Common/MyWindows.h ../../Common/../../Common/Types.h \
+- ../../Common/../IDecl.h ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyException.h
+-StreamUtils.o: ../../Common/StreamUtils.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../Common/StreamUtils.h \
+- ../../Common/../IStream.h ../../Common/../../Common/MyUnknown.h \
+- ../../Common/../../Common/MyWindows.h ../../Common/../../Common/Types.h \
+- ../../Common/../IDecl.h
+-OutBuffer.o: ../../Common/OutBuffer.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../Common/../../../C/Alloc.h \
+- ../../Common/OutBuffer.h ../../Common/../IStream.h \
+- ../../Common/../../Common/MyUnknown.h \
+- ../../Common/../../Common/MyWindows.h ../../Common/../../Common/Types.h \
+- ../../Common/../IDecl.h ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyException.h
+-LzOutWindow.o: ../LzOutWindow.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../LzOutWindow.h ../../IStream.h \
+- ../../../Common/MyUnknown.h ../../../Common/MyWindows.h \
+- ../../../Common/Types.h ../../IDecl.h ../../Common/OutBuffer.h \
+- ../../Common/../IStream.h ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyWindows.h \
+- ../../Common/../../Common/MyException.h
+-CodecExports.o: ../CodecExports.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../Common/ComTry.h \
+- ../../../Common/MyWindows.h ../../../Windows/PropVariant.h \
+- ../../../Windows/../Common/MyWindows.h \
+- ../../../Windows/../Common/Types.h ../../ICoder.h ../../IStream.h \
+- ../../../Common/MyUnknown.h ../../../Common/Types.h ../../IDecl.h \
+- ../../Common/RegisterCodec.h ../../Common/../Common/MethodId.h \
+- ../../Common/../Common/../../Common/Types.h
+-DllExports.o: ../DllExports.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../Common/MyInitGuid.h \
+- ../../ICoder.h ../../IStream.h ../../../Common/MyUnknown.h \
+- ../../../Common/MyWindows.h ../../../Common/Types.h ../../IDecl.h \
+- ../../Common/RegisterCodec.h ../../Common/../Common/MethodId.h \
+- ../../Common/../Common/../../Common/Types.h
+-Rar1Decoder.o: ../Rar1Decoder.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../Rar1Decoder.h \
+- ../../../Common/MyCom.h ../../../Common/MyWindows.h ../../ICoder.h \
+- ../../IStream.h ../../../Common/MyUnknown.h ../../../Common/Types.h \
+- ../../IDecl.h ../../Common/InBuffer.h ../../Common/../IStream.h \
+- ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyException.h \
+- ../../Common/../../Common/MyWindows.h ../BitmDecoder.h ../../IStream.h \
+- ../HuffmanDecoder.h ../../../Common/Types.h ../LzOutWindow.h \
+- ../../Common/OutBuffer.h
+-Rar2Decoder.o: ../Rar2Decoder.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../Rar2Decoder.h \
+- ../../../Common/MyCom.h ../../../Common/MyWindows.h ../../ICoder.h \
+- ../../IStream.h ../../../Common/MyUnknown.h ../../../Common/Types.h \
+- ../../IDecl.h ../../Common/InBuffer.h ../../Common/../IStream.h \
+- ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyException.h \
+- ../../Common/../../Common/MyWindows.h ../BitmDecoder.h ../../IStream.h \
+- ../HuffmanDecoder.h ../../../Common/Types.h ../LzOutWindow.h \
+- ../../Common/OutBuffer.h
+-Rar3Decoder.o: ../Rar3Decoder.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../../C/Alloc.h \
+- ../../Common/StreamUtils.h ../../Common/../IStream.h \
+- ../../Common/../../Common/MyUnknown.h \
+- ../../Common/../../Common/MyWindows.h ../../Common/../../Common/Types.h \
+- ../../Common/../IDecl.h ../Rar3Decoder.h ../../../../C/Ppmd7.h \
+- ../../../../C/Ppmd.h ../../../../C/Types.h ../../../../C/CpuArch.h \
+- ../../../Common/MyCom.h ../../../Common/MyWindows.h ../../ICoder.h \
+- ../../IStream.h ../../Common/InBuffer.h \
+- ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyException.h ../BitmDecoder.h ../../IStream.h \
+- ../HuffmanDecoder.h ../../../Common/Types.h ../Rar3Vm.h \
+- ../../../../C/CpuArch.h ../../../Common/MyVector.h \
+- ../../../Common/Defs.h
+-Rar3Vm.o: ../Rar3Vm.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../../../C/7zCrc.h \
+- ../../../../C/Types.h ../../../../C/Alloc.h ../Rar3Vm.h \
+- ../../../../C/CpuArch.h ../../../Common/MyVector.h \
+- ../../../Common/Defs.h
+-RarCodecsRegister.o: ../RarCodecsRegister.cpp ../../../myWindows/StdAfx.h \
+- ../../../myWindows/config.h ../../../Common/MyWindows.h \
+- ../../../Common/MyGuidDef.h ../../../Common/Types.h \
+- ../../../Common/../../C/Types.h ../../../Common/Types.h \
+- ../../../include_windows/windows.h ../../../include_windows/basetyps.h \
+- ../../../include_windows/tchar.h ../../Common/RegisterCodec.h \
+- ../../Common/../Common/MethodId.h \
+- ../../Common/../Common/../../Common/Types.h ../Rar1Decoder.h \
+- ../../../Common/MyCom.h ../../../Common/MyWindows.h ../../ICoder.h \
+- ../../IStream.h ../../../Common/MyUnknown.h ../../../Common/Types.h \
+- ../../IDecl.h ../../Common/InBuffer.h ../../Common/../IStream.h \
+- ../../Common/../../Common/MyCom.h \
+- ../../Common/../../Common/MyException.h \
+- ../../Common/../../Common/MyWindows.h ../BitmDecoder.h ../../IStream.h \
+- ../HuffmanDecoder.h ../../../Common/Types.h ../LzOutWindow.h \
+- ../../Common/OutBuffer.h ../Rar2Decoder.h ../Rar3Decoder.h \
+- ../../../../C/Ppmd7.h ../../../../C/Ppmd.h ../../../../C/Types.h \
+- ../../../../C/CpuArch.h ../Rar3Vm.h ../../../../C/CpuArch.h \
+- ../../../Common/MyVector.h ../../../Common/Defs.h
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar/makefile.list p7zip-libre_9.20.1/CPP/7zip/Compress/Rar/makefile.list
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar/makefile.list	2010-03-16 17:23:04.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar/makefile.list	1969-12-31 21:00:00.000000000 -0300
+@@ -1,64 +0,0 @@
+-SRCS=\
+- ../../../Common/CRC.cpp \
+- ../../../Common/MyWindows.cpp \
+- ../../../Common/MyVector.cpp \
+- ../../Common/InBuffer.cpp \
+- ../../Common/StreamUtils.cpp \
+- ../../Common/OutBuffer.cpp \
+-../LzOutWindow.cpp \
+-../CodecExports.cpp \
+-../DllExports.cpp \
+-../Rar1Decoder.cpp \
+-../Rar2Decoder.cpp \
+-../Rar3Decoder.cpp \
+-../Rar3Vm.cpp \
+-../RarCodecsRegister.cpp
+-
+-SRCS_C=\
+- ../../../../C/Alloc.c \
+- ../../../../C/Ppmd7.c \
+- ../../../../C/Ppmd7Dec.c
+-
+-CRC.o : ../../../Common/CRC.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../../../Common/CRC.cpp
+-MyWindows.o : ../../../Common/MyWindows.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../../../Common/MyWindows.cpp
+-MyVector.o : ../../../Common/MyVector.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../../../Common/MyVector.cpp
+-DllExports.o : ../DllExports.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../DllExports.cpp
+-CodecExports.o : ../CodecExports.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../CodecExports.cpp
+-InBuffer.o : ../../Common/InBuffer.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../../Common/InBuffer.cpp
+-LzOutWindow.o : ../LzOutWindow.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../LzOutWindow.cpp
+-StreamUtils.o : ../../Common/StreamUtils.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../../Common/StreamUtils.cpp
+-OutBuffer.o : ../../Common/OutBuffer.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../../Common/OutBuffer.cpp
+-Rar1Decoder.o : ../Rar1Decoder.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../Rar1Decoder.cpp
+-Rar2Decoder.o : ../Rar2Decoder.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../Rar2Decoder.cpp
+-Rar3Decoder.o : ../Rar3Decoder.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../Rar3Decoder.cpp
+-Rar3Vm.o : ../Rar3Vm.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../Rar3Vm.cpp
+-RarCodecsRegister.o : ../RarCodecsRegister.cpp
+-	$(CXX) $(CC_SHARED) $(CXXFLAGS) ../RarCodecsRegister.cpp
+-Alloc.o : ../../../../C/Alloc.c
+-	$(CC) $(CC_SHARED) $(CFLAGS) ../../../../C/Alloc.c
+-Ppmd7.o : ../../../../C/Ppmd7.c
+-	$(CC) $(CC_SHARED) $(CFLAGS) ../../../../C/Ppmd7.c
+-Ppmd7Dec.o : ../../../../C/Ppmd7Dec.c
+-	$(CC) $(CC_SHARED) $(CFLAGS) ../../../../C/Ppmd7Dec.c
+-
+-# CRC32, C version
+-7zCrc.o : ../../../../C/7zCrc.c
+-	$(CC) $(CC_SHARED) $(CFLAGS) ../../../../C/7zCrc.c
+-7zCrcOpt.o : ../../../../C/7zCrcOpt.c
+-	$(CC) $(CC_SHARED) $(CFLAGS) ../../../../C/7zCrcOpt.c
+-# CRC32, ASM version
+-7zCrcT8.o : ../../../../C/7zCrcT8.c
+-	$(CC) $(CC_SHARED) $(CFLAGS) ../../../../C/7zCrcT8.c
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar1Decoder.cpp p7zip-libre_9.20.1/CPP/7zip/Compress/Rar1Decoder.cpp
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar1Decoder.cpp	2009-12-21 08:46:36.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar1Decoder.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,480 +0,0 @@
+-// Rar1Decoder.cpp
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+- 
+-#include "StdAfx.h"
+-
+-#include "Rar1Decoder.h"
+-
+-namespace NCompress {
+-namespace NRar1 {
+-
+-static UInt32 PosL1[]={0,0,0,2,3,5,7,11,16,20,24,32,32, 256};
+-static UInt32 PosL2[]={0,0,0,0,5,7,9,13,18,22,26,34,36, 256};
+-static UInt32 PosHf0[]={0,0,0,0,0,8,16,24,33,33,33,33,33, 257};
+-static UInt32 PosHf1[]={0,0,0,0,0,0,4,44,60,76,80,80,127, 257};
+-static UInt32 PosHf2[]={0,0,0,0,0,0,2,7,53,117,233, 257,0};
+-static UInt32 PosHf3[]={0,0,0,0,0,0,0,2,16,218,251, 257,0};
+-static UInt32 PosHf4[]={0,0,0,0,0,0,0,0,0,255, 257,0,0};
+-
+-static const UInt32 kHistorySize = (1 << 16);
+-
+-class CCoderReleaser
+-{
+-  CDecoder *m_Coder;
+-public:
+-  CCoderReleaser(CDecoder *coder): m_Coder(coder) {}
+-  ~CCoderReleaser() { m_Coder->ReleaseStreams(); }
+-};
+-
+-CDecoder::CDecoder(): m_IsSolid(false) { }
+-
+-void CDecoder::InitStructures()
+-{
+-  for(int i = 0; i < kNumRepDists; i++)
+-    m_RepDists[i] = 0;
+-  m_RepDistPtr = 0;
+-  LastLength = 0;
+-  LastDist = 0;
+-}
+-
+-UInt32 CDecoder::ReadBits(int numBits) { return m_InBitStream.ReadBits(numBits); }
+-
+-HRESULT CDecoder::CopyBlock(UInt32 distance, UInt32 len)
+-{
+-  if (len == 0)
+-    return S_FALSE;
+-  m_UnpackSize -= len;
+-  return m_OutWindowStream.CopyBlock(distance, len) ? S_OK : S_FALSE;
+-}
+-
+-
+-UInt32 CDecoder::DecodeNum(const UInt32 *posTab)
+-{
+-  UInt32 startPos = 2;
+-  UInt32 num = m_InBitStream.GetValue(12);
+-  for (;;)
+-  {
+-    UInt32 cur = (posTab[startPos + 1] - posTab[startPos]) << (12 - startPos);
+-    if (num < cur)
+-      break;
+-    startPos++;
+-    num -= cur;
+-  }
+-  m_InBitStream.MovePos(startPos);
+-  return((num >> (12 - startPos)) + posTab[startPos]);
+-}
+-
+-static Byte kShortLen1[]  = {1,3,4,4,5,6,7,8,8,4,4,5,6,6 };
+-static Byte kShortLen1a[] = {1,4,4,4,5,6,7,8,8,4,4,5,6,6,4 };
+-static Byte kShortLen2[]  = {2,3,3,3,4,4,5,6,6,4,4,5,6,6 };
+-static Byte kShortLen2a[] = {2,3,3,4,4,4,5,6,6,4,4,5,6,6,4 };
+-static UInt32 kShortXor1[] = {0,0xa0,0xd0,0xe0,0xf0,0xf8,0xfc,0xfe,0xff,0xc0,0x80,0x90,0x98,0x9c,0xb0};
+-static UInt32 kShortXor2[] = {0,0x40,0x60,0xa0,0xd0,0xe0,0xf0,0xf8,0xfc,0xc0,0x80,0x90,0x98,0x9c,0xb0};
+-
+-HRESULT CDecoder::ShortLZ()
+-{
+-  UInt32 len, saveLen, dist;
+-  int distancePlace;
+-  Byte *kShortLen;
+-  const UInt32 *kShortXor;
+-  NumHuf = 0;
+-
+-  if (LCount == 2)
+-  {
+-    if (ReadBits(1))
+-      return CopyBlock(LastDist, LastLength);
+-    LCount = 0;
+-  }
+-
+-  UInt32 bitField = m_InBitStream.GetValue(8);
+-
+-  if (AvrLn1 < 37)
+-  {
+-    kShortLen = Buf60 ? kShortLen1a : kShortLen1;
+-    kShortXor = kShortXor1;
+-  }
+-  else
+-  {
+-    kShortLen = Buf60 ? kShortLen2a : kShortLen2;
+-    kShortXor = kShortXor2;
+-  }
+-
+-  for (len = 0; ((bitField ^ kShortXor[len]) & (~(0xff >> kShortLen[len]))) != 0; len++);
+-  m_InBitStream.MovePos(kShortLen[len]);
+-
+-  if (len >= 9)
+-  {
+-    if (len == 9)
+-    {
+-      LCount++;
+-      return CopyBlock(LastDist, LastLength);
+-    }
+-    if (len == 14)
+-    {
+-      LCount = 0;
+-      len = DecodeNum(PosL2) + 5;
+-      dist = 0x8000 + ReadBits(15) - 1;
+-      LastLength = len;
+-      LastDist = dist;
+-      return CopyBlock(dist, len);
+-    }
+-
+-    LCount = 0;
+-    saveLen = len;
+-    dist = m_RepDists[(m_RepDistPtr - (len - 9)) & 3];
+-    len = DecodeNum(PosL1) + 2;
+-    if (len == 0x101 && saveLen == 10)
+-    {
+-      Buf60 ^= 1;
+-      return S_OK;
+-    }
+-    if (dist >= 256)
+-      len++;
+-    if (dist >= MaxDist3 - 1)
+-      len++;
+-  }
+-  else
+-  {
+-    LCount = 0;
+-    AvrLn1 += len;
+-    AvrLn1 -= AvrLn1 >> 4;
+-    
+-    distancePlace = DecodeNum(PosHf2) & 0xff;
+-    dist = ChSetA[distancePlace];
+-    if (--distancePlace != -1)
+-    {
+-      PlaceA[dist]--;
+-      UInt32 lastDistance = ChSetA[distancePlace];
+-      PlaceA[lastDistance]++;
+-      ChSetA[distancePlace + 1] = lastDistance;
+-      ChSetA[distancePlace] = dist;
+-    }
+-    len += 2;
+-  }
+-  m_RepDists[m_RepDistPtr++] = dist;
+-  m_RepDistPtr &= 3;
+-  LastLength = len;
+-  LastDist = dist;
+-  return CopyBlock(dist, len);
+-}
+-
+-
+-HRESULT CDecoder::LongLZ()
+-{
+-  UInt32 len;
+-  UInt32 dist;
+-  UInt32 distancePlace, newDistancePlace;
+-  UInt32 oldAvr2, oldAvr3;
+-
+-  NumHuf = 0;
+-  Nlzb += 16;
+-  if (Nlzb > 0xff)
+-  {
+-    Nlzb = 0x90;
+-    Nhfb >>= 1;
+-  }
+-  oldAvr2=AvrLn2;
+-
+-  if (AvrLn2 >= 122)
+-    len = DecodeNum(PosL2);
+-  else if (AvrLn2 >= 64)
+-    len = DecodeNum(PosL1);
+-  else
+-  {
+-    UInt32 bitField = m_InBitStream.GetValue(16);
+-    if (bitField < 0x100)
+-    {
+-      len = bitField;
+-      m_InBitStream.MovePos(16);
+-    }
+-    else
+-    {
+-      for (len = 0; ((bitField << len) & 0x8000) == 0; len++)
+-        ;
+-      m_InBitStream.MovePos(len + 1);
+-    }
+-  }
+-
+-  AvrLn2 += len;
+-  AvrLn2 -= AvrLn2 >> 5;
+-
+-  if (AvrPlcB > 0x28ff)
+-    distancePlace = DecodeNum(PosHf2);
+-  else if (AvrPlcB > 0x6ff)
+-    distancePlace = DecodeNum(PosHf1);
+-  else
+-    distancePlace = DecodeNum(PosHf0);
+-
+-  AvrPlcB += distancePlace;
+-  AvrPlcB -= AvrPlcB >> 8;
+-  for (;;)
+-  {
+-    dist = ChSetB[distancePlace & 0xff];
+-    newDistancePlace = NToPlB[dist++ & 0xff]++;
+-    if (!(dist & 0xff))
+-      CorrHuff(ChSetB,NToPlB);
+-    else
+-      break;
+-  }
+-
+-  ChSetB[distancePlace] = ChSetB[newDistancePlace];
+-  ChSetB[newDistancePlace] = dist;
+-
+-  dist = ((dist & 0xff00) >> 1) | ReadBits(7);
+-
+-  oldAvr3 = AvrLn3;
+-  if (len != 1 && len != 4)
+-    if (len == 0 && dist <= MaxDist3)
+-    {
+-      AvrLn3++;
+-      AvrLn3 -= AvrLn3 >> 8;
+-    }
+-    else
+-      if (AvrLn3 > 0)
+-        AvrLn3--;
+-  len += 3;
+-  if (dist >= MaxDist3)
+-    len++;
+-  if (dist <= 256)
+-    len += 8;
+-  if (oldAvr3 > 0xb0 || AvrPlc >= 0x2a00 && oldAvr2 < 0x40)
+-    MaxDist3 = 0x7f00;
+-  else
+-    MaxDist3 = 0x2001;
+-  m_RepDists[m_RepDistPtr++] = --dist;
+-  m_RepDistPtr &= 3;
+-  LastLength = len;
+-  LastDist = dist;
+-  return CopyBlock(dist, len);
+-}
+-
+-
+-HRESULT CDecoder::HuffDecode()
+-{
+-  UInt32 curByte, newBytePlace;
+-  UInt32 len;
+-  UInt32 dist;
+-  int bytePlace;
+-
+-  if      (AvrPlc > 0x75ff)  bytePlace = DecodeNum(PosHf4);
+-  else if (AvrPlc > 0x5dff)  bytePlace = DecodeNum(PosHf3);
+-  else if (AvrPlc > 0x35ff)  bytePlace = DecodeNum(PosHf2);
+-  else if (AvrPlc > 0x0dff)  bytePlace = DecodeNum(PosHf1);
+-  else                       bytePlace = DecodeNum(PosHf0);
+-  if (StMode)
+-  {
+-    if (--bytePlace == -1)
+-    {
+-      if (ReadBits(1))
+-      {
+-        NumHuf = StMode = 0;
+-        return S_OK;
+-      }
+-      else
+-      {
+-        len = (ReadBits(1)) ? 4 : 3;
+-        dist = DecodeNum(PosHf2);
+-        dist = (dist << 5) | ReadBits(5);
+-        return CopyBlock(dist - 1, len);
+-      }
+-    }
+-  }
+-  else if (NumHuf++ >= 16 && FlagsCnt == 0)
+-    StMode = 1;
+-  bytePlace &= 0xff;
+-  AvrPlc += bytePlace;
+-  AvrPlc -= AvrPlc >> 8;
+-  Nhfb+=16;
+-  if (Nhfb > 0xff)
+-  {
+-    Nhfb=0x90;
+-    Nlzb >>= 1;
+-  }
+-
+-  m_UnpackSize --;
+-  m_OutWindowStream.PutByte((Byte)(ChSet[bytePlace] >> 8));
+-
+-  for (;;)
+-  {
+-    curByte = ChSet[bytePlace];
+-    newBytePlace = NToPl[curByte++ & 0xff]++;
+-    if ((curByte & 0xff) > 0xa1)
+-      CorrHuff(ChSet, NToPl);
+-    else
+-      break;
+-  }
+-
+-  ChSet[bytePlace] = ChSet[newBytePlace];
+-  ChSet[newBytePlace] = curByte;
+-  return S_OK;
+-}
+-
+-
+-void CDecoder::GetFlagsBuf()
+-{
+-  UInt32 flags, newFlagsPlace;
+-  UInt32 flagsPlace = DecodeNum(PosHf2);
+-
+-  for (;;)
+-  {
+-    flags = ChSetC[flagsPlace];
+-    FlagBuf = flags >> 8;
+-    newFlagsPlace = NToPlC[flags++ & 0xff]++;
+-    if ((flags & 0xff) != 0)
+-      break;
+-    CorrHuff(ChSetC, NToPlC);
+-  }
+-
+-  ChSetC[flagsPlace] = ChSetC[newFlagsPlace];
+-  ChSetC[newFlagsPlace] = flags;
+-}
+-
+-void CDecoder::InitData()
+-{
+-  if (!m_IsSolid)
+-  {
+-    AvrPlcB = AvrLn1 = AvrLn2 = AvrLn3 = NumHuf = Buf60 = 0;
+-    AvrPlc = 0x3500;
+-    MaxDist3 = 0x2001;
+-    Nhfb = Nlzb = 0x80;
+-  }
+-  FlagsCnt = 0;
+-  FlagBuf = 0;
+-  StMode = 0;
+-  LCount = 0;
+-}
+-
+-void CDecoder::CorrHuff(UInt32 *CharSet,UInt32 *NumToPlace)
+-{
+-  int i;
+-  for (i = 7; i >= 0; i--)
+-    for (int j = 0; j < 32; j++, CharSet++)
+-      *CharSet = (*CharSet & ~0xff) | i;
+-  memset(NumToPlace, 0, sizeof(NToPl));
+-  for (i = 6; i >= 0; i--)
+-    NumToPlace[i] = (7 - i) * 32;
+-}
+-
+-void CDecoder::InitHuff()
+-{
+-  for (UInt32 i = 0; i < 256; i++)
+-  {
+-    Place[i] = PlaceA[i] = PlaceB[i] = i;
+-    PlaceC[i] = (~i + 1) & 0xff;
+-    ChSet[i] = ChSetB[i] = i << 8;
+-    ChSetA[i] = i;
+-    ChSetC[i] = ((~i + 1) & 0xff) << 8;
+-  }
+-  memset(NToPl, 0, sizeof(NToPl));
+-  memset(NToPlB, 0, sizeof(NToPlB));
+-  memset(NToPlC, 0, sizeof(NToPlC));
+-  CorrHuff(ChSetB, NToPlB);
+-}
+-
+-HRESULT CDecoder::CodeReal(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-    const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo * /* progress */)
+-{
+-  if (inSize == NULL || outSize == NULL)
+-    return E_INVALIDARG;
+-
+-  if (!m_OutWindowStream.Create(kHistorySize))
+-    return E_OUTOFMEMORY;
+-  if (!m_InBitStream.Create(1 << 20))
+-    return E_OUTOFMEMORY;
+-
+-  m_UnpackSize = (Int64)*outSize;
+-  m_OutWindowStream.SetStream(outStream);
+-  m_OutWindowStream.Init(m_IsSolid);
+-  m_InBitStream.SetStream(inStream);
+-  m_InBitStream.Init();
+-
+-  CCoderReleaser coderReleaser(this);
+-  InitData();
+-  if (!m_IsSolid)
+-  {
+-    InitStructures();
+-    InitHuff();
+-  }
+-  if (m_UnpackSize > 0)
+-  {
+-    GetFlagsBuf();
+-    FlagsCnt = 8;
+-  }
+-
+-  while (m_UnpackSize > 0)
+-  {
+-    if (StMode)
+-    {
+-      RINOK(HuffDecode());
+-      continue;
+-    }
+-
+-    if (--FlagsCnt < 0)
+-    {
+-      GetFlagsBuf();
+-      FlagsCnt=7;
+-    }
+-
+-    if (FlagBuf & 0x80)
+-    {
+-      FlagBuf <<= 1;
+-      if (Nlzb > Nhfb)
+-      {
+-        RINOK(LongLZ());
+-      }
+-      else
+-      {
+-        RINOK(HuffDecode());
+-      }
+-    }
+-    else
+-    {
+-      FlagBuf <<= 1;
+-      if (--FlagsCnt < 0)
+-      {
+-        GetFlagsBuf();
+-        FlagsCnt = 7;
+-      }
+-      if (FlagBuf & 0x80)
+-      {
+-        FlagBuf <<= 1;
+-        if (Nlzb > Nhfb)
+-        {
+-          RINOK(HuffDecode());
+-        }
+-        else
+-        {
+-          RINOK(LongLZ());
+-        }
+-      }
+-      else
+-      {
+-        FlagBuf <<= 1;
+-        RINOK(ShortLZ());
+-      }
+-    }
+-  }
+-  if (m_UnpackSize < 0)
+-    return S_FALSE;
+-  return m_OutWindowStream.Flush();
+-}
+-
+-STDMETHODIMP CDecoder::Code(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-    const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress)
+-{
+-  try { return CodeReal(inStream, outStream, inSize, outSize, progress); }
+-  catch(const CInBufferException &e) { return e.ErrorCode; }
+-  catch(const CLzOutWindowException &e) { return e.ErrorCode; }
+-  catch(...) { return S_FALSE; }
+-}
+-
+-STDMETHODIMP CDecoder::SetDecoderProperties2(const Byte *data, UInt32 size)
+-{
+-  if (size < 1)
+-    return E_INVALIDARG;
+-  m_IsSolid = (data[0] != 0);
+-  return S_OK;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar1Decoder.h p7zip-libre_9.20.1/CPP/7zip/Compress/Rar1Decoder.h
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar1Decoder.h	2009-02-07 15:06:28.000000000 -0200
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar1Decoder.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,88 +0,0 @@
+-// Rar1Decoder.h
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+-
+-#ifndef __COMPRESS_RAR1_DECODER_H
+-#define __COMPRESS_RAR1_DECODER_H
+-
+-#include "../../Common/MyCom.h"
+-
+-#include "../ICoder.h"
+-
+-#include "../Common/InBuffer.h"
+-
+-#include "BitmDecoder.h"
+-#include "HuffmanDecoder.h"
+-#include "LzOutWindow.h"
+-
+-namespace NCompress {
+-namespace NRar1 {
+-
+-const UInt32 kNumRepDists = 4;
+-
+-typedef NBitm::CDecoder<CInBuffer> CBitDecoder;
+-
+-class CDecoder :
+-  public ICompressCoder,
+-  public ICompressSetDecoderProperties2,
+-  public CMyUnknownImp
+-{
+-public:
+-  CLzOutWindow m_OutWindowStream;
+-  CBitDecoder m_InBitStream;
+-
+-  UInt32 m_RepDists[kNumRepDists];
+-  UInt32 m_RepDistPtr;
+-
+-  UInt32 LastDist;
+-  UInt32 LastLength;
+-
+-  Int64 m_UnpackSize;
+-  bool m_IsSolid;
+-
+-  UInt32 ReadBits(int numBits);
+-  HRESULT CopyBlock(UInt32 distance, UInt32 len);
+-
+-  UInt32 DecodeNum(const UInt32 *posTab);
+-  HRESULT ShortLZ();
+-  HRESULT LongLZ();
+-  HRESULT HuffDecode();
+-  void GetFlagsBuf();
+-  void InitData();
+-  void InitHuff();
+-  void CorrHuff(UInt32 *CharSet, UInt32 *NumToPlace);
+-  void OldUnpWriteBuf();
+-  
+-  UInt32 ChSet[256],ChSetA[256],ChSetB[256],ChSetC[256];
+-  UInt32 Place[256],PlaceA[256],PlaceB[256],PlaceC[256];
+-  UInt32 NToPl[256],NToPlB[256],NToPlC[256];
+-  UInt32 FlagBuf,AvrPlc,AvrPlcB,AvrLn1,AvrLn2,AvrLn3;
+-  int Buf60,NumHuf,StMode,LCount,FlagsCnt;
+-  UInt32 Nhfb,Nlzb,MaxDist3;
+-
+-  void InitStructures();
+-
+-  HRESULT CodeReal(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-      const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress);
+-
+-public:
+-  CDecoder();
+-
+-  MY_UNKNOWN_IMP1(ICompressSetDecoderProperties2)
+-
+-  void ReleaseStreams()
+-  {
+-    m_OutWindowStream.ReleaseStream();
+-    m_InBitStream.ReleaseStream();
+-  }
+-
+-  STDMETHOD(Code)(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-      const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress);
+-
+-  STDMETHOD(SetDecoderProperties2)(const Byte *data, UInt32 size);
+-
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar2Decoder.cpp p7zip-libre_9.20.1/CPP/7zip/Compress/Rar2Decoder.cpp
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar2Decoder.cpp	2009-12-21 08:46:36.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar2Decoder.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,391 +0,0 @@
+-// Rar2Decoder.cpp
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+- 
+-#include "StdAfx.h"
+-
+-#include "Rar2Decoder.h"
+-
+-namespace NCompress {
+-namespace NRar2 {
+-
+-namespace NMultimedia {
+-
+-Byte CFilter::Decode(int &channelDelta, Byte deltaByte)
+-{
+-  D4 = D3;
+-  D3 = D2;
+-  D2 = LastDelta - D1;
+-  D1 = LastDelta;
+-  int predictedValue = ((8 * LastChar + K1 * D1 + K2 * D2 + K3 * D3 + K4 * D4 + K5 * channelDelta) >> 3);
+-
+-  Byte realValue = (Byte)(predictedValue - deltaByte);
+-  int i = ((int)(signed char)deltaByte) << 3;
+-
+-  Dif[0] += abs(i);
+-  Dif[1] += abs(i - D1);
+-  Dif[2] += abs(i + D1);
+-  Dif[3] += abs(i - D2);
+-  Dif[4] += abs(i + D2);
+-  Dif[5] += abs(i - D3);
+-  Dif[6] += abs(i + D3);
+-  Dif[7] += abs(i - D4);
+-  Dif[8] += abs(i + D4);
+-  Dif[9] += abs(i - channelDelta);
+-  Dif[10] += abs(i + channelDelta);
+-
+-  channelDelta = LastDelta = (signed char)(realValue - LastChar);
+-  LastChar = realValue;
+-
+-  if (((++ByteCount) & 0x1F) == 0)
+-  {
+-    UInt32 minDif = Dif[0];
+-    UInt32 numMinDif = 0;
+-    Dif[0] = 0;
+-    for (i = 1; i < sizeof(Dif) / sizeof(Dif[0]); i++)
+-    {
+-      if (Dif[i] < minDif)
+-      {
+-        minDif = Dif[i];
+-        numMinDif = i;
+-      }
+-      Dif[i] = 0;
+-    }
+-    switch(numMinDif)
+-    {
+-      case 1: if (K1 >= -16) K1--; break;
+-      case 2: if (K1 <   16) K1++; break;
+-      case 3: if (K2 >= -16) K2--; break;
+-      case 4: if (K2 <   16) K2++; break;
+-      case 5: if (K3 >= -16) K3--; break;
+-      case 6: if (K3 <   16) K3++; break;
+-      case 7: if (K4 >= -16) K4--; break;
+-      case 8: if (K4 <   16) K4++; break;
+-      case 9: if (K5 >= -16) K5--; break;
+-      case 10:if (K5 <   16) K5++; break;
+-    }
+-  }
+-  return realValue;
+-}
+-}
+-
+-static const char *kNumberErrorMessage = "Number error";
+-
+-static const UInt32 kHistorySize = 1 << 20;
+-
+-static const int kNumStats = 11;
+-
+-static const UInt32 kWindowReservSize = (1 << 22) + 256;
+-
+-CDecoder::CDecoder():
+-  m_IsSolid(false)
+-{
+-}
+-
+-void CDecoder::InitStructures()
+-{
+-  m_MmFilter.Init();
+-  for(int i = 0; i < kNumRepDists; i++)
+-    m_RepDists[i] = 0;
+-  m_RepDistPtr = 0;
+-  m_LastLength = 0;
+-  memset(m_LastLevels, 0, kMaxTableSize);
+-}
+-
+-UInt32 CDecoder::ReadBits(int numBits) { return m_InBitStream.ReadBits(numBits); }
+-
+-#define RIF(x) { if (!(x)) return false; }
+-
+-bool CDecoder::ReadTables(void)
+-{
+-  Byte levelLevels[kLevelTableSize];
+-  Byte newLevels[kMaxTableSize];
+-  m_AudioMode = (ReadBits(1) == 1);
+-
+-  if (ReadBits(1) == 0)
+-    memset(m_LastLevels, 0, kMaxTableSize);
+-  int numLevels;
+-  if (m_AudioMode)
+-  {
+-    m_NumChannels = ReadBits(2) + 1;
+-    if (m_MmFilter.CurrentChannel >= m_NumChannels)
+-      m_MmFilter.CurrentChannel = 0;
+-    numLevels = m_NumChannels * kMMTableSize;
+-  }
+-  else
+-    numLevels = kHeapTablesSizesSum;
+- 
+-  int i;
+-  for (i = 0; i < kLevelTableSize; i++)
+-    levelLevels[i] = (Byte)ReadBits(4);
+-  RIF(m_LevelDecoder.SetCodeLengths(levelLevels));
+-  i = 0;
+-  while (i < numLevels)
+-  {
+-    UInt32 number = m_LevelDecoder.DecodeSymbol(&m_InBitStream);
+-    if (number < kTableDirectLevels)
+-    {
+-      newLevels[i] = (Byte)((number + m_LastLevels[i]) & kLevelMask);
+-      i++;
+-    }
+-    else
+-    {
+-      if (number == kTableLevelRepNumber)
+-      {
+-        int t = ReadBits(2) + 3;
+-        for (int reps = t; reps > 0 && i < numLevels ; reps--, i++)
+-          newLevels[i] = newLevels[i - 1];
+-      }
+-      else
+-      {
+-        int num;
+-        if (number == kTableLevel0Number)
+-          num = ReadBits(3) + 3;
+-        else if (number == kTableLevel0Number2)
+-          num = ReadBits(7) + 11;
+-        else
+-          return false;
+-        for (;num > 0 && i < numLevels; num--)
+-          newLevels[i++] = 0;
+-      }
+-    }
+-  }
+-  if (m_AudioMode)
+-    for (i = 0; i < m_NumChannels; i++)
+-    {
+-      RIF(m_MMDecoders[i].SetCodeLengths(&newLevels[i * kMMTableSize]));
+-    }
+-  else
+-  {
+-    RIF(m_MainDecoder.SetCodeLengths(&newLevels[0]));
+-    RIF(m_DistDecoder.SetCodeLengths(&newLevels[kMainTableSize]));
+-    RIF(m_LenDecoder.SetCodeLengths(&newLevels[kMainTableSize + kDistTableSize]));
+-  }
+-  memcpy(m_LastLevels, newLevels, kMaxTableSize);
+-  return true;
+-}
+-
+-bool CDecoder::ReadLastTables()
+-{
+-  // it differs a little from pure RAR sources;
+-  // UInt64 ttt = m_InBitStream.GetProcessedSize() + 2;
+-  // + 2 works for: return 0xFF; in CInBuffer::ReadByte.
+-  if (m_InBitStream.GetProcessedSize() + 7 <= m_PackSize) // test it: probably incorrect;
+-  // if (m_InBitStream.GetProcessedSize() + 2 <= m_PackSize) // test it: probably incorrect;
+-    if (m_AudioMode)
+-    {
+-      UInt32 symbol = m_MMDecoders[m_MmFilter.CurrentChannel].DecodeSymbol(&m_InBitStream);
+-      if (symbol == 256)
+-        return ReadTables();
+-      if (symbol >= kMMTableSize)
+-        return false;
+-    }
+-    else
+-    {
+-      UInt32 number = m_MainDecoder.DecodeSymbol(&m_InBitStream);
+-      if (number == kReadTableNumber)
+-        return ReadTables();
+-      if (number >= kMainTableSize)
+-        return false;
+-    }
+-  return true;
+-}
+-
+-class CCoderReleaser
+-{
+-  CDecoder *m_Coder;
+-public:
+-  CCoderReleaser(CDecoder *coder): m_Coder(coder) {}
+-  ~CCoderReleaser()
+-  {
+-    m_Coder->ReleaseStreams();
+-  }
+-};
+-
+-bool CDecoder::DecodeMm(UInt32 pos)
+-{
+-  while (pos-- > 0)
+-  {
+-    UInt32 symbol = m_MMDecoders[m_MmFilter.CurrentChannel].DecodeSymbol(&m_InBitStream);
+-    if (symbol == 256)
+-      return true;
+-    if (symbol >= kMMTableSize)
+-      return false;
+-    /*
+-    Byte byPredict = m_Predictor.Predict();
+-    Byte byReal = (Byte)(byPredict - (Byte)symbol);
+-    m_Predictor.Update(byReal, byPredict);
+-    */
+-    Byte byReal = m_MmFilter.Decode((Byte)symbol);
+-    m_OutWindowStream.PutByte(byReal);
+-    if (++m_MmFilter.CurrentChannel == m_NumChannels)
+-      m_MmFilter.CurrentChannel = 0;
+-  }
+-  return true;
+-}
+-
+-bool CDecoder::DecodeLz(Int32 pos)
+-{
+-  while (pos > 0)
+-  {
+-    UInt32 number = m_MainDecoder.DecodeSymbol(&m_InBitStream);
+-    UInt32 length, distance;
+-    if (number < 256)
+-    {
+-      m_OutWindowStream.PutByte(Byte(number));
+-      pos--;
+-      continue;
+-    }
+-    else if (number >= kMatchNumber)
+-    {
+-      number -= kMatchNumber;
+-      length = kNormalMatchMinLen + UInt32(kLenStart[number]) +
+-        m_InBitStream.ReadBits(kLenDirectBits[number]);
+-      number = m_DistDecoder.DecodeSymbol(&m_InBitStream);
+-      if (number >= kDistTableSize)
+-        return false;
+-      distance = kDistStart[number] + m_InBitStream.ReadBits(kDistDirectBits[number]);
+-      if (distance >= kDistLimit3)
+-      {
+-        length += 2 - ((distance - kDistLimit4) >> 31);
+-        // length++;
+-        // if (distance >= kDistLimit4)
+-        //  length++;
+-      }
+-    }
+-    else if (number == kRepBothNumber)
+-    {
+-      length = m_LastLength;
+-      if (length == 0)
+-        return false;
+-      distance = m_RepDists[(m_RepDistPtr + 4 - 1) & 3];
+-    }
+-    else if (number < kLen2Number)
+-    {
+-      distance = m_RepDists[(m_RepDistPtr - (number - kRepNumber + 1)) & 3];
+-      number = m_LenDecoder.DecodeSymbol(&m_InBitStream);
+-      if (number >= kLenTableSize)
+-        return false;
+-      length = 2 + kLenStart[number] + m_InBitStream.ReadBits(kLenDirectBits[number]);
+-      if (distance >= kDistLimit2)
+-      {
+-        length++;
+-        if (distance >= kDistLimit3)
+-        {
+-          length += 2 - ((distance - kDistLimit4) >> 31);
+-          // length++;
+-          // if (distance >= kDistLimit4)
+-          //   length++;
+-        }
+-      }
+-    }
+-    else if (number < kReadTableNumber)
+-    {
+-      number -= kLen2Number;
+-      distance = kLen2DistStarts[number] +
+-        m_InBitStream.ReadBits(kLen2DistDirectBits[number]);
+-      length = 2;
+-    }
+-    else if (number == kReadTableNumber)
+-      return true;
+-    else
+-      return false;
+-    m_RepDists[m_RepDistPtr++ & 3] = distance;
+-    m_LastLength = length;
+-    if (!m_OutWindowStream.CopyBlock(distance, length))
+-      return false;
+-    pos -= length;
+-  }
+-  return true;
+-}
+-
+-HRESULT CDecoder::CodeReal(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-    const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress)
+-{
+-  if (inSize == NULL || outSize == NULL)
+-    return E_INVALIDARG;
+-
+-  if (!m_OutWindowStream.Create(kHistorySize))
+-    return E_OUTOFMEMORY;
+-  if (!m_InBitStream.Create(1 << 20))
+-    return E_OUTOFMEMORY;
+-
+-  m_PackSize = *inSize;
+-
+-  UInt64 pos = 0, unPackSize = *outSize;
+-  
+-  m_OutWindowStream.SetStream(outStream);
+-  m_OutWindowStream.Init(m_IsSolid);
+-  m_InBitStream.SetStream(inStream);
+-  m_InBitStream.Init();
+-
+-  CCoderReleaser coderReleaser(this);
+-  if (!m_IsSolid)
+-  {
+-    InitStructures();
+-    if (unPackSize == 0)
+-    {
+-      if (m_InBitStream.GetProcessedSize() + 2 <= m_PackSize) // test it: probably incorrect;
+-        if (!ReadTables())
+-          return S_FALSE;
+-      return S_OK;
+-    }
+-    if (!ReadTables())
+-      return S_FALSE;
+-  }
+-
+-  UInt64 startPos = m_OutWindowStream.GetProcessedSize();
+-  while(pos < unPackSize)
+-  {
+-    UInt32 blockSize = 1 << 20;
+-    if (blockSize > unPackSize - pos)
+-      blockSize = (UInt32)(unPackSize - pos);
+-    UInt64 blockStartPos = m_OutWindowStream.GetProcessedSize();
+-    if (m_AudioMode)
+-    {
+-      if (!DecodeMm(blockSize))
+-        return S_FALSE;
+-    }
+-    else
+-    {
+-      if (!DecodeLz((Int32)blockSize))
+-        return S_FALSE;
+-    }
+-    UInt64 globalPos = m_OutWindowStream.GetProcessedSize();
+-    pos = globalPos - blockStartPos;
+-    if (pos < blockSize)
+-      if (!ReadTables())
+-        return S_FALSE;
+-    pos = globalPos - startPos;
+-    if (progress != 0)
+-    {
+-      UInt64 packSize = m_InBitStream.GetProcessedSize();
+-      RINOK(progress->SetRatioInfo(&packSize, &pos));
+-    }
+-  }
+-  if (pos > unPackSize)
+-    return S_FALSE;
+-
+-  if (!ReadLastTables())
+-    return S_FALSE;
+-  return m_OutWindowStream.Flush();
+-}
+-
+-STDMETHODIMP CDecoder::Code(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-    const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress)
+-{
+-  try { return CodeReal(inStream, outStream, inSize, outSize, progress); }
+-  catch(const CInBufferException &e) { return e.ErrorCode; }
+-  catch(const CLzOutWindowException &e) { return e.ErrorCode; }
+-  catch(...) { return S_FALSE; }
+-}
+-
+-STDMETHODIMP CDecoder::SetDecoderProperties2(const Byte *data, UInt32 size)
+-{
+-  if (size < 1)
+-    return E_INVALIDARG;
+-  m_IsSolid = (data[0] != 0);
+-  return S_OK;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar2Decoder.h p7zip-libre_9.20.1/CPP/7zip/Compress/Rar2Decoder.h
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar2Decoder.h	2009-02-07 15:06:28.000000000 -0200
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar2Decoder.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,174 +0,0 @@
+-// Rar2Decoder.h
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+-
+-#ifndef __COMPRESS_RAR2_DECODER_H
+-#define __COMPRESS_RAR2_DECODER_H
+-
+-#include "../../Common/MyCom.h"
+-
+-#include "../ICoder.h"
+-
+-#include "../Common/InBuffer.h"
+-
+-#include "BitmDecoder.h"
+-#include "HuffmanDecoder.h"
+-#include "LzOutWindow.h"
+-
+-namespace NCompress {
+-namespace NRar2 {
+-
+-const UInt32 kNumRepDists = 4;
+-const UInt32 kDistTableSize = 48;
+-
+-const int kMMTableSize = 256 + 1;
+-
+-const UInt32 kMainTableSize = 298;
+-const UInt32 kLenTableSize = 28;
+-
+-const UInt32 kDistTableStart = kMainTableSize;
+-const UInt32 kLenTableStart = kDistTableStart + kDistTableSize;
+-
+-const UInt32 kHeapTablesSizesSum = kMainTableSize + kDistTableSize + kLenTableSize;
+-
+-const UInt32 kLevelTableSize = 19;
+-
+-const UInt32 kMMTablesSizesSum = kMMTableSize * 4;
+-
+-const UInt32 kMaxTableSize = kMMTablesSizesSum;
+-
+-const UInt32 kTableDirectLevels = 16;
+-const UInt32 kTableLevelRepNumber = kTableDirectLevels;
+-const UInt32 kTableLevel0Number = kTableLevelRepNumber + 1;
+-const UInt32 kTableLevel0Number2 = kTableLevel0Number + 1;
+-
+-const UInt32 kLevelMask = 0xF;
+-
+-
+-const UInt32 kRepBothNumber = 256;
+-const UInt32 kRepNumber = kRepBothNumber + 1;
+-const UInt32 kLen2Number = kRepNumber + 4;
+-
+-const UInt32 kLen2NumNumbers = 8;
+-const UInt32 kReadTableNumber = kLen2Number + kLen2NumNumbers;
+-const UInt32 kMatchNumber = kReadTableNumber + 1;
+-
+-const Byte kLenStart[kLenTableSize]      = {0,1,2,3,4,5,6,7,8,10,12,14,16,20,24,28,32,40,48,56,64,80,96,112,128,160,192,224};
+-const Byte kLenDirectBits[kLenTableSize] = {0,0,0,0,0,0,0,0,1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4,  4,  5,  5,  5,  5};
+-
+-const UInt32 kDistStart[kDistTableSize]     = {0,1,2,3,4,6,8,12,16,24,32,48,64,96,128,192,256,384,512,768,1024,1536,2048,3072,4096,6144,8192,12288,16384,24576,32768U,49152U,65536,98304,131072,196608,262144,327680,393216,458752,524288,589824,655360,720896,786432,851968,917504,983040};
+-const Byte kDistDirectBits[kDistTableSize] = {0,0,0,0,1,1,2, 2, 3, 3, 4, 4, 5, 5,  6,  6,  7,  7,  8,  8,   9,   9,  10,  10,  11,  11,  12,   12,   13,   13,    14,    14,   15,   15,    16,    16,    16,    16,    16,    16,    16,    16,    16,    16,    16,    16,    16,    16};
+-
+-const Byte kLevelDirectBits[kLevelTableSize] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 3, 7};
+-
+-const Byte kLen2DistStarts[kLen2NumNumbers]={0,4,8,16,32,64,128,192};
+-const Byte kLen2DistDirectBits[kLen2NumNumbers]={2,2,3, 4, 5, 6,  6,  6};
+-
+-const UInt32 kDistLimit2 = 0x101 - 1;
+-const UInt32 kDistLimit3 = 0x2000 - 1;
+-const UInt32 kDistLimit4 = 0x40000 - 1;
+-
+-const UInt32 kMatchMaxLen = 255 + 2;
+-const UInt32 kMatchMaxLenMax = 255 + 5;
+-const UInt32 kNormalMatchMinLen = 3;
+-
+-namespace NMultimedia {
+-
+-struct CFilter
+-{
+-  int K1,K2,K3,K4,K5;
+-  int D1,D2,D3,D4;
+-  int LastDelta;
+-  UInt32 Dif[11];
+-  UInt32 ByteCount;
+-  int LastChar;
+-
+-  Byte Decode(int &channelDelta, Byte delta);
+-
+-  void Init() { memset(this, 0, sizeof(*this)); }
+-
+-};
+-
+-const int kNumChanelsMax = 4;
+-
+-class CFilter2
+-{
+-public:
+-  CFilter  m_Filters[kNumChanelsMax];
+-  int m_ChannelDelta;
+-  int CurrentChannel;
+-
+-  void Init() { memset(this, 0, sizeof(*this)); }
+-  Byte Decode(Byte delta)
+-  {
+-    return m_Filters[CurrentChannel].Decode(m_ChannelDelta, delta);
+-  }
+-
+-};
+-
+-}
+-
+-typedef NBitm::CDecoder<CInBuffer> CBitDecoder;
+-
+-const int kNumHuffmanBits = 15;
+-
+-class CDecoder :
+-  public ICompressCoder,
+-  public ICompressSetDecoderProperties2,
+-  public CMyUnknownImp
+-{
+-  CLzOutWindow m_OutWindowStream;
+-  CBitDecoder m_InBitStream;
+-  NHuffman::CDecoder<kNumHuffmanBits, kMainTableSize> m_MainDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kDistTableSize> m_DistDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kLenTableSize> m_LenDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kMMTableSize> m_MMDecoders[NMultimedia::kNumChanelsMax];
+-  NHuffman::CDecoder<kNumHuffmanBits, kLevelTableSize> m_LevelDecoder;
+-
+-  bool m_AudioMode;
+-
+-  NMultimedia::CFilter2 m_MmFilter;
+-  int m_NumChannels;
+-
+-  UInt32 m_RepDists[kNumRepDists];
+-  UInt32 m_RepDistPtr;
+-
+-  UInt32 m_LastLength;
+-  
+-  Byte m_LastLevels[kMaxTableSize];
+-
+-  UInt64 m_PackSize;
+-  bool m_IsSolid;
+-
+-  void InitStructures();
+-  UInt32 ReadBits(int numBits);
+-  bool ReadTables();
+-  bool ReadLastTables();
+-
+-  bool DecodeMm(UInt32 pos);
+-  bool DecodeLz(Int32 pos);
+-
+-  HRESULT CodeReal(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-      const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress);
+-
+-public:
+-  CDecoder();
+-
+-  MY_UNKNOWN_IMP1(ICompressSetDecoderProperties2)
+-
+-  void ReleaseStreams()
+-  {
+-    m_OutWindowStream.ReleaseStream();
+-    m_InBitStream.ReleaseStream();
+-  }
+-
+-  STDMETHOD(Code)(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-      const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress);
+-
+-  STDMETHOD(SetDecoderProperties2)(const Byte *data, UInt32 size);
+-
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar3Decoder.cpp p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Decoder.cpp
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar3Decoder.cpp	2010-09-14 16:18:38.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Decoder.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,897 +0,0 @@
+-// Rar3Decoder.cpp
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+-
+-/* This code uses Carryless rangecoder (1999): Dmitry Subbotin : Public domain */
+- 
+-#include "StdAfx.h"
+-
+-#include "../../../C/Alloc.h"
+-
+-#include "../Common/StreamUtils.h"
+-
+-#include "Rar3Decoder.h"
+-
+-namespace NCompress {
+-namespace NRar3 {
+-
+-static void *SzBigAlloc(void *, size_t size) { return BigAlloc(size); }
+-static void SzBigFree(void *, void *address) { BigFree(address); }
+-static ISzAlloc g_BigAlloc = { SzBigAlloc, SzBigFree };
+-
+-static const UInt32 kNumAlignReps = 15;
+-
+-static const UInt32 kSymbolReadTable = 256;
+-static const UInt32 kSymbolRep = 259;
+-static const UInt32 kSymbolLen2 = kSymbolRep + kNumReps;
+-
+-static const Byte kLenStart[kLenTableSize]      = {0,1,2,3,4,5,6,7,8,10,12,14,16,20,24,28,32,40,48,56,64,80,96,112,128,160,192,224};
+-static const Byte kLenDirectBits[kLenTableSize] = {0,0,0,0,0,0,0,0,1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4,  4,  5,  5,  5,  5};
+-
+-static const Byte kDistDirectBits[kDistTableSize] =
+-  {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,14,14,15,15,
+-  16,16,16,16,16,16,16,16,16,16,16,16,16,16,
+-  18,18,18,18,18,18,18,18,18,18,18,18};
+-
+-static const Byte kLevelDirectBits[kLevelTableSize] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,3,7};
+-
+-static const Byte kLen2DistStarts[kNumLen2Symbols]={0,4,8,16,32,64,128,192};
+-static const Byte kLen2DistDirectBits[kNumLen2Symbols]={2,2,3, 4, 5, 6,  6,  6};
+-
+-static const UInt32 kDistLimit3 = 0x2000 - 2;
+-static const UInt32 kDistLimit4 = 0x40000 - 2;
+-
+-static const UInt32 kNormalMatchMinLen = 3;
+-
+-static const UInt32 kVmDataSizeMax = 1 << 16;
+-static const UInt32 kVmCodeSizeMax = 1 << 16;
+-
+-extern "C" {
+-
+-static UInt32 Range_GetThreshold(void *pp, UInt32 total)
+-{
+-  CRangeDecoder *p = (CRangeDecoder *)pp;
+-  return p->Code / (p->Range /= total);
+-}
+-
+-static void Range_Decode(void *pp, UInt32 start, UInt32 size)
+-{
+-  CRangeDecoder *p = (CRangeDecoder *)pp;
+-  start *= p->Range;
+-  p->Low += start;
+-  p->Code -= start;
+-  p->Range *= size;
+-  p->Normalize();
+-}
+-
+-static UInt32 Range_DecodeBit(void *pp, UInt32 size0)
+-{
+-  CRangeDecoder *p = (CRangeDecoder *)pp;
+-  if (p->Code / (p->Range >>= 14) < size0)
+-  {
+-    Range_Decode(p, 0, size0);
+-    return 0;
+-  }
+-  else
+-  {
+-    Range_Decode(p, size0, (1 << 14) - size0);
+-    return 1;
+-  }
+-}
+-
+-}
+-
+-CRangeDecoder::CRangeDecoder()
+-{
+-  s.GetThreshold = Range_GetThreshold;
+-  s.Decode = Range_Decode;
+-  s.DecodeBit = Range_DecodeBit;
+-}
+-
+-CDecoder::CDecoder():
+-  _window(0),
+-  _winPos(0),
+-  _wrPtr(0),
+-  _lzSize(0),
+-  _writtenFileSize(0),
+-  _vmData(0),
+-  _vmCode(0),
+-  m_IsSolid(false)
+-{
+-  Ppmd7_Construct(&_ppmd);
+-}
+-
+-CDecoder::~CDecoder()
+-{
+-  InitFilters();
+-  ::MidFree(_vmData);
+-  ::MidFree(_window);
+-  Ppmd7_Free(&_ppmd, &g_BigAlloc);
+-}
+-
+-HRESULT CDecoder::WriteDataToStream(const Byte *data, UInt32 size)
+-{
+-  return WriteStream(_outStream, data, size);
+-}
+-
+-HRESULT CDecoder::WriteData(const Byte *data, UInt32 size)
+-{
+-  HRESULT res = S_OK;
+-  if (_writtenFileSize < _unpackSize)
+-  {
+-    UInt32 curSize = size;
+-    UInt64 remain = _unpackSize - _writtenFileSize;
+-    if (remain < curSize)
+-      curSize = (UInt32)remain;
+-    res = WriteDataToStream(data, curSize);
+-  }
+-  _writtenFileSize += size;
+-  return res;
+-}
+-
+-HRESULT CDecoder::WriteArea(UInt32 startPtr, UInt32 endPtr)
+-{
+-  if (startPtr <= endPtr)
+-    return WriteData(_window + startPtr, endPtr - startPtr);
+-  RINOK(WriteData(_window + startPtr, kWindowSize - startPtr));
+-  return WriteData(_window, endPtr);
+-}
+-
+-void CDecoder::ExecuteFilter(int tempFilterIndex, NVm::CBlockRef &outBlockRef)
+-{
+-  CTempFilter *tempFilter = _tempFilters[tempFilterIndex];
+-  tempFilter->InitR[6] = (UInt32)_writtenFileSize;
+-  NVm::SetValue32(&tempFilter->GlobalData[0x24], (UInt32)_writtenFileSize);
+-  NVm::SetValue32(&tempFilter->GlobalData[0x28], (UInt32)(_writtenFileSize >> 32));
+-  CFilter *filter = _filters[tempFilter->FilterIndex];
+-  _vm.Execute(filter, tempFilter, outBlockRef, filter->GlobalData);
+-  delete tempFilter;
+-  _tempFilters[tempFilterIndex] = 0;
+-}
+-
+-HRESULT CDecoder::WriteBuf()
+-{
+-  UInt32 writtenBorder = _wrPtr;
+-  UInt32 writeSize = (_winPos - writtenBorder) & kWindowMask;
+-  for (int i = 0; i < _tempFilters.Size(); i++)
+-  {
+-    CTempFilter *filter = _tempFilters[i];
+-    if (filter == NULL)
+-      continue;
+-    if (filter->NextWindow)
+-    {
+-      filter->NextWindow = false;
+-      continue;
+-    }
+-    UInt32 blockStart = filter->BlockStart;
+-    UInt32 blockSize = filter->BlockSize;
+-    if (((blockStart - writtenBorder) & kWindowMask) < writeSize)
+-    {
+-      if (writtenBorder != blockStart)
+-      {
+-        RINOK(WriteArea(writtenBorder, blockStart));
+-        writtenBorder = blockStart;
+-        writeSize = (_winPos - writtenBorder) & kWindowMask;
+-      }
+-      if (blockSize <= writeSize)
+-      {
+-        UInt32 blockEnd = (blockStart + blockSize) & kWindowMask;
+-        if (blockStart < blockEnd || blockEnd == 0)
+-          _vm.SetMemory(0, _window + blockStart, blockSize);
+-        else
+-        {
+-          UInt32 tailSize = kWindowSize - blockStart;
+-          _vm.SetMemory(0, _window + blockStart, tailSize);
+-          _vm.SetMemory(tailSize, _window, blockEnd);
+-        }
+-        NVm::CBlockRef outBlockRef;
+-        ExecuteFilter(i, outBlockRef);
+-        while (i + 1 < _tempFilters.Size())
+-        {
+-          CTempFilter *nextFilter = _tempFilters[i + 1];
+-          if (nextFilter == NULL || nextFilter->BlockStart != blockStart ||
+-              nextFilter->BlockSize != outBlockRef.Size || nextFilter->NextWindow)
+-            break;
+-          _vm.SetMemory(0, _vm.GetDataPointer(outBlockRef.Offset), outBlockRef.Size);
+-          ExecuteFilter(++i, outBlockRef);
+-        }
+-        WriteDataToStream(_vm.GetDataPointer(outBlockRef.Offset), outBlockRef.Size);
+-        _writtenFileSize += outBlockRef.Size;
+-        writtenBorder = blockEnd;
+-        writeSize = (_winPos - writtenBorder) & kWindowMask;
+-      }
+-      else
+-      {
+-        for (int j = i; j < _tempFilters.Size(); j++)
+-        {
+-          CTempFilter *filter = _tempFilters[j];
+-          if (filter != NULL && filter->NextWindow)
+-            filter->NextWindow = false;
+-        }
+-        _wrPtr = writtenBorder;
+-        return S_OK; // check it
+-      }
+-    }
+-  }
+-      
+-  _wrPtr = _winPos;
+-  return WriteArea(writtenBorder, _winPos);
+-}
+-
+-void CDecoder::InitFilters()
+-{
+-  _lastFilter = 0;
+-  int i;
+-  for (i = 0; i < _tempFilters.Size(); i++)
+-    delete _tempFilters[i];
+-  _tempFilters.Clear();
+-  for (i = 0; i < _filters.Size(); i++)
+-    delete _filters[i];
+-  _filters.Clear();
+-}
+-
+-bool CDecoder::AddVmCode(UInt32 firstByte, UInt32 codeSize)
+-{
+-  CMemBitDecoder inp;
+-  inp.Init(_vmData, codeSize);
+-
+-  UInt32 filterIndex;
+-  if (firstByte & 0x80)
+-  {
+-    filterIndex = NVm::ReadEncodedUInt32(inp);
+-    if (filterIndex == 0)
+-      InitFilters();
+-    else
+-      filterIndex--;
+-  }
+-  else
+-    filterIndex = _lastFilter;
+-  if (filterIndex > (UInt32)_filters.Size())
+-    return false;
+-  _lastFilter = filterIndex;
+-  bool newFilter = (filterIndex == (UInt32)_filters.Size());
+-
+-  CFilter *filter;
+-  if (newFilter)
+-  {
+-    // check if too many filters
+-    if (filterIndex > 1024)
+-      return false;
+-    filter = new CFilter;
+-    _filters.Add(filter);
+-  }
+-  else
+-  {
+-    filter = _filters[filterIndex];
+-    filter->ExecCount++;
+-  }
+-
+-  int numEmptyItems = 0;
+-  int i;
+-  for (i = 0; i < _tempFilters.Size(); i++)
+-  {
+-    _tempFilters[i - numEmptyItems] = _tempFilters[i];
+-    if (_tempFilters[i] == NULL)
+-      numEmptyItems++;
+-    if (numEmptyItems > 0)
+-      _tempFilters[i] = NULL;
+-  }
+-  if (numEmptyItems == 0)
+-  {
+-    _tempFilters.Add(NULL);
+-    numEmptyItems = 1;
+-  }
+-  CTempFilter *tempFilter = new CTempFilter;
+-  _tempFilters[_tempFilters.Size() - numEmptyItems] = tempFilter;
+-  tempFilter->FilterIndex = filterIndex;
+-  tempFilter->ExecCount = filter->ExecCount;
+- 
+-  UInt32 blockStart = NVm::ReadEncodedUInt32(inp);
+-  if (firstByte & 0x40)
+-    blockStart += 258;
+-  tempFilter->BlockStart = (blockStart + _winPos) & kWindowMask;
+-  if (firstByte & 0x20)
+-    filter->BlockSize = NVm::ReadEncodedUInt32(inp);
+-  tempFilter->BlockSize = filter->BlockSize;
+-  tempFilter->NextWindow = _wrPtr != _winPos && ((_wrPtr - _winPos) & kWindowMask) <= blockStart;
+-
+-  memset(tempFilter->InitR, 0, sizeof(tempFilter->InitR));
+-  tempFilter->InitR[3] = NVm::kGlobalOffset;
+-  tempFilter->InitR[4] = tempFilter->BlockSize;
+-  tempFilter->InitR[5] = tempFilter->ExecCount;
+-  if (firstByte & 0x10)
+-  {
+-    UInt32 initMask = inp.ReadBits(NVm::kNumGpRegs);
+-    for (int i = 0; i < NVm::kNumGpRegs; i++)
+-      if (initMask & (1 << i))
+-        tempFilter->InitR[i] = NVm::ReadEncodedUInt32(inp);
+-  }
+-  if (newFilter)
+-  {
+-    UInt32 vmCodeSize = NVm::ReadEncodedUInt32(inp);
+-    if (vmCodeSize >= kVmCodeSizeMax || vmCodeSize == 0)
+-      return false;
+-    for (UInt32 i = 0; i < vmCodeSize; i++)
+-      _vmCode[i] = (Byte)inp.ReadBits(8);
+-    _vm.PrepareProgram(_vmCode, vmCodeSize, filter);
+-  }
+-
+-  tempFilter->AllocateEmptyFixedGlobal();
+-
+-  Byte *globalData = &tempFilter->GlobalData[0];
+-  for (i = 0; i < NVm::kNumGpRegs; i++)
+-    NVm::SetValue32(&globalData[i * 4], tempFilter->InitR[i]);
+-  NVm::SetValue32(&globalData[NVm::NGlobalOffset::kBlockSize], tempFilter->BlockSize);
+-  NVm::SetValue32(&globalData[NVm::NGlobalOffset::kBlockPos], 0); // It was commented. why?
+-  NVm::SetValue32(&globalData[NVm::NGlobalOffset::kExecCount], tempFilter->ExecCount);
+-
+-  if (firstByte & 8)
+-  {
+-    UInt32 dataSize = NVm::ReadEncodedUInt32(inp);
+-    if (dataSize > NVm::kGlobalSize - NVm::kFixedGlobalSize)
+-      return false;
+-    CRecordVector<Byte> &globalData = tempFilter->GlobalData;
+-    int requredSize = (int)(dataSize + NVm::kFixedGlobalSize);
+-    if (globalData.Size() < requredSize)
+-    {
+-      globalData.Reserve(requredSize);
+-      for (; globalData.Size() < requredSize; i++)
+-        globalData.Add(0);
+-    }
+-    for (UInt32 i = 0; i < dataSize; i++)
+-      globalData[NVm::kFixedGlobalSize + i] = (Byte)inp.ReadBits(8);
+-  }
+-  return true;
+-}
+-
+-bool CDecoder::ReadVmCodeLZ()
+-{
+-  UInt32 firstByte = ReadBits(8);
+-  UInt32 length = (firstByte & 7) + 1;
+-  if (length == 7)
+-    length = ReadBits(8) + 7;
+-  else if (length == 8)
+-    length = ReadBits(16);
+-  if (length > kVmDataSizeMax)
+-    return false;
+-  for (UInt32 i = 0; i < length; i++)
+-    _vmData[i] = (Byte)ReadBits(8);
+-  return AddVmCode(firstByte, length);
+-}
+-
+-bool CDecoder::ReadVmCodePPM()
+-{
+-  int firstByte = DecodePpmSymbol();
+-  if (firstByte < 0)
+-    return false;
+-  UInt32 length = (firstByte & 7) + 1;
+-  if (length == 7)
+-  {
+-    int b1 = DecodePpmSymbol();
+-    if (b1 < 0)
+-      return false;
+-    length = b1 + 7;
+-  }
+-  else if (length == 8)
+-  {
+-    int b1 = DecodePpmSymbol();
+-    if (b1 < 0)
+-      return false;
+-    int b2 = DecodePpmSymbol();
+-    if (b2 < 0)
+-      return false;
+-    length = b1 * 256 + b2;
+-  }
+-  if (length > kVmDataSizeMax)
+-    return false;
+-  for (UInt32 i = 0; i < length; i++)
+-  {
+-    int b = DecodePpmSymbol();
+-    if (b < 0)
+-      return false;
+-    _vmData[i] = (Byte)b;
+-  }
+-  return AddVmCode(firstByte, length);
+-}
+-
+-#define RIF(x) { if (!(x)) return S_FALSE; }
+-
+-UInt32 CDecoder::ReadBits(int numBits) { return m_InBitStream.bitDecoder.ReadBits(numBits); }
+-
+-/////////////////////////////////////////////////
+-// PPM
+-
+-HRESULT CDecoder::InitPPM()
+-{
+-  Byte maxOrder = (Byte)ReadBits(7);
+-
+-  bool reset = ((maxOrder & 0x20) != 0);
+-  int maxMB = 0;
+-  if (reset)
+-    maxMB = (Byte)ReadBits(8);
+-  else
+-  {
+-    if (PpmError || !Ppmd7_WasAllocated(&_ppmd))
+-      return S_FALSE;
+-  }
+-  if (maxOrder & 0x40)
+-    PpmEscChar = (Byte)ReadBits(8);
+-  m_InBitStream.InitRangeCoder();
+-  /*
+-  if (m_InBitStream.m_BitPos != 0)
+-    return S_FALSE;
+-  */
+-  if (reset)
+-  {
+-    PpmError = true;
+-    maxOrder = (maxOrder & 0x1F) + 1;
+-    if (maxOrder > 16)
+-      maxOrder = 16 + (maxOrder - 16) * 3;
+-    if (maxOrder == 1)
+-    {
+-      Ppmd7_Free(&_ppmd, &g_BigAlloc);
+-      return S_FALSE;
+-    }
+-    if (!Ppmd7_Alloc(&_ppmd, (maxMB + 1) << 20, &g_BigAlloc))
+-      return E_OUTOFMEMORY;
+-    Ppmd7_Init(&_ppmd, maxOrder);
+-    PpmError = false;
+-  }
+-  return S_OK;
+-}
+-
+-int CDecoder::DecodePpmSymbol() { return Ppmd7_DecodeSymbol(&_ppmd, &m_InBitStream.s); }
+-
+-HRESULT CDecoder::DecodePPM(Int32 num, bool &keepDecompressing)
+-{
+-  keepDecompressing = false;
+-  if (PpmError)
+-    return S_FALSE;
+-  do
+-  {
+-    if (((_wrPtr - _winPos) & kWindowMask) < 260 && _wrPtr != _winPos)
+-    {
+-      RINOK(WriteBuf());
+-      if (_writtenFileSize > _unpackSize)
+-      {
+-        keepDecompressing = false;
+-        return S_OK;
+-      }
+-    }
+-    int c = DecodePpmSymbol();
+-    if (c < 0)
+-    {
+-      PpmError = true;
+-      return S_FALSE;
+-    }
+-    if (c == PpmEscChar)
+-    {
+-      int nextCh = DecodePpmSymbol();
+-      if (nextCh < 0)
+-      {
+-        PpmError = true;
+-        return S_FALSE;
+-      }
+-      if (nextCh == 0)
+-        return ReadTables(keepDecompressing);
+-      if (nextCh == 2 || nextCh == -1)
+-        return S_OK;
+-      if (nextCh == 3)
+-      {
+-        if (!ReadVmCodePPM())
+-        {
+-          PpmError = true;
+-          return S_FALSE;
+-        }
+-        continue;
+-      }
+-      if (nextCh == 4 || nextCh == 5)
+-      {
+-        UInt32 distance = 0;
+-        UInt32 length = 4;
+-        if (nextCh == 4)
+-        {
+-          for (int i = 0; i < 3; i++)
+-          {
+-            int c = DecodePpmSymbol();
+-            if (c < 0)
+-            {
+-              PpmError = true;
+-              return S_FALSE;
+-            }
+-            distance = (distance << 8) + (Byte)c;
+-          }
+-          distance++;
+-          length += 28;
+-        }
+-        int c = DecodePpmSymbol();
+-        if (c < 0)
+-        {
+-          PpmError = true;
+-          return S_FALSE;
+-        }
+-        length += c;
+-        if (distance >= _lzSize)
+-          return S_FALSE;
+-        CopyBlock(distance, length);
+-        num -= (Int32)length;
+-        continue;
+-      }
+-    }
+-    PutByte((Byte)c);
+-    num--;
+-  }
+-  while (num >= 0);
+-  keepDecompressing = true;
+-  return S_OK;
+-}
+-
+-/////////////////////////////////////////////////
+-// LZ
+-
+-HRESULT CDecoder::ReadTables(bool &keepDecompressing)
+-{
+-  keepDecompressing = true;
+-  ReadBits((8 - m_InBitStream.bitDecoder.GetBitPosition()) & 7);
+-  if (ReadBits(1) != 0)
+-  {
+-    _lzMode = false;
+-    return InitPPM();
+-  }
+-
+-  _lzMode = true;
+-  PrevAlignBits = 0;
+-  PrevAlignCount = 0;
+-
+-  Byte levelLevels[kLevelTableSize];
+-  Byte newLevels[kTablesSizesSum];
+-
+-  if (ReadBits(1) == 0)
+-    memset(m_LastLevels, 0, kTablesSizesSum);
+-
+-  int i;
+-  for (i = 0; i < kLevelTableSize; i++)
+-  {
+-    UInt32 length = ReadBits(4);
+-    if (length == 15)
+-    {
+-      UInt32 zeroCount = ReadBits(4);
+-      if (zeroCount != 0)
+-      {
+-        zeroCount += 2;
+-        while (zeroCount-- > 0 && i < kLevelTableSize)
+-          levelLevels[i++]=0;
+-        i--;
+-        continue;
+-      }
+-    }
+-    levelLevels[i] = (Byte)length;
+-  }
+-  RIF(m_LevelDecoder.SetCodeLengths(levelLevels));
+-  i = 0;
+-  while (i < kTablesSizesSum)
+-  {
+-    UInt32 number = m_LevelDecoder.DecodeSymbol(&m_InBitStream.bitDecoder);
+-    if (number < 16)
+-    {
+-      newLevels[i] = Byte((number + m_LastLevels[i]) & 15);
+-      i++;
+-    }
+-    else if (number > kLevelTableSize)
+-      return S_FALSE;
+-    else
+-    {
+-      int num;
+-      if (((number - 16) & 1) == 0)
+-        num = ReadBits(3) + 3;
+-      else
+-        num = ReadBits(7) + 11;
+-      if (number < 18)
+-      {
+-        if (i == 0)
+-          return S_FALSE;
+-        for (; num > 0 && i < kTablesSizesSum; num--, i++)
+-          newLevels[i] = newLevels[i - 1];
+-      }
+-      else
+-      {
+-        for (; num > 0 && i < kTablesSizesSum; num--)
+-          newLevels[i++] = 0;
+-      }
+-    }
+-  }
+-  TablesRead = true;
+-
+-  // original code has check here:
+-  /*
+-  if (InAddr > ReadTop)
+-  {
+-    keepDecompressing = false;
+-    return true;
+-  }
+-  */
+-
+-  RIF(m_MainDecoder.SetCodeLengths(&newLevels[0]));
+-  RIF(m_DistDecoder.SetCodeLengths(&newLevels[kMainTableSize]));
+-  RIF(m_AlignDecoder.SetCodeLengths(&newLevels[kMainTableSize + kDistTableSize]));
+-  RIF(m_LenDecoder.SetCodeLengths(&newLevels[kMainTableSize + kDistTableSize + kAlignTableSize]));
+-
+-  memcpy(m_LastLevels, newLevels, kTablesSizesSum);
+-  return S_OK;
+-}
+-
+-class CCoderReleaser
+-{
+-  CDecoder *m_Coder;
+-public:
+-  CCoderReleaser(CDecoder *coder): m_Coder(coder) {}
+-  ~CCoderReleaser()
+-  {
+-    m_Coder->ReleaseStreams();
+-  }
+-};
+-
+-HRESULT CDecoder::ReadEndOfBlock(bool &keepDecompressing)
+-{
+-  if (ReadBits(1) != 0)
+-  {
+-    // old file
+-    TablesRead = false;
+-    return ReadTables(keepDecompressing);
+-  }
+-  // new file
+-  keepDecompressing = false;
+-  TablesRead = (ReadBits(1) == 0);
+-  return S_OK;
+-}
+-
+-UInt32 kDistStart[kDistTableSize];
+-
+-class CDistInit
+-{
+-public:
+-  CDistInit() { Init(); }
+-  void Init()
+-  {
+-    UInt32 start = 0;
+-    for (UInt32 i = 0; i < kDistTableSize; i++)
+-    {
+-      kDistStart[i] = start;
+-      start += (1 << kDistDirectBits[i]);
+-    }
+-  }
+-} g_DistInit;
+-
+-HRESULT CDecoder::DecodeLZ(bool &keepDecompressing)
+-{
+-  UInt32 rep0 = _reps[0];
+-  UInt32 rep1 = _reps[1];
+-  UInt32 rep2 = _reps[2];
+-  UInt32 rep3 = _reps[3];
+-  UInt32 length = _lastLength;
+-  for (;;)
+-  {
+-    if (((_wrPtr - _winPos) & kWindowMask) < 260 && _wrPtr != _winPos)
+-    {
+-      RINOK(WriteBuf());
+-      if (_writtenFileSize > _unpackSize)
+-      {
+-        keepDecompressing = false;
+-        return S_OK;
+-      }
+-    }
+-    UInt32 number = m_MainDecoder.DecodeSymbol(&m_InBitStream.bitDecoder);
+-    if (number < 256)
+-    {
+-      PutByte((Byte)number);
+-      continue;
+-    }
+-    else if (number == kSymbolReadTable)
+-    {
+-      RINOK(ReadEndOfBlock(keepDecompressing));
+-      break;
+-    }
+-    else if (number == 257)
+-    {
+-      if (!ReadVmCodeLZ())
+-        return S_FALSE;
+-      continue;
+-    }
+-    else if (number == 258)
+-    {
+-      if (length == 0)
+-        return S_FALSE;
+-    }
+-    else if (number < kSymbolRep + 4)
+-    {
+-      if (number != kSymbolRep)
+-      {
+-        UInt32 distance;
+-        if (number == kSymbolRep + 1)
+-          distance = rep1;
+-        else
+-        {
+-          if (number == kSymbolRep + 2)
+-            distance = rep2;
+-          else
+-          {
+-            distance = rep3;
+-            rep3 = rep2;
+-          }
+-          rep2 = rep1;
+-        }
+-        rep1 = rep0;
+-        rep0 = distance;
+-      }
+-
+-      UInt32 number = m_LenDecoder.DecodeSymbol(&m_InBitStream.bitDecoder);
+-      if (number >= kLenTableSize)
+-        return S_FALSE;
+-      length = 2 + kLenStart[number] + m_InBitStream.bitDecoder.ReadBits(kLenDirectBits[number]);
+-    }
+-    else
+-    {
+-      rep3 = rep2;
+-      rep2 = rep1;
+-      rep1 = rep0;
+-      if (number < 271)
+-      {
+-        number -= 263;
+-        rep0 = kLen2DistStarts[number] + m_InBitStream.bitDecoder.ReadBits(kLen2DistDirectBits[number]);
+-        length = 2;
+-      }
+-      else if (number < 299)
+-      {
+-        number -= 271;
+-        length = kNormalMatchMinLen + (UInt32)kLenStart[number] + m_InBitStream.bitDecoder.ReadBits(kLenDirectBits[number]);
+-        UInt32 number = m_DistDecoder.DecodeSymbol(&m_InBitStream.bitDecoder);
+-        if (number >= kDistTableSize)
+-          return S_FALSE;
+-        rep0 = kDistStart[number];
+-        int numBits = kDistDirectBits[number];
+-        if (number >= (kNumAlignBits * 2) + 2)
+-        {
+-          if (numBits > kNumAlignBits)
+-            rep0 += (m_InBitStream.bitDecoder.ReadBits(numBits - kNumAlignBits) << kNumAlignBits);
+-          if (PrevAlignCount > 0)
+-          {
+-            PrevAlignCount--;
+-            rep0 += PrevAlignBits;
+-          }
+-          else
+-          {
+-            UInt32 number = m_AlignDecoder.DecodeSymbol(&m_InBitStream.bitDecoder);
+-            if (number < (1 << kNumAlignBits))
+-            {
+-              rep0 += number;
+-              PrevAlignBits = number;
+-            }
+-            else if (number  == (1 << kNumAlignBits))
+-            {
+-              PrevAlignCount = kNumAlignReps;
+-              rep0 += PrevAlignBits;
+-            }
+-            else
+-              return S_FALSE;
+-          }
+-        }
+-        else
+-          rep0 += m_InBitStream.bitDecoder.ReadBits(numBits);
+-        length += ((kDistLimit4 - rep0) >> 31) + ((kDistLimit3 - rep0) >> 31);
+-      }
+-      else
+-        return S_FALSE;
+-    }
+-    if (rep0 >= _lzSize)
+-      return S_FALSE;
+-    CopyBlock(rep0, length);
+-  }
+-  _reps[0] = rep0;
+-  _reps[1] = rep1;
+-  _reps[2] = rep2;
+-  _reps[3] = rep3;
+-  _lastLength = length;
+-
+-  return S_OK;
+-}
+-
+-HRESULT CDecoder::CodeReal(ICompressProgressInfo *progress)
+-{
+-  _writtenFileSize = 0;
+-  if (!m_IsSolid)
+-  {
+-    _lzSize = 0;
+-    _winPos = 0;
+-    _wrPtr = 0;
+-    for (int i = 0; i < kNumReps; i++)
+-      _reps[i] = 0;
+-    _lastLength = 0;
+-    memset(m_LastLevels, 0, kTablesSizesSum);
+-    TablesRead = false;
+-    PpmEscChar = 2;
+-    PpmError = true;
+-    InitFilters();
+-  }
+-  if (!m_IsSolid || !TablesRead)
+-  {
+-    bool keepDecompressing;
+-    RINOK(ReadTables(keepDecompressing));
+-    if (!keepDecompressing)
+-      return S_OK;
+-  }
+-
+-  for (;;)
+-  {
+-    bool keepDecompressing;
+-    if (_lzMode)
+-    {
+-      RINOK(DecodeLZ(keepDecompressing))
+-    }
+-    else
+-    {
+-      RINOK(DecodePPM(1 << 18, keepDecompressing))
+-    }
+-    UInt64 packSize = m_InBitStream.bitDecoder.GetProcessedSize();
+-    RINOK(progress->SetRatioInfo(&packSize, &_writtenFileSize));
+-    if (!keepDecompressing)
+-      break;
+-  }
+-  RINOK(WriteBuf());
+-  UInt64 packSize = m_InBitStream.bitDecoder.GetProcessedSize();
+-  RINOK(progress->SetRatioInfo(&packSize, &_writtenFileSize));
+-  if (_writtenFileSize < _unpackSize)
+-    return S_FALSE;
+-  return S_OK;
+-}
+-
+-STDMETHODIMP CDecoder::Code(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-    const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress)
+-{
+-  try
+-  {
+-    if (inSize == NULL || outSize == NULL)
+-      return E_INVALIDARG;
+-
+-    if (_vmData == 0)
+-    {
+-      _vmData = (Byte *)::MidAlloc(kVmDataSizeMax + kVmCodeSizeMax);
+-      if (_vmData == 0)
+-        return E_OUTOFMEMORY;
+-      _vmCode = _vmData + kVmDataSizeMax;
+-    }
+-    
+-    if (_window == 0)
+-    {
+-      _window = (Byte *)::MidAlloc(kWindowSize);
+-      if (_window == 0)
+-        return E_OUTOFMEMORY;
+-    }
+-    if (!m_InBitStream.bitDecoder.Create(1 << 20))
+-      return E_OUTOFMEMORY;
+-    if (!_vm.Create())
+-      return E_OUTOFMEMORY;
+-
+-    
+-    m_InBitStream.bitDecoder.SetStream(inStream);
+-    m_InBitStream.bitDecoder.Init();
+-    _outStream = outStream;
+-   
+-    CCoderReleaser coderReleaser(this);
+-    _unpackSize = *outSize;
+-    return CodeReal(progress);
+-  }
+-  catch(const CInBufferException &e)  { return e.ErrorCode; }
+-  catch(...) { return S_FALSE; }
+-  // CNewException is possible here. But probably CNewException is caused
+-  // by error in data stream.
+-}
+-
+-STDMETHODIMP CDecoder::SetDecoderProperties2(const Byte *data, UInt32 size)
+-{
+-  if (size < 1)
+-    return E_INVALIDARG;
+-  m_IsSolid = (data[0] != 0);
+-  return S_OK;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar3Decoder.h p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Decoder.h
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar3Decoder.h	2010-03-16 16:08:18.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Decoder.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,267 +0,0 @@
+-// Rar3Decoder.h
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+-
+-/* This code uses Carryless rangecoder (1999): Dmitry Subbotin : Public domain */
+-
+-#ifndef __COMPRESS_RAR3_DECODER_H
+-#define __COMPRESS_RAR3_DECODER_H
+-
+-#include "../../../C/Ppmd7.h"
+-
+-#include "../../Common/MyCom.h"
+-
+-#include "../ICoder.h"
+-
+-#include "../Common/InBuffer.h"
+-
+-#include "BitmDecoder.h"
+-#include "HuffmanDecoder.h"
+-#include "Rar3Vm.h"
+-
+-namespace NCompress {
+-namespace NRar3 {
+-
+-const UInt32 kWindowSize = 1 << 22;
+-const UInt32 kWindowMask = (kWindowSize - 1);
+-
+-const UInt32 kNumReps = 4;
+-const UInt32 kNumLen2Symbols = 8;
+-const UInt32 kLenTableSize = 28;
+-const UInt32 kMainTableSize = 256 + 1 + 1 + 1 + kNumReps + kNumLen2Symbols + kLenTableSize;
+-const UInt32 kDistTableSize = 60;
+-
+-const int kNumAlignBits = 4;
+-const UInt32 kAlignTableSize = (1 << kNumAlignBits) + 1;
+-
+-const UInt32 kLevelTableSize = 20;
+-
+-const UInt32 kTablesSizesSum = kMainTableSize + kDistTableSize + kAlignTableSize + kLenTableSize;
+-
+-class CBitDecoder
+-{
+-  UInt32 m_Value;
+-  unsigned m_BitPos;
+-public:
+-  CInBuffer m_Stream;
+-  bool Create(UInt32 bufferSize) { return m_Stream.Create(bufferSize); }
+-  void SetStream(ISequentialInStream *inStream) { m_Stream.SetStream(inStream);}
+-  void ReleaseStream() { m_Stream.ReleaseStream();}
+-
+-  void Init()
+-  {
+-    m_Stream.Init();
+-    m_BitPos = 0;
+-    m_Value = 0;
+-  }
+-  
+-  UInt64 GetProcessedSize() const { return m_Stream.GetProcessedSize() - (m_BitPos) / 8; }
+-  UInt32 GetBitPosition() const { return ((8 - m_BitPos) & 7); }
+-  
+-  UInt32 GetValue(unsigned numBits)
+-  {
+-    if (m_BitPos < numBits)
+-    {
+-      m_BitPos += 8;
+-      m_Value = (m_Value << 8) | m_Stream.ReadByte();
+-      if (m_BitPos < numBits)
+-      {
+-        m_BitPos += 8;
+-        m_Value = (m_Value << 8) | m_Stream.ReadByte();
+-      }
+-    }
+-    return m_Value >> (m_BitPos - numBits);
+-  }
+-  
+-  void MovePos(unsigned numBits)
+-  {
+-    m_BitPos -= numBits;
+-    m_Value = m_Value & ((1 << m_BitPos) - 1);
+-  }
+-  
+-  UInt32 ReadBits(unsigned numBits)
+-  {
+-    UInt32 res = GetValue(numBits);
+-    MovePos(numBits);
+-    return res;
+-  }
+-};
+-
+-const UInt32 kTopValue = (1 << 24);
+-const UInt32 kBot = (1 << 15);
+-
+-struct CRangeDecoder
+-{
+-  IPpmd7_RangeDec s;
+-  UInt32 Range;
+-  UInt32 Code;
+-  UInt32 Low;
+-  CBitDecoder bitDecoder;
+-  SRes Res;
+-
+-public:
+-  void InitRangeCoder()
+-  {
+-    Code = 0;
+-    Low = 0;
+-    Range = 0xFFFFFFFF;
+-    for (int i = 0; i < 4; i++)
+-      Code = (Code << 8) | bitDecoder.ReadBits(8);
+-  }
+-
+-  void Normalize()
+-  {
+-    while ((Low ^ (Low + Range)) < kTopValue ||
+-       Range < kBot && ((Range = (0 - Low) & (kBot - 1)), 1))
+-    {
+-      Code = (Code << 8) | bitDecoder.m_Stream.ReadByte();
+-      Range <<= 8;
+-      Low <<= 8;
+-    }
+-  }
+-
+-  CRangeDecoder();
+-};
+-
+-struct CFilter: public NVm::CProgram
+-{
+-  CRecordVector<Byte> GlobalData;
+-  UInt32 BlockStart;
+-  UInt32 BlockSize;
+-  UInt32 ExecCount;
+-  CFilter(): BlockStart(0), BlockSize(0), ExecCount(0) {}
+-};
+-
+-struct CTempFilter: public NVm::CProgramInitState
+-{
+-  UInt32 BlockStart;
+-  UInt32 BlockSize;
+-  UInt32 ExecCount;
+-  bool NextWindow;
+-  
+-  UInt32 FilterIndex;
+-};
+-
+-const int kNumHuffmanBits = 15;
+-
+-class CDecoder:
+-  public ICompressCoder,
+-  public ICompressSetDecoderProperties2,
+-  public CMyUnknownImp
+-{
+-  CRangeDecoder m_InBitStream;
+-  Byte *_window;
+-  UInt32 _winPos;
+-  UInt32 _wrPtr;
+-  UInt64 _lzSize;
+-  UInt64 _unpackSize;
+-  UInt64 _writtenFileSize; // if it's > _unpackSize, then _unpackSize only written
+-  CMyComPtr<ISequentialOutStream> _outStream;
+-  NHuffman::CDecoder<kNumHuffmanBits, kMainTableSize> m_MainDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kDistTableSize> m_DistDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kAlignTableSize> m_AlignDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kLenTableSize> m_LenDecoder;
+-  NHuffman::CDecoder<kNumHuffmanBits, kLevelTableSize> m_LevelDecoder;
+-
+-  UInt32 _reps[kNumReps];
+-  UInt32 _lastLength;
+-  
+-  Byte m_LastLevels[kTablesSizesSum];
+-
+-  Byte *_vmData;
+-  Byte *_vmCode;
+-  NVm::CVm _vm;
+-  CRecordVector<CFilter *> _filters;
+-  CRecordVector<CTempFilter *>  _tempFilters;
+-  UInt32 _lastFilter;
+-
+-  bool m_IsSolid;
+-
+-  bool _lzMode;
+-
+-  UInt32 PrevAlignBits;
+-  UInt32 PrevAlignCount;
+-
+-  bool TablesRead;
+-
+-  CPpmd7 _ppmd;
+-  int PpmEscChar;
+-  bool PpmError;
+-  
+-  HRESULT WriteDataToStream(const Byte *data, UInt32 size);
+-  HRESULT WriteData(const Byte *data, UInt32 size);
+-  HRESULT WriteArea(UInt32 startPtr, UInt32 endPtr);
+-  void ExecuteFilter(int tempFilterIndex, NVm::CBlockRef &outBlockRef);
+-  HRESULT WriteBuf();
+-
+-  void InitFilters();
+-  bool AddVmCode(UInt32 firstByte, UInt32 codeSize);
+-  bool ReadVmCodeLZ();
+-  bool ReadVmCodePPM();
+-  
+-  UInt32 ReadBits(int numBits);
+-
+-  HRESULT InitPPM();
+-  int DecodePpmSymbol();
+-  HRESULT DecodePPM(Int32 num, bool &keepDecompressing);
+-
+-  HRESULT ReadTables(bool &keepDecompressing);
+-  HRESULT ReadEndOfBlock(bool &keepDecompressing);
+-  HRESULT DecodeLZ(bool &keepDecompressing);
+-  HRESULT CodeReal(ICompressProgressInfo *progress);
+-public:
+-  CDecoder();
+-  ~CDecoder();
+-
+-  MY_UNKNOWN_IMP1(ICompressSetDecoderProperties2)
+-
+-  void ReleaseStreams()
+-  {
+-    _outStream.Release();
+-    m_InBitStream.bitDecoder.ReleaseStream();
+-  }
+-
+-  STDMETHOD(Code)(ISequentialInStream *inStream, ISequentialOutStream *outStream,
+-      const UInt64 *inSize, const UInt64 *outSize, ICompressProgressInfo *progress);
+-
+-  STDMETHOD(SetDecoderProperties2)(const Byte *data, UInt32 size);
+-
+-  void CopyBlock(UInt32 distance, UInt32 len)
+-  {
+-    _lzSize += len;
+-    UInt32 pos = (_winPos - distance - 1) & kWindowMask;
+-    Byte *window = _window;
+-    UInt32 winPos = _winPos;
+-    if (kWindowSize - winPos > len && kWindowSize - pos > len)
+-    {
+-      const Byte *src = window + pos;
+-      Byte *dest = window + winPos;
+-      _winPos += len;
+-      do
+-        *dest++ = *src++;
+-      while(--len != 0);
+-      return;
+-    }
+-    do
+-    {
+-      window[winPos] = window[pos];
+-      winPos = (winPos + 1) & kWindowMask;
+-      pos = (pos + 1) & kWindowMask;
+-    }
+-    while(--len != 0);
+-    _winPos = winPos;
+-  }
+-  
+-  void PutByte(Byte b)
+-  {
+-    _window[_winPos] = b;
+-    _winPos = (_winPos + 1) & kWindowMask;
+-    _lzSize++;
+-  }
+-
+-
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar3Vm.cpp p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Vm.cpp
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar3Vm.cpp	2010-10-20 01:56:07.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Vm.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,1091 +0,0 @@
+-// Rar3Vm.cpp
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+-
+-/*
+-Note:
+-  Due to performance considerations Rar VM may set Flags C incorrectly
+-  for some operands (SHL x, 0, ... ).
+-  Check implementation of concrete VM command
+-  to see if it sets flags right.
+-*/
+-
+-#include "StdAfx.h"
+-
+-#include "../../../C/7zCrc.h"
+-#include "../../../C/Alloc.h"
+-
+-#include "Rar3Vm.h"
+-
+-namespace NCompress {
+-namespace NRar3 {
+-
+-UInt32 CMemBitDecoder::ReadBits(int numBits)
+-{
+-  UInt32 res = 0;
+-  for (;;)
+-  {
+-    Byte b = _bitPos < _bitSize ? _data[_bitPos >> 3] : 0;
+-    int avail = (int)(8 - (_bitPos & 7));
+-    if (numBits <= avail)
+-    {
+-      _bitPos += numBits;
+-      return res | (b >> (avail - numBits)) & ((1 << numBits) - 1);
+-    }
+-    numBits -= avail;
+-    res |= (UInt32)(b & ((1 << avail) - 1)) << numBits;
+-    _bitPos += avail;
+-  }
+-}
+-
+-UInt32 CMemBitDecoder::ReadBit() { return ReadBits(1); }
+-
+-namespace NVm {
+-
+-static const UInt32 kStackRegIndex = kNumRegs - 1;
+-
+-static const UInt32 FLAG_C = 1;
+-static const UInt32 FLAG_Z = 2;
+-static const UInt32 FLAG_S = 0x80000000;
+-
+-static const Byte CF_OP0 = 0;
+-static const Byte CF_OP1 = 1;
+-static const Byte CF_OP2 = 2;
+-static const Byte CF_OPMASK = 3;
+-static const Byte CF_BYTEMODE = 4;
+-static const Byte CF_JUMP = 8;
+-static const Byte CF_PROC = 16;
+-static const Byte CF_USEFLAGS = 32;
+-static const Byte CF_CHFLAGS = 64;
+-
+-static Byte kCmdFlags[]=
+-{
+-  /* CMD_MOV   */ CF_OP2 | CF_BYTEMODE,
+-  /* CMD_CMP   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_ADD   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_SUB   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_JZ    */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_JNZ   */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_INC   */ CF_OP1 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_DEC   */ CF_OP1 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_JMP   */ CF_OP1 | CF_JUMP,
+-  /* CMD_XOR   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_AND   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_OR    */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_TEST  */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_JS    */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_JNS   */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_JB    */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_JBE   */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_JA    */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_JAE   */ CF_OP1 | CF_JUMP | CF_USEFLAGS,
+-  /* CMD_PUSH  */ CF_OP1,
+-  /* CMD_POP   */ CF_OP1,
+-  /* CMD_CALL  */ CF_OP1 | CF_PROC,
+-  /* CMD_RET   */ CF_OP0 | CF_PROC,
+-  /* CMD_NOT   */ CF_OP1 | CF_BYTEMODE,
+-  /* CMD_SHL   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_SHR   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_SAR   */ CF_OP2 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_NEG   */ CF_OP1 | CF_BYTEMODE | CF_CHFLAGS,
+-  /* CMD_PUSHA */ CF_OP0,
+-  /* CMD_POPA  */ CF_OP0,
+-  /* CMD_PUSHF */ CF_OP0 | CF_USEFLAGS,
+-  /* CMD_POPF  */ CF_OP0 | CF_CHFLAGS,
+-  /* CMD_MOVZX */ CF_OP2,
+-  /* CMD_MOVSX */ CF_OP2,
+-  /* CMD_XCHG  */ CF_OP2 | CF_BYTEMODE,
+-  /* CMD_MUL   */ CF_OP2 | CF_BYTEMODE,
+-  /* CMD_DIV   */ CF_OP2 | CF_BYTEMODE,
+-  /* CMD_ADC   */ CF_OP2 | CF_BYTEMODE | CF_USEFLAGS | CF_CHFLAGS ,
+-  /* CMD_SBB   */ CF_OP2 | CF_BYTEMODE | CF_USEFLAGS | CF_CHFLAGS ,
+-  /* CMD_PRINT */ CF_OP0
+-};
+-
+-CVm::CVm(): Mem(NULL) {}
+-
+-bool CVm::Create()
+-{
+-  if (Mem == NULL)
+-    Mem = (Byte *)::MyAlloc(kSpaceSize + 4);
+-  return (Mem != NULL);
+-}
+-
+-CVm::~CVm()
+-{
+-  ::MyFree(Mem);
+-}
+-
+-// CVm::Execute can change CProgram object: it clears progarm if VM returns error.
+-
+-bool CVm::Execute(CProgram *prg, const CProgramInitState *initState,
+-    CBlockRef &outBlockRef, CRecordVector<Byte> &outGlobalData)
+-{
+-  memcpy(R, initState->InitR, sizeof(initState->InitR));
+-  R[kStackRegIndex] = kSpaceSize;
+-  R[kNumRegs] = 0;
+-  Flags = 0;
+-
+-  UInt32 globalSize = MyMin((UInt32)initState->GlobalData.Size(), kGlobalSize);
+-  if (globalSize != 0)
+-    memcpy(Mem + kGlobalOffset, &initState->GlobalData[0], globalSize);
+-  UInt32 staticSize = MyMin((UInt32)prg->StaticData.Size(), kGlobalSize - globalSize);
+-  if (staticSize != 0)
+-    memcpy(Mem + kGlobalOffset + globalSize, &prg->StaticData[0], staticSize);
+-
+-  bool res = true;
+-  #ifdef RARVM_STANDARD_FILTERS
+-  if (prg->StandardFilterIndex >= 0)
+-    ExecuteStandardFilter(prg->StandardFilterIndex);
+-  else
+-  #endif
+-  {
+-    res = ExecuteCode(prg);
+-    if (!res)
+-      prg->Commands[0].OpCode = CMD_RET;
+-  }
+-  UInt32 newBlockPos = GetFixedGlobalValue32(NGlobalOffset::kBlockPos) & kSpaceMask;
+-  UInt32 newBlockSize = GetFixedGlobalValue32(NGlobalOffset::kBlockSize) & kSpaceMask;
+-  if (newBlockPos + newBlockSize >= kSpaceSize)
+-    newBlockPos = newBlockSize = 0;
+-  outBlockRef.Offset = newBlockPos;
+-  outBlockRef.Size = newBlockSize;
+-
+-  outGlobalData.Clear();
+-  UInt32 dataSize = GetFixedGlobalValue32(NGlobalOffset::kGlobalMemOutSize);
+-  dataSize = MyMin(dataSize, kGlobalSize - kFixedGlobalSize);
+-  if (dataSize != 0)
+-  {
+-    dataSize += kFixedGlobalSize;
+-    outGlobalData.Reserve(dataSize);
+-    for (UInt32 i = 0; i < dataSize; i++)
+-      outGlobalData.Add(Mem[kGlobalOffset + i]);
+-  }
+-  return res;
+-}
+-
+-
+-#define SET_IP(IP) \
+-  if ((IP) >= numCommands) return true; \
+-  if (--maxOpCount <= 0) return false; \
+-  cmd = commands + (IP);
+-
+-#define GET_FLAG_S_B(res) (((res) & 0x80) ? FLAG_S : 0)
+-#define SET_IP_OP1 { UInt32 val = GetOperand32(&cmd->Op1); SET_IP(val); }
+-#define FLAGS_UPDATE_SZ Flags = res == 0 ? FLAG_Z : res & FLAG_S
+-#define FLAGS_UPDATE_SZ_B Flags = (res & 0xFF) == 0 ? FLAG_Z : GET_FLAG_S_B(res)
+-
+-UInt32 CVm::GetOperand32(const COperand *op) const
+-{
+-  switch(op->Type)
+-  {
+-    case OP_TYPE_REG: return R[op->Data];
+-    case OP_TYPE_REGMEM: return GetValue32(&Mem[(op->Base + R[op->Data]) & kSpaceMask]);
+-    default: return op->Data;
+-  }
+-}
+-
+-void CVm::SetOperand32(const COperand *op, UInt32 val)
+-{
+-  switch(op->Type)
+-  {
+-    case OP_TYPE_REG: R[op->Data] = val; return;
+-    case OP_TYPE_REGMEM: SetValue32(&Mem[(op->Base + R[op->Data]) & kSpaceMask], val); return;
+-  }
+-}
+-
+-Byte CVm::GetOperand8(const COperand *op) const
+-{
+-  switch(op->Type)
+-  {
+-    case OP_TYPE_REG: return (Byte)R[op->Data];
+-    case OP_TYPE_REGMEM: return Mem[(op->Base + R[op->Data]) & kSpaceMask];;
+-    default: return (Byte)op->Data;
+-  }
+-}
+-
+-void CVm::SetOperand8(const COperand *op, Byte val)
+-{
+-  switch(op->Type)
+-  {
+-    case OP_TYPE_REG: R[op->Data] = (R[op->Data] & 0xFFFFFF00) | val; return;
+-    case OP_TYPE_REGMEM: Mem[(op->Base + R[op->Data]) & kSpaceMask] = val; return;
+-  }
+-}
+-
+-UInt32 CVm::GetOperand(bool byteMode, const COperand *op) const
+-{
+-  if (byteMode)
+-    return GetOperand8(op);
+-  return GetOperand32(op);
+-}
+-
+-void CVm::SetOperand(bool byteMode, const COperand *op, UInt32 val)
+-{
+-  if (byteMode)
+-    SetOperand8(op, (Byte)(val & 0xFF));
+-  else
+-    SetOperand32(op, val);
+-}
+-
+-bool CVm::ExecuteCode(const CProgram *prg)
+-{
+-  Int32 maxOpCount = 25000000;
+-  const CCommand *commands = &prg->Commands[0];
+-  const CCommand *cmd = commands;
+-  UInt32 numCommands = prg->Commands.Size();
+-  for (;;)
+-  {
+-    switch(cmd->OpCode)
+-    {
+-      #ifndef RARVM_NO_VM
+-      
+-      case CMD_MOV:
+-        SetOperand32(&cmd->Op1, GetOperand32(&cmd->Op2));
+-        break;
+-      case CMD_MOVB:
+-        SetOperand8(&cmd->Op1, GetOperand8(&cmd->Op2));
+-        break;
+-      case CMD_CMP:
+-        {
+-          UInt32 v1 = GetOperand32(&cmd->Op1);
+-          UInt32 res = v1 - GetOperand32(&cmd->Op2);
+-          Flags = res == 0 ? FLAG_Z : (res > v1) | (res & FLAG_S);
+-        }
+-        break;
+-      case CMD_CMPB:
+-        {
+-          Byte v1 = GetOperand8(&cmd->Op1);
+-          Byte res = v1 - GetOperand8(&cmd->Op2);
+-          res &= 0xFF;
+-          Flags = res == 0 ? FLAG_Z : (res > v1) | GET_FLAG_S_B(res);
+-        }
+-        break;
+-      case CMD_ADD:
+-        {
+-          UInt32 v1 = GetOperand32(&cmd->Op1);
+-          UInt32 res = v1 + GetOperand32(&cmd->Op2);
+-          SetOperand32(&cmd->Op1, res);
+-          Flags = (res < v1) | (res == 0 ? FLAG_Z : (res & FLAG_S));
+-        }
+-        break;
+-      case CMD_ADDB:
+-        {
+-          Byte v1 = GetOperand8(&cmd->Op1);
+-          Byte res = v1 + GetOperand8(&cmd->Op2);
+-          res &= 0xFF;
+-          SetOperand8(&cmd->Op1, (Byte)res);
+-          Flags = (res < v1) | (res == 0 ? FLAG_Z : GET_FLAG_S_B(res));
+-        }
+-        break;
+-      case CMD_ADC:
+-        {
+-          UInt32 v1 = GetOperand(cmd->ByteMode, &cmd->Op1);
+-          UInt32 FC = (Flags & FLAG_C);
+-          UInt32 res = v1 + GetOperand(cmd->ByteMode, &cmd->Op2) + FC;
+-          if (cmd->ByteMode)
+-            res &= 0xFF;
+-          SetOperand(cmd->ByteMode, &cmd->Op1, res);
+-          Flags = (res < v1 || res == v1 && FC) | (res == 0 ? FLAG_Z : (res & FLAG_S));
+-        }
+-        break;
+-      case CMD_SUB:
+-        {
+-          UInt32 v1 = GetOperand32(&cmd->Op1);
+-          UInt32 res = v1 - GetOperand32(&cmd->Op2);
+-          SetOperand32(&cmd->Op1, res);
+-          Flags = res == 0 ? FLAG_Z : (res > v1) | (res & FLAG_S);
+-        }
+-        break;
+-      case CMD_SUBB:
+-        {
+-          UInt32 v1 = GetOperand8(&cmd->Op1);
+-          UInt32 res = v1 - GetOperand8(&cmd->Op2);
+-          SetOperand8(&cmd->Op1, (Byte)res);
+-          Flags = res == 0 ? FLAG_Z : (res > v1) | (res & FLAG_S);
+-        }
+-        break;
+-      case CMD_SBB:
+-        {
+-          UInt32 v1 = GetOperand(cmd->ByteMode, &cmd->Op1);
+-          UInt32 FC = (Flags & FLAG_C);
+-          UInt32 res = v1 - GetOperand(cmd->ByteMode, &cmd->Op2) - FC;
+-          // Flags = res == 0 ? FLAG_Z : (res > v1 || res == v1 && FC) | (res & FLAG_S);
+-          if (cmd->ByteMode)
+-            res &= 0xFF;
+-          SetOperand(cmd->ByteMode, &cmd->Op1, res);
+-          Flags = (res > v1 || res == v1 && FC) | (res == 0 ? FLAG_Z : (res & FLAG_S));
+-        }
+-        break;
+-      case CMD_INC:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) + 1;
+-          SetOperand32(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ;
+-        }
+-        break;
+-      case CMD_INCB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) + 1;
+-          SetOperand8(&cmd->Op1, res);;
+-          FLAGS_UPDATE_SZ_B;
+-        }
+-        break;
+-      case CMD_DEC:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) - 1;
+-          SetOperand32(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ;
+-        }
+-        break;
+-      case CMD_DECB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) - 1;
+-          SetOperand8(&cmd->Op1, res);;
+-          FLAGS_UPDATE_SZ_B;
+-        }
+-        break;
+-      case CMD_XOR:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) ^ GetOperand32(&cmd->Op2);
+-          SetOperand32(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ;
+-        }
+-        break;
+-      case CMD_XORB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) ^ GetOperand8(&cmd->Op2);
+-          SetOperand8(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ_B;
+-        }
+-        break;
+-      case CMD_AND:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) & GetOperand32(&cmd->Op2);
+-          SetOperand32(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ;
+-        }
+-        break;
+-      case CMD_ANDB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) & GetOperand8(&cmd->Op2);
+-          SetOperand8(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ_B;
+-        }
+-        break;
+-      case CMD_OR:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) | GetOperand32(&cmd->Op2);
+-          SetOperand32(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ;
+-        }
+-        break;
+-      case CMD_ORB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) | GetOperand8(&cmd->Op2);
+-          SetOperand8(&cmd->Op1, res);
+-          FLAGS_UPDATE_SZ_B;
+-        }
+-        break;
+-      case CMD_TEST:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) & GetOperand32(&cmd->Op2);
+-          FLAGS_UPDATE_SZ;
+-        }
+-        break;
+-      case CMD_TESTB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) & GetOperand8(&cmd->Op2);
+-          FLAGS_UPDATE_SZ_B;
+-        }
+-        break;
+-      case CMD_NOT:
+-        SetOperand(cmd->ByteMode, &cmd->Op1, ~GetOperand(cmd->ByteMode, &cmd->Op1));
+-        break;
+-      case CMD_NEG:
+-        {
+-          UInt32 res = 0 - GetOperand32(&cmd->Op1);
+-          SetOperand32(&cmd->Op1, res);
+-          Flags = res == 0 ? FLAG_Z : FLAG_C | (res & FLAG_S);
+-        }
+-        break;
+-      case CMD_NEGB:
+-        {
+-          Byte res = (Byte)(0 - GetOperand8(&cmd->Op1));
+-          SetOperand8(&cmd->Op1, res);
+-          Flags = res == 0 ? FLAG_Z : FLAG_C | GET_FLAG_S_B(res);
+-        }
+-        break;
+-
+-      case CMD_SHL:
+-        {
+-          UInt32 v1 = GetOperand32(&cmd->Op1);
+-          int v2 = (int)GetOperand32(&cmd->Op2);
+-          UInt32 res = v1 << v2;
+-          SetOperand32(&cmd->Op1, res);
+-          Flags = (res == 0 ? FLAG_Z : (res & FLAG_S)) | ((v1 << (v2 - 1)) & 0x80000000 ? FLAG_C : 0);
+-        }
+-        break;
+-      case CMD_SHLB:
+-        {
+-          Byte v1 = GetOperand8(&cmd->Op1);
+-          int v2 = (int)GetOperand8(&cmd->Op2);
+-          Byte res = (Byte)(v1 << v2);
+-          SetOperand8(&cmd->Op1, res);
+-          Flags = (res == 0 ? FLAG_Z : GET_FLAG_S_B(res)) | ((v1 << (v2 - 1)) & 0x80 ? FLAG_C : 0);
+-        }
+-        break;
+-      case CMD_SHR:
+-        {
+-          UInt32 v1 = GetOperand32(&cmd->Op1);
+-          int v2 = (int)GetOperand32(&cmd->Op2);
+-          UInt32 res = v1 >> v2;
+-          SetOperand32(&cmd->Op1, res);
+-          Flags = (res == 0 ? FLAG_Z : (res & FLAG_S)) | ((v1 >> (v2 - 1)) & FLAG_C);
+-        }
+-        break;
+-      case CMD_SHRB:
+-        {
+-          Byte v1 = GetOperand8(&cmd->Op1);
+-          int v2 = (int)GetOperand8(&cmd->Op2);
+-          Byte res = (Byte)(v1 >> v2);
+-          SetOperand8(&cmd->Op1, res);
+-          Flags = (res == 0 ? FLAG_Z : GET_FLAG_S_B(res)) | ((v1 >> (v2 - 1)) & FLAG_C);
+-        }
+-        break;
+-      case CMD_SAR:
+-        {
+-          UInt32 v1 = GetOperand32(&cmd->Op1);
+-          int v2 = (int)GetOperand32(&cmd->Op2);
+-          UInt32 res = UInt32(((Int32)v1) >> v2);
+-          SetOperand32(&cmd->Op1, res);
+-          Flags= (res == 0 ? FLAG_Z : (res & FLAG_S)) | ((v1 >> (v2 - 1)) & FLAG_C);
+-        }
+-        break;
+-      case CMD_SARB:
+-        {
+-          Byte v1 = GetOperand8(&cmd->Op1);
+-          int v2 = (int)GetOperand8(&cmd->Op2);
+-          Byte res = (Byte)(((signed char)v1) >> v2);
+-          SetOperand8(&cmd->Op1, res);
+-          Flags= (res == 0 ? FLAG_Z : GET_FLAG_S_B(res)) | ((v1 >> (v2 - 1)) & FLAG_C);
+-        }
+-        break;
+-
+-      case CMD_JMP:
+-        SET_IP_OP1;
+-        continue;
+-      case CMD_JZ:
+-        if ((Flags & FLAG_Z) != 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JNZ:
+-        if ((Flags & FLAG_Z) == 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JS:
+-        if ((Flags & FLAG_S) != 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JNS:
+-        if ((Flags & FLAG_S) == 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JB:
+-        if ((Flags & FLAG_C) != 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JBE:
+-        if ((Flags & (FLAG_C | FLAG_Z)) != 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JA:
+-        if ((Flags & (FLAG_C | FLAG_Z)) == 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      case CMD_JAE:
+-        if ((Flags & FLAG_C) == 0)
+-        {
+-          SET_IP_OP1;
+-          continue;
+-        }
+-        break;
+-      
+-      case CMD_PUSH:
+-        R[kStackRegIndex] -= 4;
+-        SetValue32(&Mem[R[kStackRegIndex] & kSpaceMask], GetOperand32(&cmd->Op1));
+-        break;
+-      case CMD_POP:
+-        SetOperand32(&cmd->Op1, GetValue32(&Mem[R[kStackRegIndex] & kSpaceMask]));
+-        R[kStackRegIndex] += 4;
+-        break;
+-      case CMD_CALL:
+-        R[kStackRegIndex] -= 4;
+-        SetValue32(&Mem[R[kStackRegIndex] & kSpaceMask], (UInt32)(cmd - commands + 1));
+-        SET_IP_OP1;
+-        continue;
+-
+-      case CMD_PUSHA:
+-        {
+-          for (UInt32 i = 0, SP = R[kStackRegIndex] - 4; i < kNumRegs; i++, SP -= 4)
+-            SetValue32(&Mem[SP & kSpaceMask], R[i]);
+-          R[kStackRegIndex] -= kNumRegs * 4;
+-        }
+-        break;
+-      case CMD_POPA:
+-        {
+-          for (UInt32 i = 0, SP = R[kStackRegIndex]; i < kNumRegs; i++, SP += 4)
+-            R[kStackRegIndex - i] = GetValue32(&Mem[SP & kSpaceMask]);
+-        }
+-        break;
+-      case CMD_PUSHF:
+-        R[kStackRegIndex] -= 4;
+-        SetValue32(&Mem[R[kStackRegIndex]&kSpaceMask], Flags);
+-        break;
+-      case CMD_POPF:
+-        Flags = GetValue32(&Mem[R[kStackRegIndex] & kSpaceMask]);
+-        R[kStackRegIndex] += 4;
+-        break;
+-      
+-      case CMD_MOVZX:
+-        SetOperand32(&cmd->Op1, GetOperand8(&cmd->Op2));
+-        break;
+-      case CMD_MOVSX:
+-        SetOperand32(&cmd->Op1, (UInt32)(Int32)(signed char)GetOperand8(&cmd->Op2));
+-        break;
+-      case CMD_XCHG:
+-        {
+-          UInt32 v1 = GetOperand(cmd->ByteMode, &cmd->Op1);
+-          SetOperand(cmd->ByteMode, &cmd->Op1, GetOperand(cmd->ByteMode, &cmd->Op2));
+-          SetOperand(cmd->ByteMode, &cmd->Op2, v1);
+-        }
+-        break;
+-      case CMD_MUL:
+-        {
+-          UInt32 res = GetOperand32(&cmd->Op1) * GetOperand32(&cmd->Op2);
+-          SetOperand32(&cmd->Op1, res);
+-        }
+-        break;
+-      case CMD_MULB:
+-        {
+-          Byte res = GetOperand8(&cmd->Op1) * GetOperand8(&cmd->Op2);
+-          SetOperand8(&cmd->Op1, res);
+-        }
+-        break;
+-      case CMD_DIV:
+-        {
+-          UInt32 divider = GetOperand(cmd->ByteMode, &cmd->Op2);
+-          if (divider != 0)
+-          {
+-            UInt32 res = GetOperand(cmd->ByteMode, &cmd->Op1) / divider;
+-            SetOperand(cmd->ByteMode, &cmd->Op1, res);
+-          }
+-        }
+-        break;
+-      
+-      #endif
+-      
+-      case CMD_RET:
+-        {
+-          if (R[kStackRegIndex] >= kSpaceSize)
+-            return true;
+-          UInt32 ip = GetValue32(&Mem[R[kStackRegIndex] & kSpaceMask]);
+-          SET_IP(ip);
+-          R[kStackRegIndex] += 4;
+-          continue;
+-        }
+-      case CMD_PRINT:
+-        break;
+-    }
+-    cmd++;
+-    --maxOpCount;
+-  }
+-}
+-
+-
+-//////////////////////////////////////////////////////
+-// Read program
+-
+-UInt32 ReadEncodedUInt32(CMemBitDecoder &inp)
+-{
+-  switch(inp.ReadBits(2))
+-  {
+-    case 0:
+-      return inp.ReadBits(4);
+-    case 1:
+-    {
+-      UInt32 v = inp.ReadBits(4);
+-      if (v == 0)
+-        return 0xFFFFFF00 | inp.ReadBits(8);
+-      else
+-        return (v << 4) | inp.ReadBits(4);
+-    }
+-    case 2:
+-      return inp.ReadBits(16);
+-    default:
+-      return inp.ReadBits(32);
+-  }
+-}
+-
+-void CVm::DecodeArg(CMemBitDecoder &inp, COperand &op, bool byteMode)
+-{
+-  if (inp.ReadBit())
+-  {
+-    op.Type = OP_TYPE_REG;
+-    op.Data = inp.ReadBits(kNumRegBits);
+-  }
+-  else if (inp.ReadBit() == 0)
+-  {
+-    op.Type = OP_TYPE_INT;
+-    if (byteMode)
+-      op.Data = inp.ReadBits(8);
+-    else
+-      op.Data = ReadEncodedUInt32(inp);
+-  }
+-  else
+-  {
+-    op.Type = OP_TYPE_REGMEM;
+-    if (inp.ReadBit() == 0)
+-    {
+-      op.Data = inp.ReadBits(kNumRegBits);
+-      op.Base = 0;
+-    }
+-    else
+-    {
+-      if (inp.ReadBit() == 0)
+-        op.Data = inp.ReadBits(kNumRegBits);
+-      else
+-        op.Data = kNumRegs;
+-      op.Base = ReadEncodedUInt32(inp);
+-    }
+-  }
+-}
+-
+-void CVm::ReadVmProgram(const Byte *code, UInt32 codeSize, CProgram *prg)
+-{
+-  CMemBitDecoder inp;
+-  inp.Init(code, codeSize);
+-
+-  prg->StaticData.Clear();
+-  if (inp.ReadBit())
+-  {
+-    UInt32 dataSize = ReadEncodedUInt32(inp) + 1;
+-    for (UInt32 i = 0; inp.Avail() && i < dataSize; i++)
+-      prg->StaticData.Add((Byte)inp.ReadBits(8));
+-  }
+-  while (inp.Avail())
+-  {
+-    prg->Commands.Add(CCommand());
+-    CCommand *cmd = &prg->Commands.Back();
+-    if (inp.ReadBit() == 0)
+-      cmd->OpCode = (ECommand)inp.ReadBits(3);
+-    else
+-      cmd->OpCode = (ECommand)(8 + inp.ReadBits(5));
+-    if (kCmdFlags[cmd->OpCode] & CF_BYTEMODE)
+-      cmd->ByteMode = (inp.ReadBit()) ? true : false;
+-    else
+-      cmd->ByteMode = 0;
+-    int opNum = (kCmdFlags[cmd->OpCode] & CF_OPMASK);
+-    if (opNum > 0)
+-    {
+-      DecodeArg(inp, cmd->Op1, cmd->ByteMode);
+-      if (opNum == 2)
+-        DecodeArg(inp, cmd->Op2, cmd->ByteMode);
+-      else
+-      {
+-        if (cmd->Op1.Type == OP_TYPE_INT && (kCmdFlags[cmd->OpCode] & (CF_JUMP | CF_PROC)))
+-        {
+-          int Distance = cmd->Op1.Data;
+-          if (Distance >= 256)
+-            Distance -= 256;
+-          else
+-          {
+-            if (Distance >= 136)
+-              Distance -= 264;
+-            else if (Distance >= 16)
+-              Distance -= 8;
+-            else if (Distance >= 8)
+-              Distance -= 16;
+-            Distance += prg->Commands.Size() - 1;
+-          }
+-          cmd->Op1.Data = Distance;
+-        }
+-      }
+-    }
+-    if (cmd->ByteMode)
+-    {
+-      switch (cmd->OpCode)
+-      {
+-        case CMD_MOV: cmd->OpCode = CMD_MOVB; break;
+-        case CMD_CMP: cmd->OpCode = CMD_CMPB; break;
+-        case CMD_ADD: cmd->OpCode = CMD_ADDB; break;
+-        case CMD_SUB: cmd->OpCode = CMD_SUBB; break;
+-        case CMD_INC: cmd->OpCode = CMD_INCB; break;
+-        case CMD_DEC: cmd->OpCode = CMD_DECB; break;
+-        case CMD_XOR: cmd->OpCode = CMD_XORB; break;
+-        case CMD_AND: cmd->OpCode = CMD_ANDB; break;
+-        case CMD_OR: cmd->OpCode = CMD_ORB; break;
+-        case CMD_TEST: cmd->OpCode = CMD_TESTB; break;
+-        case CMD_NEG: cmd->OpCode = CMD_NEGB; break;
+-        case CMD_SHL: cmd->OpCode = CMD_SHLB; break;
+-        case CMD_SHR: cmd->OpCode = CMD_SHRB; break;
+-        case CMD_SAR: cmd->OpCode = CMD_SARB; break;
+-        case CMD_MUL: cmd->OpCode = CMD_MULB; break;
+-      }
+-    }
+-  }
+-}
+-
+-#ifdef RARVM_STANDARD_FILTERS
+-
+-enum EStandardFilter
+-{
+-  SF_E8,
+-  SF_E8E9,
+-  SF_ITANIUM,
+-  SF_RGB,
+-  SF_AUDIO,
+-  SF_DELTA,
+-  SF_UPCASE
+-};
+-
+-struct StandardFilterSignature
+-{
+-  UInt32 Length;
+-  UInt32 CRC;
+-  EStandardFilter Type;
+-}
+-kStdFilters[]=
+-{
+-  {  53, 0xad576887, SF_E8 },
+-  {  57, 0x3cd7e57e, SF_E8E9 },
+-  { 120, 0x3769893f, SF_ITANIUM },
+-  {  29, 0x0e06077d, SF_DELTA },
+-  { 149, 0x1c2c5dc8, SF_RGB },
+-  { 216, 0xbc85e701, SF_AUDIO },
+-  {  40, 0x46b9c560, SF_UPCASE }
+-};
+-
+-static int FindStandardFilter(const Byte *code, UInt32 codeSize)
+-{
+-  UInt32 crc = CrcCalc(code, codeSize);
+-  for (int i = 0; i < sizeof(kStdFilters) / sizeof(kStdFilters[0]); i++)
+-  {
+-    StandardFilterSignature &sfs = kStdFilters[i];
+-    if (sfs.CRC == crc && sfs.Length == codeSize)
+-      return i;
+-  }
+-  return -1;
+-}
+-
+-#endif
+-
+-void CVm::PrepareProgram(const Byte *code, UInt32 codeSize, CProgram *prg)
+-{
+-  Byte xorSum = 0;
+-  for (UInt32 i = 1; i < codeSize; i++)
+-    xorSum ^= code[i];
+-
+-  prg->Commands.Clear();
+-  #ifdef RARVM_STANDARD_FILTERS
+-  prg->StandardFilterIndex = -1;
+-  #endif
+-
+-  if (xorSum == code[0] && codeSize > 0)
+-  {
+-    #ifdef RARVM_STANDARD_FILTERS
+-    prg->StandardFilterIndex = FindStandardFilter(code, codeSize);
+-    if (prg->StandardFilterIndex >= 0)
+-      return;
+-    #endif
+-    // 1 byte for checksum
+-    ReadVmProgram(code + 1, codeSize - 1, prg);
+-  }
+-  prg->Commands.Add(CCommand());
+-  CCommand *cmd = &prg->Commands.Back();
+-  cmd->OpCode = CMD_RET;
+-}
+-
+-void CVm::SetMemory(UInt32 pos, const Byte *data, UInt32 dataSize)
+-{
+-  if (pos < kSpaceSize && data != Mem + pos)
+-    memmove(Mem + pos, data, MyMin(dataSize, kSpaceSize - pos));
+-}
+-
+-#ifdef RARVM_STANDARD_FILTERS
+-
+-static void E8E9Decode(Byte *data, UInt32 dataSize, UInt32 fileOffset, bool e9)
+-{
+-  if (dataSize <= 4)
+-    return;
+-  dataSize -= 4;
+-  const UInt32 kFileSize = 0x1000000;
+-  Byte cmpByte2 = (e9 ? 0xE9 : 0xE8);
+-  for (UInt32 curPos = 0; curPos < dataSize;)
+-  {
+-    Byte curByte = *(data++);
+-    curPos++;
+-    if (curByte == 0xE8 || curByte == cmpByte2)
+-    {
+-      UInt32 offset = curPos + fileOffset;
+-      UInt32 addr = (Int32)GetValue32(data);
+-      if (addr < kFileSize)
+-        SetValue32(data, addr - offset);
+-      else if ((Int32)addr < 0 && (Int32)(addr + offset) >= 0)
+-        SetValue32(data, addr + kFileSize);
+-      data += 4;
+-      curPos += 4;
+-    }
+-  }
+-}
+-
+-static inline UInt32 ItaniumGetOpType(const Byte *data, int bitPos)
+-{
+-  return (data[(unsigned int)bitPos >> 3] >> (bitPos & 7)) & 0xF;
+-}
+-
+-
+-static void ItaniumDecode(Byte *data, UInt32 dataSize, UInt32 fileOffset)
+-{
+-  UInt32 curPos = 0;
+-  fileOffset >>= 4;
+-  while (curPos < dataSize - 21)
+-  {
+-    int b = (data[0] & 0x1F) - 0x10;
+-    if (b >= 0)
+-    {
+-      static Byte kCmdMasks[16] = {4,4,6,6,0,0,7,7,4,4,0,0,4,4,0,0};
+-      Byte cmdMask = kCmdMasks[b];
+-      if (cmdMask != 0)
+-        for (int i = 0; i < 3; i++)
+-          if (cmdMask & (1 << i))
+-          {
+-            int startPos = i * 41 + 18;
+-            if (ItaniumGetOpType(data, startPos + 24) == 5)
+-            {
+-              const UInt32 kMask = 0xFFFFF;
+-              Byte *p = data + ((unsigned int)startPos >> 3);
+-              UInt32 bitField =  ((UInt32)p[0]) | ((UInt32)p[1] <<  8) | ((UInt32)p[2] << 16);
+-              int inBit = (startPos & 7);
+-              UInt32 offset = (bitField >> inBit) & kMask;
+-              UInt32 andMask = ~(kMask << inBit);
+-              bitField = ((offset - fileOffset) & kMask) << inBit;
+-              for (int j = 0; j < 3; j++)
+-              {
+-                p[j] &= andMask;
+-                p[j] |= bitField;
+-                andMask >>= 8;
+-                bitField >>= 8;
+-              }
+-            }
+-          }
+-    }
+-    data += 16;
+-    curPos += 16;
+-    fileOffset++;
+-  }
+-}
+-
+-static void DeltaDecode(Byte *data, UInt32 dataSize, UInt32 numChannels)
+-{
+-  UInt32 srcPos = 0;
+-  UInt32 border = dataSize * 2;
+-  for (UInt32 curChannel = 0; curChannel < numChannels; curChannel++)
+-  {
+-    Byte prevByte = 0;
+-    for (UInt32 destPos = dataSize + curChannel; destPos < border; destPos += numChannels)
+-      data[destPos] = (prevByte = prevByte - data[srcPos++]);
+-  }
+-}
+-
+-static void RgbDecode(Byte *srcData, UInt32 dataSize, UInt32 width, UInt32 posR)
+-{
+-  Byte *destData = srcData + dataSize;
+-  const UInt32 numChannels = 3;
+-  for (UInt32 curChannel = 0; curChannel < numChannels; curChannel++)
+-  {
+-    Byte prevByte = 0;
+-    
+-    for (UInt32 i = curChannel; i < dataSize; i+= numChannels)
+-    {
+-      unsigned int predicted;
+-      if (i < width)
+-        predicted = prevByte;
+-      else
+-      {
+-        unsigned int upperLeftByte = destData[i - width];
+-        unsigned int upperByte = destData[i - width + 3];
+-        predicted = prevByte + upperByte - upperLeftByte;
+-        int pa = abs((int)(predicted - prevByte));
+-        int pb = abs((int)(predicted - upperByte));
+-        int pc = abs((int)(predicted - upperLeftByte));
+-        if (pa <= pb && pa <= pc)
+-          predicted = prevByte;
+-        else
+-          if (pb <= pc)
+-            predicted = upperByte;
+-          else
+-            predicted = upperLeftByte;
+-      }
+-      destData[i] = prevByte = (Byte)(predicted - *(srcData++));
+-    }
+-  }
+-  if (dataSize < 3)
+-    return;
+-  for (UInt32 i = posR, border = dataSize - 2; i < border; i += 3)
+-  {
+-    Byte g = destData[i + 1];
+-    destData[i] = destData[i] + g;
+-    destData[i + 2] = destData[i + 2] + g;
+-  }
+-}
+-
+-static void AudioDecode(Byte *srcData, UInt32 dataSize, UInt32 numChannels)
+-{
+-  Byte *destData = srcData + dataSize;
+-  for (UInt32 curChannel = 0; curChannel < numChannels; curChannel++)
+-  {
+-    UInt32 prevByte = 0, prevDelta = 0, dif[7];
+-    Int32 D1 = 0, D2 = 0, D3;
+-    Int32 K1 = 0, K2 = 0, K3 = 0;
+-    memset(dif, 0, sizeof(dif));
+-    
+-    for (UInt32 i = curChannel, byteCount = 0; i < dataSize; i += numChannels, byteCount++)
+-    {
+-      D3 = D2;
+-      D2 = prevDelta - D1;
+-      D1 = prevDelta;
+-      
+-      UInt32 predicted = 8 * prevByte + K1 * D1 + K2 * D2 + K3 * D3;
+-      predicted = (predicted >> 3) & 0xFF;
+-      
+-      UInt32 curByte = *(srcData++);
+-      
+-      predicted -= curByte;
+-      destData[i] = (Byte)predicted;
+-      prevDelta = (UInt32)(Int32)(signed char)(predicted - prevByte);
+-      prevByte = predicted;
+-      
+-      Int32 D = ((Int32)(signed char)curByte) << 3;
+-      
+-      dif[0] += abs(D);
+-      dif[1] += abs(D - D1);
+-      dif[2] += abs(D + D1);
+-      dif[3] += abs(D - D2);
+-      dif[4] += abs(D + D2);
+-      dif[5] += abs(D - D3);
+-      dif[6] += abs(D + D3);
+-      
+-      if ((byteCount & 0x1F) == 0)
+-      {
+-        UInt32 minDif = dif[0], numMinDif = 0;
+-        dif[0] = 0;
+-        for (int j = 1; j < sizeof(dif) / sizeof(dif[0]); j++)
+-        {
+-          if (dif[j] < minDif)
+-          {
+-            minDif = dif[j];
+-            numMinDif = j;
+-          }
+-          dif[j] = 0;
+-        }
+-        switch (numMinDif)
+-        {
+-          case 1: if (K1 >= -16) K1--; break;
+-          case 2: if (K1 <   16) K1++; break;
+-          case 3: if (K2 >= -16) K2--; break;
+-          case 4: if (K2 <   16) K2++; break;
+-          case 5: if (K3 >= -16) K3--; break;
+-          case 6: if (K3 <   16) K3++; break;
+-        }
+-      }
+-    }
+-  }
+-}
+-
+-static UInt32 UpCaseDecode(Byte *data, UInt32 dataSize)
+-{
+-  UInt32 srcPos = 0, destPos = dataSize;
+-  while (srcPos < dataSize)
+-  {
+-    Byte curByte = data[srcPos++];
+-    if (curByte == 2 && (curByte = data[srcPos++]) != 2)
+-      curByte -= 32;
+-    data[destPos++] = curByte;
+-  }
+-  return destPos - dataSize;
+-}
+-
+-void CVm::ExecuteStandardFilter(int filterIndex)
+-{
+-  UInt32 dataSize = R[4];
+-  if (dataSize >= kGlobalOffset)
+-    return;
+-  EStandardFilter filterType = kStdFilters[filterIndex].Type;
+-
+-  switch (filterType)
+-  {
+-    case SF_E8:
+-    case SF_E8E9:
+-      E8E9Decode(Mem, dataSize, R[6], (filterType == SF_E8E9));
+-      break;
+-    case SF_ITANIUM:
+-      ItaniumDecode(Mem, dataSize, R[6]);
+-      break;
+-    case SF_DELTA:
+-      if (dataSize >= kGlobalOffset / 2)
+-        break;
+-      SetBlockPos(dataSize);
+-      DeltaDecode(Mem, dataSize, R[0]);
+-      break;
+-    case SF_RGB:
+-      if (dataSize >= kGlobalOffset / 2)
+-        break;
+-      {
+-        UInt32 width = R[0];
+-        if (width <= 3)
+-          break;
+-        SetBlockPos(dataSize);
+-        RgbDecode(Mem, dataSize, width, R[1]);
+-      }
+-      break;
+-    case SF_AUDIO:
+-      if (dataSize >= kGlobalOffset / 2)
+-        break;
+-      SetBlockPos(dataSize);
+-      AudioDecode(Mem, dataSize, R[0]);
+-      break;
+-    case SF_UPCASE:
+-      if (dataSize >= kGlobalOffset / 2)
+-        break;
+-      UInt32 destSize = UpCaseDecode(Mem, dataSize);
+-      SetBlockSize(destSize);
+-      SetBlockPos(dataSize);
+-      break;
+-  }
+-}
+-
+-#endif
+-
+-}}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/Rar3Vm.h p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Vm.h
+--- p7zip_9.20.1/CPP/7zip/Compress/Rar3Vm.h	2009-02-07 15:06:28.000000000 -0200
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/Rar3Vm.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,179 +0,0 @@
+-// Rar3Vm.h
+-// According to unRAR license, this code may not be used to develop
+-// a program that creates RAR archives
+-
+-#ifndef __COMPRESS_RAR3_VM_H
+-#define __COMPRESS_RAR3_VM_H
+-
+-#include "../../../C/CpuArch.h"
+-
+-#include "Common/MyVector.h"
+-#include "Common/Types.h"
+-
+-#define RARVM_STANDARD_FILTERS
+-
+-namespace NCompress {
+-namespace NRar3 {
+-
+-class CMemBitDecoder
+-{
+-  const Byte *_data;
+-  UInt32 _bitSize;
+-  UInt32 _bitPos;
+-public:
+-  void Init(const Byte *data, UInt32 byteSize)
+-  {
+-    _data = data;
+-    _bitSize = (byteSize << 3);
+-    _bitPos = 0;
+-  }
+-  UInt32 ReadBits(int numBits);
+-  UInt32 ReadBit();
+-  bool Avail() const { return (_bitPos < _bitSize); }
+-};
+-
+-namespace NVm {
+-
+-inline UInt32 GetValue32(const void *addr) { return GetUi32(addr); }
+-inline void SetValue32(void *addr, UInt32 value) { SetUi32(addr, value); }
+-
+-UInt32 ReadEncodedUInt32(CMemBitDecoder &inp);
+-
+-const int kNumRegBits = 3;
+-const UInt32 kNumRegs = 1 << kNumRegBits;
+-const UInt32 kNumGpRegs = kNumRegs - 1;
+-
+-const UInt32 kSpaceSize = 0x40000;
+-const UInt32 kSpaceMask = kSpaceSize -1;
+-const UInt32 kGlobalOffset = 0x3C000;
+-const UInt32 kGlobalSize = 0x2000;
+-const UInt32 kFixedGlobalSize = 64;
+-
+-namespace NGlobalOffset
+-{
+-  const UInt32 kBlockSize = 0x1C;
+-  const UInt32 kBlockPos  = 0x20;
+-  const UInt32 kExecCount = 0x2C;
+-  const UInt32 kGlobalMemOutSize = 0x30;
+-}
+-
+-enum ECommand
+-{
+-  CMD_MOV,  CMD_CMP,  CMD_ADD,  CMD_SUB,  CMD_JZ,   CMD_JNZ,  CMD_INC,  CMD_DEC,
+-  CMD_JMP,  CMD_XOR,  CMD_AND,  CMD_OR,   CMD_TEST, CMD_JS,   CMD_JNS,  CMD_JB,
+-  CMD_JBE,  CMD_JA,   CMD_JAE,  CMD_PUSH, CMD_POP,  CMD_CALL, CMD_RET,  CMD_NOT,
+-  CMD_SHL,  CMD_SHR,  CMD_SAR,  CMD_NEG,  CMD_PUSHA,CMD_POPA, CMD_PUSHF,CMD_POPF,
+-  CMD_MOVZX,CMD_MOVSX,CMD_XCHG, CMD_MUL,  CMD_DIV,  CMD_ADC,  CMD_SBB,  CMD_PRINT,
+-
+-  CMD_MOVB, CMD_CMPB, CMD_ADDB, CMD_SUBB, CMD_INCB, CMD_DECB,
+-  CMD_XORB, CMD_ANDB, CMD_ORB,  CMD_TESTB,CMD_NEGB,
+-  CMD_SHLB, CMD_SHRB, CMD_SARB, CMD_MULB
+-};
+-
+-enum EOpType {OP_TYPE_REG, OP_TYPE_INT, OP_TYPE_REGMEM, OP_TYPE_NONE};
+-
+-// Addr in COperand object can link (point) to CVm object!!!
+-
+-struct COperand
+-{
+-  EOpType Type;
+-  UInt32 Data;
+-  UInt32 Base;
+-  COperand(): Type(OP_TYPE_NONE), Data(0), Base(0) {}
+-};
+-
+-struct CCommand
+-{
+-  ECommand OpCode;
+-  bool ByteMode;
+-  COperand Op1, Op2;
+-};
+-
+-struct CBlockRef
+-{
+-  UInt32 Offset;
+-  UInt32 Size;
+-};
+-
+-struct CProgram
+-{
+-  CRecordVector<CCommand> Commands;
+-  #ifdef RARVM_STANDARD_FILTERS
+-  int StandardFilterIndex;
+-  #endif
+-  CRecordVector<Byte> StaticData;
+-};
+-
+-struct CProgramInitState
+-{
+-  UInt32 InitR[kNumGpRegs];
+-  CRecordVector<Byte> GlobalData;
+-
+-  void AllocateEmptyFixedGlobal()
+-  {
+-    GlobalData.Clear();
+-    GlobalData.Reserve(NVm::kFixedGlobalSize);
+-    for (UInt32 i = 0; i < NVm::kFixedGlobalSize; i++)
+-      GlobalData.Add(0);
+-  }
+-};
+-
+-class CVm
+-{
+-  static UInt32 GetValue(bool byteMode, const void *addr)
+-  {
+-    if (byteMode)
+-      return(*(const Byte *)addr);
+-    else
+-      return GetUi32(addr);
+-  }
+-
+-  static void SetValue(bool byteMode, void *addr, UInt32 value)
+-  {
+-    if (byteMode)
+-      *(Byte *)addr = (Byte)value;
+-    else
+-      SetUi32(addr, value);
+-  }
+-
+-  UInt32 GetFixedGlobalValue32(UInt32 globalOffset) { return GetValue(false, &Mem[kGlobalOffset + globalOffset]); }
+-
+-  void SetBlockSize(UInt32 v) { SetValue(&Mem[kGlobalOffset + NGlobalOffset::kBlockSize], v); }
+-  void SetBlockPos(UInt32 v) { SetValue(&Mem[kGlobalOffset + NGlobalOffset::kBlockPos], v); }
+-public:
+-  static void SetValue(void *addr, UInt32 value) { SetValue(false, addr, value); }
+-private:
+-  UInt32 GetOperand32(const COperand *op) const;
+-  void SetOperand32(const COperand *op, UInt32 val);
+-  Byte GetOperand8(const COperand *op) const;
+-  void SetOperand8(const COperand *op, Byte val);
+-  UInt32 GetOperand(bool byteMode, const COperand *op) const;
+-  void SetOperand(bool byteMode, const COperand *op, UInt32 val);
+-
+-  void DecodeArg(CMemBitDecoder &inp, COperand &op, bool byteMode);
+-  
+-  bool ExecuteCode(const CProgram *prg);
+-  
+-  #ifdef RARVM_STANDARD_FILTERS
+-  void ExecuteStandardFilter(int filterIndex);
+-  #endif
+-  
+-  Byte *Mem;
+-  UInt32 R[kNumRegs + 1]; // R[kNumRegs] = 0 always (speed optimization)
+-  UInt32 Flags;
+-  void ReadVmProgram(const Byte *code, UInt32 codeSize, CProgram *prg);
+-public:
+-  CVm();
+-  ~CVm();
+-  bool Create();
+-  void PrepareProgram(const Byte *code, UInt32 codeSize, CProgram *prg);
+-  void SetMemory(UInt32 pos, const Byte *data, UInt32 dataSize);
+-  bool Execute(CProgram *prg, const CProgramInitState *initState,
+-      CBlockRef &outBlockRef, CRecordVector<Byte> &outGlobalData);
+-  const Byte *GetDataPointer(UInt32 offset) const { return Mem + offset; }
+-
+-};
+-
+-#endif
+-
+-}}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Compress/RarCodecsRegister.cpp p7zip-libre_9.20.1/CPP/7zip/Compress/RarCodecsRegister.cpp
+--- p7zip_9.20.1/CPP/7zip/Compress/RarCodecsRegister.cpp	2009-02-07 15:06:28.000000000 -0200
++++ p7zip-libre_9.20.1/CPP/7zip/Compress/RarCodecsRegister.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,26 +0,0 @@
+-// RarCodecsRegister.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "../Common/RegisterCodec.h"
+-
+-#include "Rar1Decoder.h"
+-#include "Rar2Decoder.h"
+-#include "Rar3Decoder.h"
+-
+-#define CREATE_CODEC(x) static void *CreateCodec ## x() { return (void *)(ICompressCoder *)(new NCompress::NRar ## x::CDecoder); }
+-
+-CREATE_CODEC(1)
+-CREATE_CODEC(2)
+-CREATE_CODEC(3)
+-
+-#define RAR_CODEC(x, name) { CreateCodec ## x, 0, 0x040300 + x, L"Rar" name, 1, false }
+-
+-static CCodecInfo g_CodecsInfo[] =
+-{
+-  RAR_CODEC(1, L"1"),
+-  RAR_CODEC(2, L"2"),
+-  RAR_CODEC(3, L"3"),
+-};
+-
+-REGISTER_CODECS(Rar)
+diff -ruNa p7zip_9.20.1/CPP/7zip/Crypto/Rar20Crypto.cpp p7zip-libre_9.20.1/CPP/7zip/Crypto/Rar20Crypto.cpp
+--- p7zip_9.20.1/CPP/7zip/Crypto/Rar20Crypto.cpp	2009-05-30 17:19:19.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Crypto/Rar20Crypto.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,133 +0,0 @@
+-// Crypto/Rar20Crypto.cpp
+-
+-#include "StdAfx.h"
+-
+-#include "../../../C/7zCrc.h"
+-#include "../../../C/CpuArch.h"
+-#include "../../../C/RotateDefs.h"
+-
+-#include "Rar20Crypto.h"
+-
+-namespace NCrypto {
+-namespace NRar20 {
+-
+-static const int kNumRounds = 32;
+-
+-static const Byte InitSubstTable[256] = {
+-  215, 19,149, 35, 73,197,192,205,249, 28, 16,119, 48,221,  2, 42,
+-  232,  1,177,233, 14, 88,219, 25,223,195,244, 90, 87,239,153,137,
+-  255,199,147, 70, 92, 66,246, 13,216, 40, 62, 29,217,230, 86,  6,
+-   71, 24,171,196,101,113,218,123, 93, 91,163,178,202, 67, 44,235,
+-  107,250, 75,234, 49,167,125,211, 83,114,157,144, 32,193,143, 36,
+-  158,124,247,187, 89,214,141, 47,121,228, 61,130,213,194,174,251,
+-   97,110, 54,229,115, 57,152, 94,105,243,212, 55,209,245, 63, 11,
+-  164,200, 31,156, 81,176,227, 21, 76, 99,139,188,127, 17,248, 51,
+-  207,120,189,210,  8,226, 41, 72,183,203,135,165,166, 60, 98,  7,
+-  122, 38,155,170, 69,172,252,238, 39,134, 59,128,236, 27,240, 80,
+-  131,  3, 85,206,145, 79,154,142,159,220,201,133, 74, 64, 20,129,
+-  224,185,138,103,173,182, 43, 34,254, 82,198,151,231,180, 58, 10,
+-  118, 26,102, 12, 50,132, 22,191,136,111,162,179, 45,  4,148,108,
+-  161, 56, 78,126,242,222, 15,175,146, 23, 33,241,181,190, 77,225,
+-    0, 46,169,186, 68, 95,237, 65, 53,208,253,168,  9, 18,100, 52,
+-  116,184,160, 96,109, 37, 30,106,140,104,150,  5,204,117,112, 84
+-};
+-
+-void CData::UpdateKeys(const Byte *data)
+-{
+-  for (int i = 0; i < 16; i += 4)
+-    for (int j = 0; j < 4; j++)
+-      Keys[j] ^= g_CrcTable[data[i + j]];
+-}
+-
+-static void Swap(Byte *b1, Byte *b2)
+-{
+-  Byte b = *b1;
+-  *b1 = *b2;
+-  *b2 = b;
+-}
+-
+-void CData::SetPassword(const Byte *password, UInt32 passwordLen)
+-{
+-  Keys[0] = 0xD3A3B879L;
+-  Keys[1] = 0x3F6D12F7L;
+-  Keys[2] = 0x7515A235L;
+-  Keys[3] = 0xA4E7F123L;
+-  
+-  Byte psw[256];
+-  memset(psw, 0, sizeof(psw));
+-  memcpy(psw, password, passwordLen);
+-  memcpy(SubstTable, InitSubstTable, sizeof(SubstTable));
+-
+-  for (UInt32 j = 0; j < 256; j++)
+-    for (UInt32 i = 0; i < passwordLen; i += 2)
+-    {
+-      UInt32 n2 = (Byte)g_CrcTable[(psw[i + 1] + j) & 0xFF];
+-      UInt32 n1 = (Byte)g_CrcTable[(psw[i] - j) & 0xFF];
+-      for (UInt32 k = 1; (n1 & 0xFF) != n2; n1++, k++)
+-        Swap(&SubstTable[n1 & 0xFF], &SubstTable[(n1 + i + k) & 0xFF]);
+-    }
+-  for (UInt32 i = 0; i < passwordLen; i+= 16)
+-    EncryptBlock(&psw[i]);
+-}
+-
+-void CData::CryptBlock(Byte *buf, bool encrypt)
+-{
+-  Byte inBuf[16];
+-  UInt32 A, B, C, D, T, TA, TB;
+-
+-  A = GetUi32(buf +  0) ^ Keys[0];
+-  B = GetUi32(buf +  4) ^ Keys[1];
+-  C = GetUi32(buf +  8) ^ Keys[2];
+-  D = GetUi32(buf + 12) ^ Keys[3];
+-
+-  if (!encrypt)
+-    memcpy(inBuf, buf, sizeof(inBuf));
+-  
+-  for (int i = 0; i < kNumRounds; i++)
+-  {
+-    UInt32 key = Keys[(encrypt ? i : (kNumRounds - 1 - i)) & 3];
+-    T = ((C + rotlFixed(D, 11)) ^ key);
+-    TA = A ^ SubstLong(T);
+-    T = ((D ^ rotlFixed(C, 17)) + key);
+-    TB = B ^ SubstLong(T);
+-    A = C;
+-    B = D;
+-    C = TA;
+-    D = TB;
+-  }
+-
+-  SetUi32(buf +  0, C ^ Keys[0]);
+-  SetUi32(buf +  4, D ^ Keys[1]);
+-  SetUi32(buf +  8, A ^ Keys[2]);
+-  SetUi32(buf + 12, B ^ Keys[3]);
+-
+-  UpdateKeys(encrypt ? buf : inBuf);
+-}
+-
+-STDMETHODIMP CDecoder::CryptoSetPassword(const Byte *data, UInt32 size)
+-{
+-  _cipher.SetPassword(data, size);
+-  return S_OK;
+-}
+-
+-STDMETHODIMP CDecoder::Init()
+-{
+-  return S_OK;
+-}
+-
+-static const UInt32 kBlockSize = 16;
+-
+-STDMETHODIMP_(UInt32) CDecoder::Filter(Byte *data, UInt32 size)
+-{
+-  if (size == 0)
+-    return 0;
+-  if (size < kBlockSize)
+-    return kBlockSize;
+-  UInt32 i;
+-  size -= kBlockSize;
+-  for (i = 0; i <= size; i += kBlockSize)
+-    _cipher.DecryptBlock(data + i);
+-  return i;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Crypto/Rar20Crypto.h p7zip-libre_9.20.1/CPP/7zip/Crypto/Rar20Crypto.h
+--- p7zip_9.20.1/CPP/7zip/Crypto/Rar20Crypto.h	2009-02-07 15:07:19.000000000 -0200
++++ p7zip-libre_9.20.1/CPP/7zip/Crypto/Rar20Crypto.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,50 +0,0 @@
+-// Crypto/Rar20Crypto.h
+-
+-#ifndef __CRYPTO_RAR20_CRYPTO_H
+-#define __CRYPTO_RAR20_CRYPTO_H
+-
+-#include "Common/MyCom.h"
+-
+-#include "../ICoder.h"
+-#include "../IPassword.h"
+-
+-namespace NCrypto {
+-namespace NRar20 {
+-
+-class CData
+-{
+-  Byte SubstTable[256];
+-  UInt32 Keys[4];
+-  
+-  UInt32 SubstLong(UInt32 t)
+-  {
+-    return (UInt32)SubstTable[(int)t & 255] |
+-           ((UInt32)SubstTable[(int)(t >> 8) & 255] << 8) |
+-           ((UInt32)SubstTable[(int)(t >> 16) & 255] << 16) |
+-           ((UInt32)SubstTable[(int)(t >> 24) & 255] << 24);
+-  }
+-  void UpdateKeys(const Byte *data);
+-  void CryptBlock(Byte *buf, bool encrypt);
+-public:
+-  void EncryptBlock(Byte *buf) { CryptBlock(buf, true); }
+-  void DecryptBlock(Byte *buf) { CryptBlock(buf, false); }
+-  void SetPassword(const Byte *password, UInt32 passwordLen);
+-};
+-
+-class CDecoder:
+-  public ICompressFilter,
+-  public ICryptoSetPassword,
+-  public CMyUnknownImp
+-{
+-  CData _cipher;
+-public:
+-  MY_UNKNOWN_IMP1(ICryptoSetPassword)
+-
+-  STDMETHOD(Init)();
+-  STDMETHOD_(UInt32, Filter)(Byte *data, UInt32 size);
+-  STDMETHOD(CryptoSetPassword)(const Byte *data, UInt32 size);
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/CPP/7zip/Crypto/RarAes.cpp p7zip-libre_9.20.1/CPP/7zip/Crypto/RarAes.cpp
+--- p7zip_9.20.1/CPP/7zip/Crypto/RarAes.cpp	2010-10-20 01:56:08.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Crypto/RarAes.cpp	1969-12-31 21:00:00.000000000 -0300
+@@ -1,134 +0,0 @@
+-// Crypto/RarAes.cpp
+-// Note: you must include MyAes.cpp to project to initialize AES tables
+-
+-#include "StdAfx.h"
+-
+-#include "RarAes.h"
+-#include "Sha1.h"
+-
+-namespace NCrypto {
+-namespace NRar29 {
+-
+-CDecoder::CDecoder():
+-  _thereIsSalt(false),
+-  _needCalculate(true),
+-  _rar350Mode(false)
+-{
+-  for (int i = 0; i < sizeof(_salt); i++)
+-    _salt[i] = 0;
+-}
+-
+-STDMETHODIMP CDecoder::SetDecoderProperties2(const Byte *data, UInt32 size)
+-{
+-  bool thereIsSaltPrev = _thereIsSalt;
+-  _thereIsSalt = false;
+-  if (size == 0)
+-    return S_OK;
+-  if (size < 8)
+-    return E_INVALIDARG;
+-  _thereIsSalt = true;
+-  bool same = false;
+-  if (_thereIsSalt == thereIsSaltPrev)
+-  {
+-    same = true;
+-    if (_thereIsSalt)
+-    {
+-      for (unsigned i = 0; i < sizeof(_salt); i++)
+-        if (_salt[i] != data[i])
+-        {
+-          same = false;
+-          break;
+-        }
+-    }
+-  }
+-  for (unsigned i = 0; i < sizeof(_salt); i++)
+-    _salt[i] = data[i];
+-  if (!_needCalculate && !same)
+-    _needCalculate = true;
+-  return S_OK;
+-}
+-
+-static const unsigned kMaxPasswordLength = 127 * 2;
+-
+-STDMETHODIMP CDecoder::CryptoSetPassword(const Byte *data, UInt32 size)
+-{
+-  if (size > kMaxPasswordLength)
+-    size = kMaxPasswordLength;
+-  bool same = false;
+-  if (size == buffer.GetCapacity())
+-  {
+-    same = true;
+-    for (UInt32 i = 0; i < size; i++)
+-      if (data[i] != buffer[i])
+-      {
+-        same = false;
+-        break;
+-      }
+-  }
+-  if (!_needCalculate && !same)
+-    _needCalculate = true;
+-  buffer.SetCapacity(size);
+-  memcpy(buffer, data, size);
+-  return S_OK;
+-}
+-
+-STDMETHODIMP CDecoder::Init()
+-{
+-  Calculate();
+-  SetKey(aesKey, kRarAesKeySize);
+-  AesCbc_Init(_aes + _offset, _aesInit);
+-  return S_OK;
+-}
+-
+-void CDecoder::Calculate()
+-{
+-  if (_needCalculate)
+-  {
+-    const unsigned kSaltSize = 8;
+-    
+-    Byte rawPassword[kMaxPasswordLength + kSaltSize];
+-    
+-    memcpy(rawPassword, buffer, buffer.GetCapacity());
+-    
+-    size_t rawLength = buffer.GetCapacity();
+-    
+-    if (_thereIsSalt)
+-    {
+-      memcpy(rawPassword + rawLength, _salt, kSaltSize);
+-      rawLength += kSaltSize;
+-    }
+-    
+-    NSha1::CContext sha;
+-    sha.Init();
+-
+-    // rar reverts hash for sha.
+-    const unsigned kNumRounds = (1 << 18);
+-    unsigned i;
+-    for (i = 0; i < kNumRounds; i++)
+-    {
+-      sha.UpdateRar(rawPassword, rawLength, _rar350Mode);
+-      Byte pswNum[3] = { (Byte)i, (Byte)(i >> 8), (Byte)(i >> 16) };
+-      sha.UpdateRar(pswNum, 3, _rar350Mode);
+-      if (i % (kNumRounds / 16) == 0)
+-      {
+-        NSha1::CContext shaTemp = sha;
+-        Byte digest[NSha1::kDigestSize];
+-        shaTemp.Final(digest);
+-        _aesInit[i / (kNumRounds / 16)] = (Byte)digest[4 * 4 + 3];
+-      }
+-    }
+-    /*
+-    // it's test message for sha
+-    const char *message = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+-    sha.Update((const Byte *)message, strlen(message));
+-    */
+-    Byte digest[20];
+-    sha.Final(digest);
+-    for (i = 0; i < 4; i++)
+-      for (unsigned j = 0; j < 4; j++)
+-        aesKey[i * 4 + j] = (digest[i * 4 + 3 - j]);
+-  }
+-  _needCalculate = false;
+-}
+-
+-}}
+diff -ruNa p7zip_9.20.1/CPP/7zip/Crypto/RarAes.h p7zip-libre_9.20.1/CPP/7zip/Crypto/RarAes.h
+--- p7zip_9.20.1/CPP/7zip/Crypto/RarAes.h	2009-12-21 08:46:19.000000000 -0300
++++ p7zip-libre_9.20.1/CPP/7zip/Crypto/RarAes.h	1969-12-31 21:00:00.000000000 -0300
+@@ -1,47 +0,0 @@
+-// Crypto/RarAes.h
+-
+-#ifndef __CRYPTO_RAR_AES_H
+-#define __CRYPTO_RAR_AES_H
+-
+-#include "../../../C/Aes.h"
+-
+-#include "Common/Buffer.h"
+-
+-#include "../IPassword.h"
+-
+-#include "MyAes.h"
+-
+-namespace NCrypto {
+-namespace NRar29 {
+-
+-const UInt32 kRarAesKeySize = 16;
+-
+-class CDecoder:
+-  public CAesCbcDecoder,
+-  public ICompressSetDecoderProperties2,
+-  public ICryptoSetPassword
+-{
+-  Byte _salt[8];
+-  bool _thereIsSalt;
+-  CByteBuffer buffer;
+-  Byte aesKey[kRarAesKeySize];
+-  Byte _aesInit[AES_BLOCK_SIZE];
+-  bool _needCalculate;
+-  bool _rar350Mode;
+-
+-  void Calculate();
+-public:
+-  MY_UNKNOWN_IMP2(
+-    ICryptoSetPassword,
+-    ICompressSetDecoderProperties2)
+-  STDMETHOD(Init)();
+-  STDMETHOD(CryptoSetPassword)(const Byte *aData, UInt32 aSize);
+-  STDMETHOD(SetDecoderProperties2)(const Byte *data, UInt32 size);
+-
+-  CDecoder();
+-  void SetRar350Mode(bool rar350Mode) { _rar350Mode = rar350Mode; }
+-};
+-
+-}}
+-
+-#endif
+diff -ruNa p7zip_9.20.1/DOCS/unRarLicense.txt p7zip-libre_9.20.1/DOCS/unRarLicense.txt
+--- p7zip_9.20.1/DOCS/unRarLicense.txt	2008-08-01 06:56:23.000000000 -0300
++++ p7zip-libre_9.20.1/DOCS/unRarLicense.txt	1969-12-31 21:00:00.000000000 -0300
+@@ -1,41 +0,0 @@
+- ******    *****   ******   unRAR - free utility for RAR archives
+- **   **  **   **  **   **  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- ******   *******  ******    License for use and distribution of
+- **   **  **   **  **   **   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- **   **  **   **  **   **         FREE portable version
+-                                   ~~~~~~~~~~~~~~~~~~~~~
+-
+-      The source code of unRAR utility is freeware. This means:
+-
+-   1. All copyrights to RAR and the utility unRAR are exclusively
+-      owned by the author - Alexander Roshal.
+-
+-   2. The unRAR sources may be used in any software to handle RAR
+-      archives without limitations free of charge, but cannot be used
+-      to re-create the RAR compression algorithm, which is proprietary.
+-      Distribution of modified unRAR sources in separate form or as a
+-      part of other software is permitted, provided that it is clearly
+-      stated in the documentation and source comments that the code may
+-      not be used to develop a RAR (WinRAR) compatible archiver.
+-
+-   3. The unRAR utility may be freely distributed. No person or company 
+-      may charge a fee for the distribution of unRAR without written
+-      permission from the copyright holder.
+-
+-   4. THE RAR ARCHIVER AND THE UNRAR UTILITY ARE DISTRIBUTED "AS IS".
+-      NO WARRANTY OF ANY KIND IS EXPRESSED OR IMPLIED.  YOU USE AT 
+-      YOUR OWN RISK. THE AUTHOR WILL NOT BE LIABLE FOR DATA LOSS, 
+-      DAMAGES, LOSS OF PROFITS OR ANY OTHER KIND OF LOSS WHILE USING
+-      OR MISUSING THIS SOFTWARE.
+-
+-   5. Installing and using the unRAR utility signifies acceptance of
+-      these terms and conditions of the license.
+-
+-   6. If you don't agree with terms of the license you must remove
+-      unRAR files from your storage devices and cease to use the
+-      utility.
+-
+-      Thank you for your interest in RAR and unRAR.
+-
+-
+-                                            Alexander L. Roshal
+\ No hay ningún carácter de nueva línea al final del fichero
+diff -ruNa p7zip_9.20.1/makefile p7zip-libre_9.20.1/makefile
+--- p7zip_9.20.1/makefile	2011-03-13 08:52:45.000000000 -0300
++++ p7zip-libre_9.20.1/makefile	2011-09-07 15:41:14.000000000 -0300
+@@ -56,7 +56,6 @@
+ 	$(MAKE) -C CPP/7zip/UI/Client7z           depend
+ 	$(MAKE) -C CPP/7zip/UI/Console            depend
+ 	$(MAKE) -C CPP/7zip/Bundles/Format7zFree  depend
+-	$(MAKE) -C CPP/7zip/Compress/Rar          depend
+ 	$(MAKE) -C CPP/7zip/UI/GUI                depend
+ 	$(MAKE) -C CPP/7zip/UI/FileManager        depend
+ 	$(MAKE) -C check/my_86_filter             depend
+@@ -68,7 +67,6 @@
+ common7z:common
+ 	$(MKDIR) bin/Codecs
+ 	$(MAKE) -C CPP/7zip/Bundles/Format7zFree all
+-	$(MAKE) -C CPP/7zip/Compress/Rar         all
+ 
+ 7z: common7z
+ 	$(MAKE) -C CPP/7zip/UI/Console           all
+@@ -93,7 +91,6 @@
+ 	$(MAKE) -C CPP/7zip/UI/FileManager       clean
+ 	$(MAKE) -C CPP/7zip/UI/GUI               clean
+ 	$(MAKE) -C CPP/7zip/Bundles/Format7zFree clean
+-	$(MAKE) -C CPP/7zip/Compress/Rar         clean
+ 	$(MAKE) -C CPP/7zip/Compress/LZMA_Alone  clean
+ 	$(MAKE) -C CPP/7zip/Bundles/AloneGCOV    clean
+ 	$(MAKE) -C CPP/7zip/TEST/TestUI          clean
+diff -ruNa p7zip_9.20.1/makefile.oldmake p7zip-libre_9.20.1/makefile.oldmake
+--- p7zip_9.20.1/makefile.oldmake	2011-03-13 08:53:08.000000000 -0300
++++ p7zip-libre_9.20.1/makefile.oldmake	2011-09-07 15:41:14.000000000 -0300
+@@ -56,7 +56,6 @@
+ 	cd CPP/7zip/UI/Client7z          ; $(MAKE) depend
+ 	cd CPP/7zip/UI/Console           ; $(MAKE) depend
+ 	cd CPP/7zip/Bundles/Format7zFree ; $(MAKE) depend
+-	cd CPP/7zip/Compress/Rar         ; $(MAKE) depend
+ 	cd CPP/7zip/UI/GUI               ; $(MAKE) depend
+ 	cd CPP/7zip/UI/FileManager       ; $(MAKE) depend
+ 	cd check/my_86_filter            ; $(MAKE) depend
+@@ -68,7 +67,6 @@
+ common7z:common
+ 	$(MKDIR) bin/Codecs
+ 	cd CPP/7zip/Bundles/Format7zFree ; $(MAKE) all
+-	cd CPP/7zip/Compress/Rar         ; $(MAKE) all
+ 
+ 7z: common7z
+ 	cd CPP/7zip/UI/Console           ; $(MAKE) all
+@@ -93,7 +91,6 @@
+ 	cd CPP/7zip/UI/FileManager       ; $(MAKE) clean
+ 	cd CPP/7zip/UI/GUI               ; $(MAKE) clean
+ 	cd CPP/7zip/Bundles/Format7zFree ; $(MAKE) clean
+-	cd CPP/7zip/Compress/Rar         ; $(MAKE) clean
+ 	cd CPP/7zip/Compress/LZMA_Alone  ; $(MAKE) clean
+ 	cd CPP/7zip/Bundles/AloneGCOV    ; $(MAKE) clean
+ 	cd CPP/7zip/TEST/TestUI          ; $(MAKE) clean
+diff -ruNa p7zip_9.20.1/makefile.qnx_shared.so p7zip-libre_9.20.1/makefile.qnx_shared.so
+--- p7zip_9.20.1/makefile.qnx_shared.so	2007-06-28 04:34:14.000000000 -0300
++++ p7zip-libre_9.20.1/makefile.qnx_shared.so	2011-09-07 15:41:14.000000000 -0300
+@@ -1,5 +1,4 @@
+ ###################################################
+-# makefile.machine for "7z.so , Codecs/Rar29.so" :
+ # tested with p7zip-4.47_beta on qnx-6.3.0 sp3 x86 target
+ 
+ OPTFLAGS=-O
+diff -ruNa p7zip_9.20.1/makefile.rules p7zip-libre_9.20.1/makefile.rules
+--- p7zip_9.20.1/makefile.rules	2010-11-07 13:08:51.000000000 -0300
++++ p7zip-libre_9.20.1/makefile.rules	2011-09-07 15:41:14.000000000 -0300
+@@ -448,18 +448,6 @@
+ NsisRegister.o : ../../Archive/Nsis/NsisRegister.cpp
+ 	$(CXX) $(CXXFLAGS) ../../Archive/Nsis/NsisRegister.cpp
+ 
+-RarHandler.o : ../../Archive/Rar/RarHandler.cpp
+-	$(CXX) $(CXXFLAGS) ../../Archive/Rar/RarHandler.cpp
+-RarHeader.o : ../../Archive/Rar/RarHeader.cpp
+-	$(CXX) $(CXXFLAGS) ../../Archive/Rar/RarHeader.cpp
+-RarIn.o : ../../Archive/Rar/RarIn.cpp
+-	$(CXX) $(CXXFLAGS) ../../Archive/Rar/RarIn.cpp
+-RarItem.o : ../../Archive/Rar/RarItem.cpp
+-	$(CXX) $(CXXFLAGS) ../../Archive/Rar/RarItem.cpp
+-RarVolumeInStream.o : ../../Archive/Rar/RarVolumeInStream.cpp
+-	$(CXX) $(CXXFLAGS) ../../Archive/Rar/RarVolumeInStream.cpp
+-RarRegister.o : ../../Archive/Rar/RarRegister.cpp
+-	$(CXX) $(CXXFLAGS) ../../Archive/Rar/RarRegister.cpp
+ 
+ UdfHandler.o : ../../Archive/Udf/UdfHandler.cpp
+ 	$(CXX) $(CXXFLAGS) ../../Archive/Udf/UdfHandler.cpp
+@@ -535,10 +523,6 @@
+ 	$(CXX) $(CXXFLAGS) ../../Crypto/7zAesRegister.cpp
+ WzAes.o : ../../Crypto/WzAes.cpp
+ 	$(CXX) $(CXXFLAGS) ../../Crypto/WzAes.cpp
+-Rar20Crypto.o : ../../Crypto/Rar20Crypto.cpp
+-	$(CXX) $(CXXFLAGS) ../../Crypto/Rar20Crypto.cpp
+-RarAes.o : ../../Crypto/RarAes.cpp
+-	$(CXX) $(CXXFLAGS) ../../Crypto/RarAes.cpp
+ HmacSha1.o : ../../Crypto/HmacSha1.cpp
+ 	$(CXX) $(CXXFLAGS) ../../Crypto/HmacSha1.cpp
+ Pbkdf2HmacSha1.o : ../../Crypto/Pbkdf2HmacSha1.cpp

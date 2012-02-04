@@ -1,0 +1,4 @@
+#!/bin/bash
+
+cd /opt/ganttproject-praha-beta4
+./ganttproject &

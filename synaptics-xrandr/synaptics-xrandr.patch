@@ -1,0 +1,130 @@
+diff -ur xf86-input-synaptics-1.4.0.orig/src/synapticsstr.h xf86-input-synaptics-1.4.0/src/synapticsstr.h
+--- xf86-input-synaptics-1.4.0.orig/src/synapticsstr.h	2011-01-14 19:36:17.000000000 +0100
++++ xf86-input-synaptics-1.4.0/src/synapticsstr.h	2011-01-14 19:36:03.000000000 +0100
+@@ -92,6 +92,7 @@
+     /* Parameter data */
+     int left_edge, right_edge, top_edge, bottom_edge; /* edge coordinates absolute */
+     int finger_low, finger_high, finger_press;	      /* finger detection values in Z-values */
++    int orientation;
+     int tap_time;
+     int tap_move;			    /* max. tapping time and movement in packets and coord. */
+     int single_tap_timeout;		    /* timeout to recognize a single tap */
+diff -ur xf86-input-synaptics-1.4.0.orig/include/synaptics-properties.h xf86-input-synaptics-1.4.0/include/synaptics-properties.h
+--- xf86-input-synaptics-1.4.0.orig/include/synaptics-properties.h	2009-10-20 22:09:01.679710327 +0200
++++ xf86-input-synaptics-1.4.0/include/synaptics-properties.h	2009-10-22 18:48:47.123708014 +0200
+@@ -142,4 +142,7 @@
+ /* 8 bit (BOOL) */
+ #define SYNAPTICS_PROP_GRAB "Synaptics Grab Event Device"
+ 
++/* 32 bit */
++#define SYNAPTICS_ORIENTATION "Synaptics Orientation"
++
+ #endif /* _SYNAPTICS_PROPERTIES_H_ */
+diff -ur xf86-input-synaptics-1.4.0.orig/src/eventcomm.c xf86-input-synaptics-1.4.0/src/eventcomm.c
+--- xf86-input-synaptics-1.4.0.orig/src/eventcomm.c	2009-10-20 22:09:01.683709019 +0200
++++ xf86-input-synaptics-1.4.0/src/eventcomm.c	2009-10-22 21:22:58.224803290 +0200
+@@ -352,10 +352,28 @@
+ 	case EV_ABS:
+ 	    switch (ev.code) {
+ 	    case ABS_X:
+-		hw->x = ev.value;
++		if (para->orientation==0)
++			hw->x = ev.value;
++		else if (para->orientation==2)
++			hw->x = priv->maxx + priv->minx - ev.value;
++		else if (para->orientation==3)
++			hw->y = (priv->maxx - ev.value) * (priv->maxy - priv->miny) / (priv->maxx - priv->minx) + priv->miny;
++		else if (para->orientation==1)
++			hw->y = (ev.value - priv->minx) * (priv->maxy - priv->miny) / (priv->maxx - priv->minx) + priv->miny;
++		else
++			hw->x = ev.value;
+ 		break;
+ 	    case ABS_Y:
+-		hw->y = ev.value;
++		if (para->orientation==0)
++			hw->y = ev.value;
++		else if (para->orientation==2)
++			hw->y = priv->maxy + priv->miny - ev.value;
++		else if (para->orientation==3)
++			hw->x = (ev.value - priv->miny) * (priv->maxx - priv->minx) / (priv->maxy - priv->miny) + priv->minx;
++		else if (para->orientation==1)
++			hw->x = (priv->maxy - ev.value) * (priv->maxx - priv->minx) / (priv->maxy - priv->miny) + priv->minx;
++		else
++			hw->y = ev.value;
+ 		break;
+ 	    case ABS_PRESSURE:
+ 		hw->z = ev.value;
+diff -ur xf86-input-synaptics-1.4.0.orig/src/properties.c xf86-input-synaptics-1.4.0/src/properties.c
+--- xf86-input-synaptics-1.4.0.orig/src/properties.c	2009-10-20 22:09:01.683709019 +0200
++++ xf86-input-synaptics-1.4.0/src/properties.c	2009-10-22 18:48:47.131703654 +0200
+@@ -44,6 +44,7 @@
+ static Atom float_type;
+ 
+ Atom prop_edges                 = 0;
+ Atom prop_finger                = 0;
++Atom prop_orientation           = 0;
+ Atom prop_tap_time              = 0;
+ Atom prop_tap_move              = 0;
+@@ -255,6 +252,8 @@
+     fvalues[0] = para->press_motion_min_factor;
+     fvalues[1] = para->press_motion_max_factor;
+ 
++    prop_orientation = InitAtom(pInfo->dev, SYNAPTICS_ORIENTATION, 32, 1, &para->orientation);
++
+     prop_pressuremotion_factor = InitFloatAtom(pInfo->dev, SYNAPTICS_PROP_PRESSURE_MOTION_FACTOR, 2, fvalues);
+ 
+     prop_grab = InitAtom(pInfo->dev, SYNAPTICS_PROP_GRAB, 8, 1, &para->grab_event_device);
+@@ -270,7 +273,13 @@
+         para = &tmp;
+     }
+ 
+-    if (property == prop_edges)
++	if (property == prop_orientation)
++	{
++        if (prop->size != 1 || prop->format != 32 || prop->type != XA_INTEGER)
++            return BadMatch;
++		para->orientation = *(INT32*)prop->data;
++	}
++	else if (property == prop_edges)
+     {
+         INT32 *edges;
+         if (prop->size != 4 || prop->format != 32 || prop->type != XA_INTEGER)
+diff -ur xf86-input-synaptics-1.4.0.orig/src/synaptics.c xf86-input-synaptics-1.4.0/src/synaptics.c
+--- xf86-input-synaptics-1.4.0.orig/src/synaptics.c	2009-10-20 22:09:01.683709019 +0200
++++ xf86-input-synaptics-1.4.0/src/synaptics.c	2009-10-22 18:57:34.363700791 +0200
+@@ -433,6 +433,7 @@
+     horizTwoFingerScroll = FALSE;
+ 
+     /* set the parameters */
++    pars->orientation = xf86SetIntOption(opts, "Orientation", 0);
+     pars->left_edge = xf86SetIntOption(opts, "LeftEdge", l);
+     pars->right_edge = xf86SetIntOption(opts, "RightEdge", r);
+     pars->top_edge = xf86SetIntOption(opts, "TopEdge", t);
+@@ -2391,8 +2391,14 @@
+     int xCenter = (priv->synpara.left_edge + priv->synpara.right_edge) / 2;
+     int yCenter = (priv->synpara.top_edge + priv->synpara.bottom_edge) / 2;
+ 
+-    hw->x = (hw->x - xCenter) * priv->horiz_coeff + xCenter;
+-    hw->y = (hw->y - yCenter) * priv->vert_coeff + yCenter;
++    if ((priv->synpara.orientation==1) || (priv->synpara.orientation==3)) {
++        hw->x = (hw->x - xCenter) * priv->vert_coeff + xCenter;
++        hw->y = (hw->y - yCenter) * priv->horiz_coeff + yCenter;
++    } else {
++        hw->x = (hw->x - xCenter) * priv->horiz_coeff + xCenter;
++        hw->y = (hw->y - yCenter) * priv->vert_coeff + yCenter;
++    }
++
+ }
+ 
+ void
+diff -ur xf86-input-synaptics-1.4.0.orig/tools/synclient.c xf86-input-synaptics-1.4.0/tools/synclient.c
+--- xf86-input-synaptics-1.4.0.orig/tools/synclient.c	2011-01-14 19:22:01.000000000 +0100
++++ xf86-input-synaptics-1.4.0/tools/synclient.c	2011-01-14 19:19:13.000000000 +0100
+@@ -78,6 +78,7 @@
+     {"RightEdge",             PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	1},
+     {"TopEdge",               PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	2},
+     {"BottomEdge",            PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	3},
++    {"Orientation",           PT_INT,    0, 3,     SYNAPTICS_ORIENTATION,	32,	0},
+     {"FingerLow",             PT_INT,    0, 255,   SYNAPTICS_PROP_FINGER,	32,	0},
+     {"FingerHigh",            PT_INT,    0, 255,   SYNAPTICS_PROP_FINGER,	32,	1},
+     {"FingerPress",           PT_INT,    0, 256,   SYNAPTICS_PROP_FINGER,	32,	2},

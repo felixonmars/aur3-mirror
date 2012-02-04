@@ -1,0 +1,544 @@
+# Maintainer: Christos Nouskas <nous at archlinux dot us>
+# PKGBUILD assembled from kernel26
+# Some lines from  kernel26-bfs and kernel26-ck
+# Credits to respective maintainers
+
+_major=3
+_minor=2
+#_patchlevel=0
+#_subversion=1
+_basekernel=$_major.$_minor
+_pkgname=linux-pf
+_pfrel=2
+_kernelname=-pf
+_pfpatchhome="http://pf.natalenko.name/sources/${_basekernel}/"
+_pfpatchname="patch-${_basekernel}.${_pfrel}${_kernelname}"
+
+pkgname=('linux-pf')
+true && pkgname=('linux-pf' 'linux-pf-headers')
+pkgver=${_basekernel}.${_pfrel}
+pkgrel=1
+arch=('i686' 'x86_64')
+url="http://pf.natalenko.name/"
+license=('GPL2')
+options=('!strip')
+makedepends=('git' 'xmlto' 'docbook-xsl' 'xz')
+source=(ftp://www.kernel.org/pub/linux/kernel/v${_major}.x/linux-${_basekernel}.tar.xz
+	config config.x86_64		# the main kernel config files
+	linux-pf.preset			# standard config files for mkinitcpio ramdisk
+	logo_linux_clut224.ppm.bz2	#
+	logo_linux_mono.pbm.bz2		## the Arch Linux boot logos
+	logo_linux_vga16.ppm.bz2	#
+	channel-negative-one-maxim.patch	# hopefully fix "channel -1" aireplay-ng error
+	interactive-governor.tar.gz::https://gist.github.com/gists/1172524/download
+	change-default-console-loglevel.patch
+	i915-gpu-finish.patch
+	i915-fix-ghost-tv-output.patch
+	usb-add-reset-resume-quirk-for-several-webcams.patch
+	${_pfpatchhome}${_pfpatchname}.bz2)	# the -pf patchset
+
+_aufs3git="git://aufs.git.sourceforge.net/gitroot/aufs/aufs3-standalone.git"
+_aufs3name=aufs3
+
+# '
+
+build() {
+  cd ${srcdir}/linux-${_basekernel}
+  # This is for me, to test the PKGBUILD
+if [[ $NOEXTRACT = "0" ]]; then
+
+     # Arch linux logo
+     msg "Replacing penguins with arches"
+     bzip2 -dk ${startdir}/logo_linux_*.bz2
+     mv -f ${startdir}/logo_linux_*.p?m drivers/video/logo/
+     msg "Applying pf-kernel patch"
+     patch -Np1 < ${srcdir}/${_pfpatchname}
+     msg "Fetching and applying aufs3 patches"
+     git clone ${_aufs3git} ${_aufs3name}
+     cd ${_aufs3name}
+     git checkout origin/aufs${_basekernel} || _aufs3checkout=KRAKRA
+     if [[ ${_aufs3checkout} = "KRAKRA" ]]; then
+	echo
+        msg "AUFS3 not yet ported to version ${_basekernel}!"
+        msg "Skipping related patches."
+	echo
+	cd ..
+     else
+        rm -f include/linux/Kbuild
+        cd ..
+        cp -a ${_aufs3name}/{Documentation,fs,include} ${srcdir}/linux-${_basekernel}/
+        for _patch in ${_aufs3name}/*.patch; do
+        msg "Patching aufs3"
+	    patch -Np1 < ${_patch} || _aufs3fail=KRAKRA
+        done
+        if [[ ${_aufs3fail} = "KRAKRA" ]]; then
+	    echo
+    	    msg "Not all aufs3 patches applied correctly. Ignore this if you won't use AUFS."
+    	    msg "Otherwise, press CTRL-C now and fix manually"
+    	    echo
+        fi
+    fi
+
+
+  # add latest fixes from stable queue, if needed
+  # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
+
+  # fix FS#27883
+  # drm/i915: Only clear the GPU domains upon a successful finish
+  patch -Np1 -i "${srcdir}/i915-gpu-finish.patch"
+
+  # Some chips detect a ghost TV output
+  # mailing list discussion: http://lists.freedesktop.org/archives/intel-gfx/2011-April/010371.html
+  # Arch Linux bug report: FS#19234
+  #
+  # It is unclear why this patch wasn't merged upstream, it was accepted,
+  # then dropped because the reasoning was unclear. However, it is clearly
+  # needed.
+  patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
+
+  # Add the USB_QUIRK_RESET_RESUME for several webcams
+  # FS#26528
+  patch -Np1 -i "${srcdir}/usb-add-reset-resume-quirk-for-several-webcams.patch"
+
+  # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
+  # remove this when a Kconfig knob is made available by upstream
+  # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
+  patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
+
+   msg "Patching for restless souls"
+   patch -Np1 < ${srcdir}/channel-negative-one-maxim.patch
+
+   # Interactive governor patch
+   # broken for now
+   #   msg "Interactice CPU governor patch"
+   #   mv ${srcdir}/gist*/gistfile1.diff ${srcdir}
+   #   patch -Np1 < ${srcdir}/gistfile1.diff
+
+   if [ "$CARCH" = "x86_64" ]; then
+	cat ${startdir}/config.x86_64 >| .config
+   else
+	cat ${startdir}/config >| .config
+   fi
+fi
+  sed -i "s/EXTRAVERSION = -${_pfrel}/EXTRAVERSION = ${_kernelname}/" Makefile
+  _arch=$CARCH
+
+
+#----------------------------------------
+if [[ "$_BATCH" != "y" ]]; then		# for batch building
+  echo
+  echo "======================================================="
+  msg "You might be prompted below for some config options"
+  echo "======================================================="
+  echo
+  msg "Hit <Y> to use your running kernel's config"
+  echo "    (needs IKCONFIG and IKCONFIG_PROC)"
+  msg "Hit <L> to run 'make localmodconfig'"
+  msg "Hit <N> (or just <ENTER>) to build an all-inclusive kernel like stock -ARCH"
+  echo "    (warning: it can take a looong time)"
+  echo
+  read answer
+  shopt -s nocasematch
+  if [[ "$answer" = "y" ]]; then
+     if [[ -s /proc/config.gz ]]; then
+	msg "Extracting config from /proc/config.gz..."
+	zcat /proc/config.gz >| ./.config
+     else
+	msg "running 'sudo modprobe configs'"
+	sudo modprobe configs
+        if [[ -s /proc/config.gz ]]; then
+	    msg "Extracting config from /proc/config.gz..."
+	    zcat /proc/config.gz >| ./.config
+	else
+	    msg "You kernel was not compiled with IKCONFIG_PROC."
+	    msg "Attempting to run /usr/bin/modprobed_db recall from modprobe_db..."
+	    if [ -e /usr/bin/modprobed_db ]; then
+		sudo /usr/bin/modprobed_db recall
+	    fi
+	fi
+	msg "Running make localmodconfig instead..."
+#	chmod +x ./scripts/kconfig/streamline_config.pl
+#	./scripts/kconfig/streamline_config.pl >| config_strip
+#	mv config_strip .config
+	make localmodconfig
+     fi
+  elif [[ "$answer" = "l" ]]; then
+     # Copied from kernel26-ck's PKGBUILD
+     msg "Attempting to run /usr/bin/reload_database from modprobe_db..."
+     if [ -e /usr/bin/reload_database ]; then
+	/usr/bin/reload_database
+     fi
+     msg "Running 'make localmodconfig'..."
+     make localmodconfig
+  else
+     msg "Using stock ARCH kernel .config (with BFS, BFQ and TuxOnIce enabled)."
+  fi
+
+  # Make some good use of MAKEFLAGS
+  # MAKEFLAGS=`grep -v '#' /etc/makepkg.conf | grep MAKEFLAGS= | sed s/MAKEFLAGS=// | sed s/\"//g`
+  # make prepare
+
+  # Option for make menuconfig
+  echo
+  msg "Kernel configuration options before build:"
+  echo "    <M> make menuconfig (console menu)"
+  echo "    <N> make nconfig (newer alternative to menuconfig)"
+  echo "    <G> make gconfig (needs gtk)"
+  echo "    <X> make xconfig (needs qt)"
+  echo "    <O> make oldconfig"
+  echo "    <ENTER> to skip configuration and start compiling"
+  read answer
+  case "$answer" in
+   m) make menuconfig
+      ;;
+   g) make gconfig
+      ;;
+   x) make xconfig
+      ;;
+   n) make nconfig
+      ;;
+   o) make oldconfig
+      ;;
+   default)
+      ;;
+  esac
+  cp -v .config ${startdir}/config.local
+  CPU=`egrep "MK8=y|MCORE2=y|MPSC=y|MATOM=y|MPENTIUMII=y|MPENTIUMIII=y|MPENTIUMM=y|MPENTIUM4=y|MK7=y|CONFIG_GENERIC_CPU=y|M686=y" ./.config`
+  CPU=`sed -e "s/CONFIG_M\(.*\)=y/\1/" <<<$CPU`
+  CPU=`sed -e "s/CONFIG_GENERIC_CPU=y/GENERIC/" <<<$CPU`
+  CPU=`sed -e "s/^686$/GENERIC/" <<<$CPU`
+  cp -v .config ${startdir}/config.$CPU-$CARCH
+
+  # Give option to rename package according to CPU
+  echo
+  if [[ "$CPU" != "GENERIC" ]]; then
+    echo "=============================================================="
+    msg "Hit <ENTER>: to create a package named linux-pf"
+    echo "             regardless of the CPU selected in config (recommended)"
+    msg "Hit <P>    : to create a package named after the selected CPU"
+    echo "             (e.g. linux-pf-core2 - for advanced users)"
+    echo
+    msg "This option affects ONLY the package name. Whether or not the"
+    msg "kernel is optimized was determined at the previous config step."
+    echo "=============================================================="
+    read answer
+    shopt -s nocasematch
+    if [[ "$answer" = "p" ]]; then
+       export _PKGOPT=y
+    fi
+  fi
+fi	# batch check ends here
+export CPU
+#----------------------------------------
+
+  # Strip config of uneeded localversion
+  if [ "${_kernelname}" != "" ]; then
+     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"\"|g" ./.config
+  fi
+  # remove the sublevel from Makefile
+  # this ensures our kernel version is always 3.X-pf
+  # this way, minor kernel updates will not break external modules
+  sed -ri 's|^(SUBLEVEL =).*|\1|' Makefile
+
+  # Build
+  # Want extreme and non-sensical optimization? Uncomment the following line!
+  # export KCFLAGS="-march=native -Ofast"
+  make bzImage modules
+}
+
+package_linux-pf() {
+ _pkgdesc="Linux kernel and modules with pf-kernel patch [-ck patchset (BFS included), TuxOnIce, BFQ] and aufs3"
+ pkgdesc=${_pkgdesc}
+ groups=('base')
+ backup=(etc/mkinitcpio.d/${_pkgname}.preset)
+ depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
+ optdepends=('linux-docs: Kernel hackers manual - HTML documentation that comes with the Linux kernel.'
+	    'crda: to set the correct wireless channels of your country'
+	    'pm-utils: utilities and scripts for suspend and hibernate power management'
+	    'tuxonice-userui: TuxOnIce userspace user interface'
+	    'hibernate-script: set of scripts for managing TuxOnIce, hibernation and suspend to RAM'
+	    'nvidia-pf: NVIDIA drivers for linux-pf'
+	    'nvidia-beta-all: NVIDIA drivers for all installed kernels'
+	    'modprobed_db: Keeps track of EVERY kernel module that has ever been probed. Useful for make localmodconfig.')
+ #provides=(${_pkgname}=${_basekernel} 'aufs3')	# for $pkgname-optimized
+ provides=(${_pkgname}=${_basekernel} 'aufs3' 'kernel26-pf')
+ # below 'provides' is for when you have no other kernel (which is a bad idea anyway)
+ # provides=(${_pkgname}=${_basekernel} 'linux=${pkgver}' 'aufs3')
+ #conflicts=(linux-pf-core2 linux-pf-k8 linux-pf-psc linux-pf-atom linux-pf-k7 linux-pf-p3 linux-pf-pm linux-pf-p4)
+ #conflicts=('kernel26-pf')
+ # If generic build, then conflict with all optimized ones
+ conflicts=('linux-pf-core2' 'linux-pf-k8' 'linux-pf-psc' 'linux-pf-atom' 'linux-pf-k7'
+	    'linux-pf-p3' 'linux-pf-pm' 'linux-pf-p4' 'kernel26-pf-core2' 'kernel26-pf-k8'
+	    'kernel26-pf-psc' 'kernel26-pf-atom' 'kernel26-pf-k7' 'kernel26-pf-p3'
+	    'kernel26-pf-pm' 'kernel26-pf-p4')
+ replaces=('kernel26-pf' 'aufs3')
+ install='linux-pf.install'
+
+ #'
+  cd ${srcdir}/linux-${_basekernel}
+
+  # Remove undeeded aufs3 git tree
+  rm -fr aufs3 2>/dev/null
+
+  # work around the AUR parser
+  # This allows building cpu-optimized packages with according package names.
+  # Useful for repo maintainers.
+  pkgnameopt="${_pkgname}"	# this MUST outside the following 'if'
+  if [[ "$_PKGOPT" = "y" ]]; then	# package naming according to optimization
+    case $CPU in
+     CORE2)
+	 pkgname="${_pkgname}-core2"
+         pkgdesc="${_pkgdesc} Intel Core2 optimized."
+         ;;
+     K8)
+         pkgname="${_pkgname}-k8"
+         pkgdesc="${_pkgdesc} AMD K8 optimized."
+         ;;
+     PSC)
+         pkgname="${_pkgname}-psc"
+         pkgdesc="${_pkgdesc} Intel Pentium4/D/Xeon optimized."
+         ;;
+     ATOM)
+         pkgname="${_pkgname}-atom"
+         pkgdesc="${_pkgdesc} Intel Atom optimized."
+         ;;
+     K7)
+         pkgname="${_pkgname}-k7"
+         pkgdesc="${_pkgdesc} AMD K7 optimized."
+         ;;
+     PENTIUMII)
+         pkgname="${_pkgname}-p2"
+         pkgdesc="${_pkgdesc} Intel Pentium2 optimized."
+         ;;
+     PENTIUMIII)
+         pkgname="${_pkgname}-p3"
+         pkgdesc="${_pkgdesc} Intel Pentium3 optimized."
+         ;;
+     PENTIUMM)
+         pkgname="${_pkgname}-pm"
+         pkgdesc="${_pkgdesc} Intel Pentium-M optimized."
+         ;;
+     PENTIUM4)
+         pkgname="${_pkgname}-p4"
+         pkgdesc="${_pkgdesc} Intel Pentium4 optimized."
+         ;;
+     default)
+  # Note to me: DO NOT EVER REMOVE THIS. It's for the AUR PKGBUILD parser.
+         pkgname="${_pkgname}"
+         pkgdesc="Linux kernel and modules with pf-kernel patch [-ck patchset (BFS included), TuxOnIce, BFQ] and aufs3"
+         ;;
+    esac
+
+  # If optimized build, conflict with generic and other optimized ones
+
+  if [[ "$pkgname" != "$_pkgname" ]]; then
+	pkgnameopt="${pkgname}"	# this MUST outside the following 'if'
+	pkgname="${_pkgname}"
+	suffix=`sed -e "s/linux-pf-//" <<<$pkgname`		# get suffix
+	conflicts=('linux-pf' 'kernel26-pf' ${conflicts[@]})	# add generic packages
+	conflicts=({conflicts[@]/linux-pf-$suffix/})		# remove current
+  fi
+
+    echo
+    echo "======================================="
+    msg  "The package will be named ${pkgnameopt}"
+    msg  "${pkgdesc}"
+    echo "======================================="
+    echo
+
+  # second batch check ends here
+ fi
+
+ ### package_linux-pf
+ ###
+  KARCH=x86
+
+  # get kernel version
+  _kernver="$(make kernelrelease)"
+
+  mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
+  make INSTALL_MOD_PATH="${pkgdir}" modules_install
+  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgname}"
+
+  # add vmlinux
+  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
+
+  # install fallback mkinitcpio.conf file and preset file for kernel
+  install -D -m644 "${srcdir}/${pkgname}.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+
+  # set correct depmod command for install
+  sed \
+    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/g" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
+    -i "${startdir}/${pkgname}.install"
+  sed \
+    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgname}\"|g" \
+    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgname}.img\"|g" \
+    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgname}-fallback.img\"|g" \
+    -i "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+
+  # remove build and source links
+  rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
+  # remove the firmware
+  rm -rf "${pkgdir}/lib/firmware"
+  # gzip -9 all modules to save 100MB of space
+  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  # make room for external modules
+  ln -s "../extramodules-${_basekernel}${_kernelname:--pf}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+  # add real version for building modules and running depmod from post_install/upgrade
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--pf}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--pf}/version"
+
+  ###
+  # Trick the AUR parser to accept split PKGBUILD
+  true && pkgname="${pkgnameopt}"
+}
+
+### package_linux-pf-headers
+package_linux-pf-headers() {
+  pkgdesc="Header files and scripts for building modules for linux-f kernel"
+  provides=('linux-pf-headers')
+
+  mkdir -p "${pkgdir}/lib/modules/${_kernver}"
+
+  cd "${pkgdir}/lib/modules/${_kernver}"
+  ln -sf ../../../usr/src/linux-${_kernver} build
+
+  cd "${srcdir}/linux-${_basekernel}"
+  install -D -m644 Makefile \
+    "${pkgdir}/usr/src/linux-${_kernver}/Makefile"
+  install -D -m644 kernel/Makefile \
+    "${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile"
+  install -D -m644 .config \
+    "${pkgdir}/usr/src/linux-${_kernver}/.config"
+
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include"
+
+  for i in acpi asm-generic config crypto drm generated linux math-emu \
+    media net pcmcia scsi sound trace video xen; do
+    cp -a include/${i} "${pkgdir}/usr/src/linux-${_kernver}/include/"
+  done
+
+  # copy arch includes for external modules
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/x86"
+  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${_kernver}/arch/x86/"
+
+  # copy files necessary for later builds, like nvidia and vmware
+  cp Module.symvers "${pkgdir}/usr/src/linux-${_kernver}"
+  cp -a scripts "${pkgdir}/usr/src/linux-${_kernver}"
+
+  # fix permissions on scripts dir
+  chmod og-w -R "${pkgdir}/usr/src/linux-${_kernver}/scripts"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions"
+
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel"
+
+  cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+
+  if [ "${CARCH}" = "i686" ]; then
+    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+  fi
+
+  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel/"
+
+  # add headers for lirc package
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video"
+
+  cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/"
+
+  for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102; do
+    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+    cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+  done
+
+  # add docbook makefile
+  install -D -m644 Documentation/DocBook/Makefile \
+    "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
+
+  # add dm headers
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+  cp drivers/md/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+
+  # add inotify.h
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/linux"
+  cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${_kernver}/include/linux/"
+
+  # add wireless headers
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+  cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+
+  # add dvb headers for external modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/9912
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core"
+  cp drivers/media/dvb/dvb-core/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/"
+  # and...
+  # http://bugs.archlinux.org/task/11194
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+  cp include/config/dvb/*.h "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+
+  # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
+  # in reference to:
+  # http://bugs.archlinux.org/task/13146
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  cp drivers/media/dvb/frontends/lgdt330x.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  cp drivers/media/video/msp3400-driver.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+
+  # add dvb headers
+  # in reference to:
+  # http://bugs.archlinux.org/task/20402
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb"
+  cp drivers/media/dvb/dvb-usb/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends"
+  cp drivers/media/dvb/frontends/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners"
+  cp drivers/media/common/tuners/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners/"
+
+  # add xfs and shmem for aufs building
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/mm"
+  cp fs/xfs/xfs_sb.h "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h"
+
+  # copy in Kconfig files
+  for i in `find . -name "Kconfig*"`; do
+    mkdir -p "${pkgdir}"/usr/src/linux-${_kernver}/`echo ${i} | sed 's|/Kconfig.*||'`
+    cp ${i} "${pkgdir}/usr/src/linux-${_kernver}/${i}"
+  done
+
+  chown -R root.root "${pkgdir}/usr/src/linux-${_kernver}"
+  find "${pkgdir}/usr/src/linux-${_kernver}" -type d -exec chmod 755 {} \;
+
+  # strip scripts directory
+  find "${pkgdir}/usr/src/linux-${_kernver}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
+    case "$(file -bi "${binary}")" in
+      *application/x-sharedlib*) # Libraries (.so)
+        /usr/bin/strip ${STRIP_SHARED} "${binary}";;
+      *application/x-archive*) # Libraries (.a)
+        /usr/bin/strip ${STRIP_STATIC} "${binary}";;
+      *application/x-executable*) # Binaries
+        /usr/bin/strip ${STRIP_BINARIES} "${binary}";;
+    esac
+  done
+
+  # remove unneeded architectures
+  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+}
+
+# Work around the AUR parser
+pkgdesc="Linux kernel and modules with pf-kernel patch [-ck patchset (BFS included), TuxOnIce, BFQ] and aufs3"
+
+# makepkg -g >>PKGBUILD
+sha256sums=('dd96ed02b53fb5d57762e4b1f573460909de472ca588f81ec6660e4a172e7ba7'
+            'ca7da9043beba0c982fed388107fc1250dadccc376cce9f512d8c74cb1309f7d'
+            'f48a4f07f03b00af4cf0399771fecebc9ea9587996da809cbf9916e1484e9295'
+            '82d660caa11db0cd34fd550a049d7296b4a9dcd28f2a50c81418066d6e598864'
+            '03ed4eb4a35d42ae6beaaa5e6fdbada4244ed6c343944bba6462defaa6fed0bf'
+            '51ea665cfec42d9f9c7796af2b060b7edbdeb367e42811f8c02667ad729f6b19'
+            '9e1e81d80afac6f316e53947e1b081017090081cd30e6c4c473420b77af4b52b'
+            '19f7fc0753636c32026e444e23bd101bd21cfeb59661284678bf157dc35212f2'
+            'd537a358c9f8b9cbcad34ba99f88af070f54d99c66d3e5d3d4734576ed2fb6e1'
+            '2fc60ad91d7afe5b1e7c7a0cac7555a2dddf2b9fc1f7a044e211904991e10e83'
+            'f0ab8d5f2c1ab29b5bcc1d7be251f36796489bae2f6486fac49595fa4c895770'
+            '4bc5a3fc40bf60bd4b362b519219cae56141a9f209bd2cf6bed25c1bd434e2cc'
+            '549a33278c17af6aa9ca5d3cf2abe3a0b1010d7c66e53d2a357a38ace25f8ea1'
+            'aa2158727101785b7e7da7c7613badc77aca64df4787c0b55e6220638808aa28')

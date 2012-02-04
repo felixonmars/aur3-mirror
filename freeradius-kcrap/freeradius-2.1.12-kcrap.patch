@@ -1,0 +1,225 @@
+diff -Naur freeradius-server-2.1.12/src/modules/rlm_mschap/Makefile freeradius-server-2.1.12-patched/src/modules/rlm_mschap/Makefile
+--- freeradius-server-2.1.12/src/modules/rlm_mschap/Makefile	2011-09-30 10:12:07.000000000 -0400
++++ freeradius-server-2.1.12-patched/src/modules/rlm_mschap/Makefile	2011-11-10 00:16:58.000000000 -0500
+@@ -9,7 +9,7 @@
+ HEADERS		= mschap.h smbdes.h
+ RLM_CFLAGS	=
+ RLM_LDFLAGS	=
+-RLM_LIBS	=
++RLM_LIBS	= -lkcrap
+ RLM_UTILS   	= smbencrypt
+ RLM_INSTALL 	= smbencrypt-install
+ 
+diff -Naur freeradius-server-2.1.12/src/modules/rlm_mschap/rlm_mschap.c freeradius-server-2.1.12-patched/src/modules/rlm_mschap/rlm_mschap.c
+--- freeradius-server-2.1.12/src/modules/rlm_mschap/rlm_mschap.c	2011-09-30 10:12:07.000000000 -0400
++++ freeradius-server-2.1.12-patched/src/modules/rlm_mschap/rlm_mschap.c	2011-11-10 00:16:46.000000000 -0500
+@@ -36,6 +36,8 @@
+ #include	"mschap.h"
+ #include	"smbdes.h"
+ 
++#include <kcrap.h>
++
+ #ifdef __APPLE__
+ extern int od_mschap_auth(REQUEST *request, VALUE_PAIR *challenge, VALUE_PAIR * usernamepair);
+ #endif
+@@ -687,11 +689,22 @@
+ 		 *	then calculate the hash of the NT hash.  Doing this
+ 		 *	here minimizes work for later.
+ 		 */
++		 
+ 		if (password && (password->attribute == PW_NT_PASSWORD)) {
+ 			fr_md4_calc(nthashhash, password->vp_octets, 16);
+ 		} else {
+ 			memset(nthashhash, 0, 16);
+ 		}
++		
++		char nthh_hex[33];
++		fr_bin2hex(nthashhash, nthh_hex, 16);
++		nthh_hex[32] = 0;
++		RDEBUG2("MD4(LM(password)) = %s", nthh_hex);
++		
++		fr_bin2hex(password->vp_octets, nthh_hex, 16);
++		/* nthh_hex[16] = 0; */
++		RDEBUG2("LM(password) = %s", nthh_hex);
++		
+ 	} else {		/* run ntlm_auth */
+ 		int	result;
+ 		char	buffer[256];
+@@ -754,11 +767,101 @@
+ 			RDEBUG2("Invalid output from ntlm_auth: NT_KEY has non-hex values");
+ 			return -1;
+ 		}
++		
++		RDEBUG2("NT hash hash: %s", buffer + 8);
+ 	}
+ 
+ 	return 0;
+ }
+ 
++static int do_kcrap(REQUEST *request, uint8_t *challenge, VALUE_PAIR *response, unsigned int offset, uint8_t *nthashhash)
++{
++	RDEBUG2("I think I can try KCRAP here");
++	int kcrap_success = 0;
++	
++	/* Start talking with KCRAP */
++	struct kcrap_context *kcontext = kcrap_init(NULL, NULL);
++	if ( kcontext == NULL )
++	{
++		RDEBUG2("FAILED: Could not init KCRAP context.");
++		return -1;
++	}
++	
++	RDEBUG2("Got KCRAP context");
++	
++	/* Build our authentication request */
++	struct kcrap_auth_req_data req;
++	VALUE_PAIR *username;
++	username = pairfind(request->packet->vps, PW_USER_NAME);
++	bzero(&req, sizeof(req));
++	req.chal_type.data = "NTLM";             
++	req.chal_type.length = 4;
++	req.client_challenge.data = (char *)challenge;
++	req.client_challenge.length = 8;
++	req.response.data = (char *)(response->vp_octets + offset);
++	req.response.length = 50 - offset;
++	req.principal.data = username->vp_strvalue;
++	req.principal.length = username->length;
++	RDEBUG2("Challenge: 0x%016llx (principal = %s, response = 0x%016llx)", *((unsigned long long *)challenge), username->vp_strvalue, *((unsigned long long *)req.response.data));
++	int kcrap_auth_status;
++	
++	/* Authenticate! */
++	kcrap_auth_status = kcrap_try(kcontext, &req, &kcrap_success);
++	
++	/* Free our instance */
++	kcrap_free(kcontext);
++	
++	/* Deal with the results */
++	if ( kcrap_auth_status != 0 )
++	{
++		RDEBUG2("KCRAP: Rejected, errno %d (%s)", kcrap_auth_status, kcrap_errmsg());
++		return -1;
++	}
++	
++	if ( kcrap_success )
++	{
++		RDEBUG2("KCRAP: Authentication succeeded.");
++		
++		/*
++		 *	Update the NT hash hash, from the NT key.
++		 */
++		 
++		struct kcrap_data extra = kcrap_get_extra_data();
++		
++		if ( extra.length == 16 )
++		{
++			/* This is the LM hash */
++			fr_md4_calc(nthashhash, extra.data, 16);
++		}
++		
++		char nthh_hex[33];
++		fr_bin2hex(nthashhash, nthh_hex, 16);
++		nthh_hex[32] = 0;
++		RDEBUG2("MD4(LM(password)) = %s", nthh_hex);
++		
++		fr_bin2hex(extra.data, nthh_hex, 16);
++		RDEBUG2("LM(password) = %s", nthh_hex);
++		
++		/* memset(nthashhash, 0, 16); */
++		/*
++		MS-CHAP doesn't tell us the password, so I don't know how we can calculate this...
++		or if this is even what we want to calculate :(
++		if (password && (password->attribute == PW_NT_PASSWORD)) {
++			fr_md4_calc(nthashhash, password->vp_octets, 16);
++		} else {
++			memset(nthashhash, 0, 16);
++		}
++		*/
++		
++		return 0;
++	}
++	else
++	{
++		RDEBUG2("KCRAP: Wrong credentials");
++		return -1;
++	}
++}
++
+ 
+ /*
+  *	Data for the hashes.
+@@ -1131,8 +1234,11 @@
+ 		if (do_mschap(inst, request, password, challenge->vp_octets,
+ 			      response->vp_octets + offset, nthashhash,
+ 			      do_ntlm_auth) < 0) {
+-			RDEBUG2("MS-CHAP-Response is incorrect.");
+-			goto do_error;
++			if ( do_kcrap(request, challenge->vp_octets, response, offset, nthashhash) < 0 )
++			{
++				RDEBUG2("MS-CHAP-Response is incorrect.");
++				goto do_error;
++			}
+ 		}
+ 
+ 		chap = 1;
+@@ -1237,34 +1343,37 @@
+ 		RDEBUG2("Told to do MS-CHAPv2 for %s with NT-Password",
+ 		       username_string);
+ 
+-		if (do_mschap(inst, request, nt_password, mschapv1_challenge,
++		if (do_kcrap(request, mschapv1_challenge, response, 26, nthashhash) < 0 ) {
++			if ( do_mschap(inst, request, nt_password, mschapv1_challenge,
+ 			      response->vp_octets + 26, nthashhash,
+-			      do_ntlm_auth) < 0) {
+-			int i;
+-			char buffer[128];
+-
+-			RDEBUG2("FAILED: MS-CHAP2-Response is incorrect");
+-
+-		do_error:
+-			snprintf(buffer, sizeof(buffer), "E=691 R=%d",
+-				 inst->allow_retry);
+-
+-			if (inst->retry_msg) {
+-				snprintf(buffer + 9, sizeof(buffer) - 9, " C=");
+-				for (i = 0; i < 16; i++) {
+-					snprintf(buffer + 12 + i*2,
+-						 sizeof(buffer) - 12 - i*2, "%02x",
+-						 fr_rand() & 0xff);
++			      do_ntlm_auth) < 0 ) {
++		
++				int i;
++				char buffer[128];
++	
++				RDEBUG2("FAILED: MS-CHAP2-Response is incorrect");
++	
++			do_error:
++				snprintf(buffer, sizeof(buffer), "E=691 R=%d",
++					 inst->allow_retry);
++	
++				if (inst->retry_msg) {
++					snprintf(buffer + 9, sizeof(buffer) - 9, " C=");
++					for (i = 0; i < 16; i++) {
++						snprintf(buffer + 12 + i*2,
++							 sizeof(buffer) - 12 - i*2, "%02x",
++							 fr_rand() & 0xff);
++					}
++					snprintf(buffer + 12 + 32, sizeof(buffer) - 45,
++						 " V=3 M=%s", inst->retry_msg);
+ 				}
+-				snprintf(buffer + 12 + 32, sizeof(buffer) - 45,
+-					 " V=3 M=%s", inst->retry_msg);
++				mschap_add_reply(request, &request->reply->vps,
++						 *response->vp_octets, "MS-CHAP-Error",
++						 buffer, strlen(buffer));
++				return RLM_MODULE_REJECT;
+ 			}
+-			mschap_add_reply(request, &request->reply->vps,
+-					 *response->vp_octets, "MS-CHAP-Error",
+-					 buffer, strlen(buffer));
+-			return RLM_MODULE_REJECT;
+ 		}
+-
++		
+ 		mschap_auth_response(username_string, /* without the domain */
+ 			      nthashhash, /* nt-hash-hash */
+ 			      response->vp_octets + 26, /* peer response */

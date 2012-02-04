@@ -1,0 +1,952 @@
+diff -ruN 8Kingdoms-1.1.0-orig/8Kingdoms.cpp 8Kingdoms-1.1.0/8Kingdoms.cpp
+--- 8Kingdoms-1.1.0-orig/8Kingdoms.cpp	2007-07-22 03:32:48.000000000 +0200
++++ 8Kingdoms-1.1.0/8Kingdoms.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -25,6 +25,7 @@
+ 
+ //rozhrani
+ #include <sstream>
++#include <tcl.h>
+ 
+ #include "common/Interface.h"
+ #include "common/Msg.h"
+@@ -470,6 +471,8 @@
+ */
+ int main(int argc, char** argv){
+ 
++  Tcl_FindExecutable(argv[0]);
++  
+   try{
+     //parametry z prikazoveho radku
+     TCommandLine::parseCommandLine(argc, argv);
+diff -ruN 8Kingdoms-1.1.0-orig/ai/Diplomacy/diplomacy.cpp 8Kingdoms-1.1.0/ai/Diplomacy/diplomacy.cpp
+--- 8Kingdoms-1.1.0-orig/ai/Diplomacy/diplomacy.cpp	2007-07-22 03:32:49.000000000 +0200
++++ 8Kingdoms-1.1.0/ai/Diplomacy/diplomacy.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -245,7 +245,11 @@
+ void CDiplomacyEngine::setOtherRelationshipPropertiesByIDs(TRelationshipProperties & relshp_prop,int dip1,int dip2)
+ {
+   DiplomatRelations[dip1][dip2].relationship_properties.offer_seen_by_enemy=relshp_prop.offer_seen_by_enemy;
++  if (relshp_prop.belief>MAXIMAL_BELIEF)
++    relshp_prop.belief=MAXIMAL_BELIEF;
+   DiplomatRelations[dip1][dip2].relationship_properties.belief=relshp_prop.belief;
++  if (relshp_prop.guess_belief>MAXIMAL_BELIEF)
++    relshp_prop.guess_belief=MAXIMAL_BELIEF;
+   DiplomatRelations[dip1][dip2].relationship_properties.guess_belief=relshp_prop.guess_belief;
+ }
+ 
+@@ -993,6 +997,11 @@
+     {
+       if ((i!=dipid) && (DiplomatRecords[i].slotused))
+       {
++        // FOR SOME REASON belief can grow over MAXIMAL_BELIEF (tho it should not) - btw. the highest interval <ALLY_TRUCE_BORDER,MAXIMAL_BELIEF> represents alliance
++        if (DiplomatRelations[dipid][i].relationship_properties.guess_belief>MAXIMAL_BELIEF)
++          DiplomatRelations[dipid][i].relationship_properties.guess_belief=MAXIMAL_BELIEF;
++        if (DiplomatRelations[dipid][i].relationship_properties.belief>MAXIMAL_BELIEF)
++          DiplomatRelations[dipid][i].relationship_properties.belief=MAXIMAL_BELIEF;
+         TRelationship believedrs=getBeliefRelationship(DiplomatRelations[dipid][i].relationship_properties.belief);
+         if (DiplomatRelations[dipid][i].rs!=believedrs)
+         {
+diff -ruN 8Kingdoms-1.1.0-orig/ai/MapAnalyzer/mapanalyzer.cpp 8Kingdoms-1.1.0/ai/MapAnalyzer/mapanalyzer.cpp
+--- 8Kingdoms-1.1.0-orig/ai/MapAnalyzer/mapanalyzer.cpp	2007-07-22 03:32:49.000000000 +0200
++++ 8Kingdoms-1.1.0/ai/MapAnalyzer/mapanalyzer.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -9,6 +9,8 @@
+ */
+ 
+ #include "ai/MapAnalyzer/mapanalyzer.h"
++#include <limits.h>
++
+ using namespace World;
+ 
+ namespace ai_ns
+diff -ruN 8Kingdoms-1.1.0-orig/ai/Strategizer/attacks.cpp 8Kingdoms-1.1.0/ai/Strategizer/attacks.cpp
+--- 8Kingdoms-1.1.0-orig/ai/Strategizer/attacks.cpp	2007-07-22 03:32:49.000000000 +0200
++++ 8Kingdoms-1.1.0/ai/Strategizer/attacks.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -9,6 +9,7 @@
+ */
+ 
+ #include "ai/Strategizer/attacks.h"
++#include <limits.h>
+ 
+ using namespace World;
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/ai/ai_makra.h 8Kingdoms-1.1.0/ai/ai_makra.h
+--- 8Kingdoms-1.1.0-orig/ai/ai_makra.h	2007-07-22 03:32:49.000000000 +0200
++++ 8Kingdoms-1.1.0/ai/ai_makra.h	2009-11-02 20:20:09.000000000 +0100
+@@ -11,8 +11,8 @@
+ #ifndef __PETR_ZITA_AI_MAKRA__
+ #define __PETR_ZITA_AI_MAKRA__
+ 
+-#define PRIORITY_AI_FLOODFILL 1
+-#define PRIORITY_AI_ALLOC 1
++#define PRIORITY_AI_FLOODFILL 10
++#define PRIORITY_AI_ALLOC 10
+ 
+ /** Makro urcujici, zdali se ma volat tah umele inteligence - ma ciste ladici vyznam. */
+ #define AI_STRATEGIZER_ENABLED
+diff -ruN 8Kingdoms-1.1.0-orig/common/TCL/tcl_script.cpp 8Kingdoms-1.1.0/common/TCL/tcl_script.cpp
+--- 8Kingdoms-1.1.0-orig/common/TCL/tcl_script.cpp	2007-07-22 03:32:50.000000000 +0200
++++ 8Kingdoms-1.1.0/common/TCL/tcl_script.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -12,34 +12,96 @@
+ #include "common/TCL/tcl_struct.h"
+ #include "world/useful.h"
+ #include "world/typedefs.h"
++#include "world/rules.h"
+ 
+ using namespace std;
+ 
++/* We can get called from multiple threads, protected against reentrance
++   through locks. But locks are not enough. Tcl is thread aware and does not
++   allow an interpreter to be called from another thread then it is created.
++   With Tcl-8.4 things work even when violating this Tcl thread model rule, but
++   thats pure luck on our side.
++   
++   However with Tcl-8.5 calling an interpreter from another thread then it is
++   created really no longer works. Under pthread using OS we solve this by
++   using a per thread variable for the interpreter and creating an interpreter
++   for each thread. Under non pthread OS we keep relying on our luck, so
++   Tcl-8.5 may not be used there! */
++
++#ifdef __unix__
++/* interpreter destructor for the per thread interpreter */
++static void interpreter_destructor(void *_interpreter)
++{
++    Tcl_DeleteInterp((Tcl_Interp *)_interpreter);
++}
++#endif
++
+ TTCL_Interpreter::TTCL_Interpreter()
+ {
+-    _interpreter =  Tcl_CreateInterp();
++#ifdef __unix__
++    pthread_key_create(&_interpreter_key, interpreter_destructor);
++    _rules = NULL; 
++#else
++    _interpreter = Tcl_CreateInterp();
++#endif
+ }
+ 
+ TTCL_Interpreter::~TTCL_Interpreter()
+ {
++#ifdef __unix__
++    pthread_key_delete(_interpreter_key);
++#else
+     Tcl_DeleteInterp(_interpreter);
+     //KMemFree(_interpreter);
++#endif
++}
++
++Tcl_Interp *TTCL_Interpreter::getInterpreter()
++{
++#ifdef __unix__
++    Tcl_Interp *_interpreter =
++        (Tcl_Interp *)pthread_getspecific(_interpreter_key);
++    
++    if (!_interpreter)
++    {
++        _interpreter = Tcl_CreateInterp();
++        pthread_setspecific(_interpreter_key, _interpreter);
++        
++        if (_rules)
++        {
++            _rules->writeToTCL(*this);
++            Tcl_CreateCommand(_interpreter, "KSendMessage", _TCLSendMessageProc,
++                              NULL, NULL);
++            TTCL_Script script(this);
++            script.loadStruct(_init_script);
++            script.run();
++        }
++    }
++#endif
++    return _interpreter;
+ }
+ 
+-void TTCL_Interpreter::init(TCL_SCRIPT * init_script)
++void TTCL_Interpreter::init(World::TRules * rules,
++    Tcl_CmdProc * TCLSendMessageProc, TCL_SCRIPT * init_script)
+ {
++#ifdef __unix__
++    _rules = rules;
++    _TCLSendMessageProc = TCLSendMessageProc;
++    _init_script = init_script;
++#else
++    rules->writeToTCL(*this);
++    Tcl_CreateCommand(getInterpreter(), "KSendMessage", TCLSendMessageProc,
++                      NULL, NULL);
+     TTCL_Script script(this);
+     script.loadStruct(init_script);
+     script.run();
++#endif
+ }
+ 
+ bool TTCL_Interpreter::setVar(const char * name, const TCL_VAR_TYPE type, void * value)
+ {
+-    if (_interpreter == NULL)
+-        THROW(E_8K_TCL_Error, "TCL interpreter has not been initialized properly");
+-
+     // odstraneni predchoziho vyskytu promenne
+-    Tcl_UnsetVar(_interpreter, name, 0);
++    Tcl_UnsetVar(getInterpreter(), name, 0);
+     
+     // nastaveni nove hodnoty
+     bool result;
+@@ -48,7 +110,7 @@
+     switch (type) {
+         case TVT_STRING:
+         // STRING
+-            result = (Tcl_SetVar(_interpreter, name, (const char *)value, 0) != NULL);
++            result = (Tcl_SetVar(getInterpreter(), name, (const char *)value, 0) != NULL);
+             break;
+         case TVT_INT:
+         // INT
+@@ -56,7 +118,7 @@
+             snprintf(s, 255, "%d", *(int *)value);
+ 
+             // ulozim cislo do TCL
+-            result = (Tcl_SetVar(_interpreter, name, s, 0) != NULL);
++            result = (Tcl_SetVar(getInterpreter(), name, s, 0) != NULL);
+             break;
+         case TVT_FLOAT:
+         // FLOAT
+@@ -64,7 +126,7 @@
+             snprintf(s, 255, "%f", *(float *)value);
+ 
+             // ulozim cislo do TCL
+-            result = (Tcl_SetVar(_interpreter, name, s, 0) != NULL);
++            result = (Tcl_SetVar(getInterpreter(), name, s, 0) != NULL);
+             break;
+         case TVT_FLOAT_LIST:
+             {
+@@ -153,11 +215,8 @@
+ 
+ bool TTCL_Interpreter::getVar(const char * name, const TCL_VAR_TYPE type, void * value)
+ {
+-    if (_interpreter == NULL)
+-        THROW(E_8K_TCL_Error, "TCL interpreter has not been initialized properly");
+-
+     // nacteni objektu z TCL
+-    Tcl_Obj * tcl_obj = Tcl_GetVar2Ex(_interpreter, name, NULL, TCL_LEAVE_ERR_MSG);
++    Tcl_Obj * tcl_obj = Tcl_GetVar2Ex(getInterpreter(), name, NULL, TCL_LEAVE_ERR_MSG);
+     
+     // promennou se nepodarilo nacist (a pritom to nebylo asociativni pole)
+     if ((tcl_obj == NULL) && (type != TVT_INT_ARRAY) && (type != TVT_FLOAT_ARRAY) && (type != TVT_STRING_ARRAY)) {        
+@@ -173,14 +232,14 @@
+                 return true;
+             break;
+         case TVT_INT:
+-            if (Tcl_GetIntFromObj(_interpreter, tcl_obj, (int *)value) == TCL_OK)
++            if (Tcl_GetIntFromObj(getInterpreter(), tcl_obj, (int *)value) == TCL_OK)
+                 return true;
+             else
+                 return false;
+             break;
+         case TVT_FLOAT:
+             double _value;
+-            if (Tcl_GetDoubleFromObj(_interpreter, tcl_obj, &_value) == TCL_OK) {
++            if (Tcl_GetDoubleFromObj(getInterpreter(), tcl_obj, &_value) == TCL_OK) {
+                 // pretypovani na float
+                 *(float *)value = (float)_value;
+                 return true;
+@@ -415,7 +474,7 @@
+     char s[MAX_STRLEN];
+ 
+     snprintf(s, MAX_STRLEN, "%d", value);
+-    return (Tcl_SetVar(_interpreter, name, s, 0) != NULL);
++    return (Tcl_SetVar(getInterpreter(), name, s, 0) != NULL);
+ }
+ 
+ bool TTCL_Interpreter::setConstDouble(const char * name, const double value)
+@@ -423,29 +482,21 @@
+     char s[MAX_STRLEN];
+ 
+     snprintf(s, MAX_STRLEN, "%.2f", value);
+-    return (Tcl_SetVar(_interpreter, name, s, 0) != NULL);
++    return (Tcl_SetVar(getInterpreter(), name, s, 0) != NULL);
+ }
+ 
+ int TTCL_Interpreter::eval(const char * code)
+ {
+-    if (_interpreter == NULL)
+-        THROW(E_8K_TCL_Error, "TCL interpreter has not been initialized properly");
+-
+-    int result =  Tcl_Eval(_interpreter, code);
++    int result =  Tcl_Eval(getInterpreter(), code);
+     if (result == TCL_ERROR) {
+-        THROW(E_8K_TCL_Error, Tcl_GetStringResult(_interpreter));
++        THROW(E_8K_TCL_Error, Tcl_GetStringResult(getInterpreter()));
+     }
+     return result;
+ }
+ 
+ const char * TTCL_Interpreter::getError()
+ {
+-    return Tcl_GetStringResult(_interpreter);
+-}
+-
+-Tcl_Command TTCL_Interpreter::createCommand(const char * tclName, Tcl_CmdProc * cName, ClientData clientData, Tcl_CmdDeleteProc * deleteProc)
+-{
+-    return Tcl_CreateCommand(_interpreter, tclName, cName, clientData, deleteProc);
++    return Tcl_GetStringResult(getInterpreter());
+ }
+ 
+ void TTCL_Interpreter::setResult(TCL_VAR_TYPE type, void * value)
+@@ -455,21 +506,21 @@
+     switch (type) {
+         case TVT_STRING:
+         // STRING
+-            Tcl_SetResult(_interpreter, (char *)value, NULL);
++            Tcl_SetResult(getInterpreter(), (char *)value, NULL);
+             break;
+         case TVT_INT:
+         // INT
+             // prevedu cislo na string        
+             snprintf(s, MAX_STRLEN, "%d", *(int *)value);
+ 
+-            Tcl_SetResult(_interpreter, s, NULL);
++            Tcl_SetResult(getInterpreter(), s, NULL);
+             break;
+         case TVT_FLOAT:
+         // FLOAT
+             // prevedu cislo na string
+             snprintf(s, MAX_STRLEN, "%f", *(float *)value);
+ 
+-            Tcl_SetResult(_interpreter, s, NULL);
++            Tcl_SetResult(getInterpreter(), s, NULL);
+             break;
+         default:
+             THROW(E_8K_TCL_UnknownType, "");
+diff -ruN 8Kingdoms-1.1.0-orig/common/TCL/tcl_script.h 8Kingdoms-1.1.0/common/TCL/tcl_script.h
+--- 8Kingdoms-1.1.0-orig/common/TCL/tcl_script.h	2007-07-22 03:32:50.000000000 +0200
++++ 8Kingdoms-1.1.0/common/TCL/tcl_script.h	2009-11-02 20:20:09.000000000 +0100
+@@ -9,6 +9,9 @@
+ 
+ #include <map>
+ #include <tcl.h>
++#ifdef __unix__
++#include <pthread.h>
++#endif
+ #include "common/TCL/tcl_var.h"
+ 
+ /// pocet desetinnych mist, pouzitych pri konverzi cisel do TCL
+@@ -172,6 +175,11 @@
+     char * code;
+ };
+ 
++namespace World
++{
++    class TRules;
++};
++
+ /** Interpret skriptu jazyka TCL
+     Objektovy "obal" puvodnich TCL struktur. 
+     
+@@ -184,16 +192,26 @@
+ class TTCL_Interpreter
+ {
+ private:
++#ifdef __unix__
++    pthread_key_t _interpreter_key;
++    TCL_SCRIPT * _init_script;
++    Tcl_CmdProc * _TCLSendMessageProc;
++    World::TRules * _rules;
++#else
+     Tcl_Interp * _interpreter;
++#endif
++    Tcl_Interp *getInterpreter();
++
+ public:
+     TTCL_Interpreter();
+     ~TTCL_Interpreter();
+-
++    
+     /** Inicializace prostredi TCL interpreteru.
+         Nastaveni globalnich promennych, inkluze knihoven a definice spolecnych
+         funkci.
+         */
+-    void init(TCL_SCRIPT * init_script);
++    void init(World::TRules * rules, Tcl_CmdProc * TCLSendMessageProc,
++              TCL_SCRIPT * init_script);
+ 
+     /** Ulozeni promenne do prostredi TCL interpretu 
+         @param name jmeno promenne
+@@ -256,15 +274,6 @@
+     */
+     const char * getError();
+ 
+-    /** Nastaveni uzivatelske funkce.
+-        Umozni asociovat volani funkce z TCL s funkci v C
+-        @param  tclName     jmeno funkce v TCL, jejiz volani chceme obsluhovat sami
+-        @param  cName       funkce z C, ktera bude realizovat telo funkce z TCL
+-        @param  clientData  arbitrary one-word value to pass to proc and deleteProc. 
+-        @param  deleteProc  procedure to call before cmdName is deleted from the interpreter; allows for command-specific cleanup. If NULL, then no procedure is called before the command is deleted.
+-        */
+-    Tcl_Command createCommand(const char * tclName, Tcl_CmdProc * cName, ClientData clientData = NULL, Tcl_CmdDeleteProc * deleteProc = NULL);
+-    
+     /// Nastaveni navratove hodnoty funkce 
+     void setResult(TCL_VAR_TYPE type, void * value);
+ };
+diff -ruN 8Kingdoms-1.1.0-orig/common/TCL/tcl_struct.cpp 8Kingdoms-1.1.0/common/TCL/tcl_struct.cpp
+--- 8Kingdoms-1.1.0-orig/common/TCL/tcl_struct.cpp	2007-07-22 03:32:50.000000000 +0200
++++ 8Kingdoms-1.1.0/common/TCL/tcl_struct.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -6,6 +6,7 @@
+ */
+ 
+ #include <stdio.h>
++#include <string.h>
+ #include "common/compatibility.h"
+ #include "common/types.h"
+ #include "tcl_struct.h"
+diff -ruN 8Kingdoms-1.1.0-orig/common/rm/rmconf.cpp 8Kingdoms-1.1.0/common/rm/rmconf.cpp
+--- 8Kingdoms-1.1.0-orig/common/rm/rmconf.cpp	2007-07-22 03:32:51.000000000 +0200
++++ 8Kingdoms-1.1.0/common/rm/rmconf.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -108,7 +108,7 @@
+   if (retvalue!=0) // chyba pri cteni fajlu files.xml
+   {
+     GLOBALLOGID(PRIORITY_MISSING_FILE,"files.xml is missing or is damaged",XML_DIR);
+-    THROW(E_8K_RM,"files.xml is corrupted"); 
++    THROW(E_8K_RM,"files.xml cannot be found or is corrupted or is missing"); 
+   }
+ 
+   // ziskani profilu
+diff -ruN 8Kingdoms-1.1.0-orig/common/rm/rmmap.cpp 8Kingdoms-1.1.0/common/rm/rmmap.cpp
+--- 8Kingdoms-1.1.0-orig/common/rm/rmmap.cpp	2007-07-22 03:32:51.000000000 +0200
++++ 8Kingdoms-1.1.0/common/rm/rmmap.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -1855,6 +1855,12 @@
+               newmap.setDataInt((*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->rs,"header",0,"roles",0,"role",i,"relations",0,"role",ii,"state",0,NULL);
+               newmap.setDataInt((*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->offeredrs,"header",0,"roles",0,"role",i,"relations",0,"role",ii,"offered",0,NULL);
+               newmap.setDataInt((*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->relationship_properties.offer_seen_by_enemy,"header",0,"roles",0,"role",i,"relations",0,"role",ii,"delivered",0,NULL);
++          if ((*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->relationship_properties.belief>10000)
++          {
++            printf("This should not occure!!");
++            GLOBALLOGID(PRIORITY_FATAL,"Strange belief value role %i, belief %i",ii,(*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->relationship_properties.belief);
++          }
++
+               newmap.setDataInt((*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->relationship_properties.belief,"header",0,"roles",0,"role",i,"relations",0,"role",ii,"belief",0,NULL);
+               newmap.setDataInt((*this->mapsinfo[newtype])[this->idofmap]->roles[i]->relations[ii]->relationship_properties.guess_belief,"header",0,"roles",0,"role",i,"relations",0,"role",ii,"guessBelief",0,NULL);
+             }
+diff -ruN 8Kingdoms-1.1.0-orig/common/xml/strda.cpp 8Kingdoms-1.1.0/common/xml/strda.cpp
+--- 8Kingdoms-1.1.0-orig/common/xml/strda.cpp	2007-07-22 03:32:52.000000000 +0200
++++ 8Kingdoms-1.1.0/common/xml/strda.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -25,10 +25,10 @@
+   size_t j=count;
+   for (k=0;k<j;k++)
+   {
+-    (*big)[i+k]=smallstr[k];
++    (*big)[(int)(i+k)]=smallstr[(int)k];
+   }
+   if (terminate)
+-    (*big)[i+k]=0;
++    (*big)[(int)(i+k)]=0;
+ }
+ 
+ void addtoda(DA<char> *big,const char *smallstr,int terminate)
+@@ -38,10 +38,10 @@
+   size_t j=strlen(smallstr);
+   for (k=0;k<j;k++)
+   {
+-    (*big)[i+k]=smallstr[k];
++    (*big)[(int)(i+k)]=smallstr[(int)k];
+   }
+   if (terminate)
+-    (*big)[i+k]=0;
++    (*big)[(int)(i+k)]=0;
+ }
+ 
+ void addtodawcs(DA<wchar_t> *big,const wchar_t *smallstr,int terminate)
+@@ -51,10 +51,10 @@
+   size_t j=wcslen(smallstr);
+   for (k=0;k<j;k++)
+   {
+-    (*big)[i+k]=smallstr[k];
++    (*big)[(int)(i+k)]=smallstr[(int)k];
+   }
+   if (terminate)
+-    (*big)[i+k]=0;
++    (*big)[(int)(i+k)]=0;
+ }
+ 
+ void addtodastr(DA<char> *big,const char *smallstr,int terminate)
+@@ -64,10 +64,10 @@
+   size_t j=strlen(smallstr);
+   for (k=0;k<j;k++)
+   {
+-    (*big)[i+k]=smallstr[k];
++    (*big)[(int)(i+k)]=smallstr[(int)k];
+   }
+   if (terminate)
+-    (*big)[i+k]=0;
++    (*big)[(int)(i+k)]=0;
+ }
+ 
+ void addtostr(char **big,const char *smallstr,int terminate)
+@@ -77,10 +77,10 @@
+   size_t j=strlen(smallstr);
+   for (k=0;k<j;k++)
+   {
+-    (*big)[i+k]=smallstr[k];
++    (*big)[(int)(i+k)]=smallstr[(int)k];
+   }
+   if (terminate)
+-    (*big)[i+k]=0;
++    (*big)[(int)(i+k)]=0;
+ }
+ 
+ size_t newandstrcpy(char ** output, const char * input)
+diff -ruN 8Kingdoms-1.1.0-orig/common/xml/xml.cpp 8Kingdoms-1.1.0/common/xml/xml.cpp
+--- 8Kingdoms-1.1.0-orig/common/xml/xml.cpp	2007-07-22 03:32:52.000000000 +0200
++++ 8Kingdoms-1.1.0/common/xml/xml.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -1939,12 +1939,12 @@
+ }
+ 
+ 
+-int TXMLdata::getData(char * data2,int size,int *ids,char ** tags, int number)
++int TXMLdata::getData(char * data2,size_t size,int *ids,char ** tags, int number)
+ // getData tentokrat s argumenty pole
+ {
+   if (number>0) // nema smysl se ptat na koren nebo neco co by melo byt nad
+   {
+-    int a;
++    size_t a;
+     xmlcontainer * xc=0;//  = (xmlcontainer*) KMemAlloc(sizeof(xmlcontainer));
+     int result=this->getTag(&xc,ids,tags,number);
+     if ( (result!=XML_ERROR_NO_SUCH_A_PATH) && (xc!=NULL) && ((xc->content)!=NULL) && ((*(xc->content))[ids[number-1]]!=NULL)  )
+@@ -1964,7 +1964,7 @@
+       a=-1;
+     if (size>0) // zjistim kam dat posledni 0 - tesne za vraceny retezec
+     {
+-      int n;
++      size_t n;
+       if (a<(size-1))
+         n=a;
+       else
+@@ -1976,7 +1976,7 @@
+     if ( (result!=XML_ERROR_NO_SUCH_A_PATH) && (xc!=NULL) && ((xc->content)!=NULL) && ((*(xc->content))[ids[number-1]]!=NULL) && (xc->content!=NULL) && ((*(xc->content))[ids[number-1]]->data!=NULL))
+     {
+ //      KMemFree(xc);
+-      return (a);
++      return ((int)a);
+     }
+     else
+     {
+@@ -1990,7 +1990,7 @@
+   }
+ }
+ 
+-int TXMLdata::getData(char * data2,int size, char * firsttag, int firstid,...)
++int TXMLdata::getData(char * data2,size_t size, char * firsttag, int firstid,...)
+ // varci data urcena cestou
+ {
+ // v tuto chvili neni jeste dobre mit daTags v debug okne ;D ... neni to inicializovane
+@@ -2104,7 +2104,7 @@
+       {
+         break;
+       }
+-      if ((result)>=size) // v result neni koncova 0
++      if ((result)>=(int)size) // v result neni koncova 0
+       {
+         if ((size!=0) && ((*data2)!=NULL))
+           KMemFree(*data2);
+@@ -2113,7 +2113,7 @@
+         done=-1;
+       }
+       else
+-        done=size;
++        done=(int)size;
+     } while (done==-1);
+   }
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/common/xml/xml.h 8Kingdoms-1.1.0/common/xml/xml.h
+--- 8Kingdoms-1.1.0-orig/common/xml/xml.h	2007-07-22 03:32:52.000000000 +0200
++++ 8Kingdoms-1.1.0/common/xml/xml.h	2009-11-02 20:20:09.000000000 +0100
+@@ -124,7 +124,7 @@
+         @param firstid id prvniho nekorenoveho tagu na ceste k mistu kam se vklada
+         @return Vraci \ref XML_ERROR_NO_SUCH_A_PATH pokud cesta neexistuje, jinak delku obsahu tagu (nezavisle na size) bez koncove 0
+     */     
+-    int getData(char * data2,int size, char * firsttag,int firstid,...);
++    int getData(char * data2,size_t size, char * firsttag,int firstid,...);
+ 
+     /** Ziska cely obsah tagu v podobe retezce.
+         Posledni parametr musi byt NULL, strida se vzdy tag a jeho id. 
+@@ -160,7 +160,7 @@
+         @param number delka cesty bez korenoveho tagu (take pocet prvku pole tags a ids)
+         @return Vraci \ref XML_ERROR_NO_SUCH_A_PATH pokud cesta neexistuje, jinak delku obsahu tagu (nezavisle na size)
+     */      
+-    int getData(char * data2,int size,int *ids,char ** tags, int number);
++    int getData(char * data2,size_t size,int *ids,char ** tags, int number);
+ 
+     /** Ziska okaz primo na data ulozena v xml.
+         Tato funkce se musi pouzivat s opatrnosti pouze na cteni dat. Posledni parametr musi byt NULL.
+diff -ruN 8Kingdoms-1.1.0-orig/gui/contexts/Game.cpp 8Kingdoms-1.1.0/gui/contexts/Game.cpp
+--- 8Kingdoms-1.1.0-orig/gui/contexts/Game.cpp	2007-07-22 03:32:57.000000000 +0200
++++ 8Kingdoms-1.1.0/gui/contexts/Game.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -3216,7 +3216,7 @@
+         else          
+           ei = GAME_EVENT(iPlayerOnTurn, eitUnitMembersDied, hid, rmtxti->getWChar(wtemp, LABEL_MAX_LENGTH, TEXT_EVENT_UNHEALEDMEN));
+         ei->data1 = (void*)u;
+-        ei->data2 = *((void**)&count);
++        ei->data2 = (void*)count;
+       }
+       else{
+         u->membersDied(count);
+diff -ruN 8Kingdoms-1.1.0-orig/gui/engine/AdvGeom.cpp 8Kingdoms-1.1.0/gui/engine/AdvGeom.cpp
+--- 8Kingdoms-1.1.0-orig/gui/engine/AdvGeom.cpp	2007-07-22 03:32:58.000000000 +0200
++++ 8Kingdoms-1.1.0/gui/engine/AdvGeom.cpp	2009-11-02 20:30:18.000000000 +0100
+@@ -18,6 +18,7 @@
+ //
+ #include <GL/gl.h>
+ #include <assert.h>
++#include <stdio.h>
+ 
+ /*****************************************************************************/
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/gui/engine/Effects.cpp 8Kingdoms-1.1.0/gui/engine/Effects.cpp
+--- 8Kingdoms-1.1.0-orig/gui/engine/Effects.cpp	2007-07-22 03:32:58.000000000 +0200
++++ 8Kingdoms-1.1.0/gui/engine/Effects.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -22,6 +22,7 @@
+ #include <GL/gl.h>
+ #include <assert.h>
+ #include <stdlib.h>
++#include <limits.h>
+ 
+ using namespace std;
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/gui/model/UnitFormation.cpp 8Kingdoms-1.1.0/gui/model/UnitFormation.cpp
+--- 8Kingdoms-1.1.0-orig/gui/model/UnitFormation.cpp	2007-07-22 03:32:58.000000000 +0200
++++ 8Kingdoms-1.1.0/gui/model/UnitFormation.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -148,8 +148,9 @@
+   //vypocti polohy pro cleny
+   TUnitMemberPosition ump; 
+   vumpPositions_c = 0;
+-  getUnitMemberDim(0, &ump.p2fDim);  
+   int size = (int)unit->vMembers.size();
++  if (size)
++    getUnitMemberDim(0, &ump.p2fDim);  
+   for(int i = 0; i < size; i++)
+   {
+     findFreeMemberPosition(vumpPositions_c, &(ump.p2fPos), &(ump.p2fDir));
+diff -ruN 8Kingdoms-1.1.0-orig/net/comm.h 8Kingdoms-1.1.0/net/comm.h
+--- 8Kingdoms-1.1.0-orig/net/comm.h	2007-07-22 03:32:59.000000000 +0200
++++ 8Kingdoms-1.1.0/net/comm.h	2009-11-02 20:20:09.000000000 +0100
+@@ -194,7 +194,7 @@
+     int ping_time;
+ 
+     /** Maximalni doba, po kterou se neprijal ping */
+-    int max_timeout;
++    unsigned int max_timeout;
+ 
+ };
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/net/netinit.cpp 8Kingdoms-1.1.0/net/netinit.cpp
+--- 8Kingdoms-1.1.0-orig/net/netinit.cpp	2007-07-22 03:32:59.000000000 +0200
++++ 8Kingdoms-1.1.0/net/netinit.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -325,7 +325,7 @@
+           if (freeprofilename==0) // pokud takovy profil neni uz pripojen
+           {
+             net_server->startPing(from);
+-            KSendMessage(RQUEUE,MSG_NEW_CONNECTION_ACCEPTED,MOD_NET,MOD_NET,*((void**)(&from)));
++            KSendMessage(RQUEUE,MSG_NEW_CONNECTION_ACCEPTED,MOD_NET,MOD_NET,(void*)from);
+           }
+           else
+           {
+@@ -379,8 +379,8 @@
+         int from = new_connection_info->msgFrom();
+         net_server->stopAnnouncingMissingPlayers();
+         net_server->startPing(from);
+-        KSendMessage(RQUEUE,MSG_CLIENT_HAS_RECONNECTED,MOD_NET,BROADCAST,*((void**)(&from)));
+-        KSendMessage(RQUEUE,MSG_CLIENT_RECONNECTION_ACCEPTED,MOD_NET,MOD_NET,*((void**)(&from)));
++        KSendMessage(RQUEUE,MSG_CLIENT_HAS_RECONNECTED,MOD_NET,BROADCAST,(void*)from);
++        KSendMessage(RQUEUE,MSG_CLIENT_RECONNECTION_ACCEPTED,MOD_NET,MOD_NET,(void*)from);
+       }
+     }
+ 
+@@ -435,9 +435,9 @@
+         net_client->addClientInfo(ni);
+       }
+       if (msgId==MSG_CLIENT_RECONNECTION_INFO)
+-        KSendMessage(RQUEUE,MSG_CLIENT_RECONNECTION_REPORT,MOD_NET,BROADCAST,*((void**)(&(ni->clientid)))); 
++        KSendMessage(RQUEUE,MSG_CLIENT_RECONNECTION_REPORT,MOD_NET,BROADCAST,(void*)(ni->clientid)); 
+       else
+-        KSendMessage(RQUEUE,MSG_NEW_CONNECTION_REPORT,MOD_NET,BROADCAST,*((void**)(&(ni->clientid)))); 
++        KSendMessage(RQUEUE,MSG_NEW_CONNECTION_REPORT,MOD_NET,BROADCAST,(void*)(ni->clientid)); 
+ 
+       delete(new_connetion_info);
+       KMemFree(ni);
+@@ -489,7 +489,7 @@
+       {
+         net_client->removeClientInfo(who);
+       }
+-      KSendMessage(RQUEUE,MSG_CLIENT_DISCONNECTION_REPORT,MOD_NET,BROADCAST,*((void**)(&who))); 
++      KSendMessage(RQUEUE,MSG_CLIENT_DISCONNECTION_REPORT,MOD_NET,BROADCAST,(void*)who); 
+       delete(message);
+     }
+     break;
+diff -ruN 8Kingdoms-1.1.0-orig/net/queue.h 8Kingdoms-1.1.0/net/queue.h
+--- 8Kingdoms-1.1.0-orig/net/queue.h	2007-07-22 03:32:59.000000000 +0200
++++ 8Kingdoms-1.1.0/net/queue.h	2009-11-02 20:20:09.000000000 +0100
+@@ -32,7 +32,7 @@
+   char * data;              ///< Vlasni data
+   mysocket to;              ///< Adresat 
+   struct TMessageBody * next;   ///< Ukazatel na dalsi zpravu v seznamu
+-  int part_sent;            ///< Jak velka cast byla poslana
++  size_t part_sent;            ///< Jak velka cast byla poslana
+   size_t len;               ///< Velikost
+ };
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/net/server.cpp 8Kingdoms-1.1.0/net/server.cpp
+--- 8Kingdoms-1.1.0-orig/net/server.cpp	2007-07-22 03:32:59.000000000 +0200
++++ 8Kingdoms-1.1.0/net/server.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -259,7 +259,7 @@
+ 
+     // In case in profile is set to announce and is not currently announcing
+ 
+-    KSendMessage(RQUEUE,MSG_CLIENT_DISCONNECTION_ACCEPTED,MOD_NET,MOD_NET,*((void**)(&id)));
++    KSendMessage(RQUEUE,MSG_CLIENT_DISCONNECTION_ACCEPTED,MOD_NET,MOD_NET,(void*)id);
+   }
+   else
+   {
+@@ -345,7 +345,7 @@
+ //                  printf("Socket se zavrel - klient %i\n",i);
+                   if (that->status!=STATUS_ENDING) 
+                   {
+-                    KSendMessage(RQUEUE,MSG_CLIENT_HAS_DISCONNECTED,MOD_NET,BROADCAST,*((void**)(&i)));
++                    KSendMessage(RQUEUE,MSG_CLIENT_HAS_DISCONNECTED,MOD_NET,BROADCAST,(void*)i);
+                     that->clientDisconnected(i);
+                   }
+                 }
+@@ -415,7 +415,7 @@
+   #ifdef WIN32 
+     int sin_size = sizeof(struct sockaddr_in); // Windows chteji do accept int
+   #else
+-    size_t sin_size = sizeof(struct sockaddr_in);
++    socklen_t sin_size = sizeof(struct sockaddr_in);
+   #endif
+ 
+     int s;
+@@ -655,8 +655,8 @@
+       GLOBALLOGID(PRIORITY_NEW_CONNECTION, "Server - A local client having id %i has connected, free space: %i",(*client)->clientid,this->getFreeClientCount());
+ //      printf("\nKlient se pripojil id %i, port %i, volne: %i",(*client)->clientid,(*client)->fd,this->getFreeClientCount()); 
+ 
+-      KSendMessage(RQUEUE,MSG_LOCAL_CLIENT_ADDED,MOD_NET,MOD_NET,*((void**)(&((*client)->clientid))));
+-      KSendMessage(RQUEUE,MSG_NEW_CONNECTION_ACCEPTED,MOD_NET,MOD_NET,*((void**)(&((*client)->clientid))));
++      KSendMessage(RQUEUE,MSG_LOCAL_CLIENT_ADDED,MOD_NET,MOD_NET,(void*)((*client)->clientid));
++      KSendMessage(RQUEUE,MSG_NEW_CONNECTION_ACCEPTED,MOD_NET,MOD_NET,(void*)((*client)->clientid));
+ 
+       this->unlock();
+       return 1;
+@@ -818,7 +818,7 @@
+   mysocket fd;
+   j=0;
+   int set=0;
+-  int msglen3;
++  size_t msglen3;
+   server.sin_family = AF_INET;
+   server.sin_port = htons(80);      	               
+   server.sin_addr = *((struct in_addr *)he->h_addr);
+@@ -1223,7 +1223,7 @@
+           {
+             that->unlock();
+             if (that->status!=STATUS_ENDING) 
+-              KSendMessage(RQUEUE,MSG_CLIENT_HAS_DISCONNECTED,MOD_NET,BROADCAST,*((void**)(&i)));
++              KSendMessage(RQUEUE,MSG_CLIENT_HAS_DISCONNECTED,MOD_NET,BROADCAST,(void*)i);
+             else
+               return 0;
+             that->lock();
+diff -ruN 8Kingdoms-1.1.0-orig/res/xml/scripts/unit_recruit_elite.xml 8Kingdoms-1.1.0/res/xml/scripts/unit_recruit_elite.xml
+--- 8Kingdoms-1.1.0-orig/res/xml/scripts/unit_recruit_elite.xml	2007-07-22 03:33:11.000000000 +0200
++++ 8Kingdoms-1.1.0/res/xml/scripts/unit_recruit_elite.xml	2009-11-02 20:20:09.000000000 +0100
+@@ -60,7 +60,7 @@
+         # pomocna promenna pro uchovani poctu zbyvajicich zivotu
+         set missing_lives [expr $max_lives - $unit(lives)];
+     
+-        if {$unit_types($unit(type), cure_cost) > 0} {
++        if {($unit_types($unit(type), cure_cost) > 0) && ($unit(level) > 0)} {
+             # pomocna promenna pro uchovani maximalniho poctu zivotu, na ktere
+             # ma hrac penize 
+             set money [expr floor($player(money) / ($unit(level) * $unit_types($unit(type), cure_cost)))];            
+diff -ruN 8Kingdoms-1.1.0-orig/world/players/player.cpp 8Kingdoms-1.1.0/world/players/player.cpp
+--- 8Kingdoms-1.1.0-orig/world/players/player.cpp	2007-07-22 03:33:12.000000000 +0200
++++ 8Kingdoms-1.1.0/world/players/player.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -72,6 +72,10 @@
+         if (_data->game_data.relations[i] != NULL) {
+             package->setInt(_data->game_data.relations[i]->rs, "relations", 0, "relationship", i, "rs", 0, NULL);
+             package->setInt(_data->game_data.relations[i]->offeredrs, "relations", 0, "relationship", i, "offeredrs", 0, NULL);
++            // this was missing!!
++            package->setInt(_data->game_data.relations[i]->relationship_properties.belief, "relations", 0, "relationship", i, "belief", 0, NULL);
++            package->setInt(_data->game_data.relations[i]->relationship_properties.offer_seen_by_enemy, "relations", 0, "relationship", i, "offer_seen_by_enemy", 0, NULL);
++            package->setInt(_data->game_data.relations[i]->relationship_properties.guess_belief, "relations", 0, "relationship", i, "guess_belief", 0, NULL);
+         }
+     }
+ }
+@@ -119,6 +123,10 @@
+             _data->game_data.relations[i] = (ai_ns::diplomacy_ns::TDipRelation *)KMemAlloc(sizeof(ai_ns::diplomacy_ns::TDipRelation));
+             _data->game_data.relations[i]->rs = (ai_ns::diplomacy_ns::TRelationship)package->getInt("relations", 0, "relationship", i, "rs", 0, NULL);
+             _data->game_data.relations[i]->offeredrs = (ai_ns::diplomacy_ns::TRelationship)package->getInt("relations", 0, "relationship", i, "offeredrs", 0, NULL);
++            // this was missing!!
++            _data->game_data.relations[i]->relationship_properties.belief=(ai_ns::diplomacy_ns::TRelationship)package->getInt("relations", 0, "relationship", i, "belief", 0, NULL);
++            _data->game_data.relations[i]->relationship_properties.guess_belief=(ai_ns::diplomacy_ns::TRelationship)package->getInt("relations", 0, "relationship", i, "guess_belief", 0, NULL);
++            _data->game_data.relations[i]->relationship_properties.offer_seen_by_enemy=(ai_ns::diplomacy_ns::TRelationship)package->getInt("relations", 0, "relationship", i, "offer_seen_by_enemy", 0, NULL);
+ 
+         }
+         else {
+@@ -204,7 +212,7 @@
+         info[it->first]->stats = it->second->data().statistics;
+         for (i = 1; i <= MAX_PLAYERS; i++) {
+             if (it->second->data().game_data.relations[i]) {
+-                *(info[it->first]->relations[i]) = *(it->second->data().game_data.relations[i]);
++              *(info[it->first]->relations[i]) = *(it->second->data().game_data.relations[i]);
+             }
+             else {
+                 info[it->first]->relations[i] = NULL;
+diff -ruN 8Kingdoms-1.1.0-orig/world/world_client.cpp 8Kingdoms-1.1.0/world/world_client.cpp
+--- 8Kingdoms-1.1.0-orig/world/world_client.cpp	2007-07-22 03:33:12.000000000 +0200
++++ 8Kingdoms-1.1.0/world/world_client.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -107,13 +107,7 @@
+     world->init();
+ 
+     // inicializace negine
+-    engine->init(world);
+-    
+-    // registrace zprav z TCL
+-    engine->interpreter.createCommand("KSendMessage", (Tcl_CmdProc *)World::WorldClient_SendMessage);
+-
+-    // inkluze knihoven pro TCL (spusteni inicializacniho skriptu)
+-    engine->interpreter.init(world->rules->scripts[TS_INIT]);
++    engine->init(world, (Tcl_CmdProc *)World::WorldClient_SendMessage);
+   }
+ 
+   // svet je pripraven
+@@ -321,6 +315,7 @@
+                   
+                   if (world_client[i]->state == WCS_GAME_ENDED && action_type == AT_ENDGAME) {
+                     // zprava o ukonceni hry pro jiz ukoncenou hru - ignoruji
++                    world_client_mutex.unlock();
+                     break;
+                   } 
+                   else if (!(((action_type == AT_GAME_START) && (world_client[i]->state >= WCS_WORLD_INITIALIZED) && (world_client[i]->state < WCS_GAME_STARTED))
+@@ -328,6 +323,7 @@
+                     (world_client[i]->state == WCS_GAME_STARTED)
+                     )) {
+                     // zprava prisla v nevhodnou chvili - ignoruji
++                    world_client_mutex.unlock();
+                     break;
+                   }                  
+                   
+diff -ruN 8Kingdoms-1.1.0-orig/world/world_engine.cpp 8Kingdoms-1.1.0/world/world_engine.cpp
+--- 8Kingdoms-1.1.0-orig/world/world_engine.cpp	2007-07-22 03:33:12.000000000 +0200
++++ 8Kingdoms-1.1.0/world/world_engine.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -30,11 +30,10 @@
+  
+ }
+ 
+-void TWorldEngine::init(TWorld * world)
++void TWorldEngine::init(TWorld * world, Tcl_CmdProc *TCLSendMessageProc)
+ {
+-  // zapis pravidel do prostredi TCL interpreteru
+-  if (world->rules)
+-    world->rules->writeToTCL(interpreter);
++  interpreter.init(world->rules, TCLSendMessageProc,
++                   world->rules->scripts[TS_INIT]);
+ }
+ 
+ int TWorldEngine::lock()
+@@ -1210,7 +1209,10 @@
+   }
+ 
+   if (!can_move)
++  {
++    unlock();
+     return ERR_NotOperational;   
++  }
+ 
+   TPacket_RCT_UNIT_MOVE * packet = new TPacket_RCT_UNIT_MOVE();
+   packet->unit_id = unit_id;
+@@ -1853,14 +1855,18 @@
+   // zaznamenam do statistik
+   _world.players.townCaptured(town_occupied->new_player_id, town_occupied->former_player_id);
+ 
+-  // dam o tom vedet diplomacii
+-  if (former_player_id != 0) {              
+-    TPacket_Diplomacy_ConquerCity conquerCity;
+-    conquerCity.attacked_diplomat_world_id = former_player_id;
+-    conquerCity.attacking_diplomat_world_id = new_player_id;
+-    conquerCity.payment = _world.towns[town_id]->data().citysize * TOWN_INCOME;
++  // if the player is not dead or was not neutral, inform Diplomacy
++  if (former_player_id != 0)
++  {
++    if (_world.players[former_player_id]->data().game_data.state != PS_DEFEATED)
++    {
++      TPacket_Diplomacy_ConquerCity conquerCity;
++      conquerCity.attacked_diplomat_world_id = former_player_id;
++      conquerCity.attacking_diplomat_world_id = new_player_id;
++      conquerCity.payment = _world.towns[town_id]->data().citysize * TOWN_INCOME;
+       
+-    KSendGlobalMessage(MSG_DIPLOMACY_CONQUER_CITY, MOD_WORLD_SERVER, MOD_DIPLOMACY, &conquerCity);
++      KSendGlobalMessage(MSG_DIPLOMACY_CONQUER_CITY, MOD_WORLD_SERVER, MOD_DIPLOMACY, &conquerCity);
++    }
+   }
+ }
+ 
+diff -ruN 8Kingdoms-1.1.0-orig/world/world_engine.h 8Kingdoms-1.1.0/world/world_engine.h
+--- 8Kingdoms-1.1.0-orig/world/world_engine.h	2007-07-22 03:33:12.000000000 +0200
++++ 8Kingdoms-1.1.0/world/world_engine.h	2009-11-02 20:20:09.000000000 +0100
+@@ -45,7 +45,7 @@
+         ~TWorldEngine();
+ 
+         /** Inicializace */
+-        void init(TWorld * world);
++        void init(TWorld * world, Tcl_CmdProc *TCLSendMessageProc);
+ 
+         /// Zamceni mutexu
+         int lock();
+diff -ruN 8Kingdoms-1.1.0-orig/world/world_server.cpp 8Kingdoms-1.1.0/world/world_server.cpp
+--- 8Kingdoms-1.1.0-orig/world/world_server.cpp	2007-07-22 03:33:12.000000000 +0200
++++ 8Kingdoms-1.1.0/world/world_server.cpp	2009-11-02 20:20:09.000000000 +0100
+@@ -87,13 +87,7 @@
+   world.init();
+ 
+   // inicializace world_engine
+-  engine.init(&world);
+-
+-  // registrace zprav z TCL
+-  engine.interpreter.createCommand("KSendMessage", (Tcl_CmdProc *)WorldServer_SendMessage);
+-
+-  // inkluze knihoven pro TCL (spusteni inicializacniho skriptu)
+-  engine.interpreter.init(world.rules->scripts[TS_INIT]);
++  engine.init(&world, (Tcl_CmdProc *)WorldServer_SendMessage);
+ }
+ 
+ void TWorldServer::shutdown()
+@@ -2032,7 +2026,7 @@
+ 
+               for (int i = 0; i < MAX_PLAYERS; i++)
+               {
+-                if (game_start_disconnections[i] == ((int) p)) 
++                if (game_start_disconnections[i] == ((long) p))
+                 {
+                   game_start_disconnections[i] = 0;
+                   break;
+@@ -2043,7 +2037,7 @@
+             else if (world_server->state == WSS_GAME_STARTED) 
+             {
+               // Hra jiz bezi, tedy doslo k znovu pripojeni    
+-              int client_id = (int)p;
++              int client_id = (long)p;
+               for (TPlayerIterator it = world_server->world.players.begin(); it != world_server->world.players.end(); it++) 
+               {
+                 int temp=it->second->data().client_data.oldclient_id;
+@@ -2099,7 +2093,7 @@
+               // Az skonci nahravani hry, odpojeni klienta se vyresi dodatecne
+               for (int i = 0; i < MAX_PLAYERS; i++) 
+                 if (game_start_disconnections[i] == 0) 
+-                  game_start_disconnections[i] = (int)p;
++                  game_start_disconnections[i] = (long)p;
+               break;
+             }
+             else if (world_server->state < WSS_GAME_STARTED) {
+@@ -2110,7 +2104,7 @@
+             }
+             else if (world_server->state == WSS_GAME_STARTED) {
+               // Hra jiz bezi    
+-              int client_id = (int)p;
++              int client_id = (long)p;
+               for (TPlayerIterator it = world_server->world.players.begin(); it != world_server->world.players.end(); it++) {
+                 if (it->second->data().client_data.client_id == client_id) {
+                   // odpojil se hrac it->first

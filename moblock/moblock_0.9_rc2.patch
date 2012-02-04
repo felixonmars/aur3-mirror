@@ -1,0 +1,912 @@
+diff -Naur MoBlock-0.8_orig/Changelog MoBlock-0.8/Changelog
+--- MoBlock-0.8_orig/Changelog	2006-03-22 12:44:31.000000000 -0500
++++ MoBlock-0.8/Changelog	2008-02-10 11:56:08.000000000 -0500
+@@ -4,6 +4,23 @@
+ 
+ ---
+ 
++0.9: - fix for kernel 2.6.23
++	 - support for MARKing packets instead of DROPping or
++	   ACCEPTing
++	 - example start script that REJECTs packets instead of
++	   DROPping.
++	 - Integrated a patch from David Walluck for proper loading
++	   of p2b files (version 2)
++	 - command line options for logging to syslog, stdout
++	   and log timestamping
++	 - fixed loading pg1 lists with comments (lines starting
++	   with '#')
++	 - fixed a bug in ranges merge
++	 - applied patch 2223 by badfish99: "IPs logged with bytes
++	   reversed on big-endian m/c"
++
++---
++
+ 0.8: - support for NFQUEUE-ing from iptables FORWARD chain (thx to
+        hyakki for suggestions and testing!)
+      - included patches from Maximilian Mehnert to support log file
+diff -Naur MoBlock-0.8_orig/Makefile MoBlock-0.8/Makefile
+--- MoBlock-0.8_orig/Makefile	2006-03-22 12:44:31.000000000 -0500
++++ MoBlock-0.8/Makefile	2007-11-22 08:10:44.000000000 -0500
+@@ -1,4 +1,3 @@
+-
+ # To use the old-soon-to-be-deprecated libipq interface
+ # uncomment the following line and comment the NFQUEUE one,
+ # then comment the gcc line with netfilter_queue and
+@@ -7,7 +6,7 @@
+ #QUEUE_LIB=LIBIPQ
+ QUEUE_LIB=NFQUEUE
+ 
+-CFLAGS=-Wall -O2 -march=i586 -mtune=i686 -fomit-frame-pointer -ffast-math \
++CFLAGS=-Wall -O3 -march=i586 -mtune=i686 -fomit-frame-pointer -ffast-math \
+ 	-D_GNU_SOURCE -D$(QUEUE_LIB) -L/usr/include/libipq
+ CC=gcc
+ 
+diff -Naur MoBlock-0.8_orig/MoBlock-nfq-reject.sh MoBlock-0.8/MoBlock-nfq-reject.sh
+--- MoBlock-0.8_orig/MoBlock-nfq-reject.sh	1969-12-31 19:00:00.000000000 -0500
++++ MoBlock-0.8/MoBlock-nfq-reject.sh	2007-11-22 08:10:44.000000000 -0500
+@@ -0,0 +1,104 @@
++#!/bin/sh
++#
++# MoBlock.sh - MoBlock start script
++# ---------------------------------
++
++ACTIVATE_CHAINS=1
++WHITE_TCP_IN=""
++WHITE_UDP_IN=""
++WHITE_TCP_OUT=""
++WHITE_UDP_OUT=""
++WHITE_TCP_FORWARD=""
++WHITE_UDP_FORWARD=""
++REJECT_MARK="10"
++
++PIDF=/var/run/moblock.pid
++
++FNAME=`basename $0 .sh`
++MODE=`echo $FNAME|awk -F-  '{print $2}'`
++
++if [ -f $PIDF  ]; then
++	PID=`cat $PIDF`
++	if [ `ps -p $PID|wc -l` -gt 1 ]; then
++		echo "$0: $PIDF exists and processs seems to be running. Exiting."
++		exit 1;
++	fi;
++fi;
++
++if [ $MODE == "ipq" ]; then
++	modprobe ip_queue
++	TARGET="QUEUE"
++elif [ $MODE == "nfq" ]; then
++	modprobe ipt_NFQUEUE
++	TARGET="NFQUEUE"
++fi;
++
++modprobe ipt_state
++
++# Filter all traffic, edit for your needs
++
++iptables -N MOBLOCK_IN
++iptables -N MOBLOCK_OUT
++iptables -N MOBLOCK_FW
++
++if [ $ACTIVATE_CHAINS -eq 1 ]; then
++	iptables -I INPUT -p all -m state --state NEW -j MOBLOCK_IN
++	iptables -I OUTPUT -p all -m state --state NEW -j MOBLOCK_OUT
++	iptables -I FORWARD -p all -m state --state NEW -j MOBLOCK_FW	
++fi;
++
++
++iptables -I MOBLOCK_IN -p all -j $TARGET
++
++iptables -I MOBLOCK_OUT -p all -j $TARGET
++
++iptables -I MOBLOCK_FW -p all -j $TARGET
++
++for PORT in $WHITE_TCP_OUT; do
++	iptables -I MOBLOCK_OUT -p tcp --dport $PORT -j ACCEPT
++done
++for PORT in $WHITE_UDP_OUT; do
++	iptables -I MOBLOCK_OUT -p udp --dport $PORT -j ACCEPT
++done
++
++for PORT in $WHITE_TCP_IN; do
++	iptables -I MOBLOCK_IN -p tcp --dport $PORT -j ACCEPT
++done
++for PORT in $WHITE_UDP_IN; do
++	iptables -I MOBLOCK_IN -p udp --dport $PORT -j ACCEPT
++done
++
++for PORT in $WHITE_TCP_FORWARD; do
++	iptables -I MOBLOCK_FW -p tcp --dport $PORT -j ACCEPT
++done
++for PORT in $WHITE_UDP_FORWARD; do
++	iptables -I MOBLOCK_FW -p udp --dport $PORT -j ACCEPT
++done
++
++iptables -I OUTPUT -p all -m state --state NEW -m mark --mark $REJECT_MARK -j REJECT
++iptables -I FORWARD -p all -m state --state NEW -m mark --mark $REJECT_MARK -j REJECT
++
++# Here you can change block list and log files
++./moblock -d /etc/ipfilter.dat -t -s -r $REJECT_MARK ./moblock.log
++
++# On exit delete the rules we added
++
++if [ $ACTIVATE_CHAINS -eq 1 ]; then
++	iptables -D INPUT -p all -m state --state NEW -j MOBLOCK_IN
++	iptables -D OUTPUT -p all -m state --state NEW -j MOBLOCK_OUT
++	iptables -D FORWARD -p all -m state --state NEW -j MOBLOCK_FW
++fi;
++
++iptables -D OUTPUT -p all -m state --state NEW -m mark --mark $REJECT_MARK -j REJECT
++iptables -D FORWARD -p all -m state --state NEW -m mark --mark $REJECT_MARK -j REJECT
++
++iptables -F MOBLOCK_IN
++iptables -X MOBLOCK_IN
++iptables -F MOBLOCK_OUT
++iptables -X MOBLOCK_OUT
++iptables -F MOBLOCK_FW
++iptables -X MOBLOCK_FW
++
++if [ -f $PIDF ]; then	
++	rm $PIDF;
++fi
+diff -Naur MoBlock-0.8_orig/MoBlock.c MoBlock-0.8/MoBlock.c
+--- MoBlock-0.8_orig/MoBlock.c	2006-03-22 12:44:31.000000000 -0500
++++ MoBlock-0.8/MoBlock.c	2008-02-10 11:56:08.000000000 -0500
+@@ -35,6 +35,8 @@
+ #include <linux/netfilter_ipv4.h>
+ #include <signal.h>
+ #include <regex.h>
++#include <time.h>
++#include <syslog.h>
+ 
+ // in Makefile define LIBIPQ to use soon-to-be-deprecated ip_queue,
+ // NFQUEUE for ipt_NFQUEUE (from kernel 2.6.14)
+@@ -46,7 +48,7 @@
+ 	#include <libnetfilter_queue/libnetfilter_queue.h>
+ #endif
+ 
+-#define MB_VERSION	"0.8"
++#define MB_VERSION	"0.9rc2"
+ 
+ #define BUFSIZE		2048
+ #define PAYLOADSIZE	21
+@@ -58,6 +60,9 @@
+ #define SRC_ADDR(payload) (*(in_addr_t *)((payload)+12))
+ #define DST_ADDR(payload) (*(in_addr_t *)((payload)+16))
+ 
++#define likely(x)       __builtin_expect((x),1)
++#define unlikely(x)     __builtin_expect((x),0)
++
+ // rbt datatypes/functions
+ 
+ typedef enum {
+@@ -96,7 +101,8 @@
+ 	char filename[100];
+ } blocklist_info;
+ 
+-int merged_ranges=0, skipped_ranges=0;
++u_int32_t merged_ranges=0, skipped_ranges=0, accept_mark=0, reject_mark=0;
++u_int8_t log2syslog=0, log2file=0, log2stdout=0, timestamp=0;
+ 
+ #ifdef LIBIPQ
+ static void die(struct ipq_handle *h)
+@@ -112,11 +118,13 @@
+ 	static char buf[2][ sizeof("aaa.bbb.ccc.ddd") ];
+ 	static short int index=0;
+ 	
++	ip = ntohl(ip);
++	
+ 	sprintf(buf[index],"%d.%d.%d.%d",
+-			(ip) & 0xff,
+-			(ip >> 8) & 0xff,
++			(ip >> 24) & 0xff,
+ 			(ip >> 16) & 0xff,
+-			(ip >> 24) & 0xff);
++			(ip >> 8) & 0xff,
++			(ip) & 0xff);
+ 	
+ 	if (index) {
+ 		index=0;
+@@ -134,10 +142,38 @@
+ 	fflush(stdout);
+ }
+ 
++void log_action(char *msg)
++{
++	char timestr[30];
++	time_t tv;
++
++	if (timestamp) {
++		tv = time(NULL);
++		strncpy(timestr, ctime(&tv), 19);
++		timestr[19] = '\0';
++		strcat(timestr, "| ");
++	}
++	else strcpy(timestr, "");
++
++	if (log2syslog) {
++		syslog(LOG_INFO, msg);
++	}
++
++	if (log2file) {
++		fprintf(logfile,"%s%s",timestr,msg);
++		fflush(logfile);
++	}
++
++	if (log2stdout) {
++		fprintf(stdout,"%s%s",timestr,msg);
++	}
++}
++
+ inline void ranged_insert(char *name,char *ipmin,char *ipmax)
+ {
+     recType tmprec;
+     int ret;
++    char msgbuf[255];
+ 
+ 	if ( strlen(name) > (BNAME_LEN-1) ) {
+ 		strncpy(tmprec.blockname, name, BNAME_LEN);
+@@ -149,10 +185,11 @@
+     if ( (ret=insert(ntohl(inet_addr(ipmin)),&tmprec)) != STATUS_OK  )
+         switch(ret) {
+             case STATUS_MEM_EXHAUSTED:
+-                fprintf(logfile,"Error inserting range, MEM_EXHAUSTED.\n");
++                log_action("Error inserting range, MEM_EXHAUSTED.\n");
+                 break;
+             case STATUS_DUPLICATE_KEY:
+-                fprintf(logfile,"Duplicated range ( %s )\n",name);
++                sprintf(msgbuf,"Duplicated range ( %s )\n",name);
++                log_action(msgbuf);
+                 break;
+ 			case STATUS_MERGED:
+ 				merged_ranges++;
+@@ -161,8 +198,9 @@
+ 				skipped_ranges++;
+ 				break;
+             default:
+-                fprintf(logfile,"Unexpected return value from ranged_insert()!\n");
+-                fprintf(logfile,"Return value was: %d\n",ret);
++                log_action("Unexpected return value from ranged_insert()!\n");
++                sprintf(msgbuf,"Return value was: %d\n",ret);
++                log_action(msgbuf);
+                 break;
+         }                
+ }
+@@ -177,15 +215,19 @@
+ 	regex_t regmain;
+ 	regmatch_t matches[4];
+ 	int i;
++	char msgbuf[255];
+ 
+ 	regcomp(&regmain, "^(.*)[:]([0-9.]*)[-]([0-9.]*)$", REG_EXTENDED);
+ 
+ 	fp=fopen(filename,"r");
+ 	if ( fp == NULL ) {
+-		fprintf(logfile,"Error opening %s, aborting...\n", filename);
++		sprintf(msgbuf,"Error opening %s, aborting...\n", filename);
++		log_action(msgbuf);
+ 		exit(-1);
+ 	}
+ 	while ( (count=getline(&line,&len,fp)) != -1 ) {
++		if ( line[0] == '#' )		//comment line, skip
++			continue;
+ 		for(i=count-1; i>=0; i--) {
+ 			if ((line[i] == '\r') || (line[i] == '\n') || (line[i] == ' ')) {
+ 				line[i] = 0;
+@@ -207,36 +249,78 @@
+ 				      line+matches[3].rm_so);
+ 			ntot++;
+ 		} else {
+-			fprintf(logfile,"Short guarding.p2p line %s, skipping it...\n", line);
++			sprintf(msgbuf,"Short guarding.p2p line %s, skipping it...\n", line);
++			log_action(msgbuf);
+ 		}
+ 	}
+ 	if (line)
+ 		free(line);
+ 	fclose(fp);
+-	fprintf(logfile,"Ranges loaded: %d\n",ntot);
+-	printf("* Ranges loaded: %d\n",ntot);
++	sprintf(msgbuf, "* Ranges loaded: %d\n", ntot);
++	log_action(msgbuf);
++	if ( !log2stdout )
++		printf(msgbuf);
+ }
+ 
+-void loadlist_pg2(char *filename)		// experimental, no check for list sanity
++void loadlist_pg2(char *filename)		// supports only v2 files
+ {
+     FILE *fp;
+-    int i,retval,ntot=0;
+-    char name[100],ipmin[16];			// hope we don't have a list with longer names...
++    int i, j, c, retval=0, ntot=0;
++    char name[100],ipmin[16], msgbuf[255];	// hope we don't have a list with longer names...
+     uint32_t start_ip, end_ip;
+     struct in_addr startaddr,endaddr;
++	size_t s;
+ 
+     fp=fopen(filename,"r");
+     if ( fp == NULL ) {
+-        fprintf(logfile,"Error opening %s, aborting...\n", filename);
++        sprintf(msgbuf, "Error opening %s, aborting...\n", filename);
++        log_action(msgbuf);
+         exit(-1);
+     }
+ 
+-    fgetc(fp);					// skip first 4 bytes, don't know what they are
+-    fgetc(fp);
+-    fgetc(fp);
+-    retval=fgetc(fp);
++	for (j=0; j<4; j++) {
++		c=fgetc(fp);
++		if ( c != 0xff ) {
++			sprintf(msgbuf,"Byte %d: 0x%x != 0xff, aborting...\n", j+1, c);
++			log_action(msgbuf);
++			fclose(fp);
++			exit(-1);
++		}
++	}
++	
++	c=fgetc(fp);
++	if ( c != 'P' ) {
++		sprintf(msgbuf,"Byte 5: %c != P, aborting...\n", c);
++		log_action(msgbuf);
++		fclose(fp);
++		exit(-1);
++	}
++
++	c=fgetc(fp);
++	if ( c != '2' ) {
++		sprintf(msgbuf,"Byte 6: %c != 2, aborting...\n", c);
++		log_action(msgbuf);
++		fclose(fp);
++		exit(-1);
++	}
+ 
+-    while ( retval != EOF ) {
++	c=fgetc(fp);
++	if ( c != 'B' ) {
++		sprintf(msgbuf,"Byte 7: %c != B, aborting...\n", c);
++		log_action(msgbuf);
++		fclose(fp);
++		exit(-1);
++	}
++
++	c=fgetc(fp);
++	if ( c != 0x02 ) {
++		sprintf(msgbuf,"Byte 8: version: %d != 2, aborting...\n", c);
++		log_action(msgbuf);
++		fclose(fp);
++		exit(-1);
++	}
++
++	do {
+         i=0;
+         do {
+             name[i]=fgetc(fp);
+@@ -244,9 +328,22 @@
+         } while ( name[i-1] != 0x00 && name[i-1] != EOF);
+         if ( name[i-1] != EOF ) {
+             name[i-1]='\0';
+-            fread(&start_ip,4,1,fp);
+-            fread(&end_ip,4,1,fp);
+-            startaddr.s_addr=start_ip;
++			s=fread(&start_ip,4,1,fp);
++			if ( s != 1 ) {
++				sprintf(msgbuf,"Failed to read start IP: %d != 1, aborting...\n", (int)s);
++				log_action(msgbuf);
++                fclose(fp);
++                exit(-1);
++            }
++            s=fread(&end_ip,4,1,fp);
++            if ( s != 1 ) {
++                sprintf(msgbuf,"Failed to read end IP: %d != 1, aborting...\n", (int)s);
++				log_action(msgbuf);
++                fclose(fp);
++                exit(-1);
++            }
++			
++			startaddr.s_addr=start_ip;
+             endaddr.s_addr=end_ip;
+             strcpy(ipmin,inet_ntoa(startaddr));
+             ranged_insert(name,ipmin,inet_ntoa(endaddr));
+@@ -255,22 +352,25 @@
+         else {
+             retval=EOF;
+         }
+-    }
++    } while ( retval != EOF );
+     fclose(fp);
+-    fprintf(logfile,"Ranges loaded: %d\n",ntot);
+-	printf("* Ranges loaded: %d\n",ntot);
++    sprintf(msgbuf, "* Ranges loaded: %d\n",ntot);
++    log_action(msgbuf);
++	if ( !log2stdout )
++		printf(msgbuf);
+ }
+ 
+ void loadlist_dat(char *filename)
+ {
+     FILE *fp;
+     int ntot=0;
+-    char readbuf[200], *name, start_ip[16], end_ip[16];
++    char readbuf[200], *name, start_ip[16], end_ip[16], msgbuf[255];
+     unsigned short ip1_0, ip1_1, ip1_2, ip1_3, ip2_0, ip2_1, ip2_2, ip2_3;
+     
+     fp=fopen(filename,"r");
+     if ( fp == NULL ) {
+-        fprintf(logfile,"Error opening %s, aborting...\n", filename);
++        sprintf(msgbuf,"Error opening %s, aborting...\n", filename);
++        log_action(msgbuf);
+         exit(-1);
+     }
+     
+@@ -286,38 +386,45 @@
+         ntot++;
+     }
+     fclose(fp);
+-    fprintf(logfile,"Ranges loaded: %d\n",ntot);
+-	printf("* Ranges loaded: %d\n",ntot);
++    sprintf(msgbuf, "* Ranges loaded: %d\n", ntot);
++    log_action(msgbuf);
++	if ( !log2stdout )
++		printf(msgbuf);
+ }
+ 
+ void reopen_logfile(void)
+ {
++	char msgbuf[255];
++
+ 	if (logfile != NULL) {
+         	fclose(logfile);
+ 		logfile=NULL;
+ 	}
+ 	logfile=fopen(logfile_name,"a");
+ 	if (logfile == NULL) {
+-		fprintf(stderr, "Unable to open logfile %s\n", logfile_name);
++		sprintf(msgbuf, "Unable to open logfile %s\n", logfile_name);
++		log_action(msgbuf);
+ 		exit(-1);
+ 	}
+-	fprintf(logfile, "Reopening logfile.\n");
++	log_action("Reopening logfile.\n");
+ }
+ 
+ void my_sahandler(int sig)
+ {
++	char msgbuf[255];
++
+ 	switch( sig ) {
+         	case SIGUSR1:
+-			fprintf(logfile,"Got SIGUSR1! Dumping stats...\n");
++			log_action("Got SIGUSR1! Dumping stats...\n");
+ 			ll_show(logfile);
+ 			reopen_logfile();
+ 			break;
+ 		case SIGUSR2:
+-			fprintf(logfile,"Got SIGUSR2! Dumping stats to /var/log/MoBlock.stats\n");
++			log_action("Got SIGUSR2! Dumping stats to /var/log/MoBlock.stats\n");
+ 			ll_log();
+ 			break;
+ 		case SIGHUP:
+-			fprintf(logfile,"\nGot SIGHUP! Dumping and resetting stats, reloading blocklist\n\n");
++			log_action("Got SIGHUP! Dumping and resetting stats, reloading blocklist\n");
+ 			ll_log();
+ 			ll_clear();		// clear stats list
+ 			destroy_tree();		// clear loaded ranges
+@@ -332,17 +439,18 @@
+ 					loadlist_pg2(blocklist_info.filename);
+ 					break;
+ 				default:
+-					fprintf(logfile,"Unknown blocklist type while reloading list, contact the developer!\n");
++					log_action("Unknown blocklist type while reloading list, contact the developer!\n");
+ 					break;
+ 			}
+ 			reopen_logfile();
+ 			break;
+ 		case SIGTERM:
+-			fprintf(logfile,"Got SIGTERM! Dumping stats and exiting.\n");
++			log_action("Got SIGTERM! Dumping stats and exiting.\n");
+ 			ll_log();
+ 			exit(0);
+ 		default:
+-			fprintf(logfile,"Received signal = %d but not handled\n",sig);
++			sprintf(msgbuf,"Received signal = %d but not handled\n",sig);
++			log_action(msgbuf);
+ 			break;
+ 	}
+ }
+@@ -378,7 +486,7 @@
+ {
+ 	int id=0, status=0;
+ 	struct nfqnl_msg_packet_hdr *ph;
+-	char *payload;
++	char *payload, msgbuf[255];
+ 	recType tmprec;
+ 
+ 	ph = nfq_get_msg_packet_hdr(nfa);
+@@ -389,34 +497,78 @@
+ 		switch (ph->hook) {
+ 			case NF_IP_LOCAL_IN:
+ 				if ( find(ntohl(SRC_ADDR(payload)),&tmprec) == STATUS_OK ) {
++					// we drop the packet instead of rejecting
++					// we don't want the other host to know we are alive
+ 					status=nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+-					fprintf(logfile,"Blocked IN: %s,hits: %d,SRC: %s\n",tmprec.blockname,tmprec.hits,ip2str(SRC_ADDR(payload)));
+-				} else status = nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
++					sprintf(msgbuf,"Blocked IN: %s,hits: %d,SRC: %s\n",tmprec.blockname,tmprec.hits,ip2str(SRC_ADDR(payload)));
++					log_action(msgbuf);
++				}
++				else if ( unlikely(accept_mark) ) {
++					// we set the user-defined accept_mark and set NF_REPEAT verdict
++					// it's up to other iptables rules to decide what to do with this marked packet
++					status = nfq_set_verdict_mark(qh, id, NF_REPEAT, accept_mark, 0, NULL);
++				     }
++				     else {
++				     	// no accept_mark, just NF_ACCEPT the packet
++				     	status = nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
++				     }
+ 				break;
+ 			case NF_IP_LOCAL_OUT:
+ 				if ( find(ntohl(DST_ADDR(payload)),&tmprec) == STATUS_OK ) {
+-					status=nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+-					fprintf(logfile,"Blocked OUT: %s,hits: %d,DST: %s\n",tmprec.blockname,tmprec.hits,ip2str(DST_ADDR(payload)));
+-				} else status = nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
++					if ( likely(reject_mark) ) {
++						// we set the user-defined reject_mark and set NF_REPEAT verdict
++						// it's up to other iptables rules to decide what to do with this marked packet
++						status = nfq_set_verdict_mark(qh, id, NF_REPEAT, reject_mark, 0, NULL);
++					}
++					else {
++						status = nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
++					}
++					sprintf(msgbuf,"Blocked OUT: %s,hits: %d,DST: %s\n",tmprec.blockname,tmprec.hits,ip2str(DST_ADDR(payload)));
++					log_action(msgbuf);
++				}
++				else if ( unlikely(accept_mark) ) {
++					// we set the user-defined accept_mark and set NF_REPEAT verdict
++					// it's up to other iptables rules to decide what to do with this marked packet
++ 				        status = nfq_set_verdict_mark(qh, id, NF_REPEAT, accept_mark, 0, NULL);
++				     }
++				     else {
++					// no accept_mark, just NF_ACCEPT the packet
++					status = nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
++				     }
+ 				break;
+ 			case NF_IP_FORWARD:
+ 				if ( find2(ntohl(SRC_ADDR(payload)), ntohl(DST_ADDR(payload)), &tmprec) == STATUS_OK ) {
+-					status=nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
+-					fprintf(logfile,"Blocked FWD: %s,hits: %d,SRC: %s, DST: %s\n",
++					if ( likely(reject_mark) ) {
++						// we set the user-defined reject_mark and set NF_REPEAT verdict
++						// it's up to other iptables rules to decide what to do with this marked packet
++						status = nfq_set_verdict_mark(qh, id, NF_REPEAT, reject_mark, 0, NULL);
++					}
++					else {
++						status = nfq_set_verdict(qh, id, NF_DROP, 0, NULL);
++					}
++					sprintf(msgbuf,"Blocked FWD: %s,hits: %d,SRC: %s, DST: %s\n",
+ 								tmprec.blockname, tmprec.hits, ip2str(SRC_ADDR(payload)), ip2str(DST_ADDR(payload)));
+-					fflush(logfile);
+-				} else status = nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
++					log_action(msgbuf);
++				}
++				else if ( unlikely(accept_mark) ) {
++					// we set the user-defined accept_mark and set NF_REPEAT verdict
++					// it's up to other iptables rules to decide what to do with this marked packet
++					status = nfq_set_verdict_mark(qh, id, NF_REPEAT, accept_mark, 0, NULL);
++				     }
++				     else {
++				     	// no accept_mark, just NF_ACCEPT the packet
++					status = nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
++				     }
+ 				break;
+ 			default:
+-				fprintf(logfile,"Not NF_LOCAL_IN/OUT/FORWARD packet!\n");
++				log_action("Not NF_LOCAL_IN/OUT/FORWARD packet!\n");
+ 				break;
+ 		}
+ 	}
+ 	else {
+-		fprintf(logfile,"NFQUEUE: can't get msg packet header.\n");
++		log_action("NFQUEUE: can't get msg packet header.\n");
+ 		return(1);		// from nfqueue source: 0 = ok, >0 = soft error, <0 hard error
+ 	}
+-	fflush(logfile);
+ 	return(0);
+ }
+ #endif
+@@ -492,46 +644,48 @@
+ 	struct nfq_q_handle *qh;
+ 	struct nfnl_handle *nh;
+ 	int fd,rv;
+-	char buf[BUFSIZE];
++	char buf[BUFSIZE], msgbuf[255];
+ 
+ 	h = nfq_open();
+ 	if (!h) {
+-		fprintf(logfile, "Error during nfq_open()\n");
++		log_action("Error during nfq_open()\n");
+ 		exit(-1);
+ 	}
+ 
+ 	if (nfq_unbind_pf(h, AF_INET) < 0) {
+-		fprintf(logfile, "error during nfq_unbind_pf()\n");
+-		exit(-1);
++		log_action("error during nfq_unbind_pf()\n");
++		//exit(-1);
+ 	}
+ 
+ 	if (nfq_bind_pf(h, AF_INET) < 0) {
+-		fprintf(logfile, "Error during nfq_bind_pf()\n");
++		log_action("Error during nfq_bind_pf()\n");
+ 		exit(-1);
+ 	}
+ 
+-	fprintf(logfile,"NFQUEUE: binding to queue '%hd'\n", queuenum);
++	sprintf(msgbuf,"NFQUEUE: binding to queue '%hd'\n", queuenum);
++	log_action(msgbuf);
+ 	qh = nfq_create_queue(h,  queuenum, &nfqueue_cb, NULL);
+ 	if (!qh) {
+-		fprintf(logfile, "error during nfq_create_queue()\n");
++		log_action("error during nfq_create_queue()\n");
+ 		exit(-1);
+ 	}
+ 
+ 	if (nfq_set_mode(qh, NFQNL_COPY_PACKET, PAYLOADSIZE) < 0) {
+-		fprintf(logfile, "can't set packet_copy mode\n");
++		log_action("can't set packet_copy mode\n");
+ 		exit(-1);
+ 	}
+ 
+ 	nh = nfq_nfnlh(h);
+ 	fd = nfnl_fd(nh);
+ 
+-	while ((rv = recv(fd, buf, sizeof(buf), 0)) && rv >= 0) {
++	while ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
+ 		nfq_handle_packet(h, buf, rv);
+ 	}
+ 
+-	printf("NFQUEUE: unbinding from queue 0\n");
++	log_action("NFQUEUE: unbinding from queue 0\n");
+ 	nfq_destroy_queue(qh);
+ 	nfq_close(h);
++	nfq_unbind_pf(h, AF_INET);
+ 	return(0);
+ #endif
+ 
+@@ -540,11 +694,16 @@
+ void print_options(void)
+ {
+ 	printf("\nMoBlock %s by Morpheus",MB_VERSION);
+-	printf("\nSyntax: MoBlock -dnp <blocklist> [-b] [-q 0-65535] <logfile>\n\n");
++	printf("\nSyntax: MoBlock -dnp <blocklist> [-q 0-65535] <logfile>\n\n");
+ 	printf("\t-d\tblocklist is an ipfilter.dat file\n");
+ 	printf("\t-n\tblocklist is a peerguardian 2.x file (.p2b)\n");
+ 	printf("\t-p\tblocklist is a peerguardian file (.p2p)\n");
+ 	printf("\t-q\t0-65535 NFQUEUE number (as specified in --queue-num with iptables)\n");
++	printf("\t-r MARK\tmark packet with MARK instead of DROP\n");
++	printf("\t-a MARK\tmark packet with MARK instead of ACCEPT\n");
++	printf("\t-l\tlog to stdout\n");
++	printf("\t-s\tlog to syslog\n");
++	printf("\t-t\tlog timestamping\n\n");
+ }
+ 
+ void on_quit()
+@@ -556,6 +715,7 @@
+ {
+ 	int ret=0;
+ 	unsigned short int queuenum=0;
++	char msgbuf[255];
+ 
+ 	if (argc < 3) {
+ 		print_options();
+@@ -591,10 +751,11 @@
+ 	}
+ 	logfile_name=malloc(strlen(argv[argc-1])+1);
+ 	strcpy(logfile_name,argv[argc-1]);
++	log2file = 1;
+ 	printf("* Logging to %s\n",logfile_name);
+ 	
+ 	while (1) {		//scan command line options
+-		ret=getopt(argc, argv, "d:n:p:q:");
++		ret=getopt(argc, argv, "d:n:p:q:a:r:stl");
+ 		if ( ret == -1 ) break;
+ 		
+ 		switch (ret) {
+@@ -619,6 +780,28 @@
+ 			case 'q':
+ 				queuenum=(unsigned short int)atoi(optarg);
+ 				break;
++			case 'r':
++				reject_mark=(u_int32_t)atoi(optarg);
++				printf("* DROP MARK: %d\n", reject_mark);
++				reject_mark=htonl(reject_mark);
++				break;
++			case 'a':
++				accept_mark=(u_int32_t)atoi(optarg);
++				printf("* ACCEPT MARK: %d\n", accept_mark);
++				accept_mark=htonl(accept_mark);
++				break;
++			case 's':
++				log2syslog = 1;
++				printf("* Logging to syslog\n");
++				break;
++			case 't':
++				timestamp = 1;
++				printf("* Log timestamp enabled\n");
++				break;
++			case 'l':
++				log2stdout = 1;
++				printf("* Log to stdout enabled\n");
++				break;
+ 			case '?':			// unknown option
+ 				print_options();
+ 				exit(-1);
+@@ -626,10 +809,14 @@
+ 		}
+ 	}
+ 	
+-	printf("* Merged ranges: %d\n", merged_ranges);
+-	fprintf(logfile, "Merged ranges: %d\n", merged_ranges);
+-	printf("* Skipped useless ranges: %d\n", skipped_ranges);
+-	fprintf(logfile,"Skipped useless ranges: %d\n", skipped_ranges);
++	sprintf(msgbuf, "* Merged ranges: %d\n", merged_ranges);
++	log_action(msgbuf);
++	if ( !log2stdout )
++		printf(msgbuf);
++	sprintf(msgbuf,"* Skipped useless ranges: %d\n", skipped_ranges);
++	log_action(msgbuf);
++	if ( !log2stdout )
++		printf(msgbuf);
+ 	fflush(NULL);
+ 
+ 	netlink_loop(queuenum);
+diff -Naur MoBlock-0.8_orig/README MoBlock-0.8/README
+--- MoBlock-0.8_orig/README	2006-03-22 12:44:31.000000000 -0500
++++ MoBlock-0.8/README	2007-11-22 08:10:44.000000000 -0500
+@@ -1,5 +1,5 @@
+ 
+-MoBlock README v0.8
++MoBlock README v0.9
+ http://moblock.berlios.de
+ 
+ .Introduction.
+@@ -47,6 +47,22 @@
+ 	ip_conntrack           40044  1 ipt_state
+ 	iptable_filter          2176  1
+ 	ip_tables              17600  3 ipt_NFQUEUE,ipt_state,iptable_filter
++	
++	...and these with kernel 2.6.23 using NFQUEUE interface:
++	
++	nfnetlink_queue         9344  1
++	nfnetlink               4568  2 nfnetlink_queue
++	ipt_REJECT              3520  2
++	xt_mark                 1600  2
++	nf_conntrack_ipv4      12424  5
++	iptable_filter          2308  1
++	ip_tables              10328  1 iptable_filter
++	xt_state                1984  5
++	nf_conntrack           48356  2 nf_conntrack_ipv4,xt_state
++	xt_NFQUEUE              1664  3
++	x_tables               11396  5 ipt_REJECT,xt_mark,ip_tables,xt_state,xt_NFQUEUE
++	
++	(notice that ipt_NFQUEUE has changed to xt_NFQUEUE, same thing for other modules too)
+ 
+ 2) A valid guarding.p2p/ipfilter.dat/p2p.p2b host file in /etc ( /etc/guarding.p2p ).
+    MoBlock tries to skip malformed or duplicate ranges but
+@@ -140,8 +156,18 @@
+    To specify a NFQUEUE queue number:
+ 
+ 	./moblock -p /etc/guarding.p2p -q 5 MoBlock.log
++	
++   From version 0.9 MoBlock supports MARKing packets and RETURN them to
++   iptables, there's an example start script (MoBlock-nfq-reject.sh) that
++   uses this feature to REJECT packet instead of dropping them. It can help
++   in complex firewall configuration where you need more control of packets
++   flow after MoBlock inspection.
++   See the mentioned start script for reference, you can set the MARK value
++   for packets that MoBlock would drop (ip in list) with the "-r" command line
++   option and for packets that MoBlock would accept (ip not in list) with
++   the "-a" command line option.
+ 
+-   To stop it:
++   To stop MoBlock:
+ 
+    kill -TERM <MoBlockPid>
+ 
+@@ -149,7 +175,7 @@
+    To obtain stats about blocked ranges while it's running:
+ 
+    kill -USR1 <MoBlockPid>	# write stats to logfile
+-   kill -USR2 <MoBlockPid>      # write stats to /var/log/MoBlock.stats
++   kill -USR2 <MoBlockPid>  # write stats to /var/log/MoBlock.stats
+ 
+ ** NEW: to reload the blocklist while MoBlock is running send to it the
+    HUP signal:
+@@ -168,7 +194,10 @@
+   took some code and ideas from his FTwall
+ - Andrew de Quincey (adq at lidskialf dot net) for regular expressions
+   and command line args patch
+-- Maximilian Mehnert (clessing at freenet dot de) for logfile rotation
++- clessing at freenet dot de for logfile rotation
+   patches, pid file creation, start script, fixes/files for debian packaging
++- David Walluck, patch for proper loading of p2b files
++- jre, for continuing clessing work on debian packaging and many other
++  contributions
+ 
+-Last Updated: 20/Mar/2006
++Last Updated: 15/Oct/2007
+diff -Naur MoBlock-0.8_orig/rbt.c MoBlock-0.8/rbt.c
+--- MoBlock-0.8_orig/rbt.c	2006-03-22 12:44:31.000000000 -0500
++++ MoBlock-0.8/rbt.c	2008-02-10 11:56:08.000000000 -0500
+@@ -19,7 +19,7 @@
+ #include <stdarg.h>
+ #include <time.h>
+ 
+-#define RBT_VERSION 0.8
++#define RBT_VERSION 0.9
+ #define BNAME_LEN	80
+ 
+ /* implementation dependend declarations */
+@@ -421,7 +421,7 @@
+ 
+ statusEnum insert(keyType key, recType *rec) {
+     nodeType *current, *parent, *x;
+-	keyType tmpkey;
++	//keyType tmpkey;
+ 	recType tmprec;
+ 	int ret;
+ 	
+@@ -433,6 +433,23 @@
+     current = root;
+     parent = 0;
+     while (current != NIL) {
++		if (compEQ2(current->key, key, rec->ipmax)) {	// current node key is inside new range to be inserted
++			strcpy(tmprec.blockname, rec->blockname);	// block name from new range
++			if (compLT(current->rec.ipmax, rec->ipmax))
++				tmprec.ipmax = rec->ipmax;
++			else tmprec.ipmax = current->rec.ipmax;
++			tmprec.hits = 0;
++			//printf("deleting node :%lu\n", current->key);
++			ret=delete(current->key);
++			if ( ret != STATUS_OK )
++				return(ret);
++			ret=insert(key, &tmprec);
++			if ( ret == STATUS_OK ) {
++				printf("new merge\n");
++				return(STATUS_MERGED);
++			}
++			else return(ret);
++		}
+         if (compEQ(key, current->key)) {
+ 			if ( rec->ipmax > current->rec.ipmax ) {
+ 				current->rec.ipmax=rec->ipmax;
+@@ -458,7 +475,7 @@
+ 			}
+ 		}
+ 		//check if higher ip (ipmax) is already in a range
+-		if (compEQ2(rec->ipmax,current->key,current->rec.ipmax)) {
++		/*if (compEQ2(rec->ipmax,current->key,current->rec.ipmax)) {
+ 			fprintf(logfile,"higher ip in range\n");
+ 			tmpkey=key;
+ 			strcpy(tmprec.blockname,current->rec.blockname);
+@@ -470,7 +487,7 @@
+ 			if ( ret == STATUS_OK )
+ 				return(STATUS_MERGED);
+ 			else return(ret);
+-		}
++		}*/
+         parent = current;
+         current = compLT(key, current->key) ?
+             current->left : current->right;
+@@ -495,7 +512,7 @@
+     } else {
+         root = x;
+     }
+-
++	//printf("new node, key: %lu, parent: %lu\n", x->key, parent ? parent->key : 0);
+     insertFixup(x);
+     lastFind = NULL;
+ 

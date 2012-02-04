@@ -1,0 +1,3 @@
+APACHE_SOLR_OPTIONS=""
+JAVA_HOME="/opt/java"
+

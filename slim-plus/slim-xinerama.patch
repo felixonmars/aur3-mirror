@@ -1,0 +1,339 @@
+diff --git a/INSTALL b/INSTALL
+index 3a9562c..3db35c8 100644
+--- a/INSTALL
++++ b/INSTALL
+@@ -2,6 +2,7 @@ INSTALL file for SLiM
+ 
+ 0. Prerequisites:
+  - X.org or XFree86
++ - libXinerama
+  - libxmu
+  - libpng
+  - libjpeg
+diff --git a/Makefile b/Makefile
+index f7d3d2d..919b954 100644
+--- a/Makefile
++++ b/Makefile
+@@ -7,7 +7,7 @@ CXX=/usr/bin/g++
+ CC=/usr/bin/gcc
+ CFLAGS=-Wall -I. -I/usr/include/freetype2 -I/usr/include/freetype2/config -I/usr/include/libpng12 -I/usr/include
+ CXXFLAGS=$(CFLAGS)
+-LDFLAGS=-lXft -lX11 -lfreetype -lXrender -lfontconfig -lpng12 -lz -lm -lcrypt -lXmu -lpng -ljpeg
++LDFLAGS=-lXft -lX11 -lXinerama -lfreetype -lXrender -lfontconfig -lpng12 -lz -lm -lcrypt -lXmu -lpng -ljpeg
+ CUSTOM=-DHAVE_SHADOW
+ ifdef USE_PAM
+ LDFLAGS+= -lpam
+diff --git a/Makefile.freebsd b/Makefile.freebsd
+index 3ff326e..10436cf 100644
+--- a/Makefile.freebsd
++++ b/Makefile.freebsd
+@@ -6,7 +6,7 @@
+ CXX=/usr/bin/g++
+ CC=/usr/bin/gcc
+ CFLAGS=-I. -I/usr/local/include/freetype2 -I/usr/local/include/freetype2/config -I/usr/local/include/libpng -I/usr/local/include -I/usr/include
+-LDFLAGS= -L/usr/local/lib -lXft -lX11 -lfreetype -lXrender -lfontconfig -lpng -lz -lm -lcrypt -lXmu -lpng -ljpeg
++LDFLAGS= -L/usr/local/lib -lXft -lX11 -lXinerama -lfreetype -lXrender -lfontconfig -lpng -lz -lm -lcrypt -lXmu -lpng -ljpeg
+ CUSTOM=-DNEEDS_BASENAME
+ .ifdef(USE_PAM)
+   LDFLAGS+= -lpam
+diff --git a/Makefile.openbsd b/Makefile.openbsd
+index b1829f8..08d1c04 100644
+--- a/Makefile.openbsd
++++ b/Makefile.openbsd
+@@ -6,7 +6,7 @@
+ CXX=/usr/bin/g++
+ CC=/usr/bin/gcc
+ CFLAGS=-I. -I/usr/X11R6/include -I/usr/X11R6/include/freetype2 -I/usr/X11R6/include/freetype2/config -I/usr/local/include/libpng -I/usr/local/include -I/usr/include
+-LDFLAGS=-L/usr/X11R6/lib -L/usr/local/lib -lXft -lX11 -lfreetype -lXrender -lfontconfig -lpng -lz -lm -lXmu -lpng -ljpeg
++LDFLAGS=-L/usr/X11R6/lib -L/usr/local/lib -lXft -lX11 -lXinerama -lfreetype -lXrender -lfontconfig -lpng -lz -lm -lXmu -lpng -ljpeg
+ CUSTOM=-DNEEDS_BASENAME
+ PREFIX=/usr
+ CFGDIR=/etc
+diff --git a/README b/README
+index e30fbf1..fad5cf2 100644
+--- a/README
++++ b/README
+@@ -15,6 +15,7 @@ INTRODUCTION
+     - XFT / freetype support
+     - Double or single (GDM-style) inputbox support
+     - Automake-based build procedure
++    - Xinerama support
+ 
+ INSTALLATION
+     see the INSTALL file
+@@ -40,8 +41,9 @@ USAGE
+     is to take a screenshot if the 'import' program is available.
+     
+ CONFIGURATION
+-    /usr/etc/slim.conf is the main configuration file.
+-    Options are explained in the file itself
++    /etc/slim.conf is the main configuration file, or use the -f
++    option.
++    Options are explained in the file itself.
+     
+ THEMES
+     See THEMES
+diff --git a/app.cpp b/app.cpp
+index fd5dece..5776de9 100644
+--- a/app.cpp
++++ b/app.cpp
+@@ -321,8 +321,30 @@ void App::Run() {
+         blankScreen();
+     }
+ 
++    int screenCount;
++    XineramaScreenInfo *screens = XineramaQueryScreens(Dpy, &screenCount);
++    if (screens != NULL) {
++        bool ok;
++        int screen = Cfg::string2int(cfg->getOption("xinerama_screen").c_str(), &ok);
++        if (!ok || screen >= screenCount)
++            screen = 0;
++        screenInfo = (XineramaScreenInfo *)malloc(sizeof(XineramaScreenInfo));
++        if (screenInfo == NULL) {
++            fprintf(stderr, "Can't allocate memory for Xinerama screeninfo.\n");
++            exit(ERR_EXIT);
++        }
++        memcpy(screenInfo, &screens[screen], sizeof(XineramaScreenInfo));
++        XFree(screens);
++    }
++
+     HideCursor();
+ 
++    if (!testing && XineramaIsActive(Dpy)) {
++      Root = XCreateSimpleWindow(Dpy, Root, ScreenLeft(), ScreenTop(), ScreenWidth(), ScreenHeight(), 0, 0, 0);
++      XMapWindow(Dpy, Root);
++      XFlush(Dpy);
++    }
++
+     // Create panel
+     LoginPanel = new Panel(Dpy, Scr, Root, cfg, themedir);
+     bool firstloop = true; // 1st time panel is shown (for automatic username)
+@@ -714,8 +736,8 @@ void App::Console() {
+     int posy = 40;
+     int fontx = 9;
+     int fonty = 15;
+-    int width = (XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)) - (posx * 2)) / fontx;
+-    int height = (XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)) - (posy * 2)) / fonty;
++    int width = (ScreenWidth() - (posx * 2)) / fontx;
++    int height = (ScreenHeight() - (posy * 2)) / fonty;
+ 
+     // Execute console
+     const char* cmd = cfg->getOption("console_cmd").c_str();
+@@ -748,6 +770,8 @@ void App::Exit() {
+         RemoveLock();
+     }
+     delete cfg;
++    if (screenInfo != NULL)
++        free(screenInfo);
+     exit(OK_EXIT);
+ }
+ 
+@@ -1017,13 +1041,45 @@ void App::blankScreen()
+     GC gc = XCreateGC(Dpy, Root, 0, 0);
+     XSetForeground(Dpy, gc, BlackPixel(Dpy, Scr));
+     XFillRectangle(Dpy, Root, gc, 0, 0,
+-                   XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)),
+-                   XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)));
++                   XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)),   // intentional
++                   XHeightOfScreen(ScreenOfDisplay(Dpy, Scr))); // intentional
+     XFlush(Dpy);
+     XFreeGC(Dpy, gc);
+ 
+ }
+ 
++int App::ScreenLeft()
++{
++    if (screenInfo == NULL)
++        return 0;
++    else
++        return screenInfo->x_org;
++}
++
++int App::ScreenTop()
++{
++    if (screenInfo == NULL)
++        return 0;
++    else
++        return screenInfo->y_org;
++}
++
++int App::ScreenWidth()
++{
++    if (screenInfo == NULL)
++        return XWidthOfScreen(ScreenOfDisplay(Dpy, Scr));
++    else
++        return screenInfo->width;
++}
++
++int App::ScreenHeight()
++{
++    if (screenInfo == NULL)
++        return XHeightOfScreen(ScreenOfDisplay(Dpy, Scr));
++    else
++        return screenInfo->height;
++}
++
+ void App::setBackground(const string& themedir) {
+     string filename;
+     filename = themedir + "/background.png";
+@@ -1037,18 +1093,18 @@ void App::setBackground(const string& themedir) {
+     if (loaded) {
+         string bgstyle = cfg->getOption("background_style");
+         if (bgstyle == "stretch") {
+-            image->Resize(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)));
++            image->Resize(ScreenWidth(), ScreenHeight());
+         } else if (bgstyle == "tile") {
+-            image->Tile(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)));
++            image->Tile(ScreenWidth(), ScreenHeight());
+         } else if (bgstyle == "center") {
+             string hexvalue = cfg->getOption("background_color");
+             hexvalue = hexvalue.substr(1,6);
+-            image->Center(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)),
++            image->Center(ScreenWidth(), ScreenHeight(),
+                         hexvalue.c_str());
+         } else { // plain color or error
+             string hexvalue = cfg->getOption("background_color");
+             hexvalue = hexvalue.substr(1,6);
+-            image->Center(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)),
++            image->Center(ScreenWidth(), ScreenHeight(),
+                         hexvalue.c_str());
+         }
+         Pixmap p = image->createPixmap(Dpy, Scr, Root);
+diff --git a/app.h b/app.h
+index 8127f13..faa1bf7 100644
+--- a/app.h
++++ b/app.h
+@@ -13,6 +13,7 @@
+ #define _APP_H_
+ 
+ #include <X11/Xlib.h>
++#include <X11/extensions/Xinerama.h>
+ #include <signal.h>
+ #include <unistd.h>
+ #include <sys/wait.h>
+@@ -40,6 +41,8 @@ public:
+     void GetLock();
+     void RemoveLock();
+ 
++    friend class Panel;
++
+ private:
+     void Login();
+     void Reboot();
+@@ -69,10 +72,16 @@ private:
+     int ServerTimeout(int timeout, char *string);
+     int WaitForServer();
+ 
++    int ScreenLeft();
++    int ScreenTop();
++    int ScreenWidth();
++    int ScreenHeight();
++
+     // Private data
+     Window Root;
+     Display* Dpy;
+     int Scr;
++    XineramaScreenInfo* screenInfo;
+     Panel* LoginPanel;
+     int ServerPID;
+     const char* DisplayName;
+diff --git a/cfg.cpp b/cfg.cpp
+index f53ddae..cf2127c 100644
+--- a/cfg.cpp
++++ b/cfg.cpp
+@@ -56,6 +56,7 @@ Cfg::Cfg()
+     options.insert(option("sessions","wmaker,blackbox,icewm"));
+     options.insert(option("sessiondir",""));
+     options.insert(option("hidecursor","false"));
++    options.insert(option("xinerama_screen", "0"));
+ 
+     // Theme stuff
+     options.insert(option("input_panel_x","50%"));
+diff --git a/panel.cpp b/panel.cpp
+index 032574d..c0ac774 100644
+--- a/panel.cpp
++++ b/panel.cpp
+@@ -11,9 +11,12 @@
+ 
+ #include <sstream>
+ #include "panel.h"
++#include "app.h"
+ 
+ using namespace std;
+ 
++extern App* LoginApp;
++
+ Panel::Panel(Display* dpy, int scr, Window root, Cfg* config,
+              const string& themedir) {
+     // Set display
+@@ -105,28 +108,27 @@ Panel::Panel(Display* dpy, int scr, Window root, Cfg* config,
+             }
+         }
+     }
++
+     if (bgstyle == "stretch") {
+-        bg->Resize(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)));
++        bg->Resize(LoginApp->ScreenWidth(), LoginApp->ScreenHeight());
+     } else if (bgstyle == "tile") {
+-        bg->Tile(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)));
++        bg->Tile(LoginApp->ScreenWidth(), LoginApp->ScreenHeight());
+     } else if (bgstyle == "center") {
+         string hexvalue = cfg->getOption("background_color");
+         hexvalue = hexvalue.substr(1,6);
+-        bg->Center(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)),
+-                   XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)),
++        bg->Center(LoginApp->ScreenWidth(), LoginApp->ScreenHeight(),
+                    hexvalue.c_str());
+     } else { // plain color or error
+         string hexvalue = cfg->getOption("background_color");
+         hexvalue = hexvalue.substr(1,6);
+-        bg->Center(XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)),
+-                   XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)),
++        bg->Center(LoginApp->ScreenWidth(), LoginApp->ScreenHeight(),
+                    hexvalue.c_str());
+     }
+ 
+     string cfgX = cfg->getOption("input_panel_x");
+     string cfgY = cfg->getOption("input_panel_y");
+-    X = Cfg::absolutepos(cfgX, XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), image->Width());
+-    Y = Cfg::absolutepos(cfgY, XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)), image->Height());
++    X = Cfg::absolutepos(cfgX, LoginApp->ScreenWidth(), image->Width());
++    Y = Cfg::absolutepos(cfgY, LoginApp->ScreenHeight(), image->Height());
+ 
+     // Merge image into background
+     image->Merge(bg, X, Y);
+@@ -210,8 +212,8 @@ void Panel::Message(const string& text) {
+     int shadowYOffset =
+         Cfg::string2int(cfg->getOption("msg_shadow_yoffset").c_str());
+ 
+-    int msg_x = Cfg::absolutepos(cfgX, XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), extents.width);
+-    int msg_y = Cfg::absolutepos(cfgY, XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)), extents.height);
++    int msg_x = Cfg::absolutepos(cfgX, LoginApp->ScreenWidth(), extents.width);
++    int msg_y = Cfg::absolutepos(cfgY, LoginApp->ScreenHeight(), extents.height);
+ 
+     SlimDrawString8 (draw, &msgcolor, msgfont, msg_x, msg_y,
+                      text,
+@@ -585,8 +587,8 @@ void Panel::ShowSession() {
+                     currsession.length(), &extents);
+     msg_x = cfg->getOption("session_x");
+     msg_y = cfg->getOption("session_y");
+-    int x = Cfg::absolutepos(msg_x, XWidthOfScreen(ScreenOfDisplay(Dpy, Scr)), extents.width);
+-    int y = Cfg::absolutepos(msg_y, XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)), extents.height);
++    int x = Cfg::absolutepos(msg_x, LoginApp->ScreenWidth(), extents.width);
++    int y = Cfg::absolutepos(msg_y, LoginApp->ScreenHeight(), extents.height);
+     int shadowXOffset =
+         Cfg::string2int(cfg->getOption("session_shadow_xoffset").c_str());
+     int shadowYOffset =
+diff --git a/slim.conf b/slim.conf
+index 3542751..e72eca2 100644
+--- a/slim.conf
++++ b/slim.conf
+@@ -16,6 +16,8 @@ xauth_path         /usr/bin/xauth
+ # Xauth file for server
+ authfile           /var/run/slim.auth
+ 
++# Xinerama screen to show login panel on (zero-based)
++#xinerama_screen    0
+ 
+ # Activate numlock when slim starts. Valid values: on|off
+ # numlock             on

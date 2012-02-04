@@ -1,0 +1,25 @@
+# Maintainer: ShadowKyogre <shadowkyogre@aim.com>
+pkgname=mse-saga-template
+pkgver=2.0.0
+pkgrel=3
+pkgdesc="Adds a new Magic: the Gathering card type: Saga"
+arch=('any')
+url="http://magicseteditor.sourceforge.net/node/3425"
+license=('GPL')
+depends=('mse-mtg' 'ttf-dasroy')
+
+source=("saga.zip::http://mtg.pifro.com/download/file.php?id=2378&sid=da6ede4318306f68e2d68fc457622039")
+md5sums=('d21322145c043df46197a795d931b704')
+
+build() {
+	cd $srcdir
+	mkdir -p $pkgdir/usr/share/magicseteditor/data
+	bsdtar -xf saga.mse-installer
+	sed -e 's|DasRoy Small Caps|DasRoy|g' -i ./*.mse-style/style
+	sed -e 's|language: "en_US",|language: "en_us",|g' -i ./*.mse-game/game
+	chmod -x ./*.mse-{gam,styl}e/*
+	chmod +x ./*.mse-game/stats
+	cp -r ./*.mse-{gam,styl}e $pkgdir/usr/share/magicseteditor/data
+}
+
+# vim:set ts=2 sw=2 et:

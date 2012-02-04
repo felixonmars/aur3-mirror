@@ -1,0 +1,61 @@
+# Maintainer: Dave Reisner <d@falconindy.com>
+
+pkgname=udev-vanilla
+_pkgname=udev
+pkgdesc="The userspace dev tools (udev). Less annoying Arch junk."
+pkgver=172
+pkgrel=1
+arch=('i686' 'x86_64')
+url="http://www.kernel.org/pub/linux/utils/kernel/hotplug/udev.html"
+license=('GPL')
+depends=('libusb-compat' 'glib2' 'module-init-tools>=3.11' 'pciutils')
+conflicts=('udev')
+provides=("udev=$pkgver")
+options=(!libtool)
+makedepends=('pciutils' 'libusb-compat' 'glib2' 'gperf' 'libxslt' 'gobject-introspection')
+backup=(etc/udev/udev.conf)
+install=udev.install
+source=(http://www.kernel.org/pub/linux/utils/kernel/hotplug/$_pkgname-$pkgver.tar.bz2
+        static-node-permission.patch
+        81-arch.rules)
+md5sums=('bd122d04cf758441f498aad0169a454f'
+         '07e5b965d7e90988ea2f7ffb19a08ef7'
+         '72242dad9de6ed88faee459519ee7d53')
+
+build() {
+  cd "$srcdir/$_pkgname-$pkgver"
+
+  patch -Np1 < "$srcdir/static-node-permission.patch"
+
+  ./configure --sysconfdir=/etc \
+              --with-rootlibdir=/lib \
+              --libexecdir=/lib/udev \
+              --sbindir=/sbin \
+              --with-systemdsystemunitdir=/lib/systemd/system \
+              --disable-rule-generator
+  make
+}
+
+package() {
+  cd "$srcdir/$_pkgname-$pkgver"
+
+  make DESTDIR="$pkgdir" install
+
+  # Install arch rules for grouping/perms
+  install -D -m644 "$srcdir/81-arch.rules" "$pkgdir/lib/udev/rules.d/81-arch.rules"
+
+  # /dev/loop0
+  mknod -m 0660 "$pkgdir/lib/udev/devices/loop0" b 7 0
+  chgrp disk "$pkgdir/lib/udev/devices/loop0"
+
+  # create framebuffer blacklist
+  mkdir -p "$pkgdir/lib/modprobe.d/"
+  mapfile -t modules < <(cd /lib/modules/*/kernel/drivers/video -name '*fb.ko.gz' -exec basename {} .ko.gz \; | sort -u)
+  (( ${#modules[*]} )) && printf 'blacklist %s\n' "${modules[@]}" > "$pkgdir/lib/modprobe.d/framebuffer_blacklist.conf"
+
+  # Replace dialout/tape/cdrom group in rules with uucp/storage/optical group
+  sed -i 's#GROUP="dialout"#GROUP="uucp"#g;
+          s#GROUP="tape"#GROUP="storage"#g;
+          s#GROUP="cdrom"#GROUP="optical"#g' "$pkgdir"/lib/udev/rules.d/*.rules
+}
+

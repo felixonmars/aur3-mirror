@@ -1,0 +1,115 @@
+diff --git a/utilities/srlua.c b/utilities/srlua.c
+index 9203c41..51b2229 100644
+--- a/utilities/srlua.c
++++ b/utilities/srlua.c
+@@ -14,6 +14,10 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <limits.h>
++#include <sys/stat.h>
++#include <sys/types.h>
++#include <unistd.h>
+ 
+ #include "glue.h"
+ #include "lua.h"
+@@ -27,6 +31,81 @@ typedef struct
+  char buff[512];
+ } State;
+ 
++#ifndef PATH_MAX
++#define PATH_MAX 512
++#endif
++
++/* int checkifexecutable(const char *filename)
++ *
++ * Return non-zero if the name is an executable file, and
++ * zero if it is not executable, or if it does not exist.
++ */
++
++int checkifexecutable(const char *filename)
++{
++     int result;
++     struct stat statinfo;
++
++     result = stat(filename, &statinfo);
++     if (result < 0) return 0;
++     if (!S_ISREG(statinfo.st_mode)) return 0;
++
++     if (statinfo.st_uid == geteuid()) return statinfo.st_mode & S_IXUSR;
++     if (statinfo.st_gid == getegid()) return statinfo.st_mode & S_IXGRP;
++     return statinfo.st_mode & S_IXOTH;
++}
++
++
++/* int findpathof(char *pth, const char *exe)
++ *
++ * Find executable by searching the PATH environment variable.
++ *
++ * const char *exe - executable name to search for.
++ *       char *pth - the path found is stored here, space
++ *                   needs to be available.
++ *
++ * If a path is found, returns non-zero, and the path is stored
++ * in pth.  If exe is not found returns 0, with pth undefined.
++ */
++
++int findpathof(char *pth, const char *exe)
++{
++     char *searchpath;
++     char *beg, *end;
++     int stop, found;
++     int len;
++
++     if (strchr(exe, '/') != NULL) {
++	  if (realpath(exe, pth) == NULL) return 0;
++	  return  checkifexecutable(pth);
++     }
++
++     searchpath = getenv("PATH");
++     if (searchpath == NULL) return 0;
++     if (strlen(searchpath) <= 0) return 0;
++
++     beg = searchpath;
++     stop = 0; found = 0;
++     do {
++	  end = strchr(beg, ':');
++	  if (end == NULL) {
++	       stop = 1;
++	       strncpy(pth, beg, PATH_MAX);
++	       len = strlen(pth);
++	  } else {
++	       strncpy(pth, beg, end - beg);
++	       pth[end - beg] = '\0';
++	       len = end - beg;
++	  }
++	  if (pth[len - 1] != '/') strncat(pth, "/", 1);
++	  strncat(pth, exe, PATH_MAX - len);
++	  found = checkifexecutable(pth);
++	  if (!stop) beg = end + 1;
++     } while (!stop && !found);
++
++     return found;
++}
++
+ static const char *myget(lua_State *L, void *data, size_t *size)
+ {
+  State* s=data;
+@@ -60,11 +139,16 @@ static void load(lua_State *L, const char *name)
+ static int pmain(lua_State *L)
+ {
+  char **argv=lua_touserdata(L,1);
++ char path[PATH_MAX+1];
+  int i;
+  lua_gc(L,LUA_GCSTOP,0);
+  luaL_openlibs(L);
+  lua_gc(L,LUA_GCRESTART,0);
+- load(L,argv[0]);
++ if(!findpathof(path, argv[0])){
++  fprintf(stderr, "%s not found in path", argv[0]);
++  return 1;
++ }
++ load(L,path);
+  for (i=1; argv[i]; i++) ; /* count */
+  lua_createtable(L,i-1,1);
+  for (i=0; argv[i]; i++)

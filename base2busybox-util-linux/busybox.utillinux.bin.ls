@@ -1,0 +1,4 @@
+dmesg
+more
+mount
+umount

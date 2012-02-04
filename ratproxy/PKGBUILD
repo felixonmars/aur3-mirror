@@ -1,0 +1,31 @@
+# Maintainer: CRT <crt.011@gmail.com>
+# Contributor: Simon Busch <morphis@gravedo.de>
+# Sébastien Duquette <ekse.0x@gmail.com>
+
+pkgname=ratproxy
+pkgver=1.58
+pkgrel=2
+pkgdesc="A passive web application security assessment tool"
+url="http://code.google.com/p/ratproxy/"
+license=('APACHE')
+arch=('any')
+source=("http://ratproxy.googlecode.com/files/ratproxy-${pkgver}.tar.gz")
+md5sums=('e4d5e64a0bd8f8f92032cbcee77fb3cf')
+
+build() {
+	cd "${srcdir}/${pkgname}"
+	make 
+}
+
+package() {
+	cd "${srcdir}/${pkgname}"
+
+	# create directories and install files
+	install -d -Dm755 "${pkgdir}"/usr/local/share/"${pkgname}"
+	install -d -Dm755 "${pkgdir}"/usr/share/licenses/"${pkgname}"
+	install -d -Dm755 "${pkgdir}"/usr/bin
+	install -m755 ratproxy "${pkgdir}"/usr/bin/"${pkgname}"
+	install -m755 ratproxy-report.sh "${pkgdir}"/usr/local/share/"${pkgname}"/ratproxy-report.sh
+	install -m644 doc/COPYING "${pkgdir}"/usr/share/licenses/"${pkgname}"/LICENSE
+	install -m755 "${srcdir}/${pkgname}"/ratproxy-back.png "${pkgdir}"/usr/local/share/"${pkgname}"/ratproxy-back.png
+}

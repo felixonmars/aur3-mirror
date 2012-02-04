@@ -1,0 +1,701 @@
+diff --git a/configure b/configure
+index 40c5730..d18cc51 100755
+--- a/configure
++++ b/configure
+@@ -7224,7 +7224,7 @@ NRPE_INSTALL_OPTS="-o $nrpe_user -g $nrpe_group"
+ 
+ 
+ cat >>confdefs.h <<_ACEOF
+-#define DEFAULT_SERVER_PORT $nrpe_port
++#define DEFAULT_SERVER_PORT "$nrpe_port"
+ _ACEOF
+ 
+ 
+diff --git a/configure.in b/configure.in
+index b3db2cf..0d3043c 100644
+--- a/configure.in
++++ b/configure.in
+@@ -352,7 +352,7 @@ AC_SUBST(nrpe_group)
+ NRPE_INSTALL_OPTS="-o $nrpe_user -g $nrpe_group"
+ AC_SUBST(NRPE_INSTALL_OPTS)
+ AC_SUBST(nrpe_port)
+-AC_DEFINE_UNQUOTED(DEFAULT_SERVER_PORT,$nrpe_port)
++AC_DEFINE_UNQUOTED(DEFAULT_SERVER_PORT,["$nrpe_port"])
+ 
+ AC_ARG_WITH(icinga_user,--with-icinga-user=<user> sets user name for file permissions,icinga_user=$withval,icinga_user=icinga)
+ AC_ARG_WITH(icinga_group,--with-icinga-group=<grp> sets group name file permissions,icinga_group=$withval,icinga_group=icinga)
+diff --git a/include/nrpe.h b/include/nrpe.h
+index bb4a383..4d6c574 100644
+--- a/include/nrpe.h
++++ b/include/nrpe.h
+@@ -47,7 +47,7 @@ int write_pid_file(void);
+ int remove_pid_file(void);
+ 
+ void free_memory(void);
+-int is_an_allowed_host(char *);
++int is_an_allowed_host(const struct sockaddr *);
+ int validate_request(packet *);
+ int contains_nasty_metachars(char *);
+ int process_macros(char *,char *,int);
+@@ -57,5 +57,3 @@ void my_connection_sighandler(int);			/* handles timeouts of connection */
+ 
+ void sighandler(int);
+ void child_sighandler(int);
+-
+-
+diff --git a/include/utils.h b/include/utils.h
+index 7666f38..2c6b1a5 100644
+--- a/include/utils.h
++++ b/include/utils.h
+@@ -40,10 +40,7 @@ unsigned long calculate_crc32(char *, int);
+ 
+ void randomize_buffer(char *,int);
+ 
+-int my_tcp_connect(char *,int,int *);
+-int my_connect(char *,int,int *,char *);
+-
+-int my_inet_aton(register const char *,struct in_addr *);
++int my_tcp_connect(char *,char *,int *);
+ 
+ void strip(char *);
+ 
+@@ -54,9 +51,7 @@ char *my_strsep(char **,const char *);
+ 
+ void display_license(void);
+ 
++char *get_ip_str(const struct sockaddr *, char *, size_t);
++int get_port(const struct sockaddr *);
++int sockaddr_equal(const struct sockaddr *, const struct sockaddr *);
+ #endif
+-
+-
+-
+-
+-
+diff --git a/src/check_nrpe.c b/src/check_nrpe.c
+index 47e4eea..c4e5fe8 100644
+--- a/src/check_nrpe.c
++++ b/src/check_nrpe.c
+@@ -24,7 +24,7 @@
+ 
+ #define DEFAULT_NRPE_COMMAND	"_NRPE_CHECK"  /* check version of NRPE daemon */
+ 
+-int server_port=DEFAULT_SERVER_PORT;
++char *server_port=DEFAULT_SERVER_PORT;
+ char *server_name=NULL;
+ char *command_name=NULL;
+ int socket_timeout=DEFAULT_SOCKET_TIMEOUT;
+@@ -366,9 +366,7 @@ int process_arguments(int argc, char **argv){
+ 				return ERROR;
+ 			break;
+ 		case 'p':
+-			server_port=atoi(optarg);
+-			if(server_port<=0)
+-				return ERROR;
++			server_port=strdup(optarg);
+ 			break;
+ 		case 'H':
+ 			server_name=strdup(optarg);
+diff --git a/src/nrpe.c b/src/nrpe.c
+index 4a4adbb..22d2efc 100644
+--- a/src/nrpe.c
++++ b/src/nrpe.c
+@@ -44,13 +44,17 @@ int use_ssl=FALSE;
+ #define MAXFD                   64
+ #define NASTY_METACHARS         "|`&><'\"\\[]{};"
+ 
++#define BUFLEN 16384
++char buf[BUFLEN];
++
+ char    *command_name=NULL;
+ char    *macro_argv[MAX_COMMAND_ARGUMENTS];
+ 
+ char    config_file[MAX_INPUT_BUFFER]="nrpe.cfg";
+ int     log_facility=LOG_DAEMON;
+-int     server_port=DEFAULT_SERVER_PORT;
+-char    server_address[16]="0.0.0.0";
++
++char    *server_port=DEFAULT_SERVER_PORT;
++char    *server_address=NULL;
+ int     socket_timeout=DEFAULT_SOCKET_TIMEOUT;
+ int     command_timeout=DEFAULT_COMMAND_TIMEOUT;
+ int     connection_timeout=DEFAULT_CONNECTION_TIMEOUT;
+@@ -435,19 +439,14 @@ int read_config_file(char *filename){
+ 				syslog(LOG_ERR,"Continuing with errors...");
+ 		        }
+ 
+-		else if(!strcmp(varname,"server_port")){
+-			server_port=atoi(varvalue);
+-			if(server_port<1024){
+-				syslog(LOG_ERR,"Invalid port number specified in config file '%s' - Line %d\n",filename,line);
+-				return ERROR;
+-			        }
+-		        }
++		else if(!strcmp(varname,"server_port"))
++			server_port=strdup(varvalue);
++
+ 		else if(!strcmp(varname,"command_prefix"))
+ 			command_prefix=strdup(varvalue);
+ 
+ 		else if(!strcmp(varname,"server_address")){
+-                        strncpy(server_address,varvalue,sizeof(server_address) - 1);
+-                        server_address[sizeof(server_address)-1]='\0';
++			server_address=strdup(varvalue);
+                         }
+ 
+                 else if(!strcmp(varname,"allowed_hosts"))
+@@ -700,12 +699,12 @@ command *find_command(char *command_name){
+ 
+ /* wait for incoming connection requests */
+ void wait_for_connections(void){
+-	struct sockaddr_in myname;
+-	struct sockaddr_in *nptr;
+-	struct sockaddr addr;
++	struct sockaddr_in6 myname6;
++	struct sockaddr_in6 src_sin;
++	socklen_t socklen = sizeof(src_sin);
++	struct sockaddr *remoteaddr = (struct sockaddr *)&src_sin;
+ 	int rc;
+ 	int sock, new_sd;
+-	socklen_t addrlen;
+ 	pid_t pid;
+ 	int flag=1;
+ 	fd_set fdread;
+@@ -715,43 +714,49 @@ void wait_for_connections(void){
+ 	struct request_info req;
+ #endif
+ 
+-	/* create a socket for listening */
+-	sock=socket(AF_INET,SOCK_STREAM,0);
++	int rval;
++	int success=0;
++	struct addrinfo addrinfo;
++	struct addrinfo *res, *r;
+ 
+-	/* exit if we couldn't create the socket */
+-	if(sock<0){
+-	        syslog(LOG_ERR,"Network server socket failure (%d: %s)",errno,strerror(errno));
+-	        exit(STATE_CRITICAL);
+-		}
++	memset(&addrinfo, 0, sizeof(addrinfo));
++	addrinfo.ai_family=PF_UNSPEC;
++	addrinfo.ai_socktype=SOCK_STREAM;
++	addrinfo.ai_protocol=IPPROTO_TCP;
+ 
+-	/* socket should be non-blocking */
+-	fcntl(sock,F_SETFL,O_NONBLOCK);
+-
+-        /* set the reuse address flag so we don't get errors when restarting */
+-        flag=1;
+-        if(setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,(char *)&flag,sizeof(flag))<0){
+-		syslog(LOG_ERR,"Could not set reuse address option on socket!\n");
+-		exit(STATE_UNKNOWN);
+-	        }
+-
+-	myname.sin_family=AF_INET;
+-	myname.sin_port=htons(server_port);
+- 	bzero(&myname.sin_zero,8);
+-
+-	/* what address should we bind to? */
+-        if(!strlen(server_address))
+-		myname.sin_addr.s_addr=INADDR_ANY;
+-
+-	else if(!my_inet_aton(server_address,&myname.sin_addr)){
+-		syslog(LOG_ERR,"Server address is not a valid IP address\n");
++	if(!server_address || !strlen(server_address)) {
++		server_address = NULL;
++		addrinfo.ai_flags=AI_PASSIVE;
++		}
++	if (rval = getaddrinfo(server_address, server_port, &addrinfo, &res) != 0) {
++		syslog(LOG_ERR,"Invalid server_address (%d: %s)",errno,strerror(errno));
+ 		exit(STATE_CRITICAL);
+-                }
+-
+-	/* bind the address to the Internet socket */
+-	if(bind(sock,(struct sockaddr *)&myname,sizeof(myname))<0){
+-		syslog(LOG_ERR,"Network server bind failure (%d: %s)\n",errno,strerror(errno));
+-	        exit(STATE_CRITICAL);
+-	        }
++		}
++	else {
++		for (r=res; r; r = r->ai_next) {   
++			sock = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
++			/* socket should be non-blocking */
++			fcntl(sock,F_SETFL,O_NONBLOCK);
++			/* set the reuse address flag so we don't get errors when restarting */
++			flag=1;
++			if(setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,(char *)&flag,sizeof(flag))<0){
++				syslog(LOG_ERR,"Could not set reuse address option on socket!\n");
++				exit(STATE_UNKNOWN);
++				}
++			if(bind(sock, r->ai_addr, r->ai_addrlen) < 0) {
++				syslog(LOG_ERR,"Network server bind failure (%d: %s)\n",errno,strerror(errno));
++				(void) close(sock);
++				}
++			else {
++				success=1;
++				break;
++				}
++			}
++		freeaddrinfo(res);
++		if(success == 0) {
++			exit(STATE_CRITICAL);
++			}
++		}
+ 
+ 	/* open the socket for listening */
+ 	if(listen(sock,5)<0){
+@@ -765,7 +770,7 @@ void wait_for_connections(void){
+ 		syslog(LOG_NOTICE,"Warning: Daemon is configured to accept command arguments from clients!");
+ #endif
+ 
+-	syslog(LOG_INFO,"Listening for connections on port %d\n",htons(myname.sin_port));
++	syslog(LOG_INFO,"Listening for connections on port %s\n",server_port);
+ 
+ 	if(allowed_hosts)
+ 		syslog(LOG_INFO,"Allowing connections from: %s\n",allowed_hosts);
+@@ -792,8 +797,7 @@ void wait_for_connections(void){
+ 				continue;
+ 
+ 			/* accept a new connection request */
+-			new_sd=accept(sock,0,0);
+-
++			new_sd=accept(sock, remoteaddr, &socklen);
+ 			/* some kind of error occurred... */
+ 			if(new_sd<0){
+ 
+@@ -832,7 +836,6 @@ void wait_for_connections(void){
+ 			/* fork again so we don't create zombies */
+ 			pid=fork();
+ 			if(pid==0){
+-
+ 				/* hey, there was an error... */
+ 				if(new_sd<0){
+ 
+@@ -853,38 +856,20 @@ void wait_for_connections(void){
+ 				/* grandchild does not need to listen for connections, so close the socket */
+ 				close(sock);  
+ 
+-				/* find out who just connected... */
+-				addrlen=sizeof(addr);
+-				rc=getpeername(new_sd,&addr,&addrlen);
+-
+-				if(rc<0){
+-
+-				        /* log error to syslog facility */
+-					syslog(LOG_ERR,"Error: Network server getpeername() failure (%d: %s)",errno,strerror(errno));
+-
+-				        /* close socket prior to exiting */
+-					close(new_sd);
+-
+-					return;
+-		                        }
+-
+-				nptr=(struct sockaddr_in *)&addr;
+-
+ 				/* log info to syslog facility */
+ 				if(debug==TRUE)
+-					syslog(LOG_DEBUG,"Connection from %s port %d",inet_ntoa(nptr->sin_addr),nptr->sin_port);
++				  syslog(LOG_DEBUG,"Connection from %s port %d",get_ip_str(remoteaddr, buf, BUFLEN),get_port(remoteaddr));
+ 
+                                 /* is this is a blessed machine? */
+ 				if(allowed_hosts){
+-
+-					if(!is_an_allowed_host(inet_ntoa(nptr->sin_addr))){
++				  if(!is_an_allowed_host(remoteaddr)){
+ 
+                                                /* log error to syslog facility */
+-                                               syslog(LOG_ERR,"Host %s is not allowed to talk to us!",inet_ntoa(nptr->sin_addr));
++						syslog(LOG_ERR,"Host %s is not allowed to talk to us!",get_ip_str(remoteaddr, buf, BUFLEN));
+ 
+                                                /* log info to syslog facility */
+ 					       if(debug==TRUE)
+-						       syslog(LOG_DEBUG,"Connection from %s closed.",inet_ntoa(nptr->sin_addr));
++						       syslog(LOG_DEBUG,"Connection from %s closed.",get_ip_str(remoteaddr, buf, BUFLEN));
+ 
+ 					       /* close socket prior to exiting */
+                                                close(new_sd);
+@@ -924,7 +909,7 @@ void wait_for_connections(void){
+ 
+ 				/* log info to syslog facility */
+ 				if(debug==TRUE)
+-					syslog(LOG_DEBUG,"Connection from %s closed.",inet_ntoa(nptr->sin_addr));
++					syslog(LOG_DEBUG,"Connection from %s closed.",get_ip_str(remoteaddr, buf, BUFLEN));
+ 
+ 				/* close socket prior to exiting */
+ 				close(new_sd);
+@@ -956,70 +941,47 @@ void wait_for_connections(void){
+ 
+ 
+ /* checks to see if a given host is allowed to talk to us */
+-int is_an_allowed_host(char *connecting_host){
++int is_an_allowed_host(const struct sockaddr *connecting_host){
+ 	char *temp_buffer=NULL;
+ 	char *temp_ptr=NULL;
++	struct addrinfo addrinfo;
++	struct addrinfo *res, *r;
+ 	int result=0;
+-        struct hostent *myhost;
+-	char **pptr=NULL;
+-	char *save_connecting_host=NULL;
+-	struct in_addr addr;
+-	
++	int rval;
++
+ 	/* make sure we have something */
+ 	if(connecting_host==NULL)
+ 		return 0;
+ 	if(allowed_hosts==NULL)
+ 		return 1;
+-
+ 	if((temp_buffer=strdup(allowed_hosts))==NULL)
+ 		return 0;
+-	
++  
+ 	/* try and match IP addresses first */
+-	for(temp_ptr=strtok(temp_buffer,",");temp_ptr!=NULL;temp_ptr=strtok(NULL,",")){
+-
+-		if(!strcmp(connecting_host,temp_ptr)){
+-			result=1;
+-			break;
+-		        }
+-	        }
+-
+-	/* try DNS lookups if needed */
+-	if(result==0){
+-
+-		free(temp_buffer);
+-		if((temp_buffer=strdup(allowed_hosts))==NULL)
+-			return 0;
+-
+-		save_connecting_host=strdup(connecting_host);
+-		for(temp_ptr=strtok(temp_buffer,",");temp_ptr!=NULL;temp_ptr=strtok(NULL,",")){
+-
+-			myhost=gethostbyname(temp_ptr);
+-			if(myhost!=NULL){
+-
+-				/* check all addresses for the host... */
+-				for(pptr=myhost->h_addr_list;*pptr!=NULL;pptr++){
+-					memcpy(&addr, *pptr, sizeof(addr));
+-					if(!strcmp(save_connecting_host, inet_ntoa(addr))){
+-						result=1;
+-						break;
+-					        }
+-				        }
+-			        }
+-
+-			if(result==1)
++	for(temp_ptr=strtok(temp_buffer,",");
++		temp_ptr!=NULL;temp_ptr=strtok(NULL,",")){
++		memset(&addrinfo, 0, sizeof(addrinfo));
++		addrinfo.ai_family=PF_UNSPEC;
++		addrinfo.ai_socktype=SOCK_STREAM;
++		addrinfo.ai_protocol=IPPROTO_TCP;
++		if (rval = getaddrinfo(temp_ptr, NULL, &addrinfo, &res) != 0) {
++			syslog(LOG_DEBUG,"Invalid host name in allowed_hosts '%s'\n",temp_ptr);
++			}
++		else {
++			for (r=res; r; r = r->ai_next) {	
++				if(sockaddr_equal(r->ai_addr, connecting_host)) {
++				result = 1;
+ 				break;
+-		        }
+-
+-		strcpy(connecting_host, save_connecting_host);
+-		free(save_connecting_host);
+-	        }
+-
+-	free(temp_buffer);
+-
++				}
++			}
++		}
++		if(result == 1) {
++			break;
++			}
++		}
++	freeaddrinfo(res);
+ 	return result;
+-        }
+-
+-
++	}
+ 
+ /* handles a client connection */
+ void handle_connection(int sock){
+@@ -1971,4 +1933,3 @@ int process_arguments(int argc, char **argv){
+ 
+ 	return OK;
+         }
+-
+diff --git a/src/utils.c b/src/utils.c
+index 48d7e58..8b1a7d5 100644
+--- a/src/utils.c
++++ b/src/utils.c
+@@ -110,177 +110,55 @@ void randomize_buffer(char *buffer,int buffer_size){
+ 
+ 
+ /* opens a connection to a remote host/tcp port */
+-int my_tcp_connect(char *host_name,int port,int *sd){
++int my_tcp_connect(char *host_name,char *port,int *sd6){
+ 	int result;
+-
+-	result=my_connect(host_name,port,sd,"tcp");
+-
+-	return result;
+-        }
+-
+-
+-/* opens a tcp or udp connection to a remote host */
+-int my_connect(char *host_name,int port,int *sd,char *proto){
+-	struct sockaddr_in servaddr;
+-	struct hostent *hp;
+-	struct protoent *ptrp;
+-	int result;
+-
+-	bzero((char *)&servaddr,sizeof(servaddr));
+-	servaddr.sin_family=AF_INET;
+-	servaddr.sin_port=htons(port);
+-
+-	/* try to bypass using a DNS lookup if this is just an IP address */
+-	if(!my_inet_aton(host_name,&servaddr.sin_addr)){
+-
+-		/* else do a DNS lookup */
+-		hp=gethostbyname((const char *)host_name);
+-		if(hp==NULL){
+-			printf("Invalid host name '%s'\n",host_name);
+-			return STATE_UNKNOWN;
+-		        }
+-
+-		memcpy(&servaddr.sin_addr,hp->h_addr,hp->h_length);
+-	        }
+-
+-	/* map transport protocol name to protocol number */
+-	if(((ptrp=getprotobyname(proto)))==NULL){
+-		printf("Cannot map \"%s\" to protocol number\n",proto);
+-		return STATE_UNKNOWN;
+-	        }
+-
+-	/* create a socket */
+-	*sd=socket(PF_INET,(!strcmp(proto,"udp"))?SOCK_DGRAM:SOCK_STREAM,ptrp->p_proto);
+-	if(*sd<0){
+-		printf("Socket creation failed\n");
++	int rval;
++	int success=0;
++	struct addrinfo addrinfo;
++	struct addrinfo *res, *r;
++
++	memset(&addrinfo, 0, sizeof(addrinfo));
++	addrinfo.ai_family=PF_UNSPEC;
++	addrinfo.ai_socktype=SOCK_STREAM;
++	addrinfo.ai_protocol=IPPROTO_TCP;
++	if (rval = getaddrinfo(host_name, port, &addrinfo, &res) != 0) {
++		printf("Invalid host name '%s'\n",host_name);
+ 		return STATE_UNKNOWN;
+-	        }
++		}
+ 
+-	/* open a connection */
+-	result=connect(*sd,(struct sockaddr *)&servaddr,sizeof(servaddr));
+-	if(result<0){
+-		switch(errno){  
+-		case ECONNREFUSED:
+-			printf("Connection refused by host\n");
+-			break;
+-		case ETIMEDOUT:
+-			printf("Timeout while attempting connection\n");
+-			break;
+-		case ENETUNREACH:
+-			printf("Network is unreachable\n");
++	for (r=res; r; r = r->ai_next) {   
++		*sd6 = socket(r->ai_family, r->ai_socktype, r->ai_protocol);
++		result=connect(*sd6, r->ai_addr, r->ai_addrlen);
++
++		if(result<0){    
++			switch(errno){  
++				case ECONNREFUSED:
++					printf("Connection refused by host\n");
++					break;
++				case ETIMEDOUT:
++					printf("Timeout while attempting connection\n");
++					break;
++				case ENETUNREACH:
++					printf("Network is unreachable\n");
++					break;
++				default:
++					printf("Connection refused or timed out\n");
++				}
++			(void) close(*sd6);            
++			}
++		else {
++			success++;
+ 			break;
+-		default:
+-			printf("Connection refused or timed out\n");
+-		        }
+-
++			}
++		}
++	if (success == 0) {
++		printf("Socket creation failed\n");
++		freeaddrinfo(res);
+ 		return STATE_CRITICAL;
+-	        }
+-
++		}
++	freeaddrinfo(res);
+ 	return STATE_OK;
+-        }
+-
+-
+-
+-/* This code was taken from Fyodor's nmap utility, which was originally taken from
+-   the GLIBC 2.0.6 libraries because Solaris doesn't contain the inet_aton() funtion. */
+-int my_inet_aton(register const char *cp, struct in_addr *addr){
+-	register unsigned int val;	/* changed from u_long --david */
+-	register int base, n;
+-	register char c;
+-	u_int parts[4];
+-	register u_int *pp = parts;
+-
+-	c=*cp;
+-
+-	for(;;){
+-
+-		/*
+-		 * Collect number up to ``.''.
+-		 * Values are specified as for C:
+-		 * 0x=hex, 0=octal, isdigit=decimal.
+-		 */
+-		if (!isdigit((int)c))
+-			return (0);
+-		val=0;
+-		base=10;
+-
+-		if(c=='0'){
+-			c=*++cp;
+-			if(c=='x'||c=='X')
+-				base=16,c=*++cp;
+-			else
+-				base=8;
+-		        }
+-
+-		for(;;){
+-			if(isascii((int)c) && isdigit((int)c)){
+-				val=(val*base)+(c -'0');
+-				c=*++cp;
+-			        } 
+-			else if(base==16 && isascii((int)c) && isxdigit((int)c)){
+-				val=(val<<4) | (c+10-(islower((int)c)?'a':'A'));
+-				c = *++cp;
+-			        } 
+-			else
+-				break;
+-		        }
+-
+-		if(c=='.'){
+-
+-			/*
+-			 * Internet format:
+-			 *	a.b.c.d
+-			 *	a.b.c	(with c treated as 16 bits)
+-			 *	a.b	(with b treated as 24 bits)
+-			 */
+-			if(pp>=parts+3)
+-				return (0);
+-			*pp++=val;
+-			c=*++cp;
+-		        } 
+-		else
+-			break;
+-	        }
+-
+-	/* Check for trailing characters */
+-	if(c!='\0' && (!isascii((int)c) || !isspace((int)c)))
+-		return (0);
+-
+-	/* Concoct the address according to the number of parts specified */
+-	n=pp-parts+1;
+-	switch(n){
+-
+-	case 0:
+-		return (0);		/* initial nondigit */
+-
+-	case 1:				/* a -- 32 bits */
+-		break;
+-
+-	case 2:				/* a.b -- 8.24 bits */
+-		if(val>0xffffff)
+-			return (0);
+-		val|=parts[0]<<24;
+-		break;
+-
+-	case 3:				/* a.b.c -- 8.8.16 bits */
+-		if(val>0xffff)
+-			return (0);
+-		val|=(parts[0]<< 24) | (parts[1]<<16);
+-		break;
+-
+-	case 4:				/* a.b.c.d -- 8.8.8.8 bits */
+-		if(val>0xff)
+-			return (0);
+-		val|=(parts[0]<<24) | (parts[1]<<16) | (parts[2]<<8);
+-		break;
+-	        }
+-
+-	if(addr)
+-		addr->s_addr=htonl(val);
+-
+-	return (1);
+-        }
+-
++	}
+ 
+ void strip(char *buffer){
+ 	int x;
+@@ -436,5 +314,45 @@ void display_license(void){
+ 	return;
+         }
+ 
++char *get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen){
++	switch(sa->sa_family) {
++		case AF_INET:
++			inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr), s, maxlen);
++			break;
++		case AF_INET6:
++			inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr), s, maxlen);
++			break;
++		default:
++			strncpy(s, "Unknown AF", maxlen);
++			return s;
++		}
++	return s;
++	}
+ 
++int get_port(const struct sockaddr *sa){
++	switch(sa->sa_family) {
++		case AF_INET:
++			return ((struct sockaddr_in *)sa)->sin_port;
++		case AF_INET6:
++			return ((struct sockaddr_in6 *)sa)->sin6_port;
++		default:
++			return -1;
++		}
++	}
+ 
++int sockaddr_equal(const struct sockaddr *ip1, const struct sockaddr *ip2){
++	if (ip1->sa_family != ip2->sa_family) {  
++		return 0;
++		}
++	if (ip1->sa_family == AF_INET6) {
++		return (memcmp(&((const struct sockaddr_in6 *)ip1)->sin6_addr,
++			&((const struct sockaddr_in6 *)ip2)->sin6_addr,
++			sizeof(struct in6_addr)) == 0);    
++		}
++	if (ip1->sa_family == AF_INET) {
++		return (memcmp(&((const struct sockaddr_in *)ip1)->sin_addr,
++			&((const struct sockaddr_in *)ip2)->sin_addr,
++			sizeof(struct in_addr)) == 0);
++		}
++	return 0;
++	}

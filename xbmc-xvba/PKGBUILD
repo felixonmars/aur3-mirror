@@ -1,0 +1,149 @@
+# Maintainer: B <gotleenucks at gmail dot com>
+# Contributor: DonVla <donvla@users.sourceforge.net>
+# Contributor: Ulf Winkelvos <ulf [at] winkelvos [dot] de>
+# Contributor: Ralf Barth <archlinux dot org at haggy dot org>
+#
+# Original credits go to Edgar Hucek <gimli at dark-green dot com>
+# for his xbmc-vdpau-vdr PKGBUILD at https://archvdr.svn.sourceforge.net/svnroot/archvdr/trunk/archvdr/xbmc-vdpau-vdr/PKGBUILD.
+# This PKGBUILD is an adaptation of the xbmc-git PKGBUILD in the AUR; credits go to the people who contributed to that.
+#
+# XvBA support courtesy of Fernet Menta (https://github.com/FernetMenta)
+# Thanks to Stephan Raue from the OpenELEC project for integrating the XvBA code into the main Xbmc tree
+
+pkgname=xbmc-xvba
+pkgver=11.0_beta2
+_pkgver=11.0-Eden_beta2
+pkgrel=1
+pkgdesc="XBMC Media Center with XvBA support"
+provides=('xbmc')
+conflicts=('xbmc' 'xbmc-pulse' 'xbmc-svn' 'xbmc-git' 'xbmc-git-xvba')
+arch=('i686' 'x86_64')
+url="http://www.xbmc.org"
+license=('GPL' 'LGPL')
+depends=('faac' 'faad2' 'glew' 'hicolor-icon-theme' 'jasper' 'libass' 'libcdio' 'libmad' 'libmodplug' 'libmpeg2' 'libmicrohttpd'
+	 'libplist' 'libmysqlclient' 'libsamplerate' 'libxtst' 'libxrandr' 'lzo2' 'python2' 'samba' 'sdl_image>=1.2.10'
+	 'sdl_mixer' 'sqlite3' 'wavpack' 'yajl' 'xvba-sdk')
+makedepends=('boost' 'cmake' 'git' 'gperf' 'nasm' 'zip' 'unzip')
+optdepends=('avahi: to use zerconf features (remote, etc...)' 
+            'gdb: for meaningful backtraces in case of trouble - STRONGLY RECOMMENDED' 
+            'libcrystalhd: Broadcom CrystalHD kernel module'
+            'libssh: support for sshfs'
+            'libvdpau: accelerated video playback for nvidia cards' 
+            'libva: accelerated video playback for nvidia, ati/amd and some intel cards'
+            'lirc: remote controller support' 
+            'pulseaudio: pulseaudio support'
+            'udisks: automount external drives' 
+            'upower: used to trigger suspend functionality' 
+            'python-simplejson: weather service functionality'
+            'unrar: access compressed files without unpacking them')
+options=('makeflags')
+changelog="$pkgname.changelog"
+install="${pkgname%-xvba}.install"
+source=(http://mirrors.xbmc.org/releases/source/${pkgname%-xvba}-$_pkgver.tar.gz
+	https://raw.github.com/OpenELEC/OpenELEC.tv/master/packages/mediacenter/xbmc/patches/xbmc-f76c547-902.01-xvba_support-eb7c9d5b4988582b041b97c88903e1d771bdbc33.patch)
+
+build() {
+
+    cd "${srcdir}/xbmc-$_pkgver"
+
+    # Uncomment when building offline. Xbmc's build process is happy when the tarballs are present in
+    # their respective directories and will not try to download them - a welcome relief. Either way,
+    # pulling in source code halfway through the build process is messy, and annoying.
+    #cp ${srcdir}/Imaging-${_imagingver}.tar.gz ${srcdir}/$pkgname-$pkgver/lib/addons/script.module.pil
+    #cp ${srcdir}/pysqlite-${_pysqlitever}.tar.gz ${srcdir}/$pkgname-$pkgver/lib/addons/script.module.pysqlite
+    
+
+    # Configure XBMC
+    #
+    # Note on external-libs:
+    #   - We cannot use external python because Arch's python was built with
+    #     UCS2 unicode support, whereas xbmc expects UCS4 support
+    #   - We cannot use Arch's libass because it's incompatible with XBMC's subtitle rendering
+    #   - According to an xbmc dev using external/system ffmpeg with xbmc is "pure stupid" :D
+    
+    # Arch Linux has a funky LDFLAGS default setup.  Lets drop it to fix
+    # possible linking issues later on. --as-needed is the linker flag
+    # causing trouble.
+    unset LDFLAGS; LDFLAGS="-Wl,--hash-style=gnu"
+
+
+    # If you feel adventurous, you can play with the CFLAGS
+    #unset {CFLAGS,CXXFLAGS}
+    #export CFLAGS="-march=pentium-m -O2 -pipe" 		# -fomit-frame-pointer would interfere with debugging
+    #export CXXFLAGS="$CFLAGS"
+
+    # Fix lsb_release dependency
+    sed -i -e 's|lsb_release -d|echo Arch Linux|' xbmc/utils/SystemInfo.cpp
+        
+    # Take out the gtk-update-icon-cache command
+    sed -i '/gtk-update-icon-cache/d' Makefile.in
+
+    # XvBA support (experimental!)
+    msg "Patching in XvBA support"
+    # Makepkg doesn't seem to strip HTTPS URLs
+    patch -Np1 -i $srcdir/${source[1]##*/}
+    
+    msg "Bootstrapping XBMC" 
+    ./bootstrap
+
+    msg "Configuring XBMC" 
+    export PYTHON_VERSION=2  # external python v2
+    ./configure --prefix="/usr" \
+                --enable-external-libraries \
+                --disable-external-ffmpeg \
+		--enable-xvba \
+                --enable-debug 
+
+    # Now (finally) build
+    msg "Running make" 
+    make
+
+}
+
+package() {
+
+    cd "${srcdir}/${pkgname%-xvba}-$_pkgver"
+    msg "Running make install" 
+    make prefix=${pkgdir}/usr/ install
+
+    # Make sure we use python2
+    sed -i -e 's/python/python2/g' ${pkgdir}/usr/bin/xbmc
+
+    # lsb_release fix
+    sed -i -e 's/which lsb_release &> \/dev\/null/\[ -f \/etc\/arch-release ]/g' "${pkgdir}/usr/bin/xbmc"
+    sed -i -e "s/lsb_release -a 2> \/dev\/null | sed -e 's\/\^\/    \/'/cat \/etc\/arch-release/g" "${pkgdir}/usr/bin/xbmc"
+
+    # .desktop files
+    install -D -m 0644 "${srcdir}/${pkgname%-xvba}-$_pkgver/tools/Linux/xbmc.desktop" "${pkgdir}/usr/share/applications/xbmc.desktop"
+    install -D -m 0644 "${srcdir}/${pkgname%-xvba}-$_pkgver/tools/Linux/xbmc-48x48.png" "${pkgdir}/usr/share/pixmaps/xbmc.png"
+
+
+    # Tools
+    install -Dm755 ${srcdir}/${pkgname%-xvba}-$_pkgver/xbmc-xrandr ${pkgdir}/usr/share/xbmc/xbmc-xrandr
+    install -Dm755 ${srcdir}/${pkgname%-xvba}-$_pkgver/tools/TexturePacker/TexturePacker ${pkgdir}/usr/share/xbmc/
+
+    # Licenses
+    install -dm755 ${pkgdir}/usr/share/licenses/${pkgname}
+    for licensef in LICENSE.GPL copying.txt; do
+        mv ${pkgdir}/usr/share/doc/xbmc/${licensef} ${pkgdir}/usr/share/licenses/${pkgname}
+    done
+
+    # Docs 
+    install -d -m 0755 "${pkgdir}/usr/share/doc/${pkgname}" 
+    for docsf in keymapping.txt README.linux; do 
+        mv "${pkgdir}/usr/share/doc/xbmc/${docsf}" "${pkgdir}/usr/share/doc/${pkgname}" 
+     done
+
+    # Clean up some stuff
+    msg "Cleanup unneeded files"
+    rm -rf ${pkgdir}/usr/share/xsessions
+    rm -f ${pkgdir}/usr/share/icons/hicolor/icon-theme.cache
+
+    # Strip
+    msg "Stripping binaries"
+    find $pkgdir -type f -exec strip {} \; >/dev/null 2>/dev/null
+
+}
+
+sha1sums=('1da6a2e1194bd4ed7e1e04ffccd0b5f92c40e734'
+          'cd3136c9eb5021dac292909f4a743125e697c4b0')

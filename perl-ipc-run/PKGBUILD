@@ -1,0 +1,29 @@
+# Maintainer: Jan-Erik Rediger <badboy at archlinux dot us>
+# Contributor: Gerardo Exequiel Pozzi <vmlinuz386@yahoo.com.ar>
+# Contributor: Francois Charette <firmicus@gmx.net>
+
+pkgname=perl-ipc-run
+_pkgname=IPC-Run
+pkgver=0.90
+pkgrel=1
+pkgdesc="IPC::Run - system() and background procs w/ piping, redirs, ptys"
+arch=('any')
+url="http://search.cpan.org/dist/${_pkgname}"
+license=('GPL' 'PerlArtistic')
+# IPC::Run depends on IO::Pty which is provided by perl-io-tty
+depends=('perl>=5.10.0' 'perl-io-tty')
+options=('!emptydirs')
+source=("http://search.cpan.org/CPAN/authors/id/T/TO/TODDR/IPC-Run-0.90.tar.gz")
+sha1sums=('dbacd5fb7e3bfa507e72d01532a665cdd8c3cee4')
+
+build() {
+  cd $srcdir/${_pkgname}-$pkgver
+
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor || return 1
+
+  make  || return 1
+  make install DESTDIR=$pkgdir || return 1
+
+  find $pkgdir -name perllocal.pod -delete
+  find $pkgdir -name .packlist -delete
+}

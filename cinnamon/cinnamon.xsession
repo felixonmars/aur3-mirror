@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Cinnamon
+Comment=This session logs you into Cinnamon
+Exec=gnome-session-cinnamon
+TryExec=/usr/bin/cinnamon
+Icon=
+Type=Application

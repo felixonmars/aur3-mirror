@@ -1,0 +1,279 @@
+--- ./exo-mount/Makefile.am.orig	2009-03-15 01:38:29.000000000 +1000
++++ ./exo-mount/Makefile.am	2009-03-15 01:39:18.000000000 +1000
+@@ -6,7 +6,8 @@
+ 	-DG_LOG_DOMAIN=\"exo-mount\"					\
+ 	-DLIBEXECDIR=\"$(libexecdir)\"					\
+ 	-DLIBEXO_VERSION_API=\"$(LIBEXO_VERSION_API)\"			\
+-	-DPACKAGE_LOCALE_DIR=\"$(localedir)\"
++	-DPACKAGE_LOCALE_DIR=\"$(localedir)\"				\
++	-DDATADIR=\"$(datadir)\"
+ 
+ bin_PROGRAMS =								\
+ 	exo-mount
+--- ./exo-mount/Makefile.in.orig	2009-03-15 01:38:21.000000000 +1000
++++ ./exo-mount/Makefile.in	2009-03-15 01:40:11.000000000 +1000
+@@ -299,7 +299,8 @@
+ 	-DG_LOG_DOMAIN=\"exo-mount\"					\
+ 	-DLIBEXECDIR=\"$(libexecdir)\"					\
+ 	-DLIBEXO_VERSION_API=\"$(LIBEXO_VERSION_API)\"			\
+-	-DPACKAGE_LOCALE_DIR=\"$(localedir)\"
++	-DPACKAGE_LOCALE_DIR=\"$(localedir)\"				\
++	-DDATADIR=\"$(datadir)\"
+ 
+ exo_mount_SOURCES = exo-mount-fstab.c exo-mount-fstab.h \
+ 	exo-mount-utils.c exo-mount-utils.h main.c $(am__append_1)
+@@ -386,7 +387,7 @@
+ 	  echo " rm -f $$p $$f"; \
+ 	  rm -f $$p $$f ; \
+ 	done
+-exo-mount$(EXEEXT): $(exo_mount_OBJECTS) $(exo_mount_DEPENDENCIES) 
++exo-mount$(EXEEXT): $(exo_mount_OBJECTS) $(exo_mount_DEPENDENCIES)
+ 	@rm -f exo-mount$(EXEEXT)
+ 	$(exo_mount_LINK) $(exo_mount_OBJECTS) $(exo_mount_LDADD) $(LIBS)
+ 
+--- ./exo-mount/exo-mount-hal.c.orig	2009-03-15 00:54:02.000000000 +1000
++++ ./exo-mount/exo-mount-hal.c	2009-03-15 20:06:31.000000000 +1000
+@@ -40,7 +40,7 @@
+ 
+ #include <exo-mount/exo-mount-hal.h>
+ 
+-
++#define CONFIG_FILE_GLOBAL     DATADIR "/xfce4/mount.rules"
+ 
+ static gboolean exo_mount_hal_init            (GError   **error);
+ static void     exo_mount_hal_propagate_error (GError   **error,
+@@ -64,12 +64,17 @@
+   LibHalVolumeUsage fsusage;
+ };
+ 
++typedef struct _ExoVolumeOptions
++{
++    char** mount_options;
++    char*  fstype_override;
++} ExoVolumeOptions;
+ 
+ 
+ static LibHalContext  *hal_context = NULL;
+ static DBusConnection *dbus_connection = NULL;
+ 
+-
++static gboolean exo_volume_hal_get_options( const char* fs, ExoVolumeOptions* ret );
+ 
+ static gboolean
+ exo_mount_hal_init (GError **error)
+@@ -647,48 +652,80 @@
+   gchar       *fstype;
+   gchar       *s;
+   gint         m, n = 0;
++  ExoVolumeOptions opts;
+ 
+   g_return_val_if_fail (device != NULL, FALSE);
+   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+ 
+-  /* determine the required mount options */
+-  options = g_new0 (gchar *, 20);
+-
+-  /* check if we know any valid mount options */
+-  if (G_LIKELY (device->fsoptions != NULL))
++    /* get mount options set by pcmanfm first */
++    if( exo_volume_hal_get_options( device->fstype, &opts ) )
+     {
+-      /* process all valid mount options */
+-      for (m = 0; device->fsoptions[m] != NULL; ++m)
+-        {
+-          /* this is currently mostly Linux specific noise */
+-          if (strcmp (device->fsoptions[m], "uid=") == 0
+-              && (strcmp (device->fstype, "vfat") == 0
+-               || strcmp (device->fstype, "iso9660") == 0
+-               || strcmp (device->fstype, "udf") == 0
+-               || device->volume == NULL))
+-            {
+-              options[n++] = g_strdup_printf ("uid=%u", (guint) getuid ());
+-            }
+-          else if (strcmp (device->fsoptions[m], "shortname=") == 0
+-                && strcmp (device->fstype, "vfat") == 0)
+-            {
+-              options[n++] = g_strdup_printf ("shortname=winnt");
+-            }
+-          else if (strcmp (device->fsoptions[m], "sync") == 0
+-                && device->volume == NULL)
++        char** popts = opts.mount_options;
++        n = g_strv_length( popts );
++        if( n > 0)
++        {
++            int i;
++            /* We have to allocate a new larger array bacause we might need to
++             * append new options to the array later */
++            options = g_new0 (gchar *, n + 4);
++            for( i = 0; i < n; ++i )
+             {
+-              /* non-pollable drive... */
+-              options[n++] = g_strdup ("sync");
++                options[i] = popts[i];
++                popts[i] = NULL;
++                /* steal the string */
+             }
+-          else if (strcmp (device->fsoptions[m], "longnames") == 0
+-                && strcmp (device->fstype, "vfat") == 0)
++            /* the strings in the array are already stolen, so strfreev is not needed. */
++        }
++        g_free( opts.mount_options );
++
++        fstype = opts.fstype_override;
++    }
++
++    if( G_UNLIKELY( ! options ) )
++    {
++      /* determine the required mount options */
++      options = g_new0 (gchar *, 20);
++
++      /* check if we know any valid mount options */
++      if (G_LIKELY (device->fsoptions != NULL))
++        {
++          /* process all valid mount options */
++          for (m = 0; device->fsoptions[m] != NULL; ++m)
+             {
+-              /* however this one is FreeBSD specific */
+-              options[n++] = g_strdup ("longnames");
++              /* this is currently mostly Linux specific noise */
++              if (strcmp (device->fsoptions[m], "uid=") == 0
++                  && (strcmp (device->fstype, "vfat") == 0
++                   || strcmp (device->fstype, "iso9660") == 0
++                   || strcmp (device->fstype, "udf") == 0
++                   || device->volume == NULL))
++                {
++                  options[n++] = g_strdup_printf ("uid=%u", (guint) getuid ());
++                }
++              else if (strcmp (device->fsoptions[m], "shortname=") == 0
++                    && strcmp (device->fstype, "vfat") == 0)
++                {
++                  options[n++] = g_strdup_printf ("shortname=winnt");
++                }
++              else if (strcmp (device->fsoptions[m], "sync") == 0
++                    && device->volume == NULL)
++                {
++                  /* non-pollable drive... */
++                  options[n++] = g_strdup ("sync");
++                }
++              else if (strcmp (device->fsoptions[m], "longnames") == 0
++                    && strcmp (device->fstype, "vfat") == 0)
++                {
++                  /* however this one is FreeBSD specific */
++                  options[n++] = g_strdup ("longnames");
++                }
++              else if (strcmp (device->fsoptions[m], "locale=") == 0
++                    && strcmp (device->fstype, "ntfs-3g") == 0)
++                {
++                  options[n++] = g_strdup_printf ("locale=%s", setlocale (LC_ALL, ""));
++                }
+             }
+         }
+     }
+-
+   /* try to determine a usable mount point */
+   if (G_LIKELY (device->volume != NULL))
+     {
+@@ -703,7 +740,7 @@
+ 
+   /* make sure that the mount point is usable (i.e. does not contain G_DIR_SEPARATOR's) */
+   mount_point = (mount_point != NULL && *mount_point != '\0')
+-              ? exo_str_replace (mount_point, G_DIR_SEPARATOR_S, "_") 
++              ? exo_str_replace (mount_point, G_DIR_SEPARATOR_S, "_")
+               : g_strdup ("");
+ 
+   /* let HAL guess the fstype */
+@@ -835,7 +872,7 @@
+   if (dbus_error_is_set (&derror))
+     {
+       /* try to translate the error appropriately */
+-      if (strcmp (derror.name, "org.freedesktop.Hal.Device.Volume.PermissionDenied") == 0) 
++      if (strcmp (derror.name, "org.freedesktop.Hal.Device.Volume.PermissionDenied") == 0)
+         {
+           /* TRANSLATORS: User tried to mount a volume, but is not privileged to do so. */
+           g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, _("You are not privileged to mount the volume \"%s\""), device->name);
+@@ -1015,7 +1052,7 @@
+   if (G_UNLIKELY (dbus_error_is_set (&derror)))
+     {
+       /* try to translate the error appropriately */
+-      if (strcmp (derror.name, "org.freedesktop.Hal.Device.Volume.PermissionDenied") == 0) 
++      if (strcmp (derror.name, "org.freedesktop.Hal.Device.Volume.PermissionDenied") == 0)
+         {
+           /* TRANSLATORS: User tried to unmount a volume, but is not privileged to do so. */
+           g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED, _("You are not privileged to unmount the volume \"%s\""), device->name);
+@@ -1055,3 +1092,76 @@
+   return TRUE;
+ }
+ 
++/**
++ * exo_volume_hal_get_options:
++ * @fs     : files system name.
++ * @ret    : an #ExoVolumeOptions.
++ *
++ * return mount options for specified file sytem or
++ * override file system name. If options not found return %NULL
++ *
++ * code taked from PCManFM project.
++ *
++ * Return value: %TRUE if options is found or %FALSE if not.
++ **/
++gboolean
++exo_volume_hal_get_options (const char*       fs,
++                            ExoVolumeOptions* ret)
++{
++    GKeyFile* f;
++    const gchar* user_opts = g_strconcat(g_getenv("HOME"), "/.config/xfce4/mount.rules", NULL);
++    gboolean is_options_read = FALSE;
++    if( fs == NULL || ! *fs)
++        return FALSE;
++    g_return_val_if_fail( ret != NULL, FALSE );
++
++    printf("Global config: %s\n", CONFIG_FILE_GLOBAL);
++
++    f = g_key_file_new();
++    if( g_key_file_load_from_file( f, user_opts, 0, NULL ))
++    {
++        printf("User's mount options is readed\n");
++        is_options_read = TRUE;
++    }
++    else if( g_key_file_load_from_file( f, CONFIG_FILE_GLOBAL, 0, NULL) )
++    {
++        printf("Global mount options is readed\n");
++        is_options_read = TRUE;
++    }
++
++    if(is_options_read == TRUE)
++    {
++        gsize n = 0;
++	int i;
++        ret->mount_options = g_key_file_get_string_list( f, fs, "mount_options", &n, NULL );
++        ret->fstype_override = g_key_file_get_string(f, fs, "fstype_override", NULL );
++
++        for( i = 0; i < n; ++i )
++        {
++            /* replace "uid=" with "uid=<actual uid>" */
++#ifndef __FreeBSD__
++            if (strcmp (ret->mount_options[i], "uid=") == 0) {
++                g_free (ret->mount_options[i]);
++                ret->mount_options[i] = g_strdup_printf ("uid=%u", getuid ());
++            }
++#else
++            if (strcmp (ret->mount_options[i], "-u=") == 0) {
++                g_free (ret->mount_options[i]);
++                ret->mount_options[i] = g_strdup_printf ("-u=%u", getuid ());
++            }
++#endif
++            /* for ntfs-3g */
++            if (strcmp (ret->mount_options[i], "locale=") == 0) {
++                g_free (ret->mount_options[i]);
++                ret->mount_options[i] = g_strdup_printf ("locale=%s", setlocale (LC_ALL, ""));
++            }
++        }
++    }
++    else
++    {
++        ret->mount_options = NULL;
++        ret->fstype_override = NULL;
++    }
++    g_key_file_free(f);
++    return (ret->mount_options || ret->fstype_override);
++}

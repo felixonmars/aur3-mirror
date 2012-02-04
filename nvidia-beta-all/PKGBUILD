@@ -1,0 +1,110 @@
+# Maintainer : Ng Oon-Ee <ngoonee.talk@gmail.com>
+# Based on nvidia-beta by Dan Vratil <vratil@progdansoft.com>
+
+pkgname=nvidia-beta-all
+pkgver=295.17
+pkgrel=1
+pkgdesc="NVIDIA beta drivers for linux." 
+arch=('i686' 'x86_64') 
+[ "$CARCH" = x86_64 ] && ARCH=x86_64 &&_srcname=NVIDIA-Linux-x86_64-${pkgver}-no-compat32 && md5sums=('784480587bb000df46065a853e370ef0')
+[ "$CARCH" = "i686" ] && ARCH=x86 && _srcname=NVIDIA-Linux-x86-${pkgver} && md5sums=('453d7585254cb2abb486135828278e43')
+provides=("nvidia=${pkgver}")
+url="http://www.nvidia.com/" 
+depends=("nvidia-utils-beta=${pkgver}") 
+makedepends=('linux-headers')
+conflicts=('nvidia-96xx' 'nvidia-71xx' 'nvidia-legacy' 'nvidia') 
+license=('custom') 
+install=nvidia.install
+source=("ftp://download.nvidia.com/XFree86/Linux-$ARCH/${pkgver}/${_srcname}.run"
+        '2.6.33-rt-ice-nvidia-beta.patch') 
+
+### Enable using of version numbers from pacman. This should only be used if you have kernels with
+### long version numbers (for example if compiled with git-suffixes). This will not work with kernels
+### compiled outside pacman's management, and takes much longer than the canonical method, due to 
+### needing to search the local repository. Set to '1' to enable.
+USE_PACMAN_VERSION=0
+
+md5sums=(${md5sums[@]}
+         'bedb3e2022c9d1780b2a859e4ac21619')
+
+build()
+{
+	# Extract the nvidia drivers
+	cd "${srcdir}"
+	if [ -d ${_srcname} ]; then
+		rm -rf ${_srcname}
+	fi
+	sh ${_srcname}.run --extract-only
+	cd ${_srcname}/kernel
+
+  if [ "$USE_PACMAN_VERSION" = "0" ]; then
+    _KERNELS=`file /boot/* | grep 'Linux kernel.*boot executable' | sed 's/.*version \([^ ]\+\).*/\1/'`
+  else
+    _PACKAGES=`pacman -Qsq linux`
+    _KERNELS=`pacman -Ql $PACKAGES | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g'`
+  fi
+
+  # Loop through all detected kernels
+  for _kernver in $_KERNELS;
+  do  
+    cd ${srcdir}/${_srcname}
+    cp -R kernel kernel-${_kernver}
+    cd kernel-${_kernver}
+    echo Building module for $_kernver
+
+    # If this kernel has a specific patch for nvidia-beta, apply it
+    # Patches should be named as the example, replacing the correct kernver
+    if [[ -f $startdir/$_kernver-nvidia-beta.patch ]]; then
+      echo Found patch for nvidia-beta for kernel $_kernver
+      patch -p1 < $startdir/$_kernver-nvidia-beta.patch 
+    fi
+
+    make SYSSRC=/usr/src/linux-${_kernver} module  
+  done
+
+  # Modify .INSTALL (nvidia.install) file if needed
+  if [ "$USE_PACMAN_VERSION" = "0" ]; then
+    sed 's/USE_PACMAN_VERSION=1/USE_PACMAN_VERSION=0/g' $startdir/nvidia.install > $startdir/nvidia.installtemp
+    mv $startdir/nvidia.installtemp $startdir/nvidia.install
+  else
+    sed 's/USE_PACMAN_VERSION=0/USE_PACMAN_VERSION=1/g' $startdir/nvidia.install > $startdir/nvidia.installtemp
+    mv $startdir/nvidia.installtemp $startdir/nvidia.install
+  fi
+}
+
+package() {
+  if [ "$USE_PACMAN_VERSION" = "0" ]; then
+    _KERNELS=`file /boot/* | grep 'Linux kernel.*boot executable' | sed 's/.*version \([^ ]\+\).*/\1/'`
+  else
+    _PACKAGES=`pacman -Qsq linux`
+    _KERNELS=`pacman -Ql $PACKAGES | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g'`
+  fi
+
+  # Find all extramodules directories
+  _EXTRAMODULES=`find /lib/modules -name version | sed 's|\/lib\/modules\/||; s|\/version||'`
+
+  # Loop through all detected kernels
+  for _kernver in $_KERNELS;
+  do  
+    cd "${srcdir}/${_srcname}/kernel-${_kernver}" 
+    # Loop through all detected extramodules directories
+    for _moduledirs in $_EXTRAMODULES
+    do
+      # Check which extramodules directory corresponds with the built module
+      if [ `cat "/lib/modules/${_moduledirs}/version"` = $_kernver ]; then
+        # Install kernel module
+        #mkdir -p "${pkgdir}/lib/modules/${_kernver}/kernel/drivers/video/"
+        #install -m644 nvidia.ko "${pkgdir}/lib/modules/${_kernver}/kernel/drivers/video/"
+	      #gzip "${pkgdir}/lib/modules/${_kernver}/kernel/drivers/video/nvidia.ko"                      
+        mkdir -p "${pkgdir}/lib/modules/${_moduledirs}/"
+        install -m644 nvidia.ko "${pkgdir}/lib/modules/${_moduledirs}/"
+	      gzip "${pkgdir}/lib/modules/${_moduledirs}/nvidia.ko"                      
+      fi
+    done
+  done
+	# Blacklist nouveau since 2.6.34
+	mkdir -p "${pkgdir}/etc/modprobe.d/"
+	echo "blacklist nouveau" >> "${pkgdir}/etc/modprobe.d/nouveau_blacklist.conf"
+                      
+}
+

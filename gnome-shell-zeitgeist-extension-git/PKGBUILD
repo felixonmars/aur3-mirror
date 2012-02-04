@@ -1,0 +1,45 @@
+# Author: Seif Lotfy
+# Maintainer: Tobias Quinn <tobias@tobiasquinn.com>
+pkgname=gnome-shell-zeitgeist-extension-git
+pkgver=20111212
+pkgrel=2
+pkgdesc="A set of extensions for the gnome shell activities overview which use zeitgeist search results"
+arch=('i686' 'x86_64')
+url="https://github.com/seiflotfy/gnome-shell-zeitgeist-extension"
+license=('GPL3')
+depends=('gnome-shell>=3.2'
+         'libqzeitgeist'
+         'zeitgeist'
+         'zeitgeist-datahub')
+makedepends=('git')
+optdepends=('gnome-tweak-tool: A tool to customize advanced GNOME 3 options.'
+'zeitgeist-extensions: Enable advanced search extensions (see aur comments for now)'
+'zeitgeist-datasources: Zeitgeist data provider plugins or extensions for several programs.')
+provides=('gnome-shell-zeitgeist-extension-git')
+
+_gitroot="git://github.com/seiflotfy/gnome-shell-zeitgeist-extension.git"
+_gitname="gnome-shell-zeitgeist-extension"
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to GIT server..."
+
+  if [ -d $_gitname ] ; then
+    cd $_gitname && git pull origin
+    msg "The local files are updated."
+  else
+    git clone $_gitroot $_gitname
+  fi
+
+  msg "GIT checkout done or server timeout"
+}
+
+package () {
+  cd ${srcdir}/${_gitname}
+  mkdir -p "${pkgdir}/usr/share/gnome-shell/extensions/"
+  cp -R "journal@gnome-shell-extensions.zeitgeist-project.com" "$pkgdir/usr/share/gnome-shell/extensions"
+  cp -R "jump-lists@gnome-shell-extensions.zeitgeist-project.com" "$pkgdir/usr/share/gnome-shell/extensions"
+  cp -R "zeitgeist-search@gnome-shell-extensions.gnome.org" "$pkgdir/usr/share/gnome-shell/extensions"
+  cp -R "smart-launcher@gnome-shell-extensions.zeitgeist-project.com" "$pkgdir/usr/share/gnome-shell/extensions"
+}
+# vim:set ts=2 sw=2 et:

@@ -1,0 +1,51 @@
+post_install() {
+    ln -sf /openils/var/web/xul/rel_2_0_7/server/openils/var/web/xul/ /openils/var/web/xul/server
+    cp /openils/etc/opensrf.xml.example /opensrf/conf/opensrf.xml
+    ln -s /opensrf/conf/opensrf.xml /openils/etc/
+    cp /openils/etc/opensrf_core.xml.example /opensrf/conf/opensrf_core.xml
+    ln -s /opensrf/conf/opensrf_core.xml /openils/etc/
+    cp /openils/etc/oils_web.xml.example /opensrf/conf/oils_web.xml
+    ln -s /opensrf/conf/oils_web.xml /openils/etc/
+    
+    # Set up the evergreen database
+    if su - postgres -c "createdb -T template0 --lc-ctype=C --lc-collate=C -E UNICODE evergreen" > /dev/null 2>&1
+    then
+        su - postgres -c "createlang plperl evergreen"
+        su - postgres -c "createlang plperlu evergreen"
+        su - postgres -c "createlang plpgsql evergreen"
+        su - postgres -c "psql -f /usr/share/postgresql/8.4/contrib/tablefunc.sql evergreen"
+        su - postgres -c "psql -f /usr/share/postgresql/8.4/contrib/tsearch2.sql evergreen"
+        su - postgres -c "psql -f /usr/share/postgresql/8.4/contrib/pgxml.sql evergreen"
+    fi
+    # Add evergreen database user
+    if [ `su - postgres -c "psql -A -t -c \"select count(*) from pg_roles where rolname='evergreen'\""` = "0" ]
+    then  
+        tfile=`mktemp`
+    cat << EOF > $tfile
+CREATE ROLE evergreen PASSWORD 'fixmepls' SUPERUSER CREATEDB CREATEROLE INHERIT LOGIN;
+EOF
+        chown postgres.postgres $tfile
+        su - postgres -c "psql -f $tfile"
+        rm $tfile
+    fi
+        
+    # Populate database
+    cd /openils/bin/ && perl eg_db_config.pl --update-config --service all --create-schema \
+            --create-offline --hostname localhost --port 5432 --user evergreen --password fixmepls \
+            --database evergreen --admin-user admin --admin-pass open-ils
+    
+    echo "Example apache configuration placed at /etc/httpd/conf/eg.conf - you need"
+    echo "to incorporate this into your actual configuration for Evergreen to work."
+    
+    if [ ! -d "/etc/httpd/ssl" ]; then
+        mkdir /etc/httpd/ssl
+        cd /etc/httpd/ssl
+        openssl req -new -x509 -days 365 -nodes -out server.crt -keyout server.key
+    fi
+    
+    if grep -q "export PERL5LIB=/openils/lib/perl5:\$PERL5LIB" /home/opensrf/.bashrc
+        then echo "export PERL5LIB=/openils/lib/perl5:\$PERL5LIB" | sudo -u opensrf tee -a /home/opensrf/.bashrc
+    fi
+    
+    chown -R opensrf:opensrf /openils/ /opensrf/
+}

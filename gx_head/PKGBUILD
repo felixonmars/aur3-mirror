@@ -1,0 +1,28 @@
+# Maintainer: SpepS <dreamspepser at yahoo dot it>
+
+pkgname=gx_head
+pkgver=0.14.0
+pkgrel=1
+pkgdesc="A simple mono amplifier to be used in a 'JACKified' environment. Guitarix branch."
+arch=('i686' 'x86_64')
+url="http://sourceforge.net/apps/wordpress/guitarix/"
+license=('GPL')
+depends=('gtkmm' 'jack' 'fftw')
+makedepends=('python2' 'boost' 'wget')
+install="$pkgname.install"
+source=("http://downloads.sourceforge.net/project/guitarix/$pkgname/$pkgname-$pkgver.tar.bz2")
+md5sums=('adca00e776d02da4ddd6754df6edad1d')
+#md5sums=(`wget -qO- $source | md5sum | cut -c -32`)
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  python2 waf configure --prefix=/usr
+  python2 waf build
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  python2 waf install --destdir="$pkgdir"
+}

@@ -1,0 +1,107 @@
+diff --git a/src/command_network.cc b/src/command_network.cc
+index 15a14a3..68f9395 100644
+--- a/src/command_network.cc
++++ b/src/command_network.cc
+@@ -266,7 +266,17 @@ apply_ip_filter(const torrent::Object& rawArgs) {
+     std::cout.flush();
+     control->core()->set_ip_filter( f );
+   }
++  return torrent::Object();
++}
+ 
++torrent::Object
++apply_friend(const torrent::Object& rawArgs) {
++  const torrent::Object::list_type& args = rawArgs.as_list();
++  if (args.empty() || args.size() > 2)
++    throw torrent::input_error("Incorrect number of arguments.");
++
++  std::pair<uint32_t, uint32_t> range = parse_address_range(args, args.begin());
++  control->core()->set_peer_filter(range.first, range.second, torrent::ConnectionManager::filter_friend);
+   return torrent::Object();
+ }
+ 
+@@ -517,6 +527,8 @@ initialize_command_network() {
+ 
+   ADD_COMMAND_LIST("encryption",          rak::ptr_fn(&apply_encryption));
+ 
++  ADD_COMMAND_LIST("friend",              rak::ptr_fn(&apply_friend));
++
+   ADD_COMMAND_STRING("tos",               rak::ptr_fn(&apply_tos));
+ 
+   ADD_COMMAND_STRING_TRI("bind",          rak::make_mem_fun(control->core(), &core::Manager::set_bind_address), rak::make_mem_fun(control->core(), &core::Manager::bind_address));
+diff --git a/src/command_peer.cc b/src/command_peer.cc
+index 0aae8e0..c17bed2 100644
+--- a/src/command_peer.cc
++++ b/src/command_peer.cc
+@@ -139,6 +139,7 @@ initialize_command_peer() {
+   ADD_CP_VALUE("is_incoming",             std::mem_fun(&torrent::Peer::is_incoming));
+   ADD_CP_VALUE("is_obfuscated",           std::mem_fun(&torrent::Peer::is_obfuscated));
+   ADD_CP_VALUE("is_snubbed",              std::mem_fun(&torrent::Peer::is_snubbed));
++  ADD_CP_VALUE("is_friend",               std::mem_fun(&torrent::Peer::is_friend));
+ 
+   ADD_CP_STRING_UNI("address",            std::ptr_fun(&retrieve_p_address));
+   ADD_CP_VALUE_UNI("port",                std::ptr_fun(&retrieve_p_port));
+diff --git a/src/core/manager.cc b/src/core/manager.cc
+index 9c1d004..31d4fff 100644
+--- a/src/core/manager.cc
++++ b/src/core/manager.cc
+@@ -238,6 +238,17 @@ Manager::get_address_throttle(const sockaddr* addr) {
+   return m_addressThrottles.get(rak::socket_address::cast_from(addr)->sa_inet()->address_h(), torrent::ThrottlePair(NULL, NULL));
+ }
+ 
++void
++Manager::set_peer_filter(uint32_t begin, uint32_t end, uint32_t filter) {
++  m_addressFilters.set_merge(begin, end, filter);
++  torrent::connection_manager()->set_filter(sigc::mem_fun(control->core(), &core::Manager::get_peer_filter));
++}
++
++uint32_t
++Manager::get_peer_filter(const sockaddr* addr) {
++  return m_addressFilters.get(rak::socket_address::cast_from(addr)->sa_inet()->address_h(), torrent::ConnectionManager::filter_permitted);
++}
++
+ // Most of this should be possible to move out.
+ void
+ Manager::initialize_second() {
+diff --git a/src/core/manager.h b/src/core/manager.h
+index ac01981..1f03cea 100644
+--- a/src/core/manager.h
++++ b/src/core/manager.h
+@@ -97,6 +97,9 @@ public:
+   void                  set_address_throttle(uint32_t begin, uint32_t end, torrent::ThrottlePair throttles);
+   torrent::ThrottlePair get_address_throttle(const sockaddr* addr);
+ 
++  void                set_peer_filter(uint32_t begin, uint32_t end, uint32_t flags);
++  uint32_t            get_peer_filter(const sockaddr* addr);
++
+   // Really should find a more descriptive name.
+   void                initialize_second();
+   void                cleanup();
+@@ -143,6 +146,7 @@ public:
+ 
+ private:
+   typedef RangeMap<uint32_t, torrent::ThrottlePair> AddressThrottleMap;
++  typedef RangeMap<uint32_t, uint32_t>              AddressFilterMap;
+ 
+   void                create_http(const std::string& uri);
+   void                create_final(std::istream* s);
+@@ -162,6 +166,7 @@ private:
+ 
+   ThrottleMap         m_throttles;
+   AddressThrottleMap  m_addressThrottles;
++  AddressFilterMap    m_addressFilters;
+ 
+   Log                 m_logImportant;
+   Log                 m_logComplete;
+diff --git a/src/ui/element_peer_list.cc b/src/ui/element_peer_list.cc
+index be0e0b4..c5ad738 100644
+--- a/src/ui/element_peer_list.cc
++++ b/src/ui/element_peer_list.cc
+@@ -112,6 +112,7 @@ ElementPeerList::create_info() {
+ 
+   element->push_back("");
+   element->push_column("Snubbed:",   te_command("if=$p.is_snubbed=,yes,no"));
++  element->push_column("Friend:",    te_command("if=$p.is_friend=,yes,no"));
+   element->push_column("Done:",      te_command("p.get_completed_percent="));
+   element->push_column("Rate:",      te_command("cat=$to_kb=$p.get_up_rate=,\\ KB\\ ,$to_kb=$p.get_down_rate=,\\ KB"));
+   element->push_column("Total:",     te_command("cat=$to_kb=$p.get_up_total=,\\ KB\\ ,$to_kb=$p.get_down_total=,\\ KB"));

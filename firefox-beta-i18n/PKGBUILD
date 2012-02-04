@@ -1,0 +1,168 @@
+pkgname=firefox-beta-i18n
+pkgver=4.0rc1
+pkgrel=1
+pkgdesc="Language packs for Firefox beta"
+arch=('any')
+license=('MPL')
+url="http://www.mozilla.com/"
+depends=('firefox-beta-kde-opensuse=4.0rc1')
+_mirror="http://ftp.heanet.ie/mirrors/ftp.mozilla.org/pub/mozilla.org/firefox/releases/4.0rc1/linux-i686/xpi"
+source=(firefox-beta-i18n-${pkgver}-af.xpi::${_mirror}/af.xpi
+        firefox-beta-i18n-${pkgver}-ak.xpi::${_mirror}/ak.xpi
+        firefox-beta-i18n-${pkgver}-ar.xpi::${_mirror}/ar.xpi
+        firefox-beta-i18n-${pkgver}-be.xpi::${_mirror}/be.xpi
+        firefox-beta-i18n-${pkgver}-bg.xpi::${_mirror}/bg.xpi
+        firefox-beta-i18n-${pkgver}-bn-BD.xpi::${_mirror}/bn-BD.xpi
+        firefox-beta-i18n-${pkgver}-bn-IN.xpi::${_mirror}/bn-IN.xpi
+        firefox-beta-i18n-${pkgver}-br.xpi::${_mirror}/br.xpi
+        firefox-beta-i18n-${pkgver}-ca.xpi::${_mirror}/ca.xpi
+        firefox-beta-i18n-${pkgver}-cs.xpi::${_mirror}/cs.xpi
+        firefox-beta-i18n-${pkgver}-da.xpi::${_mirror}/da.xpi
+        firefox-beta-i18n-${pkgver}-de.xpi::${_mirror}/de.xpi
+        firefox-beta-i18n-${pkgver}-el.xpi::${_mirror}/el.xpi
+        firefox-beta-i18n-${pkgver}-en-GB.xpi::${_mirror}/en-GB.xpi
+        firefox-beta-i18n-${pkgver}-en-US.xpi::${_mirror}/en-US.xpi
+        firefox-beta-i18n-${pkgver}-en-ZA.xpi::${_mirror}/en-ZA.xpi
+        firefox-beta-i18n-${pkgver}-eo.xpi::${_mirror}/eo.xpi
+        firefox-beta-i18n-${pkgver}-es-AR.xpi::${_mirror}/es-AR.xpi
+        firefox-beta-i18n-${pkgver}-es-CL.xpi::${_mirror}/es-CL.xpi
+        firefox-beta-i18n-${pkgver}-es-ES.xpi::${_mirror}/es-ES.xpi
+        firefox-beta-i18n-${pkgver}-et.xpi::${_mirror}/et.xpi
+        firefox-beta-i18n-${pkgver}-eu.xpi::${_mirror}/eu.xpi
+        firefox-beta-i18n-${pkgver}-fi.xpi::${_mirror}/fi.xpi
+        firefox-beta-i18n-${pkgver}-fr.xpi::${_mirror}/fr.xpi
+        firefox-beta-i18n-${pkgver}-fy-NL.xpi::${_mirror}/fy-NL.xpi
+        firefox-beta-i18n-${pkgver}-ga-IE.xpi::${_mirror}/ga-IE.xpi
+        firefox-beta-i18n-${pkgver}-gd.xpi::${_mirror}/gd.xpi
+        firefox-beta-i18n-${pkgver}-gu-IN.xpi::${_mirror}/gu-IN.xpi
+        firefox-beta-i18n-${pkgver}-he.xpi::${_mirror}/he.xpi
+        firefox-beta-i18n-${pkgver}-hi-IN.xpi::${_mirror}/hi-IN.xpi
+        firefox-beta-i18n-${pkgver}-hr.xpi::${_mirror}/hr.xpi
+        firefox-beta-i18n-${pkgver}-hu.xpi::${_mirror}/hu.xpi
+        firefox-beta-i18n-${pkgver}-hy-AM.xpi::${_mirror}/hy-AM.xpi
+        firefox-beta-i18n-${pkgver}-id.xpi::${_mirror}/id.xpi
+        firefox-beta-i18n-${pkgver}-is.xpi::${_mirror}/is.xpi
+        firefox-beta-i18n-${pkgver}-it.xpi::${_mirror}/it.xpi
+        firefox-beta-i18n-${pkgver}-ja.xpi::${_mirror}/ja.xpi
+        firefox-beta-i18n-${pkgver}-kk.xpi::${_mirror}/kk.xpi
+        firefox-beta-i18n-${pkgver}-kn.xpi::${_mirror}/kn.xpi
+        firefox-beta-i18n-${pkgver}-ko.xpi::${_mirror}/ko.xpi
+        firefox-beta-i18n-${pkgver}-ku.xpi::${_mirror}/ku.xpi
+        firefox-beta-i18n-${pkgver}-lg.xpi::${_mirror}/lg.xpi
+        firefox-beta-i18n-${pkgver}-lt.xpi::${_mirror}/lt.xpi
+        firefox-beta-i18n-${pkgver}-lv.xpi::${_mirror}/lv.xpi
+        firefox-beta-i18n-${pkgver}-mai.xpi::${_mirror}/mai.xpi
+        firefox-beta-i18n-${pkgver}-mk.xpi::${_mirror}/mk.xpi
+        firefox-beta-i18n-${pkgver}-ml.xpi::${_mirror}/ml.xpi
+        firefox-beta-i18n-${pkgver}-mr.xpi::${_mirror}/mr.xpi
+        firefox-beta-i18n-${pkgver}-nb-NO.xpi::${_mirror}/nb-NO.xpi
+        firefox-beta-i18n-${pkgver}-nl.xpi::${_mirror}/nl.xpi
+        firefox-beta-i18n-${pkgver}-nn-NO.xpi::${_mirror}/nn-NO.xpi
+        firefox-beta-i18n-${pkgver}-nso.xpi::${_mirror}/nso.xpi
+        firefox-beta-i18n-${pkgver}-or.xpi::${_mirror}/or.xpi
+        firefox-beta-i18n-${pkgver}-pa-IN.xpi::${_mirror}/pa-IN.xpi
+        firefox-beta-i18n-${pkgver}-pl.xpi::${_mirror}/pl.xpi
+        firefox-beta-i18n-${pkgver}-pt-BR.xpi::${_mirror}/pt-BR.xpi
+        firefox-beta-i18n-${pkgver}-pt-PT.xpi::${_mirror}/pt-PT.xpi
+        firefox-beta-i18n-${pkgver}-rm.xpi::${_mirror}/rm.xpi
+        firefox-beta-i18n-${pkgver}-ro.xpi::${_mirror}/ro.xpi
+        firefox-beta-i18n-${pkgver}-ru.xpi::${_mirror}/ru.xpi
+        firefox-beta-i18n-${pkgver}-si.xpi::${_mirror}/si.xpi
+        firefox-beta-i18n-${pkgver}-sk.xpi::${_mirror}/sk.xpi
+        firefox-beta-i18n-${pkgver}-sl.xpi::${_mirror}/sl.xpi
+        firefox-beta-i18n-${pkgver}-son.xpi::${_mirror}/son.xpi
+        firefox-beta-i18n-${pkgver}-sq.xpi::${_mirror}/sq.xpi
+        firefox-beta-i18n-${pkgver}-sr.xpi::${_mirror}/sr.xpi
+        firefox-beta-i18n-${pkgver}-sv-SE.xpi::${_mirror}/sv-SE.xpi
+        firefox-beta-i18n-${pkgver}-ta-LK.xpi::${_mirror}/ta-LK.xpi
+        firefox-beta-i18n-${pkgver}-ta.xpi::${_mirror}/ta.xpi
+        firefox-beta-i18n-${pkgver}-te.xpi::${_mirror}/te.xpi
+        firefox-beta-i18n-${pkgver}-th.xpi::${_mirror}/th.xpi
+        firefox-beta-i18n-${pkgver}-tr.xpi::${_mirror}/tr.xpi
+        firefox-beta-i18n-${pkgver}-uk.xpi::${_mirror}/uk.xpi
+        firefox-beta-i18n-${pkgver}-zh-CN.xpi::${_mirror}/zh-CN.xpi
+        firefox-beta-i18n-${pkgver}-zh-TW.xpi::${_mirror}/zh-TW.xpi)
+md5sums=('79314453f9b69913ef859c766433a3fe'
+         '5ae33dc5757c559a99cc4b7df0632a46'
+         '51c9fe2fe2bd2e7ff474d65ab4c6310a'
+         'd94b0f407643565092a9cff8b7e47b3c'
+         'fdbdaba136a48a707acbcdcf504667ef'
+         'ed3c4802acb53029ad12fdabeb224556'
+         '53875618015d5b11e4db8387860c8df0'
+         'ce7503dc31d5a915f261b162980f3b74'
+         '14f3255567a5cf573093311603385889'
+         '7cc00c22a573eff0679548467c7b80fb'
+         'e2ad5cc029bb21ce89488cb4bcc19762'
+         '09031969fc697070d9c4af14a8093ddd'
+         'b03e19abb8254bac841d33f97067388e'
+         '265f24c81e8ac397a3510b72d4ecaaf4'
+         '152baae0c3ffc4306c8a3f1ac334034f'
+         '0c57fde284258305cd0542c76cea9c01'
+         'f22c523ffc36a865f8a269cd4fdff41d'
+         '177a19ce687084597c47e3ca6f7ed54b'
+         'dd46062dd7e3c6f12a1c82898ecb9f26'
+         '3d1d514e44cc2791a43e71b6c69943f8'
+         '194e2e3d9fa6d546f8dcff6a3ce1f2b5'
+         '6abb18607bd328ee663a223a378ac462'
+         'f7186e1f7aa720403707fba7cb65ee02'
+         '7a8c97a674f43dce967e4b1322000750'
+         'c272807acb145990dad9fef8bfcfa26b'
+         '5defaa7d9d5cb3aaa4f983170d6b3f35'
+         'dc516b06e8ebdf5a3c6c4ad73c00096f'
+         'e38b0fcbae0437947081ef2b1becd4db'
+         '273c43468d48b1d7930d8f35f478f7cf'
+         '6aae66bb4a84ea1f6c0a6b0f624606cb'
+         '29859c6192708f6b97ad543ae5b7a9af'
+         '07ea561298829337610f39f22d3f9848'
+         'cdfbf5fff7344f502c5ca163d6e7da13'
+         'fa87dc569395a836bc3fa539ddeae724'
+         'c55d022d801c47d21a1afe6863e7a84c'
+         'f420161549f7e3ea34123c6a391939c5'
+         '8f23f1c4b4af27db65951f41b2d4f835'
+         'cb2145f3271ee91747e79322939c8b53'
+         'b9020b3b9144d6fd1d5da53c38ac2a60'
+         '250fbddabbdb97a2174b5091e99bac79'
+         '05a82cb527e4f5a94f8cb6dcfd5a667a'
+         '04e7fad7e173b85e87fabae86bd59ca0'
+         'aeddb8fede2947e78fdc6906ff803431'
+         '15b076492979a3e9876672c8cc237c8c'
+         'f82aa4461d4b0e1b0a1db3cab7ef77c0'
+         '9f7c944da57b36072e3fa169bfac6c82'
+         'ff8de9cde9ff7afcaaa3a9b8e4f82ad7'
+         '9d7edacd67b08ad1d86f0bf9bf437122'
+         'c6e661ecbea7bb9194e234323916022f'
+         '2cf60f48e6c038163ba71d216d7de74b'
+         'b181a8f67b8a6ede1000f6c94113c8bf'
+         'd9131dbc380ba726fd8741cd095bba2d'
+         '0b8dabfbd541bf47757a3b8f36d4daea'
+         '43470efca892fe85b7adce740ec6b5d9'
+         '6e632941a31acff008fbb3ab0fddf23f'
+         '7c9c0b03a41199267f460a8bbacf6a00'
+         '1a472078522bc48edcb50df4710ec2cd'
+         'c80e33bd4e1213fba7abb151b4712726'
+         '68b1472fe32742e7bd7e83d4a0d8775f'
+         'bb7bfedcb1aa153067c264e6c8d7c1d0'
+         '025abbee1f1bdffe2c7edcb001bf7a17'
+         '61990031976792269bb046ee9887fd04'
+         '5223a3afa7798484f3592d51883fb018'
+         '2c96b71844a85e96a11243b90dfc5b80'
+         '7f077fe7881cadae756174fd0f3ae26a'
+         'f8f24289fa8c68b9bb402a41c5e71dfe'
+         '6d3f81784116b1ca1ac60b2a801bf4a9'
+         'aa00e9d5c159eeb382b3d6f5a2d2a6e5'
+         '6986aeb57ad43e01ceea8b2ff3af569c'
+         '214d0136d02193b50d434f9dfcc97d44'
+         'f1f6260a10bd1dbcec78460773eb8dfd'
+         'c84114952ed1dd72210353e987833e4e'
+         '2ba53a78feda628b59fd2703fac10868'
+         'f8b11aacdbd821fe4d7092f7ae28c283'
+         'e516f33d6f9d4a1d15b8d19362015680')
+
+build() {
+	cd "${srcdir}"
+	for _langfile in *.xpi; do
+		_lang=${_langfile/.xpi/}
+		_lang=${_lang/firefox-beta-i18n-${pkgver}-/}
+		install -D -m 644 ${srcdir}/${_langfile} ${pkgdir}/usr/lib/firefox-4.0b/extensions/langpack-${_lang}@firefox.mozilla.org.xpi
+	done
+}

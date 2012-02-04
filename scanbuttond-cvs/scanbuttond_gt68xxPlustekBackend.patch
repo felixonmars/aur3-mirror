@@ -1,0 +1,346 @@
+diff -ruN scanbuttond_cvs20090722/backends/gt68xx_plustek.c scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/gt68xx_plustek.c
+--- scanbuttond_cvs20090722/backends/gt68xx_plustek.c	1970-01-01 01:00:00.000000000 +0100
++++ scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/gt68xx_plustek.c	2009-07-24 20:57:18.000000000 +0200
+@@ -0,0 +1,267 @@
++// gt68xx_plustek.c: scanbuttond backend for Plustek OpticSlim scanners
++// This file is part of scanbuttond.
++// Copyleft )c( 2005-2006 by Bernhard Stiftner
++//
++// Built primarily from "artec_eplus48u" scanbuttond backend.  
++//
++// This program is free software; you can redistribute it and/or
++// modify it under the terms of the GNU General Public License as
++// published by the Free Software Foundation; either version 2 of the
++// License, or (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful, but
++// WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++// General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with this program; if not, write to the Free Software
++// Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++//
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include <errno.h>
++#include <syslog.h>
++#include "scanbuttond/scanbuttond.h"
++#include "scanbuttond/libusbi.h"
++#include "gt68xx_plustek.h"
++
++static char* backend_name = "gt68xx/Plustek USB";
++
++#define NUM_SUPPORTED_USB_DEVICES 2
++
++static int supported_usb_devices[NUM_SUPPORTED_USB_DEVICES][3] = {
++	// vendor, product, num_buttons
++	{ 0x07b3, 0x0422, 5 },
++	{ 0x07b3, 0x0454, 5 }
++};
++
++static char* usb_device_descriptions[NUM_SUPPORTED_USB_DEVICES][2] = {
++	{ "Plustek", "OpticSlim 2400" },
++	{ "Plustek", "OpticSlim 2400+" }
++};
++
++
++static libusb_handle_t* libusb_handle;
++static scanner_t* gt68xx_plustek_scanners = NULL;
++
++
++// returns -1 if the scanner is unsupported, or the index of the
++// corresponding vendor-product pair in the supported_usb_devices array.
++int gt68xx_plustek_match_libusb_scanner(libusb_device_t* device)
++{
++	int index;
++	for (index = 0; index < NUM_SUPPORTED_USB_DEVICES; index++) {
++		if (supported_usb_devices[index][0] == device->vendorID &&
++				  supported_usb_devices[index][1] == device->productID) {
++			break;
++		}
++	}
++	if (index >= NUM_SUPPORTED_USB_DEVICES) return -1;
++	return index;
++}
++
++
++void gt68xx_plustek_attach_libusb_scanner(libusb_device_t* device)
++{
++	const char* descriptor_prefix = "gt68xx:libusb:";
++	int index = gt68xx_plustek_match_libusb_scanner(device);
++	if (index < 0) return; // unsupported
++	scanner_t* scanner = (scanner_t*)malloc(sizeof(scanner_t));
++	scanner->vendor = usb_device_descriptions[index][0];
++	scanner->product = usb_device_descriptions[index][1];
++	scanner->connection = CONNECTION_LIBUSB;
++	scanner->internal_dev_ptr = (void*)device;
++	scanner->lastbutton = 0;
++	scanner->sane_device = (char*)malloc(strlen(device->location) + 
++		strlen(descriptor_prefix) + 1);
++	strcpy(scanner->sane_device, descriptor_prefix);
++	strcat(scanner->sane_device, device->location);
++	scanner->num_buttons = supported_usb_devices[index][2];
++	scanner->is_open = 0;
++	scanner->next = gt68xx_plustek_scanners;
++	gt68xx_plustek_scanners = scanner;
++}
++
++
++void gt68xx_plustek_detach_scanners(void)
++{
++	scanner_t* next;
++	while (gt68xx_plustek_scanners != NULL) {
++		next = gt68xx_plustek_scanners->next;
++		free(gt68xx_plustek_scanners->sane_device);
++		free(gt68xx_plustek_scanners);
++		gt68xx_plustek_scanners = next;
++	}
++}
++
++
++void gt68xx_plustek_scan_devices(libusb_device_t* devices)
++{
++	int index;
++	libusb_device_t* device = devices;
++	while (device != NULL) {
++		index = gt68xx_plustek_match_libusb_scanner(device);
++		if (index >= 0)
++			gt68xx_plustek_attach_libusb_scanner(device);
++		device = device->next;
++	}
++}
++
++
++int gt68xx_plustek_init_libusb(void)
++{
++	libusb_device_t* devices;
++
++	libusb_handle = libusb_init();
++	devices = libusb_get_devices(libusb_handle);
++	gt68xx_plustek_scan_devices(devices);
++	return 0;
++}
++
++int gt68xx_plustek_control_msg(scanner_t* scanner, int requesttype, int request,
++					  int value, int index, void* buffer, int bytecount)
++{
++	switch (scanner->connection) {
++		case CONNECTION_LIBUSB:
++			return libusb_control_msg((libusb_device_t*)scanner->internal_dev_ptr,
++									   requesttype, request, value, index, buffer,
++									   bytecount);
++			break;
++	}
++	return -1;
++}
++
++
++const char* scanbtnd_get_backend_name(void)
++{
++	return backend_name;
++}
++
++
++int scanbtnd_init(void)
++{
++	gt68xx_plustek_scanners = NULL;
++
++	syslog(LOG_INFO, "gt68xx_plustek-backend: init");
++	return gt68xx_plustek_init_libusb();
++}
++
++
++int scanbtnd_rescan(void)
++{
++	libusb_device_t *devices;
++
++	gt68xx_plustek_detach_scanners();
++	gt68xx_plustek_scanners = NULL;
++	libusb_rescan(libusb_handle);
++	devices = libusb_get_devices(libusb_handle);
++	gt68xx_plustek_scan_devices(devices);
++	return 0;
++}
++
++
++const scanner_t* scanbtnd_get_supported_devices(void)
++{
++	return gt68xx_plustek_scanners;
++}
++
++
++int scanbtnd_open(scanner_t* scanner)
++{
++	int result = -ENOSYS;
++	if (scanner->is_open)
++		return -EINVAL;
++	switch (scanner->connection) {
++		case CONNECTION_LIBUSB:
++			// if devices have been added/removed, return -ENODEV to
++			// make scanbuttond update its device list
++			if (libusb_get_changed_device_count() != 0)
++				return -ENODEV;
++			result = libusb_open((libusb_device_t*)scanner->internal_dev_ptr);
++			break;
++	}
++	if (result == 0)
++		scanner->is_open = 1;
++	return result;
++}
++
++
++int scanbtnd_close(scanner_t* scanner)
++{
++	int result = -ENOSYS;
++	if (!scanner->is_open)
++		return -EINVAL;
++	switch (scanner->connection) {
++		case CONNECTION_LIBUSB:
++			result = libusb_close((libusb_device_t*)scanner->internal_dev_ptr);
++			break;
++	}
++	if (result == 0)
++		scanner->is_open = 0;
++	return result;
++}
++
++
++int scanbtnd_get_button(scanner_t* scanner)
++{
++
++  unsigned char bytes[64];
++	int num_bytes;
++
++	const unsigned char request_packet[64] = { 
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++		0x74, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
++	};   
++
++	if (!scanner->is_open)
++		return -EINVAL;
++
++	// Send request
++	num_bytes = gt68xx_plustek_control_msg(scanner,
++		0x40, 0x01, 0x2012, 0x3f40, (void *)request_packet, 64);
++	if (num_bytes < 0) return 0;
++
++	// Get response
++	num_bytes = gt68xx_plustek_control_msg(scanner,
++		0xc0, 0x01, 0x2013, 0x3f00, (void *)bytes, 64);
++	if (num_bytes < 0) return 0;
++
++	switch (bytes[2]) {
++	case 0x02: // copy
++		return 1;
++	case 0x04: // ocr
++		return 2;
++	case 0x08: // email
++		return 3;
++	case 0x10: // custom
++		return 4;
++	case 0x01: // scan
++		return 5;
++	}
++	return 0;
++}
++
++const char* scanbtnd_get_sane_device_descriptor(scanner_t* scanner)
++{
++	return scanner->sane_device;
++}
++
++
++int scanbtnd_exit(void)
++{
++	syslog(LOG_INFO, "gt68xx_plustek-backend: exit");
++	gt68xx_plustek_detach_scanners();
++	libusb_exit(libusb_handle);
++	return 0;
++}
++
+diff -ruN scanbuttond_cvs20090722/backends/gt68xx_plustek.h scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/gt68xx_plustek.h
+--- scanbuttond_cvs20090722/backends/gt68xx_plustek.h	1970-01-01 01:00:00.000000000 +0100
++++ scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/gt68xx_plustek.h	2009-07-24 20:57:18.000000000 +0200
+@@ -0,0 +1,24 @@
++// gt68xx_plustek.h: scanbuttond backend for Plustek OpticSlim scanners
++// This file is part of scanbuttond.
++// Copyleft )c( 2004-2005 by Bernhard Stiftner
++//
++// This program is free software; you can redistribute it and/or
++// modify it under the terms of the GNU General Public License as
++// published by the Free Software Foundation; either version 2 of the
++// License, or (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful, but
++// WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++// General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with this program; if not, write to the Free Software
++// Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++
++#ifndef __GT68XX_PLUSTEK_H_INCLUDED
++#define __GT68XX_PLUSTEK_H_INCLUDED
++
++#include "scanbuttond/backend.h"
++
++#endif
+diff -ruN scanbuttond_cvs20090722/backends/Makefile.am scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/Makefile.am
+--- scanbuttond_cvs20090722/backends/Makefile.am	2009-05-26 14:19:21.000000000 +0200
++++ scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/Makefile.am	2009-07-24 20:57:18.000000000 +0200
+@@ -10,7 +10,8 @@
+ 			libscanbtnd-backend_hp3500.la \
+ 			libscanbtnd-backend_hp3900.la \
+ 			libscanbtnd-backend_hp5590.la \
+-			libscanbtnd-backend_gt68xx.la
++			libscanbtnd-backend_gt68xx.la \
++			libscanbtnd-backend_gt68xx_plustek.la
+ 			
+ 
+ libscanbtnd_backend_epson_la_SOURCES = epson.c epson.h
+@@ -52,6 +53,9 @@
+ libscanbtnd_backend_gt68xx_la_SOURCES = gt68xx.c gt68xx.h
+ libscanbtnd_backend_gt68xx_la_LIBADD = ../interface/libscanbtnd-interface_usb.la
+ libscanbtnd_backend_gt68xx_la_LDFLAGS = -module -version-info 1:0:0
++libscanbtnd_backend_gt68xx_plustek_la_SOURCES = gt68xx_plustek.c gt68xx_plustek.h
++libscanbtnd_backend_gt68xx_plustek_la_LIBADD = ../interface/libscanbtnd-interface_usb.la
++libscanbtnd_backend_gt68xx_plustek_la_LDFLAGS = -module -version-info 1:0:0
+ 
+ pkgsysconfdir = $(sysconfdir)/$(PACKAGE)
+ pkgsysconf_DATA = meta.conf
+diff -ruN scanbuttond_cvs20090722/backends/meta.conf scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/meta.conf
+--- scanbuttond_cvs20090722/backends/meta.conf	2009-05-26 14:19:21.000000000 +0200
++++ scanbuttond_cvs20090722+gt68xxPlustekBackend/backends/meta.conf	2009-07-24 20:57:18.000000000 +0200
+@@ -10,3 +10,4 @@
+ libscanbtnd-backend_plustek_umax
+ libscanbtnd-backend_snapscan
+ libscanbtnd-backend_gt68xx
++libscanbtnd-backend_gt68xx_plustek
+diff -ruN scanbuttond_cvs20090722/README scanbuttond_cvs20090722+gt68xxPlustekBackend/README
+--- scanbuttond_cvs20090722/README	2009-05-26 14:19:21.000000000 +0200
++++ scanbuttond_cvs20090722+gt68xxPlustekBackend/README	2009-07-24 22:01:09.000000000 +0200
+@@ -148,6 +148,10 @@
+ Supported by the gt68xx backend (via libusb):
+ * Genius Colorpage Vivid4 (working, experimental)
+ 
++Supported by the gt68xx_plustek backend (via libusb):
++* Plustek OpticSlim 2400 (expected to work)
++* Plustek OpticSlim 2400+ (working, tested)
++
+ Note: the mustek, niash, plustek, plustek_umax, gt68xx and snapscan backends
+ were implemented using information gathered by "sniffing" the communication
+ between the Windows driver and the scanner, because there is no technical
+
+ 	  	 

@@ -1,0 +1,168 @@
+--- ./eyesaver.cpp.orig	2008-10-02 19:27:47.000000000 +0200
++++ ./eyesaver.cpp	2009-01-07 09:24:43.000000000 +0100
+@@ -1,4 +1,10 @@
+ #include "eyesaver.h"
++// Qt
++#include <QtGui/QWidget> // QWIDGETSIZE_MAX
++#include <QtDBus/QDBusInterface>
++#include <QtDBus/QDBusReply>
++#include <QGraphicsLinearLayout>
++
+ #include <QAction>
+ #include <QPainter>
+ #include <QFontMetrics>
+@@ -56,6 +62,10 @@
+     loadConfig();
+     secondo=0;
+     in_pausa = false;
++    //connect to dbus
++    m_screenSaverIface = new OrgFreedesktopScreenSaverInterface("org.freedesktop.ScreenSaver", "/ScreenSaver",
++                                                                 QDBusConnection::sessionBus(), this);
++
+ } 
+ 
+ 
+@@ -66,6 +76,7 @@
+    quandopausa = cfg.readEntry("quandopausa", 2700);
+    disattivato = cfg.readEntry("disattivato", 0);
+    musichetta =  cfg.readEntry("musichetta", 1);
++   screenlock =  cfg.readEntry("screenlock", 1);
+ }
+ 
+ void Plasmaeyesaver::saveConfig ()
+@@ -74,10 +85,12 @@
+    duratapausa = m_durata_pausa->value()*60;
+    quandopausa = m_quando_pausa->value()*60;
+    musichetta = m_musichetta->isChecked();
++   screenlock = m_screenlock->isChecked();
+    cfg.writeEntry("quandopausa", quandopausa);
+    cfg.writeEntry("duratapausa", duratapausa);
+    cfg.writeEntry("disattivato", disattivato);
+    cfg.writeEntry("musichetta",musichetta);
++   cfg.writeEntry("screenlock",screenlock);
+ }
+ 
+ void Plasmaeyesaver::apridocum () {
+@@ -105,6 +118,8 @@
+     m_quando_pausa->setValue(quandopausa/60);
+     m_musichetta = new QCheckBox("Play sound", page);
+     m_musichetta->setChecked(musichetta);
++    m_screenlock = new QCheckBox("Lock the screen", page);
++    m_screenlock->setChecked(screenlock);
+     m_riavvia = new QPushButton("Restart", page);
+     connect(m_riavvia, SIGNAL( clicked() ), SLOT(riavvia()));
+     connect(m_riavvia, SIGNAL( clicked() ), SLOT(saveConfig()));
+@@ -125,7 +140,8 @@
+     layout->addWidget( durata_label, 1, 0 );
+     layout->addWidget( m_durata_pausa, 1, 1 );
+     layout->addWidget( m_musichetta, 2, 0 );
+-    layout->addWidget( m_riavvia, 3, 1 );
++    layout->addWidget( m_screenlock, 3, 0 );
++    layout->addWidget( m_riavvia, 4, 1 );
+     fette->addLayout( layout );
+     fette->addWidget( groupBox );
+     p_parent->addPage( page, i18nc( "name of the applet", "%1 Settings", name() ), icon() );
+@@ -158,10 +174,12 @@
+     secondo += 4;
+     if (secondo>=quandopausa)
+     {
+-     if(musichetta) {Phonon::MediaObject *music = Phonon::createPlayer(Phonon::NotificationCategory, Phonon::MediaSource("/usr/kde/4.1/share/sounds/KDE-Sys-Log-In-Short.ogg"));music->play();}
++     if(musichetta) {Phonon::MediaObject *music = Phonon::createPlayer(Phonon::NotificationCategory, Phonon::MediaSource("/usr/share/sounds/KDE-Sys-Warning.ogg"));music->play();}
+       in_pausa=true;
+       secondo=0;
+       m_timer->start( 1000 );
++//dodo
++     if(screenlock) {lockScreen();}
+     }
+     else m_timer->start( 4000 );
+   }
+@@ -176,7 +194,7 @@
+     }
+     if (secondo==duratapausa)
+     {  
+-      if(musichetta) {Phonon::MediaObject *music = Phonon::createPlayer(Phonon::NotificationCategory, Phonon::MediaSource("/usr/kde/4.1/share/sounds/KDE-Im-Phone-Ring.ogg"));
++      if(musichetta) {Phonon::MediaObject *music = Phonon::createPlayer(Phonon::NotificationCategory, Phonon::MediaSource("/usr/share/sounds/KDE-Sys-Warning.ogg"));
+       music->play();}
+       in_pausa=false;
+       secondo=0;
+@@ -234,4 +252,9 @@
+   return m_actions;
+ }
+ 
++void Plasmaeyesaver::lockScreen()
++{
++    m_screenSaverIface->Lock();
++}
++
+ #include "eyesaver.moc"
+--- ./eyesaver.h.orig	2008-10-02 19:28:04.000000000 +0200
++++ ./eyesaver.h	2009-01-07 08:59:44.000000000 +0100
+@@ -7,6 +7,7 @@
+ #include <Plasma/Applet>
+ #include <Plasma/Svg>
+  #include <KProcess>
++#include "screensaver_interface.h"
+ 
+ class QProgressBar;
+ class KProgressDialog;
+@@ -54,12 +55,18 @@
+         KIntNumInput *m_quando_pausa;
+         int quandopausa;
+         QCheckBox *m_musichetta;
++        QCheckBox *m_screenlock;
+         bool disattivato;
+         bool musichetta;
++        bool screenlock;
+         QPushButton *m_riavvia;
+         bool in_pausa;
+ 	//QProgressBar *barra;
+         //KProgressDialog progresso;
++        /* Enable the screensaver */
++        void lockScreen();
++        /* Dbus interface to the screensaver and idle time functions */
++        OrgFreedesktopScreenSaverInterface * m_screenSaverIface;
+ };
+  
+ // This is the command that links your applet to the .desktop file
+--- ./CMakeLists.txt.orig	2008-09-15 20:29:51.000000000 +0200
++++ ./CMakeLists.txt	2009-01-06 13:17:03.000000000 +0100
+@@ -1,6 +1,8 @@
+ # Project Needs a name ofcourse
+ project(plasma-eyesaver)
+  
++
++
+ # Find the required Libaries
+ find_package(KDE4 REQUIRED)
+ include(KDE4Defaults)
+@@ -15,11 +17,28 @@
+  
+ # We add our source code here
+ set(tutorial1_SRCS eyesaver.cpp)
+- 
++#---------
++
++if(EXISTS "${DBUS_INTERFACES_INSTALL_DIR}/org.freedesktop.ScreenSaver.xml")
++
++set(screensaver_xml "${DBUS_INTERFACES_INSTALL_DIR}/org.freedesktop.ScreenSaver.xml")
++
++else(EXISTS "${DBUS_INTERFACES_INSTALL_DIR}/org.freedesktop.ScreenSaver.xml")
++
++set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
++include(PkgConfigGetVar)
++PKGCONFIG_GETVAR(dbus-1 prefix DBUS_PREFIX)
++set(screensaver_xml ${DBUS_PREFIX}/share/dbus-1/interfaces/org.freedesktop.ScreenSaver.xml)
++
++endif(EXISTS "${DBUS_INTERFACES_INSTALL_DIR}/org.freedesktop.ScreenSaver.xml")
++
++QT4_ADD_DBUS_INTERFACE(tutorial1_SRCS ${screensaver_xml} screensaver_interface )
++
++#------- 
+ # Now make sure all files get to the right place
+ kde4_add_plugin(plasma_applet_eyesaver ${tutorial1_SRCS})
+ target_link_libraries(plasma_applet_eyesaver 
+-                      ${PLASMA_LIBS} ${KDE4_KDEUI_LIBS} ${PHONON_LIBS} ${KDE4_KIO_LIBRARY})
++                      ${PLASMA_LIBS} ${KDE4_KDEUI_LIBS} ${PHONON_LIBS} ${KDE4_KIO_LIBRARY} kworkspace ${X11_Xscreensaver_LIB})
+  
+ install(TARGETS plasma_applet_eyesaver
+         DESTINATION ${PLUGIN_INSTALL_DIR})

@@ -1,0 +1,39 @@
+# Maintainer: Mitchel Humpherys <mitch.special@gmail.com>
+
+pkgname=python3-matplotlib-git
+pkgver=20111116
+pkgrel=1
+pkgdesc="matplotlib python library (including python3 support)"
+url="https://github.com/matplotlib/matplotlib"
+arch=('any')
+license=('custom')
+depends=('python-numpy' 'python3-dateutil' 'python-pytz' 'freetype2' 'libpng')
+makedepends=('git')
+provides=('python3-matplotlib')
+source=('setup.cfg')
+md5sums=('9e74e90b164757a1fd327680cdf4486e')
+
+_gitroot='https://github.com/matplotlib/matplotlib.git'
+_gitname='matplotlib'
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to git server..."
+  if [[ -d $_gitname ]]; then
+	cd $_gitname && git pull origin
+	msg "The local files are up-to-date"
+  else
+	git clone $_gitroot $_gitname --depth=1
+	cd $_gitname
+  fi
+
+  cp "${startdir}/setup.cfg" "${srcdir}/${_gitname}/"
+
+  python setup.py build
+  install -D -m644 LICENSE/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
+
+package() {
+  cd "$srcdir/$_gitname"
+  python setup.py install --prefix=$pkgdir/usr --optimize=1
+}

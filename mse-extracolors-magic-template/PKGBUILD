@@ -1,0 +1,28 @@
+# Maintainer: ShadowKyogre <shadowkyogre@aim.com>
+pkgname=mse-extracolors-magic-template
+pkgver=2.0.0
+pkgrel=5
+pkgdesc="The standard Magic: the Gathering cards with more colors"
+arch=('any')
+url="http://magicseteditor.sourceforge.net/additional-templates"
+license=('GPL')
+depends=('mse-mtg')
+
+source=("magic-mana-small-and-large-extra.mse-installer::http://mtg.pifro.com/download/file.php?id=2851"
+"magic-new-extra.mse-installer::http://mtg.pifro.com/download/file.php?id=2608")
+md5sums=('2b92b2d136ee149a6d8c5b393c6d3a30'
+         '2185cc226597293dc9c3388bf45d8af4')
+
+build() {
+	cd $srcdir
+	mkdir -p $pkgdir/usr/share/magicseteditor/data
+	bsdtar -xf magic-new-extra.mse-installer
+	bsdtar -xf magic-mana-small-and-large-extra.mse-installer
+	sed -e 's|emblem|watermark|g' -i ./*.mse-style/style
+	chmod -x ./*.mse-s{tyle,ymbol-font}/*
+	chmod -x ./magic-watermarks-extra.mse-include/*
+	cp -r ./magic-watermarks-extra.mse-include $pkgdir/usr/share/magicseteditor/data
+	cp -r ./*.mse-s{tyle,ymbol-font} $pkgdir/usr/share/magicseteditor/data
+}
+
+# vim:set ts=2 sw=2 et:

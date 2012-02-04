@@ -1,0 +1,259 @@
+# BTRFS repair/bootstrap hook
+# Copyright 2010 C Anthony Risinger. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without modification, are
+# permitted provided that the following conditions are met:
+#
+#    1. Redistributions of source code must retain the above copyright notice, this list of
+#       conditions and the following disclaimer.
+#
+#    2. Redistributions in binary form must reproduce the above copyright notice, this list
+#       of conditions and the following disclaimer in the documentation and/or other materials
+#       provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY C ANTHONY RISINGER ``AS IS'' AND ANY EXPRESS OR IMPLIED
+# WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+# FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL C ANTHONY RISINGER OR
+# CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+# ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+# NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+# ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# config variables
+# FIXME: source a config from /etc
+
+# internal variables
+: ${BTRFS_IS_MOUNTED:=false}
+: ${BTRFS_HAS_ROLLBACK:=true}
+: ${BTRFS_BOOT_SUBVOL:="__active"}
+: ${BTRFS_DIR_WORK:="/new_root"}
+: ${BTRFS_DIR_SNAP:="/__snapshot"}
+: ${BTRFS_DIR_ACTIVE:="/__active"}
+: ${BTRFS_DIR_ROLLBACK:="/__rollback"}
+: ${BTRFS_ROLLBACK_CHOICE:="default"}
+: ${BTRFS_ROLLBACK_LIST:="default"}
+: ${BTRFS_ROLLBACK_LIST_COUNT:=0}
+
+# output handlers
+btrfs_info () { [ "${quiet}" != "y" ] && echo "btrfs(INFO): ${@}"; }
+
+btrfs_warn () { echo "btrfs(WARN): ${@}"; }
+
+btrfs_error () { echo "btrfs(ERROR): ${@}"; }
+
+btrfs_fatal () { echo "btrfs(FATAL): ${@}"; break=y; }
+
+# mount handlers
+btrfs_mount_handler_DEP () {
+    
+    btrfsctl -a
+    BTRFS_BOOT_SUBVOL=.
+    btrfs_process_mount ${1}
+
+}
+
+btrfs_mount_handler () {
+
+    local x i=0 work=${1%/}
+    BTRFS_DIR_WORK=${work}
+    # FIXME: just scan the necessary devices... much faster
+    btrfs device scan
+    # FIXME: try to list subvolumes (btrfs subvolume list), and detect if
+    # BTRFS_DIR_ACTIVE exists that way, thus avoiding mount on kernel 2.6.34+
+    ! mount -t btrfs -o subvol=.,rw ${root} ${work} &&
+        btrfs_fatal "Unable to mount default subvolume" &&
+        return 1
+    BTRFS_IS_MOUNTED=true
+    if ! [ -e ${work}${BTRFS_DIR_ACTIVE} ]; then
+        if ! { btrfs_ask_volatile && btrfs_set_volatile; }; then
+            BTRFS_HAS_ROLLBACK=false
+            BTRFS_BOOT_SUBVOL=.
+        fi
+    fi
+    if ${BTRFS_HAS_ROLLBACK} && btrfs_ask_rollback; then
+        # FIXME: try to list subvolumes (btrfs subvolume list)
+        # thus avoiding mount on kernel 2.6.34+
+        for x in $(ls -1r ${work}${BTRFS_DIR_SNAP}); do
+            i=$((${i}+1))
+            BTRFS_ROLLBACK_LIST_COUNT=${i}
+            BTRFS_ROLLBACK_LIST="${BTRFS_ROLLBACK_LIST} ${x}"
+        done; i=0
+        echo "Available rollback snapshots:"
+        for x in ${BTRFS_ROLLBACK_LIST}; do
+            echo "${i}) ${x}"
+            i=$((${i}+1))
+        done; i=0
+        BTRFS_ROLLBACK_CHOICE="$(btrfs_get_rollback_choice)"
+        if [ "${BTRFS_ROLLBACK_CHOICE}" != "default" ]; then
+            if btrfs_setup_rollback; then
+                btrfs_info "Rollback environment created"
+                BTRFS_BOOT_SUBVOL=__rollback
+            else
+                btrfs_error "Rollback creation failed, fallback to default"
+                BTRFS_ROLLBACK_CHOICE="default"
+            fi
+        fi
+    fi
+    btrfs_process_mount ${work}
+
+}
+
+# libish
+btrfs_process_mount () {
+
+    ${BTRFS_IS_MOUNTED} && umount ${BTRFS_DIR_WORK}
+    rootfstype=btrfs
+    rootflags="${rootflags:+${rootflags},}subvol=${BTRFS_BOOT_SUBVOL}"
+    btrfs_info "Booting subvolume (${BTRFS_ROLLBACK_CHOICE})..."
+    default_mount_handler ${1}
+
+}
+
+btrfs_ask_volatile () {
+
+    read -s -p "PRESS KEY TO ENABLE ROLLBACK SUPPORT..." -n1 -t3 && echo && return 0
+    echo && return 1
+
+}
+
+btrfs_set_volatile () {
+
+    cat <<MESSAGE
+
+--------------------------------- INFORMATION ----------------------------------
+
+Either this is your first time using this hook, or you have not prepared your
+system for non-volatile rollback support.  Support can easily be enabled right
+now, else you can continue using this hook without true rollback (non-volatile)
+support.  To enable support, a snapshot of your system's current state must be
+made to /__active; this snapshot will subsequently be used as the primary boot
+device from now on.  This operation is safe.  Your original / will remain intact
+and unused; it is up to you to rm -rf the stagnant files from your old / (var,
+usr, lib, etc), and reclaim what would in time become dead space.  DO NOT remove
+/__active, /__rollback, or /__snapshot.
+
+The following command will be executed:
+
+# btrfs subvolume snapshot / /__active
+
+If you do not understand the above, are afraid, or become clammy/panicky when
+presented with decisions, answer no, and seek the maintainer for clarification.
+
+--------------------------------- INFORMATION ----------------------------------
+
+MESSAGE
+
+    local x i=0 ans prompt="Continue and setup rollback support? ([y]/n) "
+    while true; do
+        read -p "${prompt}" ans
+        if [ -z "${ans}" ]; then
+            ans=y; break
+        elif ! echo "${ans}" | grep -q -E "^[yn]$"; then
+            prompt="Try again, this time choose y or n: "
+        else
+            break
+        fi
+    done
+
+    # return 1 to DISABLE NON-VOLATILE SUPPORT, and boot / instead
+    if [ ${ans} = y ]; then
+        btrfs_info "Snapshotting system state to ${BTRFS_DIR_ACTIVE}..."
+        ! btrfs subvolume snapshot ${BTRFS_DIR_WORK} ${BTRFS_DIR_WORK}${BTRFS_DIR_ACTIVE} &&
+            btrfs_error "Unknown problem creating ${BTRFS_DIR_ACTIVE}, fallback to /" &&
+            return 1
+        return 0
+    else
+        btrfs_warn "Skipping activation of non-volatile rollback support"
+        return 1
+    fi
+
+}
+
+btrfs_ask_rollback () {
+
+    read -s -p "PRESS KEY TO ACCESS BTRFS FEATURES..." -n1 -t3 && echo && return 0
+    echo && return 1
+
+}
+
+btrfs_get_rollback_choice () {
+
+    local x i=0 ans prompt="Select snapshot or press enter for most recent: "
+    while true; do
+        read -p "${prompt}" ans
+        if [ -z "${ans}" ]; then
+            ans=1; break
+        elif ! echo "${ans}" | grep -q -E "^[0-9]+$"; then
+            prompt="Invalid choice (not a number), please try again: "
+        elif [ ${ans} -lt 0 ]; then
+            prompt="Selection (${ans}) is too low, please try again: "
+        elif [ ${ans} -gt ${BTRFS_ROLLBACK_LIST_COUNT} ]; then
+            prompt="Selection (${ans}) is too high, please try again: "
+        else
+            break
+        fi  
+    done
+
+    for x in ${BTRFS_ROLLBACK_LIST}; do
+        [ ${ans} -eq ${i} ] && echo "${x}" && return 0
+        i=$((${i}+1))
+    done
+
+    echo "default"
+
+}
+
+btrfs_setup_rollback () {
+
+    local source=${BTRFS_DIR_WORK}${BTRFS_DIR_SNAP}/${BTRFS_ROLLBACK_CHOICE}
+    local target=${BTRFS_DIR_WORK}${BTRFS_DIR_ROLLBACK}
+    if [ -e ${target} ]; then
+        btrfs_info "Removing stagnant rollback environment..."
+        btrfs subvolume delete ${target} || rm -rf ${target}
+    fi
+    btrfs_info "Creating rollback environment..."
+    btrfs subvolume snapshot ${source} ${target}
+
+}
+
+# main
+run_hook () {
+
+    # root must be btrfs else silent return
+    [ "$(blkid -s TYPE -o value ${root})" = btrfs ] || return 0
+
+    ! modprobe btrfs &&
+        btrfs_fatal "Unable to insert BTRFS module" &&
+        return 1
+
+    # wait for /dev/btrfs-control
+    # default: 10 seconds
+    local i=0 timeout=100
+    while [ ! -e /dev/btrfs-control -a ${i} -lt ${timeout} ]; do
+        sleep 0.1
+        i=$((${i}+1))
+    done
+
+    ! [ -e /dev/btrfs-control ] &&
+        btrfs_fatal "Timeout waiting for /dev/btrfs-control" &&
+        return 1
+
+    if [ -n "$(type -p btrfs)" ]; then
+        # btrfs command avaiable, advanced handling
+        btrfs_info "Using btrfs binary and advanced mount handling"
+        mount_handler="btrfs_mount_handler"
+    elif [ -n "$(type -p btrfsctl)" ]; then
+        # fallback to simple fullscan, basic handling
+        btrfs_warn "Using deprecated btrfsctl binary and basic mount handling"
+        mount_handler="btrfs_mount_handler_DEP"
+    else
+        # no way to mount/scan for multi device
+        # default handler can mount single device
+        btrfs_error "Both btrfs/btrfsctl binaries missing, trying default handler..."
+    fi
+
+}
+
+# vim:set syntax=sh:

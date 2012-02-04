@@ -1,0 +1,757 @@
+Index: libmpcodecs/vd.c
+===================================================================
+--- libmpcodecs/vd.c	(revision 34077)
++++ libmpcodecs/vd.c	(working copy)
+@@ -40,6 +40,7 @@
+ extern const vd_functions_t mpcodecs_vd_ffmpeg;
+ extern const vd_functions_t mpcodecs_vd_theora;
+ extern const vd_functions_t mpcodecs_vd_dshow;
++extern const vd_functions_t mpcodecs_vd_dshowserver;
+ extern const vd_functions_t mpcodecs_vd_dmo;
+ extern const vd_functions_t mpcodecs_vd_vfw;
+ extern const vd_functions_t mpcodecs_vd_vfwex;
+@@ -71,6 +72,7 @@
+ #ifdef CONFIG_OGGTHEORA
+     &mpcodecs_vd_theora,
+ #endif
++        &mpcodecs_vd_dshowserver,
+ #ifdef CONFIG_WIN32DLL
+     &mpcodecs_vd_dshow,
+     &mpcodecs_vd_dmo,
+Index: libmpcodecs/timeout_sem.c
+===================================================================
+--- libmpcodecs/timeout_sem.c	(revision 0)
++++ libmpcodecs/timeout_sem.c	(revision 0)
+@@ -0,0 +1,397 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <errno.h>
++#include <string.h>
++
++#ifndef __MINGW32__
++  #include <netdb.h>
++  #include <netinet/in.h>
++  #include <sys/socket.h>
++  #include <arpa/inet.h>
++  #include <sys/wait.h>
++
++  #define DS_EINPROGRESS EINPROGRESS
++  #define DS_ETIMEDOUT   ETIMEDOUT
++  #define DS_EWOULDBLOCK EWOULDBLOCK
++#else
++  #define _WIN32_WINNT 0x0501
++  #include <windows.h>
++  #include <winsock2.h>
++  #include <ws2tcpip.h>
++
++  #define DS_EINPROGRESS WSAEINPROGRESS
++  #define DS_ETIMEDOUT   WSAETIMEDOUT
++  #define DS_EWOULDBLOCK WSAEWOULDBLOCK
++#endif
++
++#include "timeout_sem.h"
++#ifdef __MINGW32__
++  #undef DS_SEMAPHORE
++#endif
++
++#ifdef DS_SEMAPHORE
++#include <time.h>
++#include <semaphore.h>
++#endif
++
++struct sem {
++  int type;
++  int initialized;
++  int sockfd;
++  int listenfd;
++  void *id;
++  char mutex_rx[1];
++  char mutex_tx[1];
++#ifdef DS_SEMAPHORE
++  sem_t *sem_rd;
++  sem_t *sem_wr;
++#endif /*DS_SEMAPHORE*/
++};
++
++#ifdef DS_SEMAPHORE
++#ifdef __APPLE__
++  static void ALRMhandler(int sig) {
++  }
++  static int sem_twait(sem_t *sem, int t) {
++    int ret;
++    alarm(t);
++    ret = sem_wait(sem);
++    printf("twait complete\n");
++    return ret;
++  }
++  static void init_twait() {
++    sigset_t none;
++    struct sigaction sa;
++    sigemptyset(&none);
++    sigprocmask(SIG_SETMASK, &none, 0);
++
++    sa.sa_handler = ALRMhandler;
++    sa.sa_flags = 0;
++    sigemptyset(&sa.sa_mask);
++    sigaction(SIGALRM, &sa, 0);
++  }
++#else
++  static int sem_twait(sem_t *sem, int t) {
++    struct timespec ts;
++    clock_gettime(CLOCK_REALTIME, &ts);
++    ts.tv_sec += t;
++    return(sem_timedwait(sem, &ts));
++  }
++  static void init_twait() {}
++#endif
++#endif /*DS_SEMAPHORE */
++
++static int setblocking(int sock, int block)
++{
++	unsigned long opts;
++#ifndef __MINGW32__
++	opts = fcntl(sock,F_GETFL);
++	if (opts < 0) {
++		perror("fcntl(F_GETFL)");
++		exit(EXIT_FAILURE);
++	}
++	opts = block ? (opts & ~O_NONBLOCK)
++                     : (opts | O_NONBLOCK);
++	if (fcntl(sock,F_SETFL,opts) < 0) {
++		perror("fcntl(F_SETFL)");
++		exit(EXIT_FAILURE);
++	}
++#else
++	opts = !(block);
++	if ( ioctlsocket( sock, FIONBIO, &opts ) == SOCKET_ERROR )
++	{
++		perror("ioctlsocket");
++		exit(EXIT_FAILURE);
++	}
++#endif
++	return 0;
++}
++
++static int timed_connect(int sockfd, const struct sockaddr *serv_addr,
++                   socklen_t addrlen, int secs) {
++  //Socket should already be non-blocking
++  int res;
++  fd_set myset;
++  struct timeval tv;
++  int valopt;
++  socklen_t lon;
++
++  // Trying to connect with timeout
++  res = connect(sockfd, serv_addr, addrlen);
++  if (res < 0 ) {
++     if (errno == DS_EINPROGRESS || errno == DS_EWOULDBLOCK || errno == 0) {
++        fprintf(stderr, "EINPROGRESS in connect() - selecting\n");
++        do {
++           tv.tv_sec = secs;
++           tv.tv_usec = 0;
++           FD_ZERO(&myset);
++           FD_SET(sockfd, &myset);
++           res = select(sockfd+1, NULL, &myset, &myset, &tv);
++           if (res < 0 && errno != EINTR) {
++              fprintf(stderr, "Error connecting (select) %d - %s\n", errno, strerror(errno));
++              return -1;
++           }
++           else if (res > 0) {
++              // Socket selected for write
++              lon = sizeof(int);
++              if (getsockopt(sockfd, SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon) < 0) {
++                 fprintf(stderr, "Error in getsockopt() %d - %s\n", errno, strerror(errno));
++                 return -1;
++              }
++              // Check the value returned...
++              if (valopt) {
++                 fprintf(stderr, "Error in delayed connection() %d - %s\n", valopt, strerror(valopt)
++);
++                 return -1;
++              }
++              break;
++           }
++           else {
++              fprintf(stderr, "Timeout in select() - Cancelling!\n");
++              return -1;
++           }
++        } while (1);
++     }
++     else {
++        fprintf(stderr, "Error connecting (connect) %d - %s\n", errno, strerror(errno));
++        return -1;
++     }
++  }
++  // I hope that is all
++  return 0;
++}
++static int timed_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int secs) {
++  //Socket should already be non-blocking
++  int res;
++  fd_set myset;
++  struct timeval tv;
++
++  tv.tv_sec = secs;
++  tv.tv_usec = 0;
++  FD_ZERO(&myset);
++  FD_SET(sockfd, &myset);
++  res = select(sockfd+1, &myset, NULL, NULL, &tv);
++  if (res < 0 && errno != EINTR) {
++    fprintf(stderr, "Error accepting %d - %s\n", errno, strerror(errno));
++    return -1;
++  }
++  else if (res > 0) {
++    // Socket selected for read
++    return accept(sockfd, NULL, NULL);
++  }
++  errno = DS_ETIMEDOUT;
++  return -1;
++}
++static int timed_recv(int sockfd, void *buf, size_t len, int flags, int secs) {
++  //Socket should already be non-blocking
++  int res;
++  fd_set myset;
++  struct timeval tv;
++
++  tv.tv_sec = secs;
++  tv.tv_usec = 0;
++  FD_ZERO(&myset);
++  FD_SET(sockfd, &myset);
++  res = select(sockfd+1, &myset, NULL, NULL, &tv);
++  if (res < 0 && errno != EINTR) {
++    fprintf(stderr, "Error accepting %d - %s\n", errno, strerror(errno));
++    return -1;
++  }
++  else if (res > 0) {
++    // Socket selected for read
++    return recv(sockfd, buf, len, flags);
++  }
++  errno = DS_ETIMEDOUT;
++  return -1;
++}
++
++static int timed_sockinit(int *port, int is_server)
++{
++    int sockfd;  // listen on sock_fd
++    struct sockaddr_in my_addr;
++    socklen_t peer_addr_size = sizeof(struct sockaddr_in);
++    int yes=1;
++
++#ifdef __MINGW32__
++    WSADATA wsaData;
++    if(WSAStartup(MAKEWORD(2, 2), &wsaData) !=0) {
++      printf("WSAStartup failed\n");
++      exit(1);
++    }
++#endif
++
++    memset(&my_addr, 0, sizeof(my_addr));
++    my_addr.sin_family = AF_INET;
++    my_addr.sin_addr.s_addr=INADDR_ANY;
++    my_addr.sin_port = *port;
++    if ((sockfd = socket(PF_INET, SOCK_STREAM, 0)) == -1) {
++            perror("server: socket");
++            exit(1);
++    }
++
++    setblocking(sockfd, 0);
++    if (is_server) {
++      if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes,
++              sizeof(int)) == -1) {
++        perror("setsockopt");
++        exit(1);
++      }
++
++      if (bind(sockfd, (struct sockaddr *) &my_addr,  sizeof(struct sockaddr_in)) == -1) {
++              close(sockfd);
++              perror("server: bind");
++              exit(1);
++      }
++      if (listen(sockfd, 1) == -1) {
++        perror("listen");
++        exit(1);
++      }
++      if (getsockname(sockfd, (struct sockaddr *)&my_addr, &peer_addr_size) == -1) {
++        perror("getsockname");
++        exit(1);
++      }
++      if(my_addr.sin_port == 0) {
++        printf("Failed to get port\n");
++        exit(1);
++      }
++      *port = my_addr.sin_port;
++    } else {
++      if (timed_connect(sockfd, (struct sockaddr *) &my_addr,  sizeof(struct sockaddr_in), 10) == -1)
++      {
++        close(sockfd);
++        perror("client: connect");
++        exit(1);
++      }
++    }
++
++    return sockfd;
++}
++
++int timed_semwait(void *_sem, int secs) {
++  struct sem *sem = (struct sem *)_sem;
++  int ok = -1;
++  if(sem->type == DS_SOCKET) {
++    if(! sem->initialized) {
++      ok = timed_accept(sem->sockfd, NULL, NULL, secs);
++      if(ok != -1) {
++        sem->listenfd = sem->sockfd;
++        sem->sockfd = ok;
++        ok = 1;
++        sem->initialized = 1;
++      }
++    } else {
++      ok = (timed_recv(sem->sockfd, sem->mutex_rx, 1, 0, secs) == 1);
++    }
++  }
++#ifdef DS_SEMAPHORE
++  else if(sem->type == DS_SEMAPHORE) {
++    ok = (sem_twait(sem->sem_rd, secs) == 0);
++    if(! sem->initialized) {
++      timed_semclean(sem);
++      sem->initialized = 1;
++    }
++  }
++#endif
++  if(!ok && errno == DS_ETIMEDOUT) {
++    ok = DS_TIMEOUT;
++  }
++  return ok;
++}
++
++void timed_sempost(void *_sem) {
++  struct sem *sem = (struct sem *)_sem;
++  if(sem->type == DS_SOCKET) {
++    send(sem->sockfd, sem->mutex_tx, 1, 0);
++  }
++#ifdef DS_SEMAPHORE
++  else if(sem->type == DS_SEMAPHORE) {
++    sem_post(sem->sem_wr);
++  }
++#endif
++}
++
++void timed_semclean(void * _sem) {
++#ifdef DS_SEMAPHORE
++  struct sem *sem = (struct sem *) _sem;
++  if(sem->type == DS_SEMAPHORE) {
++    char sem1[80], sem2[80];
++    snprintf(sem1, 80, "/dshow_sem1.%s", (char *)sem->id);
++    snprintf(sem2, 80, "/dshow_sem2.%s", (char *)sem->id);
++    sem_unlink(sem1);
++    sem_unlink(sem2);
++  }
++#endif
++}
++
++void *timed_seminit(unsigned int semtype, void *id, int is_host) {
++  struct sem *sem;
++  sem = (struct sem *)malloc(sizeof(struct sem));
++  memset(sem, 0, sizeof(struct sem));
++  sem->type = semtype;
++  sem->id = id;
++  sem->initialized = !(is_host);
++  if(semtype == DS_SOCKET) {
++    sem->listenfd = -1;
++    sem->sockfd = timed_sockinit((int *)id, is_host);
++    if(sem->sockfd == -1) {
++      perror("sock_init");
++      exit(1);
++    }
++  }
++#ifdef DS_SEMAPHORE
++  else if(semtype == DS_SEMAPHORE) {
++    char semrd[80], semwr[80];
++    init_twait();
++    snprintf(semrd, 80, "/dshow_sem%d.%s", is_host ? 2 : 1, (char *)id);
++    snprintf(semwr, 80, "/dshow_sem%d.%s", is_host ? 1 : 2, (char *)id);
++    if(is_host) {
++      sem->sem_rd = sem_open(semrd, O_CREAT, 0644, 0);
++      sem->sem_wr = sem_open(semwr, O_CREAT, 0644, 0);
++    } else {
++      sem->sem_rd = sem_open(semrd, 0);
++      sem->sem_wr = sem_open(semwr, 0);
++      sem_unlink(semwr);
++      sem_unlink(semrd);
++    }
++    if(sem->sem_rd == SEM_FAILED) {
++      timed_semclean(sem);
++      perror("sem_open(1)");
++      exit(1);
++    }
++    if(sem->sem_wr == SEM_FAILED) {
++      timed_semclean(sem);
++      perror("sem_open(2)");
++      exit(1);
++    }
++    //tell calling procedure that we are awake;
++    if(! is_host) {
++      sem_post(sem->sem_wr);
++    }
++  }
++#endif /*DS_SEMAPHORE*/
++  else {
++    fprintf(stderr, "Unknown type specified: %d\n", semtype);
++    exit(1);
++  }
++  return sem;
++}
++
++void timed_semdelete(void *_sem) {
++  struct sem *sem = (struct sem *) _sem;
++  if(sem->type == DS_SOCKET) {
++    close(sem->sockfd);
++    if(sem->listenfd != -1)
++      close(sem->listenfd);
++#ifdef DS_SEMAPHORE
++  } else if(sem->type == DS_SEMAPHORE) {
++    if(! sem->initialized)
++      timed_semclean(sem);
++    sem_close(sem->sem_wr);
++    sem_close(sem->sem_rd);
++#endif
++  }
++  free(sem);
++}
++
+Index: libmpcodecs/timeout_sem.h
+===================================================================
+--- libmpcodecs/timeout_sem.h	(revision 0)
++++ libmpcodecs/timeout_sem.h	(revision 0)
+@@ -0,0 +1,10 @@
++#define DS_SOCKET 0x01
++#define DS_SEMAPHORE 0x02
++
++#define DS_TIMEOUT -1
++
++void *timed_seminit(unsigned int semtype, void *id, int is_host);
++void timed_semclean(void *_sem);
++void timed_sempost(void *_sem);
++int timed_semwait(void *_sem, int secs);
++void timed_semdelete(void *_sem);
+Index: libmpcodecs/vd_dshowserver.c
+===================================================================
+--- libmpcodecs/vd_dshowserver.c	(revision 0)
++++ libmpcodecs/vd_dshowserver.c	(revision 0)
+@@ -0,0 +1,295 @@
++/*
++ * Copyright Alan Nisota 2006 - 2010
++ * To use this code, make sureyour codecs.conf file has been updated with this section:
++ * videocodec coreserve
++ *  info "CoreAVC DShowServer"
++ *  status untested
++ *  format 0x10000005
++ *  fourcc H264,h264
++ *  fourcc X264,x264
++ *  fourcc avc1,AVC1 AVC1
++ *  fourcc davc,DAVC
++ *  fourcc VSSH
++ *  driver dshowserver
++ *  dll "CoreAVCDecoder.ax"
++ *  guid 0x09571a4b, 0xf1fe, 0x4c60, 0x97, 0x60, 0xde, 0x6d, 0x31, 0x0c, 0x7c, 0x31
++ *  out YV12,IYUV,I420,YUY2
++ *
++ * Codec is very sensitive to the fourcc value.  As of 2009-08-30, mplayer incorrectly reports
++ * AVC1 as H264 when using lavf decoder, resulting in breakage.
++ * this can be corrected by using an alternate demuxer (-demuxer mov for example)
++ * or by adding this to the above file:
++ *  fourcc H264,h264 AVC1
++ * though that may break regular h264 playback
++ */
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdarg.h>
++#include <sys/mman.h>
++#include <pthread.h>
++
++#include <sys/types.h>
++#include <unistd.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <time.h>
++#include <sys/wait.h>
++
++#include "config.h"
++
++#include "mp_msg.h"
++
++#include "vd_internal.h"
++
++struct vd_struct {
++  union {
++    uint32_t ret;
++    uint32_t cmd;
++  };
++  uint32_t buflen;
++  uint64_t pts;
++  uint32_t unused[8];
++} __attribute__((__packed__));
++
++enum {
++  VD_END = 1,
++  VD_DECODE = 2,
++  VD_SEEK = 3,
++  VD_HAS_BIH = 0x10000,
++  VD_VERSION_MASK = 0xFFFF,
++};
++#include "timeout_sem.c"
++
++static vd_info_t info = {
++	"DirectShowServer video codecs",
++	"dshowserver",
++	"Alan Nisota",
++	"based on dshow",
++	"win32 codecs"
++};
++
++LIBVD_EXTERN(dshowserver)
++typedef struct {
++    int fd;
++    void *mem;
++    char *data;
++    char *picture;
++    int picsize;
++    int pagesize;
++    void *sem;
++    struct vd_struct *vd;
++} ds_mpi_t;
++static ds_mpi_t *ds_mpi;
++
++// to set/get/query special features/parameters
++static int control(sh_video_t *sh __attribute((unused)),int cmd,void* arg __attribute((unused)),...){
++    switch(cmd){
++    case VDCTRL_RESYNC_STREAM:
++      printf("Seek now\n");
++      ds_mpi->vd->cmd = VD_SEEK; //'3' is cmd for seek
++      timed_sempost(ds_mpi->sem);
++      timed_semwait(ds_mpi->sem, 10);
++      return CONTROL_TRUE;
++    case VDCTRL_QUERY_MAX_PP_LEVEL:
++	return 4;
++    case VDCTRL_QUERY_UNSEEN_FRAMES:
++	return 10;
++
++    }
++    return CONTROL_UNKNOWN;
++}
++
++static int my_system(const char *command)
++{
++    pid_t child = fork();
++
++    if (child < 0)
++    {
++        /* Fork failed */
++        return child;
++    }
++    else if (child == 0)
++    {
++        /* Child */
++        int i;
++        /* Close all open file descriptors except stdout/stderr */
++        for (i = sysconf(_SC_OPEN_MAX) - 1; i > 2; i--)
++            close(i);
++
++        /* Attach stdin to /dev/null */
++        /*
++        close(0);
++        int fd = open("/dev/null", O_RDONLY);
++        dup2(fd, 0);
++        if (fd != 0)
++            close(fd);
++        */
++        /* Run command */
++        execl("/bin/sh", "sh", "-c", command, NULL);
++        _exit(0);
++    }
++    else
++    {
++        /* Parent */
++        int status;
++
++        waitpid(child, &status, 0);
++        return status;
++    }
++
++    return 1;
++}
++
++// init driver
++static int init(sh_video_t *sh){
++    int ret;
++    char cmd[255], shm[80], id[80];
++    uint32_t out_fmt;
++    int bpp, w, h;
++    int extra = 0;
++    int numpages = 10;
++    int port = 0;
++    int memsize;
++
++    init_twait();
++    w = sh->disp_w; h = sh->disp_h;
++    if(!mpcodecs_config_vo(sh,w,h,IMGFMT_YUY2)) return 0;
++    out_fmt = sh->codec->outfmt[sh->outfmtidx];
++    switch(out_fmt){
++      case IMGFMT_YUY2:
++      case IMGFMT_UYVY:
++	bpp = 16; break;
++      case IMGFMT_YV12:
++      case IMGFMT_I420:
++      case IMGFMT_IYUV:
++	bpp = 12; break;
++      case IMGFMT_YVU9:
++        bpp = 9; break;
++      default:
++        bpp = 24; break;
++    }
++    sprintf(id, "%x", *(int *)pthread_self());
++    snprintf(shm, 80, "/dshow_shm.%s", id);
++
++    ds_mpi = (ds_mpi_t *) malloc(sizeof(ds_mpi_t));
++    ds_mpi->fd = shm_open(shm, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
++    ds_mpi->picsize =  w * h * bpp / 8;
++    ds_mpi->pagesize = ds_mpi->picsize + 1024;
++    memsize = sizeof(struct vd_struct) + w * h + ds_mpi->picsize + extra + ds_mpi->pagesize * numpages;
++    ftruncate(ds_mpi->fd, memsize);
++    ds_mpi->mem = mmap(NULL, memsize, PROT_READ | PROT_WRITE, MAP_SHARED, ds_mpi->fd, 0);
++    if(ds_mpi->mem == MAP_FAILED) {
++      perror("mmap");
++      return 0;
++    }
++    memset((char *)ds_mpi->mem, 0, sizeof(struct vd_struct));
++    if (extra)
++      memset((char *)ds_mpi->mem + (memsize - extra), 0, extra);
++    ds_mpi->vd = (struct vd_struct *)ds_mpi->mem;
++    ds_mpi->data = ((char *)ds_mpi->mem) + sizeof(struct vd_struct);
++    ds_mpi->picture = ds_mpi->data + w * h;
++    if(sh->bih->biWidth && sh->bih->biHeight) {
++      ds_mpi->vd->cmd |= VD_HAS_BIH; //Use embedded bih
++      memcpy(ds_mpi->data, sh->bih, sh->bih->biSize);
++    }
++
++    ds_mpi->sem = timed_seminit(DS_SOCKET, &port, 1);
++    //ds_mpi->sem = timed_seminit(DS_SEMAPHORE, id, 1);
++
++    snprintf(cmd, 255, "dshowserver --codec %s --size %dx%d "
++             "--guid %08x-%04x-%04x-%02x%02x%02x%02x%02x%02x%02x%02x "
++             "--fourc 0x%08x --bits %d --outfmt 0x%08x --pid %d --id %s "
++             "--numpages %d --port %d %s&",
++             sh->codec->dll, w, h,
++             (unsigned int)sh->codec->guid.f1, sh->codec->guid.f2, sh->codec->guid.f3,
++             sh->codec->guid.f4[0], sh->codec->guid.f4[1], sh->codec->guid.f4[2], sh->codec->guid.f4[3],
++             sh->codec->guid.f4[4], sh->codec->guid.f4[5], sh->codec->guid.f4[6], sh->codec->guid.f4[7],
++             (unsigned int)sh->format, bpp, out_fmt, getpid(), id, numpages, port, "");
++    printf("%s\n", cmd);
++    my_system(cmd);
++    ret = timed_semwait(ds_mpi->sem, 10);
++    shm_unlink(shm);
++    if(ret <= 0) {
++      printf("DirectShow filter failed");
++      return 0;
++    } else {
++      printf("Found DirectShow filter");
++      return 1;
++    }
++}
++
++// uninit driver
++static void uninit(sh_video_t *sh __attribute((unused))){
++    if(ds_mpi) {
++      printf("Destroying filter");
++      ds_mpi->vd->cmd = VD_END; //'1' is cmd for terminating
++      timed_sempost(ds_mpi->sem);
++      close(ds_mpi->fd);
++      timed_semdelete(ds_mpi->sem);
++      free(ds_mpi);
++      ds_mpi = NULL;
++    }
++}
++
++//mp_image_t* mpcodecs_get_image(sh_video_t *sh, int mp_imgtype, int mp_imgflag, int w, int h);
++
++// decode a frame
++static mp_image_t* decode(sh_video_t *sh,void* data,int len,int flags){
++   mp_image_t* mpi = NULL;
++   int ret;
++   unsigned char *t;
++
++   if(len<=0) return NULL; // skipped frame
++
++   ds_mpi->vd->cmd = VD_DECODE; //'2' is cmd for decoding
++   ds_mpi->vd->pts = (uint64_t)(1E9* (sh->num_buffered_pts ? sh->buffered_pts[0] : sh->pts));
++   memcpy(ds_mpi->data, data, len);
++   if (0) {
++      static int count = 0;
++      char f[80];
++      FILE *fh;
++
++      if(count == 100)
++          exit(1);
++      sprintf(f, "/tmp/mplayer.%d", count++);
++      fh = fopen(f, "w+");
++      fwrite(data, len, 1, fh);
++      fclose(fh);
++   }
++   ds_mpi->vd->buflen = len;
++   timed_sempost(ds_mpi->sem);
++   ret = timed_semwait(ds_mpi->sem, 10);
++   if(flags&3) {
++      // framedrop:
++      return NULL;
++   }
++   //printf("len: %d, PTS (ret:%d,vd_ret:%d): %f -> %f\n", len, ret, ds_mpi->vd->ret, sh->buffered_pts[0], (double)ds_mpi->vd->pts/1E9);
++   //printf("PTS (%d): %f(%d) -> %d\n", ds_mpi->vd->ret, sh->buffered_pts[0], pts-1, ds_mpi->vd->pts);
++   if(ret == 1 && ds_mpi->vd->ret && ! (ds_mpi->vd->ret & (1<<31))) {
++     if(ds_mpi->vd->pts)
++       sh->buffered_pts[0] = (double)ds_mpi->vd->pts/1E9;
++       mpi=mpcodecs_get_image(sh, MP_IMGTYPE_EXPORT, MP_IMGFLAG_COMMON_PLANE|MP_IMGFLAG_COMMON_STRIDE,
++                            sh->disp_w, sh->disp_h);
++     if(ds_mpi->vd->ret & 0x02) {
++       unsigned char page = ds_mpi->vd->ret >> 8;
++       mpi->planes[0]=ds_mpi->picture + ds_mpi->picsize + page * ds_mpi->pagesize;
++     } else {
++       mpi->planes[0]=ds_mpi->picture;
++     }
++     if (mpi->flags&MP_IMGFLAG_PLANAR) {
++       mpi->stride[0] = mpi->width;
++       mpi->stride[1] = mpi->stride[2] = mpi->width >> mpi->chroma_x_shift;
++       mpi->planes[2] = mpi->planes[0] + mpi->stride[0] * mpi->height;
++       mpi->planes[1] = mpi->planes[2] + (mpi->width >> mpi->chroma_x_shift) * (mpi->height >> mpi->chroma_y_shift);
++       if (mpi->flags&MP_IMGFLAG_SWAPPED) {
++         t = mpi->planes[1];
++         mpi->planes[1] = mpi->planes[2];
++         mpi->planes[2] = t;
++       }
++     } else {
++       mpi->stride[0]=mpi->bpp*mpi->width/8;
++     }
++   }
++   return mpi;
++}
+Index: Makefile
+===================================================================
+--- Makefile	(revision 34077)
++++ Makefile	(working copy)
+@@ -20,6 +20,7 @@
+ # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ 
+ include config.mak
++EXTRALIBS += -lrt
+ 
+ ###### variable declarations #######
+ 
+@@ -476,6 +477,7 @@
+               stream/stream_mf.c \
+               stream/stream_null.c \
+               stream/url.c \
++              libmpcodecs/vd_dshowserver.c \
+               sub/eosd.c \
+               sub/find_sub.c \
+               sub/osd.c \

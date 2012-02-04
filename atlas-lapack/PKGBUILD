@@ -1,0 +1,112 @@
+# Maintainer: Giuseppe Borzi <gborzi___AT___ieee___DOT___org>
+# Contributor: mickele <mimocciola___AT___yahoo___DOT___ com>
+# Contributor: iztok pizorn <pizorn___AT___gmail___DOT___com>
+# Contributor: olivier medoc <o_medoc___AT___yahoo___DOT___fr>
+pkgname=atlas-lapack
+pkgver=3.8.4
+_lapackver=3.4.0
+pkgrel=3
+pkgdesc="Complete LAPACK and BLAS implementation using optimised ATLAS routines"
+url="http://math-atlas.sourceforge.net/"
+depends=('gcc-libs')
+makedepends=('binutils' 'sed' 'gcc-fortran')
+arch=('i686' 'x86_64')
+conflicts=('blas' 'lapack' 'cblas')
+provides=("blas" "lapack=$_lapackver" 'cblas')
+license=('custom:blas' 'custom:lapack' 'custom:atlas')
+source=(http://www.netlib.org/lapack/lapack-$_lapackver.tgz http://downloads.sourceforge.net/math-atlas/atlas${pkgver}.tar.bz2 blas-license.txt atlas-license.txt lapack.patch makefile.shared.mt makefile.shared.st misdetects_i1_as_i2.patch)
+md5sums=('02d5706ec03ba885fc246e5fa10d8c70'
+         '1bb3abde499b492b4be1f1a0759fbfa2'
+         '38b6acb8ed5691d25863319d30a8b365'
+         '4903eb06072dfbf94710691ccb6660bf'
+         'c681f11a9e17d31247570a26e266a506'
+         '235db0272fc5a17100115d5c45f29700'
+         '16691a5b602dcb5a20abc525b2ae9cfc'
+         '628b8f61b0403f23558ce6bf4c723bbc')
+
+build() {
+
+   NCPU=`grep "^processor" /proc/cpuinfo | wc -l`
+   #USE_ARCH_DEFAULTS="yes"
+   [ -x /usr/bin/cpufreq-info ] && [ $(cpufreq-info -d) != '' ] && {
+       ICPU=0
+       while [ $ICPU -lt $NCPU ]; do
+          STATUS=`cpufreq-info -c $ICPU -p | cut -d' ' -f3`
+          [ "$STATUS" != "performance" ] && {
+             msg 'Before building this package, as root you must run'
+             msg '"cpufreq-set -g performance -c <CPU nr>" for each CPU (<CPU'
+             msg 'nr> is 0, 1, 2 up to the number of your CPUS.'
+             return 1
+          }
+          let ICPU=ICPU+1
+       done
+   }
+   if [ "$CARCH" = "x86_64" ]; then
+      ARCHITECTURE_BUILD_OPTS="-b 64" # for x86_64
+   else
+      ARCHITECTURE_BUILD_OPTS="-b 32" # for i686
+   fi
+
+   mkdir -p "$srcdir/ATLAS/build"
+   cd "$srcdir/ATLAS"
+   patch -Np0 -i "$srcdir/misdetects_i1_as_i2.patch"
+   cd "$srcdir/ATLAS/build"
+
+   msg 'Determine compiler and options for LAPACK'
+   ../configure --prefix=/usr/ $ARCHITECTURE_BUILD_OPTS -Fa alg -fPIC
+   FORTRAN=`grep "F77 =" Make.inc|sed -e 's/ *F77 = //'`
+   FORTRANOPS=`grep "F77FLAGS =" Make.inc|sed -e 's/ *F77FLAGS = //'`
+   NOPTS=`echo $FORTRANOPS|sed -e 's/-O[0-9]/-O0/'`
+
+   msg 'Build LAPACK'
+   cd "$srcdir/lapack-$_lapackver"
+   cp INSTALL/make.inc.gfortran make.inc
+   patch -Np0 -i "$srcdir/lapack.patch"
+   make FORTRAN=$FORTRAN OPTS="$FORTRANOPS" NOOPT="$NOPTS" lib
+   LAPACKLIB="$srcdir/lapack-$_lapackver/liblapack.a"
+
+   msg 'Build ATLAS'
+   cd "$srcdir/ATLAS/build"
+   rm -rf *
+   ../configure --prefix=/usr/ $ARCHITECTURE_BUILD_OPTS -Fa alg -fPIC \
+      --with-netlib-lapack="$LAPACKLIB"
+   make -j1 build
+   make -j1 check
+   make -j1 time
+   msg 'Build shared libraries'
+   cd lib
+   if [ 1 -lt $NCPU ]; then
+      cp "$srcdir/makefile.shared.mt" makefile
+   else
+      cp "$srcdir/makefile.shared.st" makefile
+   fi
+   make -f makefile
+}
+
+package() {
+
+   NCPU=`grep "^processor" /proc/cpuinfo | wc -l`
+
+   cd "$srcdir/ATLAS/build"
+   make DESTDIR="$pkgdir/usr" install
+   cp -d lib/*.so* "$pkgdir/usr/lib"
+   cd "$pkgdir/usr/lib"
+   if [ 1 -lt $NCPU ]; then
+      mv -f libptcblas.a libcblas.a
+      mv -f libptf77blas.a libf77blas.a
+   else
+      rm -f *pt*
+   fi
+   ln -s libf77blas.so libblas.so.3
+   ln -s liblapack.so.$_lapackver liblapack.so.3
+   ln -s liblapack.so.3 liblapack.so
+
+   install -Dm644 "${srcdir}/blas-license.txt" \
+      "${pkgdir}/usr/share/licenses/$pkgname/blas-license.txt"
+   install -Dm644 "${srcdir}/lapack-$_lapackver/LICENSE" \
+      "${pkgdir}/usr/share/licenses/$pkgname/lapack-license.txt"
+   install -Dm644 "${srcdir}/atlas-license.txt" \
+      "${pkgdir}/usr/share/licenses/$pkgname/atlas-license.txt"
+}
+
+# dgeev_ dgesvd_

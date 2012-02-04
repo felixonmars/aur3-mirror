@@ -1,0 +1,3126 @@
+diff --git a/alpine/arg.c b/alpine/arg.c
+index b3b78df..f200ab5 100755
+--- a/alpine/arg.c
++++ b/alpine/arg.c
+@@ -59,6 +59,7 @@ static char args_err_missing_passfile[] =	N_("missing argument for option \"-pas
+ static char args_err_non_abs_passfile[] =	N_("argument to \"-passfile\" should be fully-qualified");
+ #endif
+ static char args_err_missing_sort[] =		N_("missing argument for option \"-sort\"");
++static char args_err_missing_thread_sort[] =	N_("missing argument for option \"-threadsort\"");
+ static char args_err_missing_flag_arg[] =	N_("missing argument for flag \"%c\"");
+ static char args_err_missing_flag_num[] =	N_("Non numeric argument for flag \"%c\"");
+ static char args_err_missing_debug_num[] =	N_("Non numeric argument for \"%s\"");
+@@ -102,6 +103,7 @@ N_(" -k \t\tKeys - Force use of function keys"),
+ N_(" -z \t\tSuspend - allow use of ^Z suspension"),
+ N_(" -r \t\tRestricted - can only send mail to oneself"),
+ N_(" -sort <sort>\tSort - Specify sort order of folder:"),
++N_(" -threadsort <sort>\tSort - Specify sort order of thread index screen:"),
+ N_("\t\t\tarrival, subject, threaded, orderedsubject, date,"),
+ N_("\t\t\tfrom, size, score, to, cc, /reverse"),
+ N_(" -i\t\tIndex - Go directly to index, bypassing main menu"),
+@@ -191,6 +193,7 @@ pine_args(struct pine *pine_state, int argc, char **argv, ARGDATA_S *args)
+     char *cmd_list            = NULL;
+     char *debug_str           = NULL;
+     char *sort                = NULL;
++    char *threadsort          = NULL;
+     char *pinerc_file         = NULL;
+     char *lc		      = NULL;
+     int   do_help             = 0;
+@@ -362,6 +365,17 @@ Loop: while(--ac > 0)
+ 
+ 		  goto Loop;
+ 	      }
++	      else if(strcmp(*av, "threadsort") == 0){
++	            if(--ac){
++	                threadsort = *++av;
++	                COM_THREAD_SORT_KEY = cpystr(threadsort);
++	            }
++	            else{
++	                display_args_err(_(args_err_missing_thread_sort), NULL, 1);
++	              ++usage;
++	          }
++	          goto Loop;
++	      }
+ 	      else if(strcmp(*av, "url") == 0){
+ 		  if(args->action == aaFolder && !args->data.folder){
+ 		      args->action = aaURL;
+diff --git a/alpine/confscroll.c b/alpine/confscroll.c
+index 9f5e544..62bceed 100644
+--- a/alpine/confscroll.c
++++ b/alpine/confscroll.c
+@@ -138,7 +138,7 @@ char    *yesno_pretty_value(struct pine *, CONF_S *);
+ char    *radio_pretty_value(struct pine *, CONF_S *);
+ char    *sigfile_pretty_value(struct pine *, CONF_S *);
+ char    *color_pretty_value(struct pine *, CONF_S *);
+-char    *sort_pretty_value(struct pine *, CONF_S *);
++char    *sort_pretty_value(struct pine *, CONF_S *, int);
+ int      longest_feature_name(void);
+ COLOR_PAIR *sample_color(struct pine *, struct variable *);
+ COLOR_PAIR *sampleexc_color(struct pine *, struct variable *);
+@@ -286,7 +286,8 @@ set_radio_pretty_vals(struct pine *ps, CONF_S **cl)
+     CONF_S *ctmp;
+ 
+     if(!(cl && *cl &&
+-       ((*cl)->var == &ps->vars[V_SORT_KEY] ||
++        (((*cl)->var == &ps->vars[V_SORT_KEY]) || 
++        ((*cl)->var == &ps->vars[V_THREAD_SORT_KEY]) ||
+         standard_radio_var(ps, (*cl)->var) ||
+ 	(*cl)->var == startup_ptr)))
+       return;
+@@ -2922,7 +2923,7 @@ radiobutton_tool(struct pine *ps, int cmd, CONF_S **cl, unsigned int flags)
+ 	    }
+ 
+ 	    set_current_val((*cl)->var, TRUE, TRUE);
+-	    if(decode_sort(ps->VAR_SORT_KEY, &def_sort, &def_sort_rev) != -1){
++	    if(decode_sort(ps->VAR_SORT_KEY, &def_sort, &def_sort_rev,0) != -1){
+ 		ps->def_sort     = def_sort;
+ 		ps->def_sort_rev = def_sort_rev;
+ 	    }
+@@ -2931,6 +2932,37 @@ radiobutton_tool(struct pine *ps, int cmd, CONF_S **cl, unsigned int flags)
+ 	    ps->mangled_body = 1;	/* BUG: redraw it all for now? */
+ 	    rv = 1;
+ 	}
++        else if((*cl)->var == &ps->vars[V_THREAD_SORT_KEY]){
++            SortOrder thread_def_sort;
++            int       thread_def_sort_rev;
++
++            thread_def_sort_rev  = (*cl)->varmem >= (short) EndofList;
++            thread_def_sort      = (SortOrder) ((*cl)->varmem - (thread_def_sort_rev
++                                                                 * EndofList));
++            sprintf(tmp_20k_buf, "%s%s", sort_name(thread_def_sort),
++                   (thread_def_sort_rev) ? "/Reverse" : "");
++
++            if((*cl)->var->cmdline_val.p)
++              fs_give((void **)&(*cl)->var->cmdline_val.p);
++
++            if(apval){
++                if(*apval)
++                  fs_give((void **)apval);
++
++                *apval = cpystr(tmp_20k_buf);
++            }
++
++            set_current_val((*cl)->var, TRUE, TRUE);
++            if(decode_sort(ps->VAR_THREAD_SORT_KEY, &thread_def_sort, 
++                                        &thread_def_sort_rev, 1) != -1){
++                ps->thread_def_sort     = thread_def_sort;
++                ps->thread_def_sort_rev = thread_def_sort_rev;
++            }
++
++            set_radio_pretty_vals(ps, cl);
++            ps->mangled_body = 1;       /* BUG: redraw it all for now? */
++            rv = 1;
++        }
+ 	else
+ 	  q_status_message(SM_ORDER | SM_DING, 3, 6,
+ 			   "Programmer botch!  Unknown radiobutton type.");
+@@ -3787,7 +3819,9 @@ pretty_value(struct pine *ps, CONF_S *cl)
+     else if(standard_radio_var(ps, v) || v == startup_ptr)
+       return(radio_pretty_value(ps, cl));
+     else if(v == &ps->vars[V_SORT_KEY])
+-      return(sort_pretty_value(ps, cl));
++       return(sort_pretty_value(ps, cl, 0));
++     else if(v == &ps->vars[V_THREAD_SORT_KEY])
++       return(sort_pretty_value(ps, cl, 1));
+     else if(v == &ps->vars[V_SIGNATURE_FILE])
+       return(sigfile_pretty_value(ps, cl));
+     else if(v == &ps->vars[V_USE_ONLY_DOMAIN_NAME])
+@@ -4318,14 +4352,14 @@ color_pretty_value(struct pine *ps, CONF_S *cl)
+ 
+ 
+ char *
+-sort_pretty_value(struct pine *ps, CONF_S *cl)
++sort_pretty_value(struct pine *ps, CONF_S *cl, int thread)
+ {
+-    return(generalized_sort_pretty_value(ps, cl, 1));
++    return(generalized_sort_pretty_value(ps, cl, 1, thread));
+ }
+ 
+ 
+ char *
+-generalized_sort_pretty_value(struct pine *ps, CONF_S *cl, int default_ok)
++generalized_sort_pretty_value(struct pine *ps, CONF_S *cl, int default_ok, int thread)
+ {
+     char  tmp[6*MAXPATH];
+     char *pvalnorm, *pvalexc, *pval;
+@@ -4375,7 +4409,7 @@ generalized_sort_pretty_value(struct pine *ps, CONF_S *cl, int default_ok)
+     }
+     else if(fixed){
+ 	pval = v->fixed_val.p;
+-	decode_sort(pval, &var_sort, &var_sort_rev);
++	decode_sort(pval, &var_sort, &var_sort_rev, thread);
+ 	is_the_one = (var_sort_rev == line_sort_rev && var_sort == line_sort);
+ 
+ 	utf8_snprintf(tmp, sizeof(tmp), "(%c)  %s%-*w%*s%s",
+@@ -4386,9 +4420,9 @@ generalized_sort_pretty_value(struct pine *ps, CONF_S *cl, int default_ok)
+ 		is_the_one ? "   (value is fixed)" : "");
+     }
+     else if(is_set_for_this_level){
+-	decode_sort(pval, &var_sort, &var_sort_rev);
++	decode_sort(pval, &var_sort, &var_sort_rev, thread);
+ 	is_the_one = (var_sort_rev == line_sort_rev && var_sort == line_sort);
+-	decode_sort(pvalexc, &exc_sort, &exc_sort_rev);
++	decode_sort(pvalexc, &exc_sort, &exc_sort_rev, thread);
+ 	the_exc_one = (editing_normal_which_isnt_except && pvalexc &&
+ 		       exc_sort_rev == line_sort_rev && exc_sort == line_sort);
+ 	utf8_snprintf(tmp, sizeof(tmp), "(%c)  %s%-*w%*s%s",
+@@ -4406,7 +4440,7 @@ generalized_sort_pretty_value(struct pine *ps, CONF_S *cl, int default_ok)
+     }
+     else{
+ 	if(pvalexc){
+-	    decode_sort(pvalexc, &exc_sort, &exc_sort_rev);
++	    decode_sort(pvalexc, &exc_sort, &exc_sort_rev, thread);
+ 	    is_the_one = (exc_sort_rev == line_sort_rev &&
+ 			  exc_sort == line_sort);
+ 	    utf8_snprintf(tmp, sizeof(tmp), "( )  %s%-*w%*s%s",
+@@ -4417,7 +4451,7 @@ generalized_sort_pretty_value(struct pine *ps, CONF_S *cl, int default_ok)
+ 	}
+ 	else{
+ 	    pval = v->current_val.p;
+-	    decode_sort(pval, &var_sort, &var_sort_rev);
++	    decode_sort(pval, &var_sort, &var_sort_rev, thread);
+ 	    is_the_one = ((pval || default_ok) &&
+ 			  var_sort_rev == line_sort_rev &&
+ 			  var_sort == line_sort);
+@@ -5538,9 +5572,15 @@ fix_side_effects(struct pine *ps, struct variable *var, int revert)
+     else if(revert && var == &ps->vars[V_SORT_KEY]){
+ 	int def_sort_rev;
+ 
+-	decode_sort(VAR_SORT_KEY, &ps->def_sort, &def_sort_rev);
++	decode_sort(VAR_SORT_KEY, &ps->def_sort, &def_sort_rev, 0);
+ 	ps->def_sort_rev = def_sort_rev;
+     }
++    else if(revert && var == &ps->vars[V_THREAD_SORT_KEY]){
++      int thread_def_sort_rev;
++
++      decode_sort(VAR_THREAD_SORT_KEY, &ps->thread_def_sort, &thread_def_sort_rev, 1);
++      ps->thread_def_sort_rev = thread_def_sort_rev;
++    }
+     else if(var == &ps->vars[V_THREAD_MORE_CHAR] ||
+             var == &ps->vars[V_THREAD_EXP_CHAR] ||
+             var == &ps->vars[V_THREAD_LASTREPLY_CHAR]){
+diff --git a/alpine/confscroll.h b/alpine/confscroll.h
+index 24ff235..9fc7779 100644
+--- a/alpine/confscroll.h
++++ b/alpine/confscroll.h
+@@ -94,7 +94,7 @@ int	 checkbox_tool(struct pine *, int, CONF_S **, unsigned);
+ int	 radiobutton_tool(struct pine *, int, CONF_S **, unsigned);
+ int	 yesno_tool(struct pine *, int, CONF_S **, unsigned);
+ int      text_toolit(struct pine *, int, CONF_S **, unsigned, int);
+-char    *generalized_sort_pretty_value(struct pine *, CONF_S *, int);
++char    *generalized_sort_pretty_value(struct pine *, CONF_S *, int, int);
+ int	 exclude_config_var(struct pine *, struct variable *, int);
+ int      config_exit_cmd(unsigned);
+ int	 simple_exit_cmd(unsigned);
+diff --git a/alpine/keymenu.c b/alpine/keymenu.c
+index 6d2663c..9bd10e9 100644
+--- a/alpine/keymenu.c
++++ b/alpine/keymenu.c
+@@ -650,12 +650,28 @@ struct key index_keys[] =
+ 	RCOMPOSE_MENU,
+ 	HOMEKEY_MENU,
+ 	ENDKEY_MENU,
+-	NULL_MENU,
++	{"K","Sort Thread",{MC_SORTHREAD,1,{'k'}},KS_NONE},
+ 	/* TRANSLATORS: toggles a collapsed view or an expanded view
+ 	   of a message thread on and off */
+ 	{"/",N_("Collapse/Expand"),{MC_COLLAPSE,1,{'/'}},KS_NONE},
++	/* TRANSLATORS: Collapse all threads */
++	{"{",N_("Collapse All"),{MC_KOLAPSE,1,{'{'}},KS_NONE},
++	/* TRANSLATORS: Expand all threads */
++	{"}",N_("Expand All"), {MC_EXPTHREAD,1,{'}'}},KS_NONE},
++
++	HELP_MENU,
++	OTHER_MENU,
++	{")","Next Threa",{MC_NEXTHREAD,1,{')'}},KS_NONE},
++	{"(","Prev Threa",{MC_PRETHREAD,1,{'('}},KS_NONE},
++	{"^D","Delete Thr",{MC_DELTHREAD,1,{ctrl('D')}},KS_NONE},
++	{"^U","Undel Thre",{MC_UNDTHREAD,1,{ctrl('U')}},KS_NONE},
++	{"^T","Select Thr",{MC_SELTHREAD,1,{ctrl('T')}},KS_NONE},
++	NULL_MENU,
++	{"[","Close Thre",{MC_CTHREAD,1,{'['}},KS_NONE},
++	{"]","Open Threa",{MC_OTHREAD,1,{']'}},KS_NONE},
+ 	NULL_MENU,
+ 	NULL_MENU};
++
+ INST_KEY_MENU(index_keymenu, index_keys);
+ 
+ 
+@@ -728,9 +744,22 @@ struct key thread_keys[] =
+ 	RCOMPOSE_MENU,
+ 	HOMEKEY_MENU,
+ 	ENDKEY_MENU,
+-	NULL_MENU,
++	{"]",N_("Open Thread"),{MC_OTHREAD,1,{']'}},KS_NONE},
+ 	{"/",N_("Collapse/Expand"),{MC_COLLAPSE,1,{'/'}},KS_NONE},
++	{")",N_("Next Thread"),{MC_NEXTHREAD,1,{')'}},KS_NONE},
++	{"(",N_("Prev Thread"),{MC_PRETHREAD,1,{'('}},KS_NONE},
++
++	HELP_MENU,
++	OTHER_MENU,
++	NULL_MENU,
++	NULL_MENU,
++	{"^D",N_("Delete Thread"),{MC_DELTHREAD,1,{ctrl('D')}},KS_NONE},
++	{"^U",N_("Undelete Thread"),{MC_UNDTHREAD,1,{ctrl('U')}},KS_NONE},
++	{"^T",N_("SelecT Thread"),{MC_SELTHREAD,1,{ctrl('T')}},KS_NONE},
+ 	NULL_MENU,
++	NULL_MENU,
++	NULL_MENU,
++	{"K","Sort Thread",{MC_SORTHREAD,1,{'k'}},KS_NONE},
+ 	NULL_MENU};
+ INST_KEY_MENU(thread_keymenu, thread_keys);
+ 
+@@ -880,7 +909,20 @@ struct key view_keys[] =
+ 	NULL_MENU,
+ 	NULL_MENU,
+ 	NULL_MENU,
+-	NULL_MENU};
++	NULL_MENU,
++
++	HELP_MENU,
++	OTHER_MENU,
++	NULL_MENU,
++	NULL_MENU,
++	NULL_MENU,
++	NULL_MENU,
++	NULL_MENU,
++	{"(",N_("Prev Thread"),{MC_PRETHREAD,1,{'('}},KS_NONE},
++	{")",N_("Next Thread"),{MC_NEXTHREAD,1,{')'}},KS_NONE},
++	{"^D",N_("Delete Thread"),{MC_DELTHREAD,1,{ctrl('D')}},KS_NONE},
++	{"^U",N_("Undelete Thread"),{MC_UNDTHREAD,1,{ctrl('U')}},KS_NONE},
++	{"^T",N_("selecT Thread"),{MC_SELTHREAD,1,{ctrl('T')}},KS_NONE}};
+ INST_KEY_MENU(view_keymenu, view_keys);
+ 
+ 
+diff --git a/alpine/keymenu.h b/alpine/keymenu.h
+index 2814a06..1d5b21e 100644
+--- a/alpine/keymenu.h
++++ b/alpine/keymenu.h
+@@ -212,7 +212,19 @@ struct key_menu {
+ #define	MC_COLLAPSE	800
+ #define	MC_CHK_RECENT	801
+ #define	MC_DECRYPT	802
+-
++#define MC_CTHREAD	803
++#define MC_OTHREAD	804
++#define MC_DELTHREAD	805
++#define MC_UNDTHREAD	806
++#define MC_SELTHREAD	807
++#define MC_SSUTHREAD	808
++#define MC_DSUTHREAD	809
++#define MC_USUTHREAD	810
++#define MC_SORTHREAD	811
++#define MC_NEXTHREAD	812
++#define MC_KOLAPSE	813
++#define MC_EXPTHREAD	814
++#define MC_PRETHREAD	815
+ 
+ /*
+  * Some standard Key/Command Bindings 
+diff --git a/alpine/mailcmd.c b/alpine/mailcmd.c
+index 7dab279..11dde94 100644
+--- a/alpine/mailcmd.c
++++ b/alpine/mailcmd.c
+@@ -112,7 +112,7 @@ int	  select_by_thread(MAILSTREAM *, MSGNO_S *, SEARCHSET **);
+ char     *choose_a_rule(int);
+ int	  select_by_keyword(MAILSTREAM *, SEARCHSET **);
+ char     *choose_a_keyword(void);
+-int	  select_sort(struct pine *, int, SortOrder *, int *);
++int	  select_sort(struct pine *, int, SortOrder *, int *, int);
+ int       print_index(struct pine *, MSGNO_S *, int);
+ 
+ 
+@@ -1333,7 +1333,7 @@ get_out:
+ 	if(any_messages(msgmap, NULL, NULL)){
+ 	    if(any_lflagged(msgmap, MN_SLCT) > 0L){
+ 		if(apply_command(state, stream, msgmap, 0,
+-				 AC_NONE, question_line)){
++				 AC_NONE, question_line, 1)){
+ 		    if(F_ON(F_AUTO_UNSELECT, state)){
+ 			agg_select_all(stream, msgmap, NULL, 0);
+ 			unzoom_index(state, stream, msgmap);
+@@ -1351,23 +1351,35 @@ get_out:
+ 
+           /*-------- Sort command -------*/
+       case MC_SORT :
++      case MC_SORTHREAD:
+ 	{
+ 	    int were_threading = THREADING();
+ 	    SortOrder sort = mn_get_sort(msgmap);
+ 	    int	      rev  = mn_get_revsort(msgmap);
++	    int	      thread = (command == MC_SORT) ? 0 : 1;
+ 
+ 	    dprint((1,"MAIL_CMD: sort\n"));		    
+-	    if(select_sort(state, question_line, &sort, &rev)){
++	    if(sort == SortThread)
++		sort = ps_global->thread_cur_sort;
++	    if(select_sort(state, question_line, &sort, &rev, thread)){
+ 		/* $ command reinitializes threading collapsed/expanded info */
+ 		if(SORT_IS_THREADED(msgmap) && !SEP_THRDINDX())
+ 		  erase_threading_info(stream, msgmap);
+ 
++		if(command == MC_SORTHREAD){
++		  ps_global->thread_cur_sort = sort;
++		  sort = SortThread;
++		}
++		else if(sort == SortThread)	/* command = MC_SORT */
++		  ps_global->thread_cur_sort = F_ON(F_THREAD_SORTS_BY_ARRIVAL, ps_global)
++						? SortArrival : ps_global->thread_def_sort;
++
+ 		if(ps_global && ps_global->ttyo){
+ 		    blank_keymenu(ps_global->ttyo->screen_rows - 2, 0);
+ 		    ps_global->mangled_footer = 1;
+ 		}
+ 
+-		sort_folder(stream, msgmap, sort, rev, SRT_VRB|SRT_MAN);
++		sort_folder(stream, msgmap, sort, rev, SRT_VRB|SRT_MAN, 1);
+ 	    }
+ 
+ 	    state->mangled_footer = 1;
+@@ -3172,6 +3184,10 @@ cmd_expunge(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap)
+ 		if(SORT_IS_THREADED(msgmap))
+ 		  refresh_sort(stream, msgmap, SRT_NON);
+ 
++		if (msgmap->nmsgs
++			&& F_ON(F_ENHANCED_THREAD, state) && COLL_THRDS())
++			kolapse_thread(state, stream, msgmap, '[', 0);
++
+ 		state->mangled_body = 1;
+ 		state->mangled_header = 1;
+ 		q_status_message2(SM_ORDER, 0, 4,
+@@ -3266,6 +3282,9 @@ cmd_expunge(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap)
+ 	 */
+ 	if(SORT_IS_THREADED(msgmap))
+ 	  refresh_sort(stream, msgmap, SRT_NON);
++	if (msgmap->nmsgs
++		&& F_ON(F_ENHANCED_THREAD, state) && COLL_THRDS())
++		kolapse_thread(state, stream, msgmap, '[', 0);
+     }
+     else{
+ 	if(del_count)
+@@ -6939,7 +6958,7 @@ select_by_current(struct pine *state, MSGNO_S *msgmap, CmdWhere in_index)
+ 	 * Maybe it makes sense to zoom after a select but not after a colon
+ 	 * command even though they are very similar.
+ 	 */
+-	thread_command(state, state->mail_stream, msgmap, ':', -FOOTER_ROWS(state));
++	thread_command(state, state->mail_stream, msgmap, ':', -FOOTER_ROWS(state), 1);
+     }
+     else{
+ 	if((all_selected =
+@@ -6995,7 +7014,7 @@ select_by_current(struct pine *state, MSGNO_S *msgmap, CmdWhere in_index)
+   ----*/
+ int
+ apply_command(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+-	      UCS preloadkeystroke, int flags, int q_line)
++	      UCS preloadkeystroke, int flags, int q_line, int display)
+ {
+     int i = 8,			/* number of static entries in sel_opts3 */
+         rv = 0,
+@@ -7147,9 +7166,19 @@ apply_command(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+ 	collapse_or_expand(state, stream, msgmap,
+ 			   F_ON(F_SLASH_COLL_ENTIRE, ps_global)
+ 			     ? 0L
+-			     : mn_get_cur(msgmap));
++			     : mn_get_cur(msgmap),
++			   display);
+ 	break;
+ 
++      case '[' :
++	collapse_this_thread(state, stream, msgmap, display, 0);
++      break;
++
++      case ']' :
++	expand_this_thread(state, stream, msgmap, display, 0);
++      break;
++
++
+       case ':' :
+ 	select_thread_stmp(state, stream, msgmap);
+ 	break;
+@@ -8890,10 +8919,10 @@ Args: state -- pine state pointer
+       Returns 0 if it was cancelled, 1 otherwise.
+   ----*/
+ int
+-select_sort(struct pine *state, int ql, SortOrder *sort, int *rev)
++select_sort(struct pine *state, int ql, SortOrder *sort, int *rev, int thread)
+ {
+     char      prompt[200], tmp[3], *p;
+-    int       s, i;
++    int       s, i, j;
+     int       deefault = 'a', retval = 1;
+     HelpType  help;
+     ESCKEY_S  sorts[14];
+@@ -8926,17 +8955,26 @@ select_sort(struct pine *state, int ql, SortOrder *sort, int *rev)
+       strncpy(prompt, _("Choose type of sort, or 'R' to reverse current sort : "),
+ 	      sizeof(prompt));
+ 
+-    for(i = 0; state->sort_types[i] != EndofList; i++) {
+-	sorts[i].rval	   = i;
+-	p = sorts[i].label = sort_name(state->sort_types[i]);
+-	while(*(p+1) && islower((unsigned char)*p))
+-	  p++;
+-
+-	sorts[i].ch   = tolower((unsigned char)(tmp[0] = *p));
+-	sorts[i].name = cpystr(tmp);
+-
+-        if(mn_get_sort(state->msgmap) == state->sort_types[i])
+-	  deefault = sorts[i].rval;
++    for(i = 0, j = 0; state->sort_types[i] != EndofList; i++) {
++       sorts[i].rval = i;
++       sorts[i].name = cpystr("");
++       sorts[i].label = "";
++       sorts[i].ch    = -2;
++       if (!thread || allowed_thread_key(state->sort_types[i])){
++          p = sorts[j].label = sort_name(state->sort_types[i]);
++          while(*(p+1) && islower((unsigned char)*p))
++            p++;
++          sorts[j].ch   = tolower((unsigned char)(tmp[0] = *p));
++          sorts[j++].name = cpystr(tmp);
++       }
++
++       if (thread){
++          if (state->thread_def_sort == state->sort_types[i])
++              deefault = sorts[j-1].rval;
++       }
++       else
++           if(mn_get_sort(state->msgmap) == state->sort_types[i])
++             deefault = sorts[i].rval;
+     }
+ 
+     sorts[i].ch     = 'r';
+@@ -8960,8 +8998,17 @@ select_sort(struct pine *state, int ql, SortOrder *sort, int *rev)
+ 	state->mangled_body = 1;		/* signal screen's changed */
+ 	if(s == 'r')
+ 	  *rev = !mn_get_revsort(state->msgmap);
+-	else
++	else{
++	  if(thread){
++	    for(i = 0; state->sort_types[i] != EndofList; i++){
++	      if(struncmp(sort_name(state->sort_types[i]),
++                  sorts[s].label, strlen(sorts[s].label)) == 0)
++        	break;
++	    }
++	    s = i;
++	  }
+ 	  *sort = state->sort_types[s];
++	}
+ 
+ 	if(F_ON(F_SHOW_SORT, ps_global))
+ 	  ps_global->mangled_header = 1;
+@@ -9346,3 +9393,378 @@ flag_submenu(mc)
+ }
+ 
+ #endif	/* _WINDOWS */
++
++void
++cmd_delete_this_thread(state, stream, msgmap)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++{
++    unsigned long rawno, top, save_kolapsed;
++    PINETHRD_S   *thrd = NULL, *nxthrd;
++
++    if(!stream)
++      return;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_this_thread(stream, msgmap, rawno);
++    top =  mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return;
++
++    save_kolapsed = this_thread_is_kolapsed(state, stream, msgmap, top);
++    collapse_this_thread(state, stream, msgmap, 0, 0);
++    thread_command(state, stream, msgmap, 'd', -FOOTER_ROWS(state), 1);
++    if (!save_kolapsed)
++       expand_this_thread(state, stream, msgmap, 0, 0);
++}
++
++void
++cmd_delete_thread(state, stream, msgmap)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++{
++    unsigned long rawno, top, orig_top, topnxt, save_kolapsed;
++    PINETHRD_S   *thrd = NULL, *nxthrd;
++    int done = 0, count;
++
++    if(!stream)
++      return;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_thread(stream, msgmap, rawno);
++    top =  orig_top = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return;
++
++    while (!done){
++      cmd_delete_this_thread(state, stream, msgmap);
++      if (F_OFF(F_ENHANCED_THREAD, state)
++         || (move_next_this_thread(state, stream, msgmap, 0) <= 0)
++         || !(top = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++         || (orig_top != top_thread(stream, top)))
++         done++;
++    }
++    mn_set_cur(msgmap,mn_raw2m(msgmap, rawno));
++    cmd_delete(state, msgmap, MCMD_NONE, cmd_delete_index);
++    count = count_thread(state, stream, msgmap, rawno);
++    q_status_message2(SM_ORDER, 0, 1, "%s message%s marked deleted",
++                int2string(count), plural(count));
++}
++
++int
++collapse_this_thread(state, stream, msgmap, display, special)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++    int          display;
++    int		 special;
++{
++    int collapsed, rv = 1, done = 0;
++    PINETHRD_S   *thrd = NULL, *nthrd;
++    unsigned long rawno, orig, msgno;
++
++    if(!stream)
++      return 0;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++
++    if(rawno)
++       thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++       return rv;
++
++    collapsed = this_thread_is_kolapsed(state, stream, msgmap, rawno);
++
++    if (special && collapsed){
++	expand_this_thread(state, stream, msgmap, 0, 0);
++	collapsed = 0;
++    }
++
++    clear_index_cache_ent(stream, rawno, 0);
++
++    if (!collapsed && thrd->next){
++       if (thrd->rawno == top_thread(stream, thrd->rawno))
++         collapse_or_expand(state, stream, msgmap, mn_get_cur(msgmap), display);
++       else{
++	 set_lflag(stream, msgmap, mn_raw2m(msgmap,thrd->rawno), MN_COLL, 1);
++	 set_thread_subtree(stream, thrd, msgmap, 1, MN_CHID);
++       }
++    }
++    else{
++       if (!collapsed && special 
++	   && ((F_OFF(F_ENHANCED_THREAD, state) && !thrd->next) 
++	        || F_ON(F_ENHANCED_THREAD, state))){
++	  if (thrd->toploose){
++	    if (thrd->rawno != thrd->toploose)
++	       set_lflag(stream, msgmap, mn_raw2m(msgmap,thrd->rawno),MN_CHID, 
++									     1);
++	    else
++	       set_lflag(stream, msgmap, mn_raw2m(msgmap,thrd->rawno),MN_COLL,
++									     1);
++	  }
++       }
++       else{
++         rv = 0; 
++         if (display)
++            q_status_message(SM_ORDER, 0, 1, "Thread already collapsed");
++       }
++    }
++    return rv;
++}
++
++void
++collapse_thread(state, stream, msgmap, display)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++    int          display;
++{
++    int collapsed, rv = 1, done = 0;
++    PINETHRD_S   *thrd = NULL;
++    unsigned long orig, orig_top, top;
++
++    if(!stream)
++      return;
++
++    expand_this_thread(state, stream, msgmap, display, 1);
++    orig = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_thread(stream, msgmap,orig);
++    top = orig_top = mn_m2raw(msgmap, mn_get_cur(msgmap));
++
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return;
++
++    while (!done){
++      collapse_this_thread(state, stream, msgmap, display, 1);
++      if (F_OFF(F_ENHANCED_THREAD, state)
++         || (move_next_this_thread(state, stream, msgmap, 0) <= 0)
++	 || !(top = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++	 || (orig_top != top_thread(stream, top)))
++	 done++;
++    }
++    mn_set_cur(msgmap,mn_raw2m(msgmap, orig_top));
++}
++
++int
++expand_this_thread(state, stream, msgmap, display, special)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++    int          display;
++    int		 special;
++{
++    int collapsed, rv = 1, done = 0;
++    PINETHRD_S   *thrd = NULL, *nthrd;
++    unsigned long rawno, orig, msgno;
++
++    if(!stream)
++      return 0;
++
++    orig = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_this_thread(stream, msgmap,orig);
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++
++    if(rawno)
++       thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++       return rv;
++
++    collapsed = this_thread_is_kolapsed(state, stream, msgmap, rawno);
++
++    if (special && !collapsed){
++	collapse_this_thread(state, stream, msgmap, 0, 0);
++	collapsed = 1;
++    }
++
++    clear_index_cache_ent(stream, rawno, 0);
++
++     if (collapsed && thrd->next){
++       if (thrd->rawno == top_thread(stream, thrd->rawno))
++         collapse_or_expand(state, stream, msgmap, mn_get_cur(msgmap), display);
++       else{
++        set_lflag(stream, msgmap, mn_raw2m(msgmap,thrd->rawno), MN_COLL, 0);
++	 set_thread_subtree(stream, thrd, msgmap, 0, MN_CHID);
++       }
++     }
++     else{
++       if (collapsed && special 
++	&& ((F_OFF(F_ENHANCED_THREAD, state) && !thrd->next) 
++	   || F_ON(F_ENHANCED_THREAD, state))){ 
++	  if (thrd->toploose)
++	    if (thrd->rawno != thrd->toploose)
++	       set_lflag(stream, msgmap, mn_raw2m(msgmap,thrd->rawno),MN_CHID, 0);
++	    else
++	       set_lflag(stream, msgmap, mn_raw2m(msgmap,thrd->rawno),MN_COLL, 0);
++       }
++       else{
++         rv = 0; 
++         if (display)
++            q_status_message(SM_ORDER, 0, 1, "Thread already expanded");
++       }
++     }
++    return rv;
++}
++
++void
++expand_thread(state, stream, msgmap, display)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++    int          display;
++{
++    int collapsed, rv = 1, done = 0;
++    PINETHRD_S   *thrd = NULL;
++    unsigned long orig, orig_top, top;
++
++    if(!stream)
++      return;
++
++    orig = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    top = orig_top = mn_m2raw(msgmap, mn_get_cur(msgmap));
++
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return;
++
++    while (!done){
++      expand_this_thread(state, stream, msgmap, display, 1);
++      if (F_OFF(F_ENHANCED_THREAD, state)
++         || (move_next_this_thread(state, stream, msgmap, 0) <= 0)
++	 || !(top = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++	 || (orig_top != top_thread(stream, top)))
++	 done++;
++    }
++    mn_set_cur(msgmap,mn_raw2m(msgmap, orig_top));
++}
++
++
++void
++cmd_undelete_this_thread(state, stream, msgmap)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++{
++    unsigned long rawno;
++    int save_kolapsed;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    save_kolapsed = this_thread_is_kolapsed(state, stream, msgmap, rawno);
++    collapse_this_thread(state, stream, msgmap, 0, 0);
++    thread_command(state, stream, msgmap, 'u', -FOOTER_ROWS(state), 1);
++    if (!save_kolapsed)
++       expand_this_thread(state, stream, msgmap, 0, 0);
++}
++
++void
++cmd_undelete_thread(state, stream, msgmap)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++{
++    PINETHRD_S   *thrd = NULL;
++    unsigned long rawno, top, orig_top;
++    int done = 0, count;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_thread(stream, msgmap, rawno);
++    top =  orig_top = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return;
++
++    while (!done){
++      cmd_undelete_this_thread(state, stream, msgmap);
++      if (F_OFF(F_ENHANCED_THREAD, state)
++         || (move_next_this_thread(state, stream, msgmap, 0) <= 0)
++	 || !(top = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++	 || (orig_top != top_thread(stream, top)))
++	 done++;
++    }
++    mn_set_cur(msgmap,mn_raw2m(msgmap, rawno));
++    count = count_thread(state, stream, msgmap, rawno);
++    q_status_message2(SM_ORDER, 0, 1, "Deletion mark removed from %s message%s",
++		int2string(count), plural(count));
++}
++
++void
++kolapse_thread(state, stream, msgmap, ch, display)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++    char      ch;
++    int		display;
++{
++    PINETHRD_S   *thrd = NULL;
++    unsigned long rawno;
++    int       rv = 1, done = 0;
++
++    if(!stream)
++      return;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(rawno)
++      thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++      return;
++
++    clear_index_cache(stream, 0);
++    mn_set_cur(msgmap,1); /* go to the first message */
++    while (!done){
++      if (ch == '[')
++	collapse_thread(state, stream, msgmap, display);
++      else
++	expand_thread(state, stream, msgmap, display);
++      if ((rv = move_next_thread(state, stream, msgmap, 0)) <= 0)
++         done++;
++    }
++
++    if (rv < 0){
++      if (display)
++      q_status_message(SM_ORDER, 0, 1, (ch == '[')
++               ? "Error while collapsing thread"
++               : "Error while expanding thread");
++    }
++    else
++      if(display)
++      q_status_message(SM_ORDER, 0, 1, (ch == '[')
++               ? "All threads collapsed. Use \"}\" to expand them"
++               : "All threads expanded. Use \"{\" to collapse them");
++
++    mn_set_cur(msgmap,mn_raw2m(msgmap, top_thread(stream,rawno)));
++}
++
++void
++cmd_select_thread(state, stream, msgmap)
++    struct pine *state;
++    MAILSTREAM  *stream;
++    MSGNO_S     *msgmap;
++{
++    unsigned long rawno;
++    int save_kolapsed;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    save_kolapsed = thread_is_kolapsed(state, stream, msgmap, rawno);
++    collapse_thread(state, stream, msgmap, 0);
++    thread_command(state, stream, msgmap, ':', -FOOTER_ROWS(state), 1);
++    if (!save_kolapsed)
++       expand_thread(state, stream, msgmap, 0);
++}
++
+diff --git a/alpine/mailcmd.h b/alpine/mailcmd.h
+index 2a6715e..29e0afd 100644
+--- a/alpine/mailcmd.h
++++ b/alpine/mailcmd.h
+@@ -83,7 +83,7 @@ char	   *broach_folder(int, int, int *, CONTEXT_S **);
+ int	    ask_mailbox_reopen(struct pine *, int *);
+ void	    visit_folder(struct pine *, char *, CONTEXT_S *, MAILSTREAM *, unsigned long);
+ int	    select_by_current(struct pine *, MSGNO_S *, CmdWhere);
+-int	    apply_command(struct pine *, MAILSTREAM *, MSGNO_S *, UCS, int, int);
++int	    apply_command(struct pine *, MAILSTREAM *, MSGNO_S *, UCS, int, int, int);
+ char      **choose_list_of_keywords(void);
+ char       *choose_a_charset(int);
+ char      **choose_list_of_charsets(void);
+@@ -101,6 +101,15 @@ int	    any_selected_callback(int, long);
+ int	    flag_callback(int, long);
+ MPopup	   *flag_submenu(MESSAGECACHE *);
+ #endif
+-
++void          cmd_delete_thread(struct pine *, MAILSTREAM *, MSGNO_S *);
++void          cmd_delete_this_thread(struct pine *, MAILSTREAM *, MSGNO_S *);
++void          cmd_undelete_this_thread(struct pine *, MAILSTREAM *, MSGNO_S *);
++void          cmd_undelete_thread(struct pine *, MAILSTREAM *, MSGNO_S *);
++void          cmd_select_thread(struct pine *, MAILSTREAM *, MSGNO_S *);
++void          kolapse_thread(struct pine *, MAILSTREAM *, MSGNO_S *, char, int);
++void          collapse_thread(struct pine *, MAILSTREAM *, MSGNO_S *, int);
++void          expand_thread(struct pine *, MAILSTREAM *, MSGNO_S *, int);
++int           collapse_this_thread(struct pine *, MAILSTREAM *, MSGNO_S *, int, int);
++int           expand_this_thread(struct pine *, MAILSTREAM *, MSGNO_S *, int, int);
+ 
+ #endif /* PINE_MAILCMD_INCLUDED */
+diff --git a/alpine/mailindx.c b/alpine/mailindx.c
+index 1ffda62..fc6c19d 100644
+--- a/alpine/mailindx.c
++++ b/alpine/mailindx.c
+@@ -560,6 +560,7 @@ index_lister(struct pine *state, CONTEXT_S *cntxt, char *folder, MAILSTREAM *str
+ 
+             /*---------- Scroll line up ----------*/
+ 	  case MC_CHARUP :
++previtem:
+ 	    (void) process_cmd(state, stream, msgmap, MC_PREVITEM,
+ 			       (style == MsgIndex
+ 				|| style == MultiMsgIndex
+@@ -577,6 +578,7 @@ index_lister(struct pine *state, CONTEXT_S *cntxt, char *folder, MAILSTREAM *str
+ 
+             /*---------- Scroll line down ----------*/
+ 	  case MC_CHARDOWN :
++nextitem:
+ 	    /*
+ 	     * Special Page framing handling here.  If we
+ 	     * did something that should scroll-by-a-line, frame
+@@ -794,6 +796,7 @@ view_a_thread:
+ 
+ 
+ 	  case MC_THRDINDX :
++mc_thrdindx:
+ 	    msgmap->top = msgmap->top_after_thrd;
+ 	    if(unview_thread(state, stream, msgmap)){
+ 		state->next_screen = mail_index_screen;
+@@ -844,7 +847,7 @@ view_a_thread:
+ 			      && mp.col == id.plus_col
+ 			      && style != ThreadIndex){
+ 			      collapse_or_expand(state, stream, msgmap,
+-						 mn_get_cur(msgmap));
++						 mn_get_cur(msgmap), 1);
+ 			  }
+ 			  else if (mp.doubleclick){
+ 			      if(mp.button == M_BUTTON_LEFT){
+@@ -951,9 +954,105 @@ view_a_thread:
+ 
+ 
+ 	  case MC_COLLAPSE :
+-	    thread_command(state, stream, msgmap, ch, -FOOTER_ROWS(state));
++	    thread_command(state, stream, msgmap, ch, -FOOTER_ROWS(state), 1);
+ 	    break;
+ 
++	  case MC_CTHREAD  :
++	     if (SEP_THRDINDX())
++	        goto mc_thrdindx;
++	   else
++	     if (THREADING()){
++	        if (any_messages(ps_global->msgmap, NULL,
++							"to collapse a thread"))
++		   collapse_thread(state, stream,msgmap, 1);
++	     }
++	     else
++		q_status_message(SM_ORDER, 0, 1,
++		  "Command available in threaded mode only");
++	  break;
++
++	  case MC_OTHREAD  :
++	     if (SEP_THRDINDX())
++		goto view_a_thread;
++	  else
++	     if (THREADING()){
++		if (any_messages(ps_global->msgmap, NULL, "to expand a thread"))
++		   expand_thread(state, stream,msgmap, 1);
++	     }
++	     else
++		q_status_message(SM_ORDER, 0, 1,
++				"Command available in threaded mode only");
++	     break;
++
++	    case MC_NEXTHREAD:
++	    case MC_PRETHREAD:
++	     if (THRD_INDX()){
++		if (cmd == MC_NEXTHREAD)
++		   goto nextitem;
++		else
++		   goto previtem;
++	     }
++	     else
++		if (THREADING()){
++		   if (any_messages(ps_global->msgmap, NULL,
++						"to move to other thread"))
++		      move_thread(state, stream, msgmap,
++						cmd == MC_NEXTHREAD ? 1 : -1);
++		}
++		else
++		   q_status_message(SM_ORDER, 0, 1,
++			"Command available in threaded mode only");
++	     break;
++
++          case MC_KOLAPSE:
++          case MC_EXPTHREAD:
++              if (SEP_THRDINDX()){
++                      q_status_message(SM_ORDER, 0, 1,
++                              "Command not available in this screen");
++              }
++              else{
++              if (THREADING()){
++                 if (any_messages(ps_global->msgmap, NULL,
++                           cmd == MC_KOLAPSE ? "to collapse" : "to expand"))
++                    kolapse_thread(state, stream, msgmap,
++                              (cmd == MC_KOLAPSE) ? '[' : ']', 1);
++              }
++              else
++                  q_status_message(SM_ORDER, 0, 1,
++                       "Command available in threaded mode only");
++            }
++          break;
++
++        case MC_DELTHREAD:
++           if (THREADING()){
++              if (any_messages(ps_global->msgmap, NULL, "to delete"))
++                    cmd_delete_thread(state, stream, msgmap);
++           }
++           else
++              q_status_message(SM_ORDER, 0, 1,
++                       "Command available in threaded mode only");
++          break;
++
++        case MC_UNDTHREAD:
++           if (THREADING()){
++              if (any_messages(ps_global->msgmap, NULL, "to undelete"))
++                  cmd_undelete_thread(state, stream, msgmap);
++           }
++           else
++              q_status_message(SM_ORDER, 0, 1,
++                       "Command available in threaded mode only");
++        break;
++
++        case MC_SELTHREAD:
++           if (THREADING()){
++              if (any_messages(ps_global->msgmap, NULL, "to undelete"))
++                  cmd_select_thread(state, stream, msgmap);
++           }
++           else
++              q_status_message(SM_ORDER, 0, 1,
++                       "Command available in threaded mode only");
++        break;
++
+           case MC_DELETE :
+           case MC_UNDELETE :
+           case MC_REPLY :
+@@ -974,13 +1073,12 @@ view_a_thread:
+ 		  if(rawno)
+ 		    thrd = fetch_thread(stream, rawno);
+ 
+-		  collapsed = thrd && thrd->next
+-			      && get_lflag(stream, NULL, rawno, MN_COLL);
++		collapsed = thread_is_kolapsed(ps_global, stream, msgmap, rawno);
+ 	      }
+ 
+ 	      if(collapsed){
+ 		  thread_command(state, stream, msgmap,
+-				 ch, -FOOTER_ROWS(state));
++				 ch, -FOOTER_ROWS(state),1);
+ 		  /* increment current */
+ 		  if(cmd == MC_DELETE){
+ 		      advance_cur_after_delete(state, stream, msgmap,
+@@ -2672,6 +2770,7 @@ top_ent_calc(MAILSTREAM *stream, MSGNO_S *msgs, long int at_top, long int lines_
+ 		      n = mn_raw2m(msgs, thrd->rawno);
+ 
+ 		    while(thrd){
++			unsigned long branch;
+ 			if(!msgline_hidden(stream, msgs, n, 0)
+ 			   && (++m % lines_per_page) == 1L)
+ 			  t = n;
+@@ -2740,11 +2839,12 @@ top_ent_calc(MAILSTREAM *stream, MSGNO_S *msgs, long int at_top, long int lines_
+ 
+ 	    /* n is the end of this thread */
+ 	    while(thrd){
++		unsigned long next = 0L, branch = 0L;
+ 		n = mn_raw2m(msgs, thrd->rawno);
+-		if(thrd->branch)
+-		  thrd = fetch_thread(stream, thrd->branch);
+-		else if(thrd->next)
+-		  thrd = fetch_thread(stream, thrd->next);
++		if(branch = get_branch(stream,thrd))
++		  thrd = fetch_thread(stream, branch);
++		else if(next = get_next(stream,thrd))
++		  thrd = fetch_thread(stream, next);
+ 		else
+ 		  thrd = NULL;
+ 	    }
+@@ -2852,7 +2952,7 @@ warn_other_cmds(void)
+ 
+ void
+ thread_command(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+-	       UCS preloadkeystroke, int q_line)
++	       UCS preloadkeystroke, int q_line, int display)
+ {
+     PINETHRD_S   *thrd = NULL;
+     unsigned long rawno, save_branch;
+@@ -2901,7 +3001,7 @@ thread_command(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+       cancel_busy_cue(0);
+ 
+     (void ) apply_command(state, stream, msgmap, preloadkeystroke, flags,
+-			  q_line);
++			  q_line, display);
+ 
+     /* restore the original flags */
+     copy_lflags(stream, msgmap, MN_STMP, MN_SLCT);
+@@ -3395,7 +3495,7 @@ index_sort_callback(set, order)
+     if(set){
+ 	sort_folder(ps_global->mail_stream, ps_global->msgmap,
+ 		    order & 0x000000ff,
+-		    (order & 0x00000100) != 0, SRT_VRB);
++		    (order & 0x00000100) != 0, SRT_VRB, 1);
+ 	mswin_beginupdate();
+ 	update_titlebar_message();
+ 	update_titlebar_status();
+diff --git a/alpine/mailindx.h b/alpine/mailindx.h
+index 9437ae6..39edb11 100644
+--- a/alpine/mailindx.h
++++ b/alpine/mailindx.h
+@@ -102,7 +102,7 @@ int		 truncate_subj_and_from_strings(void);
+ void		 paint_index_hline(MAILSTREAM *, long, ICE_S *);
+ void		 setup_index_state(int);
+ void		 warn_other_cmds(void);
+-void		 thread_command(struct pine *, MAILSTREAM *, MSGNO_S *, UCS, int);
++void		 thread_command(struct pine *, MAILSTREAM *, MSGNO_S *, UCS, int, int);
+ COLOR_PAIR      *apply_rev_color(COLOR_PAIR *, int);
+ #ifdef	_WINDOWS
+ int		 index_sort_callback(int, long);
+diff --git a/alpine/mailview.c b/alpine/mailview.c
+index a7eb839..ac58919 100644
+--- a/alpine/mailview.c
++++ b/alpine/mailview.c
+@@ -3457,6 +3457,52 @@ scrolltool(SCROLL_S *sparms)
+ 	    print_to_printer(sparms);
+ 	    break;
+ 
++          case MC_NEXTHREAD:
++          case MC_PRETHREAD:
++             if (THREADING()){
++                if (any_messages(ps_global->msgmap, NULL,
++                                        "to move to other thread"))
++                  move_thread(ps_global, ps_global->mail_stream, ps_global->msgmap,
++                                                cmd == MC_NEXTHREAD ? 1 : -1);
++		  done = 1;
++             }
++             else
++                q_status_message(SM_ORDER, 0, 1,
++                         "Command available in threaded mode only");
++          break;
++
++          case MC_DELTHREAD:
++             if (THREADING()){
++                if (any_messages(ps_global->msgmap, NULL, "to delete"))
++                    cmd_delete_thread(ps_global, ps_global->mail_stream, ps_global->msgmap);
++		done = 1;
++             }
++             else
++                q_status_message(SM_ORDER, 0, 1,
++                         "Command available in threaded mode only");
++          break;  
++                
++          case MC_UNDTHREAD:
++             if (THREADING()){
++                if (any_messages(ps_global->msgmap, NULL, "to undelete"))
++                    cmd_undelete_thread(ps_global, ps_global->mail_stream, ps_global->msgmap);
++		done = 1;
++             }
++             else
++                q_status_message(SM_ORDER, 0, 1,
++                         "Command available in threaded mode only");   
++          break;
++             
++          case MC_SELTHREAD:
++             if (THREADING()){
++                if (any_messages(ps_global->msgmap, NULL, "to undelete"))
++                    cmd_select_thread(ps_global, ps_global->mail_stream, ps_global->msgmap);
++		done = 1;
++             }
++             else
++                q_status_message(SM_ORDER, 0, 1,
++                         "Command available in threaded mode only");
++          break;
+ 
+ 	    /* ------- First handle on Line ------ */
+ 	  case MC_GOTOBOL :
+diff --git a/alpine/roleconf.c b/alpine/roleconf.c
+index 1399bfc..d551fec 100644
+--- a/alpine/roleconf.c
++++ b/alpine/roleconf.c
+@@ -4478,11 +4478,11 @@ role_config_edit_screen(struct pine *ps, PAT_S *def, char *title, long int rflag
+ 	ctmp->tool		  = role_sort_tool;
+ 	ctmp->valoffset	    	  = rindent;
+ 	ctmp->flags              |= CF_NOSELECT;
+-	ctmp->value     = cpystr(set_choose);				\
++	ctmp->value     = cpystr(set_choose);
+ 
+ 	pval = PVAL(&sort_act_var, ew);
+ 	if(pval)
+-	  decode_sort(pval, &def_sort, &def_sort_rev);
++	  decode_sort(pval, &def_sort, &def_sort_rev, 0);
+ 
+ 	/* allow user to set their default sort order */
+ 	new_confline(&ctmp)->var = &sort_act_var;
+@@ -4492,7 +4492,7 @@ role_config_edit_screen(struct pine *ps, PAT_S *def, char *title, long int rflag
+ 	ctmp->tool	      = role_sort_tool;
+ 	ctmp->valoffset	      = rindent;
+ 	ctmp->varmem	      = -1;
+-	ctmp->value	      = generalized_sort_pretty_value(ps, ctmp, 0);
++	ctmp->value	      = generalized_sort_pretty_value(ps, ctmp, 0, 0);
+ 
+ 	for(j = 0; j < 2; j++){
+ 	    for(i = 0; ps->sort_types[i] != EndofList; i++){
+@@ -4504,7 +4504,7 @@ role_config_edit_screen(struct pine *ps, PAT_S *def, char *title, long int rflag
+ 		ctmp->valoffset	      = rindent;
+ 		ctmp->varmem	      = i + (j * EndofList);
+ 		ctmp->value	      = generalized_sort_pretty_value(ps, ctmp,
+-								      0);
++								      0, 0);
+ 	    }
+ 	}
+ 
+@@ -5437,7 +5437,7 @@ role_config_edit_screen(struct pine *ps, PAT_S *def, char *title, long int rflag
+ 	  (*result)->patgrp->stat_boy = PAT_STAT_EITHER;
+ 
+ 	if(sort_act){
+-	    decode_sort(sort_act, &def_sort, &def_sort_rev);
++	    decode_sort(sort_act, &def_sort, &def_sort_rev, 0);
+ 	    (*result)->action->sort_is_set = 1;
+ 	    (*result)->action->sortorder = def_sort;
+ 	    (*result)->action->revsort = (def_sort_rev ? 1 : 0);
+diff --git a/alpine/setup.c b/alpine/setup.c
+index 0e9f473..8a214ee 100644
+--- a/alpine/setup.c
++++ b/alpine/setup.c
+@@ -257,7 +257,7 @@ option_screen(struct pine *ps, int edit_exceptions)
+ 	    ctmpa->flags             |= CF_NOSELECT;
+ 	    ctmpa->value = cpystr("---  ----------------------");
+ 
+-	    decode_sort(pval, &def_sort, &def_sort_rev);
++	    decode_sort(pval, &def_sort, &def_sort_rev, 0);
+ 
+ 	    for(j = 0; j < 2; j++){
+ 		for(i = 0; ps->sort_types[i] != EndofList; i++){
+@@ -272,6 +272,55 @@ option_screen(struct pine *ps, int edit_exceptions)
+ 		}
+ 	    }
+ 	}
++        else if(vtmp == &ps->vars[V_THREAD_SORT_KEY]){ /* radio case */
++            SortOrder thread_def_sort;
++            int       thread_def_sort_rev, lv;
++
++            ctmpa->flags       |= CF_NOSELECT;
++            ctmpa->keymenu      = &config_radiobutton_keymenu;
++            ctmpa->tool         = NULL;
++
++            /* put a nice delimiter before list */
++            new_confline(&ctmpa)->var = NULL;
++            ctmpa->varnamep               = ctmpb;
++            ctmpa->keymenu                = &config_radiobutton_keymenu;
++            ctmpa->help                   = NO_HELP;
++            ctmpa->tool                   = radiobutton_tool;
++            ctmpa->valoffset              = 12;
++            ctmpa->flags                 |= CF_NOSELECT;
++            ctmpa->value = cpystr("Set    Thread Sort Options");
++
++            new_confline(&ctmpa)->var = NULL;
++            ctmpa->varnamep           = ctmpb;
++            ctmpa->keymenu            = &config_radiobutton_keymenu;
++            ctmpa->help               = NO_HELP;
++            ctmpa->tool               = radiobutton_tool;
++            ctmpa->valoffset          = 12;
++            ctmpa->flags             |= CF_NOSELECT;
++            ctmpa->value = cpystr("---  ----------------------");
++  
++            /* find longest value's name */
++            for(lv = 0, i = 0; ps->sort_types[i] != EndofList; i++)
++              if(lv < (j = strlen(sort_name(ps->sort_types[i]))))
++                lv = j;
++
++            decode_sort(pval, &thread_def_sort, &thread_def_sort_rev, 1);
++
++            for(j = 0; j < 2; j++){
++                for(i = 0; ps->sort_types[i] != EndofList; i++){
++		  if (allowed_thread_key(ps->sort_types[i])){
++                    new_confline(&ctmpa)->var = vtmp;
++                    ctmpa->varnamep           = ctmpb;
++                    ctmpa->keymenu            = &config_radiobutton_keymenu;
++                    ctmpa->help               = config_help(vtmp - ps->vars, 0);
++                    ctmpa->tool               = radiobutton_tool;
++                    ctmpa->valoffset          = 12;
++                    ctmpa->varmem             = i + (j * EndofList);
++                    ctmpa->value              = pretty_value(ps, ctmpa);
++		  }
++                }
++            }
++        }
+ 	else if(vtmp == &ps->vars[V_USE_ONLY_DOMAIN_NAME]){ /* yesno case */
+ 	    ctmpa->keymenu = &config_yesno_keymenu;
+ 	    ctmpa->tool	   = yesno_tool;
+@@ -463,6 +512,15 @@ option_screen(struct pine *ps, int edit_exceptions)
+ 	}
+     }
+ 
++    pval = PVAL(&ps->vars[V_THREAD_SORT_KEY], ew);
++    if(vsave[V_THREAD_SORT_KEY].saved_user_val.p && pval
++       && strcmp(vsave[V_THREAD_SORT_KEY].saved_user_val.p, pval)){
++      if(!mn_get_mansort(ps_global->msgmap)){
++	  clear_index_cache(ps_global->mail_stream, 0);
++          reset_sort_order(SRT_VRB);
++      }
++    }
++
+     treat_color_vars_as_text = 0;
+     free_saved_config(ps, &vsave, expose_hidden_config);
+ #ifdef _WINDOWS
+diff --git a/pith/conf.c b/pith/conf.c
+index f0f11c9..4998701 100644
+--- a/pith/conf.c
++++ b/pith/conf.c
+@@ -203,6 +203,8 @@ CONF_TXT_T cf_text_fcc_name_rule[] =	"Determines default name for Fcc...\n# Choi
+ 
+ CONF_TXT_T cf_text_sort_key[] =		"Sets presentation order of messages in Index. Choices:\n# Subject, From, Arrival, Date, Size, To, Cc, OrderedSubj, Score, and Thread.\n# Order may be reversed by appending /Reverse. Default: \"Arrival\".";
+ 
++CONF_TXT_T cf_text_thread_sort_key[] =        "#Sets presentation order of threads in thread index. Choices:\n#arrival, and thread.";
++
+ CONF_TXT_T cf_text_addrbook_sort_rule[] =	"Sets presentation order of address book entries. Choices: dont-sort,\n# fullname-with-lists-last, fullname, nickname-with-lists-last, nickname\n# Default: \"fullname-with-lists-last\".";
+ 
+ CONF_TXT_T cf_text_folder_sort_rule[] =	"Sets presentation order of folder list entries. Choices: alphabetical,\n# alpha-with-dirs-last, alpha-with-dirs-first.\n# Default: \"alpha-with-directories-last\".";
+@@ -517,6 +519,8 @@ static struct variable variables[] = {
+ 	NULL,			cf_text_fcc_name_rule},
+ {"sort-key",				0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0,
+ 	NULL,			cf_text_sort_key},
++{"thread-sort-key",			0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0,
++	NULL,			cf_text_thread_sort_key},
+ {"addrbook-sort-rule",			0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0,
+ 	"Address Book Sort Rule",	cf_text_addrbook_sort_rule},
+ {"folder-sort-rule",			0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0,
+@@ -1555,7 +1559,7 @@ init_vars(struct pine *ps, void (*cmds_f) (struct pine *, char **))
+     register struct variable *vars = ps->vars;
+     int		 obs_header_in_reply = 0,     /* the obs_ variables are to       */
+ 		 obs_old_style_reply = 0,     /* support backwards compatibility */
+-		 obs_save_by_sender, i, def_sort_rev;
++		 obs_save_by_sender, i, def_sort_rev, thread_def_sort_rev;
+     long         rvl;
+     PINERC_S    *fixedprc = NULL;
+     FeatureLevel obs_feature_level;
+@@ -1580,6 +1584,7 @@ init_vars(struct pine *ps, void (*cmds_f) (struct pine *, char **))
+     GLO_FEATURE_LEVEL		= cpystr("sappling");
+     GLO_OLD_STYLE_REPLY		= cpystr(DF_OLD_STYLE_REPLY);
+     GLO_SORT_KEY		= cpystr(DF_SORT_KEY);
++    GLO_THREAD_SORT_KEY		= cpystr(DF_THREAD_SORT_KEY);
+     GLO_SAVED_MSG_NAME_RULE	= cpystr(DF_SAVED_MSG_NAME_RULE);
+     GLO_FCC_RULE		= cpystr(DF_FCC_RULE);
+     GLO_AB_SORT_RULE		= cpystr(DF_AB_SORT_RULE);
+@@ -2483,7 +2488,7 @@ init_vars(struct pine *ps, void (*cmds_f) (struct pine *, char **))
+     set_current_val(&vars[V_ARCHIVED_FOLDERS], TRUE, TRUE);
+     set_current_val(&vars[V_INCOMING_FOLDERS], TRUE, TRUE);
+     set_current_val(&vars[V_SORT_KEY], TRUE, TRUE);
+-    if(decode_sort(VAR_SORT_KEY, &ps->def_sort, &def_sort_rev) == -1){
++    if(decode_sort(VAR_SORT_KEY, &ps->def_sort, &def_sort_rev,0) == -1){
+ 	snprintf(tmp_20k_buf, SIZEOF_20KBUF, "Sort type \"%.200s\" is invalid", VAR_SORT_KEY);
+ 	init_error(ps, SM_ORDER | SM_DING, 3, 5, tmp_20k_buf);
+ 	ps->def_sort = SortArrival;
+@@ -2492,6 +2497,17 @@ init_vars(struct pine *ps, void (*cmds_f) (struct pine *, char **))
+     else
+       ps->def_sort_rev = def_sort_rev;
+ 
++    set_current_val(&vars[V_THREAD_SORT_KEY], TRUE, TRUE);
++    if(decode_sort(VAR_THREAD_SORT_KEY, &ps->thread_def_sort, 
++                              &thread_def_sort_rev, 1) == -1){
++      sprintf(tmp_20k_buf, "Sort type \"%s\" is invalid", VAR_THREAD_SORT_KEY);
++      init_error(ps, SM_ORDER | SM_DING, 3, 5, tmp_20k_buf);
++      ps->thread_def_sort = SortThread;
++      ps->thread_def_sort_rev = 0;
++    }
++    else
++      ps->thread_def_sort_rev = thread_def_sort_rev;
++
+     cur_rule_value(&vars[V_SAVED_MSG_NAME_RULE], TRUE, TRUE);
+     {NAMEVAL_S *v; int i;
+     for(i = 0; (v = save_msg_rules(i)); i++)
+@@ -2913,6 +2929,8 @@ feature_list(int index)
+ 	 F_COLOR_LINE_IMPORTANT, h_config_color_thrd_import, PREF_INDX, 0},
+ 	{"thread-sorts-by-arrival", "Thread Sorts by Arrival",
+ 	 F_THREAD_SORTS_BY_ARRIVAL, h_config_thread_sorts_by_arrival, PREF_INDX, 0},
++	{"enhanced-fancy-thread-support", "Enhanced Fancy Thread Support",
++	 F_ENHANCED_THREAD, h_config_enhanced_thread, PREF_INDX, 0},
+ 
+ /* Viewer prefs */
+ 	{"enable-msg-view-addresses", "Enable Message View Address Links",
+@@ -7537,6 +7555,8 @@ config_help(int var, int feature)
+ 	return(h_config_fcc_rule);
+       case V_SORT_KEY :
+ 	return(h_config_sort_key);
++      case V_THREAD_SORT_KEY :
++        return(h_config_thread_sort_key);
+       case V_AB_SORT_RULE :
+ 	return(h_config_ab_sort_rule);
+       case V_FLD_SORT_RULE :
+diff --git a/pith/conf.h b/pith/conf.h
+index 08afa72..f99ade9 100644
+--- a/pith/conf.h
++++ b/pith/conf.h
+@@ -143,6 +143,9 @@
+ #define VAR_SORT_KEY		     vars[V_SORT_KEY].current_val.p
+ #define GLO_SORT_KEY		     vars[V_SORT_KEY].global_val.p
+ #define COM_SORT_KEY		     vars[V_SORT_KEY].cmdline_val.p
++#define VAR_THREAD_SORT_KEY	     vars[V_THREAD_SORT_KEY].current_val.p
++#define GLO_THREAD_SORT_KEY	     vars[V_THREAD_SORT_KEY].global_val.p
++#define COM_THREAD_SORT_KEY	     vars[V_THREAD_SORT_KEY].cmdline_val.p
+ #define VAR_AB_SORT_RULE	     vars[V_AB_SORT_RULE].current_val.p
+ #define GLO_AB_SORT_RULE	     vars[V_AB_SORT_RULE].global_val.p
+ #define VAR_FLD_SORT_RULE	     vars[V_FLD_SORT_RULE].current_val.p
+diff --git a/pith/conftype.h b/pith/conftype.h
+index f20db57..1c406e7 100644
+--- a/pith/conftype.h
++++ b/pith/conftype.h
+@@ -58,6 +58,7 @@ typedef	enum {    V_PERSONAL_NAME = 0
+ 		, V_SAVED_MSG_NAME_RULE
+ 		, V_FCC_RULE
+ 		, V_SORT_KEY
++		, V_THREAD_SORT_KEY
+ 		, V_AB_SORT_RULE
+ 		, V_FLD_SORT_RULE
+ 		, V_GOTO_DEFAULT_RULE
+@@ -497,6 +498,7 @@ typedef enum {
+ 	F_QUELL_TIMEZONE,
+ 	F_QUELL_USERAGENT,
+ 	F_COLOR_LINE_IMPORTANT,
++	F_ENHANCED_THREAD,
+ 	F_SLASH_COLL_ENTIRE,
+ 	F_ENABLE_FULL_HDR_AND_TEXT,
+ 	F_QUELL_FULL_HDR_RESET,
+@@ -703,5 +705,6 @@ typedef struct smime_stuff {
+ 
+ /* exported protoypes */
+ 
++#define DF_THREAD_SORT_KEY  "thread"
+ 
+ #endif /* PITH_CONFTYPE_INCLUDED */
+diff --git a/pith/flag.c b/pith/flag.c
+index 780d8af..1df0625 100644
+--- a/pith/flag.c
++++ b/pith/flag.c
+@@ -593,14 +593,16 @@ set_lflag(MAILSTREAM *stream, MSGNO_S *msgs, long int n, int f, int v)
+ 
+ 	was_invisible = (pelt->hidden || pelt->colhid) ? 1 : 0;
+ 
++	thrd = fetch_thread(stream, rawno);
++
+ 	if((chk_thrd_cnt = ((msgs->visible_threads >= 0L)
+ 	   && THRD_INDX_ENABLED() && (f & MN_HIDE) && (pelt->hidden != v))) != 0){
+ 	    thrd = fetch_thread(stream, rawno);
+ 	    if(thrd && thrd->top){
+-		if(thrd->top == thrd->rawno)
++		if(top_thread(stream, thrd->top) == thrd->rawno)
+ 		  topthrd = thrd;
+ 		else
+-		  topthrd = fetch_thread(stream, thrd->top);
++		  topthrd = fetch_thread(stream, top_thread(stream, thrd->top));
+ 	    }
+ 
+ 	    if(topthrd){
+diff --git a/pith/indxtype.h b/pith/indxtype.h
+index 1b5d8cc..a443072 100644
+--- a/pith/indxtype.h
++++ b/pith/indxtype.h
+@@ -75,7 +75,7 @@ typedef enum {iNothing, iStatus, iFStatus, iIStatus, iSIStatus,
+ 	      iKey, iKeyInit,
+ 	      iPrefDate, iPrefTime, iPrefDateTime,
+ 	      iCurPrefDate, iCurPrefTime, iCurPrefDateTime,
+-	      iSize, iSizeComma, iSizeNarrow, iDescripSize,
++	      iSize, iSizeComma, iSizeNarrow, iDescripSize,  iSizeThread,
+ 	      iNewsAndTo, iToAndNews, iNewsAndRecips, iRecipsAndNews,
+ 	      iFromTo, iFromToNotNews, iFrom, iTo, iSender, iCc, iNews, iRecips,
+ 	      iCurNews, iArrow,
+diff --git a/pith/mailindx.c b/pith/mailindx.c
+index 0aa3fa2..a1e7536 100644
+--- a/pith/mailindx.c
++++ b/pith/mailindx.c
+@@ -227,6 +227,7 @@ init_index_format(char *format, INDEX_COL_S **answer)
+ 	      case iSTime:
+ 	      case iKSize:
+ 	      case iSize:
++	      case iSizeThread:
+ 	      case iPrioAlpha:
+ 		(*answer)[column].req_width = 7;
+ 		break;
+@@ -433,6 +434,7 @@ static INDEX_PARSE_T itokens[] = {
+     {"FROMORTONOTNEWS",	iFromToNotNews,	FOR_INDEX},
+     {"SIZE",		iSize,		FOR_INDEX},
+     {"SIZECOMMA",	iSizeComma,	FOR_INDEX},
++    {"SIZETHREAD",	iSizeThread,	FOR_INDEX},
+     {"SIZENARROW",	iSizeNarrow,	FOR_INDEX},
+     {"KSIZE",		iKSize,		FOR_INDEX},
+     {"SUBJECT",		iSubject,	FOR_INDEX|FOR_REPLY_INTRO|FOR_TEMPLATE},
+@@ -913,7 +915,7 @@ static IndexColType fixed_ctypes[] = {
+     iSDateTimeS1, iSDateTimeS2, iSDateTimeS3, iSDateTimeS4,
+     iSDateTimeIso24, iSDateTimeIsoS24,
+     iSDateTimeS124, iSDateTimeS224, iSDateTimeS324, iSDateTimeS424,
+-    iSize, iSizeComma, iSizeNarrow, iKSize, iDescripSize,
++    iSize, iSizeComma, iSizeNarrow, iKSize, iDescripSize, iSizeThread,
+     iPrio, iPrioBang, iPrioAlpha, iInit,
+     iAtt, iTime24, iTime12, iTimezone, iMonAbb, iYear, iYear2Digit,
+     iDay2Digit, iMon2Digit, iDayOfWeekAbb, iScore, iMonLong, iDayOfWeek
+@@ -1106,6 +1108,7 @@ setup_index_header_widths(MAILSTREAM *stream)
+ 		  case iTime12:
+ 		  case iSize:
+ 		  case iKSize:
++		  case iSizeThread:
+ 		    cdesc->actual_length = 7;
+ 		    cdesc->adjustment = Right;
+ 		    break;
+@@ -1199,7 +1202,7 @@ setup_index_header_widths(MAILSTREAM *stream)
+ 	cdesc->ctype != iNothing;
+ 	cdesc++)
+       if(cdesc->ctype == iSize || cdesc->ctype == iKSize ||
+-         cdesc->ctype == iSizeNarrow ||
++         cdesc->ctype == iSizeNarrow  || cdesc->ctype == iSizeThread ||
+ 	 cdesc->ctype == iSizeComma || cdesc->ctype == iDescripSize){
+ 	  if(cdesc->actual_length == 0){
+ 	      if((fix=cdesc->width) > 0){ /* had this reserved */
+@@ -1582,10 +1585,12 @@ build_header_work(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+ 
+ 		/* find next thread which is visible */
+ 		do{
++		   unsigned long branch;
+ 		    if(mn_get_revsort(msgmap) && thrd->prevthd)
+ 		      thrd = fetch_thread(stream, thrd->prevthd);
+-		    else if(!mn_get_revsort(msgmap) && thrd->nextthd)
+-		      thrd = fetch_thread(stream, thrd->nextthd);
++			/*branch = get_branch(stream,thrd)*/
++		    else if(!mn_get_revsort(msgmap) && thrd->branch)
++		      thrd = fetch_thread(stream, thrd->branch);
+ 		    else
+ 		      thrd = NULL;
+ 		} while(thrd
+@@ -1996,13 +2001,10 @@ format_index_index_line(INDEXDATA_S *idata)
+      */
+     ice = copy_ice(ice);
+ 
++    thrd = fetch_thread(idata->stream, idata->rawno);
+     /* is this a collapsed thread index line? */
+-    if(!idata->bogus && THREADING()){
+-	thrd = fetch_thread(idata->stream, idata->rawno);
+-	collapsed = thrd && thrd->next
+-		    && get_lflag(idata->stream, NULL,
+-				 idata->rawno, MN_COLL);
+-    }
++    if(!idata->bogus && THREADING())
++	collapsed = thrd && thread_is_kolapsed(ps_global, idata->stream, ps_global->msgmap, idata->rawno);
+ 
+     /* calculate contents of the required fields */
+     for(cdesc = ps_global->index_disp_format; cdesc->ctype != iNothing; cdesc++)
+@@ -2500,7 +2502,30 @@ format_index_index_line(INDEXDATA_S *idata)
+ 
+ 	        break;
+ 
++           case iSizeThread:
++              if (!THREADING()){
++                goto getsize;
++              } else if (collapsed){
++                   l =  count_flags_in_thread(idata->stream, thrd, F_NONE);
++                   snprintf(str, sizeof(str), "(%lu)", l);
++              }
++              else{
++                  thrd = fetch_thread(idata->stream, idata->rawno);
++                  if(!thrd)
++                         snprintf(str, sizeof(str), "%s", "Error");
++                  else{
++                      long lengthb;
++                      lengthb = get_length_branch(idata->stream, idata->rawno);
++                      if (lengthb > 0L)
++                         snprintf(str, sizeof(str), "(%lu)", lengthb);
++                      else
++                         snprintf(str,sizeof(str), "%s", " ");
++                    }
++              }
++             break;
++
+ 	      case iSize:
++getsize:
+ 		/* 0 ... 9999 */
+ 		if((l = fetch_size(idata)) < 10*1000L)
+ 		  snprintf(str, sizeof(str), "(%lu)", l);
+@@ -5372,10 +5397,8 @@ subj_str(INDEXDATA_S *idata, char *str, size_t strsize, SubjKW kwtype, int openi
+ 
+ 	if(pith_opt_condense_thread_cue)
+ 	  width = (*pith_opt_condense_thread_cue)(thd, ice, &str, &strsize, width,
+-						  thd && thd->next
+-						  && get_lflag(idata->stream,
+-							       NULL,idata->rawno,
+-							       MN_COLL));
++	   this_thread_is_kolapsed(ps_global, idata->stream, ps_global->msgmap, idata->rawno) &&
++	   (count_thread(ps_global,idata->stream, ps_global->msgmap, idata->rawno) != 1));
+ 
+ 	/*
+ 	 * width is < available strsize and
+@@ -6003,11 +6026,8 @@ from_str(IndexColType ctype, INDEXDATA_S *idata, char *str, size_t strsize, ICE_
+ 	border = str + width;
+ 	if(pith_opt_condense_thread_cue)
+ 	  width = (*pith_opt_condense_thread_cue)(thd, ice, &str, &strsize, width,
+-						  thd && thd->next
+-						  && get_lflag(idata->stream,
+-							       NULL,idata->rawno,
+-							       MN_COLL));
+-
++	   this_thread_is_kolapsed(ps_global, idata->stream, ps_global->msgmap, idata->rawno) &&
++	     (count_thread(ps_global,idata->stream, ps_global->msgmap, idata->rawno) != 1));
+ 	fptr = str;
+ 
+ 	if(thd)
+diff --git a/pith/pattern.c b/pith/pattern.c
+index 0a6fa26..31fd1fc 100644
+--- a/pith/pattern.c
++++ b/pith/pattern.c
+@@ -1755,7 +1755,7 @@ parse_action_slash(char *str, ACTION_S *action)
+ 	    SortOrder def_sort;
+ 	    int       def_sort_rev;
+ 
+-	    if(decode_sort(p, &def_sort, &def_sort_rev) != -1){
++	    if(decode_sort(p, &def_sort, &def_sort_rev, 0) != -1){
+ 		action->sort_is_set = 1;
+ 		action->sortorder = def_sort;
+ 		action->revsort   = (def_sort_rev ? 1 : 0);
+diff --git a/pith/pine.hlp b/pith/pine.hlp
+index b6f2693..580720e 100644
+--- a/pith/pine.hlp
++++ b/pith/pine.hlp
+@@ -3513,6 +3513,7 @@ There are also additional details on
+ <li><a href="h_config_signature_file">OPTION: <!--#echo var="VAR_signature-file"--></a>
+ <li><a href="h_config_smtp_server">OPTION: <!--#echo var="VAR_smtp-server"--></a>
+ <li><a href="h_config_sort_key">OPTION: <!--#echo var="VAR_sort-key"--></a>
++<li><a href="h_config_thread_sort_key">OPTION: <!--#echo var="VAR_thread-sort-key"--></a>
+ <li><a href="h_config_speller">OPTION: <!--#echo var="VAR_speller"--></a>
+ <li><a href="h_config_sshcmd">OPTION: <!--#echo var="VAR_ssh-command"--></a>
+ <li><a href="h_config_ssh_open_timeo">OPTION: <!--#echo var="VAR_ssh-open-timeout"--></a>
+@@ -5397,6 +5398,159 @@ the names of the carbon copy addresses of the message.
+ &lt;End of help on this topic&gt;
+ </BODY>
+ </HTML>
++======= h_thread_index_sort_arrival =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Arrival</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Arrival</H1>
++
++The <EM>Arrival</EM> sort option arranges threads according to the last 
++time that a message was added to it. In this order the last thread 
++contains the most recent message in the folder.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_date =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Date</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Date</H1>
++
++The <EM>Date</EM> sort option in the THREAD&nbsp;INDEX screen sorts
++threads by the date in which messages were sent. The thread containing the
++last message in this order is displayed last.
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_subj =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Subject</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Subject</H1>
++
++The <EM>Subject</EM> sort option has not been defined yet.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_ordsubj =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: OrderedSubject</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: OrderedSubject</H1>
++
++The <EM>OrderedSubject</EM> sort option in the THREAD&nbsp;INDEX screen is
++the same as sorting by <A HREF="h_thread_index_sort_subj">Subject</A>.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_thread =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Thread</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Thread</H1>
++
++The <EM>Thread</EM> sort option in the THREAD&nbsp;INDEX screen sorts all 
++messages by the proposed algorithm by Crispin and Murchison. In this 
++method of sorting once threads have been isolated they are sorted by the 
++date of their parents, or if that is missing, the first message in that 
++thread.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_from =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: From</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: From</H1>
++
++The <EM>From</EM> sort option has not been defined yet.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_size =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Size</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Size</H1>
++
++The <EM>Size</EM> sort option has not been defined yet.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_score =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Score</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Score</H1>
++
++The <EM>Score</EM> sort option means that threads are sorted according to 
++the maximum score of a message in that thread. A thread all of whose 
++messages contain a smaller score than a message in some other thread is 
++placed in an earlier place in the list of messages for that folder; that 
++is, threads with the highest scores appear at the bottom of the index 
++list.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_to =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: To</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: To</H1>
++
++The <EM>To</EM> sort option has not been defined yet.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
++======= h_thread_index_sort_cc =======
++<HTML>
++<HEAD>
++<TITLE>SORT OPTION: Cc</TITLE>
++</HEAD>
++<BODY>
++<H1>SORT OPTION: Cc</H1>
++
++The <EM>Cc</EM> sort option has not been defined yet.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
+ ======= h_index_cmd_whereis =======
+ <HTML>
+ <HEAD>
+@@ -18763,6 +18917,14 @@ The progression of sizes used looks like:
+ <P>
+ </DD>
+ 
++<DT>SIZETHREAD</DT>
++<DD>
++This token represents the total size of the thread for a collapsed thread
++or the size of the branch for an expanded thread. The field is omitted for
++messages that are not top of threads nor branches and it defaults to
++the SIZE token when your folders is not sorted by thread.
++</DD>
++
+ <DT>SIZENARROW</DT>
+ <DD>
+ This token represents the total size, in bytes, of the message.
+@@ -22128,6 +22290,45 @@ command, then it will not be re-sorted until the next time it is opened.
+ &lt;End of help on this topic&gt;
+ </BODY>
+ </HTML>
++====== h_config_thread_sort_key =====
++<HTML>
++<HEAD>
++<TITLE>OPTION: <!--#echo var="VAR_thread-sort-key--></TITLE>
++</HEAD>
++<BODY>
++<H1>OPTION: <!--#echo var="VAR_thread-sort-key--></TITLE></H1>
++
++This option determines the order in which threads will be displayed. You 
++can choose from the options listed below. Each folder is sorted in one of 
++the sort orders displayed below first, then the thread containing the last 
++message of that sorted list is put at the end of the index. All messages 
++of that thread are &quot;removed&quot; from the sorted list and the 
++process is repeated with the remaining messages in that list.
++
++<P>
++<UL>
++ <LI> <A HREF="h_thread_index_sort_arrival">Arrival</A>
++ <LI> <A HREF="h_thread_index_sort_date">Date</A>
++<!-- <LI> <A HREF="h_thread_index_sort_subj">Subject</A>
++ <LI> <A HREF="h_thread_index_sort_ordsubj">OrderedSubj</A>-->
++ <LI> <A HREF="h_thread_index_sort_thread">Thread</A>
++<!-- <LI> <A HREF="h_thread_index_sort_from">From</A>
++ <LI> <A HREF="h_thread_index_sort_size">Size</A> -->
++ <LI> <A HREF="h_thread_index_sort_score">Score</A>
++<!-- <LI> <A HREF="h_thread_index_sort_to">To</A>
++ <LI> <A HREF="h_thread_index_sort_cc">Cc</A>-->
++</UL>
++
++<P> Each type of sort may also be reversed. Normal default is by
++&quot;Thread&quot;.
++
++<P>
++<UL>   
++<LI><A HREF="h_finding_help">Finding more information and requesting help</A>
++</UL><P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
+ ====== h_config_other_startup =====
+ <HTML>
+ <HEAD>
+@@ -29848,6 +30049,23 @@ Reply Use, Forward Use, and Compose Use.
+ &lt;End of help on this topic&gt;
+ </BODY>
+ </HTML>
++====== h_config_enhanced_thread =====
++<HTML>
++<HEAD>
++<TITLE>FEATURE: <!--#echo var="FEAT_enhanced-fancy-thread-support"--></TITLE>
++</HEAD>
++<BODY>
++<H1>FEATURE: <!--#echo var="FEAT_enhanced-fancy-thread-support"--></H1>
++
++If this option is set certain commands in Pine will operate in loose
++threads too. For example, the command ^D marks a thread deleted, but if
++this feature is set, it will remove all threads that share the same missing
++parent with this thread.
++
++<P>
++&lt;End of help on this topic&gt;
++</BODY>
++</HTML>
+ ====== h_config_news_cross_deletes =====
+ <HTML>
+ <HEAD>
+diff --git a/pith/sort.c b/pith/sort.c
+index 223f81c..2c51f0e 100644
+--- a/pith/sort.c
++++ b/pith/sort.c
+@@ -90,7 +90,7 @@ Args: msgmap --
+   ----*/
+ void
+ sort_folder(MAILSTREAM *stream, MSGNO_S *msgmap, SortOrder new_sort,
+-	    int new_rev, unsigned int flags)
++	    int new_rev, unsigned int flags, int first)
+ {
+     long	   raw_current, i, j;
+     unsigned long *sort = NULL;
+@@ -100,6 +100,15 @@ sort_folder(MAILSTREAM *stream, MSGNO_S *msgmap, SortOrder new_sort,
+     int	           current_rev;
+     MESSAGECACHE  *mc;
+ 
++    if (first){
++       if (new_sort == SortThread)
++        find_msgmap(stream, msgmap, flags,
++                 ps_global->thread_cur_sort, new_rev);
++       else
++        sort_folder(stream, msgmap, new_sort, new_rev, flags, 0);
++       return;
++    }
++
+     dprint((2, "Sorting by %s%s\n",
+ 	       sort_name(new_sort), new_rev ? "/reverse" : ""));
+ 
+@@ -529,20 +538,20 @@ percent_sorted(void)
+  * argument also means arrival/reverse.
+  */
+ int
+-decode_sort(char *sort_spec, SortOrder *def_sort, int *def_sort_rev)
++decode_sort(char *sort_spec, SortOrder *def_sort, int *def_sort_rev, int thread)
+ {
+     char *sep;
+     char *fix_this = NULL;
+-    int   x, reverse;
++    int   x = 0, reverse;
+ 
+     if(!sort_spec || !*sort_spec){
+-	*def_sort = SortArrival;
++	*def_sort = thread ? SortThread : SortArrival;
+ 	*def_sort_rev = 0;
+         return(0);
+     }
+ 
+     if(struncmp(sort_spec, "reverse", strlen(sort_spec)) == 0){
+-	*def_sort = SortArrival;
++	*def_sort = thread ? SortThread : SortArrival;
+ 	*def_sort_rev = 1;
+         return(0);
+     }
+@@ -571,7 +580,7 @@ decode_sort(char *sort_spec, SortOrder *def_sort, int *def_sort_rev)
+     if(ps_global->sort_types[x] == EndofList)
+       return(-1);
+ 
+-    *def_sort     = ps_global->sort_types[x];
++    *def_sort	  = ps_global->sort_types[x];
+     *def_sort_rev = reverse;
+     return(0);
+ }
+@@ -688,7 +697,9 @@ reset_sort_order(unsigned int flags)
+ 
+     /* set default order */
+     the_sort_order = ps_global->def_sort;
+-    sort_is_rev    = ps_global->def_sort_rev;
++    sort_is_rev    = the_sort_order == SortThread
++			? (ps_global->thread_def_sort_rev + ps_global->def_sort_rev) % 2
++			: ps_global->def_sort_rev;
+ 
+     if(ps_global->mail_stream && nonempty_patterns(rflags, &pstate)){
+ 	for(pat = first_pattern(&pstate); pat; pat = next_pattern(&pstate)){
+@@ -701,9 +712,15 @@ reset_sort_order(unsigned int flags)
+ 	   && pat->action->sort_is_set){
+ 	    the_sort_order = pat->action->sortorder;
+ 	    sort_is_rev    = pat->action->revsort;
++	    sort_is_rev    = the_sort_order == SortThread
++				? (ps_global->thread_def_sort_rev + pat->action->revsort) % 2
++				: pat->action->revsort;
+ 	}
+     }
+ 
++    if(the_sort_order == SortThread && !(flags & SRT_MAN))
++      ps_global->thread_cur_sort = ps_global->thread_def_sort;
++
+     sort_folder(ps_global->mail_stream, ps_global->msgmap,
+-		the_sort_order, sort_is_rev, flags);
++		the_sort_order, sort_is_rev, flags, 1);
+ }
+diff --git a/pith/sort.h b/pith/sort.h
+index ce383a0..82ed6f2 100644
+--- a/pith/sort.h
++++ b/pith/sort.h
+@@ -22,7 +22,7 @@
+ 
+ 
+ #define	refresh_sort(S,M,F)	sort_folder((S), (M), mn_get_sort(M), \
+-					    mn_get_revsort(M), (F))
++					    mn_get_revsort(M), (F), 1)
+ 
+ struct global_sort_data {
+     MSGNO_S *msgmap;
+@@ -41,8 +41,8 @@ extern struct global_sort_data g_sort;
+ 
+ /* exported protoypes */
+ char	*sort_name(SortOrder);
+-void	 sort_folder(MAILSTREAM *, MSGNO_S *, SortOrder, int, unsigned);
+-int	 decode_sort(char *, SortOrder *, int *);
++void	 sort_folder(MAILSTREAM *, MSGNO_S *, SortOrder, int, unsigned, int);
++int	 decode_sort(char *, SortOrder *, int *, int);
+ void	 reset_sort_order(unsigned);
+ 
+ 
+diff --git a/pith/state.c b/pith/state.c
+index a00548a..7a2d85d 100644
+--- a/pith/state.c
++++ b/pith/state.c
+@@ -73,6 +73,7 @@ new_pine_struct(void)
+ 
+     p		       = (struct pine *)fs_get(sizeof (struct pine));
+     memset((void *) p, 0, sizeof(struct pine));
++    p->thread_def_sort = SortDate;
+     p->def_sort        = SortArrival;
+     p->sort_types[0]   = SortSubject;
+     p->sort_types[1]   = SortArrival;
+diff --git a/pith/state.h b/pith/state.h
+index 565ab9f..b7e698b 100644
+--- a/pith/state.h
++++ b/pith/state.h
+@@ -135,6 +135,8 @@ struct pine {
+     unsigned     unseen_in_view:1;
+     unsigned     start_in_context:1;	/* start fldr_scrn in current cntxt */
+     unsigned     def_sort_rev:1;	/* true if reverse sort is default  */ 
++    unsigned	 thread_def_sort_rev:1; /* true if reverse sort is default in thread screen  */
++    unsigned	 msgmap_thread_def_sort_rev:1; /* true if reverse sort is being used in thread screen  */
+     unsigned     restricted:1;
+ 
+     unsigned	 save_msg_rule:5;
+@@ -281,6 +283,9 @@ struct pine {
+     EditWhich	 ew_for_srch_take;
+ 
+     SortOrder    def_sort,	/* Default sort type */
++		 thread_def_sort, /* Default Sort Type in Thread Screen */
++		 thread_cur_sort, /* current sort style for threads */
++		 msgmap_thread_sort,
+ 		 sort_types[22];
+ 
+     int          last_expire_year, last_expire_month;
+diff --git a/pith/thread.c b/pith/thread.c
+index 985f8aa..5123c61 100644
+--- a/pith/thread.c
++++ b/pith/thread.c
+@@ -29,12 +29,13 @@ static char rcsid[] = "$Id: thread.c 942 2008-03-04 18:21:33Z hubert@u.washingto
+ #include "../pith/mailcmd.h"
+ #include "../pith/ablookup.h"
+ 
++static int erase_thread_info = 1;
+ 
+ /*
+  * Internal prototypes
+  */
+ long *sort_thread_flatten(THREADNODE *, MAILSTREAM *, long *,
+-			  char *, long, PINETHRD_S *, unsigned);
++			  char *, long, PINETHRD_S *, unsigned, int, long, long);
+ void		   make_thrdflags_consistent(MAILSTREAM *, MSGNO_S *, PINETHRD_S *, int);
+ THREADNODE	  *collapse_threadnode_tree(THREADNODE *);
+ THREADNODE	  *collapse_threadnode_tree_sorted(THREADNODE *);
+@@ -94,20 +95,22 @@ void
+ set_flags_for_thread(MAILSTREAM *stream, MSGNO_S *msgmap, int f, PINETHRD_S *thrd, int v)
+ {
+     PINETHRD_S *nthrd, *bthrd;
++    unsigned long next = 0L, branch = 0L;
+ 
+     if(!(stream && thrd && msgmap))
+       return;
+ 
+     set_lflag(stream, msgmap, mn_raw2m(msgmap, thrd->rawno), f, v);
+ 
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next = get_next(stream,thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  set_flags_for_thread(stream, msgmap, f, nthrd, v);
+     }
+ 
+-    if(thrd->branch){
+-	bthrd = fetch_thread(stream, thrd->branch);
++
++    if(branch = get_branch(stream, thrd)){
++	bthrd = fetch_thread(stream, branch);
+ 	if(bthrd)
+ 	  set_flags_for_thread(stream, msgmap, f, bthrd, v);
+     }
+@@ -121,7 +124,7 @@ erase_threading_info(MAILSTREAM *stream, MSGNO_S *msgmap)
+     MESSAGECACHE *mc;
+     PINELT_S     *peltp;
+ 
+-    if(!(stream && stream->spare))
++    if(!(stream && stream->spare) || !erase_thread_info)
+       return;
+     
+     ps_global->view_skipped_index = 0;
+@@ -154,7 +157,7 @@ sort_thread_callback(MAILSTREAM *stream, THREADNODE *tree)
+     PINETHRD_S   *thrd = NULL;
+     unsigned long msgno, rawno;
+     int           un_view_thread = 0;
+-    long          raw_current;
++    long          raw_current, branch;
+     char         *dup_chk = NULL;
+ 
+ 
+@@ -167,10 +170,11 @@ sort_thread_callback(MAILSTREAM *stream, THREADNODE *tree)
+      * way. If the dummy node is at the top-level, then its children are
+      * promoted to the top-level as separate threads.
+      */
+-    if(F_ON(F_THREAD_SORTS_BY_ARRIVAL, ps_global))
+-      collapsed_tree = collapse_threadnode_tree_sorted(tree);
+-    else
+-      collapsed_tree = collapse_threadnode_tree(tree);
++     collapsed_tree = F_ON(F_ENHANCED_THREAD, ps_global)
++			? copy_tree(tree)
++			: (F_ON(F_THREAD_SORTS_BY_ARRIVAL, ps_global)
++			  ? collapse_threadnode_tree_sorted(tree)
++			  : collapse_threadnode_tree(tree));
+ 
+     /* dup_chk is like sort with an origin of 1 */
+     dup_chk = (char *) fs_get((mn_get_nmsgs(g_sort.msgmap)+1) * sizeof(char));
+@@ -181,7 +185,7 @@ sort_thread_callback(MAILSTREAM *stream, THREADNODE *tree)
+     (void) sort_thread_flatten(collapsed_tree, stream,
+ 			       &g_sort.msgmap->sort[1],
+ 			       dup_chk, mn_get_nmsgs(g_sort.msgmap),
+-			       NULL, THD_TOP);
++			       NULL, THD_TOP, 0, 1L, 0L);
+ 
+     /* reset the inverse array */
+     msgno_reset_isort(g_sort.msgmap);
+@@ -339,12 +343,14 @@ sort_thread_callback(MAILSTREAM *stream, THREADNODE *tree)
+ 	else{
+ 	    thrd = fetch_head_thread(stream);
+ 	    while(thrd){
++		unsigned long raw = thrd->rawno;
++		unsigned long top = top_thread(stream, raw);
+ 		/*
+ 		 * The top-level threads aren't hidden by collapse.
+ 		 */
+ 		msgno = mn_raw2m(g_sort.msgmap, thrd->rawno);
+-		if(msgno)
+-		  set_lflag(stream, g_sort.msgmap, msgno, MN_CHID, 0);
++		if(msgno && !get_lflag(stream, NULL,thrd->rawno, MN_COLL))
++		   set_lflag(stream, g_sort.msgmap, msgno, MN_CHID, 0);
+ 
+ 		if(thrd->next){
+ 		    PINETHRD_S *nthrd;
+@@ -358,9 +364,10 @@ sort_thread_callback(MAILSTREAM *stream, THREADNODE *tree)
+ 							  MN_COLL));
+ 		}
+ 
+-		if(thrd->nextthd)
+-		  thrd = fetch_thread(stream, thrd->nextthd);
+-		else
++		while (thrd && top_thread(stream, thrd->rawno) == top
++				&& thrd->nextthd)
++		thrd = fetch_thread(stream, thrd->nextthd);
++		if (!(thrd && thrd->nextthd))
+ 		  thrd = NULL;
+ 	    }
+ 	}
+@@ -411,7 +418,7 @@ make_thrdflags_consistent(MAILSTREAM *stream, MSGNO_S *msgmap, PINETHRD_S *thrd,
+ 			  int a_parent_is_collapsed)
+ {
+     PINETHRD_S *nthrd, *bthrd;
+-    unsigned long msgno;
++    unsigned long msgno, next, branch;
+ 
+     if(!thrd)
+       return;
+@@ -429,8 +436,8 @@ make_thrdflags_consistent(MAILSTREAM *stream, MSGNO_S *msgmap, PINETHRD_S *thrd,
+ 	  set_lflag(stream, msgmap, msgno, MN_CHID, 0);
+     }
+ 
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next = get_next(stream, thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  make_thrdflags_consistent(stream, msgmap, nthrd,
+ 				    a_parent_is_collapsed
+@@ -439,8 +446,8 @@ make_thrdflags_consistent(MAILSTREAM *stream, MSGNO_S *msgmap, PINETHRD_S *thrd,
+ 						  MN_COLL));
+     }
+ 
+-    if(thrd->branch){
+-	bthrd = fetch_thread(stream, thrd->branch);
++    if(branch = get_branch(stream, thrd)){
++	bthrd = fetch_thread(stream, branch);
+ 	if(bthrd)
+ 	  make_thrdflags_consistent(stream, msgmap, bthrd,
+ 				    a_parent_is_collapsed);
+@@ -487,9 +494,10 @@ calculate_visible_threads(MAILSTREAM *stream)
+ long *
+ sort_thread_flatten(THREADNODE *node, MAILSTREAM *stream,
+ 		    long *entry, char *dup_chk, long maxno,
+-		    PINETHRD_S *thrd, unsigned int flags)
++		    PINETHRD_S *thrd, unsigned int flags,
++		    int adopted, long top, long threadno)
+ {
+-    PINETHRD_S *newthrd = NULL;
++    PINETHRD_S *newthrd = NULL, *save_thread = NULL;
+ 
+     if(node){
+ 	if(node->num > 0L && node->num <= maxno){		/* holes happen */
+@@ -497,6 +505,9 @@ sort_thread_flatten(THREADNODE *node, MAILSTREAM *stream,
+ 		*entry = node->num;
+ 		dup_chk[node->num] = 1;
+ 
++		if(adopted == 2)
++		  top = node->num;
++
+ 		/*
+ 		 * Build a richer threading structure that will help us paint
+ 		 * and operate on threads and subthreads.
+@@ -505,20 +516,51 @@ sort_thread_flatten(THREADNODE *node, MAILSTREAM *stream,
+ 		if(newthrd){
+ 		  entry++;
+ 
++		  if(adopted == 2)
++		    threadno = newthrd->thrdno;
++		  if(adopted){
++		    newthrd->toploose = top;
++		    newthrd->thrdno = threadno;
++		  }
++		  adopted = adopted ? 1 : 0;
+ 		  if(node->next)
+ 		    entry = sort_thread_flatten(node->next, stream,
+ 						entry, dup_chk, maxno,
+-						newthrd, THD_NEXT);
++						newthrd, THD_NEXT, adopted, top, threadno);
+ 
+ 		  if(node->branch)
+ 		    entry = sort_thread_flatten(node->branch, stream,
+ 						entry, dup_chk, maxno,
+ 						newthrd,
+-						(flags == THD_TOP) ? THD_TOP
+-								   : THD_BRANCH);
++						((flags == THD_TOP) ? THD_TOP
++								   : THD_BRANCH),
++						adopted, top, threadno);
+ 		}
+ 	    }
+ 	}
++	else{
++	   adopted = 2;
++	   if(node->next)
++	     entry = sort_thread_flatten(node->next, stream, entry, dup_chk,
++					  maxno, thrd, THD_TOP, adopted, top, threadno);
++	   adopted = 0;
++	   if(node->branch){
++	     if(entry){
++		long *last_entry = entry;
++
++		do{ 
++		  last_entry--;
++		  save_thread = ((PINELT_S *)mail_elt(stream, *last_entry)->sparep)->pthrd;
++		} while (save_thread->parent != 0L);
++		entry = sort_thread_flatten(node->branch, stream, entry, dup_chk,
++						maxno, save_thread, (flags == THD_TOP ? THD_TOP : THD_BRANCH),
++						adopted, top, threadno);
++	     }
++	     else
++		entry = sort_thread_flatten(node->branch, stream, entry, dup_chk,
++					    maxno, NULL, THD_TOP, adopted, top, threadno);
++	   }
++	}
+     }
+ 
+     return(entry);
+@@ -787,7 +829,7 @@ msgno_thread_info(MAILSTREAM *stream, long unsigned int rawno,
+  */
+ void
+ collapse_or_expand(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+-		   long unsigned int msgno)
++		   long unsigned int msgno, int display)
+ {
+     int           collapsed, adjust_current = 0;
+     PINETHRD_S   *thrd = NULL, *nthrd;
+@@ -840,7 +882,7 @@ collapse_or_expand(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+     if(!thrd)
+       return;
+ 
+-    collapsed = get_lflag(stream, NULL, thrd->rawno, MN_COLL) && thrd->next;
++    collapsed = this_thread_is_kolapsed(ps_global, stream, msgmap, thrd->rawno);
+ 
+     if(collapsed){
+ 	msgno = mn_raw2m(msgmap, thrd->rawno);
+@@ -858,13 +900,13 @@ collapse_or_expand(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap,
+ 	msgno = mn_raw2m(msgmap, thrd->rawno);
+ 	if(msgno > 0L && msgno <= mn_get_total(msgmap)){
+ 	    set_lflag(stream, msgmap, msgno, MN_COLL, 1);
+-	    if((nthrd = fetch_thread(stream, thrd->next)) != NULL)
++	    if((thrd->next) && ((nthrd = fetch_thread(stream, thrd->next)) != NULL))
+ 	      set_thread_subtree(stream, nthrd, msgmap, 1, MN_CHID);
+ 
+ 	    clear_index_cache_ent(stream, msgno, 0);
+ 	}
+     }
+-    else
++    else if(display)
+       q_status_message(SM_ORDER, 0, 1,
+ 		       _("No thread to collapse or expand on this line"));
+     
+@@ -951,18 +993,19 @@ count_flags_in_thread(MAILSTREAM *stream, PINETHRD_S *thrd, long int flags)
+     unsigned long count = 0;
+     PINETHRD_S *nthrd, *bthrd;
+     MESSAGECACHE *mc;
++    unsigned long next = 0L, branch = 0L;
+ 
+     if(!thrd || !stream || thrd->rawno < 1L || thrd->rawno > stream->nmsgs)
+       return count;
+     
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next = get_next(stream, thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  count += count_flags_in_thread(stream, nthrd, flags);
+     }
+ 
+-    if(thrd->branch){
+-	bthrd = fetch_thread(stream, thrd->branch);
++    if(branch = get_branch(stream, thrd)){
++	bthrd = fetch_thread(stream, branch);
+ 	if(bthrd)
+ 	  count += count_flags_in_thread(stream, bthrd, flags);
+     }
+@@ -1050,20 +1093,21 @@ int
+ mark_msgs_in_thread(MAILSTREAM *stream, PINETHRD_S *thrd, MSGNO_S *msgmap)
+ {
+     int           count = 0;
++    long          next, branch;
+     PINETHRD_S   *nthrd, *bthrd;
+     MESSAGECACHE *mc;
+ 
+     if(!thrd || !stream || thrd->rawno < 1L || thrd->rawno > stream->nmsgs)
+       return count;
+ 
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next = get_next(stream, thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  count += mark_msgs_in_thread(stream, nthrd, msgmap);
+     }
+ 
+-    if(thrd->branch){
+-	bthrd = fetch_thread(stream, thrd->branch);
++    if(branch = get_branch(stream, thrd)){
++	bthrd = fetch_thread(stream, branch);
+ 	if(bthrd)
+ 	  count += mark_msgs_in_thread(stream, bthrd, msgmap);
+     }
+@@ -1097,7 +1141,7 @@ set_thread_lflags(MAILSTREAM *stream, PINETHRD_S *thrd, MSGNO_S *msgmap, int fla
+                       		/* flags to set or clear */
+                   		/* set or clear? */
+ {
+-    unsigned long msgno;
++    unsigned long msgno, next, branch;
+     PINETHRD_S *nthrd, *bthrd;
+ 
+     if(!thrd || !stream || thrd->rawno < 1L || thrd->rawno > stream->nmsgs)
+@@ -1121,14 +1165,14 @@ set_thread_lflags(MAILSTREAM *stream, PINETHRD_S *thrd, MSGNO_S *msgmap, int fla
+     if(msgno > 0L && flags == MN_CHID2 && v == 1)
+       clear_index_cache_ent(stream, msgno, 0);
+ 
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next = get_next(stream, thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  set_thread_lflags(stream, nthrd, msgmap, flags, v);
+     }
+ 
+-    if(thrd->branch){
+-	bthrd = fetch_thread(stream, thrd->branch);
++    if(branch = get_branch(stream,thrd)){
++	bthrd = fetch_thread(stream, branch);
+ 	if(bthrd)
+ 	  set_thread_lflags(stream, bthrd, msgmap, flags, v);
+     }
+@@ -1217,19 +1261,20 @@ to_us_symbol_for_thread(MAILSTREAM *stream, PINETHRD_S *thrd, int consider_flagg
+     char        to_us = ' ';
+     char        branch_to_us = ' ';
+     PINETHRD_S *nthrd, *bthrd;
++    unsigned long next = 0L, branch = 0L;
+     MESSAGECACHE *mc;
+ 
+     if(!thrd || !stream || thrd->rawno < 1L || thrd->rawno > stream->nmsgs)
+       return to_us;
+ 
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next = get_next(stream,thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  to_us = to_us_symbol_for_thread(stream, nthrd, consider_flagged);
+     }
+ 
+     if(((consider_flagged && to_us != '*') || (!consider_flagged && to_us != '+'))
+-       && thrd->branch){
++       && (branch = get_branch(stream, thrd))){
+ 	bthrd = fetch_thread(stream, thrd->branch);
+ 	if(bthrd)
+ 	  branch_to_us = to_us_symbol_for_thread(stream, bthrd, consider_flagged);
+@@ -1279,7 +1324,7 @@ to_us_symbol_for_thread(MAILSTREAM *stream, PINETHRD_S *thrd, int consider_flagg
+ 		  break;
+ 	      }
+ 	    
+-	    if(to_us != '+' && resent_to_us(&idata))
++	    if(to_us != '+' && !idata.bogus && resent_to_us(&idata))
+ 	      to_us = '+';
+ 
+ 	    if(to_us == ' ' && F_ON(F_MARK_FOR_CC,ps_global))
+@@ -1327,7 +1372,8 @@ set_thread_subtree(MAILSTREAM *stream, PINETHRD_S *thrd, MSGNO_S *msgmap, int v,
+ 
+     set_lflag(stream, msgmap, msgno, flags, v);
+ 
+-    if(thrd->next && (hiding || !get_lflag(stream,NULL,thrd->rawno,MN_COLL))){
++    if(thrd->next
++	 && (hiding || !get_lflag(stream,NULL,thrd->rawno,MN_COLL))){
+ 	nthrd = fetch_thread(stream, thrd->next);
+ 	if(nthrd)
+ 	  set_thread_subtree(stream, nthrd, msgmap, v, flags);
+@@ -1367,8 +1413,8 @@ view_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, int set_lfl
+     if(rawno)
+       thrd = fetch_thread(stream, rawno);
+ 
+-    if(thrd && thrd->top && thrd->top != thrd->rawno)
+-      thrd = fetch_thread(stream, thrd->top);
++    if(thrd && thrd->top && top_thread(stream,thrd->top) != thrd->rawno)
++      thrd = fetch_thread(stream, top_thread(stream,thrd->top));
+     
+     if(!thrd)
+       return 0;
+@@ -1432,7 +1478,7 @@ unview_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap)
+       thrd = fetch_thread(stream, rawno);
+     
+     if(thrd && thrd->top)
+-      topthrd = fetch_thread(stream, thrd->top);
++      topthrd = fetch_thread(stream, top_thread(stream,thrd->top));
+     
+     if(!topthrd)
+       return 0;
+@@ -1538,6 +1584,7 @@ void
+ set_search_bit_for_thread(MAILSTREAM *stream, PINETHRD_S *thrd, SEARCHSET **msgset)
+ {
+     PINETHRD_S *nthrd, *bthrd;
++    unsigned long next, branch;
+ 
+     if(!(stream && thrd))
+       return;
+@@ -1546,15 +1593,593 @@ set_search_bit_for_thread(MAILSTREAM *stream, PINETHRD_S *thrd, SEARCHSET **msgs
+        && (!(msgset && *msgset) || in_searchset(*msgset, thrd->rawno)))
+       mm_searched(stream, thrd->rawno);
+ 
+-    if(thrd->next){
+-	nthrd = fetch_thread(stream, thrd->next);
++    if(next= get_next(stream, thrd)){
++	nthrd = fetch_thread(stream, next);
+ 	if(nthrd)
+ 	  set_search_bit_for_thread(stream, nthrd, msgset);
+     }
+ 
+-    if(thrd->branch){
+-	bthrd = fetch_thread(stream, thrd->branch);
++    if(branch = get_branch(stream, thrd)){
++	bthrd = fetch_thread(stream, branch);
+ 	if(bthrd)
+ 	  set_search_bit_for_thread(stream, bthrd, msgset);
+     }
+ }
++
++/*
++ * Make a copy of c-client's THREAD tree
++ */
++THREADNODE *
++copy_tree(THREADNODE *tree)
++{
++    THREADNODE *newtree = NULL;
++
++    if(tree){
++        newtree = mail_newthreadnode(NULL);
++        newtree->num  = tree->num;
++        if(tree->next)
++           newtree->next = copy_tree(tree->next);
++
++        if(tree->branch)
++           newtree->branch = copy_tree(tree->branch);
++    }
++    return(newtree);
++}
++
++long
++top_thread(MAILSTREAM *stream, long rawmsgno)
++{
++     PINETHRD_S   *thrd = NULL;
++     unsigned long rawno;
++
++     if(!stream)
++       return -1L;
++
++     if(rawmsgno)
++       thrd = fetch_thread(stream, rawmsgno);
++
++     if(!thrd)
++       return -1L;
++
++     return F_ON(F_ENHANCED_THREAD, ps_global) 
++		? (thrd->toploose ? thrd->toploose : thrd->top)
++		: thrd->top;
++}
++
++void
++move_top_thread(MAILSTREAM *stream, MSGNO_S *msgmap, long rawmsgno)
++{
++    mn_set_cur(msgmap,mn_raw2m(msgmap, top_thread(stream, rawmsgno)));
++}
++
++long
++top_this_thread(MAILSTREAM *stream, long rawmsgno)
++{
++     PINETHRD_S   *thrd = NULL;
++     unsigned long rawno;
++
++     if(!stream)
++       return -1L;
++
++     if(rawmsgno)
++       thrd = fetch_thread(stream, rawmsgno);
++
++     if(!thrd)
++       return -1L;
++
++     return thrd->top;
++}
++
++void
++move_top_this_thread(MAILSTREAM *stream, MSGNO_S *msgmap, long rawmsgno)
++{
++    mn_set_cur(msgmap,mn_raw2m(msgmap, top_this_thread(stream, rawmsgno)));
++}
++
++int
++thread_is_kolapsed(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, long rawmsgno)
++{
++    int          collapsed;
++    PINETHRD_S   *thrd = NULL;
++    unsigned long rawno, orig, orig_rawno;
++
++    if(!stream)
++      return -1;
++
++    orig = mn_get_cur(msgmap);
++    move_top_thread(stream, msgmap, rawmsgno);
++    rawno = orig_rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(rawno)
++      thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++      return -1;
++    
++    while(collapsed = this_thread_is_kolapsed(state, stream, msgmap, rawno))
++       if (F_OFF(F_ENHANCED_THREAD, state)
++          || (move_next_this_thread(state, stream, msgmap, 0) <= 0)
++	  || !(rawno = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++	  || (orig_rawno != top_thread(stream, rawno)))
++	break;
++
++    mn_set_cur(msgmap,orig); /* return home */
++
++    return collapsed;
++}
++
++/* this function tells us if the thread (or branch in the case of loose threads)
++ * is collapsed
++ */
++
++int
++this_thread_is_kolapsed(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, long rawmsgno)
++{
++    int          collapsed;
++    PINETHRD_S   *thrd = NULL;
++    unsigned long rawno, orig;
++
++    if(!stream)
++      return -1;
++
++    rawno = rawmsgno;
++    if(rawno)
++      thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++      return -1;
++
++    collapsed = get_lflag(stream, NULL, rawno, MN_COLL | MN_CHID);
++
++    if (!thrd->next){
++      if (thrd->rawno != top_thread(stream, thrd->rawno))
++	collapsed = get_lflag(stream, NULL, rawno,  MN_CHID);
++      else
++	collapsed = get_lflag(stream, NULL, rawno,  MN_COLL);
++    }
++
++    return collapsed;
++}
++
++/* 
++ * This function assumes that it is called at a top of a thread in its 
++ * first call
++ */
++
++int
++count_this_thread(MAILSTREAM *stream, unsigned long rawno)
++{
++    unsigned long top, orig_top, topnxt;
++    PINETHRD_S   *thrd = NULL;
++    int count = 1;
++
++    if(!stream)
++      return 0;
++
++    if(rawno)
++      thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++      return 0;
++
++    if (thrd->next)
++       count += count_this_thread(stream, thrd->next);
++
++    if (thrd->branch)
++       count += count_this_thread(stream, thrd->branch);
++
++    return count;
++}
++
++int
++count_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, long rawno)
++{
++    unsigned long top, orig, orig_top;
++    PINETHRD_S   *thrd = NULL;
++    int done = 0, count = 0;
++
++    if(!stream)
++      return 0;
++
++    orig = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_thread(stream, msgmap,rawno);
++    top =  orig_top = top_thread(stream, rawno);
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return 0;
++
++    while (!done){
++      count += count_this_thread(stream, top);
++      if (F_OFF(F_ENHANCED_THREAD, state)
++         || (move_next_this_thread(state, stream, msgmap, 0) <= 0)
++	 || !(top = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++	 || (orig_top != top_thread(stream, top)))
++	 done++;
++    }
++    mn_set_cur(msgmap,mn_raw2m(msgmap, orig));
++    return count;
++}
++
++unsigned long
++get_branch(MAILSTREAM *stream, PINETHRD_S *thrd)
++{
++  PINETHRD_S *nthrd = NULL;
++  unsigned long top;
++ 
++  if (thrd->toploose && thrd->nextthd)
++    nthrd = fetch_thread(stream, thrd->nextthd);
++  if (!nthrd)
++    return thrd->branch;
++  top = top_thread(stream, thrd->rawno);
++  return thrd->branch 
++	   ? thrd->branch 
++	   : (F_ON(F_ENHANCED_THREAD, ps_global) 
++		? (top == top_thread(stream, nthrd->rawno) ? thrd->nextthd : 0L)
++		: 0L);
++}
++
++unsigned long
++get_next(MAILSTREAM *stream, PINETHRD_S *thrd)
++{
++  return thrd->next;
++}
++
++long
++get_length_branch(MAILSTREAM *stream, long rawno)
++{
++  int branchp = 0, done = 0;
++  long top, count = 1L, raw;
++  PINETHRD_S *thrd, *pthrd = NULL, *nthrd;
++
++  thrd = fetch_thread(stream, rawno);
++
++  if (!thrd)
++    return -1L;
++
++  top = thrd->top;
++
++  if (thrd->parent)
++    pthrd = fetch_thread(stream, thrd->parent);
++
++  if (thrd->rawno == top)
++     branchp++;
++
++  if (!branchp && !pthrd){	/* what!!?? */
++     raw = top;
++     while (!done){
++        pthrd = fetch_thread(stream, raw);
++        if ((pthrd->next == rawno) || (pthrd->branch == rawno))
++           done++;
++        else{
++	   if (pthrd->next)
++	      raw = pthrd->next;
++	   else if (pthrd->branch)
++	      raw = pthrd->branch;
++	}
++     }
++  }
++
++  if (pthrd && pthrd->next == thrd->rawno && thrd->branch)
++     branchp++;
++
++  if (pthrd && pthrd->next && pthrd->next != thrd->rawno){
++     nthrd = fetch_thread(stream, pthrd->next);
++     while (nthrd && nthrd->branch && nthrd->branch != thrd->rawno)
++	nthrd = fetch_thread(stream, nthrd->branch);
++     if(nthrd && nthrd->branch && nthrd->branch == thrd->rawno)
++	branchp++;
++  }
++
++  if(branchp){
++    int entry = 0;
++    while(thrd && thrd->next){
++	entry = 1;
++	count++;
++	thrd = fetch_thread(stream, thrd->next);
++	if (thrd->branch)
++	   break;
++    }
++    if (entry && thrd->branch)
++	count--;
++  }
++  return branchp ? (count ? count : 1L) : 0L;
++}
++
++void
++find_msgmap(MAILSTREAM *stream, MSGNO_S *msgmap, int flags, SortOrder ordersort, unsigned is_rev)
++{
++   int we_cancel;
++   long *old_arrival,*new_arrival;
++   long init_thread, end_thread, current;
++   long k = 1L, j, last_thread = 0L;
++   long i, tmsg, ntmsg, nthreads;
++   char        sort_msg[MAX_SCREEN_COLS+1] = {'\0'};
++   PINETHRD_S *thrd, *tthrd, *nthrd;
++ 
++   erase_thread_info = 0;
++   current = mn_m2raw(msgmap, mn_get_cur(msgmap));
++
++   sort_folder(stream, msgmap, ordersort, 0, SRT_VRB, 0);
++
++   tmsg = mn_get_total(msgmap) + 1;
++
++   if (tmsg <= 1)
++     return;
++
++   old_arrival = (long *) fs_get(tmsg * sizeof(long));
++   memset(old_arrival, 0, tmsg*sizeof(long));
++   for (i= 1L;(i <= mn_get_total(msgmap)) && (old_arrival[i] = msgmap->sort[i]); i++);
++
++   /* now sort by thread */
++   sort_folder(stream, msgmap, SortThread, 0, SRT_VRB, 0);
++   ntmsg = mn_get_total(msgmap) + 1;
++
++   if (tmsg != ntmsg){	/* oh oh, something happened,we better try again */
++	fs_give((void **)&old_arrival);
++	find_msgmap(stream, msgmap, flags, ordersort, is_rev);
++	return;
++   }
++
++   /* reconstruct the msgmap */
++
++   new_arrival = (long *) fs_get(tmsg * sizeof(long));
++   memset(new_arrival, 0, tmsg*sizeof(long));
++   i = mn_get_total(msgmap);
++   while (new_arrival[1] == 0){ /* think of this as (tmsg > 0) */
++        int done = 0;
++	long n = mn_get_total(msgmap);
++
++        init_thread = top_thread(stream, old_arrival[i]);
++	thrd = fetch_thread(stream, init_thread);
++        while ((new_arrival[n] != 0) && !done){ /* compare raw numbers */
++          done = (new_arrival[n] == init_thread); 
++          n--;
++        }
++        if (!done){
++	   k = 1L;
++	   mn_set_cur(msgmap, mn_raw2m(msgmap, init_thread));
++	   if  (move_next_thread(ps_global, stream, msgmap, 0) <= 0)
++	 	j = mn_get_total(msgmap) - mn_raw2m(msgmap, init_thread) + 1;
++	   else
++		j = mn_get_cur(msgmap) - mn_raw2m(msgmap, init_thread);
++           end_thread = mn_raw2m(msgmap, init_thread) + j;
++           while (k <= j){
++              new_arrival[tmsg - k] = msgmap->sort[end_thread - k];
++              k++;
++           }
++           tmsg -= j;
++       }
++       i--;
++   }
++   relink_threads(stream, msgmap, new_arrival);
++   for (i = 1; (i <= mn_get_total(msgmap)) 
++		&&  (msgmap->sort[i] = new_arrival[i]); i++);
++   msgno_reset_isort(msgmap);
++
++   fs_give((void **)&new_arrival);
++   fs_give((void **)&old_arrival);
++
++
++   if(is_rev && (mn_get_total(msgmap) > 1L)){
++      long *rev_sort;
++      long i = 1L, l = mn_get_total(msgmap);
++
++      rev_sort = (long *) fs_get((mn_get_total(msgmap)+1L) * sizeof(long));
++      memset(rev_sort, 0, (mn_get_total(msgmap)+1L)*sizeof(long));
++      while (l > 0L){
++	 if (top_thread(stream, msgmap->sort[l]) == msgmap->sort[l]){
++	    long init_thread = msgmap->sort[l];
++	    long j, k;
++
++	    mn_set_cur(msgmap, mn_raw2m(msgmap, init_thread));
++	    if (move_next_thread(ps_global, stream, msgmap, 0) <= 0)
++	 	j = mn_get_total(msgmap) - mn_raw2m(msgmap, init_thread) + 1;
++	    else
++		j = mn_get_cur(msgmap) - mn_raw2m(msgmap, init_thread);
++	    for (k = 0L; (k < j) && (rev_sort[i+k] = msgmap->sort[l+k]); k++);
++	    i += j;
++	 }
++	 l--;
++      }
++      relink_threads(stream, msgmap, rev_sort);
++      for (i = 1L; i <=  mn_get_total(msgmap); i++)
++        msgmap->sort[i] = rev_sort[i];
++      msgno_reset_isort(msgmap);
++      fs_give((void **)&rev_sort);
++   }
++   mn_reset_cur(msgmap, first_sorted_flagged(is_rev ? F_NONE : F_SRCHBACK,
++			stream, mn_raw2m(msgmap, current), FSF_SKIP_CHID));
++   msgmap->top = -1L;
++
++   sp_set_unsorted_newmail(ps_global->mail_stream, 0);
++
++   for(i = 1L; i <= ps_global->mail_stream->nmsgs; i++)
++      mail_elt(ps_global->mail_stream, i)->spare7 = 0;
++
++   mn_set_sort(msgmap, SortThread);
++   mn_set_revsort(msgmap, is_rev);
++   erase_thread_info = 1;
++   clear_index_cache(stream, 0);
++}
++
++void
++move_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, int direction)
++{
++  long new_cursor, old_cursor = mn_get_cur(msgmap);
++  int rv;
++  PINETHRD_S *thrd;
++
++   rv = direction > 0 ? move_next_thread(state, stream, msgmap, 1):
++			move_prev_thread(state, stream, msgmap, 1);
++   if (rv > 0 && THRD_INDX_ENABLED()){
++       new_cursor = mn_get_cur(msgmap);
++       mn_set_cur(msgmap, old_cursor);
++       unview_thread(state, stream, msgmap);
++       thrd = fetch_thread(stream,mn_m2raw(msgmap, new_cursor));
++       mn_set_cur(msgmap, new_cursor);
++       view_thread(state, stream, msgmap, 1);
++       state->next_screen = SCREEN_FUN_NULL;
++   }
++}
++
++void
++relink_threads(MAILSTREAM *stream, MSGNO_S *msgmap, long *new_arrival)
++{
++   long last_thread = 0L;
++   long i = 0L, j = 1L, k;
++   PINETHRD_S *thrd, *nthrd;
++
++   while (j <= mn_get_total(msgmap)){ 
++	i++;
++	thrd = fetch_thread(stream, new_arrival[j]);
++	if (!thrd)  /* sort failed!, better leave from here now!!! */
++	   break;
++	thrd->prevthd = last_thread;
++	thrd->thrdno  = i;
++	thrd->head    = new_arrival[1];
++	last_thread = thrd->rawno;
++	mn_set_cur(msgmap, mn_raw2m(msgmap,thrd->top));
++	k = mn_get_cur(msgmap);
++	if  (move_next_thread(ps_global, stream, msgmap, 0) <= 0)
++	    j += mn_get_total(msgmap) + 1 - k;
++	else
++	    j += mn_get_cur(msgmap) - k;
++	if (!thrd->toploose)
++	   thrd->nextthd = (j <= mn_get_total(msgmap)) ? new_arrival[j] : 0L;
++	else{
++	  int done = 0;
++	  while(thrd->nextthd && !done){
++	      thrd->thrdno = i;
++	      thrd->head    = new_arrival[1];
++	      if (thrd->nextthd)
++		 nthrd = fetch_thread(stream, thrd->nextthd);
++	      else
++		done++;
++	      if(top_thread(stream, thrd->rawno) == top_thread(stream, nthrd->rawno))
++		thrd = nthrd;
++	      else
++		done++;
++	  }
++	  thrd->nextthd = (j <= mn_get_total(msgmap)) ? new_arrival[j] : 0L;
++	  last_thread = thrd->rawno;
++	}
++   }
++}
++
++int
++move_next_this_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, int display)
++{
++    PINETHRD_S   *thrd = NULL, *thrdnxt;
++    unsigned long rawno, top;
++    int       rv = 1;
++
++    if(!stream)
++       return -1;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(rawno)
++      thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++      return -1;
++
++   top = top_thread(stream, rawno);
++
++   thrdnxt = (top == rawno) ? fetch_thread(stream, top) : thrd;
++   if (thrdnxt->nextthd)
++       mn_set_cur(msgmap,mn_raw2m(msgmap, thrdnxt->nextthd));
++   else{
++       rv = 0;
++       if (display)
++         q_status_message(SM_ORDER, 0, 1, "No more Threads to advance");
++   }
++   return rv;
++}
++
++int
++move_next_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, int display)
++{
++    int collapsed, rv = 1, done = 0;
++    PINETHRD_S   *thrd = NULL;
++    unsigned long orig, orig_top, top;
++
++    if(!stream)
++      return 0;
++
++    orig = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    move_top_thread(stream, msgmap,orig);
++    top = orig_top = mn_m2raw(msgmap, mn_get_cur(msgmap));
++
++    if(top)
++      thrd = fetch_thread(stream, top);
++
++    if(!thrd)
++      return 0;
++
++    while (rv > 0 && !done){
++      rv = move_next_this_thread(state, stream, msgmap, display);
++      if (F_OFF(F_ENHANCED_THREAD, state)
++         || !(top = mn_m2raw(msgmap, mn_get_cur(msgmap)))
++         || (orig_top != top_thread(stream, top)))
++         done++;
++    }
++    if (display){
++        if (rv > 0 && SEP_THRDINDX())
++           q_status_message(SM_ORDER, 0, 2, "Viewing next thread");
++        if (!rv)
++           q_status_message(SM_ORDER, 0, 2, "No more threads to advance");
++    }
++    if(rv <= 0){
++       rv = 0;
++       mn_set_cur(msgmap, mn_raw2m(msgmap, orig));
++    }
++
++   return rv;
++}
++
++int
++move_prev_thread(struct pine *state, MAILSTREAM *stream, MSGNO_S *msgmap, int display)
++{
++    PINETHRD_S   *thrd = NULL;
++    unsigned long rawno, top;
++    int rv = 1;
++
++    if(!stream)
++      return -1;
++
++    rawno = mn_m2raw(msgmap, mn_get_cur(msgmap));
++    if(rawno)
++      thrd = fetch_thread(stream, rawno);
++
++    if(!thrd)
++       return -1;
++
++    top = top_thread(stream, rawno);
++
++    if (top != rawno)
++       mn_set_cur(msgmap,mn_raw2m(msgmap, top));
++    else if (thrd->prevthd)
++       mn_set_cur(msgmap,mn_raw2m(msgmap, top_thread(stream,thrd->prevthd)));
++    else
++      rv = 0;
++    if (display){
++        if (rv && SEP_THRDINDX())
++           q_status_message(SM_ORDER, 0, 2, "Viewing previous thread");
++        if (!rv)
++           q_status_message(SM_ORDER, 0, 2, "No more threads to go back");
++    }
++
++    return rv;
++}
++
++/* add more keys to this list */
++int
++allowed_thread_key(SortOrder sort)
++{
++  return sort == SortArrival 
++	|| sort == SortDate
++	  || sort == SortScore
++	    || sort == SortThread;
++}
++
+diff --git a/pith/thread.h b/pith/thread.h
+index 40b09bb..4c5f1a9 100644
+--- a/pith/thread.h
++++ b/pith/thread.h
+@@ -37,6 +37,7 @@ typedef struct pine_thrd {
+     unsigned long nextthd;	/* next thread, only tops have this	*/
+     unsigned long prevthd;	/* previous thread, only tops have this	*/
+     unsigned long top;		/* top of this thread			*/
++    unsigned long toploose;	/* top of this thread, if is loose	*/
+     unsigned long head;		/* head of the whole thread list	*/
+ } PINETHRD_S;
+ 
+@@ -92,7 +93,7 @@ void	      erase_threading_info(MAILSTREAM *, MSGNO_S *);
+ void	      sort_thread_callback(MAILSTREAM *, THREADNODE *);
+ void	      collapse_threads(MAILSTREAM *, MSGNO_S *, PINETHRD_S *);
+ PINETHRD_S   *msgno_thread_info(MAILSTREAM *, unsigned long, PINETHRD_S *, unsigned);
+-void	      collapse_or_expand(struct pine *, MAILSTREAM *, MSGNO_S *, unsigned long);
++void	      collapse_or_expand(struct pine *, MAILSTREAM *, MSGNO_S *, unsigned long, int);
+ void	      select_thread_stmp(struct pine *, MAILSTREAM *, MSGNO_S *);
+ unsigned long count_flags_in_thread(MAILSTREAM *, PINETHRD_S *, long);
+ unsigned long count_lflags_in_thread(MAILSTREAM *, PINETHRD_S *, MSGNO_S *, int);
+@@ -106,6 +107,24 @@ int	      view_thread(struct pine *, MAILSTREAM *, MSGNO_S *, int);
+ int	      unview_thread(struct pine *, MAILSTREAM *, MSGNO_S *);
+ PINETHRD_S   *find_thread_by_number(MAILSTREAM *, MSGNO_S *, long, PINETHRD_S *);
+ void	      set_search_bit_for_thread(MAILSTREAM *, PINETHRD_S *, SEARCHSET **);
+-
++void	      find_msgmap(MAILSTREAM *, MSGNO_S *, int, SortOrder, unsigned);
++void	      move_thread(struct pine *, MAILSTREAM *, MSGNO_S *, int);
++void	      relink_threads(MAILSTREAM *, MSGNO_S *, long *);
++long	      top_thread(MAILSTREAM *, long);
++long	      top_this_thread(MAILSTREAM *, long);
++long	      get_length_branch(MAILSTREAM *, long);
++unsigned long get_next(MAILSTREAM *,PINETHRD_S *);
++unsigned long get_branch(MAILSTREAM *,PINETHRD_S *);
++int	      count_thread(struct pine *, MAILSTREAM *, MSGNO_S *, long);
++int	      count_this_thread(MAILSTREAM *, unsigned long);
++int	      this_thread_is_kolapsed(struct pine *, MAILSTREAM *, MSGNO_S *, long);
++int	      thread_is_kolapsed(struct pine *, MAILSTREAM *, MSGNO_S *, long);
++int	      move_prev_thread(struct pine *, MAILSTREAM  *, MSGNO_S *, int);
++int	      move_next_thread(struct pine *, MAILSTREAM  *, MSGNO_S *, int);
++int	      move_next_this_thread(struct pine *, MAILSTREAM  *, MSGNO_S *, int);
++void	      move_top_thread(MAILSTREAM *, MSGNO_S *, long);
++void	      move_top_this_thread(MAILSTREAM *, MSGNO_S *, long);
++THREADNODE   *copy_tree(THREADNODE *);
++int	      allowed_thread_key(SortOrder sort);
+ 
+ #endif /* PITH_THREAD_INCLUDED */
+diff --git a/web/src/alpined.d/alpined.c b/web/src/alpined.d/alpined.c
+index 3707e50..1a8bdeb 100644
+--- a/web/src/alpined.d/alpined.c
++++ b/web/src/alpined.d/alpined.c
+@@ -2755,7 +2755,7 @@ PEConfigCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST
+ 			      init_save_defaults();
+ 			      break;
+ 			    case V_SORT_KEY:
+-			      decode_sort(ps_global->VAR_SORT_KEY, &ps_global->def_sort, &def_sort_rev);
++			      decode_sort(ps_global->VAR_SORT_KEY, &ps_global->def_sort, &def_sort_rev, 0);
+ 			      break;
+ 			    case V_VIEW_HDR_COLORS :
+ 			      set_custom_spec_colors(ps_global);
+@@ -6331,7 +6331,7 @@ PEMailboxCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *CONST
+ 				      && mn_get_revsort(sp_msgmap(ps_global->mail_stream)) == reversed))
+ 				sort_folder(ps_global->mail_stream, sp_msgmap(ps_global->mail_stream),
+ 					    ps_global->sort_types[i], 
+-					    reversed, 0);
++					    reversed, 0, 1);
+ 
+ 			      break;
+ 			  }
