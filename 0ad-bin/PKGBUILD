@@ -1,8 +1,10 @@
+# Maintainer: crazyelf5
+
 pkgname=0ad-bin
 pkgver=alpha_8
-_pkgver=r10803-3.3
+_pkgver=r10803-3.4
 _dataver=r10803-1.1
-pkgrel=3
+pkgrel=4
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')

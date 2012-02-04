@@ -1,7 +1,7 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-spb
-pkgver=11
+pkgver=12
 pkgrel=1
 pkgdesc="Map of Spb for 2GIS"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ url="http://help.2gis.ru/linux/"
 license=('custom')
 depends=('2gis')
 source=("http://download.2gis.ru/arhives/2GISData_Spb-${pkgver}.orig.zip")
-md5sums=('9ec5336fc5f1a5767e1438747fa9ae93')
+md5sums=('f055ce1ae41e55d5399196cc09bb218e')
 
 build() {
 
