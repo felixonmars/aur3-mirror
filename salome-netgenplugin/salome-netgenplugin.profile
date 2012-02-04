@@ -1,4 +1,0 @@
-export NETGENPLUGIN_ROOT_DIR=/opt/salome/netgenplugin
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$NETGENPLUGIN_ROOT_DIR/lib/salome
-export PYTHONPATH=$PYTHONPATH:$NETGENPLUGIN_ROOT_DIR/lib/python2.6/site-packages
-export PATH=$PATH:$NETGENPLUGIN_ROOT_DIR/bin/salome

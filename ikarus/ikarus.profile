@@ -1,1 +1,0 @@
-export IKARUS_LIBRARY_PATH=$IKARUS_LIBRARY_PATH:/usr/lib/ikarus

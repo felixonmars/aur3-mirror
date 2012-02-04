@@ -1,5 +1,0 @@
-#!/bin/bash
-
-cd "/usr/share/hamsi"
-./HamsiManager.py $@
-exit $?

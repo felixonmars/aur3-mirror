@@ -1,1 +1,0 @@
-setenv XUVTOP /opt/chianti

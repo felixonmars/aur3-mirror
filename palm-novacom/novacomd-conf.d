@@ -1,1 +1,0 @@
-NOVACOMD_OPTIONS="-d"

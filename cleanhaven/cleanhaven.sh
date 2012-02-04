@@ -1,2 +1,0 @@
-cd /opt/cleanhaven
-./CleanHaven

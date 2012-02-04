@@ -1,4 +1,0 @@
-{
-  global: smfi_*;
-  local: *;
-};
