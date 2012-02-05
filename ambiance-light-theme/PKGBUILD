@@ -2,7 +2,7 @@
 
 pkgname=ambiance-light-theme
 pkgver=1.2
-pkgrel=1
+pkgrel=2
 pkgdesc="An ambiance theme (gtk2,gtk3,metaicity,xfwm4 and unity), modified to look like the version of natty."
 arch=('any')
 url="http://gnome-look.org/content/show.php/Ambiance+light?content=147222"
@@ -16,7 +16,9 @@ package() {
   mv Ambiance\ light Ambiance-light
   sed 's|Ambiance|Ambiance-light|g' -i Ambiance-light/index.theme
   find Ambiance-light/ -type f \
-      -exec install -Dm644 "{}" "$pkgdir/usr/share/themes/{}" \;
+      -exec install -Dm644 "{}" "${pkgdir}/usr/share/themes/{}" \;
+  find Ambiance-light/xfwm4 -type l \
+      -exec ln -s title-1-inactive.png "${pkgdir}/usr/share/themes/{}" \;
 }
 
 # vim:set ts=2 sw=2 et:
