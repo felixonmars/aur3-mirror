@@ -17,7 +17,7 @@ SB_PORT=8081
 SB_USER=sickbeard
 
 # Path of daemon PID file.
-SB_PID_FILE=/var/run/sickbeard/sickbeard.pid
+SB_PID_FILE_DIR=/run/sickbeard
 
 # Time to wait for Sick-Beard to shutdown (seconds).
 SB_SHUTDOWN_TIMEOUT=30
