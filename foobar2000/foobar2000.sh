@@ -24,4 +24,4 @@ for arg; do
     fi
 done
 
-WINEDEBUG=-all wine "$progHome/$progBin" "${args[@]}"
+wine "$progHome/$progBin" "${args[@]}"
