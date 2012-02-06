@@ -1,0 +1,135 @@
+diff --git a/grub-core/loader/i386/linux.c b/grub-core/loader/i386/linux.c
+index 67a4533..b61749d 100644
+--- a/grub-core/loader/i386/linux.c
++++ b/grub-core/loader/i386/linux.c
+@@ -183,13 +183,14 @@ free_pages (void)
+   grub_relocator_unload (relocator);
+   relocator = NULL;
+   real_mode_mem = prot_mode_mem = initrd_mem = 0;
+-  real_mode_target = prot_mode_target = initrd_mem_target = 0;
++  real_mode_target = initrd_mem_target = 0;
+ }
+ 
+ /* Allocate pages for the real mode code and the protected mode code
+    for linux as well as a memory map buffer.  */
+ static grub_err_t
+-allocate_pages (grub_size_t prot_size)
++allocate_pages (grub_size_t prot_size, grub_size_t *align,
++		grub_size_t min_align)
+ {
+   grub_size_t real_size, mmap_size;
+   grub_err_t err;
+@@ -269,18 +270,37 @@ allocate_pages (grub_size_t prot_size)
+ 					    + efi_mmap_size), 0);
+     if (err)
+       goto fail;
++
++    grub_errno = GRUB_ERR_NONE;
+     real_mode_mem = get_virtual_current_address (ch);
+   }
+   efi_mmap_buf = (grub_uint8_t *) real_mode_mem + real_size + mmap_size;
+ 
+-  prot_mode_target = GRUB_LINUX_BZIMAGE_ADDR;
+-
+   {
+     grub_relocator_chunk_t ch;
+     err = grub_relocator_alloc_chunk_addr (relocator, &ch,
+-					   prot_mode_target, prot_size, 0);
++					   prot_mode_target, prot_size, 1);
++    if (err)
++      {
++	unsigned int i;
++	for (i = *align; i >= min_align; i--)
++	  {
++	    err = grub_relocator_alloc_chunk_align (relocator, &ch,
++						    0x1000000, 0xffffffff,
++						    prot_size, 1 << i,
++						    GRUB_RELOCATOR_PREFERENCE_LOW);
++	    if (!err)
++	      {
++		*align = i;
++		prot_mode_target = get_physical_target_address (ch);
++		break;
++	      }
++	  }
++      }
++
+     if (err)
+       goto fail;
++
+     prot_mode_mem = get_virtual_current_address (ch);
+   }
+ 
+@@ -631,7 +651,7 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
+   struct linux_kernel_header lh;
+   struct linux_kernel_params *params;
+   grub_uint8_t setup_sects;
+-  grub_size_t real_size, prot_size;
++  grub_size_t real_size, prot_size, prot_file_size, align = 0, min_align = 0;
+   grub_ssize_t len;
+   int i;
+ 
+@@ -705,9 +725,31 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
+     setup_sects = GRUB_LINUX_DEFAULT_SETUP_SECTS;
+ 
+   real_size = setup_sects << GRUB_DISK_SECTOR_BITS;
+-  prot_size = grub_file_size (file) - real_size - GRUB_DISK_SECTOR_SIZE;
+ 
+-  if (allocate_pages (prot_size))
++  if (grub_le_to_cpu16 (lh.version) >= 0x205)
++    {
++      for (align = 0; align < 32; align++)
++	{
++	  if (grub_le_to_cpu32 (lh.kernel_alignment) & (1 << align))
++	    break;
++	}
++    }
++
++  if (grub_le_to_cpu16 (lh.version) >= 0x020a)
++    {
++      min_align = lh.min_alignment;
++      prot_size = grub_le_to_cpu32 (lh.init_size);
++      prot_mode_target = grub_le_to_cpu64 (lh.pref_address);
++    }
++  else
++    {
++      min_align = 0;
++      prot_size = grub_file_size (file) - real_size - GRUB_DISK_SECTOR_SIZE;
++      prot_mode_target = grub_le_to_cpu32 (lh.code32_start);
++    }
++
++  prot_file_size = grub_file_size (file) - real_size - GRUB_DISK_SECTOR_SIZE;
++  if (allocate_pages (prot_size, &align, min_align))
+     goto fail;
+ 
+   params = (struct linux_kernel_params *) real_mode_mem;
+@@ -715,6 +757,8 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
+   grub_memcpy (&params->setup_sects, &lh.setup_sects, sizeof (lh) - 0x1F1);
+ 
+   params->ps_mouse = params->padding10 =  0;
++  params->code32_start = prot_mode_target;
++  params->kernel_alignment = (1 << align);
+ 
+   len = 0x400 - sizeof (lh);
+   if (grub_file_read (file, (char *) real_mode_mem + sizeof (lh), len) != len)
+@@ -774,7 +818,7 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
+   grub_file_seek (file, real_size + GRUB_DISK_SECTOR_SIZE);
+ 
+   grub_dprintf ("linux", "bzImage, setup=0x%x, size=0x%x\n",
+-		(unsigned) real_size, (unsigned) prot_size);
++		(unsigned) real_size, (unsigned) prot_file_size);
+ 
+   /* Look for memory size and video mode specified on the command line.  */
+   linux_mem_size = 0;
+@@ -916,6 +960,11 @@ grub_cmd_linux (grub_command_t cmd __attribute__ ((unused)),
+     grub_error (GRUB_ERR_FILE_READ_ERROR, N_("premature end of file %s"),
+ 		argv[0]);
+ 
++  len = prot_file_size;
++  if (grub_file_read (file, prot_mode_mem, len) != len && !grub_errno)
++    grub_error (GRUB_ERR_FILE_READ_ERROR, N_("premature end of file %s"),
++		argv[0]);
++
+   if (grub_errno == GRUB_ERR_NONE)
+     {
+       grub_loader_set (grub_linux_boot, grub_linux_unload,
