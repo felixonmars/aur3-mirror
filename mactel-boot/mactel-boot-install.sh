@@ -13,6 +13,12 @@ if [[ -z "${1}" ]]; then
 	exit 0
 fi
 
+### check for root
+if ! [[ ${UID} -eq 0 ]]; then 
+	echo "ERROR: Please run as root user!"
+	exit 1
+fi
+
 set -x -e
 
 if [[ "$(df -T "${_HFS_PLUS_PART_MP}" | tail -n +2 | awk '{print $2}')" == "hfsplus" ]]; then
