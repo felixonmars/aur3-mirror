@@ -1,5 +1,5 @@
 pkgname=selenium-server-standalone
-pkgver=2.15.0
+pkgver=2.18.0
 pkgrel=1
 pkgdesc="selenium server"
 arch=(any)
@@ -11,9 +11,10 @@ noextract=(selenium-server-standalone-$pkgver.jar)
 source=(http://selenium.googlecode.com/files/selenium-server-standalone-$pkgver.jar
 	selenium-server.conf.d
 	selenium-server.rc)
-md5sums=('dbf89bfedf7a2a8d672d3a2e199e7913'
+md5sums=('8f6eb7f764009bf6ea51f4b5c5546045'
          '52d7774f2997c16a7e6b7672ae40d6ca'
          'ca9ee88f1b527db010980cdacb77e371')
+
 
 build() {
   cd "$srcdir"
