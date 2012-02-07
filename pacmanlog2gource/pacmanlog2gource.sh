@@ -226,9 +226,18 @@ echo -e "100 % done after \e[1;31m${TIMEFINAL}\e[0ms.\n"
 echo -e "Output files are \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m"
 echo -e "\t and \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m.\n\n"
 
+logbeginningdate=`cat ${LOGNOW} | head -n1 | awk '{print $1}' | sed  -e 's/\[//'`
+logbeginning=`date +"%d %b %Y" -d "${logbeginningdate}"`
+
+logenddate=`cat ${LOGNOW} | tail -n1 | awk '{print $1}' | sed  -e 's/\[//'`
+logend=`date +"%d %b %Y" -d "${logenddate}"`
+
+hostname=`hostname`
+arch=`arch`
+
 # this is how we can visualize the log
 echo "If you have \"gource\" installed (should be, since it is set as dependency), run"
-echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
+echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 --title \"Pacmanlog2gource, ${logbeginning} - ${logend}, hostname: ${hostname}, ${arch}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
 echo -e "to visualize the log using gource.\n"
 echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
 echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k \e[4;32mpacmanlog2gource_`date +%b\_%d\_%Y`.mp4\e[0m"
