@@ -5,7 +5,7 @@
 # Maintainer: David Adler <david dot jo dot adler aet gmail dot com>
 
 pkgname=ams-cvs
-pkgver=20110305
+pkgver=20120207
 pkgrel=1
 pkgdesc="Alsa Modular Synth, a realtime modular synthesizer and effect processor"
 arch=('i686' 'x86_64')
@@ -15,7 +15,7 @@ depends=('qt' 'clalsadrv' 'ladspa' 'fftw' 'jack')
 makedepends=('cvs')
 provides=('ams')
 conflicts=('ams')
-install=('ams.install')
+install='ams.install'
 _cvsroot=":pserver:anonymous@alsamodular.cvs.sourceforge.net:/cvsroot/alsamodular"
 _cvsmod="ams"
 
