@@ -9,4 +9,3 @@ static const char *highlightfgcolor = "#000000";
 
 static float widthscaling = 1.5;
 static float heightscaling = 2.0;
-
