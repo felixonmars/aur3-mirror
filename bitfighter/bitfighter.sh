@@ -1,3 +1,4 @@
-#!/bin/bash
+#!/bin/sh
+
 cd /opt/bitfighter
 ./bitfighter "$@"
