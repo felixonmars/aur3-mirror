@@ -5,14 +5,14 @@ pkgver='11.10.2'
 pkgrel=1
 pkgdesc="Ambiance & Radiance themes for Xfce and LXDE"
 arch=('any')
-license=('LGPL3')
+license=('GPL2')
 url="http://ravefinity.blogspot.com/"
 groups=
 depends=('gtk-engine-murrine' 'gtk-engine-unico')
 makedepends=
 options=
 install=
-source=(http://205.196.123.162/2yxs943v3b3g/d53x2tt6w2enawe/Ambiance%26Radiance-XfceLXDE-11-10-2.tar.gz)
+source=('http://xfce-look.org/CONTENT/content-files/146674-Ambiance&Radiance-XfceLXDE-11-10-2.tar.gz')
 md5sums=('7850c32b7a6c7d5e297a3f70376f82c4')
 
 build() {
