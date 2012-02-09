@@ -5,8 +5,8 @@
 _pkgname=abiword
 pkgname=$_pkgname-devel
 pkgver=2.9.2
-pkgrel=1
-pkgdesc="A fully-featured word processor"
+pkgrel=2
+pkgdesc="A fully-featured word processor (development release)"
 arch=('i686' 'x86_64')
 license=('GPL')
 url="http://www.abisource.com"
@@ -28,15 +28,18 @@ conflicts=("$_pkgname" "abiword-plugins")
 install=$_pkgname.install
 options=('!libtool')
 source=("http://www.abisource.com/downloads/$_pkgname/$pkgver/source/$_pkgname-$pkgver.tar.gz"
-        TelepathyBuddy.h)
+        TelepathyBuddy.h
+        abiword-2.9.2-libpng15.patch)
 sha1sums=('34a6e4e9c5619e8f2d619ac844519fc9378405b3'
-          '9bff2f533678706142f1815482b98ca5cb2b06b3')
+          '9bff2f533678706142f1815482b98ca5cb2b06b3'
+          'd5f8b57dadf2f33f3f6fc1b8ea851e391dfcc709')
 
 build() {
   cd "$srcdir/$_pkgname-$pkgver"
+  patch -Np0 -i "$srcdir/abiword-2.9.2-libpng15.patch"
   sed -i 's/libgoffice-0.10 >= 0.10.0/libgoffice-0.10 >= 0.9.1/
           s/goffice_req >= 0.10.0/goffice_req >= 0.9.1/' configure
-  ln -s "$srcdir/TelepathyBuddy.h" plugins/collab/backends/telepathy/unix/TelepathyBuddy.h
+  cp -rf "$srcdir/TelepathyBuddy.h" plugins/collab/backends/telepathy/unix/TelepathyBuddy.h
 
   ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
               --disable-maintainer-mode --disable-static \
