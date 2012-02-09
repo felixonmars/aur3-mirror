@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.7
+# ff-downloader v0.5.8
 ## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -19,9 +19,9 @@ use strict;
 use warnings;
 use feature qw(say switch);
 use Getopt::Long qw(:config no_ignore_case);
-use URI;
 use LWP;
-use GnuPG qw( :algo );
+use Digest::MD5;
+use File::Slurp;
 use Env 'HOME';
 
 my $browser;
@@ -70,14 +70,12 @@ HEADER
             return $lang_code;
     }   
 }
-my ($VER, $PACKAGE, $LANG, $REAL);
-my $SUFF = '';
+my ($VER, $PACKAGE, $LANG);
 my $pkg = 'ff'; #default value for "--package"
 my $res = GetOptions("version|v=s" => \$VER,
-                     "real|r"=>\$REAL,
                      "package|p=s" => \$pkg );	
 
-die ":: usage: $0 -p|--package=<package name [ff|tb]> -v|--version=<version number> -r|--real\n" unless $res and (scalar @ARGV == 0);
+die ":: usage: $0 -p|--package=<package name [ff|tb]> -v|--version=<version number>\n" unless $res and (scalar @ARGV == 0);
 given ($pkg)
 {
     when ('ff')  { $PACKAGE = 'firefox' }
@@ -85,7 +83,6 @@ given ($pkg)
     default { die qq{:: "$pkg" is not a valid value for "--package"! Please use "ff" or "tb"\n}}  
 }
 die qq{:: "--version" option is mandatory!\n} unless $VER;
-$SUFF = '-real' if $REAL;
 $LANG = read_config($pkg);
 
 if (!$LANG)
@@ -268,30 +265,38 @@ chomp $ARCH;
 
 $| = 1; # turn on autoflush;
 
-my $ff_path = "/pub/${PACKAGE}/releases/${VER}${SUFF}/linux-${ARCH}/${LANG}/${PACKAGE}-${VER}.tar.bz2";
+my $ff_bz2 = "${PACKAGE}-${VER}.tar.bz2";
+my $ff_path = "/pub/${PACKAGE}/releases/${VER}/linux-${ARCH}/${LANG}/${ff_bz2}";
 my $ff_url = URI->new('ftp://ftp.mozilla.org');
 $ff_url->path($ff_path);
 
 ##Downloading firefox##
-get_url( $ff_url, "${PACKAGE}-${VER}.tar.bz2" ) or die qq(:: ERROR - can't download "${PACKAGE}-${VER}.tar.bz2"\n); 
+get_url( $ff_url, $ff_bz2 ) or die qq(:: ERROR - can't download $ff_bz2\n); 
 
-########################################
-#strangely there are no signature files 
-#for this firefox release ... so as a
-#quick & dirty  workaround we skip the 
-#next section 
-########################################
+##downloading md5sums##
+$ff_url->path("/pub/${PACKAGE}/releases/${VER}/MD5SUMS");
+get_url( $ff_url, 'MD5SUMS' ) or die qq(:: ERROR - can't download MD5SUMS\n); 
 
-##downloading signature##
-#$ff_url->path("${ff_path}.asc");
-#get_url( $ff_url, "$PACKAGE-${VER}.tar.bz2.asc" ) or die qq(:: ERROR - can't download "${PACKAGE}-${VER}.tar.bz2.asc"\n); 
+## calculating & comparing md5 digest
+print ':: verifying MD5 checksum ... '; 
 
-##downloading public key
-#$ff_url->path("pub/${PACKAGE}/releases/${VER}${SUFF}/KEY");
-#get_url( $ff_url, "KEY" ) or die qq(:: ERROR - can't download 'KEY'\n); 
+my @md5_file = read_file('MD5SUMS');
+my $search_string = "linux-${ARCH}/${LANG}/${ff_bz2}";
+my $md5s;
+for (@md5_file)
+{
+    if ($_ =~ /([a-z0-9]+)\s{2}$search_string/)
+    {
+        $md5s= $1;
+        last;
+    }
+}
+die qq{:: ERROR - can't find a valid MD5 checksum in file 'MD5SUMS'!\n} unless $md5s;
 
-#print ':: verifying gnupg signature ... ';
-#my $gpg = new GnuPG();
-#$gpg->import_keys( keys => 'KEY');
-#$gpg->verify ( signature => "${PACKAGE}-${VER}.tar.bz2.asc", file => "${PACKAGE}-${VER}.tar.bz2");
-#say 'DONE';
+open(FILE, $ff_bz2) or die qq{:: ERROR - can't open "$ff_bz2": $!};
+binmode(FILE);
+my $digest = Digest::MD5->new->addfile(*FILE)->hexdigest;
+close(FILE);
+
+( $digest eq $md5s ) ? say 'DONE' : do {say 'FAILED'; exit 1};
+
