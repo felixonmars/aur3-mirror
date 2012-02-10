@@ -285,7 +285,7 @@ my $search_string = "linux-${ARCH}/${LANG}/${ff_bz2}";
 my $md5s;
 for (@md5_file)
 {
-    if ($_ =~ /([a-z0-9]+)\s{2}$search_string/)
+    if ($_ =~ /([a-z0-9]+)\s{2}[\.\/]*$search_string/)
     {
         $md5s= $1;
         last;
