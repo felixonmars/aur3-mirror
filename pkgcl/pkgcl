@@ -8,11 +8,7 @@ require 'nokogiri'
 require 'open-uri'
 require 'optparse'
 
-def colorize(text, color_code)
-  "\e[#{color_code}m#{text}\e[0m"
-end
-
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 @options = {}
 @options[:commits] = 1
 @options[:show_git_svn] = false
@@ -46,96 +42,119 @@ opts.parse!(ARGV)
 packages = []
 if STDIN.tty? == false
   ARGF.lines do |line|
-    packages << line.strip!.split(" ")[0]
+    packages << {:name => line.strip!.split(" ")[0]}
   end
 else
-  packages = ARGV
+  ARGV.each {|a| packages << {:name => a} }
 end
 
 puts opts if packages.empty?
 
+def colorize(text, color_code)
+  "\e[#{color_code}m#{text}\e[0m"
+end
+
 def get_pkg(pkg)
   repo, arch = "", ""
-  IO.popen([{"LC_ALL"=>"C"}, "pacman", "-Si", pkg, :err => :close]) do |io|
+  IO.popen([{"LC_ALL"=>"C"}, "pacman", "-Si", pkg[:name], :err => :close]) do |io|
     io.lines do |line|
       case line
       when /^Repository(\s?)*: (.+)$/
-        repo = $2
+        pkg[:repo] = $2
       when /^Architecture(\s?)*: (.+)$/
-        arch = $2
+        pkg[:arch] = $2
+      when /^Build Date(\s?)*: (.+)$/
+        build_date = Time.parse($2)
+        if build_date.strftime("%F") == Time.now.strftime("%F")
+          build_date = Time.now
+        end
+        pkg[:build_date] = build_date
       end
     end
   end
+end
 
-  if repo.empty? && arch.empty?
-    puts "["+colorize(pkg, 31)+"]"
-    puts "Not Found"
-    puts
-    return
-  end
-
+def get_pkg_info(pkg)
   # I need to get the correct git url from here, since some packages use a
   # different tracking repo (e.g. linux-headers => linux)
   # I'm also getting the last updated date from this url
-  doc = Nokogiri::HTML(open("http://www.archlinux.org/packages/#{repo}/#{arch}/#{pkg}"))
+  uri = "http://www.archlinux.org/packages/#{pkg[:repo]}/#{pkg[:arch]}/#{pkg[:name]}"
+  doc = Nokogiri::HTML(open(uri))
 
-  u_date = doc.at_xpath('.//th[text()="Last Updated:"]').parent.children[2].content
-
-  @pkg_time = Time.parse(u_date)
-  if @pkg_time.strftime("%F") == Time.now.strftime("%F")
-    @pkg_time = Time.now
-  end
-
-  return doc.css("div#actionlist ul li a")[1]['href']
+  pkg[:git_url] = doc.css("div#actionlist ul li a")[1]['href']
 end
 
-def show_commit(n)
-  age = @doc.css('table.list.nowrap tr.logheader')[n].css('td')[0].content
-
-  if @options[:testing_repo] == false then
-    case age
-    when /days/
-      git_time = Time.now - age.to_i*60*60*24
-    when /hours/
-      git_time = Time.now - age.to_i*60*60
-    when /min/
-      git_time = Time.now - age.to_i*60
-    else
-      git_time = Time.parse(age)
-    end
-
-    if git_time > @pkg_time then
-      return
-    end
+def age_test(commit_age, pkg)
+  case commit_age
+  when /days/
+    git_time = Time.now - commit_age.to_i*60*60*24
+  when /hours/
+    git_time = Time.now - commit_age.to_i*60*60
+  when /min/
+    git_time = Time.now - commit_age.to_i*60
+  else
+    git_time = Time.parse(commit_age)
   end
 
-  header = @doc.css('table.list.nowrap td.logsubject')[n].content
-  content = @doc.css('table.list.nowrap td.logmsg')[n].content
+  if git_time > pkg[:build_date] then
+    return false
+  else
+    return true
+  end
+end
 
+def get_commits(pkg)
+  pkg[:commits] = []
+
+  doc = Nokogiri::HTML(open("#{pkg[:git_url]}&showmsg=1"))
+  table = doc.css("table.list.nowrap")
+  table.css("td.logsubject").each_with_index do |n,i|
+    age = n.parent.children[0].content
+    if @options[:testing_repo] == false then
+      next if age_test(age, pkg) == false
+    end
+    commit = {}
+    age+=" ago" if /(days|hours|min)/ === age
+    commit[:age] = age
+    commit[:subject] = n.content
+    content = table.css("td.logmsg")[i].content
+    content.gsub!(/^git-svn-id.*$/, "") unless @options[:show_git_svn] == true
+    content.strip!
+    commit[:msg] = content.empty? ? "None" : content
+    pkg[:commits] << commit
+  end
+end
+
+def show_output(pkg)
   # Format and print the result
-  content.gsub!(/^git-svn-id.*$/, "") unless @options[:show_git_svn] == true
-  content.strip!
-  age.strip!
-  puts colorize(header, 4)
-  print colorize("Age: ", 37)
-  print colorize(age, 36)+" - "
-  puts content.empty? ? colorize("None", 32) : colorize(content, 32)
-  puts
-  @output +=1
+  print "["+colorize(pkg[:name], 31)+"]"
+  if pkg[:commits].count < @options[:commits]
+    print colorize(" (Only #{pkg[:commits].count} commits)\n", 33)
+  else
+    print "\n"
+  end
+
+  output = 0
+  pkg[:commits].each do |p|
+    break if output == @options[:commits]
+    puts colorize(p[:subject], 4)
+    print colorize("Age: ", 37)
+    print colorize(p[:age], 36)+" - "
+    puts colorize(p[:msg], 32)
+    puts
+    output +=1
+  end
 end
 
 packages.each do |p|
-  git_link = get_pkg(p)
-  puts "["+colorize(p, 31)+"]"
-
-  # get the page with the messages expanded
-  @doc = Nokogiri::HTML(open("#{git_link}&showmsg=1"))
-
-  @output = 0
-  n = 0
-  while @output < @options[:commits]
-    show_commit(n)
-    n +=1
+  get_pkg(p)
+  if p.has_key?(:arch) == false && p.has_key?(:repo) == false
+    puts "["+colorize(p[:name], 31)+"]"
+    puts "Not Found"
+    puts
+    next
   end
-
+  get_pkg_info(p)
+  get_commits(p)
+  show_output(p)
 end
