@@ -2,9 +2,9 @@
 
 pkgname=0ad-bin
 pkgver=alpha_8
-_pkgver=r10803-3.5
+_pkgver=r10803-3.6
 _dataver=r10803-1.1
-pkgrel=5
+pkgrel=6
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
