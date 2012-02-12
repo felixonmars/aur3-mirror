@@ -1,0 +1,136 @@
+#!/bin/bash
+
+VERSION='1.0'
+PROTOCOL=('http' 'ftp')
+IPV=(4)
+USE_STATUS=true
+COUNTRIES=()
+
+. /etc/pacman.d/update-mirrorlist.conf
+
+log() {
+	echo "$1"
+	echo `date +'[%Y-%m-%d %H:%M]'` "$1" >> /var/log/pacman.log
+}
+
+test_root() {
+	if [ $EUID -ne 0 ]; then
+		echo "Only root can update the mirrorlist"
+		exit 1
+	fi
+}
+
+usage() {
+	echo "Usage: ${0} [option]"
+	echo ''
+	echo 'Options:'
+	echo '  -v  Show version and exit'
+	echo '  -h  Show this help'
+	echo '  -r  Restore original mirrorlist'
+	echo '  -c  Check mirrorlist for errors'
+	echo ''
+	echo 'update-mirrorlist updates the pacman mirrorlist by retrieving'
+	echo 'a fresh list from http://www.archlinux.org/mirrorlist/'
+	echo ''
+	echo 'See /etc/pacman.d/update-mirrorlist.conf for configuration'
+}
+
+check() {
+	if [ -z `egrep -v '^#|^[[:blank:]]*$|^Server = (http)|(ftp)://' "$1"` ]; then
+		return 1
+	fi
+
+	return 0
+}
+
+restore() {
+	log 'Restoring original mirrorlist'
+
+	if [ -f /etc/pacman.d/mirrorlist.original ]; then
+		check /etc/pacman.d/mirrorlist.original
+
+		if [ $? -ne 1 ]; then
+			log 'Original mirrorlist seems to be corrupted.'
+			exit 1
+		fi
+
+		mv /etc/pacman.d/mirrorlist.original /etc/pacman.d/mirrorlist
+		log 'Restored original mirrorlist'
+		exit 0
+	fi
+
+	log 'File does not exist: /etc/pacman.d/mirrorlist.original'
+	exit 1
+}
+
+check_curlist() {
+	check /etc/pacman.d/mirrorlist
+
+	if [ $? -eq 1 ]; then
+		echo 'No errors found.'
+	else
+		echo 'WARNING: The mirrorlist seems to be corrupted!'
+		echo ''
+		echo 'Try:'
+		echo "  ${0}     to retrieve a new list from the server"
+		echo "  ${0} -r  to restore the original mirrorlist"
+	fi
+
+	exit 0
+}
+
+while getopts 'vhrc' opt; do
+	case ${opt} in
+		v) echo "update-mirrorlist, version ${VERSION}"; exit 0;;
+		r) test_root; restore;;
+		c) check_curlist;;
+		*) usage; exit 0;;
+	esac
+done
+
+test_root
+uri='http://www.archlinux.org/mirrorlist/?'
+
+if $USE_STATUS; then
+	uri="${uri}use_mirror_status=on&"
+fi
+
+for x in "${PROTOCOL[@]}"; do
+	uri="${uri}protocol=${x}&"
+done
+
+for x in "${IPV[@]}"; do
+	uri="${uri}ip_version=${x}&"
+done
+
+for x in "${COUNTRIES[@]}"; do
+	uri="${uri}country=${x}&"
+done
+
+if [ ! -e /etc/pacman.d/mirrorlist.original ]; then
+	log 'Backing up original mirrorlist'
+	cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.original
+fi
+
+log 'Updating mirrorlist'
+
+tmpfile=$(mktemp --suffix=-mirrorlist)
+
+if [ "`ping -c 1 archlinux.org`" ]; then
+	wget -qO- "$uri" | sed 's/^#Server/Server/g' > "$tmpfile"
+	check "$tmpfile"
+
+	if [ $? -ne 1 ]; then
+		log 'Retrieved mirrorlist seems to be corrupted.'
+		exit 1
+	fi
+
+	mv "$tmpfile" /etc/pacman.d/mirrorlist
+	chmod 644 /etc/pacman.d/mirrorlist
+	log 'Updated mirrorlist'
+else
+	log 'Error: Could not reach host: archlinux.org'
+	exit 1
+fi
+
+exit 0
