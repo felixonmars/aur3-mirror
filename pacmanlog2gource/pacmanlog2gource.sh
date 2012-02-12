@@ -1,8 +1,8 @@
 #!/bin/bash
 
 
-#    pacmanlog2gource - converts /var/log/pacman.log into gource-readeable format
-#    Copyright (C) 2012  Matthias Krüger
+#    pacmanlog2gource - converts a copy of /var/log/pacman.log into a format readable by gource
+#    Copyright (C) 2011-2012  Matthias Krüger
 
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -23,14 +23,68 @@
 # variables
 
 DATADIR=~/.pacmanlog2gource
-
 LOGTOBEPROCESSED=${DATADIR}/pacman_purged.log
-
 PACMANLOG=/var/log/pacman.log
-
 LOGNOW=${DATADIR}/pacman_now.log
+LOG=${DATADIR}/pacman_gource_tree.log
+
+UPDATE="true"
+COLOR="true"
+GOURCEPOST="false"
+FFMPEGPOST="false"
+GOURCEPOST="false"
+INFORMATION="false"
+
+RED='\e[1;31m'
+GREEN='\e[3;32m'
+GREENUL='\e[4;32m'
+WHITEUL='\e[4;02m'
+NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
+
+VERSION="1.7"
+
+FILENAMES=' '
+
+
+# check if we already have the datadir, if we don't have it, create it
+if [ ! -d "${DATADIR}" ] ; then
+	# workaround to not have colors displayed if we use -c option
+	if [[ $(echo "$*") == *c* ]] ; then
+		echo -e "No directory ${DATADIR} found, creating one."
+	else
+		echo -e "No directory ${WHITEUL}${DATADIR}${NC} found, creating one."
+	fi
+	# if we cannot create the datadir (wtf!?), complain
+	if [ mkdir ${DATADIR} ] ; then
+		:
+	else
+		echo -e "ERROR: Unable to create ${DATADIR}" >&2
+		exit 1
+	fi
+fi
+
+# print the version into a file so we can handle file formats being out of date properly later
+echo "${VERSION}" >> ${DATADIR}/version
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7"
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7/'` ]] ; then
+	if [[ $(echo "$*") == *c* ]] ; then
+		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
+	else
+		echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in ${WHITEUL}${DATADIR}/${NC} and re-run this script." >&2
+	fi
+	sleep 4
+	echo "Exiting..." >&2
+	exit 2
+fi
+
+# create empty logfile if non exists
+if [ ! -f ${LOGNOW} ] ; then
+	touch ${LOGNOW}
+fi
+
+
 
 # timer functions
 
@@ -45,186 +99,183 @@ timeend()
 	TDG=`calc $TEG - $TSG`
 }
 
-# start the timer
-timestart
+makelog() {
 
-
-# check if we already have the datadir, if we don't, create it
-if [ ! -d ${DATADIR} ] ; then
-	echo -e "No directory \e[4;02m${DATADIR}\e[0m found, creating one."
-	mkdir ${DATADIR}
-fi
-
-# print the version into a file so we handle file formats being out of date properly later
-echo "1.5" >> ${DATADIR}/version
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5/'` ]] ; then
-	echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in \e[4;02m${DATADIR}/\e[0m and re-run this script."
-	sleep 4
-	echo "Exiting..."
-	exit 1
-fi
-
-
-# create empty logfile if non exists
-if [ ! -a ${LOGNOW} ] ; then
-	touch ${LOGNOW}
-fi
-
-# copy the pacman log as pacman_tmp.log to our datadir
-# this way, log entries that have been made while the script run won't get lost, so we can process them next time we run the script
-
-cp ${PACMANLOG} ${DATADIR}/pacman_tmp.log
-
-
-echo -e "Getting diff between \e[4;02m${PACMANLOG}\e[0m and an older local copy."
-# we only want to proceed new entries, old ones are already included in the log
-diff -u ${LOGNOW} ${PACMANLOG} | awk /'^+'/ | sed -e 's/^+//' > ${DATADIR}/process.log
-
-
-
-#
-# core of the script
-#
-
-
-# get lines and size of the pacman log
-ORIGSIZE=`du ${DATADIR}/process.log | awk '{print $1}'`
-ORIGLINES=`cat ${DATADIR}/process.log | wc -l`
-
-echo -e "Purging the diff (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to \e[4;02m${DATADIR}\e[0m."
-cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' -e '/^$/d' | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
-
-PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
-
-LINE=1
-LINEPRCOUT=1
-MAXLINES=`cat ${LOGTOBEPROCESSED} | wc -l`
-
-echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kB)...\n"
-
-# process each line of LOGTOBEPROCESSED and extract important information
-
-while [ "$LINE" -le "$MAXLINES" ]; do
-#### processing the log ####
-
-# the line we are on
-	CURLINE=`awk NR==${LINE} ${LOGTOBEPROCESSED}`
-# the date of the entry, get characters 2-17
-	DATE="${CURLINE:1:16}"
-# convert the date into unix time which can be read by gource
-	UDATE=`date +"%s" -d "${DATE}"`
-# find out if the package was installed, upgraded or removed
-	STATE=`echo ${CURLINE} | awk '{print $3}' | sed -e 's/installed/A/' -e 's/upgraded/M/' -e 's/removed/D/'`
-# get the actual package name
-	PKG=`echo ${CURLINE} | awk '{print $4}'`
-# add extensions to the package name
-# this way we can have the packages grouped and nicely colored in gource
-#
-# todo: do things like:
-# first find everything that contains an x, then, continue searching only these for xorg, xf86 etc and not everything
-#
-	if [[ "${PKG}" == *lib* ]] && [[ "${PKG}" != *libreoffice* ]] ; then
-		PKG=lib/${PKG}.lib
-	elif [[ "${PKG}" == *xorg* ]]		 ; then
-		PKG=xorg/${PKG}.xorg
-	elif [[ "${PKG}" == *ttf* ]]		 ; then
-		PKG=ttf/${PKG}.ttf
-	elif [[ "${PKG}" == *xfce* ]]		 ; then
-		PKG=xfce/${PKG}.xfce
-	elif [[ "${PKG}" == *sdl* ]]		 ; then
-		PKG=sdl/${PKG}.sdl
-	elif [[ "${PKG}" == *xf86* ]]		 ; then
-		PKG=xf86/${PKG}.xf86
-	elif [[ "${PKG}" == *perl* ]]		 ; then
-		PKG=perl/${PKG}.perl
-	elif [[ "${PKG}" == *gnome* ]]		 ; then
-		PKG=gnome/${PKG}.gnome
-	elif [[ "${PKG}" == *libreoffice* ]] ; then
-		PKG=libreoffice/${PKG}.libreoffice
-	elif [[ "${PKG}" == *gtk* ]]		 ; then
-		PKG=gtk/${PKG}.gtk
-	elif [[ "${PKG}" == *gstreamer* ]]	 ; then
-		PKG=gstreamer/${PKG}.gstreamer
-	elif [[ "${PKG}" == *kde* ]]		 ; then
-		PKG=kde/${PKG}.kde
-	elif [[ "${PKG}" == *python* ]]		 ; then
-		PKG=python/${PKG}.python
-	elif [[ "${PKG}" == *py* ]]			 ; then
-		PKG=python/${PKG}.python
-	elif [[ "${PKG}" == *lxde* ]]		 ; then
-		PKG=lxde/${PKG}.lxde
-	elif [[ "${PKG}" == ^lx* ]]			 ; then
-		PKG=lxde/${PKG}.lxde
-	elif [[ "${PKG}" == *php* ]]		 ; then
-		PKG=php/${PKG}.php
-	elif [[ "${PKG}" == *alsa* ]]		 ; then
-		PKG=alsa/${PKG}.alsa
-	elif [[ "${PKG}" == *compiz* ]]		 ; then
-		PKG=compiz/${PKG}.compiz
-	elif [[ "${PKG}" == *dbus* ]]		 ; then
-		PKG=dbus/${PKG}.dbus
-	elif [[ "${PKG}" == *gambas* ]]		 ; then
-		PKG=gambas/${PKG}.gambas
-	elif [[ "${PKG}" == *qt* ]]			 ; then
-		PKG=qt/${PKG}.qt
-	elif [[ "${PKG}" == *firefox* ]]	 ; then
-		PKG=mozilla/${PKG}.mozilla
-	elif [[ "${PKG}" == *thunderbird* ]] ; then
-		PKG=mozilla/${PKG}.mozilla
-	elif [[ "${PKG}" == *seamonky* ]]	 ; then
-		PKG=mozilla/${PKG}.mozilla
+	# check if pacman is currently in use
+	if [ -f "/var/lib/pacman/db.lck" ] ; then
+		echo "ERROR, pacman is currently in use, please wait and re-run whe pacman is done." >&2
+		exit 3
 	fi
 
+	# start the timer
+	timestart
 
-# write the important stuff into our logfile
-	echo "${UDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
+	# copy the pacman log as pacman_tmp.log to our datadir
+	cp ${PACMANLOG} ${DATADIR}/pacman_tmp.log
+
+	echo -e "Getting diff between ${WHITEUL}${PACMANLOG}${NC} and an older local copy."
+	# we only want to proceed new entries, old ones are already included in the log
+	diff -u ${LOGNOW} ${PACMANLOG} | awk /'^+'/ | sed -e 's/^+//' > ${DATADIR}/process.log
 
 
-# here we print how log the script already took to run and try to estimate how log it will run until it finishes'
-# but we only update this every 500 lines to avoid unnecessary spamming
-# this will mostly be printed when initially obtaining the log
-	if [ "${LINEPERCOUT}" == "500" ] ; then
-		LINECOUNTCOOKIE=1
-		# can we use  expr  here, or something more simple?
-		LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
-		timeend
-		# same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
-		TGDOUT=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
-		TIMEDONEONE=`calc -p "100 / ${LINEPERC:0:4} *${TDG}" | sed 's/\~//'`
-		TIMEDONEFINAL=`calc -p "${TIMEDONEONE} - ${TDG}" | sed 's/\~//' | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
-		echo "Already ${LINEPERC:0:4}% done after ${TGDOUT}s."
-		echo -e "Done in approximately ${TIMEDONEFINAL}s.\n"
-		LINEPERCOUT=0
+	######################
+	# core of the script #
+	######################
+
+
+	# get lines and size of the pacman log
+	ORIGSIZE=`du ${DATADIR}/process.log | awk '{print $1}'`
+	ORIGLINES=`wc -l ${DATADIR}/process.log | awk '{print $2}'`
+
+	echo -e "Purging the diff (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WHITEUL}${DATADIR}${NC}."
+	cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' -e '/^$/d' | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
+
+	PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
+
+	LINE=1
+	LINEPRCOUT=1
+	MAXLINES=`cat ${LOGTOBEPROCESSED} | wc -l`
+
+	echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kB)...\n"
+
+	# process each line of LOGTOBEPROCESSED and extract important information
+
+	while [ "$LINE" -le "$MAXLINES" ]; do
+		########################
+		## processing the log ##
+		########################
+
+		#    the line we process
+		CURLINE=`awk NR==${LINE} ${LOGTOBEPROCESSED}`
+		#    the date of the entry, get characters 2-17
+		DATE="${CURLINE:1:16}"
+		#    convert the date into unix time which can be read by gource
+		UNIXDATE=`date +"%s" -d "${DATE}"`
+		#    find out if the package was installed, upgraded or removed
+		STATE=`echo ${CURLINE} | awk '{print $3}' | sed -e 's/installed/A/' -e 's/upgraded/M/' -e 's/removed/D/'`
+		#    get the actual package name
+		PKG=`echo ${CURLINE} | awk '{print $4}'`
+		#    add extensions to the package name
+		#    this way we can have the packages grouped and nicely colored in gource
+		#
+		#    todo: do things like:
+		#    first find everything that contains an x, then, continue searching only these for xorg, xf86 etc and not everything
+		#    also:  can we use awk here?
+		#
+
+		if [[ "${PKG}" == *lib* ]] && [[ "${PKG}" != *libreoffice* ]] ; then
+			PKG=lib/${PKG}.lib
+		elif [[ "${PKG}" == *xorg* ]]		 ; then
+			PKG=xorg/${PKG}.xorg
+		elif [[ "${PKG}" == *ttf* ]]		 ; then
+			PKG=ttf/${PKG}.ttf
+		elif [[ "${PKG}" == *xfce* ]]		 ; then
+			PKG=xfce/${PKG}.xfce
+		elif [[ "${PKG}" == *sdl* ]]		 ; then
+			PKG=sdl/${PKG}.sdl
+		elif [[ "${PKG}" == *xf86* ]]		 ; then
+			PKG=xf86/${PKG}.xf86
+		elif [[ "${PKG}" == *perl* ]]		 ; then
+			PKG=perl/${PKG}.perl
+		elif [[ "${PKG}" == *gnome* ]]		 ; then
+			PKG=gnome/${PKG}.gnome
+		elif [[ "${PKG}" == *libreoffice* ]] ; then
+			PKG=libreoffice/${PKG}.libreoffice
+		elif [[ "${PKG}" == *gtk* ]]		 ; then
+			PKG=gtk/${PKG}.gtk
+		elif [[ "${PKG}" == *gstreamer* ]]	 ; then
+			PKG=gstreamer/${PKG}.gstreamer
+		elif [[ "${PKG}" == *kde* ]]		 ; then
+			PKG=kde/${PKG}.kde
+		elif [[ "${PKG}" == *python* ]]		 ; then
+			PKG=python/${PKG}.python
+		elif [[ "${PKG}" == *py* ]]			 ; then
+			PKG=python/${PKG}.python
+		elif [[ "${PKG}" == *lxde* ]]		 ; then
+			PKG=lxde/${PKG}.lxde
+		elif [[ "${PKG}" == ^lx* ]]			 ; then
+			PKG=lxde/${PKG}.lxde
+		elif [[ "${PKG}" == *php* ]]		 ; then
+			PKG=php/${PKG}.php
+		elif [[ "${PKG}" == *alsa* ]]		 ; then
+			PKG=alsa/${PKG}.alsa
+		elif [[ "${PKG}" == *compiz* ]]		 ; then
+			PKG=compiz/${PKG}.compiz
+		elif [[ "${PKG}" == *dbus* ]]		 ; then
+			PKG=dbus/${PKG}.dbus
+		elif [[ "${PKG}" == *gambas* ]]		 ; then
+			PKG=gambas/${PKG}.gambas
+		elif [[ "${PKG}" == *qt* ]]			 ; then
+			PKG=qt/${PKG}.qt
+		elif [[ "${PKG}" == *firefox* ]]	 ; then
+			PKG=mozilla/${PKG}.mozilla
+		elif [[ "${PKG}" == *thunderbird* ]] ; then
+			PKG=mozilla/${PKG}.mozilla
+		elif [[ "${PKG}" == *seamonky* ]]	 ; then
+			PKG=mozilla/${PKG}.mozilla
+		fi
+
+		#    write the important stuff into our logfile
+		echo "${UNIXDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
+
+		#    here we print how log the script already took to run and try to estimate how log it will run until everything is done
+		#    but we only update this every 500 lines to avoid unnecessary stdout spamming
+		#    this will mostly be printed when initially obtaining the log
+		if [ "${LINEPERCOUT}" == "500" ] ; then
+			LINECOUNTCOOKIE=1
+			#    can we use  expr  here, or something more simple?
+			LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
+			timeend
+			#    same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
+			TGDOUT=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+			TIMEDONEONE=`calc -p "100 / ${LINEPERC:0:4} *${TDG}" | sed 's/\~//'`
+			TIMEDONEFINAL=`calc -p "${TIMEDONEONE} - ${TDG}" | sed 's/\~//' | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+			echo "Already ${LINEPERC:0:4}% done after ${TGDOUT}s."
+			echo -e "Done in approximately ${TIMEDONEFINAL}s.\n"
+			LINEPERCOUT=0
+		fi
+
+		#     switch to next line and re-start the loop
+		LINE=`expr ${LINE} + 1`
+		LINEPERCOUT=`expr ${LINEPERCOUT} + 1`
+	done
+
+	mv ${DATADIR}/pacman_tmp.log ${LOGNOW}
+
+	rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log
+
+	# take the existing log and remove the paths so we have our pie-like log again which I had at the beginning of the developmen process of this script :)
+	# yes, this may look stupid, first writing a package category and then removing it afterwards, but I think its faster to edit the entire file once instead of
+	# writing every single line to file
+	cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/' -e 's/A|.*\//A\|/' > ${DATADIR}/pacman_gource_pie.log
+
+
+	# how log did the script take to run?
+	timeend
+
+	if [[ ${LINECOUNTCOOKIE} == "1" ]] ; then
+		TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*\.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+	else
+		TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}'`
 	fi
 
-# switch to next line and re-start the loop
-	LINE=`expr ${LINE} + 1`
-	LINEPERCOUT=`expr ${LINEPERCOUT} + 1`
-done
+	echo -e "100 % done after ${RED}${TIMEFINAL}${NC}.\n"
+} # makelog
 
-
-mv ${DATADIR}/pacman_tmp.log ${LOGNOW}
-
-rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log
-
-# take the existing log and remove the paths so we have our pie-like log again which I had at the beginning of the developmen process of this script :)
-cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/' -e 's/A|.*\//A\|/' > ${DATADIR}/pacman_gource_pie.log
-
-
-# how log did the script take to run?
-timeend
-
-if [[ ${LINECOUNTCOOKIE} == "1" ]] ; then
-	TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*\.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
-else
-	TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}'`
-fi
-
-
-echo -e "100 % done after \e[1;31m${TIMEFINAL}\e[0ms.\n"
-
-echo -e "Output files are \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m"
-echo -e "\t and \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m.\n\n"
+help() {
+	echo -e "-n  do${WHITEUL}N${NC}'t update the log"
+	echo -e "-c  don't use ${WHITEUL}C${NC}olors for shell output"
+	echo -e "-g  start ${WHITEUL}G${NC}ource afterwards"
+	echo -e "-f  capture the video using ${WHITEUL}F${NC}fmpeg"
+	echo -e "-p  makes use of -g and uses ${WHITEUL}P${NC}ie log"
+	echo -e "-a  skip ${WHITEUL}A${NC}rchitecture in title"
+	echo -e "-o  skip h${WHITEUL}O${NC}stname in title"
+	echo -e "-t  skip ${WHITEUL}T${NC}imestaps in title"
+	echo -e "-i  show some ${WHITEUL}I${NC}nformation regarding pacmanlog2gource"
+	echo -e "-m  skip package na${WHITEUL}M${NC}es"
+	echo -e "-h  show this ${WHITEUL}H${NC}elp"
+	# implement  -q  quiet
+}
 
 logbeginningdate=`cat ${LOGNOW} | head -n1 | awk '{print $1}' | sed  -e 's/\[//'`
 logbeginning=`date +"%d %b %Y" -d "${logbeginningdate}"`
@@ -232,16 +283,101 @@ logbeginning=`date +"%d %b %Y" -d "${logbeginningdate}"`
 logenddate=`cat ${LOGNOW} | tail -n1 | awk '{print $1}' | sed  -e 's/\[//'`
 logend=`date +"%d %b %Y" -d "${logenddate}"`
 
-hostname=`hostname`
-arch=`arch`
+logtimes=", ${logbeginning} - ${logend}"
+hostname=", hostname: `hostname`"
+arch=", `arch`"
 
-# this is how we can visualize the log
-echo "If you have \"gource\" installed (should be, since it is set as dependency), run"
-echo -e "\t\e[3;32mgource \e[4;32m${DATADIR}/pacman_gource_tree.log\e[0;32m -1200x720 --title \"Pacmanlog2gource, ${logbeginning} - ${logend}, hostname: ${hostname}, ${arch}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001\e[0m"
-echo -e "to visualize the log using gource.\n"
-echo "If you additionally want to make a video of the visualization and have the needed programs installed, append"
-echo -e "\t\e[3;32m--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k \e[4;32mpacmanlog2gource_`date +%b\_%d\_%Y`.mp4\e[0m"
-echo "to the first command."
-echo -e "Alternatively, you can also replace \e[4;02m${DATADIR}/pacman_gource_tree.log\e[0m with \e[4;02m${DATADIR}/pacman_gource_pie.log\e[0m as source-logfile to get all packages in a pie-formation."
-echo -e "To skip the package names, replace \e[0;32m--hide progress,mouse\e[0m by \e[0;32m--hide progress,mouse,filenames\e[0m."
-echo -e "\e[3;32mgource -H\e[0m will give you more information on how to use gource."
+
+while getopts "nchgfpaotim" opt; do
+	case "$opt" in
+		"n")
+			echo "Log not updated." >&2
+			UPDATE="false"
+			;;
+		"c")
+			RED=''
+			GREEN=''
+			GREENUL=''
+			WHITEUL=''
+			NC=''
+			echo "Skipping colors in output."
+			echo "NOTE: this won't affect stdout of gource or ffmpeg."
+			;;
+		"h")
+			UPDATE="false"
+			help
+			exit 0
+			;;
+		"g")
+			GOURCEPOST="true"
+			;;
+		"f")
+			FFMPEGPOST="true"
+			GOURCEPOST="true"
+			;;
+		"p")
+			LOG=${DATADIR}/pacman_gource_pie.log
+			GOURCEPOST="true"
+			;;
+		"a")
+			arch=''
+			;;
+		"o")
+			hostname=''
+			;;
+		"t")
+			logtimes=''
+			;;
+		"i")
+			UPDATE="false"
+			INFORMATION="true"
+			;;
+		"m")
+			FILENAMES=",filenames"
+			GOURCEPOST="true"
+			echo "Filenames will be skipped in the video." >&2
+			;;
+		"?")
+			UPDATE="false"
+			echo "Pacmanlog2gource: invalid option!" >&2
+			echo "Please try  pacmanlog2gource -h  for possible options." >&2
+			exit 1
+			;;
+		*)
+			echo "Pacmanlog2gource: unknown error while processing options." >&2
+			exit 1
+			;;
+	esac
+done
+
+
+if [ ${INFORMATION} == "true" ] ; then
+	TITLE="Pacmanlog2gource${logtimes}${hostname}${arch}"
+	echo "The default command which will be run using pacmanlog2gource -g is"
+	echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.4 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001${NC}"
+	echo "If you run -f, this is appended:"
+	echo -e "${GREEN}--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k ${GREENUL}pacmanlog2gource_`date +%b\_%d\_%Y`.mp4${NC}"
+	echo -e "Logfiles are stored in ${WHITEUL}${DATADIR}/pacman_gource_tree.log${NC} and ${WHITEUL}${DATADIR}/pacman_gource_pie.log${NC}."
+	echo -e "Log format of current version ${VERSION} compatible with versions \n${COMPATIBLE}"
+	exit 0
+fi
+
+if [ ${UPDATE} == "true" ] ; then
+	makelog
+	echo -e "Output files are ${WHITEUL}${DATADIR}/pacman_gource_tree.log${NC}"
+	echo -e "\t and ${WHITEUL}${DATADIR}/pacman_gource_pie.log${NC}.\n\n"
+fi
+
+if [ ${GOURCEPOST} == "true" ] ; then
+	TITLE="Pacmanlog2gource${logtimes}${hostname}${arch}"
+	if [ ${FFMPEGPOST} == "true" ] ; then
+		gource ${LOG} -1200x720  -c 1.4 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001 --output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k pacmanlog2gource_`date +%b\_%d\_%Y`.mp4
+	else
+		echo -e "To record the video to a mp4 file using ffmpeg, run  ${GREEN}pacmanlog2gource -f${NC}  ."
+		gource ${LOG} -1200x720  -c 1.4 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001
+	fi
+else
+	echo -e "To visualize the log, run  ${GREEN}pacmanlog2gource -g${NC}"
+fi
+
+echo "Thanks for using pacmanlog2gource!"
