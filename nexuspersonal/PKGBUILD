@@ -1,14 +1,17 @@
 # Maintainer: André Laszlo <andre@laszlo.nu>
 # Contributor: whacath <koaxialkabel@gmail.com>
 
+# Follow the development of this package on GitHub:
+# https://github.com/andrelaszlo/nexuspersonal-archlinux
+
 pkgname=nexuspersonal
 pkgver=4.19.0.11351
-pkgrel=1
+pkgrel=2
 pkgdesc="BankID software for Linux"
 url="http://www.bankid.com"
 license=('custom')
 arch=('i686')
-source=('https://install.bankid.com/Repository/BISP-4.19.0.11351.tar.gz')
+source=('http://install.bankid.com/Repository/BISP-4.19.0.11351.tar.gz')
 md5sums=('1074dd24b06366455129a769a34516b2')
 depends=('libsm' 'gtk2' 'bash' 'zlib' 'libidn' 'libpng12')
 install='nexuspersonal.install'
