@@ -125,7 +125,7 @@ makelog() {
 
 	# get lines and size of the pacman log
 	ORIGSIZE=`du ${DATADIR}/process.log | awk '{print $1}'`
-	ORIGLINES=`wc -l ${DATADIR}/process.log | awk '{print $2}'`
+	ORIGLINES=`wc ${DATADIR}/process.log | awk '{print $1}'`
 
 	echo -e "Purging the diff (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WHITEUL}${DATADIR}${NC}."
 	cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' -e '/^$/d' | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
