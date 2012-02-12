@@ -9,13 +9,13 @@ case "$1" in
   start)
     stat_busy "Starting CJD Web Admin"
     if [ -z "$PID" ]; then
-      cjdwebadmin $CJDWEBADMIN_ADDR $CJDWEBADMIN_PATH/ >& "$CJDWEBADMIN_LOG" &
+      sudo -u cjdns cjdwebadmin $CJDWEBADMIN_ADDR $CJDWEBADMIN_PATH/ >& "$CJDWEBADMIN_LOG" &
       if [ $? -gt 0 ]; then
         echo -n "Unable to start cjdroute"
         stat_fail
         exit 1
       else
-        echo -n "You can now access the CJD Web Admin @ http://127.0.0.1:51902/"
+        echo -n "You can now access the CJD Web Admin @ http://localhost:51902/"
         add_daemon cjdwebadmin
         stat_done
       fi
