@@ -1,0 +1,51 @@
+# $Id$
+# Maintainer: Timothy Hobbs <timothyhobbs@seznam.cz>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+
+pkgname=brltty-at-spi2
+rootname=brltty
+pkgver=4.3
+pkgrel=2
+pkgdesc="Braille display driver for Linux/Unix"
+arch=('i686' 'x86_64')
+url="http://mielke.cc/brltty"
+license=('GPL' 'LGPL')
+depends=('libxaw' 'at-spi2-core' 'gpm' 'icu' 'python2' 'tcl' 'atk' 'libxtst' \
+         'pyrex' )
+makedepends=('bluez')
+optdepends=('bluez: bluetooth support')
+conflicts=('at-spi')
+backup=(etc/brltty.conf etc/conf.d/brltty.conf)
+options=('!makeflags' '!emptydirs')
+source=(http://mielke.cc/${rootname}/releases/brltty-${pkgver}.tar.gz
+        'brltty'
+        'brltty.conf')
+md5sums=('5ada573f88df32b6150db3b9a620e20b'
+         '831ebaf0c56091702929c68805d20c4f'
+         'a8ab8b3dd059e96e1734bc9cdcf844fc')
+
+build() {
+  cd "${srcdir}/${rootname}-${pkgver}"
+  CFLAGS+="${CFLAGS} -D_GNU_SOURCE" \
+  ./configure --prefix=/usr \
+    --sysconfdir=/etc \
+    --mandir=/usr/share/man \
+    --localstatedir=/var \
+    --with-screen-driver=a2 \
+    --enable-gpm \
+    --disable-java-bindings \
+    --disable-caml-bindings \
+    PYTHON=/usr/bin/python2
+
+  make
+}
+
+package() {
+  cd "${srcdir}/${rootname}-${pkgver}"
+  make INSTALL_ROOT="${pkgdir}" install
+  install -D -m755 ${srcdir}/brltty ${pkgdir}/etc/rc.d/brltty
+  install -D -m644 ${srcdir}/brltty.conf ${pkgdir}/etc/conf.d/brltty.conf
+  install -D -m644 Documents/brltty.conf ${pkgdir}/etc/brltty.conf
+}
+
