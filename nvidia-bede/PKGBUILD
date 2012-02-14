@@ -3,9 +3,9 @@
 
 _pkgname=nvidia
 pkgname=${_pkgname}-bede
-pkgver=290.10
+pkgver=295.20
 _extramodules=3.2-BEDE-external
-pkgrel=3
+pkgrel=1
 pkgdesc="NVIDIA drivers for linux-bede"
 arch=('i686' 'x86_64')
 url="http://www.nvidia.com/"
@@ -26,13 +26,13 @@ if [ "$CARCH" = "i686" ]; then
 	_pkg="NVIDIA-Linux-${_arch}-${pkgver}"
 	#source=("ftp://download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
 	source=("http://uk.download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
-	md5sums=('50319a4b3818c12c9c7243525e0e6316')
+	md5sums=('a6f702271da49930a17e28b5928fe75a')
 elif [ "$CARCH" = "x86_64" ]; then
 	_arch='x86_64'
 	_pkg="NVIDIA-Linux-${_arch}-${pkgver}-no-compat32"
 	#source=("ftp://download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
 	source=("http://uk.download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
-	md5sums=('cebfba9a7e91716a06c66bb5b38d9661')
+	md5sums=('79b05cffa482234833ae1c4bb40664c3')
 fi
 
 build() {
@@ -46,12 +46,12 @@ build() {
 package() {
 	depends=('linux-bede>=3.2' 'linux-bede<3.3' "nvidia-utils=${pkgver}")
 
-	install -dm755 $pkgdir/lib/modules/${_extramodules}/${_pkgname}
 	install -Dm644 $srcdir/${_pkg}/kernel/nvidia.ko \
 		$pkgdir/lib/modules/${_extramodules}/${_pkgname}/nvidia.ko
 
 	install -dm755 $pkgdir/lib/modprobe.d
-	echo "blacklist nouveau" >> $pkgdir/lib/modprobe.d/${pkgname}_nouveau_blacklist.conf
+	echo "blacklist nouveau" >> $pkgdir/lib/modprobe.d/${pkgname}.conf
+	echo "blacklist nvidiafb" >> $pkgdir/lib/modprobe.d/${pkgname}.conf
 
 	# gzip all modules
 	find ${pkgdir} -name '*.ko' -exec gzip -9 {} \;
