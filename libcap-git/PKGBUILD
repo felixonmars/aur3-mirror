@@ -1,33 +1,32 @@
-# This is an example PKGBUILD file. Use this as a start to creating your own,
-# and remove these comments. For more information, see 'man PKGBUILD'.
-# NOTE: Please fill out the license field for your package! If it is unknown,
-# then please put 'unknown'.
-
-# See http://wiki.archlinux.org/index.php/VCS_PKGBUILD_Guidelines
-# for more information on packaging from GIT sources.
-
-# Maintainer: Your Name <youremail@domain.com>
 pkgname=libcap-git
-pkgver=20120210
-pkgrel=1
+pkgver=20120214
+pkgrel=3
 pkgdesc="Library for getting and setting POSIX.1e capabilities"
 arch=('i686' 'x86_64')
 url="http://git.kernel.org/?p=linux/kernel/git/morgan/libcap.git;a=summary"
 license=('LGPL2.1')
 depends=('glibc' 'attr' 'pam')
-makedepends=('git')
-provides=('libcap=2.22')
+makedepends=('git' 'expac')
+_archver="$(expac -S -1 "%v" libcap | cut -f1 -d -)"
+provides=("libcap=$_archver")
 conflicts=('libcap')
-options=('!libtool')
+backup=('etc/security/capability.conf')
+source=('dlopen.c')
+md5sums=('103147af240a0a537182d20a456f1099')
+sha256sums=('d1758f84a69173a852e598fa55e69df0d73b8b62c6993b0ba04aa21d539213e6')
 
-_gitroot=git://git.kernel.org/pub/scm/linux/kernel/git/morgan/libcap.git
-_gitname=libcap.git
+
+_gitroot="git://git.kernel.org/pub/scm/linux/kernel/git/morgan/libcap.git"
+_gitname="libcap"
 
 build() {
+
+  export CC="${CC:-gcc}"
+
   cd "$srcdir"
   msg "Connecting to GIT server...."
 
-  if [[ -d "$_gitname" ]]; then
+  if [[ -d $_gitname ]] ; then
     cd "$_gitname" && git pull origin
     msg "The local files are updated."
   else
@@ -35,28 +34,44 @@ build() {
   fi
 
   msg "GIT checkout done or server timeout"
-  msg "Starting build..."
+  msg "Starting make..."
 
   rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cp -r "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
 
-  # What a clusterfuck:
- 
-  sed -i "s|--static||g" progs/Makefile
+  # Oh man
+
+  LDFLAGS+=" -Wl,--fatal-warnings,--no-undefined"
+
+  echo "LDLIBS+=-Wl,--no-as-needed -L/lib -lpam" >> pam_cap/Makefile
 
   for flags in {C,CXX,LD}FLAGS; do
     [[ ${!flags} ]] && printf '%s += %s\n' "$flags" "${!flags}"
   done >> Make.Rules
 
-  make -j1 CC="${CC:-gcc}"
+  make -j1 \
+    CC="${CC}" LD="${CC} -shared" DYNAMIC=yes
 }
 
 package() {
   cd "$srcdir/$_gitname-build"
   make prefix=/usr \
     DESTDIR="$pkgdir" LIBDIR="$pkgdir/lib" RAISE_SETFCAP=no install
+  install -Dm0444 'pam_cap/capability.conf' "$pkgdir/etc/security/capability.conf"
   find "$pkgdir/lib" -name "*.a" -exec rm {} +
+
+  gcc -O2 "$srcdir/dlopen.c" -o dlopen -ldl
+
+  for module in "$pkgdir"/lib/security/*.so ; do
+    if ! env LD_PRELOAD='' LD_LIBRARY_PATH="$pkgdir/lib" ./dlopen "${module}" ; then
+      error "module: "${module}" cannot be loaded."
+      exit 1
+    fi
+  done
+
+  rm dlopen
+
 }
 
 # vim:set ts=2 sw=2 et:
