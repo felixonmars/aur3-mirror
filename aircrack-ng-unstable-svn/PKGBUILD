@@ -1,19 +1,19 @@
 # contributor: nofxx <x@nofxx.com>
-# modifier: x-demon <x-demon{at}x-demon.org
+# contributor: x-demon <x-demon{at}x-demon.org
+
 pkgname=aircrack-ng-unstable-svn
-pkgver=1583
+pkgver=2029
 pkgrel=1
-pkgdesc="Wifi security suite - WEP / WPA crack tools -- with SQLite3 and unstable (read experimental) tools"
+pkgdesc="Wifi security suite - WEP / WPA crack tools -- with SQLite3 and unstable (read experimental) tools."
 arch=('i686' 'x86_64')
 url="http://www.aircrack-ng.org"
 license=('GPL2')
-depends=('openssl' 'sqlite3' 'wireless_tools' 'autoconf' 'libtool')
-makedepends=('subversion')
+depends=('openssl' 'sqlite3' 'wireless_tools' 'libtool' 'iw')
+makedepends=('subversion' 'autoconf')
 provides=('aircrack-ng' 'aircrack-ng-svn')
-#replaces=('aircrack-ng-svn')
-conflicts=('aircrack-ng')
+conflicts=('aircrack-ng' 'aircrack-ng-svn')
 source=()
-md5sums=() 
+md5sums=()
 
 _svntrunk="http://trac.aircrack-ng.org/svn/trunk"
 _svnmod=aircrack
