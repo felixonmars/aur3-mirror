@@ -1,3 +1,2 @@
 #! /bin/sh
-
-java -jar /usr/share/pacdefence/PacDefence.jar
+"$JAVA_HOME/bin/java" -jar /usr/share/pacdefence/PacDefence.jar
