@@ -9,5 +9,6 @@
 #JAVA_OPTS=
 
 JETTY_HOME=/opt/jetty
+
 # Jetty's variables
 #JETTY_OPTS=
