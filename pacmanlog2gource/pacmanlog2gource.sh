@@ -43,7 +43,7 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.7"
+VERSION="1.7.2"
 
 FILENAMES=' '
 
@@ -57,7 +57,7 @@ if [ ! -d "${DATADIR}" ] ; then
 		echo -e "No directory ${WHITEUL}${DATADIR}${NC} found, creating one."
 	fi
 	# if we cannot create the datadir (wtf!?), complain
-	if [ mkdir ${DATADIR} ] ; then
+	if  mkdir "${DATADIR}"  ; then
 		:
 	else
 		echo -e "ERROR: Unable to create ${DATADIR}" >&2
@@ -67,8 +67,8 @@ fi
 
 # print the version into a file so we can handle file formats being out of date properly later
 echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7"
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7/'` ]] ; then
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2"
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2/'` ]] ; then
 	if [[ $(echo "$*") == *c* ]] ; then
 		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
 	else
