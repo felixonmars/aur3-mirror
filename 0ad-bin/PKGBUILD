@@ -9,7 +9,7 @@ pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (open
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
 _arch='x86_64'
-[ $CARCH = 'i686' ] && _arch='i586'
+[ $CARCH = 'i686' ] && _arch='i586' && _pkgver=r10803-3.7
 license=('GPL2' 'CCPL')
 depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
 makedepends=('boost' 'libarchive' 'wget' 'lynx')
