@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# fix for users of special IM modules
+unset XMODIFIERS GTK_IM_MODULE QT_IM_MODULE
+
 [ ! -d ~/.starfarer ] && mkdir ~/.starfarer
 [ ! -d ~/.starfarer/saves ] && mkdir ~/.starfarer/saves
 [ ! -d ~/.starfarer/screenshots ] && mkdir ~/.starfarer/screenshots
@@ -15,8 +19,4 @@ MODPATH=~/.starfarer/mods
 SCRPATH=~/.starfarer/screenshots
 LOGPATH=~/.starfarer
 
-export LD_LIBRARY_PATH="$JAVA_HOME/lib/$$ARCHITECTURE$$"
-
-exec java -Djava.library.path=/usr/lib/starfarer -Xms256m -Xmx256m -cp $CP -Dcom.fs.starfarer.settings.paths.saves=$SAVEPATH -Dcom.fs.starfarer.settings.paths.screenshots=$SCRPATH -Dcom.fs.starfarer.settings.paths.mods=$MODPATH -Dcom.fs.starfarer.settings.paths.logs=$LOGPATH com.fs.starfarer.StarfarerLauncher
-
-unset LD_LIBRARY_PATH
+LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$JAVA_HOME/lib/amd64/:$JAVA_HOME/lib/i386/:$JAVA_HOME/jre/lib/amd64/:$JAVA_HOME/jre/lib/i386/" exec java -Djava.library.path=/usr/lib/starfarer -Xms256m -Xmx256m -cp $CP -Dcom.fs.starfarer.settings.paths.saves=$SAVEPATH -Dcom.fs.starfarer.settings.paths.screenshots=$SCRPATH -Dcom.fs.starfarer.settings.paths.mods=$MODPATH -Dcom.fs.starfarer.settings.paths.logs=$LOGPATH com.fs.starfarer.StarfarerLauncher
