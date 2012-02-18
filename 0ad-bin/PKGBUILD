@@ -11,7 +11,7 @@ arch=('i686' 'x86_64')
 _arch='x86_64'
 [ $CARCH = 'i686' ] && _arch='i586'
 license=('GPL2' 'CCPL')
-depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
+depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng14' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
 makedepends=('boost' 'libarchive' 'wget' 'lynx')
 conflicts=('0ad' '0ad-svn' '0ad-ppa-wfg')
 provides=('0ad')
@@ -21,7 +21,7 @@ source=(http://download.opensuse.org/repositories/games/openSUSE_Tumbleweed/$_ar
 md5sums=(`wget ${source[0]}.md5 -qO - | cut -d " " -f1`
          `wget ${source[1]}.md5 -qO - | cut -d " " -f1`)
 
-# PKGEXT='.pkg.tar'
+PKGEXT='.pkg.tar'
 
 package() {
   mv -f usr/share/doc/{packages/0ad,0ad}
@@ -43,10 +43,5 @@ package() {
     mv -f usr/lib*/libjpeg.so* usr/lib*/0ad
   fi
   
-  # libpng
-  wget `lynx -dump http://download.opensuse.org/distribution/openSUSE-stable/repo/oss/suse/$_arch/ | grep -o \
-  http.*libpng14-[1-9].*rpm | tail -1` -qO - | bsdtar -xf -
-  mv -f usr/lib*/libpng* usr/lib*/0ad
-
   mv -f "$srcdir/usr" "$pkgdir/"
 }
