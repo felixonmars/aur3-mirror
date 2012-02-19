@@ -21,7 +21,7 @@ source=(http://download.opensuse.org/repositories/games/openSUSE_Tumbleweed/$_ar
 md5sums=(`wget ${source[0]}.md5 -qO - | cut -d " " -f1`
          `wget ${source[1]}.md5 -qO - | cut -d " " -f1`)
 
-PKGEXT='.pkg.tar'
+# PKGEXT='.pkg.tar'
 
 package() {
   mv -f usr/share/doc/{packages/0ad,0ad}
