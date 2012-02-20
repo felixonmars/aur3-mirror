@@ -6,12 +6,12 @@
 
 pkgname=amazonmp3
 pkgver=1.0.9
-pkgrel=5
+pkgrel=6
 pkgdesc="The Amazon MP3 downloader"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
 license=('custom')
-depends=('bash' 'libxdamage' 'curl' 'pango' 'gtk2' 'openssl' 'gtkmm' 'pangomm' 'cairomm' 'glibmm' 'libglademm' 'libsigc++' 'bzip2')
+depends=('bash' 'libxdamage' 'curl<=7.23.1' 'pango' 'gtk2' 'openssl' 'gtkmm' 'pangomm' 'cairomm' 'glibmm' 'libglademm' 'libsigc++' 'bzip2')
 source=('http://mirrors.kernel.org/ubuntu/pool/universe/b/boost/libboost-date-time1.34.1_1.34.1-4ubuntu3_i386.deb' \
 	'http://mirrors.kernel.org/ubuntu/pool/universe/b/boost/libboost-iostreams1.34.1_1.34.1-4ubuntu3_i386.deb' \
 	'http://mirrors.kernel.org/ubuntu/pool/universe/b/boost/libboost-signals1.34.1_1.34.1-4ubuntu3_i386.deb' \
