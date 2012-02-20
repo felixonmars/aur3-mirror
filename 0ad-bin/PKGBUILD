@@ -2,14 +2,14 @@
 
 pkgname=0ad-bin
 pkgver=alpha_8
-_pkgver=r10803-3.7
+_pkgver=r10803-3.10
 _dataver=r10803-1.1
-pkgrel=7
+pkgrel=8
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
 _arch='x86_64'
-[ $CARCH = 'i686' ] && _arch='i586'
+[ $CARCH = 'i686' ] && _arch='i586' && _pkgver=r10803-3.9
 license=('GPL2' 'CCPL')
 depends=('boost-libs' 'curl' 'enet' 'fam' 'libogg' 'libpng14' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
 makedepends=('boost' 'libarchive' 'wget' 'lynx')
