@@ -1,13 +1,15 @@
 # Contributor: Baptiste Grenier <baptiste@bapt.name>
 # Maintainer: Pablo Olmos de Aguilera Corradini <pablo <at] glatelier (dot} org>
 pkgname=gtg-bzr
-pkgver=1043
-pkgrel=6
+pkgver=1084
+pkgrel=7
 pkgdesc="Personal GTD like organizer for the GNOME desktop environment. bzr version."
 url="http://gtg.fritalk.com/"
 arch=('i686' 'x86_64')
 license=('GPL')
-depends=('pygtk' 'pygobject' 'python-configobj' 'pyxdg' 'dbus-python' 'hicolor-icon-theme' 'desktop-file-utils' 'python-gnomekeyring')
+depends=('pygtk' 'pygobject' 'python-configobj' 'pyxdg' 'dbus-python'
+'hicolor-icon-theme' 'desktop-file-utils' 'python-gnomekeyring'
+'python2-liblarch-git')
 makedepends=('bzr' 'python2-gconf')
 conflicts=('gtg')
 install="gtg-bzr.install"
