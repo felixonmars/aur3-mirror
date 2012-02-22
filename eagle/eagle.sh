@@ -27,4 +27,4 @@ create_local() {
 [[ ! -d "$PROJ_DIR" ]] && install -dm755 "$PROJ_DIR"
 
 cd "$LOCAL_DIR"/bin
-exec ./eagle
+exec ./eagle "$@"
