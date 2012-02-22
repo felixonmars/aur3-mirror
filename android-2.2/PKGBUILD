@@ -2,7 +2,7 @@
 
 pkgname=android-2.2
 pkgver=r03
-pkgrel=1
+pkgrel=2
 pkgdesc='Platform for Google Android SDK'
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
@@ -20,4 +20,9 @@ package() {
   mkdir -p ${_platform}
 
   mv "${srcdir}/${pkgname}_${pkgver}-linux" ${pkgdir}/${_platform}/${_android_ver}
+
+  # fix permissions
+  chmod -R o+rX ${_platform}
 }
+
+# vim:set ts=2 sw=2 et:
