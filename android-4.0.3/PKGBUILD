@@ -1,7 +1,7 @@
 # Maintainer: wilson <bugs@pandorica.net>
 
 pkgname=android-4.0.3
-pkgver=r01
+pkgver=r02
 pkgrel=1
 pkgdesc='Platform for Google Android SDK'
 arch=('any')
@@ -14,12 +14,16 @@ _android_ver=android-15
 
 source=("https://dl-ssl.google.com/android/repository/${_android_ver}_${pkgver}.zip")
 
-md5sums=('af13f09331cc2c4e732b6e6a1a7cb458')
+md5sums=('4175f770609368582e964879d2450671')
 
 package() {
   cd "${pkgdir}"
   mkdir -p ${_platform}
 
-  mv "${srcdir}/${pkgname}" ${pkgdir}/${_platform}/${_android_ver}
+  mv "${srcdir}/android-4.0.4" ${pkgdir}/${_platform}/${_android_ver}
 
+  # fix permissions
+  chmod -R o+rX ${_platform}
 }
+
+# vim:set ts=2 sw=2 et:

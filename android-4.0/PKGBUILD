@@ -2,7 +2,7 @@
 
 pkgname=android-4.0
 pkgver=r03
-pkgrel=2
+pkgrel=3
 pkgdesc='Platform for Google Android SDK'
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
@@ -23,4 +23,9 @@ package() {
 
   mv "${srcdir}/${pkgname}.${_android_sub}" ${pkgdir}/${_platform}/${_android_ver}
 
+  # fix permissions
+  chmod -R o+rX ${_platform}
+
 }
+
+# vim:set ts=2 sw=2 et:
