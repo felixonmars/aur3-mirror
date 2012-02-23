@@ -15,7 +15,7 @@ case "$1" in
         stat_fail
         exit 1
       else
-        echo -n "You can now access the CJD Web Admin @ http://localhost:51902/"
+        echo -n "You can now access the CJD Web Admin @ http://[::1]:51902"
         add_daemon cjdwebadmin
         stat_done
       fi

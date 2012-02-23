@@ -8,8 +8,8 @@ psx_localdir="$HOME/.pSX"
 mkdir -p "$psx_localdir"/{bios,cdimages}
 
 # copy and edit configuration if not present
-if ! [ -f "${psx_localdir}/psx.ini" ]; then
-  cp ${psx_sharedir}/psx.ini "${psx_localdir}"
+if ! [ -f "$psx_localdir/psx.ini" ]; then
+  cp $psx_sharedir/psx.ini "$psx_localdir"
   sed -e "s|psx_localdir|"$psx_localdir"|" \
       -i "$psx_localdir/psx.ini"
 fi
