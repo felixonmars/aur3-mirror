@@ -1,7 +1,7 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=acpi_call-git
-pkgver=20120203
+pkgver=20120222
 pkgrel=1
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
@@ -9,9 +9,10 @@ url=("http://github.com/mkottman/acpi_call")
 license=('GPL')
 provides=('acpi_call')
 makedepends=('git')
-optdepends=('linux-headers: needed if using ARCH provided kernel')
+optdepends=('linux-headers: needed if using archlinux default kernel'
+	    'linux-lts-headers: needed if using the archlinux lts kernel')
 install=acpi_call.install
-_gitroot=("http://github.com/mkottman/acpi_call.git")
+_gitroot=("https://github.com/mkottman/acpi_call.git")
 _gitname=("acpi_call")
 
 build() {
