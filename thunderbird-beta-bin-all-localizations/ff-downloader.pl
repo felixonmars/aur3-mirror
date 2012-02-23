@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.8
+# ff-downloader v0.5.9.1
 ## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -44,31 +44,28 @@ sub read_config
     my $lang_code;
     if (! -e $conf_file )
     {
-        my $TEXT = << 'HEADER';
-# Define here your preferred language(s) for Firefox and Thunderbird.
-# ff=en-US
-# tb=en-US
-HEADER
-       open my $fh, '>', $conf_file or do{say ":: Error in $conf_file: $!"; return };
-       print $fh $TEXT;
-       close $fh;
+        my @file = (
+            "# Define here your preferred language(s) for Firefox and Thunderbird.\n",
+            "# ff=en-US\n",
+            "# tb=en-US\n"
+            );
+       write_file($conf_file, @file);     
        return
    }
    else
    {
-        open my $fh, '<', $conf_file or do{ say ":: Can't read from $conf_file: $!"; return };
-        while( defined( my $line = <$fh>))
-            {
-                chomp $line; $line =~ s/^\s+//; $line =~ s/\s+$//;
-                next if $line =~ /^#/;
-                if ($line =~ /^$p=([-a-zA-Z]+)$/)
-                {
-                    $lang_code = $1;
-                }      
-            }   
-            close $fh;
-            return $lang_code;
-    }   
+       my @file = read_file($conf_file);
+       for my $line(@file)
+       {
+           chomp $line; $line =~ s/^\s+//; $line =~ s/\s+$//;
+           next if $line =~ /^#/;
+           if ($line =~ /^$p=([-a-zA-Z]+)$/)
+           {
+               $lang_code = $1;
+           }      
+       }
+       return $lang_code;
+   }
 }
 my ($VER, $PACKAGE, $LANG);
 my $pkg = 'ff'; #default value for "--package"
