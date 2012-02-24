@@ -50,6 +50,7 @@ _v_a='9'
 _v_b='293' 
 
 pkgrel=1
+_dir_nr='2475'
 
 _sp='sp1'
 
@@ -71,7 +72,7 @@ _tbb_not_arch='cc3.4.3_libc2.3.4_kernel2.6.9'
 
 _composer_xe_dir="composer_xe_${_year}_${_sp}.${_v_a}.${_v_b}"
 
-_dir_nr='2429'
+
 
 if $_amd_64 ; then
   _not_arch_64='intel64'
@@ -103,8 +104,6 @@ md5sums=( '350cda09cb0081663d86fc488cc89eef'
 	  '51c46449f6301d9d05275eb07e3ac23e'
 	  '0b5904975b2427457df50b7091554c8b'
 	)
-
-
 
 
 #_archive=l_ccompxe${_comp}_p_${pkgver}
@@ -204,6 +203,12 @@ build() {
 	echo "-----------------------------------------------------------------------------------"
 	echo " ATTENTION: This PKGBUILD may need up to 20 minutes if you use XZ as a compressor!"
 	echo "    - The build of the packages: intel-mkl and intel-ipp is particularly slow - "
+	echo "-----------------------------------------------------------------------------------"
+	echo ""
+	echo ""
+	echo "-----------------------------------------------------------------------------------"
+	echo -e " \e[1m\e[5mATTENTION: \e[0m \e[1m\e[31mThis PKGBUILD don't work with yaourt! \e[0m "
+	echo " You must use the makepkg command for building this package"
 	echo "-----------------------------------------------------------------------------------"
 	echo ""
 
