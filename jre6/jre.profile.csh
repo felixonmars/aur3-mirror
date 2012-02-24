@@ -1,4 +1,4 @@
-setenv PATH ${PATH}:/opt/java/jre/bin
+setenv PATH ${PATH}:/opt/java6/jre/bin
 if (! "$?JAVA_HOME" ) then
-  setenv JAVA_HOME /opt/java/jre
+  setenv JAVA_HOME /opt/java6/jre
 endif
