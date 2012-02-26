@@ -96,12 +96,10 @@ fi
 if [ "${gstchval}" -gt 0 ] ; then
 	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (\e[033;32m+${gstchval} lines\e[0m)"
 elif [ "${gstchval}" == 0 ] ; then
-	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) ({gstchval} lines)"
+	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (${gstchval} lines)"
 else
 	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (\e[033;31m${gstchval} lines\e[0m)"
 fi
-#set +x
-
 
 # size (b) of all bin files of obj
 old=`awk '{ sum+=$4} END {print sum}' ${diffstat}`
