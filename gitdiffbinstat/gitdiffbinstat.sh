@@ -51,8 +51,8 @@ echo " ${obj} -> ${curbranch}"
 echo " ${obj} -> ${curcommit}"
 
 
-# ${PWD} = current directory we are in
-#set -x
+# ${PWD} =directory we are currently in
+
 gitrootdirpre=`git rev-parse --show-toplevel`
 # if we have a dir named "…·µ@", this part of the script will fail, but I think it's quite unlikely
 # and yes, it's a hack
@@ -78,10 +78,11 @@ if [ ${checksum} == 0 ] ; then
 	exit 1
 fi
 
+
 # generate our own  git diff --shortstat
 gst=`git diff ${obj} --shortstat ./`
-gstins=`echo ${gst} | awk '{print $4}'`
-gstdels=`echo ${gst} | awk '{print $6}'`
+gstins=`echo ${gst} | tr "," "\n"  | awk /insertion/ | grep -o "[0-9]*"` || gstins="0"
+gstdels=`echo ${gst} | tr "," "\n"  | awk /deletion/ | grep -o "[0-9]*"` || gstdels="0"
 gstchval=`expr ${gstins} - ${gstdels}`
 gstchfiles=`echo ${gst} | awk '{print $1}'`
 
@@ -94,10 +95,12 @@ fi
 # say file/files correctly if we have only 0, one or several files
 if [ "${gstchval}" -gt 0 ] ; then
 	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (\e[033;32m+${gstchval} lines\e[0m)"
+elif [ "${gstchval}" == 0 ] ; then
+	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) ({gstchval} lines)"
 else
 	echo -e " ${gstchfiles} ${gstfiles} changed, \e[033;32m${gstins} \e[0minsertions(\e[033;32m+\e[0m), \e[033;31m${gstdels}\e[0m deletions(\e[033;31m-\e[0m) (\e[033;31m${gstchval} lines\e[0m)"
 fi
-
+#set +x
 
 
 # size (b) of all bin files of obj
@@ -120,6 +123,8 @@ chfiles=`expr ${files} - ${binchval}`
 
 if [ "${binchval}" -gt 0 ] ; then
 	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted. (\e[033;32m+${binchval} files\e[0m)"
+elif [ "${binchval}" == 0 ] ; then
+	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted. (${binchval} files)"
 else
 	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted. (\e[033;31m${binchval} files\e[0m)"
 fi
@@ -138,7 +143,10 @@ fi
 
 if [ "${changeval}" -gt 0 ] ; then
 	echo -e " ${files} binary ${somefiles} changed, \e[033;31m${old} bytes\e[0m -> \e[033;32m${new} bytes\e[0m (\e[033;32m+${changeval} bytes\e[0m)"
-	else
+elif [ "${changeval}" == 0 ] ; then
+	changeval1=`echo "${changeval}" | sed s/-//`
+	echo -e " ${files} binary ${somefiles} changed, \e[033;31m${old} bytes\e[0m -> \e[033;32m${new} bytes\e[0m (${changeval1} bytes)"
+else
 	changeval1=`echo "${changeval}" | sed s/-//`
 	echo -e " ${files} binary ${somefiles} changed, \e[033;31m${old} bytes\e[0m -> \e[033;32m${new} bytes\e[0m (\e[033;31m-${changeval1} bytes\e[0m)"
 fi
@@ -201,6 +209,29 @@ if [ "${changeval}" -gt 0 ] ; then
 		fi
 	fi
 	echo -e " ${files} binary ${somefiles} changed, \e[033;31m${oldval}${oldunit}\e[0m -> \e[033;32m${newval}${newunit}\e[0m (\e[033;32m+${changevalval}${changevalunit}\e[0m)"
+
+elif [ "${changeval}" == 0 ] ; then
+
+	if [ "${changeval}" -gt 0 ] ; then
+		changevalunit=b
+		changevalval=${changeval}
+		((changevalkilo=${changeval}/1024))
+		if [ ! "${changevalkilo}" == 0 ] ; then
+			changevalunit=kb
+			changevalval=${changevalkilo}
+			((changevalmega=${changevalkilo}/1024))
+			if [ ! "${changevalmega}" == 0 ] ; then
+				changevalunit=Mb
+				changevalval=${changevalmega}
+				((changevalgiga=${changevalmega}/1024))
+				if [ ! "${changevalgiga}" == 0 ] ; then
+					changedvalunit=Gb
+					changevalval=${changvalgiga}
+				fi
+			fi
+		fi
+		echo -e " ${files} binary ${somefiles} changed, \e[033;31m${oldval}${oldunit}\e[0m -> \e[033;32m${newval}${newunit}\e[0m (${changevalval}${changevalunit})"
+	fi
 
 else
 	changeval=`echo "${changeval}" | sed s/-//`
