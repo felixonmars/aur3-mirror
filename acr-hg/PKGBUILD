@@ -3,7 +3,7 @@
 
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=acr-hg
-pkgver=44
+pkgver=46
 pkgrel=1
 pkgdesc="A fully compatible autoconf replacement" 
 arch=('i686' 'x86_64')
@@ -14,27 +14,26 @@ makedepends=('mercurial')
 provides=('acr')
 conflicts=('acr')
 
-_hgroot="http://hg.youterm.com/"
+_hgroot="http://hg.youterm.com"
 _hgrepo="acr"
 
 build() {
   cd ${srcdir}
-  msg "Connecting to Mercurial server...."
 
   if [ -d ${_hgrepo} ] ; then
     cd ${_hgrepo}
-    hg pull -u
-    msg "The local files are updated."
+    hg pull -u || true
   else
-    hg clone ${_hgroot} ${_hgrepo}
+    hg clone ${_hgroot}/${_hgrepo}
   fi
 
-  msg "Mercurial checkout done or server timeout"
-  msg "Starting make..."
+  cd ${srcdir}
+  if [ -d ${_hgrepo}-build ] ; then
+    rm -rf ${srcdir}/${_hgrepo}-build
+  fi
 
-  rm -rf ${srcdir}/${_hgrepo}-build
-  hg clone ${srcdir}/${_hgrepo} ${srcdir}/${_hgrepo}-build
-  cd ${srcdir}/${_hgrepo}-build
+  hg clone ${_hgrepo} ${_hgrepo}-build
+  cd ${_hgrepo}-build
 
   ./configure --prefix=/usr
   make
