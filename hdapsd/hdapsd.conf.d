@@ -16,7 +16,9 @@
 # (don't use this unless you're absolutely sure your hard drive
 # really do support unloading heads)
 #
-#DEVICE='hda'
+#DEVICE='sda'
+# If an ultrabay hard drive is inserted, the following can be used:
+#DEVICE=('sda' 'sdb')
 #SENSITIVITY='15'
 #ADAPTIVE='yes'
 SYSLOG='yes'
