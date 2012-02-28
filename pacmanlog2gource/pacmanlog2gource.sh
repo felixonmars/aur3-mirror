@@ -43,7 +43,7 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.7.2"
+VERSION="1.7.5"
 
 FILENAMES=' '
 
@@ -67,8 +67,8 @@ fi
 
 # print the version into a file so we can handle file formats being out of date properly later
 echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2"
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2/'` ]] ; then
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5"
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5/'` ]] ; then
 	if [[ $(echo "$*") == *c* ]] ; then
 		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
 	else
@@ -138,115 +138,118 @@ makelog() {
 
 	echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kB)...\n"
 
-	# process each line of LOGTOBEPROCESSED and extract important information
+
+	# this is a hack to be able to process the log with a for-loop instead of displaying every single line with awk, as I did it before
+	cat ${LOGTOBEPROCESSED} | sed -e 's/\ /·/g'  > ${DATADIR}/tmp
+	# note:  cat foo | sed     seems to be faster than    sed <( cat foo )
 
 	while [ "$LINE" -le "$MAXLINES" ]; do
 		########################
 		## processing the log ##
 		########################
 
-		#    the line we process
-		CURLINE=`awk NR==${LINE} ${LOGTOBEPROCESSED}`
-		#    the date of the entry, get characters 2-17
-		DATE="${CURLINE:1:16}"
-		#    convert the date into unix time which can be read by gource
-		UNIXDATE=`date +"%s" -d "${DATE}"`
-		#    find out if the package was installed, upgraded or removed
-		STATE=`echo ${CURLINE} | awk '{print $3}' | sed -e 's/installed/A/' -e 's/upgraded/M/' -e 's/removed/D/'`
-		#    get the actual package name
-		PKG=`echo ${CURLINE} | awk '{print $4}'`
-		#    add extensions to the package name
-		#    this way we can have the packages grouped and nicely colored in gource
-		#
-		#    todo: do things like:
-		#    first find everything that contains an x, then, continue searching only these for xorg, xf86 etc and not everything
-		#    also:  can we use awk here?
-		#
+		for i in `cat ${DATADIR}/tmp` ; do
+			# here we revert the hack again
+			i=`echo $i | sed s/·/\ /g`
+			# the unix time string
+			UNIXDATE=`date +"%s" -d "${i:1:16}"`
+			# put  installed/removed/upgraded information in there again, we translated these later with sed in one rush
+			STATE=`awk '{print $3}' <( echo ${i} )`
+			# package name
+			PKG=`awk '{print $4}' <( echo ${i} )`
+			# this is an awful hack to get the vars via multitasking, but it works :)
+			echo "$UNIXDATE" > /dev/null &
+			echo "$STATE" > /dev/null &
+			echo "$PKG" > /dev/null &
+			wait
+			if [[ "${PKG}" == *lib* ]] ; then
+				if [[ "${PKG}" == *libreoffice* ]] ; then
+					PKG=libreoffice/${PKG}.libreoffice
+				else
+					PKG=lib/${PKG}.lib
+				fi
+			elif [[ "${PKG}" == *xorg* ]]		 ; then
+				PKG=xorg/${PKG}.xorg
+			elif [[ "${PKG}" == *ttf* ]]		 ; then
+				PKG=ttf/${PKG}.ttf
+			elif [[ "${PKG}" == *xfce* ]]		 ; then
+				PKG=xfce/${PKG}.xfce
+			elif [[ "${PKG}" == *sdl* ]]		 ; then
+				PKG=sdl/${PKG}.sdl
+			elif [[ "${PKG}" == *xf86* ]]		 ; then
+				PKG=xf86/${PKG}.xf86
+			elif [[ "${PKG}" == *perl* ]]		 ; then
+				PKG=perl/${PKG}.perl
+			elif [[ "${PKG}" == *gnome* ]]		 ; then
+				PKG=gnome/${PKG}.gnome
+			elif [[ "${PKG}" == *gtk* ]]		 ; then
+				PKG=gtk/${PKG}.gtk
+			elif [[ "${PKG}" == *gstreamer* ]]	 ; then
+				PKG=gstreamer/${PKG}.gstreamer
+			elif [[ "${PKG}" == *kde* ]]		 ; then
+				PKG=kde/${PKG}.kde
+			elif [[ "${PKG}" == *python* ]]		 ; then
+				PKG=python/${PKG}.python
+			elif [[ "${PKG}" == *py* ]]			 ; then
+				PKG=python/${PKG}.python
+			elif [[ "${PKG}" == *lxde* ]]		 ; then
+				PKG=lxde/${PKG}.lxde
+			elif [[ "${PKG}" == ^lx* ]]			 ; then
+				PKG=lxde/${PKG}.lxde
+			elif [[ "${PKG}" == *php* ]]		 ; then
+				PKG=php/${PKG}.php
+			elif [[ "${PKG}" == *alsa* ]]		 ; then
+				PKG=alsa/${PKG}.alsa
+			elif [[ "${PKG}" == *compiz* ]]		 ; then
+				PKG=compiz/${PKG}.compiz
+			elif [[ "${PKG}" == *dbus* ]]		 ; then
+				PKG=dbus/${PKG}.dbus
+			elif [[ "${PKG}" == *gambas* ]]		 ; then
+				PKG=gambas/${PKG}.gambas
+			elif [[ "${PKG}" == *qt* ]]			 ; then
+				PKG=qt/${PKG}.qt
+			elif [[ "${PKG}" == *firefox* ]]	 ; then
+				PKG=mozilla/${PKG}.mozilla
+			elif [[ "${PKG}" == *thunderbird* ]] ; then
+				PKG=mozilla/${PKG}.mozilla
+			elif [[ "${PKG}" == *seamonky* ]]	 ; then
+				PKG=mozilla/${PKG}.mozilla
+			fi
 
-		if [[ "${PKG}" == *lib* ]] && [[ "${PKG}" != *libreoffice* ]] ; then
-			PKG=lib/${PKG}.lib
-		elif [[ "${PKG}" == *xorg* ]]		 ; then
-			PKG=xorg/${PKG}.xorg
-		elif [[ "${PKG}" == *ttf* ]]		 ; then
-			PKG=ttf/${PKG}.ttf
-		elif [[ "${PKG}" == *xfce* ]]		 ; then
-			PKG=xfce/${PKG}.xfce
-		elif [[ "${PKG}" == *sdl* ]]		 ; then
-			PKG=sdl/${PKG}.sdl
-		elif [[ "${PKG}" == *xf86* ]]		 ; then
-			PKG=xf86/${PKG}.xf86
-		elif [[ "${PKG}" == *perl* ]]		 ; then
-			PKG=perl/${PKG}.perl
-		elif [[ "${PKG}" == *gnome* ]]		 ; then
-			PKG=gnome/${PKG}.gnome
-		elif [[ "${PKG}" == *libreoffice* ]] ; then
-			PKG=libreoffice/${PKG}.libreoffice
-		elif [[ "${PKG}" == *gtk* ]]		 ; then
-			PKG=gtk/${PKG}.gtk
-		elif [[ "${PKG}" == *gstreamer* ]]	 ; then
-			PKG=gstreamer/${PKG}.gstreamer
-		elif [[ "${PKG}" == *kde* ]]		 ; then
-			PKG=kde/${PKG}.kde
-		elif [[ "${PKG}" == *python* ]]		 ; then
-			PKG=python/${PKG}.python
-		elif [[ "${PKG}" == *py* ]]			 ; then
-			PKG=python/${PKG}.python
-		elif [[ "${PKG}" == *lxde* ]]		 ; then
-			PKG=lxde/${PKG}.lxde
-		elif [[ "${PKG}" == ^lx* ]]			 ; then
-			PKG=lxde/${PKG}.lxde
-		elif [[ "${PKG}" == *php* ]]		 ; then
-			PKG=php/${PKG}.php
-		elif [[ "${PKG}" == *alsa* ]]		 ; then
-			PKG=alsa/${PKG}.alsa
-		elif [[ "${PKG}" == *compiz* ]]		 ; then
-			PKG=compiz/${PKG}.compiz
-		elif [[ "${PKG}" == *dbus* ]]		 ; then
-			PKG=dbus/${PKG}.dbus
-		elif [[ "${PKG}" == *gambas* ]]		 ; then
-			PKG=gambas/${PKG}.gambas
-		elif [[ "${PKG}" == *qt* ]]			 ; then
-			PKG=qt/${PKG}.qt
-		elif [[ "${PKG}" == *firefox* ]]	 ; then
-			PKG=mozilla/${PKG}.mozilla
-		elif [[ "${PKG}" == *thunderbird* ]] ; then
-			PKG=mozilla/${PKG}.mozilla
-		elif [[ "${PKG}" == *seamonky* ]]	 ; then
-			PKG=mozilla/${PKG}.mozilla
-		fi
+			#    write the important stuff into our logfile
+			echo "${UNIXDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
 
-		#    write the important stuff into our logfile
-		echo "${UNIXDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
-
-		#    here we print how log the script already took to run and try to estimate how log it will run until everything is done
-		#    but we only update this every 500 lines to avoid unnecessary stdout spamming
-		#    this will mostly be printed when initially obtaining the log
-		if [ "${LINEPERCOUT}" == "500" ] ; then
-			LINECOUNTCOOKIE=1
-			#    can we use  expr  here, or something more simple?
-			LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
-			timeend
-			#    same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
-			TGDOUT=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
-			TIMEDONEONE=`calc -p "100 / ${LINEPERC:0:4} *${TDG}" | sed 's/\~//'`
-			TIMEDONEFINAL=`calc -p "${TIMEDONEONE} - ${TDG}" | sed 's/\~//' | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
-			echo "Already ${LINEPERC:0:4}% done after ${TGDOUT}s."
-			echo -e "Done in approximately ${TIMEDONEFINAL}s.\n"
-			LINEPERCOUT=0
-		fi
-
-		#     switch to next line and re-start the loop
-		LINE=`expr ${LINE} + 1`
-		LINEPERCOUT=`expr ${LINEPERCOUT} + 1`
+			#    here we print how log the script already took to run and try to estimate how log it will run until everything is done
+			#    but we only update this every 500 lines to avoid unnecessary stdout spamming
+			#    this will mostly be printed when initially obtaining the log
+			if [ "${LINEPERCOUT}" == "500" ] ; then
+				LINECOUNTCOOKIE=1
+				#    can we use  expr  here, or something more simple?
+				LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
+				timeend
+				#    same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
+				TGDOUT=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+				TIMEDONEONE=`calc -p "100 / ${LINEPERC:0:4} *${TDG}" | sed 's/\~//'`
+				TIMEDONEFINAL=`calc -p "${TIMEDONEONE} - ${TDG}" | sed 's/\~//' | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+				echo "Already ${LINEPERC:0:4}% done after ${TGDOUT}s."
+				echo -e "Done in approximately ${TIMEDONEFINAL}s.\n"
+				LINEPERCOUT=0
+			fi
+			#     switch to next line and re-start the loop
+			LINE=`expr ${LINE} + 1`
+			LINEPERCOUT=`expr ${LINEPERCOUT} + 1`
+		done
 	done
-
-	mv ${DATADIR}/pacman_tmp.log ${LOGNOW}
-
-	rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log
+	# was the package installed/removed/upgraded?  here we actually translate this important information
+	cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/|installed|/|A|/' -e 's/|upgraded|/|M|/' -e 's/|removed|/|D|/' > ${DATADIR}/tmp2.log
+	mv ${DATADIR}/tmp2.log ${DATADIR}/pacman_gource_tree.log &
+	mv ${DATADIR}/pacman_tmp.log ${LOGNOW} &
+	rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log ${DATADIR}/tmp &
+	wait
 
 	# take the existing log and remove the paths so we have our pie-like log again which I had at the beginning of the developmen process of this script :)
-	# yes, this may look stupid, first writing a package category and then removing it afterwards, but I think its faster to edit the entire file once instead of
-	# writing every single line to file
+	# yes, this may look stupid, first writing a package category and then removing it afterwards, but I think its faster to edit the entire file in one rush
+	# instead of writing every single line into a file
 	cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/' -e 's/A|.*\//A\|/' > ${DATADIR}/pacman_gource_pie.log
 
 
@@ -259,7 +262,14 @@ makelog() {
 		TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}'`
 	fi
 
-	echo -e "100 % done after ${RED}${TIMEFINAL}${NC}.\n"
+	if [[ ${MAXLINES} == "0" ]] ; then
+		LINESPERSEC="0"
+	else
+		LINESPERSEC=`calc -p "${MAXLINES}/${TIMEFINAL}"`
+	fi
+
+	echo -e "100 % done after ${RED}${TIMEFINAL}${NC}s."
+	echo -e "${RED}${LINESPERSEC:0:6}${NC} lines per second.\n"
 } # makelog
 
 help() {
@@ -283,9 +293,9 @@ logbeginning=`date +"%d %b %Y" -d "${logbeginningdate}"`
 logenddate=`cat ${LOGNOW} | tail -n1 | awk '{print $1}' | sed  -e 's/\[//'`
 logend=`date +"%d %b %Y" -d "${logenddate}"`
 
-logtimes=", ${logbeginning} - ${logend}"
-hostname=", hostname: `hostname`"
-arch=", `arch`"
+LOGTIMES=", ${logbeginning} - ${logend}"
+HOSTNAME=", hostname: `hostname`"
+ARCH=", `arch`"
 
 
 while getopts "nchgfpaotim" opt; do
@@ -320,13 +330,13 @@ while getopts "nchgfpaotim" opt; do
 			GOURCEPOST="true"
 			;;
 		"a")
-			arch=''
+			ARCH=''
 			;;
 		"o")
-			hostname=''
+			HOSTNAME=''
 			;;
 		"t")
-			logtimes=''
+			LOGTIMES=''
 			;;
 		"i")
 			UPDATE="false"
@@ -352,7 +362,7 @@ done
 
 
 if [ ${INFORMATION} == "true" ] ; then
-	TITLE="Pacmanlog2gource${logtimes}${hostname}${arch}"
+	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
 	echo "The default command which will be run using pacmanlog2gource -g is"
 	echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.4 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001${NC}"
 	echo "If you run -f, this is appended:"
@@ -369,7 +379,7 @@ if [ ${UPDATE} == "true" ] ; then
 fi
 
 if [ ${GOURCEPOST} == "true" ] ; then
-	TITLE="Pacmanlog2gource${logtimes}${hostname}${arch}"
+	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
 	if [ ${FFMPEGPOST} == "true" ] ; then
 		gource ${LOG} -1200x720  -c 1.4 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001 --output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k pacmanlog2gource_`date +%b\_%d\_%Y`.mp4
 	else
