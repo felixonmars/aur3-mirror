@@ -1,16 +1,16 @@
 # Maintainer: Élie Bouttier <cube.elie@gmail.com>
 pkgname=7robot-eurobot-git
-pkgver=20120228
-pkgrel=1
+pkgver=20120212
+pkgrel=2
 pkgdesc="7Robot eurobot related sources"
 arch=('i686' 'x86_64')
-url="http://github.com/bouttier/Eurobot/"
+url="http://github.com/7Robot/ARM/"
 license=('GPL')
 depends=()
 makedepends=('git')
 
-_gitroot=http://github.com/bouttier/Eurobot.git
-_gitname=Eurobot
+_gitroot=http://github.com/7Robot/ARM.git
+_gitname=ARM
 
 build() {
   cd "$srcdir"
@@ -32,7 +32,8 @@ build() {
 
   mkdir build
   cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DARCHLINUX:Boolean=ON
+  cmake .. -DCMAKE_INSTALL_PREFIX=/usr
+#-DARCHLINUX:Boolean=ON
   make
 }
 
