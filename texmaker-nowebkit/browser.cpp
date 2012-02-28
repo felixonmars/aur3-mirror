@@ -12,7 +12,7 @@
 #include "browser.h"
 
 
-Browser::Browser( const QString home, QWidget* parent, Qt::WFlags flags)
+Browser::Browser( const QString home, bool showToolBar, QWidget* parent, Qt::WFlags flags)
     : QMainWindow( parent, flags )
 {
 
