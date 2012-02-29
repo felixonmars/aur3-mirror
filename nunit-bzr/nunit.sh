@@ -1,2 +1,2 @@
 #!/bin/bash
-/usr/bin/mono /usr/lib/nunit/nunit.exe "$@"
+mono /usr/lib/nunit/nunit.exe "$@"
