@@ -12,8 +12,6 @@ PID=$(get_pid $DAEMON)
 [ -r /etc/conf.d/$DAEMON ] && . /etc/conf.d/$DAEMON
 
 daemon_wrapper() {
-
-
   modprobe i2c-dev
   mv "$1" /dev/i2c-2
 
@@ -21,7 +19,7 @@ daemon_wrapper() {
   amixer -c0 set "IEC958" on
   amixer -c0 set "IEC958 Default PCM" on
 
-  tiitoo-hdmi-daemon
+  tiitoo-hdmi-daemon &
 }
 
 
@@ -29,15 +27,18 @@ daemon_wrapper() {
 case "$1" in
  start)
    stat_busy "Starting $DAEMON"
-   [[ -z $1 ]] &&
-     echo "Please edit /etc/conf.d/tiitoo-hdmi" &&
+   if [ -z $1 ]; then
+     echo "Please edit /etc/conf.d/tiitoo-hdmi"
+     stat_fail
      exit 1
-   [ -z "$PID" ] && daemon_wrapper $DEVICE &>/tmp/tiitoo-hdmi-$USER.log
+   fi
+
+   [ -z "$PID" ] && daemon_wrapper $DEVICE &>$LOGFILE
    if [ $? = 0 ]; then
      add_daemon $DAEMON
      stat_done
    else
-     cat /tmp/tiitoo-hdmi-$USER.log
+     cat $LOGFILE
      stat_fail
      exit 1
    fi
