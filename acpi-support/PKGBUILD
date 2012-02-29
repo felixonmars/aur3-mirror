@@ -1,6 +1,6 @@
 pkgname=acpi-support
 pkgver=0.138
-pkgrel=3
+pkgrel=4
 pkgdesc="Ubuntu ACPI support package"  
 depends=('acpid' 'netkit-bsd-finger' 'dmidecode')
 makedepends=('make')
@@ -15,7 +15,7 @@ url="http://packages.ubuntu.com/acpi-support"
 
 arch=('i686' 'x86_64')
 license="GPL"
-install=($pkgname.install)
+install=$pkgname.install
 
 build() {
   local ROOT=../pkg
