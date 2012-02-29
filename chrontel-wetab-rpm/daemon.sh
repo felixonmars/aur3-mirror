@@ -7,19 +7,24 @@
 DAEMON=tiitoo-hdmi
 DEVICE=
 LOGFILE=/tmp/tiitoo-hdmi-$USER.log
-PID=$(get_pid $DAEMON)
+PIDFILE=/var/run/$DAEMON.pid
 
 [ -r /etc/conf.d/$DAEMON ] && . /etc/conf.d/$DAEMON
 
 daemon_wrapper() {
-  modprobe i2c-dev
-  mv "$1" /dev/i2c-2
+  if [ -z $1 ]; then
+    echo "Please edit /etc/conf.d/tiitoo-hdmi"
+    exit 1
+  else
+    modprobe i2c-dev
+    mv "$1" /dev/i2c-2
 
-  # ensure that the SPDIF audio is on 
-  amixer -c0 set "IEC958" on
-  amixer -c0 set "IEC958 Default PCM" on
+    # ensure that the SPDIF audio is on 
+    amixer -c0 set "IEC958" on
+    amixer -c0 set "IEC958 Default PCM" on
 
-  tiitoo-hdmi-daemon &
+    tiitoo-hdmi-daemon &
+  fi
 }
 
 
@@ -27,14 +32,9 @@ daemon_wrapper() {
 case "$1" in
  start)
    stat_busy "Starting $DAEMON"
-   if [ -z $1 ]; then
-     echo "Please edit /etc/conf.d/tiitoo-hdmi"
-     stat_fail
-     exit 1
-   fi
-
    [ -z "$PID" ] && daemon_wrapper $DEVICE &>$LOGFILE
    if [ $? = 0 ]; then
+     echo $! > $PIDFILE
      add_daemon $DAEMON
      stat_done
    else
@@ -45,9 +45,11 @@ case "$1" in
    ;;
  stop)
    stat_busy "Stopping $DAEMON"
-   [ -n "$PID" ] && kill $PID &>/dev/null
+   PID=$(cat $PIDFILE)
+   [ -n $PID" ] && kill $PID &>/dev/null
    if [ $? = 0 ]; then
      rm_daemon $DAEMON
+     rm $PIDFILE
      stat_done
    else
      stat_fail
@@ -60,5 +62,6 @@ case "$1" in
    $0 start
    ;;
  *)
-   echo "usage: $0 {start|stop|restart}"  
+   echo "usage: $0 {start|stop|restart}"
+   ;; 
 esac
