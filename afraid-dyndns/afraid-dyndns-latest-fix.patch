@@ -1,0 +1,115 @@
+--- afraid-dyndns-1.1/afraid-dyndns	    2009-10-16 02:21:47.000000000 +0200
++++ b/afraid-dyndns.new                 2012-02-22 03:35:58.000000000 +0200
+@@ -23,6 +23,7 @@
+ $\ = $/;
+ 
+ use LWP::Simple;
++use LWP::UserAgent;
+ use XML::Simple;
+ # use Data::Dumper;
+ use Getopt::Long;
+@@ -34,11 +35,11 @@
+ GetOptions(\%ARGV, keys %args);
+ 
+ if ($ARGV{help}) {
+-	echo("Syntax: $0 [--quiet] [--debug|-D] [--help] [hostname]");
+-	echo("    quiet: supresses all output");
+-	echo("    debug: generates feedback on internal workings");
+-	echo("    help: displays syntax");
+-	echo("    hostname: indicates that only the specified name should be refreshed");
++	print("Syntax: $0 [--quiet] [--debug|-D] [--help] [hostname]");
++	print("    quiet: supresses all output");
++	print("    debug: generates feedback on internal workings");
++	print("    help: displays syntax");
++	print("    hostname: indicates that only the specified name should be refreshed");
+ 	exit;
+ 	}
+ 
+@@ -53,28 +54,34 @@
+ # get working parameters
+ 
+ for (readfile($CONF)) {
+-	chomp;
+-	s/#.*//;
+-	split /\s*=\s*/;
++	chomp; s/#.*//; s/^\s*//; s/\s*$//;
++	next if /^$/;
++	@_ = split /\s*=\s*/;
+ 	$ARGV{$_[0]} = $_[1];
++	debug("[$_[0]] = [$_[1]]");
+ 	}
+ 
+-die "No AccountHash in configuration file - please see README for instructions. Done" unless $ARGV{AccountHash};
+-$ARGV{CacheFile} ||= "/var/cache/afraid-dyndns/IP";
+-
+ echo("-- $0 (Ver: $VER) --");
+ echo("License: GPL");
+ echo("Notifications: " . $ARGV{Notify} || "None");
+ 
++die "No AccountHash in configuration file - please see README for instructions. Done" unless $ARGV{AccountHash};
++$ARGV{CacheFile} ||= "/var/cache/afraid-dyndns/IP";
++
++# if config file indicates a log file, all output goes there
++
++if ($ARGV{LogFile} && !$ARGV{debug}) {
++	open(STDOUT, ">> $ARGV{LogFile}")
++        || die qq/Failed opening logfile [$ARGV{LogFile}]: "$!"/;
++	open(STDERR, ">&STDOUT") || die "Cannot dup stdout";
++	}
++
+ #
+ # get external and cached IP addresses
+ #
+ 
+-$xml = get("http://ip-address.domaintools.com/myip.xml");
+-die "Failed fetching IP address!" unless $xml;
+-
+-$o = XMLin($xml);
+-$extip = $o->{ip_address};				# external address
++$extip = getextip();
++die "Failed fetching IP address!" unless $extip;
+ $intip = readfile($ARGV{CacheFile});	# internal address (cached)
+ chomp $intip;
+ 
+@@ -89,7 +96,7 @@
+ 
+ 	$xml = get(sprintf($afraid, $ARGV{AccountHash}));
+ 	die "Failed fetching update head!" unless $xml;
+-	$o = XMLin($xml);
++	$o = XMLin($xml, forcearray => ['item']);
+ 	for (@{$o->{item}}) {
+ 		next if $hostname && $_->{host} !~ /$hostname/;
+ 		debug("- $_->{host}");
+@@ -121,6 +128,32 @@
+ 
+ exit;
+ 
++sub getextip {
++	$getextip[0] = sub {
++		$_ = get("http://freedns.afraid.org:8080/dynamic/check.php");
++		(/Detected IP : (.*)/)[0] if $_;
++		};  
++	$getextip[1] = sub {
++		get("http://whatismyip.org/");
++		};  
++	$getextip[2] = sub {
++		my $ua = LWP::UserAgent->new;
++		$ua->timeout(10);
++		$ua->env_proxy;
++		$ua->agent("Mozilla/5.0");
++		my $rs = $ua->get("http://ip-address.domaintools.com/myip.xml");
++		if ($rs->is_success) {
++			$xml = $rs->decoded_content;
++			}
++		return XMLin($xml)->{ip_address} if $xml;
++		}; 
++	$getextip[3] = sub {
++		get("http://ip.arix.com/");
++		}; 
++     
++    chomp($ip = $_->()) && return $ip for @getextip;
++    }
++
+ #
+ #   Syntax:
+ #       readfile [file-name = $_]

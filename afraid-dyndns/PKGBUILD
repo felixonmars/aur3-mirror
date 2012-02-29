@@ -1,34 +1,32 @@
-# Maintainer: Rick Dutour Geerling <info at rickdg dot nl>
+# Maintainer: M Rawash <mrawash@gmail.com>
+# Submitter: Rick Dutour Geerling <info at rickdg dot nl>
+
 pkgname=afraid-dyndns
-pkgver=20120222
-pkgrel=1
-pkgdesc="FreeDNS.afraid.org dynamic DNS client written in perl"
+pkgver=1.1
+pkgrel=2
+epoch=1
+pkgdesc="A dynamic DNS client for the free service afraid.org, written in Perl"
 arch=('any')
 url="http://perl.arix.com/"
 license=('GPL3')
-groups=()
-depends=('perl' 'perl-libwww' 'perl-xml-simple')
-makedepends=('git')
-optdepends=('perl-mime-lite')
-provides=()
-conflicts=()
-replaces=()
-backup=()
-options=()
-install=
-changelog=
-source=()
-noextract=()
-md5sums=()
-_gitroot="https://github.com/gwash/afraid-dyndns.git"
-_gitname="master"
+depends=('perl-libwww' 'perl-xml-simple')
+optdepends=('perl-mime-lite: email notification')
+backup=('etc/afraid-dyndns.conf' 'etc/cron.d/afraid-dyndns')
+install=$pkgname.install
+source=(http://perl.arix.com/ftp/$pkgname-$pkgver.tar.gz
+        $pkgname-latest-fix.patch)
+md5sums=('38ca9be1d2ab409fe472524df53c8806'
+         'd280b5fc55aba622a155f6991913601d')
 
 build() {
-  cd "$srcdir/"
-  git clone $_gitroot
+    cd "$srcdir"
+    patch -Np0 -i $pkgname-latest-fix.patch || return 1 
+    
+    cd "$srcdir/$pkgname-$pkgver"
+
+    ./install "$pkgdir"
+
+    install -Dpm 644 README "$pkgdir/usr/share/doc/$pkgname/README"
 }
 
-package() {
-  cd "$srcdir/$pkgname"
-  ./install $pkgdir
-}
+# vim:set ts=2 sw=2 et:
