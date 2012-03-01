@@ -1,1 +1,2 @@
-adobe-air /opt/tweetdeck/tweetdeck.air
+#!/bin/sh
+WINEDEBUG=-all wine /usr/share/tweetdeck/TweetDeck.exe "$@"
