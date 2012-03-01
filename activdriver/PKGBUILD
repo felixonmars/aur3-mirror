@@ -2,13 +2,13 @@
 # Contributor: Zsolt Udvari <udvzsolt@gmail.com>
 pkgname=activdriver
 pkgver=5.7.22
-pkgrel=1
+pkgrel=2
 pkgdesc="The kernel mode and X11 drivers for Promethean ActivBoard and ActivHub."
 arch=('i686' 'x86_64')
 url="http://www.prometheanworld.com/"
 license=('unknown')
 depends=(bash)
-makedepends=(kernel26-headers)
+makedepends=(linux-headers)
 install=$pkgname.install
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
@@ -35,7 +35,14 @@ package() {
   cp -r etc lib $pkgdir
   cp -r usr/bin usr/lib usr/share $pkgdir/usr
   install -D usr/src/promethean/activlc/release/activlc $pkgdir/usr/bin/activlc
-  install -D usr/src/promethean/kernel/promethean.ko \
-    $pkgdir/lib/modules/$(uname -r)/kernel/drivers/input/tablet/promethean.ko
+  _extmoddir=$(uname -r | sed "s@\([0-9]*\.[0-9]*\)\.[0-9]*-[0-9]*\(.*\)@\1\2@")
+  if [ -d /lib/modules/extramodules-${_extmoddir} ]; then
+      _moddir="/lib/modules/extramodules-${_extmoddir}"/
+  else
+      _moddir="/lib/modules/$(uname -r)"/kernel/drivers/input/tablet/
+  fi
+  install -m644 -D usr/src/promethean/kernel/promethean.ko \
+    $pkgdir${_moddir}/promethean.ko
+  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
   install -D 10-promethean.conf $pkgdir/etc/X11/xorg.conf.d/10-promethean.conf
 }
