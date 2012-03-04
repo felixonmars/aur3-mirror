@@ -1,9 +1,9 @@
-# Maintainer: BlackEagle <ike DOT devolder AT gmail DOT com>
+# Maintainer: BlackIkeEagle <ike DOT devolder AT gmail DOT com>
 # Contributor: slubman <slubman.dndd@laposte.net>
 
 pkgname=afpfs-ng
 pkgver=0.8.1
-pkgrel=3
+pkgrel=4
 pkgdesc="A client for the Apple Filing Protocol (AFP)"
 url="http://alexthepuffin.googlepages.com/"
 license=('GPL')
@@ -11,7 +11,7 @@ depends=('gmp' 'fuse' 'libgcrypt')
 arch=('i686' 'x86_64')
 options=(!libtool)
 source=(
-	"http://downloads.sourceforge.net/sourceforge/${pkgname}/${pkgname}-${pkgver}.tar.bz2"
+	"http://downloads.sourceforge.net/sourceforge/$pkgname/$pkgname-$pkgver.tar.bz2"
 	'fix_afpfs-ng_includes.patch'
 	'01-gcrypt.patch'
 	'02-pointer.patch'
@@ -32,34 +32,34 @@ sha256sums=(
 )
 
 build() {
-	cd ${pkgname}-${pkgver}
+	cd "$pkgname-$pkgver"
 	# apply patches
 	msg2 'fix_afpfs-ng_includes.patch'
-	patch -Np1 -i ${srcdir}/fix_afpfs-ng_includes.patch
+	patch -Np1 -i "$srcdir/fix_afpfs-ng_includes.patch"
 	msg2 '01-gcrypt.patch'
-	patch -Np1 -i ${srcdir}/01-gcrypt.patch
+	patch -Np1 -i "$srcdir/01-gcrypt.patch"
 	msg2 '02-pointer.patch'
-	patch -Np1 -i ${srcdir}/02-pointer.patch
+	patch -Np1 -i "$srcdir/02-pointer.patch"
 	msg2 '10-fix-errno.patch'
-	patch -Np1 -i ${srcdir}/10-fix-errno.patch
+	patch -Np1 -i "$srcdir/10-fix-errno.patch"
 	msg2 '20-build-error-fixes.patch'
-	patch -Np1 -i ${srcdir}/20-build-error-fixes.patch
+	patch -Np1 -i "$srcdir/20-build-error-fixes.patch"
 	msg2 '21-header-path-fix.patch'
-	patch -Np1 -i ${srcdir}/21-header-path-fix.patch
+	patch -Np1 -i "$srcdir/21-header-path-fix.patch"
 	msg2 '30-include-fixes.patch'
-	patch -Np1 -i ${srcdir}/30-include-fixes.patch
+	patch -Np1 -i "$srcdir/30-include-fixes.patch"
 
 	./configure --prefix=/usr
 	make
 }
 
 package() {
-	cd ${pkgname}-${pkgver}
-	make DESTDIR=$pkgdir install
+	cd "$pkgname-$pkgver"
+	make DESTDIR="$pkgdir" install
 
 	# install headers
 	cd include
 	for header in afpfs-ng/*.h; do
-		install -Dm644 ${header} ${pkgdir}/usr/include/${header}
+		install -Dm644 "$header" "$pkgdir/usr/include/$header"
 	done
 }
