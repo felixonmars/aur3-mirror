@@ -1,1 +1,1 @@
-cd /opt/retroshare && ./retroshare $*
+cd /opt/retroshare && ./retroshare "$@"
