@@ -3,8 +3,8 @@
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
 
 pkgname=0ad-svn
-pkgver=10280
-pkgrel=1
+pkgver=11263
+pkgrel=2
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
@@ -13,7 +13,7 @@ depends=('binutils' 'boost' 'crypto++' 'devil' 'enet>=1.3.0' 'gamin' 'libogg' 'l
 makedepends=('subversion' 'gcc>=4.3')
 options=('!makeflags')
 source=('boost-mt-fix.patch')
-md5sums=('2355ca93f1b3a0d8cceb98cf15681029')
+md5sums=('0ca5f80c1fb0f0f4c42365580c8c61d8')
 
 _svntrunk="http://svn.wildfiregames.com/public/ps/trunk"
 _svnmod="trunk"
@@ -41,7 +41,7 @@ msg "Creating build copy..."
 
 msg "Applying boost-mt fix..."
   cd build/premake
-  patch -uN extern_libs.lua < ../../../../boost-mt-fix.patch
+  patch -uN extern_libs4.lua < ../../../../boost-mt-fix.patch
   cd ../../
 
 msg "Updating Workspaces..."
@@ -79,6 +79,6 @@ create_start_script(){
 echo << __EOF__ >> ${pkgname}.sh
 #!/bin/sh
 cd /opt/0ad/system
-./pyrogenesis_dbg $*
+./pyrogenesis $*
 __EOF__
 }
