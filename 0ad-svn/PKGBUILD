@@ -3,8 +3,8 @@
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
 
 pkgname=0ad-svn
-pkgver=11263
-pkgrel=2
+pkgver=11265
+pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
@@ -76,7 +76,7 @@ msg "Installing run script..."
 }
 
 create_start_script(){
-echo << __EOF__ >> ${pkgname}.sh
+cat >> ${pkgname}.sh  << __EOF__
 #!/bin/sh
 cd /opt/0ad/system
 ./pyrogenesis $*
