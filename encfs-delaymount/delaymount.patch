@@ -1,0 +1,144 @@
+From 6301d5f23107ffbbea7b50e76d2788cdbe391471 Mon Sep 17 00:00:00 2001
+From: Jeff King <peff@peff.net>
+Date: Wed, 7 Mar 2012 08:03:26 -0500
+Subject: [PATCH] encfs: add --delaymount option
+
+This lets you delay the initial mount, letting --ondemand
+perform the first mount when the filesystem is first
+accessed. This makes it convenient to start encfs during
+login, as it will not prompt for a password until the
+filesystem is actually used.
+
+Signed-off-by: Jeff King <peff@peff.net>
+---
+ encfs/FileUtils.cpp |    8 ++++++++
+ encfs/FileUtils.h   |    2 ++
+ encfs/encfs.pod     |    7 ++++++-
+ encfs/main.cpp      |   19 +++++++++++++++++++
+ 4 files changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/encfs/FileUtils.cpp b/encfs/FileUtils.cpp
+index 165ce21..372c7f9 100644
+--- a/encfs/FileUtils.cpp
++++ b/encfs/FileUtils.cpp
+@@ -1638,6 +1638,14 @@ RootPtr initFS( EncFS_Context *ctx, const shared_ptr<EncFS_Opts> &opts )
+ 	    return rootInfo;
+ 	}
+ 
++	if(opts->delayMount)
++	{
++	    rootInfo = RootPtr( new EncFS_Root );
++	    rootInfo->cipher = cipher;
++	    rootInfo->root = shared_ptr<DirNode>();
++	    return rootInfo;
++	}
++
+ 	// get user key
+ 	CipherKey userKey;
+ 
+diff --git a/encfs/FileUtils.h b/encfs/FileUtils.h
+index b852ee7..4cf5bdf 100644
+--- a/encfs/FileUtils.h
++++ b/encfs/FileUtils.h
+@@ -67,6 +67,7 @@ struct EncFS_Opts
+     bool createIfNotFound;  // create filesystem if not found
+     bool idleTracking; // turn on idle monitoring of filesystem
+     bool mountOnDemand; // mounting on-demand
++    bool delayMount; // delay initial mount
+ 
+     bool checkKey;  // check crypto key decoding
+     bool forceDecode; // force decode on MAC block failures
+@@ -86,6 +87,7 @@ struct EncFS_Opts
+         createIfNotFound = true;
+         idleTracking = false;
+         mountOnDemand = false;
++        delayMount = false;
+         checkKey = true;
+         forceDecode = false;
+         useStdin = false;
+diff --git a/encfs/encfs.pod b/encfs/encfs.pod
+index d519366..4b3096f 100644
+--- a/encfs/encfs.pod
++++ b/encfs/encfs.pod
+@@ -19,7 +19,7 @@ B<encfs> [B<--version>] [B<-s>] [B<-f>] [B<-v>|B<--verbose>]
+ [B<-i MINUTES>|B<--idle=MINUTES>] [B<--extpass=program>] 
+ [B<-S>|B<--stdinpass>] [B<--anykey>] [B<--forcedecode>] 
+ [B<-d>|B<--fuse-debug>] [B<--public>] [B<--no-default-flags>]
+-[B<--ondemand>] [B<--reverse>] [B<--standard>] 
++[B<--ondemand>] [B<--delaymount>] [B<--reverse>] [B<--standard>] 
+ [B<-o FUSE_OPTION>]
+ I<rootdir> I<mountPoint> 
+ [B<--> [I<Fuse Mount Options>]]
+@@ -115,6 +115,11 @@ internally dropping it's reference to it.  If someone attempts to access the
+ filesystem again, the extpass program is used to prompt the user for the
+ password.  If this succeeds, then the filesystem becomes available again.
+ 
++=item B<--delaymount>
++
++Do not mount the filesystem when encfs starts; instead, delay mounting until
++first use. This option only makes sense with B<--ondemand>.
++
+ =item B<--reverse>
+ 
+ Normally B<EncFS> provides a plaintext view of data on demand.  Normally it
+diff --git a/encfs/main.cpp b/encfs/main.cpp
+index 393ebb5..9a7d7f4 100644
+--- a/encfs/main.cpp
++++ b/encfs/main.cpp
+@@ -107,6 +107,7 @@ struct EncFS_Args
+ 	if(opts->annotate) ss << "(annotate) ";
+ 	if(opts->reverseEncryption) ss << "(reverseEncryption) ";
+ 	if(opts->mountOnDemand) ss << "(mountOnDemand) ";
++	if(opts->delayMount) ss << "(delayMount) ";
+ 	for(int i=0; i<fuseArgc; ++i)
+ 	    ss << fuseArgv[i] << ' ';
+ 
+@@ -221,6 +222,7 @@ bool processArgs(int argc, char *argv[], const shared_ptr<EncFS_Args> &out)
+ 	{"anykey", 0, 0, 'k'}, // skip key checks
+ 	{"no-default-flags", 0, 0, 'N'}, // don't use default fuse flags
+ 	{"ondemand", 0, 0, 'm'}, // mount on-demand
++	{"delaymount", 0, 0, 'M'}, // delay initial mount until use
+ 	{"public", 0, 0, 'P'}, // public mode
+ 	{"extpass", 1, 0, 'p'}, // external password program
+ 	// {"single-thread", 0, 0, 's'}, // single-threaded mode
+@@ -296,6 +298,9 @@ bool processArgs(int argc, char *argv[], const shared_ptr<EncFS_Args> &out)
+ 	case 'm':
+ 	    out->opts->mountOnDemand = true;
+ 	    break;
++	case 'M':
++	    out->opts->delayMount = true;
++	    break;
+ 	case 'N':
+ 	    useDefaultFlags = false;
+ 	    break;
+@@ -406,6 +411,15 @@ bool processArgs(int argc, char *argv[], const shared_ptr<EncFS_Args> &out)
+ 	}
+     }
+ 
++    if(out->opts->delayMount && ! out->opts->mountOnDemand)
++    {
++	cerr <<
++	    // xgroup(usage)
++	    _("You must use mount-on-demand with delay-mount")
++	    << endl;
++	return false;
++    }
++
+     if(out->opts->mountOnDemand && out->opts->passwordProgram.empty())
+     {
+ 	cerr << 
+@@ -602,6 +616,11 @@ int main(int argc, char *argv[])
+ 
+     if( rootInfo )
+     {
++	// turn off delayMount, as our prior call to initFS has already
++	// respected any delay, and we want future calls to actually
++	// mount.
++	encfsArgs->opts->delayMount = false;
++
+ 	// set the globally visible root directory node
+ 	ctx->setRoot( rootInfo->root );
+ 	ctx->args = encfsArgs;
+-- 
+1.7.9.1.11.gb60f1
+
