@@ -1,4 +1,3 @@
+setenv J2REDIR=/opt/java/jre
 setenv PATH ${PATH}:/opt/java/jre/bin
-if (! "$?JAVA_HOME" ) then
-  setenv JAVA_HOME /opt/java/jre
-endif
+setenv JAVA_HOME /opt/java/
