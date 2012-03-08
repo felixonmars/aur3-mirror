@@ -6,7 +6,7 @@
 
 pkgname=amazonmp3
 pkgver=1.0.9
-pkgrel=6
+pkgrel=7
 pkgdesc="The Amazon MP3 downloader"
 url="http://www.amazon.com/gp/dmusic/help/amd.html"
 arch=('i686')
@@ -49,5 +49,5 @@ package() {
   ln -s /usr/lib/libicui18n.so "${pkgdir}/usr/lib/libicui18n.so.38"
   ln -s /usr/lib/libicuuc.so "${pkgdir}/usr/lib/libicuuc.so.38"
 
-  rm "${pkgdir}"/{control,md5sums,postinst,postrm}
+  rm "${pkgdir}"/{control,md5sums,postinst,postrm,shlibs}
 }
