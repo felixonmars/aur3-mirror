@@ -9,7 +9,7 @@ url="https://developers.google.com/mobile-ads-sdk"
 license=('custom')
 depends=('android-sdk')
 source=("https://dl-ssl.google.com/googleadmobadssdk/googleadmobadssdkandroid-${pkgver}.zip" "source.properties")
-sha1sums=('e0fe9835b5c676e25e0bf215e8f44c1bc8ef172d' 'bfc44c21aa315d5bd082cbe61d82ad6bdc471620')
+sha1sums=('e0fe9835b5c676e25e0bf215e8f44c1bc8ef172d' '8023679b6ae38a2cdf78fc5c062468b476e375e9')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/extras/google/"

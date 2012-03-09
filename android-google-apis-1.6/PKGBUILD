@@ -2,7 +2,7 @@
 
 pkgname=android-google-apis-1.6
 pkgver=r02
-pkgrel=1
+pkgrel=2
 pkgdesc="API add-on for Google Android SDK 1.6"
 arch=('any')
 url="http://code.google.com/android/add-ons/google-apis/index.html"
@@ -20,5 +20,5 @@ package() {
   mkdir -p $_addon
    
   mv "$srcdir/google_apis-4_r02" $pkgdir/$_addon/$pkgname
-
+  chmod -R uog+rX ${pkgdir}/*
 }
