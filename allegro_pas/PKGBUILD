@@ -1,6 +1,6 @@
 pkgname=allegro_pas
 pkgver=4.4.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Allegro.pas is a wrapper to use Allegro with Pascal compilers"
 url="http://allegro-pas.sourceforge.net/"
 license=('unknown')
@@ -13,7 +13,7 @@ source=("http://downloads.sourceforge.net/allegro-pas/allegro.pas-$pkgver-src-pa
 md5sums=('d289929fb13320bdca0fdc3a0944adf8')
 
 build() {
-  cd ${srcdir}/allegro.pas/lib
+  cd "${srcdir}/allegro.pas/lib"
   fpc al3d.pas
   fpc alblend.pas
   fpc alfile.pas
@@ -21,8 +21,8 @@ build() {
   fpc algui.pas
   fpc alvga.pas
   
-  mkdir -p $pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro
-  mv *.o $pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro
-  mv *.ppu $pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro
-  mv *.a $pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro
+  mkdir -p "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
+  mv *.o "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
+  mv *.ppu "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
+  mv *.a "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
 }
