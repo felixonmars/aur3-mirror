@@ -1,7 +1,8 @@
-# Maintainer: Iwan Gabovitch <qubodup@gmail.com>
+# Maintainer: Jakub Schmidtke <sjakub-at-gmail-dot-com>
+# Contributor: Iwan Gabovitch <qubodup@gmail.com>
 
 pkgname=android-platform-15
-pkgver=4.0.3_r02
+pkgver=4.0.4_r02
 pkgrel=1
 pkgdesc='Android SDK Platform, API-15'
 arch=('any')
@@ -13,5 +14,7 @@ sha1sums=('7d0cd29d3f91bbb7fb52b87cf04e5afb50376cdc')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/platforms/"
-  mv "${srcdir}/android-4.0.3" "${pkgdir}/opt/android-sdk/platforms/android-15"
+  mv "${srcdir}/android-4.0.4" "${pkgdir}/opt/android-sdk/platforms/android-15"
+
+  chmod -R ugo+rX "${pkgdir}/opt"
 }

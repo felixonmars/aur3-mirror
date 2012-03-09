@@ -83,6 +83,10 @@ fi
 gst=`git diff ${obj} --shortstat ./`
 gstins=`echo ${gst} | tr "," "\n"  | awk /insertion/ | grep -o "[0-9]*"` || gstins="0"
 gstdels=`echo ${gst} | tr "," "\n"  | awk /deletion/ | grep -o "[0-9]*"` || gstdels="0"
+# multitask hack
+echo "${gstins}" > /dev/null &
+echo "${gstdels}" > /dev/null &
+wait
 gstchval=`expr ${gstins} - ${gstdels}`
 gstchfiles=`echo ${gst} | awk '{print $1}'`
 
@@ -110,21 +114,29 @@ files=`wc -l ${diffstat} | awk '{print $1}'`
 
 
 
-
 # "Bin 0 -> x bytes" :  file has been added
 newfiles=`awk '/Bin\ 0/' ${diffstat} | wc -l`
 # "Bin x -> 0 bytes" : file has been deleted
 delfiles=`awk '/->\ 0\ bytes/' ${diffstat} | wc -l`
 # all files - new files - deleted files  = modified files
+
+# multitask hack
+echo "${old}" > /dev/null &
+echo "${new}" > /dev/null &
+echo "${files}" > /dev/null &
+echo "${newfiles}" > /dev/null &
+echo "${delfiles}" > /dev/null &
+wait
+
 binchval=`expr ${newfiles} - ${delfiles}`
 chfiles=`expr ${files} - ${binchval}`
 
 if [ "${binchval}" -gt 0 ] ; then
-	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted. (\e[033;32m+${binchval} files\e[0m)"
+	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted (\e[033;32m+${binchval} files\e[0m)"
 elif [ "${binchval}" == 0 ] ; then
-	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted. (${binchval} files)"
+	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted (${binchval} files)"
 else
-	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted. (\e[033;31m${binchval} files\e[0m)"
+	echo -e " Binary files: ${chfiles} modified, \e[033;32m${newfiles}\e[0m added, \e[033;31m${delfiles}\e[0m deleted (\e[033;31m${binchval} files\e[0m)"
 fi
 
 
@@ -201,12 +213,12 @@ if [ "${changeval}" -gt 0 ] ; then
 			changevalval=${changevalmega}
 			((changevalgiga=${changevalmega}/1024))
 			if [ ! "${changevalgiga}" == 0 ] ; then
-				changedvalunit=Gb
-				changevalval=${changvalgiga}
+				changevalunit=Gb
+				changevalval=${changevalgiga}
 			fi
 		fi
 	fi
-	echo -e " ${files} binary ${somefiles} changed, \e[033;31m${oldval}${oldunit}\e[0m -> \e[033;32m${newval}${newunit}\e[0m (\e[033;32m+${changevalval}${changevalunit}\e[0m)"
+	echo -e " ${files} binary ${somefiles} changed, \e[033;31m${oldval} ${oldunit}\e[0m -> \e[033;32m${newval} ${newunit}\e[0m (\e[033;32m+${changevalval} ${changevalunit}\e[0m)"
 
 elif [ "${changeval}" == 0 ] ; then
 
@@ -223,12 +235,12 @@ elif [ "${changeval}" == 0 ] ; then
 				changevalval=${changevalmega}
 				((changevalgiga=${changevalmega}/1024))
 				if [ ! "${changevalgiga}" == 0 ] ; then
-					changedvalunit=Gb
-					changevalval=${changvalgiga}
+					changevalunit=Gb
+					changevalval=${changevalgiga}
 				fi
 			fi
 		fi
-		echo -e " ${files} binary ${somefiles} changed, \e[033;31m${oldval}${oldunit}\e[0m -> \e[033;32m${newval}${newunit}\e[0m (${changevalval}${changevalunit})"
+		echo -e " ${files} binary ${somefiles} changed, \e[033;31m${oldval} ${oldunit}\e[0m -> \e[033;32m${newval} ${newunit}\e[0m (${changevalval} ${changevalunit})"
 	fi
 
 else
@@ -245,8 +257,8 @@ else
 			changevalval=${changevalmega}
 			((changevalgiga=${changevalmega}/1024))
 			if [ ! "${changevalgiga}" == 0 ] ; then
-				changedvalunit=Gb
-				changevalval=${changvalgiga}
+				changevalunit=Gb
+				changevalval=${changevalgiga}
 			fi
 		fi
 	fi
