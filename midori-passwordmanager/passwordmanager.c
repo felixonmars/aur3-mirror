@@ -33,7 +33,6 @@ static gboolean
 passwman_prepare_js ()
 {
    gchar* passwordmanager;
-   guint i;
    gchar* file;
 
    file = sokoke_find_data_filename ("passwordmanager.js", TRUE);
