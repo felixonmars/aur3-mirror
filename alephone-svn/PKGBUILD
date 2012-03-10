@@ -1,4 +1,4 @@
-# Maintainer: Marcin Skory <armitage at gfreedom dot org>
+# Maintainer: Marcin Skory <armitage at q84fh dot net>
 pkgname=alephone-svn
 pkgver=4662
 pkgrel=2
