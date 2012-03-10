@@ -11,7 +11,7 @@ url="http://perl.arix.com/"
 license=('GPL3')
 depends=('perl-libwww' 'perl-xml-simple')
 optdepends=('perl-mime-lite: email notification')
-backup=('etc/afraid-dyndns.conf' 'etc/cron.d/afraid-dyndns')
+backup=('etc/afraid-dyndns.conf')
 install=$pkgname.install
 source=(http://perl.arix.com/ftp/$pkgname-$pkgver.tar.gz
         $pkgname-latest-fix.patch)
