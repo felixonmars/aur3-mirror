@@ -20,8 +20,8 @@ optdepends=(
 provides=()
 conflicts=()
 replaces=()
-backup=()
-options=(emptydirs)
+#backup=('etc/httpd/conf/mods-available/*.conf')
+options=(emptydirs !strip)
 source=($pkgname-$pkgver.tar.gz)
 install='a2enmod.install'
 noextract=()
@@ -76,4 +76,4 @@ package(){
   install -Dm644 bash_completion "$pkgdir"/etc/bash_completion.d/a2enmod
 
 }
-md5sums=('d095bbfae144cbb83cda1fae937da693')
+md5sums=('55fede265939c145a53601072a31ae30')
