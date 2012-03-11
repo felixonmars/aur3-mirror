@@ -20,7 +20,10 @@ build() {
   fpc alflic.pas
   fpc algui.pas
   fpc alvga.pas
-  
+}
+
+package() {
+  cd "${srcdir}/allegro.pas/lib"
   mkdir -p "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
   mv *.o "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
   mv *.ppu "$pkgdir/usr/lib/fpc/2.6.0/units/${_unitsdir}/allegro"
