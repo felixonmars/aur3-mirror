@@ -1,7 +1,7 @@
 # Maintainer: crazyelf5
 
 pkgname=0ad-svn-bin
-pkgver=20120310
+pkgver=20120311
 _pkgver=r10803-3.26
 _dataver=r10803-1.1
 pkgrel=1
@@ -9,7 +9,7 @@ pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (open
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
 _arch='x86_64'
-[ $CARCH = 'i686' ] && _arch='i586' && _pkgver=r10803-3.29
+[ $CARCH = 'i686' ] && _arch='i586' && _pkgver=r10803-3.30
 license=('GPL2' 'CCPL')
 depends=('boost-libs' 'curl' 'enet' 'gamin' 'libogg' 'libpng14' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
 makedepends=('boost' 'libarchive' 'wget' 'lynx')
@@ -21,7 +21,6 @@ source=(http://download.opensuse.org/repositories/games/openSUSE_Factory/$_arch/
 md5sums=(`wget ${source[0]}.md5 -qO - | cut -d " " -f1`
          `wget ${source[1]}.md5 -qO - | cut -d " " -f1`)
 
-# Uncomment the next line if you want to speed up the installation process (requires 600 MB free space in $TMPDIR)
 PKGEXT='.pkg.tar'
 
 package() {
