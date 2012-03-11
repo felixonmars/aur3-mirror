@@ -6,7 +6,7 @@ _basename=wacomtablet
 _content=114856
 pkgname=kcm-$_basename
 pkgver=1.3.6
-pkgrel=2
+pkgrel=1
 url="http://kde-apps.org/content/show.php/wacom+tablet?content=$_content"
 pkgdesc="KDE GUI for the Wacom Linux Drivers"
 license=('GPLv2')
