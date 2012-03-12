@@ -4,7 +4,7 @@
 
 pkgname=a2enmod
 pkgver=1.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Apache enable/disable module/site. From Debian package.'
 arch=('any')
 url='http://httpd.apache.org/'
@@ -14,13 +14,43 @@ groups=()
 depends=(perl apache)
 makedepends=()
 optdepends=(
-  'php-apache: php support'
-  'openssl: https support, to generate a certificate'
+'php-apache: php support'
+'openssl: https support, to generate a certificate'
 )
 provides=()
 conflicts=()
 replaces=()
-#backup=('etc/httpd/conf/mods-available/*.conf')
+backup=(
+etc/httpd/conf/mods-available/actions.conf
+etc/httpd/conf/mods-available/alias.conf
+etc/httpd/conf/mods-available/autoindex.conf
+etc/httpd/conf/mods-available/cgid.conf
+etc/httpd/conf/mods-available/dav_fs.conf
+etc/httpd/conf/mods-available/deflate.conf
+etc/httpd/conf/mods-available/dir.conf
+etc/httpd/conf/mods-available/disk_cache.conf
+etc/httpd/conf/mods-available/dnssd.conf
+etc/httpd/conf/mods-available/fastcgi.conf
+etc/httpd/conf/mods-available/fcgid.conf
+etc/httpd/conf/mods-available/info.conf
+etc/httpd/conf/mods-available/ldap.conf
+etc/httpd/conf/mods-available/mem_cache.conf
+etc/httpd/conf/mods-available/mime.conf
+etc/httpd/conf/mods-available/mime_magic.conf
+etc/httpd/conf/mods-available/mono.conf
+etc/httpd/conf/mods-available/negotiation.conf
+etc/httpd/conf/mods-available/perl.conf
+etc/httpd/conf/mods-available/php5.conf
+etc/httpd/conf/mods-available/proxy_balancer.conf
+etc/httpd/conf/mods-available/proxy.conf
+etc/httpd/conf/mods-available/proxy_ftp.conf
+etc/httpd/conf/mods-available/reqtimeout.conf
+etc/httpd/conf/mods-available/setenvif.conf
+etc/httpd/conf/mods-available/ssl.conf
+etc/httpd/conf/mods-available/status.conf
+etc/httpd/conf/mods-available/suphp.conf
+etc/httpd/conf/mods-available/userdir.conf
+)
 options=(emptydirs !strip)
 source=($pkgname-$pkgver.tar.gz)
 install='a2enmod.install'
@@ -49,6 +79,7 @@ package(){
 
   # changing directory apache2 to httpd in *.conf
   sed -e 's#/usr/share/apache2/#/usr/share/httpd/#g' -i *.conf
+  sed -e 's#/etc/apache2#/etc/httpd/conf#g' -i *.conf
   popd
 
   # installation of a2enmod script and symlinks
@@ -76,4 +107,4 @@ package(){
   install -Dm644 bash_completion "$pkgdir"/etc/bash_completion.d/a2enmod
 
 }
-md5sums=('55fede265939c145a53601072a31ae30')
+md5sums=('71cddc8965391e34876bdae471107638')
