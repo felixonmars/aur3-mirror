@@ -2,14 +2,14 @@
 
 pkgname=0ad-svn-bin
 pkgver=20120311
-_pkgver=r10803-3.26
+_pkgver=r10803-3.30
 _dataver=r10803-1.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE SVN prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
 _arch='x86_64'
-[ $CARCH = 'i686' ] && _arch='i586' && _pkgver=r10803-3.30
+[ $CARCH = 'i686' ] && _arch='i586'
 license=('GPL2' 'CCPL')
 depends=('boost-libs' 'curl' 'enet' 'gamin' 'libogg' 'libpng14' 'libvorbis' 'libxml2' 'openal' 'python2' 'sdl' 'zlib')
 makedepends=('boost' 'libarchive' 'wget' 'lynx')
