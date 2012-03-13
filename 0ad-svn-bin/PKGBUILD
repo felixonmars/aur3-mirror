@@ -1,10 +1,10 @@
 # Maintainer: crazyelf5
 
 pkgname=0ad-svn-bin
-pkgver=20120311
-_pkgver=r10803-3.30
+pkgver=20120313
+_pkgver=r10803-3.32
 _dataver=r10803-1.1
-pkgrel=2
+pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE SVN prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
