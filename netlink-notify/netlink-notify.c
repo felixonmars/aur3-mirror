@@ -1,5 +1,5 @@
 /*
- * (C) 2011 by Christian Hesse <mail@eworm.de>
+ * (C) 2011-2012 by Christian Hesse <mail@eworm.de>
  *
  * This software may be used and distributed according to the terms
  * of the GNU General Public License, incorporated herein by reference.
@@ -58,7 +58,7 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	char * notification = NULL;
 	char * interface = NULL;
 	NotifyNotification * netlink;
-	unsigned int i;
+	unsigned int i, errcount = 0;
 
 	gboolean res = FALSE;
 	GError * error = NULL;
@@ -91,16 +91,26 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	notify_notification_set_urgency (netlink, NOTIFY_URGENCY_NORMAL);
 
 	while(!notify_notification_show(netlink, &error)) {
-		g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", program, error->message);
-		g_error_free(error);
-		error = NULL;
+		if (errcount > 1) {
+			fprintf(stderr, "%s: Looks like we can not reconnect to notification daemon... Exiting.\n", program);
+		} else {
+			g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", program, error->message);
+			errcount++;
 
-		notify_uninit();
-		if(!notify_init("Udev-Net-Notification")) {
-			fprintf(stderr, "%s: Can't create notify.\n", program);
-			exit(EXIT_FAILURE);
+			g_error_free(error);
+			error = NULL;
+
+			notify_uninit();
+
+			usleep(500 * 1000);
+
+			if(!notify_init("Udev-Net-Notification")) {
+				fprintf(stderr, "%s: Can't create notify.\n", program);
+				exit(EXIT_FAILURE);
+			}
 		}
 	}
+	errcount = 0;
 
 	free(notification);
 

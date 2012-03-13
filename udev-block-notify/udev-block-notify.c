@@ -1,5 +1,5 @@
 /*
- * (C) 2011 by Christian Hesse <mail@eworm.de>
+ * (C) 2011-2012 by Christian Hesse <mail@eworm.de>
  *
  * This software may be used and distributed according to the terms
  * of the GNU General Public License, incorporated herein by reference.
@@ -34,8 +34,7 @@ int main (int argc, char ** argv) {
 	char * device = NULL;
    	struct udev_monitor * mon = NULL;
 	fd_set readfds;
-	int fdcount;
-	int devnum;
+	int fdcount, devnum, errcount = 0;
 	unsigned short int i, major, minor;
 	short int * maxminor;
 
@@ -159,16 +158,26 @@ int main (int argc, char ** argv) {
 				notify_notification_set_urgency (netlink, NOTIFY_URGENCY_NORMAL);
 	
 				while(!notify_notification_show(netlink, &error)) {
-					g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
-					g_error_free(error);
-					error = NULL;
+					if (errcount > 1) {
+						fprintf(stderr, "%s: Looks like we can not reconnect to notification daemon... Exiting.\n", argv[0]);
+					} else {
+						g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
+						errcount++;
+
+						g_error_free(error);
+						error = NULL;
 	
-					notify_uninit();
-					if(!notify_init("Udev-Block-Notification")) {
-						fprintf(stderr, "%s: Can't create notify.\n", argv[0]);
-						exit(EXIT_FAILURE);
+						notify_uninit();
+
+						usleep(500 * 1000);
+
+						if(!notify_init("Udev-Block-Notification")) {
+							fprintf(stderr, "%s: Can't create notify.\n", argv[0]);
+							exit(EXIT_FAILURE);
+						}
 					}
 				}
+				errcount = 0;
 	
 				free(notification);
 				udev_device_unref(dev);
