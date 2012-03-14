@@ -13,14 +13,14 @@ tiitoo-hdmi-wrapper() {
     echo "Parameter missing. Please edit /etc/conf.d/tiitoo-hdmi if you are using the daemon."
     exit 1
   else
+    echo > $LOGFILE
     modprobe i2c-dev
     mv "$1" /dev/i2c-2
 
     # ensure that the SPDIF audio is on 
-    amixer -c0 set "IEC958" on
-    amixer -c0 set "IEC958 Default PCM" on
-
-    tiitoo-hdmi-daemon
+    amixer -c0 set "IEC958" on &>> $LOGFILE
+    amixer -c0 set "IEC958 Default PCM" on &>> $LOGFILE
+    dbus-launch $PROCESS &>> $LOGFILE # the daemon requires a dbus session, meh
   fi
 }
 
@@ -31,7 +31,7 @@ case "$1" in
  start)
    stat_busy "Starting $DAEMON"
    pkill -f $PROCESS
-   $COMMAND $DEVICE &>$LOGFILE &
+   $COMMAND $DEVICE &
    if [ $? = 0 ]; then
      add_daemon $DAEMON
      stat_done
