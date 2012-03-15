@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.9.1
+# ff-downloader v0.5.9.2
 ## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -257,7 +257,7 @@ if (!$LANG)
     say ":: \"$i18n[$choice - 1]{language}\" selected\n::";
     say qq{:: HINT: put "$pkg=$LANG" (without quotes) in $HOME/.ff-downloader to avoid being asked about your language each time you build the package\n::};
 }
-my $ARCH = qx(arch);
+my $ARCH = qx(uname -m);
 chomp $ARCH;
 
 $| = 1; # turn on autoflush;
