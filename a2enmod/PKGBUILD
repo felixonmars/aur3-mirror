@@ -4,7 +4,7 @@
 
 pkgname=a2enmod
 pkgver=1.0
-pkgrel=3
+pkgrel=4
 pkgdesc='Apache enable/disable module/site. From Debian package.'
 arch=('any')
 url='http://httpd.apache.org/'
@@ -50,27 +50,42 @@ etc/httpd/conf/mods-available/ssl.conf
 etc/httpd/conf/mods-available/status.conf
 etc/httpd/conf/mods-available/suphp.conf
 etc/httpd/conf/mods-available/userdir.conf
+etc/httpd/conf/ports.conf
+etc/httpd/conf/sites-available/default
+etc/httpd/conf/sites-available/default-ssl
+etc/httpd/conf/conf.d/charset
+etc/httpd/conf/conf.d/localized-error-pages
+etc/httpd/conf/conf.d/other-vhosts-access-log
+etc/httpd/conf/conf.d/security
 )
 options=(emptydirs !strip)
 source=($pkgname-$pkgver.tar.gz)
 install='a2enmod.install'
 noextract=()
 
-_apache_dir='/etc/httpd'
-_man_dir='/usr/share/man/man8'
-
 package(){
   cd "$srcdir/$pkgname-$pkgver"
 
-  # installation of modules, default sites and basic configuration
-  install -dm755 "$pkgdir"/${_apache_dir}/conf || return 1
+  _apache_dir='/etc/httpd'
+  _man_dir='/usr/share/man/man8'
+
+  # installation of default configurations
+  install -dm755 "$pkgdir"/${_apache_dir}/conf
   tar -c conf | tar -x -C "$pkgdir"${_apache_dir}
 
+  # creating directories for enabled/available mods and sites 
+  install -dm755 "$pkgdir"$_apache_dir/conf/mods-available
+  install -dm755 "$pkgdir"$_apache_dir/conf/mods-enabled
+  install -dm755 "$pkgdir"$_apache_dir/conf/sites-enabled
+
   # installation of missing modules from orignal httpd.conf
-  cp -f mods-orig/* "$pkgdir"/${_apache_dir}/conf/mods-available/
+  cp -f mods-httpd-default/* "$pkgdir"/${_apache_dir}/conf/mods-available/
 
   # installation of other modules, installed separately
-  cp -f mods-other/* "$pkgdir"/${_apache_dir}/conf/mods-available/
+  cp -f mods-repo-aur/* "$pkgdir"/${_apache_dir}/conf/mods-available/
+
+  # installation of modules from debian package
+  cp -f mods-debian/* "$pkgdir"/${_apache_dir}/conf/mods-available/
 
   pushd "$pkgdir"${_apache_dir}/conf/mods-available
   
@@ -80,6 +95,7 @@ package(){
   # changing directory apache2 to httpd in *.conf
   sed -e 's#/usr/share/apache2/#/usr/share/httpd/#g' -i *.conf
   sed -e 's#/etc/apache2#/etc/httpd/conf#g' -i *.conf
+
   popd
 
   # installation of a2enmod script and symlinks
@@ -89,10 +105,6 @@ package(){
   ln -s a2enmod a2dismod
   ln -s a2enmod a2dissite
   popd
-
-  # creating directories for enabled mods and sites 
-  install -dm755 "$pkgdir"$_apache_dir/conf/mods-enabled
-  install -dm755 "$pkgdir"$_apache_dir/conf/sites-enabled
 
   # installation of man pages
   install -dm755 "$pkgdir"/${_man_dir}
@@ -107,4 +119,4 @@ package(){
   install -Dm644 bash_completion "$pkgdir"/etc/bash_completion.d/a2enmod
 
 }
-md5sums=('71cddc8965391e34876bdae471107638')
+md5sums=('d1197e74902cc3e1e105a04096f1dffb')
