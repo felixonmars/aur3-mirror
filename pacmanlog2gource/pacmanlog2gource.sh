@@ -43,7 +43,7 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.7.5"
+VERSION="1.7.6"
 
 FILENAMES=' '
 
@@ -67,8 +67,8 @@ fi
 
 # print the version into a file so we can handle file formats being out of date properly later
 echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5"
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5/'` ]] ; then
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5 1.7.6"
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6/'` ]] ; then
 	if [[ $(echo "$*") == *c* ]] ; then
 		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
 	else
@@ -103,7 +103,7 @@ makelog() {
 
 	# check if pacman is currently in use
 	if [ -f "/var/lib/pacman/db.lck" ] ; then
-		echo "ERROR, pacman is currently in use, please wait and re-run whe pacman is done." >&2
+		echo "ERROR, pacman is currently in use, please wait and re-run when pacman is done." >&2
 		exit 3
 	fi
 
@@ -157,11 +157,6 @@ makelog() {
 			STATE=`awk '{print $3}' <( echo ${i} )`
 			# package name
 			PKG=`awk '{print $4}' <( echo ${i} )`
-			# this is an awful hack to get the vars via multitasking, but it works :)
-			echo "$UNIXDATE" > /dev/null &
-			echo "$STATE" > /dev/null &
-			echo "$PKG" > /dev/null &
-			wait
 			if [[ "${PKG}" == *lib* ]] ; then
 				if [[ "${PKG}" == *libreoffice* ]] ; then
 					PKG=libreoffice/${PKG}.libreoffice
@@ -215,6 +210,13 @@ makelog() {
 			elif [[ "${PKG}" == *seamonky* ]]	 ; then
 				PKG=mozilla/${PKG}.mozilla
 			fi
+
+			#    this is an awful hack to get the vars via multitasking, but it works :)
+			echo "$UNIXDATE" > /dev/null &
+			echo "$STATE" > /dev/null &
+			echo "$PKG" > /dev/null &
+			wait
+
 
 			#    write the important stuff into our logfile
 			echo "${UNIXDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
@@ -295,7 +297,7 @@ logend=`date +"%d %b %Y" -d "${logenddate}"`
 
 LOGTIMES=", ${logbeginning} - ${logend}"
 HOSTNAME=", hostname: `hostname`"
-ARCH=", `arch`"
+ARCH=", `uname -m`"
 
 
 while getopts "nchgfpaotim" opt; do
