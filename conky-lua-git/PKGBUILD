@@ -1,0 +1,66 @@
+# $Id$
+# Contributor: Giovanni Scafora <giovanni@archlinux.org>
+# Contributor: James Rayner <james@archlinux.org>
+# Contributor: Partha Chowdhury <kira.laucas@gmail.com>
+# Contributor: Gaetan Bisson <bisson@archlinux.org>
+# Maintainer: Mark Buck <m_buck@hotmail.com>
+
+pkgname=conky-lua-git
+pkgver=1.8.2git
+pkgrel=2
+pkgdesc='Lightweight system monitor for X with Lua support'
+url='http://conky.sourceforge.net/'
+license=('BSD' 'GPL')
+arch=('i686' 'x86_64')
+options=('!emptydirs')
+makedepends=('pkg-config' 'docbook2x')
+depends=('alsa-lib' 'libxml2' 'curl' 'wireless_tools' 'libxft' 'glib2' 'libxdamage' 'imlib2' 'toluapp')
+provides=('conky')
+makedepends=('git' 'cmake')
+conflicts=('conky')
+
+replaces=('torsmo')
+
+_gitroot="git://git.omp.am/conky.git"
+_gitname="conky"
+
+build() {
+	cd "$srcdir"
+	msg "Connecting to GIT server...."
+
+	if [ -d $_gitname ] ; then
+	cd $_gitname && git pull origin
+	msg "The local files are updated."
+	else
+	git clone $_gitroot $_gitname
+	fi
+
+	msg "GIT checkout done or server timeout"
+	msg "Starting make..."
+
+	rm -rf "$srcdir/$_gitname-build"
+	git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+	cd "$srcdir/$_gitname-build"
+
+	sh autogen.sh
+
+	CPPFLAGS="${CXXFLAGS}" LIBS="${LDFLAGS}" ./configure \
+	--prefix=/usr \
+	--sysconfdir=/etc \
+	--enable-ibm \
+	--enable-curl \
+	--enable-rss \
+	--enable-weather-xoap \
+	--enable-imlib2 \
+	--enable-lua \
+	--enable-lua-cairo \
+	--enable-lua-imlib2 \
+	--enable-wlan \
+
+	make
+}
+
+package() {
+	cd "$srcdir/$_gitname-build"
+	make DESTDIR="$pkgdir/" install
+} 
