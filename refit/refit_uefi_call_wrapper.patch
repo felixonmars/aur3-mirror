@@ -1,0 +1,667 @@
+Description: Wrap EFI API calls with refit_callX_wrapper()
+ Mandatory for GNU EFI especially on x86_64.
+Author: Julien BLACHE <jblache@debian.org>
+
+Index: refit-0.14/refit/config.c
+===================================================================
+--- refit-0.14.orig/refit/config.c	2010-04-21 17:27:19.338288906 +0200
++++ refit-0.14/refit/config.c	2010-04-21 17:52:44.332336109 +0200
+@@ -35,6 +35,7 @@
+  */
+ 
+ #include "lib.h"
++#include "refit_call_wrapper.h"
+ 
+ // constants
+ 
+@@ -64,14 +65,14 @@
+     File->BufferSize = 0;
+     
+     // read the file, allocating a buffer on the woy
+-    Status = BaseDir->Open(BaseDir, &FileHandle, FileName, EFI_FILE_MODE_READ, 0);
++    Status = refit_call5_wrapper(BaseDir->Open, BaseDir, &FileHandle, FileName, EFI_FILE_MODE_READ, 0);
+     if (CheckError(Status, L"while loading the configuration file"))
+         return Status;
+     
+     FileInfo = LibFileInfo(FileHandle);
+     if (FileInfo == NULL) {
+         // TODO: print and register the error
+-        FileHandle->Close(FileHandle);
++        refit_call1_wrapper(FileHandle->Close, FileHandle);
+         return EFI_LOAD_ERROR;
+     }
+     ReadSize = FileInfo->FileSize;
+@@ -81,14 +82,14 @@
+     
+     File->BufferSize = (UINTN)ReadSize;   // was limited to a few K before, so this is safe
+     File->Buffer = AllocatePool(File->BufferSize);
+-    Status = FileHandle->Read(FileHandle, &File->BufferSize, File->Buffer);
++    Status = refit_call3_wrapper(FileHandle->Read, FileHandle, &File->BufferSize, File->Buffer);
+     if (CheckError(Status, L"while loading the configuration file")) {
+         FreePool(File->Buffer);
+         File->Buffer = NULL;
+-        FileHandle->Close(FileHandle);
++        refit_call1_wrapper(FileHandle->Close, FileHandle);
+         return Status;
+     }
+-    Status = FileHandle->Close(FileHandle);
++    Status = refit_call1_wrapper(FileHandle->Close, FileHandle);
+     
+     // setup for reading
+     File->Current8Ptr  = (CHAR8 *)File->Buffer;
+Index: refit-0.14/refit/lib.c
+===================================================================
+--- refit-0.14.orig/refit/lib.c	2010-04-21 17:27:19.346288992 +0200
++++ refit-0.14/refit/lib.c	2010-04-21 17:52:55.803287996 +0200
+@@ -35,6 +35,7 @@
+  */
+ 
+ #include "lib.h"
++#include "refit_call_wrapper.h"
+ 
+ // variables
+ 
+@@ -67,7 +68,7 @@
+     UINTN       i;
+     
+     SelfImageHandle = ImageHandle;
+-    Status = BS->HandleProtocol(SelfImageHandle, &LoadedImageProtocol, (VOID **) &SelfLoadedImage);
++    Status = refit_call3_wrapper(BS->HandleProtocol, SelfImageHandle, &LoadedImageProtocol, (VOID **) &SelfLoadedImage);
+     if (CheckFatalError(Status, L"while getting a LoadedImageProtocol handle"))
+         return EFI_LOAD_ERROR;
+     
+@@ -105,12 +106,12 @@
+     UninitVolumes();
+     
+     if (SelfDir != NULL) {
+-        SelfDir->Close(SelfDir);
++        refit_call1_wrapper(SelfDir->Close, SelfDir);
+         SelfDir = NULL;
+     }
+     
+     if (SelfRootDir != NULL) {
+-        SelfRootDir->Close(SelfRootDir);
++        refit_call1_wrapper(SelfRootDir->Close, SelfRootDir);
+         SelfRootDir = NULL;
+     }
+ }
+@@ -141,7 +142,7 @@
+         }
+     }
+     
+-    Status = SelfRootDir->Open(SelfRootDir, &SelfDir, SelfDirPath, EFI_FILE_MODE_READ, 0);
++    Status = refit_call5_wrapper(SelfRootDir->Open, SelfRootDir, &SelfDir, SelfDirPath, EFI_FILE_MODE_READ, 0);
+     if (CheckFatalError(Status, L"while opening our installation directory"))
+         return EFI_LOAD_ERROR;
+     
+@@ -233,11 +234,11 @@
+     for (HandleIndex = 0; HandleIndex < HandleCount && PathCount < MaxPaths; HandleIndex++) {
+         Handle = Handles[HandleIndex];
+         
+-        Status = BS->HandleProtocol(Handle, &LoadedImageProtocol, (VOID **) &LoadedImage);
++        Status = refit_call3_wrapper(BS->HandleProtocol, Handle, &LoadedImageProtocol, (VOID **) &LoadedImage);
+         if (EFI_ERROR(Status))
+             continue;  // This can only happen if the firmware scewed up, ignore it.
+         
+-        Status = BS->HandleProtocol(LoadedImage->DeviceHandle, &DevicePathProtocol, (VOID **) &DevicePath);
++        Status = refit_call3_wrapper(BS->HandleProtocol, LoadedImage->DeviceHandle, &DevicePathProtocol, (VOID **) &DevicePath);
+         if (EFI_ERROR(Status))
+             continue;  // This happens, ignore it.
+         
+@@ -293,8 +294,9 @@
+         return;   // our buffer is too small...
+     
+     // look at the boot sector (this is used for both hard disks and El Torito images!)
+-    Status = Volume->BlockIO->ReadBlocks(Volume->BlockIO, Volume->BlockIO->Media->MediaId,
+-                                         Volume->BlockIOOffset, 2048, SectorBuffer);
++    Status = refit_call5_wrapper(Volume->BlockIO->ReadBlocks,
++                                 Volume->BlockIO, Volume->BlockIO->Media->MediaId,
++                                 Volume->BlockIOOffset, 2048, SectorBuffer);
+     if (!EFI_ERROR(Status)) {
+         
+         if (*((UINT16 *)(SectorBuffer + 510)) == 0xaa55 && SectorBuffer[0] != 0) {
+@@ -446,7 +448,7 @@
+     Volume->DiskKind = DISK_KIND_INTERNAL;  // default
+     
+     // get block i/o
+-    Status = BS->HandleProtocol(Volume->DeviceHandle, &BlockIoProtocol, (VOID **) &(Volume->BlockIO));
++    Status = refit_call3_wrapper(BS->HandleProtocol, Volume->DeviceHandle, &BlockIoProtocol, (VOID **) &(Volume->BlockIO));
+     if (EFI_ERROR(Status)) {
+         Volume->BlockIO = NULL;
+         Print(L"Warning: Can't get BlockIO protocol.\n");
+@@ -493,7 +495,7 @@
+             // get the handle for that path
+             RemainingDevicePath = DiskDevicePath;
+             //Print(L"  * looking at %s\n", DevicePathToStr(RemainingDevicePath));
+-            Status = BS->LocateDevicePath(&BlockIoProtocol, &RemainingDevicePath, &WholeDiskHandle);
++            Status = refit_call3_wrapper(BS->LocateDevicePath, &BlockIoProtocol, &RemainingDevicePath, &WholeDiskHandle);
+             //Print(L"  * remaining: %s\n", DevicePathToStr(RemainingDevicePath));
+             FreePool(DiskDevicePath);
+             
+@@ -501,13 +503,13 @@
+                 //Print(L"  - original handle: %08x - disk handle: %08x\n", (UINT32)DeviceHandle, (UINT32)WholeDiskHandle);
+                 
+                 // get the device path for later
+-                Status = BS->HandleProtocol(WholeDiskHandle, &DevicePathProtocol, (VOID **) &DiskDevicePath);
++	        Status = refit_call3_wrapper(BS->HandleProtocol, WholeDiskHandle, &DevicePathProtocol, (VOID **) &DiskDevicePath);
+                 if (!EFI_ERROR(Status)) {
+                     Volume->WholeDiskDevicePath = DuplicateDevicePath(DiskDevicePath);
+                 }
+                 
+                 // look at the BlockIO protocol
+-                Status = BS->HandleProtocol(WholeDiskHandle, &BlockIoProtocol, (VOID **) &Volume->WholeDiskBlockIO);
++                Status = refit_call3_wrapper(BS->HandleProtocol, WholeDiskHandle, &BlockIoProtocol, (VOID **) &Volume->WholeDiskBlockIO);
+                 if (!EFI_ERROR(Status)) {
+                     
+                     // check the media block size
+@@ -580,9 +582,10 @@
+     
+     for (ExtCurrent = ExtBase; ExtCurrent; ExtCurrent = NextExtCurrent) {
+         // read current EMBR
+-        Status = WholeDiskVolume->BlockIO->ReadBlocks(WholeDiskVolume->BlockIO,
+-                                                      WholeDiskVolume->BlockIO->Media->MediaId,
+-                                                      ExtCurrent, 512, SectorBuffer);
++      Status = refit_call5_wrapper(WholeDiskVolume->BlockIO->ReadBlocks,
++                                   WholeDiskVolume->BlockIO,
++                                   WholeDiskVolume->BlockIO->Media->MediaId,
++                                   ExtCurrent, 512, SectorBuffer);
+         if (EFI_ERROR(Status))
+             break;
+         if (*((UINT16 *)(SectorBuffer + 510)) != 0xaa55)
+@@ -704,12 +707,14 @@
+                     continue;
+                 
+                 // compare boot sector read through offset vs. directly
+-                Status = Volume->BlockIO->ReadBlocks(Volume->BlockIO, Volume->BlockIO->Media->MediaId,
+-                                                     Volume->BlockIOOffset, 512, SectorBuffer1);
++                Status = refit_call5_wrapper(Volume->BlockIO->ReadBlocks,
++					     Volume->BlockIO, Volume->BlockIO->Media->MediaId,
++					     Volume->BlockIOOffset, 512, SectorBuffer1);
+                 if (EFI_ERROR(Status))
+                     break;
+-                Status = Volume->WholeDiskBlockIO->ReadBlocks(Volume->WholeDiskBlockIO, Volume->WholeDiskBlockIO->Media->MediaId,
+-                                                              MbrTable[PartitionIndex].StartLBA, 512, SectorBuffer2);
++                Status = refit_call5_wrapper(Volume->WholeDiskBlockIO->ReadBlocks,
++					     Volume->WholeDiskBlockIO, Volume->WholeDiskBlockIO->Media->MediaId,
++					     MbrTable[PartitionIndex].StartLBA, 512, SectorBuffer2);
+                 if (EFI_ERROR(Status))
+                     break;
+                 if (CompareMem(SectorBuffer1, SectorBuffer2, 512) != 0)
+@@ -746,7 +751,7 @@
+         Volume = Volumes[VolumeIndex];
+         
+         if (Volume->RootDir != NULL) {
+-            Volume->RootDir->Close(Volume->RootDir);
++            refit_call1_wrapper(Volume->RootDir->Close, Volume->RootDir);
+             Volume->RootDir = NULL;
+         }
+         
+@@ -770,7 +775,7 @@
+         if (Volume->DevicePath != NULL) {
+             // get the handle for that path
+             RemainingDevicePath = Volume->DevicePath;
+-            Status = BS->LocateDevicePath(&BlockIoProtocol, &RemainingDevicePath, &DeviceHandle);
++            Status = refit_call3_wrapper(BS->LocateDevicePath, &BlockIoProtocol, &RemainingDevicePath, &DeviceHandle);
+             
+             if (!EFI_ERROR(Status)) {
+                 Volume->DeviceHandle = DeviceHandle;
+@@ -785,11 +790,11 @@
+         if (Volume->WholeDiskDevicePath != NULL) {
+             // get the handle for that path
+             RemainingDevicePath = Volume->WholeDiskDevicePath;
+-            Status = BS->LocateDevicePath(&BlockIoProtocol, &RemainingDevicePath, &WholeDiskHandle);
++            Status = refit_call3_wrapper(BS->LocateDevicePath, &BlockIoProtocol, &RemainingDevicePath, &WholeDiskHandle);
+             
+             if (!EFI_ERROR(Status)) {
+                 // get the BlockIO protocol
+-                Status = BS->HandleProtocol(WholeDiskHandle, &BlockIoProtocol, (VOID **) &Volume->WholeDiskBlockIO);
++                Status = refit_call3_wrapper(BS->HandleProtocol, WholeDiskHandle, &BlockIoProtocol, (VOID **) &Volume->WholeDiskBlockIO);
+                 if (EFI_ERROR(Status)) {
+                     Volume->WholeDiskBlockIO = NULL;
+                     CheckError(Status, L"from HandleProtocol");
+@@ -809,9 +814,9 @@
+     EFI_STATUS  Status;
+     EFI_FILE    *TestFile;
+     
+-    Status = BaseDir->Open(BaseDir, &TestFile, RelativePath, EFI_FILE_MODE_READ, 0);
++    Status = refit_call5_wrapper(BaseDir->Open, BaseDir, &TestFile, RelativePath, EFI_FILE_MODE_READ, 0);
+     if (Status == EFI_SUCCESS) {
+-        TestFile->Close(TestFile);
++        refit_call1_wrapper(TestFile->Close, TestFile);
+         return TRUE;
+     }
+     return FALSE;
+@@ -836,7 +841,7 @@
+         LastBufferSize = BufferSize = 256;
+         Buffer = AllocatePool(BufferSize);
+         for (IterCount = 0; ; IterCount++) {
+-            Status = Directory->Read(Directory, &BufferSize, Buffer);
++            Status = refit_call3_wrapper(Directory->Read, Directory, &BufferSize, Buffer);
+             if (Status != EFI_BUFFER_TOO_SMALL || IterCount >= 4)
+                 break;
+             if (BufferSize <= LastBufferSize) {
+@@ -885,7 +890,7 @@
+         DirIter->DirHandle = BaseDir;
+         DirIter->CloseDirHandle = FALSE;
+     } else {
+-        DirIter->LastStatus = BaseDir->Open(BaseDir, &(DirIter->DirHandle), RelativePath, EFI_FILE_MODE_READ, 0);
++        DirIter->LastStatus = refit_call5_wrapper(BaseDir->Open, BaseDir, &(DirIter->DirHandle), RelativePath, EFI_FILE_MODE_READ, 0);
+         DirIter->CloseDirHandle = EFI_ERROR(DirIter->LastStatus) ? FALSE : TRUE;
+     }
+     DirIter->LastFileInfo = NULL;
+@@ -929,7 +934,7 @@
+         DirIter->LastFileInfo = NULL;
+     }
+     if (DirIter->CloseDirHandle)
+-        DirIter->DirHandle->Close(DirIter->DirHandle);
++        refit_call1_wrapper(DirIter->DirHandle->Close, DirIter->DirHandle);
+     return DirIter->LastStatus;
+ }
+ 
+Index: refit-0.14/refit/main.c
+===================================================================
+--- refit-0.14.orig/refit/main.c	2010-04-21 17:50:57.051288666 +0200
++++ refit-0.14/refit/main.c	2010-04-21 17:53:08.701288018 +0200
+@@ -35,6 +35,7 @@
+  */
+ 
+ #include "lib.h"
++#include "refit_call_wrapper.h"
+ 
+ #include "syslinux_mbr.h"
+ 
+@@ -125,7 +126,7 @@
+     // load the image into memory
+     ReturnStatus = Status = EFI_NOT_FOUND;  // in case the list is empty
+     for (DevicePathIndex = 0; DevicePaths[DevicePathIndex] != NULL; DevicePathIndex++) {
+-        ReturnStatus = Status = BS->LoadImage(FALSE, SelfImageHandle, DevicePaths[DevicePathIndex], NULL, 0, &ChildImageHandle);
++        ReturnStatus = Status = refit_call6_wrapper(BS->LoadImage, FALSE, SelfImageHandle, DevicePaths[DevicePathIndex], NULL, 0, &ChildImageHandle);
+         if (ReturnStatus != EFI_NOT_FOUND)
+             break;
+     }
+@@ -138,7 +139,7 @@
+     
+     // set load options
+     if (LoadOptions != NULL) {
+-        ReturnStatus = Status = BS->HandleProtocol(ChildImageHandle, &LoadedImageProtocol, (VOID **) &ChildLoadedImage);
++      ReturnStatus = Status = refit_call3_wrapper(BS->HandleProtocol, ChildImageHandle, &LoadedImageProtocol, (VOID **) &ChildLoadedImage);
+         if (CheckError(Status, L"while getting a LoadedImageProtocol handle")) {
+             if (ErrorInStep != NULL)
+                 *ErrorInStep = 2;
+@@ -162,7 +163,7 @@
+     
+     // turn control over to the image
+     // TODO: (optionally) re-enable the EFI watchdog timer!
+-    ReturnStatus = Status = BS->StartImage(ChildImageHandle, NULL, NULL);
++    ReturnStatus = Status = refit_call3_wrapper(BS->StartImage, ChildImageHandle, NULL, NULL);
+     // control returns here when the child image calls Exit()
+     SPrint(ErrorInfo, 255, L"returned from %s", ImageTitle);
+     if (CheckError(Status, ErrorInfo)) {
+@@ -175,7 +176,7 @@
+     
+ bailout_unload:
+     // unload the image, we don't care if it works or not...
+-    Status = BS->UnloadImage(ChildImageHandle);
++    Status = refit_call1_wrapper(BS->UnloadImage, ChildImageHandle);
+ bailout:
+     if (FullLoadOptions != NULL)
+         FreePool(FullLoadOptions);
+@@ -570,7 +571,7 @@
+     BOOLEAN             HaveBootCode;
+     
+     // read MBR
+-    Status = BlockIO->ReadBlocks(BlockIO, BlockIO->Media->MediaId, 0, 512, SectorBuffer);
++    Status = refit_call5_wrapper(BlockIO->ReadBlocks, BlockIO, BlockIO->Media->MediaId, 0, 512, SectorBuffer);
+     if (EFI_ERROR(Status))
+         return Status;
+     if (*((UINT16 *)(SectorBuffer + 510)) != 0xaa55)
+@@ -606,7 +607,7 @@
+     }
+     
+     // write MBR
+-    Status = BlockIO->WriteBlocks(BlockIO, BlockIO->Media->MediaId, 0, 512, SectorBuffer);
++    Status = refit_call5_wrapper(BlockIO->WriteBlocks, BlockIO, BlockIO->Media->MediaId, 0, 512, SectorBuffer);
+     if (EFI_ERROR(Status))
+         return Status;
+     
+@@ -616,7 +617,7 @@
+         // NOTE: ExtBase was set above while looking at the MBR table
+         for (ExtCurrent = ExtBase; ExtCurrent; ExtCurrent = NextExtCurrent) {
+             // read current EMBR
+-            Status = BlockIO->ReadBlocks(BlockIO, BlockIO->Media->MediaId, ExtCurrent, 512, SectorBuffer);
++            Status = refit_call5_wrapper(BlockIO->ReadBlocks, BlockIO, BlockIO->Media->MediaId, ExtCurrent, 512, SectorBuffer);
+             if (EFI_ERROR(Status))
+                 return Status;
+             if (*((UINT16 *)(SectorBuffer + 510)) != 0xaa55)
+@@ -643,7 +644,7 @@
+             }
+             
+             // write current EMBR
+-            Status = BlockIO->WriteBlocks(BlockIO, BlockIO->Media->MediaId, ExtCurrent, 512, SectorBuffer);
++            Status = refit_call5_wrapper(BlockIO->WriteBlocks, BlockIO, BlockIO->Media->MediaId, ExtCurrent, 512, SectorBuffer);
+             if (EFI_ERROR(Status))
+                 return Status;
+             
+@@ -1005,10 +1006,11 @@
+             
+             if (!Parent) {
+                 if (HandleType[Index] & EFI_HANDLE_TYPE_DEVICE_HANDLE) {
+-                    Status = BS->ConnectController(AllHandleBuffer[Index],
+-                                                   NULL,
+-                                                   NULL,
+-                                                   TRUE);
++		    Status = refit_call4_wrapper(BS->ConnectController,
++					         AllHandleBuffer[Index],
++					         NULL,
++					         NULL,
++					         TRUE);
+                 }
+             }
+         }
+@@ -1071,7 +1073,7 @@
+     MainMenu.TimeoutSeconds = GlobalConfig.Timeout;
+     
+     // disable EFI watchdog timer
+-    BS->SetWatchdogTimer(0x0000, 0x0000, 0x0000, NULL);
++    refit_call4_wrapper(BS->SetWatchdogTimer, 0x0000, 0x0000, 0x0000, NULL);
+     
+     // further bootstrap (now with config available)
+     SetupScreen();
+@@ -1120,13 +1122,13 @@
+             
+             case TAG_RESET:    // Restart
+                 TerminateScreen();
+-                RT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
++		refit_call4_wrapper(RT->ResetSystem, EfiResetCold, EFI_SUCCESS, 0, NULL);
+                 MainLoopRunning = FALSE;   // just in case we get this far
+                 break;
+                 
+             case TAG_SHUTDOWN: // Shut Down
+                 TerminateScreen();
+-                RT->ResetSystem(EfiResetShutdown, EFI_SUCCESS, 0, NULL);
++		refit_call4_wrapper(RT->ResetSystem, EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+                 MainLoopRunning = FALSE;   // just in case we get this far
+                 break;
+                 
+@@ -1151,7 +1153,7 @@
+     
+     // If we end up here, things have gone wrong. Try to reboot, and if that
+     // fails, go into an endless loop.
+-    RT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, NULL);
++    refit_call4_wrapper(RT->ResetSystem, EfiResetCold, EFI_SUCCESS, 0, NULL);
+     EndlessIdleLoop();
+     
+     return EFI_SUCCESS;
+Index: refit-0.14/refit/menu.c
+===================================================================
+--- refit-0.14.orig/refit/menu.c	2010-04-21 17:27:19.361289004 +0200
++++ refit-0.14/refit/menu.c	2010-04-21 17:53:21.007477528 +0200
+@@ -35,6 +35,7 @@
+  */
+ 
+ #include "lib.h"
++#include "refit_call_wrapper.h"
+ 
+ #include "egemb_back_selected_small.h"
+ 
+@@ -363,17 +364,17 @@
+         }
+         
+         // read key press (and wait for it if applicable)
+-        Status = ST->ConIn->ReadKeyStroke(ST->ConIn, &key);
++        Status = refit_call2_wrapper(ST->ConIn->ReadKeyStroke, ST->ConIn, &key);
+         if (Status == EFI_NOT_READY) {
+             if (HaveTimeout && TimeoutCountdown == 0) {
+                 // timeout expired
+                 MenuExit = MENU_EXIT_TIMEOUT;
+                 break;
+             } else if (HaveTimeout) {
+-                BS->Stall(100000);
++	        refit_call1_wrapper(BS->Stall, 100000);
+                 TimeoutCountdown--;
+             } else
+-                BS->WaitForEvent(1, &ST->ConIn->WaitForKey, &index);
++	        refit_call3_wrapper(BS->WaitForEvent, 1, &ST->ConIn->WaitForKey, &index);
+             continue;
+         }
+         if (HaveTimeout) {
+@@ -486,10 +487,10 @@
+             // initial painting
+             BeginTextScreen(Screen->Title);
+             if (Screen->InfoLineCount > 0) {
+-                ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
++	        refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
+                 for (i = 0; i < (INTN)Screen->InfoLineCount; i++) {
+-                    ST->ConOut->SetCursorPosition(ST->ConOut, 3, 4 + i);
+-                    ST->ConOut->OutputString(ST->ConOut, Screen->InfoLines[i]);
++		    refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 3, 4 + i);
++                    refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, Screen->InfoLines[i]);
+                 }
+             }
+             
+@@ -506,50 +507,50 @@
+             // paint the whole screen (initially and after scrolling)
+             for (i = 0; i <= State->MaxIndex; i++) {
+                 if (i >= State->FirstVisible && i <= State->LastVisible) {
+-                    ST->ConOut->SetCursorPosition(ST->ConOut, 2, MenuPosY + (i - State->FirstVisible));
++		    refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 2, MenuPosY + (i - State->FirstVisible));
+                     if (i == State->CurrentSelection)
+-                        ST->ConOut->SetAttribute(ST->ConOut, ATTR_CHOICE_CURRENT);
++		        refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_CHOICE_CURRENT);
+                     else
+-                        ST->ConOut->SetAttribute(ST->ConOut, ATTR_CHOICE_BASIC);
+-                    ST->ConOut->OutputString(ST->ConOut, DisplayStrings[i]);
++		        refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_CHOICE_BASIC);
++                    refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, DisplayStrings[i]);
+                 }
+             }
+             // scrolling indicators
+-            ST->ConOut->SetAttribute(ST->ConOut, ATTR_SCROLLARROW);
+-            ST->ConOut->SetCursorPosition(ST->ConOut, 0, MenuPosY);
++            refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_SCROLLARROW);
++            refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 0, MenuPosY);
+             if (State->FirstVisible > 0)
+-                ST->ConOut->OutputString(ST->ConOut, ArrowUp);
++	        refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, ArrowUp);
+             else
+-                ST->ConOut->OutputString(ST->ConOut, L" ");
+-            ST->ConOut->SetCursorPosition(ST->ConOut, 0, MenuPosY + State->MaxVisible);
++	        refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, L" ");
++            refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 0, MenuPosY + State->MaxVisible);
+             if (State->LastVisible < State->MaxIndex)
+-                ST->ConOut->OutputString(ST->ConOut, ArrowDown);
++	        refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, ArrowDown);
+             else
+-                ST->ConOut->OutputString(ST->ConOut, L" ");
++	        refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, L" ");
+             break;
+             
+         case MENU_FUNCTION_PAINT_SELECTION:
+             // redraw selection cursor
+-            ST->ConOut->SetCursorPosition(ST->ConOut, 2, MenuPosY + (State->LastSelection - State->FirstVisible));
+-            ST->ConOut->SetAttribute(ST->ConOut, ATTR_CHOICE_BASIC);
+-            ST->ConOut->OutputString(ST->ConOut, DisplayStrings[State->LastSelection]);
+-            ST->ConOut->SetCursorPosition(ST->ConOut, 2, MenuPosY + (State->CurrentSelection - State->FirstVisible));
+-            ST->ConOut->SetAttribute(ST->ConOut, ATTR_CHOICE_CURRENT);
+-            ST->ConOut->OutputString(ST->ConOut, DisplayStrings[State->CurrentSelection]);
++	    refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 2, MenuPosY + (State->LastSelection - State->FirstVisible));
++	    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_CHOICE_BASIC);
++	    refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, DisplayStrings[State->LastSelection]);
++	    refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 2, MenuPosY + (State->CurrentSelection - State->FirstVisible));
++	    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_CHOICE_CURRENT);
++	    refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, DisplayStrings[State->CurrentSelection]);
+             break;
+             
+         case MENU_FUNCTION_PAINT_TIMEOUT:
+             if (ParamText[0] == 0) {
+                 // clear message
+-                ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
+-                ST->ConOut->SetCursorPosition(ST->ConOut, 0, ConHeight - 1);
+-                ST->ConOut->OutputString(ST->ConOut, BlankLine + 1);
++	        refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
++	        refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 0, ConHeight - 1);
++	        refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, BlankLine + 1);
+             } else {
+                 // paint or update message
+-                ST->ConOut->SetAttribute(ST->ConOut, ATTR_ERROR);
+-                ST->ConOut->SetCursorPosition(ST->ConOut, 3, ConHeight - 1);
++	        refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_ERROR);
++	        refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 3, ConHeight - 1);
+                 TimeoutMessage = PoolPrint(L"%s  ", ParamText);
+-                ST->ConOut->OutputString(ST->ConOut, TimeoutMessage);
++                refit_call2_wrapper(ST->ConOut->OutputString, ST->ConOut, TimeoutMessage);
+                 FreePool(TimeoutMessage);
+             }
+             break;
+@@ -640,6 +641,7 @@
+                              EntriesPosX, EntriesPosY + i * TEXT_LINE_HEIGHT);
+             }
+             // TODO: account for scrolling
++	    // TODO: refit_callX_wrapper() if this code gets enabled someday
+             /*
+             for (i = 0; i <= State->MaxIndex; i++) {
+                 if (i >= State->FirstVisible && i <= State->LastVisible) {
+@@ -673,6 +675,7 @@
+             DrawMenuText(Screen->Entries[State->CurrentSelection]->Title, MenuWidth,
+                          EntriesPosX, EntriesPosY + State->CurrentSelection * TEXT_LINE_HEIGHT);
+             // TODO: account for scrolling
++	    // TODO: refit_callX_wrapper() if this code gets enabled someday
+             /*
+             ST->ConOut->SetCursorPosition(ST->ConOut, 2, 4 + (State->LastSelection - State->FirstVisible));
+             ST->ConOut->SetAttribute(ST->ConOut, ATTR_CHOICE_BASIC);
+Index: refit-0.14/refit/screen.c
+===================================================================
+--- refit-0.14.orig/refit/screen.c	2010-04-21 17:27:19.370289076 +0200
++++ refit-0.14/refit/screen.c	2010-04-21 17:57:52.714969526 +0200
+@@ -35,6 +35,7 @@
+  */
+ 
+ #include "lib.h"
++#include "refit_call_wrapper.h"
+ 
+ #include "egemb_refit_banner.h"
+ 
+@@ -85,10 +86,10 @@
+     GraphicsScreenDirty = TRUE;
+     
+     // disable cursor
+-    ST->ConOut->EnableCursor(ST->ConOut, FALSE);
++    refit_call2_wrapper(ST->ConOut->EnableCursor, ST->ConOut, FALSE);
+     
+     // get size of text console
+-    if (ST->ConOut->QueryMode(ST->ConOut, ST->ConOut->Mode->Mode, &ConWidth, &ConHeight) != EFI_SUCCESS) {
++    if (refit_call4_wrapper(ST->ConOut->QueryMode, ST->ConOut, ST->ConOut->Mode->Mode, &ConWidth, &ConHeight) != EFI_SUCCESS) {
+         // use default values on error
+         ConWidth = 80;
+         ConHeight = 25;
+@@ -122,7 +123,7 @@
+ static VOID SwitchToText(IN BOOLEAN CursorEnabled)
+ {
+     egSetGraphicsModeEnabled(FALSE);
+-    ST->ConOut->EnableCursor(ST->ConOut, CursorEnabled);
++    refit_call2_wrapper(ST->ConOut->EnableCursor, ST->ConOut, CursorEnabled);
+ }
+ 
+ static VOID SwitchToGraphics(VOID)
+@@ -194,11 +195,11 @@
+ VOID TerminateScreen(VOID)
+ {
+     // clear text screen
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
+-    ST->ConOut->ClearScreen(ST->ConOut);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
++    refit_call1_wrapper(ST->ConOut->ClearScreen, ST->ConOut);
+     
+     // enable cursor
+-    ST->ConOut->EnableCursor(ST->ConOut, TRUE);
++    refit_call2_wrapper(ST->ConOut->EnableCursor, ST->ConOut, TRUE);
+ }
+ 
+ static VOID DrawScreenHeader(IN CHAR16 *Title)
+@@ -206,23 +207,23 @@
+     UINTN y;
+     
+     // clear to black background
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
+-    ST->ConOut->ClearScreen(ST->ConOut);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
++    refit_call1_wrapper(ST->ConOut->ClearScreen, ST->ConOut);
+     
+     // paint header background
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_BANNER);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BANNER);
+     for (y = 0; y < 3; y++) {
+-        ST->ConOut->SetCursorPosition(ST->ConOut, 0, y);
++        refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 0, y);
+         Print(BlankLine);
+     }
+     
+     // print header text
+-    ST->ConOut->SetCursorPosition(ST->ConOut, 3, 1);
++    refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 3, 1);
+     Print(L"rEFIt - %s", Title);
+     
+     // reposition cursor
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
+-    ST->ConOut->SetCursorPosition(ST->ConOut, 0, 4);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
++    refit_call3_wrapper(ST->ConOut->SetCursorPosition, ST->ConOut, 0, 4);
+ }
+ 
+ //
+@@ -237,7 +238,7 @@
+     
+     GotKeyStrokes = FALSE;
+     for (;;) {
+-        Status = ST->ConIn->ReadKeyStroke(ST->ConIn, &key);
++        Status = refit_call2_wrapper(ST->ConIn->ReadKeyStroke, ST->ConIn, &key);
+         if (Status == EFI_SUCCESS) {
+             GotKeyStrokes = TRUE;
+             continue;
+@@ -254,11 +255,11 @@
+     Print(L"\n* Hit any key to continue *");
+     
+     if (ReadAllKeyStrokes()) {  // remove buffered key strokes
+-        BS->Stall(5000000);     // 5 seconds delay
++        refit_call1_wrapper(BS->Stall, 5000000);     // 5 seconds delay
+         ReadAllKeyStrokes();    // empty the buffer again
+     }
+     
+-    BS->WaitForEvent(1, &ST->ConIn->WaitForKey, &index);
++    refit_call3_wrapper(BS->WaitForEvent, 1, &ST->ConIn->WaitForKey, &index);
+     ReadAllKeyStrokes();        // empty the buffer to protect the menu
+     
+     Print(L"\n");
+@@ -282,7 +283,7 @@
+     
+     for (;;) {
+         ReadAllKeyStrokes();
+-        BS->WaitForEvent(1, &ST->ConIn->WaitForKey, &index);
++        refit_call3_wrapper(BS->WaitForEvent, 1, &ST->ConIn->WaitForKey, &index);
+     }
+ }
+ 
+@@ -298,9 +299,9 @@
+         return FALSE;
+     
+     StatusToString(ErrorName, Status);
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_ERROR);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_ERROR);
+     Print(L"Fatal Error: %s %s\n", ErrorName, where);
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
+     haveError = TRUE;
+     
+     //BS->Exit(ImageHandle, ExitStatus, ExitDataSize, ExitData);
+@@ -316,9 +317,9 @@
+         return FALSE;
+     
+     StatusToString(ErrorName, Status);
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_ERROR);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_ERROR);
+     Print(L"Error: %s %s\n", ErrorName, where);
+-    ST->ConOut->SetAttribute(ST->ConOut, ATTR_BASIC);
++    refit_call2_wrapper(ST->ConOut->SetAttribute, ST->ConOut, ATTR_BASIC);
+     haveError = TRUE;
+     
+     return TRUE;

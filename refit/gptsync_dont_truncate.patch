@@ -1,0 +1,246 @@
+Description: Do not truncate partitions starting or extending beyond 2 TiB.
+ Ignore such partitions by default, and introduce a -t switch to force
+ including and truncating such partitions.
+Author: Julien BLACHE <jblache@debian.org>
+
+Index: refit-0.14/gptsync/gptsync.8
+===================================================================
+--- refit-0.14.orig/gptsync/gptsync.8	2010-04-19 18:34:09.877931491 +0200
++++ refit-0.14/gptsync/gptsync.8	2010-04-19 18:34:01.920932376 +0200
+@@ -4,7 +4,7 @@
+ 
+ .SH SYNOPSIS
+ .B gptsync
+-[\fI\-q\fR] \fIdevice\fR
++[\fI\-q\fR] [\fI\-t\fR] \fIdevice\fR
+ 
+ .SH DESCRIPTION
+ .B gptsync
+@@ -20,6 +20,10 @@
+ .TP
+ \fB\-q\fR
+ Do not print any message, do not prompt to modify the MBR.
++.TP
++\fB\-t\fR
++Truncate partitions starting or expending beyond 2 TiB (MBR limitation).
++Default is to ignore such partitions.
+ 
+ .SH AUTHOR
+ \fBgptsync\fR was written by Christoph Pfisterer.
+Index: refit-0.14/gptsync/gptsync.c
+===================================================================
+--- refit-0.14.orig/gptsync/gptsync.c	2010-04-19 18:34:09.912932056 +0200
++++ refit-0.14/gptsync/gptsync.c	2010-04-19 18:34:01.921931396 +0200
+@@ -38,6 +38,8 @@
+ 
+ #include "syslinux_mbr.h"
+ 
++BOOLEAN truncate_2tb = FALSE;
++
+ //
+ // MBR functions
+ //
+@@ -121,14 +123,14 @@
+             
+             lba = new_mbr_parts[k].start_lba;
+             if (lba > 0xffffffffULL) {
+-                Print(L"Warning: Partition %d starts beyond 2 TiB limit\n", i+1);
++                Print(L"Warning: Partition %d truncated, starts beyond 2 TiB limit\n", i+1);
+                 lba = 0xffffffffULL;
+             }
+             table[i].start_lba    = (UINT32)lba;
+             
+             lba = new_mbr_parts[k].end_lba + 1 - new_mbr_parts[k].start_lba;
+             if (lba > 0xffffffffULL) {
+-                Print(L"Warning: Partition %d extends beyond 2 TiB limit\n", i+1);
++                Print(L"Warning: Partition %d truncated, extends beyond 2 TiB limit\n", i+1);
+                 lba = 0xffffffffULL;
+             }
+             table[i].size         = (UINT32)lba;
+@@ -222,6 +224,8 @@
+     UINTN   i, k, iter, count_active, detected_parttype;
+     CHARN   *fsname;
+     UINT64  min_start_lba;
++    UINT64  lba;
++    UINTN   ignored_2tb;
+     UINTN   status;
+     BOOLEAN have_esp;
+     
+@@ -310,7 +314,7 @@
+                 action = ACTION_NONE;
+         }
+     }
+-    
++
+     if (action == ACTION_NOP) {
+         Print(L"Status: Tables are synchronized, no need to sync.\n");
+         return 0;
+@@ -344,7 +348,26 @@
+     
+     // add other GPT partitions until the table is full
+     // TODO: in the future, prioritize partitions by kind
++    ignored_2tb = 0;
+     for (; i < gpt_part_count && new_mbr_part_count < 4; i++) {
++        if (!truncate_2tb) {
++	    lba = gpt_parts[i].start_lba;
++	    if (lba > 0xffffffffULL) {
++	        Print(L"Warning: GPT partition %d starts beyond 2 TiB limit, ignoring\n", i+1);
++
++		ignored_2tb++;
++		continue;
++	    }
++
++	    lba = gpt_parts[i].end_lba + 1 - gpt_parts[i].start_lba;
++	    if (lba > 0xffffffffULL) {
++	        Print(L"Warning: GPT partition %d extends beyond 2 TiB limit, ignoring\n", i+1);
++
++		ignored_2tb++;
++		continue;
++	    }
++	}
++
+         new_mbr_parts[new_mbr_part_count].index     = new_mbr_part_count;
+         new_mbr_parts[new_mbr_part_count].start_lba = gpt_parts[i].start_lba;
+         new_mbr_parts[new_mbr_part_count].end_lba   = gpt_parts[i].end_lba;
+@@ -409,6 +432,11 @@
+                 }
+         }
+     }
++
++    if (ignored_2tb > 0) {
++	Print(L"\n**** %d partitions ignored because of 2 TiB limitation\n", ignored_2tb);
++	Print(L"**** Re-run gptsync with -t to include and truncate the affected partitions\n");
++    }
+     
+     // dump table
+     Print(L"\nProposed new MBR partition table:\n");
+Index: refit-0.14/gptsync/gptsync.h
+===================================================================
+--- refit-0.14.orig/gptsync/gptsync.h	2010-04-19 18:34:10.047931802 +0200
++++ refit-0.14/gptsync/gptsync.h	2010-04-19 18:34:01.921931396 +0200
+@@ -211,6 +211,7 @@
+ //
+ // actual platform-independent programs
+ //
++extern BOOLEAN truncate_2tb;
+ 
+ UINTN gptsync(VOID);
+ UINTN showpart(VOID);
+Index: refit-0.14/gptsync/os_efi.c
+===================================================================
+--- refit-0.14.orig/gptsync/os_efi.c	2010-04-19 18:34:09.957932155 +0200
++++ refit-0.14/gptsync/os_efi.c	2010-04-19 18:34:01.921931396 +0200
+@@ -154,9 +154,43 @@
+     EFI_HANDLE          DeviceHandle;
+     EFI_DEVICE_PATH     *DevicePath, *NextDevicePath;
+     BOOLEAN             Usable;
++    EFI_LOADED_IMAGE    *info;
++    CHAR16              *args;
++    CHAR16              *argp;
+ 
+     InitializeLib(ImageHandle, SystemTable);
+-    
++
++    // check arguments
++    // For now there's only one, if we need more arguments,
++    // something more complicated will be (badly) needed
++    Status = refit_call3_wrapper(BS->HandleProtocol, ImageHandle, &LoadedImageProtocol, (VOID **)&info);
++    if (EFI_ERROR(Status)) {
++      Print(L"LoadedImageProtocol not supported");
++      return EFI_LOAD_ERROR;
++    }
++
++    args = AllocateZeroPool(info->LoadOptionsSize + sizeof(CHAR16));
++    if (args == NULL) {
++      Print(L"Allocation failed for arguments");
++      return EFI_OUT_OF_RESOURCES;
++    }
++    CopyMem(args, info->LoadOptions, info->LoadOptionsSize);
++
++    argp = args;
++    // skip image name
++    while ((*argp != L' ') && (*argp != CHAR_NULL))
++      argp++;
++
++    // skip spaces
++    while ((*argp == L' ') && (*argp != CHAR_NULL))
++      argp++;
++
++    if (StrnCmp(L"-t", argp, 2) == 0) {
++      truncate_2tb = TRUE;
++    }
++
++    FreePool(args);
++
+     Status = LibLocateHandle(ByProtocol, &BlockIoProtocol, NULL,
+                              &HandleCount, &HandleBuffer);
+     if (EFI_ERROR (Status)) {
+Index: refit-0.14/gptsync/os_unix.c
+===================================================================
+--- refit-0.14.orig/gptsync/os_unix.c	2010-04-19 18:34:10.004932098 +0200
++++ refit-0.14/gptsync/os_unix.c	2010-04-19 18:34:01.922931322 +0200
+@@ -192,8 +192,9 @@
+ void usage(void)
+ {
+ #ifdef GPTSYNC
+-  fprintf(stderr, "Usage: " PROGNAME_S " [-q] <device>\n");
++  fprintf(stderr, "Usage: " PROGNAME_S " [-q] [-t] <device>\n");
+   fprintf(stderr, "\t-q\tquiet mode\n");
++  fprintf(stderr, "\t-t\ttruncate partitions affected by 2 TiB limitation\n");
+ 
+ #elif defined(SHOWPART)
+ 
+@@ -216,30 +217,37 @@
+ 
+     // argument check
+ #ifdef GPTSYNC
+-    switch (argc)
++    int opt;
++
++    while ((opt = getopt(argc, argv, "qt")) != -1)
+       {
+-        case 2:
+-	  filename = argv[1];
+-	  break;
+-        case 3:
+-	  if (strncmp("-q", argv[1], 2) != 0)
+-	    {
++	switch (opt)
++	  {
++	    case 'q':
++	      quiet = 1;
++	      break;
++	    case 't':
++	      truncate_2tb = TRUE;
++	      break;
++	    default:
+ 	      usage();
+ 	      return 1;
+-	    }
+-	  quiet = 1;
+-	  filename = argv[2];
+-	  break;
+-        default:
+-	  usage();
+-	  return 1;
++	  }
+       }
+ 
++    if (optind >= argc) {
++      error("Missing device name");
++      usage();
++      return 1;
++    }
++
++    filename = argv[optind];
++
+ #elif defined(SHOWPART)
+ 
+     if (argc != 2) {
+-	usage();
+-	return 1;
++        usage();
++        return 1;
+     }
+     filename = argv[1];
+ #endif
