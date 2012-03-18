@@ -63,7 +63,7 @@ Usage: ${0##*/} [option]
 
 Options:
   -h				Show this help message and exit
-  -u				Force update of the copy in the home directory
+  -u				Force update of the copy in your home directory
   -r <directory>	The Tor-Browser directory to use
 EOF
 }
@@ -96,12 +96,10 @@ done < $VERSION_FILE
 if [[ "$INSTALLED_VERSION" == "$VERSION" ]] && [[ $update != 1 ]]; then
 	# clear log
 	> $LOG_FILE
-
-	cd $INSTALL_DIRECTORY && './start-tor-browser'
 else
 	echo "$0: Your version in $DIRECTORY is outdated or you do not have installed $NAME yet." > $LOG_FILE
 	update
-
-	# fire up
-	$NAME
 fi
+
+# start tor-browser
+cd $INSTALL_DIRECTORY && './start-tor-browser'
