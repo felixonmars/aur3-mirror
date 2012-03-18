@@ -1,3 +1,3 @@
 #!/bin/sh
 cd /tmp
-/usr/share/topmod/TopMod $*
+/opt/topmod/TopMod $*
