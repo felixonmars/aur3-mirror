@@ -13,7 +13,7 @@ pkgname=boxee-source
 pkgver=1.5.0
 minorver=3a626c6
 _flashlib_pkgver=6684
-pkgrel=1
+pkgrel=2
 pkgdesc="A freeware cross-platform media center software with social networking features that is a fork of the open source XBMC media center"
 arch=('i686' 'x86_64')
 license=( 'GPL' )
@@ -161,7 +161,7 @@ build() {
 		else
 			make -C tools/TexturePacker -f Makefile.host
 		fi
-		rm skin/boxee/media/Textures.xbt
+#		rm skin/boxee/media/Textures.xbt
 		make -C skin/boxee/media
 
 	popd || return 1
