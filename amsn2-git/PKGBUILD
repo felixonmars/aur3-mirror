@@ -4,7 +4,7 @@
 
 pkgname=amsn2-git
 _pkgname=amsn2
-pkgver=20110317
+pkgver=20120319
 pkgrel=1
 pkgdesc="New Generation of AMSN"
 url="http://github.com/drf/amsn2/tree"
@@ -16,7 +16,7 @@ conflicts=()
 replaces=('amsn2-svn')
 provides=('amsn2')
 source=('amsn2.run' 'amsn2.desktop')
-install=('amsn2.install')
+install=amsn2.install
 md5sums=('30e5831ebf33f3bc2a91e4589a9ced5d'
          '3cb40821e951f1bf99c62b4eff883bef')
 
