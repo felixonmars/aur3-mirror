@@ -1,22 +1,29 @@
-# Maintainer: Andrew Antle <andrew dot antle at gmail dot com>
+# Maintainer : SpepS <dreamspepser at yahoo dot it>
+# Contributor: Andrew Antle <andrew dot antle at gmail dot com>
 # Contributor: Shinlun Hsieh <yngwiexx@yahoo.com.tw>
 # Contributor: Wido <widomaker2k7@gmail.com>
 
+_name=AMB-plugins
 pkgname=amb-plugins
-_pkgname=AMB-plugins
-pkgver=0.6.1
-pkgrel=2
-pkgdesc="LADSPA plugins of various improved decoders"
+pkgver=0.8.1
+pkgrel=1
+pkgdesc="LADSPA ambisonics plugins of various improved decoders"
 arch=('i686' 'x86_64')
-url="http://kokkinizita.net/linuxaudio/ladspa/"
+url="http://kokkinizita.linuxaudio.org/linuxaudio/"
 license=('GPL')
-source=(http://kokkinizita.net/linuxaudio/downloads/$_pkgname-$pkgver.tar.bz2)
-md5sums=('482232250a93058a47cc85293c977e38')
+groups=('ladspa-plugins')
+source=("${url}downloads/$_name-$pkgver.tar.bz2")
+md5sums=('496d8d2bf6036611b6b4aa7f56325a52')
 
 build() {
-  cd $srcdir/$_pkgname-$pkgver
-  
-  make || return 1
-  install -d $pkgdir/usr/lib/ladspa/
-  install -m 755 *.so $pkgdir/usr/lib/ladspa/ || return 1
+  cd "$srcdir/$_name-$pkgver"
+  make
+}
+
+package() {
+  cd "$srcdir/$_name-$pkgver"
+
+  # plugins
+  install -d "$pkgdir/usr/lib/ladspa"
+  install -Dm755 *.so "$pkgdir/usr/lib/ladspa"
 }
