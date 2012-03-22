@@ -2,15 +2,15 @@
 # Contributor: Iwan Gabovitch <qubodup@gmail.com>
 
 pkgname=android-platform-15
-pkgver=4.0.4_r02
+pkgver=4.0.4_r03
 pkgrel=1
 pkgdesc='Android SDK Platform, API-15'
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
 license=('custom')
 repends=('android-sdk')
-source=("http://dl-ssl.google.com/android/repository/android-15_r02.zip")
-sha1sums=('7d0cd29d3f91bbb7fb52b87cf04e5afb50376cdc')
+source=("http://dl-ssl.google.com/android/repository/android-15_r03.zip")
+sha1sums=('23da24610a8da51054c5391001c51ce43a778b97')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/platforms/"
