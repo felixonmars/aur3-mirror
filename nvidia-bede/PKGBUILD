@@ -5,7 +5,7 @@ _pkgname=nvidia
 pkgname=$_pkgname-bede
 pkgver=295.20
 _extramodules=3.3-BEDE-external
-pkgrel=5
+pkgrel=6
 pkgdesc="NVIDIA drivers for linux-bede"
 arch=('i686' 'x86_64')
 url="http://www.nvidia.com/"
@@ -33,7 +33,7 @@ build() {
 	cd "$srcdir"
 	sh $_pkg.run --extract-only
 	cd $_pkg/kernel
-	sed 's/CFLAGS="$CFLAGS -I$SOURCES\/arch\/x86\/include"/CFLAGS="$CFLAGS -I$SOURCES\/arch\/x86\/include -I$SOURCES\/arch\/x86\/include\/generated"/' -i conftest.sh
+	sed -e '/CFLAGS="$CFLAGS/s:-I$SOURCES/arch/x86/include:& -I$OUTPUT/arch/x86/include/generated:' -i conftest.sh
  	make SYSSRC=/lib/modules/$_kernver/build module
 }
 
