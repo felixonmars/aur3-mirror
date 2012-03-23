@@ -55,9 +55,9 @@ struct arguments
 static char *dupsubstr(const char *str, const int start, const int end)
 {
     char *ret;
-    const int len = end - start;
+    const size_t len = (size_t)(end - start);
 
-    ret = malloc(sizeof(char) * (len + 1));
+    ret = (char *)malloc(sizeof(char) * (len + 1));
     strncpy(ret, str + start, len);
     ret[len] = '\0';
 
@@ -69,7 +69,7 @@ static struct pkginfo * get_pkginfo_from_filename(const char * const filename)
     struct pkginfo *ret;
     static regmatch_t match[3];
 
-    ret = malloc(sizeof(struct pkginfo));
+    ret = (struct pkginfo *)malloc(sizeof(struct pkginfo));
     regexec(&pkgnamesplit, filename, 3, match, 0);
     ret->name = dupsubstr(filename, match[1].rm_so, match[1].rm_eo);
     ret->version = dupsubstr(filename, match[2].rm_so, match[2].rm_eo);
@@ -82,7 +82,7 @@ static struct pkginfo * get_pkginfo_from_pmpkg(alpm_pkg_t *pmpkg)
 {
     struct pkginfo *ret;
 
-    ret = malloc(sizeof(struct pkginfo));
+    ret = (struct pkginfo *)malloc(sizeof(struct pkginfo));
     ret->name = strdup(alpm_pkg_get_name(pmpkg));
     ret->version = strdup(alpm_pkg_get_version(pmpkg));
     ret->filename = NULL;
@@ -120,9 +120,9 @@ static int ispackage(const struct dirent *file)
     return regexec(&pkgnametest, file->d_name, 0, NULL, 0) == 0;
 }
 
-static void free_pkginfo_array(struct pkginfo **pkgs, const int n)
+static void free_pkginfo_array(struct pkginfo **pkgs, const size_t n)
 {
-    int i;
+    size_t i;
 
     for (i = 0; i < n; i++)
         free_pkginfo(pkgs[i]);
@@ -139,7 +139,7 @@ static off_t get_file_size(const char *filename)
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
 {
-    struct arguments *argument = state -> input;
+    struct arguments *argument = (struct arguments *)(state -> input);
 
     switch (key)
     {
@@ -168,7 +168,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 
 int main(const int argc, char ** __restrict__ argv)
 {
-    int i, n, m, len, count = 0;
+    int count = 0;
+    size_t i, len, m, n;
     off_t total_size = 0;
     alpm_handle_t *handle;
     alpm_db_t *db;
@@ -199,8 +200,8 @@ int main(const int argc, char ** __restrict__ argv)
 
     handle = alpm_initialize(ROOT, DBPATH, &error);
 
-    n = scandir(cachedir, &dir, ispackage, NULL);
-    cachepkg = malloc(sizeof(struct pkginfo *) * n);
+    n = (size_t)scandir(cachedir, &dir, ispackage, NULL);
+    cachepkg = (struct pkginfo **)malloc(sizeof(struct pkginfo *) * n);
     for (i = 0; i < n; free(dir[i]), i++)
         cachepkg[i] = get_pkginfo_from_filename(dir[i]->d_name);
     free(dir);
@@ -209,9 +210,9 @@ int main(const int argc, char ** __restrict__ argv)
     db = alpm_option_get_localdb(handle);
     pkglist = alpm_db_get_pkgcache(db);
     m = alpm_list_count(pkglist);
-    localpkg = malloc(sizeof(struct pkginfo *) * m);
+    localpkg = (struct pkginfo **)malloc(sizeof(struct pkginfo *) * m);
     for (i = 0; i < m; i++, pkglist = alpm_list_next(pkglist))
-        localpkg[i] = get_pkginfo_from_pmpkg(alpm_list_getdata(pkglist));
+        localpkg[i] = get_pkginfo_from_pmpkg((alpm_pkg_t *)alpm_list_getdata(pkglist));
     qsort(localpkg, m, sizeof(struct pkginfo *), pkgnamecomp);
     alpm_list_free_inner(pkglist, (alpm_list_fn_free)alpm_pkg_free);
     alpm_list_free(pkglist);
@@ -222,7 +223,7 @@ int main(const int argc, char ** __restrict__ argv)
         if (strcmp(name, current))
         {
             current = name;
-            hit = bsearch(cachepkg + i, localpkg, m,
+            hit = (struct pkginfo **)bsearch(cachepkg + i, localpkg, m,
                     sizeof(struct pkginfo *), pkgnamecomp);
             count = hit ? 0 : args.preserve;
         }
