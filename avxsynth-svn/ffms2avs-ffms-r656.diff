@@ -1,0 +1,154 @@
+diff -Naur a/AVXSynth/plugins/ffms2avs/Makefile b/AVXSynth/plugins/ffms2avs/Makefile
+--- a/AVXSynth/plugins/ffms2avs/Makefile	2012-03-22 16:09:10.742745684 +0100
++++ b/AVXSynth/plugins/ffms2avs/Makefile	2012-03-23 08:42:34.266584253 +0100
+@@ -25,6 +25,7 @@
+ 		    $(SRC_PATH)/avssources.o				\
+ 		    $(SRC_PATH)/ffpp.o				\
+ 		    $(SRC_PATH)/ffms2avs.o				\
++		    $(SRC_PATH)/core/videoutils.o			\
+ 
+ #
+ # Libraries
+diff -Naur a/AVXSynth/plugins/ffms2avs/src/core/videoutils.cpp b/AVXSynth/plugins/ffms2avs/src/core/videoutils.cpp
+--- a/AVXSynth/plugins/ffms2avs/src/core/videoutils.cpp	1970-01-01 01:00:00.000000000 +0100
++++ b/AVXSynth/plugins/ffms2avs/src/core/videoutils.cpp	2012-03-23 08:52:58.246576108 +0100
+@@ -0,0 +1,83 @@
++//  Copyright (c) 2007-2011 The FFmpegSource Project
++//
++//  Permission is hereby granted, free of charge, to any person obtaining a copy
++//  of this software and associated documentation files (the "Software"), to deal
++//  in the Software without restriction, including without limitation the rights
++//  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++//  copies of the Software, and to permit persons to whom the Software is
++//  furnished to do so, subject to the following conditions:
++//
++//  The above copyright notice and this permission notice shall be included in
++//  all copies or substantial portions of the Software.
++//
++//  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++//  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++//  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++//  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++//  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++//  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++//  THE SOFTWARE.
++
++
++#include "videoutils.h"
++
++#include <algorithm>
++#include <math.h>
++
++/* if you have this, we'll assume you have a new enough libavutil too */
++#if LIBSWSCALE_VERSION_INT >= AV_VERSION_INT(0, 12, 0)
++extern "C" {
++#include <libavutil/opt.h>
++}
++#endif
++
++/***************************
++**
++** Functions related to initializing swscale and libpostproc contexts, etc.
++**
++***************************/
++
++SwsContext *GetSwsContext(int SrcW, int SrcH, PixelFormat SrcFormat, int SrcColorSpace, int SrcColorRange, int DstW, int DstH, PixelFormat DstFormat, int DstColorSpace, int DstColorRange, int64_t Flags) {
++	Flags |= SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP;
++#if LIBSWSCALE_VERSION_INT < AV_VERSION_INT(0, 12, 0)
++	return sws_getContext(SrcW, SrcH, SrcFormat, DstW, DstH, DstFormat, Flags, 0, 0, 0);
++#else
++	SwsContext *Context = sws_alloc_context();
++	if (!Context) return 0;
++
++	// 0 = limited range, 1 = full range
++	int SrcRange = SrcColorRange == AVCOL_RANGE_JPEG;
++	int DstRange = DstColorRange == AVCOL_RANGE_JPEG;
++
++	av_opt_set_int(Context, "sws_flags",  Flags, 0);
++	av_opt_set_int(Context, "srcw",       SrcW, 0);
++	av_opt_set_int(Context, "srch",       SrcH, 0);
++	av_opt_set_int(Context, "dstw",       DstW, 0);
++	av_opt_set_int(Context, "dsth",       DstH, 0);
++	av_opt_set_int(Context, "src_range",  SrcRange, 0);
++	av_opt_set_int(Context, "dst_range",  DstRange, 0);
++	av_opt_set_int(Context, "src_format", SrcFormat, 0);
++	av_opt_set_int(Context, "dst_format", DstFormat, 0);
++
++	sws_setColorspaceDetails(Context,
++		sws_getCoefficients(SrcColorSpace), SrcRange,
++		sws_getCoefficients(DstColorSpace), DstRange,
++		0, 1<<16, 1<<16);
++
++	if(sws_init_context(Context, 0, 0) < 0){
++		sws_freeContext(Context);
++		return 0;
++	}
++
++	return Context;
++#endif
++
++}
++
++AVColorSpace GetAssumedColorSpace(int W, int H) {
++	if (W > 1024 || H >= 600)
++		return AVCOL_SPC_BT709;
++	else
++		return AVCOL_SPC_BT470BG;
++}
++
+diff -Naur a/AVXSynth/plugins/ffms2avs/src/core/videoutils.h b/AVXSynth/plugins/ffms2avs/src/core/videoutils.h
+--- a/AVXSynth/plugins/ffms2avs/src/core/videoutils.h	2012-03-22 16:09:10.742745684 +0100
++++ b/AVXSynth/plugins/ffms2avs/src/core/videoutils.h	2012-03-23 09:14:07.286559538 +0100
+@@ -38,13 +38,6 @@
+ 
+ 
+ // swscale and pp-related functions
+-int64_t GetSWSCPUFlags();
+-SwsContext *GetSwsContext(int SrcW, int SrcH, PixelFormat SrcFormat, int DstW, int DstH, PixelFormat DstFormat, int64_t Flags, int ColorSpace = -1);
+-int GetPPCPUFlags();
++SwsContext *GetSwsContext(int SrcW, int SrcH, PixelFormat SrcFormat, int SrcColorSpace, int SrcColorRange, int DstW, int DstH, PixelFormat DstFormat, int DstColorSpace, int DstColorRange, int64_t Flags);
++AVColorSpace GetAssumedColorSpace(int Width, int Height);
+ 
+-// timebase-related functions
+-void CorrectNTSCRationalFramerate(int *Num, int *Den);
+-void CorrectTimebase(FFMS_VideoProperties *VP, FFMS_TrackTimeBase *TTimebase);
+-
+-// our implementation of avcodec_find_best_pix_fmt()
+-PixelFormat FindBestPixelFormat(const std::vector<PixelFormat> &Dsts, PixelFormat Src);
+diff -Naur a/AVXSynth/plugins/ffms2avs/src/ffpp.cpp b/AVXSynth/plugins/ffms2avs/src/ffpp.cpp
+--- a/AVXSynth/plugins/ffms2avs/src/ffpp.cpp	2012-03-22 16:09:10.742745684 +0100
++++ b/AVXSynth/plugins/ffms2avs/src/ffpp.cpp	2012-03-22 17:45:22.962668513 +0100
+@@ -67,10 +67,14 @@
+ 		Flags |= PP_FORMAT_420;
+ 	} else if (vi.IsYUY2()) {
+ 		Flags |= PP_FORMAT_422;
+-		SWSTo422P = GetSwsContext(vi.width, vi.height, PIX_FMT_YUYV422, vi.width, vi.height, PIX_FMT_YUV422P, Flags | SWS_BICUBIC);
+-		SWSFrom422P = GetSwsContext(vi.width, vi.height, PIX_FMT_YUV422P, vi.width, vi.height, PIX_FMT_YUYV422, Flags | SWS_BICUBIC);
+-		avpicture_alloc(&InputPicture, PIX_FMT_YUV422P, vi.width, vi.height);
+-		avpicture_alloc(&OutputPicture, PIX_FMT_YUV422P, vi.width, vi.height);
++		SWSTo422P = GetSwsContext(
++			vi.width, vi.height, PIX_FMT_YUYV422, GetAssumedColorSpace(vi.width, vi.height), AVCOL_RANGE_UNSPECIFIED,
++			vi.width, vi.height, PIX_FMT_YUV422P, GetAssumedColorSpace(vi.width, vi.height), AVCOL_RANGE_UNSPECIFIED,
++			Flags | SWS_BICUBIC);
++		SWSFrom422P = GetSwsContext(
++			vi.width, vi.height, PIX_FMT_YUV422P, GetAssumedColorSpace(vi.width, vi.height), AVCOL_RANGE_UNSPECIFIED,
++			vi.width, vi.height, PIX_FMT_YUYV422, GetAssumedColorSpace(vi.width, vi.height), AVCOL_RANGE_UNSPECIFIED,
++			Flags | SWS_BICUBIC);
+ 	} else {
+ 		Env->ThrowError("FFPP: Only YV12 and YUY2 video supported");
+ 	}
+diff -Naur a/AVXSynth/plugins/ffms2avs/src/ffswscale.cpp b/AVXSynth/plugins/ffms2avs/src/ffswscale.cpp
+--- a/AVXSynth/plugins/ffms2avs/src/ffswscale.cpp	2012-03-22 16:09:10.742745684 +0100
++++ b/AVXSynth/plugins/ffms2avs/src/ffswscale.cpp	2012-03-22 17:45:57.952668044 +0100
+@@ -173,8 +173,9 @@
+ 
+ 	if ((ConvertToFormat == PIX_FMT_YUV420P || ConvertToFormat == PIX_FMT_YUYV422) && vi.width & 1)
+ 		Env->ThrowError("SWScale: mod 2 output width required");
+-
+-	Context = GetSwsContext(OrigWidth, OrigHeight, ConvertFromFormat, vi.width, vi.height, ConvertToFormat, 
++	Context = GetSwsContext(
++		OrigWidth, OrigHeight, ConvertFromFormat, GetAssumedColorSpace(OrigWidth, OrigHeight), AVCOL_RANGE_UNSPECIFIED,
++		vi.width, vi.height, ConvertToFormat, GetAssumedColorSpace(OrigWidth, OrigHeight), AVCOL_RANGE_UNSPECIFIED,
+ 		AvisynthToSWSCPUFlags(Env->GetCPUFlags()) | Resizer);
+ 	if (Context == NULL)
+ 		Env->ThrowError("SWScale: Context creation failed");
