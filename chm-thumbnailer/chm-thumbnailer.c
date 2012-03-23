@@ -11,12 +11,7 @@
 
 static inline unsigned int get_word(const unsigned char *buffer)
 {
-    unsigned int ret = 0;
-
-    ret |= buffer[0] << 0;
-    ret |= buffer[1] << 8;
-
-    return ret;
+    return (unsigned int)(buffer[0] | (buffer[1] << 8));
 }
 
 static int get_content(struct chmFile *file, const char *path,
@@ -26,16 +21,16 @@ static int get_content(struct chmFile *file, const char *path,
 
     if (chm_resolve_object(file, path, &ui) == CHM_RESOLVE_FAILURE)
         return 0;
-    if ((*buffer = malloc(ui.length)) == NULL)
+    if ((*buffer = (unsigned char *)malloc(ui.length)) == NULL)
         return 0;
-    if (chm_retrieve_object(file, &ui, *buffer, 0, ui.length) !=
+    if (chm_retrieve_object(file, &ui, *buffer, 0, (long long)ui.length) !=
             (long long)ui.length)
     {
         free(*buffer);
         return 0;
     }
 
-    return ui.length;
+    return (int)ui.length;
 }
 
 static char *get_home_path(struct chmFile *file)
@@ -44,7 +39,7 @@ static char *get_home_path(struct chmFile *file)
     unsigned int current, type, len, total;
     char *path = NULL;
 
-    if ((total = get_content(file, "/#SYSTEM", &buffer)) == 0)
+    if ((total = (unsigned int)get_content(file, "/#SYSTEM", &buffer)) == 0)
         return NULL;
     for (current = 4; current < total; current += 4 + len)
     {
@@ -52,7 +47,7 @@ static char *get_home_path(struct chmFile *file)
         len = get_word(buffer + current + 2);
         if (type == 2)
         {
-            if (current + 4 + len <= total && (path = malloc(len + 1)))
+            if (current + 4 + len <= total && (path = (char *)malloc(len + 1)))
             {
                 path[0] = '/';
                 memcpy(path + 1, buffer + current + 4, len);
@@ -65,7 +60,7 @@ static char *get_home_path(struct chmFile *file)
     return path;
 }
 
-GdkPixbuf *get_image_from_data(unsigned char *buffer, int length)
+static GdkPixbuf *get_image_from_data(unsigned char *buffer, int length)
 {
     GInputStream *input;
     GdkPixbuf *image;
@@ -82,7 +77,7 @@ static inline int round_div(const int x, const int y)
     return (x + y / 2) / y;
 }
 
-GdkPixbuf *scale_image(GdkPixbuf *original, int size)
+static GdkPixbuf *scale_image(GdkPixbuf *original, int size)
 {
     int width, height;
     GdkInterpType type;
@@ -123,13 +118,13 @@ static int get_content_length(struct chmFile *file, const char *path)
     if (chm_resolve_object(file, path, &ui) == CHM_RESOLVE_FAILURE)
         return 0;
 
-    return ui.length;
+    return (int)ui.length;
 }
 
 static void startelem(struct inner_file *fp, const xmlChar *name,
         const xmlChar **atts)
 {
-    int size;
+    double size;
     xmlChar *uri = NULL;
 
     if (!xmlStrcasecmp(name, (const xmlChar *)"img"))
@@ -139,14 +134,13 @@ static void startelem(struct inner_file *fp, const xmlChar *name,
             if (!xmlStrcasecmp(*atts, (const xmlChar *)"src"))
             {
                 uri = xmlBuildURI(atts[1], fp->current);
-                size = get_content_length(fp->file, (const char *)uri) *
-                    fp->w;
+                size = get_content_length(fp->file, (const char *)uri) * fp->w;
                 fp->w *= lambda;
                 if (size > fp->size)
                 {
                     free(fp->path);
                     fp->path = uri;
-                    fp->size = size;
+                    fp->size = (int)size;
                 }
                 else
                     free(uri);
