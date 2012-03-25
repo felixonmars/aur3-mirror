@@ -1,0 +1,190 @@
+Index: configure.ac
+===================================================================
+--- configure.ac	(revision 1658)
++++ configure.ac	(working copy)
+@@ -32,6 +32,8 @@
+ AC_SEARCH_LIBS(socket, socket)
+ AC_SEARCH_LIBS(inet_aton, resolv)
+ 
++AC_CHECK_LIB(Xinerama, XineramaQueryScreens, AC_DEFINE(HAVE_XINERAMA) LIBS="$LIBS -lXinerama", [], [])
++
+ AC_CHECK_HEADER(sys/select.h, AC_DEFINE(HAVE_SYS_SELECT_H))
+ AC_CHECK_HEADER(sys/modem.h, AC_DEFINE(HAVE_SYS_MODEM_H))
+ AC_CHECK_HEADER(sys/filio.h, AC_DEFINE(HAVE_SYS_FILIO_H))
+Index: xwin.c
+===================================================================
+--- xwin.c	(revision 1658)
++++ xwin.c	(working copy)
+@@ -21,6 +21,9 @@
+ 
+ #include <X11/Xlib.h>
+ #include <X11/Xutil.h>
++#ifdef HAVE_XINERAMA
++ #include <X11/extensions/Xinerama.h>
++#endif
+ #include <X11/Xproto.h>
+ #include <unistd.h>
+ #include <sys/time.h>
+@@ -817,6 +820,71 @@
+ #define LOUT24(o, x) { *(o++) = x; *(o++) = x >> 8; *(o++) = x >> 16; }
+ #define LOUT32(o, x) { *(o++) = x; *(o++) = x >> 8; *(o++) = x >> 16; *(o++) = x >> 24; }
+ 
++#ifdef HAVE_XINERAMA
++// IF XINERAMA LIBRARY
++
++int g_last_wnd_pos_x;
++int g_last_wnd_pos_y;
++
++void
++ScreenSize(XRectangle *screen)
++{
++	int screens;
++	int event_base;
++	int error_base;
++
++	if (XineramaQueryExtension(g_display, &event_base, &error_base))
++	{
++		XineramaScreenInfo *screeninfo;
++		int i;
++
++		/* Get the Xinerama screen infomation. */
++		screeninfo = XineramaQueryScreens(g_display, &screens);
++
++		/* Search for the appropriate screen. */
++		i = 0;
++		while (!(screeninfo[i].x_org <= g_last_wnd_pos_x
++			&& screeninfo[i].y_org <= g_last_wnd_pos_y
++			&& screeninfo[i].x_org + screeninfo[i].width >= g_last_wnd_pos_x
++			&& screeninfo[i].y_org + screeninfo[i].height >= g_last_wnd_pos_y ))
++		{
++			i++;
++		}
++		if (i >= screens) i = 0;
++
++		/* Position according to the present screen. */
++		screen->x = screeninfo[i].x_org;
++		screen->y = screeninfo[i].y_org;
++		screen->width = screeninfo[i].width;
++		screen->height = screeninfo[i].height;
++
++		/* Free allocated memory. */
++		XFree(screeninfo);
++	}
++	else
++	{
++		/* Xinerama is not in use, default to the XLib screensize call. */
++		screen->x = 0;
++		screen->y = 0;
++		screen->width = WidthOfScreen(g_screen);
++		screen->height = HeightOfScreen(g_screen);
++	}
++}
++
++#else
++// IF NO XINERAMA LIBRARY
++
++void
++ScreenSize(XRectangle *screen)
++{
++	screen->x = 0;
++	screen->y = 0;
++	screen->width = WidthOfScreen(g_screen);
++	screen->height = HeightOfScreen(g_screen);
++}
++
++#endif
++
+ static uint32
+ translate_colour(uint32 colour)
+ {
+@@ -1913,17 +1981,31 @@
+ 	 */
+ 	if (g_fullscreen)
+ 	{
+-		g_width = WidthOfScreen(g_screen);
+-		g_height = HeightOfScreen(g_screen);
++//		g_width = WidthOfScreen(g_screen);
++//		g_height = HeightOfScreen(g_screen);
++        XRectangle screen;
++        ScreenSize(&screen);
++
++        g_width = screen.width;
++        g_height = screen.height;
+ 		g_using_full_workarea = True;
+ 	}
+ 	else if (g_sizeopt < 0)
+ 	{
+-		/* Percent of screen */
++        XRectangle screen;
++        ScreenSize(&screen);
++
++        g_width = screen.width;
++        g_height = screen.height;
++
++        /* Percent of screen */
+ 		if (-g_sizeopt >= 100)
+ 			g_using_full_workarea = True;
+-		g_height = HeightOfScreen(g_screen) * (-g_sizeopt) / 100;
+-		g_width = WidthOfScreen(g_screen) * (-g_sizeopt) / 100;
++//		g_height = HeightOfScreen(g_screen) * (-g_sizeopt) / 100;
++//		g_width = WidthOfScreen(g_screen) * (-g_sizeopt) / 100;
++        g_height = screen.height * (-g_width) / 100;
++        g_width = screen.width * (-g_width) / 100;
++        
+ 	}
+ 	else if (g_sizeopt == 1)
+ 	{
+@@ -2006,14 +2088,19 @@
+ 	long input_mask, ic_input_mask;
+ 	XEvent xevent;
+ 
+-	wndwidth = g_fullscreen ? WidthOfScreen(g_screen) : g_width;
+-	wndheight = g_fullscreen ? HeightOfScreen(g_screen) : g_height;
++	XRectangle screen;
+ 
++	ScreenSize(&screen);
++	wndwidth = g_fullscreen ? screen.width : g_width;
++	wndheight = g_fullscreen ? screen.height : g_height;
++	g_xpos = g_fullscreen ? screen.x : g_xpos;
++	g_ypos = g_fullscreen ? screen.y : g_ypos;
++
+ 	/* Handle -x-y portion of geometry string */
+ 	if (g_xpos < 0 || (g_xpos == 0 && (g_pos & 2)))
+-		g_xpos = WidthOfScreen(g_screen) + g_xpos - g_width;
++		g_xpos = screen.width + g_xpos - g_width;
+ 	if (g_ypos < 0 || (g_ypos == 0 && (g_pos & 4)))
+-		g_ypos = HeightOfScreen(g_screen) + g_ypos - g_height;
++		g_ypos = screen.height + g_ypos - g_height;
+ 
+ 	get_window_attribs(&attribs);
+ 
+@@ -2170,6 +2257,11 @@
+ void
+ xwin_toggle_fullscreen(void)
+ {
++#ifdef HAVE_XINERAMA
++	Window root, parent, *children;
++	unsigned int nchildren;
++	XWindowAttributes win_attrib;
++#endif
+ 	Pixmap contents = 0;
+ 
+ 	if (g_seamless_active)
+@@ -2183,6 +2275,17 @@
+ 		XCopyArea(g_display, g_wnd, contents, g_gc, 0, 0, g_width, g_height, 0, 0);
+ 	}
+ 
++#ifdef HAVE_XINERAMA
++	/* Determine the parent window. */
++	XQueryTree(g_display, g_wnd, &root, &parent, &children, &nchildren);
++	if (children != NULL) XFree(children);
++
++	/* Find the present coordinates of the window. */
++	XGetWindowAttributes(g_display, parent, &win_attrib);
++	g_last_wnd_pos_x = win_attrib.x + 1;
++	g_last_wnd_pos_y = win_attrib.y + 1;
++#endif
++
+ 	ui_destroy_window();
+ 	g_fullscreen = !g_fullscreen;
+ 	ui_create_window();
