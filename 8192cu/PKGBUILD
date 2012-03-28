@@ -1,6 +1,6 @@
 #Mantainer Renan Manola
 pkgname=8192cu
-pkgver=3.1.2590
+pkgver=3.3.2.3192.20120103
 pkgrel=1
 pkgdesc="Drivers for realtek RTL8188CUS chipset wireless cards"
 arch=('i686' 'x86_64')
@@ -9,36 +9,19 @@ depends=('kernel26')
 makedepends=('kernel26-headers')
 license='unknown'
 install='install.8192cu'
-md5sums=('2106588b000653d2168a9ec01889dd69' 'd6bf00749f8b2f95cb3600366982f371' '7fde0e422cee13edc0c8a61a578ff469')
+md5sums=('01e6881a1877b25e66bb9e0127eb7e73')
 fileprefix=''
 
-login="WebUser:2mG8dBW"
-mirror1=58.211.24.153
-mirror2=202.134.71.21
-mirror3=207.232.93.28
-mirror4=208.70.202.219
-mirror5=209.222.7.36
-
-# You can specify below what mirror to use if the first one doesn't work
-# E.g: $mirror2, mirror3, etc.
-#src_ip=$mirror1
-
-#source=("ftp://$login@$src_ip/cn/wlan/RTL8188CUS_linux_v3.0.1590.20110511.zip" 
-
-source=("http://www.openpandora.org/firmware/sources/RTL8192CU_linux_v3.1.2590.20110922.zip"
-	"osdep_service.patch"
-	"rtw_io.patch")
+source=("http://fichiers.touslesdrivers.com/33235/RTL819xCU_USB_linux_%20v3%5B1%5D.3.2_3192.zip")
 
 build() {
-  cd "${srcdir}/RTL8192CU_8188CUS_8188CE-VAU_linux_v3.1.2590.20110922/driver"
-  tar xvf rtl8192_8188CU_linux_v3.1.2590.20110922.tar.gz
-  cd rtl8192_8188CU_linux_v3.1.2590.20110922
-  patch include/osdep_service.h < ./../../../osdep_service.patch
-  patch include/rtw_io.h < ./../../../rtw_io.patch
+  cd "${srcdir}/RTL8188C_8192C_8192D_USB_linux_v3.3.2_3192.20120103/driver"
+  tar xvf rtl8188C_8192C_8192D_usb_linux_v3.3.2_3192.20120103.tar.gz
+  cd rtl8188C_8192C_8192D_usb_linux_v3.3.2_3192.20120103
   make
 }
 package() {
   mkdir -p "${pkgdir}/lib/modules/`uname -r`/kernel/drivers/net/wireless/"
-  cd "${srcdir}/RTL8192CU_8188CUS_8188CE-VAU_linux_v3.1.2590.20110922/driver/rtl8192_8188CU_linux_v3.1.2590.20110922/"
+  cd "${srcdir}/RTL8188C_8192C_8192D_USB_linux_v3.3.2_3192.20120103/driver/rtl8188C_8192C_8192D_usb_linux_v3.3.2_3192.20120103/"
   install -p -m 644 8192cu.ko  "${pkgdir}/lib/modules/`uname -r`/kernel/drivers/net/wireless/"
-} 
+}
