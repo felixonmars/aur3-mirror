@@ -1,25 +1,25 @@
-# Maintainer: Dan Serban
+# Maintainer: Spike29 <leguen.yannick@gmail.com>
+# Contributor: Dan Serban
 
-pkgname=ambiance-radiance-colors-xfce-lxde
-pkgver=11.10.1.0.7.oneiric1
+pkgname='ambiance-radiance-colors-xfce-lxde'
+pkgver='11.10.2'
 pkgrel=1
-pkgdesc="Combo package: Ambiance Colors and Radiance Colors themes for XFCE and LXDE"
-arch=(any)
-url="https://launchpad.net/~ravefinity-project/+archive/ppa"
-license=(LGPL3)
-depends=(gtk-engine-murrine gtk-engine-unico)
-# makedepends=(lynx)
+pkgdesc="Ambiance & Radiance color themes for Xfce and LXDE"
+arch=('any')
+license=('GPL2')
+url="http://ravefinity.blogspot.com/"
+groups=
+depends=('gtk-engine-murrine' 'gtk-engine-unico')
+makedepends=
+options=
+install=
+source=('http://dl.dropbox.com/u/4199602/Ambiance%26Radiance-Colors-XfceLXDE-11-10-2.tar.gz')
+md5sums=('2249916d6be301ac1016d420b2701c53')
 
-build()
-{
-  rm ambiance.deb radiance.deb 2>/dev/null || true
-  wget -O ambiance.deb "http://ppa.launchpad.net/ravefinity-project/ppa/ubuntu/pool/main/a/ambiance-colors-xfce-lxde/ambiance-colors-xfce-lxde_11.10.1-0~10~oneiric1_all.deb"
-  bsdtar -xf ambiance.deb data.tar.gz
-  bsdtar -xf data.tar.gz -C "${pkgdir}"
-  rm data.tar.gz
-  wget -O radiance.deb "http://ppa.launchpad.net/ravefinity-project/ppa/ubuntu/pool/main/r/radiance-colors-xfce-lxde/radiance-colors-xfce-lxde_11.10.1-0~7~oneiric1_all.deb"
-  bsdtar -xf radiance.deb data.tar.gz
-  bsdtar -xf data.tar.gz -C "${pkgdir}"
-  rm data.tar.gz
+build() {
+  	mkdir -p "$pkgdir"/usr/share/themes/
+	cd "$srcdir"/
+	cp -r Ambiance* "$pkgdir/usr/share/themes"
+	cp -r Radiance* "$pkgdir/usr/share/themes"
+	cp -r Classic* "$pkgdir/usr/share/themes"
 }
-
