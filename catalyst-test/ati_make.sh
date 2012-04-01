@@ -1,5 +1,5 @@
 #!/bin/bash
-### Vi0L0: it is ati's code from their make.sh file, modified a bit to fit our arch linux system, used inside PKGBUILD
+### Vi0L0: it is ati's code from their make.sh file, modified a bit to fit our arch linux system, used inside catalyst_build_module script
 
 # Copyright 1999-2005 ATI Technologies Inc., Markham, Ontario, CANADA.   
 # All Rights Reserved.                                                   
@@ -49,16 +49,16 @@ fi
 
 # Before 2.6.33 autoconf.h is under linux/.
 # For 2.6.33 and later autoconf.h is under generated/.
-if [ -f /lib/modules/${_kernver}/build/include/generated/autoconf.h ]; then
-    autoconf_h=/lib/modules/${_kernver}/build/include/generated/autoconf.h
+if [ -f /lib/modules/${kernver}/build/include/generated/autoconf.h ]; then
+    autoconf_h=/lib/modules/${kernver}/build/include/generated/autoconf.h
 else
-    autoconf_h=/lib/modules/${_kernver}/build/include/linux/autoconf.h
+    autoconf_h=/lib/modules/${kernver}/build/include/linux/autoconf.h
 fi
 src_file=$autoconf_h
 
 if [ ! -e $src_file ]; then
   echo "Warning:"
-  echo "kernel includes at /lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /lib/modules/${kernver}/build/include not found or incomplete"
   echo "file: $src_file"
   echo ""
 else
@@ -99,7 +99,7 @@ src_file=$autoconf_h
 if [ ! -e $src_file ];
 then
   echo "Warning:"
-  echo "kernel includes at /lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /lib/modules/${kernver}/build/include not found or incomplete"
   echo "file: $src_file"
   echo ""
 else
@@ -128,11 +128,11 @@ fi
 
 COMPAT_ALLOC_USER_SPACE=compat_alloc_user_space
 
-src_file=/lib/modules/${_kernver}/build/arch/x86/include/asm/compat.h
+src_file=/lib/modules/${kernver}/build/arch/x86/include/asm/compat.h
 if [ ! -e $src_file ];
 then
   echo "Warning:"                                    
-  echo "kernel includes at /lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /lib/modules/${kernver}/build/include not found or incomplete"
   echo "file: $src_file"                              
   echo ""                                  
 else
