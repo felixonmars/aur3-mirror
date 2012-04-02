@@ -1,7 +1,7 @@
 # Maintainer: wilson <bugs@pandorica.net>
 
 pkgname=android-4.0.3
-pkgver=r02
+pkgver=r03
 pkgrel=1
 pkgdesc='Platform for Google Android SDK'
 arch=('any')
@@ -14,7 +14,7 @@ _android_ver=android-15
 
 source=("https://dl-ssl.google.com/android/repository/${_android_ver}_${pkgver}.zip")
 
-md5sums=('4175f770609368582e964879d2450671')
+md5sums=('4c762338ad46f57babcc91e5bbefb15b')
 
 package() {
   cd "${pkgdir}"
