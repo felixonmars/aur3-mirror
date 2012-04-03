@@ -7,7 +7,7 @@ pkgbase="linux$_kernelname"
 pkgname="linux$_kernelname"
 true && pkgname=("linux$_kernelname" "linux$_kernelname-headers")
 _basekernel=3.0
-_patchver=26
+_patchver=27
 pkgver=$_basekernel
 pkgrel=1
 arch=('i686' 'x86_64')
@@ -35,10 +35,11 @@ if [ ${_patchver} -ne 0 ]; then
 	pkgver=$_basekernel.$_patchver
 	_patchname="patch-$pkgver"
 	source=( "${source[@]}"
-		"http://www.kernel.org/pub/linux/kernel/v3.x/$_patchname.xz"
+		#"http://www.kernel.org/pub/linux/kernel/v3.x/$_patchname.xz"
+		"http://www.herecura.eu/files/linux/$_patchname.xz"
 	)
 	sha256sums=( "${sha256sums[@]}"
-		'75365ce7ec0358159af5215956d022c5c546658fee5273a56af0e388890264e8'
+		'f0ed827a9edbff6b07fdc88360917731e0db32c92fadf44d969fc661f8930f79'
 	)
 fi
 
