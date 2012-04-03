@@ -1,0 +1,74 @@
+#!/bin/sh
+
+ADMIN_PORT=51902
+TMPDB=/tmp/cjdnsadmin.db
+
+cleanup(){
+    if [ -f "$TMPDB" ]; then rm "$TMPDB" || (echo "$TMPDB could not be removed"; exit 1); fi
+}
+
+ctrlc(){
+    cleanup; exit 1
+}
+
+help(){
+    echo "Usage:"
+    echo -e "  -a, --all\t\tOutput a list of known ipv6 addresses"
+    echo -e "  -o, --online\t\tOutput a list of the known ipv6 addresses currently online"
+    echo
+    echo -e "  -r ip, --routes ip\tDisplay route and associated link state information for a given ip address"
+    echo 
+    echo -e "  -h, --help\t\tDisplay this help and exit"
+    exit $1
+}
+
+if [ -z "$1" -o "$1" = "-h" -o "$1" = "--help" ]; then help 0; fi
+if [ ! "$1" = "-a" -a ! "$1" = "--all" -a ! "$1" = "-r" -a ! "$1" = "--routes" -a ! "$1" = "-o" -a ! "$1" = "--online" ]; then
+    echo "Invalid option:"; help 1
+fi
+
+if [ -f "$TMPDB" ]; then echo "$TMPDB already exists, please delete it before running this script or select a new database file"; exit 1; fi
+
+sqlite3 "$TMPDB" "create table routes (id INTEGER PRIMARY KEY,ipv6address TEXT,path TEXT,linkstate INTEGER);" || (echo "$TMPDB could not be created"; exit 1)
+trap ctrlc SIGINT
+trap cleanup EXIT
+
+DUMP=$(wget -qO- http://[::1]:${ADMIN_PORT}/api/?q=d1:q19:NodeStore_dumpTablee)
+if [ -z $DUMP ]; then echo "Error connecting to cjdwebadmin on port ${ADMIN_PORT}"; exit 1; fi
+
+for address in $(echo $DUMP | sed s/"ip39:"/"\n"/g | sed s/"4:linki"/"~"/g | sed s/"e4:path19:"/"~"/g | sed s/"ed2:$"/""/g | grep ^f | sort); do
+    VALUES=($(echo $address | grep -o -E "[^~]*"))
+    sqlite3 "$TMPDB" "insert into routes (ipv6address,path,linkstate) values ('${VALUES[0]}','${VALUES[2]}','${VALUES[1]}');"
+done
+
+if [ "$1" = "-a" -o "$1" = "--all" ]; then
+    sqlite3 "$TMPDB" "select distinct ipv6address from routes;"
+elif [ "$1" = "-o" -o "$1" = "--online" ]; then
+    sqlite3 "$TMPDB" "select distinct ipv6address from routes where linkstate>1;"
+elif [ "$1" = "-r" -o "$1" = "--routes" ]; then
+    if [ -z "$2" ]; then
+        echo "This function requires an ipv6 address as an argument"
+        help 1
+    fi
+    ADDRESS=($(sqlite3 "$TMPDB" "select path,linkstate from routes where ipv6address='$2';"))
+    if [ -z $ADDRESS ]; then
+        echo "The ipv6 address: '$2' is either invalid or does not exist"
+        exit 1
+    fi
+
+    if [ $(sqlite3 "$TMPDB" "select ipv6address from routes where ipv6address='$2' and linkstate>1;" | wc -l) -gt 0 ]; then
+        STATUS="ONLINE"
+    else
+        STATUS="OFFLINE"
+    fi
+
+    echo "ADDRESS: $2"
+    echo "STATUS: $STATUS"
+    echo -e "\nPATH\t\t\tLINK STATE\n----------------------------------"
+    for address in ${ADDRESS[@]}; do
+        echo $address | sed s/"|"/"\t"/
+        #echo -n $address | grep -o -e "^[^|]*"
+        #echo -n -e "\t"
+        #echo $address | grep -o -e "[^|]*$"
+    done
+fi
