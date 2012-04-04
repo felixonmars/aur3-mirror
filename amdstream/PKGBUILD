@@ -1,17 +1,16 @@
-# Maintainer: Vojtech Kral <kral.vojtech at gmail>
+# Maintainer: Michael Krause <mk-arch@spline.de>
+# Contributor: kralyk
 # Contributor: pfdm
 # Contributor: Vi0L0
 # Contributor: caust1c
 
-# TODO: license in proper dir
-
-
 pkgname=amdstream
 pkgver=2.6
-pkgrel=1
+pkgrel=2
 _profiler_ver=2.4
 
-pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI Stream, now wtih limited OpenCL 1.2 support'
+pkgdesc='AMD Accelerated Parallel Processing (APP) SDK, formerly known as ATI
+         Stream, now wtih limited OpenCL 1.2 support'
 arch=('i686' 'x86_64')
 url="http://developer.amd.com/sdks/AMDAPPSDK/Pages/default.aspx"
 license=("custom")
@@ -22,6 +21,7 @@ depends=('libcl' 'libgl' 'llvm' 'gcc-libs' 'mesa' 'glut' 'glew')
 optdepends=('opencl-headers: for development'
             'catalyst: for OpenCL on AMD GPU')
 makedepends=('perl' 'llvm')
+PKGEXT=".tar.gz"
 
 #Architecture resolution
 _arch="${CARCH/i6/x}"
@@ -32,10 +32,13 @@ _bits=${_bits/32_/}
 
 #Sources
 source=("http://developer.amd.com/Downloads/AMD-APP-SDK-v${pkgver}-lnx${_bits}.tgz" \
-        '01-implicit-linking.patch')
+        '01-implicit-linking.patch'
+        '02-readlink-include.patch')
 
 #sha256sums
-sha256sums=($_hash '25781556b6441c26449e5577ea068eda74fb2dc520004897c64482cedb6fac0e' )
+sha256sums=($_hash
+'25781556b6441c26449e5577ea068eda74fb2dc520004897c64482cedb6fac0e'
+'8418553d624d2cfd04a573311133f9d20d3bcce426025abfe2f68bef8cec4bc7' )
 
 _subdir="AMD-APP-SDK-v2.6-RC3-lnx${_bits}"
 
@@ -48,7 +51,10 @@ build()
   tar xf ${_subdir}.tgz
   cd "${_subdir}"
   patch -p0 < ../../01-implicit-linking.patch
-  make -j1   # With -j other than one, build fails (at least on ceratin configurations).
+  patch -p0 < ../../02-readlink-include.patch
+  # FIXME - dependency has to move into Makefile
+  make -j1 -C samples/opencl/SDKUtil 
+  make -j2
 }
 
 package()
@@ -75,11 +81,9 @@ package()
 
   #Licenses
   mkdir -p "${pkgdir}/${_ipath}/licenses"
-  mkdir -p "${pkgdir}/usr/share/licenses"
-  install -m644 ./LICENSE-llvm.txt "${pkgdir}/${_ipath}/licenses/"
-  install -m644 ./LICENSE-llvm.txt "${pkgdir}/usr/share/licenses/"
-  install -m644 "./tools/AMDAPPProfiler-${_profiler_ver}/License.txt" "${pkgdir}/${_ipath}/licenses/LICENSE-profiler.txt"
-  install -m644 "./tools/AMDAPPProfiler-${_profiler_ver}/License.txt" "${pkgdir}/usr/share/licenses/LICENSE-profiler.txt"
+  mkdir -p "${pkgdir}/usr/share/licenses/amdstream"
+  install -m644 "./docs/opencl/LICENSES" "${pkgdir}/${_ipath}/licenses/LICENSE"
+  install -m644 "./docs/opencl/LICENSES" "${pkgdir}/usr/share/licenses/amdstream/LICENSE"
 
   #Register ICD
   mkdir -p "${pkgdir}/etc/OpenCL/vendors"
