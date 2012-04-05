@@ -24,7 +24,3 @@ KDIR = /lib/modules/$(KVER)/build
 
 default:
 	make -C $(KDIR) SUBDIRS=$(PWD) modules
-
-clean:
-	-rm -f  *.o  *.ko *.mod.c .*.o.cmd  .*.o.d  .*.ko.cmd Module.symvers Module.markers modules.order
-	-rm -rf .tmp_versions
