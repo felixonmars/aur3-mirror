@@ -1,7 +1,7 @@
 # Maintainer: DaeS
 pkgname=impyh
-pkgver=20120404
-pkgrel=1
+pkgver=20120405
+pkgrel=2
 pkgdesc="Comfortable GUI for scrot written in python"
 arch=('i686' 'x86_64')
 url="https://github.com/daesdp/Impyh"
