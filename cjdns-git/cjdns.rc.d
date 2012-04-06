@@ -49,8 +49,8 @@ case "$1" in
       exit 1
     fi
 
-    #CONFIGURE THE TUN DEVICE TO REFLECT THE CONFIG
-    sed -e "s/\"tunDevice\":\ \"tun[^\ ]*/\"tunDevice\":\ \"$CJDNS_TUN\"/g ; s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"cjdns\"/g" "$CJDNS_CONFIG" | cjdroute --getcmds | sh
+    #CONFIGURE THE TUN DEVICE TO REFLECT THE CONFIG (NO LONGER NEEDED WHEN RUNNING AS ROOT, WHICH WE ARE)
+    #sed -e "s/\"tunDevice\":\ \"tun[^\ ]*/\"tunDevice\":\ \"$CJDNS_TUN\"/g ; s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"cjdns\"/g" "$CJDNS_CONFIG" | cjdroute --getcmds | sh
 
     #START CJDNS AND ENABLE THE DAEMON IF IT SUCCEEDS
     if [ -z "$PID" ]; then
