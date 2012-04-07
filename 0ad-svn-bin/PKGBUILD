@@ -2,9 +2,9 @@
 
 pkgname=0ad-svn-bin
 pkgver=11339
-_pkgver=r11339-2.3
+_pkgver=r11339-2.4
 _dataver=r11339-1.1
-pkgrel=3
+pkgrel=4
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE SVN prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
