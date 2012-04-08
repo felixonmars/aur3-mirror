@@ -6,11 +6,7 @@
 PID=`pidof -o %PPID /usr/bin/cjdroute`
 
 function removetun {
-    if [ ! $(ip tuntap list | grep -c `id -u cjdns`) = 0 ]; then
-      CJDNS_TUN=$(ip tuntap list | grep -m1 `id -u cjdns` | grep -o -E "^tun[^\:]*")
-      ifconfig "$CJDNS_TUN" down
-      ip tuntap del mode tun "$CJDNS_TUN"
-    fi
+    if [ ! $(ip tuntap list | grep -c `id -u "$CJDNS_USER"`) = 0 ]; then ip tuntap del mode tun $(ip tuntap list | grep -m1 `id -u "$CJDNS_USER"` | grep -o -E "^tun[^\:]*"); fi
 }
 
 case "$1" in
@@ -19,44 +15,44 @@ case "$1" in
 
     #FAIL IF THE CONFIG OR USER DO NOT EXIST
     if [ ! -f "$CJDNS_CONFIG" -o ! -s "$CJDNS_CONFIG" ]; then
-      echo -n "$CJDNS_CONFIG is missing/empty: run 'cjdroute --genconf > $CJDNS_CONFIG' then configure it"
+      stat_busy "$CJDNS_CONFIG is missing/empty: run 'cjdroute --genconf > $CJDNS_CONFIG' then configure it"
       stat_fail
       exit 1
-    elif [ $(grep -c cjdns /etc/passwd) = 0 ]; then
-      echo -n "The cjdns user does not exist"
+    elif [ $(grep -c "$CJDNS_USER" /etc/passwd) = 0 ]; then
+      stat_busy "The user "$CJDNS_USER" does not exist"
       stat_fail
       exit 1
     fi
 
-    #CREATE TUN DEVICE IF IT DOESN'T ALREADY EXIST
-    if [ $(ip tuntap list | grep -c `id -u cjdns`) = 0 ]; then
-      ip tuntap add mode tun user cjdns
-    fi
+    #CREATE TUN DEVICE IF IT DOESN'T ALREADY EXIST AND SET $CJDNS_TUN TO THE DEVICE NAME
+    if [ $(ip tuntap list | grep -c `id -u "$CJDNS_USER"`) = 0 ]; then ip tuntap add mode tun user "$CJDNS_USER"; fi
+    CJDNS_TUN=$(ip tuntap list | grep -m1 `id -u "$CJDNS_USER"` | grep -o -E "^tun[^\:]*")
 
-    #SET $CJDNS_TUN TO THE FIRST TUN DEVICE OWNED BY USER 'cjdns'
-    CJDNS_TUN=$(ip tuntap list | grep -m1 `id -u cjdns` | grep -o -E "^tun[^\:]*")
+    #REMOVE THE TUN DEVICE IF THE SCRIPT IS KILLED
+    trap removetun SIGINT
+
     #FAIL IF $CJDNS_TUN IS NULL (NO TUN DEVICE?)
     if [ -z "$CJDNS_TUN" ]; then
-      echo -n "The tun device was not successfully created"
+      stat_busy "The tun device was not successfully created"
       stat_fail
       exit 1
     fi
 
     #FAIL IF THE TUN DEVICE IS ALREADY CONFIGURED
     if [ ! $(ifconfig -a | grep -A 1 "$CJDNS_TUN" | grep -c inet6) = 0 ]; then
-      echo -n "The tun device is already configured: stop cjdns and try again"
-      stat_fail
-      exit 1
+        if [ ! $(ps -U "$CJDNS_USER" | grep -c cjdroute) = 0 ]; then
+            stat_busy "The daemon is already running"
+            stat_fail
+            exit 1
+        fi
+        removetun
     fi
-
-    #CONFIGURE THE TUN DEVICE TO REFLECT THE CONFIG (NO LONGER NEEDED WHEN RUNNING AS ROOT, WHICH WE ARE)
-    #sed -e "s/\"tunDevice\":\ \"tun[^\ ]*/\"tunDevice\":\ \"$CJDNS_TUN\"/g ; s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"cjdns\"/g" "$CJDNS_CONFIG" | cjdroute --getcmds | sh
 
     #START CJDNS AND ENABLE THE DAEMON IF IT SUCCEEDS
     if [ -z "$PID" ]; then
-        sed -e "s/\"tunDevice\":\ \"tun[^\ ]*/\"tunDevice\":\ \"$CJDNS_TUN\"/g ; s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"cjdns\"/g" "$CJDNS_CONFIG" | cjdroute >& "$CJDNS_LOG" &
+        sed -e "s/\"tunDevice\":\ \"tun[^\ ]*/\"tunDevice\":\ \"$CJDNS_TUN\"/g ; s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"$CJDNS_USER\"/g" "$CJDNS_CONFIG" | cjdroute >& "$CJDNS_LOG" &
       if [ $? -gt 0 ]; then
-        echo -n "Unable to start cjdroute"
+        stat_busy "Unable to start the daemon"
         removetun
         stat_fail
         exit 1
@@ -66,7 +62,7 @@ case "$1" in
         stat_done
       fi
     else
-      echo -n "cjdns is already running"
+      stat_busy "The daemon is already running"
       removetun
       stat_fail
       exit 1
@@ -76,7 +72,7 @@ case "$1" in
     stat_busy "Stopping cjdroute"
     [ ! -z "$PID" ] && kill $PID &> /dev/null
     if [ $? -gt 0 ]; then
-      echo -n "cjdns was not running"
+      stat_busy "The daemon was not running"
       stat_fail
     else
       rm_daemon cjdns

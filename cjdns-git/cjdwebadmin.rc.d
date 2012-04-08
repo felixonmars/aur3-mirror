@@ -7,29 +7,29 @@ PID=`pidof -o %PPID /usr/bin/cjdwebadmin`
 
 case "$1" in
   start)
-    stat_busy "Starting the cjdns web admin"
+    stat_busy "Starting the cjdns admin webserver"
     if [ -z "$PID" ]; then
-      sudo -u cjdns cjdwebadmin $CJDWEBADMIN_ADDR $CJDWEBADMIN_PATH/ >& "$CJDWEBADMIN_LOG" &
+      sudo -u $CJDNS_USER cjdwebadmin $CJDWEBADMIN_ADDR $CJDWEBADMIN_PATH/ >& "$CJDWEBADMIN_LOG" &
       if [ $? -gt 0 ]; then
-        echo -n "Unable to start the cjdns web admin"
+        stat_busy "Unable to start the daemon"
         stat_fail
         exit 1
       else
-        echo -n "You can now access the cjdns web admin @ http://[::1]:51902"
+        stat_busy "You can now access the cjdns admin webserver @ http://[::1]:51902"
         add_daemon cjdwebadmin
         stat_done
       fi
     else
-      echo -n "The cjdns web admin is already running"
+      stat_busy "The cjdns admin webserver is already running"
       stat_fail
       exit 1
     fi
     ;;
   stop)
-    stat_busy "Stopping The cjdns web admin"
+    stat_busy "Stopping The cjdns admin webserver"
     [ ! -z "$PID" ] && kill $PID &> /dev/null
     if [ $? -gt 0 ]; then
-      echo -n "The cjdns web admin was not running"
+      stat_busy "The cjdns admin webserver was not running"
       stat_fail
     else
       rm_daemon cjdwebadmin
