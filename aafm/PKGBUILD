@@ -2,13 +2,13 @@
 
 pkgname=(aafm)
 pkgver=20120406
-pkgrel=2
+pkgrel=3
 pkgdesc="Android ADB File Manager."
 arch=(any)
 url="https://github.com/sole/aafm"
 license=(GPL3)
 install=aafm.install
-depends=('python2' 'pygtk' 'android-sdk' 'android-sdk-platform-tools')
+depends=('python2' 'pygtk' 'adb')
 makedepends=('git')
 provides=('aafm')
 source=()
