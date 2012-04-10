@@ -8,7 +8,7 @@ pkgdesc='Android SDK Platform, API-15'
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
 license=('custom')
-repends=('android-sdk')
+depends=('android-sdk')
 source=("http://dl-ssl.google.com/android/repository/android-15_r03.zip")
 sha1sums=('23da24610a8da51054c5391001c51ce43a778b97')
 
