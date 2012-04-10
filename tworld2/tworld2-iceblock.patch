@@ -1,0 +1,548 @@
+diff --git a/encoding.c b/encoding.c
+index 0757072..c996ef2 100644
+--- a/encoding.c
++++ b/encoding.c
+@@ -82,7 +82,7 @@ static int const fileids[] = {
+ /* 35 burned Chip		*/	Bombed_Chip,
+ /* 36 not used			*/	HiddenWall_Perm,
+ /* 37 not used			*/	HiddenWall_Perm,
+-/* 38 not used			*/	HiddenWall_Perm,
++/* 38 not used/ice block	*/	IceBlock_Static,
+ /* 39 Chip in exit		*/	Exited_Chip,
+ /* 3A exit - end game		*/	Exit_Extra_1,
+ /* 3B exit - end game		*/	Exit_Extra_2,
+diff --git a/mslogic.c b/mslogic.c
+index 30eef70..7a2ff68 100644
+--- a/mslogic.c
++++ b/mslogic.c
+@@ -151,6 +151,14 @@ typedef	struct slipper {
+     int		dir;
+ } slipper;
+
++/* The data associated with a deferred button.
++ */
++typedef struct deferredbutton {
++    short pos;
++    unsigned char id;
++} deferredbutton;
++
++
+ /* The linked list of creature pools, forming the creature arena.
+  */
+ static creature	       *creaturepool = NULL;
+@@ -175,6 +183,12 @@ static slipper        *slips = NULL;
+ static int		slipcount = 0;
+ static int		slipsallocated = 0;
+
++/* The stack of deferred button presses.
++ */
++static deferredbutton  *defers = NULL;
++static int     defercount = 0;
++static int     defersallocated = 0;
++
+ /* Mark all entries in the creature arena as unused.
+  */
+ static void resetcreaturepool(void)
+@@ -367,17 +381,42 @@ static void removefromsliplist(creature *cr)
+ 	slips[n] = slips[n + 1];
+ }
+
++void resetdeferstack()
++{
++    defercount = 0;
++}
++
++void pushdeferstack(int pos, unsigned char id)
++{
++    if (defercount >= defersallocated) {
++   defersallocated = defersallocated ? defersallocated * 2 : 16;
++   defers = realloc(defers, defersallocated * sizeof *defers);
++   if (!defers)
++       memerrexit();
++    }
++    defers[defercount].pos = pos;
++    defers[defercount].id = id;
++    ++defercount;
++}
++
++deferredbutton *popdeferstack()
++{
++    if (defercount <= 0)
++   return NULL;
++
++    return &defers[--defercount];
++}
++
+ /*
+  * Simple floor functions.
+  */
+
+ /* Floor state flags.
+  */
+-#define	FS_BUTTONDOWN		0x01	/* button press is deferred */
+-#define	FS_CLONING		0x02	/* clone machine is activated */
+-#define	FS_BROKEN		0x04	/* teleport/toggle wall doesn't work */
+-#define	FS_HASMUTANT		0x08	/* beartrap contains mutant block */
+-#define	FS_MARKER		0x10	/* marker used during initialization */
++#define	FS_CLONING		0x01	/* clone machine is activated */
++#define	FS_BROKEN		0x02	/* teleport/toggle wall doesn't work */
++#define	FS_HASMUTANT		0x04	/* beartrap contains mutant block */
++#define	FS_MARKER		0x08	/* marker used during initialization */
+
+ /* Translate a slide floor into the direction it points in. In the
+  * case of a random slide floor, a new direction is selected.
+@@ -600,8 +639,16 @@ static creature *lookupblock(int pos)
+     id = cellat(pos)->top.id;
+     if (id == Block_Static)
+ 	cr->dir = NIL;
++    else if (id == IceBlock_Static) {
++	cr->id = IceBlock;
++	cr->dir = NIL;
++    }
+     else if (creatureid(id) == Block)
+ 	cr->dir = creaturedirid(id);
++    else if (creatureid(id) == IceBlock) {
++	cr->id = IceBlock;
++	cr->dir = creaturedirid(id);
++    }
+     else
+ 	_assert(!"lookupblock() called on blockless location");
+
+@@ -634,6 +681,9 @@ static void updatecreature(creature const *cr)
+ 	if (cr->state & CS_MUTANT)
+ 	    tile->id = crtile(Chip, NORTH);
+ 	return;
++    } else if (id == IceBlock) {
++	tile->id = IceBlock_Static;
++	return;
+     } else if (id == Chip) {
+ 	if (chipstatus()) {
+ 	    switch (chipstatus()) {
+@@ -679,7 +729,7 @@ static creature *awakencreature(int pos)
+     new->id = creatureid(tileid);
+     new->dir = creaturedirid(tileid);
+     new->pos = pos;
+-    return new->id == Block ? addtoblocklist(new) : addtocreaturelist(new);
++    return isblock(new->id) ? addtoblocklist(new) : addtocreaturelist(new);
+ }
+
+ /* Mark a creature as dead.
+@@ -741,7 +791,7 @@ static void startfloormovement(creature *cr, int floor)
+ 	dir = getslidedir(floor);
+     else if (floor == Teleport)
+ 	dir = cr->dir;
+-    else if (floor == Beartrap && cr->id == Block)
++    else if (floor == Beartrap && isblock(cr->id))
+ 	dir = cr->dir;
+     else
+ 	return;
+@@ -860,7 +910,7 @@ static struct { unsigned char chip, block, creature; } const movelaws[] = {
+     /* Exit_Extra_1 */		{ 0, 0, 0 },
+     /* Exit_Extra_2 */		{ 0, 0, 0 },
+     /* Overlay_Buffer */	{ 0, 0, 0 },
+-    /* Floor_Reserved2 */	{ 0, 0, 0 },
++    /* IceBlock_Static */	{ NWSE, 0, 0 },
+     /* Floor_Reserved1 */	{ 0, 0, 0 },
+ };
+
+@@ -892,7 +942,7 @@ static int pushblock(int pos, int dir, int flags)
+     creature   *cr;
+     int		slipdir, r;
+
+-    _assert(cellat(pos)->top.id == Block_Static);
++    _assert(cellat(pos)->top.id == Block_Static || cellat(pos)->top.id == IceBlock_Static);
+     _assert(dir != NIL);
+
+     cr = lookupblock(pos);
+@@ -910,7 +960,7 @@ static int pushblock(int pos, int dir, int flags)
+     if (flags & CMM_NOPUSHING)
+ 	return FALSE;
+
+-    if (!(flags & CMM_TELEPORTPUSH) && cellat(pos)->bot.id == Block_Static)
++    if (!(flags & CMM_TELEPORTPUSH) && (cellat(pos)->bot.id == Block_Static || cellat(pos)->bot.id == IceBlock_Static))
+ 	cellat(pos)->bot.id = Empty;
+     if (!(flags & CMM_NODEFERBUTTONS))
+ 	cr->state |= CS_DEFERPUSH;
+@@ -977,7 +1027,7 @@ static int canmakemove(creature const *cr, int dir, int flags)
+ 	    return FALSE;
+ 	if (iscreature(cellat(to)->top.id)) {
+ 	    id = creatureid(cellat(to)->top.id);
+-	    if (id == Chip || id == Swimming_Chip || id == Block)
++	    if (id == Chip || id == Swimming_Chip || isblock(id))
+ 		return FALSE;
+ 	}
+ 	if (floor == HiddenWall_Temp || floor == BlueWall_Real) {
+@@ -995,6 +1045,16 @@ static int canmakemove(creature const *cr, int dir, int flags)
+ 		    return TRUE;
+ 	    return canmakemove(cr, dir, flags | CMM_NOPUSHING);
+ 	}
++	if (floor == IceBlock_Static) {
++	    if (!pushblock(to, dir, flags))
++	        return FALSE;
++	    else if (flags & CMM_NOPUSHING)
++		return TRUE;
++	    if ((flags & CMM_TELEPORTPUSH) && floorat(to) == IceBlock_Static
++					   && cellat(to)->bot.id == Empty)
++		return TRUE;
++	    return canmakemove(cr, dir, flags | CMM_NOPUSHING);
++	}
+     } else if (cr->id == Block) {
+ 	floor = cellat(to)->top.id;
+ 	if (iscreature(floor)) {
+@@ -1003,6 +1063,27 @@ static int canmakemove(creature const *cr, int dir, int flags)
+ 	}
+ 	if (!(movelaws[floor].block & dir))
+ 	    return FALSE;
++    } else if (cr->id == IceBlock) {
++	floor = cellat(to)->top.id;
++	if ((flags & CMM_TELEPORTPUSH) && floor == IceBlock_Static) {
++	    return FALSE;
++	}
++	if (iscreature(floor)) {
++	    id = creatureid(floor);
++	    return id == Chip || id == Swimming_Chip;
++	}
++	if (floor == IceBlock_Static) {
++	    if (!pushblock(to, dir, flags))
++		return FALSE;
++	    else if (flags & CMM_NOPUSHING)
++		return TRUE;
++	    return canmakemove(cr, dir, flags | CMM_NOPUSHING);
++	}
++	if (floor == Dirt) {
++	    return TRUE;
++	}
++	if (!(movelaws[floor].block & dir))
++	    return FALSE;
+     } else {
+ 	floor = cellat(to)->top.id;
+ 	if (iscreature(floor)) {
+@@ -1021,9 +1102,19 @@ static int canmakemove(creature const *cr, int dir, int flags)
+ 		return TRUE;
+ 	    return FALSE;
+ 	}
++	if (floor == IceBlock_Static && (cr->id == Teeth || (cr->id == Tank))) {
++	    //if (flags & CMM_CLONECANTBLOCK)
++	    //return FALSE; // Ice Blocks block clone machines
++	    if (!pushblock(to, dir, flags))
++		return FALSE;
++	    else if (flags & CMM_NOPUSHING)
++		return TRUE;
++	    return canmakemove(cr, dir, flags | CMM_NOPUSHING);
++	}
+ 	if (!(movelaws[floor].creature & dir))
+ 	    return FALSE;
+-	if (floor == Fire && (cr->id == Bug || cr->id == Walker))
++	if (floor == Fire && (cr->id == Bug || cr->id == Walker)
++			  && !(flags & CMM_TELEPORTPUSH))
+ 	    return FALSE;
+     }
+
+@@ -1054,7 +1145,7 @@ static void choosecreaturemove(creature *cr)
+
+     if (cr->hidden)
+ 	return;
+-    if (cr->id == Block)
++    if (isblock(cr->id))
+ 	return;
+     if (currenttime() & 2)
+ 	return;
+@@ -1376,6 +1467,17 @@ static void activatecloner(int buttonpos)
+ 	cr = lookupblock(pos);
+ 	if (cr->dir != NIL)
+ 	    advancecreature(cr, cr->dir);
++    } else if (creatureid(tileid) == IceBlock) {
++	if (cellat(pos)->bot.state & FS_CLONING)
++	    return;
++	cr = lookupblock(pos);
++	if (cr->dir != NIL) {
++	    if (cellat(pos)->bot.id == CloneMachine)
++		cellat(pos)->bot.state |= FS_CLONING;
++	    advancecreature(cr, cr->dir);
++	    if (cellat(pos)->bot.id == CloneMachine)
++		cellat(pos)->bot.state &= ~FS_CLONING;
++	}
+     } else {
+ 	if (cellat(pos)->bot.state & FS_CLONING)
+ 	    return;
+@@ -1383,7 +1485,7 @@ static void activatecloner(int buttonpos)
+ 	dummy.id = creatureid(tileid);
+ 	dummy.dir = creaturedirid(tileid);
+ 	dummy.pos = pos;
+-	if (!canmakemove(&dummy, dummy.dir, CMM_CLONECANTBLOCK))
++	if (!canmakemove(&dummy, dummy.dir, CMM_CLONECANTBLOCK | CMM_NOPUSHING))
+ 	    return;
+ 	cr = awakencreature(pos);
+ 	if (!cr)
+@@ -1410,7 +1512,8 @@ static void springtrap(int buttonpos)
+ 	return;
+     }
+     id = cellat(pos)->top.id;
+-    if (id == Block_Static || (cellat(pos)->bot.state & FS_HASMUTANT)) {
++    if (id == Block_Static || id == IceBlock_Static
++			    || (cellat(pos)->bot.state & FS_HASMUTANT)) {
+ 	cr = lookupblock(pos);
+ 	if (cr)
+ 	    cr->state |= CS_RELEASED;
+@@ -1425,31 +1528,17 @@ static void springtrap(int buttonpos)
+  */
+ static void resetbuttons(void)
+ {
+-    int	pos;
+-
+-    for (pos = 0 ; pos < CXGRID * CYGRID ; ++pos) {
+-	cellat(pos)->top.state &= ~FS_BUTTONDOWN;
+-	cellat(pos)->bot.state &= ~FS_BUTTONDOWN;
+-    }
++    resetdeferstack();
+ }
+
+ /* Apply the effects of all deferred button presses, if any.
+  */
+ static void handlebuttons(void)
+ {
+-    int	pos, id;
++    deferredbutton *button;
+
+-    for (pos = 0 ; pos < CXGRID * CYGRID ; ++pos) {
+-	if (cellat(pos)->top.state & FS_BUTTONDOWN) {
+-	    cellat(pos)->top.state &= ~FS_BUTTONDOWN;
+-	    id = cellat(pos)->top.id;
+-	} else if (cellat(pos)->bot.state & FS_BUTTONDOWN) {
+-	    cellat(pos)->bot.state &= ~FS_BUTTONDOWN;
+-	    id = cellat(pos)->bot.id;
+-	} else {
+-	    continue;
+-	}
+-	switch (id) {
++    while ((button = popdeferstack()) != NULL) {
++	switch (button->id) {
+ 	  case Button_Blue:
+ 	    addsoundeffect(SND_BUTTON_PUSHED);
+ 	    turntanks(NULL);
+@@ -1458,15 +1547,15 @@ static void handlebuttons(void)
+ 	    togglewalls();
+ 	    break;
+ 	  case Button_Red:
+-	    activatecloner(pos);
++	    activatecloner(button->pos);
+ 	    addsoundeffect(SND_BUTTON_PUSHED);
+ 	    break;
+ 	  case Button_Brown:
+-	    springtrap(pos);
++	    springtrap(button->pos);
+ 	    addsoundeffect(SND_BUTTON_PUSHED);
+ 	    break;
+ 	  default:
+-	    warn("Fooey! Tile %02X is not a button!", id);
++	    warn("Fooey! Tile %02X is not a button!", button->id);
+ 	    break;
+ 	}
+     }
+@@ -1623,6 +1712,36 @@ static void endmovement(creature *cr, int dir)
+ 		newpos = teleportcreature(cr, newpos);
+ 	    break;
+ 	}
++    } else if (cr->id == IceBlock) {
++	switch (floor) {
++	  case Empty:
++	    poptile(newpos);
++	    break;
++	  case Fire:
++	    tile->id = Water;
++	    dead = TRUE;
++	    break;
++	  case Water:
++	    tile->id = Ice;
++	    dead = TRUE;
++	    addsoundeffect(SND_WATER_SPLASH);
++	    break;
++	  case Dirt:
++	    poptile(newpos);
++	    break;
++	  case Bomb:
++	    tile->id = Empty;
++	    dead = TRUE;
++	    addsoundeffect(SND_BOMB_EXPLODES);
++	    break;
++	  case IceBlock_Static:
++	    endmovement(lookupblock(newpos), dir);
++	    break;
++	  case Teleport:
++	    if (!(tile->state & FS_BROKEN))
++	    newpos = teleportcreature(cr, newpos);
++	    break;
++	}
+     } else {
+ 	if (iscreature(cell->top.id)) {
+ 	    tile = &cell->bot;
+@@ -1684,27 +1803,29 @@ static void endmovement(creature *cr, int dir)
+     switch (floor) {
+       case Button_Blue:
+ 	if (cr->state & CS_DEFERPUSH)
+-	    tile->state |= FS_BUTTONDOWN;
++	    pushdeferstack(newpos, floor);
+ 	else
+ 	    turntanks(cr);
+ 	addsoundeffect(SND_BUTTON_PUSHED);
+ 	break;
+       case Button_Green:
+ 	if (cr->state & CS_DEFERPUSH)
+-	    tile->state |= FS_BUTTONDOWN;
++	    pushdeferstack(newpos, floor);
+ 	else
+ 	    togglewalls();
+ 	break;
+       case Button_Red:
++	if (cellat(clonerfrombutton(newpos))->bot.state & FS_CLONING)
++	    break;
+ 	if (cr->state & CS_DEFERPUSH)
+-	    tile->state |= FS_BUTTONDOWN;
++	    pushdeferstack(newpos, floor);
+ 	else
+ 	    activatecloner(newpos);
+ 	addsoundeffect(SND_BUTTON_PUSHED);
+ 	break;
+       case Button_Brown:
+ 	if (cr->state & CS_DEFERPUSH)
+-	    tile->state |= FS_BUTTONDOWN;
++	    pushdeferstack(newpos, floor);
+ 	else
+ 	    springtrap(newpos);
+ 	addsoundeffect(SND_BUTTON_PUSHED);
+@@ -1755,7 +1876,7 @@ static void endmovement(creature *cr, int dir)
+ 	startfloormovement(cr, floor);
+     else if (isslide(floor) && (cr->id != Chip || !possession(Boots_Slide)))
+ 	startfloormovement(cr, floor);
+-    else if (floor == Beartrap && cr->id == Block && wasslipping) {
++    else if (floor == Beartrap && isblock(cr->id) && wasslipping) {
+ 	startfloormovement(cr, floor);
+ 	if (cr->state & CS_MUTANT)
+ 	    cell->bot.state |= FS_HASMUTANT;
+@@ -1786,7 +1907,7 @@ static int advancecreature(creature *cr, int dir)
+     }
+
+     endmovement(cr, dir);
+-    if (cr->id == Chip)
++    if (!(cr->state & CS_DEFERPUSH))
+ 	handlebuttons();
+
+     return TRUE;
+@@ -1958,7 +2079,7 @@ static void verifymap(void)
+ 	    warn("%d: Creature %02X has left the map: (%d %d)",
+ 		 state->currenttime, cr->id,
+ 		 cr->pos % CXGRID, cr->pos / CXGRID);
+-	if (cr->dir > EAST && (cr->dir != NIL || cr->id != Block))
++	if (cr->dir > EAST && (cr->dir != NIL || !isblock(cr->id)))
+ 	    warn("%d: Creature %d lacks direction (%d)",
+ 		 state->currenttime, cr->id, cr->dir);
+     }
+@@ -2081,6 +2202,14 @@ static int initgame(gamelogic *logic)
+ 		cell->bot.state |= FS_BROKEN;
+     }
+
++    for (pos = 0, cell = state->map ; pos < CXGRID * CYGRID ; ++pos, ++cell) {
++	if (creatureid(cell->bot.id) == Block
++		       && cell->top.id == IceBlock_Static) {
++	    cell->top.id = crtile(IceBlock, creaturedirid(cell->bot.id));
++	    cell->bot.id = CloneMachine;
++	}
++    }
++
+     chip = allocatecreature();
+     chip->pos = 0;
+     chip->id = Chip;
+@@ -2099,7 +2228,7 @@ static int initgame(gamelogic *logic)
+ 		 num, pos % CXGRID, pos / CXGRID);
+ 	    continue;
+ 	}
+-	if (creatureid(cell->top.id) != Block
++	if (!isblock(creatureid(cell->top.id))
+ 				&& cell->bot.id != CloneMachine) {
+ 	    cr = allocatecreature();
+ 	    cr->pos = pos;
+diff --git a/oshw-sdl/sdltile.c b/oshw-sdl/sdltile.c
+index f8cf9d2..80de9b4 100644
+--- a/generic/tile.c
++++ b/generic/tile.c
+@@ -128,6 +128,7 @@ static tileidinfo const tileidmap[NTILES] = {
+     { Boots_Fire,		 6,  9,  9,  9, TILEIMG_TRANSPCELS },
+     { Boots_Water,		 6,  8,  9,  8, TILEIMG_TRANSPCELS },
+     { Block_Static,		 0, 10, -1, -1, TILEIMG_IMPLICIT },
++    { IceBlock_Static,		 3,  8, -1, -1, TILEIMG_IMPLICIT },
+     { Overlay_Buffer,		 2,  0, -1, -1, TILEIMG_IMPLICIT },
+     { Exit_Extra_1,		 3, 10, -1, -1, TILEIMG_SINGLEOPAQUE },
+     { Exit_Extra_2,		 3, 11, -1, -1, TILEIMG_SINGLEOPAQUE },
+@@ -151,6 +152,10 @@ static tileidinfo const tileidmap[NTILES] = {
+     { Block _WEST,		 0, 15, -1, -1, TILEIMG_IMPLICIT },
+     { Block _SOUTH,		 1,  0, -1, -1, TILEIMG_IMPLICIT },
+     { Block _EAST,		 1,  1, -1, -1, TILEIMG_IMPLICIT },
++    { IceBlock _NORTH,		 3,  8, -1, -1, TILEIMG_CREATURE },
++    { IceBlock _WEST,		 3,  8, -1, -1, TILEIMG_IMPLICIT },
++    { IceBlock _SOUTH,		 3,  8, -1, -1, TILEIMG_IMPLICIT },
++    { IceBlock _EAST,		 3,  8, -1, -1, TILEIMG_IMPLICIT },
+     { Tank _NORTH,		 4, 12,  7, 12, TILEIMG_CREATURE },
+     { Tank _WEST,		 4, 13,  7, 13, TILEIMG_IMPLICIT },
+     { Tank _SOUTH,		 4, 14,  7, 14, TILEIMG_IMPLICIT },
+@@ -1089,6 +1094,9 @@ static int initlargetileset(SDL_Surface *tiles)
+     tileptr[Block_Static].celcount = 1;
+     tileptr[Block_Static].opaque[0] = tileptr[Block].transp[0];
+     tileptr[Block_Static].transp[0] = NULL;
++    tileptr[IceBlock_Static].celcount = 1;
++    tileptr[IceBlock_Static].opaque[0] = tileptr[IceBlock].transp[0];
++    tileptr[IceBlock_Static].transp[0] = NULL;
+     tileptr[HiddenWall_Perm] = tileptr[Empty];
+     tileptr[HiddenWall_Temp] = tileptr[Empty];
+     tileptr[BlueWall_Fake] = tileptr[BlueWall_Real];
+diff --git a/series.c b/series.c
+index 1bc3c2e..7c3c97f 100644
+--- a/series.c
++++ b/series.c
+@@ -22,6 +22,7 @@
+
+ #define	SIG_DATFILE_MS		0x0002
+ #define	SIG_DATFILE_LYNX	0x0102
++#define	SIG_DATFILE_PG		0x0003
+
+ /* The "signature bytes" of the configuration files.
+  */
+@@ -126,6 +127,7 @@ static int readseriesheader(gameseries *series)
+     switch (val16) {
+       case SIG_DATFILE_MS:	ruleset = Ruleset_MS;		break;
+       case SIG_DATFILE_LYNX:	ruleset = Ruleset_Lynx;		break;
++      case SIG_DATFILE_PG:	ruleset = Ruleset_MS;		break;
+       default:
+ 	fileerr(&series->mapfile, "data file uses an unrecognized ruleset");
+ 	return FALSE;
+diff --git a/state.h b/state.h
+index fb8005f..0e77d2a 100644
+--- a/state.h
++++ b/state.h
+@@ -86,7 +86,8 @@ enum
+
+     Overlay_Buffer	= 0x3D,
+
+-    Floor_Reserved2	= 0x3E,
++    IceBlock_Static	= 0x3E,
++
+     Floor_Reserved1	= 0x3F,
+
+     Chip		= 0x40,
+@@ -106,7 +107,8 @@ enum
+     Swimming_Chip	= 0x6C,
+     Pushing_Chip	= 0x70,
+
+-    Entity_Reserved2	= 0x74,
++    IceBlock		= 0x74,
++
+     Entity_Reserved1	= 0x78,
+
+     Water_Splash	= 0x7C,
+@@ -126,6 +128,7 @@ enum
+ #define	isfloor(f)	((f) <= Floor_Reserved1)
+ #define	iscreature(f)	((f) >= Chip && (f) < Water_Splash)
+ #define	isanimation(f)	((f) >= Water_Splash && (f) <= Animation_Reserved1)
++#define	isblock(f)	((f) == Block || (f) == IceBlock)
+
+ /* Macro for getting the tile ID of a creature with a specific direction.
+  */
