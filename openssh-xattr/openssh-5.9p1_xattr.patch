@@ -1,0 +1,589 @@
+diff -rupN openssh-5.9p1/sftp-server.c openssh-5.9p1_mod_xattr/sftp-server.c
+--- openssh-5.9p1/sftp-server.c	2011-06-20 06:42:52.000000000 +0200
++++ openssh-5.9p1_mod_xattr/sftp-server.c	2011-11-30 15:34:38.121066184 +0100
+@@ -30,6 +30,11 @@
+ #include <sys/statvfs.h>
+ #endif
+ 
++#include <sys/xattr.h>
++#ifndef ENOATTR
++#define ENOATTR ENODATA
++#endif
++
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -51,6 +56,8 @@
+ #include "sftp.h"
+ #include "sftp-common.h"
+ 
++#define MAX_XATTR_DATA_LEN 100000
++
+ /* helper */
+ #define get_int64()			buffer_get_int64(&iqueue);
+ #define get_int()			buffer_get_int(&iqueue);
+@@ -73,6 +80,17 @@ u_int version;
+ /* Disable writes */
+ int readonly;
+ 
++/* xattr extension */
++int xattr_caching;
++
++typedef struct Xattrib Xattrib;
++
++struct Xattrib {
++	char *name;
++	void *value;
++	size_t size;
++};
++
+ /* portable attributes, etc. */
+ 
+ typedef struct Stat Stat;
+@@ -81,6 +99,8 @@ struct Stat {
+ 	char *name;
+ 	char *long_name;
+ 	Attrib attrib;
++	Xattrib *xattrib;
++	size_t xa_size;
+ };
+ 
+ static int
+@@ -110,6 +130,22 @@ errno_to_portable(int unixerrno)
+ 	case ENOSYS:
+ 		ret = SSH2_FX_OP_UNSUPPORTED;
+ 		break;
++	case ENOATTR:
++		ret = SSH2_FX_ENOATTR;
++		break;
++	case ENOSPC:
++	case EDQUOT:
++		ret = SSH2_FX_ENOSPC;
++		break;
++	case ENOTSUP:
++		ret = SSH2_FX_ENOTSUP;
++		break;
++	case ERANGE:
++		ret = SSH2_FX_ERANGE;
++		break;
++	case EMSGSIZE:
++		ret = SSH2_FX_EMSGSIZE;
++		break;
+ 	default:
+ 		ret = SSH2_FX_FAILURE;
+ 		break;
+@@ -396,6 +432,11 @@ status_to_message(u_int32_t status)
+ 		"No connection",		/* SSH_FX_NO_CONNECTION */
+ 		"Connection lost",		/* SSH_FX_CONNECTION_LOST */
+ 		"Operation unsupported",	/* SSH_FX_OP_UNSUPPORTED */
++		"No such attribute",		/* SSH2_FX_ENOATTR */
++		"No space",			/* SSH2_FX_ENOSPC */
++		"Not supported",		/* SSH2_FX_ENOTSUP */
++		"Range error",			/* SSH2_FX_ERANGE */
++		"Message size error",		/* SSH2_FX_EMSGSIZE */
+ 		"Unknown error"			/* Others */
+ 	};
+ 	return (status_messages[MIN(status,SSH2_FX_MAX)]);
+@@ -454,23 +495,65 @@ send_handle(u_int32_t id, int handle)
+ }
+ 
+ static void
++write_allxattr_data(Buffer *msg, Xattrib *xa, size_t xa_size) {
++	buffer_put_int(msg, xa_size);
++	if (xa_size == (size_t)-1)
++		buffer_put_int(msg, *(int*)xa);
++	else if (xa_size != 0) {
++		size_t j;
++		for (j=0; j<xa_size; ++j) {
++			buffer_put_cstring(msg, xa[j].name);
++			buffer_put_int(msg, xa[j].size);
++			if (xa[j].size == (size_t)-1)
++				buffer_put_int(msg, *(int*)xa[j].value);
++			else if (xa[j].size != 0)
++				buffer_append(msg, xa[j].value, xa[j].size);
++		}
++	}
++}
++
++static void
++send_names_start(Buffer *msg, u_int32_t id)
++{
++	debug("send_names_start %u", id);
++	buffer_init(msg);
++	buffer_put_char(msg, SSH2_FXP_NAME);
++	buffer_put_int(msg, id);
++	buffer_put_int(msg, 0);
++}
++
++static void
++send_names_next(Buffer *msg, u_int32_t id, const Stat *stats)
++{
++	buffer_put_cstring(msg, stats->name);
++	buffer_put_cstring(msg, stats->long_name);
++	encode_attrib(msg, &stats->attrib);
++	if (xattr_caching)
++		write_allxattr_data(msg, stats->xattrib, stats->xa_size);
++}
++
++static void
++send_names_end(Buffer *msg, int count)
++{
++	char buf[4];
++	put_u32(buf, count);
++	memcpy((char*)buffer_ptr(msg) + 5, buf, 4);
++	send_msg(msg);
++	buffer_free(msg);
++}
++
++static void
+ send_names(u_int32_t id, int count, const Stat *stats)
+ {
+ 	Buffer msg;
+ 	int i;
+ 
+-	buffer_init(&msg);
+-	buffer_put_char(&msg, SSH2_FXP_NAME);
+-	buffer_put_int(&msg, id);
+-	buffer_put_int(&msg, count);
++	send_names_start(&msg, id);
+ 	debug("request %u: sent names count %d", id, count);
+ 	for (i = 0; i < count; i++) {
+-		buffer_put_cstring(&msg, stats[i].name);
+-		buffer_put_cstring(&msg, stats[i].long_name);
+-		encode_attrib(&msg, &stats[i].attrib);
++		send_names_next(&msg, id, stats + i);
+ 	}
+-	send_msg(&msg);
+-	buffer_free(&msg);
++	send_names_end(&msg, count);
+ }
+ 
+ static void
+@@ -538,6 +621,19 @@ process_init(void)
+ 	/* hardlink extension */
+ 	buffer_put_cstring(&msg, "hardlink@openssh.com");
+ 	buffer_put_cstring(&msg, "1"); /* version */
++	/* xattr extensions */
++	buffer_put_cstring(&msg, "setxattr@openssh.com");
++	buffer_put_cstring(&msg, "1"); /* version */
++	buffer_put_cstring(&msg, "getxattr@openssh.com");
++	buffer_put_cstring(&msg, "1"); /* version */
++	buffer_put_cstring(&msg, "listxattr@openssh.com");
++	buffer_put_cstring(&msg, "1"); /* version */
++	buffer_put_cstring(&msg, "removexattr@openssh.com");
++	buffer_put_cstring(&msg, "1"); /* version */
++	buffer_put_cstring(&msg, "cachexattr@openssh.com");
++	buffer_put_cstring(&msg, "1"); /* version */
++	buffer_put_cstring(&msg, "getallxattr@openssh.com");
++	buffer_put_cstring(&msg, "1"); /* version */
+ 	send_msg(&msg);
+ 	buffer_free(&msg);
+ }
+@@ -907,6 +1003,120 @@ process_opendir(void)
+ 	xfree(path);
+ }
+ 
++static void delete_xattr(Xattrib *xattr, size_t xa_size)
++{
++	if (xa_size != 0) {
++		if (xa_size != (size_t)-1) {
++			size_t i;
++			for (i=0; i<xa_size; ++i) {
++				xfree(xattr[i].name);
++				if (xattr[i].size != 0) {
++					xfree(xattr[i].value);
++				}
++			}
++		}
++		xfree(xattr);
++	}
++}
++
++static size_t get_xattr(const char *path, Xattrib **xattrib)
++{
++	size_t lsize = 1024;
++	char *list = xmalloc(lsize);
++	size_t lret;
++	Xattrib *xattr = NULL;
++	do {
++		lret = llistxattr(path, list, lsize);
++		if (lret == (size_t)-1) {
++			if (errno == ERANGE) {
++				lret = llistxattr(path, list, 0);
++				if (lret != (size_t)-1) {
++					if (lret > MAX_XATTR_DATA_LEN) {
++						lret = (size_t)-1;
++						errno = EMSGSIZE;
++					}
++					else {
++						lsize = lret;
++						list = xrealloc(list, lsize, 1);
++						continue;
++					}
++				}
++			}
++		}
++		break;
++	} while (1);
++	debug3("get_xattr: lret=%ld", lret);
++
++	if (lret == (size_t)-1) {
++		xattr = xmalloc(sizeof(int));
++		*(int*)xattr = errno_to_portable(errno);
++	} else if (lret != 0) {
++		char *p;
++		char *list_end = list + lret;
++		int cnt = 0;
++		for (p=list; p<list_end; ++p)
++			if (!*p)
++				++cnt;
++		debug3("get_xattr: cnt=%d", cnt);
++		xattr = xcalloc(cnt, sizeof(Xattrib));
++		size_t vsize = 1024;
++		void *value = xmalloc(vsize);
++		char *name = list;
++		int i;
++		size_t tot_siz = 0;
++		for (i=0; i<cnt; ++i) {
++			size_t nlen = strlen(name);
++			size_t gret;
++			do {
++				gret = lgetxattr(path, name, value, vsize);
++				//debug3("get_xattr: gret=%d, errno=%d(%d), name=%s, size=%ld, value=%s\n", gret, errno, ERANGE, name, vsize, value);
++				if (gret == (size_t)-1) {
++					if (errno == ERANGE) {
++						gret = lgetxattr(path, name, value, 0);
++						//debug3("get_xattr: gret=%d, errno=%d(%d), name=%s\n", gret, errno, ERANGE, name);
++						if (gret != (size_t)-1) {
++							if (gret > MAX_XATTR_DATA_LEN) {
++								gret = (size_t)-1;
++								errno = EMSGSIZE;
++							}
++							else {
++								vsize = gret;
++								value = xrealloc(value, vsize, 1);
++								continue;
++							}
++						}
++					}
++				}
++				break;
++			} while (1);
++			tot_siz += gret;
++			if (tot_siz > MAX_XATTR_DATA_LEN)
++				break;
++			xattr[i].name = xstrdup(name);
++			xattr[i].size = gret;
++			if (gret == (size_t)-1) {
++				xattr[i].value = xmalloc(sizeof(int));
++				*(int*)xattr[i].value = errno_to_portable(errno);
++			} else if (gret != 0) {
++				xattr[i].value = xmalloc(gret);
++				memcpy(xattr[i].value, value, gret);
++			}
++			//debug3("get_xattr: name=%s, size=%ld, value=%s\n", xattr[i].name, xattr[i].size, xattr[i].value);
++			name += nlen+1;
++		}
++		if (i<cnt) {
++			delete_xattr(xattr, i);
++			xattr = xmalloc(sizeof(int));
++			*(int*)xattr = errno_to_portable(EMSGSIZE);
++		}
++		xfree(value);
++		lret = cnt;
++	}
++	xfree(list);
++	*xattrib = xattr;
++	return lret;
++}
++
+ static void
+ process_readdir(void)
+ {
+@@ -927,39 +1137,42 @@ process_readdir(void)
+ 	} else {
+ 		struct stat st;
+ 		char pathname[MAXPATHLEN];
+-		Stat *stats;
+-		int nstats = 10, count = 0, i;
++		Stat stats;
++		int count = 0;
++		Buffer msg;
++		int max_entrysize = 256 + MAXPATHLEN + 32 + 1024;
++		debug3("readdir: xattr_caching=%d", xattr_caching);
++		if (xattr_caching)
++			max_entrysize += MAX_XATTR_DATA_LEN;
++		send_names_start(&msg, id);
+ 
+-		stats = xcalloc(nstats, sizeof(Stat));
+ 		while ((dp = readdir(dirp)) != NULL) {
+-			if (count >= nstats) {
+-				nstats *= 2;
+-				stats = xrealloc(stats, nstats, sizeof(Stat));
+-			}
+-/* XXX OVERFLOW ? */
+ 			snprintf(pathname, sizeof pathname, "%s%s%s", path,
+ 			    strcmp(path, "/") ? "/" : "", dp->d_name);
+ 			if (lstat(pathname, &st) < 0)
+ 				continue;
+-			stat_to_attrib(&st, &(stats[count].attrib));
+-			stats[count].name = xstrdup(dp->d_name);
+-			stats[count].long_name = ls_file(dp->d_name, &st, 0, 0);
++			stat_to_attrib(&st, &stats.attrib);
++			stats.name = xstrdup(dp->d_name);
++			stats.long_name = ls_file(dp->d_name, &st, 0, 0);
++			stats.xa_size = 0;
++			if (xattr_caching)
++				stats.xa_size = get_xattr(pathname, &stats.xattrib);
++			debug3("readdir: stats.xa_size=%ld", stats.xa_size);
++			send_names_next(&msg, id, &stats);
++			xfree(stats.name);
++			xfree(stats.long_name);
++			delete_xattr(stats.xattrib, stats.xa_size);
+ 			count++;
+-			/* send up to 100 entries in one message */
+-			/* XXX check packet size instead */
+-			if (count == 100)
++			if (buffer_len(&msg) + max_entrysize > SFTP_MAX_MSG_LENGTH)
+ 				break;
+ 		}
+ 		if (count > 0) {
+-			send_names(id, count, stats);
+-			for (i = 0; i < count; i++) {
+-				xfree(stats[i].name);
+-				xfree(stats[i].long_name);
+-			}
++			debug3("readdir: count=%d", count);
++			send_names_end(&msg, count);
+ 		} else {
++			buffer_free(&msg);
+ 			send_status(id, SSH2_FX_EOF);
+ 		}
+-		xfree(stats);
+ 	}
+ }
+ 
+@@ -1051,6 +1264,7 @@ process_realpath(void)
+ 	} else {
+ 		Stat s;
+ 		attrib_clear(&s.attrib);
++		s.xa_size = 0;
+ 		s.name = s.long_name = resolvedname;
+ 		send_names(id, 1, &s);
+ 	}
+@@ -1138,6 +1352,7 @@ process_readlink(void)
+ 
+ 		buf[len] = '\0';
+ 		attrib_clear(&s.attrib);
++		s.xa_size = 0;
+ 		s.name = s.long_name = buf;
+ 		send_names(id, 1, &s);
+ 	}
+@@ -1247,6 +1462,152 @@ process_extended_hardlink(u_int32_t id)
+ }
+ 
+ static void
++process_extended_setxattr(u_int32_t id)
++{
++	char *path, *name;
++	void *value = NULL;
++	u_int size;
++	int pflags, ret, status;
++
++	path  = get_string(NULL);
++	name  = get_string(NULL);
++	value = get_string(&size);
++	pflags = get_int();
++	debug3("request %u: setxattr", id);
++	if (readonly) {
++		status = SSH2_FX_PERMISSION_DENIED;
++		errno = EACCES;
++	} else {
++		int flags;
++		flags  = (pflags & SSH2_FXE_XATTR_CREATE ) ? XATTR_CREATE  : 0;
++		flags |= (pflags & SSH2_FXE_XATTR_REPLACE) ? XATTR_REPLACE : 0;
++		logit("setxattr path \"%s\" name \"%s\" size=%d flags=%d", path, name, size, flags);
++		ret = lsetxattr(path, name, value, size, flags);
++		status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
++	}
++	send_status(id, status);
++	xfree(path);
++	xfree(name);
++	xfree(value);
++}
++
++void send_xattr_data (u_int32_t id, const char *data, size_t ret, size_t size) {
++	if ((ret != (size_t)-1) && (ret > MAX_XATTR_DATA_LEN) && (size != 0)) {
++		debug3("send_xattr_data EMSGSIZE: ret=%ld size=%ld ", ret, size);
++		errno = EMSGSIZE;
++		ret = (size_t)-1;
++	}
++	Buffer msg;
++	buffer_init(&msg);
++	buffer_put_char(&msg, SSH2_FXP_EXTENDED_REPLY);
++	buffer_put_int(&msg, id);
++	int err_no_p = errno_to_portable(errno);
++	debug3("send_xattr_data ret=%ld errno=%d err_no_p=%d", ret, errno, err_no_p);
++	buffer_put_int(&msg, ret);
++	if (ret == (size_t)-1) {
++		buffer_put_int(&msg, err_no_p);
++	} else if (size != 0) {
++		buffer_append(&msg, data, ret);
++	}
++	send_msg(&msg);
++	buffer_free(&msg);
++}
++
++static void
++process_extended_getxattr(u_int32_t id)
++{
++	char *path, *name;
++	size_t size;
++	size_t ret;
++
++	path  = get_string(NULL);
++	name  = get_string(NULL);
++	size  = get_int();
++	void *value = xmalloc(size+1);
++
++	debug3("request %u: getxattr", id);
++	logit("getxattr path \"%s\" name \"%s\" size=%ld", path, name, size);
++	ret = lgetxattr(path, name, value, size);
++	send_xattr_data(id, value, ret, size);
++	xfree(path);
++	xfree(name);
++	xfree(value);
++}
++
++static void
++process_extended_listxattr(u_int32_t id)
++{
++	char *path;
++	size_t size;
++	size_t ret;
++
++	path  = get_string(NULL);
++	size  = get_int();
++	void *list = xmalloc(size+1);
++
++	debug3("request %u: listxattr", id);
++	logit("listxattr path \"%s\" size=%ld", path, size);
++	ret = llistxattr(path, list, size);
++	send_xattr_data(id, list, ret, size);
++	xfree(path);
++	xfree(list);
++}
++
++static void
++process_extended_removexattr(u_int32_t id)
++{
++	char *path, *name;
++	int ret, status;
++
++	path  = get_string(NULL);
++	name  = get_string(NULL);
++	debug3("request %u: removexattr", id);
++	logit("removexattr path \"%s\" name \"%s\"", path, name);
++	if (readonly) {
++		status = SSH2_FX_PERMISSION_DENIED;
++		errno = EACCES;
++	} else {
++		ret = lremovexattr(path, name);
++		status = (ret == -1) ? errno_to_portable(errno) : SSH2_FX_OK;
++	}
++	send_status(id, status);
++	xfree(path);
++	xfree(name);
++}
++
++static void
++process_extended_cachexattr(u_int32_t id)
++{
++	debug3("request %u: cachexattr", id);
++	xattr_caching = 1;
++	send_status(id, SSH2_FX_OK);
++}
++
++static void
++process_extended_getallxattr(u_int32_t id)
++{
++	char *path;
++	Xattrib *xattrib;
++	size_t xa_size;
++
++	path  = get_string(NULL);
++	debug3("request %u: getallxattr", id);
++	logit("getallxattr path \"%s\"", path);
++	xa_size = get_xattr(path, &xattrib);
++	debug3("getallxattr: xa_size=%ld", xa_size);
++
++	Buffer msg;
++	buffer_init(&msg);
++	buffer_put_char(&msg, SSH2_FXP_EXTENDED_REPLY);
++	buffer_put_int(&msg, id);
++	write_allxattr_data(&msg, xattrib, xa_size);
++	send_msg(&msg);
++	buffer_free(&msg);
++	xfree(path);
++	delete_xattr(xattrib, xa_size);
++}
++
++static void
+ process_extended(void)
+ {
+ 	u_int32_t id;
+@@ -1262,6 +1623,18 @@ process_extended(void)
+ 		process_extended_fstatvfs(id);
+ 	else if (strcmp(request, "hardlink@openssh.com") == 0)
+ 		process_extended_hardlink(id);
++	else if (strcmp(request, "setxattr@openssh.com") == 0)
++		process_extended_setxattr(id);
++	else if (strcmp(request, "getxattr@openssh.com") == 0)
++		process_extended_getxattr(id);
++	else if (strcmp(request, "listxattr@openssh.com") == 0)
++		process_extended_listxattr(id);
++	else if (strcmp(request, "removexattr@openssh.com") == 0)
++		process_extended_removexattr(id);
++	else if (strcmp(request, "cachexattr@openssh.com") == 0)
++		process_extended_cachexattr(id);
++	else if (strcmp(request, "getallxattr@openssh.com") == 0)
++		process_extended_getallxattr(id);
+ 	else
+ 		send_status(id, SSH2_FX_OP_UNSUPPORTED);	/* MUST */
+ 	xfree(request);
+@@ -1293,6 +1666,7 @@ process(void)
+ 	buffer_consume(&iqueue, 4);
+ 	buf_len -= 4;
+ 	type = buffer_get_char(&iqueue);
++	debug3("request type: %d", type);
+ 	switch (type) {
+ 	case SSH2_FXP_INIT:
+ 		process_init();
+diff -rupN openssh-5.9p1/sftp.h openssh-5.9p1_mod_xattr/sftp.h
+--- openssh-5.9p1/sftp.h	2008-06-13 02:22:54.000000000 +0200
++++ openssh-5.9p1_mod_xattr/sftp.h	2011-11-08 15:03:41.490347612 +0100
+@@ -83,6 +83,10 @@
+ #define SSH2_FXE_STATVFS_ST_RDONLY	0x00000001
+ #define SSH2_FXE_STATVFS_ST_NOSUID	0x00000002
+ 
++/* xattr@openssh.com flags */
++#define SSH2_FXE_XATTR_CREATE		0x00000001
++#define SSH2_FXE_XATTR_REPLACE		0x00000002
++
+ /* status messages */
+ #define SSH2_FX_OK			0
+ #define SSH2_FX_EOF			1
+@@ -93,7 +97,12 @@
+ #define SSH2_FX_NO_CONNECTION		6
+ #define SSH2_FX_CONNECTION_LOST		7
+ #define SSH2_FX_OP_UNSUPPORTED		8
+-#define SSH2_FX_MAX			8
++#define SSH2_FX_ENOATTR                 9
++#define SSH2_FX_ENOSPC                 10
++#define SSH2_FX_ENOTSUP                11
++#define SSH2_FX_ERANGE                 12
++#define SSH2_FX_EMSGSIZE               13
++#define SSH2_FX_MAX		       13
+ 
+ struct passwd;
+ 

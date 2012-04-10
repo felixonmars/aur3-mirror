@@ -1,0 +1,846 @@
+diff -rup sshfs-fuse-2.4-orig/cache.c sshfs-fuse-2.4/cache.c
+--- sshfs-fuse-2.4-orig/cache.c	2012-02-08 10:21:00.000000000 +0100
++++ sshfs-fuse-2.4/cache.c	2012-04-10 16:37:33.845472108 +0200
+@@ -19,23 +19,18 @@
+ #define MIN_CACHE_CLEAN_INTERVAL 5
+ #define CACHE_CLEAN_INTERVAL 60
+ 
+-struct cache {
+-	int on;
+-	unsigned stat_timeout;
+-	unsigned dir_timeout;
+-	unsigned link_timeout;
+-	struct fuse_cache_operations *next_oper;
+-	GHashTable *table;
+-	pthread_mutex_t lock;
+-	time_t last_cleaned;
+-	uint64_t write_ctr;
+-};
++#ifndef ENOATTR
++#define ENOATTR ENODATA
++#endif
+ 
+-static struct cache cache;
++struct cache cache;
+ 
+ struct node {
+ 	struct stat stat;
+ 	time_t stat_valid;
++	Xattr *xattr;
++	uint32_t xa_size;
++	time_t xa_valid;
+ 	char **dir;
+ 	time_t dir_valid;
+ 	char *link;
+@@ -51,10 +46,25 @@ struct fuse_cache_dirhandle {
+ 	uint64_t wrctr;
+ };
+ 
++void delete_xattr(Xattr *xattr, uint32_t xa_size)
++{
++	if (xa_size != 0) {
++		if (xa_size != (uint32_t)-1) {
++			size_t i;
++			for (i=0; i<xa_size; ++i) {
++				g_free(xattr[i].name);
++				g_free(xattr[i].value);
++			}
++		}
++		g_free(xattr);
++	}
++}
++
+ static void free_node(gpointer node_)
+ {
+ 	struct node *node = (struct node *) node_;
+ 	g_strfreev(node->dir);
++	delete_xattr(node->xattr, node->xa_size);
+ 	g_free(node);
+ }
+ 
+@@ -180,6 +190,31 @@ void cache_add_attr(const char *path, co
+ 	pthread_mutex_unlock(&cache.lock);
+ }
+ 
++void cache_add_xattr(const char *path, Xattr *xattr, uint32_t xa_size, uint64_t wrctr)
++{
++	struct node *node;
++	/* time_t now; */
++
++	if (!cache.on)
++		return;
++
++	if (xa_size == (uint32_t)-1 && *(int*)xattr == 0)
++		return;
++
++	pthread_mutex_lock(&cache.lock);
++	if (wrctr == cache.write_ctr) {
++		node = cache_get(path);
++		/* now = time(NULL); */
++		node->xattr = xattr;
++		node->xa_size = xa_size;
++		node->xa_valid = time(NULL) + cache.stat_timeout;
++		if (node->xa_valid > node->valid)
++			node->valid = node->xa_valid;
++		cache_clean();
++	}
++	pthread_mutex_unlock(&cache.lock);
++}
++
+ static void cache_add_dir(const char *path, char **dir)
+ {
+ 	struct node *node;
+@@ -257,6 +292,95 @@ static int cache_getattr(const char *pat
+ 	return err;
+ }
+ 
++static int fill_getxattr(const char *name, char *value, size_t size, const Xattr *xattr, uint32_t xa_size)
++{
++	if (xa_size == (uint32_t)-1)
++		return -1;
++	size_t i;
++	for (i=0; i<xa_size; ++i)
++		if (!strcmp(name, xattr[i].name)) {
++			if (xattr[i].size == (uint32_t)-1)
++				return *(int*)xattr[i].value;
++			if (size == 0)
++				return xattr[i].size;
++			if (xattr[i].size > size)
++				return -ERANGE;
++			memcpy(value, xattr[i].value, xattr[i].size);
++			return xattr[i].size;
++		}
++	return -ENOATTR;
++}
++
++static int cache_getxattr(const char *path, const char *name, char *value, size_t size)
++{
++	struct node *node;
++	int err = -1;
++	pthread_mutex_lock(&cache.lock);
++	node = cache_lookup(path);
++	if (node != NULL) {
++		time_t now = time(NULL);
++		if (node->xa_valid - now >= 0)
++			err = fill_getxattr(name, value, size, node->xattr, node->xa_size);
++	}
++	pthread_mutex_unlock(&cache.lock);
++	if (err == -1) {
++		Xattr *xattr;
++		uint32_t xa_size;
++		err = cache.next_oper->getallxattr(path, &xattr, &xa_size);
++		if (err) {
++			err = cache.next_oper->oper.getxattr(path, name, value, size);
++		} else {
++			uint64_t wrctr = cache_get_write_ctr();
++			cache_add_xattr(path, xattr, xa_size, wrctr);
++			err = fill_getxattr(name, value, size, xattr, xa_size);
++		}
++	}
++	return err;
++}
++
++static int fill_listxattr(char *list, size_t size, const Xattr *xattr, uint32_t xa_size)
++{
++	if (xa_size == (uint32_t)-1)
++		return -1;
++	size_t si = 0, i;
++	for (i=0; i<xa_size; ++i) {
++		size_t len = strlen(xattr[i].name) + 1;
++		if (size >= si + len)
++			strcpy(list+si, xattr[i].name);
++		si += len;
++	}
++	if (size != 0 && si > size)
++		return -ERANGE;
++	return si;
++}
++
++static int cache_listxattr(const char *path, char *list, size_t size)
++{
++	struct node *node;
++	int err = -1;
++	pthread_mutex_lock(&cache.lock);
++	node = cache_lookup(path);
++	if (node != NULL) {
++		time_t now = time(NULL);
++		if (node->xa_valid - now >= 0)
++			err = fill_listxattr(list, size, node->xattr, node->xa_size);
++	}
++	pthread_mutex_unlock(&cache.lock);
++	if (err == -1) {
++		Xattr *xattr;
++		uint32_t xa_size;
++		err = cache.next_oper->getallxattr(path, &xattr, &xa_size);
++		if (err) {
++			err = cache.next_oper->oper.listxattr(path, list, size);
++		} else {
++			uint64_t wrctr = cache_get_write_ctr();
++			cache_add_xattr(path, xattr, xa_size, wrctr);
++			err = fill_listxattr(list, size, xattr, xa_size);
++		}
++	}
++	return err;
++}
++
+ static int cache_readlink(const char *path, char *buf, size_t size)
+ {
+ 	struct node *node;
+@@ -282,7 +406,7 @@ static int cache_readlink(const char *pa
+ }
+ 
+ static int cache_dirfill(fuse_cache_dirh_t ch, const char *name,
+-                         const struct stat *stbuf)
++                         const struct stat *stbuf, Xattr *xattr, uint32_t xa_size)
+ {
+ 	int err = ch->filler(ch->h, name, 0, 0);
+ 	if (!err) {
+@@ -293,6 +417,7 @@ static int cache_dirfill(fuse_cache_dirh
+ 
+ 			fullpath = g_strdup_printf("%s/%s", basepath, name);
+ 			cache_add_attr(fullpath, stbuf, ch->wrctr);
++			cache_add_xattr(fullpath, xattr, xa_size, ch->wrctr);
+ 			g_free(fullpath);
+ 		}
+ 	}
+@@ -336,9 +461,11 @@ static int cache_getdir(const char *path
+ }
+ 
+ static int cache_unity_dirfill(fuse_cache_dirh_t ch, const char *name,
+-                               const struct stat *stbuf)
++                               const struct stat *stbuf, Xattr *xattr, uint32_t xa_size)
+ {
+ 	(void) stbuf;
++	(void) xattr;
++	(void) xa_size;
+ 	return ch->filler(ch->h, name, 0, 0);
+ }
+ 
+@@ -450,6 +577,22 @@ static int cache_write(const char *path,
+ 	return res;
+ }
+ 
++static int cache_setxattr(const char *path, const char *name, const char *value, size_t size, int flags)
++{
++  int err = cache.next_oper->oper.setxattr(path, name, value, size, flags);
++	if (!err)
++		cache_invalidate(path);
++	return err;
++}
++
++static int cache_removexattr(const char *path, const char *name)
++{
++  int err = cache.next_oper->oper.removexattr(path, name);
++	if (!err)
++		cache_invalidate(path);
++	return err;
++}
++
+ #if FUSE_VERSION >= 25
+ static int cache_create(const char *path, mode_t mode,
+                         struct fuse_file_info *fi)
+@@ -539,6 +682,10 @@ static void cache_fill(struct fuse_cache
+ 	cache_oper->truncate = oper->oper.truncate ? cache_truncate : NULL;
+ 	cache_oper->utime    = oper->oper.utime ? cache_utime : NULL;
+ 	cache_oper->write    = oper->oper.write ? cache_write : NULL;
++	cache_oper->setxattr = oper->oper.setxattr ? cache_setxattr : NULL;
++	cache_oper->getxattr = oper->oper.getxattr ? cache_getxattr : NULL;
++	cache_oper->listxattr= oper->oper.listxattr ? cache_listxattr : NULL;
++	cache_oper->removexattr = oper->oper.removexattr ? cache_removexattr : NULL;
+ #if FUSE_VERSION >= 25
+ 	cache_oper->create   = oper->oper.create ? cache_create : NULL;
+ 	cache_oper->ftruncate = oper->oper.ftruncate ? cache_ftruncate : NULL;
+diff -rup sshfs-fuse-2.4-orig/cache.h sshfs-fuse-2.4/cache.h
+--- sshfs-fuse-2.4-orig/cache.h	2011-11-14 14:33:46.000000000 +0100
++++ sshfs-fuse-2.4/cache.h	2012-04-10 16:35:51.858261281 +0200
+@@ -8,18 +8,41 @@
+ 
+ #include <fuse.h>
+ #include <fuse_opt.h>
++#include <glib.h>
+ 
+ #ifndef FUSE_VERSION
+ #define FUSE_VERSION (FUSE_MAJOR_VERSION * 10 + FUSE_MINOR_VERSION)
+ #endif
+ 
++typedef struct Xattr Xattr;
++struct Xattr {
++	char *name;
++	void *value;
++	uint32_t size;
++};
++
++void delete_xattr(Xattr *xattr, uint32_t xa_size);
++
++struct cache {
++	int on;
++	unsigned stat_timeout;
++	unsigned dir_timeout;
++	unsigned link_timeout;
++	struct fuse_cache_operations *next_oper;
++	GHashTable *table;
++	pthread_mutex_t lock;
++	time_t last_cleaned;
++	uint64_t write_ctr;
++};
++
+ typedef struct fuse_cache_dirhandle *fuse_cache_dirh_t;
+ typedef int (*fuse_cache_dirfil_t) (fuse_cache_dirh_t h, const char *name,
+-                                    const struct stat *stbuf);
++                                    const struct stat *stbuf, Xattr *xattr, uint32_t xa_size);
+ 
+ struct fuse_cache_operations {
+     struct fuse_operations oper;
+     int (*cache_getdir) (const char *, fuse_cache_dirh_t, fuse_cache_dirfil_t);
++    int (*getallxattr) (const char *, Xattr**, uint32_t*);
+ };
+ 
+ struct fuse_operations *cache_init(struct fuse_cache_operations *oper);
+diff -rup sshfs-fuse-2.4-orig/sshfs.1 sshfs-fuse-2.4/sshfs.1
+--- sshfs-fuse-2.4-orig/sshfs.1	2012-02-14 12:55:14.000000000 +0100
++++ sshfs-fuse-2.4/sshfs.1	2012-04-10 16:35:51.860261267 +0200
+@@ -52,6 +52,9 @@ reconnect to server
+ \fB\-o\fR delay_connect
+ delay connection to server
+ .TP
++\fB\-o\fR xattr
++activate xattr support (if provided by the server)
++.TP
+ \fB\-o\fR sshfs_sync
+ synchronous writes
+ .TP
+diff -rup sshfs-fuse-2.4-orig/sshfs.c sshfs-fuse-2.4/sshfs.c
+--- sshfs-fuse-2.4-orig/sshfs.c	2012-03-08 10:34:39.000000000 +0100
++++ sshfs-fuse-2.4/sshfs.c	2012-04-10 16:41:49.950491047 +0200
+@@ -32,6 +32,7 @@
+ #include <sys/utsname.h>
+ #include <sys/mman.h>
+ #include <sys/poll.h>
++#include <sys/xattr.h>
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
+ #include <glib.h>
+@@ -49,6 +50,9 @@
+ #define MAP_ANONYMOUS MAP_ANON
+ #endif
+ 
++#ifndef ENOATTR
++#define ENOATTR ENODATA
++#endif
+ 
+ #define SSH_FXP_INIT                1
+ #define SSH_FXP_VERSION             2
+@@ -93,6 +97,11 @@
+ #define SSH_FX_NO_CONNECTION                 6
+ #define SSH_FX_CONNECTION_LOST               7
+ #define SSH_FX_OP_UNSUPPORTED                8
++#define SSH_FX_ENOATTR                       9
++#define SSH_FX_ENOSPC                       10
++#define SSH_FX_ENOTSUP                      11
++#define SSH_FX_ERANGE                       12
++#define SSH_FX_EMSGSIZE                     13
+ 
+ #define SSH_FXF_READ            0x00000001
+ #define SSH_FXF_WRITE           0x00000002
+@@ -105,15 +114,29 @@
+ #define SSH2_FXE_STATVFS_ST_RDONLY	0x00000001
+ #define SSH2_FXE_STATVFS_ST_NOSUID	0x00000002
+ 
++/* xattr <at> openssh.com flags */
++#define SSH2_FXE_XATTR_CREATE		0x00000001
++#define SSH2_FXE_XATTR_REPLACE		0x00000002
++
+ #define SFTP_EXT_POSIX_RENAME "posix-rename@openssh.com"
+ #define SFTP_EXT_STATVFS "statvfs@openssh.com"
+ #define SFTP_EXT_HARDLINK "hardlink@openssh.com"
++#define SFTP_EXT_CACHEXATTR "cachexattr <at> openssh.com"
++#define SFTP_EXT_SETXATTR "setxattr <at> openssh.com"
++#define SFTP_EXT_GETXATTR "getxattr <at> openssh.com"
++#define SFTP_EXT_LISTXATTR "listxattr <at> openssh.com"
++#define SFTP_EXT_REMOVEXATTR "removexattr <at> openssh.com"
++#define SFTP_EXT_GETALLXATTR "getallxattr <at> openssh.com"
+ 
+ #define PROTO_VERSION 3
+ 
+ #define MY_EOF 1
+ 
+-#define MAX_REPLY_LEN (1 << 17)
++/* define MAX_REPLY_LEN (1 << 17) */
++#define MAX_REPLY_LEN (256 * 1024)
++// because in openssh:  #define SFTP_MAX_MSG_LENGTH       (256 * 1024)
++
++#define MAX_XATTR_DATA_LEN 100000
+ 
+ #define RENAME_TEMP_CHARS 8
+ 
+@@ -218,6 +241,7 @@ struct sshfs {
+ 	int foreground;
+ 	int reconnect;
+ 	int delay_connect;
++	int xattr;
+ 	int slave;
+ 	char *host;
+ 	char *base_path;
+@@ -246,6 +270,12 @@ struct sshfs {
+ 	int ext_posix_rename;
+ 	int ext_statvfs;
+ 	int ext_hardlink;
++	int ext_cachexattr;
++	int ext_setxattr;
++	int ext_getxattr;
++	int ext_listxattr;
++	int ext_removexattr;
++	int ext_getallxattr;
+ 	mode_t mnt_mode;
+ 
+ 	/* statistics */
+@@ -259,6 +289,7 @@ struct sshfs {
+ 	unsigned int num_connect;
+ };
+ 
++extern struct cache cache;
+ static struct sshfs sshfs;
+ 
+ static const char *ssh_opts[] = {
+@@ -358,6 +389,7 @@ static struct fuse_opt sshfs_opts[] = {
+ 	SSHFS_OPT("password_stdin",    password_stdin, 1),
+ 	SSHFS_OPT("delay_connect",     delay_connect, 1),
+ 	SSHFS_OPT("slave",             slave, 1),
++	SSHFS_OPT("xattr",             xattr, 1),
+ 
+ 	FUSE_OPT_KEY("-p ",            KEY_PORT),
+ 	FUSE_OPT_KEY("-C",             KEY_COMPRESS),
+@@ -794,6 +826,8 @@ static int buf_get_statvfs(struct buffer
+ 	return 0;
+ }
+ 
++static int buf_get_xattrs(struct buffer *buf, Xattr **xattr, uint32_t *xa_size);
++
+ static int buf_get_entries(struct buffer *buf, fuse_cache_dirh_t h,
+                            fuse_cache_dirfil_t filler)
+ {
+@@ -808,6 +842,8 @@ static int buf_get_entries(struct buffer
+ 		char *name;
+ 		char *longname;
+ 		struct stat stbuf;
++		Xattr *xattr;
++		uint32_t xa_size;
+ 		if (buf_get_string(buf, &name) == -1)
+ 			return -EIO;
+ 		if (buf_get_string(buf, &longname) != -1) {
+@@ -818,7 +854,9 @@ static int buf_get_entries(struct buffer
+ 				    S_ISLNK(stbuf.st_mode)) {
+ 					stbuf.st_mode = 0;
+ 				}
+-				filler(h, name, &stbuf);
++				if (buf_get_xattrs(buf, &xattr, &xa_size) != -1) {
++					filler(h, name, &stbuf, xattr, xa_size);
++				}
+ 			}
+ 		}
+ 		free(name);
+@@ -1476,12 +1514,39 @@ static int sftp_init_reply_ok(struct buf
+ 			if (strcmp(ext, SFTP_EXT_HARDLINK) == 0 &&
+ 			    strcmp(extdata, "1") == 0)
+ 				sshfs.ext_hardlink = 1;
++			if (sshfs.xattr == 1 &&
++			    strcmp(ext, SFTP_EXT_SETXATTR) == 0 &&
++			    strcmp(extdata, "1") == 0)
++				sshfs.ext_setxattr = 1;
++			if (sshfs.xattr == 1 &&
++			    strcmp(ext, SFTP_EXT_GETXATTR) == 0 &&
++			    strcmp(extdata, "1") == 0)
++				sshfs.ext_getxattr = 1;
++			if (sshfs.xattr == 1 &&
++			    strcmp(ext, SFTP_EXT_LISTXATTR) == 0 &&
++			    strcmp(extdata, "1") == 0)
++				sshfs.ext_listxattr = 1;
++			if (sshfs.xattr == 1 &&
++			    strcmp(ext, SFTP_EXT_REMOVEXATTR) == 0 &&
++			    strcmp(extdata, "1") == 0)
++				sshfs.ext_removexattr = 1;
++			if (sshfs.xattr == 1 &&
++			    cache.on == 1 &&
++			    strcmp(ext, SFTP_EXT_CACHEXATTR) == 0 &&
++			    strcmp(extdata, "1") == 0)
++				sshfs.ext_cachexattr = 1;
++			if (sshfs.xattr == 1 &&
++			    strcmp(ext, SFTP_EXT_GETALLXATTR) == 0 &&
++			    strcmp(extdata, "1") == 0)
++				sshfs.ext_getallxattr = 1;
+ 		} while (buf2.len < buf2.size);
+ 		buf_free(&buf2);
+ 	}
+ 	return 0;
+ }
+ 
++static int sftp_cachexattr();
++
+ static int sftp_find_init_reply(uint32_t *version)
+ {
+ 	int res;
+@@ -1529,6 +1594,9 @@ static int sftp_init()
+ 			"Warning: server uses version: %i, we support: %i\n",
+ 			version, PROTO_VERSION);
+ 	}
++	if (sftp_cachexattr())
++		fprintf(stderr, "Warning: could not activate CACHEXATTR\n");
++
+ 	res = 0;
+ 
+ out:
+@@ -1547,6 +1615,11 @@ static int sftp_error_to_errno(uint32_t
+ 	case SSH_FX_NO_CONNECTION:     return ENOTCONN;
+ 	case SSH_FX_CONNECTION_LOST:   return ECONNABORTED;
+ 	case SSH_FX_OP_UNSUPPORTED:    return EOPNOTSUPP;
++	case SSH_FX_ENOATTR:           return ENOATTR;
++	case SSH_FX_ENOSPC:            return ENOSPC;
++	case SSH_FX_ENOTSUP:           return ENOTSUP;
++	case SSH_FX_ERANGE:            return ERANGE;
++	case SSH_FX_EMSGSIZE:          return EMSGSIZE;
+ 	default:                       return EIO;
+ 	}
+ }
+@@ -1570,7 +1643,7 @@ static void sftp_detect_uid()
+ 	if (sftp_read(&type, &buf) == -1)
+ 		goto out;
+ 	if (type != SSH_FXP_ATTRS && type != SSH_FXP_STATUS) {
+-		fprintf(stderr, "protocol error\n");
++		fprintf(stderr, "protocol error A\n");
+ 		goto out;
+ 	}
+ 	if (buf_get_uint32(&buf, &replid) == -1)
+@@ -1626,7 +1699,8 @@ static int sftp_check_root(const char *b
+ 	if (sftp_read(&type, &buf) == -1)
+ 		goto out;
+ 	if (type != SSH_FXP_ATTRS && type != SSH_FXP_STATUS) {
+-		fprintf(stderr, "protocol error\n");
++		fprintf(stderr, "protocol error B\n");
++		fprintf(stderr, "type=%d\n", type);
+ 		goto out;
+ 	}
+ 	if (buf_get_uint32(&buf, &replid) == -1)
+@@ -1767,7 +1841,7 @@ static int sftp_request_wait(struct requ
+ 	err = -EIO;
+ 	if (req->reply_type != expect_type &&
+ 	    req->reply_type != SSH_FXP_STATUS) {
+-		fprintf(stderr, "protocol error\n");
++		fprintf(stderr, "protocol error C\n");
+ 		goto out;
+ 	}
+ 	if (req->reply_type == SSH_FXP_STATUS) {
+@@ -1814,6 +1888,7 @@ static int sftp_request_send(uint8_t typ
+                              int want_reply, void *data,
+                              struct request **reqp)
+ {
++	DEBUG("sftp_request_send %s\n", type_name(type));
+ 	int err;
+ 	uint32_t id;
+ 	struct request *req = g_new0(struct request, 1);
+@@ -1830,6 +1905,7 @@ static int sftp_request_send(uint8_t typ
+ 	err = start_processing_thread();
+ 	if (err) {
+ 		pthread_mutex_unlock(&sshfs.lock);
++		DEBUG("sftp_request_send: start_processing_thread err=%d\n", err);
+ 		goto out;
+ 	}
+ 	req->len = iov_length(iov, count) + 9;
+@@ -1905,6 +1981,7 @@ static int sshfs_getattr(const char *pat
+ 	struct buffer outbuf;
+ 	buf_init(&buf, 0);
+ 	buf_add_path(&buf, path);
++	DEBUG("getattr: path=%s\n", path);
+ 	err = sftp_request(sshfs.follow_symlinks ? SSH_FXP_STAT : SSH_FXP_LSTAT,
+ 			   &buf, SSH_FXP_ATTRS, &outbuf);
+ 	if (!err) {
+@@ -2207,6 +2284,229 @@ static int sshfs_link(const char *from,
+ 	return err;
+ }
+ 
++static int sftp_cachexattr()
++{
++	DEBUG("sftp_cachexattr: cachexattr = %d\n", sshfs.ext_cachexattr);
++	if (!sshfs.ext_cachexattr)
++		return 0;
++
++	int err = -1;
++	uint32_t id = sftp_get_id();
++	uint32_t replid;
++	uint8_t type;
++	struct buffer buf;
++	struct iovec iov;
++	buf_init(&buf, 0);
++	buf_add_string(&buf, SFTP_EXT_CACHEXATTR);
++	buf_to_iov(&buf, &iov);
++	if (sftp_send_iov(SSH_FXP_EXTENDED, id, &iov, 1) == -1)
++		goto out;
++	buf_clear(&buf);
++	if (sftp_read(&type, &buf) == -1)
++		goto out;
++	if (type != SSH_FXP_STATUS) {
++		fprintf(stderr, "sftp_cachexattr: protocol error, type=%d\n", type);
++		goto out;
++	}
++	if (buf_get_uint32(&buf, &replid) == -1)
++		goto out;
++	if (replid != id) {
++		fprintf(stderr, "sftp_cachexattr: bad reply ID\n");
++		goto out;
++	}
++	uint32_t serr;
++	if (buf_get_uint32(&buf, &serr) == -1)
++		goto out;
++	if (serr != SSH_FX_OK)
++		fprintf(stderr, "sftp_cachexattr: %s\n", strerror(sftp_error_to_errno(serr)));
++	err = 0;
++out:
++	if (err)
++		sshfs.ext_cachexattr = 0;
++	DEBUG("cachexattr = %d\n", sshfs.ext_cachexattr);
++	buf_free(&buf);
++	return err;
++}
++
++static int buf_get_xattrs(struct buffer *buf, Xattr **xattr, uint32_t *xa_size)
++{
++	*xattr = NULL;
++	*xa_size = 0;
++	if (!sshfs.ext_cachexattr)
++		return 0;
++
++	if (buf_get_uint32(buf, xa_size) == -1)
++		return -1;
++	DEBUG("buf_get_xattrs: xa_size=%d\n", *xa_size);
++	if (*xa_size == (uint32_t)-1) {
++		uint32_t perrno;
++		if (buf_get_uint32(buf, &perrno) == -1 || perrno == SSH_FX_EMSGSIZE)
++			return -1;
++		*xattr = (Xattr*)g_new(int, 1);
++		*(int*)*xattr = -sftp_error_to_errno(perrno);
++	} else {
++		Xattr *xa = g_new0(Xattr, *xa_size);
++		*xattr = xa;
++		uint32_t i;
++		for (i=0; i<*xa_size; ++i) {
++			if (buf_get_string(buf, &xa[i].name) == -1)
++				break;
++			if (buf_get_uint32(buf, &xa[i].size) == -1)
++				break;
++			if (xa[i].size == (uint32_t)-1) {
++				uint32_t perrno;
++				if (buf_get_uint32(buf, &perrno) == -1)
++					break;
++				xa[i].value = g_new(int, 1);
++				*(int*)xa[i].value = -sftp_error_to_errno(perrno);
++			} else {
++				xa[i].value = g_new(void, xa[i].size);
++				if (buf_get_mem(buf, xa[i].value, xa[i].size))
++					break;
++				//DEBUG("buf_get_xattrs: name=%s, size=%ld, value=%s\n", xa[i].name, xa[i].size, xa[i].value);
++			}
++		}
++		if (i<*xa_size) {
++			delete_xattr(xa, i);
++			return -1;
++		}
++	}
++	return 0;
++}
++
++size_t read_xattr_data(struct buffer *buf, char *data, uint32_t size) {
++	struct buffer obuf;
++	uint32_t ret;
++	ret = sftp_request(SSH_FXP_EXTENDED, buf, SSH_FXP_EXTENDED_REPLY, &obuf);
++	if (!ret) {
++		if (buf_get_uint32(&obuf, &ret) == -1) { // read return value
++			ret = -EIO;
++			DEBUG("read_xattr_data: buf_get_uint32 returns %d\n", -1);
++		} else {
++			if (ret == (uint32_t)-1) {
++		  		uint32_t err_no;
++				if (buf_get_uint32(&obuf, &err_no) == -1) // read errno
++					ret = -EIO;
++				else
++					ret = -sftp_error_to_errno(err_no);
++			} else if (size != 0) {
++				if (buf_get_mem(&obuf, data, ret) == -1)
++					ret = -EIO;
++			}
++		}
++		buf_free(&obuf);
++	}
++	return ret;
++}
++
++static int sshfs_setxattr(const char *path, const char *name, const char *value, size_t size, int flags)
++{
++	int err = -ENOSYS;
++
++	if (sshfs.ext_setxattr) {
++		if (size > MAX_XATTR_DATA_LEN) {
++			errno = EMSGSIZE;
++			return -1;
++		}
++		struct buffer buf;
++		int pflags;
++		pflags  = (flags & XATTR_CREATE ) ? SSH2_FXE_XATTR_CREATE  : 0;
++		pflags |= (flags & XATTR_REPLACE) ? SSH2_FXE_XATTR_REPLACE : 0;
++		buf_init(&buf, 0);
++		buf_add_string(&buf, SFTP_EXT_SETXATTR);
++		buf_add_path(&buf, path);
++		buf_add_string(&buf, name);
++		buf_add_uint32(&buf, size);
++		buf_add_mem(&buf, value, size);
++		buf_add_uint32(&buf, pflags);
++		DEBUG("setxattr: path=%s, name=%s, size=%ld, flags=%d\n", path,name,size,flags);
++		err = sftp_request(SSH_FXP_EXTENDED, &buf, SSH_FXP_STATUS, NULL);
++		buf_free(&buf);
++	}
++	return err;
++}
++
++static int sshfs_getxattr(const char *path, const char *name, char *value, size_t size)
++{
++	int ret = -ENOSYS;
++
++	if (sshfs.ext_getxattr) {
++		struct buffer buf;
++
++		buf_init(&buf, 0);
++		buf_add_string(&buf, SFTP_EXT_GETXATTR);
++		buf_add_path(&buf, path);
++		buf_add_string(&buf, name);
++		buf_add_uint32(&buf, size);
++		ret = read_xattr_data(&buf, value, size);
++		DEBUG("getxattr: path=%s, name=%s, size=%ld, value=%s\n", path,name,size,value);
++
++		buf_free(&buf);
++	}
++	DEBUG("sshfs_getxattr: return=%d\n", ret);
++	return ret;
++}
++
++static int sshfs_listxattr(const char *path, char *list, size_t size)
++{
++	int ret = -ENOSYS;
++
++	if (sshfs.ext_listxattr) {
++		struct buffer buf;
++
++		buf_init(&buf, 0);
++		buf_add_string(&buf, SFTP_EXT_LISTXATTR);
++		buf_add_path(&buf, path);
++		buf_add_uint32(&buf, size);
++		DEBUG("listxattr: path=%s, size=%ld\n", path,size);
++		ret = read_xattr_data(&buf, list, size);
++		buf_free(&buf);
++	}
++	return ret;
++}
++
++static int sshfs_removexattr(const char *path, const char *name)
++{
++	int err = -ENOSYS;
++
++	if (sshfs.ext_removexattr) {
++		struct buffer buf;
++
++		buf_init(&buf, 0);
++		buf_add_string(&buf, SFTP_EXT_REMOVEXATTR);
++		buf_add_path(&buf, path);
++		buf_add_string(&buf, name);
++		DEBUG("removexattr: path=%s, name=%s\n", path,name);
++		err = sftp_request(SSH_FXP_EXTENDED, &buf, SSH_FXP_STATUS, NULL);
++		buf_free(&buf);
++	}
++	return err;
++}
++
++static int sshfs_getallxattr(const char *path, Xattr **xattr, uint32_t *xa_size)
++{
++	int err = -ENOSYS;
++
++	if (sshfs.ext_getallxattr) {
++		struct buffer buf, obuf;
++
++		buf_init(&buf, 0);
++		buf_add_string(&buf, SFTP_EXT_GETALLXATTR);
++		buf_add_path(&buf, path);
++		DEBUG("getallxattr: path=%s\n", path);
++		err = sftp_request(SSH_FXP_EXTENDED, &buf, SSH_FXP_EXTENDED_REPLY, &obuf);
++		if (!err) {
++			if (buf_get_xattrs(&obuf, xattr, xa_size) == -1) {
++				err = -EIO;
++				DEBUG("sshfs_getallxattr: buf_get_xattrs returns %d\n", -1);
++			}
++			buf_free(&obuf);
++		}
++		buf_free(&buf);
++	}
++	return err;
++}
++
+ static int sshfs_chmod(const char *path, mode_t mode)
+ {
+ 	int err;
+@@ -2715,7 +3015,7 @@ static void sshfs_write_end(struct reque
+ 		sf->write_error = req->error;
+ 	else if (req->replied) {
+ 		if (req->reply_type != SSH_FXP_STATUS) {
+-			fprintf(stderr, "protocol error\n");
++			fprintf(stderr, "protocol error E\n");
+ 		} else if (buf_get_uint32(&req->reply, &serr) != -1 &&
+ 			 serr != SSH_FX_OK) {
+ 			sf->write_error = -EIO;
+@@ -2965,6 +3265,7 @@ static int sshfs_fgetattr(const char *pa
+ 
+ 	buf_init(&buf, 0);
+ 	buf_add_buf(&buf, &sf->handle);
++	DEBUG("fgetattr: handle=%lx\n", (long)&sf->handle);
+ 	err = sftp_request(SSH_FXP_FSTAT, &buf, SSH_FXP_ATTRS, &outbuf);
+ 	if (!err) {
+ 		err = buf_get_attrs(&outbuf, stbuf, NULL);
+@@ -3134,6 +3435,10 @@ static struct fuse_cache_operations sshf
+ 		.read       = sshfs_read,
+ 		.write      = sshfs_write,
+ 		.statfs     = sshfs_statfs,
++		.setxattr   = sshfs_setxattr,
++		.getxattr   = sshfs_getxattr,
++		.listxattr  = sshfs_listxattr,
++		.removexattr= sshfs_removexattr,
+ #if FUSE_VERSION >= 25
+ 		.create     = sshfs_create,
+ 		.ftruncate  = sshfs_ftruncate,
+@@ -3141,6 +3446,7 @@ static struct fuse_cache_operations sshf
+ #endif
+ 	},
+ 	.cache_getdir = sshfs_getdir,
++	.getallxattr  = sshfs_getallxattr,
+ };
+ 
+ static void usage(const char *progname)
+@@ -3160,6 +3466,7 @@ static void usage(const char *progname)
+ "    -1                     equivalent to '-o ssh_protocol=1'\n"
+ "    -o reconnect           reconnect to server\n"
+ "    -o delay_connect       delay connection to server\n"
++"    -o xattr               activate xattr support (if provided by the server)\n"
+ "    -o sshfs_sync          synchronous writes\n"
+ "    -o no_readahead        synchronous reads (no speculative readahead)\n"
+ "    -o sshfs_debug         print some debugging information\n"
+@@ -3499,6 +3806,8 @@ static int ssh_connect(void)
+ 			return -1;
+ 
+ 	}
++	//if (sftp_cachexattr())
++	//	fprintf(stderr, "Warning: could not activate CACHEXATTR\n");
+ 	return 0;
+ }
+ 
+@@ -3705,6 +4014,7 @@ int main(int argc, char *argv[])
+ 	sshfs.ptyslavefd = -1;
+ 	sshfs.delay_connect = 0;
+ 	sshfs.slave = 0;
++	sshfs.xattr = 0;
+ 	sshfs.detect_uid = 0;
+ 	sshfs.idmap = IDMAP_NONE;
+ 	sshfs.nomap = NOMAP_ERROR;
