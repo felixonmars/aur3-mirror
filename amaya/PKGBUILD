@@ -4,7 +4,7 @@
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
 pkgname=amaya
 pkgver=11.4.4
-pkgrel=4
+pkgrel=5
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
@@ -80,4 +80,6 @@ package() {
   bsdtar xvf $srcdir/Italian.tgz 
   bsdtar xvf $srcdir/Spanish.tgz 
   bsdtar xvf $srcdir/Swedish.tgz
+  install -d $pkgdir/usr/share/doc/amaya
+  cp -r $srcdir/Amaya$pkgver/Amaya/doc/* $pkgdir/usr/share/doc/amaya
 }

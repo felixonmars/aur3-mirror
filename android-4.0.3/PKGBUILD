@@ -2,16 +2,16 @@
 
 pkgname=android-4.0.3
 pkgver=r03
-pkgrel=2
+pkgrel=3
 pkgdesc='Platform for Google Android SDK'
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
 license=('custom')
-depends=('android-sdk>=r14')
+depends=('android-sdk>=r17')
 _android_api=android-15
 _android_ver=android-4.0.4
 _android_arm=armeabi-v7a
-_sysimg_ver=15_r01
+_sysimg_ver=15_r02
 _platform="opt/android-sdk/platforms"
 _images="opt/android-sdk/system-images/${_android_api}"
 
@@ -21,7 +21,7 @@ source=(
 )
 
 md5sums=('4c762338ad46f57babcc91e5bbefb15b'
-         '26395a676cc013e719a4ae3ded2e8300')
+         '447d9f076139e4e3fda3f26e39fef655')
 
 build() {
   # fix permissions
