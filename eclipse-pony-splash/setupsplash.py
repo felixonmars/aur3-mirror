@@ -11,10 +11,10 @@ from sys import exit, argv
 from time import localtime
 from subprocess import getstatusoutput
 
-ver = "Eclipse motivational splash screen setup v 1.1"
-instmsg = "Installing Eclipse motivational splash image..."
+ver = "Eclipse splash screen setup v 1.2"
+instmsg = "Installing Eclipse splash image..."
 req = "Must run as root"
-progdir = "/usr/share/eclipse-motivational-splash"
+progdir = "/usr/share/eclipse-splash"
 
 def ls(path): #: list
   return os.listdir(os.path.expanduser(path))
