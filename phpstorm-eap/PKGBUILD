@@ -23,13 +23,11 @@ build() {
   cp -R ${srcdir}/${_pkgname}-${pkgbuild}/* ${pkgdir}/opt/${pkgname} || return 1
 #  cp -R ${srcdir}/${_pkgname}-${pkgver}/* ${pkgdir}/opt/${pkgname} || return 1
   if [[ $CARCH = 'i686' ]]; then
-    rm -f ${pkgdir}/opt/${pkgname}/bin/libyjpagent64.so
-    rm -f ${pkgdir}/opt/${pkgname}/bin/libbreakgen64.so
+     rm -f ${pkgdir}/opt/${pkgname}/bin/libyjpagent-linux64.so
      rm -f ${pkgdir}/opt/${pkgname}/bin/fsnotifier64
   fi
   if [[ $CARCH = 'x86_64' ]]; then
-     rm -f ${pkgdir}/opt/${pkgname}/bin/libyjpagent.so
-     rm -f ${pkgdir}/opt/${pkgname}/bin/libbreakgen.so
+     rm -f ${pkgdir}/opt/${pkgname}/bin/libyjpagent-linux.so
      rm -f ${pkgdir}/opt/${pkgname}/bin/fsnotifier
   fi
 
