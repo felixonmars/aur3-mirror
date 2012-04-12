@@ -43,11 +43,15 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.7.6"
+VERSION="1.8"
 
 FILENAMES=' '
 
 
+if [[ $(echo "$*") == *d* ]] ; then
+	echo "Debug mode..."
+	set -x
+fi
 # check if we already have the datadir, if we don't have it, create it
 if [ ! -d "${DATADIR}" ] ; then
 	# workaround to not have colors displayed if we use -c option
@@ -67,8 +71,8 @@ fi
 
 # print the version into a file so we can handle file formats being out of date properly later
 echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5 1.7.6"
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6/'` ]] ; then
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5, 1.7.6, 1.8 "
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6|1\.8/'` ]] ; then
 	if [[ $(echo "$*") == *c* ]] ; then
 		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
 	else
@@ -285,6 +289,7 @@ help() {
 	echo -e "-t  skip ${WHITEUL}T${NC}imestaps in title"
 	echo -e "-i  show some ${WHITEUL}I${NC}nformation regarding pacmanlog2gource"
 	echo -e "-m  skip package na${WHITEUL}M${NC}es"
+	echo -e "-d  show ${WHITEUL}D${NC}ebug information (set -x)"
 	echo -e "-h  show this ${WHITEUL}H${NC}elp"
 	# implement  -q  quiet
 }
@@ -300,7 +305,7 @@ HOSTNAME=", hostname: `hostname`"
 ARCH=", `uname -m`"
 
 
-while getopts "nchgfpaotim" opt; do
+while getopts "nchgfpaotimd" opt; do
 	case "$opt" in
 		"n")
 			echo "Log not updated." >&2
@@ -348,6 +353,10 @@ while getopts "nchgfpaotim" opt; do
 			FILENAMES=",filenames"
 			GOURCEPOST="true"
 			echo "Filenames will be skipped in the video." >&2
+			;;
+		"d")
+			DEBUG="true"
+			echo "Entering debug mode..." >&2
 			;;
 		"?")
 			UPDATE="false"
