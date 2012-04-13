@@ -1,11 +1,11 @@
-# Maintainer: Marcin Skory <armitage at q84fh dot net>
+# Maintainer: Marcin Skory <armitage at gfreedom dot org>
 pkgname=alephone-svn
-pkgver=4662
-pkgrel=2
+pkgver=4697
+pkgrel=1
 pkgdesc='A free, enhanced port of the classic FPS "Marathon 2" by Bungie Software (SVN version)'
 arch=('i686' 'x86_64')
 url="http://marathon.sourceforge.net/"
-license=('GPL')
+license=('GPL3')
 depends=('sdl_ttf' 'libmad' 'libsndfile' 'libvorbis' 'mesa' 'sdl_image' 'sdl_net' 'smpeg' 'speex' 'zziplib')
 makedepends=('subversion' 'boost' 'lua>=5.1')
 optdepends=('alephone-emr: community-made scenario' \
