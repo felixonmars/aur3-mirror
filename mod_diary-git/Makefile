@@ -9,9 +9,11 @@ include ${top_builddir}/build/special.mk
 
 APXS      = apxs
 APACHECTL = apachectl
-CFLAGS = -I/usr/include/ClearSilver
 
-all: local-shared-build
+all: local-shared-build diary-mkindex
+
+diary-mkindex:
+	$(CC) $< $(CFLAGS) -lmarkdown -lneo_utl -lneo_cs -o $@
 
 clean:
 	-rm -f *.o *.lo *.slo *.la diary-mkindex
