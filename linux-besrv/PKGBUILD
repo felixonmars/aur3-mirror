@@ -9,7 +9,7 @@ true && pkgname=("linux$_kernelname" "linux$_kernelname-headers")
 _basekernel=3.0
 _patchver=28
 pkgver=$_basekernel
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -35,11 +35,10 @@ if [ ${_patchver} -ne 0 ]; then
 	pkgver=$_basekernel.$_patchver
 	_patchname="patch-$pkgver"
 	source=( "${source[@]}"
-		#"http://www.kernel.org/pub/linux/kernel/v3.x/$_patchname.xz"
-		"http://www.herecura.eu/files/linux/$_patchname.xz"
+		"http://www.kernel.org/pub/linux/kernel/v3.x/$_patchname.xz"
 	)
 	sha256sums=( "${sha256sums[@]}"
-		'ec9e64aa347828aa3f3a8aacaae1e069b8548bb9c3bb0d92aa9b640150bc4cab'
+		'739f09b4231e58f9be6ab1b86ca9981e0ce43aff8bcbcc6517ce9ecb7e34d583'
 	)
 fi
 
