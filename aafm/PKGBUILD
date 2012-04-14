@@ -1,13 +1,12 @@
 # Contributor: Cyker Way <cykerway at gmail dot com>
 
 pkgname=(aafm)
-pkgver=20120406
-pkgrel=3
+pkgver=20120414
+pkgrel=4
 pkgdesc="Android ADB File Manager."
 arch=(any)
 url="https://github.com/sole/aafm"
 license=(GPL3)
-install=aafm.install
 depends=('python2' 'pygtk' 'adb')
 makedepends=('git')
 provides=('aafm')
@@ -43,8 +42,7 @@ build() {
 
 package() {
   cd "$srcdir/$_gitname-build"
-  mkdir -p "$pkgdir/opt/aafm"
-  git archive HEAD | tar x -C "$pkgdir/opt/aafm"
+  python2 setup.py install --root="$pkgdir/" --optimize=1
 }
 
 # vim:set ts=2 sw=2 et:
