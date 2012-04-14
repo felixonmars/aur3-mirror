@@ -1,10 +1,11 @@
 # Contributor: Alexander Fehr <pizzapunk gmail com>
 # Contributor: Jose Valecillos <valecillosjg (at) gmail (dot) com>
 # Contributor: Ganymede
+# Contributor: Emmanuel GAUDE <gaude.emmanuel@gmail.com>
 
 pkgname=acroread-fr
 pkgver=9.4.2
-pkgrel=1
+pkgrel=2
 pkgdesc="Adobe Reader is a PDF file viewer. French version."
 arch=('i686' 'x86_64')
 url="http://www.adobe.com/products/reader/"
@@ -13,10 +14,12 @@ depends=('desktop-file-utils')
 
 if [[ "$CARCH" == 'i686' ]]; then
   depends+=('gtk2' 'mesa')
-  optdepends=('libcanberra: XDG sound support')
+  optdepends=('libcanberra: XDG sound support'
+              'gtk-engines: Theme engines for GTK+ 2 applications')
 else
   depends+=('lib32'-{'gtk2','mesa','libxml2','xcb-util'})
-  optdepends=('lib32-libcanberra: XDG sound support')
+  optdepends=('lib32-libcanberra: XDG sound support'
+              'lib32-gtk-engines: Theme engines for 32 bits GTK+ 2 applications')
 fi
 
 options=('!strip')
