@@ -1,10 +1,11 @@
 # Maintainer: Pablo Olmos de Aguilera <pablo at glatelier dot org>
 
 pkgname=ttytter-beta
-pkgver=2.0.0b8
+pkgver=2.0.0b9
 _pkgver=beta
 pkgrel=1
-pkgdesc="A multi-functional, command-line twitter client; beta version"
+pkgdesc="A multi-functional, command-line twitter client; beta version.
+Supports streaming API."
 arch=('any')
 url="http://www.floodgap.com/software/ttytter/beta/"
 license=('custom:FFSL')
@@ -16,8 +17,7 @@ optdepends=('perl-datetime-format-dateparse'
 source=(http://www.floodgap.com/software/ffsl/license.txt
         $_pkgver.txt::http://www.floodgap.com/software/ttytter/beta/$_pkgver.txt)
 sha256sums=('42c576fcacb5bd6c8f8e64c479b0f8e4445c7e6c9ac013485c51b8f05f2352fd'
-            '334dd8f7f61893426b01b526e7445b92356f5595064fee31da650b8c3478cf9a')
-
+            '80cc15c90cf3b6775b935b2ed49838fa7a1f5a76e24237e561ce842a9f5584e2')
 build() {
   return 0
 }
