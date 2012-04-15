@@ -152,12 +152,12 @@ splash_begin() {
 splash_stop() {
 	if [[ $( /bin/pidof -o %PPID $spl_daemon ) ]]; then
 		SPLASH_PUSH_MESSAGES="no" stat_busy "Stopping Fbsplash daemon"
-		splash_comm_send progress 65535; splash_comm_send paint; /bin/sleep .1
+		splash_comm_send progress 65535; splash_comm_send paint; /usr/bin/sleep .1
 		splash_comm_send exit $SPLASH_EXIT_TYPE
 		# Wait for painting/fadeout
 		local -i i=0
 		while [[ i++ -lt 100 && $( /bin/pidof -o %PPID $spl_daemon ) ]]; do
-			/bin/sleep .1
+			/usr/bin/sleep .1
 		done
 		stat_done
 	fi
