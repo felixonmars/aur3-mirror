@@ -4,8 +4,8 @@
 
 pkgname=phpstorm-eap
 _pkgname=PhpStorm # Directory name in the tar file
-pkgver=117.190
-pkgbuild=117.190
+pkgver=117.211
+pkgbuild=117.211
 pkgrel=1
 pkgdesc="Lightweight and Smart PHP IDE. 30-day free trial."
 arch=('i686' 'x86_64')
@@ -16,7 +16,7 @@ conflicts=('phpstorm')
 source=(http://download.jetbrains.com/webide/PhpStorm-4.0.tar.gz)
 #source=(http://download.jetbrains.com/webide/PhpStorm-EAP-$pkgbuild.tar.gz)
 #source=(http://download.jetbrains.com/webide/PhpStorm-${pkgver}.tar.gz)
-md5sums=('e906022efb24d1ff774d3910d59bab3c')
+md5sums=('050d09be47be3994eb05d31a0b0a0e42')
 
 build() {
   cd ${srcdir}
