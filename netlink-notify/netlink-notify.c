@@ -22,9 +22,10 @@
 #define NOTIFICATION_TEXT	"Interface %s is %s."
 #define NOTIFICATION_TEXT_DEBUG	"%s: Interface %s (index %d) is %s.\n"
 
-unsigned int netlinksize = 0;
-NotifyNotification ** netlinkref;
-char * program;
+// we need these to be global...
+unsigned int netlinksize = 1; // never use 0 and avoid overwriting the main pointer...
+NotifyNotification ** netlinkref = NULL;
+char * program = NULL;
 
 static int data_attr_cb(const struct nlattr * attr, void * data) {
 	const struct nlattr ** tb = data;
@@ -57,7 +58,7 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 
 	char * notification = NULL;
 	char * interface = NULL;
-	NotifyNotification * netlink;
+	NotifyNotification * netlink = NULL;
 	unsigned int i, errcount = 0;
 
 	gboolean res = FALSE;
@@ -70,12 +71,12 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	sprintf(notification, NOTIFICATION_TEXT, interface, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
 	printf(NOTIFICATION_TEXT_DEBUG, program, interface, ifm->ifi_index, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
 
-	if (netlinksize < ifm->ifi_index) {
-		netlinkref = realloc(netlinkref, (ifm->ifi_index + 1) * sizeof(size_t));
-		for(i = netlinksize; i < ifm->ifi_index; i++) {
-			netlinkref[i + 1] = NULL;
+	if (netlinksize < ifm->ifi_index + 1) {
+		netlinkref = realloc(netlinkref, (ifm->ifi_index + 1) * sizeof(NotifyNotification));
+		for(i = netlinksize; i < ifm->ifi_index + 1; i++) {
+			netlinkref[i] = NULL;
 		}
-		netlinksize = ifm->ifi_index;
+		netlinksize = ifm->ifi_index + 1;
 	}
 	
 	if (netlinkref[ifm->ifi_index] == NULL) {
@@ -93,6 +94,7 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	while(!notify_notification_show(netlink, &error)) {
 		if (errcount > 1) {
 			fprintf(stderr, "%s: Looks like we can not reconnect to notification daemon... Exiting.\n", program);
+			exit(EXIT_FAILURE);
 		} else {
 			g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", program, error->message);
 			errcount++;
@@ -156,5 +158,5 @@ int main(int argc, char ** argv) {
 
 	mnl_socket_close(nl);
 
-	return 0;
+	return EXIT_SUCCESS;
 }
