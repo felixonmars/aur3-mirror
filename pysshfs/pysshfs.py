@@ -171,7 +171,7 @@ class UI:
         # Open directory
         self.OpenDir_checkbox = gtk.CheckButton('Open directory')
 		  ## cocher/decocher par defaut l'ouverture du dossier
-        self.OpenDir_checkbox.set_active(False)
+        self.OpenDir_checkbox.set_active(True)
         table.attach(self.OpenDir_checkbox, 0, 1, 7, 8)
 
         ## Connect
