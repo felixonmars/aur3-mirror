@@ -3,7 +3,7 @@
 pkgname=addon-sdk-esr
 _pkgname=addon-sdk
 pkgver=1.5
-pkgrel=1
+pkgrel=2
 pkgdesc="addon-sdk/jetpack for the Extended Support Release of Firefox"
 url="https://addons.mozilla.org/en-US/developers/docs/sdk/1.5/"
 arch=('any')

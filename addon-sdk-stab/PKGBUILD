@@ -3,7 +3,7 @@
 pkgname=addon-sdk-stab
 _pkgname=addon-sdk
 pkgver=1.7b1
-pkgrel=1
+pkgrel=2
 pkgdesc="addon-sdk/jetpack stabilisation release"
 url="http://blog.mozilla.com/addons/"
 arch=('any')
