@@ -1,0 +1,166 @@
+diff --git a/include/synaptics-properties.h b/include/synaptics-properties.h
+index c550cef..1b7cddc 100644
+--- a/include/synaptics-properties.h
++++ b/include/synaptics-properties.h
+@@ -158,4 +158,7 @@
+ /* 32 Bit Integer, 2 values, horizontal hysteresis, vertical hysteresis */
+ #define SYNAPTICS_PROP_NOISE_CANCELLATION "Synaptics Noise Cancellation"
+ 
++/* 32 bit */
++#define SYNAPTICS_ORIENTATION "Synaptics Orientation"
++
+ #endif /* _SYNAPTICS_PROPERTIES_H_ */
+diff --git a/src/eventcomm.c b/src/eventcomm.c
+index 6147e41..e0d7df3 100644
+--- a/src/eventcomm.c
++++ b/src/eventcomm.c
+@@ -681,12 +681,56 @@ EventReadHwState(InputInfoPtr pInfo,
+ 	    if (ev.code < ABS_MT_SLOT) {
+ 		switch (ev.code) {
+ 		case ABS_X:
+-		    hw->x = ev.value * proto_data->st_to_mt_scale_x +
+-			proto_data->st_to_mt_offset_x;
++			if (para->orientation==0)
++				hw->x = ev.value *
++					proto_data->st_to_mt_scale_x +
++					proto_data->st_to_mt_offset_x;
++			else if (para->orientation==2)
++				hw->x = priv->maxx + priv->minx - (ev.value *
++					proto_data->st_to_mt_scale_x +
++					proto_data->st_to_mt_offset_x);
++			else if (para->orientation==3)
++				hw->y = (priv->maxx - (ev.value *
++					proto_data->st_to_mt_scale_x +
++					proto_data->st_to_mt_offset_x)) *
++					(priv->maxy - priv->miny) /
++					(priv->maxx - priv->minx) + priv->miny;
++			else if (para->orientation==1)
++				hw->y = ((ev.value *
++					proto_data->st_to_mt_scale_x +
++					proto_data->st_to_mt_offset_x) - priv->minx) *
++					(priv->maxy - priv->miny) /
++					(priv->maxx - priv->minx) + priv->miny;
++			else
++				hw->x = ev.value *
++					proto_data->st_to_mt_scale_x +
++					proto_data->st_to_mt_offset_x;
+ 		    break;
+ 		case ABS_Y:
+-		    hw->y = ev.value * proto_data->st_to_mt_scale_y +
+-			proto_data->st_to_mt_offset_y;
++			if (para->orientation==0)
++				hw->y = ev.value * 
++					proto_data->st_to_mt_scale_y +
++					proto_data->st_to_mt_offset_y;
++			else if (para->orientation==2)
++				hw->y = priv->maxy + priv->miny - (ev.value * 
++					proto_data->st_to_mt_scale_y +
++					proto_data->st_to_mt_offset_y);
++			else if (para->orientation==3)
++				hw->x = ((ev.value * 
++					proto_data->st_to_mt_scale_y +
++					proto_data->st_to_mt_offset_y) - priv->miny) *
++					(priv->maxx - priv->minx) /
++					(priv->maxy - priv->miny) + priv->minx;
++			else if (para->orientation==1)
++				hw->x = (priv->maxy - (ev.value * 
++					proto_data->st_to_mt_scale_y +
++					proto_data->st_to_mt_offset_y)) *
++					(priv->maxx - priv->minx) /
++					(priv->maxy - priv->miny) + priv->minx;
++			else
++				hw->y = ev.value * 
++					proto_data->st_to_mt_scale_y +
++					proto_data->st_to_mt_offset_y;
+ 		    break;
+ 		case ABS_PRESSURE:
+ 		    hw->z = ev.value;
+diff --git a/src/properties.c b/src/properties.c
+index 0a52801..c0ee07f 100644
+--- a/src/properties.c
++++ b/src/properties.c
+@@ -55,6 +55,7 @@ static Atom float_type;
+ 
+ Atom prop_edges                 = 0;
+ Atom prop_finger                = 0;
++Atom prop_orientation           = 0;
+ Atom prop_tap_time              = 0;
+ Atom prop_tap_move              = 0;
+ Atom prop_tap_durations         = 0;
+@@ -271,6 +272,8 @@ InitDeviceProperties(InputInfoPtr pInfo)
+     fvalues[0] = para->press_motion_min_factor;
+     fvalues[1] = para->press_motion_max_factor;
+ 
++    prop_orientation = InitAtom(pInfo->dev, SYNAPTICS_ORIENTATION, 32, 1, &para->orientation);
++
+     prop_pressuremotion_factor = InitFloatAtom(pInfo->dev, SYNAPTICS_PROP_PRESSURE_MOTION_FACTOR, 2, fvalues);
+ 
+     prop_grab = InitAtom(pInfo->dev, SYNAPTICS_PROP_GRAB, 8, 1, &para->grab_event_device);
+@@ -338,7 +341,13 @@ SetProperty(DeviceIntPtr dev, Atom property, XIPropertyValuePtr prop,
+         para = &tmp;
+     }
+ 
+-    if (property == prop_edges)
++	if (property == prop_orientation)
++	{
++        if (prop->size != 1 || prop->format != 32 || prop->type != XA_INTEGER)
++            return BadMatch;
++		para->orientation = *(INT32*)prop->data;
++	}
++	else if (property == prop_edges)
+     {
+         INT32 *edges;
+         if (prop->size != 4 || prop->format != 32 || prop->type != XA_INTEGER)
+diff --git a/src/synaptics.c b/src/synaptics.c
+index 65b48ee..f717e53 100644
+--- a/src/synaptics.c
++++ b/src/synaptics.c
+@@ -514,6 +514,7 @@ static void set_default_parameters(InputInfoPtr pInfo)
+     }
+ 
+     /* set the parameters */
++    pars->orientation = xf86SetIntOption(opts, "Orientation", 0);
+     pars->left_edge = xf86SetIntOption(opts, "LeftEdge", l);
+     pars->right_edge = xf86SetIntOption(opts, "RightEdge", r);
+     pars->top_edge = xf86SetIntOption(opts, "TopEdge", t);
+@@ -2958,8 +2959,14 @@ ScaleCoordinates(SynapticsPrivate *priv, struct SynapticsHwState *hw)
+     int xCenter = (priv->synpara.left_edge + priv->synpara.right_edge) / 2;
+     int yCenter = (priv->synpara.top_edge + priv->synpara.bottom_edge) / 2;
+ 
+-    hw->x = (hw->x - xCenter) * priv->horiz_coeff + xCenter;
+-    hw->y = (hw->y - yCenter) * priv->vert_coeff + yCenter;
++    if ((priv->synpara.orientation==1) || (priv->synpara.orientation==3)) {
++        hw->x = (hw->x - xCenter) * priv->vert_coeff + xCenter;
++        hw->y = (hw->y - yCenter) * priv->horiz_coeff + yCenter;
++    } else {
++        hw->x = (hw->x - xCenter) * priv->horiz_coeff + xCenter;
++        hw->y = (hw->y - yCenter) * priv->vert_coeff + yCenter;
++    }
++
+ }
+ 
+ void
+diff --git a/src/synapticsstr.h b/src/synapticsstr.h
+index ba1eb13..c5f91c6 100644
+--- a/src/synapticsstr.h
++++ b/src/synapticsstr.h
+@@ -120,6 +120,7 @@ typedef struct _SynapticsParameters
+     /* Parameter data */
+     int left_edge, right_edge, top_edge, bottom_edge; /* edge coordinates absolute */
+     int finger_low, finger_high, finger_press;	      /* finger detection values in Z-values */
++    int orientation;
+     int tap_time;
+     int tap_move;			    /* max. tapping time and movement in packets and coord. */
+     int single_tap_timeout;		    /* timeout to recognize a single tap */
+diff --git a/tools/synclient.c b/tools/synclient.c
+index 8d1e8f4..29d14f3 100644
+--- a/tools/synclient.c
++++ b/tools/synclient.c
+@@ -77,6 +77,7 @@ static struct Parameter params[] = {
+     {"RightEdge",             PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	1},
+     {"TopEdge",               PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	2},
+     {"BottomEdge",            PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	3},
++    {"Orientation",           PT_INT,    0, 3,     SYNAPTICS_ORIENTATION,	32,	0},
+     {"FingerLow",             PT_INT,    0, 255,   SYNAPTICS_PROP_FINGER,	32,	0},
+     {"FingerHigh",            PT_INT,    0, 255,   SYNAPTICS_PROP_FINGER,	32,	1},
+     {"FingerPress",           PT_INT,    0, 256,   SYNAPTICS_PROP_FINGER,	32,	2},
