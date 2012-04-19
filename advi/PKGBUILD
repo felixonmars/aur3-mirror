@@ -2,7 +2,7 @@
 # Contributor: danibspi danibspi <at> gmail <dot> com
 
 pkgname=advi
-pkgver=1.10.1
+pkgver=1.10.2
 pkgrel=1
 pkgdesc="Unix-platform DVI previewer and a programmable presenter for slides written in LaTeX."
 arch=(i686 x86_64)
@@ -12,7 +12,7 @@ depends=('freetype2' 'libtiff' 'libxpm' 'libxinerama' 'libpng' 'libungif' 'tetex
 makedepends=('camlimages' 'ocaml' 'ocaml-findlib')
 source=(http://gallium.inria.fr/advi/$pkgname-$pkgver.tar.gz)
 #install=advi.install
-md5sums=('616483cc3cf1cba13d897152603b6008')
+md5sums=('d1de5f4ac7bc680212435ccbe0f2d055')
 
 build() {
     cd "$srcdir/$pkgname-$pkgver"
