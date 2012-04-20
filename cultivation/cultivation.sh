@@ -1,4 +1,4 @@
 #!/bin/sh
 
-cd /usr/share/cultivation
-exec ./cultivation "$@"
+cd /opt/cultivation
+./Cultivation "$@"

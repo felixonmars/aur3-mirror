@@ -1,37 +1,43 @@
+# Maintainer: Anton Bazhenov <anton.bazhenov at gmail>
 # Contributor: Yumi Nanako <yumileroy [at] yahoo.com>
 
 pkgname=anagramarama
-pkgver=0.2
+pkgver=0.4
 pkgrel=1
-pkgdesc="Like anagrams? You'll love Anagramarama! The aim is to find as many words as possible in the time available. Get the longest word and you'll advance to the next level."
+pkgdesc="A cross-platform multilingual anagram finding game"
 arch=('i686' 'x86_64')
-url="http://www.coralquest.com/anagramarama/"
+url="http://code.google.com/p/anagramarama/"
 license=('GPL')
-depends=('sdl' 'sdl_mixer')
-source=(http://www.omega.clara.net/anagramarama/dist/$pkgname-$pkgver.tar.gz
-	$pkgname.desktop
-	${pkgname}_${pkgver}-1.diff)
-md5sums=('6dcd8dc515f9c69df8a19119c04d9517' '96e970698f2c8da8376ad599e43057ea' '49ed05b727ce09ea15befcf4e278f885')
+depends=('sdl_mixer')
+source=("http://anagramarama.googlecode.com/files/${pkgname}-src-${pkgver}.tar.gz"
+        "${pkgname}.patch"
+        "${pkgname}.png"
+        "${pkgname}.desktop")
+md5sums=('e392cdabf9df167eacf812a9802456d5'
+         'b8fb3837d6f70c7743d5a4444fd0bb38'
+         'a658dce0e5083b9fdb75bea690a0df39'
+         'd37d55fe6d68b033bf1e24053aff9e94')
 
 build() {
-  cd $srcdir/
-  patch -p0 -i ${pkgname}_${pkgver}-1.diff
-  cd "$srcdir/$pkgname"
-
-  make || return 1
-  mkdir -p ${startdir}/pkg/usr/bin/
-  mkdir -p ${startdir}/pkg/usr/share/anagramarama
-  mkdir -p ${startdir}/pkg/usr/share/anagramarama/audio
-  mkdir -p ${startdir}/pkg/usr/share/anagramarama/images
-  mkdir -p ${startdir}/pkg/usr/share/applications
-  mkdir -p ${startdir}/pkg/usr/share/man/man6
-
-  install -m 755 anagramarama ${startdir}/pkg/usr/bin
-  install -m 644 wordlist.txt ${startdir}/pkg/usr/share/anagramarama
-  install -m 644 audio/badword.wav audio/click-answer.wav audio/clock-tick.wav audio/found.wav audio/shuffle.wav audio/clearword.wav audio/click-shuffle.wav audio/duplicate.wav audio/foundbig.wav ${startdir}/pkg/usr/share/anagramarama/audio
-  install -m 644 images/background-al.bmp  images/background-old.bmp  images/background.bmp  images/letterBank.bmp  images/numberBank.bmp  images/smallLetterBank.bmp ${startdir}/pkg/usr/share/anagramarama/images
-  gzip -9 anagramarama.6
-  install -m 644 anagramarama.6.gz ${startdir}/pkg/usr/share/man/man6
-  install -m 644 ${startdir}/$pkgname.desktop ${startdir}/pkg/usr/share/applications/anagramarama.desktop
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  patch -Np1 -i "../${pkgname}.patch"
+  make -f makefile.linux
 }
 
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+
+  # Install binary
+  install -Dm755 ag "${pkgdir}/usr/bin/${pkgname}"
+
+  # Install data files
+  mkdir -p "${pkgdir}/usr/share/${pkgname}"
+  cp -r audio i18n "${pkgdir}/usr/share/${pkgname}"
+
+  # Install pixmap and .desktop file
+  install -Dm644 "../${pkgname}.png" "${pkgdir}/usr/share/pixmaps/${pkgname}.png"
+  install -Dm644 "../${pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+
+  # Install readme
+  install -Dm644 readme "${pkgdir}/usr/share/doc/${pkgname}/README"
+}
