@@ -49,7 +49,7 @@ case "$1" in
       fi
       $daemon_name $granola_args
       if [ $? = 0 ]; then
-        echo $(get_pid $daemon_name) > /var/run/$daemon_name.pid
+        echo $(get_pid $daemon_name) > /run/$daemon_name.pid
         add_daemon $daemon_name
         stat_done
       else
@@ -63,7 +63,7 @@ case "$1" in
     stat_busy "Stopping $daemon_name"
     [ ! -z "$PID" ] && kill $PID &> /dev/null
     if [ $? = 0 ]; then
-      rm -f /var/run/$daemon_name.pid &> /dev/null
+      rm -f /run/$daemon_name.pid &> /dev/null
       rm_daemon $daemon_name
       stat_done
     else
