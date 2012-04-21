@@ -1,0 +1,123 @@
+# Maintainer: Pavol Hluchy (Lopo) <lopo at losys dot eu>
+
+pkgname=netbeans-nightly
+pkgver=7.2.latest
+pkgrel=1
+pkgdesc="IDE for Java, PHP, Groovy, C, C++ and Python"
+license=('CDDL')
+arch=('any')
+url="http://netbeans.org"
+makedepends=('wget')
+depends=('java-environment' 'ttf-bitstream-vera' 'desktop-file-utils')
+optdepends=('php: for developing programs in php'
+			'groovy: for developing programs in groovy'
+			'python: for developing programs in python'
+			'lib32-glibc')
+conflicts=('netbeans')
+provides=('netbeans')
+install=netbeans.install
+options=(!strip)
+_webroot="http://bits.netbeans.org/download/trunk/nightly/latest/"
+#get fresh versions
+msg2 "removing local JS files"
+rm -f build_info.js
+rm -f files.js
+source=('netbeans.desktop'
+		"${_webroot}js/build_info.js"
+		"${_webroot}js/files.js"
+		)
+# Don't know checksums of actual JSs
+SKIPCHECKSUMS=1
+md5sums=('883e57720cb1da63f2079b121f9b5380')
+
+
+#extract from download_sources()
+_download() {
+	local file=$(get_filepath "$1" || true)
+	if [[ -n "$file" ]]; then
+		msg2 "$(gettext "Found %s")" "${file##*/}"
+		rm -f "$srcdir/${file##*/}"
+		ln -s "$file" "$srcdir/"
+		return
+	fi
+
+	local file=$(get_filename "$1")
+	local url=$(get_url "$1")
+
+	# if we get here, check to make sure it was a URL, else fail
+	if [[ $file = $url ]]; then
+		error "$(gettext "%s was not found in the build directory and is not a URL.")" "$file"
+		exit 1 # $E_MISSING_FILE
+	fi
+
+	# find the client we should use for this URL
+	local dlclient
+	dlclient=$(get_downloadclient "$url") || exit $?
+
+	msg2 "$(gettext "Downloading %s...")" "$file"
+	local ret=0
+	download_file "$dlclient" "$url" "$file" || ret=$?
+	if (( ret )); then
+		error "$(gettext "Failure while downloading %s")" "$file"
+		plain "$(gettext "Aborting...")"
+		exit 1
+	fi
+
+	rm -f "$srcdir/$file"
+	ln -s "$SRCDEST/$file" "$srcdir/"
+}
+
+build() {
+	cd "${srcdir}"
+
+	msg2 "extracting Build version"
+	_version=`grep -e '^build_info\.BUILD_DISPLAY_VERSION\s' build_info.js \
+			| awk '{gsub(/[^0-9]+/, ""); print}'`
+	_zipname=`grep -e '^build_info\.ZIP_FILES_PREFIX\s' build_info.js \
+			| awk 'BEGIN {FPAT="\".+\""} {gsub(/\"/, "", $NF); print}'`
+
+	_file="${_zipname}.zip"
+	_zip="${_webroot}zip/${_file}"
+	if [ ! -f "${_file}" ]; then
+		_download "${_zip}"
+	fi
+
+	msg2 "extracting & calculating MD5 sums to compare"
+	_md5=`grep "zip/${_file}" files.js \
+		| awk 'BEGIN {FPAT="\"[0-9a-z]+\""} {gsub(/\"/, "", $NF); print}'`
+	_md5sum=`md5sum "${_file}" | awk '{print $1}'`
+	if [ "${_md5}" != "${_md5sum}" ]; then
+		error "Invalid md5 of .zip file"
+		return 1
+	fi
+	msg2 "OK, both ${_md5}"
+
+	local ret=0
+	msg2 "$(gettext "Extracting %s with %s")" "${_file}" "bsdtar"
+	bsdtar -xf "${_file}" || ret=$?
+	if (( ret )); then
+		error "$(gettext "Failed to extract %s")" "${_file}"
+		plain "$(gettext "Aborting...")"
+		exit 1
+	fi
+	if (( EUID == 0 )); then
+		chown -R 0:0 "$srcdir"
+	fi
+
+	msg2 "cleanup OS specific files"
+	rm $(find -name '*\.exe' -or -name '*\.bat')
+	rm -r $(find -name 'MacOSX*' -or -name 'Windows*' -or -name 'SunOS*')
+	rm -r $(find -name 'hpux*' -or -name 'mac*' -or -name 'solaris*' -or -name 'windows*')
+}
+
+package() {
+	cd "$srcdir/netbeans"
+
+	mkdir -p "$pkgdir/usr/bin" "$pkgdir/usr/share/applications"
+	cp -r "../netbeans" "$pkgdir/usr/share"
+	install -Dm644 "../netbeans.desktop" "$pkgdir/usr/share/applications/netbeans.desktop"
+	install -Dm644 "nb/netbeans.png" "$pkgdir/usr/share/pixmaps/netbeans.png"
+	ln -s "/usr/share/netbeans/bin/netbeans" "$pkgdir/usr/bin/netbeans"
+	install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/netbeans/LICENSE"
+}
+
