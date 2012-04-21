@@ -2,14 +2,14 @@
 
 pkgname=adminer-skins
 pkgver=20120301
-pkgrel=2
+pkgrel=3
 pkgdesc='Adminer skins GIT version.'
 url='http://www.adminer.org'
 arch=('any')
 license=('Apache License, Version 2.0')
-#install='adminer.install'
+#install='adminer-skins.install'
 source=()
-depends=('php' 'mysql' 'adminer')
+depends=('adminer')
 makedepends=('git')
 
 
