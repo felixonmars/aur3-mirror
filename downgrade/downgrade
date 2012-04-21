@@ -16,6 +16,7 @@ message() {
       -d,--pkgdir       set download directory (A.R.M. only), default is \`~/Packages'
       -m,--arch         set search architecture (A.R.M. only), default is determined by \`uname -m\`
       -a,--noarm        don't search the A.R.M when nothing's available in cache
+      -c,--nocache      don't look in cache, go directly to A.R.M
       -i,--noinstalled  don't show [installed] next to installed versions (speed up)
 
       -p,--pacman       (deprecated, set a PACMAN env var if not using just \`pacman')
@@ -48,8 +49,12 @@ run_pacman() {
 search_local() {
   local LC_ALL='C'
 
-  # "$term-[0-9].*" limits it to exactly the package passed
-  locals=( $(find /var/cache/pacman/pkg -name "$term-[0-9].*.pkg.tar.[gx]z" | sort -r) )
+  # user disabled cache
+  $searchcache || return 1
+
+  # we use the $term-[0-9]* glob to disambiguate cases like foo-1.0 and
+  # foo-completion-1.0.
+  locals=( $(find /var/cache/pacman/pkg -name "$term-[0-9]*.pkg.tar.[gx]z" | sort -rV) )
 
   [[ ${#locals[@]} -ne 0 ]] && return 0 || return 1
 } 
@@ -95,7 +100,7 @@ get_local() {
 # sets $num, errors out on no results, returns true if user makes a
 # selection
 search_and_print_arm() {
-  local LC_ALL='C' repos repo url n pack
+  local LC_ALL='C' repos repo url n pack tmp
 
   # user disabled A.R.M
   $searcharm || return 1
@@ -105,22 +110,20 @@ search_and_print_arm() {
     repos="${repos}&${repo}=1"
   done
 
-  # updated url
-  #url="http://arm.kh.nu/search/raw.php?a=$arch&q=^$term\$$repos"
   url="http://arm.konnichi.com/search/raw.php?a=$arch&q=^$term\$$repos"
 
-  # TODO: download and use signatures
-  arms=( $(wget -q -O - "$url" | grep -v sig$ | sort -r) )
+   tmp=( $(wget -q -O - "$url" 2>/dev/null | grep -v sig$ | sort -rV) )
+  arms=( $(remove_duplicate_testing "${tmp[@]}") )
 
   if [[ ${#arms[@]} -ne 0 ]]; then
     echo -e "\n The following packages are available from the A.R.M.:"
 
-    # separate repo and packagename
     for ((i=0; i<${#arms[@]}; i++)); do 
       n=$((i+1))
-      repo="$(echo ${arms[$i]} | awk -F '/' '{print $4}')"
-      pack="$(echo ${arms[$i]} | awk -F '/' '{print $7}')"
-      
+
+      # read repo and package from the url
+      IFS='/' read -r _ _ _ repo _ _ pack _ <<< "${arms[$i]}"
+
       # flag the installed version
       case $pack in
         ${installed// /-}*) echo -e "\t$n\t$repo\t$pack [installed]" ;;
@@ -134,6 +137,22 @@ search_and_print_arm() {
   else
     exit 0
   fi
+}
+
+remove_duplicate_testing() {
+  local entry
+
+  for entry; do
+    IFS='/' read -r _ _ _ repo _ _ pack _ <<< "$entry"
+
+    if [[ "$repo" == 'testing' ]]; then
+      if printf "%s\n" "$@" | grep -Fxv "$entry" | grep -Fq "$pack"; then
+        continue
+      fi
+    fi
+
+    echo "$entry"
+  done
 }
 
 # downloads, sets $pkg, errors out on bad choice or failed copy
@@ -160,6 +179,7 @@ parse_options() {
       -d|--pkgdir)      shift; pkgdir="${1/\~/$HOME}" ;;
       -m|--arch)        shift; arch="$1"              ;;
       -a|--noarm)       searcharm=false               ;;
+      -c|--nocache)     searchcache=false             ;;
       -i|--noinstalled) showinstalled=false           ;;
       --)               break                         ;;
       -*)               message                       ;;
@@ -218,6 +238,7 @@ main() {
 # set defaults
 pkgdir="$HOME/Packages"  # where to put packages
 searcharm=true           # search arm if not in cache
+searchcache=true         # check in cache before arm
 showinstalled=true       # show [installed] next to installed versions
 
 [[ "$(uname -m)" = 'x86_64' ]] && arch=64 || arch=32
