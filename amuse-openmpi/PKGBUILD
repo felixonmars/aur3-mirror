@@ -1,6 +1,6 @@
 # Maintainer: Jeff Ames <jeff@amesign.com>
 pkgname=amuse-openmpi
-basename=${pkgname%-openmpi}
+basename=amuse
 pkgver=5.2
 pkgrel=1
 pkgdesc="Framework for large-scale simulations of dense stellar systems"
