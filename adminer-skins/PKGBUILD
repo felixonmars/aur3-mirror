@@ -20,15 +20,14 @@ true && pkgname=(
 )
 
 pkgver=20120422
-pkgrel=1
+pkgrel=2
+pkgdesc='Adminer skins'
 url='http://www.adminer.org'
 arch=('any')
 license=('Apache License, Version 2.0')
 depends=('adminer')
 makedepends=()
 optdepends=()
-
-_default_skin=hever
 
 source=(
     'hever.css::https://raw.github.com/vrana/adminer/master/designs/hever/adminer.css'
@@ -107,8 +106,7 @@ package_adminer-skins-jukin() {
 }
 
 package_adminer-skins() {
-    pkgdesc='Adminer skins'
-    _copy_css $_default_skin
+    true
 }
 
 build() {
