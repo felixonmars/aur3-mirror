@@ -1,6 +1,6 @@
  # Contributor: Max Gonzih <iam AT gonzih DOT org>
  pkgname=shelr
- pkgver=0.14.0
+ pkgver=0.15.1
  pkgrel=1
  pkgdesc="Shelr.tv client"
  arch=(any)
@@ -10,7 +10,7 @@
  makedepends=(rubygems)
  source=(http://rubygems.org/downloads/shelr-$pkgver.gem)
  noextract=(shelr-$pkgver.gem)
- md5sums=(7e7eb402974591c21028eff96bb4ed08)
+ md5sums=(1e423653ceee7c285f932f513593ad3b)
 
  build() {
    cd $srcdir
