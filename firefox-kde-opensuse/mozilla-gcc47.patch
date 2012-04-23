@@ -1,0 +1,174 @@
+# HG changeset patch
+# Parent debab900e37fdd4f8981c06beef6f193a04bd2b7
+Patch to make Mozilla build with gcc 4.7, including
+- Bug 725655 - gcc 4.7 build failures (missing headers) (TM: Mozilla13)
+- Bug 734490 - "no viable overloaded 'PRIxPTR'" when building with Clang or GCC 4.7 (TM: Mozilla14)
+
+diff --git a/ipc/chromium/src/base/file_util_linux.cc b/ipc/chromium/src/base/file_util_linux.cc
+--- a/ipc/chromium/src/base/file_util_linux.cc
++++ b/ipc/chromium/src/base/file_util_linux.cc
+@@ -1,15 +1,18 @@
+ // Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+ #include "base/file_util.h"
+ 
+ #include <fcntl.h>
++#if defined(ANDROID) || defined(OS_POSIX)
++#include <unistd.h>
++#endif
+ 
+ #include <string>
+ #include <vector>
+ 
+ #include "base/eintr_wrapper.h"
+ #include "base/file_path.h"
+ #include "base/string_util.h"
+ 
+diff --git a/ipc/chromium/src/base/message_pump_libevent.cc b/ipc/chromium/src/base/message_pump_libevent.cc
+--- a/ipc/chromium/src/base/message_pump_libevent.cc
++++ b/ipc/chromium/src/base/message_pump_libevent.cc
+@@ -1,16 +1,19 @@
+ // Copyright (c) 2008 The Chromium Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
+ #include "base/message_pump_libevent.h"
+ 
+ #include <errno.h>
+ #include <fcntl.h>
++#if defined(ANDROID) || defined(OS_POSIX)
++#include <unistd.h>
++#endif
+ 
+ #include "eintr_wrapper.h"
+ #include "base/logging.h"
+ #include "base/scoped_nsautorelease_pool.h"
+ #include "base/scoped_ptr.h"
+ #include "base/time.h"
+ #include "third_party/libevent/event.h"
+ 
+diff --git a/ipc/chromium/src/base/time_posix.cc b/ipc/chromium/src/base/time_posix.cc
+--- a/ipc/chromium/src/base/time_posix.cc
++++ b/ipc/chromium/src/base/time_posix.cc
+@@ -8,16 +8,19 @@
+ #include <mach/mach_time.h>
+ #endif
+ #include <sys/time.h>
+ #ifdef ANDROID
+ #include <time64.h>
+ #else
+ #include <time.h>
+ #endif
++#if defined(ANDROID) || defined(OS_POSIX)
++#include <unistd.h>
++#endif
+ 
+ #include <limits>
+ 
+ #include "base/basictypes.h"
+ #include "base/logging.h"
+ 
+ namespace base {
+ 
+diff --git a/layout/base/tests/TestPoisonArea.cpp b/layout/base/tests/TestPoisonArea.cpp
+--- a/layout/base/tests/TestPoisonArea.cpp
++++ b/layout/base/tests/TestPoisonArea.cpp
+@@ -392,53 +392,53 @@ ReservePoisonArea()
+ {
+   if (sizeof(uintptr_t) == 8) {
+     // Use the hardware-inaccessible region.
+     // We have to avoid 64-bit constants and shifts by 32 bits, since this
+     // code is compiled in 32-bit mode, although it is never executed there.
+     uintptr_t result = (((uintptr_t(0x7FFFFFFFu) << 31) << 1 |
+                          uintptr_t(0xF0DEAFFFu)) &
+                         ~uintptr_t(PAGESIZE-1));
+-    printf("INFO | poison area assumed at 0x%.*"PRIxPTR"\n", SIZxPTR, result);
++    printf("INFO | poison area assumed at 0x%.*" PRIxPTR "\n", SIZxPTR, result);
+     return result;
+   } else {
+     // First see if we can allocate the preferred poison address from the OS.
+     uintptr_t candidate = (0xF0DEAFFF & ~(PAGESIZE-1));
+     void *result = ReserveRegion(candidate, false);
+     if (result == (void *)candidate) {
+       // success - inaccessible page allocated
+-      printf("INFO | poison area allocated at 0x%.*"PRIxPTR
++      printf("INFO | poison area allocated at 0x%.*" PRIxPTR
+              " (preferred addr)\n", SIZxPTR, (uintptr_t)result);
+       return candidate;
+     }
+ 
+     // That didn't work, so see if the preferred address is within a range
+     // of permanently inacessible memory.
+     if (ProbeRegion(candidate)) {
+       // success - selected page cannot be usable memory
+       if (result != MAP_FAILED)
+         ReleaseRegion(result);
+-      printf("INFO | poison area assumed at 0x%.*"PRIxPTR
++      printf("INFO | poison area assumed at 0x%.*" PRIxPTR
+              " (preferred addr)\n", SIZxPTR, candidate);
+       return candidate;
+     }
+ 
+     // The preferred address is already in use.  Did the OS give us a
+     // consolation prize?
+     if (result != MAP_FAILED) {
+-      printf("INFO | poison area allocated at 0x%.*"PRIxPTR
++      printf("INFO | poison area allocated at 0x%.*" PRIxPTR
+              " (consolation prize)\n", SIZxPTR, (uintptr_t)result);
+       return (uintptr_t)result;
+     }
+ 
+     // It didn't, so try to allocate again, without any constraint on
+     // the address.
+     result = ReserveRegion(0, false);
+     if (result != MAP_FAILED) {
+-      printf("INFO | poison area allocated at 0x%.*"PRIxPTR
++      printf("INFO | poison area allocated at 0x%.*" PRIxPTR
+              " (fallback)\n", SIZxPTR, (uintptr_t)result);
+       return (uintptr_t)result;
+     }
+ 
+     printf("ERROR | no usable poison area found\n");
+     return 0;
+   }
+ }
+@@ -450,17 +450,17 @@ static uintptr_t
+ ReservePositiveControl()
+ {
+ 
+   void *result = ReserveRegion(0, false);
+   if (result == MAP_FAILED) {
+     printf("ERROR | allocating positive control | %s\n", LastErrMsg());
+     return 0;
+   }
+-  printf("INFO | positive control allocated at 0x%.*"PRIxPTR"\n",
++  printf("INFO | positive control allocated at 0x%.*" PRIxPTR "\n",
+          SIZxPTR, (uintptr_t)result);
+   return (uintptr_t)result;
+ }
+ 
+ /* The "negative control" area confirms that our probe logic does detect a
+  * page that is readable, writable, or executable.
+  */
+ static uintptr_t
+@@ -481,17 +481,17 @@ ReserveNegativeControl()
+   // Now mark it executable as well as readable and writable.
+   // (mmap(PROT_EXEC) may fail when applied to anonymous memory.)
+ 
+   if (MakeRegionExecutable(result)) {
+     printf("ERROR | making negative control executable | %s\n", LastErrMsg());
+     return 0;
+   }
+ 
+-  printf("INFO | negative control allocated at 0x%.*"PRIxPTR"\n",
++  printf("INFO | negative control allocated at 0x%.*" PRIxPTR "\n",
+          SIZxPTR, (uintptr_t)result);
+   return (uintptr_t)result;
+ }
+ 
+ static void
+ JumpTo(uintptr_t opaddr)
+ {
+ #ifdef __ia64
