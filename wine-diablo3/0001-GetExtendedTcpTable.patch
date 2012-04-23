@@ -1,0 +1,540 @@
+From 5154c12213cc2c960d8596660687add13d3421c7 Mon Sep 17 00:00:00 2001
+From: William Pettersson <william.pettersson@gmail.com>
+Date: Thu, 22 Mar 2012 22:20:40 +1000
+Subject: [PATCH] GetExtendedTcpTable
+
+Adds support for TCP_TABLE_OWNER_PID_ALL
+in GetExtendedTcpTable.
+---
+ dlls/iphlpapi/iphlpapi_main.c  |   27 +++++-
+ dlls/iphlpapi/ipstats.c        |  209 ++++++++++++++++++++++++++++++----------
+ dlls/iphlpapi/ipstats.h        |    2 +
+ include/wine/server_protocol.h |   19 ++++-
+ server/process.c               |   18 ++++
+ server/protocol.def            |    8 ++
+ server/request.h               |    6 +
+ server/trace.c                 |   13 +++
+ 8 files changed, 248 insertions(+), 54 deletions(-)
+
+diff --git a/dlls/iphlpapi/iphlpapi_main.c b/dlls/iphlpapi/iphlpapi_main.c
+index a569041..f54cb50 100644
+--- a/dlls/iphlpapi/iphlpapi_main.c
++++ b/dlls/iphlpapi/iphlpapi_main.c
+@@ -1883,15 +1883,36 @@ DWORD WINAPI GetTcpTable(PMIB_TCPTABLE pTcpTable, PDWORD pdwSize, BOOL bOrder)
+ DWORD WINAPI GetExtendedTcpTable(PVOID pTcpTable, PDWORD pdwSize, BOOL bOrder,
+                                  ULONG ulAf, TCP_TABLE_CLASS TableClass, ULONG Reserved)
+ {
++    DWORD table_size;
++    VOID *table;
++    DWORD ret;
++
+     TRACE("pTcpTable %p, pdwSize %p, bOrder %d, ulAf %u, TableClass %u, Reserved %u\n",
+            pTcpTable, pdwSize, bOrder, ulAf, TableClass, Reserved);
+ 
+-    if (ulAf == AF_INET6 || TableClass != TCP_TABLE_BASIC_ALL)
++    if (!pdwSize) return ERROR_INVALID_PARAMETER;
++
++    if (ulAf == AF_INET6)
+     {
+-        FIXME("ulAf = %u, TableClass = %u not supportted\n", ulAf, TableClass);
++        FIXME("AF_INET6 not supported\n");
+         return ERROR_NOT_SUPPORTED;
+     }
+-    return GetTcpTable(pTcpTable, pdwSize, bOrder);
++
++    ret = tcp_build_table(GetProcessHeap(), 0, &table, &table_size, bOrder, TableClass);
++    if (!ret) {
++        if (!pTcpTable || *pdwSize < table_size) {
++          *pdwSize = table_size;
++          ret = ERROR_INSUFFICIENT_BUFFER;
++        }
++        else {
++          *pdwSize = table_size;
++          memcpy(pTcpTable, table, table_size);
++        }
++        HeapFree(GetProcessHeap(), 0, table);
++    }
++
++    TRACE("returning %d\n", ret);
++    return ret;
+ }
+ 
+ /******************************************************************
+diff --git a/dlls/iphlpapi/ipstats.c b/dlls/iphlpapi/ipstats.c
+index db475fb..704160e 100644
+--- a/dlls/iphlpapi/ipstats.c
++++ b/dlls/iphlpapi/ipstats.c
+@@ -27,6 +27,7 @@
+ #include <string.h>
+ #include <errno.h>
+ #include <sys/types.h>
++#include <dirent.h>
+ #ifdef HAVE_ALIAS_H
+ #include <alias.h>
+ #endif
+@@ -1617,15 +1618,17 @@ DWORD WINAPI AllocateAndGetUdpTableFromStack(PMIB_UDPTABLE *ppUdpTable, BOOL bOr
+ }
+ 
+ 
+-static MIB_TCPTABLE *append_tcp_row( HANDLE heap, DWORD flags, MIB_TCPTABLE *table,
+-                                     DWORD *count, const MIB_TCPROW *row )
++static VOID *append_tcp_row( HANDLE heap, DWORD flags, VOID *table, DWORD *count,
++                             const VOID *row, DWORD row_size, DWORD table_struct_size )
+ {
+-    if (table->dwNumEntries >= *count)
++    DWORD dwNumEntries = *(DWORD *)table;
++
++    if (dwNumEntries >= *count)
+     {
+-        MIB_TCPTABLE *new_table;
+-        DWORD new_count = table->dwNumEntries * 2;
++        VOID *new_table;
++        DWORD new_count = dwNumEntries * 2;
+ 
+-        if (!(new_table = HeapReAlloc( heap, flags, table, FIELD_OFFSET(MIB_TCPTABLE, table[new_count] ))))
++        if (!(new_table = HeapReAlloc( heap, flags, table, table_struct_size + row_size*new_count )))
+         {
+             HeapFree( heap, 0, table );
+             return NULL;
+@@ -1633,7 +1636,8 @@ static MIB_TCPTABLE *append_tcp_row( HANDLE heap, DWORD flags, MIB_TCPTABLE *tab
+         *count = new_count;
+         table = new_table;
+     }
+-    memcpy( &table->table[table->dwNumEntries++], row, sizeof(*row) );
++    memcpy( (CHAR *)table + sizeof(DWORD) + dwNumEntries*row_size, row, row_size );
++    *(DWORD *)table = dwNumEntries+1;
+     return table;
+ }
+ 
+@@ -1674,38 +1678,34 @@ static int compare_tcp_rows(const void *a, const void *b)
+ }
+ 
+ 
+-/******************************************************************
+- *    AllocateAndGetTcpTableFromStack (IPHLPAPI.@)
+- *
+- * Get the TCP connection table.
+- * Like GetTcpTable(), but allocate the returned table from heap.
+- *
+- * PARAMS
+- *  ppTcpTable [Out] pointer into which the MIB_TCPTABLE is
+- *                   allocated and returned.
+- *  bOrder     [In]  whether to sort the table
+- *  heap       [In]  heap from which the table is allocated
+- *  flags      [In]  flags to HeapAlloc
+- *
+- * RETURNS
+- *  ERROR_INVALID_PARAMETER if ppTcpTable is NULL, whatever GetTcpTable()
+- *  returns otherwise.
+- */
+-DWORD WINAPI AllocateAndGetTcpTableFromStack( PMIB_TCPTABLE *ppTcpTable, BOOL bOrder,
+-                                              HANDLE heap, DWORD flags)
++#include "wine/server.h"
++#define STATUS_SUCCESS 0
++DWORD tcp_build_table(HANDLE heap, DWORD flags, VOID **table, DWORD *table_size, BOOL bOrder,
++                      TCP_TABLE_CLASS TableClass)
+ {
+-    MIB_TCPTABLE *table;
+-    MIB_TCPROW row;
+-    DWORD ret = NO_ERROR, count = 16;
+-
+-    TRACE("table %p, bOrder %d, heap %p, flags 0x%08x\n", ppTcpTable, bOrder, heap, flags);
++    DWORD ret = NO_ERROR, row_size, table_struct_size;
++    MIB_TCPROW_OWNER_PID row;
++    DWORD count = 16;
+ 
+-    if (!ppTcpTable) return ERROR_INVALID_PARAMETER;
++    switch(TableClass)
++    {
++        case TCP_TABLE_BASIC_ALL:
++            row_size = sizeof(MIB_TCPROW);
++            table_struct_size = sizeof(MIB_TCPTABLE)-row_size;
++            break;
++        case TCP_TABLE_OWNER_PID_ALL:
++            row_size = sizeof(MIB_TCPROW_OWNER_PID);
++            table_struct_size = sizeof(MIB_TCPTABLE_OWNER_PID)-row_size;
++            break;
++        default:
++            FIXME("TableClass = %u not supported\n", TableClass);
++            return ERROR_NOT_SUPPORTED;
++    }
+ 
+-    if (!(table = HeapAlloc( heap, flags, FIELD_OFFSET(MIB_TCPTABLE, table[count] ))))
++    if (!(*table = HeapAlloc( heap, flags, table_struct_size+row_size*count )))
+         return ERROR_OUTOFMEMORY;
+ 
+-    table->dwNumEntries = 0;
++    *(DWORD *)*table = 0;
+ 
+ #ifdef __linux__
+     {
+@@ -1720,14 +1720,86 @@ DWORD WINAPI AllocateAndGetTcpTableFromStack( PMIB_TCPTABLE *ppTcpTable, BOOL bO
+             ptr = fgets(buf, sizeof(buf), fp);
+             while ((ptr = fgets(buf, sizeof(buf), fp)))
+             {
+-                if (sscanf( ptr, "%x: %x:%x %x:%x %x", &dummy, &row.dwLocalAddr, &row.dwLocalPort,
+-                            &row.dwRemoteAddr, &row.dwRemotePort, &row.u.dwState ) != 6)
++                int inode;
++                int status = 0; /* STATUS_SUCCESS if the corresponding row 
++                                 * has a wine-pid. */
++
++                if (sscanf( ptr, "%x: %x:%x %x:%x %x %*s %*s %*s %*s %*s %d", &dummy, &row.dwLocalAddr, &row.dwLocalPort,
++                            &row.dwRemoteAddr, &row.dwRemotePort, &row.dwState, &inode ) != 7)
+                     continue;
+-                row.dwLocalPort = htons( row.dwLocalPort );
+-                row.dwRemotePort = htons( row.dwRemotePort );
+-                row.u.State = TCPStateToMIBState( row.u.dwState );
+-                if (!(table = append_tcp_row( heap, flags, table, &count, &row )))
+-                    break;
++                if (inode)
++                {
++                    char fdDir[40];
++                    char socketName[40];
++                    DIR *proc;
++                    struct dirent *procEnt;
++                    int unix_pid=0;
++                    sprintf(socketName,"socket:[%d]",inode);
++                    
++                    /* To find the unix PID owning an inode,
++                     * we traverse /proc, look inside each 
++                     * process directory, and read symbolic
++                     * links in the fd subdirectory until
++                     * we find one that matches socketName.
++                     * We then check that this unix_pid 
++                     * actually corresponds to a wine-pid. */
++
++                    if ( (proc = opendir("/proc"))) 
++                    {
++                        while ((procEnt = readdir(proc)))
++                        {
++                            if ((procEnt->d_name[0] >= '0') &&(procEnt->d_name[0] <= '9'))
++                            {
++                                DIR *fds;
++                                struct dirent *ent;
++                                sprintf(fdDir, "/proc/%d/fd", atoi(procEnt->d_name));
++                                if ((fds = opendir(fdDir)))
++                                {
++                                    while (( ent = readdir(fds) ) )
++                                    {
++                                        char fdLinkName[40];
++                                        char fdName[40];
++                                        int len;
++                                        sprintf(fdLinkName, "/proc/%s/fd/%s", procEnt->d_name, ent->d_name);
++                                        if ( (len = readlink(fdLinkName, fdName, 40)) > 0 )
++                                        {
++                                            fdName[len]='\0';
++                                            if ( (len == strlen(socketName)) && (strncmp(socketName,fdName, len) == 0)) 
++                                            {
++                                                unix_pid = atoi(procEnt->d_name);
++                                                SERVER_START_REQ( find_process )
++                                                {
++                                                    req->unix_pid = unix_pid;
++                                                    status = wine_server_call( req );
++                                                    if (status == STATUS_SUCCESS)
++                                                        row.dwOwningPid = reply->pid;
++                                                }
++                                                SERVER_END_REQ;
++                                                if (status == STATUS_SUCCESS)
++                                                {
++                                                    closedir(fds);
++                                                    closedir(proc);
++                                                    goto found_pid;
++                                                }
++                                            }
++                                        }
++                                    }
++                                    closedir(fds);
++                                }
++                            }
++                        }
++                        closedir(proc);
++                    }
++                }
++found_pid:
++                if (status == STATUS_SUCCESS) 
++                {
++                  row.dwLocalPort = htons( row.dwLocalPort );
++                  row.dwRemotePort = htons( row.dwRemotePort );
++                  row.dwState = TCPStateToMIBState( row.dwState );
++                  if (!(*table = append_tcp_row( heap, flags, *table, &count, &row, row_size, table_struct_size )))
++                      break;
++                }
+             }
+             fclose( fp );
+         }
+@@ -1749,8 +1821,8 @@ DWORD WINAPI AllocateAndGetTcpTableFromStack( PMIB_TCPTABLE *ppTcpTable, BOOL bO
+                     row.dwLocalPort = htons( entry->tcpConnLocalPort );
+                     row.dwRemoteAddr = entry->tcpConnRemAddress;
+                     row.dwRemotePort = htons( entry->tcpConnRemPort );
+-                    row.u.dwState = entry->tcpConnState;
+-                    if (!(table = append_tcp_row( heap, flags, table, &count, &row ))) break;
++                    row.dwState = entry->tcpConnState;
++                    if (!(*table = append_tcp_row( heap, flags, *table, &count, &row, row_size, table_struct_size ))) break;
+                 }
+                 HeapFree( GetProcessHeap(), 0, data );
+             }
+@@ -1828,8 +1900,8 @@ DWORD WINAPI AllocateAndGetTcpTableFromStack( PMIB_TCPTABLE *ppTcpTable, BOOL bO
+             row.dwLocalPort = pINData->inp_lport;
+             row.dwRemoteAddr = pINData->inp_faddr.s_addr;
+             row.dwRemotePort = pINData->inp_fport;
+-            row.u.State = TCPStateToMIBState (pTCPData->t_state);
+-            if (!(table = append_tcp_row( heap, flags, table, &count, &row ))) break;
++            row.dwState = TCPStateToMIBState (pTCPData->t_state);
++            if (!(*table = append_tcp_row( heap, flags, *table, &count, &row, row_size, table_struct_size ))) break;
+         }
+ 
+     done:
+@@ -1840,14 +1912,51 @@ DWORD WINAPI AllocateAndGetTcpTableFromStack( PMIB_TCPTABLE *ppTcpTable, BOOL bO
+     ret = ERROR_NOT_SUPPORTED;
+ #endif
+ 
+-    if (!table) return ERROR_OUTOFMEMORY;
++    if (!*table) return ERROR_OUTOFMEMORY;
+     if (!ret)
+     {
+-        if (bOrder && table->dwNumEntries)
+-            qsort( table->table, table->dwNumEntries, sizeof(row), compare_tcp_rows );
+-        *ppTcpTable = table;
++        DWORD dwNumEntries = *(DWORD *)*table;
++        if (bOrder && dwNumEntries)
++            qsort( (CHAR*)(*table) + sizeof(DWORD), dwNumEntries, row_size, compare_tcp_rows );
++        if (table_size)
++            *table_size = table_struct_size + row_size*dwNumEntries;
+     }
+-    else HeapFree( heap, flags, table );
++    else HeapFree( heap, flags, *table );
++    return ret;
++}
++
++
++/******************************************************************
++ *    AllocateAndGetTcpTableFromStack (IPHLPAPI.@)
++ *
++ * Get the TCP connection table.
++ * Like GetTcpTable(), but allocate the returned table from heap.
++ *
++ * PARAMS
++ *  ppTcpTable [Out] pointer into which the MIB_TCPTABLE is
++ *                   allocated and returned.
++ *  bOrder     [In]  whether to sort the table
++ *  heap       [In]  heap from which the table is allocated
++ *  flags      [In]  flags to HeapAlloc
++ *
++ * RETURNS
++ *  ERROR_INVALID_PARAMETER if ppTcpTable is NULL, whatever GetTcpTable()
++ *  returns otherwise.
++ */
++DWORD WINAPI AllocateAndGetTcpTableFromStack( PMIB_TCPTABLE *ppTcpTable, BOOL bOrder,
++                                              HANDLE heap, DWORD flags)
++{
++    MIB_TCPTABLE *table;
++    DWORD ret;
++
++    TRACE("table %p, bOrder %d, heap %p, flags 0x%08x\n", ppTcpTable, bOrder, heap, flags);
++
++    if (!ppTcpTable) return ERROR_INVALID_PARAMETER;
++
++    ret = tcp_build_table(heap, flags, (VOID **)&table, NULL, bOrder, TCP_TABLE_BASIC_ALL);
++    if (ret == NO_ERROR)
++        *ppTcpTable = table;
++
+     TRACE( "returning ret %u table %p\n", ret, table );
+     return ret;
+ }
+diff --git a/dlls/iphlpapi/ipstats.h b/dlls/iphlpapi/ipstats.h
+index 3522716..c546512 100644
+--- a/dlls/iphlpapi/ipstats.h
++++ b/dlls/iphlpapi/ipstats.h
+@@ -27,6 +27,8 @@
+ #include "winbase.h"
+ #include "iprtrmib.h"
+ 
++DWORD tcp_build_table(HANDLE heap, DWORD flags, VOID **table, DWORD *table_size, BOOL bOrder, TCP_TABLE_CLASS TableClass);
++
+ /* Fills in entry's interface stats, using name to find them.
+  * Returns ERROR_INVALID_PARAMETER if name or entry is NULL, NO_ERROR otherwise.
+  */
+diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
+index 0e989da..9851cbb 100644
+--- a/include/wine/server_protocol.h
++++ b/include/wine/server_protocol.h
+@@ -716,6 +716,20 @@ struct init_thread_reply
+ 
+ 
+ 
++struct find_process_request
++{
++    struct request_header __header;
++    int          unix_pid;
++};
++struct find_process_reply
++{
++    struct reply_header __header;
++    process_id_t pid;
++    char __pad_12[4];
++};
++
++
++
+ struct terminate_process_request
+ {
+     struct request_header __header;
+@@ -4897,6 +4911,7 @@ enum request
+     REQ_get_startup_info,
+     REQ_init_process_done,
+     REQ_init_thread,
++    REQ_find_process,
+     REQ_terminate_process,
+     REQ_terminate_thread,
+     REQ_get_process_info,
+@@ -5151,6 +5166,7 @@ union generic_request
+     struct get_startup_info_request get_startup_info_request;
+     struct init_process_done_request init_process_done_request;
+     struct init_thread_request init_thread_request;
++    struct find_process_request find_process_request;
+     struct terminate_process_request terminate_process_request;
+     struct terminate_thread_request terminate_thread_request;
+     struct get_process_info_request get_process_info_request;
+@@ -5403,6 +5419,7 @@ union generic_reply
+     struct get_startup_info_reply get_startup_info_reply;
+     struct init_process_done_reply init_process_done_reply;
+     struct init_thread_reply init_thread_reply;
++    struct find_process_reply find_process_reply;
+     struct terminate_process_reply terminate_process_reply;
+     struct terminate_thread_reply terminate_thread_reply;
+     struct get_process_info_reply get_process_info_reply;
+@@ -5646,6 +5663,6 @@ union generic_reply
+     struct set_suspend_context_reply set_suspend_context_reply;
+ };
+ 
+-#define SERVER_PROTOCOL_VERSION 431
++#define SERVER_PROTOCOL_VERSION 432
+ 
+ #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
+diff --git a/server/process.c b/server/process.c
+index de3b594..2acaf77 100644
+--- a/server/process.c
++++ b/server/process.c
+@@ -989,6 +989,24 @@ DECL_HANDLER(new_process)
+     release_object( info );
+ }
+ 
++/* Find a process from the Unix pid */
++DECL_HANDLER(find_process)
++{
++    struct process *process;
++    int i;
++
++    for(i=0; i<used_ptid_entries; i++)
++    {
++        process = (struct process *) ptid_entries[i].ptr;
++        if (process && process->unix_pid == req->unix_pid)
++        {
++            reply->pid = get_process_id( process );
++            return;
++        }
++    }
++    set_error( STATUS_INVALID_PARAMETER );
++}
++
+ /* Retrieve information about a newly started process */
+ DECL_HANDLER(get_new_process_info)
+ {
+diff --git a/server/protocol.def b/server/protocol.def
+index 80c0cd3..b36b878 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -695,6 +695,14 @@ typedef union
+ @END
+ 
+ 
++/* Find a process from the Unix pid  */
++@REQ(find_process)
++    int          unix_pid;     /* Unix pid of the process */
++@REPLY
++    process_id_t pid;          /* Wine process id of the process */
++@END
++
++
+ /* Terminate a process */
+ @REQ(terminate_process)
+     obj_handle_t handle;       /* process handle to terminate */
+diff --git a/server/request.h b/server/request.h
+index 5b45cf9..8d59a46 100644
+--- a/server/request.h
++++ b/server/request.h
+@@ -117,6 +117,7 @@ DECL_HANDLER(new_thread);
+ DECL_HANDLER(get_startup_info);
+ DECL_HANDLER(init_process_done);
+ DECL_HANDLER(init_thread);
++DECL_HANDLER(find_process);
+ DECL_HANDLER(terminate_process);
+ DECL_HANDLER(terminate_thread);
+ DECL_HANDLER(get_process_info);
+@@ -370,6 +371,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
+     (req_handler)req_get_startup_info,
+     (req_handler)req_init_process_done,
+     (req_handler)req_init_thread,
++    (req_handler)req_find_process,
+     (req_handler)req_terminate_process,
+     (req_handler)req_terminate_thread,
+     (req_handler)req_get_process_info,
+@@ -696,6 +698,10 @@ C_ASSERT( FIELD_OFFSET(struct init_thread_reply, info_size) == 24 );
+ C_ASSERT( FIELD_OFFSET(struct init_thread_reply, version) == 28 );
+ C_ASSERT( FIELD_OFFSET(struct init_thread_reply, all_cpus) == 32 );
+ C_ASSERT( sizeof(struct init_thread_reply) == 40 );
++C_ASSERT( FIELD_OFFSET(struct find_process_request, unix_pid) == 12 );
++C_ASSERT( sizeof(struct find_process_request) == 16 );
++C_ASSERT( FIELD_OFFSET(struct find_process_reply, pid) == 8 );
++C_ASSERT( sizeof(struct find_process_reply) == 16 );
+ C_ASSERT( FIELD_OFFSET(struct terminate_process_request, handle) == 12 );
+ C_ASSERT( FIELD_OFFSET(struct terminate_process_request, exit_code) == 16 );
+ C_ASSERT( sizeof(struct terminate_process_request) == 24 );
+diff --git a/server/trace.c b/server/trace.c
+index cfef963..5b0c85e 100644
+--- a/server/trace.c
++++ b/server/trace.c
+@@ -1100,6 +1100,16 @@ static void dump_init_thread_reply( const struct init_thread_reply *req )
+     fprintf( stderr, ", all_cpus=%08x", req->all_cpus );
+ }
+ 
++static void dump_find_process_request( const struct find_process_request *req )
++{
++    fprintf( stderr, " unix_pid=%d", req->unix_pid );
++}
++
++static void dump_find_process_reply( const struct find_process_reply *req )
++{
++    fprintf( stderr, " pid=%04x", req->pid );
++}
++
+ static void dump_terminate_process_request( const struct terminate_process_request *req )
+ {
+     fprintf( stderr, " handle=%04x", req->handle );
+@@ -3920,6 +3930,7 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
+     (dump_func)dump_get_startup_info_request,
+     (dump_func)dump_init_process_done_request,
+     (dump_func)dump_init_thread_request,
++    (dump_func)dump_find_process_request,
+     (dump_func)dump_terminate_process_request,
+     (dump_func)dump_terminate_thread_request,
+     (dump_func)dump_get_process_info_request,
+@@ -4170,6 +4181,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
+     (dump_func)dump_get_startup_info_reply,
+     NULL,
+     (dump_func)dump_init_thread_reply,
++    (dump_func)dump_find_process_reply,
+     (dump_func)dump_terminate_process_reply,
+     (dump_func)dump_terminate_thread_reply,
+     (dump_func)dump_get_process_info_reply,
+@@ -4420,6 +4432,7 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
+     "get_startup_info",
+     "init_process_done",
+     "init_thread",
++    "find_process",
+     "terminate_process",
+     "terminate_thread",
+     "get_process_info",
+-- 
+1.7.3.4
+
