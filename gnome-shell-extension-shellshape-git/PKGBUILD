@@ -3,7 +3,7 @@
 # Contributor: Jussi Timperi <jussi.timperi at gmail dot com>
 
 pkgname=gnome-shell-extension-shellshape-git
-pkgver=20120415
+pkgver=20120423
 pkgrel=1
 pkgdesc="A tiling window manager extension for gnome-shell"
 arch=(any)
@@ -50,8 +50,8 @@ package() {
 		cp -p $srcdir/$_gitname-build/lib/* "$pkgdir/usr/share/gnome-shell/js/"
 		cp -pr "$srcdir/$_gitname-build/shellshape" \
 			"$pkgdir/usr/share/gnome-shell/extensions/shellshape@gfxmonk.net"
-		cp -p $srcdir/$_gitname-build/icons/status/*.svg \
+		cp -p $srcdir/$_gitname-build/shellshape/icons/status/*.svg \
 			"$pkgdir/usr/share/icons/"
-		cp -p $srcdir/$_gitname-build/schemas/*.xml \
+		cp -p $srcdir/$_gitname-build/shellshape/schemas/*.xml \
 			"$pkgdir/usr/share/glib-2.0/schemas/"
 }
