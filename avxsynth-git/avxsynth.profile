@@ -1,0 +1,1 @@
+export AVXSYNTH_APP_LIB_PATH=/usr/lib
