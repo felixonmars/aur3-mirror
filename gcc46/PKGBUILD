@@ -1,0 +1,130 @@
+# Maintainer: Tianjiao Yin <ytj000(at)gmail(dot)(see)(oh)(em)>
+# Contributor: Allan McRae <allan@archlinux.org>
+
+# toolchain build order: linux-api-headers->glibc->binutils->gcc->binutils->glibc
+# NOTE: libtool requires rebuilt with each new gcc version
+
+pkgname=gcc46
+_ver=4.6
+pkgver=4.6.3
+pkgrel=1
+pkgdesc="The GNU Compiler Collection (4.6.x)"
+arch=('i686' 'x86_64')
+license=('GPL' 'LGPL' 'custom')
+url="http://gcc.gnu.org"
+depends=('glibc' 'binutils' 'gmp' 'mpfr' 'libmpc' 'ppl' 'isl' 'cloog' 'elfutils')
+makedepends=('flex' 'bison' 'aria2')
+# makedepends=('flex' 'bison' 'aria2' 'dejagnu') # For test
+options=('!libtool' '!emptydirs')
+
+source=(gcc-hash-style-both.patch
+	gcc_pure64.patch
+	{core,g++,fortran,testsuite}.metalink
+	)
+
+md5sums=('4df25b623799b148a0703eaeec8fdf3f'
+         '4030ee1c08dd1e843c0225b772360e76'
+         'e49bda6d2878f00247701fd8d4313266'
+         'c0715d9da5b53050bca6a7317f84aa28'
+         '6e49cfdba7176c47a538cb2c3b148fb3'
+         '44fcfec949f0cad89ac97c1457a88710')
+
+_basedir="${srcdir}/gcc-${pkgver}"
+
+# ftp://gcc.gnu.org/pub/gcc/releases/gcc-${pkgver}/md5.sum
+
+build() {
+  cd ${srcdir}
+
+  msg "Downloading... "
+  aria2c -k1M -V core.metalink
+  aria2c -k1M -V g++.metalink
+  aria2c -k1M -V fortran.metalink
+  # Equal to --min-split-size=1M --check-integrity
+
+  msg "Unpacking... "
+  tar xf gcc-core.tar.bz2
+  tar xf gcc-g++.tar.bz2
+  tar xf gcc-fortran.tar.bz2
+
+  msg "Building... "
+
+  # ============================= TEST SUITE ============================= #
+  #aria2c -k1M -V testsuite.metalink
+  #tar xf gcc-testsuite.tar.bz2
+  # ============================= TEST SUITE ============================= #
+
+
+  cd ${_basedir}
+
+  #"Add" ppl-0.11 compatibility
+  sed -i "/ppl_minor_version=/s#10#11#" configure
+
+  # Do not install libiberty
+  sed -i 's/install_to_$(INSTALL_DEST) //' libiberty/Makefile.in
+
+  # Do not run fixincludes
+  sed -i 's@\./fixinc\.sh@-c true@' gcc/Makefile.in
+
+  if [ "${CARCH}" = "x86_64" ]; then
+    patch -Np1 -i ${srcdir}/gcc_pure64.patch
+  fi
+  patch -Np0 -i ${srcdir}/gcc-hash-style-both.patch
+
+  echo ${pkgver} > gcc/BASE-VER
+
+  cd ${srcdir}
+  mkdir gcc-build && cd gcc-build
+  ${_basedir}/configure --prefix=/usr \
+      --libdir=/usr/lib --libexecdir=/usr/lib \
+      --mandir=/usr/share/man --infodir=/usr/share/info \
+      --with-bugurl=https://bugs.archlinux.org/ \
+      --enable-languages=c,c++,fortran \
+      --enable-shared --enable-threads=posix \
+      --with-system-zlib --enable-__cxa_atexit \
+      --enable-clocale=gnu \
+      --enable-gnu-unique-object \
+      --with-ppl \
+      --enable-lto --enable-plugin \
+      --enable-gold --with-plugin-ld=ld.gold \
+      --disable-multilib --disable-libstdcxx-pch \
+      --disable-libunwind-exceptions \
+      --enable-linker-build-id \
+      --enable-cloog-backend=isl \
+      --enable-ld=default \
+      --enable-checking=release --disable-werror \
+      --program-suffix=-${_ver} --enable-version-specific-runtime-libs
+
+      # --with-cloog --with-cloog-include=/usr/include/cloog-ppl \
+  make
+
+  # ====================================================================== #
+  # ============================= TEST SUITE ============================= #
+
+  # increase stack size to prevent test failures
+  # http://gcc.gnu.org/bugzilla/show_bug.cgi?id=31827
+  # do not abort on error as some are "expected"
+
+  #cd ${srcdir}
+  #ulimit -s 32768
+  #make -k -j3 check || true
+  #${_basedir}/contrib/test_summary
+
+  # ============================= TEST SUITE ============================= #
+  # ====================================================================== #
+}
+
+
+package()
+{
+  cd ${srcdir}/gcc-build
+
+  make -j1 DESTDIR=${pkgdir} install
+
+  ## Lazy way of dealing with conflicting man and info pages and locales...
+  rm -rf ${pkgdir}/usr/share/
+
+  install -Dm644 ${srcdir}/gcc-${pkgver}/COPYING.RUNTIME \
+    ${pkgdir}/usr/share/licenses/$pkgname/RUNTIME.LIBRARY.EXCEPTION
+}
+
