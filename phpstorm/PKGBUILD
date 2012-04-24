@@ -4,17 +4,17 @@
 
 pkgname=phpstorm
 _pkgname=PhpStorm  # Directory name in the tar file
-pkgver=3.0.3
-pkgbuild=111.344
+pkgver=4.0
+pkgbuild=117.222
 pkgrel=1
 pkgdesc="Lightweight and Smart PHP IDE. 30-day free trial."
 arch=('i686' 'x86_64')
 url="http://www.jetbrains.com/phpstorm/"
 license=('custom')
 depends=('java-runtime>=6')
-conflicts=('phpstorm')
+conflicts=('phpstorm-eap')
 source=(http://download.jetbrains.com/webide/PhpStorm-${pkgver}.tar.gz)
-md5sums=('af1a42bd3a3ba7f20efc55c861870a39')
+md5sums=('2887eca60f02e5f2d922b503bda54a17')
 
 build() {
   cd ${srcdir}
