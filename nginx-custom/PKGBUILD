@@ -20,7 +20,7 @@ _uploadprogress_ver="v0.8.4"
 _upstreamfair_hash="a18b4099fbd458111983200e098b6f0c8efed4bc"
 
 pkgname=nginx-custom
-pkgver=1.0.15
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules"
 arch=('i686' 'x86_64')
@@ -59,7 +59,7 @@ source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
 		"nginx.conf"
 		"nginx.logrotate")
 
-md5sums=('17da4802209b83d9bebb0f0edd975dfc'
+md5sums=('a02ef93d65a7031a1ea3256ad5eba626'
          '16079e63b88b0292f9b697e9c209fdea'
          '324e9229e4bd6dc9494fe2b53589d1cf'
          '9a6acb984d81f5d7e04214d63ae94273'
