@@ -13,7 +13,7 @@ _log_path="/var/log/${_pkgname}"
 
 # 3d party modules versions:
 _cachepurge_ver="1.5"
-_slowfscache_ver="1.8"
+_slowfscache_ver="1.9"
 _echo_ver="v0.38rc2"
 _headersmore_ver="v0.16"
 _uploadprogress_ver="v0.8.4"
@@ -21,7 +21,7 @@ _upstreamfair_hash="a18b4099fbd458111983200e098b6f0c8efed4bc"
 
 pkgname=nginx-custom
 pkgver=1.2.0
-pkgrel=1
+pkgrel=2
 pkgdesc="lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules"
 arch=('i686' 'x86_64')
 
@@ -61,7 +61,7 @@ source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
 
 md5sums=('a02ef93d65a7031a1ea3256ad5eba626'
          '16079e63b88b0292f9b697e9c209fdea'
-         '324e9229e4bd6dc9494fe2b53589d1cf'
+         'bc92b2d326e0ab937b4cf5ab489e71e3'
          '9a6acb984d81f5d7e04214d63ae94273'
          '51a07e86915c22d895ed0ed53fde14ab'
          '5219e96d874929026fe2032bb4ae62c7'
