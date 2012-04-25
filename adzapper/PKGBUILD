@@ -8,7 +8,7 @@
 
 pkgname=adzapper
 pkgver=20110915
-pkgrel=3
+pkgrel=4
 pkgdesc="Ad Zapping With Squid"
 arch=('any')
 url="http://adzapper.sourceforge.net"
@@ -21,13 +21,13 @@ source=($url/scripts/squid_redirect adzapper.wrapper adzapper.conf bsd-license)
 
 build() {
   cd $startdir/src/
-  /bin/install -D -m 755 squid_redirect \
+  /usr/bin/install -D -m 755 squid_redirect \
       $startdir/pkg/usr/bin/adzapper
-  /bin/install -D -m 755 adzapper.wrapper \
+  /usr/bin/install -D -m 755 adzapper.wrapper \
       $startdir/pkg/usr/bin/adzapper.wrapper
-  /bin/install -D -m 644 adzapper.conf \
+  /usr/bin/install -D -m 644 adzapper.conf \
       $startdir/pkg/etc/adzapper/adzapper.conf
-  /bin/install -D -m 644 bsd-license \
+  /usr/bin/install -D -m 644 bsd-license \
       $startdir/pkg/usr/share/licenses/$pkgname/bsd-license
 }
 
