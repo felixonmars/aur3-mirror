@@ -1,7 +1,7 @@
 # Maintainer: birdflesh <antkoul at gmail dot com>
 
 pkgname=akonadi-google
-pkgver=0.3
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="An Akonadi Resource for accessing Google services"
 arch=('i686' 'x86_64')
@@ -11,7 +11,7 @@ depends=('kdebase-runtime' 'kdepimlibs' 'qjson')
 makedepends=('cmake' 'automoc4' 'boost')
 conflicts=('akonadi-google-git')
 source=("http://www.progdan.cz/wp-content/uploads/${pkgname}-${pkgver}.tar.gz")
-md5sums=('8c5c1e015068bea90bf25dd7858dc913')
+md5sums=('fed8d9082547835ab916edd219831cf6')
 
 build() {
   cd "${srcdir}"
