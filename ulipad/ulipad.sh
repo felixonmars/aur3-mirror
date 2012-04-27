@@ -4,7 +4,7 @@ ULI_HOME=~/.ulipad
 ULI_ROOT=/usr/share/ulipad
 ULI_LINK=(UliPad.pyw acp contrib doc images mixins modules
            packages resources scripts tools ulipad.ico wizard)
-ULI_VERS=4.0
+ULI_VERS=4.1
 
 create_local() {
   rm -rf "$ULI_HOME"
