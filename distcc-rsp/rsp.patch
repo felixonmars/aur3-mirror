@@ -1,0 +1,201 @@
+Index: include_server/parse_command.py
+===================================================================
+--- include_server/parse_command.py	(revision 755)
++++ include_server/parse_command.py	(working copy)
+@@ -27,6 +27,7 @@
+ 
+ import basics
+ import cache_basics
++import shlex
+ 
+ Debug = basics.Debug
+ DEBUG_TRACE = basics.DEBUG_TRACE
+@@ -277,6 +278,39 @@
+     else:
+       unesc_q = sys.maxint
+ 
++def ParseArgsWithResponseFile(args):
++  """Parse arguments and expand response files preceded with '@' (containing more arguments)
++  adapted from http://www.irrelevantconclusion.com/2011/05/response-files-for-your-python-scripts/
++  Arguments:
++    args: list of arguments (strings)
++  Returns:
++    (commands)
++    where:
++      commands: a list of arguments where @file was replaced with a list of arguments
++  """
++  commands = []
++  # iterate over arguments
++  for arg in args:
++    # check if this argument is a response file
++    if arg[0] == '@':
++      # open the file
++      try:
++        inFile = open(arg[1:])
++        # read all lines
++        for line in inFile.readlines():
++          # split line into arguments - ignore comments with '#' and append that to the command
++          tokens = shlex.split(line, True)
++          # try to expand since the resposne files could be nested
++          commands.extend(ParseArgsWithResponseFile(tokens))
++      # might not have been a valid file
++      except IOError:
++        print "cannot open".arg[1:]
++        pass
++    # argument is not a response file
++    else:
++      commands.append(arg)
++ 
++  return commands
+ 
+ def ParseCommandLine(line):
+   """Parse line as it were issued in a shell (optimized).
+@@ -330,8 +364,11 @@
+   Modifies:
+     compiler_defaults
+   """
+-  if __debug__: Debug(DEBUG_TRACE, "ParseCommand %s" % args)
++  if __debug__: Debug(DEBUG_TRACE, "ParseCommand before response file expansion %s" % args)
++  args = ParseArgsWithResponseFile(args)
+ 
++  if __debug__: Debug(DEBUG_TRACE, "ParseCommand after response file expansion %s" % args)
++  
+   assert isinstance(dir_map, cache_basics.DirectoryMapToIndex)
+   assert isinstance(includepath_map, cache_basics.MapToIndex)
+ 
+Index: src/argutil.c
+===================================================================
+--- src/argutil.c	(revision 755)
++++ src/argutil.c	(working copy)
+@@ -116,8 +116,60 @@
+     return 0;
+ }
+ 
++/* Expand response files in the commandline, e.g.: cc @compileflags.rsp
++ * which are supported by more recent gcc compiler versions
++ */
++int dcc_expand_rsp_argv(char **from, char ***out, int *rsp_file_count)
++{
++  char **b;
++  char *filename;
++  char *argv[999];
++  char arg[999];
++  int i, l, argc = 0;
+ 
++  l = dcc_argv_len(from);
+ 
++  /* iterate through from and search for arguments starting with '@' */
++  for (i=0; i < l && argc < 999; ++i) {
++    /* response file? */
++    if (from[i][0] == '@') {
++      filename = from[i] + 1;
++      /* open that file */
++      FILE *fp = NULL;
++      fp = fopen( filename, "r");
++      if (!fp) {
++        rs_log_error("%s: no such response file to expand\n", filename);
++        continue;
++      }
++      ++(*rsp_file_count); /* increment file count */
++      /* read content of file word by word like command line arguments */
++      while (fscanf( fp, "%s", arg) == 1) {
++        argv[argc] = strdup(arg);
++        ++argc;
++      }
++      fclose(fp);
++    }
++    else {
++      argv[argc] = strdup(from[i]);
++      ++argc;
++    }
++  }
++
++  /* copy argv into out */
++  b = malloc((argc + 1) * (sizeof from[0]));
++  if (b == NULL) {
++    rs_log_error("failed to allocate copy of argv");
++    return EXIT_OUT_OF_MEMORY;
++  }
++  for (i=0; i < argc; ++i) {
++    b[i] = argv[i];
++  }
++  b[argc] = NULL;
++  *out = b;
++
++  return 0;
++}
++
+ /**
+  * Convert an argv array to printable form for debugging output.
+  *
+Index: src/distcc.c
+===================================================================
+--- src/distcc.c	(revision 755)
++++ src/distcc.c	(working copy)
+@@ -219,8 +219,9 @@
+ {
+     int status, sg_level, tweaked_path = 0;
+     char **compiler_args = NULL; /* dynamically allocated */
++    char **compiler_args_expanded = NULL; /* dynamically allocated */
+     char *compiler_name; /* points into argv[0] */
+-    int ret;
++    int ret, rsp_file_count, i;
+ 
+     dcc_client_catch_signals();
+     atexit(dcc_cleanup_tempfiles);
+@@ -315,7 +316,6 @@
+         if ((ret = dcc_support_masquerade(argv, compiler_name,
+                                           &tweaked_path)) != 0)
+             goto out;
+-
+         if ((ret = dcc_copy_argv(argv, &compiler_args, 0)) != 0) {
+             goto out;
+         }
+@@ -334,6 +334,25 @@
+         goto out;
+     }
+ 
++    /* recursively expand response files */
++    for (i = 0; i < 10; ++i) { /*max recursion 10*/
++      rsp_file_count = 0;
++      if ((ret = dcc_expand_rsp_argv(compiler_args,
++        &compiler_args_expanded, &rsp_file_count)) != 0) {
++          goto out;
++      }
++      if (rsp_file_count > 0) { /* expansion successful*/
++        dcc_free_argv(compiler_args);
++        if ((ret=dcc_copy_argv(compiler_args_expanded,
++                              &compiler_args, 0)) != 0)
++          goto out;
++        dcc_free_argv(compiler_args_expanded);
++      }
++      else { /* no response files */
++        break;
++      }
++    }
++
+     ret = dcc_build_somewhere_timed(compiler_args, sg_level, &status);
+     compiler_args = NULL; /* dcc_build_somewhere_timed already free'd it. */
+ 
+@@ -341,6 +360,9 @@
+     if (compiler_args) {
+       dcc_free_argv(compiler_args);
+     }
++    if (compiler_args_expanded) {
++      dcc_free_argv(compiler_args_expanded);
++    }
+     dcc_maybe_send_email();
+     dcc_exit(ret);
+ }
+Index: src/distcc.h
+===================================================================
+--- src/distcc.h	(revision 755)
++++ src/distcc.h	(working copy)
+@@ -260,6 +260,7 @@
+ unsigned int dcc_argv_len(char **a);
+ int dcc_argv_search(char **a, const char *);
+ int dcc_copy_argv(char **argv, char ***out_argv, int extra_args);
++int dcc_expand_rsp_argv(char **from, char ***out, int *rsp_file_count);
+ int dcc_argv_append(char **argv, char *toadd);
+ char *dcc_argv_tostr(char **a);
+ void dcc_free_argv(char **argv);
