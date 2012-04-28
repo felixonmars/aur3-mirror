@@ -1,0 +1,233 @@
+=== modified file '__init__.py'
+--- __init__.py	2011-04-20 17:05:40 +0000
++++ __init__.py	2012-04-19 11:00:28 +0000
+@@ -1,12 +1,14 @@
+ from gwibber.microblog import network, util
+ from htmlentitydefs import name2codepoint
+ import re
+-import gnomekeyring
+ from oauth import oauth
+-from gwibber.microblog.util import log, resources
++from gwibber.microblog.util import resources
+ from gettext import lgettext as _
+ import sina.utils
+-log.logger.name = "Sina"
++
++import logging
++logger = logging.getLogger("Sina")
++logger.debug("Initializing.")
+ 
+ PROTOCOL_INFO = {
+   "name": "Sina",
+@@ -107,7 +109,7 @@
+         m["images"] = images
+         m["type"] = "photo"
+     except: 
+-      log.logger.error("%s failure - %s", PROTOCOL_INFO["name"], data)
++      logger.error("%s failure - %s", PROTOCOL_INFO["name"], data)
+       return {}
+  
+     return m
+@@ -219,7 +221,7 @@
+     if isinstance(data, dict) and data.get("errors", 0):
+       if "authenticate" in data["errors"][0]["message"]:
+         logstr = """%s: %s - %s""" % (PROTOCOL_INFO["name"], _("Authentication failed"), error["message"])
+-        log.logger.error("%s", logstr)
++        logger.error("%s", logstr)
+         return [{"error": {"type": "auth", "account": self.account, "message": data["errors"][0]["message"]}}]
+       else:
+         for error in data["errors"]:
+@@ -228,11 +230,11 @@
+     elif isinstance(data, dict) and data.get("error", 0):
+       if "Incorrect signature" in data["error"]:
+         logstr = """%s: %s - %s""" % (PROTOCOL_INFO["name"], _("Request failed"), data["error"])
+-        log.logger.error("%s", logstr)
++        logger.error("%s", logstr)
+         return [{"error": {"type": "auth", "account": self.account, "message": data["error"]}}]
+     elif isinstance(data, str):
+       logstr = """%s: %s - %s""" % (PROTOCOL_INFO["name"], _("Request failed"), data)
+-      log.logger.error("%s", logstr)
++      logger.error("%s", logstr)
+       return [{"error": {"type": "request", "account": self.account, "message": data}}]
+     
+     if parse == "list":
+
+=== modified file 'gtk/sina/__init__.py'
+--- gtk/sina/__init__.py	2011-04-16 17:30:04 +0000
++++ gtk/sina/__init__.py	2012-04-19 11:00:28 +0000
+@@ -1,9 +1,11 @@
+-import gtk, pango, webkit, gnomekeyring
++from gi.repository import Gdk, Gtk, WebKit, Pango
++from gi.repository.Gtk import Builder
++
+ import urllib, urllib2, json, urlparse, uuid
+ from oauth import oauth
+ 
+-from gtk import Builder
+ from gwibber.microblog.util import resources
++from gwibber.microblog.util.keyring import get_from_keyring
+ import gettext
+ from gettext import gettext as _
+ if hasattr(gettext, 'bind_textdomain_codeset'):
+@@ -11,33 +13,33 @@
+ gettext.textdomain('gwibber-service-sina')
+ import sina.utils
+ 
+-gtk.gdk.threads_init()
++Gdk.threads_init()
+ 
+ sigmeth = oauth.OAuthSignatureMethod_HMAC_SHA1()
+ 
+-class AccountWidget(gtk.VBox):
++class AccountWidget(Gtk.VBox):
+   """AccountWidget: A widget that provides a user interface for configuring sina accounts in Gwibber
+   """
+   
+   def __init__(self, account=None, dialog=None):
+     """Creates the account pane for configuring Sina accounts"""
+-    gtk.VBox.__init__( self, False, 20 )
+-    self.ui = gtk.Builder()
++    Gtk.VBox.__init__( self, False, 20 )
++    self.ui = Gtk.Builder()
+     self.ui.set_translation_domain ("gwibber")
+     self.ui.add_from_file (resources.get_ui_asset("gwibber-accounts-sina.ui"))
+     self.ui.connect_signals(self)
+     self.vbox_settings = self.ui.get_object("vbox_settings")
+-    self.pack_start(self.vbox_settings, False, False)
++    self.pack_start(self.vbox_settings, False, False, 0)
+     self.show_all()
+ 
+     self.account = account or {}
+     self.dialog = dialog
+-    has_secret_key = True
++    self.window = dialog.dialog
++    has_access_token = False
++
++    has_secret_key = False
+     if self.account.has_key("id"):
+-      try:
+-        value = gnomekeyring.find_items_sync(gnomekeyring.ITEM_GENERIC_SECRET, {"id": str("%s/%s" % (self.account["id"], "secret_token"))})[0].secret
+-      except gnomekeyring.NoMatchError:
+-        has_secret_key = False
++      has_secret_key = get_from_keyring(self.account['id'], 'secret_token') is not None
+ 
+     try:
+       if self.account.has_key("access_token") and self.account.has_key("secret_token") and self.account.has_key("username") and has_secret_key and not self.dialog.condition:
+@@ -53,12 +55,12 @@
+       if self.dialog.ui:
+         self.dialog.ui.get_object("vbox_create").hide()
+ 
+-
+   def on_sina_auth_clicked(self, widget, data=None):
+     self.winsize = self.window.get_size()
+ 
+-    web = webkit.WebView()
++    web = WebKit.WebView()
+     web.get_settings().set_property("enable-plugins", False)
++    web.get_settings().set_property("enable-developer-extras", False)
+     web.load_html_string(_("<p>Please wait...</p>"), "file:///")
+ 
+     self.consumer = oauth.OAuthConsumer(*sina.utils.get_sina_keys())
+@@ -78,15 +80,18 @@
+     web.set_size_request(550, 400)
+     web.connect("title-changed", self.on_sina_auth_title_change)
+ 
+-    self.scroll = gtk.ScrolledWindow()
++    self.scroll = Gtk.ScrolledWindow()
++    
+     self.scroll.add(web)
++    self.scroll.set_size_request(550, 400)
+ 
+     self.pack_start(self.scroll, True, True, 0)
+     self.show_all()
++    self.dialog.infobar.hide()
+ 
+     self.ui.get_object("vbox1").hide()
+     self.ui.get_object("vbox_advanced").hide()
+-    self.dialog.infobar.set_message_type(gtk.MESSAGE_INFO)
++    self.dialog.infobar.set_message_type(Gtk.MessageType.INFO)
+ 
+   def on_sina_auth_title_change(self, web=None, title=None, data=None):
+     saved = False
+@@ -98,12 +103,12 @@
+       self.dialog.infobar_content_area.show()
+       self.dialog.infobar.show()
+ 
+-      message_label = gtk.Label(_("Verifying"))
++      message_label = Gtk.Label(_("Verifying"))
+       message_label.set_use_markup(True)
+-      message_label.set_ellipsize(pango.ELLIPSIZE_END)
++      message_label.set_ellipsize(Pango.EllipsizeMode.END)
+       self.dialog.infobar_content_area.add(message_label)
+       self.dialog.infobar.show_all()
+-      self.scroll.hide()
++      self.scroll.destroy()
+       url = web.get_main_frame().get_uri()
+       data = urlparse.parse_qs(url.split("?", 1)[1])
+ 
+@@ -136,7 +141,7 @@
+ 
+       account_data = json.loads(urllib2.urlopen(apireq.to_url()).read())
+ 
+-      self.account["username"] = account_data["screen_name"]
++      self.account["username"] = account_data["screen_name"].encode("utf-8")
+       self.account["user_id"] = account_data["id"]
+ 
+       if isinstance(account_data, dict):
+@@ -144,16 +149,16 @@
+           saved = self.dialog.on_edit_account_save()
+         else:
+           print "Failed"
+-          self.dialog.infobar.set_message_type(gtk.MESSAGE_ERROR)
++          self.dialog.infobar.set_message_type(Gtk.MessageType.ERROR)
+           message_label.set_text(_("Authorization failed. Please try again.")) 
+       else:
+         print "Failed"
+-        self.dialog.infobar.set_message_type(gtk.MESSAGE_ERROR)
++        self.dialog.infobar.set_message_type(Gtk.MessageType.ERROR)
+         message_label.set_text(_("Authorization failed. Please try again."))
+ 
+       if saved: 
+         message_label.set_text(_("Successful"))
+-        self.dialog.infobar.set_message_type(gtk.MESSAGE_INFO)
++        self.dialog.infobar.set_message_type(Gtk.MessageType.INFO)
+         #self.dialog.infobar.hide()
+ 
+       self.ui.get_object("hbox_sina_auth").hide()
+@@ -167,11 +172,15 @@
+     self.window.resize(*self.winsize)
+ 
+     if title.get_title() == "Failure":
+-      web.hide()
+-      self.dialog.infobar.set_message_type(gtk.MESSAGE_ERROR)
+-      message_label.set_text(_("Authorization failed. Please try again."))
++      self.dialog.infobar.set_message_type(Gtk.MessageType.ERROR)
++      message_label = Gtk.Label (_("Authorization failed. Please try again."))
++      message_label.set_use_markup(True)
++      message_label.set_ellipsize(Pango.EllipsizeMode.END)
++      self.dialog.infobar_content_area.add(message_label)
+       self.dialog.infobar.show_all()
+ 
+       self.ui.get_object("vbox1").show()
+       self.ui.get_object("vbox_advanced").show()
++      self.scroll.destroy()
+       self.window.resize(*self.winsize)
++      self.dialog.select_account ()
+
+=== modified file 'setup.py'
+--- setup.py	2011-04-14 03:26:26 +0000
++++ setup.py	2012-04-19 11:00:28 +0000
+@@ -16,9 +16,9 @@
+     ('share/gwibber/plugins/sina/gtk', glob("gtk/*.*")),
+     ('share/gwibber/plugins/sina/gtk/sina', glob("gtk/sina/*.*")),
+     ('share/gwibber/plugins/sina/ui', glob("ui/*.*")),
+-    ('share/gwibber/plugins/sina/ui/icons/16x16', glob("ui/icons/16x16/*.*")),
+-    ('share/gwibber/plugins/sina/ui/icons/22x22', glob("ui/icons/22x22/*.*")),
+-    ('share/gwibber/plugins/sina/ui/icons/scalable', glob("ui/icons/scalable/*.*")),
++    ('share/gwibber/ui/icons/hicolor/16x16/apps', glob("ui/icons/16x16/*.*")),
++    ('share/gwibber/ui/icons/hicolor/22x22/apps', glob("ui/icons/22x22/*.*")),
++    ('share/gwibber/ui/icons/hicolor/scalable/apps', glob("ui/icons/scalable/*.*")),
+     ('share/gwibber/plugins/sina/data', glob("data/*.*")),
+     ],
+       cmdclass = { "build" :  build_extra.build_extra,
+
