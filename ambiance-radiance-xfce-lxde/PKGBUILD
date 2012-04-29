@@ -12,7 +12,7 @@ depends=('gtk-engine-murrine' 'gtk-engine-unico')
 makedepends=
 options=
 install=
-source=('http://dl.dropbox.com/u/4199602/Ambiance%26Radiance-XfceLXDE-12-04.tar.gz')
+source=('http://xfce-look.org/CONTENT/content-files/146674-Ambiance&Radiance-XfceLXDE-12-04.tar.gz')
 md5sums=('a15ffaf22dbdbb69cc12a5b80c94be80')
 
 build() {
