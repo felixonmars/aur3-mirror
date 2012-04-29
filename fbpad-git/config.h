@@ -4,8 +4,16 @@
 #define MAIL		"mailx"
 #define EDITOR		"vi"
 
-#define TINYFONT	"/path/to/tinyfont/file.tf"
-#define TINYFONT_BOLD	"/path/to/tinyfont/file.tf"
+/* font sets */
+#define FR0		"/path/to/tinyfont/file.tf"
+#define FI0		NULL
+#define FB0		NULL
+#define FR1		NULL
+#define FI1		NULL
+#define FB1		NULL
+#define FR2		NULL
+#define FI2		NULL
+#define FB2		NULL
 
 #define FGCOLOR		0
 #define BGCOLOR		7
