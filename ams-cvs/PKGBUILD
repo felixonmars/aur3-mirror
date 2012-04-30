@@ -1,11 +1,10 @@
 # Contributor: Shinlun Hsieh <yngwiexx@yahoo.com.tw>
 # Contributor: Stefan Husmann <stefan-husmann@t-online.de>
-# as of 1.8.8rc2
 # Contributor: farid abdelnour <farid at atelier-labs.org>
 # Maintainer: David Adler <david dot jo dot adler aet gmail dot com>
 
 pkgname=ams-cvs
-pkgver=20120207
+pkgver=20120430
 pkgrel=1
 pkgdesc="Alsa Modular Synth, a realtime modular synthesizer and effect processor"
 arch=('i686' 'x86_64')
@@ -49,3 +48,5 @@ package() {
   cd "$srcdir/$_cvsmod-build"
   make DESTDIR="$pkgdir/" install
 }
+
+# vim:set ts=2 sw=2 et:
