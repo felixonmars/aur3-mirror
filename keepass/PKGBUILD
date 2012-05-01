@@ -2,16 +2,16 @@
 # Contributor: Andrej Gelenberg <andrej.gelenberg@udo.edu>
 
 pkgname=keepass
-pkgver=2.18_120116
+pkgver=2.19
 pkgrel=1
-pkgdesc="KeePass Password Safe, the free, open source, light-weight and easy-to-use password manager."
+pkgdesc="KeePass Password Safe, the free, open source, light-weight and easy-to-use password manager"
 arch=('any')
 url="http://keepass.info/"
 license=('GPL2')
 depends=('mono>=2.6' 'desktop-file-utils' 'xdg-utils')
 optdepends=('xdotool: if you want to use auto-type.')
 install=keepass.install
-source=(http://keepass.info/filepool/KeePass_120116_Unix.zip
+source=(http://downloads.sourceforge.net/keepass/KeePass-2.19.zip
         keepass
         keepass.1
         keepass.desktop
@@ -52,10 +52,10 @@ package() {
   install -Dm644 keepass.xml ${pkgdir}/usr/share/mime/packages/keepass.xml
 }
 
-md5sums=('3ec1a5aa705d1020815fb3c38f733e76'
+md5sums=('20b8551b4afe786a929120a5e86fe932'
          'daa5d6c01c11cf38c6f5cc207333aa9a'
          'a2a0dff1ebf0aaf6cbfb6f8566f4a010'
-         '0ff6c4e6b12b77d1954292efcd2e6b97'
+         '226934813eaa6bf01f01cc3926846707'
          '1d7545e79e7aa1107a9f78cb46ced251'
          'ac0f1e104f82d295c27646bfff39fecc'
          '490859f348e492b5e33739262ff07f00'
