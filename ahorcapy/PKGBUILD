@@ -1,6 +1,6 @@
 # Maintainer: Alfonso Saavedra "Son Link" <sonlink.dourden@gmail.com>
 pkgname=ahorcapy
-pkgver=0.9.0
+pkgver=0.9.1
 pkgrel=1
 pkgdesc="a Hangman game version"
 arch=(any)
@@ -9,7 +9,7 @@ license=('GPL3')
 groups=()
 depends=('python' 'ncurses')
 source=(http://dl.dropbox.com/u/58286032/programas/${pkgname}-${pkgver}.tar.gz)
-md5sums=('e91173b865391e41a5a12050d035cd8b')
+md5sums=('02a816f2940b6363c6ae367f9a631184')
 
 package() {
   cd "${srcdir}"
