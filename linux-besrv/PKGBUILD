@@ -9,7 +9,7 @@ true && pkgname=("linux$_kernelname" "linux$_kernelname-headers")
 _basekernel=3.0
 _patchver=30
 pkgver=$_basekernel
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -133,7 +133,7 @@ package_linux-besrv() {
 	backup=(
 		"etc/mkinitcpio.d/$pkgname.preset"
 	)
-	depends=('coreutils' 'module-init-tools>=3.12-2' 'mkinitcpio>=0.7')
+	depends=('coreutils' 'kmod' 'mkinitcpio>=0.7')
 	optdepends=(
 		'crda: to set the correct wireless channels of your country'
 	)

@@ -9,7 +9,7 @@ true && pkgname=("linux$_kernelname" "linux$_kernelname-headers")
 _basekernel=3.3
 _patchver=4
 pkgver=$_basekernel
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 license=('GPL2')
 url="http://www.kernel.org"
@@ -139,7 +139,7 @@ package_linux-bede() {
 		"etc/mkinitcpio.d/$pkgname.preset"
 		"etc/sysctl.d/sysctl-$pkgname.conf"
 	)
-	depends=('coreutils' 'module-init-tools>=3.12-2' 'mkinitcpio>=0.7')
+	depends=('coreutils' 'kmod' 'mkinitcpio>=0.7')
 	optdepends=(
 		'crda: to set the correct wireless channels of your country'
 		'linux-firmware: when having some hardware needing special firmware'
