@@ -1,18 +1,19 @@
-# Maintainer: Andrea Scarpino <andrea@archlinux.org>
+# Maintainer: birdflesh <antkoul at gmail dot com>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
 
 pkgname=akonadi-google-git
-pkgver=20110613
+pkgver=20120503
 pkgrel=1
 pkgdesc="An Akonadi resource for accessing Google services"
 arch=('i686' 'x86_64')
-url="http://progdan.cz/category/akonadi-google/"
+url="http://projects.kde.org/akonadi-google"
 license=('GPL')
-depends=('kdepimlibs' 'qjson')
+depends=('kdebase-runtime' 'kdepimlibs' 'qjson')
 makedepends=('git' 'cmake' 'automoc4' 'boost')
 provides=('akonadi-google')
 conflicts=('akonadi-google')
 
-_gitroot="git://anongit.kde.org/akonadi-google.git"
+_gitroot="git://anongit.kde.org/scratch/dvratil/akonadi-google.git"
 _gitname="akonadi-google"
 
 build() {
