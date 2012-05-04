@@ -1,22 +1,23 @@
-EXE	=
-LIB	= .a
-LIBSO	= .so
-OBJ	= .o
+# from Make.inc/Makefile.inc.x86-64_pc_linux2
+EXE		=
+LIB		= .a
+OBJ		= .o
 
-MAKE	= make
-AR	= ar
-ARFLAGS	= -ruv
-CAT	= cat
-CCS	= gcc
-CCP     = mpicc
-CCD	= gcc
-CFLAGS	= -O3 -fPIC -DCOMMON_FILE_COMPRESS_GZ -DCOMMON_PTHREAD -DCOMMON_RANDOM_FIXED_SEED -DSCOTCH_PTHREAD -DSCOTCH_RENAME
-LD	= ld -fPIC -shared
-LDFLAGS	= -lz -lm -lrt
-CP	= cp
-LEX	= flex
-LN	= ln
-MKDIR	= mkdir
-MV	= mv
-RANLIB	= ranlib
-YACC	= bison -y
+MAKE		= make
+AR		= ar
+ARFLAGS		= -ruv
+CAT		= cat
+CCS		= gcc
+CCP		= mpicc
+CCD		= gcc
+CFLAGS		= -O3 -DCOMMON_FILE_COMPRESS_GZ -DCOMMON_PTHREAD -DCOMMON_RANDOM_FIXED_SEED -DSCOTCH_RENAME -DSCOTCH_RENAME_PARSER -DSCOTCH_PTHREAD -Drestrict=__restrict -DIDXSIZE64
+CLIBFLAGS	=
+# -lpthread added by SE
+LDFLAGS		= -lz -lm -lrt -lpthread
+CP		= cp
+LEX		= flex -Pscotchyy -olex.yy.c
+LN		= ln
+MKDIR		= mkdir
+MV		= mv
+RANLIB		= ranlib
+YACC		= bison -pscotchyy -y -b y
