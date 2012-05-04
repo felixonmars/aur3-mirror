@@ -2,23 +2,22 @@
 # Contributor: Giulio Bai <giulio@hewle.com>
 
 pkgname=accerciser
-pkgver=3.2.1
-pkgrel=1
+pkgver=3.4.1
+pkgrel=2
 pkgdesc="Interactive Python accessibility explorer for the GNOME desktop"
 arch=('any')
 url="http://live.gnome.org/Accerciser"
 license=('BSD')
 source=(http://ftp.gnome.org/pub/GNOME/sources/accerciser/${pkgver%.*}/$pkgname-$pkgver.tar.xz)
-md5sums=('862eb800643b822975f4f32e7da528ef')
-depends=('gnome-python-desktop>=2.14'
-         'pygtk>=2.8'
-	 'python2>=2.4'
+md5sums=('fba7edb13dd80ef63e6044b411a6a84f')
+depends=('python2-cairo'
+         'python2-gobject'
+	 'pyatspi'
+	 'at-spi2-atk'
+	 'libwnck3'
 	 'ipython2'
-	 'glib2>=2.10'
-	 'at-spi2-core>=2.1.5'
-       	 'dconf'
          'hicolor-icon-theme')
-makedepends=('gnome-doc-utils' 'intltool' 'gobject-introspection')
+makedepends=('gnome-doc-utils' 'intltool')
 install=accerciser.install
 
 build () {
