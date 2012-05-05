@@ -14,10 +14,14 @@ whitelist=( '  ' )
 
 mkdir -p $tmpdir/hostsblock/hosts.block.d
 cp $hostsfile $tmpdir/hostsblock/hosts.block.d/hosts.block.0
+echo "ADDING OVERTLY SPECIFIED BLOCKED SUBDOMAINS..."
+for sub in ${blacklist[*]}; do
+	echo "$redirecturl $sub" >> $tmpdir/hostsblock/hosts.block.d/hosts.block.0
+done
 n=1
 
-echo "DOWNLOADING AND EXTRACTING BLACKLISTS..."
-for url in ${blacklists[*]}; do
+echo "DOWNLOADING AND EXTRACTING BLOCKLISTS..."
+for url in ${blocklists[*]}; do
 	echo "$n: $url..."
 	if echo "$url " | grep -- ".zip " &>/dev/null; then
 		mkdir $tmpdir/hostsblock/tmp
