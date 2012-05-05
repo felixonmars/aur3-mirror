@@ -1,6 +1,6 @@
 #!/usr/bin/perl
-# rt2870-firmware-update v0.2.2
-## Copyright 2011 Simone Sclavi 'Ito'
+# rt2870-firmware-update v0.2.2.1
+## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation, either version 3 of the License, or
@@ -76,7 +76,7 @@ my $ae = Archive::Extract->new( archive => '/tmp/rt2870-firmware.zip' );
 $ae->extract( to => '/tmp') or die ':: ', $ae->error, "\n";
 
 my $new_firmware = $ae->extract_path . '/rt2870.bin';
-my $old_firmware = '/lib/firmware/rt2870.bin';
+my $old_firmware = '/usr/lib/firmware/rt2870.bin';
 die ":: you already have the latest firmware\n" if (compare($new_firmware, $old_firmware) == 0); 
 copy ($new_firmware, $old_firmware) or die ":: copy failed: $!\n";
 say ':: firmware updated successfully!';
