@@ -5,7 +5,7 @@ pkgver=15
 pkgrel=2
 pkgdesc="Map of Spb for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://spb.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Spb-${pkgver}.orig.zip")
