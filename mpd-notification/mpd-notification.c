@@ -1,5 +1,5 @@
 /*
- * (C) 2011 by Christian Hesse <mail@eworm.de>
+ * (C) 2011-2012 by Christian Hesse <mail@eworm.de>
  *
  * This software may be used and distributed according to the terms
  * of the GNU General Public License, incorporated herein by reference.
@@ -18,6 +18,7 @@
 
 #define TEXT_PLAY	"Playing\n<b>%s</b>\nby <i>%s</i>\nfrom <i>%s</i>"
 #define TEXT_STOP	"Stopped playback"
+#define TEXT_UNKNOWN	"(unknown)"
 
 int main(int argc, char ** argv) {
 	struct mpd_connection * conn = mpd_connection_new(NULL, 0, 30000);
@@ -57,15 +58,17 @@ int main(int argc, char ** argv) {
 
 			song = mpd_recv_song(conn);
 
-			title = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_TITLE, 0), -1);
-			artist = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ARTIST, 0), -1);
-			album = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ALBUM, 0), -1);
-
-			mpd_song_free(song);
+			if ((title = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_TITLE, 0), -1)) == NULL)
+				title = TEXT_UNKNOWN;
+			if ((artist = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ARTIST, 0), -1)) == NULL)
+				artist = TEXT_UNKNOWN;
+			if ((album = g_markup_escape_text(mpd_song_get_tag(song, MPD_TAG_ALBUM, 0), -1)) == NULL)
+				album = TEXT_UNKNOWN;
 
 			notification = (char *) malloc(strlen(TEXT_PLAY) + strlen(title) + strlen(artist) + strlen(album));
 			sprintf(notification, TEXT_PLAY, title, artist, album);
 
+			mpd_song_free(song);
 		} else {
 			notification = (char *) malloc(strlen(TEXT_STOP));
 			sprintf(notification, TEXT_STOP);
@@ -82,6 +85,7 @@ int main(int argc, char ** argv) {
 		while(!notify_notification_show(netlink, &error)) {
 			if (errcount > 1) {
 				fprintf(stderr, "%s: Looks like we can not reconnect to notification daemon... Exiting.\n", argv[0]);
+				exit(EXIT_FAILURE);
 			} else {
 				g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
 				errcount++;
