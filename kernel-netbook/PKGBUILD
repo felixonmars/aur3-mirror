@@ -2,7 +2,7 @@
 # Thanks to graysky for a lot of features in this PKGBUILD
 
 BFQ_IO_SCHEDULER="y"
-TUX_ON_ICE="n" #Use the HEAD patch by git tree
+TUX_ON_ICE="y" #Use the HEAD patch by git tree
 BROADCOM_WL="n"
 LOCALMODCONFIG="n"
 USE_CURRENT="n"
@@ -34,8 +34,8 @@ true && pkgname=('kernel-netbook' 'kernel-netbook-headers')
 makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware')
 optdepends=('hibernate-script: tux on ice default script' 'tuxonice-userui: graphical interface for toi [AUR]')
 _basekernel=3.3
-pkgver=${_basekernel}.2
-pkgrel=3
+pkgver=${_basekernel}.4
+pkgrel=1
 pkgdesc="Static kernel for netbooks with Intel Atom N270/N280/N450/N550 such as eeepc with the add-on of external firmware (broadcom-wl) and patchset (BFS + TOI + BFQ optional) - Only Intel GPU - Give more power to your netbook!"
 options=('!strip')
 arch=('i686')
@@ -44,12 +44,12 @@ url=('http://code.google.com/p/kernel-netbook')
 
 ####################################
 md5sums=('98a6cdd7d082b7ea72df9c89842bac74'
-         '6c06d29ee2bd60d4482ebeedd9f3a8da'
+	 '5aeb2b97a42c59c52dbe51fc18a94b25'
          '62d04d148b99f993ef575a71332593a9'
          '15a65cc8e4a9720a044fcdaac8bb2522'
          '6b2425e00827d1b795001d09c8135a30'
          '83577ddfbcd2bdc079bff04c5848b8e1'
-         '3c7bba84075454322a05f105029b10a7'
+	 'ad6b29a8c8b092f944ec8d6ce03d87f2'
          'e8c333eaeac43f5c6a1d7b2f47af12e2'
          '5974286ba3e9716bfbad83d3f4ee985a'
          'a6f0377c814da594cffcacbc0785ec1a'
@@ -61,7 +61,7 @@ md5sums=('98a6cdd7d082b7ea72df9c89842bac74'
          '263725f20c0b9eb9c353040792d644e5'
          'c8299cf750a84e12d60b372c8ca7e1e8'
          'a9c018cb0b9caa90f03ee90b71a2c457'
-         'e4ffc5d40fdfe3faeb88c08bbe514afb')
+         'dab4e5b9137783b45850f9ab16c8ce19')
 ###################################
 #  external drivers  and firmware #
 ###################################
@@ -93,7 +93,8 @@ source=( #kernel sources and arch patchset
 	#TuxOnIce:
 	#"http://tuxonice.net/files/${_toipatch}"
 	#"http://user.it.uu.se/~mikpe/linux/patches/tuxonice/${_toipatch}"
-	"http://chakra-linux.org/sources/linux/patches/3.2/features/tuxonice/${_toipatch}.xz"
+	#"http://chakra-linux.org/sources/linux/patches/3.2/features/tuxonice/${_toipatch}.xz"
+	"toi-3.4.patch"
 	#Arch Logo
 	"logo_linux_mono.pbm"
 	"logo_linux_clut224.ppm"
@@ -155,7 +156,8 @@ build() {
     #bzip2 -d ${srcdir}/${_toipatch} \
     #    | sed 's/printk(KERN_INFO "PM: Creating hibernation image:\\n/printk(KERN_INFO "PM: Creating hibernation image: \\n/' \
     #    | patch -Np1 -F4 || { echo "Failed TOI"; return 1 ; }
-    patch -Np1 -F4 -i ${srcdir}/${_toipatch}
+    ##patch -Np1 -F4 -i ${srcdir}/${_toipatch}
+    patch -Np1 -F4 -i ${srcdir}/toi-3.4.patch
   fi
 
   # --> BFQ
