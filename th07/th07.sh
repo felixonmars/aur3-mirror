@@ -4,7 +4,7 @@ export WINEDLLOVERRIDES="mshtml="
 
 if [ ! -d "$HOME"/.th07 ] ; then
   mkdir -p "$HOME"/.th07/wine || exit 1
-  cp -r /usr/share/th07/th07.cfg "$HOME"/.th07 || exit 1
+  echo "AAABAAIABAD//////////wMAAAACAAcAWAJYAgIDAAIBAQAAAgABAAAAAAAAAAAAAAAAAAEIAAA=" |base64 -d > "$HOME"/.th07 || exit 1
   ln -s /usr/share/th07/th07.exe "$HOME"/.th07/th07.exe || exit 1
   ln -s /usr/share/th07/custom.exe "$HOME"/.th07/custom.exe || exit 1
   ln -s /usr/share/th07/th07tr.dat "$HOME"/.th07/th07tr.dat || exit 1
