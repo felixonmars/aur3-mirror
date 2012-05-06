@@ -24,7 +24,7 @@
 
 // we need these to be global...
 unsigned int netlinksize = 1; // never use 0 and avoid overwriting the main pointer...
-NotifyNotification ** netlinkref = NULL;
+size_t * netlinkref;
 char * program = NULL;
 
 static int data_attr_cb(const struct nlattr * attr, void * data) {
@@ -57,33 +57,31 @@ static int data_cb(const struct nlmsghdr * nlh, void * data) {
 	struct ifinfomsg * ifm = mnl_nlmsg_get_payload(nlh);
 
 	char * notification = NULL;
-	char * interface = NULL;
+	const char * interface = NULL;
 	NotifyNotification * netlink = NULL;
-	unsigned int i, errcount = 0;
+	unsigned int errcount = 0;
 
 	gboolean res = FALSE;
 	GError * error = NULL;
 
 	mnl_attr_parse(nlh, sizeof(* ifm), data_attr_cb, tb);
 
-	interface = (char *) mnl_attr_get_str(tb[IFLA_IFNAME]);
-	notification = (char *) malloc(strlen(interface) + strlen(NOTIFICATION_TEXT));
+	interface = mnl_attr_get_str(tb[IFLA_IFNAME]);
+	notification = malloc(strlen(interface) + strlen(NOTIFICATION_TEXT) + 1); // 2* %s is enough for "down", but we need an additional byte for \n
 	sprintf(notification, NOTIFICATION_TEXT, interface, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
 	printf(NOTIFICATION_TEXT_DEBUG, program, interface, ifm->ifi_index, (ifm->ifi_flags & IFF_RUNNING ? "up" : "down"));
 
-	if (netlinksize < ifm->ifi_index + 1) {
-		netlinkref = realloc(netlinkref, (ifm->ifi_index + 1) * sizeof(NotifyNotification));
-		for(i = netlinksize; i < ifm->ifi_index + 1; i++) {
-			netlinkref[i] = NULL;
-		}
-		netlinksize = ifm->ifi_index + 1;
+	if (netlinksize < ifm->ifi_index) {
+		netlinkref = realloc(netlinkref, (ifm->ifi_index + 1) * sizeof(size_t));
+		while(netlinksize < ifm->ifi_index)
+			netlinkref[++netlinksize] = 0;
 	}
 	
-	if (netlinkref[ifm->ifi_index] == NULL) {
+	if (netlinkref[ifm->ifi_index] == 0) {
 		netlink = notify_notification_new("Netlink", notification, (ifm->ifi_flags & IFF_RUNNING ? "network-transmit-receive" : "network-error"));
-		netlinkref[ifm->ifi_index] = netlink;
+		netlinkref[ifm->ifi_index] = (size_t)netlink;
 	} else {
-		netlink = netlinkref[ifm->ifi_index];
+		netlink = (NotifyNotification *)netlinkref[ifm->ifi_index];
 		notify_notification_update(netlink, "Netlink", notification, (ifm->ifi_flags & IFF_RUNNING ? "network-transmit-receive" : "network-error"));
 	}
 
