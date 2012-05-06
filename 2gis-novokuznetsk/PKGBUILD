@@ -3,9 +3,9 @@
 pkgname=2gis-novokuznetsk
 pkgver=81
 pkgrel=1
-pkgdesc="Map of Novokuznetsk for 2GIS"
+pkgdesc="Map of Novokuznetsk for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://novokuznetsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Novokuznetsk-${pkgver}.orig.zip")
