@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-izhevsk
-pkgver=6
+pkgver=14
 pkgrel=1
-pkgdesc="Map of Izhevsk for 2GIS"
+pkgdesc="Map of Izhevsk for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://izhevsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Izhevsk-${pkgver}.orig.zip")
-md5sums=('1e307b7db911844a87d21cd7563eb548')
+md5sums=('6679d1cbba1b6f70f758d50af16199d0')
      
 build() {
      

@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-rostov
-pkgver=18
+pkgver=26
 pkgrel=1
-pkgdesc="Map of Rostov for 2GIS"
+pkgdesc="Map of Rostov for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://rostov.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Rostov-${pkgver}.orig.zip")
-md5sums=('1f9e91653b581159d5d389941dee5669')
+md5sums=('eb9757b4fda44e6df117d2afbe9abd30')
      
 build() {
      

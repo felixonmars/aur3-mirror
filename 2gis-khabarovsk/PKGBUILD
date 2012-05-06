@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-khabarovsk
-pkgver=10
+pkgver=18
 pkgrel=1
-pkgdesc="Map of Khabarovsk for 2GIS"
+pkgdesc="Map of Khabarovsk for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://khabarovsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Khabarovsk-${pkgver}.orig.zip")
-md5sums=('53afb2e945329c5e3fc098af055d26a0')
+md5sums=('d4ee53d49836a81d54c5f39caa44ce43')
      
 build() {
      

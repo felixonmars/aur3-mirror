@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ulanude
-pkgver=8
+pkgver=16
 pkgrel=1
-pkgdesc="Map of Ulanude for 2GIS"
+pkgdesc="Map of Ulanude for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://ulanude.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Ulanude-${pkgver}.orig.zip")
-md5sums=('2568afd2b15a55e8a9b954ad53e48575')
+md5sums=('020c46818ce9135f278b0249a8d909cf')
      
 build() {
      

@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-samara
-pkgver=38
+pkgver=46
 pkgrel=1
-pkgdesc="Map of Samara for 2GIS"
+pkgdesc="Map of Samara for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://samara.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Samara-${pkgver}.orig.zip")
-md5sums=('d52fd2b3b6a877c60113154070519f79')
+md5sums=('5198013570e21f8e6dc2ef65ab15193c')
      
 build() {
      

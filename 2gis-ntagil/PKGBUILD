@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ntagil
-pkgver=3
+pkgver=11
 pkgrel=1
-pkgdesc="Map of Ntagil for 2GIS"
+pkgdesc="Map of Ntagil for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://ntagil.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Ntagil-${pkgver}.orig.zip")
-md5sums=('d9cdecf41f3d05d84f3419e851d9d599')
+md5sums=('6338cdf635c3369f6e5f792f0d1b0305')
      
 build() {
      

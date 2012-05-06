@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-orenburg
-pkgver=2
+pkgver=10
 pkgrel=1
-pkgdesc="Map of Orenburg for 2GIS"
+pkgdesc="Map of Orenburg for 2GIS, May 2012"
 arch=('i686' 'x86_64')
-url="http://help.2gis.ru/linux/"
+url="http://orenburg.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis')
+depends=('2gis>=3.6.0.2')
 source=("http://download.2gis.ru/arhives/2GISData_Orenburg-${pkgver}.orig.zip")
-md5sums=('68374bf4186a2612f3b86d4859ab2ec6')
+md5sums=('e9898153cd40e10be01134b9bba7cf6a')
      
 build() {
      
