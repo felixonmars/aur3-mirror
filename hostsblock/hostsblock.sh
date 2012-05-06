@@ -7,10 +7,12 @@ redirecturl="127.0.0.1"
 dnsmasq=1
 dnsmasqconf=/etc/dnsmasq.conf
 pixelserv=1
-blacklists=( 'http://support.it-mate.co.uk/downloads/hphosts.zip' )
-whitelist=( '  ' )
+blocklists=('http://support.it-mate.co.uk/downloads/hphosts.zip')
 
 [ -f /etc/hostsblock.conf ] && . /etc/hostsblock.conf
+
+echo "BACKING UP $hostsfile TO $hostsfile.old..."
+cp "$hostsfile" "$hostsfile".old
 
 mkdir -p $tmpdir/hostsblock/hosts.block.d
 cp $hostsfile $tmpdir/hostsblock/hosts.block.d/hosts.block.0
@@ -38,16 +40,15 @@ for url in ${blocklists[*]}; do
 	let "n+=1"
 done
 
+echo "CONSTRUCTING WHITELIST"
+for pattern in ${whitelist[*]}; do
+	echo "/$pattern/d" >> $tmpdir/hostsblock/whitelist.sed
+done
+
 echo "PROCESSING FILES..."
 grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $tmpdir/hostsblock/hosts.block.d/* |\
 sed -e 's/[[:space:]][[:space:]]*/ /g' -e "s/\r//g" -e "s/\#.*//g" -e "s/ $//g" -e "s|0.0.0.0|$redirecturl|g" -e "s|127.0.0.1|$redirecturl|g"|\
-sort -u > $hostsfile
-
-echo "APPLYING WHITELIST..."
-for pattern in ${whitelist[*]}; do
-	pattern=`echo $pattern | sed 's/\./\\./g'`
-	sed -i "/$pattern/d" $hostsfile
-done
+sort -u | sed -f $tmpdir/hostsblock/whitelist.sed > $hostsfile
 
 totalhosts=`grep -c -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $hostsfile`
 echo "$totalhosts urls modified or blocked"
@@ -63,3 +64,5 @@ if [ $pixelserv == 1 ]; then
 	echo "(RE)STARTING PIXELSERV"
 	ps aux | grep -v grep | grep pixelserv.pl &>/dev/null || /etc/rc.d/pixelserv restart
 fi
+
+rm -r "$tmpdir"/hostsblock
