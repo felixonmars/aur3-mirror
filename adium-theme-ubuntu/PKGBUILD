@@ -1,16 +1,16 @@
-# Maintainer: Marco Londero <the.sonda90@gmail.com>
+# Maintainer: Vinicius de Avila Jorge <vinicius.avila.jorge@gmail.com>
 
 pkgname=adium-theme-ubuntu
-pkgver=0.3.1
+pkgver=0.3.2
 pkgrel=1
 pkgdesc="Adium message style for Ubuntu"
-arch=('i686' 'x86_64')
+arch=('any')
 url="https://launchpad.net/adium-theme-ubuntu"
-license=('GPL')
-depends=('empathy' 'python-distutils-extra')
-makedepends=()
-source=(http://launchpad.net/$pkgname/trunk/0.3/+download/$pkgname-$pkgver.tar.gz)
-md5sums=('1ec9c3fbd4fd46f55a07ae65a9b070d6')
+license=('BSD' 'custom:AFL')
+makedepends=('python-distutils-extra')
+optdepends=('empathy')
+source=(https://launchpadlibrarian.net/90831300/$pkgname-$pkgver.tar.gz)
+md5sums=('62454dfa385617913507cf62d52409bf')
 
 build() {
    cd $srcdir/$pkgname-$pkgver
