@@ -14,7 +14,7 @@ CFLAGS += -I/usr/include/ClearSilver
 all: local-shared-build diary-mkindex
 
 diary-mkindex:
-	$(CC) $(CFLAGS) -c diary-mkindex.c  -lmarkdown -lneo_utl -lneo_cs -o $@
+	$(CC) $(CFLAGS) diary-mkindex.c  -lmarkdown -lneo_utl -lneo_cs -o $@
 
 clean:
 	-rm -f *.o *.lo *.slo *.la diary-mkindex
