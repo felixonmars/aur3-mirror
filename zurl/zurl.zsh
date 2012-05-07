@@ -8,7 +8,7 @@ pastebin() {
             [[ "${${1##*//}%%\.*}" == "gist" ]] && url="https://raw.github.com/gist/${1##*/}" || url="$1"
             ;;
         pastebin.com)
-            url="http://pastebin.com/raw.php\?i\=${1##*/}"
+            [[ ${${1##*com/}%\.php*} == "raw" ]] && url=$1 || url="http://pastebin.com/raw.php\?i\=${1##*/}"
             ;;
         codepad.org)
             url="$1/raw.txt"
@@ -76,7 +76,7 @@ pastebin() {
 vr(){
     if [[ -z ${(Mf)$(vim --serverlist)#$1} ]];then
         if (( $+commands[tmux] )) && [[ -n ${(Mf)$(tmux list-session)##*attached} ]];then
-            tmux neww -n pastie "zsh -c 'vim \"+noremap q <esc>:q!<cr>\"  -c \":silent :r !curl -s $2 2>&/dev/null\" --servername $1 /tmp/${2##*[^0-9A-Za-z]}'"
+            tmux neww -n $1 "zsh -c 'vim \"+noremap q <esc>:q!<cr>\"  -c \":silent :r !curl -s $2 \" --servername $1 /tmp/${2##*[^0-9A-Za-z]}'"
         else
             urxvtc -e zsh -c "vim '+noremap q <esc>:q!<cr>'  -c ':silent :r !curl -s $2 2>&/dev/null' --servername $1 /tmp/${2##*[^0-9A-Za-z]}"
         fi
@@ -89,6 +89,7 @@ vr(){
 [[ -z ZURLCONFIG ]] && export ZURLCONFIG="PKGBUILD"
 export AURLINKS=${AURLINKS:-$ZURLCONFIG}
 filetype2="$(curl -I $1 2>& /dev/null |grep \^Content-Type|sed -e 'sT.*:\ \(.*/.*\);\?\ \?.*T\1Tg' )"
+filetype2=${filetype2%%;*}
 filetypeis=${filetype2%/*}
 case $filetypeis in 
     image)
@@ -105,7 +106,11 @@ case $filetypeis in
         ;;
     *)
         if [[ $filetype2 == "text/plain" ]];then
-            vr PASTIE $1
+            url=$1
+            if [[ "${${1##*//}%%/*}" == "pastebin.com" ]];then
+                url=${${url//\?/\\\?}//=/\\=}
+            fi
+            vr PASTIE $url
         else
             pastebin $1
         fi
