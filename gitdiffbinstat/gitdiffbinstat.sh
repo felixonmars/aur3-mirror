@@ -34,11 +34,17 @@ if [ -z "${obj}" ] ; then
 fi
 
 # Check if we are actually in a git repo
-
-gitcheck=`git tag |& awk 'match($0,/fatal:\ Not\ a\ git\ repository\ /) {print substr($0,RSTART,RLENGTH)}'`
-if [ "${gitcheck}" ] ; then
+if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] >& /dev/null ; then
 	echo "fatal: Not a git repository!"
 	echo "Make sure to be in a git repo!"
+	exit 1
+fi
+
+
+# Check if git can associated the input with anything usefull
+
+if [ ! `git rev-parse --quiet --verify ${obj}` ] ; then
+	echo "fatal: git could not associate '${obj}' with anything useful"
 	exit 1
 fi
 
@@ -47,8 +53,16 @@ curbranch=`git branch | awk '/^\*\ /' | sed -e 's/\*\ //'`
 # get current rev hash
 curcommit=`git rev-parse HEAD`
 # print what we compare with   git diff
-echo " ${obj} -> ${curbranch}"
-echo " ${obj} -> ${curcommit}"
+objhash=`git log -1 --format="%H" ${obj}`
+objbranch=`git symbolic-ref HEAD 2>&1`
+if [[ ! "${objbranch}" == *HEAD* ]] ; then
+	curbranch=`echo ${objbranch:11}`
+else
+	curbranch=${objhash}
+fi
+
+echo " ${curbranch} -> ${obj}"
+echo " ${curcommit} -> ${objhash}"
 
 
 # ${PWD} =directory we are currently in
