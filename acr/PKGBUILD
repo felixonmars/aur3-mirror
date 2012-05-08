@@ -1,4 +1,4 @@
-# Maintainer: stalker_exe <senokosov8@mail.ru>
+# Maintainer: stalker_exe <stalkerexe8@gmail.com>
 pkgname=acr
 pkgver=0.8.6
 pkgrel=1

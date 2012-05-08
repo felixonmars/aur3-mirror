@@ -1,4 +1,4 @@
-# Contributor: stalker_exe <senokosov8@mail.ru>
+# Contributor: stalker_exe <stalkerexe8@gmail.com>
 
 pkgname=4pane-svn
 pkgver=20111002
