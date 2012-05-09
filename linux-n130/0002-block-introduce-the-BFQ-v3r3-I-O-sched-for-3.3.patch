@@ -1,9 +1,9 @@
-From 5033051b8242f71007ac7ac6f8a50787e3fe7185 Mon Sep 17 00:00:00 2001
+From 5b076950e5365542c37dff3750642a7d21b60488 Mon Sep 17 00:00:00 2001
 From: Arianna Avanzini <avanzini.arianna@gmail.com>
-Date: Mon, 19 Dec 2011 16:34:45 +0100
-Subject: [PATCH 3/3] block: introduce the BFQ-v3r2 I/O sched for 3.2
+Date: Sun, 5 Feb 2012 01:04:27 +0100
+Subject: [PATCH 2/2] block: introduce the BFQ-v3r3 I/O sched for 3.3
 
-Add the BFQ-v3r2 I/O scheduler to 3.2.
+Add the BFQ-v3r3 I/O scheduler to 3.3.
 The general structure is borrowed from CFQ, as much of the code. A (bfq_)queue
 is associated to each task doing I/O on a device, and each time a scheduling
 decision has to be taken a queue is selected and it is served until it expires.
@@ -58,15 +58,15 @@ Regarding what has not changed it is worth noting:
     - The heuristics to assert that a task is worth an idle window (with
       minor modifications to hw_tag/CIC_SEEKY detection).
 
-Signed-off-by: Paolo Valente <paolo.valente@unimore.it>
 Signed-off-by: Arianna Avanzini <avanzini.arianna@gmail.com>
+Acked-by: Paolo Valente <paolo.valente@unimore.it>
 ---
- block/bfq-cgroup.c  |  768 ++++++++++++++
- block/bfq-ioc.c     |  380 +++++++
- block/bfq-iosched.c | 2939 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ block/bfq-cgroup.c  |  775 ++++++++++++++
+ block/bfq-ioc.c     |   34 +
+ block/bfq-iosched.c | 2911 +++++++++++++++++++++++++++++++++++++++++++++++++++
  block/bfq-sched.c   | 1037 ++++++++++++++++++
- block/bfq.h         |  585 ++++++++++
- 5 files changed, 5709 insertions(+), 0 deletions(-)
+ block/bfq.h         |  596 +++++++++++
+ 5 files changed, 5353 insertions(+), 0 deletions(-)
  create mode 100644 block/bfq-cgroup.c
  create mode 100644 block/bfq-ioc.c
  create mode 100644 block/bfq-iosched.c
@@ -75,10 +75,10 @@ Signed-off-by: Arianna Avanzini <avanzini.arianna@gmail.com>
 
 diff --git a/block/bfq-cgroup.c b/block/bfq-cgroup.c
 new file mode 100644
-index 0000000..436c29a
+index 0000000..36fdec2
 --- /dev/null
 +++ b/block/bfq-cgroup.c
-@@ -0,0 +1,768 @@
+@@ -0,0 +1,775 @@
 +/*
 + * BFQ: CGROUPS support.
 + *
@@ -344,7 +344,8 @@ index 0000000..436c29a
 +			bfq_del_bfqq_busy(bfqd, bfqq, 0);
 +		else
 +			bfq_deactivate_bfqq(bfqd, bfqq, 0);
-+	}
++	} else if (entity->on_st)
++		bfq_put_idle_entity(bfq_entity_service_tree(entity), entity);
 +
 +	/*
 +	 * Here we use a reference to bfqg.  We don't need a refcounter
@@ -359,24 +360,24 @@ index 0000000..436c29a
 +}
 +
 +/**
-+ * __bfq_cic_change_cgroup - move @cic to @cgroup.
++ * __bfq_bic_change_cgroup - move @bic to @cgroup.
 + * @bfqd: the queue descriptor.
-+ * @cic: the cic to move.
++ * @bic: the bic to move.
 + * @cgroup: the cgroup to move to.
 + *
-+ * Move cic to cgroup, assuming that bfqd->queue is locked; the caller
++ * Move bic to cgroup, assuming that bfqd->queue is locked; the caller
 + * has to make sure that the reference to cgroup is valid across the call.
 + *
 + * NOTE: an alternative approach might have been to store the current
 + * cgroup in bfqq and getting a reference to it, reducing the lookup
 + * time here, at the price of slightly more complex code.
 + */
-+static struct bfq_group *__bfq_cic_change_cgroup(struct bfq_data *bfqd,
-+						 struct cfq_io_context *cic,
++static struct bfq_group *__bfq_bic_change_cgroup(struct bfq_data *bfqd,
++						 struct bfq_io_cq *bic,
 +						 struct cgroup *cgroup)
 +{
-+	struct bfq_queue *async_bfqq = cic_to_bfqq(cic, 0);
-+	struct bfq_queue *sync_bfqq = cic_to_bfqq(cic, 1);
++	struct bfq_queue *async_bfqq = bic_to_bfqq(bic, 0);
++	struct bfq_queue *sync_bfqq = bic_to_bfqq(bic, 1);
 +	struct bfq_entity *entity;
 +	struct bfq_group *bfqg;
 +	struct bfqio_cgroup *bgrp;
@@ -388,9 +389,9 @@ index 0000000..436c29a
 +		entity = &async_bfqq->entity;
 +
 +		if (entity->sched_data != &bfqg->sched_data) {
-+			cic_set_bfqq(cic, NULL, 0);
++			bic_set_bfqq(bic, NULL, 0);
 +			bfq_log_bfqq(bfqd, async_bfqq,
-+				     "cic_change_group: %p %d",
++				     "bic_change_group: %p %d",
 +				     async_bfqq, atomic_read(&async_bfqq->ref));
 +			bfq_put_queue(async_bfqq);
 +		}
@@ -406,33 +407,33 @@ index 0000000..436c29a
 +}
 +
 +/**
-+ * bfq_cic_change_cgroup - move @cic to @cgroup.
-+ * @cic: the cic being migrated.
++ * bfq_bic_change_cgroup - move @bic to @cgroup.
++ * @bic: the bic being migrated.
 + * @cgroup: the destination cgroup.
 + *
-+ * When the task owning @cic is moved to @cgroup, @cic is immediately
++ * When the task owning @bic is moved to @cgroup, @bic is immediately
 + * moved into its new parent group.
 + */
-+static void bfq_cic_change_cgroup(struct cfq_io_context *cic,
++static void bfq_bic_change_cgroup(struct bfq_io_cq *bic,
 +				  struct cgroup *cgroup)
 +{
 +	struct bfq_data *bfqd;
 +	unsigned long uninitialized_var(flags);
 +
-+	bfqd = bfq_get_bfqd_locked(&cic->key, &flags);
++	bfqd = bfq_get_bfqd_locked(&(bic->icq.q->elevator->elevator_data), &flags);
 +	if (bfqd != NULL) {
-+		__bfq_cic_change_cgroup(bfqd, cic, cgroup);
++		__bfq_bic_change_cgroup(bfqd, bic, cgroup);
 +		bfq_put_bfqd_unlock(bfqd, &flags);
 +	}
 +}
 +
 +/**
-+ * bfq_cic_update_cgroup - update the cgroup of @cic.
-+ * @cic: the @cic to update.
++ * bfq_bic_update_cgroup - update the cgroup of @bic.
++ * @bic: the @bic to update.
 + *
-+ * Make sure that @cic is enqueued in the cgroup of the current task.
-+ * We need this in addition to moving cics during the cgroup attach
-+ * phase because the task owning @cic could be at its first disk
++ * Make sure that @bic is enqueued in the cgroup of the current task.
++ * We need this in addition to moving bics during the cgroup attach
++ * phase because the task owning @bic could be at its first disk
 + * access or we may end up in the root cgroup as the result of a
 + * memory allocation failure and here we try to move to the right
 + * group.
@@ -447,9 +448,9 @@ index 0000000..436c29a
 + *      migrated to a different cgroup] its attach() callback will have
 + *      taken care of remove all the references to the old cgroup data.
 + */
-+static struct bfq_group *bfq_cic_update_cgroup(struct cfq_io_context *cic)
++static struct bfq_group *bfq_bic_update_cgroup(struct bfq_io_cq *bic)
 +{
-+	struct bfq_data *bfqd = cic->key;
++	struct bfq_data *bfqd = bic_to_bfqd(bic);
 +	struct bfq_group *bfqg;
 +	struct cgroup *cgroup;
 +
@@ -457,7 +458,7 @@ index 0000000..436c29a
 +
 +	rcu_read_lock();
 +	cgroup = task_cgroup(current, bfqio_subsys_id);
-+	bfqg = __bfq_cic_change_cgroup(bfqd, cic, cgroup);
++	bfqg = __bfq_bic_change_cgroup(bfqd, bic, cgroup);
 +	rcu_read_unlock();
 +
 +	return bfqg;
@@ -714,57 +715,63 @@ index 0000000..436c29a
 +/*
 + * We cannot support shared io contexts, as we have no mean to support
 + * two tasks with the same ioc in two different groups without major rework
-+ * of the main cic/bfqq data structures.  By now we allow a task to change
++ * of the main bic/bfqq data structures.  By now we allow a task to change
 + * its cgroup only if it's the only owner of its ioc; the drawback of this
 + * behavior is that a group containing a task that forked using CLONE_IO
 + * will not be destroyed until the tasks sharing the ioc die.
 + */
 +static int bfqio_can_attach(struct cgroup_subsys *subsys, struct cgroup *cgroup,
-+			    struct task_struct *tsk)
++			    struct cgroup_taskset *tset)
 +{
++	struct task_struct *task;
 +	struct io_context *ioc;
 +	int ret = 0;
 +
-+	/* task_lock() is needed to avoid races with exit_io_context() */
-+	task_lock(tsk);
-+	ioc = tsk->io_context;
-+	if (ioc != NULL && atomic_read(&ioc->nr_tasks) > 1)
-+		/*
-+		 * ioc == NULL means that the task is either too young or
-+		 * exiting: if it has still no ioc the ioc can't be shared,
-+		 * if the task is exiting the attach will fail anyway, no
-+		 * matter what we return here.
-+		 */
-+		ret = -EINVAL;
-+	task_unlock(tsk);
++	cgroup_taskset_for_each(task, cgroup, tset) {
++		/* task_lock() is needed to avoid races with exit_io_context() */
++		task_lock(task);
++		ioc = task->io_context;
++		if (ioc != NULL && atomic_read(&ioc->nr_tasks) > 1)
++			/*
++			 * ioc == NULL means that the task is either too young or
++			 * exiting: if it has still no ioc the ioc can't be shared,
++			 * if the task is exiting the attach will fail anyway, no
++			 * matter what we return here.
++			 */
++			ret = -EINVAL;
++		task_unlock(task);
++		if (ret)
++			break;
++	}
 +
 +	return ret;
 +}
 +
 +static void bfqio_attach(struct cgroup_subsys *subsys, struct cgroup *cgroup,
-+			 struct cgroup *prev, struct task_struct *tsk)
++			 struct cgroup_taskset *tset)
 +{
++	struct task_struct *task;
 +	struct io_context *ioc;
-+	struct cfq_io_context *cic;
++	struct io_cq *icq;
 +	struct hlist_node *n;
 +
-+	task_lock(tsk);
-+	ioc = tsk->io_context;
-+	if (ioc != NULL) {
-+		BUG_ON(atomic_long_read(&ioc->refcount) == 0);
-+		atomic_long_inc(&ioc->refcount);
++	/*
++	 * IMPORTANT NOTE: The move of more than one process at a time to a
++	 * new group has not yet been tested.
++	 */
++	cgroup_taskset_for_each(task, cgroup, tset) {
++		ioc = get_task_io_context(task, GFP_ATOMIC, NUMA_NO_NODE);
++		if (ioc) {
++			/*
++			 * Handle cgroup change here.
++			 */
++			rcu_read_lock();
++			hlist_for_each_entry_rcu(icq, n, &ioc->icq_list, ioc_node)
++				bfq_bic_change_cgroup(icq_to_bic(icq), cgroup);
++			rcu_read_unlock();
++			put_io_context(ioc);
++		}
 +	}
-+	task_unlock(tsk);
-+
-+	if (ioc == NULL)
-+		return;
-+
-+	rcu_read_lock();
-+	hlist_for_each_entry_rcu(cic, n, &ioc->bfq_cic_list, cic_list)
-+		bfq_cic_change_cgroup(cic, cgroup);
-+	rcu_read_unlock();
-+
-+	put_io_context(ioc);
 +}
 +
 +static void bfqio_destroy(struct cgroup_subsys *subsys, struct cgroup *cgroup)
@@ -809,9 +816,9 @@ index 0000000..436c29a
 +}
 +
 +static inline struct bfq_group *
-+bfq_cic_update_cgroup(struct cfq_io_context *cic)
++bfq_bic_update_cgroup(struct bfq_io_cq *bic)
 +{
-+	struct bfq_data *bfqd = cic->key;
++	struct bfq_data *bfqd = bic_to_bfqd(bic);
 +	return bfqd->root_group;
 +}
 +
@@ -849,10 +856,10 @@ index 0000000..436c29a
 +#endif
 diff --git a/block/bfq-ioc.c b/block/bfq-ioc.c
 new file mode 100644
-index 0000000..8f2b6c6
+index 0000000..af791d2
 --- /dev/null
 +++ b/block/bfq-ioc.c
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,34 @@
 +/*
 + * BFQ: I/O context handling.
 + *
@@ -864,381 +871,35 @@ index 0000000..8f2b6c6
 + */
 +
 +/**
-+ * bfq_cic_free_rcu - deferred cic freeing.
-+ * @head: RCU head of the cic to free.
-+ *
-+ * Free the cic containing @head and, if it was the last one and
-+ * the module is exiting wake up anyone waiting for its deallocation
-+ * (see bfq_exit()).
++ * icq_to_bic - convert iocontext queue structure to bfq_io_cq.
++ * @icq: the iocontext queue.
 + */
-+static void bfq_cic_free_rcu(struct rcu_head *head)
++static inline struct bfq_io_cq *icq_to_bic(struct io_cq *icq)
 +{
-+	struct cfq_io_context *cic;
-+
-+	cic = container_of(head, struct cfq_io_context, rcu_head);
-+
-+	kmem_cache_free(bfq_ioc_pool, cic);
-+	elv_ioc_count_dec(bfq_ioc_count);
-+
-+	if (bfq_ioc_gone != NULL) {
-+		spin_lock(&bfq_ioc_gone_lock);
-+		if (bfq_ioc_gone != NULL &&
-+		    !elv_ioc_count_read(bfq_ioc_count)) {
-+			complete(bfq_ioc_gone);
-+			bfq_ioc_gone = NULL;
-+		}
-+		spin_unlock(&bfq_ioc_gone_lock);
-+	}
-+}
-+
-+static void bfq_cic_free(struct cfq_io_context *cic)
-+{
-+	call_rcu(&cic->rcu_head, bfq_cic_free_rcu);
++	/* bic->icq is the first member, %NULL will convert to %NULL */
++	return container_of(icq, struct bfq_io_cq, icq);
 +}
 +
 +/**
-+ * cic_free_func - disconnect a cic ready to be freed.
-+ * @ioc: the io_context @cic belongs to.
-+ * @cic: the cic to be freed.
-+ *
-+ * Remove @cic from the @ioc radix tree hash and from its cic list,
-+ * deferring the deallocation of @cic to the end of the current RCU
-+ * grace period.  This assumes that __bfq_exit_single_io_context()
-+ * has already been called for @cic.
-+ */
-+static void cic_free_func(struct io_context *ioc, struct cfq_io_context *cic)
-+{
-+	unsigned long flags;
-+	unsigned long dead_key = (unsigned long) cic->key;
-+
-+	BUG_ON(!(dead_key & CIC_DEAD_KEY));
-+
-+	spin_lock_irqsave(&ioc->lock, flags);
-+	radix_tree_delete(&ioc->bfq_radix_root,
-+		dead_key >> CIC_DEAD_INDEX_SHIFT);
-+	hlist_del_init_rcu(&cic->cic_list);
-+	spin_unlock_irqrestore(&ioc->lock, flags);
-+
-+	bfq_cic_free(cic);
-+}
-+
-+static void bfq_free_io_context(struct io_context *ioc)
-+{
-+	/*
-+	 * ioc->refcount is zero here, or we are called from elv_unregister(),
-+	 * so no more cic's are allowed to be linked into this ioc.  So it
-+	 * should be ok to iterate over the known list, we will see all cic's
-+	 * since no new ones are added.
-+	 */
-+	call_for_each_cic(ioc, cic_free_func);
-+}
-+
-+/**
-+ * __bfq_exit_single_io_context - deassociate @cic from any running task.
-+ * @bfqd: bfq_data on which @cic is valid.
-+ * @cic: the cic being exited.
-+ *
-+ * Whenever no more tasks are using @cic or @bfqd is deallocated we
-+ * need to invalidate its entry in the radix tree hash table and to
-+ * release the queues it refers to.
-+ *
-+ * Called under the queue lock.
-+ */
-+static void __bfq_exit_single_io_context(struct bfq_data *bfqd,
-+					 struct cfq_io_context *cic)
-+{
-+	struct io_context *ioc = cic->ioc;
-+
-+	list_del_init(&cic->queue_list);
-+
-+	/*
-+	 * Make sure dead mark is seen for dead queues
-+	 */
-+	smp_wmb();
-+	rcu_assign_pointer(cic->key, bfqd_dead_key(bfqd));
-+
-+	/*
-+	 * No write-side locking as no task is using @ioc (they're exited
-+	 * or bfqd is being deallocated.
-+	 */
-+	rcu_read_lock();
-+	if (rcu_dereference(ioc->ioc_data) == cic) {
-+		rcu_read_unlock();
-+		spin_lock(&ioc->lock);
-+		rcu_assign_pointer(ioc->ioc_data, NULL);
-+		spin_unlock(&ioc->lock);
-+	} else
-+		rcu_read_unlock();
-+
-+	if (cic->cfqq[BLK_RW_ASYNC] != NULL) {
-+		bfq_exit_bfqq(bfqd, cic->cfqq[BLK_RW_ASYNC]);
-+		cic->cfqq[BLK_RW_ASYNC] = NULL;
-+	}
-+
-+	if (cic->cfqq[BLK_RW_SYNC] != NULL) {
-+		bfq_exit_bfqq(bfqd, cic->cfqq[BLK_RW_SYNC]);
-+		cic->cfqq[BLK_RW_SYNC] = NULL;
-+	}
-+}
-+
-+/**
-+ * bfq_exit_single_io_context - deassociate @cic from @ioc (unlocked version).
-+ * @ioc: the io_context @cic belongs to.
-+ * @cic: the cic being exited.
-+ *
-+ * Take the queue lock and call __bfq_exit_single_io_context() to do the
-+ * rest of the work.  We take care of possible races with bfq_exit_queue()
-+ * using bfq_get_bfqd_locked() (and abusing a little bit the RCU mechanism).
-+ */
-+static void bfq_exit_single_io_context(struct io_context *ioc,
-+				       struct cfq_io_context *cic)
-+{
-+	struct bfq_data *bfqd;
-+	unsigned long uninitialized_var(flags);
-+
-+	bfqd = bfq_get_bfqd_locked(&cic->key, &flags);
-+	if (bfqd != NULL) {
-+		__bfq_exit_single_io_context(bfqd, cic);
-+		bfq_put_bfqd_unlock(bfqd, &flags);
-+	}
-+}
-+
-+/**
-+ * bfq_exit_io_context - deassociate @ioc from all cics it owns.
-+ * @ioc: the @ioc being exited.
-+ *
-+ * No more processes are using @ioc we need to clean up and put the
-+ * internal structures we have that belongs to that process.  Loop
-+ * through all its cics, locking their queues and exiting them.
-+ */
-+static void bfq_exit_io_context(struct io_context *ioc)
-+{
-+	call_for_each_cic(ioc, bfq_exit_single_io_context);
-+}
-+
-+static struct cfq_io_context *bfq_alloc_io_context(struct bfq_data *bfqd,
-+						   gfp_t gfp_mask)
-+{
-+	struct cfq_io_context *cic;
-+
-+	cic = kmem_cache_alloc_node(bfq_ioc_pool, gfp_mask | __GFP_ZERO,
-+							bfqd->queue->node);
-+	if (cic != NULL) {
-+		cic->ttime.last_end_request = jiffies;
-+		INIT_LIST_HEAD(&cic->queue_list);
-+		INIT_HLIST_NODE(&cic->cic_list);
-+		cic->dtor = bfq_free_io_context;
-+		cic->exit = bfq_exit_io_context;
-+		elv_ioc_count_inc(bfq_ioc_count);
-+	}
-+
-+	return cic;
-+}
-+
-+/**
-+ * bfq_drop_dead_cic - free an exited cic.
-+ * @bfqd: bfq data for the device in use.
-+ * @ioc: io_context owning @cic.
-+ * @cic: the @cic to free.
-+ *
-+ * We drop cfq io contexts lazily, so we may find a dead one.
-+ */
-+static void bfq_drop_dead_cic(struct bfq_data *bfqd, struct io_context *ioc,
-+			      struct cfq_io_context *cic)
-+{
-+	unsigned long flags;
-+
-+	WARN_ON(!list_empty(&cic->queue_list));
-+	BUG_ON(cic->key != bfqd_dead_key(bfqd));
-+
-+	spin_lock_irqsave(&ioc->lock, flags);
-+
-+	BUG_ON(ioc->ioc_data == cic);
-+
-+	/*
-+	 * With shared I/O contexts two lookups may race and drop the
-+	 * same cic more than one time: RCU guarantees that the storage
-+	 * will not be freed too early, here we make sure that we do
-+	 * not try to remove the cic from the hashing structures multiple
-+	 * times.
-+	 */
-+	if (!hlist_unhashed(&cic->cic_list)) {
-+		radix_tree_delete(&ioc->bfq_radix_root, bfqd->cic_index);
-+		hlist_del_init_rcu(&cic->cic_list);
-+		bfq_cic_free(cic);
-+	}
-+
-+	spin_unlock_irqrestore(&ioc->lock, flags);
-+}
-+
-+/**
-+ * bfq_cic_lookup - search into @ioc a cic associated to @bfqd.
++ * bfq_bic_lookup - search into @ioc a bic associated to @bfqd.
 + * @bfqd: the lookup key.
 + * @ioc: the io_context of the process doing I/O.
 + *
-+ * If @ioc already has a cic associated to @bfqd return it, return %NULL
-+ * otherwise.
++ * Queue lock must be held.
 + */
-+static struct cfq_io_context *bfq_cic_lookup(struct bfq_data *bfqd,
-+					     struct io_context *ioc)
++static inline struct bfq_io_cq *bfq_bic_lookup(struct bfq_data *bfqd,
++					       struct io_context *ioc)
 +{
-+	struct cfq_io_context *cic;
-+	unsigned long flags;
-+	void *k;
-+
-+	if (unlikely(ioc == NULL))
-+		return NULL;
-+
-+	rcu_read_lock();
-+
-+	/* We maintain a last-hit cache, to avoid browsing over the tree. */
-+	cic = rcu_dereference(ioc->ioc_data);
-+	if (cic != NULL) {
-+		k = rcu_dereference(cic->key);
-+		if (k == bfqd)
-+			goto out;
-+	}
-+
-+	do {
-+		cic = radix_tree_lookup(&ioc->bfq_radix_root,
-+					bfqd->cic_index);
-+		if (cic == NULL)
-+			goto out;
-+
-+		k = rcu_dereference(cic->key);
-+		if (unlikely(k != bfqd)) {
-+			rcu_read_unlock();
-+			bfq_drop_dead_cic(bfqd, ioc, cic);
-+			rcu_read_lock();
-+			continue;
-+		}
-+
-+		spin_lock_irqsave(&ioc->lock, flags);
-+		rcu_assign_pointer(ioc->ioc_data, cic);
-+		spin_unlock_irqrestore(&ioc->lock, flags);
-+		break;
-+	} while (1);
-+
-+out:
-+	rcu_read_unlock();
-+
-+	return cic;
-+}
-+
-+/**
-+ * bfq_cic_link - add @cic to @ioc.
-+ * @bfqd: bfq_data @cic refers to.
-+ * @ioc: io_context @cic belongs to.
-+ * @cic: the cic to link.
-+ * @gfp_mask: the mask to use for radix tree preallocations.
-+ *
-+ * Add @cic to @ioc, using @bfqd as the search key.  This enables us to
-+ * lookup the process specific cfq io context when entered from the block
-+ * layer.  Also adds @cic to a per-bfqd list, used when this queue is
-+ * removed.
-+ */
-+static int bfq_cic_link(struct bfq_data *bfqd, struct io_context *ioc,
-+			struct cfq_io_context *cic, gfp_t gfp_mask)
-+{
-+	unsigned long flags;
-+	int ret;
-+
-+	ret = radix_tree_preload(gfp_mask);
-+	if (ret == 0) {
-+		cic->ioc = ioc;
-+
-+		/* No write-side locking, cic is not published yet. */
-+		rcu_assign_pointer(cic->key, bfqd);
-+
-+		spin_lock_irqsave(&ioc->lock, flags);
-+		ret = radix_tree_insert(&ioc->bfq_radix_root,
-+					bfqd->cic_index, cic);
-+		if (ret == 0)
-+			hlist_add_head_rcu(&cic->cic_list, &ioc->bfq_cic_list);
-+		spin_unlock_irqrestore(&ioc->lock, flags);
-+
-+		radix_tree_preload_end();
-+
-+		if (ret == 0) {
-+			spin_lock_irqsave(bfqd->queue->queue_lock, flags);
-+			list_add(&cic->queue_list, &bfqd->cic_list);
-+			spin_unlock_irqrestore(bfqd->queue->queue_lock, flags);
-+		}
-+	}
-+
-+	if (ret != 0)
-+		printk(KERN_ERR "bfq: cic link failed!\n");
-+
-+	return ret;
-+}
-+
-+/**
-+ * bfq_ioc_set_ioprio - signal a priority change to the cics belonging to @ioc.
-+ * @ioc: the io_context changing its priority.
-+ */
-+static inline void bfq_ioc_set_ioprio(struct io_context *ioc)
-+{
-+	call_for_each_cic(ioc, bfq_changed_ioprio);
-+}
-+
-+/**
-+ * bfq_get_io_context - return the @cic associated to @bfqd in @ioc.
-+ * @bfqd: the search key.
-+ * @gfp_mask: the mask to use for cic allocation.
-+ *
-+ * Setup general io context and cfq io context.  There can be several cfq
-+ * io contexts per general io context, if this process is doing io to more
-+ * than one device managed by cfq.
-+ */
-+static struct cfq_io_context *bfq_get_io_context(struct bfq_data *bfqd,
-+						 gfp_t gfp_mask)
-+{
-+	struct io_context *ioc = NULL;
-+	struct cfq_io_context *cic;
-+
-+	might_sleep_if(gfp_mask & __GFP_WAIT);
-+
-+	ioc = get_io_context(gfp_mask, bfqd->queue->node);
-+	if (ioc == NULL)
-+		return NULL;
-+
-+	/* Lookup for an existing cic. */
-+	cic = bfq_cic_lookup(bfqd, ioc);
-+	if (cic != NULL)
-+		goto out;
-+
-+	/* Alloc one if needed. */
-+	cic = bfq_alloc_io_context(bfqd, gfp_mask);
-+	if (cic == NULL)
-+		goto err;
-+
-+	/* Link it into the ioc's radix tree and cic list. */
-+	if (bfq_cic_link(bfqd, ioc, cic, gfp_mask) != 0)
-+		goto err_free;
-+
-+out:
-+	/*
-+	 * test_and_clear_bit() implies a memory barrier, paired with
-+	 * the wmb() in fs/ioprio.c, so the value seen for ioprio is the
-+	 * new one.
-+	 */
-+	if (unlikely(test_and_clear_bit(IOC_BFQ_IOPRIO_CHANGED,
-+					ioc->ioprio_changed)))
-+		bfq_ioc_set_ioprio(ioc);
-+
-+	return cic;
-+err_free:
-+	bfq_cic_free(cic);
-+err:
-+	put_io_context(ioc);
++	if(ioc)
++		return icq_to_bic(ioc_lookup_icq(ioc, bfqd->queue));
 +	return NULL;
 +}
 diff --git a/block/bfq-iosched.c b/block/bfq-iosched.c
 new file mode 100644
-index 0000000..eaa6909
+index 0000000..81cc977
 --- /dev/null
 +++ b/block/bfq-iosched.c
-@@ -0,0 +1,2939 @@
+@@ -0,0 +1,2911 @@
 +/*
 + * BFQ, or Budget Fair Queueing, disk scheduler.
 + *
@@ -1302,6 +963,7 @@ index 0000000..eaa6909
 +#include <linux/rbtree.h>
 +#include <linux/ioprio.h>
 +#include "bfq.h"
++#include "blk.h"
 +
 +/* Max number of dispatches in one round of service. */
 +static const int bfq_quantum = 4;
@@ -1334,14 +996,6 @@ index 0000000..eaa6909
 +static int bfq_timeout_async = HZ / 25;
 +
 +struct kmem_cache *bfq_pool;
-+struct kmem_cache *bfq_ioc_pool;
-+
-+static DEFINE_PER_CPU(unsigned long, bfq_ioc_count);
-+static struct completion *bfq_ioc_gone;
-+static DEFINE_SPINLOCK(bfq_ioc_gone_lock);
-+
-+static DEFINE_SPINLOCK(cic_index_lock);
-+static DEFINE_IDA(cic_index_ida);
 +
 +/* Below this threshold (in ms), we consider thinktime immediate. */
 +#define BFQ_MIN_TT		2
@@ -1362,9 +1016,8 @@ index 0000000..eaa6909
 +#define BFQ_SERVICE_TREE_INIT	((struct bfq_service_tree)		\
 +				{ RB_ROOT, RB_ROOT, NULL, NULL, 0, 0 })
 +
-+#define RQ_CIC(rq)		\
-+	((struct cfq_io_context *) (rq)->elevator_private[0])
-+#define RQ_BFQQ(rq)		((rq)->elevator_private[1])
++#define RQ_BIC(rq)		((struct bfq_io_cq *) (rq)->elv.priv[0])
++#define RQ_BFQQ(rq)		((rq)->elv.priv[1])
 +
 +#include "bfq-ioc.c"
 +#include "bfq-sched.c"
@@ -1737,8 +1390,9 @@ index 0000000..eaa6909
 +                if(bfqd->low_latency && old_raising_coeff == 1 &&
 +			!rq_is_sync(rq) &&
 +			bfqq->last_rais_start_finish +
-+                        bfqd->bfq_raising_min_idle_time < jiffies) {
++                        bfqd->bfq_raising_min_inter_arr_async < jiffies) {
 +                        bfqq->raising_coeff = bfqd->bfq_raising_coeff;
++			bfqq->raising_cur_max_time = bfqd->bfq_raising_max_time;
 +
 +			entity->ioprio_changed = 1;
 +			bfq_log_bfqq(bfqd, bfqq,
@@ -1769,14 +1423,14 @@ index 0000000..eaa6909
 +					  struct bio *bio)
 +{
 +	struct task_struct *tsk = current;
-+	struct cfq_io_context *cic;
++	struct bfq_io_cq *bic;
 +	struct bfq_queue *bfqq;
 +
-+	cic = bfq_cic_lookup(bfqd, tsk->io_context);
-+	if (cic == NULL)
++	bic = bfq_bic_lookup(bfqd, tsk->io_context);
++	if (bic == NULL)
 +		return NULL;
 +
-+	bfqq = cic_to_bfqq(cic, bfq_bio_sync(bio));
++	bfqq = bic_to_bfqq(bic, bfq_bio_sync(bio));
 +	if (bfqq != NULL) {
 +		sector_t sector = bio->bi_sector + bio_sectors(bio);
 +
@@ -1872,22 +1526,25 @@ index 0000000..eaa6909
 +			   struct bio *bio)
 +{
 +	struct bfq_data *bfqd = q->elevator->elevator_data;
-+	struct cfq_io_context *cic;
++	struct bfq_io_cq *bic;
 +	struct bfq_queue *bfqq;
 +
-+	/* Disallow merge of a sync bio into an async request. */
++	/*
++	 * Disallow merge of a sync bio into an async request.
++	 */
 +	if (bfq_bio_sync(bio) && !rq_is_sync(rq))
 +		return 0;
 +
 +	/*
 +	 * Lookup the bfqq that this bio will be queued with. Allow
 +	 * merge only if rq is queued there.
++	 * Queue lock is held here.
 +	 */
-+	cic = bfq_cic_lookup(bfqd, current->io_context);
-+	if (cic == NULL)
++	bic = bfq_bic_lookup(bfqd, current->io_context);
++	if (bic == NULL)
 +		return 0;
 +
-+	bfqq = cic_to_bfqq(cic, bfq_bio_sync(bio));
++	bfqq = bic_to_bfqq(bic, bfq_bio_sync(bio));
 +	return bfqq == RQ_BFQQ(rq);
 +}
 +
@@ -2075,7 +1732,7 @@ index 0000000..eaa6909
 +static void bfq_arm_slice_timer(struct bfq_data *bfqd)
 +{
 +	struct bfq_queue *bfqq = bfqd->active_queue;
-+	struct cfq_io_context *cic;
++	struct bfq_io_cq *bic;
 +	unsigned long sl;
 +
 +	WARN_ON(!RB_EMPTY_ROOT(&bfqq->sort_list));
@@ -2085,8 +1742,8 @@ index 0000000..eaa6909
 +		return;
 +
 +	/* Tasks have exited, don't wait. */
-+	cic = bfqd->active_cic;
-+	if (cic == NULL || atomic_read(&cic->ioc->nr_tasks) == 0)
++	bic = bfqd->active_bic;
++	if (bic == NULL || atomic_read(&bic->icq.ioc->nr_tasks) == 0)
 +		return;
 +
 +	bfq_mark_bfqq_wait_request(bfqq);
@@ -2253,8 +1910,7 @@ index 0000000..eaa6909
 +		 * the weight-raising mechanism
 +		 */
 +		bfqq->budget_timeout = jiffies ;
-+	}
-+	else {
++	} else {
 +		bfq_activate_bfqq(bfqd, bfqq);
 +		/*
 +		 * Resort priority tree of potential close cooperators.
@@ -2769,6 +2425,12 @@ index 0000000..eaa6909
 +				bfqq->raising_cur_max_time =
 +					bfqd->bfq_raising_rt_max_time;
 +			else {
++				bfq_log_bfqq(bfqd, bfqq,
++					     "wrais ending at %llu msec,"
++					     "rais_max_time %u",
++					     bfqq->last_rais_start_finish,
++					     jiffies_to_msecs(bfqq->
++						raising_cur_max_time));
 +				bfqq->raising_coeff = 1;
 +				entity->ioprio_changed = 1;
 +				__bfq_entity_update_weight_prio(
@@ -2840,9 +2502,9 @@ index 0000000..eaa6909
 +
 +	dispatched++;
 +
-+	if (bfqd->active_cic == NULL) {
-+		atomic_long_inc(&RQ_CIC(rq)->ioc->refcount);
-+		bfqd->active_cic = RQ_CIC(rq);
++	if (bfqd->active_bic == NULL) {
++		atomic_long_inc(&RQ_BIC(rq)->icq.ioc->refcount);
++		bfqd->active_bic = RQ_BIC(rq);
 +	}
 +
 +	if (bfqd->busy_queues > 1 && ((!bfq_bfqq_sync(bfqq) &&
@@ -3012,6 +2674,29 @@ index 0000000..eaa6909
 +	bfq_put_queue(bfqq);
 +}
 +
++static void bfq_init_icq(struct io_cq *icq)
++{
++	struct bfq_io_cq *bic = icq_to_bic(icq);
++
++	bic->ttime.last_end_request = jiffies;
++}
++
++static void bfq_exit_icq(struct io_cq *icq)
++{
++	struct bfq_io_cq *bic = icq_to_bic(icq);
++	struct bfq_data *bfqd = bic_to_bfqd(bic);
++
++	if (bic->bfqq[BLK_RW_ASYNC]) {
++		bfq_exit_bfqq(bfqd, bic->bfqq[BLK_RW_ASYNC]);
++		bic->bfqq[BLK_RW_ASYNC] = NULL;
++	}
++
++	if (bic->bfqq[BLK_RW_SYNC]) {
++		bfq_exit_bfqq(bfqd, bic->bfqq[BLK_RW_SYNC]);
++		bic->bfqq[BLK_RW_SYNC] = NULL;
++	}
++}
++
 +/*
 + * Update the entity prio values; note that the new values will not
 + * be used until the next (re)activation.
@@ -3061,25 +2746,25 @@ index 0000000..eaa6909
 +}
 +
 +static void bfq_changed_ioprio(struct io_context *ioc,
-+			       struct cfq_io_context *cic)
++			       struct bfq_io_cq *bic)
 +{
 +	struct bfq_data *bfqd;
 +	struct bfq_queue *bfqq, *new_bfqq;
 +	struct bfq_group *bfqg;
 +	unsigned long uninitialized_var(flags);
 +
-+	bfqd = bfq_get_bfqd_locked(&cic->key, &flags);
++	bfqd = bfq_get_bfqd_locked(&(bic->icq.q->elevator->elevator_data), &flags);
 +	if (unlikely(bfqd == NULL))
 +		return;
 +
-+	bfqq = cic->cfqq[BLK_RW_ASYNC];
++	bfqq = bic->bfqq[BLK_RW_ASYNC];
 +	if (bfqq != NULL) {
 +		bfqg = container_of(bfqq->entity.sched_data, struct bfq_group,
 +				    sched_data);
-+		new_bfqq = bfq_get_queue(bfqd, bfqg, BLK_RW_ASYNC, cic->ioc,
++		new_bfqq = bfq_get_queue(bfqd, bfqg, BLK_RW_ASYNC, bic->icq.ioc,
 +					 GFP_ATOMIC);
 +		if (new_bfqq != NULL) {
-+			cic->cfqq[BLK_RW_ASYNC] = new_bfqq;
++			bic->bfqq[BLK_RW_ASYNC] = new_bfqq;
 +			bfq_log_bfqq(bfqd, bfqq,
 +				     "changed_ioprio: bfqq %p %d",
 +				     bfqq, atomic_read(&bfqq->ref));
@@ -3087,7 +2772,7 @@ index 0000000..eaa6909
 +		}
 +	}
 +
-+	bfqq = cic->cfqq[BLK_RW_SYNC];
++	bfqq = bic->bfqq[BLK_RW_SYNC];
 +	if (bfqq != NULL)
 +		bfq_mark_bfqq_prio_changed(bfqq);
 +
@@ -3127,12 +2812,12 @@ index 0000000..eaa6909
 +					      gfp_t gfp_mask)
 +{
 +	struct bfq_queue *bfqq, *new_bfqq = NULL;
-+	struct cfq_io_context *cic;
++	struct bfq_io_cq *bic;
 +
 +retry:
-+	cic = bfq_cic_lookup(bfqd, ioc);
-+	/* cic always exists here */
-+	bfqq = cic_to_bfqq(cic, is_sync);
++	bic = bfq_bic_lookup(bfqd, ioc);
++	/* bic always exists here */
++	bfqq = bic_to_bfqq(bic, is_sync);
 +
 +	/*
 +	 * Always try a new alloc if we fall back to the OOM bfqq
@@ -3226,14 +2911,14 @@ index 0000000..eaa6909
 +}
 +
 +static void bfq_update_io_thinktime(struct bfq_data *bfqd,
-+				    struct cfq_io_context *cic)
++				    struct bfq_io_cq *bic)
 +{
-+	unsigned long elapsed = jiffies - cic->ttime.last_end_request;
++	unsigned long elapsed = jiffies - bic->ttime.last_end_request;
 +	unsigned long ttime = min(elapsed, 2UL * bfqd->bfq_slice_idle);
 +
-+	cic->ttime.ttime_samples = (7*cic->ttime.ttime_samples + 256) / 8;
-+	cic->ttime.ttime_total = (7*cic->ttime.ttime_total + 256*ttime) / 8;
-+	cic->ttime.ttime_mean = (cic->ttime.ttime_total + 128) / cic->ttime.ttime_samples;
++	bic->ttime.ttime_samples = (7*bic->ttime.ttime_samples + 256) / 8;
++	bic->ttime.ttime_total = (7*bic->ttime.ttime_total + 256*ttime) / 8;
++	bic->ttime.ttime_mean = (bic->ttime.ttime_total + 128) / bic->ttime.ttime_samples;
 +}
 +
 +static void bfq_update_io_seektime(struct bfq_data *bfqd,
@@ -3288,7 +2973,7 @@ index 0000000..eaa6909
 + */
 +static void bfq_update_idle_window(struct bfq_data *bfqd,
 +				   struct bfq_queue *bfqq,
-+				   struct cfq_io_context *cic)
++				   struct bfq_io_cq *bic)
 +{
 +	int enable_idle;
 +
@@ -3298,13 +2983,13 @@ index 0000000..eaa6909
 +
 +	enable_idle = bfq_bfqq_idle_window(bfqq);
 +
-+	if (atomic_read(&cic->ioc->nr_tasks) == 0 ||
++	if (atomic_read(&bic->icq.ioc->nr_tasks) == 0 ||
 +	    bfqd->bfq_slice_idle == 0 ||
 +		(bfqd->hw_tag && BFQQ_SEEKY(bfqq) &&
 +			bfqq->raising_coeff == 1))
 +		enable_idle = 0;
-+	else if (bfq_sample_valid(cic->ttime.ttime_samples)) {
-+		if (cic->ttime.ttime_mean > bfqd->bfq_slice_idle &&
++	else if (bfq_sample_valid(bic->ttime.ttime_samples)) {
++		if (bic->ttime.ttime_mean > bfqd->bfq_slice_idle &&
 +			bfqq->raising_coeff == 1)
 +			enable_idle = 0;
 +		else
@@ -3326,16 +3011,16 @@ index 0000000..eaa6909
 +static void bfq_rq_enqueued(struct bfq_data *bfqd, struct bfq_queue *bfqq,
 +			    struct request *rq)
 +{
-+	struct cfq_io_context *cic = RQ_CIC(rq);
++	struct bfq_io_cq *bic = RQ_BIC(rq);
 +
 +	if (rq->cmd_flags & REQ_META)
 +		bfqq->meta_pending++;
 +
-+	bfq_update_io_thinktime(bfqd, cic);
++	bfq_update_io_thinktime(bfqd, bic);
 +	bfq_update_io_seektime(bfqd, bfqq, rq);
 +	if (bfqq->entity.service > bfq_max_budget(bfqd) / 8 ||
 +	    !BFQQ_SEEKY(bfqq))
-+		bfq_update_idle_window(bfqd, bfqq, cic);
++		bfq_update_idle_window(bfqd, bfqq, bic);
 +
 +	bfq_log_bfqq(bfqd, bfqq,
 +		     "rq_enqueued: idle_window=%d (seeky %d, mean %llu)",
@@ -3390,7 +3075,7 @@ index 0000000..eaa6909
 +	struct bfq_queue *bfqq = RQ_BFQQ(rq);
 +
 +	assert_spin_locked(bfqd->queue->queue_lock);
-+	bfq_init_prio_data(bfqq, RQ_CIC(rq)->ioc);
++	bfq_init_prio_data(bfqq, RQ_BIC(rq)->icq.ioc);
 +
 +	bfq_add_rq_rb(rq);
 +
@@ -3442,7 +3127,7 @@ index 0000000..eaa6909
 +		bfqd->sync_flight--;
 +
 +	if (sync)
-+		RQ_CIC(rq)->ttime.last_end_request = jiffies;
++		RQ_BIC(rq)->ttime.last_end_request = jiffies;
 +
 +	/*
 +	 * If this is the active queue, check if it needs to be expired,
@@ -3491,7 +3176,7 @@ index 0000000..eaa6909
 +{
 +	struct bfq_data *bfqd = q->elevator->elevator_data;
 +	struct task_struct *tsk = current;
-+	struct cfq_io_context *cic;
++	struct bfq_io_cq *bic;
 +	struct bfq_queue *bfqq;
 +
 +	/*
@@ -3500,13 +3185,13 @@ index 0000000..eaa6909
 +	 * So just lookup a possibly existing queue, or return 'may queue'
 +	 * if that fails.
 +	 */
-+	cic = bfq_cic_lookup(bfqd, tsk->io_context);
-+	if (cic == NULL)
++	bic = bfq_bic_lookup(bfqd, tsk->io_context);
++	if (bic == NULL)
 +		return ELV_MQUEUE_MAY;
 +
-+	bfqq = cic_to_bfqq(cic, rw_is_sync(rw));
++	bfqq = bic_to_bfqq(bic, rw_is_sync(rw));
 +	if (bfqq != NULL) {
-+		bfq_init_prio_data(bfqq, cic->ioc);
++		bfq_init_prio_data(bfqq, bic->icq.ioc);
 +
 +		return __bfq_may_queue(bfqq);
 +	}
@@ -3527,10 +3212,8 @@ index 0000000..eaa6909
 +		BUG_ON(!bfqq->allocated[rw]);
 +		bfqq->allocated[rw]--;
 +
-+		put_io_context(RQ_CIC(rq)->ioc);
-+
-+		rq->elevator_private[0] = NULL;
-+		rq->elevator_private[1] = NULL;
++		rq->elv.priv[0] = NULL;
++		rq->elv.priv[1] = NULL;
 +
 +		bfq_log_bfqq(bfqq->bfqd, bfqq, "put_request %p, %d",
 +			     bfqq, atomic_read(&bfqq->ref));
@@ -3539,15 +3222,15 @@ index 0000000..eaa6909
 +}
 +
 +static struct bfq_queue *
-+bfq_merge_bfqqs(struct bfq_data *bfqd, struct cfq_io_context *cic,
++bfq_merge_bfqqs(struct bfq_data *bfqd, struct bfq_io_cq *bic,
 +                struct bfq_queue *bfqq)
 +{
 +        bfq_log_bfqq(bfqd, bfqq, "merging with queue %lu",
 +		(long unsigned)bfqq->new_bfqq->pid);
-+        cic_set_bfqq(cic, bfqq->new_bfqq, 1);
++        bic_set_bfqq(bic, bfqq->new_bfqq, 1);
 +        bfq_mark_bfqq_coop(bfqq->new_bfqq);
 +        bfq_put_queue(bfqq);
-+        return cic_to_bfqq(cic, 1);
++        return bic_to_bfqq(bic, 1);
 +}
 +
 +/*
@@ -3555,7 +3238,7 @@ index 0000000..eaa6909
 + * was the last process referring to said bfqq.
 + */
 +static struct bfq_queue *
-+bfq_split_bfqq(struct cfq_io_context *cic, struct bfq_queue *bfqq)
++bfq_split_bfqq(struct bfq_io_cq *bic, struct bfq_queue *bfqq)
 +{
 +	bfq_log_bfqq(bfqq->bfqd, bfqq, "splitting queue");
 +	if (bfqq_process_refs(bfqq) == 1) {
@@ -3566,7 +3249,7 @@ index 0000000..eaa6909
 +		return bfqq;
 +	}
 +
-+	cic_set_bfqq(cic, NULL, 1);
++	bic_set_bfqq(bic, NULL, 1);
 +
 +	bfq_put_cooperator(bfqq);
 +
@@ -3581,36 +3264,38 @@ index 0000000..eaa6909
 +			   gfp_t gfp_mask)
 +{
 +	struct bfq_data *bfqd = q->elevator->elevator_data;
-+	struct cfq_io_context *cic;
++	struct bfq_io_cq *bic = icq_to_bic(rq->elv.icq);
 +	const int rw = rq_data_dir(rq);
 +	const int is_sync = rq_is_sync(rq);
 +	struct bfq_queue *bfqq;
 +	struct bfq_group *bfqg;
 +	unsigned long flags;
 +
-+	might_sleep_if(gfp_mask & __GFP_WAIT);
++	/* handle changed prio notifications; cgroup change is handled separately */
++	if (unlikely(icq_get_changed(&bic->icq) & ICQ_IOPRIO_CHANGED))
++		bfq_changed_ioprio(bic->icq.ioc, bic);
 +
-+	cic = bfq_get_io_context(bfqd, gfp_mask);
++	might_sleep_if(gfp_mask & __GFP_WAIT);
 +
 +	spin_lock_irqsave(q->queue_lock, flags);
 +
-+	if (cic == NULL)
++	if (bic == NULL)
 +		goto queue_fail;
 +
-+	bfqg = bfq_cic_update_cgroup(cic);
++	bfqg = bfq_bic_update_cgroup(bic);
 +
 +new_queue:
-+	bfqq = cic_to_bfqq(cic, is_sync);
++	bfqq = bic_to_bfqq(bic, is_sync);
 +	if (bfqq == NULL || bfqq == &bfqd->oom_bfqq) {
-+		bfqq = bfq_get_queue(bfqd, bfqg, is_sync, cic->ioc, gfp_mask);
-+		cic_set_bfqq(cic, bfqq, is_sync);
++		bfqq = bfq_get_queue(bfqd, bfqg, is_sync, bic->icq.ioc, gfp_mask);
++		bic_set_bfqq(bic, bfqq, is_sync);
 +	} else {
 +		/*
 +		 * If the queue was seeky for too long, break it apart.
 +		 */
 +		if (bfq_bfqq_coop(bfqq) && bfq_bfqq_split_coop(bfqq)) {
 +			bfq_log_bfqq(bfqd, bfqq, "breaking apart bfqq");
-+			bfqq = bfq_split_bfqq(cic, bfqq);
++			bfqq = bfq_split_bfqq(bic, bfqq);
 +			if (!bfqq)
 +				goto new_queue;
 +		}
@@ -3622,7 +3307,7 @@ index 0000000..eaa6909
 +		 * The reference on new_bfqq was taken in merge_bfqqs.
 +		 */
 +		if (bfqq->new_bfqq != NULL)
-+			bfqq = bfq_merge_bfqqs(bfqd, cic, bfqq);
++			bfqq = bfq_merge_bfqqs(bfqd, bic, bfqq);
 +	}
 +
 +	bfqq->allocated[rw]++;
@@ -3630,17 +3315,14 @@ index 0000000..eaa6909
 +	bfq_log_bfqq(bfqd, bfqq, "set_request: bfqq %p, %d", bfqq,
 +		     atomic_read(&bfqq->ref));
 +
-+	spin_unlock_irqrestore(q->queue_lock, flags);
++	rq->elv.priv[0] = bic;
++	rq->elv.priv[1] = bfqq;
 +
-+	rq->elevator_private[0] = cic;
-+	rq->elevator_private[1] = bfqq;
++	spin_unlock_irqrestore(q->queue_lock, flags);
 +
 +	return 0;
 +
 +queue_fail:
-+	if (cic != NULL)
-+		put_io_context(cic->ioc);
-+
 +	bfq_schedule_dispatch(bfqd);
 +	spin_unlock_irqrestore(q->queue_lock, flags);
 +
@@ -3753,17 +3435,10 @@ index 0000000..eaa6909
 +	struct bfq_data *bfqd = e->elevator_data;
 +	struct request_queue *q = bfqd->queue;
 +	struct bfq_queue *bfqq, *n;
-+	struct cfq_io_context *cic;
 +
 +	bfq_shutdown_timer_wq(bfqd);
 +
 +	spin_lock_irq(q->queue_lock);
-+
-+	while (!list_empty(&bfqd->cic_list)) {
-+		cic = list_entry(bfqd->cic_list.next, struct cfq_io_context,
-+				 queue_list);
-+		__bfq_exit_single_io_context(bfqd, cic);
-+	}
 +
 +	BUG_ON(bfqd->active_queue != NULL);
 +	list_for_each_entry_safe(bfqq, n, &bfqd->idle_list, bfqq_list)
@@ -3774,11 +3449,6 @@ index 0000000..eaa6909
 +
 +	bfq_shutdown_timer_wq(bfqd);
 +
-+	spin_lock(&cic_index_lock);
-+	ida_remove(&cic_index_ida, bfqd->cic_index);
-+	spin_unlock(&cic_index_lock);
-+
-+	/* Wait for cic->key accessors to exit their grace periods. */
 +	synchronize_rcu();
 +
 +	BUG_ON(timer_pending(&bfqd->idle_slice_timer));
@@ -3787,39 +3457,14 @@ index 0000000..eaa6909
 +	kfree(bfqd);
 +}
 +
-+static int bfq_alloc_cic_index(void)
-+{
-+	int index, error;
-+
-+	do {
-+		if (!ida_pre_get(&cic_index_ida, GFP_KERNEL))
-+			return -ENOMEM;
-+
-+		spin_lock(&cic_index_lock);
-+		error = ida_get_new(&cic_index_ida, &index);
-+		spin_unlock(&cic_index_lock);
-+		if (error && error != -EAGAIN)
-+			return error;
-+	} while (error);
-+
-+	return index;
-+}
-+
 +static void *bfq_init_queue(struct request_queue *q)
 +{
 +	struct bfq_group *bfqg;
 +	struct bfq_data *bfqd;
-+	int i;
-+
-+	i = bfq_alloc_cic_index();
-+	if (i < 0)
-+		return NULL;
 +
 +	bfqd = kmalloc_node(sizeof(*bfqd), GFP_KERNEL | __GFP_ZERO, q->node);
 +	if (bfqd == NULL)
 +		return NULL;
-+
-+	bfqd->cic_index = i;
 +
 +	/*
 +	 * Our fallback bfqq if bfq_find_alloc_queue() runs into OOM issues.
@@ -3828,8 +3473,6 @@ index 0000000..eaa6909
 +	 */
 +	bfq_init_bfqq(bfqd, &bfqd->oom_bfqq, 1, 0);
 +	atomic_inc(&bfqd->oom_bfqq.ref);
-+
-+	INIT_LIST_HEAD(&bfqd->cic_list);
 +
 +	bfqd->queue = q;
 +
@@ -3873,6 +3516,7 @@ index 0000000..eaa6909
 +	bfqd->bfq_raising_rt_max_time = msecs_to_jiffies(300);
 +	bfqd->bfq_raising_max_time = msecs_to_jiffies(7500);
 +	bfqd->bfq_raising_min_idle_time = msecs_to_jiffies(2000);
++	bfqd->bfq_raising_min_inter_arr_async = msecs_to_jiffies(500);
 +	bfqd->bfq_raising_max_softrt_rate = 7000;
 +
 +	return bfqd;
@@ -3882,27 +3526,14 @@ index 0000000..eaa6909
 +{
 +	if (bfq_pool != NULL)
 +		kmem_cache_destroy(bfq_pool);
-+	if (bfq_ioc_pool != NULL)
-+		kmem_cache_destroy(bfq_ioc_pool);
 +}
 +
 +static int __init bfq_slab_setup(void)
 +{
 +	bfq_pool = KMEM_CACHE(bfq_queue, 0);
 +	if (bfq_pool == NULL)
-+		goto fail;
-+
-+	bfq_ioc_pool = kmem_cache_create("bfq_io_context",
-+					 sizeof(struct cfq_io_context),
-+					 __alignof__(struct cfq_io_context),
-+					 0, NULL);
-+	if (bfq_ioc_pool == NULL)
-+		goto fail;
-+
++		return -ENOMEM;
 +	return 0;
-+fail:
-+	bfq_slab_kill();
-+	return -ENOMEM;
 +}
 +
 +static ssize_t bfq_var_show(unsigned int var, char *page)
@@ -3975,6 +3606,9 @@ index 0000000..eaa6909
 +SHOW_FUNCTION(bfq_raising_rt_max_time_show, bfqd->bfq_raising_rt_max_time, 1);
 +SHOW_FUNCTION(bfq_raising_min_idle_time_show, bfqd->bfq_raising_min_idle_time,
 +	1);
++SHOW_FUNCTION(bfq_raising_min_inter_arr_async_show,
++	bfqd->bfq_raising_min_inter_arr_async,
++	1);
 +SHOW_FUNCTION(bfq_raising_max_softrt_rate_show,
 +	bfqd->bfq_raising_max_softrt_rate, 0);
 +#undef SHOW_FUNCTION
@@ -4017,6 +3651,8 @@ index 0000000..eaa6909
 +		INT_MAX, 1);
 +STORE_FUNCTION(bfq_raising_min_idle_time_store,
 +	       &bfqd->bfq_raising_min_idle_time, 0, INT_MAX, 1);
++STORE_FUNCTION(bfq_raising_min_inter_arr_async_store,
++		&bfqd->bfq_raising_min_inter_arr_async, 0, INT_MAX, 1);
 +STORE_FUNCTION(bfq_raising_max_softrt_rate_store,
 +	       &bfqd->bfq_raising_max_softrt_rate, 0, INT_MAX, 0);
 +#undef STORE_FUNCTION
@@ -4110,6 +3746,7 @@ index 0000000..eaa6909
 +	BFQ_ATTR(raising_max_time),
 +	BFQ_ATTR(raising_rt_max_time),
 +	BFQ_ATTR(raising_min_idle_time),
++	BFQ_ATTR(raising_min_inter_arr_async),
 +	BFQ_ATTR(raising_max_softrt_rate),
 +	BFQ_ATTR(weights),
 +	__ATTR_NULL
@@ -4128,13 +3765,16 @@ index 0000000..eaa6909
 +		.elevator_completed_req_fn =	bfq_completed_request,
 +		.elevator_former_req_fn =	elv_rb_former_request,
 +		.elevator_latter_req_fn =	elv_rb_latter_request,
++		.elevator_init_icq_fn =		bfq_init_icq,
++		.elevator_exit_icq_fn =		bfq_exit_icq,
 +		.elevator_set_req_fn =		bfq_set_request,
 +		.elevator_put_req_fn =		bfq_put_request,
 +		.elevator_may_queue_fn =	bfq_may_queue,
 +		.elevator_init_fn =		bfq_init_queue,
 +		.elevator_exit_fn =		bfq_exit_queue,
-+		.trim =				bfq_free_io_context,
 +	},
++	.icq_size =		sizeof(struct bfq_io_cq),
++	.icq_align =		__alignof__(struct bfq_io_cq),
 +	.elevator_attrs =	bfq_attrs,
 +	.elevator_name =	"bfq",
 +	.elevator_owner =	THIS_MODULE,
@@ -4161,14 +3801,7 @@ index 0000000..eaa6909
 +
 +static void __exit bfq_exit(void)
 +{
-+	DECLARE_COMPLETION_ONSTACK(all_gone);
 +	elv_unregister(&iosched_bfq);
-+	bfq_ioc_gone = &all_gone;
-+	/* bfq_ioc_gone's update must be visible before reading bfq_ioc_count */
-+	smp_wmb();
-+	if (elv_ioc_count_read(bfq_ioc_count) != 0)
-+		wait_for_completion(&all_gone);
-+	ida_destroy(&cic_index_ida);
 +	bfq_slab_kill();
 +}
 +
@@ -4180,7 +3813,7 @@ index 0000000..eaa6909
 +MODULE_DESCRIPTION("Budget Fair Queueing IO scheduler");
 diff --git a/block/bfq-sched.c b/block/bfq-sched.c
 new file mode 100644
-index 0000000..1551839
+index 0000000..3e20c4f
 --- /dev/null
 +++ b/block/bfq-sched.c
 @@ -0,0 +1,1037 @@
@@ -5159,9 +4792,9 @@ index 0000000..1551839
 +
 +static void __bfq_bfqd_reset_active(struct bfq_data *bfqd)
 +{
-+	if (bfqd->active_cic != NULL) {
-+		put_io_context(bfqd->active_cic->ioc);
-+		bfqd->active_cic = NULL;
++	if (bfqd->active_bic != NULL) {
++		put_io_context(bfqd->active_bic->icq.ioc);
++		bfqd->active_bic = NULL;
 +	}
 +
 +	bfqd->active_queue = NULL;
@@ -5223,12 +4856,12 @@ index 0000000..1551839
 +}
 diff --git a/block/bfq.h b/block/bfq.h
 new file mode 100644
-index 0000000..1fc828f
+index 0000000..d5b82f0
 --- /dev/null
 +++ b/block/bfq.h
-@@ -0,0 +1,585 @@
+@@ -0,0 +1,596 @@
 +/*
-+ * BFQ-v3r2 for 3.2.0: data structures and common functions prototypes.
++ * BFQ-v3r3 for 3.3.0: data structures and common functions prototypes.
 + *
 + * Based on ideas and code from CFQ:
 + * Copyright (C) 2003 Jens Axboe <axboe@kernel.dk>
@@ -5466,6 +5099,32 @@ index 0000000..1fc828f
 +};
 +
 +/**
++ * struct bfq_ttime - per process thinktime stats.
++ * @ttime_total: total process thinktime
++ * @ttime_samples: number of thinktime samples
++ * @ttime_mean: average process thinktime
++ */
++struct bfq_ttime {
++	unsigned long last_end_request;
++
++	unsigned long ttime_total;
++	unsigned long ttime_samples;
++	unsigned long ttime_mean;
++};
++
++/**
++ * struct bfq_io_cq - per (request_queue, io_context) structure.
++ * @icq: associated io_cq structure
++ * @bfqq: array of two process queues, the sync and the async
++ * @ttime: associated @bfq_ttime struct
++ */
++struct bfq_io_cq {
++	struct io_cq icq; /* must be the first member */
++	struct bfq_queue *bfqq[2];
++	struct bfq_ttime ttime;
++};
++
++/**
 + * struct bfq_data - per device data structure.
 + * @queue: request queue for the managed device.
 + * @root_group: root bfq_group for the device.
@@ -5486,15 +5145,13 @@ index 0000000..1fc828f
 + *                    from the queue under service.
 + * @unplug_work: delayed work to restart dispatching on the request queue.
 + * @active_queue: bfq_queue under service.
-+ * @active_cic: cfq_io_context (cic) associated with the @active_queue.
++ * @active_bic: bfq_io_cq (bic) associated with the @active_queue.
 + * @last_position: on-disk position of the last served request.
 + * @last_budget_start: beginning of the last budget.
 + * @last_idling_start: beginning of the last idle slice.
 + * @peak_rate: peak transfer rate observed for a budget.
 + * @peak_rate_samples: number of samples used to calculate @peak_rate.
 + * @bfq_max_budget: maximum budget allotted to a bfq_queue before rescheduling.
-+ * @cic_index: use small consequent indexes as radix tree keys to reduce depth
-+ * @cic_list: list of all the cics active on the bfq_data device.
 + * @group_list: list of all the bfq_groups active on the device.
 + * @active_list: list of all the bfq_queues active on the device.
 + * @idle_list: list of all the bfq_queues idle on the device.
@@ -5520,6 +5177,10 @@ index 0000000..1fc828f
 + * @bfq_raising_rt_max_time: maximum duration for soft real-time processes
 + * @bfq_raising_min_idle_time: minimum idle period after which weight-raising
 + *			       may be reactivated for a queue (in jiffies)
++ * @bfq_raising_min_inter_arr_async: minimum period between request arrivals
++ *				     after which weight-raising may be
++ *				     reactivated for an already busy queue
++ *				     (in jiffies)
 + * @bfq_raising_max_softrt_rate: max service-rate for a soft real-time queue,
 + *			         sectors per seconds
 + * @oom_bfqq: fallback dummy bfqq for extreme OOM conditions
@@ -5548,7 +5209,7 @@ index 0000000..1fc828f
 +	struct work_struct unplug_work;
 +
 +	struct bfq_queue *active_queue;
-+	struct cfq_io_context *active_cic;
++	struct bfq_io_cq *active_bic;
 +
 +	sector_t last_position;
 +
@@ -5558,8 +5219,6 @@ index 0000000..1fc828f
 +	u64 peak_rate;
 +	unsigned long bfq_max_budget;
 +
-+	unsigned int cic_index;
-+	struct list_head cic_list;
 +	struct hlist_head group_list;
 +	struct list_head active_list;
 +	struct list_head idle_list;
@@ -5582,6 +5241,7 @@ index 0000000..1fc828f
 +	unsigned int bfq_raising_max_time;
 +	unsigned int bfq_raising_rt_max_time;
 +	unsigned int bfq_raising_min_idle_time;
++	unsigned int bfq_raising_min_inter_arr_async;
 +	unsigned int bfq_raising_max_softrt_rate;
 +
 +	struct bfq_queue oom_bfqq;
@@ -5728,37 +5388,21 @@ index 0000000..1fc828f
 +	return sched_data->service_tree + idx;
 +}
 +
-+static inline struct bfq_queue *cic_to_bfqq(struct cfq_io_context *cic,
++static inline struct bfq_queue *bic_to_bfqq(struct bfq_io_cq *bic,
 +					    int is_sync)
 +{
-+	return cic->cfqq[!!is_sync];
++	return bic->bfqq[!!is_sync];
 +}
 +
-+static inline void cic_set_bfqq(struct cfq_io_context *cic,
++static inline void bic_set_bfqq(struct bfq_io_cq *bic,
 +				struct bfq_queue *bfqq, int is_sync)
 +{
-+	cic->cfqq[!!is_sync] = bfqq;
++	bic->bfqq[!!is_sync] = bfqq;
 +}
 +
-+static inline void call_for_each_cic(struct io_context *ioc,
-+				     void (*func)(struct io_context *,
-+				     struct cfq_io_context *))
++static inline struct bfq_data *bic_to_bfqd(struct bfq_io_cq *bic)
 +{
-+	struct cfq_io_context *cic;
-+	struct hlist_node *n;
-+
-+	rcu_read_lock();
-+	hlist_for_each_entry_rcu(cic, n, &ioc->bfq_cic_list, cic_list)
-+		func(ioc, cic);
-+	rcu_read_unlock();
-+}
-+
-+#define CIC_DEAD_KEY    1ul
-+#define CIC_DEAD_INDEX_SHIFT    1
-+
-+static inline void *bfqd_dead_key(struct bfq_data *bfqd)
-+{
-+	return (void *)(bfqd->cic_index << CIC_DEAD_INDEX_SHIFT | CIC_DEAD_KEY);
++	return bic->icq.q->elevator->elevator_data;
 +}
 +
 +/**
@@ -5766,7 +5410,7 @@ index 0000000..1fc828f
 + * @ptr: a pointer to a bfqd.
 + * @flags: storage for the flags to be saved.
 + *
-+ * This function allows cic->key and bfqg->bfqd to be protected by the
++ * This function allows bfqg->bfqd to be protected by the
 + * queue lock of the bfqd they reference; the pointer is dereferenced
 + * under RCU, so the storage for bfqd is assured to be safe as long
 + * as the RCU read side critical section does not end.  After the
@@ -5783,7 +5427,7 @@ index 0000000..1fc828f
 +	rcu_read_lock();
 +	bfqd = rcu_dereference(*(struct bfq_data **)ptr);
 +
-+	if (bfqd != NULL && !((unsigned long) bfqd & CIC_DEAD_KEY)) {
++	if (bfqd != NULL) {
 +		spin_lock_irqsave(bfqd->queue->queue_lock, *flags);
 +		if (*ptr == bfqd)
 +			goto out;
@@ -5803,7 +5447,7 @@ index 0000000..1fc828f
 +}
 +
 +static void bfq_changed_ioprio(struct io_context *ioc,
-+			       struct cfq_io_context *cic);
++			       struct bfq_io_cq *bic);
 +static void bfq_put_queue(struct bfq_queue *bfqq);
 +static void bfq_dispatch_insert(struct request_queue *q, struct request *rq);
 +static struct bfq_queue *bfq_get_queue(struct bfq_data *bfqd,

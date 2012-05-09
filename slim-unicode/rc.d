@@ -1,7 +1,6 @@
 #!/bin/bash
 
 . /etc/rc.conf
-export DAEMON_LOCALE=yes
 . /etc/rc.d/functions
 
 PID=`pidof -o %PPID /usr/share/slim/bin/slim`
