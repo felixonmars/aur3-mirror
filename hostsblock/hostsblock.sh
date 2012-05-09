@@ -11,8 +11,9 @@ blocklists=('http://support.it-mate.co.uk/downloads/hphosts.zip')
 
 [ -f /etc/hostsblock.conf ] && . /etc/hostsblock.conf
 
-echo "BACKING UP $hostsfile TO $hostsfile.old..."
+echo "BACKING UP AND COMPRESSING $hostsfile TO $hostsfile.old.gz..."
 cp "$hostsfile" "$hostsfile".old
+gzip -f "$hostsfile".old
 
 mkdir -p $tmpdir/hostsblock/hosts.block.d
 cp $hostsfile $tmpdir/hostsblock/hosts.block.d/hosts.block.0
@@ -26,21 +27,39 @@ echo "DOWNLOADING AND EXTRACTING BLOCKLISTS..."
 for url in ${blocklists[*]}; do
 	echo "$n: $url..."
 	if echo "$url " | grep -- ".zip " &>/dev/null; then
-		mkdir $tmpdir/hostsblock/tmp
-		curl -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
-		cd $tmpdir/hostsblock/tmp
-		echo "     Extracting..."
-		unzip -jq hosts.block.zip
-		grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
-		cd $tmpdir/hostsblock
-		rm -r $tmpdir/hostsblock/tmp
+		if which unzip &>/dev/null; then
+			mkdir $tmpdir/hostsblock/tmp
+			curl -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
+			cd $tmpdir/hostsblock/tmp
+			echo "     Extracting..."
+			unzip -jq hosts.block.zip
+			grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
+			cd $tmpdir/hostsblock
+			rm -r $tmpdir/hostsblock/tmp
+		else
+			echo "unzip NOT FOUND, PLEASE INSTALL unzip OR REMOVE THIS URL FROM BLOCKHOSTS. SKIPPING..."
+		fi
+	elif echo "$url " | grep -- ".7z " &>/dev/null; then
+		if which 7za &>/dev/null; then
+                        mkdir $tmpdir/hostsblock/tmp
+                        curl -s -o $tmpdir/hostsblock/tmp/hosts.block.7z "$url"
+                        cd $tmpdir/hostsblock/tmp
+                        echo "     Extracting..."
+                        7za e hosts.block.7z &>/dev/null
+                        grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
+                        cd $tmpdir/hostsblock
+                        rm -r $tmpdir/hostsblock/tmp
+                else
+                        echo "7za NOT FOUND, PLEASE INSTALL p7zip OR REMOVE THIS URL FROM BLOCKHOSTS. SKIPPING..."
+                        exit 1
+                fi
 	else
 		curl -s -o $tmpdir/hostsblock/hosts.block.d/hosts.block.$n "$url"
 	fi
 	let "n+=1"
 done
 
-echo "CONSTRUCTING WHITELIST"
+echo "CONSTRUCTING WHITELIST..."
 for pattern in ${whitelist[*]}; do
 	echo "/$pattern/d" >> $tmpdir/hostsblock/whitelist.sed
 done
