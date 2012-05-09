@@ -22,11 +22,12 @@
 #define ICON_CHANGE	"media-flash"
 #define ICON_DEFAULT	"media-flash"
 
-#define TEXT_ADD	"<b>Device %s (%i:%i) appeared</b>."
-#define TEXT_REMOVE	"<b>Device %s (%i:%i) disappeared</b>."
-#define TEXT_MOVE	"<b>Device %s (%i:%i) was renamed</b>."
-#define TEXT_CHANGE	"<b>Device %s (%i:%i) media changed</b>."
-#define TEXT_DEFAULT	"<b>Anything happend to %s (%i:%i)...</b> Don't know.\n"
+#define TEXT_ADD	"Device <b>%s</b> (%i:%i) <b>appeared</b>."
+#define TEXT_REMOVE	"Device <b>%s</b> (%i:%i) <b>disappeared</b>."
+#define TEXT_MOVE	"Device <b>%s</b> (%i:%i) was <b>renamed</b>."
+#define TEXT_CHANGE	"Device <b>%s</b> (%i:%i) media <b>changed</b>."
+#define TEXT_DEFAULT	"Anything happend to <b>%s</b> (%i:%i)... Don't know."
+#define TEXT_TAG	"%s\n%s: <i>%s</i>"
 
 int main (int argc, char ** argv) {
 	struct udev * udev;
@@ -129,8 +130,8 @@ int main (int argc, char ** argv) {
 					iter = blkid_tag_iterate_begin(blkdev);
 			
 					while (blkid_tag_next(iter, &type, &value) == 0) {
-						notification = (char *) realloc(notification, strlen(notification) + strlen(type) + strlen(value) + 4);
-						sprintf(notification, "%s\n%s: %s", notification, type, value);
+						notification = (char *) realloc(notification, strlen(TEXT_TAG) + strlen(notification) + strlen(type) + strlen(value));
+						sprintf(notification, TEXT_TAG, notification, type, value);
 					}
 
 					blkid_tag_iterate_end(iter);
@@ -160,6 +161,7 @@ int main (int argc, char ** argv) {
 				while(!notify_notification_show(netlink, &error)) {
 					if (errcount > 1) {
 						fprintf(stderr, "%s: Looks like we can not reconnect to notification daemon... Exiting.\n", argv[0]);
+						exit(EXIT_FAILURE);
 					} else {
 						g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
 						errcount++;

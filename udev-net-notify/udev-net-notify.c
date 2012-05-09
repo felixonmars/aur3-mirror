@@ -21,9 +21,9 @@
 #define ICON_CHANGE	"dialog-warning"
 #define ICON_DEFAULT	"dialog-warning"
 
-#define TEXT_ADD	"Device %s appeared."
-#define TEXT_REMOVE	"Device %s disappeared."
-#define TEXT_MOVE	"Device %s was renamed."
+#define TEXT_ADD	"Device <b>%s appeared</b>."
+#define TEXT_REMOVE	"Device <b>%s disappeared</b>."
+#define TEXT_MOVE	"Device <b>%s</b> was <b>renamed</b>."
 #define TEXT_CHANGE	"Anything for device %s changed."
 #define TEXT_DEFAULT	"Anything happend to %s... Don't know."
 
@@ -112,6 +112,7 @@ int main (int argc, char ** argv) {
 				while(!notify_notification_show(netlink, &error)) {
 					if (errcount > 1) {
 						fprintf(stderr, "%s: Looks like we can not reconnect to notification daemon... Exiting.\n", argv[0]);
+						exit(EXIT_FAILURE);
 					} else {
 						g_printerr("%s: Error \"%s\" while trying to show notification. Trying to reconnect.\n", argv[0], error->message);
 						errcount++;

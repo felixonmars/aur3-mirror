@@ -19,7 +19,7 @@
 
 #define NOTIFICATION_TIMEOUT	10000
 
-#define NOTIFICATION_TEXT	"Interface %s is %s."
+#define NOTIFICATION_TEXT	"Interface <b>%s</b> is <b>%s</b>."
 #define NOTIFICATION_TEXT_DEBUG	"%s: Interface %s (index %d) is %s.\n"
 
 // we need these to be global...
