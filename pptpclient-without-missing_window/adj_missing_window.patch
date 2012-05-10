@@ -1,0 +1,91 @@
+diff -aur pptp-1.7.2/pptp.c copy/pptp.c
+--- pptp-1.7.2/pptp.c	2008-05-14 08:33:55.000000000 +0200
++++ copy/pptp.c	2012-05-10 13:37:14.000000000 +0200
+@@ -79,6 +79,7 @@
+ int disable_buffer = 0;
+ int test_type = 0;
+ int test_rate = 100;
++int missing_window = MISSING_WINDOW;
+ 
+ struct in_addr get_ip_address(char *name);
+ int open_callmgr(struct in_addr inetaddr, char *phonenr, int argc,char **argv,char **envp, int pty_fd, int gre_fd);
+@@ -116,13 +117,14 @@
+             "  --timeout <secs>	Time to wait for reordered packets (0.01 to 10 secs)\n"
+ 	    "  --nobuffer		Disable packet buffering and reordering completely\n"
+ 	    "  --idle-wait		Time to wait before sending echo request\n"
+-            "  --max-echo-wait		Time to wait before giving up on lack of reply\n"
++            "  --max-echo-wait       Time to wait before giving up on lack of reply\n"
+             "  --logstring <name>	Use <name> instead of 'anon' in syslog messages\n"
+             "  --localbind <addr>	Bind to specified IP address instead of wildcard\n"
+             "  --loglevel <level>	Sets the debugging level (0=low, 1=default, 2=high)\n"
+             "  --test-type <type>	Damage the packet stream by reordering\n"
+-            "  --test-rate <n>		Do the test every n packets\n",
+-
++            "  --test-rate <n>       yDo the test every n packets\n"
++            "  --missing-window <n>  Activate 'missing window' validation and set tolerance to <n> packages (300=default, 6000=recommended)\n",
++            
+             version, progname, progname);
+     log("%s called with wrong arguments, program not started.", progname);
+     exit(1);
+@@ -212,6 +214,7 @@
+ 	    {"version", 0, 0, 0},
+ 	    {"test-type", 1, 0, 0},
+ 	    {"test-rate", 1, 0, 0},
++	    {"missing-window", 1, 0, 0},
+             {0, 0, 0, 0}
+         };
+         int option_index = 0;
+@@ -290,7 +293,21 @@
+ 		    test_type = atoi(optarg);
+ 		} else if (option_index == 14) { /* --test-rate */
+ 		    test_rate = atoi(optarg);
+-                }
++		} else if (option_index == 15) { /* --missing window */
++		    int x = atoi(optarg);
++		    if (x <= 0) {
++				fprintf(stderr, "--missing-window must be integer greater than zero\n");
++				log("--missing-window must be integer greater than zero\n");
++				exit(2);
++		    } else if (x < 300) {
++				fprintf(stderr, "--missing-window is set very low: default=300, recommended=6000 - proceeding anyway\n");
++				log("--missing-window is set very low: default=300, recommended=6000 - proceeding anyway\n");
++		    } else {
++				fprintf(stderr, "--missing-window validation is active and set to: %d\n", x);
++				log("--missing-window validation is active and set to: %d\n", x);
++				missing_window = x;
++		    }
++		}
+                 break;
+             case '?': /* unrecognised option */
+                 /* fall through */
+diff -aur pptp-1.7.2/pptp_gre.c copy/pptp_gre.c
+--- pptp-1.7.2/pptp_gre.c	2008-05-14 08:33:55.000000000 +0200
++++ copy/pptp_gre.c	2012-05-10 14:00:20.554335736 +0200
+@@ -405,9 +405,9 @@
+                 seq, seq_recv + 1);
+         stats.rx_underwin++;
+     /* sequence number too high, is it reasonably close? */
+-    } else if ( seq < seq_recv + MISSING_WINDOW ||
+-                WRAPPED(seq, seq_recv + MISSING_WINDOW) ) {
+-	stats.rx_buffered++;
++    } else if ( (missing_window == -1) || 
++				(seq < seq_recv + missing_window || WRAPPED(seq, seq_recv + missing_window)) ) {
++		stats.rx_buffered++;
+         if ( log_level >= 1 )
+             log("%s packet %d (expecting %d, lost or reordered)",
+                 disable_buffer ? "accepting" : "buffering",
+diff -aur pptp-1.7.2/pqueue.h copy/pqueue.h
+--- pptp-1.7.2/pqueue.h	2008-05-14 08:33:55.000000000 +0200
++++ copy/pqueue.h	2012-05-10 13:37:22.000000000 +0200
+@@ -9,7 +9,10 @@
+ extern int packet_timeout_usecs;
+ 
+ /* assume packet is bad/spoofed if it's more than this many seqs ahead */
+-#define MISSING_WINDOW 300
++/* default is NOT to check - command line override via '--missing-window <n>'*/
++/* default value is 300 - recommended is 6000 for high speed data rates*/
++#define MISSING_WINDOW -1
++extern int missing_window;
+ 
+ /* Packet queue structure: linked list of packets received out-of-order */
+ typedef struct pqueue {
