@@ -1,174 +1,37 @@
-# Contributor (ConnochaetOS): Henry Jensen <hjensen@connochaetos.org>
-# Contributor (Parabola): Luke Shumaker <lukeshu@sbcglobal.net>
-# Contributor: Figue <ffigue at gmail>
-# Contributor (Parabola): fauno <fauno@kiwwwi.com.ar>
-# Contributor (Parabola): vando <facundo@esdebian.org>
-# Contributor (Arch): Jakub Schmidtke <sjakub@gmail.com>
-# Thank you very much to the older contributors:
-# Contributor: evr <evanroman at gmail>
-# Contributor: Muhammad 'MJ' Jassim <UnbreakableMJ@gmail.com> 
-
-_pgo=false
-
-# We're getting this from Debian Sid
-_debname=iceweasel
-_debver=12.0
-_debrel=3
-_debrepo=http://ftp.debian.org/debian/pool/main/
-debfile() { echo $@|sed -r 's@(.).*@\1/&/&@'; }
-
-_pkgname=iceweasel
-pkgname=iceweasel-libre
-pkgver=${_debver}.${_debrel}
-pkgrel=1
-
-if [ -z "$pkgname" ]; then pkgname=$_pkgname; fi
-if $_pgo; then
-  pkgname+='-pgo'
-fi
-
-pkgdesc="A libre version of Debian Iceweasel, the browser based on Mozilla Firefox."
-arch=('i586' 'i686' 'x86_64' 'mips64el')
-license=('GPL2' 'MPL' 'LGPL')
-depends=('alsa-lib' 'dbus-glib' 'desktop-file-utils' 'gtk2' 'hicolor-icon-theme' 'hunspell' 'libevent' 'libnotify' 'libvpx' 'libxt' 'mime-types' 'mozilla-common' 'mozilla-searchplugins' 'nss>=3.13.1' 'sqlite3' 'startup-notification')
-makedepends=( 'autoconf2.13' 'diffutils' 'imagemagick' 'libidl2' 'librsvg' 'libxslt' 'mesa' 'pkg-config' 'python2' 'quilt' 'unzip' 'wireless_tools' 'zip')
-[ "$CARCH" != "mips64el" ] && makedepends+=('yasm')
-if $_pgo; then
-  makedepends+=('xorg-server-xvfb')
-  options=(!ccache)
-fi
-
-url="http://www.geticeweasel.org/"
-install=iceweasel.install
-source=("${_debrepo}/`debfile ${_debname}`_${_debver}.orig.tar.bz2"
-        "${_debrepo}/`debfile ${_debname}`_${_debver}-${_debrel}.debian.tar.gz"
-        "${_debrepo}/`debfile ${_debname}`_${_debver}-${_debrel}.dsc"
-        mozconfig
-        mozconfig.pgo
-        xulrunner-copy-stub.patch
-        libre.patch
-        iceweasel-install-dir.patch
-        region.properties
-        vendor.js
-        gcc47.patch)
-md5sums=('b45f57bfe21b0e6db4f0683e794917cb'
-         '2b66fb2e51631ef3b07de89ef9d17d0c'
-         '552adcf5da3b07757e7fe29c8bd2ec2d'
-         '5b8d9bcf9f2777c42b6758ceff832d12'
-         'ac29b01c189f20abae2f3eef1618ffc0'
-         'a485a2b5dc544a8a2bd40c985d2e5813'
-         '64c8a15bb881e72d9ab85ae26f74caf0'
-         '9abd6b9e210690f8e97ec2b56028abd1'
-         'f1c76e7e244257856a386ca2de69bdf0'
-         '0d053487907de4376d67d8f499c5502b'
-         'fd9c3423a9e15b55786a8729f2492f84')
-
-if [ "$_pkgname" != "$pkgname" ]; then
-  provides+=("$_pkgname=$pkgver")
-  conflicts+=("$_pkgname")
-fi
-
-dpkg-source() {
-  # This will simulate dpkg-source -x ${_debname}_${_debver}-${_debrel}.dsc
-  export QUILT_PATCHES=debian/patches
-  export QUILT_REFRESH_ARGS='-p ab --no-timestamps --no-index'
-  export QUILT_DIFF_ARGS='--no-timestamps'
-  mv mozilla-release "${_debname}-${_debver}"
-  mv debian "${_debname}-${_debver}"
-  cd "${_debname}-${_debver}"
-
-# Doesn't apply and seems unimportant
-  rm -v debian/patches/l10n/Place-google-and-gmail-before-yandex.patch || true
-
-  quilt push -a
-  find .pc -name .timestamp -delete # why isn't "--no-timestamps" doing this?
-  cd ..
-}
-
-build() {
-# Don't run this if we're using -e
-if [ $NOEXTRACT -eq 0 ]; then
-  msg2 "Applying Debian patches..."
-  cd "${srcdir}"
-  dpkg-source -x ${_debname}_${_debver}-${_debrel}.dsc
-
-  msg2 "Starting normal build..."
-  mv "${_debname}-${_debver}" "$srcdir/mozilla-build"
-  cd "$srcdir/mozilla-build"
-
-  cp "$srcdir/mozconfig" .mozconfig # Load our build config, disable SafeSearch
-  patch -Np1 -i "$srcdir/iceweasel-install-dir.patch" # install to /usr/lib/$_pkgname
-  patch -Np1 -i "$srcdir/gcc47.patch" # fix to compile with gcc47
-  patch -Np1 -i "$srcdir/xulrunner-copy-stub.patch" # small fix
-  patch -Np1 -i "$srcdir/libre.patch"
-fi
-
-  cd "$srcdir/mozilla-build"
-  cp -f ${srcdir}/region.properties ./browser/locales/en-US/chrome/browser-region/
-
-  if $_pgo; then
-    cat "$srcdir/mozconfig.pgo" >> .mozconfig
-  fi
-
-  # Fix PRE_RELEASE_SUFFIX
-  sed -i '/^PRE_RELEASE_SUFFIX := ""/s/ ""//' \
-    browser/base/Makefile.in
-
-  # This is a bug, we should fix it.
-  if [ "$CARCH" = "mips64el" ]; then
-      # Fix MIPS N32 support.
-      sed -i 's/defined(_ABIO32)/(defined(_ABIO32) || defined(_ABIN32))/' \
-          js/src/assembler/wtf/Platform.h
-      # Disable JIT.
-      sed -ri 's/#define ENABLE_(JIT|ASSEMBLER) 1/#define ENABLE_\1 0/' \
-          js/src/assembler/wtf/Platform.h
-      sed -ri 's/ENABLE_(JIT|ASSEMBLER)=1/ENABLE_\1=0/' js/src/Makefile.in
-      echo 'ac_add_options --disable-methodjit' >> .mozconfig
-      echo 'ac_add_options --disable-tracejit' >> .mozconfig
-      echo 'ac_add_options --disable-jemalloc' >> .mozconfig
-  fi
-
-  export LDFLAGS="$LDFLAGS -Wl,-rpath,/usr/lib/$_pkgname"
-  export PYTHON="/usr/bin/python2"
-
-  if $_pgo; then
-    LD_PRELOAD="" /usr/bin/Xvfb -nolisten tcp -extension GLX -screen 0 1280x1024x24 :99 &
-    LD_PRELOAD="" DISPLAY=:99 make -j1 -f client.mk profiledbuild MOZ_MAKE_FLAGS="$MAKEFLAGS"
-    kill $! || true
-  else
-    LD_PRELOAD="" make -j1 -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS"
-  fi
-}
-
-package() {
-  cd "$srcdir/mozilla-build"
-  make -j1 -f client.mk DESTDIR="$pkgdir" install
-
-  install -m644 "$srcdir"/vendor.js "$pkgdir/usr/lib/$_pkgname/defaults/pref"
-
-  # I don't even know why we're hitting the objdir, and ConnOS didn't.
-  _brandingdir=debian/branding
-  brandingdir=moz-objdir/$_brandingdir
-  icondir="$pkgdir/usr/share/icons/hicolor"
-  for i in 16x16 32x32 48x48 64x64; do
-    install -Dm644 "$brandingdir/default${i/x*/}.png" "$icondir/$i/apps/$_pkgname.png"
-  done
-  install -Dm644 "$brandingdir/mozicon128.png" "$icondir/128x128/apps/$_pkgname.png"
-  install -Dm644 "$_brandingdir/iceweasel_icon.svg" "$icondir/scalable/apps/$_pkgname.svg"
-
-  install -d                                  "$pkgdir/usr/share/applications"
-  install -m644 debian/iceweasel.desktop      "$pkgdir/usr/share/applications"
-  #install -m644 debian/iceweasel-safe.desktop "$pkgdir/usr/share/applications"
-
-  rm -rf "$pkgdir/usr/lib/$_pkgname/"{dictionaries,hyphenation,searchplugins,plugins}
-  ln -sf /usr/share/hunspell            "$pkgdir/usr/lib/$_pkgname/dictionaries"
-  ln -sf /usr/share/hyphen              "$pkgdir/usr/lib/$_pkgname/hyphenation"
-  ln -sf /usr/lib/mozilla/plugins       "$pkgdir/usr/lib/$_pkgname/plugins"
-  ln -sf /usr/lib/mozilla/searchplugins "$pkgdir/usr/lib/$_pkgname/searchplugins"
-
-  # We don't want the development stuff
-  rm -rf "$pkgdir"/usr/{include,lib/$_pkgname-devel,share/idl}
-
-  # Workaround for now: https://bugzilla.mozilla.org/show_bug.cgi?id=658850
-  ln -sf $_pkgname "$pkgdir/usr/lib/$_pkgname/$_pkgname-bin"
-}
+    # Maintainer: Jorge <jorge.barroso.11@gmail.com>
+    pkgname=iceweasel-libre
+    pkgver=12.0.3
+    pkgrel=1
+    pkgdesc='A libre version of Debian Iceweasel, the browser based on Mozilla Firefox.'
+    arch=x86_64
+    url=http://www.geticeweasel.org/
+    license=('GPL2' 'MPL' 'LGPL')
+    depends=('alsa-lib' 'dbus-glib' 'desktop-file-utils' 'gtk2' 'hicolor-icon-theme' 'hunspell' 'libevent' 'libnotify' 'libvpx' 'libxt' 'mime-types' 'mozilla-common' 'mozilla-searchplugins' 'nss>=3.13.1' 'sqlite3' 'startup-notification')
+    optdepends=('iceweasel-sync: Speed up Iceweasel using tmpfs')
+    install=iceweasel.install
+    source=(https://repo.parabolagnulinux.org/libre/os/x86_64/iceweasel-libre-12.0.3-1-x86_64.pkg.tar.xz)
+    md5sums=3aca2484df769ef5a44212395c1c5937
+    
+    package() {
+      cd "$srcdir"
+     
+    tar xf $pkgname-$pkgver-$pkgrel-$arch.pkg.tar.xz
+    mkdir -p "${pkgdir}/usr/"
+    cp -r "${srcdir}/usr//bin" "${pkgdir}/usr/bin"
+    cp -r "${srcdir}/usr/share" "${pkgdir}/usr/share"
+    cp -r "${srcdir}/usr/lib" "${pkgdir}/usr/lib"
+     
+    chmod +x "${pkgdir}/usr/bin/iceweasel"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/bin/iceweasel"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/applications/iceweasel.desktop"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/lib/iceweasel"/*/*/*/*
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/icons/hicolor/16x16/apps/iceweasel.png"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/icons/hicolor/32x32/apps/iceweasel.png"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/icons/hicolor/48x48/apps/iceweasel.png"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/icons/hicolor/64x64/apps/iceweasel.png"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/icons/hicolor/128x128/apps/iceweasel.png"
+    sed 's|usr/local|usr|' -i "${pkgdir}/usr/share/icons/hicolor/scalable/apps/iceweasel.svg"
+    }
+     
+    # vim:set ts=2 sw=2 et:
+ 
