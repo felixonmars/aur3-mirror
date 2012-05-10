@@ -1,0 +1,14 @@
+#!/bin/bash
+. /etc/icecream.conf
+
+netname=
+if test -n "$ICECREAM_NETNAME"; then
+    netname="-n $ICECREAM_NETNAME"
+fi
+logfile=""
+if test -n "$ICECREAM_LOG_FILE"; then
+    touch $ICECREAM_LOG_FILE
+    chown icecream:icecream $ICECREAM_LOG_FILE
+    logfile="-l $ICECREAM_LOG_FILE"
+fi
+/usr/lib/icecream/sbin/scheduler -d $netname $logfile &>/dev/null
