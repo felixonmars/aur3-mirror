@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PLEX_MEDIA_SERVER_USER=root
+PLEX_MEDIA_SERVER_USER=xenon
 
 . /etc/conf.d/plexmediaserver
 
@@ -16,7 +16,7 @@ PID=`pidof -o %PPID /usr/lib/plexmediaserver/Plex\ Media\ Server`
 case "$1" in
   start)
     stat_busy "Starting Plex Media Server"
-    [ -z "$PID" ] && su -c " /usr/lib/plexmediaserver/Plex\ Media\ Server >> /var/log/plexmediaserver.log &" $PLEX_MEDIA_SERVER_USER
+    [ -z "$PID" ] && su -c " /usr/lib/plexmediaserver/Plex\ Media\ Server > /var/log/plexmediaserver.log &" $PLEX_MEDIA_SERVER_USER
     if [ $? -gt 0 ]; then
       stat_fail
     else
