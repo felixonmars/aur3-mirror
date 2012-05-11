@@ -13,18 +13,15 @@
 #define PIDFILE "/var/run/cmp-daemon.pid"
 
 #define FAN_1_MANUAL "/sys/devices/platform/applesmc.768/fan1_manual"
-#define FAN_2_MANUAL "/sys/devices/platform/applesmc.768/fan2_manual"
 
-#define RD_CPU_1_TEMP "/sys/devices/platform/coretemp.0/temp1_input"
-#define RD_CPU_2_TEMP "/sys/devices/platform/coretemp.1/temp1_input"
+#define RD_CPU_1_TEMP "/sys/devices/platform/coretemp.0/temp2_input"
+#define RD_CPU_2_TEMP "/sys/devices/platform/coretemp.0/temp3_input"
 
 #define RD_FAN_1 "/sys/devices/platform/applesmc.768/fan1_input"
-#define RD_FAN_2 "/sys/devices/platform/applesmc.768/fan2_input"
 #define WR_FAN_1 "/sys/devices/platform/applesmc.768/fan1_output"
-#define WR_FAN_2 "/sys/devices/platform/applesmc.768/fan2_output"
 
 #define MIN_SPEED 2000
-#define MAX_SPEED 6000
+#define MAX_SPEED 5700
 
 #define ERROR -1
 #define OK 0
@@ -32,9 +29,7 @@
 int read_cpu_1_temp(void);
 int read_cpu_2_temp(void);
 void write_fan_1_manual(int);
-void write_fan_2_manual(int);
 void write_fan_1_speed(int);
-void write_fan_2_speed(int);
 void write_pidfile(void);
 void check_pidfile(void);
 void check_cpu(void);
@@ -48,7 +43,6 @@ void Signal_Handler(int sig){
 			break;		
 		case SIGTERM:
 			write_fan_1_manual(0);
-			write_fan_2_manual(0);
 			unlink(PIDFILE);
 			syslog(LOG_INFO, "Stop");
 			closelog();
@@ -101,7 +95,6 @@ int main(int argc, char **argv){
 	check_pidfile();
 	write_pidfile();
 	write_fan_1_manual(1);
-	write_fan_2_manual(1);
 
 	start_daemon();
 
@@ -124,10 +117,8 @@ int main(int argc, char **argv){
 	int fan_speed=(temp-38)*160;
 
 	write_fan_1_manual(1);
-	write_fan_2_manual(1);
 	fan_speed=set_min_max_fan_speed(fan_speed);
-	write_fan_1_speed(fan_speed);	
-	write_fan_2_speed(fan_speed);
+	write_fan_1_speed(fan_speed);
 
 	while(1){
 
@@ -138,7 +129,6 @@ int main(int argc, char **argv){
 
 		if (wr_manual==9){
 			write_fan_1_manual(1);
-			write_fan_2_manual(1);
 			wr_manual=0;
 		}
 
@@ -163,7 +153,6 @@ int main(int argc, char **argv){
 
 			if (fan_speed!=old_fan_speed){
 				write_fan_1_speed(fan_speed);
-				write_fan_2_speed(fan_speed);
 				change_number=log_fan_speed(fan_speed,change_number,temp);
 				old_fan_speed=fan_speed;
 			}
@@ -245,21 +234,6 @@ void write_fan_1_speed(int fan_speed_1){
 }
 
 
-void write_fan_2_speed(int fan_speed_2){
-	FILE *file;
-
-	if((file=fopen(WR_FAN_2, "w"))!=NULL){
-		fprintf(file,"%d",fan_speed_2);
-		fclose(file);
-	}
-	else{
-		unlink(PIDFILE);
-		syslog(LOG_ERR, "Error write_fan_2_speed, applesmc loaded?");
-		closelog();
-		exit(ERROR);
-	}
-}
-
 
 int log_fan_speed(int fan_speed,int change_number,int temp){
 	change_number++;
@@ -282,20 +256,6 @@ void write_fan_1_manual(int fan_manual_1){
 	}
 }
 
-
-void write_fan_2_manual(int fan_manual_2){
-	FILE *file;
-	if((file=fopen(FAN_2_MANUAL, "w"))!=NULL){
-		fprintf(file,"%d",fan_manual_2);
-		fclose(file);
-	}
-	else{
-		syslog(LOG_ERR, "Error write_fan_2_manual, applesmc loaded?");
-		unlink(PIDFILE);
-		closelog();
-		exit(ERROR);
-	}
-}
 
 
 void write_pidfile(){
