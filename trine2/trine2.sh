@@ -1,6 +1,6 @@
 #!/bin/sh
 
-if [ ! -d $HOME/.frozenbyte/Trine2/install_dir.txt ]; then
+if [ ! -d $HOME/.frozenbyte/Trine2 ]; then
 	mkdir -p "$HOME/.frozenbyte/Trine2"
 fi
 
