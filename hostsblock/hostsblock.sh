@@ -6,32 +6,33 @@ hostsfile=/etc/hosts.block
 redirecturl="127.0.0.1"
 dnsmasq=1
 dnsmasqconf=/etc/dnsmasq.conf
-pixelserv=1
-blocklists=('http://support.it-mate.co.uk/downloads/hphosts.zip')
+blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
+USECOLOR="yes"
 
-[ -f /etc/hostsblock.conf ] && . /etc/hostsblock.conf
+[ -f /etc/rc.d/functions ] && . /etc/rc.d/functions
+[ -f /etc/hostsblock.conf ] && . /etc/hostsblock.conf || echo "Config file /etc/hostsblock.conf not found. An example config file can be found at /usr/share/hostsblock/hostsblock.conf."
 
-echo "BACKING UP AND COMPRESSING $hostsfile TO $hostsfile.old.gz..."
+stat_busy "Backing up and compressing $hostsfile to $hostsfile.old.gz..."
 cp "$hostsfile" "$hostsfile".old
 gzip -f "$hostsfile".old
+stat_done
 
-mkdir -p $tmpdir/hostsblock/hosts.block.d
-cp $hostsfile $tmpdir/hostsblock/hosts.block.d/hosts.block.0
-echo "ADDING OVERTLY SPECIFIED BLOCKED SUBDOMAINS..."
+mkdir -p "$tmpdir"/hostsblock/hosts.block.d
+cp "$hostsfile" "$tmpdir"/hostsblock/hosts.block.d/hosts.block.0
 for sub in ${blacklist[*]}; do
 	echo "$redirecturl $sub" >> $tmpdir/hostsblock/hosts.block.d/hosts.block.0
 done
 n=1
 
-echo "DOWNLOADING AND EXTRACTING BLOCKLISTS..."
+stat_busy "Downloading and extracting blocklists..."
 for url in ${blocklists[*]}; do
-	echo "$n: $url..."
+	echo "   $n: $url..."
 	if echo "$url " | grep -- ".zip " &>/dev/null; then
 		if which unzip &>/dev/null; then
 			mkdir $tmpdir/hostsblock/tmp
 			curl -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
 			cd $tmpdir/hostsblock/tmp
-			echo "     Extracting..."
+			echo "       Extracting..."
 			unzip -jq hosts.block.zip
 			grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
 			cd $tmpdir/hostsblock
@@ -44,7 +45,7 @@ for url in ${blocklists[*]}; do
                         mkdir $tmpdir/hostsblock/tmp
                         curl -s -o $tmpdir/hostsblock/tmp/hosts.block.7z "$url"
                         cd $tmpdir/hostsblock/tmp
-                        echo "     Extracting..."
+                        echo "       Extracting..."
                         7za e hosts.block.7z &>/dev/null
                         grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
                         cd $tmpdir/hostsblock
@@ -58,30 +59,26 @@ for url in ${blocklists[*]}; do
 	fi
 	let "n+=1"
 done
+stat_done
 
-echo "CONSTRUCTING WHITELIST..."
 for pattern in ${whitelist[*]}; do
 	echo "/$pattern/d" >> $tmpdir/hostsblock/whitelist.sed
 done
 
-echo "PROCESSING FILES..."
+
+stat_busy "Processing blocklist entries..."
 grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $tmpdir/hostsblock/hosts.block.d/* |\
 sed -e 's/[[:space:]][[:space:]]*/ /g' -e "s/\r//g" -e "s/\#.*//g" -e "s/ $//g" -e "s|0.0.0.0|$redirecturl|g" -e "s|127.0.0.1|$redirecturl|g"|\
 sort -u | sed -f $tmpdir/hostsblock/whitelist.sed > $hostsfile
+stat_done
 
 totalhosts=`grep -c -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $hostsfile`
 echo "$totalhosts urls modified or blocked"
 
 if [ $dnsmasq == 1 ]; then
-	echo "(RE)STARTING DNSMASQ"
 	grep -- "addn-hosts=$hostsfile" $dnsmasqconf &>/dev/null || echo "addn-hosts=$hostsfile" >> $dnsmasqconf
 	pidof dnsmasq &>/dev/null && begin=restart || begin=start
 	/etc/rc.d/dnsmasq $begin
-fi
-
-if [ $pixelserv == 1 ]; then
-	echo "(RE)STARTING PIXELSERV"
-	ps aux | grep -v grep | grep pixelserv.pl &>/dev/null || /etc/rc.d/pixelserv restart
 fi
 
 rm -r "$tmpdir"/hostsblock
