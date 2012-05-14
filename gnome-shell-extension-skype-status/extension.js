@@ -10,6 +10,6 @@ function disable() {
 	StatusIconDispatcher.STANDARD_TRAY_ICON_IMPLEMENTATIONS['skype'] = '';
 }
 
-function init() {
+function init(metadata) {
 }
 
