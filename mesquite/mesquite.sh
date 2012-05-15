@@ -1,10 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
-for arg
-do
-  cmd="$cmd $arg"
-done
-
-java -cp /opt/mesquite mesquite.Mesquite $cmd
-
-
+cd /usr/share/mesquite
+"$JAVA_HOME/bin/java" -Djava.library.path=lib -Djri.ignore.ule="yes" -cp . mesquite.Mesquite "$@"
