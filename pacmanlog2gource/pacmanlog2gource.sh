@@ -43,19 +43,19 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.8"
+VERSION="1.8.1"
 
 FILENAMES=' '
 
 
-if [[ $(echo "$*") == *d* ]] ; then
+if [ `echo "$*" | grep -o "^-.[^\ ]*d\|\-d"` ] ; then
 	echo "Debug mode..."
 	set -x
 fi
 # check if we already have the datadir, if we don't have it, create it
 if [ ! -d "${DATADIR}" ] ; then
 	# workaround to not have colors displayed if we use -c option
-	if [[ $(echo "$*") == *c* ]] ; then
+	if [ `echo "$*" | grep -o "^-.[^\ ]*c\|\-c"` ]] ; then
 		echo -e "No directory ${DATADIR} found, creating one."
 	else
 		echo -e "No directory ${WHITEUL}${DATADIR}${NC} found, creating one."
@@ -71,8 +71,8 @@ fi
 
 # print the version into a file so we can handle file formats being out of date properly later
 echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5, 1.7.6, 1.8 "
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6|1\.8/'` ]] ; then
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5, 1.7.6, 1.8, 1.8.1"
+if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6|1\.8|1\.8.1/'` ]] ; then
 	if [[ $(echo "$*") == *c* ]] ; then
 		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
 	else
@@ -300,6 +300,8 @@ logbeginning=`date +"%d %b %Y" -d "${logbeginningdate}"`
 logenddate=`cat ${LOGNOW} | tail -n1 | awk '{print $1}' | sed  -e 's/\[//'`
 logend=`date +"%d %b %Y" -d "${logenddate}"`
 
+cpucores=`getconf _NPROCESSORS_ONLN`
+
 LOGTIMES=", ${logbeginning} - ${logend}"
 HOSTNAME=", hostname: `hostname`"
 ARCH=", `uname -m`"
@@ -355,8 +357,8 @@ while getopts "nchgfpaotimd" opt; do
 			echo "Filenames will be skipped in the video." >&2
 			;;
 		"d")
-			DEBUG="true"
-			echo "Entering debug mode..." >&2
+		#	DEBUG="true"
+		#	echo "Entering debug mode..." >&2
 			;;
 		"?")
 			UPDATE="false"
@@ -375,9 +377,9 @@ done
 if [ ${INFORMATION} == "true" ] ; then
 	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
 	echo "The default command which will be run using pacmanlog2gource -g is"
-	echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.4 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001${NC}"
+	echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.1 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2${NC}"
 	echo "If you run -f, this is appended:"
-	echo -e "${GREEN}--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k ${GREENUL}pacmanlog2gource_`date +%b\_%d\_%Y`.mp4${NC}"
+	echo -e "${GREEN}--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads ${cpucores} -b:v 3000k -maxrate 8000k -bufsize 10000k ${GREENUL}pacmanlog2gource_`date +%b\_%d\_%Y`.mp4${NC}"
 	echo -e "Logfiles are stored in ${WHITEUL}${DATADIR}/pacman_gource_tree.log${NC} and ${WHITEUL}${DATADIR}/pacman_gource_pie.log${NC}."
 	echo -e "Log format of current version ${VERSION} compatible with versions \n${COMPATIBLE}"
 	exit 0
@@ -392,13 +394,14 @@ fi
 if [ ${GOURCEPOST} == "true" ] ; then
 	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
 	if [ ${FFMPEGPOST} == "true" ] ; then
-		gource ${LOG} -1200x720  -c 1.4 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001 --output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads 4 -b:v 3000k -maxrate 8000k -bufsize 10000k pacmanlog2gource_`date +%b\_%d\_%Y`.mp4
+		gource ${LOG} -1200x720  -c 1.1 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2 --output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads ${cpucores} -b:v 3000k -maxrate 8000k -bufsize 10000k pacmanlog2gource_`date +%b\_%d\_%Y`.mp4
 	else
 		echo -e "To record the video to a mp4 file using ffmpeg, run  ${GREEN}pacmanlog2gource -f${NC}  ."
-		gource ${LOG} -1200x720  -c 1.4 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.5 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001
+		gource ${LOG} -1200x720  -c 1.1 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2
 	fi
 else
 	echo -e "To visualize the log, run  ${GREEN}pacmanlog2gource -g${NC}"
 fi
 
+echo -e "For more information run ${GREEN}pacmanlog2gource -i${NC} or ${GREEN}pacmanlog2gource -h${NC}"
 echo "Thanks for using pacmanlog2gource!"
