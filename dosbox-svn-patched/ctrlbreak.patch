@@ -1,0 +1,238 @@
+diff -ur dosbox/include/bios.h dosbox-build/include/bios.h
+--- dosbox/include/bios.h	2012-04-02 14:51:41.936225322 -0300
++++ dosbox-build/include/bios.h	2012-05-15 22:35:57.177743304 -0300
+@@ -63,7 +63,7 @@
+ /* 0x467-0x468 is reserved */
+ #define BIOS_TIMER                      0x46c
+ #define BIOS_24_HOURS_FLAG              0x470
+-#define BIOS_KEYBOARD_FLAGS             0x471
++#define BIOS_CTRL_BREAK_FLAG            0x471
+ #define BIOS_CTRL_ALT_DEL_FLAG          0x472
+ #define BIOS_HARDDISK_COUNT		0x475
+ /* 0x474, 0x476, 0x477 is reserved */
+diff -ur dosbox/include/callback.h dosbox-build/include/callback.h
+--- dosbox/include/callback.h	2012-04-02 14:51:41.929558924 -0300
++++ dosbox-build/include/callback.h	2012-05-15 22:35:57.181076361 -0300
+@@ -28,7 +28,7 @@
+ extern CallBack_Handler CallBack_Handlers[];
+ 
+ enum { CB_RETN,CB_RETF,CB_RETF8,CB_IRET,CB_IRETD,CB_IRET_STI,CB_IRET_EOI_PIC1,
+-		CB_IRQ0,CB_IRQ1,CB_IRQ9,CB_IRQ12,CB_IRQ12_RET,CB_IRQ6_PCJR,CB_MOUSE,
++		CB_IRQ0,CB_IRQ1,CB_IRQ1_BREAK,CB_IRQ9,CB_IRQ12,CB_IRQ12_RET,CB_IRQ6_PCJR,CB_MOUSE,
+ 		CB_INT29,CB_INT16,CB_HOOKABLE,CB_TDE_IRET,CB_IPXESR,CB_IPXESR_RET,
+ 		CB_INT21,CB_INT13 };
+ 
+diff -ur dosbox/src/cpu/callback.cpp dosbox-build/src/cpu/callback.cpp
+--- dosbox/src/cpu/callback.cpp	2012-04-02 14:51:53.885744220 -0300
++++ dosbox-build/src/cpu/callback.cpp	2012-05-15 22:35:57.181076361 -0300
+@@ -256,6 +256,20 @@
+ 		phys_writeb(physAddress+0x0d,(Bit8u)0x58);			// pop ax
+ 		phys_writeb(physAddress+0x0e,(Bit8u)0xcf);			//An IRET Instruction
+ 		return (use_cb?0x15:0x0f);
++	case CB_IRQ1_BREAK:	// return from int9, when Ctrl-Break is detected; invokes int 1b
++		phys_writew(physAddress+0x00,(Bit16u)0x1bcd);		// int 1b
++		phys_writeb(physAddress+0x02,(Bit8u)0xfa);		// cli
++		if (use_cb) {
++			phys_writeb(physAddress+0x03,(Bit8u)0xFE);	//GRP 4
++			phys_writeb(physAddress+0x04,(Bit8u)0x38);	//Extra Callback instruction
++			phys_writew(physAddress+0x05,(Bit16u)callback);		//The immediate word
++			physAddress+=4;
++		}
++		phys_writew(physAddress+0x03,(Bit16u)0x20b0);		// mov al, 0x20
++		phys_writew(physAddress+0x05,(Bit16u)0x20e6);		// out 0x20, al
++		phys_writeb(physAddress+0x07,(Bit8u)0x58);			// pop ax
++		phys_writeb(physAddress+0x08,(Bit8u)0xcf);			//An IRET Instruction
++		return (use_cb?0x0d:0x09);
+ 	case CB_IRQ9:	// pic cascade interrupt
+ 		if (use_cb) {
+ 			phys_writeb(physAddress+0x00,(Bit8u)0xFE);	//GRP 4
+diff -ur dosbox/src/hardware/keyboard.cpp dosbox-build/src/hardware/keyboard.cpp
+--- dosbox/src/hardware/keyboard.cpp	2012-04-02 14:52:04.355322641 -0300
++++ dosbox-build/src/hardware/keyboard.cpp	2012-05-15 22:36:03.883851790 -0300
+@@ -50,6 +50,8 @@
+ 	bool active;
+ 	bool scanning;
+ 	bool scheduled;
++	bool leftctrl_pressed;
++	bool rightctrl_pressed;
+ } keyb;
+ 
+ static void KEYBOARD_SetPort60(Bit8u val) {
+@@ -251,7 +253,10 @@
+ 	case KBD_leftbracket:ret=26;break;
+ 	case KBD_rightbracket:ret=27;break;
+ 	case KBD_enter:ret=28;break;
+-	case KBD_leftctrl:ret=29;break;
++	case KBD_leftctrl:
++		ret=29;
++		keyb.leftctrl_pressed=pressed;
++		break;
+ 
+ 	case KBD_a:ret=30;break;
+ 	case KBD_s:ret=31;break;
+@@ -320,7 +325,10 @@
+ 	//The Extended keys
+ 
+ 	case KBD_kpenter:extend=true;ret=28;break;
+-	case KBD_rightctrl:extend=true;ret=29;break;
++	case KBD_rightctrl:
++		extend=true;ret=29;
++		keyb.rightctrl_pressed=pressed;
++		break;
+ 	case KBD_kpdivide:extend=true;ret=53;break;
+ 	case KBD_rightalt:extend=true;ret=56;break;
+ 	case KBD_home:extend=true;ret=71;break;
+@@ -334,9 +342,29 @@
+ 	case KBD_insert:extend=true;ret=82;break;
+ 	case KBD_delete:extend=true;ret=83;break;
+ 	case KBD_pause:
+-		KEYBOARD_AddBuffer(0xe1);
+-		KEYBOARD_AddBuffer(29|(pressed?0:0x80));
+-		KEYBOARD_AddBuffer(69|(pressed?0:0x80));
++		if (!pressed) {
++			/* keyboards send both make&break codes for this key on
++			   key press and nothing on key release */
++			return;
++		}
++		if (!keyb.leftctrl_pressed && !keyb.rightctrl_pressed) {
++			/* neither leftctrl, nor rightctrl pressed -> PAUSE key */
++			KEYBOARD_AddBuffer(0xe1);
++			KEYBOARD_AddBuffer(29);
++			KEYBOARD_AddBuffer(69);
++			KEYBOARD_AddBuffer(0xe1);
++			KEYBOARD_AddBuffer(29|0x80);
++			KEYBOARD_AddBuffer(69|0x80);
++		} else if (!keyb.leftctrl_pressed || !keyb.rightctrl_pressed) {
++			/* exactly one of [leftctrl, rightctrl] is pressed -> Ctrl+BREAK */
++			KEYBOARD_AddBuffer(0xe0);
++			KEYBOARD_AddBuffer(70);
++			KEYBOARD_AddBuffer(0xe0);
++			KEYBOARD_AddBuffer(70|0x80);
++		}
++		/* pressing this key also disables any previous key repeat */
++		keyb.repeat.key=KBD_NONE;
++		keyb.repeat.wait=0;
+ 		return;
+ 	case KBD_printscreen:
+ 		/* Not handled yet. But usuable in mapper for special events */
+@@ -387,5 +415,7 @@
+ 	keyb.repeat.pause=500;
+ 	keyb.repeat.rate=33;
+ 	keyb.repeat.wait=0;
++	keyb.leftctrl_pressed=false;
++	keyb.rightctrl_pressed=false;
+ 	KEYBOARD_ClrBuffer();
+ }
+diff -ur dosbox/src/ints/bios_keyboard.cpp dosbox-build/src/ints/bios_keyboard.cpp
+--- dosbox/src/ints/bios_keyboard.cpp	2012-04-02 14:52:06.941885145 -0300
++++ dosbox-build/src/ints/bios_keyboard.cpp	2012-05-15 22:35:57.181076361 -0300
+@@ -36,7 +36,7 @@
+  * The proper way is in the mapper, but the repeating key is an unwanted side effect for lower versions of SDL */
+ #endif
+ 
+-static Bitu call_int16,call_irq1,call_irq6;
++static Bitu call_int16,call_irq1,irq1_ret_ctrlbreak_callback,call_irq6;
+ 
+ /* Nice table from BOCHS i should feel bad for ripping this */
+ #define none 0
+@@ -196,6 +196,10 @@
+ 	return true;
+ }
+ 
++static void empty_keyboard_buffer() {
++	mem_writew(BIOS_KEYBOARD_BUFFER_TAIL, mem_readw(BIOS_KEYBOARD_BUFFER_HEAD));
++}
++
+ 	/*	Flag Byte 1 
+ 		bit 7 =1 INSert active
+ 		bit 6 =1 Caps Lock active
+@@ -310,16 +314,12 @@
+ 	case 0xba:flags1 &=~0x40;leds &=~0x04;break;
+ #endif
+ 	case 0x45:
+-		if (flags3 &0x01) {
++		/* if it has E1 prefix or is Ctrl-NumLock on non-enhanced keyboard => Pause */
++		if ((flags3 &0x01) || (!(flags3&0x10) && (flags1&0x04))) {
+ 			/* last scancode of pause received; first remove 0xe1-prefix */
+ 			flags3 &=~0x01;
+ 			mem_writeb(BIOS_KEYBOARD_FLAGS3,flags3);
+-			if (flags2&1) {
+-				/* ctrl-pause (break), special handling needed:
+-				   add zero to the keyboard buffer, call int 0x1b which
+-				   sets ctrl-c flag which calls int 0x23 in certain dos
+-				   input/output functions;    not handled */
+-			} else if ((flags2&8)==0) {
++			if ((flags2&8)==0) {
+ 				/* normal pause key, enter loop */
+ 				mem_writeb(BIOS_KEYBOARD_FLAGS2,flags2|8);
+ 				IO_Write(0x20,0x20);
+@@ -339,7 +339,7 @@
+ 		}
+ 		break;
+ 	case 0xc5:
+-		if (flags3 &0x01) {
++		if ((flags3 &0x01) || (!(flags3&0x10) && (flags1&0x04))) {
+ 			/* pause released */
+ 			flags3 &=~0x01;
+ 		} else {
+@@ -354,8 +354,27 @@
+ #endif
+ 		}
+ 		break;
+-	case 0x46:flags2 |=0x10;break;				/* Scroll Lock SDL Seems to do this one fine (so break and make codes) */
+-	case 0xc6:flags1 ^=0x10;flags2 &=~0x10;leds ^=0x01;break;
++	case 0x46:						/* Scroll Lock or Ctrl-Break */
++		/* if it has E0 prefix, or is Ctrl-NumLock on non-enhanced keyboard => Break */
++		if((flags3&0x02) || (!(flags3&0x10) && (flags1&0x04))) {				/* Ctrl-Break? */
++			/* remove 0xe0-prefix */
++			flags3 &=~0x02;
++			mem_writeb(BIOS_KEYBOARD_FLAGS3,flags3);
++			mem_writeb(BIOS_CTRL_BREAK_FLAG,0x80);
++			empty_keyboard_buffer();
++			SegSet16(cs, RealSeg(CALLBACK_RealPointer(irq1_ret_ctrlbreak_callback)));
++			reg_ip = RealOff(CALLBACK_RealPointer(irq1_ret_ctrlbreak_callback));
++			return CBRET_NONE;
++		} else {                                        /* Scroll Lock. */
++			flags2 |=0x10;				/* Scroll Lock SDL Seems to do this one fine (so break and make codes) */
++		}
++		break;
++	case 0xc6:
++		if((flags3&0x02) || (!(flags3&0x10) && (flags1&0x04))) {				/* Ctrl-Break released? */
++			/* nothing to do */
++		} else {
++			flags1 ^=0x10;flags2 &=~0x10;leds ^=0x01;break;		/* Scroll Lock released */
++		}
+ //	case 0x52:flags2|=128;break;//See numpad					/* Insert */
+ 	case 0xd2:	
+ 		if(flags3&0x02) { /* Maybe honour the insert on keypad as well */
+@@ -462,6 +481,12 @@
+ }
+ 
+ 
++static Bitu IRQ1_CtrlBreakAfterInt1B(void) {
++	BIOS_AddKeyToBuffer(0x0000);
++	return CBRET_NONE;
++}
++
++
+ /* check whether key combination is enhanced or not,
+    translate key if necessary */
+ static bool IsEnhancedKey(Bit16u &key) {
+@@ -635,6 +660,17 @@
+ 	//	mov al, 0x20
+ 	//	out 0x20, al
+ 	//	pop ax
++	//	iret
++
++	irq1_ret_ctrlbreak_callback=CALLBACK_Allocate();
++	CALLBACK_Setup(irq1_ret_ctrlbreak_callback,&IRQ1_CtrlBreakAfterInt1B,CB_IRQ1_BREAK,"IRQ 1 Ctrl-Break callback");
++	// pseudocode for CB_IRQ1_BREAK:
++	//	int 1b
++	//	cli
++	//	callback IRQ1_CtrlBreakAfterInt1B
++	//	mov al, 0x20
++	//	out 0x20, al
++	//	pop ax
+ 	//	iret
+ 
+ 	if (machine==MCH_PCJR) {
