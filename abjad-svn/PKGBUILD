@@ -1,16 +1,14 @@
-# $Id$
-# Maintainer: Arch Linux Pro Audio <dev@archaudio.org>
-# Contributor: Bernardo Barros <bernardobarros@gmail.com>
+# Maintainer: Bernardo Barros <bernardobarros@gmail.com>
 
 pkgname=abjad-svn
 _realname=abjad
-pkgver=4306
+pkgver=5607
 pkgrel=1
 pkgdesc="Abjad: a Python API for Formalized Score Control"
 url="http://code.google.com/p/abjad/"
 arch=('any')
 license=('GPL')
-depends=('python2' 'lilypond')
+depends=('python2>=2.7' 'lilypond')
 conflicts=('abjad')
 provides=('abjad')
 options=(!emptydirs)
@@ -30,6 +28,8 @@ build() {
   fi
 
   cd $srcdir/$_svnmod
-  python2 setup.py install --root=$pkgdir/ --optimize=1
+
+  python2.7 setup.py install --root="$pkgdir/" --optimize=1
+
 }
 
