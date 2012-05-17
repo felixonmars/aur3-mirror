@@ -1,10 +1,10 @@
 # Maintainer: Ner0
 
 pkgname=0ad-svn-bin
-pkgver=11339
+pkgver=11863
 _pkgver=r11339-2.7
-_dataver=r11339-1.1
-pkgrel=5
+_dataver=r$pkgver-1.1
+pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE SVN prebuilt)"
 url="http://wildfiregames.com/0ad"
 arch=('i686' 'x86_64')
