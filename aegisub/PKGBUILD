@@ -2,7 +2,7 @@
 
 pkgname=aegisub
 pkgver=2.1.9
-pkgrel=1
+pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net"
@@ -14,8 +14,8 @@ source=("http://ftp.aegisub.org/pub/releases/aegisub-${pkgver}.tar.gz")
 # Dependencies converted from 'Building Aegisub 2.1.9 on Ubuntu' thread,
 # http://forum.aegisub.org/viewtopic.php?f=10&t=4686
 depends=('imagemagick' 'gcc-libs>=4.5' 'fontconfig' 'freetype2' 'libgl'
-		'mesa' 'glib2' 'lua>=5.0' 'hunspell' 'alsa-lib' 'libpulse'
-		'wxgtk>=2.8' 'libass' 'ffmpeg>=20120127' 'ffmpegsource>=2.0')
+	'mesa' 'glib2' 'lua>=5.0' 'hunspell' 'alsa-lib' 'libpulse' 'zlib'
+	'wxgtk>=2.8' 'libass' 'ffmpeg>=20120127' 'ffmpegsource>=2.0')
 # excluded dep: openal 
 
 makedepends=('intltool' 'yasm')
@@ -27,6 +27,8 @@ build() {
 	./configure --prefix=/usr --with-player-audio=alsa \
 		--with-pulseaudio --without-{portaudio,openal,oss}
 	
+	# Solves weird, rare problem with libz not being linked
+	export LDFLAGS='$LDFLAGS -lz'
 	make
 }
 
