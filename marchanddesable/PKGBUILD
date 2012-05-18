@@ -1,5 +1,5 @@
 pkgname=marchanddesable
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
 pkgdesc="Turn off your server when you sleep"
 url="https://github.com/madjar/marchanddesable"
@@ -7,15 +7,15 @@ depends=('python' )
 makedepends=('python-distribute' )
 license=('ISC')
 arch=('any')
-source=('http://pypi.python.org/packages/source/m/marchanddesable/marchanddesable-0.1.tar.gz')
-md5sums=('4f0d45d79fcf094dd842449bc0feb998')
+source=(http://pypi.python.org/packages/source/m/marchanddesable/${pkgname}-${pkgver}.tar.gz)
+md5sums=('32984992b3ea58d33907aa1a25c647e1')
 
 build() {
-    cd $srcdir/marchanddesable-0.1
+    cd $srcdir/${pkgname}-${pkgver}
     python setup.py build
 }
 
 package() {
-    cd $srcdir/marchanddesable-0.1
+    cd $srcdir/${pkgname}-${pkgver}
     python setup.py install --root="$pkgdir" --optimize=1
 }
