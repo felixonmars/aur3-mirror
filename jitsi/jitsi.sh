@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CLIENTARGS=""
-arch | grep i686 && CLIENTARGS="-client -Xmx256m"
+uname -m | grep i686 && CLIENTARGS="-client -Xmx256m"
 
 javabin=${JAVA_HOME}/bin/java
 
