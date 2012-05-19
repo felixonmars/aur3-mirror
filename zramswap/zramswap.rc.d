@@ -4,7 +4,7 @@
 . /etc/rc.d/functions
 
 # get the number of CPUs
-num_cpus=$(grep -c processor /proc/cpuinfo)
+num_cpus=$(grep -c '^processor' /proc/cpuinfo)
 # if something goes wrong, assume we have 1
 [[ "$num_cpus" != 0 ]] || num_cpus=1
 
@@ -19,7 +19,7 @@ case "$1" in
     mem_total=$((mem_total_kb * 1024))
 
     # load dependency modules
-    modprobe zram zram_num_devices=$num_cpus || modprobe zram num_devices=$num_cpus
+    modprobe zram zram_num_devices=$num_cpus 2>/tmp/zramswap-$$.log || modprobe zram num_devices=$num_cpus 2>/tmp/zramswap-$$.log || (cat /tmp/zramswap-$$.log && rm -f /tmp/zramswap-$$.log)
 
     # initialize the devices
     for i in $(seq 0 $decr_num_cpus); do
