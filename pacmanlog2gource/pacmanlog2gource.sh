@@ -55,7 +55,7 @@ fi
 # check if we already have the datadir, if we don't have it, create it
 if [ ! -d "${DATADIR}" ] ; then
 	# workaround to not have colors displayed if we use -c option
-	if [ `echo "$*" | grep -o "^-.[^\ ]*c\|\-c"` ]] ; then
+	if [[ `echo "$*" | grep -o "^-.[^\ ]*c\|\-c"` ]] ; then
 		echo -e "No directory ${DATADIR} found, creating one."
 	else
 		echo -e "No directory ${WHITEUL}${DATADIR}${NC} found, creating one."
