@@ -43,7 +43,7 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.8.1"
+VERSION="1.8.3"
 
 FILENAMES=' '
 
@@ -71,8 +71,8 @@ fi
 
 # print the version into a file so we can handle file formats being out of date properly later
 echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5, 1.7.6, 1.8, 1.8.1"
-if [[ `cat ${DATADIR}/version | awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6|1\.8|1\.8.1/'` ]] ; then
+COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5, 1.7.6, 1.8, 1.8.1, 1.8.2, 1.8.3"
+if [[ `awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6|1\.8|1\.8\.1|1\.8\.2|\1\.8\.3/' ${DATADIR}/version` ]] ; then
 	if [[ $(echo "$*") == *c* ]] ; then
 		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
 	else
@@ -100,7 +100,7 @@ timestart()
 timeend()
 {
 	TEG=`date +%s.%N`
-	TDG=`calc $TEG - $TSG`
+	TDG=`calc -p $TEG - $TSG`
 }
 
 makelog() {
@@ -128,39 +128,37 @@ makelog() {
 
 
 	# get lines and size of the pacman log
-	ORIGSIZE=`du ${DATADIR}/process.log | awk '{print $1}'`
-	ORIGLINES=`wc ${DATADIR}/process.log | awk '{print $1}'`
+	ORIGSIZE=`du ${DATADIR}/process.log | cut  -f1`
+	ORIGLINES=`wc ${DATADIR}/process.log -l | cut -d' ' -f1`
 
 	echo -e "Purging the diff (${ORIGLINES} lines, ${ORIGSIZE}kB) and saving the result to ${WHITEUL}${DATADIR}${NC}."
-	cat ${DATADIR}/process.log | sed -e 's/\[/\n[/g' -e '/^$/d' | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
+	sed -e 's/\[/\n[/g' -e '/^$/d' ${DATADIR}/process.log | awk '/] installed|] upgraded|] removed/' > ${LOGTOBEPROCESSED}
 
-	PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | awk '{print $1}'`
+	PURGEDONESIZE=`du ${LOGTOBEPROCESSED} | cut -f1`
 
 	LINE=1
 	LINEPRCOUT=1
-	MAXLINES=`cat ${LOGTOBEPROCESSED} | wc -l`
+	MAXLINES=`wc -l ${LOGTOBEPROCESSED} | cut -d' ' -f1`
 
 	echo -e "Processing ${MAXLINES} lines of purged log (${PURGEDONESIZE}kB)...\n"
 
-
-	# this is a hack to be able to process the log with a for-loop instead of displaying every single line with awk, as I did it before
-	cat ${LOGTOBEPROCESSED} | sed -e 's/\ /·/g'  > ${DATADIR}/tmp
-	# note:  cat foo | sed     seems to be faster than    sed <( cat foo )
+	cp ${LOGTOBEPROCESSED} ${DATADIR}/tmp
 
 	while [ "$LINE" -le "$MAXLINES" ]; do
 		########################
 		## processing the log ##
 		########################
 
-		for i in `cat ${DATADIR}/tmp` ; do
-			# here we revert the hack again
-			i=`echo $i | sed s/·/\ /g`
+		# to read the file via loop
+		IFS=$'\n'
+		set -f
+		for i in $(<${DATADIR}/tmp); do
 			# the unix time string
 			UNIXDATE=`date +"%s" -d "${i:1:16}"`
 			# put  installed/removed/upgraded information in there again, we translated these later with sed in one rush
-			STATE=`awk '{print $3}' <( echo ${i} )`
+			STATE=`cut -d' ' -f3 <( echo ${i} )`
 			# package name
-			PKG=`awk '{print $4}' <( echo ${i} )`
+			PKG=`cut -d' ' -f4  <( echo ${i} )`
 			if [[ "${PKG}" == *lib* ]] ; then
 				if [[ "${PKG}" == *libreoffice* ]] ; then
 					PKG=libreoffice/${PKG}.libreoffice
@@ -226,15 +224,15 @@ makelog() {
 			echo "${UNIXDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
 
 			#    here we print how log the script already took to run and try to estimate how log it will run until everything is done
-			#    but we only update this every 500 lines to avoid unnecessary stdout spamming
+			#    but we only update this every 1000 lines to avoid unnecessary stdout spamming
 			#    this will mostly be printed when initially obtaining the log
-			if [ "${LINEPERCOUT}" == "500" ] ; then
+			if [ "${LINEPERCOUT}" == "1000" ] ; then
 				LINECOUNTCOOKIE=1
 				#    can we use  expr  here, or something more simple?
 				LINEPERC=`calc -p "${LINE} / ${MAXLINES} *100" | sed -e 's/\~//'`
 				timeend
 				#    same as echo ${TDG} | grep -o "[0-9]*\.\?[0-9]\?[0-9]" # | head -n1
-				TGDOUT=`echo ${TDG} | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+				TGDOUT=`awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}' <( echo "${TDG}")`
 				TIMEDONEONE=`calc -p "100 / ${LINEPERC:0:4} *${TDG}" | sed 's/\~//'`
 				TIMEDONEFINAL=`calc -p "${TIMEDONEONE} - ${TDG}" | sed 's/\~//' | awk 'match($0,/[0-9]*.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
 				echo "Already ${LINEPERC:0:4}% done after ${TGDOUT}s."
@@ -245,9 +243,12 @@ makelog() {
 			LINE=`expr ${LINE} + 1`
 			LINEPERCOUT=`expr ${LINEPERCOUT} + 1`
 		done
+		# file loop stuff..
+		set +f
+		unset IFS
 	done
 	# was the package installed/removed/upgraded?  here we actually translate this important information
-	cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/|installed|/|A|/' -e 's/|upgraded|/|M|/' -e 's/|removed|/|D|/' > ${DATADIR}/tmp2.log
+	sed -e 's/|installed|/|A|/' -e 's/|upgraded|/|M|/' -e 's/|removed|/|D|/' ${DATADIR}/pacman_gource_tree.log > ${DATADIR}/tmp2.log
 	mv ${DATADIR}/tmp2.log ${DATADIR}/pacman_gource_tree.log &
 	mv ${DATADIR}/pacman_tmp.log ${LOGNOW} &
 	rm ${DATADIR}/pacman_purged.log ${DATADIR}/process.log ${DATADIR}/tmp &
@@ -256,16 +257,16 @@ makelog() {
 	# take the existing log and remove the paths so we have our pie-like log again which I had at the beginning of the developmen process of this script :)
 	# yes, this may look stupid, first writing a package category and then removing it afterwards, but I think its faster to edit the entire file in one rush
 	# instead of writing every single line into a file
-	cat ${DATADIR}/pacman_gource_tree.log | sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/' -e 's/A|.*\//A\|/' > ${DATADIR}/pacman_gource_pie.log
+	sed -e 's/D|.*\//D\|/' -e 's/M|.*\//M\|/' -e 's/A|.*\//A\|/' ${DATADIR}/pacman_gource_tree.log  > ${DATADIR}/pacman_gource_pie.log
 
 
 	# how log did the script take to run?
 	timeend
 
 	if [[ ${LINECOUNTCOOKIE} == "1" ]] ; then
-		TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*\.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}'`
+		TIMEFINAL=`awk 'match($0,/[0-9]*\.?[0-9]?[0-9]/) {print substr($0,RSTART,RLENGTH)}' <( echo "${TDG}" )`
 	else
-		TIMEFINAL=`echo "${TDG}" | awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}'`
+		TIMEFINAL=`awk 'match($0,/[0-9]*.[0-9]{5}/) {print substr($0,RSTART,RLENGTH)}' <( echo "${TDG}" )`
 	fi
 
 	if [[ ${MAXLINES} == "0" ]] ; then
@@ -294,10 +295,10 @@ help() {
 	# implement  -q  quiet
 }
 
-logbeginningdate=`cat ${LOGNOW} | head -n1 | awk '{print $1}' | sed  -e 's/\[//'`
+logbeginningdate=`head -n1 ${LOGNOW} |  cut -d' ' -f1 | sed  -e 's/\[//'`
 logbeginning=`date +"%d %b %Y" -d "${logbeginningdate}"`
 
-logenddate=`cat ${LOGNOW} | tail -n1 | awk '{print $1}' | sed  -e 's/\[//'`
+logenddate=`tail -n1 ${LOGNOW} | cut -d' ' -f1 | sed  -e 's/\[//'`
 logend=`date +"%d %b %Y" -d "${logenddate}"`
 
 cpucores=`getconf _NPROCESSORS_ONLN`
