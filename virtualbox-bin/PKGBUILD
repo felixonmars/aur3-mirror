@@ -9,13 +9,14 @@
 pkgname=virtualbox-bin
 pkgver=4.1.14
 _build=77440
-pkgrel=1
+pkgrel=2
 pkgdesc='Oracle VM VirtualBox Binary Edition'
 arch=('i686' 'x86_64')
 url='http://virtualbox.org/'
 license=('GPL2')
 options=('!strip')
 depends=(
+  'dkms'
   'fontconfig'
   'gcc'
   'libgl'
@@ -27,27 +28,24 @@ depends=(
   'python2'
   'sdl'
 )
-optdepends=('virtualbox-ext-oracle: for Oracle extensions'
-            'dkms: for handling kernel modules with dkms')
+optdepends=('virtualbox-ext-oracle: for Oracle extensions')
 provides=("virtualbox=${pkgver}")
 conflicts=('virtualbox' 'virtualbox-ose' 'virtualbox-modules')
 replaces=('virtualbox_bin' 'virtualbox-sun')
-backup=('etc/vbox/vbox.cfg' 'etc/conf.d/vboxdrv' 'etc/conf.d/vboxweb')
+backup=('etc/vbox/vbox.cfg' 'etc/conf.d/vboxweb')
 install='install'
 _arch='amd64'
 [[ "${CARCH}" = i686 ]] && _arch='x86'
 source=(
   "VirtualBox-${pkgver}-${_build}-Linux_${_arch}.run::http://download.virtualbox.org/virtualbox/${pkgver}/VirtualBox-${pkgver}-${_build}-Linux_${_arch}.run"
+  'VBoxFixUSB'
   '10-vboxdrv.rules'
-  'vboxdrv.rc'
-  'vboxdrv.conf'
   'vboxweb.rc'
   'vboxweb.conf'
 )
 md5sums=('97d0dc8d74bfdc710a3cd8f4e5a994dd'
+         '2d04c2e2d8c71558c910a51ec773731a'
          'fe60f9510502bea67383d9198ae8c13c'
-         'e7a94c97b1b1e1e843c1bb85181d2de8'
-         '951bf4a5524e919fc4aaee6f46041e3d'
          'c159d683ba1947290fc2ad2c64194150'
          '3ac185709bfe688bb753c46e170d0546')
 [[ "${CARCH}" = i686 ]] && md5sums[0]='4b408d6c7ced82edf3c1284b494a47bd'
@@ -55,21 +53,21 @@ _installdir='/opt/VirtualBox'
 
 package() {
   # Check and unpack the run package via sh(1)
-  sh "VirtualBox-${pkgver}-${_build}-Linux_${_arch}.run" --check
-  echo yes | sh "VirtualBox-${pkgver}-${_build}-Linux_${_arch}.run" --target "${srcdir}" \
+  sh "VirtualBox-$pkgver-$_build-Linux_$_arch.run" --check
+  echo yes | sh "VirtualBox-$pkgver-$_build-Linux_$_arch.run" --target "$srcdir" \
     --nox11 --noexec &> /dev/null
 
   # Unpack bundled files
-  install -d "${pkgdir}/${_installdir}"
-  cd "${pkgdir}/${_installdir}"
-  tar -xjf "${srcdir}/VirtualBox.tar.bz2"
+  install -d "$pkgdir/$_installdir"
+  cd "$pkgdir/$_installdir"
+  tar -xjf "$srcdir/VirtualBox.tar.bz2"
 
   # Hardened build: Mark binaries suid root, create symlinks for working around
   #                 unsupported $ORIGIN/.. in VBoxC.so and make sure the
   #                 directory is only writable by the user (paranoid).
   chmod 4511 VirtualBox VBox{SDL,Headless,NetDHCP,NetAdpCtl}
   for _lib in VBox{VMM,REM,RT,DDU,XPCOM}.so; do
-    ln -sf "${_installdir}/${_lib}" "components/${_lib}"
+    ln -sf "$_installdir/$_lib" "components/$_lib"
   done
   chmod go-w .
 
@@ -80,88 +78,91 @@ package() {
   #  ln -s "/usr/lib/${_lib}.so.4" "${_lib}VBox.so.4"
   #done
 
+  # Install the SDK
+  pushd 'sdk/installer'
+  VBOX_INSTALL_PATH="${_installdir}" python2 vboxapisetup.py install --root "${pkgdir}"
+  rm -r -f build
+  popd
+
+  # Install udev rules
+  install -D -m 0644 "$srcdir/10-vboxdrv.rules" "$pkgdir/usr/lib/udev/rules.d/10-vboxdrv.rules"
+  # we need to move and not symlink VBoxCreateUSBNode.sh in /usr/lib/udev to avoid udevd
+  # to look /opt when /opt is not mounted. This can be done until VBoxCreateUSBNode.sh doesn't
+  # need more stuff from /opt
+  mv VBoxCreateUSBNode.sh "$pkgdir/usr/lib/udev/"
+
+  # Install Fixusb script
+  install -D -m 0755 "$srcdir/VBoxFixUSB" VBoxFixUSB
+
   # Patch "vboxshell.py" to use Python 2.x instead of Python 3
   sed -i 's#/usr/bin/python#\02#' vboxshell.py
 
   # Update Arch initscripts way of life in VBox.sh
-  sed -i -e 's,sudo /etc/init.d/vboxdrv setup,/etc/rc.d/vboxdrv setup,g' \
-    "${pkgdir}/${_installdir}/VBox.sh"
-  sed -i -e 's,sudo /etc/init.d/vboxdrv restart,/etc/rc.d/vboxdrv restart,g' \
-    "${pkgdir}/${_installdir}/VBox.sh"
-
-  # Install vboxdrv initscript
-  install -D -m 0755 "${srcdir}/vboxdrv.rc" "${pkgdir}/etc/rc.d/vboxdrv"
-  install -D -m 0644 "${srcdir}/vboxdrv.conf" "${pkgdir}/etc/conf.d/vboxdrv"
+  sed -i -e 's,sudo /etc/init.d/vboxdrv setup,/etc/rc.d/dkms start,g' \
+    "$pkgdir/$_installdir/VBox.sh"
+  sed -i -e 's,sudo /etc/init.d/vboxdrv restart,/etc/rc.d/dkms start,g' \
+    "$pkgdir/$_installdir/VBox.sh"
 
   # Install vboxweb initscript
-  install -D -m 0755 "${srcdir}/vboxweb.rc" "${pkgdir}/etc/rc.d/vboxweb"
-  install -D -m 0644 "${srcdir}/vboxweb.conf" "${pkgdir}/etc/conf.d/vboxweb"
-
-  # Install udev rules
-  install -D -m 0644 "${srcdir}/10-vboxdrv.rules" "${pkgdir}/usr/lib/udev/rules.d/10-vboxdrv.rules"
-  # we need to move and not symlink VBoxCreateUSBNode.sh in /usr/lib/udev to avoid udevd
-  # to look /opt when /opt is not mounted. This can be done until VBoxCreateUSBNode.sh doesn't
-  # need more stuff from /opt
-  mv VBoxCreateUSBNode.sh "${pkgdir}/usr/lib/udev/"
-
-  # Install the SDK
-  cd "sdk/installer"
-  VBOX_INSTALL_PATH="${_installdir}" python2 vboxapisetup.py install --root "${pkgdir}"
-  rm -r -f build
-  cd "${pkgdir}/${_installdir}"
+  install -D -m 0755 "$srcdir/vboxweb.rc" "$pkgdir/etc/rc.d/vboxweb"
+  install -D -m 0644 "$srcdir/vboxweb.conf" "$pkgdir/etc/conf.d/vboxweb"
 
   # Symlink the launchers. Second link can fail if fs is not case sensitive.
-  install -d -m 0755 "${pkgdir}/usr/bin"
-  for _bin in VirtualBox VBox{Headless,Manage,SDL,SVC,Tunctl,NetAdpCtl} rdesktop-vrdp; do
-    ln -s "${_installdir}/${_bin}" "${pkgdir}/usr/bin/${_bin}"
-    ln -s "${_installdir}/${_bin}" "${pkgdir}/usr/bin/${_bin,,}" &>/dev/null || :
+  install -d -m 0755 "$pkgdir/usr/bin"
+  for _bin in VirtualBox VBox{Headless,Manage,SDL,SVC,Tunctl,NetAdpCtl,FixUSB} rdesktop-vrdp; do
+    ln -s "$_installdir/$_bin" "$pkgdir/usr/bin/$_bin"
+    ln -s "$_installdir/$_bin" "$pkgdir/usr/bin/${_bin,,}" &>/dev/null || :
   done
 
   # Symlink the desktop icon and ".desktop" files
-  install -d -m 0755 "${pkgdir}/usr/"{share/applications,share/pixmaps}
-  ln -s "${_installdir}/VBox.png" "${pkgdir}/usr/share/pixmaps/VBox.png"
-  ln -s "${_installdir}/icons/128x128/virtualbox.png" "${pkgdir}/usr/share/pixmaps/virtualbox.png"
-  ln -s "${_installdir}/virtualbox.desktop" "${pkgdir}/usr/share/applications/virtualbox.desktop"
+  install -d -m 0755 "$pkgdir/usr/"{share/applications,share/pixmaps}
+  ln -s "$_installdir/VBox.png" "$pkgdir/usr/share/pixmaps/VBox.png"
+  ln -s "$_installdir/icons/128x128/virtualbox.png" "$pkgdir/usr/share/pixmaps/virtualbox.png"
+  ln -s "$_installdir/virtualbox.desktop" "$pkgdir/usr/share/applications/virtualbox.desktop"
 
   # Symlink mime info
-  install -d -m 0755 "${pkgdir}/usr/share/mime/packages"
-  ln -s "${_installdir}/virtualbox.xml" "${pkgdir}/usr/share/mime/packages/virtualbox.xml"
+  install -d -m 0755 "$pkgdir/usr/share/mime/packages"
+  ln -s "$_installdir/virtualbox.xml" "$pkgdir/usr/share/mime/packages/virtualbox.xml"
 
   # Symlink doc
-  install -d -m 0755 "${pkgdir}/usr/share/doc/${pkgname}"
-  ln -s "${_installdir}/VirtualBox.chm" "${pkgdir}/usr/share/doc/$pkgname/virtualbox.chm"
+  install -d -m 0755 "$pkgdir/usr/share/doc/$pkgname"
+  ln -s "$_installdir/VirtualBox.chm" "$pkgdir/usr/share/doc/$pkgname/virtualbox.chm"
 
-  # Symlink module sources
-  install -d -m 0755 "${pkgdir}/usr/src"
-  ln -s "${_installdir}/src/vboxhost" "${pkgdir}/usr/src/vboxhost-${pkgver}"
+  # Symlink module sources in /usr/src
+  install -d -m 0755 "$pkgdir/usr/src"
+  ln -s "$_installdir/src/vboxhost" "$pkgdir/usr/src/vboxhost-$pkgver"
 
   # Symlink icons
-  cd icons
+  pushd icons
   for _dir in *; do
-    cd "${_dir}"
-    install -d -m 0755 "${pkgdir}/usr/share/icons/hicolor/${_dir}/"{apps,mimetypes}
+    cd "$_dir"
+    install -d -m 0755 "$pkgdir/usr/share/icons/hicolor/$_dir/"{apps,mimetypes}
     for _icon in *; do
-      if [[ "${_icon}" = 'virtualbox.png' ]]; then
-          ln -s "${_installdir}/icons/${_dir}/${_icon}" "${pkgdir}/usr/share/icons/hicolor/${_dir}/apps/${_icon}"
+      if [[ "$_icon" = 'virtualbox.png' ]]; then
+          ln -s "$_installdir/icons/$_dir/$_icon" "$pkgdir/usr/share/icons/hicolor/$_dir/apps/$_icon"
       else
-          ln -s "${_installdir}/icons/${_dir}/${_icon}" "${pkgdir}/usr/share/icons/hicolor/${_dir}/mimetypes/${_icon}"
+          ln -s "$_installdir/icons/$_dir/$_icon" "$pkgdir/usr/share/icons/hicolor/$_dir/mimetypes/$_icon"
       fi
     done
     cd - >/dev/null
   done
+  popd
 
   # Write the configuration file
-  install -d -m 0755 "${pkgdir}/etc/vbox"
-  echo "# VirtualBox installation directory" > "${pkgdir}/etc/vbox/vbox.cfg"
-  echo "INSTALL_DIR='${_installdir}'" >> "${pkgdir}/etc/vbox/vbox.cfg"
-  echo "# VirtualBox version" >> "${pkgdir}/etc/vbox/vbox.cfg"
-  echo "INSTALL_VER='${pkgver}'" >> "${pkgdir}/etc/vbox/vbox.cfg"
-  echo "INSTALL_REV='${_build}'" >> "${pkgdir}/etc/vbox/vbox.cfg"
-  chmod 0644 "${pkgdir}/etc/vbox/vbox.cfg"
+  install -D -m 0644 /dev/null "$pkgdir/etc/vbox/vbox.cfg"
+  cat > "$pkgdir/etc/vbox/vbox.cfg" <<EOF
+# VirtualBox installation directory"
+INSTALL_DIR='$_installdir'
 
-  # Create the directory below if it doesn't exist
-  # No more need as /var/run is tmpfs
-  #install -d -m 0755 "${pkgdir}/var/run/VirtualBox"
+# VirtualBox version
+INSTALL_VER='$pkgver'
+INSTALL_REV='$_build'
+EOF
+
+  # Register into DKMS
+  install -dm 755 "$pkgdir/var/lib/dkms/vboxhost/$pkgver"
+  ln -s '/opt/VirtualBox/src/vboxhost' "$pkgdir/var/lib/dkms/vboxhost/$pkgver/source"
+
 }
 
 # vim:set ts=2 sw=2 ft=sh et:
