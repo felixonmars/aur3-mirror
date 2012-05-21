@@ -6,8 +6,8 @@ _kernelname=-bede
 pkgbase="linux$_kernelname"
 pkgname="linux$_kernelname"
 true && pkgname=("linux$_kernelname" "linux$_kernelname-headers")
-_basekernel=3.3
-_patchver=6
+_basekernel=3.4
+_patchver=0
 pkgver=$_basekernel
 pkgrel=1
 arch=('i686' 'x86_64')
@@ -16,7 +16,7 @@ url="http://www.kernel.org"
 options=(!strip)
 
 source=(
-	"http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz"
+	"http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.bz2"
 	# the main kernel config files
 	"config-$_basekernel-desktop.i686"
 	"config-$_basekernel-desktop.x86_64"
@@ -27,9 +27,9 @@ source=(
 	"sysctl-desktop.x86_64"
 )
 sha256sums=(
-	'355df2085626cdf0083c4bc0fe3017419034b6db5cce6f437ae8234a5e90b40c'
-	'8e42c82f74c86d34b6c98c2fe5ec5dc482129bdd431d5cc5065a9f6e268a4558'
-	'de6100c7d15f73961310cbad759d3cc45329cb20d156c749a70c2b09da38db3a'
+	'a797a15d0b6228381507c14ecf4eec4a6cc5c77cfd521ba3b3e1325e85b5b16d'
+	'b960e58739769a7762c8d899f77f493a0366e6dab3ce0b62831250244226f677'
+	'af10ab753c54f08cc023b5946a2437fba94260f27c0da1ea289aacf98e477481'
 	'd5bb4aabbd556f8a3452198ac42cad6ecfae020b124bcfea0aa7344de2aec3b5'
 	'cce2cd65f49ef30e9f2c977210fcb3f21707b53088615eb737e2bb53c67ca7c9'
 	'5d59b290f2ec7354048e24cc52048e104fa91a3ac4c393adbb0e268c129d03e2'
