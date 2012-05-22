@@ -24,11 +24,9 @@ makedepends=('intltool' 'yasm')
 build() {
 	cd "$srcdir/aegisub-${pkgver}"
 	
-	./configure --prefix=/usr --with-player-audio=alsa \
+	LDFLAGS="$LDFLAGS -lz" ./configure --prefix=/usr --with-player-audio=alsa \
 		--with-pulseaudio --without-{portaudio,openal,oss}
 	
-	# Solves weird, rare problem with libz not being linked
-	export LDFLAGS='$LDFLAGS -lz'
 	make
 }
 
