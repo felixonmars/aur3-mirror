@@ -4,7 +4,7 @@ function firefox_vaccum(){
 
 	if [[ $counter = "10" ]]
 	then
-		stat_busy "Optimizing Firefox database"
+		stat_busy "Optimizing Firefox's databases"
 		/usr/bin/firefox-vaccum > /dev/null 2>&1
 		echo 0 > /etc/firefox-vaccum-seek
 		stat_done

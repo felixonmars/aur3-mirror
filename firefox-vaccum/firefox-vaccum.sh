@@ -7,7 +7,7 @@ proc="$(ps aux | grep firefox | grep -v grep | grep -v vaccum)"
 if [ "$proc" != "" ]
 then
 	echo $proc
-	echo "Firefox still running"
+	echo "Firefox is still running, shut it down and try again"
 	exit 1
 fi
 
@@ -17,7 +17,7 @@ dirlist=$(cat /etc/passwd | cut -d':' -f6)
 for dir in $dirlist
 do
 
-	if [ $dir != "/" ] && [ -e "$dir/.mozilla/firefox/profiles.ini" ]
+	if [ -e "$dir/.mozilla/firefox/profiles.ini" ]
 	then
 
 		for profiledir in $(cat $dir/.mozilla/firefox/profiles.ini | grep Path= | sed -e 's/Path=//')
