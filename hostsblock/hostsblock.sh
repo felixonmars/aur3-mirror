@@ -8,9 +8,26 @@ dnsmasq=1
 dnsmasqconf=/etc/dnsmasq.conf
 blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
 USECOLOR="yes"
+blacklist=/etc/hostsblock/blacklist
+whitelist=/etc/hostsblock/whitelist
+hostshead=/etc/hostsblock/hosts.head
 
-[ -f /etc/rc.d/functions ] && . /etc/rc.d/functions
-[ -f /etc/hostsblock.conf ] && . /etc/hostsblock.conf || echo "Config file /etc/hostsblock.conf not found. An example config file can be found at /usr/share/hostsblock/hostsblock.conf."
+if [ -f /etc/rc.d/functions ]; then
+	. /etc/rc.d/functions
+else
+	stat_busy() {
+		echo $@
+	}
+	stat_done() {
+		echo "Done"
+	}
+fi
+
+if [ -f /etc/hostsblock/rc.conf ]; then
+	. /etc/hostsblock/rc.conf
+else
+	echo "Config file /etc/hostsblock/rc.conf not found. An example config file can be found at /usr/share/hostsblock/rc.conf."
+fi
 
 stat_busy "Backing up and compressing $hostsfile to $hostsfile.old.gz..."
 cp "$hostsfile" "$hostsfile".old
@@ -18,12 +35,13 @@ gzip -f "$hostsfile".old
 stat_done
 
 mkdir -p "$tmpdir"/hostsblock/hosts.block.d
-cp "$hostsfile" "$tmpdir"/hostsblock/hosts.block.d/hosts.block.0
-for sub in ${blacklist[*]}; do
-	echo "$redirecturl $sub" >> $tmpdir/hostsblock/hosts.block.d/hosts.block.0
-done
-n=1
 
+IFS=''
+for LINE in `cat $blacklist`; do
+	echo "$redirecturl $LINE" >> $tmpdir/hostsblock/hosts.block.d/hosts.block.0
+done
+
+n=1
 stat_busy "Downloading and extracting blocklists..."
 for url in ${blocklists[*]}; do
 	echo "   $n: $url..."
@@ -61,15 +79,13 @@ for url in ${blocklists[*]}; do
 done
 stat_done
 
-for pattern in ${whitelist[*]}; do
-	echo "/$pattern/d" >> $tmpdir/hostsblock/whitelist.sed
-done
-
+cat $whitelist | sed 's/.*/\/&\/d/' >> $tmpdir/hostsblock/whitelist.sed
 
 stat_busy "Processing blocklist entries..."
+cp -f $hostshead $hostsfile
 grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $tmpdir/hostsblock/hosts.block.d/* |\
 sed -e 's/[[:space:]][[:space:]]*/ /g' -e "s/\r//g" -e "s/\#.*//g" -e "s/ $//g" -e "s|0.0.0.0|$redirecturl|g" -e "s|127.0.0.1|$redirecturl|g"|\
-sort -u | sed -f $tmpdir/hostsblock/whitelist.sed > $hostsfile
+sort -u | sed -f $tmpdir/hostsblock/whitelist.sed >> $hostsfile
 stat_done
 
 totalhosts=`grep -c -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $hostsfile`
