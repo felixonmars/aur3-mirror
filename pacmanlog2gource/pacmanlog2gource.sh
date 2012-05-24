@@ -43,7 +43,7 @@ NC='\e[0m'
 
 TIMECOUNTCOOKIE=0
 
-VERSION="1.8.3"
+VERSION="1.8.5"
 
 FILENAMES=' '
 
@@ -69,18 +69,34 @@ if [ ! -d "${DATADIR}" ] ; then
 	fi
 fi
 
-# print the version into a file so we can handle file formats being out of date properly later
-echo "${VERSION}" >> ${DATADIR}/version
-COMPATIBLE="0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.7.1, 1.7.2, 1.7.5, 1.7.6, 1.8, 1.8.1, 1.8.2, 1.8.3"
-if [[ `awk '! /0\.8|0\.9|1\.0|1\.1|1\.2|1\.3|1\.4|1\.5|1\.6|1\.7|1\.7\.1|1\.7\.2|1\.7\.5|1\.7\.6|1\.8|1\.8\.1|1\.8\.2|\1\.8\.3/' ${DATADIR}/version` ]] ; then
-	if [[ $(echo "$*") == *c* ]] ; then
-		echo "Due to some slight changes in logfile generation, it is recommended to delete the files in ${DATADIR}/ and re-run this script." >&2
+
+# create a checksum of the log-generating part of the script
+PATHTOSCRIPT=$0
+COMPATIBILITY_CHECKSUM=`cat ${PATHTOSCRIPT} | sed -e '/COMPATIBILITY_CHECKSUM/d' | awk '/#checksumstart/,/#checksumstop/' | md5sum | cut -d' ' -f1`
+OLD_CHECKSUM_FILE=${DATADIR}/checksum
+OLD_CHECKSUM=`touch ${OLD_CHECKSUM_FILE} ; cat ${OLD_CHECKSUM_FILE}`
+
+if [ -f ${DATADIR}/version ] ; then
+	rm ${DATADIR}/version
+	OLD_CHECKSUM="icanhazregenerationplz"
+fi
+
+if [ ! -z ${OLD_CHECKSUM} ] ; then
+	if [[ ${OLD_CHECKSUM} == ${COMPATIBILITY_CHECKSUM} ]] ; then
+		:
 	else
-		echo -e "Due to some slight changes in logfile generation, it is recommended to delete the files in ${WHITEUL}${DATADIR}/${NC} and re-run this script." >&2
+		if [[ `echo "$*" | grep -o "^-.[^\ ]*c\|\-c"` ]] ; then
+			echo "Logfile generation has changed!"
+			echo "To avoid incompatibility, the log is now regenerated!"
+		else
+			echo -e "${RED}Logfile generation has changed!${NC}"
+			echo -e "${RED}To avoid incompatibility, the log is now regenerated!${NC}"
+		fi
+		rm ${LOGNOW} ${LOG}
+		echo "${COMPATIBILITY_CHECKSUM}" > ${OLD_CHECKSUM_FILE}
 	fi
-	sleep 4
-	echo "Exiting..." >&2
-	exit 2
+else
+	echo "${COMPATIBILITY_CHECKSUM}" > ${OLD_CHECKSUM_FILE}
 fi
 
 # create empty logfile if non exists
@@ -153,28 +169,41 @@ makelog() {
 		IFS=$'\n'
 		set -f
 		for i in $(<${DATADIR}/tmp); do
+#checksumstart
 			# the unix time string
 			UNIXDATE=`date +"%s" -d "${i:1:16}"`
 			# put  installed/removed/upgraded information in there again, we translated these later with sed in one rush
 			STATE=`cut -d' ' -f3 <( echo ${i} )`
 			# package name
 			PKG=`cut -d' ' -f4  <( echo ${i} )`
-			if [[ "${PKG}" == *lib* ]] ; then
-				if [[ "${PKG}" == *libreoffice* ]] ; then
-					PKG=libreoffice/${PKG}.libreoffice
+			if [[ "${PKG}" == lib* ]] ; then
+				if [[ "${PKG}" == libreoffice* ]] ; then
+					if [[ "${PKG}" == *extension* ]] ; then
+						PKG=libreoffice/extension/${PKG}.libreoffice
+					else
+						PKG=libreoffice/${PKG}.libreoffice
+					fi
 				else
-					PKG=lib/${PKG}.lib
+					if [[ "${PKG}" == *32* ]]	; then
+						PKG=lib/32/${PKG}.lib
+					else
+						PKG=lib/${PKG}.lib
+					fi
 				fi
 			elif [[ "${PKG}" == *xorg* ]]		 ; then
 				PKG=xorg/${PKG}.xorg
 			elif [[ "${PKG}" == *ttf* ]]		 ; then
 				PKG=ttf/${PKG}.ttf
 			elif [[ "${PKG}" == *xfce* ]]		 ; then
-				PKG=xfce/${PKG}.xfce
+				if [[ "${PKG}" == *plugin* ]]	 ; then
+					PKG=xfce/plugins/${PKG}.xfce
+				else
+					PKG=xfce/${PKG}.xfce
+				fi
 			elif [[ "${PKG}" == *sdl* ]]		 ; then
 				PKG=sdl/${PKG}.sdl
 			elif [[ "${PKG}" == *xf86* ]]		 ; then
-				PKG=xf86/${PKG}.xf86
+				PKG=xorg/xf86/${PKG}.xorg
 			elif [[ "${PKG}" == *perl* ]]		 ; then
 				PKG=perl/${PKG}.perl
 			elif [[ "${PKG}" == *gnome* ]]		 ; then
@@ -184,25 +213,69 @@ makelog() {
 			elif [[ "${PKG}" == *gstreamer* ]]	 ; then
 				PKG=gstreamer/${PKG}.gstreamer
 			elif [[ "${PKG}" == *kde* ]]		 ; then
-				PKG=kde/${PKG}.kde
+				if [[ "${PKG}" == *kdegames* ]] ; then
+					PKG=kde/games/${PKG}.kde
+				elif [[ "${PKG}" == *kdeaccessibility* ]] ; then
+					PKG=kde/accessebility/${PKG}.kde
+				elif [[ "${PKG}" == *kdeadmin* ]] ; then
+					PKG=kde/admin/${PKG}.kde
+				elif [[ "${PKG}" == *kdeartwork* ]] ; then
+					PKG=kde/artwork/${PKG}.kde
+				elif [[ "${PKG}" == *kdebase* ]] ; then
+					PKG=kde/base/${PKG}.kde
+				elif [[ "${PKG}" == *kdeedu* ]] ; then
+					PKG=kde/edu/${PKG}.kde
+				elif [[ "${PKG}" == *kdegames* ]] ; then
+					PKG=kde/games/${PKG}.kde
+				elif [[ "${PKG}" == *kdegraphics* ]] ; then
+					PKG=kde/graphics/${PKG}.kde
+				elif [[ "${PKG}" == *kdemultimedia* ]] ; then
+					PKG=kde/multimedia/${PKG}.kde
+				elif [[ "${PKG}" == *kdenetwork* ]] ; then
+					PKG=kde/network/${PKG}.kde
+				elif [[ "${PKG}" == *kdepim* ]] ; then
+					PKG=kde/pim/${PKG}.kde
+				elif [[ "${PKG}" == *kdeplasma* ]] ; then
+					PKG=kde/plasma/${PKG}.kde
+				elif [[ "${PKG}" == *kdesdk* ]] ; then
+					PKG=kde/sdk/${PKG}.kde
+				elif [[ "${PKG}" == *kdetoys* ]] ; then
+					PKG=kde/toys/${PKG}.kde
+				elif [[ "${PKG}" == *kdeutils* ]] ; then
+					PKG=kde/utils/${PKG}.kde
+				elif [[ "${PKG}" == *kdewebdev* ]] ; then
+					PKG=kde/webdev/${PKG}.kde
+				else
+					PKG=kde/${PKG}.kde
+				fi
 			elif [[ "${PKG}" == *python* ]]		 ; then
 				PKG=python/${PKG}.python
 			elif [[ "${PKG}" == *py* ]]			 ; then
 				PKG=python/${PKG}.python
 			elif [[ "${PKG}" == *lxde* ]]		 ; then
 				PKG=lxde/${PKG}.lxde
-			elif [[ "${PKG}" == ^lx* ]]			 ; then
+			elif [[ "${PKG}" == lx* ]]			 ; then
 				PKG=lxde/${PKG}.lxde
 			elif [[ "${PKG}" == *php* ]]		 ; then
 				PKG=php/${PKG}.php
+			elif [[ "${PKG}" == vim* ]]			 ; then
+				PKG=vim/${PKG}.vim
+			elif [[ "${PKG}" == *texlive* ]]	 ; then
+				PKG=texlive/${PKG}.texlive
 			elif [[ "${PKG}" == *alsa* ]]		 ; then
 				PKG=alsa/${PKG}.alsa
 			elif [[ "${PKG}" == *compiz* ]]		 ; then
 				PKG=compiz/${PKG}.compiz
 			elif [[ "${PKG}" == *dbus* ]]		 ; then
 				PKG=dbus/${PKG}.dbus
-			elif [[ "${PKG}" == *gambas* ]]		 ; then
-				PKG=gambas/${PKG}.gambas
+			elif [[ "${PKG}" == gambas* ]]		 ; then
+				if 		[[ "${PKG}" == gambas2* ]] ; then
+					PKG=gambas/2/${PKG}.gambas
+				elif 	[[ "{PKG}" == gambas3* ]] ; then
+					PKG=gambas/3/${PKG}.gambas
+				else
+					PKG=gambas/${PKG}.gambas
+				fi
 			elif [[ "${PKG}" == *qt* ]]			 ; then
 				PKG=qt/${PKG}.qt
 			elif [[ "${PKG}" == *firefox* ]]	 ; then
@@ -222,7 +295,7 @@ makelog() {
 
 			#    write the important stuff into our logfile
 			echo "${UNIXDATE}|root|${STATE}|${PKG}" >> ${DATADIR}/pacman_gource_tree.log
-
+#checksumstop
 			#    here we print how log the script already took to run and try to estimate how log it will run until everything is done
 			#    but we only update this every 1000 lines to avoid unnecessary stdout spamming
 			#    this will mostly be printed when initially obtaining the log
@@ -303,6 +376,9 @@ logend=`date +"%d %b %Y" -d "${logenddate}"`
 
 cpucores=`getconf _NPROCESSORS_ONLN`
 
+gourcebinarypath=`whereis gource | cut -d' ' -f2`
+gourcename_version=`pacman -Qo ${gourcebinarypath} | cut -d' ' -f"5 6"`
+
 LOGTIMES=", ${logbeginning} - ${logend}"
 HOSTNAME=", hostname: `hostname`"
 ARCH=", `uname -m`"
@@ -374,15 +450,25 @@ while getopts "nchgfpaotimd" opt; do
 	esac
 done
 
+	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
 
 if [ ${INFORMATION} == "true" ] ; then
-	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
-	echo "The default command which will be run using pacmanlog2gource -g is"
-	echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.1 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2${NC}"
-	echo "If you run -f, this is appended:"
-	echo -e "${GREEN}--output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads ${cpucores} -b:v 3000k -maxrate 8000k -bufsize 10000k ${GREENUL}pacmanlog2gource_`date +%b\_%d\_%Y`.mp4${NC}"
+	if [ "$*" == "-i" ] ; then
+		ARGS=""
+	else
+		ARGS="`sed -e 's/i//' <( echo "${*}" )` "
+	fi
+	echo -e "The command which will be run using ${GREEN}pacmanlog2gource ${ARGS}${NC}is"
+	if [ ${FFMPEGPOST} != "true" ] ; then
+		echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.1 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2${NC}"
+	else
+		echo -e "${GREEN}gource ${GREENUL}${DATADIR}/pacman_gource_tree.log${NC}${GREEN} -1200x720 -c 1.1 --title \"${TITLE}\" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2 --output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads ${cpucores} -b:v 3000k -maxrate 8000k -bufsize 10000k ${GREENUL}pacmanlog2gource_`date +%b\_%d\_%Y`.mp4${NC}"
+	fi
 	echo -e "Logfiles are stored in ${WHITEUL}${DATADIR}/pacman_gource_tree.log${NC} and ${WHITEUL}${DATADIR}/pacman_gource_pie.log${NC}."
-	echo -e "Log format of current version ${VERSION} compatible with versions \n${COMPATIBLE}"
+	echo -e "Pacmanlog2gource version: ${VERSION}"
+	echo -e "Gource version: ${gourcename_version}"
+	echo "Feel free to comment https://bbs.archlinux.org/viewtopic.php?pid=1105145"
+	echo "or fork https://github.com/matthiaskrgr/pacmanlog2gource"
 	exit 0
 fi
 
@@ -393,7 +479,6 @@ if [ ${UPDATE} == "true" ] ; then
 fi
 
 if [ ${GOURCEPOST} == "true" ] ; then
-	TITLE="Pacmanlog2gource${LOGTIMES}${HOSTNAME}${ARCH}"
 	if [ ${FFMPEGPOST} == "true" ] ; then
 		gource ${LOG} -1200x720  -c 1.1 --title "${TITLE}" --key --camera-mode overview --highlight-all-users --file-idle-time 0 -auto-skip-seconds 0.001 --seconds-per-day 0.3 --hide progress,mouse${FILENAMES} --stop-at-end --max-files 99999999999 --max-file-lag 0.00001  --max-user-speed 300 --user-friction 2 --output-ppm-stream - | ffmpeg -f image2pipe -vcodec ppm -i - -y -vcodec libx264 -preset medium -crf 22 -pix_fmt yuv420p -threads ${cpucores} -b:v 3000k -maxrate 8000k -bufsize 10000k pacmanlog2gource_`date +%b\_%d\_%Y`.mp4
 	else
