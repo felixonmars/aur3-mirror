@@ -1,11 +1,15 @@
-commit aaa78507d68cfe07ddc698d89e4b005b6e5893c9
+commit 086af4b517fe42ac8a6bd73c09f67db6749c75f6
 Author: John Schoenick <john@pointysoftware.net>
-Date:   Sun May 13 20:11:20 2012 -0700
+Date:   Fri May 25 13:44:25 2012 -0700
 
-    Merge multimedia-git onto v1.5.4
+    Merge multimedia branch onto wine release 1.5.5
+    
+    The following patches were dropped for unclean rebasing:
+    dsound: Add support for device invalidation
+    dsound: Don't use IAudioClock for determining position
 
 diff --git a/configure b/configure
-index f418a5c..70620a5 100755
+index 0e7c315..fcc761e 100755
 --- a/configure
 +++ b/configure
 @@ -629,6 +629,8 @@ OSS4INCL
@@ -292,109 +296,6 @@ index c0d2b33..072b25a 100644
  int ds_default_bits_per_sample = 16;
  static HINSTANCE instance;
  
-diff --git a/dlls/dsound/dsound_private.h b/dlls/dsound/dsound_private.h
-index bed6959..d671a52 100644
---- a/dlls/dsound/dsound_private.h
-+++ b/dlls/dsound/dsound_private.h
-@@ -84,7 +84,6 @@ struct DirectSoundDevice
-     DWORD                       priolevel;
-     PWAVEFORMATEX               pwfx;
-     UINT                        timerID, pwplay, pwqueue, prebuf, helfrags;
--    UINT64                      last_pos_bytes;
-     DWORD                       fraglen;
-     LPBYTE                      buffer;
-     DWORD                       writelead, buflen, state, playpos, mixpos;
-diff --git a/dlls/dsound/mixer.c b/dlls/dsound/mixer.c
-index ec5a264..769711d 100644
---- a/dlls/dsound/mixer.c
-+++ b/dlls/dsound/mixer.c
-@@ -766,37 +766,38 @@ static void DSOUND_WaveQueue(DirectSoundDevice *device, BOOL force)
-  */
- static void DSOUND_PerformMix(DirectSoundDevice *device)
- {
--	UINT64 clock_pos, clock_freq, pos_bytes;
--	UINT delta_frags;
-+	UINT pad, delta_frags;
- 	HRESULT hr;
- 
- 	TRACE("(%p)\n", device);
- 
- 	/* **** */
- 	EnterCriticalSection(&device->mixlock);
--
--	hr = IAudioClock_GetFrequency(device->clock, &clock_freq);
--	if(FAILED(hr)){
--		WARN("GetFrequency failed: %08x\n", hr);
--        LeaveCriticalSection(&device->mixlock);
--		return;
-+	if (!device->clock) {
-+		hr = DSOUND_ReopenDevice(device, 0);
-+		if (FAILED(hr)) {
-+			LeaveCriticalSection(&device->mixlock);
-+			return;
-+		}
- 	}
- 
--	hr = IAudioClock_GetPosition(device->clock, &clock_pos, NULL);
-+	hr = IAudioClient_GetCurrentPadding(device->client, &pad);
-+	if (hr == AUDCLNT_E_DEVICE_INVALIDATED) {
-+		hr = DSOUND_ReopenDevice(device, 0);
-+		if (SUCCEEDED(hr))
-+			hr = IAudioClient_GetCurrentPadding(device->client, &pad);
-+	}
- 	if(FAILED(hr)){
- 		WARN("GetCurrentPadding failed: %08x\n", hr);
--        LeaveCriticalSection(&device->mixlock);
-+		LeaveCriticalSection(&device->mixlock);
- 		return;
- 	}
-+	delta_frags = device->pwqueue - (pad * device->pwfx->nBlockAlign + (device->fraglen - 1)) / device->fraglen;
- 
--	pos_bytes = (clock_pos * device->pwfx->nSamplesPerSec * device->pwfx->nBlockAlign) / clock_freq;
--
--	delta_frags = (pos_bytes - device->last_pos_bytes) / device->fraglen;
- 	if(delta_frags > 0){
- 		device->pwplay += delta_frags;
- 		device->pwplay %= device->helfrags;
- 		device->pwqueue -= delta_frags;
--		device->last_pos_bytes = pos_bytes - (pos_bytes % device->fraglen);
- 	}
- 
- 	if (device->priolevel != DSSCL_WRITEPRIMARY) {
-diff --git a/dlls/dsound/primary.c b/dlls/dsound/primary.c
-index b5a09f8..3ab356a 100644
---- a/dlls/dsound/primary.c
-+++ b/dlls/dsound/primary.c
-@@ -159,7 +159,10 @@ HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave)
-         WARN("GetService failed: %08x\n", hres);
-         return hres;
-     }
--
-+    if (device->state == STATE_PLAYING)
-+        device->state = STATE_STARTING;
-+    else if (device->state == STATE_STOPPING)
-+        device->state = STATE_STOPPED;
-     return S_OK;
- }
- 
-@@ -210,7 +213,7 @@ static HRESULT DSOUND_PrimaryOpen(DirectSoundDevice *device)
- 	device->normfunction = normfunctions[device->pwfx->wBitsPerSample/8 - 1];
- 	FillMemory(device->buffer, device->buflen, (device->pwfx->wBitsPerSample == 8) ? 128 : 0);
- 	FillMemory(device->mix_buffer, device->mix_buffer_len, 0);
--	device->last_pos_bytes = device->pwplay = device->pwqueue = device->playpos = device->mixpos = 0;
-+	device->pwplay = device->pwqueue = device->playpos = device->mixpos = 0;
- 	return DS_OK;
- }
- 
-@@ -279,6 +282,8 @@ HRESULT DSOUND_PrimaryPlay(DirectSoundDevice *device)
-     HRESULT hr;
- 
-     TRACE("(%p)\n", device);
-+    if (!device->client)
-+        return DSERR_GENERIC;
- 
-     hr = IAudioClient_Start(device->client);
-     if(FAILED(hr)){
 diff --git a/dlls/dsound/tests/capture.c b/dlls/dsound/tests/capture.c
 index 96fb417..2040f3f 100644
 --- a/dlls/dsound/tests/capture.c
@@ -4153,7 +4054,7 @@ index df0a6b5..a5ca56f 100644
      wine_init_argv0_path( argv[0] );
      build_dll_path();
 diff --git a/programs/winemenubuilder/winemenubuilder.c b/programs/winemenubuilder/winemenubuilder.c
-index dc5fd29..a479fe5 100644
+index 3746bd0..17f3e99 100644
 --- a/programs/winemenubuilder/winemenubuilder.c
 +++ b/programs/winemenubuilder/winemenubuilder.c
 @@ -2489,7 +2489,7 @@ static BOOL write_freedesktop_association_entry(const char *desktopPath, const c
