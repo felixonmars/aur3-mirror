@@ -1,7 +1,7 @@
 # Maintainer: Dave Reisner <dreisner@archlinux.org>
 
 pkgname=systemd-git
-pkgver=20120522
+pkgver=20120526
 pkgrel=1
 pkgdesc="system and service manager"
 arch=('i686' 'x86_64')
@@ -16,8 +16,8 @@ optdepends=('cryptsetup: required for encrypted block devices'
             'selinux-usr-libselinux: integration with security enhanced Linux'
             'systemd-arch-units-git: collection of native unit files for Arch daemon/init scripts'
             'tcp_wrappers: filter remote access to services')
-provides=('systemd' 'libsystemd' 'udev=182')
-conflicts=('systemd' 'libsystemd' 'udev')
+provides=('systemd' 'libsystemd' 'systemd-tools' 'udev=999')
+conflicts=('systemd' 'libsystemd' 'systemd-tools' 'udev')
 groups=('systemd')
 options=('!libtool')
 backup=(etc/dbus-1/system.d/org.freedesktop.systemd1.conf
@@ -32,11 +32,13 @@ backup=(etc/dbus-1/system.d/org.freedesktop.systemd1.conf
         etc/udev/udev.conf)
 install='systemd.install'
 source=('os-release'
-        'initcpio-hooks-udev'
-        'initcpio-install-udev')
+        'initcpio-hook-udev'
+        'initcpio-install-udev'
+        'initcpio-install-timestamp')
 md5sums=('752636def0db3c03f121f8b4f44a63cd'
-         'e433c11d38cf4f877b41d06e2753ebe0'
-         'e6faf4c3fe456f10d8efd2487d5e3cb7')
+         'e99e9189aa2f6084ac28b8ddf605aeb8'
+         'e6faf4c3fe456f10d8efd2487d5e3cb7'
+         'df69615503ad293c9ddf9d8b7755282d')
 
 _gitroot="git://anongit.freedesktop.org/systemd/systemd.git"
 _gitname="systemd"
@@ -59,54 +61,48 @@ build() {
   cd "$srcdir/$_gitname-build"
 
   ./autogen.sh
-  ./configure --libexecdir=/usr/lib \
-              --localstatedir=/var \
-              --sysconfdir=/etc \
-              --enable-split-usr \
-              --enable-introspection \
-              --enable-gtk-doc \
-              --disable-audit \
-              --disable-ima \
-              --with-pamlibdir=/usr/lib/security \
-              --with-distro=arch \
-              --with-firmware-path=/usr/lib/firmware/updates:/usr/lib/firmware \
-              --with-sysvinit-path= \
-              --with-sysvrcd-path= \
-              --with-usb-ids-path=/usr/share/hwdata/usb.ids \
-              --with-pci-ids-path=/usr/share/hwdata/pci.ids
+  ./configure \
+      --libexecdir=/usr/lib \
+      --localstatedir=/var \
+      --sysconfdir=/etc \
+      --enable-split-usr \
+      --enable-introspection \
+      --enable-gtk-doc \
+      --disable-audit \
+      --disable-ima \
+      --with-pamlibdir=/usr/lib/security \
+      --with-distro=arch \
+      --with-firmware-path=/usr/lib/firmware/updates:/usr/lib/firmware \
+      --with-sysvinit-path= \
+      --with-sysvrcd-path= \
+      --with-usb-ids-path=/usr/share/hwdata/usb.ids \
+      --with-pci-ids-path=/usr/share/hwdata/pci.ids
 
   make
 }
 
 package() {
-  cd "$_gitname-build"
-
-  make DESTDIR="$pkgdir" install
+  make -C "$_gitname-build" DESTDIR="$pkgdir" install
 
   install -Dm644 "$srcdir/os-release" "$pkgdir/etc/os-release"
-  printf "d /run/console 0755 root root\n" > "$pkgdir/usr/lib/tmpfiles.d/console.conf"
+  printf "d /run/console 0755 root root\n" >"$pkgdir/usr/lib/tmpfiles.d/console.conf"
 
-  # install external sd-{daemon,readahead} libraries
-  install -m644 -t "$pkgdir/usr/share/doc/systemd" \
-    src/systemd/sd-daemon.[ch] \
-    src/readahead/sd-readahead.[ch]
-
-  install -dm755 "$pkgdir/bin"
+  # compat symlinks
+  install -dm755 "$pkgdir"/{,s}bin
   ln -s ../usr/lib/systemd/systemd "$pkgdir/bin/systemd"
+  ln -s ../usr/bin/udevadm "$pkgdir/sbin/udevadm"
 
   # fix systemd-analyze for python2
   sed -i '1s/python$/python2/' "$pkgdir/usr/bin/systemd-analyze"
 
   # fix .so links in manpage stubs
   find "$pkgdir/usr/share/man" -type f -name '*.[[:digit:]]' \
-      -exec sed -i '1s|^\.so \(.*\)\.\([[:digit:]]\+\)|.so man\2/\1.\2|' {} +
+      -exec sed -ri '1s|^\.so (.*)\.([0-9]+)|.so man\2/\1.\2|' {} +
 
   # rename man pages to avoid conflicts with sysvinit and initscripts
   cd "$pkgdir/usr/share/man"
-
   manpages=(man8/{telinit,halt,reboot,poweroff,runlevel,shutdown}.8
             man5/{hostname,{vconsole,locale}.conf}.5)
-
   for manpage in "${manpages[@]}"; do
     IFS='/' read section page <<< "$manpage"
     mv "$manpage" "$section/systemd.$page"
@@ -115,23 +111,21 @@ package() {
 
   # move bash-completion and symlink for loginctl
   install -Dm644 "$pkgdir/etc/bash_completion.d/systemd-bash-completion.sh" \
-    "$pkgdir/usr/share/bash-completion/completions/systemctl"
+      "$pkgdir/usr/share/bash-completion/completions/systemctl"
   ln -s systemctl "$pkgdir/usr/share/bash-completion/completions/loginctl"
   rm -rf "$pkgdir/etc/bash_completion.d"
 
-  # the path to udevadm is hardcoded in some places
-  install -d "$pkgdir/sbin"
-  ln -s ../usr/bin/udevadm "$pkgdir/sbin/udevadm"
-
-  # udevd is no longer udevd because systemd.
-  ln -s ../systemd/systemd-udevd "$pkgdir/usr/lib/udev/udevd"
+  # don't write units to /etc by default
+  rm "$pkgdir/etc/systemd/system/getty.target.wants/getty@tty1.service"
+  rmdir "$pkgdir/etc/systemd/system/getty.target.wants"
 
   # Replace dialout/tape/cdrom group in rules with uucp/storage/optical group
-  sed -i -e 's#GROUP="dialout"#GROUP="uucp"#g;
-             s#GROUP="tape"#GROUP="storage"#g;
-             s#GROUP="cdrom"#GROUP="optical"#g' "$pkgdir"/usr/lib/udev/rules.d/*.rules
+  sed -i -e 's#GROUP="dialout"#GROUP="uucp"#g' \
+         -e 's#GROUP="tape"#GROUP="storage"#g' \
+         -e 's#GROUP="cdrom"#GROUP="optical"#g' "$pkgdir"/usr/lib/udev/rules.d/*.rules
 
-  # add mkinitcpio hooks for udev
+  # add mkinitcpio hooks
+  install -Dm644 "$srcdir/initcpio-install-timestamp" "$pkgdir/usr/lib/initcpio/install/timestamp"
   install -Dm644 "$srcdir/initcpio-install-udev" "$pkgdir/usr/lib/initcpio/install/udev"
-  install -Dm644 "$srcdir/initcpio-hooks-udev" "$pkgdir/usr/lib/initcpio/hooks/udev"
+  install -Dm644 "$srcdir/initcpio-hook-udev" "$pkgdir/usr/lib/initcpio/hooks/udev"
 }
