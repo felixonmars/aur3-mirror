@@ -1,5 +1,5 @@
 #!/bin/bash
 
 cd /opt/zygrib
-bin/zyGrib
+./bin/zyGrib
 
