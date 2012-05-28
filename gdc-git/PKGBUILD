@@ -1,67 +1,73 @@
 # Contributor: Jerome Berger <jeberger@free.fr>
-# Maintainer: Jesus Alvarez <jeezusjr@gmail.com>
+# Contributor: Jesus Alvarez <jeezusjr@gmail.com>
+
+# Maintainer: Moritz Maxeiner <moritz@ucworks.org>
 
 # See http://gcc.gnu.org/install/prerequisites.html
 
 pkgname=gdc-git
-pkgver=20120331
+pkgver=20120528
 pkgrel=1
-_gccver=4.6.3
-pkgdesc="GDC, The D Programming Language (D2) frontend for GCC"
-arch=('i686', 'x86_64')
+_gccver=4.8.0
+pkgdesc="GDC, The D Programming Language (D2) frontend for GCC. GIT master branch compiled with GCC trunk (necessary)."
+arch=('i686' 'x86_64')
 url="http://bitbucket.org/goshawk/gdc/wiki/Home"
 license=('GPL')
 provides=('gdc')
-depends=('libmpc' 'cloog' 'ppl')
-makedepends=('binutils>=2.22' 'git')
-conflicts=('gdc' 'gdc1-hg' 'gdc2-hg')
+depends=(perl libmpc)
+makedepends=('binutils>=2.22' 'git' 'svn')
+conflicts=('gdc' 'gdc-bin' 'gdc1-hg')
 options=('!libtool' '!emptydirs')
-source=(ftp://gcc.gnu.org/pub/gcc/releases/gcc-$_gccver/gcc-core-$_gccver.tar.bz2
-        ftp://gcc.gnu.org/pub/gcc/releases/gcc-$_gccver/gcc-g++-$_gccver.tar.bz2
-	gcc_pure64.patch
-	gcc-hash-style-both.patch
-	gcc-4.6.2-cloog-0.17.patch)
-md5sums=('766091220c6a14fcaa2c06dd573e3758'
-         '37515158a0fb3d0800ec41a08c05e69e'
-         '4030ee1c08dd1e843c0225b772360e76'
-         '4df25b623799b148a0703eaeec8fdf3f'
-         '6d9939a2e667376031679ac9f9c49263')
+source=(gdc-gcc-4.8.0.patch)
+md5sums=('9eb9f4a0380d2b8f5aa4e3e9962f3831')
 
 _gitroot=https://github.com/D-Programming-GDC/GDC.git
 _gitname=gdc
+
+_svnroot=svn://gcc.gnu.org/svn/gcc/trunk
+_svnname="gcc-$_gccver"
+_svnrev=184805
 
 _basedir="$srcdir/gcc-$_gccver"
 
 build()
 {
   cd "$srcdir"
-  msg "Connecting to GIT server...."
+  msg "Connecting to GIT server..."
 
   if [[ -d "$_gitname" ]]; then
-    cd "$_gitname" && git pull origin
+    cd "$_gitname"
+    # remove the version patch before the pull
+    patch -R -Np1 -s -i "$srcdir"/gdc-gcc-4.8.0.patch
+    git pull origin
     msg "The local files are updated."
   else
     git clone "$_gitroot" "$_gitname"
+    cd "$_gitname"
   fi
 
   msg "GIT checkout done or server timeout"
+
+  # Fixes the missing 4.8 version check
+  # in the setup-gcc.sh script
+  patch -Np1 -s -i "$srcdir"/gdc-gcc-4.8.0.patch
+
+  cd "$srcdir"
+  msg "Connecting to GCC SVN server..."
+
+  if [[ -d "$_svnname" ]]; then
+    cd "$_svnname" && svn update -r "$_svnrev"
+    msg "The local files are updated."
+  else
+    svn checkout -r "$_svnrev" "$_svnroot" "$_svnname"
+    cd "$_svnname"
+  fi
+
+  msg "GCC SVN checkout done or server timeout"
+
   msg "Starting build..."
 
   cd "$_basedir"
-
-  # Don't install libiberty
-  sed -i 's/install_to_$(INSTALL_DEST) //' libiberty/Makefile.in
-
-  # Don't run fixincludes
-  sed -i 's@\./fixinc\.sh@-c true@' gcc/Makefile.in
-
-  if [ "$CARCH" = "x86_64" ]; then
-      patch -Np1 -i "$srcdir"/gcc_pure64.patch
-  fi
-  patch -Np0 -i "$srcdir"/gcc-hash-style-both.patch
-
-  # compatibility with latest cloog
-  patch -Np1 -i "$srcdir"/gcc-4.6.2-cloog-0.17.patch
 
   echo "$_gccver" > gcc/BASE-VER
 
@@ -78,21 +84,10 @@ build()
       --libdir=/usr/lib --libexecdir=/usr/lib \
       --mandir=/usr/share/man --infodir=/usr/share/info \
       --with-bugurl=https://github.com/D-Programming-GDC/GDC/issues/ \
-      --enable-languages=d,lto --disable-shared \
-      --enable-shared --enable-threads=posix \
-      --with-system-zlib --enable-__cxa_atexit \
-      --disable-libunwind-exceptions --enable-clocale=gnu \
-      --disable-libstdcxx-pch --enable-libstdcxx-time \
-      --enable-gnu-unique-object --enable-linker-build-id \
-      --with-ppl --enable-cloog-backend=isl \
-      --enable-lto --enable-gold --enable-ld=default \
-      --enable-plugin --with-plugin-ld=ld.gold \
-      --disable-multilib --disable-libssp \
-      --disable-libgomp --disable-libmudflap \
-      --disable-libquadmath --disable-nls \
-      --enable-checking=release
-  make 2>&1 | tee build.log
-
+      --enable-languages=d --disable-bootstrap  \
+      --disable-multilib --disable-nls \
+      --disable-libgomp --disable-libmudflap --disable-libquadmath
+  make -j3 2>&1 | tee build.log
 }
 
 package()
@@ -100,16 +95,17 @@ package()
   cd "$srcdir"/gcc-build
 
   # Easier to just do a full install and remove the excess later
-  make -j1 DESTDIR=$pkgdir install
+  make DESTDIR=$pkgdir install
 
   # Delete all the stuff we don't need
-  rm -r $pkgdir/usr/lib/gcc/$CHOST/$_gccver/{*.a,*.so*,lto-wrapper,lto1,plugin*}
-  rm -r $pkgdir/usr/lib/gcc/$CHOST/$_gccver/{crt*,cc1,collect2,include*,install*}
-  rm -r $pkgdir/usr/share/info
-  rm $pkgdir/usr/lib/libgcc*
-  rm $pkgdir/usr/share/man/man1/{cpp,gc}*
-  rm $pkgdir/usr/share/man/man7/{fsf,gfdl,gpl}*
-  rm $pkgdir/usr/bin/{gcc,gcov,cpp,$CHOST-gcc,$CHOST-gcc-$_gccver}
+  rm -rf $pkgdir/usr/lib/gcc/$CHOST/$_gccver/{*.a,*.so*,lto-wrapper,lto1,plugin*}
+  rm -rf $pkgdir/usr/lib/gcc/$CHOST/$_gccver/{crt*,cc1,collect2,include*,install*}
+  rm -rf $pkgdir/usr/share/info
+  rm -rf $pkgdir/usr/lib/{libgcc*,libiberty*}
+  rm -rf $pkgdir/usr/share/man/man1/{cpp,gc}*
+  rm -rf $pkgdir/usr/share/man/man7/{fsf,gfdl,gpl}*
+  rm -rf $pkgdir/usr/bin/{gcc,gcov,cpp,$CHOST-gcc,$CHOST-gcc-$_gccver}
+  rm -rf $pkgdir/usr/bin/{gcc-ar,gcc-nm,gcc-ranlib,$CHOST-gcc-ar,$CHOST-gcc-nm,$CHOST-gcc-ranlib}
 
   # Fix permissions
   chmod 644 $pkgdir/usr/lib/*
