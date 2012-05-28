@@ -19,8 +19,8 @@ true && pkgname=(
     'adminer-skins-jukin'
 )
 
-pkgver=20120422
-pkgrel=2
+pkgver=20120528
+pkgrel=1
 pkgdesc='Adminer skins'
 url='http://www.adminer.org'
 arch=('any')
@@ -45,16 +45,15 @@ source=(
 
 md5sums=('9c425f04eac407fe98bb1ac608ddbc21'
          '90fe4e7c6f7db301646ffecffd54dc7c'
-         '3a94b8317954815b7f83391b124c4ae1'
-         '9a580e87b47da1881ce4ff1bd7bd5238'
+         'f68ef82185d8a747412542065b527571'
+         '0fc902beadf39389d0ef2a377126db08'
          'aa030a380ca2dca615d01856a333e4d8'
          '1804a0b68b360a1a0e4b80dac51e04a3'
-         'c1e77bc6fa74da505affad2ef9fb9f01'
+         '0e4e5cbcfe4528e44ba62e34df1e0324'
          '0429c1df7811e6730e5e5e81f6a3dc10'
          '379d27d158530d478dc68e144c3004c4'
          '34227ef300208595674f421639dace53'
-         'f1857afe4b6f71dfbc354a9535f63ec5'
-)
+         'f1857afe4b6f71dfbc354a9535f63ec5')
 
 _copy_css() {
     install -d $pkgdir/usr/share/webapps/adminer
