@@ -3,13 +3,17 @@
 
 pkgname=alac-svn
 pkgver=3
-pkgrel=1
+pkgrel=2
 pkgdesc="Apple Lossless Audio Codec library and codec"
 arch=('i686' 'x86_64')
 url="http://alac.macosforge.org/"
 license=('APACHE' 'CUSTOM')
 depends=(gcc-libs)
+provides=(alac alacconvert libalac)
+conflicts=(${provides[@]})
+replaces=(${provides[@]})
 makedepends=('subversion')
+changelog=$pkgname.changelog
 
 _svnmod=$pkgname-$pkgver
 _svntrunk="http://svn.macosforge.org/repository/alac/trunk"
