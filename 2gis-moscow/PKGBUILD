@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-moscow
-pkgver=13
+pkgver=14
 pkgrel=1
-pkgdesc="Map of Moscow for 2GIS, May 2012"
+pkgdesc="Map of Moscow for 2GIS, June 2012"
 arch=('i686' 'x86_64')
 url="http://msk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Moscow-${pkgver}.orig.zip")
-md5sums=('903760e0702a2b477d3bc5ecd37ec2d8')
+source=("http://download.2gis.ru/arhives/2GISData_Moscow-14.orig.zip")
+md5sums=('7e9634113f97d6530558fafd41f55d95')
      
 build() {
      

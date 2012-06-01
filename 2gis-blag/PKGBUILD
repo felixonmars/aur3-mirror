@@ -1,13 +1,13 @@
 pkgname=2gis-blag
-pkgver=8
+pkgver=9
 pkgrel=1
-pkgdesc="Map of Blagoveschensk for 2GIS, May 2012"
+pkgdesc="Map of Blagoveschensk for 2GIS, June 2012"
 arch=('i686' 'x86_64')
 url="http://blag.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Blagoveshensk-8.orig.zip")
-md5sums=('7028e0c16237a03b2c069b2b03576523')
+source=("http://download.2gis.ru/arhives/2GISData_Blagoveshensk-9.orig.zip")
+md5sums=('77c04ee111ca39e175765e5f2611a427')
 
 build() {
   cd $startdir

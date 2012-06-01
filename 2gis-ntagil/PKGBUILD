@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ntagil
-pkgver=11
+pkgver=12
 pkgrel=1
-pkgdesc="Map of Ntagil for 2GIS, May 2012"
+pkgdesc="Map of Nizhny Tagil for 2GIS, June 2012"
 arch=('i686' 'x86_64')
 url="http://ntagil.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ntagil-${pkgver}.orig.zip")
-md5sums=('6338cdf635c3369f6e5f792f0d1b0305')
+source=("http://download.2gis.ru/arhives/2GISData_Ntagil-12.orig.zip")
+md5sums=('19a905b56a9360d97ceb33454d5a206e')
      
 build() {
      

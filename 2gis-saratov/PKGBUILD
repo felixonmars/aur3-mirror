@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-saratov
-pkgver=13
+pkgver=14
 pkgrel=1
-pkgdesc="Map of Saratov for 2GIS, May 2012"
+pkgdesc="Map of Saratov for 2GIS, June 2012"
 arch=('i686' 'x86_64')
 url="http://saratov.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Saratov-${pkgver}.orig.zip")
-md5sums=('02a9118f2a53ffcc69a2ccaa13f91065')
+source=("http://download.2gis.ru/arhives/2GISData_Saratov-14.orig.zip")
+md5sums=('4ee708201794e6a2b06c6b123869a0c9')
      
 build() {
      

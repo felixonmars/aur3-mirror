@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-omsk
-pkgver=93
+pkgver=94
 pkgrel=1
-pkgdesc="Map of Omsk for 2GIS, May 2012"
+pkgdesc="Map of Omsk for 2GIS, June 2012"
 arch=('i686' 'x86_64')
 url="http://omsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Omsk-${pkgver}.orig.zip")
-md5sums=('f69f38de517fbc4ae6648ca33d1127aa')
+source=("http://download.2gis.ru/arhives/2GISData_Omsk-94.orig.zip")
+md5sums=('628ac7b10747e72e1de0def9e9cdc719')
      
 build() {
      
