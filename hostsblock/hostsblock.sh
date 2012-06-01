@@ -8,8 +8,8 @@ dnsmasq=1
 dnsmasqconf=/etc/dnsmasq.conf
 blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
 USECOLOR="yes"
-blacklist=/etc/hostsblock/blacklist
-whitelist=/etc/hostsblock/whitelist
+blacklist=/etc/hostsblock/black.list
+whitelist=/etc/hostsblock/white.list
 hostshead=/etc/hostsblock/hosts.head
 
 if [ -f /etc/rc.d/functions ]; then
