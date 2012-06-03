@@ -10,7 +10,7 @@ blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
 USECOLOR="yes"
 blacklist=/etc/hostsblock/black.list
 whitelist=/etc/hostsblock/white.list
-hostshead=/etc/hostsblock/hosts.head
+hostshead=0
 
 if [ -f /etc/rc.d/functions ]; then
 	. /etc/rc.d/functions
@@ -82,7 +82,11 @@ stat_done
 cat $whitelist | sed 's/.*/\/&\/d/' >> $tmpdir/hostsblock/whitelist.sed
 
 stat_busy "Processing blocklist entries..."
-cp -f $hostshead $hostsfile
+if [ $hostshead == 0 ]; then
+	rm $hostsfile
+else
+	cp -f $hostshead $hostsfile
+fi
 grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $tmpdir/hostsblock/hosts.block.d/* |\
 sed -e 's/[[:space:]][[:space:]]*/ /g' -e "s/\r//g" -e "s/\#.*//g" -e "s/ $//g" -e "s|0.0.0.0|$redirecturl|g" -e "s|127.0.0.1|$redirecturl|g"|\
 sort -u | sed -f $tmpdir/hostsblock/whitelist.sed >> $hostsfile

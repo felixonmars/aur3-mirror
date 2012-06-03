@@ -1,6 +1,7 @@
 #!/bin/bash
 # DO NOT MODIFY THIS FILE. MODIFY SETTINGS VIA THE CONFIGURATION FILE /etc/hostsblock.conf
 hostsfile=/etc/hosts.block
+dnsmasq=1
 redirecturl="127.0.0.1"
 blacklist=/etc/hostsblock/black.list
 whitelist=/etc/hostsblock/white.list
@@ -22,6 +23,7 @@ case $@ in
 					echo "Adding $line to whitelist"
 					echo " $line" >> "$whitelist"
 					sed -i "/$line/d" "$blacklist"
+					sed -i "/ $line/d" "$hostsfile"
 				fi
 			else
 				echo -e "NOT YET BLOCKED: '$line'. Block? [y/N]"
@@ -30,12 +32,14 @@ case $@ in
 					echo "Adding $line to blacklist"
 					echo "$line" >> "$blacklist"
 					sed -i "/$line/d" "$whitelist"
+					echo "$redirecturl $line" >> "$hostsfile"
 				fi
 			fi
-		done
-		echo "Url check finished. Run hostsblock now to apply changes? [y/N]"
-		read a
-		[[ $a == "y" || $a == "Y" ]] && hostsblock
+		if [ dnsmasq == 1 ]; then
+			echo "Url check finished. Restart DNSMASQ to apply? [y/N]"
+			read a
+			[[ $a == "y" || $a == "Y" ]] && /etc/rc.d/dnsmasq restart
+		fi
 	;;
 	*)
 		echo "usage: $0 [url]"
