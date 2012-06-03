@@ -5,9 +5,9 @@
 
 name=logitechmediaserver
 . /etc/conf.d/$name
-prog="cd $SERVER_HOME; ./slimserver.pl $SERVER_ARGS"
+prog="cd $SERVER_HOME; perl slimserver.pl $SERVER_ARGS"
 
-PID=$(pgrep slimserver.pl)
+PID=$(pgrep -f '^perl slimserver.pl')
 
 case "$1" in
 start)
