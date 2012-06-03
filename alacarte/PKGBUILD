@@ -3,34 +3,29 @@
 # Contributor: pressh <pressh@gmail.com>
 
 pkgname=alacarte
-pkgver=0.13.2
-pkgrel=6
-pkgdesc="Menu editor for gnome (with debian patchset)"
+pkgver=0.13.4
+pkgrel=1
+pkgdesc="Menu editor for gnome"
 arch=(any)
 license=('LGPL')
 url="http://www.gnome.org"
-depends=('gnome-menus2' 'gnome-panel>=2.32.0' 'hicolor-icon-theme' 'pygtk')
+depends=('gnome-menus' 'gnome-panel' 'python2-gobject')
+conflicts=('alacarte-xfce' 'alacarte-git' 'alacarte-xfce-devel')
 makedepends=('intltool')
 install=alacarte.install
 options=('!libtool')
 groups=('gnome-extra')
-source=(http://ftp.gnome.org/pub/gnome/sources/${pkgname}/0.13/${pkgname}-${pkgver}.tar.bz2
-        http://patch-tracker.debian.org/patch/series/dl/alacarte/0.13.2-3/01-new_item_location.patch
-        http://patch-tracker.debian.org/patch/series/dl/alacarte/0.13.2-3/02-fix_delete_undo.patch
-        http://patch-tracker.debian.org/patch/series/dl/alacarte/0.13.2-3/03-bind_textdomain_codeset.patch
-        http://patch-tracker.debian.org/patch/series/dl/alacarte/0.13.2-3/10_settings_menu.patch)
-sha256sums=('9fa36e5181b1eea947b184cb0f79d796b25cc5a5f122819a1ac2ff01bc7ee4ed'
-            '3a1d48d8104b7b9c6274906bf4a4f336ce4c96316d382e78a38f4bbe82d00172'
-            'd7637ee59cae0501f803514b9c26c4d9806c2b61ea948670ec3ac20b169c8e44'
-            '46c260029ae5b001648776f5b89806f1126c502bd828a879d1002495088742e8'
-            '64610f00ed9f0f78c28d6cadbb00e59ca5dc18e1675a8011141199bcecf33deb')
+source=(http://ftp.gnome.org/pub/gnome/sources/${pkgname}/0.13/${pkgname}-${pkgver}.tar.xz
+        01-desktop-item-edit-exo.patch)
+sha256sums=('a45953dfbd799d718ebafe850c0b20e581827023e8da4ee906edb1f60d6a4098'
+            'b41684a0f020fcfd4a4f3f3e244bd2e11c73ab1bfca72619973ddf68d59cb14a')
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
 
   for (( i=0; i < ${#source[@]}; i++ )); do
     test "${source[i]}" = "${source[i]%.patch}" \
-      || patch -Np1 -i "${srcdir}/${source[i]##*/}"
+      || patch -Np0 -i "${srcdir}/${source[i]##*/}"
   done
 
   ./configure \
