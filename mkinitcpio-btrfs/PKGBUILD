@@ -1,13 +1,13 @@
 # Contributor: C Anthony Risinger
 pkgname='mkinitcpio-btrfs'
-pkgver=0.3.1
+pkgver=0.3.2
 pkgrel=0
 pkgdesc='[initramfs] Rollback operations on BTRFS-based root devices'
 url='http://btrfs.wiki.kernel.org'
 arch=('any')
 license=('BSD')
 install="${pkgname}.install"
-depends=('mkinitcpio' 'btrfs-progs')
+depends=('mkinitcpio>=0.9.0' 'btrfs-progs')
 source=('btrfs_hook' 'btrfs_install')
 
 build() {
@@ -16,4 +16,4 @@ build() {
 }
 
 md5sums=('ce76b1f3dfd6740d9a9bbf40c6f97248'
-         '1afc5ea598491330a410e58441b7c5f5')
+         '9b412042b9e4151533caf013ce69e973')
