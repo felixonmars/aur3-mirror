@@ -35,11 +35,12 @@ case $@ in
 					echo "$redirecturl $line" >> "$hostsfile"
 				fi
 			fi
-		if [ dnsmasq == 1 ]; then
-			echo "Url check finished. Restart DNSMASQ to apply? [y/N]"
-			read a
-			[[ $a == "y" || $a == "Y" ]] && /etc/rc.d/dnsmasq restart
-		fi
+			if [ dnsmasq == 1 ]; then
+				echo "Url check finished. Restart DNSMASQ to apply? [y/N]"
+				read a
+				[[ $a == "y" || $a == "Y" ]] && /etc/rc.d/dnsmasq restart
+			fi
+		done
 	;;
 	*)
 		echo "usage: $0 [url]"
