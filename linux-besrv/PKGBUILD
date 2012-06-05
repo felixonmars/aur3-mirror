@@ -7,7 +7,7 @@ pkgbase="linux$_kernelname"
 pkgname="linux$_kernelname"
 true && pkgname=("linux$_kernelname" "linux$_kernelname-headers")
 _basekernel=3.0
-_patchver=32
+_patchver=33
 pkgver=$_basekernel
 pkgrel=1
 arch=('i686' 'x86_64')
@@ -38,7 +38,7 @@ if [ ${_patchver} -ne 0 ]; then
 		"http://www.kernel.org/pub/linux/kernel/v3.x/$_patchname.xz"
 	)
 	sha256sums=( "${sha256sums[@]}"
-		'4dc3225ce6868a3c3f9749e24cd326e0c10b772bf1386f10fc7d78d14c207d63'
+		'789145f5261612d4f96354a1a76b411f7ff8bd237ae23fe41073dbb626962b4c'
 	)
 fi
 
