@@ -1,0 +1,46 @@
+# $Id: PKGBUILD 156332 2012-04-17 10:35:09Z bluewind $
+# Maintainer: Juergen Hoetzel <juergen@archlinux.org>
+# Contributor: Damir Perisa <damir.perisa@bluewin.ch>
+
+pkgname=lua-debug 
+_pkgname=lua
+pkgver=5.1.5
+pkgrel=2
+provides=('lua')
+replaces=('lua')
+conflicts=('lua')
+pkgdesc="A powerful light-weight programming language designed for extending applications" 
+arch=('i686' 'x86_64')
+url="http://www.lua.org/"
+depends=('readline')
+license=('MIT')
+options=('!makeflags' '!emptydirs' '!buildflags' '!strip')
+source=(http://www.lua.org/ftp/${_pkgname}-${pkgver}.tar.gz
+        lua-arch.patch lua-5.1-cflags.diff)
+md5sums=('2e115fe26e435e33b0d5c022e4490567'
+         'fa25feb70ef9fec975b1c20da5098b3c'
+         '249582bf1fd861ccf492d2c35a9fe732')
+
+build() { 
+  cd "${srcdir}/${_pkgname}-${pkgver}"
+  patch -p1 -i "${srcdir}/lua-arch.patch"
+  patch -p1 -i "${srcdir}/lua-5.1-cflags.diff"
+  export CFLAGS="-O1 -fPIC -g -DLUA_USE_APICHECK"
+
+  make INSTALL_DATA="cp -d" TO_LIB="liblua.a liblua.so liblua.so.5.1" \
+    INSTALL_TOP="${pkgdir}/usr" INSTALL_MAN="${pkgdir}/usr/share/man/man1" \
+    linux
+}
+
+package() {
+  cd "${srcdir}/${_pkgname}-${pkgver}"
+  make INSTALL_DATA="cp -d" TO_LIB="liblua.a liblua.so liblua.so.5.1 liblua.so.$pkgver" \
+    INSTALL_TOP="${pkgdir}/usr" INSTALL_MAN="${pkgdir}/usr/share/man/man1" \
+    install
+  install -D -m644 etc/lua.pc "${pkgdir}/usr/lib/pkgconfig/lua.pc"
+  install -D -m644 COPYRIGHT "${pkgdir}/usr/share/licenses/${_pkgname}/COPYRIGHT"
+
+  # Install the documentation
+  install -d "${pkgdir}/usr/share/doc/lua"
+  install -m644 doc/*.{gif,png,css,html} "${pkgdir}/usr/share/doc/lua"
+}
