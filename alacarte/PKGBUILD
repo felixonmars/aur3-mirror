@@ -4,7 +4,7 @@
 
 pkgname=alacarte
 pkgver=0.13.4
-pkgrel=1
+pkgrel=2
 pkgdesc="Menu editor for gnome"
 arch=(any)
 license=('LGPL')
@@ -16,17 +16,24 @@ install=alacarte.install
 options=('!libtool')
 groups=('gnome-extra')
 source=(http://ftp.gnome.org/pub/gnome/sources/${pkgname}/0.13/${pkgname}-${pkgver}.tar.xz
-        01-desktop-item-edit-exo.patch)
+        03-bind_textdomain_codeset.patch
+        50-git_editable_top_level_menus.patch
+        90-gnome-desktop-item-edit.patch)
 sha256sums=('a45953dfbd799d718ebafe850c0b20e581827023e8da4ee906edb1f60d6a4098'
-            'b41684a0f020fcfd4a4f3f3e244bd2e11c73ab1bfca72619973ddf68d59cb14a')
+            'cc8a18284332f98e041d9634b1480d4f27da738fa723f744e19e56d96fc2221e'
+            '0f9f7b188dfe41679d7e51fff627dfba7636b558d9c34ac36487b2b783bf9316'
+            'b19eb9666d0b760c9eb69ab24e94e14dfa5d6a10ef6edca526a17a76da019088')
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
 
-  for (( i=0; i < ${#source[@]}; i++ )); do
-    test "${source[i]}" = "${source[i]%.patch}" \
-      || patch -Np0 -i "${srcdir}/${source[i]##*/}"
-  done
+#  for (( i=0; i < ${#source[@]}; i++ )); do
+#    test "${source[i]}" = "${source[i]%.patch}" \
+#      || patch -Np1 -i "${srcdir}/${source[i]##*/}"
+#  done
+  patch -Np1 -i "${srcdir}/03-bind_textdomain_codeset.patch"
+  patch -Np1 -i "${srcdir}/50-git_editable_top_level_menus.patch"
+  patch -Np0 -i "${srcdir}/90-gnome-desktop-item-edit.patch"
 
   ./configure \
     --prefix=/usr \
