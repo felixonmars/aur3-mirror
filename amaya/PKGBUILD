@@ -20,7 +20,6 @@ source=(amaya-fix-thotlib-png15.patch \
   explicite_linking2.patch \
   gzread.patch \
   amaya-11.4.4-socketbufsize.patch \
-  no_rpath.diff \
   ftp://ftp.w3.org/pub/$pkgname/$pkgname-sources-$pkgver.tgz \
   http://www.w3.org/Amaya/Distribution/Dutch.tgz \
   http://www.w3.org/Amaya/Distribution/German.tgz \
@@ -34,7 +33,6 @@ md5sums=('6ebd78d57ee0a4b30b2dfb3369439288'
          '572cdeaa2a6b318217f69c37edee116c'
          'f35ae7158133b6d39aa6a83e11bc261b'
          '9fc28d3fd4da1147f8baefa46ec3ae52'
-         'b42aa65d22303bc6fb8af54cdea091d7'
          'e8072c7b1d06b983951c56e9f51fbacf'
          '3edb9cce5ce160d7270b23808c1d5981'
          '400eeeae974a64d23de4fcdd609c30bc'
@@ -51,7 +49,6 @@ build() {
   patch -p1 < $srcdir/explicite_linking2.patch
   patch -p1 < $srcdir/gzread.patch
   patch -p1 < $srcdir/amaya-11.4.4-socketbufsize.patch
-  patch -p1 < $srcdir/no_rpath.diff
   
   cd Mesa/configs
   rm current
@@ -66,7 +63,7 @@ build() {
   
   ../configure --prefix=/usr/share --exec=/usr/share \
     --datadir=/usr/share --enable-system-raptor \
-    --enable-system-wx --enable-system-libwww
+    --enable-system-wx --enable-system-libwww 
   make
 }
 
@@ -78,6 +75,7 @@ package() {
   install -Dm755 $pkgdir/usr/bin/Amaya/wx/bin/amaya $pkgdir/usr/bin/amaya
   rm $pkgdir/usr/bin/Amaya/wx/bin/amaya
   sed -i s+share+bin+ $pkgdir/usr/bin/amaya
+
   cd $srcdir
   for _i in Dutch German Italian Spanish Swedish
   do
