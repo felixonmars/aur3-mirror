@@ -19,6 +19,12 @@ pastebin() {
         dpaste.com)
             url="$1/plain/"
             ;;
+        pastebin.ca)
+            url=http://pastebin.ca${${${(f)$(curl $1 |grep raw)}#*href=\"}%%\"*}
+            ;;
+        paste.dy.fi)
+            url="${1%%\?*}/plain"
+            ;;
         pastebin.ca|www.pastebin.ca)
             url="${1%/*}/raw/${1##*/}"
             ;;
@@ -73,9 +79,11 @@ pastebin() {
     if [[ -n $url ]];then
         vr PASTIE $url
     elif [[ -n $imageurl ]];then
-        (( $+commands[feh] )) && feh $imageurl || xdg-open $imageurl
+        (( $+commands[feh] )) && feh $imageurl || $BROWSER $imageurl
+    elif [[ -n $videourl ]];then
+         (( $+commands[youtube-viewer] )) && youtube-viewer $1 | $BROWSER "$1"
     else
-        xdg-open "$1"
+        $BROWSER "$1"
     fi
 }
 vr(){
