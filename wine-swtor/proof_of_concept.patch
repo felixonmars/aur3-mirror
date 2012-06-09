@@ -1,0 +1,135 @@
+diff --git a/dlls/ntdll/Makefile.in b/dlls/ntdll/Makefile.in
+index 0047731..80d7f5a 100644
+--- a/dlls/ntdll/Makefile.in
++++ b/dlls/ntdll/Makefile.in
+@@ -2,7 +2,7 @@ EXTRADEFS = -D_NTSYSTEM_
+ MODULE    = ntdll.dll
+ IMPORTLIB = ntdll
+ IMPORTS   = winecrt0
+-EXTRALIBS = @IOKITLIB@ @LIBPTHREAD@
++EXTRALIBS = @IOKITLIB@ @LIBPTHREAD@ -lrt
+ EXTRADLLFLAGS = -nodefaultlibs -Wl,--image-base,0x7bc00000
+ 
+ C_SRCS = \
+diff --git a/dlls/ntdll/thread.c b/dlls/ntdll/thread.c
+index 881d961..3ad64a9 100644
+--- a/dlls/ntdll/thread.c
++++ b/dlls/ntdll/thread.c
+@@ -23,6 +23,8 @@
+ 
+ #include <assert.h>
+ #include <stdarg.h>
++#include <stdint.h>
++#include <errno.h>
+ #include <sys/types.h>
+ #ifdef HAVE_SYS_MMAN_H
+ #include <sys/mman.h>
+@@ -70,6 +72,70 @@ static RTL_BITMAP fls_bitmap;
+ static LIST_ENTRY tls_links;
+ static int nb_threads = 1;
+ 
++static void update_shared_data_time(void)
++{
++    LARGE_INTEGER now, start, irq;
++
++    NtQuerySystemTime( &now );
++
++    //FIXME("%lld\n", now.QuadPart);
++    
++    irq.QuadPart = (now.QuadPart - server_start_time);
++
++    user_shared_data->InterruptTime.High2Time = irq.HighPart;
++    user_shared_data->InterruptTime.LowPart = irq.LowPart;
++    user_shared_data->InterruptTime.High1Time = irq.HighPart;
++
++    user_shared_data->SystemTime.High2Time = now.HighPart;
++    user_shared_data->SystemTime.LowPart = now.LowPart;
++    user_shared_data->SystemTime.High1Time = now.HighPart;
++
++    start.QuadPart = irq.QuadPart / 10000;
++
++    user_shared_data->u.TickCount.High2Time = start.HighPart;
++    user_shared_data->u.TickCount.LowPart = start.LowPart;
++    user_shared_data->u.TickCount.High1Time = start.HighPart;
++    user_shared_data->TickCountLowDeprecated = start.LowPart;
++}
++
++static void add_timespec(struct timespec* dst, struct timespec* arg)
++{
++    dst->tv_sec += arg->tv_sec;
++    dst->tv_nsec += arg->tv_nsec;
++
++    if(dst->tv_nsec > 999999999) {
++        dst->tv_nsec -= 1000000000;
++        dst->tv_sec++;
++    }
++}
++
++static void* shared_data_thread(void *thread_arg) 
++{
++    struct timespec start, arg;
++    int e;
++
++    e = clock_gettime(CLOCK_MONOTONIC, &start);
++    if(e) {
++        FIXME("Unable to get starting time: %s (%d)\n", strerror(errno), errno);
++        return NULL;
++    }
++
++    arg.tv_sec = 0;
++    arg.tv_nsec = 15600000;
++
++    while(1) {
++        update_shared_data_time();
++        add_timespec(&start, &arg);
++        e = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &start, NULL);
++        if(e) {
++            FIXME("clock_nanosleep failed: %s (%d)\n", strerror(e), e);
++        }
++    }
++
++    return NULL;
++}
++
++
+ /***********************************************************************
+  *           get_unicode_string
+  *
+@@ -199,9 +265,10 @@ HANDLE thread_init(void)
+     void *addr;
+     SIZE_T size, info_size;
+     HANDLE exe_file = 0;
+-    LARGE_INTEGER now;
+     struct ntdll_thread_data *thread_data;
+     static struct debug_info debug_info;  /* debug info for initial thread */
++    pthread_t thread;
++    int s;
+ 
+     virtual_init();
+ 
+@@ -291,16 +358,19 @@ HANDLE thread_init(void)
+     }
+ 
+     /* initialize time values in user_shared_data */
+-    NtQuerySystemTime( &now );
+-    user_shared_data->SystemTime.LowPart = now.u.LowPart;
+-    user_shared_data->SystemTime.High1Time = user_shared_data->SystemTime.High2Time = now.u.HighPart;
+-    user_shared_data->u.TickCountQuad = (now.QuadPart - server_start_time) / 10000;
+-    user_shared_data->u.TickCount.High2Time = user_shared_data->u.TickCount.High1Time;
+-    user_shared_data->TickCountLowDeprecated = user_shared_data->u.TickCount.LowPart;
+     user_shared_data->TickCountMultiplier = 1 << 24;
+ 
++    update_shared_data_time();
++
+     fill_cpu_info();
+ 
++    if(!(s = pthread_create(&thread, NULL, &shared_data_thread, NULL))) {
++        if(pthread_detach(thread))
++            FIXME("Unable to detach thread\n");
++    } else {
++        FIXME("unable to spawn thread: %s (%d)\n", strerror(s), s);
++    }
++    
+     return exe_file;
+ }
+ 
