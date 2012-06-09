@@ -21,7 +21,7 @@ build() {
     msg "The local files are updated."
   else
     git clone "$_gitroot" "$_gitname"
-    cd $_gitname
+    cd "$_gitname"
     git submodule init
     git submodule update
   fi
