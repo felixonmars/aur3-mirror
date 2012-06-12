@@ -68,12 +68,15 @@ pastebin() {
                 url="https://projects.archlinux.org/svntogit/$repo.git/plain/trunk/PKGBUILD\?h\=packages/$package"
             fi
             ;;
-        ompldr.org)
-            url=$1
-            ;;
+        ompldr.org|omploader.org)
+            tmp="${${1##*//}%%/*}"
+            testurl=${1/$tmp/ompldr.org}
+            testomp $testurl
+            dones=1;
+            ;; 
         imgur.com)
-            imageurl=$(curl $1 2>&/dev/null |grep -Ei ".jpg|png"|head -n1)
-            imageurl=${${imageurl#*href=\"}%%\"*}
+            imageurl=$(curl $1 2>&/dev/null |grep -Ei ".jpg|.png"|grep -Ei "a href"|head -n1)
+            imageurl=${${imageurl##*ref\=\"}%%\"*}
             ;;
         www.youtube.com|youtu.be)
             videourl=$1;;
@@ -81,12 +84,38 @@ pastebin() {
     if [[ -n $url ]];then
         vr PASTIE $url
     elif [[ -n $imageurl ]];then
-        (( $+commands[feh] )) && feh $imageurl || $BROWSER $imageurl
+        curl -o ${ZURLDIR%/}/$val $imageurl
+        (( $+commands[$IMAGEOPENER] )) && $IMAGEOPENER ${ZURLDIR%/}/$val || $BROWSER $imageurl
     elif [[ -n $videourl ]];then
          (( $+commands[youtube-viewer] )) && youtube-viewer -mplayer=$YOUTUBEPLAYER -mplayer_arguments=$YOUTUBEARGS $1 || $BROWSER "$1"
-    else
+    elif [[ $dones -ne 1 ]]; then
         $BROWSER "$1"
     fi
+}
+testomp(){
+    filetype2="$(curl -I $1 2>& /dev/null |grep \^Content-Type|sed -e 'sT.*:\ \(.*/.*\);\?\ \?.*T\1Tg' )"
+    filetype2=${filetype2%%;*}
+    filetypeis=${filetype2%/*}
+    case $filetypeis in 
+        text)
+            vr PASTIE $1;;
+        image)
+            case ${filetype2#*/} in
+                gif*)
+                    file=/tmp/${${1##*/}%\.}
+                    curl -s $1 -o $file
+                    (( $+commands[$GIFPLAYER] )) && $GIFPLAYER ${=GIFARGS[@]} $file || $BROWSER $1
+                    rm $file
+                        ;;
+                *)
+                    curl -s -o ${ZURLDIR%/}/$val $1
+                    (( $+commands[feh] )) && $IMAGEOPENER ${ZURLDIR%/}/$val || $BROWSER $1
+                    ;;
+            esac
+            ;;
+        *)
+            $BROWSER "$1";;
+    esac
 }
 vr(){
     curl -s -o "${ZURLDIR%/}/$val" $2
@@ -122,65 +151,67 @@ testmulti(){
 }
 
 _zurl(){
+export val=$RANDOM
+while [[ -f ${ZURLDIR%/}/$val ]];do
     export val=$RANDOM
-    while [[ -f ${ZURLDIR%/}/$val ]];do
-        export val=$RANDOM
-    done
+done
+
+[[ -f /etc/zurlrc ]] && . /etc/zurlrc
+[[ -f ~/.zurlrc ]] && . ~/.zurlrc
+[[ -f $XDG_CONFIG_HOME/zurl/config ]] && . $XDG_CONFIG_HOME/zurl/config
+export AURLINKS=${AURLINKS:-PKGBUILD}
+export BROWSER=${BROWSER:-firefox}
+export GIFPLAYER=${GIFPLAYER:-mplayer}
+export YOUTUBEPLAYER=${YOUTUBEPLAYER:-mplayer}
+export PASTEEDITOR=${PASTEBINEDITOR:-vim}
+export MULTIPLEXER=${MULTIPLEXER:-tmux}
+export SERVERNAME=${SERVERNAME:-PASTIE}
+export ZURLDIR=${ZURLDIR:-/tmp}
+export REMOVEFILE=${REMOVEFILE:-1}
+export pasteterminal=${pasteterminal:-urxvt}
+export IMAGEOPENER=${IMAGEOPENER:-feh}
+[[ -z $termexec && $pasteterminal == "urxvt" ]] && export termexec="-e"
+[[ -z $GIFARGS ]] && export GIFARGS="-loop 0 -speed 1"
+[[ -z $YOUTUBEARGS ]] && export YOUTUBEARGS="-loop 0 -speed 1"
+[[ -z $PASTEARGS ]] && export PASTEARGS="--servername PASTIE"
+[[ -z $OPENEDPASTEARGS ]] && export OPENEDPASTEARGS="$PASTEARGS --remote-tab-silent"
+[[ -z $MULTIARGS ]] && export MULTIARGS="neww -n $SERVERNAME"
 
 
-    [[ -f /etc/zurlrc ]] && . /etc/zurlrc
-    [[ -f ~/.zurlrc ]] && . ~/.zurlrc
-    [[ -f $XDG_CONFIG_HOME/zurl/config ]] && . $XDG_CONFIG_HOME/zurl/config
-    export AURLINKS=${AURLINKS:-PKGBUILD}
-    export BROWSER=${BROWSER:-firefox}
-    export GIFPLAYER=${GIFPLAYER:-mplayer}
-    export YOUTUBEPLAYER=${YOUTUBEPLAYER:-mplayer}
-    export PASTEEDITOR=${PASTEBINEDITOR:-vim}
-    export MULTIPLEXER=${MULTIPLEXER:-tmux}
-    export SERVERNAME=${SERVERNAME:-PASTIE}
-    export ZURLDIR=${ZURLDIR:-/tmp}
-    export REMOVEFILE=${REMOVEFILE:-1}
-    export pasteterminal=${pasteterminal:-urxvt}
-    [[ -z $termexec && $pasteterminal == "urxvt" ]] && export termexec="-e"
-    [[ -z $GIFARGS ]] && export GIFARGS="-loop 0 -speed 1"
-    [[ -z $YOUTUBEARGS ]] && export YOUTUBEARGS="-loop 0 -speed 1"
-    [[ -z $PASTEARGS ]] && export PASTEARGS="--servername PASTIE"
-    [[ -z $OPENEDPASTEARGS ]] && export OPENEDPASTEARGS="$PASTEARGS --remote-tab-silent"
-    [[ -z $MULTIARGS ]] && export MULTIARGS="neww -n $SERVERNAME"
 
 
-    filetype2="$(curl -I $1 2>& /dev/null |grep \^Content-Type|sed -e 'sT.*:\ \(.*/.*\);\?\ \?.*T\1Tg' )"
-    filetype2=${filetype2%%;*}
-    filetypeis=${filetype2%/*}
-    case $filetypeis in 
-        image)
-            case ${filetype2#*/} in
-                gif*)
-                    file=/tmp/${${1##*/}%\.}
-                    curl -s $1 -o $file
-                    (( $+commands[$GIFPLAYER] )) && $GIFPLAYER ${=GIFARGS[@]} $file || $BROWSER $1
-                    rm $file
-                        ;;
-                *)
-                    curl -s -o ${ZURLDIR%/}/$val $1
-                    (( $+commands[$IMAGEOPENER] )) && $IMAGEOPENER ${ZURLDIR%/}/$val || $BROWSER $1
+filetype2="$(curl -I $1 2>& /dev/null |grep \^Content-Type|sed -e 'sT.*:\ \(.*/.*\);\?\ \?.*T\1Tg' )"
+filetype2=${filetype2%%;*}
+filetypeis=${filetype2%/*}
+case $filetypeis in 
+    image)
+        case ${filetype2#*/} in
+            gif*)
+                file=/tmp/${${1##*/}%\.}
+                curl -s $1 -o $file
+                (( $+commands[$GIFPLAYER] )) && $GIFPLAYER ${=GIFARGS[@]} $file || $BROWSER $1
+                rm $file
                     ;;
-            esac
-            ;;
-        *)
-            if [[ $filetype2 == "text/plain" ]];then
-                url=$1
-                if [[ "${${1##*//}%%/*}" == "pastebin.com" ]];then
-                    url=${${url//\?/\\\?}//=/\\=}
-                fi
-                vr PASTIE $url
-            else
-                pastebin $1
+            *)
+                curl -s -o ${ZURLDIR%/}/$val $1
+                (( $+commands[$IMAGEOPENER] )) && $IMAGEOPENER ${ZURLDIR%/}/$val || $BROWSER $1
+                ;;
+        esac
+        ;;
+    *)
+        if [[ $filetype2 == "text/plain" ]];then
+            url=$1
+            if [[ "${${1##*//}%%/*}" == "pastebin.com" ]];then
+                url=${${url//\?/\\\?}//=/\\=}
             fi
-            ;;
-    esac
+            vr PASTIE $url
+        else
+            pastebin $1
+        fi
+        ;;
+esac
 
-    [[ $REMOVEFILE -eq 1 ]] && (removefile &>/dev/null &)
+[[ $REMOVEFILE -eq 1 ]] && rm ${ZURLDIR%/}/$val
 }
-[[ ! -o login ]] && _zurl $*
+[[ ! -o interactive ]] && _zurl $*
 # vim: set filetype=zsh:
