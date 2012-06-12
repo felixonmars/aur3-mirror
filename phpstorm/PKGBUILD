@@ -6,7 +6,7 @@ pkgname=phpstorm
 _pkgname=PhpStorm  # Directory name in the tar file
 pkgver=4.0.2
 pkgbuild=117.501
-pkgrel=1
+pkgrel=2
 pkgdesc="Lightweight and Smart PHP IDE. 30-day free trial."
 arch=('i686' 'x86_64')
 url="http://www.jetbrains.com/phpstorm/"
@@ -44,11 +44,12 @@ Categories=Development
 EOF
 ) > ${startdir}/phpstorm.desktop
 
+  mkdir -p ${pkgdir}/usr/bin/ || return 1
   mkdir -p ${pkgdir}/usr/share/applications/ || return 1
   mkdir -p ${pkgdir}/usr/share/pixmaps/ || return 1
   mkdir -p ${pkgdir}/usr/share/licenses/${pkgname}/ || return 1
   install -m 644 ${startdir}/phpstorm.desktop ${pkgdir}/usr/share/applications/
   install -m 644 ${pkgdir}/opt/${pkgname}/bin/webide.png ${pkgdir}/usr/share/pixmaps/phpstorm.png
   install -m 644 ${srcdir}/${_pkgname}-${pkgbuild}/license/${_pkgname}_license.txt ${pkgdir}/usr/share/licenses/${pkgname}/${_pkgname}_license.txt
+  ln -s /opt/$pkgname/bin/phpstorm.sh "$pkgdir/usr/bin/phpstorm"
 }
-
