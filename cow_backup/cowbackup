@@ -1,0 +1,779 @@
+#!/bin/bash
+
+#                     _                _                
+#    ___ _____      _| |__   __ _  ___| | ___   _ _ __  
+#   / __/ _ \ \ /\ / / '_ \ / _` |/ __| |/ / | | | '_ \ 
+#  | (_| (_) \ V  V /| |_) | (_| | (__|   <| |_| | |_) |
+#   \___\___/ \_/\_/ |_.__/ \__,_|\___|_|\_\\__,_| .__/ 
+#                                                |_|   	 
+#
+# cowbackup 3.0.7 - create and restore compressed and
+# encrypted full backups of partitions using tar and gpg
+#
+# Copyright: (C) 2012 edloaa <edloaa at googlemail dot com>
+# License: GPL-3 <http://www.gnu.org/licenses/gpl-3.0.txt>
+
+########################################
+#              variables               #
+########################################
+
+# general variables
+
+name="cowbackup"		# script name
+vers="3.0.7"			# cow_backup version
+cdate=$(date +"%Y-%m-%d")	# YYYY-mm-dd
+logfn="cb-errors-$cdate.log"	# log file name
+nll=/dev/null			# don't change!
+
+# colors used for dialogues and messages
+
+c0=$(echo -e '\e[1;33m')	# yellow   -> cow_say and warnings
+c1=$(echo -e '\e[1;32m')	# green    -> dialogs and messages
+c2=$(echo -e '\e[1;31m')	# red      -> errors
+c3=$(echo -e '\e[1;34m')	# blue     -> user input
+c4=$(echo -e '\033[0m')		# no color -> don't change!
+
+
+########################################
+#              functions               #
+########################################
+
+# functions for messages, warnings, errors and dialogues
+
+yyy() { echo $c0"$*"$c4; }	# yellow msg
+ggg() { echo $c1"$*"$c4; }	# green msg
+rrr() { echo $c2"$*"$c4; }	# red msg
+bbb() { echo $c3"$*"$c4; }	# blue msg
+yyyn() { echo -n $c0"$*"$c4; }	# yellow msg + no line break
+gggn() { echo -n $c1"$*"$c4; }	# green msg + no line break
+ybu() { echo -n $c0"$*"$c3; }	# yellow msg + no line break + blue user input
+gbu() { echo -n $c1"$*"$c3; }	# green msg + no line break + blue user input
+rbu() { echo -n $c2"$*"$c3; }	# red msg + no line break + blue user input
+
+# trap keyboard interrupt (Ctrl+C)
+
+ctrl_c() {
+	echo -e "\n"
+	bbb "*** interrupted by user. exiting! ***"
+	echo
+	exit 130
+}
+
+trap ctrl_c SIGINT
+
+usage() {
+	echo "$c1$name $vers - create and restore full backups of partitions"
+	echo
+	echo "usage: $0 [OPTIONS]"
+	echo $c1
+	echo "OPTIONS:"
+	echo "  -s  < src - partition >"
+	echo "  -d  < dest - directory >"
+	echo "  -p  < password >"
+	echo "  -o  < archive file name >"
+	echo "  -n  no color"
+	echo "  -h  help and quit"
+	echo $c3
+	echo "  -> example: cowbackup -n -s /dev/sda3 -d /media/backups -p 'MyPa55w0rd'"
+	echo $c0
+	echo "NOTES:"
+	echo "  - options -s, -d and -p will automatically start the non-interactive mode"
+	echo "  - backups can only be restored in interactive mode"
+	echo $c4
+	exit 0
+}
+
+cow_say() {
+	a="$*"
+	b=$((${#a}+1))
+	tl=$(for ((x = 0 ; x <= $b ; x++)) ; do echo -n "_" ; done)
+	bl=$(for ((x = 0 ; x <= $b ; x++)) ; do echo -n "-" ; done)
+	echo " $tl"					 
+	echo "< $c0"$@"$c4 >"
+	echo " $bl"
+	echo '        \   ^__^			'
+	echo '         \  (oo)\_______		'
+	echo '            (__)\       )\/\	'
+	echo '                ||----w |		'
+	echo '                ||     ||		'
+	echo
+}
+
+teip() {
+	str="$@"
+	while [ -n "$str" ]; do
+		printf "%c" "$str"
+		str=${str#?}
+		sleep .05
+	done
+}
+
+heading() {
+	char=$(echo -n "$*" | wc -m)
+	echo $c0"$*"$c4
+	echo $c0$(for ((x = 1 ; x <= $char ; x++)) ; do echo -n "=" ; done)$c4
+}
+
+# error messages; variables for messages m1 - m3, because they are used more than once
+
+m1="E: failed to mount the partition to /mnt."
+m2="E: errors might have occurred."
+m3="E: unable to unmount the partition, please unmount manually."
+
+cowerr() {
+	# $1 => "$Mx"         -> error message
+	# $2 => "true/ false" -> if true: echo "ok" or "failed" 
+	# $3 => "true/ false" -> if true: exit
+	# $4 => "true/ false" -> if true: proceed? [y/n]
+
+	# program exits without any errors
+
+	if [ $? -eq 0 ]; then
+
+		if [ $2 = true ]; then
+			ggg "ok"
+			echo
+		fi
+
+	# program exits with errors
+
+	elif [ $? -gt 0 ]; then
+
+		if [ $2 = true ]; then
+			rrr "failed"
+			echo
+		fi
+
+		rrr "E: $1"
+		echo
+
+		rrr "check $log for error messages."
+
+		if [ $3 = true ]; then
+			cow_say 'unable to proceed. aborting!'
+			exit 1
+		fi
+
+		if [ $4 = true ]; then
+			echo
+			ybu "proceed anyway? [y/n] "
+			read ans
+			echo $c4
+
+			case $ans in
+			y)
+				ggg "proceeding..."
+				;;
+			*)
+				cow_say 'aborting!'
+				exit 1
+				;;
+			esac
+		fi
+	echo
+	fi
+}
+
+password() {
+	pwd1=a
+	pwd2=b
+
+	y=0
+
+	while [ "$pwd1" != "$pwd2" ] || [ -z "$pwd1" ]; do
+
+		if [ $y -gt 0 ]; then
+			if [ "$pwd1" != "$pwd2" ]; then
+				rrr "E: the passwords differ. please try again."
+				echo
+			elif [ -z "$pwd1" ]; then
+				rrr "E: the password must not be empty. please try again."
+				echo
+			fi
+		fi
+
+		gggn "please enter a password for $1: "
+		read -s 'pwd1'
+		echo
+		echo
+		gggn "repeat the password: "
+		read -s 'pwd2'
+		echo
+		echo
+		((y++))
+	done
+}
+
+priv_check() {
+	if [ $UID -ne 0 ]; then
+		if [ ! -O "$src" ] || [ ! -O "$dest" ]; then
+			rrr "E: root privileges needed. please start script as root and try again."
+			exit 1
+		fi
+	fi
+}
+
+bfname() {
+	if [ -n "$output" ]; then
+		backup=$(echo $dest/$output | sed "s!//!/!g")
+	else
+		if [ -n "$pwd1" ]; then
+			backup=$(echo $dest/backup_${srcname}_$cdate.tgz.gpg | sed "s!//!/!g")
+		else
+			backup=$(echo $dest/backup_${srcname}_$cdate.tgz | sed "s!//!/!g")
+		fi
+	fi
+}
+
+gpgquest() {
+	filecheck() {
+		[ -f "$backup" ] && {
+			rrr "E: $backup does already exsist. please rename this file or choose an other path."
+			cow_say 'aborting!'
+			exit 0
+		}
+	}
+	srcname=$(basename $src)
+
+	# GPG encryption dialogue
+
+	gbu "would you like to encrypt your backup files with GPG? [y/n] "
+	read GPG
+	echo $c4
+			   
+	case $GPG in
+	y|Y|yes|Yes|"")
+		password "encryption"
+		bfname
+		filecheck
+		;;
+	*)
+		bfname
+		filecheck
+		yyy "W: backup file will not be encrypted with GPG"
+		echo
+		;;
+	esac	
+}
+
+summary() {
+	bline="$c1$(for ((x = 0 ; x <= 70 ; x++)) ; do echo -n "-" ; done)$c4"
+
+	echo
+	echo $bline
+	echo
+	heading "[   summary   ]"
+	echo
+	ggg "task started:  $c0$sdate"
+	ggg "task finished: $c0$(date +%Y-%m-%d_%T)"
+	echo
+
+	[ -n "$err" ] && {
+		echo "$err"
+		echo
+	}
+
+	if [ $fileinf = true ] && [ -f "$backup" ]; then
+		echo "${c1}archive file information:$c4"
+		echo
+		cd $(dirname $backup)
+		echo $c0$(ls -lh $(basename $backup))$c4
+		cd /
+		echo
+	fi
+
+	echo $bline
+	echo
+}
+
+# create MD5 hashes
+
+mkmd5() {
+	[ -f $backup ] && {
+		cd $(dirname $backup)
+		echo -n "${c1}creating MD5 hash... $c4"
+		md5sum ./$(basename "$backup") > $(basename "$backup").md5 2>>$log
+		cowerr "E: failed to create a md5 hash." true false false
+		cd /
+	}
+}
+
+# check MD5 hash if *.md5-file exists
+
+ckmd5() {
+	[ -e $dest.md5 ] && {
+		cd $(dirname $dest)
+		gggn "checking MD5 hash... "  
+		md5sum -c "$dest.md5" &>$nll
+		cowerr "E: wrong MD5 hash. file could be compromised." true false true
+		cd /
+	}
+}
+
+#**************************************#
+#           backup functions           #
+#**************************************#
+
+backup_main() {
+	sdate=$(date +%Y-%m-%d_%T)
+
+	if [ -z "$pwd1" ]; then
+		tar -cpvzf $backup . 2>>$log
+	else
+		tar -cpvz . | gpg -c --batch --force-mdc --passphrase "$pwd1" -o $backup 2>>$log && echo
+	fi
+
+	err=$(cowerr "$m2" false false false)
+	summary
+	mkmd5
+}
+
+#**************************************#
+#           recovery function          #
+#**************************************#
+
+recovery_main() {
+	sdate=$(date +%Y-%m-%d_%T)
+
+	if [ -z "$pwd1" ]; then
+		tar -xvf $dest -C /mnt 2>>$log
+	else
+		{ gpg -d --batch --passphrase "$pwd1" $dest | tar -xzv -C /mnt; } 2>>$log && echo
+	fi
+
+	err=$(cowerr "$m2" false false false)
+	summary
+}
+
+# if log file is empty, it will be removed
+
+rmlog() {
+	if [ -f "$log" ] && [ ! -s "$log" ]; then
+		rm $log
+	else
+		echo "***** $(date) *****" >>$log
+	fi
+}
+
+pstart() {
+	read -p "${c1}press enter start the $task...$c4"
+}
+
+bakinf() {
+	ggg "$src will be backuped to $backup"
+}
+
+recinf() {
+	ggg "$dest will be recovered to $src"
+}
+
+########################################
+#            main program              #
+########################################
+
+# get options
+
+while getopts ':s:d:o:p:l:nh' options; do
+	case $options in
+	s)
+		iact=true
+		src="$OPTARG"
+		;;
+	d)
+		iact=true
+		dest="$OPTARG"
+		;;
+	o)
+		output="$OPTARG"
+		;;
+	p)
+		iact=true
+		pwd1="$OPTARG"
+		;;
+	n)
+		c0=''
+		c1=''
+		c2=''
+		c3=''
+		c4=''
+		;;
+	h)
+		usage
+		;;
+	*)
+		echo "${c2}invalid option: -$OPTARG$c4" >&2
+		exit 1
+		;;
+ 	esac
+done
+
+clear
+echo -n $c4
+cow_say "$name $vers"
+
+#**************************************#
+#          interactive mode            #
+#**************************************#
+
+# infinite loop; script always returns to main menu
+
+while true && [ ! $iact ]; do
+
+	# main menu
+
+	heading "[ $name - $cdate ]"
+	echo "# -> backup            (1)"
+	echo "# -> recovery          (2)"
+	echo "# -> exit              (3)"
+	echo
+	gbu "please enter an option: "
+	read opt
+	echo $c4
+
+	# some specific variables depending on the chosen option
+
+	if [ "$opt" = "1" ]; then
+		a_cow="backuped"
+		green_cow="backup directory (absolute path)"
+		task="backup"
+		fileinf=true
+	elif [ "$opt" = "2" ]; then
+		a_cow="recovered"
+		green_cow="archive file (/Path/to/backup.tgz.[gpg])"
+		task="recovery"
+		fileinf=false
+	fi
+
+	# ===> option 1 and 2
+
+	if [ "$opt" = "1" ] || [ "$opt" = "2" ]; then
+
+		# check for root privileges
+
+		if [ $UID != 0 ]; then
+			clear
+			cow_say 'aborting!'
+			rrr "E: root privileges needed. please start script as root and try again."
+			exit 1
+		fi
+
+		clear
+		heading "[ cow_backup - $cdate ]"
+		echo
+		heading "[  available partitions   ]"
+
+		if type fdisk &>$nll; then
+			fdisk -l
+		else
+			echo
+			for block_dev in $(ls -lR /dev/ | grep ^b | awk '{print $NF}'); do 
+				echo " /dev/$block_dev"
+			done
+		fi
+
+		echo
+		gbu "specify the partition that shall be $a_cow (e.g. /dev/sda3): "
+		read -e src
+		echo $c4
+
+		# check if partition exists
+
+		while [ ! -b "$src" ]; do
+			rbu "E: \"$src\" is no valid partition. please choose an existing partition: "
+			read -e src
+			echo $c4
+		done
+
+		gbu "specify the $green_cow: "
+		read -e dest
+		echo $c4
+
+		# check if $green_cow exists
+
+		# ===> option 1
+
+		[ "$opt" = "1" ] && {
+
+			# check if dir exists and if it is an absolute path
+
+			until [ -d "$dest" ] && echo $dest | grep "^/" &>$nll; do
+				rbu "E: \"$dest\" is not a valid absolute path. please choose an other path: "
+				read -e dest
+				echo $c4
+			done
+			gpgquest
+		}
+
+		# ===> option 2
+
+		[ "$opt" = "2" ] && {
+
+			# check if file exists and is a gzip compressed archive (and gpg encrypted)
+
+			until [ -f "$dest" ] && file $dest | grep -e "gzip" -e "DOS executable" &>$nll; do
+				rbu "E: \"$dest\" is not a valid archive file. please choose an other file: "
+				read -e dest
+				echo $c4
+			done
+		}
+
+		# variable for log file
+
+		if [ -f "$dest" ]; then
+			log=$(dirname $dest)/$logfn
+		else
+			log=$(echo $dest | sed 's/\/$//')/$logfn
+		fi
+
+		[ "$opt" = "2" ] && ckmd5
+
+		# check if partition is mounted
+
+		if mount | grep "$src" &>$nll; then
+			rrr "$src is already mounted..."
+			echo
+			ybu "trying to proceed anyway? [y/n] "
+			read ans
+			echo -n $c4
+
+			case $ans in
+			y)
+				echo
+				umount $src
+
+				if [ $? -gt "0" ]; then
+					cow_say "unable to proceed. aborting."
+					rrr "E: please unmount $src manually and try again"
+					echo
+					exit 1
+				fi
+				;;
+			*)
+				cow_say 'aborting!'
+				exit 1
+				;;
+			esac
+			fi
+
+		# check if /mnt is used as mkount point
+
+		if mount | grep "/mnt" &>$nll; then
+			echo "${c2}/mnt is already used as mount point...$c4"
+			echo
+			ybu "trying to proceed anyway? [y/n] "
+			read ans
+			echo -n $c4
+
+			case $ans in
+			y|yes)
+				echo
+				umount /mnt
+
+				if [ $? -gt "0" ]; then
+					cow_say "unable to proceed. aborting."
+					part=$(mount | grep "/mnt" | awk '{print $1}')
+					rrr "E: please unmount $part manually and try again"
+					echo
+					exit 1
+				fi
+				;;
+			*)
+				cow_say 'aborting!'
+				exit 1
+				;;
+			esac
+		fi
+
+		gggn "$src will be mounted to /mnt... "
+
+		# ===> option 1
+
+		[ "$opt" = "1" ] && {
+
+			# mounting partition read-only
+
+			mount -o ro $src /mnt 2>>$log
+			cowerr "$m1" true true false
+			cd /mnt
+			bakinf
+			echo
+			pstart
+			echo
+			backup_main "part"
+		}
+
+		# ===> option 2
+
+		[ "$opt" = "2" ] && {
+
+			mount $src /mnt 2>>$log
+			cowerr "$m1" true true false
+
+			if file $dest | grep "gzip" &>$nll; then
+				GPG="n"
+				ggg "file seems no to be encrypted"
+				echo
+			elif file $dest | grep "DOS executable" &>$nll; then
+				GPG="y"	
+				ggg "file seems to be encrypted"
+				echo
+				password "decryption"
+				echo
+			fi
+
+			heading "[ content of /mnt ]"
+			echo
+			cd /mnt
+			ls -a --color=auto .
+			echo
+			gbu "delet these files? [yes/no] "
+			read delete
+			echo $c4
+
+			case $delete in
+			y|yes)
+				gggn "files will be deleted... " 
+				rm -rf /mnt/* 2>>$log
+				cowerr "unable to delete files." true false false
+				recinf
+				echo
+				pstart
+				echo
+				recovery_main "part"
+				;;
+			*)
+				gggn "trying to unmount $src... "
+				cd /
+				umount $src 2>>$log
+				cowerr "$m3" true false false
+				cow_say "files were not deleted. aborting..."
+				exit 0
+				;;
+			esac
+		}
+
+		# ===> option 1 and 2
+
+		cd /
+		gggn "trying to unmount $src... "
+		umount $src 2>>$log
+		cowerr "$m3" true false false
+		rmlog
+		read -p "${c1}press enter...$c4"
+		clear
+		cow_say "$name $vers"
+		unset backup
+		unset pwd1
+		unset output
+
+	# other options
+
+	elif [ "$opt" = "3" ]; then
+		clear
+		cow_say "goodbye! ;-)"
+		exit 0
+	elif [ "$opt" = "moo" ] || [ -z "$opt" ]; then
+		clear
+		cow_say "mooooo...!?"
+	else
+		clear
+		cow_say "invalid option \"$opt\""
+	fi
+
+done
+
+#**************************************#
+#        non-interactive mode          #
+#**************************************#
+
+if [ $iact ]; then
+
+sleep5() {
+	for ((x=1; x<=20; x++)); do
+		gggn "."
+		sleep .2
+	done
+	echo
+	echo
+}
+
+	fileinf=true
+
+	# some tests at the beginning...
+
+	if [ $UID != 0 ]; then
+		if [ ! -O "$src" ] || [ ! -O "$dest" ]; then
+			exyt="yes"
+			rrr "E: root privileges needed"
+		fi
+	fi
+
+	if [ -b "$src" ]; then
+		opt=1
+
+	elif [ -d "$src" -o -f "$src" ] && echo "$src" | grep "^/" &>$nll; then
+		opt=2
+
+	else
+		exyt="yes"
+		rrr "E: no valid source (block device or directory)"
+	fi
+
+	if [ ! -d "$dest" ] || ! echo "$dest" | grep "^/" &>$nll; then
+		exyt="yes"
+		rrr "E: no valid destination (absolute path)"
+	fi
+
+	[ -z "$pwd1" ] && {
+		yyy "W: file will not be encrypted"
+		if [ -z $exyt ]; then echo; fi
+	}
+
+	[ "$exyt" == "yes" ] && {
+		echo
+		yyy "try '$0 -h' for more information"
+		exit 1
+	}
+
+	# variable for log file destination
+
+	log="$(echo $dest | sed 's/\/$//')/$logfn"
+
+	# backup file name
+
+	srcname=$(basename $src)
+	bfname
+
+	[ -f $backup ] && {
+		rrr "E: $backup does already exsist."
+		rrr "   please rename this file or choose an other path. aborting."
+		exit 1
+	}
+
+	# check if partition is mounted or /mnt is used
+
+	if mount | grep -e "$src" -e "/mnt" &>$nll; then
+		rrr "E: "$src" is mounted or /mnt is already used as mount point."
+		rrr "   please unmount manually and try again."
+		exit 1
+	fi
+
+	gggn "$dest will be mounted to /mnt... "
+
+	# mounting partition read-only
+
+	mount -o ro $src /mnt 2>>$log
+	cowerr "$m1" true true false
+	cd /mnt
+	ggg "$src will be backuped to $backup"
+	echo
+	sleep5
+	backup_main "part"
+	gggn "trying to unmount $src... "
+	umount $src 2>>$log
+	cowerr "$m3" true false false
+
+	rmlog
+	ggg "finished..."
+	exit 0
+fi

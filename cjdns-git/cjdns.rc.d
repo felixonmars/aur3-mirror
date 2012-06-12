@@ -24,40 +24,18 @@ case "$1" in
       exit 1
     fi
 
-    #CREATE TUN DEVICE IF IT DOESN'T ALREADY EXIST AND SET $CJDNS_TUN TO THE DEVICE NAME
-    if [ $(ip tuntap list | grep -c `id -u "$CJDNS_USER"`) = 0 ]; then ip tuntap add mode tun user "$CJDNS_USER"; fi
-    CJDNS_TUN=$(ip tuntap list | grep -m1 `id -u "$CJDNS_USER"` | grep -o -E "^tun[^\:]*")
-
     #REMOVE THE TUN DEVICE IF THE SCRIPT IS KILLED
     trap removetun SIGINT
 
-    #FAIL IF $CJDNS_TUN IS NULL (NO TUN DEVICE?)
-    if [ -z "$CJDNS_TUN" ]; then
-      stat_busy "The tun device was not successfully created"
-      stat_fail
-      exit 1
-    fi
-
-    #FAIL IF THE TUN DEVICE IS ALREADY CONFIGURED
-    if [ ! $(ifconfig -a | grep -A 1 "$CJDNS_TUN" | grep -c inet6) = 0 ]; then
-        if [ ! $(ps -U "$CJDNS_USER" | grep -c cjdroute) = 0 ]; then
-            stat_busy "The daemon is already running"
-            stat_fail
-            exit 1
-        fi
-        removetun
-    fi
-
     #START CJDNS AND ENABLE THE DAEMON IF IT SUCCEEDS
     if [ -z "$PID" ]; then
-        sed -e "s/\"tunDevice\":\ \"tun[^\ ]*/\"tunDevice\":\ \"$CJDNS_TUN\"/g ; s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"$CJDNS_USER\"/g" "$CJDNS_CONFIG" | cjdroute >& "$CJDNS_LOG" &
+        sed -e "s/\"setuser\":\ \"[^\"]*\"/\"setuser\":\ \"$CJDNS_USER\"/g" "$CJDNS_CONFIG" | cjdroute >& "$CJDNS_LOG" &
       if [ $? -gt 0 ]; then
         stat_busy "Unable to start the daemon"
         removetun
         stat_fail
         exit 1
       else
-        ifconfig "$CJDNS_TUN" up
         add_daemon cjdns
         stat_done
       fi
