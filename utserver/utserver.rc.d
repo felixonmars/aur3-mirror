@@ -13,12 +13,17 @@ PIDFILE=/var/run/utserver/utserver.pid
 case "$1" in
     start)
         stat_busy "Starting uTorrent-server"
-        su -l -s /bin/sh -c "/usr/bin/utserver $UTSERVER_ARGS >/dev/null 2>&1" $UTSERVER_USER
-        if [ $? -gt 0 ]; then
-            stat_fail
+        if [ -r "$PIDFILE" ]; then
+            stat_die
         else
-            add_daemon utserver
-            stat_done
+            mkdir -pm755 $(dirname "$PIDFILE") && chown $UTSERVER_USER $(dirname "$PIDFILE") &&
+            su -l -s /bin/sh -c "/usr/bin/utserver $UTSERVER_ARGS >/dev/null 2>&1" $UTSERVER_USER
+            if [ $? -gt 0 ]; then
+                stat_fail
+            else
+                add_daemon utserver
+                stat_done
+            fi
         fi
         ;;
     stop)
