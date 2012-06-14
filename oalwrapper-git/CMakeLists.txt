@@ -20,8 +20,7 @@ set_target_properties (OALWrapper PROPERTIES
                        SOVERSION ${OALWrapper_VERSION_MAJOR}
 )
 
-#alut -> openal, vorbisfile -> vorbis, SDL for threading
-target_link_libraries(OALWrapper alut vorbisfile SDL)
+target_link_libraries(OALWrapper ogg vorbis vorbisfile alut openal SDL)
 
 install(FILES ${all_headers}
         DESTINATION include/OALWrapper
