@@ -1,104 +1,151 @@
 #!/bin/bash
 
-# DO NOT MODIFY THIS FILE. MODIFY SETTINGS VIA THE CONFIGURATION FILE /etc/hostsblock.conf
-tmpdir=/dev/shm
-hostsfile=/etc/hosts.block
+# DO NOT MODIFY THIS FILE. MODIFY SETTINGS VIA THE CONFIGURATION FILES IN
+# /etc/hostsblock/
+
+# CHECK FOR NEEDED AND OPTIONAL UTILITIES AND PERMISSIONS
+if [ `whoami` != "root" ]; then
+    echo "Insufficient permissions. Run as root."
+fi
+  
+for dep in gzip curl grep sed; do
+    if which "$dep" &>/dev/null; then
+        /bin/true
+    else
+        echo "Utility $dep not found. Please install. Exiting."
+        exit 1
+    fi
+done
+
+if which unzip &>/dev/null; then
+    zip="1"
+else
+    echo "Dearchiver unzip not found. URLs which use this format will be skipped."
+    zip="0"
+fi
+if which 7za &>/dev/null; then
+    zip7="1"
+else
+    echo "Dearchiver 7za not found. URLs which use this format will be skipped."
+    zip7="0"
+fi
+
+# DEFAULT SETTINGS
+tmpdir="/dev/shm"
+hostsfile="/etc/hosts.block"
 redirecturl="127.0.0.1"
-dnsmasq=1
-dnsmasqconf=/etc/dnsmasq.conf
+postprocess(){
+    /etc/rc.d/dnsmasq restart
+}
 blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
 USECOLOR="yes"
-blacklist=/etc/hostsblock/black.list
-whitelist=/etc/hostsblock/white.list
-hostshead=0
+blacklist="/etc/hostsblock/black.list"
+whitelist="/etc/hostsblock/white.list"
+hostshead="0"
 
+# SOURCE COLORS FROM FUNCTIONS FILE. IF ABSENT, JUST USE PRINTF.
 if [ -f /etc/rc.d/functions ]; then
-	. /etc/rc.d/functions
+    . /etc/rc.d/functions
 else
-	stat_busy() {
-		echo $@
-	}
-	stat_done() {
-		echo "Done"
-	}
+    stat_busy(){
+        echo $@
+    }
+    stat_done(){
+        echo "Done"
+    }
 fi
 
+# READ CONFIGURATION FILE.
 if [ -f /etc/hostsblock/rc.conf ]; then
-	. /etc/hostsblock/rc.conf
+    . /etc/hostsblock/rc.conf
 else
-	echo "Config file /etc/hostsblock/rc.conf not found. An example config file can be found at /usr/share/hostsblock/rc.conf."
+    echo "Config file /etc/hostsblock/rc.conf not found. Using defaults."
 fi
 
+# BACK UP EXISTING HOSTSFILE
 stat_busy "Backing up and compressing $hostsfile to $hostsfile.old.gz..."
 cp "$hostsfile" "$hostsfile".old
 gzip -f "$hostsfile".old
 stat_done
 
+# CREATE TEMPORARY DIRECTORY
 mkdir -p "$tmpdir"/hostsblock/hosts.block.d
 
+# INCLUDE LOCAL BLACKLIST FILE
 IFS=''
-for LINE in `cat $blacklist`; do
-	echo "$redirecturl $LINE" >> $tmpdir/hostsblock/hosts.block.d/hosts.block.0
+for LINE in `cat "$blacklist"`; do
+    echo "$redirecturl $LINE" >> $tmpdir/hostsblock/hosts.block.d/hosts.block.0
 done
 
+# DOWNLOAD BLOCKLISTS
 n=1
 stat_busy "Downloading and extracting blocklists..."
 for url in ${blocklists[*]}; do
-	echo "   $n: $url..."
-	if echo "$url " | grep -- ".zip " &>/dev/null; then
-		if which unzip &>/dev/null; then
-			mkdir $tmpdir/hostsblock/tmp
-			curl -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
-			cd $tmpdir/hostsblock/tmp
-			echo "       Extracting..."
-			unzip -jq hosts.block.zip
-			grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
-			cd $tmpdir/hostsblock
-			rm -r $tmpdir/hostsblock/tmp
-		else
-			echo "unzip NOT FOUND, PLEASE INSTALL unzip OR REMOVE THIS URL FROM BLOCKHOSTS. SKIPPING..."
-		fi
-	elif echo "$url " | grep -- ".7z " &>/dev/null; then
-		if which 7za &>/dev/null; then
-                        mkdir $tmpdir/hostsblock/tmp
-                        curl -s -o $tmpdir/hostsblock/tmp/hosts.block.7z "$url"
-                        cd $tmpdir/hostsblock/tmp
-                        echo "       Extracting..."
-                        7za e hosts.block.7z &>/dev/null
-                        grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > $tmpdir/hostsblock/hosts.block.d/hosts.block.$n
-                        cd $tmpdir/hostsblock
-                        rm -r $tmpdir/hostsblock/tmp
-                else
-                        echo "7za NOT FOUND, PLEASE INSTALL p7zip OR REMOVE THIS URL FROM BLOCKHOSTS. SKIPPING..."
-                        exit 1
-                fi
-	else
-		curl -s -o $tmpdir/hostsblock/hosts.block.d/hosts.block.$n "$url"
-	fi
-	let "n+=1"
+    echo "   $n: $url..."
+    case "$url" in
+        *".zip")
+            if [ $zip == "1" ]; then
+                mkdir "$tmpdir"/hostsblock/tmp
+                curl -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
+                cd "$tmpdir"/hostsblock/tmp
+                echo "       Extracting..."
+                unzip -jq hosts.block.zip
+                grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > "$tmpdir"/hostsblock/hosts.block.d/hosts.block.$n
+                cd "$tmpdir"/hostsblock
+                rm -r "$tmpdir"/hostsblock/tmp
+            else
+                echo "Dearchiver unzip not found. Skipping URL."
+            fi
+        ;;
+        *".7z")
+            if [ $zip7 == "1" ]; then
+                mkdir "$tmpdir"/hostsblock/tmp
+                curl -s -o "$tmpdir"/hostsblock/tmp/hosts.block.7z "$url"
+                cd "$tmpdir"/hostsblock/tmp
+                echo "       Extracting..."
+                7za e hosts.block.7z &>/dev/null
+                grep -rIh -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" ./* > "$tmpdir"/hostsblock/hosts.block.d/hosts.block.$n
+                cd "$tmpdir"/hostsblock
+                rm -r "$tmpdir"/hostsblock/tmp
+            else
+                echo "Dearchiver 7za not found. Skipping URL."
+            fi
+        ;;
+        *)
+            curl -s -o "$tmpdir"/hostsblock/hosts.block.d/hosts.block.$n "$url"
+    esac
+    let "n+=1"
 done
 stat_done
 
-cat $whitelist | sed 's/.*/\/&\/d/' >> $tmpdir/hostsblock/whitelist.sed
+# GENERATE WHITELIST SED SCRIPT
+cat "$whitelist" |\
+    sed -e 's/.*/\/&\/d/' -e 's/\./\\./g' >> "$tmpdir"/hostsblock/whitelist.sed
 
+# DETERMINE THE REDIRECT URL NOT BEING USED
+[ $redirecturl == "127.0.0.1" ] && \
+    notredirect="0.0.0.0" || \
+    notredirect="127.0.0.1"
+
+# PROCESS BLOCKLIST ENTRIES INTO TARGET FILE
 stat_busy "Processing blocklist entries..."
 if [ $hostshead == 0 ]; then
-	rm $hostsfile
+    rm "$hostsfile"
 else
-	cp -f $hostshead $hostsfile
+    cp -f "$hostshead" "$hostsfile"
 fi
-grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $tmpdir/hostsblock/hosts.block.d/* |\
-sed -e 's/[[:space:]][[:space:]]*/ /g' -e "s/\r//g" -e "s/\#.*//g" -e "s/ $//g" -e "s|0.0.0.0|$redirecturl|g" -e "s|127.0.0.1|$redirecturl|g"|\
-sort -u | sed -f $tmpdir/hostsblock/whitelist.sed >> $hostsfile
+grep -Ih -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" "$tmpdir"/hostsblock/hosts.block.d/* |\
+sed -e 's/[[:space:]][[:space:]]*/ /g' -e "s/\r//g" -e "s/\#.*//g" -e \
+    "s/ $//g" -e "s|$notredirect|$redirecturl|g" | sort -u | \
+    sed -f "$tmpdir"/hostsblock/whitelist.sed >> "$hostsfile"
 stat_done
 
-totalhosts=`grep -c -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" $hostsfile`
+# REPORT COUNT OF MODIFIED OR BLOCKED URLS
+totalhosts=`grep -c -- "^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}" "$hostsfile"`
 echo "$totalhosts urls modified or blocked"
 
-if [ $dnsmasq == 1 ]; then
-	grep -- "addn-hosts=$hostsfile" $dnsmasqconf &>/dev/null || echo "addn-hosts=$hostsfile" >> $dnsmasqconf
-	pidof dnsmasq &>/dev/null && begin=restart || begin=start
-	/etc/rc.d/dnsmasq $begin
-fi
+# COMMANDS TO BE EXECUTED AFTER PROCESSING
+postprocess
 
+# CLEAN UP
 rm -r "$tmpdir"/hostsblock
