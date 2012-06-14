@@ -2,12 +2,16 @@
 # DO NOT MODIFY THIS FILE. MODIFY SETTINGS VIA THE CONFIGURATION FILES IN
 # /etc/hostsblock.conf
 
-# SOURCE MAIN SCRIPT FOR SUBROUTINES AND DEFAULTS
-if which hostsblock &>/dev/null; then
-    . `which hostsblock`
-else
-    echo "Main script 'hostsblock' not found. Make sure it is in your path and that you are root."
-fi
+# DEFAULT SETTINGS
+hostsfile="/etc/hosts.block"
+redirecturl="127.0.0.1"
+postprocess(){
+    /etc/rc.d/dnsmasq restart
+}
+USECOLOR="yes"
+blacklist="/etc/hostsblock/black.list"
+whitelist="/etc/hostsblock/white.list"
+hostshead="0"
 
 # SOURCE MAIN CONFIGURATION FILE
 if [ -f /etc/hostsblock/rc.conf ]; then
@@ -25,7 +29,7 @@ case $@ in
                 printf "BLOCKED: '$line'. Unblock? [y/N]"
                 read a
                 if [[ $a == "y" || $a == "Y" ]]; then
-                    printf "Adding $line to whitelist"
+                    echo "Adding $line to whitelist"
                     echo " $line" >> "$whitelist"
                     sed -i "/$line/d" "$blacklist"
                     sed -i "/ $line/d" "$hostsfile"
@@ -34,16 +38,16 @@ case $@ in
                 printf "NOT YET BLOCKED: '$line'. Block? [y/N]"
                 read a
                 if [[ $a == "y" || $a == "Y" ]]; then
-                    printf "Adding $line to blacklist"
+                    echo "Adding $line to blacklist"
                     echo "$line" >> "$blacklist"
                     sed -i "/$line/d" "$whitelist"
                     echo "$redirecturl $line" >> "$hostsfile"
                 fi
             fi
-            echo "Url check finished. Run postprocessing subroutine (e.g. dnsmasq)? [y/N]"
-            read a
-            [[ $a == "y" || $a == "Y" ]] && postprocess
         done
+        echo "Url check finished. Run postprocessing subroutine (e.g. dnsmasq)? [y/N]"
+        read a
+        [[ $a == "y" || $a == "Y" ]] && postprocess
     ;;
     *)
         echo "usage: $0 http://[url]"

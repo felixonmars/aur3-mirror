@@ -43,7 +43,7 @@ blacklist="/etc/hostsblock/black.list"
 whitelist="/etc/hostsblock/white.list"
 hostshead="0"
 
-# SOURCE COLORS FROM FUNCTIONS FILE. IF ABSENT, JUST USE PRINTF.
+# SOURCE COLORS FROM FUNCTIONS FILE. IF ABSENT, JUST USE ECHO.
 if [ -f /etc/rc.d/functions ]; then
     . /etc/rc.d/functions
 else
