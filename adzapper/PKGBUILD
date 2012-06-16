@@ -1,19 +1,15 @@
-# $Id: PKGBUILD 356 2008-04-18 22:56:27Z aaron $
 # Contributor: Manolis Tzanidakis
-# Maintainer: Peter Lobsinger <plobsing at gmail dot com>
-# Maintainer: Travis Willard <travisw@wmpub.ca>
-# Maintainer: eric <eric@archlinux.org>
 # Maintainer: Vinilox <vinilox@vinilox.eu>
 
 
 pkgname=adzapper
 pkgver=20110915
-pkgrel=4
+pkgrel=5
 pkgdesc="Ad Zapping With Squid"
 arch=('any')
 url="http://adzapper.sourceforge.net"
 license=('BSD')
-depends=('perl' 'squid')
+depends=('perl' 'squid' 'perl-perl4-corelibs')
 optdepends=('squid: adzapper works with squid' 'polipo: you can use adzapper with polipo too, add line in config - redirector = /usr/bin/adzapper')
 
 install=$pkgname.install
