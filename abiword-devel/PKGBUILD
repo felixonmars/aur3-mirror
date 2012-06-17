@@ -4,8 +4,8 @@
 
 _pkgname=abiword
 pkgname=$_pkgname-devel
-pkgver=2.9.2
-pkgrel=3
+pkgver=2.9.3
+pkgrel=1
 pkgdesc="A fully-featured word processor (development release)"
 arch=('i686' 'x86_64')
 license=('GPL')
@@ -28,18 +28,12 @@ conflicts=("$_pkgname" "abiword-plugins")
 install=$_pkgname.install
 options=('!libtool')
 source=("http://www.abisource.com/downloads/$_pkgname/$pkgver/source/$_pkgname-$pkgver.tar.gz"
-        TelepathyBuddy.h
-        abiword-2.9.2-libpng15.patch
-        abiword-2.9.2-glib-header-fix.patch)
-sha1sums=('34a6e4e9c5619e8f2d619ac844519fc9378405b3'
-          '9bff2f533678706142f1815482b98ca5cb2b06b3'
-          'd5f8b57dadf2f33f3f6fc1b8ea851e391dfcc709'
-          '447b31f0e7780fa3d653cd1871545cc9816dfe65')
+        TelepathyBuddy.h)
+sha1sums=('52bfe24fff67f7a0e4b8cf18a8c579ac46663bfd'
+          '9bff2f533678706142f1815482b98ca5cb2b06b3')
 
 build() {
   cd "$srcdir/$_pkgname-$pkgver"
-  patch -Np0 -i "$srcdir/abiword-2.9.2-libpng15.patch"
-  patch -Np1 -i "$srcdir/abiword-2.9.2-glib-header-fix.patch"
   sed -i 's/libgoffice-0.10 >= 0.10.0/libgoffice-0.10 >= 0.9.1/
           s/goffice_req >= 0.10.0/goffice_req >= 0.9.1/' configure
   cp -rf "$srcdir/TelepathyBuddy.h" plugins/collab/backends/telepathy/unix/TelepathyBuddy.h
