@@ -1,5 +1,5 @@
 pkgname=rar2fs
-pkgver=1.15.0
+pkgver=1.15.1
 _rls="$pkgname-$pkgver"
 pkgrel=1
 pkgdesc="Fuse file system for reading Rar archives"
@@ -10,10 +10,10 @@ depends=(fuse libunrar)
 makedepends=(libunrar)
 
 source=("https://$pkgname.googlecode.com/files/$_rls.tar.gz")
-sha1sums=(28b9a9737a5f9d53c4495cb5b4892d487bceb12f)
+sha1sums=(d4e23b911dac12aae9bd4ef7ac45dca4bfb0daf3)
 
-source+=(http://www.rarlab.com/rar/unrarsrc-4.1.4.tar.gz)
-sha1sums+=(ae4b1e2c99e96527c4a97f980daa547499f42a0f)
+source+=(http://www.rarlab.com/rar/unrarsrc-4.2.4.tar.gz)
+sha1sums+=(1cc29603fb4e4df16a3aa9bfc7da1afaf0923259)
 
 build() {
     cd "$srcdir/$_rls"
