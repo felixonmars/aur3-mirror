@@ -1,0 +1,164 @@
+GDB PR 544: gdb.cp/annota2.exp and gdb.cp/annota3.exp sometimes FAIL with:
+	FAIL: gdb.cp/annota3.exp: annotate-quit (pattern 1)
+
+One can put `sleep (1)' at the end of _RL_OUTPUT_SOME_CHARS and type
+	p 1<enter><ctrl-c>
+to abort the prompt printing. Before the patch:
+	(gdb) p 1
+	$1 = 1
+	Quit) (gdb) 
+	(gdb) _
+After the patch:
+	[bash]jkratoch@host0.dyn.jankratochvil.net:/home/jkratoch/redhat/sources/readline# ../gdb/gdb -nx -silent(gdb) p 1
+	$1 = 1
+	(gdb) Quit
+	(gdb) _
+
+The readline patch posted upstream:
+	http://sourceware.org/ml/gdb-patches/2008-03/msg00317.html
+
+On Fri, 21 Mar 2008 19:37:31 +0100, Chet Ramey wrote:
+> I will add something like your block_sigint/release_sigint changes around
+> the guts of rl_redisplay.  That's the right thing to do anyway.  It will
+> probably not come out as a patch for readline-5.2; you can use your
+> current patch (though the names will change to _rl_block_sigint and
+> _rl_release_sigint -- fair warning).
+
+Application cannot easily supply its own RL_REDISPLAY_FUNCTION as a custom
+function there changes the readline behavior:
+	http://sourceware.org/ml/gdb-patches/2008-03/msg00340.html
+
+BLOCK_SIGINT / RELEASE_SIGINT: Make it public and prefix it by `_rl_'.
+RL_REDISPLAY: Wrap it by _RL_BLOCK_SIGINT / _RL_RELEASE_SIGINT.
+
+--- readline-5.2-orig/display.c	2008-03-23 20:52:12.000000000 +0100
++++ readline-5.2/display.c	2008-03-23 20:56:58.000000000 +0100
+@@ -472,6 +472,10 @@ rl_redisplay ()
+   if (!readline_echoing_p)
+     return;
+ 
++  /* Signals are blocked through this function as the global data structures
++     could get corrupted upon modifications from an invoked signal handler. */
++  _rl_block_sigint ();
++
+   if (!rl_display_prompt)
+     rl_display_prompt = "";
+ 
+@@ -1180,6 +1184,8 @@ rl_redisplay ()
+     else
+       visible_wrap_offset = wrap_offset;
+   }
++
++  _rl_release_sigint ();
+ }
+ 
+ /* PWP: update_line() is based on finding the middle difference of each
+--- readline-5.2-orig/rltty.c	2005-12-26 23:21:50.000000000 +0100
++++ readline-5.2/rltty.c	2008-03-23 20:57:26.000000000 +0100
+@@ -52,8 +52,8 @@ extern int errno;
+ rl_vintfunc_t *rl_prep_term_function = rl_prep_terminal;
+ rl_voidfunc_t *rl_deprep_term_function = rl_deprep_terminal;
+ 
+-static void block_sigint PARAMS((void));
+-static void release_sigint PARAMS((void));
++void _rl_block_sigint PARAMS((void));
++void _rl_release_sigint PARAMS((void));
+ 
+ static void set_winsize PARAMS((int));
+ 
+@@ -74,9 +74,9 @@ static int sigint_oldmask;
+ static int sigint_blocked;
+ 
+ /* Cause SIGINT to not be delivered until the corresponding call to
+-   release_sigint(). */
+-static void
+-block_sigint ()
++   _rl_release_sigint(). */
++void
++_rl_block_sigint ()
+ {
+   if (sigint_blocked)
+     return;
+@@ -100,8 +100,8 @@ block_sigint ()
+ }
+ 
+ /* Allow SIGINT to be delivered. */
+-static void
+-release_sigint ()
++void
++_rl_release_sigint ()
+ {
+   if (sigint_blocked == 0)
+     return;
+@@ -663,7 +663,7 @@ rl_prep_terminal (meta_flag)
+     return;
+ 
+   /* Try to keep this function from being INTerrupted. */
+-  block_sigint ();
++  _rl_block_sigint ();
+ 
+   tty = fileno (rl_instream);
+ 
+@@ -676,7 +676,7 @@ rl_prep_terminal (meta_flag)
+       if (errno == ENOTTY)
+ #endif
+ 	readline_echoing_p = 1;		/* XXX */
+-      release_sigint ();
++      _rl_release_sigint ();
+       return;
+     }
+ 
+@@ -711,7 +711,7 @@ rl_prep_terminal (meta_flag)
+ 
+   if (set_tty_settings (tty, &tio) < 0)
+     {
+-      release_sigint ();
++      _rl_release_sigint ();
+       return;
+     }
+ 
+@@ -722,7 +722,7 @@ rl_prep_terminal (meta_flag)
+   terminal_prepped = 1;
+   RL_SETSTATE(RL_STATE_TERMPREPPED);
+ 
+-  release_sigint ();
++  _rl_release_sigint ();
+ }
+ 
+ /* Restore the terminal's normal settings and modes. */
+@@ -735,7 +735,7 @@ rl_deprep_terminal ()
+     return;
+ 
+   /* Try to keep this function from being interrupted. */
+-  block_sigint ();
++  _rl_block_sigint ();
+ 
+   tty = fileno (rl_instream);
+ 
+@@ -746,14 +746,14 @@ rl_deprep_terminal ()
+ 
+   if (set_tty_settings (tty, &otio) < 0)
+     {
+-      release_sigint ();
++      _rl_release_sigint ();
+       return;
+     }
+ 
+   terminal_prepped = 0;
+   RL_UNSETSTATE(RL_STATE_TERMPREPPED);
+ 
+-  release_sigint ();
++  _rl_release_sigint ();
+ }
+ #endif /* !NO_TTY_DRIVER */
+ 
+--- readline-5.2-orig/rltty.h	2003-02-01 04:43:11.000000000 +0100
++++ readline-5.2/rltty.h	2008-03-23 20:57:30.000000000 +0100
+@@ -79,4 +79,7 @@ typedef struct _rl_tty_chars {
+   unsigned char t_status;
+ } _RL_TTY_CHARS;
+ 
++extern void _rl_block_sigint PARAMS((void));
++extern void _rl_release_sigint PARAMS((void));
++
+ #endif /* _RLTTY_H_ */
