@@ -1,6 +1,6 @@
 # Maintainer: Filip Brcic <brcha@gna.org>
 pkgname=mingw-w64-libxml2
-pkgver=2.7.8
+pkgver=2.8.0
 pkgrel=1
 arch=('any')
 pkgdesc="libxml2 (mingw-w64)"
@@ -9,8 +9,10 @@ makedepends=('mingw-w64-gcc')
 options=('!buildflags' '!strip')
 license=('LGPL')
 url="http://www.xmlsoft.org/"
-source=("ftp://xmlsoft.org/libxml/libxml2-${pkgver}.tar.gz")
-md5sums=('8127a65e8c3b08856093099b52599c86')
+source=("ftp://xmlsoft.org/libxml/libxml2-${pkgver}.tar.gz"
+        "mingw32-libxml2-static-build-compile-fix.patch")
+md5sums=('c62106f02ee00b6437f0fb9d370c1093'
+         '0df377025082cd93cccbca547f048011')
 
 _architectures="i686-w64-mingw32 x86_64-w64-mingw32"
 
@@ -18,17 +20,41 @@ build()
 {
   cd "${srcdir}/libxml2-${pkgver}"
 
-  unset LDFLAGS
-  export CFLAGS="${CFLAGS} -mms-bitfields"
+  patch -Np0 -i ${srcdir}/mingw32-libxml2-static-build-compile-fix.patch
 
+  export LDFLAGS="-Wl,-no-undefined"
+  export CFLAGS="-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions --param=ssp-buffer-size=4 -DLIBXML_STATIC_FOR_DLL"
+
+  # Static build
   for _arch in ${_architectures}; do
-    mkdir build-${_arch} && pushd build-${_arch}
+    mkdir build-static-${_arch} && pushd build-static-${_arch}
     ../configure \
       --prefix=/usr/${_arch} \
       --host=${_arch} \
       --build="${CHOST}" \
       --without-python \
-      --without-threads
+      --with-modules \
+      --enable-static \
+      --disable-shared \
+      --with-threads=win32
+    make
+    popd
+  done
+
+  export CFLAGS="-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions --param=ssp-buffer-size=4"
+
+  # Shared build
+  for _arch in ${_architectures}; do
+    mkdir build-shared-${_arch} && pushd build-shared-${_arch}
+    ../configure \
+      --prefix=/usr/${_arch} \
+      --host=${_arch} \
+      --build="${CHOST}" \
+      --without-python \
+      --with-modules \
+      --disable-static \
+      --enable-shared \
+      --with-threads=win32
     make
     popd
   done
@@ -36,12 +62,40 @@ build()
 
 package()
 {
+  cd "${srcdir}/libxml2-${pkgver}"
+
+  # First install shared
   for _arch in ${_architectures}; do
-    cd "${srcdir}/libxml2-${pkgver}/build-${_arch}"
+    pushd build-shared-${_arch}
 
     make install DESTDIR="${pkgdir}"
 
-    rm -rf "${pkgdir}/usr/${_arch}"/share/{doc,gtk-doc,man}
-    rm -f "${pkgdir}/usr/${_arch}/lib/charset.alias"
+    ${_arch}-strip --strip-all ${pkgdir}/usr/${_arch}/bin/*.exe
+    ${_arch}-strip --strip-unneeded ${pkgdir}/usr/${_arch}/bin/*.dll
+    ${_arch}-strip --strip-unneeded ${pkgdir}/usr/${_arch}/lib/*.dll.a
+
+    # Remove documentation
+    rm -rf ${pkgdir}/usr/${_arch}/share/man
+    rm -rf ${pkgdir}/usr/${_arch}/share/doc
+    rm -rf ${pkgdir}/usr/${_arch}/share/gtk-doc
+    
+    popd
   done
+
+  # then static
+  for _arch in ${_architectures}; do
+    pushd build-static-${_arch}
+
+    make install DESTDIR="${pkgdir}/build_static"
+
+    ${_arch}-strip --strip-debug ${pkgdir}/build_static/usr/${_arch}/lib/*.a
+    mv ${pkgdir}/build_static/usr/${_arch}/lib/*.a ${pkgdir}/usr/${_arch}/lib/
+
+    rm -rf ${pkgdir}/build_static
+
+    popd
+  done
+
+  # Drop all .la files
+  find $pkgdir -name "*.la" -delete
 }
