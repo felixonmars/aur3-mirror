@@ -1,7 +1,7 @@
 # Maintainer: Julien Nicoulaud <julien.nicoulaud@gmail.com>
 # Source: https://github.com/nicoulaj/archlinux-packages
 pkgname=actdiag
-pkgver=0.3.2
+pkgver=0.3.3
 pkgrel=1
 pkgdesc="Generate activity-diagram image files from spec-text files."
 arch=(any)
@@ -13,7 +13,7 @@ makedepends=(python2-distribute)
 changelog=Changelog
 conflicts=('actdiag-hg')
 source=("http://pypi.python.org/packages/source/a/${pkgname}/${pkgname}-${pkgver}.tar.gz")
-md5sums=('4b46b8967713ceab6871508931591468')
+md5sums=('9fe115a937539c43cf9d16a5d79e20d6')
 
 package() {
   cd "${srcdir}/${pkgname}-${pkgver}"
