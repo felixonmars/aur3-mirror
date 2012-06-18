@@ -1,0 +1,483 @@
+diff -aur /home/matt/programming/ncmpcpp/src/help.cpp ./src/help.cpp
+--- /home/matt/programming/ncmpcpp/src/help.cpp	2012-06-17 14:26:53.217705681 +0200
++++ ./src/help.cpp	2012-06-17 14:14:41.004331771 +0200
+@@ -295,7 +295,8 @@
+ 	*w << DisplayKeys(Key.EditTags)			<< "Edit main tag/album/song's tags\n";
+ #	endif // HAVE_TAGLIB_H
+ 	*w << DisplayKeys(Key.SwitchTagTypeList)	<< "Tag type list switcher (left column)\n";
+-	
++    *w << DisplayKeys(Key.ToggleLibrarySortByMTime)	<< "Toggle sort alphabetically or by mtime \n";
++
+ 	
+ 	*w << "\n\n   " << fmtBold << "Keys - Playlist Editor\n -----------------------------------------\n" << fmtBoldEnd;
+ 	*w << DisplayKeys(Key.PrevColumn)		<< "Previous column\n";
+Only in ./src: Makefile
+Only in ./src: Makefile.in
+diff -aur /home/matt/programming/ncmpcpp/src/media_library.cpp ./src/media_library.cpp
+--- /home/matt/programming/ncmpcpp/src/media_library.cpp	2012-06-17 14:26:53.217705681 +0200
++++ ./src/media_library.cpp	2012-06-17 14:14:40.994331770 +0200
+@@ -19,6 +19,9 @@
+  ***************************************************************************/
+ 
+ #include <algorithm>
++#include <utility>
++#include <map>
++#include <set>
+ 
+ #include "charset.h"
+ #include "display.h"
+@@ -43,6 +46,13 @@
+ size_t MediaLibrary::itsRightColWidth;
+ size_t MediaLibrary::itsRightColStartX;
+ 
++std::set<MediaLibrary::album_mtime_flags> MediaLibrary::initedAlbumMTimeMaps 
++    = std::set<MediaLibrary::album_mtime_flags>();
++MediaLibrary::album_mtime_map MediaLibrary::albumMTimeMap;
++std::set<mpd_tag_type> MediaLibrary::initedArtistMTimeMaps 
++    = std::set<mpd_tag_type>();
++MediaLibrary::artist_mtime_map MediaLibrary::artistMTimeMap;
++
+ // this string marks the position in middle column that works as "All tracks" option. it's
+ // assigned to Year in SearchConstraint class since date normally cannot contain other chars
+ // than ciphers and -'s (0x7f is interpreted as backspace keycode, so it's quite safe to assume
+@@ -162,7 +172,7 @@
+ 				{
+ 					std::string item_type = IntoStr(Config.media_lib_primary_tag);
+ 					ToLower(item_type);
+-					Albums->SetTitle("Albums (sorted by " + item_type + ")");
++					Albums->SetTitle("Albums (with " + item_type + ")");
+ 				}
+ 				else
+ 					Albums->SetTitle("");
+@@ -202,7 +212,6 @@
+ 		Albums->Clear();
+ 		Songs->Clear();
+ 		Mpd.GetList(list, Config.media_lib_primary_tag);
+-		sort(list.begin(), list.end(), CaseInsensitiveSorting());
+ 		for (MPD::TagList::iterator it = list.begin(); it != list.end(); ++it)
+ 		{
+ 			if (it->empty() && !Config.media_library_display_empty_tag)
+@@ -210,6 +219,10 @@
+ 			utf_to_locale(*it);
+ 			Artists->AddOption(*it);
+ 		}
++        if (Config.library_sort_by_mtime) 
++            Artists->Sort<MTimeArtistSorting>();
++        else
++            Artists->Sort<CaseInsensitiveSorting>();
+ 		Artists->Window::Clear();
+ 		Artists->Refresh();
+ 	}
+@@ -240,18 +253,23 @@
+ 				for (MPD::TagList::iterator j = l.begin(); j != l.end(); ++j)
+ 				{
+ 					utf_to_locale(*j);
+-					Albums->AddOption(SearchConstraints(*it, *j));
++					Albums->AddOption(SearchConstraints(Artists->Current(), 
++                                                        *it, 
++                                                        *j));
+ 				}
+ 			}
+ 			else
+ 			{
+ 				utf_to_locale(*it);
+-				Albums->AddOption(SearchConstraints(*it, ""));
++				Albums->AddOption(SearchConstraints(Artists->Current(), *it, ""));
+ 			}
+ 		}
+ 		utf_to_locale(Artists->Current());
+-		if (!Albums->Empty())
+-			Albums->Sort<SearchConstraintsSorting>();
++		if (!Albums->Empty()) 
++            if (Config.library_sort_by_mtime)
++                Albums->Sort<MTimeAlbumSorting>();
++            else
++                Albums->Sort<SearchConstraintsSorting>();
+ 		if (Albums->Size() > 1)
+ 		{
+ 			Albums->AddSeparator();
+@@ -310,7 +328,10 @@
+ 		}
+ 		Mpd.BlockIdle(0);
+ 		if (!Albums->Empty())
+-			Albums->Sort<SearchConstraintsSorting>();
++            if (Config.library_sort_by_mtime)
++			    Albums->Sort<MTimeAlbumSorting>();
++            else
++                Albums->Sort<SearchConstraintsSorting>();
+ 		Albums->Refresh();
+ 	}
+ 	
+@@ -785,6 +806,182 @@
+ 	return (result == 0 ? cmp(a.Album, b.Album) : result) < 0;
+ }
+ 
++
++bool MediaLibrary::AlbumMapSorting::operator()(const album_mtime_key &a, 
++                                               const album_mtime_key &b) const 
++{
++    if (a.first == b.first) {
++        return scs(a.second, b.second);
++    } else {
++        return a.first < b.first;
++    }
++}
++
++
++bool MediaLibrary::MTimeAlbumSorting::operator()(const SearchConstraints &a, 
++                                                 const SearchConstraints &b)
++{
++    mpd_tag_type tt = Config.media_lib_primary_tag;
++    bool dd = Config.media_library_display_date;
++    time_t ta = MediaLibrary::getAddAlbumMTime(tt, dd, a);
++    time_t tb = MediaLibrary::getAddAlbumMTime(tt, dd, b);
++    return ta > tb;
++}
++
++time_t MediaLibrary::getAddAlbumMTime(const mpd_tag_type primary_tag,
++                                      const bool display_date,
++                                      const SearchConstraints &a) {
++    album_mtime_flags f = std::make_pair(primary_tag, display_date);
++    if (initedAlbumMTimeMaps.count(f) == 0) {
++        initAlbumMTimeMap(primary_tag, display_date);
++        initedAlbumMTimeMaps.insert(f);
++    }
++    album_mtime_map::iterator it;
++    album_mtime_key key = std::make_pair(f, a);
++    it = albumMTimeMap.find(key);
++    time_t time = 0;
++    if (it == albumMTimeMap.end()) {
++        time = getAlbumMTime(primary_tag, display_date, a);
++        albumMTimeMap.insert(std::make_pair(key, time));
++    } else {
++        time = it->second;
++    }
++    return time;
++}
++
++time_t MediaLibrary::getAlbumMTime(const mpd_tag_type primary_tag, 
++                                   const bool display_date,
++                                   const SearchConstraints &a) {
++    // make this the newest song with same album tag
++    MPD::SongList list;
++		
++    Mpd.StartSearch(1);
++    Mpd.AddSearch(MPD_TAG_ALBUM, locale_to_utf_cpy(a.Album));
++    Mpd.AddSearch(MPD_TAG_DATE, locale_to_utf_cpy(a.Year));
++
++    if (a.PrimaryTag.length() > 0) {
++	    Mpd.AddSearch(primary_tag,
++                      locale_to_utf_cpy(a.PrimaryTag));
++    }
++    if (display_date) {
++	    Mpd.AddSearch(MPD_TAG_DATE, locale_to_utf_cpy(a.Year));
++    }
++    Mpd.CommitSearch(list);
++		
++    time_t time = 0;
++    for (MPD::SongList::const_iterator it = list.begin(); 
++         it != list.end(); 
++         ++it) {
++        time = std::max(time, (*it)->GetMTime());
++	}
++    return time;
++}
++
++void MediaLibrary::initAlbumMTimeMap(const mpd_tag_type primary_tag,
++                                     const bool display_date) {
++    MPD::SongList list;
++    Mpd.GetDirectoryRecursive("/", list);
++    for (MPD::SongList::const_iterator it = list.begin(); 
++         it != list.end(); 
++        ++it) {
++        std::string date = display_date ? (*it)->GetDate() : "";
++        updateAlbumMTimeMap(primary_tag,
++                            display_date,
++                            SearchConstraints((*it)->GetTag(primary_tag),
++                                              (*it)->GetAlbum(),
++                                              date),
++                            (*it)->GetMTime());
++	}
++}
++
++void MediaLibrary::updateAlbumMTimeMap(const mpd_tag_type primary_tag,
++                                       const bool display_date,
++                                       const SearchConstraints &a, 
++                                       const time_t time) {
++    album_mtime_map::iterator it;
++    album_mtime_flags f = std::make_pair(primary_tag, display_date);
++    album_mtime_key key = std::make_pair(f, a);
++    it = albumMTimeMap.find(key);
++    if (it == albumMTimeMap.end()) {
++        albumMTimeMap.insert(std::make_pair(key, time));
++    } else {
++        it->second = std::max(it->second, time);
++    }
++}
++
++
++bool MediaLibrary::MTimeArtistSorting::operator()(const std::string &a, 
++                                                  const std::string &b)
++{
++    mpd_tag_type tt = Config.media_lib_primary_tag;
++    time_t ta = MediaLibrary::getAddArtistMTime(tt, a);
++    time_t tb = MediaLibrary::getAddArtistMTime(tt, b);
++    return ta > tb;
++}
++
++time_t MediaLibrary::getAddArtistMTime(const mpd_tag_type primary_tag,
++                                       const std::string &a) {
++    if (initedArtistMTimeMaps.count(primary_tag) == 0) {
++        initArtistMTimeMap(primary_tag);
++        initedArtistMTimeMaps.insert(primary_tag);
++    }
++    artist_mtime_map::iterator it;
++    artist_mtime_key key = std::make_pair(primary_tag, a);
++    it = artistMTimeMap.find(key);
++    time_t time = 0;
++    if (it == artistMTimeMap.end()) {
++        time = getArtistMTime(primary_tag, a);
++        artistMTimeMap.insert(std::make_pair(key, time));
++    } else {
++        time = it->second;
++    }
++    return time;
++}
++
++void MediaLibrary::initArtistMTimeMap(const mpd_tag_type primary_tag) {
++    MPD::SongList list;
++    Mpd.GetDirectoryRecursive("/", list);
++    for (MPD::SongList::const_iterator it = list.begin(); 
++         it != list.end(); 
++        ++it) {
++        updateArtistMTimeMap(primary_tag,
++                             (*it)->GetTag(primary_tag),
++                             (*it)->GetMTime());
++	}
++}
++
++void MediaLibrary::updateArtistMTimeMap(const mpd_tag_type primary_tag,
++                                        const std::string &a, 
++                                        const time_t time) {
++    artist_mtime_map::iterator it;
++    artist_mtime_key key = std::make_pair(primary_tag, a);
++    it = artistMTimeMap.find(key);
++    if (it == artistMTimeMap.end()) {
++        artistMTimeMap.insert(std::make_pair(key, time));
++    } else {
++        it->second = std::max(it->second, time);
++    }
++}
++
++
++time_t MediaLibrary::getArtistMTime(const mpd_tag_type primary_tag,
++                                    const std::string &a) {
++    MPD::SongList list;
++		
++    Mpd.StartSearch(1);
++	Mpd.AddSearch(primary_tag, locale_to_utf_cpy(a));
++    Mpd.CommitSearch(list);
++		
++    time_t time = 0;
++    for (MPD::SongList::const_iterator it = list.begin(); 
++         it != list.end(); 
++         ++it) {
++        time = std::max(time, (*it)->GetMTime());
++	}
++    return time;
++}
++
++
+ bool MediaLibrary::SortSongsByTrack(MPD::Song *a, MPD::Song *b)
+ {
+ 	if (a->GetDisc() == b->GetDisc())
+diff -aur /home/matt/programming/ncmpcpp/src/media_library.h ./src/media_library.h
+--- /home/matt/programming/ncmpcpp/src/media_library.h	2012-06-17 14:26:53.217705681 +0200
++++ ./src/media_library.h	2012-06-17 14:14:41.000998437 +0200
+@@ -21,6 +21,9 @@
+ #ifndef _H_MEDIA_LIBRARY
+ #define _H_MEDIA_LIBRARY
+ 
++#include <map>
++#include <set>
++
+ #include "ncmpcpp.h"
+ #include "screen.h"
+ 
+@@ -40,6 +43,64 @@
+ 	{
+ 		bool operator()(const SearchConstraints &a, const SearchConstraints &b) const;
+ 	};
++
++
++    // typedefs map keys
++    typedef std::pair<mpd_tag_type, bool> album_mtime_flags;
++    typedef std::pair<album_mtime_flags,
++                      SearchConstraints> album_mtime_key;
++    typedef std::pair<mpd_tag_type, std::string> artist_mtime_key;
++
++    // sorting for maps
++	struct AlbumMapSorting
++	{
++        SearchConstraintsSorting scs;
++
++		bool operator()(const album_mtime_key &a, const album_mtime_key &b) const;
++	};
++
++    // typedefs for maps
++    typedef std::map<album_mtime_key, 
++                    time_t, 
++                    AlbumMapSorting> album_mtime_map;
++    typedef std::map<artist_mtime_key,
++                     time_t> artist_mtime_map; 
++
++    // contains set of primary tags for which map has been initialised
++    static std::set<album_mtime_flags> initedAlbumMTimeMaps;
++    static void initAlbumMTimeMap(const mpd_tag_type primary_tag,
++                                  const bool display_date);
++    static void updateAlbumMTimeMap(const mpd_tag_type primary_tag,
++                                    const bool display_date,
++                                    const SearchConstraints &a, 
++                                    const time_t time);
++    static  album_mtime_map albumMTimeMap;
++    static time_t getAddAlbumMTime(const mpd_tag_type primary_tag,
++                                   const bool display_date,
++                                   const SearchConstraints &a);
++    static time_t getAlbumMTime(const mpd_tag_type primary_tag,
++                                const bool display_date,
++                                const SearchConstraints &a);
++    struct MTimeAlbumSorting 
++    {
++        bool operator()(const SearchConstraints &a, const SearchConstraints &b);
++    };
++
++    static std::set<mpd_tag_type> initedArtistMTimeMaps;
++    static artist_mtime_map artistMTimeMap;
++    static void initArtistMTimeMap(const mpd_tag_type primary_tag);
++    static time_t getAddArtistMTime(const mpd_tag_type primary_tag,
++                                    const std::string &a);
++    static time_t getArtistMTime(const mpd_tag_type primary_tag,
++                                 const std::string &a);
++    static void updateArtistMTimeMap(const mpd_tag_type primary_tag,
++                                     const std::string &a, 
++                                     const time_t time);
++    struct MTimeArtistSorting 
++    {
++        bool operator()(const std::string &a, const std::string &b);
++    };
++
+ 	
+ 	public:
+ 		virtual void SwitchTo();
+diff -aur /home/matt/programming/ncmpcpp/src/ncmpcpp.cpp ./src/ncmpcpp.cpp
+--- /home/matt/programming/ncmpcpp/src/ncmpcpp.cpp	2012-06-17 14:26:53.221039014 +0200
++++ ./src/ncmpcpp.cpp	2012-06-17 14:14:41.004331771 +0200
+@@ -460,8 +460,20 @@
+ 		title_allowed = 1;
+ 		
+ 		// key mapping beginning
+-		
+-		if (Keypressed(input, Key.Up))
++		if (Keypressed(input, Key.ToggleLibrarySortByMTime) &&
++            myScreen == myLibrary) 
++        {
++            Config.library_sort_by_mtime = !Config.library_sort_by_mtime;
++            if (Config.library_sort_by_mtime) 
++                ShowMessage("Sorting by mtime...");
++            else
++                ShowMessage("Sorting alphabetically...");
++            myLibrary->Artists->Clear();
++            myLibrary->Albums->Clear();
++            myLibrary->Songs->Clear();
++            myLibrary->Update();
++        }
++		else if (Keypressed(input, Key.Up))
+ 		{
+ 			myScreen->Scroll(wUp, Key.Up);
+ 		}
+diff -aur /home/matt/programming/ncmpcpp/src/settings.cpp ./src/settings.cpp
+--- /home/matt/programming/ncmpcpp/src/settings.cpp	2012-06-17 14:26:53.221039014 +0200
++++ ./src/settings.cpp	2012-06-17 14:14:41.020998438 +0200
+@@ -267,6 +267,7 @@
+ 	GoToParentDir[0] = KEY_BACKSPACE;
+ 	SwitchTagTypeList[0] = '`';
+ 	Quit[0] = 'q';
++    ToggleLibrarySortByMTime[0] = 'm';
+ 
+ 	Up[1] = 'k';
+ 	Down[1] = 'j';
+@@ -357,6 +358,7 @@
+ 	GoToParentDir[1] = 127;
+ 	SwitchTagTypeList[1] = NullKey;
+ 	Quit[1] = 'Q';
++    ToggleLibrarySortByMTime[1] = NullKey;
+ }
+ 
+ void NcmpcppConfig::SetDefaults()
+@@ -443,6 +445,7 @@
+ 	visualizer_use_wave = true;
+ 	visualizer_in_stereo = false;
+ 	browser_sort_by_mtime = false;
++	library_sort_by_mtime = false;
+ 	tag_editor_extended_numeration = false;
+ 	media_library_display_date = true;
+ 	media_library_display_empty_tag = true;
+@@ -663,6 +666,8 @@
+ 				GetKeys(key, SwitchTagTypeList);
+ 			else if (name == "key_quit")
+ 				GetKeys(key, Quit);
++			else if (name == "toggle_library_sort_by_mtime")
++				GetKeys(key, ToggleLibrarySortByMTime);
+ 		}
+ 	}
+ 	f.close();
+@@ -1327,6 +1332,10 @@
+ 				if (!v.empty())
+ 					media_lib_primary_tag = IntoTagItem(v[0]);
+ 			}
++			else if (name == "library_sort_by_mtime")
++			{
++				library_sort_by_mtime = v == "yes";
++			}
+ 		}
+ 	}
+ 	f.close();
+diff -aur /home/matt/programming/ncmpcpp/src/settings.h ./src/settings.h
+--- /home/matt/programming/ncmpcpp/src/settings.h	2012-06-17 14:26:53.221039014 +0200
++++ ./src/settings.h	2012-06-17 14:14:40.984331769 +0200
+@@ -138,6 +138,7 @@
+ 	int GoToParentDir[2];
+ 	int SwitchTagTypeList[2];
+ 	int Quit[2];
++    int ToggleLibrarySortByMTime[2];
+ };
+ 
+ struct NcmpcppConfig
+@@ -252,6 +253,7 @@
+ 	bool visualizer_use_wave;
+ 	bool visualizer_in_stereo;
+ 	bool browser_sort_by_mtime;
++    bool library_sort_by_mtime;
+ 	bool tag_editor_extended_numeration;
+ 	bool media_library_display_date;
+ 	bool media_library_display_empty_tag;
+diff -aur /home/matt/programming/ncmpcpp/src/song.h ./src/song.h
+--- /home/matt/programming/ncmpcpp/src/song.h	2012-06-17 14:26:53.221039014 +0200
++++ ./src/song.h	2012-06-17 14:14:41.014331771 +0200
+@@ -104,13 +104,15 @@
+ 			
+ 			static std::string ShowTime(int);
+ 			static bool isFormatOk(const std::string &type, const std::string &format);
++
++
++			std::string GetTag(mpd_tag_type, unsigned = 0) const;
+ 			
+ 		private:
+ 			void SetHashAndSlash();
+ 			std::string ParseFormat(std::string::const_iterator &it, const char *escape_chars) const;
+ 			
+ 			void SetTag(mpd_tag_type, unsigned, const std::string &);
+-			std::string GetTag(mpd_tag_type, unsigned) const;
+ 			
+ 			/// Used internally for handling filename, since we don't have
+ 			/// write access to file string in mpd_song, manage our own if
