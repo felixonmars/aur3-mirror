@@ -5,7 +5,7 @@
 SB_BIN=/usr/bin/sickbeard
 
 # Path to Sick-Beard configuration file.
-SB_CONF=/etc/sickbeard/config.ini
+SB_CONF=/var/lib/sickbeard/config.ini
 
 # Path to Sick-Beard data directory.
 SB_DATA=/var/lib/sickbeard
