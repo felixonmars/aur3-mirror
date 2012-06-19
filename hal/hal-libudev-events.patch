@@ -33,47 +33,52 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
  
  #include <dbus/dbus.h>
  #include <dbus/dbus-glib.h>
-@@ -69,158 +70,74 @@
+@@ -69,158 +70,97 @@
  
  static gboolean hald_done_synthesizing_coldplug = FALSE;
  
-+static void copy_dev_prop(struct udev_device *device, char * dst, size_t dst_size, const char *property)
-+{
-+	char * propVal = udev_device_get_property_value(device, property);
-+
-+	if(propVal != NULL) {
-+		g_strlcpy (dst, propVal, dst_size);
-+		HAL_INFO(("Property: %s Value: %s", property, dst));
-+	}
-+}
-+
- static gboolean
- hald_udev_data (GIOChannel *source, GIOCondition condition, gpointer user_data)
+-static gboolean
+-hald_udev_data (GIOChannel *source, GIOCondition condition, gpointer user_data)
++static long long get_ll_dev_prop(struct udev_device *device, const char *property)
  {
 -	int fd;
-+	struct udev_monitor *udev_monitor = (struct udev_monitor *) user_data;
-+	struct udev_device *device;
-+
-+	char *tmp, *tmp1;
- 	int retval;
+-	int retval;
 -	struct msghdr smsg;
 -	struct cmsghdr *cmsg;
 -	struct iovec iov;
 -	struct ucred *cred;
 -	char cred_msg[CMSG_SPACE(sizeof(struct ucred))];
++	long long result = 0;
++	const char * propVal = udev_device_get_property_value(device, property);
  
 -	char buf[4096];
 -	size_t bufpos = 0;
- 	const char *action = NULL;
- 	HotplugEvent *hotplug_event;
+-	const char *action = NULL;
+-	HotplugEvent *hotplug_event;
++	if(propVal != NULL) {
++		result = strtoull(propVal, NULL, 10);
++		HAL_INFO(("Property: %s Value: %lli", property, result));
++	}
++	return result;
++}
  
 -	memset(buf, 0x00, sizeof (buf));
--
++static void copy_dev_prop(struct udev_device *device, char * dst, size_t dst_size, const char *property)
++{
++	const char * propVal = udev_device_get_property_value(device, property);
+ 
 -	fd = g_io_channel_unix_get_fd (source);
--
++	if(propVal != NULL) {
++		g_strlcpy (dst, propVal, dst_size);
++		HAL_INFO(("Property: %s Value: %s", property, dst));
++	}
++}
+ 
 -	iov.iov_base = &buf;
 -	iov.iov_len = sizeof (buf);
-+	device = udev_monitor_receive_device(udev_monitor);
++static void copy_dev_prop_formatted(struct udev_device *device, char * format, char * dst, size_t dst_size, const char *property)
++{
++	const char * propVal = udev_device_get_property_value(device, property);
  
 -	memset(&smsg, 0x00, sizeof (struct msghdr));
 -	smsg.msg_iov = &iov;
@@ -86,22 +91,37 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
 -		if (errno != EINTR)
 -			HAL_INFO (("Unable to receive message, errno=%d", errno));
 -		goto out;
--	}
++	if(propVal != NULL) {
++		g_snprintf (dst, dst_size, format, propVal);
++		HAL_INFO(("Property: %s Value: %s", property, dst));
+ 	}
 -	cmsg = CMSG_FIRSTHDR (&smsg);
 -	cred = (struct ucred *) CMSG_DATA (cmsg);
--
++}
+ 
 -	if (cmsg == NULL || cmsg->cmsg_type != SCM_CREDENTIALS) {
 -		HAL_INFO (("No sender credentials received, message ignored"));
 -		goto out;
 -	}
--
++static gboolean
++hald_udev_data (GIOChannel *source, GIOCondition condition, gpointer user_data)
++{
++	struct udev_monitor *udev_monitor = (struct udev_monitor *) user_data;
++	struct udev_device *device;
+ 
 -	if (cred->uid != 0) {
 -		HAL_INFO (("Sender uid=%i, message ignored", cred->uid));
 -		goto out;
 -	}
--
++	char *tmp, *tmp1;
++
++	const char *action = NULL;
++	HotplugEvent *hotplug_event;
+ 
 -	if (!strstr(buf, "@/")) {
 -		HAL_INFO (("invalid message format"));
++	device = udev_monitor_receive_device(udev_monitor);
++
 +	if (!device) {
 +		HAL_ERROR (("Unable to receive message from udev device"));
  		goto out;
@@ -207,16 +227,14 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
 -			}
 +	action = udev_device_get_action(device);
 +
-+	copy_dev_prop(device, hotplug_event->sysfs.sysfs_path, sizeof(hotplug_event->sysfs.sysfs_path), "DEVPATH");
++	copy_dev_prop_formatted(device, "/sys%s", hotplug_event->sysfs.sysfs_path, sizeof(hotplug_event->sysfs.sysfs_path), "DEVPATH");
 +	copy_dev_prop(device, hotplug_event->sysfs.subsystem, sizeof(hotplug_event->sysfs.subsystem), "SUBSYSTEM");
 +	copy_dev_prop(device, hotplug_event->sysfs.device_file, sizeof(hotplug_event->sysfs.device_file), "DEVNAME");
 +
-+	hotplug_event->sysfs.seqnum = udev_device_get_seqnum(device); /* SEQNUM */
++	hotplug_event->sysfs.seqnum = get_ll_dev_prop(device, "SEQNUM");
++	hotplug_event->sysfs.net_ifindex = get_ll_dev_prop(device, "IFINDEX");
 +
-+	tmp = udev_device_get_property_value(device, "IFINDEX");
-+	if(tmp != NULL) hotplug_event->sysfs.net_ifindex = strtoull(tmp, NULL, 10);
-+
-+	copy_dev_prop(device, hotplug_event->sysfs.sysfs_path_old, sizeof(hotplug_event->sysfs.sysfs_path_old), "DEVPATH_OLD");
++	copy_dev_prop_formatted(device, "/sys%s", hotplug_event->sysfs.sysfs_path_old, sizeof(hotplug_event->sysfs.sysfs_path_old), "DEVPATH_OLD");
 +	copy_dev_prop(device, hotplug_event->sysfs.vendor, sizeof(hotplug_event->sysfs.vendor), "ID_VENDOR");
 +	copy_dev_prop(device, hotplug_event->sysfs.model, sizeof(hotplug_event->sysfs.model), "ID_MODEL");
 +	copy_dev_prop(device, hotplug_event->sysfs.revision, sizeof(hotplug_event->sysfs.revision), "ID_REVISION");
@@ -228,8 +246,12 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
 +	copy_dev_prop(device, hotplug_event->sysfs.fslabel, sizeof(hotplug_event->sysfs.fslabel), "ID_FS_LABEL_ENC");
 +
 +    /* md devices are handled via looking at /proc/mdstat */
-+    if (g_str_has_prefix (hotplug_event->sysfs.sysfs_path, "/block/md")) {
++    if (g_str_has_prefix (hotplug_event->sysfs.sysfs_path, "/sys/block/md")) {
 +        HAL_INFO (("skipping md event for %s", hotplug_event->sysfs.sysfs_path));
++        goto invalid;
++    }
++    if (g_str_has_prefix (hotplug_event->sysfs.sysfs_path_old, "/sys/block/md")) {
++        HAL_INFO (("skipping md event for %s", hotplug_event->sysfs.sysfs_path_old));
 +        goto invalid;
 +    }
 +
@@ -244,7 +266,7 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
  	}
  
  	if (!action) {
-@@ -291,6 +208,7 @@
+@@ -291,6 +231,7 @@
  	g_slice_free (HotplugEvent, hotplug_event);
  
  out:
@@ -252,7 +274,7 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
  	return TRUE;
  }
  
-@@ -406,9 +324,9 @@
+@@ -406,9 +347,9 @@
  void
  osspec_init (void)
  {
@@ -264,7 +286,7 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
  	const int on = 1;
  	GIOChannel *udev_channel;
  	GIOChannel *mounts_channel;
-@@ -419,28 +337,35 @@
+@@ -419,28 +360,35 @@
  
  	hal_device_store_index_property (hald_get_gdl (), "linux.sysfs_path");
  
@@ -310,8 +332,7 @@ diff -ru hal-0.5.14/hald/linux/osspec.c hal-libudev-events/hald/linux/osspec.c
 +
  	/* watch /proc/mounts for mount tree changes
  	 * kernel 2.6.15 vfs throws a POLLERR event for every change
- 	 */
-diff -ru hal-0.5.14/hald/Makefile.am hal-libudev-events/hald/Makefile.am
+ 	 */diff -ru hal-0.5.14/hald/Makefile.am hal-libudev-events/hald/Makefile.am
 --- hal-0.5.14/hald/Makefile.am	2012-06-17 17:05:38.346983427 -0700
 +++ hal-libudev-events/hald/Makefile.am	2012-06-17 12:41:57.566628300 -0700
 @@ -74,7 +74,7 @@
