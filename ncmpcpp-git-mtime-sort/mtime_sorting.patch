@@ -35,7 +35,7 @@ index 025b17c..70c1a39 100644
  	*w << "\n\n   " << fmtBold << "Keys - Playlist Editor\n -----------------------------------------\n" << fmtBoldEnd;
  	*w << DisplayKeys(Key.PrevColumn)		<< "Previous column\n";
 diff --git a/src/media_library.cpp b/src/media_library.cpp
-index 6e38d9a..0e33298 100644
+index 6e38d9a..17b0f66 100644
 --- a/src/media_library.cpp
 +++ b/src/media_library.cpp
 @@ -19,6 +19,9 @@
@@ -48,22 +48,29 @@ index 6e38d9a..0e33298 100644
  
  #include "charset.h"
  #include "display.h"
-@@ -43,6 +46,15 @@ size_t MediaLibrary::itsMiddleColStartX;
+@@ -43,6 +46,12 @@ size_t MediaLibrary::itsMiddleColStartX;
  size_t MediaLibrary::itsRightColWidth;
  size_t MediaLibrary::itsRightColStartX;
  
-+
-+unsigned long MediaLibrary::mtimeMapTimestamp = 0;
-+std::set<MediaLibrary::album_mtime_flags> MediaLibrary::initedAlbumMTimeMaps 
-+    = std::set<MediaLibrary::album_mtime_flags>();
++bool MediaLibrary::mtimeMapsOutdated;
++std::set<MediaLibrary::album_mtime_flags> MediaLibrary::initedAlbumMTimeMaps;
 +MediaLibrary::album_mtime_map MediaLibrary::albumMTimeMap;
-+std::set<mpd_tag_type> MediaLibrary::initedArtistMTimeMaps 
-+    = std::set<mpd_tag_type>();
++std::set<mpd_tag_type> MediaLibrary::initedArtistMTimeMaps;
 +MediaLibrary::artist_mtime_map MediaLibrary::artistMTimeMap;
 +
  // this string marks the position in middle column that works as "All tracks" option. it's
  // assigned to Year in SearchConstraint class since date normally cannot contain other chars
  // than ciphers and -'s (0x7f is interpreted as backspace keycode, so it's quite safe to assume
+@@ -89,6 +98,9 @@ void MediaLibrary::Init()
+ 	Songs->SetGetStringFunction(SongToString);
+ 	
+ 	w = Artists;
++
++    mtimeMapsOutdated = true;
++
+ 	isInitialized = 1;
+ }
+ 
 @@ -162,7 +174,7 @@ void MediaLibrary::SwitchTo()
  				{
  					std::string item_type = IntoStr(Config.media_lib_primary_tag);
@@ -132,20 +139,18 @@ index 6e38d9a..0e33298 100644
  		Albums->Refresh();
  	}
  	
-@@ -785,6 +808,205 @@ bool MediaLibrary::SearchConstraintsSorting::operator()(const SearchConstraints
+@@ -785,6 +808,203 @@ bool MediaLibrary::SearchConstraintsSorting::operator()(const SearchConstraints
  	return (result == 0 ? cmp(a.Album, b.Album) : result) < 0;
  }
  
 +
 +void MediaLibrary::ensureMTimeMapsUpToDate() {
-+    Mpd.UpdateStats();
-+    unsigned long lastUpdate = Mpd.DBUpdateTime();
-+    if (mtimeMapTimestamp < lastUpdate) {
++    if (mtimeMapsOutdated) {
 +        albumMTimeMap.clear();
 +        initedAlbumMTimeMaps.clear();
 +        artistMTimeMap.clear();
 +        initedArtistMTimeMaps.clear();
-+        mtimeMapTimestamp = lastUpdate;
++        mtimeMapsOutdated = false;
 +    }
 +}
 +
@@ -339,7 +344,7 @@ index 6e38d9a..0e33298 100644
  {
  	if (a->GetDisc() == b->GetDisc())
 diff --git a/src/media_library.h b/src/media_library.h
-index 1b07f92..56e6645 100644
+index 1b07f92..74d3ffb 100644
 --- a/src/media_library.h
 +++ b/src/media_library.h
 @@ -21,6 +21,9 @@
@@ -380,13 +385,13 @@ index 1b07f92..56e6645 100644
 +                     time_t> artist_mtime_map; 
 +
 +    // timestamp to make sure maps up to date
-+    static unsigned long mtimeMapTimestamp;
++    static bool mtimeMapsOutdated;
 +    // erases maps if out of date
 +    static void ensureMTimeMapsUpToDate();
 +
 +    // contains set of primary tags for which map has been initialised
 +    static std::set<album_mtime_flags> initedAlbumMTimeMaps;
-+    static  album_mtime_map albumMTimeMap;
++    static album_mtime_map albumMTimeMap;
 +
 +    static void forceInitedAlbumMTimeMap(const mpd_tag_type primary_tag,
 +                                         const bool display_date);
@@ -424,6 +429,15 @@ index 1b07f92..56e6645 100644
  	
  	public:
  		virtual void SwitchTo();
+@@ -77,6 +145,8 @@ class MediaLibrary : public Screen<Window>
+ 		Menu<std::string> *Artists;
+ 		Menu<SearchConstraints> *Albums;
+ 		Menu<MPD::Song> *Songs;
++
++        void DatabaseUpdated() { mtimeMapsOutdated = true; }
+ 		
+ 	protected:
+ 		virtual void Init();
 diff --git a/src/ncmpcpp.cpp b/src/ncmpcpp.cpp
 index 1e003ae..2f1cbf2 100644
 --- a/src/ncmpcpp.cpp
@@ -540,3 +554,16 @@ index 87b5042..2506d4e 100644
  			
  			/// Used internally for handling filename, since we don't have
  			/// write access to file string in mpd_song, manage our own if
+diff --git a/src/status.cpp b/src/status.cpp
+index f26e025..ab879a4 100644
+--- a/src/status.cpp
++++ b/src/status.cpp
+@@ -560,6 +560,8 @@ void NcmpcppStatusChanged(MPD::Connection *, MPD::StatusChanges changed, void *)
+ 		if (!Mpd.SupportsIdle() || Mpd.Version() > 15)
+ 			mpd_db_updating = Mpd.GetDBIsUpdating() ? 'U' : 0;
+ 		ShowMessage(Mpd.GetDBIsUpdating() ? "Database update started!" : "Database update finished!");
++        // after db update finished, mtime maps in myLibrary are out of date
++        myLibrary->DatabaseUpdated();
+ 		if (changed.Database && myScreen == mySelectedItemsAdder)
+ 		{
+ 			myScreen->SwitchTo(); // switch to previous screen

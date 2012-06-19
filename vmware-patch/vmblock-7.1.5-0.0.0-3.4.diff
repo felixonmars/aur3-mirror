@@ -1,0 +1,114 @@
+diff -r -u vmblock-only/linux/dentry.c vmblock-only/linux/dentry.c
+--- vmblock-only/linux/dentry.c	2011-09-23 20:57:00.000000000 -0300
++++ vmblock-only/linux/dentry.c	2012-02-15 13:25:46.000000000 -0300
+@@ -104,7 +104,11 @@
+       return actualDentry->d_op->d_revalidate(actualDentry, nd);
+    }
+ 
+-   if (path_lookup(iinfo->name, 0, &actualNd)) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
++   if (compat_path_lookup(iinfo->name, 0, &actualNd)) {
++#else
++   if (kern_path(iinfo->name, 0, &(actualNd.path))) {
++#endif
+       LOG(4, "DentryOpRevalidate: [%s] no longer exists\n", iinfo->name);
+       return 0;
+    }
+diff -r -u vmblock-only/linux/filesystem.c vmblock-only/linux/filesystem.c
+--- vmblock-only/linux/filesystem.c	2011-09-23 20:57:00.000000000 -0300
++++ vmblock-only/linux/filesystem.c	2012-02-15 13:25:46.000000000 -0300
+@@ -44,9 +44,14 @@
+ /* File system operations */
+ 
+ #if defined(VMW_GETSB_2618)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
+ static int FsOpGetSb(struct file_system_type *fsType, int flags,
+                      const char *devName, void *rawData, struct vfsmount *mnt);
+ #else
++static struct dentry *FsOpMount(struct file_system_type *fsType, int flags,
++                     const char *devName, void *rawData);
++#endif
++#else
+ static struct super_block *FsOpGetSb(struct file_system_type *fsType, int flags,
+                                      const char *devName, void *rawData);
+ #endif
+@@ -66,7 +71,11 @@
+ static struct file_system_type fsType = {
+    .owner = THIS_MODULE,
+    .name = VMBLOCK_FS_NAME,
++   #if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
+    .get_sb = FsOpGetSb,
++   #else
++   .mount = FsOpMount,
++   #endif
+    .kill_sb = kill_anon_super,
+ };
+ 
+@@ -336,7 +345,11 @@
+       goto error_inode;
+    }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
+    if (compat_path_lookup(iinfo->name, 0, &actualNd)) {
++#else
++   if (kern_path(iinfo->name, 0, &(actualNd.path))) {
++#endif
+       /*
+        * This file does not exist, so we create an inode that doesn't know
+        * about its underlying file.  Operations that create files and
+@@ -518,7 +531,7 @@
+       return -EINVAL;
+    }
+
+-   rootDentry = d_alloc_root(rootInode);
++   rootDentry = d_make_root(rootInode);
+    if (!rootDentry) {
+       iput(rootInode);
+       return -ENOMEM;
+@@ -533,18 +546,17 @@
+    return 0;
+ }
+ 
+-
+ #if defined(VMW_GETSB_2618)
+ /*
+  *-----------------------------------------------------------------------------
+  *
+- * FsOpGetSb --
++ * FsOpGetSb/FsOpMount --
+  *
+  *    Invokes generic kernel code to prepare superblock for
+  *    deviceless filesystem.
+  *
+  * Results:
+- *    0 on success
++ *    0/dentry on success
+  *    negative error code on failure
+  *
+  * Side effects:
+@@ -552,7 +564,7 @@
+  *
+  *-----------------------------------------------------------------------------
+  */
+-
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 39)
+ static int
+ FsOpGetSb(struct file_system_type *fs_type, // IN: file system type of mount
+           int flags,                        // IN: mount flags
+@@ -563,6 +575,16 @@
+    return get_sb_nodev(fs_type, flags, rawData, FsOpReadSuper, mnt);
+ }
+ #else
++struct dentry *
++FsOpMount(struct file_system_type *fs_type, // IN: file system type of mount
++          int flags,                        // IN: mount flags
++          const char *dev_name,             // IN: device mounting on
++          void *rawData)                    // IN: mount arguments
++{
++   return mount_nodev(fs_type, flags, rawData, FsOpReadSuper);
++}
++#endif
++#else
+ /*
+  *-----------------------------------------------------------------------------
+  *
