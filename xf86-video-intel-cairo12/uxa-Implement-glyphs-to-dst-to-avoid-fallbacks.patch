@@ -1,0 +1,116 @@
+From 0a43d425670b883b04565296c0510e7ba03ba6de Mon Sep 17 00:00:00 2001
+From: Chris Wilson <chris@chris-wilson.co.uk>
+Date: Tue, 19 Jun 2012 14:46:58 +0100
+Subject: [PATCH 309/309] uxa: Implement glyphs-to-dst to avoid fallbacks
+
+An earlier version was buggy and introduced corruption as it failed to
+fallback gracefully with ComponentAlpha glpyhs. This is a much simpler
+implementation that composites each glyph individually, leaving it to the
+backend to optimise away state changes. It should still be many times
+faster than incurring the fallback...
+
+Reported-by: Oleksandr Natalenko <pfactum@gmail.com>
+Bugzilla: https://bugs.freedesktop.org/show_bug.cgi?id=50508
+Signed-off-by: Chris Wilson <chris@chris-wilson.co.uk>
+---
+ uxa/uxa-glyphs.c | 79 ++++++++++++++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 71 insertions(+), 8 deletions(-)
+
+diff --git a/uxa/uxa-glyphs.c b/uxa/uxa-glyphs.c
+index 0893779..e83464e 100644
+--- a/uxa/uxa-glyphs.c
++++ b/uxa/uxa-glyphs.c
+@@ -881,6 +881,65 @@ next_glyph:
+ 	return 0;
+ }
+ 
++static int
++uxa_glyphs_to_dst(CARD8 op,
++		  PicturePtr pSrc,
++		  PicturePtr pDst,
++		  INT16 xSrc, INT16 ySrc,
++		  int nlist, GlyphListPtr list, GlyphPtr * glyphs)
++{
++	ScreenPtr screen = pDst->pDrawable->pScreen;
++	int x, y, n;
++
++	xSrc -= list->xOff;
++	ySrc -= list->yOff;
++	x = y = 0;
++	while (nlist--) {
++		x += list->xOff;
++		y += list->yOff;
++		n = list->len;
++		while (n--) {
++			GlyphPtr glyph = *glyphs++;
++			PicturePtr glyph_atlas;
++			int glyph_x, glyph_y;
++			struct uxa_glyph *priv;
++
++			if (glyph->info.width == 0 || glyph->info.height == 0)
++				goto next_glyph;
++
++			priv = uxa_glyph_get_private(glyph);
++			if (priv != NULL) {
++				glyph_x = priv->x;
++				glyph_y = priv->y;
++				glyph_atlas = priv->cache->picture;
++			} else {
++				glyph_atlas = uxa_glyph_cache(screen, glyph, &glyph_x, &glyph_y);
++				if (glyph_atlas == NULL) {
++					/* no cache for this glyph */
++					glyph_atlas = GetGlyphPicture(glyph, screen);
++					glyph_x = glyph_y = 0;
++				}
++			}
++
++			uxa_composite(op,
++				      pSrc, glyph_atlas, pDst,
++				      xSrc + x - glyph->info.x,
++				      ySrc + y - glyph->info.y,
++				      glyph_x, glyph_y,
++				      x - glyph->info.x,
++				      y - glyph->info.y,
++				      glyph->info.width, glyph->info.height);
++
++next_glyph:
++			x += glyph->info.xOff;
++			y += glyph->info.yOff;
++		}
++		list++;
++	}
++
++	return 0;
++}
++
+ static Bool
+ is_solid(PicturePtr picture)
+ {
+@@ -966,12 +1025,16 @@ fallback:
+ 		}
+ 	}
+ 
+-	if (!maskFormat)
+-		goto fallback;
+-
+-	if (uxa_glyphs_via_mask(op,
+-				pSrc, pDst, maskFormat,
+-				xSrc, ySrc,
+-				nlist, list, glyphs))
+-		goto fallback;
++	if (!maskFormat) {
++		if (uxa_glyphs_to_dst(op, pSrc, pDst,
++				      xSrc, ySrc,
++				      nlist, list, glyphs))
++			goto fallback;
++	} else {
++		if (uxa_glyphs_via_mask(op,
++					pSrc, pDst, maskFormat,
++					xSrc, ySrc,
++					nlist, list, glyphs))
++			goto fallback;
++	}
+ }
+-- 
+1.7.11
+
