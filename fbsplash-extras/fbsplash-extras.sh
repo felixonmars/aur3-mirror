@@ -89,13 +89,9 @@ splash_svc() {
 	esac
 }
 
-SPLASH_CONSOLEFONT=$CONSOLEFONT
 case $0
 in /etc/rc.sysinit )
 	SPLASH_ACTION="start"
-	# Deferre set_consolefont to avoid splash destruction
-	# (Also simply do this if verbose or off - avoids changing the font in the middle of boot.)
-	CONSOLEFONT=""
 	# If we have no /proc at this point, assume no initcpio was used.
 	# Let the helper parse the kernel cmdline and init the splash or console background,
 	# but don't do this always to avoid visible repaint or 'fbcondecor not supported'
@@ -203,7 +199,6 @@ in /etc/rc.sysinit )
 			# Dummy service for SysV-Init 'boot' and running theme hooks
 			splash_control svc_start_failed fbsplash-boot-dummy
 			fbsplash-controld stop force
-			set_consolefont
 			fbsplash-chvt 1
 		}
 	elif get_pid Xorg >/dev/null; then
@@ -292,8 +287,6 @@ splash_rc_d() {
 splash_end_boot() {
 	splash_control store
 	fbsplash-controld stop
-	CONSOLEFONT=$SPLASH_CONSOLEFONT
-	set_consolefont
 }
 
 # Echo list of services relevant for icons (for theme hooks using splash_svclist_get)
@@ -380,7 +373,6 @@ splash_cache_prep_initcpio() {
 		( splash_cache_prep ) && [[ $spl_cachedir ]] && cd "$spl_cachedir" || exit 1
 		export PREVLEVEL=N RUNLEVEL=S
 		. /etc/rc.conf
-		CONSOLEFONT=""
 		splash_svclist start svcs_start_fg >|svcs_start
 		splash_run_hooks pre rc_init sysinit $RUNLEVEL
 		# Write a clean initial profile mainly for splash_manager -c replay
