@@ -2,7 +2,7 @@
 
 pkgname=addon-sdk-stab
 _pkgname=addon-sdk
-pkgver=1.8rc1
+pkgver=1.8rc2
 pkgrel=1
 pkgdesc="addon-sdk/jetpack stabilisation release"
 url="http://blog.mozilla.com/addons/"
@@ -16,6 +16,7 @@ replaces=()
 backup=()
 source=("https://ftp.mozilla.org/pub/mozilla.org/labs/jetpack/addon-sdk-${pkgver}.tar.gz")
 install='addon-sdk.install'
+md5sums=('16d2d503015d54e365e67fc11e318d08')
 
 build() {
   cd "${srcdir}/${_pkgname}-${pkgver}"
@@ -28,4 +29,3 @@ package() {
 }
 
 # vim:set ts=2 sw=2 et:
-md5sums=('addb15600174269498947c7ce5bf3110')
