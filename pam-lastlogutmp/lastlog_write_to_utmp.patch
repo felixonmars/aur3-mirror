@@ -1,0 +1,207 @@
+diff -aur Linux-PAM-1.1.5/modules/pam_lastlog/pam_lastlog.8 Linux-PAM-1.1.5.patched/modules/pam_lastlog/pam_lastlog.8
+--- Linux-PAM-1.1.5/modules/pam_lastlog/pam_lastlog.8	2011-06-21 02:34:58.000000000 -0700
++++ Linux-PAM-1.1.5.patched/modules/pam_lastlog/pam_lastlog.8	2012-06-20 00:07:34.991971183 -0700
+@@ -171,7 +171,7 @@
+ .SH "Synopsis"
+ .fam C
+ .HP \w'\fBpam_lastlog\&.so\fR\ 'u
+-\fBpam_lastlog\&.so\fR [debug] [silent] [never] [nodate] [nohost] [noterm] [nowtmp] [noupdate] [showfailed]
++\fBpam_lastlog\&.so\fR [debug] [silent] [never] [nodate] [nohost] [noterm] [noutmp] [nowtmp] [noupdate] [showfailed]
+ .fam
+ .SH "DESCRIPTION"
+ .PP
+@@ -216,6 +216,11 @@
+ Don\'t indicate from which host the last login was attempted\&.
+ .RE
+ .PP
++\fBnoutmp\fR
++.RS 4
++Don\'t update the utmp entry\&.
++.RE
++.PP
+ \fBnowtmp\fR
+ .RS 4
+ Don\'t update the wtmp entry\&.
+diff -aur Linux-PAM-1.1.5/modules/pam_lastlog/pam_lastlog.8.xml Linux-PAM-1.1.5.patched/modules/pam_lastlog/pam_lastlog.8.xml
+--- Linux-PAM-1.1.5/modules/pam_lastlog/pam_lastlog.8.xml	2011-06-21 02:04:56.000000000 -0700
++++ Linux-PAM-1.1.5.patched/modules/pam_lastlog/pam_lastlog.8.xml	2012-06-20 00:07:11.241970885 -0700
+@@ -37,6 +37,9 @@
+         noterm
+       </arg>
+       <arg choice="opt">
++        noutmp
++      </arg>
++      <arg choice="opt">
+         nowtmp
+       </arg>
+       <arg choice="opt">
+@@ -133,6 +136,16 @@
+           </para>
+         </listitem>
+       </varlistentry>
++      <varlistentry>
++        <term>
++          <option>noutmp</option>
++        </term>
++        <listitem>
++          <para>
++            Don't update the utmp entry.
++          </para>
++        </listitem>
++      </varlistentry>
+       <varlistentry>
+         <term>
+           <option>nowtmp</option>
+diff -aur Linux-PAM-1.1.5/modules/pam_lastlog/pam_lastlog.c Linux-PAM-1.1.5.patched/modules/pam_lastlog/pam_lastlog.c
+--- Linux-PAM-1.1.5/modules/pam_lastlog/pam_lastlog.c	2011-06-21 02:04:56.000000000 -0700
++++ Linux-PAM-1.1.5.patched/modules/pam_lastlog/pam_lastlog.c	2012-06-19 23:52:55.671959952 -0700
+@@ -79,13 +79,14 @@
+ #define LASTLOG_DEBUG      020  /* send info to syslog(3) */
+ #define LASTLOG_QUIET      040  /* keep quiet about things */
+ #define LASTLOG_WTMP      0100  /* log to wtmp as well as lastlog */
+-#define LASTLOG_BTMP      0200  /* display failed login info from btmp */
+-#define LASTLOG_UPDATE    0400  /* update the lastlog and wtmp files (default) */
++#define LASTLOG_UTMP      0200  /* log to Utmp as well as utmp */
++#define LASTLOG_BTMP      0400  /* display failed login info from btmp */
++#define LASTLOG_UPDATE   10000  /* update the lastlog and wtmp files (default) */
+ 
+ static int
+ _pam_parse(pam_handle_t *pamh, int flags, int argc, const char **argv)
+ {
+-    int ctrl=(LASTLOG_DATE|LASTLOG_HOST|LASTLOG_LINE|LASTLOG_WTMP|LASTLOG_UPDATE);
++    int ctrl=(LASTLOG_DATE|LASTLOG_HOST|LASTLOG_LINE|LASTLOG_UTMP|LASTLOG_WTMP|LASTLOG_UPDATE);
+ 
+     /* does the appliction require quiet? */
+     if (flags & PAM_SILENT) {
+@@ -109,10 +110,12 @@
+ 	    ctrl |= LASTLOG_QUIET;
+ 	} else if (!strcmp(*argv,"never")) {
+ 	    ctrl |= LASTLOG_NEVER;
++	} else if (!strcmp(*argv,"noutmp")) {
++	    ctrl &= ~LASTLOG_UTMP;
+ 	} else if (!strcmp(*argv,"nowtmp")) {
+ 	    ctrl &= ~LASTLOG_WTMP;
+ 	} else if (!strcmp(*argv,"noupdate")) {
+-	    ctrl &= ~(LASTLOG_WTMP|LASTLOG_UPDATE);
++	    ctrl &= ~(LASTLOG_UTMP|LASTLOG_WTMP|LASTLOG_UPDATE);
+ 	} else if (!strcmp(*argv,"showfailed")) {
+ 	    ctrl |= LASTLOG_BTMP;
+ 	} else {
+@@ -251,6 +254,50 @@
+     return retval;
+ }
+ 
++
++static void
++make_utmp (struct utmp *u, const char *line, const char *user, const char *host, time_t date, int addp)
++{
++	bzero (u, sizeof (*u));
++	if (line)
++		(void) strncpy (u->ut_line, line, sizeof (u->ut_line));
++	else
++		bzero (u->ut_line, sizeof (u->ut_line));
++	if (addp && user)
++		(void) strncpy (u->ut_name, user, sizeof (u->ut_name));
++	else
++		bzero (u->ut_name, sizeof (u->ut_name));
++	if (line) {
++		int	i;
++		/*
++		 * this is a bit crufty, but
++		 * follows the apparent conventions in
++		 * the ttys file.  ut_id is only 4 bytes
++		 * long, and the last 4 bytes of the line
++		 * name are written into it, left justified.
++		 */
++		i = strlen (line);
++		if (i >= sizeof (u->ut_id))
++			i -= sizeof (u->ut_id);
++		else
++			i = 0;
++		(void) strncpy (u->ut_id, line + i, sizeof (u->ut_id));
++	} else
++		bzero (u->ut_id, sizeof (u->ut_id));
++	if (addp) {
++		u->ut_pid = getppid ();
++		u->ut_type = USER_PROCESS;
++	} else {
++		u->ut_pid = 0;
++		u->ut_type = DEAD_PROCESS;
++	}
++	if (addp && host)
++		(void) strncpy (u->ut_host, host, sizeof (u->ut_host));
++	else
++		bzero (u->ut_host, sizeof (u->ut_host));
++	u->ut_time = date;
++}
++
+ static int
+ last_login_write(pam_handle_t *pamh, int announce, int last_fd,
+ 		 uid_t uid, const char *user)
+@@ -324,6 +371,18 @@
+ 	/* write wtmp entry for user */
+ 	logwtmp(last_login.ll_line, user, remote_host);
+     }
++    
++    if (announce & LASTLOG_UTMP)
++    {
++		struct utmp	utmp_entry;
++		make_utmp (&utmp_entry, last_login.ll_line, 
++					user, remote_host, ll_time, 1);
++		//utmpname (NULL);
++		setutent ();
++		(void) getutid (&utmp_entry);
++		pututline (&utmp_entry);
++		endutent ();
++	}
+ 
+     /* cleanup */
+     memset(&last_login, 0, sizeof(last_login));
+@@ -559,14 +618,32 @@
+ 		      int argc, const char **argv)
+ {
+     const char *terminal_line;
++	int ctrl;
++	time_t ltime = 0;
+ 
+-    if (!(_pam_parse(pamh, flags, argc, argv) & LASTLOG_WTMP))
++	ctrl = _pam_parse(pamh, flags, argc, argv);
++    if (!(_pam_parse(pamh, flags, argc, argv) & (LASTLOG_WTMP|LASTLOG_WTMP)))
+ 	return PAM_SUCCESS;
+ 
+     terminal_line = get_tty(pamh);
++    (void) time(&ltime);    /* set the time */
+ 
++	if (ctrl & LASTLOG_UTMP)
++    {
++		struct utmp	utmp_entry;
++		make_utmp (&utmp_entry, terminal_line, "", "", ltime, 0);
++		//utmpname (NULL);
++		setutent ();
++		(void) getutid (&utmp_entry);
++		pututline (&utmp_entry);
++		endutent ();
++	}
++
++	if (ctrl & LASTLOG_WTMP)
++    {
+     /* Wipe out utmp logout entry */
+     logwtmp(terminal_line, "", "");
++	}
+ 
+     return PAM_SUCCESS;
+ }
+diff -aur Linux-PAM-1.1.5/modules/pam_lastlog/README Linux-PAM-1.1.5.patched/modules/pam_lastlog/README
+--- Linux-PAM-1.1.5/modules/pam_lastlog/README	2011-06-21 02:35:01.000000000 -0700
++++ Linux-PAM-1.1.5.patched/modules/pam_lastlog/README	2012-06-18 23:42:50.306350907 -0700
+@@ -39,6 +39,10 @@
+ 
+     Don't indicate from which host the last login was attempted.
+ 
++noutmp
++
++    Don't update the utmp entry.
++
+ nowtmp
+ 
+     Don't update the wtmp entry.
