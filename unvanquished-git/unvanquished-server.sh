@@ -1,3 +1,3 @@
 #! /bin/sh
 cd /var/lib/unvanquished-server
-exec /opt/unvanquished/unvanquishedded +set fs_libpath /opt/unvanquished +set fs_basepath /opt/unvanquished +exec server.cfg "$@"
+exec /opt/unvanquished-git/unvanquishedded +set fs_libpath /opt/unvanquished-git +set fs_basepath /opt/unvanquished-git +exec server.cfg "$@"
