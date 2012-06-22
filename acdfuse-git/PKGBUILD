@@ -1,12 +1,12 @@
 # Maintainer: Daniel Wallace <daniel.wallace at gatech dot edu>
 pkgname=acdfuse-git
-pkgver=20120410
+pkgver=20120622
 pkgrel=1
 pkgdesc="mount amazon cloud drive"
 arch=('any')
 url="https://github.com/handyman5/acd_fuse"
 license=('GPL')
-depends=('python2')
+depends=('python2' 'python-fuse')
 makedepends=('git')
 
 _gitroot=https://github.com/handyman5/acd_fuse.git
@@ -21,7 +21,7 @@ build() {
     msg "The local files are updated."
   else
     git clone "$_gitroot" "$_gitname"
-    cd "$_gitname"
+    cd $_gitname
     git submodule init
     git submodule update
   fi
