@@ -2,7 +2,7 @@
 # Contributor: trashstar
 
 pkgname=addon-sdk
-pkgver=1.7
+pkgver=1.8
 pkgrel=1
 pkgdesc="SDK to build add-ons for Mozilla products (formerly jetpack)"
 url="https://addons.mozilla.org/en-US/developers/docs/sdk/latest/"
@@ -16,7 +16,7 @@ replaces=()
 backup=()
 source=("https://ftp.mozilla.org/pub/mozilla.org/labs/jetpack/addon-sdk-${pkgver}.tar.gz")
 install='addon-sdk.install'
-md5sums=('9af2637dd358522b7f39ea48e76a1d0b')
+md5sums=('a02ea38d5d4be9f735f76dd4c3e4873f')
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
