@@ -158,7 +158,7 @@ git diff ${obj} --stat ./ > ${diffstat} ; printf .
 
 
 # If there are no changes, exit
-checksum=`awk '/\ \ Bin\ /' "${diffstat}" | wc -l`
+checksum=`awk '/\ *Bin\ /' "${diffstat}" | wc -l`
 if [ "${checksum}" == "0" ] ; then
 	printf "\n"
 	echo " No binary files changed, exiting..."
@@ -169,8 +169,8 @@ fi
 # get the remaining diffs...
 git diff ${obj} -M100% -l999999 --stat=1000,2000 --diff-filter="R" ./  | awk '/>/' > ${diffstat_renames} ; printf . &
 git diff ${obj} -M100% -l999999 --stat=1000,2000 --diff-filter="A|M|D" ./  > ${diffstat_adds_dels_mods} ; printf . &
-git diff ${obj} -M100% --diff-filter="M" --stat  | awk '/\ \ Bin/' > ${diffstat_M100_awkbin} ; printf . &
-cat ${diffstat} | awk '/\ \|\ \ Bin\ /' > ${diffstat_awkbin} ; printf . &
+git diff ${obj} -M100% --diff-filter="M" --stat  | awk '/\ *Bin/' > ${diffstat_M100_awkbin} ; printf . &
+cat ${diffstat} | awk '/\ \|\ *Bin\ /' > ${diffstat_awkbin} ; printf . &
 wait
 printf "\n"
 
@@ -201,7 +201,7 @@ global_text_deletions=`echo ${git_diffstat_normal} | tr "," "\n" | awk /deletion
 
 global_text_ratio=`expr $global_text_insertions - $global_text_deletions`
 
-git_status_text_file_change_amount=`cat "${diffstat}" | sed -e '/\ \ Bin\ /d' -e '/)$/d' | wc -l`
+git_status_text_file_change_amount=`cat "${diffstat}" | sed -e '/\ *Bin\ /d' -e '/)$/d' | wc -l`
 git_status_text_file_change_amount_output=`pluralsingular ${git_status_text_file_change_amount} text file`
 
 
@@ -332,10 +332,10 @@ echo -e "   ${GREEN}${binary_files_added_amount}${NC} binary ${binary_files_adde
 
 
 # did we rename binary files?
-binary_files_renamed_amount=`awk '/\ \|\ \ Bin\ .*\ ->\ /' ${diffstat_renames} | wc -l`
+binary_files_renamed_amount=`awk '/\ \|\ *Bin\ .*\ ->\ /' ${diffstat_renames} | wc -l`
 if  [ "${binary_files_renamed_amount}" != "0" ] ; then  # yes, we did
-	binary_files_renamed_size_before=`awk '/\ \|\ \ Bin\ .*\ ->\ /' ${diffstat_renames} | awk '{ sum+=$6} END {print sum}'`
-	binary_files_renamed_size_after=`awk '/\ \|\ \ Bin\ .*\ ->\ /' ${diffstat_renames} | awk '{ sum+=$8} END {print sum}'`
+	binary_files_renamed_size_before=`awk '/\ \|\ *Bin\ .*\ ->\ /' ${diffstat_renames} | awk '{ sum+=$6} END {print sum}'`
+	binary_files_renamed_size_after=`awk '/\ \|\ *Bin\ .*\ ->\ /' ${diffstat_renames} | awk '{ sum+=$8} END {print sum}'`
 		echo "${binary_files_renamed_size_before}" > /dev/null &
 		echo "${binary_files_renamed_size_after}" > /dev/null &
 		wait
@@ -353,7 +353,7 @@ fi
 
 # how many bytes changed when
 # we added binary files
-binary_files_size_added=`cat ${diffstat} | awk '/\ \ Bin\ 0/' | awk '{ sum+=$6} END {print sum}'`
+binary_files_size_added=`cat ${diffstat} | awk '/\ *Bin\ 0/' | awk '{ sum+=$6} END {print sum}'`
 if [ -z "$binary_files_size_added" ] ; then
 	binary_files_size_added=0
 else
