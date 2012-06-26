@@ -1,7 +1,5 @@
 #!/bin/bash
 
-PLEX_MEDIA_SERVER_USER=xenon
-
 . /etc/conf.d/plexmediaserver
 
 export PLEX_MEDIA_SERVER_HOME=/usr/lib/plexmediaserver
@@ -30,8 +28,13 @@ case "$1" in
     if [ $? -gt 0 ]; then
       stat_fail
     else
-      rm_daemon plexmediaserver
-      stat_done
+      sleep 3
+      if [ -n "$(pidof -o %PPID /usr/lib/plexmediaserver/Plex\ Media\ Server)" ]; then
+        stat_fail
+      else
+        rm_daemon plexmediaserver
+        stat_done
+      fi
     fi
     ;;
   restart)
