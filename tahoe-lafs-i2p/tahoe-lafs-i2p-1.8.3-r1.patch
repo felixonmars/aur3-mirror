@@ -1,0 +1,551 @@
+From 470bf0d1809bda8a2ce66b2a7a97ec562ed88034 Mon Sep 17 00:00:00 2001
+From: "Kill Your TV <killyourtv@mail.i2p>"
+Date: Sat, 11 Feb 2012 18:43:09 +0000
+Subject: [PATCH] i2p patch
+
+colored introducer help from kiribati
+
+---
+ docs/architecture.rst                        |    8 ++-
+ docs/configuration.rst                       |    6 ++
+ docs/running.html                            |    3 +-
+ src/allmydata/client.py                      |   74 +++++++++++++---
+ src/allmydata/node.py                        |   12 +++-
+ src/allmydata/scripts/create_node.py         |    1 +
+ src/allmydata/test/test_encodingutil.py      |    1 +
+ src/allmydata/test/test_multi_introducers.py |  124 ++++++++++++++++++++++++++
+ src/allmydata/test/test_system.py            |    2 +-
+ src/allmydata/test/test_web.py               |    8 +-
+ src/allmydata/util/iputil.py                 |    1 +
+ src/allmydata/web/root.py                    |   26 ++++--
+ src/allmydata/web/welcome.xhtml              |   29 +++++--
+ 13 files changed, 260 insertions(+), 35 deletions(-)
+ create mode 100644 src/allmydata/test/test_multi_introducers.py
+
+diff --git a/docs/architecture.rst b/docs/architecture.rst
+index 3a9e08f..3e00d5b 100644
+--- a/docs/architecture.rst
++++ b/docs/architecture.rst
+@@ -78,9 +78,13 @@ private key, which are easy to move to a new host in case the original one
+ suffers an unrecoverable hardware problem. Second, even if the private key is
+ lost, clients can be reconfigured to use a new introducer.
+ 
+-For future releases, we have plans to decentralize introduction, allowing any
+-server to tell a new client about all the others.
++By deploying multiple introducers in a Tahoe-LAFS grid, the above SPoF challenge 
++can be overcome. In that case if one introducer fails clients are still be
++able to get announcement about new servers from remaining introducers. This is
++our first step towards implementing a fully distributed introduction. 
+ 
++For future releases, we have plans to enhance our distributed introduction, 
++allowing any server to tell a new client about all the others. 
+ 
+ File Encoding
+ =============
+diff --git a/docs/configuration.rst b/docs/configuration.rst
+index 1bb2d33..ec5f9a6 100644
+--- a/docs/configuration.rst
++++ b/docs/configuration.rst
+@@ -31,6 +31,12 @@ format. The "``tahoe create-node``" or "``tahoe create-client``" command will
+ create an initial ``tahoe.cfg`` file for you. After creation, the node will
+ never modify the ``tahoe.cfg`` file: all persistent state is put in other files.
+ 
++A second file "BASEDIR/introducers" configures introducers. It is necessary to 
++write all FURL entries into this file. Each line in this file contains exactly 
++one FURL entry. For backward compatibility reasons, any "introducer.furl" 
++entry found in tahoe.cfg file will automatically be copied into this file. Keeping
++any FURL entry in tahoe.cfg file is not recommended for new users.
++
+ The item descriptions below use the following types:
+ 
+ ``boolean``
+diff --git a/docs/running.html b/docs/running.html
+index 81c6280..cc7797b 100644
+--- a/docs/running.html
++++ b/docs/running.html
+@@ -47,7 +47,8 @@
+     <p>To construct a client node, run
+     "<code>tahoe create-client</code>", which will create <code>~/.tahoe</code> to be the
+     node's base directory. Acquire a copy of the <code>introducer.furl</code>
+-    from the introducer and put it into this directory, then use
++    from the introducers and put it into "BASEDIR/introducers" file, one FURL entry per line,
++    then use
+     "<code>tahoe run</code>". After that, the node should be off and running. The first
+     thing it will do is connect to the introducer and get itself connected to
+     all other nodes on the grid.  By default, "<code>tahoe create-client</code>"
+diff --git a/src/allmydata/client.py b/src/allmydata/client.py
+index fa515d4..d8ddb6f 100644
+--- a/src/allmydata/client.py
++++ b/src/allmydata/client.py
+@@ -32,6 +32,8 @@ GiB=1024*MiB
+ TiB=1024*GiB
+ PiB=1024*TiB
+ 
++MULTI_INTRODUCERS_CFG = "introducers"
++
+ class StubClient(Referenceable):
+     implements(RIStubClient)
+ 
+@@ -134,7 +136,7 @@ class Client(node.Node, pollmixin.PollMixin):
+         self.started_timestamp = time.time()
+         self.logSource="Client"
+         self.DEFAULT_ENCODING_PARAMETERS = self.DEFAULT_ENCODING_PARAMETERS.copy()
+-        self.init_introducer_client()
++        self.init_introducer_clients()
+         self.init_stats_provider()
+         self.init_secrets()
+         self.init_storage()
+@@ -181,13 +183,47 @@ class Client(node.Node, pollmixin.PollMixin):
+         if os.path.exists(os.path.join(self.basedir, "run_helper")):
+             self.set_config("helper", "enabled", "true")
+ 
+-    def init_introducer_client(self):
+-        self.introducer_furl = self.get_config("client", "introducer.furl")
+-        ic = IntroducerClient(self.tub, self.introducer_furl,
++    def init_introducer_clients(self):              
++        self.introducer_furls = []
++        self.warn_flag = False      
++        # Try to load ""BASEDIR/introducers" cfg file
++        cfg = os.path.join(self.basedir, MULTI_INTRODUCERS_CFG)
++        if os.path.exists(cfg):
++           f = open(cfg, 'r')
++           for introducer_furl in  f.read().split('\n'):
++                if not introducer_furl.strip():
++                    continue
++                self.introducer_furls.append(introducer_furl)
++           f.close()
++        furl_count = len(self.introducer_furls)
++        #print "@icfg: furls: %d" %furl_count
++        
++        # read furl from tahoe.cfg
++        ifurl = self.get_config("client", "introducer.furl", None)
++        if ifurl and ifurl not in self.introducer_furls: 
++            self.introducer_furls.append(ifurl)
++            f = open(cfg, 'a')
++            f.write(ifurl)
++            f.write('\n')
++            f.close()
++            if furl_count > 1:
++                self.warn_flag = True
++                self.log("introducers config file modified.")
++                print "Warning! introducers config file modified."
++
++        # create a pool of introducer_clients
++        self.introducer_clients = [] 
++        for introducer_furl in self.introducer_furls:
++            ic = IntroducerClient(self.tub, introducer_furl,
+                               self.nickname,
+                               str(allmydata.__full_version__),
+                               str(self.OLDEST_SUPPORTED_VERSION))
+-        self.introducer_client = ic
++            self.introducer_clients.append(ic)
++        # init introducer_clients as usual      
++        for ic in self.introducer_clients:                    
++            self.init_introducer_client(ic)
++    
++    def init_introducer_client(self, ic):
+         # hold off on starting the IntroducerClient until our tub has been
+         # started, so we'll have a useful address on our RemoteReference, so
+         # that the introducer's status page will show us.
+@@ -275,7 +311,9 @@ class Client(node.Node, pollmixin.PollMixin):
+             furl_file = os.path.join(self.basedir, "private", "storage.furl").encode(get_filesystem_encoding())
+             furl = self.tub.registerReference(ss, furlFile=furl_file)
+             ri_name = RIStorageServer.__remote_name__
+-            self.introducer_client.publish(furl, "storage", ri_name)
++            # Now, publish multiple introducers
++            for ic in self.introducer_clients:
++                ic.publish(furl, "storage", ri_name)           
+         d.addCallback(_publish)
+         d.addErrback(log.err, facility="tahoe.init",
+                      level=log.BAD, umid="aLGBKw")
+@@ -326,7 +364,10 @@ class Client(node.Node, pollmixin.PollMixin):
+         # check to see if we're supposed to use the introducer too
+         if self.get_config("client-server-selection", "use_introducer",
+                            default=True, boolean=True):
+-            sb.use_introducer(self.introducer_client)
++            
++            # Now, use our multiple introducers
++            for ic in self.introducer_clients:
++                sb.use_introducer(ic)    
+ 
+     def get_storage_broker(self):
+         return self.storage_broker
+@@ -339,7 +380,9 @@ class Client(node.Node, pollmixin.PollMixin):
+             sc = StubClient()
+             furl = self.tub.registerReference(sc)
+             ri_name = RIStubClient.__remote_name__
+-            self.introducer_client.publish(furl, "stub_client", ri_name)
++            # Now publish our multiple introducers
++            for ic in self.introducer_clients:
++                ic.publish(furl, "stub_client", ri_name)
+         d = self.when_tub_ready()
+         d.addCallback(_publish)
+         d.addErrback(log.err, facility="tahoe.init",
+@@ -450,12 +493,17 @@ class Client(node.Node, pollmixin.PollMixin):
+ 
+     def get_encoding_parameters(self):
+         return self.DEFAULT_ENCODING_PARAMETERS
+-
++    
++    # In case we configure multiple introducers
+     def connected_to_introducer(self):
+-        if self.introducer_client:
+-            return self.introducer_client.connected_to_introducer()
+-        return False
+-
++        status = []
++        if self.introducer_clients:
++            s = False
++            for ic in self.introducer_clients:
++                s = ic.connected_to_introducer()
++                status.append(s)
++        return status
++    
+     def get_renewal_secret(self): # this will go away
+         return self._secret_holder.get_renewal_secret()
+ 
+diff --git a/src/allmydata/node.py b/src/allmydata/node.py
+index 7f5bf61..90d7cbd 100644
+--- a/src/allmydata/node.py
++++ b/src/allmydata/node.py
+@@ -155,6 +155,10 @@ class Node(service.MultiService):
+             # N.B.: this is in seconds, so use "1800" to get 30min
+             self.tub.setOption("disconnectTimeout", int(disconnect_timeout_s))
+ 
++        http_proxy = self.get_config("node", "http_proxy", "")
++        if http_proxy:
++            self.tub.setOption("http-proxy", http_proxy)
++
+         self.nodeid = b32decode(self.tub.tubID.upper()) # binary format
+         self.write_config("my_nodeid", b32encode(self.nodeid).lower() + "\n")
+         self.short_nodeid = b32encode(self.nodeid).lower()[:8] # ready for printing
+@@ -258,7 +262,11 @@ class Node(service.MultiService):
+ 
+         service.MultiService.startService(self)
+         d = defer.succeed(None)
+-        d.addCallback(lambda res: iputil.get_local_addresses_async())
++        location = self.get_config("node", "tub.location", None)
++        if location == "":
++            d.addCallback(lambda res: ['127.0.0.1'])
++        else:
++            d.addCallback(lambda res: iputil.get_local_addresses_async())
+         d.addCallback(self._setup_tub)
+         def _ready(res):
+             self.log("%s running" % self.NODETYPE)
+@@ -333,6 +341,8 @@ class Node(service.MultiService):
+         base_location = ",".join([ "%s:%d" % (addr, portnum)
+                                    for addr in local_addresses ])
+         location = self.get_config("node", "tub.location", base_location)
++        if location == "":
++            location = base_location
+         self.log("Tub location set to %s" % location)
+         self.tub.setLocation(location)
+ 
+diff --git a/src/allmydata/scripts/create_node.py b/src/allmydata/scripts/create_node.py
+index 774c973..51e3b77 100644
+--- a/src/allmydata/scripts/create_node.py
++++ b/src/allmydata/scripts/create_node.py
+@@ -91,6 +91,7 @@ def write_node_config(c, config):
+         webport = ""
+     c.write("web.port = %s\n" % (webport.encode('utf-8'),))
+     c.write("web.static = public_html\n")
++    c.write("#http_proxy =\n")
+     c.write("#tub.port =\n")
+     c.write("#tub.location = \n")
+     c.write("#log_gatherer.furl =\n")
+diff --git a/src/allmydata/test/test_encodingutil.py b/src/allmydata/test/test_encodingutil.py
+index 17d9549..f49de89 100644
+--- a/src/allmydata/test/test_encodingutil.py
++++ b/src/allmydata/test/test_encodingutil.py
+@@ -212,6 +212,7 @@ class EncodingUtil(ReallyEqualMixin):
+     def test_unicode_platform(self):
+         matrix = {
+           'linux2': False,
++          'linux3': False,
+           'openbsd4': False,
+           'win32':  True,
+           'darwin': True,
+diff --git a/src/allmydata/test/test_multi_introducers.py b/src/allmydata/test/test_multi_introducers.py
+new file mode 100644
+index 0000000..9827b67
+--- /dev/null
++++ b/src/allmydata/test/test_multi_introducers.py
+@@ -0,0 +1,124 @@
++#!/usr/bin/python
++import unittest, os
++from mock import Mock, patch
++
++from allmydata.util.fileutil import write, remove
++from allmydata.client import Client, MULTI_INTRODUCERS_CFG
++from allmydata.scripts.create_node import write_node_config
++from allmydata.web.root import Root
++
++INTRODUCERS_CFG_FURLS=['furl1', 'furl2']
++
++def cfg_setup():        
++    # setup tahoe.cfg and basedir/introducers
++    # create a custom tahoe.cfg
++    c = open(os.path.join("tahoe.cfg"), "w")
++    config = {}
++    write_node_config(c, config)
++    fake_furl = "furl1"
++    c.write("[client]\n")
++    c.write("introducer.furl = %s\n" % fake_furl)        
++    c.close()
++    
++    # create a basedir/introducers
++    write(MULTI_INTRODUCERS_CFG, '\n'.join(INTRODUCERS_CFG_FURLS))
++    
++def cfg_cleanup():
++    # clean-up all cfg files
++    remove("tahoe.cfg") 
++    remove(MULTI_INTRODUCERS_CFG)
++
++class TestRoot(unittest.TestCase):
++    
++    def setUp(self):        
++        cfg_setup()
++        
++    def tearDown(self):
++        cfg_cleanup()
++           
++    @patch('allmydata.web.root.Root')
++    def test_introducer_furls(self, MockRoot):        
++        """Ensure that a client's 'welcome page can fetch all introducer FURLs
++         loaded by the Client"""
++        
++        # mock setup
++        mockctx = Mock()
++        mockdata = Mock()  
++        
++        # get the Client and furl count
++        myclient = Client() 
++        furls = myclient.introducer_furls
++        furl_count = len(furls)    
++
++        # Pass mock value to Root
++        myroot = Root(myclient)
++        
++        # make the call
++        s = myroot.data_introducers(mockctx, mockdata)
++        
++        #assertions: compare return value with preset value
++        self.failUnlessEqual(furl_count, len(s))          
++    
++
++
++class TestClient(unittest.TestCase):
++    def setUp(self):        
++        cfg_setup()
++        
++    def tearDown(self):
++        cfg_cleanup()
++    
++    def test_introducer_count(self):
++        """ Ensure that the Client creates same number of introducer clients 
++        as found in "basedir/introducers" config file. """
++        write(MULTI_INTRODUCERS_CFG, '\n'.join(INTRODUCERS_CFG_FURLS))
++        
++        # get a client and count of introducer_clients
++        myclient = Client()
++        ic_count = len(myclient.introducer_clients)
++        
++        # assertions 
++        self.failUnlessEqual(ic_count, 2)
++    
++    def test_read_introducer_furl_from_tahoecfg(self):
++        """ Ensure that the Client reads the introducer.furl config item from
++        the tahoe.cfg file. """
++        # create a custom tahoe.cfg
++        c = open(os.path.join("tahoe.cfg"), "w")
++        config = {}
++        write_node_config(c, config)
++        fake_furl = "furl1"
++        c.write("[client]\n")
++        c.write("introducer.furl = %s\n" % fake_furl)        
++        c.close()
++
++        # get a client and first introducer_furl
++        myclient = Client()        
++        tahoe_cfg_furl = myclient.introducer_furls[0]
++        
++        # assertions 
++        self.failUnlessEqual(fake_furl, tahoe_cfg_furl)
++        
++    def test_warning(self):
++        """ Ensure that the Client warns user if the the introducer.furl config item from the tahoe.cfg file is copied to "introducers" cfg file """
++        # prepare tahoe.cfg
++        c = open(os.path.join("tahoe.cfg"), "w")
++        config = {}
++        write_node_config(c, config)
++        fake_furl = "furl0"
++        c.write("[client]\n")
++        c.write("introducer.furl = %s\n" % fake_furl)        
++        c.close()
++        
++        # prepare "basedir/introducers"
++        write(MULTI_INTRODUCERS_CFG, '\n'.join(INTRODUCERS_CFG_FURLS))       
++
++        # get a client 
++        myclient = Client()        
++        
++        # assertions: we expect a warning as tahoe_cfg furl is different     
++        self.failUnlessEqual(True, myclient.warn_flag)
++    
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/src/allmydata/test/test_system.py b/src/allmydata/test/test_system.py
+index bf6af09..115a712 100644
+--- a/src/allmydata/test/test_system.py
++++ b/src/allmydata/test/test_system.py
+@@ -1393,7 +1393,7 @@ class SystemTest(SystemTestMixin, RunBinTahoeMixin, unittest.TestCase):
+             self.failUnlessEqual(data, expected_data)
+         d.addCallback(_check)
+         d.addCallback(lambda res: rref.callRemote("speed_test", 1, 200, False))
+-        if sys.platform == "linux2":
++        if sys.platform in ("linux2", "linux3"):
+             d.addCallback(lambda res: rref.callRemote("get_memory_usage"))
+         d.addCallback(lambda res: rref.callRemote("measure_peer_response_time"))
+         return d
+diff --git a/src/allmydata/test/test_web.py b/src/allmydata/test/test_web.py
+index 615429c..3df2472 100644
+--- a/src/allmydata/test/test_web.py
++++ b/src/allmydata/test/test_web.py
+@@ -36,7 +36,7 @@ from allmydata.client import Client, SecretHolder
+ # create a fake uploader/downloader, and a couple of fake dirnodes, then
+ # create a webserver that works against them
+ 
+-timeout = 480 # Most of these take longer than 240 seconds on Francois's arm box.
++timeout = 960 # allmydata.test.test_web.Grid.test_deep_check took longer than 480 seconds on zomp
+ 
+ unknown_rwcap = u"lafs://from_the_future_rw_\u263A".encode('utf-8')
+ unknown_rocap = u"ro.lafs://readonly_from_the_future_ro_\u263A".encode('utf-8')
+@@ -139,13 +139,13 @@ class FakeClient(Client):
+         service.MultiService.__init__(self)
+         self.nodeid = "fake_nodeid"
+         self.nickname = "fake_nickname"
+-        self.introducer_furl = "None"
++        self.introducer_furls = "None"
+         self.stats_provider = FakeStatsProvider()
+         self._secret_holder = SecretHolder("lease secret", "convergence secret")
+         self.helper = None
+         self.convergence = "some random string"
+         self.storage_broker = StorageFarmBroker(None, permute_peers=True)
+-        self.introducer_client = None
++        self.introducer_clients = None
+         self.history = FakeHistory()
+         self.uploader = FakeUploader()
+         self.uploader.setServiceParent(self)
+@@ -4026,7 +4026,7 @@ class Grid(GridTestMixin, WebErrorMixin, ShouldFailMixin, testutil.ReallyEqualMi
+         for shnum, serverid, fn in shares:
+             sf = get_share_file(fn)
+             num_leases = len(list(sf.get_leases()))
+-        lease_counts.append( (fn, num_leases) )
++            lease_counts.append( (fn, num_leases) )
+         return lease_counts
+ 
+     def _assert_leasecount(self, lease_counts, expected):
+diff --git a/src/allmydata/util/iputil.py b/src/allmydata/util/iputil.py
+index f372985..260bfcd 100644
+--- a/src/allmydata/util/iputil.py
++++ b/src/allmydata/util/iputil.py
+@@ -139,6 +139,7 @@ _platform_map = {
+     "linux-i386": "linux", # redhat
+     "linux-ppc": "linux",  # redhat
+     "linux2": "linux",     # debian
++    "linux3": "linux",     # debian
+     "win32": "win32",
+     "irix6-n32": "irix",
+     "irix6-n64": "irix",
+diff --git a/src/allmydata/web/root.py b/src/allmydata/web/root.py
+index 3af15d9..3d91a93 100644
+--- a/src/allmydata/web/root.py
++++ b/src/allmydata/web/root.py
+@@ -217,12 +217,26 @@ class Root(rend.Page):
+ 
+         return ctx.tag[ul]
+ 
+-    def data_introducer_furl(self, ctx, data):
+-        return self.client.introducer_furl
+-    def data_connected_to_introducer(self, ctx, data):
+-        if self.client.connected_to_introducer():
+-            return "yes"
+-        return "no"
++    # In case we configure multiple introducers
++    def data_introducers(self, ctx, data):
++        connection_status = []
++        connection_status = self.client.connected_to_introducer()          
++        s = []
++        furls = self.client.introducer_furls    
++        for furl in furls:
++            if connection_status:
++                i = furls.index(furl)
++                s.append((furl, bool(connection_status[i])))
++        s.sort()
++        return s
++
++    def render_introducers_row(self, ctx, s):
++        (furl, connected) = s
++        status = ("No", "Yes")
++        ctx.fillSlots("introducer_furl", "%s" % (furl))
++        ctx.fillSlots("connected-bool", "%s" % (connected))
++        ctx.fillSlots("connected", "%s" % (status[int(connected)]))
++        return ctx.tag
+ 
+     def data_helper_furl(self, ctx, data):
+         try:
+diff --git a/src/allmydata/web/welcome.xhtml b/src/allmydata/web/welcome.xhtml
+index c2b1d17..15b1a8e 100644
+--- a/src/allmydata/web/welcome.xhtml
++++ b/src/allmydata/web/welcome.xhtml
+@@ -22,7 +22,7 @@
+     <tr><th>Tahoe-LAFS code imported from:</th> <td n:render="string" n:data="import_path" /></tr>
+     <tr><th>Services running:</th> <td n:render="services" /></tr>
+   </table>
+-  
++
+ 
+ </div>
+ 
+@@ -37,16 +37,31 @@
+   <div n:render="download_form" />
+ </div>
+ 
++<h2>Connected Introducer(s)</h2>
++
++<div>
++<table n:render="sequence" n:data="introducers">
++  <tr n:pattern="header">
++    <td>Introducer FURL</td>
++    <td>Connected?</td>
++  </tr>
++  <tr n:pattern="item" n:render="introducers_row">
++    <td><tt><n:slot name="introducer_furl"/></tt></td>
++    <td>
++      <n:slot name="connected"/>
++      <n:attr name="class">service-connected connected-<n:slot name="connected-bool"/></n:attr>
++    </td>
++  </tr>
++  <tr n:pattern="empty"><td>no introducers!</td></tr>
++</table>
++</div>
++
++
++
+ <div class="section" id="grid">
+   <h2>Status of the Storage Grid</h2>
+ 
+   <div>
+-    <n:attr name="class">connected-<n:invisible n:render="string" n:data="connected_to_introducer" /></n:attr>
+-    <div>Introducer: <span class="data-chars" n:render="string" n:data="introducer_furl" /></div>
+-    <div>Connected to introducer?: <span n:render="string" n:data="connected_to_introducer" /></div>
+-  </div>
+-
+-  <div>
+     <n:attr name="class">connected-<n:invisible n:render="string" n:data="connected_to_helper" /></n:attr>
+     <div>Helper: <span n:render="string" n:data="helper_furl" /></div>
+     <div>Connected to helper?: <span n:render="string" n:data="connected_to_helper" /></div>
+-- 
+1.7.9
+
