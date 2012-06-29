@@ -1,0 +1,44 @@
+# Maintainer: Joe Davison <joedavison.davison@gmail.com>
+pkgname=adventuregamestudio-git
+pkgver=20120629
+pkgrel=1
+pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version)"
+arch=('i686' 'x86_64')
+url="http://www.adventuregamestudio.co.uk/"
+license=('Custom')
+depends=('libogg' 'libvorbis' 'libtheora' 'dumb' 'alfont' 'allegro4')
+makedepends=('git')
+provides=('adventuregamestudio')
+conflicts=('sadventuregamestudio')
+
+_gitroot="https://github.com/adventuregamestudio/ags.git"
+_gitname="ags"
+_gitbranch="64bit"
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to GIT server...."
+
+  if [ -d $_gitname ] ; then
+    cd $_gitname && git pull origin
+    msg "The local files are updated."
+  else
+    git clone --branch $_gitbranch $_gitroot $_gitname
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
+
+  rm -rf "$srcdir/$_gitname-build"
+  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
+
+  make --directory=Engine --file=Makefile.linux || return 1
+}
+
+package() {
+  cd "$srcdir/$_gitname-build"
+
+  mkdir -p $pkgdir/usr/bin
+  install -D -m 755 Engine/ags $pkgdir/usr/bin
+} 
