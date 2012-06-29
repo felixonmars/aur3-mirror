@@ -8,6 +8,7 @@ arch=('any')
 url="https://developers.google.com/tv/android/docs/gtv_addon"
 license=('custom')
 depends=('android-platform-12')
+options=('!strip')
 source=("http://dl-ssl.google.com/android/repository/google_tv-12_r02.zip")
 sha1sums=('92128a12e7e8b0fb5bac59153d7779b717e7b840')
 

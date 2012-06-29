@@ -1,5 +1,4 @@
 # Maintainer: Jakub Schmidtke <sjakub-at-gmail-dot-com>
-# Contributor: Iwan Gabovitch <qubodup@gmail.com>
 
 pkgname=android-platform-16
 pkgver=4.1_r01

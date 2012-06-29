@@ -8,6 +8,7 @@ arch=('any')
 url="http://developer.android.com/sdk/index.html"
 license=('custom')
 depends=('android-sdk')
+options=('!strip')
 source=("http://dl-ssl.google.com/android/repository/android-${pkgver}-linux.zip")
 sha1sums=('4a50a6679cd95bb68bb5fc032e754cd7c5e2b1bf')
 

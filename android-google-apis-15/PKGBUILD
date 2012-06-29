@@ -8,6 +8,7 @@ arch=('any')
 url="http://code.google.com/android/add-ons/google-apis"
 license=('custom')
 depends=('android-platform-15')
+options=('!strip')
 source=("http://dl-ssl.google.com/android/repository/google_apis-15_r02.zip")
 sha1sums=('6757c12788da0ea00c2ab58e54cb438b9f2bcf66')
 
