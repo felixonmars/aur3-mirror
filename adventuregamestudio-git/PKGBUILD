@@ -1,13 +1,16 @@
 # Maintainer: Joe Davison <joedavison.davison@gmail.com>
 pkgname=adventuregamestudio-git
-pkgver=20120629
+pkgver=20120630
 pkgrel=1
-pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version)"
+pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version, 64bit branch)"
 arch=('i686' 'x86_64')
 url="http://www.adventuregamestudio.co.uk/"
 license=('Custom')
-depends=('libogg' 'libvorbis' 'libtheora' 'dumb' 'alfont' 'allegro4')
+depends=('libogg' 'libvorbis' 'libtheora' 'dumb' 'freetype2' 'allegro4')
 makedepends=('git')
+install=ags-git.install
+source=('ags-git.install')
+md5sums=('fc9706e4e3636d7e789be40480a5fdc0')
 provides=('adventuregamestudio')
 conflicts=('sadventuregamestudio')
 
