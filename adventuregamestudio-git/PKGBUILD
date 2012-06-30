@@ -2,7 +2,7 @@
 pkgname=adventuregamestudio-git
 pkgver=20120630
 pkgrel=1
-pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version, 64bit branch)"
+pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version)"
 arch=('i686' 'x86_64')
 url="http://www.adventuregamestudio.co.uk/"
 license=('Custom')
@@ -16,7 +16,13 @@ conflicts=('sadventuregamestudio')
 
 _gitroot="https://github.com/adventuregamestudio/ags.git"
 _gitname="ags"
-_gitbranch="64bit"
+
+if [ "$CARCH" = "x86_64" ]; then
+	_gitbranch="64bit"
+
+elif [ "$CARCH" = "i686" ]; then
+	_gitbranch="main"
+fi
 
 build() {
   cd "$srcdir"
