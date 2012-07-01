@@ -1,21 +1,33 @@
 include Make.inc
 
-all: libatlas.so libf77blas.so libcblas.so libblas.so liblapack.so.3.4.0
+all: libatlas.so libf77blas.so libptf77blas.so libstcblas.so libptcblas.so \
+   libblas.so libcblas.so liblapack.so.3.4.0
 
 
 libatlas.so: libatlas.a
 	ld $(LDFLAGS) -shared -soname $@ -o $@ --whole-archive libatlas.a \
 	   --no-whole-archive -lc $(LIBS)
 
-libf77blas.so : libptf77blas.a libatlas.so
+libf77blas.so : libf77blas.a libatlas.so
+	ld $(LDFLAGS) -shared -soname libf77blas.so.3 -o $@ --whole-archive \
+	   libf77blas.a --no-whole-archive $(F77SYSLIB) -L. -latlas
+
+libptf77blas.so : libptf77blas.a libatlas.so
 	ld $(LDFLAGS) -shared -soname libblas.so.3 -o $@ --whole-archive \
 	   libptf77blas.a --no-whole-archive $(F77SYSLIB) -L. -latlas
 
-libcblas.so : libptcblas.a libatlas.so
+libstcblas.so : libcblas.a libatlas.so
+	ld $(LDFLAGS) -shared -soname libstcblas.so -o $@ --whole-archive \
+	   libcblas.a -L. -latlas
+
+libptcblas.so : libptcblas.a libatlas.so
 	ld $(LDFLAGS) -shared -soname libcblas.so -o $@ --whole-archive \
 	   libptcblas.a -L. -latlas
 
-libblas.so: libf77blas.so
+libblas.so: libptf77blas.so
+	ln -s $< $@
+
+libcblas.so: libptcblas.so
 	ln -s $< $@
 
 liblapack.so.3.4.0 : liblapack.a libcblas.so libblas.so
