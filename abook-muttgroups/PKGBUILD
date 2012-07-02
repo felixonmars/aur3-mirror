@@ -6,9 +6,9 @@
 # Contributor: Fabio Zanini <fabio.zanini@fastmail.fm>
 
 pkgname=abook-muttgroups
-pkgver=20120415
+pkgver=20120702
 pkgrel=1
-pkgdesc='abook clone with mutt group, merge, delete duplicates, mouse and color support'
+pkgdesc='abook clone with vcard, mutt groups, merge, delete duplicates, mouse and color support'
 arch=('i686' 'x86_64')
 url='https://gitorious.org/abook/abook'
 license=('GPL2')
@@ -24,10 +24,10 @@ build() {
 	msg "Connecting to the GIT server...."
 
 	if [ -d ${srcdir}/${_gitname} ] ; then
-		cd ${_gitname} && git checkout mouse_color && git pull origin
+		cd ${_gitname} && git pull origin
 		msg "The local files are updated."
 	else
-	git clone -b mouse_color ${_gitroot}
+	git clone -b master ${_gitroot}
 	fi
 
 	cd ${srcdir}/${_gitname}
