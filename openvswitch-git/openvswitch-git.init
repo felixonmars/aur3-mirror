@@ -1,13 +1,14 @@
 #!/bin/bash
+# vim: ft=sh ts=4 sw=4 et fdm=marker
+
+# This file is more readable if you use vim and foldmethod is set to 'marker'.
 
 . /etc/rc.conf
+. /etc/conf.d/openvswitch
 . /etc/rc.d/functions
 
-OVS_DB_PID_FILE=/var/run/openvswitch/ovsdb-server.pid
-OVS_VS_PID_FILE=/var/run/openvswitch/ovs-vswitchd.pid
-OVS_BC_PID_FILE=/var/run/openvswitch/ovs-brcompatd.pid
-
 handle_modules() {
+    # Module check and load script {{{
     local i kernversion kver loaded=0 moderr action modules
 
     # This function checks which openvswitch modules should be used on
@@ -26,8 +27,10 @@ handle_modules() {
     #    it also has a separately built openvswitch module, built by dkms or
     #    from git, and henceforth maybe also the brcompat module exists for
     #    this kernel;
-    # 3) It runs kernel < 3.3 and already has the openvswitch_mod and
-    #     brcompat_mod modules built by the openvswitch(-git) dkms routine;
+    # 3) It runs kernel < 3.3 and already has the openvswitch (and brcompat)
+    #    modules built by a recent openvswitch version;
+    # 4) It runs kernel < 3.3 and already has the older openvswitch_mod and
+    #     brcompat_mod modules built by an older openvswitch(-git) dkms routine;
     # 4) it has kernel < 3.3 but no modules yet;
     # 5) any other option.
 
@@ -53,11 +56,14 @@ handle_modules() {
 
     # Maybe we can do something with the value in $loaded depending on $1
     # Value  Means
-    #   0    Nothing is loaded, try to load both, this is where we use $kver;
-    #   1    Only openvswitch_mod is loaded - try to load brcompat_mod or set moderr=2;
+    #   0    Nothing is loaded, try to load openvswitch and if BRCOMPAT=YES
+    #        brcompat too, this is where we use $kver;
+    #   1    Only openvswitch_mod is loaded - if BRCOMPAT=YES then try to load
+    #        brcompat_mod or set moderr=2;
     #   2    Only brcompat_mod is loaded - this should never happen - return 254.
     #   3    openvswitch_mod and brcompat_mod are already loaded, return 0;
-    #   4    Only openvswitch is loaded - try to load brcompat or set moderr=8;
+    #   4    Only openvswitch is loaded - if BRCOMPAT=YES then try to load
+    #        brcompat or set moderr=8;
     #   8    Only brcompat is loaded - this should never happen - return 254.
     #  12    openvswitch and brcompat are both loaded, return 0.
     # other  Something odd is going on, return 255
@@ -74,32 +80,41 @@ handle_modules() {
             elif [[ ${kver} == 2.6* ]] || \
               [[ ${kver:0:1} == "3" && ${kver:2:1} -le 2 ]] ; then
 
-                # this is kernel 2.6 or =< 3.2
-
-                if ! modprobe openvswitch_mod &>/dev/null; then
-                    # could not load openvswitch_mod; bail
-                    moderr=1
-                elif ! modprobe brcompat_mod &>/dev/null; then
-                    # could not load brcompat_mod; bail
-                    moderr=2
+                # this is kernel 2.6 or =< 3.2, the module names have _mod on
+                # older versions. Nothing is loaded so we need to check which
+                # can be loaded.
+                if modprobe -q openvswitch; then
+                    if [[ ${BRCOMPAT} == "YES" ]]; then
+                        modprobe -q brcompat || moderr=8
+                    else
+                        return 0
+                    fi
+                elif modprobe -q openswitch_mod; then
+                    if [[ ${BRCOMPAT} == "YES" ]]; then
+                        modprobe -q brcompat_mod || moderr=2
+                    else
+                        return 0
+                    fi
                 else
-                    # if we didn't fail, we're done.
-                    return 0
+                    # openvswitch and openvswitch_mod couldn't be loaded so
+                    # we can assume they do not exist.
+                    moderr=4
                 fi
 
             elif [[ ${kver:0:1} == "3" && ${kver:2:1} -ge 3 ]]; then
 
-                # This is kernel 3.3 or higher
+                # This is kernel 3.3 or higher, the module names must be
+                # openvswitch.
 
-                if ! modprobe openvswitch &>/dev/null; then
+                if modprobe -q openvswitch; then
+                    if [[ ${BRCOMPAT} == "YES" ]]; then
+                        modprobe -q brcompat || moderr=8
+                    else
+                        return 0
+                    fi
+                else
                     # could not load openvswitch; bail
                     moderr=4
-                elif ! modprobe brcompat &>/dev/null; then
-                    # could not load brcompat; bail
-                    moderr=8
-                else
-                    # if we didn't fail, we're done.
-                    return 0
                 fi
             else
                 moderr=255
@@ -109,13 +124,13 @@ handle_modules() {
 
 
         1)    if [[ $1 == "load" ]]; then
-                  if modprobe brcompat_mod &>/dev/null; then
+                  if [[ ${BRCOMPAT} == "YES" ]] && modprobe -q brcompat_mod; then
                       return 0
                   else
                       moderr=2
                   fi
               elif [[ $1 == "unload" ]] ;then
-                  if rmmod openvswitch_mod &>/dev/null; then
+                  if rmmod -q openvswitch_mod; then
                       return 0
                   else
                       moderr=1
@@ -123,14 +138,15 @@ handle_modules() {
               fi
               ;;
 
-        4)    if [[ $1 == "load" ]]; then
-                  if modprobe brcompat &>/dev/null; then
+        4)    [[ ${BRCOMPAT} != "YES" ]] && return 0
+              if [[ $1 == "load" ]]; then
+                  if modprobe -q brcompat; then
                       return 0
                   else
                       moderr=8
                   fi
               elif [[ $1 == "unload" ]]; then
-                  if rmmod openvswitch &>/dev/null; then
+                  if rmmod -q openvswitch; then
                       return 0
                   else
                       moderr=4
@@ -141,17 +157,17 @@ handle_modules() {
         3|12) if [[ $1 == "load" ]]; then
                   return 0
               elif [[ $1 == "unload" && $loaded == 3 ]]; then
-                  if ! rmmod brcompat_mod &>/dev/null; then
+                  if ! rmmod -q brcompat_mod; then
                       moderr=2
-                  elif ! rmmod openvswitch_mod &>/dev/null; then
+                  elif ! rmmod -q openvswitch_mod; then
                       moderr=1
                   else
                       return 0
                   fi
               elif [[ $1 == "unload" && $loaded == 12 ]]; then
-                  if ! rmmod brcompat &>/dev/null; then
+                  if ! rmmod -q brcompat; then
                       moderr=8
-                  elif ! rmmod openvswitch &>/dev/null; then
+                  elif ! rmmod -q openvswitch; then
                       moderr=4
                   else
                       return 0
@@ -176,15 +192,29 @@ handle_modules() {
     esac
     stat_append ' - bailing!'
     stat_die
-}
+}  # }}}
+
+handle_dkms() {
+    # dkms routine  {{{
+    case $1 in
+        install)
+            dkms add -m openvswitch -v $2; dkms build -m openvswitch -v $2; dkms install -m openvswitch -v $2 -k $(uname -r) ;;
+        remove)
+            dkms uninstall -m openvswitch -v $2; dkms remove -m openvswitch/${2} -k $(uname -r) ;;
+        remove_all)
+            dkms uninstall -m openvswitch -v $2; dkms remove -m openvswitch/${2} --all ;;
+    esac
+}  # }}}
 
 case "$1" in
-  start)
+  start)  # {{{
     stat_busy "Loading openvswitch kernel modules"
     handle_modules load
     stat_done
 
     [[ ! -d /var/run/openvswitch ]] && mkdir /var/run/openvswitch
+    [[ ${DEL_BEFORE_START} == "YES" ]] && rm /etc/openvswitch/*
+    [[ ! -f /etc/openvswitch/ovs-vswitchd.conf.db ]] && ovsdb-tool create /etc/openvswitch/ovs-vswitchd.conf.db /usr/share/openvswitch/vswitch.ovsschema
 
     stat_busy "Starting OpenVSwitch DB server"
     /usr/sbin/ovsdb-server /etc/openvswitch/ovs-vswitchd.conf.db \
@@ -195,75 +225,102 @@ case "$1" in
       --bootstrap-ca-cert=db:SSL,ca_cert \
       --pidfile=${OVS_DB_PID_FILE} \
       --detach
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
-      stat_done
-    fi
+    (( $? )) && stat_fail || stat_done
 
     stat_busy "Starting openvswitch daemon"
     /usr/sbin/ovs-vswitchd unix:/var/run/openvswitch/db.sock \
       --pidfile=${OVS_VS_PID_FILE} \
       --detach \
       --monitor
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
-      stat_done
-    fi
+    (( $? )) && stat_fail || stat_done
 
-    stat_busy "Starting openvswitch bridge compatibility"
-    ovs-brcompatd --pidfile=${OVS_BC_PID_FILE} --detach
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
-      stat_done
+    if [[ ${BRCOMPAT} == "YES" ]]; then
+      stat_busy "Starting openvswitch bridge compatibility"
+      ovs-brcompatd --pidfile=${OVS_BC_PID_FILE} --detach
+      (( $? )) && stat_fail || stat_done
     fi
 
     chgrp ovs /var/run/openvswitch/*
     chmod g+rw /var/run/openvswitch/*
 
     add_daemon openvswitch
-    ;;
-  stop)
-    stat_busy "Stopping openvswitch bridge compatibility"
-    kill $(< ${OVS_BC_PID_FILE}) &> /dev/null
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
-      stat_done
+    ;;  # }}}
+  stop)  # {{{
+    if [[ ${BRCOMPAT} == "YES" ]]; then
+      stat_busy "Stopping openvswitch bridge compatibility"
+      kill $(< ${OVS_BC_PID_FILE}) &> /dev/null
+      (( $? )) && stat_fail || stat_done
+      rm ${OVS_BC_PID_FILE} &> /dev/null
     fi
-    rm ${OVS_BC_PID_FILE} &> /dev/null
 
     stat_busy "Stopping openvswitch daemon"
     kill $(< ${OVS_VS_PID_FILE}) &> /dev/null
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
-      stat_done
-    fi
+    (( $? )) && stat_fail || stat_done
     rm ${OVS_VS_PID_FILE} &> /dev/null
 
     stat_busy "Stopping openvswitch DB server"
     kill $(< ${OVS_DB_PID_FILE}) &> /dev/null
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
-      stat_done
-    fi
+    (( $? )) && stat_fail || stat_done
     rm_daemon openvswitch
 
     stat_busy "Unloading openvswitch kernel modules"
     handle_modules unload
     stat_done
-    ;;
-  restart)
+
+    [[ ${DEL_AFTER_STOP} == "YES" ]] && rm /etc/openvswitch/*
+
+    ;;  # }}}
+  restart)  # {{{
     $0 stop
     sleep 1
     $0 start
-    ;;
-    *)
-    echo "usage: $0 {start|stop|restart}"
+    ;;  # }}}
+  install|remove|remove_all)  # {{{
+    if [[ ! -x /usr/sbin/dkms ]]; then
+        stat_busy 'Error: dkms must be installed to use these functions.'
+        stat_die
+    fi
+
+    if [[ -z $2 ]]; then
+        # No version was passed. Count how many directories match a wildcard
+        # search.
+        _srcdircount=$(ls -1d /usr/src/openvswitch* 2>/dev/null | wc -l)
+
+        if (( _srcdircount == 1 )); then
+            # There is one directory matching the wildcard search.
+            # Extract the version and pass that to handle_dkms
+            _ovsver=$(basename /usr/src/openvswitch*)
+            _ovsver=${_ovsver#*-}
+            handle_dkms $1 $_ovsver
+
+        elif (( _srcdircount > 1 )); then
+            # More than one directory matches the wildcard search.
+
+            # The user has to be told to pass the appropriate version to this script
+            # This looks pretty ugly but I trust it won't be visible often anyway.
+            stat_busy "Error: found multiple /usr/src/openvswitch* directories."
+            stat_append "Please build by running $0 $1 [version]"
+            stat_append "(where [version] is the number that comes after openvswich-)"
+            stat_die
+
+        else
+            stat_busy "Error: no suitable directory /usr/src/openvswitch* found!"
+            stat_append "Maybe you need to reinstall the package?"
+            stat_die
+        fi
+    else
+        if [[ -d /usr/src/openvswitch-${2} ]]; then
+            handle_dkms $1 $2
+        else
+            stat_busy "Error: could not find /usr/src/openvswitch-${2}"
+            stat_die
+        fi
+    fi
+
+    ;;  # }}}
+    *)  # {{{
+    echo "usage: $0 {start|stop|restart|install|remove|remove_all}"
+    ;;  # }}}
 esac
 exit 0
 
