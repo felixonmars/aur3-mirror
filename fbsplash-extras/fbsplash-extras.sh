@@ -20,7 +20,7 @@
 . /etc/conf.d/splash
 . /etc/conf.d/splash-extras
 
-. /sbin/fbsplash-control-functions.bash
+. fbsplash-control-functions.bash
 
 stat_busy() {
 	printf "${C_OTHER}${PREFIX_REG} ${C_MAIN}${1}${C_CLEAR} "
@@ -233,29 +233,23 @@ in /etc/rc.sysinit )
 	add_hook shutdown_prekillall \
 	  splash_shutdown_prekillall
 	  splash_shutdown_prekillall() {
-		# Currently we don't have shutdown_preumount and don't want to store         ## FIXME ##
+		# We don't want to store
 		# SIGTERM/SIGKILL times, which may vary depending on programs actually running,
 		# as the last two (SIGTERM takes full 5 seconds if no response from some process)
 		splash_control store
 		splash_svc stop _misc
 	}
-	add_hook shutdown_postkillall \
-	  splash_shutdown_postkillall
-	  splash_shutdown_postkillall() {
-		splash_svc stop _filesystems
-	}
 	# Shutdown filesystem check (custom) progress
 	add_hook shutdown_prefsck  splash_prefsck
 	add_hook shutdown_postfsck splash_postfsck
 
-	add_hook shutdown_postumount \
-	  splash_shutdown_postumount
-	  splash_shutdown_postumount() {
-		splash_svc stop _volumes
-	}
-	add_hook shutdown_poweroff \
-	  splash_shutdown_poweroff
-	  splash_shutdown_poweroff() {
+	# Need to stop on preumount to avoid umount failure because of the tmpfs
+	# so these can't be done:
+	#	splash_svc stop _filesystems
+	#	splash_svc stop _volumes
+	add_hook shutdown_preumount \
+	  splash_shutdown_preumount
+	  splash_shutdown_preumount() {
 		splash_svc
 		fbsplash-controld stop
 	}
@@ -365,7 +359,7 @@ splash_postfsck() {
 }
 
 # Function for preparing a cache (faking sysinit) for adding contents to an initrd
-# Note: This is called from /lib/initcpio/install/fbsplash (after sourcing splash stuff)
+# Note: This is called from /usr/lib/initcpio/install/fbsplash (after sourcing splash stuff)
 splash_cache_prep_initcpio() {
 	SPLASH_MODE_REQ="silent"
 	SPLASH_PROFILE="off"
