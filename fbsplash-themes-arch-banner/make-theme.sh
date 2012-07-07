@@ -14,7 +14,7 @@ arg_names=(
 	flavour style color verbose_flavour
 	icon_size
 	font_file font_size
-	lib_dir
+	share_dir
 	version url theme_license
 )
 
@@ -258,7 +258,7 @@ svc_format+='\n'
 add_link() {
 	[[ -h $1 ]] && return 0
 	#check_file "$1"
-	ln -sT ${lib_dir}/"$1" "$1"
+	ln -sT ${share_dir}/"$1" "$1"
 }
 
 # args: <prefix> <file> [<arg>...]
