@@ -1,7 +1,7 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=acpi_call-git
-pkgver=20120222
+pkgver=20120708
 pkgrel=1
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
@@ -62,7 +62,7 @@ package() {
     make KDIR=/usr/src/linux-${_kernver} clean
     make KDIR=/usr/src/linux-${_kernver}
 
-    install -D -m644 acpi_call.ko ${pkgdir}/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
+    install -D -m644 acpi_call.ko ${pkgdir}/usr/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
 
   done
 }
