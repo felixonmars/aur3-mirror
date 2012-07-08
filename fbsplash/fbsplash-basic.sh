@@ -95,7 +95,7 @@ case $0 in /etc/rc.sysinit )
 				fi
 			fi
 			# Now do setfont
-			set_consolefont
+			/usr/lib/systemd/systemd-vconsole-setup
 			# Umount the tmpfs
 			splash_cache_cleanup
 		fi
