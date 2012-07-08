@@ -1,40 +1,6 @@
-diff --git a/dlls/winex11.drv/xinerama.c b/dlls/winex11.drv/xinerama.c
-index b2014ed..84db8ba 100644
---- a/dlls/winex11.drv/xinerama.c
-+++ b/dlls/winex11.drv/xinerama.c
-@@ -177,6 +177,7 @@ void xinerama_init( unsigned int width, unsigned int height )
-     }
- 
-     primary = get_primary();
-+    SetRectEmpty( &virtual_screen_rect );
- 
-     /* coordinates (0,0) have to point to the primary monitor origin */
-     OffsetRect( &rect, -primary->rcMonitor.left, -primary->rcMonitor.top );
-@@ -184,17 +185,17 @@ void xinerama_init( unsigned int width, unsigned int height )
-     {
-         OffsetRect( &monitors[i].rcMonitor, rect.left, rect.top );
-         OffsetRect( &monitors[i].rcWork, rect.left, rect.top );
-+        UnionRect( &virtual_screen_rect, &virtual_screen_rect, &monitors[i].rcMonitor );
-         TRACE( "monitor %p: %s work %s%s\n",
-                index_to_monitor(i), wine_dbgstr_rect(&monitors[i].rcMonitor),
-                wine_dbgstr_rect(&monitors[i].rcWork),
-                (monitors[i].dwFlags & MONITORINFOF_PRIMARY) ? " (primary)" : "" );
-     }
- 
--    virtual_screen_rect = rect;
-     screen_width = primary->rcMonitor.right - primary->rcMonitor.left;
-     screen_height = primary->rcMonitor.bottom - primary->rcMonitor.top;
-     TRACE( "virtual size: %s primary size: %dx%d\n",
--           wine_dbgstr_rect(&rect), screen_width, screen_height );
-+           wine_dbgstr_rect(&virtual_screen_rect), screen_width, screen_height );
- 
-     wine_tsx11_unlock();
- }
-diff --git a/dlls/winex11.drv/xrandr.c b/dlls/winex11.drv/xrandr.c
-index 0aea463..add332c 100644
---- a/dlls/winex11.drv/xrandr.c
-+++ b/dlls/winex11.drv/xrandr.c
-@@ -20,207 +20,124 @@
+--- a/dlls/winex11.drv/xrandr.c	2012-07-03 14:02:41.000000000 -0500
++++ b/dlls/winex11.drv/xrandr.c	2012-07-06 22:54:18.763762662 -0500
+@@ -20,206 +20,122 @@
  
  #include "config.h"
  #include "wine/port.h"
@@ -52,7 +18,6 @@ index 0aea463..add332c 100644
 -#include "windef.h"
 -#include "winbase.h"
 -#include "wingdi.h"
--#include "ddrawi.h"
 +#include "x11drv.h"
  #include "wine/library.h"
  #include "wine/debug.h"
@@ -85,7 +50,7 @@ index 0aea463..add332c 100644
  
 -static int xrandr_event, xrandr_error, xrandr_major, xrandr_minor;
 -
- static LPDDHALMODEINFO dd_modes;
+ static struct x11drv_mode_info *dd_modes;
  static unsigned int dd_mode_count;
 -static XRRScreenSize *real_xrandr_sizes;
 -static short **real_xrandr_rates;
@@ -166,9 +131,9 @@ index 0aea463..add332c 100644
 -                X11DRV_Settings_AddOneMode(real_xrandr_sizes[i].width, 
 -                                           real_xrandr_sizes[i].height, 
 -                                           0, real_xrandr_rates[i][j]);
-+                if (dd_modes[j].dwWidth == mode->width
-+                        && dd_modes[j].dwHeight == mode->height
-+                        && dd_modes[j].wRefreshRate == refresh)
++                if (dd_modes[j].width == mode->width
++                        && dd_modes[j].height == mode->height
++                        && dd_modes[j].refresh_rate == refresh)
 +                {
 +                    ret = j;
 +                    break;
@@ -180,7 +145,6 @@ index 0aea463..add332c 100644
 -            X11DRV_Settings_AddOneMode(real_xrandr_sizes[i].width, 
 -                                       real_xrandr_sizes[i].height, 
 -                                       0, 0);
-+
 +            break;
          }
      }
@@ -207,9 +171,9 @@ index 0aea463..add332c 100644
      wine_tsx11_unlock();
 -    for (i = 0; i < real_xrandr_modes_count; i++)
 -    {
--        if ( (dd_modes[i].dwWidth      == real_xrandr_sizes[size].width ) &&
--             (dd_modes[i].dwHeight     == real_xrandr_sizes[size].height) &&
--             (dd_modes[i].wRefreshRate == rate                          ) )
+-        if ( (dd_modes[i].width        == real_xrandr_sizes[size].width ) &&
+-             (dd_modes[i].height       == real_xrandr_sizes[size].height) &&
+-             (dd_modes[i].refresh_rate == rate                          ) )
 -          {
 -              res = i;
 -              break;
@@ -225,7 +189,6 @@ index 0aea463..add332c 100644
 +        ret = 0;
      }
 -    return res;
-+
 +    return ret;
  }
  
@@ -250,37 +213,40 @@ index 0aea463..add332c 100644
 -    sc = pXRRGetScreenInfo (gdi_display, root);
 -    size = pXRRConfigCurrentConfiguration (sc, &rot);
 -    mode = mode%real_xrandr_modes_count;
+-
+-    TRACE("Changing Resolution to %dx%d @%d Hz\n",
+-          dd_modes[mode].width,
+-          dd_modes[mode].height,
+-          dd_modes[mode].refresh_rate);
+-
+-    for (i = 0; i < real_xrandr_sizes_count; i++)
+-    {
+-        if ( (dd_modes[mode].width  == real_xrandr_sizes[i].width ) &&
+-             (dd_modes[mode].height == real_xrandr_sizes[i].height) )
 +    resources = pXRRGetScreenResourcesCurrent( gdi_display, root_window );
 +    if (!resources->ncrtc)
 +        ERR("No CRTCs.\n");
- 
--    TRACE("Changing Resolution to %dx%d @%d Hz\n", 
--	  dd_modes[mode].dwWidth, 
--	  dd_modes[mode].dwHeight, 
--	  dd_modes[mode].wRefreshRate);
++
 +    crtc_info = pXRRGetCrtcInfo( gdi_display, resources, resources->crtcs[0]);
 +    if (!crtc_info->noutput)
 +        ERR("No outputs.\n");
- 
--    for (i = 0; i < real_xrandr_sizes_count; i++)
++
 +    for (i = 0; i < resources->nmode; ++i)
-     {
--        if ( (dd_modes[mode].dwWidth  == real_xrandr_sizes[i].width ) && 
--             (dd_modes[mode].dwHeight == real_xrandr_sizes[i].height) )
-+        if (dd_modes[mode].dwWidth == resources->modes[i].width
-+                && dd_modes[mode].dwHeight == resources->modes[i].height
-+                && dd_modes[mode].wRefreshRate == xrandr_refresh_rate( &resources->modes[i] ))
++    {
++        if (dd_modes[mode].width == resources->modes[i].width
++                && dd_modes[mode].height == resources->modes[i].height
++                && dd_modes[mode].refresh_rate == xrandr_refresh_rate( &resources->modes[i] ))
          {
 -            size = i;
 -            if (real_xrandr_rates_count[i])
 -            {
 -                for (j=0; j < real_xrandr_rates_count[i]; j++)
 -                {
--                    if (dd_modes[mode].wRefreshRate == real_xrandr_rates[i][j])
+-                    if (dd_modes[mode].refresh_rate == real_xrandr_rates[i][j])
 -                    {
 -                        rate = real_xrandr_rates[i][j];
--                        TRACE("Resizing X display to %dx%d @%d Hz\n", 
--                              dd_modes[mode].dwWidth, dd_modes[mode].dwHeight, rate);
+-                        TRACE("Resizing X display to %dx%d @%d Hz\n",
+-                              dd_modes[mode].width, dd_modes[mode].height, rate);
 -                        stat = pXRRSetScreenConfigAndRate (gdi_display, sc, root, 
 -                                                          size, rot, rate, CurrentTime);
 -                        break;
@@ -289,8 +255,8 @@ index 0aea463..add332c 100644
 -            }
 -            else
 -            {
--                TRACE("Resizing X display to %dx%d <default Hz>\n", 
--		      dd_modes[mode].dwWidth, dd_modes[mode].dwHeight);
+-                TRACE("Resizing X display to %dx%d <default Hz>\n",
+-                      dd_modes[mode].width, dd_modes[mode].height);
 -                stat = pXRRSetScreenConfig (gdi_display, sc, root, size, rot, CurrentTime);
 -            }
 +            status = pXRRSetCrtcConfig( gdi_display, resources, resources->crtcs[0],
@@ -308,9 +274,9 @@ index 0aea463..add332c 100644
 +
 +    if (status == RRSetConfigSuccess)
      {
-         X11DRV_resize_desktop( dd_modes[mode].dwWidth, dd_modes[mode].dwHeight );
+         X11DRV_resize_desktop( dd_modes[mode].width, dd_modes[mode].height );
          return DISP_CHANGE_SUCCESSFUL;
-@@ -230,74 +147,107 @@ static LONG X11DRV_XRandR_SetCurrentMode(int mode)
+@@ -229,74 +145,107 @@
      return DISP_CHANGE_FAILED;
  }
  
@@ -331,6 +297,20 @@ index 0aea463..add332c 100644
 +    resources = pXRRGetScreenResourcesCurrent( gdi_display, root_window );
 +    if (!resources->ncrtc)
 +        ERR("No CRTCs.\n");
++
++    crtc_info = pXRRGetCrtcInfo( gdi_display, resources, resources->crtcs[0]);
++    if (!crtc_info->noutput)
++        ERR("No outputs.\n");
++
++    output_info = pXRRGetOutputInfo( gdi_display, resources, crtc_info->outputs[0] );
++    if (!output_info->nmode)
++        ERR("Output has no modes.\n");
++
++    dd_mode_count = output_info->nmode;
++    dd_modes = X11DRV_Settings_SetHandlers( "XRandR 1.2",
++            xrandr_get_current_mode,
++            xrandr_set_current_mode,
++            dd_mode_count, 1 );
  
 -    /* see if Xrandr is available */
 -    wine_tsx11_lock();
@@ -349,20 +329,6 @@ index 0aea463..add332c 100644
 -        ok = (real_xrandr_sizes_count>0);
 -    }
 -    if (ok)
-+    crtc_info = pXRRGetCrtcInfo( gdi_display, resources, resources->crtcs[0]);
-+    if (!crtc_info->noutput)
-+        ERR("No outputs.\n");
-+
-+    output_info = pXRRGetOutputInfo( gdi_display, resources, crtc_info->outputs[0] );
-+    if (!output_info->nmode)
-+        ERR("Output has no modes.\n");
-+
-+    dd_mode_count = output_info->nmode;
-+    dd_modes = X11DRV_Settings_SetHandlers( "XRandR 1.2",
-+            xrandr_get_current_mode,
-+            xrandr_set_current_mode,
-+            dd_mode_count, 1 );
-+
 +    for (i = 0; i < output_info->nmode; ++i)
      {
 -        TRACE("XRandR: found %u resolutions sizes\n", real_xrandr_sizes_count);
@@ -398,10 +364,10 @@ index 0aea463..add332c 100644
      }
 -    wine_tsx11_unlock();
 -    if (!ok) return;
- 
+-
 -    real_xrandr_modes_count = nmodes;
 -    TRACE("XRandR modes: count=%d\n", nmodes);
--
+ 
 -    dd_modes = X11DRV_Settings_SetHandlers("XRandR", 
 -                                           X11DRV_XRandR_GetCurrentMode, 
 -                                           X11DRV_XRandR_SetCurrentMode, 
