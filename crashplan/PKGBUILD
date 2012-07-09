@@ -2,7 +2,7 @@
 # Contributor: Bill Durr <billyburly [at] gmail [dot] com>
 pkgname=crashplan
 pkgver=3.2.1
-pkgrel=2
+pkgrel=3
 pkgdesc="an online/offsite backup solution"
 url="http://www.crashplan.com"
 arch=('i686' 'x86_64')
@@ -20,28 +20,11 @@ build() {
   cd $srcdir/CrashPlan-install
 
   echo ""
-  echo "You must review and agree to the EULA before installation."
+  echo "You must review and agree to the EULA before using Crashplan."
+  echo "You can do so at:"
+  echo "  - http://support.crashplan.com/doku.php/eula"
+  echo "  - /usr/share/licenses/${pkgname}/LICENSE"
   echo ""
-  echo -n "Press enter to read the EULA. "
-  read ENTER
-
-  more EULA.txt
-
-  agreed=0
-  while [ "${agreed}" == "0" ] ; do
-    echo ""
-    echo -n "Do you accept and agree to be bound by the EULA? (yes/no) "
-    read reply
-    case ${reply} in
-      [yY] | [yY][eE][sS])
-	agreed=1
-	;;
-      [nN] | [nN][oO])
-	echo "If you do not agree to the license then CrashPlan may not be installed. Exiting.";
-	exit 1
-	;;
-    esac
-  done
 
   echo "" > install.vars
   echo "JAVACOMMON=$JAVA_HOME/bin/java" >> install.vars
