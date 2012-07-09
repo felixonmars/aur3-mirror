@@ -3,7 +3,7 @@
 pkgname=llvmlinux-toolchain-svn-git
 pkgver=20120708
 pkgrel=1
-pkgdesc="a bundle of LLVM, libc++, compiler-rt and clang patched to compile Linux"
+pkgdesc="a bundle of LLVM, compiler-rt and clang patched to compile Linux"
 url="http://llvm.linuxfoundation.org/index.php/Main_Page"
 arch=('x86_64')
 license=('UIUC' 'MIT')
@@ -59,34 +59,59 @@ build(){
     msg "setting up build directory sources and patching"
     rm -rf ${srcdir}/llvm #start fresh
     cp -ar ${srcdir}/llvm-svn ${srcdir}/llvm
-    msg2 "patching..."
-    cd ${srcdir}
+    cd ${srcdir}/llvm
+    msg2 "Arch package-derived sed -driven modifications"
+    # Fix installation directories, ./configure doesn't seem to set them right
+    sed -i -e 's:\$(PROJ_prefix)/etc/llvm:/etc/llvm:' \
+         -e 's:\$(PROJ_prefix)/lib:$(PROJ_prefix)/lib/llvm:' \
+         -e 's:\$(PROJ_prefix)/docs/llvm:$(PROJ_prefix)/share/doc/llvm:' \
+    Makefile.config.in
+    sed -i '/ActiveLibDir = ActivePrefix/s:lib:lib/llvm:' \
+    tools/llvm-config/llvm-config.cpp
+    sed -i 's:LLVM_LIBDIR="${prefix}/lib":LLVM_LIBDIR="${prefix}/lib/llvm":' \
+    autoconf/configure.ac \
+    configure
+
+    # Fix insecure rpath (http://bugs.archlinux.org/task/14017)
+    sed -i 's:$(RPATH) -Wl,$(\(ToolDir\|LibDir\|ExmplDir\))::g' Makefile.rules
+
+    msg2 "patching clang..."
+    cd ${srcdir}/llvm/tools/clang
     _patchdir="${srcdir}/llvm-setup/toolchain/clang/patches"
-    for i in ${_patchdir}/*.patch; do
-      msg "applying $i"
-      patch -p1 < ${i}
-    done
+ #   for i in { '64-bit-ABI' 'pending' } ; do #crappy division of patches
+#      msg "applying $i.patch"
+      patch -p1 < ${_patchdir}/64-bit-ABI.patch
+      patch -p1 < ${_patchdir}/pending.patch
+#    done
+    msg2 "patching llvm..."
+    cd ${srcdir}/llvm 
+ #   for j in { 'inline-64-bit-asm' }; do #crappy division of patches
+#      msg "applying $j.patch"
+      patch -p1 < ${_patchdir}/inline-64-bit-asm.patch
+ #   done
     msg2 "done"
     
-    msg "setting up clang as default compiler"
-    export CC=clang
-    export CXX="clang++ -stdlib=libc++" 
-    CFLAGS="$CFLAGS -I${srcdir}/llvm/include"
-    
+#    msg "setting up clang as default compiler"
+#    export CC=clang
+#    export CXX="clang++ -stdlib=libc++" 
+#    CFLAGS="$CFLAGS -I${srcdir}/llvm/include -I{srcdir}/llvm/tools/clang/include"
+# compiling with stops after too many error warnings. Clang seems to be more pedantic.
+    export CC=gcc
+    export CXX=g++
+# LLVM/Clang _should_ be self-hosting... why does it not compile???
+
     # Use Python 2
     rm -rf  "$srcdir/python2-path" # start fresh
     mkdir -p "$srcdir/python2-path"
     ln -s /usr/bin/python2 "$srcdir/python2-path/python"
     export PATH="$srcdir/python2-path:$PATH"
-    CMAKE_INCLUDE_PATH="$CMAKE_INCLUDE_PATH"
     
-  
     msg "Starting make..."
     
-    rm -rf ${srcdir}/build # start fresh
-    mkdir ${srcdir}/build
-    cd ${srcdir}/build
-    ../llvm/configure \
+    REQUIRES_RTTI=1
+    
+    cd ${srcdir}/llvm
+    ./configure \
     --prefix=/usr \
     --libdir=/usr/lib/llvm \
     --sysconfdir=/etc \
@@ -96,9 +121,10 @@ build(){
     --disable-expensive-checks \
     --disable-debug-runtime \
     --disable-assertions \
+    --enable-optimized \
     --with-binutils-include=/usr/include
     
     make || return 1
     make DESTDIR=${pkgdir} install || return 1 
    
-}
+} 
