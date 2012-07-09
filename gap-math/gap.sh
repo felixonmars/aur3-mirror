@@ -20,7 +20,7 @@
 ##  You won't have to change this unless you move the installation.
 ##
 if [ "x$GAP_DIR" = "x" ];  then
-GAP_DIR="/opt/gap4r4"
+GAP_DIR="/opt/gap"
 fi
 
 
