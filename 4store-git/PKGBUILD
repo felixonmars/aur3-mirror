@@ -1,7 +1,7 @@
 # Maintainer: Leif Warner <abimelech@gmail.com>
 # Contributor: Christophe Gueret <christophe.gueret@gmail.com>
 pkgname=4store-git
-pkgver=20111128
+pkgver=20120710
 pkgrel=1
 pkgdesc="4store is an efficient, scalable and stable RDF database"
 arch=('i686' 'x86_64')
@@ -16,6 +16,8 @@ _gitroot="git://github.com/garlik/4store.git"
 _gitname="4store"
 
 build() {
+  msg "Avahi needs to be running to run tests."
+  msg "Remove the 'make test' line in the PKGBUILD if you don't want to run tests."
   cd "$srcdir"
   msg "Connecting to GIT server...."
 
@@ -41,6 +43,7 @@ build() {
   ./autogen.sh
   ./configure --prefix=/usr
   make
+  make test
 }
 
 package() {
