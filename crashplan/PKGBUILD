@@ -2,7 +2,7 @@
 # Contributor: Bill Durr <billyburly [at] gmail [dot] com>
 pkgname=crashplan
 pkgver=3.2.1
-pkgrel=3
+pkgrel=4
 pkgdesc="an online/offsite backup solution"
 url="http://www.crashplan.com"
 arch=('i686' 'x86_64')
@@ -51,6 +51,10 @@ package() {
 
   mkdir -p $pkgdir/usr/bin
   ln -s "/opt/$pkgname/bin/CrashPlanDesktop" $pkgdir/usr/bin/CrashPlanDesktop
+
+ if [ "$CARCH" = "i686" ]; then
+    rm $pkgdir/opt/$pkgname/*64.so
+ fi
 
   install -D -m 644 $srcdir/CrashPlan-install/install.vars $pkgdir/opt/$pkgname/install.vars
   install -D -m 644 $srcdir/CrashPlan-install/EULA.txt $pkgdir/opt/$pkgname/EULA.txt
