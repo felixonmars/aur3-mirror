@@ -1,9 +1,9 @@
 # Maintainer: Ryan Crum <ryan.j.crum@gmail.com>
 pkgname=splurt-git
-pkgver=20120709
+pkgver=20120710
 pkgrel=1
 pkgdesc="Terminal image viewer"
-arch=('any')
+arch=('i686' 'x86_64')
 url="http://github.com/thorstadt/splurt"
 license=('MIT')
 groups=()
@@ -39,6 +39,7 @@ build() {
   #
   ./configure --prefix=/usr
   make
+  install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
 package() {
