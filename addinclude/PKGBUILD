@@ -1,12 +1,12 @@
 # Maintainer: Alexander Rødseth <rodseth@gmail.com>
 pkgname=addinclude
 pkgver=0.9
-pkgrel=6
+pkgrel=7
 pkgdesc="Utility to add includes to C header- and sourcefiles"
 arch=('x86_64' 'i686')
 url="http://addinclude.roboticoverlords.org/"
 license=('GPL')
-depends=('gcc-go')
+depends=('go')
 source=("http://$pkgname.roboticoverlords.org/$pkgname-$pkgver.tbz2")
 md5sums=('18bf5f4627606c8da5843a6d89b318ab')
 options=(!strip zipman)
@@ -14,7 +14,8 @@ options=(!strip zipman)
 build() {
   cd "$srcdir/$pkgname-$pkgver"
 
-  gccgo addinclude.go -o addinclude
+  source /etc/profile.d/go.sh
+  go build -o "$pkgname"
 }
 
 package() {
