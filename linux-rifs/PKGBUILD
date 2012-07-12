@@ -1,0 +1,315 @@
+# Contributor: brenix <brenix@gmail.com>
+# Info: Based on Graysky's linux-ck PKGBUILD. Credits to him!
+
+### PATCH AND BUILD OPTIONS
+_makenconfig="n"	# tweak kernel options prior to a build via nconfig
+_UKMS_enable="y"	# patch kernel with UKMS (Ultra KMS)
+_use_current="n"	# use the current kernel's .config file
+_BFQ_enable_="y"	# enable BFQ as the default I/O scheduler
+
+pkgname=linux-rifs
+true && pkgname=(linux-rifs linux-rifs-headers)
+_kernelname=-rifs
+_basekernel=3.4
+pkgver=${_basekernel}.4
+pkgrel=1
+arch=('i686' 'x86_64')
+url="http://code.google.com/p/rifs-scheduler/"
+license=('GPL2')
+options=('!strip')
+_bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.4.0-v3r4"
+source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-3.4.tar.xz"
+"http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+'http://kerneldedup.org/download/uksm/0.1.1.2/uksm-0.1.1.2-for-v3.4.ge.2.patch'
+'http://rifs-scheduler.googlecode.com/files/rifs-v3-trial-kernel3.4.x'
+'linux-rifs.preset'
+'config' 'config.x86_64'
+'change-default-console-loglevel.patch'
+'3.4.4-fix-backlight-regression.patch'
+"${_bfqpath}/0001-block-cgroups-kconfig-build-bits-for-BFQ-v3r4-3.4.patch"
+"${_bfqpath}/0002-block-introduce-the-BFQ-v3r4-I-O-sched-for-3.4.patch")
+
+build() {
+	cd "${srcdir}/linux-${_basekernel}"
+
+	# add upstream patch
+	patch -p1 -i "${srcdir}/patch-${pkgver}"
+
+  # Add uksm patch
+  # kerneldedup.org
+  if [ $_UKMS_enable = "y" ]; then
+    msg "Patching source with UKSM patch"
+    patch -Np1 -i "${srcdir}/uksm-0.1.1.2-for-v3.4.ge.2.patch"
+  fi
+
+	# Fix backlight control on some laptops:
+  # https://bugzilla.kernel.org/show_bug.cgi?id=43168
+  patch -Np1 -i "${srcdir}/3.4.4-fix-backlight-regression.patch"
+  
+	# set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
+	# remove this when a Kconfig knob is made available by upstream
+	# (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
+	patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
+	
+	### Patch source with rifs patch
+	msg "Patching source with RIFS Scheduler"
+	patch -Np1 -i "${srcdir}/rifs-v3-trial-kernel3.4.x"
+
+	### Patch with BFQ IO Scheduler
+	msg "Patching source with BFQ patches"
+	for p in $(ls ${srcdir}/000{1,2}-block*.patch); do
+		patch -Np1 -i $p
+	done
+
+	### Clean tree and copy ARCH config over
+	msg "Running make mrproper to clean source tree"
+	make mrproper
+
+	if [ "${CARCH}" = "x86_64" ]; then
+		cat "${srcdir}/config.x86_64" > ./.config
+	else
+		cat "${srcdir}/config" > ./.config
+	fi
+
+	### Optionally use running kernel's config
+	# code originally by nous; http://aur.archlinux.org/packages.php?ID=40191
+	if [ $_use_current = "y" ]; then
+		if [[ -s /proc/config.gz ]]; then
+			msg "Extracting config from /proc/config.gz..."
+			# modprobe configs
+			zcat /proc/config.gz > ./.config
+		else
+			warning "You kernel was not compiled with IKCONFIG_PROC!"
+			warning "You cannot read the current config!"
+			warning "Aborting!"
+			exit
+		fi
+	fi
+
+	if [ "${_kernelname}" != "" ]; then
+		sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
+	fi
+
+	### BFQ to be compiled in but not enabled
+	sed -i -e s'/CONFIG_CFQ_GROUP_IOSCHED=y/CONFIG_CFQ_GROUP_IOSCHED=y\nCONFIG_IOSCHED_BFQ=y\nCONFIG_CGROUP_BFQIO=y/' \
+		-i -e s'/CONFIG_DEFAULT_CFQ=y/CONFIG_DEFAULT_CFQ=y\n# CONFIG_DEFAULT_BFQ is not set/' ./.config
+
+	### Optionally enable BFQ as the default io scheduler
+	if [ $_BFQ_enable_ = "y" ]; then
+		sed -i -e '/CONFIG_DEFAULT_IOSCHED/ s,cfq,bfq,' \
+			-i -e s'/CONFIG_DEFAULT_CFQ=y/# CONFIG_DEFAULT_CFQ is not set\nCONFIG_DEFAULT_BFQ=y/' ./.config
+	fi
+
+	# set extraversion to pkgrel
+	sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
+
+	# get kernel version
+	msg "Running make prepare for you to enable patched options of your choosing"
+	make prepare
+
+	if [ $_makenconfig = "y" ]; then
+		msg "Running make nconfig"
+		make nconfig
+	fi
+
+	msg "Running make bzImage and modules"
+	make ${MAKEFLAGS} bzImage modules
+}
+
+package_linux-rifs() {
+_Kpkgdesc='Linux Kernel and modules with the RIFS scheduler and optionally Ultra KMS (UKMS) and BFQ patches'
+	pkgdesc="${_Kpkgdesc}"
+	depends=('coreutils' 'linux-firmware' 'kmod<=9-1' 'mkinitcpio>=0.7')
+	optdepends=('crda: to set the correct wireless channels of your country' 'lirc-rifs: Linux Infrared Remote Control kernel modules for linux-rifs' 'nvidia-rifs: nVidia drivers for linux-rifs' 'nvidia-beta-rifs: nVidia beta drivers for linux-rifs' 'modprobed_db: Keeps track of EVERY kernel module that has ever been probed - useful for those of us who make localmodconfig')
+	provides=("linux-rifs=${pkgver}")
+	conflicts=('kernel26-rifs')
+	replaces=('kernel26-rifs')
+	backup=("etc/mkinitcpio.d/linux-rifs.preset")
+	install=linux-rifs.install
+	#groups=('ck-generic')
+
+	cd "${srcdir}/linux-${_basekernel}"
+
+	KARCH=x86
+
+	# get kernel version
+	_kernver="$(make kernelrelease)"
+
+	mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
+	make INSTALL_MOD_PATH="${pkgdir}" modules_install
+	cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-linux-rifs"
+
+	# add vmlinux
+	install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
+
+	# install fallback mkinitcpio.conf file and preset file for kernel
+	install -D -m644 "${srcdir}/linux-rifs.preset" "${pkgdir}/etc/mkinitcpio.d/linux-rifs.preset"
+
+	# set correct depmod command for install
+	sed \
+		-e  "s/KERNEL_NAME=.*/KERNEL_NAME=-rifs/g" \
+		-e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
+		-i "${startdir}/linux-rifs.install"
+	sed \
+		-e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-linux-rifs\"|g" \
+		-e "s|default_image=.*|default_image=\"/boot/initramfs-linux-rifs.img\"|g" \
+		-e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-linux-rifs-fallback.img\"|g" \
+		-i "${pkgdir}/etc/mkinitcpio.d/linux-rifs.preset"
+
+	# remove build and source links
+	rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
+	# remove the firmware
+	rm -rf "${pkgdir}/lib/firmware"
+	# gzip -9 all modules to save 100MB of space
+	find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+	# make room for external modules
+	ln -s "../extramodules-${_basekernel}${_kernelname:rifs}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+	# add real version for building modules and running depmod from post_install/upgrade
+	mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:rifs}"
+	echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:rifs}/version"
+}
+
+package_linux-rifs-headers() {
+	_Hpkgdesc='Header files and scripts to build modules for linux-rifs.'
+	pkgdesc="${_Hpkgdesc}"
+	provides=("linux-rifs-headers=${pkgver}")
+	conflicts=('kernel26-rifs-headers')
+	replaces=('kernel26-rifs-headers')
+
+	mkdir -p "${pkgdir}/lib/modules/${_kernver}"
+
+	cd "${pkgdir}/lib/modules/${_kernver}"
+	ln -sf ../../../usr/src/linux-${_kernver} build
+
+	cd "${srcdir}/linux-${_basekernel}"
+	install -D -m644 Makefile \
+		"${pkgdir}/usr/src/linux-${_kernver}/Makefile"
+	install -D -m644 kernel/Makefile \
+		"${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile"
+	install -D -m644 .config \
+		"${pkgdir}/usr/src/linux-${_kernver}/.config"
+
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include"
+
+	for i in acpi asm-generic config crypto drm generated linux math-emu \
+		media net pcmcia scsi sound trace video xen; do
+		cp -a include/${i} "${pkgdir}/usr/src/linux-${_kernver}/include/"
+	done
+
+	# copy arch includes for external modules
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/x86"
+	cp -a arch/x86/include "${pkgdir}/usr/src/linux-${_kernver}/arch/x86/"
+
+	# copy files necessary for later builds, like nvidia and vmware
+	cp Module.symvers "${pkgdir}/usr/src/linux-${_kernver}"
+	cp -a scripts "${pkgdir}/usr/src/linux-${_kernver}"
+
+	# fix permissions on scripts dir
+	chmod og-w -R "${pkgdir}/usr/src/linux-${_kernver}/scripts"
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions"
+	
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel"
+
+	cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+
+	if [ "${CARCH}" = "i686" ]; then
+		cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+	fi
+
+	cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel/"
+
+	# add headers for lirc package
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video"
+
+	cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/"
+
+	for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102; do
+		mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+		cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+	done
+
+	# add docbook makefile
+	install -D -m644 Documentation/DocBook/Makefile \
+	"${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
+
+	# add dm headers
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+	cp drivers/md/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+
+	# add inotify.h
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/linux"
+	cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${_kernver}/include/linux/"
+
+	# add wireless headers
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+	cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+
+	# add dvb headers for external modules
+	# in reference to:
+	# http://bugs.archlinux.org/task/9912
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core"
+	cp drivers/media/dvb/dvb-core/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/"
+	# and...
+	# http://bugs.archlinux.org/task/11194
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+	[[ -e include/config/dvb/ ]] && cp include/config/dvb/*.h "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/" 
+
+	# add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
+	# in reference to:
+	# http://bugs.archlinux.org/task/13146
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+	cp drivers/media/dvb/frontends/lgdt330x.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+	cp drivers/media/video/msp3400-driver.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+
+	# add dvb headers
+	# in reference to:
+	# http://bugs.archlinux.org/task/20402
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb"
+	cp drivers/media/dvb/dvb-usb/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb/"
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends"
+	cp drivers/media/dvb/frontends/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners"
+	cp drivers/media/common/tuners/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners/"
+
+	# add xfs and shmem for aufs building
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs"
+	mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/mm"
+	cp fs/xfs/xfs_sb.h "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h"
+
+	# copy in Kconfig files
+	for i in `find . -name "Kconfig*"`; do
+		mkdir -p "${pkgdir}"/usr/src/linux-${_kernver}/`echo ${i} | sed 's|/Kconfig.*||'`
+		cp ${i} "${pkgdir}/usr/src/linux-${_kernver}/${i}"
+	done
+
+	chown -R root.root "${pkgdir}/usr/src/linux-${_kernver}"
+	find "${pkgdir}/usr/src/linux-${_kernver}" -type d -exec chmod 755 {} \;
+
+	# strip scripts directory
+	find "${pkgdir}/usr/src/linux-${_kernver}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
+	case "$(file -bi "${binary}")" in
+		*application/x-sharedlib*) # Libraries (.so)
+			/usr/bin/strip ${STRIP_SHARED} "${binary}";;
+		*application/x-archive*) # Libraries (.a)
+			/usr/bin/strip ${STRIP_STATIC} "${binary}";;
+		*application/x-executable*) # Binaries
+			/usr/bin/strip ${STRIP_BINARIES} "${binary}";;
+	esac
+	done
+
+	# remove unneeded architectures
+	rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+}
+# Global pkgdesc and depends
+pkgdesc='Linux Kernel and modules with the RIFS scheduler and optionally Ultra KMS (UKMS) and BFQ patches'
+md5sums=('967f72983655e2479f951195953e8480'
+         '58e6672d932d74d5e2b6811b9d37d67c'
+         '9fda8de0572b668303dc4617c6c0532c'
+         'c794bf89b9f13d563298c71ba71f9dec'
+         'cfeb72a45c5dc25aa1e512014e803836'
+         'f9711b52626ce704571012e18fdecc97'
+         'd9671467da5d960c34bef44c5c11d609'
+         '9d3c56a4b999c8bfbd4018089a62f662'
+         'd2626a48d10d2be931753805849e86bf'
+         'ce3b3d2a376f81a55559406db68a3a27'
+         'a13f85b218ce6e85fdd7b6c9878c424c')
