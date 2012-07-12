@@ -1,0 +1,127 @@
+# $Id$
+# Maintainer: Jean-Baptiste Giraudeau <jbgiraudeau at gmail dot com>
+# Contributor: Jan de Groot <jgc@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Pierre Schmitz <pierre@archlinux.de>
+
+pkgname=apache24
+pkgver=2.4.2
+pkgrel=2
+pkgdesc='A high performance Unix-based HTTP server'
+arch=('i686' 'x86_64')
+options=('!libtool')
+url='http://www.apache.org/dist/httpd'
+license=('APACHE')
+backup=(etc/conf.d/apache etc/httpd/conf/httpd.conf
+        etc/httpd/conf/extra/httpd-{autoindex,dav,default,info,languages}.conf
+        etc/httpd/conf/extra/httpd-{manual,mpm,multilang-errordoc}.conf
+        etc/httpd/conf/extra/httpd-{ssl,userdir,vhosts}.conf
+        etc/logrotate.d/httpd)
+depends=('openssl' 'zlib' 'apr-util' 'pcre')
+optdepends=('lynx: apachectl status')
+provides=('apache')
+conflicts=('apache')
+install=apache.install
+source=(http://www.apache.org/dist/httpd/httpd-${pkgver}.tar.bz2
+        http://www.apache.org/dist/httpd/httpd-${pkgver}.tar.bz2.asc
+        http://mahatma.bspu.unibel.by/download/experimental/apache2.4-mpm-itk-2.4.2-01.patch
+        apachectl-confd.patch
+        apache.conf.d
+        apache.tmpfiles.conf
+        httpd.logrotate
+        httpd
+        arch.layout)
+md5sums=('6bb12f726e22656f0ad2baf91f1f8329'
+         '12311bf05e630a34c81bce5d9469b1be'
+         '558ad77f583da62ed5fc24bb0ddc7ac2'
+         '4ac64df6e019edbe137017cba1ff2f51'
+         '08b3c875f6260644f2f52b4056d656b0'
+         '82068753dab92fe86312b1010a2904d7'
+         '6382331e9700ed9e8cc78ea51887b537'
+         'c7e300a287ef7e2e066ac7639536f87e'
+         '3d659d41276ba3bfcb20c231eb254e0c')
+
+build() {
+	cd "${srcdir}/httpd-${pkgver}"
+
+	patch -Np0 -i "${srcdir}/apachectl-confd.patch"
+
+	# set default user
+	sed -e 's#User daemon#User http#' \
+	    -e 's#Group daemon#Group http#' \
+	    -i docs/conf/httpd.conf.in
+
+	cat "${srcdir}/arch.layout" >> config.layout
+
+	for mpm in prefork worker event itk; do
+		if [ "${mpm}" = "itk" ]; then
+
+			/bin/bash ${srcdir}/apache2.4-mpm-itk-2.4.2-01.patch
+
+			patch -Np1 -i "${srcdir}/apache2.4-mpm-itk-2.4.2-01.patch"
+
+			autoconf
+		fi
+		mkdir build-${mpm}
+		pushd build-${mpm}
+		../configure --enable-layout=Arch \
+			--enable-modules=all \
+			--enable-mods-shared=all \
+			--enable-so \
+			--enable-suexec \
+			--with-suexec-caller=http \
+			--with-suexec-docroot=/srv/http \
+			--with-suexec-logfile=/var/log/httpd/suexec.log \
+			--with-suexec-bin=/usr/sbin/suexec \
+			--with-suexec-uidmin=99 --with-suexec-gidmin=99 \
+			--enable-ldap --enable-authnz-ldap \
+			--enable-cache --enable-disk-cache --enable-mem-cache --enable-file-cache \
+			--enable-ssl --with-ssl \
+			--enable-deflate --enable-cgid \
+			--enable-proxy --enable-proxy-connect \
+			--enable-proxy-http --enable-proxy-ftp \
+			--enable-dbd \
+			--with-apr=/usr/bin/apr-1-config \
+			--with-apr-util=/usr/bin/apu-1-config \
+			--with-pcre=/usr \
+			--with-mpm=${mpm}
+		make
+		if [ "${mpm}" = "prefork" ]; then
+			make DESTDIR="${pkgdir}" install
+		else
+			install -m755 httpd "${pkgdir}/usr/sbin/httpd.${mpm}"
+		fi
+		popd
+	done
+
+	install -D -m755 "${srcdir}/httpd" "${pkgdir}/etc/rc.d/httpd"
+	install -D -m644 "${srcdir}/httpd.logrotate" "${pkgdir}/etc/logrotate.d/httpd"
+	install -D -m644 "${srcdir}/apache.conf.d" "${pkgdir}/etc/conf.d/apache"
+	install -D -m644 "${srcdir}/apache.tmpfiles.conf" "${pkgdir}/usr/lib/tmpfiles.d/apache.conf"
+
+	# symlinks for /etc/httpd
+	ln -fs /var/log/httpd "${pkgdir}/etc/httpd/logs"
+	ln -fs /var/run/httpd "${pkgdir}/etc/httpd/run"
+	ln -fs /usr/lib/httpd/modules "${pkgdir}/etc/httpd/modules"
+	ln -fs /usr/lib/httpd/build "${pkgdir}/etc/httpd/build"
+
+	# set sane defaults
+	sed -e 's#/usr/lib/httpd/modules/#modules/#' \
+	    -e 's|#\(LoadModule negotiation_module \)|\1|' \
+	    -e 's|#\(LoadModule include_module \)|\1|' \
+	    -e 's|#\(LoadModule userdir_module \)|\1|' \
+	    -e 's|#\(LoadModule slotmem_shm_module \)|\1|' \
+	    -e 's|#\(Include conf/extra/httpd-multilang-errordoc.conf\)|\1|' \
+	    -e 's|#\(Include conf/extra/httpd-autoindex.conf\)|\1|' \
+	    -e 's|#\(Include conf/extra/httpd-languages.conf\)|\1|' \
+	    -e 's|#\(Include conf/extra/httpd-userdir.conf\)|\1|' \
+	    -e 's|#\(Include conf/extra/httpd-default.conf\)|\1|' \
+	    -i "${pkgdir}/etc/httpd/conf/httpd.conf"
+
+	# cleanup
+	rm -rf "${pkgdir}/usr/share/httpd/manual"
+	rm -rf "${pkgdir}/etc/httpd/conf/original"
+	rm -rf "${pkgdir}/srv/"
+	rm -rf "${pkgdir}/usr/bin"
+	rm -rf "${pkgdir}/var/run"
+}
