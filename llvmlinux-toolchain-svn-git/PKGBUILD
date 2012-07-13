@@ -7,14 +7,15 @@ pkgdesc="a bundle of LLVM, compiler-rt, lldb and clang patched to compile Linux"
 url="http://llvm.linuxfoundation.org/index.php/Main_Page"
 arch=('i686' 'x86_64')
 license=('UIUC' 'MIT')
-depends=('libc++-svn' 'ocaml' 'swig' 'libedit') 
+depends=('ocaml' 'swig' 'libedit')
+optdepends=('libc++-svn')
 #libc++ not really a dependency yet, but I want it to build with Clang and LLVM libc++
 makedepends=('subversion' 'git' 'cmake' 'python2' 'libffi' 'clang')
 provides=('llvm' 'compiler-rt' 'clang' 'llvm-ocaml' 'clang-analyzer' 'lldb')
 replaces=('llvm' 'clang' 'llvm-ocaml' 'clang-analyzer')
 conflicts=('llvm' 'clang' 'llvm-ocaml' 'clang-analyzer')
 
-#this checkout contain LLVM-specific patches
+#this checkout contain LLVMlinux-specific patches
 _llvm_gitroot=('http://git.linuxfoundation.org/llvm-setup.git')
 _llvm_gitname=('llvm-setup')
 
@@ -71,6 +72,21 @@ build(){
     else
         svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk compiler-rt
     fi
+    
+    msg "setting up libc++abi sources"
+    if [ -d libcxxabi/.svn ]; then
+	(cd libcxxabi && svn up)
+    else
+      svn co http://llvm.org/svn/llvm-project/libcxxabi/trunk libcxxabi
+    fi
+
+    msg "setting up libc++ sources"
+    if [ -d libcxx/.svn ]; then
+	(cd libcxx && svn up)
+    else
+      svn co http://llvm.org/svn/llvm-project/libcxx/trunk libcxx
+    fi
+    
 
     msg "SVN checkout done or server timeout"
     
@@ -117,26 +133,36 @@ build(){
     msg2 "done"
     
     msg "setting up clang as default compiler"
-    export CC=clang
-    export CXX=clang++ 
-# compiling with clang can stop after too many error warnings. Clang seems to be more pedantic.
-    CXXFLAGS="$CXXFLAGS -stdlib=libc++ -I/usr/include/c++/v1"
+#    export CC=clang
+#    export CXX=clang++ 
+    export CFLAGS="-march=native -mtune=native -O2 -pipe"
+    export CXXFLAGS="-march=native -mtune=native -O2 -pipe" #fortify option can break clang-self-compilation...
+#    export AR=llvm-ar
+#    export AS=llvm-as
+#    export LD=llvm-link
+#    export NM=llvm-nm
+#    export OBJDUMP=llvm-objdump
+#    export RANLIB=llvm-ranlib
+    
+# getting it to build with libc++ is still a work in progress...
+#    CXXFLAGS="-stdlib=libc++ -I/usr/include/c++/v1 -I$srcdir/llvm/projects/libcxxabi/include"
+    LDFLAGS="$LDFLAGS -Wl,-lstdc++" 
 # official upstream build explicitly uses GCC...
-#    export CC=gcc
-#    export CXX=g++
-# if build fails, uncomment above to set compiler to GCC
-# LLVM/Clang _should_ be self-hosting... why does it not compile???
+    export CC=gcc
+    export CXX=g++
+
+# Include location of libffi headers in CPPFLAGS
+    export CPPFLAGS="$CPPFLAGS $(pkg-config --cflags libffi)"
+
 
     # Use Python 2
     rm -rf  "$srcdir/python2-path" # start fresh
     mkdir -p "$srcdir/python2-path"
     ln -s /usr/bin/python2 "$srcdir/python2-path/python"
     export PATH="$srcdir/python2-path:$PATH"
-    
+          
     msg "Starting make..."
     
-    REQUIRES_RTTI=1
-
 # several undocumented configure options that were used by someone else to build LLVM/Clang with clang and c++...
 # those that fail are commented out again.
 
@@ -146,35 +172,36 @@ build(){
     --libdir=/usr/lib/llvm \
     --sysconfdir=/etc \
     --enable-shared \
-    --enable-libcpp \
-    --with-clang \
+    --enable-pic \
+    --enable-polly \
+    --enable-jit \
+    --disable-libcpp \
     --enable-targets=host \
+    --with-cxx-include-arch=$_target \
     --enable-ltdl-install \
     --disable-expensive-checks \
     --disable-debug-runtime \
-    --enable-assertions \
+    --disable-assertions \
     --enable-optimized \
     --enable-threads \
     --with-clang \
     --with-built-clang \
     --disable-bootstrap \
+    --no-recursion \
     --disable-multilib \
     --with-optimize-option=-O2 \
     --with-binutils-include=/usr/include
 
-#    --no-create \
-#    --no-recursion \
-#    --with-c-include-dirs=
 #    --enable-libffi \
-#    --enable-pic \
-#    --enable-polly \
-#    --enable-jit \
-#    --with-cxx-include-arch=$_target \
-#    
+#    --no-create \
+#    --with-c-include-dirs=
+# due to linking errors with libc++, I have currently explicitly disabled it.
+# to test compiling with LLVM libc++. change --disable-libcpp to --enable-libcpp.
+
  
  #build only enables host target.
  
-    make || return 1
+    make REQUIRES_RTTI=1 || return 1
     make DESTDIR=${pkgdir} install || return 1 
     #getting some ld paths OK
     mkdir -p $pkgdir/etc/ld.so.conf.d
