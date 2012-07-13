@@ -1,0 +1,164 @@
+From 581feb8f0944c9b31222db837a2b6ad62947332d Mon Sep 17 00:00:00 2001
+From: Daniel Vetter <daniel.vetter@ffwll.ch>
+Date: Tue, 5 Jun 2012 12:14:54 +0200
+Subject: [PATCH] drm/i915: properly enable the blc controller on the right pipe
+
+On gen4+ we have a bitfield to specify from which pipe the backlight
+controller should take it's clock. For PCH split platforms we've
+already set these up, but only at initialization time. And without
+taking into account the 3rd pipe added with ivb.
+
+For gen4, we've completely ignored these. Although we do restrict lvds
+to the 2nd pipe, so this is only a problem on machines where we boot
+up with the lvds on the first pipe.
+
+So restructure the code to enable the backlight on the right pipe at
+modeset time.
+
+v2: For odd reasons panel_enable_backlight gets called twice in a
+modeset, so we can't WARN_ON in there if the backlight controller is
+switched on already.
+
+v3: backlight enable can also be called through dpms on, so the check
+in there is legit. Update the comment to reflect that.
+
+Tested-By: Kamal Mostafa <kamal@canonical.com>
+Bugzilla: https://bugs.launchpad.net/bugs/954661
+Cc: Carsten Emde <C.Emde@osadl.org>
+Signed-Off-by: Daniel Vetter <daniel.vetter@ffwll.ch>
+
+Signed-off-by: Kamal Mostafa <kamal@canonical.com>
+---
+ drivers/gpu/drm/i915/intel_drv.h   |    3 +-
+ drivers/gpu/drm/i915/intel_lvds.c  |   32 +++++------------------------
+ drivers/gpu/drm/i915/intel_panel.c |   38 +++++++++++++++++++++++++++++++++++-
+ 3 files changed, 45 insertions(+), 28 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_drv.h b/drivers/gpu/drm/i915/intel_drv.h
+index 83e820e..5e75e1b 100644
+--- a/drivers/gpu/drm/i915/intel_drv.h
++++ b/drivers/gpu/drm/i915/intel_drv.h
+@@ -302,7 +302,8 @@ extern u32 intel_panel_get_max_backlight(struct drm_device *dev);
+ extern u32 intel_panel_get_backlight(struct drm_device *dev);
+ extern void intel_panel_set_backlight(struct drm_device *dev, u32 level);
+ extern int intel_panel_setup_backlight(struct drm_device *dev);
+-extern void intel_panel_enable_backlight(struct drm_device *dev);
++extern void intel_panel_enable_backlight(struct drm_device *dev,
++					 enum pipe pipe);
+ extern void intel_panel_disable_backlight(struct drm_device *dev);
+ extern void intel_panel_destroy_backlight(struct drm_device *dev);
+ extern enum drm_connector_status intel_panel_detect(struct drm_device *dev);
+diff --git a/drivers/gpu/drm/i915/intel_lvds.c b/drivers/gpu/drm/i915/intel_lvds.c
+index e361e8b..b18e388 100644
+--- a/drivers/gpu/drm/i915/intel_lvds.c
++++ b/drivers/gpu/drm/i915/intel_lvds.c
+@@ -71,6 +71,7 @@ static struct intel_lvds *intel_attached_lvds(struct drm_connector *connector)
+ static void intel_lvds_enable(struct intel_lvds *intel_lvds)
+ {
+ 	struct drm_device *dev = intel_lvds->base.base.dev;
++	struct intel_crtc *intel_crtc = to_intel_crtc(intel_lvds->base.base.crtc);
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+ 	u32 ctl_reg, lvds_reg, stat_reg;
+ 
+@@ -107,7 +108,7 @@ static void intel_lvds_enable(struct intel_lvds *intel_lvds)
+ 	if (wait_for((I915_READ(stat_reg) & PP_ON) != 0, 1000))
+ 		DRM_ERROR("timed out waiting for panel to power on\n");
+ 
+-	intel_panel_enable_backlight(dev);
++	intel_panel_enable_backlight(dev, intel_crtc->pipe);
+ }
+ 
+ static void intel_lvds_disable(struct intel_lvds *intel_lvds)
+
+@@ -1075,7 +1075,27 @@
+ 
+ out:
+ 	if (HAS_PCH_SPLIT(dev)) {
++		u32 pwm;
+ 
++		pipe = (I915_READ(PCH_LVDS) & LVDS_PIPEB_SELECT) ? 1 : 0;
++
++		/* make sure PWM is enabled and locked to the LVDS pipe */
++		pwm = I915_READ(BLC_PWM_CPU_CTL2);
++		if (pipe == 0 && (pwm & PWM_PIPE_B))
++			I915_WRITE(BLC_PWM_CPU_CTL2, pwm & ~PWM_ENABLE);
++		if (pipe)
++			pwm |= PWM_PIPE_B;
++		else
++			pwm &= ~PWM_PIPE_B;
++		I915_WRITE(BLC_PWM_CPU_CTL2, pwm | PWM_ENABLE);
++
++		pwm = I915_READ(BLC_PWM_PCH_CTL1);
++		pwm |= PWM_PCH_ENABLE;
++		I915_WRITE(BLC_PWM_PCH_CTL1, pwm);
++		/*
++		 * Unlock registers and just
++		 * leave them unlocked
++		 */
+ 		I915_WRITE(PCH_PP_CONTROL,
+ 			   I915_READ(PCH_PP_CONTROL) | PANEL_UNLOCK_REGS);
+ 	} else {
+
+    
+diff --git a/drivers/gpu/drm/i915/intel_panel.c b/drivers/gpu/drm/i915/intel_panel.c
+index 04d79fd..01e213c 100644
+--- a/drivers/gpu/drm/i915/intel_panel.c
++++ b/drivers/gpu/drm/i915/intel_panel.c
+@@ -263,9 +263,18 @@ void intel_panel_disable_backlight(struct drm_device *dev)
+ 
+ 	dev_priv->backlight_enabled = false;
+ 	intel_panel_actually_set_backlight(dev, 0);
++
++	if (INTEL_INFO(dev)->gen >= 4) {
++		uint32_t reg;
++
++		reg = HAS_PCH_SPLIT(dev) ? BLC_PWM_CPU_CTL2 : BLC_PWM_CTL2;
++
++		I915_WRITE(reg, I915_READ(reg) & ~BLM_PWM_ENABLE);
++	}
+ }
+ 
+-void intel_panel_enable_backlight(struct drm_device *dev)
++void intel_panel_enable_backlight(struct drm_device *dev,
++				  enum pipe pipe)
+ {
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+ 
+@@ -274,6 +283,33 @@ void intel_panel_enable_backlight(struct drm_device *dev)
+ 
+ 	dev_priv->backlight_enabled = true;
+ 	intel_panel_actually_set_backlight(dev, dev_priv->backlight_level);
++
++	if (INTEL_INFO(dev)->gen >= 4) {
++		uint32_t reg, tmp;
++
++		reg = HAS_PCH_SPLIT(dev) ? BLC_PWM_CPU_CTL2 : BLC_PWM_CTL2;
++
++
++		tmp = I915_READ(reg);
++
++		/* Note that this can also get called through dpms changes. And
++		 * we don't track the backlight dpms state, hence check whether
++		 * we have to do anything first. */
++		if (tmp & BLM_PWM_ENABLE)
++			return;
++
++		if (dev_priv->num_pipe == 3)
++			tmp &= ~BLM_PIPE_SELECT_IVB;
++		else
++			tmp &= ~BLM_PIPE_SELECT;
++
++		tmp |= BLM_PIPE(pipe);
++		tmp &= ~BLM_PWM_ENABLE;
++
++		I915_WRITE(reg, tmp);
++		POSTING_READ(reg);
++		I915_WRITE(reg, tmp | BLM_PWM_ENABLE);
++	}
+ }
+ 
+ static void intel_panel_init_backlight(struct drm_device *dev)
+-- 
+1.7.0.4
+
+
