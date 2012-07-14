@@ -30,5 +30,5 @@ if !(is_file_exits "/home/`whoami`/.chromeblock") then
 	fi
 else
 	notify-send --icon=edit-delete "Nice try, but we are not ready yet.";
-	firefox;
+	firefox "http://www.google.com/pacman/";
 fi
