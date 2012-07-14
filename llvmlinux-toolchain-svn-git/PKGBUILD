@@ -3,27 +3,19 @@
 pkgname=llvmlinux-toolchain-svn-git
 pkgver=20120708
 pkgrel=1
-pkgdesc="a bundle of LLVM, compiler-rt, lldb and clang patched to compile Linux"
+pkgdesc="a bundle of LLVM, compiler-rt and clang patched to compile Linux"
 url="http://llvm.linuxfoundation.org/index.php/Main_Page"
-arch=('i686' 'x86_64')
+arch=('x86_64')
 license=('UIUC' 'MIT')
-depends=('ocaml' 'swig' 'libedit')
-optdepends=('libc++-svn')
-#libc++ not really a dependency yet, but I want it to build with Clang and LLVM libc++
-makedepends=('subversion' 'git' 'cmake' 'python2' 'libffi' 'clang')
-provides=('llvm' 'compiler-rt' 'clang' 'llvm-ocaml' 'clang-analyzer' 'lldb')
-replaces=('llvm' 'clang' 'llvm-ocaml' 'clang-analyzer')
-conflicts=('llvm' 'clang' 'llvm-ocaml' 'clang-analyzer')
+depends=('libc++-svn')
+makedepends=('subversion' 'git' 'cmake' 'python2' 'libffi') #I want to add clang here...
+provides=('llvm' 'compiler-rt' 'clang' 'llvm-ocaml')
+replaces=('llvm' 'clang' 'llvm-ocaml')
+conflicts=('llvm' 'clang' 'llvm-ocaml')
 
-#this checkout contain LLVMlinux-specific patches
+#this checkout contain LLVM-specific patches
 _llvm_gitroot=('http://git.linuxfoundation.org/llvm-setup.git')
 _llvm_gitname=('llvm-setup')
-
-if [ ${CARCH} == x86_64 ]; then
-    _target=$CARCH
-else
-    _target=x86
-fi
 
 build(){
     cd ${srcdir}
@@ -36,8 +28,6 @@ build(){
 	git clone $_llvm_gitroot $_llvm_gitname
     fi
 	msg2 "done"
-	  
-    cd ${srcdir}
     
     msg "setting up llvm source code tree"
     if [ -d llvm-svn/.svn ]; then
@@ -55,15 +45,6 @@ build(){
       svn co http://llvm.org/svn/llvm-project/cfe/trunk clang
     fi
     msg2 "done"
-    
-    msg "setting up lldb source code tree"
-    cd ${srcdir}/llvm-svn/tools
-    if [ -d lldb/.svn ]; then
-	(cd lldb && svn up)
-    else
-      svn co http://llvm.org/svn/llvm-project/lldb/trunk lldb
-    fi
-    msg2 "done"
         
     cd $srcdir/llvm-svn/projects
     msg "setting up compiler-rt sources"
@@ -72,21 +53,6 @@ build(){
     else
         svn co http://llvm.org/svn/llvm-project/compiler-rt/trunk compiler-rt
     fi
-    
-    msg "setting up libc++abi sources"
-    if [ -d libcxxabi/.svn ]; then
-	(cd libcxxabi && svn up)
-    else
-      svn co http://llvm.org/svn/llvm-project/libcxxabi/trunk libcxxabi
-    fi
-
-    msg "setting up libc++ sources"
-    if [ -d libcxx/.svn ]; then
-	(cd libcxx && svn up)
-    else
-      svn co http://llvm.org/svn/llvm-project/libcxx/trunk libcxx
-    fi
-    
 
     msg "SVN checkout done or server timeout"
     
@@ -108,100 +74,51 @@ build(){
 
     # Fix insecure rpath (http://bugs.archlinux.org/task/14017)
     sed -i 's:$(RPATH) -Wl,$(\(ToolDir\|LibDir\|ExmplDir\))::g' Makefile.rules
-    
+
+    msg2 "patching clang..."
+    cd ${srcdir}/llvm/tools/clang
     _patchdir="${srcdir}/llvm-setup/toolchain/clang/patches"
-    if [ -d ${_patchdir}/clang/x86 ] ; then
-	  msg2 "patching clang..."
-	  cd ${srcdir}/llvm/tools/clang
-	  for i in ${_patchdir}/clang/x86/*.patch; do
-	      msg2 "applying ${i}"
-	      patch -p1 < ${i}
-	  done
-    else
-	  msg2 "no clang patches..."
-    fi
-    if [ -d ${_patchdir}/llvm/x86 ] ; then
-	msg2 "patching llvm..."
-	cd ${srcdir}/llvm 
-	for i in ${_patchdir}/llvm/x86/*.patch; do
-	    msg2 "applying ${i}"
-	    patch -p1 < ${i}
-	done
-    else
-	msg2 "no llvm patches..."
-    fi
+      patch -p1 < ${_patchdir}/64-bit-ABI.patch
+      patch -p1 < ${_patchdir}/pending.patch
+    msg2 "patching llvm..."
+    cd ${srcdir}/llvm 
+      patch -p1 < ${_patchdir}/inline-64-bit-asm.patch
     msg2 "done"
     
-    msg "setting up clang as default compiler"
+#    msg "setting up clang as default compiler"
 #    export CC=clang
-#    export CXX=clang++ 
-    export CFLAGS="-march=native -mtune=native -O2 -pipe"
-    export CXXFLAGS="-march=native -mtune=native -O2 -pipe" #fortify option can break clang-self-compilation...
-#    export AR=llvm-ar
-#    export AS=llvm-as
-#    export LD=llvm-link
-#    export NM=llvm-nm
-#    export OBJDUMP=llvm-objdump
-#    export RANLIB=llvm-ranlib
-    
-# getting it to build with libc++ is still a work in progress...
-#    CXXFLAGS="-stdlib=libc++ -I/usr/include/c++/v1 -I$srcdir/llvm/projects/libcxxabi/include"
-    LDFLAGS="$LDFLAGS -Wl,-lstdc++" 
-# official upstream build explicitly uses GCC...
+#    export CXX="clang++ -stdlib=libc++ -Wl,-lstdc++" 
+#    CFLAGS="$CFLAGS -I${srcdir}/llvm/include -I{srcdir}/llvm/tools/clang/include"
+# compiling with stops after too many error warnings. Clang seems to be more pedantic.
     export CC=gcc
     export CXX=g++
-
-# Include location of libffi headers in CPPFLAGS
-    export CPPFLAGS="$CPPFLAGS $(pkg-config --cflags libffi)"
-
+# LLVM/Clang _should_ be self-hosting... why does it not compile???
 
     # Use Python 2
     rm -rf  "$srcdir/python2-path" # start fresh
     mkdir -p "$srcdir/python2-path"
     ln -s /usr/bin/python2 "$srcdir/python2-path/python"
     export PATH="$srcdir/python2-path:$PATH"
-          
+    
     msg "Starting make..."
     
-# several undocumented configure options that were used by someone else to build LLVM/Clang with clang and c++...
-# those that fail are commented out again.
-
+    REQUIRES_RTTI=1
+    
     cd ${srcdir}/llvm
     ./configure \
     --prefix=/usr \
     --libdir=/usr/lib/llvm \
     --sysconfdir=/etc \
     --enable-shared \
-    --enable-pic \
-    --enable-polly \
-    --enable-jit \
-    --disable-libcpp \
-    --enable-targets=host \
-    --with-cxx-include-arch=$_target \
-    --enable-ltdl-install \
+    --enable-libffi \
+    --enable-targets=all \
     --disable-expensive-checks \
     --disable-debug-runtime \
     --disable-assertions \
     --enable-optimized \
-    --enable-threads \
-    --with-clang \
-    --with-built-clang \
-    --disable-bootstrap \
-    --no-recursion \
-    --disable-multilib \
-    --with-optimize-option=-O2 \
     --with-binutils-include=/usr/include
-
-#    --enable-libffi \
-#    --no-create \
-#    --with-c-include-dirs=
-# due to linking errors with libc++, I have currently explicitly disabled it.
-# to test compiling with LLVM libc++. change --disable-libcpp to --enable-libcpp.
-
- 
- #build only enables host target.
- 
-    make REQUIRES_RTTI=1 || return 1
+    
+    make || return 1
     make DESTDIR=${pkgdir} install || return 1 
     #getting some ld paths OK
     mkdir -p $pkgdir/etc/ld.so.conf.d
