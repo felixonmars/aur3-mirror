@@ -1,7 +1,7 @@
 # Contributor: Cyril Lashkevich <notorca at gmail dot com>
 
 pkgname=acpi-handle-hack-lenovo-git
-pkgver=20120702
+pkgver=20120715
 pkgrel=1
 pkgdesc="kernel module allowing to workaround kernel bug 42696 on Lenovo Ideapad Y470/Y570 and Toshiba Satellite P870"
 arch=('i686' 'x86_64')
@@ -39,6 +39,6 @@ package() {
     # KDIR is necessary even when cleaning
     make KDIR=/usr/src/linux-${_kernver} clean
     make KDIR=/usr/src/linux-${_kernver} modname=acpi-handle-hack
-    install -D -m644 acpi-handle-hack.ko ${pkgdir}/lib/modules/${_kernver}/kernel/drivers/acpi/acpi-handle-hack.ko
+    install -D -m644 acpi-handle-hack.ko ${pkgdir}/usr/lib/modules/${_kernver}/kernel/drivers/acpi/acpi-handle-hack.ko
   done
 }
