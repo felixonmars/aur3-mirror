@@ -4,7 +4,7 @@ VERSION=0.17.3
 
 obj-m    := $(MODULE_NAME).o
 
-KDIR    := /lib/modules/$(shell uname -r)/build
+KDIR    := /usr/lib/modules/$(shell uname -r)/build
 PWD    := $(shell pwd)
 
 default:
