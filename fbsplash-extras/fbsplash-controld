@@ -422,7 +422,7 @@ splash_rc_init_boot() {
 	# Abort avoiding terminated message
 	trap 'exit 0' TERM
 	# Names of progress (foreground) services (those done until splash stopped)
-	declare -a SPLASH_SVCS_FG=( )
+	declare -A SPLASH_SVC_FG_BEGIN_MS=( )
 	# Avarage services start times in ms
 	declare -A SPLASH_SVC_TIMES_MS=( )
 	# Weighted count of starts * 100
@@ -442,21 +442,18 @@ splash_rc_init_boot() {
 		done <"$times_file"
 	fi
 
-	ms_elapsed_add() {
-		local ms=${SPLASH_SVC_TIMES_MS["$1"]}
-		# Fall back to one tick per foreground service run
-		if [[ $SPLASH_SMOOTH_PROGRESS = yes && $ms ]]
-		then (( ms_elapsed += ms ))
-		else (( ms_elapsed += ms_tick ))
-		fi
-	}
 	# Read in foreground daemons and sum up relevant services times for progress
 	ms_elapsed=0
 	if [[ $svcs_fg_file ]]; then
 		while read -r svc; do
 			[[ $svc ]] || continue
-			SPLASH_SVCS_FG+=( "$svc" )
-			ms_elapsed_add "$svc"
+			[[ ${SPLASH_SVC_FG_BEGIN_MS["$svc"]} ]] || SPLASH_SVC_FG_BEGIN_MS["$svc"]=$ms_elapsed
+			ms=${SPLASH_SVC_TIMES_MS["$svc"]}
+			# Fall back to one tick per foreground service run
+			if [[ $SPLASH_SMOOTH_PROGRESS = yes && $ms ]]
+			then (( ms_elapsed += ms ))
+			else (( ms_elapsed += ms_tick ))
+			fi
 		done <"$svcs_fg_file"
 	fi
 	ms_total=$ms_elapsed
@@ -619,12 +616,8 @@ splash_rc_init_boot() {
 				splash_fifo_send "set gpm" "repaint"
 			fi
 		;;& svc_$action )
-## IFS code is broken since bash 4.2.036                               ## FIXME ##
-## (with no spaces in svc names it should be save to remove this) 
-#			ifs=$IFS
-#			IFS=$'\n'
-#			if [[ ${IFS}${SPLASH_SVCS_FG[*]}${IFS} = *"${IFS}${svc}${IFS}"* ]]; then
-			if [[ " ${SPLASH_SVCS_FG[*]} " = *" ${svc} "* ]]; then
+			ms=${SPLASH_SVC_FG_BEGIN_MS["$svc"]}
+			if [[ $ms ]]; then
 				svc_fg=$svc
 				svc_fg_ms=${SPLASH_SVC_TIMES_MS["$svc"]}
 				if [[ $SPLASH_SMOOTH_PROGRESS = yes && $svc_fg_ms ]]
@@ -633,15 +626,9 @@ splash_rc_init_boot() {
 				else svc_fg_ticks=1
 				fi
 				# Silent step skipping
-				for i in "${!SPLASH_SVCS_FG[@]}"; do
-					svc_i=${SPLASH_SVCS_FG[i]}
-					[[ $svc_i = "$svc_fg" ]] && break
-					unset -v SPLASH_SVCS_FG[i]
-					ms_elapsed_add "$svc_i"
-				done
+				(( ms > ms_elapsed )) && ms_elapsed=$ms
 				progress_tick_set $(( ms_total - ms_elapsed ))
 			fi
-#			IFS=$ifs
 		;;& svc_${action_done} )
 			# Save new time value (taking the first one in case of repeat)
 			if [[ $svc_fg = "$svc" ]] && (( svc_fg_ticks > 0 )) &&
