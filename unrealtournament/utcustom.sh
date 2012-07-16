@@ -8,6 +8,14 @@
 # The user preferences directory
 UT_PREFS="${HOME}/.loki/ut"
 UT_DATA_PATH="/opt/ut/"
+OSSPDPID="/run/daemons/osspd"
+
+# Function to reveal osspd execution
+    if [ ! -e $OSSPDPID ]; then
+        notify-send UT -i ut " <font size=4 color=black>Please execute \
+	<b>rc.d start osspd</b> to join ut</font>";
+        exit 1;
+    fi
 
 # Function to find the real directory a program resides in.
 # Feb. 17, 2000 - Sam Lantinga, Loki Entertainment Software
