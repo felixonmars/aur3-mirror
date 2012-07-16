@@ -1,6 +1,7 @@
 #!/bin/bash
 
-daemon_name=rabbitmq-server
+daemon_name=rabbitmq
+export HOME=/usr/lib/rabbitmq
 
 . /etc/rc.conf
 . /etc/rc.d/functions
