@@ -9,7 +9,7 @@ arch=('any')
 license=('GPL2')
 url="http://ravefinity.blogspot.com/"
 depends=('gtk-engine-murrine' 'gtk-engine-unico')
-source=('http://dl.dropbox.com/u/4199602/Ambiance%26Radiance-Colors-XfceLXDE-12-04.tar.gz')
+source=('http://dl.dropbox.com/u/85873590/Ambiance%26Radiance-Colors-XfceLXDE-12-04.tar.gz')
 md5sums=('3670700578e07938e7ceaaa04ad5dab9')
 
 build() {
