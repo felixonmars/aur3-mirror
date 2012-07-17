@@ -13,25 +13,39 @@ pre_upgrade() {
 
 # arg 1:  the new package version
 pre_install() {
-	[[ -h lib ]] && return
-	local error=0 output="" d dd
-	for d in lib/fbsplash-controld lib/splash/cache; do
-		[[ -d $d ]] || continue
-		# Try hard to unmount any stale tmpfs
-		for dd in $d usr/$d; do
-			while findmnt -t tmpfs $dd >/dev/null; do
-				output+=$'\n> '$( umount -l $dd 2>&1 && echo "Unmounted '$dd'"  ) && continue
-				error=1
-				break 3
+	local error=0 output=""
+	# Move the splash cache directory on behalf of fbsplash (which expects it to be empty)
+	# to allow /lib/ to be replaced by a symlink when updating glibc to 2.16.0-2 or later.
+	# Files laying around here (from previous versions) could simply be deleted, but who knows...
+	if [[ ! -h lib ]]; then
+		local d dd
+		for d in lib/splash/cache; do
+			[[ -d $d ]] || continue
+			# Try hard to unmount any stale tmpfs
+			for dd in $d usr/$d; do
+				while findmnt -t tmpfs $dd >/dev/null; do
+					output+=$'\n> '$( umount -l $dd 2>&1 && echo "Unmounted '$dd'"  ) && continue
+					error=1
+					break 3
+				done
 			done
+			output+=$'\n> '$( mv -v -T $d usr/$d 2>&1 ) || error=1
 		done
-		output+=$'\n> '$( mv -v -T $d usr/$d 2>&1 ) || error=1
+		local dir_list
+		dir_list=$( [[ -d lib/splash ]] && find lib/splash -type d | tac ) &&
+		while read -r d; do
+			output+=$'\n> '$( rmdir -v "${d}" 2>&1 ) || error=1
+		done <<< "${dir_list}"
+	fi
+	# Move the persistant data dir
+	# Not using /var/ because it might not be available during early boot
+	# Not using /usr/ because it should only contain read-only stuff shareable between multible hosts
+	local d
+	for d in lib/fbsplash-controld; do
+		[[ -d $d ]] || continue
+		output+=$'\n> '$( mv -v -T $d etc/fbsplash-extras 2>&1 ) || error=1
 	done
-	local dir_list
-	dir_list=$( [[ -d lib/splash ]] && find lib/splash -type d | tac ) &&
-	while read -r d; do
-		output+=$'\n> '$( rmdir -v "${d}" 2>&1 ) || error=1
-	done <<< "${dir_list}"
+
 	if [[ $output ]]; then
 		cat <<-EOT
 		-------------------------------------------------------------------------------
