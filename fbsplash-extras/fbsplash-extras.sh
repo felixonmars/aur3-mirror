@@ -290,13 +290,12 @@ splash_end_boot() {
 splash_svclist() {
 	local svcs_fg=${2:-/dev/null}
 	: >|"$svcs_fg" || return 1
-	# rc.sysinit/rc.shutdown Pseudo services triggered via run_hook
-	local -a pseudo_svcs=( )
-	[[ $1 = start ]] && pseudo_svcs+=( _devices )
-	pseudo_svcs+=( _volumes _filesystems _misc )
 	case $1 in
 	start )
 		(
+			# rc.sysinit pseudo services triggered via run_hook
+			pseudo_svcs=( _devices _volumes _filesystems _misc )
+			
 			start_daemon() {
 				echo "${1}"
 				echo "${1}" >>"$svcs_fg"
@@ -320,6 +319,9 @@ splash_svclist() {
 		)
 	;; stop )
 		(
+			# rc.shutdown Pseudo services triggered via run_hook
+			pseudo_svcs=( _misc )
+			
 			stop_daemon() {
 				echo "${1}"
 				echo "${1}" >>"$svcs_fg"
