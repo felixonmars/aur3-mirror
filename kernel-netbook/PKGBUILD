@@ -37,10 +37,10 @@ UKSM="y"
  
 pkgname=kernel-netbook
 true && pkgname=('kernel-netbook' 'kernel-netbook-headers')
-makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware' 'firmware-brcm80211-git')
+makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware')
 optdepends=('hibernate-script: tux on ice default script' 'tuxonice-userui: graphical interface for toi [AUR]')
 _basekernel=3.4
-pkgver=${_basekernel}.4
+pkgver=${_basekernel}.5
 pkgrel=1
 pkgdesc="Static kernel for netbooks with Intel Atom N270/N280/N450/N550 such as eeepc with the add-on of external firmware (broadcom-wl) and patchset (BFS + TOI + BFQ optional) - Only Intel GPU - Give more power to your netbook!"
 options=('!strip')
@@ -50,7 +50,7 @@ url=('http://code.google.com/p/kernel-netbook')
 
 ####################################
 md5sums=('146af0160fc7a60cf9acf44aec13482b'
-         '51d5b74c3523c5dd8d0f4d1a7abb68be'
+         '20f116bc9410c04e2e7087cd417c31ef'
          '62d04d148b99f993ef575a71332593a9'
          '23b388c92efa35361967c15623f7249a'
          'd3489e362932f01b5ae7e8b8a2691df6'
@@ -287,7 +287,7 @@ package_kernel-netbook() {
   mv "$pkgdir/lib" "$pkgdir/usr/"
 
   # Now we call depmod...
-  depmod -b "$pkgdir/usr" -F System.map "$_kernver"
+  depmod -b "$pkgdir" -F System.map "$_kernver"
 }
 
 package_kernel-netbook-headers() {
