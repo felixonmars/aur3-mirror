@@ -237,20 +237,19 @@ in /etc/rc.sysinit )
 		# SIGTERM/SIGKILL times, which may vary depending on programs actually running,
 		# as the last two (SIGTERM takes full 5 seconds if no response from some process)
 		splash_control store
-		splash_svc stop _misc
 	}
 	# Shutdown filesystem check (custom) progress
 	add_hook shutdown_prefsck  splash_prefsck
 	add_hook shutdown_postfsck splash_postfsck
-
-	# Need to stop on preumount to avoid umount failure because of the tmpfs
-	# so these can't be done:
+	# Need to stop on preumount (right after post_killall) to avoid umount failure because of the tmpfs
+	# so all these make no sense here:
+	#	splash_svc stop _misc
 	#	splash_svc stop _filesystems
 	#	splash_svc stop _volumes
+	#	splash_svc
 	add_hook shutdown_preumount \
 	  splash_shutdown_preumount
 	  splash_shutdown_preumount() {
-		splash_svc
 		fbsplash-controld stop
 	}
 esac
@@ -320,7 +319,7 @@ splash_svclist() {
 	;; stop )
 		(
 			# rc.shutdown Pseudo services triggered via run_hook
-			pseudo_svcs=( _misc )
+			pseudo_svcs=( )
 			
 			stop_daemon() {
 				echo "${1}"
