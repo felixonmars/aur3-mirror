@@ -13,8 +13,8 @@
 pkgname=linux-aufs_friendly
 
 _kernelname=${pkgname#linux}
-_basekernel=3.3
-pkgver=${_basekernel}.4
+_basekernel=3.4
+pkgver=${_basekernel}.5
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -30,20 +30,20 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.xz
         'fix-acerhdf-1810T-bios.patch'
         'change-default-console-loglevel.patch'
         'i915-fix-ghost-tv-output.patch'
-        'ext4-options.patch'
+        '3.4.4-fix-backlight-regression.patch'
         # patches exporting symbols for the aufs module (reason for this package)
         'aufs3-base.patch' 'aufs3-standalone.patch')
-md5sums=('7133f5a2086a7d7ef97abac610c094f5'
-         '9c4cc16f10b645fbb90f6c05ad388883'
-         'a69f3228ec513be819e20f0e6625fef6'
-         '744c93715cbf8dfd31db5f7b216b954c'
+md5sums=('967f72983655e2479f951195953e8480'
+         'e60f1d8032069d091f3692c1d7a89b8b'
+         '3f2c307c8ffae67f60c13ef69af8364a'
+         '18d9d09152bafffaef78f2aac07e7145'
          'eb14dcfd80c00852ef81ded6e826826a'
          '38c1fd4a1f303f1f6c38e7f082727e2f'
          '9d3c56a4b999c8bfbd4018089a62f662'
          '263725f20c0b9eb9c353040792d644e5'
-         'bb7fd1aa23016c8057046b84fd4eb528'
-         '753713a00d3150ee1e03f33d97326100'
-         'f78455bd6fabaae14bc98d83baf8bfa9')
+         '80a46681386bb87813989faeb92bdd9a'
+         '4fdc9df9719506023425523eb546deef'
+         '4989da1e759644a7057f98ac90aafa8d')
 
 build() {
   cd "${srcdir}/linux-${_basekernel}"
@@ -63,6 +63,10 @@ build() {
   # needed.
   patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
 
+  # Fix backlight control on some laptops:
+  # https://bugzilla.kernel.org/show_bug.cgi?id=43168
+  patch -Np1 -i "${srcdir}/3.4.4-fix-backlight-regression.patch"
+
   # Patch submitted upstream, waiting for inclusion:
   # https://lkml.org/lkml/2012/2/19/51
   # add support for latest bios of Acer 1810T acerhdf module
@@ -72,10 +76,6 @@ build() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # fix ext4 module to mount ext3/2 correct
-  # https://bugs.archlinux.org/task/28653
-  patch -Np1 -i "${srcdir}/ext4-options.patch"
 
   msg 'AUFS3 patches'
   patch -p1 -i "${srcdir}/aufs3-base.patch"
@@ -93,6 +93,9 @@ build() {
 
   # set extraversion to pkgrel
   sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
+
+  # don't run depmod on 'make install'. We'll do this ourselves in packaging
+  sed -i '2iexit 0' scripts/depmod.sh
 
   # get kernel version
   make prepare
@@ -131,10 +134,10 @@ package_linux-headers() {
   conflicts=('kernel26-headers')
   replaces=('kernel26-headers')
 
-  mkdir -p "${pkgdir}/lib/modules/${_kernver}"
+  install -dm755 "${pkgdir}/usr/lib/modules/${_kernver}"
 
-  cd "${pkgdir}/lib/modules/${_kernver}"
-  ln -sf ../../../usr/src/linux-${_kernver} build
+  cd "${pkgdir}/usr/lib/modules/${_kernver}"
+  ln -sf ../../../src/linux-${_kernver} build
 
   cd "${srcdir}/linux-${_basekernel}"
   install -D -m644 Makefile \
@@ -253,7 +256,7 @@ package_linux-headers() {
   done
 
   # remove unneeded architectures
-  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
+  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
 
 package_linux-docs() {
@@ -276,7 +279,7 @@ package_linux-docs() {
 package_linux() {
   pkgdesc="The Linux Kernel and modules, with symbols exported for AUFS3"
   groups=('base')
-  depends=('coreutils' 'linux-firmware' 'module-init-tools>=3.16' 'mkinitcpio>=0.7')
+  depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
   optdepends=('crda: to set the correct wireless channels of your country')
   provides=('kernel26' 'aufs_friendly')
   conflicts=('kernel26')
@@ -323,4 +326,10 @@ package_linux() {
   # add real version for building modules and running depmod from post_install/upgrade
   mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
   echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
+
+  # move module tree /lib -> /usr/lib
+  mv "$pkgdir/lib" "$pkgdir/usr"
+
+  # Now we call depmod...
+  depmod -b "$pkgdir" -F System.map "$_kernver"
 }
