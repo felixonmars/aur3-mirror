@@ -12,8 +12,8 @@ OSSPDPID="/run/daemons/osspd"
 
 # Function to reveal osspd execution
     if [ ! -e $OSSPDPID ]; then
-        notify-send UT -i ut " <font size=4 color=black>Please execute \
-	<b>rc.d start osspd</b> to join ut</font>";
+        notify-send UT -i ut "Please execute \
+	<b>rc.d start osspd</b>";
         exit 1;
     fi
 
