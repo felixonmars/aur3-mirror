@@ -1,83 +1,7 @@
-From d007ce2c3f1f67624fde5e6b7ccc00566b7df9c3 Mon Sep 17 00:00:00 2001
-From: Oleg Nesterov <oleg@redhat.com>
-Date: Sat, 25 Feb 2012 07:29:40 -0500
-Subject: [PATCH] utrace for 3.3-rc4 kernel, on top of
- b52b80023f262ce8a0ffdcb490acb23e8678377a.
-
-The split-out series is available in the git repository at:
-
-  git@github.com:utrace/linux.git utrace-3.3
-
-Oleg Nesterov (31):
-      utrace: add utrace_init_task/utrace_free_task calls
-      tracehooks: add utrace hooks
-      tracehooks: reintroduce tracehook_consider_fatal_signal()
-      add utrace hooks into sig_ignored() and recalc_sigpending()
-      restore the EXEC/EXIT/CLONE utrace hooks
-      utrace: utrace_report_death() can use task_utrace_struct()
-      restore the DEATH/REAP utrace hooks
-      utrace: remove jobctl bits
-      ptrace: take ->siglock around s/TRACED/RUNNING/
-      introduce wake_up_quiescent()
-      introduce ptrace_signal_wake_up()
-      wait_task_inactive: treat task->state and match_state as bitmasks
-      introduce TASK_UTRACED state
-      utrace: use TASK_UTRACED instead of TASK_TRACED
-      reintroduce tracehook_finish_jctl() as utrace_end_stop()
-      teach wake_up_quiescent() to do "selective" wake_up
-      ptrace_stop: do not assume the task is running after wake_up_quiescent()
-      get_signal_to_deliver: restore/restructure utrace/ptrace signal reporting
-      utrace_get_signal: s/JOBCTL_STOP_PENDING/JOBCTL_PENDING_MASK/
-      introduce ptrace_set_syscall_trace()
-      introduce PT_SYSCALL_TRACE flag
-      utrace: don't clear TIF_SYSCALL_TRACE if it is needed by ptrace
-      introduce task_utrace_lock/task_utrace_unlock
-      teach ptrace_set_syscall_trace() to play well with utrace
-      introduce PT_SINGLE_STEP and PT_SINGLE_BLOCK
-      utrace: finish_resume_report: don't do user_xxx_step() if ptrace_wants_step()
-      ptrace: shift user_*_step() from ptrace_resume() to ptrace_stop()
-      ptrace_disable: no need to disable stepping
-      ptrace_report_syscall: check TIF_SYSCALL_EMU
-      utrace_resume: check irqs_disabled() to shut up lockdep
-      utrace: s390: fix the compile problem with traps.c
-
-Roland McGrath (1):
-      utrace core
-
-Tony Breeds (1):
-      ptrace_report_syscall: check if TIF_SYSCALL_EMU is defined
-
-Signed-off-by: Oleg Nesterov <oleg@redhat.com>
----
- Documentation/DocBook/Makefile    |    2 +-
- Documentation/DocBook/utrace.tmpl |  589 +++++++++
- arch/s390/kernel/traps.c          |    6 +-
- arch/x86/kernel/ptrace.c          |    1 -
- fs/exec.c                         |    5 +-
- fs/proc/array.c                   |   14 +-
- include/linux/ptrace.h            |    7 +
- include/linux/sched.h             |   25 +-
- include/linux/signal.h            |    2 +
- include/linux/tracehook.h         |   59 +-
- include/linux/utrace.h            |  774 ++++++++++++
- init/Kconfig                      |    9 +
- kernel/Makefile                   |    1 +
- kernel/exit.c                     |    5 +
- kernel/fork.c                     |    9 +
- kernel/ptrace.c                   |   57 +-
- kernel/sched/core.c               |    2 +-
- kernel/signal.c                   |   97 ++-
- kernel/utrace.c                   | 2466 +++++++++++++++++++++++++++++++++++++
- 19 files changed, 4074 insertions(+), 56 deletions(-)
- create mode 100644 Documentation/DocBook/utrace.tmpl
- create mode 100644 include/linux/utrace.h
- create mode 100644 kernel/utrace.c
-
-diff --git a/Documentation/DocBook/Makefile b/Documentation/DocBook/Makefile
-index 66725a3..08ed954 100644
---- a/Documentation/DocBook/Makefile
-+++ b/Documentation/DocBook/Makefile
-@@ -14,7 +14,7 @@ DOCBOOKS := z8530book.xml mcabook.xml device-drivers.xml \
+diff -urN linux-3.5-rc7/Documentation/DocBook/Makefile linux-3.5-rc7b/Documentation/DocBook/Makefile
+--- linux-3.5-rc7/Documentation/DocBook/Makefile	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/Documentation/DocBook/Makefile	2012-07-16 10:53:39.882636917 -0700
+@@ -14,7 +14,7 @@
  	    genericirq.xml s390-drivers.xml uio-howto.xml scsi.xml \
  	    80211.xml debugobjects.xml sh.xml regulator.xml \
  	    alsa-driver-api.xml writing-an-alsa-driver.xml \
@@ -86,11 +10,9 @@ index 66725a3..08ed954 100644
  
  include $(srctree)/Documentation/DocBook/media/Makefile
  
-diff --git a/Documentation/DocBook/utrace.tmpl b/Documentation/DocBook/utrace.tmpl
-new file mode 100644
-index 0000000..0c40add
---- /dev/null
-+++ b/Documentation/DocBook/utrace.tmpl
+diff -urN linux-3.5-rc7/Documentation/DocBook/utrace.tmpl linux-3.5-rc7b/Documentation/DocBook/utrace.tmpl
+--- linux-3.5-rc7/Documentation/DocBook/utrace.tmpl	1969-12-31 17:00:00.000000000 -0700
++++ linux-3.5-rc7b/Documentation/DocBook/utrace.tmpl	2012-07-16 10:53:39.882636917 -0700
 @@ -0,0 +1,589 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
@@ -681,10 +603,9 @@ index 0000000..0c40add
 +</chapter>
 +
 +</book>
-diff --git a/arch/s390/kernel/traps.c b/arch/s390/kernel/traps.c
-index 5ce3750..4f0b32f 100644
---- a/arch/s390/kernel/traps.c
-+++ b/arch/s390/kernel/traps.c
+diff -urN linux-3.5-rc7/arch/s390/kernel/traps.c linux-3.5-rc7b/arch/s390/kernel/traps.c
+--- linux-3.5-rc7/arch/s390/kernel/traps.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/arch/s390/kernel/traps.c	2012-07-16 10:53:39.882636917 -0700
 @@ -18,7 +18,7 @@
  #include <linux/kernel.h>
  #include <linux/string.h>
@@ -694,7 +615,7 @@ index 5ce3750..4f0b32f 100644
  #include <linux/timer.h>
  #include <linux/mm.h>
  #include <linux/smp.h>
-@@ -330,7 +330,7 @@ void __kprobes do_per_trap(struct pt_regs *regs)
+@@ -331,7 +331,7 @@
  
  	if (notify_die(DIE_SSTEP, "sstep", regs, 0, 0, SIGTRAP) == NOTIFY_STOP)
  		return;
@@ -703,7 +624,7 @@ index 5ce3750..4f0b32f 100644
  		return;
  	info.si_signo = SIGTRAP;
  	info.si_errno = 0;
-@@ -415,7 +415,7 @@ static void __kprobes illegal_op(struct pt_regs *regs)
+@@ -416,7 +416,7 @@
  		if (get_user(*((__u16 *) opcode), (__u16 __user *) location))
  			return;
  		if (*((__u16 *) opcode) == S390_BREAKPOINT_U16) {
@@ -712,11 +633,10 @@ index 5ce3750..4f0b32f 100644
  				info.si_signo = SIGTRAP;
  				info.si_errno = 0;
  				info.si_code = TRAP_BRKPT;
-diff --git a/arch/x86/kernel/ptrace.c b/arch/x86/kernel/ptrace.c
-index 5026738..97687f3 100644
---- a/arch/x86/kernel/ptrace.c
-+++ b/arch/x86/kernel/ptrace.c
-@@ -809,7 +809,6 @@ static int ioperm_get(struct task_struct *target,
+diff -urN linux-3.5-rc7/arch/x86/kernel/ptrace.c linux-3.5-rc7b/arch/x86/kernel/ptrace.c
+--- linux-3.5-rc7/arch/x86/kernel/ptrace.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/arch/x86/kernel/ptrace.c	2012-07-16 10:53:39.885970251 -0700
+@@ -810,7 +810,6 @@
   */
  void ptrace_disable(struct task_struct *child)
  {
@@ -724,37 +644,31 @@ index 5026738..97687f3 100644
  #ifdef TIF_SYSCALL_EMU
  	clear_tsk_thread_flag(child, TIF_SYSCALL_EMU);
  #endif
-diff --git a/fs/exec.c b/fs/exec.c
-index 92ce83a..87ff31f 100644
---- a/fs/exec.c
-+++ b/fs/exec.c
-@@ -1402,9 +1402,12 @@ int search_binary_handler(struct linux_binprm *bprm,struct pt_regs *regs)
- 			 */
+diff -urN linux-3.5-rc7/fs/exec.c linux-3.5-rc7b/fs/exec.c
+--- linux-3.5-rc7/fs/exec.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/fs/exec.c	2012-07-16 11:01:32.055977463 -0700
+@@ -1415,6 +1415,9 @@
  			bprm->recursion_depth = depth;
  			if (retval >= 0) {
--				if (depth == 0)
-+				if (depth == 0) {
-+					UTRACE_HOOK(current, EXEC,
-+						report_exec(fmt, bprm, regs));
- 					ptrace_event(PTRACE_EVENT_EXEC,
- 							old_pid);
-+				}
- 				put_binfmt(fmt);
- 				allow_write_access(bprm->file);
- 				if (bprm->file)
-diff --git a/fs/proc/array.c b/fs/proc/array.c
-index c602b8d..a700b78 100644
---- a/fs/proc/array.c
-+++ b/fs/proc/array.c
-@@ -81,6 +81,7 @@
- #include <linux/pid_namespace.h>
+ 				if (depth == 0) {
++                                        UTRACE_HOOK(current, EXEC,
++                                               report_exec(fmt, bprm, regs));
++ 
+ 					trace_sched_process_exec(current, old_pid, bprm);
+ 					ptrace_event(PTRACE_EVENT_EXEC, old_vpid);
+ 				}
+diff -urN linux-3.5-rc7/fs/proc/array.c linux-3.5-rc7b/fs/proc/array.c
+--- linux-3.5-rc7/fs/proc/array.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/fs/proc/array.c	2012-07-16 10:56:23.982639425 -0700
+@@ -82,6 +82,7 @@
  #include <linux/ptrace.h>
  #include <linux/tracehook.h>
+ #include <linux/user_namespace.h>
 +#include <linux/utrace.h>
  
  #include <asm/pgtable.h>
  #include <asm/processor.h>
-@@ -137,11 +138,12 @@ static const char * const task_state_array[] = {
+@@ -138,11 +139,12 @@
  	"D (disk sleep)",	/*   2 */
  	"T (stopped)",		/*   4 */
  	"t (tracing stop)",	/*   8 */
@@ -772,22 +686,21 @@ index c602b8d..a700b78 100644
  };
  
  static inline const char *get_task_state(struct task_struct *tsk)
-@@ -192,6 +194,8 @@ static inline void task_state(struct seq_file *m, struct pid_namespace *ns,
- 		cred->uid, cred->euid, cred->suid, cred->fsuid,
- 		cred->gid, cred->egid, cred->sgid, cred->fsgid);
+@@ -200,6 +202,8 @@
+ 		from_kgid_munged(user_ns, cred->sgid),
+ 		from_kgid_munged(user_ns, cred->fsgid));
  
 +	task_utrace_proc_status(m, p);
 +
  	task_lock(p);
  	if (p->files)
  		fdt = files_fdtable(p->files);
-diff --git a/include/linux/ptrace.h b/include/linux/ptrace.h
-index c2f1f6a..236b920 100644
---- a/include/linux/ptrace.h
-+++ b/include/linux/ptrace.h
-@@ -104,6 +104,10 @@
- 
- #define PT_TRACE_MASK	0x000003f4
+diff -urN linux-3.5-rc7/include/linux/ptrace.h linux-3.5-rc7b/include/linux/ptrace.h
+--- linux-3.5-rc7/include/linux/ptrace.h	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/include/linux/ptrace.h	2012-07-16 10:53:39.885970251 -0700
+@@ -102,6 +102,10 @@
+ #define PT_TRACE_EXIT		PT_EVENT_FLAG(PTRACE_EVENT_EXIT)
+ #define PT_TRACE_SECCOMP	PT_EVENT_FLAG(PTRACE_EVENT_SECCOMP)
  
 +#define PT_SYSCALL_TRACE	0x00020000
 +#define PT_SINGLE_STEP		0x00040000
@@ -796,15 +709,15 @@ index c2f1f6a..236b920 100644
  /* single stepping state bits (used on ARM and PA-RISC) */
  #define PT_SINGLESTEP_BIT	31
  #define PT_SINGLESTEP		(1<<PT_SINGLESTEP_BIT)
-@@ -114,6 +118,7 @@
- #include <linux/sched.h>		/* For struct task_struct.  */
+@@ -113,6 +117,7 @@
  #include <linux/err.h>			/* for IS_ERR_VALUE */
+ #include <linux/bug.h>			/* For BUG_ON.  */
  
 +extern void ptrace_signal_wake_up(struct task_struct *p, int quiescent);
  
  extern long arch_ptrace(struct task_struct *child, long request,
  			unsigned long addr, unsigned long data);
-@@ -228,6 +233,8 @@ static inline void ptrace_init_task(struct task_struct *child, bool ptrace)
+@@ -228,6 +233,8 @@
  
  	if (unlikely(ptrace) && current->ptrace) {
  		child->ptrace = current->ptrace;
@@ -813,11 +726,10 @@ index c2f1f6a..236b920 100644
  		__ptrace_link(child, current->parent);
  
  		if (child->ptrace & PT_SEIZED)
-diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 7d379a6..a3c4599 100644
---- a/include/linux/sched.h
-+++ b/include/linux/sched.h
-@@ -185,16 +185,17 @@ print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
+diff -urN linux-3.5-rc7/include/linux/sched.h linux-3.5-rc7b/include/linux/sched.h
+--- linux-3.5-rc7/include/linux/sched.h	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/include/linux/sched.h	2012-07-16 10:53:39.889303584 -0700
+@@ -186,16 +186,17 @@
  #define TASK_UNINTERRUPTIBLE	2
  #define __TASK_STOPPED		4
  #define __TASK_TRACED		8
@@ -842,7 +754,7 @@ index 7d379a6..a3c4599 100644
  
  extern char ___assert_task_state[1 - 2*!!(
  		sizeof(TASK_STATE_TO_CHAR_STR)-1 != ilog2(TASK_STATE_MAX)+1)];
-@@ -203,15 +204,16 @@ extern char ___assert_task_state[1 - 2*!!(
+@@ -204,15 +205,16 @@
  #define TASK_KILLABLE		(TASK_WAKEKILL | TASK_UNINTERRUPTIBLE)
  #define TASK_STOPPED		(TASK_WAKEKILL | __TASK_STOPPED)
  #define TASK_TRACED		(TASK_WAKEKILL | __TASK_TRACED)
@@ -861,9 +773,9 @@ index 7d379a6..a3c4599 100644
  
  #define task_is_traced(task)	((task->state & __TASK_TRACED) != 0)
  #define task_is_stopped(task)	((task->state & __TASK_STOPPED) != 0)
-@@ -1420,6 +1422,11 @@ struct task_struct {
+@@ -1414,6 +1416,11 @@
  #endif
- 	seccomp_t seccomp;
+ 	struct seccomp seccomp;
  
 +#ifdef CONFIG_UTRACE
 +	struct utrace *utrace;
@@ -873,11 +785,10 @@ index 7d379a6..a3c4599 100644
  /* Thread group tracking */
     	u32 parent_exec_id;
     	u32 self_exec_id;
-diff --git a/include/linux/signal.h b/include/linux/signal.h
-index 7987ce74..c320549 100644
---- a/include/linux/signal.h
-+++ b/include/linux/signal.h
-@@ -239,6 +239,8 @@ static inline int valid_signal(unsigned long sig)
+diff -urN linux-3.5-rc7/include/linux/signal.h linux-3.5-rc7b/include/linux/signal.h
+--- linux-3.5-rc7/include/linux/signal.h	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/include/linux/signal.h	2012-07-16 10:53:39.889303584 -0700
+@@ -239,6 +239,8 @@
  struct timespec;
  struct pt_regs;
  
@@ -886,51 +797,54 @@ index 7987ce74..c320549 100644
  extern int next_signal(struct sigpending *pending, sigset_t *mask);
  extern int do_send_sig_info(int sig, struct siginfo *info,
  				struct task_struct *p, bool group);
-diff --git a/include/linux/tracehook.h b/include/linux/tracehook.h
-index a71a292..a1bac95 100644
---- a/include/linux/tracehook.h
-+++ b/include/linux/tracehook.h
-@@ -49,6 +49,7 @@
- #include <linux/sched.h>
+diff -urN linux-3.5-rc7/include/linux/tracehook.h linux-3.5-rc7b/include/linux/tracehook.h
+--- linux-3.5-rc7/include/linux/tracehook.h	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/include/linux/tracehook.h	2012-07-16 12:32:29.376060829 -0700
+@@ -50,6 +50,7 @@
  #include <linux/ptrace.h>
  #include <linux/security.h>
+ #include <linux/task_work.h>
 +#include <linux/utrace.h>
  struct linux_binprm;
  
  /*
-@@ -58,8 +59,12 @@ static inline void ptrace_report_syscall(struct pt_regs *regs)
+@@ -59,8 +60,17 @@
  {
  	int ptrace = current->ptrace;
  
 -	if (!(ptrace & PT_PTRACED))
--		return;
-+	if (!(ptrace & PT_SYSCALL_TRACE)) {
++/*	if (!(ptrace & PT_PTRACED))
+ 		return 0;
++*/
++
++ 	if (!(ptrace & PT_SYSCALL_TRACE)) {
 +#ifdef TIF_SYSCALL_EMU
-+		if (!test_thread_flag(TIF_SYSCALL_EMU))
++               if (!test_thread_flag(TIF_SYSCALL_EMU))
 +#endif
-+			return;
++                       return;
 +	}
++
  
  	ptrace_notify(SIGTRAP | ((ptrace & PT_TRACESYSGOOD) ? 0x80 : 0));
  
-@@ -96,10 +101,16 @@ static inline void ptrace_report_syscall(struct pt_regs *regs)
+@@ -99,9 +109,16 @@
  static inline __must_check int tracehook_report_syscall_entry(
  	struct pt_regs *regs)
  {
 +	if ((task_utrace_flags(current) & UTRACE_EVENT(SYSCALL_ENTRY)) &&
-+	    utrace_report_syscall_entry(regs))
-+		return 1;
- 	ptrace_report_syscall(regs);
- 	return 0;
++       	  utrace_report_syscall_entry(regs))
++        	return 1;
++ 
+ 	return ptrace_report_syscall(regs);
  }
  
-+#define ptrace_wants_step(task)	\
-+	((task)->ptrace & (PT_SINGLE_STEP | PT_SINGLE_BLOCK))
++#define ptrace_wants_step(task)        \
++       ((task)->ptrace & (PT_SINGLE_STEP | PT_SINGLE_BLOCK))
 +
  /**
   * tracehook_report_syscall_exit - task has just finished a system call
   * @regs:		user register state of current task
-@@ -119,7 +130,10 @@ static inline __must_check int tracehook_report_syscall_entry(
+@@ -121,7 +138,10 @@
   */
  static inline void tracehook_report_syscall_exit(struct pt_regs *regs, int step)
  {
@@ -942,21 +856,32 @@ index a71a292..a1bac95 100644
  		siginfo_t info;
  		user_single_step_siginfo(current, regs, &info);
  		force_sig_info(SIGTRAP, &info, current);
-@@ -148,10 +162,34 @@ static inline void tracehook_signal_handler(int sig, siginfo_t *info,
+@@ -131,6 +151,7 @@
+ 	ptrace_report_syscall(regs);
+ }
+ 
++ 
+ /**
+  * tracehook_signal_handler - signal handler setup is complete
+  * @sig:		number of signal being delivered
+@@ -150,7 +171,9 @@
  					    const struct k_sigaction *ka,
  					    struct pt_regs *regs, int stepping)
  {
 -	if (stepping)
-+	if (task_utrace_flags(current))
-+		utrace_signal_handler(current, stepping);
-+	if (stepping && ptrace_wants_step(current))
++       if (task_utrace_flags(current))
++               utrace_signal_handler(current, stepping);
++       if (stepping && ptrace_wants_step(current))
  		ptrace_notify(SIGTRAP);
  }
  
-+/**
+@@ -172,6 +195,29 @@
+ }
+ 
+ /**
 + * tracehook_consider_fatal_signal - suppress special handling of fatal signal
-+ * @task:		task receiving the signal
-+ * @sig:		signal number being sent
++ * @task:              task receiving the signal
++ * @sig:               signal number being sent
 + *
 + * Return nonzero to prevent special handling of this termination signal.
 + * Normally handler for signal is %SIG_DFL.  It can be %SIG_IGN if @sig is
@@ -967,45 +892,40 @@ index a71a292..a1bac95 100644
 + * Called with or without @task->sighand->siglock held.
 + */
 +static inline int tracehook_consider_fatal_signal(struct task_struct *task,
-+						  int sig)
++                                                 int sig)
 +{
-+	if (unlikely(task_utrace_flags(task) & (UTRACE_EVENT(SIGNAL_TERM) |
-+						UTRACE_EVENT(SIGNAL_CORE))))
-+		return 1;
-+	return task->ptrace != 0;
++       if (unlikely(task_utrace_flags(task) & (UTRACE_EVENT(SIGNAL_TERM) |
++                                               UTRACE_EVENT(SIGNAL_CORE))))
++               return 1;
++       return task->ptrace != 0;
 +}
 +
- #ifdef TIF_NOTIFY_RESUME
- /**
-  * set_notify_resume - cause tracehook_notify_resume() to be called
-@@ -179,10 +217,21 @@ static inline void set_notify_resume(struct task_struct *task)
-  * asynchronously, this will be called again before we return to
-  * user mode.
++ 
++/**
+  * tracehook_notify_resume - report when about to return to user mode
+  * @regs:		user-mode registers of @current task
   *
-- * Called without locks.
-+ * Called without locks.  However, on some machines this may be
-+ * called with interrupts disabled.
-  */
- static inline void tracehook_notify_resume(struct pt_regs *regs)
- {
-+	struct task_struct *task = current;
-+	/*
-+	 * Prevent the following store/load from getting ahead of the
-+	 * caller which clears TIF_NOTIFY_RESUME. This pairs with the
-+	 * implicit mb() before setting TIF_NOTIFY_RESUME in
-+	 * set_notify_resume().
-+	 */
-+	smp_mb();
-+	if (task_utrace_flags(task))
-+		utrace_resume(task, regs);
+@@ -194,6 +240,17 @@
+ 	smp_mb__after_clear_bit();
+ 	if (unlikely(!hlist_empty(&current->task_works)))
+ 		task_work_run();
++
++       struct task_struct *task = current;
++       /*
++        * Prevent the following store/load from getting ahead of the
++        * caller which clears TIF_NOTIFY_RESUME. This pairs with the
++        * implicit mb() before setting TIF_NOTIFY_RESUME in
++        * set_notify_resume().
++        */
++       smp_mb();
++       if (task_utrace_flags(task))
++               utrace_resume(task, regs);
  }
- #endif	/* TIF_NOTIFY_RESUME */
  
-diff --git a/include/linux/utrace.h b/include/linux/utrace.h
-new file mode 100644
-index 0000000..46959af
---- /dev/null
-+++ b/include/linux/utrace.h
+ #endif	/* <linux/tracehook.h> */
+diff -urN linux-3.5-rc7/include/linux/utrace.h linux-3.5-rc7b/include/linux/utrace.h
+--- linux-3.5-rc7/include/linux/utrace.h	1969-12-31 17:00:00.000000000 -0700
++++ linux-3.5-rc7b/include/linux/utrace.h	2012-07-16 10:53:39.889303584 -0700
 @@ -0,0 +1,774 @@
 +/*
 + * utrace infrastructure interface for debugging user processes
@@ -1781,11 +1701,10 @@ index 0000000..46959af
 +}
 +
 +#endif	/* linux/utrace.h */
-diff --git a/init/Kconfig b/init/Kconfig
-index 3f42cd6..5f4f92e 100644
---- a/init/Kconfig
-+++ b/init/Kconfig
-@@ -386,6 +386,15 @@ config AUDIT_LOGINUID_IMMUTABLE
+diff -urN linux-3.5-rc7/init/Kconfig linux-3.5-rc7b/init/Kconfig
+--- linux-3.5-rc7/init/Kconfig	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/init/Kconfig	2012-07-16 10:53:39.892636916 -0700
+@@ -388,6 +388,15 @@
  	  one to drop potentially dangerous capabilites from the login tasks,
  	  but may not be backwards compatible with older init systems.
  
@@ -1799,13 +1718,12 @@ index 3f42cd6..5f4f92e 100644
 +	  user threads, extract and change user thread state.
 +
  source "kernel/irq/Kconfig"
+ source "kernel/time/Kconfig"
  
- menu "RCU Subsystem"
-diff --git a/kernel/Makefile b/kernel/Makefile
-index 2d9de86..6c6749d 100644
---- a/kernel/Makefile
-+++ b/kernel/Makefile
-@@ -67,6 +67,7 @@ obj-$(CONFIG_IKCONFIG) += configs.o
+diff -urN linux-3.5-rc7/kernel/Makefile linux-3.5-rc7b/kernel/Makefile
+--- linux-3.5-rc7/kernel/Makefile	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/kernel/Makefile	2012-07-16 10:53:39.892636916 -0700
+@@ -70,6 +70,7 @@
  obj-$(CONFIG_RESOURCE_COUNTERS) += res_counter.o
  obj-$(CONFIG_SMP) += stop_machine.o
  obj-$(CONFIG_KPROBES_SANITY_TEST) += test_kprobes.o
@@ -1813,11 +1731,10 @@ index 2d9de86..6c6749d 100644
  obj-$(CONFIG_AUDIT) += audit.o auditfilter.o
  obj-$(CONFIG_AUDITSYSCALL) += auditsc.o
  obj-$(CONFIG_AUDIT_WATCH) += audit_watch.o
-diff --git a/kernel/exit.c b/kernel/exit.c
-index 4b4042f..b1e0518 100644
---- a/kernel/exit.c
-+++ b/kernel/exit.c
-@@ -169,6 +169,8 @@ void release_task(struct task_struct * p)
+diff -urN linux-3.5-rc7/kernel/exit.c linux-3.5-rc7b/kernel/exit.c
+--- linux-3.5-rc7/kernel/exit.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/kernel/exit.c	2012-07-16 10:53:39.892636916 -0700
+@@ -182,6 +182,8 @@
  	struct task_struct *leader;
  	int zap_leader;
  repeat:
@@ -1826,7 +1743,7 @@ index 4b4042f..b1e0518 100644
  	/* don't need to get the RCU readlock here - the process is dead and
  	 * can't be modifying its own credentials. But shut RCU-lockdep up */
  	rcu_read_lock();
-@@ -857,6 +859,8 @@ static void exit_notify(struct task_struct *tsk, int group_dead)
+@@ -872,6 +874,8 @@
  		wake_up_process(tsk->signal->group_exit_task);
  	write_unlock_irq(&tasklist_lock);
  
@@ -1835,7 +1752,7 @@ index 4b4042f..b1e0518 100644
  	/* If the process is dead, release it - nobody will wait for it */
  	if (autoreap)
  		release_task(tsk);
-@@ -910,6 +914,7 @@ void do_exit(long code)
+@@ -925,6 +929,7 @@
  	 */
  	set_fs(USER_DS);
  
@@ -1843,37 +1760,37 @@ index 4b4042f..b1e0518 100644
  	ptrace_event(PTRACE_EVENT_EXIT, code);
  
  	validate_creds_for_do_exit(tsk);
-diff --git a/kernel/fork.c b/kernel/fork.c
-index e2cd3e2..fa40928 100644
---- a/kernel/fork.c
-+++ b/kernel/fork.c
-@@ -67,6 +67,7 @@
- #include <linux/oom.h>
+diff -urN linux-3.5-rc7/kernel/fork.c linux-3.5-rc7b/kernel/fork.c
+--- linux-3.5-rc7/kernel/fork.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/kernel/fork.c	2012-07-16 12:29:32.899391463 -0700
+@@ -70,6 +70,7 @@
  #include <linux/khugepaged.h>
  #include <linux/signalfd.h>
+ #include <linux/uprobes.h>
 +#include <linux/utrace.h>
  
  #include <asm/pgtable.h>
  #include <asm/pgalloc.h>
-@@ -170,6 +171,8 @@ void free_task(struct task_struct *tsk)
+@@ -208,6 +209,9 @@
  	free_thread_info(tsk->stack);
  	rt_mutex_debug_task_free(tsk);
  	ftrace_graph_exit_task(tsk);
 +	if (task_utrace_struct(tsk))
-+		utrace_free_task(tsk);
++        	utrace_free_task(tsk);
++
+ 	put_seccomp_filter(tsk);
  	free_task_struct(tsk);
  }
- EXPORT_SYMBOL(free_task);
-@@ -1115,6 +1118,8 @@ static struct task_struct *copy_process(unsigned long clone_flags,
+@@ -1199,6 +1203,8 @@
  	if (!p)
  		goto fork_out;
  
 +	utrace_init_task(p);
 +
  	ftrace_graph_init_task(p);
+ 	get_seccomp_filter(p);
  
- 	rt_mutex_init_task(p);
-@@ -1583,6 +1583,8 @@ long do_fork(unsigned long clone_flags,
+@@ -1647,9 +1653,13 @@
  			get_task_struct(p);
  		}
  
@@ -1882,19 +1799,14 @@ index e2cd3e2..fa40928 100644
  		wake_up_new_task(p);
  
  		/* forking complete and child started to run, tell ptracer */
-@@ -1561,6 +1568,8 @@ long do_fork(unsigned long clone_flags,
- 		wake_up_new_task(p);
- 
- 		/* forking complete and child started to run, tell ptracer */
 +		if (clone_flags & CLONE_VFORK)
 +			UTRACE_HOOK(current, CLONE, finish_vfork(current));
  		if (unlikely(trace))
  			ptrace_event(trace, nr);
  
-diff --git a/kernel/ptrace.c b/kernel/ptrace.c
-index 00ab2ca..a7024b8 100644
---- a/kernel/ptrace.c
-+++ b/kernel/ptrace.c
+diff -urN linux-3.5-rc7/kernel/ptrace.c linux-3.5-rc7b/kernel/ptrace.c
+--- linux-3.5-rc7/kernel/ptrace.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/kernel/ptrace.c	2012-07-16 10:53:39.895970249 -0700
 @@ -24,7 +24,34 @@
  #include <linux/regset.h>
  #include <linux/hw_breakpoint.h>
@@ -1930,7 +1842,7 @@ index 00ab2ca..a7024b8 100644
  
  static int ptrace_trapping_sleep_fn(void *flags)
  {
-@@ -117,7 +144,7 @@ void __ptrace_unlink(struct task_struct *child)
+@@ -117,7 +144,7 @@
  	 * TASK_KILLABLE sleeps.
  	 */
  	if (child->jobctl & JOBCTL_STOP_PENDING || task_is_traced(child))
@@ -1939,7 +1851,7 @@ index 00ab2ca..a7024b8 100644
  
  	spin_unlock(&child->sighand->siglock);
  }
-@@ -315,7 +342,7 @@ static int ptrace_attach(struct task_struct *task, long request,
+@@ -310,7 +337,7 @@
  	 */
  	if (task_is_stopped(task) &&
  	    task_set_jobctl_pending(task, JOBCTL_TRAP_STOP | JOBCTL_TRAPPING))
@@ -1948,7 +1860,7 @@ index 00ab2ca..a7024b8 100644
  
  	spin_unlock(&task->sighand->siglock);
  
-@@ -425,7 +452,7 @@ static int ptrace_detach(struct task_struct *child, unsigned int data)
+@@ -420,7 +447,7 @@
  
  	/* Architecture-specific hardware disable .. */
  	ptrace_disable(child);
@@ -1957,7 +1869,7 @@ index 00ab2ca..a7024b8 100644
  
  	write_lock_irq(&tasklist_lock);
  	/*
-@@ -608,13 +635,12 @@ static int ptrace_setsiginfo(struct task_struct *child, const siginfo_t *info)
+@@ -591,13 +618,12 @@
  static int ptrace_resume(struct task_struct *child, long request,
  			 unsigned long data)
  {
@@ -1974,7 +1886,7 @@ index 00ab2ca..a7024b8 100644
  
  #ifdef TIF_SYSCALL_EMU
  	if (request == PTRACE_SYSEMU || request == PTRACE_SYSEMU_SINGLESTEP)
-@@ -623,20 +649,23 @@ static int ptrace_resume(struct task_struct *child, long request,
+@@ -606,20 +632,23 @@
  		clear_tsk_thread_flag(child, TIF_SYSCALL_EMU);
  #endif
  
@@ -2003,7 +1915,7 @@ index 00ab2ca..a7024b8 100644
  
  	return 0;
  }
-@@ -744,7 +773,7 @@ int ptrace_request(struct task_struct *child, long request,
+@@ -727,7 +756,7 @@
  		 * tracee into STOP.
  		 */
  		if (likely(task_set_jobctl_pending(child, JOBCTL_TRAP_STOP)))
@@ -2012,7 +1924,7 @@ index 00ab2ca..a7024b8 100644
  
  		unlock_task_sighand(child, &flags);
  		ret = 0;
-@@ -770,7 +799,7 @@ int ptrace_request(struct task_struct *child, long request,
+@@ -753,7 +782,7 @@
  			 * start of this trap and now.  Trigger re-trap.
  			 */
  			if (child->jobctl & JOBCTL_TRAP_NOTIFY)
@@ -2021,11 +1933,10 @@ index 00ab2ca..a7024b8 100644
  			ret = 0;
  		}
  		unlock_task_sighand(child, &flags);
-diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 5255c9d..f1719b8 100644
---- a/kernel/sched/core.c
-+++ b/kernel/sched/core.c
-@@ -1167,7 +1167,7 @@ unsigned long wait_task_inactive(struct task_struct *p, long match_state)
+diff -urN linux-3.5-rc7/kernel/sched/core.c linux-3.5-rc7b/kernel/sched/core.c
+--- linux-3.5-rc7/kernel/sched/core.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/kernel/sched/core.c	2012-07-16 10:53:39.895970249 -0700
+@@ -1167,7 +1167,7 @@
  		 * is actually now running somewhere else!
  		 */
  		while (task_running(rq, p)) {
@@ -2034,11 +1945,10 @@ index 5255c9d..f1719b8 100644
  				return 0;
  			cpu_relax();
  		}
-diff --git a/kernel/signal.c b/kernel/signal.c
-index c73c428..0508d93 100644
---- a/kernel/signal.c
-+++ b/kernel/signal.c
-@@ -88,7 +88,7 @@ static int sig_ignored(struct task_struct *t, int sig, int from_ancestor_ns)
+diff -urN linux-3.5-rc7/kernel/signal.c linux-3.5-rc7b/kernel/signal.c
+--- linux-3.5-rc7/kernel/signal.c	2012-07-14 15:40:28.000000000 -0700
++++ linux-3.5-rc7b/kernel/signal.c	2012-07-16 10:53:39.895970249 -0700
+@@ -89,7 +89,7 @@
  	/*
  	 * Tracers may want to know about even ignored signals.
  	 */
@@ -2047,7 +1957,7 @@ index c73c428..0508d93 100644
  }
  
  /*
-@@ -151,6 +151,11 @@ void recalc_sigpending_and_wake(struct task_struct *t)
+@@ -152,6 +152,11 @@
  
  void recalc_sigpending(void)
  {
@@ -2059,7 +1969,7 @@ index c73c428..0508d93 100644
  	if (!recalc_sigpending_tsk(current) && !freezing(current))
  		clear_thread_flag(TIF_SIGPENDING);
  
-@@ -495,7 +500,7 @@ int unhandled_signal(struct task_struct *tsk, int sig)
+@@ -496,7 +501,7 @@
  	if (handler != SIG_IGN && handler != SIG_DFL)
  		return 0;
  	/* if ptraced, let the tracer determine */
@@ -2068,7 +1978,7 @@ index c73c428..0508d93 100644
  }
  
  /*
-@@ -697,6 +702,29 @@ void signal_wake_up(struct task_struct *t, int resume)
+@@ -698,6 +703,29 @@
  		kick_process(t);
  }
  
@@ -2098,7 +2008,7 @@ index c73c428..0508d93 100644
  /*
   * Remove signals in mask from the pending set and queue.
   * Returns 1 if any signals were found.
-@@ -842,7 +870,7 @@ static void ptrace_trap_notify(struct task_struct *t)
+@@ -842,7 +870,7 @@
  	assert_spin_locked(&t->sighand->siglock);
  
  	task_set_jobctl_pending(t, JOBCTL_TRAP_NOTIFY);
@@ -2107,7 +2017,7 @@ index c73c428..0508d93 100644
  }
  
  /*
-@@ -884,7 +912,7 @@ static int prepare_signal(int sig, struct task_struct *p, int from_ancestor_ns)
+@@ -884,7 +912,7 @@
  			task_clear_jobctl_pending(t, JOBCTL_STOP_PENDING);
  			rm_from_queue(SIG_KERNEL_STOP_MASK, &t->pending);
  			if (likely(!(t->ptrace & PT_SEIZED)))
@@ -2116,7 +2026,7 @@ index c73c428..0508d93 100644
  			else
  				ptrace_trap_notify(t);
  		} while_each_thread(p, t);
-@@ -983,7 +1011,7 @@ static void complete_signal(int sig, struct task_struct *p, int group)
+@@ -983,7 +1011,7 @@
  	if (sig_fatal(p, sig) &&
  	    !(signal->flags & (SIGNAL_UNKILLABLE | SIGNAL_GROUP_EXIT)) &&
  	    !sigismember(&t->real_blocked, sig) &&
@@ -2125,7 +2035,7 @@ index c73c428..0508d93 100644
  		/*
  		 * This signal will be fatal to the whole group.
  		 */
-@@ -1913,10 +1941,34 @@ static void ptrace_stop(int exit_code, int why, int clear_code, siginfo_t *info)
+@@ -1922,10 +1950,34 @@
  		if (gstop_done)
  			do_notify_parent_cldstop(current, false, why);
  
@@ -2161,7 +2071,7 @@ index c73c428..0508d93 100644
  	}
  
  	/*
-@@ -2081,6 +2133,9 @@ static bool do_signal_stop(int signr)
+@@ -2090,6 +2142,9 @@
  
  		/* Now we don't run again until woken by SIGCONT or SIGKILL */
  		schedule();
@@ -2171,7 +2081,7 @@ index c73c428..0508d93 100644
  		return true;
  	} else {
  		/*
-@@ -2231,17 +2286,27 @@ relock:
+@@ -2243,17 +2298,27 @@
  	for (;;) {
  		struct k_sigaction *ka;
  
@@ -2207,7 +2117,7 @@ index c73c428..0508d93 100644
  
  		if (!signr)
  			break; /* will return 0 */
-@@ -2251,9 +2316,9 @@ relock:
+@@ -2263,9 +2328,9 @@
  					      regs, cookie);
  			if (!signr)
  				continue;
@@ -2219,11 +2129,9 @@ index c73c428..0508d93 100644
  
  		/* Trace actually delivered signals. */
  		trace_signal_deliver(signr, info, ka);
-diff --git a/kernel/utrace.c b/kernel/utrace.c
-new file mode 100644
-index 0000000..a169e1b
---- /dev/null
-+++ b/kernel/utrace.c
+diff -urN linux-3.5-rc7/kernel/utrace.c linux-3.5-rc7b/kernel/utrace.c
+--- linux-3.5-rc7/kernel/utrace.c	1969-12-31 17:00:00.000000000 -0700
++++ linux-3.5-rc7b/kernel/utrace.c	2012-07-16 10:53:39.899303583 -0700
 @@ -0,0 +1,2466 @@
 +/*
 + * utrace infrastructure interface for debugging user processes
@@ -4691,6 +4599,3 @@ index 0000000..a169e1b
 +{
 +	seq_printf(m, "Utrace:\t%lx\n", p->utrace_flags);
 +}
--- 
-1.7.9.1
-
