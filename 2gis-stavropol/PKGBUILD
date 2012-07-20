@@ -1,13 +1,13 @@
 pkgname=2gis-stavropol
-pkgver=6
+pkgver=7
 pkgrel=1
-pkgdesc="Map of Stavropol for 2GIS, June 2012"
+pkgdesc="Map of Stavropol for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://stavropol.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Stavropol-6.orig.zip")
-md5sums=('3bbf5e2a916acd54c5eb3ce248530cf3')
+source=("http://download.2gis.ru/arhives/2GISData_Stavropol-7.orig.zip")
+md5sums=('a6a761cf3f4c93fbc18766a5fe042e3c')
 
 build() {
   cd $startdir

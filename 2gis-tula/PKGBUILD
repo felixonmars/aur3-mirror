@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-tula
-pkgver=19
+pkgver=20
 pkgrel=1
-pkgdesc="Map of Tula for 2GIS, June 2012"
+pkgdesc="Map of Tula for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://tula.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Tula-19.orig.zip")
-md5sums=('1e4c8d8f3eb382e0d6b16c4803dc593f')
+source=("http://download.2gis.ru/arhives/2GISData_Tula-20.orig.zip")
+md5sums=('35609f6b9158a884dbe1780d45050c6a')
      
 build() {
      

@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-volgograd
-pkgver=21
+pkgver=22
 pkgrel=1
-pkgdesc="Map of Volgograd for 2GIS, June 2012"
+pkgdesc="Map of Volgograd for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://volgograd.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Volgograd-21.orig.zip")
-md5sums=('267a7477c62ba08dfc2b53285bc1c032')
+source=("http://download.2gis.ru/arhives/2GISData_Volgograd-22.orig.zip")
+md5sums=('f2526ef4ac51c41f3de85af1600b1c37')
      
 build() {
      

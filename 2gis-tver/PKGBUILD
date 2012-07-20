@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-tver
-pkgver=11
+pkgver=12
 pkgrel=1
-pkgdesc="Map of Tver for 2GIS, June 2012"
+pkgdesc="Map of Tver for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://tver.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Tver-11.orig.zip")
-md5sums=('167b7baf49f3f7046b34bea277e22d37')
+source=("http://download.2gis.ru/arhives/2GISData_Tver-12.orig.zip")
+md5sums=('9ca87c6d52a241c6d496683a17592971')
      
 build() {
      

@@ -1,13 +1,13 @@
 pkgname=2gis-bratsk
-pkgver=9
+pkgver=10
 pkgrel=1
-pkgdesc="Map of Bratsk for 2GIS, June 2012"
+pkgdesc="Map of Bratsk for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://bratsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Bratsk-9.orig.zip")
-md5sums=('faaa6480407df2fd6dfeafe58f2c5bcd')
+source=("http://download.2gis.ru/arhives/2GISData_Bratsk-10.orig.zip")
+md5sums=('9895e02103040261b0566de03a41bd6f')
 
 build() {
   cd $startdir

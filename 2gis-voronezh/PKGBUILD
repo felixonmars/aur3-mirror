@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-voronezh
-pkgver=23
+pkgver=24
 pkgrel=1
-pkgdesc="Map of Voronezh for 2GIS, June 2012"
+pkgdesc="Map of Voronezh for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://voronezh.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Voronezh-23.orig.zip")
-md5sums=('97f2fce37c314e8d0d0d017f79786540')
+source=("http://download.2gis.ru/arhives/2GISData_Voronezh-24.orig.zip")
+md5sums=('4e1fcc3ede4f92e9d2b2316d0405830b')
      
 build() {
      

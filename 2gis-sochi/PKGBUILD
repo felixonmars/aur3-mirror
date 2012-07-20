@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-sochi
-pkgver=23
+pkgver=24
 pkgrel=1
-pkgdesc="Map of Sochi for 2GIS, June 2012"
+pkgdesc="Map of Sochi for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://sochi.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Sochi-23.orig.zip")
-md5sums=('4dfbdc423e3fcab6de2f4991a9113d89')
+source=("http://download.2gis.ru/arhives/2GISData_Sochi-24.orig.zip")
+md5sums=('73f8f54d9c0ed7367dec239a111a6910')
      
 build() {
      

@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-gornoaltaysk
-pkgver=26
+pkgver=27
 pkgrel=1
-pkgdesc="Map of Gorny Altai for 2GIS, June 2012"
+pkgdesc="Map of Gorny Altai for 2GIS, July 2012"
 arch=('i686' 'x86_64')
 url="http://altai.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Gornoaltaysk-26.orig.zip")
-md5sums=('fc945c3dcf832360c0ca35358550c030')
+source=("http://download.2gis.ru/arhives/2GISData_Gornoaltaysk-27.orig.zip")
+md5sums=('a7b5e8492faa1390b36776ca3c27de58')
      
 build() {
      
