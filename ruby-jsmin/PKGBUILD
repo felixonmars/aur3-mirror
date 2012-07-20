@@ -1,0 +1,24 @@
+# Contributor: Alexsandr Pavlov <kidoz at mail dot ru>
+# Contributor: fnord0 <fnord0 AT riseup DOT net>
+
+pkgname=ruby-jsmin
+_gemname=${pkgname#ruby-}
+pkgver=1.0.1
+pkgrel=1
+pkgdesc="Ruby implementation of Douglas Crockford's JSMin JavaScript minifier"
+arch=('any')
+url="https://github.com/rgrove/jsmin/"
+license=('custom')
+depends=('ruby' 'rubygems')
+source=(http://rubygems.org/downloads/${_gemname}-${pkgver}.gem)
+noextract=(${_gemname}-${pkgver}.gem)
+md5sums=('b64f1b806fe267c927240b6c41a16298')
+
+build() {
+  cd "${srcdir}"
+  export HOME=/tmp
+  local _gemdir="$(ruby -rubygems -e'puts Gem.default_dir')"
+  gem install --no-user-install --ignore-dependencies -i "${pkgdir}${_gemdir}" -n "${pkgdir}/usr/bin" ${_gemname}-${pkgver}.gem
+  install -d ${pkgdir}/usr/share/licenses/${pkgname} || return 1
+  sed -n 103,119p ${pkgdir}/usr/lib/ruby/gems/*/doc/${_gemname}-${pkgver}/rdoc/JSMin.html | sed 's/<[^>]*>//g' > ${pkgdir}/usr/share/licenses/${pkgname}/LICENSE
+}

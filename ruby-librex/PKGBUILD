@@ -1,0 +1,22 @@
+# Contributor: Alexsandr Pavlov <kidoz at mail dot ru>
+# Contributor: fnord0 <fnord0 AT riseup DOT net>
+
+pkgname=ruby-librex
+_gemname=${pkgname#ruby-}
+pkgver=0.0.68
+pkgrel=1
+pkgdesc="Rex provides a variety of classes useful for security testing and exploit development"
+arch=('any')
+url="http://www.metasploit.com/"
+license=('BSD')
+depends=('ruby' 'rubygems')
+source=(http://rubygems.org/downloads/${_gemname}-${pkgver}.gem)
+noextract=(${_gemname}-${pkgver}.gem)
+md5sums=('069ac838b47ad76870f7c6ba7b2f9bf4')
+
+build() {
+  cd "${srcdir}"
+  export HOME=/tmp
+  local _gemdir="$(ruby -rubygems -e'puts Gem.default_dir')"
+  gem install --no-user-install --ignore-dependencies -i "${pkgdir}${_gemdir}" -n "${pkgdir}/usr/bin" ${_gemname}-${pkgver}.gem
+}

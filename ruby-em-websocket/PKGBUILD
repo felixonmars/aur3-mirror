@@ -1,0 +1,22 @@
+# Contributor: Alexsandr Pavlov <kidoz at mail dot ru>
+# Contributor: fnord0 <fnord0 AT riseup DOT net>
+
+pkgname=ruby-em-websocket
+_gemname=${pkgname#ruby-}
+pkgver=0.3.8
+pkgrel=1
+pkgdesc="EventMachine based WebSocket server"
+arch=('any')
+url="http://github.com/igrigorik/em-websocket"
+license=('MIT')
+depends=('ruby' 'rubygems')
+source=(http://rubygems.org/downloads/${_gemname}-${pkgver}.gem)
+noextract=(${_gemname}-${pkgver}.gem)
+md5sums=('45da372951071a7ea7b2b4d7c4f07ea8')
+
+build() {
+  cd "${srcdir}"
+  export HOME=/tmp
+  local _gemdir="$(ruby -rubygems -e'puts Gem.default_dir')"
+  gem install --no-user-install --ignore-dependencies -i "${pkgdir}${_gemdir}" -n "${pkgdir}/usr/bin" ${_gemname}-${pkgver}.gem
+}
