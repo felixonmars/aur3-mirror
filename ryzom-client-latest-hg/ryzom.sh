@@ -1,4 +1,5 @@
 #!/bin/sh
-cd /usr/share/games/ryzom_data
+cd /var/games/ryzom_data
+ryzom_sync 
 exec ryzom_client
  
