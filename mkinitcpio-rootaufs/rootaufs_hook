@@ -1,0 +1,300 @@
+#=====================================================================
+# TOOLS
+#=====================================================================
+
+# args: source, mountpoint
+_mnt_aufs_init() {
+    src="${1}"
+    mnt="${2}"
+    msg "::: Creating aufs mount ${src} in ${mnt}"
+    mkdir -p "${mnt}"
+    /bin/mount -t aufs -o br:"${src}" rootaufs "${mnt}"
+}
+
+# args: source, mountpoint
+_mnt_aufs_add() {
+    src="${1}"
+    mnt="${2}"
+    msg "::: Adding new aufs branch ${src} in ${mnt}"
+    /bin/mount -t aufs -o remount,append:"${src}" none "${mnt}"
+}
+
+# args: source, mountpoint
+_mnt_dev() {
+    src="${1}"
+    mnt="${2}"
+    msg "::: Mounting device ${src} to ${mnt}"
+    mkdir -p "${mnt}"
+    /bin/mount "${src}" "${mnt}"
+}
+
+# args: source, mountpoint
+_mnt_bind() {
+    src="${1}"
+    mnt="${2}"
+    msg "::: Binding ${src} to ${mnt}"
+    mkdir -p "${mnt}"
+    /bin/mount --bind "${src}" "${mnt}"
+}
+
+# args: source, mountpoint
+_mnt_move() {
+    src="${1}"
+    mnt="${2}"
+    msg "::: Moving ${src} to ${mnt}"
+    mkdir -p "${mnt}"
+    /bin/mount --move "${src}" "${mnt}"
+}
+
+# args: file, mountpoint
+_mnt_loop() {
+    src="${1}"
+    mnt="${2}"
+    msg "::: Mounting file ${src} to ${mnt}"
+    mkdir -p "${mnt}"
+    /bin/mount -o loop "${src}" "${mnt}"
+}
+
+# args: size, mountpoint
+_mnt_tmpfs() {
+    size="${1}"
+    mnt="${2}"
+    msg "::: Mounting tmpfs, size=${size} to ${mnt}"
+    mkdir -p "${mnt}"
+    /bin/mount -t tmpfs -o "size=${size}" tmpfs "${mnt}"
+}
+
+# args: mountpoint
+_mnt_rerw() {
+    mnt="${1}"
+    msg "::: Re-mounting rw ${mnt}"
+    /bin/mount -o "remount,rw" "${mnt}"
+}
+
+
+#=====================================================================
+# HOOK
+#=====================================================================
+
+run_hook () {
+    #check if wanted
+    if [ "x${rootaufs}" = "x" ]; then
+        return
+    fi
+
+    #defaults
+    if [ "${rootaufs}" == "y" ]; then
+        rootaufs=tmpfs
+    fi
+    if [ "x${tmpfs_size}" = "x" ]; then
+        tmpfs_size="75%"
+    fi
+    #...
+    
+    #load modules
+    /sbin/modprobe aufs
+    if [ $? != 0 ]; then
+        msg ":: rootaufs: Could NOT load aufs module, bailing out"
+        launch_interactive_shell
+        return
+    fi
+    /sbin/modprobe loop
+    /sbin/modprobe squashfs
+
+    # set mount handler for rootaufs
+    mount_handler="rootaufs_mount_handler"
+    export mount_handler
+}
+
+#=====================================================================
+# MOUNT HANDLER
+#=====================================================================
+
+rootaufs_mount_handler() {
+    newroot="${1}"
+    
+    if [ "${break}" = "pre" ]; then
+        msg ":: '${break}' Break requested, type 'exit' to resume operation"
+        launch_interactive_shell
+    fi
+
+    #-----------------------------------
+    #aufs tree
+    aufs_base="/aufs/"
+    aufs_root="${aufs_base}root"
+    aufs_rw="${aufs_base}rw"
+    aufs_rwtype=""
+    #overlay: "${aufs_base}${img##*/}"    
+    
+    #=======================================================
+    # Mount filesystems
+    #=======================================================
+    #TODO
+    # replace "_mnt_loop" with versatile mount handler:
+    # * enable passing options: fstype, rw, loop, copy2ram...
+    # * check file systems
+    # * use default_mount_handler ?
+
+    #-----------------------------------
+    #mount default root to "ro"
+    msg ":: Mounting root..."
+    mkdir -p ${aufs_root}
+    default_mount_handler ${aufs_root}
+
+    #-----------------------------------
+    #mount "rw":
+    msg ":: Mounting rw..."
+    if [ "${rootaufs}" == "tmpfs" ]; then
+        #tmpfs
+        aufs_rwtype="tmpfs"
+        _mnt_tmpfs "${tmpfs_size}" "${aufs_rw}"
+
+    elif [ -b $rootaufs ]; then
+        #block device
+        aufs_rwtype="block"
+        #FIXME: add options...
+        _mnt_dev "${rootaufs}" "${aufs_rw}"
+    
+    else
+        #sub mount inside root
+
+        #remount root rw
+        _mnt_rerw "${aufs_root}"
+
+        #source real path
+        src="${aufs_root}/${rootaufs#/}"
+
+        #mount based on $src type
+        if [ -d $src ]; then
+            #dir: use this as rw
+            aufs_rwtype="dir"
+            aufs_rw="${src}"
+            
+            #FIXME: bind doesn't seem to work with aufs2: overlapped
+            #aufs_rwtype="bind"
+            #_mnt_bind "${src}" "${aufs_rw}"
+
+        elif [ -f $src ]; then
+            #file: loop
+            aufs_rwtype="loop"
+            _mnt_loop "${src}" "${aufs_rw}"
+
+        else
+            #error
+            msg "ERROR: rootaufs '${src}' not found, fallback to tmpfs"
+            aufs_rwtype="tmpfs"
+            _mnt_tmpfs "${tmpfs_size}" "${aufs_rw}"
+            launch_interactive_shell
+        fi
+    fi
+
+    #-----------------------------------
+    #mount overlays
+    overlay_mnt=""
+    if [ "x${overlay}" != "x" ]; then
+        msg ":: Mounting overlays..."
+        for img in ${overlay/,/ }; do
+            mnt="${aufs_base}${img##*/}"
+            overlay_mnt="${overlay_mnt} ${mnt}"
+            src="${aufs_root}/${img#/}"
+            
+            #FIXME: copy2ram
+            if [ "${copy2rw}" = "y" ] && [ "${aufs_rwtype}" == "tmpfs" ]; then
+                src_rw="${aufs_rw}/${img##*/}"
+                msg -n "::: Copying image file to ${src_rw}..."
+                /bin/cp "${src}" "${src_rw}"
+                msg "done."
+                src="$src_rw"
+            fi
+            
+            _mnt_loop ${src} ${mnt}
+        done
+    fi
+    
+    
+    #=======================================================
+    # Build aufs new root
+    #=======================================================
+    msg ":: Mounting aufs..."
+
+    #-----------------------------------
+    #aufs merge: rw + overlays + ro
+    if [ "${break}" = "aufs" ]; then
+        msg ":: '${break}' Break requested, type 'exit' to resume operation"
+        launch_interactive_shell
+    fi
+    _mnt_aufs_init ${aufs_rw} "${newroot}"
+    for mnt in ${overlay_mnt}; do
+        _mnt_aufs_add ${mnt} "${newroot}"
+    done
+    if [ "x${roothide}" = "x" ]; then
+        _mnt_aufs_add ${aufs_root} "${newroot}"
+    fi
+    
+
+    #-----------------------------------
+    #move aufs mount points into the live system
+    _mnt_move "${aufs_root}" "${newroot}${aufs_root}"
+    if [ "${aufs_rwtype}" != "dir" ]; then
+        #if rw is a dir in root: no link
+        _mnt_move "${aufs_rw}" "${newroot}${aufs_rw}"
+    fi
+    for mnt in ${overlay_mnt}; do
+        _mnt_move "${mnt}" "${newroot}${mnt}"
+    done
+
+    
+    #=======================================================
+    # Fix new root
+    #=======================================================
+    msg ":: Setting aufs root..."
+
+    #-----------------------------------
+    #fix etc/fstab: remove root, swap & tmpfs if possible
+    sed -e '/ \/ /d' -e '/ swap /d' -i ${newroot}/etc/fstab
+    if [ "${aufs_rwtype}" == "tmpfs" ]; then
+        sed -e '/ tmpfs /d' -i ${newroot}/etc/fstab
+        #FIXME...
+        echo chmod 1777 /dev/shm >> ${newroot}/etc/rc.local
+    fi
+
+
+    #-----------------------------------
+    #avoid root fs remount/check in rc.sysinit...    
+    if [ ! -e /run/initramfs/root-fsck ]; then
+        msg "WARNING: missing 'fsck' hook, root fs will NOT be checked"
+        msg "WARNING: please add fsck to HOOKS in mkinitcpio.conf"
+        echo 0 > /run/initramfs/root-fsck
+    fi
+    #arch FCK
+    cp /run/initramfs/root-fsck /run/initramfs/fsck-root
+
+    #-----------------------------------
+    #fix etc/rc.sysinit: checkable root is now "/aufs/rw", not "/"
+    #no root check if tmpfs
+    if [ "${aufs_rwtype}" != "tmpfs" -a  "${aufs_rwtype}" != "dir" ]; then
+        rm /run/initramfs/*fsck*
+        sed -e 's/\(mount -o remount\(,ro\)* \/\)$/\1aufs\/rw/' \
+            -i ${newroot}/etc/rc.sysinit
+    fi
+
+    #-----------------------------------
+    #build remountrw
+    file="${newroot}/bin/remountrw"
+    echo \#!/bin/sh >$file
+    echo mount -o remount,rw ${aufs_root} >>$file
+    chmod 0700 $file
+
+    #build remountro
+    file="${newroot}/bin/remountro"
+    echo \#!/bin/sh >$file
+    echo mount -o remount,ro ${aufs_root} >>$file
+    chmod 0700 $file
+    
+    if [ "${break}" = "post" ]; then
+        msg ":: '${break}' Break requested, type 'exit' to resume operation"
+        launch_interactive_shell
+    fi
+}
+
+# vim:ft=sh:ts=4:sw=4:et:
