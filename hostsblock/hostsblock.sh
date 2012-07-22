@@ -7,7 +7,7 @@
 if [ `whoami` != "root" ]; then
     echo "Insufficient permissions. Run as root."
 fi
-  
+
 for dep in gzip curl grep sed; do
     if which "$dep" &>/dev/null; then
         /bin/true
@@ -86,7 +86,7 @@ for url in ${blocklists[*]}; do
         *".zip")
             if [ $zip == "1" ]; then
                 mkdir "$tmpdir"/hostsblock/tmp
-                curl -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
+                curl --compressed -s -o $tmpdir/hostsblock/tmp/hosts.block.zip "$url"
                 cd "$tmpdir"/hostsblock/tmp
                 echo "       Extracting..."
                 unzip -jq hosts.block.zip
