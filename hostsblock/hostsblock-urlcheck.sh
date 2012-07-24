@@ -24,7 +24,7 @@ fi
 check(){
     line=`echo "$@" | sed "s/$redirecturl//g"`
     if grep " $@$" "$hostsfile" &>/dev/null; then
-	echo "BLOCKED: '$line'. Unblock? [y/N]"
+	printf "\e[1;31mBLOCKED: \e[0;37m'$line'. \e[0;32mUnblock? \e[0;37m[y/N]"
         read a
         if [[ $a == "y" || $a == "Y" ]]; then
             echo "Unblocking $line"
@@ -34,7 +34,7 @@ check(){
             changed=1
         fi
     else
-        echo "NOT YET BLOCKED: '$line'. Block? [y/N]"
+        printf "\e[0;32mNOT BLOCKED: \e[0;37m'$line'. \e[1;31mBlock? \e[0;37m[y/N]"
         read a
         if [[ $a == "y" || $a == "Y" ]]; then
             echo "Blocking $line"
@@ -47,14 +47,16 @@ check(){
 }
 
 # MAIN ROUTINE
-changed=0
 if [[ "$@" == "-h" || "$@" == "--help" ]]; then
-    echo -e "usage: $0 http[s]://[url] \n\n"
+    echo -e "\nusage: $0 http[s]://[url] \n"
     echo "$0 will first verify that [url] is blocked or unblocked,"
     echo "and then scan that url for further contained subdomains."
 else
+    changed=0
+    echo "Verifying that give page is blocked or unblocked"
     check `echo "$@" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g"`
-    echo "Page domain verified. Scan the whole page for other domains? [y/N]"
+    [ $changed == 0 ] && postprocess &>/dev/null
+    printf "Page domain verified. Scan the whole page for other domains for (un)blocking? [y/N]"
     read a
     if [[ $a == "y" || $a == "Y" ]]; then
         for LINE in `curl -s "$@" | grep -- "http" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g" | sort -u`; do
@@ -62,5 +64,5 @@ else
         done
         echo "Whole-page scan completed."
     fi
-    [ $changed == 0 ] && postprocess
+    [ $changed == 0 ] && postprocess &>/dev/null
 fi
