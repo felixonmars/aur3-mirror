@@ -31,6 +31,7 @@ check(){
             echo " $line" >> "$whitelist"
             sed -i "/$line/d" "$blacklist"
             sed -i "/ $line/d" "$hostsfile"
+            changed=1
         fi
     else
         echo "NOT YET BLOCKED: '$line'. Block? [y/N]"
@@ -40,33 +41,26 @@ check(){
             echo "$line" >> "$blacklist"
             sed -i "/$line/d" "$whitelist"
             echo "$redirecturl $line" >> "$hostsfile"
+            changed=1
         fi
     fi
 }
 
 # MAIN ROUTINE
-case $1 in
-    scan)
-        for LINE in `curl -s "$@" | grep -- "http" | sed -e "s/.*http:\/\///g" -e "s/[\/?'\" <>\(\)].*//g" | sort -u`; do
+changed=0
+if [[ "$@" == "-h" || "$@" == "--help" ]]; then
+    echo -e "usage: $0 http[s]://[url] \n\n"
+    echo "$0 will first verify that [url] is blocked or unblocked,"
+    echo "and then scan that url for further contained subdomains."
+else
+    check `echo "$@" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g"`
+    echo "Page domain verified. Scan the whole page for other domains? [y/N]"
+    read a
+    if [[ $a == "y" || $a == "Y" ]]; then
+        for LINE in `curl -s "$@" | grep -- "http" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g" | sort -u`; do
             check "$LINE"
         done
-        echo "Url scan finished. Run postprocessing subroutine (e.g. dnsmasq)? [y/N]"
-        read a
-        [[ $a == "y" || $a == "Y" ]] && postprocess
-    ;;
-    page)
-        check `echo "$@" | sed -e "s/.*http:\/\///g" -e "s/[\/?'\" <>\(\)].*//g"`
-        echo "Page check finished. Run postprocessing subroutine (e.g. dnsmasq)? [y/N]"
-        read a
-        [[ $a == "y" || $a == "Y" ]] && postprocess
-    ;;
-    *)
-        echo -e "usage: $0 [scan|page] http://[url] \n"
-	echo "'$0 page' will determine whether the given page is"
-        echo "blocked or unblocked and prompt as to whether it should"
-	echo -e "be blocked or unblocked. \n"
-        echo "'$0 scan' will scan the whole page at [url] for subdomains"
-        echo "referenced by the page and prompt as to whether these"
-	echo "subdomains should be blocked or unblocked ."
-    ;;
-esac
+        echo "Whole-page scan completed."
+    fi
+    [ $changed == 0 ] && postprocess
+fi
