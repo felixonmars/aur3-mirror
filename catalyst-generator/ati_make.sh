@@ -49,16 +49,16 @@ fi
 
 # Before 2.6.33 autoconf.h is under linux/.
 # For 2.6.33 and later autoconf.h is under generated/.
-if [ -f /lib/modules/${_kernver}/build/include/generated/autoconf.h ]; then
-    autoconf_h=/lib/modules/${_kernver}/build/include/generated/autoconf.h
+if [ -f /${_where_modules}/${_kernver}/build/include/generated/autoconf.h ]; then
+    autoconf_h=/${_where_modules}/${_kernver}/build/include/generated/autoconf.h
 else
-    autoconf_h=/lib/modules/${_kernver}/build/include/linux/autoconf.h
+    autoconf_h=/${_where_modules}/${_kernver}/build/include/linux/autoconf.h
 fi
 src_file=$autoconf_h
 
 if [ ! -e $src_file ]; then
   echo "Warning:"
-  echo "kernel includes at /lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /${_where_modules}/${_kernver}/build/include not found or incomplete"
   echo "file: $src_file"
   echo ""
 else
@@ -99,7 +99,7 @@ src_file=$autoconf_h
 if [ ! -e $src_file ];
 then
   echo "Warning:"
-  echo "kernel includes at /lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /${_where_modules}/${_kernver}/build/include not found or incomplete"
   echo "file: $src_file"
   echo ""
 else
@@ -128,11 +128,11 @@ fi
 
 COMPAT_ALLOC_USER_SPACE=compat_alloc_user_space
 
-src_file=/lib/modules/${_kernver}/build/arch/x86/include/asm/compat.h
+src_file=/${_where_modules}/${_kernver}/build/arch/x86/include/asm/compat.h
 if [ ! -e $src_file ];
 then
   echo "Warning:"                                    
-  echo "kernel includes at /lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /${_where_modules}/${_kernver}/build/include not found or incomplete"
   echo "file: $src_file"                              
   echo ""                                  
 else

@@ -8,6 +8,11 @@
 LOG="/var/log/catalyst-install.log"
 
 kernel=$(uname -r)
+if [ -d "/usr/lib/modules/${kernel}" ]; then
+	where_modules="usr/lib/modules"
+	elif [ -d "/lib/modules/${kernel}" ]; then
+		where_modules="lib/modules"
+fi
 
 
 build_fglrx() {
@@ -27,7 +32,7 @@ build_fglrx() {
 check_fglrx() {
 	compare=$(uname -v)
 
-	if [[ -e /lib/modules/${kernel}/video/fglrx.ko ]] || [[ -e /lib/modules/${kernel}/extramodules/fglrx.ko ]] || [[ -e /lib/modules/${kernel}/video/fglrx.ko.gz ]] || [[ -e /lib/modules/${kernel}/extramodules/fglrx.ko.gz ]]
+	if [[ -e /${where_modules}/${kernel}/video/fglrx.ko ]] || [[ -e /${where_modules}/${kernel}/extramodules/fglrx.ko ]] || [[ -e /${where_modules}/${kernel}/video/fglrx.ko.gz ]] || [[ -e /${where_modules}/${kernel}/extramodules/fglrx.ko.gz ]]
 	then
 		  test=$(modinfo -F description fglrx | grep "__unv:") || stat_die
 	else
