@@ -5,4 +5,4 @@ if [ ! $EUID -eq 0 ]; then
 	exit
 fi
 
-exec /opt/unvanquished/download-pk3.sh /opt/unvanquished/main
+exec /opt/unvanquished/download-pk3.sh /opt/unvanquished/main /var/cache/unvanquished/update-paks
