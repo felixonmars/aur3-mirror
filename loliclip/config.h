@@ -36,6 +36,11 @@ enum {
  * owner to lose control of it (eg. PRIMARY selection disappears).
  *
  * So using that flag is not recommended for PRIMARY at least.
+ *
+ * Note that synced clipboards are owned when syncing happens,
+ * you can notice this visually if you sync to PRIMARY for example,
+ * so that the selection from application disappears.
+ *
  */
 clipdata clipboards[] = {
    REGISTER_CLIPBOARD(PRIMARY, NO_SYNC, 0, CLIPBOARD_NONE),
