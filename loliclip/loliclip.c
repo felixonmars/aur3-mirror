@@ -1038,19 +1038,17 @@ static int set_xsel(xcb_atom_t selection, void *buffer, size_t len) {
    return 1;
 }
 
-/* handle X selection */
-static void handle_clip(clipdata *c) {
+/* sync clipboard if it has syncs */
+static void sync_clip(clipdata *c) {
    int sc;
 
-   if (c->sync != NO_SYNC && c->sync != c->sel &&
-      (sc = we_handle_selection(atoms[c->sync])) != -1) {
-      set_clipboard_data(&clipboards[sc], (char*)c->data, c->size);
-      set_clipboard_own(&clipboards[sc]);
-      OUT("Synced from 0x%x to 0x%x", atoms[c->sel], atoms[c->sync]);
-   }
+   if (c->sync == NO_SYNC || c->sync == c->sel ||
+     (sc = we_handle_selection(atoms[c->sync])) == -1)
+     return;
 
-   if (!(c->cflags & CLIP_SKIP_HISTORY) && c->maxclips > 0)
-      store_clip(c);
+  set_clipboard_data(&clipboards[sc], (char*)c->data, c->size);
+  set_clipboard_own(&clipboards[sc]);
+  OUT("Synced from 0x%x to 0x%x", atoms[c->sel], atoms[c->sync]);
 }
 
 /* handle selection request */
@@ -1146,6 +1144,7 @@ static void handle_copy(clipdata *c) {
    } else {
       OUT("\4Got data from some other clipboard");
       if (c->ohash == (hash = hashb(buffer, len))) {
+         sync_clip(c);
          free(buffer); set_clipboard_own(c);
          return;
       }
@@ -1156,11 +1155,14 @@ static void handle_copy(clipdata *c) {
    free(buffer);
    c->hash = hashb(c->data, c->size);
    if (!changed || (c->hash == hash && c->ohash != c->hash)) {
+      sync_clip(c);
       set_clipboard_own(c);
       return;
    }
-   OUT("\4Handle buffer");
-   handle_clip(c);
+
+   sync_clip(c);
+   if (!(c->cflags & CLIP_SKIP_HISTORY) && c->maxclips > 0)
+      store_clip(c);
 }
 
 /* handle clear request */
