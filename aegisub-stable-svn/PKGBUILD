@@ -1,7 +1,7 @@
 # Maintainer: Hilinus
 
 pkgname=aegisub-stable-svn
-pkgver=5610
+pkgver=6195
 pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
@@ -11,9 +11,10 @@ depends=('ffmpegsource2-svn' 'lua' 'wxgtk>=2.8.11' 'hunspell' 'libass' 'hicolor-
 makedepends=('imagemagick>=6.6.2.10' 'subversion' 'intltool')
 provides=('aegisub')
 conflicts=('aegisub')
-source=(license.txt)
+source=(license.txt aclocal.patch)
 install=aegisub-stable-svn.install
-md5sums=('3e13350007702bd7117e8f35bac376f1')
+md5sums=('3e13350007702bd7117e8f35bac376f1'
+         '4e783adeb4ff7c08828843445d1e0ab5')
 
 _svntrunk=http://svn.aegisub.org/branches/aegisub_2.1.9/aegisub
 _svnmod=aegisub
@@ -35,6 +36,8 @@ build() {
   cp -r "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
 
   cd "$srcdir/$_svnmod-build"
+
+  patch -p0 < $srcdir/aclocal.patch
 
   ./autogen.sh --prefix=/usr \
   --with-player-audio=alsa --without-{portaudio,openal,oss,pulseaudio}
