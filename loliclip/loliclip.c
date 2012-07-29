@@ -1144,22 +1144,31 @@ static void handle_copy(clipdata *c) {
    } else {
       OUT("\4Got data from some other clipboard");
       if (c->ohash == (hash = hashb(buffer, len))) {
-         sync_clip(c);
-         free(buffer); set_clipboard_own(c);
+         free(buffer);
+
+         /* should own immediatly? */
+         if (c->flags & CLIPBOARD_OWN_IMMEDIATLY) {
+            set_clipboard_own(c);
+            sync_clip(c);
+         }
+
          return;
       }
       c->ohash = hash;
    }
 
    changed = set_clipboard_data(c, buffer, len);
-   free(buffer);
-   c->hash = hashb(c->data, c->size);
+   free(buffer); c->hash = hashb(c->data, c->size);
    if (!changed || (c->hash == hash && c->ohash != c->hash)) {
-      sync_clip(c);
-      set_clipboard_own(c);
+      /* should own immediatly? */
+      if (c->flags & CLIPBOARD_OWN_IMMEDIATLY) {
+         set_clipboard_own(c);
+         sync_clip(c);
+      }
       return;
    }
 
+   /* sync and maybe store? */
    sync_clip(c);
    if (!(c->cflags & CLIP_SKIP_HISTORY) && c->maxclips > 0)
       store_clip(c);
