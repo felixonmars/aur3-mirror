@@ -4,23 +4,23 @@ pkgbase=linux-ninja
 pkgname=('linux-ninja') 
 _pkgsuffix=-ninja
 _kernelname=${pkgname#linux}
-_basekernel=3.4
-pkgver=${_basekernel}.4
-pkgrel=1
+_basekernel=3.5
+pkgver=${_basekernel}
+pkgrel=2
 arch=('i686' 'x86_64')
-url="http://www.kernel.org/"
+url="http://millertechnlogies.net"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl')
 options=('!strip')
-source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-$pkgver.tar.xz"
+source=("http://www.kernel.org/pub/linux/kernel/v3.0/linux-$pkgver.tar.bz2"
         'config'
         "${pkgname}.preset")
-md5sums=('3d77adc7f8ab8e8e05729f126d883dce'
-         '90d1f736db2c02c22ea9a3c964db0148'
+md5sums=('3ed693d5dee4f4aa05e15d3c19f6cf01'
+         'e66396832426f8a14b1de3ccdd977283'
          'd26a2e5c1111e8cd6d70ace501cec02e')
 
 build() {
-  cd "${srcdir}/linux-${pkgver}"
+  cd "${srcdir}/linux-${_basekernel}"
 
   cat "${srcdir}/config" > ./.config
 
@@ -30,6 +30,9 @@ build() {
 
   # set extraversion to pkgrel
   sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
+
+  # don't run depmod on 'make install'. We'll do this ourselves in packaging
+  sed -i '2iexit 0' scripts/depmod.sh
 
   # get kernel version
   make prepare
@@ -56,29 +59,26 @@ build() {
 }
 
 package_linux-ninja() {
-  pkgdesc="Ninja-1's custom Linux Kernel and modules"
+  pkgdesc="Ninja-1's custom Linux kernel and modules"
   groups=('base')
   depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
   optdepends=('crda: to set the correct wireless channels of your country')
-  provides=()
-  conflicts=()
-  replaces=()
   backup=("etc/mkinitcpio.d/${pkgname}.preset")
   install=${pkgname}.install
 
-  cd "${srcdir}/linux-${pkgver}"
+  cd "${srcdir}/linux-${_basekernel}"
 
   KARCH=x86
 
   # get kernel version
-  patchver="$(make kernelrelease)"
+  _kernver="$(make kernelrelease)"
 
   mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
   make INSTALL_MOD_PATH="${pkgdir}" modules_install
   cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgname}"
 
   # add vmlinux
-  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${pkgver}/vmlinux"
+  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
 
   # install fallback mkinitcpio.conf file and preset file for kernel
   install -D -m644 "${srcdir}/${pkgname}.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
@@ -86,7 +86,7 @@ package_linux-ninja() {
   # set correct depmod command for install
   sed \
     -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/g" \
-    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${pkgver}/g" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
     -i "${startdir}/${pkgname}.install"
   sed \
     -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgname}\"|g" \
@@ -95,96 +95,141 @@ package_linux-ninja() {
     -i "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
 
   # remove build and source links
-  rm -f "${pkgdir}"/lib/modules/${pkgver}/{source,build}
+  rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
   # remove the firmware
   rm -rf "${pkgdir}/lib/firmware"
   # gzip -9 all modules to save 100MB of space
   find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
   # make room for external modules
-  ln -s "../extramodules-${_basekernel}${_kernelname:--ninja}" "${pkgdir}/lib/modules/${pkgver}-${pkgrel}${_pkgsuffix}/extramodules"
+  ln -s "../extramodules-${_basekernel}${_kernelname:--NINJA}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
   # add real version for building modules and running depmod from post_install/upgrade
-  mkdir -p "${pkgdir}/lib/modules/extramodules-${pkgver}-${pkgrel}${_pkgsuffix}"
-  echo "${pkgver}" > "${pkgdir}/lib/modules/extramodules-${pkgver}-${pkgrel}${_pkgsuffix}/version"
-  
-    mkdir -p "${pkgdir}/lib/modules/${pkgver}-${pkgrel}${_pkgsuffix}"
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--NINJA}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--NINJA}/version"
 
-  cd "${pkgdir}/lib/modules/${pkgver}-${pkgrel}${_pkgsuffix}"
-  ln -sf ../../../usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix} build
+  # move module tree /lib -> /usr/lib
+  mv "$pkgdir/lib" "$pkgdir/usr"
 
-  cd "${srcdir}/linux-${pkgver}"
+  # Now we call depmod...
+  depmod -b "$pkgdir" -F System.map "$_kernver"
+}
+
+package_linux-headers() {
+  pkgdesc="Header files and scripts for building modules for linux kernel"
+  provides=('kernel26-headers')
+  conflicts=('kernel26-headers')
+  replaces=('kernel26-headers')
+
+  install -dm755 "${pkgdir}/usr/lib/modules/${_kernver}"
+
+  cd "${pkgdir}/usr/lib/modules/${_kernver}"
+  ln -sf ../../../src/linux-${_kernver} build
+
+  cd "${srcdir}/linux-${_basekernel}"
   install -D -m644 Makefile \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/Makefile"
+    "${pkgdir}/usr/src/linux-${_kernver}/Makefile"
   install -D -m644 kernel/Makefile \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/kernel/Makefile"
+    "${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile"
   install -D -m644 .config \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/.config"
+    "${pkgdir}/usr/src/linux-${_kernver}/.config"
 
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include"
 
   for i in acpi asm-generic config crypto drm generated linux math-emu \
     media mtd net pcmcia scsi sound trace video xen; do
-    cp -a include/${i} "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include/"
+    cp -a include/${i} "${pkgdir}/usr/src/linux-${_kernver}/include/"
   done
 
   # copy arch includes for external modules
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/x86"
-  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/x86/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/x86"
+  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${_kernver}/arch/x86/"
 
   # copy files necessary for later builds, like nvidia and vmware
-  cp Module.symvers "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}"
-  cp -a scripts "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}"
+  cp Module.symvers "${pkgdir}/usr/src/linux-${_kernver}"
+  cp -a scripts "${pkgdir}/usr/src/linux-${_kernver}"
 
   # fix permissions on scripts dir
-  chmod og-w -R "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/scripts"
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/.tmp_versions"
+  chmod og-w -R "${pkgdir}/usr/src/linux-${_kernver}/scripts"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions"
 
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/kernel"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel"
 
-  cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/"
+  cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
 
   if [ "${CARCH}" = "i686" ]; then
-    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/"
+    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
   fi
 
-  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/kernel/"
+  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel/"
 
   # add headers for lirc package
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video"
 
-  cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video/"
+  cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/"
 
   for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102; do
-    mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video/${i}"
-    cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video/${i}"
+    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+    cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
   done
 
   # add docbook makefile
   install -D -m644 Documentation/DocBook/Makefile \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/Documentation/DocBook/Makefile"
+    "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
 
   # add dm headers
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/md"
-  cp drivers/md/*.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/md"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+  cp drivers/md/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
 
   # add inotify.h
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include/linux"
-  cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include/linux/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/linux"
+  cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${_kernver}/include/linux/"
 
   # add wireless headers
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/net/mac80211/"
-  cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/net/mac80211/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+  cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+
+  # add dvb headers for external modules
+  # in reference to:
+  # http://bugs.archlinux.org/task/9912
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core"
+  cp drivers/media/dvb/dvb-core/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/"
+  # and...
+  # http://bugs.archlinux.org/task/11194
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+  cp include/config/dvb/*.h "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+
+  # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
+  # in reference to:
+  # http://bugs.archlinux.org/task/13146
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  cp drivers/media/dvb/frontends/lgdt330x.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  cp drivers/media/video/msp3400-driver.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+
+  # add dvb headers
+  # in reference to:
+  # http://bugs.archlinux.org/task/20402
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb"
+  cp drivers/media/dvb/dvb-usb/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends"
+  cp drivers/media/dvb/frontends/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners"
+  cp drivers/media/common/tuners/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners/"
+
+  # add xfs and shmem for aufs building
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs"
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/mm"
+  cp fs/xfs/xfs_sb.h "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h"
 
   # copy in Kconfig files
   for i in `find . -name "Kconfig*"`; do
-    mkdir -p "${pkgdir}"/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/`echo ${i} | sed 's|/Kconfig.*||'`
-    cp ${i} "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/${i}"
+    mkdir -p "${pkgdir}"/usr/src/linux-${_kernver}/`echo ${i} | sed 's|/Kconfig.*||'`
+    cp ${i} "${pkgdir}/usr/src/linux-${_kernver}/${i}"
   done
 
-  chown -R root.root "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}"
-  find "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}" -type d -exec chmod 755 {} \;
+  chown -R root.root "${pkgdir}/usr/src/linux-${_kernver}"
+  find "${pkgdir}/usr/src/linux-${_kernver}" -type d -exec chmod 755 {} \;
 
   # strip scripts directory
-  find "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
+  find "${pkgdir}/usr/src/linux-${_kernver}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
     case "$(file -bi "${binary}")" in
       *application/x-sharedlib*) # Libraries (.so)
         /usr/bin/strip ${STRIP_SHARED} "${binary}";;
@@ -196,98 +241,5 @@ package_linux-ninja() {
   done
 
   # remove unneeded architectures
-  rm -rf "${pkgdir}"/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
-
-  # BEGIN: MODULES
-    mkdir -p "${pkgdir}/lib/modules/${pkgver}-${pkgrel}${_pkgsuffix}"
-
-  cd "${pkgdir}/lib/modules/${pkgver}-${pkgrel}${_pkgsuffix}"
-  ln -sf ../../../usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix} build
-
-  cd "${srcdir}/linux-${pkgver}"
-  install -D -m644 Makefile \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/Makefile"
-  install -D -m644 kernel/Makefile \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/kernel/Makefile"
-  install -D -m644 .config \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/.config"
-
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include"
-
-  for i in acpi asm-generic config crypto drm generated linux math-emu \
-    media mtd net pcmcia scsi sound trace video xen; do
-    cp -a include/${i} "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include/"
-  done
-
-  # copy arch includes for external modules
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/x86"
-  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/x86/"
-
-  # copy files necessary for later builds, like nvidia and vmware
-  cp Module.symvers "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}"
-  cp -a scripts "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}"
-
-  # fix permissions on scripts dir
-  chmod og-w -R "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/scripts"
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/.tmp_versions"
-
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/kernel"
-
-  cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/"
-
-  if [ "${CARCH}" = "i686" ]; then
-    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/"
-  fi
-
-  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/${KARCH}/kernel/"
-
-  # add headers for lirc package
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video"
-
-  cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video/"
-
-  for i in bt8xx cpia2 cx25840 cx88 em28xx et61x251 pwc saa7134 sn9c102; do
-    mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video/${i}"
-    cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/media/video/${i}"
-  done
-
-  # add docbook makefile
-  install -D -m644 Documentation/DocBook/Makefile \
-    "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/Documentation/DocBook/Makefile"
-
-  # add dm headers
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/md"
-  cp drivers/md/*.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/drivers/md"
-
-  # add inotify.h
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include/linux"
-  cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/include/linux/"
-
-  # add wireless headers
-  mkdir -p "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/net/mac80211/"
-  cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/net/mac80211/"
-
-  # copy in Kconfig files
-  for i in `find . -name "Kconfig*"`; do
-    mkdir -p "${pkgdir}"/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/`echo ${i} | sed 's|/Kconfig.*||'`
-    cp ${i} "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/${i}"
-  done
-
-  chown -R root.root "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}"
-  find "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}" -type d -exec chmod 755 {} \;
-
-  # strip scripts directory
-  find "${pkgdir}/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
-    case "$(file -bi "${binary}")" in
-      *application/x-sharedlib*) # Libraries (.so)
-        /usr/bin/strip ${STRIP_SHARED} "${binary}";;
-      *application/x-archive*) # Libraries (.a)
-        /usr/bin/strip ${STRIP_STATIC} "${binary}";;
-      *application/x-executable*) # Binaries
-        /usr/bin/strip ${STRIP_BINARIES} "${binary}";;
-    esac
-  done
-
-  # remove unneeded architectures
-  rm -rf "${pkgdir}"/usr/src/linux-${pkgver}-${pkgrel}${_pkgsuffix}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
+  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
