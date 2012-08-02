@@ -1,0 +1,91 @@
+# Maintainer: Demur Rumed <serprex>
+# Contributor:  Matt Monaco <net 0x01b dgbaley27>
+# Contributor: Matej Lach <matej.lach@gmail.com>
+# Contributor: cantabile <cantabile dot desu at gmail dot com>
+# Contributor: extcake < extcake@gmail.com >
+
+_gitroot="git://git.mplayer2.org/mplayer2-build.git"
+_gitname="mplayer2-build"
+
+pkgname=mplayer2-nodep-git
+pkgver=20121202
+pkgrel=1
+pkgdesc="An advanced general-purpose video player."
+url="http://www.mplayer2.org"
+license=('GPL3')
+install="$pkgname.install"
+source=()
+md5sums=()
+arch=('x86_64' 'i686')
+backup=("etc/mplayer/codecs.conf" "etc/mplayer/input.conf")
+depends=("fribidi" "freetype2" "fontconfig")
+# The dependencies here are *required* to build by the default options. fribidi
+# is needed for libass. freetype2 and fontconfig are needed for mplayer itself
+# (yes, ./configure --help says they are autodetected, but it lies, they need to
+# be explicitly disabled)
+makedepends=("git" "yasm" "python")
+optdepends=()
+conflicts=("mplayer" "mplayer2")
+provides=("mplayer" "mplayer2")
+options=("!emptydirs")
+
+build()
+{
+	cd "$srcdir"
+
+	if [[ ! -d "$_gitname" ]]; then
+		msg2 "Cloning from $_gitroot"
+		git clone "$_gitroot" "$_gitname"
+		cd "$_gitname"
+	else
+		msg2 "Updating from $_gitroot"
+		cd "$_gitname"
+		git clean -xdf
+		git pull
+	fi
+
+	find -type f -exec sed -e 's/python3/python/' -i {} \;
+
+	echo -e "--prefix=/usr
+		--confdir=/etc/mplayer
+		--language=fr
+		--disable-runtime-cpudetection
+		--disable-v4l2
+		--disable-sdl
+		--disable-xvid
+		--disable-gif
+		--disable-jpeg
+		--disable-tga
+		--disable-png
+		--disable-mng
+		--disable-pnm
+		--disable-dvdnav
+		--disable-dvdread
+		--disable-vcd
+		--disable-inet6
+		--disable-unrarexec
+		--disable-fbdev
+		--disable-ossaudio
+		--disable-md5sum
+		--disable-xf86keysym" > mplayer_options
+
+	./init --shallow
+	make
+}
+
+package()
+{
+	cd "$srcdir/$_gitname"
+	make DESTDIR="$pkgdir" install
+
+	install -m644 mplayer/etc/{codecs,input,example}.conf "$pkgdir/etc/mplayer"
+
+	install -dm755 "$pkgdir/usr/share/mplayer"
+
+	ln -s "../fonts/TTF/DejaVuSans.ttf" "$pkgdir/usr/share/mplayer/subfont.ttf"
+
+	sed -i 's/gmplayer/mplayer/g' "mplayer/etc/mplayer.desktop"
+	install -Dm644 "mplayer/etc/mplayer.desktop" "$pkgdir/usr/share/applications/mplayer.desktop"
+
+	install -Dm644 "mplayer/etc/mplayer.xpm" "$pkgdir/usr/share/pixmaps/mplayer.xpm"
+}
