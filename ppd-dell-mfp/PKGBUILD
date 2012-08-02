@@ -3,7 +3,7 @@
 pkgname=ppd-dell-mfp
 _file_pkgver=1.19
 pkgver=$_file_pkgver.A01
-pkgrel=1
+pkgrel=2
 pkgdesc="PPD files for Dell multifunction printers (dp5330, mfp2335ps, mfp1815ps, dp1130n, mfp1135n, mfp2145ps, dp1130, mfp1133)"
 arch=('i686' 'x86_64')
 url="http://www.dell.com/support/drivers/us/en/19/Product/dell-mfp1135"
