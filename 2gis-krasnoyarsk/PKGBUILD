@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-krasnoyarsk
-pkgver=83
+pkgver=84
 pkgrel=1
-pkgdesc="Map of Krasnoyarsk for 2GIS, July 2012"
+pkgdesc="Map of Krasnoyarsk for 2GIS, August 2012"
 arch=('i686' 'x86_64')
 url="http://krasnoyarsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Krasnoyarsk-83.orig.zip")
-md5sums=('f2d162f0ad63c35d3c3b014bab4b047c')
+depends=('2gis>=3.7.0.0')
+source=("http://download.2gis.ru/arhives/2GISData_Krasnoyarsk-84.orig.zip")
+md5sums=('824ffa687a480710a2501648f82cda2d')
      
 build() {
      

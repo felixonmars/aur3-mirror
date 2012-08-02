@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ufa
-pkgver=52
+pkgver=53
 pkgrel=1
-pkgdesc="Map of Ufa for 2GIS, July 2012"
+pkgdesc="Map of Ufa for 2GIS, August 2012"
 arch=('i686' 'x86_64')
 url="http://ufa.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ufa-52.orig.zip")
-md5sums=('5aaa9c3f632f5327eb71b9551fb14a94')
+depends=('2gis>=3.7.0.0')
+source=("http://download.2gis.ru/arhives/2GISData_Ufa-53.orig.zip")
+md5sums=('d56ad6ffafec90b5a716a471b93d1c01')
      
 build() {
      

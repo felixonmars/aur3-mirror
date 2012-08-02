@@ -1,13 +1,13 @@
 pkgname=2gis-yakutsk
-pkgver=11
+pkgver=12
 pkgrel=1
-pkgdesc="Map of Yakutsk for 2GIS, July 2012"
+pkgdesc="Map of Yakutsk for 2GIS, August 2012"
 arch=('i686' 'x86_64')
 url="http://yakutsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Yakutsk-11.orig.zip")
-md5sums=('d75f3c1752d0f963b045dab0885f9e9f')
+depends=('2gis>=3.7.0.0')
+source=("http://download.2gis.ru/arhives/2GISData_Yakutsk-12.orig.zip")
+md5sums=('eeb842773da5f3738cddd057d906caf7')
 
 build() {
   cd $startdir

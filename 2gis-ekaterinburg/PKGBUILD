@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ekaterinburg
-pkgver=79
+pkgver=80
 pkgrel=1
-pkgdesc="Map of Ekaterinburg for 2GIS, July 2012"
+pkgdesc="Map of Ekaterinburg for 2GIS, August 2012"
 arch=('i686' 'x86_64')
 url="http://ekaterinburg.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ekaterinburg-79.orig.zip")
-md5sums=('c885ae0c6c20e791554ee9321fd0abbf')
+depends=('2gis>=3.7.0.0')
+source=("http://download.2gis.ru/arhives/2GISData_Ekaterinburg-80.orig.zip")
+md5sums=('cb668da5a7ab510e209d26ec7fd62688')
      
 build() {
      

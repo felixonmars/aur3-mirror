@@ -1,13 +1,13 @@
 pkgname=2gis-yola
-pkgver=3
+pkgver=4
 pkgrel=1
-pkgdesc="Map of Yoshkar-Ola for 2GIS, July 2012"
+pkgdesc="Map of Yoshkar-Ola for 2GIS, August 2012"
 arch=('i686' 'x86_64')
 url="http://yola.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Yoshkarola-3.orig.zip")
-md5sums=('264ce7d1c972d695511169b554a7f441')
+depends=('2gis>=3.7.0.0')
+source=("http://download.2gis.ru/arhives/2GISData_Yoshkarola-4.orig.zip")
+md5sums=('472e848320fe281b30d51441f2c6d7bc')
 
 build() {
   cd $startdir

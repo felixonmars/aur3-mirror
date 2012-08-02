@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-penza
-pkgver=15
+pkgver=16
 pkgrel=1
-pkgdesc="Map of Penza for 2GIS, July 2012"
+pkgdesc="Map of Penza for 2GIS, August 2012"
 arch=('i686' 'x86_64')
 url="http://penza.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.6.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Penza-15.orig.zip")
-md5sums=('f27be5755ad54f52edaf1275e5b6d76e')
+depends=('2gis>=3.7.0.0')
+source=("http://download.2gis.ru/arhives/2GISData_Penza-16.orig.zip")
+md5sums=('b96414a36bb0c32b00e61ca0fce540af')
      
 build() {
      
