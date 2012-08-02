@@ -6,10 +6,10 @@
 
 pkgname=linux-pax
 _kernelname=${pkgname#linux}
-_basekernel=3.4
-_paxver=test18
-pkgver=${_basekernel}.4
-pkgrel=1
+_basekernel=3.5
+_paxver=test5
+pkgver=${_basekernel}
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -21,24 +21,18 @@ _menuconfig=0
 source=(
   ftp://ftp.halifax.rwth-aachen.de/pub/linux/kernel/v3.x/linux-$pkgver.tar.xz
   http://grsecurity.net/test/pax-linux-$pkgver-$_paxver.patch
-  i915-fix-ghost-tv-output.patch
-  fix-acerhdf-1810T-bios.patch
   change-default-console-loglevel.patch
-  3.4.4-fix-backlight-regression.patch
   config.i686
   config.x86_64
   $pkgname.install
   $pkgname.preset
 )
 md5sums=(
-  3d77adc7f8ab8e8e05729f126d883dce
-  ded2b07370da41271eb0b6cb0a4ca852
-  342071f852564e1ad03b79271a90b1a5
-  3cb9e819538197398aad5db5529b22d6
+  24153eaaa81dedc9481ada8cd9c3b83d
+  7bca35c2006f14db63282dfa556cc083
   9d3c56a4b999c8bfbd4018089a62f662
-  d2626a48d10d2be931753805849e86bf
-  7cf6c22d2ac10e9c59f6e937b8c2dae2
-  48acd08edab40e395d348196650c893d
+  e6d3cb7ba4791828274e460b17acf9d3
+  f5283d4c7be04720bec8c13007a5474d
   716bd5ca1f4f3e9cbe3990f78be4a5c4
   5d29c2995ffa1ac918dd6b269ec09ecc
 )
@@ -46,28 +40,10 @@ md5sums=(
 build() {
   cd $srcdir/linux-$pkgver
 
-  # Some chips detect a ghost TV output
-  # mailing list discussion: http://lists.freedesktop.org/archives/intel-gfx/2011-April/010371.html
-  # Arch Linux bug report: FS#19234
-  #
-  # It is unclear why this patch wasn't merged upstream, it was accepted,
-  # then dropped because the reasoning was unclear. However, it is clearly
-  # needed.
-  patch -Np1 -i "${srcdir}/i915-fix-ghost-tv-output.patch"
-
-  # Patch submitted upstream, waiting for inclusion:
-  # https://lkml.org/lkml/2012/2/19/51
-  # add support for latest bios of Acer 1810T acerhdf module
-  patch -Np1 -i "${srcdir}/fix-acerhdf-1810T-bios.patch"
-
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # Fix backlight control on some laptops:
-  # https://bugzilla.kernel.org/show_bug.cgi?id=43168
-  patch -Np1 -i "${srcdir}/3.4.4-fix-backlight-regression.patch"
 
   # Add PaX patches
   patch -Np1 -i $srcdir/pax-linux-$pkgver-$_paxver.patch
@@ -78,11 +54,11 @@ build() {
     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
   fi
 
-  # remove the sublevel from Makefile
-  # this ensures our kernel version is always 3.X-ARCH
-  # this way, minor kernel updates will not break external modules
-  # we need to change this soon, see FS#16702
-  sed -ri 's|^(SUBLEVEL =).*|\1|' Makefile
+  # set extraversion to pkgrel
+  sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
+
+  # don't run depmod on 'make install'. We'll do this ourselves in packaging
+  sed -i '2iexit 0' scripts/depmod.sh
 
   # get kernel version
   [ "$_menuconfig" = "0" ] && {
@@ -117,15 +93,15 @@ build() {
 package() {
   pkgdesc="The Linux Kernel and modules with PaX patches"
   groups=('base')
-  depends=('linux-pax-flags' 'coreutils' 'linux-firmware' 'module-init-tools>=3.16' 'mkinitcpio>=0.7')
+  depends=('linux-pax-flags' 'coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
   optdepends=('crda: to set the correct wireless channels of your country')
   provides=('kernel26-pax')
   conflicts=('kernel26-pax')
   replaces=('kernel26-pax')
   backup=("etc/mkinitcpio.d/${pkgname}.preset")
-  install=$pkgname.install
+  install=${pkgname}.install
 
-  cd $srcdir/linux-$pkgver
+  cd "${srcdir}/linux-${_basekernel}"
 
   KARCH=x86
 
@@ -157,11 +133,17 @@ package() {
   rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
   # remove the firmware
   rm -rf "${pkgdir}/lib/firmware"
-  # gzip -9 all modules to safe 100MB of space
+  # gzip -9 all modules to save 100MB of space
   find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
   # make room for external modules
   ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
   # add real version for building modules and running depmod from post_install/upgrade
   mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
   echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
+
+  # move module tree /lib -> /usr/lib
+  mv "$pkgdir/lib" "$pkgdir/usr"
+
+  # Now we call depmod...
+  depmod -b "$pkgdir" -F System.map "$_kernver"
 }
