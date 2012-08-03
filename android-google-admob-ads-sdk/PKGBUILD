@@ -1,7 +1,7 @@
 # Maintainer: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
 pkgname=android-google-admob-ads-sdk
-pkgver=6.0.1
+pkgver=6.1.0
 pkgrel=1
 pkgdesc='Google AdMob Ads SDK'
 arch=('any')
@@ -10,8 +10,8 @@ license=('custom')
 depends=('android-sdk')
 options=('!strip')
 source=("https://dl-ssl.google.com/googleadmobadssdk/googleadmobadssdkandroid-${pkgver}.zip" "source.properties")
-sha1sums=('116994e4c130ea72ccef3b803b8ee7414aa848a2'
-          '13110efa7b81a06c826901214514cc401a8bb6e1')
+sha1sums=('a24ee6962b237168a8361e07f3b7b80525add8d2'
+          'd60c651ef54c20205623b29e2a4ce297c6ab701a')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/extras/google/"
