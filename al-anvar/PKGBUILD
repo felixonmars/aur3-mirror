@@ -1,7 +1,8 @@
 # Maintainer: Atilla ÖNTAŞ <tarakbumba@gmail.com>
+# Contributor: neo14515  <neo14515@gmail.com>
 
 pkgname=al-anvar
-pkgver=0.3.5
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="open source freeware software for study Quran ( koran ) and research "
 arch=('i686' 'x86_64')
@@ -27,4 +28,4 @@ package() {
 
   make INSTALL_ROOT=${pkgdir} install
 }
-md5sums=('fbd4b1b9076470aaa988694778b17520')
+md5sums=('d8f47140ee5e53c8a8b0d7f4dae10cb0')

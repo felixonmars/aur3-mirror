@@ -1,20 +1,21 @@
 #!/usr/bin/python2
 
-import hyphen, locale
-from hyphen.dictools import install, install_dict_info
+import sys, locale, urllib2
+from hyphen.dictools import install
 
-print 'Downloading dictionary info...',
-hyphen.dict_info = install_dict_info()
-print 'done.'
-
-print 'Downloading dictionaries... en_US',
+sys.stdout.write('Installing dictionaries\n... en_US ')
+sys.stdout.flush()
 install('en_US')
+sys.stdout.write('OK.\n')
 
 # Install dict for local language if needed
 locale.setlocale(locale.LC_ALL, '')
 local_lang = locale.getlocale()[0]
 if local_lang != 'en_US':
-    if local_lang in hyphen.dict_info:
-        print local_lang,
-        install(local_lang)
-print 'done.'
+	sys.stdout.write('... ' + local_lang + ' ')
+	sys.stdout.flush()
+	try:
+		install(local_lang)
+		sys.stdout.write('OK.\n')
+	except urllib2.HTTPError:
+		sys.stdout.write('Not available.\n')
