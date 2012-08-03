@@ -3,12 +3,12 @@
 
 pkgname=aircrack-ng-cuda-svn
 pkgver=1550
-pkgrel=7
+pkgrel=8
 pkgdesc="Wifi security suite with NVIDIA GPU-enhanced (using CUDA) WPA/WPA2 key cracking"
 arch=('i686' 'x86_64')
 url="http://www.aircrack-ng.org"
 license=('GPL2')
-depends=('openssl' 'wireless_tools' 'libtool' 'cuda-toolkit' 'cuda-sdk' 'sqlite3' 'iw')
+depends=('openssl' 'wireless_tools' 'libtool' 'cuda-toolkit' 'sqlite3' 'iw')
 makedepends=('subversion' 'autoconf')
 provides=('aircrack-ng-cuda')
 conflicts=('aircrack-ng-cuda')
