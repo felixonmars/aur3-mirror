@@ -2,7 +2,7 @@
 # Contributor: 	G_Syme <demichan at mail dot upb dot de>
 
 pkgname=aegisub-svn
-pkgver=6918
+pkgver=6952
 pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
@@ -28,7 +28,7 @@ build() {
   fi
   msg "SVN checkout done or server timeout"
   cd "$_svnmod"
-  ./autogen.sh --prefix=/usr --without-{portaudio,openal,oss,libpulse} --with-wxdir=/usr/include/wx-2.9 --with-wx-config=/usr/bin/wx-config-2.9
+  ./autogen.sh --prefix=/usr --disable-gcc-prec --without-{portaudio,openal,oss,libpulse} --with-wxdir=/usr/include/wx-2.9 --with-wx-config=/usr/bin/wx-config-2.9
   make
 }
 
