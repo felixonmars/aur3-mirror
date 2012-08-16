@@ -1,0 +1,329 @@
+--- modemu-0.0.1.orig/modemu.1
++++ modemu-0.0.1/modemu.1
+@@ -44,12 +44,12 @@
+ .BR sh (1)
+ commands can be specified.
+ The string \fIcomm_prog\fP can include a `%s',
+-which will be replaced with the last two letters of a device name.
+-The device is a pty slave device which the comm program must open.
++which will be replaced with the 
++device name of the slave device after removal of the initial "/dev/".
+ .RS
+ Example:
+ .RS
+-modemu -c "xc -l tty%s"
++modemu -c "xc -l %s"
+ .RE
+ .RE
+ .\" ===== -d =====
+--- modemu-0.0.1.orig/Makefile
++++ modemu-0.0.1/Makefile
+@@ -5,7 +5,7 @@
+ #{ OS specific part
+ 
+ ## Linux
+-CFLAGS_OS = -Wall
++CFLAGS_OS = -Wall -O2 -D_GNU_SOURCE
+ LDFLAGS_OS =
+ LIBS_OS =
+ LEX	= flex
+--- modemu-0.0.1.orig/defs.h
++++ modemu-0.0.1/defs.h
+@@ -14,3 +14,8 @@
+ #define CMDBUF_MAX	255
+ 
+ typedef unsigned char uchar;
++
++#if defined(__GLIBC__) || defined(SVR4)
++#define HAVE_GRANTPT
++#endif
++
+--- modemu-0.0.1.orig/modemu.c
++++ modemu-0.0.1/modemu.c
+@@ -1,9 +1,17 @@
++#include <stdlib.h>
++#include <unistd.h>
++
+ #include <stdio.h>	/*(printf,fprintf)*/
+ #include <ctype.h>	/*isprint*/
+ #include <arpa/telnet.h>/*IAC,DO,DONT,...*/
+ #include <sys/time.h>	/*fd_set,FD_ZERO*/
+ #include <fcntl.h>	/*O_RDWR*/
+ #include <errno.h>	/*EINTR*/
++#include <string.h>
++
++#ifdef __GLIBC__
++#include <pty.h>
++#endif
+ 
+ #include "defs.h"	/*uchar*/
+ #include "sock.h"	/*sock*/
+@@ -394,7 +402,6 @@
+ 
+ 
+ /* open a pty */
+-
+ static int
+ openPtyMaster(const char *dev)
+ {
+@@ -408,6 +415,99 @@
+     return fd;
+ }
+ 
++#ifdef HAVE_GRANTPT
++
++static int
++getPtyMaster(char **line_return)
++{
++    int rc;
++    char name[12], *temp_line, *line = NULL;
++    int pty = -1;
++    char *name1 = "pqrstuvwxyzPQRST", *name2 = "0123456789abcdef";
++    char *p1, *p2;
++
++#ifdef HAVE_GRANTPT
++    pty = open("/dev/ptmx", O_RDWR);
++    if(pty < 0)
++        goto bsd;
++
++    rc = grantpt(pty);
++    if(rc < 0) {
++        close(pty);
++        goto bsd;
++    }
++
++    rc = unlockpt(pty);
++    if(rc < 0) {
++        close(pty);
++        goto bsd;
++    }
++
++    temp_line = ptsname(pty);
++    if(!temp_line) {
++        close(pty);
++        goto bsd;
++    }
++    line = malloc(strlen(temp_line) + 1);
++    if(!line) {
++        close(pty);
++        return -1;
++    }
++    strcpy(line, temp_line);
++
++    *line_return = line;
++    return pty;
++#endif /* HAVE_GRANTPT */
++
++  bsd:
++
++    strcpy(name, "/dev/pty??");
++    for(p1 = name1; *p1; p1++) {
++        name[8] = *p1;
++        for(p2 = name2; *p2; p2++) {
++            name[9] = *p2;
++            pty = open(name, O_RDWR);
++            if(pty >= 0)
++                goto found;
++            if(errno == ENOENT)
++                goto bail;
++            else
++                continue;
++        }
++    }
++
++    goto bail;
++
++  found:
++    line = malloc(strlen(name));
++    strcpy(line, name);
++    line[5] = 't';
++    rc = chown(line, getuid(), getgid());
++    if(rc < 0) {
++        fprintf(stderr, 
++                "Warning: could not change ownership of tty -- "
++                "pty is insecure!\n");
++    }
++    rc = chmod(line, S_IRUSR | S_IWUSR | S_IWGRP);
++    if (rc < 0) {
++        fprintf(stderr, 
++                "Warning: could not change permissions of tty -- "
++                "pty is insecure!\n");
++    }
++
++    *line_return = line;
++    return pty;
++
++  bail:
++    if(pty >= 0)
++        close(pty);
++    if(line)
++        free(line);
++    return -1;
++}
++
++#else
++
+ #define PTY00 "/dev/ptyXX"
+ #define PTY10 "pqrs"
+ #define PTY01 "0123456789abcdef"
+@@ -436,6 +536,7 @@
+     exit(1);
+     return fd;
+ }
++#endif
+ 
+ 
+ 
+@@ -447,20 +548,32 @@
+ #endif
+     cmdargParse(argv);
+     switch (cmdarg.ttymode) {
+-	char c10, c01;
+-    case CA_STDINOUT:
+-	tty.rfd = 0;
+-	tty.wfd = 1;
+-	setTty();
++#ifdef HAVE_GRANTPT
++	char * ptyslave;
++    case CA_SHOWDEV:
++	tty.rfd = tty.wfd = getPtyMaster(&ptyslave);
++	printf("%s\n", ptyslave);
++	return 0;
++    case CA_COMMX:
++	tty.rfd = tty.wfd = getPtyMaster(&ptyslave);
++	commxForkExec(cmdarg.commx, ptyslave);
+ 	break;
++#else
++	char c10, c01;
+     case CA_SHOWDEV:
+ 	tty.rfd = tty.wfd = getPtyMaster(&c10, &c01);
+ 	printf("%c%c\n", c10, c01);
+-	break;
++	return 0;
+     case CA_COMMX:
+ 	tty.rfd = tty.wfd = getPtyMaster(&c10, &c01);
+ 	commxForkExec(cmdarg.commx, c10, c01);
+ 	break;
++#endif
++    case CA_STDINOUT:
++	tty.rfd = 0;
++	tty.wfd = 1;
++	setTty();
++	break;
+     case CA_DEVGIVEN:
+ 	tty.rfd = tty.wfd = openPtyMaster(cmdarg.dev);
+ 	break;
+--- modemu-0.0.1.orig/telopt.c
++++ modemu-0.0.1/telopt.c
+@@ -272,8 +272,10 @@
+ 	    tostp->pending = 0;
+ 	    /* don't response because cmd is the response of my request */
+ 	} else {
+-	    putOptCmd(posiResCmd, opt); /* positive response */
+-	    printCmdOpt(">", posiResCmd, opt);
++          if (tostp->state == !reqState) { /* this may not happen */
++                putOptCmd(posiResCmd, opt); /* positive response */
++                printCmdOpt(">", posiResCmd, opt);
++            }
+ 	}
+ 	tostp->state = reqState; /* {en,dis}able option as requested */
+     }
+--- modemu-0.0.1.orig/sock.c
++++ modemu-0.0.1/sock.c
+@@ -16,6 +16,7 @@
+ #include <sys/time.h>	/*->ttybuf.h (timeval)*/
+ #include <unistd.h>	/*(close)*/
+ #include <errno.h>	/*EINPROGRESS*/
++#include <stdio.h>
+ 
+ #include "sock.h"	/*sock*/
+ #include "defs.h"	/*->atcmd.h (uchar)*/
+--- modemu-0.0.1.orig/commx.c
++++ modemu-0.0.1/commx.c
+@@ -3,6 +3,7 @@
+ #include <unistd.h>	/*(fork,execv)*/
+ #include <string.h>	/*(strdup)*/
+ #include <sys/wait.h>	/*WNOHANG*/
++#include "defs.h"
+ #include "commx.h"	/*(commxForkExec)*/
+ #include "verbose.h"	/*VERB_MISC*/
+ 
+@@ -45,14 +46,28 @@
+     }
+ }
+ 
++#ifdef HAVE_GRANTPT
++void
++commxForkExec(const char *cmd, char *ptyslave)
++{
++    char *s;
++    s = malloc(strlen(cmd) + strlen(ptyslave)+1);
++    if (strcmp("/dev/", ptyslave) == 0 )
++       ptyslave += 5;
++    sprintf(s, cmd, ptyslave);
++    forkExec(s);
++}
++#else
+ void
+ commxForkExec(const char *cmd, char c10, char c01)
+ {
+-    char c[3];
++    char c[16];
+     char *s;
+ 
+-    c[0] = c10; c[1] = c01; c[2] = 0;
+-    s = strdup(cmd);
++    strcpy(c, "tty");
++    c[3] = c10; c[4] = c01; c[5] = 0;
++    s = malloc(strlen(cmd) + strlen(c)+1);
+     sprintf(s, cmd, c); /*'%s' -> 'p1' or sth*/
+     forkExec(s);
+ }
++#endif
+--- modemu-0.0.1.orig/commx.h
++++ modemu-0.0.1/commx.h
+@@ -1,2 +1,7 @@
++#ifdef HAVE_GRANTPT
++void
++commxForkExec(const char *cmd, char * ptyslave);
++#else
+ void
+ commxForkExec(const char *cmd, char c10, char c01);
++#endif
+--- modemu-0.0.1.orig/QuickStart
++++ modemu-0.0.1/QuickStart
+@@ -0,0 +1,34 @@
++Getting started quickly with modemu
++===================================
++Prepared for the Debian package by John Goerzen <jgoerzen@complete.org>
++
++Here are a few brief hints on getting started with modemu.
++
++IMPORTANT:
++
++ * To exit a modemu run from a command prompt, type:
++   AT%Q
++
++   Ctrl-C will *not* abort modemu!
++
++ * To exit a Minicom running Modemu, just use the normal Minicom exit
++   key.
++ * modemu by default uses a 7-bit connection.  You need to use special
++   commands to use an 8-bit clean connection.  (see below)
++ * When using atdt, don't forget the quotation mark.  For instance, to
++   telnet to somehost.somewhere.net, you would type:
++   ATDT"somehost.somewhere.net
++
++   This is probably the most common mistake people make.
++ * You can use ZModem and Kermit over a modemu connection (for instance,
++   to BBSs).  Just make sure you are in 8-bit clean mode.  (aka binary
++   mode)
++ * Here is a sample command line to start Minicom using modemu in 8-bit
++   mode:
++
++   modemu -e "AT%B0=1%B1=1&W" -c "minicom -p tty%s"
++
++   You might want to alias this with your shell or put it into a script.
++ * You can use modemu from UUCP by using the port type "pipe" and
++   using a command like modemu -e "AT%B0=1%B1=1&W"
++ * Finally, read the manpage and the README file.
