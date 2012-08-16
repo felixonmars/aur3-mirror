@@ -2,7 +2,7 @@
 # Contributor: Dan Serban
 
 pkgname='ambiance-radiance-colors-xfce-lxde'
-pkgver='12.04'
+pkgver='12.04.rev1'
 pkgrel=1
 pkgdesc="Ambiance & Radiance color themes for Xfce and LXDE"
 arch=('any')
