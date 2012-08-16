@@ -1,13 +1,13 @@
-# Maintainer: Ner0
+# Maintainer: jorge_barroso <jorge.barroso.11@gmail.com>
 
 pkgname=0ad-svn-bin
 pkgver=11863
-_pkgver=r$pkgver-4.5
+_pkgver=r$pkgver-4.8
 _dataver=r$pkgver-1.1
-pkgrel=6
+pkgrel=7
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game (openSUSE SVN prebuilt)"
 url="http://wildfiregames.com/0ad"
-arch=('i686' 'x86_64')
+arch=('any')
 _arch='x86_64'
 [ $CARCH = 'i686' ] && _arch='i586'
 license=('GPL2' 'CCPL')

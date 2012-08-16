@@ -1,0 +1,98 @@
+#!/bin/bash
+
+daemon_name=jenkins
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+. /etc/conf.d/${daemon_name}
+
+pidfile=/var/run/${daemon_name}.pid 
+
+get_pid() {
+  echo "`cat $pidfile 2>/dev/null`"
+}
+
+check_tcp_port() {
+    local service=$1
+    local assigned=$2
+    local default=$3
+    if [ -n "$assigned" ]; then
+        port=$assigned
+    else
+        port=$default
+    fi
+    count=`netstat --listen --numeric-ports | grep \:$port[[:space:]] | grep -c . `
+    if [ $count -ne 0 ]; then
+        echo "The selected $service port ($port) seems to be in use by another program "
+        echo "Please select another port to use for $NAME"
+        return 1
+    fi
+}
+
+case "$1" in
+  start)
+    stat_busy "Starting $daemon_name daemon"
+    PID=$(get_pid)
+    if [[ -z $PID ]]; then
+      [[ -f ${pidfile} ]] &&
+        rm -f ${pidfile}
+      # Verify that the jenkins port is not already in use, winstone does not exit
+      # even for BindException
+      check_tcp_port "http" "$JENKINS_PORT" "8090"
+      if [[ $? -ne 0 ]]; then
+        stat_fail
+	exit 1
+      fi
+      # RUN
+      sudo -u $JENKINS_USER -i -- nohup ${JAVA} ${JAVA_ARGS} -jar ${JENKINS_WAR} ${JENKINS_ARGS} >> ${JENKINS_LOG} 2>&1 </dev/null &
+      returncode=$?
+      pid=$!
+      #
+      if [[ $returncode -gt 0 ]]; then
+        stat_fail
+        exit 1
+      else
+        echo $pid > ${pidfile}
+        add_daemon $daemon_name
+        stat_done
+      fi
+    else
+      stat_fail
+      exit 1
+    fi
+    ;;
+
+  stop)
+    stat_busy "Stopping $daemon_name daemon"
+    PID=$(get_pid)
+    # KILL
+    [[ -n $PID ]] && kill $PID &> /dev/null
+    #
+    if [[ $? -gt 0 ]]; then
+      stat_fail
+      exit 1
+    else
+      rm -f ${pidfile} &> /dev/null
+      rm_daemon $daemon_name
+      stat_done
+    fi
+    ;;
+
+  restart)
+    $0 stop
+    sleep 3
+    $0 start
+    ;;
+
+  status)
+    stat_busy "Checking $daemon_name status";
+    ck_status $daemon_name
+    ;;
+
+  *)
+    echo "usage: $0 {start|stop|restart|status}"
+esac
+
+exit 0
+
+# vim:set ts=2 sw=2 et:

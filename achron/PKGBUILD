@@ -2,7 +2,7 @@
 # Contributor: Kevin Whitaker <eyecreate at gmail dot com>
 
 pkgname=achron
-pkgver=1.0.0.0
+pkgver=1.2.0.1
 pkgrel=1
 pkgdesc="Time travel RTS"
 arch=('x86_64')

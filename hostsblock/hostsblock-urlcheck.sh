@@ -12,6 +12,7 @@ USECOLOR="yes"
 blacklist="/etc/hostsblock/black.list"
 whitelist="/etc/hostsblock/white.list"
 hostshead="0"
+optimize="0"
 
 # SOURCE MAIN CONFIGURATION FILE
 if [ -f /etc/hostsblock/rc.conf ]; then
@@ -22,25 +23,24 @@ fi
 
 # CHECK SUBROUTINE
 check(){
-    line=`echo "$@" | sed "s/$redirecturl//g"`
-    if grep " $@$" "$hostsfile" &>/dev/null; then
-	printf "\e[1;31mBLOCKED: \e[0;37m'$line'. \e[0;32mUnblock? \e[0;37m[y/N]"
+    if grep "[[:space:]]`echo $@ | sed 's|\.|\\\.|g'`$" "$hostsfile" &>/dev/null; then
+	printf "\e[1;31mBLOCKED: \e[0;37m'$@' \e[0;32mUnblock? \e[0;37m[y/N] "
         read a
         if [[ $a == "y" || $a == "Y" ]]; then
-            echo "Unblocking $line"
-            echo " $line" >> "$whitelist"
-            sed -i "/$line/d" "$blacklist"
-            sed -i "/ $line/d" "$hostsfile"
+            echo "Unblocking $@"
+            echo " $@" >> "$whitelist"
+            sed -i "/$@/d" "$blacklist"
+            sed -i "/ $@/d" "$hostsfile"
             changed=1
         fi
     else
-        printf "\e[0;32mNOT BLOCKED: \e[0;37m'$line'. \e[1;31mBlock? \e[0;37m[y/N]"
+        printf "\e[0;32mNOT BLOCKED: \e[0;37m'$@' \e[1;31mBlock? \e[0;37m[y/N] "
         read a
         if [[ $a == "y" || $a == "Y" ]]; then
-            echo "Blocking $line"
-            echo "$line" >> "$blacklist"
-            sed -i "/$line/d" "$whitelist"
-            echo "$redirecturl $line" >> "$hostsfile"
+            echo "Blocking $@"
+            echo "$@" >> "$blacklist"
+            sed -i "/$@/d" "$whitelist"
+            echo "$redirecturl $@" >> "$hostsfile"
             changed=1
         fi
     fi
@@ -55,14 +55,15 @@ else
     changed=0
     echo "Verifying that give page is blocked or unblocked"
     check `echo "$@" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g"`
-    [ $changed == 0 ] && postprocess &>/dev/null
-    printf "Page domain verified. Scan the whole page for other domains for (un)blocking? [y/N]"
+    [ "$changed" == "1" ] && postprocess &>/dev/null
+    printf "Page domain verified. Scan the whole page for other domains for (un)blocking? [y/N] "
     read a
     if [[ $a == "y" || $a == "Y" ]]; then
-        for LINE in `curl -s "$@" | grep -- "http" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g" | sort -u`; do
+        for LINE in `curl -s "$@" | tr ' ' '\n' | grep -- "http" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\"<>\(\)].*//g" |\
+        sort -u | grep -- "\."`; do
             check "$LINE"
         done
         echo "Whole-page scan completed."
     fi
-    [ $changed == 0 ] && postprocess &>/dev/null
+    [ "$changed" == "1" ] && postprocess &>/dev/null
 fi

@@ -30,6 +30,8 @@ static struct argp_option options[] =
 {
     { .doc = "" },
     { .name = "dry-run", .key = 'n', .doc = "Perform a trial run with no changes made" },
+    { .name = "cachedir", .key = 'd', .arg = "PATH",
+      .doc = "Set alternative (absolute) cache directory PATH. Default is "CACHEDIR },
     { .name = "verbose", .key = 'v', .doc = "Verbose output" },
     { .name = "quiet", .key = 'q', .doc = "Suppress output, default" },
     { .doc = NULL }
@@ -50,6 +52,7 @@ struct arguments
     int dry_run;
     int preserve;
     int verbose;
+    char *cachedir;
 };
 
 static char *dupsubstr(const char *str, const int start, const int end)
@@ -152,6 +155,9 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         case 'q':
             argument->verbose = 0;
             break;
+        case 'd':
+            argument->cachedir = arg;
+            break;
         case ARGP_KEY_ARG:
             if (argument->preserve)
                 return ARGP_ERR_UNKNOWN;
@@ -174,6 +180,7 @@ int main(const int argc, char ** __restrict__ argv)
     alpm_handle_t *handle;
     alpm_db_t *db;
     alpm_list_t *pkglist;
+    struct stat st;
     struct dirent **dir;
     enum _alpm_errno_t error;
     struct pkginfo **cachepkg, **localpkg;
@@ -182,7 +189,8 @@ int main(const int argc, char ** __restrict__ argv)
     char cachedir[PATH_MAX] = CACHEDIR;
     struct argp arg_parser = { .options = options, .parser = parse_opt,
         .args_doc = args_doc, .doc = doc };
-    struct arguments args = { .dry_run = 0, .preserve = 0, .verbose = 0 };
+    struct arguments args = { .dry_run = 0, .preserve = 0, .verbose = 0,
+                              .cachedir = NULL };
 
     argp_parse(&arg_parser, argc, argv, 0, NULL, &args);
     if (!args.preserve)
@@ -194,6 +202,14 @@ int main(const int argc, char ** __restrict__ argv)
         exit(EXIT_FAILURE);
     }
 
+    if (args.cachedir)
+        strcpy(cachedir, args.cachedir);
+    if (!((stat(cachedir, &st) == 0) && ((st.st_mode & S_IFMT) == S_IFDIR)))
+    {
+        printf("Cache directory does not exist or is not a valid directory: "
+               "\"%s\".\n", cachedir);
+        exit(EXIT_FAILURE);
+    }
     len = strlen(cachedir);
     regcomp(&pkgnamesplit, "^(.*)-([^-]*-[^-]*)-[^-]*$", REG_EXTENDED);
     regcomp(&pkgnametest, "^.*-("CARCH"|any).[^-]*$", REG_EXTENDED);

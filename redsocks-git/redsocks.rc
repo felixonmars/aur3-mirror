@@ -2,37 +2,63 @@
 
 . /etc/rc.conf
 . /etc/rc.d/functions
+. /etc/conf.d/redsocks
 
-PID=`pidof -o %PPID /usr/bin/redsocks`
+checkconfig() {
+  local testout
+
+  if ! testout=$(/usr/bin/redsocks -t -c "$REDSOCKS_CONF" 2>&1); then
+    echo "$testout"
+    return 1
+  fi
+
+  return 0
+}
+
+pidfile=/run/redsocks/redsocks.pid
+if [[ -r $pidfile ]]; then
+  read -r PID < "$pidfile"
+  if [[ ! -d /proc/$PID ]]; then
+    # stale pidfile
+    unset PID
+    rm -f "$pidfile"
+  fi
+fi
+
 case "$1" in
   start)
     stat_busy "Starting redsocks daemon"
-    if [ -z "$PID" ]; then
-       /usr/bin/redsocks -c /etc/redsocks.conf -p /var/run/redsocks.pid&
-    fi
-    if [ ! -z "$PID" -o $? -gt 0 ]; then
-      stat_fail
-    else
+    if [[ -z "$PID" ]] && checkconfig &&
+       su -s /bin/sh -c "/usr/bin/redsocks -c \"$REDSOCKS_CONF\" \
+                         -p \"$pidfile\" \
+                         \"${REDSOCKS_OPTS[@]}\"" redsocks; then
       add_daemon redsocks
       stat_done
+    else
+      stat_fail
     fi
     ;;
   stop)
     stat_busy "Stopping redsocks daemon"
-    [ ! -z "$PID" ]  && kill $PID &> /dev/null
-    if [ $? -gt 0 ]; then
-      stat_fail
-    else
+    if [[ $PID ]] && kill "$PID" &> /dev/null; then
+      # redsocks doesn't clean up after itself
+      rm -f "$pidfile"
       rm_daemon redsocks
       stat_done
+    else
+      stat_fail
     fi
     ;;
   restart)
     $0 stop
-    sleep 3
+    sleep 1
     $0 start
     ;;
+  checkconfig)
+    # diagnostics will be printed, with zero/non-zero exit
+    /usr/bin/redsocks -t -c "$REDSOCKS_CONF"
+    ;;
   *)
-    echo "usage: $0 {start|stop|restart}"
+    echo "usage: $0 <start|stop|restart|checkconfig>"
 esac
 

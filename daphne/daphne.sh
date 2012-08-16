@@ -11,6 +11,7 @@ if [ ! -e $HOME/.daphne ]; then
   cd /usr/share/daphne
   ./daphne "$@"
 else
+  export PATH=/usr/share/daphne:$PATH
   cd /usr/share/daphne
   ./daphne "$@"
 fi

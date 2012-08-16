@@ -1,4 +1,4 @@
-# Contributor: Fazlul Shahriar <fshahriar@gmail.com>
+# Maintainer: Fazlul Shahriar <fshahriar@gmail.com>
 pkgname=9mount
 pkgver=1.3
 pkgrel=2

@@ -2,7 +2,7 @@
 # Contributor: Shanto <shanto@hotmail.com>
 
 pkgname=titanium-studio
-pkgver=2.1.0.201206251749
+pkgver=2.1.1.201207271312
 pkgrel=1
 pkgdesc="A free and open source application development platform, Titanium lets you create native mobile, tablet and desktop application experiences using existing web skills like Javascript, HTML, CSS, Python, Ruby, and PHP."
 url="http://www.appcelerator.com/products/titanium-studio/"
@@ -32,11 +32,11 @@ _pkgarraysize=${#source[@]}
 
 if [ "$CARCH" = "i686" ]; then
 	source[${_pkgarraysize}]="http://titanium-studio-linux-binaries.googlecode.com/files/titanium.linux.gtk.x86-${pkgver}.zip"
-	md5sums[${_pkgarraysize}]='e09836bbc0ff9ff5c4993b03bbe5ea6e'
+	md5sums[${_pkgarraysize}]='65f8ec3a364c5a128aaebb62d1e3c61b'
 else
 	# x86_64
 	source[${_pkgarraysize}]="http://titanium-studio-linux-binaries.googlecode.com/files/titanium.linux.gtk.x86_64-${pkgver}.zip"
-	md5sums[${_pkgarraysize}]='29545656f6615553426014a9780f0411'
+	md5sums[${_pkgarraysize}]='9f77bab9790b061d62049ce5112f9667'
 fi
 
 
@@ -73,5 +73,5 @@ package() {
 	find ./ -type d -exec chmod 755 {} \;
 
 	# remove problematic rubles
-	rm -rf "${pkgdir}/usr/share/titanium-studio/plugins/com.appcelerator.titanium.core_1.1.0.1340061699/bundles"
+	rm -rf "${pkgdir}/usr/share/titanium-studio/plugins/com.appcelerator.titanium.core_2.2.0.1343342818/bundles"
 }

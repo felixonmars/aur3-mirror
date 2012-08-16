@@ -1,4 +1,4 @@
-# Contributor: Fazlul Shahriar <fshahriar@gmail.com>
+# Maintainer: Fazlul Shahriar <fshahriar@gmail.com>
 pkgname=abaco
 pkgver=20081120
 pkgrel=1

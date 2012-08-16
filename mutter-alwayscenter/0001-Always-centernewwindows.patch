@@ -1,0 +1,529 @@
+From 2fb9fe5bddef63aacbd95d70387ed55f250cea72 Mon Sep 17 00:00:00 2001
+From: Adam Dingle <adam@yorba.org>
+Date: Fri, 30 Mar 2012 17:18:36 -0700
+Subject: [PATCH] Always center new windows.
+
+This change is derived from an earlier Metacity patch by
+Chad Glendenin <chad@glendenin.com>.
+---
+ src/core/place.c |  440 ++----------------------------------------------------
+ 1 file changed, 11 insertions(+), 429 deletions(-)
+
+diff --git a/src/core/place.c b/src/core/place.c
+index 7f21f6f..6bcf18b 100644
+--- a/src/core/place.c
++++ b/src/core/place.c
+@@ -42,200 +42,6 @@ typedef enum
+   META_BOTTOM
+ } MetaWindowDirection;
+ 
+-static gint
+-northwestcmp (gconstpointer a, gconstpointer b)
+-{
+-  MetaWindow *aw = (gpointer) a;
+-  MetaWindow *bw = (gpointer) b;
+-  int from_origin_a;
+-  int from_origin_b;
+-  int ax, ay, bx, by;
+-
+-  /* we're interested in the frame position for cascading,
+-   * not meta_window_get_position()
+-   */
+-  if (aw->frame)
+-    {
+-      ax = aw->frame->rect.x;
+-      ay = aw->frame->rect.y;
+-    }
+-  else
+-    {
+-      ax = aw->rect.x;
+-      ay = aw->rect.y;
+-    }
+-
+-  if (bw->frame)
+-    {
+-      bx = bw->frame->rect.x;
+-      by = bw->frame->rect.y;
+-    }
+-  else
+-    {
+-      bx = bw->rect.x;
+-      by = bw->rect.y;
+-    }
+-  
+-  /* probably there's a fast good-enough-guess we could use here. */
+-  from_origin_a = sqrt (ax * ax + ay * ay);
+-  from_origin_b = sqrt (bx * bx + by * by);
+-    
+-  if (from_origin_a < from_origin_b)
+-    return -1;
+-  else if (from_origin_a > from_origin_b)
+-    return 1;
+-  else
+-    return 0;
+-}
+-
+-static void
+-find_next_cascade (MetaWindow *window,
+-                   MetaFrameBorders *borders,
+-                   /* visible windows on relevant workspaces */
+-                   GList      *windows,
+-                   int         x,
+-                   int         y,
+-                   int        *new_x,
+-                   int        *new_y)
+-{
+-  GList *tmp;
+-  GList *sorted;
+-  int cascade_x, cascade_y;
+-  int x_threshold, y_threshold;
+-  int window_width, window_height;
+-  int cascade_stage;
+-  MetaRectangle work_area;
+-  const MetaMonitorInfo* current;
+-  
+-  sorted = g_list_copy (windows);
+-  sorted = g_list_sort (sorted, northwestcmp);
+-
+-  /* This is a "fuzzy" cascade algorithm. 
+-   * For each window in the list, we find where we'd cascade a
+-   * new window after it. If a window is already nearly at that
+-   * position, we move on.
+-   */
+-  
+-  /* arbitrary-ish threshold, honors user attempts to
+-   * manually cascade.
+-   */
+-#define CASCADE_FUZZ 15
+-  if (borders)
+-    {
+-      x_threshold = MAX (borders->visible.left, CASCADE_FUZZ);
+-      y_threshold = MAX (borders->visible.top, CASCADE_FUZZ);
+-    }
+-  else
+-    {
+-      x_threshold = CASCADE_FUZZ;
+-      y_threshold = CASCADE_FUZZ;
+-    }
+-  
+-  /* Find furthest-SE origin of all workspaces.
+-   * cascade_x, cascade_y are the target position
+-   * of NW corner of window frame.
+-   */
+-
+-  current = meta_screen_get_current_monitor (window->screen);
+-  meta_window_get_work_area_for_monitor (window, current->number, &work_area);
+-
+-  cascade_x = MAX (0, work_area.x);
+-  cascade_y = MAX (0, work_area.y);
+-  
+-  /* Find first cascade position that's not used. */
+-  
+-  window_width = window->frame ? window->frame->rect.width : window->rect.width;
+-  window_height = window->frame ? window->frame->rect.height : window->rect.height;
+-  
+-  cascade_stage = 0;
+-  tmp = sorted;
+-  while (tmp != NULL)
+-    {
+-      MetaWindow *w;
+-      int wx, wy;
+-      
+-      w = tmp->data;
+-
+-      /* we want frame position, not window position */
+-      if (w->frame)
+-        {
+-          wx = w->frame->rect.x;
+-          wy = w->frame->rect.y;
+-        }
+-      else
+-        {
+-          wx = w->rect.x;
+-          wy = w->rect.y;
+-        }
+-      
+-      if (ABS (wx - cascade_x) < x_threshold &&
+-          ABS (wy - cascade_y) < y_threshold)
+-        {
+-          /* This window is "in the way", move to next cascade
+-           * point. The new window frame should go at the origin
+-           * of the client window we're stacking above.
+-           */
+-          meta_window_get_position (w, &wx, &wy);
+-          cascade_x = wx;
+-          cascade_y = wy;
+-          
+-          /* If we go off the screen, start over with a new cascade */
+-	  if (((cascade_x + window_width) >
+-               (work_area.x + work_area.width)) ||
+-              ((cascade_y + window_height) >
+-	       (work_area.y + work_area.height)))
+-	    {
+-	      cascade_x = MAX (0, work_area.x);
+-	      cascade_y = MAX (0, work_area.y);
+-              
+-#define CASCADE_INTERVAL 50 /* space between top-left corners of cascades */
+-              cascade_stage += 1;
+-	      cascade_x += CASCADE_INTERVAL * cascade_stage;
+-              
+-	      /* start over with a new cascade translated to the right, unless
+-               * we are out of space
+-               */
+-              if ((cascade_x + window_width) <
+-                  (work_area.x + work_area.width))
+-                {
+-                  tmp = sorted;
+-                  continue;
+-                }
+-              else
+-                {
+-                  /* All out of space, this cascade_x won't work */
+-                  cascade_x = MAX (0, work_area.x);
+-                  break;
+-                }
+-	    }
+-        }
+-      else
+-        {
+-          /* Keep searching for a further-down-the-diagonal window. */
+-        }
+-        
+-      tmp = tmp->next;
+-    }
+-
+-  /* cascade_x and cascade_y will match the last window in the list
+-   * that was "in the way" (in the approximate cascade diagonal)
+-   */
+-  
+-  g_list_free (sorted);
+-
+-  /* Convert coords to position of window, not position of frame. */
+-  if (borders == NULL)
+-    {
+-      *new_x = cascade_x;
+-      *new_y = cascade_y;
+-    }
+-  else
+-    {
+-      *new_x = cascade_x + borders->visible.left;
+-      *new_y = cascade_y + borders->visible.top;
+-    }
+-}
+-
+ static void
+ find_most_freespace (MetaWindow *window,
+                      MetaFrameBorders *borders,
+@@ -375,125 +181,12 @@ avoid_being_obscured_as_second_modal_dialog (MetaWindow *window,
+     }
+ }
+ 
+-static gboolean
+-rectangle_overlaps_some_window (MetaRectangle *rect,
+-                                GList         *windows)
+-{
+-  GList *tmp;
+-  MetaRectangle dest;
+-  
+-  tmp = windows;
+-  while (tmp != NULL)
+-    {
+-      MetaWindow *other = tmp->data;
+-      MetaRectangle other_rect;      
+-
+-      switch (other->type)
+-        {
+-        case META_WINDOW_DOCK:
+-        case META_WINDOW_SPLASHSCREEN:
+-        case META_WINDOW_DESKTOP:
+-        case META_WINDOW_DIALOG:
+-        case META_WINDOW_MODAL_DIALOG:
+-	/* override redirect window types: */
+-	case META_WINDOW_DROPDOWN_MENU:
+-	case META_WINDOW_POPUP_MENU:
+-	case META_WINDOW_TOOLTIP:
+-	case META_WINDOW_NOTIFICATION:
+-	case META_WINDOW_COMBO:
+-	case META_WINDOW_DND:
+-	case META_WINDOW_OVERRIDE_OTHER:
+-          break;
+-
+-        case META_WINDOW_NORMAL:
+-        case META_WINDOW_UTILITY:
+-        case META_WINDOW_TOOLBAR:
+-        case META_WINDOW_MENU:
+-          meta_window_get_outer_rect (other, &other_rect);
+-          
+-          if (meta_rectangle_intersect (rect, &other_rect, &dest))
+-            return TRUE;
+-          break;
+-        }
+-      
+-      tmp = tmp->next;
+-    }
+-
+-  return FALSE;
+-}
+-
+-static gint
+-leftmost_cmp (gconstpointer a, gconstpointer b)
+-{
+-  MetaWindow *aw = (gpointer) a;
+-  MetaWindow *bw = (gpointer) b;
+-  int ax, bx;
+-
+-  /* we're interested in the frame position for cascading,
+-   * not meta_window_get_position()
+-   */
+-  if (aw->frame)
+-    ax = aw->frame->rect.x;
+-  else
+-    ax = aw->rect.x;
+-
+-  if (bw->frame)
+-    bx = bw->frame->rect.x;
+-  else
+-    bx = bw->rect.x;
+-
+-  if (ax < bx)
+-    return -1;
+-  else if (ax > bx)
+-    return 1;
+-  else
+-    return 0;
+-}
+-
+-static gint
+-topmost_cmp (gconstpointer a, gconstpointer b)
+-{
+-  MetaWindow *aw = (gpointer) a;
+-  MetaWindow *bw = (gpointer) b;
+-  int ay, by;
+-
+-  /* we're interested in the frame position for cascading,
+-   * not meta_window_get_position()
+-   */
+-  if (aw->frame)
+-    ay = aw->frame->rect.y;
+-  else
+-    ay = aw->rect.y;
+-
+-  if (bw->frame)
+-    by = bw->frame->rect.y;
+-  else
+-    by = bw->rect.y;
+-
+-  if (ay < by)
+-    return -1;
+-  else if (ay > by)
+-    return 1;
+-  else
+-    return 0;
+-}
+-
+ static void
+-center_tile_rect_in_area (MetaRectangle *rect,
+-                          MetaRectangle *work_area)
++center_rect_in_area (MetaRectangle *rect,
++                     MetaRectangle *work_area)
+ {
+-  int fluff;
+-
+-  /* The point here is to tile a window such that "extra"
+-   * space is equal on either side (i.e. so a full screen
+-   * of windows tiled this way would center the windows
+-   * as a group)
+-   */
+-
+-  fluff = (work_area->width % (rect->width+1)) / 2;
+-  rect->x = work_area->x + fluff;
+-  fluff = (work_area->height % (rect->height+1)) / 3;
+-  rect->y = work_area->y + fluff;
++  rect->x = (work_area->width - rect->width) / 2;
++  rect->y = (work_area->height - rect->height) / 2;
+ }
+ 
+ /* Find the leftmost, then topmost, empty area on the workspace
+@@ -505,7 +198,7 @@ center_tile_rect_in_area (MetaRectangle *rect,
+  * don't want to create a 1x1 Emacs.
+  */
+ static gboolean
+-find_first_fit (MetaWindow *window,
++center_window (MetaWindow *window,
+                 MetaFrameBorders *borders,
+                 /* visible windows on relevant workspaces */
+                 GList      *windows,
+@@ -522,25 +215,9 @@ find_first_fit (MetaWindow *window,
+    * of each existing window, aligned with the left/top of the
+    * existing window in each of those cases.
+    */  
+-  int retval;
+-  GList *below_sorted;
+-  GList *right_sorted;
+-  GList *tmp;
+   MetaRectangle rect;
+   MetaRectangle work_area;
+-  
+-  retval = FALSE;
+ 
+-  /* Below each window */
+-  below_sorted = g_list_copy (windows);
+-  below_sorted = g_list_sort (below_sorted, leftmost_cmp);
+-  below_sorted = g_list_sort (below_sorted, topmost_cmp);  
+-
+-  /* To the right of each window */
+-  right_sorted = g_list_copy (windows);
+-  right_sorted = g_list_sort (right_sorted, topmost_cmp);
+-  right_sorted = g_list_sort (right_sorted, leftmost_cmp);
+-  
+   rect.width = window->rect.width;
+   rect.height = window->rect.height;
+   
+@@ -563,10 +240,9 @@ find_first_fit (MetaWindow *window,
+ 
+     meta_window_get_work_area_for_monitor (window, monitor, &work_area);
+ 
+-    center_tile_rect_in_area (&rect, &work_area);
++    center_rect_in_area (&rect, &work_area);
+ 
+-    if (meta_rectangle_contains_rect (&work_area, &rect) &&
+-        !rectangle_overlaps_some_window (&rect, windows))
++    if (meta_rectangle_contains_rect (&work_area, &rect))
+       {
+         *new_x = rect.x;
+         *new_y = rect.y;
+@@ -576,78 +252,10 @@ find_first_fit (MetaWindow *window,
+             *new_y += borders->visible.top;
+           }
+     
+-        retval = TRUE;
+-       
+-        goto out;
+-      }
+-
+-    /* try below each window */
+-    tmp = below_sorted;
+-    while (tmp != NULL)
+-      {
+-        MetaWindow *w = tmp->data;
+-        MetaRectangle outer_rect;
+-
+-        meta_window_get_outer_rect (w, &outer_rect);
+-      
+-        rect.x = outer_rect.x;
+-        rect.y = outer_rect.y + outer_rect.height;
+-      
+-        if (meta_rectangle_contains_rect (&work_area, &rect) &&
+-            !rectangle_overlaps_some_window (&rect, below_sorted))
+-          {
+-            *new_x = rect.x;
+-            *new_y = rect.y;
+-            if (borders)
+-              {
+-                *new_x += borders->visible.left;
+-                *new_y += borders->visible.top;
+-              }
+-          
+-            retval = TRUE;
+-          
+-            goto out;
+-          }
+-
+-        tmp = tmp->next;
+-      }
+-
+-    /* try to the right of each window */
+-    tmp = right_sorted;
+-    while (tmp != NULL)
+-      {
+-        MetaWindow *w = tmp->data;
+-        MetaRectangle outer_rect;
+-   
+-        meta_window_get_outer_rect (w, &outer_rect);
+-     
+-        rect.x = outer_rect.x + outer_rect.width;
+-        rect.y = outer_rect.y;
+-   
+-        if (meta_rectangle_contains_rect (&work_area, &rect) &&
+-            !rectangle_overlaps_some_window (&rect, right_sorted))
+-          {
+-            *new_x = rect.x;
+-            *new_y = rect.y;
+-            if (borders)
+-              {
+-                *new_x += borders->visible.left;
+-                *new_y += borders->visible.top;
+-              }
+-        
+-            retval = TRUE;
+-       
+-            goto out;
+-          }
+-
+-        tmp = tmp->next;
++      return TRUE;
+       }
+-      
+- out:
+ 
+-  g_list_free (below_sorted);
+-  g_list_free (right_sorted);
+-  return retval;
++  return FALSE;
+ }
+ 
+ void
+@@ -866,7 +474,7 @@ meta_window_place (MetaWindow        *window,
+   x = xi->rect.x;
+   y = xi->rect.y;
+ 
+-  if (find_first_fit (window, borders, windows,
++  if (center_window (window, borders, windows,
+                       xi->number,
+                       x, y, &x, &y))
+     goto done_check_denied_focus;
+@@ -896,12 +504,6 @@ meta_window_place (MetaWindow        *window,
+         }
+     }
+ 
+-  /* If no placement has been done, revert to cascade to avoid 
+-   * fully overlapping window (e.g. starting multiple terminals)
+-   * */
+-  if (x == xi->rect.x && y == xi->rect.y)  
+-    find_next_cascade (window, borders, windows, x, y, &x, &y);
+-
+  done_check_denied_focus:
+   /* If the window is being denied focus and isn't a transient of the
+    * focus window, we do NOT want it to overlap with the focus window
+@@ -922,27 +524,7 @@ meta_window_place (MetaWindow        *window,
+                                              &focus_window->rect,
+                                              &overlap);
+ 
+-      /* Try to do a first fit again, this time only taking into account the
+-       * focus window.
+-       */
+-      if (!found_fit)
+-        {
+-          GList *focus_window_list;
+-          focus_window_list = g_list_prepend (NULL, focus_window);
+-
+-          /* Reset x and y ("origin" placement algorithm) */
+-          x = xi->rect.x;
+-          y = xi->rect.y;
+-
+-          found_fit = find_first_fit (window, borders, focus_window_list,
+-                                      xi->number,
+-                                      x, y, &x, &y);
+-          g_list_free (focus_window_list);
+-	}
+-
+-      /* If that still didn't work, just place it where we can see as much
+-       * as possible.
+-       */
++      /* just place it where we can see as much as possible. */
+       if (!found_fit)
+         find_most_freespace (window, borders, focus_window, x, y, &x, &y);
+     }
+-- 
+1.7.9.3
+

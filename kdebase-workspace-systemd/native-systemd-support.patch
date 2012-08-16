@@ -1,0 +1,329 @@
+diff -ur kde-workspace-4.8.0/libs/kworkspace/CMakeLists.txt kde-workspace-4.8.0-systemd-shutdown/libs/kworkspace/CMakeLists.txt
+--- kde-workspace-4.8.0/libs/kworkspace/CMakeLists.txt	2012-01-18 21:08:42.000000000 +0100
++++ kde-workspace-4.8.0-systemd-shutdown/libs/kworkspace/CMakeLists.txt	2012-03-01 07:19:09.000000000 +0100
+@@ -36,6 +36,11 @@
+ endif(SOPRANO_PLUGIN_RAPTORPARSER_FOUND AND SHAREDDESKTOPONTOLOGIES_ROOT_DIR)
+ 
+ 
++option(KWORKSPACE_USE_SYSTEMD "Use systemd instead of ConsoleKit in libkworkspace" OFF)
++if (KWORKSPACE_USE_SYSTEMD)
++    add_definitions(-DKWORKSPACE_USE_SYSTEMD=1)
++endif (KWORKSPACE_USE_SYSTEMD)
++
+ 
+ set(ksmserver_xml  ${KDEBASE_WORKSPACE_SOURCE_DIR}/ksmserver/org.kde.KSMServerInterface.xml)
+ qt4_add_dbus_interface( kworkspace_LIB_SRCS ${ksmserver_xml} ksmserver_interface )
+diff -ur kde-workspace-4.8.0/libs/kworkspace/kdisplaymanager.cpp kde-workspace-4.8.0-systemd-shutdown/libs/kworkspace/kdisplaymanager.cpp
+--- kde-workspace-4.8.0/libs/kworkspace/kdisplaymanager.cpp	2012-01-18 21:08:42.000000000 +0100
++++ kde-workspace-4.8.0-systemd-shutdown/libs/kworkspace/kdisplaymanager.cpp	2012-03-14 04:19:46.000000000 +0100
+@@ -40,6 +40,91 @@
+ #include <errno.h>
+ #include <stdio.h>
+ 
++#ifdef KWORKSPACE_USE_SYSTEMD
++struct NamedDBusObjectPath
++{
++    QString name;
++    QDBusObjectPath path;
++};
++Q_DECLARE_METATYPE(NamedDBusObjectPath)
++Q_DECLARE_METATYPE(QList<NamedDBusObjectPath>)
++
++// Marshall the NamedDBusObjectPath data into a D-Bus argument
++QDBusArgument &operator<<(QDBusArgument &argument, const NamedDBusObjectPath &namedPath)
++{
++    argument.beginStructure();
++    argument << namedPath.name << namedPath.path;
++    argument.endStructure();
++    return argument;
++}
++
++// Retrieve the NamedDBusObjectPath data from the D-Bus argument
++const QDBusArgument &operator>>(const QDBusArgument &argument, NamedDBusObjectPath &namedPath)
++{
++    argument.beginStructure();
++    argument >> namedPath.name >> namedPath.path;
++    argument.endStructure();
++    return argument;
++}
++
++struct NumberedDBusObjectPath
++{
++    uint num;
++    QDBusObjectPath path;
++};
++Q_DECLARE_METATYPE(NumberedDBusObjectPath)
++
++// Marshall the NumberedDBusObjectPath data into a D-Bus argument
++QDBusArgument &operator<<(QDBusArgument &argument, const NumberedDBusObjectPath &numberedPath)
++{
++    argument.beginStructure();
++    argument << numberedPath.num << numberedPath.path;
++    argument.endStructure();
++    return argument;
++}
++
++// Retrieve the NumberedDBusObjectPath data from the D-Bus argument
++const QDBusArgument &operator>>(const QDBusArgument &argument, NumberedDBusObjectPath &numberedPath)
++{
++    argument.beginStructure();
++    argument >> numberedPath.num >> numberedPath.path;
++    argument.endStructure();
++    return argument;
++}
++
++class SystemdManager : public QDBusInterface
++{
++public:
++    SystemdManager() :
++        QDBusInterface(
++                QLatin1String("org.freedesktop.login1"),
++                QLatin1String("/org/freedesktop/login1"),
++                QLatin1String("org.freedesktop.login1.Manager"),
++                QDBusConnection::systemBus()) {}
++};
++
++class SystemdSeat : public QDBusInterface
++{
++public:
++    SystemdSeat(const QDBusObjectPath &path) :
++        QDBusInterface(
++                QLatin1String("org.freedesktop.login1"),
++                path.path(),
++                QLatin1String("org.freedesktop.login1.Seat"),
++                QDBusConnection::systemBus()) {}
++};
++
++class SystemdSession : public QDBusInterface
++{
++public:
++    SystemdSession(const QDBusObjectPath &path) :
++        QDBusInterface(
++                QLatin1String("org.freedesktop.login1"),
++                path.path(),
++                QLatin1String("org.freedesktop.login1.Session"),
++                QDBusConnection::systemBus()) {}
++};
++#else
+ class CKManager : public QDBusInterface
+ {
+ public:
+@@ -68,10 +153,11 @@
+     CKSession(const QDBusObjectPath &path) :
+         QDBusInterface(
+                 QLatin1String("org.freedesktop.ConsoleKit"),
+-            path.path(),
++                path.path(),
+                 QLatin1String("org.freedesktop.ConsoleKit.Session"),
+                 QDBusConnection::systemBus()) {}
+ };
++#endif
+ 
+ class GDMFactory : public QDBusInterface
+ {
+@@ -131,6 +217,11 @@
+     }
+     switch (DMType) {
+     default:
++#ifdef KWORKSPACE_USE_SYSTEMD
++        qDBusRegisterMetaType<NamedDBusObjectPath>();
++        qDBusRegisterMetaType<QList<NamedDBusObjectPath> >();
++        qDBusRegisterMetaType<NumberedDBusObjectPath>();
++#endif
+         return;
+     case NewKDM:
+     case OldGDM:
+@@ -242,6 +333,23 @@
+ 
+ static bool getCurrentSeat(QDBusObjectPath *currentSession, QDBusObjectPath *currentSeat)
+ {
++#ifdef KWORKSPACE_USE_SYSTEMD
++    SystemdManager man;
++    QDBusReply<QDBusObjectPath> r = man.call(QLatin1String("GetSessionByPID"), (uint) QCoreApplication::applicationPid());
++    if (r.isValid()) {
++        SystemdSession sess(r.value());
++        if (sess.isValid()) {
++            QVariant p = sess.property("Seat");
++            if (p.canConvert<NamedDBusObjectPath>()) {
++                NamedDBusObjectPath namedPath = p.value<NamedDBusObjectPath>();
++                if (currentSession)
++                    *currentSession = r.value();
++                *currentSeat = namedPath.path;
++                return true;
++            }
++        }
++    }
++#else
+     CKManager man;
+     QDBusReply<QDBusObjectPath> r = man.call(QLatin1String("GetCurrentSession"));
+     if (r.isValid()) {
+@@ -256,11 +364,28 @@
+             }
+         }
+     }
++#endif
+     return false;
+ }
+ 
+ static QList<QDBusObjectPath> getSessionsForSeat(const QDBusObjectPath &path)
+ {
++#ifdef KWORKSPACE_USE_SYSTEMD
++    SystemdSeat seat(path);
++    if (seat.isValid()) {
++        QVariant p = seat.property("Sessions");
++        if (p.canConvert<QList<NamedDBusObjectPath> >()) {
++            QList<NamedDBusObjectPath> r = p.value<QList<NamedDBusObjectPath> >();
++            QList<QDBusObjectPath> result;
++            foreach (const NamedDBusObjectPath &namedPath, r)
++                result.append(namedPath.path);
++            // This will contain only local sessions:
++            // - this is only ever called when isSwitchable() is true => local seat
++            // - remote logins into the machine are assigned to other seats
++            return result;
++        }
++    }
++#else
+     CKSeat seat(path);
+     if (seat.isValid()) {
+         QDBusReply<QList<QDBusObjectPath> > r = seat.call(QLatin1String("GetSessions"));
+@@ -271,9 +396,18 @@
+             return r.value();
+         }
+     }
++#endif
+     return QList<QDBusObjectPath>();
+ }
+ 
++#ifdef KWORKSPACE_USE_SYSTEMD
++static void getSessionLocation(SystemdSession &lsess, SessEnt &se)
++{
++    se.tty = (lsess.property("Type").toString() != QLatin1String("x11"));
++    se.display = lsess.property(se.tty ? "TTY" : "Display").toString();
++    se.vt = lsess.property("VTNr").toInt();
++}
++#else
+ static void getSessionLocation(CKSession &lsess, SessEnt &se)
+ {
+     QString tty;
+@@ -291,14 +425,20 @@
+     }
+     se.vt = tty.mid(strlen("/dev/tty")).toInt();
+ }
++#endif
+ 
+ #ifndef KDM_NO_SHUTDOWN
+ bool
+ KDisplayManager::canShutdown()
+ {
+     if (DMType == NewGDM || DMType == NoDM || DMType == LightDM) {
++#ifdef KWORKSPACE_USE_SYSTEMD
++        QDBusReply<QString> canPowerOff = SystemdManager().call(QLatin1String("CanPowerOff"));
++        return (canPowerOff.isValid() && canPowerOff.value() != QLatin1String("no"));
++#else
+         QDBusReply<bool> canStop = CKManager().call(QLatin1String("CanStop"));
+         return (canStop.isValid() && canStop.value());
++#endif
+     }
+ 
+     if (DMType == OldKDM)
+@@ -329,9 +469,21 @@
+             return;
+ 
+         if (DMType == NewGDM || DMType == NoDM || DMType == LightDM) {
++#ifdef KWORKSPACE_USE_SYSTEMD
++            // systemd supports only 2 modes:
++            // * interactive = true: brings up a PolicyKit prompt if other sessions are active
++            // * interactive = false: rejects the shutdown if other sessions are active
++            // There are no schedule or force modes.
++            // We try to map our 4 shutdown modes in the sanest way.
++            bool interactive = (shutdownMode == KWorkSpace::ShutdownModeInteractive
++                                || shutdownMode == KWorkSpace::ShutdownModeForceNow);
++            SystemdManager().call(QLatin1String(
++                    shutdownType == KWorkSpace::ShutdownTypeReboot ? "Reboot" : "PowerOff"), interactive);
++#else
+             // FIXME: entirely ignoring shutdownMode
+             CKManager().call(QLatin1String(
+                     shutdownType == KWorkSpace::ShutdownTypeReboot ? "Restart" : "Stop"));
++#endif
+             return;
+         }
+ 
+@@ -406,12 +558,18 @@
+     if (DMType == NewGDM || DMType == LightDM) {
+         QDBusObjectPath currentSeat;
+         if (getCurrentSeat(0, &currentSeat)) {
++#ifdef KWORKSPACE_USE_SYSTEMD
++            SystemdSeat seat(currentSeat);
++            if (seat.isValid())
++                return seat.property("CanMultiSession").toBool();
++#else
+             CKSeat seat(currentSeat);
+             if (seat.isValid()) {
+                 QDBusReply<bool> r = seat.call(QLatin1String("CanActivateSessions"));
+                 if (r.isValid())
+                     return r.value();
+             }
++#endif
+         }
+         return false;
+     }
+@@ -469,6 +627,21 @@
+         QDBusObjectPath currentSession, currentSeat;
+         if (getCurrentSeat(&currentSession, &currentSeat)) {
+             foreach (const QDBusObjectPath &sp, getSessionsForSeat(currentSeat)) {
++#ifdef KWORKSPACE_USE_SYSTEMD
++                SystemdSession lsess(sp);
++                if (lsess.isValid()) {
++                    SessEnt se;
++                    getSessionLocation(lsess, se);
++                    if (lsess.property("Class").toString() != QLatin1String("greeter")) {
++                        QVariant p = lsess.property("User");
++                        NumberedDBusObjectPath numberedPath = p.value<NumberedDBusObjectPath>();
++                        se.user = KUser(K_UID(numberedPath.num)).loginName();
++                        se.session = "<unknown>";
++                    }
++                    se.self = (sp == currentSession);
++                    list.append(se);
++                }
++#else
+                 CKSession lsess(sp);
+                 if (lsess.isValid()) {
+                     SessEnt se;
+@@ -484,6 +657,7 @@
+                     se.self = (sp == currentSession);
+                     list.append(se);
+                 }
++#endif
+             }
+             return true;
+         }
+@@ -567,6 +741,21 @@
+         QDBusObjectPath currentSeat;
+         if (getCurrentSeat(0, &currentSeat)) {
+             foreach (const QDBusObjectPath &sp, getSessionsForSeat(currentSeat)) {
++#ifdef KWORKSPACE_USE_SYSTEMD
++                SystemdSession lsess(sp);
++                if (lsess.isValid()) {
++                    SessEnt se;
++                    getSessionLocation(lsess, se);
++                    if (se.vt == vt) {
++#if 0
++                        if (se.tty) // FIXME: Does systemd ignore these like ConsoleKit does?
++                            return false;
++#endif
++                        lsess.call(QLatin1String("Activate"));
++                        return true;
++                    }
++                }
++#else
+                 CKSession lsess(sp);
+                 if (lsess.isValid()) {
+                     SessEnt se;
+@@ -578,6 +767,7 @@
+                         return true;
+                     }
+                 }
++#endif
+             }
+         }
+         return false;

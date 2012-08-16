@@ -1,17 +1,19 @@
 # Maintainer : Marco Rocco <mr85mr@gmail.com>
 
 pkgname=alltray-compiz
-pkgver=0.69
+pkgver=0.7.5.1dev
 pkgrel=1.1
 pkgdesc="Drop's any app in the tray, patched for compiz"
 license=("GPL")
-arch=(i686 x86_64)
+arch=('any')
 url="http://alltray.sourceforge.net"
 depends=('gconf')
 conflicts=('alltray')
 options=('!libtool')
-source=(http://launchpad.net/alltray/historic-releases/0.69/+download/${pkgname%%-*}-$pkgver.tar.gz compiz.patch)
-md5sums=('ebc1c8eea945aff703d758e296b76cc9' '574c32c6d1711d72dedccb3e59a497d1')
+source=('https://launchpad.net/alltray/trunk/0.7.5.1dev/+download/alltray-0.7.5.1dev.tar.gz' 
+	'compiz.patch')
+md5sums=('5842253b89a5943031b5a02bbd8fd4fb'
+         'a978930e3e21801c595bbd3a6e203b63')
 
 build()
 {

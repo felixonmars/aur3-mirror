@@ -1,13 +1,13 @@
 # Maintainer: Matt Harrison <matt@mistbyte.com>
 
 pkgname=bitcasa
-pkgver=0.9.4.64
+pkgver=0.9.6.99
 pkgrel=1
 pkgdesc="Infinite Storage in the cloud"
 arch=('x86_64')
 url="http://www.bitcasa.com"
 license=('custom')
-depends=('apr-util' 'fuse' 'desktop-file-utils' 'hicolor-icon-theme' 'krb5' 'libidn' 'libjpeg-turbo' 'libpng12' 'libtasn1' 'protobuf' 'p11-kit' 'qt' 'rtmpdump')
+depends=('apr-util' 'fuse' 'desktop-file-utils' 'hicolor-icon-theme' 'krb5' 'libidn' 'curl' 'libgcrypt' 'libtasn1' 'protobuf' 'p11-kit' 'qt' 'rtmpdump')
 makedepends=('binutils' 'tar')
 install=bitcasa.install
 source=(
@@ -36,7 +36,7 @@ source=(
   "LICENSE"
   "bitcasa.sh")
 sha256sums=(
-  'ee65c972f24e047c416afad25fbc63730cc0f32ad3e40469eb9cc90d666b0fcb' # bitcasa_0.9.4.64_amd64.deb
+  '85fcc881c0985d583e0c6dc23d0f7c53ee2246253b04e15cb5ab3f63e36ae5a9' # bitcasa_0.9.6.99_amd64.deb
   '4eecc887ee9a3ce511acd830c21a9e92babaae35d44cb6d8bfc8a7eb073ae8ef' # libboost-filesystem1.46.1_1.46.1-7ubuntu3_amd64.deb
   'd08ff295ae3a48ce303404df495df4dd42596e22d7a599fe2f417709f1abb6e2' # libboost-regex1.46.1_1.46.1-7ubuntu3_amd64.deb
   '6fc8bfd0ae266ecaa0c64abbff12286f86ff194e3f69be2cf17425e213d7e2b1' # libboost-thread1.46.1_1.46.1-7ubuntu3_amd64.deb

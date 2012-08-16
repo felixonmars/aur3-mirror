@@ -1,0 +1,139 @@
+Description: Unified Nautilus Toolbar
+ Unified toolbar for NautilusWindowPane's, placed below Gtk.MenuBar
+ .
+ nautilus (1:3.4.2-2solusos1) two; urgency=low
+ .
+   * Unified toolbar
+Author: Ikey Doherty <ikey@solusos.com>
+
+---
+Reviewed-By: Ikey Doherty <ikey@solusos.com>
+Last-Update: <2012-08-06>
+
+--- nautilus-3.4.2.orig/src/nautilus-window-pane.c
++++ nautilus-3.4.2/src/nautilus-window-pane.c
+@@ -45,6 +45,9 @@
+ #define DEBUG_FLAG NAUTILUS_DEBUG_WINDOW
+ #include <libnautilus-private/nautilus-debug.h>
+ 
++// For: NAUTILUS_IS_DESKTOP_WINDOW
++#include "nautilus-desktop-window.h"
++
+ enum {
+ 	PROP_WINDOW = 1,
+ 	NUM_PROPERTIES
+@@ -746,9 +749,10 @@ nautilus_window_pane_constructed (GObjec
+ 	g_signal_connect (pane->action_group, "pre-activate",
+ 			  G_CALLBACK (toolbar_action_group_activated_callback), pane);
+ 
+-	gtk_box_pack_start (GTK_BOX (pane),
++	/* Pack to windows hbox (under the menu */
++	gtk_box_pack_start (GTK_BOX (window->details->toolbar_holder),
+ 			    pane->tool_bar,
+-			    FALSE, FALSE, 0);
++			    TRUE, TRUE, 0);
+ 
+ 	/* start as non-active */
+ 	nautilus_window_pane_set_active (pane, FALSE);
+@@ -828,6 +832,13 @@ nautilus_window_pane_constructed (GObjec
+ 	 */
+ 	gtk_widget_set_size_request (GTK_WIDGET (pane), 60, 60);
+ 
++	/*
++	 * If we're on the desktop we need to make sure the toolbar can never show
++	 */
++	if (NAUTILUS_IS_DESKTOP_WINDOW(window)) {
++		gtk_widget_hide (GTK_WIDGET (window->details->toolbar_holder));
++	}
++
+ 	/* we can unref the size group now */
+ 	g_object_unref (header_size_group);
+ }
+--- nautilus-3.4.2.orig/src/nautilus-window.c
++++ nautilus-3.4.2/src/nautilus-window.c
+@@ -535,6 +535,7 @@ nautilus_window_constructed (GObject *se
+ 	GtkWidget *statusbar;
+ 	GtkWidget *hpaned;
+ 	GtkWidget *vbox;
++	GtkWidget *toolbar_holder;
+ 	NautilusWindowPane *pane;
+ 	NautilusWindowSlot *slot;
+ 	NautilusApplication *application;
+@@ -564,6 +565,12 @@ nautilus_window_constructed (GObject *se
+ 	gtk_widget_show (menu);
+ 	gtk_container_add (GTK_CONTAINER (grid), menu);
+ 
++	/* Set up the toolbar place holder */
++	toolbar_holder = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
++	gtk_container_add (GTK_CONTAINER (grid), toolbar_holder);
++	gtk_widget_show (toolbar_holder);
++	window->details->toolbar_holder = toolbar_holder;
++
+ 	/* Register to menu provider extension signal managing menu updates */
+ 	g_signal_connect_object (nautilus_signaller_get_current (), "popup_menu_changed",
+ 			 G_CALLBACK (nautilus_window_load_extension_menus), window, G_CONNECT_SWAPPED);
+@@ -837,6 +844,10 @@ nautilus_window_close_pane (NautilusWind
+ 		window->details->active_pane = NULL;
+ 	}
+ 
++	/* Required really. Destroying the NautilusWindowPane still leaves behind the toolbar.
++	 * This kills it off. Do it before we call gtk_widget_destroy for safety. */
++	gtk_container_remove (GTK_CONTAINER (window->details->toolbar_holder), GTK_WIDGET (pane->tool_bar));
++
+ 	window->details->panes = g_list_remove (window->details->panes, pane);
+ 
+ 	gtk_widget_destroy (GTK_WIDGET (pane));
+@@ -888,7 +899,6 @@ void
+ nautilus_window_set_active_slot (NautilusWindow *window, NautilusWindowSlot *new_slot)
+ {
+ 	NautilusWindowSlot *old_slot;
+-
+ 	g_assert (NAUTILUS_IS_WINDOW (window));
+ 
+ 	DEBUG ("Setting new slot %p as active", new_slot);
+@@ -911,7 +921,7 @@ nautilus_window_set_active_slot (Nautilu
+ 		if (old_slot->content_view != NULL) {
+ 			nautilus_window_disconnect_content_view (window, old_slot->content_view);
+ 		}
+-
++		gtk_widget_hide (GTK_WIDGET (old_slot->pane->tool_bar));
+ 		/* inform slot & view */
+ 		g_signal_emit_by_name (old_slot, "inactive");
+ 	}
+@@ -935,6 +945,14 @@ nautilus_window_set_active_slot (Nautilu
+                         nautilus_window_connect_content_view (window, new_slot->content_view);
+                 }
+ 
++		// Show active toolbar
++		gboolean show_toolbar;
++		show_toolbar = g_settings_get_boolean (nautilus_window_state, NAUTILUS_WINDOW_STATE_START_WITH_TOOLBAR);
++
++		if ( show_toolbar) {
++			gtk_widget_show (GTK_WIDGET (new_slot->pane->tool_bar));
++		}
++
+ 		/* inform slot & view */
+                 g_signal_emit_by_name (new_slot, "active");
+ 	}
+@@ -1775,6 +1793,9 @@ create_extra_pane (NautilusWindow *windo
+ 		gtk_paned_pack2 (paned, GTK_WIDGET (pane), TRUE, FALSE);
+ 	}
+ 
++	/* Ensure the toolbar doesn't pop itself into existence (double toolbars suck.) */
++	gtk_widget_hide (pane->tool_bar);
++
+ 	/* slot */
+ 	slot = nautilus_window_pane_open_slot (NAUTILUS_WINDOW_PANE (pane),
+ 					       NAUTILUS_WINDOW_OPEN_SLOT_APPEND);
+--- nautilus-3.4.2.orig/src/nautilus-window-private.h
++++ nautilus-3.4.2/src/nautilus-window-private.h
+@@ -90,6 +90,9 @@ struct NautilusWindowDetails
+         /* Toolbar */
+         GtkWidget *toolbar;
+ 
++        /* Toolbar holder */
++        GtkWidget *toolbar_holder;
++
+         guint extensions_toolbar_merge_id;
+         GtkActionGroup *extensions_toolbar_action_group;
+ 

@@ -20,7 +20,7 @@ case "$1" in
 		if [ $? -gt 0 ]; then
 			stat_fail
 		else
-			rm_daemon git-daemon
+			rm_daemon gitorious-ultrasphinx
 			stat_done
 		fi
 		;;

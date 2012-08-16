@@ -1,4 +1,5 @@
 PLEX_MEDIA_SERVER_USER=root
+PLEX_MEDIA_SERVER_HOME=/usr/lib/plexmediaserver
 
 # the number of plugins that can run at the same time
 PLEX_MEDIA_SERVER_MAX_PLUGIN_PROCS=6

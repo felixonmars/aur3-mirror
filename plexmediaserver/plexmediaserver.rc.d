@@ -2,7 +2,7 @@
 
 . /etc/conf.d/plexmediaserver
 
-export PLEX_MEDIA_SERVER_HOME=/usr/lib/plexmediaserver
+export PLEX_MEDIA_SERVER_HOME
 export LD_LIBRARY_PATH="${PLEX_MEDIA_SERVER_HOME}"
 export TMPDIR="${PLEX_MEDIA_SERVER_TMPDIR}"
 

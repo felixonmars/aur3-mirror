@@ -1,5 +1,2 @@
 #!/bin/sh
-
-# Launch PCSX2
-cd /opt/pcsx2
-./pcsx2 $*
+/opt/pcsx2/launch_pcsx2_linux.sh --cfgpath=$HOME/.config/PCSX2 $@

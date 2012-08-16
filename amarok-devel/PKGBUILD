@@ -4,8 +4,8 @@
 
 pkgname=amarok-devel
 _appname=amarok
-pkgver=2.6beta1
-_pkgver=2.5.90
+pkgver=2.6rc
+_pkgver=2.5.96
 pkgrel=1
 pkgdesc="A media player for KDE - Unstable version"
 arch=("i686" "x86_64")
@@ -22,7 +22,7 @@ conflicts=('amarok')
 provides=('amarok')
 install="$pkgname.install"
 source=("ftp://ftp.kde.org/pub/kde/unstable/$_appname/$_pkgver/src/$_appname-$_pkgver.tar.bz2")
-md5sums=('15f84e226759958fb3e76ebf438c9fc7')
+md5sums=('623e1aded95ee060d9aa407b09bb9182')
 
 build() {
   mkdir build
