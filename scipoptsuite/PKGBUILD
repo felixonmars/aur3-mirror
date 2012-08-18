@@ -4,7 +4,7 @@
 
 pkgname='scipoptsuite'
 pkgver='3.0.0'
-pkgrel=5
+pkgrel=6
 pkgdesc="Tools for generating and solving optimization problems. Consists of ZIMPL, SoPlex, SCIP, GCG and UG"
 arch=('i686' 'x86_64')
 url='http://zibopt.zib.de/'
@@ -75,6 +75,12 @@ package_scipoptsuite() {
     # @FIXME: Maybe make install will just work in future releases...
 
     cd "${srcdir}/${pkgname}-${pkgver}"
+
+    # A local RPATH is set, get rid of it.
+    chrpath --delete ${_scip}/bin/scip
+    chrpath --delete ${_soplex}/bin/soplex
+    chrpath --delete ${_gcg}/bin/gcg
+    chrpath --delete ${_ug}/bin/fscip
 
     #
     # Binaries
