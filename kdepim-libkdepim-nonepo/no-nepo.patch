@@ -1,44 +1,126 @@
-Les fichiers binaires kdepim-4.8.97/kaddressbook/.contactselectionwidget.cpp.swp et kdepim-4.8.97.new/kaddressbook/.contactselectionwidget.cpp.swp sont différents
-diff -Nru kdepim-4.8.97/messagecomposer/composerlineedit.cpp kdepim-4.8.97.new/messagecomposer/composerlineedit.cpp
---- kdepim-4.8.97/messagecomposer/composerlineedit.cpp	2012-06-25 22:30:06.000000000 +0200
-+++ kdepim-4.8.97.new/messagecomposer/composerlineedit.cpp	2012-07-30 16:31:18.832547093 +0200
-@@ -33,6 +34,12 @@
- #include <kabc/contactgroup.h>
- #include <kabc/vcardconverter.h>
- 
-+#include <Akonadi/Collection>
+diff -Nru kdepim-4.9.0/libkdepim/addresseelineedit.cpp kdepim-4.9.0.new/libkdepim/addresseelineedit.cpp
+--- kdepim-4.9.0/libkdepim/addresseelineedit.cpp	2012-07-11 10:09:49.000000000 +0200
++++ kdepim-4.9.0.new/libkdepim/addresseelineedit.cpp	2012-08-18 08:16:11.042049070 +0200
+@@ -35,6 +35,7 @@
+ #include <Akonadi/CollectionFetchJob>
+ #include <Akonadi/EntityDisplayAttribute>
+ #include <Akonadi/ItemFetchScope>
 +#include <Akonadi/RecursiveItemFetchJob>
-+#include <Akonadi/ItemFetchScope>
-+
+ 
+ #ifndef KDEPIM_NO_NEPOMUK
+ #include <Nepomuk/Query/Query>
+@@ -42,6 +43,7 @@
+ #include <Nepomuk/Query/Result>
+ #include <Nepomuk/Resource>
+ #include <Nepomuk/Vocabulary/NCO>
 +#include <Nepomuk/ResourceManager>
+ #endif
+ 
+ #include <KPIMUtils/Email>
+@@ -239,6 +241,7 @@
+     const QStringList adjustedCompletionItems( bool fullSearch );
+     void updateSearchString();
+     void akonadiPerformSearch();
++    void akonadiPerformDbSearch();
+     void akonadiHandlePending();
+     void doCompletion( bool ctrlT );
+ 
+@@ -250,6 +253,7 @@
+     void slotEditCompletionOrder();
+     void slotUserCancelled( const QString & );
+     void slotAkonadiSearchResult( KJob * );
++    void slotAkonadiSearchDbResult( KJob* );
+     void slotAkonadiCollectionsReceived( const Akonadi::Collection::List & );
+ #ifndef KDEPIM_NO_NEPOMUK
+     void startNepomukSearch();
+@@ -628,6 +632,12 @@
+ 
+ void AddresseeLineEdit::Private::akonadiPerformSearch()
+ {
++  // If nepomuk not running, directly look in akonadi db
++  if ( !Nepomuk::ResourceManager::instance()->initialized() ) {
++    akonadiPerformDbSearch();
++    return;
++  } 
 +
- #include <kio/netaccess.h>
- #include <kmenu.h>
- #include <kurl.h>
-@@ -256,6 +263,26 @@
-       addContact( addr, weight, idx );
-     }
-   }
-+
-+  // Nepomuk missing, fallback
-+  if ( !Nepomuk::ResourceManager::instance()->initialized() ){
-+    Akonadi::RecursiveItemFetchJob *job =
-+    new Akonadi::RecursiveItemFetchJob( Akonadi::Collection::root(),
-+                                        QStringList() << KABC::Addressee::mimeType() );
-+    job->fetchScope().fetchFullPayload();
-+
-+    KABC::Addressee::List contacts;
-+    if ( !job->exec() ) {
-+      return;
-+    }
-+
-+    const int idx = addCompletionSource( i18n( "Contacts" ), 10);
-+    foreach ( const Akonadi::Item &item, job->items() ) {
-+      if ( item.isValid() && item.hasPayload<KABC::Addressee>() ) {
-+        addContact( item.payload<KABC::Addressee>(), 10, idx );
-+      }
-+    }
-+  }
+   kDebug() << "searching akonadi with:" << m_searchString;
+   Akonadi::ContactSearchJob *contactJob = new Akonadi::ContactSearchJob();
+   Akonadi::ContactGroupSearchJob *groupJob = new Akonadi::ContactGroupSearchJob();
+@@ -647,6 +657,20 @@
+   akonadiHandlePending();
  }
  
- void ComposerLineEdit::setRecentAddressConfig ( KConfig* config )
++void AddresseeLineEdit::Private::akonadiPerformDbSearch()
++{
++  kDebug() << "searching akonadi db with:" << m_searchString;
++  Akonadi::RecursiveItemFetchJob *job =
++           new Akonadi::RecursiveItemFetchJob( Akonadi::Collection::root(),
++                                               QStringList() << KABC::Addressee::mimeType() );
++  job->fetchScope().fetchFullPayload();
++  job->fetchScope().setAncestorRetrieval( Akonadi::ItemFetchScope::Parent );
++  q->connect( job, SIGNAL(result(KJob*)),
++              q, SLOT(slotAkonadiSearchDbResult(KJob*)) );
++  job->start();
++  akonadiHandlePending();
++}
++
+ void AddresseeLineEdit::Private::akonadiHandlePending()
+ {
+   kDebug() << "Pending items: " << s_static->akonadiPendingItems.size();
+@@ -943,6 +967,45 @@
+     const QListWidgetItem *current = q->completionBox()->currentItem();
+     if ( !current || m_searchString.trimmed() != current->text().trimmed() ) {
+       doCompletion( m_lastSearchMode );
++    }
++  }
++}
++
++void AddresseeLineEdit::Private::slotAkonadiSearchDbResult( KJob *job )
++{
++  const Akonadi::RecursiveItemFetchJob *contactJob =
++    qobject_cast<Akonadi::RecursiveItemFetchJob*>( job );
++  Akonadi::Item::List items;
++  if ( contactJob ) items += contactJob->items();
++  foreach ( const Akonadi::Item &item, items ) {
++    // check the local cache of collections
++    const int sourceIndex =
++      s_static->akonadiCollectionToCompletionSourceMap.value( item.parentCollection().id(), -1 );
++    if ( sourceIndex == -1 ) {
++      kDebug() << "Fetching New collection: " << item.parentCollection().id();
++      // the collection isn't there, start the fetch job.
++      Akonadi::CollectionFetchJob *collectionJob =
++        new Akonadi::CollectionFetchJob( item.parentCollection(),
++                                         Akonadi::CollectionFetchJob::Base, q );
++      connect( collectionJob, SIGNAL(collectionsReceived(Akonadi::Collection::List)),
++               q, SLOT(slotAkonadiCollectionsReceived(Akonadi::Collection::List)) );
++      /* we don't want to start multiple fetch jobs for the same collection,
++         so insert the collection with an index value of -2 */
++      s_static->akonadiCollectionToCompletionSourceMap.insert( item.parentCollection().id(), -2 );
++      s_static->akonadiPendingItems.append( item );
++    } else if ( sourceIndex == -2 ) {
++      /* fetch job already started, don't need to start another one,
++         so just append the item as pending */
++      s_static->akonadiPendingItems.append( item );
++    } else {
++      q->addItem( item, 1, sourceIndex );
++    }
++  }
++
++ if ( items.size() > 0 ) {
++    const QListWidgetItem *current = q->completionBox()->currentItem();
++    if ( !current || m_searchString.trimmed() != current->text().trimmed() ) {
++      doCompletion( m_lastSearchMode );
+     }
+   }
+ }
+diff -Nru kdepim-4.9.0/libkdepim/addresseelineedit.h kdepim-4.9.0.new/libkdepim/addresseelineedit.h
+--- kdepim-4.9.0/libkdepim/addresseelineedit.h	2012-05-23 02:22:04.000000000 +0200
++++ kdepim-4.9.0.new/libkdepim/addresseelineedit.h	2012-08-18 08:13:14.518716912 +0200
+@@ -194,6 +194,7 @@
+     Q_PRIVATE_SLOT( d, void slotEditCompletionOrder() )
+     Q_PRIVATE_SLOT( d, void slotUserCancelled( const QString & ) )
+     Q_PRIVATE_SLOT( d, void slotAkonadiSearchResult( KJob * ) )
++    Q_PRIVATE_SLOT( d, void slotAkonadiSearchDbResult( KJob * ) )
+     Q_PRIVATE_SLOT( d, void slotAkonadiCollectionsReceived( const Akonadi::Collection::List & ) )
+ #ifndef KDEPIM_NO_NEPOMUK
+     Q_PRIVATE_SLOT( d, void slotNepomukHits( const QList<Nepomuk::Query::Result>& ) )
