@@ -1,24 +1,43 @@
-# Syco <SycoLTH at gmail dot com>
+# Maintainer: Federico Cinelli <cinelli.federico@gmail.com>
 
 pkgname=alsa-driver.hda-intel.hda-codec-realtek
-_pkgname=alsa-driver
-pkgver=1.0.24
-pkgrel=0
+pkgver=20120817
+pkgrel=1
 pkgdesc="An alternative implementation of Linux sound support"
 arch=('i686' 'x86_64')
-provides=(alsa-driver)
-install='alsa-driver.install'
-url="http://www.alsa-project.org"
+url="http://git.alsa-project.org"
 license=('GPL')
-options=(!libtool)
-source=(ftp://ftp.alsa-project.org/pub/driver/${_pkgname}-${pkgver}.tar.bz2)
-md5sums=('a4ffd80745ce5098dfd48d83c2769e0e')
+makedepends=('wget' 'make' 'tar' 'linux-headers' 'automake>1.6' 'autoconf>2.53')
+provides=('alsa-driver.hda-intel.hda-codec-realtek')
+conflicts=('alsa-driver.hda-intel.hda-codec-realtek')
+
+_gitroot="git://git.alsa-project.org/alsa-driver.new.git"
+_gitname="alsa-driver"
+_kupdates=$pkgdir/lib/modules/$(uname -r)/updates
 
 build() {
-  k_updates=${pkgdir}/lib/modules/$(uname -r)/updates
-  install -d ${k_updates}
-  cd ${srcdir}/${_pkgname}-${pkgver}
-  ./configure --with-cards=hda-intel --with-card-options=hda-codec-realtek
-  make || return 1
-  install -D -m644 modules/*.ko ${k_updates} || return 1
+  msg "Connecting to GIT server...."
+
+  if [ -d $_gitname ]; then
+    cd $_gitname && git pull origin
+    msg "The local files are updated."
+  else
+    git clone "$_gitroot" "$_gitname"
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
+
+  rm -rf "$srcdir/$_gitname-build"
+  cp -r "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
+  
+  make
+}
+
+package() {
+  cd "$srcdir/$_gitname-build/"
+  ./gitcompile --with-cards=hda-intel --with-card-options=hda-codec-realtek
+  mkdir -p $_kupdates 
+  make && install -D -m644 modules/*.ko $_kupdates
 }
