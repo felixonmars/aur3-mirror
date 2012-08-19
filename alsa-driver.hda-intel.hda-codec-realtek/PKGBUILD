@@ -1,7 +1,7 @@
 # Maintainer: Federico Cinelli <cinelli.federico@gmail.com>
 
 pkgname=alsa-driver.hda-intel.hda-codec-realtek
-pkgver=20120817
+pkgver=20120818
 pkgrel=1
 pkgdesc="An alternative implementation of Linux sound support"
 arch=('i686' 'x86_64')
@@ -29,15 +29,19 @@ build() {
   msg "Starting make..."
 
   rm -rf "$srcdir/$_gitname-build"
-  cp -r "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
-  
+
   make
 }
 
 package() {
   cd "$srcdir/$_gitname-build/"
-  ./gitcompile --with-cards=hda-intel --with-card-options=hda-codec-realtek
-  mkdir -p $_kupdates 
-  make && install -D -m644 modules/*.ko $_kupdates
+  make ALSAKERNELDIR=../alsa-kernel all-deps
+  aclocal
+  autoconf
+  ./configure
+  make dep
+  make
+  install
 }
