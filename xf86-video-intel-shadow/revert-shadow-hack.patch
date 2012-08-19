@@ -1,0 +1,689 @@
+diff -Naur xf86-video-intel-2.20.3.orig/man/intel.man xf86-video-intel-2.20.3/man/intel.man
+--- xf86-video-intel-2.20.3.orig/man/intel.man	2012-07-17 13:27:09.000000000 +0200
++++ xf86-video-intel-2.20.3/man/intel.man	2012-08-19 05:20:08.655604780 +0200
+@@ -156,6 +156,19 @@
+ .IP
+ Default: Disabled
+ .TP
++.BI "Option \*qShadow\*q \*q" boolean \*q
++This option controls the use of GPU acceleration and placement of auxiliary
++buffers in memory. Enabling the Shadow will disable all use of the GPU for
++RENDER acceleration and force software-fallbacks for all but updating the
++scan-out buffer. Hardware overlay is still supported so Xv will continue to
++playback videos using the GPU, but GL will be forced to use software
++rasterisation as well.  This is a last resort measure for systems with
++crippling bugs, such as early 8xx chipsets. It is still hoped that we will
++find a workaround to enable as much hardware acceleration on those
++architectures as is possible, but until then, using a shadow buffer should
++maintain system stability.
++.IP
++Default: Disabled
+ .TP
+ .BI "Option \*qSwapbuffersWait\*q \*q" boolean \*q
+ This option controls the behavior of glXSwapBuffers and glXCopySubBufferMESA
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_display.c xf86-video-intel-2.20.3/src/intel_display.c
+--- xf86-video-intel-2.20.3.orig/src/intel_display.c	2012-07-25 20:37:58.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_display.c	2012-08-19 05:20:08.682269834 +0200
+@@ -635,7 +635,7 @@
+ 		intel_crtc->rotate_bo = NULL;
+ 	}
+ 
+-	intel->shadow_present = FALSE;
++	intel->shadow_present = intel->use_shadow;
+ }
+ 
+ static void
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_dri.c xf86-video-intel-2.20.3/src/intel_dri.c
+--- xf86-video-intel-2.20.3.orig/src/intel_dri.c	2012-07-27 12:22:52.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_dri.c	2012-08-19 05:20:08.698935493 +0200
+@@ -96,13 +96,34 @@
+ 
+ static PixmapPtr get_front_buffer(DrawablePtr drawable)
+ {
++	ScreenPtr screen = drawable->pScreen;
++	ScrnInfoPtr scrn = xf86ScreenToScrn(screen);
++	intel_screen_private *intel = intel_get_screen_private(scrn);
+ 	PixmapPtr pixmap;
+ 
+ 	pixmap = get_drawable_pixmap(drawable);
+-	if (!intel_get_pixmap_bo(pixmap))
+-		return NULL;
+-
+-	pixmap->refcnt++;
++	if (!intel->use_shadow) {
++		pixmap->refcnt++;
++	} else if (pixmap_is_scanout(pixmap)) {
++		pixmap = fbCreatePixmap(screen, 0, 0, drawable->depth, 0);
++		if (pixmap) {
++			screen->ModifyPixmapHeader(pixmap,
++						   drawable->width,
++						   drawable->height,
++						   0, 0,
++						   intel->front_pitch,
++						   intel->front_buffer->virtual);
++
++			intel_set_pixmap_bo(pixmap, intel->front_buffer);
++			intel_get_pixmap_private(pixmap)->offscreen = 0;
++			if (WindowDrawable(drawable->type))
++				screen->SetWindowPixmap((WindowPtr)drawable,
++							pixmap);
++		}
++	} else if (intel_get_pixmap_bo(pixmap)) {
++		pixmap->refcnt++;
++	} else
++		pixmap = NULL;
+ 	return pixmap;
+ }
+ 
+@@ -110,7 +131,6 @@
+ {
+ 	ScreenPtr screen = drawable->pScreen;
+ 	ScrnInfoPtr scrn = xf86ScreenToScrn(screen);
+-	intel_screen_private *intel = intel_get_screen_private(scrn);
+ 	PixmapPtr old = get_drawable_pixmap(drawable);
+ 	struct intel_pixmap *priv = intel_get_pixmap_private(pixmap);
+ 	GCPtr gc;
+@@ -140,20 +160,94 @@
+ 	}
+ 
+ 	intel_set_pixmap_private(pixmap, NULL);
++	screen->DestroyPixmap(pixmap);
+ 
+-	/* Exchange the underlying texture/image. */
+-	intel_glamor_exchange_buffers(intel, old, pixmap);
+ 	/* And redirect the pixmap to the new bo (for 3D). */
+ 	intel_set_pixmap_private(old, priv);
+ 	old->refcnt++;
+ 
++	/* This creating should not fail, as we already created its
++	 * successfully. But if it happens, we put a warning indicator
++	 * here, and the old pixmap will still be a glamor pixmap, and
++	 * latter the pixmap_flink will get a 0 name, then the X server
++	 * will pass a BadAlloc to the client.*/
++	if (!intel_glamor_create_textured_pixmap(old))
++		xf86DrvMsg(scrn->scrnIndex, X_WARNING,
++			   "Failed to get DRI drawable for glamor pixmap.\n");
++
+ 	screen->ModifyPixmapHeader(old,
+ 				   drawable->width,
+ 				   drawable->height,
+ 				   0, 0,
+ 				   priv->stride,
+ 				   NULL);
++
++	intel_get_screen_private(xf86ScreenToScrn(screen))->needs_flush = TRUE;
++	return old;
++}
++
++static PixmapPtr fixup_shadow(DrawablePtr drawable, PixmapPtr pixmap)
++{
++	ScreenPtr screen = drawable->pScreen;
++	PixmapPtr old = get_drawable_pixmap(drawable);
++	struct intel_pixmap *priv = intel_get_pixmap_private(pixmap);
++	GCPtr gc;
++
++	/* With an active shadow buffer, 2D pixmaps are created in
++	 * system memory and GPU acceleration of 2D render operations
++	 * is *disabled*. As DRI is still enabled, we create hardware
++	 * buffers for the clients, and need to mix this with the
++	 * 2D rendering. So we replace the system pixmap with a GTT
++	 * mapping (with the kernel enforcing coherency between
++	 * CPU and GPU) for 2D and provide the bo so that clients
++	 * can write directly to it (or read from it in the case
++	 * of TextureFromPixmap) using the GPU.
++	 *
++	 * So for a compositor with a GL backend (i.e. compiz) we have
++	 * smooth wobbly windows but incur the cost of uncached 2D rendering,
++	 * however 3D applications (games and clutter) are still fully
++	 * accelerated.
++	 */
++
++	if (drm_intel_gem_bo_map_gtt(priv->bo))
++		return pixmap;
++
++	screen->ModifyPixmapHeader(pixmap,
++				   drawable->width,
++				   drawable->height,
++				   0, 0,
++				   priv->stride,
++				   priv->bo->virtual);
++	priv->offscreen = 0;
++
++	/* Copy the current contents of the pixmap to the bo. */
++	gc = GetScratchGC(drawable->depth, screen);
++	if (gc) {
++		ValidateGC(&pixmap->drawable, gc);
++		gc->ops->CopyArea(drawable, &pixmap->drawable,
++				  gc,
++				  0, 0,
++				  drawable->width,
++				  drawable->height,
++				  0, 0);
++		FreeScratchGC(gc);
++	}
++
++	intel_set_pixmap_private(pixmap, NULL);
+ 	screen->DestroyPixmap(pixmap);
++
++	/* Redirect 2D rendering to the uncached GTT map of the bo */
++	screen->ModifyPixmapHeader(old,
++				   drawable->width,
++				   drawable->height,
++				   0, 0,
++				   priv->stride,
++				   priv->bo->virtual);
++
++	/* And redirect the pixmap to the new bo (for 3D). */
++	intel_set_pixmap_private(old, priv);
++	old->refcnt++;
++
+ 	intel_get_screen_private(xf86ScreenToScrn(screen))->needs_flush = TRUE;
+ 	return old;
+ }
+@@ -187,9 +281,10 @@
+ 		if (attachments[i] == DRI2BufferFrontLeft) {
+ 			pixmap = get_front_buffer(drawable);
+ 
+-			if (pixmap == NULL) {
+-				drawable = &(get_drawable_pixmap(drawable)->drawable);
++			if (pixmap && intel_get_pixmap_private(pixmap) == NULL) {
+ 				is_glamor_pixmap = TRUE;
++				drawable = &pixmap->drawable;
++				pixmap = NULL;
+ 			}
+ 		} else if (attachments[i] == DRI2BufferStencil && pDepthPixmap) {
+ 			pixmap = pDepthPixmap;
+@@ -229,8 +324,12 @@
+ 				goto unwind;
+ 			}
+ 
+-			if (is_glamor_pixmap)
+-				pixmap = fixup_glamor(drawable, pixmap);
++			if (attachment == DRI2BufferFrontLeft) {
++				if (!is_glamor_pixmap)
++					pixmap = fixup_shadow(drawable, pixmap);
++				else
++					pixmap = fixup_glamor(drawable, pixmap);
++			}
+ 		}
+ 
+ 		if (attachments[i] == DRI2BufferDepth)
+@@ -306,9 +405,10 @@
+ 	if (attachment == DRI2BufferFrontLeft) {
+ 		pixmap = get_front_buffer(drawable);
+ 
+-		if (pixmap == NULL) {
+-			drawable = &(get_drawable_pixmap(drawable)->drawable);
++		if (pixmap && intel_get_pixmap_private(pixmap) == NULL) {
+ 			is_glamor_pixmap = TRUE;
++			drawable = &pixmap->drawable;
++			pixmap = NULL;
+ 		}
+ 	}
+ 
+@@ -382,8 +482,12 @@
+ 			free(buffer);
+ 			return NULL;
+ 		}
+-		if (is_glamor_pixmap)
+-			pixmap = fixup_glamor(drawable, pixmap);
++		if (attachment == DRI2BufferFrontLeft) {
++			if (!is_glamor_pixmap)
++				pixmap = fixup_shadow(drawable, pixmap);
++			else
++				pixmap = fixup_glamor(drawable, pixmap);
++		}
+ 	}
+ 
+ 	buffer->attachment = attachment;
+@@ -534,11 +638,38 @@
+ 	 * that will happen before the client tries to render
+ 	 * again. */
+ 
+-	gc->ops->CopyArea(src, dst, gc,
+-			  0, 0,
+-			  drawable->width, drawable->height,
+-			  0, 0);
++	/* Re-enable 2D acceleration... */
++	if (intel->use_shadow) {
++		struct intel_pixmap *src_pixmap, *dst_pixmap;
++
++		src_pixmap = intel_get_pixmap_private(get_drawable_pixmap(src));
++		if (src_pixmap) {
++			src_pixmap->offscreen = 1;
++			src_pixmap->busy = 1;
++		}
+ 
++		dst_pixmap = intel_get_pixmap_private(get_drawable_pixmap(dst));
++		if (dst_pixmap) {
++			dst_pixmap->offscreen = 1;
++			dst_pixmap->busy = 1;
++		}
++
++		gc->ops->CopyArea(src, dst, gc,
++				  0, 0,
++				  drawable->width, drawable->height,
++				  0, 0);
++
++		/* and restore 2D/3D coherency */
++		if (src_pixmap)
++			src_pixmap->offscreen = 0;
++		if (dst_pixmap)
++			dst_pixmap->offscreen = 0;
++	} else {
++		gc->ops->CopyArea(src, dst, gc,
++				  0, 0,
++				  drawable->width, drawable->height,
++				  0, 0);
++	}
+ 	FreeScratchGC(gc);
+ }
+ 
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_driver.c xf86-video-intel-2.20.3/src/intel_driver.c
+--- xf86-video-intel-2.20.3.orig/src/intel_driver.c	2012-08-04 10:09:42.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_driver.c	2012-08-19 05:21:13.741672612 +0200
+@@ -531,12 +531,23 @@
+ 		intel->tiling &= ~INTEL_TILING_2D;
+ 	if (xf86ReturnOptValBool(intel->Options, OPTION_TILING_FB, FALSE))
+ 		intel->tiling &= ~INTEL_TILING_FB;
+-	if (!can_accelerate_blt(intel)) {
+-		intel->force_fallback = TRUE;
+-		intel->tiling &= ~INTEL_TILING_FB;
+-	}
+ 
++	intel->can_blt = can_accelerate_blt(intel);
+ 	intel->has_kernel_flush = has_kernel_flush(intel);
++	intel->use_shadow = !intel->can_blt;
++
++	if (xf86IsOptionSet(intel->Options, OPTION_SHADOW)) {
++		intel->use_shadow =
++			xf86ReturnOptValBool(intel->Options,
++					     OPTION_SHADOW,
++					     FALSE);
++	}
++
++	if (intel->use_shadow) {
++		xf86DrvMsg(scrn->scrnIndex, X_CONFIG,
++			   "Shadow buffer enabled,"
++			   " 2D GPU acceleration disabled.\n");
++	}
+ 
+ 	intel->has_relaxed_fencing =
+ 		xf86ReturnOptValBool(intel->Options,
+@@ -1077,11 +1088,26 @@
+ 	}
+ 
+ 	if (intel->front_buffer) {
++		if (!intel->use_shadow)
++			intel_set_pixmap_bo(screen->GetScreenPixmap(screen),
++					    NULL);
+ 		intel_mode_remove_fb(intel);
+ 		drm_intel_bo_unreference(intel->front_buffer);
+ 		intel->front_buffer = NULL;
+ 	}
+ 
++	if (intel->shadow_buffer) {
++		free(intel->shadow_buffer);
++		intel->shadow_buffer = NULL;
++	}
++
++	if (intel->shadow_damage) {
++		DamageUnregister(&screen->GetScreenPixmap(screen)->drawable,
++				 intel->shadow_damage);
++		DamageDestroy(intel->shadow_damage);
++		intel->shadow_damage = NULL;
++	}
++
+ 	intel_batch_teardown(scrn);
+ 
+ 	if (INTEL_INFO(intel)->gen >= 40)
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel.h xf86-video-intel-2.20.3/src/intel.h
+--- xf86-video-intel-2.20.3.orig/src/intel.h	2012-07-25 20:37:58.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel.h	2012-08-19 05:20:08.668937307 +0200
+@@ -170,6 +170,9 @@
+ 	PixmapPtr back_pixmap;
+ 	unsigned int back_name;
+ 	long front_pitch, front_tiling;
++	void *shadow_buffer;
++	int shadow_stride;
++	DamagePtr shadow_damage;
+ 
+ 	dri_bufmgr *bufmgr;
+ 
+@@ -325,8 +328,10 @@
+ 	Bool use_pageflipping;
+ 	Bool use_triple_buffer;
+ 	Bool force_fallback;
++	Bool can_blt;
+ 	Bool has_kernel_flush;
+ 	Bool needs_flush;
++	Bool use_shadow;
+ 
+ 	struct _DRI2FrameEvent *pending_flip[2];
+ 
+@@ -643,6 +648,10 @@
+ Bool intel_get_aperture_space(ScrnInfoPtr scrn, drm_intel_bo ** bo_table,
+ 			      int num_bos);
+ 
++/* intel_shadow.c */
++void intel_shadow_blt(intel_screen_private *intel);
++void intel_shadow_create(struct intel_screen_private *intel);
++
+ static inline Bool intel_pixmap_is_offscreen(PixmapPtr pixmap)
+ {
+ 	struct intel_pixmap *priv = intel_get_pixmap_private(pixmap);
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_options.c xf86-video-intel-2.20.3/src/intel_options.c
+--- xf86-video-intel-2.20.3.orig/src/intel_options.c	2012-07-30 13:50:57.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_options.c	2012-08-19 05:20:08.748932474 +0200
+@@ -32,6 +32,7 @@
+ 	{OPTION_DEBUG_FLUSH_CACHES, "DebugFlushCaches", OPTV_BOOLEAN, {0}, 0},
+ 	{OPTION_DEBUG_WAIT, "DebugWait", OPTV_BOOLEAN, {0}, 0},
+ 	{OPTION_BUFFER_CACHE,	"BufferCache",	OPTV_BOOLEAN,   {0},    1},
++	{OPTION_SHADOW,		"Shadow",	OPTV_BOOLEAN,	{0},	0},
+ 	{OPTION_TRIPLE_BUFFER,	"TripleBuffer", OPTV_BOOLEAN,	{0},	1},
+ #endif
+ 	{-1,			NULL,		OPTV_NONE,	{0},	0}
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_options.h xf86-video-intel-2.20.3/src/intel_options.h
+--- xf86-video-intel-2.20.3.orig/src/intel_options.h	2012-07-30 13:50:57.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_options.h	2012-08-19 05:20:08.762264998 +0200
+@@ -38,6 +38,7 @@
+ 	OPTION_DEBUG_FLUSH_CACHES,
+ 	OPTION_DEBUG_WAIT,
+ 	OPTION_BUFFER_CACHE,
++	OPTION_SHADOW,
+ 	OPTION_TRIPLE_BUFFER,
+ #endif
+ 	NUM_OPTIONS,
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_shadow.c xf86-video-intel-2.20.3/src/intel_shadow.c
+--- xf86-video-intel-2.20.3.orig/src/intel_shadow.c	1970-01-01 01:00:00.000000000 +0100
++++ xf86-video-intel-2.20.3/src/intel_shadow.c	2012-08-19 05:20:08.762264998 +0200
+@@ -0,0 +1,200 @@
++/**************************************************************************
++
++Copyright 2010 Intel Corporation
++All Rights Reserved.
++
++Permission is hereby granted, free of charge, to any person obtaining a
++copy of this software and associated documentation files (the
++"Software"), to deal in the Software without restriction, including
++without limitation the rights to use, copy, modify, merge, publish,
++distribute, sub license, and/or sell copies of the Software, and to
++permit persons to whom the Software is furnished to do so, subject to
++the following conditions:
++
++The above copyright notice and this permission notice (including the
++next paragraph) shall be included in all copies or substantial portions
++of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
++OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
++IN NO EVENT SHALL PRECISION INSIGHT AND/OR ITS SUPPLIERS BE LIABLE FOR
++ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
++TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
++SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
++
++*/
++
++#ifdef HAVE_CONFIG_H
++#include "config.h"
++#endif
++
++#include "xf86.h"
++#include "intel.h"
++#include "i830_reg.h"
++
++static dri_bo *
++intel_shadow_create_bo(intel_screen_private *intel,
++		       int16_t x1, int16_t y1,
++		       int16_t x2, int16_t y2,
++		       int *pitch)
++{
++	int w = x2 - x1, h = y2 - y1;
++	int size = h * w * intel->cpp;
++	dri_bo *bo;
++
++	bo = drm_intel_bo_alloc(intel->bufmgr, "shadow", size, 0);
++	if (bo && drm_intel_gem_bo_map_gtt(bo) == 0) {
++		char *dst = bo->virtual;
++		char *src = intel->shadow_buffer;
++		int src_pitch = intel->shadow_stride;
++		int row_length = w * intel->cpp;
++		int num_rows = h;
++		src += y1 * src_pitch + x1 * intel->cpp;
++		do {
++			memcpy (dst, src, row_length);
++			src += src_pitch;
++			dst += row_length;
++		} while (--num_rows);
++		drm_intel_gem_bo_unmap_gtt(bo);
++	}
++
++	*pitch = w * intel->cpp;
++	return bo;
++}
++
++static void intel_shadow_memcpy(intel_screen_private *intel)
++{
++	char *src_data, *dst_data;
++	unsigned int src_pitch, dst_pitch;
++	RegionPtr region;
++	BoxPtr box;
++	int n;
++
++	if (drm_intel_gem_bo_map_gtt(intel->front_buffer))
++		return;
++
++	src_data = intel->shadow_buffer;
++	dst_data = intel->front_buffer->virtual;
++
++	src_pitch = intel->shadow_stride;
++	dst_pitch = intel->front_pitch;
++
++	region = DamageRegion(intel->shadow_damage);
++	box = REGION_RECTS(region);
++	n = REGION_NUM_RECTS(region);
++	while (n--) {
++		char *src = src_data + box->y1*src_pitch + box->x1*intel->cpp;
++		char *dst = dst_data + box->y1*dst_pitch + box->x1*intel->cpp;
++		int len = (box->x2 - box->x1)*intel->cpp;
++		int row = box->y2 - box->y1;
++		while (row--) {
++			memcpy(dst, src, len);
++			src += src_pitch;
++			dst += dst_pitch;
++		}
++		box++;
++	}
++}
++
++void intel_shadow_blt(intel_screen_private *intel)
++{
++	ScrnInfoPtr scrn = intel->scrn;
++	uint32_t blt, br13;
++	RegionPtr region;
++	BoxPtr box;
++	int n;
++
++	/* Can we trust the BLT? Otherwise do an uncached mmecy. */
++	if (!intel->can_blt || IS_GEN2(intel)) {
++		intel_shadow_memcpy(intel);
++		return;
++	}
++
++
++	blt = XY_SRC_COPY_BLT_CMD;
++
++	br13 = intel->front_pitch;
++	if (intel->front_tiling && INTEL_INFO(intel)->gen >= 40) {
++		br13 >>= 2;
++		blt |= XY_SRC_COPY_BLT_DST_TILED;
++	}
++	switch (intel->cpp) {
++		default:
++		case 4: blt |=
++			XY_SRC_COPY_BLT_WRITE_ALPHA | XY_SRC_COPY_BLT_WRITE_RGB;
++			br13 |= 1 << 25; /* RGB8888 */
++		case 2: br13 |= 1 << 24; /* RGB565 */
++		case 1: break;
++	}
++	br13 |= 0xcc << 16; /* copy */
++
++	region = DamageRegion(intel->shadow_damage);
++	box = REGION_RECTS(region);
++	n = REGION_NUM_RECTS(region);
++	while (n--) {
++		int pitch;
++		dri_bo *bo;
++
++		bo = intel_shadow_create_bo(intel,
++					    box->x1, box->y1,
++					    box->x2, box->y2,
++					    &pitch);
++		if (bo == NULL)
++			return;
++
++		BEGIN_BATCH_BLT(8);
++		OUT_BATCH(blt);
++		OUT_BATCH(br13);
++		OUT_BATCH(box->y1 << 16 | box->x1);
++		OUT_BATCH(box->y2 << 16 | box->x2);
++		OUT_RELOC_FENCED(intel->front_buffer,
++				I915_GEM_DOMAIN_RENDER,
++				I915_GEM_DOMAIN_RENDER,
++				0);
++		OUT_BATCH(0);
++		OUT_BATCH(pitch);
++		OUT_RELOC(bo, I915_GEM_DOMAIN_RENDER, 0, 0);
++
++		ADVANCE_BATCH();
++
++		drm_intel_bo_unreference(bo);
++		box++;
++	}
++}
++
++void intel_shadow_create(struct intel_screen_private *intel)
++{
++	ScrnInfoPtr scrn = intel->scrn;
++	ScreenPtr screen = scrn->pScreen;
++	PixmapPtr pixmap;
++	int stride;
++	void *buffer;
++
++	pixmap = screen->GetScreenPixmap(screen);
++	stride = intel->cpp*scrn->virtualX;
++	buffer = malloc(stride * scrn->virtualY);
++	if (buffer &&
++	    screen->ModifyPixmapHeader(pixmap,
++				       scrn->virtualX, scrn->virtualY,
++				       -1, -1,
++				       stride, buffer)) {
++		free(intel->shadow_buffer);
++		intel->shadow_buffer = buffer;
++	} else {
++		free(buffer);
++		stride = intel->shadow_stride;
++	}
++
++	if (!intel->shadow_damage) {
++		intel->shadow_damage =
++			DamageCreate(NULL, NULL,
++				     DamageReportNone, TRUE,
++				     screen, intel);
++		DamageRegister(&pixmap->drawable, intel->shadow_damage);
++		DamageSetReportAfterOp(intel->shadow_damage, TRUE);
++	}
++
++	scrn->displayWidth = stride / intel->cpp;
++	intel->shadow_stride = stride;
++}
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_uxa.c xf86-video-intel-2.20.3/src/intel_uxa.c
+--- xf86-video-intel-2.20.3.orig/src/intel_uxa.c	2012-07-17 13:27:09.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_uxa.c	2012-08-19 05:20:08.765598130 +0200
+@@ -989,6 +989,12 @@
+ 
+ void intel_uxa_block_handler(intel_screen_private *intel)
+ {
++	if (intel->shadow_damage &&
++	    pixman_region_not_empty(DamageRegion(intel->shadow_damage))) {
++		intel_shadow_blt(intel);
++		DamageEmpty(intel->shadow_damage);
++	}
++
+ 	/* Emit a flush of the rendering cache, or on the 965
+ 	 * and beyond rendering results may not hit the
+ 	 * framebuffer until significantly later.
+@@ -1019,6 +1025,9 @@
+ 	if (depth == 1 || intel->force_fallback)
+ 		return fbCreatePixmap(screen, w, h, depth, usage);
+ 
++	if (intel->use_shadow && (usage & INTEL_CREATE_PIXMAP_DRI2) == 0)
++		return fbCreatePixmap(screen, w, h, depth, usage);
++
+ 	if (usage == CREATE_PIXMAP_USAGE_GLYPH_PICTURE && w <= 32 && h <= 32)
+ 		return fbCreatePixmap(screen, w, h, depth, usage);
+ 
+@@ -1138,7 +1147,6 @@
+ Bool intel_uxa_create_screen_resources(ScreenPtr screen)
+ {
+ 	ScrnInfoPtr scrn = xf86ScreenToScrn(screen);
+-	PixmapPtr pixmap = screen->GetScreenPixmap(screen);
+ 	intel_screen_private *intel = intel_get_screen_private(scrn);
+ 	dri_bo *bo = intel->front_buffer;
+ 
+@@ -1147,16 +1155,20 @@
+ 
+ 	drm_intel_gem_bo_map_gtt(bo);
+ 
+-	pixmap = screen->GetScreenPixmap(screen);
+-	intel_set_pixmap_bo(pixmap, bo);
+-	intel_get_pixmap_private(pixmap)->pinned = 1;
+-	screen->ModifyPixmapHeader(pixmap,
+-				   scrn->virtualX,
+-				   scrn->virtualY,
+-				   -1, -1,
+-				   intel->front_pitch,
+-				   NULL);
+-	scrn->displayWidth = intel->front_pitch / intel->cpp;
++	if (intel->use_shadow) {
++		intel_shadow_create(intel);
++	} else {
++		PixmapPtr pixmap = screen->GetScreenPixmap(screen);
++		intel_set_pixmap_bo(pixmap, bo);
++		intel_get_pixmap_private(pixmap)->pinned = 1;
++		screen->ModifyPixmapHeader(pixmap,
++					   scrn->virtualX,
++					   scrn->virtualY,
++					   -1, -1,
++					   intel->front_pitch,
++					   NULL);
++		scrn->displayWidth = intel->front_pitch / intel->cpp;
++	}
+ 
+ 	if (!intel_glamor_create_screen_resources(screen))
+ 		return FALSE;
+diff -Naur xf86-video-intel-2.20.3.orig/src/intel_video.c xf86-video-intel-2.20.3/src/intel_video.c
+--- xf86-video-intel-2.20.3.orig/src/intel_video.c	2012-07-17 13:27:09.000000000 +0200
++++ xf86-video-intel-2.20.3/src/intel_video.c	2012-08-19 05:20:08.775597529 +0200
+@@ -353,7 +353,8 @@
+ 	 * supported hardware.
+ 	 */
+ 	if (scrn->bitsPerPixel >= 16 &&
+-	    INTEL_INFO(intel)->gen >= 30) {
++	    INTEL_INFO(intel)->gen >= 30 &&
++	    !intel->use_shadow) {
+ 		texturedAdaptor = I830SetupImageVideoTextured(screen);
+ 		if (texturedAdaptor != NULL) {
+ 			xf86DrvMsg(scrn->scrnIndex, X_INFO,
+diff -Naur xf86-video-intel-2.20.3.orig/src/Makefile.am xf86-video-intel-2.20.3/src/Makefile.am
+--- xf86-video-intel-2.20.3.orig/src/Makefile.am	2012-07-17 13:27:09.000000000 +0200
++++ xf86-video-intel-2.20.3/src/Makefile.am	2012-08-19 05:20:08.658937912 +0200
+@@ -64,6 +64,7 @@
+          intel_driver.h \
+ 	 intel_glamor.h \
+          intel_memory.c \
++	 intel_shadow.c \
+ 	 intel_uxa.c \
+          intel_video.c \
+          intel_video.h \
