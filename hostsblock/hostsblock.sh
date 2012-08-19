@@ -4,13 +4,12 @@
 # /etc/hostsblock/
 
 # CHECK FOR NEEDED AND OPTIONAL UTILITIES AND PERMISSIONS
-echo -e "\nHostsblock started at `date`"
 if [ `whoami` != "root" ]; then
     echo "Insufficient permissions. Run as root."
     exit 1
 fi
 
-for dep in gzip curl grep sed tr cut; do
+for dep in curl grep sed tr cut; do
     if which "$dep" &>/dev/null; then
         true
     else
@@ -40,12 +39,19 @@ postprocess(){
     /etc/rc.d/dnsmasq restart
 }
 blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
-USECOLOR="yes"
+logfile="/var/log/hostsblock.log"
 blacklist="/etc/hostsblock/black.list"
 whitelist="/etc/hostsblock/white.list"
 hostshead="0"
 cachedir="/var/cache/hostsblock"
 redirects="0"
+
+# CHECK TO SEE IF WE ARE LOGGING THIS
+if [ "$logfile" != "0" ]; then
+    exec > "$logfile" 2>&1
+fi
+
+echo -e "\nHostsblock started at `date +'%x %T'`"
 
 # READ CONFIGURATION FILE.
 if [ -f /etc/hostsblock/rc.conf ]; then
@@ -64,13 +70,17 @@ for url in ${blocklists[*]}; do
     printf "\n   `echo $url | tr -d '%'`..."
     outfile=`echo $url | sed "s|http:\/\/||g" | tr '/%&+?=' '.'`
     [ -f "$cachedir"/"$outfile" ] && old_md5sum=`md5sum "$cachedir"/"$outfile"`
-    curl --compressed -sz "$cachedir"/"$outfile" "$url" -o "$cachedir"/"$outfile"
-    new_md5sum=`md5sum "$cachedir"/"$outfile"`
-    if [ "$old_md5sum" != "$new_md5sum" ]; then
-        changed=1
-        printf "UPDATED"
+    if curl --compressed --connect-timeout 60 -sz "$cachedir"/"$outfile" "$url" -o "$cachedir"/"$outfile"; then
+        new_md5sum=`md5sum "$cachedir"/"$outfile"`
+        if [ "$old_md5sum" != "$new_md5sum" ]; then
+            changed=1
+            printf "UPDATED"
+        else
+            printf "no changes"
+        fi
     else
-        printf "no changes"
+        printf "FAILED\nScript exiting @ `date +'%x %T'`"
+        exit 1
     fi
 done
 
@@ -82,9 +92,8 @@ if [ "$changed" != "0" ]; then
     [ -d "$tmpdir"/hostsblock/hosts.block.d ] || mkdir -p "$tmpdir"/hostsblock/hosts.block.d
 
     # BACK UP EXISTING HOSTSFILE
-    printf "\nBacking up and compressing $hostsfile to $hostsfile.old.gz..."
-    cp "$hostsfile" "$hostsfile".old
-    gzip -f "$hostsfile".old && printf "done" || printf "FAILED"
+    printf "\nBacking up $hostsfile to $hostsfile.old..."
+    cp "$hostsfile" "$hostsfile".old && printf "done" || printf "FAILED"
 
     # EXTRACT CACHED FILES TO HOSTS.BLOCK.D
     printf "\n\nExtracting and preparing cached files to working directory..."
@@ -186,4 +195,4 @@ if [ "$changed" != "0" ]; then
 else
     echo -e "\nDONE. No new changes."
 fi
-echo -e "\nHostsblock completed at `date`\n"
+echo -e "\nHostsblock completed at `date +'%x %T'`\n"

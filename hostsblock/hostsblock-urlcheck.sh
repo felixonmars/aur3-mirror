@@ -53,7 +53,7 @@ if [[ "$@" == "-h" || "$@" == "--help" ]]; then
     echo "and then scan that url for further contained subdomains."
 else
     changed=0
-    echo "Verifying that give page is blocked or unblocked"
+    echo "Verifying that the given page is blocked or unblocked"
     check `echo "$@" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g"`
     [ "$changed" == "1" ] && postprocess &>/dev/null
     printf "Page domain verified. Scan the whole page for other domains for (un)blocking? [y/N] "
