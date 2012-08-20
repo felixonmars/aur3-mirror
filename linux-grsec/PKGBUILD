@@ -11,7 +11,7 @@ _basekernel=3.5
 _grsecver=2.9.1
 _timestamp=201208151951
 pkgver=${_basekernel}.2
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -151,7 +151,7 @@ package_linux-grsec() {
 }
 
 package_linux-grsec-headers() {
-  pkgdesc="Header files and scripts for building modules for linux kernel with PaX patches"
+  true && pkgdesc="Header files and scripts for building modules for linux kernel with PaX patches"
   provides=('kernel26-grsec-headers')
   conflicts=('kernel26-grsec-headers')
   replaces=('kernel26-grsec-headers')

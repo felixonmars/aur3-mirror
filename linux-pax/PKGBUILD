@@ -10,7 +10,7 @@ _kernelname=${pkgname#linux}
 _basekernel=3.5
 _paxver=test18
 pkgver=${_basekernel}.2
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -150,7 +150,7 @@ package_linux-pax() {
 }
 
 package_linux-pax-headers() {
-  pkgdesc="Header files and scripts for building modules for linux kernel with PaX patches"
+  true && pkgdesc="Header files and scripts for building modules for linux kernel with PaX patches"
   provides=('kernel26-pax-headers')
   conflicts=('kernel26-pax-headers')
   replaces=('kernel26-pax-headers')
