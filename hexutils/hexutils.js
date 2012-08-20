@@ -86,6 +86,7 @@ instream.on("error", function(err) {
 });
 
 outstream.on("error", function(err) {
+    console.log(err);
     console.error("Error writing output");
     process.exit();
 });
@@ -102,5 +103,5 @@ instream.on("data", function(data) {
 });
 
 instream.on("end", function(data) {
-    outstream.end();
+    outstream.write("\n");
 });
