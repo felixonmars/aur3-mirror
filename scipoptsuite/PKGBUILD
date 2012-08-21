@@ -4,10 +4,10 @@
 
 pkgname='scipoptsuite'
 pkgver='3.0.0'
-pkgrel=6
+pkgrel=7
 pkgdesc="Tools for generating and solving optimization problems. Consists of ZIMPL, SoPlex, SCIP, GCG and UG"
 arch=('i686' 'x86_64')
-url='http://zibopt.zib.de/'
+url='http://scip.zib.de/'
 license=('LGPL3' 'custom:ZIB Academic License')
 depends=('zlib' 'gmp' 'readline')
 replaces=('ziboptsuite')
