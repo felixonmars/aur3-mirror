@@ -4,7 +4,7 @@ pkgname=jme-svn
 _realname=jme
 pkgver=9671
 pkgrel=2
-pkgdesc="jMonkey Engine (jME) is a high-performance 3D game engine. Just the engine without the SDK"
+pkgdesc="The high-performance 3D game engine jMonkey Engine (jME). Engine only, no SDK."
 arch=('i686' 'x86_64')
 url="http://www.jmonkeyengine.com/"
 license=('BSD')
@@ -46,7 +46,7 @@ build() {
   #
   # BUILD JAVADOC
   #
-  ant javadoc
+  ant javadoc || return 1
 
   # Copy javadoc
   msg "Copying javadoc"
