@@ -1,0 +1,85 @@
+# Maintainer: Daniel Micay <danielmicay@gmail.com>
+# Contributor: Sébastien Luttringer <seblu@aur.archlinux.org>
+# Contributor: Angel Velasquez <angvp@archlinux.org>
+# Contributor: tobias <tobias@archlinux.org>
+# Contributor: dibblethewrecker dibblethewrecker.at.jiwe.dot.org
+
+pkgname=rxvt-unicode-patched-newest
+_pkgname=rxvt-unicode
+pkgver=9.15
+pkgrel=5
+pkgdesc='Unicode enabled rxvt-clone terminal emulator (urxvt) with fixed font spacing and a fix for padding and border issues in i3 window-manager'
+arch=('i686' 'x86_64')
+url='http://software.schmorp.de/pkg/rxvt-unicode.html'
+license=('GPL')
+depends=('libxft' 'gdk-pixbuf2' 'perl' 'startup-notification')
+optdepends=('gtk2-perl: to use the urxvt-tabbed')
+source=(http://dist.schmorp.de/rxvt-unicode/$_pkgname-$pkgver.tar.bz2
+        'urxvt.desktop'
+        'urxvtc.desktop'
+        'urxvt-tabbed.desktop'
+        font-width-fix.patch
+        line-spacing-fix.patch
+        'noinc.diff')
+sha1sums=('e6fdf091860ecb458730dc68b0176f67f207a2f7'
+          'b5a4507f85ebb7bac589db2e07d9bc40106720d9'
+          '62c4ffecfce6967def394dd4d418b68652372ea2'
+          'cd204d608d114d39c80331efe0af0231ad6b7e18'
+          '01ee8f212add79a158dcd4ed78d0ea1324bdc59b'
+          'b7fde1c46af45e831828738874f14b092b1e795f'
+          'e9fbc2c35c4de3f04d9c9843d133f6efbce50565')
+provides=(rxvt-unicode)
+conflicts=(rxvt-unicode)
+
+build() {
+  cd $_pkgname-$pkgver
+  patch -p0 -i ../font-width-fix.patch
+  patch -p0 -i ../line-spacing-fix.patch
+  # patch for the padding and border issues in i3 window-manager
+  patch -p1 < ../noinc.diff
+  ./configure \
+    --prefix=/usr \
+    --with-terminfo=/usr/share/terminfo \
+    --enable-256-color \
+    --enable-combining \
+    --enable-fading \
+    --enable-font-styles \
+    --enable-iso14755 \
+    --enable-keepscrolling \
+    --enable-lastlog \
+    --enable-mousewheel \
+    --enable-next-scroll \
+    --enable-perl \
+    --enable-pixbuf \
+    --enable-pointer-blank \
+    --enable-rxvt-scroll \
+    --enable-selectionscrolling \
+    --enable-slipwheeling \
+    --enable-smart-resize \
+    --enable-startup-notification \
+    --enable-transparency \
+    --enable-unicode3 \
+    --enable-utmp \
+    --enable-wtmp \
+    --enable-xft \
+    --enable-xim \
+    --enable-xterm-scroll \
+    --disable-frills
+  make
+}
+
+package() {
+  pushd $_pkgname-$pkgver
+  # workaround terminfo installation
+  export TERMINFO="$pkgdir/usr/share/terminfo"
+  install -d "$TERMINFO"
+  make DESTDIR="$pkgdir" install
+  # install the tabbing wrapper ( requires gtk2-perl! )
+  sed -i 's/\"rxvt\"/"urxvt"/' doc/rxvt-tabbed
+  install -Dm 755 doc/rxvt-tabbed "$pkgdir/usr/bin/urxvt-tabbed"
+  popd
+  # install freedesktop menu
+  for _f in urxvt urxvtc urxvt-tabbed; do
+    install -Dm644 $_f.desktop "$pkgdir/usr/share/applications/$_f.desktop"
+  done
+}
