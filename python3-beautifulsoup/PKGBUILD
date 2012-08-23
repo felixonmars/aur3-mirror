@@ -4,13 +4,13 @@
 
 pkgname=python3-beautifulsoup
 pkgver=3.1.0.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Python HTML and XML parser for projects like screen-scraping"
 arch=('any')
 url="http://www.crummy.com/software/BeautifulSoup"
 license=('PSF')
 depends=('python3')
-provides=(python-beautifulsoup)
+#provides=(python-beautifulsoup)
 makedepends=(python patch python3)
 _rls="BeautifulSoup-$pkgver"
 source=(http://www.crummy.com/software/BeautifulSoup/download/3.1.x/$_rls.tar.gz)
