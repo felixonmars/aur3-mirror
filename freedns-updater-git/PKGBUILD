@@ -1,6 +1,6 @@
 # Maintainer: Gesh <moystovi@g.jct.ac.il>
 pkgname=freedns-updater-git
-pkgver=20120808
+pkgver=20120823
 pkgrel=1
 pkgdesc="Updates freedns.afraid.org dynamic dns domains"
 arch=('any')
@@ -34,10 +34,11 @@ build() {
 
 package() {
   cd "$srcdir/$_gitname-build"
-  install -d -o nobody -g nobody "${pkgdir}/var/cache/$pkgname"
+  install -d "${pkgdir}/var/cache/$pkgname"
   install -D -m755 freedns.py "${pkgdir}/usr/bin/freedns"
-  install -D -m744 freedns.cron "${pkgdir}/etc/cron.hourly/freedns"
-  install -D -m644 -o root -g root freedns.conf "${pkgdir}/etc/"
+  install -d "${pkgdir}/etc/cron.hourly/"
+  ln -s /usr/bin/freedns "${pkgdir}/etc/cron.hourly/freedns"
+  install -D -m644 freedns.conf "${pkgdir}/etc/"
   install -D -m644 UNLICENSE "${pkgdir}/usr/share/licenses/$pkgname/UNLICENSE"
 }
 
