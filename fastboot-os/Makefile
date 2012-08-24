@@ -30,31 +30,20 @@ SRCS+= extent.c
 SRCS+= indirect.c
 SRCS+= sha1.c
 
-CPPFLAGS+= -DADB_HOST=1
-CPPFLAGS+= -DHAVE_FORKEXEC=1
-CPPFLAGS+= -DHAVE_SYMLINKS
-CPPFLAGS+= -DHAVE_TERMIO_H
-CPPFLAGS+= -D_GNU_SOURCE
-CPPFLAGS+= -D_XOPEN_SOURCE
 CPPFLAGS+= -I../include
 CPPFLAGS+= -I../mkbootimg
 CPPFLAGS+= -I../libsparse/include
 CPPFLAGS+= -I../../extras/ext4_utils
 
-CFLAGS+= -O2 -Wno-unused-parameter
-LDFLAGS= 
-LIBS= -lrt -lpthread -lz
+LIBS= -lz
 
 OBJS= $(SRCS:.c=.o)
 
 all: fastboot
 
 fastboot: $(OBJS)
-	cc -o $@ $(LDFLAGS) $(OBJS) $(LIBS)
+	cc -o $@ $(OBJS) $(LIBS)
 
 install:
 	test -d '$(DESTDIR)/usr/bin' || mkdir -p '$(DESTDIR)/usr/bin'
 	cp fastboot '$(DESTDIR)/usr/bin'
-
-clean:
-	rm -rf $(OBJS)
