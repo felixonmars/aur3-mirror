@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.9.4
+# ff-downloader v0.5.9.5
 ## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -85,7 +85,8 @@ $LANG = read_config($pkg);
 if (!$LANG)
 {
     my @ff_i18n = (
-	{ language => 'Afrikaans (South Africa)', code => 'af' },
+    { language => 'Acholi', code => 'ach' },
+    { language => 'Afrikaans (South Africa)', code => 'af' },
     { language => 'Akan', code => 'ak' },
     { language => 'Aarabic', code => 'ar' },
     { language => 'Assamese', code => 'as' },
@@ -238,6 +239,7 @@ if (!$LANG)
     ( $pkg eq 'ff' ) ? ( @u_i18n = @ff_i18n ) : (@u_i18n = @tb_i18n );
     my @i18n = sort { $a->{language} cmp $b->{language} } @u_i18n;
     my $size = scalar @i18n;
+    print "\n";
 
     for (my $i = 0; $i < $size; $i++ )
     {
