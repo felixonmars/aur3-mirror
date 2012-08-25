@@ -6,6 +6,6 @@ if [ -d ~/.urbanterror/baseut4 ]; then
 	rmdir ~/.urbanterror/baseut4
 fi
 # start urbanterror
-cd /opt/urbanterror/
+cd /opt/urbanterror41/
 exec ./ioUrbanTerror "$@"
 
