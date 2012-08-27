@@ -238,173 +238,121 @@ class OrtaSettingsManager:
         config.read(path)
 
         try :
-            gradients_style = ["", "Default", "Short", "No"][config.getint('Gradients', 'style')] + "GradientButton"
+            gradients_style = ["Default", "Short", "No"][config.getint('Gradients', 'style') - 1] + "GradientButton"
             radio_gradient = self.builder.get_object(gradients_style)
-            radio_gradient.set_active(True)
         except configparser.Error :
             radio_gradient = self.builder.get_object("NoGradientButton")
-            radio_gradient.set_active(True)
+        radio_gradient.set_active(True)
 
+        check_gradient = self.builder.get_object("NoGtkGradientButton")
         try :
-            check_gradient = self.builder.get_object("NoGtkGradientButton")
             check_gradient.set_active(config.getboolean('Gradients', 'nogtk'))
         except configparser.Error :
-            check_gradient = self.builder.get_object("NoGtkGradientButton")
             check_gradient.set_active(False)
 
         try:
-            expanders_style = ["", "Default", "Arrow", "Simple", "Light", "Dark"][config.getint('Expanders', 'style')] + "ExpanderButton"
+            expanders_style = ["Default", "Arrow", "Simple", "Light", "Dark"][config.getint('Expanders', 'style') - 1] + "ExpanderButton"
             radio_expanders = self.builder.get_object(expanders_style)
-            radio_expanders.set_active(True)
         except configparser.Error :
             radio_expanders = self.builder.get_object("DefaultExpanderButton")
-            radio_expanders.set_active(True)
+        radio_expanders.set_active(True)
 
         try:
-            if config.getint('Tabs', 'style') == 1 :
-                radio_tabs = self.builder.get_object("tabsRadio1Default")
-                radio_tabs.set_active(True)
-            elif config.getint('Tabs', 'style') == 2 :
-                radio_tabs = self.builder.get_object("tabsRadio2Squared")
-                radio_tabs.set_active(True)
-            elif config.getint('Tabs', 'style') == 3 :
-                radio_tabs = self.builder.get_object("tabsRadio3Light")
-                radio_tabs.set_active(True)
-            elif config.getint('Tabs', 'style') == 4 :
-                radio_tabs = self.builder.get_object("SmoothTabsButton")
-                radio_tabs.set_active(True)
-            elif config.getint('Tabs', 'style') == 5 :
-                radio_tabs = self.builder.get_object("UnifiedTabsButton")
-                radio_tabs.set_active(True)
+            tabs_style = ["tabsRadio1Default", "tabsRadio2Squared", "tabsRadio3Light", \
+                                  "SmoothTabsButton", "UnifiedTabsButton"][config.getint('Tabs', 'style') - 1]
+            radio_tabs = self.builder.get_object(tabs_style)
         except configparser.Error :
             radio_tabs = self.builder.get_object("tabsRadio1Default")
-            radio_tabs.set_active(True)
+        radio_tabs.set_active(True)
 
+        check_tabs = self.builder.get_object("ReversedLightTabsButton")
         try :
-            if config.getboolean('Tabs', 'reverse') :
-                check_tabs = self.builder.get_object("ReversedLightTabsButton")
-                check_tabs.set_active(True)
-            else :
-                check_tabs = self.builder.get_object("ReversedLightTabsButton")
-                check_tabs.set_active(False)
+            check_tabs.set_active(config.getboolean('Tabs', 'reverse'))
         except configparser.Error :
-            check_tabs = self.builder.get_object("ReversedLightTabsButton")
             check_tabs.set_active(False)
 
+        check_smooth_tabs = self.builder.get_object("UseSmoothNoGtkButton")
         try :
-            check_smooth_tabs = self.builder.get_object("UseSmoothNoGtkButton")
             check_smooth_tabs.set_active(config.getboolean('Tabs', 'smooth_nogtk'))
         except configparser.Error :
-            check_smooth_tabs = self.builder.get_object("UseSmoothNoGtkButton")
             check_smooth_tabs.set_active(False)
 
         try :
             if config.getint('Scrollbars', 'size') == 1 :
                 radio_scrollbar = self.builder.get_object("scrollbarsRadio2Thin")
-                radio_scrollbar.set_active(True)
             elif config.getint('Scrollbars', 'size') == 2 :
                 radio_scrollbar = self.builder.get_object("scrollbarsRadio1Normal")
-                radio_scrollbar.set_active(True)
             elif config.getint('Scrollbars', 'size') == 3 :
                 radio_scrollbar = self.builder.get_object("scrollbarsRadio3Wide")
-                radio_scrollbar.set_active(True)
             elif config.getint('Scrollbars', 'size') == 4 :
                 radio_scrollbar = self.builder.get_object("scrollbarsRadio4Wider")
-                radio_scrollbar.set_active(True)
             elif config.getint('Scrollbars', 'size') == 5 :
                 radio_scrollbar = self.builder.get_object("scrollbarsRadio5Widest")
-                radio_scrollbar.set_active(True)
         except configparser.Error :
             radio_scrollbar = self.builder.get_object("scrollbarsRadio1Normal")
-            radio_scrollbar.set_active(True)
+        radio_scrollbar.set_active(True)
 
         try :
             if config.getint('Nautilus', 'style') == 1 :
                 radio_nautilus = self.builder.get_object("nautilusRadio1Default")
-                radio_nautilus.set_active(True)
             elif config.getint('Nautilus', 'style') == 2 :
                 radio_nautilus = self.builder.get_object("nautilusRadio2Elementary")
-                radio_nautilus.set_active(True)
             elif config.getint('Nautilus', 'style') == 3 :
                 radio_nautilus = self.builder.get_object("nautilusRadio3ElementaryNM")
-                radio_nautilus.set_active(True)
         except configparser.Error :
             radio_nautilus = self.builder.get_object("nautilusRadio1Default")
-            radio_nautilus.set_active(True)
+        radio_nautilus.set_active(True)
 
         try :
             if config.getint('Nautilus', 'breadcrumbs') == 1 :
                 radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
-                radio_breadcrumbs.set_active(True)
             elif config.getint('Nautilus', 'breadcrumbs') == 2 :
                 radio_breadcrumbs = self.builder.get_object("UnifiedBreadcrumbsButton")
-                radio_breadcrumbs.set_active(True)
         except configparser.Error :
             radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
-            radio_breadcrumbs.set_active(True)
+        radio_breadcrumbs.set_active(True)
 
         try :
             if config.getint('Menu', 'style') == 1 :
                 radio_menu = self.builder.get_object("DefaultMenuItemButton")
-                radio_menu.set_active(True)
             elif config.getint('Menu', 'style') == 2 :
                 radio_menu = self.builder.get_object("SquaredMenuItemButton")
-                radio_menu.set_active(True)
             elif config.getint('Menu', 'style') == 3 :
                 radio_menu = self.builder.get_object("SimpleMenuItemButton")
-                radio_menu.set_active(True)
             elif config.getint('Menu', 'style') == 4 :
                 radio_menu = self.builder.get_object("DarkRoundMenuItemButton")
-                radio_menu.set_active(True)
             elif config.getint('Menu', 'style') == 5 :
                 radio_menu = self.builder.get_object("DarkSquaredMenuItemButton")
-                radio_menu.set_active(True)
         except configparser.Error :
             radio_menu = self.builder.get_object("DarkRoundMenuItemButton")
-            radio_menu.set_active(True)
+        radio_menu.set_active(True)
 
         try :
             if config.getint('Panel', 'style') == 1 :
                 radio_panel = self.builder.get_object("panelRadio1Light")
-                radio_panel.set_active(True)
             elif config.getint('Panel', 'style') == 2 :
                 radio_panel = self.builder.get_object("PanelRadio2Dark")
-                radio_panel.set_active(True)
         except configparser.Error :
             radio_panel = self.builder.get_object("PanelRadio2Dark")
-            radio_panel.set_active(True)
+        radio_panel.set_active(True)
 
-        try :
-            if config.getboolean('Panel', 'flat') :
-                check_panel = self.builder.get_object("PanelNoBgButton")
-                check_panel.set_active(True)
-            else :
-                check_panel = self.builder.get_object("PanelNoBgButton")
-                check_panel.set_active(False)
+        
+        check_panel = self.builder.get_object("PanelNoBgButton")
+        try:
+            check_panel.set_active(config.getboolean('Panel', 'flat'))
         except configparser.Error :
-            check_panel = self.builder.get_object("PanelNoBgButton")
             check_panel.set_active(False)
 
+        check_midori = self.builder.get_object("OrtaMidoriButton")
         try :
-            if config.getboolean('Fixes', 'midori') :
-                check_midori = self.builder.get_object("OrtaMidoriButton")
-                check_midori.set_active(True)
-            else :
-                check_midori = self.builder.get_object("OrtaMidoriButton")
-                check_midori.set_active(False)
+            check_midori.set_active(config.getboolean('Fixes', 'midori'))
         except configparser.Error :
-            check_midori = self.builder.get_object("OrtaMidoriButton")
             check_midori.set_active(False)
 
+        check_opera = self.builder.get_object("OrtaOperaButton")
         try :
-            if config.getboolean('Fixes', 'opera') :
-                check_opera = self.builder.get_object("OrtaOperaButton")
-                check_opera.set_active(True)
-            else :
-                check_opera = self.builder.get_object("OrtaOperaButton")
-                check_opera.set_active(False)
+            check_opera.set_active(config.getboolean('Fixes', 'opera'))
         except configparser.Error :
-            check_opera = self.builder.get_object("OrtaOperaButton")
             check_opera.set_active(False)
 
         try :
@@ -478,31 +426,19 @@ class OrtaSettingsManager:
 
     def on_remove_old_toggled(self, widget, data=None):
         global remove_old
-        if remove_old :
-            remove_old = False
-        else :
-            remove_old = True
+        remove_old = not remove_old
 
     def on_ensure_permissions_toggled(self, widget, data=None):
         global ensure_permissions
-        if ensure_permissions :
-            ensure_permissions = False
-        else :
-            ensure_permissions = True
+        ensure_permissions = not ensure_permissions
 
     def on_install_squared_toggled(self, widget, data=None):
         global install_squared
-        if install_squared :
-            install_squared = False
-        else :
-            install_squared = True
+        install_squared = not install_squared
 
     def on_install_old_toggled(self, widget, data=None):
         global install_old
-        if install_old :
-            install_old = False
-        else :
-            install_old = True
+        install_old = not install_old
 
     def on_default_gradient_toggled(self, widget, data=None):
         global gradient_type
@@ -518,10 +454,7 @@ class OrtaSettingsManager:
 
     def on_nogtk_gradient_toggled(self, widget, data=None):
         global nogtk_gradient
-        if nogtk_gradient :
-            nogtk_gradient = False
-        else :
-            nogtk_gradient = True
+        nogtk_gradient = not nogtk_gradient
 
     def on_tabs_default_toggled(self, widget, data=None):
         global tabs
@@ -545,17 +478,11 @@ class OrtaSettingsManager:
 
     def on_reverse_light_tabs_toggled(self, widget, data=None):
         global reverse_light_tabs
-        if reverse_light_tabs :
-            reverse_light_tabs = False
-        else :
-            reverse_light_tabs = True
+        reverse_light_tabs = not reverse_light_tabs
 
     def on_smooth_nogtk_toggled(self, widget, data=None):
         global smooth_nogtk
-        if smooth_nogtk :
-            smooth_nogtk = False
-        else :
-            smooth_nogtk = True
+        smooth_nogtk = not smooth_nogtk
 
     def on_expander_default_toggled(self, widget, data=None):
         global expanders
