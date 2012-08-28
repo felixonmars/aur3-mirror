@@ -15,15 +15,14 @@ gi.pygtkcompat.enable_gtk(version='3.0')
 
 import gtk
 from sys import argv
-import os
-import urllib.request, urllib.error, urllib.parse
-import subprocess
+from os import path, getenv, system
+from subprocess import Popen
 import configparser
 
 #useful paths
-_filename = os.path.basename(argv[0])
-_curdir = os.path.dirname(os.path.realpath(argv[0]))
-_configpath = os.getenv('HOME') + "/.orta/ortaconfig.ini"
+_filename = path.basename(argv[0])
+_curdir = path.dirname(path.realpath(argv[0]))
+_configpath = getenv('HOME') + "/.orta/ortaconfig.ini"
 
 #global variables
 gradient_type = 1
@@ -116,69 +115,69 @@ def config_save(self, path, gradient_style, gradient_nogtk, tab_style, tab_rever
 
 #set the home dir files and folders
 def set_home():
-    os.system("install -d ~/.orta/gtk/")
-    if not os.path.isdir("~/.orta/panel"):
-        os.system("cp -r " + _curdir + "/orta/panel ~/.orta")
-    if not os.path.isdir("~/.orta/metacity"):
-        os.system("cp -r " + _curdir + "/orta/metacity ~/.orta")
+    system("install -d ~/.orta/gtk/")
+    if not path.isdir("~/.orta/panel"):
+        system("cp -r " + _curdir + "/orta/panel ~/.orta")
+    if not path.isdir("~/.orta/metacity"):
+        system("cp -r " + _curdir + "/orta/metacity ~/.orta")
 
 def uninstall(remove_all, remove_settings):
-    if os.path.isdir("~/.themes/Orta"):
-        os.system("rm -rf ~/.themes/Orta")
-    if os.path.isdir("~/.themes/Orta-Squared"):
-        os.system("rm -rf ~/.themes/Orta-Squared")
-    if os.path.isdir("~/.themes/Orta-Old"):
-        os.system("rm -rf ~/.themes/Orta-Old")
-    if os.path.isdir("~/.themes/Orta-Old-Squared"):
-        os.system("rm -rf ~/.themes/Orta-Old-Squared")
+    if path.isdir("~/.themes/Orta"):
+        system("rm -rf ~/.themes/Orta")
+    if path.isdir("~/.themes/Orta-Squared"):
+        system("rm -rf ~/.themes/Orta-Squared")
+    if path.isdir("~/.themes/Orta-Old"):
+        system("rm -rf ~/.themes/Orta-Old")
+    if path.isdir("~/.themes/Orta-Old-Squared"):
+        system("rm -rf ~/.themes/Orta-Old-Squared")
 
     if remove_all:
-        if os.path.isdir("/usr/share/themes/Orta"):
-            os.system("gksu 'rm -rf /usr/share/themes/Orta'")
-        if os.path.isdir("/usr/share/themes/Orta-Squared"):
-            os.system("gksu 'rm -rf /usr/share/themes/Orta-Squared'")
-        if os.path.isdir("/usr/share/themes/Orta-Old"):
-            os.system("gksu 'rm -rf /usr/share/themes/Orta-Old'")
-        if os.path.isdir("/usr/share/themes/Orta-Old-Squared"):
-            os.system("gksu 'rm -rf /usr/share/themes/Orta-Old-Squared'")
+        if path.isdir("/usr/share/themes/Orta"):
+            system("gksu 'rm -rf /usr/share/themes/Orta'")
+        if path.isdir("/usr/share/themes/Orta-Squared"):
+            system("gksu 'rm -rf /usr/share/themes/Orta-Squared'")
+        if path.isdir("/usr/share/themes/Orta-Old"):
+            system("gksu 'rm -rf /usr/share/themes/Orta-Old'")
+        if path.isdir("/usr/share/themes/Orta-Old-Squared"):
+            system("gksu 'rm -rf /usr/share/themes/Orta-Old-Squared'")
 
-    if remove_settings and os.path.isdir("~/.orta"):
-        os.system("rm -rf ~/.orta")
+    if remove_settings and path.isdir("~/.orta"):
+        system("rm -rf ~/.orta")
 
-    return not (os.path.isdir("~/.themes/Orta") or
-                os.path.isdir("~/.themes/Orta-Squared") or
-                os.path.isdir("~/.themes/Orta-Old") or
-                os.path.isdir("~/.themes/Orta-Old-Squared") or
-                os.path.isdir("/usr/share/themes/Orta") or
-                os.path.isdir("/usr/share/themes/Orta-Squared") or
-                os.path.isdir("/usr/share/themes/Orta-Old") or
-                os.path.isdir("/usr/share/themes/Orta-Old-Squared") or
-                remove_settings and os.path.isdir("~/.orta"))
+    return not (path.isdir("~/.themes/Orta") or
+                path.isdir("~/.themes/Orta-Squared") or
+                path.isdir("~/.themes/Orta-Old") or
+                path.isdir("~/.themes/Orta-Old-Squared") or
+                path.isdir("/usr/share/themes/Orta") or
+                path.isdir("/usr/share/themes/Orta-Squared") or
+                path.isdir("/usr/share/themes/Orta-Old") or
+                path.isdir("/usr/share/themes/Orta-Old-Squared") or
+                remove_settings and path.isdir("~/.orta"))
 
 def install(squared_decorator, old_decorator, fix_permissions, install_for_all):
     if fix_permissions:
-        os.system("chmod -R 755 ~/.orta")
-#        os.system("find ~/.orta -type d -exec chmod 755 '{}' \;")
-#        os.system("find ~/.orta -type f -exec chmod 644 '{}' \;")
+        system("chmod -R 755 ~/.orta")
+#        system("find ~/.orta -type d -exec chmod 755 '{}' \;")
+#        system("find ~/.orta -type f -exec chmod 644 '{}' \;")
 
     if install_for_all:
-        os.system("gksu 'cp -rf ~/.orta/gtk/Orta /usr/share/themes/Orta'")
+        system("gksu 'cp -rf ~/.orta/gtk/Orta /usr/share/themes/Orta'")
         if squared_decorator:
-            os.system("gksu 'cp -rf ~/.orta/gtk/Orta-Squared /usr/share/themes/Orta-Squared'")
+            system("gksu 'cp -rf ~/.orta/gtk/Orta-Squared /usr/share/themes/Orta-Squared'")
             if old_decorator:
-                os.system("gksu 'cp -rf ~/.orta/gtk/Orta-Old-Squared /usr/share/themes/Orta-Old-Squared'")
+                system("gksu 'cp -rf ~/.orta/gtk/Orta-Old-Squared /usr/share/themes/Orta-Old-Squared'")
         if old_decorator:
-            os.system("gksu 'cp -rf ~/.orta/gtk/Orta-Old /usr/share/themes/Orta-Old'")
-        return os.path.isdir("/usr/share/themes/Orta")
+            system("gksu 'cp -rf ~/.orta/gtk/Orta-Old /usr/share/themes/Orta-Old'")
+        return path.isdir("/usr/share/themes/Orta")
 
-    os.system("cp -rf ~/.orta/gtk/Orta ~/.themes/Orta")
+    system("cp -rf ~/.orta/gtk/Orta ~/.themes/Orta")
     if squared_decorator:
-        os.system("cp -rf ~/.orta/gtk/Orta-Squared ~/.themes/Orta-Squared")
+        system("cp -rf ~/.orta/gtk/Orta-Squared ~/.themes/Orta-Squared")
         if old_decorator:
-            os.system("cp -rf ~/.orta/gtk/Orta-Old-Squared ~/.themes/Orta-Old-Squared")
+            system("cp -rf ~/.orta/gtk/Orta-Old-Squared ~/.themes/Orta-Old-Squared")
     if old_decorator:
-        os.system("cp -rf ~/.orta/gtk/Orta-Old ~/.themes/Orta-Old")
-    return os.path.isdir("~/.themes/Orta")
+        system("cp -rf ~/.orta/gtk/Orta-Old ~/.themes/Orta-Old")
+    return path.isdir("~/.themes/Orta")
 
 #Settings Manager main class
 class OrtaSettingsManager:
@@ -552,10 +551,10 @@ class OrtaSettingsManager:
     def on_install_clicked(self, widget, data=None):
         self.builder.get_object("InstallForAllUsers").show()
         set_home()
-        os.system("tar -xvf " + _curdir + "/Orta.tar.gz -C ~/.orta/gtk")
-        os.system("tar -xvf " + _curdir + "/Orta-Old.tar.gz -C ~/.orta/gtk")
-        os.system("tar -xvf " + _curdir + "/Orta-Squared.tar.gz -C ~/.orta/gtk")
-        os.system("tar -xvf " + _curdir + "/Orta-Old-Squared.tar.gz -C ~/.orta/gtk")
+        system("tar -xvf " + _curdir + "/Orta.tar.gz -C ~/.orta/gtk")
+        system("tar -xvf " + _curdir + "/Orta-Old.tar.gz -C ~/.orta/gtk")
+        system("tar -xvf " + _curdir + "/Orta-Squared.tar.gz -C ~/.orta/gtk")
+        system("tar -xvf " + _curdir + "/Orta-Old-Squared.tar.gz -C ~/.orta/gtk")
 
     #installs on /usr/share/themes
     def on_install_for_all_yes_clicked(self, widget, data=None):
@@ -607,7 +606,7 @@ class OrtaSettingsManager:
 
         #try to launch gnome-appearance-properties
         try:
-            subprocess.Popen('gnome-appearance-properties')
+            Popen('gnome-appearance-properties')
         except Exception:
             self.builder.get_object("GnomeNotFoundDialog").show()
 
@@ -657,8 +656,8 @@ class OrtaSettingsManager:
         settings_rc = '/usr/share/themes/Orta/gtk-2.0/settings.rc'
         settings_rc_local = "~/.themes/Orta/gtk-2.0/settings.rc"
         settings_backup = '/usr/share/themes/Orta/gtk-2.0/~settings.rc'
-        settings_backup_local = os.getenv('HOME')+'/.themes/Orta/gtk-2.0/~settings.rc'
-        settings_rc_temp = os.getenv('HOME')+'/.orta/settings.rc'
+        settings_backup_local = getenv('HOME')+'/.themes/Orta/gtk-2.0/~settings.rc'
+        settings_rc_temp = getenv('HOME')+'/.orta/settings.rc'
 
         settings_error = False  
     
@@ -668,15 +667,15 @@ class OrtaSettingsManager:
         #make sure the theme is installed. Priority is given to a local installation
         #since in the case that the theme is installed both globally and locally the
         #local version will be the one used in most cases.
-        if os.path.isfile(settings_rc_local):
+        if path.isfile(settings_rc_local):
             all_users = 1
-        elif os.path.isfile(settings_rc):
+        elif path.isfile(settings_rc):
             all_users = 2
 
         #check for a backup settings file
-        if os.path.isfile(settings_backup_local):
+        if path.isfile(settings_backup_local):
             all_users_backup = 1
-        elif os.path.isfile(settings_backup):
+        elif path.isfile(settings_backup):
             all_users_backup = 2
 
         if all_users < 3:
@@ -904,62 +903,62 @@ class OrtaSettingsManager:
 
                 if all_users == 1:
                     #backup the old settings file
-                    os.system('mv ' + settings_rc_local + ' ' + settings_backup_local)
+                    system('mv ' + settings_rc_local + ' ' + settings_backup_local)
                     #copy the new settings file
-                    os.system('cp -f -T ' + settings_rc_temp + ' ' + settings_rc_local)
+                    system('cp -f -T ' + settings_rc_temp + ' ' + settings_rc_local)
 
                     #select the right index.theme file for the panel color
                     #and the menu button preferences
                     if panel == 1:
                         if remove_menu:
-                            os.system("cp -f ~/.orta/panel/light/nomenu/index.theme ~/.themes/Orta/")
+                            system("cp -f ~/.orta/panel/light/nomenu/index.theme ~/.themes/Orta/")
                         else:
-                            os.system("cp -f ~/.orta/panel/light/index.theme ~/.themes/Orta/")
+                            system("cp -f ~/.orta/panel/light/index.theme ~/.themes/Orta/")
                     elif panel == 2:
                         if remove_menu:
-                            os.system("cp -f ~/.orta/panel/dark/nomenu/index.theme ~/.themes/Orta/")
+                            system("cp -f ~/.orta/panel/dark/nomenu/index.theme ~/.themes/Orta/")
                         else:
-                            os.system("cp -f ~/.orta/panel/dark/index.theme ~/.themes/Orta/")
+                            system("cp -f ~/.orta/panel/dark/index.theme ~/.themes/Orta/")
                     if center_title:
-                        os.system("cp -f ~/.orta/metacity/round/center/metacity-theme-1.xml ~/.themes/Orta/metacity-1")
-                        if os.path.isdir("~/.themes/Orta-Squared"):
-                            os.system("cp -f ~/.orta/metacity/squared/center/metacity-theme-1.xml ~/.themes/Orta-Squared/metacity-1")
+                        system("cp -f ~/.orta/metacity/round/center/metacity-theme-1.xml ~/.themes/Orta/metacity-1")
+                        if path.isdir("~/.themes/Orta-Squared"):
+                            system("cp -f ~/.orta/metacity/squared/center/metacity-theme-1.xml ~/.themes/Orta-Squared/metacity-1")
                     else:
-                        os.system("cp -f ~/.orta/metacity/round/left/metacity-theme-1.xml ~/.themes/Orta/metacity-1")
-                        if os.path.isdir("~/.themes/Orta-Squared"):
-                            os.system("cp -f ~/.orta/metacity/squared/left/metacity-theme-1.xml ~/.themes/Orta-Squared/metacity-1")
+                        system("cp -f ~/.orta/metacity/round/left/metacity-theme-1.xml ~/.themes/Orta/metacity-1")
+                        if path.isdir("~/.themes/Orta-Squared"):
+                            system("cp -f ~/.orta/metacity/squared/left/metacity-theme-1.xml ~/.themes/Orta-Squared/metacity-1")
 
                 elif all_users == 2:
-                    os.system("gksu 'mv " + settings_rc + " "  + settings_backup + "'")
-                    os.system("gksu 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
+                    system("gksu 'mv " + settings_rc + " "  + settings_backup + "'")
+                    system("gksu 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
 
                     if panel == 1:
                         if remove_menu:
-                            os.system("gksu 'cp -f ~/.orta/panel/light/nomenu/index.theme /usr/share/themes/Orta/'")
+                            system("gksu 'cp -f ~/.orta/panel/light/nomenu/index.theme /usr/share/themes/Orta/'")
                         else:
-                            os.system("gksu 'cp -f ~/.orta/panel/light/index.theme /usr/share/themes/Orta/'")
+                            system("gksu 'cp -f ~/.orta/panel/light/index.theme /usr/share/themes/Orta/'")
                     elif panel == 2:
                         if remove_menu:
-                            os.system("gksu 'cp -f ~/.orta/panel/dark/nomenu/index.theme /usr/share/themes/Orta/'")
+                            system("gksu 'cp -f ~/.orta/panel/dark/nomenu/index.theme /usr/share/themes/Orta/'")
                         else:
-                            os.system("gksu 'cp -f ~/.orta/panel/dark/index.theme /usr/share/themes/Orta/'")
+                            system("gksu 'cp -f ~/.orta/panel/dark/index.theme /usr/share/themes/Orta/'")
 
                     if center_title:
-                        os.system("gksu 'cp -f ~/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                        if os.path.isdir("/usr/share/themes/Orta-Squared"):
-                            os.system("gksu 'cp -f ~/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+                        system("gksu 'cp -f ~/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
+                        if path.isdir("/usr/share/themes/Orta-Squared"):
+                            system("gksu 'cp -f ~/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
                     else:
-                        os.system("gksu 'cp -f ~/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                        if os.path.isdir("/usr/share/themes/Orta-Squared"):
-                            os.system("gksu 'cp -f ~/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+                        system("gksu 'cp -f ~/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
+                        if path.isdir("/usr/share/themes/Orta-Squared"):
+                            system("gksu 'cp -f ~/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
             self.builder.get_object("SettingsSavedDialog").show()
 
         else:
             if all_users_backup == 1:
-                os.system('cp -f ' + settings_backup_local + ' ' + settings_rc_local)
+                system('cp -f ' + settings_backup_local + ' ' + settings_rc_local)
                 self.builder.get_object("SettingsRestoredDialog").show()
             elif all_users_backup == 2:
-                os.system("gksu 'cp -f " + settings_backup + " "  + settings_rc + "'")
+                system("gksu 'cp -f " + settings_backup + " "  + settings_rc + "'")
                 self.builder.get_object("SettingsRestoredDialog").show()
             else:
                 self.builder.get_object("OrtaNotInstalledDialog").show()
@@ -973,8 +972,8 @@ class OrtaSettingsManager:
     def on_settings_saved_ok_clicked(self, widget, data=None):
         self.builder.get_object("SettingsSavedDialog").hide()
         try:
-            os.system("killall gnome-appearance-properties")
-            subprocess.Popen('gnome-appearance-properties')
+            system("killall gnome-appearance-properties")
+            Popen('gnome-appearance-properties')
         except Exception:
             self.builder.get_object("GnomeNotFoundDialog").show()
 
@@ -1012,7 +1011,7 @@ class OrtaSettingsManager:
     
     def __init__(self):
         self.builder = gtk.Builder()
-        self.builder.add_from_file(os.path.join(_curdir, "orta/OrtaSettingsManager.ui"))
+        self.builder.add_from_file(path.join(_curdir, "orta/OrtaSettingsManager.ui"))
         self.builder.connect_signals(self)
         self.window = self.builder.get_object("mainWindow")
         self.window.show()
@@ -1024,7 +1023,7 @@ class OrtaSettingsManager:
 def main():
     settings_manager = OrtaSettingsManager()
     set_home()
-    if not os.path.isfile(_configpath):
+    if not path.isfile(_configpath):
         settings_manager.config_create(_configpath)
     settings_manager.config_restore(_configpath)
     settings_manager.main_loop()
