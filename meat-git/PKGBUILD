@@ -7,7 +7,7 @@ pkgdesc="Bash wrapper for Cower"
 arch=('i686' 'x86_64')
 url="http://github.com/e36freak/meat"
 license=('MIT')
-depends=('bash>=4.0' 'cower-git' 'awk')
+depends=('bash>=4.0' 'cower' 'awk')
 makedepends=('git')
 optdepends=('pacman-color: colorized output'
             'sudo: highly recommended')
