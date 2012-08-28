@@ -20,7 +20,7 @@ EXTRA_CFLAGS += -I$(KBUILD_SRC)/drivers/media/dvb/dvb-usb/ \
 		-I$(KBUILD_SRC)/drivers/media/dvb/frontends/ \
 		-I$(KBUILD_SRC)/drivers/media/common/tuners/
 
-KDIR = /lib/modules/$(KVER)/build
+KDIR = /usr/lib/modules/$(KVER)/build
 
 default:
 	make -C $(KDIR) SUBDIRS=$(PWD) modules
