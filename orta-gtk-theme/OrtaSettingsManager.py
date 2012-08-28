@@ -10,21 +10,19 @@ _config_header = """#
 
 import gi
 import gi.pygtkcompat
-
 gi.pygtkcompat.enable() 
 gi.pygtkcompat.enable_gtk(version='3.0')
 
 import gtk
-import sys
+from sys import argv
 import os
 import urllib.request, urllib.error, urllib.parse
-import shutil
 import subprocess
 import configparser
 
 #useful paths
-_filename = os.path.basename(sys.argv[0])
-_curdir = os.path.dirname(os.path.realpath(sys.argv[0]))
+_filename = os.path.basename(argv[0])
+_curdir = os.path.dirname(os.path.realpath(argv[0]))
 _configpath = os.getenv('HOME') + "/.orta/ortaconfig.ini"
 
 #global variables
@@ -276,57 +274,40 @@ class OrtaSettingsManager:
         except configparser.Error:
             check_smooth_tabs.set_active(False)
 
-        """        try:
-            scrollbars_size = "scrollbars" + ["2Thin", "1Normal", "3Wide", "4Wider", "5Widest"][config.getint('Scrollbars', 'size') - 1]
+        try:
+            scrollbars_size = "scrollbarsRadio" + ["2Thin", "1Normal", "3Wide", "4Wider", "5Widest"][config.getint('Scrollbars', 'size') - 1]
             radio_scrollbar = self.builder.get_object(scrollbars_size)
         except configparser.Error:
             radio_scrollbar = self.builder.get_object("scrollbarsRadio1Normal")
-        radio_scrollbar.set_active(True)"""
+        radio_scrollbar.set_active(True)
 
         try:
-            if config.getint('Nautilus', 'style') == 1:
-                radio_nautilus = self.builder.get_object("nautilusRadio1Default")
-            elif config.getint('Nautilus', 'style') == 2:
-                radio_nautilus = self.builder.get_object("nautilusRadio2Elementary")
-            elif config.getint('Nautilus', 'style') == 3:
-                radio_nautilus = self.builder.get_object("nautilusRadio3ElementaryNM")
+            nautilus_style = "nautilusRadio" + ["1Default", "2Elementary", "3ElementaryNM"][config.getint('Nautilus', 'style') - 1]
+            radio_nautilus = self.builder.get_object(nautilus_style)
         except configparser.Error:
             radio_nautilus = self.builder.get_object("nautilusRadio1Default")
         radio_nautilus.set_active(True)
 
         try:
-            if config.getint('Nautilus', 'breadcrumbs') == 1:
-                radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
-            elif config.getint('Nautilus', 'breadcrumbs') == 2:
-                radio_breadcrumbs = self.builder.get_object("UnifiedBreadcrumbsButton")
+            nautilus_breadcrumbs = ["Default", "Unified"][config.getint('Nautilus', 'breadcrumbs') - 1] + "BreadcrumbsButton"
+            radio_breadcrumbs = self.builder.get_object(nautilus_breadcrumbs)
         except configparser.Error:
             radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
         radio_breadcrumbs.set_active(True)
 
         try:
-            if config.getint('Menu', 'style') == 1:
-                radio_menu = self.builder.get_object("DefaultMenuItemButton")
-            elif config.getint('Menu', 'style') == 2:
-                radio_menu = self.builder.get_object("SquaredMenuItemButton")
-            elif config.getint('Menu', 'style') == 3:
-                radio_menu = self.builder.get_object("SimpleMenuItemButton")
-            elif config.getint('Menu', 'style') == 4:
-                radio_menu = self.builder.get_object("DarkRoundMenuItemButton")
-            elif config.getint('Menu', 'style') == 5:
-                radio_menu = self.builder.get_object("DarkSquaredMenuItemButton")
+            menu_style = ["Default", "Squared", "Simple", "DarkRound", "DarkSquared"][config.getint('Menu', 'style') - 1] + "MenuItemButton"
+            radio_menu = self.builder.get_object(menu_style)
         except configparser.Error:
             radio_menu = self.builder.get_object("DarkRoundMenuItemButton")
         radio_menu.set_active(True)
 
         try:
-            if config.getint('Panel', 'style') == 1:
-                radio_panel = self.builder.get_object("panelRadio1Light")
-            elif config.getint('Panel', 'style') == 2:
-                radio_panel = self.builder.get_object("PanelRadio2Dark")
+            panel_style = "PanelRadio" + ["1Light", "2Dark"][config.getint('Panel', 'style') - 1]
+            radio_panel = self.builder.get_object(panel_style)
         except configparser.Error:
             radio_panel = self.builder.get_object("PanelRadio2Dark")
         radio_panel.set_active(True)
-
         
         check_panel = self.builder.get_object("PanelNoBgButton")
         try:

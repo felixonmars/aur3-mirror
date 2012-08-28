@@ -1,3 +1,2 @@
 #!/usr/bin/env sh
-source /etc/profile
-exec env python2 -OO "/usr/share/realistair/RE-alistair.py" --game /usr/share/realistair "$@"
+exec env RENPY_BASE=${RENPY_BASE:-/usr/share/renpy/} python2 -OO "/usr/share/realistair/RE-alistair.py" /usr/share/realistair "$@"
