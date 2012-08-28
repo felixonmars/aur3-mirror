@@ -57,282 +57,273 @@ nautilus_fix = False
 
 #method that saves the current settings into a file
 def config_save(self, path, gradient_style, gradient_nogtk, tab_style, tab_reverse, smooth_nogtk, expander_style, scrollbar_size, nautilus_style, breadcrumbs_style, menu_style, panel_style, panel_flat, midori, opera, menu_button, pixbuf_bug, globalmenu, trans_tabs, center_title, nautilus_fix):
-        config = configparser.ConfigParser()
+    config = configparser.ConfigParser()
 
-        if not config.has_section('Fixes') :
-            config.add_section('Fixes')
+    if not config.has_section('Fixes'):
+        config.add_section('Fixes')
 
-        config.set('Fixes','midori',str(midori))
-        config.set('Fixes','opera',str(opera))
-        config.set('Fixes','menu_button',str(menu_button))
-        config.set('Fixes','pixbuf_bug',str(pixbuf_bug))
-        config.set('Fixes','globalmenu',str(globalmenu))
-        config.set('Fixes','nogtk_transparent_tabs',str(trans_tabs))
-        config.set('Fixes','centered_title',str(center_title))
-        config.set('Fixes','nautilus_fix',str(nautilus_fix))
+    config.set('Fixes', 'midori', str(midori))
+    config.set('Fixes', 'opera', str(opera))
+    config.set('Fixes', 'menu_button', str(menu_button))
+    config.set('Fixes', 'pixbuf_bug', str(pixbuf_bug))
+    config.set('Fixes', 'globalmenu', str(globalmenu))
+    config.set('Fixes', 'nogtk_transparent_tabs', str(trans_tabs))
+    config.set('Fixes', 'centered_title', str(center_title))
+    config.set('Fixes', 'nautilus_fix', str(nautilus_fix))
 
-        if not config.has_section('Panel') :
-            config.add_section('Panel')
+    if not config.has_section('Panel'):
+        config.add_section('Panel')
 
-        config.set('Panel','style',str(panel_style))
-        config.set('Panel','flat',str(panel_flat))
+    config.set('Panel', 'style', str(panel_style))
+    config.set('Panel', 'flat', str(panel_flat))
 
-        if not config.has_section('Menu') :
-            config.add_section('Menu')
+    if not config.has_section('Menu'):
+        config.add_section('Menu')
 
-        config.set('Menu','style',str(menu_style))
+    config.set('Menu', 'style', str(menu_style))
 
-        if not config.has_section('Nautilus') :
-            config.add_section('Nautilus')
+    if not config.has_section('Nautilus'):
+        config.add_section('Nautilus')
 
-        config.set('Nautilus','style',str(nautilus_style))
-        config.set('Nautilus','breadcrumbs',str(breadcrumbs_style))
+    config.set('Nautilus', 'style', str(nautilus_style))
+    config.set('Nautilus', 'breadcrumbs', str(breadcrumbs_style))
 
-        if not config.has_section('Scrollbars') :
-            config.add_section('Scrollbars')
+    if not config.has_section('Scrollbars'):
+        config.add_section('Scrollbars')
 
-        config.set('Scrollbars','size',str(scrollbar_size))
+    config.set('Scrollbars', 'size', str(scrollbar_size))
 
-        if not config.has_section('Expanders') :
-            config.add_section('Expanders')
+    if not config.has_section('Expanders'):
+        config.add_section('Expanders')
 
-        config.set('Expanders','style',str(expander_style))
+    config.set('Expanders', 'style', str(expander_style))
 
-        if not config.has_section('Tabs') :
-            config.add_section('Tabs')
+    if not config.has_section('Tabs'):
+        config.add_section('Tabs')
 
-        config.set('Tabs','style',str(tab_style))
-        config.set('Tabs','reverse',str(tab_reverse))
-        config.set('Tabs','smooth_nogtk',str(smooth_nogtk))
+    config.set('Tabs', 'style', str(tab_style))
+    config.set('Tabs', 'reverse', str(tab_reverse))
+    config.set('Tabs', 'smooth_nogtk', str(smooth_nogtk))
 
-        if not config.has_section('Gradients') :
-            config.add_section('Gradients')
+    if not config.has_section('Gradients'):
+        config.add_section('Gradients')
     
-        config.set('Gradients','style',str(gradient_style))
-        config.set('Gradients','nogtk',str(gradient_nogtk))
+    config.set('Gradients', 'style', str(gradient_style))
+    config.set('Gradients', 'nogtk', str(gradient_nogtk))
 
-        with open(path, "w") as configfile:
-            configfile.write(_config_header)
-            config.write(configfile)
-            configfile.close()
+    with open(path, "w") as configfile:
+        configfile.write(_config_header)
+        config.write(configfile)
+        configfile.close()
 
 #set the home dir files and folders
 def set_home():
-    os.system("mkdir -p ~/.orta")
-    os.system("mkdir -p ~/.orta/gtk")
-    if not os.path.isdir("~/.orta/panel") :
+    os.system("install -d ~/.orta/gtk/")
+    if not os.path.isdir("~/.orta/panel"):
         os.system("cp -r " + _curdir + "/orta/panel ~/.orta")
-    if not os.path.isdir("~/.orta/metacity") :
+    if not os.path.isdir("~/.orta/metacity"):
         os.system("cp -r " + _curdir + "/orta/metacity ~/.orta")
 
 def uninstall(remove_all, remove_settings):
-    if os.path.isdir("~/.themes/Orta") :
-        os.system("rm -R -f ~/.themes/Orta")
-    if os.path.isdir("~/.themes/Orta-Squared") :
-        os.system("rm -R -f ~/.themes/Orta-Squared")
-    if os.path.isdir("~/.themes/Orta-Old") :
-        os.system("rm -R -f ~/.themes/Orta-Old")
-    if os.path.isdir("~/.themes/Orta-Old-Squared") :
-        os.system("rm -R -f ~/.themes/Orta-Old-Squared")
+    if os.path.isdir("~/.themes/Orta"):
+        os.system("rm -rf ~/.themes/Orta")
+    if os.path.isdir("~/.themes/Orta-Squared"):
+        os.system("rm -rf ~/.themes/Orta-Squared")
+    if os.path.isdir("~/.themes/Orta-Old"):
+        os.system("rm -rf ~/.themes/Orta-Old")
+    if os.path.isdir("~/.themes/Orta-Old-Squared"):
+        os.system("rm -rf ~/.themes/Orta-Old-Squared")
 
-    if remove_all :
-        if os.path.isdir("/usr/share/themes/Orta") :
-            os.system("gksu 'rm -R -f /usr/share/themes/Orta'")
-        if os.path.isdir("/usr/share/themes/Orta-Squared") :
-            os.system("gksu 'rm -R -f /usr/share/themes/Orta-Squared'")
-        if os.path.isdir("/usr/share/themes/Orta-Old") :
-            os.system("gksu 'rm -R -f /usr/share/themes/Orta-Old'")
-        if os.path.isdir("/usr/share/themes/Orta-Old-Squared") :
-            os.system("gksu 'rm -R -f /usr/share/themes/Orta-Old-Squared'")
+    if remove_all:
+        if os.path.isdir("/usr/share/themes/Orta"):
+            os.system("gksu 'rm -rf /usr/share/themes/Orta'")
+        if os.path.isdir("/usr/share/themes/Orta-Squared"):
+            os.system("gksu 'rm -rf /usr/share/themes/Orta-Squared'")
+        if os.path.isdir("/usr/share/themes/Orta-Old"):
+            os.system("gksu 'rm -rf /usr/share/themes/Orta-Old'")
+        if os.path.isdir("/usr/share/themes/Orta-Old-Squared"):
+            os.system("gksu 'rm -rf /usr/share/themes/Orta-Old-Squared'")
 
-    if remove_settings and os.path.isdir("~/.orta") :
-        os.system("rm -R -f ~/.orta")
+    if remove_settings and os.path.isdir("~/.orta"):
+        os.system("rm -rf ~/.orta")
 
-    return os.path.isdir("~/.themes/Orta") or \
-        os.path.isdir("~/.themes/Orta-Squared") or \
-        os.path.isdir("~/.themes/Orta-Old") or \
-        os.path.isdir("~/.themes/Orta-Old-Squared") or \
-        os.path.isdir("/usr/share/themes/Orta") or \
-        os.path.isdir("/usr/share/themes/Orta-Squared") or \
-        os.path.isdir("/usr/share/themes/Orta-Old") or \
-        os.path.isdir("/usr/share/themes/Orta-Old-Squared") or \
-        remove_settings and os.path.isdir("~/.orta") 
+    return not (os.path.isdir("~/.themes/Orta") or
+                os.path.isdir("~/.themes/Orta-Squared") or
+                os.path.isdir("~/.themes/Orta-Old") or
+                os.path.isdir("~/.themes/Orta-Old-Squared") or
+                os.path.isdir("/usr/share/themes/Orta") or
+                os.path.isdir("/usr/share/themes/Orta-Squared") or
+                os.path.isdir("/usr/share/themes/Orta-Old") or
+                os.path.isdir("/usr/share/themes/Orta-Old-Squared") or
+                remove_settings and os.path.isdir("~/.orta"))
 
 def install(squared_decorator, old_decorator, fix_permissions, install_for_all):
-    if fix_permissions :
+    if fix_permissions:
         os.system("chmod -R 755 ~/.orta")
 #        os.system("find ~/.orta -type d -exec chmod 755 '{}' \;")
 #        os.system("find ~/.orta -type f -exec chmod 644 '{}' \;")
 
-    if install_for_all :
-        os.system("gksu 'cp -r -f ~/.orta/gtk/Orta /usr/share/themes/Orta'")
-        if squared_decorator :
-            os.system("gksu 'cp -r -f ~/.orta/gtk/Orta-Squared /usr/share/themes/Orta-Squared'")
-            if old_decorator :
-                os.system("gksu 'cp -r -f ~/.orta/gtk/Orta-Old-Squared /usr/share/themes/Orta-Old-Squared'")
-        if old_decorator :
-            os.system("gksu 'cp -r -f ~/.orta/gtk/Orta-Old /usr/share/themes/Orta-Old'")
+    if install_for_all:
+        os.system("gksu 'cp -rf ~/.orta/gtk/Orta /usr/share/themes/Orta'")
+        if squared_decorator:
+            os.system("gksu 'cp -rf ~/.orta/gtk/Orta-Squared /usr/share/themes/Orta-Squared'")
+            if old_decorator:
+                os.system("gksu 'cp -rf ~/.orta/gtk/Orta-Old-Squared /usr/share/themes/Orta-Old-Squared'")
+        if old_decorator:
+            os.system("gksu 'cp -rf ~/.orta/gtk/Orta-Old /usr/share/themes/Orta-Old'")
         return os.path.isdir("/usr/share/themes/Orta")
 
-    os.system("cp -r -f ~/.orta/gtk/Orta ~/.themes/Orta")
-    if squared_decorator :
-        os.system("cp -r -f ~/.orta/gtk/Orta-Squared ~/.themes/Orta-Squared")
-        if old_decorator :
-            os.system("cp -r -f ~/.orta/gtk/Orta-Old-Squared ~/.themes/Orta-Old-Squared")
-    if old_decorator :
-        os.system("cp -r -f ~/.orta/gtk/Orta-Old ~/.themes/Orta-Old")
+    os.system("cp -rf ~/.orta/gtk/Orta ~/.themes/Orta")
+    if squared_decorator:
+        os.system("cp -rf ~/.orta/gtk/Orta-Squared ~/.themes/Orta-Squared")
+        if old_decorator:
+            os.system("cp -rf ~/.orta/gtk/Orta-Old-Squared ~/.themes/Orta-Old-Squared")
+    if old_decorator:
+        os.system("cp -rf ~/.orta/gtk/Orta-Old ~/.themes/Orta-Old")
     return os.path.isdir("~/.themes/Orta")
 
 #Settings Manager main class
 class OrtaSettingsManager:
 
-#method to create a default configuration ini
+    #method to create a default configuration ini
     def config_create(self, path):
         config = configparser.ConfigParser()
 
         config.add_section('Fixes')
-        config.set('Fixes','midori','False')
-        config.set('Fixes','opera','False')
-        config.set('Fixes','menu_button','False')
-        config.set('Fixes','pixbuf_bug','False')
-        config.set('Fixes','globalmenu','False')
-        config.set('Fixes','nogtk_transparent_tabs','False')
-        config.set('Fixes','centered_title','False')
-        config.set('Fixes','nautilus_fix','False')
+        config.set('Fixes', 'midori', 'False')
+        config.set('Fixes', 'opera', 'False')
+        config.set('Fixes', 'menu_button', 'False')
+        config.set('Fixes', 'pixbuf_bug', 'False')
+        config.set('Fixes', 'globalmenu', 'False')
+        config.set('Fixes', 'nogtk_transparent_tabs', 'False')
+        config.set('Fixes', 'centered_title', 'False')
+        config.set('Fixes', 'nautilus_fix', 'False')
 
         config.add_section('Panel')
-        config.set('Panel','style','2')
-        config.set('Panel','flat','False')
+        config.set('Panel', 'style', '2')
+        config.set('Panel', 'flat', 'False')
 
         config.add_section('Menu')
-        config.set('Menu','style','4')
+        config.set('Menu', 'style', '4')
 
         config.add_section('Nautilus')
-        config.set('Nautilus','style','1')
-        config.set('Nautilus','breadcrumbs','1')
+        config.set('Nautilus', 'style', '1')
+        config.set('Nautilus', 'breadcrumbs', '1')
 
         config.add_section('Scrollbars')
-        config.set('Scrollbars','size','2')
+        config.set('Scrollbars', 'size', '2')
 
         config.add_section('Expanders')
-        config.set('Expanders','style','1')
+        config.set('Expanders', 'style', '1')
 
         config.add_section('Tabs')
-        config.set('Tabs','style','1')
-        config.set('Tabs','reverse','False')
-        config.set('Tabs','smooth_nogtk','False')
+        config.set('Tabs', 'style', '1')
+        config.set('Tabs', 'reverse', 'False')
+        config.set('Tabs', 'smooth_nogtk', 'False')
 
         config.add_section('Gradients')
-        config.set('Gradients','style','1')
-        config.set('Gradients','nogtk','False')
+        config.set('Gradients', 'style', '1')
+        config.set('Gradients', 'nogtk', 'False')
 
         with open(path, "w") as configfile:
             configfile.write(_config_header)
             config.write(configfile)
             configfile.close()
 
-#method that restores the previously saved settings on application startup
-#Ohh sweet switch case, where are thou?
+    #method that restores the previously saved settings on application startup
+    #Ohh sweet switch case, where are thou?
     def config_restore(self, path):
         config = configparser.ConfigParser()
         config.read(path)
 
-        try :
+        try:
             gradients_style = ["Default", "Short", "No"][config.getint('Gradients', 'style') - 1] + "GradientButton"
             radio_gradient = self.builder.get_object(gradients_style)
-        except configparser.Error :
+        except configparser.Error:
             radio_gradient = self.builder.get_object("NoGradientButton")
         radio_gradient.set_active(True)
 
         check_gradient = self.builder.get_object("NoGtkGradientButton")
-        try :
+        try:
             check_gradient.set_active(config.getboolean('Gradients', 'nogtk'))
-        except configparser.Error :
+        except configparser.Error:
             check_gradient.set_active(False)
 
         try:
             expanders_style = ["Default", "Arrow", "Simple", "Light", "Dark"][config.getint('Expanders', 'style') - 1] + "ExpanderButton"
             radio_expanders = self.builder.get_object(expanders_style)
-        except configparser.Error :
+        except configparser.Error:
             radio_expanders = self.builder.get_object("DefaultExpanderButton")
         radio_expanders.set_active(True)
 
         try:
-            tabs_style = ["tabsRadio1Default", "tabsRadio2Squared", "tabsRadio3Light", \
-                                  "SmoothTabsButton", "UnifiedTabsButton"][config.getint('Tabs', 'style') - 1]
+            tabs_style = ["tabsRadio1Default", "tabsRadio2Squared", "tabsRadio3Light", 
+                          "SmoothTabsButton", "UnifiedTabsButton"][config.getint('Tabs', 'style') - 1]
             radio_tabs = self.builder.get_object(tabs_style)
-        except configparser.Error :
+        except configparser.Error:
             radio_tabs = self.builder.get_object("tabsRadio1Default")
         radio_tabs.set_active(True)
 
         check_tabs = self.builder.get_object("ReversedLightTabsButton")
-        try :
+        try:
             check_tabs.set_active(config.getboolean('Tabs', 'reverse'))
-        except configparser.Error :
+        except configparser.Error:
             check_tabs.set_active(False)
 
         check_smooth_tabs = self.builder.get_object("UseSmoothNoGtkButton")
-        try :
+        try:
             check_smooth_tabs.set_active(config.getboolean('Tabs', 'smooth_nogtk'))
-        except configparser.Error :
+        except configparser.Error:
             check_smooth_tabs.set_active(False)
 
-        try :
-            if config.getint('Scrollbars', 'size') == 1 :
-                radio_scrollbar = self.builder.get_object("scrollbarsRadio2Thin")
-            elif config.getint('Scrollbars', 'size') == 2 :
-                radio_scrollbar = self.builder.get_object("scrollbarsRadio1Normal")
-            elif config.getint('Scrollbars', 'size') == 3 :
-                radio_scrollbar = self.builder.get_object("scrollbarsRadio3Wide")
-            elif config.getint('Scrollbars', 'size') == 4 :
-                radio_scrollbar = self.builder.get_object("scrollbarsRadio4Wider")
-            elif config.getint('Scrollbars', 'size') == 5 :
-                radio_scrollbar = self.builder.get_object("scrollbarsRadio5Widest")
-        except configparser.Error :
+        """        try:
+            scrollbars_size = "scrollbars" + ["2Thin", "1Normal", "3Wide", "4Wider", "5Widest"][config.getint('Scrollbars', 'size') - 1]
+            radio_scrollbar = self.builder.get_object(scrollbars_size)
+        except configparser.Error:
             radio_scrollbar = self.builder.get_object("scrollbarsRadio1Normal")
-        radio_scrollbar.set_active(True)
+        radio_scrollbar.set_active(True)"""
 
-        try :
-            if config.getint('Nautilus', 'style') == 1 :
+        try:
+            if config.getint('Nautilus', 'style') == 1:
                 radio_nautilus = self.builder.get_object("nautilusRadio1Default")
-            elif config.getint('Nautilus', 'style') == 2 :
+            elif config.getint('Nautilus', 'style') == 2:
                 radio_nautilus = self.builder.get_object("nautilusRadio2Elementary")
-            elif config.getint('Nautilus', 'style') == 3 :
+            elif config.getint('Nautilus', 'style') == 3:
                 radio_nautilus = self.builder.get_object("nautilusRadio3ElementaryNM")
-        except configparser.Error :
+        except configparser.Error:
             radio_nautilus = self.builder.get_object("nautilusRadio1Default")
         radio_nautilus.set_active(True)
 
-        try :
-            if config.getint('Nautilus', 'breadcrumbs') == 1 :
+        try:
+            if config.getint('Nautilus', 'breadcrumbs') == 1:
                 radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
-            elif config.getint('Nautilus', 'breadcrumbs') == 2 :
+            elif config.getint('Nautilus', 'breadcrumbs') == 2:
                 radio_breadcrumbs = self.builder.get_object("UnifiedBreadcrumbsButton")
-        except configparser.Error :
+        except configparser.Error:
             radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
         radio_breadcrumbs.set_active(True)
 
-        try :
-            if config.getint('Menu', 'style') == 1 :
+        try:
+            if config.getint('Menu', 'style') == 1:
                 radio_menu = self.builder.get_object("DefaultMenuItemButton")
-            elif config.getint('Menu', 'style') == 2 :
+            elif config.getint('Menu', 'style') == 2:
                 radio_menu = self.builder.get_object("SquaredMenuItemButton")
-            elif config.getint('Menu', 'style') == 3 :
+            elif config.getint('Menu', 'style') == 3:
                 radio_menu = self.builder.get_object("SimpleMenuItemButton")
-            elif config.getint('Menu', 'style') == 4 :
+            elif config.getint('Menu', 'style') == 4:
                 radio_menu = self.builder.get_object("DarkRoundMenuItemButton")
-            elif config.getint('Menu', 'style') == 5 :
+            elif config.getint('Menu', 'style') == 5:
                 radio_menu = self.builder.get_object("DarkSquaredMenuItemButton")
-        except configparser.Error :
+        except configparser.Error:
             radio_menu = self.builder.get_object("DarkRoundMenuItemButton")
         radio_menu.set_active(True)
 
-        try :
-            if config.getint('Panel', 'style') == 1 :
+        try:
+            if config.getint('Panel', 'style') == 1:
                 radio_panel = self.builder.get_object("panelRadio1Light")
-            elif config.getint('Panel', 'style') == 2 :
+            elif config.getint('Panel', 'style') == 2:
                 radio_panel = self.builder.get_object("PanelRadio2Dark")
-        except configparser.Error :
+        except configparser.Error:
             radio_panel = self.builder.get_object("PanelRadio2Dark")
         radio_panel.set_active(True)
 
@@ -340,90 +331,58 @@ class OrtaSettingsManager:
         check_panel = self.builder.get_object("PanelNoBgButton")
         try:
             check_panel.set_active(config.getboolean('Panel', 'flat'))
-        except configparser.Error :
+        except configparser.Error:
             check_panel.set_active(False)
 
         check_midori = self.builder.get_object("OrtaMidoriButton")
-        try :
+        try:
             check_midori.set_active(config.getboolean('Fixes', 'midori'))
-        except configparser.Error :
+        except configparser.Error:
             check_midori.set_active(False)
 
         check_opera = self.builder.get_object("OrtaOperaButton")
-        try :
+        try:
             check_opera.set_active(config.getboolean('Fixes', 'opera'))
-        except configparser.Error :
+        except configparser.Error:
             check_opera.set_active(False)
 
-        try :
-            if config.getboolean('Fixes', 'menu_button') :
-                check_menu_button = self.builder.get_object("OrtaMenuButton")
-                check_menu_button.set_active(True)
-            else :
-                check_menu_button = self.builder.get_object("OrtaMenuButton")
-                check_menu_button.set_active(False)
-        except configparser.Error :
-            check_menu_button = self.builder.get_object("OrtaMenuButton")
+        check_menu_button = self.builder.get_object("OrtaMenuButton")
+        try:
+            check_menu_button.set_active(config.getboolean('Fixes', 'menu_button'))
+        except configparser.Error:
             check_menu_button.set_active(False)
 
-        try :
-            if config.getboolean('Fixes', 'pixbuf_bug') :
-                check_pixbuf = self.builder.get_object("OrtaLucidButton")
-                check_pixbuf.set_active(True)
-            else :
-                check_pixbuf = self.builder.get_object("OrtaLucidButton")
-                check_pixbuf.set_active(False)
-        except configparser.Error :
-            check_pixbuf = self.builder.get_object("OrtaLucidButton")
+        check_pixbuf = self.builder.get_object("OrtaLucidButton")
+        try:
+            check_pixbuf.set_active(config.getboolean('Fixes', 'pixbuf_bug'))
+        except configparser.Error:
             check_pixbuf.set_active(False)
 
-        try :
-            if config.getboolean('Fixes', 'globalmenu') :
-                check_globalmenu = self.builder.get_object("OrtaGlobalMenuButton")
-                check_globalmenu.set_active(True)
-            else :
-                check_globalmenu = self.builder.get_object("OrtaGlobalMenuButton")
-                check_globalmenu.set_active(False)
-        except configparser.Error :
-            check_globalmenu = self.builder.get_object("OrtaLucidButton")
+        check_globalmenu = self.builder.get_object("OrtaGlobalMenuButton")
+        try:
+            check_globalmenu.set_active(config.getboolean('Fixes', 'globalmenu'))
+        except configparser.Error:
             check_globalmenu.set_active(False)
 
-        try :
-            if config.getboolean('Fixes', 'nogtk_transparent_tabs') :
-                check_trans_tabs = self.builder.get_object("AllowTransTabsButton")
-                check_trans_tabs.set_active(True)
-            else :
-                check_trans_tabs = self.builder.get_object("AllowTransTabsButton")
-                check_trans_tabs.set_active(False)
-        except configparser.Error :
-            check_trans_tabs = self.builder.get_object("AllowTransTabsButton")
+        check_trans_tabs = self.builder.get_object("AllowTransTabsButton")
+        try:
+            check_trans_tabs.set_active(config.getboolean('Fixes', 'nogtk_transparent_tabs'))
+        except configparser.Error:
             check_trans_tabs.set_active(False)
 
-        try :
-            if config.getboolean('Fixes', 'centered_title') :
-                check_center_title = self.builder.get_object("CenterTitleButton")
-                check_center_title.set_active(True)
-            else :
-                check_center_title = self.builder.get_object("CenterTitleButton")
-                check_center_title.set_active(False)
-        except configparser.Error :
-            check_center_title = self.builder.get_object("CenterTitleButton")
+        check_center_title = self.builder.get_object("CenterTitleButton")
+        try:
+            check_center_title.set_active(config.getboolean('Fixes', 'centered_title'))
+        except configparser.Error:
             check_center_title.set_active(False)
 
-        try :
-            if config.getboolean('Fixes', 'nautilus_fix') :
-                check_nautilus_fix = self.builder.get_object("NautilusFixButton")
-                check_nautilus_fix.set_active(True)
-            else :
-                check_nautilus_fix = self.builder.get_object("NautilusFixButton")
-                check_nautilus_fix.set_active(False)
-        except configparser.Error :
-            check_nautilus_fix = self.builder.get_object("NautilusFixButton")
+        check_nautilus_fix = self.builder.get_object("NautilusFixButton")
+        try:
+            check_nautilus_fix.set_active(config.getboolean('Fixes', 'nautilus_fix'))
+        except configparser.Error:
             check_nautilus_fix.set_active(False)
 
-
-#buttons callback methods
-
+    #buttons callback methods
     def on_remove_old_toggled(self, widget, data=None):
         global remove_old
         remove_old = not remove_old
@@ -608,17 +567,16 @@ class OrtaSettingsManager:
         global nautilus_fix
         nautilus_fix = not nautilus_fix
 
-#extract the theme files
+    #extract the theme files
     def on_install_clicked(self, widget, data=None):
-        install_for_all_dialog = self.builder.get_object("InstallForAllUsers")
-        install_for_all_dialog.show()
+        self.builder.get_object("InstallForAllUsers").show()
         set_home()
         os.system("tar -xvf " + _curdir + "/Orta.tar.gz -C ~/.orta/gtk")
         os.system("tar -xvf " + _curdir + "/Orta-Old.tar.gz -C ~/.orta/gtk")
         os.system("tar -xvf " + _curdir + "/Orta-Squared.tar.gz -C ~/.orta/gtk")
         os.system("tar -xvf " + _curdir + "/Orta-Old-Squared.tar.gz -C ~/.orta/gtk")
 
-#installs on /usr/share/themes
+    #installs on /usr/share/themes
     def on_install_for_all_yes_clicked(self, widget, data=None):
         global install_squared
         global install_old
@@ -628,18 +586,15 @@ class OrtaSettingsManager:
         uninstall_all = uninstall(True, False)
         install_for_all = install(install_squared, install_old, ensure_permissions, True)
 
-        install_for_all_dialog = self.builder.get_object("InstallForAllUsers")
-        install_for_all_dialog.hide()
+        self.builder.get_object("InstallForAllUsers").hide()
 
-#check if the theme is actually installed
-        if install_for_all :
-            installation_dialog = self.builder.get_object("InstallationSucceededDialog")
-            installation_dialog.show()
-        else :
-            installation_aborted_dialog = self.builder.get_object("InstallationAbortedDialog")
-            installation_aborted_dialog.show()
+        #check if the theme is actually installed
+        if install_for_all:
+             self.builder.get_object("InstallationSucceededDialog").show()
+        else:
+            self.builder.get_object("InstallationAbortedDialog").show()
 
-#install on ~/.themes
+    #install on ~/.themes
     def on_install_for_all_no_clicked(self, widget, data=None):
         global install_squared
         global install_old
@@ -649,90 +604,74 @@ class OrtaSettingsManager:
         uninstall_local = uninstall(False, False)
         install_local = install(install_squared, install_old, ensure_permissions, False)
 
-        install_for_all_dialog = self.builder.get_object("InstallForAllUsers")
-        install_for_all_dialog.hide()
+        self.builder.get_object("InstallForAllUsers").hide()
 
-#check if the theme is actually installed
-        if install_local :
+        #check if the theme is actually installed
+        if install_local:
             installation_dialog = self.builder.get_object("InstallationSucceededDialog")
             installation_dialog.show()
-        else :
+        else:
             installation_aborted_dialog = self.builder.get_object("InstallationAbortedDialog")
             installation_aborted_dialog.show()
 
     
-#installation canceled
+    #installation canceled
     def on_install_cancel_clicked(self, widget, data=None):
-        install_for_all_dialog = self.builder.get_object("InstallForAllUsers")
-        install_for_all_dialog.hide()
-        installation_aborted_dialog = self.builder.get_object("InstallationAbortedDialog")
-        installation_aborted_dialog.show()
+        self.builder.get_object("InstallForAllUsers").hide()
+        self.builder.get_object("InstallationAbortedDialog").show()
 
-#installation successful
+    #installation successful
     def on_installation_ok_clicked(self, widget, data=None):
-        installation_dialog = self.builder.get_object("InstallationSucceededDialog")
-        installation_dialog.hide()
+        self.builder.get_object("InstallationSucceededDialog").hide()
 
-#try to launch gnome-appearance-properties
-        try :
+        #try to launch gnome-appearance-properties
+        try:
             subprocess.Popen('gnome-appearance-properties')
-        except Exception :
-            no_gnome_dialog = self.builder.get_object("GnomeNotFoundDialog")
-            no_gnome_dialog.show()
+        except Exception:
+            self.builder.get_object("GnomeNotFoundDialog").show()
 
-#installation aborted
+    #installation aborted
     def on_installation_aborted_close_clicked(self, widget, data=None):
-            installation_aborted_dialog = self.builder.get_object("InstallationAbortedDialog")
-            installation_aborted_dialog.hide()
+            self.builder.get_object("InstallationAbortedDialog").hide()
 
-#uninstall
+    #uninstall
     def on_uninstall_clicked(self, widget, data=None):
-        uninstall_remove_dialog = self.builder.get_object("UninstallRemoveFiles")
-        uninstall_remove_dialog.show()
+        self.builder.get_object("UninstallRemoveFiles").show()
 
-#remove everything
+    #remove everything
     def on_remove_files_yes(self, widget, data=None):
-        uninstall_remove_dialog = self.builder.get_object("UninstallRemoveFiles")
-        uninstall_remove_dialog.hide()
+        self.builder.get_object("UninstallRemoveFiles").hide()
 
         uninstall_all = uninstall(True, True)
 
-        if uninstall_all :
-            uninstall_dialog = self.builder.get_object("UninstallCompletedDialog")
-            uninstall_dialog.show()
-        else :
-            uninstall_failed = self.builder.get_object("UninstallFailed")
-            uninstall_failed.show()
-#remove theme only
+        if uninstall_all:
+            self.builder.get_object("UninstallCompletedDialog").show()
+        else:
+            self.builder.get_object("UninstallFailed").show()
+    #remove theme only
     def on_remove_files_no(self, widget, data=None):
-        uninstall_remove_dialog = self.builder.get_object("UninstallRemoveFiles")
-        uninstall_remove_dialog.hide()
+        self.builder.get_object("UninstallRemoveFiles").hide()
 
         uninstall_theme = uninstall(True, False)
 
-        if uninstall_theme :
-            uninstall_dialog = self.builder.get_object("UninstallCompletedDialog")
-            uninstall_dialog.show()
-        else :
-            uninstall_failed = self.builder.get_object("UninstallFailed")
-            uninstall_failed.show()
+        if uninstall_theme:
+            self.builder.get_object("UninstallCompletedDialog").show()
+        else:
+            self.builder.get_object("UninstallFailed").show()
 
     def on_uninstall_failed_close(self, widget, data=None):
-        uninstall_failed = self.builder.get_object("UninstallFailed")
-        uninstall_failed.hide()
+        self.builder.get_object("UninstallFailed").hide()
 
     def on_uninstall_cancel_clicked(self, widget, data=None):
-        uninstall_remove_dialog = self.builder.get_object("UninstallRemoveFiles")
-        uninstall_remove_dialog.hide()
+        self.builder.get_object("UninstallRemoveFiles").hide()
 
     def on_uninstall_completed_close_clicked(self, widget, data=None):
-        uninstall_dialog = self.builder.get_object("UninstallCompletedDialog")
-        uninstall_dialog.hide()
+        self.builder.get_object("UninstallCompletedDialog").hide()
         
 
-#saves the new settings
+    #saves the new settings
     def on_save_clicked(self, widget, data=None):
-#our settings
+    #our settings
         settings = ''
         settings_rc = '/usr/share/themes/Orta/gtk-2.0/settings.rc'
         settings_rc_local = "~/.themes/Orta/gtk-2.0/settings.rc"
@@ -745,404 +684,341 @@ class OrtaSettingsManager:
         all_users = 3
         all_users_backup = 3
 
-#make sure the theme is installed. Priority is given to a local installation
-#since in the case that the theme is installed both globally and locally the
-#local version will be the one used in most cases.
-        if os.path.isfile(settings_rc_local) :
+        #make sure the theme is installed. Priority is given to a local installation
+        #since in the case that the theme is installed both globally and locally the
+        #local version will be the one used in most cases.
+        if os.path.isfile(settings_rc_local):
             all_users = 1
-        elif os.path.isfile(settings_rc) :
+        elif os.path.isfile(settings_rc):
             all_users = 2
 
-#check for a backup settings file
-        if os.path.isfile(settings_backup_local) :
+        #check for a backup settings file
+        if os.path.isfile(settings_backup_local):
             all_users_backup = 1
-        elif os.path.isfile(settings_backup) :
+        elif os.path.isfile(settings_backup):
             all_users_backup = 2
 
+        if all_users < 3:
 
-        if all_users < 3 :
-
-            if gradient_type == 1 :
-                if globalmenu :
+            if gradient_type == 1:
+                if globalmenu:
                     settings += 'include "Styles/Gradients/Globalmenu/default-globalmenu.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Gradients/Globalmenu/default.rc"\n'
 
-                if fix_menubar :
+                if fix_menubar:
                     settings += 'include "Styles/Menubar/menubar-default-fix.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Menubar/menubar-default.rc"\n'
 
-                if nogtk_gradient :
+                if nogtk_gradient:
                     settings += 'include "Styles/Gradients/No-Gtk/gradient-default.rc"\n'
 
-                    if fix_menubar :
+                    if fix_menubar:
                         settings += 'include "Styles/Menubar/No-Gtk/menubar-default-fix.rc"\n'
-                    else :
+                    else:
                         settings += 'include "Styles/Menubar/No-Gtk/menubar-default.rc"\n'
 
-            elif gradient_type == 2 :
-                if globalmenu :
+            elif gradient_type == 2:
+                if globalmenu:
                     settings += 'include "Styles/Gradients/Globalmenu/short-globalmenu.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Gradients/Globalmenu/short.rc"\n'
 
-                if fix_menubar :
+                if fix_menubar:
                     settings += 'include "Styles/Menubar/menubar-short-fix.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Menubar/menubar-short.rc"\n'
 
-                if nogtk_gradient :
+                if nogtk_gradient:
                     settings += 'include "Styles/Gradients/No-Gtk/gradient-short.rc"\n'
 
-                    if fix_menubar :
+                    if fix_menubar:
                         settings += 'include "Styles/Menubar/No-Gtk/menubar-short-fix.rc"\n'
-                    else :
+                    else:
                         settings += 'include "Styles/Menubar/No-Gtk/menubar-short.rc"\n'
 
-            elif gradient_type == 3 :
-                if globalmenu :
+            elif gradient_type == 3:
+                if globalmenu:
                     settings += 'include "Styles/Gradients/Globalmenu/none-globalmenu.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Gradients/Globalmenu/none.rc"\n'
 
-                if fix_menubar :
+                if fix_menubar:
                     settings += 'include "Styles/Menubar/menubar-flat-fix.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Menubar/menubar-flat.rc"\n'
 
-
-            if (not nogtk_gradient) or (gradient_type == 3) :
-                if fix_menubar :
+            if (not nogtk_gradient) or (gradient_type == 3):
+                if fix_menubar:
                     settings += 'include "Styles/Menubar/No-Gtk/menubar-flat-fix.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Menubar/No-Gtk/menubar-flat.rc"\n'
 
-            if tabs < 4 :
-                if gradient_type == 1 :
+            if tabs < 4:
+                if gradient_type == 1:
                     settings += 'include "Styles/Notebook/notebook-default.rc"\n'
-                elif gradient_type == 2 :
+                elif gradient_type == 2:
                     settings += 'include "Styles/Notebook/notebook-short.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Notebook/notebook-flat.rc"\n'
-            else :
-                if gradient_type == 1 :
+            else:
+                if gradient_type == 1:
                     settings += 'include "Styles/Notebook/notebook-smooth-default.rc"\n'
-                elif gradient_type == 2 :
+                elif gradient_type == 2:
                     settings += 'include "Styles/Notebook/notebook-smooth-short.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Notebook/notebook-smooth-flat.rc"\n'
             
-            if tabs == 1 :
+            if tabs == 1:
                 settings += 'include "Styles/Tabs/tabs-default.rc"\n'
-            elif tabs == 2 :
+            elif tabs == 2:
                 settings += 'include "Styles/Tabs/tabs-squared.rc"\n'
-            elif tabs == 3 :
-                if reverse_light_tabs :
+            elif tabs == 3:
+                if reverse_light_tabs:
                     settings += 'include "Styles/Tabs/tabs-light-reversed.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Tabs/tabs-light.rc"\n'
-            if tabs == 4 :
-                if gradient_type == 3 :
+            if tabs == 4:
+                if gradient_type == 3:
                     settings += 'include "Styles/Tabs/tabs-smooth-flat.rc"\n'
-                else : 
+                else:
                     settings += 'include "Styles/Tabs/tabs-smooth.rc"\n'
 
-            if tabs == 5 :
-                if gradient_type == 3 :
+            if tabs == 5:
+                if gradient_type == 3:
                     settings += 'include "Styles/Tabs/tabs-smooth-dark-flat.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Tabs/tabs-smooth-dark.rc"\n'
 
-
-            if trans_tabs :
-                if not smooth_nogtk :
+            if trans_tabs:
+                if not smooth_nogtk:
                     settings += 'include "Styles/Notebook/No-Gtk/nogtk-flat.rc"\n'
 
-                    if reverse_light_tabs :
+                    if reverse_light_tabs:
                         settings += 'include "Styles/Tabs/No-Gtk/Transparent/tabs-light-reversed.rc"\n'
-                    else :
+                    else:
                         settings += 'include "Styles/Tabs/No-Gtk/Transparent/tabs-light.rc"\n'
 
-                else :
+                else:
                     settings += 'include "Styles/Notebook/No-Gtk/nogtk-smooth-flat.rc"\n'
                     settings += 'include "Styles/Notebook/notebook-mozilla.rc"\n'
                     settings += 'include "Styles/Tabs/No-Gtk/Transparent/tabs-smooth.rc"\n'
 
-            else :
-                if not smooth_nogtk :
-                    if reverse_light_tabs :
+            else:
+                if not smooth_nogtk:
+                    if reverse_light_tabs:
                         settings += 'include "Styles/Tabs/No-Gtk/tabs-light-reversed.rc"\n'
                         settings += 'include "Styles/Tabs/Mozilla/tabs-light-reversed.rc"\n'
-                    else :
+                    else:
                         settings += 'include "Styles/Tabs/No-Gtk/tabs-light.rc"\n'
                         settings += 'include "Styles/Tabs/Mozilla/tabs-light.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Tabs/No-Gtk/tabs-smooth.rc"\n'
                     settings += 'include "Styles/Notebook/notebook-mozilla.rc"\n'
                     settings += 'include "Styles/Tabs/Mozilla/tabs-smooth-flat.rc"\n'
 
-            if scrollbars == 1 :
+            if scrollbars == 1:
                 settings += 'include "Styles/Sliders/scrollbars-thin.rc"\n'
-            elif scrollbars == 2 :
+            elif scrollbars == 2:
                 settings += 'include "Styles/Sliders/scrollbars-default.rc"\n'
-            elif scrollbars == 3 :
+            elif scrollbars == 3:
                 settings += 'include "Styles/Sliders/scrollbars-wide.rc"\n'
-            elif scrollbars == 4 :
+            elif scrollbars == 4:
                 settings += 'include "Styles/Sliders/scrollbars-wider.rc"\n'
-            elif scrollbars == 5 :
+            elif scrollbars == 5:
                 settings += 'include "Styles/Sliders/scrollbars-widest.rc"\n'
 
-            if nautilus == 2 :
-                if nautilus_fix :
+            if nautilus == 2:
+                if nautilus_fix:
                     settings += 'include "Styles/Nautilus/nautilus-with-menubar-solid.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Nautilus/nautilus-with-menubar.rc"\n'
 
-                if fix_menubar :
+                if fix_menubar:
                     settings += 'include "Styles/Nautilus/nautilus-menubar-fix.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Nautilus/nautilus-menubar.rc"\n'
 
-            elif nautilus == 3 :
-                if nautilus_fix :
+            elif nautilus == 3:
+                if nautilus_fix:
                     settings += 'include "Styles/Nautilus/nautilus-without-menubar-solid.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Nautilus/nautilus-without-menubar.rc"\n'
 
-            if nautilus > 1 :
-                if breadcrumbs ==1 :
+            if nautilus > 1:
+                if breadcrumbs ==1:
                     settings += 'include "Styles/Nautilus/breadcrumbs-default.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Nautilus/breadcrumbs-unified.rc"\n'
 
-            if menu_item < 4 :
-                if opera :
+            if menu_item < 4:
+                if opera:
                     settings += 'include "Styles/Menu/opera-menu.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Menu/menu.rc"\n'
-            else :
-                if opera :
+            else:
+                if opera:
                     settings += 'include "Styles/Menu/opera-menu-dark.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Menu/menu-dark.rc"\n'
 
-            if menu_item == 1 :
+            if menu_item == 1:
                     settings += 'include "Styles/Menu-Item/menu-item-default.rc"\n'
-            if menu_item == 2 :
+            if menu_item == 2:
                     settings += 'include "Styles/Menu-Item/menu-item-squared.rc"\n'
-            if menu_item == 3 :
+            if menu_item == 3:
                     settings += 'include "Styles/Menu-Item/menu-item-simple.rc"\n'
-            if menu_item == 4 :
+            if menu_item == 4:
                     settings += 'include "Styles/Menu-Item/menu-item-dark-round.rc"\n'
-            if menu_item == 5 :
+            if menu_item == 5:
                     settings += 'include "Styles/Menu-Item/menu-item-dark-squared.rc"\n'
 
-            if panel == 1 :
-                if flat_panel :
+            if panel == 1:
+                if flat_panel:
                     settings += 'include "Styles/Panel/panel-light-flat.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Panel/panel-light-default.rc"\n'
 
-            elif panel == 2 :
-                if flat_panel :
+            elif panel == 2:
+                if flat_panel:
                     settings += 'include "Styles/Panel/panel-dark-flat.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Panel/panel-dark-default.rc"\n'
 
-            if expanders == 2 :
+            if expanders == 2:
                 settings += 'include "Styles/Expanders/arrow.rc"\n'
-            elif expanders == 3 :
+            elif expanders == 3:
                 settings += 'include "Styles/Expanders/simple.rc"\n'
-            elif expanders == 4 :
+            elif expanders == 4:
                 settings += 'include "Styles/Expanders/light.rc"\n'
-            elif expanders == 5 :
+            elif expanders == 5:
                 settings += 'include "Styles/Expanders/dark.rc"\n'
 
-            if midori :
-                if reverse_light_tabs :
+            if midori:
+                if reverse_light_tabs:
                     settings += 'include "Styles/Tabs/Midori/tabs-light-reversed.rc"\n'
-                else :
+                else:
                     settings += 'include "Styles/Tabs/Midori/tabs-light.rc"\n'
 
-#tries to write the new settings into a temporary file                  
-            try :               
+            #tries to write the new settings into a temporary file                  
+            try:              
                 settings_file = open(settings_rc_temp, 'wt')
                 settings_file.write(settings)
                 settings_file.close()
-            except Exception :
+            except Exception:
                 settings_error = True
 
-
-            if settings_error :
-                error_dialog = self.builder.get_object("WriteErrorDialog")
-                error_dialog.show()
-#if there was no error          
-            else :
-#save the new settings to ini
+            if settings_error:
+                self.builder.get_object("WriteErrorDialog").show()
+            #if there was no error          
+            else:
+                #save the new settings to ini
                 save = config_save
-                save(self, _configpath, gradient_type, nogtk_gradient, tabs, reverse_light_tabs, smooth_nogtk, expanders, scrollbars, nautilus, breadcrumbs, menu_item, panel, flat_panel, midori, opera, remove_menu, fix_menubar, globalmenu, trans_tabs, center_title, nautilus_fix)
+                save(self, _configpath, gradient_type, nogtk_gradient, tabs,
+                     reverse_light_tabs, smooth_nogtk, expanders, scrollbars,
+                     nautilus, breadcrumbs, menu_item, panel, flat_panel,
+                     midori, opera, remove_menu, fix_menubar, globalmenu,
+                     trans_tabs, center_title, nautilus_fix)
 
-                if all_users == 1 :
-#backup the old settings file
+                if all_users == 1:
+                    #backup the old settings file
                     os.system('mv ' + settings_rc_local + ' ' + settings_backup_local)
-#copy the new settings file
+                    #copy the new settings file
                     os.system('cp -f -T ' + settings_rc_temp + ' ' + settings_rc_local)
 
-#select the right index.theme file for the panel color
-#and the menu button preferences
-                    if panel == 1 :
-                        if remove_menu :
+                    #select the right index.theme file for the panel color
+                    #and the menu button preferences
+                    if panel == 1:
+                        if remove_menu:
                             os.system("cp -f ~/.orta/panel/light/nomenu/index.theme ~/.themes/Orta/")
-                        else :
+                        else:
                             os.system("cp -f ~/.orta/panel/light/index.theme ~/.themes/Orta/")
-                    elif panel == 2 :
-                        if remove_menu :
+                    elif panel == 2:
+                        if remove_menu:
                             os.system("cp -f ~/.orta/panel/dark/nomenu/index.theme ~/.themes/Orta/")
-                        else :
+                        else:
                             os.system("cp -f ~/.orta/panel/dark/index.theme ~/.themes/Orta/")
-                    if center_title :
+                    if center_title:
                         os.system("cp -f ~/.orta/metacity/round/center/metacity-theme-1.xml ~/.themes/Orta/metacity-1")
-                        if os.path.isdir("~/.themes/Orta-Squared") :
+                        if os.path.isdir("~/.themes/Orta-Squared"):
                             os.system("cp -f ~/.orta/metacity/squared/center/metacity-theme-1.xml ~/.themes/Orta-Squared/metacity-1")
-                    else :
+                    else:
                         os.system("cp -f ~/.orta/metacity/round/left/metacity-theme-1.xml ~/.themes/Orta/metacity-1")
-                        if os.path.isdir("~/.themes/Orta-Squared") :
+                        if os.path.isdir("~/.themes/Orta-Squared"):
                             os.system("cp -f ~/.orta/metacity/squared/left/metacity-theme-1.xml ~/.themes/Orta-Squared/metacity-1")
 
-                elif all_users == 2 :
+                elif all_users == 2:
                     os.system("gksu 'mv " + settings_rc + " "  + settings_backup + "'")
                     os.system("gksu 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
 
-                    if panel == 1 :
-                        if remove_menu :
+                    if panel == 1:
+                        if remove_menu:
                             os.system("gksu 'cp -f ~/.orta/panel/light/nomenu/index.theme /usr/share/themes/Orta/'")
-                        else :
+                        else:
                             os.system("gksu 'cp -f ~/.orta/panel/light/index.theme /usr/share/themes/Orta/'")
-                    elif panel == 2 :
-                        if remove_menu :
+                    elif panel == 2:
+                        if remove_menu:
                             os.system("gksu 'cp -f ~/.orta/panel/dark/nomenu/index.theme /usr/share/themes/Orta/'")
-                        else :
+                        else:
                             os.system("gksu 'cp -f ~/.orta/panel/dark/index.theme /usr/share/themes/Orta/'")
 
-                    if center_title :
+                    if center_title:
                         os.system("gksu 'cp -f ~/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                        if os.path.isdir("/usr/share/themes/Orta-Squared") :
+                        if os.path.isdir("/usr/share/themes/Orta-Squared"):
                             os.system("gksu 'cp -f ~/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
-                    else :
+                    else:
                         os.system("gksu 'cp -f ~/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                        if os.path.isdir("/usr/share/themes/Orta-Squared") :
+                        if os.path.isdir("/usr/share/themes/Orta-Squared"):
                             os.system("gksu 'cp -f ~/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+            self.builder.get_object("SettingsSavedDialog").show()
 
-
-            save_dialog = self.builder.get_object("SettingsSavedDialog")
-            save_dialog.show()
-
-        else :
-            if all_users_backup == 1 :
+        else:
+            if all_users_backup == 1:
                 os.system('cp -f ' + settings_backup_local + ' ' + settings_rc_local)
-                settings_restored_dialog = self.builder.get_object("SettingsRestoredDialog")
-                settings_restored_dialog.show()
-            elif all_users_backup == 2 :
+                self.builder.get_object("SettingsRestoredDialog").show()
+            elif all_users_backup == 2:
                 os.system("gksu 'cp -f " + settings_backup + " "  + settings_rc + "'")
-                settings_restored_dialog = self.builder.get_object("SettingsRestoredDialog")
-                settings_restored_dialog.show()
-            else :
-                warning_dialog = self.builder.get_object("OrtaNotInstalledDialog")
-                warning_dialog.show()
+                self.builder.get_object("SettingsRestoredDialog").show()
+            else:
+                self.builder.get_object("OrtaNotInstalledDialog").show()
 
     def on_settings_restore_close_clicked(self, widget, data=None):
-        settings_restored_dialog = self.builder.get_object("SettingsRestoredDialog")
-        settings_restored_dialog.hide()
+        self.builder.get_object("SettingsRestoredDialog").hide()
         
     def on_error_dialog_close_clicked(self, widget, data=None):
-        error_dialog = self.builder.get_object("WriteErrorDialog")
-        error_dialog.hide()
+        self.builder.get_object("WriteErrorDialog").hide()
     
     def on_settings_saved_ok_clicked(self, widget, data=None):
-        save_dialog = self.builder.get_object("SettingsSavedDialog")
-        save_dialog.hide()
-        try :
+        self.builder.get_object("SettingsSavedDialog").hide()
+        try:
             os.system("killall gnome-appearance-properties")
             subprocess.Popen('gnome-appearance-properties')
-        except Exception :
-            no_gnome_dialog = self.builder.get_object("GnomeNotFoundDialog")
-            no_gnome_dialog.show()
+        except Exception:
+            self.builder.get_object("GnomeNotFoundDialog").show()
 
-#restore default settings
+    #restore default settings
     def on_defaults_clicked(self, widget, data=None):
-
-        radio_default_gradient = self.builder.get_object("DefaultGradientButton")
-        radio_default_gradient.set_active(True)
-
-        check_nogtk_gradient = self.builder.get_object("NoGtkGradientButton")
-        if check_nogtk_gradient.get_active() :
-            check_nogtk_gradient.set_active(False)
-
-        radio_tabs = self.builder.get_object("tabsRadio1Default")
-        radio_tabs.set_active(True)
-
-        check_reverse_tabs = self.builder.get_object("ReversedLightTabsButton")
-        if check_reverse_tabs.get_active() :
-            check_reverse_tabs.set_active(False)
-
-        check_light_tabs = self.builder.get_object("UseSmoothNoGtkButton")
-        if check_light_tabs.get_active() :
-            check_light_tabs.set_active(False)
-
-        radio_expanders = self.builder.get_object("DefaultExpanderButton")
-        radio_expanders.set_active(True)
-
-        radio_scrollbars = self.builder.get_object("scrollbarsRadio1Normal")
-        radio_scrollbars.set_active(True)
-
-        radio_menu_item = self.builder.get_object("DefaultMenuItemButton")
-        radio_menu_item.set_active(True)
-
-        radio_nautilus = self.builder.get_object("nautilusRadio1Default")
-        radio_nautilus.set_active(True)
-
-        radio_breadcrumbs = self.builder.get_object("DefaultBreadcrumbsButton")
-        radio_breadcrumbs.set_active(True)
-
-        radio_panel = self.builder.get_object("panelRadio1Light")
-        radio_panel.set_active(True)
-
-        check_flat_panel = self.builder.get_object("PanelNoBgButton")
-        if check_flat_panel.get_active() :
-            check_flat_panel.set_active(False)
-
-        check_midori = self.builder.get_object("OrtaMidoriButton")
-        if check_midori.get_active() :
-            check_midori.set_active(False)
-
-        check_opera = self.builder.get_object("OrtaOperaButton")
-        if check_opera.get_active() :
-            check_opera.set_active(False)
-
-        check_remove_menu = self.builder.get_object("OrtaMenuButton")
-        if check_remove_menu.get_active() :
-            check_remove_menu.set_active(False)
-        
-        check_fix_menubar = self.builder.get_object("OrtaLucidButton")
-        if check_fix_menubar.get_active() :
-            check_fix_menubar.set_active(False)
-
-        check_globalmenu = self.builder.get_object("OrtaGlobalMenuButton")
-        if check_globalmenu.get_active() :
-            check_globalmenu.set_active(False)
-
-        check_tabs_trans = self.builder.get_object("AllowTransTabsButton")
-        if check_tabs_trans.get_active() :
-            check_tabs_trans.set_active(False)
-
-        check_center_title = self.builder.get_object("CenterTitleButton")
-        if check_center_title.get_active() :
-            check_center_title.set_active(False)
-
-        check_nautilus_fix = self.builder.get_object("NautilusFixButton")
-        if check_nautilus_fix.get_active() :
-            check_nautilus_fix.set_active(False)
+        self.builder.get_object("DefaultGradientButton").set_active(True)
+        self.builder.get_object("NoGtkGradientButton").set_active(False)
+        self.builder.get_object("tabsRadio1Default").set_active(True)
+        self.builder.get_object("ReversedLightTabsButton").set_active(False)
+        self.builder.get_object("UseSmoothNoGtkButton").set_active(False)
+        self.builder.get_object("DefaultExpanderButton").set_active(True)
+        self.builder.get_object("scrollbarsRadio1Normal").set_active(True)
+        self.builder.get_object("DefaultMenuItemButton").set_active(True)
+        self.builder.get_object("nautilusRadio1Default").set_active(True)
+        self.builder.get_object("DefaultBreadcrumbsButton").set_active(True)
+        self.builder.get_object("panelRadio1Light").set_active(True)
+        self.builder.get_object("PanelNoBgButton").set_active(False)
+        self.builder.get_object("OrtaMidoriButton").set_active(False)
+        self.builder.get_object("OrtaOperaButton").set_active(False)
+        self.builder.get_object("OrtaMenuButton").set_active(False)
+        self.builder.get_object("OrtaLucidButton").set_active(False)
+        self.builder.get_object("OrtaGlobalMenuButton").set_active(False)
+        self.builder.get_object("AllowTransTabsButton").set_active(False)
+        self.builder.get_object("CenterTitleButton").set_active(False)
+        self.builder.get_object("NautilusFixButton").set_active(False)
 
     def on_mainWindow_destroy(self, widget, data=None):
         gtk.main_quit()
@@ -1151,8 +1027,7 @@ class OrtaSettingsManager:
         gtk.main_quit()
 
     def on_warning_ok_clicked(self, widget, data=None):
-        warning_dialog = self.builder.get_object("OrtaNotInstalledDialog")
-        warning_dialog.hide()
+        self.builder.get_object("OrtaNotInstalledDialog").hide()
     
     def __init__(self):
         self.builder = gtk.Builder()
@@ -1168,7 +1043,7 @@ class OrtaSettingsManager:
 def main():
     settings_manager = OrtaSettingsManager()
     set_home()
-    if not os.path.isfile(_configpath) :
+    if not os.path.isfile(_configpath):
         settings_manager.config_create(_configpath)
     settings_manager.config_restore(_configpath)
     settings_manager.main_loop()
