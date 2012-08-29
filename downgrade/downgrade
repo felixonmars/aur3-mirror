@@ -9,20 +9,22 @@
 errorout() { echo "error: $*" >&2; exit 1; }
 
 message() {
+  local exit_code="${1:-0}"
+
   cat << EOF
 
   usage: downgrade [ -d <dir> ] [ -m <32|64> ] [ -a | -c ] [ -i ] [ -- ] <pkg> ...
     options:
-      -d,--pkgdir       set download directory (A.R.M. only), default is \`~/Packages'
+      -d,--pkgdir       set download directory (A.R.M. only), default is \`/tmp'
       -m,--arch         set search architecture (A.R.M. only), default is determined by \`uname -m\`
       -a,--noarm        don't search the A.R.M. when nothing's available in cache
       -c,--nocache      don't look in cache, go directly to A.R.M.
       -i,--noinstalled  don't show [installed] next to installed versions (speed up)
-
-      -p,--pacman       (deprecated, set a PACMAN env var if not using just \`pacman')
+      -s,--nosudo       don't use sudo, even when available
 
 EOF
-  exit 1
+
+  exit $exit_code
 }
 
 # return the enabled repos in the order of pacman.conf
@@ -71,7 +73,7 @@ arm_packages() {
     repos="${repos}&${repo}=1"
   done
 
-  url="http://arm.konnichi.com/search/raw.php?a=$arch&q=^$term\$$repos"
+  url="http://arm.konnichi.com/search/raw.php?a=$arch&q=%5E$term%24$repos"
 
   tmp=( $(wget -q -O - "$url" 2>/dev/null | grep -v sig$ | sort -rV) )
 
@@ -120,11 +122,11 @@ format_arm() { set ${1//\// }; echo "$3 $6"; }
 run_pacman() {
   local pacman="${PACMAN:-pacman}" cmd
 
-  if [[ $UID -eq 0 ]]; then
+  if ! (( $UID )); then
     errorout 'please do not run downgrade as root; su/sudo will be used when needed'
   fi
 
-  if type -p sudo &>/dev/null; then
+  if $usesudo && type -p sudo &>/dev/null; then
     sudo $pacman "$@"
     return $?
   fi
@@ -141,7 +143,7 @@ check_local_packages() {
   local term="$1" pkg n
   local locals=( $(local_packages "$term") )
 
-  [[ ${#locals[@]} -eq 0 ]] && return 1
+  (( ${#locals[@]} )) || return 1
 
   echo
   echo 'The following packages are available in your cache:'
@@ -175,7 +177,7 @@ check_arm_packages() {
   local term="$1" url pkg n
   local arms=( $(arm_packages "$term") )
 
-  [[ ${#arms[@]} -eq 0 ]] && return 1
+  (( ${#arms[@]} )) || return 1
 
   echo
   echo 'The following packages are available from the A.R.M.:'
@@ -200,15 +202,16 @@ check_arm_packages() {
   run_pacman -U "$pkg"  || errorout "could not install package $pkg"
 }
 
-[[ "$#" -eq 0 ]] && message
+(( "$#" )) || message 1
 
 args=()
 
 # Defaults
-pkgdir="$HOME/Packages" # where to put packages
-searcharm=true          # search arm if not in cache
-searchcache=true        # check in cache before arm
-showinstalled=true      # show [installed] next to installed versions
+pkgdir='/tmp'      # where to put packages
+searcharm=true     # search arm if not in cache
+searchcache=true   # check in cache before arm
+showinstalled=true # show [installed] next to installed versions
+usesudo=true       # use sudo if present
 
 [[ "$(uname -m)" = 'x86_64' ]] && arch=64 || arch=32
 
@@ -221,8 +224,10 @@ while [[ -n "$1" ]]; do
     -a|--noarm)       searcharm=false               ;;
     -c|--nocache)     searchcache=false             ;;
     -i|--noinstalled) showinstalled=false           ;;
+    -s|--nosudo)      usesudo=false                 ;;
+    -h|--help)        message                       ;;
     --)               shift; args+=( "$@" ); break  ;;
-    -*)               message                       ;;
+    -*)               message 1                     ;;
     *)                args+=( "$1" )                ;;
   esac
   shift
