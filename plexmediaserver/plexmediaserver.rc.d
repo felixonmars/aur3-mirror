@@ -11,6 +11,7 @@ export TMPDIR="${PLEX_MEDIA_SERVER_TMPDIR}"
 
 touch /var/log/plexmediaserver.log
 chown ${PLEX_MEDIA_SERVER_USER}:${PLEX_MEDIA_SERVER_USER} /var/log/plexmediaserver.log
+ulimit -s ${PLEX_MEDIA_SERVER_MAX_STACK_SIZE}
 
 PID=`pidof -o %PPID /usr/lib/plexmediaserver/Plex\ Media\ Server`
 
