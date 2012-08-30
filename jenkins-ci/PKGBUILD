@@ -2,7 +2,7 @@
 # Contributor: Illarion Kovalchuk <illarion.kovalchuk at gmail dot com>
 
 pkgname=jenkins-ci
-pkgver=1.478
+pkgver=1.479
 pkgrel=1
 epoch=
 pkgdesc="An extendable open source continuous integration server"
@@ -27,7 +27,7 @@ source=(http://mirrors.jenkins-ci.org/war/$pkgver/jenkins.war
         jenkins.systemd
         logrotate)
 noextract=(jenkins.war)
-sha256sums=("6b399691ecece357116e344ed181f20ec337d062a37c044146eab91284741945" "a4b62cc77c23d489249637cb76b5097735bcd9af0563734d16449a3429fe9871" "508b6b938b41f160d585d50b013fe3e445fdf1d540108e14cad9f1d32d209bfd" "3b78e17950fecd5c4d647ee55b190fc84d4b2240145f68d43d3e0c2fb2b35e2d" "2a43bf75c47dd237c510bb02ce2257cc0b75b072850cc89c0436a5039dabde96")
+sha256sums=("3c5be86c36555a984dba16a50e1c25c24f1c65627157377723cedb69a51ba49c" "a4b62cc77c23d489249637cb76b5097735bcd9af0563734d16449a3429fe9871" "508b6b938b41f160d585d50b013fe3e445fdf1d540108e14cad9f1d32d209bfd" "3b78e17950fecd5c4d647ee55b190fc84d4b2240145f68d43d3e0c2fb2b35e2d" "2a43bf75c47dd237c510bb02ce2257cc0b75b072850cc89c0436a5039dabde96")
 package() {
   install -D -m 444 "$srcdir/jenkins.war" "$pkgdir/usr/share/java/jenkins/jenkins.war"
   install -D -m 755 "$srcdir/jenkins.rcd" "$pkgdir/etc/rc.d/jenkins"
