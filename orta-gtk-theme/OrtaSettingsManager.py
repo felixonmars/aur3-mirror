@@ -329,7 +329,7 @@ class OrtaSettingsManager(object):
         remove_old = not remove_old
 
     def on_ensure_permissions_toggled(self, widget, data=None):
-###        global ensure_permissions
+        global ensure_permissions
 ###        ensure_permissions = not ensure_permissions
 
     def on_install_squared_toggled(self, widget, data=None):
