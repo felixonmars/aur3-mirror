@@ -33,8 +33,8 @@ _svnmod=abiword
 
 build() {
     msg "Starting SVN checkout..."
-    install -d $srcdir/$_pkgname/
-    cd $srcdir/$_pkgname/
+    install -d "$srcdir"/$_pkgname/
+    cd "$srcdir"/$_pkgname/
 
     if [[ -d $_svnmod/.svn ]]; then
 	cd $_svnmod && svn up -r $pkgver
@@ -61,11 +61,10 @@ build() {
 	--enable-clipart \
 	--enable-templates \
 	--enable-scripting
-    _corecount=$(grep -i processor /proc/cpuinfo | wc -l)
-    make -j$_corecount
+    make
 }
 
 package() {
-    cd $srcdir/$_pkgname/$_svnmod-build/
-    make DESTDIR=$pkgdir install
+    cd "$srcdir"/$_pkgname/$_svnmod-build/
+    make DESTDIR="$pkgdir" install
 }
