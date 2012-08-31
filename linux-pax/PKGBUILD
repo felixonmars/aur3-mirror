@@ -10,7 +10,7 @@ _kernelname=${pkgname#linux}
 _basekernel=3.5
 _paxver=test21
 pkgver=${_basekernel}.3
-pkgrel=3
+pkgrel=4
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -139,7 +139,7 @@ package_linux-pax() {
 
   # add vmlinux and gcc plugins
   install -Dm644 vmlinux "$pkgdir/usr/src/linux-$_kernver/vmlinux"
-  mkdir "$pkgdir/usr/src/linux-$_kernver/tools/gcc"
+  mkdir -p "$pkgdir/usr/src/linux-$_kernver/tools/gcc"
   install -m644 tools/gcc/*.so "$pkgdir/usr/src/linux-$_kernver/tools/gcc/"
 
   # install fallback mkinitcpio.conf file and preset file for kernel
