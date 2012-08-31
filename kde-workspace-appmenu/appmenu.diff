@@ -206,23 +206,86 @@ index ce69e84..6d49981 100644
  # KWIN_HAVE_XRENDER_COMPOSITING - whether XRender-based compositing support is available: may be disabled
  if( KWIN_BUILD_XRENDER_COMPOSITING )
      set( KWIN_HAVE_XRENDER_COMPOSITING 1 )
+diff --git a/kwin/bridge.cpp b/kwin/bridge.cpp
+index 32d4c84..c88cd89 100644
+--- a/kwin/bridge.cpp
++++ b/kwin/bridge.cpp
+@@ -223,6 +223,15 @@ QRect Bridge::transparentRect() const
+     return c->transparentRect().translated(-c->decorationRect().topLeft());
+ }
+ 
++bool Bridge::menuAvailable() const
++{
++#ifdef KWIN_BUILD_KAPPMENU
++    return c->menuAvailable();
++#else
++    return false;
++#endif
++}
++
+ //BEGIN TABBING
+ 
+ Client *Bridge::clientForId(long id) const
+diff --git a/kwin/bridge.h b/kwin/bridge.h
+index 64108e5..5ec57bc 100644
+--- a/kwin/bridge.h
++++ b/kwin/bridge.h
+@@ -78,6 +78,8 @@ public:
+     virtual bool compositingActive() const;
+     virtual QRect transparentRect() const;
+ 
++    bool menuAvailable() const;
++
+     // Window tabbing
+     virtual QString caption(int idx) const;
+     virtual void closeTab(long id);
 diff --git a/kwin/client.cpp b/kwin/client.cpp
-index c541595..9e17ec0 100644
+index c541595..0a697f7 100644
 --- a/kwin/client.cpp
 +++ b/kwin/client.cpp
-@@ -397,6 +397,10 @@ void Client::updateDecoration(bool check_workspace_pos, bool force)
+@@ -129,6 +129,7 @@ Client::Client(Workspace* ws)
+     , electricMaximizing(false)
+     , activitiesDefined(false)
+     , needsSessionInteract(false)
++    ,m_menuAvailable(false)
+     , input_window(None)
+ {
+     // TODO: Do all as initialization
+@@ -397,6 +398,11 @@ void Client::updateDecoration(bool check_workspace_pos, bool force)
      if (!noBorder()) {
          setMask(QRegion());  // Reset shape mask
          decoration = workspace()->createDecoration(bridge);
 +#ifdef KWIN_BUILD_KAPPMENU
++        connect(this, SIGNAL(showRequest()), decoration, SIGNAL(showRequest()));
 +        connect(this, SIGNAL(appMenuAvailable()), decoration, SIGNAL(appMenuAvailable()));
 +        connect(this, SIGNAL(appMenuUnavailable()), decoration, SIGNAL(appMenuUnavailable()));
 +#endif
          // TODO: Check decoration's minimum size?
          decoration->init();
          decoration->widget()->installEventFilter(this);
+@@ -2483,6 +2489,20 @@ bool Client::isClient() const
+     return true;
+ }
+ 
++#ifdef KWIN_BUILD_KAPPMENU
++void Client::setAppMenuAvailable()
++{
++    emit appMenuAvailable();
++    m_menuAvailable = true;
++}
++
++void Client::setAppMenuUnavailable()
++{
++    emit appMenuUnavailable();
++    m_menuAvailable = false;
++}
++#endif
++
+ } // namespace
+ 
+ #include "client.moc"
 diff --git a/kwin/client.h b/kwin/client.h
-index f31707b..1a16d43 100644
+index f31707b..98616f0 100644
 --- a/kwin/client.h
 +++ b/kwin/client.h
 @@ -24,6 +24,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
@@ -234,24 +297,35 @@ index f31707b..1a16d43 100644
  #include <QFrame>
  #include <QPixmap>
  #include <netwm.h>
-@@ -640,6 +642,11 @@ public:
+@@ -640,6 +642,18 @@ public:
      void setSessionInteract(bool needed);
      virtual bool isClient() const;
  
 +#ifdef KWIN_BUILD_KAPPMENU
-+    void emitAppMenuAvailable() { emit appMenuAvailable(); }
-+    void emitAppMenuUnavailable() { emit appMenuUnavailable(); }
++    // Used by workspace
++    void emitShowRequest() { 
++        emit showRequest(); 
++    }
++    void setAppMenuAvailable();
++    void setAppMenuUnavailable();
++    bool menuAvailable() { 
++        return m_menuAvailable; 
++    }
 +#endif
 +
  public slots:
      void closeWindow();
  
-@@ -729,6 +736,18 @@ signals:
+@@ -729,6 +743,22 @@ signals:
       * another group, but not when a Client gets added or removed to the Client's ClientGroup.
       **/
      void tabGroupChanged();
 +
 +#ifdef KWIN_BUILD_KAPPMENU
++    /**
++     * Emitted whenever the Client want to show it menu
++     */
++    void showRequest();
 +    /**
 +     * Emitted whenever the Client's menu is available
 +     **/
@@ -265,6 +339,16 @@ index f31707b..1a16d43 100644
      /**
       * Emitted whenever the demands attention state changes.
       **/
+@@ -963,6 +993,9 @@ private:
+ 
+     bool needsSessionInteract;
+ 
++#ifdef KWIN_BUILD_KAPPMENU
++    bool m_menuAvailable;
++#endif
+     Window input_window;
+     QPoint input_offset;
+ };
 diff --git a/kwin/clients/oxygen/oxygenbutton.cpp b/kwin/clients/oxygen/oxygenbutton.cpp
 index 28aa8b1..dadc0ed 100644
 --- a/kwin/clients/oxygen/oxygenbutton.cpp
@@ -470,8 +554,36 @@ index 2d12244..0153e0f 100644
      } else if (type == '_') {
          QBitmap bmp = QBitmap::fromData(QSize(spacer_width, spacer_height), spacer_bits);
          bmp.createMaskFromColor(Qt::white);
+diff --git a/kwin/kcmkwin/kwindecoration/preview.cpp b/kwin/kcmkwin/kwindecoration/preview.cpp
+index 587df7c..35b57a1 100644
+--- a/kwin/kcmkwin/kwindecoration/preview.cpp
++++ b/kwin/kcmkwin/kwindecoration/preview.cpp
+@@ -385,6 +385,11 @@ void KDecorationPreviewBridge::showWindowMenu(const QPoint &)
+ {
+ }
+ 
++bool KDecorationPreviewBridge::menuAvailable() const
++{
++    return false;
++}
++
+ void KDecorationPreviewBridge::performWindowOperation(WindowOperation)
+ {
+ }
+diff --git a/kwin/kcmkwin/kwindecoration/preview.h b/kwin/kcmkwin/kwindecoration/preview.h
+index 52645fd..ffe663a 100644
+--- a/kwin/kcmkwin/kwindecoration/preview.h
++++ b/kwin/kcmkwin/kwindecoration/preview.h
+@@ -95,6 +95,7 @@ public:
+     virtual void processMousePressEvent(QMouseEvent*);
+     virtual void showWindowMenu(const QRect &);
+     virtual void showWindowMenu(const QPoint &);
++    virtual bool menuAvailable() const;
+     virtual void performWindowOperation(WindowOperation);
+     virtual void setMask(const QRegion&, int);
+     virtual bool isPreview() const;
 diff --git a/kwin/libkdecorations/kcommondecoration.cpp b/kwin/libkdecorations/kcommondecoration.cpp
-index 13a4c49..ec07bc7 100644
+index 13a4c49..6cfaa8e 100644
 --- a/kwin/libkdecorations/kcommondecoration.cpp
 +++ b/kwin/libkdecorations/kcommondecoration.cpp
 @@ -25,6 +25,8 @@
@@ -483,15 +595,7 @@ index 13a4c49..ec07bc7 100644
  #include <QApplication>
  #include <QBasicTimer>
  #include <QCursor>
-@@ -48,6 +50,7 @@ KCommonDecoration::KCommonDecoration(KDecorationBridge* bridge, KDecorationFacto
-     :   m_previewWidget(0),
-         btnHideMinWidth(200),
-         btnHideLastWidth(0),
-+        m_menuAvailable(false),
-         closing(false),
-         wrapper(new KCommonDecorationWrapper(this, bridge, factory))
- 
-@@ -377,7 +380,7 @@ void KCommonDecoration::addButtons(ButtonContainer &btnContainer, const QString&
+@@ -377,7 +379,7 @@ void KCommonDecoration::addButtons(ButtonContainer &btnContainer, const QString&
                  if (!m_button[MenuButton]) {
                      btn = createButton(MenuButton);
                      if (!btn) break;
@@ -500,7 +604,7 @@ index 13a4c49..ec07bc7 100644
                      btn->setRealizeButtons(Qt::LeftButton | Qt::RightButton);
                      connect(btn, SIGNAL(pressed()), SLOT(menuButtonPressed()));
                      connect(btn, SIGNAL(released()), this, SLOT(menuButtonReleased()));
-@@ -388,6 +391,27 @@ void KCommonDecoration::addButtons(ButtonContainer &btnContainer, const QString&
+@@ -388,6 +390,29 @@ void KCommonDecoration::addButtons(ButtonContainer &btnContainer, const QString&
                      m_button[MenuButton] = btn;
                  }
                  break;
@@ -512,12 +616,14 @@ index 13a4c49..ec07bc7 100644
 +                    btn->setTipText(i18nc("Button showing application menu", "Application Menu"));
 +                    btn->setRealizeButtons(Qt::LeftButton);
 +                    connect(btn, SIGNAL(pressed()), SLOT(appMenuButtonPressed()));
++                    // Application want to show it menu
++                    connect(decoration(), SIGNAL(showRequest()), this, SLOT(appMenuButtonPressed()), Qt::UniqueConnection);
 +                    // Wait for menu to become available before displaying any button
-+                    connect(decoration(), SIGNAL(appMenuAvailable()), this, SLOT(slotAppMenuAvailable()));
++                    connect(decoration(), SIGNAL(appMenuAvailable()), this, SLOT(slotAppMenuAvailable()), Qt::UniqueConnection);
 +                    // On Kded module shutdown, hide application menu button
-+                    connect(decoration(), SIGNAL(appMenuUnavailable()), this, SLOT(slotAppMenuUnavailable()));
++                    connect(decoration(), SIGNAL(appMenuUnavailable()), this, SLOT(slotAppMenuUnavailable()), Qt::UniqueConnection);
 +                    // Application menu button may need to be modified on this signal
-+                    connect(decoration(), SIGNAL(menuHidden()), btn, SLOT(slotAppMenuHidden()));
++                    connect(decoration(), SIGNAL(menuHidden()), btn, SLOT(slotAppMenuHidden()), Qt::UniqueConnection);
 +
 +                    // fix double deletion, see objDestroyed()
 +                    connect(btn, SIGNAL(destroyed(QObject*)), this, SLOT(objDestroyed(QObject*)));
@@ -528,14 +634,14 @@ index 13a4c49..ec07bc7 100644
              case 'S': // OnAllDesktops button
                  if (!m_button[OnAllDesktopsButton]) {
                      btn = createButton(OnAllDesktopsButton);
-@@ -516,7 +540,16 @@ void KCommonDecoration::addButtons(ButtonContainer &btnContainer, const QString&
+@@ -516,7 +541,16 @@ void KCommonDecoration::addButtons(ButtonContainer &btnContainer, const QString&
              if (btn) {
                  btn->setLeft(isLeft);
                  btn->setSize(QSize(layoutMetric(LM_ButtonWidth, true, btn), layoutMetric(LM_ButtonHeight, true, btn)));
 -                btn->show();
 +#ifdef KWIN_BUILD_KAPPMENU
 +                // will be shown later on window registration
-+                if (btn->type() == AppMenuButton) {
++                if (btn->type() == AppMenuButton && !wrapper->menuAvailable()) {
 +                    btn->hide();
 +                } 
 +#endif
@@ -546,7 +652,7 @@ index 13a4c49..ec07bc7 100644
                  btnContainer.append(btn);
              }
  
-@@ -532,10 +565,17 @@ void KCommonDecoration::calcHiddenButtons()
+@@ -532,10 +566,17 @@ void KCommonDecoration::calcHiddenButtons()
      btnHideLastWidth = width();
  
      //Hide buttons in the following order:
@@ -564,20 +670,20 @@ index 13a4c49..ec07bc7 100644
      const int buttonsCount = sizeof(btnArray) / sizeof(btnArray[ 0 ]);
  
      int current_width = width();
-@@ -556,8 +596,10 @@ void KCommonDecoration::calcHiddenButtons()
+@@ -556,8 +597,10 @@ void KCommonDecoration::calcHiddenButtons()
  
              if (! btnArray[i]->isHidden())
                  break; // all buttons shown...
 -
 -            btnArray[i]->show();
 +#ifdef KWIN_BUILD_KAPPMENU
-+            if (btnArray[i]->type() != AppMenuButton || m_menuAvailable)
++            if (btnArray[i]->type() != AppMenuButton || wrapper->menuAvailable())
 +#endif
 +                btnArray[i]->show();
          }
      }
  }
-@@ -755,6 +797,48 @@ void KCommonDecoration::doShowWindowMenu()
+@@ -755,6 +798,40 @@ void KCommonDecoration::doShowWindowMenu()
      showWindowMenu(QRect(menutop, menubottom));
  }
  
@@ -598,10 +704,6 @@ index 13a4c49..ec07bc7 100644
 +void KCommonDecoration::slotAppMenuAvailable()
 +{
 +#ifdef KWIN_BUILD_KAPPMENU
-+    if (m_menuAvailable)
-+        return;
-+
-+    m_menuAvailable = true;
 +    if (m_button[AppMenuButton]) {
 +        m_button[AppMenuButton]->show();
 +        updateLayout();
@@ -612,10 +714,6 @@ index 13a4c49..ec07bc7 100644
 +void KCommonDecoration::slotAppMenuUnavailable()
 +{
 +#ifdef KWIN_BUILD_KAPPMENU
-+    if (!m_menuAvailable)
-+        return;
-+
-+    m_menuAvailable = false;
 +    if (m_button[AppMenuButton]) {
 +        m_button[AppMenuButton]->hide();
 +        updateLayout();
@@ -627,7 +725,7 @@ index 13a4c49..ec07bc7 100644
  {
      if (decorationBehaviour(DB_ButtonHide))
 diff --git a/kwin/libkdecorations/kcommondecoration.h b/kwin/libkdecorations/kcommondecoration.h
-index 3fe9fcf..bc9dec7 100644
+index 3fe9fcf..8178277 100644
 --- a/kwin/libkdecorations/kcommondecoration.h
 +++ b/kwin/libkdecorations/kcommondecoration.h
 @@ -40,6 +40,7 @@ enum ButtonType {
@@ -648,16 +746,8 @@ index 3fe9fcf..bc9dec7 100644
  public:
      virtual Position mousePosition(const QPoint &point) const;
  
-@@ -381,6 +385,7 @@ private:
-     void calcHiddenButtons();
-     int btnHideMinWidth;
-     int btnHideLastWidth;
-+    bool m_menuAvailable;
- 
-     bool closing; // for menu doubleclick closing...
- 
 diff --git a/kwin/libkdecorations/kdecoration.cpp b/kwin/libkdecorations/kdecoration.cpp
-index 71f4f8d..baece53 100644
+index 71f4f8d..76c930b 100644
 --- a/kwin/libkdecorations/kdecoration.cpp
 +++ b/kwin/libkdecorations/kdecoration.cpp
 @@ -25,6 +25,8 @@ DEALINGS IN THE SOFTWARE.
@@ -698,7 +788,19 @@ index 71f4f8d..baece53 100644
  }
  
  KDecoration::~KDecoration()
-@@ -476,6 +493,16 @@ void KDecorationUnstable::showWindowMenu(const QPoint &pos, long id)
+@@ -407,6 +424,11 @@ bool KDecorationUnstable::compositingActive() const
+     return static_cast< KDecorationBridgeUnstable* >(bridge_)->compositingActive();
+ }
+ 
++bool KDecorationUnstable::menuAvailable() const
++{
++    return static_cast< KDecorationBridgeUnstable* >(bridge_)->menuAvailable();
++}
++
+ void KDecorationUnstable::padding(int &left, int &right, int &top, int &bottom) const
+ {
+     left = right = top = bottom = 0;
+@@ -476,6 +498,16 @@ void KDecorationUnstable::showWindowMenu(const QPoint &pos, long id)
  
  //END tabbing
  
@@ -716,7 +818,7 @@ index 71f4f8d..baece53 100644
  {
      return static_cast< KDecorationBridgeUnstable* >(bridge_)->buttonToWindowOperation(button);
 diff --git a/kwin/libkdecorations/kdecoration.h b/kwin/libkdecorations/kdecoration.h
-index 614b902..6a87d94 100644
+index 614b902..a3ab278 100644
 --- a/kwin/libkdecorations/kdecoration.h
 +++ b/kwin/libkdecorations/kdecoration.h
 @@ -188,7 +188,7 @@ public:
@@ -759,7 +861,19 @@ index 614b902..6a87d94 100644
  public:
      /**
       * This method is not any more invoked from KWin core since version 4.8.
-@@ -1040,6 +1046,10 @@ public:
+@@ -979,6 +985,11 @@ public:
+      */
+     bool compositingActive() const;
+ 
++    /**
++     * Returns @a true if menu available for client
++     */
++    bool menuAvailable() const;
++
+     // Window tabbing
+ 
+     /**
+@@ -1040,6 +1051,10 @@ public:
       */
      void showWindowMenu(const QPoint& pos, long id);
      /**
@@ -770,11 +884,15 @@ index 614b902..6a87d94 100644
       * unshadow virtuals
       */
      using KDecoration::caption;
-@@ -1061,6 +1071,15 @@ public Q_SLOTS:
+@@ -1061,6 +1076,19 @@ public Q_SLOTS:
       * @since 4.8
       */
      QRegion region(KDecorationDefines::Region r);
 +Q_SIGNALS:
++    /**
++     * This signal is emitted whenever application want to show it menu
++     */
++    void showRequest();
 +    /**
 +     * This signal is emitted whenever application menu becomes available
 +     */
@@ -786,15 +904,30 @@ index 614b902..6a87d94 100644
  };
  
  inline
+diff --git a/kwin/libkdecorations/kdecorationbridge.h b/kwin/libkdecorations/kdecorationbridge.h
+index b7d0619..f4b37ee 100644
+--- a/kwin/libkdecorations/kdecorationbridge.h
++++ b/kwin/libkdecorations/kdecorationbridge.h
+@@ -96,6 +96,8 @@ public:
+     virtual bool compositingActive() const = 0;
+     virtual QRect transparentRect() const = 0;
+ 
++    virtual bool menuAvailable() const = 0;
++
+     // Window tabbing
+     using KDecorationBridge::caption;
+     virtual QString caption(int idx) const = 0;
 diff --git a/kwin/workspace.cpp b/kwin/workspace.cpp
-index cf3f308..1ee8d36 100644
+index cf3f308..0bc507b 100644
 --- a/kwin/workspace.cpp
 +++ b/kwin/workspace.cpp
-@@ -169,6 +169,13 @@ Workspace::Workspace(bool restore)
+@@ -169,6 +169,15 @@ Workspace::Workspace(bool restore)
      dbus.connect(QString(), "/KWin", "org.kde.KWin", "reinitCompositing",
                   this, SLOT(slotReinitCompositing()));
  
 +#ifdef KWIN_BUILD_KAPPMENU
++    dbus.connect(QString(), "/modules/appmenu", "org.kde.kded", "showRequest",
++                 this, SLOT(slotShowRequest(qulonglong)));
 +    dbus.connect(QString(), "/modules/appmenu", "org.kde.kded", "menuAvailable",
 +                 this, SLOT(slotMenuAvailable(qulonglong)));
 +    dbus.connect(QString(), "/modules/appmenu", "org.kde.kded", "clearMenus",
@@ -804,37 +937,45 @@ index cf3f308..1ee8d36 100644
      // Initialize desktop grid array
      desktopGrid_[0] = 0;
      desktopGrid_[1] = 0;
-@@ -615,6 +622,10 @@ void Workspace::addClient(Client* c, allowed_t)
+@@ -615,6 +624,10 @@ void Workspace::addClient(Client* c, allowed_t)
      if (tabBox()->isDisplayed())
          tab_box->reset(true);
  #endif
 +#ifdef KWIN_BUILD_KAPPMENU
 +        if (m_windowsMenu.removeOne(c->window()))
-+            c->emitAppMenuAvailable();
++            c->setAppMenuAvailable();
 +#endif
  }
  
  void Workspace::addUnmanaged(Unmanaged* c, allowed_t)
-@@ -907,7 +918,25 @@ void Workspace::slotReloadConfig()
+@@ -907,7 +920,33 @@ void Workspace::slotReloadConfig()
  {
      reconfigure();
  }
 +#ifdef KWIN_BUILD_KAPPMENU
-+void Workspace::slotMenuAvailable(qulonglong wid)
++void Workspace::slotShowRequest(qulonglong wid)
 +{
 +    Client *c = findClient(WindowMatchPredicate(wid));
 +
 +    if (c)
-+        c->emitAppMenuAvailable();
++        c->emitShowRequest();
++}
++
++void Workspace::slotMenuAvailable(qulonglong wid)
++{
++    Client *c = findClient(WindowMatchPredicate(wid));
+ 
++    if (c)
++        c->setAppMenuAvailable();
 +    else
 +        m_windowsMenu.append(wid);
 +}
- 
++
 +void Workspace::slotClearMenus()
 +{
 +    Client *c = 0;
 +    foreach (c, clients) {
-+       c->emitAppMenuUnavailable();
++       c->setAppMenuUnavailable();
 +    }
 +}
 +#endif
@@ -842,25 +983,27 @@ index cf3f308..1ee8d36 100644
  {
      reconfigureTimer.start(200);
 diff --git a/kwin/workspace.h b/kwin/workspace.h
-index 16630f7..e1569cb 100644
+index 16630f7..bfd1862 100644
 --- a/kwin/workspace.h
 +++ b/kwin/workspace.h
-@@ -650,6 +650,10 @@ private slots:
+@@ -650,6 +650,11 @@ private slots:
      void writeWindowRules();
      void slotBlockShortcuts(int data);
      void slotReloadConfig();
 +#ifdef KWIN_BUILD_KAPPMENU
++    void slotShowRequest(qulonglong wid);
 +    void slotMenuAvailable(qulonglong wid);
 +    void slotClearMenus();
 +#endif
      void setupCompositing();
      /**
       * Called from setupCompositing() when the CompositingPrefs are ready.
-@@ -928,6 +932,10 @@ private:
+@@ -928,6 +933,11 @@ private:
      QTimer compositeResetTimer; // for compressing composite resets
      bool m_finishingCompositing; // finishCompositing() sets this variable while shutting down
  
 +#ifdef KWIN_BUILD_KAPPMENU
++    //used for menu available before window is mapped
 +    QList<WId> m_windowsMenu;
 +#endif
 +
