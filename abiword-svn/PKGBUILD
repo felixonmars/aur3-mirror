@@ -3,13 +3,13 @@
 
 _pkgname=abiword
 pkgname=$_pkgname-svn
-pkgver=29400
+pkgver=31854
 pkgrel=1
 pkgdesc="A fully-featured word processor (SVN Version)"
 arch=(i686 x86_64)
 url="http://www.abisource.com"
 license=(GPL)
-depends=(fribidi wv goffice-devel librsvg redland evolution-data-server desktop-file-utils)
+depends=(fribidi wv goffice-devel redland evolution-data-server desktop-file-utils)
 makedepends=(boost libwpg libwps telepathy-glib loudmouth asio
     psiconv gtkmathview libwmf link-grammar aiksaurus libots subversion)
 optdepends=('libwpg: wordperfect, wpg plugin'
@@ -25,7 +25,8 @@ optdepends=('libwpg: wordperfect, wpg plugin'
     'libots: ots plugin')
 provides=($_pkgname)
 conflicts=($_pkgname)
-options=(!makeflags)
+options=(!makeflags !libtool)
+install=$_pkgname.install
 
 _svntrunk=http://svn.abisource.com/abiword/trunk/
 _svnmod=abiword
@@ -49,10 +50,9 @@ build() {
     cp -r $_svnmod $_svnmod-build
     cd $_svnmod-build
 
-    msg "Compiling"
+    msg "Compiling..."
     
-    # does ./autogen.sh exist?
-    ./configure --prefix=/usr \
+    ./autogen.sh --prefix=/usr \
 	--sysconfdir=/etc \
 	--localstatedir=/var \
         --disable-maintainer-mode \
