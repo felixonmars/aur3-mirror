@@ -1,9 +1,5 @@
 #!/bin/bash
-if [ "`uname -m`" == "x86_64" ]; then
-  /opt/clonk_rage/clonk64 $*
-else
-  /opt/clonk_rage/clonk $*
-fi
+/opt/clonk_rage/clonk $*
 
 if [ $? == 126 ]; then
   message="You must be in the group 'games' to play Clonk Rage."
