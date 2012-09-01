@@ -35,7 +35,6 @@ panel = 1
 install_squared = False
 install_old = False
 remove_old = False
-###ensure_permissions = False
 
 nogtk_gradient = False
 reverse_light_tabs = False
@@ -61,14 +60,10 @@ def config_save(self, path, gradient_style, gradient_nogtk, tab_style,
     if not config.has_section('Fixes'):
         config.add_section('Fixes')
 
-    config.set('Fixes', 'midori', str(midori))
-    config.set('Fixes', 'opera', str(opera))
-    config.set('Fixes', 'menu_button', str(menu_button))
-    config.set('Fixes', 'pixbuf_bug', str(pixbuf_bug))
-    config.set('Fixes', 'globalmenu', str(globalmenu))
+    for prog in ['midori', 'opera', 'menu_button', 'pixbuf_bug', 'globalmenu', 'nautilus_fix']:
+        config.set('Fixes', prog, str(eval(prog)))
     config.set('Fixes', 'nogtk_transparent_tabs', str(trans_tabs))
     config.set('Fixes', 'centered_title', str(center_title))
-    config.set('Fixes', 'nautilus_fix', str(nautilus_fix))
 
     if not config.has_section('Panel'):
         config.add_section('Panel')
@@ -157,14 +152,8 @@ class OrtaSettingsManager(object):
         config = ConfigParser.ConfigParser()
 
         config.add_section('Fixes')
-        config.set('Fixes', 'midori', 'False')
-        config.set('Fixes', 'opera', 'False')
-        config.set('Fixes', 'menu_button', 'False')
-        config.set('Fixes', 'pixbuf_bug', 'False')
-        config.set('Fixes', 'globalmenu', 'False')
-        config.set('Fixes', 'nogtk_transparent_tabs', 'False')
-        config.set('Fixes', 'centered_title', 'False')
-        config.set('Fixes', 'nautilus_fix', 'False')
+        for prog in ['midori', 'opera', 'menu_button', 'pixbuf_bug', 'globalmenu', 'nogtk_transparent_tabs', 'centered_title', 'nautilus_fix']:
+            config.set('Fixes', prog, 'False')
 
         config.add_section('Panel')
         config.set('Panel', 'style', '2')
@@ -329,8 +318,7 @@ class OrtaSettingsManager(object):
         remove_old = not remove_old
 
     def on_ensure_permissions_toggled(self, widget, data=None):
-        global ensure_permissions
-###        ensure_permissions = not ensure_permissions
+        pass
 
     def on_install_squared_toggled(self, widget, data=None):
         global install_squared
@@ -521,7 +509,6 @@ class OrtaSettingsManager(object):
     def on_install_for_all_yes_clicked(self, widget, data=None):
         global install_squared
         global install_old
-###        global ensure_permissions
         global remove_old
 
         uninstall_all = uninstall(False)
@@ -535,7 +522,6 @@ class OrtaSettingsManager(object):
     def on_install_for_all_no_clicked(self, widget, data=None):
         global install_squared
         global install_old
-###        global ensure_permissions
         global remove_old
 
         uninstall_local = uninstall(False)
@@ -744,16 +730,9 @@ class OrtaSettingsManager(object):
 
                     #select the right index.theme file for the panel color
                     #and the menu button preferences
-                    if panel == 1:
-                        if remove_menu:
-                            system("cp -f " + _home + "/.orta/panel/light/nomenu/index.theme " + _home + "/.themes/Orta/")
-                        else:
-                            system("cp -f " + _home + "/.orta/panel/light/index.theme " + _home + "/.themes/Orta/")
-                    elif panel == 2:
-                        if remove_menu:
-                            system("cp -f " + _home + "/.orta/panel/dark/nomenu/index.theme " + _home + "/.themes/Orta/")
-                        else:
-                            system("cp -f " + _home + "/.orta/panel/dark/index.theme " + _home + "/.themes/Orta/")
+                    system("cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
+                           "/" + ["", "nomenu"][remove_menu] + "/index.theme " + _home + "/.themes/Orta/")
+
                     if center_title:
                         system("cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
                         if path.isdir(_home + "/.themes/Orta-Squared"):
@@ -764,28 +743,18 @@ class OrtaSettingsManager(object):
                             system("cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
 
                 elif all_users == 2:
-                    system("gksu 'mv " + settings_rc + " "  + settings_backup + "'")
-                    system("gksu 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
-
-                    if panel == 1:
-                        if remove_menu:
-                            system("gksu 'cp -f " + _home + "/.orta/panel/light/nomenu/index.theme /usr/share/themes/Orta/'")
-                        else:
-                            system("gksu 'cp -f " + _home + "/.orta/panel/light/index.theme /usr/share/themes/Orta/'")
-                    elif panel == 2:
-                        if remove_menu:
-                            system("gksu 'cp -f " + _home + "/.orta/panel/dark/nomenu/index.theme /usr/share/themes/Orta/'")
-                        else:
-                            system("gksu 'cp -f " + _home + "/.orta/panel/dark/index.theme /usr/share/themes/Orta/'")
-
+                    system("gksudo 'mv " + settings_rc + " "  + settings_backup + "'")
+                    system("gksudo 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
+                    system("gksudo 'cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
+                           "/" + ["", "nomenu"][remove_menu] + "/index.theme /usr/share/themes/Orta/'")
                     if center_title:
-                        system("gksu 'cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
+                        system("gksudo 'cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
                         if path.isdir("/usr/share/themes/Orta-Squared"):
-                            system("gksu 'cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+                            system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
                     else:
-                        system("gksu 'cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
+                        system("gksudo 'cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
                         if path.isdir("/usr/share/themes/Orta-Squared"):
-                            system("gksu 'cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+                            system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
             self.builder.get_object("SettingsSavedDialog").show()
 
         else:
@@ -793,7 +762,7 @@ class OrtaSettingsManager(object):
                 system('cp -f ' + settings_backup_local + ' ' + settings_rc_local)
                 self.builder.get_object("SettingsRestoredDialog").show()
             elif all_users_backup == 2:
-                system("gksu 'cp -f " + settings_backup + " "  + settings_rc + "'")
+                system("gksudo 'cp -f " + settings_backup + " "  + settings_rc + "'")
                 self.builder.get_object("SettingsRestoredDialog").show()
             else:
                 self.builder.get_object("OrtaNotInstalledDialog").show()
