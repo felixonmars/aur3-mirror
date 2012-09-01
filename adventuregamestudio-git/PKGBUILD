@@ -1,7 +1,7 @@
 # Maintainer: Joe Davison <joedavison.davison@gmail.com>
 
 pkgname=adventuregamestudio-git
-pkgver=20120701
+pkgver=20120901
 pkgrel=1
 pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version)"
 arch=('i686' 'x86_64')
@@ -16,13 +16,7 @@ provides=('adventuregamestudio')
 
 _gitroot="https://github.com/adventuregamestudio/ags.git"
 _gitname="ags"
-
-if [ "$CARCH" = "x86_64" ]; then
-	_gitbranch="64bit"
-
-elif [ "$CARCH" = "i686" ]; then
-	_gitbranch="main"
-fi
+_gitbranch="main"
 
 build() {
 	cd "$srcdir"
@@ -46,8 +40,6 @@ build() {
 }
 
 package() {
-	cd "$srcdir/$_gitname-build"
-
-	mkdir -p $pkgdir/usr/bin
-	install -D -m 755 Engine/ags $pkgdir/usr/bin
+	install -D -m 755 $srcdir/ags-build/Engine/ags \
+		$pkgdir/usr/bin/ags
 } 
