@@ -1,0 +1,183 @@
+diff --git a/blueproxy.1 b/blueproxy.1
+index b11a396..cd4ec94 100644
+--- a/blueproxy.1
++++ b/blueproxy.1
+@@ -92,6 +92,8 @@ data.
+ This option is useful to identify the Bluetooth node on which a connection
+ was established (e.g. for location-aware services which all connect to a
+ single TCP server).
++.It Fl s Ar service_uuid
++In Listen mode, registers with specified service UUID.
+ .El
+ .Sh AUTHORS
+ Written by Anil Madhavapeddy
+diff --git a/blueproxy.c b/blueproxy.c
+index 9ecf6f1..66a6f44 100644
+--- a/blueproxy.c
++++ b/blueproxy.c
+@@ -1,3 +1,4 @@
++
+ /*
+  * Copyright (c) 2004 Anil Madhavapeddy <anil@recoil.org>
+  * Copyright (c) 2004 Intel Research Cambridge
+@@ -41,7 +42,7 @@
+ #define DEFAULT_SOCKPATH "/tmp/bluespot"
+ #define DEFAULT_PACKETSIZE 128
+ #define MAX_PACKETSIZE 65535
+-#define MAX_CHANNEL 16
++#define MAX_CHANNEL 32
+ 
+ char hostname[1024] = "localhost";
+ char search_name[256] = "Serial Port";
+@@ -53,6 +54,7 @@ char interface[64] = DEFAULT_INTERFACE;
+ size_t packet_size = DEFAULT_PACKETSIZE;
+ int channels[] = { 1 };
+ size_t num_channels = 1;
++char svc_uuid[100] = {0x00};
+ 
+ /* Prototypes */
+ struct sockpair {
+@@ -84,7 +86,7 @@ main(int argc, char **argv)
+     rchan = 0;
+     set_log_level(L_INFO);
+ 
+-    while ((c = getopt(argc, argv, "qvn:r:e:c:b:p:h:i:?")) != -1) {
++    while ((c = getopt(argc, argv, "qvn:r:e:c:s:b:p:h:i:?")) != -1) {
+         int i;
+         switch (c) {
+         case 'e':
+@@ -123,6 +125,10 @@ main(int argc, char **argv)
+             if (rchan < 0 || rchan > MAX_CHANNEL)
+                 errx(1, "invalid channel %d", rchan);
+             break;
++        case 's':
++            strncpy(svc_uuid, optarg, sizeof(svc_uuid) - 1);
++            svc_uuid[sizeof(svc_uuid) - 1] = '\0';
++            break;
+         case 'n':
+             snprintf(bbid, sizeof bbid, "bbid %s\n", optarg);
+             got_id = 1;
+@@ -195,7 +201,7 @@ usage(void)
+     fprintf(stderr, "Listen mode: blueproxy <options>\n");
+     fprintf(stderr, "Splice mode: blueproxy -r remote_bdaddr -c channel <options>\n");
+     fprintf(stderr, "Scan mode  : blueproxy -e service_name <options>\n");
+-    fprintf(stderr, "  options:  [-q|-v] [-h host] [-p port] [-i interface] [-b packet size] [-n preamble]\n");
++    fprintf(stderr, "  options:  [-q|-v] [-h host] [-p port] [-i interface] [-b packet size] [-n preamble] [-s service_uuid]\n");
+     exit(1);
+ }
+ 
+@@ -284,7 +290,7 @@ listen_on_channel(void *chan)
+     snprintf(id, sizeof id, "ch #%d", channel);
+     logmsg(NULL, L_INFO, "Listening on channel %d", channel);
+ 
+-    registerBlueproxyService(id, interface, channel);
++    registerBlueproxyService(id, interface, channel, svc_uuid);
+     logmsg(NULL, L_INFO, "Registered Serial Port service on channel %d",
+            channel);
+ 
+diff --git a/blueproxy.h b/blueproxy.h
+index 6ebc9f0..28518f4 100644
+--- a/blueproxy.h
++++ b/blueproxy.h
+@@ -36,7 +36,7 @@ int createBluetoothSocket(char *, char *, int);
+ int acceptBluetoothSocket(char *, int);
+ int connectBluetoothSocket(char *, char *, int);
+ struct service_results *doBluetoothServiceInquiry(char *, char *);
+-void registerBlueproxyService(char *, char *, int);
++void registerBlueproxyService(char *, char *, int, char *);
+ void unregisterBlueproxyService(void);
+ 
+ #endif    /* _BLUEPROXY_BLUEPROXY_H */
+diff --git a/freebsd.c b/freebsd.c
+index 401c800..ded5d52 100644
+--- a/freebsd.c
++++ b/freebsd.c
+@@ -103,12 +103,18 @@ doBluetoothServiceInquiry(char *id, char *search_name) {
+ 
+ /* Register the Serial Port profile for the listening channel */
+ void
+-registerBlueproxyService(char *id, char *iface_name, int channel) {
++registerBlueproxyService(char *id, char *iface_name, int chan, char* svc_uuid) {
+     sdp_sp_profile_t sp;
+     bdaddr_t addr;
+ 
+     bdaddr_of_iface_name(iface_name, &addr);
+ 
++    if (svc_uuid && svc_uuid[0]) {
++        logmsg(id, L_CRITICAL,
++               "Setting service uuid is not implemented on FreeBSD yet");
++        exit(1);
++    }
++
+     /* Connect to SDP server if we havent done so yet */
+     if (sdp_sess == NULL) {
+         sdp_sess = sdp_open_local(NULL);
+diff --git a/linux_bluez.c b/linux_bluez.c
+index 330d2e7..6b29ba7 100644
+--- a/linux_bluez.c
++++ b/linux_bluez.c
+@@ -238,7 +238,7 @@ doBluetoothServiceInquiry(char *id, char *search_name) {
+ }
+ 
+ void
+-registerBlueproxyService(char *id, char *iface_name, int chan) {
++registerBlueproxyService(char *id, char *iface_name, int chan, char* svc_uuid) {
+     sdp_list_t *svclass_id, *apseq, *proto[2], *profiles, *root, *aproto;
+     uuid_t root_uuid, sp_uuid, l2cap, rfcomm;
+     sdp_profile_desc_t profile;
+@@ -272,6 +272,42 @@ registerBlueproxyService(char *id, char *iface_name, int chan) {
+     sdp_set_service_classes(&record, svclass_id);
+     sdp_list_free(svclass_id, 0);
+ 
++    if (svc_uuid && svc_uuid[0]) {
++        if (strlen(svc_uuid) < 36) {
++            logmsg(id, L_CRITICAL, "Service UUID is too short");
++            exit(1);
++        }
++        uint8_t service_uuid_bytes[16];
++        int i = 0, j = 0;
++        for (; i < 36; i+=2) {
++            switch (i) {
++            case 8: case 13: case 18: case 23:
++                i++; 
++            }
++            unsigned int b;
++            if (sscanf(svc_uuid+i, "%02X", &b) != 1) {
++                logmsg(id, L_CRITICAL, "Bad service UUID format");
++                exit(1);
++            }
++            service_uuid_bytes[j++] = b;
++        }
++        if (j != sizeof(service_uuid_bytes)) {
++            logmsg(id, L_CRITICAL, "Bad service UUID format");
++            exit(1);
++        }
++
++        uuid_t service_uuid;
++        sdp_uuid128_create(&service_uuid, service_uuid_bytes);
++
++        char str[256] = "";
++        sdp_uuid2strn(&service_uuid, str, 256);
++        printf("Registering service UUID %s\n", str);
++
++        svclass_id = sdp_list_append(0, &service_uuid);
++        sdp_set_service_classes(&record, svclass_id);
++        sdp_list_free(svclass_id, 0);
++    }
++
+     sdp_uuid16_create(&profile.uuid, SERIAL_PORT_PROFILE_ID);
+     profile.version = 0x0100;
+     profiles = sdp_list_append(0, &profile);
+diff --git a/macos.c b/macos.c
+index 2608bc1..15a2fac 100644
+--- a/macos.c
++++ b/macos.c
+@@ -54,7 +54,7 @@ struct service_results *
+ }
+ 
+ void
+-registerBlueproxyService(char *id, char *iface_name, int channel) {
++registerBlueproxyService(char *id, char *iface_name, int chan, char* svc_uuid) {
+     logmsg(id, L_DEBUG,
+            "registerBlueproxyService not implemented on MacOS X yet");
+ }
