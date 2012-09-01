@@ -114,8 +114,9 @@ language = \""$lang"\"
         fi
         
         # launch LIMBO
+        cd ~/.limbo/limbo/drive_c/Program\ Files/limbo/
         export WINEDEBUG=-all
-        wine ~/.limbo/limbo/drive_c/Program\ Files/limbo/limbo.exe
+        wine limbo.exe
 
 
 fi
