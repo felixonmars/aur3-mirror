@@ -5,6 +5,9 @@ if [ ! -d "$HOME/.config/ysflight" ]; then
 	[ -d "$HOME/.config" ] || mkdir "$HOME/.config"
 	cp -r "YSFLIGHT_DIR/config" "$HOME/.config/ysflight"
 fi
+if [ -d "$HOME/.cache/ysflight" ] && [ "$0" -nt "$HOME/.cache/ysflight" ]; then
+	rm -rf "$HOME/.cache/ysflight"
+fi
 if [ ! -d "$HOME/.cache/ysflight" ]; then
 	mkdir -p "$HOME/.cache/ysflight"
 	/usr/bin/lndir -silent "YSFLIGHT_DIR" "$HOME/.cache/ysflight"
