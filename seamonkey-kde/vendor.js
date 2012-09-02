@@ -17,3 +17,4 @@ pref("general.smoothScroll", true);
 pref("accessibility.typeaheadfind.soundURL", none);
 pref("browser.download.manager.scanWhenDone", false);
 pref("browser.showQuitWarning", true);
+pref("browser.startup.homepage_override.mstone", "ignore");
