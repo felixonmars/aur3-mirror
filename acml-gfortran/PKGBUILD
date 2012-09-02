@@ -2,7 +2,7 @@
 
 pkgname=acml-gfortran
 pkgver=5.1.0
-pkgrel=2
+pkgrel=3
 pkgdesc="AMD Core Math Library (ACML) for Linux built with GFORTRAN"
 arch=("x86_64")
 url="http://developer.amd.com"
@@ -46,22 +46,22 @@ build() {
 }
 package(){
 
-	mkdir -p $pkgdir/usr/share/licenses/acml
-	mkdir -p $pkgdir/usr/include/acml
-	mkdir -p $pkgdir/usr/lib/acml
-	mkdir -p $pkgdir/opt/acml
+	mkdir -p $pkgdir/usr/share/licenses/acml-gfortran
+	mkdir -p $pkgdir/usr/include/acml/gfortran
+	mkdir -p $pkgdir/usr/lib/acml/gfortran
+	mkdir -p $pkgdir/opt/acml/gfortran
 
-	cp ${srcdir}/acml/gfortran64${_fma4}/include/*		${pkgdir}/usr/include/acml/
-	cp ${srcdir}/acml/gfortran64${_fma4}/lib/*		${pkgdir}/usr/lib/acml/
-	cp ${srcdir}/acml/gfortran64${_fma4}_mp/lib/*		${pkgdir}/usr/lib/acml/
+	cp ${srcdir}/acml/gfortran64${_fma4}/include/*		${pkgdir}/usr/include/acml/gfortran/
+	cp ${srcdir}/acml/gfortran64${_fma4}/lib/*		${pkgdir}/usr/lib/acml/gfortran/
+	cp ${srcdir}/acml/gfortran64${_fma4}_mp/lib/*		${pkgdir}/usr/lib/acml/gfortran/
 
-	cp -r ${srcdir}/acml/gfortran64${_fma4}/examples	${pkgdir}/opt/acml/examples
-	cp -r ${srcdir}/acml/gfortran64${_fma4}_mp/examples	${pkgdir}/opt/acml/examples_mp
+	cp -r ${srcdir}/acml/gfortran64${_fma4}/examples	${pkgdir}/opt/acml/gfortran/examples
+	cp -r ${srcdir}/acml/gfortran64${_fma4}_mp/examples	${pkgdir}/opt/acml/gfortran/examples_mp
 
-	cp -r ${srcdir}/acml/Doc 				${pkgdir}/opt/acml/
-	cp -r ${srcdir}/acml/util				${pkgdir}/opt/acml/
-	cp ${srcdir}/acml/ReleaseNotes				${pkgdir}/opt/acml/
-	install -D -m644 ${srcdir}/acml/ACML-EULA.txt		${pkgdir}/usr/share/licenses/acml/LICENSE
+	cp -r ${srcdir}/acml/Doc 				${pkgdir}/opt/acml/gfortran/
+	cp -r ${srcdir}/acml/util				${pkgdir}/opt/acml/gfortran/
+	cp ${srcdir}/acml/ReleaseNotes				${pkgdir}/opt/acml/gfortran/
+	install -D -m644 ${srcdir}/acml/ACML-EULA.txt		${pkgdir}/usr/share/licenses/acml-gfortran/LICENSE
 	find "$pkgdir/opt/acml/" -type f -exec chmod 644 {} \;
         find "$pkgdir/opt/acml/" -type d -exec chmod 755 {} \;
 	chown -R root:root "$pkgdir"
