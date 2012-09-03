@@ -37,30 +37,30 @@ build() {
     cd "$srcdir"/$_pkgname/
 
     if [[ -d $_svnmod/.svn ]]; then
-	cd $_svnmod && svn up -r $pkgver
-	cd ../
+        cd $_svnmod && svn up -r $pkgver
+        cd ../
     else
-	svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
+        svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
     fi
     msg "SVN checkout done or server timeout"
 
     msg "Starting make..."
-    
+
     rm -rf $_svnmod-build
     cp -r $_svnmod $_svnmod-build
     cd $_svnmod-build
 
     msg "Compiling..."
-    
+
     ./autogen.sh --prefix=/usr \
-	--sysconfdir=/etc \
-	--localstatedir=/var \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
         --disable-maintainer-mode \
-	--disable-static \
+        --disable-static \
         --enable-plugins \
-	--enable-clipart \
-	--enable-templates \
-	--enable-scripting
+        --enable-clipart \
+        --enable-templates \
+        --enable-scripting
     make
 }
 
