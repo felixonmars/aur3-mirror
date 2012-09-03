@@ -1,7 +1,7 @@
 # Maintainer: 謝致邦<Yeking@Red54.com>
 
 pkgname=aecium
-pkgver=20120727
+pkgver=20120904
 pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64')
@@ -9,23 +9,25 @@ depends=('libpcap')
 makedepends=('git' 'automake' 'autoconf' 'libtool')
 url="http://gitorious.org/aecium"
 license=('GPLv2')
-source=('autogen.sh')
-md5sums=('9f396eadae4b6548bfa1ea2d70974dfb')
+source=('aecium.patch')
+md5sums=('6bddaf1f189f71651a5e15ff0889be75')
 
-_git="https://git.gitorious.org/aecium/mainline.git"
-_gitdir=mainline
+git=mainline
 
 build() {
 	cd $srcdir
-	git clone $_git
-	mv autogen.sh $_gitdir
-	cd $_gitdir
-	./autogen.sh
-	
+	git clone https://git.gitorious.org/aecium/mainline.git
+	mv aecium.patch $git
+	cd $git
+	patch -Np0 -i aecium.patch
+	aclocal
+	autoheader
+	automake --add-missing
+	autoconf
 	./configure --prefix=/usr
 	make
 }
 package(){
-	cd ${srcdir}/$_gitdir
-	make DESTDIR=${pkgdir} install
+	cd $srcdir/$git
+	make DESTDIR=$pkgdir install
 }
