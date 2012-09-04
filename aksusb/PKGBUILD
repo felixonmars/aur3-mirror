@@ -1,8 +1,8 @@
 # Maintainer: Aaron Ali <t0nedef@causal.ca>
 pkgname=aksusb
 pkgver=1.15
-pkgrel=1
-pkgdesc="A daemon for facilitating license file retrieval. Used my lumerical software."
+pkgrel=2
+pkgdesc="A daemon for facilitating license file retrieval. Used by lumerical software."
 arch=( 'i386' 'x86_64' )
 url="http://www.lumerical.com/"
 install=install
