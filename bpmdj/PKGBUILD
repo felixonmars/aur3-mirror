@@ -2,7 +2,7 @@
 # Contributor: rtfreedman  (rob<d0t>til<d0t>freedman<aT>googlemail<d0t>com
 
 pkgname=bpmdj
-pkgver=v4.2_pl3
+pkgver=v4.2_pl4
 pkgrel=1
 pkgdesc="Free Dj tools with a fully automatic BPM counter"
 arch=('i686' 'x86_64')
@@ -13,36 +13,35 @@ optdepends=('alsa-lib: for ALSA playback'
   'jack-audio-connection-kit: for JACK playback')
 
 source=("ftp://bpmdj.yellowcouch.org/bpmdj/bpmdj-${pkgver//_/-}.tar.bz2"
-		"bpmdj-pl3.patch")
-		
+    "defines.archlinux64"
+    "defines.archlinux")
+
 options=(!makeflags !buildflags)
 noextract=(bpmdj-${pkgver//_/-}.tar.bz2)
 
 build() {
   cd "$srcdir"
-  mkdir "$pkgname-$pkgver"
+  mkdir -p "$pkgname-$pkgver"
   tar -xf bpmdj-${pkgver//_/-}.tar.bz2 -C "$pkgname-$pkgver"
 
   cd "$pkgname-$pkgver"
-  patch -Np1 -i ../bpmdj-pl3.patch
-  
-if [ "$CARCH" = "i686" ]; then
-  cat defines.archlinux >defines
-elif [ "$CARCH" = "x86_64" ]; then
-  cat defines.archlinux64 >defines
-fi
+
+  if [ "$CARCH" = "i686" ]; then
+    cat ../defines.archlinux >defines
+  elif [ "$CARCH" = "x86_64" ]; then
+    cat ../defines.archlinux64 >defines
+  fi
   make
 }
 
 package() {
-	cd "$srcdir/$pkgname-$pkgver"
-	mkdir -p "${pkgdir}"/usr/bin
-#  idx2txt
-	cp bpmdj bpmplay bpmmerge bpmcount bpmdjraw "${pkgdir}"/usr/bin
-# docs
-	mkdir -p "${pkgdir}"/usr/share/doc/$pkgname
-	cp authors.txt  changelog.txt readme.txt support.txt \
-		"${pkgdir}"/usr/share/doc/$pkgname
+  cd "$srcdir/$pkgname-$pkgver"
+  mkdir -p "${pkgdir}"/usr/bin
+  #  idx2txt
+  cp bpmdj bpmplay bpmmerge bpmcount bpmdjraw "${pkgdir}"/usr/bin
+  # docs
+  mkdir -p "${pkgdir}"/usr/share/doc/$pkgname
+  cp authors.txt changelog.txt readme.txt support.txt "${pkgdir}"/usr/share/doc/$pkgname
 }
 
 #[Desktop Entry]
@@ -61,5 +60,6 @@ package() {
 #bpmdj-v4.2_pl3/bpmdj-64.png
 #bpmdj-v4.2_pl3/bpmdj-96.png
 
-md5sums=('e2590f2c6b2bd6074438faab9ca547e1'
-         '4c1e2f0344ace7fcc9068b15390c0b25')
+md5sums=('e8fed1eaee68bddccfa8ddb346787e05'
+         '7340f5eba862136b8ba4619ebcf39c8a'
+         '54ccd1e71d2007d3a109cceabbdf8b9e')
