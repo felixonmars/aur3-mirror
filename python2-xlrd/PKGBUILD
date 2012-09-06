@@ -4,7 +4,7 @@
 # Contributor: Douglas Soares de Andrade <dsandrade@gmail.com>
 
 pkgname=python2-xlrd
-pkgver=0.7.9
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="A library for developers to use to extract data from Microsoft Excel (tm) spreadsheet files."
 url="http://www.lexicon.net/sjmachin/xlrd.htm"
@@ -12,7 +12,7 @@ depends=('python2')
 conflicts=("python-xlrd")
 provides=("python-xlrd")
 source=("http://pypi.python.org/packages/source/x/xlrd/xlrd-$pkgver.tar.gz")
-md5sums=('8e6833676d78ef65515481952eb0fd76')
+md5sums=('32af399c1e8b4b1e0b4752bab069f00b')
 arch=('any')
 license=('BSD')
 
