@@ -57,7 +57,7 @@ class IntelFCompiler(BaseIntelFCompiler):
         return ["-FR"]
 
     def get_flags_opt(self):
-        return ['-O1']
+        return ['-O3 -xHost -openmp']
 
     def get_flags_arch(self):
         v = self.get_version()
