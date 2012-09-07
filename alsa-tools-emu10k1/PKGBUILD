@@ -1,6 +1,6 @@
 # Contributor: 3ED <krzysztof1987@gmail.com>
 pkgname=alsa-tools-emu10k1
-pkgver=1.0.25
+pkgver=1.0.26.1
 pkgrel=1
 pkgdesc="ALSA tools package for emu10k1 sound card"
 backup=(etc/rc.d/alsa-emu10k1d etc/conf.d/alsa-emu10k1d)
@@ -9,7 +9,7 @@ arch=('i686' 'x86_64')
 license=('GPL')
 depends=('alsa-lib' 'alsa-utils')
 optdepends=("alsa-tools-emu10k1-gui: dsp editor with gui in qt3")
-sha256sums=('a974d0f3e837796f67d04df88c783aebcf4ac3c5f9ac31e2b65c10e8cb4b1dca'
+sha256sums=('553338693707fe6ddfc430b9edc4cd2677390e200c9e38de82ede3394e733841'
             '4db2b08b8391b60bc4306977090562ba226761e7fcd3932d5780dbf8b34480ff'
             '7f6c82a038ed891fe706552baf401eec65b5b396634d217d8e6a9f1f37d45dfe')
 
