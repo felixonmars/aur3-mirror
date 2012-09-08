@@ -13,8 +13,10 @@ license=('GPL')
 depends=('libpng' 'libx11')
 optdepends=('zenity: for starting alevt-dvb from the menu (alevt.desktop)')
 install=alevt.install
-source=(http://www.goron.de/~froese/alevt/$_pkgbasename-$pkgver.tar.gz
-	http://dl.blackbone-ev.de/pluto/alevt-dvb-demux.patch.tar.bz2
+source=(http://fossies.org/linux/misc/$_pkgbasename-$pkgver.tar.gz
+	http://xawdecode.sourceforge.net/download/pingus/alevt-dvb-demux.patch.tar.bz2
+	#http://www.goron.de/~froese/alevt/$_pkgbasename-$pkgver.tar.gz
+	#http://dl.blackbone-ev.de/pluto/alevt-dvb-demux.patch.tar.bz2
 	alevt.desktop
 	alevt-cap.desktop
 	TeletextDVB.sh
@@ -27,19 +29,19 @@ md5sums=('9d3878030ca25fe76c5d4f288f7b4d0d'
          'ff7633a9a5e691e8918c6c0602692028')
 
 build() {
-  cd $srcdir/$_pkgbasename-$pkgver
-  patch -Np1 -i $srcdir/alevt-dvb-demux.patch
+  cd "$srcdir/$_pkgbasename-$pkgver"
+  patch -Np1 -i "$srcdir/alevt-dvb-demux.patch"
   make
 }
 
 package() {
-  cd $srcdir/$_pkgbasename-$pkgver
+  cd "$srcdir/$_pkgbasename-$pkgver"
   install -m755 -d $pkgdir/usr/{bin,share/man/man1,share/pixmaps,share/applications}
-  install -m755 alevt alevt-cap alevt-date $pkgdir/usr/bin
-  install -m644 alevt.1x alevt-date.1 alevt-cap.1 $pkgdir/usr/share/man/man1
-  install -m644 contrib/mini-alevt.xpm $pkgdir/usr/share/pixmaps
-  install -m644 $srcdir/alevt.desktop $pkgdir/usr/share/applications/
-  install -m644 $srcdir/alevt-cap.desktop $pkgdir/usr/share/applications/
-  install -m755 $srcdir/TeletextDVB.sh $pkgdir/usr/bin
-  install -m755 $srcdir/TeletextDVB-capture.sh $pkgdir/usr/bin
+  install -m755 alevt alevt-cap alevt-date "$pkgdir/usr/bin"
+  install -m644 alevt.1x alevt-date.1 alevt-cap.1 "$pkgdir/usr/share/man/man1"
+  install -m644 contrib/mini-alevt.xpm "$pkgdir/usr/share/pixmaps"
+  install -m644 $srcdir/alevt.desktop "$pkgdir/usr/share/applications/"
+  install -m644 $srcdir/alevt-cap.desktop "$pkgdir/usr/share/applications/"
+  install -m755 $srcdir/TeletextDVB.sh "$pkgdir/usr/bin"
+  install -m755 $srcdir/TeletextDVB-capture.sh "$pkgdir/usr/bin"
 }
