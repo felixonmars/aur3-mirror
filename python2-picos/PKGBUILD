@@ -2,7 +2,7 @@
 pkgname="python2-picos"
 _pkgname="PICOS"
 pkgver="0.1.0"
-pkgrel=1
+pkgrel=2
 pkgdesc="Python interface to conic and integer programming solvers"
 arch=('any')
 url="http://picos.zib.de/"
@@ -19,5 +19,6 @@ package() {
 
 check() {
   cd "$srcdir/$_pkgname-$pkgver"
+  PYTHONPATH=$srcdir/$_pkgname-$pkgver:$PYTHONPATH
   python2 picos/test_picos.py
 }
