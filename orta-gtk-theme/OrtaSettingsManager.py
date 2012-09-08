@@ -20,6 +20,8 @@ import ConfigParser
 _filename = path.basename(argv[0])
 _curdir = path.dirname(path.realpath(argv[0]))
 _home = getenv('HOME')
+_local_prefix = _home + "/.themes/Orta"
+_global_prefix = '/usr/share/themes/Orta'
 _configpath = _home + "/.orta/ortaconfig.ini"
 
 #global variables
@@ -121,10 +123,10 @@ def set_home():
 def uninstall(remove_settings):
     status = 0
     status += system("rm -rf " +
-                     _home + "/.themes/Orta" +
-                     _home + "/.themes/Orta-Squared" +
-                     _home + "/.themes/Orta-Old" +
-                     _home + "/.themes/Orta-Old-Squared")
+                     _local_prefix +
+                     _local_prefix + "-Squared " +
+                     _local_prefix + "-Old " +
+                     _local_prefix + "-Old-Squared")
     if remove_settings:
         status += system("rm -rf " + _home + "/.orta")
     return status == 0
@@ -135,13 +137,13 @@ def install(squared_decorator, old_decorator):
 
     status = 0
     status += system("install -d " + _home + "/.themes")
-    status += system("cp -rf " + _home + "/.orta/gtk/Orta " + _home + "/.themes/Orta")
+    status += system("cp -rf " + _home + "/.orta/gtk/Orta " + _local_prefix)
     if squared_decorator:
-        status += system("cp -rf " + _home + "/.orta/gtk/Orta-Squared " + _home + "/.themes/Orta-Squared")
+        status += system("cp -rf " + _home + "/.orta/gtk/Orta-Squared " + _local_prefix + "-Squared")
         if old_decorator:
-            status += system("cp -rf " + _home + "/.orta/gtk/Orta-Old-Squared " + _home + "/.themes/Orta-Old-Squared")
+            status += system("cp -rf " + _home + "/.orta/gtk/Orta-Old-Squared " + _local_prefix + "-Old-Squared")
     if old_decorator:
-        status += system("cp -rf " + _home + "/.orta/gtk/Orta-Old " + _home + "/.themes/Orta-Old")
+        status += system("cp -rf " + _home + "/.orta/gtk/Orta-Old " + _local_prefix + "-Old")
     return status == 0
 
 #Settings Manager main class
@@ -581,10 +583,10 @@ class OrtaSettingsManager(object):
         #our settings
         all_users = False
         settings = []
-        settings_rc = '/usr/share/themes/Orta/gtk-2.0/settings.rc'
-        settings_rc_local = _home + "/.themes/Orta/gtk-2.0/settings.rc"
-        settings_backup = '/usr/share/themes/Orta/gtk-2.0/~settings.rc'
-        settings_backup_local = _home + '/.themes/Orta/gtk-2.0/~settings.rc'
+        settings_rc = _global_prefix + '/gtk-2.0/settings.rc'
+        settings_rc_local = _local_prefix + "/gtk-2.0/settings.rc"
+        settings_backup = _global_prefix + '/gtk-2.0/~settings.rc'
+        settings_backup_local = _local_prefix + '/gtk-2.0/~settings.rc'
         settings_rc_temp = _home + '/.orta/settings.rc'
 
         #make sure the theme is installed. Priority is given to a local installation
@@ -639,7 +641,7 @@ class OrtaSettingsManager(object):
             settings += ['Nautilus/breadcrumbs-' + ['default', 'unified'][breadcrumbs_unified]]
             settings += ['Nautilus/nautilus-with' + ['', 'out'][nautilus == 3] + '-menubar' + ['', '-solid'][nautilus_fix]]
             if nautilus == 2:
-                    settings += ['Nautilus/nautilus-menubar' + ['', '-fix'][fix_menubar]]
+                settings += ['Nautilus/nautilus-menubar' + ['', '-fix'][fix_menubar]]
 
         if expanders > 1:
             settings += ['Expanders/' + ['arrow', 'simple', 'light', 'dark'][expanders - 2] ]
@@ -674,30 +676,30 @@ class OrtaSettingsManager(object):
             #select the right index.theme file for the panel color
             #and the menu button preferences
             system("cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
-                   "/" + ["", "nomenu"][remove_menu] + "/index.theme " + _home + "/.themes/Orta/")
+                   "/" + ["", "nomenu"][remove_menu] + "/index.theme " + _local_prefix + "/")
 
             if center_title:
-                system("cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
-                if path.isdir(_home + "/.themes/Orta-Squared"):
-                    system("cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
+                system("cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml " + _local_prefix + "/metacity-1")
+                if path.isdir(_local_prefix + "-Squared"):
+                    system("cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml " + _local_prefix + "-Squared/metacity-1")
             else:
-                system("cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
-                if path.isdir(_home + "/.themes/Orta-Squared"):
-                    system("cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
+                system("cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml " + _local_prefix + "/metacity-1")
+                if path.isdir(_local_prefix + "-Squared"):
+                    system("cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml " + _local_prefix + "-Squared/metacity-1")
 
         else:
             system("gksudo 'mv " + settings_rc + " "  + settings_backup + "'")
             system("gksudo 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
             system("gksudo 'cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
-                   "/" + ["", "nomenu"][remove_menu] + "/index.theme /usr/share/themes/Orta/'")
+                   "/" + ["", "nomenu"][remove_menu] + "/index.theme " + _global_prefix + "'")
             if center_title:
-                system("gksudo 'cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                if path.isdir("/usr/share/themes/Orta-Squared"):
-                    system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+                system("gksudo 'cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml " + _global_prefix + "/metacity-1'")
+                if path.isdir(_global_prefix + "-Squared"):
+                    system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml " + _global_prefix + "-Squared/metacity-1'")
             else:
-                system("gksudo 'cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                if path.isdir("/usr/share/themes/Orta-Squared"):
-                    system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+                system("gksudo 'cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml " + _global_prefix + "/metacity-1'")
+                if path.isdir(_global_prefix + "-Squared"):
+                    system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml " + _global_prefix + "-Squared/metacity-1'")
         self.builder.get_object("SettingsSavedDialog").show()
 
     def on_settings_restore_close_clicked(self, widget, data=None):
