@@ -13,6 +13,7 @@ true && pkgname=(
     'adminer-skins-paranoiq'
     'adminer-skins-bueltge'
     'adminer-skins-konya'
+    'adminer-skins-ng9'
     'adminer-skins-pilot'
     'adminer-skins-kahi'
     'adminer-skins-cvicebni-ubor'
@@ -37,19 +38,21 @@ source=(
     'paranoiq.css::https://raw.github.com/vrana/adminer/master/designs/paranoiq/adminer.css'
     'bueltge.css::https://raw.github.com/vrana/adminer/master/designs/bueltge/adminer.css'
     'konya.css::https://raw.github.com/vrana/adminer/master/designs/konya/adminer.css'
+    'ng9.css::https://raw.github.com/vrana/adminer/master/designs/ng9/adminer.css'
     'pilot.css::https://raw.github.com/vrana/adminer/master/designs/pilot/adminer.css'
     'kahi.css::https://raw.github.com/vrana/adminer/master/designs/kahi/adminer.css'
     'cvicebni-ubor.css::https://raw.github.com/vrana/adminer/master/designs/cvicebni-ubor/adminer.css'
     'jukin.css::https://raw.github.com/vrana/adminer/master/designs/jukin/adminer.css'
 )
 
-md5sums=('9c425f04eac407fe98bb1ac608ddbc21'
-         '90fe4e7c6f7db301646ffecffd54dc7c'
-         'f68ef82185d8a747412542065b527571'
+md5sums=('8582848fdb2b459ae96b7f392093be48'
+         '9da6b73dfa3bb538b253676e14c50d1e'
+         '0077baa49eef35467a8c770a44ce40e8'
          '0fc902beadf39389d0ef2a377126db08'
          'aa030a380ca2dca615d01856a333e4d8'
-         '1804a0b68b360a1a0e4b80dac51e04a3'
+         '1520661c238a8460170afa0b49ad894a'
          '0e4e5cbcfe4528e44ba62e34df1e0324'
+         '6c69bf9a12232832d99cf508f2eb8b7f'
          '0429c1df7811e6730e5e5e81f6a3dc10'
          '379d27d158530d478dc68e144c3004c4'
          '34227ef300208595674f421639dace53'
@@ -86,6 +89,10 @@ package_adminer-skins-bueltge() {
 
 package_adminer-skins-konya() {
     _copy_css konya
+}
+
+package_adminer-skins-ng9() {
+    _copy_css ng9
 }
 
 package_adminer-skins-pilot() {
