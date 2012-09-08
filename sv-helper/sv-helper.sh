@@ -1,17 +1,27 @@
-#!/bin/sh
-
+#!/usr/bin/env bash
+set -e
+#set -x
 # Locate the service in the user's $SVDIR or /etc/sv
 function find_service {
   service=$1
   svdir=$(svdir 2>/dev/null)
-  if [ -d "$svdir/../sv/$service" ];then
-    echo "$svdir/../sv/$service"
-  elif [ -d "$svdir/../Service/$service" ];then
-    echo "$svdir/../Service/$service"
-  elif [ -d "$svdir/../Services/$service" ];then
-    echo "$svdir/../Services/$service"
-  elif  [ "$svdir" != "/etc/sv/$service" -a -d "/etc/sv/$service" ];then
-    echo "/etc/sv/$service"
+  if [ "x$service" != "x" ];then
+    if [ -L "$svdir/$service" ];then
+      location=$(readlink -f "$svdir/$service")
+    fi
+  fi
+  if [ "x$location" != "x" ];then
+    echo $location
+  else
+    if [ -d "$svdir/../sv/$service" ];then
+      echo "$svdir/../sv/$service"
+    elif [ -d "$svdir/../Service/$service" ];then
+      echo "$svdir/../Service/$service"
+    elif [ -d "$svdir/../Services/$service" ];then
+      echo "$svdir/../Services/$service"
+    elif  [ "$svdir" != "/etc/sv/$service" -a -d "/etc/sv/$service" ];then
+      echo "/etc/sv/$service"
+    fi
   fi
 }
 
@@ -19,10 +29,24 @@ function find_service {
 function svdir {
   if [ -z $SVDIR ];then
     #echo "using /service" >&2
-    svdir=/service
+    if [ -d /service ];then
+      svdir=/service
+    elif [ -d /etc/service ];then
+      svdir=/etc/service
+    elif [ -d /var/service ];then
+      svdir=/var/service
+    else
+      echo "No service directory found" 1>&2
+      exit 127
+    fi
   else
     #echo "using $SVDIR" >&2
-    svdir=$SVDIR
+    if [ -d "$SVDIR" ];then
+      svdir=$SVDIR
+    else
+      echo "No service directory found" 1>&2
+      exit 127
+    fi
   fi
   echo $svdir
 }
@@ -82,17 +106,23 @@ function usage {
   case "$cmd" in
     sv-enable) echo "sv-enable <service> - Enable a service and start it (will restart on boots)";;
     sv-disable) echo "sv-disable <service> - Disable a service from starting (also stop the service)";;
+    sv-stop) echo "sv-stop <service> - Stop a service (will come back on reboot)";;
+    sv-start) echo "sv-start <service> - Start a stopped service";;
+    sv-restart) echo "sv-restart <service> - Restart a running service";;
     svls) echo "svls [<service>] - Show list of services (Default: all services, pass a service name to see just one)";;
     sv-find) echo "sv-find <service> - Find a service, if it exists";;
     sv-list) echo "sv-list - List available services";;
-    *) echo "Invalid command (sv-list svls sv-find sv-enable sv-disable)";;
+    *) echo "Invalid command (sv-list svls sv-find sv-enable sv-disable sv-stop sv-restart sv-start sv-stop)";;
   esac
 }
 
 # Start main program
 
 cmd=$(basename $0) # Get the command
-
+if [ "$cmd" == "sv-helper" -o "$cmd" == "sv-helper.sh" ];then
+  cmd=$1
+  shift
+fi
 # help
 while getopts h options
 do
@@ -103,11 +133,15 @@ do
 done
 
 case "$cmd" in
-  sv-enable) enable $@;;
-  sv-disable) disable $@;;
-  svls) list $@;;
-  sv-find) find_service $@;;
-  sv-list) find $(find_service) -maxdepth 1 -mindepth 1 -type d -exec basename {} \; ;;
+  enable|sv-enable) enable $@;;
+  disable|sv-disable) disable $@;;
+  start|sv-start) sv u $(find_service $@);;
+  restart|sv-restart) sv t $(find_service $@);;
+  stop|sv-stop) sv d $(find_service $@);;
+  ls|svls) list $@;;
+  find|sv-find) find_service $@;;
+  list|sv-list) find $(find_service) -maxdepth 1 -mindepth 1 -type d -exec basename {} \; ;;
   *) usage;
-    break;;
+     break;;
 esac
+
