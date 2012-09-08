@@ -28,7 +28,6 @@ tabs = 1
 expanders = 1
 scrollbars = 2
 nautilus = 1
-breadcrumbs = 1
 menu_item = 1
 panel = 1
 
@@ -36,6 +35,7 @@ install_squared = False
 install_old = False
 remove_old = False
 
+breadcrumbs_unified = False
 nogtk_gradient = False
 reverse_light_tabs = False
 smooth_nogtk = False
@@ -80,7 +80,7 @@ def config_save(self, path, gradient_style, gradient_nogtk, tab_style,
         config.add_section('Nautilus')
 
     config.set('Nautilus', 'style', str(nautilus_style))
-    config.set('Nautilus', 'breadcrumbs', str(breadcrumbs_style))
+    config.set('Nautilus', 'breadcrumbs_unified', str(breadcrumbs_style))
 
     if not config.has_section('Scrollbars'):
         config.add_section('Scrollbars')
@@ -164,7 +164,7 @@ class OrtaSettingsManager(object):
 
         config.add_section('Nautilus')
         config.set('Nautilus', 'style', '1')
-        config.set('Nautilus', 'breadcrumbs', '1')
+        config.set('Nautilus', 'breadcrumbs_unified', 'False')
 
         config.add_section('Scrollbars')
         config.set('Scrollbars', 'size', '2')
@@ -241,10 +241,10 @@ class OrtaSettingsManager(object):
         self.builder.get_object("nautilusRadio" + ["1Default", "2Elementary", "3ElementaryNM"][radio_nautilus]).set_active(True)
 
         try:
-            nautilus_breadcrumbs_int = config.getint('Nautilus', 'breadcrumbs') - 1
+            radio_breadcrumbs = config.getboolean('Nautilus', 'breadcrumbs_unified')
         except ConfigParser.Error:
-            nautilus_breadcrumbs_int = 0
-        self.builder.get_object(["Default", "Unified"][nautilus_breadcrumbs_int] + "BreadcrumbsButton").set_active(True)
+            radio_breadcrumbs = False
+        self.builder.get_object(["Default", "Unified"][radio_breadcrumbs] + "BreadcrumbsButton").set_active(True)
 
         try:
             radio_menu = config.getint('Menu', 'style') - 1
@@ -425,12 +425,12 @@ class OrtaSettingsManager(object):
         nautilus = 3
 
     def on_default_breadcrumbs_toggled(self, widget, data=None):
-        global breadcrumbs
-        breadcrumbs = 1
+        global breadcrumbs_unified
+        breadcrumbs_unified = False
 
     def on_unified_breadcrumbs_toggled(self, widget, data=None):
-        global breadcrumbs
-        breadcrumbs = 2
+        global breadcrumbs_unified
+        breadcrumbs_unified = True
 
     def on_default_menu_item_toggled(self, widget, data=None):
         global menu_item
@@ -578,191 +578,127 @@ class OrtaSettingsManager(object):
 
     #saves the new settings
     def on_save_clicked(self, widget, data=None):
-    #our settings
-        settings = ''
+        #our settings
+        all_users = False
+        settings = []
         settings_rc = '/usr/share/themes/Orta/gtk-2.0/settings.rc'
         settings_rc_local = _home + "/.themes/Orta/gtk-2.0/settings.rc"
         settings_backup = '/usr/share/themes/Orta/gtk-2.0/~settings.rc'
         settings_backup_local = _home + '/.themes/Orta/gtk-2.0/~settings.rc'
         settings_rc_temp = _home + '/.orta/settings.rc'
 
-        settings_error = False
-
-        all_users = 3
-        all_users_backup = 3
-
         #make sure the theme is installed. Priority is given to a local installation
         #since in the case that the theme is installed both globally and locally the
         #local version will be the one used in most cases.
         if path.isfile(settings_rc_local):
-            all_users = 1
+            pass
         elif path.isfile(settings_rc):
-            all_users = 2
-
-        #check for a backup settings file
-        if path.isfile(settings_backup_local):
-            all_users_backup = 1
+            all_users = True
+        # otherwise check for a backup settings file
+        elif path.isfile(settings_backup_local):
+            system('cp -f ' + settings_backup_local + ' ' + settings_rc_local)
+            self.builder.get_object("SettingsRestoredDialog").show()
+            return
         elif path.isfile(settings_backup):
-            all_users_backup = 2
+            system("gksudo 'cp -f " + settings_backup + " "  + settings_rc + "'")
+            self.builder.get_object("SettingsRestoredDialog").show()
+            return
+        # failing that, report that Orta isn't installed
+        else:
+            self.builder.get_object("OrtaNotInstalledDialog").show()
+            return
 
-        if all_users < 3:
-            gradient_type_string = ['default', 'short', 'flat'][gradient_type - 1]
-            settings += 'include "Styles/Gradients/Globalmenu/' + \
-                ['none', gradient_type_string][gradient_type < 3] + ['', '-globalmenu'][globalmenu] + '.rc"\n'
-            settings += 'include "Styles/Menubar/menubar-' + gradient_type_string + ['', '-fix'][fix_menubar] + '.rc"\n'
+        gradient_type_string = ['default', 'short', 'flat'][gradient_type - 1]
+        settings += ['Gradients/Globalmenu/' + ['none', gradient_type_string][gradient_type < 3] + ['', '-globalmenu'][globalmenu]]
+        settings += ['Menubar/menubar-' + gradient_type_string + ['', '-fix'][fix_menubar]]
+        settings += ['Notebook/notebook-' + ['smooth-', ''][tabs < 4] + gradient_type_string]
+        settings += ['Tabs/tabs-' + ['default', 'squared', 'light' + ['', '-reversed'][reverse_light_tabs], 'smooth', 'smooth-dark'][tabs] + ['', '-flat'][tabs > 3 and gradient_type == 3]]
+        settings += ['Tabs/No-Gtk/' + ['', 'Transparent'][trans_tabs] + 'tabs-light' + ['', '-reversed'][reverse_light_tabs]]
+        settings += ['Sliders/scrollbars-' + ['thin', 'default', 'wide', 'wider', 'widest'][scrollbars - 1]]
+        settings += ['Menu/' + ['', 'opera-'][opera] + ['-dark', ''][menu_item < 4] + 'menu']
+        settings += ['Menu-Item/menu-item-' + ['default', 'squared', 'simple', 'dark-round', 'dark-squared'][menu_item - 1]]
+        settings += ['Panel/panel-'+ ['light', 'dark'][panel - 1] + '-' + ['default', 'flat'][flat_panel]]
 
-            if nogtk_gradient:
-                if gradient_type != 3:
-                    settings += 'include "Styles/Gradients/No-Gtk/gradient-' + gradient_type_string + '.rc"\n'
-                settings += 'include "Styles/Menubar/No-Gtk/menubar-' + gradient_type_string + ['', '-fix'][fix_menubar] + '.rc"\n'
+        if nogtk_gradient:
+            settings += ['Menubar/No-Gtk/menubar-' + gradient_type_string + ['', '-fix'][fix_menubar]]
+            if gradient_type != 3:
+                settings += ['Gradients/No-Gtk/gradient-' + gradient_type_string]
 
-            settings += 'include "Styles/Notebook/notebook-' + ['smooth-', ''][tabs < 4] + gradient_type_string + '.rc"\n'
+        if trans_tabs:
+            settings += ['Notebook/No-Gtk/nogtk-' + ['', 'smooth-'][smooth_nogtk] + 'flat']
+            if smooth_nogtk:
+                settings += ['Notebook/notebook-mozilla']
+                settings += ['Tabs/No-Gtk/Transparent/tabs-smooth']
+        else:
+            settings += ['Tabs/Mozilla/tabs-' + ['light' + ['', '-reversed'][reverse_light_tabs], 'smooth-flat'][smooth_nogtk]]
+            if smooth_nogtk:
+                settings += ['Tabs/No-Gtk/tabs-smooth']
+                settings += ['Notebook/notebook-mozilla']
 
-            if tabs == 1:
-                settings += 'include "Styles/Tabs/tabs-default.rc"\n'
-            elif tabs == 2:
-                settings += 'include "Styles/Tabs/tabs-squared.rc"\n'
-            elif tabs == 3:
-                if reverse_light_tabs:
-                    settings += 'include "Styles/Tabs/tabs-light-reversed.rc"\n'
-                else:
-                    settings += 'include "Styles/Tabs/tabs-light.rc"\n'
-            elif tabs == 4:
-                if gradient_type == 3:
-                    settings += 'include "Styles/Tabs/tabs-smooth-flat.rc"\n'
-                else:
-                    settings += 'include "Styles/Tabs/tabs-smooth.rc"\n'
-
-            elif tabs == 5:
-                if gradient_type == 3:
-                    settings += 'include "Styles/Tabs/tabs-smooth-dark-flat.rc"\n'
-                else:
-                    settings += 'include "Styles/Tabs/tabs-smooth-dark.rc"\n'
-
-            if trans_tabs:
-                if not smooth_nogtk:
-                    settings += 'include "Styles/Notebook/No-Gtk/nogtk-flat.rc"\n'
-
-                    if reverse_light_tabs:
-                        settings += 'include "Styles/Tabs/No-Gtk/Transparent/tabs-light-reversed.rc"\n'
-                    else:
-                        settings += 'include "Styles/Tabs/No-Gtk/Transparent/tabs-light.rc"\n'
-
-                else:
-                    settings += 'include "Styles/Notebook/No-Gtk/nogtk-smooth-flat.rc"\n'
-                    settings += 'include "Styles/Notebook/notebook-mozilla.rc"\n'
-                    settings += 'include "Styles/Tabs/No-Gtk/Transparent/tabs-smooth.rc"\n'
-
-            else:
-                if not smooth_nogtk:
-                    if reverse_light_tabs:
-                        settings += 'include "Styles/Tabs/No-Gtk/tabs-light-reversed.rc"\n'
-                        settings += 'include "Styles/Tabs/Mozilla/tabs-light-reversed.rc"\n'
-                    else:
-                        settings += 'include "Styles/Tabs/No-Gtk/tabs-light.rc"\n'
-                        settings += 'include "Styles/Tabs/Mozilla/tabs-light.rc"\n'
-                else:
-                    settings += 'include "Styles/Tabs/No-Gtk/tabs-smooth.rc"\n'
-                    settings += 'include "Styles/Notebook/notebook-mozilla.rc"\n'
-                    settings += 'include "Styles/Tabs/Mozilla/tabs-smooth-flat.rc"\n'
-
-            settings += 'include "Styles/Sliders/scrollbars-' + ['thin', 'default', 'wide', 'wider', 'widest'][scrollbars - 1] + '.rc"\n'
-
+        if nautilus > 1:
+            settings += ['Nautilus/breadcrumbs-' + ['default', 'unified'][breadcrumbs_unified]]
+            settings += ['Nautilus/nautilus-with' + ['', 'out'][nautilus == 3] + '-menubar' + ['', '-solid'][nautilus_fix]]
             if nautilus == 2:
-                if nautilus_fix:
-                    settings += 'include "Styles/Nautilus/nautilus-with-menubar-solid.rc"\n'
-                else:
-                    settings += 'include "Styles/Nautilus/nautilus-with-menubar.rc"\n'
+                    settings += ['Nautilus/nautilus-menubar' + ['', '-fix'][fix_menubar]]
 
-                if fix_menubar:
-                    settings += 'include "Styles/Nautilus/nautilus-menubar-fix.rc"\n'
-                else:
-                    settings += 'include "Styles/Nautilus/nautilus-menubar.rc"\n'
+        if expanders > 1:
+            settings += ['Expanders/' + ['arrow', 'simple', 'light', 'dark'][expanders - 2] ]
 
-            elif nautilus == 3:
-                if nautilus_fix:
-                    settings += 'include "Styles/Nautilus/nautilus-without-menubar-solid.rc"\n'
-                else:
-                    settings += 'include "Styles/Nautilus/nautilus-without-menubar.rc"\n'
+        if midori:
+            settings += ['Tabs/Midori/tabs-light' + ['', '-reversed'][reverse_light_tabs]]
 
-            if nautilus > 1:
-                if breadcrumbs == 1:
-                    settings += 'include "Styles/Nautilus/breadcrumbs-default.rc"\n'
-                else:
-                    settings += 'include "Styles/Nautilus/breadcrumbs-unified.rc"\n'
+        #tries to write the new settings into a temporary file
+        try:
+            settings_file = open(settings_rc_temp, 'wt')
+            for setting in settings:
+                settings_file.write('include "Styles/' + setting + '.rc"\n')
+            settings_file.close()
+        except Exception:
+            self.builder.get_object("WriteErrorDialog").show()
+            return
 
-            settings += 'include "Styles/Menu/' + ['', 'opera-'][opera] + ['-dark', ''][menu_item < 4] + 'menu.rc"\n'
-            settings += 'include "Styles/Menu-Item/menu-item-' + \
-                ['default', 'squared', 'simple', 'dark-round', 'dark-squared'][menu_item - 1] + '.rc"\n'
-            settings += 'include "Styles/Panel/panel-'+ ['light', 'dark'][panel - 1] + '-' + ['default', 'flat'][flat_panel] + '.rc"\n'
+        #save the new settings to ini
+        save = config_save
+        save(self, _configpath, gradient_type, nogtk_gradient, tabs,
+             reverse_light_tabs, smooth_nogtk, expanders, scrollbars,
+             nautilus, breadcrumbs_unified, menu_item, panel, flat_panel,
+             midori, opera, remove_menu, fix_menubar, globalmenu,
+             trans_tabs, center_title, nautilus_fix)
 
-            if expanders > 1:
-                settings += 'include "Styles/Expanders/' + ['arrow', 'simple', 'light', 'dark'][expanders - 2]  + '.rc"\n'
+        if all_users:
+            #backup the old settings file
+            system('mv ' + settings_rc_local + ' ' + settings_backup_local)
+            #copy the new settings file
+            system('cp -f -T ' + settings_rc_temp + ' ' + settings_rc_local)
 
-            if midori:
-                settings += 'include "Styles/Tabs/Midori/tabs-light' + ['', '-reversed'][reverse_light_tabs] + '.rc"\n'
+            #select the right index.theme file for the panel color
+            #and the menu button preferences
+            system("cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
+                   "/" + ["", "nomenu"][remove_menu] + "/index.theme " + _home + "/.themes/Orta/")
 
-            #tries to write the new settings into a temporary file
-            try:
-                settings_file = open(settings_rc_temp, 'wt')
-                settings_file.write(settings)
-                settings_file.close()
-            except Exception:
-                self.builder.get_object("WriteErrorDialog").show()
-                return
-
-            #save the new settings to ini
-            save = config_save
-            save(self, _configpath, gradient_type, nogtk_gradient, tabs,
-                 reverse_light_tabs, smooth_nogtk, expanders, scrollbars,
-                 nautilus, breadcrumbs, menu_item, panel, flat_panel,
-                 midori, opera, remove_menu, fix_menubar, globalmenu,
-                 trans_tabs, center_title, nautilus_fix)
-
-            if all_users == 1:
-                #backup the old settings file
-                system('mv ' + settings_rc_local + ' ' + settings_backup_local)
-                #copy the new settings file
-                system('cp -f -T ' + settings_rc_temp + ' ' + settings_rc_local)
-
-                #select the right index.theme file for the panel color
-                #and the menu button preferences
-                system("cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
-                       "/" + ["", "nomenu"][remove_menu] + "/index.theme " + _home + "/.themes/Orta/")
-
-                if center_title:
-                    system("cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
-                    if path.isdir(_home + "/.themes/Orta-Squared"):
-                        system("cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
-                else:
-                    system("cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
-                    if path.isdir(_home + "/.themes/Orta-Squared"):
-                        system("cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
-
-            elif all_users == 2:
-                system("gksudo 'mv " + settings_rc + " "  + settings_backup + "'")
-                system("gksudo 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
-                system("gksudo 'cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
-                       "/" + ["", "nomenu"][remove_menu] + "/index.theme /usr/share/themes/Orta/'")
-                if center_title:
-                    system("gksudo 'cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                    if path.isdir("/usr/share/themes/Orta-Squared"):
-                        system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
-                else:
-                    system("gksudo 'cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
-                    if path.isdir("/usr/share/themes/Orta-Squared"):
-                        system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
-            self.builder.get_object("SettingsSavedDialog").show()
+            if center_title:
+                system("cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
+                if path.isdir(_home + "/.themes/Orta-Squared"):
+                    system("cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
+            else:
+                system("cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml " + _home + "/.themes/Orta/metacity-1")
+                if path.isdir(_home + "/.themes/Orta-Squared"):
+                    system("cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml " + _home + "/.themes/Orta-Squared/metacity-1")
 
         else:
-            if all_users_backup == 1:
-                system('cp -f ' + settings_backup_local + ' ' + settings_rc_local)
-                self.builder.get_object("SettingsRestoredDialog").show()
-            elif all_users_backup == 2:
-                system("gksudo 'cp -f " + settings_backup + " "  + settings_rc + "'")
-                self.builder.get_object("SettingsRestoredDialog").show()
+            system("gksudo 'mv " + settings_rc + " "  + settings_backup + "'")
+            system("gksudo 'cp -f -T " + settings_rc_temp + " " + settings_rc + "'")
+            system("gksudo 'cp -f " + _home + "/.orta/panel/" + ["light", "dark"][panel - 1] +
+                   "/" + ["", "nomenu"][remove_menu] + "/index.theme /usr/share/themes/Orta/'")
+            if center_title:
+                system("gksudo 'cp -f " + _home + "/.orta/metacity/round/center/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
+                if path.isdir("/usr/share/themes/Orta-Squared"):
+                    system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/center/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
             else:
-                self.builder.get_object("OrtaNotInstalledDialog").show()
+                system("gksudo 'cp -f " + _home + "/.orta/metacity/round/left/metacity-theme-1.xml /usr/share/themes/Orta/metacity-1'")
+                if path.isdir("/usr/share/themes/Orta-Squared"):
+                    system("gksudo 'cp -f " + _home + "/.orta/metacity/squared/left/metacity-theme-1.xml /usr/share/themes/Orta-Squared/metacity-1'")
+        self.builder.get_object("SettingsSavedDialog").show()
 
     def on_settings_restore_close_clicked(self, widget, data=None):
         self.builder.get_object("SettingsRestoredDialog").hide()

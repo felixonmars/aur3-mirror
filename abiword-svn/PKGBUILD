@@ -37,8 +37,9 @@ build() {
     cd "$srcdir"/$_pkgname/
 
     if [[ -d $_svnmod/.svn ]]; then
-        cd $_svnmod && svn up -r $pkgver
-        cd ../
+        pushd $_svnmod && svn up -r $pkgver
+        msg "The local files have been updated."
+        popd
     else
         svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
     fi
