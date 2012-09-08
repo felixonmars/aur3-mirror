@@ -47,20 +47,8 @@ GPGME_LIBS = $(shell gpgme-config --libs)
 #pidgin libs directory
 PIDGIN_LIBDIR  = $(shell pkg-config --variable=libdir pidgin)/pidgin
 
-all: note
+all: 
 	@make compilation
-
-note:
-	@echo
-	@echo -e "######### \033[7m\033[1mPidgin-GPG for pidgin COMPILING NOTES\033[0m #########"
-	@echo "--------------------------------------------------------------------------------"
-	@echo "You'll need GTK 2.x Pidgin 2.x Gpgme 1.x and Gnupg 2.x to compile Pidgin-GPG!"
-	@echo "ON LINUX USE MAKE ON BSD USE GMAKE IF YOU USE MAKE FOR LINUX COMPILATION"
-	@echo "PLEASE EDIT THE MAKE FILE AND REPLEACE GMAKE WITH MAKE"
-	@echo "If there is any errors please contact with me at mortallink@mail.ru"
-	@echo    "--------------------------------------------------------------------------------"
-	@echo
-	@echo "Press ENTER to continue or CTRL+C to abort..."; read junk
 
 #compilation
 compilation:
