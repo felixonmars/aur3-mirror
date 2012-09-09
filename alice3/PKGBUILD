@@ -1,14 +1,14 @@
 # Maintainer: Xiao-Long Chen <chenxiaolong@cxl.epac.to>
 pkgname=alice3
-pkgver=3.0.3.2.0
+pkgver=3.1.37.0.0
 pkgrel=1
 pkgdesc="An Educational Software that teaches students computer programming in a 3D environment"
 arch=('i686' 'x86_64')
 url="http://www.alice.org/"
 license=('custom')
 depends=('java-runtime')
-source=("http://alice.org/downloads/installers/Alice3Beta_3.0.3.2.0.zip")
-sha512sums=('4a655e5e41f4496744e34e0f6380b30ef2f6fb63b5aa01f4e4ff519f97374505b11907586741d8b37679b53b705bc1fb72952eaacfb4fe73914a7543f601e20a')
+source=("http://alice.org/downloads/installers/Alice3_${pkgver}.zip")
+sha512sums=('04b986b1a22d213478c51f7863e83c8904514ea2361f8ab890954d75e0b9fda9c41810a85b85fdbc465f68b7f561a5d66efa1276e649b37044e7eee806b2df1c')
 
 #This won't go in a repository. No need to waste time or CPU cycles
 #  compressing the package.
@@ -16,14 +16,6 @@ PKGEXT=".pkg.tar"
 
 #Install prefix
 PREFIX="/opt/Alice3Beta"
-
-build() {
-  msg "Nothing to build."
-}
-
-check() {
-  msg "Nothing to check."
-}
 
 package() {
   cd "${srcdir}/Alice3Beta"
