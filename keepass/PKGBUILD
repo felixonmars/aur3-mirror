@@ -2,57 +2,58 @@
 # Contributor: Andrej Gelenberg <andrej.gelenberg@udo.edu>
 
 pkgname=keepass
-pkgver=2.19
+pkgver=2.20
 pkgrel=1
-pkgdesc="KeePass Password Safe, the free, open source, light-weight and easy-to-use password manager"
+pkgdesc='KeePass Password Safe, the free, open source, light-weight and easy-to-use password manager'
 arch=('any')
-url="http://keepass.info/"
-license=('GPL2')
+url='http://keepass.info/'
+license=('GPL')
 depends=('mono>=2.6' 'desktop-file-utils' 'xdg-utils')
-optdepends=('xdotool: if you want to use auto-type.')
-install=keepass.install
-source=(http://downloads.sourceforge.net/keepass/KeePass-2.19.zip
-        keepass
-        keepass.1
-        keepass.desktop
-        keepass.xml
-        KeePass.config.xml
-        KeePass_6_256x256x32.png
-        KeePass_7_48x48x32.png
-        KeePass_8_32x32x32.png
-        KeePass_9_16x16x32.png)
+optdepends=('xdotool: if you want to use auto-type'
+            'xsel: clipboard operations in order to work around Mono clipboard bugs')
+install="$pkgname.install"
+source=("http://downloads.sourceforge.net/keepass/KeePass-$pkgver.zip"
+        'keepass'
+        'keepass.1'
+        'keepass.desktop'
+        'keepass.xml'
+        'KeePass.config.xml'
+        'KeePass_6_256x256x32.png'
+        'KeePass_7_48x48x32.png'
+        'KeePass_8_32x32x32.png'
+        'KeePass_9_16x16x32.png')
 
 package() {
-  cd ${srcdir}
+  cd "$srcdir"
   
-  install -dm755 ${pkgdir}/usr/bin
-  install -dm755 ${pkgdir}/usr/share/keepass/XSL
+  install -dm755 "$pkgdir"/usr/bin
+  install -dm755 "$pkgdir"/usr/share/keepass/XSL
   
-  install -Dm755 keepass ${pkgdir}/usr/bin/keepass
-  install -Dm755 KeePass.exe ${pkgdir}/usr/share/keepass/KeePass.exe
-  install -Dm755 KeePass.config.xml ${pkgdir}/usr/share/keepass/KeePass.config.xml
-  install -Dm755 KeePass.exe.config ${pkgdir}/usr/share/keepass/KeePass.exe.config
-  install -Dm755 KeePass.chm ${pkgdir}/usr/share/keepass/KeePass.chm
+  install -Dm755 keepass "$pkgdir"/usr/bin/keepass
+  install -Dm755 KeePass.exe "$pkgdir"/usr/share/keepass/KeePass.exe
+  install -Dm755 KeePass.config.xml "$pkgdir"/usr/share/keepass/KeePass.config.xml
+  install -Dm755 KeePass.exe.config "$pkgdir"/usr/share/keepass/KeePass.exe.config
+  install -Dm755 KeePass.chm "$pkgdir"/usr/share/keepass/KeePass.chm
 
-  install -m644 XSL/* ${pkgdir}/usr/share/keepass/XSL
+  install -m644 XSL/* "$pkgdir"/usr/share/keepass/XSL
   
-  install -Dm644 keepass.1 ${pkgdir}/usr/share/man/man1/keepass.1
+  install -Dm644 keepass.1 "$pkgdir"/usr/share/man/man1/keepass.1
   
   # Proper installation of .desktop file
-  desktop-file-install -m 0644 --dir ${pkgdir}/usr/share/applications/ keepass.desktop
+  desktop-file-install -m 0644 --dir "$pkgdir"/usr/share/applications/ keepass.desktop
   
   # Install Icons (got from source package with "icotool -x KeePass.ico")
   for size in 16 32 48 256; do
-    install -m644 -D \
+    install -Dm644 \
     KeePass_*_${size}x${size}x32.png \
-    ${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/keepass.png
+    "$pkgdir"/usr/share/icons/hicolor/${size}x${size}/apps/keepass.png
   done
   
   # Needed for postinst with xdg-utils
-  install -Dm644 keepass.xml ${pkgdir}/usr/share/mime/packages/keepass.xml
+  install -Dm644 keepass.xml "$pkgdir"/usr/share/mime/packages/keepass.xml
 }
 
-md5sums=('20b8551b4afe786a929120a5e86fe932'
+md5sums=('3a77659e90089b59dd098a7d86ccaaf6'
          'daa5d6c01c11cf38c6f5cc207333aa9a'
          'a2a0dff1ebf0aaf6cbfb6f8566f4a010'
          '226934813eaa6bf01f01cc3926846707'
