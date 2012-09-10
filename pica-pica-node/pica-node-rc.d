@@ -13,7 +13,7 @@ PID=$(get_pid $DAEMON)
 case "$1" in
  start)
    stat_busy "Starting $DAEMON"
-   [ -z "$PID" ] && $DAEMON $ARGS &>/dev/null
+   [ -z "$PID" ] && $DAEMON $ARGS &>/dev/null &
    if [ $? = 0 ]; then
      add_daemon $DAEMON
      stat_done
