@@ -8,7 +8,7 @@ pkgdesc='KeePass Password Safe, the free, open source, light-weight and easy-to-
 arch=('any')
 url='http://keepass.info/'
 license=('GPL')
-depends=('mono>=2.6' 'desktop-file-utils' 'xdg-utils')
+depends=('mono>=2.6' 'desktop-file-utils' 'xdg-utils' 'shared-mime-info' 'hicolor-icon-theme')
 optdepends=('xdotool: if you want to use auto-type'
             'xsel: clipboard operations in order to work around Mono clipboard bugs')
 install="$pkgname.install"

@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-magnitogorsk
-pkgver=28
+pkgver=29
 pkgrel=1
-pkgdesc="Map of Magnitogorsk for 2GIS, August 2012"
+pkgdesc="Map of Magnitogorsk for 2GIS, September 2012"
 arch=('i686' 'x86_64')
 url="http://magnitogorsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.7.0.0')
-source=("http://download.2gis.ru/arhives/2GISData_Magnitogorsk-28.orig.zip")
-md5sums=('6ed17d1c5ed4c9d1a02e5614f4d1c178')
+depends=('2gis>=3.9.0.1')
+source=("http://download.2gis.ru/arhives/2GISData_Magnitogorsk-29.orig.zip")
+md5sums=('04d35fa11d93885473bab39549b69ad5')
      
 build() {
      

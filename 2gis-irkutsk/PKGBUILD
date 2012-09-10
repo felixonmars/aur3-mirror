@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-irkutsk
-pkgver=76
+pkgver=77
 pkgrel=1
-pkgdesc="Map of Irkutsk for 2GIS, August 2012"
+pkgdesc="Map of Irkutsk for 2GIS, September 2012"
 arch=('i686' 'x86_64')
 url="http://irkutsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.7.0.0')
-source=("http://download.2gis.ru/arhives/2GISData_Irkutsk-76.orig.zip")
-md5sums=('4cc5def0df6310ddd798b1da0da50599')
+depends=('2gis>=3.9.0.1')
+source=("http://download.2gis.ru/arhives/2GISData_Irkutsk-77.orig.zip")
+md5sums=('3785e17444a64ad8e30744ead354337f')
      
 build() {
      

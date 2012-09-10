@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kaliningrad
-pkgver=18
+pkgver=19
 pkgrel=1
-pkgdesc="Map of Kaliningrad for 2GIS, August 2012"
+pkgdesc="Map of Kaliningrad for 2GIS, September 2012"
 arch=('i686' 'x86_64')
 url="http://kaliningrad.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.7.0.0')
-source=("http://download.2gis.ru/arhives/2GISData_Kaliningrad-18.orig.zip")
-md5sums=('bb1d2a8989d20ffe40cb7937aed7c5c5')
+depends=('2gis>=3.9.0.1')
+source=("http://download.2gis.ru/arhives/2GISData_Kaliningrad-19.orig.zip")
+md5sums=('965bae6d0201bbc3706a16fb5386e533')
      
 build() {
      

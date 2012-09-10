@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-surgut
-pkgver=18
+pkgver=19
 pkgrel=1
-pkgdesc="Map of Surgut for 2GIS, August 2012"
+pkgdesc="Map of Surgut for 2GIS, September 2012"
 arch=('i686' 'x86_64')
 url="http://surgut.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.7.0.0')
-source=("http://download.2gis.ru/arhives/2GISData_Surgut-18.orig.zip")
-md5sums=('51d0463c00542e1f64d947df382a6ec4')
+depends=('2gis>=3.9.0.1')
+source=("http://download.2gis.ru/arhives/2GISData_Surgut-19.orig.zip")
+md5sums=('cb195425b9742e10a747df4dfa0781b9')
      
 build() {
      

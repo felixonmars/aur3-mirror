@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-belgorod
-pkgver=14
+pkgver=15
 pkgrel=1
-pkgdesc="Map of Belgorod for 2GIS, August 2012"
+pkgdesc="Map of Belgorod for 2GIS, September 2012"
 arch=('i686' 'x86_64')
 url="http://belgorod.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.7.0.0')
-source=("http://download.2gis.ru/arhives/2GISData_Belgorod-14.orig.zip")
-md5sums=('1cc94d3dea27fe973e7847e92210fb4e')
+depends=('2gis>=3.9.0.1')
+source=("http://download.2gis.ru/arhives/2GISData_Belgorod-15.orig.zip")
+md5sums=('fd15995bf8cde31152a6d30e1b919933')
      
 build() {
      
