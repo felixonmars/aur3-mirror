@@ -1,0 +1,144 @@
+diff --git a/dlls/winhttp/net.c b/dlls/winhttp/net.c
+index 5ec4e1a..8c4f56c 100644
+--- a/dlls/winhttp/net.c
++++ b/dlls/winhttp/net.c
+@@ -52,6 +52,7 @@
+ #include "winbase.h"
+ #include "winhttp.h"
+ #include "wincrypt.h"
++#include "winreg.h"
+
+ #include "winhttp_private.h"
+
+@@ -109,8 +110,10 @@ MAKE_FUNCPTR( SSL_load_error_strings );
+ MAKE_FUNCPTR( SSLv23_method );
+ MAKE_FUNCPTR( SSL_CTX_free );
+ MAKE_FUNCPTR( SSL_CTX_new );
++MAKE_FUNCPTR( SSL_CTX_ctrl );
+ MAKE_FUNCPTR( SSL_new );
+ MAKE_FUNCPTR( SSL_free );
++MAKE_FUNCPTR( SSL_ctrl );
+ MAKE_FUNCPTR( SSL_set_fd );
+ MAKE_FUNCPTR( SSL_connect );
+ MAKE_FUNCPTR( SSL_shutdown );
+@@ -408,12 +411,66 @@ static int netconn_secure_verify( int preverify_ok, X509_STORE_CTX *ctx )
+     }
+     return ret;
+ }
++
++static long get_tls_option(void) {
++    long tls_option;
++    DWORD type, val, size;
++    HKEY hkey,tls12_client,tls11_client;
++    LONG res;
++    const WCHAR Schannel_Prot[] = { /* SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCANNEL\\Protocols */
++              'S','Y','S','T','E','M','\\',
++              'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
++              'C','o','n','t','r','o','l','\\',
++              'S','e','c','u','r','i','t','y','P','r','o','v','i','d','e','r','s','\\',
++              'S','C','H','A','N','N','E','L','\\',
++              'P','r','o','t','o','c','o','l','s',0 };
++    const WCHAR TLS12_Client[] = {'T','L','S',' ','1','.','2','\\','C','l','i','e','n','t',0};
++    const WCHAR TLS11_Client[] = {'T','L','S',' ','1','.','1','\\','C','l','i','e','n','t',0};
++    const WCHAR DisabledByDefault[] = {'D','i','s','a','b','l','e','d','B','y','D','e','f','a','u','l','t',0};
++
++    tls_option = SSL_OP_NO_SSLv2; /* disable SSLv2 for security reason, and secur32/Schannel(GnuTLS) don't support it */
++    res = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
++          Schannel_Prot,
++          0, KEY_READ, &hkey);
++    if (res != ERROR_SUCCESS) {
++        tls_option |= SSL_OP_NO_TLSv1_2;
++        tls_option |= SSL_OP_NO_TLSv1_1;
++        goto end;
++    }
++    if (RegOpenKeyExW(hkey, TLS12_Client, 0, KEY_READ, &tls12_client) == ERROR_SUCCESS) {
++        size = sizeof(DWORD);
++        if (RegQueryValueExW(tls12_client, DisabledByDefault, NULL, &type,  (LPBYTE) &val, &size) || type != REG_DWORD) {
++            tls_option |= SSL_OP_NO_TLSv1_2;
++        } else {
++            tls_option |= val?0:SSL_OP_NO_TLSv1_2;
++        }
++        RegCloseKey(tls12_client);
++    } else {
++        tls_option |= SSL_OP_NO_TLSv1_2;
++    }
++    if (RegOpenKeyExW(hkey, TLS11_Client, 0, KEY_READ, &tls11_client) == ERROR_SUCCESS) {
++        size = sizeof(DWORD);
++        if (RegQueryValueExW(tls11_client, DisabledByDefault, NULL, &type,  (LPBYTE) &val, &size) || type != REG_DWORD) {
++            tls_option |= SSL_OP_NO_TLSv1_1;
++        } else {
++            tls_option |= val?0:SSL_OP_NO_TLSv1_1;
++        }
++        RegCloseKey(tls11_client);
++    } else {
++        tls_option |= SSL_OP_NO_TLSv1_1;
++    }
++    RegCloseKey(hkey);
++
++end:
++    return tls_option;
++}
+ #endif
+
+ BOOL netconn_init( netconn_t *conn, BOOL secure )
+ {
+ #if defined(SONAME_LIBSSL) && defined(SONAME_LIBCRYPTO)
+     int i;
++    long tls_option;
+ #endif
+
+     conn->socket = -1;
+@@ -453,8 +510,10 @@ BOOL netconn_init( netconn_t *conn, BOOL secure )
+     LOAD_FUNCPTR( SSLv23_method );
+     LOAD_FUNCPTR( SSL_CTX_free );
+     LOAD_FUNCPTR( SSL_CTX_new );
++    LOAD_FUNCPTR (SSL_CTX_ctrl);
+     LOAD_FUNCPTR( SSL_new );
+     LOAD_FUNCPTR( SSL_free );
++    LOAD_FUNCPTR( SSL_ctrl );
+     LOAD_FUNCPTR( SSL_set_fd );
+     LOAD_FUNCPTR( SSL_connect );
+     LOAD_FUNCPTR( SSL_shutdown );
+@@ -494,11 +553,20 @@ BOOL netconn_init( netconn_t *conn, BOOL secure )
+     LOAD_FUNCPTR( sk_num );
+ #undef LOAD_FUNCPTR
+
++#define pSSL_CTX_set_options(ctx,op) \
++       pSSL_CTX_ctrl((ctx),SSL_CTRL_OPTIONS,(op),NULL)
++#define pSSL_set_options(ssl,op) \
++       pSSL_ctrl((ssl),SSL_CTRL_OPTIONS,(op),NULL)
++
+     pSSL_library_init();
+     pSSL_load_error_strings();
+
+     method = pSSLv23_method();
+     ctx = pSSL_CTX_new( method );
++
++    tls_option = get_tls_option();
++    pSSL_CTX_set_options(ctx, tls_option);
++
+     if (!pSSL_CTX_set_default_verify_paths( ctx ))
+     {
+         ERR("SSL_CTX_set_default_verify_paths failed: %s\n", pERR_error_string( pERR_get_error(), 0 ));
+@@ -676,12 +744,18 @@ BOOL netconn_connect( netconn_t *conn, const struct sockaddr *sockaddr, unsigned
+ BOOL netconn_secure_connect( netconn_t *conn, WCHAR *hostname )
+ {
+ #ifdef SONAME_LIBSSL
++    long tls_option;
++
+     if (!(conn->ssl_conn = pSSL_new( ctx )))
+     {
+         ERR("SSL_new failed: %s\n", pERR_error_string( pERR_get_error(), 0 ));
+         set_last_error( ERROR_OUTOFMEMORY );
+         goto fail;
+     }
++
++    tls_option = get_tls_option();
++    pSSL_set_options(conn->ssl_conn, tls_option);
++
+     if (!pSSL_set_ex_data( conn->ssl_conn, hostname_idx, hostname ))
+     {
+         ERR("SSL_set_ex_data failed: %s\n", pERR_error_string( pERR_get_error(), 0 ));
+--
+1.7.9.5
+

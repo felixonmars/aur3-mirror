@@ -1,0 +1,132 @@
+--- a/dlls/wininet/netconnection.c
++++ b/dlls/wininet/netconnection.c
+@@ -124,8 +124,10 @@ MAKE_FUNCPTR(SSL_load_error_strings);
+ MAKE_FUNCPTR(SSLv23_method);
+ MAKE_FUNCPTR(SSL_CTX_free);
+ MAKE_FUNCPTR(SSL_CTX_new);
++MAKE_FUNCPTR(SSL_CTX_ctrl);
+ MAKE_FUNCPTR(SSL_new);
+ MAKE_FUNCPTR(SSL_free);
++MAKE_FUNCPTR(SSL_ctrl);
+ MAKE_FUNCPTR(SSL_set_fd);
+ MAKE_FUNCPTR(SSL_connect);
+ MAKE_FUNCPTR(SSL_shutdown);
+@@ -446,6 +448,58 @@ static int netconn_secure_verify(int preverify_ok, X509_STORE_CTX *ctx)
+     return ret;
+ }
+
++static long get_tls_option(void) {
++    long tls_option;
++    DWORD type, val, size;
++    HKEY hkey,tls12_client,tls11_client;
++    LONG res;
++    const WCHAR Schannel_Prot[] = {  /* SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCANNEL\\Protocols */
++              'S','Y','S','T','E','M','\\',
++              'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
++              'C','o','n','t','r','o','l','\\',
++              'S','e','c','u','r','i','t','y','P','r','o','v','i','d','e','r','s','\\',
++              'S','C','H','A','N','N','E','L','\\',
++              'P','r','o','t','o','c','o','l','s',0 };
++     const WCHAR TLS12_Client[] = {'T','L','S',' ','1','.','2','\\','C','l','i','e','n','t',0};
++     const WCHAR TLS11_Client[] = {'T','L','S',' ','1','.','1','\\','C','l','i','e','n','t',0};
++     const WCHAR DisabledByDefault[] = {'D','i','s','a','b','l','e','d','B','y','D','e','f','a','u','l','t',0};
++
++    tls_option = SSL_OP_NO_SSLv2; /* disable SSLv2 for security reason, secur32/Schannel(GnuTLS) don't support it */
++    res = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
++          Schannel_Prot,
++          0, KEY_READ, &hkey);
++    if (res != ERROR_SUCCESS) {
++        tls_option |= SSL_OP_NO_TLSv1_2;
++        tls_option |= SSL_OP_NO_TLSv1_1;
++        goto end;
++    }
++    if (RegOpenKeyExW(hkey, TLS12_Client, 0, KEY_READ, &tls12_client) == ERROR_SUCCESS) {
++        size = sizeof(DWORD);
++        if (RegQueryValueExW(tls12_client, DisabledByDefault, NULL, &type,  (LPBYTE) &val, &size) || type != REG_DWORD) {
++            tls_option |= SSL_OP_NO_TLSv1_2;
++        } else {
++            tls_option |= val?0:SSL_OP_NO_TLSv1_2;
++        }
++        RegCloseKey(tls12_client);
++    } else {
++        tls_option |= SSL_OP_NO_TLSv1_2;
++    }
++    if (RegOpenKeyExW(hkey, TLS11_Client, 0, KEY_READ, &tls11_client) == ERROR_SUCCESS) {
++        size = sizeof(DWORD);
++        if (RegQueryValueExW(tls11_client, DisabledByDefault, NULL, &type,  (LPBYTE) &val, &size) || type != REG_DWORD) {
++            tls_option |= SSL_OP_NO_TLSv1_1;
++        } else {
++            tls_option |= val?0:SSL_OP_NO_TLSv1_1;
++        }
++        RegCloseKey(tls11_client);
++    } else {
++        tls_option |= SSL_OP_NO_TLSv1_1;
++    }
++    RegCloseKey(hkey);
++
++end:
++    return tls_option;
++}
+ #endif
+
+ static CRITICAL_SECTION init_ssl_cs;
+@@ -462,6 +516,7 @@ static DWORD init_openssl(void)
+ {
+ #if defined(SONAME_LIBSSL) && defined(SONAME_LIBCRYPTO)
+     int i;
++    long tls_option;
+
+     if(OpenSSL_ssl_handle)
+         return ERROR_SUCCESS;
+@@ -491,8 +546,10 @@ static DWORD init_openssl(void)
+     DYNSSL(SSLv23_method);
+     DYNSSL(SSL_CTX_free);
+     DYNSSL(SSL_CTX_new);
++    DYNSSL(SSL_CTX_ctrl);
+     DYNSSL(SSL_new);
+     DYNSSL(SSL_free);
++    DYNSSL(SSL_ctrl);
+     DYNSSL(SSL_set_fd);
+     DYNSSL(SSL_connect);
+     DYNSSL(SSL_shutdown);
+@@ -534,12 +591,19 @@ static DWORD init_openssl(void)
+     DYNCRYPTO(sk_value);
+ #undef DYNCRYPTO
+
++#define pSSL_CTX_set_options(ctx,op) \
++       pSSL_CTX_ctrl((ctx),SSL_CTRL_OPTIONS,(op),NULL)
++#define pSSL_set_options(ssl,op) \
++       pSSL_ctrl((ssl),SSL_CTRL_OPTIONS,(op),NULL)
++
+     pSSL_library_init();
+     pSSL_load_error_strings();
+     pBIO_new_fp(stderr, BIO_NOCLOSE); /* FIXME: should use winedebug stuff */
+
+     meth = pSSLv23_method();
+     ctx = pSSL_CTX_new(meth);
++    tls_option = get_tls_option();
++    pSSL_CTX_set_options(ctx, tls_option);
+     if(!pSSL_CTX_set_default_verify_paths(ctx)) {
+         ERR("SSL_CTX_set_default_verify_paths failed: %s\n",
+             pERR_error_string(pERR_get_error(), 0));
+@@ -782,6 +846,7 @@ DWORD NETCON_secure_connect(netconn_t *connection)
+ #ifdef SONAME_LIBSSL
+     void *ssl_s;
+     int bits;
++    long tls_option;
+
+     /* can't connect if we are already connected */
+     if (connection->ssl_s)
+@@ -798,6 +863,9 @@ DWORD NETCON_secure_connect(netconn_t *connection)
+         return ERROR_OUTOFMEMORY;
+     }
+
++    tls_option = get_tls_option();
++    pSSL_set_options(ssl_s, tls_option);
++
+     if (!pSSL_set_fd(ssl_s, connection->socketFD))
+     {
+         ERR("SSL_set_fd failed: %s\n",
+--
+1.7.9.5
+
