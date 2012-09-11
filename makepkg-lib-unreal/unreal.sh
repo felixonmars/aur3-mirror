@@ -32,14 +32,14 @@ _unreal_handle_files() {
 #
 # Calls _unreal_handle_files with "cp" as command.
 _unreal_copy_files() {
-    _unreal_handle_files "/bin/cp --force --" "$@" || return 1
+    _unreal_handle_files "/usr/bin/cp --force --" "$@" || return 1
 }
 
 # Usage: _unreal_install_files from_dir to_dir ignore_regexp < file_list
 #
 # Basically calls _unreal_handle_files with "install" as command.
 _unreal_install_files() {
-    _unreal_handle_files "/bin/install --mode=644 -D --" "$@" || return 1
+    _unreal_handle_files "/usr/bin/install --mode=644 -D --" "$@" || return 1
 }
 
 # Usage: _unreal_move_files from_dir to_dir ignore_regexp < file_list
@@ -97,7 +97,7 @@ _unreal_loki_patcher() {
                 dest="$(echo "${file}" | /bin/sed 's/\.0$//')"
                 /usr/bin/xdelta patch -- "${file}" "$3/${dest}" \
                         "xdelta.tmp/$(basename -- "${dest}")" \
-                        && /bin/install --mode=644 -D -- \
+                        && /usr/bin/install --mode=644 -D -- \
                         "xdelta.tmp/$(basename -- "${dest}")" "$3/${dest}" \
                         || "$1" || return 1
                 ;;
