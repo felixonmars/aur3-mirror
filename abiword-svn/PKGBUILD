@@ -3,7 +3,7 @@
 
 _pkgname=abiword
 pkgname=$_pkgname-svn
-pkgver=31854
+pkgver=31915
 pkgrel=1
 pkgdesc="A fully-featured word processor (SVN Version)"
 arch=(i686 x86_64)
@@ -44,15 +44,11 @@ build() {
         svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
     fi
     msg "SVN checkout done or server timeout"
-
-    msg "Starting make..."
-
-    rm -rf $_svnmod-build
-    cp -r $_svnmod $_svnmod-build
-    cd $_svnmod-build
+    rm -rf $_svnmod-build/
+    cp -r $_svnmod/ $_svnmod-build/
+    cd $_svnmod-build/
 
     msg "Compiling..."
-
     ./autogen.sh --prefix=/usr \
         --sysconfdir=/etc \
         --localstatedir=/var \
