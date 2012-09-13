@@ -1,0 +1,615 @@
+diff --git a/files/usr/lib/cinnamon-settings/cinnamon-settings.py b/files/usr/lib/cinnamon-settings/cinnamon-settings.py
+index 9560139..90a0753 100755
+--- a/files/usr/lib/cinnamon-settings/cinnamon-settings.py
++++ b/files/usr/lib/cinnamon-settings/cinnamon-settings.py
+@@ -18,7 +18,7 @@ try:
+     import thread
+     import urllib
+     import lxml.etree
+-    import hashlib
++    import locale
+ except Exception, detail:
+     print detail
+     sys.exit(1)
+@@ -34,8 +34,8 @@ menuComment = _("Fine-tune desktop settings")
+ 
+ BACKGROUND_MODES = [
+     ("wallpaper", _("Wallpaper")),
+-    ("slideshow", _("Slideshow")),
+-    ("flickr", _("Flickr"))
++    #("slideshow", _("Slideshow")),
++    #("flickr", _("Flickr"))
+ ]
+ 
+ BACKGROUND_COLOR_SHADING_TYPES = [
+@@ -54,7 +54,7 @@ BACKGROUND_PICTURE_OPTIONS = [
+     ("spanned", _("Spanned"))
+ ]
+ 
+-BACKGROUND_ICONS_SIZE = 50
++BACKGROUND_ICONS_SIZE = 115
+ 
+ class PixCache(object):
+     def __init__(self):
+@@ -80,7 +80,51 @@ class PixCache(object):
+         return pix
+ 
+ PIX_CACHE = PixCache()
+-                                  
++
++# wrapper for timedated or gnome-settings-daemon's DateTimeMechanism
++class DateTimeWrapper:
++    def __init__(self):
++        try:
++            proxy = dbus.SystemBus().get_object("org.freedesktop.timedate1", "/org/freedesktop/timedate1")
++            self.dbus_iface = dbus.Interface(proxy, dbus_interface="org.freedesktop.timedate1")
++            self.properties_iface = dbus.Interface(proxy, dbus_interface=dbus.PROPERTIES_IFACE)
++            self.timedated = True
++        except dbus.exceptions.DBusException:
++            proxy = dbus.SystemBus().get_object("org.gnome.SettingsDaemon.DateTimeMechanism", "/")
++            self.dbus_iface = dbus.Interface(proxy, dbus_interface="org.gnome.SettingsDaemon.DateTimeMechanism")
++            self.timedated = False
++
++    def set_time(self, seconds_since_epoch):
++        if self.timedated:
++            # timedated expects microseconds
++            return self.dbus_iface.SetTime(seconds_since_epoch * 1000000, False, True)
++        else:
++            return self.dbus_iface.SetTime(seconds_since_epoch)
++
++    def get_timezone(self):
++        if self.timedated:
++            return self.properties_iface.Get("org.freedesktop.timedate1", "Timezone")
++        else:
++            return self.dbus_iface.GetTimezone()
++
++    def set_timezone(self, tz):
++        if self.timedated:
++            return self.dbus_iface.SetTimezone(tz, True)
++        else:
++            return self.dbus_iface.SetTimezone(tz)
++
++    def get_using_ntp(self):
++        if self.timedated:
++            return self.properties_iface.Get("org.freedesktop.timedate1", "NTP")
++        else:
++            return self.dbus_iface.GetUsingNtp()
++
++    def set_using_ntp(self, usingNtp):
++        if self.timedated:
++            return self.dbus_iface.SetNTP(usingNtp, True)
++        else:
++            return self.dbus_iface.SetUsingNtp(usingNtp)
++
+ class SidePage:
+     def __init__(self, name, icon, content_box):        
+         self.name = name
+@@ -204,10 +248,11 @@ class GSettingsColorChooser(Gtk.ColorButton):
+ class ThreadedIconView(Gtk.IconView):
+     def __init__(self):
+         Gtk.IconView.__init__(self)
++        self.set_item_width(BACKGROUND_ICONS_SIZE * 1.1)
+         self._model = Gtk.ListStore(object, GdkPixbuf.Pixbuf, str)
+         self.set_model(self._model)
+         self.set_pixbuf_column(1)
+-        self.set_text_column(2)
++        self.set_markup_column(2)
+         
+         self._loading_queue = []
+         self._loading_queue_lock = thread.allocate_lock()
+@@ -289,7 +334,7 @@ class ThreadedIconView(Gtk.IconView):
+                     else:
+                         label = os.path.split(to_load["filename"])[1]
+                     self._loaded_data_lock.acquire()
+-                    self._loaded_data.append((to_load, pix, label))
++                    self._loaded_data.append((to_load, pix, "<sub>%s</sub>" % label))
+                     self._loaded_data_lock.release()
+                 
+         self._loading_lock.acquire()
+@@ -342,6 +387,8 @@ class BackgroundWallpaperPane (Gtk.VBox):
+         
+     def parse_xml_backgrounds_list(self, filename):
+         try:
++            loc = locale.getdefaultlocale()[0]
++            locAttrName = "{http://www.w3.org/XML/1998/namespace}lang"
+             res = []
+             f = open(filename)
+             rootNode = lxml.etree.fromstring(f.read())
+@@ -352,7 +399,12 @@ class BackgroundWallpaperPane (Gtk.VBox):
+                         wallpaperData = {"metadataFile": filename}
+                         for prop in wallpaperNode:
+                             if type(prop.tag) == str:
+-                                wallpaperData[prop.tag] = prop.text
++                                if prop.tag != "name":
++                                    wallpaperData[prop.tag] = prop.text
++                                else:
++                                    propAttr = prop.attrib
++                                    if (not propAttr.has_key(locAttrName)) or loc.startswith(propAttr.get(locAttrName)):
++                                        wallpaperData[prop.tag] = prop.text
+                         if "filename" in wallpaperData and wallpaperData["filename"] != "" and os.path.exists(wallpaperData["filename"]) and os.access(wallpaperData["filename"], os.R_OK):
+                             res.append(wallpaperData)
+             return res
+@@ -578,7 +630,7 @@ class BackgroundSidePage (SidePage):
+             if not os.path.exists(dest_dir):
+                 rec_mkdir(dest_dir)
+             for filename in filenames:
+-                dest_filename = os.path.join(dest_dir, hashlib.md5(filename).hexdigest())
++                dest_filename = os.path.join(dest_dir, os.path.split(filename)[1])
+                 fs = open(filename)
+                 fd = open(dest_filename, "w")
+                 fd.write(fs.read())
+@@ -1029,7 +1081,17 @@ class DBusCheckButton(Gtk.CheckButton):
+         
+     def on_my_value_changed(self, widget):
+         getattr(self.dbus_iface, self.dbus_set_method)(self.get_active())
+-        
++
++class NtpCheckButton(Gtk.CheckButton):
++    def __init__(self, label):
++        super(NtpCheckButton, self).__init__(label)
++        self.date_time_wrapper = DateTimeWrapper()
++        self.set_active(self.date_time_wrapper.get_using_ntp())
++        self.connect('toggled', self.on_my_value_changed)
++
++    def on_my_value_changed(self, widget):
++        self.date_time_wrapper.set_using_ntp(self.get_active())
++
+ class GSettingsSpinButton(Gtk.HBox):    
+     def __init__(self, label, schema, key, dep_key, min, max, step, page, units):
+         self.key = key
+@@ -1368,8 +1430,7 @@ class TimeZoneSelectorWidget(Gtk.HBox):
+     def __init__(self):
+         super(TimeZoneSelectorWidget, self).__init__()
+         
+-        proxy = dbus.SystemBus().get_object("org.gnome.SettingsDaemon.DateTimeMechanism", "/")
+-        self.dbus_iface = dbus.Interface(proxy, dbus_interface="org.gnome.SettingsDaemon.DateTimeMechanism")
++        self.date_time_wrapper = DateTimeWrapper()
+         
+         self.timezones = tz.load_db()
+         
+@@ -1415,7 +1476,7 @@ class TimeZoneSelectorWidget(Gtk.HBox):
+         tree_iter = widget.get_active_iter()
+         if tree_iter != None:
+             self.selected_city = self.city_model[tree_iter][0]
+-            self.dbus_iface.SetTimezone(self.selected_region+"/"+self.selected_city)
++            self.date_time_wrapper.set_timezone(self.selected_region+"/"+self.selected_city)
+     def on_region_changed(self, widget):
+         tree_iter = widget.get_active_iter()
+         if tree_iter != None:            
+@@ -1436,7 +1497,7 @@ class TimeZoneSelectorWidget(Gtk.HBox):
+             if selected_city_iter is not None:
+                 self.city_widget.set_active_iter(selected_city_iter)
+     def get_selected_zone(self):
+-        tz = self.dbus_iface.GetTimezone()
++        tz = self.date_time_wrapper.get_timezone()
+         if "/" in tz:
+             i = tz.index("/")
+             region = tz[:i]
+@@ -1448,8 +1509,7 @@ class TimeZoneSelectorWidget(Gtk.HBox):
+ class ChangeTimeWidget(Gtk.HBox):
+     def __init__(self):
+         super(ChangeTimeWidget, self).__init__()
+-        proxy = dbus.SystemBus().get_object("org.gnome.SettingsDaemon.DateTimeMechanism", "/")
+-        self.dbus_iface = dbus.Interface(proxy, dbus_interface="org.gnome.SettingsDaemon.DateTimeMechanism")
++        self.date_time_wrapper = DateTimeWrapper()
+         
+         # Ensures we are setting the system time only when the user changes it
+         self.changedOnTimeout = False
+@@ -1575,7 +1635,7 @@ class ChangeTimeWidget(Gtk.HBox):
+             self._time_to_set = None
+             self._setting_time_lock.release()
+             
+-            self.dbus_iface.SetTime(time_to_set)
++            self.date_time_wrapper.set_time(time_to_set)
+             
+             # Check whether another request to set the time was done since this thread started
+             self._setting_time_lock.acquire()
+@@ -1798,7 +1858,7 @@ class MainWindow:
+             self.changeTimeWidget = ChangeTimeWidget()  
+             self.ntpCheckButton = None 
+             try:
+-                self.ntpCheckButton = DBusCheckButton(_("Use network time"), "org.gnome.SettingsDaemon.DateTimeMechanism", "/", "GetUsingNtp", "SetUsingNtp")
++                self.ntpCheckButton = NtpCheckButton(_("Use network time"))
+                 sidePage.add_widget(self.ntpCheckButton)
+             except:
+                 pass
+diff --git a/files/usr/share/cinnamon/applets/systray@cinnamon.org/applet.js b/files/usr/share/cinnamon/applets/systray@cinnamon.org/applet.js
+index 34160ab..bd86120 100644
+--- a/files/usr/share/cinnamon/applets/systray@cinnamon.org/applet.js
++++ b/files/usr/share/cinnamon/applets/systray@cinnamon.org/applet.js
+@@ -23,14 +23,6 @@ MyApplet.prototype = {
+                           redisplay: null };
+ 
+         this.actor.style="spacing: 5px;";
+-        try {
+-            Main.statusIconDispatcher.connect('status-icon-added', Lang.bind(this, this._onTrayIconAdded));
+-            Main.statusIconDispatcher.connect('status-icon-removed', Lang.bind(this, this._onTrayIconRemoved));
+-            Main.statusIconDispatcher.connect('before-redisplay', Lang.bind(this, this._onBeforeRedisplay));
+-        }
+-        catch (e) {
+-            global.logError(e);
+-        }
+     },
+ 
+     on_applet_clicked: function(event) {
+diff --git a/files/usr/share/cinnamon/applets/window-list@cinnamon.org/applet.js b/files/usr/share/cinnamon/applets/window-list@cinnamon.org/applet.js
+index 723dd9d..96daa7c 100644
+--- a/files/usr/share/cinnamon/applets/window-list@cinnamon.org/applet.js
++++ b/files/usr/share/cinnamon/applets/window-list@cinnamon.org/applet.js
+@@ -679,8 +679,6 @@ MyAppletBox.prototype = {
+         this._clearDragPlaceholder();
+         actor.destroy();
+         
+-        this._applet.saveWindowsOrder();
+-        
+         return true;
+     },
+     
+@@ -707,8 +705,6 @@ MyApplet.prototype = {
+             this.orientation = orientation;
+             this.dragInProgress = false;
+             
+-            this._windows_order = {};
+-            
+             this.myactorbox = new MyAppletBox(this);
+             this.myactor = this.myactorbox.actor;
+         
+@@ -729,12 +725,6 @@ MyApplet.prototype = {
+                 this.actor.set_style('margin-bottom: 0px;');
+                 this.actor.set_style('padding-bottom: 0px;');
+             }
+-                                                
+-        
+-            this._windows = new Array();
+-                
+-            let tracker = Cinnamon.WindowTracker.get_default();
+-            tracker.connect('notify::focus-app', Lang.bind(this, this._onFocus));
+ 
+             this.isInteresting = function(metaWindow) {
+                 if (tracker.is_window_interesting(metaWindow)) {
+@@ -751,6 +741,10 @@ MyApplet.prototype = {
+                 return type === Meta.WindowType.DIALOG || type === Meta.WindowType.MODAL_DIALOG;
+             };
+ 
++            this._windows = new Array();
++
++            let tracker = Cinnamon.WindowTracker.get_default();
++            tracker.connect('notify::focus-app', Lang.bind(this, this._onFocus));
+ 
+             this.switchWorkspaceHandler = global.window_manager.connect('switch-workspace',
+                                             Lang.bind(this, this._refreshItems));
+@@ -782,6 +776,7 @@ MyApplet.prototype = {
+             global.screen.connect('notify::n-workspaces',
+                                     Lang.bind(this, this._changeWorkspaces));
+             global.display.connect('window-demands-attention', Lang.bind(this, this._onWindowDemandsAttention));
++            global.display.connect('window-marked-urgent', Lang.bind(this, this._onWindowDemandsAttention));
+                                     
+             // this._container.connect('allocate', Lang.bind(Main.panel, this._allocateBoxes)); 
+             
+@@ -792,13 +787,6 @@ MyApplet.prototype = {
+         }
+     },
+     
+-    saveWindowsOrder: function() {
+-        let order = [];
+-        let children = this.myactor.get_children();
+-        for (var i in children) if (children[i]._delegate && children[i]._delegate.metaWindow) order.push(children[i]._delegate.metaWindow);
+-        this._windows_order[global.screen.get_active_workspace()] = order;
+-    },
+-    
+     on_applet_clicked: function(event) {
+             
+     },
+@@ -827,39 +815,13 @@ MyApplet.prototype = {
+     },
+     
+     _refreshItems: function() {
+-        /* "this.myactor.destroy_children()" produces mysterious warnings:
+-        "Clutter-CRITICAL **: clutter_actor_unmap: assertion `CLUTTER_IS_ACTOR (self)' failed",
+-        one for each child actor, so let's use a loop instead. */
+-
+         for ( let i = 0; i < this._windows.length; ++i ) {
+-            this.myactor.remove_actor(this._windows[i].actor);
+-            this._windows[i].actor.destroy();
+-        }
+-        this._windows = new Array();
+-
+-        let metaWorkspace = global.screen.get_active_workspace();
+-        let windows = metaWorkspace.list_windows();
+-        windows.sort(Lang.bind(this, function(w1, w2) {
+-            if (this._windows_order){
+-                let order = this._windows_order[metaWorkspace];
+-                if (order){
+-                    let iw1 = order.indexOf(w1);
+-                    let iw2 = order.indexOf(w2);
+-                    if (iw1==-1) return 1;
+-                    else if (iw2==-1) return -1;
+-                    else return iw1 - iw2;
+-                }else return w1.get_stable_sequence() - w2.get_stable_sequence;
+-            }else return w1.get_stable_sequence() - w2.get_stable_sequence;
+-        }));
+-                
+-        // Create list items for each window
+-        for ( let i = 0; i < windows.length; ++i ) {
+-            let metaWindow = windows[i];
+-            if (this.isInteresting(metaWindow)) {
+-                let appbutton = new AppMenuButton(this, metaWindow, false, this.orientation, this._panelHeight);
+-                this._windows.push(appbutton);
+-                this.myactor.add(appbutton.actor);
+-            }
++            let metaWindow = this._windows[i].metaWindow;
++            if (metaWindow.get_workspace().index() == global.screen.get_active_workspace_index()
++                      || metaWindow.is_on_all_workspaces())
++                this._windows[i].actor.show();
++            else
++                this._windows[i].actor.hide();
+         }
+ 
+         this._onFocus();
+@@ -911,29 +873,22 @@ MyApplet.prototype = {
+     },
+   
+     _windowAdded: function(metaWorkspace, metaWindow) {
+-        if ( metaWorkspace.index() != global.screen.get_active_workspace_index() ) {
+-            return;
+-        }
+-
++        if (!this.isInteresting(metaWindow))
++            return;        
+         for ( let i=0; i<this._windows.length; ++i ) {
+             if ( this._windows[i].metaWindow == metaWindow ) {
+                 return;
+             }
+         }
+ 
+-        if ( this.isInteresting(metaWindow) ) {
+-            let appbutton = new AppMenuButton(this, metaWindow, true, this.orientation, this._panelHeight);
+-            this._windows.push(appbutton);
+-            this.myactor.add(appbutton.actor);
+-            appbutton.actor.show();
+-        }
++        let appbutton = new AppMenuButton(this, metaWindow, true, this.orientation, this._panelHeight);
++        this._windows.push(appbutton);
++        this.myactor.add(appbutton.actor);
++        if (metaWorkspace.index() != global.screen.get_active_workspace_index())
++            appbutton.actor.hide();
+     },
+ 
+     _windowRemoved: function(metaWorkspace, metaWindow) {
+-        if ( metaWorkspace.index() != global.screen.get_active_workspace_index() ) {
+-            return;
+-        }
+-
+         for ( let i=0; i<this._windows.length; ++i ) {
+             if ( this._windows[i].metaWindow == metaWindow ) {
+                 this.myactor.remove_actor(this._windows[i].actor);
+diff --git a/js/ui/altTab.js b/js/ui/altTab.js
+index f5832af..314bd32 100644
+--- a/js/ui/altTab.js
++++ b/js/ui/altTab.js
+@@ -24,6 +24,8 @@ const THUMBNAIL_DEFAULT_SIZE = 256;
+ const THUMBNAIL_POPUP_TIME = 500; // milliseconds
+ const THUMBNAIL_FADE_TIME = 0.1; // seconds
+ 
++const PREVIEW_DELAY_TIMEOUT = 200; // milliseconds
++
+ const iconSizes = [96, 64, 48, 32, 22];
+ 
+ function mod(a, b) {
+@@ -506,7 +508,7 @@ AltTabPopup.prototype = {
+         if (this._displayPreviewTimeoutId) {
+             Mainloop.source_remove(this._displayPreviewTimeoutId);
+         }
+-        this._displayPreviewTimeoutId = Mainloop.timeout_add(100, Lang.bind(this, showPreview));
++        this._displayPreviewTimeoutId = Mainloop.timeout_add(PREVIEW_DELAY_TIMEOUT, Lang.bind(this, showPreview));
+     },
+     
+     /**
+diff --git a/js/ui/layout.js b/js/ui/layout.js
+index 5e6e27a..6218c1e 100644
+--- a/js/ui/layout.js
++++ b/js/ui/layout.js
+@@ -937,7 +937,7 @@ Chrome.prototype = {
+     },
+ 
+     thawUpdateRegions: function() {
+-        this._freezeUpdateCount--;
++        this._freezeUpdateCount = --this._freezeUpdateCount >= 0 ? this.freezeUpdateCount : 0;
+         this._queueUpdateRegions();
+     },
+ 
+diff --git a/js/ui/windowManager.js b/js/ui/windowManager.js
+index 14bd72b..d5f69e4 100644
+--- a/js/ui/windowManager.js
++++ b/js/ui/windowManager.js
+@@ -752,28 +752,30 @@ WindowManager.prototype = {
+ 
+         cinnamonwm.completed_switch_workspace();                        
+     },
+-    
++
+     showWorkspaceOSD : function() {
+-        if (global.settings.get_boolean("workspace-osd-visible")) {            
++        if (global.settings.get_boolean("workspace-osd-visible")) {
+             let current_workspace_index = global.screen.get_active_workspace_index();
+-            let monitor = Main.layoutManager.primaryMonitor;                
++            let monitor = Main.layoutManager.primaryMonitor;
+             let label = new St.Label({style_class:'workspace-osd'});
+             label.set_text(Main.getWorkspaceName(current_workspace_index));
+-            label.set_opacity = 0;                             
+-            Main.layoutManager.addChrome(label, { visibleInFullscreen: false });    
++            label.set_opacity = 0;
++            Main.layoutManager.addChrome(label, { visibleInFullscreen: false, affectsInputRegion: false });
+             let workspace_osd_x = global.settings.get_int("workspace-osd-x");
+             let workspace_osd_y = global.settings.get_int("workspace-osd-y");
+             let x = (monitor.width * workspace_osd_x /100 - label.width/2);
+             let y = (monitor.height * workspace_osd_y /100 - label.height/2);
+             label.set_position(x, y);  
+-            let duration = global.settings.get_int("workspace-osd-duration") / 1000;                
+-            Tweener.addTween(label, { opacity: 255,                                                        
+-                    time: duration,                   
+-                    transition: 'linear',                                       
+-                    onComplete: function() { Main.layoutManager.removeChrome(label); } });            
++            let duration = global.settings.get_int("workspace-osd-duration") / 1000;
++            Tweener.addTween(label, {   opacity: 255,
++                                        time: duration,
++                                        transition: 'linear',
++                                        onComplete: function() {
++                                            Main.layoutManager.removeChrome(label);
++                                        }});
+         }
+     },
+-        
++
+     _startAppSwitcher : function(display, screen, window, binding) {
+         
+         let tabPopup = new AltTab.AltTabPopup();
+diff --git a/src/cinnamon-app.c b/src/cinnamon-app.c
+index b58c3cb..d13784f 100644
+--- a/src/cinnamon-app.c
++++ b/src/cinnamon-app.c
+@@ -1083,6 +1083,7 @@ cinnamon_app_launch (CinnamonApp     *app,
+   gboolean ret;
+   CinnamonGlobal *global;
+   MetaScreen *screen;
++  GdkDisplay *gdisplay;
+ 
+   if (startup_id)
+     *startup_id = NULL;
+@@ -1101,6 +1102,7 @@ cinnamon_app_launch (CinnamonApp     *app,
+ 
+   global = cinnamon_global_get ();
+   screen = cinnamon_global_get_screen (global);
++  gdisplay = gdk_screen_get_display (cinnamon_global_get_gdk_screen (global));
+ 
+   if (timestamp == 0)
+     timestamp = cinnamon_global_get_current_time (global);
+@@ -1108,7 +1110,7 @@ cinnamon_app_launch (CinnamonApp     *app,
+   if (workspace < 0)
+     workspace = meta_screen_get_active_workspace_index (screen);
+ 
+-  context = gdk_app_launch_context_new ();
++  context = gdk_display_get_app_launch_context (gdisplay);
+   gdk_app_launch_context_set_timestamp (context, timestamp);
+   gdk_app_launch_context_set_desktop (context, workspace);
+ 
+diff --git a/src/cinnamon-global.c b/src/cinnamon-global.c
+index 0073da3..54d930b 100644
+--- a/src/cinnamon-global.c
++++ b/src/cinnamon-global.c
+@@ -646,7 +646,7 @@ cinnamon_global_set_cursor (CinnamonGlobal *global,
+ 
+   gdk_window_set_cursor (global->stage_gdk_window, cursor);
+ 
+-  gdk_cursor_unref (cursor);
++  g_object_unref (cursor);
+ }
+ 
+ /**
+@@ -1537,9 +1537,18 @@ cinnamon_global_get_pointer (CinnamonGlobal         *global,
+                           int                 *y,
+                           ClutterModifierType *mods)
+ {
++  GdkDeviceManager *gmanager;
++  GdkDevice *gdevice;
++  GdkScreen *gscreen;
+   GdkModifierType raw_mods;
+-
+-  gdk_display_get_pointer (global->gdk_display, NULL, x, y, &raw_mods);
++  
++  gmanager = gdk_display_get_device_manager (global->gdk_display);
++  gdevice = gdk_device_manager_get_client_pointer (gmanager);
++  gdk_device_get_position (gdevice, &gscreen, x, y);
++  gdk_device_get_state (gdevice,
++                        gdk_screen_get_root_window (gscreen),
++                        NULL,
++                        &raw_mods);
+   *mods = raw_mods & GDK_MODIFIER_MASK;
+ }
+ 
+@@ -1555,10 +1564,19 @@ void
+ cinnamon_global_sync_pointer (CinnamonGlobal *global)
+ {
+   int x, y;
++  GdkDeviceManager *gmanager;
++  GdkDevice *gdevice;
++  GdkScreen *gscreen;
+   GdkModifierType mods;
+   ClutterMotionEvent event;
+ 
+-  gdk_display_get_pointer (global->gdk_display, NULL, &x, &y, &mods);
++  gmanager = gdk_display_get_device_manager (global->gdk_display);
++  gdevice = gdk_device_manager_get_client_pointer (gmanager);
++  gdk_device_get_position (gdevice, &gscreen, &x, &y);
++  gdk_device_get_state (gdevice,
++                        gdk_screen_get_root_window (gscreen),
++                        NULL,
++                        &mods);
+ 
+   event.type = CLUTTER_MOTION;
+   event.time = cinnamon_global_get_current_time (global);
+@@ -1671,7 +1689,8 @@ cinnamon_global_create_app_launch_context (CinnamonGlobal *global)
+ {
+   GdkAppLaunchContext *context;
+ 
+-  context = gdk_app_launch_context_new ();
++  context = gdk_display_get_app_launch_context (global->gdk_display);
++  
+   gdk_app_launch_context_set_timestamp (context, cinnamon_global_get_current_time (global));
+ 
+   // Make sure that the app is opened on the current workspace even if
+diff --git a/src/cinnamon-gtk-embed.c b/src/cinnamon-gtk-embed.c
+index 2d501fd..37a03a9 100644
+--- a/src/cinnamon-gtk-embed.c
++++ b/src/cinnamon-gtk-embed.c
+@@ -136,10 +136,11 @@ cinnamon_gtk_embed_get_preferred_width (ClutterActor *actor,
+   if (embed->priv->window
+       && gtk_widget_get_visible (GTK_WIDGET (embed->priv->window)))
+     {
+-      GtkRequisition requisition;
+-      gtk_widget_size_request (GTK_WIDGET (embed->priv->window), &requisition);
++      GtkRequisition min_req, natural_req;
++      gtk_widget_get_preferred_size (GTK_WIDGET (embed->priv->window), &min_req, &natural_req);
+ 
+-      *min_width_p = *natural_width_p = requisition.width;
++      *min_width_p = min_req.width;
++      *natural_width_p = natural_req.width;
+     }
+   else
+     *min_width_p = *natural_width_p = 0;
+@@ -156,10 +157,11 @@ cinnamon_gtk_embed_get_preferred_height (ClutterActor *actor,
+   if (embed->priv->window
+       && gtk_widget_get_visible (GTK_WIDGET (embed->priv->window)))
+     {
+-      GtkRequisition requisition;
+-      gtk_widget_size_request (GTK_WIDGET (embed->priv->window), &requisition);
++      GtkRequisition min_req, natural_req;
++      gtk_widget_get_preferred_size (GTK_WIDGET (embed->priv->window), &min_req, &natural_req);
+ 
+-      *min_height_p = *natural_height_p = requisition.height;
++      *min_height_p = min_req.height;
++      *natural_height_p = natural_req.height;
+     }
+   else
+     *min_height_p = *natural_height_p = 0;
+diff --git a/src/st/st-texture-cache.c b/src/st/st-texture-cache.c
+index 28a3945..5b9bb4d 100644
+--- a/src/st/st-texture-cache.c
++++ b/src/st/st-texture-cache.c
+@@ -1659,7 +1659,7 @@ st_texture_cache_load_icon_name (StTextureCache    *cache,
+     case ST_ICON_FADED:
+       themed = g_themed_icon_new_with_default_fallbacks (name);
+       cache_key = g_strdup_printf ("faded-icon:%s,size=%d", name, size);
+-      data.name = name;
++      data.name = g_strdup (name);
+       data.size = size;
+       cogltexture = st_texture_cache_load (st_texture_cache_get_default (),
+                                       cache_key,
+@@ -1667,6 +1667,7 @@ st_texture_cache_load_icon_name (StTextureCache    *cache,
+                                       create_faded_icon_cpu,
+                                       &data,
+                                       NULL);
++      g_free (data.name);
+       g_free (cache_key);
+ 
+       if (cogltexture != COGL_INVALID_HANDLE)
