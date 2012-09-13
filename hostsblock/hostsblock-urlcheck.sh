@@ -48,18 +48,22 @@ check(){
 
 # MAIN ROUTINE
 if [[ "$@" == "-h" || "$@" == "--help" ]]; then
-    echo -e "\nusage: $0 http[s]://[url] \n"
-    echo "$0 will first verify that [url] is blocked or unblocked,"
-    echo "and then scan that url for further contained subdomains."
+    cat << EOF
+
+usage: $0 http[s]://[url]
+
+$0 will first verify that [url] is blocked or unblocked,
+and then scan that url for further contained subdomains.
+EOF
 else
     changed=0
     echo "Verifying that the given page is blocked or unblocked"
-    check `echo "$@" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" <>\(\)].*//g"`
+    check `echo "$@" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" :<>\(\)].*//g"`
     [ "$changed" == "1" ] && postprocess &>/dev/null
     printf "Page domain verified. Scan the whole page for other domains for (un)blocking? [y/N] "
     read a
     if [[ $a == "y" || $a == "Y" ]]; then
-        for LINE in `curl -s "$@" | tr ' ' '\n' | grep -- "http" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\"<>\(\)].*//g" |\
+        for LINE in `curl -s "$@" | tr ' ' '\n' | grep -- "http" | sed -e "s/.*https*:\/\///g" -e "s/[\/?'\" :<>\(\)].*//g" |\
         sort -u | grep -- "\."`; do
             check "$LINE"
         done
