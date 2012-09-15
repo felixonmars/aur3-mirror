@@ -1,0 +1,117 @@
+# Author: Robert Schwarz <mail@rschwarz.net>
+
+pkgname=asus-screen-brightness
+pkgver=1.0
+pkgrel=1
+pkgdesc="Helper for adjusting screen brightness in Asus Zenbook UX31A and similar models"
+url="https://wiki.archlinux.org/index.php/ASUS_Zenbook_Prime_UX31A#Screen_backlight"
+arch=('any')
+license=(FDL1.3)
+depends=('bash')
+optdepends=('systemd: automatically grant user access to screen brightness control')
+
+# general note: this package contains only two files; I don't see any added
+# value in stuffing these into a tarball when I can also place them in here
+# using heredocs (cf. http://stackoverflow.com/a/2954835/334761 for reference)
+build() {
+	mkdir -p $srcdir/$pkgname-$pkgver/
+	cd $srcdir/$pkgname-$pkgver/
+	# write the backlight helper script
+	cat <<-'EOF' > ./asus-screen-brightness
+		#!/bin/bash
+		
+		path="/sys/class/backlight/intel_backlight"
+		
+        # max should be 4296
+        max=$(cat ${path}/max_brightness)
+        
+        step=$(($max/10))
+        # for a value smaller than treshold, the steps are smaller for a more accurate setting at low in          tensity
+        treshold=$((2*$step))
+        previous=$(cat ${path}/brightness)
+        
+        function commit {
+        	if [[ $1 = [0-9]* ]]
+        	then 
+        		if [[ $1 -gt $max ]]
+        		then 
+        			next=$max
+        		elif [[ $1 -lt 0 ]]
+        		then 
+        			next=0
+        		else 
+        			next=$1
+        		fi
+        		echo $next >> ${path}/brightness
+        		exit 0
+        	else 
+        		exit 1
+        	fi
+        }
+        
+        case "$1" in
+         up)
+        	if [[ $previous -le $treshold ]]
+        	then 
+        	    step=$(($step/4))
+        	fi
+        	commit $(($previous + $step))
+           ;;
+         down)
+        	if [[ $previous -le $treshold ]]
+        	then 
+        	    step=$(($step/4))
+        	fi
+        	commit $(($previous - $step))
+           ;;
+         max)
+        	 commit $max
+           ;;
+         off)
+        	 commit 0
+           ;;
+         show)
+        	 echo $previous
+           ;;
+         night)
+        	 commit $(($max/4)) 
+         	 ;;
+         allowusers)
+        	 # Allow members of users group to change brightness
+        	 sudo chgrp users ${path}/brightness
+        	 sudo chmod g+w ${path}/brightness
+           ;;
+         disallowusers)
+        	 # Disallow members of users group to change brightness
+        	 sudo chgrp root ${path}/brightness
+        	 sudo chmod g-w ${path}/brightness
+           ;;
+         *)
+        	 commit	$1
+        esac
+        
+        exit 0		
+
+	EOF
+	# write the systemd unit file
+	cat <<-'EOF' > ./asus-screen-brightness.service
+		[Unit]
+		Description=Allow user access to screen brightness
+		After=systemd-udevd.service
+		
+		[Service]
+		Type=oneshot
+		RemainAfterExit=yes
+		ExecStart=/usr/bin/asus-screen-brightness allowusers
+		ExecStop=/usr/bin/asus-screen-brightness disallowusers
+		
+		[Install]
+		WantedBy=multi-user.target
+	EOF
+}
+
+package() {
+	cd $srcdir/$pkgname-$pkgver/
+	install -D -m 0755 asus-screen-brightness "$pkgdir/usr/bin/asus-screen-brightness"
+	install -D -m 0644 asus-screen-brightness.service "$pkgdir/usr/lib/systemd/system/asus-screen-brightness.service"
+}
