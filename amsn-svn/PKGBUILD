@@ -1,15 +1,15 @@
-# Maintainer: Dario 'Dax' Vilardi <dax@deelab.org>
+# Maintainer: Dimitri Pascual <quetzal@khetzal.info>
 
 pkgname=amsn-svn
-pkgver=12194
+pkgver=12417
 pkgrel=1
 pkgdesc="MSN client written in Tcl/Tk"
 arch=('i686' 'x86_64')
 url="http://amsn.sourceforge.net/"
 license=('GPL2')
-depends=('tk' 'tls')
-makedepends=('libjpeg' 'libpng' 'farsight2' 'libv4l' 'subversion')
-optdepends=('farsight2: for video conferencing')
+depends=('tk' 'tls' 'tcl')
+makedepends=('libjpeg' 'libpng' 'farstream' 'libv4l' 'subversion')
+optdepends=('farstream: for video conferencing')
 provides=('amsn')
 conflicts=('amsn')
 source=()
