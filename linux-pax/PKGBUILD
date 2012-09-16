@@ -8,9 +8,9 @@ pkgname=linux-pax
 true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.5
-_paxver=test25
-pkgver=${_basekernel}.3
-pkgrel=6
+_paxver=test26
+pkgver=${_basekernel}.4
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -28,21 +28,19 @@ source=(
   $pkgname.install
   $pkgname.preset
   change-default-console-loglevel.patch
-  alsa-powersave-3.5.x.patch
   watchdog-3.5.x.patch
   i915-i2c-crash-3.5.x.patch
 )
 
 sha256sums=(
   b985ce383f0cfd940d988d4c99a84899028327aca8c29b420678241f26fdb342
-  79a9464a0a3fc242794394e0593634fa44b696a61e3364a42d1e9d13e9f2750d
-  f25ec619c93700024d1d93b5c86adac0a3b0d67e8dcda6d66bf44f64828554dc
+  ca3f1272aaca709b94bbd1736426247240265f41394ce2e239fbed433cdd070d
+  7f4eaf5b199ba65d3f5488786a9f1d4817a35561044bb42e96fc85a5f9b229cd
   08f008a299b0c8ca9f64fc841fee3b9749396765c41b7e25cf01266aaba91b83
   378f777db2cbf4422b4b229e6804371bc37191a6a5fc63ed556bbdf8b1818a62
   8abb733784a2891833cf097a272e39dce2cd4efe7bb655516196f6c54320563d
   92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a
   b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4
-  bab85b2bb775d9db4585336707cd619fe1cfd8c5959368a5642a0f9c13acf0b8
   3b285aa62940908ef9dd2a72f81c28fd2c8102367188ef349509ff0f7d7f4fa8
   bc9be7e4e5bc81aa30754a96f6a94c2e6eb6a147165a2ac50972c1fd59ef9964
 )
@@ -57,10 +55,6 @@ build() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "$srcdir/change-default-console-loglevel.patch"
-
-  # fix alsa powersave bug, probably fixed in 3.5.4
-  # https://bugs.archlinux.org/task/31255
-  patch -Np1 -i  "${srcdir}/alsa-powersave-3.5.x.patch"
 
   # fix broken watchdog
   # https://bugzilla.kernel.org/show_bug.cgi?id=44991
