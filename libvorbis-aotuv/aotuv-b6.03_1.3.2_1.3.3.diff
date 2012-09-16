@@ -1,0 +1,115 @@
+diff -ur aotuv-b6.03_20110424/lib/codebook.c aotuv-b6.03_20110424-patched/lib/codebook.c
+--- aotuv-b6.03_20110424/lib/codebook.c	2010-10-22 21:31:22.000000000 -0700
++++ aotuv-b6.03_20110424-patched/lib/codebook.c	2012-07-17 20:27:42.759156640 -0700
+@@ -248,7 +248,7 @@
+       }
+ 
+       /* quantized values */
+-      if((quantvals*s->q_quant+7>>3)>opb->storage-oggpack_bytes(opb))
++      if(((quantvals*s->q_quant+7)>>3)>opb->storage-oggpack_bytes(opb))
+         goto _eofout;
+       s->quantlist=_ogg_malloc(sizeof(*s->quantlist)*quantvals);
+       for(i=0;i<quantvals;i++)
+@@ -367,6 +367,7 @@
+ }
+ 
+ /* returns 0 on OK or -1 on eof *************************************/
++/* decode vector / dim granularity gaurding is done in the upper layer */
+ long vorbis_book_decodevs_add(codebook *book,float *a,oggpack_buffer *b,int n){
+   if(book->used_entries>0){
+     int step=n/book->dim;
+@@ -386,6 +387,7 @@
+   return(0);
+ }
+ 
++/* decode vector / dim granularity gaurding is done in the upper layer */
+ long vorbis_book_decodev_add(codebook *book,float *a,oggpack_buffer *b,int n){
+   if(book->used_entries>0){
+     int i,j,entry;
+@@ -431,6 +433,9 @@
+   return(0);
+ }
+ 
++/* unlike the others, we guard against n not being an integer number
++ * of <dim> internally rather than in the upper layer (called only by
++ * floor0) */
+ long vorbis_book_decodev_set(codebook *book,float *a,oggpack_buffer *b,int n){
+   if(book->used_entries>0){
+     int i,j,entry;
+@@ -440,15 +445,15 @@
+       entry = decode_packed_entry_number(book,b);
+       if(entry==-1)return(-1);
+       t     = book->valuelist+entry*book->dim;
+-      for (j=0;j<book->dim;)
++      for (j=0;i<n && j<book->dim;){
+         a[i++]=t[j++];
++      }
+     }
+   }else{
+     int i,j;
+ 
+     for(i=0;i<n;){
+-      for (j=0;j<book->dim;)
+-        a[i++]=0.f;
++      a[i++]=0.f;
+     }
+   }
+   return(0);
+diff -ur aotuv-b6.03_20110424/lib/floor0.c aotuv-b6.03_20110424-patched/lib/floor0.c
+--- aotuv-b6.03_20110424/lib/floor0.c	2010-10-22 21:31:22.000000000 -0700
++++ aotuv-b6.03_20110424-patched/lib/floor0.c	2012-07-17 20:03:11.831162121 -0700
+@@ -177,10 +177,9 @@
+          vector */
+       float *lsp=_vorbis_block_alloc(vb,sizeof(*lsp)*(look->m+b->dim+1));
+ 
+-      for(j=0;j<look->m;j+=b->dim)
+-        if(vorbis_book_decodev_set(b,lsp+j,&vb->opb,b->dim)==-1)goto eop;
++      if(vorbis_book_decodev_set(b,lsp,&vb->opb,look->m)==-1)goto eop;
+       for(j=0;j<look->m;){
+-        for(k=0;k<b->dim;k++,j++)lsp[j]+=last;
++        for(k=0;j<look->m && k<b->dim;k++,j++)lsp[j]+=last;
+         last=lsp[j-1];
+       }
+ 
+diff -ur aotuv-b6.03_20110424/lib/floor1.c aotuv-b6.03_20110424-patched/lib/floor1.c
+--- aotuv-b6.03_20110424/lib/floor1.c	2010-12-31 02:10:22.000000000 -0800
++++ aotuv-b6.03_20110424-patched/lib/floor1.c	2012-07-17 20:05:57.129407680 -0700
+@@ -167,6 +167,7 @@
+ 
+   for(j=0,k=0;j<info->partitions;j++){
+     count+=info->class_dim[info->partitionclass[j]];
++    if(count>VIF_POSIT) goto err_out;
+     for(;k<count;k++){
+       int t=info->postlist[k+2]=oggpack_read(opb,rangebits);
+       if(t<0 || t>=(1<<rangebits))
+@@ -1035,7 +1036,7 @@
+           }
+         }
+ 
+-        fit_value[i]=val+predicted&0x7fff;
++        fit_value[i]=(val+predicted)&0x7fff;
+         fit_value[look->loneighbor[i-2]]&=0x7fff;
+         fit_value[look->hineighbor[i-2]]&=0x7fff;
+ 
+diff -ur aotuv-b6.03_20110424/lib/info.c aotuv-b6.03_20110424-patched/lib/info.c
+--- aotuv-b6.03_20110424/lib/info.c	2011-04-24 08:01:28.000000000 -0700
++++ aotuv-b6.03_20110424-patched/lib/info.c	2012-07-17 20:31:59.878405639 -0700
+@@ -551,6 +551,10 @@
+ 
+   oggpack_writeinit(&opb);
+   if(_vorbis_pack_comment(&opb,vc)) return OV_EIMPL;
++  if(_vorbis_pack_comment(&opb,vc)){
++    oggpack_writeclear(&opb);
++    return OV_EIMPL;
++  }
+ 
+   op->packet = _ogg_malloc(oggpack_bytes(&opb));
+   memcpy(op->packet, opb.buffer, oggpack_bytes(&opb));
+@@ -561,6 +565,7 @@
+   op->granulepos=0;
+   op->packetno=1;
+ 
++  oggpack_writeclear(&opb);
+   return 0;
+ }
+ 
