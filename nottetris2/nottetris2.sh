@@ -1,3 +1,3 @@
 #!/bin/bash
 cat /usr/share/games/nottetris2/readme
-love /usr/share/games/nottetris2/nottetris2.love
+love07 /usr/share/games/nottetris2/nottetris2.love
