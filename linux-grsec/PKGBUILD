@@ -11,7 +11,7 @@ _basekernel=3.5
 _grsecver=2.9.1
 _timestamp=201209151148
 pkgver=${_basekernel}.4
-pkgrel=9
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -29,7 +29,6 @@ source=(
   $pkgname.install
   $pkgname.preset
   change-default-console-loglevel.patch
-  alsa-powersave-3.5.x.patch
   watchdog-3.5.x.patch
   i915-i2c-crash-3.5.x.patch
 )
@@ -42,7 +41,6 @@ sha256sums=(
   882bbadbb0d6694f31930d9208564bfd61a19767069c2ac9ca3f543cad3d5149
   ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d
   b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4
-  bab85b2bb775d9db4585336707cd619fe1cfd8c5959368a5642a0f9c13acf0b8
   3b285aa62940908ef9dd2a72f81c28fd2c8102367188ef349509ff0f7d7f4fa8
   bc9be7e4e5bc81aa30754a96f6a94c2e6eb6a147165a2ac50972c1fd59ef9964
 )
@@ -57,10 +55,6 @@ build() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # fix alsa powersave bug, probably fixed in 3.5.4
-  # https://bugs.archlinux.org/task/31255
-  patch -Np1 -i  "${srcdir}/alsa-powersave-3.5.x.patch"
 
   # fix broken watchdog
   # https://bugzilla.kernel.org/show_bug.cgi?id=44991
