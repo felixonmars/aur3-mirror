@@ -1,7 +1,7 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=acpi_call-git
-pkgver=20120816
+pkgver=20120915
 pkgrel=1
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
@@ -58,6 +58,9 @@ package() {
   install -Dm644 README \
     ${pkgdir}/usr/share/${_gitname}/README
 
+  warning "Please make sure kernel headers are built/installed for the kernel acpi_call will be used with ::"
+  warning "example #1: 'pacman -S linux-headers'"
+  warning "example #2: 'pacman -S linux-lts-headers'"
   for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*version //g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
     msg2 "Building module for $_kernver..."
 
