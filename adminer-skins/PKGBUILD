@@ -20,13 +20,15 @@ true && pkgname=(
     'adminer-skins-jukin'
 )
 
-pkgver=20120528
+pkgver=20120918
 pkgrel=1
 pkgdesc='Adminer skins'
 url='http://www.adminer.org'
 arch=('any')
 license=('Apache License, Version 2.0')
 depends=('adminer')
+provides=('adminer-skin')
+conflicts=('adminer-skin')
 makedepends=()
 optdepends=()
 
@@ -48,7 +50,7 @@ source=(
 md5sums=('8582848fdb2b459ae96b7f392093be48'
          '9da6b73dfa3bb538b253676e14c50d1e'
          '0077baa49eef35467a8c770a44ce40e8'
-         '0fc902beadf39389d0ef2a377126db08'
+         '79cdfdd79bc42e597121b6adf8cc26f3'
          'aa030a380ca2dca615d01856a333e4d8'
          '1520661c238a8460170afa0b49ad894a'
          '0e4e5cbcfe4528e44ba62e34df1e0324'
