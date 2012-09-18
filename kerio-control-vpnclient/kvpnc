@@ -1,14 +1,10 @@
 #!/bin/bash
 
-. /etc/rc.conf
-. /etc/rc.d/functions
+. /etc/conf.d/kvpnc.conf
 
 COMMAND_TIMEOUT=3
 NAME="kvpnc"
 DESC="Kerio Control VPN client"
-LIBDIR="/var/lib/kerio-control-vpn"
-LOGDIR="/var/log/kerio-kvc"
-CFGFILE="/etc/kerio-kvc.conf"
 
 dialogbox () {
   dialog \
@@ -24,6 +20,7 @@ inputbox () {
 }
 
 passwordbox () {
+  # Insecure means that asterisks will be shown in the input field
   dialogbox --passwordbox "$1" "$2" "$3" --insecure
 }
 
@@ -98,25 +95,25 @@ configure() {
     "Kerio VPN server address" \
     "Please enter the host name or IP address of your Kerio VPN server." \
   )
-  [ -z "$SERVER_NAME" ] && die 1 "The Kerio VPN server address must be set."
+  [ -z "$SERVER_NAME" ] && die 2 "The Kerio VPN server address must be set."
 
   PORT_NUMBER=$(inputbox \
     "Kerio VPN server port number" \
     "Please enter the TCP port number of your Kerio VPN server." \
     "4090" \
   )
-  [ -z "$PORT_NUMBER" ] && die 2 "The Kerio VPN server port number must be set."
+  [ -z "$PORT_NUMBER" ] && die 3 "The Kerio VPN server port number must be set."
 
   SSL_REPLY=$(execute_with_timeout $COMMAND_TIMEOUT bash -c "echo | \
       openssl s_client -ssl3 -connect $SERVER_NAME:$PORT_NUMBER 2> /dev/null"
   )
-  [ -z $SSL_REPLY ] && die 3 "Unable to connect to the Kerio VPN server"
+  [ -z $SSL_REPLY ] && die 4 "Unable to connect to the Kerio VPN server"
 
   AUTODETECT_FP=$(yesnobox \
     "Autodetect fingerprint" \
     "Automaticaly detect fingerprint from the Kerio VPN server?" \
   )
-  [ -z "$AUTODETECT_FP" ] && die 4 "The user has cancelled."
+  [ -z "$AUTODETECT_FP" ] && die 5 "The user has cancelled."
 
   if [ "$AUTODETECT_FP" = "yes" ]
   then
@@ -152,25 +149,25 @@ Please check if the automaticaly detected fingerprint is correct." \
       "Enter the Kerio VPN server's fingerprint."
     )
   fi
-  [ -z "$FINGERPRINT" ] && die 5 "The Kerio VPN server fingerprint must be set."
+  [ -z "$FINGERPRINT" ] && die 6 "The Kerio VPN server fingerprint must be set."
 
   USER_NAME=$(inputbox \
     "Kerio VPN server user name" \
     "Please enter the user name of your Kerio VPN server account." \
   )
-  [ -z "$USER_NAME" ] && die 6 "User name must be set."
+  [ -z "$USER_NAME" ] && die 7 "User name must be set."
 
   PASSWORD=$(passwordbox \
     "Kerio VPN server password for user $USER_NAME" \
     "Please enter the password of your Kerio VPN server account." \
   )
-  [ -z "$PASSWORD" ] && die 7 "Password must be set."
+  [ -z "$PASSWORD" ] && die 8 "Password must be set."
 
   CONFIRM_PW=$(passwordbox \
     "Kerio VPN server password for user $USER_NAME" \
     "Please confirm the previous password of your Kerio VPN server account." \
   )
-  [ "$CONFIRM_PW" != "$PASSWORD" ] && die 8 "Confirmed password is different."
+  [ "$CONFIRM_PW" != "$PASSWORD" ] && die 9 "Confirmed password is different."
 
   for ITERATION in $(echo -n "$PASSWORD" | od -t d1 -A n)
   do
@@ -195,38 +192,29 @@ EOF
 
 case "$1" in
   start)
-    stat_busy "Starting $DESC"
-    ck_daemon "$NAME" || stat_die
-    [ ! -f "$CFGFILE" ] && die 1 "Configuration file not found, configure with rc.d configure kvpnc"
+    # Check and prepare environment
+    [ ! -f "$CFGFILE" ] && die 1 "Configuration file not found, configure with $0 configure"
     [ ! -d "$LIBDIR" ] && mkdir -p "$LIBDIR"
     [ ! -d "$LOGDIR" ] && mkdir -p "$LOGDIR"
     [ ! -h "$LIBDIR/logs" ] && ln -s -f -n "$LOGDIR" "$LIBDIR/logs"
-    /usr/sbin/kvpncsvc "$LIBDIR" > /dev/null 2>&1
-    if [ $? -gt 0 ]; then
-      stat_fail
+    # Start the daemon and append the output to the system logger
+    "$BINSVC" "$LIBDIR" > /dev/null
+    # Get exit status of the first command BEFORE the pipe
+    RET=$?
+    if [ $RET -gt 0 ]; then
+      die 1 "The kvpnsvc daemon died with exit code $RET"
     else
-      add_daemon "$NAME"
-      stat_done
+      pidof -o %PPID kvpncsvc > "$PIDFILE"
     fi
     ;;
   stop)
-    stat_busy "Stopping $DESC"
     killall -q kvpncsvc
-    rm_daemon "$NAME"
-    stat_done
-    ;;
-  restart)
-    ck_daemon "$NAME" || $0 stop
-    $0 start
+    rm -f "$PIDFILE"
     ;;
   configure)
     configure
     ;;
-  status)
-    stat_busy "Checking $NAME status";
-    ck_status "$NAME"
-    ;;
   *)
-    echo "usage: $0 {start|stop|restart|status|configure}"
+    echo "usage: $0 {start|stop|configure}"
     ;;
 esac
