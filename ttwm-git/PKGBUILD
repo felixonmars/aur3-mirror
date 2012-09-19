@@ -25,7 +25,12 @@ build() {
     rm -rf "$srcdir/$_gitname-build"
     git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
     cd "$srcdir/$_gitname-build"
-	sed -i "s/USERNAME/$USER/" config.h
+	if [[ -f ~/.ttwm_conf.h ]]; then
+		msg "Using user config from ~/.ttwm_conf.h"
+		msg "  Be sure to check for changes to default config.h"
+	else
+		msg "Using default config"
+	fi
 	make
 }
 
