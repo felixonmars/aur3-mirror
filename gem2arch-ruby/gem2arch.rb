@@ -28,7 +28,7 @@ sha1sums=('<%= sha1sum %>')
 package() {
   cd "$srcdir"
   local _gemdir="$(ruby -e'puts Gem.default_dir')"
-  gem install --ignore-dependencies --no-user-install -i "$pkgdir$_gemdir" $_gemname-$pkgver.gem
+  gem install --ignore-dependencies --no-user-install -i "$pkgdir$_gemdir" -n "$pkgdir/usr/bin" $_gemname-$pkgver.gem
 }
 }
 
