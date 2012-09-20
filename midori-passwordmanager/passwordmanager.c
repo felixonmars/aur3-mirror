@@ -33,19 +33,16 @@ static gboolean
 passwman_prepare_js ()
 {
    gchar* passwordmanager;
-   gchar* file;
 
-   file = sokoke_find_data_filename ("passwordmanager.js", TRUE);
-   if (!g_file_get_contents (file, &passwordmanager, NULL, NULL))
+   if (!g_file_get_contents ("/usr/share/midori/res/passwordmanager.js", \
+            &passwordmanager, NULL, NULL))
    {
-       g_free (file);
        return FALSE;
    }
    g_strchomp (passwordmanager);
 
    jspassm = g_strdup_printf ( "%s", passwordmanager );
    g_strstrip (jspassm);
-   g_free (file);
    g_free (passwordmanager);
 
    return TRUE;
