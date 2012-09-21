@@ -6,17 +6,17 @@
 daemon_name=granola
 . /etc/conf.d/$daemon_name.conf
 
-freq_dir="/sys/devices/system/cpu/cpu0/cpufreq"
+freq_dir=/sys/devices/system/cpu/cpu0/cpufreq
 
 # modded from source
 test_usable_dvfs() {
-    grep userspace $freq_dir"/scaling_available_governors" >& /dev/null
+    grep userspace $freq_dir/scaling_available_governors >& /dev/null
     return $?
 }
 
 #modded from source
 insert_cpufreq_modules() {
-    if [ ! -d $freq_dir"/scaling_driver" ]; then
+    if [[ ! -d $freq_dir/scaling_driver ]]; then
         # No driver yet, try and modprobe one
         module_dir="/lib/modules/$(uname -r)/kernel/drivers/cpufreq/"
         for module in $(ls $module_dir 2> /dev/null | cut -d '.' -f 1); do
@@ -24,11 +24,7 @@ insert_cpufreq_modules() {
         done
     # Either no driver or it is compiled in
     fi
-
-    if [[ ! grep userspace $freq_dir"/scaling_available_governors" >& /dev/null ]]; then
-        modprobe cpufreq-userspace 2> /dev/null
-    fi
-
+    [[ ! grep userspace $freq_dir/scaling_available_governors >& /dev/null ]] && modprobe cpufreq-userspace 2> /dev/null
     test_usable_dvfs
 }
 
