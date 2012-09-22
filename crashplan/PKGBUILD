@@ -2,12 +2,12 @@
 # Contributor: Bill Durr <billyburly [at] gmail [dot] com>
 pkgname=crashplan
 pkgver=3.2.1
-pkgrel=9
+pkgrel=10
 pkgdesc="an online/offsite backup solution"
 url="http://www.crashplan.com"
 arch=('i686' 'x86_64')
 license=('custom')
-depends=('java-runtime')
+depends=('java-runtime' 'swt')
 makedepends=('grep' 'cpio' 'gzip')
 backup=()
 install=crashplan.install
