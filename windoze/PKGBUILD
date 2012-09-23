@@ -1,0 +1,9 @@
+pkgname='windoze'
+pkgver=9001
+pkgrel=1337
+pkgdesc='t3h b35t35t 05'
+arch=('i686' 'x86_64' 'arm')
+license=('MSEULA')
+url='http://windows.microsoft.com/'
+conflicts=('linux')
+replaces=('linux')
