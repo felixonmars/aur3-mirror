@@ -2,7 +2,7 @@
 
 pkgname=aceorb
 pkgver=6.1.4
-pkgrel=1
+pkgrel=2
 pkgdesc="C++ CORBA implmentation"
 arch=('i686' 'x86_64')
 url="http://www.cs.wustl.edu/~schmidt/TAO.html"
@@ -22,13 +22,14 @@ build() {
   echo "#include \"$ACE_ROOT/ace/config-linux.h\"" > $ACE_ROOT/ace/config.h
   echo "include \$(ACE_ROOT)/include/makeinclude/platform_linux.GNU" > $ACE_ROOT/include/makeinclude/platform_macros.GNU
   echo "INSTALL_PREFIX=/usr" >> $ACE_ROOT/include/makeinclude/platform_macros.GNU
+  #echo "TAO_ORBSVCS=CosNaming" >> $ACE_ROOT/include/makeinclude/platform_macros.GNU
+  #echo "TAO_ORBSVCS=CosNaming CosTrading RTEvent Security RTSched PortableGroup FTORB_Utils FtRtEvent CosLoadBalancing CosNotification_MC" >> $ACE_ROOT/include/makeinclude/platform_macros.GNU
  
-  cd $ACE_ROOT/ace && make -j2
-  cd $ACE_ROOT/apps/gperf/src && make -j2
-  cd $TAO_ROOT/tao && make -j2
-  cd $TAO_ROOT/TAO_IDL && make -j2
-  cd $TAO_ROOT/orbsvcs && make -j2 
-  
+  cd $ACE_ROOT/ace && make
+  cd $ACE_ROOT/apps/gperf/src && make
+  cd $TAO_ROOT/TAO_IDL && make
+  cd $TAO_ROOT/tao && make
+  cd $TAO_ROOT/orbsvcs && make
 }
 
 package() {
@@ -40,8 +41,8 @@ package() {
   
   cd $ACE_ROOT/ace && make DESTDIR="$pkgdir" install
   cd $ACE_ROOT/apps/gperf/src && make DESTDIR="$pkgdir" install
-  cd $TAO_ROOT/tao && make DESTDIR="$pkgdir" install
   cd $TAO_ROOT/TAO_IDL && make DESTDIR="$pkgdir" install
+  cd $TAO_ROOT/tao && make DESTDIR="$pkgdir" install
   cd $TAO_ROOT/orbsvcs && make DESTDIR="$pkgdir" install
   
   echo "#include \"/usr/include/ace/config-linux.h\"" > $pkgdir/usr/include/ace/config.h
