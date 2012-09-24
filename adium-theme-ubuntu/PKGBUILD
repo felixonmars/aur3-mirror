@@ -2,12 +2,12 @@
 
 pkgname=adium-theme-ubuntu
 pkgver=0.3.2
-pkgrel=1
+pkgrel=2
 pkgdesc="Adium message style for Ubuntu"
 arch=('any')
 url="https://launchpad.net/adium-theme-ubuntu"
 license=('BSD' 'custom:AFL')
-makedepends=('python-distutils-extra')
+makedepends=('python2-distutils-extra')
 optdepends=('empathy')
 source=(https://launchpadlibrarian.net/90831300/$pkgname-$pkgver.tar.gz)
 md5sums=('62454dfa385617913507cf62d52409bf')
