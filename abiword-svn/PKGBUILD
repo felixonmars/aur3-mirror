@@ -3,7 +3,7 @@
 
 _pkgname=abiword
 pkgname=$_pkgname-svn
-pkgver=31916
+pkgver=31920
 pkgrel=1
 pkgdesc="A fully-featured word processor (SVN Version)"
 arch=(i686 x86_64)
@@ -38,12 +38,12 @@ build() {
     msg "Starting SVN checkout..."
     if [[ -d $_svnmod/.svn ]]; then
         pushd $_svnmod && svn up -r $pkgver
-        msg "The local files have been updated."
+        msg2 "The local files have been updated."
         popd
     else
         svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
     fi
-    msg "SVN checkout done or server timeout"
+    msg2 "SVN checkout done or server timeout"
 
     rm -rf $_svnmod-build/
     cp -r $_svnmod/ $_svnmod-build/
