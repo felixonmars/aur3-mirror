@@ -1,13 +1,13 @@
 # Maintainer: rtfreedman  (rob<d0t>til<d0t>freedman<aT>googlemail<d0t>com
 
 pkgname=abs-guide
-pkgver=6.5
+pkgver=6.5.24
 pkgrel=1
 pkgdesc="Advanced Bash Scripting Guide"
 arch=(any)
 url="http://bash.deta.in"
 license=(custom)
-source=("http://bash.deta.in/${pkgname}-${pkgver}.tar.bz2"
+source=("http://bash.deta.in/${pkgname}-latest.tar.bz2"
 				"abs-guide" 
 				"abs-guide.desktop"
 )
