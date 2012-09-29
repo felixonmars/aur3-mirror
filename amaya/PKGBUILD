@@ -4,12 +4,12 @@
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
 pkgname=amaya
 pkgver=11.4.4
-pkgrel=7
+pkgrel=8
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
 license=('W3C')
-depends=('wxgtk' 'mesa' 'raptor1' 'libwww')
+depends=('wxgtk' 'mesa' 'raptor1')
 makedepends=('perl' 'raptor')
 options=('!makeflags')
 install=$pkgname.install
@@ -20,6 +20,7 @@ source=(amaya-fix-thotlib-png15.patch \
   explicite_linking2.patch \
   gzread.patch \
   amaya-11.4.4-socketbufsize.patch \
+  configure.patch \
   ftp://ftp.w3.org/pub/$pkgname/$pkgname-sources-$pkgver.tgz \
   http://www.w3.org/Amaya/Distribution/Dutch.tgz \
   http://www.w3.org/Amaya/Distribution/German.tgz \
@@ -33,6 +34,7 @@ md5sums=('6ebd78d57ee0a4b30b2dfb3369439288'
          '572cdeaa2a6b318217f69c37edee116c'
          'f35ae7158133b6d39aa6a83e11bc261b'
          '9fc28d3fd4da1147f8baefa46ec3ae52'
+         'd095a76b4ccf6203cf78f8919a2693a4'
          'e8072c7b1d06b983951c56e9f51fbacf'
          '3edb9cce5ce160d7270b23808c1d5981'
          '400eeeae974a64d23de4fcdd609c30bc'
@@ -49,7 +51,8 @@ build() {
   patch -p1 < $srcdir/explicite_linking2.patch
   patch -p1 < $srcdir/gzread.patch
   patch -p1 < $srcdir/amaya-11.4.4-socketbufsize.patch
-  
+  patch -p2 < $srcdir/configure.patch 
+
   cd Mesa/configs
   rm current
   [[ $CARCH == x86_64 ]] && ln -s linux-x86-64 current
@@ -63,7 +66,7 @@ build() {
   
   ../configure --prefix=/usr/share --exec=/usr/share \
     --datadir=/usr/share --enable-system-raptor \
-    --enable-system-wx --enable-system-libwww 
+    --enable-system-wx
   make
 }
 
