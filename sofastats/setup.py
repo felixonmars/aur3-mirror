@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
 name         = 'sofastats',
 description  = 'Statistics Open For All',
-version      = '1.1.6',
+version      = '1.2.2',
 author       = 'Grant Paton-Simpson',
 author_email = 'grant@sofastatistics.com',
 package_dir  = {'sofastats':'sofa_main'},
