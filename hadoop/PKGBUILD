@@ -1,100 +1,87 @@
-# Contributor: Mantas Vidutis <mantas.a.vidutis-at-gmail.com>
-
+# Maintainer: Tianjiao Yin <ytj000@gmail.com>
 pkgname=hadoop
-pkgver=1.0.1
-_devver=1.0.1-dev
+pkgver=1.0.3
 pkgrel=1
 pkgdesc="Hadoop - MapReduce implementation and distributed filesystem"
 arch=('i686' 'x86_64')
 url="http://hadoop.apache.org"
-license=('APACHE')
-depends=('java-runtime' 'zlib' 'gzip' 'lzo' 'bzip2')
-makedepends=('java-environment' 'apache-ant')
-optdepends=('kfs')
-conflicts=('hadoop-svn')
+license=('apache')
+depends=('java-runtime' 'openssh')
 install=hadoop.install
-source=("http://mirror.csclub.uwaterloo.ca/apache/hadoop/common/hadoop-${pkgver}/hadoop-${pkgver}.tar.gz")
-md5sums=('e627d9b688c4de03cba8313bd0bba148')
+source=(
+"http://www.eng.lsu.edu/mirrors/apache/hadoop/common/hadoop-1.0.3/hadoop-1.0.3-bin.tar.gz"
+"hadoop.profile"
+"OLDPKGBUILD"
+"conf.diff"
+"hadoop-all"
+)
+backup=(
+etc/profile.d/hadoop.sh
+etc/hadoop/capacity-scheduler.xml
+etc/hadoop/configuration.xsl
+etc/hadoop/core-site.xml
+etc/hadoop/fair-scheduler.xml
+etc/hadoop/hadoop-env.sh
+etc/hadoop/hadoop-metrics2.properties
+etc/hadoop/hadoop-policy.xml
+etc/hadoop/hdfs-site.xml
+etc/hadoop/log4j.properties
+etc/hadoop/mapred-queue-acls.xml
+etc/hadoop/mapred-site.xml
+etc/hadoop/masters
+etc/hadoop/slaves
+etc/hadoop/ssl-client.xml.example
+etc/hadoop/ssl-server.xml.example
+etc/hadoop/taskcontroller.cfg
+)
 
-compile() {
-  cd ${srcdir}/hadoop-${pkgver} || return 1
+_usr_lib=$pkgdir/usr/lib/
+_hadoop_real_home=$_usr_lib/$pkgname-$pkgver
+_hadoop_link_home=$_usr_lib/$pkgname
 
-  msg "Cleaning..."
-  ant clean || return 1
+if [ "$CARCH" = "i686" ]; then
+    options=(!strip)
+fi
 
-  msg "Patching..."
-  sed -i "s/${_devver}/${pkgver}/" build.xml
-  sed -i "s|<ivysettings>|<ivysettings>\n<caches defaultCacheDir=\"${srcdir}/ivy_cache\"/>|" ivy/ivysettings.xml
+package() {
+  mkdir -p $_usr_lib
+  cp -r $srcdir/$pkgname-$pkgver $_usr_lib
 
-  msg "Building..."
-  ant -Dcompile.native=true bin-package || return 1
+  install -Dm755 ${srcdir}/hadoop-all ${pkgdir}/etc/rc.d/hadoop-all
+  install -Dm755 ${srcdir}/hadoop.profile ${pkgdir}/etc/profile.d/hadoop.sh
 
-  cd ${srcdir}/hadoop-${pkgver}/build || return 1
+  # we do not use soft link because we need put configures in backup array,
+  # in order to preserve the conf when upgrade package.
+  cp $_hadoop_real_home/conf $pkgdir/etc/hadoop -r
+  mv $_hadoop_real_home/conf $_hadoop_real_home/orig_conf
 
-  msg "Installing..."
-  mkdir -p ${pkgdir}/usr/share
-  mkdir -p ${pkgdir}/usr/share/hadoop/etc/hadoop/
+  cd $pkgdir/etc/hadoop
+  patch -p 1 < $srcdir/conf.diff
 
-  mv hadoop-${pkgver} ${pkgdir}/usr/share/hadoop || return 1
-  mv ${pkgdir}/usr/share/hadoop/conf ${pkgdir}/usr/share/hadoop/etc/hadoop/default || return 1
+  mkdir -p $pkgdir/usr/bin
+  echo -e '#!/bin/sh\n\n/usr/lib/hadoop/bin/hadoop "$@"' > $pkgdir/usr/bin/hadoop
+  chmod 755 $pkgdir/usr/bin/hadoop
+
+  cd $_usr_lib
+  ln -s $pkgname-$pkgver $pkgname
 }
-
-use_compiled() {
-  msg "Installing..."
-
-  mkdir -p ${pkgdir}/usr/share/hadoop
-  mkdir -p ${pkgdir}/usr/share/hadoop/etc/hadoop/
-
-  cd ${srcdir}/hadoop-${pkgver}
-
-  mv bin lib webapps *.jar *.txt ${pkgdir}/usr/share/hadoop/ || return 1
-  mv conf ${pkgdir}/usr/share/hadoop/etc/hadoop/default || return 1
-}
-
-build() {
-  # compile
-  use_compiled
-
-  msg "Configuring..."
-
-  cd ${pkgdir}/usr/share/hadoop/etc/hadoop/default || return 1
-
-  # Set Java home:
-  echo 'export JAVA_HOME=/opt/java/jre' >> hadoop-env.sh
-
-  # Set directories:
-  echo 'export HADOOP_LOG_DIR="/var/log/hadoop"' >> hadoop-env.sh
-  echo 'export HADOOP_PID_DIR="/var/run"' >> hadoop-env.sh
-
-  # Disable IPv6 (comment out for IPv6 support):
-  sed -i 's|_OPTS="-D|_OPTS="-Djava.net.preferIPv4Stack=true -D|' hadoop-env.sh
-
-  cd ${pkgdir}/usr/share/hadoop || return 1
-
-  sed -i 's#^export HADOOP_HOME=`dirname "$this"`/..#export HADOOP_HOME="/usr/share/hadoop"\nexport HADOOP_CONF_DIR="/etc/hadoop"#' bin/hadoop-config.sh
-
-  if [ "$CARCH" = "i686" ]; then
-    rm -rf lib/native/Linux-amd64-64
-    cd lib/native/Linux-i386-32
-    sed -i "s|dependency_libs='|dependency_libs='-L/opt/java/jre/lib/i386/server |" libhadoop.la
-  fi
-
-  if [ "$CARCH" = "x86_64" ]; then
-    rm -rf lib/native/Linux-i386-32
-    cd lib/native/Linux-amd64-64
-    sed -i "s|dependency_libs='|dependency_libs='-L/opt/java/jre/lib/amd64/server |" libhadoop.la
-  fi
-
-  # Create some links, so Hadoop's KFS jar could access KFS libraries properly
-  # (it is still fine if KFS is not installed)
-
-  msg "Creating KFS links..."
-
-  for lib in libkfsClient libkfsCommon libkfsEmulator libkfsIO libkfsMeta; do
-    for ext in a so; do
-      ln -s /usr/lib/${lib}.${ext}
-    done
-  done
-
-  ln -s /usr/lib/libkfs_access.so
-}
+md5sums=('f0697f0e679817d5384559c072b314cd'
+         '1e853002b2c9c024af17f3011ad26404'
+         '557e3834455bc836db5c273b24e916ee'
+         '432741c08295505cecc791db8ac7ba76'
+         'e1ae93c018a95649c83278c3233ee39b')
+md5sums=('f0697f0e679817d5384559c072b314cd'
+         '1e853002b2c9c024af17f3011ad26404'
+         '557e3834455bc836db5c273b24e916ee'
+         '432741c08295505cecc791db8ac7ba76'
+         'e1ae93c018a95649c83278c3233ee39b')
+md5sums=('f0697f0e679817d5384559c072b314cd'
+         '1e853002b2c9c024af17f3011ad26404'
+         '557e3834455bc836db5c273b24e916ee'
+         '432741c08295505cecc791db8ac7ba76'
+         'e1ae93c018a95649c83278c3233ee39b')
+md5sums=('f0697f0e679817d5384559c072b314cd'
+         '1e853002b2c9c024af17f3011ad26404'
+         '557e3834455bc836db5c273b24e916ee'
+         '432741c08295505cecc791db8ac7ba76'
+         'e1ae93c018a95649c83278c3233ee39b')
