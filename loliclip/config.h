@@ -113,7 +113,7 @@ static specialclip sclip[] = {
 /* bit flags for command sequence actions */
 typedef enum clipflag {
    CLIP_NONE = 0x0,
-   CLIP_SKIP_HISTORY = 0x1, /* skups clipboard history */
+   CLIP_SKIP_HISTORY = 0x1, /* skips clipboard history */
 } clipflag;
 
 /* commands and their assigned bits */
