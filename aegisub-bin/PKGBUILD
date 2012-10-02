@@ -1,10 +1,10 @@
 # Maintainer: Kozec <kozec at kozec dot com>
 
 pkgname=aegisub-bin
-pkgver=2.1.9
+pkgver=3.0.0
 pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support (unofficial pre-compiled binaries)"
-arch=('i686' 'x86_64')
+arch=('x86_64')
 url="http://www.aegisub.net/"
 
 license=('GPL' 'BSD')
@@ -28,8 +28,8 @@ package() {
 	cd "$srcdir/"
 	mkdir -p $pkgdir/usr/bin
 	cp -R "share" $pkgdir/usr
-	cp bin/aegisub-2.1-${CARCH} $pkgdir/usr/bin/aegisub-2.1
-	ln -s aegisub-2.1 $pkgdir/usr/bin/aegisub
+	cp bin/aegisub-3.0-${CARCH} $pkgdir/usr/bin/aegisub-3.0
+	ln -s aegisub-3.0 $pkgdir/usr/bin/aegisub
 }
 
-md5sums=('3c6f10d88003970bc2d80ecce49c7302')
+md5sums=('4769e701dfd85416d59b165d9089d636')
