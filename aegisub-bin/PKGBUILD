@@ -4,7 +4,7 @@ pkgname=aegisub-bin
 pkgver=3.0.0
 pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support (unofficial pre-compiled binaries)"
-arch=('x86_64')
+arch=('i686' 'x86_64')
 url="http://www.aegisub.net/"
 
 license=('GPL' 'BSD')
@@ -32,4 +32,4 @@ package() {
 	ln -s aegisub-3.0 $pkgdir/usr/bin/aegisub
 }
 
-md5sums=('4769e701dfd85416d59b165d9089d636')
+md5sums=('2f89208ed68b900895707e6bd6483d35')
