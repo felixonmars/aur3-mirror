@@ -1,41 +1,33 @@
 # Maintainer: kozec <kozec at kozec dot com>
+# Contributor: Limao Luo <luolimao+AUR@gmail.com>
 
 pkgname=aegisub
-pkgver=2.1.9
-pkgrel=2
+pkgver=3.0.0
+pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
-url="http://www.aegisub.net"
-
+url="http://www.aegisub.org"
 license=('GPL' 'BSD')
 conflicts=('aegisub-bin' 'aegisub-svn' 'aegisub-stable-svn')
-source=("http://ftp.aegisub.org/pub/releases/aegisub-${pkgver}.tar.gz")
+source=("http://ftp.aegisub.org/pub/releases/$pkgname-$pkgver.tar.xz")
+md5sums=('9f815dfdd3448228d861cec160c3d09d')
+sha1sums=('1ec56d8797127a9d2c976710c93b0e5ee2f1e01a')
 
-# Dependencies converted from 'Building Aegisub 2.1.9 on Ubuntu' thread,
-# http://forum.aegisub.org/viewtopic.php?f=10&t=4686
-depends=('imagemagick' 'gcc-libs>=4.5' 'fontconfig' 'freetype2' 'libgl'
-	'mesa' 'glib2' 'lua>=5.0' 'hunspell' 'alsa-lib' 'libpulse' 'zlib'
-	'wxgtk>=2.8' 'libass' 'ffmpeg>=20120127' 'ffmpegsource>=2.0')
-# excluded dep: openal 
-
-makedepends=('intltool' 'yasm')
-# makedeps from base-devel: autoconf automake libtool gcc pkg-config
+# Dependencies converted from Aegisub wiki
+# http://devel.aegisub.org/wiki/Build/Deps
+# with all redundant dependencies removed
+depends=('fontconfig>=2.4.2' 'mesa' 'glib2' 'lua>=5.1' 'hunspell'
+    'libpulse' 'wxgtk2.9' 'libass>=0.10' 'ffmpegsource>=2.16')
 
 build() {
-	cd "$srcdir/aegisub-${pkgver}"
-	
-	LDFLAGS="$LDFLAGS -lz" ./configure --prefix=/usr --with-player-audio=alsa \
-		--with-pulseaudio --without-{portaudio,openal,oss}
-	
-	make
+        cd "$srcdir/$pkgname-$pkgver/$pkgname/"
+        LDFLAGS="$LDFLAGS -lz" ./configure --prefix=/usr --with-player-audio=alsa \
+            --without-{portaudio,openal,oss} --with-wx-config=/usr/bin/wx-config-2.9
+        make
 }
-
 
 package() {
-	cd "$srcdir/aegisub-${pkgver}"
-	make DESTDIR="$pkgdir" install
-	cd "$pkgdir/usr/bin"
-	ln -s aegisub-2.1 aegisub
+        cd "$srcdir/$pkgname-$pkgver/$pkgname/"
+        make DESTDIR="$pkgdir" install
+        ln -s $pkgname-3.0 "$pkgdir/usr/bin/$pkgname"
 }
-
-md5sums=('878cf7e6fd9c35cc218537bac3b86c25')
