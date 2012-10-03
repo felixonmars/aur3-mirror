@@ -1,0 +1,2 @@
+cmp
+diff 
