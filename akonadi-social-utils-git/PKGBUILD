@@ -1,7 +1,7 @@
 # Maintainer: Thaodan <theodorstormgrade@gmail.com>
 
 pkgname=akonadi-social-utils-git
-pkgver=20121004
+pkgver=20120925
 pkgrel=1
 pkgdesc="akonadi-social-utils git"
 arch=('i686' 'x86_64')
