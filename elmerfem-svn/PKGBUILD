@@ -1,0 +1,150 @@
+# Maintainer: hauptmech <hauptmech@gmail.com> 
+pkgname=elmerfem-svn
+pkgver=5856
+pkgrel=1
+pkgdesc="Elmer multi-physics simulator."
+arch=('i686' 'x86_64')
+url="http://www.csc.fi/english/pages/elmer"
+license=('unknown')
+groups=()
+depends=('qwt' 'opencascade' 'hdf5')
+makedepends=('subversion' 'gcc-fortran' 'openmpi' 'arpack')
+provides=()
+conflicts=()
+replaces=()
+backup=()
+options=()
+install=
+source=()
+noextract=()
+
+_svntrunk=https://elmerfem.svn.sourceforge.net/svnroot/elmerfem/trunk
+_svnmod=elmerfem
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to SVN server...."
+
+  if [[ -d "$_svnmod/.svn" ]]; then
+    (cd "$_svnmod" && svn up -r "$pkgver")
+  else
+    svn co "$_svntrunk" --config-dir ./ -r "$pkgver" "$_svnmod"
+  fi
+
+  msg "SVN checkout done or server timeout"
+  msg "Starting build..."
+
+  rm -rf "$srcdir/$_svnmod-build"
+  cp -r "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
+  cd "$srcdir/$_svnmod-build"
+
+  #
+  # BUILD HERE
+  #
+#srcdir=/home/teh/archlinux/packages/elmerfem/src
+#_svnmod=elmerfem
+export CC=gcc
+export CXX=g++
+export FC=gfortran
+export F77=gfortran
+
+export SRC="${srcdir}/${_svnmod}-build"
+export CPPFLAGS_ORIG=$CPPFLAGS
+export LIBS_ORIG=$LIBS
+export CPPFLAGS="${CPPFLAGS} -I${SRC}/eio/include -I${SRC}/hutiter/include  -I${SRC}/matc/src -I/usr/include"
+export LDFLAGS="${LDFLAGS} -L${SRC}/matc/src -L${SRC}/eio/src -L${SRC}/elmergrid/src/metis -L${SRC}/umfpack/src/amd -L${SRC}/umfpack/src/umfpack -L${SRC}/hutiter/src"
+
+modules="matc umfpack mathlibs elmerparam elmergrid meshgen2d eio hutiter" 
+for m in $modules; do
+  echo "===Compiling ${m}"
+  cd $m
+  ./configure --prefix=/usr 
+  make
+  cd .. 
+done
+
+#Hack because tool isn't reading flags
+cp hutiter/include/*.h fem/src
+cp hutiter/include/*.h fem/src/modules
+
+  export LIBS="$LIBS -lamd"
+  echo "===Compiling fem ==="
+  cd fem
+  ./configure --prefix=/usr \
+        --with-matc=${srcdir}/${_svnmod}-build/matc/src/libmatc.a \
+        --with-huti=${srcdir}/${_svnmod}-build/hutiter/src/libhuti.a \
+        --with-eiof=${srcdir}/${_svnmod}-build/eio/src/libeiof.a \
+        --with-umfpack=${srcdir}/${_svnmod}-build/umfpack/src/umfpack/libumfpack.a
+  make
+  export LIBS=$LIBS_ORIG
+  cd .. 
+
+cd ElmerGUI
+sed -i ElmerGUI.pri -f - <<'==='
+s|\(QWT_INCLUDEPATH = /usr/include/qwt\)-qt4|\1|
+s|\(QWT_LIBS = -lqwt\)-qt4|\1|
+s|\(VTK_INCLUDEPATH = /usr/include/vtk-5\)\.2|\1.10|
+s|VTK_LIBPATH = /usr/lib|&/vtk-5.10|
+s|OCC_INCLUDEPATH = /usr/include/opencascade|OCC_INCLUDEPATH = /opt/opencascade/inc|
+s|OCC_LIBPATH = /usr/lib|OCC_LIBPATH = /opt/opencascade/lib|
+===
+qmake
+#qwt6 patches
+sed -i Application/src/convergenceview.h -f - <<'==='
+s|<qwt_data.h>|<qwt_series_data.h>\n#include <qwt_interval.h>\n#include <qwt_compat.h>|
+===
+sed -i Application/src/convergenceview.cpp -f - <<'==='
+s|plot->clear();|//&|
+s|d_curve->setRawData|d_curve->setRawSamples|
+===
+
+MAKEFLAGS=-j1;make
+cd ..
+cd ElmerGUIlogger
+qmake
+make
+cd ..
+
+cd ElmerGUItester
+qmake
+make
+cd ..
+
+cd post
+export LIBS="$LIBS -lX11"
+./configure --prefix=/usr 
+make
+cd ..
+
+cd front
+./configure --prefix=/usr 
+make
+cd ..
+
+
+export LDFLAGS=$LDFLAGS_ORIG
+export LIBS=$LIBS_ORIG
+export CPPFLAGS=$CPPFLAGS_ORIG
+
+}
+
+package() {
+  cd "$srcdir/$_svnmod-build"
+modules="matc umfpack mathlibs elmergrid meshgen2d eio hutiter fem front post" 
+for m in $modules; do
+  cd $m
+  make DESTDIR="$pkgdir/" install
+  cd .. 
+done
+modules="ElmerGUI" 
+for m in $modules; do
+  cd $m
+  make INSTALL_ROOT="$pkgdir/" install
+  cd .. 
+done
+rm $pkgdir/usr/lib/libarpack.a
+
+}
+
+md5sums=() #generate with 'makepkg -g'
+# vim:set ts=2 sw=2 et:
