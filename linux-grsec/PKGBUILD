@@ -9,9 +9,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.5
 _grsecver=2.9.1
-_timestamp=201209241829
-pkgver=${_basekernel}.4
-pkgrel=5
+_timestamp=201210022020
+pkgver=${_basekernel}.5
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -33,16 +33,6 @@ source=(
   i915-i2c-crash-3.5.x.patch
 )
 sha256sums=(
-  b985ce383f0cfd940d988d4c99a84899028327aca8c29b420678241f26fdb342
-  ca3f1272aaca709b94bbd1736426247240265f41394ce2e239fbed433cdd070d
-  2b52021d7d4c68488b44118156ecb5642839b18715a01a1ff2c5be4da8f900f0
-  e6389988d5bd43c9a7d09cb3ce77715e074c786682a0b0ad8a44c048948daf1f
-  70ac778bba0ffca629cf2396c7057ca2b5613019d6941de8d17e437857d552e3
-  882bbadbb0d6694f31930d9208564bfd61a19767069c2ac9ca3f543cad3d5149
-  ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d
-  b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4
-  3b285aa62940908ef9dd2a72f81c28fd2c8102367188ef349509ff0f7d7f4fa8
-  bc9be7e4e5bc81aa30754a96f6a94c2e6eb6a147165a2ac50972c1fd59ef9964
 )
 
 build() {
@@ -163,11 +153,11 @@ package_linux-grsec() {
   mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
   echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
 
-  # move module tree /lib -> /usr/lib
-  mv "$pkgdir/lib" "$pkgdir/usr"
-
   # Now we call depmod...
   depmod -b "$pkgdir" -F System.map "$_kernver"
+
+  # move module tree /lib -> /usr/lib
+  mv "$pkgdir/lib" "$pkgdir/usr"
 }
 
 package_linux-grsec-headers() {
@@ -300,3 +290,13 @@ package_linux-grsec-headers() {
   # remove unneeded architectures
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
+sha256sums=('b985ce383f0cfd940d988d4c99a84899028327aca8c29b420678241f26fdb342'
+            '0e00c017b79a9e0ba73d3ccb2ba3566ae3bfb8407d6ae6122b84e2d49aaf866c'
+            '704e8db6590cd731f03c085d25bd8527f2d5d3294c26391b1d67fcbd88686f3a'
+            'e6389988d5bd43c9a7d09cb3ce77715e074c786682a0b0ad8a44c048948daf1f'
+            '70ac778bba0ffca629cf2396c7057ca2b5613019d6941de8d17e437857d552e3'
+            '882bbadbb0d6694f31930d9208564bfd61a19767069c2ac9ca3f543cad3d5149'
+            'ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d'
+            'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4'
+            '3b285aa62940908ef9dd2a72f81c28fd2c8102367188ef349509ff0f7d7f4fa8'
+            'bc9be7e4e5bc81aa30754a96f6a94c2e6eb6a147165a2ac50972c1fd59ef9964')
