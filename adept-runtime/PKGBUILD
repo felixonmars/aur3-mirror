@@ -1,22 +1,22 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
-pkgver=2.9.9
-pkgrel=1
+pkgver=2.10.2
+pkgrel=3
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
-url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
+url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
 license=('custom')
 depends=('libusb>=1.0' 'libftd2xx')
 install=adept-runtime.install
 
-# hack to make sure a valid URL shows up
-# on the AUR page - taken from the Dropbox PKGBUILD
-_arch=i686
-[[ $CARCH == x86_64 ]] && _arch=x86_64
-source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_2.9.9-$_arch.tar.gz")
+# to make sure a valid URL shows up on the AUR page
+# (from Dropbox PKGBUILD)
+_arch=x86_64
+[[ $CARCH == i686 ]] && _arch=i686
+source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_${pkgver}-${_arch}.tar.gz")
 
-md5sums=('7f37291299844184f243d59b584ced71')
-[[ $CARCH == x86_64 ]] && md5sums[0]='d05b7b2bb5c9c64b5c09bedc9a0e3c1a'
+md5sums=('dd0b76df241daf633e8b172b6307d8ad')
+[[ $CARCH == i686 ]] && md5sums[0]='e34bc98707651a3dbfa1855e25bbd969'
 
 package() {
   cd "$srcdir/digilent.adept.runtime_$pkgver-$CARCH"
@@ -63,9 +63,6 @@ package() {
 
   # udev rules
   mkdir -p "$pkgdir/etc/udev/rules.d"
-  # the udev script uses the legacy SYSFS attribute; replace it with
-  # the newer ATTR syntax
-  sed -i 's_usr/local/sbin_usr/sbin_; s_SYSFS_ATTR_g' 52-digilent-usb.rules
   install -m 644 52-digilent-usb.rules "$pkgdir/etc/udev/rules.d"
 
   # library configuration file

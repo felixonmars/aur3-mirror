@@ -1,22 +1,22 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-utilities
 pkgver=2.1.1
-pkgrel=4
+pkgrel=6
 pkgdesc="utilities to manage and communicate with Digilent's devices"
 arch=('i686' 'x86_64')
-url="http://www.digilentinc.com/Products/Detail.cfm?NavPath=2,66,828&Prod=ADEPT2"
+url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
 license=('custom')
 depends=('adept-runtime')
 install=adept-utilities.install
 
-# hack to make sure a valid URL shows up
-# on the AUR page - taken from the Dropbox PKGBUILD
-_arch=i686
-[[ $CARCH == x86_64 ]] && _arch=x86_64
-source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.utilities_$pkgver-$_arch.tar.gz")
+# to make sure a valid URL shows up on the AUR page
+# (from Dropbox PKGBUILD)
+_arch=x86_64
+[[ $CARCH == i686 ]] && _arch=i686
+source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.utilities_${pkgver}-${_arch}.tar.gz")
 
-md5sums=('8eb4717d0ca997fa6c5f812dc23ef5a1')
-[[ $CARCH == x86_64 ]] && md5sums[0]='2bfcdc40cf12bf823ddf76e2d7bb5455'
+md5sums=('2bfcdc40cf12bf823ddf76e2d7bb5455')
+[[ $CARCH == i686 ]] && md5sums[0]='8eb4717d0ca997fa6c5f812dc23ef5a1'
 
 package() {
   cd "$srcdir/digilent.adept.utilities_$pkgver-$CARCH"
