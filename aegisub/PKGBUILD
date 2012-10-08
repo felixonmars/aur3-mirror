@@ -2,7 +2,7 @@
 # Contributor: Limao Luo <luolimao+AUR@gmail.com>
 
 pkgname=aegisub
-pkgver=3.0.0
+pkgver=3.0.1
 pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
@@ -10,8 +10,6 @@ url="http://www.aegisub.org"
 license=('GPL' 'BSD')
 conflicts=('aegisub-bin' 'aegisub-svn' 'aegisub-stable-svn')
 source=("http://ftp.aegisub.org/pub/releases/$pkgname-$pkgver.tar.xz")
-md5sums=('9f815dfdd3448228d861cec160c3d09d')
-sha1sums=('1ec56d8797127a9d2c976710c93b0e5ee2f1e01a')
 
 # Dependencies converted from Aegisub wiki
 # http://devel.aegisub.org/wiki/Build/Deps
@@ -31,3 +29,5 @@ package() {
         make DESTDIR="$pkgdir" install
         ln -s $pkgname-3.0 "$pkgdir/usr/bin/$pkgname"
 }
+
+md5sums=('3561822b609999d38e8d978ca8eabecc')
