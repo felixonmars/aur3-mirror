@@ -1,0 +1,204 @@
+From 71500fc4535846bc4294541d675ae2d0877c1e6d Mon Sep 17 00:00:00 2001
+From: falkTX <falktx@gmail.com>
+Date: Mon, 24 Oct 2011 21:11:17 +0100
+Subject: [PATCH] More gasia gamepad hacks, now working
+
+---
+ sixad/Makefile          |   13 +++++++++++++
+ sixad/bluetooth.cpp     |    2 +-
+ sixad/shared.cpp        |   20 +++++++++++++++++++-
+ sixad/sixad-sixaxis.cpp |    4 ++--
+ sixad/sixaxis.cpp       |   35 +++++++++++++++++++++++++++--------
+ 5 files changed, 62 insertions(+), 12 deletions(-)
+
+diff --git a/sixad/Makefile b/sixad/Makefile
+index 0386a18..466d36e 100644
+--- a/sixad/Makefile
++++ b/sixad/Makefile
+@@ -4,6 +4,12 @@ CXX ?= g++
+ CXXFLAGS ?= -O2 -Wall
+ LDFLAGS += -Wl,-Bsymbolic-functions
+ 
++GASIA_GAMEPAD_HACKS = true
++
++ifeq ($(GASIA_GAMEPAD_HACKS),true)
++CXXFLAGS += -DGASIA_GAMEPAD_HACKS
++endif
++
+ all: sixad_bins
+ 
+ sixad_bins:
+@@ -35,6 +41,13 @@ install:
+ 	install -m 755 bins/sixad-3in1 $(DESTDIR)/usr/sbin/
+ 	install -m 755 bins/sixad-raw $(DESTDIR)/usr/sbin/
+ 	install -m 755 sixad-dbus-blocker $(DESTDIR)/usr/sbin/
++
++ifeq "$(wildcard /usr/bin/python2 )" ""
++else
++	# Python2 force
++	sed -i "s/env python/env python2/" $(DESTDIR)/usr/sbin/sixad-dbus-blocker
++endif
++
+ 	@chmod 777 -R $(DESTDIR)/var/lib/sixad/
+ 	@echo "Installation is Complete!"
+ 
+diff --git a/sixad/bluetooth.cpp b/sixad/bluetooth.cpp
+index 3ad6bdb..19d2077 100644
+--- a/sixad/bluetooth.cpp
++++ b/sixad/bluetooth.cpp
+@@ -57,7 +57,7 @@ void do_search(int ctl, bdaddr_t *bdaddr, int debug)
+ 
+         for (i = 0; i < num_rsp; i++) {
+                 memcpy(_class, (info+i)->dev_class, 3);
+-                
++
+                 if (debug) syslog(LOG_INFO, "Got device %02X | %02X | %02X", _class[0], _class[1], _class[2]);
+ 
+                 if (_class[1] == 0x25 && (_class[2] == 0x00 || _class[2] == 0x01)) {
+diff --git a/sixad/shared.cpp b/sixad/shared.cpp
+index d5239bf..34c8da5 100644
+--- a/sixad/shared.cpp
++++ b/sixad/shared.cpp
+@@ -268,14 +268,32 @@ int get_joystick_number()
+ 
+ void enable_sixaxis(int csk)
+ {
++#ifdef GASIA_GAMEPAD_HACKS
++    unsigned char enable[] = {
++        0xA2,
++        0x01,
++        0x00, 0x00, 0x00, 0x00, 0x00,   // rumble values [0x00, right-timeout, right-force, left-timeout, left-force]
++        0x00, 0x00, 0x00, 0x00, 0x02,   // 0x02=LED1 .. 0x10=LED4
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 4
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 3
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 2
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 1
++        0x00, 0x00, 0x00, 0x00, 0x00,
++        0x00, 0x00, 0x00, 0x00, 0x00,
++        0x00, 0x00, 0x00, 0x00, 0x00,
++        0x00, 0x00, 0x00
++    };
++#else
+     char buf[128];
+-
+     unsigned char enable[] = {
+         0x53, /* HIDP_TRANS_SET_REPORT | HIDP_DATA_RTYPE_FEATURE */
+         0xf4, 0x42, 0x03, 0x00, 0x00
+     };
++#endif
+ 
+     /* enable reporting */
+     send(csk, enable, sizeof(enable), 0);
++#ifndef GASIA_GAMEPAD_HACKS
+     recv(csk, buf, sizeof(buf), 0);
++#endif
+ }
+diff --git a/sixad/sixad-sixaxis.cpp b/sixad/sixad-sixaxis.cpp
+index 23ee9f6..7aa0f7c 100644
+--- a/sixad/sixad-sixaxis.cpp
++++ b/sixad/sixad-sixaxis.cpp
+@@ -293,7 +293,7 @@ int main(int argc, char *argv[])
+     p[1].events = POLLIN | POLLERR | POLLHUP;
+     p[2].events = POLLIN | POLLERR | POLLHUP;
+     p[3].events = POLLIN | POLLERR | POLLHUP;
+-    
++
+     p[0].fd = 0;
+     p[1].fd = 1;
+     p[2].fd = ufd->js;
+@@ -353,7 +353,7 @@ int main(int argc, char *argv[])
+     }
+ 
+     delete ufd;
+-    
++
+     do_rumble(csk, 10, 0xff, 0xff, 0x01);
+ 
+     shutdown(isk, SHUT_RDWR);
+diff --git a/sixad/sixaxis.cpp b/sixad/sixaxis.cpp
+index fbe5d10..dee5fa4 100644
+--- a/sixad/sixaxis.cpp
++++ b/sixad/sixaxis.cpp
+@@ -380,9 +380,12 @@ void do_input(int fd, unsigned char* buf, struct dev_input input)
+ 
+ void do_rumble(int csk, int led_n, int weak, int strong, int timeout)
+ {
+-    unsigned char buf[128];
+     unsigned char setrumble[] = {
++#ifdef GASIA_GAMEPAD_HACKS
++        0x92,
++#else
+         0x52, /* HIDP_TRANS_SET_REPORT | HIDP_DATA_RTYPE_OUTPUT */
++#endif
+         0x01,
+         0x00, 0x00, 0x00, 0x00, 0x00,   // rumble values [0x00, right-timeout, right-force, left-timeout, left-force]
+         0x00, 0x00, 0x00, 0x00, 0x1E,   // 0x02=LED1 .. 0x10=LED4
+@@ -419,22 +422,34 @@ void do_rumble(int csk, int led_n, int weak, int strong, int timeout)
+ 
+     setrumble[11] = ledpattern[led_n]; //keep old led
+     send(csk, setrumble, sizeof(setrumble), 0);
++#ifndef GASIA_GAMEPAD_HACKS
++    unsigned char buf[128];
+     recv(csk, buf, sizeof(buf), 0); //MSG_DONTWAIT?
++#endif
+ }
+ 
+ int set_sixaxis_led(int csk, struct dev_led led, int rumble)
+ {
+-    int i, led_n, led_number;
++    int led_n, led_number;
++
++#ifndef GASIA_GAMEPAD_HACKS
++    int i;
+     unsigned char buf[128];
++#endif
++
+     unsigned char setleds[] = {
++#ifdef GASIA_GAMEPAD_HACKS
++        0x92,
++#else
+         0x52, /* HIDP_TRANS_SET_REPORT | HIDP_DATA_RTYPE_OUTPUT */
++#endif
+         0x01,
+-        0x00, 0x00, 0x00, 0x00, 0x00,	// rumble values [0x00, right-timeout, right-force, left-timeout, left-force]
+-        0x00, 0x00, 0x00, 0x00, 0x1E,	// 0x02=LED1 .. 0x10=LED4
+-        0xff, 0x27, 0x10, 0x00, 0x32,	// LED 4
+-        0xff, 0x27, 0x10, 0x00, 0x32,	// LED 3
+-        0xff, 0x27, 0x10, 0x00, 0x32,	// LED 2
+-        0xff, 0x27, 0x10, 0x00, 0x32,	// LED 1
++        0x00, 0x00, 0x00, 0x00, 0x00,   // rumble values [0x00, right-timeout, right-force, left-timeout, left-force]
++        0x00, 0x00, 0x00, 0x00, 0x1E,   // 0x02=LED1 .. 0x10=LED4
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 4
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 3
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 2
++        0xff, 0x27, 0x10, 0x00, 0x32,   // LED 1
+         0x00, 0x00, 0x00, 0x00, 0x00
+     };
+     const unsigned char ledpattern[11] = {
+@@ -460,6 +475,7 @@ int set_sixaxis_led(int csk, struct dev_led led, int rumble)
+     } else
+         led_n = 0;
+ 
++#ifndef GASIA_GAMEPAD_HACKS
+     if (led.enabled && led.anim)
+     {
+         /* Sixaxis LED animation - Way Cool!! */
+@@ -523,12 +539,15 @@ int set_sixaxis_led(int csk, struct dev_led led, int rumble)
+             recv(csk, buf, sizeof(buf), 0);
+         }
+     }
++#endif
+ 
+     /* set LEDs (final) */
+     setleds[11] = ledpattern[led_n];
+     if (rumble) setleds[3] = setleds[4] = setleds[5] = setleds[6] = 0x00;
+     send(csk, setleds, sizeof(setleds), 0);
++#ifndef GASIA_GAMEPAD_HACKS
+     recv(csk, buf, sizeof(buf), 0);
++#endif
+ 
+     return led_n;
+ }
+-- 
+1.7.4.1
+

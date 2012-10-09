@@ -1,0 +1,115 @@
+# Thanks to falktx for the QtSixa and Sixad utility.
+pkgname=qtsixa-gasia
+pkgver=1.5.1
+pkgrel=1
+pkgdesc="An utility to configure and use sixaxis controller via bluetooth, patched for Gasia gamepad."
+url="http://sourceforge.net/projects/qtsixa/"
+arch=('i686' 'x86_64' 'ppc')
+license=('GPL')
+install=qtsixa.install
+backup=('etc/default/sixad')
+depends=('bluez' 'python2-pyqt' 'qt' 'python2' 'bluez-hcidump' 'jack' 'initscripts')
+makedepends=('patch')
+source=(http://downloads.sourceforge.net/qtsixa/QtSixA-"$pkgver"-src.tar.gz
+	sixad-init.patch
+	sixad-bin.patch
+	sixad-shared-h.patch
+  gasia.patch)
+md5sums=('d61bef5d737367aeddd57a6bc11da52a'
+	 'a8c7585f628ac5b2eafeb735e3eab28b'
+	 '0496d5e8c16b4519042bd024ad07b32d'
+	 'f7ed53be82bc4148b9a35cd565eb6ebe'
+   'aa74310e4fec67d8e26ff786a46428a4')
+build() {
+	# patch for sixad daemon
+	echo "Patching sixad..."
+	patch -p0 < $srcdir/sixad-init.patch
+	patch -p0 < $srcdir/sixad-bin.patch
+	patch -p0 < $srcdir/sixad-shared-h.patch
+	
+  cd $srcdir/QtSixA-$pkgver
+	patch -p1 < $srcdir/gasia.patch
+	
+	cd $srcdir/QtSixA-$pkgver/qtsixa/gui
+	echo "Fixed python version..."
+	find . -name "*.py" -exec sed -i "s/python/python2/g" '{}' \;
+	sed -i 's/python/python2/g' ../qtsixa
+	sed -i 's/python/python2/g' ../../sixad/sixad-dbus-blocker
+	echo "Fixed bluetooth daemon"
+	sed -i 's/init.d/rc.d/g' qtsixa_main.py
+	
+	cd $srcdir/QtSixA-$pkgver
+
+	make all || exit 1
+
+## Qtsixa installation, adapted from makefile of qtsixa folder ##
+## make directories
+mkdir -p \
+	$pkgdir/usr/bin/ \
+	$pkgdir/usr/share/applications/ \
+	$pkgdir/usr/share/pixmaps/ \
+	$pkgdir/usr/share/qtsixa/ \
+	$pkgdir/usr/share/qtsixa/game-profiles/ \
+	$pkgdir/usr/share/qtsixa/gui/ \
+	$pkgdir/usr/share/qtsixa/icons/ \
+	$pkgdir/usr/share/qtsixa/pics/ \
+	$pkgdir/usr/share/qtsixa/profiles
+#	$pkgdir/usr/share/doc/qtsixa/manual
+#	$pkgdir/usr/share/qtsixa/lang/ \
+#	$pkgdir/usr/share/doc/qtsixa/ \
+
+cd qtsixa
+
+## Install files
+	install -m 655 qtsixa $pkgdir/usr/bin/
+	install -m 655 sixad-lq $pkgdir/usr/bin/
+	install -m 655 sixad-notify $pkgdir/usr/bin/
+#	install -m 644 manual/* $pkgdir/usr/share/doc/qtsixa/manual/
+	install -m 644 game-profiles/* $pkgdir/usr/share/qtsixa/game-profiles/
+	install -m 644 gui/*.py $pkgdir/usr/share/qtsixa/gui/
+	install -m 644 icons/* $pkgdir/usr/share/qtsixa/icons/
+	install -m 644 pics/* $pkgdir/usr/share/qtsixa/pics/
+	install -m 644 profiles/* $pkgdir/usr/share/qtsixa/profiles/
+#	install -m 644 lang/* $pkgdir/usr/share/qtsixa/lang/
+	install -m 644 sixad-notify.desktop $pkgdir/usr/share/qtsixa/
+	install -m 644 qtsixa.desktop $pkgdir/usr/share/applications/
+	install -m 644 qtsixa.xpm $pkgdir/usr/share/pixmaps/
+
+## Sixad installation, adapted from makefile of sixad folder ##
+## Make directories
+
+mkdir -p \
+	$pkgdir/etc/default/ \
+	$pkgdir/etc/rc.d/ \
+	$pkgdir/etc/logrotate.d/ \
+	$pkgdir/usr/sbin/ \
+	$pkgdir/var/lib/sixad/ \
+	$pkgdir/var/lib/sixad/profiles/
+
+chmod 775 -R $pkgdir/var/lib/sixad/
+
+cd ../sixad
+
+# Install files
+	install -m 644 sixad.default $pkgdir/etc/default/sixad
+	install -m 755 sixad.init $pkgdir/etc/rc.d/sixad
+	install -m 644 sixad.log $pkgdir/etc/logrotate.d/sixad
+	install -m 755 sixad $pkgdir/usr/bin/
+	install -m 755 bins/sixad-bin $pkgdir/usr/sbin/
+	install -m 755 bins/sixad-sixaxis $pkgdir/usr/sbin/
+	install -m 755 bins/sixad-remote $pkgdir/usr/sbin/
+	install -m 755 bins/sixad-3in1 $pkgdir/usr/sbin/
+	install -m 755 bins/sixad-raw $pkgdir/usr/sbin/
+	install -m 755 sixad-dbus-blocker $pkgdir/usr/sbin/
+	#chmod 777 -R $pkgdir/var/lib/sixad/
+
+## Utils installation, adapted from makefile of utils folder ##
+## Install files
+
+cd ../utils
+	install -m 755 bins/sixpair $pkgdir/usr/sbin/
+	install -m 755 bins/sixpair-kbd $pkgdir/usr/sbin/
+	install -m 755 bins/hidraw-dump $pkgdir/usr/sbin/
+	install -m 755 bins/sixad-jack $pkgdir/usr/bin/
+
+} 
