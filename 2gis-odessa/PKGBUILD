@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-odessa
-pkgver=67
+pkgver=68
 pkgrel=1
-pkgdesc="Map of Odessa for 2GIS, September 2012"
+pkgdesc="Map of Odessa for 2GIS, October 2012"
 arch=('i686' 'x86_64')
 url="http://odessa.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Odessa-67.orig.zip")
-md5sums=('2398f40dc93469b72a225a33f6831eac')
+source=("http://download.2gis.ru/arhives/2GISData_Odessa-68.orig.zip")
+md5sums=('0c64181496d0cbfeab5c4f1c38c6bac1')
      
 build() {
      

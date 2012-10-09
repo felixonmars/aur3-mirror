@@ -1,13 +1,13 @@
 pkgname=2gis-syktyvkar
-pkgver=6
+pkgver=7
 pkgrel=1
-pkgdesc="Map of Syktyvkar for 2GIS, September 2012"
+pkgdesc="Map of Syktyvkar for 2GIS, October 2012"
 arch=('i686' 'x86_64')
 url="http://syktyvkar.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Syktyvkar-6.orig.zip")
-md5sums=('f0a3d67652619b15889c460b85b3bede')
+source=("http://download.2gis.ru/arhives/2GISData_Syktyvkar-7.orig.zip")
+md5sums=('765db7e2be87ecacb3f5cc2d76d3e9c9')
 
 build() {
   cd $startdir

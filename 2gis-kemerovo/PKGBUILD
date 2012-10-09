@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kemerovo
-pkgver=89
+pkgver=90
 pkgrel=1
-pkgdesc="Map of Kemerovo for 2GIS, September 2012"
+pkgdesc="Map of Kemerovo for 2GIS, October 2012"
 arch=('i686' 'x86_64')
 url="http://kemerovo.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Kemerovo-89.orig.zip")
-md5sums=('8b14d1cbd6f1b1d9e1f93836544aeef5')
+source=("http://download.2gis.ru/arhives/2GISData_Kemerovo-90.orig.zip")
+md5sums=('a8e8da66fca3a76d5ea8d90ce3042fbb')
      
 build() {
      

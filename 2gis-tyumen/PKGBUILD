@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-tyumen
-pkgver=70
+pkgver=71
 pkgrel=1
-pkgdesc="Map of Tyumen for 2GIS, September 2012"
+pkgdesc="Map of Tyumen for 2GIS, October 2012"
 arch=('i686' 'x86_64')
 url="http://tyumen.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Tyumen-70.orig.zip")
-md5sums=('6291f115455b82f81b146f12bf3f9a9b')
+source=("http://download.2gis.ru/arhives/2GISData_Tyumen-71.orig.zip")
+md5sums=('a3be203b81a5391854c65a2ecdfc9eb7')
      
 build() {
      
