@@ -2,7 +2,7 @@
 
 pkgname=aegisub-bin
 pkgver=3.0.1
-pkgrel=1
+pkgrel=2
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support (unofficial pre-compiled binaries)"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net/"
@@ -11,11 +11,14 @@ license=('GPL' 'BSD')
 provides=('aegisub')
 conflicts=('aegisub' 'aegisub-svn' 'aegisub-stable-svn')
 source=("http://dl.dropbox.com/u/134520/aegisub-precompiled-${pkgver}.tar.gz")
+install=aegisub.install
 
 # Dependencies converted from 'Building Aegisub 2.1.9 on Ubuntu' thread,
 # http://forum.aegisub.org/viewtopic.php?f=10&t=4686
-depends=('fontconfig>=2.4.2' 'mesa' 'glib2' 'lua>=5.1' 'hunspell'
-    'libpulse' 'wxgtk2.9' 'libass>=0.10' 'ffmpegsource>=2.16')
+depends=('fontconfig>=2.4.2' 'lua>=5.1' 'hunspell'
+    'wxgtk2.9' 'libass>=0.10' 'ffmpegsource>=2.16'
+    'fftw' 'desktop-file-utils' 'hicolor-icon-theme'
+    )
 # excluded dep: openal 
 
 
