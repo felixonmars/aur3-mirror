@@ -1,12 +1,12 @@
 #!/bin/bash
 
-BACKUPPATH="/opt/craftbukkit/backup/"
-WORLDPATH="/opt/craftbukkit/world/"
+BACKUPPATH="/srv/craftbukkit/backup/"
+WORLDPATH="/srv/craftbukkit/world/"
 
 case "$1" in
   start)
     if [ -z "`pgrep -f -n 'craftbukkit.jar'`" ]; then
-      /usr/bin/tmux new-session -d -s craftbukkit-console -d 'cd /opt/craftbukkit; java -Xmx1024M -Xms1024M -jar /opt/craftbukkit/craftbukkit.jar nogui'
+      /usr/bin/tmux new-session -d -s craftbukkit-console -d 'cd /srv/craftbukkit; java -Xmx1024M -Xms1024M -jar /srv/craftbukkit/craftbukkit.jar nogui'
       if [ $? -gt 0 ]; then
         exit 1
       fi
