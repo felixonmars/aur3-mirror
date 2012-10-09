@@ -25,7 +25,6 @@ rm
 rmdir
 sleep
 stty
-su
 sync
 touch
 tr
