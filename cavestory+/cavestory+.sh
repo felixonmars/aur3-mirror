@@ -3,8 +3,8 @@
 mkdir -p ~/.cavestory+/
 cd ~/.cavestory+/
 if test ! -d data; then
-    ln -s /opt/CaveStoryPlus/data
+    ln -s /opt/cavestoryplus/data
 fi
 
-/opt/CaveStoryPlus/CaveStory+
+/opt/cavestoryplus/CaveStory+
 
