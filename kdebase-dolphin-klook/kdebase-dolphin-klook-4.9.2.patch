@@ -1,0 +1,910 @@
+diff --git a/dolphin/src/CMakeLists.txt b/dolphin/src/CMakeLists.txt
+index 1a121f8..61ba0b6 100644
+--- a/dolphin/src/CMakeLists.txt
++++ b/dolphin/src/CMakeLists.txt
+@@ -27,6 +27,7 @@ set(dolphinprivate_LIB_SRCS
+     kitemviews/kitemlistgroupheader.cpp
+     kitemviews/kitemlistheader.cpp
+     kitemviews/kitemlistselectionmanager.cpp
++    kitemviews/kitemlistklooktoggle.cpp
+     kitemviews/kitemliststyleoption.cpp
+     kitemviews/kitemlistview.cpp
+     kitemviews/kitemlistwidget.cpp
+diff --git a/dolphin/src/dolphinmainwindow.cpp b/dolphin/src/dolphinmainwindow.cpp
+index d83c9de..9921d9f 100644
+--- a/dolphin/src/dolphinmainwindow.cpp
++++ b/dolphin/src/dolphinmainwindow.cpp
+@@ -85,6 +85,8 @@
+ #include <QClipboard>
+ #include <QToolButton>
+ #include <QSplitter>
++#include <QProcess>
++#include <QApplication>
+ 
+ namespace {
+     // Used for GeneralSettings::version() to determine whether
+@@ -118,7 +120,8 @@ DolphinMainWindow::DolphinMainWindow() :
+     m_settingsDialog(),
+     m_controlButton(0),
+     m_updateToolBarTimer(0),
+-    m_lastHandleUrlStatJob(0)
++    m_lastHandleUrlStatJob(0),
++    m_isFocusOnTerminal(false)
+ {
+     // Workaround for a X11-issue in combination with KModifierInfo
+     // (see DolphinContextMenu::initializeModifierKeyInfo() for
+@@ -236,6 +239,8 @@ DolphinMainWindow::DolphinMainWindow() :
+     if (!showMenu) {
+         createControlButton();
+     }
++
++    connect (qApp, SIGNAL(focusChanged(QWidget*,QWidget*)), this, SLOT(focusChanged(QWidget*,QWidget*)));
+ }
+ 
+ DolphinMainWindow::~DolphinMainWindow()
+@@ -400,6 +405,15 @@ void DolphinMainWindow::slotSelectionChanged(const KFileItemList& selection)
+         compareFilesAction->setEnabled(false);
+     }
+ 
++
++    //KLook
++    QAction* openInKLook = actionCollection()->action("open_in_KLook");
++    if ((selectedUrlsCount > 0) && (!m_isFocusOnTerminal)){
++        openInKLook->setEnabled(true);
++    } else {
++        openInKLook->setEnabled(false);
++    }
++
+     emit selectionChanged(selection);
+ }
+ 
+@@ -1651,6 +1665,14 @@ void DolphinMainWindow::setupActions()
+     openInNewWindow->setText(i18nc("@action:inmenu", "Open in New Window"));
+     openInNewWindow->setIcon(KIcon("window-new"));
+     connect(openInNewWindow, SIGNAL(triggered()), this, SLOT(openInNewWindow()));
++
++    // KLook
++    KAction* openInKLook = actionCollection()->addAction("open_in_KLook");
++    openInKLook->setText(i18nc("@action:inmenu", "Preview"));
++    openInKLook->setShortcut(Qt::Key_Space);
++    openInKLook->setIcon(KIcon("klook"));
++    openInKLook->setEnabled(false);
++    connect(openInKLook, SIGNAL(triggered()), this, SLOT(previewItem()));
+ }
+ 
+ void DolphinMainWindow::setupDockWidgets()
+@@ -1986,6 +2008,9 @@ void DolphinMainWindow::connectViewSignals(DolphinViewContainer* container)
+             this, SLOT(goBack()));
+     connect(view, SIGNAL(goForwardRequested()),
+             this, SLOT(goForward()));
++    connect(view, SIGNAL(klookTrigger()),
++            this, SLOT(previewItem()));
++
+ 
+     const KUrlNavigator* navigator = container->urlNavigator();
+     connect(navigator, SIGNAL(urlChanged(KUrl)),
+@@ -2130,4 +2155,51 @@ void DolphinMainWindow::UndoUiInterface::jobError(KIO::Job* job)
+     }
+ }
+ 
++void DolphinMainWindow::previewItem()
++{
++    KFileItemList list;
++    int index = 0;
++    if ( m_activeViewContainer->view()->selectedItemsCount() > 1) {
++        list = m_activeViewContainer->view()->selectedItems();
++    } else {
++        list = m_activeViewContainer->view()->sortedItems();
++        index = list.indexOf( m_activeViewContainer->view()->selectedItems().at(0));
++    }
++    QStringList urlList;
++    foreach(KFileItem item, list)
++    {
++        urlList.append(item.url().path());
++    }
++    urlList.append("-i " + QString::number(index , 10));
++    if (!list.isEmpty())
++    {
++        QProcess* process = new QProcess();
++        connect(process,SIGNAL(finished(int)),process,SLOT(deleteLater()));
++        process->start(QString("klook"), urlList);
++    }
++}
++
++void DolphinMainWindow::focusChanged(QWidget *old, QWidget *now)
++{
++#ifndef Q_OS_WIN
++    if (now)
++    {
++        if (QString(now->metaObject()->className()).contains("Konsole::TerminalDisplay"))
++        {
++            QAction* openInKLook = actionCollection()->action("open_in_KLook");
++            m_isFocusOnTerminal = true;
++            openInKLook->setEnabled(false);
++        }
++    }
++    if (old)
++    {
++        if (QString(old->metaObject()->className()).contains("Konsole::TerminalDisplay"))
++        {
++            QAction* openInKLook = actionCollection()->action("open_in_KLook");
++            m_isFocusOnTerminal = false;
++            openInKLook->setEnabled(true);
++        }
++    }
++#endif
++}
+ #include "dolphinmainwindow.moc"
+diff --git a/dolphin/src/dolphinmainwindow.h b/dolphin/src/dolphinmainwindow.h
+index ab79fb0..f61f173 100644
+--- a/dolphin/src/dolphinmainwindow.h
++++ b/dolphin/src/dolphinmainwindow.h
+@@ -36,6 +36,7 @@
+ 
+ typedef KIO::FileUndoManager::CommandType CommandType;
+ 
++class DolphinDockWidget;
+ class DolphinViewActionHandler;
+ class DolphinApplication;
+ class DolphinSettingsDialog;
+@@ -51,6 +52,7 @@ class KUrl;
+ class QSplitter;
+ class QToolButton;
+ class QVBoxLayout;
++class Panel;
+ 
+ /**
+  * @short Main window for Dolphin.
+@@ -102,6 +104,8 @@ public:
+      */
+     KNewFileMenu* newFileMenu() const;
+ 
++    void focusChanged(QWidget *old, QWidget *now);
++
+ public slots:
+     /**
+      * Pastes the clipboard data into the currently selected folder
+@@ -367,6 +371,12 @@ private slots:
+     void openInNewTab();
+ 
+     /**
++     * Opens the selected files in KLook.
++     */
++
++    void previewItem();
++
++    /**
+      * Opens the selected folder in a new window.
+      */
+     void openInNewWindow();
+@@ -588,6 +598,7 @@ private:
+     QTimer* m_updateToolBarTimer;
+ 
+     KIO::Job* m_lastHandleUrlStatJob;
++    bool m_isFocusOnTerminal;
+ };
+ 
+ inline DolphinViewContainer* DolphinMainWindow::activeViewContainer() const
+diff --git a/dolphin/src/kitemviews/kfileitemlistwidget.cpp b/dolphin/src/kitemviews/kfileitemlistwidget.cpp
+index 3a77241..b816fb8 100644
+--- a/dolphin/src/kitemviews/kfileitemlistwidget.cpp
++++ b/dolphin/src/kitemviews/kfileitemlistwidget.cpp
+@@ -70,6 +70,44 @@ QString KFileItemListWidgetInformant::roleText(const QByteArray& role,
+     return text;
+ }
+ 
++QRectF KFileItemListWidget::klookToggleRect() const
++{
++    const_cast<KFileItemListWidget *>(this)->triggerCacheRefreshing();
++
++    const int iconHeight = styleOption().iconSize;
++
++    int toggleSize = KIconLoader::SizeSmall;
++    if (iconHeight >= KIconLoader::SizeEnormous) {
++        toggleSize = KIconLoader::SizeMedium;
++    } else if (iconHeight >= KIconLoader::SizeLarge) {
++        toggleSize = KIconLoader::SizeSmallMedium;
++    }
++
++    QPointF pos = QPointF(iconRect().topRight().rx() - toggleSize, iconRect().topRight().ry());
++
++    // If the selection toggle has a very small distance to the
++    // widget borders, the size of the selection toggle will get
++    // increased to prevent an accidental clicking of the item
++    // when trying to hit the toggle.
++
++    const int widgetHeight = size().height();
++    const int widgetWidth = size().width();
++    const int minMargin = 2;
++
++    if (toggleSize + minMargin * 2 >= widgetHeight) {
++        pos.rx() -= (widgetHeight - toggleSize) / 2;
++        toggleSize = widgetHeight;
++        pos.setY(0);
++    }
++    if (toggleSize + minMargin * 2 >= widgetWidth) {
++        pos.ry() -= (widgetWidth - toggleSize) / 2;
++        toggleSize = widgetWidth;
++        pos.setX(0);
++    }
++
++    return QRectF(pos, QSizeF(toggleSize, toggleSize));
++}
++
+ KFileItemListWidget::KFileItemListWidget(KItemListWidgetInformant* informant, QGraphicsItem* parent) :
+     KStandardItemListWidget(informant, parent)
+ {
+diff --git a/dolphin/src/kitemviews/kfileitemlistwidget.h b/dolphin/src/kitemviews/kfileitemlistwidget.h
+index 24c6778..aea5636 100644
+--- a/dolphin/src/kitemviews/kfileitemlistwidget.h
++++ b/dolphin/src/kitemviews/kfileitemlistwidget.h
+@@ -43,6 +43,7 @@ public:
+     virtual ~KFileItemListWidget();
+ 
+     static KItemListWidgetInformant* createInformant();
++    virtual QRectF klookToggleRect() const;
+ 
+ protected:
+     virtual bool isRoleRightAligned(const QByteArray& role) const;
+diff --git a/dolphin/src/kitemviews/kitemlistcontroller.cpp b/dolphin/src/kitemviews/kitemlistcontroller.cpp
+index 88f5d9f..c3c1d3d 100644
+--- a/dolphin/src/kitemviews/kitemlistcontroller.cpp
++++ b/dolphin/src/kitemviews/kitemlistcontroller.cpp
+@@ -510,6 +510,13 @@ bool KItemListController::mousePressEvent(QGraphicsSceneMouseEvent* event, const
+         m_selectionManager->beginAnchoredSelection(m_pressedIndex);
+         return true;
+     }
++    if (m_view->isAboveKlookToggle(m_pressedIndex, m_pressedMousePos)){
++        m_selectionManager->setSelected(m_pressedIndex, 1, KItemListSelectionManager::Select);
++        m_selectionManager->setCurrentItem(m_pressedIndex);
++        m_selectionManager->beginAnchoredSelection(m_pressedIndex);
++        emit klookTrigger();
++        return true;
++    }
+ 
+     const bool shiftPressed = event->modifiers() & Qt::ShiftModifier;
+     const bool controlPressed = event->modifiers() & Qt::ControlModifier;
+diff --git a/dolphin/src/kitemviews/kitemlistcontroller.h b/dolphin/src/kitemviews/kitemlistcontroller.h
+index a881526..0d4be2f 100644
+--- a/dolphin/src/kitemviews/kitemlistcontroller.h
++++ b/dolphin/src/kitemviews/kitemlistcontroller.h
+@@ -216,6 +216,8 @@ signals:
+     void modelChanged(KItemModelBase* current, KItemModelBase* previous);
+     void viewChanged(KItemListView* current, KItemListView* previous);
+ 
++    void klookTrigger();
++
+ private slots:
+     void slotViewScrollOffsetChanged(qreal current, qreal previous);
+ 
+diff --git a/dolphin/src/kitemviews/kitemlistklooktoggle.cpp b/dolphin/src/kitemviews/kitemlistklooktoggle.cpp
+new file mode 100644
+index 0000000..ea5200e
+--- /dev/null
++++ b/dolphin/src/kitemviews/kitemlistklooktoggle.cpp
+@@ -0,0 +1,106 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Peter Penz <peter.penz19@gmail.com>             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA            *
++ ***************************************************************************/
++
++#include "kitemlistklooktoggle_p.h"
++
++#include <KIconEffect>
++#include <KIconLoader>
++#include <QPainter>
++
++#include <KDebug>
++
++KItemListKlookToggle::KItemListKlookToggle(QGraphicsItem* parent) :
++    QGraphicsWidget(parent, 0),    
++    m_hovered(false)
++{
++    setAcceptHoverEvents(true);
++}
++
++KItemListKlookToggle::~KItemListKlookToggle()
++{
++}
++/*
++void KItemListKlookToggle::setChecked(bool checked)
++{
++    if (m_checked != checked) {
++        m_checked = checked;
++        m_pixmap = QPixmap();
++        update();
++    }
++}
++*/
++/*
++bool KItemListKlookToggle::isChecked() const
++{
++    return m_checked;
++}
++*/
++void KItemListKlookToggle::paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget)
++{
++    Q_UNUSED(option);
++    Q_UNUSED(widget);
++
++    if (m_pixmap.isNull()) {
++        updatePixmap();
++    }
++
++    const qreal x = (size().width()  - qreal(m_pixmap.width()))  / 2;
++    const qreal y = (size().height() - qreal(m_pixmap.height())) / 2;
++    painter->drawPixmap(x, y, m_pixmap);
++}
++
++void KItemListKlookToggle::hoverEnterEvent(QGraphicsSceneHoverEvent* event)
++{
++    QGraphicsWidget::hoverEnterEvent(event);
++    m_hovered = true;
++    m_pixmap = QPixmap();
++}
++
++void KItemListKlookToggle::hoverLeaveEvent(QGraphicsSceneHoverEvent* event)
++{
++    QGraphicsWidget::hoverLeaveEvent(event);
++    m_hovered = false;
++    m_pixmap = QPixmap();
++}
++
++void KItemListKlookToggle::updatePixmap()
++{
++    const char* icon = "klook";
++
++    int iconSize = qMin(size().width(), size().height());
++    if (iconSize < KIconLoader::SizeSmallMedium) {
++        iconSize = KIconLoader::SizeSmall;
++    } else if (iconSize < KIconLoader::SizeMedium) {
++        iconSize = KIconLoader::SizeSmallMedium;
++    } else if (iconSize < KIconLoader::SizeLarge) {
++        iconSize = KIconLoader::SizeMedium;
++    } else if (iconSize < KIconLoader::SizeHuge) {
++        iconSize = KIconLoader::SizeLarge;
++    } else if (iconSize < KIconLoader::SizeEnormous) {
++        iconSize = KIconLoader::SizeHuge;
++    }
++
++    m_pixmap = KIconLoader::global()->loadIcon(QLatin1String(icon), KIconLoader::NoGroup, iconSize);
++
++    if (m_hovered) {
++        KIconLoader::global()->iconEffect()->apply(m_pixmap, KIconLoader::Desktop, KIconLoader::ActiveState);
++    }
++}
++
++#include "kitemlistklooktoggle_p.moc"
+diff --git a/dolphin/src/kitemviews/kitemlistklooktoggle_p.h b/dolphin/src/kitemviews/kitemlistklooktoggle_p.h
+new file mode 100644
+index 0000000..bf5923e
+--- /dev/null
++++ b/dolphin/src/kitemviews/kitemlistklooktoggle_p.h
+@@ -0,0 +1,61 @@
++/***************************************************************************
++ *   Copyright (C) 2011 by Peter Penz <peter.penz19@gmail.com>             *
++ *                                                                         *
++ *   This program is free software; you can redistribute it and/or modify  *
++ *   it under the terms of the GNU General Public License as published by  *
++ *   the Free Software Foundation; either version 2 of the License, or     *
++ *   (at your option) any later version.                                   *
++ *                                                                         *
++ *   This program is distributed in the hope that it will be useful,       *
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
++ *   GNU General Public License for more details.                          *
++ *                                                                         *
++ *   You should have received a copy of the GNU General Public License     *
++ *   along with this program; if not, write to the                         *
++ *   Free Software Foundation, Inc.,                                       *
++ *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA            *
++ ***************************************************************************/
++
++#ifndef KITEMLISTKLOOKTOGGLE_H
++#define KITEMLISTKLOOKTOGGLE_H
++
++#include <libdolphin_export.h>
++
++#include <QGraphicsWidget>
++#include <QPixmap>
++
++class QPropertyAnimation;
++
++/**
++ * @brief Allows to launch klook by clicking on icon overlay
++ */
++class LIBDOLPHINPRIVATE_EXPORT KItemListKlookToggle : public QGraphicsWidget
++{
++    Q_OBJECT
++
++public:
++    KItemListKlookToggle(QGraphicsItem* parent);
++    virtual ~KItemListKlookToggle();
++
++    //void setChecked(bool checked);
++    //bool isChecked() const;
++
++    virtual void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget = 0);
++
++protected:
++    virtual void hoverEnterEvent(QGraphicsSceneHoverEvent* event);
++    virtual void hoverLeaveEvent(QGraphicsSceneHoverEvent* event);
++
++private:
++    void updatePixmap();
++
++private:
++    //bool m_checked;
++    bool m_hovered;
++    QPixmap m_pixmap;
++};
++
++#endif
++
++
+diff --git a/dolphin/src/kitemviews/kitemlistview.cpp b/dolphin/src/kitemviews/kitemlistview.cpp
+index 72b3fd8..1519923 100644
+--- a/dolphin/src/kitemviews/kitemlistview.cpp
++++ b/dolphin/src/kitemviews/kitemlistview.cpp
+@@ -55,6 +55,7 @@ namespace {
+ KItemListView::KItemListView(QGraphicsWidget* parent) :
+     QGraphicsWidget(parent),
+     m_enabledSelectionToggles(false),
++    m_enabledKlookToggles(false),
+     m_grouped(false),
+     m_supportsItemExpanding(false),
+     m_editingRole(false),
+@@ -269,6 +270,25 @@ bool KItemListView::enabledSelectionToggles() const
+     return m_enabledSelectionToggles;
+ }
+ 
++void KItemListView::setEnabledKlookToggles(bool enabled)
++{
++    if (m_enabledKlookToggles != enabled) {
++        m_enabledKlookToggles = enabled;
++
++        QHashIterator<int, KItemListWidget*> it(m_visibleItems);
++        while (it.hasNext()) {
++            it.next();
++            it.value()->setEnabledKlookToggle(enabled);
++        }
++    }
++}
++
++bool KItemListView::enabledKlookToggles() const
++{
++    return m_enabledKlookToggles;
++}
++
++
+ KItemListController* KItemListView::controller() const
+ {
+     return m_controller;
+@@ -411,6 +431,25 @@ bool KItemListView::isAboveExpansionToggle(int index, const QPointF& pos) const
+     return false;
+ }
+ 
++bool KItemListView::isAboveKlookToggle(int index, const QPointF& pos) const
++{
++
++    if (!m_enabledKlookToggles) {
++        return false;
++    }
++
++    const KItemListWidget* widget = m_visibleItems.value(index);
++    if (widget) {
++        const QRectF selectionToggleRect = widget->klookToggleRect();
++        if (!selectionToggleRect.isEmpty()) {
++            const QPointF mappedPos = widget->mapFromItem(this, pos);
++            return selectionToggleRect.contains(mappedPos);
++        }
++    }
++    return false;
++}
++
++
+ int KItemListView::firstVisibleIndex() const
+ {
+     return m_layouter->firstVisibleIndex();
+@@ -1880,6 +1919,7 @@ void KItemListView::updateWidgetProperties(KItemListWidget* widget, int index)
+     widget->setSelected(selectionManager->isSelected(index));
+     widget->setHovered(false);
+     widget->setEnabledSelectionToggle(enabledSelectionToggles());
++    widget->setEnabledKlookToggle(enabledKlookToggles());
+     widget->setIndex(index);
+     widget->setData(m_model->data(index));
+     widget->setSiblingsInformation(QBitArray());
+diff --git a/dolphin/src/kitemviews/kitemlistview.h b/dolphin/src/kitemviews/kitemlistview.h
+index 5723b9a..b8c956e 100644
+--- a/dolphin/src/kitemviews/kitemlistview.h
++++ b/dolphin/src/kitemviews/kitemlistview.h
+@@ -110,6 +110,9 @@ public:
+     void setEnabledSelectionToggles(bool enabled);
+     bool enabledSelectionToggles() const;
+ 
++    void setEnabledKlookToggles(bool enabled);
++    bool enabledKlookToggles() const;
++
+     /**
+      * @return Controller of the item-list. The controller gets
+      *         initialized by KItemListController::setView() and will
+@@ -173,6 +176,7 @@ public:
+     bool isAboveSelectionToggle(int index, const QPointF& pos) const;
+     bool isAboveExpansionToggle(int index, const QPointF& pos) const;
+ 
++    bool isAboveKlookToggle(int index, const QPointF& pos) const;
+     /**
+      * @return Index of the first item that is at least partly visible.
+      *         -1 is returned if the model contains no items.
+@@ -683,6 +687,7 @@ private:
+ 
+ private:
+     bool m_enabledSelectionToggles;
++    bool m_enabledKlookToggles;
+     bool m_grouped;
+     bool m_supportsItemExpanding;
+     bool m_editingRole;
+diff --git a/dolphin/src/kitemviews/kitemlistwidget.cpp b/dolphin/src/kitemviews/kitemlistwidget.cpp
+index 6a7111a..d4f70e1 100644
+--- a/dolphin/src/kitemviews/kitemlistwidget.cpp
++++ b/dolphin/src/kitemviews/kitemlistwidget.cpp
+@@ -22,6 +22,7 @@
+ 
+ #include "kitemlistwidget.h"
+ 
++#include "kitemlistklooktoggle_p.h"
+ #include "kitemlistview.h"
+ #include "kitemmodelbase.h"
+ 
+@@ -52,6 +53,7 @@ KItemListWidget::KItemListWidget(KItemListWidgetInformant* informant, QGraphicsI
+     m_hovered(false),
+     m_alternateBackground(false),
+     m_enabledSelectionToggle(false),
++    m_enabledKlookToggle(false),
+     m_data(),
+     m_visibleRoles(),
+     m_columnWidths(),
+@@ -61,7 +63,8 @@ KItemListWidget::KItemListWidget(KItemListWidgetInformant* informant, QGraphicsI
+     m_hoverCache(0),
+     m_hoverAnimation(0),
+     m_selectionToggle(0),
+-    m_editedRole()
++    m_editedRole(),
++    m_klookToggle(0)
+ {
+ }
+ 
+@@ -76,6 +79,9 @@ void KItemListWidget::setIndex(int index)
+         delete m_selectionToggle;
+         m_selectionToggle = 0;
+ 
++        delete m_klookToggle;
++        m_klookToggle = 0;
++
+         if (m_hoverAnimation) {
+             m_hoverAnimation->stop();
+             m_hoverOpacity = 0;
+@@ -263,6 +269,9 @@ void KItemListWidget::setHovered(bool hovered)
+         if (m_enabledSelectionToggle && !(QApplication::mouseButtons() & Qt::LeftButton)) {
+             initializeSelectionToggle();
+         }
++        if (m_enabledKlookToggle && !(QApplication::mouseButtons() & Qt::LeftButton)) {
++            initializeKlookToggle();
++        }
+     } else {
+         m_hoverAnimation->setStartValue(hoverOpacity());
+         m_hoverAnimation->setEndValue(0.0);
+@@ -306,6 +315,19 @@ bool KItemListWidget::enabledSelectionToggle() const
+     return m_enabledSelectionToggle;
+ }
+ 
++void KItemListWidget::setEnabledKlookToggle(bool enable)
++{
++    if (m_enabledKlookToggle != enable) {
++        m_enabledKlookToggle = enable;
++        update();
++    }
++}
++
++bool KItemListWidget::enabledKlookToggle() const
++{
++    return m_enabledKlookToggle;
++}
++
+ void KItemListWidget::setSiblingsInformation(const QBitArray& siblings)
+ {
+     const QBitArray previous = m_siblingsInfo;
+@@ -355,6 +377,12 @@ QRectF KItemListWidget::selectionToggleRect() const
+     return QRectF();
+ }
+ 
++QRectF KItemListWidget::klookToggleRect() const
++{
++    return QRectF();
++}
++
++
+ QRectF KItemListWidget::expansionToggleRect() const
+ {
+     return QRectF();
+@@ -463,6 +491,8 @@ void KItemListWidget::slotHoverAnimationFinished()
+     if (!m_hovered) {
+         delete m_selectionToggle;
+         m_selectionToggle = 0;
++        delete m_klookToggle;
++        m_klookToggle = 0;
+     }
+ }
+ 
+@@ -481,12 +511,29 @@ void KItemListWidget::initializeSelectionToggle()
+     m_selectionToggle->setChecked(isSelected());
+ }
+ 
++void KItemListWidget::initializeKlookToggle()
++{
++    Q_ASSERT(m_enabledKlookToggle);
++
++    if (!m_klookToggle) {
++        m_klookToggle = new KItemListKlookToggle(this);
++    }
++
++    const QRectF toggleRect = klookToggleRect();;
++    m_klookToggle->setPos(toggleRect.topLeft());
++    m_klookToggle->resize(toggleRect.size());
++
++}
++
+ void KItemListWidget::setHoverOpacity(qreal opacity)
+ {
+     m_hoverOpacity = opacity;
+     if (m_selectionToggle) {
+         m_selectionToggle->setOpacity(opacity);
+     }
++    if (m_klookToggle) {
++        m_klookToggle->setOpacity(opacity);
++    }
+ 
+     if (m_hoverOpacity <= 0.0) {
+         delete m_hoverCache;
+diff --git a/dolphin/src/kitemviews/kitemlistwidget.h b/dolphin/src/kitemviews/kitemlistwidget.h
+index 55181fa..7fd593c 100644
+--- a/dolphin/src/kitemviews/kitemlistwidget.h
++++ b/dolphin/src/kitemviews/kitemlistwidget.h
+@@ -33,6 +33,7 @@
+ 
+ class KItemListSelectionToggle;
+ class KItemListView;
++class KItemListKlookToggle;
+ class QPropertyAnimation;
+ 
+ /**
+@@ -114,6 +115,9 @@ public:
+     void setEnabledSelectionToggle(bool enabled);
+     bool enabledSelectionToggle() const;
+ 
++    void setEnabledKlookToggle(bool enable);
++    bool enabledKlookToggle() const;
++
+     /**
+      * Sets the sibling information for the item and all of its parents.
+      * The sibling information of the upper most parent is represented by
+@@ -181,6 +185,12 @@ public:
+      */
+     virtual QPixmap createDragPixmap(const QStyleOptionGraphicsItem* option, QWidget* widget = 0);
+ 
++     /**
++     * @return Rectangle for the klook-toggle that is used for item preview.
++     */
++    virtual QRectF klookToggleRect() const;
++
++
+ signals:
+     void roleEditingCanceled(int index, const QByteArray& role, const QVariant& value);
+     void roleEditingFinished(int index, const QByteArray& role, const QVariant& value);
+@@ -211,6 +221,7 @@ private slots:
+ 
+ private:
+     void initializeSelectionToggle();
++    void initializeKlookToggle();
+     void setHoverOpacity(qreal opacity);
+     void clearHoverCache();
+     void drawItemStyleOption(QPainter* painter, QWidget* widget, QStyle::State styleState);
+@@ -225,6 +236,7 @@ private:
+     bool m_hovered;
+     bool m_alternateBackground;
+     bool m_enabledSelectionToggle;
++    bool m_enabledKlookToggle;
+     QHash<QByteArray, QVariant> m_data;
+     QList<QByteArray> m_visibleRoles;
+     QHash<QByteArray, qreal> m_columnWidths;
+@@ -238,6 +250,8 @@ private:
+     KItemListSelectionToggle* m_selectionToggle;
+ 
+     QByteArray m_editedRole;
++    
++    KItemListKlookToggle* m_klookToggle;
+ };
+ 
+ inline const KItemListWidgetInformant* KItemListWidget::informant() const
+diff --git a/dolphin/src/kitemviews/kstandarditemlistwidget.h b/dolphin/src/kitemviews/kstandarditemlistwidget.h
+index 787722d..3bc9228 100644
+--- a/dolphin/src/kitemviews/kstandarditemlistwidget.h
++++ b/dolphin/src/kitemviews/kstandarditemlistwidget.h
+@@ -157,6 +157,7 @@ protected:
+     virtual void resizeEvent(QGraphicsSceneResizeEvent* event);
+     virtual void showEvent(QShowEvent* event);
+     virtual void hideEvent(QHideEvent* event);
++    void triggerCacheRefreshing();
+ 
+ private slots:
+     void slotCutItemsChanged();
+@@ -164,7 +165,6 @@ private slots:
+     void slotRoleEditingFinished(int index, const QByteArray& role, const QVariant& value);
+ 
+ private:
+-    void triggerCacheRefreshing();
+     void updateExpansionArea();
+     void updatePixmapCache();
+ 
+diff --git a/dolphin/src/settings/dolphin_generalsettings.kcfg b/dolphin/src/settings/dolphin_generalsettings.kcfg
+index 9f261dc..67d9c30 100644
+--- a/dolphin/src/settings/dolphin_generalsettings.kcfg
++++ b/dolphin/src/settings/dolphin_generalsettings.kcfg
+@@ -56,6 +56,10 @@
+             <label>Show selection toggle</label>
+             <default>true</default>
+         </entry>
++        <entry name="ShowKlookToggle" type="Bool">
++            <label>Show preview toggle</label>
++            <default>false</default>
++        </entry>
+         <entry name="ShowToolTips" type="Bool">
+             <label>Show tooltips</label>
+             <default>false</default>
+diff --git a/dolphin/src/settings/general/behaviorsettingspage.cpp b/dolphin/src/settings/general/behaviorsettingspage.cpp
+index 1ade93c..0f3ed6f 100644
+--- a/dolphin/src/settings/general/behaviorsettingspage.cpp
++++ b/dolphin/src/settings/general/behaviorsettingspage.cpp
+@@ -42,7 +42,8 @@ BehaviorSettingsPage::BehaviorSettingsPage(const KUrl& url, QWidget* parent) :
+     m_globalViewProps(0),
+     m_showToolTips(0),
+     m_showSelectionToggle(0),
+-    m_naturalSorting(0)
++    m_naturalSorting(0),
++    m_showKlookToggle(0)
+ {
+     QVBoxLayout* topLayout = new QVBoxLayout(this);
+ 
+@@ -67,8 +68,13 @@ BehaviorSettingsPage::BehaviorSettingsPage(const KUrl& url, QWidget* parent) :
+     m_naturalSorting = new QCheckBox(i18nc("option:check", "Natural sorting of items"), this);
+ 
+     topLayout->addWidget(viewPropsBox);
++ 
++       // 'Show klook toggle'
++     m_showKlookToggle = new QCheckBox(i18nc("@option:check", "Show preview marker"), this);
++
+     topLayout->addWidget(m_showToolTips);
+     topLayout->addWidget(m_showSelectionToggle);
++    topLayout->addWidget(m_showKlookToggle);
+     topLayout->addWidget(m_naturalSorting);
+     topLayout->addStretch();
+ 
+@@ -78,6 +84,7 @@ BehaviorSettingsPage::BehaviorSettingsPage(const KUrl& url, QWidget* parent) :
+     connect(m_globalViewProps, SIGNAL(toggled(bool)), this, SIGNAL(changed()));
+     connect(m_showToolTips, SIGNAL(toggled(bool)), this, SIGNAL(changed()));
+     connect(m_showSelectionToggle, SIGNAL(toggled(bool)), this, SIGNAL(changed()));
++    connect(m_showKlookToggle, SIGNAL(toggled(bool)), this, SIGNAL(changed()));
+     connect(m_naturalSorting, SIGNAL(toggled(bool)), this, SIGNAL(changed()));
+ }
+ 
+@@ -106,6 +113,7 @@ void BehaviorSettingsPage::applySettings()
+         globalProps.setDirProperties(props);
+     }
+ 
++    settings->setShowKlookToggle(m_showKlookToggle->isChecked());
+     const bool naturalSorting = m_naturalSorting->isChecked();
+     if (KGlobalSettings::naturalSorting() != naturalSorting) {
+         KConfigGroup group(KGlobal::config(), "KDE");
+@@ -130,6 +138,7 @@ void BehaviorSettingsPage::loadSettings()
+ 
+     m_showToolTips->setChecked(GeneralSettings::showToolTips());
+     m_showSelectionToggle->setChecked(GeneralSettings::showSelectionToggle());
++    m_showKlookToggle->setChecked(GeneralSettings::showKlookToggle());
+     m_naturalSorting->setChecked(KGlobalSettings::naturalSorting());
+ }
+ 
+diff --git a/dolphin/src/settings/general/behaviorsettingspage.h b/dolphin/src/settings/general/behaviorsettingspage.h
+index 3989862..8e810fe 100644
+--- a/dolphin/src/settings/general/behaviorsettingspage.h
++++ b/dolphin/src/settings/general/behaviorsettingspage.h
+@@ -58,6 +58,7 @@ private:
+     QLabel* m_configureToolTips;
+     QCheckBox* m_showSelectionToggle;
+     QCheckBox* m_naturalSorting;
++    QCheckBox* m_showKlookToggle;
+ };
+ 
+ #endif
+diff --git a/dolphin/src/views/dolphinitemlistview.cpp b/dolphin/src/views/dolphinitemlistview.cpp
+index 039b5f2..81694dc 100644
+--- a/dolphin/src/views/dolphinitemlistview.cpp
++++ b/dolphin/src/views/dolphinitemlistview.cpp
+@@ -41,6 +41,7 @@ DolphinItemListView::DolphinItemListView(QGraphicsWidget* parent) :
+     KFileItemListView(parent),
+     m_zoomLevel(0)
+ {
++    setEnabledKlookToggles(GeneralSettings::showKlookToggle());
+     updateFont();
+     updateGridSize();
+ }
+@@ -89,6 +90,7 @@ void DolphinItemListView::readSettings()
+     beginTransaction();
+ 
+     setEnabledSelectionToggles(GeneralSettings::showSelectionToggle());
++    setEnabledKlookToggles(GeneralSettings::showKlookToggle());
+ 
+     const bool expandableFolders = (itemLayout() == KFileItemListView::DetailsLayout) &&
+                                    DetailsModeSettings::expandableFolders();
+diff --git a/dolphin/src/views/dolphinview.cpp b/dolphin/src/views/dolphinview.cpp
+index 8050415..86dff91 100644
+--- a/dolphin/src/views/dolphinview.cpp
++++ b/dolphin/src/views/dolphinview.cpp
+@@ -148,6 +148,7 @@ DolphinView::DolphinView(const KUrl& url, QWidget* parent) :
+     connect(controller, SIGNAL(itemUnhovered(int)), this, SLOT(slotItemUnhovered(int)));
+     connect(controller, SIGNAL(itemDropEvent(int,QGraphicsSceneDragDropEvent*)), this, SLOT(slotItemDropEvent(int,QGraphicsSceneDragDropEvent*)));
+     connect(controller, SIGNAL(modelChanged(KItemModelBase*,KItemModelBase*)), this, SLOT(slotModelChanged(KItemModelBase*,KItemModelBase*)));
++    connect(controller, SIGNAL(klookTrigger()), this, SIGNAL(klookTrigger()));
+ 
+     connect(m_model, SIGNAL(directoryLoadingStarted()),       this, SLOT(slotDirectoryLoadingStarted()));
+     connect(m_model, SIGNAL(directoryLoadingCompleted()),     this, SLOT(slotDirectoryLoadingCompleted()));
+@@ -1528,4 +1529,14 @@ KUrl DolphinView::viewPropertiesUrl() const
+     return url;
+ }
+ 
++KFileItemList DolphinView::sortedItems() const
++{
++    KFileItemList  list;
++    for (int i = 0; i < m_model->count(); i++) {
++        list.append(m_model->fileItem(i));
++    }
++    return list;
++}
++
++
+ #include "dolphinview.moc"
+diff --git a/dolphin/src/views/dolphinview.h b/dolphin/src/views/dolphinview.h
+index 10f63c5..a53ee8a 100644
+--- a/dolphin/src/views/dolphinview.h
++++ b/dolphin/src/views/dolphinview.h
+@@ -295,6 +295,8 @@ public:
+      */
+     void setViewPropertiesContext(const QString& context);
+     QString viewPropertiesContext() const;
++    
++    KFileItemList sortedItems() const;
+ 
+ public slots:
+     /**
+@@ -506,6 +508,8 @@ signals:
+      */
+     void writeStateChanged(bool isFolderWritable);
+ 
++    void klookTrigger();
++
+     /**
+      * Is emitted if the URL should be changed to the previous URL of the
+      * history (e.g. because the "back"-mousebutton has been pressed).
