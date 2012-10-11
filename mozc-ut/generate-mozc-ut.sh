@@ -1,12 +1,9 @@
 #!/bin/bash
 
-MOZCVER="1.5.1090.102"
-DICVER="20120529"
-
-# if you want to make redistributable mozc-ut,
-# keep NICODIC="false" please.
-NICODIC="false"
-#NICODIC="true"
+if [[ -z "$MOZCVER" || -z "$DICVER" ]]; then
+    echo '$MOZCVER or $DICVER is not specified.'
+    exit 1
+fi
 
 
 
@@ -83,7 +80,9 @@ then
 	ruby 12-* niconico/niconico.txt 300
 fi
 
-cat skk/skk.txt.r edict/edict.txt.r hatena/hatena.txt.r > ut-dic2.txt
+cat skk/skk.txt.r hatena/hatena.txt.r > ut-dic2.txt
+
+[[ "$EDICT" = "yes" ]] && cat edict/edict.txt.r >> ut-dic2.txt
 
 if [ $NICODIC = "true" ]
 then
@@ -120,7 +119,8 @@ cat dictionary-ut.txt >> ../mozc-$MOZCVER/data/dictionary_oss/dictionary00.txt
 sed -i 's|"Mozc"|"Mozc-UT"|g' ../mozc-$MOZCVER/base/const.h
 
 # install docs
-DIC="altcanna chimei edict ekimei hatena jinmei skk"
+DIC="altcanna chimei ekimei hatena jinmei skk"
+[[ "$EDICT" = "yes" ]] && DIC+=" edict"
 
 if [ $NICODIC = "true" ]
 then
