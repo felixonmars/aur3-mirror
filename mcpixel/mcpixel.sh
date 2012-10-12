@@ -1,2 +1,2 @@
 #!/bin/sh
-GTK_MODULES= adobe-air /opt/McPixel.air
+adobe-air /opt/mcpixel.air
