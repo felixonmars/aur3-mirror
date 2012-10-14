@@ -1,80 +1,316 @@
-p_generate_secret_token() {
-	cd /var/lib/redmine2/
+#
+# ruby-redmine2.install
+# Installation helper script
+#
+# Copyright (C) 2012 travnick <mikolajmm@gmail.com>
+# Copyright (C) 2012 Christian Jurk <commx@commx.ws>
+#
+# **** CHANGELOG **********************
+#
+# 2012-09-30 Christian Jurk
+#  - Added a bunch of helper functions to fulfill all requirements to install
+#    redmine along with all dependencies.
+#
+
+_redmine_installation_path="/var/lib/redmine2"
+_redmine_user="redmine"
+_redmine_group="redmine"
+_redmine_uid=155
+_redmine_gid=155
+_bundler_excludes=""
+
+# Check whether a local gem is installed. If not, it will ask the user
+# if it wants to install the gem.
+_check_and_install_gem() {
+	local ret=$(_is_gem_installed $1)
+	if [[ -z "$ret" ]]; then
+		local dlg=`dialog --clear --stdout --ascii-lines \
+			--yesno "The '$1' gem is missing. Install it now?" 10 40 \
+			; echo $?`
+		if [[ $dlg -eq 0 ]]; then
+			gem install $1
+		else
+			_fatal "ERROR: Gem installation aborted." 1
+		fi
+	fi
+}
+
+# Check whether a local system package is installed. If not, it will ask
+# the user if it wants to install the package using pacman.
+_check_and_install_system_package() {
+	local ret=$(_is_system_package_installed $1)
+	if [[ -z "$ret" ]] && [[ ! -z "$(_have_sudo)" ]]; then
+		local dlg=`dialog --clear --stdout --ascii-lines \
+			--yesno "The '$1' package is missing. Install it now?" 10 40 \
+			; echo $?`
+		if [[ $dlg -eq 0 ]]; then
+			sudo pacman -Sy $1
+			if [[ $? -ne 0 ]]; then
+				_fatal "ERROR: Package installation failed." 1
+			fi
+		else
+			_fatal "ERROR: Package installation aborted." 1
+		fi
+	fi
+}
+
+# A helper function for displaying a message and exiting the script.
+_fatal() {
+	echo $1 && exit $2
+}
+
+# Test whether sudo is installed and executable.
+_have_sudo() {
+	[[ -x "/usr/bin/sudo" ]] && echo "1"
+}
+
+# Install systemd service.
+_install_systemd_service() {
+	if [[ ! -z "$(_is_running_systemd)" ]] \
+		&& [[ -z "$(_is_systemd_service_enabled)" ]] \
+		&& [[ ! -z "$(_have_sudo)" ]]; then
+		local dlg=`dialog --clear --stdout --ascii-lines \
+			--yesno "Should I enable the redmine2 service (systemd)?" 10 40 \
+			; echo $?`
+		if [[ $dlg -eq 0 ]]; then
+			sudo systemctl enable redmine2.service
+		fi
+	fi
+}
+
+# Test whether a Gem is installed or not.
+_is_gem_installed() {
+	if [ -z "$1" ]; then
+		_fatal "ERROR: Missing argument" 1
+	fi
+	
+	local ret=`gem list | grep "$1" | wc -l`
+	if [ $ret -lt 1 ]; then
+		echo ""
+	else
+		echo " [installed]"
+	fi
+}
+
+# Test whether we're on ruby 1.8 or not.
+_is_ruby18() {
+	echo $(ruby --version | grep "ruby 1.8.")
+}
+
+# Test whether the system is running with systemd.
+_is_running_systemd() {
+	echo $(ps -p 1 | grep "systemd")
+}
+
+# Test whether the systemd service is enabled (presuming that systemd is
+# running).
+_is_systemd_service_enabled() {
+	[[ -r "/etc/systemd/system/multi-user.target.wants/redmine2.service" ]] \
+		&& echo "1"
+}
+
+# Test whether a system package is installed or not.
+_is_system_package_installed() {
+	local ret=`pacman -Qi $1 > /dev/null 2>&1 ; echo $?`
+	if [[ $ret -ne 0 ]]; then
+		echo ""
+	else
+		echo " [installed]"
+	fi
+}
+
+# Installation helper: Will ask the user for the desired database backend.
+# This is important, since in recent redmine versions the bundler installation
+# may fail unless some requirements have been met.
+_query_database_backend() {
+	local have_sqlite=$(_is_gem_installed "sqlite3")
+	local have_mysql=$(_is_gem_installed "mysql2")
+	local have_pgsql=$(_is_gem_installed "pg")
+	local dlg=`dialog --clear --stdout --ascii-lines \
+		--title "redmine installation helper" \
+		--menu "Select database driver" 12 40 12 \
+			1 "SQLite$have_sqlite" \
+			2 "MySQL$have_mysql" \
+			3 "PostgreSQL$have_pgsql"`
+	
+	# Check if we have to install dependencies.
+	# This will try to install system packages before actual gems, as they may
+	# depend on system libraries which ave to be installed first.
+	if [[ ! -z "$(_have_sudo)" ]]; then
+		case "$dlg" in
+			1)
+				_check_and_install_system_package "sqlite"
+				_check_and_install_gem "sqlite3"
+				_bundler_excludes="$bundler_excludes mysql postgresql"
+				;;
+			2)
+				_check_and_install_system_package "libmysqlclient"
+				if [[ -z "$(_is_ruby18)" ]]; then
+					_check_and_install_gem "mysql2"
+				else
+					_check_and_install_gem "mysql"
+				fi
+				_bundler_excludes="$bundler_excludes sqlite postgresql"
+				;;
+			3)
+				_check_and_install_system_package "postgresql-libs"
+				_check_and_install_gem "pg"
+				_bundler_excludes="$bundler_excludes sqlite mysql"
+				;;
+			*)
+				_fatal "ERROR: Invalid selection made, exiting." 1
+				;;
+		esac
+	fi
+}
+
+# Will ask for optional Gems to install. Basically for rmagick.
+_query_optional_gems() {
+	local dlg=`dialog --clear --stdout --ascii-lines \
+		--title "redmine installation helper" \
+		--checklist "Optional dependencies" 12 40 12 \
+			1 "RMagick" 0 \
+			2 "Development packages" 0 \
+			3 "Test units" 0 \
+			4 "LDAP Authentication" 0`
+	local with_rmagick=0
+	local with_development=0
+	local with_test=0
+	local with_ldap=0
+
+	for i in $dlg; do
+		case $i in
+			1)
+				_check_and_install_system_package "imagemagick"
+				_check_and_install_gem "rmagick"
+				with_rmagick=1
+				;;
+			2)
+				with_development=1
+				;;
+			3)
+				with_test=1
+				;;
+			4)
+				with_ldap=1
+				;;
+		esac
+	done
+
+	if [[ $with_rmagick -eq 0 ]]; then
+		_bundler_excludes="$_bundler_excludes rmagick"
+	fi
+	if [[ $with_development -eq 0 ]]; then
+		_bundler_excludes="$_bundler_excludes development"
+	fi
+	if [[ $with_test -eq 0 ]]; then
+		_bundler_excludes="$_bundler_excludes test"
+	fi
+	if [[ $with_ldap -eq 0 ]]; then
+		_bundler_excludes="$_bundler_excludes ldap"
+	fi
+}
+
+_generate_secret_token() {
+	cd $_redmine_installation_path
 	rake generate_secret_token 1>/dev/null
 }
 
-p_install_gems() {
-	cd /var/lib/redmine2
+_install_gems() {
+	cd $_redmine_installation_path
 
-	# set bundler bin path
+	# set bundler bin path. The 'command' method does not work for this.
 	BUNDLE_BIN="/usr/bin/bundle"
 
-	if [ ! -x "$BUNDLE_BIN" ]; then
-		echo "Error: Bundler executable not found: $BUNDLE_BIN"
-		exit 1
+	if [[ ! -x "$BUNDLE_BIN" ]]; then
+		_fatal "ERROR: Bundler is not installed" 1
 	fi
 
-	$BUNDLE_BIN install --without development test rmagick
-	if [ $? != 0 ]; then
-		echo "failed."
+	$BUNDLE_BIN install --without $_bundler_excludes
+	if [[ $? -ne 0 ]]; then
+		_fatal "ERROR: Bundler installation failed." 1
 	else
 		echo "done."
 	fi
 }
 
-p_install_user() {
-	getent group "redmine" &>/dev/null || groupadd -r -g 155 redmine 1>/dev/null
-	getent passwd "redmine" &>/dev/null || useradd -r -u 155 -g redmine -d "/var/lib/redmine2" -s "/bin/false" redmine 1>/dev/null
+_install_user() {
+	getent group $_redmine_group &>/dev/null || \
+		groupadd -r -g $_redmine_gid $_redmine_group 1>/dev/null
+	getent passwd $_redmine_user &>/dev/null || \
+		useradd -r -u $_redmine_uid -g $_redmine_group \
+		-d $_redmine_installation_path -s "/bin/false" \
+		$_redmine_user 1>/dev/null
 }
 
-p_adjust_perms(){
-	for dir in /var/lib/redmine2/{files,log,tmp,public/plugin_assets}; do
-		chown -R redmine:redmine "$dir" 1>/dev/null
+_fix_permissions(){
+	for dir in \
+	"$_redmine_installation_path/"{files,log,tmp,public/plugin_assets}; do
+		chown -R $_redmine_user:$_redmine_group "$dir" 1>/dev/null
 		chmod -R 755 "$dir" 1>/dev/null
 	done
 }
 
 post_install() {
-	p_install_user
-	p_install_gems
+	_install_user
+	_query_database_backend
+	_query_optional_gems
+	_install_gems
+	_install_systemd_service
 
-	chown -R redmine:redmine "/var/lib/redmine2" 1>/dev/null
+	chown -R $_redmine_user:$_redmine_group $_redmine_installation_path \
+		1>/dev/null
 	
-	p_adjust_perms
+	_fix_permissions
+	_generate_secret_token
 
-	p_generate_secret_token
+	cat << EOF
+==> Installation completed.
+Now go to http://www.redmine.org/projects/redmine/wiki/RedmineInstall and
+follow the instructions starting section 3 to complete your installation.
+EOF
+}
 
-	echo "==> Installation finished."
-	echo "Now go to http://www.redmine.org/projects/redmine/wiki/RedmineInstall and follow"
-	echo "the instructions starting point 3 to complete your installation."
+pre_upgrade() {
+	
+	local ret=`dialog --clear --stdout --ascii-lines \
+		--title "redmine installation helper" \
+		--msgbox "You are about to upgrade redmine. It is recommended to do a \
+		database backup before proceeding." 10 40`
 }
 
 post_upgrade() {
-	p_install_user
-	p_install_gems
-
-	p_adjust_perms
-
-	p_generate_secret_token
+	_install_user
+	_query_database_backend
+	_query_optional_gems
+	_install_gems
+	_install_systemd_service
+	_fix_permissions
+	_generate_secret_token
+	
 
 	# migrate database if a config file exists for the database
-	if [ -r "/var/lib/redmine2/config/database.yml" ]; then
+	if [ -r "${_redmine_installation_path}/config/database.yml" ]; then
 		RAILS_ENV=production rake db:migrate 1>/dev/null
 		RAILS_ENV=production rake redmine:plugins:migrate
 		rake tmp:cache:clear 1>/dev/null
 		rake tmp:sessions:clear 1>/dev/null
 
-		echo "==> Upgrade finished."
+		echo "==> Upgrade completed."
 		echo "Restart your application server to take changes effect."
 	else
-		echo "==> Installation finished."
-		echo "Now go to http://www.redmine.org/projects/redmine/wiki/RedmineInstall and follow"
-		echo "the instructions starting point 3 to complete your installation."
+		cat << EOF
+==> Upgrade completed.
+Now go to http://www.redmine.org/projects/redmine/wiki/RedmineInstall and
+follow the instructions starting section 3 to complete your installation.
+EOF
 	fi
 }
 
 post_remove() {
-	getent passwd "redmine" &>/dev/null && userdel redmine 1>/dev/null
-	getent group "redmine" &>/dev/null && groupdel redmine 1>/dev/null
+	getent passwd $_redmine_user &>/dev/null && \
+		userdel $_redmine_user 1>/dev/null
+	getent group "redmine" &>/dev/null && \
+		groupdel $_redmine_group 1>/dev/null
 	return 0
 }
