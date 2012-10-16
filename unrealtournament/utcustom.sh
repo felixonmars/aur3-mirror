@@ -8,12 +8,12 @@
 # The user preferences directory
 UT_PREFS="${HOME}/.loki/ut"
 UT_DATA_PATH="/opt/ut/"
-OSSPDPID="/run/daemons/osspd"
 
 # Function to reveal osspd execution
-    if [ ! -e $OSSPDPID ]; then
+     a=$(ps -U root | grep osspd) 
+     if [ -z $a ]; then
         notify-send UT -i ut "Please execute \
-	<b>rc.d start osspd</b>";
+	<p><b>rc.d start osspd</b></p><p>or</p><b>systemctl start osspd.service</b>";
         exit 1;
     fi
 
