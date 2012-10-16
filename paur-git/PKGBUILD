@@ -8,7 +8,7 @@ pkgdesc='POST packages to the AUR'
 arch=('any')
 url='https://github.com/pbrisbin/paur'
 license=('MIT')
-depends=('ruby')
+depends=('ruby', 'ruby-nokogiri')
 makedepends=('git')
 
 _gitroot='https://github.com/pbrisbin/paur.git'
