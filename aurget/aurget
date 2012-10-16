@@ -12,7 +12,7 @@
 SCRIPT_NAME='Aurget'
 SCRIPT_DESCRIPTION='A simple pacman-like interface to the AUR'
 SCRIPT_AUTHOR='Patrick Brisbin <pbrisbin@gmail.com>'
-SCRIPT_VERSION='3.4.0'
+SCRIPT_VERSION='3.4.1'
 SCRIPT_DATE='11/9/2011'
 
 # }}}
@@ -171,8 +171,6 @@ EOF
 
 # }}}
 
-prompted=()
-
 # prompt_to_edit {{{
 prompt_to_edit() {
   local pkgbuild reason
@@ -181,15 +179,6 @@ prompt_to_edit() {
   reason="${*:-sourcing for deps}"
 
   [[ ! -f "$pkgbuild" ]] && errorout "$Name: no PKGBUILD found"
-
-  # if we prompted for sourcing, don't prompt again afterwards
-  for package in "${prompted[@]}"; do
-    if [[ $package == $Name ]]; then
-      return 0
-    fi
-  done
-
-  prompted=($prompted $Name)
 
   # default is to prompt
   case "${edit_pkgbuilds:-prompt}" in
@@ -287,16 +276,22 @@ search_aur() {
   term="${args[*]}"
 
   awkscript='
-  /Name":/        { printf "%s", $3 }
-  /Version":/     { printf "|%s", $3 }
-  /Description":/ { printf "|%s", $3 }
-  /URL":/         { printf "|%s", $3 }
-  /OutOfDate":/   { printf "|%s", $3 }
-  /URLPath":/     { printf "|%s\n", $3 }
+  function unstring(str) {
+    sub(/[^:]+:/, "", str)
+    gsub(/\\\"/, "\"", str)
+    return substr(str, 2, length(str) - 1)
+  }
+
+  /Name":/        { printf "%s",    unstring($0) }
+  /Version":/     { printf "|%s",   unstring($0) }
+  /Description":/ { printf "|%s",   unstring($0) }
+  /URL":/         { printf "|%s",   unstring($0) }
+  /OutOfDate":/   { printf "|%s",   unstring($0) }
+  /URLPath":/     { printf "|%s\n", unstring($0) }
   '
 
   # parse JSON data
-  results="$(curl -fsS "${aur_srch}$(url_encode "$term")" | awk -F'"' -v RS='","' "$awkscript")"
+  results="$(curl -fsS "${aur_srch}$(url_encode "$term")" | awk -F '[^\\\\]"' -v RS='","' "$awkscript")"
 
   # no results
   [[ -z "$results" ]] && clean_exit 1
@@ -496,7 +491,7 @@ source_for_deps() {
     return 1
   fi
 
-  Name="$1" prompt_to_edit "$pkgbuild" "sourcing $1 for dependencies" && source_pkgbuild "$pkgbuild" || continue
+  prompt_to_edit "$pkgbuild" "sourcing $1 for dependencies" && source_pkgbuild "$pkgbuild" || continue
 }
 
 # }}}
@@ -506,7 +501,7 @@ dep_check() {
   echo 'resolving dependencies...'
 
   local dep all_deps pac_deps
-  all_deps=(); aur_deps=(); pac_deps=() mk_deps=()
+  all_deps=(); aur_deps=(); pac_deps=(); mk_deps=()
 
   while true; do
     n=${#all_deps[@]}
@@ -569,7 +564,7 @@ add_targets_to_list() {
     fi
 
     # fetch JSON
-    read -r Name Version URLPath < <(wget -q -O - "${aur_info}$(url_encode "$name")" | sed -e '/.*"Name":"\([^"]*\)".*"Version":"\([^"]*\)".*"URLPath":"\([^"]*\)".*/!d; s//\1 \2 \3/g')
+    read -r Name Version URLPath < <(curl -s "${aur_info}$(url_encode "$name")" | sed -e '/.*"Name":"\([^"]*\)".*"Version":"\([^"]*\)".*"URLPath":"\([^"]*\)".*/!d; s//\1 \2 \3/g')
     [[ -z "$Name" ]] && errorout "$name: package not found in AUR."
 
     # is it already up to date?
@@ -913,7 +908,7 @@ aur_srch="$aur/rpc.php?type=search&arg="
 aur_info="$aur/rpc.php?type=info&arg="
 aur_pkgs="$aur/packages"
 
-tmpdir='/tmp/aurget'
+tmpdir="${TMPDIR:-/tmp}/aurget"
 lock_file="$tmpdir/aurget.lock"
 
 boot_strap "$1"
