@@ -1,6 +1,6 @@
 # Maintainer: PrettyFlower <abigchode@gmail.com>
 pkgname=kate-typescript-syntax-highlighting
-pkgver=20121013
+pkgver=20121015
 pkgrel=1
 pkgdesc="Syntax highlighting for TypeScript in Kate"
 arch=('any')
