@@ -2,9 +2,11 @@
 # Contributor: Piotr Rogoża <rogoza dot piotr at gmail dot com>
 # vim:set ts=2 sw=2 et ft=sh tw=100: expandtab
 
+_mods_dir='etc/httpd/conf/mods-available'
+
 pkgname=a2enmod
-pkgver=1.0
-pkgrel=4
+pkgver=1.1
+pkgrel=1
 pkgdesc='Apache enable/disable module/site. From Debian package.'
 arch=('any')
 url='http://httpd.apache.org/'
@@ -21,35 +23,42 @@ provides=()
 conflicts=()
 replaces=()
 backup=(
-etc/httpd/conf/mods-available/actions.conf
-etc/httpd/conf/mods-available/alias.conf
-etc/httpd/conf/mods-available/autoindex.conf
-etc/httpd/conf/mods-available/cgid.conf
-etc/httpd/conf/mods-available/dav_fs.conf
-etc/httpd/conf/mods-available/deflate.conf
-etc/httpd/conf/mods-available/dir.conf
-etc/httpd/conf/mods-available/disk_cache.conf
-etc/httpd/conf/mods-available/dnssd.conf
-etc/httpd/conf/mods-available/fastcgi.conf
-etc/httpd/conf/mods-available/fcgid.conf
-etc/httpd/conf/mods-available/info.conf
-etc/httpd/conf/mods-available/ldap.conf
-etc/httpd/conf/mods-available/mem_cache.conf
-etc/httpd/conf/mods-available/mime.conf
-etc/httpd/conf/mods-available/mime_magic.conf
-etc/httpd/conf/mods-available/mono.conf
-etc/httpd/conf/mods-available/negotiation.conf
-etc/httpd/conf/mods-available/perl.conf
-etc/httpd/conf/mods-available/php5.conf
-etc/httpd/conf/mods-available/proxy_balancer.conf
-etc/httpd/conf/mods-available/proxy.conf
-etc/httpd/conf/mods-available/proxy_ftp.conf
-etc/httpd/conf/mods-available/reqtimeout.conf
-etc/httpd/conf/mods-available/setenvif.conf
-etc/httpd/conf/mods-available/ssl.conf
-etc/httpd/conf/mods-available/status.conf
-etc/httpd/conf/mods-available/suphp.conf
-etc/httpd/conf/mods-available/userdir.conf
+${_mods_dir}/actions.conf
+${_mods_dir}/alias.conf
+${_mods_dir}/autoindex.conf
+${_mods_dir}/cgid.conf
+${_mods_dir}/dav_fs.conf
+${_mods_dir}/dav_svn.conf
+${_mods_dir}/deflate.conf
+${_mods_dir}/dir.conf
+${_mods_dir}/disk_cache.conf
+${_mods_dir}/dnssd.conf
+${_mods_dir}/fastcgi.conf
+${_mods_dir}/fcgid.conf
+${_mods_dir}/info.conf
+${_mods_dir}/ldap.conf
+${_mods_dir}/mem_cache.conf
+${_mods_dir}/mime.conf
+${_mods_dir}/mime_magic.conf
+${_mods_dir}/mod-security.conf
+${_mods_dir}/mono.conf
+${_mods_dir}/negotiation.conf
+${_mods_dir}/pagespeed.conf
+${_mods_dir}/perl.conf
+${_mods_dir}/php5_cgi.conf
+${_mods_dir}/php5.conf
+${_mods_dir}/proxy_balancer.conf
+${_mods_dir}/proxy.conf
+${_mods_dir}/proxy_ftp.conf
+${_mods_dir}/qos.conf
+${_mods_dir}/reqtimeout.conf
+${_mods_dir}/rpaf.conf
+${_mods_dir}/setenvif.conf
+${_mods_dir}/ssl.conf
+${_mods_dir}/status.conf
+${_mods_dir}/suphp.conf
+${_mods_dir}/userdir.conf
+${_mods_dir}/vhost_alias.conf
 etc/httpd/conf/ports.conf
 etc/httpd/conf/sites-available/default
 etc/httpd/conf/sites-available/default-ssl
@@ -66,57 +75,6 @@ noextract=()
 package(){
   cd "$srcdir/$pkgname-$pkgver"
 
-  _apache_dir='/etc/httpd'
-  _man_dir='/usr/share/man/man8'
-
-  # installation of default configurations
-  install -dm755 "$pkgdir"/${_apache_dir}/conf
-  tar -c conf | tar -x -C "$pkgdir"${_apache_dir}
-
-  # creating directories for enabled/available mods and sites 
-  install -dm755 "$pkgdir"$_apache_dir/conf/mods-available
-  install -dm755 "$pkgdir"$_apache_dir/conf/mods-enabled
-  install -dm755 "$pkgdir"$_apache_dir/conf/sites-enabled
-
-  # installation of missing modules from orignal httpd.conf
-  cp -f mods-httpd-default/* "$pkgdir"/${_apache_dir}/conf/mods-available/
-
-  # installation of other modules, installed separately
-  cp -f mods-repo-aur/* "$pkgdir"/${_apache_dir}/conf/mods-available/
-
-  # installation of modules from debian package
-  cp -f mods-debian/* "$pkgdir"/${_apache_dir}/conf/mods-available/
-
-  pushd "$pkgdir"${_apache_dir}/conf/mods-available
-  
-  # removing an entry '/usr/lib/apache2' from *.load
-  sed -e 's#/usr/lib/apache2/##g' -i *.load
-
-  # changing directory apache2 to httpd in *.conf
-  sed -e 's#/usr/share/apache2/#/usr/share/httpd/#g' -i *.conf
-  sed -e 's#/etc/apache2#/etc/httpd/conf#g' -i *.conf
-
-  popd
-
-  # installation of a2enmod script and symlinks
-  install -Dm755 sbin/a2enmod "$pkgdir"/usr/sbin/a2enmod
-  pushd "$pkgdir"/usr/sbin
-  ln -s a2enmod a2ensite
-  ln -s a2enmod a2dismod
-  ln -s a2enmod a2dissite
-  popd
-
-  # installation of man pages
-  install -dm755 "$pkgdir"/${_man_dir}
-  pushd man
-  sed -e 's/apache2ctl/apachectl/g' -e 's#/etc/apache2#/etc/httpd/conf#g' -i a2enmod.8 a2ensite.8
-  for i in *.8; do
-    gzip $i -c > "$pkgdir"/${_man_dir}/$i.gz
-  done
-  popd
-
-  # installation of bash completion
-  install -Dm644 bash_completion "$pkgdir"/etc/bash_completion.d/a2enmod
-
+  make DESTDIR="$pkgdir" install
 }
-md5sums=('d1197e74902cc3e1e105a04096f1dffb')
+md5sums=('7247d21054a7e8302b6cab16630e56a3')
