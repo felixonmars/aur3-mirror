@@ -2,7 +2,7 @@
 
 pkgname=abjad
 _realname=Abjad
-pkgver=2.9
+pkgver=2.10
 pkgrel=1
 pkgdesc="a python program for formalized score control and music composition"
 url="http://www.projectabjad.org"
@@ -19,5 +19,4 @@ build() {
   python2 setup.py install --root=$pkgdir/ --optimize=1
 }
 
-md5sums=('458147dcd1734e08517c67496fbf8cf6')
-
+md5sums=('d12323e0bba8a005eeee251bb915247d')
