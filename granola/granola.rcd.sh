@@ -20,11 +20,11 @@ insert_cpufreq_modules() {
         # No driver yet, try and modprobe one
         module_dir="/lib/modules/$(uname -r)/kernel/drivers/cpufreq/"
         for module in $(ls $module_dir 2> /dev/null | cut -d '.' -f 1); do
-            [[ modprobe $module 2> /dev/null ]] && break
+            [ modprobe $module 2> /dev/null ] && break
         done
     # Either no driver or it is compiled in
     fi
-    [[ ! grep userspace $freq_dir/scaling_available_governors >& /dev/null ]] && modprobe cpufreq-userspace 2> /dev/null
+    [ ! grep userspace $freq_dir/scaling_available_governors >& /dev/null ] && modprobe cpufreq-userspace 2> /dev/null
     test_usable_dvfs
 }
 
