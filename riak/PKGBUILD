@@ -2,8 +2,9 @@
 # Contributor: Thomas Mudrunka <harvie@@email..cz> You can also contact me on http://blog.harvie.cz/
 
 pkgname=riak
-pkgver=1.2.0
-pkgrel=2
+pkgver_maj=1.2
+pkgver=1.2.1
+pkgrel=1
 pkgdesc='NOSQL database engine providing decentralized key-value store, flexible map/reduce engine and HTTP/JSON query interface'
 arch=('i686' 'x86_64')
 license=('APACHE')
@@ -13,12 +14,12 @@ provides=('riak')
 makedepends=('erlang')
 backup=('opt/riak/etc/app.config' 'opt/riak/etc/vm.args')
 install='riak.install'
-source=("http://s3.amazonaws.com/downloads.basho.com/riak/CURRENT/riak-$pkgver.tar.gz"
+source=("http://s3.amazonaws.com/downloads.basho.com/riak/$pkgver_maj/$pkgver/riak-$pkgver.tar.gz"
         'riak'
         'riak-admin'
         'riak.rc'
         'riak.service')
-md5sums=('adbea8a01d3d7d269adf21450adf8403'
+md5sums=('0d7ccaa18d2e5805230c0d9486683253'
          'ea204ebd9a06a3812a00f4dcbd37c227'
          'af9a1757a5011d23712555adc98c133f'
          '9788c7e7cb80039c6a3d753da69a28cf'
