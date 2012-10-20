@@ -2,7 +2,7 @@
 # Contributor: Andrej Gelenberg <andrej.gelenberg@udo.edu>
 
 pkgname=keepass
-pkgver=2.20
+pkgver=2.20.1
 pkgrel=1
 pkgdesc='KeePass Password Safe, the free, open source, light-weight and easy-to-use password manager'
 arch=('any')
@@ -40,7 +40,7 @@ package() {
   install -Dm644 keepass.1 "$pkgdir"/usr/share/man/man1/keepass.1
   
   # Proper installation of .desktop file
-  desktop-file-install -m 0644 --dir "$pkgdir"/usr/share/applications/ keepass.desktop
+  desktop-file-install -m 644 --dir "$pkgdir"/usr/share/applications/ keepass.desktop
   
   # Install Icons (got from source package with "icotool -x KeePass.ico")
   for size in 16 32 48 256; do
@@ -53,7 +53,7 @@ package() {
   install -Dm644 keepass.xml "$pkgdir"/usr/share/mime/packages/keepass.xml
 }
 
-md5sums=('3a77659e90089b59dd098a7d86ccaaf6'
+md5sums=('2359dab5c79c551f96b1c7eb9b3d8d41'
          'daa5d6c01c11cf38c6f5cc207333aa9a'
          'a2a0dff1ebf0aaf6cbfb6f8566f4a010'
          '226934813eaa6bf01f01cc3926846707'
