@@ -2,17 +2,18 @@
 
 pkgname=amazonmp3
 pkgver=1.0.9
-pkgrel=8
+pkgrel=9
 pkgdesc="The Amazon MP3 downloader"
 arch=(i686 x86_64)
 url=http://www.amazon.com/gp/dmusic/help/amd.html
 license=(unknown)
-depends=(desktop-file-utils lib32-{curl,gtk2,libpng12,libxml2})
-[[ $CARCH == "i686" ]] && depends=(${depends[@]/lib32-/})
+depends=(desktop-file-utils lib32-{gtk2,lib{idn,png12,xml2},openssl098})
+optdepends=('lib32-libcanberra: to get rid of an annoying error')
+[[ $CARCH == "i686" ]] && depends=(${depends[@]/lib32-/}) && optdepends=(${optdepends[@]/lib32-/})
 install=$pkgname.install
-source=(
-    http://mirrors.kernel.org/ubuntu/pool/main/{\
+source=(http://mirrors.kernel.org/ubuntu/pool/main/{\
 c/cairomm/libcairomm-1.0-1_1.8.0-1build2,\
+c/curl/libcurl3_7.21.0-1ubuntu1,\
 g/glibmm2.4/libglibmm-2.4-1c2a_2.16.4-0ubuntu1,\
 g/gtkmm2.4/libgtkmm-2.4-1c2a_2.20.2-1,\
 i/icu/libicu38_3.8-6ubuntu0.2,\
@@ -24,7 +25,9 @@ p/pangomm/libpangomm-1.4-1_2.26.1-1\
     http://security.ubuntu.com/ubuntu/pool/universe/b/boost/libboost-{date-time,filesystem,iostreams,regex,signals,thread}1.34.1_1.34.1-4ubuntu3_i386.deb
     http://amazonm-002.vo.llnwd.net/u/d1/clients/en_US/$pkgver/${pkgname}_$pkgver~ibex_i386.deb
 )
+noextract=(${source[@]##*/})
 sha256sums=('02181c11384726dad7c871144da95410df63cd36d5e60596d5f04999faff68bf'
+    'c08533c4a81fb8f3554aa0a06a2307608cd744ffcd35509b03cafed8826dffdb'
     'e00b4515a20e16d13fe6087c575f94efa6768f1deb2130fdab9686feda16b242'
     'ef6e5079e0006e586c33d86adc98d7f5cd6111441eed718a09c62c0f6a107d5c'
     '42d091d91cc1212b44622d4939f0e8d57c21d258bea80e8eece70465f3d5e0c2'
@@ -40,6 +43,7 @@ sha256sums=('02181c11384726dad7c871144da95410df63cd36d5e60596d5f04999faff68bf'
     '3df5ba524b994c4a60cf59f701f589554b5ca01b62419266fdd813854efb72ce'
     '65139b7dcf55c9342013d89adf7808c2011bfd1b61284f29d2d396f5389290a1')
 sha512sums=('7036f2b984fa183229edd25a6299e5e612a4de7fb3debb39dc5f1995a27dbc024dfb1fc5ec2bc5d12d223b86de5b9006d3ae4cfbce4deb3c7770a4236203f832'
+    '924e20d5fa0900113a95cc15228a0264ec7c261795341ba6a633d2385ef6e60329cb774950582d1f2480626e6438cbb4d1cf78114e19050bbc54c6961434d13b'
     '4775899b9ed1409737ba7a86627cc093a86f1af1207ac4fa970e360411c9db59a73491ae747b5f4e21addf2a6202d0873b207b85980be44fb6180940767111dc'
     '2583942ee3ddb169e9d20645c17b7da574c4a7c1c38bc93c0f89ff9c5fef1b87a65769634848c25641e2cf5fcc9705f5cc730550e7b04eca5192733f5e2e3e4b'
     '04f354df6be56e5ece120d0292b794a89a8a9706342646e085d24dee475050148fffed6117658d1bc6d55e80a2b96289aedefb5dfe01eadec267f6978a0b334d'
@@ -57,14 +61,14 @@ sha512sums=('7036f2b984fa183229edd25a6299e5e612a4de7fb3debb39dc5f1995a27dbc024df
 
 package() {
     cd "$srcdir"
-    for i in *.deb; do
+    for i in *deb; do
         ar xv "$i" data.tar.gz
         mv data.tar.gz "$i-data.tar.gz"
     done
 
     cd "$pkgdir"
     for i in "$srcdir"/*-data.tar.gz; do
-        tar -zxf "$i"
+        tar -xzf "$i"
     done
     sed -i 's/0.9.8/1.0.0/' usr/bin/$pkgname
     [[ $CARCH == "x86_64" ]] && mv usr/lib usr/lib32
