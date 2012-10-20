@@ -12,7 +12,7 @@ class Logs:
 		self.Parent = Parent
 
 	def log(self, message):
-		#print("["+str(strftime("%H:%M:%S", localtime()))+"] "+str(message))
+		#print("["+str(strftime("%H:%M:%S", gmtime()))+"] "+str(message))
 		logfile = open("/var/log/torrent-leecher.log", "a") 
 		logfile.write("["+str(strftime("%H:%M:%S", localtime()))+"] "+str(message)+"\r\n")
 		logfile.close()

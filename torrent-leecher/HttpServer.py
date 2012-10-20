@@ -51,7 +51,7 @@ class Handler(BaseHTTPRequestHandler):
 				#200
 				if output["status"] == 200:
 					if data["stats"]:
-						self.server.Parent.Logs.log("Downloads:"+self.server.Parent.DataUnits.convert(data["stats"]["original"]["down"], self.server.Parent.Configs.sizeFormat)+", Uploads:"+self.server.Parent.DataUnits.convert(data["stats"]["original"]["up"], self.server.Parent.Configs.sizeFormat)+", Modified downloads:"+self.server.Parent.DataUnits.convert(data["stats"]["modified"]["down"], self.server.Parent.Configs.sizeFormat)+" ("+"{0:.3f}".format(data["stats"]["modified"]["downFactor"])+"), Modified uploads:"+self.server.Parent.DataUnits.convert(data["stats"]["modified"]["up"], self.server.Parent.Configs.sizeFormat)+" ("+"{0:.3f}".format(data["stats"]["modified"]["upFactor"])+")")
+						self.server.Parent.Logs.log("Downloads:"+self.server.Parent.DataUnits.convert(data["stats"]["original"]["down"], self.server.Parent.Configs.sizeFormat)+", Uploads:"+self.server.Parent.DataUnits.convert(data["stats"]["original"]["up"], self.server.Parent.Configs.sizeFormat)+", Modified downloads:"+self.server.Parent.DataUnits.convert(data["stats"]["modified"]["down"], self.server.Parent.Configs.sizeFormat)+", Modified uploads:"+self.server.Parent.DataUnits.convert(data["stats"]["modified"]["up"], self.server.Parent.Configs.sizeFormat))
 					else:
 						self.server.Parent.Logs.log("No stats to send.")
 				#NOT 

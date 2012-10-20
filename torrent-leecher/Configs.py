@@ -4,6 +4,7 @@
 #Librarys
 ###################################################################################
 from configparser import SafeConfigParser
+from decimal import Decimal
 from os import path, unlink
 
 #Classes
@@ -51,8 +52,7 @@ class Configs(SafeConfigParser):
 		try:
 			self.manipulateDownloads = {"enabled":self.getboolean("manipulate-downloads", "enabled"),
 			"type":self.getint("manipulate-downloads", "type"),
-			"factor": float(self.get("manipulate-downloads", "factor")),
-			"random": float(self.get("manipulate-downloads", "random"))
+			"factor": Decimal(self.get("manipulate-downloads", "factor"))
 			}
 		except:
 			self.Parent.Logs.log("ERROR: Fix your download manipulation settings")
@@ -62,8 +62,7 @@ class Configs(SafeConfigParser):
 		try:
 			self.manipulateUploads = {"enabled":self.getboolean("manipulate-uploads", "enabled"),
 			"type":self.getint("manipulate-uploads", "type"),
-			"factor": float(self.get("manipulate-uploads", "factor")),
-			"random": float(self.get("manipulate-uploads", "random"))
+			"factor": Decimal(self.get("manipulate-uploads", "factor"))
 			}
 		except:
 			self.Parent.Logs.log("ERROR: Fix your upload manipulation settings")
