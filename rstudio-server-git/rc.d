@@ -3,18 +3,35 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
+RSERVER=/usr/lib/rstudio-server/bin/rserver
+DAEMON=rstudio-server
+PROCNAME=rserver
+PID=$(get_pid $PROCNAME)
 
-rserver=/usr/lib/rstudio/bin/rserver
-NAME=rserver
+[ -r /etc/conf.d/$DAEMON ] && . /etc/conf.d/$DAEMON
 
 case "$1" in
   start)
     stat_busy "Starting R-Studio-Server ..."
-    $rserver --server-daemonize=1 &> /dev/null && { add_daemon $NAME; stat_done; } || stat_fail
-    ;;
+[ -z "$PID" ] && $RSERVER $RSTUDIO_SERVER_ARGS &>/dev/null
+   if [ $? = 0 ]; then
+     add_daemon $DAEMON
+     stat_done
+   else
+     stat_fail
+     exit 1
+   fi
+   ;;
   stop)
     stat_busy "Stopping R-Studio-Server ..."
-    killall $NAME && &> /dev/null &&  { rm_daemon $NAME; stat_done; } || stat_fail
+    [ -n "$PID" ] && kill $PID &>/dev/null
+   if [ $? = 0 ]; then
+     rm_daemon $DAEMON
+     stat_done
+   else
+     stat_fail
+     exit 1
+   fi
     ;;
   restart)
     $0 stop
@@ -22,7 +39,7 @@ case "$1" in
     $0 start
     ;;
   *)
-    echo "usage: $0 {start|stop|restart}"  
+    echo "usage: $0 {start|stop|restart}"
 esac
 exit 0
 
