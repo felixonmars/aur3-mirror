@@ -63,7 +63,7 @@ static int psipublish_pluginmessage(uint32_t id, uintptr_t ctx, uint32_t p1, uin
 }
 
 int psipublish_pluginstart(void) {
-    sprintf(tunefilepath, "%s/.cache/Psi+/tune", getenv("HOME"));
+    sprintf(tunefilepath, "%s/.cache/psi+/tune", getenv("HOME"));
     return 0;
 }
 
@@ -81,7 +81,7 @@ DB_misc_t plugin = {
     DB_PLUGIN_SET_API_VERSION
     .plugin.type = DB_PLUGIN_MISC,
     .plugin.version_major = 1,
-    .plugin.version_minor = 2,
+    .plugin.version_minor = 3,
     .plugin.id = "psipublish",
     .plugin.name = "Psi IM Publish Tune",
     .plugin.descr = "Now playing for Psi IM",
