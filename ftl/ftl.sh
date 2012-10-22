@@ -2,4 +2,4 @@
 
 cd /opt/FTL
 
-exec ./FTL "$@"
+./FTL "$@"
