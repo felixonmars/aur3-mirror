@@ -30,10 +30,20 @@ SRCS+= extent.c
 SRCS+= indirect.c
 SRCS+= sha1.c
 
+VPATH+= ../../libselinux/src
+SRCS+= label.c
+SRCS+= label_file.c
+SRCS+= label_android_property.c
+SRCS+= freecon.c
+SRCS+= callbacks.c
+SRCS+= check_context.c
+SRCS+= init.c
+
 CPPFLAGS+= -I../include
 CPPFLAGS+= -I../mkbootimg
 CPPFLAGS+= -I../libsparse/include
 CPPFLAGS+= -I../../extras/ext4_utils
+CPPFLAGS+= -I../../libselinux/include
 
 LIBS= -lz
 
