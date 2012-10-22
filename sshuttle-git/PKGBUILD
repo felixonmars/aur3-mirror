@@ -1,7 +1,7 @@
 # Contributor: alphazo <alphazo@gmail.com>
 # This version fetches and install master branch from Git repo.
 pkgname=sshuttle-git
-pkgver=20110521
+pkgver=20121022
 pkgrel=1
 pkgdesc="Transparent proxy server that works as a poor man's VPN. Forwards all TCP packets over ssh (and even DNS requests when using --dns option). Doesn't require admin privileges on the server side."
 arch=('any')
@@ -48,8 +48,27 @@ build() {
   #
   # BUILD HERE
   #
+  # Original build
+  #install -Dm755 $srcdir/$_gitname-build/sshuttle $pkgdir/usr/bin/sshuttle || return 1
+  #mkdir -p $pkgdir/usr/share/sshuttle 
+  #cp -r $srcdir/$_gitname-build/* $pkgdir/usr/share/sshuttle || return 1
+  #
+
+  # Modification proposed by bladud
+  cd "$srcdir/$_gitname-build/Documentation"
+  sed -i 's/python/python2/' md2man.py
+  cd ..
+  make  #Make the manpage
+  cd "$srcdir/$_gitname-build"
   install -Dm755 $srcdir/$_gitname-build/sshuttle $pkgdir/usr/bin/sshuttle || return 1
   mkdir -p $pkgdir/usr/share/sshuttle 
-  cp -r $srcdir/$_gitname-build/* $pkgdir/usr/share/sshuttle || return 1
 
+  cp $srcdir/$_gitname-build/LICENSE $pkgdir/usr/share/sshuttle || return 1
+  cp $srcdir/$_gitname-build/README.md $pkgdir/usr/share/sshuttle || return 1
+  cp $srcdir/$_gitname-build/Documentation/sshuttle.md $pkgdir/usr/share/sshuttle || return 1
+  cp $srcdir/$_gitname-build/*.py $pkgdir/usr/share/sshuttle || return 1
+  mkdir $pkgdir/usr/share/sshuttle/version
+  mkdir $pkgdir/usr/share/sshuttle/compat
+  cp -R $srcdir/$_gitname-build/version/*.py $pkgdir/usr/share/sshuttle/version || return 1
+  cp -R $srcdir/$_gitname-build/compat/*.py $pkgdir/usr/share/sshuttle/compat || return 1
 }
