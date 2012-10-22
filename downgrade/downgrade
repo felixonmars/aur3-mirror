@@ -5,7 +5,6 @@
 # downgrade one or more packages from cache or A.R.M.
 #
 ###
-
 errorout() { echo "error: $*" >&2; exit 1; }
 
 message() {
@@ -27,11 +26,8 @@ EOF
   exit $exit_code
 }
 
-# return the enabled repos in the order of pacman.conf
 enabled_repos() { sed '/^\[\(.*\)\]$/!d;s//\1/g;/options/d' /etc/pacman.conf; } 
 
-# returns true if the first argument is a valid index into the array of
-# remaining arguments
 is_valid_index() {
   local i="$1"; shift
 
@@ -42,20 +38,42 @@ is_valid_index() {
   return 0
 }
 
-# prompts for user input and adds a quit option. first argument is the
-# variable to set with the user's response, second is the prompt
-# message.
+# uses sudo or su to root depending on availability and configuration
+as_root() {
+  if ! (( $UID )); then
+    errorout 'please do not run downgrade as root; su/sudo will be used when needed'
+  fi
+
+  if $usesudo && type -p sudo &>/dev/null; then
+    sudo "$@"
+    return $?
+  fi
+
+  printf -v cmd "%q " "$@"
+  su root -c "$cmd"
+}
+
+# first argument is the variable to set with the user's response.
 prompt_with_quit() {
   local var="$1" msg="$2"
 
   echo
-  echo -n "$msg or [q]uit: " && read -r $var
+  read -r -p "$msg or [q]uit: " $var
 
   [[ "${!var}" == 'q' ]] && exit 1
 }
 
-# find local packages reverse sorted by version. we use the $term-[0-9]*
-# glob to disambiguate cases like foo-1.0 and foo-completion-1.0.
+prompt_yn() {
+  local msg="$*" ans
+
+  echo
+  read -r -p "$msg? [y/n] " ans
+
+  [[ $ans =~ ^(y|Y) ]]
+}
+
+# we use the $term-[0-9]* glob to disambiguate cases like foo-1.0 and
+# foo-completion-1.0.
 local_packages() {
   local term="$1"
 
@@ -63,8 +81,7 @@ local_packages() {
   find /var/cache/pacman/pkg -name "$term-[0-9R]*.pkg.tar.[gx]z" | LC_ALL='C' sort -rV
 }
 
-# find packages available in the A.R.M. removes packages duplicated
-# between testing and non-testing repos.
+# removes packages duplicated between testing and non-testing repos.
 arm_packages() {
   local term="$1" repos repo url tmp entry pack
 
@@ -80,8 +97,6 @@ arm_packages() {
   for entry in "${tmp[@]}"; do
     read -r repo pack < <(format_arm "$entry")
 
-    # check for duplicates in testing, community-testing and
-    # multilib-testing.
     if [[ "$repo" =~ testing$ ]] && \
       printf "%s\n" "${tmp[@]}" | grep -Fxv "$entry" | grep -Fq "$pack"; then
 
@@ -92,8 +107,7 @@ arm_packages() {
   done
 }
 
-# print numbered entries in tabular form. uses the named function to
-# extract repo and package out of each item.
+# uses the named function to extract repo and package out of each item.
 print_table() {
   local func="$1"; shift
   local i=0 arg repo pack
@@ -111,32 +125,19 @@ print_table() {
   done
 }
 
-# hardcode a local repo and take the basename for package.
 format_local() { echo "local $(basename "$1")"; }
 
-# read the 4th and 7th element out of the url, indexed by forward slash.
+# set elements out of the url, indexed by forward slash.
 format_arm() { set ${1//\// }; echo "$3 $6"; }
 
-# run a pacman command using either sudo or su root. uses PACMAN env var
-# or a default of just 'pacman'.
-run_pacman() {
-  local pacman="${PACMAN:-pacman}" cmd
+install_pkg() {
+  local pkg="$1"
+  local pacman="${PACMAN:-pacman}"
 
-  if ! (( $UID )); then
-    errorout 'please do not run downgrade as root; su/sudo will be used when needed'
-  fi
-
-  if $usesudo && type -p sudo &>/dev/null; then
-    sudo $pacman "$@"
-    return $?
-  fi
-
-  printf -v cmd "%q " "$pacman" "$@"
-  su root -c "$cmd"
+  as_root "$pacman" -U "$pkg" || errorout "could not install package $pkg"
 }
 
-# checks for local packages, presents them in a numbered table, if a
-# choice is made, installs the package.
+# if a choice is made, installs the package.
 check_local_packages() {
   $searchcache || return 1
 
@@ -162,13 +163,10 @@ check_local_packages() {
   n=$((num-1))
 
   is_valid_index "$n" "${locals[@]}" || errorout 'invalid choice.'
-
-  pkg="${locals[$n]}"
-  run_pacman -U "$pkg" || errorout "could not install package $pkg"
+  install_pkg "${locals[$n]}"
 }
 
-# checks for packages in A.R.M., presents them in a numbered table, if a
-# choice is made, downloads and installs the package.
+# if a choice is made, downloads and installs the package.
 check_arm_packages() {
   $searcharm || return 1
 
@@ -199,7 +197,21 @@ check_arm_packages() {
   fi
 
   wget -O "$pkg" "$url" || errorout "failed downloading $url"
-  run_pacman -U "$pkg"  || errorout "could not install package $pkg"
+  install_pkg "$pkg"
+}
+
+# won't handle non-standard formatting well, just tacks the argument
+# onto the end of the IgnorePkg line (iff not already present).
+prompt_to_ignore() {
+  local pkg="$1" ans
+  local pacman_conf="${PACMAN_CONF:-/etc/pacman.conf}"
+
+  # don't even prompt if already present
+  if ! grep -Eq "^IgnorePkg.*( |=)$pkg( |$)" "$pacman_conf"; then
+    if prompt_yn "Add $pkg to IgnorePkg in $pacman_conf"; then
+      as_root sed -i "s/^IgnorePkg.*/& $pkg/" "$pacman_conf"
+    fi
+  fi
 }
 
 (( "$#" )) || message 1
@@ -235,9 +247,9 @@ done
 
 # Main
 for term in "${args[@]}"; do
-  # check for installed version if desired
+  # parse installed version if desired
   $showinstalled && installed=$(pacman -Q $term 2>/dev/null)
   installed=${installed:-DummyPkg}
 
-  check_local_packages "$term" || check_arm_packages "$term"
+  ( check_local_packages "$term" || check_arm_packages "$term" ) && prompt_to_ignore "$term"
 done
