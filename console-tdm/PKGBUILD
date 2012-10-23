@@ -4,12 +4,12 @@ pkgname=console-tdm
 pkgdesc="A session selector similar to CDM."
 url=http://linux.bdwm.net
 arch=('any')
-pkgver=0.1
-pkgrel=2
+pkgver=0.2
+pkgrel=1
 license=('GPL')
 depends=('xorg-xinit')
 source=('tdm')
-md5sums=(263d42010738d9d14ef1045af433997c) 
+md5sums=("ff80ead950165db23b4888e92bf2cab7")
 install=tdm.install
 
 build() {

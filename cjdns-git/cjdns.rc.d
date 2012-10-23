@@ -3,7 +3,7 @@
 . /etc/rc.d/functions
 . /etc/conf.d/cjdns
 
-PID=`pidof -o %PPID /usr/bin/cjdroute`
+PID=`pidof -o %PPID /usr/bin/cjdns`
 
 case "$1" in
   start)
@@ -18,7 +18,7 @@ case "$1" in
 
     #START CJDNS AND ENABLE THE DAEMON IF IT SUCCEEDS
     if [ -z "$PID" ]; then
-        cat "$CJDNS_CONFIG" | cjdroute >& "$CJDNS_LOG" &
+        cat "$CJDNS_CONFIG" | cjdroute > /dev/null
       if [ $? -gt 0 ]; then
         stat_busy "Unable to start the daemon"
         stat_fail
