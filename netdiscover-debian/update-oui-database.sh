@@ -4,7 +4,7 @@
 #   http://nixgeneration.com/~jaime/netdiscover/
 #
 # Obtain data from internet source at:
-# lynx -source  http://standards.ieee.org/regauth/oui/oui.txt >oui.txt
+#   https://standards.ieee.org/develop/regauth/oui/oui.txt > oui.txt
 #
 # Syntax: oui.txt2oui.h_netdiscover
 #
@@ -25,45 +25,27 @@ DATE=$(date +'%Y%m%d')
 ORIGF=oui.txt
 DSTD=src
 DSTF=oui.h
-URL="http://standards.ieee.org/regauth/oui/oui.txt"
+URL="https://standards.ieee.org/develop/regauth/oui/oui.txt"
 TMPF=$ORIGF-$DATE
 AWK="gawk"
 #AWK="mawk"
 #AWK="awk"
 
 [ -d "$DSTD" ] || { echo "$JA: Destdir \"$DSTD\" not exist!"; exit 1; }
-#if ! [ -f "$TMPF" -a -s "$TMPF" ]; then
-#   echo "Trying download \"$ORIGF\" with lynx..."
-#   if ! lynx -source $URL >"$TMPF"; then
-#      echo "Trying download \"$ORIGF\" with elinks..."
-#      if ! elinks -source $URL >"$TMPF"; then
-#         echo "Trying download \"$ORIGF\" with wget..."
-#         if ! wget --quiet --output-document="$TMPF" $URL; then
-#            echo "$JA: Cann't obtain \"$URL\"!"
-#            exit 1
-#         fi
-#      fi
-#   fi
-#else
-#   echo "\"$TMPF\" already exist, skipping download..."
-#fi
+
 if ! [ -f "$TMPF" -a -s "$TMPF" ]; then
-  echo -n "Trying download \"$ORIGF\" with lynx..."
-  if [[ -x /usr/bin/lynx ]]; then
-    lynx -source $URL >"$TMPF"
+  echo -n "Trying download \"$ORIGF\" with curl..."
+  echo
+  if [[ -x /usr/bin/curl ]]; then
+    curl --insecure -fLC - --retry 3 --retry-delay 3 -o "$TMPF" $URL
   else
-     echo -n " with elinks..."
-     if [[ -x /usr/bin/elinks ]]; then
-       elinks -source $URL >"$TMPF"
-     else
-        echo " with wget..."
-        if [[ -x /usr/bin/wget ]]; then
-          wget --quiet --output-document="$TMPF" $URL
-        else
-           echo "$JA: Can't obtain \"$URL\"!"
-           exit 1
-        fi
-     fi
+    echo " with wget..."
+    if [[ -x /usr/bin/wget ]]; then
+      wget --no-check-certificate --quiet --output-document="$TMPF" $URL
+    else
+      echo "$JA: Can't obtain \"$URL\"!"
+      exit 1
+    fi
   fi
 else
    echo -n "\"$TMPF\" already exist, skipping download..."
