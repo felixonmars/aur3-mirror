@@ -66,7 +66,7 @@ s_journalctl() {
 	daemon=${@:$#}
 	if s_daemon_exists "${daemon/.service/}"; then
 		options=""; for ((i=1; i<$#; ++i )) ; do options="${options}""${!i}"" "; done
-		s_exec "journalctl ""$options"" _SYSTEMD_UNIT=""${daemon/.service/}"".service";
+		s_exec "journalctl --all ""$options"" _SYSTEMD_UNIT=""${daemon/.service/}"".service";
 	else
 		s_exec "journalctl --all ""$*";
 	fi
