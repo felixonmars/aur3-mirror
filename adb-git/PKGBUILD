@@ -2,8 +2,8 @@
 
 pkgname=adb-git
 pkgver=20121023
-pkgrel=1
-pkgdesc="Open source version of adb"
+pkgrel=2
+pkgdesc="adb(Android Debug Bridge CLI tool), an Android platform tool"
 arch=('i686' 'x86_64')
 depends=('libusb')
 makedepends=('gcc' 'git' 'make')
@@ -12,7 +12,7 @@ conflicts=('adb')
 url="https://android.googlesource.com/platform/system/core"
 license=('Apache')
 source=('Makefile')
-md5sums=('d6d7a0082cc5687074f479d7d96b68d4')
+md5sums=('cea96a4801eb1d22c3bac52654d5eebb')
 
 build() {
 	cd $srcdir
