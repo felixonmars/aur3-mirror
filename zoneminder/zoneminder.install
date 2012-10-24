@@ -1,57 +1,177 @@
-# zoneminder.install
+pre_install() {
+  set -e
+  abort=false
+  if [ -L /srv/http/zoneminder/events ]; then
+    l=$(readlink /srv/http/zoneminder/events)
+    if [ $l != /var/cache/zoneminder/events ]; then
+        abort=true
+    fi
+  fi
+  if [ -L /srv/http/zoneminder/images ]; then
+    l=$(readlink /srv/http/zoneminder/images)
+    if [ $l != /var/cache/zoneminder/images ]; then
+        abort=true
+    fi
+  fi
+  if [ $abort = true ]; then
+    cat >&2 << EOF
+Aborting installation of zoneminder due to non-default symlinks in
+/srv/http/zoneminder for the images and/or events directory, which could
+result in loss of data. Please move your data in each of these directories to
+/var/cache/zoneminder before installing zoneminder from the package.
+EOF
+    exit 1
+  fi
+  exit 0
+}
 
-## arg 1:  the new package version
 post_install() {
-  ln -s /usr/share/cambozola/cambozola.jar /srv/zoneminder/www/
-  chown -R http.http /srv/zoneminder
-  chown http.http /etc/zm.conf
-  mkdir /srv/zoneminder/backup
-  mkdir /srv/zoneminder/socks
+  if [[ -d /var/log/zoneminder ]]; then
+    chmod 0755 /var/log/zoneminder
+    chown http.http /var/log/zoneminder
+  else
+    mkdir -m 0755 /var/log/zoneminder
+    chown http.http /var/log/zoneminder
+  fi
+  if [[ -d /tmp/zoneminder ]]; then
+    chmod 0700 /tmp/zoneminder
+    chown http.http /tmp/zoneminder
+  else
+    mkdir -m 0700 /tmp/zoneminder
+    chown http.http /tmp/zoneminder
+  fi
+  sed -i -e '
+    /^;extension=mysql.so/ s/^;//;
+    /^#extension=mysql.so/ s/^#//;
+    /^;extension=mysqli.so/ s/^;//;
+    /^#extension=mysqli.so/ s/^#//;
+    /^;extension=gd.so/ s/^;//;
+    /^#extension=gd.so/ s/^#//;
+    /^;extension=gettext.so/ s/^;//;
+    /^#extension=gettext.so/ s/^#//;
+    /^;extension=mcrypt.so/ s/^;//;
+    /^#extension=mcrypt.so/ s/^#//;
+    /^;extension=session.so/ s/^;//;
+    /^#extension=session.so/ s/^#//;
+    /^;extension=sockets.so/ s/^;//;
+    /^#extension=sockets.so/ s/^#//;
+    /^;extension=openssl.so/ s/^;//;
+    /^#extension=openssl.so/ s/^#//;
+    /^;extension=ftp.so/ s/^;//;
+    /^#extension=ftp.so/ s/^#//;
+    /^;extension=zip.so/ s/^;//;
+    /^#extension=zip.so/ s/^#//;
+    /^;open_basedir/ s/^;//;
+    /^#open_basedir/ s/^#//;
+    /^open_basedir/ s/:\/etc//;
+    /^open_basedir/ s/:\/etc\///;
+    /^open_basedir/ s/$/:\/etc/;
+    /^open_basedir/ s/:\/srv\/http\/zoneminder//;
+    /^open_basedir/ s/:\/srv\/http\/zoneminder\///;
+    /^open_basedir/ s/$/:\/srv\/http\/zoneminder/;
+    ' /etc/php/php.ini || read
+  sed -i -e '
+    /^LoadModule php5_module modules\/libphp5.so/d;
+    /^LoadModule rewrite_module modules\/mod_rewrite.so/ s/$/\nLoadModule php5_module modules\/libphp5.so/;
+    /^# PHP 5/d;
+    /^# ZoneMinder/d;
+    /^Include \/etc\/httpd\/conf\/extra\/php5_module.conf/d;
+    /^Include \/etc\/httpd\/conf\/extra\/httpd-zoneminder.conf/d;
+    /^Include conf\/extra\/httpd-default.conf/ s/$/\n\n# PHP 5\n\Include \/etc\/httpd\/conf\/extra\/php5_module.conf\n\n# ZoneMinder\nInclude \/etc\/httpd\/conf\/extra\/httpd-zoneminder.conf/;
+    ' /etc/httpd/conf/httpd.conf || read
   cat << EOF
-Note:
-==> To initialize the ZoneMinder database run (as root)
-==> /srv/zoneminder/bin/zminit
-EOF
+Note for mysql:
+==> To run Zoneminder, you must install the database running mysql service (as root):
+==> "rc.d start mysqld" (in initscripts) or "systemctl start mysqld.service" (in systemd)
+==> and add Zoneminder database typing (with passsword):
+==> "mysqladmin --defaults-file=/etc/mysql/my.cnf -p -f reload"
+==> "cat /usr/share/zoneminder/db/zm_create.sql | mysql --defaults-file=/etc/mysql/my.cnf -p"
+==> "echo 'grant lock tables, alter,select,insert,update,delete on zm.* to 'zmuser'@localhost identified by "zmpass";' | mysql --defaults-file=/etc/mysql/my.cnf -p mysql"
+==> (or without passsword):
+==> "mysqladmin --defaults-file=/etc/mysql/my.cnf -f reload"
+==> "cat /usr/share/zoneminder/db/zm_create.sql | mysql --defaults-file=/etc/mysql/my.cnf"
+==> "echo 'grant lock tables, alter,select,insert,update,delete on zm.* to 'zmuser'@localhost identified by "zmpass";' | mysql --defaults-file=/etc/mysql/my.cnf mysql"
 
-  cat  << EOF
-==> Check /etc/php/php.ini and make sure these are uncommented
-==> extension=gd.so
-==> extension=gettext.so
-==> extension=mcrypt.so
-==> extension=mysql.so
-==> extension=mysqli.so
-==> extension=session.so
-==> extension=sockets.so
-EOF
-  cat << EOF
-==> Check /etc/php/php.ini and make sure short_open_tag = On
-EOF
+Note for php:
+==> You must uncomment that line in /etc/php/php.ini:
+==> "extension=mysql.so"
+==> check and make sure these are uncommented:
+==> "extension=gd.so"
+==> "extension=gettext.so"
+==> "extension=mcrypt.so"
+==> "extension=mysqli.so"
+==> "extension=session.so"
+==> "extension=sockets.so"
+==> "extension=openssl.so"
+==> "extension=ftp.so"
+==> "extension=zip.so"
+==> check and add to open_basedir "/etc" and
+==> "/srv/http/zoneminder" like so
+==> "open_basedir = /home:/tmp:/usr/share/pear:/etc:/srv/http/zoneminder"
+==> and set your timezone in php.ini:
+==> "date.timezone = <your_country>/<your_city>"
 
-
-  cat /etc/php/php.ini |grep "^open_basedir.*/etc/" | \
-grep "/srv/zoneminder/www">/dev/null ||  cat << EOF
-==> You must edit /etc/php/php.ini and add to open_basedir "/etc/" and
-==> "/srv/zoneminder/" like so
-==> open_basedir = /home/:/tmp/:/usr/share/pear/:/etc/:/srv/zoneminder/
-==> Otherwise ZoneMinder will be unable to read /etc/zm.conf
-==> or display its own web directory
+Note for apache:
+==> You must edit /etc/httpd/conf/httpd.conf and add the line:
+==> "LoadModule php5_module modules/libphp5.so"
+==> and:
+==> "Include /etc/httpd/conf/extra/php5_module.conf"
+==> "Include /etc/httpd/conf/extra/httpd-zoneminder.conf"
 EOF
-
-  cat << EOF
-Note:
-==> You must edit /etc/httpd/conf/httpd.conf and uncomment/add the line
-==> LoadModule php5_module modules/libphp5.so
-==> You must also add these lines:
-==> Include conf/extra/php5_module.conf
-==> Include /etc/httpd/conf/extra/httpd-zm.conf
-EOF
-  touch /srv/zoneminder/zm_backup.sql
 }
 
-
-## arg 1:  the new package version
-## arg 2:  the old package version
 post_upgrade() {
-  /srv/zoneminder/bin/zmupdate.pl -f >/dev/null
+  post_install
+  /usr/bin/zmupdate.pl -f >/dev/null
 }
-# vim:set ts=2 sw=2 et:
+
+post_remove() {
+  if [[ -d /tmp/zoneminder ]]; then
+    rm -vr /tmp/zoneminder
+  fi
+  sed -i -e '
+    /^open_basedir/ s/:\/srv\/http\/zoneminder//;
+    /^open_basedir/ s/:\/srv\/http\/zoneminder\///;
+    ' /etc/php/php.ini || read
+  sed -i -e '
+    /^# ZoneMinder/d;
+    /Include \/etc\/httpd\/conf\/extra\/httpd-zoneminder.conf/d;
+    ' /etc/httpd/conf/httpd.conf || read
+  cat << EOF
+Note:
+==> To clean Zoneminder mysql database, run as root (with password):
+==> "echo 'delete from user where User="zmuser";' | mysql --defaults-file=/etc/mysql/my.cnf -p mysql"
+==> "echo 'delete from db where User="zmuser";' | mysql --defaults-file=/etc/mysql/my.cnf -p mysql"
+==> "mysqladmin --defaults-file=/etc/mysql/my.cnf -p -f drop zm"
+==> (or without password):
+==> "echo 'delete from user where User="zmuser";' | mysql --defaults-file=/etc/mysql/my.cnf mysql"
+==> "echo 'delete from db where User="zmuser";' | mysql --defaults-file=/etc/mysql/my.cnf mysql"
+==> "mysqladmin --defaults-file=/etc/mysql/my.cnf -f drop zm"
+
+==> Disable http with php if it isn't needed with others servers, 
+==> comment or remove that lines in /etc/httpd/conf/httpd.conf:
+==> "LoadModule php5_module modules/libphp5.so"
+==> "Include /etc/httpd/conf/extra/php5_module.conf"
+
+==> Remove line in /etc/httpd/conf/httpd.conf:
+==> "Include /etc/httpd/conf/extra/httpd-zoneminder.conf"
+
+==> Disable php with mysql if it isn't needed with others servers, 
+==> comment that lines in /etc/php/php.ini:
+==> "extension=mysql.so"
+==> "extension=gd.so"
+==> "extension=gettext.so"
+==> "extension=mcrypt.so"
+==> "extension=mysqli.so"
+==> "extension=session.so"
+==> "extension=sockets.so"
+==> "date.timezone = <my_country>/<my_city>"
+
+==> Edit /etc/php/php.ini and remove "/etc" and "/srv/http/zoneminder"
+==> in the "open_basedir".
+
+==> Remove log files and "zonemider" directory in "/var/log/zoneminder".
+
+==> Backup and remove "events", "images" and "temp" dirs in "/var/cache/zoneminder".
+EOF
+}
