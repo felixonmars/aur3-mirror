@@ -1,0 +1,267 @@
+diff -ar -U8 ref/newsd-1.44/Article.C src/newsd-1.44/Article.C
+--- ref/newsd-1.44/Article.C	2005-09-13 01:24:53.000000000 -0700
++++ src/newsd-1.44/Article.C	2012-10-24 15:34:15.550850751 -0700
+@@ -240,18 +240,20 @@
+ 	    *ss++ = '\n';
+ 	    *ss   = '\0';
+ 	}
+ 
+ 	if ( ( mode == MODE_HEAD && head ) ||
+ 	     ( mode == MODE_BODY && body ) ||
+ 	     ( mode == MODE_SEP && head && body ) )
+ 	{
+-	    write(fd, s, strlen(s));
+-	    G_conf.LogMessage(L_DEBUG, "SEND: %s", s);
++	    if (write(fd, s, strlen(s)) < 0)
++                G_conf.LogMessage(L_ERROR, "Write failed: %s", strerror(errno));
++            else
++                G_conf.LogMessage(L_DEBUG, "SEND: %s", s);
+ 	}
+     }
+     fclose(fp);
+     return(0);
+ }
+ 
+ int Article::SendHead(int fd)
+ {
+diff -ar -U8 ref/newsd-1.44/Configuration.C src/newsd-1.44/Configuration.C
+--- ref/newsd-1.44/Configuration.C	2004-12-07 13:16:25.000000000 -0800
++++ src/newsd-1.44/Configuration.C	2012-10-24 15:34:15.550850751 -0700
+@@ -17,16 +17,17 @@
+ // You should have received a copy of the GNU General Public License
+ // along with this program; if not, write to the Free Software
+ // Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+ //
+ 
+ #include "everything.H"
+ #include <stdarg.h>
+ #include <syslog.h>
++#include <limits.h>
+ 
+ 
+ // Initialize default configuration values...
+ Configuration::Configuration()
+ {
+    char	name[1024];			// Hostname string
+ 
+ 
+@@ -464,17 +465,21 @@
+     {
+ 	struct stat buf;
+ 	log_ino = ( fstat(fileno(log), &buf) == 0 ) ? buf.st_ino : 0;
+     }
+ 
+     // This will fail when running as non-root, so don't bother checking
+     // the status here...
+     fchmod(fileno(log), 0600);
+-    fchown(fileno(log), uid, gid);
++    if (fchown(fileno(log), uid, gid) != 0)
++    {
++	fprintf(stderr, "newsd: (warning) Unable to chown log file \"%s\": %s.\n",
++		errorlog.c_str(), strerror(errno));
++    }
+ 
+     return(0);
+ }
+ 
+ // LOCK THE LOG FILE FOR WRITING/ROTATING
+ //    Returns -1 on error, error msg sent to stderr
+ //
+ int Configuration::LogLock()
+diff -ar -U8 ref/newsd-1.44/Group.C src/newsd-1.44/Group.C
+--- ref/newsd-1.44/Group.C	2005-08-23 23:56:31.000000000 -0700
++++ src/newsd-1.44/Group.C	2012-10-24 15:34:15.554184086 -0700
+@@ -571,16 +571,21 @@
+ 	(int)tm->tm_min,
+ 	(int)tm->tm_sec,
+ 	(char)gmtoff_sign,
+ 	(int)gmtoff_hour,
+ 	(int)gmtoff_min);
+     return(datebuf);
+ }
+ 
++static ssize_t unsafe_write(int fd, const void *buf, size_t count)
++{
++	ssize_t ret = write(fd, buf, count);
++	return ret;
++}
+ // POST ARTICLE
+ int Group::Post(const char *overview[], 
+ 		vector<string> &head,
+ 		vector<string> &body,
+ 		const char *remoteip_str,
+ 		bool force)
+ {
+     // DETERMINE GROUP BEING POSTED TO
+@@ -718,24 +723,24 @@
+ 	sprintf(misc, "Lines: %u",
+ 	    (unsigned int)body.size());
+ 	head.push_back(misc);
+ 
+ 	ReorderHeader(overview, head);
+ 
+ 	// WRITE HEADER
+ 	for ( unsigned int t=0; t<head.size(); t++ )
+-	    { write(fd, head[t].c_str(), head[t].length()); write(fd, "\n", 1); }
++	    { unsafe_write(fd, head[t].c_str(), head[t].length()); unsafe_write(fd, "\n", 1); }
+ 
+ 	// WRITE SEPARATOR
+-	write(fd, "\n", 1);
++	unsafe_write(fd, "\n", 1);
+ 
+ 	// WRITE BODY
+ 	for ( unsigned int t=0; t<body.size(); t++ )
+-	    { write(fd, body[t].c_str(), body[t].length()); write(fd, "\n", 1); }
++	    { unsafe_write(fd, body[t].c_str(), body[t].length()); unsafe_write(fd, "\n", 1); }
+ 
+ 	// FIRST MSG? START AT 1
+ 	if ( Total() == 0 && Start() == 0 )
+ 	    Start(1);
+ 
+ 	// THIS IS NEW HIGHEST ARTICLE
+ 	End(msgnum);
+ 	Total(Total()+1);
+diff -ar -U8 ref/newsd-1.44/newsd.C src/newsd-1.44/newsd.C
+--- ref/newsd-1.44/newsd.C	2005-08-23 23:56:31.000000000 -0700
++++ src/newsd-1.44/newsd.C	2012-10-24 15:38:13.437529944 -0700
+@@ -112,39 +112,45 @@
+ 
+ 	if ( setgid(gid) < 0 ) { perror("newsd: setgid()"); err = 1; }
+ 	if ( setuid(G_conf.UID()) < 0 ) { perror("newsd: setuid()"); err = 1; }
+     }
+ 
+     return(err);
+ }
+ 
++
++static int unsafe_fchown(int fildes, uid_t owner, gid_t group)
++{
++    return fchown(fildes, owner, group);
++}
++
+ // CREATE DEAD LETTER FILE, CHOWN ACCORDINGLY
+ int CreateDeadLetter()
+ {
+     string filename = G_conf.SpoolDir();
+     filename += "/.deadletters";
+     fprintf(stderr, "(Creating %s)\n", filename.c_str());
+     FILE *fp = fopen(filename.c_str(), "a");
+     if ( fp == NULL ) { perror(filename.c_str()); return(-1); }
+     fchmod(fileno(fp), 0600);
+-    fchown(fileno(fp), G_conf.UID(), G_conf.GID());
++    unsafe_fchown(fileno(fp), G_conf.UID(), G_conf.GID());
+     fclose(fp);
+ 
+     return(0);
+ }
+ 
+ // WRITE A MESSAGE (header+body) TO DEAD LETTER FILE
+ void DeadLetter(const char *errmsg, vector<string>&head, vector<string>&body)
+ {
+     string filename = G_conf.SpoolDir();
+     filename += "/.deadletters";
+     FILE *fp = fopen(filename.c_str(), "a");
+     fchmod(fileno(fp), 0600);
+-    fchown(fileno(fp), G_conf.UID(), G_conf.GID());
++    unsafe_fchown(fileno(fp), G_conf.UID(), G_conf.GID());
+     if ( fp == NULL )
+         { perror(filename.c_str()); return; }
+     for ( uint t=0; t<head.size(); t++ )
+         fprintf(fp, "%s\n", head[t].c_str());
+     fprintf(fp, "\n");
+     for ( uint t=0; t<body.size(); t++ )
+         fprintf(fp, "%s\n", body[t].c_str());
+     fprintf(fp, "\n");
+diff -ar -U8 ref/newsd-1.44/Server.C src/newsd-1.44/Server.C
+--- ref/newsd-1.44/Server.C	2005-08-23 23:56:31.000000000 -0700
++++ src/newsd-1.44/Server.C	2012-10-24 15:34:15.554184086 -0700
+@@ -22,21 +22,26 @@
+ #include "Server.H"
+ #include <dirent.h>
+ 
+ 
+ // Convenience macros...
+ #define ISIT(x)		if (!strcasecmp(cmd, x))
+ #define ISHEAD(a)	(strncasecmp(head, (a), strlen(a))==0)
+ 
++static ssize_t unsafe_write(int fd, const void *buf, size_t count)
++{
++	return write(fd, buf, count);
++}
++
+ // SENDS CRLF TERMINATED MESSAGE TO REMOTE
+ int Server::Send(const char *msg)
+ {
+-    write(msgsock, msg, strlen(msg));
+-    write(msgsock, "\r\n", 2);
++    unsafe_write(msgsock, msg, strlen(msg));
++    unsafe_write(msgsock, "\r\n", 2);
+     G_conf.LogMessage(L_DEBUG, "SEND: %s", msg);
+     return (0);
+ }
+ 
+ // SEE IF GROUPNAME IS ON THIS SERVER
+ int Server::ValidGroup(const char *groupname)
+ {
+     // DISALLOW UNIX PATHNAME LOOPHOLES
+@@ -176,16 +181,22 @@
+ //    alarm() used to timeout inactive child servers.
+ //
+ static void sigalrm_handler(int)
+ {
+ //    cerr << "ALARM -- connection timed out. (child exiting)" << endl;
+     exit(1);
+ }
+ 
++static ssize_t unsafe_read(int fd, void *buf, size_t count)
++{
++	ssize_t ret = read(fd, buf, count);
++	return ret;
++}
++
+ // HANDLE COMMANDS FROM REMOTE
+ int Server::CommandLoop(const char *overview[])
+ {
+     const char *remoteip_str = GetRemoteIPStr();
+     char s[LINE_LEN+1],
+ 	 cmd[LINE_LEN+1],
+ 	 arg1[LINE_LEN+1],
+ 	 arg2[LINE_LEN+1],
+@@ -209,17 +220,17 @@
+ 	// READ A CRLF-TERMINATED (OR LF-TERMINATED) LINE
+ 	for ( ; read(msgsock, ss, 1) == 1; ss++, total++ )
+ 	{
+ 	    if ( *ss == '\n' || total >= (LINE_LEN-2) )
+ 	        { *ss = 0; found = 1; break; }
+ 
+ 	    if ( *ss == '\r' )
+ 	    {
+-	        read(msgsock, ss, 1);		// skip \n
++	        unsafe_read(msgsock, ss, 1);		// skip \n
+ 		*ss = 0; 
+ 		found = 1;
+ 		break;
+ 	    }
+ 	}
+ 
+ 	if ( ! found )
+ 	    { break; }
+@@ -962,17 +973,17 @@
+ int Server::Accept()
+ {
+ //    fprintf(stderr, "Listening for connect requests on port %d\n", 
+ //        (int)port);
+ 
+ #if defined(DARWIN) | defined(BSD)
+     int length = sizeof(sin);
+ #else
+-    size_t length = sizeof(sin);
++    socklen_t length = sizeof(sin);
+ #endif
+ 
+     msgsock = accept(sock, (struct sockaddr*)&sin, &length);
+     if (msgsock < 0) 
+     {
+         errmsg = "accept(): ";
+ 	errmsg += strerror(errno);
+ 	return(-1);
