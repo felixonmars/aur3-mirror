@@ -1,0 +1,121 @@
+--- a/drivers/input/mouse/psmouse-base.c.old	2012-09-30 19:47:46.000000000 -0400
++++ b/drivers/input/mouse/psmouse-base.c	2012-10-21 10:42:18.772300344 -0400
+@@ -23,6 +23,7 @@
+ #include <linux/init.h>
+ #include <linux/libps2.h>
+ #include <linux/mutex.h>
++#include <linux/sched.h>
+ 
+ #include "psmouse.h"
+ #include "synaptics.h"
+@@ -34,6 +35,7 @@
+ #include "touchkit_ps2.h"
+ #include "elantech.h"
+ #include "sentelic.h"
++#include "cypress_ps2.h"
+ 
+ #define DRIVER_DESC	"PS/2 mouse driver"
+ 
+@@ -321,6 +323,13 @@
+ 	if (psmouse->state <= PSMOUSE_RESYNCING)
+ 		goto out;
+ 
++        /* For Cypress Trackpad to read some special data more than 6 bytes. */
++        if (psmouse->state == PSMOUSE_CMD_CYTP) {
++                psmouse->packet[psmouse->pktcnt++] = data;
++                wake_up(&psmouse->ps2dev.wait);
++                goto out;
++        }
++
+ 	if (psmouse->state == PSMOUSE_ACTIVATED &&
+ 	    psmouse->pktcnt && time_after(jiffies, psmouse->last + HZ/2)) {
+ 		psmouse_info(psmouse, "%s at %s lost synchronization, throwing %d bytes away.\n",
+@@ -759,6 +768,28 @@
+ 	}
+ 
+ /*
++ * Try Cypress Trackpad.
++ * Must try it before Finger Sensing Pad because Finger Sensing Pad probe
++ * upsets some modules of Cypress Trackpads.
++ */
++        if (max_proto > PSMOUSE_IMEX &&
++                        cypress_detect(psmouse, set_properties) == 0) {
++                if (cypress_supported()) {
++                        if (cypress_init(psmouse) == 0)
++                                return PSMOUSE_CYPRESS;
++
++                        /*
++                         * Finger Sensing Pad probe upsets some modules of
++                         * Cypress Trackpad, must avoid Finger Sensing Pad
++                         * probe if Cypress Trackpad device detected.
++                         */
++                        return PSMOUSE_PS2;
++                }
++
++                max_proto = PSMOUSE_IMEX;
++        }
++
++/*
+  * Try ALPS TouchPad
+  */
+ 	if (max_proto > PSMOUSE_IMEX) {
+@@ -896,6 +927,15 @@
+ 		.alias		= "thinkps",
+ 		.detect		= thinking_detect,
+ 	},
++#ifdef CONFIG_MOUSE_PS2_CYPRESS
++        {
++                .type           = PSMOUSE_CYPRESS,
++                .name           = "CyPS/2",
++                .alias          = "cypress",
++                .detect         = cypress_detect,
++                .init           = cypress_init,
++        },
++#endif
+ 	{
+ 		.type		= PSMOUSE_GENPS,
+ 		.name		= "GenPS/2",
+--- a/drivers/input/mouse/Kconfig.old	2012-09-30 19:47:46.000000000 -0400
++++ b/drivers/input/mouse/Kconfig	2012-10-21 10:35:11.448909147 -0400
+@@ -68,6 +68,16 @@
+ 
+ 	  If unsure, say Y.
+ 
++config MOUSE_PS2_CYPRESS
++       bool "Cypress PS/2 mouse protocol extension" if EXPERT
++       default y
++       depends on MOUSE_PS2
++       help
++         Say Y here if you have a Cypress PS/2 Trackpad connected to
++         your system.
++
++         If unsure, say Y.
++	  
+ config MOUSE_PS2_LIFEBOOK
+ 	bool "Fujitsu Lifebook PS/2 mouse protocol extension" if EXPERT
+ 	default y
+--- a/drivers/input/mouse/Makefile.old	2012-09-30 19:47:46.000000000 -0400
++++ b/drivers/input/mouse/Makefile	2012-10-21 10:37:12.292260276 -0400
+@@ -32,3 +32,4 @@
+ psmouse-$(CONFIG_MOUSE_PS2_SENTELIC)	+= sentelic.o
+ psmouse-$(CONFIG_MOUSE_PS2_TRACKPOINT)	+= trackpoint.o
+ psmouse-$(CONFIG_MOUSE_PS2_TOUCHKIT)	+= touchkit_ps2.o
++psmouse-$(CONFIG_MOUSE_PS2_CYPRESS)     += cypress_ps2.o
+--- a/drivers/input/mouse/psmouse.h.old	2012-09-30 19:47:46.000000000 -0400
++++ b/drivers/input/mouse/psmouse.h	2012-10-21 11:45:03.729840579 -0400
+@@ -26,6 +26,7 @@
+ 	PSMOUSE_INITIALIZING,
+ 	PSMOUSE_RESYNCING,
+ 	PSMOUSE_CMD_MODE,
++	PSMOUSE_CMD_CYTP,       /* Cypress Trackpad detecting and initializing state. */
+ 	PSMOUSE_ACTIVATED,
+ };
+ 
+@@ -95,6 +96,7 @@
+ 	PSMOUSE_ELANTECH,
+ 	PSMOUSE_FSP,
+ 	PSMOUSE_SYNAPTICS_RELATIVE,
++	PSMOUSE_CYPRESS,
+ 	PSMOUSE_AUTO		/* This one should always be last */
+ };
+ 
