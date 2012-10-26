@@ -1,68 +1,93 @@
+# $Id: PKGBUILD 76613 2012-09-25 00:57:41Z svenstaro $
 # Maintainer: Sven-Hendrik Haase <sh@lutzhaase.com>
 # Contributor: Xavion <Xavion (dot) 0 (at) Gmail (dot) com>
 # Contributor: Calogero Lo Leggio <kalos@autistici.org>
 # Contributor: Matias Hernandez <msdark@archlinux.cl>
 
 pkgname=bacula
-pkgver=5.0.3
-pkgrel=4
+pkgver=5.2.12
+pkgrel=1
 pkgdesc="An advanced backup tool with network and tape changer support (MySQL backend)"
 arch=("i686" "x86_64")
 url="http://www.${pkgname}.org"
 license=("GPL")
-depends=("libmysqlclient")
-makedepends=("qt" "wxgtk" "gtk2")
+depends=('openssl' 'lzo2' 'zlib' 'python2')
+makedepends=("qt" "wxgtk" "gtk2" "libmysqlclient")
 optdepends=("qt: for bat"
             "wxgtk: for bwx console"
-            "gtk2: for tray monitor")
-options=(!buildflags)
-conflicts=("${pkgname}-sqlite" "${pkgname}-postgresql" "${pkgname}-client")
-backup=("etc/${pkgname}/bconsole.conf"
-		"etc/${pkgname}/${pkgname}-dir.conf"
-		"etc/${pkgname}/${pkgname}-fd.conf"
-		"etc/${pkgname}/${pkgname}-sd.conf")
+            "gtk2: for tray monitor"
+            "python2: python support"
+            "libmysqlclient: mysql support")
+options=(!buildflags !libtool)
+backup=("etc/bacula/bconsole.conf"
+        "etc/bacula/bacula-dir.conf"
+        "etc/bacula/bacula-fd.conf"
+        "etc/bacula/bacula-sd.conf")
 install="${pkgname}.install"
 source=(http://downloads.sourceforge.net/project/bacula/bacula/${pkgver}/${pkgname}-${pkgver}.tar.gz
-        ${pkgname}-sd.rc.d
-        ${pkgname}-fd.rc.d
-        ${pkgname}-dir.rc.d)
-md5sums=('9de254ae39cab0587fdb2f5d8d90b03b'
-         'e7be4c9fb3c7ce334f9ee24d71652d3e'
-         'a9a070a862e9cf39ae4bc374409c721d'
-         '55619ae3094c698541a3bfedc87bdb48')
+        bacula-sd.rc.d
+        bacula-fd.rc.d
+        bacula-dir.rc.d
+        systemd.patch)
+md5sums=('b04c22b128b73359e4bbc9de06652c38'
+         '6311f10c58261c4ee6e26ae2de5580a3'
+         '7c240ed89c6e42b379386d27e163d3bc'
+         'bb31d783b3362961eac4746219e3e3ff'
+         '375f47942b8d7bced269183a3bf2ffca')
 
 build() {
-	cd ${srcdir}/${pkgname}-${pkgver}
+    cd ${srcdir}/${pkgname}-${pkgver}
 
-	# Build
-	./configure --prefix=/usr \
-		--enable-build-dird --enable-build-stored --enable-smartalloc \
-		--enable-bat --enable-tray-monitor --enable-bwx-console \
-		--with-mysql --without-openssl \
-		--with-dir-user=${pkgname} --with-dir-group=${pkgname} \
-		--with-sd-user=${pkgname} --with-sd-group=${pkgname} \
-		--sysconfdir=/etc/${pkgname} --with-scriptdir=/etc/${pkgname}/scripts \
-		--with-working-dir=/var/cache/${pkgname}/working \
-		--with-subsys-dir=/var/cache/${pkgname}/working \
-		--with-archivedir=/var/cache/${pkgname}/archive
+    sed -i "s/python-config/python2-config/g" configure
 
-	make
+    # Build
+    ./configure --prefix=/usr \
+        --enable-build-dird --enable-build-stored --enable-smartalloc \
+        --enable-bat --enable-tray-monitor --enable-bwx-console \
+        --enable-batch-insert --enable-ipv6 \
+        --with-mysql --with-openssl --with-python \
+        --with-systemd=/usr/lib/systemd/system \
+        --with-fd-user=root --with-fd-group=root \
+        --with-dir-user=${pkgname} --with-dir-group=${pkgname} \
+        --with-sd-user=${pkgname} --with-sd-group=${pkgname} \
+        --sysconfdir=/etc/${pkgname} --with-scriptdir=/etc/${pkgname}/scripts \
+        --with-working-dir=/var/cache/${pkgname}/working \
+        --with-subsys-dir=/var/cache/${pkgname}/working \
+        --with-archivedir=/var/cache/${pkgname}/archive \
+        --with-pid-dir=/var/run/bacula/
+
+    make
 }
 
 package() {
-	cd ${srcdir}/${pkgname}-${pkgver}
+    cd ${srcdir}/${pkgname}-${pkgver}
 
-	make DESTDIR=${pkgdir} install
+    make DESTDIR=${pkgdir} install
 
-	# Permissions
-	chmod a+x ${pkgdir}/etc/${pkgname}/scripts/{update_${pkgname}_tables,delete_catalog_backup,update_mysql_tables,make_catalog_backup,bconsole}
+    # Hack to setup systemd units
+    mkdir -vp ${pkgdir}/etc/tmpfiles.d
+    mkdir -vp ${pkgdir}/usr/lib/systemd/system
+    cd platforms/systemd
+    make DESTDIR=${pkgdir} install
+    cd ../..
+    mkdir -vp ${pkgdir}/usr/lib/tmpfiles.d
+    mv ${pkgdir}/etc/tmpfiles.d/* ${pkgdir}/usr/lib/tmpfiles.d/
+    rmdir ${pkgdir}/etc/tmpfiles.d
+    patch -d ${pkgdir}/usr/lib/systemd/system < ${srcdir}/systemd.patch
 
-	# Daemons
-	mkdir -p ${pkgdir}/etc/rc.d/
-    install -Dm755 ${srcdir}/*.rc.d ${pkgdir}/etc/rc.d/
+    # Permissions
+    chmod a+x ${pkgdir}/etc/${pkgname}/scripts/{update_bacula_tables,delete_catalog_backup,update_mysql_tables,make_catalog_backup,bconsole}
 
-	# Logs
-	install -D -m644 ${srcdir}/${pkgname}-${pkgver}/scripts/logrotate ${pkgdir}/etc/logrotate.d/${pkgname}
-	sed -i "s|/var/cache/${pkgname}/working/log|/var/log/${pkgname}.log|g" ${pkgdir}/etc/{${pkgname}/${pkgname}-dir.conf,logrotate.d/${pkgname}}
+    # Daemons
+    mkdir -p ${pkgdir}/etc/rc.d/
+    install -Dm755 ${srcdir}/bacula-dir.rc.d ${pkgdir}/etc/rc.d/bacula-dir
+    install -Dm755 ${srcdir}/bacula-fd.rc.d ${pkgdir}/etc/rc.d/bacula-fd
+    install -Dm755 ${srcdir}/bacula-sd.rc.d ${pkgdir}/etc/rc.d/bacula-sd
+
+    # Logs
+    install -D -m644 ${srcdir}/${pkgname}-${pkgver}/scripts/logrotate ${pkgdir}/etc/logrotate.d/${pkgname}
+    sed -i "s|/var/cache/${pkgname}/working/log|/var/log/${pkgname}.log|g" ${pkgdir}/etc/{${pkgname}/${pkgname}-dir.conf,logrotate.d/${pkgname}}
+
+    # Fix permissions
+    chmod -R 755 ${pkgdir}/usr/sbin
 }
-
