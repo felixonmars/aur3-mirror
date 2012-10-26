@@ -5,7 +5,7 @@
 # Contributor: arjan <arjan@archlinux.org>
 
 pkgname=allegro-git
-pkgver=20120709
+pkgver=20121026
 pkgrel=1
 pkgdesc="Portable library mainly aimed at video game and multimedia programming"
 arch=('x86_64' 'i686')
@@ -13,10 +13,11 @@ url="http://alleg.sourceforge.net/"
 license=('custom')
 depends=('jack' 'libxpm' 'libxxf86dga' 'physfs' 'gtk2' 'openal' 'nvidia-cg-toolkit' 'ffmpeg')
 makedepends=('cmake' 'mesa' 'git')
+optdepends=('pandoc: for making the documentation')
 provides=('allegro')
 conflicts=('allegro')
 
-_gitroot="git://alleg.git.sourceforge.net/gitroot/alleg/allegro"
+_gitroot="git://git.code.sf.net/p/alleg/allegro"
 _gitname="allegro"
 
 build() {
