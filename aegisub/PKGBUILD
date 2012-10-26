@@ -2,8 +2,8 @@
 # Contributor: Limao Luo <luolimao+AUR@gmail.com>
 
 pkgname=aegisub
-pkgver=3.0.1
-pkgrel=2
+pkgver=3.0.2
+pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.org"
@@ -21,16 +21,16 @@ depends=('fontconfig>=2.4.2' 'lua>=5.1' 'hunspell'
     )
 
 build() {
-        cd "$srcdir/$pkgname-$pkgver/$pkgname/"
+        cd "$srcdir/$pkgname/$pkgname/"
         LDFLAGS="$LDFLAGS -lz" ./configure --prefix=/usr --with-player-audio=alsa \
             --without-{portaudio,openal,oss} --with-wx-config=/usr/bin/wx-config-2.9
         make
 }
 
 package() {
-        cd "$srcdir/$pkgname-$pkgver/$pkgname/"
+        cd "$srcdir/$pkgname/$pkgname/"
         make DESTDIR="$pkgdir" install
         ln -s $pkgname-3.0 "$pkgdir/usr/bin/$pkgname"
 }
 
-md5sums=('3561822b609999d38e8d978ca8eabecc')
+md5sums=('d3817d493d0f2f1ee9c5a8e0a58d591e')

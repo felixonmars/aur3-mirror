@@ -1,8 +1,8 @@
 # Maintainer: Kozec <kozec at kozec dot com>
 
 pkgname=aegisub-bin
-pkgver=3.0.1
-pkgrel=2
+pkgver=3.0.2
+pkgrel=1
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support (unofficial pre-compiled binaries)"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.net/"
@@ -34,4 +34,4 @@ package() {
 	ln -s aegisub-3.0 $pkgdir/usr/bin/aegisub
 }
 
-md5sums=('6fa92ca21af42c850966667389c7380c')
+md5sums=('873b93fc2963c1bdf76b1d27daa5b23b')
