@@ -1,0 +1,557 @@
+/*
+Insync Gnome3 and Cinnamon Desktop Applet
+by brett@insynchq.com | Copyright Insynchq Pte. Ltd., ("Insync") | http://www.insynchq.com
+
+Hacking Notes:
+	. St.Icon can not be shared, each bin needs a unique instance of St.Icon
+	. Gnome3 has a bug with shell escape in Main.Util.spawnCommandLine,
+	  these examples will fail: "nautilus ~/Insync" or "nautilus $HOME/Insync"
+*/
+
+const Lang = imports.lang;
+const Main = imports.ui.main;
+const GLib = imports.gi.GLib;
+const Gio = imports.gi.Gio;
+const PopupMenu = imports.ui.popupMenu;
+const Gtk = imports.gi.Gtk;
+const DBus = imports.dbus;
+const St = imports.gi.St;		// Gnome3 ShellToolkit
+const Gettext = imports.gettext;
+const text = Gettext.gettext;
+
+const ICON_SIZE  = 13;
+const SUB_ICON_SIZE = 13;
+
+const STATUS_ICON_LOOKUP = { 
+	'UNLINKED' : 'insync-idle',
+	'SYNCED' : 'insync-synced',
+	'SYNCING' : 'insync-syncing',
+	'OFFLINE' : 'insync-offline',
+	'ERROR' : 'insync-error',
+	'WARNING' : 'insync-partial-error'
+};
+
+//////////////////////////// Helper Functions ///////////////////////////////////
+
+function dir( object ) {
+	global.log( object );
+	for (let name in object) { global.log(name); }
+}
+
+function load_icon( icon_file, width, height ) {
+	try {					// this can fail without any warning if the file is missing!
+		let file = Gio.file_new_for_path(icon_file);
+		let icon_uri = file.get_uri();
+		let icon = St.TextureCache.get_default().load_uri_sync(1, icon_uri, width, height);
+		let iconBox = new St.Bin();
+		iconBox.child = icon;
+		return iconBox;
+	} catch(e) {
+		return undefined;
+	}
+}
+
+function get_file_name( uri ) {
+	let a = uri.split('/');
+	return a[ a.length-1 ];
+}
+
+//for debugging: alt-F2, "lg"   # looking glass #
+function debug(a){
+	global.log('<insync>'+a);
+}
+
+
+function launch() {}
+launch.prototype = {
+	file: function(file) {
+		Gio.app_info_launch_default_for_uri(file, global.create_app_launch_context());
+	},
+	command: function(location) {
+		debug( location );
+		Main.Util.spawnCommandLine(location);
+	}
+}
+
+//////////////////////////////// MenuItem Subclass /////////////////////////////////
+function MenuItem() { this._init.apply(this, arguments); }
+MenuItem.prototype = {
+	__proto__: PopupMenu.PopupBaseMenuItem.prototype,    
+	_init: function(icon, text, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+		this.box = new St.BoxLayout({ style_class: 'popup-combobox-item' });
+		this.icon = icon;
+		if (icon) {
+			this.box.add(this.icon); 
+			this.label = new St.Label({ text: ' '+text });
+		} else {
+			this.label = new St.Label({ text: text });
+		}
+		this.box.add(this.label);
+		this.addActor(this.box);
+	}
+};
+//////////////////////////////// ButtonItem Subclass /////////////////////////////////
+function ButtonItem() { this._init.apply(this, arguments); }
+ButtonItem.prototype = {
+	__proto__: PopupMenu.PopupBaseMenuItem.prototype,    
+	_init: function(icon, text, params) {
+		PopupMenu.PopupBaseMenuItem.prototype._init.call(this, params);
+		this.box = new St.BoxLayout({ style_class: 'popup-combobox-item', vertical:false });
+		if (icon) {
+			this.button = new St.Button({ style_class: 'sound-button', toggle_mode: true });
+			this.button.set_child( icon );
+			this.box.add( this.button );
+			this.box.add( new St.Label({ text:text}) );
+
+		} else {
+			this.button = new St.Button({ toggle_mode: true });
+			this.button.set_label( text );
+			//this.box.add( new St.Label({ text: '    ' }) );
+			this.box.add( this.button );
+		}
+
+		this.addActor(this.box);
+	}
+};
+
+
+/////////////////////////////////// Applet ///////////////////////////////////////
+const EXTENSION_PATH = '/org/cinnamon/insync';
+const EXTENSION_IFACE = 'org.cinnamon.insync';
+
+
+const AppInterface = {
+	name : EXTENSION_IFACE,
+	methods: [
+		{name: 'hello_world', inSignature: 's', outSignature: ''},			// just for testing
+		{name: 'toggle_applet', inSignature: 's', outSignature: ''},		// toggle applet on/off
+		{name: 'update_status', inSignature: 's', outSignature: ''}		// updates systray icon
+	]
+};
+
+///////////////////// TODO - why can't this be upgraded to newer Gdbus API ? //////////////////
+/*
+const AppInterface = <interface name="org.cinnamon.insync">
+<method name="hello_world">
+	<arg type="s" direction="in" />
+	<arg type="" direction="out" />
+</method>
+<method name="toggle_applet">
+	<arg type="s" direction="in" />
+	<arg type="" direction="out" />
+</method>
+<method name="update_status">
+	<arg type="s" direction="in" />
+	<arg type="" direction="out" />
+</method>
+</interface>;
+*/
+
+debug('APPINTERFACE defined');
+
+function proxify_object( self ) {
+	DBus.session.proxifyObject(self, EXTENSION_IFACE, EXTENSION_PATH);
+	DBus.session.exportObject(EXTENSION_PATH, self);
+	DBus.session.acquire_name(EXTENSION_IFACE, 0, null, null);
+	// newer Gdbus API //
+	//self._dbus_impl = Gio.DBusExportedObject.wrapJSObject(AppInterface, self);
+	//self._dbus_impl.export( Gio.DBus.session, EXTENSION_PATH );
+}
+
+function rebuild_widget( self ) {
+	let active = self._insync_active;
+	debug('trying to rebuild widget');
+
+	if ( active ) {
+		//make_insync_menu(self);
+		// first get state from insync process //
+		try {
+			debug('trying to contact insync process...');
+			let proxy = get_insync_proxy()
+			proxy.callRemote(
+				'GET-STATE', 
+				Lang.bind(self, self.rebuild_insync_menu)		// callback,
+			);
+		} catch(e) {
+			debug('failed to contact insync process!');
+			debug(e);
+			self._insync_active = false;
+
+			let icon = new St.Icon(
+				{
+					icon_name: "error", 
+					icon_size: 32
+				}
+			);
+			let item = new MenuItem(icon, "ERROR: failed to contact insync process");
+			self.menu.addMenuItem( item );
+		}
+
+
+	} else {
+		debug('insync not running, falling back to startup UI');
+		self.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+		let icon = load_icon( "/usr/share/icons/insync/icons/insync-app.svg", 100, 100 );
+		let item = new MenuItem(icon, text("Start Insync"));
+		item.connect('activate', 
+			function(actor, event) {
+				debug('running new insync process');
+				//new launch().command("xterm -e insync --gnome");
+				new launch().command("insync --gnome");
+			}
+		);
+		self.menu.addMenuItem(item);
+	}
+
+}
+
+
+function make_insync_menu(self, data) {
+	self._insync_active = true;
+	//debug(data);
+	let state = JSON.parse( data );
+	//debug( state );
+
+	/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	//self.menu.removeAll();
+	//self.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+	///////////////////////////////////// shared folder //////////////////////////////////
+	let icon = new St.Icon(
+		{
+			icon_name: "user-home-symbolic", 
+			icon_size: ICON_SIZE
+		}
+	);
+	self.homeItem = new MenuItem(icon, text("Open Insync Folder"));
+	self.homeItem.connect('activate', 
+		function(actor, event) {
+			get_insync_proxy().callRemote( 'OPEN-INSYNC-FOLDER' );	
+		}
+	);
+	self.menu.addMenuItem(self.homeItem);
+
+	////////////////////////////////// go to insynchq.com //////////////////////////
+	let icon = new St.Icon(
+		{
+			icon_name: "folder-remote-symbolic", 
+			icon_size: ICON_SIZE
+		}
+	);
+	let item = new MenuItem(icon, text("Go to Insync Web"));
+	item.connect('activate', 
+		function(actor, event) {
+			get_insync_proxy().callRemote( 'http://wwww.insynchq.com' );
+		}
+	);
+	self.menu.addMenuItem(item);
+
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////
+	self.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+	let item = new PopupMenu.PopupSubMenuMenuItem(text("Recent Changes"));
+	self.menu.addMenuItem( item );
+	let item_recent = item;
+
+	let item = new PopupMenu.PopupSubMenuMenuItem(text("Actions Required"));
+	self.menu.addMenuItem(item);
+	let item_actions = item;
+
+	let item = new PopupMenu.PopupSubMenuMenuItem(text("Error Messages"));
+	self.menu.addMenuItem(item);
+	let item_errors = item;
+
+	self.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	//let button = new ButtonItem( undefined, 'Pause Syncing');
+	//self.menu.addMenuItem(button);
+
+	if (state.paused) {
+		let item = new MenuItem(undefined, text("Resume Syncing"));
+		self.menu.addMenuItem(item);
+		item.connect('activate', 
+			function(actor,event) {
+				get_insync_proxy().callRemote( "RESUME" );
+			}
+		);
+	} else {
+		let item = new MenuItem(undefined, text("Pause Syncing"));
+		self.menu.addMenuItem(item);
+		item.connect('activate', 
+			function(actor,event) {
+				get_insync_proxy().callRemote( "PAUSE" );
+			}
+		);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////
+	self.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
+	let item = new PopupMenu.PopupSubMenuMenuItem(text("Account Information"));
+	self.menu.addMenuItem(item);
+	let item_account = item;
+
+
+	//let item = new MenuItem(icon, text("Settings"));		// TODO enable this
+	//self.menu.addMenuItem(item);
+
+	let item = new MenuItem(undefined, text("Support"));
+	self.menu.addMenuItem(item);
+	item.connect('activate', 
+		function(actor, event) {
+			get_insync_proxy().callRemote( 'http://forums.insynchq.com' );
+		}
+	);
+
+
+	////////////////////////////////////////////////
+	let item = new MenuItem(undefined, text("Quit"), {});
+	self.menu.addMenuItem(item);
+	item.connect('activate', 
+		function(actor,event) {
+			get_insync_proxy().callRemote( "EXIT" );
+			self.shutdown();
+		}
+	);
+	debug('setup UI layout...');
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	if (state.recent.length == 0) {
+		let icon = new St.Icon({icon_name: 'object-select-symbolic', icon_size: SUB_ICON_SIZE });
+		let sub = new MenuItem( icon, "(no recent updates)" );
+		item_recent.menu.addMenuItem( sub );
+	}
+	if (state.actions.length == 0) {
+		let icon = new St.Icon({icon_name: 'object-select-symbolic', icon_size: SUB_ICON_SIZE });
+		let sub = new MenuItem( icon, "(no actions required)" );
+		item_actions.menu.addMenuItem( sub );
+	}
+	if (state.errors.length == 0) {
+		let icon = new St.Icon({icon_name: 'object-select-symbolic', icon_size: SUB_ICON_SIZE });
+		let sub = new MenuItem( icon, "(no errors)" );
+		item_errors.menu.addMenuItem( sub );
+	}
+
+
+	let keys = ['recent', 'actions', 'account'];
+	for (var h=0; h < keys.length; h++) {
+		let key = keys[ h ];
+		let list = state[ key ];
+
+		for (var i=0; i< list.length; i++) {
+			let info_txt = list[i][0];
+			let method = list[i][1];
+			let item = undefined;
+			let icon = undefined;
+			switch (key) {
+				case 'recent':
+					item = item_recent;
+					icon = new St.Icon( {icon_name: "edit-select-all-symbolic", icon_size: SUB_ICON_SIZE} );
+					break;
+				case 'actions':
+					item = item_actions;
+					icon = new St.Icon( {icon_name: "document-page-setup-symbolic", icon_size: SUB_ICON_SIZE} );
+					break;
+
+				case 'account':
+					item = item_account;
+					icon = new St.Icon( {icon_name: "weather-overcast-symbolic", icon_size: SUB_ICON_SIZE} );
+					break;
+
+				default:
+					item = undefined; icon = undefined;
+					break;
+			}
+			var sub = new MenuItem( icon, info_txt );
+			item.menu.addMenuItem( sub );
+			sub.connect('activate', 
+				function(actor,event) {
+					get_insync_proxy().callRemote( method );	// fire and forget
+				}
+			);
+		}
+	}
+	//////////////////////////////////////////////
+	let icon = new St.Icon( {icon_name: "list-add-symbolic", icon_size: SUB_ICON_SIZE} );
+	let sub = new MenuItem( icon, "Add New Account" )
+	item_account.menu.addMenuItem( sub );
+	sub.connect('activate', 
+		function(actor,event) {
+			get_insync_proxy().callRemote( 'ADD-ACCOUNT' );	// fire and forget
+		}
+	);
+	/////////////////////////////////////////////
+	if (state.errors.length == 3) {
+		let item = item_errors;
+		var retry = state.errors[0];  // tuple
+		var errors = state.errors[1]; // list of tuples
+		var other = state.errors[2];  // null
+
+		if (retry.length) {
+			let icon = new St.Icon( {icon_name: "view-refresh-symbolic", icon_size: SUB_ICON_SIZE} );
+			let info_txt = retry[0];
+			let method = retry[1];
+			let sub = new MenuItem( icon, info_txt );
+			item.menu.addMenuItem( sub );
+			sub.connect('activate', 
+				function(actor,event) {
+					get_insync_proxy().callRemote( method );	// fire and forget
+				}
+			);
+			item.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+		}
+
+		let list = errors;
+		for (var i=0; i< list.length; i++) {
+			let icon = new St.Icon( {icon_name: "action-unavailable-symbolic", icon_size: SUB_ICON_SIZE} );
+			let info_txt = list[i][0];
+			let method = list[i][1];
+			let sub = new MenuItem( icon, info_txt );
+			item.menu.addMenuItem( sub );
+			sub.connect('activate', 
+				function(actor,event) {
+					get_insync_proxy().callRemote( method );	// fire and forget
+				}
+			);
+		}
+		if (other) {
+			let icon = new St.Icon( {icon_name: "edit-select-symbolic", icon_size: SUB_ICON_SIZE} );
+			let sub = new MenuItem( icon, other );
+			item.menu.addMenuItem( sub );
+		}
+	}
+}
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+const InsyncRemoteInterface = {
+    name: 'insync.rpc', //interface name
+    methods: [
+        {    //method name and signature
+            name: 'call',		// becomes: callRemote
+            inSignature: 's',
+            outSignature: 's'
+        }
+    ]
+};
+*/
+const InsyncRemoteInterface = <interface name="insync.rpc">
+<method name="call">
+	<arg type="s" direction="in" />
+	<arg type="s" direction="out" />
+</method>
+</interface>;
+
+debug('REMOTE-INTERFACE defined');
+
+//let InsyncProxyClass = DBus.makeProxyClass( InsyncRemoteInterface );
+var InsyncProxyClass = Gio.DBusProxy.makeProxyWrapper( InsyncRemoteInterface );
+
+function get_insync_proxy() {
+	let proxy = new InsyncProxyClass(
+		//DBus.session,
+		Gio.DBus.session,
+		'insync.rpc',
+		'/'
+	);
+	return proxy;
+}
+
+debug('Cinnamon/Gnome3 common API defined');
+
+
+const PanelMenu = imports.ui.panelMenu;
+
+let _app;
+let SCRIPT_PATH;
+
+
+const GnomeApp = new Lang.Class({
+	Name: 'InsyncApp.InsyncApp',
+	Extends: PanelMenu.SystemStatusButton,
+
+	destroy: function() { this.parent(); },
+
+	_init: function() {
+		this.parent('insync-offline', 'Insync');
+		proxify_object( this );	// common.js
+
+		// this is required for on_button_press to work properly
+		let item = new PopupMenu.PopupSubMenuMenuItem("hello world");
+		this.menu.addMenuItem( item );
+
+		this.actor.connect('button-press-event', Lang.bind(this, this.on_button_press));
+		this._insync_active = false;
+
+	},
+	on_button_press: function( actor, event ) {
+		debug('on_button_press');
+		debug( this.menu );
+		this.menu.removeAll();
+		rebuild_widget(this);
+		//this.menu.toggle();		// DO NOT call this.menu.toggle()
+		debug('on_button_press OK');
+	},
+
+	shutdown: function() {
+		this._insync_active = false;
+		this.setIcon( 'insync-offline' );		// why is this working and Gio.icon_new_for_string required below?
+	},
+
+	// dbus callback - proxy.callRemote(..., callback) //
+	rebuild_insync_menu: function( data ) {
+		debug('calling rebuild-insync-menu');
+		//debug( data );
+		make_insync_menu(this, data);
+	},
+
+
+	///////////////////////////// dbus methods ///////////////////////////
+	hello_world: function( string ) {
+		debug('calling hello_world');
+	},
+	toggle_applet: function( string ) {
+		if ( string=='ON' ) {
+			this._insync_active = true;
+		} else {
+			this._insync_active = false;
+			this.shutdown();
+		}
+	},
+
+	update_status: function( state ) {
+		debug('calling update_status');
+		this._insync_active = true;
+		let icon = STATUS_ICON_LOOKUP[ state ];
+		//this.setIcon( icon );		// this won't work
+		let gicon = Gio.icon_new_for_string( SCRIPT_PATH + '/' + icon + '.svg' );
+		this.setGIcon( gicon );
+		debug('icon set!');
+	}
+
+});
+
+
+function init(metadata) {
+	debug( 'insync gnome applet init' );
+	debug( metadata.path );
+	SCRIPT_PATH = metadata.path;
+	Gtk.IconTheme.get_default().append_search_path(metadata.path);
+}
+
+
+function enable() {
+    _app = new GnomeApp;
+    Main.panel.addToStatusArea('places-menu', _app);
+}
+
+function disable() {
+    _app.destroy();
+}
+
+DBus.conformExport(GnomeApp.prototype, AppInterface);
