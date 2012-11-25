@@ -3,7 +3,7 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-PIDFILE="/var/run/apt-cacher-ng.pid"
+PIDFILE="/run/apt-cacher-ng/pid"
 
 case "$1" in
   start)

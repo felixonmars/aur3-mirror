@@ -3,7 +3,7 @@
 
 pkgname=bitcasa
 pkgver=0.9.6.99
-pkgrel=1
+pkgrel=2
 pkgdesc="Infinite Storage in the cloud"
 arch=('x86_64')
 url="http://www.bitcasa.com"
@@ -104,6 +104,9 @@ package() {
   install -m644 "$srcdir/usr/lib/liblog4cxx.so.10.0.0" "$pkgdir/opt/bitcasa/lib/"
   install -m644 "$srcdir/lib/$CARCH-linux-gnu/libcrypto.so.1.0.0" "$pkgdir/opt/bitcasa/lib/"
   install -m644 "$srcdir/lib/$CARCH-linux-gnu/libssl.so.1.0.0" "$pkgdir/opt/bitcasa/lib/"
+
+  # Link Libs
+  ln -s /usr/lib/libtasn1.so $pkgdir/opt/bitcasa/lib/libtasn1.so.3
 
   install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/bitcasa/LICENSE"
   msg2 "Done moving files"

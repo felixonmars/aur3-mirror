@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-barnaul
-pkgver=92
+pkgver=93
 pkgrel=1
-pkgdesc="Map of Barnaul for 2GIS, October 2012"
+pkgdesc="Map of Barnaul for 2GIS, November 2012"
 arch=('i686' 'x86_64')
 url="http://barnaul.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Barnaul-92.orig.zip")
-md5sums=('1a8fe2aebd0621e4659bbb48bf9e6de2')
+source=("http://download.2gis.ru/arhives/2GISData_Barnaul-93.orig.zip")
+md5sums=('4e8a4b27666a6a343a6cc2fceffe3b7b')
      
 build() {
      

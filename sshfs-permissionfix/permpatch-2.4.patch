@@ -1,0 +1,95 @@
+--- sshfs-fuse-2.4/sshfs.c	2012-03-08 10:34:39.000000000 +0100
++++ sshfs-fuse-2.4-patched/sshfs.c	2012-07-06 18:24:25.527896412 +0200
+@@ -246,6 +246,8 @@
+ 	int ext_posix_rename;
+ 	int ext_statvfs;
+ 	int ext_hardlink;
++	unsigned int remote_dmask;
++	unsigned int remote_fmask;
+ 	mode_t mnt_mode;
+ 
+ 	/* statistics */
+@@ -356,6 +358,8 @@
+ 	SSHFS_OPT("follow_symlinks",   follow_symlinks, 1),
+ 	SSHFS_OPT("no_check_root",     no_check_root, 1),
+ 	SSHFS_OPT("password_stdin",    password_stdin, 1),
++	SSHFS_OPT("remote_dmask=%o",      remote_dmask, 0),
++	SSHFS_OPT("remote_fmask=%o",      remote_fmask, 0),
+ 	SSHFS_OPT("delay_connect",     delay_connect, 1),
+ 	SSHFS_OPT("slave",             slave, 1),
+ 
+@@ -2046,6 +2050,20 @@
+ 	return err;
+ }
+ 
++static int sshfs_chmod(const char *path, mode_t mode)
++{
++	int err;
++	struct buffer buf;
++	buf_init(&buf, 0);
++	buf_add_path(&buf, path);
++	buf_add_uint32(&buf, SSH_FILEXFER_ATTR_PERMISSIONS);
++	buf_add_uint32(&buf, mode);
++	/* FIXME: really needs LSETSTAT extension (debian Bug#640038) */
++	err = sftp_request(SSH_FXP_SETSTAT, &buf, SSH_FXP_STATUS, NULL);
++	buf_free(&buf);
++	return err;
++}
++
+ static int sshfs_mkdir(const char *path, mode_t mode)
+ {
+ 	int err;
+@@ -2056,6 +2074,9 @@
+ 	buf_add_uint32(&buf, mode);
+ 	err = sftp_request(SSH_FXP_MKDIR, &buf, SSH_FXP_STATUS, NULL);
+ 	buf_free(&buf);
++	if (!err && sshfs.remote_dmask > 0) {
++		err = sshfs_chmod(path, sshfs.remote_dmask);
++	}
+ 	return err;
+ }
+ 
+@@ -2207,20 +2228,6 @@
+ 	return err;
+ }
+ 
+-static int sshfs_chmod(const char *path, mode_t mode)
+-{
+-	int err;
+-	struct buffer buf;
+-	buf_init(&buf, 0);
+-	buf_add_path(&buf, path);
+-	buf_add_uint32(&buf, SSH_FILEXFER_ATTR_PERMISSIONS);
+-	buf_add_uint32(&buf, mode);
+-	/* FIXME: really needs LSETSTAT extension (debian Bug#640038) */
+-	err = sftp_request(SSH_FXP_SETSTAT, &buf, SSH_FXP_STATUS, NULL);
+-	buf_free(&buf);
+-	return err;
+-}
+-
+ static int sshfs_chown(const char *path, uid_t uid, gid_t gid)
+ {
+ 	int err;
+@@ -2917,7 +2924,12 @@
+ static int sshfs_create(const char *path, mode_t mode,
+                         struct fuse_file_info *fi)
+ {
+-	return sshfs_open_common(path, mode, fi);
++	int err;
++	err = sshfs_open_common(path, mode, fi);
++	if (!err && sshfs.remote_fmask > 0) {
++	    err = sshfs_chmod(path, sshfs.remote_fmask);
++	}
++	return err;
+ }
+ 
+ static int sshfs_ftruncate(const char *path, off_t size,
+@@ -3195,6 +3207,8 @@
+ "    -o no_check_root       don't check for existence of 'dir' on server\n"
+ "    -o password_stdin      read password from stdin (only for pam_mount!)\n"
+ "    -o SSHOPT=VAL          ssh options (see man ssh_config)\n"
++"    -o remote_dmask=M      force directory permissions for remote directory (octal)\n"
++"    -o remote_fmask=M      force file permissions for remote file (octal)\n"
+ "\n", progname);
+ }
+ 

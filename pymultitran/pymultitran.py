@@ -36,7 +36,7 @@ class TruncationException(Exception):
 
 def ltrunc( page, sub ):
 
-    pos = page.find(sub)
+    pos = page.lower().find(sub.lower())
     if pos < 0:
         raise TruncationException("Necessary html sequence is not found.")
 
@@ -59,7 +59,7 @@ def read_meanings( page ):
 
     while 1:
         try:
-            page = ltrunc(page, "<td bgcolor=\"#DBDBDB\" colspan=\"2\"> <a href=\"")
+            page = ltrunc(page, "<td bgcolor=\"#DBDBDB\" colspan=\"2\" width=\"700\"> <a href=\"")
             page = ltrunc(page, "\">")
 
             word = page[:page.find("</a>")]

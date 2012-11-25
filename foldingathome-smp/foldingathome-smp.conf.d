@@ -1,5 +1,5 @@
 #
-# Optional user settings for foldingathome-smp daemon
+# Optional user settings for the foldingathome-smp daemon
 #
 # If you prefer not to run fah as root then you can identifer a current or
 # specially created user here.

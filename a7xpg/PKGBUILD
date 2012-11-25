@@ -3,26 +3,27 @@
 
 pkgname=a7xpg
 pkgver=0.11
-pkgrel=4
+pkgrel=5
 pkgdesc="An addictive game by Kenta Cho.  Collect gold with your ship and avoid the enemies!"
 arch=('i686' 'x86_64')
 url="http://www.asahi-net.or.jp/~cs8k-cyu/windows/a7xpg_e.html"
 license=('custom')
 depends=('libgl' 'sdl_mixer')
-makedepends=('gdc')
+makedepends=('gdc1')
 source=(http://www.asahi-net.or.jp/~cs8k-cyu/windows/${pkgname}0_11.zip
         http://ftp.de.debian.org/debian/pool/main/a/${pkgname}/${pkgname}_${pkgver}.dfsg1-7.debian.tar.gz)
 md5sums=('3280918840913d629b13dc02bcbbfa7d'
          '88c2919c92379e1104a37d66ad57b929')
+_patchdir="${srcdir}/debian/patches/"
 
 build() {
   cd ${srcdir}/${pkgname}
 
-  find ../debian/patches/ -regex .*\.patch -exec patch -p1 -i {} \;
+  cat ${_patchdir}series | egrep -v '^#|^\ #' | sed "s:^:${_patchdir}:" | xargs -n1 patch -p1 -i
 
   sed -i 's:/games::g' ./src/abagames/util/sdl/{Sound,Texture}.d
-  sed -i 's:gdmd-v1:gdmd:' Makefile
-  sed -i 's:gdc-v1:gdc:' Makefile
+  sed -i 's:gdmd-v1:gdmd1:' Makefile
+  sed -i 's:gdc-v1:gdc1:' Makefile
 
   make
 }

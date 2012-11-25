@@ -124,8 +124,5 @@
 #  this can break your server configuration if you dont update them manually.
 #  Default: New permissions will be added to existing groups automatically.
 
-TS_ARGS="logpath=/var/log/teamspeak3-server/ dbsqlpath=/opt/teamspeak3-server/sql/"
-
-BIN_PATH="/opt/teamspeak3-server"
-LIB_PATH="${BIN_PATH}"
+TS_ARGS="logpath=/var/log/teamspeak3-server/ dbsqlpath=/usr/share/teamspeak3-server/sql/"
 

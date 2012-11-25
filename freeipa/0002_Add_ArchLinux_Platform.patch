@@ -1,0 +1,264 @@
+diff -Nru freeipa-3.0.1.orig/ipapython/platform/archlinux.py freeipa-3.0.1/ipapython/platform/archlinux.py
+--- freeipa-3.0.1.orig/ipapython/platform/archlinux.py	1969-12-31 19:00:00.000000000 -0500
++++ freeipa-3.0.1/ipapython/platform/archlinux.py	2012-11-16 17:19:49.251926000 -0500
+@@ -0,0 +1,260 @@
++# Authors: Alexander Bokovoy <abokovoy@redhat.com>
++#          Xiao-Long Chen <chenxiaolong@cxl.epac.to>
++#
++# Copyright (C) 2011   Red Hat
++# see file 'COPYING' for use and warranty information
++#
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation, either version 3 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.    See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++#
++
++import os
++import time
++
++from ipapython import ipautil, dogtag
++from ipapython.platform import base, redhat, systemd
++from ipapython.ipa_log_manager import root_logger
++from ipalib import api
++
++# All what we allow exporting directly from this module
++# Everything else is made available through these symbols when they are
++# directly imported into ipapython.services:
++# authconfig -- class reference for platform-specific implementation of
++#               authconfig(8)
++# service    -- class reference for platform-specific implementation of a
++#               PlatformService class
++# knownservices -- factory instance to access named services IPA cares about,
++#                  names are ipapython.services.wellknownservices
++# backup_and_replace_hostname -- platform-specific way to set hostname and
++#                                make it persistent over reboots
++# restore_context -- platform-sepcific way to restore security context, if
++#                    applicable
++# check_selinux_status -- platform-specific way to see if SELinux is enabled
++#                         and restorecon is installed.
++__all__ = ['authconfig', 'service', 'knownservices', 'backup_and_replace_hostname', 'restore_context', 'check_selinux_status']
++
++# For beginning just remap names to add .service
++# As more services will migrate to systemd, unit names will deviate and
++# mapping will be kept in this dictionary
++system_units = dict(map(lambda x: (x, "%s.service" % (x)), base.wellknownservices))
++
++system_units['rpcgssd'] = 'nfs-secure.service'
++system_units['rpcidmapd'] = 'nfs-idmap.service'
++
++# Rewrite dirsrv and pki-tomcatd services as they support instances via separate
++# service generator. To make this working, one needs to have both foo@.servic
++# and foo.target -- the latter is used when request should be coming for
++# all instances (like stop). systemd, unfortunately, does not allow one
++# to request action for all service instances at once if only foo@.service
++# unit is available. To add more, if any of those services need to be
++# started/stopped automagically, one needs to manually create symlinks in
++# /etc/systemd/system/foo.target.wants/ (look into systemd.py's enable()
++# code).
++system_units['dirsrv'] = 'dirsrv@.service'
++# Our directory server instance for PKI is dirsrv@PKI-IPA.service
++system_units['pkids'] = 'dirsrv@PKI-IPA.service'
++# Old style PKI instance
++system_units['pki-cad'] = 'pki-cad@pki-ca.service'
++system_units['pki_cad'] = system_units['pki-cad']
++# Our PKI instance is pki-tomcatd@pki-tomcat.service
++system_units['pki-tomcatd'] = 'pki-tomcatd@pki-tomcat.service'
++system_units['pki_tomcatd'] = system_units['pki-tomcatd']
++
++class ArchLinuxService(systemd.SystemdService):
++    def __init__(self, service_name):
++        systemd_name = service_name
++        if service_name in system_units:
++            systemd_name = system_units[service_name]
++        else:
++            if len(service_name.split('.')) == 1:
++                # if service_name does not have a dot, it is not foo.service
++                # and not a foo.target. Thus, not correct service name for
++                # systemd, default to foo.service style then
++                systemd_name = "%s.service" % (service_name)
++        super(ArchLinuxService, self).__init__(service_name, systemd_name)
++
++# Special handling of directory server service
++#
++# We need to explicitly enable instances to install proper symlinks as
++# dirsrv.target.wants/ dependencies. Standard systemd service class does it
++# on enable() method call. Unfortunately, ipa-server-install does not do
++# explicit dirsrv.enable() because the service startup is handled by ipactl.
++#
++# If we wouldn't do this, our instances will not be started as systemd would
++# not have any clue about instances (PKI-IPA and the domain we serve) at all.
++# Thus, hook into dirsrv.restart().
++class ArchLinuxDirectoryService(ArchLinuxService):
++    def enable(self, instance_name=""):
++        super(ArchLinuxDirectoryService, self).enable(instance_name)
++        dirsrv_systemd = "/etc/default/dirsrv"
++        if os.path.exists(dirsrv_systemd):
++            # We need to enable LimitNOFILE=8192 in the dirsrv@.service
++            # Since 389-ds-base-1.2.10-0.8.a7 the configuration of the
++            # service parameters is performed via
++            # /etc/sysconfig/dirsrv.systemd file which is imported by systemd
++            # into dirsrv@.service unit
++            replacevars = {'LimitNOFILE':'8192'}
++            ipautil.inifile_replace_variables(dirsrv_systemd, 'service', replacevars=replacevars)
++            restore_context(dirsrv_systemd)
++            ipautil.run(["/usr/bin/systemctl", "--system", "daemon-reload"],raiseonerr=False)
++
++    def restart(self, instance_name="", capture_output=True, wait=True):
++        if len(instance_name) > 0:
++            elements = self.systemd_name.split("@")
++            srv_etc = os.path.join(self.SYSTEMD_ETC_PATH, self.systemd_name)
++            srv_tgt = os.path.join(self.SYSTEMD_ETC_PATH, self.SYSTEMD_SRV_TARGET % (elements[0]))
++            srv_lnk = os.path.join(srv_tgt, self.service_instance(instance_name))
++            if not os.path.exists(srv_etc):
++                self.enable(instance_name)
++            elif not os.path.samefile(srv_etc, srv_lnk):
++                os.unlink(srv_lnk)
++                os.symlink(srv_etc, srv_lnk)
++        super(ArchLinuxDirectoryService, self).restart(instance_name, capture_output=capture_output, wait=wait)
++
++# Enforce restart of IPA services when we do enable it
++# This gets around the fact that after ipa-server-install systemd thinks
++# ipa.service is not yet started but all services were actually started
++# already.
++class ArchLinuxIPAService(ArchLinuxService):
++    def enable(self, instance_name=""):
++        super(ArchLinuxIPAService, self).enable(instance_name)
++        self.restart(instance_name)
++
++class ArchLinuxSSHService(ArchLinuxService):
++    def get_config_dir(self, instance_name=""):
++        return '/etc/ssh'
++
++
++class ArchLinuxCAService(ArchLinuxService):
++    def __wait_until_running(self):
++        # We must not wait for the httpd proxy if httpd is not set up yet.
++        # Unfortunately, knownservices.httpd.is_installed() can return
++        # false positives, so check for existence of our configuration file.
++        # TODO: Use a cleaner solution
++        if not os.path.exists('/etc/httpd/conf/extra/ipa.conf'):
++            root_logger.debug(
++                'The httpd proxy is not installed, skipping wait for CA')
++            return
++        if dogtag.install_constants.DOGTAG_VERSION < 10:
++            # The server status information isn't available on DT 9
++            root_logger.debug('Using Dogtag 9, skipping wait for CA')
++            return
++        root_logger.debug('Waiting until the CA is running')
++        timeout = api.env.startup_timeout
++        op_timeout = time.time() + timeout
++        while time.time() < op_timeout:
++            status = dogtag.ca_status()
++            root_logger.debug('The CA status is: %s' % status)
++            if status == 'running':
++                break
++            root_logger.debug('Waiting for CA to start...')
++            time.sleep(1)
++        else:
++            raise RuntimeError('CA did not start in %ss' % timeout)
++
++    def start(self, instance_name="", capture_output=True, wait=True):
++        super(ArchLinuxCAService, self).start(
++            instance_name, capture_output=capture_output, wait=wait)
++        if wait:
++            self.__wait_until_running()
++
++    def restart(self, instance_name="", capture_output=True, wait=True):
++        super(ArchLinuxCAService, self).restart(
++            instance_name, capture_output=capture_output, wait=wait)
++        if wait:
++            self.__wait_until_running()
++
++
++# Redirect directory server service through special sub-class due to its
++# special handling of instances
++def archlinux_service(name):
++    if name == 'dirsrv':
++        return ArchLinuxDirectoryService(name)
++    if name == 'ipa':
++        return ArchLinuxIPAService(name)
++    if name == 'sshd':
++        return ArchLinuxSSHService(name)
++    if name in ('pki-cad', 'pki_cad', 'pki-tomcatd', 'pki_tomcatd'):
++        return ArchLinuxCAService(name)
++    return ArchLinuxService(name)
++
++class ArchLinuxAuthConfig(base.AuthConfig):
++    """
++    AuthConfig class implements system-independent interface to configure
++    system authentication resources. In Red Hat-produced systems this is done with
++    authconfig(8) utility.
++    """
++    def __build_args(self):
++        args = []
++        for (option, value) in self.parameters.items():
++            if type(value) is bool:
++                if value:
++                    args.append("--enable%s" % (option))
++                else:
++                    args.append("--disable%s" % (option))
++            elif type(value) in (tuple, list):
++                args.append("--%s" % (option))
++                args.append("%s" % (value[0]))
++            elif value is None:
++                args.append("--%s" % (option))
++            else:
++                args.append("--%s%s" % (option,value))
++        return args
++
++    def execute(self):
++        args = self.__build_args()
++        # Taken from Ubuntu's add_debian.py.patch patch
++        print "The following command would run on a Red Hat platform: /usr/sbin/authconfig " + " ".join(args)
++        ipautil.user_input("Please do the corresponding changes manually and press Enter")
++        #ipautil.run(["/usr/sbin/authconfig"]+args)
++
++class ArchLinuxServices(base.KnownServices):
++    def __init__(self):
++        services = dict()
++        for s in base.wellknownservices:
++            services[s] = archlinux_service(s)
++        # Call base class constructor. This will lock services to read-only
++        super(ArchLinuxServices, self).__init__(services)
++
++def restore_context(filepath, restorecon='/usr/sbin/restorecon'):
++    return redhat.restore_context(filepath, restorecon)
++
++def check_selinux_status(restorecon='/usr/sbin/restorecon'):
++    return redhat.check_selinux_status(restorecon)
++
++def backup_and_replace_hostname(fstore, statestore, hostname):
++    # Taken from Ubuntu
++    network_filename = "/etc/hostname"
++    # Backup original /etc/hostname
++    fstore.backup_file(network_filename)
++
++    # Write new configuration
++    f = open(network_filename, 'w')
++    f.write(hostname + "\n")
++    f.close()
++
++    try:
++        ipautil.run(['/bin/hostname', hostname])
++    except ipautil.CalledProcessError, e:
++        print >>sys.stderr, "Failed to set this machine hostname to %s (%s)." % (hostname, str(e))
++
++    # For SE Linux environments it is important to reset SE labels to the expected ones
++    try:
++        restore_context(network_filename)
++    except ipautil.CalledProcessError, e:
++        print >>sys.stderr, "Failed to set permissions for %s (%s)." % (network_filename, str(e))
++
++authconfig = ArchLinuxAuthConfig
++service = archlinux_service
++knownservices = ArchLinuxServices()
++backup_and_replace_hostname = backup_and_replace_hostname

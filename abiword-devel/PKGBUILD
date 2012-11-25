@@ -5,12 +5,12 @@
 _pkgname=abiword
 pkgname=$_pkgname-devel
 pkgver=2.9.3
-pkgrel=1
+pkgrel=2
 pkgdesc="A fully-featured word processor (development release)"
 arch=('i686' 'x86_64')
 license=('GPL')
 url="http://www.abisource.com"
-depends=('fribidi' 'wv' 'goffice-devel' 'librsvg' 'redland' 'evolution-data-server' 'desktop-file-utils')
+depends=('fribidi' 'wv' 'librsvg' 'redland' 'gtk3' 'enchant' 'desktop-file-utils')
 makedepends=('boost' 'libwpg' 'libwps' 'telepathy-glib' 'loudmouth' 'asio' 'psiconv' 'gtkmathview' 'libwmf' 'link-grammar' 'aiksaurus' 'libots')
 optdepends=('libwpg: wordperfect, wpg plugin'
             'libwps: wordperfect plugin'
@@ -40,7 +40,8 @@ build() {
 
   ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
               --disable-maintainer-mode --disable-static \
-              --enable-plugins --enable-clipart --enable-templates
+              --enable-plugins --enable-clipart --enable-templates \
+              --without-goffice --without-evolution-data-server
   make
 }
 

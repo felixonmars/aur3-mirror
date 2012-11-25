@@ -1,0 +1,323 @@
+Index: jss/security/jss/org/mozilla/jss/crypto/Algorithm.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/crypto/Algorithm.c	2012-02-18 12:35:05.000000000 +0200
++++ jss/security/jss/org/mozilla/jss/crypto/Algorithm.c	2012-02-18 12:40:31.899853750 +0200
+@@ -114,6 +114,9 @@
+ /* 51 */    {SEC_OID_HMAC_SHA384, SEC_OID_TAG},
+ /* 52 */    {SEC_OID_HMAC_SHA512, SEC_OID_TAG},
+ /* 53 */    {SEC_OID_ANSIX962_ECDSA_SIGNATURE_SPECIFIED_DIGEST, SEC_OID_TAG},
++/* 54 */    {SEC_OID_PKCS5_PBKDF2, SEC_OID_TAG},
++/* 55 */    {SEC_OID_PKCS5_PBES2, SEC_OID_TAG},
++/* 56 */    {SEC_OID_PKCS5_PBMAC1, SEC_OID_TAG},
+ /* REMEMBER TO UPDATE NUM_ALGS!!! */
+ };
+ 
+Index: jss/security/jss/org/mozilla/jss/crypto/Algorithm.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/crypto/Algorithm.java	2012-02-18 12:35:05.000000000 +0200
++++ jss/security/jss/org/mozilla/jss/crypto/Algorithm.java	2012-02-18 12:42:14.002917182 +0200
+@@ -237,5 +237,8 @@
+     protected static final short SEC_OID_HMAC_SHA384=51;
+     protected static final short SEC_OID_HMAC_SHA512=52;
+     protected static final short SEC_OID_ANSIX962_ECDSA_SIGNATURE_SPECIFIED_DIGEST=53;
++    protected static final short SEC_OID_PKCS5_PBKDF2=54;
++    protected static final short SEC_OID_PKCS5_PBES2=55;
++    protected static final short SEC_OID_PKCS5_PBMAC1=56;
+ 
+ }
+Index: jss/security/jss/org/mozilla/jss/crypto/PBEAlgorithm.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/crypto/PBEAlgorithm.java	2011-10-05 00:41:22.000000000 +0300
++++ jss/security/jss/org/mozilla/jss/crypto/PBEAlgorithm.java	2012-02-18 12:39:53.438699572 +0200
+@@ -93,6 +93,27 @@
+     ///////////////////////////////////////////////////////////////////////
+ 
+     //////////////////////////////////////////////////////////////
++    // PKCS 5 v2
++    public static final PBEAlgorithm
++    PBE_PKCS5_PBKDF2 = new PBEAlgorithm(
++        SEC_OID_PKCS5_PBKDF2, "PBKDF2", 128,
++            PKCS5.subBranch(12), EncryptionAlgorithm.AES_128_CBC, 8 );
++
++    //////////////////////////////////////////////////////////////
++    // PKCS 5 v2
++    public static final PBEAlgorithm
++    PBE_PKCS5_PBES2 = new PBEAlgorithm(
++        SEC_OID_PKCS5_PBES2, "PBES2", 128,
++            PKCS5.subBranch(13), EncryptionAlgorithm.AES_128_CBC, 8 );
++
++    //////////////////////////////////////////////////////////////
++    // PKCS 5 v2
++    public static final PBEAlgorithm
++    PBE_PKCS5_PBMAC1 = new PBEAlgorithm(
++        SEC_OID_PKCS5_PBMAC1, "PBMAC1", 128,
++            PKCS5.subBranch(14), EncryptionAlgorithm.AES_128_CBC, 8 );
++
++    //////////////////////////////////////////////////////////////
+     public static final PBEAlgorithm
+     PBE_MD2_DES_CBC = new PBEAlgorithm(
+         SEC_OID_PKCS5_PBE_WITH_MD2_AND_DES_CBC, "PBE/MD2/DES/CBC", 56,
+Index: jss/security/jss/org/mozilla/jss/pkcs11/PK11KeyGenerator.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/pkcs11/PK11KeyGenerator.c	2012-02-18 12:35:05.774087090 +0200
++++ jss/security/jss/org/mozilla/jss/pkcs11/PK11KeyGenerator.c	2012-02-18 12:39:53.438699572 +0200
+@@ -313,7 +313,6 @@
+     }
+     /* print_secitem(pwitem); */
+ 
+-
+     mech = JSS_getPK11MechFromAlg(env, alg);
+ 
+     if( mech == CKM_PBA_SHA1_WITH_SHA1_HMAC ) {
+@@ -333,7 +332,14 @@
+         PR_ASSERT(oidTag != SEC_OID_UNKNOWN);
+ 
+         /* create algid */
+-        algid = PK11_CreatePBEAlgorithmID(oidTag, iterationCount, salt);
++        algid = PK11_CreatePBEV2AlgorithmID(
++            oidTag,
++            SEC_OID_DES_EDE3_CBC,
++            SEC_OID_HMAC_SHA1,
++            168/8,
++            iterationCount,
++            salt);
++
+         if( algid == NULL ) {
+             JSS_throwMsg(env, TOKEN_EXCEPTION,
+                     "Unable to process PBE parameters");
+Index: jss/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c	2012-02-18 12:35:05.000000000 +0200
++++ jss/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c	2012-02-18 12:39:53.438699572 +0200
+@@ -324,14 +324,34 @@
+     SECItem *wrapped=NULL, *iv=NULL, *param=NULL, *pubValue=NULL;
+     SECItem label; /* empty secitem, doesn't need to be freed */
+     PRBool token;
+-    CK_ATTRIBUTE_TYPE attribs[4];
+-    int numAttribs;
++    CK_ATTRIBUTE_TYPE attribs[4] = {0, 0, 0, 0};
++    int numAttribs = 0;
++    CK_TOKEN_INFO tokenInfo;
++
++    PRBool isSensitive = PR_TRUE;
++    PRBool isExtractable = PR_FALSE;
++    /* special case nethsm*/
++    CK_UTF8CHAR nethsmLabel[4] = {'N','H','S','M'};
++    PRBool isNethsm = PR_TRUE;
+ 
+     if( JSS_PK11_getTokenSlotPtr(env, tokenObj, &slot) != PR_SUCCESS) {
+         /* exception was thrown */
+         goto finish;
+     }
+ 
++    if ( PK11_GetTokenInfo(slot, &tokenInfo) == PR_SUCCESS) {
++        int ix = 0;
++        for(ix=0; ix < 4; ix++) {
++            if (tokenInfo.label[ix] != nethsmLabel[ix]) {
++               isNethsm = PR_FALSE;
++               break;
++            }
++        }
++
++    } else {
++        isNethsm = PR_FALSE;
++    }
++
+     /* get unwrapping key */
+     if( JSS_PK11_getSymKeyPtr(env, unwrapperObj, &unwrappingKey)
+             != PR_SUCCESS) {
+@@ -392,14 +412,24 @@
+     }
+     keyType = PK11_GetKeyType(keyTypeMech, 0);
+ 
++    if( isNethsm ) {
++        isSensitive = PR_FALSE;
++        isExtractable = PR_FALSE;
++    }
++
++setAttrs:
+     /* figure out which operations to enable for this key */
+     switch (keyType) {
+     case CKK_RSA:
+         attribs[0] = CKA_SIGN;
+-        attribs[1] = CKA_DECRYPT;
+-        attribs[2] = CKA_SIGN_RECOVER;
+-        attribs[3] = CKA_UNWRAP;
+-        numAttribs = 4;
++        attribs[1] = CKA_SIGN_RECOVER;
++        attribs[2] = CKA_UNWRAP;
++        if (isExtractable) {
++            attribs[3] = CKA_EXTRACTABLE;
++            numAttribs = 4;
++        } else {
++            numAttribs = 3;
++        }
+ 	break;
+     case CKK_DSA:
+         attribs[0] = CKA_SIGN;
+@@ -426,7 +456,7 @@
+ 
+     /* perform the unwrap */
+     privk = PK11_UnwrapPrivKey(slot, unwrappingKey, wrapType, param, wrapped,
+-                &label, pubValue, token, PR_TRUE /*sensitive*/, keyType,
++                &label, pubValue, token, isSensitive /*sensitive*/, keyType,
+                 attribs, numAttribs, NULL /*wincx*/);
+     if( privk == NULL ) {
+         JSS_throwMsg(env, TOKEN_EXCEPTION, "Key Unwrap failed on token");
+Index: jss/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java	2011-10-05 00:41:22.000000000 +0300
++++ jss/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java	2012-02-18 12:39:53.438699572 +0200
+@@ -190,21 +190,23 @@
+         if( key==null ) {
+             throw new InvalidKeyException("Key is null");
+         }
+-        if( ! key.getOwningToken().equals(token) ) {
+-            throw new InvalidKeyException("Key does not reside on the "+
+-                "current token");
+-        }
+-        if( ! (key instanceof PK11SymKey) ) {
+-            throw new InvalidKeyException("Key is not a PKCS #11 key");
+-        }
+         try {
++            if( ! key.getOwningToken().equals(token) ) {
++                throw new InvalidKeyException("Key does not reside on the current token: key owning token="+
++                    key.getOwningToken().getName());
++            }
++            if( ! (key instanceof PK11SymKey) ) {
++                throw new InvalidKeyException("Key is not a PKCS #11 key");
++            }
+             if( ((PK11SymKey)key).getKeyType() !=
+-                    KeyType.getKeyTypeFromAlgorithm(algorithm) ) {
+-                throw new InvalidKeyException("Key is not the right type for"+
++                KeyType.getKeyTypeFromAlgorithm(algorithm) ) {
++                    throw new InvalidKeyException("Key is not the right type for"+
+                     " this algorithm");
+             }
+         } catch( NoSuchAlgorithmException e ) {
+             Assert.notReached("Unknown algorithm");
++        } catch (Exception e) {
++            Assert.notReached("Exception:"+ e.toString());
+         }
+     }
+ 
+Index: jss/security/jss/org/mozilla/jss/pkcs11/PK11Token.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/pkcs11/PK11Token.java	2012-02-18 12:35:05.000000000 +0200
++++ jss/security/jss/org/mozilla/jss/pkcs11/PK11Token.java	2012-02-18 12:39:53.438699572 +0200
+@@ -106,10 +106,13 @@
+     getKeyGenerator(KeyGenAlgorithm algorithm)
+         throws NoSuchAlgorithmException, TokenException
+     {
++/* NSS is capable of finding the right token to do algorithm,
++   so this call is prematurely bailing
+         if( ! doesAlgorithm(algorithm) ) {
+             throw new NoSuchAlgorithmException(
+                 algorithm+" is not supported by this token");
+         }
++*/
+         return new PK11KeyGenerator(this, algorithm);
+     }
+ 
+Index: jss/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java	2011-10-05 00:41:22.000000000 +0300
++++ jss/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java	2012-02-18 12:39:53.438699572 +0200
+@@ -43,6 +43,7 @@
+ import java.security.*;
+ import org.mozilla.jss.CryptoManager;
+ import org.mozilla.jss.util.Password;
++import org.mozilla.jss.crypto.PrivateKey;
+ import java.security.spec.AlgorithmParameterSpec;
+ 
+ /**
+@@ -184,6 +185,89 @@
+       return null;
+     }
+ 
++
++    /**
++     * Creates a new EncryptedPrivateKeyInfo, where the data is encrypted
++     * with a password-based key- 
++     *       with wrapping/unwrapping happening on token.
++     *
++     * @param keyGenAlg The algorithm for generating a symmetric key from
++     *      a password, salt, and iteration count.
++     * @param password The password to use in generating the key.
++     * @param salt The salt to use in generating the key.
++     * @param iterationCount The number of hashing iterations to perform
++     *      while generating the key.
++     * @param charToByteConverter The mechanism for converting the characters
++     *      in the password into bytes.  If null, the default mechanism
++     *      will be used, which is UTF8.
++     * @param pri The PrivateKey to be encrypted and stored in the
++     *      EncryptedContentInfo.
++     */
++    public static EncryptedPrivateKeyInfo
++    createPBE(PBEAlgorithm keyGenAlg, Password password, byte[] salt,
++            int iterationCount,
++            KeyGenerator.CharToByteConverter charToByteConverter,
++            PrivateKey pri, CryptoToken token)
++        throws CryptoManager.NotInitializedException, NoSuchAlgorithmException,
++        InvalidKeyException, InvalidAlgorithmParameterException, TokenException,
++        CharConversionException
++    {
++      try {
++
++        // check key gen algorithm
++
++        if( ! (keyGenAlg instanceof PBEAlgorithm) ) {
++            throw new NoSuchAlgorithmException("Key generation algorithm"+
++                " is not a PBE algorithm");
++        }
++
++        PBEAlgorithm pbeAlg = (PBEAlgorithm) keyGenAlg;
++
++        // generate key
++
++        KeyGenerator kg = token.getKeyGenerator( keyGenAlg );
++        PBEKeyGenParams pbekgParams = new PBEKeyGenParams(
++            password, salt, iterationCount);
++        if( charToByteConverter != null ) {
++            kg.setCharToByteConverter( charToByteConverter );
++        }
++        kg.initialize(pbekgParams);
++        kg.temporaryKeys(true);
++        SymmetricKey key = kg.generate();
++
++        // generate IV
++        EncryptionAlgorithm encAlg = pbeAlg.getEncryptionAlg();
++        AlgorithmParameterSpec params=null;
++        if( encAlg.getParameterClass().equals( IVParameterSpec.class ) ) {
++            params = new IVParameterSpec( kg.generatePBE_IV() );
++        }
++
++        KeyWrapper wrapper = token.getKeyWrapper(
++                KeyWrapAlgorithm.DES3_CBC);
++        wrapper.initWrap(key, params);
++        byte encrypted[] = wrapper.wrap(pri);
++
++        // make encryption algorithm identifier
++        PBEParameter pbeParam = new PBEParameter( salt, iterationCount );
++        AlgorithmIdentifier encAlgID = new AlgorithmIdentifier(
++                keyGenAlg.toOID(), pbeParam);
++
++        // create EncryptedPrivateKeyInfo
++        EncryptedPrivateKeyInfo epki = new EncryptedPrivateKeyInfo (
++                encAlgID,
++                new OCTET_STRING(encrypted) );
++
++        return epki;
++
++      } catch (Exception e) {
++        Assert.notReached("EncryptedPrivateKeyInfo exception:"
++            +".createPBE");
++      }
++
++      return null;
++    }
++
++
+     /**
+      * Decrypts an EncryptedPrivateKeyInfo that was encrypted with a PBE
+      *  algorithm.  The algorithm and its parameters are extracted from

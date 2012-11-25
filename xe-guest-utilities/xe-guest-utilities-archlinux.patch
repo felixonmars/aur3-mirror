@@ -1,6 +1,6 @@
-diff -uNr src.orig//etc/init.d/xe-linux-distribution src/etc/init.d/xe-linux-distribution
---- src.orig//etc/init.d/xe-linux-distribution	2010-05-20 13:19:02.000000000 +0200
-+++ src/etc/init.d/xe-linux-distribution	2010-10-04 14:45:11.000000000 +0200
+diff -uNr src.orig/etc/init.d/xe-linux-distribution src/etc/init.d/xe-linux-distribution
+--- src.orig/etc/init.d/xe-linux-distribution	2012-09-25 12:45:14.000000000 +0200
++++ src/etc/init.d/xe-linux-distribution	2012-11-21 14:03:04.000000000 +0100
 @@ -18,24 +18,8 @@
  LANG="C"
  export LANG
@@ -100,21 +100,138 @@ diff -uNr src.orig//etc/init.d/xe-linux-distribution src/etc/init.d/xe-linux-dis
 +    fi
  }
  
- # fail silently if not running xen
-@@ -91,7 +99,7 @@
-   stop)
- 	stop
+ status()
+@@ -99,7 +107,7 @@
+   status)
+ 	status
  	;;
 -  force-reload|restart)
 +  restart)
  	stop
  	start
  	;;
-diff -uNr src.orig//usr/sbin/xe-linux-distribution src/usr/sbin/xe-linux-distribution
---- src.orig//usr/sbin/xe-linux-distribution	2010-05-20 13:19:02.000000000 +0200
-+++ src/usr/sbin/xe-linux-distribution	2010-10-04 14:44:37.000000000 +0200
-@@ -51,6 +51,22 @@
-     return 0
+diff -uNr src.orig/etc/init.d/xe-linux-distribution.orig src/etc/init.d/xe-linux-distribution.orig
+--- src.orig/etc/init.d/xe-linux-distribution.orig	1970-01-01 01:00:00.000000000 +0100
++++ src/etc/init.d/xe-linux-distribution.orig	2012-09-25 12:45:14.000000000 +0200
+@@ -0,0 +1,113 @@
++#!/bin/bash
++#
++# xe-linux-distribution	Write Linux distribution information to XenStore.
++#
++# chkconfig: 2345 14 86
++# description: Writes Linux distribution version information to XenStore.
++#
++### BEGIN INIT INFO
++# Provides:          XenServer Virtual Machine Tools
++# Required-Start:    $local_fs
++# Required-Stop:     $local_fs
++# Default-Start:     2 3 4 5
++# Default-Stop:      0 1 6
++# Short-Description: XenServer Virtual Machine daemon providing host integration services
++# Description:       Writes Linux distribution version information to XenStore.
++### END INIT INFO
++
++LANG="C"
++export LANG
++
++if [ -f /etc/init.d/functions ] ; then
++. /etc/init.d/functions
++else
++action()
++{
++    descr=$1 ; shift
++    cmd=$@
++    echo -n "$descr "
++    $cmd
++    ret=$?
++    if [ $ret -eq 0 ] ; then
++	echo "OK"
++    else
++	echo "Failed"
++    fi
++    return $ret
++}
++fi
++
++XE_LINUX_DISTRIBUTION=/usr/sbin/xe-linux-distribution
++XE_LINUX_DISTRIBUTION_CACHE=/var/cache/xe-linux-distribution
++XE_DAEMON=/usr/sbin/xe-daemon
++XE_DAEMON_PIDFILE=/var/run/xe-daemon.pid
++
++if [ ! -x "${XE_LINUX_DISTRIBUTION}" ] ; then
++    exit 0
++fi
++
++start()
++{
++    if [ ! -e /proc/xen/xenbus ] ; then
++	if [ ! -d /proc/xen ] ; then
++	    action $"Mounting xenfs on /proc/xen:" /bin/false
++	    echo "Could not find /proc/xen directory."
++	    echo "You need a post 2.6.29-rc1 kernel with CONFIG_XEN_COMPAT_XENFS=y and CONFIG_XENFS=y|m"
++	    exit 1
++	else 
++	    # This is needed post 2.6.29-rc1 when /proc/xen support was pushed upstream as a xen filesystem
++	    action $"Mounting xenfs on /proc/xen:" mount -t xenfs none /proc/xen
++	fi
++    fi
++
++    if [ -e /proc/xen/capabilities ] && grep -q control_d /proc/xen/capabilities ; then
++	# Do not want daemon in domain 0
++	exit 0
++    fi
++
++    action $"Detecting Linux distribution version:" \
++	${XE_LINUX_DISTRIBUTION} ${XE_LINUX_DISTRIBUTION_CACHE}
++
++    action $"Starting xe daemon: " /bin/true
++    mkdir -p $(dirname ${XE_DAEMON_PIDFILE})
++    # This is equivalent to daemon() in C
++    ( exec &>/dev/null ; ${XE_DAEMON} -p ${XE_DAEMON_PIDFILE} & )
++}
++
++stop()
++{
++    action $"Stopping xe daemon: "   kill -TERM $(cat ${XE_DAEMON_PIDFILE})
++}
++
++status()
++{
++    cat ${XE_LINUX_DISTRIBUTION_CACHE}
++}
++
++# fail silently if not running xen
++if [ ! -d /proc/xen ]; then
++   exit
++fi
++
++case "$1" in
++  start)
++        start
++        ;;
++  stop)
++	stop
++	;;
++  status)
++	status
++	;;
++  force-reload|restart)
++	stop
++	start
++	;;
++  *)
++        # do not advertise unreasonable commands that there is no reason
++        # to use with this device
++        echo $"Usage: $0 start|restart|status"
++        exit 1
++esac
++
++exit $?
+diff -uNr src.orig/usr/sbin/xe-linux-distribution src/usr/sbin/xe-linux-distribution
+--- src.orig/usr/sbin/xe-linux-distribution	2012-09-25 12:45:14.000000000 +0200
++++ src/usr/sbin/xe-linux-distribution	2012-11-21 14:02:31.000000000 +0100
+@@ -254,6 +254,21 @@
+     write_to_output "${distro}" "${major}" "${minor}" "${description}"
  }
  
 +identify_archlinux()
@@ -122,21 +239,20 @@ diff -uNr src.orig//usr/sbin/xe-linux-distribution src/usr/sbin/xe-linux-distrib
 +    local archlinux_version="$1"
 +    local major
 +    local minor
-+    
++
 +    if [ ! -f "${archlinux_version}" ] ; then
-+	return 1
++        return 1
 +    fi
 +
 +    eval $(LC_ALL=C pacman -Qi initscripts |grep Version |sed "s/^.*: //" | \
-+	    awk -F. '{print "major="$1 ; print "minor="$2 ; exit 0 }' )
++        awk -F. '{print "major="$1 ; print "minor="$2 ; exit 0 }' )
 +    write_to_output "archlinux" "${major}" "${minor}" "Arch Linux ${major}.${minor}"
-+    
 +}
 +
- identify_debian()
- {
-     local debian_version="$1"
-@@ -258,6 +274,7 @@
+ if [ $# -eq 1 ] ; then
+     exec 1>"$1"
+ fi
+@@ -265,6 +280,7 @@
      identify_sles   /etc/SuSE-release   && exit 0
      identify_lsb    lsb_release         && exit 0
      identify_debian /etc/debian_version && exit 0

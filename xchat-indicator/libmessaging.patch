@@ -1,0 +1,528 @@
+=== modified file 'xchat-indicator/configure.ac'
+--- xchat-indicator/configure.ac	2012-06-12 14:51:50 +0000
++++ xchat-indicator/configure.ac	2012-08-27 17:31:43 +0000
+@@ -11,7 +11,6 @@
+ 
+ GLIB_REQUIRED=2.18.0
+ GTK_REQUIRED=2.14.0
+-LIBINDICATE_REQUIRED=0.6.90
+ UNITY_REQUIRED=3.4.0
+ 
+ AC_PROG_CC
+@@ -34,8 +33,8 @@
+ 
+ # Hard dependencies
+ PKG_CHECK_MODULES([DEPENDENCIES], [
+-                  indicate-0.7 >= $LIBINDICATE_REQUIRED
+                   gtk+-2.0 >= $GTK_REQUIRED
++                  messaging-menu
+                   ])
+ AC_SUBST([DEPENDENCIES_CFLAGS])
+ AC_SUBST([DEPENDENCIES_LIBS])
+
+=== modified file 'xchat-indicator/indicator.c'
+--- xchat-indicator/indicator.c	2012-06-12 08:12:19 +0000
++++ xchat-indicator/indicator.c	2012-08-30 11:13:40 +0000
+@@ -2,7 +2,7 @@
+  * indicator.c - xchat plugin to support the Messaging Indicator
+  *
+  * Copyright (C) 2009 Scott Parkerson <scott.parkerson@gmail.com>
+- * Copyright (C) 2009-2011 Canonical Ltd.
++ * Copyright (C) 2009-2012 Canonical Ltd.
+  *
+  * This program is free software; you can redistribute it and/or
+  * modify it under the terms of the GNU General Public License
+@@ -21,9 +21,7 @@
+  */
+ 
+ #include <config.h>
+-#include <libindicate/server.h>
+-#include <libindicate/indicator-messages.h>
+-#include <libindicate/indicator.h>
++#include <messaging-menu.h>
+ #include <string.h>
+ #include <glib/gi18n.h>
+ #include <gtk/gtk.h>
+@@ -40,8 +38,7 @@
+ int  xchat_plugin_deinit     (void);
+ 
+ static xchat_plugin	*ph;
+-static GHashTable	*indicators = NULL;
+-static IndicateServer	*indicate_server = NULL;
++static MessagingMenuApp *mmapp;
+ #ifdef HAVE_UNITY
+ static UnityLauncherEntry	*launcher = NULL;
+ #endif
+@@ -54,41 +51,43 @@
+ static GtkWindow	*win;
+ static gchar		*focused;
+ static gboolean		run = FALSE;
+-static void hide_indicator (const gchar *channel, gpointer indicator, gpointer data);
+-static void remove_indicator (const gchar *channel, gpointer indicator);
+-static void add_indicator (const gchar *channel);
++static gint count = 0;
++static void remove_indsource (gchar *sourceid);
++static void add_indsource (gchar *sourceid);
+ static void really_activate_window (GtkWindow *win);
+ gboolean focus_win_cb (GtkWindow *win,  GParamSpec *pspec, gpointer data);
+-
++static xchat_context *stored_ctx = NULL;
+ 
+ static void
+-indicator_display (gpointer indicator, guint timestamp, const gchar *channel)
++source_display (MessagingMenuApp *mmapp,
++				const gchar *channel,
++				gpointer user_data)
+ {
+ 	GtkWindow *win;
+ 
+-        if (channel) {
+-		xchat_context *current_ctx;
+-		current_ctx = xchat_get_context(ph);
+-		xchat_context *ctx;
+-		ctx = xchat_find_context (ph, NULL, channel);
+-                /*
+-		g_debug ("INDICATOR: Changing to channel %s", channel);
+-		*/
+-		win = (GtkWindow *)xchat_get_info (ph, "win_ptr");
+-		if (xchat_set_context (ph, ctx)) {
++		if (channel) {
++			xchat_context *current_ctx;
++			current_ctx = xchat_get_context(ph);
++			xchat_context *ctx;
++			ctx = xchat_find_context (ph, NULL, channel);
+ 			/*
+-			g_debug ("xchat-indicator: Showing window");
++			g_debug ("INDICATOR: Changing to channel %s", channel);
+ 			*/
+-			xchat_command (ph, "GUI SHOW");
+-			xchat_command (ph, "GUI FOCUS");
+-			gtk_widget_show (GTK_WIDGET (win));
+-			really_activate_window (GTK_WINDOW (win));
+-			/* gtk_window_present_with_time(GTK_WINDOW (win), timestamp); */
++			win = (GtkWindow *)xchat_get_info (ph, "win_ptr");
++			if (xchat_set_context (ph, ctx)) {
++				/*
++				g_debug ("xchat-indicator: Showing window");
++				*/
++				xchat_command (ph, "GUI SHOW");
++				xchat_command (ph, "GUI FOCUS");
++				gtk_widget_show (GTK_WIDGET (win));
++				really_activate_window (GTK_WINDOW (win));
++				/* gtk_window_present_with_time(GTK_WINDOW (win), timestamp); */
+ 		} else {
+ 			g_warning ("xchat-indicator: context change fail");
+ 		}
+-		if (indicator != NULL) {
+-			remove_indicator (channel, indicator);
++		if (channel != NULL) {
++			remove_indsource (channel);
+ 		}
+ 		xchat_set_context (ph, current_ctx);
+ 	}
+@@ -98,51 +97,17 @@
+ }
+ 
+ static void
+-server_display (IndicateServer * indicate_server, guint timestamp, gpointer data)
+-{
+-	GtkWindow *win = (GtkWindow *)xchat_get_info (ph, "win_ptr");
+-        really_activate_window (GTK_WINDOW (win));
+-	xchat_command (ph, "GUI SHOW");
+-	/* gtk_window_present_with_time(GTK_WINDOW (win), timestamp); */
+-	/*
+-	g_debug ("xchat-indicator: Showing the window");
+-	*/
+-        /* XXX: Should clear all indicators */
+-}
+-
+-static void
+-hide_indicator (const gchar *channel, gpointer indicator, gpointer data)
+-{
+-	/*
+-	g_debug ("xchat-indicator: hiding indicator");
+-	*/
+-	indicate_indicator_hide (INDICATE_INDICATOR (indicator));
+-}
+-
+-static void
+-remove_indicator (const gchar *channel, gpointer indicator)
+-{
+-	gpointer orig_channel, orig_indicator;
+-
+-	if (g_hash_table_lookup_extended (indicators, channel,
+-				&orig_channel, &orig_indicator)
+-			&& orig_indicator == indicator)
++remove_indsource (gchar *channel)
++{
++	count = count - 1;
++	messaging_menu_app_remove_source (MESSAGING_MENU_APP (mmapp), channel);
++
++#ifdef HAVE_UNITY
++	if (launcher == NULL) 
+ 	{
+-		/*
+-		g_debug ("xchat-indicator: removing indicator for channel %s", channel);
+-		*/
+-		indicate_indicator_hide (INDICATE_INDICATOR (indicator));
+-		g_hash_table_remove (indicators, channel);
+-		g_object_unref (indicator);
+-		g_free (orig_channel);
++		return;
+ 	}
+-#ifdef HAVE_UNITY
+-        if (launcher == NULL)
+-        {
+-                return;
+-        }
+ 
+-	gint count = g_hash_table_size (indicators);
+ 	/*
+ 	g_debug ("LAUNCHER: count is %d", count);
+ 	*/
+@@ -164,35 +129,28 @@
+ }
+ 
+ static void
+-update_indicator (gpointer indicator)
++update_indicator (gchar *sourceid)
+ {
+-	GTimeVal time;
+-	if (indicator != NULL)
++	if (sourceid != NULL)
+ 	{
+ 		/*
+ 		g_debug ("xchat-indicator: found existing indicator");
+ 		*/
+-		g_get_current_time (&time);
+-		indicate_indicator_set_property_time (INDICATE_INDICATOR (indicator),
+-			"time", &time);
++		messaging_menu_app_set_source_time (MESSAGING_MENU_APP (mmapp),
++			sourceid,  g_get_real_time ());
+ 	}
+ 
+ }
+ 
+ static void
+-add_indicator (const gchar *channel)
++add_indsource (gchar *sourceid)
+ {
+-	IndicateIndicator *indicator = NULL;
+-	GTimeVal time;
+-	gpointer chan;
+-
+-	indicator = g_hash_table_lookup (indicators, channel);
+-	if (indicator != NULL) {
+-		update_indicator (indicator);
++	if (messaging_menu_app_has_source(MESSAGING_MENU_APP (mmapp), sourceid)) {
++		update_indicator (sourceid);
+ 		return;
+ 	}
+ 
+-        if (!run)
++	if (!run)
+ 	{
+ 		GtkWindow *win = (GtkWindow *)xchat_get_info (ph, "win_ptr");
+ 		if (GTK_IS_WINDOW (win))
+@@ -202,26 +160,9 @@
+ 		}
+ 	}
+ 
+-	indicator = indicate_indicator_new ();
+-	indicate_indicator_set_property (INDICATE_INDICATOR (indicator),
+-		"subtype", "im");
+-	indicate_indicator_set_property (INDICATE_INDICATOR (indicator),
+-		"sender", channel);
+-	indicate_indicator_set_property (INDICATE_INDICATOR (indicator),
+-		"draw-attention", "true");
+-
+-	chan = g_strdup (channel);
+-
+-	g_signal_connect (G_OBJECT (indicator),
+-		INDICATE_INDICATOR_SIGNAL_DISPLAY,
+-		G_CALLBACK (indicator_display), chan);
+-
+-	g_get_current_time (&time);
+-	indicate_indicator_set_property_time (INDICATE_INDICATOR (indicator),
+-		"time", &time);
+-	indicate_indicator_show (INDICATE_INDICATOR (indicator));
+-
+-	g_hash_table_insert(indicators, chan, indicator);
++	count = count + 1;
++	messaging_menu_app_append_source (MESSAGING_MENU_APP (mmapp), sourceid, NULL, sourceid);
++	messaging_menu_app_draw_attention (MESSAGING_MENU_APP (mmapp), sourceid);
+ 
+ #ifdef HAVE_UNITY
+ 	if (launcher == NULL)
+@@ -229,7 +170,6 @@
+ 		return;
+ 	}
+ 
+-	gint count = g_hash_table_size (indicators);
+ 	/*
+ 	g_debug ("LAUNCHER: count is %d", count);
+ 	*/
+@@ -244,26 +184,17 @@
+ static int
+ nick_change_cb (char *word[], void *data)
+ {
+-	gpointer indicator, key;
+-	gboolean indicator_present;
+-        xchat_context *ctx;
+ 	char *old_nick, *new_nick;
+ 
+ 	old_nick = word[1];
+ 	new_nick = word[2];
+ 
+-	indicator_present = g_hash_table_lookup_extended (indicators,
+-			old_nick, &key, &indicator);
+-
+-	if (!indicator_present)
+-		return XCHAT_EAT_NONE;
+-
+-	g_hash_table_remove (indicators, old_nick);
+-	g_free (key);
+-	key = g_strdup (new_nick);
+-	g_hash_table_insert (indicators, key, indicator);
+-	indicate_indicator_set_property (INDICATE_INDICATOR (indicator),
+-		"sender", new_nick);
++	/* TODO: libmessaging doesn't allow renaming a source, so removing
++	   the old nick one and adding a new entry, that reset the time though */
++	if (messaging_menu_app_has_source (MESSAGING_MENU_APP (mmapp), old_nick)) {
++		messaging_menu_app_remove_source (MESSAGING_MENU_APP (mmapp), old_nick);
++		messaging_menu_app_append_source (MESSAGING_MENU_APP (mmapp), new_nick, NULL, new_nick);
++	}
+ 
+ 	return XCHAT_EAT_NONE;
+ }
+@@ -271,46 +202,45 @@
+ static int
+ indicate_msg_cb (char *word[], gpointer data)
+ {
+-        GtkWindow *win;
+-        xchat_context *ctx;
+-        ctx = xchat_find_context (ph, NULL, word[2]);
+-        xchat_set_context (ph, ctx);
+-        const gchar *channel = xchat_get_info (ph, "channel");
+-        win = (GtkWindow *)xchat_get_info (ph, "win_ptr");
+-
++	GtkWindow *win;
++	xchat_context *ctx;
++	ctx = xchat_find_context (ph, NULL, word[2]);
++	xchat_set_context (ph, ctx);
++	gchar *channel = xchat_get_info (ph, "channel");
++	win = (GtkWindow *)xchat_get_info (ph, "win_ptr");
++	
+ 	if (focused == channel && GTK_WINDOW (win)->has_toplevel_focus)
+ 		return XCHAT_EAT_NONE;
+ 
+-	/*
+-	g_debug ("xchat-indicator: channel %s is not focused, adding indicator", channel);
+-	*/
+-	add_indicator (channel);
++	add_indsource (channel);
+ 	return XCHAT_EAT_NONE;
+ }
+ 
+ static int
+ focus_tab_cb (char *word[], gpointer data)
+ {
+-	gpointer indicator;
+-	const gchar *channel;
++	gchar *channel;
+ 	channel = xchat_get_info (ph, "channel");
+ 	/*
+ 	g_debug ("xchat-indicator: tab focused for channel %s", channel);
+ 	*/
+-        indicator = g_hash_table_lookup(indicators, channel);
+-	if (indicator != NULL) {
++	if (messaging_menu_app_has_source(MESSAGING_MENU_APP (mmapp), channel)) {
+ 		/*
+ 		g_debug ("xchat-indicator: found indicator for %s", channel);
+ 		*/
+-		remove_indicator (channel, indicator);
+-        }
++		remove_indsource (channel);
++	}
+ 	focused = channel;
+-        return XCHAT_EAT_NONE;
++	/* store context to workaround focus_win_cb issues */
++	stored_ctx =  xchat_get_context (ph);
++	return XCHAT_EAT_NONE;
+ }
+ 
+ gboolean
+ focus_win_cb (GtkWindow *win,  GParamSpec *pspec, gpointer data)
+ {
++	gchar *channel;
++
+ 	if (!GTK_WINDOW (win)->has_toplevel_focus)
+ 	{
+ 		return FALSE;
+@@ -318,20 +248,26 @@
+ 	/*
+ 	g_debug ("xchat-indicator: window focused");
+ 	*/
+-        gpointer indicator;
+-        const gchar *channel;
+-        channel = xchat_get_info (ph, "channel");
++	
++	/* restore the context of the previously focussed tab, not sure if xchat
++	   is buggy or doing it on purpose but it sets the current context, 
++	   when receiving a message, to the channel which received the event and
++	   doesn't change it back to the selected tab on focus events. 
++	   The focus_tab stored value should give us what we want though */
++	if (stored_ctx)
++		xchat_set_context (ph, stored_ctx);
++	
++	channel = xchat_get_info (ph, "channel");
+ 	/*
+-        g_debug ("xchat-indicator: tab focused for channel %s", channel);
++	g_debug ("xchat-indicator: tab focused for channel %s", channel);
+ 	*/
+-        indicator = g_hash_table_lookup(indicators, channel);
+-        if (indicator != NULL) {
++	if (messaging_menu_app_has_source(MESSAGING_MENU_APP (mmapp), channel)) {
+ 		/*
+-                g_debug ("xchat-indicator: found indicator for %s", channel);
++		g_debug ("xchat-indicator: found indicator for %s", channel);
+ 		*/
+-                remove_indicator (channel, indicator);
+-        }
+-        focused = channel;
++		remove_indsource (channel);
++	}
++	focused = channel;
+ 	return FALSE;
+ }
+ 
+@@ -339,35 +275,35 @@
+ static void
+ really_activate_window (GtkWindow *window)
+ {
+-        Screen *screen;
+-        Time    timestamp;
+-        XEvent  xev;
+-
+-        g_return_if_fail (GTK_IS_WINDOW (window));
+-
+-        screen = GDK_SCREEN_XSCREEN (gtk_widget_get_screen (GTK_WIDGET (window)));
+-        timestamp = GDK_CURRENT_TIME;
+-
+-        xev.xclient.type = ClientMessage;
+-        xev.xclient.serial = 0;
+-        xev.xclient.send_event = True;
+-        xev.xclient.display = GDK_DISPLAY ();
+-        xev.xclient.window = GDK_WINDOW_XWINDOW (GTK_WIDGET (window)->window);
+-        xev.xclient.message_type = gdk_x11_get_xatom_by_name ("_NET_ACTIVE_WINDOW");
+-        xev.xclient.format = 32;
+-        xev.xclient.data.l[0] = 2; /* Pager client type */
+-        xev.xclient.data.l[1] = timestamp;
+-        xev.xclient.data.l[2] = 0;
+-        xev.xclient.data.l[3] = 0;
+-        xev.xclient.data.l[4] = 0;
+-
+-        gdk_error_trap_push ();
+-        XSendEvent (GDK_DISPLAY (),
+-                RootWindowOfScreen (screen),
+-                False,
+-                SubstructureRedirectMask | SubstructureNotifyMask,
+-                &xev);
+-        gdk_error_trap_pop ();
++	Screen *screen;
++	Time    timestamp;
++	XEvent  xev;
++
++	g_return_if_fail (GTK_IS_WINDOW (window));
++
++	screen = GDK_SCREEN_XSCREEN (gtk_widget_get_screen (GTK_WIDGET (window)));
++	timestamp = GDK_CURRENT_TIME;
++
++	xev.xclient.type = ClientMessage;
++	xev.xclient.serial = 0;
++	xev.xclient.send_event = True;
++	xev.xclient.display = GDK_DISPLAY ();
++	xev.xclient.window = GDK_WINDOW_XWINDOW (GTK_WIDGET (window)->window);
++	xev.xclient.message_type = gdk_x11_get_xatom_by_name ("_NET_ACTIVE_WINDOW");
++	xev.xclient.format = 32;
++	xev.xclient.data.l[0] = 2; /* Pager client type */
++	xev.xclient.data.l[1] = timestamp;
++	xev.xclient.data.l[2] = 0;
++	xev.xclient.data.l[3] = 0;
++	xev.xclient.data.l[4] = 0;
++
++	gdk_error_trap_push ();
++	XSendEvent (GDK_DISPLAY (),
++		RootWindowOfScreen (screen),
++		False,
++		SubstructureRedirectMask | SubstructureNotifyMask,
++		&xev);
++	gdk_error_trap_pop ();
+ }
+ 
+ void
+@@ -385,19 +321,10 @@
+ 
+ 	ph = plugin_handle;
+ 	const gchar *desktop_id = g_strconcat(g_get_prgname(), ".desktop", NULL);
+-	const gchar *desktop_file = g_strconcat("/usr/share/applications/", desktop_id, NULL);
+-
+-	indicate_server = indicate_server_ref_default ();
+-	indicate_server_set_type (indicate_server, "message.im");
+-
+-	indicate_server_set_desktop_file (indicate_server,
+-                desktop_file);
+-	indicate_server_show (indicate_server);
+-	indicators = g_hash_table_new(g_str_hash, g_str_equal);
+-
+-	g_signal_connect (G_OBJECT (indicate_server),
+-		INDICATE_SERVER_SIGNAL_SERVER_DISPLAY,
+-		G_CALLBACK (server_display), NULL);
++
++	mmapp = messaging_menu_app_new (desktop_id);
++	messaging_menu_app_register (MESSAGING_MENU_APP (mmapp));
++	g_signal_connect (mmapp, "activate-source", G_CALLBACK (source_display), NULL);
+ 
+ #ifdef HAVE_UNITY
+ 	launcher = unity_launcher_entry_get_for_desktop_id (desktop_id);
+@@ -413,8 +340,8 @@
+ 		XCHAT_PRI_NORM, indicate_msg_cb, NULL);
+ 	tab_focus = xchat_hook_print (ph, "Focus Tab",
+ 		XCHAT_PRI_NORM, focus_tab_cb, NULL);
+-        ch_nick = xchat_hook_print (ph, "Change Nick",
+-                XCHAT_PRI_NORM, nick_change_cb, NULL);
++	ch_nick = xchat_hook_print (ph, "Change Nick",
++		XCHAT_PRI_NORM, nick_change_cb, NULL);
+ 
+ 	xchat_print (ph,  (g_strjoin (" ", MESSAGING_INDICATOR_PLUGIN_NAME, MESSAGING_INDICATOR_PLUGIN_VERSION, _("plugin loaded."), NULL)));
+ 
+@@ -430,27 +357,7 @@
+ 	xchat_unhook (ph, pm_dialog);
+ 	xchat_unhook (ph, tab_focus);
+ 
+-
+-	/* XXX: Need to clear all indicators */
+-	GHashTableIter iter;
+-	gpointer channel, indicator;
+-
+-	g_hash_table_iter_init (&iter, indicators);
+-	while (g_hash_table_iter_next (&iter, &channel, &indicator)) {
+-		/*
+-		g_debug ("xchat-indicator: removing indicator for channel %p", channel);
+-		*/
+-		indicate_indicator_hide (INDICATE_INDICATOR (indicator));
+-		g_free (channel);
+-	}
+-
+-
+-	/* Kill the hash table */
+-	g_hash_table_destroy(indicators);
+-
+-	g_print ("xchat-indicator: Hiding the indicator server");
+-
+-	indicate_server_hide (indicate_server);
++	g_object_unref (mmapp);
+ 
+ 	xchat_print (ph,  (g_strjoin (" ", MESSAGING_INDICATOR_PLUGIN_NAME, MESSAGING_INDICATOR_PLUGIN_VERSION, _("plugin unloaded."), NULL)));
+ 
+

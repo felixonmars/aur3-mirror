@@ -1,3 +1,3 @@
 #!/bin/sh
 
-cd /opt/shairport && ./shairport.pl
+cd /opt/shairport && ./shairport.pl $1

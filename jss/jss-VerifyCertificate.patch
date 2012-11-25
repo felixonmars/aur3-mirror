@@ -1,0 +1,206 @@
+Index: jss/security/jss/lib/jss.def
+===================================================================
+--- jss.orig/security/jss/lib/jss.def	2011-10-04 21:18:14.642026259 +0300
++++ jss/security/jss/lib/jss.def	2011-10-04 21:18:14.674026260 +0300
+@@ -330,6 +330,7 @@
+ Java_org_mozilla_jss_pkcs11_PK11KeyPairGenerator_generateDSAKeyPairWithOpFlags;
+ Java_org_mozilla_jss_CryptoManager_OCSPCacheSettingsNative;
+ Java_org_mozilla_jss_CryptoManager_setOCSPTimeoutNative;
++Java_org_mozilla_jss_CryptoManager_verifyCertificateNowNative;
+ ;+    local:
+ ;+       *;
+ ;+};
+Index: jss/security/jss/org/mozilla/jss/CryptoManager.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/CryptoManager.java	2011-10-04 21:18:14.642026259 +0300
++++ jss/security/jss/org/mozilla/jss/CryptoManager.java	2011-10-04 21:18:14.674026260 +0300
+@@ -61,6 +61,7 @@
+ public final class CryptoManager implements TokenSupplier
+ {
+     /**
++     * note: this is obsolete in NSS
+      * CertUsage options for validation
+      */
+     public final static class CertUsage {
+@@ -103,6 +104,63 @@
+         public static final CertUsage AnyCA = new CertUsage(11, "AnyCA");
+     }
+ 
++    /**
++     * CertificateUsage options for validation
++     */
++    public final static class CertificateUsage {
++        private int usage;
++        private String name;
++
++        // certificateUsage, these must be kept in sync with nss/lib/certdb/certt.h
++        private static final int certificateUsageCheckAllUsages = 0x0000;
++        private static final int certificateUsageSSLClient = 0x0001;
++        private static final int certificateUsageSSLServer = 0x0002;
++        private static final int certificateUsageSSLServerWithStepUp = 0x0004;
++        private static final int certificateUsageSSLCA = 0x0008;
++        private static final int certificateUsageEmailSigner = 0x0010;
++        private static final int certificateUsageEmailRecipient = 0x0020;
++        private static final int certificateUsageObjectSigner = 0x0040;
++        private static final int certificateUsageUserCertImport = 0x0080;
++        private static final int certificateUsageVerifyCA = 0x0100;
++        private static final int certificateUsageProtectedObjectSigner = 0x0200;
++        private static final int certificateUsageStatusResponder = 0x0400;
++        private static final int certificateUsageAnyCA = 0x0800;
++
++        static private ArrayList list = new ArrayList();
++        private CertificateUsage() {};
++        private CertificateUsage(int usage, String name) {
++            this.usage = usage;
++            this.name =  name;
++            this.list.add(this);
++
++        }
++        public int getUsage() {
++            return usage;
++        }
++
++        static public Iterator getCertificateUsages() {
++            return list.iterator();
++
++        }
++        public String toString() {
++            return name;
++        }
++
++        public static final CertificateUsage CheckAllUsages = new CertificateUsage(certificateUsageCheckAllUsages, "CheckAllUsages");
++        public static final CertificateUsage SSLClient = new CertificateUsage(certificateUsageSSLClient, "SSLClient");
++        public static final CertificateUsage SSLServer = new CertificateUsage(certificateUsageSSLServer, "SSLServer");
++        public static final CertificateUsage SSLServerWithStepUp = new CertificateUsage(certificateUsageSSLServerWithStepUp, "SSLServerWithStepUp");
++        public static final CertificateUsage SSLCA = new CertificateUsage(certificateUsageSSLCA, "SSLCA");
++        public static final CertificateUsage EmailSigner = new CertificateUsage(certificateUsageEmailSigner, "EmailSigner");
++        public static final CertificateUsage EmailRecipient = new CertificateUsage(certificateUsageEmailRecipient, "EmailRecipient");
++        public static final CertificateUsage ObjectSigner = new CertificateUsage(certificateUsageObjectSigner, "ObjectSigner");
++        public static final CertificateUsage UserCertImport = new CertificateUsage(certificateUsageUserCertImport, "UserCertImport");
++        public static final CertificateUsage VerifyCA = new CertificateUsage(certificateUsageVerifyCA, "VerifyCA");
++        public static final CertificateUsage ProtectedObjectSigner = new CertificateUsage(certificateUsageProtectedObjectSigner, "ProtectedObjectSigner");
++        public static final CertificateUsage StatusResponder = new CertificateUsage(certificateUsageStatusResponder, "StatusResponder");
++        public static final CertificateUsage AnyCA = new CertificateUsage(certificateUsageAnyCA, "AnyCA");
++    }
++
+     public final static class NotInitializedException extends Exception {}
+     public final static class NicknameConflictException extends Exception {}
+     public final static class UserCertConflictException extends Exception {}
+@@ -1508,6 +1566,39 @@
+      * against Now.
+      * @param nickname The nickname of the certificate to verify.
+      * @param checkSig verify the signature of the certificate
++     * @param certificateUsage see exposed certificateUsage defines to verify Certificate; null will bypass usage check
++     * @return true for success; false otherwise
++     *
++     * @exception InvalidNicknameException If the nickname is null
++     * @exception ObjectNotFoundException If no certificate could be found
++     *      with the given nickname.
++     */
++
++    public boolean isCertValid(String nickname, boolean checkSig,
++            CertificateUsage certificateUsage)
++        throws ObjectNotFoundException, InvalidNicknameException
++    {
++        if (nickname==null) {
++            throw new InvalidNicknameException("Nickname must be non-null");
++        }
++        // 0 certificate usage was supposed to get current usage, however,
++        // it is not exposed at this point
++        return verifyCertificateNowNative(nickname,
++              checkSig,
++              (certificateUsage == null) ? 0:certificateUsage.getUsage());
++    }
++
++    private native boolean verifyCertificateNowNative(String nickname,
++        boolean checkSig, int certificateUsage) throws ObjectNotFoundException;
++
++    /**
++     * note: this method calls obsolete function in NSS
++     *
++     * Verify a certificate that exists in the given cert database,
++     * check if is valid and that we trust the issuer. Verify time
++     * against Now.
++     * @param nickname The nickname of the certificate to verify.
++     * @param checkSig verify the signature of the certificate
+      * @param certUsage see exposed certUsage defines to verify Certificate
+      * @return true for success; false otherwise
+      *
+@@ -1526,6 +1617,9 @@
+         return verifyCertNowNative(nickname, checkSig, certUsage.getUsage());
+     }
+ 
++    /*
++     * Obsolete in NSS
++     */
+     private native boolean verifyCertNowNative(String nickname,
+         boolean checkSig, int cUsage) throws ObjectNotFoundException;
+ 
+Index: jss/security/jss/org/mozilla/jss/PK11Finder.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/PK11Finder.c	2011-10-04 20:07:40.137891731 +0300
++++ jss/security/jss/org/mozilla/jss/PK11Finder.c	2011-10-04 21:18:14.674026260 +0300
+@@ -1575,11 +1575,62 @@
+ }
+ 
+ /***********************************************************************
+- * CryptoManager.verifyCertNowNative
++ * CryptoManager.verifyCertificateNowNative
+  *
+  * Returns JNI_TRUE if success, JNI_FALSE otherwise
+  */
+ JNIEXPORT jboolean JNICALL
++Java_org_mozilla_jss_CryptoManager_verifyCertificateNowNative(JNIEnv *env,
++        jobject self, jstring nickString, jboolean checkSig, jint required_certificateUsage)
++{
++    SECStatus         rv    = SECFailure;
++    SECCertificateUsage      certificateUsage;
++    SECCertificateUsage      currUsage;  /* unexposed for now */
++    CERTCertificate   *cert=NULL;
++    char *nickname=NULL;
++
++    nickname = (char *) (*env)->GetStringUTFChars(env, nickString, NULL);
++    if( nickname == NULL ) {
++         goto finish;
++    }
++
++    certificateUsage = required_certificateUsage;
++
++    cert = CERT_FindCertByNickname(CERT_GetDefaultCertDB(), nickname);
++
++    if (cert == NULL) {
++        JSS_throw(env, OBJECT_NOT_FOUND_EXCEPTION);
++        goto finish;
++    } else {
++    /* 0 for certificateUsage in call to CERT_VerifyCertificateNow to
++     * just get the current usage (which we are not passing back for now
++     * but will bypass the certificate usage check
++     */
++        rv = CERT_VerifyCertificateNow(CERT_GetDefaultCertDB(), cert,
++            checkSig, certificateUsage, NULL, &currUsage );
++    }
++
++finish:
++    if(nickname != NULL) {
++      (*env)->ReleaseStringUTFChars(env, nickString, nickname);
++    }
++    if(cert != NULL) {
++       CERT_DestroyCertificate(cert);
++    }
++    if( rv == SECSuccess) {
++        return JNI_TRUE;
++    } else {
++        return JNI_FALSE;
++    }
++}
++
++
++/***********************************************************************
++ * CryptoManager.verifyCertNowNative
++ * note: this calls obsolete NSS function
++ * Returns JNI_TRUE if success, JNI_FALSE otherwise
++ */
++JNIEXPORT jboolean JNICALL
+ Java_org_mozilla_jss_CryptoManager_verifyCertNowNative(JNIEnv *env,
+         jobject self, jstring nickString, jboolean checkSig, jint cUsage)
+ {

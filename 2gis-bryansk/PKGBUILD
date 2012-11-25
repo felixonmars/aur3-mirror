@@ -1,13 +1,13 @@
 pkgname=2gis-bryansk
-pkgver=8
+pkgver=9
 pkgrel=1
-pkgdesc="Map of Bryansk for 2GIS, October 2012"
+pkgdesc="Map of Bryansk for 2GIS, November 2012"
 arch=('i686' 'x86_64')
 url="http://bryansk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Bryansk-8.orig.zip")
-md5sums=('1b4a273c4fb6ad2969158b86b6b49344')
+source=("http://download.2gis.ru/arhives/2GISData_Bryansk-9.orig.zip")
+md5sums=('ffca6c670e34aed698f5ee6bfff27dc7')
 
 build() {
   cd $startdir

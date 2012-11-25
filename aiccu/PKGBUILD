@@ -1,8 +1,8 @@
 pkgname=aiccu
 pkgver=20070115
-pkgrel=8
+pkgrel=9
 pkgdesc="SixXS Automatic IPv6 Connectivity Client Utility - AICCU"
-arch=('i686' 'x86_64')
+arch=('i686' 'x86_64' 'armv7h' 'armv6h')
 url="http://www.sixxs.net/tools/aiccu/"
 license=('BSD')
 depends=('gnutls' 'iproute2')

@@ -1,0 +1,158 @@
+diff -up jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c.cfu jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c
+--- a/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c.cfu	2011-10-18 09:16:08.362000000 -0700
++++ b/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c	2011-10-19 17:55:01.162000000 -0700
+@@ -283,8 +283,9 @@ Java_org_mozilla_jss_pkcs11_PK11KeyWrapp
+     status = PK11_WrapPrivKey(slot, wrapping, toBeWrapped, mech, param,
+                 &wrapped, NULL /* wincx */ );
+     if(status != SECSuccess) {
+-        JSS_throwMsg(env, TOKEN_EXCEPTION,
+-                "Wrapping operation failed on token");
++        char err[256] = {0};
++        PR_snprintf(err, 256, "Wrapping operation failed on token:%d", PR_GetError());
++        JSS_throwMsg(env, TOKEN_EXCEPTION, err);
+         goto finish;
+     }
+     PR_ASSERT(wrapped.len>0 && wrapped.data!=NULL);
+@@ -328,11 +329,15 @@ Java_org_mozilla_jss_pkcs11_PK11KeyWrapp
+     int numAttribs = 0;
+     CK_TOKEN_INFO tokenInfo;
+ 
++    /* ideal defaults */
+     PRBool isSensitive = PR_TRUE;
+     PRBool isExtractable = PR_FALSE;
+-    /* special case nethsm*/
++
++    /* special case nethsm and lunasa*/
+     CK_UTF8CHAR nethsmLabel[4] = {'N','H','S','M'};
++    CK_UTF8CHAR lunasaLabel[4] = {'l','u','n','a'};
+     PRBool isNethsm = PR_TRUE;
++    PRBool isLunasa = PR_TRUE;
+ 
+     if( JSS_PK11_getTokenSlotPtr(env, tokenObj, &slot) != PR_SUCCESS) {
+         /* exception was thrown */
+@@ -347,9 +352,17 @@ Java_org_mozilla_jss_pkcs11_PK11KeyWrapp
+                break;
+             }
+         }
++        ix = 0;
++        for(ix=0; ix < 4; ix++) {
++            if (tokenInfo.label[ix] != lunasaLabel[ix]) {
++               isLunasa = PR_FALSE;
++               break;
++            }
++        }
+ 
+     } else {
+         isNethsm = PR_FALSE;
++        isLunasa = PR_FALSE;
+     }
+ 
+     /* get unwrapping key */
+@@ -412,23 +425,25 @@ Java_org_mozilla_jss_pkcs11_PK11KeyWrapp
+     }
+     keyType = PK11_GetKeyType(keyTypeMech, 0);
+ 
++    /* special case nethsm and lunasa*/
+     if( isNethsm ) {
+         isSensitive = PR_FALSE;
+         isExtractable = PR_FALSE;
++    } else if ( isLunasa) {
++        isSensitive = PR_FALSE;
++        isExtractable = PR_TRUE;
+     }
+ 
+-setAttrs:
+     /* figure out which operations to enable for this key */
+     switch (keyType) {
+     case CKK_RSA:
++        numAttribs = 3;
+         attribs[0] = CKA_SIGN;
+         attribs[1] = CKA_SIGN_RECOVER;
+         attribs[2] = CKA_UNWRAP;
+         if (isExtractable) {
+             attribs[3] = CKA_EXTRACTABLE;
+             numAttribs = 4;
+-        } else {
+-            numAttribs = 3;
+         }
+ 	break;
+     case CKK_DSA:
+@@ -459,7 +474,9 @@ setAttrs:
+                 &label, pubValue, token, isSensitive /*sensitive*/, keyType,
+                 attribs, numAttribs, NULL /*wincx*/);
+     if( privk == NULL ) {
+-        JSS_throwMsg(env, TOKEN_EXCEPTION, "Key Unwrap failed on token");
++        char err[256] = {0};
++        PR_snprintf(err, 256, "Key Unwrap failed on token:%d", PR_GetError());
++        JSS_throwMsg(env, TOKEN_EXCEPTION, err);
+         goto finish;
+     }
+                 
+diff -up jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java.cfu jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java
+--- a/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java.cfu	2011-10-18 15:29:50.597000000 -0700
++++ b/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java	2011-10-18 15:49:40.073000000 -0700
+@@ -322,10 +322,13 @@ final class PK11KeyWrapper implements Ke
+             throw new InvalidKeyException("key to be wrapped is not a "+
+                 "PKCS #11 key");
+         }
++/* NSS is capable of moving keys appropriately,
++   so this call is prematurely bailing
+         if( ! symKey.getOwningToken().equals(token) ) {
+             throw new InvalidKeyException("key to be wrapped does not live"+
+                 " on the same token as the wrapping key");
+         }
++*/
+     }
+ 
+     /**
+@@ -340,10 +343,13 @@ final class PK11KeyWrapper implements Ke
+             throw new InvalidKeyException("key to be wrapped is not a "+
+                 "PKCS #11 key");
+         }
++/* NSS is capable of moving keys appropriately,
++   so this call is prematurely bailing
+         if( ! privKey.getOwningToken().equals(token) ) {
+             throw new InvalidKeyException("key to be wrapped does not live"+
+                 " on the same token as the wrapping key");
+         }
++*/
+     }
+ 
+     /**
+diff -up jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkcs11/PK11Token.java.cfu jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkcs11/PK11Token.java
+--- a/security/jss/org/mozilla/jss/pkcs11/PK11Token.java.cfu	2011-10-18 14:34:32.148000000 -0700
++++ b/security/jss/org/mozilla/jss/pkcs11/PK11Token.java	2011-10-18 14:35:20.402000000 -0700
+@@ -135,10 +135,13 @@ public final class PK11Token implements 
+     getKeyWrapper(KeyWrapAlgorithm algorithm)
+         throws NoSuchAlgorithmException, TokenException
+     {
++/* NSS is capable of finding the right token to do algorithm,
++   so this call is prematurely bailing
+         if( ! doesAlgorithm(algorithm) ) {
+             throw new NoSuchAlgorithmException(
+                 algorithm+" is not supported by this token");
+         }
++*/
+         return new PK11KeyWrapper(this, algorithm);
+     }
+ 
+diff -up jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java.cfu jss-4.2.6/mozilla/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java
+--- a/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java.cfu	2011-10-18 09:24:13.796001000 -0700
++++ b/security/jss/org/mozilla/jss/pkix/primitive/EncryptedPrivateKeyInfo.java	2011-10-18 15:41:24.687000000 -0700
+@@ -243,7 +243,7 @@ public class EncryptedPrivateKeyInfo imp
+         }
+ 
+         KeyWrapper wrapper = token.getKeyWrapper(
+-                KeyWrapAlgorithm.DES3_CBC);
++                KeyWrapAlgorithm.DES3_CBC_PAD);
+         wrapper.initWrap(key, params);
+         byte encrypted[] = wrapper.wrap(pri);
+ 
+@@ -260,6 +260,7 @@ public class EncryptedPrivateKeyInfo imp
+         return epki;
+ 
+       } catch (Exception e) {
++        System.out.println("createPBE: exception:"+e.toString());
+         Assert.notReached("EncryptedPrivateKeyInfo exception:"
+             +".createPBE");
+       }

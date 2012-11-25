@@ -20,19 +20,21 @@
 #
 
 NAME='aurvote'
-VERSION=1.3
+VERSION=1.5
 
 TMPDIR=${TMPDIR:-/tmp}
 AV_TMP="$TMPDIR/aurvote-$USER"
 
-CONFIGFILE=${XDG_HOME_CONFIG:-~/.config}/aurvote
+CONFIGFILE=${XDG_CONFIG_HOME:-~/.config}/aurvote
 
 AUR_URL="https://aur.archlinux.org"
+AUR_URL_LOGIN="$AUR_URL/login/"
 AUR_URL_PKG_INFO="$AUR_URL/rpc.php"
-AUR_URL_PKG_PAGE="$AUR_URL/packages.php?setlang=en&ID="
+AUR_URL_PKG_PAGE="$AUR_URL/packages/"
 AUR_DOMAIN="aur.archlinux.org"
 AUR_COOKIE="AURSID"
 AUR_COOKIE_VALUE=""
+AUR_SETLANG="?setlang=en"
 
 
 version() {
@@ -78,39 +80,23 @@ aur_login() {
     if [[ ! $user || ! $pass ]]; then
         error "$CONFIGFILE must have user name and password. Run:\n$NAME --configure"
     fi
-    curl $CURL_OPT -fs -c "$COOKIE_FILE" "${args[@]}" -d "user=$user" \
-         --data-urlencode "passwd=$pass" "$AUR_URL" \
-         -o "$AV_TMP/login" || error "Unable to access $AUR_URL"
-    err=$(sed -ne "s/.*span class='error'>\([^<]*\)<.*/\1/p" "$AV_TMP/login")
+    curl $CURL_OPT -L -fs -c "$COOKIE_FILE" "${args[@]}" -d "user=$user" \
+         --data-urlencode "passwd=$pass" "$AUR_URL_LOGIN" \
+         -o "$AV_TMP/login" || error "Unable to access $AUR_URL_LOGIN"
+    err=$(sed -ne 's/.*ul class="errorlist"><li>\([^<]*\)<.*/\1/p' "$AV_TMP/login")
     [[ $err ]] && error "$err"
 }
 
-aur_ids() {
-    local args=()
-    set -- "${pkgnames[@]}"
-    while [[ $1 ]]; do
-        args+=(--data-urlencode "arg[]=$1")
-        shift
-    done
-    curl $CURL_OPT -fs -G -d type=multiinfo "${args[@]}" \
-         "$AUR_URL_PKG_INFO" -o "$AV_TMP/info.$PID" ||
-             error "Unable to get IDs"
-    pkgnames=($(grep -o '"ID":"[0-9]\+","Name":"[^"]\+"' "$AV_TMP/info.$PID" |
-        sed 's/^"ID":"\([0-9]\+\)","Name":"\([^"]\+\)"$/\2\/\1/'))
-}
-
 aur_check_vote() {
-    local pkg pkgname pkgid
+    local pkg
     for pkg in "${pkgnames[@]}"; do
-        pkgname=${pkg%%/*}
-        pkgid=${pkg##*/}
         curl $CURL_OPT -fs -b "$COOKIE_FILE" \
-             "${AUR_URL_PKG_PAGE}${pkgid}" \
-             -o "$AV_TMP/$pkgname.$PID" ||
-                 error "Unable to get $pkgname page"
-        if grep -q "type='submit' class='button' name='do_UnVote'" "$AV_TMP/$pkgname.$PID"; then
+             "${AUR_URL_PKG_PAGE}${pkg}${AUR_SETLANG}" \
+             -o "$AV_TMP/$pkg.$PID" ||
+                 error "Unable to get $pkg page"
+        if sed '/<div id="news">/q' "$AV_TMP/$pkg.$PID" | grep -q /unvote/; then
             echo "already voted"
-        elif grep -q "type='submit' class='button' name='do_Vote'" "$AV_TMP/$pkgname.$PID"; then
+        elif sed '/<div id="news">/q' "$AV_TMP/$pkg.$PID" | grep -q /vote/; then
             echo "not voted"
         else
             echo "voted status not found"
@@ -120,24 +106,24 @@ aur_check_vote() {
 
 
 aur_vote() {
-    local vote pkg pkgname pkgid
-    (($1)) && vote="do_Vote" || vote="do_UnVote"
+    local pkg
+    (($1)) && vote="/vote/" || vote="/unvote/"
     for pkg in "${pkgnames[@]}"; do
-        pkgname=${pkg%%/*}
-        pkgid=${pkg##*/}
         curl $CURL_OPT -fs -b "$COOKIE_FILE" \
-             -d "token=$AUR_COOKIE_VALUE&IDs[${pkgid}]=1&ID=${pkgid}&${vote}=1" \
-             "${AUR_URL_PKG_PAGE}${pkgid}" -o /dev/null
+             "${AUR_URL_PKG_PAGE}${pkg}${vote}" -o /dev/null
         if (($?)); then
-            echo "Error: Can't (un)vote for $pkgname"
+            echo "Error: Can't (un)vote for $pkg"
         else
-            echo "$pkgname : vote changed"
+            echo "$pkg : vote changed"
         fi
     done
 }
 
 create_config_file() {
-    local ans
+    local ans configdir=${CONFIGFILE%/*}
+	if [[ ! -d $configdir ]]; then
+		mkdir -p "$configdir" || error "Unable to create $configdir"
+	fi
     if [[ -f "$CONFIGFILE" ]]; then
         read -p "$CONFIGFILE exists. Replace ? [y/N] " ans
         [[ $ans != 'Y' && $ans != 'y' ]] && return 0
@@ -165,7 +151,6 @@ umask 077
 [[ -d "$AV_TMP" && -w "$AV_TMP" ]] || error "Cannot access to $AV_TMP"
 PID=$$
 ACTION="vote"
-IDMODE=0
 pkgnames=()
 CURL_OPT=""
 PERSIST=0
@@ -182,8 +167,7 @@ while [[ $1 ]]; do
         --configure)  ACTION="configure";;
         --vote|-v)    ACTION="vote";;
         --unvote|-u)  ACTION="unvote";;
-        # IDMODE is designed to be used with yaourt: aur -c --id packagename/aurid
-        --id)         IDMODE=1;; 
+        --id)         ;; # deprecated
         --insecure)   CURL_OPT+=" --insecure";; 
         -k)           PERSIST=1; shift; COOKIE_FILE="$1";;
         --*|-*)       usage; exit 1;;
@@ -198,11 +182,10 @@ if [[ $ACTION = "configure" ]]; then
 fi
 
 COOKIE_FILE=${COOKIE_FILE:-"$AV_TMP/cookies"}
-
+pkgnames=("${pkgnames[@]%/*}") # compatibility with yaourt <= 1.2.1
 [[ ! $pkgnames ]] && usage && exit 1
  
 aur_login
-((! IDMODE)) && aur_ids
 
 case "$ACTION" in
     check)  aur_check_vote;;

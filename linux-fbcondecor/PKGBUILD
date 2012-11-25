@@ -8,8 +8,8 @@
 # pkgname=('linux' 'linux-headers' 'linux-docs') # Build stock -ARCH kernel
 pkgname=linux-fbcondecor       # Build kernel with a different name
 _kernelname=${pkgname#linux}
-_basekernel=3.5
-pkgver=${_basekernel}.4
+_basekernel=3.6
+pkgver=${_basekernel}.6
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -23,20 +23,18 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.xz
         # standard config files for mkinitcpio ramdisk
         "${pkgname}.preset"
         'change-default-console-loglevel.patch'
-        'alsa-powersave-3.5.x.patch'
-        'watchdog-3.5.x.patch'
-        'i915-i2c-crash-3.5.x.patch')
+        'module-symbol-waiting-3.6.patch'
+        'module-init-wait-3.6.patch')
 
-md5sums=('24153eaaa81dedc9481ada8cd9c3b83d'
-         '4d34e5098b490670261b1aea71d26023'
+md5sums=('1a1760420eac802c541a20ab51a093d1'
+         '11d6d8749d4612a77f43f0531c0f2824'
          '35e0f780f02bef6b1e34b8cd36699332'
-         '19efdfb758e3ae40a0165ecc95d5cde9'
-         'a16ac1e201fc96efdfdd4ddc910d5c84'
+         'bd1f4c9a58cc6c37de7e6e19f740554e'
+         'ce9cb9c0bd6445eb74f1876100a15c06'
          'eb14dcfd80c00852ef81ded6e826826a'
          '9d3c56a4b999c8bfbd4018089a62f662'
-         'c1d58e712112cf8f95e7831012a1e67a'
-         'ae13ed1e92bba07e9b17cf5c8d89683c'
-         'ff4a203dd52e4dfb5d60948bb667d06d')
+         '670931649c60fcb3ef2e0119ed532bd4'
+         '8a71abc4224f575008f974a099b5cf6f')
 
 build() {
   cd "${srcdir}/linux-${_basekernel}"
@@ -48,18 +46,15 @@ build() {
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
 
-  # fix broken watchdog
-  # https://bugzilla.kernel.org/show_bug.cgi?id=44991
-  patch -Np1 -i "${srcdir}/watchdog-3.5.x.patch"
-
-  # fix i915 i2c crash
-  # https://bugzilla.kernel.org/show_bug.cgi?id=46381
-  patch -Np1 -i "${srcdir}/i915-i2c-crash-3.5.x.patch"
-
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
+
+  # fix module initialisation
+  # https://bugs.archlinux.org/task/32122
+  patch -Np1 -i "${srcdir}/module-symbol-waiting-3.6.patch"
+  patch -Np1 -i "${srcdir}/module-init-wait-3.6.patch"
 
   # add fbcondecor
   patch -Np1 -i ${srcdir}/fbcondecor-0.9.6-3.5-rc3.patch
@@ -72,13 +67,12 @@ build() {
 
   if [ "${_kernelname}" != "" ]; then
     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
+	sed -i "s|CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" ./.config
   fi
-
   # set extraversion to pkgrel
-  sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
-
+   sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
   # don't run depmod on 'make install'. We'll do this ourselves in packaging
-  sed -i '2iexit 0' scripts/depmod.sh
+   sed -i '2iexit 0' scripts/depmod.sh
 
   # get kernel version
   make prepare
@@ -91,17 +85,25 @@ build() {
   #make oldconfig # using old config from previous kernel version
   # ... or manually edit .config
 
+  # rewrite configuration
+  yes "" | make config >/dev/null
+
+  # save configuration for later reuse
+  if [ "${CARCH}" = "x86_64" ]; then
+    cat .config > "${startdir}/config.x86_64.last"
+  else
+    cat .config > "${startdir}/config.last"
+  fi
+
   ####################
   # stop here
   # this is useful to configure the kernel
-  #msg "Stopping build"
-  #return 1
+  #msg "Stopping build";return 1
   ####################
 
-  yes "" | make config
 
   # build!
-  make ${MAKEFLAGS} bzImage modules
+  make ${MAKEFLAGS} LOCALVERSION= bzImage modules
 }
 
 package() {
@@ -119,10 +121,12 @@ package() {
   KARCH=x86
 
   # get kernel version
-  _kernver="$(make kernelrelease)"
+  _kernver="$(make LOCALVERSION= kernelrelease)"
+  _basekernel=${_kernver%%-*}
+  _basekernel=${_basekernel%.*}
 
   mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
-  make INSTALL_MOD_PATH="${pkgdir}" modules_install
+  make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
   cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgname}"
 
   # add vmlinux
@@ -284,3 +288,4 @@ package() {
   # remove unneeded architectures
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
+

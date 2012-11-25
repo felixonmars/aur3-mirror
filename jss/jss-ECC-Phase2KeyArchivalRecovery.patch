@@ -1,0 +1,437 @@
+--- a/security/jss/build_java.pl
++++ b/security/jss/build_java.pl
+@@ -19,6 +19,7 @@
+ org.mozilla.jss.crypto.EncryptionAlgorithm      
+ org.mozilla.jss.crypto.PQGParams     
+ org.mozilla.jss.crypto.SecretDecoderRing
++org.mozilla.jss.asn1.ASN1Util
+ org.mozilla.jss.pkcs11.CertProxy        
+ org.mozilla.jss.pkcs11.CipherContextProxy 
+ org.mozilla.jss.pkcs11.PK11Module 
+--- a/security/jss/lib/config.mk
++++ b/security/jss/lib/config.mk
+@@ -44,6 +44,7 @@
+     ../org/mozilla/jss/SecretDecoderRing \
+     ../org/mozilla/jss \
+     ../org/mozilla/jss/pkcs11 \
++    ../org/mozilla/jss/asn1 \
+     ../org/mozilla/jss/ssl \
+     ../org/mozilla/jss/util \
+     ../org/mozilla/jss/provider/java/security \
+--- a/security/jss/lib/jss.def
++++ b/security/jss/lib/jss.def
+@@ -332,6 +332,7 @@
+ Java_org_mozilla_jss_CryptoManager_setOCSPTimeoutNative;
+ Java_org_mozilla_jss_CryptoManager_verifyCertificateNowNative;
+ Java_org_mozilla_jss_CryptoManager_verifyCertificateNowCUNative;
++Java_org_mozilla_jss_asn1_ASN1Util_getTagDescriptionByOid;
+ ;+    local:
+ ;+       *;
+ ;+};
+--- a/security/jss/lib/rules.mk
++++ b/security/jss/lib/rules.mk
+@@ -41,6 +41,7 @@
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jsscrypto$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jssmanage$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jsspkcs11$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
++	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jssasn1$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jsspolicy$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jssssl$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(DLL_PREFIX)jssutil$(DYNAMIC_LIB_EXTENSION)$(DYNAMIC_LIB_SUFFIX)
+@@ -48,6 +49,7 @@
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jsscrypto$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jssmanage$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jsspkcs11$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
++	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jssasn1$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jsspolicy$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jssssl$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
+ 	-rm $(SOURCE_RELEASE_PREFIX)/$(SOURCE_RELEASE_LIB_DIR)/$(IMPORT_LIB_PREFIX)jssutil$(IMPORT_LIB_EXTENSION)$(IMPORT_LIB_SUFFIX)
+--- /dev/null
++++ b/security/jss/org/mozilla/jss/asn1/ASN1Util.c
+@@ -0,0 +1,97 @@
++/* ***** BEGIN LICENSE BLOCK *****
++ * Version: MPL 1.1/GPL 2.0/LGPL 2.1
++ *
++ * The contents of this file are subject to the Mozilla Public License Version
++ * 1.1 (the "License"); you may not use this file except in compliance with
++ * the License. You may obtain a copy of the License at
++ * http://www.mozilla.org/MPL/
++ *
++ * Software distributed under the License is distributed on an "AS IS" basis,
++ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++ * for the specific language governing rights and limitations under the
++ * License.
++ *
++ * The Original Code is the Netscape Security Services for Java.
++ *
++ * The Initial Developer of the Original Code is
++ * Netscape Communications Corporation.
++ * Portions created by the Initial Developer are Copyright (C) 1998-2000
++ * the Initial Developer. All Rights Reserved.
++ *
++ * Contributor(s):
++ *
++ * Alternatively, the contents of this file may be used under the terms of
++ * either the GNU General Public License Version 2 or later (the "GPL"), or
++ * the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++ * in which case the provisions of the GPL or the LGPL are applicable instead
++ * of those above. If you wish to allow use of your version of this file only
++ * under the terms of either the GPL or the LGPL, and not to allow others to
++ * use your version of this file under the terms of the MPL, indicate your
++ * decision by deleting the provisions above and replace them with the notice
++ * and other provisions required by the GPL or the LGPL. If you do not delete
++ * the provisions above, a recipient may use your version of this file under
++ * the terms of any one of the MPL, the GPL or the LGPL.
++ *
++ * ***** END LICENSE BLOCK ***** */
++#include "_jni/org_mozilla_jss_asn1_ASN1Util.h"
++#include <pk11func.h>
++#include <nspr.h>
++#include <seccomon.h>
++#include <key.h>
++#include <secitem.h>
++
++#include <jssutil.h>
++#include <java_ids.h>
++#include <jss_exceptions.h>
++#include <Algorithm.h>
++
++/***********************************************************************
++ *
++ * Java_org_mozilla_jss_asn1_ASN1Util_getTagDescriptionByOid
++ *     retrieves OID description by NSS's OID Tag identifier
++ *     the OID byte array is expected to be without the OID Tag (6) and size
++ *        (together 2 bytes)
++ */
++JNIEXPORT jstring JNICALL
++Java_org_mozilla_jss_asn1_ASN1Util_getTagDescriptionByOid(JNIEnv *env, jobject this, jbyteArray oidBA)
++{
++    SECItem *oid = NULL;
++    SECOidTag oidTag = SEC_OID_UNKNOWN;
++    char *oidDesc = NULL;
++    jstring description= "";
++
++    if (oidBA == NULL) {
++        JSS_throwMsg(env, INVALID_PARAMETER_EXCEPTION,
++            "JSS getTagDescriptionByOid: oidBA null");
++        goto finish;
++    } else {
++        /**************************************************
++         * Setup the parameters
++         *************************************************/
++        oid = JSS_ByteArrayToSECItem(env, oidBA);
++        if (oid == NULL) {
++            JSS_throwMsg(env, INVALID_PARAMETER_EXCEPTION,
++                "JSS getTagDescriptionByOid: JSS_ByteArrayToSECItem failed");
++            goto finish;
++        }
++
++        /*
++         * SECOID_FindOIDTag() returns SEC_OID_UNKNOWN if no match
++         */
++        oidTag = SECOID_FindOIDTag(oid);
++        if (oidTag == SEC_OID_UNKNOWN) {
++            JSS_throwMsg(env, INVALID_PARAMETER_EXCEPTION,
++                "JSS getTagDescriptionByOid: OID UNKNOWN");
++            goto finish;
++        }
++
++        oidDesc = SECOID_FindOIDTagDescription(oidTag);
++        if (oidDesc == NULL) {
++            oidDesc = "";
++        }
++        description = (*env)->NewStringUTF(env, oidDesc);
++    }
++
++finish:
++    return description;
++}
+--- a/security/jss/org/mozilla/jss/asn1/ASN1Util.java
++++ b/security/jss/org/mozilla/jss/asn1/ASN1Util.java
+@@ -36,6 +36,8 @@
+ package org.mozilla.jss.asn1;
+ 
+ import java.io.*;
++import java.util.Arrays;
++
+ import org.mozilla.jss.asn1.InvalidBERException;
+ import org.mozilla.jss.util.Assert;
+ 
+@@ -114,4 +116,71 @@
+             numRead += nr;
+         }
+     }
++
++    /**
++     * returns the ECC curve byte array given the X509 public key byte array
++     *
++     * @param X509PubKeyBytes byte array of an X509PubKey
++     * @param withHeader tells if the return byes should inclulde the tag and size header or not
++     */
++    public static byte[] getECCurveBytesByX509PublicKeyBytes(byte[] X509PubKeyBytes,
++        boolean withHeader)
++        throws IllegalArgumentException, ArrayIndexOutOfBoundsException,
++               NullPointerException
++    {
++        if ((X509PubKeyBytes == null) || (X509PubKeyBytes.length == 0)) {
++            throw new IllegalArgumentException("X509PubKeyBytes null");
++        }
++
++        /* EC public key OID complete with tag and size */
++        byte[] EC_PubOIDBytes_full =
++            ASN1Util.encode(OBJECT_IDENTIFIER.EC_PUBKEY_OID);
++
++        /* EC public key OID without tag and size */
++        byte[] EC_PubOIDBytes =
++            Arrays.copyOfRange(EC_PubOIDBytes_full, 2, EC_PubOIDBytes_full.length);
++
++        int curveBeginIndex = 0;
++        for (int idx = 0; idx<= X509PubKeyBytes.length; idx++) {
++            byte[] tmp = 
++                Arrays.copyOfRange(X509PubKeyBytes, idx, idx+EC_PubOIDBytes.length);
++            if (Arrays.equals(tmp, EC_PubOIDBytes)) {
++                curveBeginIndex = idx+ EC_PubOIDBytes.length;
++                break;
++            }
++        }
++
++        int curveByteArraySize = (int) X509PubKeyBytes[curveBeginIndex+ 1];
++
++        if (withHeader) {
++            /* actual curve with tag and size */
++            byte curve[] = Arrays.copyOfRange(X509PubKeyBytes, curveBeginIndex, curveBeginIndex + curveByteArraySize + 2);
++            return curve;
++        } else {
++            /* actual curve without tag and size */
++            byte curve[] = 
++                Arrays.copyOfRange(X509PubKeyBytes, curveBeginIndex + 2,
++                    curveBeginIndex + 2 + curveByteArraySize);
++            return curve;
++        }
++    }
++
++    /**
++     * getOIDdescription() returns a text description of the OID
++     *     from OID byte array
++     * the OID byte array is expected to be without the OID Tag (6) and size
++     *    (together 2 bytes)
++     */
++    public static String
++    getOIDdescription(byte[] oidBA) {
++        return getTagDescriptionByOid(oidBA);
++    }
++
++    /**
++     * get OID description JNI method
++     */
++    private native static String
++    getTagDescriptionByOid(byte[] oidBA);
++
++
+ }
+--- a/security/jss/org/mozilla/jss/asn1/Makefile
++++ b/security/jss/org/mozilla/jss/asn1/Makefile
+@@ -57,7 +57,7 @@
+ #######################################################################
+ # (4) Include "local" platform-dependent assignments (OPTIONAL).      #
+ #######################################################################
+-#include config.mk
++include config.mk
+ 
+ 
+ #######################################################################
+--- a/security/jss/org/mozilla/jss/asn1/OBJECT_IDENTIFIER.java
++++ b/security/jss/org/mozilla/jss/asn1/OBJECT_IDENTIFIER.java
+@@ -52,6 +52,12 @@
+     ///////////////////////////////////////////////////////////////////////
+ 
+     /**
++     * The OID space for EC
++     */
++    public static final OBJECT_IDENTIFIER EC_PUBKEY_OID =
++        new OBJECT_IDENTIFIER( new long[]{1, 2, 840, 10045, 2, 1} );
++
++    /**
+      * The OID space for RSA Data Security, Inc.
+      */
+     public static final OBJECT_IDENTIFIER RSADSI =
+--- /dev/null
++++ b/security/jss/org/mozilla/jss/asn1/config.mk
+@@ -0,0 +1,41 @@
++# 
++# ***** BEGIN LICENSE BLOCK *****
++# Version: MPL 1.1/GPL 2.0/LGPL 2.1
++#
++# The contents of this file are subject to the Mozilla Public License Version
++# 1.1 (the "License"); you may not use this file except in compliance with
++# the License. You may obtain a copy of the License at
++# http://www.mozilla.org/MPL/
++#
++# Software distributed under the License is distributed on an "AS IS" basis,
++# WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
++# for the specific language governing rights and limitations under the
++# License.
++#
++# The Original Code is the Netscape Security Services for Java.
++#
++# The Initial Developer of the Original Code is
++# Netscape Communications Corporation.
++# Portions created by the Initial Developer are Copyright (C) 1998-2000
++# the Initial Developer. All Rights Reserved.
++#
++# Contributor(s):
++#
++# Alternatively, the contents of this file may be used under the terms of
++# either the GNU General Public License Version 2 or later (the "GPL"), or
++# the GNU Lesser General Public License Version 2.1 or later (the "LGPL"),
++# in which case the provisions of the GPL or the LGPL are applicable instead
++# of those above. If you wish to allow use of your version of this file only
++# under the terms of either the GPL or the LGPL, and not to allow others to
++# use your version of this file under the terms of the MPL, indicate your
++# decision by deleting the provisions above and replace them with the notice
++# and other provisions required by the GPL or the LGPL. If you do not delete
++# the provisions above, a recipient may use your version of this file under
++# the terms of any one of the MPL, the GPL or the LGPL.
++#
++# ***** END LICENSE BLOCK *****
++TARGETS=$(LIBRARY)
++SHARED_LIBRARY=
++IMPORT_LIBRARY=
++
++NO_MD_RELEASE = 1
+--- a/security/jss/org/mozilla/jss/asn1/manifest.mn
++++ b/security/jss/org/mozilla/jss/asn1/manifest.mn
+@@ -41,6 +41,8 @@
+  
+ NS_USE_JDK = 1
+ 
++REQUIRES =      nspr20 nss
++
+ PACKAGE =       org/mozilla/jss/asn1
+ 
+ CLASSES = 											\
+@@ -112,3 +114,9 @@
+             UTCTime.java                            \
+             UTF8String.java                         \
+ 			$(NULL)
++
++CSRCS =                             \
++            ASN1Util.c     \
++            $(NULL)
++
++LIBRARY_NAME = jssasn1
+--- a/security/jss/org/mozilla/jss/manifest.mn
++++ b/security/jss/org/mozilla/jss/manifest.mn
+@@ -48,6 +48,7 @@
+ 	crypto	\
+     SecretDecoderRing \
+ 	pkcs11	\
++    asn1   \
+     ssl     \
+     provider \
+ 	$(NULL)
+--- a/security/jss/org/mozilla/jss/pkcs11/PK11ECPublicKey.java
++++ b/security/jss/org/mozilla/jss/pkcs11/PK11ECPublicKey.java
+@@ -61,15 +61,29 @@
+ //      }
+ //    }
+ //
+-//    public BigInteger getW() {
+-//      try {
+-//        return new BigInteger( getWByteArray() );
+-//      } catch(NumberFormatException e) {
+-//        Assert.notReached("Unable to decode DSA public value");
+-//        return null;
+-//      }
+-//    }
+-//
+-//    private native byte[] getCurveByteArray();
+-//    private native byte[] getWByteArray();
++
++    public BigInteger getCurve() {
++      try {
++        return new BigInteger( getCurveByteArray() );
++      } catch(NumberFormatException e) {
++       Assert.notReached("Unable to decode EC curve");
++       return null;
++      }
++    }
++
++    public byte[] getCurveBA() {
++        return getCurveByteArray();
++    }
++
++    public BigInteger getW() {
++      try {
++        return new BigInteger( getWByteArray() );
++      } catch(NumberFormatException e) {
++        Assert.notReached("Unable to decode EC public value");
++        return null;
++      }
++    }
++
++    private native byte[] getCurveByteArray();
++    private native byte[] getWByteArray();
+ }
+--- a/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c
++++ b/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.c
+@@ -450,6 +450,14 @@
+             numAttribs = 4;
+         }
+ 	break;
++    case CKK_EC:
++        numAttribs = 1;
++        attribs[0] = CKA_SIGN;
++        if (isExtractable) {
++            attribs[1] = CKA_EXTRACTABLE;
++            numAttribs = 2;
++        }
++	break;
+     case CKK_DSA:
+         attribs[0] = CKA_SIGN;
+         numAttribs = 1;
+@@ -460,11 +468,6 @@
+         attribs[0] = CKA_DERIVE;
+         numAttribs = 1;
+ 	break;
+-    case CKK_EC:
+-        attribs[0] = CKA_SIGN;
+-        attribs[1] = CKA_DERIVE;
+-        numAttribs = 2;
+-	break;
+     default:
+         /* unknown key type */
+         PR_ASSERT(PR_FALSE);
+@@ -479,7 +482,7 @@
+                 attribs, numAttribs, NULL /*wincx*/);
+     if( privk == NULL ) {
+         char err[256] = {0};
+-        PR_snprintf(err, 256, "Key Unwrap failed on token:%d", PR_GetError());
++        PR_snprintf(err, 256, "Key Unwrap failed on token:error=%d, keyType=%d", PR_GetError(), keyType);
+         JSS_throwMsg(env, TOKEN_EXCEPTION, err);
+         goto finish;
+     }
+--- a/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java
++++ b/security/jss/org/mozilla/jss/pkcs11/PK11KeyWrapper.java
+@@ -459,13 +459,19 @@
+         if( type == PrivateKey.RSA ) {
+             if( !(publicKey instanceof RSAPublicKey)) {
+                 throw new InvalidKeyException("Type of public key does not "+
+-                    "match type of private key");
++                    "match type of private key which is RSA");
+             }
+             return ((RSAPublicKey)publicKey).getModulus().toByteArray();
++        } else if(type == PrivateKey.EC) {
++            if( !(publicKey instanceof PK11ECPublicKey) ) {
++                throw new InvalidKeyException("Type of public key does not "+
++                    "match type of private key which is EC");
++            }
++            return ((PK11ECPublicKey)publicKey).getW().toByteArray();
+         } else if(type == PrivateKey.DSA) {
+             if( !(publicKey instanceof DSAPublicKey) ) {
+                 throw new InvalidKeyException("Type of public key does not "+
+-                    "match type of private key");
++                    "match type of private key which is DSA");
+             }
+             return ((DSAPublicKey)publicKey).getY().toByteArray();
+         } else {

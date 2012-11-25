@@ -1,6 +1,7 @@
 # Contributor: Eric Forgeot < http://anamnese.online.fr >
+# Maintainer: Luis Pablo Gasparotto < lpgasparotto at gmail dot com >
 pkgname=abctab2ps
-pkgver=1.8.8
+pkgver=1.8.11
 pkgrel=2
 pkgdesc="abctab2ps is a music and luth tablature typesetting program which translates an input file in the abc language into postscript."
 arch=(i686 x86_64)
@@ -15,7 +16,8 @@ provides=('abctab2ps')
 #install=
 source=(http://www.lautengesellschaft.de/cdmm/$pkgname-$pkgver.tar.gz http://www.lautengesellschaft.de/cdmm/tab2abc.tar.gz)
 #noextract=()
-md5sums=('')
+md5sums=('4f4547d6228c53c138dc5038f8892fd6'
+         '48f4c4748087154b6dbc8eca0658f4e8')
 
 build() {
   cd $startdir/src/$pkgname-$pkgver/src

@@ -1,13 +1,13 @@
 pkgname=2gis-vladimir
-pkgver=8
+pkgver=9
 pkgrel=1
-pkgdesc="Map of Vladimir for 2GIS, October 2012"
+pkgdesc="Map of Vladimir for 2GIS, November 2012"
 arch=('i686' 'x86_64')
 url="http://vladimir.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Vladimir-8.orig.zip")
-md5sums=('69f9e9d8a0a654a3e0d556abfd02a475')
+source=("http://download.2gis.ru/arhives/2GISData_Vladimir-9.orig.zip")
+md5sums=('5986eeea357413321fd126ad790e70de')
 
 build() {
   cd $startdir

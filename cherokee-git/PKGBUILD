@@ -1,0 +1,113 @@
+# Contributor: Doug Newgard <scimmia22 at outlook dot com>
+# Contributor: Fernando JimÃ©nez Solano <fjim@sdfeu.org>
+# Contributor: Evangelos Foutras <evangelos@foutrelis.com>
+# Contributor: Link Dupont <link@subpop.net>
+# Contributor: Pierre Bourdin <pierre@pi3rrot.net>
+
+pkgname=cherokee-git
+pkgver=20121031
+pkgrel=1
+pkgdesc="A very fast, flexible and easy to configure Web Server"
+arch=('i686' 'x86_64')
+url="http://www.cherokee-project.com/"
+license=('GPL2')
+depends=('openssl' 'pcre')
+makedepends=('python2' 'gettext' 'libldap' 'pam' 'libmysqlclient'
+             'ffmpeg' 'geoip')
+optdepends=('python2: cherokee-admin (administrative web interface)'
+            'libldap: ldap validator'
+            'pam: pam validator'
+            'libmysqlclient: mysql validator'
+            'ffmpeg: Audio/Video streaming handler'
+            'geoip: GeoIP rule module'
+            'rrdtool: RRDtool based information collector')
+backup=('etc/cherokee/cherokee.conf'
+        'etc/logrotate.d/cherokee'
+        'etc/pam.d/cherokee')
+options=('!libtool')
+provides=('cherokee')
+conflicts=('cherokee')
+source=(cherokee.rc
+        cherokee.logrotate
+	cherokee-1.2.101-ffmpeg0.11.patch
+	cherokee.service)
+sha256sums=('4c06cebfab8b68edd4967c020bfb41b077cfff10d76596d1ed192d0b6cedbd86'
+            '20e26d633f8c1cd90eb21f41dd163b73a83846e405b1ce995e072c4efefc522e'
+            '6bcdcb8eaccb5516478a0c36960fbacc3d68f8bc326b9b526c388e0607a65116'
+            '415a2e4cd7d04afe21e502dd0ad76301f85a7087cadbfdab5566bec469679a68')
+
+_gitroot="https://github.com/cherokee/webserver.git"
+_gitname="cherokee"
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to GIT server...."
+
+  if [[ -d "$_gitname" ]]; then
+    cd "$_gitname" && git pull --recurse-submodules=yes origin && git submodule update
+    msg "The local files are updated."
+  else
+    git clone --recursive "$_gitroot" "$_gitname"
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting build..."
+
+  rm -rf "$srcdir/$_gitname-build"
+  git clone --recursive "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
+
+  # Fix this bug : https://bugs.mageia.org/show_bug.cgi?id=6145
+  patch -Np1 -i "$srcdir/cherokee-1.2.101-ffmpeg0.11.patch"
+
+  # Use subdirectory for logs
+  sed -i -r 's|(%localstatedir%/log)|\1/cherokee|' cherokee.conf.sample.pre
+
+  # Use Python 2 in cherokee-admin
+  sed -i 's/"python"/"python2"/' cherokee/main_admin.c
+
+  ./autogen.sh \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --disable-static \
+    --with-wwwroot=/srv/http \
+    --with-wwwuser=http \
+    --with-wwwgroup=http \
+    --with-python=python2 \
+    --enable-os-string="Arch Linux"
+
+  make
+}
+
+package() {
+  cd "$srcdir/$_gitname-build"
+
+  make DESTDIR="$pkgdir/" install
+
+  # PAM configuration file for cherokee
+  install -D -m644 pam.d_cherokee "$pkgdir/etc/pam.d/$_gitname"
+
+  # Fix ownership of /var/lib/cherokee/graphs
+  chown -R http:http "$pkgdir/var/lib/$_gitname/graphs"
+
+  # Use Python 2
+  sed -i 's/env python$/&2/' \
+    "$pkgdir/usr/share/cherokee/admin/"{server,upgrade_config}.py \
+    "$pkgdir/usr/bin/"{CTK-run,cherokee-{admin-launcher,tweak}}
+  sed -i -r "s/['\"]python/&2/g" \
+    "$pkgdir/usr/share/cherokee/admin/wizards/django.py"
+
+  # Compile Python scripts
+  python2 -m compileall "$pkgdir"
+  python2 -O -m compileall "$pkgdir"
+
+  install -d -o http -g http "$pkgdir/var/log/$_gitname"
+  install -D "$srcdir/$_gitname.rc" "$pkgdir/etc/rc.d/$_gitname"
+  install -Dm644 "$srcdir/$_gitname.logrotate" "$pkgdir/etc/logrotate.d/$_gitname"
+  install -Dm644 "$srcdir/$_gitname.service" "$pkgdir/usr/lib/systemd/system/$_gitname.service"
+
+  # Cleanup
+  rm -rf "$pkgdir/srv"
+  rm -rf "$srcdir/$_gitname-build"
+}

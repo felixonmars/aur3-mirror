@@ -4,11 +4,11 @@
 . /etc/rc.d/functions
 . /etc/conf.d/teamspeak3-server
 
-PID=$(pidof -o %PPID /opt/teamspeak3-server/ts3server_linux_x86)
+PID=$(pidof -o %PPID /usr/bin/teamspeak3-server)
 case "$1" in
   start)
     stat_busy "Starting Teamspeak3-Server"
-    [ -z "$PID" ] && su -s /bin/bash -c "/usr/bin/teamspeak3-server ${TS_ARGS} &> /dev/null &" teamspeak
+    [ -z "$PID" ] && su -s /bin/bash -l -c "/usr/bin/teamspeak3-server ${TS_ARGS} &> /dev/null &" teamspeak
     if [ $? -gt 0 ]; then
       stat_fail
     else

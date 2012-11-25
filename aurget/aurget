@@ -12,8 +12,8 @@
 SCRIPT_NAME='Aurget'
 SCRIPT_DESCRIPTION='A simple pacman-like interface to the AUR'
 SCRIPT_AUTHOR='Patrick Brisbin <pbrisbin@gmail.com>'
-SCRIPT_VERSION='3.4.1'
-SCRIPT_DATE='11/9/2011'
+SCRIPT_VERSION='3.4.2'
+SCRIPT_DATE='11/8/2012'
 
 # }}}
 
@@ -51,9 +51,8 @@ builderror() {
   prompt "$msg" && [[ -n "$src" ]] && rm -rf "$src/"*
 
   # if it's a dep we need to errorout entirely
-  if [[ $dep -eq 1 ]]; then
+  if (($dep == 1)); then
     errorout "dependency package $pkg failed to build. unable to continue."
-
   # otherwise, warn but continue
   else
     warn "package $pkg failed to build and won't be installed."
@@ -200,6 +199,11 @@ source_pkgbuild() {
 
   # source pkgbuild variables
   source <(awk '/^build.*(.*)|^function.*build.*(.*)/{exit};1' "$pkgbuild")
+
+  # this should always be defined by makepkg.conf. apparently it can
+  # also be overridden in PKGBUILDs. only at this point will we default
+  # it if not set.
+  PKGEXT="${PKGEXT:-.pkg.tar.gz}"
 }
 
 # }}}
@@ -214,7 +218,7 @@ try_discard() {
 
   # use find -delete incase the built package is still in the directory
   #display "Discarding sources..."
-  #find "$1" -depth ! -name "${1##*/}*$pkgext" -delete 2>/dev/null
+  #find "$1" -depth ! -name "${1##*/}*$PKGEXT" -delete 2>/dev/null
 
   # turns out, the built package is _always_ in the directory
   display 'Discarding sources...'
@@ -228,10 +232,10 @@ print_pkgbuild() {
   local multiple=false ret=0 url
 
   # no args returns 1
-  [[ ${#args[@]} -eq 0 ]] && clean_exit 1
+  ((${#args[@]} == 0)) && clean_exit 1
 
   # more than one means print names and whitespace
-  [[ ${#args[@]} -gt 1 ]] && multiple=true
+  ((${#args[@]} > 1)) && multiple=true
 
   for name in "${args[@]}"; do
     $multiple && display "$name/PKGBUILD ==>"
@@ -279,7 +283,8 @@ search_aur() {
   function unstring(str) {
     sub(/[^:]+:/, "", str)
     gsub(/\\\"/, "\"", str)
-    return substr(str, 2, length(str) - 1)
+    gsub(/"$/, "", str)
+    return substr(str, 2, length(str))
   }
 
   /Name":/        { printf "%s",    unstring($0) }
@@ -291,12 +296,10 @@ search_aur() {
   '
 
   # parse JSON data
-  results="$(curl -fsS "${aur_srch}$(url_encode "$term")" | awk -F '[^\\\\]"' -v RS='","' "$awkscript")"
+  results="$(curl -fsS "${aur_srch}$(url_encode "$term")" | awk -F '[^\\\\]"' -v RS='{"|,"|"}' "$awkscript")"
 
-  # no results
   [[ -z "$results" ]] && clean_exit 1
 
-  # sed-parse that file
   while IFS='|' read -r Name Version Description URL OutOfDate URLPath; do
     [[ -z "$Name" ]] && continue
     [[ "$search_mode" = 'info' ]] && [[ "$Name" != "$term" ]] && continue
@@ -352,7 +355,7 @@ upgrade() {
     fi
   done < <(pacman -Qm)
 
-  [[ ${#args[@]} -ne 0 ]] && setup_targets || echo ' there is nothing to do'
+  ((${#args[@]} > 0)) && setup_targets || echo ' there is nothing to do'
 }
 
 # }}}
@@ -362,11 +365,11 @@ find_pkg() {
   local name="$1" version="$2"
 
   # try full path
-  pkg="$package_directory/$name-$version-${CARCH}$pkgext"
+  pkg="$package_directory/$name-$version-${CARCH}$PKGEXT"
 
   if [[ ! -f "$pkg" ]]; then
     # try any packages
-    pkg="$package_directory/$name-$version-any$pkgext"
+    pkg="$package_directory/$name-$version-any$PKGEXT"
   fi
 
   if [[ ! -f "$pkg" ]]; then
@@ -451,7 +454,7 @@ build_package() {
     # don't build two dev packages of the same name within the same
     # minute; this is the only way to find git/svn/etc packages' exact
     # filenames
-    pkg="$(find "$package_directory" -ctime -1 -name "$Name-*$pkgext" -print -quit)"
+    pkg="$(find "$package_directory" -ctime -1 -name "$Name-*$PKGEXT" -print -quit)"
   fi
 
   return 0
@@ -466,7 +469,7 @@ install_package() {
   display 'Installing package...'
 
   if [[ -f "$pkg" ]]; then
-    if [[ $dep -eq 1 ]]; then
+    if (($dep == 1)); then
       $pacman --asdep $popts "$pkg" || errorout 'failed installing the package'
     else
       $pacman $popts "$pkg" || errorout 'failed installing the package'
@@ -510,29 +513,29 @@ dep_check() {
       # keep args out of deps so error messages are more sane
       if ! source_for_deps "$name"; then
         # assume it's a pacman dep for now
-        grep -Fq -- " $name " <<< " ${args[@]} " || pac_deps+=( "$name" )
+        grep -Fq -- " $name " <<< " ${args[@]} " || pac_deps+=("$name")
       else
-        grep -Fq -- " $name " <<< " ${args[@]} " || aur_deps=( "$name" "${aur_deps[@]}" )
+        grep -Fq -- " $name " <<< " ${args[@]} " || aur_deps=("$name" "${aur_deps[@]}")
 
         # filter satasfied deps, clear versioning
-        depends=( $(pacman -T -- ${depends[@]} ${makedepends[@]}) )
-        depends=( "${depends[@]%>*}" )
-        depends=( "${depends[@]%=*}" )
-        depends=( "${depends[@]%<*}" )
+        depends=($(pacman -T -- ${depends[@]} ${makedepends[@]}))
+        depends=("${depends[@]%>*}")
+        depends=("${depends[@]%=*}")
+        depends=("${depends[@]%<*}")
 
         # store make depends for later removal
-        mk_deps+=( "${makedepends[@]}" )
+        mk_deps+=("${makedepends[@]}")
 
         # track unsatisfied deps
-        [[ ${#depends[@]} -ne 0 ]] && all_deps+=( "${depends[@]}" )
+        ((${#depends[@]} > 0)) && all_deps+=("${depends[@]}")
       fi
     done
 
     # if we found no more deps this round, we can stop
-    [[ ${#all_deps[@]} -eq $n ]] && break
+    ((${#all_deps[@]} == $n)) && break
   done
 
-  if [[ "${#pac_deps[@]}" -ne 0 ]]; then
+  if ((${#pac_deps[@]} > 0)); then
     # check a list quickly for availability
     while IFS=\' read -r _ dep _; do
       # check only the error cases as a possible provides
@@ -540,7 +543,7 @@ dep_check() {
     done < <(pacman -Si -- "${pac_deps[@]}" 2>&1 >/dev/null)
 
     # sort and unique
-    pac_deps=( $(sort -u <(printf '%s\n' "${pac_deps[@]}")) )
+    pac_deps=($(sort -u <(printf '%s\n' "${pac_deps[@]}")))
 
     echo; warn "the following (${#pac_deps[@]}) packages will be installed by pacman: ${pac_deps[@]}"; echo
   fi
@@ -584,7 +587,7 @@ add_targets_to_list() {
 
 # setup_targets {{{
 setup_targets() {
-  [[ "${#args[@]}" -eq 0 ]] && errorout 'no targets specified (use -h for help)'
+  ((${#args[@]} == 0)) && errorout 'no targets specified (use -h for help)'
 
   $resolve_dependencies && dep_check
 
@@ -595,7 +598,7 @@ setup_targets() {
   add_targets_to_list 1 "${aur_deps[@]}"
   add_targets_to_list 0 "${args[@]}"
 
-  if [[ ${#list_names[@]} -ne 0 ]]; then
+  if ((${#list_names[@]} > 0)); then
     echo -en "\n${colorY}Targets (${#list_names[@]}):${nocolor} "
 
     for ((i=0; i<${#list_names[@]}; i++)); do
@@ -641,7 +644,7 @@ process_targets() {
   done
 
   # remove make depends
-  if $remove_makedepends && [[ ${#mk_deps[@]} -ne 0 ]]; then
+  if $remove_makedepends && ((${#mk_deps[@]} > 0)); then
     display 'Removing make depends...'
     for mk_dep in ${mk_deps[@]}; do
       pacman --noconfirm -R $mk_dep || warn "unable to remove makedepend $mk_dep"
@@ -733,9 +736,6 @@ source_makepkg() {
   build_directory="${build_directory:-$source_directory}"
   build_directory="${build_directory:-$PWD}"
   [[ -d "$build_directory" ]] || mkdir -p "$build_directory"
-
-  # this will always be defined by makepkg.conf
-  pkgext="${PKGEXT:-.pkg.tar.gz}"
 }
 
 # }}}
@@ -811,7 +811,7 @@ parse_options() {
   development_regex=${development_regex:-.*-git$\|.*-hg$\|.*-svn$\|.*-darcs$\|.*-cvs$\|.*-bzr$}
 
   # prevent root unless desired
-  if [[ $(id -u) -eq 0 ]]; then
+  if [[ $(id -u) == 0 ]]; then
     $asroot || errorout 'You must pass --asroot to allow running aurget as root (not recommended).'
 
     # fixes for root
@@ -890,7 +890,7 @@ EOF
   clear_temp
   set_defaults
 
-  args=( 'aurget' )
+  args=('aurget')
   sync_mode='build'
   makepkg='makepkg'
   build_directory="$tmpdir/bootstrap"

@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-novokuznetsk
-pkgver=86
+pkgver=87
 pkgrel=1
-pkgdesc="Map of Novokuznetsk for 2GIS, October 2012"
+pkgdesc="Map of Novokuznetsk for 2GIS, November 2012"
 arch=('i686' 'x86_64')
 url="http://novokuznetsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Novokuznetsk-86.orig.zip")
-md5sums=('6853ae8610f59fd781b5f33db2151ef7')
+source=("http://download.2gis.ru/arhives/2GISData_Novokuznetsk-87.orig.zip")
+md5sums=('ffabf498a007e2dbabd9709ab64c3d12')
      
 build() {
      

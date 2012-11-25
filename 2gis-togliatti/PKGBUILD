@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-togliatti
-pkgver=51
+pkgver=52
 pkgrel=1
-pkgdesc="Map of Togliatti for 2GIS, October 2012"
+pkgdesc="Map of Togliatti for 2GIS, November 2012"
 arch=('i686' 'x86_64')
 url="http://tlt.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Togliatti-51.orig.zip")
-md5sums=('da31c76ddb810ad6f059037705567ec3')
+source=("http://download.2gis.ru/arhives/2GISData_Togliatti-52.orig.zip")
+md5sums=('2dbbb14f36b4bc354d598ead6293c2ff')
      
 build() {
      

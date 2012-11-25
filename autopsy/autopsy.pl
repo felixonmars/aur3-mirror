@@ -15,7 +15,7 @@ $INSTALLDIR = '/usr/lib/autopsy/';
 
 
 # System Utilities
-$GREP_EXE = '/bin/grep';
+$GREP_EXE = '/usr/bin/grep';
 $FILE_EXE = '/usr/bin/file';
 $MD5_EXE = '/usr/bin/md5sum';
 $SHA1_EXE = '/usr/bin/sha1sum';

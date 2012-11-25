@@ -1,4 +1,4 @@
 #!/bin/bash - 
 
 cd /opt/darkgates
-./DarkGates $@
+./dark-gates $@

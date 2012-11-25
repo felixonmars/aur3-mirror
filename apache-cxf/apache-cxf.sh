@@ -1,1 +1,1 @@
-export CFX_HOME="/usr/share/apache-cfx"
+export CXF_HOME="/usr/share/apache-cxf"

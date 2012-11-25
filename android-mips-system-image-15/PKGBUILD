@@ -12,7 +12,7 @@ url="http://developer.mips.com/android/"
 license=('Apache')
 depends=("android-platform-15" 'android-sdk>=r21')
 options=('!strip')
-source=("http://wpc.1982.edgecastcdn.net/001982/Android/sysimg_mips-${_apiver}_${_rel}.zip")
+source=("http://d2a85uzpvoidrc.cloudfront.net/sysimg_mips-${_apiver}_${_rel}.zip")
 sha1sums=('a753bb4a6783124dad726c500ce9aec9d2c1b2d9')
 
 package() {

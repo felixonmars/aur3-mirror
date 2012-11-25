@@ -3,113 +3,134 @@
 # Based on kernel-eee PKGBUILD by Dan McGee <dan@archlinux.org>
 
 # AUR workaround
-pkgname="linux-eee-ck"
+pkgname=linux-eee-ck
 
-true && pkgname=("linux-eee-ck" "linux-eee-ck-headers")
-_kernver=3.6
+true && pkgname=(linux-eee-ck linux-eee-ck-headers)
 _ckver=ck1
-pkgver=${_kernver}.3
-pkgrel=1
-bfsver=0.425
-pkgdesc="The Linux Kernel and modules for the Asus Eee PC 701, with Brain Fuck Scheduler v$bfsver and all the goodies in the $_ckver patchset."
+_srcname=linux-3.6
+pkgver=3.6.7
+pkgrel=2
+_bfsver=0.425
 arch=('i686')
 license=('GPL2')
+options=('!strip')
 url="http://www.kernel.org"
-depends=('coreutils' 'module-init-tools')
-optdepends=('crda: for wireless regulatory domain support'
-            'iw: for wireless configuration support')
-replaces=('linux-uvc-eee-svn' 'madwifi-eee-svn')
-install=linux-eee-ck.install
-source=(http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_kernver.tar.xz
-	http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
-        http://ck.kolivas.org/patches/3.0/$_kernver/$_kernver-$_ckver/patch-$_kernver-$_ckver.bz2
-        change-default-console-loglevel.patch
-	module-init-wait-3.6.patch
-	module-symbol-waiting-3.6.patch
-        61-eee-ssd.rules
-        kernelconfig)
+source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
+"http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+"http://ck.kolivas.org/patches/3.0/3.6/3.6-${_ckver}/patch-3.6-${_ckver}.bz2"
+        'change-default-console-loglevel.patch'
+	'module-init-wait-3.6.patch'
+	'module-symbol-waiting-3.6.patch'
+	'irq_cfg_pointer-3.6.6.patch'
+        '61-eee-ssd.rules'
+        'kernelconfig')
 
 md5sums=('1a1760420eac802c541a20ab51a093d1'
-	 '96701113d37ef4f9b785206ab8bcc71e'
+	 '134936c362d8812b5cafcf3c67afdce0'
 	 '43068822b9292432617b81d10ca757d3'
          '9d3c56a4b999c8bfbd4018089a62f662'
 	 '3b8568f67c0a9a9d809273710f86001d'
 	 'd9ecff2d89c19218cdffca1838851608'
-         '73a20e8bf2bb29ba342f43460c6291cb'
-	 '2c74689dc09cc5fffdfd4d23237153e1')
+         '426c26705da667fea6dae34e8ef94185'
+         '6100b3e13c4c24ce3c887a1ae36ab7f1'
+	 'c3f906d97890ea387ec48e11b2f716dc')
 
 build() {
   # get into the linux source directory and start some magic
-  cd $srcdir/linux-$_kernver
+  cd $srcdir/$_srcname
 
   # add upstream patch
   patch -p1 -i "$srcdir/patch-$pkgver"
-
-  # apply ck patch
-  echo "=> Applying $_ckver patchset..."
-  patch -Np1 -i ../patch-$_kernver-$_ckver
-
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
-  echo "=> Applying default console loglevel patch..." 
   patch -Np1 -i ../change-default-console-loglevel.patch
 
+  # fix module initialisation
   patch -Np1 -i ../module-init-wait-3.6.patch
   patch -Np1 -i ../module-symbol-waiting-3.6.patch
+  
+  # fix FS#32615 - Check for valid irq_cfg pointer in smp_irq_move_cleanup_interrupt
+  patch -Np1 -i ../irq_cfg_pointer-3.6.6.patch
+
+  # apply ck patch
+  echo "=> Applying $_ckver patchset..."
+  patch -Np1 -i ../patch-3.6-$_ckver
+
+  ### Clean tree and copy ARCH config over
+  msg "Running make mrproper to clean source tree"
+  make mrproper
+  cp ../kernelconfig ./.config
+
+  # set extraversion to pkgrel
+  sed -ri "s|^(EXTRAVERSION =).*|\1 -${pkgrel}|" Makefile
 
   # don't run depmod on 'make install'. We'll do this ourselves in packaging
   sed -i '2iexit 0' scripts/depmod.sh
 
-  # load configuration
-  cp ../kernelconfig ./.config
-  make silentoldconfig
+  msg "Running make prepare for you to enable patched options of your choosing"
+  make prepare
 
   # to modify kernel settings, uncomment the following line
   # make menuconfig
 
   # build!
-  make ${MAKEFLAGS} bzImage modules || return 1
+  make ${MAKEFLAGS} LOCALVERSION= bzImage modules || return 1
 }
 
 package_linux-eee-ck() {
+  _Kpkgdesc='The Linux Kernel and modules for the Asus Eee PC 701, with Brain Fuck Scheduler v${_bfsver} and all the goodies in the ${_ckver} patchset.'
+  pkgdesc="${_Kpkgdesc}"
+  
+  provides=("linux-eee-ck=${pkgver}")
+  depends=('coreutils' 'module-init-tools')
+  optdepends=('crda: for wireless regulatory domain support'
+            'iw: for wireless configuration support')
+  replaces=('linux-uvc-eee-svn' 'madwifi-eee-svn')
+  install='linux-eee-ck.install'
+
+  KARCH=x86
+
   # install our modules
-  cd $srcdir/linux-$_kernver
+  cd $srcdir/$_srcname
+
+  # get kernel version
+  _kernver="$(make LOCALVERSION= kernelrelease)"
+
   mkdir -p $pkgdir/{lib/modules,boot}
-  make INSTALL_MOD_PATH=$pkgdir modules_install || return 1
+  make LOCALVERSION= INSTALL_MOD_PATH=$pkgdir modules_install || return 1
 
   # remove the junk symlinks
-  cd $srcdir/linux-$_kernver
-  rm $pkgdir/lib/modules/$pkgver-${_ckver}eee/{build,source}
+  cd $srcdir/$_srcname
+  rm $pkgdir/lib/modules/$_kernver/{build,source}
+
   # install the kernel
   cp arch/x86/boot/bzImage $pkgdir/boot/vmlinuz-eee-ck
-  # install a helper file for all install scripts
-  mkdir -p $pkgdir/usr/share/linux-eee-ck/
-  echo "KERNEL_VERSION='${pkgver}-${_ckver}eee'" > $pkgdir/usr/share/linux-eee-ck/currver
 
-  # udev rules for SSD drives :: not required/helpful for 700
+  # udev rules for SSD drives/SD Cards, they is not rotational
   mkdir -p $pkgdir/lib/udev/rules.d/
   install -m644 $srcdir/61-eee-ssd.rules $pkgdir/lib/udev/rules.d/
 
   # gzip -9 all modules
-  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  find "$pkgdir" -name '*.ko' -exec gzip -9 {} \;
   # Now we call depmod...
-  depmod -b "$pkgdir" -F System.map "${pkgver}-${_ckver}eee"
+  depmod -b "$pkgdir" -F System.map "$_kernver"
 
   # move module tree /lib -> /usr/lib
   mv "$pkgdir/lib" "$pkgdir/usr"
 }
 
 package_linux-eee-ck-headers() {
-  KARCH=x86
+  _Hpkgdesc='Header files and scripts to build modules for linux-ck.'
+  pkgdesc="${_Hpkgdesc}"
+  depends=('linux-eee-ck') # added to keep kernel and headers packages matched
+  replaces=('kernel26-ck-headers')
 
-  # AUR workaround
-  true && pkgdesc='Header files and scripts for building modules for linux-eee-ck'
+  mkdir -p ${pkgdir}/lib/modules/${_kernver}
+  cd ${pkgdir}/lib/modules/${_kernver}
+  ln -sf ../../../usr/src/${_kernver} build
 
-  mkdir -p ${pkgdir}/lib/modules/${pkgver}-${_ckver}eee
-  cd ${pkgdir}/lib/modules/${pkgver}-${_ckver}eee
-  ln -sf ../../../usr/src/linux-${_kernver} build
-  cd ${srcdir}/linux-$_kernver
+  cd ${srcdir}/$_srcname
   install -D -m644 Makefile \
     ${pkgdir}/usr/src/linux-${_kernver}/Makefile
   install -D -m644 kernel/Makefile \
@@ -161,17 +182,20 @@ package_linux-eee-ck-headers() {
   # add wireless headers
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/
   cp net/mac80211/*.h ${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/
+
   # add dvb headers for external modules
   # in reference to:
   # http://bugs.archlinux.org/task/9912
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core
   cp drivers/media/dvb/dvb-core/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/
+
   # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
   # in reference to:
   # http://bugs.archlinux.org/task/13146
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
   cp drivers/media/dvb/frontends/lgdt330x.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
   cp drivers/media/video/msp3400-driver.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
+
   # add dvb headers  
   # in reference to:
   # http://bugs.archlinux.org/task/20402
@@ -181,6 +205,7 @@ package_linux-eee-ck-headers() {
   cp drivers/media/dvb/frontends/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners
   cp drivers/media/common/tuners/*.h ${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners/
+
   # add xfs and shmem for aufs building
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/fs/xfs
   mkdir -p ${pkgdir}/usr/src/linux-${_kernver}/mm
@@ -193,6 +218,7 @@ package_linux-eee-ck-headers() {
 
   chown -R root.root ${pkgdir}/usr/src/linux-${_kernver}
   find ${pkgdir}/usr/src/linux-${_kernver} -type d -exec chmod 755 {} \;
+
   # strip scripts directory
   find ${pkgdir}/usr/src/linux-${_kernver}/scripts  -type f -perm -u+w 2>/dev/null | while read binary ; do
   case "$(file -bi "$binary")" in
@@ -207,3 +233,6 @@ package_linux-eee-ck-headers() {
   # remove unneeded architectures
   rm -rf ${pkgdir}/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,cris,frv,h8300,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,parisc,powerpc,ppc,s390,sh,sh64,sparc,sparc64,um,v850,xtensa}
 }
+
+# Global pkgdesc and depends are here so that they will be picked up by AUR
+pkgdesc='Linux Kernel and modules with the ck1 patchset featuring the Brain Fuck Scheduler v0.425.'

@@ -1,0 +1,85 @@
+#!/bin/sh
+
+INSTDIR="/usr/share/netflix-desktop";
+NETFLIX_DESKTOP="${HOME}/.netflix-desktop";
+LOCAL_SUMS="${NETFLIX_DESKTOP}/filesums";
+GLOBAL_SUMS="${INSTDIR}/filesums";
+WINE="/opt/wine-silverlight/bin/wine";
+
+export WINEPREFIX=${NETFLIX_DESKTOP}
+export WINEARCH=win32
+export WINEDEBUG=-all
+
+if [ ! -d "${NETFLIX_DESKTOP}" ]; then
+    ${WINE} 'wineboot'
+fi
+
+# Make sure that all the nencessary files are installed.
+files_missing=1;
+while [ "$files_missing" -eq "1" ]; do
+	files_missing=0;
+	while read desired_checksum filename permissions url; do
+		if [ ! -f "${NETFLIX_DESKTOP}/${filename}" ]; then
+			files_missing=1;
+		fi
+	done < $GLOBAL_SUMS;
+	if [ "$files_missing" -eq "1" ]; then
+		zenity --question --title="Netflix Desktop" --text="Not all of the components required by Netflix Desktop were downloaded, would you like to download them now? \n\nPlease be advised, you will be downloading Microsoft Silverlight which can not be modified or distributed without expressed permission from the Microsoft Corporation." --ok-label="Yes" --cancel-label="No";
+		RET=$?;
+		if [ "$RET" -eq "1" ]; then
+			exit;
+		fi
+        (
+            echo "1";
+            ${INSTDIR}/install-file-downloader
+            echo "100";
+        ) | zenity --progress --pulsate --no-cancel --auto-close --text="Downloading Firefox and Silverlight...";
+        if [ $? -ne 0 ]; then
+            zenity --error --text "Could not download needed installation files.";
+        fi
+	fi
+done
+
+# Make sure that the filesystem likely supports extended file attributes
+MTABEXT=`cat /etc/mtab | grep ext4`;
+if [ "${MTABEXT}" = "" ]; then
+	MTABXATTR=`cat /etc/mtab | grep ext3 | grep user_xattr`;
+	if [ "${MTABXATTR}" = "" ]; then
+		zenity --warning --text "It appears that you do not have extended file system attributes enabled, please enable the user_xattr option and try again.";
+		exit;
+	fi
+fi
+
+# Copy over the specially configured user profile if installation has never been performed previously
+if [ ! -f ${LOCAL_SUMS} ]; then
+        mkdir -p "${NETFLIX_DESKTOP}/drive_c";
+        cp -a "${INSTDIR}/netflix-profile" "${NETFLIX_DESKTOP}/drive_c/netflix-profile";
+fi
+
+# If no previous installation has been performed (or new installation packages are available) then install the software we need to the local prefix
+if [ "$(cmp "${LOCAL_SUMS}" "${GLOBAL_SUMS}" > /dev/null; echo $?)" -ne "0" ]; then
+	(
+		echo "1";
+		${WINE} "${NETFLIX_DESKTOP}/FirefoxSetup.exe" /S > /dev/null;
+		${WINE} "${NETFLIX_DESKTOP}/SilverlightSetup.exe" /q > /dev/null;
+		echo "100";
+	) | zenity --progress --pulsate --no-cancel --auto-close --text="Performing local installation...";
+	cp "${GLOBAL_SUMS}" "${LOCAL_SUMS}";
+fi
+
+if [[ ! -f ${NETFLIX_DESKTOP}/toolbars && ! -f ${NETFLIX_DESKTOP}/notoolbars ]]; then
+    zenity --question --title="Netflix Desktop" --text="Would you like your Firefox window to have toolbars?\n\nIf Yes, the file 'toolbars' will be created in '~/.netflix-desktop/'. Change the filename to 'notoolbars' if you would like your Firefox window to not have toolbars." --ok-label="Yes" --cancel-label="No";
+    RET=$?;
+    if [ "$RET" -eq "0" ]; then
+        touch ${NETFLIX_DESKTOP}/toolbars
+    else
+        touch ${NETFLIX_DESKTOP}/notoolbars
+    fi
+fi
+
+if [ -f ${NETFLIX_DESKTOP}/notoolbars ]; then
+    # Launch Firefox with our specially prepared profile
+    ${WINE} "C:\\Program Files\\Mozilla Firefox\\firefox.exe" -profile "C:\\netflix-profile" 2>/dev/null;
+else
+    ${WINE} "C:\\Program Files\\Mozilla Firefox\\firefox.exe" "http://www.netflix.com"
+fi

@@ -19,9 +19,10 @@ _headersmore_ver="v0.18"
 _uploadprogress_ver="v0.8.4"
 _upstreamfair_hash="a18b4099fbd458111983200e098b6f0c8efed4bc"
 _fancyindex_ver="master"
+_httpupload_ver="2.2.0"
 
 pkgname=nginx-custom
-pkgver=1.2.4
+pkgver=1.2.5
 pkgrel=1
 pkgdesc="lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules"
 arch=('i686' 'x86_64')
@@ -57,11 +58,12 @@ source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
 		"https://github.com/agentzh/echo-nginx-module/tarball/${_echo_ver}"
 		"https://github.com/gnosek/nginx-upstream-fair/tarball/${_upstreamfair_hash}"
 		"ngx_fancyindex-${_fancyindex_ver}::http://gitorious.org/ngx-fancyindex/ngx-fancyindex/archive-tarball/${_fancyindex_ver}"
+		"https://github.com/vkholodkov/nginx-upload-module/tarball/${_httpupload_ver}"
 		"nginx.sh"
 		"nginx.conf"
 		"nginx.logrotate")
 
-md5sums=('a7c9a515f632c8cbb07ab67392208088'
+md5sums=('4f5a55187a3d45fa37d99d07ddd90800'
          '6805b78240f1d0b9531de3812eafcbf1'
          'bc92b2d326e0ab937b4cf5ab489e71e3'
          '9a6acb984d81f5d7e04214d63ae94273'
@@ -69,6 +71,7 @@ md5sums=('a7c9a515f632c8cbb07ab67392208088'
          '81f37d32bed8ca360fcdc3f58c7574a9'
          'ac5e7f485476af70e0ee1c52016cddaf'
          '8db9d2ef8b7ac63f9e23901dc3d36ab1'
+         '8766b931f29602889e0454749580a781'
          '0e8032d3ba26c3276e8c7c30588d375f'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
          '9dfca4c46969d3f620ed40b12c560637')
@@ -76,19 +79,21 @@ md5sums=('a7c9a515f632c8cbb07ab67392208088'
 build() {
 	local _src_dir="${srcdir}/${_pkgname}-${pkgver}"
 	local _build_dir="${_src_dir}/objs"
-    local _cachepurge_dirname="ngx_cache_purge-${_cachepurge_ver}"
+	local _cachepurge_dirname="ngx_cache_purge-${_cachepurge_ver}"
 	local _slowfscache_dirname="ngx_slowfs_cache-${_slowfscache_ver}"
 	local _headersmore_dirname="ngx_headers_more-${_headersmore_ver}"
 	local _echo_dirname="ngx_echo-${_echo_ver}"
 	local _uploadprogess_dirname="ngx_upload_progress-${_uploadprogress_ver}"
 	local _upstreamfair_dirname="ngx_upstream_fair"
 	local _fancyindex_dirname="ngx_fancyindex"
+	local _upload_dirname="ngx_http_upload-${_upload_ver}"
 
 	mv agentzh-headers-more-nginx-module-* ${_headersmore_dirname}
 	mv agentzh-echo-nginx-module-* ${_echo_dirname}
 	mv masterzen-nginx-upload-progress-module-* ${_uploadprogess_dirname}
 	mv gnosek-nginx-upstream-fair-* ${_upstreamfair_dirname}
 	mv ngx-fancyindex-ngx-fancyindex ${_fancyindex_dirname}
+	mv vkholodkov-nginx-upload-module* ${_upload_dirname}
 
 	cd $_src_dir
 
@@ -131,7 +136,8 @@ build() {
 		--add-module=../${_slowfscache_dirname} \
 		--add-module=../${_uploadprogess_dirname} \
 		--add-module=../${_upstreamfair_dirname} \
-		--add-module=../${_fancyindex_dirname}
+		--add-module=../${_fancyindex_dirname} \
+		--add-module=../${_upload_dirname}
 
 	make
 }

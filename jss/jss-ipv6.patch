@@ -1,0 +1,619 @@
+Index: jss/security/jss/lib/jss.def
+===================================================================
+--- jss.orig/security/jss/lib/jss.def	2011-10-04 20:32:37.017939286 +0300
++++ jss/security/jss/lib/jss.def	2011-10-04 20:42:47.805958690 +0300
+@@ -175,6 +175,7 @@
+ Java_org_mozilla_jss_ssl_SSLSocket_forceHandshake;
+ Java_org_mozilla_jss_ssl_SSLSocket_getKeepAlive;
+ Java_org_mozilla_jss_ssl_SSLSocket_getLocalAddressNative;
++Java_org_mozilla_jss_ssl_SocketBase_getLocalAddressByteArrayNative;
+ Java_org_mozilla_jss_ssl_SSLSocket_getPort;
+ Java_org_mozilla_jss_ssl_SSLSocket_getReceiveBufferSize;
+ Java_org_mozilla_jss_ssl_SSLSocket_getSendBufferSize;
+@@ -199,6 +200,7 @@
+ Java_org_mozilla_jss_ssl_SSLSocket_socketWrite;
+ Java_org_mozilla_jss_ssl_SocketBase_getLocalPortNative;
+ Java_org_mozilla_jss_ssl_SocketBase_getPeerAddressNative;
++Java_org_mozilla_jss_ssl_SocketBase_getPeerAddressByteArrayNative;
+ Java_org_mozilla_jss_ssl_SocketBase_setClientCertNicknameNative;
+ Java_org_mozilla_jss_ssl_SocketBase_requestClientAuthNoExpiryCheckNative;
+ Java_org_mozilla_jss_ssl_SocketBase_setSSLOption;
+Index: jss/security/jss/org/mozilla/jss/ssl/SSLServerSocket.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/ssl/SSLServerSocket.java	2011-10-04 20:29:35.909933532 +0300
++++ jss/security/jss/org/mozilla/jss/ssl/SSLServerSocket.java	2011-10-04 20:42:47.805958690 +0300
+@@ -36,7 +36,8 @@
+ 
+ package org.mozilla.jss.ssl;
+ 
+-import java.net.InetAddress;
++import java.util.*;
++import java.net.*;
+ import java.io.IOException;
+ import java.net.Socket;
+ import java.net.SocketException;
+@@ -138,34 +139,34 @@
+         super.close();
+ 
+         // create the socket
++
++        int socketFamily = SocketBase.SSL_AF_INET;
++        if(SocketBase.supportsIPV6()) {
++            socketFamily = SocketBase.SSL_AF_INET6;
++        }
++
+         sockProxy = new SocketProxy(
+-            base.socketCreate(this, certApprovalCallback, null) );
++            base.socketCreate(this, certApprovalCallback, null,socketFamily) );
+ 
+         base.setProxy(sockProxy);
+ 
+         setReuseAddress(reuseAddr);
+ 
+-        // bind it to the local address and port
+-        if( bindAddr == null ) {
+-            bindAddr = anyLocalAddr;
+-        }
+         byte[] bindAddrBA = null;
+         if( bindAddr != null ) {
+             bindAddrBA = bindAddr.getAddress();
+         }
+         base.socketBind(bindAddrBA, port);
++
++        String hostName = null;
++        if(bindAddr != null)  {
++            hostName = bindAddr.getCanonicalHostName();
++        }
+         socketListen(backlog);
+     }
+ 
+     private native void socketListen(int backlog) throws SocketException;
+ 
+-    private static InetAddress anyLocalAddr;
+-    static {
+-        try {
+-            anyLocalAddr = InetAddress.getByName("0.0.0.0");
+-        } catch (java.net.UnknownHostException e) { }
+-    }
+-
+     /**
+      * Accepts a connection. This call will block until a connection is made
+      * or the timeout is reached.
+Index: jss/security/jss/org/mozilla/jss/ssl/SSLSocket.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/ssl/SSLSocket.c	2011-10-04 20:29:35.909933532 +0300
++++ jss/security/jss/org/mozilla/jss/ssl/SSLSocket.c	2011-10-04 20:42:47.809958690 +0300
+@@ -460,10 +460,15 @@
+     JSSL_SocketData *sock;
+     PRNetAddr addr;
+     jbyte *addrBAelems = NULL;
++    int addrBALen = 0; 
+     PRStatus status;
+     int stat;
+     const char *hostnameStr=NULL;
+ 
++    jmethodID supportsIPV6ID;
++    jclass socketBaseClass;
++    jboolean supportsIPV6 = 0;
++
+     if( JSSL_getSockData(env, self, &sock) != PR_SUCCESS) {
+         /* exception was thrown */
+         goto finish;
+@@ -472,16 +477,32 @@
+     /*
+      * setup the PRNetAddr structure
+      */
+-    addr.inet.family = AF_INET;
+-    addr.inet.port = htons(port);
+-    PR_ASSERT(sizeof(addr.inet.ip) == 4);
+-    PR_ASSERT( (*env)->GetArrayLength(env, addrBA) == 4);
++
++    socketBaseClass = (*env)->FindClass(env, SOCKET_BASE_NAME);
++    if( socketBaseClass == NULL ) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++    supportsIPV6ID = (*env)->GetStaticMethodID(env, socketBaseClass,
++        SUPPORTS_IPV6_NAME, SUPPORTS_IPV6_SIG);
++
++    if( supportsIPV6ID == NULL ) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++
++    supportsIPV6 = (*env)->CallStaticBooleanMethod(env, socketBaseClass,
++         supportsIPV6ID);
++
+     addrBAelems = (*env)->GetByteArrayElements(env, addrBA, NULL);
++    addrBALen = (*env)->GetArrayLength(env, addrBA);
++
++    PR_ASSERT(addrBALen != 0);
++
+     if( addrBAelems == NULL ) {
+         ASSERT_OUTOFMEM(env);
+         goto finish;
+     }
+-    memcpy(&addr.inet.ip, addrBAelems, 4);
+ 
+     /*
+      * Tell SSL the URL we think we want to connect to.
+@@ -495,6 +516,38 @@
+         goto finish;
+     }
+ 
++    if( addrBAelems == NULL ) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++
++    if(addrBALen != 4 && addrBALen != 16) {
++        JSSL_throwSSLSocketException(env, "Invalid address in connect!");
++        goto finish;
++    }
++
++    if( addrBALen == 4) {
++        addr.inet.family = AF_INET;
++        addr.inet.port = PR_htons(port);
++        memcpy(&addr.inet.ip, addrBAelems, 4);
++
++        if(supportsIPV6) {
++            addr.ipv6.family = AF_INET6;
++            addr.ipv6.port = PR_htons(port);
++            PR_ConvertIPv4AddrToIPv6(addr.inet.ip,&addr.ipv6.ip);
++        }
++
++    }  else {   /* Must be 16 and ipv6 */
++        if(supportsIPV6) {
++            addr.ipv6.family = AF_INET6;
++            addr.ipv6.port = PR_htons(port);
++            memcpy(&addr.ipv6.ip,addrBAelems, 16);
++        }  else {
++                JSSL_throwSSLSocketException(env, "Invalid address in connect!");
++                goto finish;
++        }
++    }
++
+     /*
+      * make the connect call
+      */
+Index: jss/security/jss/org/mozilla/jss/ssl/SSLSocket.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/ssl/SSLSocket.java	2011-10-04 20:29:35.909933532 +0300
++++ jss/security/jss/org/mozilla/jss/ssl/SSLSocket.java	2011-10-04 20:42:47.809958690 +0300
+@@ -249,11 +249,16 @@
+         SSLClientCertificateSelectionCallback clientCertSelectionCallback)
+             throws IOException
+     {
++
++        int socketFamily = SocketBase.SSL_AF_INET;
++        if(SocketBase.supportsIPV6()) {
++            socketFamily = SocketBase.SSL_AF_INET6;
++        }
+         // create the socket
+         sockProxy =
+             new SocketProxy(
+                 base.socketCreate(
+-                    this, certApprovalCallback, clientCertSelectionCallback) );
++                    this, certApprovalCallback, clientCertSelectionCallback,socketFamily) );
+ 
+         base.setProxy(sockProxy);
+ 
+@@ -294,7 +299,7 @@
+             new SocketProxy(
+                 base.socketCreate(
+                     this, certApprovalCallback, clientCertSelectionCallback,
+-                    s, host ) );
++                    s, host,SocketBase.SSL_AF_INET ) );
+ 
+         base.setProxy(sockProxy);
+         resetHandshake();
+Index: jss/security/jss/org/mozilla/jss/ssl/SocketBase.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/ssl/SocketBase.java	2011-10-04 20:29:35.909933532 +0300
++++ jss/security/jss/org/mozilla/jss/ssl/SocketBase.java	2011-10-04 20:42:47.809958690 +0300
+@@ -70,16 +70,16 @@
+     native byte[] socketCreate(Object socketObject,
+         SSLCertificateApprovalCallback certApprovalCallback,
+         SSLClientCertificateSelectionCallback clientCertSelectionCallback,
+-        java.net.Socket javaSock, String host)
++        java.net.Socket javaSock, String host,int family)
+             throws SocketException;
+ 
+     byte[] socketCreate(Object socketObject,
+         SSLCertificateApprovalCallback certApprovalCallback,
+-        SSLClientCertificateSelectionCallback clientCertSelectionCallback)
++        SSLClientCertificateSelectionCallback clientCertSelectionCallback,int family)
+             throws SocketException
+     {
+         return socketCreate(socketObject, certApprovalCallback,
+-            clientCertSelectionCallback, null, null);
++            clientCertSelectionCallback, null, null,family);
+     }
+ 
+     native void socketBind(byte[] addrBA, int port) throws SocketException;
+@@ -123,6 +123,10 @@
+     // constant.
+     // static final int SSL_RENEGOTIATE_RESERVED = 27;
+ 
++
++    static final int SSL_AF_INET  = 50;
++    static final int SSL_AF_INET6 = 51;
++
+     void close() throws IOException {
+         socketClose();
+     }
+@@ -318,13 +322,25 @@
+         return in;
+     }
+ 
++    private native byte[] getLocalAddressByteArrayNative() throws SocketException;
++    private native byte[] getPeerAddressByteArrayNative() throws SocketException;
+     /**
+      * @return the InetAddress of the peer end of the socket.
+      */
+     InetAddress getInetAddress()
+     {
+         try {
+-            return convertIntToInetAddress( getPeerAddressNative() );
++            byte[] address = getPeerAddressByteArrayNative(); 
++
++            InetAddress iAddr = null;
++
++            try {
++
++                iAddr = InetAddress.getByAddress(address);
++            }   catch(UnknownHostException e) {
++            }
++
++            return iAddr;
+         } catch(SocketException e) {
+             return null;
+         }
+@@ -336,7 +352,17 @@
+      */
+     InetAddress getLocalAddress() {
+         try {
+-            return convertIntToInetAddress( getLocalAddressNative() );
++            byte[] address = getLocalAddressByteArrayNative();
++
++            InetAddress lAddr = null;
++
++            try {
++
++                lAddr = InetAddress.getByAddress(address);
++            }   catch(UnknownHostException e) {
++            }
++
++            return lAddr;
+         } catch(SocketException e) {
+             return null;
+         }
+@@ -415,4 +441,45 @@
+         return topException;
+       }
+     }
++   
++    static private int supportsIPV6 = -1;
++    static boolean supportsIPV6() {
++
++        if(supportsIPV6 >= 0) {
++            if(supportsIPV6 > 0) {
++                return true;
++            } else {
++                return false;
++            } 
++        }
++
++        Enumeration netInter;
++        try {
++                 netInter = NetworkInterface.getNetworkInterfaces();
++        }  catch (SocketException e) {
++
++                 return false;
++        }
++        while ( netInter.hasMoreElements() )
++        {
++            NetworkInterface ni = (NetworkInterface)netInter.nextElement();
++            Enumeration addrs = ni.getInetAddresses();
++            while ( addrs.hasMoreElements() )
++            {
++                 Object o = addrs.nextElement();
++                 if ( o.getClass() == InetAddress.class ||
++                     o.getClass() == Inet4Address.class ||
++                     o.getClass() == Inet6Address.class )
++                 {
++                      InetAddress iaddr = (InetAddress) o;
++                      if(o.getClass() == Inet6Address.class) {
++                          supportsIPV6 = 1;
++                          return true;
++                      }
++                 }
++            }
++        }
++        supportsIPV6 = 0;
++        return false;
++    }
+ }
+Index: jss/security/jss/org/mozilla/jss/ssl/common.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/ssl/common.c	2011-10-04 20:29:35.909933532 +0300
++++ jss/security/jss/org/mozilla/jss/ssl/common.c	2011-10-04 20:42:47.809958690 +0300
+@@ -33,7 +33,6 @@
+  * the terms of any one of the MPL, the GPL or the LGPL.
+  *
+  * ***** END LICENSE BLOCK ***** */
+-
+ #include <nspr.h>
+ #include <jni.h>
+ #include <pk11func.h>
+@@ -51,6 +50,9 @@
+ #include <winsock.h>
+ #endif
+ 
++#define SSL_AF_INET  50
++#define SSL_AF_INET6 51
++
+ void
+ JSSL_throwSSLSocketException(JNIEnv *env, char *message)
+ {
+@@ -142,7 +144,7 @@
+ JNIEXPORT jbyteArray JNICALL
+ Java_org_mozilla_jss_ssl_SocketBase_socketCreate(JNIEnv *env, jobject self,
+     jobject sockObj, jobject certApprovalCallback,
+-    jobject clientCertSelectionCallback, jobject javaSock, jstring host)
++    jobject clientCertSelectionCallback, jobject javaSock, jstring host,jint family)
+ {
+     jbyteArray sdArray = NULL;
+     JSSL_SocketData *sockdata = NULL;
+@@ -150,10 +152,21 @@
+     PRFileDesc *newFD;
+     PRFileDesc *tmpFD;
+     PRFilePrivate *priv = NULL;
++    int socketFamily = 0;
++
++    if (family != SSL_AF_INET6 && family  != SSL_AF_INET) {
++       JSSL_throwSSLSocketException(env,
++                "socketCreate() Invalid family!");
++            goto finish;
++    }
++    if( family == SSL_AF_INET) 
++       socketFamily = PR_AF_INET;
++    else
++       socketFamily = PR_AF_INET6;
+ 
+     if( javaSock == NULL ) {
+         /* create a TCP socket */
+-        newFD = PR_NewTCPSocket();
++        newFD = PR_OpenTCPSocket(socketFamily);
+         if( newFD == NULL ) {
+             JSSL_throwSSLSocketException(env,
+                 "PR_NewTCPSocket() returned NULL");
+@@ -411,8 +424,13 @@
+     JSSL_SocketData *sock;
+     PRNetAddr addr;
+     jbyte *addrBAelems = NULL;
++    int addrBALen = 0;
+     PRStatus status;
+ 
++    jmethodID supportsIPV6ID;
++    jclass socketBaseClass;
++    jboolean supportsIPV6 = 0;
++
+     if( JSSL_getSockData(env, self, &sock) != PR_SUCCESS) {
+         /* exception was thrown */
+         goto finish;
+@@ -421,19 +439,72 @@
+     /*
+      * setup the PRNetAddr structure
+      */
+-    addr.inet.family = AF_INET;
+-    addr.inet.port = htons(port);
++
++    /* 
++     * Do we support IPV6? 
++     */
++
++    socketBaseClass = (*env)->FindClass(env, SOCKET_BASE_NAME);
++    if( socketBaseClass == NULL ) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++    supportsIPV6ID = (*env)->GetStaticMethodID(env, socketBaseClass,
++        SUPPORTS_IPV6_NAME, SUPPORTS_IPV6_SIG);
++
++    if( supportsIPV6ID == NULL ) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++
++    supportsIPV6 = (*env)->CallStaticBooleanMethod(env, socketBaseClass,
++         supportsIPV6ID);
++
++    memset( &addr, 0, sizeof( PRNetAddr ));
++
+     if( addrBA != NULL ) {
+-        PR_ASSERT(sizeof(addr.inet.ip) == 4);
+-        PR_ASSERT( (*env)->GetArrayLength(env, addrBA) == 4);
+         addrBAelems = (*env)->GetByteArrayElements(env, addrBA, NULL);
++        addrBALen = (*env)->GetArrayLength(env, addrBA);
++
+         if( addrBAelems == NULL ) {
+             ASSERT_OUTOFMEM(env);
+             goto finish;
+         }
+-        memcpy(&addr.inet.ip, addrBAelems, 4);
++
++        if(addrBALen != 4 && addrBALen != 16) {
++            JSS_throwMsgPrErr(env, BIND_EXCEPTION,
++            "Invalid address in bind!");
++             goto finish;
++        }
++
++        if( addrBALen == 4) {
++            addr.inet.family = PR_AF_INET;
++            addr.inet.port = PR_htons(port);
++            memcpy(&addr.inet.ip, addrBAelems, 4);
++
++            if(supportsIPV6) {
++                addr.inet.family = PR_AF_INET6;
++                addr.ipv6.port = PR_htons(port);
++                PR_ConvertIPv4AddrToIPv6(addr.inet.ip,&addr.ipv6.ip);
++            } 
++
++        }  else {   /* Must be 16 and ipv6 */
++            if(supportsIPV6) {
++                addr.ipv6.family = PR_AF_INET6;
++                addr.ipv6.port = PR_htons(port);
++                memcpy(&addr.ipv6.ip,addrBAelems, 16);
++            }  else {
++                JSS_throwMsgPrErr(env, BIND_EXCEPTION,
++                    "Invalid address in bind!");
++                goto finish;
++            }
++        }
+     } else {
+-        addr.inet.ip = PR_htonl(INADDR_ANY);
++        if(supportsIPV6) {
++            status = PR_SetNetAddr(PR_IpAddrAny, PR_AF_INET6, port, &addr);
++        } else {
++            status = PR_SetNetAddr(PR_IpAddrAny, PR_AF_INET, port, &addr);
++        }
+     }
+ 
+     /* do the bind() call */
+@@ -607,6 +678,78 @@
+     return status;
+ }
+ 
++JNIEXPORT jbyteArray JNICALL
++Java_org_mozilla_jss_ssl_SocketBase_getPeerAddressByteArrayNative
++    (JNIEnv *env, jobject self)
++{
++    jbyteArray byteArray=NULL;
++    PRNetAddr addr;
++    jbyte *address=NULL;
++    int size=4;
++
++    if( JSSL_getSockAddr(env, self, &addr, PEER_SOCK) != PR_SUCCESS) { 
++        goto finish;
++    }
++
++    if( PR_NetAddrFamily(&addr) ==  PR_AF_INET6) {
++        size = 16;
++        address = (jbyte *) &addr.ipv6.ip;
++    } else {
++        address = (jbyte *) &addr.inet.ip;
++    }
++
++    byteArray = (*env)->NewByteArray(env,size);
++    if(byteArray == NULL) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++    (*env)->SetByteArrayRegion(env, byteArray, 0,size ,address);
++    if( (*env)->ExceptionOccurred(env) != NULL) {
++        PR_ASSERT(PR_FALSE);
++        goto finish;
++    }
++
++finish:
++    return byteArray;
++}
++
++JNIEXPORT jbyteArray JNICALL
++Java_org_mozilla_jss_ssl_SocketBase_getLocalAddressByteArrayNative
++    (JNIEnv *env, jobject self)
++{
++    jbyteArray byteArray=NULL;
++    PRNetAddr addr;
++    jbyte *address=NULL;
++    int size=4;
++
++    if( JSSL_getSockAddr(env, self, &addr, LOCAL_SOCK) != PR_SUCCESS) {
++        goto finish;
++    }
++
++    if( PR_NetAddrFamily(&addr) ==  PR_AF_INET6) {
++        size = 16;
++        address = (jbyte *) &addr.ipv6.ip; 
++    } else {
++        address = (jbyte *) &addr.inet.ip;
++    }
++   
++    byteArray = (*env)->NewByteArray(env,size);
++    if(byteArray == NULL) {
++        ASSERT_OUTOFMEM(env);
++        goto finish;
++    }
++    (*env)->SetByteArrayRegion(env, byteArray, 0,size,address);
++    if( (*env)->ExceptionOccurred(env) != NULL) {
++        PR_ASSERT(PR_FALSE);
++        goto finish;
++    }
++
++finish:
++    return byteArray;
++}
++
++/* Leave the original versions of these functions for compatibility */
++
+ JNIEXPORT jint JNICALL
+ Java_org_mozilla_jss_ssl_SocketBase_getPeerAddressNative
+     (JNIEnv *env, jobject self)
+Index: jss/security/jss/org/mozilla/jss/ssl/javasock.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/ssl/javasock.c	2011-10-04 20:29:35.913933532 +0300
++++ jss/security/jss/org/mozilla/jss/ssl/javasock.c	2011-10-04 20:42:47.809958690 +0300
+@@ -290,6 +290,7 @@
+     jobject inetAddress;
+     jbyteArray addrByteArray;
+     jint port;
++    int addrBALen = 0;
+ 
+     if( GET_ENV(fd->secret->javaVM, env) ) goto finish;
+ 
+@@ -377,8 +378,9 @@
+ 
+         memset(addr, 0, sizeof(PRNetAddr));
+ 
+-        /* we only handle IPV4 */
+-        PR_ASSERT( (*env)->GetArrayLength(env, addrByteArray) == 4 );
++        addrBALen = (*env)->GetArrayLength(env, addrByteArray);
++
++        PR_ASSERT( (addrBALen == 4) || (addrBALen == 16 ) );
+ 
+         /* make sure you release them later */
+         addrBytes = (*env)->GetByteArrayElements(env, addrByteArray, NULL);
+@@ -388,9 +390,16 @@
+         }
+ 
+         /* ip field is in network byte order */
+-        memcpy( (void*) &addr->inet.ip, addrBytes, 4);
+-        addr->inet.family = PR_AF_INET;
+-        addr->inet.port = port;
++
++        if (addrBALen == 4) {
++            memcpy( (void*) &addr->inet.ip, addrBytes, 4);
++            addr->inet.family = PR_AF_INET;
++            addr->inet.port = port;
++        } else {
++            memcpy( (void*) &addr->ipv6.ip,addrBytes, 16);
++            addr->inet.family = PR_AF_INET6;
++            addr->inet.port = port;
++        }
+ 
+         (*env)->ReleaseByteArrayElements(env, addrByteArray, addrBytes,
+             JNI_ABORT);
+Index: jss/security/jss/org/mozilla/jss/util/java_ids.h
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/util/java_ids.h	2011-10-04 20:29:35.913933532 +0300
++++ jss/security/jss/org/mozilla/jss/util/java_ids.h	2011-10-04 20:42:47.809958690 +0300
+@@ -312,6 +312,8 @@
+ #define SOCKET_BASE_NAME "org/mozilla/jss/ssl/SocketBase"
+ #define PROCESS_EXCEPTIONS_NAME "processExceptions"
+ #define PROCESS_EXCEPTIONS_SIG "(Ljava/lang/Throwable;Ljava/lang/Throwable;)Ljava/lang/Throwable;"
++#define SUPPORTS_IPV6_NAME "supportsIPV6"
++#define SUPPORTS_IPV6_SIG "()Z"
+ 
+ /*
+  * SSLCertificateApprovalCallback

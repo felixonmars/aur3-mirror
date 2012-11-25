@@ -7,7 +7,7 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-aufs_friendly       # Build kernel with a different name
 _srcname=linux-3.6
-pkgver=3.6.2
+pkgver=3.6.6
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -21,14 +21,18 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
+        'module-symbol-waiting-3.6.patch'
+        'module-init-wait-3.6.patch'
         # patches exporting symbols for the aufs module (reason for this package)
         'aufs3-base.patch' 'aufs3-standalone.patch')
 md5sums=('1a1760420eac802c541a20ab51a093d1'
-         'ad1020c82a71ee1ef2416a0d12e724df'
-         '443f285744cb96401f9a631f542b9248'
-         '2793e97a9e98c501afd3e18d2e3b9762'
+         '11d6d8749d4612a77f43f0531c0f2824'
+         '65f7ff39775f20f65014383564d3cb65'
+         '3adbfa45451c4bcf9dd7879bed033d77'
          'eb14dcfd80c00852ef81ded6e826826a'
          '9d3c56a4b999c8bfbd4018089a62f662'
+         '670931649c60fcb3ef2e0119ed532bd4'
+         '8a71abc4224f575008f974a099b5cf6f'
          'a0b105ee94cbb37a9bfb9d565ad92edf'
          '27eebb174b910add402d93c66277325a')
 
@@ -47,6 +51,11 @@ build() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
+
+  # fix module initialisation
+  # https://bugs.archlinux.org/task/32122
+  patch -Np1 -i "${srcdir}/module-symbol-waiting-3.6.patch"
+  patch -Np1 -i "${srcdir}/module-init-wait-3.6.patch"
 
   msg 'AUFS3 patches'
   patch -p1 -i "${srcdir}/aufs3-base.patch"
@@ -98,67 +107,6 @@ build() {
 
   # build!
   make ${MAKEFLAGS} LOCALVERSION= bzImage modules
-}
-
-_package() {
-  pkgdesc="The ${pkgbase} kernel and modules"
-  [ "${pkgbase}" = "linux" ] && groups=('base')
-  depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
-  optdepends=('crda: to set the correct wireless channels of your country')
-  provides=("kernel26${_kernelname}=${pkgver}" 'aufs_friendly')
-  conflicts=("kernel26${_kernelname}")
-  replaces=("kernel26${_kernelname}")
-  backup=("etc/mkinitcpio.d/${pkgbase}.preset")
-  install=linux.install
-
-  cd "${srcdir}/${_srcname}"
-
-  KARCH=x86
-
-  # get kernel version
-  _kernver="$(make LOCALVERSION= kernelrelease)"
-  _basekernel=${_kernver%%-*}
-  _basekernel=${_basekernel%.*}
-
-  mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
-  make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
-  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgbase}"
-
-  # add vmlinux
-  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
-
-  # install fallback mkinitcpio.conf file and preset file for kernel
-  install -D -m644 "${srcdir}/linux.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
-
-  # set correct depmod command for install
-  sed \
-    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/" \
-    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/" \
-    -i "${startdir}/linux.install"
-  sed \
-    -e "1s|'linux.*'|'${pkgbase}'|" \
-    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgbase}\"|" \
-    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgbase}.img\"|" \
-    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgbase}-fallback.img\"|" \
-    -i "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
-
-  # remove build and source links
-  rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
-  # remove the firmware
-  rm -rf "${pkgdir}/lib/firmware"
-  # gzip -9 all modules to save 100MB of space
-  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
-  # make room for external modules
-  ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
-  # add real version for building modules and running depmod from post_install/upgrade
-  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
-  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
-
-  # Now we call depmod...
-  depmod -b "$pkgdir" -F System.map "$_kernver"
-
-  # move module tree /lib -> /usr/lib
-  mv "$pkgdir/lib" "$pkgdir/usr"
 }
 
 _package-headers() {
@@ -309,6 +257,67 @@ _package-docs() {
   rm -f "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
 }
 
+_package() {
+  pkgdesc="The ${pkgbase} kernel and modules"
+  [ "${pkgbase}" = "linux" ] && groups=('base')
+  depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
+  optdepends=('crda: to set the correct wireless channels of your country')
+  provides=("kernel26${_kernelname}=${pkgver}" 'aufs_friendly')
+  conflicts=("kernel26${_kernelname}")
+  replaces=("kernel26${_kernelname}")
+  backup=("etc/mkinitcpio.d/${pkgbase}.preset")
+  install=linux.install
+
+  cd "${srcdir}/${_srcname}"
+
+  KARCH=x86
+
+  # get kernel version
+  _kernver="$(make LOCALVERSION= kernelrelease)"
+  _basekernel=${_kernver%%-*}
+  _basekernel=${_basekernel%.*}
+
+  mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
+  make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
+  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgbase}"
+
+  # add vmlinux
+  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
+
+  # install fallback mkinitcpio.conf file and preset file for kernel
+  install -D -m644 "${srcdir}/linux.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
+
+  # set correct depmod command for install
+  sed \
+    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/" \
+    -i "${startdir}/linux.install"
+  sed \
+    -e "1s|'linux.*'|'${pkgbase}'|" \
+    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgbase}\"|" \
+    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgbase}.img\"|" \
+    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgbase}-fallback.img\"|" \
+    -i "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
+
+  # remove build and source links
+  rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
+  # remove the firmware
+  rm -rf "${pkgdir}/lib/firmware"
+  # gzip -9 all modules to save 100MB of space
+  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  # make room for external modules
+  ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+  # add real version for building modules and running depmod from post_install/upgrade
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
+
+  # Now we call depmod...
+  depmod -b "$pkgdir" -F System.map "$_kernver"
+
+  # move module tree /lib -> /usr/lib
+  mv "$pkgdir/lib" "$pkgdir/usr"
+}
+
 #hack for AUR
 pkgname="linux-aufs_friendly"
 true && pkgname=("${pkgbase}" "${pkgbase}-headers" "${pkgbase}-docs")
@@ -318,4 +327,3 @@ for _p in ${pkgname[@]}; do
     _package${_p#${pkgbase}}
   }"
 done
-

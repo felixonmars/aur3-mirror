@@ -1,20 +1,23 @@
-# Maintainer: Joel Pedraza <pkgs-at-joelpedraza.com>
+# Maintainer: Joel Pedraza <joel@joelpedraza.com>
 
-pkgname=android-mips-system-image-16
-pkgver=4.1.1_r01
-pkgrel=2
-pkgdesc='Android MIPS System Image, API-16'
+_apiver=16
+_sdkver=4.1.1
+_rel=r02
+pkgname=android-mips-system-image-${_apiver}
+pkgver=${_sdkver}_${_rel}
+pkgrel=1
+pkgdesc="Android MIPS System Image, API-${_apiver}"
 arch=('any')
 url="http://developer.mips.com/android/"
 license=('Apache')
-depends=('android-platform-16' 'android-sdk>=21')
+depends=("android-platform-${_apiver}" 'android-sdk>=r21')
 options=('!strip')
-source=("http://wpc.1982.edgecastcdn.net/001982/Android/sysimg_mips-16_r01.zip")
-sha1sums=('4acc50c12dd426029659a2c801659046ad7f29a8')
+source=("http://d2a85uzpvoidrc.cloudfront.net/sysimg_mips-${_apiver}_${_rel}.zip")
+sha1sums=('611c9fe8e6a911587b5ffc45061c0f690a7828a1')
 
 package() {
-  mkdir -p "${pkgdir}/opt/android-sdk/system-images/android-16/"
-  mv "${srcdir}/mips" "${pkgdir}/opt/android-sdk/system-images/android-16/mips"
+  mkdir -p "${pkgdir}/opt/android-sdk/system-images/android-${_apiver}/"
+  mv "${srcdir}/mips" "${pkgdir}/opt/android-sdk/system-images/android-${_apiver}/mips"
 
   chmod -R ugo+rX "${pkgdir}/opt"
 }

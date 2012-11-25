@@ -15,26 +15,26 @@ sha512sums=('04b986b1a22d213478c51f7863e83c8904514ea2361f8ab890954d75e0b9fda9c41
 PKGEXT=".pkg.tar"
 
 #Install prefix
-PREFIX="/opt/Alice3Beta"
+PREFIX="/opt/Alice3"
 
 package() {
-  cd "${srcdir}/Alice3Beta"
+  cd "${srcdir}/Alice3"
 
   #Remove stuff not required for Alice on Linux
   #  (created by a diff of: )
-  #  find /tmp/Alice3Beta/installed/ | sort
-  #  find /tmp/Alice3Beta/extracted/ | sort
+  #  find /tmp/Alice3/installed/ | sort
+  #  find /tmp/Alice3/extracted/ | sort
     #Windows stuff
     msg "Removing Windows specific files..."
       rm Alice3Icon.ico
-      rm Alice.bat
+      rm Alice3.bat
       rm -r application/windows-amd64/
       rm -r application/windows-i586/
       #JRE
         rm -r auxiliary/jre1.6.0_21/
     #Mac OS X stuff
     msg "Removing Mac OS X specific files..."
-      rm -r Alice.app/
+      rm -r Alice3.app/
       rm -r application/macosx-10.4/
       rm -r application/macosx-universal/
       rm auxiliary/auxiliary/MacAuxiliary.txt
@@ -58,8 +58,8 @@ package() {
   if [ "${CARCH}" == "x86_64" ]; then
     rm -r ext/jogl/lib/linux-i586/
     rm -r application/linux-i586/
-    rm alice.sh
-    mv alice64bit.sh alice.sh
+    rm alice3.sh
+    mv alice364bit.sh alice3.sh
   fi
   if [ "${CARCH}" == "i586" ]; then
     rm -r ext/jogl/lib/linux-amd64/
@@ -77,15 +77,15 @@ package() {
   find . -type f -exec install -Dm644 "{}" "${pkgdir}${PREFIX}/{}" \;
 
   #Make launch script executable
-  chmod +x "${pkgdir}${PREFIX}/alice.sh"
+  chmod +x "${pkgdir}${PREFIX}/alice3.sh"
 
   #Install launch script
-  msg "Creating launcher script: /usr/bin/alice..."
+  msg "Creating launcher script: /usr/bin/alice3..."
   install -dm755 "${pkgdir}/usr/bin/"
-  echo '#!/bin/bash' > "${pkgdir}/usr/bin/alice"
-  echo "cd \"${PREFIX}\"" >> "${pkgdir}/usr/bin/alice"
-  echo "./alice.sh" >> "${pkgdir}/usr/bin/alice"
-  chmod +x "${pkgdir}/usr/bin/alice"
+  echo '#!/bin/bash' > "${pkgdir}/usr/bin/alice3"
+  echo "cd \"${PREFIX}\"" >> "${pkgdir}/usr/bin/alice3"
+  echo "./alice3.sh" >> "${pkgdir}/usr/bin/alice3"
+  chmod +x "${pkgdir}/usr/bin/alice3"
 }
 
 # vim:set ts=2 sw=2 et:

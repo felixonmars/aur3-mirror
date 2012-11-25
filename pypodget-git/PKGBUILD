@@ -1,22 +1,22 @@
 #Maintainer: "Yannick LM <yannicklm1337 AT gmail DOT com>"
 
 pkgname=pypodget-git
-pkgver=20100117
+pkgver=20121106
 pkgrel=1
 pkgdesc="A rewrite of podget in python"
-url="http://sd-5791.dedibox.fr"
+url="https://github.com/yannicklm/pypodget"
 arch=('any')
 license=('BSD')
 depends=('python-feedparser')
 optdepends=('python-progressbar: for --verbose option')
 makedepends=('git' 'python')
 
-_gitroot="git://sd-5791.dedibox.fr/prog/pypodget"
+_gitroot="git://github.com/yannicklm/pypodget.git"
 _gitname="pypodget"
 
 build() {
   cd ${srcdir}
-  msg "Connecting to sd-5791.dedibox.fr GIT server...."
+  msg "Connecting to git server...."
 
   if [ -d ${srcdir}/$_gitname ] ; then
     cd $_gitname && git pull origin

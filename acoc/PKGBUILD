@@ -1,4 +1,4 @@
-# Maintainer: Hilton Medeiros <medeiros.hilton at gmail dot com>
+# Maintainer: Federico Cinelli <cinelli.federico@gmail.com> 
 # Contributor: shacristo <shacristo at gmail dot com>
 # Contributor: Kamil Stachowski <kamil.stachowski@gmail.com>
 

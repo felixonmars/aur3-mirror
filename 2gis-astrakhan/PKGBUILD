@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-astrakhan
-pkgver=83
+pkgver=84
 pkgrel=1
-pkgdesc="Map of Astrakhan for 2GIS, October 2012"
+pkgdesc="Map of Astrakhan for 2GIS, November 2012"
 arch=('i686' 'x86_64')
 url="http://astrakhan.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-83.orig.zip")
-md5sums=('cd2bb738771de18663146b1217ea0c62')
+source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-84.orig.zip")
+md5sums=('454318f5a5d04ffcadf99f430cd2ccf6')
      
 build() {
      

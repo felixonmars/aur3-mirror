@@ -1,4 +1,5 @@
 # Contributor: Eric Forgeot < http://ifiction.free.fr >
+# Mantainer: Luis Pablo Gasparotto < lpgasparotto at gmail dot com >
 pkgname=abc2prt
 pkgver=1.0.2
 pkgrel=1
@@ -8,8 +9,7 @@ url="http://abcplus.sourceforge.net/"
 license=('gpl')
 #depends=('')
 source=(http://abcplus.sourceforge.net/${pkgname}-${pkgver}.tar.gz)
-#md5sums=(' ')
-
+md5sums=('9fe59f2c3c2b552f4342e041304035b5')
 
 build() {
 

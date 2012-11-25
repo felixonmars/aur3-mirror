@@ -1,0 +1,288 @@
+diff --git a/dlls/wined3d/directx.c b/dlls/wined3d/directx.c
+index 4df04fa..41939e7 100644
+--- a/dlls/wined3d/directx.c
++++ b/dlls/wined3d/directx.c
+@@ -4490,8 +4490,13 @@ static HRESULT WINAPI IWineD3DImpl_GetDeviceCaps(IWineD3D *iface, UINT Adapter,
+     pCaps->MaxUserClipPlanes = gl_info->limits.clipplanes;
+     pCaps->MaxActiveLights = gl_info->limits.lights;
+ 
+-    pCaps->MaxVertexBlendMatrices = gl_info->limits.blends;
+-    pCaps->MaxVertexBlendMatrixIndex   = 0;
++    if (gl_info->supported[ARB_VERTEX_BLEND]) {
++        pCaps->MaxVertexBlendMatrices    = gl_info->limits.blends;
++        pCaps->MaxVertexBlendMatrixIndex = 0;
++    } else {
++        pCaps->MaxVertexBlendMatrices    = 4;
++        pCaps->MaxVertexBlendMatrixIndex = 255;
++    }
+ 
+     pCaps->MaxAnisotropy = gl_info->limits.anisotropy;
+     pCaps->MaxPointSize = gl_info->limits.pointsize_max;
+diff --git a/dlls/wined3d/drawprim.c b/dlls/wined3d/drawprim.c
+index 1f904ea..adc9eca 100644
+--- a/dlls/wined3d/drawprim.c
++++ b/dlls/wined3d/drawprim.c
+@@ -56,6 +56,75 @@ static void drawStridedFast(IWineD3DDevice *iface, GLenum primitive_type,
+ }
+ 
+ /*
++ * Emit a vertex using swoftware vertex blending
++ */
++static void emitBlendedVertex(IWineD3DStateBlockImpl *stateBlock,
++                              const float *weights, int nweights, const BYTE *indices,
++                              const float *pos, const float *norm)
++{
++    const float *m;
++    float        vec[4];
++    float        mat[4*4];
++    float        last = 1.f;
++    int          i, j;
++
++    /* compute the weighted sum of the matrices */
++    m = &stateBlock->transforms[WINED3DTS_WORLDMATRIX((indices ? indices[0] : 0))].u.m[0][0];
++    for (j = 0; j < 16; j++)
++        mat[j] = m[j] * weights[0];
++    last -= weights[0];
++
++    for (i = 1; i < nweights; i++) {
++        if (weights[i]) {
++            m = &stateBlock->transforms[WINED3DTS_WORLDMATRIX((indices ? indices[i] : i))].u.m[0][0];
++            for (j = 0; j < 16; j++)
++                mat[j] += m[j] * weights[i];
++            last -= weights[i];
++        }
++    }
++
++    /* do the last */
++    if (last) {
++        m = &stateBlock->transforms[WINED3DTS_WORLDMATRIX((indices ? indices[i] : i))].u.m[0][0];
++        for (j = 0; j < 16; j++)
++            mat[j] += m[j] * last;
++    }
++
++    if (norm) {
++        /* compute the resulting normal */
++        vec[0] = norm[0] * mat[0] + norm[1] * mat[4] + norm[2] * mat[8];
++        vec[1] = norm[0] * mat[1] + norm[1] * mat[5] + norm[2] * mat[9];
++        vec[2] = norm[0] * mat[2] + norm[1] * mat[6] + norm[2] * mat[10];
++        /* normalize */
++        vec[3] = vec[0]*vec[0] + vec[1]*vec[1] + vec[2]*vec[2];
++        if (vec[3]) {
++            vec[3] = 1.f / sqrtf(vec[3]);
++            vec[0] *= vec[3];
++            vec[1] *= vec[3];
++            vec[2] *= vec[3];
++        }
++
++        glNormal3fv(vec);
++    }
++
++    if (pos) {
++        /* compute the resulting position */
++        vec[0] = pos[0] * mat[0] + pos[1] * mat[4] + pos[2] * mat[8] + mat[12];
++        vec[1] = pos[0] * mat[1] + pos[1] * mat[5] + pos[2] * mat[9] + mat[13];
++        vec[2] = pos[0] * mat[2] + pos[1] * mat[6] + pos[2] * mat[10] + mat[14];
++        vec[3] = pos[0] * mat[3] + pos[1] * mat[7] + pos[2] * mat[11] + mat[15];
++        /* normalize */
++        if (vec[3]) {
++            vec[0] /= vec[3];
++            vec[1] /= vec[3];
++            vec[2] /= vec[3];
++        }
++
++        glVertex3fv(vec);
++    }
++}
++
++/*
+  * Actually draw using the supplied information.
+  * Slower GL version which extracts info about each vertex in turn
+  */
+@@ -75,7 +144,8 @@ static void drawStridedSlow(IWineD3DDevice *iface, const struct wined3d_context
+     BOOL                      pixelShader = use_ps(This->stateBlock);
+     BOOL specular_fog = FALSE;
+     const BYTE *texCoords[WINED3DDP_MAXTEXCOORD];
+-    const BYTE *diffuse = NULL, *specular = NULL, *normal = NULL, *position = NULL;
++    const BYTE *diffuse = NULL, *specular = NULL, *normal = NULL, *position = NULL, *weights = NULL, *indices = NULL;
++    int nweights = 0;
+     const struct wined3d_gl_info *gl_info = context->gl_info;
+     UINT texture_stages = gl_info->limits.texture_stages;
+     const struct wined3d_stream_info_element *element;
+@@ -167,6 +237,31 @@ static void drawStridedSlow(IWineD3DDevice *iface, const struct wined3d_context
+     {
+         GL_EXTCALL(glSecondaryColor3fEXT)(0, 0, 0);
+     }
++    
++    if (This->vertexBlendSW) {
++        if (!si->elements[WINED3D_FFP_BLENDWEIGHT].data) {
++            WARN("vertex blending enabled but blendWeights.data=NULL\n");
++        } else if (si->elements[WINED3D_FFP_BLENDWEIGHT].format_desc->gl_vtx_type != GL_FLOAT) {
++            FIXME("unsupported blend weights datatype (%d)\n", si->elements[WINED3D_FFP_BLENDWEIGHT].format_desc->format);
++        } else if (position && si->elements[WINED3D_FFP_POSITION].format_desc->emit_idx != WINED3D_FFP_EMIT_FLOAT3) {
++            FIXME("unsupported postion datatype (%d)\n", si->elements[WINED3D_FFP_POSITION].format_desc->format);
++        } else if (normal && si->elements[WINED3D_FFP_NORMAL].format_desc->emit_idx != WINED3D_FFP_EMIT_FLOAT3) {
++            FIXME("unsupported normal datatype (%d)\n", si->elements[WINED3D_FFP_NORMAL].format_desc->format);
++        } else {
++            element = &si->elements[WINED3D_FFP_BLENDWEIGHT];
++            weights = element->data + streamOffset[element->stream_idx];
++            nweights = element->format_desc->gl_vtx_format;
++        }
++        
++        if (si->elements[WINED3D_FFP_BLENDINDICES].data) {
++            if (si->elements[WINED3D_FFP_BLENDINDICES].format_desc->emit_idx != WINED3D_FFP_EMIT_UBYTE4) {
++                FIXME("unsupported blend indices datatype (%d)\n", si->elements[WINED3D_FFP_BLENDINDICES].format_desc->format);
++            } else {
++                element = &si->elements[WINED3D_FFP_BLENDINDICES];
++                indices = element->data + streamOffset[element->stream_idx];
++            }
++        }
++    }
+ 
+     for (textureNo = 0; textureNo < texture_stages; ++textureNo)
+     {
+@@ -284,16 +379,24 @@ static void drawStridedSlow(IWineD3DDevice *iface, const struct wined3d_context
+             }
+         }
+ 
+-        /* Normal -------------------------------- */
+-        if (normal != NULL) {
+-            const void *ptrToCoords = normal + SkipnStrides * si->elements[WINED3D_FFP_NORMAL].stride;
+-            normal_funcs[si->elements[WINED3D_FFP_NORMAL].format_desc->emit_idx](ptrToCoords);
+-        }
++        if (weights) { 
++            emitBlendedVertex(This->stateBlock,
++                              (const float*)(weights + SkipnStrides * si->elements[WINED3D_FFP_BLENDWEIGHT].stride), nweights,
++                              indices ? (indices + SkipnStrides * si->elements[WINED3D_FFP_BLENDINDICES].stride) : NULL,
++                              (const float*)(position ? (position + SkipnStrides * si->elements[WINED3D_FFP_POSITION].stride) : NULL),
++                              (const float*)(normal ? (normal + SkipnStrides * si->elements[WINED3D_FFP_NORMAL].stride) : NULL));
++        } else {
++            /* Normal -------------------------------- */
++            if (normal != NULL) {
++                const void *ptrToCoords = normal + SkipnStrides * si->elements[WINED3D_FFP_NORMAL].stride;
++                normal_funcs[si->elements[WINED3D_FFP_NORMAL].format_desc->emit_idx](ptrToCoords);
++            }
+ 
+-        /* Position -------------------------------- */
+-        if (position) {
+-            const void *ptrToCoords = position + SkipnStrides * si->elements[WINED3D_FFP_POSITION].stride;
+-            position_funcs[si->elements[WINED3D_FFP_POSITION].format_desc->emit_idx](ptrToCoords);
++            /* Position -------------------------------- */
++            if (position) {
++                const void *ptrToCoords = position + SkipnStrides * si->elements[WINED3D_FFP_POSITION].stride;
++                position_funcs[si->elements[WINED3D_FFP_POSITION].format_desc->emit_idx](ptrToCoords);
++            }
+         }
+ 
+         /* For non indexed mode, step onto next parts */
+@@ -676,6 +779,17 @@ void drawPrimitive(IWineD3DDevice *iface, UINT index_count, UINT StartIdx, UINT
+                 }
+                 emulation = TRUE;
+             }
++            else if (This->vertexBlendSW)
++            {
++                static BOOL warned;
++                if (!warned) {
++                    FIXME("Using software emulation because vertex blending is enabled\n");
++                    warned = TRUE;
++                } else {
++                    TRACE("Using software emulation because vertex blending is enabled\n");
++                }
++                emulation = TRUE;
++            }
+ 
+             if(emulation) {
+                 stream_info = &stridedlcl;
+diff --git a/dlls/wined3d/state.c b/dlls/wined3d/state.c
+index 28de4ea..a13423b 100644
+--- a/dlls/wined3d/state.c
++++ b/dlls/wined3d/state.c
+@@ -3661,7 +3661,7 @@ static void transform_world(DWORD state, IWineD3DStateBlockImpl *stateblock, str
+     if(context->last_was_rhw) {
+         glLoadIdentity();
+         checkGLcall("glLoadIdentity()");
+-    } else {
++    } else if (!stateblock->device->vertexBlendSW) {
+         /* In the general case, the view matrix is the identity matrix */
+         if (stateblock->device->view_ident)
+         {
+@@ -3675,6 +3675,9 @@ static void transform_world(DWORD state, IWineD3DStateBlockImpl *stateblock, str
+             glMultMatrixf(&stateblock->transforms[WINED3DTS_WORLDMATRIX(0)].u.m[0][0]);
+             checkGLcall("glMultMatrixf");
+         }
++    } else {
++        glLoadMatrixf(&stateblock->transforms[WINED3DTS_VIEW].u.m[0][0]);
++        checkGLcall("glLoadMatrixf");
+     }
+ }
+ 
+@@ -3760,13 +3763,33 @@ static void transform_worldex(DWORD state, IWineD3DStateBlockImpl *stateblock, s
+ 
+ static void state_vertexblend_w(DWORD state, IWineD3DStateBlockImpl *stateblock, struct wined3d_context *context)
+ {
+-    WINED3DVERTEXBLENDFLAGS f = stateblock->renderState[WINED3DRS_VERTEXBLEND];
++    WINED3DVERTEXBLENDFLAGS val = stateblock->renderState[WINED3DRS_VERTEXBLEND];
+     static unsigned int once;
+ 
+-    if (f == WINED3DVBF_DISABLE) return;
+-
+-    if (!once++) FIXME("Vertex blend flags %#x not supported.\n", f);
+-    else WARN("Vertex blend flags %#x not supported.\n", f);
++    switch (val) {
++        case WINED3DVBF_0WEIGHTS:
++        case WINED3DVBF_1WEIGHTS:
++        case WINED3DVBF_2WEIGHTS:
++        case WINED3DVBF_3WEIGHTS:
++            if(!once) {
++                once = TRUE;
++                FIXME("Vertex blending enabled, but not supported by hardware. Using software emulation.\n");
++            }
++            if (!stateblock->device->vertexBlendSW) {
++                stateblock->device->vertexBlendSW = TRUE;
++                transform_world(state, stateblock, context);
++            }
++            break;
++        case WINED3DVBF_TWEENING:
++            WARN("Vertex blend flags %#x not supported.\n", val);
++            /* fall through */
++        default:
++            if (stateblock->device->vertexBlendSW) {
++                stateblock->device->vertexBlendSW = FALSE;
++                transform_world(state, stateblock, context);
++            }
++            break;
++    }
+ }
+ 
+ static void state_vertexblend(DWORD state, IWineD3DStateBlockImpl *stateblock, struct wined3d_context *context)
+diff --git a/dlls/wined3d/vertexdeclaration.c b/dlls/wined3d/vertexdeclaration.c
+index 0bc141a..9a87f7e 100644
+--- a/dlls/wined3d/vertexdeclaration.c
++++ b/dlls/wined3d/vertexdeclaration.c
+@@ -125,6 +125,15 @@ static BOOL declaration_element_valid_ffp(const WINED3DVERTEXELEMENT *element)
+                 default:
+                     return FALSE;
+             }
++            
++        case WINED3DDECLUSAGE_BLENDINDICES:
++            switch(element->format)
++            {
++                case WINED3DFMT_R8G8B8A8_UINT:
++                    return TRUE;
++                default:
++                    return FALSE;
++            }
+ 
+         case WINED3DDECLUSAGE_NORMAL:
+             switch(element->format)
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 179b4c4..b35ff81 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -1618,6 +1618,7 @@ struct IWineD3DDeviceImpl
+     WORD view_ident : 1;                /* true iff view matrix is identity */
+     WORD untransformed : 1;
+     WORD vertexBlendUsed : 1;           /* To avoid needless setting of the blend matrices */
++    WORD vertexBlendSW : 1;             /* vertexBlend software fallback used */
+     WORD isRecordingState : 1;
+     WORD isInDraw : 1;
+     WORD bCursorVisible : 1;

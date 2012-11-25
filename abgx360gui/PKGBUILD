@@ -8,7 +8,7 @@ arch=('i686' 'x86_64')
 license=('unknown')
 url="http://abgx360.net/"
 depends=('abgx360' 'wxgtk' 'xterm')
-source=(http://abgx360.x-scene.com/${pkgname}-${pkgver}.tar.gz
+source=(http://dl.dropbox.com/u/59058148/${pkgname}-${pkgver}.tar.gz
         abgx360gui.desktop
         abgx360gui.png)
 sha256sums=('949fdcb871d038b1c8aed658e3d3d0fe6c44c73fbea8defc46ce37b0abf91303

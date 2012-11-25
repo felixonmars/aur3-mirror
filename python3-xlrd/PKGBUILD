@@ -6,17 +6,16 @@
 _proj=xlrd
 pkgname="python3-$_proj"
 _acc=takluyver
-_rev=7e8b71a
-# Commit count: git rev-list --count 5ee3e13.."$_rev", where revision 5ee3e13
-# introduced version 0.8.0a
-pkgver="0.8.0a+30+g${_rev}"
+_rev=f5846f7
+# Commit count: git rev-list --count <tag>.."$_rev"
+pkgver="0.8.0+22+g${_rev}"
 pkgrel=1
 pkgdesc="A library for developers to use to extract data from Microsoft Excel (tm) spreadsheet files."
 url="https://github.com/python-excel/$_proj/pull/2"
 makedepends=('python3')
 provides=("python-$_proj")
 source=("https://github.com/$_acc/$_proj/tarball/$_rev")
-md5sums=('c5dd70ca2175ac76f7d723cc1cfee8f7')
+md5sums=('31b5f64f7f0cfe83cba2a05f33267d8d')
 arch=('any')
 license=('BSD')
 
@@ -41,5 +40,3 @@ package() {
   mkdir -p "$docdir"
   cp -a xlrd/doc/* "$docdir"
 }
-
-

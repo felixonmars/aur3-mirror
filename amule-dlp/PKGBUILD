@@ -6,7 +6,7 @@
 pkgname=amule-dlp
 pkgver=2.3.1rc1
 _dlpver=DLP4401
-pkgrel=2
+pkgrel=3
 pkgdesc="An eMule-like client for ed2k p2p network with DLP patch enhanced by Bill Lee"
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/amule-dlp/"
@@ -16,16 +16,19 @@ conflicts=('amule')
 provides=('amule=${pkgver}')
 source=("http://downloads.sourceforge.net/project/amule/aMule/${pkgver}/aMule-${pkgver}.tar.bz2"
         "https://amule-dlp.googlecode.com/files/aMule-${pkgver}-${_dlpver}.patch"
-        'ftbfs-gcc-4.7.diff')
+        'ftbfs-gcc-4.7.diff'
+        'amule-dlp-9999-flex-size_t.patch')
 sha1sums=('f43ae7f9bbd48925a2fb918ce6bd5a39a2e8c782'
           '140c8ea0c2e95d8582f861a9dd140f7295a5c95b'
-          '34b3525a3ede765b396782f47e5fe7a54f70ca06')
+          '34b3525a3ede765b396782f47e5fe7a54f70ca06'
+          '47ca56dec3000f17b9505b10db5f0ad9fd44f405')
 
 build() {
   cd "${srcdir}/aMule-${pkgver}"
 
   patch -Np1 -i "../aMule-${pkgver}-${_dlpver}.patch"
   patch -Np1 -i "../ftbfs-gcc-4.7.diff"
+  patch -Np1 -i "../amule-dlp-9999-flex-size_t.patch"
   ./configure --prefix=/usr \
     --mandir=/usr/share/man \
     --enable-cas \

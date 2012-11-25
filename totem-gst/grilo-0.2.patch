@@ -1,0 +1,2192 @@
+diff -Naur totem-3.4.3.orig/configure.in totem-3.4.3/configure.in
+--- totem-3.4.3.orig/configure.in	2012-07-04 11:52:56.000000000 +0200
++++ totem-3.4.3/configure.in	2012-11-10 10:01:57.416949986 +0100
+@@ -516,7 +516,7 @@
+ 			fi
+ 		;;
+ 		grilo)
+-			PKG_CHECK_MODULES(LIBGRILO, grilo-0.1 >= 0.1.16,
++			PKG_CHECK_MODULES(LIBGRILO, grilo-0.2 >= 0.2.0,
+ 				[HAVE_LIBGRILO=yes], [HAVE_LIBGRILO=no])
+ 			if test "${HAVE_LIBGRILO}" != "yes" ; then
+ 				plugin_error_or_ignore "you need libgrilo >= 0.1.16 installed for the Grilo plugin"
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/gd-tagged-entry.c totem-3.4.3/src/plugins/grilo/gd-tagged-entry.c
+--- totem-3.4.3.orig/src/plugins/grilo/gd-tagged-entry.c	1970-01-01 01:00:00.000000000 +0100
++++ totem-3.4.3/src/plugins/grilo/gd-tagged-entry.c	2012-11-10 10:02:06.750460481 +0100
+@@ -0,0 +1,1004 @@
++/*
++ * Copyright (c) 2011 Red Hat, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published by 
++ * the Free Software Foundation; either version 2 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++ * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public 
++ * License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License 
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
++ *
++ * Author: Cosimo Cecchi <cosimoc@redhat.com>
++ *
++ */
++
++#include "gd-tagged-entry.h"
++
++#include <math.h>
++
++G_DEFINE_TYPE (GdTaggedEntry, gd_tagged_entry, GTK_TYPE_SEARCH_ENTRY)
++
++#define BUTTON_INTERNAL_SPACING 6
++
++typedef struct {
++  GdkWindow *window;
++  PangoLayout *layout;
++
++  gchar *id;
++  gchar *label;
++
++  GdkPixbuf *close_pixbuf;
++  GtkStateFlags last_button_state;
++} GdTaggedEntryTag;
++
++struct _GdTaggedEntryPrivate {
++  GList *tags;
++
++  GdTaggedEntryTag *in_child;
++  gboolean in_child_button;
++  gboolean in_child_active;
++  gboolean in_child_button_active;
++  gboolean button_visible;
++};
++
++enum {
++  SIGNAL_TAG_CLICKED,
++  SIGNAL_TAG_BUTTON_CLICKED,
++  LAST_SIGNAL
++};
++
++enum {
++  PROP_0,
++  PROP_BUTTON_VISIBLE
++};
++
++static guint signals[LAST_SIGNAL] = { 0, };
++
++static void gd_tagged_entry_get_text_area_size (GtkEntry *entry,
++                                                gint *x,
++                                                gint *y,
++                                                gint *width,
++                                                gint *height);
++static gint gd_tagged_entry_tag_get_width (GdTaggedEntryTag *tag,
++                                           GdTaggedEntry *entry);
++static GtkStyleContext * gd_tagged_entry_tag_get_context (GdTaggedEntry *entry);
++
++static void
++gd_tagged_entry_tag_get_margin (GdTaggedEntry *entry,
++                                GtkBorder *margin)
++{
++  GtkStyleContext *context;
++
++  context = gd_tagged_entry_tag_get_context (entry);
++  gtk_style_context_get_margin (context, 0, margin);
++  g_object_unref (context);
++}
++
++static void
++gd_tagged_entry_tag_ensure_close_pixbuf (GdTaggedEntryTag *tag,
++                                         GtkStyleContext *context)
++{
++  GtkIconInfo *info;
++  gint icon_size;
++
++  if (tag->close_pixbuf != NULL)
++    return;
++
++  gtk_icon_size_lookup (GTK_ICON_SIZE_MENU,
++                        &icon_size, NULL);
++
++  info = gtk_icon_theme_lookup_icon (gtk_icon_theme_get_default (),
++                                     "window-close-symbolic",
++                                     icon_size,
++                                     GTK_ICON_LOOKUP_GENERIC_FALLBACK);
++
++  tag->close_pixbuf = 
++    gtk_icon_info_load_symbolic_for_context (info, context,
++                                             NULL, NULL);
++
++  /* FIXME: we need a fallback icon in case the icon is not found */
++}
++
++static gint
++gd_tagged_entry_tag_panel_get_height (GdTaggedEntry *entry)
++{
++  GtkWidget *widget = GTK_WIDGET (entry);
++  gint height, req_height;
++  GtkRequisition requisition;
++  GtkAllocation allocation;
++  GtkBorder margin;
++
++  gtk_widget_get_allocation (widget, &allocation);
++  gtk_widget_get_preferred_size (widget, &requisition, NULL);
++  gd_tagged_entry_tag_get_margin (entry, &margin);
++
++  /* the tag panel height is the whole entry height, minus the tag margins */
++  req_height = requisition.height - gtk_widget_get_margin_top (widget) - gtk_widget_get_margin_bottom (widget);
++  height = MIN (req_height, allocation.height) - margin.top - margin.bottom;
++
++  return height;
++}
++
++static void
++gd_tagged_entry_tag_panel_get_position (GdTaggedEntry *self,
++                                        gint *x_out, 
++                                        gint *y_out)
++{
++  GtkWidget *widget = GTK_WIDGET (self);
++  gint text_x, text_y, text_width, text_height, req_height;
++  GtkAllocation allocation;
++  GtkRequisition requisition;
++  GtkBorder margin;
++
++  gtk_widget_get_allocation (widget, &allocation);
++  gtk_widget_get_preferred_size (widget, &requisition, NULL);
++  req_height = requisition.height - gtk_widget_get_margin_top (widget) - gtk_widget_get_margin_bottom (widget);
++
++  gd_tagged_entry_get_text_area_size (GTK_ENTRY (self), &text_x, &text_y, &text_width, &text_height);
++  gd_tagged_entry_tag_get_margin (self, &margin);
++
++  /* allocate the panel immediately after the text area */
++  if (x_out)
++    *x_out = allocation.x + text_x + text_width;
++  if (y_out)
++    *y_out = allocation.y + margin.top + (gint) floor ((allocation.height - req_height) / 2);
++}
++
++static gint
++gd_tagged_entry_tag_panel_get_width (GdTaggedEntry *self)
++{
++  GdTaggedEntryTag *tag;
++  gint width;
++  GList *l;
++
++  width = 0;
++
++  for (l = self->priv->tags; l != NULL; l = l->next)
++    {
++      tag = l->data;
++      width += gd_tagged_entry_tag_get_width (tag, self);
++    }
++
++  return width;
++}
++
++static void
++gd_tagged_entry_tag_ensure_layout (GdTaggedEntryTag *tag,
++                                   GdTaggedEntry *entry)
++{
++  if (tag->layout != NULL)
++    return;
++
++  tag->layout = pango_layout_new (gtk_widget_get_pango_context (GTK_WIDGET (entry)));
++  pango_layout_set_text (tag->layout, tag->label, -1);
++}
++
++static GtkStateFlags
++gd_tagged_entry_tag_get_state (GdTaggedEntryTag *tag,
++                               GdTaggedEntry *entry)
++{
++  GtkStateFlags state = GTK_STATE_FLAG_NORMAL;
++
++  if (entry->priv->in_child == tag)
++    state |= GTK_STATE_FLAG_PRELIGHT;
++
++  if (entry->priv->in_child_active)
++    state |= GTK_STATE_FLAG_ACTIVE;
++
++  return state;
++}
++
++static GtkStateFlags
++gd_tagged_entry_tag_get_button_state (GdTaggedEntryTag *tag,
++                                      GdTaggedEntry *entry)
++{
++  GtkStateFlags state = GTK_STATE_FLAG_NORMAL;
++
++  if (entry->priv->in_child == tag &&
++      entry->priv->in_child_button)
++    state |= GTK_STATE_FLAG_PRELIGHT;
++
++  if (entry->priv->in_child_button_active)
++    state |= GTK_STATE_FLAG_ACTIVE;
++
++  return state;
++}
++
++static GtkStyleContext *
++gd_tagged_entry_tag_get_context (GdTaggedEntry *entry)
++{
++  GtkWidget *widget = GTK_WIDGET (entry);
++  GtkWidgetPath *path;
++  gint pos;
++  GtkStyleContext *retval;
++
++  retval = gtk_style_context_new ();
++  path = gtk_widget_path_copy (gtk_widget_get_path (widget));
++
++  pos = gtk_widget_path_append_type (path, GD_TYPE_TAGGED_ENTRY);
++  gtk_widget_path_iter_add_class (path, pos, "documents-entry-tag");
++
++  gtk_style_context_set_path (retval, path);
++
++  gtk_widget_path_unref (path);
++
++  return retval;
++}
++
++static gint
++gd_tagged_entry_tag_get_width (GdTaggedEntryTag *tag,
++                               GdTaggedEntry *entry)
++{
++  GtkBorder button_padding, button_border, button_margin;
++  GtkStyleContext *context;
++  GtkStateFlags state;
++  gint layout_width;
++  gint button_width;
++
++  gd_tagged_entry_tag_ensure_layout (tag, entry);
++  pango_layout_get_pixel_size (tag->layout, &layout_width, NULL);
++
++  context = gd_tagged_entry_tag_get_context (entry);
++  state = gd_tagged_entry_tag_get_state (tag, entry);
++
++  gtk_style_context_get_padding (context, state, &button_padding);
++  gtk_style_context_get_border (context, state, &button_border);
++  gtk_style_context_get_margin (context, state, &button_margin);
++
++  gd_tagged_entry_tag_ensure_close_pixbuf (tag, context);
++
++  g_object_unref (context);
++
++  button_width = 0;
++  if (entry->priv->button_visible)
++    button_width += button_border.left + button_border.right +
++      button_margin.left + button_margin.right +
++      gdk_pixbuf_get_width (tag->close_pixbuf);
++
++  return layout_width + button_padding.left + button_padding.right +
++    button_width + BUTTON_INTERNAL_SPACING;
++}
++
++static void
++gd_tagged_entry_tag_get_size (GdTaggedEntryTag *tag,
++                              GdTaggedEntry *entry,
++                              gint *width_out,
++                              gint *height_out)
++{
++  gint width, panel_height;
++
++  width = gd_tagged_entry_tag_get_width (tag, entry);
++  panel_height = gd_tagged_entry_tag_panel_get_height (entry);
++
++  if (width_out)
++    *width_out = width;
++  if (height_out)
++    *height_out = panel_height;
++}
++
++static void
++gd_tagged_entry_tag_get_relative_allocations (GdTaggedEntryTag *tag,
++                                              GdTaggedEntry *entry,
++                                              GtkStyleContext *context,
++                                              GtkAllocation *background_allocation_out,
++                                              GtkAllocation *layout_allocation_out,
++                                              GtkAllocation *button_allocation_out)
++{
++  GtkAllocation background_allocation, layout_allocation, button_allocation;
++  gint width, height, x, y, pix_width, pix_height;
++  gint layout_width, layout_height;
++  GtkBorder padding, border;
++  GtkStateFlags state;
++
++  width = gdk_window_get_width (tag->window);
++  height = gdk_window_get_height (tag->window);
++
++  state = gd_tagged_entry_tag_get_state (tag, entry);
++  gtk_style_context_get_margin (context, state, &padding);
++
++  width -= padding.left + padding.right;
++  height -= padding.top + padding.bottom;
++  x = padding.left;
++  y = padding.top;
++
++  background_allocation.x = x;
++  background_allocation.y = y;
++  background_allocation.width = width;
++  background_allocation.height = height;
++
++  layout_allocation = button_allocation = background_allocation;
++
++  gtk_style_context_get_padding (context, state, &padding);
++  gtk_style_context_get_border (context, state, &border);  
++
++  gd_tagged_entry_tag_ensure_layout (tag, entry);
++  pango_layout_get_pixel_size (tag->layout, &layout_width, &layout_height);
++
++  layout_allocation.x += border.left + padding.left;
++  layout_allocation.y += (layout_allocation.height - layout_height) / 2;
++
++  if (entry->priv->button_visible)
++    {
++      pix_width = gdk_pixbuf_get_width (tag->close_pixbuf);
++      pix_height = gdk_pixbuf_get_height (tag->close_pixbuf);
++    }
++  else
++    {
++      pix_width = 0;
++      pix_height = 0;
++    }
++
++  button_allocation.x += width - pix_width - border.right - padding.right;
++  button_allocation.y += (height - pix_height) / 2;
++  button_allocation.width = pix_width;
++  button_allocation.height = pix_height;
++
++  if (background_allocation_out)
++    *background_allocation_out = background_allocation;
++  if (layout_allocation_out)
++    *layout_allocation_out = layout_allocation;
++  if (button_allocation_out)
++    *button_allocation_out = button_allocation;
++}
++
++static gboolean
++gd_tagged_entry_tag_event_is_button (GdTaggedEntryTag *tag,
++                                     GdTaggedEntry *entry,
++                                     gdouble event_x,
++                                     gdouble event_y)
++{
++  GtkAllocation button_allocation;
++  GtkStyleContext *context;
++
++  if (!entry->priv->button_visible)
++    return FALSE;
++
++  context = gd_tagged_entry_tag_get_context (entry);
++  gd_tagged_entry_tag_get_relative_allocations (tag, entry, context, NULL, NULL, &button_allocation);
++
++  g_object_unref (context);
++
++  /* see if the event falls into the button allocation */
++  if ((event_x >= button_allocation.x && 
++       event_x <= button_allocation.x + button_allocation.width) &&
++      (event_y >= button_allocation.y &&
++       event_y <= button_allocation.y + button_allocation.height))
++    return TRUE;
++
++  return FALSE;
++}
++
++static void
++gd_tagged_entry_tag_draw (GdTaggedEntryTag *tag,
++                          cairo_t *cr,
++                          GdTaggedEntry *entry)
++{
++  GtkStyleContext *context;
++  GtkStateFlags state;
++  GtkAllocation background_allocation, layout_allocation, button_allocation;
++
++  context = gd_tagged_entry_tag_get_context (entry);
++  gd_tagged_entry_tag_get_relative_allocations (tag, entry, context,
++                                                &background_allocation,
++                                                &layout_allocation,
++                                                &button_allocation);
++
++  cairo_save (cr);
++  gtk_cairo_transform_to_window (cr, GTK_WIDGET (entry), tag->window);
++
++  gtk_style_context_save (context);
++
++  state = gd_tagged_entry_tag_get_state (tag, entry);
++  gtk_style_context_set_state (context, state);
++  gtk_render_background (context, cr,
++                         background_allocation.x, background_allocation.y,
++                         background_allocation.width, background_allocation.height); 
++  gtk_render_frame (context, cr,
++                    background_allocation.x, background_allocation.y,
++                    background_allocation.width, background_allocation.height); 
++
++  gtk_render_layout (context, cr,
++                     layout_allocation.x, layout_allocation.y,
++                     tag->layout);
++
++  gtk_style_context_restore (context);
++
++  gtk_style_context_add_class (context, GTK_STYLE_CLASS_BUTTON);
++  state = gd_tagged_entry_tag_get_button_state (tag, entry);
++  gtk_style_context_set_state (context, state);
++
++  /* if the state changed since last time we draw the pixbuf,
++   * clear and redraw it.
++   */
++  if (state != tag->last_button_state)
++    {
++      g_clear_object (&tag->close_pixbuf);
++      gd_tagged_entry_tag_ensure_close_pixbuf (tag, context);
++
++      tag->last_button_state = state;
++    }
++
++  gtk_render_background (context, cr,
++                         button_allocation.x, button_allocation.y,
++                         button_allocation.width, button_allocation.height);
++  gtk_render_frame (context, cr,
++                         button_allocation.x, button_allocation.y,
++                         button_allocation.width, button_allocation.height);
++
++  if (!entry->priv->button_visible)
++    goto done;
++
++  gtk_render_icon (context, cr,
++                   tag->close_pixbuf,
++                   button_allocation.x, button_allocation.y);
++
++done:
++  cairo_restore (cr);
++
++  g_object_unref (context);
++}
++
++static void
++gd_tagged_entry_tag_unrealize (GdTaggedEntryTag *tag)
++{
++  if (tag->window == NULL)
++    return;
++
++  gdk_window_set_user_data (tag->window, NULL);
++  gdk_window_destroy (tag->window);
++  tag->window = NULL;
++}
++
++static void
++gd_tagged_entry_tag_realize (GdTaggedEntryTag *tag,
++                             GdTaggedEntry *entry)
++{
++  GtkWidget *widget = GTK_WIDGET (entry);
++  GdkWindowAttr attributes;
++  gint attributes_mask;
++  gint tag_width, tag_height;
++
++  if (tag->window != NULL)
++    return;
++
++  attributes.window_type = GDK_WINDOW_CHILD;
++  attributes.wclass = GDK_INPUT_ONLY;
++  attributes.event_mask = gtk_widget_get_events (widget);
++  attributes.event_mask |= GDK_BUTTON_PRESS_MASK
++    | GDK_BUTTON_RELEASE_MASK | GDK_LEAVE_NOTIFY_MASK | GDK_ENTER_NOTIFY_MASK
++    | GDK_POINTER_MOTION_MASK | GDK_POINTER_MOTION_HINT_MASK;
++
++  gd_tagged_entry_tag_get_size (tag, entry, &tag_width, &tag_height);
++  attributes.x = 0;
++  attributes.y = 0;
++  attributes.width = tag_width;
++  attributes.height = tag_height;
++
++  attributes_mask = GDK_WA_X | GDK_WA_Y;
++
++  tag->window = gdk_window_new (gtk_widget_get_window (widget),
++                                &attributes, attributes_mask);
++  gdk_window_set_user_data (tag->window, widget);
++}
++
++static GdTaggedEntryTag *
++gd_tagged_entry_tag_new (const gchar *id,
++                         const gchar *label)
++{
++  GdTaggedEntryTag *tag;
++
++  tag = g_slice_new0 (GdTaggedEntryTag);
++
++  tag->id = g_strdup (id);
++  tag->label = g_strdup (label);
++  tag->last_button_state = GTK_STATE_FLAG_NORMAL;
++
++  return tag;
++}
++
++static void
++gd_tagged_entry_tag_free (gpointer _tag)
++{
++  GdTaggedEntryTag *tag = _tag;
++
++  if (tag->window != NULL)
++    gd_tagged_entry_tag_unrealize (tag);
++
++  g_clear_object (&tag->layout);
++  g_clear_object (&tag->close_pixbuf);
++  g_free (tag->id);
++  g_free (tag->label);
++
++  g_slice_free (GdTaggedEntryTag, tag);
++}
++
++static gboolean
++gd_tagged_entry_draw (GtkWidget *widget,
++                      cairo_t *cr)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++  GList *l;
++
++  GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->draw (widget, cr);
++
++  for (l = self->priv->tags; l != NULL; l = l->next)
++    {
++      tag = l->data;
++      gd_tagged_entry_tag_draw (tag, cr, self);
++    }
++
++  return FALSE;
++}
++
++static void
++gd_tagged_entry_map (GtkWidget *widget)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++  GList *l;
++
++  if (gtk_widget_get_realized (widget) && !gtk_widget_get_mapped (widget))
++    {
++      GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->map (widget);
++
++      for (l = self->priv->tags; l != NULL; l = l->next)
++        {
++          tag = l->data;
++          gdk_window_show (tag->window);
++        }
++    }
++}
++
++static void
++gd_tagged_entry_unmap (GtkWidget *widget)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++  GList *l;
++
++  if (gtk_widget_get_mapped (widget))
++    {
++      for (l = self->priv->tags; l != NULL; l = l->next)
++        {
++          tag = l->data;
++          gdk_window_hide (tag->window);
++        }
++
++      GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->unmap (widget);
++    }
++}
++
++static void
++gd_tagged_entry_realize (GtkWidget *widget)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++  GList *l;
++
++  GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->realize (widget);
++
++  for (l = self->priv->tags; l != NULL; l = l->next)
++    {
++      tag = l->data;
++      gd_tagged_entry_tag_realize (tag, self);
++    }
++}
++
++static void
++gd_tagged_entry_unrealize (GtkWidget *widget)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++  GList *l;
++
++  GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->unrealize (widget);
++
++  for (l = self->priv->tags; l != NULL; l = l->next)
++    {
++      tag = l->data;
++      gd_tagged_entry_tag_unrealize (tag);
++    }
++}
++
++static void
++gd_tagged_entry_get_text_area_size (GtkEntry *entry,
++                                    gint *x,
++                                    gint *y,
++                                    gint *width,
++                                    gint *height)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (entry);
++  gint tag_panel_width;
++
++  GTK_ENTRY_CLASS (gd_tagged_entry_parent_class)->get_text_area_size (entry, x, y, width, height);
++
++  tag_panel_width = gd_tagged_entry_tag_panel_get_width (self);
++
++  if (width)
++    *width -= tag_panel_width;
++}
++
++static void
++gd_tagged_entry_size_allocate (GtkWidget *widget,
++                               GtkAllocation *allocation)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  gint x, y, width, height;
++  GdTaggedEntryTag *tag;
++  GList *l;
++
++  gtk_widget_set_allocation (widget, allocation);
++  GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->size_allocate (widget, allocation);
++
++  if (gtk_widget_get_realized (widget))
++    {
++      gd_tagged_entry_tag_panel_get_position (self, &x, &y);
++
++      for (l = self->priv->tags; l != NULL; l = l->next)
++        {
++          tag = l->data;
++          gd_tagged_entry_tag_get_size (tag, self, &width, &height);
++          gdk_window_move_resize (tag->window, x, y, width, height);
++
++          x += width;
++        }
++
++      gtk_widget_queue_draw (widget);
++    }
++}
++
++static void
++gd_tagged_entry_get_preferred_width (GtkWidget *widget,
++                                     gint *minimum,
++                                     gint *natural)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  gint tag_panel_width;
++
++  GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->get_preferred_width (widget, minimum, natural);
++
++  tag_panel_width = gd_tagged_entry_tag_panel_get_width (self);
++
++  if (minimum)
++    *minimum += tag_panel_width;
++  if (natural)
++    *natural += tag_panel_width;
++}
++
++static void
++gd_tagged_entry_finalize (GObject *obj)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (obj);
++
++  if (self->priv->tags != NULL)
++    {
++      g_list_free_full (self->priv->tags, gd_tagged_entry_tag_free);
++      self->priv->tags = NULL;
++    }
++
++  G_OBJECT_CLASS (gd_tagged_entry_parent_class)->finalize (obj);
++}
++
++static GdTaggedEntryTag *
++gd_tagged_entry_find_tag_by_id (GdTaggedEntry *self,
++                                const gchar *id)
++{
++  GdTaggedEntryTag *tag = NULL, *elem;
++  GList *l;
++
++  for (l = self->priv->tags; l != NULL; l = l->next)
++    {
++      elem = l->data;
++      if (g_strcmp0 (elem->id, id) == 0)
++        {
++          tag = elem;
++          break;
++        }
++    }
++
++  return tag;
++}
++
++static GdTaggedEntryTag *
++gd_tagged_entry_find_tag_by_window (GdTaggedEntry *self,
++                                    GdkWindow *window)
++{
++  GdTaggedEntryTag *tag = NULL, *elem;
++  GList *l;
++
++  for (l = self->priv->tags; l != NULL; l = l->next)
++    {
++      elem = l->data;
++      if (elem->window == window)
++        {
++          tag = elem;
++          break;
++        }
++    }
++
++  return tag;
++}
++
++static gint
++gd_tagged_entry_enter_notify (GtkWidget        *widget,
++                              GdkEventCrossing *event)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++
++  tag = gd_tagged_entry_find_tag_by_window (self, event->window);
++
++  if (tag != NULL)
++    {
++      self->priv->in_child = tag;
++      gtk_widget_queue_draw (widget);
++    }
++
++  return GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->enter_notify_event (widget, event);
++}
++
++static gint
++gd_tagged_entry_leave_notify (GtkWidget        *widget,
++                              GdkEventCrossing *event)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++
++  if (self->priv->in_child != NULL)
++    {
++      self->priv->in_child = NULL;
++      gtk_widget_queue_draw (widget);
++    }
++
++  return GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->leave_notify_event (widget, event);
++}
++
++static gint
++gd_tagged_entry_motion_notify (GtkWidget      *widget,
++                               GdkEventMotion *event)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++
++  tag = gd_tagged_entry_find_tag_by_window (self, event->window);
++
++  if (tag != NULL)
++    {
++      gdk_event_request_motions (event);
++
++      self->priv->in_child = tag;
++      self->priv->in_child_button = gd_tagged_entry_tag_event_is_button (tag, self, event->x, event->y);
++      gtk_widget_queue_draw (widget);
++
++      return FALSE;
++    }
++
++  return GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->motion_notify_event (widget, event);
++}
++
++static gboolean
++gd_tagged_entry_button_release_event (GtkWidget *widget,
++                                      GdkEventButton *event)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++  GQuark id_quark;
++
++  tag = gd_tagged_entry_find_tag_by_window (self, event->window);
++
++  if (tag != NULL)
++    {
++      id_quark = g_quark_from_string (tag->id);
++      self->priv->in_child_active = FALSE;
++
++      if (gd_tagged_entry_tag_event_is_button (tag, self, event->x, event->y))
++        {
++          self->priv->in_child_button_active = FALSE;
++          g_signal_emit (self, signals[SIGNAL_TAG_BUTTON_CLICKED], id_quark, tag->id);
++        }
++      else
++        {
++          g_signal_emit (self, signals[SIGNAL_TAG_CLICKED], id_quark, tag->id);
++        }
++
++      gtk_widget_queue_draw (widget);
++
++      return TRUE;
++    }
++
++  return GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->button_release_event (widget, event);
++}
++
++static gboolean
++gd_tagged_entry_button_press_event (GtkWidget *widget,
++                                    GdkEventButton *event)
++{
++  GdTaggedEntry *self = GD_TAGGED_ENTRY (widget);
++  GdTaggedEntryTag *tag;
++
++  tag = gd_tagged_entry_find_tag_by_window (self, event->window);
++
++  if (tag != NULL)
++    {
++      if (gd_tagged_entry_tag_event_is_button (tag, self, event->x, event->y))
++        self->priv->in_child_button_active = TRUE;
++      else
++        self->priv->in_child_active = TRUE;
++
++      gtk_widget_queue_draw (widget);
++
++      return TRUE;
++    }
++
++  return GTK_WIDGET_CLASS (gd_tagged_entry_parent_class)->button_press_event (widget, event);
++}
++
++static void
++gd_tagged_entry_init (GdTaggedEntry *self)
++{
++  self->priv = G_TYPE_INSTANCE_GET_PRIVATE (self, GD_TYPE_TAGGED_ENTRY, GdTaggedEntryPrivate);
++  self->priv->button_visible = TRUE;
++}
++
++static void
++gd_tagged_entry_set_property (GObject      *object,
++                              guint         property_id,
++                              const GValue *value,
++                              GParamSpec   *pspec)
++{
++  switch (property_id)
++    {
++      case PROP_BUTTON_VISIBLE:
++        gd_tagged_entry_set_button_visible (GD_TAGGED_ENTRY (object),
++                                            g_value_get_boolean (value));
++        break;
++      default:
++        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
++    }
++}
++
++static void
++gd_tagged_entry_class_init (GdTaggedEntryClass *klass)
++{
++  GtkWidgetClass *wclass = GTK_WIDGET_CLASS (klass);
++  GtkEntryClass *eclass = GTK_ENTRY_CLASS (klass);
++  GObjectClass *oclass = G_OBJECT_CLASS (klass);
++
++  oclass->finalize = gd_tagged_entry_finalize;
++  oclass->set_property = gd_tagged_entry_set_property;
++
++  wclass->realize = gd_tagged_entry_realize;
++  wclass->unrealize = gd_tagged_entry_unrealize;
++  wclass->map = gd_tagged_entry_map;
++  wclass->unmap = gd_tagged_entry_unmap;
++  wclass->size_allocate = gd_tagged_entry_size_allocate;
++  wclass->get_preferred_width = gd_tagged_entry_get_preferred_width;
++  wclass->draw = gd_tagged_entry_draw;
++  wclass->enter_notify_event = gd_tagged_entry_enter_notify;
++  wclass->leave_notify_event = gd_tagged_entry_leave_notify;
++  wclass->motion_notify_event = gd_tagged_entry_motion_notify;
++  wclass->button_press_event = gd_tagged_entry_button_press_event;
++  wclass->button_release_event = gd_tagged_entry_button_release_event;
++
++  eclass->get_text_area_size = gd_tagged_entry_get_text_area_size;
++
++  signals[SIGNAL_TAG_CLICKED] =
++    g_signal_new ("tag-clicked",
++                  GD_TYPE_TAGGED_ENTRY,
++                  G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED,
++                  0, NULL, NULL, NULL,
++                  G_TYPE_NONE,
++                  1, G_TYPE_STRING);
++  signals[SIGNAL_TAG_BUTTON_CLICKED] =
++    g_signal_new ("tag-button-clicked",
++                  GD_TYPE_TAGGED_ENTRY,
++                  G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED,
++                  0, NULL, NULL, NULL,
++                  G_TYPE_NONE,
++                  1, G_TYPE_STRING);
++
++  g_object_class_install_property (oclass, PROP_BUTTON_VISIBLE,
++                                   g_param_spec_boolean ("button-visible", "Button visibility",
++                                                         "Whether the close button should be shown in tags.", TRUE,
++                                                         G_PARAM_WRITABLE | G_PARAM_STATIC_STRINGS));
++
++  g_type_class_add_private (klass, sizeof (GdTaggedEntryPrivate));
++}
++
++GdTaggedEntry *
++gd_tagged_entry_new (void)
++{
++  return g_object_new (GD_TYPE_TAGGED_ENTRY, NULL);
++}
++
++gboolean
++gd_tagged_entry_add_tag (GdTaggedEntry *self,
++                         const gchar *id,
++                         const gchar *name)
++{
++  GdTaggedEntryTag *tag;
++
++  if (gd_tagged_entry_find_tag_by_id (self, id) != NULL)
++    return FALSE;
++
++  tag = gd_tagged_entry_tag_new (id, name);
++  self->priv->tags = g_list_append (self->priv->tags, tag);
++
++  if (gtk_widget_get_mapped (GTK_WIDGET (self)))
++    {
++      gd_tagged_entry_tag_realize (tag, self);
++      gdk_window_show_unraised (tag->window);
++    }
++
++  gtk_widget_queue_resize (GTK_WIDGET (self));
++
++  return TRUE;
++}
++
++gboolean
++gd_tagged_entry_remove_tag (GdTaggedEntry *self,
++                            const gchar *id)
++{
++  GdTaggedEntryTag *tag;
++  gboolean res = FALSE;
++
++  tag = gd_tagged_entry_find_tag_by_id (self, id);
++
++  if (tag != NULL)
++    {
++      res = TRUE;
++      self->priv->tags = g_list_remove (self->priv->tags, tag);
++      gd_tagged_entry_tag_free (tag);
++
++      gtk_widget_queue_resize (GTK_WIDGET (self));
++    }
++
++  return res;
++}
++
++gboolean
++gd_tagged_entry_set_tag_label (GdTaggedEntry *self,
++                               const gchar *tag_id,
++                               const gchar *label)
++{
++  GdTaggedEntryTag *tag;
++  gboolean res = FALSE;
++
++  tag = gd_tagged_entry_find_tag_by_id (self, tag_id);
++
++  if (tag != NULL)
++    {
++      res = TRUE;
++
++      if (g_strcmp0 (tag->label, label) != 0)
++        {
++          g_free (tag->label);
++          tag->label = g_strdup (label);
++          g_clear_object (&tag->layout);
++
++          gtk_widget_queue_resize (GTK_WIDGET (self));
++        }
++    }
++
++  return res;  
++}
++
++void
++gd_tagged_entry_set_button_visible (GdTaggedEntry *self,
++                                    gboolean       visible)
++{
++  g_return_if_fail (GD_IS_TAGGED_ENTRY (self));
++
++  if (self->priv->button_visible == visible)
++    return;
++
++  self->priv->button_visible = visible;
++  gtk_widget_queue_resize (GTK_WIDGET (self));
++}
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/gd-tagged-entry.h totem-3.4.3/src/plugins/grilo/gd-tagged-entry.h
+--- totem-3.4.3.orig/src/plugins/grilo/gd-tagged-entry.h	1970-01-01 01:00:00.000000000 +0100
++++ totem-3.4.3/src/plugins/grilo/gd-tagged-entry.h	2012-11-10 10:02:06.753793879 +0100
+@@ -0,0 +1,89 @@
++/*
++ * Copyright (c) 2011 Red Hat, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published by 
++ * the Free Software Foundation; either version 2 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++ * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public 
++ * License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License 
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
++ *
++ * Author: Cosimo Cecchi <cosimoc@redhat.com>
++ *
++ */
++
++#ifndef __GD_TAGGED_ENTRY_H__
++#define __GD_TAGGED_ENTRY_H__
++
++#include <glib-object.h>
++
++#include <gtk/gtk.h>
++
++G_BEGIN_DECLS
++
++#define GD_TYPE_TAGGED_ENTRY gd_tagged_entry_get_type()
++
++#define GD_TAGGED_ENTRY(obj) \
++  (G_TYPE_CHECK_INSTANCE_CAST ((obj), \
++   GD_TYPE_TAGGED_ENTRY, GdTaggedEntry))
++
++#define GD_TAGGED_ENTRY_CLASS(klass) \
++  (G_TYPE_CHECK_CLASS_CAST ((klass), \
++   GD_TYPE_TAGGED_ENTRY, GdTaggedEntryClass))
++
++#define GD_IS_TAGGED_ENTRY(obj) \
++  (G_TYPE_CHECK_INSTANCE_TYPE ((obj), \
++   GD_TYPE_TAGGED_ENTRY))
++
++#define GD_IS_TAGGED_ENTRY_CLASS(klass) \
++  (G_TYPE_CHECK_CLASS_TYPE ((klass), \
++   GD_TYPE_TAGGED_ENTRY))
++
++#define GD_TAGGED_ENTRY_GET_CLASS(obj) \
++  (G_TYPE_INSTANCE_GET_CLASS ((obj), \
++   GD_TYPE_TAGGED_ENTRY, GdTaggedEntryClass))
++
++typedef struct _GdTaggedEntry GdTaggedEntry;
++typedef struct _GdTaggedEntryClass GdTaggedEntryClass;
++typedef struct _GdTaggedEntryPrivate GdTaggedEntryPrivate;
++
++struct _GdTaggedEntry
++{
++  GtkSearchEntry parent;
++
++  GdTaggedEntryPrivate *priv;
++};
++
++struct _GdTaggedEntryClass
++{
++  GtkSearchEntryClass parent_class;
++};
++
++GType gd_tagged_entry_get_type (void) G_GNUC_CONST;
++
++GdTaggedEntry *gd_tagged_entry_new (void);
++
++void gd_tagged_entry_set_button_visible (GdTaggedEntry *self,
++					 gboolean       visible);
++
++gboolean gd_tagged_entry_add_tag (GdTaggedEntry *entry,
++                                  const gchar *id,
++                                  const gchar *label);
++
++gboolean gd_tagged_entry_remove_tag (GdTaggedEntry *self,
++                                     const gchar *id);
++
++gboolean gd_tagged_entry_set_tag_label (GdTaggedEntry *self,
++                                        const gchar *tag_id,
++                                        const gchar *label);
++
++G_END_DECLS
++
++#endif /* __GD_TAGGED_ENTRY_H__ */
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/grilo.ui totem-3.4.3/src/plugins/grilo/grilo.ui
+--- totem-3.4.3.orig/src/plugins/grilo/grilo.ui	2012-07-04 11:52:29.000000000 +0200
++++ totem-3.4.3/src/plugins/grilo/grilo.ui	2012-11-10 10:02:22.704097294 +0100
+@@ -100,16 +100,9 @@
+           </packing>
+         </child>
+         <child>
+-          <object class="GtkComboBox" id="gw_search_select_source">
++          <object class="TotemSearchEntry" id="gw_search_text">
+             <property name="visible">True</property>
+-            <property name="can_focus">False</property>
+-            <property name="model">gw_search_store_sources</property>
+-            <child>
+-              <object class="GtkCellRendererText" id="gw_search_source_col_name"/>
+-              <attributes>
+-                <attribute name="text">1</attribute>
+-              </attributes>
+-            </child>
++            <property name="can_focus">True</property>
+           </object>
+           <packing>
+             <property name="expand">True</property>
+@@ -125,21 +118,6 @@
+       </packing>
+     </child>
+     <child>
+-      <object class="GtkEntry" id="gw_search_text">
+-        <property name="visible">True</property>
+-        <property name="can_focus">True</property>
+-        <property name="invisible_char">●</property>
+-        <property name="activates_default">True</property>
+-        <property name="shadow_type">etched-out</property>
+-        <property name="caps_lock_warning">False</property>
+-      </object>
+-      <packing>
+-        <property name="expand">False</property>
+-        <property name="fill">True</property>
+-        <property name="position">1</property>
+-      </packing>
+-    </child>
+-    <child>
+       <object class="GtkScrolledWindow" id="gw_search_results_window">
+         <property name="visible">True</property>
+         <property name="can_focus">True</property>
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/Makefile.am totem-3.4.3/src/plugins/grilo/Makefile.am
+--- totem-3.4.3.orig/src/plugins/grilo/Makefile.am	2012-07-04 11:52:29.000000000 +0200
++++ totem-3.4.3/src/plugins/grilo/Makefile.am	2012-11-10 10:02:16.827318738 +0100
+@@ -13,7 +13,13 @@
+ conf_DATA = totem-grilo.conf
+ EXTRA_DIST += $(conf_DATA)
+ 
+-libgrilo_la_SOURCES = totem-grilo.c
++libgrilo_la_SOURCES =				\
++	totem-grilo.c				\
++	gd-tagged-entry.h			\
++	gd-tagged-entry.c			\
++	totem-search-entry.c			\
++	totem-search-entry.h
++
+ libgrilo_la_LDFLAGS = $(plugin_ldflags)
+ libgrilo_la_LIBADD =			\
+         $(plugin_libadd)	\
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/totem-grilo.c totem-3.4.3/src/plugins/grilo/totem-grilo.c
+--- totem-3.4.3.orig/src/plugins/grilo/totem-grilo.c	2012-07-04 11:52:29.000000000 +0200
++++ totem-3.4.3/src/plugins/grilo/totem-grilo.c	2012-11-10 10:03:10.471678551 +0100
+@@ -46,6 +46,8 @@
+ 
+ #include <video-utils.h>
+ 
++#include "totem-search-entry.h"
++
+ #define TOTEM_TYPE_GRILO_PLUGIN                                         \
+ 	(totem_grilo_plugin_get_type ())
+ #define TOTEM_GRILO_PLUGIN(o)                                           \
+@@ -68,8 +70,9 @@
+ 	"</ui>"
+ 
+ #define BROWSE_FLAGS          (GRL_RESOLVE_FAST_ONLY | GRL_RESOLVE_IDLE_RELAY)
++#define RESOLVE_FLAGS 	      (GRL_RESOLVE_FULL | GRL_RESOLVE_IDLE_RELAY)
+ #define PAGE_SIZE             50
+-#define THUMB_SEARCH_SIZE     128
++#define THUMB_SEARCH_SIZE     256
+ #define THUMB_BROWSE_SIZE     32
+ #define SCROLL_GET_MORE_LIMIT 0.8
+ 
+@@ -98,7 +101,7 @@
+ 	GHashTable *cache_thumbnails;
+ 
+ 	/* Search related information */
+-	GrlMediaSource *search_source;
++	GrlSource *search_source;
+ 	guint search_id;
+ 	gint search_page;
+ 	gint search_remaining;
+@@ -111,7 +114,7 @@
+ 	/* Search widgets */
+ 	GtkWidget *search_entry;
+ 	GtkTreeModel *search_results_model;
+-	GtkTreeModel *search_sources_model;
++	GHashTable *search_sources_ht;
+ 	GtkWidget *search_sources_list;
+ 	GtkWidget *search_results_view;
+ 
+@@ -155,7 +158,7 @@
+ };
+ 
+ static void play (TotemGriloPlugin *self,
+-                  GrlMediaSource *source,
++                  GrlSource *source,
+                   GrlMedia *media,
+                   gboolean resolve_url);
+ 
+@@ -393,18 +396,18 @@
+ {
+ 	GList *sources, *source;
+ 	GtkTreeIter iter;
+-	GrlPluginRegistry *registry;
++	GrlRegistry *registry;
+ 	const gchar *name;
+ 	GdkPixbuf *icon;
+ 
+-	registry = grl_plugin_registry_get_default ();
+-	sources = grl_plugin_registry_get_sources_by_operations (registry,
+-	                                                         GRL_OP_BROWSE,
+-	                                                         FALSE);
++	registry = grl_registry_get_default ();
++	sources = grl_registry_get_sources_by_operations (registry,
++	                                                  GRL_OP_BROWSE,
++	                                                  FALSE);
+ 
+ 	for (source = sources; source ; source = g_list_next (source)) {
+ 		icon = load_icon (self, ICON_BOX, THUMB_BROWSE_SIZE);
+-		name = grl_metadata_source_get_name (GRL_METADATA_SOURCE (source->data));
++		name = grl_source_get_name (source->data);
+ 		gtk_tree_store_append (GTK_TREE_STORE (self->priv->browser_model), &iter, NULL);
+ 		gtk_tree_store_set (GTK_TREE_STORE (self->priv->browser_model),
+ 		                    &iter,
+@@ -422,7 +425,7 @@
+ }
+ 
+ static void
+-browse_cb (GrlMediaSource *source,
++browse_cb (GrlSource *source,
+            guint browse_id,
+            GrlMedia *media,
+            guint remaining,
+@@ -508,28 +511,37 @@
+ static void
+ browse (TotemGriloPlugin *self,
+         GtkTreePath *path,
+-        GrlMediaSource *source,
++        GrlSource *source,
+         GrlMedia *container,
+         gint page)
+ {
+ 	if (source != NULL) {
+-		BrowseUserData *bud = g_slice_new (BrowseUserData);
++		BrowseUserData *bud;
++		GrlOperationOptions *default_options;
++
++		default_options = grl_operation_options_new (NULL);
++		grl_operation_options_set_flags (default_options, BROWSE_FLAGS);
++		grl_operation_options_set_skip (default_options, (page - 1) * PAGE_SIZE);
++		grl_operation_options_set_count (default_options, PAGE_SIZE);
++
++		bud = g_slice_new (BrowseUserData);
+ 		bud->totem_grilo = g_object_ref (self);
+ 		bud->ref_parent = gtk_tree_row_reference_new (self->priv->browser_model, path);
+-		grl_media_source_browse (source,
+-		                         container,
+-		                         browse_keys (),
+-		                         (page - 1) * PAGE_SIZE, PAGE_SIZE,
+-		                         BROWSE_FLAGS,
+-		                         browse_cb,
+-		                         bud);
++		grl_source_browse (source,
++		                   container,
++		                   browse_keys (),
++		                   default_options,
++		                   browse_cb,
++		                   bud);
++
++		g_object_unref (default_options);
+ 	} else {
+ 		show_sources (self);
+ 	}
+ }
+ 
+ static void
+-resolve_url_cb (GrlMediaSource *source,
++resolve_url_cb (GrlSource *source,
+                 guint op_id,
+                 GrlMedia *media,
+                 gpointer user_data,
+@@ -545,7 +557,7 @@
+ 
+ static void
+ play (TotemGriloPlugin *self,
+-      GrlMediaSource *source,
++      GrlSource *source,
+       GrlMedia *media,
+       gboolean resolve_url)
+ {
+@@ -560,23 +572,37 @@
+ 	}
+ 
+ 	/* If url is a slow key, then we need to full resolve it */
+-	if (resolve_url) {
++	if (resolve_url &&
++	    grl_source_supported_operations (source) & GRL_OP_RESOLVE) {
+ 		const GList *slow_keys;
+-		GList *url_keys;
+-		slow_keys = grl_metadata_source_slow_keys (GRL_METADATA_SOURCE (source));
+-		if (g_list_find ((GList *) slow_keys, GRL_METADATA_KEY_URL) != NULL) {
++
++		slow_keys = grl_source_slow_keys (source);
++
++		if (g_list_find ((GList *) slow_keys, GINT_TO_POINTER (GRL_METADATA_KEY_URL)) != NULL) {
++			GList *url_keys;
++			GrlOperationOptions *resolve_options;
++
++			resolve_options = grl_operation_options_new (NULL);
++			grl_operation_options_set_flags (resolve_options, RESOLVE_FLAGS);
++
+ 			url_keys = grl_metadata_key_list_new (GRL_METADATA_KEY_URL, NULL);
+-			grl_media_source_metadata (source, media, url_keys, 0, resolve_url_cb, self);
++			grl_source_resolve (source, media, url_keys, resolve_options, resolve_url_cb, self);
++
++			g_object_unref (resolve_options);
+ 			g_list_free (url_keys);
+ 			return;
+ 		}
++	} else if (resolve_url) {
++		/* If source does not support resolve() operation, then use the current media */
++		resolve_url_cb (source, 0, media, NULL, NULL);
++		return;
+ 	}
+ 
+ 	g_warning ("Current element has no URL to play");
+ }
+ 
+ static void
+-search_cb (GrlMediaSource *source,
++search_cb (GrlSource *source,
+            guint search_id,
+            GrlMedia *media,
+            guint remaining,
+@@ -632,27 +658,64 @@
+ 	}
+ }
+ 
++static GrlOperationOptions *
++get_search_options (TotemGriloPlugin *self)
++{
++	GrlOperationOptions *default_options;
++	GrlOperationOptions *supported_options;
++
++	default_options = grl_operation_options_new (NULL);
++	grl_operation_options_set_flags (default_options, BROWSE_FLAGS);
++	grl_operation_options_set_skip (default_options, self->priv->search_page * PAGE_SIZE);
++	grl_operation_options_set_count (default_options, PAGE_SIZE);
++	grl_operation_options_set_type_filter (default_options, GRL_TYPE_FILTER_VIDEO);
++
++	/* And now remove all the unsupported filters and options */
++	grl_operation_options_obey_caps (default_options,
++					 grl_source_get_caps (GRL_SOURCE (self->priv->search_source), GRL_OP_SEARCH),
++					 &supported_options,
++					 NULL);
++	g_object_unref (default_options);
++
++	return supported_options;
++}
++
+ static void
+ search_more (TotemGriloPlugin *self)
+ {
++	GrlOperationOptions *search_options;
++
++	search_options = get_search_options (self);
++
+ 	gtk_widget_set_sensitive (self->priv->search_entry, FALSE);
+ 	self->priv->search_page++;
+ 	self->priv->search_remaining = PAGE_SIZE;
+-	self->priv->search_id = grl_media_source_search (self->priv->search_source,
+-	                                                 self->priv->search_text,
+-	                                                 search_keys (),
+-	                                                 (self->priv->search_page - 1) * PAGE_SIZE,
+-	                                                 PAGE_SIZE,
+-	                                                 BROWSE_FLAGS,
+-	                                                 search_cb,
+-	                                                 self);
++	if (self->priv->search_source != NULL) {
++		self->priv->search_id =
++			grl_source_search (self->priv->search_source,
++			                   self->priv->search_text,
++			                   search_keys (),
++			                   search_options,
++			                   search_cb,
++			                   self);
++	} else {
++		self->priv->search_id =
++			grl_multiple_search (NULL,
++			                     self->priv->search_text,
++			                     search_keys (),
++			                     search_options,
++			                     search_cb,
++			                     self);
++	}
++	g_object_unref (search_options);
++
+ 	if (self->priv->search_id == 0) {
+ 		search_cb (self->priv->search_source, 0, NULL, 0, self, NULL);
+ 	}
+ }
+ 
+ static void
+-search (TotemGriloPlugin *self, GrlMediaSource *source, const gchar *text)
++search (TotemGriloPlugin *self, GrlSource *source, const gchar *text)
+ {
+ 	gtk_list_store_clear (GTK_LIST_STORE (self->priv->search_results_model));
+ 	g_hash_table_remove_all (self->priv->cache_thumbnails);
+@@ -665,51 +728,22 @@
+ }
+ 
+ static void
+-search_entry_changed_cb (GtkEntry *entry, TotemGriloPlugin *self)
+-{
+-	if (g_strcmp0 (gtk_entry_get_text (entry), "") == 0) {
+-		g_object_set (G_OBJECT (entry),
+-		              "secondary-icon-name", "edit-find-symbolic",
+-		              "secondary-icon-activatable", FALSE,
+-		              "secondary-icon-sensitive", FALSE,
+-		              NULL);
+-	} else {
+-		g_object_set (G_OBJECT (entry),
+-		              "secondary-icon-name", "edit-clear-symbolic",
+-		              "secondary-icon-activatable", TRUE,
+-		              "secondary-icon-sensitive", TRUE,
+-		              NULL);
+-	}
+-}
+-
+-static void
+ search_entry_activate_cb (GtkEntry *entry, TotemGriloPlugin *self)
+ {
+-	GtkTreeIter iter;
+-	GrlMediaSource *source = NULL;
+-	const gchar *text;
++	GrlRegistry *registry;
++	const char *id;
++	const char *text;
++	GrlSource *source;
++
++	id = totem_search_entry_get_selected_id (TOTEM_SEARCH_ENTRY (self->priv->search_entry));
++	g_return_if_fail (id != NULL);
++	registry = grl_registry_get_default ();
++	source = grl_registry_lookup_source (registry, id);
++	g_return_if_fail (source != NULL);
+ 
+-	if (gtk_widget_is_sensitive (self->priv->search_sources_list)) {
+-		if (gtk_combo_box_get_active_iter (GTK_COMBO_BOX (self->priv->search_sources_list),
+-		                                   &iter)) {
+-			gtk_tree_model_get (self->priv->search_sources_model, &iter,
+-			                    SEARCH_MODEL_SOURCES_SOURCE, &source,
+-			                    -1);
+-		}
+-	}
+-
+-	text = gtk_entry_get_text (GTK_ENTRY (self->priv->search_entry));
++	text = totem_search_entry_get_text (TOTEM_SEARCH_ENTRY (self->priv->search_entry));
++	g_return_if_fail (text != NULL);
+ 	search (self, source, text);
+-
+-	if (source != NULL) {
+-		g_object_unref (source);
+-	}
+-}
+-
+-static void
+-search_entry_clear_cb (GtkEntry *entry, TotemGriloPlugin *self)
+-{
+-	gtk_entry_set_text (entry, "");
+ }
+ 
+ static void
+@@ -723,7 +757,7 @@
+ 	GtkTreeModel *model;
+ 	GtkTreeIter iter;
+ 	GrlMedia *content;
+-	GrlMediaSource *source;
++	GrlSource *source;
+ 	TotemGriloPlugin *self = TOTEM_GRILO_PLUGIN (user_data);
+ 
+ 	model = gtk_tree_view_get_model (tree_view);
+@@ -769,9 +803,11 @@
+ }
+ 
+ static void
+-search_source_changed_cb (GtkComboBox *combo,
+-			  TotemGriloPlugin *self)
++search_entry_source_changed_cb (GObject          *object,
++                                GParamSpec       *pspec,
++                                TotemGriloPlugin *self)
+ {
++	/* FIXME: Do we actually want to do that? */
+ 	if (self->priv->search_id > 0) {
+ 		grl_operation_cancel (self->priv->search_id);
+ 		self->priv->search_id = 0;
+@@ -786,7 +822,7 @@
+ {
+ 	GtkTreeModel *model;
+ 	GtkTreeIter iter;
+-	GrlMediaSource *source;
++	GrlSource *source;
+ 	GrlMedia *content;
+ 
+ 	model = gtk_icon_view_get_model (icon_view);
+@@ -808,9 +844,9 @@
+ }
+ 
+ static gboolean
+-source_is_blacklisted (GrlMediaSource *source)
++source_is_blacklisted (GrlSource *source)
+ {
+-	const gchar *id = grl_metadata_source_get_id (GRL_METADATA_SOURCE (source));
++	const gchar *id = grl_source_get_id (source);
+ 	const gchar **s = BLACKLIST_SOURCES;
+ 
+ 	while (*s) {
+@@ -824,8 +860,8 @@
+ }
+ 
+ static void
+-source_added_cb (GrlPluginRegistry *registry,
+-                 GrlMediaSource *source,
++source_added_cb (GrlRegistry *registry,
++                 GrlSource *source,
+                  gpointer user_data)
+ {
+ 	const gchar *name;
+@@ -836,16 +872,16 @@
+ 	GrlSupportedOps ops;
+ 
+ 	if (source_is_blacklisted (source)) {
+-		grl_plugin_registry_unregister_source (registry,
+-		                                       GRL_MEDIA_PLUGIN (source),
+-		                                       NULL);
++		grl_registry_unregister_source (registry,
++		                                source,
++		                                NULL);
+ 		return;
+ 	}
+ 
+ 	self = TOTEM_GRILO_PLUGIN (user_data);
+ 	icon = load_icon (self, ICON_BOX, THUMB_BROWSE_SIZE);
+-	name = grl_metadata_source_get_name (GRL_METADATA_SOURCE (source));
+-	ops = grl_metadata_source_supported_operations (GRL_METADATA_SOURCE (source));
++	name = grl_source_get_name (source);
++	ops = grl_source_supported_operations (source);
+ 	if (ops & GRL_OP_BROWSE) {
+ 		description = g_markup_printf_escaped ("<b>%s</b>", name);
+ 		gtk_tree_store_append (GTK_TREE_STORE (self->priv->browser_model), &iter, NULL);
+@@ -860,17 +896,12 @@
+ 		g_free (description);
+ 	}
+ 	if (ops & GRL_OP_SEARCH) {
+-		gtk_list_store_append (GTK_LIST_STORE (self->priv->search_sources_model), &iter);
+-		gtk_list_store_set (GTK_LIST_STORE (self->priv->search_sources_model),
+-		                    &iter,
+-		                    SEARCH_MODEL_SOURCES_SOURCE, source,
+-		                    SEARCH_MODEL_SOURCES_NAME, name,
+-		                    -1);
+-		/* Select one of them */
+-		if (gtk_combo_box_get_active (GTK_COMBO_BOX (self->priv->search_sources_list)) == -1) {
+-			gtk_combo_box_set_active (GTK_COMBO_BOX (self->priv->search_sources_list), 0);
+-			gtk_widget_set_sensitive (self->priv->search_entry, TRUE);
+-		}
++		/* FIXME:
++		 * Handle tracker/filesystem specifically, so that we have a "local" entry here */
++		totem_search_entry_add_source (TOTEM_SEARCH_ENTRY (self->priv->search_entry),
++					       grl_source_get_id (source),
++					       grl_source_get_name (source),
++					       0); /* FIXME: Use correct priority */
+ 	}
+ 
+ 	if (icon != NULL) {
+@@ -884,8 +915,8 @@
+                       GtkTreeIter *iter,
+                       gpointer user_data)
+ {
+-	GrlMediaSource *removed_source = GRL_MEDIA_SOURCE (user_data);
+-	GrlMediaSource *model_source;
++	GrlSource *removed_source = GRL_SOURCE (user_data);
++	GrlSource *model_source;
+ 	gboolean same_source;
+ 
+ 	gtk_tree_model_get (model, iter,
+@@ -903,40 +934,15 @@
+ 	return same_source;
+ }
+ 
+-static gboolean
+-remove_searchable_source (GtkTreeModel *model,
+-                          GtkTreePath *path,
+-                          GtkTreeIter *iter,
+-                          gpointer user_data)
+-{
+-	GrlMediaSource *removed_source = GRL_MEDIA_SOURCE (user_data);
+-	GrlMediaSource *model_source;
+-	gboolean same_source;
+-
+-	gtk_tree_model_get (model, iter,
+-	                    MODEL_RESULTS_SOURCE, &model_source,
+-	                    -1);
+-
+-	same_source = (model_source == removed_source);
+-
+-	if (same_source) {
+-		gtk_list_store_remove (GTK_LIST_STORE (model), iter);
+-	}
+-
+-	g_object_unref (model_source);
+-
+-	return same_source;
+-}
+-
+ static void
+-source_removed_cb (GrlPluginRegistry *registry,
+-                   GrlMediaSource *source,
++source_removed_cb (GrlRegistry *registry,
++                   GrlSource *source,
+                    gpointer user_data)
+ {
+ 	GrlSupportedOps ops;
+ 	TotemGriloPlugin *self = TOTEM_GRILO_PLUGIN (user_data);
+ 
+-	ops = grl_metadata_source_supported_operations (GRL_METADATA_SOURCE (source));
++	ops = grl_source_supported_operations (source);
+ 
+ 	/* Remove source and content from browse results */
+ 	if (ops & GRL_OP_BROWSE) {
+@@ -948,36 +954,32 @@
+ 	/* If current search results belongs to removed source, clear the results. In
+ 	   any case, remove the source from the list of searchable sources */
+ 	if (ops & GRL_OP_SEARCH) {
++		const char *id;
++
+ 		if (self->priv->search_source == source) {
+ 			gtk_list_store_clear (GTK_LIST_STORE (self->priv->search_results_model));
+ 			self->priv->search_source = NULL;
+ 		}
+ 
+-		gtk_tree_model_foreach (self->priv->search_sources_model,
+-		                        remove_searchable_source,
+-		                        source);
+-
+-		/* Select one if the selected source was removed */
+-		if (gtk_combo_box_get_active (GTK_COMBO_BOX (self->priv->search_sources_list)) == -1) {
+-			gtk_combo_box_set_active (GTK_COMBO_BOX (self->priv->search_sources_list), 0);
+-		}
++		id = grl_source_get_id (source);
++		totem_search_entry_remove_source (TOTEM_SEARCH_ENTRY (self->priv->search_entry), id);
+ 	}
+ }
+ 
+ static void
+ load_grilo_plugins (TotemGriloPlugin *self)
+ {
+-	GrlPluginRegistry *registry;
++	GrlRegistry *registry;
+ 	GError *error = NULL;
+ 
+-	registry = grl_plugin_registry_get_default ();
++	registry = grl_registry_get_default ();
+ 
+ 	g_signal_connect (registry, "source-added",
+ 	                  G_CALLBACK (source_added_cb), self);
+ 	g_signal_connect (registry, "source-removed",
+ 	                  G_CALLBACK (source_removed_cb), self);
+ 
+-	if (grl_plugin_registry_load_all (registry, &error) == FALSE) {
++	if (grl_registry_load_all_plugins (registry, &error) == FALSE) {
+ 		g_warning ("Failed to load grilo plugins: %s", error->message);
+ 		g_error_free (error);
+ 	}
+@@ -994,7 +996,7 @@
+ 	GList *sel_list = NULL;
+ 	GtkTreeModel *model;
+ 	GtkTreeIter iter;
+-	GrlMediaSource *source;
++	GrlSource *source;
+ 	const gchar *url = NULL;
+ 
+ 	if (view == self->priv->browser) {
+@@ -1123,7 +1125,7 @@
+ 	GtkTreePath *end_path;
+ 	GtkTreePath *parent_path;
+ 	GtkTreeIter iter;
+-	GrlMediaSource *source;
++	GrlSource *source;
+ 	GrlMedia *container;
+ 	gint page;
+ 	gint remaining;
+@@ -1225,21 +1227,10 @@
+                       GtkBuilder *builder)
+ {
+ 	self->priv->search_results_model = GTK_TREE_MODEL (gtk_builder_get_object (builder, "gw_search_store_results"));
+-	self->priv->search_sources_model = GTK_TREE_MODEL (gtk_builder_get_object (builder, "gw_search_store_sources"));
+ 	self->priv->search_sources_list = GTK_WIDGET (gtk_builder_get_object (builder, "gw_search_select_source"));
+ 	self->priv->search_results_view = GTK_WIDGET (gtk_builder_get_object (builder, "gw_search_results_view"));
+ 	self->priv->search_entry =  GTK_WIDGET (gtk_builder_get_object (builder, "gw_search_text"));
+ 
+-	gtk_tree_sortable_set_sort_column_id (GTK_TREE_SORTABLE (self->priv->search_sources_model),
+-	                                      SEARCH_MODEL_SOURCES_NAME,
+-	                                      GTK_SORT_ASCENDING);
+-
+-	gtk_widget_set_sensitive (self->priv->search_entry, FALSE);
+-
+-	g_signal_connect (self->priv->search_sources_list,
+-			  "changed",
+-			  G_CALLBACK (search_source_changed_cb), self);
+-
+ 	g_signal_connect (self->priv->search_results_view,
+ 	                  "item-activated",
+ 	                  G_CALLBACK (search_activated_cb),
+@@ -1250,24 +1241,12 @@
+ 	g_signal_connect (self->priv->search_results_view,
+ 	                  "button-press-event",
+ 	                  G_CALLBACK (context_button_pressed_cb), self);
+-	g_signal_connect (self->priv->search_entry,
+-	                  "changed",
+-	                  G_CALLBACK (search_entry_changed_cb), self);
+ 
+-	g_signal_connect (self->priv->search_entry,
+-	                  "activate",
++	g_signal_connect (self->priv->search_entry, "activate",
+ 	                  G_CALLBACK (search_entry_activate_cb),
+ 	                  self);
+-	g_signal_connect (self->priv->search_entry,
+-	                  "icon-release",
+-	                  G_CALLBACK (search_entry_clear_cb),
+-	                  self);
+-
+-	g_object_set (G_OBJECT (self->priv->search_entry),
+-	              "secondary-icon-name", "edit-find-symbolic",
+-	              "secondary-icon-activatable", FALSE,
+-	              "secondary-icon-sensitive", FALSE,
+-	              NULL);
++	g_signal_connect (self->priv->search_entry, "notify::selected-id",
++			  G_CALLBACK (search_entry_source_changed_cb), self);
+ 
+ 	g_signal_connect (gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (gtk_builder_get_object (builder,
+ 		                    "gw_search_results_window"))),
+@@ -1353,13 +1332,13 @@
+ setup_config (TotemGriloPlugin *self)
+ {
+ 	gchar *config_file;
+-	GrlPluginRegistry *registry = grl_plugin_registry_get_default ();
++	GrlRegistry *registry = grl_registry_get_default ();
+ 
+ 	/* Setup system-wide plugins configuration */
+ 	config_file = totem_plugin_find_file ("grilo", TOTEM_GRILO_CONFIG_FILE);
+ 
+ 	if (g_file_test (config_file, G_FILE_TEST_EXISTS)) {
+-		grl_plugin_registry_add_config_from_file (registry, config_file, NULL);
++		grl_registry_add_config_from_file (registry, config_file, NULL);
+ 	}
+ 	g_free (config_file);
+ 
+@@ -1371,7 +1350,7 @@
+ 	                            NULL);
+ 
+ 	if (g_file_test (config_file, G_FILE_TEST_EXISTS)) {
+-		grl_plugin_registry_add_config_from_file (registry, config_file, NULL);
++		grl_registry_add_config_from_file (registry, config_file, NULL);
+ 	}
+ 	g_free (config_file);
+ }
+@@ -1405,21 +1384,21 @@
+ 	TotemGriloPlugin *self = TOTEM_GRILO_PLUGIN (plugin);
+ 	GList *sources;
+ 	GList *s;
+-	GrlPluginRegistry *registry;
++	GrlRegistry *registry;
+ 
+ 	totem_remove_sidebar_page (self->priv->totem, "grilo-browse");
+ 	totem_remove_sidebar_page (self->priv->totem, "grilo-search");
+ 
+-	registry = grl_plugin_registry_get_default ();
++	registry = grl_registry_get_default ();
+ 	g_signal_handlers_disconnect_by_func (registry, source_added_cb, self);
+ 	g_signal_handlers_disconnect_by_func (registry, source_removed_cb, self);
+ 
+ 	/* Shutdown all sources */
+-	sources  = grl_plugin_registry_get_sources (registry, FALSE);
++	sources  = grl_registry_get_sources (registry, FALSE);
+ 	for (s = sources; s; s = g_list_next (s)) {
+-		grl_plugin_registry_unregister_source (registry,
+-		                                       GRL_MEDIA_PLUGIN (s->data),
+-		                                       NULL);
++		grl_registry_unregister_source (registry,
++		                                GRL_SOURCE (s->data),
++		                                NULL);
+ 	}
+ 	g_list_free (sources);
+ 
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/totem-search-entry.c totem-3.4.3/src/plugins/grilo/totem-search-entry.c
+--- totem-3.4.3.orig/src/plugins/grilo/totem-search-entry.c	1970-01-01 01:00:00.000000000 +0100
++++ totem-3.4.3/src/plugins/grilo/totem-search-entry.c	2012-11-10 10:09:35.682673554 +0100
+@@ -0,0 +1,291 @@
++/*
++ * Copyright (c) 2012 Red Hat, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published by 
++ * the Free Software Foundation; either version 2 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++ * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public 
++ * License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License 
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
++ *
++ * Author: Bastien Nocera <hadess@hadess.net>
++ *
++ */
++
++#include "totem-search-entry.h"
++#include "gd-tagged-entry.h"
++
++G_DEFINE_TYPE (TotemSearchEntry, totem_search_entry, GTK_TYPE_BOX)
++
++/* To be used as the ID in the GdTaggedEntry */
++#define SOURCE_ID "source-id"
++
++enum {
++	SIGNAL_ACTIVATE,
++	LAST_SIGNAL
++};
++
++enum {
++	PROP_0,
++	PROP_SELECTED_ID
++};
++
++static guint signals[LAST_SIGNAL] = { 0, };
++
++struct _TotemSearchEntryPrivate {
++	GtkWidget *entry;
++	GtkWidget *button;
++	GtkWidget *menu;
++	GSList *group;
++};
++
++static void
++totem_search_entry_finalize (GObject *obj)
++{
++	TotemSearchEntry *self = TOTEM_SEARCH_ENTRY (obj);
++
++	/* FIXME */
++
++	G_OBJECT_CLASS (totem_search_entry_parent_class)->finalize (obj);
++}
++
++static void
++entry_activate_cb (GtkEntry *entry,
++		   TotemSearchEntry *self)
++{
++	const char *text;
++
++	text = gtk_entry_get_text (GTK_ENTRY (self->priv->entry));
++	if (text == NULL || *text == '\0')
++		return;
++	g_signal_emit (self, signals[SIGNAL_ACTIVATE], 0);
++}
++
++static void
++totem_search_entry_init (TotemSearchEntry *self)
++{
++	GtkWidget *entry;
++	GtkWidget *button;
++
++	self->priv = G_TYPE_INSTANCE_GET_PRIVATE (self, TOTEM_TYPE_SEARCH_ENTRY, TotemSearchEntryPrivate);
++
++	/* Entry */
++	entry = GTK_WIDGET (gd_tagged_entry_new ());
++	gd_tagged_entry_set_button_visible (GD_TAGGED_ENTRY (entry), FALSE);
++	gtk_box_pack_start (GTK_BOX (self),
++			    entry,
++			    TRUE, TRUE, 0);
++	gtk_widget_show (entry);
++
++	self->priv->entry = entry;
++
++	/* Button */
++	button = gtk_menu_button_new ();
++	gtk_box_pack_start (GTK_BOX (self),
++			    button,
++			    FALSE, TRUE, 0);
++	gtk_widget_show (button);
++
++	self->priv->button = button;
++
++	/* Connect signals */
++	g_signal_connect (self->priv->entry, "activate",
++			  G_CALLBACK (entry_activate_cb), self);
++}
++
++static void
++totem_search_entry_set_property (GObject *object,
++				 guint property_id,
++                                 const GValue *value,
++                                 GParamSpec * pspec)
++{
++	switch (property_id) {
++	case PROP_SELECTED_ID:
++		totem_search_entry_set_selected_id (TOTEM_SEARCH_ENTRY (object),
++						    g_value_get_string (value));
++		break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
++	}
++}
++
++static void
++totem_search_entry_get_property (GObject    *object,
++				 guint       property_id,
++                                 GValue     *value,
++                                 GParamSpec *pspec)
++{
++	switch (property_id) {
++	case PROP_SELECTED_ID:
++		g_value_set_string (value,
++				    totem_search_entry_get_selected_id (TOTEM_SEARCH_ENTRY (object)));
++		break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
++	}
++}
++
++static void
++totem_search_entry_class_init (TotemSearchEntryClass *klass)
++{
++	GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
++
++	gobject_class->finalize = totem_search_entry_finalize;
++	gobject_class->set_property = totem_search_entry_set_property;
++	gobject_class->get_property = totem_search_entry_get_property;
++
++	signals[SIGNAL_ACTIVATE] =
++		g_signal_new ("activate",
++			      TOTEM_TYPE_SEARCH_ENTRY,
++			      G_SIGNAL_RUN_FIRST | G_SIGNAL_DETAILED,
++			      0, NULL, NULL, NULL,
++			      G_TYPE_NONE,
++			      0, G_TYPE_NONE);
++
++	g_object_class_install_property (gobject_class, PROP_SELECTED_ID,
++					 g_param_spec_string ("selected-id", "Selected ID", "The ID for the currently selected source.",
++							      NULL,
++							      G_PARAM_READWRITE |
++							      G_PARAM_STATIC_STRINGS));
++
++	g_type_class_add_private (klass, sizeof (TotemSearchEntryPrivate));
++}
++
++TotemSearchEntry *
++totem_search_entry_new (void)
++{
++	return g_object_new (TOTEM_TYPE_SEARCH_ENTRY, NULL);
++}
++
++static void
++item_toggled (GtkCheckMenuItem *item,
++	      TotemSearchEntry *self)
++{
++	const char *label;
++
++	if (gtk_check_menu_item_get_active (item)) {
++		label = g_object_get_data (G_OBJECT (item), "label");
++		gd_tagged_entry_set_tag_label (GD_TAGGED_ENTRY (self->priv->entry),
++					       SOURCE_ID, label);
++		g_object_notify (G_OBJECT (self), "selected-id");
++	}
++}
++
++static void
++insert_item_sorted (TotemSearchEntry *self,
++		    int               priority,
++		    GtkWidget        *item)
++{
++	/* FIXME really do that sorted */
++	gtk_menu_shell_append (GTK_MENU_SHELL (self->priv->menu), item);
++	gtk_widget_show (item);
++}
++
++void
++totem_search_entry_add_source (TotemSearchEntry *self,
++			       const gchar      *id,
++			       const gchar      *label,
++			       int               priority)
++{
++	GtkWidget *item;
++
++	g_return_if_fail (TOTEM_IS_SEARCH_ENTRY (self));
++
++	if (self->priv->menu == NULL) {
++		self->priv->menu = gtk_menu_new ();
++		gtk_menu_button_set_popup (GTK_MENU_BUTTON (self->priv->button),
++					   self->priv->menu);
++		gd_tagged_entry_add_tag (GD_TAGGED_ENTRY (self->priv->entry),
++					 SOURCE_ID, label);
++	}
++
++	item = gtk_radio_menu_item_new_with_label (self->priv->group, label);
++	self->priv->group = g_slist_prepend (self->priv->group, item);
++
++	g_object_set_data_full (G_OBJECT (item), "id", g_strdup (id), g_free);
++	g_object_set_data_full (G_OBJECT (item), "label", g_strdup (label), g_free);
++	g_object_set_data (G_OBJECT (item), "priority", GINT_TO_POINTER (priority));
++
++	g_signal_connect (item, "toggled",
++			  G_CALLBACK (item_toggled), self);
++
++	insert_item_sorted (self, priority, item);
++}
++
++void
++totem_search_entry_remove_source (TotemSearchEntry *self,
++				  const gchar *id)
++{
++	guint num_items;
++
++	g_return_if_fail (TOTEM_IS_SEARCH_ENTRY (self));
++
++	/* FIXME
++	 * - implement
++	 * - don't forget to remove tag
++	 * - check if it's the currently selected source and notify of the change if so */
++
++	num_items = 1;
++
++	if (num_items == 0) {
++		gtk_menu_button_set_popup (GTK_MENU_BUTTON (self->priv->button), NULL);
++		g_clear_object (&self->priv->menu);
++		gd_tagged_entry_remove_tag (GD_TAGGED_ENTRY (self->priv->entry), SOURCE_ID);
++	}
++}
++
++const char *
++totem_search_entry_get_text (TotemSearchEntry *self)
++{
++	g_return_val_if_fail (TOTEM_IS_SEARCH_ENTRY (self), NULL);
++
++	return gtk_entry_get_text (GTK_ENTRY (self->priv->entry));
++}
++
++const char *
++totem_search_entry_get_selected_id (TotemSearchEntry *self)
++{
++	GSList *l;
++
++	g_return_val_if_fail (TOTEM_IS_SEARCH_ENTRY (self), NULL);
++
++	for (l = self->priv->group ; l != NULL; l = l->next) {
++		GtkCheckMenuItem *item = l->data;
++
++		if (gtk_check_menu_item_get_active (item) != FALSE)
++			return g_object_get_data (G_OBJECT (item), "id");
++	}
++
++	return NULL;
++}
++
++void
++totem_search_entry_set_selected_id (TotemSearchEntry *self,
++				    const char       *id)
++{
++	GSList *l;
++
++	g_return_if_fail (TOTEM_IS_SEARCH_ENTRY (self));
++	g_return_if_fail (id != NULL);
++
++	for (l = self->priv->group ; l != NULL; l = l->next) {
++		GtkCheckMenuItem *item = l->data;
++		const char *item_id;
++
++		item_id = g_object_get_data (G_OBJECT (item), "id");
++		if (g_strcmp0 (item_id, id) == 0) {
++			gtk_check_menu_item_set_active (item, TRUE);
++			return;
++		}
++	}
++
++	g_warning ("Could not find ID '%s' in TotemSearchEntry %p",
++		   id, self);
++}
+diff -Naur totem-3.4.3.orig/src/plugins/grilo/totem-search-entry.h totem-3.4.3/src/plugins/grilo/totem-search-entry.h
+--- totem-3.4.3.orig/src/plugins/grilo/totem-search-entry.h	1970-01-01 01:00:00.000000000 +0100
++++ totem-3.4.3/src/plugins/grilo/totem-search-entry.h	2012-11-10 10:02:11.703887948 +0100
+@@ -0,0 +1,74 @@
++/*
++ * Copyright (c) 2011 Red Hat, Inc.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU Lesser General Public License as published by 
++ * the Free Software Foundation; either version 2 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
++ * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public 
++ * License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License 
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
++ *
++ * Author: Cosimo Cecchi <cosimoc@redhat.com>
++ *
++ */
++
++#ifndef __TOTEM_SEARCH_ENTRY_H__
++#define __TOTEM_SEARCH_ENTRY_H__
++
++#include <glib-object.h>
++
++#include <gtk/gtk.h>
++
++G_BEGIN_DECLS
++
++#define TOTEM_TYPE_SEARCH_ENTRY totem_search_entry_get_type()
++#define TOTEM_SEARCH_ENTRY(obj) (G_TYPE_CHECK_INSTANCE_CAST ((obj), TOTEM_TYPE_SEARCH_ENTRY, TotemSearchEntry))
++#define TOTEM_SEARCH_ENTRY_CLASS(klass) (G_TYPE_CHECK_CLASS_CAST ((klass), TOTEM_TYPE_SEARCH_ENTRY, TotemSearchEntryClass))
++#define TOTEM_IS_SEARCH_ENTRY(obj) (G_TYPE_CHECK_INSTANCE_TYPE ((obj), TOTEM_TYPE_SEARCH_ENTRY))
++#define TOTEM_IS_SEARCH_ENTRY_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE ((klass), TOTEM_TYPE_SEARCH_ENTRY))
++#define TOTEM_SEARCH_ENTRY_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), TOTEM_TYPE_SEARCH_ENTRY, TotemSearchEntryClass))
++
++typedef struct _TotemSearchEntry TotemSearchEntry;
++typedef struct _TotemSearchEntryClass TotemSearchEntryClass;
++typedef struct _TotemSearchEntryPrivate TotemSearchEntryPrivate;
++
++struct _TotemSearchEntry
++{
++	GtkBox parent;
++
++	TotemSearchEntryPrivate *priv;
++};
++
++struct _TotemSearchEntryClass
++{
++	GtkBoxClass parent_class;
++};
++
++GType totem_search_entry_get_type (void) G_GNUC_CONST;
++
++TotemSearchEntry *totem_search_entry_new (void);
++
++void totem_search_entry_add_source (TotemSearchEntry *entry,
++                                  const gchar *id,
++                                  const gchar *label,
++                                  int priority);
++
++void totem_search_entry_remove_source (TotemSearchEntry *self,
++                                       const gchar *id);
++
++const char *totem_search_entry_get_text (TotemSearchEntry *self);
++
++const char *totem_search_entry_get_selected_id (TotemSearchEntry *self);
++void        totem_search_entry_set_selected_id (TotemSearchEntry *self,
++						const char       *id);
++
++G_END_DECLS
++
++#endif /* __TOTEM_SEARCH_ENTRY_H__ */

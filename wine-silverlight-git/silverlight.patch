@@ -1,0 +1,334 @@
+diff --git a/dlls/advapi32/security.c b/dlls/advapi32/security.c
+index 6afcc42..292300e 100644
+--- a/dlls/advapi32/security.c
++++ b/dlls/advapi32/security.c
+@@ -5424,102 +5424,28 @@ DWORD WINAPI GetNamedSecurityInfoW( LPWSTR name, SE_OBJECT_TYPE type,
+     SECURITY_INFORMATION info, PSID* owner, PSID* group, PACL* dacl,
+     PACL* sacl, PSECURITY_DESCRIPTOR* descriptor )
+ {
+-    DWORD needed, offset;
+-    SECURITY_DESCRIPTOR_RELATIVE *relative = NULL;
+-    BYTE *buffer;
++    HANDLE hfile;
++    DWORD ret;
++    DWORD access = 0;
+ 
+     TRACE( "%s %d %d %p %p %p %p %p\n", debugstr_w(name), type, info, owner,
+            group, dacl, sacl, descriptor );
+ 
+-    /* A NULL descriptor is allowed if any one of the other pointers is not NULL */
+-    if (!name || !(owner||group||dacl||sacl||descriptor) ) return ERROR_INVALID_PARAMETER;
+-
+-    /* If no descriptor, we have to check that there's a pointer for the requested information */
+-    if( !descriptor && (
+-        ((info & OWNER_SECURITY_INFORMATION) && !owner)
+-    ||  ((info & GROUP_SECURITY_INFORMATION) && !group)
+-    ||  ((info & DACL_SECURITY_INFORMATION)  && !dacl)
+-    ||  ((info & SACL_SECURITY_INFORMATION)  && !sacl)  ))
+-        return ERROR_INVALID_PARAMETER;
++    if (!name) return ERROR_INVALID_PARAMETER;
+ 
+-    needed = !descriptor ? 0 : sizeof(SECURITY_DESCRIPTOR_RELATIVE);
+-    if (info & OWNER_SECURITY_INFORMATION)
+-        needed += sizeof(sidWorld);
+-    if (info & GROUP_SECURITY_INFORMATION)
+-        needed += sizeof(sidWorld);
+-    if (info & DACL_SECURITY_INFORMATION)
+-        needed += WINE_SIZE_OF_WORLD_ACCESS_ACL;
++    if (info & (OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION))
++        access |= READ_CONTROL;
+     if (info & SACL_SECURITY_INFORMATION)
+-        needed += WINE_SIZE_OF_WORLD_ACCESS_ACL;
+-
+-    if(descriptor)
+-    {
+-        /* must be freed by caller */
+-        *descriptor = HeapAlloc( GetProcessHeap(), 0, needed );
+-        if (!*descriptor) return ERROR_NOT_ENOUGH_MEMORY;
+-
+-        if (!InitializeSecurityDescriptor( *descriptor, SECURITY_DESCRIPTOR_REVISION ))
+-        {
+-            HeapFree( GetProcessHeap(), 0, *descriptor );
+-            return ERROR_INVALID_SECURITY_DESCR;
+-        }
+-
+-        relative = *descriptor;
+-        relative->Control |= SE_SELF_RELATIVE;
+-
+-        buffer = (BYTE *)relative;
+-        offset = sizeof(SECURITY_DESCRIPTOR_RELATIVE);
+-    }
+-    else
+-    {
+-        buffer = HeapAlloc( GetProcessHeap(), 0, needed );
+-        if (!buffer) return ERROR_NOT_ENOUGH_MEMORY;
+-        offset = 0;
+-    }
++        access |= ACCESS_SYSTEM_SECURITY;
+ 
+-    if (info & OWNER_SECURITY_INFORMATION)
+-    {
+-        memcpy( buffer + offset, &sidWorld, sizeof(sidWorld) );
+-        if(relative)
+-            relative->Owner = offset;
+-        if (owner)
+-            *owner = buffer + offset;
+-        offset += sizeof(sidWorld);
+-    }
+-    if (info & GROUP_SECURITY_INFORMATION)
+-    {
+-        memcpy( buffer + offset, &sidWorld, sizeof(sidWorld) );
+-        if(relative)
+-            relative->Group = offset;
+-        if (group)
+-            *group = buffer + offset;
+-        offset += sizeof(sidWorld);
+-    }
+-    if (info & DACL_SECURITY_INFORMATION)
+-    {
+-        GetWorldAccessACL( (PACL)(buffer + offset) );
+-        if(relative)
+-        {
+-            relative->Control |= SE_DACL_PRESENT;
+-            relative->Dacl = offset;
+-        }
+-        if (dacl)
+-            *dacl = (PACL)(buffer + offset);
+-        offset += WINE_SIZE_OF_WORLD_ACCESS_ACL;
+-    }
+-    if (info & SACL_SECURITY_INFORMATION)
+-    {
+-        GetWorldAccessACL( (PACL)(buffer + offset) );
+-        if(relative)
+-        {
+-            relative->Control |= SE_SACL_PRESENT;
+-            relative->Sacl = offset;
+-        }
+-        if (sacl)
+-            *sacl = (PACL)(buffer + offset);
+-    }
++    hfile = CreateFileW( name, access, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
++                         NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0 );
++    if (hfile == INVALID_HANDLE_VALUE)
++        return FALSE;
+ 
+-    return ERROR_SUCCESS;
++    ret = GetSecurityInfo( hfile, type, info, owner, group, dacl, sacl, descriptor );
++    CloseHandle( hfile );
++    return ret;
+ }
+ 
+ /******************************************************************************
+diff --git a/dlls/ntdll/file.c b/dlls/ntdll/file.c
+index da5be8e..bdc505c 100644
+--- a/dlls/ntdll/file.c
++++ b/dlls/ntdll/file.c
+@@ -150,10 +150,53 @@ static NTSTATUS FILE_CreateFile( PHANDLE handle, ACCESS_MASK access, POBJECT_ATT
+     {
+         struct security_descriptor *sd;
+         struct object_attributes objattr;
++        PSECURITY_DESCRIPTOR parentsd = NULL, psd;
+ 
+         objattr.rootdir = wine_server_obj_handle( attr->RootDirectory );
+         objattr.name_len = 0;
+-        io->u.Status = NTDLL_create_struct_sd( attr->SecurityDescriptor, &sd, &objattr.sd_len );
++        psd = attr->SecurityDescriptor;
++        if (!attr->SecurityDescriptor && (disposition == FILE_CREATE||disposition == FILE_OVERWRITE_IF))
++        {
++            SECURITY_INFORMATION info = OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION
++                                        |DACL_SECURITY_INFORMATION|SACL_SECURITY_INFORMATION;
++            WCHAR *p, parent[MAX_PATH];
++            OBJECT_ATTRIBUTES pattr;
++            UNICODE_STRING parentW;
++            IO_STATUS_BLOCK io;
++            NTSTATUS status;
++            HANDLE hparent;
++            ULONG n1, n2;
++
++            parentW.Buffer = parent;
++            parentW.Length = attr->ObjectName->Length;
++            memcpy(parentW.Buffer, attr->ObjectName->Buffer, attr->ObjectName->Length);
++            if ((p = strrchrW(parent, '\\')) != NULL)
++            {
++                p[0] = 0;
++                parentW.Length = (p-parent)*sizeof(WCHAR);
++            }
++            memset(&pattr, 0x0, sizeof(pattr));
++            pattr.Length = sizeof(pattr);
++            pattr.Attributes = OBJ_CASE_INSENSITIVE;
++            pattr.ObjectName = &parentW;
++            status = FILE_CreateFile( &hparent, READ_CONTROL|ACCESS_SYSTEM_SECURITY, &pattr, &io, NULL,
++                                      FILE_FLAG_BACKUP_SEMANTICS,
++                                      FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, FILE_OPEN,
++                                      FILE_OPEN_FOR_BACKUP_INTENT, NULL, 0 );
++            if (status == STATUS_SUCCESS)
++                status = NtQuerySecurityObject( hparent, info, NULL, 0, &n1 );
++            if (status == STATUS_BUFFER_TOO_SMALL && (parentsd = RtlAllocateHeap( GetProcessHeap(), 0, n1 )) != NULL)
++                status = NtQuerySecurityObject( hparent, info, parentsd, n1, &n2 );
++            if (status == STATUS_SUCCESS)
++                status = NtQuerySecurityObject( hparent, info, parentsd, n1, &n2 );
++            if (hparent != INVALID_HANDLE_VALUE)
++                NtClose( hparent );
++            if (status == STATUS_SUCCESS)
++                psd = parentsd;
++        }
++        io->u.Status = NTDLL_create_struct_sd( psd, &sd, &objattr.sd_len );
++        if (!attr->SecurityDescriptor)
++            RtlFreeHeap( GetProcessHeap(), 0, parentsd );
+         if (io->u.Status != STATUS_SUCCESS)
+         {
+             RtlFreeAnsiString( &unix_name );
+diff --git a/server/fd.c b/server/fd.c
+index f3e42bd..248f15a 100644
+--- a/server/fd.c
++++ b/server/fd.c
+@@ -1765,7 +1765,7 @@ struct fd *open_fd( struct fd *root, const char *name, int flags, mode_t *mode,
+     /* create the directory if needed */
+     if ((options & FILE_DIRECTORY_FILE) && (flags & O_CREAT))
+     {
+-        if (mkdir( name, 0777 ) == -1)
++        if (mkdir( name, *mode ) == -1)
+         {
+             if (errno != EEXIST || (flags & O_EXCL))
+             {
+diff --git a/server/file.c b/server/file.c
+index 02a1e37..06c1dce 100644
+--- a/server/file.c
++++ b/server/file.c
+@@ -219,7 +219,12 @@ static struct object *create_file( struct fd *root, const char *nameptr, data_si
+         mode = sd_to_mode( sd, owner );
+     }
+     else
+-        mode = (attrs & FILE_ATTRIBUTE_READONLY) ? 0444 : 0666;
++    {
++        if (options & FILE_NON_DIRECTORY_FILE)
++            mode = (attrs & FILE_ATTRIBUTE_READONLY) ? 0444 : 0666;
++        else
++            mode = (attrs & FILE_ATTRIBUTE_READONLY) ? 0555 : 0777;
++    }
+ 
+     if (len >= 4 &&
+         (!strcasecmp( name + len - 4, ".exe" ) || !strcasecmp( name + len - 4, ".com" )))
+@@ -318,11 +323,15 @@ struct security_descriptor *mode_to_sd( mode_t mode, const SID *user, const SID
+     const SID *world_sid = security_world_sid;
+     const SID *local_system_sid = security_local_system_sid;
+ 
+-    dacl_size = sizeof(ACL) + FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
+-        FIELD_OFFSET(SID, SubAuthority[local_system_sid->SubAuthorityCount]);
++    dacl_size = sizeof(ACL);
+     if (mode & S_IRWXU)
+         dacl_size += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
+             FIELD_OFFSET(SID, SubAuthority[user->SubAuthorityCount]);
++    if (mode & S_IRWXG)
++        dacl_size += FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
++            FIELD_OFFSET(SID, SubAuthority[group->SubAuthorityCount]) +
++            FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
++            FIELD_OFFSET(SID, SubAuthority[local_system_sid->SubAuthorityCount]);
+     if ((!(mode & S_IRUSR) && (mode & (S_IRGRP|S_IROTH))) ||
+         (!(mode & S_IWUSR) && (mode & (S_IWGRP|S_IWOTH))) ||
+         (!(mode & S_IXUSR) && (mode & (S_IXGRP|S_IXOTH))))
+@@ -354,31 +363,21 @@ struct security_descriptor *mode_to_sd( mode_t mode, const SID *user, const SID
+     dacl->AclRevision = ACL_REVISION;
+     dacl->Sbz1 = 0;
+     dacl->AclSize = dacl_size;
+-    dacl->AceCount = 1 + (mode & S_IRWXU ? 1 : 0) + (mode & S_IRWXO ? 1 : 0);
++    dacl->AceCount = (mode & S_IRWXU ? 1 : 0) + (mode & S_IRWXG ? 1 : 0) + (mode & S_IRWXO ? 2 : 0);
+     if ((!(mode & S_IRUSR) && (mode & (S_IRGRP|S_IROTH))) ||
+         (!(mode & S_IWUSR) && (mode & (S_IWGRP|S_IWOTH))) ||
+         (!(mode & S_IXUSR) && (mode & (S_IXGRP|S_IXOTH))))
+         dacl->AceCount++;
+     dacl->Sbz2 = 0;
+ 
+-    /* always give FILE_ALL_ACCESS for Local System */
+     aaa = (ACCESS_ALLOWED_ACE *)(dacl + 1);
+     current_ace = &aaa->Header;
+-    aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
+-    aaa->Header.AceFlags = 0;
+-    aaa->Header.AceSize = FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
+-        FIELD_OFFSET(SID, SubAuthority[local_system_sid->SubAuthorityCount]);
+-    aaa->Mask = FILE_ALL_ACCESS;
+-    sid = (SID *)&aaa->SidStart;
+-    memcpy( sid, local_system_sid, FIELD_OFFSET(SID, SubAuthority[local_system_sid->SubAuthorityCount]) );
+ 
+     if (mode & S_IRWXU)
+     {
+         /* appropriate access rights for the user */
+-        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
+-        current_ace = &aaa->Header;
+         aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
+-        aaa->Header.AceFlags = 0;
++        aaa->Header.AceFlags = OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE;
+         aaa->Header.AceSize = FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
+                               FIELD_OFFSET(SID, SubAuthority[user->SubAuthorityCount]);
+         aaa->Mask = WRITE_DAC | WRITE_OWNER;
+@@ -388,14 +387,33 @@ struct security_descriptor *mode_to_sd( mode_t mode, const SID *user, const SID
+             aaa->Mask |= FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
+         sid = (SID *)&aaa->SidStart;
+         memcpy( sid, user, FIELD_OFFSET(SID, SubAuthority[user->SubAuthorityCount]) );
++        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
++        current_ace = &aaa->Header;
++    }
++    if (mode & S_IRWXG)
++    {
++        /* appropriate access rights for the group */
++        aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
++        aaa->Header.AceFlags = OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE;
++        aaa->Header.AceSize = FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
++                              FIELD_OFFSET(SID, SubAuthority[group->SubAuthorityCount]);
++        aaa->Mask = WRITE_DAC | WRITE_OWNER;
++        if (mode & S_IRGRP)
++            aaa->Mask |= FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
++        if (mode & S_IWGRP)
++            aaa->Mask |= FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
++        sid = (SID *)&aaa->SidStart;
++        memcpy( sid, group, FIELD_OFFSET(SID, SubAuthority[group->SubAuthorityCount]) );
++        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
++        current_ace = &aaa->Header;
+     }
+     if ((!(mode & S_IRUSR) && (mode & (S_IRGRP|S_IROTH))) ||
+         (!(mode & S_IWUSR) && (mode & (S_IWGRP|S_IWOTH))) ||
+         (!(mode & S_IXUSR) && (mode & (S_IXGRP|S_IXOTH))))
+     {
++        ACCESS_DENIED_ACE *ada = (ACCESS_DENIED_ACE *)aaa;
++
+         /* deny just in case the user is a member of the group */
+-        ACCESS_DENIED_ACE *ada = (ACCESS_DENIED_ACE *)ace_next( current_ace );
+-        current_ace = &ada->Header;
+         ada->Header.AceType = ACCESS_DENIED_ACE_TYPE;
+         ada->Header.AceFlags = 0;
+         ada->Header.AceSize = FIELD_OFFSET(ACCESS_DENIED_ACE, SidStart) +
+@@ -408,12 +426,12 @@ struct security_descriptor *mode_to_sd( mode_t mode, const SID *user, const SID
+         ada->Mask &= ~STANDARD_RIGHTS_ALL; /* never deny standard rights */
+         sid = (SID *)&ada->SidStart;
+         memcpy( sid, user, FIELD_OFFSET(SID, SubAuthority[user->SubAuthorityCount]) );
++        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
++        current_ace = &aaa->Header;
+     }
+     if (mode & S_IRWXO)
+     {
+         /* appropriate access rights for Everyone */
+-        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
+-        current_ace = &aaa->Header;
+         aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
+         aaa->Header.AceFlags = 0;
+         aaa->Header.AceSize = FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
+@@ -425,6 +443,19 @@ struct security_descriptor *mode_to_sd( mode_t mode, const SID *user, const SID
+             aaa->Mask |= FILE_GENERIC_WRITE | DELETE | FILE_DELETE_CHILD;
+         sid = (SID *)&aaa->SidStart;
+         memcpy( sid, world_sid, FIELD_OFFSET(SID, SubAuthority[world_sid->SubAuthorityCount]) );
++        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
++        current_ace = &aaa->Header;
++
++        /* give FILE_ALL_ACCESS for Local System of Everyone has any rights at all */
++        aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
++        aaa->Header.AceFlags = 0;
++        aaa->Header.AceSize = FIELD_OFFSET(ACCESS_ALLOWED_ACE, SidStart) +
++            FIELD_OFFSET(SID, SubAuthority[local_system_sid->SubAuthorityCount]);
++        aaa->Mask = FILE_ALL_ACCESS;
++        sid = (SID *)&aaa->SidStart;
++        memcpy( sid, local_system_sid, FIELD_OFFSET(SID, SubAuthority[local_system_sid->SubAuthorityCount]) );
++        aaa = (ACCESS_ALLOWED_ACE *)ace_next( current_ace );
++        current_ace = &aaa->Header;
+     }
+ 
+     return sd;

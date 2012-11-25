@@ -1,1 +1,5 @@
-CJDNS_CONFIG="/etc/cjdroute.conf"
+CONF="/etc/cjdroute.conf"
+CJDPATH="/usr/bin/"
+CJDROUTE="${CJDPATH}cjdroute"
+CJDNS="${CJDPATH}cjdns"
+LOGTO="/dev/null"

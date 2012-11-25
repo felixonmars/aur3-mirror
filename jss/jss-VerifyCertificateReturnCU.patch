@@ -1,0 +1,230 @@
+Index: jss/security/jss/lib/jss.def
+===================================================================
+--- jss.orig/security/jss/lib/jss.def	2011-10-04 21:21:38.754032743 +0300
++++ jss/security/jss/lib/jss.def	2011-10-04 21:21:38.782032744 +0300
+@@ -331,6 +331,7 @@
+ Java_org_mozilla_jss_CryptoManager_OCSPCacheSettingsNative;
+ Java_org_mozilla_jss_CryptoManager_setOCSPTimeoutNative;
+ Java_org_mozilla_jss_CryptoManager_verifyCertificateNowNative;
++Java_org_mozilla_jss_CryptoManager_verifyCertificateNowCUNative;
+ ;+    local:
+ ;+       *;
+ ;+};
+Index: jss/security/jss/org/mozilla/jss/CryptoManager.java
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/CryptoManager.java	2011-10-04 21:21:38.754032743 +0300
++++ jss/security/jss/org/mozilla/jss/CryptoManager.java	2011-10-04 21:21:38.786032744 +0300
+@@ -159,6 +159,19 @@
+         public static final CertificateUsage ProtectedObjectSigner = new CertificateUsage(certificateUsageProtectedObjectSigner, "ProtectedObjectSigner");
+         public static final CertificateUsage StatusResponder = new CertificateUsage(certificateUsageStatusResponder, "StatusResponder");
+         public static final CertificateUsage AnyCA = new CertificateUsage(certificateUsageAnyCA, "AnyCA");
++
++        /*
++                 The folllowing usages cannot be verified:
++                   certUsageAnyCA
++                   certUsageProtectedObjectSigner
++                   certUsageUserCertImport
++                   certUsageVerifyCA
++        */
++        public static final int basicCertificateUsages = /*0x0b80;*/
++                certificateUsageUserCertImport |
++                certificateUsageVerifyCA |
++                certificateUsageProtectedObjectSigner |
++                certificateUsageAnyCA ;
+     }
+ 
+     public final static class NotInitializedException extends Exception {}
+@@ -1566,14 +1579,43 @@
+      * against Now.
+      * @param nickname The nickname of the certificate to verify.
+      * @param checkSig verify the signature of the certificate
+-     * @param certificateUsage see exposed certificateUsage defines to verify Certificate; null will bypass usage check
+-     * @return true for success; false otherwise
++     * @return currCertificateUsage which contains current usage bit map as defined in CertificateUsage
+      *
+      * @exception InvalidNicknameException If the nickname is null
+      * @exception ObjectNotFoundException If no certificate could be found
+      *      with the given nickname.
+      */
++    public int isCertValid(String nickname, boolean checkSig)
++        throws ObjectNotFoundException, InvalidNicknameException
++    {
++        if (nickname==null) {
++            throw new InvalidNicknameException("Nickname must be non-null");
++        }
++        int currCertificateUsage = 0x0000; // initialize it to 0
++        currCertificateUsage = verifyCertificateNowCUNative(nickname,
++                checkSig);
++        return currCertificateUsage;
++    }
++
++    private native int verifyCertificateNowCUNative(String nickname,
++        boolean checkSig) throws ObjectNotFoundException;
+ 
++    /////////////////////////////////////////////////////////////
++    // isCertValid
++    /////////////////////////////////////////////////////////////
++    /**
++     * Verify a certificate that exists in the given cert database,
++     * check if is valid and that we trust the issuer. Verify time
++     * against Now.
++     * @param nickname The nickname of the certificate to verify.
++     * @param checkSig verify the signature of the certificate
++     * @param certificateUsage see certificateUsage defined to verify Certificate; to retrieve current certificate usage, call the isCertValid() above
++     * @return true for success; false otherwise
++     *
++     * @exception InvalidNicknameException If the nickname is null
++     * @exception ObjectNotFoundException If no certificate could be found
++     *      with the given nickname.
++     */
+     public boolean isCertValid(String nickname, boolean checkSig,
+             CertificateUsage certificateUsage)
+         throws ObjectNotFoundException, InvalidNicknameException
+@@ -1581,11 +1623,23 @@
+         if (nickname==null) {
+             throw new InvalidNicknameException("Nickname must be non-null");
+         }
+-        // 0 certificate usage was supposed to get current usage, however,
+-        // it is not exposed at this point
+-        return verifyCertificateNowNative(nickname,
+-              checkSig,
+-              (certificateUsage == null) ? 0:certificateUsage.getUsage());
++        // 0 certificate usage will get current usage
++        // should call isCertValid() call above that returns certificate usage
++        if ((certificateUsage == null) ||
++                (certificateUsage == CertificateUsage.CheckAllUsages)){
++            int currCertificateUsage = 0x0000;
++            currCertificateUsage = verifyCertificateNowCUNative(nickname,
++                checkSig);
++
++            if (currCertificateUsage == CertificateUsage.basicCertificateUsages){ 
++                // cert is good for nothing
++                return false;
++            } else
++                return true;
++        } else {
++            return verifyCertificateNowNative(nickname, checkSig,
++              certificateUsage.getUsage());
++        }
+     }
+ 
+     private native boolean verifyCertificateNowNative(String nickname,
+Index: jss/security/jss/org/mozilla/jss/PK11Finder.c
+===================================================================
+--- jss.orig/security/jss/org/mozilla/jss/PK11Finder.c	2011-10-04 21:21:38.754032743 +0300
++++ jss/security/jss/org/mozilla/jss/PK11Finder.c	2011-10-04 21:21:38.786032744 +0300
+@@ -1574,18 +1574,16 @@
+     }
+ }
+ 
++
+ /***********************************************************************
+- * CryptoManager.verifyCertificateNowNative
+- *
+- * Returns JNI_TRUE if success, JNI_FALSE otherwise
++ * CryptoManager.verifyCertificateNow
+  */
+-JNIEXPORT jboolean JNICALL
+-Java_org_mozilla_jss_CryptoManager_verifyCertificateNowNative(JNIEnv *env,
+-        jobject self, jstring nickString, jboolean checkSig, jint required_certificateUsage)
++SECStatus verifyCertificateNow(JNIEnv *env, jobject self, jstring nickString,
++        jboolean checkSig, jint required_certificateUsage,
++         SECCertificateUsage *currUsage)
+ {
+     SECStatus         rv    = SECFailure;
+     SECCertificateUsage      certificateUsage;
+-    SECCertificateUsage      currUsage;  /* unexposed for now */
+     CERTCertificate   *cert=NULL;
+     char *nickname=NULL;
+ 
+@@ -1602,12 +1600,28 @@
+         JSS_throw(env, OBJECT_NOT_FOUND_EXCEPTION);
+         goto finish;
+     } else {
+-    /* 0 for certificateUsage in call to CERT_VerifyCertificateNow to
+-     * just get the current usage (which we are not passing back for now
+-     * but will bypass the certificate usage check
++    /* 0 for certificateUsage in call to CERT_VerifyCertificateNow will
++     * retrieve the current valid usage into currUsage
+      */
+         rv = CERT_VerifyCertificateNow(CERT_GetDefaultCertDB(), cert,
+-            checkSig, certificateUsage, NULL, &currUsage );
++            checkSig, certificateUsage, NULL, currUsage );
++        if ((rv == SECSuccess) && certificateUsage == 0x0000) {
++            if (*currUsage == 
++                ( certUsageUserCertImport |
++                certUsageVerifyCA |
++                certUsageProtectedObjectSigner |
++                certUsageAnyCA )) {
++
++              /* the cert is good for nothing 
++                 The folllowing usages cannot be verified:
++                   certUsageAnyCA
++                   certUsageProtectedObjectSigner
++                   certUsageUserCertImport
++                   certUsageVerifyCA
++                    (0x0b80) */
++                rv =SECFailure;
++            }
++        }
+     }
+ 
+ finish:
+@@ -1617,6 +1631,49 @@
+     if(cert != NULL) {
+        CERT_DestroyCertificate(cert);
+     }
++
++    return rv;
++}
++
++/***********************************************************************
++ * CryptoManager.verifyCertificateNowCUNative
++ *
++ * Returns jint which contains bits in SECCertificateUsage that reflects
++ * the cert usage(s) that the cert is good for
++ * if the cert is good for nothing, returned value is
++ *                 (0x0b80):
++ *                 certUsageUserCertImport |
++ *                 certUsageVerifyCA |
++ *                 certUsageProtectedObjectSigner |
++ *                 certUsageAnyCA
++ */
++JNIEXPORT jint JNICALL
++Java_org_mozilla_jss_CryptoManager_verifyCertificateNowCUNative(JNIEnv *env,
++        jobject self, jstring nickString, jboolean checkSig)
++{
++    SECStatus         rv    = SECFailure;
++    SECCertificateUsage      currUsage = 0x0000;
++
++    rv = verifyCertificateNow(env, self, nickString, checkSig, 0, &currUsage);
++    /* rv is ignored */
++
++    return currUsage;
++}
++
++/***********************************************************************
++ * CryptoManager.verifyCertificateNowNative
++ *
++ * Returns JNI_TRUE if success, JNI_FALSE otherwise
++ */
++JNIEXPORT jboolean JNICALL
++Java_org_mozilla_jss_CryptoManager_verifyCertificateNowNative(JNIEnv *env,
++        jobject self, jstring nickString, jboolean checkSig, jint required_certificateUsage)
++{
++    SECStatus         rv    = SECFailure;
++    SECCertificateUsage      currUsage = 0x0000;
++
++    rv = verifyCertificateNow(env, self, nickString, checkSig, required_certificateUsage, &currUsage);
++
+     if( rv == SECSuccess) {
+         return JNI_TRUE;
+     } else {
+@@ -1624,7 +1681,6 @@
+     }
+ }
+ 
+-
+ /***********************************************************************
+  * CryptoManager.verifyCertNowNative
+  * note: this calls obsolete NSS function
