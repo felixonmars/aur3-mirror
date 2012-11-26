@@ -2,7 +2,7 @@
 # Contributor:  josephgbr
 
 pkgname=agar-svn
-pkgver=9041
+pkgver=9500
 pkgrel=1
 pkgdesc="Modern cross-platform toolkit for graphical applications 
 implemented in C, C++ and Ada - svn"
@@ -39,7 +39,7 @@ build() {
 	  --bindir=/usr/bin/	\
 	  --libdir=/usr/lib/${_svnname} \
 	  --infodir=/usr/share/info \
-	  --sharedir=/usr/share \
+	  --datadir=/usr/share \
 	  --with-gl=/usr
 
   make 
