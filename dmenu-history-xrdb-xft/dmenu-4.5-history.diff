@@ -1,0 +1,153 @@
+--- a/dmenu.1	2012-01-08 16:18:43.000000000 +0400
++++ b/dmenu.1	2012-06-01 12:55:46.311125002 +0400
+@@ -20,6 +20,8 @@ dmenu \- dynamic menu
+ .IR color ]
+ .RB [ \-sf
+ .IR color ]
++.RB [ \-hist
++.IR "<filename>" ]
+ .RB [ \-v ]
+ .P
+ .BR dmenu_run " ..."
+@@ -70,6 +72,9 @@ defines the selected background color.
+ .BI \-sf " color"
+ defines the selected foreground color.
+ .TP
++.BI \-hist " <histfile>"
++the file to use for history
++.TP
+ .B \-v
+ prints version information to stdout, then exits.
+ .SH USAGE
+--- a/dmenu.c	2012-01-08 16:18:43.000000000 +0400
++++ b/dmenu.c	2012-06-01 12:55:46.311125002 +0400
+@@ -18,6 +18,8 @@
+ #define MIN(a,b)              ((a) < (b) ? (a) : (b))
+ #define MAX(a,b)              ((a) > (b) ? (a) : (b))
+ 
++#define HIST_SIZE 20
++
+ typedef struct Item Item;
+ struct Item {
+ 	char *text;
+@@ -34,7 +36,7 @@ static void keypress(XKeyEvent *ev);
+ static void match(void);
+ static size_t nextrune(int inc);
+ static void paste(void);
+-static void readstdin(void);
++static void readitems(void);
+ static void run(void);
+ static void setup(void);
+ static void usage(void);
+@@ -61,6 +63,10 @@ static Item *prev, *curr, *next, *sel;
+ static Window win;
+ static XIC xic;
+ 
++static char hist[HIST_SIZE][1024];
++static char *histfile = NULL;
++static int hcnt = 0;
++
+ static int (*fstrncmp)(const char *, const char *, size_t) = strncmp;
+ static char *(*fstrstr)(const char *, const char *) = strstr;
+ 
+@@ -100,6 +106,8 @@ main(int argc, char *argv[]) {
+ 			selbgcolor = argv[++i];
+ 		else if(!strcmp(argv[i], "-sf"))  /* selected foreground color */
+ 			selfgcolor = argv[++i];
++		else if(!strcmp(argv[i], "-hist"))
++			histfile = argv[++i];
+ 		else
+ 			usage();
+ 
+@@ -108,10 +116,10 @@ main(int argc, char *argv[]) {
+ 
+ 	if(fast) {
+ 		grabkeyboard();
+-		readstdin();
++	    readitems();
+ 	}
+ 	else {
+-		readstdin();
++	    readitems();
+ 		grabkeyboard();
+ 	}
+ 	setup();
+@@ -120,6 +128,30 @@ main(int argc, char *argv[]) {
+ 	return 1; /* unreachable */
+ }
+ 
++static int
++writehistory(char *command) {
++	int i = 0;
++	FILE *f;
++
++	if(!histfile || strlen(command) <= 0)
++		return 0;
++
++	if((f = fopen(histfile, "w"))) {
++		fputs(command, f);
++		fputc('\n', f);
++		for(; i < hcnt; i++) {
++			if(strcmp(command, hist[i]) != 0) {
++				fputs(hist[i], f);
++				fputc('\n', f);
++			}
++		}
++		fclose(f);
++		return 1;
++	}
++
++	return 0;
++}
++
+ void
+ appenditem(Item *item, Item **list, Item **last) {
+ 	if(*last)
+@@ -359,6 +391,7 @@ keypress(XKeyEvent *ev) {
+ 	case XK_Return:
+ 	case XK_KP_Enter:
+ 		puts((sel && !(ev->state & ShiftMask)) ? sel->text : text);
++		writehistory( (sel == NULL) ? text : sel->text);
+ 		exit(EXIT_SUCCESS);
+ 	case XK_Right:
+ 		if(text[cursor] != '\0') {
+@@ -464,12 +497,29 @@ paste(void) {
+ }
+ 
+ void
+-readstdin(void) {
++readitems(void) {
+ 	char buf[sizeof text], *p, *maxstr = NULL;
+ 	size_t i, max = 0, size = 0;
++	FILE *f;
++
++	if(histfile && (f = fopen(histfile, "r"))) {
++        for(i = 0; fgets(buf, sizeof buf, f); i++) {
++		    if(i+1 >= size / sizeof *items)
++		   		if(!(items = realloc(items, (size += BUFSIZ))))
++		   			eprintf("cannot realloc %u bytes:", size);
++			if((p = strchr(buf, '\n')))
++				*p = '\0';
++		    if(!(items[i].text = strdup(buf)))
++			    eprintf("cannot strdup %u bytes:", strlen(buf)+1);
++		    if(strlen(items[i].text) > max)
++			    max = strlen(maxstr = items[i].text);
++			strncpy(hist[hcnt++], buf, (strlen(buf) <= 1024) ? strlen(buf): 1024 );
++        }
++		fclose(f);
++	}
+ 
+ 	/* read each line from stdin and add it to the item list */
+-	for(i = 0; fgets(buf, sizeof buf, stdin); i++) {
++	for(; fgets(buf, sizeof buf, stdin); i++) {
+ 		if(i+1 >= size / sizeof *items)
+ 			if(!(items = realloc(items, (size += BUFSIZ))))
+ 				eprintf("cannot realloc %u bytes:", size);
+@@ -602,6 +652,6 @@ setup(void) {
+ void
+ usage(void) {
+ 	fputs("usage: dmenu [-b] [-f] [-i] [-l lines] [-p prompt] [-fn font]\n"
+-	      "             [-nb color] [-nf color] [-sb color] [-sf color] [-v]\n", stderr);
++	      "             [-nf color] [-sb color] [-sf color] [-hist histfile] [-v]\n", stderr);
+ 	exit(EXIT_FAILURE);
+ }
