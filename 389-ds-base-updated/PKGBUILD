@@ -54,7 +54,7 @@ build() {
 
 package() {
   cd "${srcdir}/389-ds-base-${pkgver}.a1"
-  make DESTDIR="${pkgdir}/" install
+  make -j1 DESTDIR="${pkgdir}/" install
 
   install -dm755 "${pkgdir}/var/log/dirsrv/"
   install -dm755 "${pkgdir}/var/lib/dirsrv/"
