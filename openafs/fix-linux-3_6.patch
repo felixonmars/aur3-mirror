@@ -1,0 +1,396 @@
+diff --git a/acinclude.m4 b/acinclude.m4
+index f092c9e..b61f55c 100644
+--- a/acinclude.m4
++++ b/acinclude.m4
+@@ -960,6 +960,12 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 		 LINUX_IOP_MKDIR_TAKES_UMODE_T
+ 		 LINUX_IOP_CREATE_TAKES_UMODE_T
+ 		 LINUX_EXPORT_OP_ENCODE_FH_TAKES_INODES
++		 LINUX_KMAP_ATOMIC_TAKES_NO_KM_TYPE
++		 LINUX_DENTRY_OPEN_TAKES_PATH
++		 LINUX_D_ALIAS_IS_HLIST
++		 LINUX_IOP_I_CREATE_TAKES_BOOL
++		 LINUX_DOP_D_REVALIDATE_TAKES_UNSIGNED
++		 LINUX_IOP_LOOKUP_TAKES_UNSIGNED
+ 
+ 		 dnl If we are guaranteed that keyrings will work - that is
+ 		 dnl  a) The kernel has keyrings enabled
+diff --git a/src/afs/LINUX/osi_compat.h b/src/afs/LINUX/osi_compat.h
+index 4c7c261..84fcaa5 100644
+--- a/src/afs/LINUX/osi_compat.h
++++ b/src/afs/LINUX/osi_compat.h
+@@ -445,4 +445,20 @@ afs_get_dentry_ref(struct path *path, struct vfsmount **mnt, struct dentry **dpp
+ #endif
+ }
+ 
++#if defined(STRUCT_TASK_STRUCT_HAS_CRED)
++static inline struct file *
++afs_dentry_open(struct dentry *dp, struct vfsmount *mnt, int flags, const struct cred *creds) {
++#if defined(DENTRY_OPEN_TAKES_PATH)
++    struct path path;
++    struct file *filp;
++    path.mnt = mnt;
++    path.dentry = dp;
++    filp = dentry_open(&path, flags, creds);
++    return filp;
++#else
++    return dentry_open(dp, mntget(mnt), flags, creds);
++#endif
++}
++#endif
++
+ #endif /* AFS_LINUX_OSI_COMPAT_H */
+diff --git a/src/afs/LINUX/osi_file.c b/src/afs/LINUX/osi_file.c
+index 3c20fd9..27806ab 100644
+--- a/src/afs/LINUX/osi_file.c
++++ b/src/afs/LINUX/osi_file.c
+@@ -56,9 +56,9 @@ afs_linux_raw_open(afs_dcache_id_t *ainode)
+ 
+ #if defined(STRUCT_TASK_STRUCT_HAS_CRED)
+     /* Use stashed credentials - prevent selinux/apparmor problems  */
+-    filp = dentry_open(dp, mntget(afs_cacheMnt), O_RDWR, cache_creds);
++    filp = afs_dentry_open(dp, mntget(afs_cacheMnt), O_RDWR, cache_creds);
+     if (IS_ERR(filp))
+-	filp = dentry_open(dp, mntget(afs_cacheMnt), O_RDWR, current_cred());
++	filp = afs_dentry_open(dp, mntget(afs_cacheMnt), O_RDWR, current_cred());
+ #else
+     filp = dentry_open(dp, mntget(afs_cacheMnt), O_RDWR);
+ #endif
+diff --git a/src/afs/LINUX/osi_vcache.c b/src/afs/LINUX/osi_vcache.c
+index e82d78e..cd61c65 100644
+--- a/src/afs/LINUX/osi_vcache.c
++++ b/src/afs/LINUX/osi_vcache.c
+@@ -19,7 +19,11 @@ osi_TryEvictVCache(struct vcache *avc, int *slept, int defersleep) {
+ 
+     struct dentry *dentry;
+     struct inode *inode = AFSTOV(avc);
++#if defined(D_ALIAS_IS_HLIST)
++    struct hlist_node *cur, *head;
++#else
+     struct list_head *cur, *head;
++#endif
+ 
+     /* First, see if we can evict the inode from the dcache */
+     if (defersleep && avc != afs_globalVp && VREFCOUNT(avc) > 1 && avc->opens == 0) {
+@@ -53,12 +57,20 @@ restart:
+ 	spin_unlock(&dcache_lock);
+ #else /* HAVE_DCACHE_LOCK */
+ 	spin_lock(&inode->i_lock);
++#if defined(D_ALIAS_IS_HLIST)
++	head = inode->i_dentry.first;
++#else
+ 	head = &inode->i_dentry;
++#endif
+ 
+ restart:
+ 	cur = head;
+ 	while ((cur = cur->next) != head) {
++#if defined(D_ALIAS_IS_HLIST)
++	    dentry = hlist_entry(cur, struct dentry, d_alias);
++#else
+ 	    dentry = list_entry(cur, struct dentry, d_alias);
++#endif
+ 
+ 	    spin_lock(&dentry->d_lock);
+ 	    if (d_unhashed(dentry)) {
+diff --git a/src/afs/LINUX/osi_vnodeops.c b/src/afs/LINUX/osi_vnodeops.c
+index adc4520..1df8f0f 100644
+--- a/src/afs/LINUX/osi_vnodeops.c
++++ b/src/afs/LINUX/osi_vnodeops.c
+@@ -700,6 +700,9 @@ canonical_dentry(struct inode *ip)
+ {
+     struct vcache *vcp = VTOAFS(ip);
+     struct dentry *first = NULL, *ret = NULL, *cur;
++#if defined(D_ALIAS_IS_HLIST)
++    struct hlist_node *p;
++#endif
+ 
+     /* general strategy:
+      * if vcp->target_link is set, and can be found in ip->i_dentry, use that.
+@@ -719,7 +722,11 @@ canonical_dentry(struct inode *ip)
+     spin_lock(&ip->i_lock);
+ # endif
+ 
++#if defined(D_ALIAS_IS_HLIST)
++    hlist_for_each_entry(cur, p, &ip->i_dentry, d_alias) {
++#else
+     list_for_each_entry_reverse(cur, &ip->i_dentry, d_alias) {
++#endif
+ 
+ 	if (!vcp->target_link || cur == vcp->target_link) {
+ 	    ret = cur;
+@@ -961,7 +968,9 @@ afs_linux_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *sta
+  * later on, we shouldn't have to do it until later. Perhaps in the future..
+  */
+ static int
+-#ifdef DOP_REVALIDATE_TAKES_NAMEIDATA
++#if defined(DOP_REVALIDATE_TAKES_UNSIGNED)
++afs_linux_dentry_revalidate(struct dentry *dp, unsigned int flags)
++#elif defined(DOP_REVALIDATE_TAKES_NAMEIDATA)
+ afs_linux_dentry_revalidate(struct dentry *dp, struct nameidata *nd)
+ #else
+ afs_linux_dentry_revalidate(struct dentry *dp, int flags)
+@@ -976,7 +985,11 @@ afs_linux_dentry_revalidate(struct dentry *dp, int flags)
+ 
+ #ifdef LOOKUP_RCU
+     /* We don't support RCU path walking */
++# if defined(DOP_REVALIDATE_TAKES_UNSIGNED)
++    if (flags & LOOKUP_RCU)
++# else
+     if (nd->flags & LOOKUP_RCU)
++# endif
+        return -ECHILD;
+ #endif
+     AFS_GLOCK();
+@@ -1179,17 +1192,18 @@ struct dentry_operations afs_dentry_operations = {
+  * name is in kernel space at this point.
+  */
+ static int
+-#if defined(IOP_MKDIR_TAKES_UMODE_T)
++#if defined(IOP_CREATE_TAKES_BOOL)
++afs_linux_create(struct inode *dip, struct dentry *dp, umode_t mode,
++		 bool excl)
++#elif defined(IOP_CREATE_TAKES_UMODE_T)
+ afs_linux_create(struct inode *dip, struct dentry *dp, umode_t mode,
+ 		 struct nameidata *nd)
+-#else
+-#ifdef IOP_CREATE_TAKES_NAMEIDATA
++#elif defined(IOP_CREATE_TAKES_NAMEIDATA)
+ afs_linux_create(struct inode *dip, struct dentry *dp, int mode,
+ 		 struct nameidata *nd)
+ #else
+ afs_linux_create(struct inode *dip, struct dentry *dp, int mode)
+ #endif
+-#endif
+ {
+     struct vattr vattr;
+     cred_t *credp = crref();
+@@ -1225,7 +1239,10 @@ afs_linux_create(struct inode *dip, struct dentry *dp, int mode)
+ 
+ /* afs_linux_lookup */
+ static struct dentry *
+-#ifdef IOP_LOOKUP_TAKES_NAMEIDATA
++#if defined(IOP_LOOKUP_TAKES_UNSIGNED)
++afs_linux_lookup(struct inode *dip, struct dentry *dp,
++		 unsigned flags)
++#elif defined(IOP_LOOKUP_TAKES_NAMEIDATA)
+ afs_linux_lookup(struct inode *dip, struct dentry *dp,
+ 		 struct nameidata *nd)
+ #else
+diff --git a/src/afs/afs_bypasscache.c b/src/afs/afs_bypasscache.c
+index e447024..1138f89 100644
+--- a/src/afs/afs_bypasscache.c
++++ b/src/afs/afs_bypasscache.c
+@@ -270,49 +270,12 @@ done:
+ #ifdef UKERNEL
+ typedef void * bypass_page_t;
+ 
+-#define copy_page(pp, pageoff, rxiov, iovno, iovoff, auio, curiov)	\
+-    do { \
+-	int dolen = auio->uio_iov[curiov].iov_len - pageoff; \
+-	memcpy(((char *)pp) + pageoff,		       \
+-	       ((char *)rxiov[iovno].iov_base) + iovoff, dolen);	\
+-	auio->uio_resid -= dolen; \
+-    } while(0)
+-
+-#define copy_pages(pp, pageoff, rxiov, iovno, iovoff, auio, curiov)	\
+-    do { \
+-	int dolen = rxiov[iovno].iov_len - iovoff; \
+-	memcpy(((char *)pp) + pageoff,				\
+-	       ((char *)rxiov[iovno].iov_base) + iovoff, dolen);	\
+-	auio->uio_resid -= dolen;	\
+-    } while(0)
+-
+ #define unlock_and_release_pages(auio)
+ #define release_full_page(pp, pageoff)
+ 
+ #else
+ typedef struct page * bypass_page_t;
+ 
+-#define copy_page(pp, pageoff, rxiov, iovno, iovoff, auio, curiov)	\
+-    do { \
+-        char *address;						\
+-	int dolen = auio->uio_iov[curiov].iov_len - pageoff; \
+-	address = kmap_atomic(pp, KM_USER0); \
+-	memcpy(address + pageoff, \
+-	       (char *)(rxiov[iovno].iov_base) + iovoff, dolen);	\
+-	kunmap_atomic(address, KM_USER0); \
+-    } while(0)
+-
+-#define copy_pages(pp, pageoff, rxiov, iovno, iovoff, auio, curiov)	\
+-    do { \
+-        char *address; \
+-	int dolen = rxiov[iovno].iov_len - iovoff; \
+-	address = kmap_atomic(pp, KM_USER0); \
+-	memcpy(address + pageoff, \
+-	       (char *)(rxiov[iovno].iov_base) + iovoff, dolen);	\
+-	kunmap_atomic(address, KM_USER0); \
+-    } while(0)
+-
+-
+ #define unlock_and_release_pages(auio) \
+     do { \
+ 	struct iovec *ciov;	\
+@@ -347,8 +310,38 @@ typedef struct page * bypass_page_t;
+ 	    afs_warn("afs_NoCacheFetchProc: page not locked!\n"); \
+ 	put_page(pp); /* decrement refcount */ \
+     } while(0)
++#endif
+ 
++static void
++afs_bypass_copy_page(bypass_page_t pp, int pageoff, struct iovec *rxiov,
++	int iovno, int iovoff, struct uio *auio, int curiov, int partial)
++{
++    char *address;
++    int dolen;
++
++    if (partial)
++	dolen = rxiov[iovno].iov_len - iovoff;
++    else
++	dolen = auio->uio_iov[curiov].iov_len - pageoff;
++
++#if !defined(UKERNEL)
++# if defined(KMAP_ATOMIC_TAKES_NO_KM_TYPE)
++    address = kmap_atomic(pp);
++# else
++    address = kmap_atomic(pp, KM_USER0);
++# endif
++#else
++    address = pp;
+ #endif
++    memcpy(address + pageoff, (char *)(rxiov[iovno].iov_base) + iovoff, dolen);
++#if !defined(UKERNEL)
++# if defined(KMAP_ATOMIC_TAKES_NO_KM_TYPE)
++    kunmap_atomic(address);
++# else
++    kunmap_atomic(address, KM_USER0);
++# endif
++#endif
++}
+ 
+ /* no-cache prefetch routine */
+ static afs_int32
+@@ -447,7 +440,7 @@ afs_NoCacheFetchProc(struct rx_call *acall,
+ 		if (pageoff + (rxiov[iovno].iov_len - iovoff) <= auio->uio_iov[curpage].iov_len) {
+ 		    /* Copy entire (or rest of) current iovec into current page */
+ 		    if (pp)
+-			copy_pages(pp, pageoff, rxiov, iovno, iovoff, auio, curpage);
++			afs_bypass_copy_page(pp, pageoff, rxiov, iovno, iovoff, auio, curpage, 0);
+ 		    length -= (rxiov[iovno].iov_len - iovoff);
+ 		    pageoff += rxiov[iovno].iov_len - iovoff;
+ 		    iovno++;
+@@ -455,7 +448,7 @@ afs_NoCacheFetchProc(struct rx_call *acall,
+ 		} else {
+ 		    /* Copy only what's needed to fill current page */
+ 		    if (pp)
+-			copy_page(pp, pageoff, rxiov, iovno, iovoff, auio, curpage);
++			afs_bypass_copy_page(pp, pageoff, rxiov, iovno, iovoff, auio, curpage, 1);
+ 		    length -= (auio->uio_iov[curpage].iov_len - pageoff);
+ 		    iovoff += auio->uio_iov[curpage].iov_len - pageoff;
+ 		    pageoff = auio->uio_iov[curpage].iov_len;
+diff --git a/src/afs/afs_daemons.c b/src/afs/afs_daemons.c
+index 23655e3..f47be0e 100644
+--- a/src/afs/afs_daemons.c
++++ b/src/afs/afs_daemons.c
+@@ -396,8 +396,13 @@ afs_CheckRootVolume(void)
+ 		    spin_lock(&dp->d_lock);
+ #endif
+ #endif
++#if defined(D_ALIAS_IS_HLIST)
++		    hlist_del_init(&dp->d_alias);
++		    hlist_add_head(&dp->d_alias, &(AFSTOV(vcp)->i_dentry));
++#else
+ 		    list_del_init(&dp->d_alias);
+ 		    list_add(&dp->d_alias, &(AFSTOV(vcp)->i_dentry));
++#endif
+ 		    dp->d_inode = AFSTOV(vcp);
+ #if defined(AFS_LINUX24_ENV)
+ #if defined(AFS_LINUX26_ENV)
+diff --git a/src/cf/linux-test4.m4 b/src/cf/linux-test4.m4
+index f13e97d..fc0149f 100644
+--- a/src/cf/linux-test4.m4
++++ b/src/cf/linux-test4.m4
+@@ -675,3 +675,83 @@ AC_DEFUN([LINUX_EXPORT_OP_ENCODE_FH_TAKES_INODES], [
+ 			[define if encode_fh export op takes inode arguments],
+ 			[-Werror])
+ ])
++
++
++AC_DEFUN([LINUX_KMAP_ATOMIC_TAKES_NO_KM_TYPE], [
++  AC_CHECK_LINUX_BUILD([whether kmap_atomic takes no km_type argument],
++			[ac_cv_linux_kma_atomic_takes_no_km_type],
++			[#include <linux/highmem.h>],
++			[struct page *p = NULL;
++			kmap_atomic(p);],
++			[KMAP_ATOMIC_TAKES_NO_KM_TYPE],
++			[define if kmap_atomic takes no km_type argument],
++			[-Werror])
++])
++
++
++AC_DEFUN([LINUX_DENTRY_OPEN_TAKES_PATH], [
++  AC_CHECK_LINUX_BUILD([whether dentry_open takes a path argument],
++			[ac_cv_linux_dentry_open_takes_path],
++			[#include <linux/fs.h>],
++			[struct path p;
++			dentry_open(&p, 0, NULL);],
++			[DENTRY_OPEN_TAKES_PATH],
++			[define if dentry_open takes a path argument],
++			[-Werror])
++])
++
++
++AC_DEFUN([LINUX_D_ALIAS_IS_HLIST], [
++  AC_CHECK_LINUX_BUILD([whether dentry->d_alias is an hlist],
++			[ac_cv_linux_d_alias_is_hlist],
++			[#include <linux/fs.h>],
++			[struct dentry *d = NULL;
++			struct hlist_node *hn = NULL;
++			d->d_alias = *hn;],
++			[D_ALIAS_IS_HLIST],
++			[define if dentry->d_alias is an hlist],
++			[])
++])
++
++
++AC_DEFUN([LINUX_IOP_I_CREATE_TAKES_BOOL], [
++  AC_CHECK_LINUX_BUILD([whether inode_operations.create takes a bool],
++			[ac_cv_linux_func_i_create_takes_bool],
++			[#include <linux/fs.h>
++			#include <linux/namei.h>],
++			[struct inode _inode = {};
++			struct dentry _dentry;
++			bool b = true;
++			(void)_inode.i_op->create(&_inode, &_dentry, 0, b);],
++		       [IOP_CREATE_TAKES_BOOL],
++		       [define if your iops.create takes a bool argument],
++		       [-Werror])
++])
++
++
++AC_DEFUN([LINUX_DOP_D_REVALIDATE_TAKES_UNSIGNED], [
++  AC_CHECK_LINUX_BUILD([whether dentry_operations.d_revalidate takes an unsigned int],
++			[ac_cv_linux_func_d_revalidate_takes_unsigned],
++			[#include <linux/fs.h>
++			#include <linux/namei.h>],
++			[struct dentry_operations dops;
++			int reval(struct dentry *d, unsigned int i) { return 0; };
++			dops.d_revalidate = reval;],
++		       [DOP_REVALIDATE_TAKES_UNSIGNED],
++		       [define if your dops.d_revalidate takes an unsigned int argument],
++		       [-Werror])
++])
++
++
++AC_DEFUN([LINUX_IOP_LOOKUP_TAKES_UNSIGNED], [
++  AC_CHECK_LINUX_BUILD([whether inode operation lookup takes an unsigned int],
++			[ac_cv_linux_func_lookup_takes_unsigned],
++			[#include <linux/fs.h>
++			#include <linux/namei.h>],
++			[struct inode_operations iops;
++			struct dentry *look(struct inode *i, struct dentry *d, unsigned int j) { return NULL; };
++			iops.lookup = look;],
++		       [IOP_LOOKUP_TAKES_UNSIGNED],
++		       [define if your iops.lookup takes an unsigned int argument],
++		       [-Werror])
++])
