@@ -9,9 +9,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.6
 _grsecver=2.9.1
-_timestamp=201211261714
+_timestamp=201211271748
 pkgver=${_basekernel}.8
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -29,20 +29,16 @@ source=(
   $pkgname.install
   $pkgname.preset
   change-default-console-loglevel.patch
-  #module-init-wait-$_basekernel.patch
-  #module-symbol-waiting-$_basekernel.patch
 )
 sha256sums=(
   4ab9a6ef1c1735713f9f659d67f92efa7c1dfbffb2a2ad544005b30f9791784f
   3f84f8a9888a15dab8016fdf8cf2041b05725719a0161634790b043a2d72cffe
-  043a4bd0d742aab996de66e5c25676d04b9fa2bbcec8eaafa02a6846eb134d2c
+  21456ca18ef1bfa0a840af1173c8ed5340ca31aa42fbca30a29a9f78bb18009f
   1bb114567f9914ec9b3d6f7433217e3e17d990dce70a30a2ace6cca540d696d8
   9dade5dfd3e9ed0607629cc6670fdcbfb9a79a446b88bcd3b21b63e724483439
   882bbadbb0d6694f31930d9208564bfd61a19767069c2ac9ca3f543cad3d5149
   ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d
   b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4
-  #a99a7542b76ada662a7dee327a07b6ebc91b1d68d50ebb4771afc471134c3d24
-  #bd5ddb0fb9a0380c4d716e0550df6f225c921cca4ef3b2fff9a4baac22616294
 )
 
 build() {
@@ -55,11 +51,6 @@ build() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-# # fix module initialisation
-# # https://bugs.archlinux.org/task/32122
-# patch -Np1 -i "${srcdir}/module-symbol-waiting-3.6.patch"
-# patch -Np1 -i "${srcdir}/module-init-wait-3.6.patch"
 
   # Add grsecurity patches
   patch -Np1 -i $srcdir/grsecurity-$_grsecver-$pkgver-$_timestamp.patch
