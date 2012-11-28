@@ -2,7 +2,7 @@
 
 pkgname=abs-guide-ru
 pkgver=2.5
-pkgrel=3
+pkgrel=4
 pkgdesc="Advanced Bash Scripting Guide"
 arch=(any)
 url="http://gazette.linux.ru.net/rus/articles/index-abs-guide.html"
@@ -15,8 +15,8 @@ source=("http://gazette.linux.ru.net/archive/abs-guide-${pkgver}-flat.tar.gz"
 
 build() {
 								#cd "${srcdir}"/abs
-	mkdir -p "${pkgdir}"/usr/share/doc/${pkgname}
-	cp abs-book.html   "${pkgdir}"/usr/share/doc/${pkgname}/
+	mkdir -p "${pkgdir}"/usr/share/doc/${pkgname}/html
+	cp abs-book.html   "${pkgdir}"/usr/share/doc/${pkgname}/html/
 	cp -r misc/abs-book/images   "${pkgdir}"/usr/share/doc/${pkgname}/
 	
 							#rm "${pkgdir}"/usr/share/doc/${pkgname}/*.sgml
@@ -41,4 +41,4 @@ package() {
 # new release will be forced by different md5sum
 # use 'makepkg -g' to build the latest guide
 md5sums=('01eab31052fc64be3c54c80b9c54e3b7'
-         '8c944c2be9846acc3ec7f71c4aa62f6a')
+         '739ae3827099bdd0f8100a36c8368bd1')
