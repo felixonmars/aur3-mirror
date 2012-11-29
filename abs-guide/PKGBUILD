@@ -1,7 +1,7 @@
 # Maintainer: rtfreedman  (rob<d0t>til<d0t>freedman<aT>googlemail<d0t>com
 
 pkgname=abs-guide
-pkgver=6.5.24
+pkgver=6.6
 pkgrel=1
 pkgdesc="Advanced Bash Scripting Guide"
 arch=(any)
@@ -36,6 +36,7 @@ package() {
 
 # new release will be forced by different md5sum
 # use 'makepkg -g' to build the latest guide
-md5sums=('02762ff69880e19fc63bc54ed9b4af54'
+
+md5sums=('932a60dc67acca5b97be7e106a6441e9'
          '767e85edde7b26a5bb9688845a94e80a'
          '84bcd8a9e9ebf239b0d8a3800e491a39')
