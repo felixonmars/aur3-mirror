@@ -1,0 +1,191 @@
+From 2a21c2e35299c0438cea9d24e6754287e03aa0b6 Mon Sep 17 00:00:00 2001
+From: Peter Hutterer <peter.hutterer@who-t.net>
+Date: Tue, 27 Mar 2012 12:18:46 +1000
+Subject: [PATCH] Allow relative scroll valuators on absolute devices
+
+Special-case RHEL_WHEEL, RHEL_HWHEEL and REL_DIAL to add scroll valuators
+for those axes on top of the absolute axes.
+
+https://bugzilla.redhat.com/show_bug.cgi?id=805902
+
+Signed-off-by: Peter Hutterer <peter.hutterer@who-t.net>
+---
+ src/evdev.c |   89 +++++++++++++++++++++++++++++++++++++++++++++++++++++++---
+ src/evdev.h |    3 +-
+ 2 files changed, 86 insertions(+), 6 deletions(-)
+
+diff --git a/src/evdev.c b/src/evdev.c
+index 8cf630c..90bd455 100644
+--- a/src/evdev.c
++++ b/src/evdev.c
+@@ -702,7 +702,9 @@ EvdevProcessRelativeMotionEvent(InputInfoPtr pInfo, struct input_event *ev)
+ #endif
+         default:
+             /* Ignore EV_REL events if we never set up for them. */
+-            if (!(pEvdev->flags & EVDEV_RELATIVE_EVENTS))
++            if (!(pEvdev->flags & EVDEV_RELATIVE_EVENTS) &&
++                    ev->code != REL_WHEEL && ev->code != REL_DIAL &&
++                    ev->code != REL_HWHEEL)
+                 return;
+ 
+             /* Handle mouse wheel emulation */
+@@ -711,7 +713,7 @@ EvdevProcessRelativeMotionEvent(InputInfoPtr pInfo, struct input_event *ev)
+ 
+             pEvdev->rel_queued = 1;
+             pEvdev->delta[ev->code] += value;
+-            map = pEvdev->axis_map[ev->code];
++            map = pEvdev->axis_map[ev->code + pEvdev->rel_offset];
+             valuator_mask_set(pEvdev->vals, map, value);
+             break;
+     }
+@@ -1234,7 +1236,7 @@ is_blacklisted_axis(int axis)
+ 
+ 
+ static int
+-EvdevAddAbsValuatorClass(DeviceIntPtr device)
++EvdevAddAbsValuatorClass(DeviceIntPtr device, int want_scroll_axes)
+ {
+     InputInfoPtr pInfo;
+     EvdevPtr pEvdev;
+@@ -1282,6 +1284,20 @@ EvdevAddAbsValuatorClass(DeviceIntPtr device)
+         }
+     }
+ #endif
++
++#ifdef HAVE_SMOOTH_SCROLLING
++    if (want_scroll_axes && EvdevBitIsSet(pEvdev->bitmask, EV_REL))
++    {
++        pEvdev->rel_offset = num_axes;
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_WHEEL))
++            num_axes++;
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_HWHEEL))
++            num_axes++;
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_DIAL))
++            num_axes++;
++    }
++#endif
++
+     if (num_axes + num_mt_axes > MAX_VALUATORS) {
+         xf86IDrvMsg(pInfo, X_WARNING, "found %d axes, limiting to %d.\n", num_axes, MAX_VALUATORS);
+         num_axes = MAX_VALUATORS;
+@@ -1368,6 +1384,20 @@ EvdevAddAbsValuatorClass(DeviceIntPtr device)
+             i++;
+     }
+ 
++#ifdef HAVE_SMOOTH_SCROLLING
++    if (want_scroll_axes)
++    {
++        int mapping = pEvdev->rel_offset;
++
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_HWHEEL))
++            pEvdev->axis_map[pEvdev->rel_offset + REL_HWHEEL] = mapping++;
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_DIAL))
++            pEvdev->axis_map[pEvdev->rel_offset + REL_DIAL] = mapping++;
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_WHEEL))
++            pEvdev->axis_map[pEvdev->rel_offset + REL_WHEEL] = mapping++;
++    }
++#endif
++
+     EvdevInitAxesLabels(pEvdev, Absolute, pEvdev->num_vals + num_mt_axes, atoms);
+ 
+     if (!InitValuatorClassDeviceStruct(device, num_axes + num_mt_axes, atoms,
+@@ -1461,6 +1491,51 @@ EvdevAddAbsValuatorClass(DeviceIntPtr device)
+     }
+ #endif
+ 
++#ifdef HAVE_SMOOTH_SCROLLING
++    if (want_scroll_axes)
++    {
++        int axidx;
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_WHEEL))
++        {
++            axidx = pEvdev->rel_offset + REL_WHEEL;
++            xf86InitValuatorAxisStruct(device,
++                                       pEvdev->axis_map[axidx],
++                                       atoms[pEvdev->axis_map[axidx]],
++                                       NO_AXIS_LIMITS, NO_AXIS_LIMITS,
++                                       0, 0, 0, Relative);
++            SetScrollValuator(device, pEvdev->axis_map[axidx],
++                              SCROLL_TYPE_VERTICAL, -1.0,
++                              SCROLL_FLAG_PREFERRED);
++        }
++
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_HWHEEL))
++        {
++            axidx = pEvdev->rel_offset + REL_HWHEEL;
++            xf86InitValuatorAxisStruct(device,
++                                       pEvdev->axis_map[axidx],
++                                       atoms[pEvdev->axis_map[axidx]],
++                                       NO_AXIS_LIMITS, NO_AXIS_LIMITS,
++                                       0, 0, 0, Relative);
++            SetScrollValuator(device, pEvdev->axis_map[axidx],
++                              SCROLL_TYPE_HORIZONTAL, 1.0,
++                              SCROLL_FLAG_NONE);
++        }
++
++        if (EvdevBitIsSet(pEvdev->rel_bitmask, REL_DIAL))
++        {
++            axidx = pEvdev->rel_offset + REL_DIAL;
++            xf86InitValuatorAxisStruct(device,
++                                       pEvdev->axis_map[axidx],
++                                       atoms[pEvdev->axis_map[axidx]],
++                                       NO_AXIS_LIMITS, NO_AXIS_LIMITS,
++                                       0, 0, 0, Relative);
++            SetScrollValuator(device, pEvdev->axis_map[axidx],
++                              SCROLL_TYPE_HORIZONTAL, 1.0,
++                              SCROLL_FLAG_NONE);
++        }
++    }
++#endif
++
+     free(atoms);
+ 
+     for (i = 0; i < ArrayLength(proximity_bits); i++)
+@@ -1690,12 +1765,16 @@ static void
+ EvdevInitAnyValuators(DeviceIntPtr device, EvdevPtr pEvdev)
+ {
+     InputInfoPtr pInfo = device->public.devicePrivate;
++    int rel_success = FALSE;
+ 
+     if (pEvdev->flags & EVDEV_RELATIVE_EVENTS &&
+         EvdevAddRelValuatorClass(device) == Success)
++    {
++        rel_success = TRUE;
+         xf86IDrvMsg(pInfo, X_INFO, "initialized for relative axes.\n");
++    }
+     if (pEvdev->flags & EVDEV_ABSOLUTE_EVENTS &&
+-        EvdevAddAbsValuatorClass(device) == Success)
++        EvdevAddAbsValuatorClass(device, !rel_success) == Success)
+         xf86IDrvMsg(pInfo, X_INFO, "initialized for absolute axes.\n");
+ }
+ 
+@@ -1704,7 +1783,7 @@ EvdevInitAbsValuators(DeviceIntPtr device, EvdevPtr pEvdev)
+ {
+     InputInfoPtr pInfo = device->public.devicePrivate;
+ 
+-    if (EvdevAddAbsValuatorClass(device) == Success) {
++    if (EvdevAddAbsValuatorClass(device, TRUE) == Success) {
+         xf86IDrvMsg(pInfo, X_INFO,"initialized for absolute axes.\n");
+     } else {
+         xf86IDrvMsg(pInfo, X_ERROR,"failed to initialize for absolute axes.\n");
+diff -c a/src/evdev.h b/src/evdev.h
+*** a/src/evdev.h	2012-11-25 21:04:32.090668766 -0500
+--- b/src/evdev.h	2012-11-25 21:06:14.443069580 -0500
+***************
+*** 154,160 ****
+  
+      int num_vals;           /* number of valuators */
+      int num_mt_vals;        /* number of multitouch valuators */
+!     int axis_map[max(ABS_CNT, REL_CNT)]; /* Map evdev <axis> to index */
+      ValuatorMask *vals;     /* new values coming in */
+      ValuatorMask *old_vals; /* old values for calculating relative motion */
+      ValuatorMask *prox;     /* last values set while not in proximity */
+--- 154,161 ----
+  
+      int num_vals;           /* number of valuators */
+      int num_mt_vals;        /* number of multitouch valuators */
+!     int axis_map[ABS_CNT + REL_CNT]; /* Map evdev <axis> to index */
+!     int rel_offset;         /* offset for relative axes in absolute device */
+      ValuatorMask *vals;     /* new values coming in */
+      ValuatorMask *old_vals; /* old values for calculating relative motion */
+      ValuatorMask *prox;     /* last values set while not in proximity */
