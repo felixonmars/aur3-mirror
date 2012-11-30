@@ -8,7 +8,7 @@ pkgdesc="4k Stogram is an client for Instagram on PC, Mac and Linux."
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/projects/four-k-stogram/"
 license=('GPLv3')
-depends=('libjpeg6-turbo' 'qt>=4.8')
+depends=('libjpeg6' 'qt>=4.8')
 install="$name.install"
 #makedepends=('')
 
@@ -30,6 +30,6 @@ build() {
 	rm -- ${startdir}/pkg/usr/lib/4kstogram/libQt*
 	#sed -i '6s|/usr/|exec /usr/|' ${startdir}/src/usr/lib/4kstogram/4kstogram.sh
 	#mkdir ${pkgdir}/usr/bin
-	install -D -m755 "/usr/lib/4kstogram/4kstogram.sh" "${pkgdir}/usr/bin/4kstogram"
+	install -D -m755 "${srcdir}/usr/lib/4kstogram/4kstogram.sh" "${pkgdir}/usr/bin/4kstogram" 
 	#ln -s "/usr/lib/4kstogram/4kstogram.sh" "${pkgdir}/usr/bin/4kstogram"
 }
