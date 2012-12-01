@@ -1,5 +1,5 @@
 pkgname=amarok-i18n-fr
-pkgver=1323990
+pkgver=1326743
 pkgrel=1
 _pkgname=amarok
 _pkgver=2.6.0
@@ -8,7 +8,7 @@ arch=("i686" "x86_64")
 url="http://amarok.kde.org"
 license=('GPL2' 'LGPL2.1' 'FDL')
 depends=('amarok=2.6.0')
-makedepends=('pkgconfig' 'automoc4' 'cmake')
+makedepends=('pkgconfig' 'automoc4' 'cmake' 'subversion')
 source=("http://download.kde.org/stable/${_pkgname}/${_pkgver}/src/${_pkgname}-${_pkgver}.tar.bz2")
 sha1sums=('2cfcdabb67436418ba0012075ba105bbb630b48d')
 _svnmod=amarok-po-fr
