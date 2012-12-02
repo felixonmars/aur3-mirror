@@ -1,5 +1,5 @@
 #!/bin/bash
-ttf_need=(arialbd.ttf arialbi.ttf ariali.ttf ARIALNBI.TTF ARIALNB.TTF ARIALNI.TTF ARIALN.TTF arial.ttf calibrib.ttf calibrii.ttf calibrili.ttf calibril.ttf calibri.ttf calibriz.ttf CAMBRIAB.TTF CAMBRIAI.TTF CAMBRIA.TTC CAMBRIAZ.TTF consolab.ttf consolai.ttf consola.ttf consolaz.ttf courbd.ttf courbi.ttf couri.ttf cour.ttf msyhbd.ttf msyh.ttf simfang.ttf simhei.ttf simkai.ttf SIMLI.TTF simsun.ttc SIMYOU.TTF tahomabd.ttf tahoma.ttf timesbd.ttf timesbi.ttf timesi.ttf times.ttf verdanab.ttf verdanai.ttf verdana.ttf verdanaz.ttf)
+ttf_need=(arialbd.ttf arialbi.ttf ariali.ttf ARIALNBI.TTF ARIALNB.TTF ARIALNI.TTF ARIALN.TTF arial.ttf calibrib.ttf calibrii.ttf calibrili.ttf calibril.ttf calibri.ttf calibriz.ttf CAMBRIAB.TTF CAMBRIAI.TTF CAMBRIA.TTC CAMBRIAZ.TTF consolab.ttf consolai.ttf consola.ttf consolaz.ttf courbd.ttf courbi.ttf couri.ttf cour.ttf marlett.ttf msyhbd.ttf msyh.ttf simfang.ttf simhei.ttf simkai.ttf SIMLI.TTF simsun.ttc SIMYOU.TTF STCAIYUN.TTF STFANGSO.TTF STHUPO.TTF STKAITI.TTF STLITI.TTF STSONG.TTF STXIHEI.TTF STXINGKA.TTF STXINWEI.TTF STZHONGS.TTF symbol.ttf tahomabd.ttf tahoma.ttf timesbd.ttf timesbi.ttf timesi.ttf times.ttf verdanab.ttf verdanai.ttf verdana.ttf verdanaz.ttf webdings.ttf wingding.ttf WINGDNG2.TTF WINGDNG3.TTF)
 ttf_lost=()
 
 font_path="/mnt/Windows/Fonts"

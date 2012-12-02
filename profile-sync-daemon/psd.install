@@ -1,30 +1,85 @@
-# Maintainer: graysky <graysky AT archlinux DOT us>
+DAEMON_FILE="/run/psd"
 
-pkgname='profile-sync-daemon'
-pkgver=5.08
-pkgrel=1
-pkgdesc='Symlinks and syncs browser profile dirs to RAM thus reducing HDD/SDD calls and speeding-up browsers.'
-arch=('any')
-url='https://wiki.archlinux.org/index.php/Profile-sync-daemon'
-license=('GPL')
-depends=('rsync' 'gawk') # gawk is needed for the temp workaround in $pkgname.install
-optdepends=('cron: allow hourly (default) or periodic syncs of tmpfs <--> HDD/SDD storage')
-conflicts=('firefox-sync' 'firefox-tmpfs-daemon' 'chromium-tmpfs' 'tmpfs-store')
-replaces=('sync-browsers-daemon')
-source=("http://repo-ck.com/source/$pkgname/$pkgname-$pkgver.tar.xz")
-backup=('etc/psd.conf')
-install=psd.install
-sha256sums=('b4696ff10a51c4bf0d40eabb92e9c6de6c95a2a7d31afb1503b983a6475d615a')
+post_install() {
+	echo '--------------------------------------------------------------------------'
+	echo '  Define which users will make use of the sync in /etc/psd.conf'
+	echo '  Read the manpage before use or see the wiki page'
+	echo '  https://wiki.archlinux.org/index.php/Profile-sync-daemon'
+	echo
+	echo '  ALWAYS backup your profiles data before using utils like psd!'
+	echo '--------------------------------------------------------------------------'
+}
 
-package() {
-	cd "$srcdir/$pkgname-$pkgver"
-	install -Dm755 $pkgname "$pkgdir/usr/bin/$pkgname"
-	install -Dm644 psd.conf "$pkgdir/etc/psd.conf"
-	install -Dm755 psd.cron.hourly "$pkgdir/etc/cron.hourly/psd-update"
-	install -Dm644 "psd.service" "$pkgdir/usr/lib/systemd/system/psd.service"
-	ln -s "$pkgname" "$pkgdir/usr/bin/psd"
+pre_upgrade() {
+	# $2 is unset due to a bug. See, https://bugs.archlinux.org/task/32278
+	# Query current version using pacman as fallback
+	tempfix=$(pacman -Qi profile-sync-daemon | awk '/^Version/{print $3}')
+	oldpkgver=${tempfix%-*}
 
-	gzip -9 psd.manpage
-	install -Dm 0644 psd.manpage.gz "$pkgdir/usr/share/man/man1/$pkgname.1.gz"
-	ln -s "$pkgname.1.gz" "$pkgdir/usr/share/man/man1/psd.1.gz"
+	#oldpkgver=${2%-*}
+	newpkgver=${1%-*}
+
+	# check to see if upgrade action is needed
+	if [[ $oldpkgver < 4.02 ]]; then
+		# check to see if user is running psd and needs to fix it
+		if [ -e $DAEMON_FILE ]; then
+			echo '------------------------------------------------------------------------'
+			echo ' SPECIAL UPGRADE INSTRUCTIONS YOU MUST FOLLOW:'
+			echo
+			echo 'In order to safely upgrade, psd will be stopped for you now...'
+			echo
+			if ! systemd-notify --booted; then # not using systemd  
+				/etc/rc.d/psd stop
+			else
+				/usr/bin/systemctl stop psd.service
+			fi
+			echo
+			echo '...the daemon should be stopped and profile(s) synced back to disk.'
+			echo
+			echo '1) If any browsers are running, exit them now.'
+			echo '2) Make sure to merge changes in /etc/psd.conf.pacnew'
+			# check to see if user needs to modify BROWSERS array
+			if [[ -n $(grep ^BROWSERS /etc/psd.conf | grep mozilla) ]]; then
+				echo '   Using "mozilla" in the BROWSERS array now depreciated!'
+				echo '   You _MUST_ manually change it to "firefox"'
+			fi	
+			echo '   BEFORE you start up psd again.'
+			echo '------------------------------------------------------------------------'
+		else
+			/bin/true
+		fi	
+	fi
+}
+
+post_upgrade() {
+	if [[ -f /etc/psd.conf.pacnew ]]; then
+		echo '------------------------------------------------------------------------'
+		echo ' WARNING:'
+		echo
+		echo 'You MUST merge your existing /etc/psd.conf and /etc/psd.pacnew or else'
+		echo 'new features may not work and you risk breakage of the functionality!'
+		echo
+		echo ' TIP FOR NEWBIES:'
+		echo
+		echo 'For users who have not used diff utilities before, vimdiff (part of the'
+		echo 'vim package in [extra]) is an excellent util for this purpose. See the'
+		echo 'following URL for a quick tutorial of vimdiff:'
+		echo
+		echo 'http://amjith.blogspot.com/2008/08/quick-and-dirty-vimdiff-tutorial.html'
+		echo '------------------------------------------------------------------------'
+	else
+		/usr/bin/true
+	fi
+}
+
+pre_remove() {
+	if [ -e $DAEMON_FILE ]; then
+		if ! systemd-notify --booted; then # not using systemd	
+			echo '--> Automatically stopping psd to rotate profiles back out of tempfs.'
+			/etc/rc.d/psd stop
+		else
+			echo '--> Automatically stopping psd to rotate profiles back out of tempfs.'
+			/usr/bin/systemctl stop psd.service
+		fi
+	fi
 }
