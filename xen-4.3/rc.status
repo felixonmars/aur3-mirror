@@ -1,0 +1,442 @@
+# /etc/rc.status
+# vim: syntax=sh
+# Definition of boot script return messages
+#
+#   The bootscripts should use the variables rc_done and rc_failed to
+#   report whether they failed or succeeded.  See /etc/init.d/skeletonfor
+#   an example how the shell functions rc_status and rc_reset are used.
+#
+#   These functions make use of the variables rc_done and rc_failed;
+#   rc_done_up and rc_failed_up are the same as rc_done and rc_failed
+#   but contain a terminal code to move up one line before the output
+#   of the actual string. (This is particularly useful when the script
+#    starts a daemon which produces user output with a newline character)
+#
+#   The variable rc_reset is used by the master resource control script
+#   /etc/init.d/rc to turn off all attributes and switch to the standard
+#   character set.
+#
+#    \033          ascii ESCape
+#    \033[<NUM>G   move to column <NUM> (linux console, xterm, not vt100)
+#    \033[<NUM>C   move <NUM> columns forward but only upto last column
+#    \033[<NUM>D   move <NUM> columns backward but only upto first column
+#    \033[<NUM>A   move <NUM> rows up
+#    \033[<NUM>B   move <NUM> rows down
+#    \033[1m       switch on bold
+#    \033[31m      switch on red
+#    \033[32m      switch on green
+#    \033[33m      switch on yellow
+#    \033[m        switch off color/bold
+#    \017          exit alternate mode (xterm, vt100, linux console)
+#    \033[10m      exit alternate mode (linux console)
+#    \015          carriage return (without newline)
+#
+
+# Check if the service is used under systemd but not started with
+if test -z "$SYSTEMD_NO_WRAP" && /bin/mountpoint -q /sys/fs/cgroup/systemd > /dev/null 2>&1 ; then
+    if test $PPID -ne 1 -a $# -eq 1 ; then
+	_rc_base=
+	case "$0" in
+	/etc/init.d/boot.*)
+	    _rc_base=${0##*/boot.} ;;
+	/etc/init.d/*|/etc/rc.d/*)
+	    _rc_base=${0##*/} ;;
+	*/rc*)
+	    if test -L "$0"; then
+		_rc_base=`readlink "$0"`
+		_rc_base=${_rc_base##*/}
+		case "$_rc_base" in
+		boot.*) _rc_base=${_rc_base#boot.}
+		esac
+	    else
+		_rc_base=${0##*/rc}
+	    fi
+	    ;;
+	esac
+	case "$1" in
+	    start|stop|reload|restart|try-restart|force-reload|status) echo "redirecting to systemctl" >/dev/stderr ;;
+	    *) unset _rc_base ;;
+	esac
+	if test -n "$_rc_base" -a -x /bin/systemctl ; then
+	    exec /bin/systemctl $1 "${_rc_base}.service"
+	fi
+	unset _rc_base
+    fi
+    if test -z "$REDIRECT" -a -x /sbin/showconsole ; then
+	REDIRECT="$(/sbin/showconsole 2>/dev/null)"
+	test -z "$CONSOLE" && CONSOLE=/dev/console
+	export REDIRECT CONSOLE
+    fi
+fi
+
+# Do _not_ be fooled by non POSIX locale
+LC_ALL=POSIX
+export LC_ALL
+
+# Seek for terminal size and, if needed, set default size
+rc_lc () {
+    if test -n "$REDIRECT" ; then
+	set -- $(stty size < "$REDIRECT"  2> /dev/null || echo 0 0)
+    else
+	set -- $(stty size 2> /dev/null || echo 0 0)
+    fi
+    LINES=$1
+    COLUMNS=$2
+    if test $LINES -eq 0 -o $COLUMNS -eq 0; then
+	LINES=24
+	COLUMNS=80
+	TERM=dumb
+    fi
+}
+trap 'rc_lc' SIGWINCH
+test -n "$COLUMNS" -a -n "$LINES" || rc_lc
+export LINES COLUMNS
+
+# Make sure we have /sbin and /usr/sbin in PATH
+case ":$PATH:" in 
+    *:/sbin:*)
+	;;
+    *)
+	PATH=/sbin:/usr/sbin:/usr/local/sbin:$PATH
+	export PATH
+	;;
+esac
+
+if test -t 1 -a "$TERM" != "raw" -a "$TERM" != "dumb"; then
+	 esc=`echo -en "\033"`
+        extd="${esc}[1m"
+        warn="${esc}[1;31m"
+        done="${esc}[1;32m"
+        attn="${esc}[1;33m"
+        norm=`echo -en "${esc}[m\017"`
+        stat=`echo -en "\015${esc}[${COLUMNS}C${esc}[10D"`
+
+     rc_done="${stat}${done}done${norm}"
+  rc_running="${stat}${done}running${norm}"
+   rc_failed="${stat}${warn}failed${norm}"
+   rc_missed="${stat}${warn}missing${norm}"
+  rc_skipped="${stat}${attn}skipped${norm}"
+     rc_dead="${stat}${warn}dead${norm}"
+   rc_unused="${stat}${extd}unused${norm}"
+  rc_unknown="${stat}${attn}unknown${norm}"
+  rc_done_up="${esc}[1A${rc_done}"
+rc_failed_up="${esc}[1A${rc_failed}"
+    rc_reset="${norm}${esc}[?25h"
+     rc_save="${esc}7${esc}[?25l"
+  rc_restore="${esc}8${esc}[?25h"
+    rc_cuu () { test $1 -eq 0 && return; echo -en "\033[${1}A"; }
+    rc_cud () { test $1 -eq 0 && return; echo -en "\033[${1}B"; }
+    rc_timer_on () {
+	# Draw seconds of running timout to column.
+	# Two arguments: timeout in seconds and offset
+	local n=$1
+	local c=$2
+	(trap "exit 0" SIGTERM
+	 while test $((n--)) -gt 0; do
+	    sleep 1;
+	    if test $n -gt 9 ; then
+		echo -en "\015${esc}[${c}C(${n}s) "
+	    else
+		echo -en "\015${esc}[${c}C( ${n}s) "
+	    fi
+	done) & _rc_timer_pid=$!
+    }
+    rc_timer_off () {
+	if test -n "$_rc_timer_pid" ; then
+	    kill -TERM $_rc_timer_pid > /dev/null 2>&1
+	fi
+	unset _rc_timer_pid
+    }
+else
+	 esc=""
+        extd=""
+        warn=""
+        done=""
+        attn=""
+        norm=""
+        stat=""
+
+     rc_done="..done"
+  rc_running="..running"
+   rc_failed="..failed"
+   rc_missed="..missing"
+  rc_skipped="..skipped"
+     rc_dead="..dead"
+   rc_unused="..unused"
+  rc_unknown="..unknown"
+  rc_done_up="${rc_done}"
+rc_failed_up="${rc_failed}"
+    rc_reset=""
+     rc_save=""
+  rc_restore=""
+    rc_cuu () { return; }
+    rc_cud () { return; }
+    rc_timer_on  () { return; }
+    rc_timer_off () { return; }
+fi
+
+_rc_service=${0##*/[SK][0-9][0-9]}
+_rc_status=0
+_rc_status_all=0
+_rc_todo=$1
+
+rc_check ()
+{
+    _rc_status_ret=$?
+    test $_rc_status_ret -eq 0 || _rc_status=$_rc_status_ret
+    test $_rc_status     -eq 0 || _rc_status_all=$_rc_status
+    return $_rc_status_ret
+}
+
+rc_reset ()
+{
+    _rc_status=0
+    _rc_status_all=0
+    rc_check
+    return 0
+}
+
+if   test "$_rc_todo" = "status" ; then
+rc_status ()
+{
+    rc_check
+    _rc_status_ret=$_rc_status
+    local i
+    for i ; do
+	case "$i" in
+	-v|-v[1-9]|-v[1-9][0-9])
+	    local vrt=""
+	    local out=1
+	    local opt="en"
+
+	    test -n "${i#-v}" && vrt=${esc:+"${esc}[${i#-v}A"} || opt="e"
+	    case "$_rc_status" in
+	    0)	vrt="$vrt$rc_running";		;; # service running
+	    1)	vrt="$vrt$rc_dead"   ; out=2	;; # service dead (but has pid file)
+	    2)	vrt="$vrt$rc_dead"   ; out=2	;; # service dead (but has lock file)
+	    3)	vrt="$vrt$rc_unused" ;		;; # service not running
+	    4)	vrt="$vrt$rc_unknown";		;; # status is unknown
+	    esac
+	    echo -$opt "$rc_save$vrt$rc_restore" 1>&$out
+
+	    # reset _rc_status to 0 after verbose case
+	    _rc_status=0 ;;
+	-r) rc_reset ;;
+	-s) echo -e "$rc_skipped" ; rc_failed 3 ;;
+	-u) echo -e "$rc_unused"  ; rc_failed 3 ;;
+	*)  echo "rc_status: Usage: [-v[<num>] [-r]|-s|-u]" 1>&2 ; return 0 ;;
+	esac
+    done
+    return $_rc_status_ret
+}
+elif test -n "$_rc_todo" ; then
+rc_status ()
+{
+    rc_check
+    test "$_rc_status" -gt 7 && rc_failed 1
+    _rc_status_ret=$_rc_status
+    case "$_rc_todo" in
+    stop)
+	# program is not running which
+	# is success if we stop service
+	test "$_rc_status" -eq 7 && rc_failed 0 ;;
+    esac
+    local i
+    for i ; do
+	case "$i" in
+	-v|-v[1-9]|-v[1-9][0-9])
+	    local vrt=""
+	    local out=1
+	    local opt="en"
+
+	    test -n "${i#-v}" && vrt=${esc:+"${esc}[${i#-v}A"} || opt="e"
+	    case "$_rc_status" in
+	    0)	vrt="$vrt$rc_done"   ;		;; # success
+	    1)	vrt="$vrt$rc_failed" ; out=2	;; # generic or unspecified error
+	    2)	vrt="$vrt$rc_failed" ; out=2	;; # invalid or excess args
+	    3)	vrt="$vrt$rc_missed" ; out=2	;; # unimplemented feature
+	    4)	vrt="$vrt$rc_failed" ; out=2	;; # insufficient privilege
+	    5)	vrt="$vrt$rc_skipped"; out=2	;; # program is not installed
+	    6)	vrt="$vrt$rc_unused" ; out=2	;; # program is not configured
+	    7)	vrt="$vrt$rc_failed" ; out=2	;; # program is not running
+	    *)	vrt="$vrt$rc_failed" ; out=2	;; # unknown (maybe used in future)
+	    esac
+	    echo -$opt "$rc_save$vrt$rc_restore" 1>&$out
+
+	    # reset _rc_status to 0 after verbose case
+	    _rc_status=0 ;;
+	-r) rc_reset ;;
+	-s) echo -e "$rc_skipped" 1>&2 ; rc_failed 5 ;;
+	-u) echo -e "$rc_unused"  1>&2 ; rc_failed 6 ;;
+	*)  echo "rc_status: Usage: [-v[<num>] [-r]|-s|-u]" 1>&2 ; return 0 ;;
+	esac
+    done
+    return $_rc_status_ret
+}
+else
+rc_status ()
+{
+    rc_check
+    _rc_status_ret=$_rc_status
+    local i
+    for i ; do
+	case "$i" in
+	-v|-v[1-9]|-v[1-9][0-9])
+	    local vrt=""
+	    local out=1
+	    local opt="en"
+
+	    test -n "${i#-v}" && vrt=${esc:+"${esc}[${i#-v}A"} || opt="e"
+	    case "$_rc_status" in
+	    0)	vrt="$vrt$rc_done"  ;		;; # success
+	    *)	vrt="$vrt$rc_failed"; out=2	;; # failed
+	    esac
+	    echo -$opt "$rc_save$vrt$rc_restore" 1>&$out
+
+	    # reset _rc_status to 0 after verbose case
+	    _rc_status=0 ;;
+	-r) rc_reset ;;
+	-s) echo -e "$rc_skipped"  ; return 0 ;;
+	-u) echo -e "$rc_unused"   ; return 0 ;;
+	*)  echo "rc_status: Usage: [-v[<num>] [-r]|-s|-u]" 1>&2 ; return 0 ;;
+	esac
+    done
+    return $_rc_status_ret
+}
+fi
+
+rc_failed ()
+{
+    rc_reset
+    case "$1" in
+    [0-7]) _rc_status=$1 ;;
+    "")    _rc_status=1
+    esac
+    rc_check
+    return $_rc_status
+}
+
+rc_exit ()
+{
+    exit $_rc_status_all
+}
+
+rc_confirm()
+{
+    local timeout="30"
+    local answer=""
+    local ret=0
+
+    case "$1" in
+    -t) timeout=$2; shift 2 ;;
+    esac
+    local message="$@, (Y)es/(N)o/(C)ontinue? [y] "
+    : ${REDIRECT:=/dev/tty}
+
+    while true ; do
+	read -t ${timeout} -n 1 -p "${message}" answer < $REDIRECT > $REDIRECT 2>&1
+	case "$answer" in
+	[yY]|"") ret=0; break ;;
+	[nN])	 ret=1; break ;;
+	[cC])	 ret=2; break ;;
+	*)	 echo; continue
+	esac
+    done
+    echo
+    return $ret
+}
+
+rc_active ()
+{
+    local link
+    for link in /etc/init.d/*.d/S[0-9][0-9]${1} ; do
+	test -e $link || break
+	return 0
+    done
+    return 1
+}
+
+rc_splash()
+{
+    return 0
+}
+
+# Wait between last SIGTERM and the next SIGKILL
+# any argument specify a *path* of a process which
+# process identity should *not* be checked.
+rc_wait()
+{
+    local -i etime=$SECONDS
+
+    if test -f /fastboot ; then
+	let etime+=2
+    else
+	let etime+=6
+    fi
+
+    local -i pid
+    local -i ppid=$$
+    local comm state rest
+    local parent_processes="$ppid"
+
+    while test $ppid -gt 1; do
+	read -t 1 pid comm state ppid rest < /proc/$ppid/stat
+	parent_processes="${parent_processes:+$parent_processes:}${ppid}"
+    done
+    for comm ; do
+	test -s $comm || continue
+	ppid="$(/sbin/pidofproc $comm 2> /dev/null)" || continue
+	parent_processes="${parent_processes:+$parent_processes:}${ppid}"
+    done
+    unset comm state ppid rest
+
+    local -i busy
+    while test $SECONDS -lt $etime; do
+	let busy=0
+	for proc in /proc/[0-9]* ; do
+	    test -e $proc/exe || continue
+	    let pid=${proc##*/}
+	    case ":${parent_processes}:" in
+	    *:${pid}:*) continue
+	    esac
+	    let busy=pid
+	    break
+	done
+	test $busy -ne 0 || return 0
+	usleep 500000
+    done
+}
+
+rc_runlevel()
+{
+    test -z "$RUNLEVEL" || return
+    set -- $(/sbin/runlevel)
+    PREVLEVEL=$1
+    RUNLEVEL=$2
+    export PREVLEVEL RUNLEVEL
+}
+
+cmdline=""
+rc_cmdline()
+{
+    local arg cmd key val
+    test -e /proc/cmdline || mount -nt proc proc /proc
+    test -n "$cmdline"    || read -t 2 cmdline < /proc/cmdline
+    for arg; do
+	for cmd in $cmdline ; do
+	    key="${cmd%%=*}"
+	    key="${key//-/_}"
+	    case "${key}" in
+	    $arg)
+		case "$cmd" in
+		*=*) val="${cmd#*=}" ;;
+		*)   val=yes
+		esac
+		echo $key=$val
+		return 0
+	    esac
+	done
+    done
+    return 1
+}
+
