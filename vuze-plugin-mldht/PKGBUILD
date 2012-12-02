@@ -1,8 +1,14 @@
 # Maintainer: Pedro Alejandro López-Valencia <palopezv@gmail.com>
+#
+# This PKGBUILD is provided under the BSD 2-clause license.
+# Please see the file LICENSE for details.
+#
+# Patches welcome. Send pull requests to
+# https://github.com/vorbote/vuze-plugin-mldht
 
 pkgname=vuze-plugin-mldht
 pkgver=1.4.2
-pkgrel=2
+pkgrel=3
 pkgdesc="A Mainline DHT plugin for Vuze. Talk DHT to µTorrent clients."
 arch=('any')
 url=http://azureus.sourceforge.net/plugin_details.php?plugin=mlDHT
