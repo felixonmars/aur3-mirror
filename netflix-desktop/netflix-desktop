@@ -5,81 +5,167 @@ NETFLIX_DESKTOP="${HOME}/.netflix-desktop";
 LOCAL_SUMS="${NETFLIX_DESKTOP}/filesums";
 GLOBAL_SUMS="${INSTDIR}/filesums";
 WINE="/opt/wine-silverlight/bin/wine";
+SHOWDEBUG="0";
+NO_XATTR="0";
+NO_XSET="0";
 
-export WINEPREFIX=${NETFLIX_DESKTOP}
-export WINEARCH=win32
-export WINEDEBUG=-all
+export WINEPREFIX=${NETFLIX_DESKTOP};
+export WINEARCH=win32;
+
+# Process any command-line arguments
+for arg in "$@"; do
+	case "$arg" in
+		--showdebug)
+			SHOWDEBUG="1";
+			;;
+        --no-xattr)
+            NO_XATTR="1";
+            ;;
+        --disable-xset)
+            NO_XSET="1";
+            ;;
+		*)
+			echo "Unrecognized command-line argument '$arg', usage:";
+            echo
+			echo -e "netflix-desktop [options]
+
+Options:
+\t--showdebug\tShow Wine debug output.
+\t--no-xttr\tDon't perform extending file attribute checks.
+\t\t\tWarning: Extended file attributes are necessary
+\t\t\tfor Netflix Digital Rights Management.";
+			exit;
+			;;
+	esac;
+done
+
+if [ "${SHOWDEBUG}" -eq "0" ]; then
+    exec 2>/dev/null;
+fi
+
+DISCLAIMER="\
+Neither this package or its author is affliated with, endorsed, provided, or
+supported in any way by Netflix, Inc.
+
+Netflix and Netflix Watch Instantly are trademarks of Netflix, Inc. Mozilla
+and Mozilla Firefox are trademarks of the Mozilla Corporation. Microsoft and
+Microsoft Silverlight are trademarks of the Microsoft Corporation.
+
+netflix-desktop was written by Erich Hoover (compholio.com) and packaged by
+Jesus Alvarez (demizerone.com) for Arch Linux."
 
 if [ ! -d "${NETFLIX_DESKTOP}" ]; then
-    ${WINE} 'wineboot'
+	zenity --warning --title="NOTICE" --text "${DISCLAIMER}";
+    ${WINE} 'wineboot' >&2;
 fi
 
 # Make sure that all the nencessary files are installed.
-files_missing=1;
-while [ "$files_missing" -eq "1" ]; do
-	files_missing=0;
-	while read desired_checksum filename permissions url; do
-		if [ ! -f "${NETFLIX_DESKTOP}/${filename}" ]; then
-			files_missing=1;
-		fi
-	done < $GLOBAL_SUMS;
-	if [ "$files_missing" -eq "1" ]; then
-		zenity --question --title="Netflix Desktop" --text="Not all of the components required by Netflix Desktop were downloaded, would you like to download them now? \n\nPlease be advised, you will be downloading Microsoft Silverlight which can not be modified or distributed without expressed permission from the Microsoft Corporation." --ok-label="Yes" --cancel-label="No";
-		RET=$?;
-		if [ "$RET" -eq "1" ]; then
-			exit;
-		fi
-        (
-            echo "1";
-            ${INSTDIR}/install-file-downloader
-            echo "100";
-        ) | zenity --progress --pulsate --no-cancel --auto-close --text="Downloading Firefox and Silverlight...";
-        if [ $? -ne 0 ]; then
-            zenity --error --text "Could not download needed installation files.";
-        fi
-	fi
-done
+files_missing=0;
+while read desired_checksum filename permissions url; do
+    currentsum=`sha256sum "${NETFLIX_DESKTOP}/${filename}" | { read checksum file; echo $checksum; }`;
+    if [[ ! -f "${NETFLIX_DESKTOP}/${filename}" || "$currentsum" != "$desired_checksum" ]]; then
+        files_missing=1;
+    fi
+done < $GLOBAL_SUMS;
 
-# Make sure that the filesystem likely supports extended file attributes
-MTABEXT=`cat /etc/mtab | grep ext4`;
-if [ "${MTABEXT}" = "" ]; then
-	MTABXATTR=`cat /etc/mtab | grep ext3 | grep user_xattr`;
-	if [ "${MTABXATTR}" = "" ]; then
-		zenity --warning --text "It appears that you do not have extended file system attributes enabled, please enable the user_xattr option and try again.";
-		exit;
-	fi
+if [[ "$(ls ${NETFLIX_DESKTOP}/*bars >&2; echo $?)" != "0" ]]; then
+    down_message="Not all of the components required by Netflix Desktop were \
+downloaded, would you like to download them now? \n\nPlease be advised, \
+you will be downloading Microsoft Silverlight which can not be modified \
+or distributed without expressed permission from the Microsoft Corporation."
+else
+    down_message="The supported versions of Firefox or Silverlight have changed, \
+would you like to download them now?"
+fi
+
+down_error_message="Installation file downloads were not successful!  Please \
+try again. If the problem persists, please report it to the AUR page for \
+netflix-desktop at https://aur.archlinux.org/packages/netflix-desktop/."
+
+if [[ "$files_missing" == "1" ]]; then
+    zenity --question --title="Netflix Desktop" --text="$down_message" --ok-label="Yes" --cancel-label="No";
+    if [[ "$?" == "1" ]]; then
+        exit 1;
+    fi
+    (
+        echo "1";
+        ${INSTDIR}/install-file-downloader >&2;
+        echo "100";
+    ) | zenity --progress --pulsate --no-cancel --auto-close --text="Downloading Firefox and Silverlight...";
+    if [[ "$?" == "1" ]]; then
+        zenity --error --text "$down_error_message";
+        exit 1;
+    fi
+	files_missing=0;
+fi
+
+# Make sure that the filesystem supports extended file attributes
+if [ "${NO_XATTR}" -ne "1" ]; then
+    "${INSTDIR}/test-xattr" "${NETFLIX_DESKTOP}";
+    XATTR="$?";
+    if [ "${XATTR}" -ne "0" ]; then
+        if [ "${XATTR}" -eq "1" ]; then
+            MESSAGE="Unable to test extended attributes at location '${NETFLIX_DESKTOP}'.";
+        elif [ "${XATTR}" -eq "2" ]; then
+            MESSAGE="It appears that you do not have extended file system attributes enabled, please enable the user_xattr option for your filesystem and try again.";
+        else
+            MESSAGE="An unexpected error code was returned when testing for extended file system attributes.";
+        fi
+        zenity --warning --text "${MESSAGE}";
+        exit;
+    fi
 fi
 
 # Copy over the specially configured user profile if installation has never been performed previously
-if [ ! -f ${LOCAL_SUMS} ]; then
+if [[ ! -f ${LOCAL_SUMS} ]]; then
         mkdir -p "${NETFLIX_DESKTOP}/drive_c";
         cp -a "${INSTDIR}/netflix-profile" "${NETFLIX_DESKTOP}/drive_c/netflix-profile";
 fi
 
 # If no previous installation has been performed (or new installation packages are available) then install the software we need to the local prefix
-if [ "$(cmp "${LOCAL_SUMS}" "${GLOBAL_SUMS}" > /dev/null; echo $?)" -ne "0" ]; then
+if [[ "$(cmp "${LOCAL_SUMS}" "${GLOBAL_SUMS}" >&2; echo $?)" != "0" ]]; then
+	TASK="local installation";
+	if [ -f "${LOCAL_SUMS}" ]; then
+		TASK="profile upgrade";
+        rm -rf "${NETFLIX_DESKTOP}/drive_c/netflix-profile" >&2;
+        cp -a "${INSTDIR}/netflix-profile" "${NETFLIX_DESKTOP}/drive_c/netflix-profile";
+	fi
 	(
 		echo "1";
-		${WINE} "${NETFLIX_DESKTOP}/FirefoxSetup.exe" /S > /dev/null;
-		${WINE} "${NETFLIX_DESKTOP}/SilverlightSetup.exe" /q > /dev/null;
+		${WINE} "${NETFLIX_DESKTOP}/FirefoxSetup.exe" /S >&2;
+		${WINE} "${NETFLIX_DESKTOP}/SilverlightSetup.exe" /q >&2;
 		echo "100";
-	) | zenity --progress --pulsate --no-cancel --auto-close --text="Performing local installation...";
+	) | zenity --progress --pulsate --no-cancel --auto-close --text="Performing ${TASK}...";
 	cp "${GLOBAL_SUMS}" "${LOCAL_SUMS}";
+fi
+
+if [[ -f "${HOME}/Mozilla Firefox.desktop" ]]; then
+    rm "${HOME}/Mozilla Firefox.desktop" >&2;
 fi
 
 if [[ ! -f ${NETFLIX_DESKTOP}/toolbars && ! -f ${NETFLIX_DESKTOP}/notoolbars ]]; then
     zenity --question --title="Netflix Desktop" --text="Would you like your Firefox window to have toolbars?\n\nIf Yes, the file 'toolbars' will be created in '~/.netflix-desktop/'. Change the filename to 'notoolbars' if you would like your Firefox window to not have toolbars." --ok-label="Yes" --cancel-label="No";
-    RET=$?;
-    if [ "$RET" -eq "0" ]; then
-        touch ${NETFLIX_DESKTOP}/toolbars
+    if [[ "$RET" == "0" ]]; then
+        touch ${NETFLIX_DESKTOP}/toolbars;
     else
-        touch ${NETFLIX_DESKTOP}/notoolbars
+        touch ${NETFLIX_DESKTOP}/notoolbars;
     fi
 fi
 
-if [ -f ${NETFLIX_DESKTOP}/notoolbars ]; then
-    # Launch Firefox with our specially prepared profile
-    ${WINE} "C:\\Program Files\\Mozilla Firefox\\firefox.exe" -profile "C:\\netflix-profile" 2>/dev/null;
-else
-    ${WINE} "C:\\Program Files\\Mozilla Firefox\\firefox.exe" "http://www.netflix.com"
+if [[ -f "/usr/bin/xset" && "${NO_XSET}" == "0" ]]; then
+    xset -dpms;
+    xset s off;
 fi
+
+if [[ -f ${NETFLIX_DESKTOP}/notoolbars ]]; then
+    # Launch Firefox with our specially prepared profile
+    ${WINE} "C:\\Program Files\\Mozilla Firefox\\firefox.exe" -profile "C:\\netflix-profile" >&2;
+else
+    ${WINE} "C:\\Program Files\\Mozilla Firefox\\firefox.exe" "http://www.netflix.com" >&2;
+fi
+
+if [[ -f /usr/bin/xset && "${NO_XSET}" == "0" ]]; then
+    xset dpms;
+    xset s on;
+fi
+
