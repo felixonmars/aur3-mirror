@@ -142,7 +142,7 @@ def pam_config_setup(pam_config):
 
       # Change 'required' to 'sufficient' for the pam_unix.so module
       if current_line_split[2] == "pam_unix.so" and current_line_split[1] == "required":
-        pam_file_new.write(current_line.replace("required", "sufficient"))
+        #pam_file_new.write(current_line.replace("required", "sufficient"))
         pam_file_new.write(current_line_split[0] + "\t\tinclude\t\tsss\n")
         continue
 
@@ -192,9 +192,19 @@ def pam_enable_sss():
     shutil.move("/etc/pam.d/sss", "/etc/pam.d/sss.bak")
 
   pam_sss = open("/etc/pam.d/sss", 'w')
-  pam_sss.write("auth     sufficient pam_sss.so\n")
+  # Auth
+  pam_sss.write("auth     sufficient pam_unix.so nullok try_first_pass\n")
+  pam_sss.write("auth     sufficient pam_sss.so use_first_pass\n")
+  pam_sss.write("auth     required   pam_deny.so\n")
+  # Account
+  pam_sss.write("account  required   pam_unix.so\n")
   pam_sss.write("account  [default=bad success=ok user_unknown=ignore] pam_sss.so\n")
+  # Password
+  pam_sss.write("password sufficient pam_unix.so try_first_pass nullok sha512 shadow\n")
   pam_sss.write("password sufficient pam_sss.so use_authtok\n")
+  pam_sss.write("password required   pam_deny.so\n")
+  # Session
+  pam_sss.write("session  required   pam_unix.so\n")
   pam_sss.write("session  optional   pam_sss.so\n")
   pam_sss.close()
 
