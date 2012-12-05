@@ -1,71 +1,295 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-# Provide a basic --help/--version output, since the program itself does not.
+# VGMPlay helper script
+# ----
+# Automatically detects what oss wrapper to use (if any), allows forcing
+#  a given OSS wrapper, allows for PA server selection, provides --help
+#  and --version output, allows for an argument-specified config, and
+#  manipulates the working directory to allow for configs in said argument,
+#  the XDG basedir spec, or the current directory.
+
+trap 'if [ -n "$_config_path_temp" ]; then rm -rf "$_config_path_temp"; fi' EXIT
+trap 'if [ -n "$_config_path_temp" ]; then rm -rf "$_config_path_temp"; fi; reset' HUP INT QUIT TERM
+
+_pwd="$PWD/" # Used with music file input due to cwd changes
+_output="" # Used with the output forcing options
+_config_path="" # Used when determining whether to use config in cwd or XDG basespec
+_config_path_temp="" # Used if copying arbitrary config from --config option
+_config_arg="" # Takes config from --config option
+_pulse_server="" # Used with --paserver option
+_vgmplay_bin="" # Used in check whether vgmplay is in cwd and/or path
+
 _vgmplay_help() {
-	printf "Usage: vgmplay file\n"
-	printf "Plays VGM, VGZ, CMF, and DRO files either singly or by m3u playlist.\n"
-	printf "\n"
-	printf "Options:\n"
-	printf " -h, -?, --help:            Display this help and exit.\n"
-	printf "         --version:         Display version and exit.\n"
-	printf "\n"
-	printf "Keys (In-Player):\n"
-	printf " Cursor Left/Right:         Seek 5 seconds backward/forward\n"
-	printf " Ctrl + Cursor Left/Right:  Seek 1 minute backward/forward\n"
-	printf " Space:                     Pause\n"
-	printf " Esc twice:                 Quit Program\n"
-	printf " F:                         Fade Out\n"
-	printf " R:                         Restart Current Track\n"
-	printf " PageUp/B:                  Previous Track (in playlist)\n"
-	printf " PageDown/N:                Next Track (in playlist)\n"
+cat <<EOF
+Usage: vgmplay [options] filename
+Plays VGM, VGZ, CMF, and DRO files either singly or by m3u playlist.
+
+Options:
+ -h, -?, --help               display this help and exit
+ -b <file>,
+         --binary=<file>      load alternate VGMPlay binary
+ -c <file>,
+         --config=<file>      load alternate config file
+
+ -a,     --aoss               force use of aoss (ALSA's OSS wrapper)
+ -o,     --oss                force use of OSS (native OSS, ossp)
+ -p,     --padsp              force use of padsp (PulseAudio's OSS wrapper)
+ -s <server>,
+         --paserver=<server>  set alternate PulseAudio server (implies --padsp)
+
+         --version            display VGMPlay and VGM Format versions and exit
+
+Keys (In-Player):
+ Left/Right                   seek 5 seconds backward/forward
+ Ctrl + Left/Right            seek 60 seconds backward/forward
+ Space                        pause
+ Escape twice                 quit program
+ F                            fade out current track
+ R                            restart current track
+ PageUp/B                     previous track (in playlist)
+ PageDown/N                   next track (in playlist)
+EOF
 }
 
-# Display help if no options or input files specified.
-if (( $# == 0 )); then
-	printf "No input file specified.\n\n"
-	_vgmplay_help
-	exit 64
+_vgmplay_error() {
+	case $1 in
+		no_file_arg )
+			echo "vgmplay: file required for $2 option" >&2
+			exit 1 ;;
+		config_error )
+			echo "vgmplay: failed to copy alternate config" >&2
+			exit 2 ;;
+		no_paserver_arg )
+			echo "vgmplay: server required for --paserver option " >&2
+			exit 1 ;;
+		too_many_outputs )
+			echo "vgmplay: can only force one output type" >&2
+			exit 1 ;;
+		no_music_file )
+			echo "vgmplay: no music file specified" >&2
+			_vgmplay_help
+			exit 1;;
+		invalid_music_file )
+			echo "vgmplay: music file must be VGM, VGZ, CMF, DRO, or M3U" >&2
+			exit 1 ;;
+		invalid_config )
+			echo "vgmplay: specified config must be readable file" >&2
+			exit 1 ;;
+		invalid_bin )
+			echo "vgmplay: invalid binary specified (is VGMPlay executable?)" >&2
+			exit 1 ;;
+		unknown_option )
+			echo "vgmplay: unknown option $2 ignored" >&2 ;;
+		no_config_found )
+			echo "vgmplay: no config file specified or found (in current dir or XDG basedirs)" >&2 ;;
+		no_VGMPlay_found )
+			echo "vgmplay: VGMPlay binary not in current directory or PATH" >&2
+			exit 2 ;;
+	esac
+}
+while :
+do
+	case $1 in
+		-h | -\? | --help )
+			_vgmplay_help
+			exit 0 ;;
+		--version )
+			echo "VGMPlay 0.40.3, supporting VGM Format 1.70"
+			exit 0 ;;
+		-b | --binary )
+			if [ -n "$2" ]; then
+				_vgmplay_bin="$2"
+				shift 2
+			else
+				_vgmplay_error no_file_arg "--binary"
+			fi ;;
+		--binary=* )
+			_vgmplay_bin="${1#*=}"
+			if [ -z "$_vgmplay_bin" ]; then
+				_vgmplay_error no_file_arg "--binary"
+			fi
+			shift ;;
+		-c | --config )
+			if [ -n "$2" ]; then
+				_config_arg="$2"
+				shift 2
+			else
+				_vgmplay_error no_file_arg "--config"
+			fi ;;
+		--config=* )
+			_config_arg="${1#*=}"
+			if [ -z "$_config_arg" ]; then
+				_vgmplay_error no_file_arg "--config"
+			fi
+			shift ;;
+		-a | --aoss )
+			if [ -z "$_output" ]; then
+				_output="aoss"
+				shift
+			else
+				_vgmplay_error too_many_outputs
+			fi ;;
+		-o | --oss )
+			if [ -z "$_output" ]; then
+				_output="oss"
+				shift
+			else
+				_vgmplay_error too_many_outputs
+			fi ;;
+		-p | --padsp )
+			if [ -z "$_output" ] || [ -z $PULSE_SERVER ]; then
+				_output="padsp"
+				shift
+			elif [ -z "$_output" ] || [ -n $PULSE_SERVER ]; then
+				_output="paserver"
+				_pulse_server="$PULSE_SERVER"
+			else
+				_vgmplay_error too_many_outputs
+			fi ;;
+		-s | --paserver )
+			if [ -z "$_output" ] || [ "$_output" = "padsp" ]; then
+				_output="paserver"
+			else
+				_vgmplay_error too_many_outputs
+			fi
+
+			if [ -n "$2" ]; then
+				_pulse_server="$2"
+				shift 2
+			else
+				_vgmplay_error no_paserver_arg
+			fi ;;
+		--paserver=* )
+			if [ -z "$_output" ] || [ "$_output" = "padsp" ]; then
+				_output="paserver"
+			else
+				_vgmplay_error too_many_outputs
+			fi
+
+			_pulse_server="${1#*=}"
+			if [ -z "$_pulse_server" ]; then
+				_vgmplay_error no_paserver_arg
+			fi
+			shift ;;
+		-* )
+			_vgmplay_error unknown_option "$1"
+			shift ;;
+		-- )
+			shift
+			break ;;
+		"" )
+			_vgmplay_error no_music_file ;;
+		* )
+			break ;;
+	esac
+done
+
+# Determines which VGMPlay binary to use
+# Priority: --binary arg, current dir, PATH, error
+if [ -z "$_vgmplay_bin" ]; then
+	_vgmplay_bin="$(which VGMPlay 2>/dev/null)"
+elif [ ! -x "$_vgmplay_bin" ] || [ "${_vgmplay_bin##*/}" != "VGMPlay" ]; then
+	_vgmplay_error invalid_bin
 fi
 
-# VGMPlay requires VGMPlay.ini to be in the current working directory.
-#  This keeps track of the actual current working directory for use in
-#  command invocation then changes to a 'fake' working directory.
-_cwd="$PWD"
-cd "$XDG_CONFIG_HOME/vgmplay"
+if [ -z "$_vgmplay_bin" ]; then
+	if [ -x "$PWD/VGMPlay" ]; then
+		_vgmplay_bin="$PWD/VGMPlay"
+	else
+		_vgmplay_error no_VGMPlay_found
+	fi
+fi
 
-case "$1" in
-	-h | -? | --help )
-		_vgmplay_help
-		exit 0 ;;
-	--version )
-		printf "VGMPlay Version 2012-11-11, supporting VGM 1.61\n"
-		exit 0 ;;
-	/* | ~* ) # Absolute path specified: clear _cwd
-		_cwd="" ;;
-	* )
-		;;
-esac
+# Basic sanity check on music file to play
+# Checks in order if:
+#  The final argument is a readable file
+#  Whether the extension is valid (accounting for caps)
+if [ ! -r "$@" ]; then
+	_vgmplay_error invalid_music_file
+else
+	case "${@##*.}" in
+		m3u | M3U | cmf | CMF | dro | DRO | vgz | VGZ | vgm | VGM )
+			case "$@" in
+				/* | ~* )
+					_pwd="" ;;
+				* )
+					;;
+			esac ;;
+		* )
+			_vgmplay_error invalid_music_file ;;
+	esac
+fi
 
-# Sets the window title to "VGMPlay" if $TERM has xterm or rxvt - not much,
-#  but it helps a bit.
+# Sets up chdir based on config location, as the config must be in
+#  VGMPlay's current working directory.
+# Priority: --config arg, cwd, XDG Basedirs
+# If _config_arg is set, check that it is a readable file,
+#  make a temporary directory, copy _config_arg to that dir as VGMPlay.ini,
+#  and ensure the config path is correct.
+# Otherwise, iterate through the current directory and the XDG basedirs,
+#  notifying on stderr if no config is found.
+if [ -z "$_config_arg" ]; then
+	if [ -r "$PWD/VGMPlay.ini" ]; then
+		_config_path="$PWD"
+	elif [ -r "$XDG_CONFIG_HOME/vgmplay/VGMPlay.ini" ]; then
+		_config_path="$XDG_CONFIG_HOME/vgmplay"
+	elif [ -r "$XDG_CONFIG_DIRS/vgmplay/VGMPlay.ini" ]; then
+		_config_path="$XDG_CONFIG_DIRS/vgmplay"
+	else
+		_vgmplay_error no_config_found
+	fi
+else
+	if [ ! -r "$_config_arg" ]; then
+		_vgmplay_error invalid_config
+	fi
+
+	_config_path_temp="$(mktemp -d)"
+	cp "$_config_arg" "$_config_path_temp/VGMPlay.ini" || _vgmplay_error config_error
+	_config_path="$_config_path_temp"
+fi
+
+# Sets window title if run in an xterm* or rxvt* terminal.
 case $TERM in
 	xterm* | rxvt* )
-		echo -e "\e]2;VGM Player\007" ;;
+		printf  '%b\n' '\033]2;VGM Player\007' ;;
 	* )
 		;;
 esac
 
-# Checks for the presence of pulseaudio and/or ALSA's aoss wrapper and selects
-#  which to use as appropriate.
-pulseaudio --check &>/dev/null
+# If _output is set, runs VGMPlay with the specified output, cleans up the tempdir
+#  if it exists, then exits.  VGMPlay is run in a subshell due to the needed chdir.
+case "$_output" in
+	paserver )
+		(cd "$_config_path" && exec padsp -s "$_pulse_server" -n "VGM Player" -m "OSS Emulation (from $_pulse_server)" "$_vgmplay_bin" "$_pwd$@")
+		if [ -n "$_config_path_temp" ]; then rm -rf "$_config_path_temp"; fi
+		exit 0 ;;
+	padsp )
+		(cd "$_config_path" && exec padsp -n "VGM Player" -m "OSS Emulation" "$_vgmplay_bin" "$_pwd$@")
+		if [ -n "$_config_path_temp" ]; then rm -rf "$_config_path_temp"; fi
+		exit 0 ;;
+	aoss )
+		(cd "$_config_path" && exec aoss "$_vgmplay_bin" "$_pwd$@")
+		if [ -n "$_config_path_temp" ]; then rm -rf "$_config_path_temp"; fi
+		exit 0 ;;
+	oss )
+		(cd "$_config_path" && exec "$_vgmplay_bin" "$_pwd$@")
+		if [ -n "$_config_path_temp" ]; then rm -rf "$_config_path_temp"; fi
+		exit 0 ;;
+	* )
+		;;
+esac
 
-if (( $? == 0 )); then
-	/usr/bin/padsp /usr/bin/VGMPlay "$_cwd/$@"
-elif [[ -e /usr/bin/aoss ]]; then
-	/usr/bin/aoss /usr/bin/VGMPlay "$_cwd/$@"
+# If _output is not set, attempts to autodetect what OSS wrapper, if any, to use.
+#  (Sorry osspd folks, there's no separate check for you so you'll get padsp or aoss if present.)
+# Priority: padsp (pulseaudio running AND PULSE_SERVER unset), padsp (PULSE_SERVER set), aoss, oss
+pulseaudio --check
+if [ "$?" = "0" ] && [ -z "$PULSE_SERVER" ]; then
+	(cd "$_config_path" && exec padsp -n "VGM Player" -m "OSS Emulation" "$_vgmplay_bin" "$_pwd$@")
+elif [ -n "$PULSE_SERVER" ] && [ -e "$(which padsp 2>/dev/null)" ]; then
+	(cd "$_config_path" && exec padsp -n "VGM Player" -m "OSS Emulation (from $PULSE_SERVER)" "$_vgmplay_bin" "$_pwd$@")
+elif [ -e "$(which aoss 2>/dev/null)" ]; then
+	(cd "$_config_path" && exec aoss "$_vgmplay_bin" "$_pwd$@")
 else
-	/usr/bin/VGMPlay "$_cwd/$@"
+	(cd "$_config_path" && exec "$_vgmplay_bin" "$_pwd$@")
 fi
 
-unset _vgmplay_help
-unset _cwd
