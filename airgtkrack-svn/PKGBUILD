@@ -1,17 +1,19 @@
+#Maintainer:
+#Contributor:
+
 pkgname=airgtkrack-svn
-pkgver=188
+pkgver=189
 pkgrel=1
 pkgdesc="Graphical Wifi cracking tool"
-arch=(i686 x86_64)
+arch=('i686' 'x86_64')
 url="http://sourceforge.net/projects/airgtkrack/"
 license=('GPL')
 depends=('wireless_tools' 'gtk2' 'openssl')
-makedepends=('subversion' 'make' 'pkgconfig')
+makedepends=('subversion')
 provides=('airgtkrack')
 conflicts=('airgtkrack')
-install=('airgtkrack.install')
-source=(airgtkrack.install \
-	rc_airgtkrack)
+install='airgtkrack.install'
+source=('airgtkrack.install' 'rc_airgtkrack')
 md5sums=('a361aa50c74a3747ae85d177c09986c0'
 	 '5950ebe869bb02f96019b5adab0b54f5')
 
@@ -19,27 +21,32 @@ _svnmod="airgtkrack"
 _svntrunk="https://airgtkrack.svn.sf.net/svnroot/airgtkrack/trunk/"
 
 build() {
-	cd $startdir/src/
-	mkdir -p ~/.subversion; touch ~/.subversion/servers
-	msg "Connecting to $_svnmod.sf.net SVN server..."
-	svn co $_svntrunk $_svnmod
+	cd $srcdir
+	msg "Connecting to SVN server...."
+
+	if [[ -d "$_svnmod/.svn" ]]; then
+		(cd "$_svnmod" && svn up -r "$pkgver")
+	else
+		svn co "$_svntrunk" --config-dir ./ -r "$pkgver" "$_svnmod"
+	fi
 
 	msg "SVN checkout done or server timeout"
-	msg "Starting make..."
+	msg "Starting build..."
 
-	cd ./$_svnmod
+	rm -rf "$srcdir/$_svnmod-build"
+	svn export "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
+	cd "$srcdir/$_svnmod-build"
 
-	mkdir -p $startdir/pkg/usr/
-	# compile
-	./autogen.sh || return 1
-	./configure --with-gtk=yes --prefix=$startdir/pkg/usr/ || return 1
-	make clean || return 1
-	make all || return 1
+	./autogen.sh
+	./configure --with-gtk=yes --prefix=$pkgdir/usr/
+	make clean
+	make all
+}
 
-	msg "Installing..."
-	make install || return 1
+package() {
+	make install
 
-	# the daemon
-	mkdir -p $startdir/pkg/etc/rc.d/
-	install -D -m755 ../../rc_airgtkrack $startdir/pkg/etc/rc.d/airgtkrack
+	# the rc-script (more or less obsolete now, because of systemd)
+	mkdir -p $pkgdir/etc/rc.d/
+	install -D -m755 ../../rc_airgtkrack $pkgdir/etc/rc.d/airgtkrack
 }
