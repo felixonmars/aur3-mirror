@@ -4,7 +4,7 @@
 
 pkgname=voxforge-am-julius
 pkgver=2012.10.22
-pkgrel=1
+pkgrel=2
 pkgdesc="Acoustic model information for use with Julius voice recognition software"
 arch=('any')
 url="http://www.voxforge.org/"
@@ -16,7 +16,7 @@ sha1sums=('8410178114b1e12fbfdc33516fb852682b349824')
 build() {
   cd "$srcdir"
 
-  install -D julian.jconf $pkgdir/usr/share/voxforge/julius/julian.jconf
+  install -D Sample.jconf $pkgdir/usr/share/voxforge/julius/julius.jconf
   install -d $pkgdir/usr/share/voxforge/julius/grammar/
   install -t $pkgdir/usr/share/voxforge/julius/grammar/ grammar/*
   install -d $pkgdir/usr/share/voxforge/julius/acoustic_model_files/
