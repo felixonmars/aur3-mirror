@@ -1,0 +1,2002 @@
+diff --git a/kdm/kfrontend/kgreeter.cpp b/kdm/kfrontend/kgreeter.cpp
+index 3a595cb..a251543 100644
+--- a/kdm/kfrontend/kgreeter.cpp
++++ b/kdm/kfrontend/kgreeter.cpp
+@@ -4,6 +4,7 @@ Greeter widget for kdm
+ 
+ Copyright (C) 1997, 1998, 2000 Steffen Hansen <hansen@kde.org>
+ Copyright (C) 2000-2004 Oswald Buddenhagen <ossi@kde.org>
++Copyright (C) 2011 ROSA Lab. <ural.mullabaev@rosalab.ru>
+ 
+ 
+ This program is free software; you can redistribute it and/or modify
+@@ -27,6 +28,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include "kdmconfig.h"
+ #include "kdmclock.h"
+ #include "kdm_greet.h"
++#include "kdmshutdown.h"
+ #include "themer/kdmthemer.h"
+ #include "themer/kdmitem.h"
+ #include "themer/kdmlabel.h"
+@@ -38,6 +40,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include <kstandarddirs.h>
+ #include <kstringhandler.h>
+ 
++#include <QApplication>
+ #include <QAction>
+ #include <QBuffer>
+ #include <QDir>
+@@ -50,9 +53,13 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include <QMenu>
+ #include <QMovie>
+ #include <QPainter>
++#include <QLineEdit>
+ #include <QPushButton>
+ #include <QShortcut>
+ #include <QStyle>
++#include <QTextLayout>
++#include <QParallelAnimationGroup>
++#include <QX11Info>
+ 
+ #include <sys/types.h>
+ #include <sys/stat.h>
+@@ -66,112 +73,864 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include <X11/Xlib.h>
+ #include <fixx11h.h>
+ 
+-class UserListView : public QListWidget {
+-  public:
+-    UserListView(QWidget *parent = 0)
+-        : QListWidget(parent)
+-        , cachedSizeHint(-1, 0)
+-    {
+-        setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored);
+-        setUniformItemSizes(true);
+-        setVerticalScrollMode(ScrollPerPixel);
+-        setIconSize(QSize(48, 48));
+-        setAlternatingRowColors(true);
++#define LIST_IMAGE_SIZE 48
++#define SLIDER_IMAGE_SIZE 150
++#define SELECTED_IMAGE_RATIO 1.5
++
++UserListView::UserListView(QWidget *parent)
++    : QListWidget(parent)
++    , cachedSizeHint(-1, 0)
++{
++    setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Ignored);
++    setUniformItemSizes(true);
++    setVerticalScrollMode(ScrollPerPixel);
++    setIconSize(QSize(LIST_IMAGE_SIZE, LIST_IMAGE_SIZE));
++    setAlternatingRowColors(true);
++}
++
++QSize
++UserListView::sizeHint() const
++{
++    if (!cachedSizeHint.isValid()) {
++        ensurePolished();
++        QStyleOptionViewItem vo(viewOptions());
++        QAbstractListModel *md(static_cast<QAbstractListModel *>(model()));
++        uint maxw = 0, h = 0;
++        for (int i = 0, rc = md->rowCount(); i < rc; i++) {
++            QSize sh = itemDelegate()->sizeHint(vo, md->index(i));
++            uint thisw = sh.width();
++            if (thisw > maxw)
++                maxw = thisw;
++            h += sh.height();
++        }
++        cachedSizeHint.setWidth(
++            style()->pixelMetric(QStyle::PM_ScrollBarExtent) +
++            (frameWidth() +
++             (style()->styleHint(QStyle::SH_ScrollView_FrameOnlyAroundContents) ?
++              style()->pixelMetric(QStyle::PM_DefaultFrameWidth) : 0)) * 2 +
++            maxw);
++        cachedSizeHint.setHeight(frameWidth() * 2 + h);
+     }
++    return cachedSizeHint;
++}
+ 
+-    mutable QSize cachedSizeHint;
++void
++UserListView::keyPressEvent(QKeyEvent *event)
++{
++    switch (event->key()) {
++    case Qt::Key_Enter:
++    case Qt::Key_Return:
++        if (currentItem())
++            emit itemDoubleClicked(currentItem());
++        event->accept();
++        break;
++    case Qt::Key_Space:
++        if (currentItem())
++            emit itemClicked(currentItem());
++        event->accept();
++        break;
++    default:
++        QListWidget::keyPressEvent(event);
++        break;
++    }
++}
+ 
+-  protected:
+-    virtual QSize sizeHint() const
+-    {
+-        if (!cachedSizeHint.isValid()) {
+-            ensurePolished();
+-            QStyleOptionViewItem vo(viewOptions());
+-            QAbstractListModel *md(static_cast<QAbstractListModel *>(model()));
+-            uint maxw = 0, h = 0;
+-            for (int i = 0, rc = md->rowCount(); i < rc; i++) {
+-                QSize sh = itemDelegate()->sizeHint(vo, md->index(i));
+-                uint thisw = sh.width();
+-                if (thisw > maxw)
+-                    maxw = thisw;
+-                h += sh.height();
+-            }
+-            cachedSizeHint.setWidth(
+-                style()->pixelMetric(QStyle::PM_ScrollBarExtent) +
+-                (frameWidth() +
+-                 (style()->styleHint(QStyle::SH_ScrollView_FrameOnlyAroundContents) ?
+-                  style()->pixelMetric(QStyle::PM_DefaultFrameWidth) : 0)) * 2 +
+-                maxw);
+-            cachedSizeHint.setHeight(frameWidth() * 2 + h);
++void
++UserListView::mousePressEvent(QMouseEvent *event)
++{
++    m_suppressClick = false;
++    QListWidget::mousePressEvent(event);
++}
++
++void
++UserListView::mouseReleaseEvent(QMouseEvent *event)
++{
++    if (m_suppressClick)
++        m_suppressClick = false;
++    else
++        QListWidget::mouseReleaseEvent(event);
++}
++
++void
++UserListView::mouseDoubleClickEvent(QMouseEvent *event)
++{
++    m_suppressClick = true;
++    QListWidget::mouseDoubleClickEvent(event);
++}
++
++
++UserListViewItem::UserListViewItem(UserListView *parent, const QString &text,
++                              const QIcon &icon, const QString &username)
++    : QListWidgetItem(parent)
++    , login(username)
++{
++    setIcon(icon);
++    setText(text);
++    parent->cachedSizeHint.setWidth(-1);
++}
++
++
++UserSliderView::UserSliderView(QWidget *parent)
++    : UserListView(parent)
++{
++    setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Minimum);
++    setIconSize(QSize(SLIDER_IMAGE_SIZE * SELECTED_IMAGE_RATIO, SLIDER_IMAGE_SIZE * SELECTED_IMAGE_RATIO));
++    setUniformItemSizes(false);
++    setAlternatingRowColors(false);
++    setViewMode(QListView::IconMode);
++    setSelectionMode(QAbstractItemView::NoSelection);
++    setWrapping(false);
++    setSpacing(10);
++    setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
++    setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
++    setAcceptDrops(false);
++}
++
++QWidget*
++UserSliderView::itemEditor(const int row)
++{
++    return itemEditors.value(row);
++}
++
++void
++UserSliderView::setItemEditor(const int row, QWidget *widget)
++{
++    itemEditors.resize(count());
++    itemEditors.replace(row, widget);
++}
++
++void
++UserSliderView::layoutItems()
++{
++    QStyleOptionViewItem vo(viewOptions());
++    QAbstractListModel *md(static_cast<QAbstractListModel *>(model()));
++    int rc = model()->rowCount();
++    int w = 0;
++    for (int i = 0; i < rc; i++) {
++        QSize sh = itemDelegate()->sizeHint(vo, md->index(i));
++        w += sh.width();
++    }
++    int lw = size().width();
++    int lh = size().height();
++    int s = spacing();
++    int os = (lw - w - s * (rc-1)) / 2;
++    int l = os;
++
++    for (int i = 0; i < rc; i++) {
++        QSize sh = itemDelegate()->sizeHint(vo, md->index(i));
++   setPositionForIndex(QPoint(l, (lh - sh.height()) / 2), md->index(i));
++   l += sh.width() + spacing();
++    }
++    updateGeometries();
++}
++
++void
++UserSliderView::updateGeometries()
++{
++    QListWidget::updateGeometries();
++}
++
++void
++UserSliderView::resizeEvent(QResizeEvent *event)
++{
++    QListWidget::resizeEvent(event);
++
++    const int margin  = 3; //style()->pixelMetric(QStyle::PM_FocusFrameHMargin) + 1;
++    const int text    = 24;
++    QSize size = QSize(SLIDER_IMAGE_SIZE + 16 * margin,
++              SLIDER_IMAGE_SIZE + 18 * margin + text);
++    for (int i = 0; i < model()->rowCount(); i++) {
++   item(i)->setSizeHint(size);
++    }
++    layoutItems();
++}
++
++void
++UserSliderView::dragEnterEvent (QDragEnterEvent *event)
++{
++    event->ignore();
++}
++
++void
++UserSliderView::dragMoveEvent (QDragMoveEvent *event)
++{
++    event->ignore();
++}
++
++void
++UserSliderView::dragLeaveEvent (QDragLeaveEvent *event)
++{
++    event->ignore();
++}
++
++void
++UserSliderView::dropEvent (QDropEvent *event)
++{
++    event->ignore();
++}
++
++void
++UserSliderView::wheelEvent (QWheelEvent *event)
++{
++    event->ignore();
++}
++
++/*
++bool
++UserSliderView::eventFilter(QObject *object, QEvent *event)
++{
++qDebug("UserSliderView::eventFilter  ObjectName %s", object->metaObject()->className());
++    if (object->metaObject()->className() == "PasswordEditor") {
++   if (event->type() == QEvent::KeyPress) {
++qDebug("UserSliderView::eventFilter  QEvent::KeyPress");
++       QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
++       if (keyEvent->key() == Qt::Key_Tab ||
++       keyEvent->key() == Qt::Key_Backtab) {
++qDebug("UserSliderView::eventFilter  Qt::Key_Tab");
++       //emit tabPressed(keyEvent->key());
++       return true;
++       }
++   }
++   return false;
++    } 
++    else {
++   return UserListView::eventFilter(object, event);
++    }
++}
++*/
++UserSliderViewItem::UserSliderViewItem(UserSliderView *parent, const QString &text,
++                 const QIcon &icon, const QString &username)
++    : QObject()
++    , UserListViewItem(parent, text, icon, username)
++{
++    parent->openPersistentEditor(this);
++}
++
++UserSliderViewItem::~UserSliderViewItem()
++{
++}
++
++
++UserSliderViewItemAnimation::UserSliderViewItemAnimation(QObject *parent)
++    : QPropertyAnimation(parent)
++{
++}
++
++void
++UserSliderViewItemAnimation::updateCurrentValue(const QVariant &value)
++{
++    QPropertyAnimation::updateCurrentValue(value);
++    emit sizeChanged();
++}
++
++void
++UserItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
++                         const QModelIndex &index) const
++{
++
++    QStyleOptionViewItemV4 opt = option;
++    initStyleOption(&opt, index);
++
++    const QWidget *widget = opt.widget;
++    QStyle *style = widget->style();
++
++    if (const QStyleOptionViewItemV4 *vopt = qstyleoption_cast<const QStyleOptionViewItemV4 *>(&opt)) {
++        painter->save();
++        painter->setClipRect(opt.rect);
++
++   painter->setRenderHint(QPainter::Antialiasing);
++   const int margin = 3; //widget->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, widget) + 1;
++   const int offset = 2 * margin;
++   const int shadow = 4 * margin;
++   const int frame1  = 2 * margin;
++   const int frame2  = 2;
++   const int radius = 2 * margin;
++   const int spacing  = 2 * margin;
++   const int text  = 24;
++
++        QRect iconRect = QRect(vopt->rect.left() + offset + shadow + frame1 + frame2,
++                      vopt->rect.top() + offset + shadow + frame1 + frame2,
++                      vopt->rect.width() - 2 * (offset + shadow + frame1 + frame2),
++                      vopt->rect.width() - 2 * (offset + shadow + frame1 + frame2));
++
++        QRect textRect = QRect(vopt->rect.left(),
++                      vopt->rect.top() + vopt->rect.height() - text - spacing - offset,
++                      vopt->rect.width(),
++                      text);
++
++        QTextLayout textLayout;
++        textLayout.setFont(vopt->font);
++        textLayout.setText(vopt->text);
++        textLayout.beginLayout();
++        QTextLine line = textLayout.createLine();
++        line.setLineWidth(textRect.width());
++        textLayout.endLayout();
++        textRect.setWidth(line.naturalTextWidth() + 4 * margin);
++        textRect.moveLeft(vopt->rect.left() + vopt->rect.width() / 2 - textRect.width() / 2);
++
++        // draw the background
++        QPalette::ColorGroup cg = (widget ? widget->isEnabled() : (vopt->state & QStyle::State_Enabled))
++                                      ? QPalette::Normal : QPalette::Disabled;
++        QRect shadowLeftTopRect = QRect(vopt->rect.left() + offset,
++                    vopt->rect.top() + offset,
++                    2 * (shadow + radius),
++                    2 * (shadow + radius));
++        QRect shadowRightTopRect = QRect(vopt->rect.left() + vopt->rect.width() - offset - 2 * (shadow + radius),
++                    vopt->rect.top() + offset,
++                    2 * (shadow + radius),
++                    2 * (shadow + radius));
++        QRect shadowRightBottomRect = QRect(vopt->rect.left() + vopt->rect.width() - offset - 2 * (shadow + radius),
++                    vopt->rect.top() + vopt->rect.height() - 2 * (shadow + radius) - spacing - text - offset,
++                    2 * (shadow + radius),
++                    2 * (shadow + radius));
++        QRect shadowLeftBottomRect = QRect(vopt->rect.left() + offset,
++                    vopt->rect.top() + vopt->rect.height() - 2 * (shadow + radius) - spacing - text - offset,
++                    2 * (shadow + radius),
++                    2 * (shadow + radius));
++
++        QRect shadowLeftRect = QRect(vopt->rect.left() + offset,
++                    vopt->rect.top() + offset + shadow + radius,
++                    shadow + radius,
++                    vopt->rect.height() - 2 * (offset + shadow + radius) - spacing - text);
++        QRect shadowTopRect = QRect(vopt->rect.left() + offset + shadow + radius,
++                    vopt->rect.top() + offset,
++                    vopt->rect.width() - 2 * (offset + shadow + radius),
++                    shadow + radius);
++        QRect shadowRightRect = QRect(vopt->rect.left() + vopt->rect.width() - offset - shadow - radius,
++                    vopt->rect.top() + offset + shadow + radius,
++                    shadow + radius,
++                    vopt->rect.height() - 2 * (offset + shadow + radius) - spacing - text);
++        QRect shadowBottomRect = QRect(vopt->rect.left() + offset + shadow + radius,
++                    vopt->rect.top() + vopt->rect.height() - shadow - radius - spacing - text - offset,
++                    vopt->rect.width() - 2 * (offset + shadow + radius),
++                    shadow + radius);
++
++   painter->setPen(QPen(QColor(0, 0, 0, 0), 0));
++
++        QRadialGradient radialGrad;
++        radialGrad.setColorAt(0, QColor(0, 0, 0, 48));
++        radialGrad.setColorAt(1, QColor(0, 0, 0, 0));
++        radialGrad.setRadius(shadow + radius);
++
++        radialGrad.setCenter(shadowLeftTopRect.left() + shadow + radius + 1, shadowLeftTopRect.top() + shadow + radius + 1);
++        radialGrad.setFocalPoint(shadowLeftTopRect.left() + shadow + radius + 1, shadowLeftTopRect.top() + shadow + radius + 1);
++   painter->setBrush(radialGrad);
++        painter->drawPie(shadowLeftTopRect, 90 * 16, 90 * 16);
++
++        radialGrad.setCenter(shadowRightTopRect.right() - shadow - radius - 1, shadowRightTopRect.top() + shadow + radius + 1);
++        radialGrad.setFocalPoint(shadowRightTopRect.right() - shadow - radius - 1, shadowRightTopRect.top() + shadow + radius + 1);
++   painter->setBrush(radialGrad);
++        painter->drawPie(shadowRightTopRect, 0 * 16, 90 * 16);
++
++        radialGrad.setCenter(shadowRightBottomRect.right() - shadow - radius - 1, shadowRightBottomRect.bottom() - shadow - radius - 1);
++        radialGrad.setFocalPoint(shadowRightBottomRect.right() - shadow - radius - 1, shadowRightBottomRect.bottom() - shadow - radius - 1);
++   painter->setBrush(radialGrad);
++        painter->drawPie(shadowRightBottomRect, 270 * 16, 90 * 16);
++
++        radialGrad.setCenter(shadowLeftBottomRect.left() + shadow + radius + 1, shadowLeftBottomRect.bottom() - shadow - radius - 1);
++        radialGrad.setFocalPoint(shadowLeftBottomRect.left() + shadow + radius + 1, shadowLeftBottomRect.bottom() - shadow - radius - 1);
++   painter->setBrush(radialGrad);
++        painter->drawPie(shadowLeftBottomRect, 180 * 16, 90 * 16);
++
++        QLinearGradient linearGrad;
++        linearGrad.setColorAt(0, QColor(0, 0, 0, 48));
++        linearGrad.setColorAt(1, QColor(0, 0, 0, 0));
++
++        linearGrad.setStart(shadowLeftRect.right(), 0);
++        linearGrad.setFinalStop(shadowLeftRect.left(), 0);
++   painter->setBrush(linearGrad);
++        painter->drawRect(shadowLeftRect);
++
++        linearGrad.setStart(0, shadowTopRect.bottom());
++        linearGrad.setFinalStop(0, shadowTopRect.top());
++   painter->setBrush(linearGrad);
++        painter->drawRect(shadowTopRect);
++
++        linearGrad.setStart(shadowRightRect.left(), 0);
++        linearGrad.setFinalStop(shadowRightRect.right(), 0);
++   painter->setBrush(linearGrad);
++        painter->drawRect(shadowRightRect);
++
++        linearGrad.setStart(0, shadowBottomRect.top());
++        linearGrad.setFinalStop(0, shadowBottomRect.bottom());
++   painter->setBrush(linearGrad);
++        painter->drawRect(shadowBottomRect);
++
++        QRect frame0Rect = QRect(vopt->rect.left() + offset + shadow + frame1,
++                   vopt->rect.top() + vopt->rect.width() - (offset + shadow + frame1),
++                   vopt->rect.width() - 2 * (offset + shadow + frame1), 
++                       vopt->rect.height() - vopt->rect.width() - spacing - text);
++   painter->setBrush(QColor(0, 0, 0, 48));
++        painter->drawRect(frame0Rect);
++
++        QRect frame1Rect = QRect(vopt->rect.left() + offset + shadow,
++                   vopt->rect.top() + offset + shadow,
++                   vopt->rect.width() - 2 * (offset + shadow), 
++                       vopt->rect.height() - 2 * (offset + shadow) - spacing - text);
++   painter->setBrush(QColor(0, 0, 0, 148));
++        painter->drawRoundedRect(frame1Rect, radius, radius);
++        QRect frame2Rect = QRect(vopt->rect.left() + offset + shadow + frame1,
++                   vopt->rect.top() + offset + shadow + frame1,
++                   vopt->rect.width() - 2 * (offset + shadow + frame1),
++                       vopt->rect.width() - 2 * (offset + shadow + frame1));
++   painter->setBrush(QColor(255, 255, 255, 255));
++        painter->drawRoundedRect(frame2Rect, margin, margin);
++
++        // draw the icon
++        QIcon::Mode mode = QIcon::Normal;
++        if (!(vopt->state & QStyle::State_Enabled))
++            mode = QIcon::Disabled;
++        else if (vopt->state & QStyle::State_Selected)
++            mode = QIcon::Selected;
++        QIcon::State state = vopt->state & QStyle::State_Open ? QIcon::On : QIcon::Off;
++        vopt->icon.paint(painter, iconRect, vopt->decorationAlignment, mode, state);
++
++        // draw the text
++        if (!vopt->text.isEmpty()) {
++       painter->setPen(QColor(255, 255, 255, 255));
++            drawText(painter, vopt, textRect);
+         }
+-        return cachedSizeHint;
++   painter->restore();
+     }
+ 
+-    virtual void keyPressEvent(QKeyEvent *event)
+-    {
+-        switch (event->key()) {
+-        case Qt::Key_Enter:
+-        case Qt::Key_Return:
+-            if (currentItem())
+-                emit itemDoubleClicked(currentItem());
+-            event->accept();
++}
++
++QWidget *
++UserItemDelegate::createEditor(QWidget *parent,
++                                    const QStyleOptionViewItem &option,
++                                    const QModelIndex &index) const
++
++{
++    PasswordEditor *editor = new PasswordEditor(parent);
++    connect(editor, SIGNAL(textEntered(const QString &)),
++            this, SLOT(slotTextEntered(const QString &)));
++    connect(editor, SIGNAL(tabPressed(const int)),
++            this, SLOT(slotTabPressed(const int)));
++
++    QStyleOptionViewItemV4 opt = option;
++    QWidget *widget = const_cast<QWidget *>(opt.widget);
++    UserSliderView *view = static_cast<UserSliderView *>(widget);
++    view->setItemEditor(index.row(), editor);
++    view->setFocusProxy(editor);
++    editor->setFocus();
++
++    return editor;
++}
++
++void
++UserItemDelegate::setEditorData(QWidget * /*editor*/,
++                                 const QModelIndex &/*index*/) const
++{
++}
++
++void
++UserItemDelegate::setModelData(QWidget * /*editor*/, QAbstractItemModel * /*model*/,
++                                const QModelIndex &/*index*/) const
++{
++}
++
++void
++UserItemDelegate::updateEditorGeometry(QWidget * editor, const QStyleOptionViewItem & option,
++                 const QModelIndex & /*index*/) const
++{
++    QStyleOptionViewItemV4 opt = option;
++    const int margin = 3; //opt.widget->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, opt.widget) + 1;
++    const int text = 24; //opt.widget->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, opt.widget) + 1;
++
++    int x = option.rect.left() + 8 * margin;
++    int y = option.rect.top() + option.rect.width() - 6 * margin - 3;
++    int w = option.rect.width() - 16 * margin;
++    int h = option.rect.height() - option.rect.width() - 4 * margin - text + 6;
++    //qDebug("updateEditorGeometry height %d, rh %d, rw", h, option.rect.height(), option.rect.width());
++    editor->setGeometry(QRect(x, y, w, h));
++}
++
++void
++UserItemDelegate::slotTextEntered(const QString &text)
++{
++    emit passwordEntered(text/*static_cast<PasswordEditor *>(sender())->text()*/);
++}
++
++void
++UserItemDelegate::slotTabPressed(const int key)
++{
++    emit tabPressed(key);
++}
++
++void
++UserItemDelegate::drawText(QPainter *p, const QStyleOptionViewItemV4 *option, const QRect &rect) const
++{
++    const QWidget *widget = option->widget;
++    const int textMargin = 3; //widget->style()->pixelMetric(QStyle::PM_FocusFrameHMargin, 0, widget) + 1;
++
++    QRect textRect = rect.adjusted(textMargin, 0, -textMargin, 0);
++    const bool wrapText = option->features & QStyleOptionViewItemV2::WrapText;
++    QTextOption textOption;
++    textOption.setWrapMode(wrapText ? QTextOption::WordWrap : QTextOption::ManualWrap);
++    textOption.setTextDirection(option->direction);
++    textOption.setAlignment(QStyle::visualAlignment(option->direction, option->displayAlignment));
++    QTextLayout textLayout;
++    textLayout.setTextOption(textOption);
++    textLayout.setFont(option->font);
++    textLayout.setText(option->text);
++
++    qreal heightUsed = 0;
++    qreal widthUsed = 0;
++    textLayout.beginLayout();
++    while (true) {
++        QTextLine line = textLayout.createLine();
++        if (!line.isValid())
+             break;
+-        case Qt::Key_Space:
+-            if (currentItem())
+-                emit itemClicked(currentItem());
+-            event->accept();
++        line.setLineWidth(textRect.width());
++        line.setPosition(QPointF(0, heightUsed));
++        heightUsed += line.height();
++        widthUsed = qMax(widthUsed, line.naturalTextWidth());
++    }
++    textLayout.endLayout();
++    QSizeF textLayoutSize = QSizeF(widthUsed, heightUsed);
++
++    QString elidedText;
++    qreal height = 0;
++    qreal width = 0;
++    int elidedIndex = -1;
++    const int lineCount = textLayout.lineCount();
++    for (int j = 0; j < lineCount; ++j) {
++        const QTextLine line = textLayout.lineAt(j);
++        if (j + 1 <= lineCount - 1) {
++            const QTextLine nextLine = textLayout.lineAt(j + 1);
++            if ((nextLine.y() + nextLine.height()) > textRect.height()) {
++                int start = line.textStart();
++                int length = line.textLength() + nextLine.textLength();
++                //const QStackTextEngine engine(textLayout.text().mid(start, length), option->font);
++                elidedText = /*engine*/option->fontMetrics.elidedText(textLayout.text().mid(start, length), option->textElideMode, textRect.width());
++                height += line.height();
++                width = textRect.width();
++                elidedIndex = j;
++                break;
++            }
++        }
++        if (line.naturalTextWidth() > textRect.width()) {
++            int start = line.textStart();
++            int length = line.textLength();
++            //const QStackTextEngine engine(textLayout.text().mid(start, length), option->font);
++            elidedText = /*engine*/option->fontMetrics.elidedText(textLayout.text().mid(start, length), option->textElideMode, textRect.width());
++            height += line.height();
++            width = textRect.width();
++            elidedIndex = j;
+             break;
+-        default:
+-            QListWidget::keyPressEvent(event);
++        }
++        width = qMax<qreal>(width, line.width());
++        height += line.height();
++    }
++
++            QFont f = option->font;
++            f.setFamily("Droid Sans");
++//qDebug("font family=%s", f.family().toAscii().data());
++
++    const QRect layoutRect = QStyle::alignedRect(option->direction, option->displayAlignment,
++                                                 QSize(int(width), int(height)), textRect);
++    const QPointF position = layoutRect.topLeft();
++    for (int i = 0; i < lineCount; ++i) {
++        const QTextLine line = textLayout.lineAt(i);
++        if (i == elidedIndex) {
++            qreal x = position.x() + line.x();
++            qreal y = position.y() + line.y() + line.ascent();
++            p->save();
++            p->setFont(f);
++            p->drawText(QPointF(x, y), elidedText);
++//qDebug("font family=%s", p->font().family().toAscii().data());
++            p->restore();
+             break;
+         }
++        line.draw(p, position);
+     }
++}
+ 
+-    virtual void mousePressEvent(QMouseEvent *event)
+-    {
+-        m_suppressClick = false;
+-        QListWidget::mousePressEvent(event);
++
++PasswordEditor::PasswordEditor(QWidget *parent)
++    : QWidget(parent)
++{
++    layout = new QVBoxLayout(this);
++    layout->setMargin(0);
++    edit = new LineEdit(this);
++    edit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
++    edit->setMinimumHeight(30);
++    connect(edit, SIGNAL(returnPressed()), this, SLOT(slotReturnPressed()));
++    connect(edit, SIGNAL(loginPressed()), this, SLOT(slotReturnPressed()));
++    connect(edit, SIGNAL(tabPressed(const int)), this, SLOT(slotTabPressed(const int)));
++    layout->addWidget(edit);
++    setLayout(layout);
++    setContentsMargins(0, 0, 0, 0);
++    setFocusProxy(edit);
++}
++
++PasswordEditor::~PasswordEditor()
++{
++    delete edit;
++    delete layout;
++}
++
++LineEdit* 
++PasswordEditor::lineEdit() const
++{
++    return edit;
++}
++
++void 
++PasswordEditor::slotReturnPressed()
++{
++    emit textEntered(edit->text());
++}
++
++void 
++PasswordEditor::slotTabPressed(const int key)
++{
++    emit tabPressed(key);
++}
++
++LineEdit::LineEdit(QWidget *parent)
++    : QLineEdit(parent),
++    language("us"),
++    capsLocked(false),
++    loginHover(false),
++    loginActive(false),
++    indicatorChanged(false)
++{
++    setEchoMode(QLineEdit::Password);
++    //setLangIndicator("us");
++    //setCapsIndicator(false);
++    setFrame(false);
++    //QApplication::setStyle("qtcurve");
++    loginIcon.addPixmap(QPixmap(KStandardDirs::locate("data", "kdm/pics/login-normal.png")), QIcon::Normal);
++    loginIcon.addPixmap(QPixmap(KStandardDirs::locate("data", "kdm/pics/login-disabled.png")), QIcon::Disabled);
++    loginIcon.addPixmap(QPixmap(KStandardDirs::locate("data", "kdm/pics/login-active.png")), QIcon::Active);
++    loginIcon.addPixmap(QPixmap(KStandardDirs::locate("data", "kdm/pics/login-prelight.png")), QIcon::Selected);
++
++    setStyleSheet("* { lineedit-password-character: 9679 }");
++    setStyleSheet("* { background: transparent }");
++}
++
++void 
++LineEdit::setLangIndicator(const QString &lang)
++{
++    language = lang;
++    indicatorChanged = true;
++    repaint();
++}
++
++void 
++LineEdit::setCapsIndicator(const bool caps)
++{
++    capsLocked = caps;
++    indicatorChanged = true;
++    repaint();
++}
++
++bool 
++LineEdit::event(QEvent *event)
++{
++    if (event->type() == QEvent::KeyPress) {
++//qDebug("LineEdit::event  QEvent::KeyPress");
++   QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
++   if (keyEvent->key() == Qt::Key_Tab ||
++       keyEvent->key() == Qt::Key_Backtab) {
++//qDebug("LineEdit::event  Qt::Key_Tab");
++       emit tabPressed(keyEvent->key());
++       return true;
++   }
+     }
++    return QLineEdit::event(event);
++}
+ 
+-    virtual void mouseReleaseEvent(QMouseEvent *event)
+-    {
+-        if (m_suppressClick)
+-            m_suppressClick = false;
+-        else
+-            QListWidget::mouseReleaseEvent(event);
++void 
++LineEdit::leaveEvent(QEvent *event)
++{
++    loginHover = false;
++    QLineEdit::leaveEvent(event);
++}
++void 
++LineEdit::mouseMoveEvent(QMouseEvent *event)
++{
++    if (event->x() > width() - buttonWidth) {
++   if (!loginActive) {
++       loginHover = true;
++   }
++   setCursor(Qt::ArrowCursor);
++    }
++    else {
++   loginHover = false;
++   setCursor(Qt::IBeamCursor);
+     }
++    QLineEdit::mouseMoveEvent(event);
++}
+ 
+-    virtual void mouseDoubleClickEvent(QMouseEvent *event)
+-    {
+-        m_suppressClick = true;
+-        QListWidget::mouseDoubleClickEvent(event);
++void 
++LineEdit::mousePressEvent(QMouseEvent *event)
++{
++    if (event->x() > width() - buttonWidth) {
++   loginHover = false;
++   loginActive = true;
+     }
++    QLineEdit::mousePressEvent(event);
++}
+ 
+-  private:
+-    bool m_suppressClick;
+-};
++void 
++LineEdit::mouseReleaseEvent(QMouseEvent *event)
++{
++    if (loginActive) {
++       emit loginPressed();
++   loginActive = false;
++    }
++    if (event->x() > width() - buttonWidth) {
++   loginHover = true;
++   setCursor(Qt::ArrowCursor);
++    }
++    QLineEdit::mouseReleaseEvent(event);
++}
+ 
+-class UserListViewItem : public QListWidgetItem {
+-  public:
+-    UserListViewItem(UserListView *parent, const QString &text,
+-                     const QPixmap &pixmap, const QString &username)
+-        : QListWidgetItem(parent)
+-        , login(username)
+-    {
+-        setIcon(pixmap);
+-        setText(text);
+-        parent->cachedSizeHint.setWidth(-1);
++void 
++LineEdit::paintEvent(QPaintEvent *event)
++{
++
++    const int frameWidth   = 1;
++    const int horizontalMargin  = 3;
++    const int verticalMargin   = 5;
++    const int indicatorWidth       = 17;
++    const int indicatorHeight   = 15;
++    //const int buttonWidth    = 33;
++    //const int buttonHeight       = 30;
++    const int spacing      = 3;
++    const int radius       = 3;
++
++    QFont f = font();
++    const int fontSize = 14;
++    f.setPixelSize(fontSize);
++    setFont(f);
++
++    QPainter p(this);
++    QRect r = rect();
++    QPalette pal = palette();
++
++    QString langText, capsText;
++    QRect borderRect, langFrameRect, langTextRect, capsFrameRect, capsTextRect, buttonRect;
++
++    borderRect = QRect(r.left() + frameWidth, r.top() + frameWidth, r.width() - 2 * frameWidth, r.height() - 2 * frameWidth);
++    p.setRenderHint(QPainter::Antialiasing);
++    p.setPen(QColor(156, 181, 198, 255));
++    p.setBrush(QColor(255, 255, 255, 255));
++    p.drawRoundedRect(borderRect, radius, radius);
++
++    QLineEdit::paintEvent(event);
++
++    QFont fnt = font();
++    fnt.setPixelSize(qMax(1, r.height() * 3 / 8));
++//    fnt.setBold(true);
++    QFontMetrics ifm(fnt);
++    const bool localLang = !language.contains("us");
++    buttonRect = QRect(r.right() - buttonWidth,
++           r.top() + frameWidth,
++           buttonWidth,
++           r.height() - 2 * frameWidth);
++
++    if (capsLocked) {
++   capsText = capsLocked ? QString("A") : QString("a");
++        int capsTextWidth = ifm.width(capsText);
++   int capsTextHeight = ifm.height();
++       capsFrameRect = QRect(r.right() - indicatorWidth - spacing - buttonWidth,
++                   r.top() + verticalMargin + frameWidth,
++                   indicatorWidth,
++                   r.height() - 2 * (verticalMargin + frameWidth));
++        capsTextRect  = QRect(capsFrameRect.left() + (capsFrameRect.width() - capsTextWidth) / 2,
++                   capsFrameRect.top() + (capsFrameRect.height() - capsTextHeight) / 2,
++               capsTextWidth, 
++               capsTextHeight);
+     }
+ 
+-    QString login;
+-};
++    if (localLang) {
++   langText = language;
++   int langTextWidth = ifm.width(langText);
++   int langTextHeight = ifm.height();
++   if (capsLocked)
++       langFrameRect = QRect(r.right() - 2 * (indicatorWidth + spacing) - buttonWidth,
++               r.top() + verticalMargin + frameWidth,
++               indicatorWidth,
++               r.height() - 2 * (verticalMargin + frameWidth));
++   else
++       langFrameRect = QRect(r.right() - indicatorWidth - spacing - buttonWidth,
++               r.top() + verticalMargin + frameWidth,
++               indicatorWidth,
++               r.height() - 2 * (verticalMargin + frameWidth));
++   langTextRect  = QRect(langFrameRect.left() + (langFrameRect.width() - langTextWidth) / 2,
++               langFrameRect.top() + (langFrameRect.height() - langTextHeight) / 2,
++               langTextWidth,
++               langTextHeight);
++    }
++
++    if (indicatorChanged) {
++   if (localLang)
++       if (capsLocked)
++       setTextMargins(spacing, 0, 2 * (indicatorWidth + spacing) + buttonWidth, 0);
++       else
++       setTextMargins(spacing, 0, indicatorWidth + spacing + buttonWidth, 0);
++   else
++       if (capsLocked)
++       setTextMargins(spacing, 0, indicatorWidth + spacing + buttonWidth, 0);
++       else
++       setTextMargins(spacing, 0, buttonWidth + horizontalMargin + frameWidth, 0);
++   indicatorChanged = false;
++    }
+ 
++    p.save();
++    p.setFont(fnt);
++    if (localLang) {
++   p.setPen(Qt::NoPen);
++   p.fillRect(langFrameRect, pal.highlight());
++   p.setPen(QColor(255, 255, 255, 255));
++   p.drawText(langTextRect, langText);
++    }
++    if (capsLocked) {
++   p.setPen(Qt::NoPen);
++   p.fillRect(capsFrameRect, pal.highlight());
++   p.setPen(QColor(255, 255, 255, 255));
++   p.drawText(capsTextRect, capsText);
++    }
++    p.restore();
++
++    QPixmap pixmap;
++    if (loginHover)
++   pixmap = loginIcon.pixmap(buttonRect.width(), buttonRect.height(), QIcon::Selected);
++    else if (loginActive)
++   pixmap = loginIcon.pixmap(buttonRect.width(), buttonRect.height(), QIcon::Active);
++    else
++   pixmap = loginIcon.pixmap(buttonRect.width(), buttonRect.height(), QIcon::Normal);
++    if (buttonRect.height() > 0)
++   p.drawPixmap(buttonRect, pixmap.scaled(buttonRect.width(), buttonRect.height()));
++}
++
++/*
++void 
++LineEdit::focusOutEvent(QFocusEvent *event)
++{
++    if (event->reason() == Qt::TabFocusReason) {
++qDebug("LineEdit::focusOutEvent  Qt::TabFocusReason");
++    }
++    else if (event->reason() == Qt::BacktabFocusReason) {
++qDebug("LineEdit::focusOutEvent  Qt::BackTabFocusReason");
++    }
++    else 
++qDebug("LineEdit::focusOutEvent  Qt::OtherReason");
++    
++    QLineEdit::focusOutEvent(event);
++}
++*/
+ 
+ int KGreeter::curPlugin = -1;
+ PluginList KGreeter::pluginList;
+ 
+ KGreeter::KGreeter(bool framed)
+     : inherited(framed)
++
++    , imageSize(LIST_IMAGE_SIZE)
+     , dName(dname)
+     , userView(0)
+     , userList(0)
+@@ -217,9 +976,9 @@ KGreeter::~KGreeter()
+     delete stsGroup;
+ }
+ 
+-#define FILE_LIMIT_ICON 20
++#define FILE_LIMIT_ICON 200    //U 20
+ #define FILE_LIMIT_IMAGE 200
+-#define PIXEL_LIMIT_ICON 100
++#define PIXEL_LIMIT_ICON 300   //U 100
+ #define PIXEL_LIMIT_IMAGE 300
+ 
+ // replace this with a simple !access(..., X_OK) once we run with non-root real uid
+@@ -234,7 +993,7 @@ dirAccessible(const char *dir)
+ }
+ 
+ static bool
+-loadFace(QByteArray &fn, QImage &p, const QByteArray &pp, bool complain = false)
++loadFace(QByteArray &fn, QIcon &icon, const int size, const QByteArray &pp, bool complain = false)
+ {
+     int fd, ico;
+     if ((fd = open(fn.data(), O_RDONLY | O_NONBLOCK)) < 0) {
+@@ -246,7 +1005,7 @@ loadFace(QByteArray &fn, QImage &p, const QByteArray &pp, bool complain = false)
+         }
+         fn.chop(5);
+         if ((fd = open(fn.data(), O_RDONLY | O_NONBLOCK)) < 0) {
+-            if ((complain || errno != ENOENT) &&
++        if ((complain || errno != ENOENT) &&
+                 (pp.isEmpty() || dirAccessible(pp.data())))
+                 (complain ? logError : logInfo)
+                     ("Cannot load %s: %m\n", fn.data());
+@@ -266,6 +1025,7 @@ loadFace(QByteArray &fn, QImage &p, const QByteArray &pp, bool complain = false)
+     }
+     QByteArray fc = f.read(fs);
+     ::close(fd);
++    int is = size * SELECTED_IMAGE_RATIO;
+     QBuffer buf(&fc);
+     buf.open(QBuffer::ReadOnly);
+     QImageReader ir(&buf);
+@@ -276,32 +1036,27 @@ loadFace(QByteArray &fn, QImage &p, const QByteArray &pp, bool complain = false)
+                 fn.data(), lim, lim);
+         return false;
+     }
+-    sz.scale(48, 48, Qt::KeepAspectRatio);
++    sz.scale(is, is, Qt::KeepAspectRatio);
+     ir.setScaledSize(sz);
+-    p = ir.read();
++    QImage p = ir.read();
+     if (p.isNull()) {
+         logInfo("%s is no valid image\n", fn.data());
+         return false;
+     }
+-    if (p.width() < 48) {
+-        QImage np(48, p.height(), QImage::Format_ARGB32);
++    if (p.width() < is) {
++        QImage np(is, p.height(), QImage::Format_ARGB32);
+         np.fill(0);
+         QPainter pnt(&np);
+-        pnt.drawImage((48 - p.width()) / 2, 0, p);
++        pnt.drawImage((is - p.width()) / 2, 0, p);
+         p = np;
+     }
++    icon.addPixmap(QPixmap::fromImage(p), QIcon::Normal);
+     return true;
+ }
+ 
+-void
+-KGreeter::insertUser(const QImage &default_pix,
+-                     const QString &username, struct passwd *ps)
++static void
++getImage(const QIcon &default_icon, QIcon &i, const int size, struct passwd *ps)
+ {
+-    if (userList)
+-        userList->append(username);
+-    if (!userView)
+-        return;
+-
+     int dp = 0, nd = 0;
+     if (_faceSource == FACE_USER_ONLY ||
+         _faceSource == FACE_PREFER_USER)
+@@ -309,31 +1064,45 @@ KGreeter::insertUser(const QImage &default_pix,
+     if (_faceSource != FACE_USER_ONLY &&
+         _faceSource != FACE_ADMIN_ONLY)
+         nd = 1;
+-    QImage p;
+     do {
+         dp ^= 1;
+         QByteArray pp, fn;
+         if (!dp) {
+             fn = pp = QByteArray(ps->pw_dir);
+             fn += '/';
++            fn += ".face.icon";
+         } else {
+             fn = QFile::encodeName(_faceDir);
+             fn += '/';
+             fn += ps->pw_name;
++           fn += ".png";
+         }
+-        fn += ".face.icon";
+-        if (loadFace(fn, p, pp))
+-            goto gotit;
++        if (loadFace(fn, i, size, pp))
++            return;
+     } while (--nd >= 0);
+-    p = default_pix;
+-  gotit:
++    i = default_icon;
++    return;
++}
++
++void
++KGreeter::insertUser(const QIcon &default_icon,
++                     const QString &username, struct passwd *ps)
++{
++    if (userList)
++        userList->append(username);
++    if (!userView)
++        return;
++
++    QIcon icon;
++    getImage(default_icon, icon, imageSize, ps);
++
+     QString realname = KStringHandler::from8Bit(ps->pw_gecos);
+     realname.truncate(realname.indexOf(',') & (~0U >> 1));
+     if (realname.isEmpty() || realname == username) {
+-        new UserListViewItem(userView, username, QPixmap::fromImage(p), username);
++        new UserListViewItem(userView, username, icon, username);
+     } else {
+         realname.append("\n").append(username);
+-        new UserListViewItem(userView, realname, QPixmap::fromImage(p), username);
++        new UserListViewItem(userView, realname, icon, username);
+     }
+ }
+ 
+@@ -381,12 +1150,18 @@ KGreeter::insertUsers()
+         }
+     }
+ 
+-    QImage default_pix;
++    QIcon default_icon;
+     if (userView) {
+-        QByteArray fn = QFile::encodeName(_faceDir) + "/.default.face.icon";
+-        if (!loadFace(fn, default_pix, QByteArray(), true)) {
+-            default_pix = QImage(48, 48, QImage::Format_ARGB32);
+-            default_pix.fill(0);
++        QByteArray fn = QFile::encodeName(_faceDir) + "/default.png"/*"/.default.face.icon"*/;
++        if (!loadFace(fn, default_icon, imageSize, QByteArray(), true)) {
++           QImage img;
++            img = QImage(imageSize, imageSize, QImage::Format_ARGB32);
++            img.fill(0);
++            default_icon.addPixmap(QPixmap::fromImage(img), QIcon::Normal);
++            img = QImage(imageSize * SELECTED_IMAGE_RATIO, imageSize * SELECTED_IMAGE_RATIO, 
++               QImage::Format_ARGB32);
++            img.fill(0);
++            default_icon.addPixmap(QPixmap::fromImage(img), QIcon::Selected);
+         }
+     }
+     if (_showUsers == SHOW_ALL) {
+@@ -403,7 +1178,7 @@ KGreeter::insertUsers()
+                 QString username(QFile::decodeName(ps->pw_name));
+                 if (!dupes.contains(username)) {
+                     dupes.insert(username);
+-                    insertUser(default_pix, username, ps);
++                    insertUser(default_icon, username, ps);
+                 }
+             }
+         }
+@@ -422,14 +1197,14 @@ KGreeter::insertUsers()
+                     QString username(QFile::decodeName(ps->pw_name));
+                     if (!dupes.contains(username)) {
+                         dupes.insert(username);
+-                        insertUser(default_pix, username, ps);
++                        insertUser(default_icon, username, ps);
+                     }
+                 }
+             }
+         } else {
+             for (int i = 0; _users[i]; i++)
+                 if ((ps = getpwnam(_users[i])) && (ps->pw_uid || _showRoot))
+-                    insertUser(default_pix, QFile::decodeName(_users[i]), ps);
++                    insertUser(default_icon, QFile::decodeName(_users[i]), ps);
+         }
+     }
+     endpwent();
+@@ -448,6 +1223,15 @@ KGreeter::insertUsers()
+ }
+ 
+ void
++KGreeter::removeUsers()
++{
++    if (userView) {
++   userView->model()->removeRows(0, userView->model()->rowCount());
++    }
++}
++
++
++void
+ KGreeter::putSession(const QString &type, const QString &name, bool hid, const char *exe)
+ {
+     int prio = exe ? (!strcmp(exe, "default") ? 0 :
+@@ -887,6 +1671,8 @@ KStdGreeter::verifyRetry()
+ KThemedGreeter::KThemedGreeter(KdmThemer *_themer)
+     : KGreeter(true)
+     , themer(_themer)
++    , userSliderView(0)
++//    , xEventNotifier()
+ //    , clock(0)
+ {
+     // We do all painting ourselves
+@@ -913,6 +1699,11 @@ KThemedGreeter::KThemedGreeter(KdmThemer *_themer)
+     userlist_rect = themer->findNode("userlist-rect");
+     if (!userlist_rect)
+         userlist_rect = userlist_node;
++    userslider_node = themer->findNode("userslider");
++    userslider_rect = themer->findNode("userslider-rect");
++    if (!userslider_rect)
++        userslider_rect = userslider_node;
++
+     caps_warning = themer->findNode("caps-lock-warning");
+     xauth_warning = themer->findNode("xauth-warning"); // kdm ext
+     pam_error = themer->findNode("pam-error");
+@@ -936,6 +1727,46 @@ KThemedGreeter::KThemedGreeter(KdmThemer *_themer)
+             console_rect->setVisible(false);
+     }
+ 
++    if (userslider_node) {
++   if (userlist_node)
++       removeUsers();
++
++   userItemDelegate = new UserItemDelegate();
++   connect(userItemDelegate, SIGNAL(passwordEntered(const QString &)),
++       this, SLOT(slotPasswordEntered(const QString &)));
++   connect(userItemDelegate, SIGNAL(tabPressed(const int)),
++       this, SLOT(slotTabPressed(const int)));
++
++   userSliderView = new UserSliderView(this);
++   userSliderView->setItemDelegate(userItemDelegate);
++   imageSize = SLIDER_IMAGE_SIZE;
++
++        //connect(userSliderView, SIGNAL(itemClicked(QListWidgetItem *)),
++        //        SLOT(slotUserClicked(QListWidgetItem *)));
++        //connect(userSliderView, SIGNAL(itemDoubleClicked(QListWidgetItem *)),
++        //        SLOT(accept()));
++        connect(userSliderView, SIGNAL(currentItemChanged(QListWidgetItem *, QListWidgetItem *)), 
++           SLOT(slotCurrentItemChanged(QListWidgetItem *, QListWidgetItem *)));
++
++        insertUsers();
++
++   animGroup = new QParallelAnimationGroup;
++   animation1 = new UserSliderViewItemAnimation();
++   animation2 = new UserSliderViewItemAnimation();
++   connect(animation2, SIGNAL(sizeChanged()), userSliderView, SLOT(layoutItems()));
++   connect(animation2, SIGNAL(finished()), this, SLOT(slotAnimationFinished()));
++
++        //if (userSliderView->count())
++       //    userSliderView->setCurrentItem(userSliderView->item(0));
++
++// connect(&xEventNotifier, SIGNAL(layoutChanged()), this, SLOT(slotLayoutChanged()));
++// connect(&xEventNotifier, SIGNAL(layoutMapChanged()), this, SLOT(slotLayoutChanged()));
++// xEventNotifier.start();
++   slotLayoutChanged();
++   updateLockStatus();
++   //verify->resume();
++    }
++
+     if (xauth_warning && (_authorized || !_authComplain))
+         xauth_warning->setVisible(false);
+ 
+@@ -944,7 +1775,9 @@ KThemedGreeter::KThemedGreeter(KdmThemer *_themer)
+ //    clock = new KdmClock(this, "clock");
+ 
+     QWidget *prec;
+-    if (userView)
++    if (userSliderView)
++        prec = userSliderView;
++    else if (userView)
+         prec = userView;
+ #ifdef WITH_KDM_XCONSOLE
+     else if (consoleView)
+@@ -993,10 +1826,18 @@ KThemedGreeter::KThemedGreeter(KdmThemer *_themer)
+     pluginSetup();
+ 
+     verify->start();
++
++    setPreselUser();
+ }
+ 
+ KThemedGreeter::~KThemedGreeter()
+ {
++    if (userSliderView) {
++// xEventNotifier.stop();
++   delete animation2;
++   delete animation1;
++   delete animGroup;
++    }
+     themer->setWidget(0);
+ }
+ 
+@@ -1007,11 +1848,47 @@ KThemedGreeter::slotDebugToggled()
+         themer->slotNeedPlacement();
+ }
+ 
++void
++KThemedGreeter::insertUser(const QIcon &default_icon,
++                     const QString &username, struct passwd *ps)
++{
++
++    if (!userSliderView) {
++   inherited::insertUser(default_icon, username, ps);
++   return;
++    }
++
++    if (userList)
++        userList->append(username);
++    if (!userView)
++        return;
++
++    QIcon icon;
++    getImage(default_icon, icon, imageSize, ps);
++
++    UserSliderViewItem *item = new UserSliderViewItem(userSliderView, username, icon, username);
++}
++
+ bool
+ KThemedGreeter::event(QEvent *e)
+ {
+     if (themer)
+         themer->widgetEvent(e);
++
++    if (e->type() == QEvent::KeyPress || e->type() == QEvent::KeyRelease)
++        updateLockStatus();
++
++    if (e->type() == QEvent::KeyPress) {
++   QKeyEvent *keyEvent = static_cast<QKeyEvent *>(e);
++   //qDebug("KThemedGreeter::event");
++   if (keyEvent->key() == Qt::Key_Tab ||
++       keyEvent->key() == Qt::Key_Backtab) {
++       //qDebug("KThemedGreeter::event TAB");
++       /*emit*/ slotTabPressed(keyEvent->key());
++       //return true;
++   }
++    }
++
+     return inherited::event(e);
+ }
+ 
+@@ -1020,32 +1897,70 @@ KThemedGreeter::pluginSetup()
+ {
+     inherited::pluginSetup();
+ 
+-    if (userView && verify->entitiesLocal() && verify->entityPresettable() && userlist_node) {
+-        userlist_node->setWidget(userView);
+-        userlist_rect->setVisible(true);
+-    } else {
++    if (userSliderView && verify->entitiesLocal() && verify->entityPresettable() && userslider_node) {
++        userslider_node->setWidget(userSliderView);
++        userslider_rect->setVisible(true);
+         if (userView)
+-            userView->hide();
+-        if (userlist_rect)
+-            userlist_rect->setVisible(false);
++           userView->hide();
++       if (userlist_rect)
++           userlist_rect->setVisible(false);
++    } else {
++   if (userView && verify->entitiesLocal() && verify->entityPresettable() && userlist_node) {
++           userlist_node->setWidget(userView);
++           userlist_rect->setVisible(true);
++   } else {
++           if (userSliderView)
++           userSliderView->hide();
++           if (userslider_rect)
++           userslider_rect->setVisible(false);
++           if (userView)
++           userView->hide();
++           if (userlist_rect)
++           userlist_rect->setVisible(false);
++   }
++    }
++}
++
++void
++KThemedGreeter::verifyClear()
++{
++    inherited::verifyClear();
++    if (userSliderView) {
++   userSliderView->setFocus();
++   QListWidgetItem *current = userSliderView->currentItem();
++   int row = userSliderView->row(current);
++   PasswordEditor *editor = static_cast<PasswordEditor *>(userSliderView->itemEditor(row));
++   editor->lineEdit()->clear();
++   userSliderView->setFocusProxy(editor);
++   editor->setFocus();
+     }
+ }
+ 
+-#if 0
++
+ void
+ KThemedGreeter::verifyFailed()
+ {
+-//    goButton->setEnabled(false);
++    if (userSliderView)
++        userSliderView->setEnabled(false);
+     inherited::verifyFailed();
+ }
+ 
+ void
+ KThemedGreeter::verifyRetry()
+ {
+-//    goButton->setEnabled(true);
++    if (userSliderView) {
++        userSliderView->setEnabled(true);
++
++   QListWidgetItem *current = userSliderView->currentItem();
++   int row = userSliderView->row(current);
++   PasswordEditor *editor = static_cast<PasswordEditor *>(userSliderView->itemEditor(row));
++   userSliderView->setFocusProxy(editor);
++   editor->setFocus();
++   LineEdit *edit = editor->lineEdit();
++   edit->setSelection(0, edit->text().length());
++    }
+     inherited::verifyRetry();
+ }
+-#endif
+ 
+ void
+ KThemedGreeter::updateStatus(bool fail, bool caps, int timedleft)
+@@ -1070,6 +1985,76 @@ KThemedGreeter::updateStatus(bool fail, bool caps, int timedleft)
+ }
+ 
+ void
++KThemedGreeter::updateLockStatus()
++{
++    if (userSliderView) {
++   unsigned int lmask;
++   Window dummy1, dummy2;
++   int dummy3, dummy4, dummy5, dummy6;
++   XQueryPointer(QX11Info::display(), DefaultRootWindow(QX11Info::display()),
++                   &dummy1, &dummy2, &dummy3, &dummy4, &dummy5, &dummy6,
++                &lmask);
++   bool capsLocked = lmask & LockMask;
++
++   //qDebug("KThemedGreeter::updateLockStatus %d", capsLocked);
++   for (int i = 0; i < userSliderView->model()->rowCount(); i++) {
++       PasswordEditor *editor = static_cast<PasswordEditor*>(userSliderView->itemEditor(i));
++       editor->lineEdit()->setCapsIndicator(capsLocked);
++   }
++   //userSliderView->layoutItems();
++    }
++}
++
++void
++KThemedGreeter::setPreselUser()
++{
++//qDebug("setPreselUser");
++    if (userSliderView) {
++        curUser = verify->getUser();
++        int rc = userSliderView->model()->rowCount();
++//qDebug("setPreselUser %s", curUser.toAscii().data());
++        for (int i = 0; i < rc; i++) {
++            UserSliderViewItem *item =
++                static_cast<UserSliderViewItem *>(userSliderView->item(i));
++            if (item->login == curUser) {
++                userSliderView->setCurrentItem(item);
++                return;
++            }
++        }
++        if (rc > 0)
++            userSliderView->setCurrentItem(userSliderView->item(0));
++    }
++}
++
++void
++KThemedGreeter::slotUserEntered()
++{
++
++    if (userSliderView) {
++   struct passwd *pw;
++        if ((pw = getpwnam(curUser.toLocal8Bit().data()))) {
++            QString theUser = QString::fromLocal8Bit(pw->pw_name);
++            for (int i = 0, rc = userSliderView->model()->rowCount(); i < rc; i++) {
++                UserSliderViewItem *item =
++                    static_cast<UserSliderViewItem *>(userSliderView->item(i));
++                if (item->login == theUser) {
++                    userSliderView->setCurrentItem(item);
++                    goto oke;
++                }
++            }
++        }
++        userSliderView->clearSelection();
++   oke:
++       if (isVisible())
++           slotLoadPrevWM();
++       else
++           QTimer::singleShot(0, this, SLOT(slotLoadPrevWM()));
++       return;
++    }
++    inherited::slotUserEntered();
++}
++
++void
+ KThemedGreeter::slotThemeActivated(const QString &id)
+ {
+     if (id == "login_button")
+@@ -1078,6 +2063,10 @@ KThemedGreeter::slotThemeActivated(const QString &id)
+         slotSessMenu();
+     else if (id == "system_button")
+         slotActionMenu();
++    else if (id == "halt_button")
++        slotHalt();
++    else if (id == "reboot_button")
++        slotReboot();
+ }
+ 
+ void
+@@ -1096,12 +2085,128 @@ KThemedGreeter::slotActionMenu()
+ }
+ 
+ void
++KThemedGreeter::slotHalt()
++{
++    KDMSlimShutdown::externShutdown(SHUT_HALT, 0, 0, false);
++}
++
++void
++KThemedGreeter::slotReboot()
++{
++    KDMSlimShutdown::externShutdown(SHUT_REBOOT, 0, 0, false);
++}
++
++void
++KThemedGreeter::slotCurrentItemChanged(QListWidgetItem *current, QListWidgetItem *previous)
++{
++    if (animGroup->indexOfAnimation(animation1) >= 0)
++   animGroup->removeAnimation(animation1);
++    if (animGroup->indexOfAnimation(animation2) >= 0)
++   animGroup->removeAnimation(animation2);
++    if (animGroup->state() != QAbstractAnimation::Stopped)
++   animGroup->stop();
++
++    int margin  = 3; //style()->pixelMetric(QStyle::PM_FocusFrameHMargin) + 1;
++    int editor  = 32;
++    int text    = 24;
++    int spacing = 2 * margin;
++    int frame2  = 4;
++    QSize unselectedSize = QSize(imageSize + 16 * margin + frame2,
++   imageSize + 16 * margin + frame2 + spacing + text );
++    QSize selectedSize = QSize(imageSize * SELECTED_IMAGE_RATIO + 16 * margin + frame2, 
++   imageSize * SELECTED_IMAGE_RATIO + spacing + editor + 16 * margin + frame2 + spacing + text);
++
++    if (previous) {
++   UserSliderViewItem *prevItem = static_cast<UserSliderViewItem *>(previous);
++   animation1->setTargetObject(prevItem);
++   animation1->setPropertyName("sizeHint");
++   //animation1->setDuration(500);
++   animation1->setStartValue(selectedSize);
++   animation1->setEndValue(unselectedSize);
++   animGroup->addAnimation(animation1);
++    }
++    if (current) {
++   UserSliderViewItem *currItem = static_cast<UserSliderViewItem *>(current);
++   animation2->setTargetObject(currItem);
++   animation2->setPropertyName("sizeHint");
++   //animation2->setDuration(500);
++   animation2->setStartValue(unselectedSize);
++   animation2->setEndValue(selectedSize);
++   animGroup->addAnimation(animation2);
++    }
++    animGroup->start();
++}
++
++void
++KThemedGreeter::slotPasswordEntered(const QString &password)
++{
++    QString user = static_cast<UserSliderViewItem *>(userSliderView->currentItem())->login;
++    verify->setUser(user);
++    slotLoadPrevWM();
++    verify->setPassword(password);
++    accept();
++}
++
++
++void
++KThemedGreeter::slotTabPressed(const int key)
++{
++    QListWidgetItem *current = userSliderView->currentItem();
++    int next = 0;
++    if (current) {
++        int count = userSliderView->count();
++   int row = userSliderView->row(current);
++        switch (key) {
++   case Qt::Key_Tab: {
++           next = 0;
++       if (row < count - 1)
++           next = row + 1;
++           }
++       break;
++   case Qt::Key_Backtab: {
++       next = count - 1;
++       if (row > 0)
++           next = row - 1;
++       }
++       break;
++   }
++    }
++    userSliderView->setCurrentItem(userSliderView->item(next));
++}
++
++void
++KThemedGreeter::slotAnimationFinished()
++{
++    QListWidgetItem *current = userSliderView->currentItem();
++    int row = userSliderView->row(current);
++    QWidget *editor = userSliderView->itemEditor(row);
++    userSliderView->setFocusProxy(editor);
++    editor->setFocus();
++}
++
++void
++KThemedGreeter::slotLayoutChanged()
++{
++//    qDebug("KThemedGreeter::slotLayoutChanged");
++    if (userSliderView) {
++   LayoutUnit layoutUnit = X11Helper::getCurrentLayout();
++   QString lang = layoutUnit.layout.left(2);
++   for (int i = 0; i < userSliderView->model()->rowCount(); i++) {
++       PasswordEditor *editor = static_cast<PasswordEditor*>(userSliderView->itemEditor(i));
++       editor->lineEdit()->setLangIndicator(lang);
++   }
++    }
++}
++
++void
+ KThemedGreeter::keyPressEvent(QKeyEvent *e)
+ {
+     inherited::keyPressEvent(e);
+     if (!(e->modifiers() & ~Qt::KeypadModifier) &&
+         (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter))
+         accept();
++
++    slotLayoutChanged();
+ }
+ 
+ #include "kgreeter.moc"
+diff --git a/kdm/kfrontend/kgreeter.h b/kdm/kfrontend/kgreeter.h
+index aabf256..ecaa77f 100644
+--- a/kdm/kfrontend/kgreeter.h
++++ b/kdm/kfrontend/kgreeter.h
+@@ -4,6 +4,7 @@ Greeter widget for kdm
+ 
+ Copyright (C) 1997, 1998 Steffen Hansen <hansen@kde.org>
+ Copyright (C) 2000-2004 Oswald Buddenhagen <ossi@kde.org>
++Copyright (C) 2011 ROSA Lab. <ural.mullabaev@rosalab.ru>
+ 
+ 
+ This program is free software; you can redistribute it and/or modify
+@@ -29,13 +30,185 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include "kgverify.h"
+ #include "kgdialog.h"
+ 
+-class UserListView;
++#include <x11_helper.h>
++
++#include <QListWidget>
++#include <QListWidgetItem>
++#include <QPropertyAnimation>
++#include <QStyledItemDelegate>
++#include <QLineEdit>
++
+ class KdmClock;
+ class KdmItem;
+ 
+ class KConfigGroup;
+ class QListWidgetItem;
+ class QActionGroup;
++class QParallelAnimationGroup;
++//class XEventNotifier;
++
++class UserSliderViewItem;
++class LineEdit;
++
++class UserListView : public QListWidget {
++  public:
++    UserListView(QWidget *parent = 0);
++
++    mutable QSize cachedSizeHint;
++
++  protected:
++    virtual QSize sizeHint() const;
++    virtual void keyPressEvent(QKeyEvent *event);
++    virtual void mousePressEvent(QMouseEvent *event);
++    virtual void mouseReleaseEvent(QMouseEvent *event);
++    virtual void mouseDoubleClickEvent(QMouseEvent *event);
++
++  private:
++
++    bool m_suppressClick;
++};
++
++class UserListViewItem : public QListWidgetItem {
++  public:
++    UserListViewItem(UserListView *parent, const QString &text,
++                     const QIcon &icon, const QString &username);
++
++    QString login;
++};
++
++class UserSliderView : public UserListView {
++    Q_OBJECT
++  public:
++    UserSliderView(QWidget *parent = 0);
++
++    QWidget *itemEditor(const int row);
++    void setItemEditor(const int row, QWidget *widget);
++
++  public Q_SLOTS:
++    void layoutItems();
++
++  protected:
++    virtual void updateGeometries();
++    virtual void resizeEvent(QResizeEvent *event);
++    virtual void dragEnterEvent(QDragEnterEvent *event);
++    virtual void dragMoveEvent(QDragMoveEvent *event);
++    virtual void dragLeaveEvent(QDragLeaveEvent *event);
++    virtual void dropEvent(QDropEvent *event);
++    virtual void wheelEvent (QWheelEvent *event);
++    //virtual bool eventFilter(QObject *object, QEvent *event);
++
++  private:
++    QVector<QWidget *> itemEditors;
++};
++
++class UserSliderViewItem : public QObject, public UserListViewItem {
++    Q_OBJECT
++    Q_PROPERTY(QSize sizeHint READ sizeHint WRITE setSizeHint)
++  public:
++    UserSliderViewItem(UserSliderView *parent, const QString &text,
++                 const QIcon &icon, const QString &username);
++    ~UserSliderViewItem();
++};
++
++class UserSliderViewItemAnimation : public QPropertyAnimation {
++    Q_OBJECT
++  public:
++    UserSliderViewItemAnimation(QObject *parent = 0);
++
++  Q_SIGNALS:
++    void sizeChanged();
++
++  protected:
++    void updateCurrentValue(const QVariant &value);
++};
++
++class UserItemDelegate : public QStyledItemDelegate
++{
++    Q_OBJECT
++
++  public:
++    UserItemDelegate(QWidget *parent = 0) : QStyledItemDelegate(parent) {}
++
++    void paint(QPainter *painter, const QStyleOptionViewItem &option,
++               const QModelIndex &index) const;
++    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
++                          const QModelIndex &index) const;
++    void setEditorData(QWidget *editor, const QModelIndex &index) const;
++    void setModelData(QWidget *editor, QAbstractItemModel *model,
++                      const QModelIndex &index) const;
++    void updateEditorGeometry(QWidget * editor, const QStyleOptionViewItem & option,
++                 const QModelIndex & index) const;
++
++  Q_SIGNALS:
++    void passwordEntered(const QString &password);
++    void tabPressed(const int key);
++
++  private slots:
++    void slotTextEntered(const QString &text);
++    void slotTabPressed(const int key);
++
++  private:
++    void drawText(QPainter *p, const QStyleOptionViewItemV4 *option, const QRect &rect) const;
++};
++
++class PasswordEditor : public QWidget
++{
++    Q_OBJECT
++
++  public:
++    PasswordEditor(QWidget *parent = 0);
++    ~PasswordEditor();
++
++    LineEdit* lineEdit() const;
++
++  Q_SIGNALS:
++    void textEntered(const QString &text);
++    void tabPressed(const int key);
++
++  private slots:
++    void slotReturnPressed();
++    void slotTabPressed(const int key);
++
++  private:
++    QVBoxLayout *layout;
++    LineEdit *edit;
++    QPushButton *button;
++};
++
++class LineEdit : public QLineEdit
++{
++    Q_OBJECT
++
++  public:
++    LineEdit(QWidget *parent = 0);
++    ~LineEdit() {};
++
++    void setLangIndicator(const QString &lang);
++    void setCapsIndicator(const bool caps);
++
++  Q_SIGNALS:
++    void tabPressed(const int key);
++    void loginPressed();
++
++  protected:
++    virtual bool event(QEvent *event);
++    virtual void leaveEvent(QEvent *event);
++    virtual void mouseMoveEvent(QMouseEvent *event);
++    virtual void mousePressEvent(QMouseEvent *event);
++    virtual void mouseReleaseEvent(QMouseEvent *event);
++    virtual void paintEvent(QPaintEvent *event);
++
++  private:
++    enum { buttonWidth = 33 };
++
++    QString    language;
++    bool   capsLocked;
++    bool   loginActive;
++    bool   loginHover;
++    QIcon  loginIcon;
++    bool   indicatorChanged;
++};
++
+ 
+ struct SessType {
+     QString name, type;
+@@ -61,6 +234,8 @@ class KGreeter : public KGDialog, public KGVerifyHandler {
+     KGreeter(bool themed = false);
+     ~KGreeter();
+ 
++    int imageSize;
++
+   public Q_SLOTS:
+     void accept();
+     void reject();
+@@ -69,8 +244,9 @@ class KGreeter : public KGDialog, public KGVerifyHandler {
+     void slotUserEntered();
+ 
+   protected:
+-    void insertUser(const QImage &, const QString &, struct passwd *);
+-    void insertUsers();
++    virtual void insertUser(const QIcon &, const QString &, struct passwd *);
++    virtual void insertUsers();
++    virtual void removeUsers();
+     void putSession(const QString &, const QString &, bool, const char *);
+     void insertSessions();
+     virtual void pluginSetup();
+@@ -91,7 +267,7 @@ class KGreeter : public KGDialog, public KGVerifyHandler {
+     static int curPlugin;
+     static PluginList pluginList;
+ 
+-  private Q_SLOTS:
++  protected Q_SLOTS:
+     void slotLoadPrevWM();
+ 
+   public: // from KGVerifyHandler
+@@ -132,13 +308,24 @@ class KThemedGreeter : public KGreeter {
+     ~KThemedGreeter();
+ 
+   public Q_SLOTS:
++    void slotUserEntered();
+     void slotThemeActivated(const QString &id);
+     void slotSessMenu();
+     void slotActionMenu();
++    void slotHalt();
++    void slotReboot();
+     void slotDebugToggled();
++    void slotCurrentItemChanged(QListWidgetItem *current, QListWidgetItem *previous);
++    void slotPasswordEntered(const QString &password);
++    void slotTabPressed(const int key);
++    void slotAnimationFinished();
++    void slotLayoutChanged();
+ 
+   protected:
++    virtual void insertUser(const QIcon &, const QString &, struct passwd *);
+     virtual void updateStatus(bool fail, bool caps, int timedleft);
++    virtual void updateLockStatus();
++    virtual void setPreselUser();
+     virtual void pluginSetup();
+     virtual void keyPressEvent(QKeyEvent *);
+     virtual bool event(QEvent *e);
+@@ -147,12 +334,22 @@ class KThemedGreeter : public KGreeter {
+ //    KdmClock *clock;
+     KdmThemer *themer;
+     KdmItem *caps_warning, *xauth_warning, *pam_error, *timed_label,
+-            *userlist_node, *userlist_rect,
+-            *session_button, *system_button;
++            *userlist_node, *userlist_rect, *userslider_node, *userslider_rect,
++            *session_button, *system_button, *halt_button, *reboot_button;
++
++    UserSliderView *userSliderView;
++    UserItemDelegate *userItemDelegate;
++
++    QParallelAnimationGroup *animGroup;
++    UserSliderViewItemAnimation *animation1;
++    UserSliderViewItemAnimation *animation2;
++
++//    XEventNotifier xEventNotifier;
+ 
+-//  public: // from KGVerifyHandler
+-//    virtual void verifyFailed();
+-//    virtual void verifyRetry();
++  public: // from KGVerifyHandler
++    virtual void verifyClear();
++    virtual void verifyFailed();
++    virtual void verifyRetry();
+ };
+ 
+ #endif /* KGREETER_H */
+diff --git a/kdm/kfrontend/kgverify.cpp b/kdm/kfrontend/kgverify.cpp
+index 453f36d..0330989 100644
+--- a/kdm/kfrontend/kgverify.cpp
++++ b/kdm/kfrontend/kgverify.cpp
+@@ -27,6 +27,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+ #include "kgverify.h"
+ #include "kdmconfig.h"
+ #include "kdm_greet.h"
++#include "kgreet_classic.h"
+ 
+ #include "themer/kdmthemer.h"
+ #include "themer/kdmitem.h"
+@@ -301,6 +302,22 @@ KGVerify::setUser(const QString &user)
+     talkerEdits();
+ }
+ 
++QString
++KGVerify::getUser() const
++{
++    return curUser;
++}
++
++void
++KGVerify::setPassword(const QString &password)
++{
++    if (!isClassic())
++   return;
++    debug("%s->setPassword(%\"s)\n", pName.data(), true ? "<masked>" : qPrintable(password));
++    KClassicGreeter *greeter = static_cast<KClassicGreeter *>(greet);
++    greeter->setPassword(password);
++}
++
+ void
+ KGVerify::start()
+ {
+@@ -385,11 +402,12 @@ KGVerify::doReject(bool initial)
+         debug("%s->abort()\n", pName.data());
+         greet->abort();
+     }
+-    handler->verifyClear();
++    //handler->verifyClear();
+     debug("%s->clear()\n", pName.data());
+     greet->clear();
+     curUser.clear();
+     pamUser.clear();
++    handler->verifyClear();
+     if (!scheduleAutoLogin(initial)) {
+         isClear = !(isClear && applyPreset());
+         if (running) {
+diff --git a/kdm/kfrontend/kgverify.h b/kdm/kfrontend/kgverify.h
+index c71dc48..ab44eaa 100644
+--- a/kdm/kfrontend/kgverify.h
++++ b/kdm/kfrontend/kgverify.h
+@@ -102,6 +102,8 @@ class KGVerify : public QObject, public KGreeterPluginHandler {
+     void presetEntity(const QString &entity, int field);
+     QString getEntity() const;
+     void setUser(const QString &user);
++    QString getUser() const;
++    void setPassword(const QString &password);
+     virtual void selectPlugin(int id);
+     bool entitiesLocal() const;
+     bool entitiesFielded() const;
+diff --git a/libs/kdm/kgreet_classic.cpp b/libs/kdm/kgreet_classic.cpp
+index a9d920e..f0e97b5 100644
+--- a/libs/kdm/kgreet_classic.cpp
++++ b/libs/kdm/kgreet_classic.cpp
+@@ -191,6 +191,12 @@ KClassicGreeter::setUser(const QString &user)
+ }
+ 
+ void // virtual
++KClassicGreeter::setPassword(const QString &password)
++{
++    passwdEdit->setText(password);
++}
++
++void // virtual
+ KClassicGreeter::setEnabled(bool enable)
+ {
+     // assert(!passwd1Label);
+diff --git a/libs/kdm/kgreet_classic.h b/libs/kdm/kgreet_classic.h
+index 612f7f3..03b0a7a 100644
+--- a/libs/kdm/kgreet_classic.h
++++ b/libs/kdm/kgreet_classic.h
+@@ -47,6 +47,7 @@ class KClassicGreeter : public QObject, public KGreeterPlugin {
+     virtual void presetEntity(const QString &entity, int field);
+     virtual QString getEntity() const;
+     virtual void setUser(const QString &user);
++    virtual void setPassword(const QString &password);
+     virtual void setEnabled(bool on);
+     virtual bool textMessage(const char *message, bool error);
+     virtual void textPrompt(const char *prompt, bool echo, bool nonBlocking);
