@@ -1,13 +1,16 @@
-# Maintainer: Élie Bouttier <cube.elie@gmail.com>
+# Maintainer: Federico Cinelli <cinelli.federico@gmail.com>
+
 pkgname=7robot-can-git
-pkgver=20120212
+pkgver=20121207
 pkgrel=1
 pkgdesc="7Robot can tools"
-arch=('i686' 'x86_64')
+arch=('any')
 url="http://github.com/bouttier/Can/"
 license=('GPL')
 depends=()
 makedepends=('git')
+conflicts=('7robot-can')
+provides=('7robot-can')
 
 _gitroot=http://github.com/bouttier/Can.git
 _gitname=Can
@@ -24,19 +27,16 @@ build() {
   fi
 
   msg "GIT checkout done or server timeout"
-  msg "Starting build..."
+  msg "Starting make..."
 
   rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cp -r "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
 
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=/usr
+  cmake . -DCMAKE_INSTALL_PREFIX=/usr
   make
 }
 
 package() {
-  cd "$srcdir/$_gitname-build/build"
   make DESTDIR="$pkgdir/" install
 }

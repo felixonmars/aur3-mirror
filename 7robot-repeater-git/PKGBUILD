@@ -1,6 +1,7 @@
-# Maintainer: Élie Bouttier <cube.elie@gmail.com>
+# Maintainer: Federico Cinelli <cinelli.federico@gmail.com>
+
 pkgname=7robot-repeater-git
-pkgver=20120212
+pkgver=20121207
 pkgrel=1
 pkgdesc="7Robot virtual STCP server"
 arch=('i686' 'x86_64')
@@ -8,6 +9,8 @@ url="http://github.com/bouttier/Repeater/"
 license=('GPL')
 depends=()
 makedepends=('git')
+conflicts=("7-robot-repeater")
+provides=("7-robot-repeater")
 
 _gitroot=http://github.com/bouttier/Repeater.git
 _gitname=Repeater
@@ -24,15 +27,13 @@ build() {
   fi
 
   msg "GIT checkout done or server timeout"
-  msg "Starting build..."
+  msg "Starting make..."
 
   rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cp -r "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
 
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=/usr -DARCHLINUX:Boolean=ON
+  cmake . -DCMAKE_INSTALL_PREFIX=/usr -DARCHLINUX:Boolean=ON
   make
 }
 

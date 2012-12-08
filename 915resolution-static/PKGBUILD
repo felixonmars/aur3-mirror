@@ -2,6 +2,8 @@
 # Contributor: nightfrost <khashayar_naderehvandi@yahoo.co.uk>
 # Contirbutor: Giorgio Lando <patroclo7@gmail.com>
 # Contributor: skottish <skottish97215 AT gmail.com>
+# Maintainer:  Federico Cinelli <cinelli.federico@gmail.com>
+
 pkgname=915resolution-static
 pkgver=0.5.3
 pkgrel=9

@@ -1,13 +1,15 @@
-# Maintainer: Jens Staal <staal1978@gmail.com>
+# Maintainer: Federico Cinelli <cinelli.federico@gmail.com>
+
 pkgname=9mk-init-bash
 pkgver=99
 pkgrel=2
 pkgdesc="an init system based on plan9 make - Bash init scripts"
-arch=('i686' 'x86_64')
+arch=('any')
 url="http://9fans.net/archive/2009/10/375"
 license=('MIT')
-md5sums=('2f7db22ca295b963152d1b628533385c' '0546f2aeb1d16c5865167b6d69c0d672')
-depends=("9base") #alternative dependency: plan9port
+depends=("9base")
+makedepends=("subversion")
+optdepends=("plan9port: alternative for 9base")
 conflicts=('9mk-init-rc')
 makedepends=('subversion')
 

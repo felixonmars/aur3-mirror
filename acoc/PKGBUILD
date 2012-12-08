@@ -1,6 +1,6 @@
-# Maintainer: Federico Cinelli <cinelli.federico@gmail.com> 
 # Contributor: shacristo <shacristo at gmail dot com>
 # Contributor: Kamil Stachowski <kamil.stachowski@gmail.com>
+# Maintainer:  Federico Cinelli <cinelli.federico@gmail.com>
 
 pkgname=acoc
 pkgver=0.7.1
@@ -11,6 +11,7 @@ arch=('i686' 'x86_64')
 license=('GPL')
 depends=('ruby' 'ruby-term-ansicolor')
 optdepends=('ruby-tpty')
+provides=("acoc")
 source=(http://www.caliban.org/files/ruby/$pkgname-$pkgver.tar.gz
         fix_class_clash.patch)
 md5sums=('c7fa847e2d55eccbc6625d3e22ad609e'
