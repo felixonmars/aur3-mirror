@@ -1,3 +1,3 @@
 # /usr/bin/bash
 cp -ru /usr/share/bsnes ~/.config/
-bsnes
+bsnes-gtk-$1
