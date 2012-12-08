@@ -1,0 +1,149 @@
+--- src/cache_cf.c	2010-02-16 18:21:51.000000000 +0700
++++ src/cache_cf.c	2010-06-24 17:34:55.000000000 +0700
+@@ -489,6 +489,12 @@
+ 	    break;
+ 	}
+ 	for (R = Config.Refresh; R; R = R->next) {
++            if (!R->flags.ignore_must_revalidate)
++                continue;
++            debug(22, 1) ("WARNING: use of 'ignore-must-revalidate' in 'refresh_pattern' violates HTTP\n");
++            break;
++	}
++	for (R = Config.Refresh; R; R = R->next) {
+ 	    if (R->stale_while_revalidate <= 0)
+ 		continue;
+ 	    debug(22, 1) ("WARNING: use of 'stale-while-revalidate' in 'refresh_pattern' violates HTTP\n");
+@@ -2261,6 +2267,8 @@
+ 	    storeAppendPrintf(entry, " ignore-private");
+ 	if (head->flags.ignore_auth)
+ 	    storeAppendPrintf(entry, " ignore-auth");
++	if (head->flags.ignore_must_revalidate)
++	    storeAppendPrintf(entry, " ignore-must-revalidate");
+ 	if (head->stale_while_revalidate > 0)
+ 	    storeAppendPrintf(entry, " stale-while-revalidate=%d", head->stale_while_revalidate);
+ #endif
+@@ -2293,6 +2301,7 @@
+     int ignore_no_cache = 0;
+     int ignore_no_store = 0;
+     int ignore_private = 0;
++    int ignore_must_revalidate = 0;
+     int ignore_auth = 0;
+ #endif
+     int stale_while_revalidate = -1;
+@@ -2338,6 +2347,8 @@
+ 	    ignore_private = 1;
+ 	else if (!strcmp(token, "ignore-auth"))
+ 	    ignore_auth = 1;
++	else if (!strcmp(token, "ignore-must-revalidate"))
++	    ignore_must_revalidate = 1;
+ 	else if (!strcmp(token, "reload-into-ims")) {
+ 	    reload_into_ims = 1;
+ 	    refresh_nocache_hack = 1;
+@@ -2397,6 +2408,8 @@
+ 	t->flags.ignore_no_store = 1;
+     if (ignore_private)
+ 	t->flags.ignore_private = 1;
++    if (ignore_must_revalidate)
++	t->flags.ignore_must_revalidate = 1;
+     if (ignore_auth)
+ 	t->flags.ignore_auth = 1;
+ #endif
+
+--- src/cf.data.pre	2010-03-25 21:25:33.000000000 +0700
++++ src/cf.data.pre	2010-06-24 17:39:09.000000000 +0700
+@@ -3125,6 +3125,7 @@
+ 		 ignore-reload
+ 		 ignore-no-cache
+ 		 ignore-no-store
++		 ignore-must-revalidate
+ 		 ignore-private
+ 		 ignore-auth
+ 		 stale-while-revalidate=NN
+@@ -3164,6 +3165,11 @@
+ 		from a server, only a client, though plenty of servers
+ 		send it anyway.
+ 
++		ignore-must-revalidate ignores any ``Cache-Control: must-revalidate''
++		headers received from a server. Doing this VIOLATES
++		the HTTP standard. Enabling this feature could make you
++		liable for problems which it causes.
++
+ 		ignore-private ignores any ``Cache-control: private''
+ 		headers received from a server. Doing this VIOLATES
+ 		the HTTP standard. Enabling this feature could make you
+
+--- src/refresh.c	2010-04-10 13:40:41.000000000 +0700
++++ src/refresh.c	2010-06-24 18:40:21.000000000 +0700
+@@ -274,8 +274,12 @@
+     debug(22, 3) ("\tcheck_time:\t%s\n", mkrfc1123(check_time));
+     debug(22, 3) ("\tentry->timestamp:\t%s\n", mkrfc1123(entry->timestamp));
+ 
+-    if (EBIT_TEST(entry->flags, ENTRY_REVALIDATE) && staleness > -1) {
+-	debug(22, 3) ("refreshCheck: YES: Must revalidate stale response\n");
++    if (EBIT_TEST(entry->flags, ENTRY_REVALIDATE) && staleness > -1
++#if HTTP_VIOLATIONS
++        && !R->flags.ignore_must_revalidate
++#endif
++      ) {
++        debug(22, 3) ("refreshCheck: YES: Must revalidate stale response\n");
+ 	return STALE_MUST_REVALIDATE;
+     }
+     /* request-specific checks */
+@@ -334,6 +338,16 @@
+      * At this point the response is stale, unless one of
+      * the override options kicks in.
+      */
++#if HTTP_VIOLATIONS
++    if (sf.expires && R->flags.override_expire && age < R->min) {
++        debug(22, 3) ("refreshCheck: NO: age < min && override-expire\n");
++        return FRESH_OVERRIDE_EXPIRES;
++    }
++    if (sf.lmfactor && R->flags.override_lastmod && age < R->min) {
++        debug(22, 3) ("refreshCheck: NO: age < min && override-lastmod\n");
++        return FRESH_OVERRIDE_LASTMOD;
++    }
++#endif
+     if (entry->mem_obj) {
+ 	int stale_while_revalidate = -1;
+ 	if (entry->mem_obj->reply && entry->mem_obj->reply->cache_control && EBIT_TEST(entry->mem_obj->reply->cache_control->mask, CC_STALE_WHILE_REVALIDATE))
+@@ -357,26 +371,12 @@
+     if (delta < 0 && staleness + delta < 0) {
+ 	return STALE_WITHIN_DELTA;
+     }
+-    if (sf.expires) {
+-#if HTTP_VIOLATIONS
+-	if (R->flags.override_expire && age < R->min) {
+-	    debug(22, 3) ("refreshCheck: NO: age < min && override-expire\n");
+-	    return FRESH_OVERRIDE_EXPIRES;
+-	}
+-#endif
++    if (sf.expires)
+ 	return STALE_EXPIRES;
+-    }
+     if (sf.max)
+ 	return STALE_MAX_RULE;
+-    if (sf.lmfactor) {
+-#if HTTP_VIOLATIONS
+-	if (R->flags.override_lastmod && age < R->min) {
+-	    debug(22, 3) ("refreshCheck: NO: age < min && override-lastmod\n");
+-	    return FRESH_OVERRIDE_LASTMOD;
+-	}
+-#endif
++    if (sf.lmfactor)
+ 	return STALE_LMFACTOR_RULE;
+-    }
+     return STALE_DEFAULT;
+ }
+ 
+--- src/structs.h	2010-04-21 21:10:06.000000000 +0700
++++ src/structs.h	2010-06-25 08:32:26.000000000 +0700
+@@ -1706,7 +1706,8 @@
+ 	unsigned int reload_into_ims:1;
+ 	unsigned int ignore_reload:1;
+ 	unsigned int ignore_no_cache:1;
+-        unsigned int ignore_no_store:1;
++	unsigned int ignore_no_store:1;
++	unsigned int ignore_must_revalidate:1;
+ 	unsigned int ignore_private:1;
+ 	unsigned int ignore_auth:1;
+ #endif

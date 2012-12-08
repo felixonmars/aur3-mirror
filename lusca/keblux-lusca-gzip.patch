@@ -1,0 +1,918 @@
+diff --git a/LUSCA_HEAD-r14733/configure.in b/LUSCA-GZIP/configure.in
+index 0ff8058..27a348c 100644
+--- a/LUSCA_HEAD-r14733/configure.in
++++ b/LUSCA-GZIP/configure.in
+@@ -252,6 +252,22 @@ AC_ARG_ENABLE(gnuregex,
+ 			  built in.],
+ [USE_GNUREGEX=$enableval])
+ 
++HTTP_GZIP=0
++
++AC_ARG_ENABLE(http_gzip,
++[ --enable-http-gzip enable the http_gzip option ],
++[
++ if test "$enableval" = "yes" ; then
++ echo "HTTP GZIP enabled"
++ LIBS="$LIBS -lz"
++ AC_DEFINE(HTTP_GZIP, 1, [Define to enable the HTTP gzip compress])
++ HTTP_GZIP=1
++ fi
++])
++
++AM_CONDITIONAL([ENABLE_HTTP_GZIP], [test "$HTTP_GZIP" = 1])
++
++
+ dnl This is a developer only option.. developers know how to set defines
+ dnl
+ dnl AC_ARG_ENABLE(xmalloc-debug,
+diff --git a/LUSCA-GZIP/src/HttpGzip.c b/LUSCA-GZIP/src/HttpGzip.c
+new file mode 100644
+index 0000000..ad4196e
+--- /dev/null
++++ b/LUSCA-GZIP/src/HttpGzip.c
+@@ -0,0 +1,348 @@
++#include "HttpGzip.h"
++#include <stdlib.h>
++
++
++int
++httpGzipNeed(request_t *request, HttpReply *reply)
++{
++ char *type_list = "text/html";
++
++ String s;
++ HttpHeader *header;
++
++ header = &request->header;
++
++ /**
++ * Checks the request's Accept-Encoding header if the client does understand
++ * gzip compression at all.
++ */
++ s = httpHeaderGetStrOrList(header, HDR_ACCEPT_ENCODING);
++ if (strBuf(s) == NULL ||
++ (strStr(s, "gzip") == NULL && strStr(s, "deflate") == NULL) ){
++ return 0;
++ }
++
++ header = &reply->header;
++ /**
++ * Checks if the response Cache-Control header allows transformation of the
++ * response.
++ */
++ s = httpHeaderGetStrOrList(header, HDR_CACHE_CONTROL);
++ if (strBuf(s) != NULL && strStr(s, "no-transform") != NULL ){
++ return 0;
++ }
++
++ /**
++ * Do not compress if response has a content-range header and status code "206
++ * Partial content".
++ */
++ if (httpHeaderHas(header, HDR_CONTENT_RANGE)) {
++ return 0;
++ }
++
++ /**
++ * Checks the Content-Type response header.
++ * At this time, only responses with "text/html" content-type are allowed to
++ * be compressed.
++ */
++ if (Config.http_gzip.types != NULL) {
++ type_list = Config.http_gzip.types;
++ }
++
++ s = httpHeaderGetStrOrList(header, HDR_CONTENT_TYPE);
++ if (strBuf(s) == NULL || strstr(type_list, strBuf(s)) == NULL ){
++ return 0;
++ }
++
++ /**
++ * Checks the Content-Encoding response header.
++ * If this header is present, we must not compress the respone.
++ */
++ if (httpHeaderHas(header, HDR_CONTENT_ENCODING)) {
++ return 0;
++ }
++
++ if (reply->content_length != -1 &&
++ reply->content_length < Config.http_gzip.min_length) {
++ return 0;
++ }
++
++ return 1;
++}
++
++void
++httpGzipClearHeaders(HttpReply *reply, int type)
++{
++ String s;
++ HttpHeader *header;
++ header = &reply->header;
++
++ /* delete ContentLength header because we may change the length */
++ reply->content_length = -1;
++ httpHeaderDelById(header, HDR_CONTENT_LENGTH);
++
++ /* Add "Vary: Accept-Encoding" response header" */
++ s = httpHeaderGetStrOrList(header, HDR_VARY);
++ if (strBuf(s) == NULL || strStr(s, "Accept-Encoding") == NULL ){
++ httpHeaderPutStr(header, HDR_VARY, "Accept-Encoding");
++ }
++
++ httpHeaderDelById(header, HDR_CONTENT_LOCATION);
++
++ httpHeaderDelById(header, HDR_ETAG);
++
++ if (type & SQUID_CACHE_GZIP) {
++ httpHeaderPutStr(header, HDR_CONTENT_ENCODING, "gzip");
++ }
++ else if (type & SQUID_CACHE_DEFLATE) {
++ httpHeaderPutStr(header, HDR_CONTENT_ENCODING, "deflate");
++ }
++
++ httpHeaderPutStr(header, HDR_WARNING, "214 Transformation applied");
++
++ return;
++}
++
++void
++httpGzipStart(HttpStateData *httpState)
++{
++ StoreEntry *entry = httpState->entry;
++ request_t *request = httpState->orig_request;
++ HttpReply *reply = entry->mem_obj->reply;
++ HttpGzipContext *ctx = NULL;
++
++ if (!httpGzipNeed(request, reply)) {
++ return;
++ }
++
++ ctx = httpGzipContextInitialize(request);
++
++ if (ctx) {
++ httpGzipClearHeaders(reply, ctx->compression_type);
++ entry->compression_type = ctx->compression_type;
++ }
++
++ httpState->context = ctx;
++
++ return;
++}
++
++void *
++httpGzipContextInitialize(request_t *request)
++{
++ String s;
++ int gzip, deflate;
++ HttpGzipContext *ctx = NULL;
++ HttpHeader *header;
++
++
++ ctx = (HttpGzipContext *) xmalloc(sizeof(HttpGzipContext));
++
++ if (ctx) {
++ memset(ctx, 0, sizeof(HttpGzipContext));
++
++ gzip = deflate = 0;
++ header = &request->header;
++ s = httpHeaderGetStrOrList(header, HDR_ACCEPT_ENCODING);
++ if ( strStr(s, "gzip") != NULL) {
++ gzip = 1;
++ }
++
++ if (strStr(s, "deflate") != NULL){
++ deflate = 1;
++ }
++
++ if (deflate && Config.http_gzip.prefer_deflate) {
++ ctx->compression_type = SQUID_CACHE_DEFLATE;
++ }
++ else if (gzip && Config.http_gzip.prefer_gzip) {
++ ctx->compression_type = SQUID_CACHE_GZIP;
++ }
++ else {
++ /*This could not happen.*/
++ return NULL;
++ }
++
++ /*
++ * We preallocate a memory for zlib in one buffer (default:256K), this
++ * decreases a number of malloc() and free() calls and also probably
++ * decreases a number of syscalls (sbrk()/mmap() and so on).
++ * Besides we free the memory as soon as a gzipping will complete
++ * and do not wait while a whole response will be sent to a client.
++ */
++ ctx->allocated = Config.http_gzip.prealloc_size;
++ ctx->gzipBuffer = (unsigned char *) xmalloc(ctx->allocated);
++ if (ctx->gzipBuffer == NULL) {
++ return NULL;
++ }
++
++ if (deflateInit2(&ctx->zstream, Config.http_gzip.level, Z_DEFLATED,
++ -(Config.http_gzip.wbits), Config.http_gzip.memlevel,
++ Z_DEFAULT_STRATEGY) != Z_OK){
++ return NULL;
++ }
++
++ if (!(ctx->compression_type & SQUID_CACHE_DEFLATE)) {
++ ctx->checksum = crc32(0, Z_NULL, 0);
++
++ ctx->gzipBuffer[0] = (unsigned char)31; //Magic number #1
++ ctx->gzipBuffer[1] = (unsigned char)139; //Magic number #2
++ ctx->gzipBuffer[2] = (unsigned char)Z_DEFLATED; //Method
++ ctx->gzipBuffer[3] = (unsigned char)0; //Flags
++ ctx->gzipBuffer[4] = (unsigned char)0; //Mtime #1
++ ctx->gzipBuffer[5] = (unsigned char)0; //Mtime #2
++ ctx->gzipBuffer[6] = (unsigned char)0; //Mtime #3
++ ctx->gzipBuffer[7] = (unsigned char)0; //Mtime #4
++ ctx->gzipBuffer[8] = (unsigned char)0; //Extra flags
++ ctx->gzipBuffer[9] = (unsigned char)3; //Operatin system: UNIX
++
++ ctx->zstream.total_out = 10;
++ }
++
++ ctx->flush = Z_NO_FLUSH;
++ }
++
++ return ctx;
++}
++
++void
++httpGzipContextFinalize(HttpStateData *httpState)
++{
++ HttpGzipContext *ctx = (HttpGzipContext *)httpState->context;
++
++ if (ctx != NULL) {
++ if (ctx->gzipBuffer != NULL) {
++ xfree(ctx->gzipBuffer);
++ }
++
++ xfree(httpState->context);
++ }
++
++ httpState->context = NULL;
++}
++
++static int
++httpGzipIncreaseBuffer(HttpGzipContext *ctx)
++{
++ ctx->allocated <<= 1;
++ ctx->gzipBuffer = (unsigned char *) xrealloc(ctx->gzipBuffer, ctx->allocated);
++ if (ctx->gzipBuffer == NULL) {
++ return GZIP_ERROR;
++ }
++
++ return 0;
++}
++
++int
++httpGzipStreamOutReset(HttpGzipContext *ctx)
++{
++ ctx->compressedSize = ctx->zstream.total_out;
++ ctx->zstream.total_out = 0;
++
++ return 0;
++}
++
++int
++httpGzipCompress(HttpStateData *httpState, const char *buf, ssize_t len)
++{
++ HttpGzipContext *ctx = httpState->context;
++
++ ctx->originalSize = len;
++ ctx->lastChunkSize = len;
++
++ if (!(ctx->compression_type & SQUID_CACHE_DEFLATE)) {
++ ctx->checksum = crc32(ctx->checksum, (unsigned char *)buf, len);
++ }
++
++ ctx->zstream.next_in = (unsigned char *)buf;
++ ctx->zstream.avail_in = len;
++
++ while (1) {
++ ctx->zstream.next_out = &ctx->gzipBuffer[ctx->zstream.total_out];
++ ctx->zstream.avail_out = ctx->allocated - ctx->zstream.total_out;
++
++ if (deflate(&ctx->zstream, ctx->flush) != Z_OK) {
++ return GZIP_ERROR;
++ }
++
++ if (ctx->zstream.avail_out == 0) {
++ if (httpGzipIncreaseBuffer(ctx) < 0) {
++ return GZIP_ERROR;
++ }
++
++ continue;
++ }
++
++ if (ctx->flush == Z_SYNC_FLUSH) {
++ ctx->flush = Z_NO_FLUSH;
++ return GZIP_SYNC;
++ }
++
++ /*flush the buffer when total_out > 3/4 * allocated's buffer.*/
++ if (ctx->zstream.total_out > ((ctx->allocated * 3) >> 2 )) {
++ ctx->flush = Z_SYNC_FLUSH;
++ continue;
++ }
++
++ break;
++ }
++
++ return GZIP_OK;
++}
++
++int
++httpGzipDone(HttpStateData *httpState)
++{
++ int rc;
++ StoreEntry *entry = httpState->entry;
++ HttpReply *reply = entry->mem_obj->reply;
++ HttpGzipContext *ctx = httpState->context;
++
++ while (1) {
++ ctx->zstream.next_out = &ctx->gzipBuffer[ctx->zstream.total_out];
++ ctx->zstream.avail_out = ctx->allocated - ctx->zstream.total_out;
++
++ rc = deflate(&ctx->zstream, Z_FINISH);
++
++ if (rc == Z_STREAM_END) {
++ break;
++ }
++ else if (rc == Z_OK ){
++ if (ctx->zstream.avail_out == 0) {
++ if (httpGzipIncreaseBuffer(ctx) < 0) {
++ return GZIP_ERROR;
++ }
++
++ }
++
++ continue;
++ }
++ else {
++ return GZIP_ERROR;
++ }
++ }
++
++ if (deflateEnd(&ctx->zstream) != Z_OK) {
++ return GZIP_ERROR;
++ }
++
++ /*GZIP Footer*/
++ if (!(ctx->compression_type & SQUID_CACHE_DEFLATE)) {
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) ctx->checksum & 0xff;
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) (ctx->checksum >> 8) & 0xff;
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) (ctx->checksum >> 16) & 0xff;
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) (ctx->checksum >> 24) & 0xff;
++
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) ctx->originalSize & 0xff;
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) (ctx->originalSize >> 8) & 0xff;
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) (ctx->originalSize >> 16) & 0xff;
++ ctx->gzipBuffer[ctx->zstream.total_out] = (unsigned char) (ctx->originalSize >> 24) & 0xff;
++ }
++
++ ctx->compressedSize = ctx->zstream.total_out;
++
++ reply->content_length = ctx->compressedSize;
++ httpHeaderPutSize(&reply->header, HDR_CONTENT_LENGTH, reply->content_length);
++
++ return GZIP_OK;
++}
+diff --git a/LUSCA-GZIP/src/HttpGzip.h b/LUSCA-GZIP/src/HttpGzip.h
+new file mode 100644
+index 0000000..d995653
+--- /dev/null
++++ b/LUSCA-GZIP/src/HttpGzip.h
+@@ -0,0 +1,42 @@
++#ifndef SQUID_HTTP_GZIP_H
++#define SQUID_HTTP_GZIP_H
++
++#include "squid.h"
++#include <zlib.h>
++
++
++#define GZIP_ERROR (-1)
++#define GZIP_OK (0)
++#define GZIP_SYNC (1)
++
++typedef struct {
++ z_stream zstream;
++ unsigned char *gzipBuffer;
++ unsigned int checksum;
++ unsigned int allocated;
++ unsigned int originalSize;
++ unsigned int compressedSize;
++ unsigned int sendingOffset;
++ unsigned int lastChunkSize;
++
++ int compression_type;
++ int flush;
++} HttpGzipContext;
++
++int httpGzipNeed(request_t *request, HttpReply *reply);
++
++void httpGzipClearHeaders(HttpReply *reply, int type);
++
++void httpGzipStart(HttpStateData *httpState);
++
++void * httpGzipContextInitialize();
++
++void httpGzipContextFinalize(HttpStateData *httpState);
++
++int httpGzipCompress(HttpStateData *httpState, const char *buf, ssize_t len);
++
++int httpGzipStreamOutReset(HttpGzipContext *ctx);
++
++int httpGzipDone(HttpStateData *httpState);
++
++#endif /* SQUID_HTTP_GZIP_H */
+diff --git a/LUSCA_HEAD-r14733/src/Makefile.am b/LUSCA-GZIP/src/Makefile.am
+index ea525ff..01040db 100644
+--- a/LUSCA_HEAD-r14733/src/Makefile.am
++++ b/LUSCA-GZIP/src/Makefile.am
+@@ -22,6 +22,11 @@ if ENABLE_HTCP
+ HTCPSOURCE = htcp.c
+ endif
+ 
++if ENABLE_HTTP_GZIP
++GZIPSOURCE = HttpGzip.c
++endif
++
++
+ if MAKE_LEAKFINDER
+ LEAKFINDERSOURCE =  leakfinder.c
+ else
+@@ -140,6 +145,7 @@ squid_SOURCES = \
+ 	hierarchy_entry.c \
+ 	$(HTCPSOURCE) \
+ 	http.c \
++	$(GZIPSOURCE) \
+ 	HttpStatusLine.c \
+ 	HttpHdrCc.c \
+ 	HttpHdrRange.c \
+diff --git a/LUSCA_HEAD-r14733/src/cf.data.pre b/LUSCA-GZIP/src/cf.data.pre
+index b4b0b70..113283e 100644
+--- a/LUSCA_HEAD-r14733/src/cf.data.pre
++++ b/LUSCA-GZIP/src/cf.data.pre
+@@ -5976,6 +5976,93 @@ DOC_START
+ 	Note: after changing this, Squid service must be restarted.
+ DOC_END
+ 
++NAME: http_gzip
++COMMENT: on|off
++IFDEF: HTTP_GZIP
++TYPE: onoff
++LOC: Config.http_gzip.enable
++DEFAULT: on
++DOC_START
++ switch the http compress option, default is on.
++DOC_END
++
++NAME: http_gzip_prefer_gzip
++COMMENT: on|off
++IFDEF: HTTP_GZIP
++TYPE: onoff
++LOC: Config.http_gzip.prefer_gzip
++DEFAULT: on
++DOC_START
++ sends gzip content to user agents who can accept both
++ gzip and deflate content
++DOC_END
++
++NAME: http_gzip_prefer_deflate
++COMMENT: on|off
++IFDEF: HTTP_GZIP
++TYPE: onoff
++LOC: Config.http_gzip.prefer_deflate
++DEFAULT: on
++DOC_START
++ sends deflate content to user agents who can accept
++ both gzip and deflate content
++DOC_END
++
++NAME: http_gzip_types
++COMMENT: MIME_TYPE list
++IFDEF: HTTP_GZIP
++TYPE: string
++LOC: Config.http_gzip.types
++DEFAULT: text/html
++DOC_START
++ set the compress mime type list
++DOC_END
++
++NAME: http_gzip_comp_level
++IFDEF: HTTP_GZIP
++TYPE: int
++LOC: Config.http_gzip.level
++DEFAULT: 9
++DOC_START
++ The compression level, between 1 and 9, where 1 is the least compression
++ (fastest) and 9 is the most (slowest).
++DOC_END
++
++NAME: http_gzip_min_length
++IFDEF: HTTP_GZIP
++TYPE: int
++LOC: Config.http_gzip.min_length
++DEFAULT: 0
++DOC_START
++ Sets the minimum length of of the response that will be compressed.
++ Responses shorter than this will not be compressed. Length is
++ determined from the "Content-Length" header.
++DOC_END
++
++NAME: http_gzip_window
++IFDEF: HTTP_GZIP
++TYPE: int
++LOC: Config.http_gzip.wbits
++DEFAULT: 15
++DOC_START
++DOC_END
++
++NAME: http_gzip_hash
++IFDEF: HTTP_GZIP
++TYPE: int
++LOC: Config.http_gzip.memlevel
++DEFAULT: 8
++DOC_START
++DOC_END
++
++NAME: http_gzip_prealloc
++IFDEF: HTTP_GZIP
++TYPE: b_size_t
++LOC: Config.http_gzip.prealloc_size
++DEFAULT: 256 KB
++DOC_START
++DOC_END
++
+ NAME: n_aiops_threads
+ COMMENT: (number of threads)
+ TYPE: int
+diff --git a/LUSCA_HEAD-r14733/src/enums.h b/LUSCA-GZIP/src/enums.h
+index 6a96cbd..f3dcc18 100644
+--- a/LUSCA_HEAD-r14733/src/enums.h
++++ b/LUSCA-GZIP/src/enums.h
+@@ -324,6 +324,13 @@ enum {
+ 
+ #endif
+ 
++#if HTTP_GZIP
++
++/*STORE_META_VALID does not use anywhere. so I use it. It's evil.*/
++#define STORE_META_GZIP STORE_META_VALID
++
++#endif
++
+ enum {
+     STORE_LOG_CREATE,
+     STORE_LOG_SWAPIN,
+diff --git a/LUSCA_HEAD-r14733/src/http.c b/LUSCA-GZIP/src/http.c
+index fbd90ca..e73c250 100644
+--- a/LUSCA_HEAD-r14733/src/http.c
++++ b/LUSCA-GZIP/src/http.c
+@@ -41,6 +41,10 @@
+ #include "squid.h"
+ #include "pconn.h"
+ 
++#if HTTP_GZIP
++#include "HttpGzip.h"
++#endif
++
+ static const char *const crlf = "\r\n";
+ 
+ static CWCB httpSendComplete;
+@@ -92,6 +96,9 @@ httpStateFree(int fd, void *data)
+ #endif
+     if (httpState == NULL)
+ 	return;
++    #if HTTP_GZIP
++    httpGzipContextFinalize(httpState);
++    #endif    
+     if (httpState->body_buf) {
+ 	requestAbortBody(httpState->orig_request);
+ 	if (httpState->body_buf) {
+@@ -536,6 +543,17 @@ httpReplySetupStuff(HttpStateData *httpState)
+ 	/* non-chunked. Handle as one single big chunk (-1 if terminated by EOF) */
+ 	httpState->chunk_size = httpReplyBodySize(httpState->orig_request->method, reply);
+     }
++#if HTTP_GZIP
++ if (Config.http_gzip.enable && httpState->context == NULL) {
++ httpGzipStart(httpState);
++ debug(11, 2) ("httpGzipStart: http_gzip: %d, types: %s, min_length: %d, "
++ "level: %d, window: %d, hash: %d, context: %p, type: %d\n",
++ Config.http_gzip.enable, Config.http_gzip.types, Config.http_gzip.min_length,
++ Config.http_gzip.level, Config.http_gzip.wbits, Config.http_gzip.memlevel,
++ httpState->context, entry->compression_type);
++ }
++#endif
++
+     if (httpHeaderHas(&reply->header, HDR_VARY)
+ #if X_ACCELERATOR_VARY
+ 	|| httpHeaderHas(&reply->header, HDR_X_ACCELERATOR_VARY)
+@@ -788,6 +806,11 @@ httpAppendBody(HttpStateData * httpState, const char *buf, ssize_t len, int buff
+     int fd = httpState->fd;
+     int complete = httpState->eof;
+     int keep_alive = !httpState->eof;
++    #if HTTP_GZIP
++    int rc;
++    HttpGzipContext *ctx;
++    int sync = 0;
++    #endif
+     storeBuffer(entry);
+     if (len == 0 && httpState->eof && httpState->flags.chunked) {
+ 	fwdFail(httpState->fwd, errorCon(ERR_INVALID_RESP, HTTP_BAD_GATEWAY, httpState->fwd->request));
+@@ -800,12 +823,60 @@ httpAppendBody(HttpStateData * httpState, const char *buf, ssize_t len, int buff
+ 	    if (size > httpState->chunk_size)
+ 		size = httpState->chunk_size;
+ 	    httpState->chunk_size -= size;
+-	    storeAppend(httpState->entry, buf, size);
++	    #if HTTP_GZIP
++ ctx = httpState->context;
++ if (ctx) {
++ rc = httpGzipCompress(httpState, buf, size);
++ if ( rc < 0) {
++ debug(11, 1) ("httpGzipCompress error.\n");
++ fwdFail(httpState->fwd, errorCon(ERR_INVALID_RESP,
++ HTTP_INTERNAL_SERVER_ERROR, httpState->fwd->request));
++ comm_close(fd);
++ return;
++ }
++ else if (rc == GZIP_SYNC) {
++ sync = 1;
++ debug(11, 2) ("httpGzipCompress sync: %lu \n", ctx->zstream.total_out);
++ storeAppend(httpState->entry, (char *) ctx->gzipBuffer,
++ ctx->zstream.total_out);
++ httpGzipStreamOutReset(ctx);
++ }
++ }
++ else {
++ storeAppend(httpState->entry, buf, size);
++ }
++#else
++            storeAppend(httpState->entry, buf, size);
++#endif
+ 	    buf += size;
+ 	    len -= size;
+ 	} else if (httpState->chunk_size < 0) {
+ 	    /* non-chunked without content-length */
++#if HTTP_GZIP
++ ctx = httpState->context;
++ if (ctx) {
++ rc = httpGzipCompress(httpState, buf, len);
++ if ( rc < 0) {
++ debug(11, 1) ("httpGzipCompress error.\n");
++ fwdFail(httpState->fwd, errorCon(ERR_INVALID_RESP,
++ HTTP_INTERNAL_SERVER_ERROR, httpState->fwd->request));
++ comm_close(fd);
++ return;
++ }
++ else if (rc == GZIP_SYNC) {
++ sync = 1;
++ debug(11, 1) ("httpGzipCompress sync: %lu \n", ctx->zstream.total_out);
++ storeAppend(httpState->entry, (char *) ctx->gzipBuffer,
++ ctx->zstream.total_out);
++ httpGzipStreamOutReset(ctx);
++ }
++ }
++ else {
++ storeAppend(httpState->entry, buf, len);
++ }
++#else
+ 	    storeAppend(httpState->entry, buf, len);
++#endif
+ 	    len = 0;
+ 	} else if (httpState->flags.chunked) {
+ 	    char *eol = memchr(buf, '\n', len);
+@@ -874,7 +945,13 @@ httpAppendBody(HttpStateData * httpState, const char *buf, ssize_t len, int buff
+ 	    return;
+ 	}
+     }
++#if HTTP_GZIP
++ if (httpState->context == NULL || sync) {
++ storeBufferFlush(entry);
++ }
++#else
+     storeBufferFlush(entry);
++#endif
+     if (EBIT_TEST(entry->flags, ENTRY_ABORTED)) {
+ 	/*
+ 	 * the above storeBufferFlush() call could ABORT this entry,
+@@ -901,6 +978,7 @@ httpAppendBody(HttpStateData * httpState, const char *buf, ssize_t len, int buff
+ 	comm_close(fd);
+ 	return;
+     }
++
+     /*
+      * Verify that the connection is clean
+      */
+@@ -936,6 +1014,38 @@ httpAppendBody(HttpStateData * httpState, const char *buf, ssize_t len, int buff
+ 	comm_close(fd);
+ 	return;
+     }
++ /* Flush the gzip buffer to cache */
++#if HTTP_GZIP
++ if (httpState->context) {
++ debug(11, 2) ("Flush the gzip buffer to cache.\n");
++
++ HttpGzipContext *ctx = httpState->context;
++
++ debug(11, 2) ("httpGzipDone:"
++ "gzip context's checksum:%x, original:%x, compressed:%d\n",
++ ctx->checksum, ctx->originalSize, ctx->compressedSize);
++
++ rc = httpGzipDone(httpState);
++ if (rc < 0) {
++ debug(11, 1) ("httpGzipDone error. rc: %d\n", rc);
++ comm_close(fd);
++ }
++
++ debug(11, 2) ("httpGzipDone: gzip context's checksum:%x, original:%x, compressed:%u,"
++ " total_out: %lu, avail_out: %u\n",
++ ctx->checksum, ctx->originalSize, ctx->compressedSize,
++ ctx->zstream.total_out, ctx->zstream.avail_out);
++
++ if (ctx->zstream.total_out > 0) {
++ storeAppend(httpState->entry, (char *) ctx->gzipBuffer, ctx->zstream.total_out);
++ }
++
++ httpGzipContextFinalize(httpState);
++
++ storeBufferFlush(entry);
++ }
++#endif
++
+     /*
+      * Verified and done with the reply
+      */
+@@ -1767,6 +1877,9 @@ httpStart(FwdState * fwd)
+     httpState->fwd = fwd;
+     httpState->entry = fwd->entry;
+     httpState->fd = fd;
++    #if HTTP_GZIP
++    httpState->context = NULL;
++    #endif
+     if (fwd->servers)
+ 	httpState->peer = fwd->servers->peer;	/* might be NULL */
+     if (httpState->peer) {
+diff --git a/LUSCA_HEAD-r14733/src/store_client.c b/LUSCA-GZIP/src/store_client.c
+index 91c01ac..da9b389 100644
+--- a/LUSCA_HEAD-r14733/src/store_client.c
++++ b/LUSCA-GZIP/src/store_client.c
+@@ -35,6 +35,11 @@
+ 
+ #include "squid.h"
+ 
++#if HTTP_GZIP
++#include "HttpGzip.h"
++#endif
++
++
+ /*!
+  * @class store_client
+  *
+@@ -659,7 +664,21 @@ storeClientReadHeader(void *data, const char *buf_unused, ssize_t len)
+ 	case STORE_META_STD:
+ 	case STORE_META_STD_LFS:
+ 	    break;
+-	case STORE_META_VARY_HEADERS:
++	#if HTTP_GZIP
++ case STORE_META_GZIP:
++
++ debug(20, 2) ("Got STORE_META_GZIP: %s\n", (char *)t->value);
++
++ if (strcmp("gzip", t->value) == 0) {
++ e->compression_type = SQUID_CACHE_GZIP;
++ }
++ else if (strcmp("deflate", t->value) == 0) {
++ e->compression_type = SQUID_CACHE_DEFLATE;
++ }
++
++ break;
++#endif
++        case STORE_META_VARY_HEADERS:
+ 	    if (mem->vary_headers) {
+ 		if (strcmp(mem->vary_headers, t->value) != 0)
+ 		    swap_object_ok = 0;
+@@ -737,7 +756,16 @@ storeClientReadHeader(void *data, const char *buf_unused, ssize_t len)
+ 	xmemmove(cbuf, cbuf + swap_hdr_sz, copy_sz);
+ 	if (sc->copy_offset == 0 && len > 0 && memHaveHeaders(mem) == 0)
+ 	    (void) storeClientParseHeader(sc, cbuf, copy_sz);
+-	storeClientCallback(sc, copy_sz);
++	#if HTTP_GZIP
++ if (e->compression_type) {
++ httpGzipClearHeaders(mem->reply, e->compression_type);
++ }
++
++ if (mem->vary_headers) {
++ httpHeaderDelById(&mem->reply->header, HDR_ETAG);
++ }
++#endif
++        storeClientCallback(sc, copy_sz);
+ 	return;
+     }
+     /*
+diff --git a/LUSCA_HEAD-r14733/src/store_swapmeta.c b/LUSCA-GZIP/src/store_swapmeta.c
+index 2e537a7..1d7c73f 100644
+--- a/LUSCA_HEAD-r14733/src/store_swapmeta.c
++++ b/LUSCA-GZIP/src/store_swapmeta.c
+@@ -60,6 +60,16 @@ storeSwapMetaBuild(StoreEntry * e)
+     if (objsize > -1) {
+ 	T = tlv_add(STORE_META_OBJSIZE, &objsize, sizeof(objsize), T);
+     }
++    
++#if HTTP_GZIP
++ if (e->compression_type & SQUID_CACHE_GZIP) {
++ T = tlv_add(STORE_META_GZIP, "gzip", sizeof("gzip"), T);
++ }
++ else if (e->compression_type & SQUID_CACHE_DEFLATE) {
++ T = tlv_add(STORE_META_GZIP, "deflate", sizeof("deflate"), T);
++ }
++#endif
++
+     vary = e->mem_obj->vary_headers;
+     if (vary)
+ 	T = tlv_add(STORE_META_VARY_HEADERS, vary, strlen(vary) + 1, T);
+diff --git a/LUSCA_HEAD-r14733/src/store_vary.c b/LUSCA-GZIP/src/store_vary.c
+index 4b616b6..da5e2c4 100644
+--- a/LUSCA_HEAD-r14733/src/store_vary.c
++++ b/LUSCA-GZIP/src/store_vary.c
+@@ -490,6 +490,9 @@ storeLocateVaryRead(void *data, mem_node_ref nr, ssize_t size)
+ 	} else if (strmatchbeg(p, "ETag: ", l) == 0) {
+ 	    /* etag field */
+ 	    char *etag;
++#if HTTP_GZIP
++ if (!Config.http_gzip.enable) {
++#endif
+ 	    if (state->current.encoding_ok) {
+ 		p2 = p + 6;
+ 		l2 = e - p2;
+@@ -502,6 +505,9 @@ storeLocateVaryRead(void *data, mem_node_ref nr, ssize_t size)
+ 	    } else {
+ 		state->current.ignore = 1;
+ 	    }
++#if HTTP_GZIP
++ }
++#endif
+ 	} else if (strmatchbeg(p, "VaryData: ", l) == 0) {
+ 	    /* vary field */
+ 	    p2 = p + 10;
+diff --git a/LUSCA_HEAD-r14733/src/store_vary.h b/LUSCA-GZIP/src/store_vary.h
+diff --git a/LUSCA_HEAD-r14733/src/structs.h b/LUSCA-GZIP/src/structs.h
+index 85eafb0..944886e 100644
+--- a/LUSCA_HEAD-r14733/src/structs.h
++++ b/LUSCA-GZIP/src/structs.h
+@@ -822,6 +822,19 @@ struct _SquidConfig {
+     int max_filedescriptors;
+     char *accept_filter;
+     int incoming_rate;
++    #if HTTP_GZIP
++ struct {
++ int enable;
++ int prefer_gzip;
++ int prefer_deflate;
++ char *types;
++ int level;
++ int wbits;
++ int memlevel;
++ int min_length;
++ squid_off_t prealloc_size;
++ } http_gzip;
++#endif
+     struct {
+     	int n_aiops_threads;
+     } aiops;
+@@ -889,6 +902,9 @@ struct _HttpStateData {
+     int body_buf_sz;
+     squid_off_t chunk_size;
+     String chunkhdr;
++    #if HTTP_GZIP
++    void *context;
++    #endif
+ };
+ 
+ struct _icpUdpData {
+@@ -1481,6 +1497,13 @@ struct _MemObject {
+     time_t stale_while_revalidate;
+ };
+ 
++#if HTTP_GZIP
++
++#define SQUID_CACHE_GZIP 1
++#define SQUID_CACHE_DEFLATE 2
++
++#endif
++
+ struct _StoreEntry {
+     hash_link hash;		/* must be first */
+     MemObject *mem_obj;
+@@ -1501,6 +1524,9 @@ struct _StoreEntry {
+     ping_status_t ping_status:3;
+     store_status_t store_status:3;
+     swap_status_t swap_status:3;
++    #if HTTP_GZIP
++    int compression_type;
++    #endif
+ };
+ 
+ struct _SwapDir {
