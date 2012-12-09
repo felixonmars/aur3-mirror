@@ -4,17 +4,17 @@
 # contributor: Pal Lockheart <palxex@gmail.com>
 
 pkgname=android-ndk-crystax
-pkgver=7
+pkgver=7.5.3
 pkgrel=1
-pkgdesc="android C/C++ developer kit with enabled support of C++ exceptions, RTTI and Standard C++ Library"
+pkgdesc="improved android C/C++ developer kit"
 arch=(i686 x86_64)
 url="http://www.crystax.net/de/android/ndk/7"
 license=('GPL')
 depends=(android-sdk)
 conflicts=(android-ndk)
 replaces=(android-ndk)
-source=(http://www.crystax.net/en/download/android-ndk-r7-crystax-5.beta2-linux-x86.tar.bz2)
-md5sums=('e02840a6e6a03a73aeaeb1d10e2cdced')
+source=(http://www.crystax.net/en/download/android-ndk-r7-crystax-5.beta3-linux-x86.tar.bz2)
+md5sums=('ffeb96597b529193e080c98a2469de96')
 options=(!strip)
 
 package() {
@@ -25,5 +25,5 @@ package() {
   echo "export ANDROID_NDK=/opt/${pkgname}" >> "${pkgdir}/etc/profile.d/${pkgname}.sh"
   chmod 755 "${pkgdir}/etc/profile.d/${pkgname}.sh"
 
-  cp -a "${srcdir}/android-ndk-r7-crystax-5.beta2" "${pkgdir}/opt/${pkgname}"
+  cp -a "${srcdir}/android-ndk-r7-crystax-5.beta3" "${pkgdir}/opt/${pkgname}"
 }
