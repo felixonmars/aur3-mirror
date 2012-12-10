@@ -3,14 +3,14 @@
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
 
 pkgname=0ad-svn
-pkgver=12951
+pkgver=12972
 pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://wildfiregames.com/0ad"
 license=('GPL2' 'CCPL')
 depends=('binutils' 'boost' 'crypto++' 'devil' 'enet>=1.3.0' 'gamin' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'mesa' 'nasm>2.06' 'openal' 'sdl' 'wxgtk' 'zlib')
-makedepends=('subversion' 'gcc>=4.3' 'cmake')
+makedepends=('subversion' 'gcc>=4.3' 'cmake' 'zip')
 options=('!makeflags')
 source=('boost-mt-fix.patch')
 md5sums=('0ca5f80c1fb0f0f4c42365580c8c61d8')
