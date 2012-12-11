@@ -18,7 +18,7 @@ else
   fi
 fi
 
-EXECLINE="$JAVA_HOME/bin/java -jar /usr/share/air-video-server/AirVideoServerLinux.jar "$PROPFILE""
+EXECLINE="$JAVA_HOME/bin/java -Djava.awt.headless=true -jar /usr/share/air-video-server/AirVideoServerLinux.jar "$PROPFILE""
 if [ -n "$VERBOSE" ]; then
   exec $EXECLINE
 else
