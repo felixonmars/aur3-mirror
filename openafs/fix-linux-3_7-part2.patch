@@ -1,0 +1,228 @@
+diff --git a/acinclude.m4 b/acinclude.m4
+index dec509e..d1cbf8f 100644
+--- a/acinclude.m4
++++ b/acinclude.m4
+@@ -802,6 +802,8 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 		 AC_CHECK_LINUX_STRUCT([file_operations], [flock], [fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([file_operations], [sendfile], [fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([file_system_type], [mount], [fs.h])
++		 AC_CHECK_LINUX_STRUCT([filename], [name], [fs.h])
++		 AC_CHECK_LINUX_STRUCT([key_type], [preparse], [key-type.h])
+ 		 AC_CHECK_LINUX_STRUCT([nameidata], [path], [namei.h])
+ 		 AC_CHECK_LINUX_STRUCT([proc_dir_entry], [owner], [proc_fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([super_block], [s_bdi], [fs.h])
+@@ -891,10 +893,6 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 				     [#include <linux/fs.h>
+ 				      #include <linux/namei.h>],
+ 				     [path_lookup(NULL, 0, NULL);])
+-		 AC_CHECK_LINUX_FUNC([putname],
+-				     [#include <linux/fs.h>
+-				      #include <linux/namei.h>],
+-				     [putname(NULL);])
+ 		 AC_CHECK_LINUX_FUNC([rcu_read_lock],
+ 				     [#include <linux/rcupdate.h>],
+ 				     [rcu_read_lock();])
+diff --git a/src/afs/LINUX/osi_compat.h b/src/afs/LINUX/osi_compat.h
+index c6d9002..c71384d 100644
+--- a/src/afs/LINUX/osi_compat.h
++++ b/src/afs/LINUX/osi_compat.h
+@@ -461,7 +461,7 @@ afs_dentry_open(struct dentry *dp, struct vfsmount *mnt, int flags, const struct
+ }
+ #endif
+ 
+-#if defined(HAVE_LINUX_PUTNAME)
++#if !defined(STRUCT_FILENAME_HAS_NAME)
+ typedef char *afs_name_t;
+ 
+ static inline char *
+diff --git a/src/afs/LINUX/osi_groups.c b/src/afs/LINUX/osi_groups.c
+index 1903a54..c2a0308 100644
+--- a/src/afs/LINUX/osi_groups.c
++++ b/src/afs/LINUX/osi_groups.c
+@@ -457,7 +457,11 @@ static void afs_pag_describe(const struct key *key, struct seq_file *m)
+     seq_printf(m, ": %u", key->datalen);
+ }
+ 
++#if defined(STRUCT_KEY_TYPE_HAS_PREPARSE)
++static int afs_pag_instantiate(struct key *key, struct key_preparsed_payload *prep)
++#else
+ static int afs_pag_instantiate(struct key *key, const void *data, size_t datalen)
++#endif
+ {
+     int code;
+     afs_uint32 *userpag, pag = NOPAG;
+@@ -468,7 +472,11 @@ static int afs_pag_instantiate(struct key *key, const void *data, size_t datalen
+     code = -EINVAL;
+     get_group_info(current_group_info());
+ 
++#if defined(STRUCT_KEY_TYPE_HAS_PREPARSE)
++    if (prep->datalen != sizeof(afs_uint32) || !prep->data)
++#else
+     if (datalen != sizeof(afs_uint32) || !data)
++#endif
+ 	goto error;
+ 
+     /* ensure key being set matches current pag */
+@@ -477,7 +485,11 @@ static int afs_pag_instantiate(struct key *key, const void *data, size_t datalen
+     if (pag == NOPAG)
+ 	goto error;
+ 
+-    userpag = (afs_uint32 *) data;
++#if defined(STRUCT_KEY_TYPE_HAS_PREPARSE)
++    userpag = (afs_uint32 *)prep->data;
++#else
++    userpag = (afs_uint32 *)data;
++#endif
+     if (*userpag != pag)
+ 	goto error;
+ 
+diff --git a/src/afs/afs_buffer.c b/src/afs/afs_buffer.c
+index e65d789..c4f61ea 100644
+--- a/src/afs/afs_buffer.c
++++ b/src/afs/afs_buffer.c
+@@ -14,7 +14,9 @@
+ #include "afs/sysincludes.h"
+ #include "afsincludes.h"
+ #if !defined(UKERNEL)
+-#include "h/param.h"
++#if !defined(AFS_LINUX26_ENV)
++# include "h/param.h"
++#endif
+ #include "h/types.h"
+ #include "h/time.h"
+ #if	defined(AFS_AIX31_ENV)
+diff --git a/src/afs/afs_osi.h b/src/afs/afs_osi.h
+index 17966ee..dfb6b18 100644
+--- a/src/afs/afs_osi.h
++++ b/src/afs/afs_osi.h
+@@ -11,7 +11,9 @@
+ #define _AFS_OSI_
+ 
+ #include "h/types.h"
++#if !defined(AFS_LINUX26_ENV)
+ #include "h/param.h"
++#endif
+ 
+ #ifdef AFS_FBSD_ENV
+ #include <sys/condvar.h>
+diff --git a/src/dir/dir.c b/src/dir/dir.c
+index b394831..51a78eb 100644
+--- a/src/dir/dir.c
++++ b/src/dir/dir.c
+@@ -14,7 +14,9 @@
+ #ifdef KERNEL
+ #if !defined(UKERNEL)
+ #include "h/types.h"
++#if !defined(AFS_LINUX26_ENV)
+ #include "h/param.h"
++#endif
+ #ifdef	AFS_AUX_ENV
+ #include "h/mmu.h"
+ #include "h/seg.h"
+diff --git a/src/rx/rx_kcommon.h b/src/rx/rx_kcommon.h
+index 904735f..64d03cb 100644
+--- a/src/rx/rx_kcommon.h
++++ b/src/rx/rx_kcommon.h
+@@ -35,7 +35,9 @@ typedef unsigned short etap_event_t;
+ 
+ 
+ #include "h/types.h"
++#if !defined(AFS_LINUX26_ENV)
+ #include "h/param.h"
++#endif
+ #ifndef AFS_LINUX22_ENV
+ #include "h/systm.h"
+ #endif
+diff --git a/src/rx/rx_packet.h b/src/rx/rx_packet.h
+index 2b6d183..df9d9f4 100644
+--- a/src/rx/rx_packet.h
++++ b/src/rx/rx_packet.h
+@@ -42,7 +42,9 @@
+ #if !defined(AFS_DARWIN_ENV) && !defined(AFS_USR_DARWIN_ENV) && !defined(AFS_XBSD_ENV) && !defined(AFS_USR_FBSD_ENV) && !defined(AFS_USR_DFBSD_ENV) && !defined(AFS_LINUX20_ENV)
+ #include <sys/sysmacros.h>	/* MIN, MAX on Solaris */
+ #endif
++#if !defined(AFS_LINUX26_ENV)
+ #include <sys/param.h>		/* MIN, MAX elsewhere */
++#endif
+ #endif /* AFS_NT40_ENV */
+ 
+ #define	IPv6_HDR_SIZE		40	/* IPv6 Header */
+diff --git a/src/rx/xdr.c b/src/rx/xdr.c
+index 057f7c2..bd224a1 100644
+--- a/src/rx/xdr.c
++++ b/src/rx/xdr.c
+@@ -49,7 +49,9 @@
+ #ifndef	NeXT
+ 
+ #if defined(KERNEL) && !defined(UKERNEL)
++#if !defined(AFS_LINUX26_ENV)
+ #include <sys/param.h>
++#endif
+ #ifndef AFS_LINUX20_ENV
+ #include <sys/systm.h>
+ #endif
+diff --git a/src/rx/xdr_array.c b/src/rx/xdr_array.c
+index ecdf4cc..886d2c6 100644
+--- a/src/rx/xdr_array.c
++++ b/src/rx/xdr_array.c
+@@ -43,8 +43,9 @@
+  */
+ 
+ #if defined(KERNEL) && !defined(UKERNEL)
+-
++#if !defined(AFS_LINUX26_ENV)
+ #include <sys/param.h>
++#endif
+ #ifdef AFS_LINUX20_ENV
+ #include "h/string.h"
+ #if 0
+diff --git a/src/rx/xdr_arrayn.c b/src/rx/xdr_arrayn.c
+index 28db315..5b66598 100644
+--- a/src/rx/xdr_arrayn.c
++++ b/src/rx/xdr_arrayn.c
+@@ -47,8 +47,9 @@
+  */
+ 
+ #if defined(KERNEL) && !defined(UKERNEL)
+-
++#if !defined(AFS_LINUX26_ENV)
+ #include <sys/param.h>
++#endif
+ #ifdef AFS_LINUX20_ENV
+ #include "h/string.h"
+ #if 0
+diff --git a/src/rx/xdr_int32.c b/src/rx/xdr_int32.c
+index 82c5648..cf5bf17 100644
+--- a/src/rx/xdr_int32.c
++++ b/src/rx/xdr_int32.c
+@@ -38,9 +38,11 @@
+ #ifndef	NeXT
+ 
+ #if defined(KERNEL) && !defined(UKERNEL)
+-#include <sys/param.h>
++# if !defined(AFS_LINUX26_ENV)
++#  include <sys/param.h>
++# endif
+ #else
+-#include <stdio.h>
++# include <stdio.h>
+ #endif
+ #include "xdr.h"
+ 
+diff --git a/src/util/vice.h b/src/util/vice.h
+index 7e3db07..1920a35 100644
+--- a/src/util/vice.h
++++ b/src/util/vice.h
+@@ -12,9 +12,9 @@
+ 
+ #include <sys/types.h>
+ #if !defined(AFS_NT40_ENV)
+-# if !defined(AFS_FBSD80_ENV) || !defined(KERNEL) || defined(UKERNEL)
+-#include <sys/ioctl.h>
+-#endif /* AFS_FBSD80_ENV */
++# if (!defined(AFS_FBSD80_ENV) && !defined(AFS_LINUX26_ENV)) || !defined(KERNEL) || defined(UKERNEL)
++#  include <sys/ioctl.h>
++# endif
+ #endif /* AFS_NT40_ENV */
+ #if (defined(__sun) && defined(__SVR4)) || defined(AFS_DFBSD_ENV) || defined(AFS_USR_DFBSD_ENV)
+ # include <sys/ioccom.h>
