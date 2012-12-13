@@ -1,7 +1,7 @@
 # Maintainer: Mantas M. <grawity@gmail.com>
 pkgname=analogue
 pkgver=1.3
-pkgrel=2
+pkgrel=3
 pkgdesc="Analogue: A Hate Story"
 arch=('i686' 'x86_64')
 url="http://ahatestory.com/"
@@ -18,7 +18,7 @@ source=("Analogue-$pkgver-linux-x86.tar.bz2"
         "analogue-16.png")
 sha1sums=('2286cac8b2b773fc5027391aeb081c5257e32c02'
           'c57bb2b56670a166b5664d37c941899dfc1ed15e'
-          '54a8497149ee547b4f6c894421b35226d16aa26a'
+          'dff7dd78a07246d3943dc904cbfade7fea6d220d'
           'cce341e2d832c53881a2692ec5735d61c54b3edb'
           'c3e23b21a689afe736b963d11aa05907a4f97544'
           '78e893061f85679c71ba719df6bce1ba9a13f385'
