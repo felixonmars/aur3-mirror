@@ -1,5 +1,5 @@
 diff --git a/acinclude.m4 b/acinclude.m4
-index dec509e..d1cbf8f 100644
+index dec509e..365aeaf 100644
 --- a/acinclude.m4
 +++ b/acinclude.m4
 @@ -802,6 +802,8 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
@@ -22,6 +22,17 @@ index dec509e..d1cbf8f 100644
  		 AC_CHECK_LINUX_FUNC([rcu_read_lock],
  				     [#include <linux/rcupdate.h>],
  				     [rcu_read_lock();])
+@@ -913,6 +911,10 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 		 AC_CHECK_LINUX_FUNC([noop_fsync],
+ 				     [#include <linux/fs.h>],
+ 				     [void *address = &noop_fsync; printk("%p\n", address)];)
++		 AC_CHECK_LINUX_FUNC([kthread_run],
++				     [#include <linux/kernel.h>
++				      #include <linux/kthread.h>],
++				     [kthread_run(NULL, NULL, "test");])
+ 
+ 		 dnl Consequences - things which get set as a result of the
+ 		 dnl                above tests
 diff --git a/src/afs/LINUX/osi_compat.h b/src/afs/LINUX/osi_compat.h
 index c6d9002..c71384d 100644
 --- a/src/afs/LINUX/osi_compat.h
@@ -91,6 +102,75 @@ index e65d789..c4f61ea 100644
  #include "h/types.h"
  #include "h/time.h"
  #if	defined(AFS_AIX31_ENV)
+diff --git a/src/afs/afs_call.c b/src/afs/afs_call.c
+index 0841090..ab73372 100644
+--- a/src/afs/afs_call.c
++++ b/src/afs/afs_call.c
+@@ -10,19 +10,24 @@
+ #include <afsconfig.h>
+ #include "afs/param.h"
+ 
++#if defined(HAVE_LINUX_KTHREAD_RUN) && !defined(UKERNEL)
++#  include "h/kthread.h"
++#endif
+ 
+ #include "afs/sysincludes.h"	/* Standard vendor system headers */
+ #include "afsincludes.h"	/* Afs-based standard headers */
+ #include "afs/afs_stats.h"
+ #include "rx/rx_globals.h"
+-#if !defined(UKERNEL) && !defined(AFS_LINUX20_ENV)
+-#include "net/if.h"
+-#ifdef AFS_SGI62_ENV
+-#include "h/hashing.h"
+-#endif
+-#if !defined(AFS_HPUX110_ENV) && !defined(AFS_DARWIN_ENV)
+-#include "netinet/in_var.h"
+-#endif
++#if !defined(UKERNEL)
++# if !defined(AFS_LINUX20_ENV)
++#  include "net/if.h"
++#  ifdef AFS_SGI62_ENV
++#   include "h/hashing.h"
++#  endif
++#  if !defined(AFS_HPUX110_ENV) && !defined(AFS_DARWIN_ENV)
++#   include "netinet/in_var.h"
++#  endif
++# endif
+ #endif /* !defined(UKERNEL) */
+ #ifdef AFS_SUN510_ENV
+ #include "h/ksynch.h"
+@@ -291,11 +296,13 @@ afsd_thread(void *rock)
+ # ifdef SYS_SETPRIORITY_EXPORTED
+     int (*sys_setpriority) (int, int, int) = sys_call_table[__NR_setpriority];
+ # endif
+-# if defined(AFS_LINUX26_ENV)
++# if !defined(HAVE_LINUX_KTHREAD_RUN)
++#  if defined(AFS_LINUX26_ENV)
+     daemonize("afsd");
+-# else
++#  else
+     daemonize();
+-# endif
++#  endif
++# endif /* !HAVE_LINUX_KTHREAD_RUN */
+ 				/* doesn't do much, since we were forked from keventd, but
+ 				 * does call mm_release, which wakes up our parent (since it
+ 				 * used CLONE_VFORK) */
+@@ -428,8 +435,14 @@ afsd_launcher(void *rock)
+     struct afsd_thread_info *rock = container_of(work, struct afsd_thread_info, tq);
+ # endif
+ 
++# if defined(HAVE_LINUX_KTHREAD_RUN)
++    if (IS_ERR(kthread_run(afsd_thread, (void *)rock, "afsd"))) {
++	afs_warn("kthread_run failed; afs startup will not complete\n");
++    }
++# else /* !HAVE_LINUX_KTHREAD_RUN */
+     if (!kernel_thread(afsd_thread, (void *)rock, CLONE_VFORK | SIGCHLD))
+ 	afs_warn("kernel_thread failed. afs startup will not complete\n");
++# endif /* !HAVE_LINUX_KTHREAD_RUN */
+ }
+ 
+ void
 diff --git a/src/afs/afs_osi.h b/src/afs/afs_osi.h
 index 17966ee..dfb6b18 100644
 --- a/src/afs/afs_osi.h
