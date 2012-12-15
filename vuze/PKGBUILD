@@ -2,7 +2,7 @@
 # Contributor: vorbote
 
 pkgname=vuze
-pkgver=4.8.0.0
+pkgver=4.8.1.0
 pkgrel=2
 pkgdesc="One of the most powerful bitTorrent client with GUI in the world, written in Java."
 arch=('i686' 'x86_64')
@@ -18,8 +18,8 @@ source=(
   "http://downloads.sourceforge.net/azureus/Vuze_${pkgver:0:1}${pkgver:2:1}${pkgver:4:1}${pkgver:6:1}_linux.tar.bz2")
 noextract=("Vuze_${pkgver//./}.jar")
 
-md5sums=('a622e3f99c68dbfa7a8c7993afd03f11'
-         '17759c2e09d961803b1e3ccc31ff2036')
+md5sums=('ca146cce279c1d5da56f570ba79c881a'
+         '444a3bca0f63a88071966f9b11dfc0f8')
 
 
 package() {
@@ -32,7 +32,7 @@ package() {
   install -Dm644 plugins/azupdater/azupdaterpatcher_1.8.17.jar "$pkgdir/usr/share/vuze/plugins/azupdater/azupdaterpatcher_1.8.17.jar"
   install -Dm644 plugins/azupdater/azureus.sig "$pkgdir/usr/share/vuze/plugins/azupdater/azureus.sig"
   install -Dm644 plugins/azupdater/plugin.properties "$pkgdir/usr/share/vuze/plugins/azupdater/plugin.properties"
-  install -Dm644 plugins/azupnpav/azupnpav_0.4.3.jar "$pkgdir/usr/share/vuze/plugins/azupnpav/azupnpav_0.4.3.jar"
+  install -Dm644 plugins/azupnpav/azupnpav_0.4.4.jar "$pkgdir/usr/share/vuze/plugins/azupnpav/azupnpav_0.4.3.jar"
   install -Dm644 plugins/azupnpav/azureus.sig "$pkgdir/usr/share/vuze/plugins/azupnpav/azureus.sig"
   install -Dm644 plugins/azupnpav/plugin.properties "$pkgdir/usr/share/vuze/plugins/azupnpav/plugin.properties"
 

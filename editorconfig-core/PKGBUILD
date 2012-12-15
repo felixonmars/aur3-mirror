@@ -1,7 +1,7 @@
 # Maintainer: Erik van der Kolk <developer at smerik dot nl>
 pkgname=editorconfig-core
 pkgver=0.10.0
-pkgrel=1
+pkgrel=2
 pkgdesc="EditorConfig core code written in C (for use by plugins supporting EditorConfig parsing)"
 arch=('i686' 'x86_64')
 url="https://github.com/editorconfig/${pkgname}/downloads"
@@ -22,7 +22,7 @@ build() {
   make
 
   msg "Including license..."
-  install -D -m 644 "${srcdir}/${_gitname}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -v -D -m 644 "${srcdir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
 check() {
