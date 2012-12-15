@@ -1,9 +1,9 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 
 require 'optparse'
 
 module Pacgem
-  VERSION = '0.9.4'
+  VERSION = '0.9.5'
 
   module Util
     def which?(name)
@@ -225,10 +225,16 @@ module Pacgem
       spec = Gem::Format.from_file_by_path(gemfile).spec
 
       depends = [ruby_package]
+      conflicts = []
       spec.runtime_dependencies.each do |dep|
         dep.requirement.requirements.each do |comp, ver|
           comp = '>=' if comp == '~>'
-          depends << "#{build_name dep.name}#{comp}#{ver}"
+          if comp == '!='
+            depends << "#{build_name dep.name}"
+            conflicts << "#{build_name dep.name}=#{ver}"
+          else
+            depends << "#{build_name dep.name}#{comp}#{ver}"
+          end
         end
       end
 
@@ -262,6 +268,7 @@ module Pacgem
       pkg['groups']       = %w(pacgem) # Mark this package as installed by pacgem
       pkg['makedepends']  = %W(#{ruby_package} binutils)
       pkg['depends']      = depends
+      pkg['conflicts']    = conflicts
       pkg['optdepends']   = optdepends
       pkg['source']       = %W(#{uri}gems/$_gemname-$pkgver.gem)
       pkg['sha256sums']   = [Digest::SHA2.file(gemfile).to_s]
@@ -346,6 +353,9 @@ module Pacgem
 
     def install(name, version = nil)
       resolve(Gem::Dependency.new(name, version)).explicit = true
+      if @options[:resolveonly]
+        exit
+      end
     end
 
     def update
@@ -374,7 +384,7 @@ module Pacgem
         else
           @logger.msg2 "(New) #{spec.full_name}: #{spec.summary}"
         end
-        spec.runtime_dependencies.each {|d| resolve(d) }
+        spec.runtime_dependencies.each {|d| resolve(d) } if !@options[:noresolve]
         @list << pkg if @options[:create] || !pkg.installed?
         pkg
       end
@@ -418,9 +428,9 @@ module Pacgem
     end
 
     def process
-      if @options[:update]
+      if @options[:update] || @options[:test]
         if !@args.empty?
-          STDERR.puts 'Error: --update accepts no arguments.'
+          STDERR.puts 'Error: --update and --test accept no arguments.'
           exit 1
         end
       elsif @args.length < 1
@@ -452,8 +462,11 @@ module Pacgem
         Dir.chdir(dir) do
           installer = Installer.new(@options, @logger)
           @logger.msg 'Resolving gems...'
-          if @options[:update]
+          if @options[:update] || @options[:test]
             installer.update
+            if @options[:test]
+              exit
+            end
           else
             @args.each do |gem|
               if gem =~ /^([-\w]+)((?:[<>]=?|=|~>|-)\d+(?:\.\d+)*)?$/
@@ -499,6 +512,18 @@ Options:
         @options[:update] = true
       end
 
+      opts.on('-t', '--test', :NONE, 'Check if there are any gems to update') do
+        @options[:test] = true
+      end
+
+      opts.on('-r', '--resolveonly', :NONE, 'Resolve dependencies only, don\'t install anything') do
+        @options[:resolveonly] = true
+      end
+
+      opts.on('-n', '--noresolve', :NONE, 'Do not resolve dependencies') do
+        @options[:noresolve] = true
+      end
+
       opts.on('--noautodepends', :NONE, 'Disable automatic dependency generation for shared objects (*.so)') do
         @options[:noautodepends] = true
       end
@@ -541,7 +566,7 @@ _gem_install() {
 
   # Install the gem
   install -d -m755 $_bindir $_gemdir
-  $_gem install --no-ri --no-rdoc --ignore-dependencies \
+  $_gem install --no-ri --no-rdoc --ignore-dependencies --no-user-install \
                 --bindir $_bindir --install-dir $_gemdir "$srcdir/$_gemname-$pkgver.gem"
 }
 
