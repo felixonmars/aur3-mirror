@@ -8,16 +8,18 @@
 
 pkgname=vuze-plugin-mldht
 pkgver=1.4.2
-pkgrel=3
+pkgrel=4
 pkgdesc="A Mainline DHT plugin for Vuze. Talk DHT to µTorrent clients."
 arch=('any')
 url=http://azureus.sourceforge.net/plugin_details.php?plugin=mlDHT
 license=('GPL2')
 depends=('vuze')
 options=(!strip)
-source=("http://azureus.sourceforge.net/plugins/mlDHT_${pkgver}.jar")
+source=("http://azureus.sourceforge.net/plugins/mlDHT_${pkgver}.jar"
+		LICENSE)
 noextract=("mlDHT_${pkgver}.jar")
-md5sums=('e60080ab4c38d648821d269c71e653e5')
+md5sums=('e60080ab4c38d648821d269c71e653e5'
+		 '9856d5aee8a66a89022e539f1f5341ad')
 
 build () {
 	cd "$srcdir"
