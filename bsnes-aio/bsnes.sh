@@ -1,3 +1,3 @@
-# /usr/bin/bash
+#!/bin/sh
 cp -ru /usr/share/bsnes ~/.config/
-bsnes-_ui-$1
+exec bsnes-_ui-_profile
