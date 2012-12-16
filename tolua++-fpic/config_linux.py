@@ -4,8 +4,7 @@
 
 # Compiler flags (based on Arch's installation of lua)
 #LINKFLAGS = ['-g']
-CCFLAGS = ['-I/usr/include/lua', '-O2', '-ansi', '-Wall', '-fPIC']
-#CCFLAGS = ['-I/usr/include/lua50', '-g']
+CCFLAGS = ['-I/usr/include/lua5.1', '-O2', '-ansi', '-Wall', '-fPIC']
 
 # this is the default directory for installation. Files will be installed on
 # <prefix>/bin, <prefix>/lib and <prefix>/include when you run 'scons install'
@@ -18,5 +17,5 @@ CCFLAGS = ['-I/usr/include/lua', '-O2', '-ansi', '-Wall', '-fPIC']
 prefix = '/usr/local'
 
 # libraries (based on Arch's installation of lua)
-LIBS = ['lua', 'dl', 'm']
+LIBS = ['lua5.1', 'dl', 'm']
 
