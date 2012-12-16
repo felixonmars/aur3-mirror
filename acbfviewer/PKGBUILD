@@ -2,7 +2,7 @@
 
 pkgname=acbfviewer
 pkgver=0.94
-pkgrel=3
+pkgrel=4
 pkgdesc="Comic book viewer for ACBF and CBZ formats."
 arch=('any')
 url="https://launchpad.net/acbf"
@@ -26,7 +26,7 @@ package() {
   install -Dm644 acbfv.desktop $pkgdir/usr/share/applications/acbfv.desktop
 
   # Start file
-  install -Dm755 acbfv $pkgdir/usr/bin/acbfviewer
+  install -Dm755 acbfv $pkgdir/usr/bin/acbfv
   
   # Icons
   cd images
