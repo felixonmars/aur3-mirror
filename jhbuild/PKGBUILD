@@ -3,7 +3,7 @@
 
 pkgname=jhbuild
 pkgver=3.5.91
-pkgrel=3
+pkgrel=4
 pkgdesc='\
 JHBuild allows you to automatically download and compile Gnome\
  "modules" (i.e. source code packages).'
@@ -44,4 +44,8 @@ package() {
     install -d "$pkgdir/usr/share/jhbuild"
     cp -dr modulesets "$pkgdir/usr/share/jhbuild"
     sed -ir '1 s/python/python2/' "$pkgdir/usr/bin/jhbuild"
+    
+    # prevent JHBuild from complaining that python.pc is not found
+    install -d "$pkgdir/usr/lib/pkgconfig"
+    ln -sr "$pkgdir/usr/lib/pkgconfig/python-2.7.pc" "$pkgdir/usr/lib/pkgconfig/python.pc"
 }
