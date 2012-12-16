@@ -4,13 +4,13 @@
 . /etc/rc.d/functions
 
 PIDFILE=/var/run/cassandra.pid
-if [ -f "${PIDFILE}" ]; then
-	PID=$(cat /var/run/cassandra.pid)
+if [ -f "$PIDFILE" ]; then
+	PID=`cat /var/run/cassandra.pid`
 fi
 case "$1" in
   start)
     stat_busy "Starting Cassandra Daemon"
-    [ -z "${PID}" ] && /usr/bin/cassandra -p ${PIDFILE} &> /dev/null
+    [ -z "$PID" ] && /usr/bin/cassandra -p $PIDFILE &> /dev/null
     if [ $? -gt 0 ]; then
       stat_fail
     else
@@ -20,11 +20,11 @@ case "$1" in
     ;;
   stop)
     stat_busy "Stopping Cassandra Daemon"
-    [ ! -z "${PID}" ]  && kill ${PID} &> /dev/null
+    [ ! -z "$PID" ]  && kill $PID &> /dev/null
     if [ $? -gt 0 ]; then
       stat_fail
     else
-      rm ${PIDFILE}
+      rm $PIDFILE
       rm_daemon cassandra
       stat_done
     fi
