@@ -11,7 +11,7 @@ _basekernel=3.7
 _grsecver=2.9.1
 _timestamp=201212171734
 pkgver=${_basekernel}.1
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -36,7 +36,7 @@ sha256sums=(
   ed781d8f200db91a038fc3c7ea7b993c8e8c5a7d738579c65ef18fe16f1f52ba
   edf2fdd7778f65b34b4469a58a1bacd85523e08b026461926f73cb86446a13c6
   4afd4a0fb3902c8fca4031a5ab2dde75d6d1355d2f6215320e448cce4a4a65a4
-  40ca4f8108a4ce61d456ffbc36d20a858a3e0bf0b825a1b73cdad48616242e51
+  ccadbd4308f315a4d05f03d7d738f365252603fee2e970fdc25eea0acb76284c
   ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d
   b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4
 )
