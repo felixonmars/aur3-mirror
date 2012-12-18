@@ -6,7 +6,7 @@ pkgname=amarok-devel
 _appname=amarok
 pkgver=2.7beta
 _pkgver=2.6.90
-pkgrel=1
+pkgrel=2
 pkgdesc="A media player for KDE - Unstable version"
 arch=("i686" "x86_64")
 url="http://amarok.kde.org"
@@ -30,7 +30,8 @@ build() {
   cd build
   cmake ../$_appname-$_pkgver \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DKDE4_BUILD_TESTS=OFF
   make
 }
 
