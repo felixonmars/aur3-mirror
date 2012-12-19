@@ -1,11 +1,12 @@
 # Mantainer: Ivan de Jesús Pompa García <ivan.pompa@gmx.com>
+# Contributor: kyak <bas@bmail.ru>
 
 pkgname=('alx-driver')
 _vname='2012-10-03'
 _dkmsname='alx'
 pkgver=20121003
 pkgrel=2
-epoch=1
+epoch=2
 pkgdesc='Atheros alx Linux ethernet device driver'
 arch=('i686' 'x86_64')
 url='http://linuxwireless.org/'
@@ -27,6 +28,12 @@ md5sums=(
 )
 
 build() {
+	if [ "`uname -r | cut -d . -f 2`" = "7" ]; then
+		echo "Patching for a 3.7 kernel..."
+		sed -e 's/__netdev_printk(level, hw->adpt->netdev, \&vaf);/printk("%salx_hw: %pV", level, \&vaf);/g' \
+			-i ${srcdir}/compat-wireless-${_vname}-pc/drivers/net/ethernet/atheros/alx/alx_main.c
+	fi
+
 	cd ${srcdir}/compat-wireless-${_vname}-pc
 	rm -rf drivers/net/wireless
 	./scripts/driver-select alx
