@@ -113,24 +113,49 @@ if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] >& /dev/null ; then
 	exit 2
 fi
 
-
-# Check if git can associated the input with anything usefull
-if [ ! `git rev-parse --quiet --verify ${obj}` ] ; then
-	echo "fatal: git could not associate '${obj}' with anything useful"
+if [[ "${obj}" = *\.\.\.* ]] ; then
+	echo "fatal: \"${obj}\" not yet supported by gitdiffbinstat, sorry."
 	exit 3
-fi
+elif [[ "${obj}" = *\.\.* ]] ; then
+	# get current branch
+	curbranch=`echo ${obj} | sed -e 's/\.\./\t/' | cut -f1`
+	# get current object
+	obj=`echo ${obj} | sed -e 's/\.\./\t/' | cut -f2`
+	# get curent commit hash
+	curcommit=`git rev-parse ${curbranch}`
 
-# get current branch
-curbranch=`git branch | awk '/^\*\ /' | sed -e 's/\*\ //'`
-# get current commit hash
-curcommit=`git rev-parse HEAD`
-# print what we compare with   git diff
-objhash=`git log -1 --format="%H" ${obj}`
-objbranch=`git symbolic-ref HEAD 2>&1`
-if [[ ! "${objbranch}" == *HEAD* ]] ; then
-	curbranch=`echo ${objbranch:11}`
+	# Check if git can associated the input with anything usefull
+	if [ ! `git rev-parse --quiet --verify ${obj}` ] ; then
+		echo "fatal: git could not associate '${obj}' with anything useful"
+		exit 3
+		if [ ! `git rev-parse --quiet --verify ${curcommit}` ] ; then
+			echo "fatal: git could not associate '${curcommit}' with anything useful"
+			exit 3
+		fi
+	fi
+
+	objbranch=`git symbolic-ref ${obj} 2>&1`
+	objhash=`git log -1 --format="%H" ${obj}`
 else
-	curbranch=${objhash}
+
+	if [ ! `git rev-parse --quiet --verify ${obj}` ] ; then
+		echo "fatal: git could not associate '${obj}' with anything useful"
+		exit 3
+	fi
+
+	# get current branch
+	curbranch=`git branch | awk '/^\*\ /' | sed -e 's/\*\ //'`
+	# get current commit hash
+	curcommit=`git rev-parse ${curbranch}`
+	# get commit object hash
+	objhash=`git log -1 --format="%H" ${obj}`
+	# print what we compare with   git diff
+	objbranch=`git symbolic-ref HEAD 2>&1`
+	if [[ ! "${objbranch}" == *HEAD* ]] ; then
+		curbranch=`echo ${objbranch:11}`
+	else
+		curbranch=${objhash}
+	fi
 fi
 
 echo " ${curbranch} -> ${obj}"
