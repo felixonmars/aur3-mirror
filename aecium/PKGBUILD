@@ -1,8 +1,8 @@
 # Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=aecium
-pkgver=20121114
-pkgrel=2
+pkgver=201211220
+pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
 depends=('libpcap')
@@ -12,7 +12,7 @@ license=('GPL2')
 
 build() {
 	cd $srcdir
-	git clone http://github.com/Red54/aecium
+	#git clone http://github.com/Red54/aecium
 	cd aecium
 	aclocal
 	autoheader
