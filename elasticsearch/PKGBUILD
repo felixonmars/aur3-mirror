@@ -1,7 +1,7 @@
-# Maintainer: Eugen Zagorodniy <https://github.com/ezag>
+# Maintainer: Marcello "mererghost" Rocha <https://github.com/mereghost>
 pkgname=elasticsearch
 pkgver=0.20.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Distributed RESTful search engine built on top of Lucene"
 arch=('i686' 'x86_64')
 url="http://www.elasticsearch.org/"
@@ -9,51 +9,69 @@ license=('APACHE')
 depends=('java-runtime')
 install='elasticsearch.install'
 source=(
-  "https://github.com/downloads/$pkgname/$pkgname/$pkgname-$pkgver.tar.gz"
+  "http://download.elasticsearch.org/$pkgname/$pkgname/$pkgname-$pkgver.tar.gz"
   elasticsearch.service
 )
 md5sums=('63996902e06dee8f397fe86fc625b505'
-	 '06200c889036bdd3e77db9e7b025fbac')
+         'f0231b459b29fadd526e9f3c21b3ceb5')
 
 build() {
+  # Download and install the servicewrapper
+  # TODO: move it to a file so it can be md5summed
   cd $srcdir
-  wget https://github.com/$pkgname/$pkgname-servicewrapper/tarball/master \
+  wget https://github.com/$pkgname/$pkgname-servicewrapper/archive/master.tar.gz \
        -O $pkgname-servicewrapper.tar.gz --no-check-certificate
   tar xf $pkgname-servicewrapper.tar.gz
-  mv *-$pkgname-servicewrapper-*/service $srcdir/$pkgname-$pkgver/bin/
-}
-
-package() {
-  mkdir $pkgdir/opt
-  mv $srcdir/$pkgname-$pkgver $pkgdir/opt/$pkgname
-  cd $pkgdir/opt/$pkgname
-  mkdir lock
+  mv $pkgname-servicewrapper-master/service $srcdir/$pkgname-$pkgver/bin/
 
   # Remove unnesessary libraries
+  cd "$srcdir/$pkgname-$pkgver"
   case $CARCH in
     i686) _bits=32 ;;
     x86_64) _bits=64 ;;
     *) echo "Unknown architecture '$CARCH'"; exit 1
   esac
   find lib/sigar/* ! -name '*.jar' ! -name '*x86-linux.so' -delete
-  find bin/service/lib/* ! -name '*.jar' ! -name "*linux-x86-$_bits.so" -delete
-  find bin/service/exec/* ! -name "*linux-x86-$_bits" -delete
+  find bin/service/lib/* ! -name '*.jar' ! -name "*linux-x86*.so" -delete
+  find bin/service/exec/* ! -name "*linux-x86-*" -delete
 
   # Configure service wrapper
   sed -e '1 a . /etc/profile'                                           \
-      -e 's/^#\(RUN_AS_USER=\).*$/\1elasticsearch/'                     \
       -e "/^WRAPPER_TEST_CMD=\"\"$/iDIST_ARCH=x86; DIST_BITS=$_bits"    \
+      -e "s/^\(PIDDIR\=\).*/\1\/run\/elasticsearch/"                         \
       -i bin/service/elasticsearch
 
   # Fix log file location
   # See https://github.com/elasticsearch/elasticsearch-servicewrapper/issues/8
-  sed -e 's/\(wrapper\.logfile\=\).*$/\1%ES_HOME%\/logs\/service.log/'  \
+  sed -e 's/\(wrapper\.logfile\=\).*$/\1\/var\/log\/elasticsearch\/service.log/'  \
       -i bin/service/elasticsearch.conf
 
   # Set proper permissions
   chmod +x bin/service/exec/*
 
-  # Install systemd script
-  install -Dm644 "$srcdir/elasticsearch.service" "$pkgdir/usr/lib/systemd/system/elasticsearch.service"
+  # Edit the values of the config files
+  sed -e 's/# \(path\.conf: \).*$/\1\/etc\/elasticsearch/' \
+	-e '0,/# \(path\.data: \).*$/s//\1\/var\/lib\/elasticsearch/' \
+	-e 's/# \(path\.work: \).*$/\1\/tmp\/elasticsearch/' \
+	-e 's/# \(path\.logs: \).*$/\1\/var\/log\/elasticsearch/' \
+	-i config/elasticsearch.yml
 }
 
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  # creates the necessary dirs
+  install -dm755 "$pkgdir/usr/share/elasticsearch/bin"
+  install -dm755 "$pkgdir/etc/elasticsearch"
+  install -dm755 "$pkgdir/var/lib/elasticsearch"
+  install -dm755 "$pkgdir/var/log/elasticsearch"
+  install -dm755 "$pkgdir/run/elasticsearch"
+
+  cp config/* "$pkgdir/etc/elasticsearch/"
+  cp -r {bin,lib}   "$pkgdir/usr/share/elasticsearch"
+
+  # chown -R elasticsearch "$pkgdir/var/log/elasticsearch"
+  # chown -R elasticsearch "$pkgdir/run/elasticsearch"
+	
+  # install systemd script
+  install -Dm644 "$srcdir/elasticsearch.service" "$pkgdir/usr/lib/systemd/system/elasticsearch.service"
+}
