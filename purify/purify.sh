@@ -1,3 +1,3 @@
-# /usr/bin/bash
+#!/bin/sh
 cp -ru /usr/share/bsnes ~/.config/
-purify-_ui
+exec purify-_ui
