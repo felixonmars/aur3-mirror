@@ -1,7 +1,7 @@
 # Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=aecium
-pkgver=201211220
+pkgver=20121221
 pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
@@ -12,7 +12,7 @@ license=('GPL2')
 
 build() {
 	cd $srcdir
-	#git clone http://github.com/Red54/aecium
+	git clone $url
 	cd aecium
 	aclocal
 	autoheader
