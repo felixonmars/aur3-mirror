@@ -13,7 +13,7 @@ _kdemenu="n"
 ###########################################################################################################
 pkgname=abloadtool
 pkgver=3.0
-pkgrel=2
+pkgrel=3
 pkgdesc="upload tool for the imagehoster abload"
 arch=('i686' 'x86_64')
 url="http://www.abload.de/tool.php"
@@ -24,7 +24,7 @@ makedepends=('libarchive')
 if [ "$CARCH" = "i686" ]; then
     _arch='i386'
     _file="${pkgname}-${pkgver}.${_arch}.deb"
-    source=("http://download.abloadtool.de/ubuntu-32/${pkgname}-${pkgver}.${_arch}.deb"
+    source=("http://www.abload.de/tool/ubuntu/${pkgname}-${pkgver}.${_arch}.deb"
 	    'abloadaction.desktop')
     md5sums=('7c0d8a0cb375578727ead6b3ce7a2629'
              '370a428be3150051c147cede5d90aecd')
@@ -32,7 +32,7 @@ if [ "$CARCH" = "i686" ]; then
 elif [ "$CARCH" = "x86_64" ]; then
     _arch='x86_64'
     _file="${pkgname}-${pkgver}.${_arch}.deb"
-    source=("http://download.abloadtool.de/ubuntu-64/${pkgname}-${pkgver}.${_arch}.deb"
+    source=("http://www.abload.de/tool/ubuntu/${pkgname}-${pkgver}.${_arch}.deb"
 	    'abloadaction.desktop')
     md5sums=('fc731447e64a580fc2250f014b631b59'
              '370a428be3150051c147cede5d90aecd')
