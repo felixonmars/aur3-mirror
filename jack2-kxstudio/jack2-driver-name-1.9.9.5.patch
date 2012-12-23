@@ -1,0 +1,333 @@
+diff -U 3 -H -d -r -N -- jack-1.9.9.5/dbus/controller.c jack2-ladi-experimental-driver-name/dbus/controller.c
+--- jack-1.9.9.5/dbus/controller.c	2012-12-10 09:26:56.000000000 +0000
++++ jack2-ladi-experimental-driver-name/dbus/controller.c	2012-11-23 21:08:22.000000000 +0000
+@@ -516,6 +516,38 @@
+     return value;
+ }
+ 
++static bool alias_parameter_is_set(void * obj)
++{
++    return controller_ptr->alias_vparam_set;
++}
++
++static bool alias_parameter_reset(void * obj)
++{
++    controller_ptr->alias_vparam_set = false;
++    controller_ptr->alias_vparam_value.i = FALSE;
++    return true;
++}
++
++static union jackctl_parameter_value alias_parameter_get_value(void * obj)
++{
++    return controller_ptr->alias_vparam_value;
++}
++
++static bool alias_parameter_set_value(void * obj, const union jackctl_parameter_value * value_ptr)
++{
++    jack_info("hwalias <- %s", controller_ptr->alias_vparam_value.i ? "true" : "false");
++    controller_ptr->alias_vparam_value = *value_ptr;
++    controller_ptr->alias_vparam_set = true;
++    return true;
++}
++
++static union jackctl_parameter_value alias_parameter_get_default_value(void * obj)
++{
++    union jackctl_parameter_value value;
++    value.i = FALSE;
++    return value;
++}
++
+ #undef controller_ptr
+ 
+ void *
+@@ -589,6 +621,27 @@
+     address[1] = NULL;
+     jack_params_add_parameter(controller_ptr->params, address, true, &controller_ptr->slave_drivers_vparam);
+ 
++    controller_ptr->alias_vparam_set = false;
++    controller_ptr->alias_vparam_value.i = FALSE;
++
++    controller_ptr->alias_vparam.obj = controller_ptr;
++
++    controller_ptr->alias_vparam.vtable.is_set = alias_parameter_is_set;
++    controller_ptr->alias_vparam.vtable.reset = alias_parameter_reset;
++    controller_ptr->alias_vparam.vtable.get_value = alias_parameter_get_value;
++    controller_ptr->alias_vparam.vtable.set_value = alias_parameter_set_value;
++    controller_ptr->alias_vparam.vtable.get_default_value = alias_parameter_get_default_value;
++
++    controller_ptr->alias_vparam.type = JackParamBool;
++    controller_ptr->alias_vparam.name = "alias";
++    controller_ptr->alias_vparam.short_decr = "Show port aliases";
++    controller_ptr->alias_vparam.long_descr = controller_ptr->alias_vparam.short_decr;
++    controller_ptr->alias_vparam.constraint_flags = 0;
++
++    address[0] = PTNODE_ENGINE;
++    address[1] = NULL;
++    jack_params_add_parameter(controller_ptr->params, address, true, &controller_ptr->alias_vparam);
++
+     controller_ptr->dbus_descriptor.context = controller_ptr;
+     controller_ptr->dbus_descriptor.interfaces = g_jackcontroller_interfaces;
+ 
+diff -U 3 -H -d -r -N -- jack-1.9.9.5/dbus/controller_iface_patchbay.c jack2-ladi-experimental-driver-name/dbus/controller_iface_patchbay.c
+--- jack-1.9.9.5/dbus/controller_iface_patchbay.c	2012-12-10 09:26:56.000000000 +0000
++++ jack2-ladi-experimental-driver-name/dbus/controller_iface_patchbay.c	2012-11-23 21:08:22.000000000 +0000
+@@ -1505,6 +1505,11 @@
+     const char **ports;
+     int i;
+     jack_port_t *port_ptr;
++    char alias1[jack_port_name_size()];
++    char alias2[jack_port_name_size()];
++    char * aliases[2] = {alias1, alias2};
++    int naliases;
++    const char *port_name;
+     
+     if (patchbay_ptr->graph.version > 1)
+     {
+@@ -1519,7 +1524,19 @@
+         {
+             jack_info("graph reorder: new port '%s'", ports[i]);
+             port_ptr = jack_port_by_name(controller_ptr->client, ports[i]);;
+-            jack_controller_patchbay_new_port(patchbay_ptr, ports[i], jack_port_flags(port_ptr), jack_port_type_id(port_ptr));
++
++            port_name = ports[i];
++            if (controller_ptr->alias_vparam_value.i)
++            {
++                naliases = jack_port_get_aliases(port_ptr, aliases);
++                if (naliases > 0)
++                {
++                    jack_info("port alias '%s'", aliases[0]);
++                    port_name = aliases[0];
++                }
++            }
++
++            jack_controller_patchbay_new_port(patchbay_ptr, port_name, jack_port_flags(port_ptr), jack_port_type_id(port_ptr));
+         }
+ 
+         free(ports);
+@@ -1563,13 +1580,27 @@
+     jack_port_t *port_ptr;
+     struct jack_graph_port *graph_port_ptr;
+     const char *port_name;
++    char alias1[jack_port_name_size()];
++    char alias2[jack_port_name_size()];
++    char * aliases[2] = {alias1, alias2};
++    int naliases;
+ 
+     port_ptr = jack_port_by_id(controller_ptr->client, port_id);
+     port_name = jack_port_name(port_ptr);
+ 
+     if (created)
+     {
+-        jack_log("port '%s' created", port_name);
++        jack_info("port '%s' created", port_name);
++        if (controller_ptr->alias_vparam_value.i)
++        {
++            naliases = jack_port_get_aliases(port_ptr, aliases);
++            if (naliases > 0)
++            {
++                jack_info("port alias '%s'", aliases[0]);
++                port_name = aliases[0];
++            }
++        }
++
+         jack_controller_patchbay_new_port(patchbay_ptr, port_name, jack_port_flags(port_ptr), jack_port_type_id(port_ptr));
+     }
+     else
+@@ -1600,6 +1631,14 @@
+     struct jack_graph_port *port1_ptr;
+     struct jack_graph_port *port2_ptr;
+     struct jack_graph_connection *connection_ptr;
++    char port1_alias1[jack_port_name_size()];
++    char port1_alias2[jack_port_name_size()];
++    char * port1_aliases[2] = {port1_alias1, port1_alias2};
++    int port1_naliases;
++    char port2_alias1[jack_port_name_size()];
++    char port2_alias2[jack_port_name_size()];
++    char * port2_aliases[2] = {port2_alias1, port2_alias2};
++    int port2_naliases;
+ 
+     port1 = jack_port_by_id(controller_ptr->client, port1_id);
+     port2 = jack_port_by_id(controller_ptr->client, port2_id);
+@@ -1607,6 +1646,20 @@
+     port1_name = jack_port_name(port1);
+     port2_name = jack_port_name(port2);
+ 
++    if (controller_ptr->alias_vparam_value.i)
++    {
++        port1_naliases = jack_port_get_aliases(port1, port1_aliases);
++        if (port1_naliases > 0)
++        {
++            port1_name = port1_aliases[0];
++        }
++        port2_naliases = jack_port_get_aliases(port2, port2_aliases);
++        if (port2_naliases > 0)
++        {
++            port2_name = port2_aliases[0];
++        }
++    }
++
+     port1_ptr = jack_controller_patchbay_find_port_by_full_name(patchbay_ptr, port1_name);
+     if (port1_ptr == NULL)
+     {
+diff -U 3 -H -d -r -N -- jack-1.9.9.5/dbus/controller_internal.h jack2-ladi-experimental-driver-name/dbus/controller_internal.h
+--- jack-1.9.9.5/dbus/controller_internal.h	2012-12-10 09:26:56.000000000 +0000
++++ jack2-ladi-experimental-driver-name/dbus/controller_internal.h	2012-11-23 21:08:22.000000000 +0000
+@@ -64,6 +64,10 @@
+     struct jack_parameter slave_drivers_vparam;
+     union jackctl_parameter_value slave_drivers_vparam_value;
+ 
++    struct jack_parameter alias_vparam;
++    bool alias_vparam_set;
++    union jackctl_parameter_value alias_vparam_value;
++
+     struct jack_dbus_object_descriptor dbus_descriptor;
+ 
+     pthread_mutex_t lock;
+diff -U 3 -H -d -r -N -- jack-1.9.9.5/linux/alsa/JackAlsaDriver.cpp jack2-ladi-experimental-driver-name/linux/alsa/JackAlsaDriver.cpp
+--- jack-1.9.9.5/linux/alsa/JackAlsaDriver.cpp	2012-12-10 09:26:57.000000000 +0000
++++ jack2-ladi-experimental-driver-name/linux/alsa/JackAlsaDriver.cpp	2012-11-23 21:08:22.000000000 +0000
+@@ -97,6 +97,7 @@
+     unsigned long port_flags = (unsigned long)CaptureDriverFlags;
+     char name[REAL_JACK_PORT_NAME_SIZE];
+     char alias[REAL_JACK_PORT_NAME_SIZE];
++    bool hwalias;
+ 
+     assert(fCaptureChannels < DRIVER_PORT_NUM);
+     assert(fPlaybackChannels < DRIVER_PORT_NUM);
+@@ -112,8 +113,14 @@
+ 
+     jack_log("JackAlsaDriver::Attach fBufferSize %ld fSampleRate %ld", fEngineControl->fBufferSize, fEngineControl->fSampleRate);
+ 
++    hwalias = strcmp(fAliasName, "alsa_pcm") != 0;
++
+     for (int i = 0; i < fCaptureChannels; i++) {
+-        snprintf(alias, sizeof(alias), "%s:%s:out%d", fAliasName, fCaptureDriverName, i + 1);
++        if (hwalias) {
++            snprintf(alias, sizeof(alias), "%s:capture_%d", fAliasName, i + 1);
++        } else {
++            snprintf(alias, sizeof(alias), "%s:%s:out%d", fAliasName, fCaptureDriverName, i + 1);
++        }
+         snprintf(name, sizeof(name), "%s:capture_%d", fClientControl.fName, i + 1);
+         if (fEngine->PortRegister(fClientControl.fRefNum, name, JACK_DEFAULT_AUDIO_TYPE, (JackPortFlags)port_flags, fEngineControl->fBufferSize, &port_index) < 0) {
+             jack_error("driver: cannot register port for %s", name);
+@@ -128,7 +135,11 @@
+     port_flags = (unsigned long)PlaybackDriverFlags;
+ 
+     for (int i = 0; i < fPlaybackChannels; i++) {
+-        snprintf(alias, sizeof(alias), "%s:%s:in%d", fAliasName, fPlaybackDriverName, i + 1);
++        if (hwalias) {
++            snprintf(alias, sizeof(alias), "%s:playback_%d", fAliasName, i + 1);
++        } else {
++            snprintf(alias, sizeof(alias), "%s:%s:in%d", fAliasName, fPlaybackDriverName, i + 1);
++        }
+         snprintf(name, sizeof(name), "%s:playback_%d", fClientControl.fName, i + 1);
+         if (fEngine->PortRegister(fClientControl.fRefNum, name, JACK_DEFAULT_AUDIO_TYPE, (JackPortFlags)port_flags, fEngineControl->fBufferSize, &port_index) < 0) {
+             jack_error("driver: cannot register port for %s", name);
+@@ -811,9 +822,45 @@
+         " seq - ALSA Sequencer driver\n"
+         " raw - ALSA RawMIDI driver\n");
+ 
++    value.i = FALSE;
++    jack_driver_descriptor_add_parameter(desc, &filler, "hw-alias", 'A', JackDriverParamBool, &value, NULL, "Use hardware device name for alias instead of alsa_pcm", NULL);
++
+     return desc;
+ }
+ 
++static char * get_device_name(const char * device_id)
++{
++    int err;
++    snd_ctl_card_info_t *card_info;
++    char * ctl_name;
++    snd_ctl_t * ctl_handle;
++    char * device_name = NULL;
++
++    snd_ctl_card_info_alloca (&card_info);
++
++    ctl_name = Jack::get_control_device_name (device_id);
++    if (ctl_name == NULL) {
++        goto exit;
++    }
++
++    if ((err = snd_ctl_open (&ctl_handle, ctl_name, 0)) < 0) {
++        goto free_ctl_name;
++    }
++
++    if ((err = snd_ctl_card_info (ctl_handle, card_info)) < 0) {
++        goto close;
++    }
++
++    device_name = strdup (snd_ctl_card_info_get_name(card_info));
++
++close:
++    snd_ctl_close (ctl_handle);
++free_ctl_name:
++    free (ctl_name);
++exit:
++    return device_name;
++}
++
+ static Jack::JackAlsaDriver* g_alsa_driver;
+ 
+ SERVER_EXPORT Jack::JackDriverClientInterface* driver_initialize(Jack::JackLockedEngine* engine, Jack::JackSynchro* table, const JSList* params)
+@@ -838,6 +885,8 @@
+     const JSList * node;
+     const jack_driver_param_t * param;
+     const char *midi_driver = "none";
++    const char *alias_name = NULL;
++    bool hw_alias = FALSE;
+ 
+     for (node = params; node; node = jack_slist_next (node)) {
+         param = (const jack_driver_param_t *) node->data;
+@@ -936,6 +985,9 @@
+             case 'X':
+                 midi_driver = strdup(param->value.str);
+                 break;
++            case 'A':
++                hw_alias = param->value.i;
++                break;
+         }
+     }
+ 
+@@ -945,7 +997,15 @@
+         playback = TRUE;
+     }
+ 
+-    g_alsa_driver = new Jack::JackAlsaDriver("system", "alsa_pcm", engine, table);
++    if (hw_alias) {
++        alias_name = get_device_name(playback_pcm_name);
++    }
++
++    if (alias_name == NULL) {
++        alias_name = "alsa_pcm";
++    }
++
++    g_alsa_driver = new Jack::JackAlsaDriver("system", alias_name, engine, table);
+     Jack::JackDriverClientInterface* threaded_driver = new Jack::JackThreadedDriver(g_alsa_driver);
+     // Special open for ALSA driver...
+     if (g_alsa_driver->Open(frames_per_interrupt, user_nperiods, srate, hw_monitoring, hw_metering, capture, playback, dither, soft_mode, monitor,
+diff -U 3 -H -d -r -N -- jack-1.9.9.5/linux/alsa/alsa_driver.c jack2-ladi-experimental-driver-name/linux/alsa/alsa_driver.c
+--- jack-1.9.9.5/linux/alsa/alsa_driver.c	2012-12-10 09:26:57.000000000 +0000
++++ jack2-ladi-experimental-driver-name/linux/alsa/alsa_driver.c	2012-11-23 21:08:22.000000000 +0000
+@@ -161,6 +161,7 @@
+ 	}
+ 
+ 	driver->alsa_driver = strdup(snd_ctl_card_info_get_driver (card_info));
++	jack_info("Using ALSA driver %s running on card %i - %s", driver->alsa_driver, snd_ctl_card_info_get_card(card_info), snd_ctl_card_info_get_longname(card_info));
+ 
+ 	free(ctl_name);
+ 
+diff -U 3 -H -d -r -N -- jack-1.9.9.5/linux/alsarawmidi/JackALSARawMidiPort.cpp jack2-ladi-experimental-driver-name/linux/alsarawmidi/JackALSARawMidiPort.cpp
+--- jack-1.9.9.5/linux/alsarawmidi/JackALSARawMidiPort.cpp	2012-12-10 09:26:57.000000000 +0000
++++ jack2-ladi-experimental-driver-name/linux/alsarawmidi/JackALSARawMidiPort.cpp	2012-11-23 21:08:22.000000000 +0000
+@@ -113,8 +113,9 @@
+         func = "CreateNonBlockingPipe";
+         goto close;
+     }
+-    snprintf(alias, sizeof(alias), "system:%d-%d %s %d %s", card + 1,
+-             device + 1, snd_rawmidi_info_get_name(info), subdevice + 1,
++    snprintf(alias, sizeof(alias), "%s %d-%d-%d:%s",
++             snd_rawmidi_info_get_name(info),
++             card + 1, device + 1, subdevice + 1,
+              alias_suffix);
+     snprintf(name, sizeof(name), "%s%zu", name_prefix, index + 1);
+     this->io_mask = io_mask;
