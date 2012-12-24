@@ -1,17 +1,19 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20120801
+pkgver=20121224
 pkgrel=1
-pkgdesc="AmaroK - a media player for KDE. Without lastfm, mp3tunes, mtp and ipod support. GIT version"
+pkgdesc="A media player for KDE. Without lastfm, mp3tunes, mtp, ipod support. GIT version"
 arch=('i686' 'x86_64')
 url="http://amarok.kde.org"
 license=('GPL')
 depends=('kdebase-runtime'  'taglib>=1.7' 'taglib-extras>=1.0' "libmysqlclient>=${mysqlver}")
 makedepends=('cmake>=2.6.2' 'qtscriptgenerator>=0.1' 'automoc4' 'git')
 conflicts=('amarok2' 'amarok' 'amarok2-svn' 'amarok-svn' 'amarok-git')
-source=()
-md5sums=()
+source=( 'sync.patch' )
+
+md5sums=('32537fa8c26fa197b7973885671d19c4')
+
 
 _gitroot="git://anongit.kde.org/amarok.git"
 _gitname="amarok"
@@ -42,8 +44,12 @@ build() {
   
   # scripts
   sed -i '/free_music_charts_service/d' src/scripts/CMakeLists.txt
-  #sed -i '/librivox_service/d' src/scripts/CMakeLists.txt
+  sed -i '/librivox_service/d' src/scripts/CMakeLists.txt
+  ##
   
+  # remove stupid stats syncing from tools menu
+  patch -p0 < "${srcdir}/sync.patch"
+
   
   if [[ -d amarok-build ]]
   then
@@ -62,6 +68,9 @@ build() {
 	   -DWITH_QJSON=OFF \
 	   -DWITH_Mygpo-qt=OFF \
 	   -DWITH_SPECTRUM_ANALYZER=OFF \
+	   -DWITH_NepomukCore=OFF \
+	   -DWITH_Soprano=OFF \
+	   -DWITH_PLAYGROUND=OFF \
 	   || return 1
 
   make || return 1
