@@ -1,25 +1,24 @@
 #!/bin/bash
 
-# enable per-user configuration:
-# user's config file is copied to var,
-# which is symlinked to usr/share
+# enables per-user configuration:
+# symlinks /usr/share/footbrawl to ~/.local/share/footbrawl
 
-if [ -d "$XDG_CONFIG_HOME" ] ; then
-   cfgfile="$XDG_CONFIG_HOME/footbrawl"
-elif [ -d ~/.config ] ; then
-   cfgfile=~/.config/footbrawl
+if [ -d "$XDG_DATA_HOME" ] ; then
+   localdir="$XDG_DATA_HOME/footbrawl"
+elif [ -d ~/.local/share ] ; then
+   localdir=~/.local/share/footbrawl
 else
-   cfgfile=~/.footbrawl  
+   localdir=~/.footbrawl  
 fi
 
-if [ ! -e "$cfgfile" ] ; then
-  echo '{}' > "$cfgfile"
+if [ ! -e "$localdir/game.cfg" ] ; then
+  install -d "$localdir"
+  cd "$localdir"
+  ln -s /usr/share/footbrawl/* .
+  echo '{}' > game.cfg
 fi
-
-cat "$cfgfile" > /var/games/footbrawl/game.cfg
 
 # run the game
 
-cd /usr/share/footbrawl
+cd "$localdir" 
 java -jar footbrawl.jar
-
