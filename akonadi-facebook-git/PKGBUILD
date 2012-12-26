@@ -1,14 +1,16 @@
-# Maintainer: yimm
+# Maintainer: mmm
+# Contributor: yimm
 
 pkgname=akonadi-facebook-git
-pkgver=20111117
+pkgver=20121226
 pkgrel=1
 pkgdesc="An Akonadi resource for Facebook Resource"
 arch=('i686' 'x86_64')
 url="https://projects.kde.org/projects/playground/pim/akonadi-facebook"
 license=('GPL')
 depends=('kdepimlibs')
-makedepends=('git' 'cmake' 'qjson' 'boost')
+provides=('akonadi-facebook')
+makedepends=('git' 'cmake' 'qjson' 'boost' 'automoc4')
 
 _gitroot="git://anongit.kde.org/akonadi-facebook"
 _gitname="akonadi-facebook"
@@ -41,4 +43,3 @@ package() {
   cd "$srcdir/build"
   make DESTDIR="$pkgdir" install
 } 
-
