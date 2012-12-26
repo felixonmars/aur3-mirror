@@ -1,7 +1,7 @@
 #!/bin/bash
 clear
 
-LIB="/srv/http/cakephp/cake/console/"
+LIB="/usr/share/webapps/cakephp/cake/console/"
 APP=`pwd`
 
 exec php -q ${LIB}cake.php -working "${APP}" "$@"
