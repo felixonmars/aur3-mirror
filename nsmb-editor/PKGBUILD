@@ -1,7 +1,7 @@
 # Maintainer : Konrad Borowski <glitchmr@myopera.com>
 pkgname=nsmb-editor
-pkgver=362
-_commit=25ddfab2
+pkgver=363
+_commit=b6b98051
 pkgrel=1
 pkgdesc='New Super Mario Bros. editor'
 arch=any
@@ -12,7 +12,7 @@ makedepends='icoutils'
 source=("https://github.com/Dirbaio/NSMB-Editor/archive/$_commit.tar.gz"
         "nsmbe.desktop"
         "nsmbe")
-md5sums=('7e8925a3939d7ebc84d6b08df639d3de'
+md5sums=('70c24b91da1c760b1bf987e70928dd40'
          '59575edf9a654e7a26cff20c7e5f3478'
          '201d740c5883e0ca9a402102f309815e')
 
