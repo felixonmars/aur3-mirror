@@ -1,7 +1,7 @@
 # Maintainer: lemanyk <lemanyk@gmail.com>
 pkgname=netlog
-pkgver=0.2
-pkgrel=3
+pkgver=0.5.5
+pkgrel=1
 pkgdesc='logging stream server written on gevent'
 arch=(any)
 url='https://github.com/lemanyk/netlog'
@@ -9,7 +9,7 @@ license=('MIT')
 depends=('python2' 'python2-gevent')
 makedepends=('setuptools')
 source=(http://pypi.python.org/packages/source/n/netlog/netlog-$pkgver.tar.gz)
-md5sums=('2a6323ad34457e491817b59626c436f5') #generate with 'makepkg -g'
+md5sums=('1fd384771ecf17259c1f9100128b25b2') #generate with 'makepkg -g'
 
 build() {
   cd "$srcdir/netlog-$pkgver"
