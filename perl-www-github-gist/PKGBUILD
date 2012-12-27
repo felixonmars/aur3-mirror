@@ -1,7 +1,7 @@
 # Maintainer: Konrad Borowski <glitchmr@myopera.com>
 pkgname=perl-www-github-gist
 pkgver=0.17
-pkgrel=1
+pkgrel=2
 pkgdesc="Perl interface to the GitHub's pastebin service"
 arch=('any')
 url='http://search.cpan.org/dist/WWW-GitHub-Gist'
@@ -10,7 +10,8 @@ depends=('perl>=5.06.2'
 'perl-http-tiny'
 'perl-json'
 'perl-mime-base64'
-'perl-moo')
+'perl-moo'
+'perl-io-socket-ssl')
 makedepends=()
 provides=()
 conflicts=()
