@@ -14,7 +14,7 @@ md5sums=('e9b710985a9d1831d366393515ff1b50')
 build() {
   cd "$srcdir"
   pod2man --release=$pkgver --center=$url --date=2007-12-11 \
-    adiff-$pkgver adiff.1 || return 1
+    adiff-$pkgver adiff.1
   install -Dm755 adiff-$pkgver "$pkgdir/usr/bin/adiff"
   install -Dm644 adiff.1 "$pkgdir/usr/share/man/man1/adiff.1"
 }
