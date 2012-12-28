@@ -3,9 +3,9 @@
 
 pkgname=('alx-driver-legacy')
 _vname='2012-10-03'
-_dkmsname='alx'
+_dkmsname='alx-legacy'
 pkgver=20121003
-pkgrel=1
+pkgrel=2
 pkgdesc='Atheros alx Linux ethernet device driver for legacy kernels < 3.7'
 arch=('i686' 'x86_64')
 url='http://linuxwireless.org/'
