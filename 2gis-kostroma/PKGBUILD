@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kostroma
-pkgver=25
+pkgver=26
 pkgrel=1
-pkgdesc="Map of Kostroma for 2GIS, November 2012"
+pkgdesc="Map of Kostroma for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://kostroma.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Kostroma-25.orig.zip")
-md5sums=('20d8bcd84bf3caf1da0768223b4643e0')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Kostroma-26.orig.zip")
+md5sums=('ba315a01f9299939d4b961de86416169')
      
 build() {
      

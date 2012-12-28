@@ -1,13 +1,13 @@
 pkgname=2gis-oskol
-pkgver=9
+pkgver=10
 pkgrel=1
-pkgdesc="Map of Stary Oskol for 2GIS, November 2012"
+pkgdesc="Map of Stary Oskol for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://oskol.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Staroskol-9.orig.zip")
-md5sums=('2e56741a76830fba39a8222ca6862bc0')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Staroskol-10.orig.zip")
+md5sums=('eca8307aad8f8158ff6f4b890b0c4173')
 
 build() {
   cd $startdir

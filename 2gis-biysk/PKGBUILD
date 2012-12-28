@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-biysk
-pkgver=49
+pkgver=50
 pkgrel=1
-pkgdesc="Map of Biysk for 2GIS, November 2012"
+pkgdesc="Map of Biysk for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://biysk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Biysk-49.orig.zip")
-md5sums=('14d621b6fad6f609214b60677d6caaf2')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Biysk-50.orig.zip")
+md5sums=('99103eb9586556f25a6ff0742876df60')
      
 build() {
      

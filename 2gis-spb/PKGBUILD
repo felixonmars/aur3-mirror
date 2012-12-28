@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
 
 pkgname=2gis-spb
-pkgver=21
+pkgver=22
 pkgrel=1
-pkgdesc="Map of Saint-Petersburg for 2GIS, November 2012"
+pkgdesc="Map of Saint-Petersburg for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://spb.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Spb-21.orig.zip")
-md5sums=('82db0510ea58a0f60a6f9bd7c2570c08')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Spb-22.orig.zip")
+md5sums=('75b8a16c2e19c5f22b3ccf792e371eb6')
 
 build() {
 

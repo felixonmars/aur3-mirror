@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-perm
-pkgver=59
+pkgver=60
 pkgrel=1
-pkgdesc="Map of Perm for 2GIS, November 2012"
+pkgdesc="Map of Perm for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://perm.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Perm-59.orig.zip")
-md5sums=('326e37cf93988f21840699df2fee2f66')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Perm-60.orig.zip")
+md5sums=('c4b3cf657f00dcc0ae7b56eb4f9b2c82')
      
 build() {
      

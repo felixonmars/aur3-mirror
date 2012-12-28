@@ -1,13 +1,13 @@
 pkgname=2gis-sterlitamak
-pkgver=12
+pkgver=13
 pkgrel=1
-pkgdesc="Map of Sterlitamak for 2GIS, November 2012"
+pkgdesc="Map of Sterlitamak for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://sterlitamak.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Sterlitamak-12.orig.zip")
-md5sums=('57217d170f9222bc5de6723ffab8ac83')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Sterlitamak-13.orig.zip")
+md5sums=('7b945aa06d15dc8113f9d0d41324ee29')
 
 build() {
   cd $startdir

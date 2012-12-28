@@ -1,13 +1,13 @@
 pkgname=2gis-ivanovo
-pkgver=7
+pkgver=8
 pkgrel=1
-pkgdesc="Map of Ivanovo for 2GIS, November 2012"
+pkgdesc="Map of Ivanovo for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://ivanovo.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Ivanovo-7.orig.zip")
-md5sums=('b9bcd067ec2cdb1f19a10f6d03947eb0')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Ivanovo-8.orig.zip")
+md5sums=('f57c1219c64310076e0e6c5bbf0254ae')
 
 build() {
   cd $startdir

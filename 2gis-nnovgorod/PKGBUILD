@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-nnovgorod
-pkgver=50
+pkgver=51
 pkgrel=1
-pkgdesc="Map of Nizhny Novgorod for 2GIS, November 2012"
+pkgdesc="Map of Nizhny Novgorod for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://nnovgorod.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-50.orig.zip")
-md5sums=('fe2e615fc4dd8dc791e60fc67492aa77')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-51.orig.zip")
+md5sums=('9dd0a603f31937b97a939920e93dc557')
      
 build() {
      

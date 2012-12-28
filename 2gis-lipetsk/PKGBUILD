@@ -1,13 +1,13 @@
 pkgname=2gis-lipetsk
-pkgver=12
+pkgver=13
 pkgrel=1
-pkgdesc="Map of Lipetsk for 2GIS, November 2012"
+pkgdesc="Map of Lipetsk for 2GIS, December 2012"
 arch=('i686' 'x86_64')
 url="http://lipetsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.9.0.1')
-source=("http://download.2gis.ru/arhives/2GISData_Lipetsk-12.orig.zip")
-md5sums=('a6c195b6e82d80c55d6770bff6a0d72b')
+depends=('2gis>=3.12.0.2')
+source=("http://download.2gis.ru/arhives/2GISData_Lipetsk-13.orig.zip")
+md5sums=('7ea6bd1111da016f7371dbb60588c608')
 
 build() {
   cd $startdir
