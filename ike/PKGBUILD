@@ -2,7 +2,7 @@
 
 pkgname=ike
 pkgver=2.1.7
-pkgrel=2
+pkgrel=3
 pkgdesc='Shrew Soft VPN client for Linux'
 arch=(i686 x86_64)
 url='http://www.shrew.net'
@@ -10,6 +10,7 @@ license=(BSD)
 depends=(openssl qt3)
 makedepends=(cmake)
 optdepends=(openldap)
+backup=(etc/iked.conf)
 source=("http://www.shrew.net/download/ike/ike-$pkgver-release.tgz" ike.rc.d)
 md5sums=(8551a521066fcad988b222921a905723 4ef4e837e93a3b39bed8545d6bb2a565)
 
@@ -26,4 +27,5 @@ package () {
     cd "$srcdir/ike"
     make DESTDIR="$pkgdir/" install
     install -Dm 755 $srcdir/ike.rc.d $pkgdir/etc/rc.d/iked
+    mv $pkgdir/etc/iked.conf{.sample,}
 }
