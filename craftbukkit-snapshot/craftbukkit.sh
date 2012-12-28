@@ -16,6 +16,13 @@ case "$1" in
     fi
     ;;
 
+  stop)
+    tmux send-keys -t craftbukkit-console 'broadcast NOTICE: Server shutting down in 5 seconds!' C-m
+    sleep 5
+    tmux send-keys -t craftbukkit-console 'stop' C-m
+    sleep 10
+    ;;
+
   backup)
     FILE="`date +%Y%m%d%H%M`.tar.gz"
     path="$BACKUPPATH/$FILE"
