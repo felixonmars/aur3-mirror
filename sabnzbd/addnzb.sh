@@ -1,14 +1,28 @@
-#!/bin/bash
-set -a # export all variables
+#!/bin/sh
 
-. /etc/conf.d/sabnzbd
+. /etc/conf.d/sabnzbd # import variables
 
-# SABnzbd must be able to read the file, so we copy it to a directory where it
-# certainly has rights.
-nzbname=$(basename "$1")
-TEMP_NZB="/var/tmp/$nzbname"
+urlencode() {
+  local string="${1}"
+  local strlen=${#string}
+  local encoded=""
 
-curl -s $(python2 -c 'import urlparse,urllib,sys; print sys.argv[1] if urlparse.urlparse(sys.argv[1]).scheme else urlparse.urlparse(urllib.pathname2url(sys.argv[1]),"file").geturl()' "$1") -o "$TEMP_NZB"
-curl -f $(python2 -c 'import urllib,os; print os.environ["SABNZBD_PROTOCOL"]+"://"+urllib.quote(os.environ["SABNZBD_USPW"]+os.environ["SABNZBD_IP"])+":"+os.environ["SABNZBD_PORT"]+"/sabnzbd/api?mode=addlocalfile&name="+urllib.quote(os.environ["TEMP_NZB"])+"&apikey="+urllib.quote(os.environ["NZB_KEY"])')
+  for (( pos=0 ; pos<strlen ; pos++ )); do
+     c=${string:$pos:1}
+     case "$c" in
+        [-_.~a-zA-Z0-9] ) o="${c}" ;;
+        * )               printf -v o '%%%02x' "'$c"
+     esac
+     encoded+="${o}"
+  done
+ 
+  echo "${encoded}"
+}
+
+# copy file to directory where sabnzbd has read rights
+TEMP_NZB="/var/tmp/"$(basename "$1")
+cp "$1" "$TEMP_NZB"
+
+curl -s "$URL/sabnzbd/api?mode=addlocalfile&apikey=$API_KEY&name=$(urlencode "$TEMP_NZB")" > /dev/null
+
 rm "$TEMP_NZB"
-exit 0
