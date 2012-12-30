@@ -11,7 +11,7 @@ depends=('diffutils' 'perl')
 source=(http://agriffis.n01se.net/adiff/adiff-$pkgver)
 md5sums=('e9b710985a9d1831d366393515ff1b50')
 
-build() {
+package() {
   cd "$srcdir"
   pod2man --release=$pkgver --center=$url --date=2007-12-11 \
     adiff-$pkgver adiff.1
