@@ -1,7 +1,7 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=acpi_call-git
-pkgver=20120915
+pkgver=20121230
 pkgrel=1
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
@@ -16,6 +16,9 @@ _gitroot=("https://github.com/mkottman/acpi_call.git")
 _gitname=("acpi_call")
 
 build() {
+  warning "Please make sure kernel headers are built/installed for the kernel acpi_call will be used with ::"
+  warning "example #1: 'pacman -S linux-headers'"
+  warning "example #2: 'pacman -S linux-lts-headers'"
   cd ${srcdir}
 
  ## Git checkout
@@ -43,24 +46,24 @@ package() {
   cd ${srcdir}/${_gitname}-build
   install -d ${pkgdir}/usr/share/${_gitname} || return 1
   install -d ${pkgdir}/usr/bin || return 1
-  install -Dm755  ${srcdir}/${_gitname}-build/asus1215n.sh \
+  install -Dm755  ${srcdir}/${_gitname}-build/examples/asus1215n.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
-  install -Dm755  ${srcdir}/${_gitname}-build/m11xr2.sh \
+  install -Dm755 ${srcdir}/${_gitname}-build/examples/dellL702X.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
-  install -Dm755  ${srcdir}/${_gitname}-build/query_dsdt.pl \
+  install -Dm755  ${srcdir}/${_gitname}-build/examples/m11xr2.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
-  install -Dm755  ${srcdir}/${_gitname}-build/test_off.sh \
+  install -Dm755  ${srcdir}/${_gitname}-build/examples/turn_off_gpu.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
-  ln -s /usr/share/${_gitname}/test_off.sh \
-    ${pkgdir}/usr/bin/test_off.sh || return 1
-  cp -R windump_hack \
+  ln -s /usr/share/${_gitname}/test_off_gpu.sh \
+    ${pkgdir}/usr/bin/turn_off_gpu.sh || return 1
+  install -Dm755  ${srcdir}/${_gitname}-build/support/query_dsdt.pl \
+    ${pkgdir}/usr/share/${_gitname} || return 1
+  cp -R support/windump_hack \
     ${pkgdir}/usr/share/${_gitname}/
-  install -Dm644 README \
-    ${pkgdir}/usr/share/${_gitname}/README
+  install -Dm644 README.md \
+    ${pkgdir}/usr/share/${_gitname}/README.md
 
-  warning "Please make sure kernel headers are built/installed for the kernel acpi_call will be used with ::"
-  warning "example #1: 'pacman -S linux-headers'"
-  warning "example #2: 'pacman -S linux-lts-headers'"
+  warning "The following kernel module build instructions *will fail* if your kernel headers aren't built/installed!"
   for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*version //g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
     msg2 "Building module for $_kernver..."
 
