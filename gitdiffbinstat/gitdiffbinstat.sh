@@ -137,7 +137,6 @@ elif [[ "${obj}" = *\.\.* ]] ; then
 	objbranch=`git symbolic-ref ${obj} 2>&1`
 	objhash=`git log -1 --format="%H" ${obj}`
 else
-
 	if [ ! `git rev-parse --quiet --verify ${obj}` ] ; then
 		echo "fatal: git could not associate '${obj}' with anything useful"
 		exit 3
@@ -145,8 +144,11 @@ else
 
 	# get current branch
 	curbranch=`git branch | awk '/^\*\ /' | sed -e 's/\*\ //'`
+	if [ "${curbranch}" == "(no branch)" ] ; then
+		curbranch=`git rev-parse HEAD`
+	fi
 	# get current commit hash
-	curcommit=`git rev-parse ${curbranch}`
+	curcommit=`git rev-parse HEAD`
 	# get commit object hash
 	objhash=`git log -1 --format="%H" ${obj}`
 	# print what we compare with   git diff
