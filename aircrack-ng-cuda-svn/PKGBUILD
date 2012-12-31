@@ -3,12 +3,12 @@
 
 pkgname=aircrack-ng-cuda-svn
 pkgver=1550
-pkgrel=8
+pkgrel=10
 pkgdesc="Wifi security suite with NVIDIA GPU-enhanced (using CUDA) WPA/WPA2 key cracking"
 arch=('i686' 'x86_64')
 url="http://www.aircrack-ng.org"
 license=('GPL2')
-depends=('openssl' 'wireless_tools' 'libtool' 'cuda-toolkit' 'sqlite3' 'iw')
+depends=('openssl' 'wireless_tools' 'libtool' 'cuda' 'sqlite3' 'iw')
 makedepends=('subversion' 'autoconf')
 provides=('aircrack-ng-cuda')
 conflicts=('aircrack-ng-cuda')
@@ -24,40 +24,39 @@ build() {
   if [ -d ${_svnmod}/.svn ]; then
     (cd ${_svnmod} && svn up -r ${pkgver})
   else
-    svn co ${_svntrunk} --config-dir ./ -r ${pkgver} ${_svnmod}
+    svn co ${_svntrunk} ${_svnmod} || return 1
   fi
 
   msg "SVN checkout done or server timeout"
   msg "Starting make..."
 
-  if [ -d "${srcdir}/${_svnmod}-build" ]; then
-    rm -rf "${srcdir}/${_svnmod}-build"
-  fi
-
-  svn export ${_svnmod} ${_svnmod}-build
-  cd ${_svnmod}-build
+  cd ${_svnmod}
 
   # setting the right location of nvcc
   sed -i "s/#NVCCFLAGS/NVCCFLAGS/" src/Makefile || return 1
 
   if  test "$CARCH" == x86_64; then
     sed -i "s/lib -lcuda -lcudart/lib64 -lcuda -lcudart -lstdc++/" src/Makefile || return 1
+    #sed -i "s|lib -lcuda -lcudart|opt/cuda/lib64 -lcuda -lcudart -lstdc++|" src/Makefile || return 1
   else
-    sed -i "s/lib -lcuda -lcudart/lib -lcuda -lcudart -lstdc++/" src/Makefile || return 1
+    #uncomment below line, and comment out the one below it = if you are on x86 (32bit), and running cuda earlier then v5
+    #sed -i "s|lib -lcuda -lcudart|lib -lcuda -lcudart -lstdc++|" src/Makefile || return 1
+    sed -i "s|lib -lcuda -lcudart|lib -lcudart -lstdc++|" src/Makefile || return 1
   fi
 
+  #sed -i s#/bin/nvcc#/opt/cuda/bin/nvcc#g src/Makefile || return 1
   sed -i "s/--compiler-options -fno-strict-aliasing --host-compilation=C/--compiler-options -fno-strict-aliasing --host-compilation=C --compiler-options -fpermissive/" src/Makefile || return 1
 
   # BUILD
   make clean
-  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda-toolkit DESTDIR=${pkgdir}/ CUDA=true SQLITE=true UNSTABLE=true || return 1
+  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda DESTDIR=${pkgdir} CUDA=true SQLITE=true UNSTABLE=true || return 1
 }
 
 package() {
-  cd ${srcdir}/${_svnmod}-build
+  cd ${srcdir}/${_svnmod}
   mkdir -p ${pkgdir}/usr/local/share/aircrack-ng-cuda || return 1
   cp -R test/* ${pkgdir}/usr/local/share/aircrack-ng-cuda/ || return 1
-  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda-toolkit DESTDIR=${pkgdir}/ CUDA=true SQLITE=true UNSTABLE=true install  || return 1
+  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda DESTDIR=${pkgdir} CUDA=true SQLITE=true UNSTABLE=true install  || return 1
 
   #user notification
   echo -e ""
