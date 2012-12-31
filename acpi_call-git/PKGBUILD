@@ -54,7 +54,7 @@ package() {
     ${pkgdir}/usr/share/${_gitname} || return 1
   install -Dm755  ${srcdir}/${_gitname}-build/examples/turn_off_gpu.sh \
     ${pkgdir}/usr/share/${_gitname} || return 1
-  ln -s /usr/share/${_gitname}/test_off_gpu.sh \
+  ln -s /usr/share/${_gitname}/turn_off_gpu.sh \
     ${pkgdir}/usr/bin/turn_off_gpu.sh || return 1
   install -Dm755  ${srcdir}/${_gitname}-build/support/query_dsdt.pl \
     ${pkgdir}/usr/share/${_gitname} || return 1
