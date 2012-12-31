@@ -1,16 +1,11 @@
 #!/bin/bash
 
-# general config
-
-TENGINE_CONFIG="/etc/tengine/conf/tengine.conf"
-
-. /etc/conf.d/tengine
 . /etc/rc.conf
 . /etc/rc.d/functions
 
 function check_config {
-  stat_busy "Checking configuration"
-  /usr/sbin/tengine -t -q -c "$TENGINE_CONFIG"
+  stat_busy "Checking tengine configuration"
+  /usr/sbin/tengine -t -q -c /etc/tengine/tengine.conf
   if [ $? -ne 0 ]; then
     stat_die
   else
@@ -24,14 +19,14 @@ case "$1" in
     $0 careless_start
     ;;
   careless_start)
-    stat_busy "Starting Tengine"
+    stat_busy "Starting tengine"
     if [ -s /var/run/tengine.pid ]; then
       stat_fail
       # probably ;)
       stat_busy "Tengine is already running"
       stat_die
      fi
-    /usr/sbin/tengine -c "$TENGINE_CONFIG" &>/dev/null
+    /usr/sbin/tengine -c /etc/tengine/tengine.conf &>/dev/null
     if [ $? -ne 0 ]; then
       stat_fail
     else
@@ -40,14 +35,14 @@ case "$1" in
     fi
     ;;
   stop)
-    stat_busy "Stopping Tengine"
-    TENGINE_PID=`cat /var/run/tengine.pid 2>/dev/null`
-    kill -QUIT $TENGINE_PID &>/dev/null
+    stat_busy "Stopping tengine"
+    PID=$(cat /var/run/tengine.pid)
+    kill -QUIT $PID &>/dev/null
     if [ $? -ne 0 ]; then
       stat_fail
     else
-      for i in `seq 1 10`; do
-        [ -d /proc/$TENGINE_PID ] || { stat_done; rm_daemon tengine; exit 0; }
+      for i in {1..10}; do
+        [ -d /proc/$PID ] || { stat_done; rm_daemon tengine; exit 0; }
         sleep 1
       done
       stat_fail
@@ -62,7 +57,7 @@ case "$1" in
   reload)
     check_config
     if [ -s /var/run/tengine.pid ]; then
-      status "Reloading Tengine Configuration" kill -HUP `cat /var/run/tengine.pid`
+      status "Reloading tengine configuration" kill -HUP $(cat /var/run/tengine.pid)
     fi
     ;;
   check)
