@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -e
+
+VERSION=0.1
+LOGIN_PAGE=https://www.humblebundle.com/login
+HOME_PAGE=https://www.humblebundle.com/home
+COOKIE_JAR=
+
+FILE=
+DESTINATION=
+DOWNLOAD=1
+LISTING_PAGES=()
+USERNAME=
+PASSWORD=
+KEYS=()
+
+login() {
+  /usr/bin/curl -s --cookie-jar "$COOKIE_JAR" \
+    --data "username=$USERNAME" --data "password=$PASSWORD" "$LOGIN_PAGE"
+}
+
+discover_url() {
+  local LISTING_PAGE="$1"
+  /usr/bin/curl -s --cookie "$COOKIE_JAR" "$LISTING_PAGE" | grep "/$FILE?" | \
+    sed -e "s/.* data-web='\([^']*\)'.*/\1/" | head -n 1
+}
+
+usage() {
+  echo "hib-dlagent $VERSION"
+  echo "Tool to download Humble Indie Bundle binaries by file name"
+  echo
+  echo "Usage: $0 [OPTIONS] FILE"
+  echo "Options:"
+  echo " -h         This help"
+  echo " -k <key>   Search key's files. Use multiple times for multiple keys"
+  echo " -o <file>  Name to use when saving file"
+  echo " -p <pass>  Use pass to login. If specified multiple times, the last is"
+  echo "            used"
+  echo " -s         Print URL to stdout instead of downloading"
+  echo " -u <user>  Use user to login. Search account's files. If specified"
+  echo "            multiple times, the last is used"
+  echo
+  echo "If you specify -u, then all of that account's bundles are searched. If"
+  echo "a key is associated with a HIB account then you must use -u/-p, since"
+  echo "that key only works when logged into that account. It is not helpful to"
+  echo "specify -k for bundles associated with an account."
+}
+
+main() {
+  if [ $# -eq 0 ]; then
+    usage
+    exit 1
+  fi
+
+  while getopts "hk:o:p:su:" opt; do
+    case $opt in
+      \?)
+        exit 1
+      ;;
+      h)
+        usage
+        exit 1
+      ;;
+      k)
+        KEYS+=("$OPTARG")
+      ;;
+      o)
+        DESTINATION="$OPTARG"
+      ;;
+      p)
+        PASSWORD="$OPTARG"
+      ;;
+      s)
+        DOWNLOAD=0
+      ;;
+      u)
+        USERNAME="$OPTARG"
+      ;;
+    esac
+  done
+
+  shift $(($OPTIND - 1))
+
+  if [ $# == 0 ]; then
+    echo "Missing argument FILE" >&2
+    exit 1
+  fi
+
+  if [ $# != 1 ]; then
+    echo "Unexpected argument: $2" >&2
+    exit 1
+  fi
+
+  COOKIE_JAR=$(mktemp)
+  FILE="$1"
+
+  if [ -z "$DESTINATION" ]; then
+    DESTINATION="${FILE##*/}"
+  fi
+
+  if [ -n "$USERNAME" ]; then
+    login;
+    LISTING_PAGES+=("$HOME_PAGE")
+  fi
+
+  for KEY in "${KEYS[@]}"; do
+    LISTING_PAGES+=("https://www.humblebundle.com/downloads?key=$KEY")
+  done
+
+  if [ -z "$LISTING_PAGES" ]; then
+    echo "You must specify at least one of -u and -k" >&1
+    exit 1
+  fi
+
+  for LISTING_PAGE in "${LISTING_PAGES[@]}"; do
+    URL=$(discover_url "$LISTING_PAGE")
+    if [ -n "$URL" ]; then break; fi
+  done
+
+  # Cookie no longer necessary.
+  rm "$COOKIE_JAR"
+
+  if [ ! -n "$URL" ]; then
+    echo "Could not find URL for file: $FILE" >&2
+    exit 2
+  fi
+
+  if [ $DOWNLOAD -eq 0 ]; then
+    echo "$URL"
+  else
+    /usr/bin/curl -C - --retry 3 --retry-delay 3 -o "$DESTINATION" "$URL"
+  fi
+}
+
+main "$@"
