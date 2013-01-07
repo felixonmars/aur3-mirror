@@ -1,9 +1,9 @@
 # Maintainer: Lukas Hübner <mail@lukashuebner.net>
 pkgname=aget
 pkgver=0.4.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Simple multithreaded command line downloader."
-arch=('i686', 'x86_64')
+arch=('i686' 'x86_64')
 url="http://www.enderunix.org/aget/"
 license=('GPL')
 depends=('glibc')
