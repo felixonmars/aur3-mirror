@@ -8,4 +8,4 @@
 COLLECTL_PNAME=
 
 # Options to pass to collectl; the default is none.
-COLLECTL_OPTS=
+COLLECTL_OPTS=-D
