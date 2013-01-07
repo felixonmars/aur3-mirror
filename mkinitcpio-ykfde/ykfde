@@ -21,6 +21,7 @@ while getopts "12d:h" opt; do
 			;;
 		2)
 			SLOT="2"
+			echo "Do not forget to add 'ykfde_slot=2' to your boot parameters!"
 			;;
 		d)
 			DEVICE="${OPTARG}"
@@ -32,13 +33,16 @@ while getopts "12d:h" opt; do
 	esac
 done
 
-if ! cryptsetup isLuks "${DEVICE}" 2>/dev/null; then
+if [ -z "${DEVICE}" ]; then
+	echo "No device given." >&2
+	help
+	exit 1
+elif [ ! -b "${DEVICE}" ]; then
+	echo "Device '${DEVICE}' does not exist or is not a block device." >&2
+	exit 1
+elif ! cryptsetup isLuks "${DEVICE}" 2>/dev/null; then
 	echo "Device '${DEVICE}' does not exist." >&2
 	exit 1
-fi
-
-if [ "${SLOT}" = "2" ]; then
-	echo "Do not forget to add 'ykfde_slot=2' to your boot parameters!"
 fi
 
 install -d -m0700 "${DIR}"
@@ -47,20 +51,27 @@ echo -n "authentication, just ENTER for none: "
 stty -echo
 read PASS
 stty echo
+echo
 
 if [ -n "${PASS}" ]; then
 	echo "Do not forget to add 'ykfde_twofactor=y' to your boot parameters!"
 fi
 
 # generate challenge
-makepasswd --chars=$((64-${#PASS})) > "${DIR}/ykfde-challenge"
+echo -n $(makepasswd --chars=$((64-${#PASS}))) > "${DIR}/ykfde-challenge"
 install -D -m 0400 "${DIR}/ykfde-challenge" "/boot/ykfde-challenge"
 
 # generate response and add key to LUKS device
-ykchalresp -${SLOT} "${PASS}$(cat /boot/ykfde-challenge)" > "${DIR}/ykfde-response"
-cryptsetup luksAddKey "${DEVICE}" "${DIR}/ykfde-response"
+if ! ykchalresp -${SLOT} "${PASS}$(cat /boot/ykfde-challenge)" > "${DIR}/ykfde-response"; then
+	# ykchalresp should have shouted, so do not complain here
+	exit 1
+fi
+if ! cryptsetup luksAddKey "${DEVICE}" "${DIR}/ykfde-response"; then
+	# cryptsetup should have shouted, ...
+	exit 1
+fi
 shred --remove "${DIR}/ykfde-response"
-rm -r "${DIR}"
+rm -rf "${DIR}"
 
 echo "Please do not forget to remove old keys when changing challenge!"
 echo "Now run 'mkinitcpio' to build a new initramfs!"
