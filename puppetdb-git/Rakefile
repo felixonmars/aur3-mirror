@@ -76,7 +76,7 @@ end
 
 case @osfamily
   when /debian/
-    @plibdir = @pe ? '/opt/puppet/lib/ruby/1.8' : '/usr/lib/ruby/vendor_ruby'
+    @plibdir = @pe ? '/opt/puppet/lib/ruby/1.8' : ( @ruby_version == '1.8' ?  '/usr/lib/ruby/1.8' : '/usr/lib/ruby/vendor_ruby/1.9.1' )
   when /redhat/
     @plibdir = @pe ? '/opt/puppet/lib/ruby/site_ruby/1.8' : ( @ruby_version == '1.8' ? '/usr/lib/ruby/site_ruby/1.8' : '/usr/share/ruby/vendor_ruby' )
   when /suse/
@@ -94,8 +94,8 @@ if @pe
     @lib_dir = "/opt/puppet/share/puppetdb"
     @name ="pe-puppetdb"
     @sbin_dir = "/opt/puppet/sbin"
-    @cows = 'lenny', 'lucid', 'squeeze', 'precise'
-    @pe_version = '2.5'
+    @cows = 'lucid', 'squeeze', 'precise', 'wheezy'
+    @pe_version = ENV['PE_VER'] || '2.7'
 else
     @install_dir = "/usr/share/puppetdb"
     @etc_dir = "/etc/puppetdb"
@@ -118,22 +118,7 @@ end
 @rpmversion   ||= get_rpmversion
 @rpmrelease   ||= get_rpmrelease
 
-
-desc "Create a source install of PuppetDB"
-task :sourceinstall do
-  ENV['SOURCEINSTALL'] = 1
-  Rake::Task[:install].invoke
-end
-
 def erb(erbfile,  outfile)
-  if ENV['SOURCEINSTALL'] == 1
-    @install_dir = "#{DESTDIR}/@install_dir"
-    @config_dir = "#{DESTDIR}/@config_dir"
-    @initscriptname = "#{DESTDIR}/@initscript"
-    @log_dir = "#{DESTDIR}/@log_dir"
-    @lib_dir = "#{DESTDIR}/@lib_dir"
-    @link = "#{DESTDIR}/@link"
-  end
   template = File.read(erbfile)
   message = ERB.new(template, nil, "-")
   output = message.result(binding)
@@ -162,7 +147,7 @@ task :package => [ :clobber, JAR_FILE, :template  ] do
   temp = `mktemp -d -t tmpXXXXXX`.strip
   workdir = File.join(temp, "puppetdb-#{@version}")
   mkdir_p workdir
-  FileList[ "ext", "*.md", JAR_FILE, "spec", "Rakefile" ].each do |f|
+  FileList[ "ext", "*.md", JAR_FILE, "documentation", "Rakefile" ].each do |f|
     cp_pr f, workdir
   end
   # Lay down version file for later reading
@@ -371,14 +356,18 @@ task :deb  => [ :package ] do
     if @pe
       @cows.each do |cow|
         mkdir "#{temp}/#{cow}"
-        ENV['DIST'] = cow
-        ENV['ARCH'] = 'i386'
-        ENV['PE_VER'] ||= @pe_version
+        arch = ENV['ARCH'] || 'i386'
+        # Because these are general purpose cows, we have to update them with PE repos
+        # to ensure this build succeeds at dependency resolution
+        sh "export DIST=#{cow} ARCH=#{arch} PE_VER=#{@pe_version} ; \
+          sudo -E cowbuilder --update \
+          --override-config \
+          --basepath=/var/cache/pbuilder/base-#{cow}-#{arch}.cow \
+          --dist #{cow} \
+          --architecture #{arch}"
         sh "pdebuild --buildresult #{temp}/#{cow} \
-        --pbuilder cowbuilder -- \
-        --override-config \
-        --othermirror=\"deb http://freight.puppetlabs.lan #{ENV['PE_VER']} #{cow}\" \
-        --basepath /var/cache/pbuilder/base-#{cow}-i386.cow/"
+          --pbuilder cowbuilder -- \
+          --basepath /var/cache/pbuilder/base-#{cow}-#{arch}.cow/"
       end
     else
       sh 'debuild --no-lintian  -uc -us'

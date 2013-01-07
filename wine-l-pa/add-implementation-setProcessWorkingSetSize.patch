@@ -1,0 +1,128 @@
+--- wine-1.5.20/dlls/kernel32/process.c.orig	2012-12-21 14:14:41.000000000 -0500
++++ wine-1.5.20/dlls/kernel32/process.c	2012-12-29 17:20:33.052096000 -0500
+@@ -47,6 +47,10 @@
+ #ifdef HAVE_UNISTD_H
+ # include <unistd.h>
+ #endif
++#include <sys/resource.h>
++#ifdef HAVE_SYS_MMAN_H
++#include <sys/mman.h>
++#endif
+ #ifdef __APPLE__
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <pthread.h>
+@@ -3273,11 +3277,61 @@
+ BOOL WINAPI SetProcessWorkingSetSize(HANDLE hProcess, SIZE_T minset,
+                                      SIZE_T maxset)
+ {
+-    WARN("(%p,%ld,%ld): stub - harmless\n",hProcess,minset,maxset);
++    struct rlimit limits;
++
++    if (hProcess != GetCurrentProcess()) {
++        FIXME("Cannot get info for another process");
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    TRACE("(%p,%ld,%ld)\n",hProcess,minset,maxset);
++
+     if(( minset == (SIZE_T)-1) && (maxset == (SIZE_T)-1)) {
+-        /* Trim the working set to zero */
+-        /* Swap the process out of physical RAM */
++#ifdef HAVE_SYS_MMAN
++        if (munlockall() == -1) {
++            switch(errno) {
++                case ENOSYS:
++                    SetLastError(ERROR_INVALID_FUNCTION);
++                    break;
++                default:
++                    FIXME("Converting munlockall errno %d to ERROR_GEN_FAILURE\n", errno);
++                    SetLastError(ERROR_GEN_FAILURE);
++                    break;
++            }
++            return FALSE;
++        }
++
++        limits.rlim_cur = 0;
++        limits.rlim_max = 0;
++#else
++        FIXME("(%p,%ld,%ld): stub\n",hProcess,minset,maxset);
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++#endif
++    }
++    else {
++        limits.rlim_cur = maxset;
++        limits.rlim_max = maxset;
++    }
++
++    if (setrlimit(RLIMIT_MEMLOCK, &limits) == -1) {
++        switch(errno) {
++            case EINVAL:
++                SetLastError(ERROR_INVALID_PARAMETER);
++                break;
++            case EPERM:
++                SetLastError(ERROR_ACCESS_DENIED);
++                break;
++            default:
++                FIXME("Converting errno %d to ERROR_GEN_FAILURE\n", errno);
++                SetLastError(ERROR_GEN_FAILURE);
++                break;
++        }
++
++        return FALSE;
+     }
++
+     return TRUE;
+ }
+ 
+@@ -3295,10 +3349,45 @@
+ BOOL WINAPI GetProcessWorkingSetSize(HANDLE hProcess, PSIZE_T minset,
+                                      PSIZE_T maxset)
+ {
+-    FIXME("(%p,%p,%p): stub\n",hProcess,minset,maxset);
+-    /* 32 MB working set size */
+-    if (minset) *minset = 32*1024*1024;
+-    if (maxset) *maxset = 32*1024*1024;
++    struct rlimit limits;
++
++    if (hProcess != GetCurrentProcess()) {
++        FIXME("Cannot get info for another process");
++        SetLastError(ERROR_INVALID_PARAMETER);
++        return FALSE;
++    }
++
++    TRACE("(%p,%p,%p)\n",hProcess,minset,maxset);
++
++    /* 32 MB minimum working set size - no rlimit for this */
++    if (minset)
++        *minset = 32*1024*1024;
++
++    if (maxset) {
++        if (getrlimit(RLIMIT_MEMLOCK, &limits) == -1) {
++            switch(errno) {
++                case EINVAL:
++                    SetLastError(ERROR_INVALID_PARAMETER);
++                    break;
++                case EPERM:
++                    SetLastError(ERROR_ACCESS_DENIED);
++                    break;
++                default:
++                    FIXME("Converting errno %d to ERROR_GEN_FAILURE\n", errno);
++                    SetLastError(ERROR_GEN_FAILURE);
++                    break;
++            }
++
++            return FALSE;
++        }
++        
++        if (limits.rlim_max == RLIM_INFINITY)
++            *maxset = MAXUINT_PTR;
++        else
++            *maxset = limits.rlim_max;
++    }
++
++
+     return TRUE;
+ }
+ 

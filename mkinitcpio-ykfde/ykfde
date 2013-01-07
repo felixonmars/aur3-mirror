@@ -1,0 +1,66 @@
+#!/bin/sh
+
+function help() {
+	echo "usage: ${0} [OPTIONS]"
+	echo
+	echo "where OPTIONS are:"
+	echo " -1         use Yubico key slot 1"
+	echo " -2         use Yubico key slot 2"
+	echo " -d DEVICE  add key to device DEVICE"
+	echo " -h         show this help"
+}
+
+DIR="/tmp/.ykfde-${$}/"
+PASS=""
+SLOT="1"
+
+while getopts "12d:h" opt; do
+	case ${opt} in
+		1)
+			SLOT="1"
+			;;
+		2)
+			SLOT="2"
+			;;
+		d)
+			DEVICE="${OPTARG}"
+			;;
+		h)
+			help
+			exit 0
+			;;
+	esac
+done
+
+if ! cryptsetup isLuks "${DEVICE}" 2>/dev/null; then
+	echo "Device '${DEVICE}' does not exist." >&2
+	exit 1
+fi
+
+if [ "${SLOT}" = "2" ]; then
+	echo "Do not forget to add 'ykfde_slot=2' to your boot parameters!"
+fi
+
+install -d -m0700 "${DIR}"
+echo "Please give extra password if you want to activate two factor"
+echo -n "authentication, just ENTER for none: "
+stty -echo
+read PASS
+stty echo
+
+if [ -n "${PASS}" ]; then
+	echo "Do not forget to add 'ykfde_twofactor=y' to your boot parameters!"
+fi
+
+# generate challenge
+makepasswd --chars=$((64-${#PASS})) > "${DIR}/ykfde-challenge"
+install -D -m 0400 "${DIR}/ykfde-challenge" "/boot/ykfde-challenge"
+
+# generate response and add key to LUKS device
+ykchalresp -${SLOT} "${PASS}$(cat /boot/ykfde-challenge)" > "${DIR}/ykfde-response"
+cryptsetup luksAddKey "${DEVICE}" "${DIR}/ykfde-response"
+shred --remove "${DIR}/ykfde-response"
+rm -r "${DIR}"
+
+echo "Please do not forget to remove old keys when changing challenge!"
+echo "Now run 'mkinitcpio' to build a new initramfs!"

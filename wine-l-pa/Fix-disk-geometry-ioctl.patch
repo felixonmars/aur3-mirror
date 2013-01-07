@@ -1,0 +1,84 @@
+--- wine-1.3.20/dlls/mountmgr.sys/device.c.orig	2012-12-21 14:14:41.000000000 -0500
++++ wine-1.5.20/dlls/mountmgr.sys/device.c	2012-12-28 18:34:21.519785496 -0500
+@@ -26,6 +26,10 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <sys/time.h>
++#include <string.h>
++#include <unistd.h>
++#include <sys/types.h>
++#include <pwd.h>
+ 
+ #include "mountmgr.h"
+ #include "winreg.h"
+@@ -894,7 +898,6 @@
+            irpsp->Parameters.DeviceIoControl.OutputBufferLength );
+ 
+     EnterCriticalSection( &device_section );
+-
+     switch(irpsp->Parameters.DeviceIoControl.IoControlCode)
+     {
+     case IOCTL_DISK_GET_DRIVE_GEOMETRY:
+@@ -902,17 +905,52 @@
+         DISK_GEOMETRY info;
+         DWORD len = min( sizeof(info), irpsp->Parameters.DeviceIoControl.OutputBufferLength );
+ 
+-        info.Cylinders.QuadPart = 10000;
+-        info.MediaType = (dev->devnum.DeviceType == FILE_DEVICE_DISK) ? FixedMedia : RemovableMedia;
+-        info.TracksPerCylinder = 255;
+-        info.SectorsPerTrack = 63;
+-        info.BytesPerSector = 512;
++        NTSTATUS status = STATUS_UNSUCCESSFUL;
++
++        if (dev->unix_mount)
++        {
++            struct passwd *pw = getpwuid(getuid());
++            char newpath[128];
++            memcpy(newpath, pw->pw_dir, 128); // no strncpy allowed
++            strncat(newpath, "/.wine/drive_c/", 128); // path relative to C
++            strncat(newpath, dev->unix_mount, 128);
++
++            FILE *fp = fopen(strncat(newpath, "/.windows-geometry", 128), "r");
++            if (fp)
++            {
++                if (fscanf(fp, "%Ld %d %d %d %d", &info.Cylinders.QuadPart, 
++                        (int*) &info.MediaType, &info.TracksPerCylinder, 
++                        &info.SectorsPerTrack, &info.BytesPerSector ) == 5) 
++                {
++                    TRACE("geometry %Ld %d %d %d %d\n", info.Cylinders.QuadPart,
++                        info.MediaType, info.TracksPerCylinder, 
++                        info.SectorsPerTrack, info.BytesPerSector); 
++                    status = STATUS_SUCCESS;
++                }
++
++            }
++            else
++            {
++                TRACE("No geometry file at %s\n", newpath);
++            }
++        }
++
++        if (status != STATUS_SUCCESS)
++        {
++            info.Cylinders.QuadPart = 10000;
++            info.MediaType = (dev->devnum.DeviceType == FILE_DEVICE_DISK) ? FixedMedia : RemovableMedia;
++            info.TracksPerCylinder = 255;
++            info.SectorsPerTrack = 63;
++            info.BytesPerSector = 512;
++            status = STATUS_SUCCESS;
++        }
++
+         memcpy( irp->AssociatedIrp.SystemBuffer, &info, len );
+-        irp->IoStatus.Information = len;
+-        irp->IoStatus.u.Status = STATUS_SUCCESS;
+-        break;
+-    }
+-    case IOCTL_DISK_GET_DRIVE_GEOMETRY_EX:
++         irp->IoStatus.Information = len;
++        irp->IoStatus.u.Status = status;
++         break;
++     }
++     case IOCTL_DISK_GET_DRIVE_GEOMETRY_EX:
+     {
+         DISK_GEOMETRY_EX info;
+         DWORD len = min( sizeof(info), irpsp->Parameters.DeviceIoControl.OutputBufferLength );

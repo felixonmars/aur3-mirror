@@ -1,0 +1,165 @@
+--- wine-1.3.24/dlls/ntdll/sync.c.old	2011-12-28 16:14:53.967056791 -0800
++++ wine-1.3.24/dlls/ntdll/sync.c	2011-12-28 16:14:23.639181763 -0800
+@@ -132,7 +132,9 @@
+     RtlFreeHeap(GetProcessHeap(), 0, server_sd);
+ }
+ 
+-#define is_pipe_object(h) (h != INVALID_HANDLE_VALUE && HIWORD(h) != 0)
++/* -1 "check environment", 0 "don't use them", 1 "do use them" */
++static int s_usePipeObjects = -1;
++#define is_pipe_object(h) (s_usePipeObjects == 1 && h != INVALID_HANDLE_VALUE && HIWORD(h) != 0)
+ #define is_pipe_event(h) (is_pipe_object(h) && ((LPPIPEOBJ)h)->wMagic == EVENT_MAGIC)
+ #define is_pipe_semaphore(h) (is_pipe_object(h) && ((LPPIPEOBJ)h)->wMagic == SEMAPHORE_MAGIC)
+ #define is_pipe_mutex(h) (is_pipe_object(h) && ((LPPIPEOBJ)h)->wMagic == MUTEX_MAGIC)
+@@ -154,13 +156,12 @@
+  */
+ BOOL use_pipe_objects(void)
+ {
+-    static const char* s_enable_pipe_sync = 0;
+-    if (s_enable_pipe_sync == 0) {
++    if (s_usePipeObjects == -1) {
+         const char* env;
+         extern int __wine_main_argc;
+         extern char** __wine_main_argv;
+ 
+-        s_enable_pipe_sync = "0";
++        s_usePipeObjects = 0;
+         env = getenv("L_ENABLE_PIPE_SYNC_FOR_APP");
+         if (env) {
+             /* note: PEB command line is not available when this is first called so use main args */
+@@ -168,11 +169,11 @@
+                 ERR("bad __wine_main_argc: %d\n", __wine_main_argc);
+             else if (strstr(__wine_main_argv[1], env) != 0) {
+                 MESSAGE("Honoring L_ENABLE_PIPE_SYNC_FOR_APP: %s (%s)\n", env, __wine_main_argv[1]);
+-                s_enable_pipe_sync = "1";
++                s_usePipeObjects = 1;
+             }
+         }
+     }
+-    return(*s_enable_pipe_sync != '0');
++    return(s_usePipeObjects == 1);
+ }
+ 
+ /******************************************************************************
+@@ -249,42 +250,85 @@
+  */
+ static NTSTATUS wait_for_pipe_object(LPPIPEOBJ pobj, const LARGE_INTEGER *timeout, int clear)
+ {
+-    char c;
+-    NTSTATUS ret;
+-    struct pollfd pfd;
+-    int tm;
+-
+-    pfd.fd = pobj->fd[0];
+-    pfd.events = POLLIN;
+-    pfd.revents = 0;
+-
+-    if (!timeout)
+-        tm = -1;
+-    else
+-        tm = (-timeout->QuadPart) / (ULONGLONG)10000;
+-
+-    TRACE("%p timeout=%d\n", pobj, tm);
+-
+-    if (poll(&pfd, 1, tm) == -1)
+-        ret = WAIT_FAILED;
+-    else if (pfd.revents & POLLIN)
+-    {
+-        ret = WAIT_OBJECT_0;
+-
+-        TRACE("pipe object signaled before time out\n");
+-        if (clear)
+-        {
+-            if (read(pobj->fd[0], &c, 1) != 1) /* Clear the signal */
+-            {
+-                ERR("Failed to clear pipe object\n");
+-                ret = WAIT_FAILED;
+-            }
+-        }
+-    }
+-    else
+-    {
+-        TRACE("pipe object timed out\n");
+-        ret = WAIT_TIMEOUT;
++     char c;
++     NTSTATUS ret;
++     struct pollfd pfd;
++     int tm;   /* ms */
++     int tmAlready;
++     int readret;
++     struct timeval tv;
++     LONGLONG start; /* usecs */
++
++     pfd.fd = pobj->fd[0];
++     pfd.events = POLLIN;
++     pfd.revents = 0;
++
++     /* Remember that this is initially in get_nt_timeout format 
++(*-10000) */
++     if (!timeout)
++         tm = -1;
++     else
++         tm = (-timeout->QuadPart) / (ULONGLONG)10000;
++
++     TRACE("pobj=%p timeout=%d\n", pobj, tm);
++
++     gettimeofday(&tv, 0);
++     start = (LONGLONG) tv.tv_sec * 1000000LL + (LONGLONG) tv.tv_usec;
++     tmAlready = 0;
++
++     while (1)
++     {
++         if (poll(&pfd, 1, tm - tmAlready) == -1) {
++             ret = WAIT_FAILED;
++         }
++         else if (pfd.revents & POLLIN)
++         {
++             ret = WAIT_OBJECT_0;
++
++             TRACE("Pipe sync object: Signaled before time out\n");
++             if (clear)
++             {
++                 /* Clear the signal */
++                 readret = read(pobj->fd[0], &c, 1);
++                 if (readret == -1 && errno == EAGAIN)
++                 {
++                     TRACE("Pipe sync object: Erroneous read; retrying\n");
++                     if (!timeout)
++                         continue;
++                     else
++                     {
++                         LONGLONG usecs;
++
++                         /* Adjust time elapsed */
++                         gettimeofday(&tv, 0);
++                         usecs = (LONGLONG) tv.tv_sec * 1000000LL 
++                                 + (LONGLONG) tv.tv_usec;
++                         tmAlready = (usecs - start) / 1000;
++                         if (tmAlready < tm)
++                             continue;
++                         else
++                         {
++                             TRACE("Pipe sync object: Timed out\n");
++                             ret = WAIT_TIMEOUT;
++                         }
++                     }
++                 }
++                 else if (readret != 1)
++                 {
++                     ERR("Failed to clear pipe sync object\n");
++                     ret = WAIT_FAILED;
++                 }
++             }
++         }
++         else
++         {
++             ret = WAIT_TIMEOUT;
++             TRACE("Pipe sync object timed out\n");
++         }
++
++         /* always break except when a thread loses the race */
++         /* between poll() and read() */
++         break;
+     }
+ 
+     return ret;

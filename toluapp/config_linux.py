@@ -4,7 +4,7 @@
 
 # Compiler flags (based on ArchLinux's installation of lua)
 #LINKFLAGS = ['-g']
-CCFLAGS = ['-O2', '-ansi', '-Wall', '-fPIC']
+CCFLAGS = ['-I/usr/include/lua5.1', '-O2', '-ansi', '-Wall', '-fPIC']
 #CCFLAGS = ['-g']
 
 # this is the default directory for installation. Files will be installed on
@@ -18,5 +18,5 @@ CCFLAGS = ['-O2', '-ansi', '-Wall', '-fPIC']
 prefix = '/usr'
 
 # libraries (based on ArchLinux's installation of lua)
-LIBS = ['lua', 'dl', 'm']
+LIBS = ['lua5.1', 'dl', 'm']
 

@@ -1,0 +1,423 @@
+--- wine-1.3.24/include/winternl.h.old	2011-12-09 10:29:58.941289364 -0800
++++ wine-1.3.24/include/winternl.h	2011-12-09 10:30:46.746164203 -0800
+@@ -22,6 +22,9 @@
+ #define __WINE_WINTERNL_H
+ 
+ #include <windef.h>
++#ifdef HAVE_SCHED_H
++    #define L_RT_THREADS 1
++#endif
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -2675,6 +2678,11 @@
+ 
+ #endif /* __WINESRC__ */
+ 
++#ifdef L_RT_THREADS
++    // see ntdll/thread.c
++    extern INT L_rt_handle_to_tid(HANDLE hthread);
++#endif
++
+ #ifdef __cplusplus
+ } /* extern "C" */
+ #endif /* defined(__cplusplus) */
+--- wine-1.3.24/dlls/kernel32/thread.c.old	2011-12-09 10:30:59.982289197 -0800
++++ wine-1.3.24/dlls/kernel32/thread.c	2011-12-12 14:11:45.870655576 -0800
+@@ -39,11 +39,104 @@
+ #include "wine/library.h"
+ #include "wine/server.h"
+ #include "wine/debug.h"
++#if L_RT_THREADS
++    #include <sched.h>
++    #include <pthread.h>
++    #include <errno.h>
++#endif
+ 
+ #include "kernel_private.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(thread);
+ 
++#if L_RT_THREADS
++static BOOL L_rt_is_realtime_thread(HANDLE hthread)
++{
++    pthread_t thread;
++    int policy;
++    struct sched_param param;
++
++    thread = L_rt_handle_to_pthread(hthread);
++    if (thread != -1) {
++        if (pthread_getschedparam(thread, &policy, &param) != 0) {
++                ERR("sched_getscheduler '%s'\n", strerror(errno));
++                return(FALSE);
++        }
++        switch (policy) {
++            case SCHED_RR:
++            case SCHED_FIFO:
++                return(TRUE);
++            case -1:
++                ERR("sched_getscheduler '%s'\n", strerror(errno));
++                break;
++        }
++    }
++    else
++        ERR("no pthread_t for hthread %p\n", hthread);
++    return(FALSE);
++}
++
++static BOOL L_rt_set_realtime_priority(HANDLE hthread, INT priority)
++{
++    static int s_rtPrio = -1;    // -1 means - check env
++    static int s_rtPolicy = -1;  // -1 means - do not set r/t
++
++    if (priority != THREAD_PRIORITY_TIME_CRITICAL)
++        return(FALSE);
++
++    if (s_rtPrio == -1) {
++        const char *policyStr = getenv("L_RT_POLICY");
++        char *prioStr = getenv("L_RT_PRIO");
++        BOOL err = FALSE;
++        // don't check again
++        s_rtPrio = 0;
++        if (policyStr) {
++            if (strcmp(policyStr, "RR")==0)
++                s_rtPolicy = SCHED_RR;
++            else if (strcmp(policyStr, "FF")==0)
++                s_rtPolicy = SCHED_FIFO;
++            else if (strcmp(policyStr, "TS")==0)
++                s_rtPolicy = SCHED_OTHER;
++            else {
++                ERR("unsupported policy '%s'\n", prioStr);
++                err = TRUE;
++            }
++            if (!err) {
++                s_rtPrio = atoi(prioStr);
++                TRACE("policy %d, priority %d\n", s_rtPolicy, s_rtPrio);
++            }
++        }
++    }
++
++    if (s_rtPolicy != -1) {
++        pthread_t thread;
++        int policy;
++        struct sched_param param;
++
++        thread = L_rt_handle_to_pthread(hthread);
++        if (thread != -1) {
++            if (pthread_getschedparam(thread, &policy, &param) == -1) {
++                ERR("sched_getparam: '%s'\n", strerror(errno));
++                return FALSE;
++            }
++            if (policy != s_rtPolicy || param.sched_priority != s_rtPrio) {
++                param.sched_priority = s_rtPrio;
++                if (pthread_setschedparam(thread, s_rtPolicy, &param) == 0) {
++//                     TRACE("set hthread %p, tid 0x%x\n", hthread, tid);
++                    return TRUE;
++                }
++                else
++                    ERR("sched_setscheduler(0x%x): '%s'\n", thread, strerror(errno));
++            }
++            else
++                return TRUE;
++        }
++        else
++            ERR("no pthread_t for hthread %p\n", hthread);
++    }
++    return FALSE;
++}
++#endif // L_RT_THREADS
+ 
+ /***********************************************************************
+  *           CreateThread   (KERNEL32.@)
+@@ -196,9 +289,9 @@ BOOL WINAPI GetExitCodeThread(
+     LPDWORD exitcode) /* [out] Address to receive termination status */
+ {
+     THREAD_BASIC_INFORMATION info;
++
+     NTSTATUS status = NtQueryInformationThread( hthread, ThreadBasicInformation,
+                                                 &info, sizeof(info), NULL );
+-
+     if (status)
+     {
+         SetLastError( RtlNtStatusToDosError(status) );
+@@ -298,8 +391,17 @@ INT WINAPI GetThreadPriority(
+     HANDLE hthread) /* [in] Handle to thread */
+ {
+     THREAD_BASIC_INFORMATION info;
++#if L_RT_THREADS
++    NTSTATUS status;
++
++    if (L_rt_is_realtime_thread(hthread))
++        return(THREAD_PRIORITY_TIME_CRITICAL);
++    status = NtQueryInformationThread( hthread, ThreadBasicInformation,
++                                       &info, sizeof(info), NULL );
++#else
+     NTSTATUS status = NtQueryInformationThread( hthread, ThreadBasicInformation,
+                                                 &info, sizeof(info), NULL );
++#endif
+ 
+     if (status)
+     {
+@@ -324,6 +426,11 @@ BOOL WINAPI SetThreadPriority(
+     DWORD       prio = priority;
+     NTSTATUS    status;
+ 
++#if L_RT_THREADS
++    if (L_rt_set_realtime_priority(hthread, prio))
++        return(TRUE);
++#endif
++
+     status = NtSetInformationThread(hthread, ThreadBasePriority,
+                                     &prio, sizeof(prio));
+ 
+--- wine-1.3.24/dlls/ntdll/thread.c.old	2011-12-09 10:40:17.709289234 -0800
++++ wine-1.3.24/dlls/ntdll/thread.c	2011-12-12 14:13:44.484212165 -0800
+@@ -67,6 +67,133 @@ static RTL_BITMAP fls_bitmap;
+ static LIST_ENTRY tls_links;
+ static int nb_threads = 1;
+ 
++static RTL_CRITICAL_SECTION ldt_section;
++static RTL_CRITICAL_SECTION_DEBUG critsect_debug =
++{
++    0, 0, &ldt_section,
++    { &critsect_debug.ProcessLocksList, &critsect_debug.ProcessLocksList },
++      0, 0, { (DWORD_PTR)(__FILE__ ": ldt_section") }
++};
++static RTL_CRITICAL_SECTION ldt_section = { &critsect_debug, -1, 0, 0, 0, 0 };
++static sigset_t ldt_sigset;
++
++#if L_RT_THREADS
++typedef struct _THREADMAP {
++    HANDLE m_handle;
++    pthread_t m_thread;
++    struct _THREADMAP* m_next;
++} THREADMAP, *LPTHREADMAP;
++
++static RTL_CRITICAL_SECTION csThreadMap;
++static RTL_CRITICAL_SECTION_DEBUG csthreadmap_debug =
++{
++    0, 0, &csThreadMap,
++    { &critsect_debug.ProcessLocksList, &csthreadmap_debug.ProcessLocksList },
++      0, 0, { 0, (DWORD)(__FILE__ ": csThreadMap") }
++};
++static RTL_CRITICAL_SECTION csThreadMap = { &csthreadmap_debug, -1, 0, 0, 0, 0 };
++
++static LPTHREADMAP s_threadMap;
++
++/***********************************************************************
++ *           L_rt_add_pthread
++ */
++static void L_rt_add_pthread(HANDLE handle, pthread_t thread)
++{
++    LPTHREADMAP pobj;
++    LPTHREADMAP newobj;
++
++    if (handle == GetCurrentThread()) {
++        ERR("failed - current thread unsupported");
++        return;
++    }
++
++    // allocate outside of the CS
++    newobj = RtlAllocateHeap(GetProcessHeap(), 0, sizeof(PIPEOBJ));
++
++    RtlEnterCriticalSection(&csThreadMap);
++
++    // replace TID if it's already in the list
++    for (pobj = s_threadMap; pobj; pobj = pobj->m_next) {
++        if (pobj->m_handle == handle) {
++            pobj->m_thread = thread;
++            break;
++        }
++    }
++
++    // add a new entry at the beginning
++    if (!pobj) {
++        newobj->m_handle = handle;
++        newobj->m_thread = thread;
++        newobj->m_next = s_threadMap;
++        s_threadMap = newobj;
++    }
++
++    RtlLeaveCriticalSection(&csThreadMap);
++
++    // clean up outside of CS
++    if (pobj)
++        RtlFreeHeap(GetProcessHeap(), 0, newobj);
++}
++
++/***********************************************************************
++ *           L_rt_remove_pthread
++ */
++void L_rt_remove_pthread(pthread_t thread)
++{
++    LPTHREADMAP prev;
++    LPTHREADMAP pobj;
++
++    RtlEnterCriticalSection(&csThreadMap);
++    prev = 0;
++    for (pobj = s_threadMap; pobj; pobj = pobj->m_next) {
++        if (pthread_equal(pobj->m_thread, thread)) {
++            if (prev)
++                prev->m_next = pobj->m_next;
++            else
++                s_threadMap = pobj->m_next;
++            break;
++        }
++        prev = pobj;
++    }
++    RtlLeaveCriticalSection(&csThreadMap);
++
++    if (pobj)
++        RtlFreeHeap(GetProcessHeap(), 0, pobj);
++    else
++        ERR("Thread not found %x\n", (int)thread);
++}
++
++/***********************************************************************
++ *           L_rt_handle_to_pthread
++ */
++pthread_t L_rt_handle_to_pthread(HANDLE hthread)
++{
++    pthread_t thread;
++    LPTHREADMAP pobj;
++
++    // shortcut for psuedo-handle
++    if (hthread == GetCurrentThread())
++        return pthread_self();
++
++    // note: intentionally not using csThreadMap here since this will
++    // be called from realtime and doesn't want to wait on user threads. 
++    // Should be safe because of how entries are carefully added to and 
++    // removed from the list
++    thread = -1;
++    for (pobj = s_threadMap; pobj; pobj = pobj->m_next) {
++        if (pobj->m_handle == hthread) {
++            thread = pobj->m_thread;
++            break;
++        }
++    }
++    return(thread);
++}
++#endif // L_RT_THREADS
++
++
++
++
+ /***********************************************************************
+  *           get_unicode_string
+  *
+@@ -306,6 +433,10 @@ HANDLE thread_init(void)
+  */
+ void terminate_thread( int status )
+ {
++#if L_RT_THREADS
++    L_rt_remove_pthread(pthread_self());
++#endif
++
+     pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
+     if (interlocked_xchg_add( &nb_threads, -1 ) <= 1) _exit( status );
+ 
+@@ -325,6 +456,10 @@ void exit_thread( int status )
+     static void *prev_teb;
+     TEB *teb;
+ 
++#if L_RT_THREADS
++    L_rt_remove_pthread(pthread_self());
++#endif
++
+     if (status)  /* send the exit code to the server (0 is already the default) */
+     {
+         SERVER_START_REQ( terminate_thread )
+@@ -494,6 +629,7 @@ NTSTATUS WINAPI RtlCreateUserThread( HAN
+     thread_data->reply_fd    = -1;
+     thread_data->wait_fd[0]  = -1;
+     thread_data->wait_fd[1]  = -1;
++    thread_data->pthread_id = 0;
+ 
+     if ((status = virtual_alloc_thread_stack( teb, stack_reserve, stack_commit ))) goto error;
+ 
+@@ -516,6 +652,24 @@ NTSTATUS WINAPI RtlCreateUserThread( HAN
+     if (handle_ptr) *handle_ptr = handle;
+     else NtClose( handle );
+ 
++#if L_RT_THREADS
++    // give pthread_create a chance to call start_thread (pthread_info.entry), 
++    // which sets gets the tid via pthread_functions.init_current_teb
++    pthread_t validThreadID = thread_data->pthread_id;
++    if (validThreadID == 0) {
++        int i;
++        for (i = 0; i < 100; ++i) {
++            validThreadID = thread_data->pthread_id;
++            if (validThreadID == 0)
++                usleep(5000);
++        }
++    }
++    if (validThreadID != 0)
++        L_rt_add_pthread(handle, validThreadID);
++    else
++        ERR("no tid for hthread %p\n", handle);
++#endif
++
+     return STATUS_SUCCESS;
+ 
+ error:
+--- wine-1.3.24/dlls/ntdll/ntdll.spec.old	2011-12-09 10:46:16.975164520 -0800
++++ wine-1.3.24/dlls/ntdll/ntdll.spec	2011-12-12 09:42:44.959426636 -0800
+@@ -1409,3 +1409,7 @@
+ @ cdecl wine_nt_to_unix_file_name(ptr ptr long long)
+ @ cdecl wine_unix_to_nt_file_name(ptr ptr)
+ @ cdecl __wine_init_windows_dir(wstr wstr)
++
++# L_RT_THREADS
++@ cdecl L_rt_handle_to_pthread(ptr)
++
+--- wine-1.3.24/dlls/ntdll/ntdll_misc.h.old	2011-12-09 10:47:44.873164404 -0800
++++ wine-1.3.24/dlls/ntdll/ntdll_misc.h	2011-12-12 10:10:56.777643792 -0800
+@@ -171,6 +171,10 @@
+ extern NTSTATUS NTDLL_AddCompletion( HANDLE hFile, ULONG_PTR CompletionValue,
+                                      NTSTATUS CompletionStatus, ULONG Information ) DECLSPEC_HIDDEN;
+ 
++#ifdef L_RT_THREADS
++    extern void L_rt_remove_thread(pthread_t thread);
++#endif
++
+ /* code pages */
+ extern int ntdll_umbstowcs(DWORD flags, const char* src, int srclen, WCHAR* dst, int dstlen) DECLSPEC_HIDDEN;
+ extern int ntdll_wcstoumbs(DWORD flags, const WCHAR* src, int srclen, char* dst, int dstlen,
+--- wine-1.3.24/dlls/ntdll/server.c.old	2011-12-09 10:48:23.506164452 -0800
++++ wine-1.3.24/dlls/ntdll/server.c	2011-12-09 11:14:27.950195970 -0800
+@@ -33,6 +33,7 @@
+ #include <stdio.h>
+ #include <string.h>
+ #include <sys/types.h>
++#include <sys/syscall.h>
+ #ifdef HAVE_SYS_SOCKET_H
+ # include <sys/socket.h>
+ #endif
+@@ -73,6 +74,7 @@
+ #include "ntdll_misc.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(server);
++WINE_DECLARE_DEBUG_CHANNEL(rtcheck);
+ 
+ /* Some versions of glibc don't define this */
+ #ifndef SCM_RIGHTS
+@@ -284,6 +286,17 @@ unsigned int wine_server_call( void *req
+     sigset_t old_set;
+     unsigned int ret;
+ 
++    /* Muse - print when wineserver call is made from r/t thread */
++    if (TRACE_ON(rtcheck)) {
++        switch (sched_getscheduler(0)) {
++            case SCHED_RR:
++            case SCHED_FIFO:
++                TRACE_(rtcheck)("req=%d from realtime thread (p 0x%lx t 0x%x G 0x%x)\n", 
++                                               req->u.req.request_header.req, pthread_self(), syscall(SYS_gettid), GetCurrentThreadId());
++                break;
++        }
++    }
++
+     pthread_sigmask( SIG_BLOCK, &server_block_set, &old_set );
+     ret = send_request( req );
+     if (!ret) ret = wait_reply( req );
+
