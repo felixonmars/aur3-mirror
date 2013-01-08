@@ -1,0 +1,62 @@
+Jon Masters correctly points out that conntrack hash sizes
+(nf_conntrack_htable_size) are global (not per-netns) and
+modifiable at runtime via /sys/module/nf_conntrack/hashsize .
+
+Steps to reproduce:
+	clone(CLONE_NEWNET)
+	[grow /sys/module/nf_conntrack/hashsize]
+	exit()
+
+At netns exit we are going to scan random memory for conntracks to be killed.
+
+Apparently there is a code which deals with hashtable resize for
+init_net (and it was there befode netns conntrack code), so prohibit
+hashsize modification if there is more than one netns exists.
+
+To change hashtable sizes, you need to reload module.
+
+Expectation hashtable size was simply glued to a variable with no code
+to rehash expectations, so it was a bug to allow writing to it.
+Make "expect_hashsize" readonly.
+
+This is temporarily until we figure out what to do.
+
+Signed-off-by: Alexey Dobriyan <adobriyan@gmail.com>
+Cc: stable@kernel.org
+---
+
+ net/netfilter/nf_conntrack_core.c   |   15 +++++++++++++++
+ net/netfilter/nf_conntrack_expect.c |    2 +-
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+--- a/net/netfilter/nf_conntrack_core.c
++++ b/net/netfilter/nf_conntrack_core.c
+@@ -21,6 +21,7 @@
+ #include <linux/stddef.h>
+ #include <linux/slab.h>
+ #include <linux/random.h>
++#include <linux/rtnetlink.h>
+ #include <linux/jhash.h>
+ #include <linux/err.h>
+ #include <linux/percpu.h>
+@@ -1198,6 +1199,20 @@ int nf_conntrack_set_hashsize(const char *val, struct kernel_param *kp)
+ 	if (!nf_conntrack_htable_size)
+ 		return param_set_uint(val, kp);
+ 
++	{
++		struct net *net;
++		unsigned int nr;
++
++		nr = 0;
++		rtnl_lock();
++		for_each_net(net)
++			nr++;
++		rtnl_unlock();
++		/* init_net always exists */
++		if (nr != 1)
++			return -EINVAL;
++	}
++
+ 	hashsize = simple_strtoul(val, NULL, 0);
+ 	if (!hashsize)
+ 		return -EINVAL;
