@@ -1,7 +1,7 @@
 # Maintainer: fsckd <fsckdaemon@gmail.com>
 
 pkgname=django-filebrowser-safe
-pkgver=0.2.13
+pkgver=0.2.14
 pkgrel=1
 pkgdesc="A snapshot of the filebrowser_3 branch of django-filebrowser, packaged as a dependency for the Mezzanine CMS for Django"
 arch=('any')
@@ -10,8 +10,8 @@ url="http://pypi.python.org/pypi/filebrowser_safe/"
 depends=('python2' 'django')
 makedepends=('python2-distribute')
 source=("http://pypi.python.org/packages/source/f/filebrowser_safe/filebrowser_safe-${pkgver}.tar.gz")
-md5sums=('d0a91902c54fa5904770bfd17d06396f')
-sha256sums=('47070017fd965da3c87826fb845e16c02b228587a623aa2107aee029da84dce9')
+md5sums=('462f42d97792d346401a20f0338e8446')
+sha256sums=('5f14b4fcfa1312c7587edd47e32f9fe7901c21063a17fed715b14c6ff2fa2687')
 
 build() {
   cd "${srcdir}/filebrowser_safe-${pkgver}"

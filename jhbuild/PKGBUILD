@@ -3,7 +3,7 @@
 
 pkgname=jhbuild
 pkgver=3.5.91
-pkgrel=4
+pkgrel=5
 pkgdesc='\
 JHBuild allows you to automatically download and compile Gnome\
  "modules" (i.e. source code packages).'
@@ -21,7 +21,8 @@ makedepends=(autoconf
              git
              intltool
              gnome-doc-utils
-             yelp-tools)
+             yelp-tools
+             gnome-common-git)
 install=jhbuild.install
 source=('http://download.gnome.org/sources/jhbuild/3.5/jhbuild-3.5.91.tar.xz'
         'use_python2_when_building_modules.patch')

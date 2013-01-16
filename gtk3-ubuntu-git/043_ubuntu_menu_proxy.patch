@@ -1,0 +1,1336 @@
+Description: Add GtkMenuProxy support for remoting menus.
+
+Index: gtk+3.0-3.2.0/gtk/gtk.h
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtk.h	2011-10-15 04:42:09.069653247 +0200
++++ gtk+3.0-3.2.0/gtk/gtk.h	2011-10-15 04:42:39.325272884 +0200
+@@ -74,6 +74,8 @@
+ #include <gtk/gtkcellview.h>
+ #include <gtk/gtkcheckbutton.h>
+ #include <gtk/gtkcheckmenuitem.h>
++#include <gtk/ubuntumenuproxy.h>
++#include <gtk/ubuntumenuproxymodule.h>
+ #include <gtk/gtkclipboard.h>
+ #include <gtk/gtkcolorbutton.h>
+ #include <gtk/gtkcolorsel.h>
+Index: gtk+3.0-3.2.0/gtk/gtkmenubar.c
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtkmenubar.c	2011-10-15 04:42:09.025653801 +0200
++++ gtk+3.0-3.2.0/gtk/gtkmenubar.c	2011-10-15 04:43:30.668629123 +0200
+@@ -56,6 +56,9 @@
+ #define BORDER_SPACING  0
+ #define DEFAULT_IPADDING 1
+ 
++/* timeout before showing the menubar */
++#define TIMEOUT_MENUBAR_SHOW 500
++
+ /* Properties */
+ enum {
+   PROP_0,
+@@ -67,9 +70,11 @@
+ {
+   GtkPackDirection pack_direction;
+   GtkPackDirection child_pack_direction;
++  gboolean shown;
++  guint32 source_show_menu_bar_id;
+ };
+ 
+-
++static void gtk_menu_bar_dispose           (GObject             *object);
+ static void gtk_menu_bar_set_property      (GObject             *object,
+ 					    guint                prop_id,
+ 					    const GValue        *value,
+@@ -94,10 +99,14 @@
+                                                          gint         *natural);
+ static void gtk_menu_bar_size_allocate     (GtkWidget       *widget,
+ 					    GtkAllocation   *allocation);
++static void gtk_menu_bar_show              (GtkWidget       *widget);
++static void gtk_menu_bar_hide              (GtkWidget       *widget);
+ static gint gtk_menu_bar_draw              (GtkWidget       *widget,
+                                             cairo_t         *cr);
+ static void gtk_menu_bar_hierarchy_changed (GtkWidget       *widget,
+ 					    GtkWidget       *old_toplevel);
++static gboolean gtk_menu_bar_can_activate_accel (GtkWidget *widget,
++                                                 guint      signal_id);
+ static gint gtk_menu_bar_get_popup_delay   (GtkMenuShell    *menu_shell);
+ static void gtk_menu_bar_move_current      (GtkMenuShell     *menu_shell,
+                                             GtkMenuDirectionType direction);
+@@ -119,6 +128,7 @@
+   widget_class = (GtkWidgetClass*) class;
+   menu_shell_class = (GtkMenuShellClass*) class;
+ 
++  gobject_class->dispose = gtk_menu_bar_dispose;
+   gobject_class->get_property = gtk_menu_bar_get_property;
+   gobject_class->set_property = gtk_menu_bar_set_property;
+ 
+@@ -127,10 +137,11 @@
+   widget_class->get_preferred_width_for_height = gtk_menu_bar_get_preferred_width_for_height;
+   widget_class->get_preferred_height_for_width = gtk_menu_bar_get_preferred_height_for_width;
+   widget_class->size_allocate = gtk_menu_bar_size_allocate;
++  widget_class->show = gtk_menu_bar_show;
++  widget_class->hide = gtk_menu_bar_hide;
+   widget_class->draw = gtk_menu_bar_draw;
+   widget_class->hierarchy_changed = gtk_menu_bar_hierarchy_changed;
+-  
+-  gtk_widget_class_set_accessible_role (widget_class, ATK_ROLE_MENU_BAR);
++  widget_class->can_activate_accel = gtk_menu_bar_can_activate_accel;
+ 
+   menu_shell_class->submenu_placement = GTK_TOP_BOTTOM;
+   menu_shell_class->get_popup_delay = gtk_menu_bar_get_popup_delay;
+@@ -233,6 +244,192 @@
+   g_type_class_add_private (gobject_class, sizeof (GtkMenuBarPrivate));
+ }
+ 
++/* really show the menubar, but only if it has to be shown */
++static void
++real_show_menu_bar (GtkMenuBar *menu_bar)
++{
++  GtkMenuBarPrivate *priv;
++
++  priv = menu_bar->priv;
++
++  /* if it has to be shown, proceed */
++  if (priv->shown)
++    {
++      /* resize the area.
++       * in reality, this should only be called by timeouts started
++       * by ubuntu_gtk_menu_bar_show, but it won't hurt too much. */
++      gtk_widget_queue_resize (GTK_WIDGET (menu_bar));
++
++      /* now we can finally show the menubar */
++      GTK_WIDGET_CLASS (gtk_menu_bar_parent_class)->show (GTK_WIDGET (menu_bar));
++    }
++}
++
++/* callback associated to the GSource source_show_menu_bar_id */
++static gboolean
++show_menu_bar_cb (gpointer user_data)
++{
++  GtkMenuBar *menu_bar;
++  GtkMenuBarPrivate *priv;
++
++  menu_bar = GTK_MENU_BAR (user_data);
++  priv = menu_bar->priv;
++
++  real_show_menu_bar (menu_bar);
++  priv->source_show_menu_bar_id = 0;
++
++  return FALSE;
++}
++
++/* prepare to load the timeout */
++static void
++show_menu_bar (GtkMenuBar *menu_bar)
++{
++  GtkMenuBarPrivate *priv;
++  const gchar *module_name;
++
++  priv = menu_bar->priv;
++
++  module_name = g_getenv ("UBUNTU_MENUPROXY");
++
++  /* stop running timeout */
++  if (priv->source_show_menu_bar_id != 0)
++    {
++      g_source_remove (priv->source_show_menu_bar_id);
++      priv->source_show_menu_bar_id = 0;
++    }
++
++  /* if UBUNTU_MENUPROXY is NULL skip the timeout,
++   * otherwise start it */
++  if (module_name == NULL)
++    real_show_menu_bar (menu_bar);
++  else
++    priv->source_show_menu_bar_id = g_timeout_add (TIMEOUT_MENUBAR_SHOW,
++                                                   show_menu_bar_cb,
++                                                   menu_bar);
++}
++
++/* function called by the ubuntu-local signal callback */
++static void
++ubuntu_gtk_menu_bar_show (GtkWidget *widget)
++{
++  GtkMenuBar *menu_bar;
++  GtkMenuBarPrivate *priv;
++
++  menu_bar = GTK_MENU_BAR (widget);
++  priv = menu_bar->priv;
++
++  /* proceed only if is has to be shown */
++  if (priv->shown)
++    show_menu_bar (menu_bar);
++}
++
++/* function called by the ubuntu-local signal callback */
++static void
++ubuntu_gtk_menu_bar_hide (GtkWidget *widget)
++{
++  GtkMenuBar *menu_bar;
++  GtkMenuBarPrivate *priv;
++
++  menu_bar = GTK_MENU_BAR (widget);
++  priv = menu_bar->priv;
++
++  /* stop running timeout */
++  if (priv->source_show_menu_bar_id != 0)
++    {
++      g_source_remove (priv->source_show_menu_bar_id);
++      priv->source_show_menu_bar_id = 0;
++    }
++
++  /* resize the area */
++  gtk_widget_queue_resize (widget);
++
++  /* now we can hide the menubar */
++  GTK_WIDGET_CLASS (gtk_menu_bar_parent_class)->hide (widget);
++}
++
++static void
++gtk_menu_bar_show (GtkWidget *widget)
++{
++  GtkMenuBar *menu_bar;
++  GtkMenuBarPrivate *priv;
++  gboolean local;
++
++  menu_bar = GTK_MENU_BAR (widget);
++  priv = menu_bar->priv;
++
++  g_object_get (widget,
++                "ubuntu-local", &local,
++                NULL);
++
++  /* always update the shown private gboolean */
++  priv->shown = TRUE;
++
++  /* proceed only if it is ubuntu local */
++  if (local)
++    show_menu_bar (menu_bar);
++}
++
++static void
++gtk_menu_bar_hide (GtkWidget *widget)
++{
++  GtkMenuBar *menu_bar;
++  GtkMenuBarPrivate *priv;
++
++  menu_bar = GTK_MENU_BAR (widget);
++  priv = menu_bar->priv;
++
++  /* always update the shown private gboolean */
++  priv->shown = FALSE;
++
++  /* stop running timeout */
++  if (priv->source_show_menu_bar_id != 0)
++    {
++      g_source_remove (priv->source_show_menu_bar_id);
++      priv->source_show_menu_bar_id = 0;
++    }
++
++  GTK_WIDGET_CLASS (gtk_menu_bar_parent_class)->hide (widget);
++}
++
++static void
++gtk_menu_bar_dispose (GObject *object)
++{
++  GtkMenuBar *menu_bar;
++  GtkMenuBarPrivate *priv;
++
++  menu_bar = GTK_MENU_BAR (object);
++  priv = menu_bar->priv;
++
++  /* stop running timeout */
++  if (priv->source_show_menu_bar_id != 0)
++    {
++      g_source_remove (priv->source_show_menu_bar_id);
++      priv->source_show_menu_bar_id = 0;
++    }
++
++  G_OBJECT_CLASS (gtk_menu_bar_parent_class)->dispose (object);
++}
++
++static void
++local_notify (GtkWidget  *widget,
++              GParamSpec *pspec,
++              gpointer    user_data)
++{
++  gboolean local;
++
++  g_object_get (widget,
++                "ubuntu-local", &local,
++                NULL);
++
++  /* we received notify::ubuntu-local,
++   * it's time to show or hide the menubar */
++  if (local)
++    ubuntu_gtk_menu_bar_show (widget);
++  else
++    ubuntu_gtk_menu_bar_hide (widget);
++}
++
+ static void
+ gtk_menu_bar_init (GtkMenuBar *menu_bar)
+ {
+@@ -242,6 +439,13 @@
+                                                 GTK_TYPE_MENU_BAR,
+                                                 GtkMenuBarPrivate);
+ 
++  menu_bar->priv->shown = FALSE;
++
++  g_signal_connect (menu_bar,
++                    "notify::ubuntu-local",
++                    G_CALLBACK (local_notify),
++                    NULL);
++
+   context = gtk_widget_get_style_context (GTK_WIDGET (menu_bar));
+   gtk_style_context_add_class (context, GTK_STYLE_CLASS_MENUBAR);
+ }
+@@ -345,10 +551,18 @@
+   GtkStyleContext *context;
+   GtkBorder border;
+   GtkStateFlags flags;
++  gboolean local;
+ 
+   *minimum = 0;
+   *natural = 0;
+ 
++  g_object_get (widget,
++                "ubuntu-local", &local,
++                NULL);
++
++  if (!local)
++    return;
++
+   menu_bar = GTK_MENU_BAR (widget);
+   menu_shell = GTK_MENU_SHELL (widget);
+   priv = menu_bar->priv;
+@@ -743,8 +955,16 @@
+ 	    {
+ 	      GtkMenuShell *menu_shell = GTK_MENU_SHELL (menubars->data);
+ 
+-              _gtk_menu_shell_set_keyboard_mode (menu_shell, TRUE);
+-	      gtk_menu_shell_select_first (menu_shell, FALSE);
++              if (ubuntu_gtk_menu_shell_activate_first (GTK_MENU_SHELL (menu_shell), FALSE))
++                {
++                  //g_print ("send activate to remote!\n");
++                }
++              else
++                {
++                  _gtk_menu_shell_set_keyboard_mode (menu_shell, TRUE);
++                  gtk_menu_shell_select_first (menu_shell, FALSE);
++                  gtk_menu_shell_select_first (menu_shell, FALSE);
++                }
+ 	      
+ 	      g_list_free (menubars);
+ 	      
+@@ -811,6 +1031,16 @@
+     add_to_window (GTK_WINDOW (toplevel), menubar);
+ }
+ 
++static gboolean
++gtk_menu_bar_can_activate_accel (GtkWidget *widget,
++                                 guint      signal_id)
++{
++  g_return_val_if_fail (GTK_IS_MENU_BAR (widget),
++                        gtk_widget_can_activate_accel (widget, signal_id));
++
++  return GTK_MENU_BAR (widget)->priv->shown && gtk_widget_is_sensitive (widget);
++}
++
+ /**
+  * _gtk_menu_bar_cycle_focus:
+  * @menubar: a #GtkMenuBar
+Index: gtk+3.0-3.2.0/gtk/gtkmenuitem.c
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtkmenuitem.c	2011-10-15 04:42:09.281650584 +0200
++++ gtk+3.0-3.2.0/gtk/gtkmenuitem.c	2011-10-15 04:42:39.325272884 +0200
+@@ -38,6 +38,7 @@
+ #include "gtkmenuprivate.h"
+ #include "gtkseparatormenuitem.h"
+ #include "gtkprivate.h"
++#include "ubuntumenuproxy.h"
+ #include "gtkbuildable.h"
+ #include "gtkactivatable.h"
+ #include "gtkwidgetprivate.h"
+@@ -1819,7 +1820,18 @@
+       gtk_menu_shell_select_item (GTK_MENU_SHELL (parent), widget);
+     }
+   else
+-    g_signal_emit (widget, menu_item_signals[ACTIVATE_ITEM], 0);
++    {
++      GtkWidget *parent = gtk_widget_get_parent (widget);
++      if (GTK_IS_MENU_BAR (parent) &&
++          ubuntu_gtk_menu_shell_activate_mnemonic (GTK_MENU_SHELL (parent), widget))
++        {
++          //g_print ("send activate to remote!\n");
++        }
++      else
++        {
++          g_signal_emit (widget, menu_item_signals[ACTIVATE_ITEM], 0);
++        }
++    }
+ 
+   return TRUE;
+ }
+Index: gtk+3.0-3.2.0/gtk/gtkmenushell.c
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtkmenushell.c	2011-10-15 04:42:09.121652594 +0200
++++ gtk+3.0-3.2.0/gtk/gtkmenushell.c	2011-10-15 04:42:39.329272834 +0200
+@@ -48,6 +48,7 @@
+ #include "gtkmenuitemprivate.h"
+ #include "gtkmenushellprivate.h"
+ #include "gtkmenuprivate.h"
++#include "ubuntumenuproxy.h"
+ #include "gtkmnemonichash.h"
+ #include "gtktearoffmenuitem.h"
+ #include "gtkwindow.h"
+@@ -77,7 +78,8 @@
+ 
+ enum {
+   PROP_0,
+-  PROP_TAKE_FOCUS
++  PROP_TAKE_FOCUS,
++  PROP_LOCAL
+ };
+ 
+ /* Terminology:
+@@ -451,6 +453,14 @@
+ 
+   gtk_widget_class_set_accessible_type (widget_class, GTK_TYPE_MENU_SHELL_ACCESSIBLE);
+ 
++  g_object_class_install_property (object_class,
++                                   PROP_LOCAL,
++                                   g_param_spec_boolean ("ubuntu-local",
++                                                         P_("Local menu"),
++                                                         P_("Determines whether the menu is local"),
++                                                         FALSE,
++                                                         GTK_PARAM_READWRITE));
++
+   g_type_class_add_private (object_class, sizeof (GtkMenuShellPrivate));
+ }
+ 
+@@ -461,6 +471,14 @@
+ }
+ 
+ static void
++show_local_notify (UbuntuMenuProxy *proxy,
++                   GParamSpec      *pspec,
++                   GtkMenuShell    *shell)
++{
++  g_object_notify (shell, "ubuntu-local");
++}
++
++static void
+ gtk_menu_shell_init (GtkMenuShell *menu_shell)
+ {
+   GtkMenuShellPrivate *priv;
+@@ -470,6 +488,13 @@
+                                       GtkMenuShellPrivate);
+   menu_shell->priv = priv;
+   priv->take_focus = TRUE;
++  priv->proxy = ubuntu_menu_proxy_get ();
++  priv->local = FALSE;
++
++  if (priv->proxy != NULL)
++    g_signal_connect (priv->proxy, "notify::show-local",
++                      G_CALLBACK (show_local_notify),
++                      menu_shell);
+ }
+ 
+ static void
+@@ -479,12 +504,16 @@
+                              GParamSpec   *pspec)
+ {
+   GtkMenuShell *menu_shell = GTK_MENU_SHELL (object);
++  GtkMenuShellPrivate *priv = menu_shell->priv;
+ 
+   switch (prop_id)
+     {
+     case PROP_TAKE_FOCUS:
+       gtk_menu_shell_set_take_focus (menu_shell, g_value_get_boolean (value));
+       break;
++    case PROP_LOCAL:
++      priv->local = g_value_get_boolean (value);
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+       break;
+@@ -498,12 +527,23 @@
+                              GParamSpec *pspec)
+ {
+   GtkMenuShell *menu_shell = GTK_MENU_SHELL (object);
++  GtkMenuShellPrivate *priv = menu_shell->priv;
++  gboolean local;
+ 
+   switch (prop_id)
+     {
+     case PROP_TAKE_FOCUS:
+       g_value_set_boolean (value, gtk_menu_shell_get_take_focus (menu_shell));
+       break;
++    case PROP_LOCAL:
++      if (priv->proxy == NULL || ubuntu_menu_proxy_show_local (priv->proxy)) {
++        local = TRUE;
++      } else {
++        local = priv->local;
++      }
++
++      g_value_set_boolean (value, local);
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+       break;
+@@ -516,6 +556,13 @@
+   GtkMenuShell *menu_shell = GTK_MENU_SHELL (object);
+   GtkMenuShellPrivate *priv = menu_shell->priv;
+ 
++  if (priv->proxy != NULL)
++    {
++      g_signal_handlers_disconnect_by_func (priv->proxy,
++                                            show_local_notify,
++                                            menu_shell);
++    }
++
+   if (priv->mnemonic_hash)
+     _gtk_mnemonic_hash_free (priv->mnemonic_hash);
+   if (priv->key_hash)
+@@ -578,10 +625,20 @@
+                        GtkWidget    *child,
+                        gint          position)
+ {
++  GtkMenuShellPrivate *priv;
++
+   g_return_if_fail (GTK_IS_MENU_SHELL (menu_shell));
+   g_return_if_fail (GTK_IS_MENU_ITEM (child));
+ 
+   g_signal_emit (menu_shell, menu_shell_signals[INSERT], 0, child, position);
++
++  /* insert to proxy */
++  priv = menu_shell->priv;
++  if (priv->proxy != NULL)
++    ubuntu_menu_proxy_insert (priv->proxy,
++                              GTK_WIDGET (menu_shell),
++                              child,
++                              position);
+ }
+ 
+ static void
+@@ -2012,6 +2069,54 @@
+     }
+ }
+ 
++gboolean
++ubuntu_gtk_menu_shell_activate_first (GtkMenuShell *menu_shell,
++				      gboolean      search_sensitive)
++{
++  GtkMenuShellPrivate *priv = menu_shell->priv;
++  GtkWidget *to_select = NULL;
++  GList *tmp_list;
++
++  tmp_list = priv->children;
++  while (tmp_list)
++    {
++      GtkWidget *child = tmp_list->data;
++      
++      if ((!search_sensitive && gtk_widget_get_visible (child)) ||
++	   _gtk_menu_item_is_selectable (child))
++      {
++	to_select = child;
++	if (!GTK_IS_TEAROFF_MENU_ITEM (child))
++	  break;
++      }
++
++      tmp_list = tmp_list->next;
++    }
++
++  return to_select &&
++	 ubuntu_gtk_menu_shell_activate_mnemonic(menu_shell, to_select);
++}
++
++gboolean
++ubuntu_gtk_menu_shell_activate_mnemonic (GtkMenuShell *shell, GtkWidget *item)
++{
++  GtkMenuShellPrivate *priv;
++
++  g_return_val_if_fail (GTK_IS_MENU_SHELL (shell), FALSE);
++
++  priv = shell->priv;
++
++  if (priv->proxy && !ubuntu_menu_proxy_show_local (priv->proxy))
++    {
++      ubuntu_menu_proxy_activate_menu (priv->proxy,
++                                       item);
++
++      return TRUE;
++    }
++
++  return FALSE;
++}
++
+ /**
+  * gtk_menu_shell_get_selected_item:
+  * @menu_shell: a #GtkMenuShell
+Index: gtk+3.0-3.2.0/gtk/gtkmenushellprivate.h
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtkmenushellprivate.h	2011-10-15 04:42:09.145652293 +0200
++++ gtk+3.0-3.2.0/gtk/gtkmenushellprivate.h	2011-10-15 04:42:39.329272834 +0200
+@@ -24,6 +24,7 @@
+ #include <gtk/gtkmenushell.h>
+ #include <gtk/gtkmnemonichash.h>
+ #include <gtk/gtkkeyhash.h>
++#include "ubuntumenuproxy.h"
+ 
+ 
+ G_BEGIN_DECLS
+@@ -54,6 +55,9 @@
+   GtkKeyHash *key_hash;
+ 
+   GdkDevice *grab_pointer;
++
++  UbuntuMenuProxy *proxy;
++  gboolean local;
+ };
+ 
+ void        _gtk_menu_shell_select_last      (GtkMenuShell *menu_shell,
+Index: gtk+3.0-3.2.0/gtk/gtk.symbols
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtk.symbols	2011-10-15 04:42:09.097652897 +0200
++++ gtk+3.0-3.2.0/gtk/gtk.symbols	2011-10-15 04:42:39.329272834 +0200
+@@ -3858,3 +3858,9 @@
+ gtk_window_unmaximize
+ gtk_window_unstick
+ gtk_wrap_mode_get_type
++ubuntu_gtk_menu_shell_activate_mnemonic
++ubuntu_menu_proxy_get_type
++ubuntu_menu_proxy_get
++ubuntu_menu_proxy_insert
++ubuntu_menu_proxy_module_get_type
++ubuntu_menu_proxy_module_get
+Index: gtk+3.0-3.2.0/gtk/gtkwindow.c
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtkwindow.c	2011-10-15 04:42:09.173651940 +0200
++++ gtk+3.0-3.2.0/gtk/gtkwindow.c	2011-10-15 04:42:39.333272784 +0200
+@@ -118,6 +118,8 @@
+ 
+   GdkWindow *grip_window;
+ 
++  gboolean no_proxy;
++
+   gchar   *startup_id;
+   gchar   *title;
+   gchar   *wmclass_class;
+@@ -223,6 +225,7 @@
+   PROP_HAS_RESIZE_GRIP,
+   PROP_RESIZE_GRIP_VISIBLE,
+   PROP_APPLICATION,
++  PROP_NO_PROXY,
+   /* Readonly properties */
+   PROP_IS_ACTIVE,
+   PROP_HAS_TOPLEVEL_FOCUS,
+@@ -627,6 +630,14 @@
+ 							NULL,
+ 							GTK_PARAM_READWRITE));
+ 
++  g_object_class_install_property (gobject_class,
++                                   PROP_NO_PROXY,
++                                   g_param_spec_boolean ("ubuntu-no-proxy",
++                                                         P_("Disable menu proxies for this window"),
++                                                         P_("Disable menu proxies for this window"),
++                                                         FALSE,
++                                                         GTK_PARAM_READWRITE));
++
+   /**
+    * GtkWindow:startup-id:
+    *
+@@ -1268,6 +1279,9 @@
+     case PROP_FOCUS_VISIBLE:
+       gtk_window_set_focus_visible (window, g_value_get_boolean (value));
+       break;
++    case PROP_NO_PROXY:
++      priv->no_proxy = g_value_get_boolean (value);
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+       break;
+@@ -1389,6 +1403,9 @@
+     case PROP_FOCUS_VISIBLE:
+       g_value_set_boolean (value, priv->focus_visible);
+       break;
++    case PROP_NO_PROXY:
++      g_value_set_boolean (value, priv->no_proxy);
++      break;
+     default:
+       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+       break;
+Index: gtk+3.0-3.2.0/gtk/Makefile.am
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/Makefile.am	2011-10-15 04:42:09.313650180 +0200
++++ gtk+3.0-3.2.0/gtk/Makefile.am	2011-10-15 04:42:39.333272784 +0200
+@@ -253,6 +253,8 @@
+ 	gtkmenu.h		\
+ 	gtkmenubar.h		\
+ 	gtkmenuitem.h		\
++	ubuntumenuproxy.h	\
++	ubuntumenuproxymodule.h	\
+ 	gtkmenushell.h		\
+ 	gtkmenutoolbutton.h	\
+ 	gtkmessagedialog.h	\
+@@ -595,6 +597,8 @@
+ 	gtkmenu.c		\
+ 	gtkmenubar.c		\
+ 	gtkmenuitem.c		\
++	ubuntumenuproxy.c	\
++	ubuntumenuproxymodule.c	\
+ 	gtkmenushell.c		\
+ 	gtkmenutoolbutton.c	\
+ 	gtkmessagedialog.c	\
+Index: gtk+3.0-3.2.0/gtk/ubuntumenuproxy.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gtk+3.0-3.2.0/gtk/ubuntumenuproxy.c	2011-10-15 04:42:39.333272784 +0200
+@@ -0,0 +1,246 @@
++/*
++ * Copyright (C) 2010 Canonical, Ltd.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 02111-1307, USA.
++ *
++ * Authors: Cody Russell <bratsche@gnome.org>
++ */
++
++#include "config.h"
++#include "gtkintl.h"
++#include "gtkmarshalers.h"
++#include "ubuntumenuproxy.h"
++#include "ubuntumenuproxymodule.h"
++#include "gtkmodules.h"
++#include "gtkprivate.h"
++
++enum {
++  PROP_0,
++  PROP_SHOW_LOCAL
++};
++
++enum {
++  INSERTED,
++  LOCAL_NOTIFY,
++  ACTIVATE_MENU,
++  LAST_SIGNAL
++};
++
++#define UBUNTU_MENU_PROXY_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), UBUNTU_TYPE_MENU_PROXY, UbuntuMenuProxyPrivate))
++
++typedef struct _UbuntuMenuProxyPrivate UbuntuMenuProxyPrivate;
++
++struct _UbuntuMenuProxyPrivate
++{
++  gboolean show_local;
++};
++
++static guint               menu_proxy_signals[LAST_SIGNAL] = { 0 };
++static GObjectClass       *parent_class = NULL;
++static UbuntuMenuProxy    *proxy_singleton = NULL;
++
++static void     ubuntu_menu_proxy_real_insert     (UbuntuMenuProxy *proxy,
++                                                   GtkWidget    *parent,
++                                                   GtkWidget    *child,
++                                                   guint         position);
++static gboolean ubuntu_menu_proxy_real_show_local (UbuntuMenuProxy *proxy);
++
++
++
++/* --------------------------------------------------------- */
++
++G_DEFINE_TYPE (UbuntuMenuProxy, ubuntu_menu_proxy, G_TYPE_OBJECT)
++
++static GObject *
++ubuntu_menu_proxy_constructor (GType                  type,
++                               guint                  n_params,
++                               GObjectConstructParam *params)
++{
++  GObject *object;
++
++  if (proxy_singleton != NULL)
++    {
++      object = g_object_ref (proxy_singleton);
++    }
++  else
++    {
++      object = G_OBJECT_CLASS (ubuntu_menu_proxy_parent_class)->constructor (type,
++                                                                             n_params,
++                                                                             params);
++
++      proxy_singleton = UBUNTU_MENU_PROXY (object);
++      g_object_add_weak_pointer (object, (gpointer) &proxy_singleton);
++    }
++
++  return object;
++}
++
++static void
++ubuntu_menu_proxy_init (UbuntuMenuProxy *proxy)
++{
++}
++
++static void
++ubuntu_menu_proxy_get_property (GObject    *object,
++                                guint       prop_id,
++                                GValue     *value,
++                                GParamSpec *pspec)
++{
++  UbuntuMenuProxyPrivate *priv = UBUNTU_MENU_PROXY_GET_PRIVATE (object);
++
++  switch (prop_id)
++    {
++    case PROP_SHOW_LOCAL:
++      g_value_set_boolean (value, priv->show_local);
++      break;
++
++    default:
++      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++      break;
++    }
++}
++
++static void
++ubuntu_menu_proxy_set_property (GObject      *object,
++                                guint         prop_id,
++                                const GValue *value,
++                                GParamSpec   *pspec)
++{
++  UbuntuMenuProxyPrivate *priv = UBUNTU_MENU_PROXY_GET_PRIVATE (object);
++
++  switch (prop_id)
++    {
++    case PROP_SHOW_LOCAL:
++      priv->show_local = g_value_get_boolean (value);
++      g_signal_emit (object, menu_proxy_signals[LOCAL_NOTIFY], 0, priv->show_local);
++      break;
++
++    default:
++      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
++      break;
++    }
++}
++
++static void
++ubuntu_menu_proxy_class_init (UbuntuMenuProxyClass *class)
++{
++  GObjectClass *object_class = G_OBJECT_CLASS (class);
++
++  parent_class = g_type_class_peek_parent (class);
++
++  object_class->get_property = ubuntu_menu_proxy_get_property;
++  object_class->set_property = ubuntu_menu_proxy_set_property;
++
++  g_object_class_install_property (object_class,
++                                   PROP_SHOW_LOCAL,
++                                   g_param_spec_boolean ("show-local",
++                                                         P_("Show the local menu"),
++                                                         P_("Whether the menu is displayed locally"),
++                                                         FALSE,
++                                                         GTK_PARAM_READWRITE));
++
++  menu_proxy_signals[INSERTED] =
++    g_signal_new (I_("inserted"),
++                  G_TYPE_FROM_CLASS (class),
++                  G_SIGNAL_RUN_LAST,
++                  G_STRUCT_OFFSET (UbuntuMenuProxyClass, inserted),
++                  NULL, NULL,
++                  _gtk_marshal_VOID__OBJECT_UINT,
++                  G_TYPE_NONE, 2,
++                  GTK_TYPE_WIDGET, G_TYPE_UINT);
++
++  menu_proxy_signals[LOCAL_NOTIFY] =
++    g_signal_new (I_("local-notify"),
++                  G_TYPE_FROM_CLASS (class),
++                  G_SIGNAL_RUN_LAST,
++                  NULL,
++                  NULL, NULL,
++                  _gtk_marshal_VOID__BOOLEAN,
++                  G_TYPE_NONE, 1,
++                  G_TYPE_BOOLEAN);
++
++  menu_proxy_signals[ACTIVATE_MENU] =
++    g_signal_new (I_("activate-menu"),
++                  G_TYPE_FROM_CLASS (class),
++                  G_SIGNAL_RUN_LAST,
++                  NULL,
++                  NULL, NULL,
++                  _gtk_marshal_VOID__OBJECT,
++                  G_TYPE_NONE, 1,
++                  G_TYPE_OBJECT);
++
++  class->insert = ubuntu_menu_proxy_real_insert;
++  class->show_local = ubuntu_menu_proxy_real_show_local;
++
++  object_class->constructor = ubuntu_menu_proxy_constructor;
++
++  g_type_class_add_private (object_class, sizeof (UbuntuMenuProxyPrivate));
++}
++
++UbuntuMenuProxy *
++ubuntu_menu_proxy_get (void)
++{
++  if (!proxy_singleton)
++    {
++      ubuntu_menu_proxy_module_get ();
++    }
++
++  return proxy_singleton;
++}
++
++static void
++ubuntu_menu_proxy_real_insert (UbuntuMenuProxy *proxy,
++                               GtkWidget    *parent,
++                               GtkWidget    *child,
++                               guint         position)
++{
++}
++
++static gboolean
++ubuntu_menu_proxy_real_show_local (UbuntuMenuProxy *proxy)
++{
++  UbuntuMenuProxyPrivate *priv = UBUNTU_MENU_PROXY_GET_PRIVATE (proxy);
++  return priv->show_local;
++}
++
++void
++ubuntu_menu_proxy_insert (UbuntuMenuProxy *proxy,
++                          GtkWidget    *parent,
++                          GtkWidget    *child,
++                          guint         position)
++{
++  g_return_if_fail (UBUNTU_IS_MENU_PROXY (proxy));
++
++  UBUNTU_MENU_PROXY_GET_CLASS (proxy)->insert (proxy,
++                                               parent,
++                                               child,
++                                               position);
++}
++
++gboolean
++ubuntu_menu_proxy_show_local (UbuntuMenuProxy *proxy)
++{
++  g_return_val_if_fail (UBUNTU_IS_MENU_PROXY (proxy), TRUE);
++
++  return UBUNTU_MENU_PROXY_GET_CLASS (proxy)->show_local (proxy);
++}
++
++void
++ubuntu_menu_proxy_activate_menu (UbuntuMenuProxy *proxy,
++                                 GtkWidget       *widget)
++{
++  g_signal_emit (proxy, menu_proxy_signals[ACTIVATE_MENU], 0, widget);
++}
+Index: gtk+3.0-3.2.0/gtk/ubuntumenuproxy.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gtk+3.0-3.2.0/gtk/ubuntumenuproxy.h	2011-10-15 04:42:39.333272784 +0200
+@@ -0,0 +1,73 @@
++/*
++ * Copyright (C) 2010 Canonical, Ltd.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 02111-1307, USA.
++ *
++ * Authors: Cody Russell <bratsche@gnome.org>
++ */
++
++#if defined(GTK_DISABLE_SINGLE_INCLUDES) && !defined (__GTK_H_INSIDE__) && !defined (GTK_COMPILATION)
++#error "Only <gtk/gtk.h> can be included directly."
++#endif
++
++#ifndef __UBUNTU_MENU_PROXY_H__
++#define __UBUNTU_MENU_PROXY_H__
++
++#include <gtk/gtkwidget.h>
++
++G_BEGIN_DECLS
++
++#define UBUNTU_TYPE_MENU_PROXY           (ubuntu_menu_proxy_get_type ())
++#define UBUNTU_MENU_PROXY(o)             (G_TYPE_CHECK_INSTANCE_CAST ((o), UBUNTU_TYPE_MENU_PROXY, UbuntuMenuProxy))
++#define UBUNTU_MENU_PROXY_CLASS(k)       (G_TYPE_CHECK_CLASS_CAST ((k), UBUNTU_TYPE_MENU_PROXY, UbuntuMenuProxyClass))
++#define UBUNTU_IS_MENU_PROXY(o)          (G_TYPE_CHECK_INSTANCE_TYPE ((o), UBUNTU_TYPE_MENU_PROXY))
++#define UBUNTU_IS_MENU_PROXY_CLASS(k)    (G_TYPE_CHECK_CLASS_TYPE ((k), UBUNTU_TYPE_MENU_PROXY))
++#define UBUNTU_MENU_PROXY_GET_CLASS(o)   (G_TYPE_INSTANCE_GET_CLASS ((o), UBUNTU_TYPE_MENU_PROXY, UbuntuMenuProxyClass))
++
++
++typedef struct _UbuntuMenuProxy      UbuntuMenuProxy;
++typedef struct _UbuntuMenuProxyClass UbuntuMenuProxyClass;
++
++struct _UbuntuMenuProxy
++{
++  GObject parent_object;
++};
++
++struct _UbuntuMenuProxyClass
++{
++  GObjectClass parent_class;
++
++  /* vtable */
++  void     (* insert)     (UbuntuMenuProxy *proxy, GtkWidget *parent, GtkWidget *child, guint position);
++  gboolean (* show_local) (UbuntuMenuProxy *proxy);
++
++  /* signals */
++  void (* inserted)  (UbuntuMenuProxy *proxy, GtkWidget *child);
++};
++
++GType              ubuntu_menu_proxy_get_type      (void);
++UbuntuMenuProxy*   ubuntu_menu_proxy_get           (void);
++void               ubuntu_menu_proxy_insert        (UbuntuMenuProxy *proxy,
++                                                    GtkWidget       *parent,
++                                                    GtkWidget       *child,
++                                                    guint            position);
++gboolean           ubuntu_menu_proxy_show_local    (UbuntuMenuProxy *proxy);
++void               ubuntu_menu_proxy_activate_menu (UbuntuMenuProxy *proxy,
++                                                    GtkWidget       *widget);
++
++G_END_DECLS
++
++#endif /* __UBUNTU_MENU_PROXY_H__ */
+Index: gtk+3.0-3.2.0/gtk/ubuntumenuproxymodule.c
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gtk+3.0-3.2.0/gtk/ubuntumenuproxymodule.c	2011-10-15 04:42:39.333272784 +0200
+@@ -0,0 +1,209 @@
++/*
++ * Copyright (C) 2010 Canonical, Ltd.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 02111-1307, USA.
++ *
++ * Authors: Cody Russell <bratsche@gnome.org>
++ */
++
++#include "config.h"
++#include "gtkintl.h"
++#include "ubuntumenuproxy.h"
++#include "ubuntumenuproxymodule.h"
++#include "gtkmodules.h"
++#include "gtkprivate.h"
++
++enum {
++  PROP_0,
++  PROP_MODULENAME
++};
++
++static GObject  *ubuntu_menu_proxy_module_constructor   (GType                  type,
++                                                         guint                  n_params,
++                                                         GObjectConstructParam *params);
++static void      ubuntu_menu_proxy_module_finalize      (GObject               *object);
++static gboolean  ubuntu_menu_proxy_module_real_load     (GTypeModule           *gmodule);
++static void      ubuntu_menu_proxy_module_real_unload   (GTypeModule           *gmodule);
++
++
++G_DEFINE_TYPE (UbuntuMenuProxyModule, ubuntu_menu_proxy_module, G_TYPE_TYPE_MODULE);
++
++static UbuntuMenuProxyModule *proxy_module_singleton = NULL;
++
++static void
++ubuntu_menu_proxy_module_class_init (UbuntuMenuProxyModuleClass *class)
++{
++  GObjectClass     *object_class      = G_OBJECT_CLASS (class);
++  GTypeModuleClass *type_module_class = G_TYPE_MODULE_CLASS (class);
++
++  object_class->finalize     = ubuntu_menu_proxy_module_finalize;
++
++  type_module_class->load    = ubuntu_menu_proxy_module_real_load;
++  type_module_class->unload  = ubuntu_menu_proxy_module_real_unload;
++}
++
++static void
++ubuntu_menu_proxy_module_init (UbuntuMenuProxyModule *module)
++{
++  module->name     = g_strdup (g_getenv ("UBUNTU_MENUPROXY"));
++  module->library  = NULL;
++  module->load     = NULL;
++  module->unload   = NULL;
++}
++
++static void
++ubuntu_menu_proxy_module_finalize (GObject *object)
++{
++  UbuntuMenuProxyModule *module = UBUNTU_MENU_PROXY_MODULE (object);
++
++  if (module->name != NULL)
++    {
++      g_free (module->name);
++    }
++
++  G_OBJECT_CLASS (ubuntu_menu_proxy_module_parent_class)->finalize (object);
++}
++
++static gboolean
++ubuntu_menu_proxy_module_real_load (GTypeModule *gmodule)
++{
++  UbuntuMenuProxyModule *module = UBUNTU_MENU_PROXY_MODULE (gmodule);
++  gchar *path;
++
++  if (proxy_module_singleton != NULL)
++    return TRUE;
++
++  if (!module->name)
++    {
++      g_warning ("Module path not set");
++      return FALSE;
++    }
++
++  path = _gtk_find_module (module->name, "menuproxies");
++
++  module->library = g_module_open (path, 0);
++
++  if (!module->library)
++    {
++      g_printerr ("%s\n", g_module_error ());
++      return FALSE;
++    }
++
++  /* Make sure that the loaded library contains the required methods */
++  if (!g_module_symbol (module->library,
++                        "menu_proxy_module_load",
++                        (gpointer *) &module->load) ||
++      !g_module_symbol (module->library,
++                        "menu_proxy_module_unload",
++                        (gpointer *) &module->unload))
++    {
++      g_printerr ("%s\n", g_module_error ());
++      g_module_close (module->library);
++
++      return FALSE;
++    }
++
++  /* Initialize the loaded module */
++  module->load (module);
++
++  return TRUE;
++}
++
++static void
++ubuntu_menu_proxy_module_real_unload (GTypeModule *gmodule)
++{
++  UbuntuMenuProxyModule *module = UBUNTU_MENU_PROXY_MODULE (gmodule);
++
++  module->unload (module);
++
++  g_module_close (module->library);
++  module->library = NULL;
++
++  module->load   = NULL;
++  module->unload = NULL;
++}
++
++static gboolean
++is_valid_module_name (const gchar *name)
++{
++#if !defined(G_OS_WIN32) && !defined(G_WITH_CYGWIN)
++  return g_str_has_prefix (name, "lib") && g_str_has_suffix (name, ".so");
++#else
++  return g_str_has_suffix (name, ".dll");
++#endif
++}
++
++static void
++setup_instance (UbuntuMenuProxyModule *module)
++{
++  GType *proxy_types;
++  guint  n_proxies;
++
++  proxy_types = g_type_children (UBUNTU_TYPE_MENU_PROXY,
++                                 &n_proxies);
++
++  if (n_proxies > 1)
++    {
++      g_warning ("There are %d child types of UbuntuMenuProxy, should be 0 or 1.\n",
++                 n_proxies);
++    }
++  else if (n_proxies == 1)
++    {
++      g_object_new (proxy_types[0], NULL);
++    }
++}
++
++UbuntuMenuProxyModule *
++ubuntu_menu_proxy_module_get (void)
++{
++  if (!proxy_module_singleton)
++    {
++      UbuntuMenuProxyModule *module = NULL;
++      const gchar *module_name;
++
++      module_name = g_getenv ("UBUNTU_MENUPROXY");
++
++      if (module_name != NULL)
++        {
++          if (is_valid_module_name (module_name))
++            {
++              gchar *path = _gtk_find_module (module_name, "menuproxies");
++
++              module = g_object_new (UBUNTU_TYPE_MENU_PROXY_MODULE,
++                                     NULL);
++
++              if (!g_type_module_use (G_TYPE_MODULE (module)))
++                {
++                  g_warning ("Failed to load type module: %s\n", path);
++
++                  g_object_unref (module);
++                  g_free (path);
++
++                  return NULL;
++                }
++
++              setup_instance (module);
++
++              g_free (path);
++              g_type_module_unuse (G_TYPE_MODULE (module));
++            }
++
++          proxy_module_singleton = module;
++        }
++    }
++
++  return proxy_module_singleton;
++}
+Index: gtk+3.0-3.2.0/gtk/ubuntumenuproxymodule.h
+===================================================================
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ gtk+3.0-3.2.0/gtk/ubuntumenuproxymodule.h	2011-10-15 04:42:39.333272784 +0200
+@@ -0,0 +1,69 @@
++/*
++ * Copyright (C) 2010 Canonical, Ltd.
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the
++ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
++ * Boston, MA 02111-1307, USA.
++ *
++ * Authors: Cody Russell <bratsche@gnome.org>
++ */
++
++#if defined(GTK_DISABLE_SINGLE_INCLUDES) && !defined (__GTK_H_INSIDE__) && !defined (GTK_COMPILATION)
++#error "Only <gtk/gtk.h> can be included directly."
++#endif
++
++#ifndef __UBUNTU_MENU_PROXY_MODULE_H__
++#define __UBUNTU_MENU_PROXY_MODULE_H__
++
++#include <glib-object.h>
++#include <gmodule.h>
++
++G_BEGIN_DECLS
++
++#define UBUNTU_TYPE_MENU_PROXY_MODULE         (ubuntu_menu_proxy_module_get_type ())
++#define UBUNTU_MENU_PROXY_MODULE(o)           (G_TYPE_CHECK_INSTANCE_CAST ((o), UBUNTU_TYPE_MENU_PROXY_MODULE, UbuntuMenuProxyModule))
++#define UBUNTU_MENU_PROXY_MODULE_CLASS(k)     (G_TYPE_CHECK_CLASS_CAST ((k), UBUNTU_TYPE_MENU_PROXY_MODULE, UbuntuMenuProxyModuleClass))
++#define UBUNTU_IS_MENU_MODULE_PROXY(o)        (G_TYPE_CHECK_INSTANCE_TYPE ((o), UBUNTU_TYPE_MENU_PROXY_MODULE))
++#define UBUNTU_IS_MENU_PROXY_MODULE_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), UBUNTU_TYPE_MENU_PROXY_MODULE))
++#define UBUNTU_MENU_PROXY_MODULE_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), UBUNTU_TYPE_MENU_PROXY_MODULE, UbuntuMenuProxyModuleClass))
++
++typedef struct _UbuntuMenuProxyModule        UbuntuMenuProxyModule;
++typedef struct _UbuntuMenuProxyModuleClass   UbuntuMenuProxyModuleClass;
++typedef struct _UbuntuMenuProxyModulePrivate UbuntuMenuProxyModulePrivate;
++
++struct _UbuntuMenuProxyModule
++{
++  GTypeModule parent_instance;
++
++  UbuntuMenuProxyModulePrivate *priv;
++
++  GModule *library;
++  gchar   *name;
++
++  void        (* load)     (UbuntuMenuProxyModule *module);
++  void        (* unload)   (UbuntuMenuProxyModule *module);
++};
++
++struct _UbuntuMenuProxyModuleClass
++{
++  GTypeModuleClass parent_class;
++};
++
++GType                  ubuntu_menu_proxy_module_get_type (void);
++
++UbuntuMenuProxyModule *ubuntu_menu_proxy_module_get      (void);
++
++G_END_DECLS
++
++#endif /* __UBUNTU_MENU_PROXY_MODULE_H__ */
+Index: gtk+3.0-3.2.0/gtk/gtkmnemonichash.c
+===================================================================
+--- gtk+3.0-3.2.0.orig/gtk/gtkmnemonichash.c	2011-10-15 04:42:09.237651137 +0200
++++ gtk+3.0-3.2.0/gtk/gtkmnemonichash.c	2011-10-15 04:42:39.337272733 +0200
+@@ -20,6 +20,9 @@
+  */
+ 
+ #include "gtkmnemonichash.h"
++#include "ubuntumenuproxy.h"
++#include "gtkmenuitem.h"
++#include "gtkaccellabel.h"
+ 
+ struct _GtkMnemnonicHash
+ {
+@@ -115,6 +118,7 @@
+   GtkWidget *widget, *chosen_widget;
+   GdkWindow *window;
+   gboolean overloaded;
++  UbuntuMenuProxy * menu_proxy = ubuntu_menu_proxy_get();
+ 
+   targets = g_hash_table_lookup (mnemonic_hash->hash,
+ 				 GUINT_TO_POINTER (keyval));
+@@ -128,9 +132,11 @@
+       widget = GTK_WIDGET (list->data);
+       window = gtk_widget_get_window (widget);
+ 
+-      if (gtk_widget_is_sensitive (widget) &&
++      if ((menu_proxy && !ubuntu_menu_proxy_show_local(menu_proxy) && GTK_IS_ACCEL_LABEL(widget))
++      || (gtk_widget_is_sensitive (widget) &&
+ 	  gtk_widget_get_mapped (widget) &&
+           window && gdk_window_is_viewable (window))
++      )
+ 	{
+ 	  if (chosen_widget)
+ 	    {

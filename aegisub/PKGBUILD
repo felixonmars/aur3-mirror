@@ -23,13 +23,14 @@ depends=('fontconfig>=2.4.2' 'lua51' 'hunspell'
     'fftw' 'desktop-file-utils' 'hicolor-icon-theme'
     )
 
-makedepends=('mesa')
+makedepends=('mesa' 'autoconf')
 
 build() {
         cd "$srcdir/$pkgname/$pkgname/"
         patch -Np0 -i "$srcdir"/crash-on-deatach-workaround.patch || return 1
         patch -Np0 -i "$srcdir"/use-lua51.patch
-        LDFLAGS="$LDFLAGS -lz" ./autogen.sh --prefix=/usr --with-player-audio=alsa \
+        autoreconf -iv --force
+        ./configure --prefix=/usr --with-player-audio=alsa \
             --without-{portaudio,openal,oss} --with-wx-config=/usr/bin/wx-config-2.9
         make
 }

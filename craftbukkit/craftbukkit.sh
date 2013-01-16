@@ -3,10 +3,16 @@
 BACKUPPATH="/srv/craftbukkit/backup/"
 WORLDPATH="/srv/craftbukkit/world/"
 
+USER="$2"
+
+if [ -z $2 ]; then
+        USER="craftbukkit"
+fi
+
 case "$1" in
   start)
     if [ -z "`pgrep -f -n 'craftbukkit.jar'`" ]; then
-      /usr/bin/tmux new-session -d -s craftbukkit-console -d 'cd /srv/craftbukkit; java -Xmx1024M -Xms1024M -jar /srv/craftbukkit/craftbukkit.jar nogui'
+      sudo -u ${USER} tmux new-session -d -s craftbukkit-console -d 'cd /srv/craftbukkit; java -Xmx1024M -Xms1024M -jar /srv/craftbukkit/craftbukkit.jar nogui'
       if [ $? -gt 0 ]; then
         exit 1
       fi
@@ -17,28 +23,18 @@ case "$1" in
     ;;
 
   stop)
-    tmux send-keys -t craftbukkit-console 'broadcast NOTICE: Server shutting down in 5 seconds!' C-m
+    sudo -u ${USER} tmux send-keys -t craftbukkit-console 'broadcast NOTICE: Server shutting down in 5 seconds!' C-m
     sleep 5
-    tmux send-keys -t craftbukkit-console 'stop' C-m
+    sudo -u ${USER} tmux send-keys -t craftbukkit-console 'stop' C-m
     sleep 10
     ;;
 
-  backup)
-    FILE="`date +%Y%m%d%H%M`.tar.gz"
-    path="$BACKUPPATH/$FILE"
-    mkdir -p $BACKUPPATH
-    tmux send-keys 'save-off' C-m
-    tmux send-keys 'save-all' C-m
-    tar -czf $path $WORLDPATH
-    tmux send-keys 'save-on' C-m
-    ;;
-
   console)
-    tmux attach -t craftbukkit-console
+    sudo -u ${USER} tmux attach -t craftbukkit-console
     ;;
 
   *)
-    echo "usage: $0 {start|backup|console} (need to run as 'craftbukkit')"
+    echo "usage: $0 {start|backup|console} user"
 esac
 
 exit 0

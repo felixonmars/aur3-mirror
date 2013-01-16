@@ -1,7 +1,7 @@
 # Maintainer: fsckd <fsckdaemon@gmail.com>
 
 pkgname=mezzanine
-pkgver=1.2.4
+pkgver=1.3.0
 pkgrel=1
 pkgdesc="An open source content management platform built using the Django framework"
 arch=('any')
@@ -19,8 +19,8 @@ makedepends=('python2-distribute')
 optdepends=('mysql-python: for MySQL backend'
             'python2-psycopg2: for PostgreSQL backend')
 source=("http://pypi.python.org/packages/source/M/Mezzanine/Mezzanine-${pkgver}.tar.gz")
-md5sums=('6d82fe15bb58120415ac821bdd5696a8')
-sha256sums=('7419eddf59a9031703952249fc724ac595cf354f9e23de0882d8903b41345a74')
+md5sums=('358e7a0d0035d54b704597748f713fe2')
+sha256sums=('5023b542d6181e87a4c0734df4742b6433b89254ecd8e1438845e78e32d1ac80')
 
 build() {
   cd "${srcdir}/Mezzanine-${pkgver}"

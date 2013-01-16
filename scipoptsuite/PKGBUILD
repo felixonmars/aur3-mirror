@@ -3,8 +3,8 @@
 # Contributor: Stephan Friedrichs <deduktionstheorem@googlemail.com>
 
 pkgname='scipoptsuite'
-pkgver='3.0.0'
-pkgrel=7
+pkgver='3.0.1'
+pkgrel=1
 pkgdesc="Tools for generating and solving optimization problems. Consists of ZIMPL, SoPlex, SCIP, GCG and UG"
 arch=('i686' 'x86_64')
 url='http://scip.zib.de/'
@@ -12,10 +12,10 @@ license=('LGPL3' 'custom:ZIB Academic License')
 depends=('zlib' 'gmp' 'readline')
 replaces=('ziboptsuite')
 makedepends=('chrpath' 'doxygen' 'graphviz')
-provides=('scip=3.0.0' 'soplex=1.7.0' 'zimpl=3.3.0' 'gcg=1.0.0' 'ug=0.7.0')
+provides=('scip=3.0.1' 'soplex=1.7.1' 'zimpl=3.3.1' 'gcg=1.1.0' 'ug=0.7.1')
 source=("http://scip.zib.de/download/release/${pkgname}-${pkgver}.tgz"
-        'soplex.dxy.patch')
-sha256sums=('1ce8a351e92143e1d07d9aa5f9b0f259578f3cee82fcdd984e0024e0d4e3a548'
+        "soplex.dxy.patch")
+sha256sums=('55991d2cadb11711b5494e09998ed06ff373f92d7bcd036efa34ee7eb6bd5944'
             '49519d42fccb91806a3e62292c0af102b5748958eea34f552a4e21221990cf89')
 
 build() {
@@ -28,28 +28,32 @@ build() {
 
     cd "${srcdir}/${pkgname}-${pkgver}"
 
-    make SHARED=true
-
-    make gcg
-    make ug
+    make -j
+    make gcg -j
+    make ug -j
 
     # @TODO: shared lib with ZIMPL seems to be broken
-    make scipoptlib ZIMPL=false SHARED=true
+    make ZIMPL=false SHARED=true scipoptlib
 
-    # @TODO: build docs in parallel?
+    # HACK to recreate SCIP with ZIMPL support
+    cd "${srcdir}/${pkgname}-${pkgver}/${_scip}"
+    make ZIMPL=false SHARED=true clean
+    make clean
+    make ZIMPL=true -j4
+    cd ..
 
     cd "${srcdir}/${pkgname}-${pkgver}/${_scip}"
-    make doc
+    make doc -j
 
     cd "${srcdir}/${pkgname}-${pkgver}/${_soplex}"
 
     # fix soplex.dxy
     # @FIXME: Remove this in the next version
     patch -p1 < ${srcdir}/soplex.dxy.patch
-    make doc
+    make doc -j
 
     cd "${srcdir}/${pkgname}-${pkgver}/${_gcg}"
-    make doc
+    make doc -j
 
     # Some files have permission 640.
     # @FIXME: Future versions might not require this line.
