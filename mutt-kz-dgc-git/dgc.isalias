@@ -1,0 +1,127 @@
+Adds the '@' pattern modifier to limit matches to known aliases.
+
+Example: ~f joe matches messages from joe. @~f joe matches messages from
+any joe who is defined as an alias.
+
+diff -r 23447e36c8ca doc/manual.xml.head
+--- a/doc/manual.xml.head	Mon Apr 09 17:49:01 2012 -0500
++++ b/doc/manual.xml.head	Mon Apr 09 17:50:23 2012 -0500
+@@ -4267,6 +4267,29 @@
+ <command>macro</command>'s commands into its history.
+ </para>
+ 
++<para>
++You can restrict address pattern matching to aliases that you have
++defined with the "@" modifier.  This example matches messages whose
++recipients are all from Germany, and who are known to your alias list.
++</para>
++
++<para>
++<screen>
++^@~C \.de$
++</screen>
++</para>
++
++<para>
++To match any defined alias, use a regular expression that matches any
++string.  This example matches messages whose senders are known aliases.
++</para>
++
++<para>
++<screen>
++@~f .
++</screen>
++</para>
++
+ </sect3>
+ 
+ </sect2>
+diff -r 23447e36c8ca mutt.h
+--- a/mutt.h	Mon Apr 09 17:49:01 2012 -0500
++++ b/mutt.h	Mon Apr 09 17:50:23 2012 -0500
+@@ -837,6 +837,7 @@
+   unsigned int stringmatch : 1;
+   unsigned int groupmatch : 1;
+   unsigned int ign_case : 1;		/* ignore case for local stringmatch searches */
++  unsigned int isalias : 1;
+   int min;
+   int max;
+   struct pattern_t *next;
+diff -r 23447e36c8ca pattern.c
+--- a/pattern.c	Mon Apr 09 17:49:01 2012 -0500
++++ b/pattern.c	Mon Apr 09 17:50:23 2012 -0500
+@@ -774,6 +774,7 @@
+   int alladdr = 0;
+   int or = 0;
+   int implicit = 1;	/* used to detect logical AND operator */
++  int isalias = 0;
+   const struct pattern_flags *entry;
+   char *p;
+   char *buf;
+@@ -796,6 +797,10 @@
+ 	ps.dptr++;
+ 	not = !not;
+ 	break;
++      case '@':
++	ps.dptr++;
++	isalias = !isalias;
++	break;
+       case '|':
+ 	if (!or)
+ 	{
+@@ -821,6 +826,7 @@
+ 	implicit = 0;
+ 	not = 0;
+ 	alladdr = 0;
++	isalias = 0;
+ 	break;
+       case '%':
+       case '=':
+@@ -850,8 +856,10 @@
+ 	  last = tmp;
+ 	  tmp->not ^= not;
+ 	  tmp->alladdr |= alladdr;
++	  tmp->isalias |= isalias;
+ 	  not = 0;
+ 	  alladdr = 0;
++	  isalias = 0;
+ 	  /* compile the sub-expression */
+ 	  buf = mutt_substrdup (ps.dptr + 1, p);
+ 	  if ((tmp2 = mutt_pattern_comp (buf, flags, err)) == NULL)
+@@ -879,10 +887,12 @@
+ 	tmp = new_pattern ();
+ 	tmp->not = not;
+ 	tmp->alladdr = alladdr;
++	tmp->isalias = isalias;
+         tmp->stringmatch = (*ps.dptr == '=') ? 1 : 0;
+         tmp->groupmatch  = (*ps.dptr == '%') ? 1 : 0;
+ 	not = 0;
+ 	alladdr = 0;
++	isalias = 0;
+ 
+ 	if (last)
+ 	  last->next = tmp;
+@@ -948,8 +958,10 @@
+ 	last = tmp;
+ 	tmp->not ^= not;
+ 	tmp->alladdr |= alladdr;
++	tmp->isalias |= isalias;
+ 	not = 0;
+ 	alladdr = 0;
++	isalias = 0;
+ 	ps.dptr = p + 1; /* restore location */
+ 	break;
+       default:
+@@ -1001,8 +1013,10 @@
+   {
+     for (a = va_arg (ap, ADDRESS *) ; a ; a = a->next)
+     {
+-      if (pat->alladdr ^ ((a->mailbox && patmatch (pat, a->mailbox) == 0) ||
+-	   (match_personal && a->personal && patmatch (pat, a->personal) == 0)))
++      if (pat->alladdr ^
++          ((!pat->isalias || alias_reverse_lookup(a)) &&
++           ((a->mailbox && patmatch (pat, a->mailbox) == 0) ||
++	    (match_personal && a->personal && !patmatch (pat, a->personal) ))))
+       {
+ 	va_end (ap);
+ 	return (! pat->alladdr); /* Found match, or non-match if alladdr */

@@ -1,0 +1,165 @@
+setenv/unsetenv for altering process environment (to affect children).
+
+This may be broken/incomplete, not sure.
+
+diff -r 181ba9a6e5d1 init.c
+--- a/init.c	Mon Jan 03 13:23:46 2011 -0600
++++ b/init.c	Mon Jan 03 13:23:54 2011 -0600
+@@ -76,6 +76,8 @@
+ static const char* myvar_get (const char* var);
+ static void myvar_del (const char* var);
+ 
++extern char **envlist;
++
+ static void toggle_quadoption (int opt)
+ {
+   int n = opt/4;
+@@ -1769,6 +1771,91 @@
+   return rc;
+ }
+ 
++static int parse_setenv(BUFFER *tmp, BUFFER *s, unsigned long data, BUFFER *err)
++{
++  int query, unset, len;
++  char work[LONG_STRING];
++  char **save, **envp = envlist;
++
++  query = 0;
++  unset = data & M_SET_UNSET;
++
++  if (MoreArgs (s))
++  {
++    if (*s->dptr == '?')
++    {
++      query = 1;
++      s->dptr++;
++    }
++
++    /* get variable name */
++    mutt_extract_token (tmp, s, M_TOKEN_EQUAL);
++    len = strlen(tmp->data);
++
++    if (query)
++    {
++      while (envp && *envp)
++      {
++        if (!strncmp(tmp->data, *envp, len))
++        {
++          snprintf(err->data, err->dsize, "%s", *envp);
++          return 0;
++        }
++        envp++;
++      }
++      snprintf (err->data, err->dsize, _("%s is unset"), tmp->data);
++      return -1;
++    }
++
++    if (unset)
++    {
++      while (envp && *envp)
++      {
++        if (!strncmp(tmp->data, *envp, len) && (*envp)[len] == '=')
++        {
++	  /* shuffle down */
++	  save = envp++;
++	  while (*envp)
++	    *save++ = *envp++;
++	  *save = NULL;
++          return 0;
++        }
++        envp++;
++      }
++      return -1;
++    }
++
++    while (envp && *envp)
++    {
++      if (!strncmp(tmp->data, *envp, len) && (*envp)[len] == '=')
++      {
++        /* shuffle down */
++        save = envp++;
++        while (*envp)
++          *save++ = *envp++;
++        *save = NULL;
++        envp = save;
++        break;
++      }
++      envp++;
++    }
++
++    strncpy(work, tmp->data, sizeof(work));
++    len = strlen(work);
++    
++    mutt_extract_token (tmp, s, 0);
++
++    strncpy(&work[len], tmp->data, sizeof(work)-len);
++
++    *envp++ = strdup(work);
++    *envp = NULL;
++
++    return 0;
++  }
++
++  return -1;
++}
++
+ static int parse_set (BUFFER *tmp, BUFFER *s, unsigned long data, BUFFER *err)
+ {
+   int query, unset, inv, reset, r = 0;
+diff -r 181ba9a6e5d1 init.h
+--- a/init.h	Mon Jan 03 13:23:46 2011 -0600
++++ b/init.h	Mon Jan 03 13:23:54 2011 -0600
+@@ -3517,6 +3517,7 @@
+ static int parse_unignore (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_source (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_set (BUFFER *, BUFFER *, unsigned long, BUFFER *);
++static int parse_setenv (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_my_hdr (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_unmy_hdr (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_subscribe (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+@@ -3592,6 +3593,7 @@
+   { "send-hook",	mutt_parse_hook,	M_SENDHOOK },
+   { "send2-hook",	mutt_parse_hook,	M_SEND2HOOK },
+   { "set",		parse_set,		0 },
++  { "setenv",		parse_setenv,		0 },
+   { "source",		parse_source,		0 },
+   { "spam",		parse_spam_list,	M_SPAM },
+   { "nospam",		parse_spam_list,	M_NOSPAM },
+@@ -3610,6 +3612,7 @@
+   { "unmy_hdr",		parse_unmy_hdr,		0 },
+   { "unscore",		mutt_parse_unscore,	0 },
+   { "unset",		parse_set,		M_SET_UNSET },
++  { "unsetenv",		parse_setenv,		M_SET_UNSET },
+   { "unsubscribe",	parse_unsubscribe,	0 },
+   { NULL,		NULL,			0 }
+ };
+diff -r 181ba9a6e5d1 main.c
+--- a/main.c	Mon Jan 03 13:23:46 2011 -0600
++++ b/main.c	Mon Jan 03 13:23:54 2011 -0600
+@@ -99,6 +99,8 @@
+     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n\
+ ");
+ 
++char **envlist;
++
+ void mutt_exit (int code)
+ {
+   mutt_endwin (NULL);
+@@ -523,7 +525,7 @@
+ #define M_RO      (1<<3)	/* -R */
+ #define M_SELECT  (1<<4)	/* -y */
+ 
+-int main (int argc, char **argv)
++int main (int argc, char **argv, char **env)
+ {
+   char folder[_POSIX_PATH_MAX] = "";
+   char *subject = NULL;
+@@ -545,6 +547,8 @@
+   extern int optind;
+   int double_dash = argc, nargc = 1;
+ 
++  envlist = env;
++
+   /* sanity check against stupid administrators */
+   
+   if(getegid() != getgid())

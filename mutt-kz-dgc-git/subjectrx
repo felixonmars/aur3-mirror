@@ -1,0 +1,236 @@
+Add subjectrx command to replace matching subjects with something else.
+
+This lets you define regular expressions-replacement pairs for subject
+display.  When a Subject: matches the regular expression, the replacement
+value will be displayed instead in the message index.  Backreferences
+are supported.
+
+This is especially nice for simplifying subjects that are overly wordy,
+such as mailing list posts (with [Listname] tags, etc), mail from
+ticketing systems or bug trackers, etc.  It lets you reduce clutter in
+your mutt display without altering the messages themselves.
+
+diff -r 0db2ba027db9 globals.h
+--- a/globals.h	Mon Jan 03 13:20:33 2011 -0600
++++ b/globals.h	Mon Jan 03 13:20:40 2011 -0600
+@@ -173,6 +173,7 @@
+ WHERE RX_LIST *UnSubscribedLists INITVAL(0);
+ WHERE REPLACE_LIST *SpamList INITVAL(0);
+ WHERE RX_LIST *NoSpamList INITVAL(0);
++WHERE REPLACE_LIST *SubjectRxList INITVAL(0);
+ 
+ 
+ /* bit vector for boolean variables */
+diff -r 0db2ba027db9 hdrline.c
+--- a/hdrline.c	Mon Jan 03 13:20:33 2011 -0600
++++ b/hdrline.c	Mon Jan 03 13:20:40 2011 -0600
+@@ -199,6 +199,22 @@
+   return h->recipient;
+ }
+ 
++static char *apply_subject_mods (ENVELOPE *env)
++{
++  if (env == NULL)
++    return NULL;
++
++  if (SubjectRxList == NULL)
++    return env->subject;
++
++  if (env->subject == NULL || *env->subject == '\0')
++    return env->disp_subj = NULL;
++
++  env->disp_subj = mutt_apply_replace(NULL, 0, env->subject, SubjectRxList);
++  return env->disp_subj;
++}
++
++
+ /* %a = address of author
+  * %A = reply-to address (if present; otherwise: address of author
+  * %b = filename of the originating folder
+@@ -549,20 +565,28 @@
+       break;
+ 
+     case 's':
+-      
+-      if (flags & M_FORMAT_TREE && !hdr->collapsed)
+       {
+-	if (flags & M_FORMAT_FORCESUBJ)
++	char *subj;
++        if (hdr->env->disp_subj)
++	  subj = hdr->env->disp_subj;
++	else if (SubjectRxList)
++	  subj = apply_subject_mods(hdr->env);
++	else
++	  subj = hdr->env->subject;
++	if (flags & M_FORMAT_TREE && !hdr->collapsed)
+ 	{
+-	  mutt_format_s (dest, destlen, "", NONULL (hdr->env->subject));
+-	  snprintf (buf2, sizeof (buf2), "%s%s", hdr->tree, dest);
+-	  mutt_format_s_tree (dest, destlen, prefix, buf2);
++	  if (flags & M_FORMAT_FORCESUBJ)
++	  {
++	    mutt_format_s (dest, destlen, "", NONULL (subj));
++	    snprintf (buf2, sizeof (buf2), "%s%s", hdr->tree, dest);
++	    mutt_format_s_tree (dest, destlen, prefix, buf2);
++	  }
++	  else
++	    mutt_format_s_tree (dest, destlen, prefix, hdr->tree);
+ 	}
+ 	else
+-	  mutt_format_s_tree (dest, destlen, prefix, hdr->tree);
++	  mutt_format_s (dest, destlen, prefix, NONULL (subj));
+       }
+-      else
+-	mutt_format_s (dest, destlen, prefix, NONULL (hdr->env->subject));
+       break;
+ 
+     case 'S':
+diff -r 0db2ba027db9 init.c
+--- a/init.c	Mon Jan 03 13:20:33 2011 -0600
++++ b/init.c	Mon Jan 03 13:20:40 2011 -0600
+@@ -702,6 +702,88 @@
+   return 0;
+ }
+ 
++static int parse_replace_list (BUFFER *buf, BUFFER *s, unsigned long data, BUFFER *err)
++{
++  REPLACE_LIST **list = (REPLACE_LIST **)data;
++  BUFFER templ;
++
++  memset(&templ, 0, sizeof(templ));
++
++  /* First token is a regexp. */
++  if (!MoreArgs(s))
++  {
++    strfcpy(err->data, _("not enough arguments"), err->dsize);
++    return -1;
++  }
++  mutt_extract_token(buf, s, 0);
++
++  /* Second token is a replacement template */
++  if (!MoreArgs(s))
++  {
++    strfcpy(err->data, _("not enough arguments"), err->dsize);
++    return -1;
++  }
++  mutt_extract_token(&templ, s, 0);
++
++  if (add_to_replace_list(list, buf->data, templ.data, err) != 0) {
++    FREE(&templ.data);
++    return -1;
++  }
++  FREE(&templ.data);
++
++  return 0;
++}
++
++static int parse_unreplace_list (BUFFER *buf, BUFFER *s, unsigned long data, BUFFER *err)
++{
++  REPLACE_LIST **list = (REPLACE_LIST **)data;
++
++  /* First token is a regexp. */
++  if (!MoreArgs(s))
++  {
++    strfcpy(err->data, _("not enough arguments"), err->dsize);
++    return -1;
++  }
++
++  mutt_extract_token(buf, s, 0);
++  remove_from_replace_list(list, buf->data);
++  return 0;
++}
++
++
++static void clear_subject_mods (void)
++{
++  int i;
++  if (Context && Context->msgcount) 
++  {
++    for (i = 0; i < Context->msgcount; i++)
++      FREE(&Context->hdrs[i]->env->disp_subj);
++  }
++}
++
++
++static int parse_subjectrx_list (BUFFER *buf, BUFFER *s, unsigned long data, BUFFER *err)
++{
++  int rc;
++
++  rc = parse_replace_list(buf, s, data, err);
++  if (rc == 0)
++    clear_subject_mods();
++  return rc;
++}
++
++
++static int parse_unsubjectrx_list (BUFFER *buf, BUFFER *s, unsigned long data, BUFFER *err)
++{
++  int rc;
++
++  rc = parse_unreplace_list(buf, s, data, err);
++  if (rc == 0)
++    clear_subject_mods();
++  return rc;
++}
++
++
+ static int parse_spam_list (BUFFER *buf, BUFFER *s, unsigned long data, BUFFER *err)
+ {
+   BUFFER templ;
+diff -r 0db2ba027db9 init.h
+--- a/init.h	Mon Jan 03 13:20:33 2011 -0600
++++ b/init.h	Mon Jan 03 13:20:40 2011 -0600
+@@ -3511,7 +3511,10 @@
+ static int parse_attachments (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_unattachments (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ 
+-
++static int parse_replace_list (BUFFER *, BUFFER *, unsigned long, BUFFER *);
++static int parse_unreplace_list (BUFFER *, BUFFER *, unsigned long, BUFFER *);
++static int parse_subjectrx_list (BUFFER *, BUFFER *, unsigned long, BUFFER *);
++static int parse_unsubjectrx_list (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_alternates (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ static int parse_unalternates (BUFFER *, BUFFER *, unsigned long, BUFFER *);
+ 
+@@ -3578,6 +3581,8 @@
+   { "spam",		parse_spam_list,	M_SPAM },
+   { "nospam",		parse_spam_list,	M_NOSPAM },
+   { "subscribe",	parse_subscribe,	0 },
++  { "subjectrx",    parse_subjectrx_list, UL &SubjectRxList },
++  { "unsubjectrx",  parse_unsubjectrx_list, UL &SubjectRxList },
+   { "toggle",		parse_set,		M_SET_INV },
+   { "unalias",		parse_unalias,		0 },
+   { "unalternative_order",parse_unlist,		UL &AlternativeOrderList },
+diff -r 0db2ba027db9 mutt.h
+--- a/mutt.h	Mon Jan 03 13:20:33 2011 -0600
++++ b/mutt.h	Mon Jan 03 13:20:40 2011 -0600
+@@ -593,6 +593,7 @@
+   char *list_post;		/* this stores a mailto URL, or nothing */
+   char *subject;
+   char *real_subj;		/* offset of the real subject */
++  char *disp_subj;		/* display subject (modified copy of subject) */
+   char *message_id;
+   char *supersedes;
+   char *date;
+diff -r 0db2ba027db9 muttlib.c
+--- a/muttlib.c	Mon Jan 03 13:20:33 2011 -0600
++++ b/muttlib.c	Mon Jan 03 13:20:40 2011 -0600
+@@ -718,6 +718,7 @@
+   FREE (&(*p)->list_post);
+   FREE (&(*p)->subject);
+   /* real_subj is just an offset to subject and shouldn't be freed */
++  FREE (&(*p)->disp_subj);
+   FREE (&(*p)->message_id);
+   FREE (&(*p)->supersedes);
+   FREE (&(*p)->date);
+@@ -766,8 +767,10 @@
+   {
+     base->subject = (*extra)->subject;
+     base->real_subj = (*extra)->real_subj;
++    base->disp_subj = (*extra)->disp_subj;
+     (*extra)->subject = NULL;
+     (*extra)->real_subj = NULL;
++    (*extra)->disp_subj = NULL;
+   }
+   /* spam and user headers should never be hashed, and the new envelope may
+     * have better values. Use new versions regardless. */

@@ -2,7 +2,7 @@
 
 pkgname=adasockets
 pkgver=1.8.11
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 pkgdesc="BSD sockets in Ada"
 url="http://www.rfc1149.net/devel/adasockets"
@@ -11,7 +11,7 @@ depends=('sh' 'gcc-libs')
 makedepends=('gcc-ada' 'autogen')
 options=('!libtool')
 install=adasockets.install
-source=(https://www.github.com/downloads/samueltardieu/${pkgname}/${pkgname}-${pkgver}.tar.gz)
+source=(http://www.rfc1149.net/download/${pkgname}/${pkgname}-${pkgver}.tar.gz)
 md5sums=('aaa427d453b8c4e9592d5bd009775a43')
 
 build() {

@@ -1,0 +1,204 @@
+From: Anders Sundman <anders@4zm.org>
+Subject: New option -p reverts to permanent MAC
+ A new option -p | --permanent has been added that will set the MAC to the
+ permanent (hardware) adress.
+Forwarded: no
+
+---
+ doc/macchanger.texi |    7 +++++++
+ macchanger.1        |    3 +++
+ src/main.c          |   25 ++++++++++++++++++-------
+ src/netinfo.c       |   31 +++++++++++++++++++++++++++++++
+ src/netinfo.h       |    1 +
+ 5 files changed, 60 insertions(+), 7 deletions(-)
+
+--- macchanger.orig/src/main.c
++++ macchanger/src/main.c
+@@ -50,6 +50,7 @@ print_help (void)
+ 		"  -e,  --ending                Don't change the vendor bytes\n"
+ 		"  -a,  --another                Set random vendor MAC of the same kind\n"
+ 		"  -A                            Set random vendor MAC of any kind\n"
++		"  -p,  --permanent              Reset to original, permanent hardware MAC\n"
+ 		"  -r,  --random                 Set fully random MAC\n"
+ 		"  -l,  --list[=keyword]         Print known vendors\n"
+ 		"  -m,  --mac=XX:XX:XX:XX:XX:XX\n"
+@@ -89,6 +90,7 @@ main (int argc, char *argv[])
+ 	char endding      = 0;
+ 	char another_any  = 0;
+ 	char another_same = 0;
++	char permanent    = 0;
+ 	char print_list   = 0;
+ 	char show         = 0;
+ 	char *set_mac     = NULL;
+@@ -103,6 +105,7 @@ main (int argc, char *argv[])
+ 		{"another",     no_argument,       NULL, 'a'},
+ 		{"show",        no_argument,       NULL, 's'},
+ 		{"another_any", no_argument,       NULL, 'A'},
++		{"permanent",   no_argument,       NULL, 'p'},
+ 		{"list",        optional_argument, NULL, 'l'},
+ 		{"mac",         required_argument, NULL, 'm'},
+ 		{NULL, 0, NULL, 0}
+@@ -111,6 +114,7 @@ main (int argc, char *argv[])
+ 	
+ 	net_info_t *net;
+ 	mac_t      *mac;
++	mac_t      *mac_permanent;
+ 	mac_t      *mac_faked;
+ 	char       *device_name;
+ 
+@@ -119,7 +123,7 @@ main (int argc, char *argv[])
+ 
+ 	
+ 	/* Read the parameters */
+-	while ((val = getopt_long (argc, argv, "VasArehlm:", long_options, NULL)) != -1) {
++	while ((val = getopt_long (argc, argv, "VasArephlm:", long_options, NULL)) != -1) {
+ 		switch (val) {
+ 		case 'V':
+ 			printf ("GNU MAC changer %s\n"
+@@ -149,6 +153,9 @@ main (int argc, char *argv[])
+ 		case 'A':
+ 			another_any = 1;
+ 			break;
++		case 'p':
++			permanent = 1;
++			break;
+ 		case 'm':
+ 			set_mac = optarg;
+ 			break;
+@@ -188,9 +195,11 @@ main (int argc, char *argv[])
+         /* Read the MAC */
+ 	if ((net = mc_net_info_new(device_name)) == NULL) exit(1);
+ 	mac = mc_net_info_get_mac(net);
++	mac_permanent = mc_net_info_get_permanent_mac(net);
+ 
+ 	/* Print the current MAC info */
+-	print_mac ("Current MAC: ", mac);
++	print_mac ("Permanent MAC: ", mac_permanent);
++	print_mac ("Current   MAC: ", mac);
+ 	
+ 	/* Change the MAC */
+ 	mac_faked = mc_mac_dup (mac);
+@@ -210,6 +219,8 @@ main (int argc, char *argv[])
+ 	} else if (another_any) {
+ 		mc_maclist_set_random_vendor(mac_faked, mac_is_anykind);
+ 		mc_mac_random (mac_faked, 3);
++	} else if (permanent) {
++		mac_faked = mc_mac_dup (mac_permanent);
+ 	} else {
+ 		mc_mac_next (mac_faked);
+ 	}
+@@ -221,21 +232,21 @@ main (int argc, char *argv[])
+ 		mac_faked = mc_net_info_get_mac(net);
+ 
+ 		/* Print it */
+-		print_mac ("Faked MAC:   ", mac_faked);
+-		
++		print_mac ("New       MAC: ", mac_faked);
++
+ 		/* Is the same MAC? */
+ 		if (mc_mac_equal (mac, mac_faked)) {
+ 			printf ("It's the same MAC!!\n");
+ 		}
+ 
+ 		ret = 0;
+-	}
+-	else {
++	} else {
+ 		ret = 1;
+ 	}
+-	
++
+ 	/* Memory free */
+ 	mc_mac_free (mac);
++	mc_mac_free (mac_permanent);
+ 	mc_mac_free (mac_faked);
+ 	mc_net_info_free (net);
+ 	mc_maclist_free();
+--- macchanger.orig/src/netinfo.c
++++ macchanger/src/netinfo.c
+@@ -29,6 +29,9 @@
+ #include <unistd.h>
+ #include <sys/ioctl.h>
+ 
++#include <linux/ethtool.h>
++#include <linux/sockios.h>
++
+ #include "netinfo.h"
+ 
+ 
+@@ -93,3 +96,31 @@ mc_net_info_set_mac (net_info_t *net, co
+ 	
+ 	return 0;
+ }
++
++mac_t *
++mc_net_info_get_permanent_mac (const net_info_t *net)
++{
++	int i;
++	mac_t *newmac = (mac_t *) calloc (1, sizeof(mac_t));
++
++	struct ethtool_perm_addr *epa = (struct ethtool_perm_addr*) malloc(sizeof(struct ethtool_perm_addr) + IFHWADDRLEN);
++	epa->cmd = ETHTOOL_GPERMADDR;
++	epa->size = IFHWADDRLEN;
++
++	struct ifreq req;
++	memcpy(&req, &(net->dev), sizeof(struct ifreq));
++	req.ifr_data = (caddr_t)epa;
++
++	if (ioctl(net->sock, SIOCETHTOOL, &req) < 0) {
++		perror ("ERROR: Can't read permanent MAC");
++	}
++	else {
++		for (i=0; i<6; i++) {
++			newmac->byte[i] = epa->data[i];
++		}
++	}
++
++	free(epa);
++
++	return newmac;
++}
+--- macchanger.orig/src/netinfo.h
++++ macchanger/src/netinfo.h
+@@ -43,5 +43,6 @@ void        mc_net_info_free    (net_inf
+ mac_t      *mc_net_info_get_mac (const net_info_t *);
+ int         mc_net_info_set_mac (net_info_t *, const mac_t *);
+ 
++mac_t      *mc_net_info_get_permanent_mac (const net_info_t *);
+ 
+ #endif /* __MAC_CHANGER_NETINFO_H__ */
+--- macchanger.orig/doc/macchanger.texi
++++ macchanger/doc/macchanger.texi
+@@ -82,6 +82,7 @@ address of network interfaces.
+ @item Set a MAC of another vendor
+ @item Set another MAC of the same vendor
+ @item Set a MAC of the same kind (eg: wireless card)
++@item Reset MAC address to its original, permanent hardware value
+ @item Display a vendor MAC list (today, 6200 items) to choose from
+ @end itemize
+ 
+@@ -136,6 +137,12 @@ Change the MAC address setting a random
+ @cindex @code{--random}
+ Set fully random MAC address: Any kind and any vendor.
+ 
++@item -p
++@cindex @code{-p}
++@itemx --permanent
++@cindex @code{--permanent}
++Reset MAC address to its original, permanent hardware value.
++
+ @item -l
+ @cindex @code{-l}
+ @itemx --list[=@var{keyword}]
+--- macchanger.orig/macchanger.1
++++ macchanger/macchanger.1
+@@ -57,6 +57,9 @@ Set random vendor MAC of any kind.
+ .B \-r, \-\-random
+ Set fully random MAC.
+ .TP
++.B \-p, \-\-permanent
++Reset MAC address to its original, permanent hardware value.
++.TP
+ .B \-l, \-\-list[=keyword]
+ Print known vendors (with keyword in the vendor's description string)
+ .TP

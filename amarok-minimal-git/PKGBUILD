@@ -1,7 +1,7 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20121224
+pkgver=20130121
 pkgrel=1
 pkgdesc="A media player for KDE. Without lastfm, mp3tunes, mtp, ipod support. GIT version"
 arch=('i686' 'x86_64')
@@ -49,7 +49,10 @@ build() {
   
   # remove stupid stats syncing from tools menu
   patch -p0 < "${srcdir}/sync.patch"
-
+  
+  # Do not compile amz downloader
+  sed -i '/amzdownloader/d' utilities/CMakeLists.txt
+  
   
   if [[ -d amarok-build ]]
   then
@@ -67,7 +70,6 @@ build() {
 	   -DWITH_LibOFA=OFF \
 	   -DWITH_QJSON=OFF \
 	   -DWITH_Mygpo-qt=OFF \
-	   -DWITH_SPECTRUM_ANALYZER=OFF \
 	   -DWITH_NepomukCore=OFF \
 	   -DWITH_Soprano=OFF \
 	   -DWITH_PLAYGROUND=OFF \

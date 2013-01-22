@@ -1,20 +1,45 @@
+# Maintainer : Konrad Borowski <glitchmr@myopera.com>
 # Contributor: Justin Davis <jrcd83@gmail.com>
 # Generator  : CPANPLUS::Dist::Arch 1.19
 
 pkgname='perl-dist-zilla-plugin-git'
-pkgver='1.113560'
+pkgver='2.006'
 pkgrel='1'
 pkgdesc="update your git repository after release"
 arch=('any')
 license=('PerlArtistic' 'GPL')
 options=('!emptydirs')
-depends=('perl>=5.010' 'perl-datetime' 'perl-file-chdir' 'perl-git-wrapper' 'perl-moose' 'perl-moose-autobox' 'perl-moosex-has-sugar' 'perl-moosex-types' 'perl-namespace-autoclean>=0.09' 'perl-string-formatter' 'perl-version-next')
-makedepends=('perl-dist-zilla' 'perl-file-copy-recursive' 'perl-file-pushd' 'perl-file-which' 'perl-path-class' 'perl-test-exception')
+depends=('perl-moose'
+'perl-datetime'
+'perl-dist-zilla>=4'
+'perl-file-find-rule'
+'perl-file-homedir'
+'perl-file-chdir'
+'perl-git-wrapper>=0.021'
+'perl-ipc-system-simple'
+'perl-list-allutils'
+'perl-moose-autobox'
+'perl-moosex-attributeshortcuts'
+'perl-moosex-has-sugar'
+'perl-moosex-types'
+'perl-moosex-types-path-class'
+'perl-path-class>=0.22'
+'perl-string-formatter'
+'perl-try-tiny'
+'perl-version-next'
+'perl-namespace-autoclean')
+makedepends=('perl-dist-zilla'
+'perl-file-copy-recursive'
+'perl-file-path>=2.07'
+'perl-file-which'
+'perl-file-pushd'
+'perl-log-dispatchouli'
+'perl-test-exception')
 url='http://search.cpan.org/dist/Dist-Zilla-Plugin-Git'
-source=('http://search.cpan.org/CPAN/authors/id/J/JQ/JQUELIN/Dist-Zilla-Plugin-Git-1.113560.tar.gz')
-md5sums=('face017015702d6ae8fa2f4f27130d74')
-sha512sums=('9de77fab3dd9aa32a4771095c74b159697017a75a9e2f769bbbcb0c5bbe55cb3b7abeced24e99ff8bd07baa3d1811947cdf1752d575ef96913eadfef11fccc9b')
-_distdir="${srcdir}/Dist-Zilla-Plugin-Git-1.113560"
+source=("http://search.cpan.org/CPAN/authors/id/C/CJ/CJM/Dist-Zilla-Plugin-Git-$pkgver.tar.gz")
+md5sums=('c9292927066d1d3b7b445fe7bf28c171')
+sha512sums=('2f6fb4ff890c903011cbcb2383b2203aae6b0c38ba83bfdfe9ab6633c03cd2bf7ca03e64f4352c0796e6c265c524c222f240edb431410651ef165f8944decaaf')
+_distdir="${srcdir}/Dist-Zilla-Plugin-Git-$pkgver"
 
 build() {
   ( export PERL_MM_USE_DEFAULT=1 PERL5LIB=""                 \

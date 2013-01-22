@@ -1,0 +1,251 @@
+Adds compose menu bindings for grouping and moving attachments.
+
+Three new bindings:
+
+group-alternatives    combine tagged items into a multipart/alternative group
+move-up               move the current attachment up in the list
+move-down             move the current attachment down in the list
+
+diff -r 2af13b00bb98 OPS
+--- a/OPS	Mon Jan 03 13:22:59 2011 -0600
++++ b/OPS	Mon Jan 03 13:23:10 2011 -0600
+@@ -32,7 +32,10 @@
+ OP_CREATE_MAILBOX "create a new mailbox (IMAP only)"
+ OP_EDIT_TYPE "edit attachment content type"
+ OP_COMPOSE_GET_ATTACHMENT "get a temporary copy of an attachment"
++OP_COMPOSE_GROUP_ALTS "group tagged attachments as multipart/alternative"
+ OP_COMPOSE_ISPELL "run ispell on the message"
++OP_COMPOSE_MOVE_UP "move an attachment up in the attachment list"
++OP_COMPOSE_MOVE_DOWN "move an attachment down in the attachment list"
+ OP_COMPOSE_NEW_MIME "compose new attachment using mailcap entry"
+ OP_COMPOSE_TOGGLE_RECODE "toggle recoding of this attachment"
+ OP_COMPOSE_POSTPONE_MESSAGE "save this message to send later"
+diff -r 2af13b00bb98 compose.c
+--- a/compose.c	Mon Jan 03 13:22:59 2011 -0600
++++ b/compose.c	Mon Jan 03 13:23:10 2011 -0600
+@@ -211,6 +211,8 @@
+ 
+   for (i = 0; i < idxlen; i++)
+   {
++    if (idx[i]->content->type == TYPEMULTIPART)
++      continue;
+     strfcpy(pretty, idx[i]->content->filename, sizeof(pretty));
+     if(stat(idx[i]->content->filename, &st) != 0)
+     {
+@@ -358,6 +360,43 @@
+ }
+ 
+ 
++/*
++ * compose_attach_swap: swap two adjacent entries in the attachment list.
++ */
++static void compose_attach_swap (BODY *msg, ATTACHPTR **idx, short first)
++{
++  int i;
++  void *saved;
++  BODY *part;
++
++  /* Reorder BODY pointers.
++   * Must traverse msg from top since BODY * has no previous ptr.
++   */
++  for (part = msg; part; part = part->next)
++  {
++    if (part->next == idx[first]->content)
++    {
++      idx[first]->content->next = idx[first+1]->content->next;
++      idx[first+1]->content->next = idx[first]->content;
++      part->next = idx[first+1]->content;
++      break;
++    }
++  }
++
++  /* Reorder index */
++  saved        = idx[first];
++  idx[first]   = idx[first+1];
++  idx[first+1] = saved;
++
++  /* Swap ptr->num */
++  i = idx[first]->num;
++  idx[first]->num = idx[first+1]->num;
++  idx[first+1]->num = i;
++
++  return;
++}
++
++
+ /* 
+  * cum_attachs_size: Cumulative Attachments Size
+  *
+@@ -655,6 +694,132 @@
+         break;
+ 
+ 
++      case OP_COMPOSE_MOVE_UP:
++	if (menu->current == 0)
++	{
++	  mutt_error(_("Attachment is already at top."));
++	  break;
++	}
++	if (menu->current == 1)
++	{
++	  mutt_error(_("The fundamental part cannot be moved."));
++	  break;
++	}
++	compose_attach_swap(msg->content, idx, menu->current - 1);
++	menu->redraw = 1;
++	menu->current--;
++	break;
++
++
++      case OP_COMPOSE_MOVE_DOWN:
++	if (menu->current == idxlen-1)
++	{
++	  mutt_error(_("Attachment is already at bottom."));
++	  break;
++	}
++	if (menu->current == 0)
++	{
++	  mutt_error(_("The fundamental part cannot be moved."));
++	  break;
++	}
++	compose_attach_swap(msg->content, idx, menu->current);
++	menu->redraw = 1;
++	menu->current++;
++	break;
++
++      case OP_COMPOSE_GROUP_ALTS:
++	{
++	  BODY *group, *bptr, *alts;
++	  ATTACHPTR *gptr;
++	  int i, j;
++	  char *p;
++
++	  if (menu->tagged < 2)
++	  {
++	    mutt_error(_("Grouping alternatives requires at least 2 tagged messages."));
++	    break;
++	  }
++
++/* need to redo using mutt_gen_attach_list() */
++
++	  group = safe_calloc(1, sizeof(BODY));
++	  group->type = TYPEMULTIPART;
++	  group->subtype = "alternative";
++
++	  alts = NULL;
++	  for (i = 0, bptr = msg->content; bptr && bptr->next;)
++	  {
++	    /* always look at bptr->next, not bptr itself */
++	    if (bptr->next->tagged)
++	    {
++	      /* untag */
++	      bptr->next->tagged = 0;
++
++	      /* for first match, set group desc according to match */
++#             define ALTS_TAG "Alternatives for \"%s\""
++	      if (!group->description)
++	      {
++		p = bptr->next->description;
++		if (!p)
++		  p = bptr->next->filename;
++		if (p)
++		{
++		  group->description = safe_calloc(1,
++					strlen(p) + strlen(ALTS_TAG) + 1);
++		  sprintf(group->description, ALTS_TAG, p);
++		}
++	      }
++
++	      /* append bptr->next to the alts list,
++	       * and remove from the msg->content list */
++	      if (alts == NULL)
++	      {
++		group->parts = alts = bptr->next;
++		bptr->next = bptr->next->next;
++		alts->next = NULL;
++	      }
++	      else
++	      {
++		alts->next = bptr->next;
++		bptr->next = bptr->next->next;
++		alts = alts->next;
++		alts->next = NULL;
++	      }
++
++	      /* now delink the idx entry */
++	      for (j = i+1; j < idxlen-1; ++j)
++	      {
++		idx[j] = idx[j+1];
++	      }
++	      --idxlen;
++	    }
++	    else
++	    {
++	      bptr = bptr->next;
++	      ++i;
++	    }
++	  }
++
++	  /* add group to attachment list */
++	  for (bptr = msg->content; bptr->next; bptr = bptr->next);
++	  bptr->next = group;
++	  group->next = NULL;
++
++	  gptr = safe_calloc(1, sizeof(ATTACHPTR));
++	  gptr->content = group;
++	  idx[idxlen] = gptr;
++	  update_idx(menu, idx, idxlen++);
++
++	  /* add a boundary */
++	  mutt_generate_boundary(&group->parameter);
++
++	  /* if no group desc yet, make one up */
++	  if (!group->description)
++	    group->description = strdup("unknown alternative group");
++	}
++	menu->redraw = 1;
++	break;
++
+       case OP_COMPOSE_ATTACH_FILE:
+ 	{
+ 	  char *prompt, **files;
+diff -r 2af13b00bb98 doc/manual.xml.head
+--- a/doc/manual.xml.head	Mon Jan 03 13:22:59 2011 -0600
++++ b/doc/manual.xml.head	Mon Jan 03 13:23:10 2011 -0600
+@@ -6238,6 +6238,23 @@
+ functions.
+ </para>
+ 
++<para>
++Mutt includes some primitive ability to compose multipart/alternative
++parts. In the Compose menu, attach the two (or more) alternatives as
++usual. For example, attach "invitation.html" and then "invitation.txt".
++(You can reorder them using the &lt;move-up&gt; (-) and &lt;move-down&gt; (+)
++bindings.) Edit the descriptions, if you wish. Then tag the attachments
++that are alternatives, and press the &lt;group-alternatives&gt; (&amp;) binding
++to group them together. The separate parts will be replaced by a single
++new part with the multipart/alternative type. From this point on, the
++alternatives must be manipulated or deleted as a group.
++</para>
++
++<para>
++Beware that such messages cannot be postponed. Once two attachments are
++grouped as alternatives, they must be sent or lost.
++</para>
++
+ </sect2>
+ 
+ <sect2 id="compose-menu">
+diff -r 2af13b00bb98 functions.h
+--- a/functions.h	Mon Jan 03 13:22:59 2011 -0600
++++ b/functions.h	Mon Jan 03 13:23:10 2011 -0600
+@@ -320,6 +320,9 @@
+   { "edit-fcc",		OP_COMPOSE_EDIT_FCC,		"f" },
+   { "filter-entry",	OP_FILTER,			"F" },
+   { "get-attachment",	OP_COMPOSE_GET_ATTACHMENT,	"G" },
++  { "group-alternatives",	OP_COMPOSE_GROUP_ALTS,	"&" },
++  { "move-up",		OP_COMPOSE_MOVE_UP,		"-" },
++  { "move-down",	OP_COMPOSE_MOVE_DOWN,		"+" },
+   { "display-toggle-weed",	OP_DISPLAY_HEADERS,		"h" },
+   { "ispell",		OP_COMPOSE_ISPELL,		"i" },
+   { "print-entry",	OP_PRINT,			"l" },

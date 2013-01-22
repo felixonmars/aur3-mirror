@@ -4,11 +4,11 @@
 build_selinux=false
 
 # Fedora release
-_fedora_rel=0.1.a1.fc18
+_fedora_rel=1.fc18
 
 pkgname=389-ds-base-updated
-pkgver=1.3.0
-pkgrel=1.a1
+pkgver=1.3.0.2
+pkgrel=1
 pkgdesc="389 Directory Server (base)"
 arch=('i686' 'x86_64')
 url="http://port389.org/"
@@ -22,12 +22,12 @@ provides=("389-ds-base=${pkgver}")
 conflicts=('389-ds-base')
 options=('!libtool')
 source=("http://kojipkgs.fedoraproject.org//packages/389-ds-base/${pkgver}/${_fedora_rel}/src/389-ds-base-${pkgver}-${_fedora_rel}.src.rpm")
-sha512sums=('98668cf39fee93ab656f399b682e3244a0e746e52eb5e80298bf46ce2b62d35060e11a78b1baff3d5f03c008fbafbae22bf7c45a37863fd093d94d0a71302622')
+sha512sums=('2a1e0edbda95cbf111f47982976a75941572834932a6cd0564e818f563fc0266264b21f70877dc71b51a7340c15cd23538a539b3871f5a1fcb84d3bc73a7c86b')
 
 build() {
   cd "${srcdir}"
-  tar jxvf 389-ds-base-${pkgver}.a1.tar.bz2
-  cd "389-ds-base-${pkgver}.a1"
+  tar jxvf 389-ds-base-${pkgver}.tar.bz2
+  cd "389-ds-base-${pkgver}"
 
   local SELINUX=""
   if [ "x${build_selinux}" == "xtrue" ]; then
@@ -53,7 +53,7 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/389-ds-base-${pkgver}.a1"
+  cd "${srcdir}/389-ds-base-${pkgver}"
   make -j1 DESTDIR="${pkgdir}/" install
 
   install -dm755 "${pkgdir}/var/log/dirsrv/"

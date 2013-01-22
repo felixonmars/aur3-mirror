@@ -4,9 +4,9 @@
 
 pkgname=amarok-devel
 _appname=amarok
-pkgver=2.7beta
-_pkgver=2.6.90
-pkgrel=2
+pkgver=2.7.0
+_pkgver=2.7.0
+pkgrel=1
 pkgdesc="A media player for KDE - Unstable version"
 arch=("i686" "x86_64")
 url="http://amarok.kde.org"
@@ -22,8 +22,9 @@ optdepends=("libgpod: support for Apple iPod audio devices"
 conflicts=('amarok')
 provides=('amarok')
 install="$pkgname.install"
-source=("ftp://ftp.kde.org/pub/kde/unstable/$_appname/$_pkgver/src/$_appname-$_pkgver.tar.bz2")
-md5sums=('880612996794fed3ae5a72fba4aac61f')
+#source=("ftp://ftp.kde.org/pub/kde/unstable/$_appname/$_pkgver/src/$_appname-$_pkgver.tar.bz2")
+source=("ftp://ftp.kde.org/pub/kde/stable/$_appname/$_pkgver/src/$_appname-$_pkgver.tar.bz2")
+md5sums=('4ccb750a9e86ce17d4172f770ac7a663')
 
 build() {
   mkdir build

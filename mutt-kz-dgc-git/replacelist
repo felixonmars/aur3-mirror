@@ -1,0 +1,342 @@
+Abstract the SPAM_LIST as a generic REPLACE_LIST
+
+REPLACE_LIST can be used more generally as a list of pattern
+match-replace settings.  SPAM_LIST was a special case of this, so
+spam handling has been been changed to use REPLACE_LIST instead, and
+SPAM_LIST was removed.
+
+A generic function for performing a REPLACE_LIST replacement has
+been added in mutt_apply_replace().
+
+diff -r 2251472500ca globals.h
+--- a/globals.h	Mon Jan 03 12:06:46 2011 -0600
++++ b/globals.h	Mon Jan 03 12:06:46 2011 -0600
+@@ -183,7 +183,7 @@
+ WHERE RX_LIST *UnMailLists INITVAL(0);
+ WHERE RX_LIST *SubscribedLists INITVAL(0);
+ WHERE RX_LIST *UnSubscribedLists INITVAL(0);
+-WHERE SPAM_LIST *SpamList INITVAL(0);
++WHERE REPLACE_LIST *SpamList INITVAL(0);
+ WHERE RX_LIST *NoSpamList INITVAL(0);
+ 
+ 
+diff -r 2251472500ca hcache.c
+--- a/hcache.c	Mon Jan 03 12:06:46 2011 -0600
++++ b/hcache.c	Mon Jan 03 12:06:46 2011 -0600
+@@ -1125,7 +1125,7 @@
+   if (hcachever == 0x0) {
+     unsigned char digest[16];
+     struct md5_ctx ctx;
+-    SPAM_LIST *spam;
++    REPLACE_LIST *spam;
+     RX_LIST *nospam;
+ 
+     hcachever = HCACHEVER;
+diff -r 2251472500ca init.c
+--- a/init.c	Mon Jan 03 12:06:46 2011 -0600
++++ b/init.c	Mon Jan 03 12:06:46 2011 -0600
+@@ -603,11 +603,11 @@
+   return 0;
+ }
+ 
+-static int remove_from_spam_list (SPAM_LIST **list, const char *pat);
+-
+-static int add_to_spam_list (SPAM_LIST **list, const char *pat, const char *templ, BUFFER *err)
++static int remove_from_replace_list (REPLACE_LIST **list, const char *pat);
++
++static int add_to_replace_list (REPLACE_LIST **list, const char *pat, const char *templ, BUFFER *err)
+ {
+-  SPAM_LIST *t = NULL, *last = NULL;
++  REPLACE_LIST *t = NULL, *last = NULL;
+   REGEXP *rx;
+   int n;
+   const char *p;
+@@ -640,12 +640,12 @@
+       break;
+   }
+ 
+-  /* If t is set, it's pointing into an extant SPAM_LIST* that we want to
++  /* If t is set, it's pointing into an extant REPLACE_LIST* that we want to
+    * update. Otherwise we want to make a new one to link at the list's end.
+    */
+   if (!t)
+   {
+-    t = mutt_new_spam_list();
++    t = mutt_new_replace_list();
+     t->rx = rx;
+     if (last)
+       last->next = t;
+@@ -653,7 +653,7 @@
+       *list = t;
+   }
+ 
+-  /* Now t is the SPAM_LIST* that we want to modify. It is prepared. */
++  /* Now t is the REPLACE_LIST* that we want to modify. It is prepared. */
+   t->template = safe_strdup(templ);
+ 
+   /* Find highest match number in template string */
+@@ -674,9 +674,9 @@
+ 
+   if (t->nmatch > t->rx->rx->re_nsub)
+   {
+-    snprintf (err->data, err->dsize, _("Not enough subexpressions for spam "
++    snprintf (err->data, err->dsize, _("Not enough subexpressions for "
+                                        "template"));
+-    remove_from_spam_list(list, pat);
++    remove_from_replace_list(list, pat);
+     return -1;
+   }
+ 
+@@ -685,38 +685,38 @@
+   return 0;
+ }
+ 
+-static int remove_from_spam_list (SPAM_LIST **list, const char *pat)
++static int remove_from_replace_list (REPLACE_LIST **list, const char *pat)
+ {
+-  SPAM_LIST *spam, *prev;
++  REPLACE_LIST *cur, *prev;
+   int nremoved = 0;
+ 
+   /* Being first is a special case. */
+-  spam = *list;
+-  if (!spam)
++  cur = *list;
++  if (!cur)
+     return 0;
+-  if (spam->rx && !mutt_strcmp(spam->rx->pattern, pat))
++  if (cur->rx && !mutt_strcmp(cur->rx->pattern, pat))
+   {
+-    *list = spam->next;
+-    mutt_free_regexp(&spam->rx);
+-    FREE(&spam->template);
+-    FREE(&spam);
++    *list = cur->next;
++    mutt_free_regexp(&cur->rx);
++    FREE(&cur->template);
++    FREE(&cur);
+     return 1;
+   }
+ 
+-  prev = spam;
+-  for (spam = prev->next; spam;)
++  prev = cur;
++  for (cur = prev->next; cur;)
+   {
+-    if (!mutt_strcmp(spam->rx->pattern, pat))
++    if (!mutt_strcmp(cur->rx->pattern, pat))
+     {
+-      prev->next = spam->next;
+-      mutt_free_regexp(&spam->rx);
+-      FREE(&spam->template);
+-      FREE(&spam);
+-      spam = prev->next;
++      prev->next = cur->next;
++      mutt_free_regexp(&cur->rx);
++      FREE(&cur->template);
++      FREE(&cur);
++      cur = prev->next;
+       ++nremoved;
+     }
+     else
+-      spam = spam->next;
++      cur = cur->next;
+   }
+ 
+   return nremoved;
+@@ -882,7 +882,7 @@
+       mutt_extract_token (&templ, s, 0);
+ 
+       /* Add to the spam list. */
+-      if (add_to_spam_list (&SpamList, buf->data, templ.data, err) != 0) {
++      if (add_to_replace_list (&SpamList, buf->data, templ.data, err) != 0) {
+ 	  FREE(&templ.data);
+           return -1;
+       }
+@@ -906,13 +906,13 @@
+     /* "*" is a special case. */
+     if (!mutt_strcmp(buf->data, "*"))
+     {
+-      mutt_free_spam_list (&SpamList);
++      mutt_free_replace_list (&SpamList);
+       mutt_free_rx_list (&NoSpamList);
+       return 0;
+     }
+ 
+     /* If it's on the spam list, just remove it. */
+-    if (remove_from_spam_list(&SpamList, buf->data) != 0)
++    if (remove_from_replace_list(&SpamList, buf->data) != 0)
+       return 0;
+ 
+     /* Otherwise, add it to the nospam list. */
+diff -r 2251472500ca mutt.h
+--- a/mutt.h	Mon Jan 03 12:06:46 2011 -0600
++++ b/mutt.h	Mon Jan 03 12:06:46 2011 -0600
+@@ -551,20 +551,20 @@
+   struct rx_list_t *next;
+ } RX_LIST;
+ 
+-typedef struct spam_list_t
++typedef struct replace_list_t
+ {
+   REGEXP *rx;
+   int     nmatch;
+   char   *template;
+-  struct spam_list_t *next;
+-} SPAM_LIST;
++  struct replace_list_t *next;
++} REPLACE_LIST;
+ 
+ #define mutt_new_list() safe_calloc (1, sizeof (LIST))
+ #define mutt_new_rx_list() safe_calloc (1, sizeof (RX_LIST))
+-#define mutt_new_spam_list() safe_calloc (1, sizeof (SPAM_LIST))
++#define mutt_new_replace_list() safe_calloc (1, sizeof (REPLACE_LIST))
+ void mutt_free_list (LIST **);
+ void mutt_free_rx_list (RX_LIST **);
+-void mutt_free_spam_list (SPAM_LIST **);
++void mutt_free_replace_list (REPLACE_LIST **);
+ LIST *mutt_copy_list (LIST *);
+ int mutt_matches_ignore (const char *, LIST *);
+ 
+diff -r 2251472500ca muttlib.c
+--- a/muttlib.c	Mon Jan 03 12:06:46 2011 -0600
++++ b/muttlib.c	Mon Jan 03 12:06:46 2011 -0600
+@@ -1904,9 +1904,9 @@
+   }
+ }
+ 
+-void mutt_free_spam_list (SPAM_LIST **list)
++void mutt_free_replace_list (REPLACE_LIST **list)
+ {
+-  SPAM_LIST *p;
++  REPLACE_LIST *p;
+   
+   if (!list) return;
+   while (*list)
+@@ -1942,7 +1942,7 @@
+  *
+  * Returns 1 if the argument `s` matches a pattern in the spam list, otherwise
+  * 0. */
+-int mutt_match_spam_list (const char *s, SPAM_LIST *l, char *text, int textsize)
++int mutt_match_spam_list (const char *s, REPLACE_LIST *l, char *text, int textsize)
+ {
+   static regmatch_t *pmatch = NULL;
+   static int nmatch = 0;
+@@ -2018,3 +2018,97 @@
+   strfcpy (dest, (rc == 0) ? NONULL(p) : NONULL(src), dlen);
+   FREE (&p);
+ }
++
++char *mutt_apply_replace (char *dbuf, size_t dlen, char *sbuf, REPLACE_LIST *rlist)
++{
++  REPLACE_LIST *l;
++  static regmatch_t *pmatch = NULL;
++  static int nmatch = 0;
++  static char twinbuf[2][LONG_STRING];
++  int switcher = 0;
++  char *p;
++  int i, n;
++  int tlen = 0;
++  char *src, *dst;
++
++  if (dbuf && dlen)
++    dbuf[0] = '\0';
++
++  if (sbuf == NULL || *sbuf == '\0')
++    return dbuf;
++
++  twinbuf[0][0] = '\0';
++  twinbuf[1][0] = '\0';
++  src = twinbuf[switcher];
++  dst = src;
++
++  strncpy(src, sbuf, LONG_STRING-1);
++  src[LONG_STRING-1] = '\0';
++
++  for (l = rlist; l; l = l->next)
++  {
++    /* If this pattern needs more matches, expand pmatch. */
++    if (l->nmatch > nmatch)
++    {
++      safe_realloc (&pmatch, l->nmatch * sizeof(regmatch_t));
++      nmatch = l->nmatch;
++    }
++
++    if (regexec (l->rx->rx, src, l->nmatch, pmatch, 0) == 0)
++    {
++      tlen = 0;
++      switcher ^= 1;
++      dst = twinbuf[switcher];
++
++      dprint (5, (debugfile, "mutt_apply_replace: %s matches %s\n", src, l->rx->pattern));
++
++      /* Copy into other twinbuf with substitutions */
++      if (l->template)
++      {
++        for (p = l->template; *p; )
++        {
++	  if (*p == '%')
++	  {
++	    p++;
++	    if (*p == 'L')
++	    {
++	      p++;
++	      strncpy(&dst[tlen], src, pmatch[0].rm_so);
++	      tlen += pmatch[0].rm_so;
++	    }
++	    else if (*p == 'R')
++	    {
++	      p++;
++	      strncpy(&dst[tlen], &src[pmatch[0].rm_eo], LONG_STRING-tlen-1);
++	      tlen += strlen(src) - pmatch[0].rm_eo;
++	    }
++	    else
++	    {
++	      n = strtoul(p, &p, 10);               /* get subst number */
++	      while (isdigit((unsigned char)*p))    /* skip subst token */
++                ++p;
++	      for (i = pmatch[n].rm_so; (i < pmatch[n].rm_eo) && (tlen < LONG_STRING-1); i++)
++	        dst[tlen++] = src[i];
++	    }
++	  }
++	  else
++	    dst[tlen++] = *p++;
++        }
++      }
++      dst[tlen] = '\0';
++      dprint (5, (debugfile, "mutt_apply_replace: subst %s\n", dst));
++    }
++    src = dst;
++  }
++
++  if (dbuf)
++  {
++    strncpy(dbuf, dst, dlen-1);
++    dbuf[dlen-1] = '\0';
++  }
++  else
++  {
++    dbuf = strdup(dst);
++  }
++  return dbuf;
++}
+diff -r 2251472500ca protos.h
+--- a/protos.h	Mon Jan 03 12:06:46 2011 -0600
++++ b/protos.h	Mon Jan 03 12:06:46 2011 -0600
+@@ -274,6 +274,7 @@
+ void mutt_alias_delete_reverse (ALIAS *t);
+ int mutt_alloc_color (int fg, int bg);
+ int mutt_any_key_to_continue (const char *);
++char *mutt_apply_replace (char *, size_t, char *, REPLACE_LIST *);
+ int mutt_buffy_check (int);
+ int mutt_buffy_notify (void);
+ int mutt_builtin_editor (const char *, HEADER *, HEADER *);
+@@ -328,7 +329,7 @@
+ int mutt_link_threads (HEADER *, HEADER *, CONTEXT *);
+ int mutt_lookup_mime_type (BODY *, const char *);
+ int mutt_match_rx_list (const char *, RX_LIST *);
+-int mutt_match_spam_list (const char *, SPAM_LIST *, char *, int);
++int mutt_match_spam_list (const char *, REPLACE_LIST *, char *, int);
+ int mutt_messages_in_thread (CONTEXT *, HEADER *, int);
+ int mutt_multi_choice (char *prompt, char *letters);
+ int mutt_needs_mailcap (BODY *);

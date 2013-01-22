@@ -1,6 +1,6 @@
 # Maintainer: Konrad Borowski <glitchmr@myopera.com>
 pkgname=perl-www-expand
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='Expand any URL shortener link'
 arch=('any')
@@ -17,11 +17,11 @@ backup=()
 options=('!emptydirs')
 install=
 source=("http://search.cpan.org/CPAN/authors/id/G/GL/GLITCHMR/WWW-Expand-$pkgver.tar.gz")
-md5sums=('b89b0694dfc512a7280be2bb7285a68d')
+md5sums=('80ff63e2fbd10102488d358c241b7d49')
 
 build() {
   cd "$srcdir/WWW-Expand-$pkgver"
-  
+
   # Setting these env variables overwrites any command-line-options we don't want...
   export PERL_MM_USE_DEFAULT=1 PERL_AUTOINSTALL=--skipdeps \
     PERL_MM_OPT="INSTALLDIRS=vendor DESTDIR='$pkgdir'" \
