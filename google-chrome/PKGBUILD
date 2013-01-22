@@ -4,26 +4,26 @@
 # Contributor: ruario
 
 pkgname=google-chrome
-pkgver=24.0.1312.52   # Check for new Linux releases in: http://googlechromereleases.blogspot.com/search/label/Stable%20updates
+pkgver=24.0.1312.56   # Check for new Linux releases in: http://googlechromereleases.blogspot.com/search/label/Stable%20updates
 pkgrel=1
 pkgdesc="An attempt at creating a safer, faster, and more stable browser (Stable Channel)"
 arch=('i686' 'x86_64')
 url="http://www.google.com/chrome"
 license=('custom:chrome')
 depends=('alsa-lib' 'gconf' 'gtk2' 'hicolor-icon-theme' 'libpng' 'libxslt' 'libxss' 'nss' 'ttf-dejavu' 'xdg-utils')
-optdepends=('kdebase-kdialog: needed for file dialogs in KDE' 'openssl098: needed for built-in flash-plugin to work')
+optdepends=('kdebase-kdialog: needed for file dialogs in KDE')
 provides=("google-chrome=$pkgver")
 conflicts=('google-chrome')
 install=${pkgname}.install
 _channel='stable'
-_verbld=24.0.1312.52-175374
+_verbld=24.0.1312.56-177594
 
 if [ "$CARCH" = "i686" ]; then
     _arch='i386'
-    md5sums=('4b25baee407c4a7fa418b194a8f4ec31')
+    md5sums=('ea7677b5e9d39b54aaca15d2caa0240c')
 elif [ "$CARCH" = "x86_64" ]; then
     _arch='x86_64'
-    md5sums=('1c339b6c0e72eaca489a5eeb6eee2c10')
+    md5sums=('ff205753336c1ce1ac8f75c9650f8cf8')
 fi
 
 
