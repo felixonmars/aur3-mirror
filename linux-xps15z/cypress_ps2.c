@@ -411,7 +411,7 @@ static int cypress_set_input_params(struct input_dev *input,
 		input_set_abs_params(input, ABS_MT_POSITION_Y, 0, cytp->tp_max_abs_y, 0, 0);
 		input_set_abs_params(input, ABS_MT_PRESSURE, 0, 255, 0, 0);
 
-		ret = input_mt_init_slots(input, CYTP_MAX_MT_SLOTS);
+		ret = input_mt_init_slots(input, CYTP_MAX_MT_SLOTS, 0);
 		if (ret < 0) {
 			return ret;
 		}
