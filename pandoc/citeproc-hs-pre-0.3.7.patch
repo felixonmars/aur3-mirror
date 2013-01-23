@@ -1,0 +1,292 @@
+Fri Nov  9 09:31:27 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * fix issue #28
+  add support for generating links to the DOI database.
+Thu Nov  8 21:05:02 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * fix issue #35
+Thu Nov  8 18:24:16 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * a simple script for creating tests
+Thu Nov  8 18:21:56 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * fix a bug in convertQuoted which was producing stack overflows with long strings
+Thu Nov  8 17:27:38 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * fix editJsonInput in order to read the native JSON bibliographic data format
+Thu Nov  8 14:03:26 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * fix issue #37
+Fri Oct 26 18:45:09 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  * bump version number
+Fri Oct 26 13:53:20 ART 2012  Andrea Rossato <andrea.rossato@unitn.it>
+  tagged 0.3.6
+diff -rN -u old-citeproc-hs/README new-citeproc-hs/README
+--- old-citeproc-hs/README	2013-01-22 22:19:52.097159333 -0300
++++ new-citeproc-hs/README	2013-01-22 22:19:52.107159567 -0300
+@@ -169,6 +169,21 @@
+ 
+     Summer, 2001 (the season)
+ 
++### The DOI variable
++
++If the DOI variable is prefixed by a `doi:` like:
++
++        doi = {doi:10.1038/171737a0}
++
++the processor will generate a link and produce this pandoc native
++representation:
++
++       Link [Str "10.1038/171737a0"] ("http://dx.doi.org/10.1038/171737a0", "10.1038/171737a0")
++
++that produces a link like:
++
++       <a href="http://dx.doi.org/10.1038/171737a0">10.1038/171737a0</a>
++
+ ### Running the test-suite
+ 
+ To run the test suite, you first need to grab it with [mercurial] by
+diff -rN -u old-citeproc-hs/citeproc-hs.cabal new-citeproc-hs/citeproc-hs.cabal
+--- old-citeproc-hs/citeproc-hs.cabal	2013-01-22 22:19:52.103826157 -0300
++++ new-citeproc-hs/citeproc-hs.cabal	2013-01-22 22:19:52.107159567 -0300
+@@ -1,5 +1,5 @@
+ name:               citeproc-hs
+-version:            0.3.6
++version:            0.3.7
+ homepage:           http://gorgias.mine.nu/repos/citeproc-hs/
+ synopsis:           A Citation Style Language implementation in Haskell
+ 
+diff -rN -u old-citeproc-hs/src/Text/CSL/Eval/Output.hs new-citeproc-hs/src/Text/CSL/Eval/Output.hs
+--- old-citeproc-hs/src/Text/CSL/Eval/Output.hs	2013-01-22 22:19:52.097159333 -0300
++++ new-citeproc-hs/src/Text/CSL/Eval/Output.hs	2013-01-22 22:19:52.123826603 -0300
+@@ -29,7 +29,11 @@
+ appendOutput fm xs = if xs /= [] then [Output xs fm] else []
+ 
+ outputList :: Formatting -> Delimiter -> [Output] -> [Output]
+-outputList fm d = appendOutput fm . addDelim d
++outputList fm d = appendOutput fm . addDelim d . map cleanOutput'
++    where
++      cleanOutput' o
++          | Output xs f <- o = Output (cleanOutput xs) f
++          | otherwise        = rmEmptyOutput o
+ 
+ cleanOutput :: [Output] -> [Output]
+ cleanOutput = flatten
+@@ -37,12 +41,16 @@
+       flatten [] = []
+       flatten (o:os)
+           | ONull       <- o     = flatten os
+-          | Output [] _ <- o     = flatten os
+-          | OStr []   _ <- o     = flatten os
+-          | OUrl []   _ <- o     = flatten os
+           | Output xs f <- o
+           , f == emptyFormatting = flatten xs ++ flatten os
+-          | otherwise            = o : flatten os
++          | otherwise            = rmEmptyOutput o : flatten os
++
++rmEmptyOutput :: Output -> Output
++rmEmptyOutput o
++    | Output [] _ <- o = ONull
++    | OStr []   _ <- o = ONull
++    | OUrl t    _ <- o = if null (fst t) then ONull else o
++    | otherwise        = o
+ 
+ addDelim :: String -> [Output] -> [Output]
+ addDelim d = foldr (\x xs -> if length xs < 1 then x : xs else check x xs) []
+diff -rN -u old-citeproc-hs/src/Text/CSL/Eval.hs new-citeproc-hs/src/Text/CSL/Eval.hs
+--- old-citeproc-hs/src/Text/CSL/Eval.hs	2013-01-22 22:19:52.093825923 -0300
++++ new-citeproc-hs/src/Text/CSL/Eval.hs	2013-01-22 22:19:52.120493193 -0300
+@@ -25,6 +25,7 @@
+ import Control.Applicative ( (<$>) )
+ import Control.Monad.State
+ import Data.Char
++import Data.List
+ import qualified Data.Map as M
+ import Data.Maybe
+ 
+@@ -153,7 +154,12 @@
+                              "title"       -> formatTitle f fm
+                              "locator"     -> getLocVar >>= formatRange fm . snd
+                              "url"         -> getStringVar "url" >>= \k ->
+-                                              if null k then return [] else return [OUrl k fm]
++                                              if null k then return [] else return [OUrl (k,k) fm]
++                             "doi"         -> getStringVar "doi" >>= \d ->
++                                              if "doi:" `isPrefixOf` d
++                                                 then let d' = drop 4 d in
++                                                      return [OUrl ("http://dx.doi.org/" ++ d', d') fm]
++                                                 else return [OStr d  fm]
+                              _             -> gets (env >>> options &&& abbrevs) >>= \(opts,as) ->
+                                               getVar [] (getFormattedValue opts as f fm s) s >>= \r ->
+                                               consumeVariable s >> return r
+diff -rN -u old-citeproc-hs/src/Text/CSL/Input/Json.hs new-citeproc-hs/src/Text/CSL/Input/Json.hs
+--- old-citeproc-hs/src/Text/CSL/Input/Json.hs	2013-01-22 22:19:52.100492747 -0300
++++ new-citeproc-hs/src/Text/CSL/Input/Json.hs	2013-01-22 22:19:52.123826603 -0300
+@@ -106,6 +106,7 @@
+     , JSObject js <- j = (camel s      , JSArray (editDate $ fromJSObject js))
+     | "family"    <- s = ("familyName" , j)
+     | "suffix"    <- s = ("nameSuffix" , j)
++    | "URL"       <- s = ("url"        , j)
+     | "edition"   <- s = ("edition"    , toString j)
+     | "volume"    <- s = ("volume"     , toString j)
+     | "issue"     <- s = ("issue"      , toString j)
+@@ -122,7 +123,7 @@
+       camel x
+           | '-':y:ys <- x = toUpper y : camel ys
+           | '_':y:ys <- x = toUpper y : camel ys
+-          |     y:ys <- x = toLower y : camel ys
++          |     y:ys <- x =         y : camel ys
+           | otherwise     = []
+ 
+       format (x:xs) = toUpper x : xs
+diff -rN -u old-citeproc-hs/src/Text/CSL/Output/Pandoc.hs new-citeproc-hs/src/Text/CSL/Output/Pandoc.hs
+--- old-citeproc-hs/src/Text/CSL/Output/Pandoc.hs	2013-01-22 22:19:52.100492747 -0300
++++ new-citeproc-hs/src/Text/CSL/Output/Pandoc.hs	2013-01-22 22:19:52.123826603 -0300
+@@ -60,7 +60,7 @@
+     | FS str fm    <- fo = toPandoc fm $ toStr str
+     | FN str fm    <- fo = toPandoc fm $ toStr $ rmZeros str
+     | FO     fm xs <- fo = toPandoc fm $ rest xs
+-    | FUrl u fm    <- fo = toPandoc fm [Link (toStr u) (u,u)]
++    | FUrl u fm    <- fo = toPandoc fm [Link (toStr $ snd u) u]
+     | otherwise = []
+     where
+       addSuffix f i
+@@ -176,8 +176,10 @@
+     | Quoted t inls <- i
+     , b         = case headInline is of
+                     [x] -> if isPunctuation x
+-                           then Quoted t (reverseQuoted t inls ++ [Str [x]]) : clean' s b (tailInline is)
+-                           else Quoted t (reverseQuoted t inls             ) : clean' s b  is
++                           then if lastInline inls `elem` [".",",",";",":","!","?"]
++                                then Quoted t (reverseQuoted t inls             ) : clean' s b (tailInline is)
++                                else Quoted t (reverseQuoted t inls ++ [Str [x]]) : clean' s b (tailInline is)
++                           else Quoted t (reverseQuoted t inls) : clean' s b  is
+                     _   -> Quoted t (reverseQuoted  t inls) : clean' s b is
+     | Quoted t inls <- i = Quoted t (reverseQuoted  t inls) : clean' s b is
+     | otherwise = if lastInline [i] == headInline is && isPunct
+@@ -232,7 +234,7 @@
+ startWithPunct = and . map (`elem` ".,;:!?") . headInline
+ 
+ convertQuoted :: Style -> [Inline] -> [Inline]
+-convertQuoted s = proc convertQuoted'
++convertQuoted s = convertQuoted'
+     where
+       locale = let l = styleLocale s in case l of [x] -> x; _   -> Locale [] [] [] [] []
+       getQuote  x y = entityToChar . fst . fromMaybe (x,[]) . lookup (y,Long) . localeTermMap $ locale
+diff -rN -u old-citeproc-hs/src/Text/CSL/Parser.hs new-citeproc-hs/src/Text/CSL/Parser.hs
+--- old-citeproc-hs/src/Text/CSL/Parser.hs	2013-01-22 22:19:52.103826157 -0300
++++ new-citeproc-hs/src/Text/CSL/Parser.hs	2013-01-22 22:19:52.120493193 -0300
+@@ -23,7 +23,6 @@
+ #ifdef EMBED_DATA_FILES
+ import Data.FileEmbed
+ import qualified Data.ByteString as S
+-import Data.ByteString.UTF8 ( toString )
+ #else
+ import Paths_citeproc_hs ( getDataFileName )
+ import System.Directory  ( doesFileExist   )
+@@ -69,7 +68,7 @@
+   return s { styleLocale = mergeLocales (styleDefaultLocale s) l (styleLocale s)}
+ 
+ #ifdef EMBED_DATA_FILES
+-localeFiles :: [(FilePath, L.ByteString)]
++localeFiles :: [(FilePath, S.ByteString)]
+ localeFiles = $(embedDir "locales/")
+ #endif
+ 
+@@ -86,7 +85,7 @@
+             | otherwise     -> case lookup ("locales-" ++ take 5 x ++ ".xml") localeFiles of
+                                  Just x' -> return x'
+                                  _       -> error "could not load the locale file"
+-  return $ readXmlString xpLocale f
++  return $ readXmlString xpLocale $ L.fromChunks [f]
+ #else
+   f <- case s of
+          x | length x == 2 -> getDataFileName ("locales/locales-" ++
+diff -rN -u old-citeproc-hs/src/Text/CSL/Style.hs new-citeproc-hs/src/Text/CSL/Style.hs
+--- old-citeproc-hs/src/Text/CSL/Style.hs	2013-01-22 22:19:52.093825923 -0300
++++ new-citeproc-hs/src/Text/CSL/Style.hs	2013-01-22 22:19:52.120493193 -0300
+@@ -20,7 +20,7 @@
+                      , everywhere', everything, mkT, mkQ)
+ import qualified Data.Map as M
+ import Text.JSON
+-import Text.Pandoc.Definition ( Inline )
++import Text.Pandoc.Definition ( Inline, Target )
+ 
+ -- | The representation of a parsed CSL style.
+ data Style
+@@ -309,8 +309,8 @@
+     = FO          Formatting [FormattedOutput]          -- ^ List of 'FormatOutput' items
+     | FN   String Formatting                            -- ^ Formatted number
+     | FS   String Formatting                            -- ^ Formatted string
+-    | FUrl String Formatting                            -- ^ Formatted uniform resource locator (URL)
+     | FDel String                                       -- ^ Delimeter string
++    | FUrl Target Formatting                            -- ^ Formatted URL
+     | FPan [Inline]                                     -- ^ Pandoc inline elements
+     | FNull                                             -- ^ Null formatting item
+       deriving ( Eq, Show )
+@@ -331,7 +331,7 @@
+     | OContrib String    String   [Output] [Output] [[Output]] -- ^ The citation key, the role (author, editor, etc.), the contributor(s),
+                                                         -- the output needed for year suf. disambiguation, and everything used for
+                                                         -- name disambiguation.
+-    | OUrl    String              Formatting            -- ^ A uniform resource locator (URL)
++    | OUrl    Target              Formatting            -- ^ An URL
+     | OLoc    [Output]            Formatting            -- ^ The citation's locator
+     | Output  [Output]            Formatting            -- ^ Some nested 'Output'
+       deriving ( Eq, Ord, Show, Typeable, Data )
+diff -rN -u old-citeproc-hs/src/Text/CSL/Test.hs new-citeproc-hs/src/Text/CSL/Test.hs
+--- old-citeproc-hs/src/Text/CSL/Test.hs	2013-01-22 22:19:52.103826157 -0300
++++ new-citeproc-hs/src/Text/CSL/Test.hs	2013-01-22 22:19:52.120493193 -0300
+@@ -45,7 +45,8 @@
+ import Text.CSL.Style
+ import Text.Pandoc.Definition
+ #ifdef EMBED_DATA_FILES
+-import Data.ByteString.UTF8 ( toString )
++import qualified Data.ByteString.Lazy as L
++import qualified Data.ByteString.UTF8 as U
+ import Text.CSL.Parser ( localeFiles )
+ #else
+ import System.IO.Unsafe
+@@ -217,7 +218,7 @@
+                    | otherwise     -> take 5 x
+ #ifdef EMBED_DATA_FILES
+   ls <- case lookup ("locales-" ++ locale ++ ".xml") localeFiles of
+-          Just x' -> return $ readXmlString xpLocale (toString x')
++          Just x' -> return $ readXmlString xpLocale $ L.fromChunks [x']
+           _       -> return $ Locale [] [] [] [] []
+ #else
+   ls' <- getCachedLocale locale
+diff -rN -u old-citeproc-hs/test/createTest.hs new-citeproc-hs/test/createTest.hs
+--- old-citeproc-hs/test/createTest.hs	1969-12-31 21:00:00.000000000 -0300
++++ new-citeproc-hs/test/createTest.hs	2013-01-22 22:19:52.123826603 -0300
+@@ -0,0 +1,37 @@
++import System.Environment
++import Text.CSL
++import Text.CSL.Test
++import Text.JSON.Generic
++
++main :: IO ()
++main = do
++  args <- getArgs
++  case args of
++    [c,r] -> readStruff c r [] >>= putStrLn
++    _ -> error "usage:    kljlkjljlkjlkjl"
++
++readStruff :: String -> String -> String -> IO String
++readStruff c r s = do
++  c' <- readFile c
++  r' <- readBiblioFile r
++  return $ mode "citation" ++ result [] ++ citationItems r' ++ csl c' ++ input r'
++
++mode :: String -> String
++mode s = ">>===== MODE =====>>\n" ++ s ++ "\n<<===== MODE =====<<\n\n"
++
++result :: String -> String
++result s = ">>===== RESULT =====>>\n" ++ s ++ "\n<<===== RESULT =====<<\n\n"
++
++citationItems :: [Reference] -> String
++citationItems l = ">>===== CITATION-ITEMS =====>>\n[\n    [\n" ++ toId ++
++                  "\n    ]\n]\n<<===== CITATION-ITEMS =====<<\n\n"
++    where
++      toId = foldr addComma [] toStringList
++      addComma x xs = if length xs < 1 then x ++ xs else x ++ ",\n" ++ xs
++      toStringList = flip map l $ \x -> "        {\n            \"id\": \"" ++ refId x ++ "\"\n        }"
++
++csl :: String -> String
++csl s = ">>===== CSL =====>>\n" ++ s ++ "<<===== CSL =====<<\n\n"
++
++input :: [Reference] -> String
++input s = ">>===== INPUT =====>>\n" ++ encodeJSON s ++ "\n<<===== INPUT =====<<\n\n"
+\ No newline at end of file
