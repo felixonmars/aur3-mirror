@@ -1,0 +1,194 @@
+#!/bin/bash
+
+kernver=${KERNVER:-$(uname -r)}
+arch=${ARCH:-$(uname -m)}
+arch=${arch/i686/i386}
+catver=whatever
+
+
+install_module(){
+
+if [ -d "/usr/lib/modules/${kernver}" ]; then
+	where_modules="usr/lib/modules"
+	insta="usr"
+	elif [ -d "/lib/modules/${kernver}" ]; then
+		where_modules="lib/modules"
+		insta="lib"
+fi
+
+  # here we are checking kernel's extramodules dir
+    for r in /${where_modules}/*; do
+      s=${r##*/${where_modules}/}
+      if [[ ${s:0:3} = "ext" ]]; then
+	if [[ `cat ${r}/version | grep -c ${kernver}` != 0 ]]; then
+	 pakaver="${s#*-}"
+	 destidir="${s}"
+	 depextrmod="${s}"
+	fi
+	elif [[ ${s} = ${kernver} ]] && [[ ! -e ${r}/extramodules ]]; then
+	 pakaver="${kernver}"
+	 destidir="${kernver}/video"
+	 depextrmod="null"
+      fi
+    done
+
+    echo ""
+    echo -e '\E[37;44m'"\033[1mBuilding catalyst-${pakaver} package for ${kernver} kernel ...\033[0m"
+    echo "--------"
+    if [ ! -d "/${where_modules}/${kernver}/build" ]; then
+      echo -e '\E[37;44m'"\033[1mKernel header files are absent: directory /${where_modules}/${kernver}/build doesn't exist! Game over\033[0m"
+      echo "--------"
+      return 1
+    fi
+    workdir=$(mktemp -du /tmp/catalyst.XXXXXX)
+#    set -x
+    cp "/usr/share/ati/build_mod" "${workdir}" -R
+    cd "$workdir"
+    sed -i -e "s/_kernver=.*/_kernver=${kernver}/" PKGBUILD
+    sed -i -e "s/_pakaver=.*/_pakaver=${pakaver}/" PKGBUILD
+    sed -i -e "s|_destidir=.*|_destidir=${destidir}|" PKGBUILD
+    sed -i -e "s/_depextrmod=.*/_depextrmod=${depextrmod}/" PKGBUILD
+    sed -i -e "s/_insta=.*/_insta=${insta}/" PKGBUILD
+    if [ "${LOGNAME}" = "root" ]; then
+      if [ "${user}" = "root" ]; then
+       /usr/bin/makepkg -c --asroot || return 1
+     	 else	
+    	   chown ${user}:video ${workdir}
+    	   chown ${user}:video ${workdir}/* >> /dev/null 2>&1
+    	   su - ${user} -c "cd ${workdir} && /usr/bin/makepkg -c" || return 1
+      fi
+      else
+	 /usr/bin/makepkg -c || return 1
+    fi
+    echo -e '\E[37;44m'"\033[1mOk. catalyst-${pakaver} package built succesfully. Installing ...\033[0m"
+    if [ -e /usr/bin/sudo ]; then
+        echo -e '\E[37;44m'"\033[1mIf it's asking for password - type YOUR password\033[0m"
+        sudo /usr/bin/pacman -Ud ${workdir}/catalyst-${pakaver}-${catver}-$(uname -m).pkg.tar || return 1
+    else
+        echo -e '\E[37;44m'"\033[1mIf it's asking for password - type root password\033[0m"
+        su - root -c "/usr/bin/pacman -Ud ${workdir}/catalyst-${pakaver}-${catver}-$(uname -m).pkg.tar" || return 1
+    fi
+    rm -rf "${workdir}"
+#    set +x
+    echo -e '\E[37;44m'"\033[1mDone.\033[0m"
+}
+
+build_all_modules(){
+if [ -d "/usr/lib/modules" ]; then
+        for p in /usr/lib/modules/*; do
+        if [ ${p:17:3} != "ext" ] && [ -d $p/build ] && [ -d $p/kernel ]; then
+          /usr/bin/catalyst_build_module ${p##*/usr/lib/modules/}
+        fi
+        done
+fi
+if [ -d "/lib/modules" ] && [ -d "/usr/lib/modules" ]; then
+        for ls_lib in /lib/modules/*; do
+                repeat=0
+                for ls_usr in /usr/lib/modules/*; do
+                        if [ ${ls_lib##*/lib/modules/} = ${ls_usr##*/usr/lib/modules/} ];then
+                                repeat=1
+                                break
+                        fi
+                done
+                if [[ $repeat == "0" ]] && [ ${ls_lib:13:3} != "ext" ] && [ -d $ls_lib/build ] && [ -d $ls_lib/kernel ]; then
+                        /usr/bin/catalyst_build_module ${ls_lib##*/lib/modules/}
+                fi
+        done
+elif [[ -d "/lib/modules" ]] && [[ ! -d "/usr/lib/modules" ]]; then
+        for p in /lib/modules/*; do
+                if [ ${p:13:3} != "ext" ] && [ -d $p/build ] && [ -d $p/kernel ]; then
+                        /usr/bin/catalyst_build_module ${p##*/lib/modules/}
+                fi
+        done
+fi
+}
+
+remove_module(){
+    echo "Removing unused catalyst-{kernver} packages ..."
+    if [ -d "/usr/lib/modules" ]; then
+	    for p in /usr/lib/modules/*; do
+	      if [[ ${p:17:3} != "ext" ]] && [[ ! -d $p/kernel ]] && [[ -e $p/video/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/lib/modules/}
+	      elif [[ ${p:17:3} = "ext" ]] && [[ ! -e $p/version ]] && [[ -e $p/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/lib/modules/extramodules-}
+	      fi
+	    done
+    fi
+    if [ -d "/lib/modules" ] && [ -d "/usr/lib/modules" ]; then
+	    for ls_lib in /lib/modules/*; do
+		    repeat=0
+		    for ls_usr in /usr/lib/modules/*; do
+			    if [ ${ls_lib##*/lib/modules/} = ${ls_usr##*/usr/lib/modules/} ];then
+				    repeat=1
+				    break
+			    fi
+		    done
+		    if [[ $repeat == "0" ]] && [ ${ls_lib:13:3} != "ext" ] && [ -d $ls_lib/build ] && [ -d $ls_lib/kernel ]; then
+			  if [[ ${ls_lib:13:3} != "ext" ]] && [[ ! -d $ls_lib/kernel ]] && [[ -e $ls_lib/video/fglrx.ko.gz ]]; then
+				  /usr/bin/pacman -Rd --noconfirm catalyst-${ls_lib##*/lib/modules/}
+			  elif [[ ${ls_lib:13:3} = "ext" ]] && [[ ! -e $ls_lib/version ]] && [[ -e $ls_lib/fglrx.ko.gz ]]; then
+				  /usr/bin/pacman -Rd --noconfirm catalyst-${ls_lib##*/lib/modules/extramodules-}
+			  fi
+		    fi
+	    done
+    elif [[ -d "/lib/modules" ]] && [[ ! -d "/usr/lib/modules" ]]; then
+	    for p in /lib/modules/*; do
+	      if [[ ${p:13:3} != "ext" ]] && [[ ! -d $p/kernel ]] && [[ -e $p/video/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/lib/modules/}
+	      elif [[ ${p:13:3} = "ext" ]] && [[ ! -e $p/version ]] && [[ -e $p/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/lib/modules/extramodules-}
+	      fi
+	    done
+    fi
+}
+
+remove_all_modules(){
+if [ -d "/usr/lib/modules" ]; then
+        for p in /usr/lib/modules/*; do
+	      if [[ ${p:17:3} != "ext" ]] && [[ -e $p/video/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/usr/lib/modules/}
+	      elif [[ ${p:17:3} = "ext" ]] && [[ -e $p/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/usr/lib/modules/extramodules-}
+	      fi
+        done
+fi
+if [ -d "/lib/modules" ]; then
+        for p in /usr/lib/modules/*; do
+	      if [[ ${p:13:3} != "ext" ]] && [[ -e $p/video/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/lib/modules/}
+	      elif [[ ${p:13:3} = "ext" ]] && [[ -e $p/fglrx.ko.gz ]]; then
+		      /usr/bin/pacman -Rd --noconfirm catalyst-${p##*/lib/modules/extramodules-}
+	      fi
+        done
+fi
+}
+
+
+case "$1" in
+    help|--help)
+        echo "usage: $0 {version|all|remove|remove_all|}"
+        echo "- with no specified kernel version it will use the current kernel version to build module"
+	echo "- all will try to build fglrx modules for all working system's kernels"
+        echo "- remove is removing unused catalyst-{kernver} packages"
+        echo "- remove_all is removing all catalyst-{kernver} packages"
+        ;;
+    all)
+	build_all_modules
+	;;
+    remove)
+        remove_module
+        ;;
+    remove_all)
+        remove_all_modules
+        ;;
+    *)
+        test "$1" != "" && kernver="$1"
+	if [ "$2" != "" ]; then user="$2"
+          elif [ "${LOGNAME}" = "root" ]; then
+	      echo "Please specify your (unprivileged) user name:"
+	      read user
+	fi
+        install_module
+        ;;
+esac
+
