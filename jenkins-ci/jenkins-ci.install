@@ -1,50 +1,118 @@
 #!/bin/sh
 # vim:set ts=2 sw=2 et:
 
+_service_name=jenkins.service
+_service_username=jenkins
+_service_groupname=$_service_username
+_service_install_dir=/var/lib/jenkins
+_service_cache_dir=/var/cache/jenkins
+_service_log_dir=/var/log/jenkins
+
+_set_dir_permissions() {
+  for d in "${_service_install_dir}" "${_service_cache_dir}"; do
+    chown -R ${_service_username}:${_service_groupname} ${d}
+  done
+}
+
+# Test whether the system is running with systemd.
+_is_running_systemd() {
+  echo $(ps -p 1 | grep "systemd")
+}
+
+# Test whether the systemd service is enabled (presuming that systemd is running).
+_is_systemd_service_enabled() {
+  [[ -r "/etc/systemd/system/multi-user.target.wants/${_service_name}" ]] && echo "1"
+}
+
+_stop_systemd_service() {
+  /usr/bin/systemctl stop ${_service_name} 2>/dev/null
+}
+
+_start_systemd_service() {
+  if [[ -n "$(_is_running_systemd)" ]] \
+    && [[ -n "$(_is_systemd_service_enabled)" ]]; then
+    local dlg=`dialog --clear --stdout --no-lines --yesno "Should I start up ${_service_name}?" 0 0 ; echo $?`
+    if [[ $dlg -eq 0 ]]; then
+      /usr/bin/systemctl start ${_service_name}
+    fi
+  fi
+}
+
+_disable_systemd_service() {
+  if [ -n "$(_is_systemd_service_enabled)" ]; then
+    /usr/bin/systemctl disable ${_service_name} 2>/dev/null
+  fi
+}
+
+_enable_systemd_service() {
+  /usr/bin/systemctl enable ${_service_name}
+}
+
+# Install systemd service.
+_install_systemd_service() {
+  if [[ -n "$(_is_running_systemd)" ]] \
+    && [[ -z "$(_is_systemd_service_enabled)" ]]; then
+    local dlg=`dialog --clear --stdout --no-lines --yesno "Should I enable ${_service_name} (systemd)?" 0 0 ; echo $?`
+    if [[ $dlg -eq 0 ]]; then
+      _enable_systemd_service
+    fi
+  fi
+}
+
+_reload_systemd_service() {
+  if [[ -n "$(_is_running_systemd)" ]] \
+    && [[ -n "$(_is_systemd_service_enabled)" ]]; then
+    /usr/bin/systemctl daemon-reload
+  fi
+}
+
 # arg 1:  the new package version
 pre_install() {
   /bin/true
 }
 
-_set_dir_permissions() {
-  echo ">>> Setting directory permissions..."
-  for d in /var/log/jenkins /var/lib/jenkins /var/cache/jenkins; do
-    chown -R jenkins:jenkins ${d}
-  done
-}
-
 # arg 1:  the new package version
 post_install() {
-  echo ">>> Creating jenkins user and group..."
-  getent passwd jenkins > /dev/null || /usr/sbin/useradd --user-group --home-dir "/var/lib/jenkins/" --shell "/bin/bash" jenkins &> /dev/null
+  getent passwd ${_service_username} > /dev/null || /usr/sbin/useradd --user-group --home-dir "${_service_install_dir}" --shell "/bin/bash" ${_service_username} &> /dev/null
   _set_dir_permissions
+  _install_systemd_service
+  _start_systemd_service
 }
 
 # arg 1:  the new package version
 # arg 2:  the old package version
 pre_upgrade() {
-  /bin/true
+  _stop_systemd_service
+  _disable_systemd_service
 }
 
 # arg 1:  the new package version
 # arg 2:  the old package version
 post_upgrade() {
   _set_dir_permissions
+  _install_systemd_service
+  _reload_systemd_service
+  _start_systemd_service
 }
 
 # arg 1:  the old package version
 pre_remove() {
- /bin/true
+  _stop_systemd_service
+  _disable_systemd_service
 }
 
 # arg 1:  the old package version
 post_remove() {
-  getent passwd jenkins > /dev/null && /usr/sbin/userdel jenkins &>/dev/null
-  for d in "/var/cache/jenkins" "/var/log/jenkins"; do
-    [ -d "${d}" ] && rm -rf "${d}"
+  getent passwd ${_service_username} > /dev/null && /usr/sbin/userdel ${_service_username} &>/dev/null
+  for d in ${_service_cache_dir}; do
+    if [ -d "${d}" ];then
+      rm -rf "${d}"
+    fi
   done
-  if [ -d /var/lib/jenkins ]; then
-    echo ">>> directory /var/lib/jenkins needs to be removed manually"
-  fi
+  for d in ${_service_install_dir} ${_service_log_dir}; do
+    if [ -d "${d}" ]; then
+      echo ">>> directory ${d} needs to be removed manually"
+    fi
+  done
 }
 
