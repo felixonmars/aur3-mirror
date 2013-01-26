@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /usr/share/arkanoidsb
+cd /usr/lib/arkanoidsb
 exec ./arkanoidsb
