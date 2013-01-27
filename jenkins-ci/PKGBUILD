@@ -2,8 +2,8 @@
 # Contributor: Illarion Kovalchuk <illarion.kovalchuk at gmail dot com>
 
 pkgname=jenkins-ci
-pkgver=1.499
-pkgrel=2
+pkgver=1.500
+pkgrel=1
 epoch=
 pkgdesc="An extendable open source continuous integration server"
 arch=(any)
@@ -26,7 +26,7 @@ source=(http://mirrors.jenkins-ci.org/war/$pkgver/jenkins.war
         jenkins.service
         LICENSE)
 noextract=(jenkins.war)
-sha256sums=("f221c86e175cfffaf739c49e7802a7a8b3c57c8edad815f62e9b94a990259ca5" "90ec818b1b47029994fdb97bf08b6ae215487f3bd343ebf97ce4a75b691d18a4" "fe03b4094e7ce2a016a7b0aca9d71ba4e7beac06625852b17d53080b6576d78b" "d9f107920982cb61d807e349b4eaf190b2d593047e55d3f3ad286c7afe06cf55")
+sha256sums=("bac89a7e85346db354e9ef402af5b6fc61153a7499d60bc6b43abe29520da002" "90ec818b1b47029994fdb97bf08b6ae215487f3bd343ebf97ce4a75b691d18a4" "fe03b4094e7ce2a016a7b0aca9d71ba4e7beac06625852b17d53080b6576d78b" "d9f107920982cb61d807e349b4eaf190b2d593047e55d3f3ad286c7afe06cf55")
 package() {
   install -D -m 444 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/jenkins-ci/LICENSE"
   install -D -m 444 "$srcdir/jenkins.war" "$pkgdir/usr/share/java/jenkins/jenkins.war"

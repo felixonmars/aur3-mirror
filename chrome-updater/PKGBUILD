@@ -2,7 +2,7 @@
  
 pkgname="chrome-updater"
 pkgdesc="Google Chrome with auto updates : Drop the Google Chrome [auto-updatet] out of the Launcher in you're Panel/Dock and enjoy using Chrome WITH auto Updates"
-pkgver="1.0"
+pkgver="1.1"
 depends=('polkit' 'curl' 'wget' 'google-chrome' 'pacman')
 pkgrel=1
 url="https://github.com/check/chrome-updater"
@@ -12,7 +12,7 @@ source=('google-chrome-auto.desktop'
 		'json.sh'
 		'update_chrome.sh')
 md5sums=('7eaacbca939bb237f0fabc58c6474bc2'
-	     '18cf0f3baf5d775558650aee8c17627e'
+	     '59711398faf1a8fabc79cb6a3682d090'
 	     'e92eb9843e08cd2ecf949a09f83de66b'
 	     'df2aaef73701960436b5165d81bb95b6')
 license=('MIT')

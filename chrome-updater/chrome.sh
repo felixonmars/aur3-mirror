@@ -12,12 +12,12 @@ if !(is_file_exits "/home/`whoami`/.chromeblock") then
 	if (is_file_exits "/home/`whoami`/.chrome-update-history") then
 		if [[ `date +"%j"` != `sed -ne '1p' "/home/\`whoami\`/.chrome-update-history"` ]]; then
 			if ping -c 1 8.8.8.8 > /dev/null; then
-			echo -e "`date +'%j'`\n`curl "http://aur.archlinux.org/rpc.php?type=info&arg=37469" | sh json.sh | egrep '\["results","Version"\]' | cut -f2`" > "/home/`whoami`/.chrome-update-history";
+			echo -e "`date +'%j'`\n`curl "https://aur.archlinux.org/rpc.php?type=info&arg=37469" | sh json.sh | egrep '\["results","Version"\]' | cut -f2`" > "/home/`whoami`/.chrome-update-history";
 			fi
 		fi
 	else
 		if ping -c 1 8.8.8.8 > /dev/null; then
-		echo -e "`date +'%j'`\n`curl "http://aur.archlinux.org/rpc.php?type=info&arg=37469" | sh json.sh | egrep '\["results","Version"\]' | cut -f2`" > "/home/`whoami`/.chrome-update-history";
+		echo -e "`date +'%j'`\n`curl "https://aur.archlinux.org/rpc.php?type=info&arg=37469" | sh json.sh | egrep '\["results","Version"\]' | cut -f2`" > "/home/`whoami`/.chrome-update-history";
 		fi
 	fi
 
