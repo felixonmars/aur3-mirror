@@ -3,7 +3,7 @@
 
 _pkgname=aws
 pkgname=ada-web-server-git
-pkgver=20121202
+pkgver=20130127
 pkgrel=1
 pkgdesc="A complete, Ada-based, embeddable Web application framework"
 arch=(i686 x86_64)
@@ -12,8 +12,8 @@ license=(unknown)
 groups=(gcc-ada)
 depends=(gcc-ada)
 makedepends=(git gprbuild)
-provides=($_pkgname ada-web-server)
-conflicts=($_pkgname ada-web-server)
+provides=(ada-web-server)
+conflicts=(ada-web-server)
 
 _gitroot=http://forge.open-do.org/anonscm/git/$_pkgname/$_pkgname.git
 _gitname=$_pkgname
