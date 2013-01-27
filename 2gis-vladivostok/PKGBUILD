@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-vladivostok
-pkgver=33
+pkgver=34
 pkgrel=1
-pkgdesc="Map of Vladivostok for 2GIS, December 2012"
+pkgdesc="Map of Vladivostok for 2GIS, January 2013"
 arch=('i686' 'x86_64')
 url="http://vladivostok.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Vladivostok-33.orig.zip")
-md5sums=('4470c602e5c107af6400cd42ac1d4b00')
+source=("http://download.2gis.ru/arhives/2GISData_Vladivostok-34.orig.zip")
+md5sums=('9d92e348616ca33a5f1befe0a2424ab0')
      
 build() {
      

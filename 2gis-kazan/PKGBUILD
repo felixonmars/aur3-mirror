@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kazan
-pkgver=49
+pkgver=50
 pkgrel=1
-pkgdesc="Map of Kazan for 2GIS, December 2012"
+pkgdesc="Map of Kazan for 2GIS, January 2013"
 arch=('i686' 'x86_64')
 url="http://kazan.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Kazan-49.orig.zip")
-md5sums=('e97e89bc4d505084965496f8c6027c52')
+source=("http://download.2gis.ru/arhives/2GISData_Kazan-50.orig.zip")
+md5sums=('15a4aaa5eeee9d7e3bc495245c9515bc')
      
 build() {
      

@@ -1,13 +1,13 @@
 pkgname=2gis-chita
-pkgver=8
+pkgver=9
 pkgrel=1
-pkgdesc="Map of Chita for 2GIS, December 2012"
+pkgdesc="Map of Chita for 2GIS, January 2013"
 arch=('i686' 'x86_64')
 url="http://chita.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Chita-8.orig.zip")
-md5sums=('faf4f59a254ca4844baec014d73d6281')
+source=("http://download.2gis.ru/arhives/2GISData_Chita-9.orig.zip")
+md5sums=('d446f7d8fac14264c682675741e39ace')
 
 build() {
   cd $startdir

@@ -1,13 +1,13 @@
 pkgname=2gis-arkhangelsk
-pkgver=16
+pkgver=17
 pkgrel=1
-pkgdesc="Map of Arkhangelsk for 2GIS, December 2012"
+pkgdesc="Map of Arkhangelsk for 2GIS, January 2013"
 arch=('i686' 'x86_64')
 url="http://arkhangelsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Arkhangelsk-16.orig.zip")
-md5sums=('889c03ad8a590453877f5fca0baf2cb3')
+source=("http://download.2gis.ru/arhives/2GISData_Arkhangelsk-17.orig.zip")
+md5sums=('209ba0bd33237291086ec377e4e37178')
 
 build() {
   cd $startdir

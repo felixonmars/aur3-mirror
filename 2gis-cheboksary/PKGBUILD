@@ -1,13 +1,13 @@
 pkgname=2gis-cheboksary
-pkgver=14
+pkgver=15
 pkgrel=1
-pkgdesc="Map of Cheboksary for 2GIS, December 2012"
+pkgdesc="Map of Cheboksary for 2GIS, January 2013"
 arch=('i686' 'x86_64')
 url="http://cheboksary.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Cheboksary-14.orig.zip")
-md5sums=('e0428c30f16c51e5444b447f6d431572')
+source=("http://download.2gis.ru/arhives/2GISData_Cheboksary-15.orig.zip")
+md5sums=('2c5c0c4770141226af05a6eae6e99650')
 
 build() {
   cd $startdir

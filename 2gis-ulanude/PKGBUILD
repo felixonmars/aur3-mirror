@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ulanude
-pkgver=23
+pkgver=24
 pkgrel=1
-pkgdesc="Map of Ulan-Ude for 2GIS, December 2012"
+pkgdesc="Map of Ulan-Ude for 2GIS, January 2013"
 arch=('i686' 'x86_64')
 url="http://ulanude.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ulanude-23.orig.zip")
-md5sums=('6327a8f4b1bc48b897299b45f9f9d293')
+source=("http://download.2gis.ru/arhives/2GISData_Ulanude-24.orig.zip")
+md5sums=('e3055ef5436e7b24415c59d31f9bb1ed')
      
 build() {
      
