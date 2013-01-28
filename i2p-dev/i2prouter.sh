@@ -10,7 +10,6 @@ I2PTEMP="/tmp"
 # IMPORTANT - Make sure that the user has the required privileges to write
 #  the PID file and wrapper.log files and that the directories exist.
 I2P_USER="i2p"
-I2P_GROUP="$I2P_USER"
 
 # Wrapper
 WRAPPER_CMD="$I2P/i2psvc"
@@ -38,8 +37,8 @@ check_user() {
             fail "Unable to find LOCKDIR: $LOCKDIR"
         if [[ "$1" = @(*start|console) ]]; then
             touch "$LOCKFILE"
-            chmod 750 "$LOCKFILE"
-            chown ${I2P_USER}:${RUN_AS_GROUP} "$LOCKFILE"
+            chmod 600 "$LOCKFILE"
+            chown ${I2P_USER}:${I2P_USER} "$LOCKFILE"
         fi
 
         SCRIPT_PATH="$(cd $(dirname $0) && pwd)/$(basename $0)"
@@ -82,7 +81,7 @@ check_if_running() {
                 fi
             else
                 (( pid == $(pgrep -u "$I2P_USER" "$WRAPPER_BASE_CMD") )) ||
-                    fail "PIDFILE differs from what is actually running!"
+                    fail "PIDFILE $PIDFILE differs from what is actually running!"
             fi
         else
             fail "Cannot read PIDFILE: $PIDFILE"
@@ -193,38 +192,24 @@ _dump() {
     fi
 }
 
-
 check_user "$@"
 check_vars
 
 case "$1" in
-    'console')
-        _console
-        ;;
-
-    'start')
-        _start
-        ;;
-
-    'stop')
-        _stop
-        ;;
-
-    'graceful')
-        _graceful
-        ;;
-
-    'restart')
-        _stop "start"
-        ;;
-
-    'status')
-        _status
-        ;;
-
-    'dump')
-        _dump
-        ;;
+     'console') _console
+                ;;
+       'start') _start
+                ;;
+        'stop') _stop
+                ;;
+    'graceful') _graceful
+                ;;
+     'restart') _stop "start"
+                ;;
+      'status') _status
+                ;;
+        'dump') _dump
+                ;;
 
     *)  echo "Usage: $(basename $0) [command]"
         echo

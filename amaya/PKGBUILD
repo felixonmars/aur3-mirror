@@ -2,14 +2,15 @@
 # Contributor: Zerial <fernando@zerial.org>
 # Contributor: Dalius <dagis@takas.lt>
 # Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+
 pkgname=amaya
 pkgver=11.4.4
-pkgrel=8
+pkgrel=9
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
 license=('W3C')
-depends=('wxgtk' 'mesa' 'raptor1')
+depends=('wxgtk' 'raptor1' 'glu')
 makedepends=('perl' 'raptor')
 options=('!makeflags')
 install=$pkgname.install
@@ -66,7 +67,7 @@ build() {
   
   ../configure --prefix=/usr/share --exec=/usr/share \
     --datadir=/usr/share --enable-system-raptor \
-    --enable-system-wx
+    --enable-system-wx --with-gl
   make
 }
 
