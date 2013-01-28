@@ -16,6 +16,8 @@ WRAPPER_CMD="$I2P/i2psvc"
 WRAPPER_CONF="$I2P/wrapper.config"
 LOGDIR="$I2P_CONFIG_DIR"
 LOGFILE="$LOGDIR/wrapper.log"
+PIDDIR="$I2P_CONFIG_DIR"
+PIDFILE="$PIDDIR/i2p.pid"
 
 # If set, wait for the wrapper to report that the daemon has started
 WAIT_FOR_STARTED_TIMEOUT=120
@@ -28,31 +30,11 @@ fail() {
     exit 1
 }
 
-LOCKDIR="/run/lock/subsys"
-LOCKFILE="$LOCKDIR/i2p"
-
 check_user() {
     if [[ "$(id -un)" != "$I2P_USER" ]]; then
-        [[ ! -d "$LOCKDIR" ]] &&
-            fail "Unable to find LOCKDIR: $LOCKDIR"
-        if [[ "$1" = @(*start|console) ]]; then
-            touch "$LOCKFILE"
-            chmod 600 "$LOCKFILE"
-            chown ${I2P_USER}:${I2P_USER} "$LOCKFILE"
-        fi
-
         SCRIPT_PATH="$(cd $(dirname $0) && pwd)/$(basename $0)"
         su - $I2P_USER -c "\"${SCRIPT_PATH}\" \"$@\""
-        _EXITCODE=$?
-
-        [[ ! "$(check_if_running)" ]] && rm -f "$LOCKFILE"
-        exit $_EXITCODE
-    else
-        WRAPPER_BASE_CMD=$(basename $WRAPPER_CMD)
-        LOGPROP="wrapper.logfile=\"$LOGFILE\""
-        PIDDIR="$I2P_CONFIG_DIR"
-        PIDFILE="$PIDDIR/i2p.pid"
-        LOCKPROP="wrapper.lockfile=\"$LOCKFILE\""
+        exit $?
     fi
 }
 
@@ -66,6 +48,7 @@ check_vars() {
              "Please edit $(basename $0) and set the variable I2P_USER."
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
         fail "I2P_USER does not exist: $I2P_USER"
+    WRAPPER_BASE_CMD=$(basename $WRAPPER_CMD)
 }
 
 check_if_running() {
@@ -96,7 +79,7 @@ _console() {
         trap '' INT QUIT
         mkdir -p "$PIDDIR" "$LOGDIR"
         JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-        COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" $LOCKPROP $LOGPROP wrapper.script.version=3.5.17"
+        COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
         eval $COMMAND_LINE
         [[ $? != 0 ]] &&
             fail "Failed to launch the wrapper!"
@@ -111,7 +94,7 @@ _start() {
         echo -n "Starting I2P Service."
         mkdir -p "$PIDDIR" "$LOGDIR"
         JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-        COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.daemonize=TRUE $LOCKPROP $LOGPROP wrapper.script.version=3.5.17"
+        COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.daemonize=TRUE wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
         eval $COMMAND_LINE
         [[ $? != 0 ]] &&
             fail "Failed to launch the wrapper!"
