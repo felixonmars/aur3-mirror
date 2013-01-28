@@ -1,5 +1,5 @@
 # Contributor: xnitropl <xnitropl at gmail dot com>
-# Maintainer: Anton Larionov <diffident dot cat at gmail dot com>
+# Contributor: Anton Larionov <diffident dot cat at gmail dot com>
 
 
 pkgname=7kaa-data
@@ -13,7 +13,7 @@ source=("http://downloads.sourceforge.net/project/skfans/Seven%20Kingdoms%20AA%2
 md5sums=('d7580a683fabcea98b5898dff252dcf2')
 
 
-build() {
+package() {
   # install data files
   install -dm755 "${pkgdir}/opt/7kaa/"
   cd "${srcdir}/7kaa/"
