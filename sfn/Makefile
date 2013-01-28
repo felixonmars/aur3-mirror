@@ -7,8 +7,11 @@ gdc:
 	gdc sfn.d -o sfn -O2 -Wall
 	
 install:
-	install -d ${DESTDIR}/usr/bin/
-	install sfn ${DESTDIR}/usr/bin/
+	install -D sfn ${DESTDIR}/usr/bin/sfn
+	install -D sfn.1 ${DESTDIR}/usr/share/man/man1/sfn.1
 
 clean:
 	rm -f sfn sfn.o
+
+man:
+	ronn -r sfn.1.ronn
