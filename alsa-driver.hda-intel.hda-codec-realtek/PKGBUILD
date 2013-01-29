@@ -5,6 +5,7 @@ pkgver=1.0.25
 pkgrel=0
 pkgdesc="An alternative implementation of Linux sound support"
 arch=('any')
+depends=('linux-headers')
 conflicts=('alsa-driver')
 provides=('alsa-driver')
 install='alsa-driver.install'
