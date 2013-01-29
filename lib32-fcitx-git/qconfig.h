@@ -1,3 +1,15 @@
+#ifdef QT_BUILD_KEY
+#undef QT_BUILD_KEY
+#endif
+
+#ifdef QT_BUILD_KEY_COMPAT
+#undef QT_BUILD_KEY_COMPAT
+#endif
+
+#ifdef QT_ARCH_X86_64
+#undef QT_ARCH_X86_64
+#endif
+
 #include "/usr/include/QtCore/qconfig.h"
 
 #ifdef QT_BUILD_KEY
