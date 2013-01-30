@@ -1,7 +1,7 @@
 # Maintainer: libernux <dutchman55@gmx.com>
 
 pkgname=addresses
-pkgver=0.4.7
+pkgver=0.4.8
 pkgrel=1
 pkgdesc="GNUstep address book"
 arch=(i686 x86_64)
@@ -11,11 +11,11 @@ depends=(gnustep-base gnustep-gui gnustep-back)
 makedepends=(gcc-objc)
 provides=(addresses)
 source=(http://savannah.nongnu.org/download/gap/Addresses-$pkgver.tar.gz)
-md5sums=('a0cefd17e321f1f611a963aef710a316')
+md5sums=('35c929e3d2361ab26e3387fa07ca1d29')
 
 
 build() {
-  cd $srcdir/Addresses
+  cd $srcdir/Addresses-${pkgver}
   # necessary to set environment if not in user startup.
   . /usr/share/GNUstep/Makefiles/GNUstep.sh
   make
