@@ -1,4 +1,5 @@
-# Maintainer: Balló György <ballogyor+arch at gmail dot com>
+# Maintainer:  Federico Cinelli <cinelli.federico@gmail.com>
+# Contributor: Balló György <ballogyor+arch at gmail dot com>
 # Contributor: Giovanni Scafora <giovanni@archlinux.org>
 # Contributor: Maël Lavault <moimael@neuf.fr>
 
