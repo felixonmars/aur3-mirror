@@ -1,10 +1,8 @@
 #!/bin/bash
 
 #-----------------------------------------------------------------------------
-# Paths
+# Path
 I2P="/opt/i2p"
-I2P_CONFIG_DIR="$I2P/.i2p"
-I2PTEMP="/tmp"
 
 # User to run the wrapper as.
 # IMPORTANT - Make sure that the user has the required privileges to write
@@ -14,41 +12,48 @@ I2P_USER="i2p"
 # Wrapper
 WRAPPER_CMD="$I2P/i2psvc"
 WRAPPER_CONF="$I2P/wrapper.config"
-LOGDIR="$I2P_CONFIG_DIR"
-LOGFILE="$LOGDIR/wrapper.log"
-PIDDIR="$I2P_CONFIG_DIR"
+LOGFILE="$I2P/wrapper.log"
+PIDDIR="/run/i2p"
 PIDFILE="$PIDDIR/i2p.pid"
 
 # If set, wait for the wrapper to report that the daemon has started
-WAIT_FOR_STARTED_TIMEOUT=120
-#-----------------------------------------------------------------------------
+TIMEOUT=30
 
+#-----------------------------------------------------------------------------
 fail() {
-    for msg in "$@"; do
-        printf "\e[1;31m==> ERROR:\033[0m %s\n" "$msg"
-    done
+    printf "\e[1;31m>>> ERROR:\033[0m %s\n" "$msg"
     exit 1
 }
 
 check_user() {
     if [[ "$(id -un)" != "$I2P_USER" ]]; then
+        if [[ ! -d "$PIDDIR" ]]; then
+            mkdir -p "$PIDDIR"
+            chown ${I2P_USER}:${I2P_USER} "$PIDDIR"
+        fi
         SCRIPT_PATH="$(cd $(dirname $0) && pwd)/$(basename $0)"
-        su - $I2P_USER -c "\"${SCRIPT_PATH}\" \"$@\""
+        su - "$I2P_USER" -c "${SCRIPT_PATH} $@"
         exit $?
     fi
 }
 
-check_vars() {
-    [[ ! -d "$I2P" || ! -r "$WRAPPER_CONF" ]] &&
-        fail "Unable to find WRAPPER_CONF: ${WRAPPER_CONF}"
+init_vars() {
+    [[ ! -r "$WRAPPER_CONF" ]] &&
+        fail "Unable to read \$WRAPPER_CONF: ${WRAPPER_CONF}"
     [[ ! -x "$WRAPPER_CMD" ]] &&
-        fail "Unable to find or execute WRAPPER_CMD: ${WRAPPER_CMD}"
+        fail "Unable to find or execute \$WRAPPER_CMD: ${WRAPPER_CMD}"
     [[ ! $(grep -E ^I2P_USER $0) && "$EUID" = "0" ]] &&
-        fail "Running I2P as the root user is *not* recommended." \
-             "Please edit $(basename $0) and set the variable I2P_USER."
+        fail "Attempting to start as root! Please edit $(basename $0) and set the variable \$I2P_USER"
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
-        fail "I2P_USER does not exist: $I2P_USER"
-    WRAPPER_BASE_CMD=$(basename $WRAPPER_CMD)
+        fail "\$I2P_USER does not exist: $I2P_USER"
+
+    WRAPPER_BASE=$(basename $WRAPPER_CMD)
+    JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
+}
+
+get_pid() {
+    pgrep -u "$I2P_USER" "$WRAPPER_BASE"
 }
 
 check_if_running() {
@@ -57,82 +62,63 @@ check_if_running() {
         if [[ -r "$PIDFILE" ]]; then
             pid=$(cat "$PIDFILE")
             if [[ ! "$pid" ]]; then
-                pid=$(pgrep -u "$I2P_USER" "$WRAPPER_BASE_CMD")
+                pid=$(get_pid)
                 if [[ ! "$pid" ]]; then
                     rm -f "$PIDFILE"
                     echo "Removed stale pid file: $PIDFILE"
                 fi
             else
-                (( pid == $(pgrep -u "$I2P_USER" "$WRAPPER_BASE_CMD") )) ||
-                    fail "PIDFILE $PIDFILE differs from what is actually running!"
+                (( pid == $(get_pid) )) ||
+                    fail "\$PIDFILE $PIDFILE differs from what is actually running!"
             fi
         else
-            fail "Cannot read PIDFILE: $PIDFILE"
+            fail "Cannot read \$PIDFILE: $PIDFILE"
         fi
     fi
 }
 
 _console() {
-    check_if_running
     if [[ ! "$pid" ]]; then
-        echo "Running I2P Service in console mode..."
         trap '' INT QUIT
-        mkdir -p "$PIDDIR" "$LOGDIR"
-        JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-        COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
         eval $COMMAND_LINE
-        [[ $? != 0 ]] &&
-            fail "Failed to launch the wrapper!"
+        [[ $? != 0 ]] && fail "Failed to launch the wrapper!"
     else
         echo "I2P Service is already running"
     fi
 }
 
 _start() {
-    check_if_running
     if [[ ! "$pid" ]]; then
         echo -n "Starting I2P Service."
-        mkdir -p "$PIDDIR" "$LOGDIR"
-        JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-        COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.daemonize=TRUE wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
+        COMMAND_LINE+=" wrapper.daemonize=TRUE"
         eval $COMMAND_LINE
-        [[ $? != 0 ]] &&
-            fail "Failed to launch the wrapper!"
-
+        [[ $? != 0 ]] && fail "Failed to launch the wrapper!"
         i=0
-        while [[ ! $pid || $i < $WAIT_FOR_STARTED_TIMEOUT ]]; do
+        while [[ ! "$pid" || $i < $TIMEOUT ]]; do
             echo -n "."
-            sleep 1
+            sleep 2
             check_if_running
             ((i++))
         done
-
-        [[ $(pgrep -u "$I2P_USER" "$WRAPPER_BASE_CMD") ]] &&
-            echo " done" || fail "Failed to stop wrapper!"
-
+        [[ $(get_pid) ]] &&
+            echo " done" || fail "Failed to start wrapper!"
     else
         echo "I2P Service is already running"
     fi
 }
 
 _stop() {
-    check_if_running
     if [[ "$pid" ]]; then
         echo -n "Stopping I2P Service."
         kill -TERM $pid
         [[ $? != 0 ]] && fail "Unable to stop I2P Service: kill -TERM $pid"
-
         i=0
-        while [[ $pid || $i < $WAIT_FOR_STARTED_TIMEOUT ]]; do
+        while [[ "$pid" || $i < $TIMEOUT ]]; do
             echo -n "."
-            sleep 1
-            if [[ ! $(pgrep -u "$I2P_USER" "$WRAPPER_BASE_CMD") ]]; then
-                rm -f "$PIDFILE"
-                unset pid
-            fi
+            sleep 2
+            [[ ! $(get_pid) ]] && unset pid
             ((i++))
         done
-
         if [[ "$pid" ]]; then
             fail "Failed to stop wrapper!"
         else
@@ -145,7 +131,6 @@ _stop() {
 }
 
 _graceful() {
-    check_if_running
     if [[ "$pid" ]]; then
         echo "Stopping I2P Service gracefully..."
         kill -HUP $pid
@@ -156,27 +141,26 @@ _graceful() {
 }
 
 _status() {
-    check_if_running
     [[ "$pid" ]] &&
         echo "I2P Service is running: PID:$pid" ||
         echo "I2P Service is not running."
 }
 
 _dump() {
-    check_if_running
     if [[ "$pid" ]]; then
         echo "Dumping threads..."
         kill -QUIT $pid
         [[ $? != 0 ]] &&
-            fail "Failed to dump I2P Service" ||
-            echo "Dumped I2P Service."
+            fail "Failed to dump I2P Service" || echo "Dumped I2P Service."
     else
         echo "I2P Service is not running."
     fi
 }
+#-----------------------------------------------------------------------------
 
 check_user "$@"
-check_vars
+init_vars
+check_if_running
 
 case "$1" in
      'console') _console
