@@ -3,10 +3,12 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
+. /etc/conf.d/unvanquished.conf
+
 case "$1" in
   start)
     stat_busy "Starting Unvanquished Server"
-    /usr/bin/sudo -u unvanquished unvanquished-server +set dedicated 1 +exec server.cfg >/dev/null 2>&1 &
+    /usr/bin/sudo -u $USER -g $GROUP unvanquished-server +set dedicated $DEDICATED +exec $EXEC >/dev/null 2>&1 &
     if [ $? -gt 0 ]; then
       stat_fail
     else
