@@ -2,12 +2,15 @@
 # Previous maintainer: phoenixlzx < phoenixlzx at phoenixsec.org >
 # Maintainer: Vorbote <palopezv at gmail.com>
 
-# This PKGBUILD provided to you under the terms of the BSD 2-clause
-# licence.
+# This file is provided to under the terms of the BSD 2-clause
+# licence. <http://opensource.org/licenses/BSD-2-Clause>
+
+# Patches welcome. Send pull requests to
+# https://github.com/vorbote/archlinux-vuze
 
 pkgname=vuze
 pkgver=4.8.1.2
-pkgrel=5
+pkgrel=6
 _ver=${pkgver//./}
 _extra=a
 pkgdesc="One of the most powerful bitTorrent client with GUI in the world, written in Java."
@@ -29,6 +32,12 @@ package() {
   mkdir -p "${pkgdir}/usr/share/vuze"
   cp -a "${srcdir}/${pkgname}/plugins" "${pkgdir}/usr/share/vuze/"
 
+  # Add magnet mimetype to desktop file.
+  # This works as shoot-from-the-hip hack but I feel so dirty,
+  # I'll go get a shower now.
+  sed -i.bak -e 's#\(x-bittorrent\)#\1;x-scheme-handler/magnet;#' \
+    vuze.desktop
+
   #install desktop entries
   install -Dm644 vuze.desktop  "${pkgdir}/usr/share/applications/vuze.desktop"
   install -Dm644 vuze.png "${pkgdir}/usr/share/pixmaps/vuze.png"
@@ -46,6 +55,7 @@ package() {
   install -Dm755 vuze "${pkgdir}/usr/bin/vuze"
   sed -i 's|#PROGRAM_DIR="/home/username/apps/azureus"|PROGRAM_DIR="/usr/share/vuze"|' ${pkgdir}/usr/bin/vuze
   install -Dm644 Azureus2.jar "${pkgdir}/usr/share/vuze/Azureus2.jar"
+
 }
 
 sha256sums=('4a8c7b04af84d15a08ead14589d03fe276e131a0208534ed24a338982bbd5ad7')
