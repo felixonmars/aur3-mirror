@@ -10,7 +10,7 @@
 
 pkgname=vuze
 pkgver=4.8.1.2
-pkgrel=6
+pkgrel=7
 _ver=${pkgver//./}
 _extra=a
 pkgdesc="One of the most powerful bitTorrent client with GUI in the world, written in Java."
@@ -35,8 +35,12 @@ package() {
   # Add magnet mimetype to desktop file.
   # This works as shoot-from-the-hip hack but I feel so dirty,
   # I'll go get a shower now.
+  #
+  # And I missed the magic %U. Thanks j_r0dd for the prodding.
+  #
   sed -i.bak -e 's#\(x-bittorrent\)#\1;x-scheme-handler/magnet;#' \
-    vuze.desktop
+    -e 's#^\(Exec=vuze \)%f#\1%U#' vuze.desktop
+
 
   #install desktop entries
   install -Dm644 vuze.desktop  "${pkgdir}/usr/share/applications/vuze.desktop"
