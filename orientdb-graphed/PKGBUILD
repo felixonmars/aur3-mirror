@@ -1,42 +1,44 @@
-# Maintainer: Neng Xu <neng2.xu2@gmail.com>
+# Maintainer:  Neng Xu <neng2.xu2@gmail.com>
+# Contributor: Michele Damiano Torelli <me_AT_mdtorelli_DOT_it>
 
 pkgname=orientdb-graphed
 pkgver=1.3.0
-pkgrel=1
-pkgdesc="OrientDB Graph Edition, Document-Graph NoSQL with support of ACID Transactions, SQL and Native Queries, Asynchronous Commands, Intents, TinkerPop Blueprints / Gremlin, and much more"
+pkgrel=2
+pkgdesc="A NoSQL Graph-Document DBMS - Graph Edition (with TinkerPop Blueprints, Gremlin and Pipes)"
 arch=('any')
 license=('Apache')
-url="http://orientdb.org"
-depends=('jre7-openjdk-headless')
-install='orientdb.install'
-
-source=(https://s3.amazonaws.com/orientdb/releases/${pkgname}-${pkgver}.tar.gz orientdb.sh orientdb.conf)
+url="http://www.orientdb.org"
+depends=('java-runtime-headless')
+conflicts=('orientdb' 'orientdb-git' 'orientdb-graphed-git')
+install=$pkgname.install
+source=("https://s3.amazonaws.com/orientdb/releases/${pkgname}-${pkgver}.tar.gz"
+        'orientdb.service')
 md5sums=('6326e99f45fce2359062144a923b750a'
-  '1984b1d7b2e55e52b0f2840aefa5dcdb'
-  'b1674253e357721eecf0bfe3107caa54')
+         '64c40019196576036766e7b92729a741')
 
 package() {
-  cd "${srcdir}/${pkgname}-${pkgver}"
+  cd ${pkgname}-${pkgver}
 
-  install -m755 -d $pkgdir/opt/orientdb
-  install -m700 -d $pkgdir/opt/orientdb/config
-  install -m700 -d $pkgdir/opt/orientdb/databases
-  install -m755 -d $pkgdir/opt/orientdb/bin
-  install -m700 -d $pkgdir/opt/orientdb/www
-  install -m755 -d $pkgdir/opt/orientdb/lib
-  install -d $pkgdir/etc/rc.d
-  install -d $pkgdir/etc/conf.d
-  install -d $pkgdir/usr/bin
+  install -dm755 "${pkgdir}"/opt/orientdb
+  install -dm700 "${pkgdir}"/opt/orientdb/config
+  install -dm700 "${pkgdir}"/opt/orientdb/databases
+  install -dm755 "${pkgdir}"/opt/orientdb/bin
+  install -dm700 "${pkgdir}"/opt/orientdb/www
+  install -dm755 "${pkgdir}"/opt/orientdb/lib
 
-  # we don't install bechmarks and demo database
+  install -d "${pkgdir}"/usr/bin
+  install -d "${pkgdir}"/var/log/orientdb
+  install -d "${pkgdir}"/usr/lib/systemd/system
 
-  install -m700 config/* $pkgdir/opt/orientdb/config/
-  install -m700 bin/shutdown.sh bin/server.sh $pkgdir/opt/orientdb/bin/
-  install -m755 bin/console.sh $pkgdir/opt/orientdb/bin/
-  install -m755 lib/* $pkgdir/opt/orientdb/lib/
-  cp -r www/* $pkgdir/opt/orientdb/www/
+  sed -i 's|\.\./log|/opt/orientdb/log|' config/orientdb-server-log.properties
+  sed -i 's|YOUR_ORIENTDB_INSTALLATION_PATH|/opt/orientdb|' bin/orientdb.sh
+  sed -i 's|USER_YOU_WANT_ORIENTDB_RUN_WITH|orient|' bin/orientdb.sh
 
-  # init scripts
-  install -m755 ../orientdb.sh $pkgdir/etc/rc.d/orientdb
-  install -m755 ../orientdb.conf $pkgdir/etc/conf.d/orientdb
+  install -m755 bin/console.sh "${pkgdir}"/opt/orientdb/bin/
+  install -m755 lib/* "${pkgdir}"/opt/orientdb/lib/
+  install -m700 config/* "${pkgdir}"/opt/orientdb/config/
+  install -m700 bin/shutdown.sh bin/server.sh bin/orientdb.sh "${pkgdir}"/opt/orientdb/bin/
+  cp -r www/* "${pkgdir}"/opt/orientdb/www/
+
+  install -m644 "${srcdir}"/orientdb.service "${pkgdir}"/usr/lib/systemd/system/
 }
