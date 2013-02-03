@@ -3,7 +3,7 @@
 # Generator  : CPANPLUS::Dist::Arch 1.19
 
 pkgname='perl-config-mvp'
-pkgver='2.200002'
+pkgver='2.200003'
 pkgrel='1'
 pkgdesc="multivalue-property package-oriented configuration"
 arch=('any')
@@ -13,8 +13,8 @@ depends=('perl-class-load>=0.17' 'perl-moose>=0.91' 'perl-moosex-oneargnew' 'per
 makedepends=('perl-test-fatal')
 url='http://search.cpan.org/dist/Config-MVP'
 source=("http://search.cpan.org/CPAN/authors/id/R/RJ/RJBS/Config-MVP-$pkgver.tar.gz")
-md5sums=('6dd4d363adb12ef4cc0cbf71dad78a56')
-sha512sums=('346fe09771e095f5413e5cc5f38279fbae44ef6d0b13be860c0569dd21847dd9e416cba48c8f87044bc94e0a1289624541c4bc9dfd6d942a8e155f86049de68e')
+md5sums=('33180fb21bd91bb74545168336576a1c')
+sha512sums=('8e8fe73501b782d2a488e0bf50b39567f8b0de1eb3f389d618027fd954cb3272f39e1d9414b125d6be807807e6505571fccf511ea0534abcb3540ad881bcdd5d')
 _distdir="${srcdir}/Config-MVP-$pkgver"
 
 build() {
