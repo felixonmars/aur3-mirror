@@ -5,13 +5,13 @@
 
 pkgname=amaya
 pkgver=11.4.4
-pkgrel=9
+pkgrel=10
 pkgdesc="W3C's WYSIWYG HTML Editor"
 arch=('i686' 'x86_64')
 url="http://www.w3.org/Amaya/"
 license=('W3C')
 depends=('wxgtk' 'raptor1' 'glu')
-makedepends=('perl' 'raptor')
+makedepends=('perl' 'mesa')
 options=('!makeflags')
 install=$pkgname.install
 source=(amaya-fix-thotlib-png15.patch \
