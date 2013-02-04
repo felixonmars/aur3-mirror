@@ -1,10 +1,10 @@
 # Maintainer: Konrad Borowski <glitchmr@myopera.com>
 pkgname=perl-perl6-junction
 pkgver=1.50000
-pkgrel=1
+pkgrel=2
 pkgdesc='Perl6 style Junction operators in Perl5'
 arch=('any')
-url='https://metacpan.org/module/Test::Moose::More'
+url='https://metacpan.org/module/Perl6::Junction'
 license=('LGPL2')
 depends=('perl')
 provides=()
