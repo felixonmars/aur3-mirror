@@ -25,7 +25,7 @@ case "$1" in
     ;;
   careless_start)
     stat_busy "Starting Nginx"
-    if [ -s /var/run/nginx.pid ]; then
+    if [ -s /run/nginx.pid ]; then
       stat_fail
       # probably ;)
       stat_busy "Nginx is already running"
@@ -41,7 +41,7 @@ case "$1" in
     ;;
   stop)
     stat_busy "Stopping Nginx"
-    NGINX_PID=`cat /var/run/nginx.pid 2>/dev/null`
+    NGINX_PID=`cat /run/nginx.pid 2>/dev/null`
     kill -QUIT $NGINX_PID &>/dev/null
     if [ $? -ne 0 ]; then
       stat_fail
@@ -61,8 +61,8 @@ case "$1" in
     ;;
   reload)
     check_config
-    if [ -s /var/run/nginx.pid ]; then
-      status "Reloading Nginx Configuration" kill -HUP `cat /var/run/nginx.pid`
+    if [ -s /run/nginx.pid ]; then
+      status "Reloading Nginx Configuration" kill -HUP `cat /run/nginx.pid`
     fi
     ;;
   check)

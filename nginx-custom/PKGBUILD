@@ -7,14 +7,14 @@ _doc_root="/usr/share/${_pkgname}/http"
 _sysconf_path="etc"
 _conf_path="${_sysconf_path}/${_pkgname}"
 _tmp_path="/var/spool/${_pkgname}"
-_pid_path="/var/run"
+_pid_path="/run"
 _lock_path="/var/lock"
 _log_path="/var/log/${_pkgname}"
 
 # 3d party modules versions:
 _cachepurge_ver="2.0"
 _slowfscache_ver="1.9"
-_echo_ver="v0.41"
+_echo_ver="v0.42"
 _headersmore_ver="v0.19"
 _uploadprogress_ver="v0.8.4"
 _upstreamfair_hash="a18b4099fbd458111983200e098b6f0c8efed4bc"
@@ -23,7 +23,7 @@ _httpupload_ver="2.2.0"
 
 pkgname=nginx-custom
 pkgver=1.2.6
-pkgrel=1
+pkgrel=2
 pkgdesc="lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules"
 arch=('i686' 'x86_64')
 
@@ -69,14 +69,14 @@ md5sums=('1350d26eb9b66364d9143fb3c4366ab6'
          'bc92b2d326e0ab937b4cf5ab489e71e3'
          '9a6acb984d81f5d7e04214d63ae94273'
          'e0f1c0cf4291387e8f5ac481cecd0ddd'
-         '05b2c9dfacdce3201817a7a8b322c5b1'
+         '6ba7b7190299f4fbe00033227c35f64e'
          'ac5e7f485476af70e0ee1c52016cddaf'
          '8db9d2ef8b7ac63f9e23901dc3d36ab1'
          '8766b931f29602889e0454749580a781'
-         '0e8032d3ba26c3276e8c7c30588d375f'
+         '3d5ff154f308ef7c844423e44ef9f4e1'
          '1fe7a3ca0773ce13f9f92e239a99f8b9'
-         '9dfca4c46969d3f620ed40b12c560637'
-         'bc0b3c7096292162748ddc488df4995f')
+         'ab1eb640c978536c1dad16674d6b3c3c'
+         '62d494d23aef31d0b867161f9fffa6eb')
 
 build() {
 	local _src_dir="${srcdir}/${_pkgname}-${pkgver}"
