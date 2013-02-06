@@ -4,7 +4,7 @@
 # Contributor: ruario
 
 pkgname=google-chrome
-pkgver=24.0.1312.68   # Check for new Linux releases in: http://googlechromereleases.blogspot.com/search/label/Stable%20updates
+pkgver=24.0.1312.69   # Check for new Linux releases in: http://googlechromereleases.blogspot.com/search/label/Stable%20updates
 pkgrel=1
 pkgdesc="An attempt at creating a safer, faster, and more stable browser (Stable Channel)"
 arch=('i686' 'x86_64')
@@ -16,14 +16,14 @@ provides=("google-chrome=$pkgver")
 conflicts=('google-chrome')
 install=${pkgname}.install
 _channel='stable'
-_verbld=24.0.1312.68-180326
+_verbld=24.0.1312.69-180721
 
 if [ "$CARCH" = "i686" ]; then
     _arch='i386'
-    md5sums=('b58cd325c7787d3834e103ef4a5a8c47')
+    md5sums=('7919aa97b93367bab496a3f4c9f57895')
 elif [ "$CARCH" = "x86_64" ]; then
     _arch='x86_64'
-    md5sums=('484194c94275aa6a1143cd9719af047e')
+    md5sums=('40bf207cb74e336a047eca843a66e19e')
 fi
 
 

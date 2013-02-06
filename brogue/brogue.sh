@@ -1,3 +1,3 @@
 cd /usr/share/brogue/
-./brogue
+./brogue "$@"
 cd - &>/dev/null
