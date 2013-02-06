@@ -220,34 +220,27 @@ passwman_deactivate_cb (MidoriExtension* extension,
                         MidoriBrowser*   browser);
 
 static void
-passwman_add_tab_foreach_cb (MidoriView*     view,
-                             MidoriBrowser*  browser,
-                             MidoriExtension* extension)
-{
-    passwman_add_tab_cb (browser, view, extension);
-}
-
-static void
 passwman_app_add_browser_cb (MidoriApp*       app,
                              MidoriBrowser*   browser,
                              MidoriExtension* extension)
 {
-    midori_browser_foreach (browser,
-        (GtkCallback)passwman_add_tab_foreach_cb, extension);
+    GList* tabs = midori_browser_get_tabs (browser);
+    for (; tabs; tabs = g_list_next (tabs))
+            passwman_add_tab_cb (browser, tabs->data, extension);
+    g_list_free (tabs);
     g_signal_connect (browser, "add-tab",
-        G_CALLBACK (passwman_add_tab_cb), extension);
+            G_CALLBACK (passwman_add_tab_cb), extension);
     g_signal_connect (extension, "deactivate",
-        G_CALLBACK (passwman_deactivate_cb), browser);
+            G_CALLBACK (passwman_deactivate_cb), browser);
 }
 
 static void
-passwman_deactivate_tabs (MidoriView*      view,
-                          MidoriBrowser*   browser,
-                          MidoriExtension* extension)
+passwman_deactivate_tab (MidoriView*      view,
+                         MidoriExtension* extension)
 {
     GtkWidget* web_view = midori_view_get_web_view (view);
     g_signal_handlers_disconnect_by_func (
-       web_view, passwman_window_object_cleared_cb, NULL);
+       web_view, passwman_window_object_cleared_cb, extension);
     g_signal_handlers_disconnect_by_func (
        web_view, passwman_navigation_decision_cb, extension);
 }
@@ -264,8 +257,10 @@ passwman_deactivate_cb(MidoriExtension* extension,
         extension, passwman_deactivate_cb, browser);
     g_signal_handlers_disconnect_by_func (
         app, passwman_app_add_browser_cb, extension);
-    midori_browser_foreach (browser,
-        (GtkCallback)passwman_deactivate_tabs, extension);
+    GList* tabs = midori_browser_get_tabs (browser);
+    for (; tabs; tabs = g_list_next (tabs))
+       passwman_deactivate_tab (tabs->data, extension);
+    g_list_free (tabs);
 
     katze_assign (jspassm, NULL);
     if (log_pass)
