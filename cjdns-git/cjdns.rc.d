@@ -18,7 +18,7 @@ case "$1" in
 
         #START CJDNS AND ENABLE THE DAEMON IF IT SUCCEEDS
         if [ -z "$PID" ]; then
-            . cjdns.sh start
+            . cjdns.sh start &> /dev/null
             if [ $? -gt 0 ]; then
                 stat_busy "Unable to start the daemon"
                 stat_fail
