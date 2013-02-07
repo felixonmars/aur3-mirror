@@ -1,0 +1,82 @@
+From 445baa2d37533168de6fb0a704abcea005e1fcf2 Mon Sep 17 00:00:00 2001
+From: =?utf-8?q?J=C3=B6rg=20H=C3=B6hle?= <hoehle@users.sourceforge.net>
+Date: Sun, 9 Dec 2012 21:30:14 +0100
+Subject: mmdevapi: Prevent race condition upon Start.
+
+---
+ dlls/winealsa.drv/mmdevdrv.c      |    9 +++++----
+ dlls/winecoreaudio.drv/mmdevdrv.c |    4 ++--
+ dlls/wineoss.drv/mmdevdrv.c       |   13 ++++++++-----
+ 3 files changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/dlls/winealsa.drv/mmdevdrv.c b/dlls/winealsa.drv/mmdevdrv.c
+index e07678f..d1804fd 100644
+--- a/dlls/winealsa.drv/mmdevdrv.c
++++ b/dlls/winealsa.drv/mmdevdrv.c
+@@ -2161,15 +2161,16 @@ static HRESULT WINAPI AudioClient_Start(IAudioClient *iface)
+                 This->bufsize_frames);
+     }
+ 
++    This->started = TRUE;
++
+     if(!CreateTimerQueueTimer(&This->timer, g_timer_q, alsa_push_buffer_data,
+-            This, 0, This->mmdev_period_rt / 10000, WT_EXECUTEINTIMERTHREAD)){
++            This, 2, This->mmdev_period_rt / 10000, WT_EXECUTEINTIMERTHREAD)){
++        This->started = FALSE;
+         LeaveCriticalSection(&This->lock);
+-        WARN("Unable to create timer: %u\n", GetLastError());
++        WARN("Unable to create period timer: %u\n", GetLastError());
+         return E_OUTOFMEMORY;
+     }
+ 
+-    This->started = TRUE;
+-
+     LeaveCriticalSection(&This->lock);
+ 
+     return S_OK;
+diff --git a/dlls/winecoreaudio.drv/mmdevdrv.c b/dlls/winecoreaudio.drv/mmdevdrv.c
+index 8ee0dec..528e7e1 100644
+--- a/dlls/winecoreaudio.drv/mmdevdrv.c
++++ b/dlls/winecoreaudio.drv/mmdevdrv.c
+@@ -1641,10 +1641,10 @@ static HRESULT WINAPI AudioClient_Start(IAudioClient *iface)
+ 
+     if(This->event)
+         if(!CreateTimerQueueTimer(&This->timer, g_timer_q, ca_period_cb,
+-                This, 0, This->period_ms, WT_EXECUTEINTIMERTHREAD)){
++                This, 5, This->period_ms, WT_EXECUTEINTIMERTHREAD)){
+             This->timer = NULL;
+             OSSpinLockUnlock(&This->lock);
+-            WARN("Unable to create timer: %u\n", GetLastError());
++            WARN("Unable to create period timer: %u\n", GetLastError());
+             return E_OUTOFMEMORY;
+         }
+ 
+diff --git a/dlls/wineoss.drv/mmdevdrv.c b/dlls/wineoss.drv/mmdevdrv.c
+index 9fc6f02..8009c9a 100644
+--- a/dlls/wineoss.drv/mmdevdrv.c
++++ b/dlls/wineoss.drv/mmdevdrv.c
+@@ -1512,13 +1512,16 @@ static HRESULT WINAPI AudioClient_Start(IAudioClient *iface)
+         return AUDCLNT_E_NOT_STOPPED;
+     }
+ 
+-    if(!CreateTimerQueueTimer(&This->timer, g_timer_q,
+-                oss_period_callback, This, 0, This->period_us / 1000,
+-                WT_EXECUTEINTIMERTHREAD))
+-        ERR("Unable to create period timer: %u\n", GetLastError());
+-
+     This->playing = TRUE;
+ 
++    if(!CreateTimerQueueTimer(&This->timer, g_timer_q, oss_period_callback,
++            This, 2, This->period_us / 1000, WT_EXECUTEINTIMERTHREAD)){
++        This->playing = FALSE;
++        LeaveCriticalSection(&This->lock);
++        WARN("Unable to create period timer: %u\n", GetLastError());
++        return E_OUTOFMEMORY;
++    }
++
+     LeaveCriticalSection(&This->lock);
+ 
+     return S_OK;
+-- 
+1.5.6.3
+

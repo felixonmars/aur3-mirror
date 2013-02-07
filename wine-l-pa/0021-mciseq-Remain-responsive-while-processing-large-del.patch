@@ -1,0 +1,86 @@
+From 5e0e68346d717c56c13cf6e59fd5144cc39d0add Mon Sep 17 00:00:00 2001
+From: =?utf-8?q?J=C3=B6rg=20H=C3=B6hle?= <hoehle@users.sourceforge.net>
+Date: Wed, 3 Oct 2012 19:04:46 +0200
+Subject: [PATCH 21/25] mciseq: Remain responsive while processing large delays.
+
+---
+ dlls/mciseq/mcimidi.c |   22 +++++++++++++++-------
+ 1 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/mciseq/mcimidi.c b/dlls/mciseq/mcimidi.c
+index e20ab70..6bf15e7 100644
+--- a/dlls/mciseq/mcimidi.c
++++ b/dlls/mciseq/mcimidi.c
+@@ -518,14 +518,12 @@ static DWORD MIDI_mciReadMThd(WINE_MCIMIDI* wmm, DWORD dwOffset)
+  */
+ static	DWORD	MIDI_ConvertPulseToMS(WINE_MCIMIDI* wmm, DWORD pulse)
+ {
+-    DWORD	ret = 0;
++    DWORD	ret;
+ 
+     /* FIXME: this function may return false values since the tempo (wmm->dwTempo)
+      * may change during file playing
+      */
+-    if (wmm->nDivision == 0) {
+-	FIXME("Shouldn't happen. wmm->nDivision = 0\n");
+-    } else if (wmm->nDivision > 0x8000) { /* SMPTE, unchecked FIXME? */
++    if (wmm->nDivision > 0x8000) { /* SMPTE, unchecked FIXME? */
+ 	int	nf = -(char)HIBYTE(wmm->nDivision);	/* number of frames     */
+ 	int	nsf = LOBYTE(wmm->nDivision);		/* number of sub-frames */
+ 	ret = (pulse * 1000) / (nf * nsf);
+@@ -852,7 +850,7 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+     DWORD		dwRet;
+     WORD		doPlay, nt;
+     MCI_MIDITRACK*	mmt;
+-    DWORD		hiPulse, dwStartMS = wmm->dwPositionMS;
++    DWORD		hiPulse, maxDelta, dwStartMS = wmm->dwPositionMS;
+     HANDLE		oldcb = NULL;
+     BOOLEAN		startedPlaying = FALSE;
+ 
+@@ -877,12 +875,16 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+ 	MIDI_mciReadNextEvent(wmm, mmt); /* FIXME == 0 */
+     }
+ 
++    maxDelta = (wmm->nDivision > 0x8000) /* sleep at most one second */
++	? -(char)HIBYTE(wmm->nDivision) * LOBYTE(wmm->nDivision)
++	: MulDiv(1000000, wmm->nDivision, wmm->dwTempo);
+     wmm->dwPulse = 0;
+     wmm->dwTempo = 500000;
+     /* FIXME: the externally visible position should remain within [from..to] */
+     wmm->dwPositionMS = 0;
+ 
+     while ((mmt = MIDI_mciFindNextEvent(wmm, &hiPulse))) {
++	BOOLEAN recheck = FALSE;
+ 
+ 	doPlay = (wmm->dwPositionMS >= dwStartMS && wmm->dwPositionMS <= wmm->dwEndMS);
+ 	/* FIXME: position + hiPulse >= start */
+@@ -898,6 +900,12 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+ 	}
+ 
+ 	if (hiPulse > wmm->dwPulse) {
++	    if (hiPulse > wmm->dwPulse + maxDelta && doPlay) {
++		/* w9x updates position while processing a large delta,
++		 * w7 solely responds to pause/stop */
++		hiPulse = wmm->dwPulse + maxDelta;
++		recheck = TRUE;
++	    }
+ 	    wmm->dwPositionMS += MIDI_ConvertPulseToMS(wmm, hiPulse - wmm->dwPulse);
+ 	    if (doPlay) {
+ 		DWORD	togo = wmm->dwStartTicks + wmm->dwPositionMS;
+@@ -920,11 +928,11 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+ 		WaitForSingleObject(wmm->hEvent, INFINITE);
+ 	    } while (wmm->dwStatus == MCI_MODE_PAUSE);
+ 	    startedPlaying = FALSE;
+-	    continue; /* after sleeping, check conditions again */
++	    recheck = TRUE;
+ 	}
+ 	if (wmm->dwStatus == MCI_MODE_STOP || wmm->dwStatus == MCI_MODE_NOT_READY)
+ 	    break;
+-	else if (wmm->dwStatus != MCI_MODE_PLAY)
++	else if (wmm->dwStatus != MCI_MODE_PLAY || recheck)
+ 	    continue;
+ 
+ 	switch (LOBYTE(LOWORD(mmt->dwEventData))) {
+-- 
+1.5.6.3
+

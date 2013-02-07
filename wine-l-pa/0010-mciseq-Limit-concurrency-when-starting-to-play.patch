@@ -1,0 +1,111 @@
+From 5a46f46a3847090eb221ffb7d380001c7d7297f4 Mon Sep 17 00:00:00 2001
+From: =?utf-8?q?J=C3=B6rg=20H=C3=B6hle?= <hoehle@users.sourceforge.net>
+Date: Tue, 18 Sep 2012 21:26:45 +0200
+Subject: [PATCH 10/25] mciseq: Limit concurrency when starting to play.
+
+---
+ dlls/mciseq/mcimidi.c |   34 +++++++++++++++++++++++++++++-----
+ 1 files changed, 29 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/mciseq/mcimidi.c b/dlls/mciseq/mcimidi.c
+index dc09bfd..34d4254 100644
+--- a/dlls/mciseq/mcimidi.c
++++ b/dlls/mciseq/mcimidi.c
+@@ -59,8 +59,9 @@ typedef struct {
+ 
+ typedef struct tagWINE_MCIMIDI {
+     UINT		wDevID;			/* the MCI one */
+-    HMIDI		hMidi;
+     int			nUseCount;          	/* Incremented for each shared open          */
++    CRITICAL_SECTION	cs;
++    HMIDI		hMidi;
+     HANDLE 		hCallback;         	/* Callback handle for pending notification  */
+     HANDLE		hThread;		/* Player thread                             */
+     HANDLE		hEvent;			/* signal start/resume                       */
+@@ -122,6 +123,8 @@ static	DWORD	MIDI_drvOpen(LPCWSTR str, LPMCI_OPEN_DRIVER_PARMSW modp)
+     mciSetDriverData(wmm->wDevID, (DWORD_PTR)wmm);
+     modp->wCustomCommandTable = MCI_NO_COMMAND_TABLE;
+     modp->wType = MCI_DEVTYPE_SEQUENCER;
++    InitializeCriticalSection(&wmm->cs);
++    wmm->cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": WINE_MCIMIDI.cs");
+     return modp->wDeviceID;
+ }
+ 
+@@ -133,6 +136,8 @@ static	DWORD	MIDI_drvClose(DWORD dwDevID)
+     WINE_MCIMIDI*  wmm = (WINE_MCIMIDI*)mciGetDriverData(dwDevID);
+ 
+     if (wmm) {
++	wmm->cs.DebugInfo->Spare[0] = 0;
++	DeleteCriticalSection(&wmm->cs);
+ 	HeapFree(GetProcessHeap(), 0, wmm);
+ 	mciSetDriverData(dwDevID, 0);
+ 	return 1;
+@@ -1087,7 +1092,15 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+     if (dwFlags & MCI_NOTIFY)
+ 	oldcb = InterlockedExchangePointer(&wmm->hCallback, NULL);
+ 
+-    wmm->dwStatus = MCI_MODE_STOP;
++    /* The player cannot exit while the CS is held.  This is a
++     * desireable property to prevent terminating before the starter. */
++    EnterCriticalSection(&wmm->cs);
++    switch (wmm->dwStatus) {
++    case MCI_MODE_PLAY:
++    case MCI_MODE_PAUSE:
++	wmm->dwStatus = MCI_MODE_STOP;
++    }
++    LeaveCriticalSection(&wmm->cs);
+ 
+     /* Let the potentially asynchronous commands support FAILURE notification. */
+     if (oldcb) mciDriverNotify(oldcb, wmm->wDevID,
+@@ -1103,7 +1116,7 @@ static DWORD CALLBACK MIDI_Starter(void *ptr)
+ 
+ static DWORD ensurePlayerThread(WINE_MCIMIDI* wmm)
+ {
+-    if (1) {
++    while (1) { /* restart_transaction: */
+ 	DWORD dwRet;
+ 
+ 	switch (wmm->dwStatus) {
+@@ -1117,7 +1130,6 @@ static DWORD ensurePlayerThread(WINE_MCIMIDI* wmm)
+ 	case MCI_MODE_STOP:
+ 	    break;
+ 	}
+-	wmm->dwStatus = MCI_MODE_PLAY;
+ 
+ 	if (!wmm->hEvent) {
+ 	    wmm->hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+@@ -1125,10 +1137,20 @@ static DWORD ensurePlayerThread(WINE_MCIMIDI* wmm)
+ 		return MCIERR_OUT_OF_MEMORY;
+ 	}
+ 	if (wmm->hThread) {
+-	    WaitForSingleObject(wmm->hThread, INFINITE);
++	    if (WaitForSingleObject(wmm->hThread, 0) == WAIT_TIMEOUT) {
++		SetEvent(wmm->hEvent);
++		LeaveCriticalSection(&wmm->cs);
++		WaitForSingleObject(wmm->hThread, INFINITE);
++		EnterCriticalSection(&wmm->cs);
++		/* anything may happen while waiting, so restart */
++		continue; /* restart_transation */
++	    }
+ 	    CloseHandle(wmm->hThread);
+ 	    wmm->hThread = 0;
+ 	}
++	ResetEvent(wmm->hEvent);
++	wmm->dwStatus = MCI_MODE_PLAY;
++
+ 	wmm->hThread = CreateThread(NULL, 0, MIDI_Starter, wmm, 0, NULL);
+ 	if (!wmm->hThread) {
+ 	    dwRet = MCIERR_OUT_OF_MEMORY;
+@@ -1190,7 +1212,9 @@ static DWORD MIDI_mciPlay(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_PLAY_PARMS lpP
+ 	if (oldcb) mciDriverNotify(oldcb, wmm->wDevID, MCI_NOTIFY_SUPERSEDED);
+     }
+ 
++    EnterCriticalSection(&wmm->cs);
+     dwRet = ensurePlayerThread(wmm);
++    LeaveCriticalSection(&wmm->cs);
+ 
+     if (!dwRet && (dwFlags & MCI_WAIT)) {
+ 	WaitForSingleObject(wmm->hThread, INFINITE);
+-- 
+1.5.6.3
+

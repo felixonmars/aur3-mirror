@@ -1,0 +1,97 @@
+From 90b2d28b1b4e860aea464bb3f53b33fe31bdfece Mon Sep 17 00:00:00 2001
+From: =?utf-8?q?J=C3=B6rg=20H=C3=B6hle?= <hoehle@users.sourceforge.net>
+Date: Wed, 19 Sep 2012 18:46:10 +0200
+Subject: [PATCH 09/25] mciseq: Make sure MCI_WAIT waits for the player to terminate.
+
+---
+ dlls/mciseq/mcimidi.c |   47 +++++++++++++++++++++++------------------------
+ 1 files changed, 23 insertions(+), 24 deletions(-)
+
+diff --git a/dlls/mciseq/mcimidi.c b/dlls/mciseq/mcimidi.c
+index 5e72ef1..dc09bfd 100644
+--- a/dlls/mciseq/mcimidi.c
++++ b/dlls/mciseq/mcimidi.c
+@@ -759,33 +759,36 @@ static DWORD MIDI_mciOpen(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_OPEN_PARMSW lp
+ }
+ 
+ /**************************************************************************
+- * 				MIDI_mciStop			[internal]
++ * 				MIDI_mciAbort			[internal]
++ *
++ * Wait(hThread) guarantees that the player is done before the driver shuts down.
+  */
+-static DWORD MIDI_mciStop(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS lpParms)
++static void MIDI_mciAbort(WINE_MCIMIDI* wmm, DWORD dwFlags, DWORD dwStatus)
+ {
+-    DWORD		dwRet = 0;
+-
+-    TRACE("(%d, %08X, %p);\n", wmm->wDevID, dwFlags, lpParms);
+-
+-    if (wmm->dwStatus != MCI_MODE_STOP) {
+-	HANDLE old = InterlockedExchangePointer(&wmm->hCallback, NULL);
+-	if (old) mciDriverNotify(old, wmm->wDevID, MCI_NOTIFY_ABORTED);
+-    }
++    HANDLE old = InterlockedExchangePointer(&wmm->hCallback, NULL);
++    if (old) mciDriverNotify(old, wmm->wDevID, MCI_NOTIFY_ABORTED);
+ 
+-    if (wmm->dwStatus != MCI_MODE_STOP) {
+-	wmm->dwStatus = MCI_MODE_NOT_READY;
++    wmm->dwStatus = dwStatus;
+ 
++    if (wmm->hThread) {
+ 	SetEvent(wmm->hEvent);
+-	if ((dwFlags & MCI_WAIT) && wmm->hThread)
++	if (dwFlags & MCI_WAIT)
+ 	    WaitForSingleObject(wmm->hThread, INFINITE);
+     }
++}
+ 
+-    /* sanity reset */
+-    wmm->dwStatus = MCI_MODE_STOP;
++/**************************************************************************
++ * 				MIDI_mciStop			[internal]
++ */
++static DWORD MIDI_mciStop(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS lpParms)
++{
++    TRACE("(%d, %08X, %p);\n", wmm->wDevID, dwFlags, lpParms);
+ 
+-    if ((dwFlags & MCI_NOTIFY) && lpParms && MMSYSERR_NOERROR==dwRet)
++    MIDI_mciAbort(wmm, dwFlags, MCI_MODE_STOP);
++
++    if ((dwFlags & MCI_NOTIFY) && lpParms)
+ 	MIDI_mciNotify(lpParms->dwCallback, wmm, MCI_NOTIFY_SUCCESSFUL);
+-    return dwRet;
++    return 0;
+ }
+ 
+ /**************************************************************************
+@@ -793,13 +796,10 @@ static DWORD MIDI_mciStop(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS
+  */
+ static DWORD MIDI_mciClose(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS lpParms)
+ {
+-
+     TRACE("(%d, %08X, %p);\n", wmm->wDevID, dwFlags, lpParms);
+ 
+-    if (wmm->dwStatus != MCI_MODE_STOP) {
+-	/* mciStop handles MCI_NOTIFY_ABORTED */
+-	MIDI_mciStop(wmm, MCI_WAIT, lpParms);
+-    }
++    /* Use NOT_READY as a marker that nobody must restart. */
++    MIDI_mciAbort(wmm, MCI_WAIT, MCI_MODE_NOT_READY);
+ 
+     wmm->nUseCount--;
+     if (wmm->nUseCount == 0) {
+@@ -819,9 +819,8 @@ static DWORD MIDI_mciClose(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS
+ 	return MCIERR_INTERNAL;
+     }
+ 
+-    if ((dwFlags & MCI_NOTIFY) && lpParms) {
++    if ((dwFlags & MCI_NOTIFY) && lpParms)
+ 	MIDI_mciNotify(lpParms->dwCallback, wmm, MCI_NOTIFY_SUCCESSFUL);
+-    }
+     return 0;
+ }
+ 
+-- 
+1.5.6.3
+

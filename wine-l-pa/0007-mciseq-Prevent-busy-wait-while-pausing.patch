@@ -1,0 +1,150 @@
+From 423cfa97b9f687db6ed18e02019a863d9fffd337 Mon Sep 17 00:00:00 2001
+From: =?utf-8?q?J=C3=B6rg=20H=C3=B6hle?= <hoehle@users.sourceforge.net>
+Date: Sun, 16 Sep 2012 00:19:35 +0200
+Subject: [PATCH 07/25] mciseq: Prevent busy-wait while pausing.
+
+---
+ dlls/mciseq/mcimidi.c |   48 +++++++++++++++++++++++++++++-------------------
+ 1 files changed, 29 insertions(+), 19 deletions(-)
+
+diff --git a/dlls/mciseq/mcimidi.c b/dlls/mciseq/mcimidi.c
+index 3b544c3..04eaaf1 100644
+--- a/dlls/mciseq/mcimidi.c
++++ b/dlls/mciseq/mcimidi.c
+@@ -63,17 +63,17 @@ typedef struct tagWINE_MCIMIDI {
+     int			nUseCount;          	/* Incremented for each shared open          */
+     HANDLE 		hCallback;         	/* Callback handle for pending notification  */
+     HANDLE		hThread;		/* Player thread                             */
++    HANDLE		hEvent;			/* signal start/resume                       */
+     HMMIO		hFile;	            	/* mmio file handle open as Element          */
+     LPWSTR		lpstrElementName;       /* Name of file (if any)                     */
+     LPWSTR		lpstrCopyright;
+     LPWSTR		lpstrName;
+-    WORD		wPort;			/* the WINMM device unit */
+-    WORD		dwStatus;		/* one from MCI_MODE_xxxx */
++    DWORD		dwStatus;		/* one from MCI_MODE_xxxx */
+     DWORD		dwMciTimeFormat;	/* One of the supported MCI_FORMAT_xxxx */
++    WORD		wPort;			/* the WINMM device unit */
+     WORD		wFormat;		/* Format of MIDI hFile (0, 1 or 2) */
+     WORD		nTracks;		/* Number of tracks in hFile */
+     WORD		nDivision;		/* Number of division in hFile PPQN or SMPTE */
+-    WORD		wStartedPlaying;
+     DWORD		dwTempo;		/* Tempo (# of 1/4 note per second */
+     MCI_MIDITRACK*     	tracks;			/* Content of each track */
+     DWORD		dwPulse;
+@@ -773,12 +773,9 @@ static DWORD MIDI_mciStop(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS
+     }
+ 
+     if (wmm->dwStatus != MCI_MODE_STOP) {
+-	int	oldstat = wmm->dwStatus;
+-
+ 	wmm->dwStatus = MCI_MODE_NOT_READY;
+-	if (oldstat == MCI_MODE_PAUSE)
+-	    dwRet = midiOutReset((HMIDIOUT)wmm->hMidi);
+ 
++	SetEvent(wmm->hEvent);
+ 	if ((dwFlags & MCI_WAIT) && wmm->hThread)
+ 	    WaitForSingleObject(wmm->hThread, INFINITE);
+     }
+@@ -812,6 +809,7 @@ static DWORD MIDI_mciClose(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS
+ 	    TRACE("hFile closed !\n");
+ 	}
+ 	if (wmm->hThread) CloseHandle(wmm->hThread);
++	if (wmm->hEvent)  CloseHandle(wmm->hEvent);
+ 	HeapFree(GetProcessHeap(), 0, wmm->tracks);
+ 	HeapFree(GetProcessHeap(), 0, wmm->lpstrElementName);
+ 	HeapFree(GetProcessHeap(), 0, wmm->lpstrCopyright);
+@@ -861,6 +859,7 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+     MCI_MIDITRACK*	mmt;
+     DWORD		hiPulse, dwStartMS = wmm->dwPositionMS;
+     HANDLE		oldcb = NULL;
++    BOOLEAN		startedPlaying = FALSE;
+ 
+     /* init tracks */
+     for (nt = 0; nt < wmm->nTracks; nt++) {
+@@ -884,13 +883,8 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+     wmm->dwPulse = 0;
+     wmm->dwTempo = 500000;
+     wmm->dwPositionMS = 0;
+-    wmm->wStartedPlaying = FALSE;
+ 
+     while (wmm->dwStatus != MCI_MODE_STOP && wmm->dwStatus != MCI_MODE_NOT_READY) {
+-	/* it seems that in case of multi-threading, gcc is optimizing just a little bit
+-	 * too much. Tell gcc not to optimize status value using volatile.
+-	 */
+-	while (((volatile WINE_MCIMIDI*)wmm)->dwStatus == MCI_MODE_PAUSE);
+ 
+ 	doPlay = (wmm->dwPositionMS >= dwStartMS && wmm->dwPositionMS <= wmm->dwEndMS);
+ 
+@@ -902,9 +896,9 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+ 	/* if starting playing, then set StartTicks to the value it would have had
+ 	 * if play had started at position 0
+ 	 */
+-	if (doPlay && !wmm->wStartedPlaying) {
++	if (doPlay && !startedPlaying) {
+ 	    wmm->dwStartTicks = GetTickCount() - MIDI_ConvertPulseToMS(wmm, wmm->dwPulse);
+-	    wmm->wStartedPlaying = TRUE;
++	    startedPlaying = TRUE;
+ 	    TRACE("Setting dwStartTicks to %u\n", wmm->dwStartTicks);
+ 	}
+ 
+@@ -923,6 +917,18 @@ static DWORD MIDI_player(WINE_MCIMIDI* wmm, DWORD dwFlags)
+ 	    wmm->dwPulse = hiPulse;
+ 	}
+ 
++	if (wmm->dwStatus == MCI_MODE_PAUSE) {
++	    /* stop all notes */
++	    unsigned chn;
++	    for (chn = 0; chn < 16; chn++)
++		midiOutShortMsg((HMIDIOUT)(wmm->hMidi), 0x78B0 | chn);
++	    do {
++		WaitForSingleObject(wmm->hEvent, INFINITE);
++	    } while (wmm->dwStatus == MCI_MODE_PAUSE);
++	    startedPlaying = FALSE;
++	    continue; /* after sleeping, check conditions again */
++	}
++
+ 	switch (LOBYTE(LOWORD(mmt->dwEventData))) {
+ 	case 0xF0:
+ 	case 0xF7:	/* sysex events */
+@@ -1113,6 +1119,12 @@ static DWORD ensurePlayerThread(WINE_MCIMIDI* wmm)
+ 	    break;
+ 	}
+ 	wmm->dwStatus = MCI_MODE_PLAY;
++
++	if (!wmm->hEvent) {
++	    wmm->hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
++	    if (!wmm->hEvent)
++		return MCIERR_OUT_OF_MEMORY;
++	}
+ 	if (wmm->hThread) {
+ 	    WaitForSingleObject(wmm->hThread, INFINITE);
+ 	    CloseHandle(wmm->hThread);
+@@ -1198,12 +1210,10 @@ static DWORD MIDI_mciPause(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARMS
+     TRACE("(%d, %08X, %p);\n", wmm->wDevID, dwFlags, lpParms);
+ 
+     if (wmm->dwStatus == MCI_MODE_PLAY) {
+-	/* stop all notes */
+-	unsigned chn;
+-	for (chn = 0; chn < 16; chn++)
+-	    midiOutShortMsg((HMIDIOUT)(wmm->hMidi), 0x78B0 | chn);
+ 	wmm->dwStatus = MCI_MODE_PAUSE;
++	ResetEvent(wmm->hEvent);
+     }
++
+     if ((dwFlags & MCI_NOTIFY) && lpParms)
+ 	MIDI_mciNotify(lpParms->dwCallback, wmm, MCI_NOTIFY_SUCCESSFUL);
+     return 0;
+@@ -1217,8 +1227,8 @@ static DWORD MIDI_mciResume(WINE_MCIMIDI* wmm, DWORD dwFlags, LPMCI_GENERIC_PARM
+     TRACE("(%d, %08X, %p);\n", wmm->wDevID, dwFlags, lpParms);
+ 
+     if (wmm->dwStatus == MCI_MODE_PAUSE) {
+-	wmm->wStartedPlaying = FALSE;
+ 	wmm->dwStatus = MCI_MODE_PLAY;
++	SetEvent(wmm->hEvent);
+     }
+     if ((dwFlags & MCI_NOTIFY) && lpParms)
+ 	MIDI_mciNotify(lpParms->dwCallback, wmm, MCI_NOTIFY_SUCCESSFUL);
+-- 
+1.5.6.3
+

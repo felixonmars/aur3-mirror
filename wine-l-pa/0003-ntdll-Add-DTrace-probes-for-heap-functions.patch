@@ -1,0 +1,618 @@
+From f70235ba3bf8059698f246fbaf9c7c7a799e87e7 Mon Sep 17 00:00:00 2001
+From: Andrea Canciani <ranma42@gmail.com>
+Date: Sun, 26 Feb 2012 12:47:22 +0100
+Subject: [PATCH 3/5] ntdll: Add DTrace probes for heap functions
+
+Plug DTrace probes into the ntdll heap functions.
+---
+ dlls/ntdll/heap-provider.d |  172 +++++++++++++++++++++++++++++
+ dlls/ntdll/heap.c          |  255 ++++++++++++++++++++++++++++++++++++++++----
+ 2 files changed, 406 insertions(+), 21 deletions(-)
+ create mode 100644 dlls/ntdll/heap-provider.d
+
+diff --git a/dlls/ntdll/heap-provider.d b/dlls/ntdll/heap-provider.d
+new file mode 100644
+index 0000000..8b307f5
+--- /dev/null
++++ b/dlls/ntdll/heap-provider.d
+@@ -0,0 +1,172 @@
++/*
++ * DTrace provider for probes in ntdll heap functions.
++ *
++ * Generate the header running:
++ *   dtrace -h -s heap-provider.d
++ *
++ */
++
++provider ntdllheap {
++
++    /* Public functions entry points */
++
++    probe rtl__create__heap__start( unsigned int   flags,
++				    void          *addr,
++				    unsigned long  totalSize,
++				    unsigned long  commitSize,
++				    void          *unknown,
++				    void          *definition );
++
++    probe rtl__destroy__heap__start( void *heap );
++
++    probe rtl__allocate__heap__start( void          *heap,
++				      unsigned int   flags,
++				      unsigned long  size );
++
++    probe rtl__free__heap__start( void         *heap,
++				  unsigned int  flags,
++				  void         *ptr );
++
++    probe rtl__re__allocate__heap__start( void          *heap,
++					  unsigned int   flags,
++					  void          *ptr,
++					  unsigned long  size );
++
++    probe rtl__compact__heap__start( void         *heap,
++				     unsigned int  flags );
++
++    probe rtl__lock__heap__start( void *heap );
++
++    probe rtl__unlock__heap__start( void *heap );
++
++    probe rtl__size__heap__start( void         *heap,
++				  unsigned int  flags,
++				  const void   *ptr );
++
++    probe rtl__validate__heap__start( void         *heap,
++				      unsigned int  flags,
++				      const void   *ptr );
++
++    probe rtl__walk__heap__start( void *heap,
++				  void *start_ptr );
++
++    probe rtl__get__process__heaps__start( unsigned int   count,
++					   void         **heaps );
++
++    probe rtl__query__heap__information__start( void          *heap,
++						unsigned int   info_class,
++						void          *info,
++						unsigned long  size_in,
++						unsigned long *size_out );
++
++
++    /* Public functions return points */
++
++    probe rtl__create__heap__done( void          *r,
++				   unsigned int   flags,
++				   void          *addr,
++				   unsigned long  totalSize,
++				   unsigned long  commitSize,
++				   void          *unknown,
++				   void          *definition );
++
++    probe rtl__destroy__heap__done( void *r,
++				    void *heap );
++
++    probe rtl__allocate__heap__done( void          *r,
++				     void          *heap,
++				     unsigned int   flags,
++				     unsigned long  size );
++
++    probe rtl__free__heap__done( int           r,
++				 void         *heap,
++				 unsigned int  flags,
++				 void         *ptr );
++
++    probe rtl__re__allocate__heap__done( void          *r,
++					 void          *heap,
++					 unsigned int   flags,
++					 void          *ptr,
++					 unsigned long  size );
++
++    probe rtl__compact__heap__done( unsigned int  r,
++				    void         *heap,
++				    unsigned int  flags );
++
++    probe rtl__lock__heap__done( int   r,
++				 void *heap );
++
++    probe rtl__unlock__heap__done( int   r,
++				   void *heap );
++
++    probe rtl__size__heap__done( unsigned long  r,
++				 void          *heap,
++				 unsigned int   flags,
++				 const void    *ptr );
++
++    probe rtl__validate__heap__done( int           r,
++				     void         *heap,
++				     unsigned int  flags,
++				     const void   *ptr );
++
++    probe rtl__walk__heap__done( unsigned int  r,
++				 void         *heap,
++				 void         *done_ptr );
++
++    probe rtl__get__process__heaps__done( unsigned int   r,
++					  unsigned int   count,
++					  void         **heaps );
++
++    probe rtl__query__heap__information__done( unsigned int   r,
++					       void          *heap,
++					       unsigned int   info_class,
++					       void          *info,
++					       unsigned long  size_in,
++					       unsigned long *size_out );
++
++
++    /* Utility probes */
++
++    probe get__freelist__index__at__least__start( unsigned long size );
++
++    probe get__freelist__index__at__least__done( unsigned int r,
++						 unsigned long size );
++
++    probe get__freelist__index__at__most__start( unsigned long size );
++
++    probe get__freelist__index__at__most__done( unsigned int r,
++						unsigned long size );
++
++
++    probe heap__insert__free__block__start(void          *heap,
++					   void *pArena,
++					   unsigned long size,
++					   int last);
++
++    probe heap__insert__free__block__done(unsigned long no_result,
++					  void          *heap,
++					  void *pArena,
++					  unsigned long size,
++					  int last);
++
++
++    probe heap__find__free__block__start(void          *heap,
++					 unsigned long  size,
++					 void          *ppSubHeap);
++
++    probe heap__find__free__block__done(void *r,
++					void          *heap,
++					unsigned long  size,
++					void          *ppSubHeap);
++
++    probe heap__find__free__block__mismatch(void          *heap,
++					    unsigned long  size,
++					    unsigned long  arena_size);
++
++    probe heap__find__free__block__match(void          *heap,
++					 unsigned long  size,
++					 unsigned long  arena_size);
++
++    probe heap__find__free__block__grow(void          *heap,
++					unsigned long  size);
++};
+diff --git a/dlls/ntdll/heap.c b/dlls/ntdll/heap.c
+index e27ffe4..ac84308 100644
+--- a/dlls/ntdll/heap.c
++++ b/dlls/ntdll/heap.c
+@@ -27,6 +27,7 @@
+ #include <stdarg.h>
+ #include <stdio.h>
+ #include <string.h>
++#include "heap-provider.h"
+ #ifdef HAVE_VALGRIND_MEMCHECK_H
+ #include <valgrind/memcheck.h>
+ #else
+@@ -312,16 +313,33 @@ static inline unsigned int get_freelist_index( SIZE_T size )
+ /* size is the size of the whole block including the arena header */
+ static inline unsigned int get_freelist_index_at_least( SIZE_T size )
+ {
+-    return get_freelist_index(size);
++    unsigned int r;
++
++    NTDLLHEAP_GET_FREELIST_INDEX_AT_LEAST_START(size);
++
++    r = get_freelist_index(size);
++
++    NTDLLHEAP_GET_FREELIST_INDEX_AT_LEAST_DONE(r, size);
++
++    return r;
+ }
+ 
+ /* compute the smallest index whose elements are at most as big as size */
+ /* size is the size of the whole block including the arena header */
+ static inline unsigned int get_freelist_index_at_most( SIZE_T size )
+ {
+-    return get_freelist_index(size + 1) - 1;
++    unsigned int r;
++
++    NTDLLHEAP_GET_FREELIST_INDEX_AT_MOST_START(size);
++
++    r = get_freelist_index(size + 1) - 1;
++
++    NTDLLHEAP_GET_FREELIST_INDEX_AT_MOST_DONE(r, size);
++
++    return r;
+ }
+ 
++
+ /* get the memory protection type to use for a given heap */
+ static inline ULONG get_protection_type( DWORD flags )
+ {
+@@ -481,7 +499,11 @@ static HEAP *HEAP_GetPtr(
+  */
+ static inline void HEAP_InsertFreeBlock( HEAP *heap, ARENA_FREE *pArena, BOOL last )
+ {
+-    FREE_LIST_ENTRY *pEntry = heap->freeList + get_freelist_index_at_most( pArena->size + sizeof(*pArena) );
++    FREE_LIST_ENTRY *pEntry;
++
++    NTDLLHEAP_HEAP_INSERT_FREE_BLOCK_START(heap, pArena, pArena->size, last);
++
++    pEntry = heap->freeList + get_freelist_index_at_most( pArena->size + sizeof(*pArena) );
+ 
+     if (last)
+     {
+@@ -496,6 +518,8 @@ static inline void HEAP_InsertFreeBlock( HEAP *heap, ARENA_FREE *pArena, BOOL la
+         list_add_after( &pEntry->arena.entry, &pArena->entry );
+     }
+     pArena->size |= ARENA_FLAG_FREE;
++
++    NTDLLHEAP_HEAP_INSERT_FREE_BLOCK_DONE(0, heap, pArena, pArena->size, last);
+ }
+ 
+ 
+@@ -1002,8 +1026,8 @@ static SUBHEAP *HEAP_CreateSubHeap( HEAP *heap, LPVOID address, DWORD flags,
+  * Find a free block at least as large as the requested size, and make sure
+  * the requested size is committed.
+  */
+-static ARENA_FREE *HEAP_FindFreeBlock( HEAP *heap, SIZE_T size,
+-                                       SUBHEAP **ppSubHeap )
++static ARENA_FREE *loggedHEAP_FindFreeBlock( HEAP *heap, SIZE_T size,
++					     SUBHEAP **ppSubHeap )
+ {
+     SUBHEAP *subheap;
+     struct list *ptr;
+@@ -1020,13 +1044,18 @@ static ARENA_FREE *HEAP_FindFreeBlock( HEAP *heap, SIZE_T size,
+                             sizeof(ARENA_FREE) - sizeof(ARENA_INUSE);
+         if (arena_size >= size)
+         {
++	    NTDLLHEAP_HEAP_FIND_FREE_BLOCK_MATCH(heap, size, arena_size);
+             subheap = HEAP_FindSubHeap( heap, pArena );
+             if (!HEAP_Commit( subheap, (ARENA_INUSE *)pArena, size )) return NULL;
+             *ppSubHeap = subheap;
+             return pArena;
+         }
++
++	NTDLLHEAP_HEAP_FIND_FREE_BLOCK_MISMATCH(heap, size, arena_size);
+     }
+ 
++    NTDLLHEAP_HEAP_FIND_FREE_BLOCK_GROW(heap, size);
++
+     /* If no block was found, attempt to grow the heap */
+ 
+     if (!(heap->flags & HEAP_GROWABLE))
+@@ -1062,6 +1091,19 @@ static ARENA_FREE *HEAP_FindFreeBlock( HEAP *heap, SIZE_T size,
+     return (ARENA_FREE *)((char *)subheap->base + subheap->headerSize);
+ }
+ 
++static ARENA_FREE *HEAP_FindFreeBlock( HEAP *heap, SIZE_T size,
++				       SUBHEAP **ppSubHeap )
++{
++    ARENA_FREE *r;
++
++    NTDLLHEAP_HEAP_FIND_FREE_BLOCK_START(heap, size, ppSubHeap);
++
++    r = loggedHEAP_FindFreeBlock(heap, size, ppSubHeap);
++
++    NTDLLHEAP_HEAP_FIND_FREE_BLOCK_DONE(r, heap, size, ppSubHeap);
++
++    return r;
++}
+ 
+ /***********************************************************************
+  *           HEAP_IsValidArenaPtr
+@@ -1552,8 +1594,8 @@ void heap_set_debug_flags( HANDLE handle )
+  *  Success: A HANDLE to the newly created heap.
+  *  Failure: a NULL HANDLE.
+  */
+-HANDLE WINAPI RtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T commitSize,
+-                             PVOID unknown, PRTL_HEAP_DEFINITION definition )
++static HANDLE WINAPI loggedRtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T commitSize,
++					  PVOID unknown, PRTL_HEAP_DEFINITION definition )
+ {
+     SUBHEAP *subheap;
+ 
+@@ -1599,7 +1641,7 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T c
+  *  Success: A NULL HANDLE, if heap is NULL or it was destroyed
+  *  Failure: The Heap handle, if heap is the process heap.
+  */
+-HANDLE WINAPI RtlDestroyHeap( HANDLE heap )
++static HANDLE WINAPI loggedRtlDestroyHeap( HANDLE heap )
+ {
+     HEAP *heapPtr = HEAP_GetPtr( heap );
+     SUBHEAP *subheap, *next;
+@@ -1667,7 +1709,7 @@ HANDLE WINAPI RtlDestroyHeap( HANDLE heap )
+  * NOTES
+  *  This call does not SetLastError().
+  */
+-PVOID WINAPI RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_T size )
++static PVOID WINAPI loggedRtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_T size )
+ {
+     ARENA_FREE *pArena;
+     ARENA_INUSE *pInUse;
+@@ -1683,7 +1725,7 @@ PVOID WINAPI RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_T size )
+     rounded_size = ROUND_SIZE(size) + HEAP_TAIL_EXTRA_SIZE( flags );
+     if (rounded_size < size)  /* overflow */
+     {
+-        if (flags & HEAP_GENERATE_EXCEPTIONS) RtlRaiseStatus( STATUS_NO_MEMORY );
++       if (flags & HEAP_GENERATE_EXCEPTIONS) RtlRaiseStatus( STATUS_NO_MEMORY );
+         return NULL;
+     }
+     if (rounded_size < HEAP_MIN_DATA_SIZE) rounded_size = HEAP_MIN_DATA_SIZE;
+@@ -1752,7 +1794,7 @@ PVOID WINAPI RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_T size )
+  *  Success: TRUE, if ptr is NULL or was freed successfully.
+  *  Failure: FALSE.
+  */
+-BOOLEAN WINAPI RtlFreeHeap( HANDLE heap, ULONG flags, PVOID ptr )
++static BOOLEAN WINAPI loggedRtlFreeHeap( HANDLE heap, ULONG flags, PVOID ptr )
+ {
+     ARENA_INUSE *pInUse;
+     SUBHEAP *subheap;
+@@ -1812,7 +1854,7 @@ error:
+  *  Success: A pointer to the resized block (which may be different).
+  *  Failure: NULL.
+  */
+-PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size )
++static PVOID WINAPI loggedRtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size )
+ {
+     ARENA_INUSE *pArena;
+     HEAP *heapPtr;
+@@ -1960,7 +2002,7 @@ error:
+  * NOTES
+  *  This function is a harmless stub.
+  */
+-ULONG WINAPI RtlCompactHeap( HANDLE heap, ULONG flags )
++static ULONG WINAPI loggedRtlCompactHeap( HANDLE heap, ULONG flags )
+ {
+     static BOOL reported;
+     if (!reported++) FIXME( "(%p, 0x%x) stub\n", heap, flags );
+@@ -1980,7 +2022,7 @@ ULONG WINAPI RtlCompactHeap( HANDLE heap, ULONG flags )
+  *  Success: TRUE. The Heap is locked.
+  *  Failure: FALSE, if heap is invalid.
+  */
+-BOOLEAN WINAPI RtlLockHeap( HANDLE heap )
++static BOOLEAN WINAPI loggedRtlLockHeap( HANDLE heap )
+ {
+     HEAP *heapPtr = HEAP_GetPtr( heap );
+     if (!heapPtr) return FALSE;
+@@ -2001,7 +2043,7 @@ BOOLEAN WINAPI RtlLockHeap( HANDLE heap )
+  *  Success: TRUE. The Heap is unlocked.
+  *  Failure: FALSE, if heap is invalid.
+  */
+-BOOLEAN WINAPI RtlUnlockHeap( HANDLE heap )
++static BOOLEAN WINAPI loggedRtlUnlockHeap( HANDLE heap )
+ {
+     HEAP *heapPtr = HEAP_GetPtr( heap );
+     if (!heapPtr) return FALSE;
+@@ -2027,7 +2069,7 @@ BOOLEAN WINAPI RtlUnlockHeap( HANDLE heap )
+  * NOTES
+  *  The size may be bigger than what was passed to RtlAllocateHeap().
+  */
+-SIZE_T WINAPI RtlSizeHeap( HANDLE heap, ULONG flags, const void *ptr )
++static SIZE_T WINAPI loggedRtlSizeHeap( HANDLE heap, ULONG flags, const void *ptr )
+ {
+     SIZE_T ret;
+     const ARENA_INUSE *pArena;
+@@ -2079,7 +2121,7 @@ SIZE_T WINAPI RtlSizeHeap( HANDLE heap, ULONG flags, const void *ptr )
+  *  Success: TRUE. The block was allocated from heap.
+  *  Failure: FALSE, if heap is invalid or ptr was not allocated from it.
+  */
+-BOOLEAN WINAPI RtlValidateHeap( HANDLE heap, ULONG flags, LPCVOID ptr )
++static BOOLEAN WINAPI loggedRtlValidateHeap( HANDLE heap, ULONG flags, LPCVOID ptr )
+ {
+     HEAP *heapPtr = HEAP_GetPtr( heap );
+     if (!heapPtr) return FALSE;
+@@ -2094,7 +2136,7 @@ BOOLEAN WINAPI RtlValidateHeap( HANDLE heap, ULONG flags, LPCVOID ptr )
+  *  The PROCESS_HEAP_ENTRY flag values seem different between this
+  *  function and HeapWalk(). To be checked.
+  */
+-NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
++static NTSTATUS WINAPI loggedRtlWalkHeap( HANDLE heap, PVOID entry_ptr )
+ {
+     LPPROCESS_HEAP_ENTRY entry = entry_ptr; /* FIXME */
+     HEAP *heapPtr = HEAP_GetPtr(heap);
+@@ -2228,7 +2270,7 @@ HW_end:
+  *  Success: The number of Heaps allocated by the process.
+  *  Failure: 0.
+  */
+-ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
++static ULONG WINAPI loggedRtlGetProcessHeaps( ULONG count, HANDLE *heaps )
+ {
+     ULONG total = 1;  /* main heap */
+     struct list *ptr;
+@@ -2248,8 +2290,8 @@ ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
+ /***********************************************************************
+  *           RtlQueryHeapInformation    (NTDLL.@)
+  */
+-NTSTATUS WINAPI RtlQueryHeapInformation( HANDLE heap, HEAP_INFORMATION_CLASS info_class,
+-                                         PVOID info, SIZE_T size_in, PSIZE_T size_out)
++static NTSTATUS WINAPI loggedRtlQueryHeapInformation( HANDLE heap, HEAP_INFORMATION_CLASS info_class,
++						      PVOID info, SIZE_T size_in, PSIZE_T size_out)
+ {
+     switch (info_class)
+     {
+@@ -2267,3 +2309,174 @@ NTSTATUS WINAPI RtlQueryHeapInformation( HANDLE heap, HEAP_INFORMATION_CLASS inf
+         return STATUS_INVALID_INFO_CLASS;
+     }
+ }
++
++HANDLE WINAPI RtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T commitSize,
++			     PVOID unknown, PRTL_HEAP_DEFINITION definition )
++{
++    HANDLE r;
++
++    NTDLLHEAP_RTL_CREATE_HEAP_START(flags, addr, totalSize, commitSize, unknown, definition);
++
++    r = loggedRtlCreateHeap(flags, addr, totalSize, commitSize, unknown, definition);
++
++    NTDLLHEAP_RTL_CREATE_HEAP_DONE(r, flags, addr, totalSize, commitSize, unknown, definition);
++
++    return r;
++}
++
++HANDLE WINAPI RtlDestroyHeap( HANDLE heap )
++{
++    HANDLE r;
++
++    NTDLLHEAP_RTL_DESTROY_HEAP_START(heap);
++
++    r = loggedRtlDestroyHeap (heap);
++
++    NTDLLHEAP_RTL_DESTROY_HEAP_DONE(r, heap);
++
++    return r;
++}
++
++PVOID WINAPI RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_T size )
++{
++    PVOID r;
++
++    NTDLLHEAP_RTL_ALLOCATE_HEAP_START(heap, flags, size);
++
++    r = loggedRtlAllocateHeap (heap, flags, size);
++
++    NTDLLHEAP_RTL_ALLOCATE_HEAP_DONE(r, heap, flags, size);
++
++    return r;
++}
++
++BOOLEAN WINAPI RtlFreeHeap( HANDLE heap, ULONG flags, PVOID ptr )
++{
++    BOOLEAN r;
++
++    NTDLLHEAP_RTL_FREE_HEAP_START(heap, flags, ptr);
++
++    r = loggedRtlFreeHeap (heap, flags, ptr);
++
++    NTDLLHEAP_RTL_FREE_HEAP_DONE(r, heap, flags, ptr);
++
++    return r;
++}
++
++PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size )
++{
++    PVOID r;
++
++    NTDLLHEAP_RTL_RE_ALLOCATE_HEAP_START(heap, flags, ptr, size);
++
++    r = loggedRtlReAllocateHeap (heap, flags, ptr, size);
++
++    NTDLLHEAP_RTL_RE_ALLOCATE_HEAP_DONE(r, heap, flags, ptr, size);
++
++    return r;
++}
++
++ULONG WINAPI RtlCompactHeap( HANDLE heap, ULONG flags )
++{
++    ULONG r;
++
++    NTDLLHEAP_RTL_COMPACT_HEAP_START(heap, flags);
++
++    r = loggedRtlCompactHeap (heap, flags);
++
++    NTDLLHEAP_RTL_COMPACT_HEAP_DONE(r, heap, flags);
++
++    return r;
++}
++
++BOOLEAN WINAPI RtlLockHeap( HANDLE heap )
++{
++    BOOLEAN r;
++
++    NTDLLHEAP_RTL_LOCK_HEAP_START(heap);
++
++    r = loggedRtlLockHeap (heap);
++
++    NTDLLHEAP_RTL_LOCK_HEAP_DONE(r, heap);
++
++    return r;
++}
++
++BOOLEAN WINAPI RtlUnlockHeap( HANDLE heap )
++{
++    BOOLEAN r;
++
++    NTDLLHEAP_RTL_LOCK_HEAP_START(heap);
++
++    r = loggedRtlUnlockHeap (heap);
++
++    NTDLLHEAP_RTL_LOCK_HEAP_DONE(r, heap);
++
++    return r;
++}
++
++SIZE_T WINAPI RtlSizeHeap( HANDLE heap, ULONG flags, const void *ptr )
++{
++    SIZE_T r;
++
++    NTDLLHEAP_RTL_SIZE_HEAP_START(heap, flags, ptr);
++
++    r = loggedRtlSizeHeap (heap, flags, ptr);
++
++    NTDLLHEAP_RTL_SIZE_HEAP_DONE(r, heap, flags, ptr);
++
++    return r;
++}
++
++BOOLEAN WINAPI RtlValidateHeap( HANDLE heap, ULONG flags, LPCVOID ptr )
++{
++    BOOLEAN r;
++
++    NTDLLHEAP_RTL_VALIDATE_HEAP_START(heap, flags, ptr);
++
++    r = loggedRtlValidateHeap (heap, flags, ptr);
++
++    NTDLLHEAP_RTL_VALIDATE_HEAP_DONE(r, heap, flags, ptr);
++
++    return r;
++}
++
++NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
++{
++    NTSTATUS r;
++
++    NTDLLHEAP_RTL_WALK_HEAP_START(heap, entry_ptr);
++
++    r = loggedRtlWalkHeap (heap, entry_ptr);
++
++    NTDLLHEAP_RTL_WALK_HEAP_DONE(r, heap, entry_ptr);
++
++    return r;
++}
++
++ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
++{
++    ULONG r;
++
++    NTDLLHEAP_RTL_GET_PROCESS_HEAPS_START(count, heaps);
++
++    r = loggedRtlGetProcessHeaps (count, heaps);
++
++    NTDLLHEAP_RTL_GET_PROCESS_HEAPS_DONE(r, count, heaps);
++
++    return r;
++}
++
++NTSTATUS WINAPI RtlQueryHeapInformation( HANDLE heap, HEAP_INFORMATION_CLASS info_class,
++					 PVOID info, SIZE_T size_in, PSIZE_T size_out)
++{
++    NTSTATUS r;
++
++    NTDLLHEAP_RTL_QUERY_HEAP_INFORMATION_START(heap, info_class, info, size_in, size_out);
++
++    r = loggedRtlQueryHeapInformation (heap, info_class, info, size_in, size_out);
++
++    NTDLLHEAP_RTL_QUERY_HEAP_INFORMATION_DONE(r, heap, info_class, info, size_in, size_out);
++
++    return r;
++}
+-- 
+1.7.7.5 (Apple Git-26)
+
