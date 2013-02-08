@@ -1,5 +1,3 @@
-# Maintainer: Federico Cinelli <cinelli.federico@gmail.com>
-
 pkgname=alsa-driver.hda-intel.hda-codec-realtek
 pkgver=1.0.25
 pkgrel=0
