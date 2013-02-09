@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-nizhnevartovsk
-pkgver=80
+pkgver=81
 pkgrel=1
-pkgdesc="Map of Nizhnevartovsk for 2GIS, January 2013"
+pkgdesc="Map of Nizhnevartovsk for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://nizhnevartovsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Nizhnevartovsk-80.orig.zip")
-md5sums=('3d9c558564458b075278f4ed8c2d081a')
+source=("http://download.2gis.ru/arhives/2GISData_Nizhnevartovsk-81.orig.zip")
+md5sums=('e6f328fa415874751776e7dcb466e418')
      
 build() {
      

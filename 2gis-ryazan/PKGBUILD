@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-ryazan
-pkgver=21
+pkgver=22
 pkgrel=1
-pkgdesc="Map of Ryazan for 2GIS, January 2013"
+pkgdesc="Map of Ryazan for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://ryazan.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ryazan-21.orig.zip")
-md5sums=('c267ed09fa05e2d9fafa5a5bcd98eac9')
+source=("http://download.2gis.ru/arhives/2GISData_Ryazan-22.orig.zip")
+md5sums=('34568f3f66f4da8e42c72711a1974057')
      
 build() {
      

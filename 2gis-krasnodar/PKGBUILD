@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-krasnodar
-pkgver=36
+pkgver=37
 pkgrel=1
-pkgdesc="Map of Krasnodar for 2GIS, January 2013"
+pkgdesc="Map of Krasnodar for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://krasnodar.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Krasnodar-36.orig.zip")
-md5sums=('e2ce779168f0548d21e30678cb8b1ea7')
+source=("http://download.2gis.ru/arhives/2GISData_Krasnodar-37.orig.zip")
+md5sums=('2bb19700dc376e3dc35dae0e4f8fd761')
      
 build() {
      

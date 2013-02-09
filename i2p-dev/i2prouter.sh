@@ -101,7 +101,7 @@ _start() {
             ((i++))
         done
         [[ $(get_pid) ]] &&
-            echo " done" || fail "Failed to start wrapper!"
+            echo " done" || fail "timeout: Failed to start wrapper!"
     else
         echo "I2P Service is already running"
     fi
@@ -113,14 +113,14 @@ _stop() {
         kill -TERM $pid
         [[ $? != 0 ]] && fail "Unable to stop I2P Service: kill -TERM $pid"
         i=0
-        while [[ "$pid" || $i < $TIMEOUT ]]; do
+        while [[ "$pid" || $i > $TIMEOUT ]]; do
             echo -n "."
             sleep 2
             [[ ! $(get_pid) ]] && unset pid
             ((i++))
         done
         if [[ "$pid" ]]; then
-            fail "Failed to stop wrapper!"
+            fail "timeout: Failed to stop wrapper!"
         else
             echo " done"
             [[ "$1" = 'start' ]] && _start

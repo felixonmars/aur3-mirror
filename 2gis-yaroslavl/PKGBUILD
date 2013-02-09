@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-yaroslavl
-pkgver=31
+pkgver=32
 pkgrel=1
-pkgdesc="Map of Yaroslavl for 2GIS, January 2013"
+pkgdesc="Map of Yaroslavl for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://yaroslavl.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Yaroslavl-31.orig.zip")
-md5sums=('4c1fe3449de1c416273ba48fc93766c7')
+source=("http://download.2gis.ru/arhives/2GISData_Yaroslavl-32.orig.zip")
+md5sums=('a78d2ce6b5e3e287d0316325cc4d7136')
      
 build() {
      

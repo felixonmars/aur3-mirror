@@ -1,13 +1,13 @@
 pkgname=2gis-ulyanovsk
-pkgver=14
+pkgver=15
 pkgrel=1
-pkgdesc="Map of Ulyanovsk for 2GIS, January 2013"
+pkgdesc="Map of Ulyanovsk for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://ulyanovsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ulyanovsk-14.orig.zip")
-md5sums=('ff822ddde09737fcd1e346d1d0b71919')
+source=("http://download.2gis.ru/arhives/2GISData_Ulyanovsk-15.orig.zip")
+md5sums=('cd036016f3ed19b0d9ff9e2272975eca')
 
 build() {
   cd $startdir

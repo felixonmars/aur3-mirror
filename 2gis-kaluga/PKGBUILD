@@ -1,13 +1,13 @@
 pkgname=2gis-kaluga
-pkgver=11
+pkgver=12
 pkgrel=1
-pkgdesc="Map of Kaluga for 2GIS, January 2013"
+pkgdesc="Map of Kaluga for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://kaluga.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Kaluga-11.orig.zip")
-md5sums=('5b3d0e11a7ee4331b6f918bfe5a099df')
+source=("http://download.2gis.ru/arhives/2GISData_Kaluga-12.orig.zip")
+md5sums=('7cd423e3123104a1b8980b58ffe8e019')
 
 build() {
   cd $startdir

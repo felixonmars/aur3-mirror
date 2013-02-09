@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-nabchelny
-pkgver=31
+pkgver=32
 pkgrel=1
-pkgdesc="Map of Naberezhnye Chelny for 2GIS, January 2013"
+pkgdesc="Map of Naberezhnye Chelny for 2GIS, February 2013"
 arch=('i686' 'x86_64')
 url="http://nchelny.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-31.orig.zip")
-md5sums=('e4a0820fac8869f52047d1e9dcf2fe4f')
+source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-32.orig.zip")
+md5sums=('6430dfdaaf86a78eca1014283993332c')
      
 build() {
      
