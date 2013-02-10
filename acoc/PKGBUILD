@@ -18,11 +18,11 @@ md5sums=('c7fa847e2d55eccbc6625d3e22ad609e'
          'e2e788d561c29af53ce119fb422a34e9')
 
 build() {
-  cd $srcdir/$pkgname-$pkgver
-  patch acoc <$srcdir/fix_class_clash.patch
+  cd "$srcdir/$pkgname-$pkgver"
+  patch acoc < "$srcdir/fix_class_clash.patch"
 }
 
 package() {
-  cd $srcdir/$pkgname-$pkgver
+  cd "$srcdir/$pkgname-$pkgver"
   make install ROOT="$pkgdir"
 }
