@@ -3,14 +3,14 @@ pkgname=dcal-git
 pkgver=1
 pkgrel=1
 pkgdesc="A generic calendar for X"
-url="https://git.eatabrick.org/dcal.git/"
+url="https://github.com/bentglasstube/dcal"
 license='MIT'
 arch=('i686' 'x86_64')
 depends=('libx11')
 makedepends=('git')
 provides=('dcal')
 
-_gitroot='https://git.eatabrick.org'
+_gitroot='git://github.com/bentglasstube'
 _gitrepo='dcal'
 
 build() {
