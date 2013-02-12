@@ -498,104 +498,29 @@ static void macmenu_construct(AppletType* applet)
   mmb->notebook = GTK_NOTEBOOK(gtk_notebook_new());
   gtk_notebook_set_show_tabs(mmb->notebook, FALSE);
   gtk_notebook_set_show_border(mmb->notebook, FALSE);
-  gtk_box_pack_start(mmb->basebox, GTK_WIDGET(mmb->notebook), TRUE, TRUE, 0);
-
-  mmb->dummysck = gtk_hbox_new(FALSE, 0);
-  gtk_notebook_append_page(mmb->notebook, mmb->dummysck, NULL);
-
-  mmb->mainsck = gtk_hbox_new(FALSE, SHORTCUT_SPACING);
-  gtk_notebook_append_page(mmb->notebook, mmb->mainsck, NULL);
-  //initialize_mainsck(mmb);
-
-  mmb->button = GTK_BUTTON(gtk_button_new());
-  gtk_button_set_relief(mmb->button, GTK_RELIEF_NONE);
-  gtk_button_set_focus_on_click(GTK_BUTTON(mmb->button), FALSE);
-  gtk_box_pack_start(mmb->basebox, GTK_WIDGET(mmb->button),
-                     FALSE, FALSE, 0);
-
-  g_signal_connect(mmb->screen, "active-window-changed",
-                   G_CALLBACK(desktop_active_window_changed), mmb);
-  g_signal_connect(mmb->screen, "window-opened",
-                   G_CALLBACK(desktop_window_opened), mmb);
-
-#ifdef FOR_XFCE
-  g_signal_connect(applet, "free-data",
-                   G_CALLBACK(macmenu_free_data), mmb);
-  g_signal_connect(applet, "size-changed",
-                   G_CALLBACK(macmenu_set_size), mmb);
-  // setup panel applet
-  gtk_widget_show_all(GTK_WIDGET(mmb->basebox));
-  xfce_panel_plugin_add_action_widget (applet, GTK_WIDGET(mmb->button));
-  xfce_panel_plugin_set_expand(applet, TRUE);
-  macmenu_set_size(applet, xfce_panel_plugin_get_size(applet), mmb);
-  // load config, set popup
-  macmenu_load_from_rc(mmb);
-  GtkWidget* label_toggle = gtk_check_menu_item_new_with_label("Hide Label");
-  g_signal_connect(label_toggle, "toggled", G_CALLBACK(on_label_toggled), mmb);
-  gtk_widget_show(label_toggle);
-  gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(label_toggle), mmb->hide_label);
-  gtk_check_menu_item_toggled(GTK_CHECK_MENU_ITEM(label_toggle));
-  xfce_panel_plugin_menu_insert_item(mmb->applet, GTK_MENU_ITEM(label_toggle));
-
-#elif FOR_GNOME
-  g_signal_connect(applet, "destroy", G_CALLBACK(macmenu_free_data), mmb);
-  // setup panel applet
-  gtk_widget_show_all(GTK_WIDGET(applet));
-  g_signal_connect(GTK_WIDGET(mmb->button), "pressed",
-                   G_CALLBACK(on_button_pressed), mmb);
-  panel_applet_set_flags (applet, PANEL_APPLET_EXPAND_MAJOR);
-  macmenu_set_size(applet, panel_applet_get_size(applet), mmb);
-  // load config, set popup
-  mmb->gconf = gconf_client_get_default();
-  macmenu_load_from_gconf(mmb);
-  macmenu_write_gconf(mmb);
-  static const char toggle_menu_xml [] =
-   "<popup name=\"button3\">\n"
-   "   <menuitem name=\"hide_label\" "
-   "             verb=\"hide_label\" "
-   "           _label=\"_Hide Label\"\n"
-   "             type=\"toggle\"/>\n"
-   "</popup>\n";
-  static const BonoboUIVerb toggle_menu_verbs[] =
-  {
-    BONOBO_UI_VERB_END
-  };
-  panel_applet_setup_menu(mmb->applet, toggle_menu_xml, toggle_menu_verbs, mmb);
-  BonoboUIComponent* popup_component = panel_applet_get_popup_component(mmb->applet);
-  bonobo_ui_component_set_prop(popup_component, "/commands/hide_label",
-                               "state", mmb->hide_label ? "1": "0", NULL);
-  bonobo_ui_component_add_listener(panel_applet_get_popup_component(mmb->applet),
-                                   "hide_label",
-                                   (BonoboUIListenerFn) on_label_toggled,
-                                   mmb);
-  on_label_toggled(NULL, NULL, 0, NULL, mmb);
-#endif // FOR_XFCE/FOR_GNOME
-
-  add_all(mmb);
-  XSetErrorHandler(handle_x_error);
-}
-
-#ifdef FOR_XFCE
-XFCE_PANEL_PLUGIN_REGISTER_EXTERNAL (macmenu_construct);
-
-#elif FOR_GNOME
-static gboolean macmenu_applet_factory (PanelApplet *applet,
-                                        const gchar *iid,
-                                        gpointer data)
-{
-  if (!strcmp (iid, "OAFIID:GNOME_MacMenuApplet"))
-  {
-    macmenu_construct (applet);
-    return TRUE;
-  }
-  else
-    return FALSE;
-}
-
-PANEL_APPLET_BONOBO_FACTORY ("OAFIID:GNOME_MacMenuApplet_Factory",
-			     PANEL_TYPE_APPLET,
-			     "macmenu",
-			     "0",
-			     macmenu_applet_factory,
-			     NULL)
-#endif // FOR_XFCE/FOR_GNOME
+  gtk_box_pack_start(mmb->basebox, GTK_WIDGET(mmb->notebooility\n"
+"gnome-at-properties=AT Preferences\n"
+"gnome-control-center=Control Center\n"
+"gnome-display-properties=Screen Resolution\n"
+"gnome-font-properties=Font\n"
+"gnome-keybinding-properties=Keyboard Shortcuts\n"
+"gnome-keyboard-properties=Keyboard\n"
+"gnome-mouse-properties=Mouse\n"
+"gnome-network-preferences=Network Proxy\n"
+"gnome-sound-properties=Sound\n"
+"gnome-theme-manager=Theme\n"
+"gnome-ui-properties=Menus & Toolbars\n"
+"gnome-window-properties=Windows\n"
+"orageclock=Orage clock\n"
+"rhythmbox=Rhythmbox\n"
+"stardict=StarDict\n"
+"vmware=VMware\n"
+;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                          xfce4-macmenu-plugin/xfce4-macmenu-plugin.desktop                                                   000644  000000  000000  00000000301 11615523644 022310  0                                                                                                    ustar 00root                            root                            000000  000000                                                                                                                                                                         [Xfce Panel]
+Type=X-XFCE-PanelPlugin
+Encoding=UTF-8
+Name=Mac Menu
+Comment=Mac Menubar applet for gtk2-aqd
+Icon=gnome-fs-home
+X-XFCE-Exec=/usr/lib/xfce4/xfce4/panel-plugins/xfce4-macmenu-plugin
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      

@@ -1,7 +1,7 @@
 # Maintainer: Mantas M. <grawity@gmail.com>
 pkgname=analogue
 pkgver=1.3
-pkgrel=4
+pkgrel=5
 pkgdesc="Analogue: A Hate Story"
 arch=('i686' 'x86_64')
 url="http://ahatestory.com/"
@@ -10,6 +10,7 @@ depends=()
 install=analogue.install
 source=("Analogue-$pkgver-linux-x86.tar.bz2"
         "dlc1.rpa"
+        "analogue.bin.sh"
         "analogue.desktop"
         "analogue-256.png"
         "analogue-128.png"
@@ -18,6 +19,7 @@ source=("Analogue-$pkgver-linux-x86.tar.bz2"
         "analogue-16.png")
 sha1sums=('2286cac8b2b773fc5027391aeb081c5257e32c02'
           '55bf01404df8752843eee4adfa2c9b31ceaba864'
+          'd4c76424a24ec397197334fcb41d82114ed63a92'
           'dff7dd78a07246d3943dc904cbfade7fea6d220d'
           'cce341e2d832c53881a2692ec5735d61c54b3edb'
           'c3e23b21a689afe736b963d11aa05907a4f97544'
@@ -32,6 +34,7 @@ package() {
 
   install -Dm0644 "dlc1.rpa" "$pkgdir/opt/analogue/game/dlc1.rpa"
 
+  install -Dm0755 "analogue.bin.sh"  "$pkgdir/usr/bin/analogue"
   install -Dm0644 "analogue.desktop" "$pkgdir/usr/share/applications/analogue.desktop"
   for size in 256 128 48 32 16; do
     install -Dm0644 "analogue-$size.png" \
