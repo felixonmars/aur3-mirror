@@ -1,14 +1,15 @@
-# Maintainer: Sergio Correia <sergio.correia@uece.net>
+# Maintainer: Jaymz Campbell <jaymz@jaymz.eu>
+# Prior Maintainer: Sergio Correia <sergio.correia@uece.net>
 # Contributor: Shanto <shanto@hotmail.com>
 
 pkgname=titanium-studio
-pkgver=2.1.2.201208301612
+pkgver=3.0.1.201212181159
 pkgrel=1
 pkgdesc="A free and open source application development platform, Titanium lets you create native mobile, tablet and desktop application experiences using existing web skills like Javascript, HTML, CSS, Python, Ruby, and PHP."
 url="http://www.appcelerator.com/products/titanium-studio/"
 arch=('i686' 'x86_64')
 license=('Apache')
-depends=('java-environment>=6' 'gtk2>=2.20' 'libwebkit' 'libpng12' 'libjpeg6' 'sudo')
+depends=('java-environment>=6' 'gtk2>=2.20' 'webkitgtk2' 'libpng12' 'libjpeg6' 'nodejs' 'sudo')
 makedepends=('findutils')
 options=(!strip)
 install=${pkgname}.install
@@ -31,12 +32,12 @@ md5sums=(
 _pkgarraysize=${#source[@]}
 
 if [ "$CARCH" = "i686" ]; then
-	source[${_pkgarraysize}]="http://titanium-studio-linux-binaries.googlecode.com/files/titanium.linux.gtk.x86-${pkgver}.zip"
-	md5sums[${_pkgarraysize}]='53cb6c368866af7aba3504a4e847111e'
+	source[${_pkgarraysize}]="http://titanium-studio.s3.amazonaws.com/latest/titanium.linux.gtk.x86.zip"
+	md5sums[${_pkgarraysize}]='ce276b461df9ddebe4db53d0f069fba3'
 else
 	# x86_64
-	source[${_pkgarraysize}]="http://titanium-studio-linux-binaries.googlecode.com/files/titanium.linux.gtk.x86_64-${pkgver}.zip"
-	md5sums[${_pkgarraysize}]='23b0e28204514a728551a324b7fc11e0'
+	source[${_pkgarraysize}]="http://titanium-studio.s3.amazonaws.com/latest/titanium.linux.gtk.x86_64.zip"
+	md5sums[${_pkgarraysize}]='f67ef38bf5b3fd171bdedc41bf7b2248'
 fi
 
 
