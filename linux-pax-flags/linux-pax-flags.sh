@@ -1,7 +1,9 @@
 #!/bin/sh
 
-[ "$(paxctl -v /usr/bin/ruby 2>/dev/null)" ] || {
-	sudo paxctl -cm /usr/bin/ruby
+ruby=$(which ruby)
+
+[ "$(paxctl -v $ruby 2>/dev/null)" ] || {
+	sudo paxctl -cm $ruby
 }
 
 sudo systemctl --system daemon-reload
