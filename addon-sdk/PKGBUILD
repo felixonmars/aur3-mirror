@@ -2,7 +2,7 @@
 # Contributor: trashstar
 
 pkgname=addon-sdk
-pkgver=1.13.1
+pkgver=1.13.2
 pkgrel=1
 pkgdesc="SDK to build add-ons for Mozilla products (formerly jetpack)"
 url="https://addons.mozilla.org/en-US/developers/docs/sdk/latest/"
@@ -16,6 +16,7 @@ replaces=()
 backup=()
 source=("https://ftp.mozilla.org/pub/mozilla.org/labs/jetpack/addon-sdk-${pkgver}.tar.gz")
 install='addon-sdk.install'
+md5sums=('8f9813cdb92385bd884a490b28fd5780')
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
@@ -28,4 +29,3 @@ package() {
 }
 
 # vim:set ts=2 sw=2 et:
-md5sums=('48da1e501afd83b92b9456ce8550905d')
