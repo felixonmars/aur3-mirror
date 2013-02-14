@@ -25,7 +25,7 @@ optdepends=('libwpg: wordperfect, wpg plugin'
             'aiksaurus: aiksaurus plugin'
             'libots: ots plugin')
 provides=("$_pkgname=$pkgver" "abiword-plugins=$pkgver")
-conflicts=("$_pkgname" "abiword-plugins")
+conflicts=("$_pkgname" "abiword-plugins" "goffice-devel")
 install=$_pkgname.install
 options=('!libtool')
 source=("http://www.abisource.com/downloads/$_pkgname/$pkgver/source/$_pkgname-$pkgver.tar.gz"
