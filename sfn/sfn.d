@@ -29,6 +29,8 @@ import std.conv;
 import std.string;
 import std.path;
 import std.datetime;
+import std.format;
+import std.array;
 import core.thread;
 import std.compiler;
 
@@ -42,8 +44,25 @@ __gshared string prefix = "";
 
 immutable uint windowSize = 1024*64;
 
+//version = TestBarAndExit;
+//version = TestNumbersAndExit;
 void main(string[] args)
 {
+	version(TestBarAndExit)
+	{
+		long time = currentTime();
+		int max = int.max/10000;
+		for (int i=0; i<max; i++) showBar(i, max, time);
+		return;
+	}
+	version(TestNumbersAndExit)
+	{
+		int max = int.max;
+		for (int i=0; i<max; i++) std.stdio.write(numberOfBytes(i), "\r");
+		writeln;
+		return;
+	}
+
 	bool server = false;
 	string connect = null;
 	ushort port = 3214;
@@ -62,11 +81,11 @@ void main(string[] args)
 	);
 	send = args[1..$];
 
-	if (help) { usage(true); return; }
-	if (ver) { writeln("sfn 1.1" ~ "\nCompiled by: " ~ std.compiler.name); return; }
+	if (help) { usage(); return; }
+	if (ver) { writeln("sfn 1.15" ~ "\nCompiled by: " ~ std.compiler.name); return; }
 
-	if ((connect is null) && !server) { usage(false, "You must specify mode."); return; }
-	if ((connect !is null) && server) { usage(false, "You must specify only one mode."); return; }
+	if ((connect is null) && !server) { usage("You must specify mode."); return; }
+	if ((connect !is null) && server) { usage("You must specify only one mode."); return; }
 
 	if (server)
 	{
@@ -108,15 +127,62 @@ void main(string[] args)
 	return;
 }
 
+long currentTime()
+{
+	return Clock.currStdTime()/10_000; // hnsecs (hecto-nanoseconds (100 ns)) to millisecs
+}
+
+string numberOfBytes(long x)
+{
+	if (x<1024) return to!string(x) ~ " bytes";
+
+	auto writer = std.array.appender!string();
+	if (x<1024*1024) formattedWrite(writer, "%.1f Kb", cast(double)(x)/1024);
+	else if (x<1024*1024*1024) formattedWrite(writer, "%.1f Mb", cast(double)(x)/(1024*1024));
+	else formattedWrite(writer, "%.1f Gb", cast(double)(x)/(1024*1024*1024));
+	return writer.data;
+}
+
+version(Windows) // issue #17
+{
+	int getTerminalWidth()
+	{
+		return 80;
+	}
+}
+else
+{
+	// C extension (ioctl)
+	extern (C) int getTerminalWidth();
+}
+
 void showBar(ulong progress, ulong total, long startTime = -1)
 {
-	uint terminalWidth = 80;
-	uint barsCount = 80-1-2-20-1-20;
+	string output = " ";
+
+	long timeSpent = currentTime()-startTime;
+	if (timeSpent != 0)
+	{
+		output ~= numberOfBytes(progress*1000/timeSpent);
+		output ~= "/sec  ";
+	}
+
+	output ~= numberOfBytes(progress);
+	output ~= "/";
+	output ~= numberOfBytes(total);
+	output ~= "\r";
+
+	ulong terminalWidth = getTerminalWidth();
+	ulong barsCount = terminalWidth
+		-3								// [], space
+		-output.length
+		;
 	ulong bars = progress*(barsCount+1)/total;
 	write("[");
-	for (int i=0; i<barsCount; i++) write(i<bars ? "#" : "-");
+	for (ulong i=0; i<barsCount; i++) write(i<bars ? "#" : "-");
 	write("] ");
-	write(progress, "/", total, "\r");
+
+	write(output);
 }
 
 void receiveFiles()
@@ -125,7 +191,7 @@ void receiveFiles()
 	immutable ubyte DONE = 0x02;
 
 	ubyte b;
-	
+
 	while(true)
 	{
 		stream.read(b);
@@ -145,17 +211,18 @@ void receiveFiles()
 			writeln(size, " bytes");
 
 			File f = File(prefix ~ filename, "w");
-			
+
 			ubyte[] buf = new ubyte[windowSize];
 			ulong remain = size;
 			ulong readc;
+			long time = currentTime();
 			while(remain > 0)
 			{
 				if (remain < windowSize) buf = new ubyte[cast(uint)(remain)];
 				readc = stream.read(buf);
 				remain -= readc;
 				f.rawWrite(buf[0..cast(uint)(readc)]);
-				showBar(size-remain, size);
+				showBar(size-remain, size, time);
 			}
 			writeln();
 			writeln("Done.");
@@ -187,12 +254,12 @@ void sendFiles()
 			writeln(to!string(f.size()) ~ " bytes");
 			ulong size = f.size();
 			ulong sent = 0;
-			long start = Clock.currStdTime();
+			long time = currentTime();
 			foreach (ubyte[] b; f.byChunk(windowSize))
 			{
 				stream.write(b);
 				sent += b.length;
-				showBar(sent, size, start);
+				showBar(sent, size, time);
 			}
 			writeln();
 			writeln("Done.");
@@ -212,7 +279,7 @@ void sendFiles()
 void extIP()
 {
 	// URL: http://tomclaw.com/services/simple/getip.php
-	
+
 	Socket sock = new TcpSocket(new InternetAddress("tomclaw.com", 80));
 	scope(exit) sock.close();
 	SocketStream ss = new SocketStream(sock);
@@ -233,12 +300,13 @@ void extIP()
 	// IP
 	auto ip = ss.readLine();
 	writeln("External IP: ", ip);
+
 	// reverse DNS lookup
 	InternetHost ih = new InternetHost();
 	if (ih.getHostByAddr(ip))
 	{
 		writeln("Host: ", ih.name);
-		foreach (string s; ih.aliases) writeln("Alias: ", s); 
+		foreach (string s; ih.aliases) writeln("Alias: ", s);
 	}
 	else
 	{
@@ -246,10 +314,9 @@ void extIP()
 	}
 }
 
-void usage(bool desc = false, string error = null)
+void usage(string error = null)
 {
-	if (error !is null) writeln(error);
-	if (desc) write("sfn - send files over network. ");
+	if (error !is null) writeln(error); else write("sfn - send files over network. ");
 	write("Usage:
 
     sfn --listen [options] [files to send]
