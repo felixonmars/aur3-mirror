@@ -8,13 +8,15 @@ function help() {
 	echo " -2         use Yubico key slot 2"
 	echo " -d DEVICE  add key to device DEVICE"
 	echo " -h         show this help"
+	echo " -k         keep challenge, just add a new slot"
 }
 
 DIR="/tmp/.ykfde-${$}/"
 PASS=""
 SLOT="1"
+KEEP="0"
 
-while getopts "12d:h" opt; do
+while getopts "12d:hk" opt; do
 	case ${opt} in
 		1)
 			SLOT="1"
@@ -29,6 +31,9 @@ while getopts "12d:h" opt; do
 		h)
 			help
 			exit 0
+			;;
+		k)
+			KEEP="1"
 			;;
 	esac
 done
@@ -58,8 +63,12 @@ if [ -n "${PASS}" ]; then
 fi
 
 # generate challenge
-echo -n $(makepasswd --chars=$((64-${#PASS}))) > "${DIR}/ykfde-challenge"
-install -D -m 0400 "${DIR}/ykfde-challenge" "/etc/ykfde-challenge"
+if [ "${KEEP}" = "1" ] && [ -s "/etc/ykfde-challenge" ]; then
+	echo "User requested to keep challenge, not generating a new one."
+	cp "/etc/ykfde-challenge" "${DIR}/ykfde-challenge"
+else
+	makepasswd --chars=$((64-${#PASS})) | tr -d '\n' > "${DIR}/ykfde-challenge"
+fi
 
 # generate response and add key to LUKS device
 if ! ykchalresp -${SLOT} "${PASS}$(cat /etc/ykfde-challenge)" > "${DIR}/ykfde-response"; then
@@ -70,7 +79,12 @@ if ! cryptsetup luksAddKey "${DEVICE}" "${DIR}/ykfde-response"; then
 	# cryptsetup should have shouted, ...
 	exit 1
 fi
+
+# shred response and install challenge
 shred --remove "${DIR}/ykfde-response"
+if [ "${KEEP}" != "1" ]; then
+	install -D -m 0400 "${DIR}/ykfde-challenge" "/etc/ykfde-challenge"
+fi
 rm -rf "${DIR}"
 
 echo "Please do not forget to remove old keys when changing challenge!"
