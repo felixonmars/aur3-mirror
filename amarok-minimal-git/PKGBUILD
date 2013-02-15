@@ -1,7 +1,7 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20130121
+pkgver=20130215
 pkgrel=1
 pkgdesc="A media player for KDE. Without lastfm, mp3tunes, mtp, ipod support. GIT version"
 arch=('i686' 'x86_64')
@@ -73,6 +73,7 @@ build() {
 	   -DWITH_NepomukCore=OFF \
 	   -DWITH_Soprano=OFF \
 	   -DWITH_PLAYGROUND=OFF \
+	   -DKDE4_BUILD_TESTS=OFF \
 	   || return 1
 
   make || return 1
