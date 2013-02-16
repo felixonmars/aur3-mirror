@@ -9,8 +9,8 @@
 # https://github.com/vorbote/archlinux-vuze
 
 pkgname=vuze
-pkgver=4.8.1.2
-pkgrel=9
+pkgver=4.9.0.0
+pkgrel=1
 _ver=${pkgver//./}
 _extra=
 pkgdesc="One of the most powerful bitTorrent client with GUI in the world, written in Java."
@@ -20,7 +20,7 @@ license=('GPL')
 depends=('java-runtime' 'desktop-file-utils')
 optdepends=(
 	'xulrunner192: for vuze channels GUI. Long compile ahead.'
-	'webkitgtk2: for vuze channels GUI instead of xulrunner192'
+	'webkitgtk2: for vuze channels GUI instead of xulrunner192. Crash prone.'
 	)
 install=vuze.install
 options=(!strip)
@@ -65,4 +65,4 @@ package() {
 
 }
 
-sha256sums=('4a8c7b04af84d15a08ead14589d03fe276e131a0208534ed24a338982bbd5ad7')
+sha256sums=('1e8c9e7c6005cfefe212d4abd02c18e35a3d5b9a6722712e464ef17633235300')
