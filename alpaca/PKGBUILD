@@ -1,15 +1,15 @@
 # Maintainer: stylish-mushroom <stylish.mushroom@gmail.com>
 
 pkgname=alpaca
-pkgver=1.0.0
+pkgver=2.0.0
 pkgrel=1
-pkgdesc="A minimalist package manager (bash yaourt/pacman wrapper)"
+pkgdesc="A minimalist package manager (bash pacman wrapper)"
 arch=('any')
 url="http://arch-alpaca.googlecode.com"
 license=('GPL')
-depends=('yaourt' 'sudo')
-source=(http://arch-alpaca.googlecode.com/files/alpaca-1.0.0.tar.gz)
-md5sums=('4e2992928dea667913c271b1b6baeb71')
+depends=(sudo wget)
+source=(http://arch-alpaca.googlecode.com/files/alpaca-2.0.0.tar.gz)
+md5sums=('338971bd0aae66f011d2e2b7249304db')
 
 package() {
 cd $srcdir/$pkgname-$pkgver
