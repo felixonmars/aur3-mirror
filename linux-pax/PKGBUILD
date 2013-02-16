@@ -8,8 +8,8 @@ pkgname=linux-pax
 true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.7
-_paxver=test14
-pkgver=${_basekernel}.7
+_paxver=test15
+pkgver=${_basekernel}.8
 pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
@@ -31,8 +31,8 @@ source=(
 )
 sha256sums=(
   60a64d0bf76eeec3355f115c577935757b84629c8c129ce5b8bb02075f6b9458
-  8c84f79faa95f77ac2890b341e658e93874540021ca44f1f32f322bfb776c0bd
-  cb945c801cef26d67fc7e177986e1ec047aa779308ab1250e1c3fc35ebb0113c
+  962c431863a060c12d654eb96f453fa862df5d4dbe9ee6db5945c8d1bb543b81
+  ef7498fd115017aba315db02a7a26c8035a2fd505d52fe74c9055d96753ff829
   34418d1ca5544d4d33640f4d8957272d92143976035ed2c6fd047c9323e849b1
   30df58c94f3fc1ec70d09a01e169b7ff037293df52fc03d4b182450f722ae7f1
   222a124863aff80a6f299303e45d4a724383414d0f3258f83f09fb713a7ff51b
