@@ -3,14 +3,16 @@
 # Try: git clone git@github.com:mylese/petsc-arch.git
 pkgname=petsc
 pkgver=3.3_p6
+pkgrel=3
 _config=arch-linux2-cxx-opt
-pkgrel=1
+# if --with-debugging=yes is set then PETSC_ARCH is automatically set to
+#"arch-linux2-cxx-debug" for some things, so the _config should be changed too
+#_config=arch-linux2-cxx-debug
 pkgdesc="Portable, extensible toolkit for scientific computation"
 arch=('any')
 url="http://www.mcs.anl.gov/petsc/petsc-as"
 license=('MIT compatible')
-depends=('python2' 'openmpi' 'boost' 'atlas-lapack' 'scalapack' 'umfpack' 'metis' 'parmetis')
-# include 'blas', add provides to scalapack-openmpi
+depends=('python2' 'openmpi' 'boost' 'blas' 'lapack' 'scalapack' 'scotch_esmumps')
 makedepends=('gcc' 'gcc-fortran')
 install=petsc.install
 source=(http://ftp.mcs.anl.gov/pub/petsc/release-snapshots/${pkgname}-${pkgver/_/-}.tar.gz)
@@ -19,7 +21,15 @@ md5sums=('7eed2e1d67be6039fd56686e779d6601')
 _build_dir=${srcdir}/${pkgname}-${pkgver/_/-}
 _install_dir=/opt/petsc/${_config}
 
-#export MAKEFLAGS="-j1"  # for 3.2, workaround bug triggered by scotch
+# to avoid: "make[2]: *** No rule to make target `libptesmumps.a', needed by `main_esmumps'.  Stop."
+export MAKEFLAGS="-j1"
+
+# Note: Built with these dependencies:
+# extra/blas 3.4.2-1
+# extra/lapack 3.4.2-1
+# extra/openmpi 1.6.3-1
+# aur/scalapack 2.0.2-1        blacs is also provided by scalapack
+# aur/scotch_esmumps 6.0.0-1
 
 build() {
     cd ${_build_dir}
@@ -33,46 +43,57 @@ build() {
 
     # from Dorsal ./FEniCS/packages/petsc.package
     COPTFLAGS=-O2
-    CONFOPTS="--with-debugging=0 --with-shared-libraries=1 --with-clanguage=cxx "
+    # Note: if --with-debugging=yes is set then PETSC_ARCH is set to "arch-linux2-cxx-debug"
+    #CONFOPTS="--with-shared-libraries=1 --with-clanguage=cxx --with-cc=/usr/bin/mpicc --with-cxx=/usr/bin/mpic++ --with-mpi=1 --with-mumps-serial=0 "
+    CONFOPTS="--with-shared-libraries=1 --with-clanguage=cxx" # --with-debugging=yes
 
-    # Available in the AUR:
-    #   aur/mumps
-    #   aur/scalapack
-    #   aur/blacs-mpi
-    #   aur/ptscotch-openmpi
-    #   aur/scotch
+    # when mpif.h is not found
+    #CONFOPTS="${CONFOPTS} --with-mpi-include=/usr/include"
+    #CONFOPTS="${CONFOPTS} --FFLAGS=[-I/usr/include ${FFLAGS}]"
 
-    CONFOPTS="${CONFOPTS} --with-metis --with-metis-dir=/usr/bin"
-    PARMETIS_DIR=/usr/bin     # installed from AUR
-    CONFOPTS="${CONFOPTS} --with-parmetis --with-parmetis-dir=${PARMETIS_DIR} --with-scalapack --with-scalapack-lib=/usr/lib/libscalapack.so  --with-scalapack-include=/usr/include --with-blacs --with-blacs-lib=/usr/lib/libscalapack.so --with-blacs-include=/usr/include"
+    # BLAS, LAPACK, MPI:
+    # let configure find these on the system
 
-    # Couldn't use downloaded scalapack, mumps needs scalapack.
-    # "Downloaded scalapack could not be used."
-    # (From Dorsal ./FEniCS/packages/petsc.package)
-    for external_pkg in hypre; do # mumps ptscotch scotch mumps; do # scalapack; do
-	CONFOPTS="${CONFOPTS} --download-${external_pkg} "
+    # SCALAPACK and BLACS
+    # blacs is included in scalapack 6.0.0
+    CONFOPTS="${CONFOPTS} --with-blacs-lib=/usr/lib/libscalapack.so --with-blacs-include=/usr/include"
+    CONFOPTS="${CONFOPTS} --with-scalapack-lib=/usr/lib/libscalapack.so  --with-scalapack-include=/usr/include"
+
+    # SCOTCH
+    CONFOPTS="${CONFOPTS} --with-ptscotch-lib=[/usr/lib/libscotcherr,/usr/lib/libscotch,/usr/lib/libscotcherrexit,/usr/lib/libptscotcherr,/usr/lib/libptscotch,/usr/lib/libptscotcherrexit] --with-ptscotch-include=/usr/include"
+
+    # MUMPS, HYPRE, METIS, PARMETIS:
+    # "Downloaded scalapack could not be used.", mumps needs scalapack, so
+    # install from AUR.  Mumps requires ptscotch, parmetis requires metis
+    # Mumps looks for -lmpiseq even though we are building for MPI!  Disabling
+    # mumps.  If anyone can get Mumps to install, please contribute.
+    for external_pkg in hypre superlu metis parmetis; do # mumps
+	CONFOPTS="${CONFOPTS} --download-${external_pkg}"
     done
+
+    # to maybe fix "couldn't find -lmpiseq" error.  Doesn't work.
+    #CONFOPTS="${CONFOPTS} --with-mumps-serial=0"
 
     # from Dorsal ./FEniCS/packages/petsc.package
     if [ "${TRILINOS_DIR}" ]; then
-	CONFOPTS="${CONFOPTS} --with-ml=1 --with-ml-lib=${TRILINOS_DIR}/lib/libml.so --with-ml-include=${TRILINOS_DIR}/include "
+	CONFOPTS="${CONFOPTS} --with-ml=1 --with-ml-lib=${TRILINOS_DIR}/lib/libml.so --with-ml-include=${TRILINOS_DIR}/include"
     fi
 
     # Arch specific
-    CONFOPTS="${CONFOPTS} --with-boost-dir=/usr" # --with-blas-lapack-dir=/usr/lib
+    CONFOPTS="${CONFOPTS} --with-boost-dir=/usr"
 
     python2 ./configure \
 	--prefix=${pkgdir}${_install_dir} \
 	${CONFOPTS}
 
-    make ${MAKEFLAGS} PETSC_DIR=${_build_dir} PETSC_ARCH=arch-linux2-cxx-opt all
+    make ${MAKEFLAGS} PETSC_DIR=${_build_dir} PETSC_ARCH=${_config} all
 }
 
 package() {
     cd ${_build_dir}
     echo "make ${MAKEFLAGS} PETSC_DIR=${_build_dir} PETSC_ARCH=${_config} install"
     export PETSC_DIR=${_build_dir}
-    make ${MAKEFLAGS} PETSC_DIR=${_build_dir} PETSC_ARCH=${_config} install > /dev/null
+    make ${MAKEFLAGS} PETSC_DIR=${_build_dir} PETSC_ARCH=${_config} install # > /dev/null
 
     sed -i 's#'"${pkgdir}"'##g' "${pkgdir}${_install_dir}/conf/variables"
     sed -i 's#'"${pkgdir}"'##g' "${pkgdir}${_install_dir}/conf/petscvariables"
@@ -95,6 +116,10 @@ package() {
 
     # src for tutorials
     cp -r ${_build_dir}/src ${pkgdir}/usr/share/doc/$pkgname/
+
+    # html versions of header files
+    mkdir -p ${pkgdir}/usr/share/doc/$pkgname/include
+    cp -r ${_build_dir}/include/*.html ${pkgdir}/usr/share/doc/$pkgname/include/
 
     # install licenCe (even though there is no such word as licenSes)
     mkdir -p ${pkgdir}/usr/share/licenses/petsc

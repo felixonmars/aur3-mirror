@@ -74,7 +74,7 @@ while [[ $1 ]]; do
         -m|--method)        shift; METHOD_WAIT="$1";;
         -t|--timeout)       shift; TIMEOUT_WAIT="$1";;
         -V|--version)       version; exit 0;;
-        *)                  [ -z "$ADDR_WAIT" ] && ADDR_WAIT="$1" || (usage; exit 10);;
+        *)                  if [ -z "$ADDR_WAIT" ] ; then ADDR_WAIT="$1"; else usage; exit 10; fi ;;
     esac
     shift
 done
@@ -161,8 +161,8 @@ fi
 
 # Display result if not quiet
 if [ $QUIET -eq 0 ]; then
-    [ $retCode -ne 0 ] && echo "Fail to $METHOD_WAIT $ADDR_WAIT" 1>&2
-    [ $retCode -eq 0 ] && echo "Successful $METHOD_WAIT $ADDR_WAIT"
+    [ $retCode -ne 0 ] && echo "Failed $METHOD_WAIT $ADDR_WAIT" 1>&2
+    [ $retCode -eq 0 ] && echo "Successfully $METHOD_WAIT $ADDR_WAIT"
 fi
 
 exit $retCode
