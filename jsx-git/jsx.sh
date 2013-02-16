@@ -1,1 +1,1 @@
-export PATH=$PATH:/var/opt/jsx/bin
+export PATH=$PATH:/opt/jsx/bin
