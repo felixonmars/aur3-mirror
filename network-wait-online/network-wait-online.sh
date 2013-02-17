@@ -1,4 +1,22 @@
 #!/bin/bash
+#
+# network-wait-online
+#
+# Copyright (c) 2013 Benjamin Robin <benjarobin>
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Library General Public License as published
+# by the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
 
 VERSION="1.0"
 
@@ -45,7 +63,7 @@ OPTIONS:
    -h, --help      Show this message
    -q, --quiet     Do not show any message
    -v, --verbose   Display every error message
-   -m, --method    Select the method to wait on the specified address: "ping" or "route"
+   -m, --method    Select the method to wait on the specified address: "ping", "ping6" or "route"
    -t, --timeout   Set the maximum time to wait in second
    -V, --version   Display the version
 
@@ -68,13 +86,13 @@ unset OPTS
 
 while [[ $1 ]]; do
     case "$1" in
-        -h|--help)          usage; exit 0;;
-        -q|--quiet)         QUIET=1; VERBOSE=0;;
-        -v|--verbose)       QUIET=0; VERBOSE=1;;
-        -m|--method)        shift; METHOD_WAIT="$1";;
-        -t|--timeout)       shift; TIMEOUT_WAIT="$1";;
-        -V|--version)       version; exit 0;;
-        *)                  if [ -z "$ADDR_WAIT" ] ; then ADDR_WAIT="$1"; else usage; exit 10; fi ;;
+        -h|--help)      usage; exit 0;;
+        -q|--quiet)     QUIET=1; VERBOSE=0;;
+        -v|--verbose)   QUIET=0; VERBOSE=1;;
+        -m|--method)    shift; METHOD_WAIT="$1";;
+        -t|--timeout)   shift; TIMEOUT_WAIT="$1";;
+        -V|--version)   version; exit 0;;
+        *)              if [ -z "$ADDR_WAIT" ] ; then ADDR_WAIT="$1"; else usage; exit 10; fi ;;
     esac
     shift
 done
@@ -97,7 +115,7 @@ wait_addr_ping() {
 
     while [ $timeLeft -gt 0 ] ; do
 
-        ping -c1 -W1 $ADDR_WAIT
+        $METHOD_WAIT -c1 -W1 $ADDR_WAIT
         retCode=$?
         if [ $retCode -eq 0 ] ; then
             break
@@ -134,16 +152,16 @@ wait_addr_route() {
 ### Program                     ###
 ###################################
 
-retCode=11
+exitCode=11
 
-if [ "$METHOD_WAIT" == "ping" ] ; then
+if [ "$METHOD_WAIT" == "ping" ] || [ "$METHOD_WAIT" == "ping6" ] ; then
 
     if [ $VERBOSE -eq 1 ] ; then
         wait_addr_ping
     else
         wait_addr_ping &>/dev/null
     fi
-    retCode=$?
+    exitCode=$?
 
 elif [ "$METHOD_WAIT" == "route" ] ; then
 
@@ -152,7 +170,7 @@ elif [ "$METHOD_WAIT" == "route" ] ; then
     else
         wait_addr_route &>/dev/null
     fi
-    retCode=$?
+    exitCode=$?
 
 else
     usage
@@ -161,8 +179,11 @@ fi
 
 # Display result if not quiet
 if [ $QUIET -eq 0 ]; then
-    [ $retCode -ne 0 ] && echo "Failed $METHOD_WAIT $ADDR_WAIT" 1>&2
-    [ $retCode -eq 0 ] && echo "Successfully $METHOD_WAIT $ADDR_WAIT"
+    if [ $exitCode -ne 0 ] ; then
+        echo "Failed to $METHOD_WAIT $ADDR_WAIT" 1>&2
+    else
+        echo "Successfully $METHOD_WAIT $ADDR_WAIT"
+    fi
 fi
 
-exit $retCode
+exit $exitCode
