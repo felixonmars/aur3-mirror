@@ -1,7 +1,7 @@
 # Maintainer: Felix Yan <felixonmars@gmail.com>
 
 pkgname=6rdctl-git
-pkgver=20130107
+pkgver=20130217
 pkgrel=1
 pkgdesc="6rd Control Tool"
 arch=("any")
@@ -11,7 +11,7 @@ url="https://github.com/felixonmars/6rdctl"
 license=("GPL")
 depends=('python' 'python-sh')
 
-_gitroot=git@github.com:felixonmars/6rdctl.git
+_gitroot=git://github.com/felixonmars/6rdctl.git
 _gitname=6rdctl
 
 build() {
