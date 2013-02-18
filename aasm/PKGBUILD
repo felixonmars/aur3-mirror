@@ -1,13 +1,14 @@
 # Maintainer: Alexandre Becoulet <alexandre.becoulet@free.fr>
 
 pkgname=aasm
-pkgver=0.9.1
+pkgver=0.9.2
 pkgrel=1
 pkgdesc="An advanced modular assembler"
 arch=('i686' 'x86_64')
 url="http://savannah.nongnu.org/projects/aasm"
 license=('GPL3')
 depends=()
+makedepends=(perl gperf autoconf automake libtool)
 source=(http://download.savannah.gnu.org/releases/$pkgname/$pkgname-$pkgver.tar.gz)
 
 build() {
@@ -18,4 +19,4 @@ build() {
   make DESTDIR="$pkgdir/" install
 }
 
-md5sums=('611840cd891b321abfbec087efbd0a6b')
+md5sums=('3307a3caf060be5709da4c73692eaede')
