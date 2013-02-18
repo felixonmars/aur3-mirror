@@ -1,0 +1,650 @@
+From: Sébastien Noel <sebastien@twolife.org>
+Subject: Port to EDS 3.6 API and to use libmessaging-menu.
+
+---
+ configure.ac              |    2 
+ src/evolution-indicator.c |  392 +++++++++++-----------------------------------
+ 2 files changed, 102 insertions(+), 292 deletions(-)
+
+Index: b/configure.ac
+===================================================================
+--- a/configure.ac
++++ b/configure.ac
+@@ -70,7 +70,6 @@ fi
+ AC_SUBST(GCC_FLAGS)
+ 
+ PKG_CHECK_MODULES(DEPS,
+-                  indicate-0.7 >= 0.6.90
+                   $EVOLUTION_PLUGIN
+                   dbus-1
+                   dbus-glib-1
+@@ -81,6 +80,7 @@ PKG_CHECK_MODULES(DEPS,
+                   libebackend-1.2
+                   libsoup-2.4
+                   gconf-2.0
++                  messaging-menu
+                   )
+ AC_SUBST(DEPS_CFLAGS)
+ AC_SUBST(DEPS_LIBS)
+Index: b/src/evolution-indicator.c
+===================================================================
+--- a/src/evolution-indicator.c
++++ b/src/evolution-indicator.c
+@@ -28,6 +28,7 @@
+ #include <glib/gprintf.h>
+ 
+ #include <gconf/gconf.h>
++#include <gconf/gconf-client.h>
+ 
+ #include <canberra.h>
+ #include <libnotify/notify.h>
+@@ -44,9 +45,7 @@
+ 
+ #include <camel/camel.h>
+ 
+-#include <libindicate/server.h>
+-#include <libindicate/indicator.h>
+-#include <libindicate/indicator-messages.h>
++#include <messaging-menu.h>
+ 
+ #include <unity.h>
+ 
+@@ -58,9 +57,6 @@
+ #define SHOW_BUBBLE       CONF_DIR"/show_bubble"
+ #define SHOW_NEW_IN_PANEL CONF_DIR"/show_new_messages_in_panel"
+ 
+-#define ACCOUNT_DIR "/apps/evolution/mail"
+-#define ACCOUNTS    ACCOUNT_DIR"/accounts"
+-
+ #define EVOLUTION_DESKTOP_FILE "/usr/share/applications/evolution.desktop"
+ 
+ #define UNREAD_DATA "unread"
+@@ -71,7 +67,7 @@
+ static GStaticMutex  mlock       = G_STATIC_MUTEX_INIT;
+ static GConfClient  *client      = NULL;
+ 
+-static IndicateServer *server     = NULL;
++static MessagingMenuApp *mmapp    = NULL;
+ static GSList         *indicators = NULL;
+ static gint            n_accounts = 0;
+ 
+@@ -91,7 +87,6 @@ static guint         only_inbox_id  = 0;
+ static guint         play_sound_id  = 0;
+ static guint         show_bubble_id = 0;
+ static guint         show_count_id  = 0;
+-static guint         accounts_id    = 0;
+ 
+ static gint message_count = 0;
+ 
+@@ -101,29 +96,11 @@ void org_gnome_mail_read_notify   (EPlug
+ int         e_plugin_lib_enable               (EPlugin *ep, int enable);
+ GtkWidget * e_plugin_lib_get_configure_widget (EPlugin *ep);
+ 
+-static void show_evolution (gpointer arg0, guint timestamp, gpointer arg1);
++static void show_evolution (MessagingMenuApp *mmapp, const gchar *url, gpointer user_data);
+ 
+ static void show_evolution_in_indicator_applet (void);
+ static void hide_evolution_in_indicator_applet (void);
+ 
+-typedef struct {
+-  gchar *url;
+-  gchar *name;
+-  gchar *parent;
+-  gchar *last_parent;
+-
+-  gint reap_type;
+-
+-  gboolean enabled;
+-
+-} ParserData;
+-
+-enum {
+-  REAP_NONE = 0,
+-  REAP_URL,
+-  REAP_NAME
+-};
+-
+ static GtkWidget *
+ get_cfg_widget (void)
+ {
+@@ -195,29 +172,6 @@ evolution_is_focused (void)
+   return FALSE;
+ }
+ 
+-static gint
+-get_indicator_unread_count (IndicateIndicator *indicator)
+-{
+-  return GPOINTER_TO_INT (g_object_get_data (G_OBJECT (indicator),
+-                                             UNREAD_DATA));
+-}
+-
+-static void
+-set_indicator_unread_count (IndicateIndicator *indicator, gint count)
+-{
+-  gchar *count_str;
+-
+-  count_str = g_strdup_printf ("%d", count);
+-  indicate_indicator_set_property (indicator,
+-                                   INDICATE_INDICATOR_MESSAGES_PROP_COUNT,
+-                                   count_str);
+-  g_object_set_data (G_OBJECT (indicator),
+-                     UNREAD_DATA,
+-                     GINT_TO_POINTER (count));
+-
+-  g_free (count_str);
+-}
+-
+ void
+ org_gnome_mail_new_notify (EPlugin *ep, EMEventTargetFolder *t)
+ {
+@@ -240,50 +194,29 @@ org_gnome_mail_new_notify (EPlugin *ep,
+   }
+ 
+   if (evolution_is_focused ())
+-{
++  {
+     g_debug ("EI: Evolution is focused");
+     return;
+   }
+ 
+-	g_static_mutex_lock (&mlock);
++  g_static_mutex_lock (&mlock);
+ 
+   g_debug ("EI:mail_new_notify: %s", url);
+ 
+   message_count += t->new;
+- 
++
+   if (show_count)
+   {
+-    IndicateIndicator *indicator = NULL;
+-    GSList *i;
+-
+-    for (i = indicators; i; i = i->next)
+-      {
+-        IndicateIndicator *indi = i->data;
+-
+-        if (g_strstr_len (url,
+-                          -1,
+-                          indicate_indicator_get_property (indi, "url")))
+-          {
+-            indicator = indi;
+-            break;
+-          }
+-      }
+-    if (indicator)
++      if (messaging_menu_app_has_source(MESSAGING_MENU_APP (mmapp), url))
+       {
+-        gint count;
+-          
+-        count = get_indicator_unread_count (indicator);
+-        set_indicator_unread_count (indicator, count + t->new);
+-
+-        indicate_indicator_set_property (indicator,
+-                                         INDICATE_INDICATOR_MESSAGES_PROP_ATTENTION,
+-                                         "true");
++        messaging_menu_app_set_source_count (MESSAGING_MENU_APP (mmapp), url, message_count);
+       }
+-    else
+-      {
+-        g_warning ("EI: Unable to find account that matches %s", url);
++      else {
++//        g_warning ("EI: Unable to find account that matches %s", url);
++        messaging_menu_app_append_source_with_count (MESSAGING_MENU_APP (mmapp), url, NULL, camel_service_get_display_name(CAMEL_SERVICE (t->store)), message_count);
+       }
+-    }
++      messaging_menu_app_draw_attention (MESSAGING_MENU_APP (mmapp), url);
++  }
+ 
+   update_unity_launcher_count ();
+ 
+@@ -356,16 +289,17 @@ org_gnome_mail_read_notify (EPlugin *ep,
+ 
+   for (i = indicators; i; i = i->next)
+     {
+-      IndicateIndicator *indicator = i->data;
+-
+-      set_indicator_unread_count (indicator, 0);
+-      indicate_indicator_set_property (indicator,
+-                                       INDICATE_INDICATOR_MESSAGES_PROP_ATTENTION,
+-                                       "false");
+-
+-      g_debug ("EI: Setting %s to 0 unread messages",
+-               indicate_indicator_get_property (indicator, "name"));
++        gchar *url = i->data;
+ 
++        if (messaging_menu_app_has_source(MESSAGING_MENU_APP (mmapp), url))
++        {
++            messaging_menu_app_remove_attention(MESSAGING_MENU_APP (mmapp), url);
++            messaging_menu_app_set_source_count (MESSAGING_MENU_APP (mmapp), url, 0);
++            g_debug ("EI: Setting %s to 0 unread messages", url);
++        }
++        else {
++            g_warning ("EI: Unable to find account that matches %s", url);
++        }
+     }
+   message_count = 0;
+ 
+@@ -377,22 +311,10 @@ org_gnome_mail_read_notify (EPlugin *ep,
+ void
+ update_unity_launcher_count ()
+ {
+-  GSList *i;
+-  int count = 0;
+-
+   g_debug ("EI: update_unity_launcher_count");
+ 
+-  for (i = indicators; i; i = i->next)
+-  {
+-    IndicateIndicator *indicator = i->data;
+-
+-    count = count + get_indicator_unread_count (indicator);
+-
+-    g_debug ("EI: Setting count to %d unread messages", count);
+-
+-  }
+-  unity_launcher_entry_set_count (launcher, count);
+-  if (count > 0)
++  unity_launcher_entry_set_count (launcher, message_count);
++  if (message_count > 0)
+   {
+     unity_launcher_entry_set_count_visible (launcher, TRUE);
+   } else {
+@@ -447,12 +369,10 @@ show_new_in_panel_changed (GConfClient *
+  
+   if (show_count)
+     {
+-      indicate_server_show (server);
+       show_evolution_in_indicator_applet ();
+     }
+   else
+     {
+-      indicate_server_hide (server);
+       hide_evolution_in_indicator_applet ();
+     }
+ 
+@@ -475,130 +395,34 @@ show_bubble_changed (GConfClient *gclien
+   g_debug ("EI: Show Bubbles %s", show_bubble ? "true" : "false");
+ }
+ 
+-static IndicateIndicator *
+-find_indicator_for_url (GSList *indicator_list, const gchar *url)
++static gchar *
++find_indicator_url (GSList *indicator_list, const gchar *url)
+ {
+   GSList *i;
+ 
+   for (i = indicator_list; i; i = i->next)
+     {
+-      IndicateIndicator *indicator = i->data;
++      gchar *i_url = i->data;
+ 
+-      if (g_strcmp0 (indicate_indicator_get_property (indicator, "url"), url)
++      if (g_strcmp0 (i_url, url)
+           == 0)
+-        return indicator;
++        return i_url;
+     }
+   return NULL;
+ }
+ 
+-static IndicateIndicator *
+-create_indicator (const gchar *url, const gchar *name)
+-{
+-  IndicateIndicator *indicator;
+-
+-  indicator = indicate_indicator_new ();
+-  indicate_indicator_set_property (indicator,
+-                                   INDICATE_INDICATOR_MESSAGES_PROP_NAME,
+-                                   name);
+-  indicate_indicator_set_property (indicator,
+-                                   "url",
+-                                   url);
+-  set_indicator_unread_count (indicator, 0);
+-  indicate_indicator_show (indicator);
+-
+-  /* FIXME: I need to find a way to show a mailbox individually */
+-  g_signal_connect (indicator, "user-display",
+-                    G_CALLBACK (show_evolution), NULL);
+-
+-  g_debug ("EI: New Indicator: %s %s", name, url);
+-
+-  return indicator;
+-}
+-
+-static void
+-start_element_handler (GMarkupParseContext *context,
+-                       const gchar         *element_name,
+-                       const gchar        **attribute_names,
+-                       const gchar        **attribute_values,
+-                       gpointer             user_data,
+-                       GError             **error)
+-{
+-  ParserData *data = (ParserData *)user_data;
+-
+-  if (g_strcmp0 (element_name, "account") == 0)
+-    {
+-      gint i = 0;
+-
+-      while (attribute_names[i] != NULL)
+-        {
+-          if (g_strcmp0 (attribute_names[i], "name") == 0)
+-            {
+-              data->name = g_strdup (attribute_values[i]);
+-            }
+-          else if (g_strcmp0 (attribute_names[i], "enabled") == 0)
+-            {
+-              if (g_strcmp0 (attribute_values[i], "false") == 0)
+-                data->enabled = FALSE;
+-            }
+-          i++;
+-        }
+-    }
+-  else if (g_strcmp0 (element_name, "url") == 0)
+-    data->reap_type = REAP_URL;
+-  else
+-    data->reap_type = REAP_NONE;
+-
+-  if (data->last_parent)
+-    g_free (data->last_parent);
+-  
+-  data->last_parent = data->parent;
+-  data->parent = g_strdup (element_name);
+-}
+-
+-static void
+-text_handler (GMarkupParseContext *context,
+-              const gchar         *text,
+-              gsize                text_len,
+-              gpointer             user_data,
+-              GError             **error)
+-{
+-  ParserData *data = (ParserData *)user_data;
+-
+-  if (!data->url
+-      && data->reap_type == REAP_URL
+-      && g_strcmp0(data->last_parent, "source") == 0)
+-    {
+-      gchar **tokens;
+-
+-      tokens = g_strsplit (text, ";", 2);
+-
+-      data->url = g_strdup (tokens[0]);
+-
+-      /* Accounts with no configured way to receive mail will not have a URL */
+-      if (!data->url)
+-        data->enabled = FALSE;
+-
+-      g_strfreev (tokens);
+-    }
+-}
+-
+ static void
+ update_accounts (void)
+ {
+-  GSList   *accounts;
++  ESourceRegistry * registry = NULL;
+   GError   *error = NULL;
+-  gint      i = 1;
+-  GTimeVal  timeval = { 0 };
+-  
+-  g_get_current_time (&timeval);
+-  accounts = gconf_client_get_list (client,
+-                                    ACCOUNTS,
+-                                    GCONF_VALUE_STRING,
+-                                    &error);
+-  if (accounts == NULL || error)
++
++  registry = e_source_registry_new_sync (NULL, &error);
++
++  if (!registry || error)
+     {
+-      g_warning ("EI: Unable to determine number of accounts, "
+-                 "defaulting to '1' (%s)",
++      g_warning ("Failed to get access to source registry: %s\n"
++                 "defaulting number of account to '1'",
+                  error ? error->message : "unknown");
+       if (error)
+         g_error_free (error);
+@@ -610,83 +434,75 @@ update_accounts (void)
+     }
+   else
+     {
++      GSList *accounts = e_source_registry_list_sources (registry, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
+       GSList *old_list;
+       GSList *a;
+-      static GMarkupParser parser = {
+-          start_element_handler,
+-          NULL,
+-          text_handler,
+-          NULL,
+-          NULL
+-      };
++      struct accountData {
++          gchar *name;
++          gchar *protocol;
++          gchar *user;
++          gchar *host;
++          guint16 port;
++          gchar *url;
++      } data;
+ 
+       old_list = indicators;
+       indicators = NULL;
+       
+       for (a = accounts; a; a = a->next)
+         {
+-          gchar               *account_info = a->data;
+-          GMarkupParseContext *context;
+-          ParserData           data = { NULL, NULL, NULL, NULL, 0, TRUE };
+-          IndicateIndicator   *indicator;
+-                                        
+-          /* Parse account XML to get some useful details about the account */
+-          context = g_markup_parse_context_new (&parser, 0, &data, NULL);
+-          g_markup_parse_context_parse (context,
+-                                        account_info,
+-                                        strlen (account_info),
+-                                        NULL);
++          gchar   *url;
++          ESource *source = E_SOURCE (a->data);
++          if (e_source_get_removable(source) && e_source_get_enabled(source))
++          {
++              ESourceExtension *extension;
++
++              extension = e_source_get_extension(source, E_SOURCE_EXTENSION_MAIL_ACCOUNT);
++              data.protocol = e_source_backend_dup_backend_name ((ESourceBackend *)extension);
++              extension = e_source_get_extension(source, E_SOURCE_EXTENSION_AUTHENTICATION);
++              data.user = e_source_authentication_dup_user ((ESourceAuthentication *)extension);
++              data.host = e_source_authentication_dup_host ((ESourceAuthentication *)extension);
++              data.port = e_source_authentication_get_port ((ESourceAuthentication *)extension);
++
++              if(g_str_has_prefix (data.protocol, "pop")) {
++                  data.name = g_dgettext (EVO_I18N_DOMAIN, "Inbox");
++                  data.url = g_strdup_printf("%s", "pop:");
++              } else {
++                  data.name = e_source_dup_display_name(source);
++                  data.url = g_strdup_printf("%s://%s@%s:%d", data.protocol, g_uri_escape_string(data.user, NULL, FALSE), data.host, data.port);
++              }
+ 
+           /* Check to see account already exists and, if not, create it */
+-          indicator = find_indicator_for_url (indicators, data.url);
+-          if (indicator)
++          url = find_indicator_url (indicators, data.url);
++          if (url)
+             {
+-              old_list = g_slist_remove (old_list, indicator);
+-              indicators = g_slist_append (indicators, indicator);
++              old_list = g_slist_remove (old_list, url);
++              indicators = g_slist_append (indicators, url);
+             }
+           else
+             {
+-              if (data.url && g_str_has_prefix (data.url, "pop:"))
+-                {
+-                  indicator = create_indicator ("pop:",
+-                                                g_dgettext (EVO_I18N_DOMAIN,
+-                                                            "Inbox"));
+-                }
+-              else
+-                {
+-                  indicator = create_indicator (data.url, data.name);
+-                }
+-              indicators = g_slist_append (indicators, indicator);
+-
++              messaging_menu_app_append_source (MESSAGING_MENU_APP (mmapp), data.url, NULL, data.name);
++              indicators = g_slist_append (indicators, g_strdup(data.url));
+               g_debug ("EI: New account: %s (%s)", data.name, data.url);
+             }
+ 
+-          if (!data.enabled)
+-            indicate_indicator_hide (indicator);
+-
+-          /* Fake a time */
+-          g_time_val_add (&timeval, -1000000 * 60 * i);
+-          indicate_indicator_set_property_time (indicator,
+-                                     INDICATE_INDICATOR_MESSAGES_PROP_TIME,
+-                                                &timeval);
+-
+-          i++;
++          messaging_menu_app_set_source_time (MESSAGING_MENU_APP (mmapp),
++                         data.url,  g_get_real_time ());
+ 
+           /* Clean up */
+           g_free (data.url);
+           g_free (data.name);
+-          g_free (data.parent);
+-          g_free (data.last_parent);
+-          data.reap_type = REAP_NONE;
+-          data.enabled = TRUE;
+-          
+-          g_markup_parse_context_free (context);
++          g_free (data.protocol);
++          g_free (data.user);
++          g_free (data.host);
++
++          }
+         }
+ 
+       g_slist_foreach (old_list, (GFunc)g_object_unref, NULL);
+       g_slist_free (old_list);
+ 
+-      n_accounts = g_slist_length (accounts);
++      n_accounts = g_slist_length (indicators);
+       g_slist_free (accounts);
+     }
+ 
+@@ -756,11 +572,9 @@ e_plugin_lib_enable (EPlugin *ep, int en
+       }
+     }
+ 
+-    server = indicate_server_ref_default ();
+-    indicate_server_set_type (server, "message");
+-    indicate_server_set_desktop_file (server, EVOLUTION_DESKTOP_FILE);
+-    g_signal_connect (server, "server-display",
+-                      G_CALLBACK (show_evolution), NULL);
++    mmapp = messaging_menu_app_new ("evolution.desktop");
++    messaging_menu_app_register (MESSAGING_MENU_APP (mmapp));
++    g_signal_connect (mmapp, "activate-source", G_CALLBACK (show_evolution), NULL);
+ 
+ 	DbusmenuServer * menu_server = dbusmenu_server_new("/messaging/commands");
+ 	DbusmenuMenuitem * root = dbusmenu_menuitem_new();
+@@ -776,7 +590,6 @@ e_plugin_lib_enable (EPlugin *ep, int en
+ 	dbusmenu_menuitem_child_append(root, mi);
+ 
+ 	dbusmenu_server_set_root(menu_server, root);
+-	indicate_server_set_menu(server, menu_server);
+ 
+     launcher = unity_launcher_entry_get_for_desktop_file (EVOLUTION_DESKTOP_FILE);
+ 
+@@ -805,20 +618,20 @@ e_plugin_lib_enable (EPlugin *ep, int en
+     show_count_id = gconf_client_notify_add (client, SHOW_NEW_IN_PANEL, 
+                              show_new_in_panel_changed, NULL, NULL, NULL);
+ 
+-    gconf_client_add_dir (client, ACCOUNT_DIR,GCONF_CLIENT_PRELOAD_NONE, NULL);
+     update_accounts ();
++/*
++    TODO: find a way to be notify on account update
+     accounts_id = gconf_client_notify_add (client, ACCOUNTS,
+                                            on_accounts_changed, NULL,
+                                            NULL, NULL);
++*/
+ 
+     if (show_count)
+     {
+-      indicate_server_show (server);
+       show_evolution_in_indicator_applet ();
+     }
+     else
+       {
+-        indicate_server_hide (server);
+         hide_evolution_in_indicator_applet ();
+       }
+   }
+@@ -828,20 +641,16 @@ e_plugin_lib_enable (EPlugin *ep, int en
+     gconf_client_notify_remove (client, play_sound_id);
+     gconf_client_notify_remove (client, show_bubble_id);
+     gconf_client_notify_remove (client, show_count_id);
+-    gconf_client_notify_remove (client, accounts_id);
+ 
+     g_object_unref (client);
+     client = NULL;
+-    
++
+     /* Free indicators */
+     g_slist_foreach (indicators, (GFunc)g_object_unref, NULL);
+     g_slist_free (indicators);
+     indicators = NULL;
+ 
+-    /* Free server */
+-    indicate_server_hide (server);
+-    g_object_unref (server);
+-    server = NULL;
++    g_object_unref (mmapp);
+ 
+     /* Remove evolution from indicator menu */
+     hide_evolution_in_indicator_applet ();
+@@ -1003,7 +812,7 @@ org_gnome_get_prefs (EPlugin *ep, EConfi
+  */
+ 
+ static void
+-show_evolution (gpointer arg0, guint timestamp, gpointer arg1)
++show_evolution (MessagingMenuApp *mmapp, const gchar *url, gpointer user_data)
+ {
+ #define MAIL_ICON "evolution-mail"
+   EShell *shell = e_shell_get_default ();
+@@ -1022,7 +831,7 @@ show_evolution (gpointer arg0, guint tim
+     shell_window = E_SHELL_WINDOW (e_shell_get_active_window (shell));
+     if (!evolution_is_focused ())
+     {
+-        gtk_window_present_with_time (GTK_WINDOW (shell_window), timestamp);
++        gtk_window_present (GTK_WINDOW (shell_window));
+     }
+ 
+     /* Switch to the mail view. */
+@@ -1033,16 +842,17 @@ show_evolution (gpointer arg0, guint tim
+     /* Setup the indicators */
+     for (i = indicators; i; i = i->next)
+     {
+-      IndicateIndicator *indicator = i->data;
+-
+-      set_indicator_unread_count (indicator, 0);
+-      indicate_indicator_set_property (indicator,
+-                                       INDICATE_INDICATOR_MESSAGES_PROP_ATTENTION,
+-                                       "false");
+-
+-      g_debug ("EI: Setting %s to 0 unread messages",
+-               indicate_indicator_get_property (indicator, "name"));
++      gchar *url = i->data;
+ 
++      if (messaging_menu_app_has_source(MESSAGING_MENU_APP (mmapp), url))
++      {
++          messaging_menu_app_remove_attention(MESSAGING_MENU_APP (mmapp), url);
++          messaging_menu_app_set_source_count (MESSAGING_MENU_APP (mmapp), url, 0);
++          g_debug ("EI: Setting %s to 0 unread messages", url);
++      }
++      else {
++          g_warning ("EI: Unable to find account that matches %s", url);
++      }
+     }
+     message_count = 0;
+     update_unity_launcher_count ();
