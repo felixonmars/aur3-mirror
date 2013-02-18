@@ -74,7 +74,7 @@ EOF
   exit 1
 end
 
-# This iterates each config entry (which mathes the filters). It yields flags,
+# This iterates each config entry (which matches the filters). It yields flags,
 # entry, pattern and path of the config entry to the block code.
 def each_entry config, filters
   config.each do |flags, entries|
@@ -112,6 +112,9 @@ def each_entry config, filters
     end
   end
 end
+
+# Trap SIGINT (ctrl+c)
+trap(:INT) { exit 1 }
 
 # Define the possible options.
 options = GetoptLong.new(
@@ -185,7 +188,9 @@ end
 # Let us sum up the complex entries...
 autopaths = []
 each_entry config, filters do |flags, entry, pattern, path|
-  autopaths.push path if File.exists? path and entry.is_a? Hash
+  if File.exists? path and entry.is_a? Hash
+    autopaths.push path if not entry[path]['skip']
+  end
 end
 
 # ... to decide, if we need to print them.

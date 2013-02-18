@@ -3,19 +3,21 @@
 
 pkgname=linux-pax-flags
 pkgdesc='Deactivates PaX flags for several binaries to work with PaX enabled kernels.'
-pkgver=2.0.4
-pkgrel=5
+pkgver=2.0.5
+pkgrel=1
 arch=(any)
 url='https://aur.archlinux.org/packages.php?ID=55491'
 license=(GPL3)
 depends=(ruby paxctl)
 source=(
-  $pkgname.sh $pkgname.rb clamav.conf games.conf java.conf kde.conf polkit.conf
-  qemu.conf ruby.conf simple.conf steam.conf valgrind.conf
+  $pkgname.sh $pkgname.rb $pkgname.8
+  clamav.conf games.conf java.conf kde.conf polkit.conf qemu.conf ruby.conf
+  simple.conf steam.conf valgrind.conf
 )
 sha256sums=(
   6a946648999007bee1f48513a7f0ec91977c038ec59bee3ad19cebcdcabd48ac
-  4b58966de32475026645b6411e07c287d4d6f2339f1bc50754f5b3ed2c3147ad
+  01fd9633bc11a5b69f5210929d469233b92889b3163506415471072dc4702a76
+  10176a7a6b554da20c548a4cbdea9b98c5f695bf70daa4a21d1908a5f03b9b32
   d59c776bfc3f45e4058f36088520a21b92e2c0b6fd886844443c308a67592335
   9bf238512e276dd2e34bed37760afaa10235afa477a0f0c3a59913999c723967
   95d49a8b0b682a77cf41f2bec3e7ff01df30308af27e74a25386142a5d5cc1e3
@@ -31,6 +33,7 @@ sha256sums=(
 package() {
   install -D -m755 $srcdir/$pkgname.sh $pkgdir/usr/bin/$pkgname
   install -D -m755 $srcdir/$pkgname.rb $pkgdir/usr/bin/$pkgname.rb
+  install -D -m644 $srcdir/$pkgname.8  $pkgdir/usr/share/man/man8/$pkgname.8
 
   for config in $srcdir/*.conf; do
     install -D -m600 $config $pkgdir/usr/share/$pkgname/$(basename $config)
