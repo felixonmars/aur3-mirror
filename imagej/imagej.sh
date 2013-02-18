@@ -1,20 +1,24 @@
 #!/bin/bash
 
 # imagej.sh - a not so simple wrapper script used to run ImageJ
-
-#	Copyright © 2008 Paolo Ariano
-#	Authors: Paolo Ariano (paolo dot ariano at unito dot it)
-#	Last modified date: 19 Sept 2008
-
+#
+#   Copyright 2008 Paolo Ariano
+#   Authors: Paolo Ariano (paolo dot ariano at unito dot it)
+#   Last modified date: 19 Sept 2008
+#
 # This is a not so simple wrapper script used to run ImageJ in Unix but 
 # optimized for Debian GNU/Linux, this is a merge between my original script 
 # and a more exhaustive one from Jon Jackson (jjackson at familyjackson dot net)
 
-#	Edited 2009 Giulio Guzzinati
-#	Authors: Giulio Guzzinati (skarn86junk () gmail DOT it)
-#	Last modified date: 24 May 2009
+# Adapted for use with ArchLinux
 
-#This script has been edited for usage with Arch Linux by Giulio Guzzinati
+#   Edited 2009 Giulio Guzzinati
+#   Authors: Giulio Guzzinati (skarn86junk () gmail DOT it)
+#   Last modified date: 24 May 2009
+
+#   Edited 2012/13 Michael Schubert
+#   Authors: Michael Schubert (mschu.dev at gmail)
+#   Last modified date: 17 Feb 2013
 
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU Lesser General Public Licenseas published by
@@ -26,18 +30,11 @@
 
 
 # setup environment
-set +u # don't give error for unset variables (matters for environment variables)
-shopt -s extglob # allow extended pattern matching
+# dont give error for unset variables (matters for environment variables)
+set +u
+# allow extended pattern matching
+shopt -s extglob
 
-##################### DEFINE JAVA_HOME #####################
-#
-#if [ -z "/opt/java/jre"  ] ; then
-#    JAVA_HOME=$(/opt/java/jre -l | head -1 | cut -d' ' -f 3)
-#else
-#	JAVA_HOME=$(/usr -l | head -1 | cut -d' ' -f 3)
-#fi
-#
-#
 ##################### CREATE THE RIGHT ENVIRONMENT #####################
 
 # ImageJ path
@@ -63,30 +60,21 @@ separator=':'
 # to recover macro arguments
 
 # create plugins,macro,tmp dirs 
-mkdir -p ${ij_user_path}/plugins 
-mkdir -p ${ij_user_path}/macros
-mkdir -p ${ij_user_path}/luts
+mkdir -p ${ij_user_path}/{plugins,macros,luts}
 
 # makes symbolik links from shared plugins, macros and luts 
-
-ls ${ij_path}/plugins | while read p ; do
-  if [ ! -e "${ij_user_path}/plugins/$p" ] ; then
-    ln -s "${ij_path}/plugins/$p" "${ij_user_path}/plugins/$p"
-  fi
-done
-
-ls ${ij_path}/macros | while read p; do
-  if [ ! -e "${ij_user_path}/macros/$p" ] ; then
-      ln -s "${ij_path}/macros/$p" "${ij_user_path}/macros/$p"
-  fi
-done
-
-ls ${ij_path}/luts | while read p ; do
-    if [ ! -e "${ij_user_path}/luts/$p" ] ; then
-	ln -s "${ij_path}/luts/$p" "${ij_user_path}/luts/$p"
+find ${ij_path}/{plugins,macros,luts} -maxdepth 1 -mindepth 1 | while read p; do
+    if [ ! -e "${p/$ij_path/$ij_user_path}" ] ; then
+        ln -s "$p" "${p/$ij_path/$ij_user_path}"
     fi
 done
 
+# remove symlinks for files that do no longer exist
+find ${ij_user_path} -type l | while read p; do
+    if ! readlink -qe "$p" > /dev/null; then 
+        rm "$p"
+    fi
+done
 
 # report errors to this user
 # ijadmin='paolo.ariano@unito.it'
@@ -131,27 +119,27 @@ java_home="${java_home:-$JAVA_HOME}"
 
 if [[ "$OS" == 'SunOS' ]] ; then
     java_arch='-d64'
-	JAVA_HOME="${java_home_SunOS:-$java_home}"	
-	max_mem=`vmstat | awk 'BEGIN{maxMem='$max_64bit'} NR == 3 {fmem=int($5 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
-	free_mem="max_mem"
-	mem=${free_mem}/2
-	if (( $mem > $default_mem || $mem < $min_mem )) ; then mem=$default_mem ; fi
+    JAVA_HOME="${java_home_SunOS:-$java_home}"  
+    max_mem=`vmstat | awk 'BEGIN{maxMem='$max_64bit'} NR == 3 {fmem=int($5 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
+    free_mem="max_mem"
+    mem=${free_mem}/2
+    if (( $mem > $default_mem || $mem < $min_mem )) ; then mem=$default_mem ; fi
 elif [[ "$OS" == 'Linux' ]] ; then
-	if [[ "$processor" == 'x86_64' ]] ; then
-    	java_arch='-d64'
+    if [[ "$processor" == 'x86_64' ]] ; then
+        java_arch='-d64'
         JAVA_HOME="${java_home_Linux_x86_64:-$java_home}"
-    	max_mem=`free | awk -v maxMem=$max_64bit 'NR == 2 {fmem=int($2 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
-		free_mem=`free | awk -v maxMem=$max_64bit 'NR == 3 {fmem=int($4 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
-		mem=${free_mem}/3*2
-		if (( $mem > $default_mem || $mem < $min_mem )) ; then mem=$default_mem ; fi
-	else
-		java_arch='-d32'
-    	JAVA_HOME="${java_home_Linux:-$java_home}"
-    	max_mem=`free | awk -v maxMem=$max_32bit 'NR == 2 {fmem=int($2 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
-		free_mem=`free | awk -v maxMem=$max_32bit 'NR == 3 {fmem=int($4 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
-		mem=${free_mem}/3*2
-		if (( $mem > $default_mem || $mem < $min_mem )) ; then mem=$default_mem ; fi	
-	fi
+        max_mem=`free | awk -v maxMem=$max_64bit 'NR == 2 {fmem=int($2 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
+        free_mem=`free | awk -v maxMem=$max_64bit 'NR == 3 {fmem=int($4 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
+        mem=${free_mem}/3*2
+        if (( $mem > $default_mem || $mem < $min_mem )) ; then mem=$default_mem ; fi
+    else
+        java_arch='-d32'
+        JAVA_HOME="${java_home_Linux:-$java_home}"
+        max_mem=`free | awk -v maxMem=$max_32bit 'NR == 2 {fmem=int($2 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
+        free_mem=`free | awk -v maxMem=$max_32bit 'NR == 3 {fmem=int($4 / 1024); if (fmem < maxMem) {print fmem} else {print maxMem}}'`
+        mem=${free_mem}/3*2
+        if (( $mem > $default_mem || $mem < $min_mem )) ; then mem=$default_mem ; fi    
+    fi
 fi
 
 
@@ -202,14 +190,14 @@ function fullusage {
     echo 'all following arguments are passed to macro'        
     echo 
     echo "Documentation - $doc_url "
-	echo "Report problems with this software to $ijadmin"
+    echo "Report problems with this software to $ijadmin"
     echo
 }
 
 function macroCmdError {
-	fullusage 
-	echo 'Only one command option (-b -e -m OR -r) may be specified' 1>&2
-	exit 1
+    fullusage 
+    echo 'Only one command option (-b -e -m OR -r) may be specified' 1>&2
+    exit 1
 }
 
 function getFullPath {
@@ -241,7 +229,7 @@ function derefln {
             the_link=$(basename "$the_link")
         fi
         link_dir="$PWD" 
-	    # some versions of 'file' surround the path in `' quotes, hence the tr to remove them
+        # some versions of 'file' surround the path in `' quotes, hence the tr to remove them
         the_link=$(file "${the_link}" | awk '/symbolic link/ {print $NF}' | tr -d "\140\047" )
         if [[ "$the_link" != /* ]] ; then # path is not absolute path  - make it one
             the_link="$link_dir/$the_link"
@@ -281,97 +269,97 @@ tools="$JAVA_HOME/lib/tools.jar"
 
 while getopts b:cde:hi:m:nop:r:vx: options
 do
-	case $options in
-		b)	if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
-			macrocmd="-batch ${OPTARG}"
-			;;
-		c)	modules="${modules:-}${modules+:}${tools}"
-			;;
-		d)	ij_path="$ij_path_dev"
-			;;
-		e)  if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
-			macrocmd='-eval'
-			macroargs="'${OPTARG}'"
-			;;
-		h)  fullusage
-			exit 0
-			;;
-		i)  images="${images}'${OPTARG}' "
-			;;
-		m)	if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
-			macrocmd="-macro ${OPTARG}"
-			;;
+    case $options in
+        b)  if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
+            macrocmd="-batch ${OPTARG}"
+            ;;
+        c)  modules="${modules:-}${modules+:}${tools}"
+            ;;
+        d)  ij_path="$ij_path_dev"
+            ;;
+        e)  if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
+            macrocmd='-eval'
+            macroargs="'${OPTARG}'"
+            ;;
+        h)  fullusage
+            exit 0
+            ;;
+        i)  images="${images}'${OPTARG}' "
+            ;;
+        m)  if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
+            macrocmd="-macro ${OPTARG}"
+            ;;
         n)  newwindow='true'
             ;;
-		o)  newwindow='false'
-			;;
-		p)	newwindow='false'
-			port="${OPTARG}"
-        	if (( "$port" < 1 || "$port" > 99 )) ; then
-            	echo "${OPTARG} is not a permissible value for port number (-p)" 1>&2
-            	exit 1
-        	fi
-			;;
-		r)	if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
-			macrocmd='-run'
-			macroargs="'${OPTARG}'"
-			;;
-		v)	verbosity=verbosity+1
-			if (( $verbosity == 2 )) ; then set -x ; fi
-			if (( $verbosity == 3 )) ; then set -v ; fi
-			;;
-		x)	mem="${OPTARG}"
+        o)  newwindow='false'
+            ;;
+        p)  newwindow='false'
+            port="${OPTARG}"
+            if (( "$port" < 1 || "$port" > 99 )) ; then
+                echo "${OPTARG} is not a permissible value for port number (-p)" 1>&2
+                exit 1
+            fi
+            ;;
+        r)  if [[ -n "$macrocmd" ]] ; then macroCmdError ; fi
+            macrocmd='-run'
+            macroargs="'${OPTARG}'"
+            ;;
+        v)  verbosity=verbosity+1
+            if (( $verbosity == 2 )) ; then set -x ; fi
+            if (( $verbosity == 3 )) ; then set -v ; fi
+            ;;
+        x)  mem="${OPTARG}"
             newwindow='true'
-			if (( $mem < $min_mem || $mem > $max_mem )) ; then
-            	echo "${OPTARG} is not a permissible value for memory (-x)" 1>&2
-            	echo "min=${min_mem}, max=${max_mem}" 1>&2
-            	exit 1				
-			fi
-			;;
-		\?) usage
-			exit 1 
-			;;
-	esac
+            if (( $mem < $min_mem || $mem > $max_mem )) ; then
+                echo "${OPTARG} is not a permissible value for memory (-x)" 1>&2
+                echo "min=${min_mem}, max=${max_mem}" 1>&2
+                exit 1              
+            fi
+            ;;
+        \?) usage
+            exit 1 
+            ;;
+    esac
 done
-			
-		
+            
+        
 declare -i i=1
 while (( i < $OPTIND )) ; do
-	shift
-	i=i+1
+    shift
+    i=i+1
 done
 
 #if (( "$#" == 0 )) ; then
-#	usage
-#fi	
+#   usage
+#fi 
 
 # -b and -m options only:
 # remaining command line arguments are passed as macro arguments 
 # separated by $separator
 if [[ -n "$macrocmd" && -z "$macroargs" ]] ; then
-	while (( "$#" > 0 )) ; do
+    while (( "$#" > 0 )) ; do
         if [[ -z "$macroargs" ]] ; then 
             macroargs="${1}"
         else
             macroargs="${macroargs}${separator}${1}"
         fi
-        shift 		
-	done
-	macroargs="'$macroargs'"
+        shift       
+    done
+    macroargs="'$macroargs'"
 fi
-	
+    
 # PROTECT POSSIBLE SPACES IN IMAGE FILENAMES
 if (( "$#" > 0 )) ; then
-	while (( "$#" > 0 )) ; do
+    while (( "$#" > 0 )) ; do
         filearg="${1}"
         # full file path required when sending images to running ImageJ panel
         if [[ "${newwindow}" == 'false' && -f "${filearg}" ]]  && ! expr "${filearg}" : '/.*' > /dev/null; then 
             filearg="$(getFullPath ${filearg})"
         fi
-		images="${images}'$filearg' "
-		shift 
-	done
-fi	
+        images="${images}'$filearg' "
+        shift 
+    done
+fi  
 
 ##################### USING PORT #####################
 
@@ -405,7 +393,7 @@ if (( $port > 0 )) ; then
     for lockname in ${locklist[*]} ; do
         prefix=`printf '%02u' $port`
         if [[ "$lockname" == ${prefix}-${user}-${host}* ]] ; then
-        	# found lock on the requested port, owned by user on current display
+            # found lock on the requested port, owned by user on current display
             portopen='true'
             if (( $verbosity > 0 )) ; then echo "Using socket lock: $lockname" ; fi
             count=$port
@@ -464,43 +452,27 @@ if [[ "$portopen" == 'false' ]] ; then
     lockname=${prefix}-${user}-${host}-${display}
     
     [[ -n "$ij_log" ]] && echo -e "$$\t$(date)\tCreating lock\t$lockname" >> "$ij_log" 2> /dev/null
-	if (( $verbosity > 0 )) ; then echo -n "creating lock $lockname ... " ; fi
-	touch $lockname
-	trap '\rm -f ${ij_tmp}/$lockname >/dev/null ; echo -e "$$\t$(date)\tReleasing lock\t$lockname" >> "$ij_log" 2> /dev/null' EXIT TERM KILL 
-	# Quitting ImageJ sends EXIT, as does a kill/kill -9 
-	# CTRL+C in terminal sends INT + EXIT
-	# System shutdown sends TERM (+EXIT??)
-	
-	if (( $verbosity > 0 )) ; then  echo 'done' ; fi
+    if (( $verbosity > 0 )) ; then echo -n "creating lock $lockname ... " ; fi
+    touch $lockname
+    trap '\rm -f ${ij_tmp}/$lockname >/dev/null ; echo -e "$$\t$(date)\tReleasing lock\t$lockname" >> "$ij_log" 2> /dev/null' EXIT TERM KILL 
+    # Quitting ImageJ sends EXIT, as does a kill/kill -9 
+    # CTRL+C in terminal sends INT + EXIT
+    # System shutdown sends TERM (+EXIT??)
+    
+    if (( $verbosity > 0 )) ; then  echo 'done' ; fi
 
     lockFileCreated='true'
     if [[ -z "$macrocmd" ]] ; then 
-	    echo 'Open other images in this ImageJ panel as follows:'
-	    echo "  imagej -p $count <image1> [<image2> ... <imageN>]"
+        echo 'Open other images in this ImageJ panel as follows:'
+        echo "  imagej -p $count <image1> [<image2> ... <imageN>]"
     fi
     [[ -n "$ij_log" ]] && echo -e "$$\t$(date)\tSocket lock:\t$lockname" >> "$ij_log" 2> /dev/null
     if (( $verbosity > 0 )) ; then echo "Socket lock: $lockname" ; fi
-	echo
+    echo
 fi
 
 ##################### FINALLY RUN IMAGEJ #####################
 
-#popd > /dev/null
-
-#if [ "$JAVA_HOME" ] ; then
-#	if (( $verbosity > 0 )) ; then
-#		echo ${modules}
-#   		echo $JAVA_HOME/bin/java ${java_arch} -mx${mem}m ${modules} ij.ImageJ -ijpath ${ij_user_path} -port${count} ${images} ${macrocmd} ${macroargs}
-#	else
-#	eval $JAVA_HOME/bin/java ${java_arch} -mx${mem}m ${modules} ij.ImageJ -ijpath ${ij_user_path} -port${count} ${images} ${macrocmd} ${macroargs}
-#	fi
-#else
-#  echo "No JVM found to run ImageJ"
-#  echo "Please pacman -S java-runtime a JVM to run ImageJ or "
-#  echo "check JAVA_HOME."
-#  exit 1
-#fi
- 
 eval java ${java_arch} -mx${mem}m ${modules} ij.ImageJ -ijpath ${ij_user_path} -port${count} ${images} ${macrocmd} ${macroargs}
 
 exit 0
