@@ -1,0 +1,29 @@
+# Maintainer: josephgbr <rafael.f.f1@gmail.com>
+
+_pkgbase=glew
+pkgname=lib32-${_pkgbase}1.6
+pkgver=1.6.0
+pkgrel=1
+pkgdesc="Legacy version of the OpenGL Extension Wrangler Library (32 bit)"
+arch=('x86_64')
+url="http://glew.sourceforge.net"
+license=('BSD' 'MIT' 'GPL')
+depends=('lib32-libxmu' 'lib32-libxi' 'lib32-mesa' "$_pkgbase>=$pkgver" 'lib32-glew')
+makedepends=('gcc-multilib' 'glu')
+source=(http://downloads.sourceforge.net/${_pkgbase}/${_pkgbase}-${pkgver}.tgz)
+sha1sums=('ed555d15d0f01239b262c4cf803e97d60d8a18b6')
+
+build() {
+  cd ${_pkgbase}-${pkgver}
+  sed -i 's|CC = cc|CC = gcc -m32|' config/Makefile.linux
+  sed -i 's|LD = cc|LD = gcc -m32|' config/Makefile.linux
+  sed -i 's|lib64|lib32|' config/Makefile.linux
+  make
+}
+
+package() {
+  cd ${_pkgbase}-${pkgver}
+  make GLEW_DEST="${pkgdir}/usr" install
+  chmod 0755 "${pkgdir}/usr/lib32/libGLEW.so.${pkgver}"
+  rm -rf "${pkgdir}"/usr/{include,bin,lib32/libGLEW.{a,so},lib32/pkgconfig}  
+}
