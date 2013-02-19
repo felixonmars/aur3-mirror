@@ -127,7 +127,7 @@ int main(int argc, char *argv[]) {
 
             from_hex_string(bytes, &buffer, &bytes_len);
 
-            strcpy(bytes, buffer);
+            memcpy(bytes, buffer, bytes_len);
         } else if(strcmp(argv[i], "-h") == 0) {
             mode = MODE_TEXT;
 
