@@ -4,20 +4,21 @@
 pkgname=linux-pax-flags
 pkgdesc='Deactivates PaX flags for several binaries to work with PaX enabled kernels.'
 pkgver=2.0.6
-pkgrel=3
+pkgrel=4
 arch=(any)
 url='https://aur.archlinux.org/packages.php?ID=55491'
 license=(GPL3)
 depends=(ruby paxctl)
 source=(
   $pkgname.sh $pkgname.rb $pkgname.8
-  clamav.conf games.conf java.conf kde.conf polkit.conf qemu.conf ruby.conf
-  simple.conf steam.conf valgrind.conf
+  android.conf clamav.conf games.conf java.conf kde.conf polkit.conf qemu.conf
+  ruby.conf simple.conf steam.conf valgrind.conf
 )
 sha256sums=(
   6a946648999007bee1f48513a7f0ec91977c038ec59bee3ad19cebcdcabd48ac
   01fd9633bc11a5b69f5210929d469233b92889b3163506415471072dc4702a76
   d904705ab409c8bfebfd9afd415201de6152acdd5eb3a23a07c94ae6389bc545
+  7031e80b04bbc2a3f720b7d8e1d32bf9c972be0a7baebaa68bcf3cdfde94b45c
   bb87f4dce8e20f2ce601bdcb888dd688d8f0e9d0ab367e09c8081daffa15b03a
   a31a938b191cb11a27fbb6b1f89ec0f844ab1a1d9a1bbc3cae2fac5b477cec02
   f53647989743d696714549b87baac7509e136acce004d9f452de88cf369d4296

@@ -3,7 +3,7 @@
 # Contributor: Shanto <shanto@hotmail.com>
 
 pkgname=titanium-studio
-pkgver=3.0.1.201212181159
+pkgver=3.0.2.201302191606
 pkgrel=1
 pkgdesc="A free and open source application development platform, Titanium lets you create native mobile, tablet and desktop application experiences using existing web skills like Javascript, HTML, CSS, Python, Ruby, and PHP."
 url="http://www.appcelerator.com/products/titanium-studio/"
@@ -13,7 +13,6 @@ depends=('java-environment>=6' 'gtk2>=2.20' 'webkitgtk2' 'libpng12' 'libjpeg6' '
 makedepends=('findutils')
 options=(!strip)
 install=${pkgname}.install
-
 
 source=(
 	"${pkgname}.desktop"
@@ -27,17 +26,16 @@ md5sums=(
 	'7f3c4e54696bca03912e3a8820a1e78d'
 )
 
-
 # to give us the size of the array; we are gonna add the last entry based on the architecture
 _pkgarraysize=${#source[@]}
 
 if [ "$CARCH" = "i686" ]; then
 	source[${_pkgarraysize}]="http://titanium-studio.s3.amazonaws.com/latest/titanium.linux.gtk.x86.zip"
-	md5sums[${_pkgarraysize}]='ce276b461df9ddebe4db53d0f069fba3'
+	md5sums[${_pkgarraysize}]='760a4282d1a3eb01c4492e0e4544e94d'
 else
 	# x86_64
 	source[${_pkgarraysize}]="http://titanium-studio.s3.amazonaws.com/latest/titanium.linux.gtk.x86_64.zip"
-	md5sums[${_pkgarraysize}]='f67ef38bf5b3fd171bdedc41bf7b2248'
+	md5sums[${_pkgarraysize}]='47d6f90cc4de3004ed0e0f04b5b5ae20'
 fi
 
 
