@@ -1,9 +1,9 @@
-# Contributor: hbdee
+# Maintainer: hbdee <hbdee.arch@gmail.com>
 
 pkgname=amarok-minimal
 pkgver=2.7.0
-pkgrel=1
-pkgdesc="The powerful music player for KDE without integrated web services, default scripts, iPod and media devices support, Nepomuk and Soprano support, spectrum analyzer, and statistics synchronization."
+pkgrel=2
+pkgdesc="The powerful music player for KDE without integrated web services, default scripts, iPod and media devices support."
 arch=("i686" "x86_64")
 url="http://amarok.kde.org/"
 license=('GPL2' 'LGPL2.1' 'FDL')
@@ -22,10 +22,8 @@ optdepends=("libgpod: support for Apple iPod audio devices"
 conflicts=('amarok' 'amarok-devel' 'amarok-git' 'amarok-minimal-git')
 provides=('amarok')
 install="amarok.install"
-source=("http://download.kde.org/stable/amarok/${pkgver}/src/amarok-${pkgver}.tar.bz2"
-	'sync.patch')
-sha1sums=('d0ae4a2cb81a54ae94ca24fdb3aed88d7f3a921e'
-	  '40722972916df4214b074e460210538bb92cc491')
+source=("http://download.kde.org/stable/amarok/${pkgver}/src/amarok-${pkgver}.tar.bz2")
+sha1sums=('d0ae4a2cb81a54ae94ca24fdb3aed88d7f3a921e')
 
 build() {
   
@@ -34,9 +32,6 @@ build() {
     rm -rf build
   fi
    mkdir build
-
-  # Remove statistics synchronization feature for syncing metadata, track statistics, and the Last.fm web service. See http://userbase.kde.org/Amarok/Manual/Organization/Collection/StatisticsSynchronization
-  patch -p0 < "${srcdir}/sync.patch"
 
   # services
   sed -i '/amazon/d' amarok-${pkgver}/src/services/CMakeLists.txt
