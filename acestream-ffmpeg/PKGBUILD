@@ -5,7 +5,7 @@
 pkgname=acestream-ffmpeg
 _pkgname=ffmpeg
 pkgver=0.10.6
-pkgrel=1
+pkgrel=2
 epoch=1
 pkgdesc="Old ffmpeg libs for use with AceStream, does not conflict with ffmpeg"
 arch=('i686' 'x86_64')
@@ -55,6 +55,6 @@ package() {
   rm -r "$pkgdir"/usr/{bin,include,share}
   rm -r "$pkgdir"/usr/lib/pkgconfig
   rm "$pkgdir"/usr/lib/{libavcodec.so,libavdevice.*,libavfilter.*}
-  rm "$pkgdir"/usr/lib/{libavformat.so,libavutil.*,libpostproc.*}
+  rm "$pkgdir"/usr/lib/{libavformat.so,libavutil.so,libpostproc.*}
   rm "$pkgdir"/usr/lib/{libswresample.*,libswscale.*}
 }
