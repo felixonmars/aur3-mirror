@@ -1,15 +1,15 @@
 # Maintainer: stylish-mushroom <stylish.mushroom@gmail.com>
 
 pkgname=alpaca
-pkgver=3.2.0
+pkgver=3.2.1
 pkgrel=1
-pkgdesc="A minimalist package manager (bash pacman/AUR frontend)"
+pkgdesc="Minimalist official/AUR package manager (light, simple bash wrapper pacman/makepkg frontend interface)"
 arch=('any')
 url="http://arch-alpaca.googlecode.com"
 license=('GPL')
 depends=(bash curl grep sudo pacman)
-source=(http://arch-alpaca.googlecode.com/files/alpaca-3.2.0.tar.gz)
-md5sums=('2f60f32efbaefa4a31f64c40f782dfdc')
+source=(http://arch-alpaca.googlecode.com/files/alpaca-3.2.1.tar.gz)
+md5sums=('4cc235f70bbde975de2b38512cf602a8')
 
 package() {
 cd $srcdir/$pkgname-$pkgver
