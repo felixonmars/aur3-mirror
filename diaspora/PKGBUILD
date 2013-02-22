@@ -1,0 +1,126 @@
+# Maintainer: Jonne Haß <me@mrzyx.de>
+pkgbase=diaspora
+pkgname=diaspora
+true && pkgname=('diaspora-mysql' 'diaspora-postgresql')
+pkgver=0.0.3.0
+pkgrel=1
+pkgdesc="A distributed privacy aware social network"
+arch=('any')
+url="http://diasporaproject.org"
+license=('AGPL3')
+depends=('ruby' 'ruby-bundler' 'redis' 'imagemagick' 'libxslt')
+makedepends=('git' 'libmysqlclient' 'postgresql-libs' 'nodejs')
+conflicts=('diaspora-git' 'diaspora-mysql-git' 'diaspora-postgresql-git')
+options=(!strip)
+backup=("etc/webapps/$pkgbase/diaspora.yml"
+        "etc/webapps/$pkgbase/database.yml"
+        "etc/webapps/$pkgbase/secret_token.rb")
+install="$pkgbase.install"
+source=("$pkgbase-$pkgver.tar.gz::https://github.com/$pkgbase/$pkgbase/tarball/v$pkgver"
+        "$pkgbase.install"
+        "$pkgbase.service"
+        "$pkgbase.bashrc"
+        "git_availbility.patch")
+
+md5sums=('6df476b6b66eb8213287e59e444aefe0'
+         'e9fc25b30f484b9a3cab77ef04747e9f'
+         '8e4e2ae22c02d3b69ce6e732bad1d9c8'
+         'a543b59c73b8a477b568d114500a8bd5'
+         '061945f60e6c46d86c976efe289ec02e')
+
+build() {
+  cd $srcdir/$pkgbase-$pkgbase-*  
+  
+}
+
+_package() {
+  _db=$1
+  _srcdir=$srcdir/$pkgname-$pkgver
+
+  msg "Setup build directory"
+  mkdir -p $_srcdir
+  cp -Rf $srcdir/$pkgbase-$pkgbase-*/{app,config,db,public,lib,script,vendor,config.ru,Gemfile,Gemfile.lock,Procfile,Rakefile} $_srcdir
+
+  cd $_srcdir
+
+  msg "Applying patches"
+  patch -p1 < $srcdir/git_availbility.patch
+
+  msg "Bundle dependencies"
+  echo "install: --no-rdoc --no-ri" > $_srcdir/.gemrc
+  echo "update: --no-rdoc --no-ri" >> $_srcdir/.gemrc
+  HOME=$_srcdir DB=$_db bundle install --without development test heroku --path vendor/
+  HOME=$_srcdir DB=$_db bundle clean
+
+
+  msg "Create secret token"
+  HOME=$_srcdir DB=$_db bundle exec rake generate:secret_token
+
+  msg "Precompile assets"
+  DB=$_db bundle exec rake assets:precompile
+
+  msg "Copy contents to package directory"
+  install -dm755 $pkgdir/usr/share/webapps/$pkgbase
+  cp -Rf $_srcdir/* $pkgdir/usr/share/webapps/$pkgbase/
+  cp -Rf $_srcdir/.bundle $pkgdir/usr/share/webapps/$pkgbase/
+  install -Dm644 $_srcdir/.gemrc $pkgdir/usr/share/webapps/$pkgbase/.gemrc
+  install -Dm640 $_srcdir/config/initializers/secret_token.rb $pkgdir/etc/webapps/$pkgbase/secret_token.rb
+  install -Dm644 $srcdir/$pkgbase.service $pkgdir/usr/lib/systemd/system/$pkgbase.service
+  install -Dm644 $srcdir/$pkgbase.bashrc  $pkgdir/usr/share/webapps/$pkgbase/.bashrc
+
+  msg "Build source.tar.gz to conform the AGPL"
+  tar czf $pkgdir/usr/share/webapps/$pkgbase/public/source.tar.gz \
+          $pkgdir/usr/share/webapps/$pkgbase/{app,db,lib,script,Gemfile,Gemfile.lock,Rakefile,Procfile,config.ru}
+
+
+  msg "Prepare configuration files"
+  install -dm750 $pkgdir/etc/webapps/$pkgbase
+  install -Dm640 $_srcdir/config/diaspora.yml.example $pkgdir/etc/webapps/$pkgbase/diaspora.yml
+  install -Dm640 $_srcdir/config/database.yml.example $pkgdir/etc/webapps/$pkgbase/database.yml
+
+  sed -i -e "s|#certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'|certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'|" \
+         -e "s|#rails_environment: 'production'|rails_environment: 'production'|" \
+         -e "s|#database: 'mysql'|database: '$_db'|" \
+      $pkgdir/etc/webapps/$pkgbase/diaspora.yml
+  sed -i -e "s|<<: \*mysql|<<: *$_db|" \
+         -e "s|#<<: \*postgres||" \
+      $pkgdir/etc/webapps/$pkgbase/database.yml
+  sed -i -e "s|%db%|$_db|" \
+      $pkgdir/usr/share/webapps/$pkgbase/.bashrc
+  sed -i -e "s|%db%|$_db|" \
+         -e "s|mysql|mysqld|" \
+         -e "s|postgres|postgresql|" \
+      $pkgdir/usr/lib/systemd/system/$pkgbase.service
+
+  msg "Create symlinks"
+  install -dm755 $pkgdir/var/log/$pkgbase
+  install -dm755 $pkgdir/tmp/$pkgbase
+  install -dm755 $pkgdir/var/lib/$pkgbase/uploads
+  rm -Rf $pkgdir/usr/share/webapps/$pkgbase/log \
+         $pkgdir/usr/share/webapps/$pkgbase/tmp \
+         $pkgdir/usr/share/webapps/$pkgbase/public/uploads
+  ln -s  /etc/webapps/$pkgbase/diaspora.yml    $pkgdir/usr/share/webapps/$pkgbase/config/diaspora.yml
+  ln -s  /etc/webapps/$pkgbase/database.yml    $pkgdir/usr/share/webapps/$pkgbase/config/database.yml
+  ln -sf /etc/webapps/$pkgbase/secret_token.rb $pkgdir/usr/share/webapps/$pkgbase/config/initializers/secret_token.rb
+  ln -sf /var/lib/$pkgbase/uploads             $pkgdir/usr/share/webapps/$pkgbase/public/uploads
+  ln -sf /tmp/$pkgbase                         $pkgdir/usr/share/webapps/$pkgbase/tmp
+  ln -sf /var/log/$pkgbase                     $pkgdir/usr/share/webapps/$pkgbase/log
+}
+
+package_diaspora-mysql() {
+  true && pkgdesc="$pkgdesc (MySQL)"
+  true && depends=($depends 'libmysqlclient')
+  true && conflicts=($conflicts 'diaspora-postgresql')
+
+  _package mysql
+}
+
+package_diaspora-postgresql() {
+  true && pkgdesc="$pkgdesc (PostgreSQL)"
+  true && depends=($depends 'postgresql-libs')
+  true && conflicts=($conflicts 'diaspora-mysql')
+
+  _package postgres
+}
+
+# vim:set ts=2 sw=2 et:
