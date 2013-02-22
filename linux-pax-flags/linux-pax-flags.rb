@@ -189,7 +189,7 @@ end
 autopaths = []
 each_entry config, filters do |flags, entry, pattern, path|
   if File.exists? path and entry.is_a? Hash
-    autopaths.push path if not entry[path]['skip']
+    autopaths.push path if not (entry.nil? and entry[path]['skip'])
   end
 end
 
@@ -246,7 +246,11 @@ each_entry config, filters do |flags, entry, pattern, path|
     end
 
     # Set the flags and notify the user.
-    `paxctl -c#{flags} "#{path}"` unless prepend
+    unless prepend
+      header = 'c'
+      header = 'C' if e['header'] == 'create'
+      `paxctl -#{header}#{flags} "#{path}"`
+    end
     print flags, ' ', path, "\n"
 
     # Start the complex entries service again, if it is neccessary.
