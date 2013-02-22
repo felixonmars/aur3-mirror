@@ -1,5 +1,5 @@
 pkgname=agda-lib
-pkgver=0.6
+pkgver=0.7
 pkgrel=1
 pkgdesc="The Agda standard library"
 url="http://wiki.portal.chalmers.se/agda/pmwiki.php"
@@ -8,7 +8,7 @@ arch=('i686' 'x86_64')
 makedepends=()
 depends=()
 source=("http://www.cse.chalmers.se/~nad/software/lib-${pkgver}.tar.gz")
-sha256sums=('f3b22d104a1d91e558e833ff968cf63dbe239601e15d91e380ef791f75d82060')
+sha256sums=('631a33e8e27ead32c85cc92a0a85849744d3b2960ef9675736d54288267ed2fa')
 install="${pkgname}.install"
 
 build() {
