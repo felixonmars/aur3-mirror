@@ -3,7 +3,7 @@
 
 pkgname=aegisub
 pkgver=3.0.2
-pkgrel=4
+pkgrel=6
 pkgdesc="A general-purpose subtitle editor with ASS/SSA support"
 arch=('i686' 'x86_64')
 url="http://www.aegisub.org"
@@ -19,7 +19,7 @@ install=aegisub.install
 # http://devel.aegisub.org/wiki/Build/Deps
 # with all redundant dependencies removed
 depends=('fontconfig>=2.4.2' 'lua51' 'hunspell'
-    'wxgtk2.9' 'libass>=0.10' 'ffmpegsource>=2.16'
+    'wxgtk2.9' 'libass>=0.10' 'ffmpegsource2-tgoyne-git' # 'ffmpegsource>=2.16'
     'fftw' 'desktop-file-utils' 'hicolor-icon-theme'
     )
 
