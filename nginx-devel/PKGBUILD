@@ -5,17 +5,31 @@
 pkgname=nginx-devel
 _pkgname=nginx
 # development version of nginx
-pkgver=1.3.12
-pkgrel=2
+pkgver=1.3.13
+pkgrel=1
 pkgdesc='Lightweight HTTP server and IMAP/POP3 proxy server - development version'
+url="http://nginx.org"
 arch=('i686' 'x86_64')
 #{{{ Third party modules and patches
+###
 # SPDY: reduce web page load latency and improve web security
+###
 # see http://nginx.org/patches/spdy/README.txt and http://en.wikipedia.org/wiki/SPDY
-_spdy_patchlevel=61
+_spdy_patchlevel=65
+###
 # naxsi: Application firewall
+###
 # see http://code.google.com/p/naxsi/
 _naxsiver=0.49
+###
+# systemd socket activation support
+###
+# see http://trac.nginx.org/nginx/ticket/237
+###
+# http push module: This module turns Nginx into an adept HTTP Push and Comet server.
+###
+# see http://pushmodule.slact.net/
+_pushmodulever=0.692
 #}}}
 #{{{ nginx env
 _cfgdir=/etc/nginx
@@ -27,6 +41,7 @@ _lockdir=/var/lock
 _user=http
 _group=http
 #}}}
+#{{{depends
 depends=(
 pcre
 openssl
@@ -34,55 +49,104 @@ geoip
 gd
 libxslt
 #google-perftools
-)
+) #}}}
+#{{{makedepends
 makedepends=(
 passenger
 geoip
 libatomic_ops
 #google-perftools
-)
+) #}}}
 optdepends=('passenger')
-url="http://nginx.org"
 license=('custom')
 install='nginx.install'
+#{{{backup
 backup=(
-${_cfgdir:1}/fastcgi.conf
-${_cfgdir:1}/fastcgi_params
-${_cfgdir:1}/koi-win
-${_cfgdir:1}/koi-utf
-${_cfgdir:1}/mime.types
-${_cfgdir:1}/nginx.conf
-${_cfgdir:1}/scgi_params
-${_cfgdir:1}/uwsgi_params
-${_cfgdir:1}/win-utf
-${_cfgdir:1}/naxsi.rules
-${_cfgdir:1}/naxsi_core.rules
+etc/nginx/fastcgi.conf
+etc/nginx/fastcgi_params
+etc/nginx/koi-win
+etc/nginx/koi-utf
+etc/nginx/mime.types
+etc/nginx/nginx.conf
+etc/nginx/scgi_params
+etc/nginx/uwsgi_params
+etc/nginx/win-utf
+etc/nginx/naxsi.rules
+etc/nginx/naxsi_core.rules
 etc/logrotate.d/nginx
-)
+) #}}}
 changelog='CHANGES'
+#{{{source
 source=(
 http://nginx.org/download/${_pkgname}-$pkgver.tar.gz
 http://naxsi.googlecode.com/files/naxsi-core-${_naxsiver}.tgz
-rc.d
-service
+#rc.d
+nginx.service
 nginx.logrotate
 naxsi.rules
 naxsi_core.rules
 nginx.conf.example
 http://nginx.org/en/CHANGES
 http://nginx.org/patches/spdy/patch.spdy-${_spdy_patchlevel}_${pkgver}.txt
-)
-conflicts=('nginx' 'nginx-unstable' 'nginx-svn')
+"socket.patch::http://trac.nginx.org/nginx/raw-attachment/ticket/237/0001-Socket-activation-support-for-systemd.patch"
+nginx.socket
+) #}}}
+#{{{conflicts
+conflicts=(
+nginx
+nginx-unstable
+nginx-svn
+nginx-socket
+nginx-development-extra
+nginx-spdy
+) #}}}
 provides=('nginx')
 #options=('!emptydirs')
 
-# build env
+# variables build
 _configure_params=()
+# Additional functions, from nginx-development-extra, thx
+add_module() { #{{{
+  local module=$1 && shift
+  local src=$1 && shift
+
+  plain "* $module"
+
+  if [[ "$src" == "github" ]]; then
+    src=$(add_github_module $module $@)
+  elif [[ "$src" =~ ^(https?|ftp):// ]]; then
+    src=$(add_external_module $module $src)
+  fi
+
+  if [ -d "$src" ]; then
+    _configure_params+=(--add-module=$src)
+  fi
+} #}}}
+add_external_module() { #{{{
+  local module=$1
+  local src=$2
+
+  [ -d "$module" ] || curl --silent $src | tar -xz
+
+  echo "$(cd "$module" && pwd)"
+} #}}}
+add_github_module() { #{{{
+  local module=$1
+  local github_user=$2
+  local branch=$3
+
+  [ -d "./$module/.git" ] || git clone -q git://github.com/$github_user/$module.git
+  [ -n "$branch" ] && (cd $module && git checkout -q $branch)
+
+  echo "$(cd "$module" && pwd)"
+} #}}}
 
 build() { #{{{
 	cd "$srcdir"/${_pkgname}-$pkgver
-  msg "Adding SPDY protocol"
+  msg2 "Adding SPDY protocol. If you get error then remove $srcdir directory."
 	patch -Np1 -i "$srcdir"/patch.spdy-${_spdy_patchlevel}_${pkgver}.txt
+  msg2 "Adding optional systemd socket activation support"
+  patch -Np1 -i "$srcdir/socket.patch"
 
   _configure_params=(
     --prefix=$_cfgdir
@@ -141,11 +205,22 @@ build() { #{{{
     --with-libatomic
     --with-debug
 
-    --add-module=/usr/lib/passenger/ext/nginx
-    --add-module=$srcdir/naxsi-core-${_naxsiver}/naxsi_src
   )
 #    --with-google_perftools_module
   
+  _modulesdir="$srcdir/modules"
+
+  msg2 "Configuring modules"
+
+  mkdir -p $_modulesdir
+  cd $_modulesdir
+
+  add_module "passenger" "/usr/lib/passenger/ext/nginx"
+  add_module "naxsi-${_naxsiver}" "$srcdir/naxsi-core-${_naxsiver}/naxsi_src"
+  add_module "nginx_http_push_module-${_pushmodulever}" \
+    "http://pushmodule.slact.net/downloads/nginx_http_push_module-${_pushmodulever}.tar.gz"
+
+	cd "$srcdir"/${_pkgname}-$pkgver
   ./configure ${_configure_params[*]}
   make
 } #}}}
@@ -167,8 +242,9 @@ package() { #{{{
   install -d "$pkgdir"/usr/share/nginx
   mv "$pkgdir"/etc/nginx/html/ "$pkgdir"/usr/share/nginx
 
-  install -Dm755 "$srcdir"/rc.d "$pkgdir"/etc/rc.d/nginx
-  install -Dm644 "$srcdir"/service "$pkgdir"/usr/lib/systemd/system/nginx.service
+  #install -Dm755 "$srcdir"/rc.d "$pkgdir"/etc/rc.d/nginx
+  install -Dm644 "$srcdir"/nginx.service "$pkgdir"/usr/lib/systemd/system/nginx.service
+  install -Dm644 "$srcdir"/nginx.socket "$pkgdir"/usr/lib/systemd/system/nginx.socket
   install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/nginx-devel/LICENSE
   rm -rf "$pkgdir"/var/run
 
@@ -183,14 +259,14 @@ package() { #{{{
   
   install -Dm644 "$srcdir"/nginx.conf.example "$pkgdir"/${_cfgdir}/nginx.conf.example
 } #}}}
-
-md5sums=('3cce66c0a46ce5ad31b482c8c927cdf6'
+md5sums=('cf5acd823deac63cddba3fe377a0de27'
          '7e463d3852b86881e9e880c86184e8ab'
-         'f62c7c9b5a53471d4666a4c49ad363fb'
          '62d494d23aef31d0b867161f9fffa6eb'
          'b38744739022876554a0444d92e6603b'
          '8510ce5ff8d3a7a710fa42e127651594'
          'cf67e931f4263830189196b2d8560502'
          '3a23f1f2478abb5847a8042a0c3b747b'
-         '00c6d20706a1ec5f4c96114ce69d2880'
-         'c02cd60057dc46f021cda058a884d0e0')
+         'e33dfac00fdb527839080469926b7dd7'
+         'e8751a0c06239b4cc93c58520f1e1b23'
+         'a79a2e34f4197391356a7a92584481b0'
+         '5981d95bb07ca3e1f3640118199c219d')
