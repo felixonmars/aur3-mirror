@@ -1,7 +1,7 @@
 # Contributor: Konstantin Stepanov <me@kstep.me>
 pkgname=perl-fusqlfs
 perlname='FusqlFS'
-pkgver=0.008
+pkgver=0.009
 pkgrel=1
 pkgdesc="${perlname} module which implements FUSE file system for database management. Supports PgSQL, MySQL and SQLite, can be extended to support other DBs."
 arch=('any')
@@ -22,7 +22,7 @@ backup=()
 options=('!emptydirs')
 install=
 source=("http://search.cpan.org/CPAN/authors/id/K/KS/KSTEPME/${perlname}-${pkgver}.tar.gz")
-md5sums=('0697c93f073b52a45005827416a1cea6')
+md5sums=('2101520ba09b54157d7ffa1fc21bdd4a')
 
 build() {
     cd "$srcdir/$perlname-$pkgver"
