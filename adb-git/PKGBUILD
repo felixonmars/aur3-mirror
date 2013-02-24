@@ -1,7 +1,7 @@
 # Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=adb-git
-pkgver=20121119
+pkgver=20130224
 pkgrel=1
 pkgdesc="adb(Android Debug Bridge CLI tool), an Android platform tool"
 arch=('i686' 'x86_64' 'armv7h')
@@ -12,13 +12,17 @@ conflicts=('adb')
 url="http://android.googlesource.com/platform/system/core"
 license=('Apache')
 source=('adbMakefile')
-md5sums=('11479c2535f9ba0ef00d9ea0d9e9d694')
+md5sums=('887d868e544330ef850334961685cab3')
 
 build() {
 	cd $srcdir
-	git clone $url -b tools_r21 --depth=1
-	mv adbMakefile core/adb/makefile
-	cd core/adb
+	if [[ -d core ]]; then
+		cd core && git pull origin
+	else
+		git clone $url --depth=1
+	fi
+	cd $srcdir/core/adb
+	mv ../../adbMakefile makefile
 	make
 }
 

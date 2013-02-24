@@ -52,10 +52,10 @@ _remove_static_objects=true
 
 
 _year='2013'
-_v_a='1'
-_v_b='117' 
+_v_a='2'
+_v_b='146' 
 
-_update='update1'
+_update='update2'
 
 pkgrel=1
 
@@ -63,18 +63,18 @@ _sp=''
 
 pkgver=${_year}.${_v_a}.${_v_b}
 
-_dir_nr='2872'
+_dir_nr='2987'
 
 options=(strip)
 
 
-_icc_ver='13.0'
+_icc_ver='13.1'
 _ipp_ver='7.1-1'
-_mkl_ver='11.0-1'
-_openmp_ver='13.0-1'
-_sourcechecker_ver='13.0-1'
+_mkl_ver='11.0-2'
+_openmp_ver='13.1-2'
+_sourcechecker_ver='13.1-2'
 
-_tbb_ver='4.1-1'
+_tbb_ver='4.1-2'
 
 
 
@@ -131,13 +131,13 @@ if [ "$CARCH" = "i686" ]; then
     _i_arch='ia32'
     _i_arch2='i486'
     _not_arch='intel64'
-    sha256sums=( 'e1e2ac8e1cf559a539aec1b9ab06b71d041e986bba6db69cbb5025ecaee90e89' ${sha256sums[@]} )
+    sha256sums=( '13063ea9c47c781ea8f368566d328434351002e7321b2021b5f04ff741a5d55f' ${sha256sums[@]} )
 else
     _i_arch='intel64'
   
     _i_arch2='x86_64'
     _not_arch='ia32' 
-    sha256sums=('f39f63df9d0fc150643c753fcfdb788a75db64e266adca06bcf4f084f3210808' ${sha256sums[@]} )
+    sha256sums=('6136774de466de19f4024eeb5a8176ffbf559143b048fecc83848c27008361d6' ${sha256sums[@]} )
 fi
 
 _composer_xe_dir="composer_xe_${_year}.${_v_a}.${_v_b}"
