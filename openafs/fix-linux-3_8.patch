@@ -1,0 +1,196 @@
+Fix compatibility with linux 3.8
+
+Apply patches needed for linux 3.8. Picked from:
+* http://gerrit.openafs.org/#change,8941
+* http://gerrit.openafs.org/#change,8942
+* http://gerrit.openafs.org/#change,8948
+---
+ acinclude.m4                |  2 ++
+ src/afs/LINUX/osi_compat.h  | 48 +++++++++++++++++++++++++++++++++++++++++++--
+ src/afs/LINUX/osi_groups.c  |  9 ++-------
+ src/afs/LINUX/osi_machdep.h |  9 +++++++--
+ src/afs/LINUX/osi_vm.c      |  5 ++---
+ src/afs/afs_pioctl.c        |  8 ++++++++
+ 6 files changed, 67 insertions(+), 14 deletions(-)
+
+diff --git a/acinclude.m4 b/acinclude.m4
+index 365aeaf..9a13ba1 100644
+--- a/acinclude.m4
++++ b/acinclude.m4
+@@ -792,6 +792,7 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 				       [write_begin], [fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([backing_dev_info], [name],
+ 				       [backing-dev.h])
++		 AC_CHECK_LINUX_STRUCT([cred], [session_keyring], [cred.h])
+ 		 AC_CHECK_LINUX_STRUCT([ctl_table], [ctl_name], [sysctl.h])
+ 		 AC_CHECK_LINUX_STRUCT([dentry_operations], [d_automount], [dcache.h])
+ 		 AC_CHECK_LINUX_STRUCT([inode], [i_alloc_sem], [fs.h])
+@@ -803,6 +804,7 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 		 AC_CHECK_LINUX_STRUCT([file_operations], [sendfile], [fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([file_system_type], [mount], [fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([filename], [name], [fs.h])
++		 AC_CHECK_LINUX_STRUCT([inode_operations], [truncate], [fs.h])
+ 		 AC_CHECK_LINUX_STRUCT([key_type], [preparse], [key-type.h])
+ 		 AC_CHECK_LINUX_STRUCT([nameidata], [path], [namei.h])
+ 		 AC_CHECK_LINUX_STRUCT([proc_dir_entry], [owner], [proc_fs.h])
+diff --git a/src/afs/LINUX/osi_compat.h b/src/afs/LINUX/osi_compat.h
+index c71384d..014c8af 100644
+--- a/src/afs/LINUX/osi_compat.h
++++ b/src/afs/LINUX/osi_compat.h
+@@ -176,14 +176,24 @@ afs_linux_key_alloc(struct key_type *type, const char *desc, uid_t uid,
+ }
+ 
+ # if defined(STRUCT_TASK_STRUCT_HAS_CRED)
++static inline struct key *
++afs_session_keyring(afs_ucred_t *cred)
++{
++#  if defined(STRUCT_CRED_HAS_SESSION_KEYRING)
++    return cred->session_keyring;
++#  else
++    return cred->tgcred->session_keyring;
++#  endif
++}
++
+ static inline struct key*
+ afs_linux_search_keyring(afs_ucred_t *cred, struct key_type *type)
+ {
+     key_ref_t key_ref;
+ 
+-    if (cred->tgcred->session_keyring) {
++    if (afs_session_keyring(cred)) {
+ 	key_ref = keyring_search(
+-		      make_key_ref(cred->tgcred->session_keyring, 1),
++		      make_key_ref(afs_session_keyring(cred), 1),
+ 		      type, "_pag");
+ 	if (IS_ERR(key_ref))
+ 	    return ERR_CAST(key_ref);
+@@ -497,4 +507,38 @@ afs_set_name(afs_name_t aname, char *string) {
+ }
+ #endif
+ 
++static_inline struct key *
++afs_set_session_keyring(struct key *keyring)
++{
++    struct key *old;
++#if defined(STRUCT_CRED_HAS_SESSION_KEYRING)
++    struct cred *new_creds;
++    old = current_session_keyring();
++    new_creds = prepare_creds();
++    rcu_assign_pointer(new_creds->session_keyring, keyring);
++    commit_creds(new_creds);
++#else
++    spin_lock_irq(&current->sighand->siglock);
++    old = task_session_keyring(current);
++    smp_wmb();
++    task_session_keyring(current) = keyring;
++    spin_unlock_irq(&current->sighand->siglock);
++#endif
++    return old;
++}
++
++static inline int
++afs_truncate(struct inode *inode, int len)
++{
++    int code;
++#if defined(STRUCT_INODE_OPERATIONS_HAS_TRUNCATE)
++    code = vmtruncate(inode, len);
++#else
++    code = inode_newsize_ok(inode, len);
++    if (!code)
++        truncate_setsize(inode, len);
++#endif
++    return code;
++}
++
+ #endif /* AFS_LINUX_OSI_COMPAT_H */
+diff --git a/src/afs/LINUX/osi_groups.c b/src/afs/LINUX/osi_groups.c
+index c2a0308..e351344 100644
+--- a/src/afs/LINUX/osi_groups.c
++++ b/src/afs/LINUX/osi_groups.c
+@@ -214,14 +214,9 @@ install_session_keyring(struct key *keyring)
+     }
+ 
+     /* install the keyring */
+-    spin_lock_irq(&current->sighand->siglock);
+-    old = task_session_keyring(current);
+-    smp_wmb();
+-    task_session_keyring(current) = keyring;
+-    spin_unlock_irq(&current->sighand->siglock);
+-
++    old = afs_set_session_keyring(keyring);
+     if (old)
+-	    key_put(old);
++	key_put(old);
+ 
+ out:
+     return code;
+diff --git a/src/afs/LINUX/osi_machdep.h b/src/afs/LINUX/osi_machdep.h
+index a2c16f5..4a02208 100644
+--- a/src/afs/LINUX/osi_machdep.h
++++ b/src/afs/LINUX/osi_machdep.h
+@@ -179,8 +179,13 @@ afs_set_cr_group_info(cred_t *cred, struct group_info *group_info) {
+ #define current_group_info() (current->cred->group_info)
+ #define task_gid(task) (task->cred->gid)
+ #define task_user(task) (task->cred->user)
+-#define task_session_keyring(task) (task->cred->tgcred->session_keyring)
+-#define current_session_keyring() (current->cred->tgcred->session_keyring)
++#if defined(STRUCT_CRED_HAS_SESSION_KEYRING)
++# define task_session_keyring(task) (task->cred->session_keyring)
++# define current_session_keyring() (current->cred->session_keyring)
++#else
++# define task_session_keyring(task) (task->cred->tgcred->session_keyring)
++# define current_session_keyring() (current->cred->tgcred->session_keyring)
++#endif
+ 
+ #else
+ 
+diff --git a/src/afs/LINUX/osi_vm.c b/src/afs/LINUX/osi_vm.c
+index 2cd34f9..8bc792e 100644
+--- a/src/afs/LINUX/osi_vm.c
++++ b/src/afs/LINUX/osi_vm.c
+@@ -51,8 +51,7 @@ osi_VM_FlushVCache(struct vcache *avc, int *slept)
+     if (avc->opens != 0)
+ 	return EBUSY;
+ 
+-    return vmtruncate(ip, 0);
+-    return 0;
++    return afs_truncate(ip, 0);
+ }
+ 
+ /* Try to invalidate pages, for "fs flush" or "fs flushv"; or
+@@ -132,5 +131,5 @@ osi_VM_FlushPages(struct vcache *avc, afs_ucred_t *credp)
+ void
+ osi_VM_Truncate(struct vcache *avc, int alen, afs_ucred_t *acred)
+ {
+-    vmtruncate(AFSTOV(avc), alen);
++    afs_truncate(AFSTOV(avc), alen);
+ }
+diff --git a/src/afs/afs_pioctl.c b/src/afs/afs_pioctl.c
+index 440d617..ba24820 100644
+--- a/src/afs/afs_pioctl.c
++++ b/src/afs/afs_pioctl.c
+@@ -1853,6 +1853,9 @@ DECL_PIOCTL(PSetTokens)
+     afs_PutCell(tcell, READ_LOCK);
+     if (set_parent_pag) {
+ 	afs_uint32 pag;
++#if defined(AFS_LINUX26_ENV)
++	afs_ucred_t *old_cred = *acred;
++#endif
+ #if defined(AFS_DARWIN_ENV) || defined(AFS_XBSD_ENV)
+ 	char procname[256];
+ 	osi_procname(procname, 256);
+@@ -1862,6 +1865,11 @@ DECL_PIOCTL(PSetTokens)
+ #else
+ 	if (!setpag(acred, -1, &pag, 1)) {
+ #endif
++#if defined(AFS_LINUX26_ENV)
++	    /* setpag() may have changed our credentials */
++	    *acred = crref();
++	    crfree(old_cred);
++#endif
+ 	    afs_InitReq(&treq, *acred);
+ 	    areq = &treq;
+ 	}
+-- 
+1.8.1.2
+

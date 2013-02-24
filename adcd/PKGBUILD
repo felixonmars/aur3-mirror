@@ -1,19 +1,18 @@
 # Maintainer: archtux <antonio dot arias99999 at gmail dot com>
 
 pkgname=adcd
-pkgver=1.1rc1
-realpkgver=1.1-rc1
+pkgver=1.1
 pkgrel=1
 pkgdesc="Diminutive CD player with ncurses interface"
 arch=('i686' 'x86_64')
 url="http://www.nongnu.org/adcd/adcd.html"
 license=('GPL3')
 depends=('ncurses')
-source=(http://mirror.lihnidos.org/GNU/savannah/adcd/$pkgname-$realpkgver.tar.gz)
-md5sums=('f7de7d0a62565846a20b91bfafabf439')
+source=(http://mirror.lihnidos.org/GNU/savannah/adcd/$pkgname-$pkgver.tar.gz)
+md5sums=('fd4d7b071507f9c45c1336291d003c49')
 
 build() {
-  cd $srcdir/$pkgname-$realpkgver
+  cd $srcdir/$pkgname-$pkgver
 
   ./configure --prefix=/usr
   make
