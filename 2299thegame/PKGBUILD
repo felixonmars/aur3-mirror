@@ -3,12 +3,12 @@
 
 pkgname=2299thegame
 pkgver=1.0
-pkgrel=2
+pkgrel=3
 pkgdesc="An old-school, point and click adventure game with 8-bit inspired, retro graphics."
 arch=(i686 x86_64)
 url=http://lunduke.com/?page_id=2333
 license=(custom:GLL)
-depends=(desktop-file-utils gtk2)
+depends=(lib32-cairo1.10 desktop-file-utils gtk2)
 [[ $CARCH == "x86_64" ]] && depends[1]=lib32-gtk2
 install=$pkgname.install
 source=(http://www.lunduke.com/2299thegame/2299thegame.tar.gz
