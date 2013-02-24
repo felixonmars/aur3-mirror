@@ -1,7 +1,7 @@
 # Maintainer: Christophe Calvès <christophe.calves@crans.org>
 pkgname=alpha
-pkgver=0.2
-pkgrel=1
+pkgver=0.3
+pkgrel=2
 epoch=
 pkgdesc="A fast beta virtual machine with video display."
 arch=(any)
@@ -21,7 +21,7 @@ install=
 changelog=
 source=("http://christophe.calves.me/downloads/Alpha/Alpha-$pkgver.zip")
 noextract=()
-md5sums=('509fca69018a3e1e19f695260d0d19ab')
+md5sums=('526025a1e85373918db5aea19a555524')
 
 build() {
   cd "$srcdir/Alpha"

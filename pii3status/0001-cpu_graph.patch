@@ -1,0 +1,114 @@
+Index: i3status-2.6/include/i3status.h
+===================================================================
+--- i3status-2.6.orig/include/i3status.h
++++ i3status-2.6/include/i3status.h
+@@ -144,7 +144,7 @@ const char *get_ip_addr();
+ void print_wireless_info(yajl_gen json_gen, char *buffer, const char *interface, const char *format_up, const char *format_down);
+ void print_run_watch(yajl_gen json_gen, char *buffer, const char *title, const char *pidfile, const char *format);
+ void print_cpu_temperature_info(yajl_gen json_gen, char *buffer, int zone, const char *path, const char *format);
+-void print_cpu_usage(yajl_gen json_gen, char *buffer, const char *format);
++void print_cpu_usage(yajl_gen json_gen, char *buffer, int graph_len, const char *format);
+ void print_eth_info(yajl_gen json_gen, char *buffer, const char *interface, const char *format_up, const char *format_down);
+ void print_load(yajl_gen json_gen, char *buffer, const char *format);
+ void print_volume(yajl_gen json_gen, char *buffer, const char *fmt, const char *device, const char *mixer, int mixer_idx);
+Index: i3status-2.6/i3status.c
+===================================================================
+--- i3status-2.6.orig/i3status.c
++++ i3status-2.6/i3status.c
+@@ -237,6 +237,7 @@ int main(int argc, char *argv[]) {
+ 
+         cfg_opt_t usage_opts[] = {
+                 CFG_STR("format", "%usage", CFGF_NONE),
++                CFG_INT("graph_len", 0, CFGF_NONE),
+                 CFG_END()
+         };
+ 
+@@ -466,7 +467,8 @@ int main(int argc, char *argv[]) {
+ 
+                         CASE_SEC("cpu_usage") {
+                                 SEC_OPEN_MAP("cpu_usage");
+-                                print_cpu_usage(json_gen, buffer, cfg_getstr(sec, "format"));
++                                print_cpu_usage(json_gen, buffer, cfg_getint(sec, "graph_len"),
++                                                cfg_getstr(sec, "format"));
+                                 SEC_CLOSE_MAP;
+                         }
+                 }
+Index: i3status-2.6/src/print_cpu_usage.c
+===================================================================
+--- i3status-2.6.orig/src/print_cpu_usage.c
++++ i3status-2.6/src/print_cpu_usage.c
+@@ -15,21 +15,42 @@
+ 
+ #include "i3status.h"
+ 
++#define MAX_GRAPH_LEN 16
++
+ static int prev_total = 0;
+ static int prev_idle  = 0;
++/* need to keep utf-8 in, so 3 bytes per char */
++static unsigned char graph[MAX_GRAPH_LEN * 3];
+ 
+ /*
+  * Reads the CPU utilization from /proc/stat and returns the usage as a
+  * percentage.
+  *
+  */
+-void print_cpu_usage(yajl_gen json_gen, char *buffer, const char *format) {
++void print_cpu_usage(yajl_gen json_gen, char *buffer, int graph_len, const char *format) {
+         const char *walk;
+         char *outwalk = buffer;
+         char buf[1024];
+-        int curr_user = 0, curr_nice = 0, curr_system = 0, curr_idle = 0, curr_total;
++        int curr_user = 0, curr_nice = 0, curr_system = 0, curr_idle = 0, curr_total, i = 0;
+         int diff_idle, diff_total, diff_usage;
+ 
++        if (graph_len) {
++                if (graph_len > MAX_GRAPH_LEN)
++                        graph_len = MAX_GRAPH_LEN;
++                /* initialize */
++                if (!graph[0]) {
++                        for (i = 0; i < graph_len * 3; i+=3) {
++                                graph[i] = 0xe2;
++                                graph[i+1] = 0x96;
++                                graph[i+2] = 0x81;
++                        }
++                }
++
++                /* rotate */
++                for (i = 0; i < (graph_len - 1) * 3; i+=3)
++                        graph[i + 2] = graph[i + 2 + 3];
++        }
++
+ #if defined(LINUX)
+         static char statpath[512];
+         strcpy(statpath, "/proc/stat");
+@@ -74,9 +95,13 @@ void print_cpu_usage(yajl_gen json_gen,
+         diff_usage = (diff_total ? (1000 * (diff_total - diff_idle)/diff_total + 5)/10 : 0);
+         prev_total = curr_total;
+         prev_idle  = curr_idle;
++
+ #else
+         goto error;
+ #endif
++        if (graph_len)
++                graph[(graph_len * 3) - 1] = 0x81 + (diff_usage / 14);
++
+         for (walk = format; *walk != '\0'; walk++) {
+                 if (*walk != '%') {
+                         *(outwalk++) = *walk;
+@@ -84,9 +109,14 @@ void print_cpu_usage(yajl_gen json_gen,
+                 }
+ 
+                 if (strncmp(walk+1, "usage", strlen("usage")) == 0) {
+-                        outwalk += sprintf(outwalk, "%02d%%", diff_usage);
++                        outwalk += sprintf(outwalk, "%3d%%", diff_usage);
+                         walk += strlen("usage");
+                 }
++                if (strncmp(walk+1, "graph", strlen("graph")) == 0) {
++                        memcpy(outwalk, graph, graph_len * 3);
++                        outwalk += graph_len * 3;
++                        walk += strlen("graph");
++                }
+         }
+ 
+         OUTPUT_FULL_TEXT(buffer);
