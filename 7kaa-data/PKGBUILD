@@ -1,16 +1,19 @@
+#! /bin/bash
 # Contributor: xnitropl <xnitropl at gmail dot com>
 # Contributor: Anton Larionov <diffident dot cat at gmail dot com>
-
+# Maintainer: jorge_barroso <jorge.barroso.11@gmail.com>
 
 pkgname=7kaa-data
-pkgver=2.13
-pkgrel=3
+pkgver=2.14.4
+pkgrel=1
 pkgdesc="Free data set for Seven Kingdoms: Ancient Adversaries"
 url='http://7kfans.com/'
+projecturl=http://sourceforge.net/projects/skfans
 arch=('any')
 license=('GPL2')
-source=("http://downloads.sourceforge.net/project/skfans/Seven%20Kingdoms%20AA%20Data%20Files/$pkgname-$pkgver.tar.bz2")
-md5sums=('d7580a683fabcea98b5898dff252dcf2')
+source=("${projecturl}/files/7KAA%20${pkgver}/7kaa-source-${pkgver}.tar.bz2/download")
+sha512sums=('7ee39aba89993d9f0041ab991e053069e0c3ab4298f74c0ec95e3f30f49a71731ef37d8870b1ab9afd97b1c4618a879492976006b8a513bfc4bc44dfac591bf0')
+
 
 
 package() {
