@@ -5,30 +5,30 @@
 
 pkgname=7kaa-data
 pkgver=2.14.4
-pkgrel=1
+pkgrel=3
 pkgdesc="Free data set for Seven Kingdoms: Ancient Adversaries"
 url='http://7kfans.com/'
-projecturl=http://sourceforge.net/projects/skfans
+_projecturl=http://sourceforge.net/projects/skfans
 arch=('any')
 license=('GPL2')
-source=("${projecturl}/files/7KAA%20${pkgver}/7kaa-source-${pkgver}.tar.bz2/download")
+source=("$_projecturl/files/7KAA%20$pkgver/7kaa-source-$pkgver.tar.bz2/download")
 sha512sums=('7ee39aba89993d9f0041ab991e053069e0c3ab4298f74c0ec95e3f30f49a71731ef37d8870b1ab9afd97b1c4618a879492976006b8a513bfc4bc44dfac591bf0')
 
 
 
 build() {
   cd "$srcdir/7kaa-$pkgver"
-  ./configure --prefix=/usr
-  make
+  ./configure --prefix=/usr || return 1
+  make || return 1
 }
 
 check() {
   cd "$srcdir/7kaa-$pkgver"
-  make -k check
+  make -k check || return 1
 }
 
 package() {
   cd "$srcdir/7kaa-$pkgver"
-  make DESTDIR="$pkgdir/" install
+  make DESTDIR="$pkgdir/" install || return 1
 }  
 # vim:set ts=2 sw=2 et:
