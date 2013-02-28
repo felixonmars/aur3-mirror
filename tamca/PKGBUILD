@@ -7,6 +7,7 @@ url="https://github.com/acieroid/tamca"
 arch=('x86_64' 'i686')
 license=('BSD')
 depends=('gtk2' 'freealut')
+makedepends=('cmake')
 optdepends=('beep: PC speaker beep support'
             'mplayer: sound support')
 source=("https://github.com/acieroid/tamca/tarball/0.1")
