@@ -1,7 +1,8 @@
-# Maintainer: fsckd <fsckdaemon@gmail.com>
+# Submitter: fsckd <fsckdaemon@gmail.com>
+# Maintainer: numeral <numerical@gmail.com>
 
 pkgname=django-grappelli-safe
-pkgver=0.2.11
+pkgver=0.2.12
 pkgrel=1
 pkgdesc="A snapshot of the grappelli_2 branch of django-grappelli, packaged as a dependency for the Mezzanine CMS for Django"
 arch=('any')
@@ -10,8 +11,8 @@ url="http://pypi.python.org/pypi/grappelli_safe/"
 depends=('python2' 'django')
 makedepends=('python2-distribute')
 source=("http://pypi.python.org/packages/source/g/grappelli_safe/grappelli_safe-${pkgver}.tar.gz")
-md5sums=('c27c3c5ce30ae50c5bc06f9a0cea620d')
-sha256sums=('09492534440d9f1a9c7b7189787854200f011738df257854d9fb1d6d41c6a78b')
+md5sums=('77470cbc5291de7fd99bcfee841d69dc')
+sha256sums=('dec809249a0655abe9a8ae42b92bdac0c2d647bd8e720584ad6157c1a730218b')
 
 build() {
   cd "${srcdir}/grappelli_safe-${pkgver}"
