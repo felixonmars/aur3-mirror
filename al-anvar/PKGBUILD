@@ -3,13 +3,13 @@
 
 pkgname=al-anvar
 pkgver=0.5.0
-pkgrel=1
+pkgrel=2
 pkgdesc="open source freeware software for study Quran ( koran ) and research "
 arch=('i686' 'x86_64')
 url="http://al-anvar.sourceforge.net/"
 license=('GPL')
-depends=('qt' 'phonon')
-makedepends=('qt' 'phonon')
+depends=('qt4' 'phonon')
+makedepends=('qt4' 'phonon')
 options=('!strip')
 source=("http://downloads.sourceforge.net/sourceforge/${pkgname}/src-${pkgname}-${pkgver}.tar.gz")
 
@@ -18,7 +18,7 @@ build() {
 
 	cd src-${pkgname}-${pkgver}
 
- qmake
+ qmake4
 
   make
 }
