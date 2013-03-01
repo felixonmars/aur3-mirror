@@ -4,12 +4,12 @@
 pkgname=allacrost
 pkgver=20110717
 _pkgver=0.1.0
-pkgrel=2
+pkgrel=3
 pkgdesc='A single player 2D role-playing game inspired by classic console RPGs'
 arch=('i686' 'x86_64')
 url='http://www.allacrost.org/'
 license=('GPL2')
-depends=('libgl' 'mesa' 'qt' 'openal' 'libvorbis' 'sdl_net' 'sdl_ttf' 'luabind')
+depends=('libgl' 'mesa' 'qt4' 'openal' 'libvorbis' 'sdl_net' 'sdl_ttf' 'luabind')
 makedepends=('boost')
 options=('!emptydirs')
 source=('allacrost.desktop'
