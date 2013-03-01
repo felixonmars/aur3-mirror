@@ -8,13 +8,13 @@ pkgdesc="4k Stogram is an client for Instagram on PC, Mac and Linux."
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/projects/four-k-stogram/"
 license=('GPLv3')
-depends=('libjpeg6' 'qt>=4.8')
+depends=('libjpeg6' 'qt4')
 install="$name.install"
 #makedepends=('')
 
 if [ "${CARCH}" = 'x86_64' ]; then
     ARCH='amd64'
-    md5sums=('57607c0511870e7d8d3e4bbacea5631c')
+    md5sums=('03ea877c07752cb533ccd97f3fdd9118')
 elif [ "${CARCH}" = 'i686' ]; then
     ARCH='i386' 
     md5sums=('97709237f06348ba2e668b2fed402ee0')
