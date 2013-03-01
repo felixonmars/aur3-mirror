@@ -7,10 +7,11 @@ use MediaWiki::API;
 
 binmode STDOUT, ":utf8";
 
-my $mw = MediaWiki::API->new();
-$mw->{config}->{api_url} = 'http://en.wikiquote.org/w/api.php';
+my $mw = MediaWiki::API->new({ api_url => 'http://en.wikiquote.org/w/api.php' });
 
 # TODO fetch a specific, stable revision
+# TODO add series numbers + episode names to the end?
+# TODO actually scrape it into an array?
 
 $_ = $mw->get_page( { title => 'Farscape' } )->{ '*' };
 
