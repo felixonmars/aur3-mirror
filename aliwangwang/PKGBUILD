@@ -2,12 +2,12 @@
 
 pkgname=aliwangwang
 pkgver=1.00
-pkgrel=1
+pkgrel=2
 pkgdesc="AliWangWang for Linux"
 arch=('i686' 'x86_64')
 url="http://www.taobao.com/wangwang"
 license=('custom')
-depends=('qt' 'qtwebkit')
+depends=('qtwebkit')
 if [ "$CARCH" = "i686" ]; then
     source=("http://ge.tt/api/1/files/8sPpGIA/1/blob?download")
     md5sums=('8da2c5d2cfa9e37a0d681a93f9bab53b')
