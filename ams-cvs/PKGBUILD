@@ -4,13 +4,13 @@
 # Maintainer: David Adler <david dot jo dot adler aet gmail dot com>
 
 pkgname=ams-cvs
-pkgver=20120430
+pkgver=20130302
 pkgrel=1
 pkgdesc="Alsa Modular Synth, a realtime modular synthesizer and effect processor"
 arch=('i686' 'x86_64')
 url="http://alsamodular.sourceforge.net/"
 license=('GPL')
-depends=('qt' 'clalsadrv' 'ladspa' 'fftw' 'jack')
+depends=('qt4' 'clalsadrv' 'ladspa' 'fftw' 'jack')
 makedepends=('cvs')
 provides=('ams')
 conflicts=('ams')
