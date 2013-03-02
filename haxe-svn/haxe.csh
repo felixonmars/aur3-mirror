@@ -1,1 +1,1 @@
-setenv HAXE_LIBRARY_PATH /opt/haxe/std:.
+setenv HAXE_STD_PATH /opt/haxe/std:.
