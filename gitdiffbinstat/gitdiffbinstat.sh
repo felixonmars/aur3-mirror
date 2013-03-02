@@ -114,8 +114,18 @@ if [[ $(git rev-parse --is-inside-work-tree) != "true" ]] >& /dev/null ; then
 fi
 
 if [[ "${obj}" = *\.\.\.* ]] ; then
-	echo "fatal: \"${obj}\" not yet supported by gitdiffbinstat, sorry."
-	exit 3
+	obj_real="${obj}"
+	obj_pure=`echo "$obj" | sed -e 's/\.\.\.//'`
+	curbranch="$obj_pure"
+	curcommit=`git rev-parse $obj_pure`
+	obj="."  #hack
+	objhash="."
+
+	if [ ! `git rev-parse --quiet --verify ${obj_pure}` ] ; then
+		echo "fatal: git could not associate '${obj_pure}' with anything useful"
+		exit 3
+	fi
+
 elif [[ "${obj}" = *\.\.* ]] ; then
 	obj_real="${obj}"
 	# get current branch

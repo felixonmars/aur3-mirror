@@ -10,7 +10,7 @@
 #undef QT_ARCH_X86_64
 #endif
 
-#include "/usr/include/QtCore/qconfig.h"
+#include "/usr/include/qt4/QtCore/qconfig.h"
 
 #ifdef QT_BUILD_KEY
 #undef QT_BUILD_KEY
