@@ -3,12 +3,12 @@
 
 pkgname=bpmdj
 pkgver=v4.2_pl4
-pkgrel=2
+pkgrel=3
 pkgdesc="Free Dj tools with a fully automatic BPM counter"
 arch=('i686' 'x86_64')
 url="http://bpmdj.yellowcouch.org/index.html"
 license=('GPL')
-depends=('fftw' 'qt' 'boost')
+depends=('fftw' 'qt4' 'boost')
 optdepends=('alsa-lib: for ALSA playback'
   'jack-audio-connection-kit: for JACK playback')
 
