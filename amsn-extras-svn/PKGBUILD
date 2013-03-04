@@ -1,8 +1,10 @@
-# Maintainer: Dario 'Dax' Vilardi <dax [at] deelab [dot] org>
-# Maintainer: William Díaz <wdiaz [at] archlinux [dot] us>
+#! /bin/bash
+# Maintainer: Jorge Barroso <jorge.barroso.11 at gmail dot com>
+# Contributor: Dario 'Dax' Vilardi <dax [at] deelab [dot] org>
+# Contributor: William Díaz <wdiaz [at] archlinux [dot] us>
 
 pkgname=amsn-extras-svn
-pkgver=12345
+pkgver=12402
 pkgrel=1
 pkgdesc="aMSN Extras like plugins and skins"
 url="http://amsn.sourceforge.net"
@@ -11,7 +13,8 @@ arch=('i686' 'x86_64')
 optdepends=('python: Depends for amsn' 'amsn: For apply in amsn' 'zenity: For plugin Desktop Integration')
 makedepends=('subversion')
 depends=('amsn-svn')
-conflitcs=('amsn')
+conflicts=('amsn')
+
 
 _svntrunk="https://amsn.svn.sourceforge.net/svnroot/amsn/trunk/amsn-extras"
 _svnmod="amsn-extras"
@@ -32,5 +35,4 @@ build() {
   cp -r "$srcdir"/amsn-extras/{plugins,skins} "$pkgdir"/usr/share/amsn
 
   find "$pkgdir" -name ".svn" -type d -exec rm -fr {} +
-
 }
