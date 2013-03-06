@@ -49,7 +49,8 @@ init_vars() {
 
     WRAPPER_BASE=$(basename $WRAPPER_CMD)
     JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2p\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.displayname=\"I2P Service\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17
+
 }
 
 get_pid() {
