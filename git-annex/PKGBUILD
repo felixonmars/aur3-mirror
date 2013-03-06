@@ -10,12 +10,16 @@ _inotify=1
 _dbus=1
 _xmpp=1
 _webdav=1
-_test=1
+_testsuite=1
 _dns=1
 _pairing=1
 _webapp=1
 _s3=1
-_glob=0
+_android=0
+# faster build; slower binary
+_fast=0
+# slower build; faster binary
+_production=1
 
 # In _cabal_mode=1 cabal install is used to install the missing dependencies
 # for git-annex in a temporary local location to not interfer with you
@@ -40,7 +44,7 @@ _haskell_core=1
 _haskell_web=1
 
 pkgname=git-annex
-pkgver=3.20130216
+pkgver=4.20130227
 pkgrel=1
 pkgdesc='manage files with git, without checking their contents into git'
 arch=('i686' 'x86_64')
@@ -51,8 +55,7 @@ options=(!makeflags)
 conflicts=(git-annex-git)
 makedepends=(ghc)
 
-# Note that if network<2.4 is used, then WITH_OLD_URI has to be set
-_features=''
+_features=()
 
 (( ! _cabal_mode )) ||
   makedepends=("${makedepends[@]}" cabal-install happy alex)
@@ -63,8 +66,6 @@ _features=''
               haskell-dataenc
               haskell-edit-distance
               haskell-extensible-exceptions
-              haskell-network
-              haskell-mtl
               haskell-hslogger
               haskell-http
               haskell-ifelse
@@ -72,39 +73,40 @@ _features=''
               haskell-lifted-base
               haskell-missingh
               haskell-monad-control
+              haskell-mtl
+              haskell-network
               haskell-quickcheck
+              haskell-regex-compat
               haskell-sha
               haskell-text
               haskell-transformers-base
               haskell-utf8-string
               )
 
-if (( _glob )); then
-  _cabal_install=("${_cabal_install[@]}" Glob)
-else
-  depends=("${depends[@]}" pcre)
-  makedepends=("${makedepends[@]}" haskell-pcre-light)
-fi
-
 _cabal_install=("${_cabal_install[@]}" SafeSemaphore uuid)
 
-(( ! _s3        )) || _features="$_features -DWITH_S3"
-(( ! _assistant )) || _features="$_features -DWITH_ASSISTANT"
-(( ! _inotify   )) || _features="$_features -DWITH_INOTIFY"
-(( ! _webdav    )) || _features="$_features -DWITH_WEBDAV"
-(( ! _dbus      )) || _features="$_features -DWITH_DBUS"
-(( ! _webapp    )) || _features="$_features -DWITH_WEBAPP"
-(( ! _pairing   )) || _features="$_features -DWITH_PAIRING"
-(( ! _xmpp      )) || _features="$_features -DWITH_XMPP"
-(( ! _dns       )) || _features="$_features -DWITH_DNS"
-(( ! _old_yesod )) || _features="$_features -DWITH_OLD_YESOD"
-(( ! _glob      )) || _features="$_features -DWITH_GLOB"
+(( ! _android    )) || _features=("${_features[@]}" -fAndroid)
+(( ! _assistant  )) || _features=("${_features[@]}" -fAssistant)
+(( ! _dbus       )) || _features=("${_features[@]}" -fDbus)
+(( ! _dns        )) || _features=("${_features[@]}" -fDNS)
+(( ! _fast       )) || _features=("${_features[@]}" -fFast)
+(( ! _inotify    )) || _features=("${_features[@]}" -fInotify)
+(( ! _pairing    )) || _features=("${_features[@]}" -fPairing)
+(( ! _production )) || _features=("${_features[@]}" -fProduction)
+(( ! _s3         )) || _features=("${_features[@]}" -fS3)
+(( ! _testsuite  )) || _features=("${_features[@]}" -fTestSuite)
+(( ! _webapp     )) || _features=("${_features[@]}" -fWebapp)
+(( ! _webdav     )) || _features=("${_features[@]}" -fWebDAV)
+(( ! _xmpp       )) || _features=("${_features[@]}" -fXMPP)
 
 (( ! _s3 || ! _haskell_core )) ||
   makedepends=("${makedepends[@]}" haskell-hs3)
 
-(( ! _assistant )) ||
+(( ! _assistant || ! _haskell_core )) ||
   makedepends=("${makedepends[@]}" haskell-stm)
+
+(( ! _assistant || ! _cabal_mode )) ||
+  _cabal_install=("${_cabal_install[@]}" async)
 
 (( ! _inotify || ! _haskell_core )) ||
   makedepends=("${makedepends[@]}" haskell-hinotify)
@@ -166,7 +168,7 @@ _cabal_install=("${_cabal_install[@]}" SafeSemaphore uuid)
 (( ! _xmpp || ! _assistant || ! _dns || ! _cabal_mode )) ||
   _cabal_install=("${_cabal_install[@]}" dns)
 
-(( ! _test || ! _haskell_core )) ||
+(( ! _testsuite || ! _haskell_core )) ||
   makedepends=("${makedepends[@]}"
                haskell-testpack
                haskell-hunit)
@@ -175,8 +177,6 @@ _cabal_install=("${_cabal_install[@]}" SafeSemaphore uuid)
 
 _gitroot=git://git.kitenet.net/git-annex
 _gitrepo=git-annex
-#_ignore='BASEFLAGS+=-ignore-package monads-fd -ignore-package monads-tf -ignore-package DBus'
-_ignore='BASEFLAGS+=-ignore-package DBus'
 
 asking() {
   read -p "$@ (Y/n)" answer
@@ -184,6 +184,19 @@ asking() {
     n|N|no|NO|No|nO) false;;
     *) true;;
   esac
+}
+
+_localize-home(){
+  ORIG_HOME="$HOME"
+  ORIG_TMPDIR="$TMPDIR"
+  export HOME="${srcdir}/home"
+  export TMPDIR="${srcdir}/home/tmp"
+  export PATH="$HOME/.cabal/bin:$PATH"
+}
+
+_restore-home(){
+  export HOME="$ORIG_HOME"
+  export TMPDIR="$ORIG_TMPDIR"
 }
 
 build() {
@@ -203,39 +216,33 @@ build() {
   rsync -aH --del "${srcdir}/$_gitrepo/" "${srcdir}/build/" || return 1
   cd "${srcdir}/build"
 
-  msg "GIT checkout done or server timeout"
-  msg "Starting make..."
+  msg "Git checkout done or server timeout"
 
-  ORIG_HOME="$HOME"
-  ORIG_TMPDIR="$TMPDIR"
-  export HOME="${srcdir}/home"
-  export TMPDIR="${srcdir}/home/tmp"
-  export PATH="$HOME/.cabal/bin:$PATH"
+  _localize-home
   mkdir -p "$HOME" "$TMPDIR"
 
-  if (( ! _s3 )); then
-    git remote add nphub https://github.com/np/git-annex
-    git fetch nphub
-    git cherry-pick nphub/assistant-without-s3-head
-  fi
-
   if (( _cabal_mode )); then
+    msg "Cabal mode: installing missing dependencies..."
     cabal update
     which c2hs || cabal install c2hs
     cabal install "${_cabal_install[@]}" --user
     cabal install "${_cabal_flags[@]}" --user --only-dependencies
   fi
 
-  echo make "$_ignore" FEATURES="$_features"
-  make "$_ignore" FEATURES="$_features"
-  (( ! _test )) ||
-    make "$_ignore" FEATURES="$_features" test ||
+  msg "Configuring..."
+  cabal configure "${_features[@]}"
+
+  msg "Starting build..."
+  make
+  (( ! _testsuite )) ||
+    make test ||
     asking "Tests failed. Continue?"
-  export HOME="$ORIG_HOME"
-  export TMPDIR="$ORIG_TMPDIR"
+  _restore-home
 }
 
 package() {
   cd $srcdir/build
-  make "$_ignore" DESTDIR=$pkgdir install
+  _localize-home
+  make DESTDIR=$pkgdir install
+  _restore-home
 }
