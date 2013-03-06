@@ -1,15 +1,16 @@
-# Mantainer: Agustin Ferrario "py_crash < agustin dot ferrario at hotmail dot com dot ar >
+# Maintainer: Agustin Ferrario "py_crash < agustin dot ferrario at hotmail dot com dot ar >
 # Contributor: Luis von Bernus <PaterSiul@gmail.com>
 # Contributors: L42y, aeosynth, Dan Serban, Kalipath
 
 pkgname=firefox-aurora
 pkgver=21.0a2
-pkgrel=2
+pkgrel=3
 pkgdesc="Firefox Aurora channel - Nightly build"
 url=http://www.mozilla.org/en_US/firefox/aurora/
 arch=(i686 x86_64)
 license=(MPL GPL LGPL)
-depends=(desktop-file-utils libxt nss dbus dbus-glib gtk2 alsa-lib)
+depends=('gtk2' 'libxt' 'startup-notification' 'mime-types' 'dbus-glib' 'alsa-lib' 'dbus-glib' 'libnotify' 'desktop-file-utils' 'hicolor-icon-theme' 'libvpx' 'libevent' 'nss>=3.14.1' 'hunspell')
+optdepends=()
 makedepends=()
 provides=(firefox-aurora)
 conflicts=(firefox-aurora)
