@@ -1,17 +1,18 @@
+# Maintainer : Ebubekir KARUL <ebubekirkarul@yandex.com>
 # Contributor: Tom K <tomk@runbox.com>
 # Contributor: kastor <kastor@fobos.org.ar>
-# Maintainer : sebikul <sebikul@gmail.com>
+# Contributor : sebikul <sebikul@gmail.com>
 
 pkgname=amap
 pkgver=5.4
 pkgrel=1
 pkgdesc="Next-generation tool for assisting network penetration testing."
+arch=('any')
+license=('GPL2 ''custom')
 depends=('glibc' 'pcre' 'openssl')
+url="http://freeworld.thc.org/releases.php"
 source=(http://freeworld.thc.org/releases/$pkgname-$pkgver.tar.gz)
 md5sums=('2617c13b0738455c0e61c6e980b8decc')
-url="http://freeworld.thc.org/releases.php"
-license=('GPL2 ''custom')
-arch=('i686')
 
 build() {
   cd ${srcdir}/${pkgname}-${pkgver}
