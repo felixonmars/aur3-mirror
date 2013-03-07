@@ -1,7 +1,7 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20130215
+pkgver=20130307
 pkgrel=1
 pkgdesc="A media player for KDE. Without lastfm, mp3tunes, mtp, ipod support. GIT version"
 arch=('i686' 'x86_64')
@@ -11,7 +11,7 @@ depends=('kdebase-runtime'  'taglib>=1.7' 'taglib-extras>=1.0' "libmysqlclient>=
 makedepends=('cmake>=2.6.2' 'qtscriptgenerator>=0.1' 'automoc4' 'git')
 conflicts=('amarok2' 'amarok' 'amarok2-svn' 'amarok-svn' 'amarok-git')
 source=( 'sync.patch' )
-
+install="$pkgname.install"
 md5sums=('32537fa8c26fa197b7973885671d19c4')
 
 
@@ -62,6 +62,7 @@ build() {
   cd amarok-build
 
   cmake .. -DCMAKE_INSTALL_PREFIX=`kde4-config --prefix` \
+	   -DQT_QMAKE_EXECUTABLE=qmake-qt4 \
 	   -DCMAKE_BUILD_TYPE=Release \
 	   -DWITH_LibLastFm=OFF \
 	   -DWITH_MP3Tunes=OFF \
