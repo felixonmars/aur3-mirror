@@ -21,7 +21,7 @@
 # Make sure we run as root
 if [[ $EUID -ne 0 ]]; then
    me="`dirname $0`/`basename $0`"
-   ${SUDO} "${me}"
+   ${SUDO} "${me}" ${@}
    exit 1
 fi
 

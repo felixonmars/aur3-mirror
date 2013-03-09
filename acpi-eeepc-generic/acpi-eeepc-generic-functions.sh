@@ -130,14 +130,15 @@ function send_generic() {
     if [ "x$UID" == "x0" ]; then
         # Verify if GDM is running
         # See http://code.google.com/p/acpi-eeepc-generic/issues/detail?id=62
-        pkill -0 gdm
-        GDM_RUNNING=$?
-        if [ "x$GDM_RUNNING" == "x0" ]; then
-            eval "${@}"
-        else
-            /bin/su $user --login -c "${@}"
-        fi
-
+        #pkill -0 gdm
+        #GDM_RUNNING=$?
+        #if [ "x$GDM_RUNNING" == "x0" ]; then
+        #    eval "${@}"
+        #else
+        #    /bin/su $user --login -c "${@}"
+        #fi
+        #export XAUTHORITY=${XAUTHORITY-/home/$user/.Xauthority}
+        /bin/su $user --login -c "${@}"
     else
         #bash -c "${@}"
         eval "${@}"
@@ -704,11 +705,11 @@ and set XUSER variable to your username." stop 20000
     # accordingly.
     if [ "x$user" != "x" ]; then
         home=$(getent passwd $user | cut -d: -f6)
-        # If XAUTHORITY is not set, put a default value of
-        # $home/.Xauthority. Else, take that value.
-        XAUTHORITY=${XAUTHORITY:-$home/.Xauthority}
-        [ -f $XAUTHORITY ] && export XAUTHORITY
     fi
+    # If XAUTHORITY is not set, put a default value of
+    # $home/.Xauthority. Else, take that value.
+    XAUTHORITY=${XAUTHORITY:-$home/.Xauthority}
+    [ -f $XAUTHORITY ] && export XAUTHORITY
 fi
 
 ### End of file #################################################

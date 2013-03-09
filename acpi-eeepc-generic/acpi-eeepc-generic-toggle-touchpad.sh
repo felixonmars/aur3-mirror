@@ -21,12 +21,13 @@
 # Make sure we run as root
 if [[ $EUID -ne 0 ]]; then
    me="`dirname $0`/`basename $0`"
-   ${SUDO} "${me}"
+   ${SUDO} "${me}" ${@}
    exit 1
 fi
 
 # 0 means off, 1 means on
 STATE_FILE="$EEEPC_VAR/states/touchpad"
+LED_FILE="${sys_path}/leds/eeepc::touchpad/brightness"
 
 if [ -e "$STATE_FILE" ]; then
   TPSAVED=$(cat $STATE_FILE)
@@ -47,6 +48,8 @@ function touchpad_toggle() {
             synclient TouchpadOff=1
             if [ $? ]; then
                 [ -e /usr/bin/unclutter ] && unclutter -idle 2 -root &
+                # Verify if touchpad led exist before trying to turn it off
+                [[ -e "${LED_FILE}" ]] && echo 0 > ${LED_FILE}
                 eeepc_notify "Touchpad Disabled" mouse
             else
                 eeepc_notify "Unable to disable touchpad; Ensure xorg.conf is properly configured." stop
@@ -56,6 +59,8 @@ function touchpad_toggle() {
             synclient TouchpadOff=0
             if [ $? ]; then
                 pkill unclutter
+                # Verify if touchpad led exist before trying to turn it on
+                [[ -e "${LED_FILE}" ]] && echo 1 > ${LED_FILE}
                 eeepc_notify "Touchpad Enabled" mouse
             else
                 eeepc_notify "Unable to enable touchpad; Ensure xorg.conf is properly configured." stop
