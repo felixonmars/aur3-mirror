@@ -1,7 +1,8 @@
 #Contributor: Peter 'piie' Feuerer  <peter (a) piie.net>
 
 pkgname=acerhdf
-pkgver=0.5.28b
+pkgver=0.5.30
+internalpkgver=0.5.30-linux-3.6-3.8
 pkgrel=1
 pkgdesc="Kernelmodule to control the fan of the Acer Aspire One Netbook"
 url="http://piie.net"
@@ -10,11 +11,11 @@ install='acerhdf.install'
 arch=('i686' 'x86_64')
 conflicts=('acerfand')
 makedepends=('linux-headers' 'gcc')
-source=("http://www.piie.net/files/${pkgname}_kmod-${pkgver}.tar.gz" 'acerhdf.install')
+source=("http://www.piie.net/files/${pkgname}_kmod-${internalpkgver}.tar.gz" 'acerhdf.install')
 
-md5sums=('9f5c4d7f97b7ce03c3d60da4ed69e66a'
-	'6a2084197ab33d70416d0fd1c9600146')
-    
+md5sums=('9d531f4575fa4087a4dbcdf7effb595f'
+	'122e47d342eb5da219b16793a60a7753')
+
 build() {
    INST=/lib/modules/$(uname -r)/updates
    cd ${startdir}/src/${pkgname}_kmod
