@@ -1,21 +1,20 @@
-# Maintainer : SpepS <dreamspepser at yahoo dot it>
+# Maintainer : speps <speps at aur dot archlinux dot org>
 # Contributor: Dogukan Korkmazturk <d.korkmazturk@gmail.com>
 # Contributor: Ronan Rabouin <darkbaboon@gmail.com>
  
 pkgname=adeskbar
 pkgver=0.5.1
-pkgrel=1
+pkgrel=2
 pkgdesc="A quick and lightweight application launcher."
 arch=('any')
 url="http://adeskbar.tuxfamily.org/"
 license=('GPL3')
-depends=('pyxdg' 'gnome-menus2' 'pygtk')
+depends=('python2-xdg' 'gnome-menus' 'pygtk')
 optdepends=('python-xlib: systray plugin'
-            'python-wnck: intellihide mode and tasklist plugin'
+            'python2-wnck: intellihide mode and tasklist plugin'
             'python-pyalsaaudio: volume plugin'
             'python2-pyinotify: menu plugin'
             'vte: terminal plugin')
-conflicts=("$pkgname-bzr" "$pkgname-archbang")
 install="$pkgname.install"
 source=("http://download.tuxfamily.org/$pkgname/sources/$pkgname-$pkgver.tar.gz"
         "$pkgname.sh")
@@ -32,7 +31,7 @@ build() {
 package() {
   cd "$srcdir/$pkgname-${pkgver%.*}"
 
-  # Install
+  # data
   install -d "$pkgdir/usr/share/$pkgname"
   cp -a src/* "$pkgdir/usr/share/$pkgname"
 
