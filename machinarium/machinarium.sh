@@ -5,6 +5,5 @@ if [[ $CARCH == 'x86_64' ]]; then
   export GTK_IM_MODULE_FILE=""
 fi
 
-cd "/usr/share/games/machinarium"
-./Machinarium "$@"
-return "$?"
+cd /usr/share/games/machinarium/
+./Machinarium  machinarium-browser.swf
