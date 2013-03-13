@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-rostov
-pkgver=35
+pkgver=36
 pkgrel=1
-pkgdesc="Map of Rostov-na-Donu for 2GIS, February 2013"
+pkgdesc="Map of Rostov-na-Donu for 2GIS, March 2013"
 arch=('i686' 'x86_64')
 url="http://rostov.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Rostov-35.orig.zip")
-md5sums=('c79ed8278f6c216e64a7fb2d1b736e11')
+depends=('2gis>=3.13.2.2')
+source=("http://download.2gis.ru/arhives/2GISData_Rostov-36.orig.zip")
+md5sums=('9c6c6106a40a3bda1b6d5aa7df842bfc')
      
 build() {
      

@@ -1,13 +1,13 @@
 pkgname=2gis-kirov
-pkgver=13
+pkgver=14
 pkgrel=1
-pkgdesc="Map of Kirov for 2GIS, February 2013"
+pkgdesc="Map of Kirov for 2GIS, March 2013"
 arch=('i686' 'x86_64')
 url="http://kirov.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Kirov-13.orig.zip")
-md5sums=('a5c6bbe9c5a6bd9e7f0e82cab3b8af73')
+depends=('2gis>=3.13.2.2')
+source=("http://download.2gis.ru/arhives/2GISData_Kirov-14.orig.zip")
+md5sums=('bcb5c12b4955fb0ca7f644e7fa3db3b0')
 
 build() {
   cd $startdir

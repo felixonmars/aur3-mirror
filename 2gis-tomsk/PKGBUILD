@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-tomsk
-pkgver=98
+pkgver=99
 pkgrel=1
-pkgdesc="Map of Tomsk for 2GIS, February 2013"
+pkgdesc="Map of Tomsk for 2GIS, March 2013"
 arch=('i686' 'x86_64')
 url="http://tomsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Tomsk-98.orig.zip")
-md5sums=('9e96fd5688fafdcb28a162572ae0bd2e')
+depends=('2gis>=3.13.2.2')
+source=("http://download.2gis.ru/arhives/2GISData_Tomsk-99.orig.zip")
+md5sums=('cdef10e3d35876e222f0771a8353b4d8')
      
 build() {
      

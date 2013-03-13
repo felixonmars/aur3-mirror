@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-kurgan
-pkgver=83
+pkgver=84
 pkgrel=1
-pkgdesc="Map of Kurgan for 2GIS, February 2013"
+pkgdesc="Map of Kurgan for 2GIS, March 2013"
 arch=('i686' 'x86_64')
 url="http://kurgan.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Kurgan-83.orig.zip")
-md5sums=('f09246acfb3ca252f1c1446dad6f18d2')
+depends=('2gis>=3.13.2.2')
+source=("http://download.2gis.ru/arhives/2GISData_Kurgan-84.orig.zip")
+md5sums=('eed1d69da0620a95b4f9a510c01b4244')
      
 build() {
      

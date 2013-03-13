@@ -1,15 +1,15 @@
 # Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
      
 pkgname=2gis-chelyabinsk
-pkgver=66
+pkgver=67
 pkgrel=1
-pkgdesc="Map of Chelyabinsk for 2GIS, February 2013"
+pkgdesc="Map of Chelyabinsk for 2GIS, March 2013"
 arch=('i686' 'x86_64')
 url="http://chelyabinsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.12.0.2')
-source=("http://download.2gis.ru/arhives/2GISData_Chelyabinsk-66.orig.zip")
-md5sums=('212e41312180abcaa979e8324c514a71')
+depends=('2gis>=3.13.2.2')
+source=("http://download.2gis.ru/arhives/2GISData_Chelyabinsk-67.orig.zip")
+md5sums=('a0797119fb59754e9c3a046f7ddc20ab')
      
 build() {
      
