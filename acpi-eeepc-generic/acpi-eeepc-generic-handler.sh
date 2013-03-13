@@ -278,9 +278,11 @@ case "$1" in
         esac
     ;;
     *)
-        msg="acpi-eeepc-generic-handler: undefined group/action ($1) event: $2 $3 $4"
-        eeepc_notify "$msg" keyboard
-        logger "$msg"
+        if [ "$NOTIFY_IGNORE_UNKNOWN" != "yes" ]; then
+            msg="acpi-eeepc-generic-handler: undefined group/action ($1) event: $2 $3 $4"
+            eeepc_notify "$msg" keyboard
+            logger "$msg"
+        fi
     ;;
 esac
 

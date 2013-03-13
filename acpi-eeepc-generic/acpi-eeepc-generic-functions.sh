@@ -138,7 +138,7 @@ function send_generic() {
         #    /bin/su $user --login -c "${@}"
         #fi
         #export XAUTHORITY=${XAUTHORITY-/home/$user/.Xauthority}
-        /bin/su $user --login -c "${@}"
+        /bin/su $user -c "${@}"
     else
         #bash -c "${@}"
         eval "${@}"

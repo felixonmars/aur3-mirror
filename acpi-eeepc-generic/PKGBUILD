@@ -1,8 +1,8 @@
 # Contributor: Nicolas Bigaouette nbigaouette a_t gmail c o m
 
 pkgname=acpi-eeepc-generic
-pkgver=1.0
-pkgrel=2
+pkgver=1.0.1
+pkgrel=1
 pkgdesc="ACPI scripts for many EeePC netbook computers"
 url="https://github.com/nbigaouette/acpi-eeepc-generic"
 arch=(any)
@@ -98,7 +98,6 @@ build() {
     done
 }
 
-
 md5sums=('cf253e386d7e743a3d25ec4165051521'
          '323c03e32baec7eca3f360a282490cda'
          'be2c9c078c781185356c775f7a785569'
@@ -135,8 +134,8 @@ md5sums=('cf253e386d7e743a3d25ec4165051521'
          '75bd2c42f01a6733ab5a2f7a0c15c70d'
          '75bd2c42f01a6733ab5a2f7a0c15c70d'
          'c75b95926e0ac397b0eea6e054ea9154'
-         '34c794f1c83e5e6d0c5f618f9d36b358'
-         '0964588390647e98b475af0fb3f688de'
+         '096f637d1548b2f28a6ddf751f5ff2c2'
+         '000e26f2fd8fb92f750296b755a16649'
          '06137998d8ef768763bb327f8716641e'
          '7e26565bd36e2411ab998d6bcfe15f9e'
          '13c38e64dab996301f8d724342178cfc'
@@ -150,4 +149,4 @@ md5sums=('cf253e386d7e743a3d25ec4165051521'
          '318d5cae4a833dfccd0f10ba9496352b'
          '63908e6167fc455c678c21a045aef037'
          '4621ffb00858a03d05a89a669a20e6f5'
-         '78c1e053f5c310a697d4e52988b2d342')
+         'a7accb76fd44f06817925556fc337ac1')
