@@ -1,0 +1,201 @@
+Index: kdebase-workspace-4.6.3/kdm/backend/dm.c
+===================================================================
+--- kdebase-workspace-4.6.3.orig/kdm/backend/dm.c	2011-05-31 16:14:58.576289551 -0400
++++ kdebase-workspace-4.6.3/kdm/backend/dm.c	2011-05-31 16:14:58.996291635 -0400
+@@ -1332,6 +1332,71 @@
+     return activeVTs;
+ }
+ 
++/* Return the active VT as an integer */
++int
++getActiveVT(void)
++{
++    int console_fd;
++    struct vt_stat console_state = { 0 };
++    console_fd = open ("/dev/tty0", O_RDONLY | O_NOCTTY);
++    if (console_fd < 0) {
++        goto out;
++    }
++    if (ioctl (console_fd, VT_GETSTATE, &console_state) < 0) {
++        goto out;
++    }
++    out:
++    if (console_fd >= 0) {
++        close (console_fd);
++    }
++    return console_state.v_active;
++}
++
++static int
++plymouthIsRunning(void)
++{
++    int status;
++    status = system ("/bin/plymouth --ping");
++
++    return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++static int
++plymouthHasActiveVT(void)
++{
++    int status;
++    status = system ("/bin/plymouth --has-active-vt");
++
++    return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++static int
++plymouthPrepareForTransition(void)
++{
++    int status;
++    status = system ("/bin/plymouth deactivate");
++
++    return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++int
++plymouthQuitWithTransition(void)
++{
++    int status;
++    status = system ("/bin/plymouth quit --retain-splash");
++
++    return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
++int
++plymouthQuitWithoutTransition(void)
++{
++    int status;
++    status = system ("/bin/plymouth quit");
++
++    return WIFEXITED (status) && WEXITSTATUS (status) == 0;
++}
++
+ static void
+ allocateVT(struct display *d)
+ {
+@@ -1341,6 +1406,32 @@
+     if ((d->displayType & d_location) == dLocal &&
+         d->status == notRunning && !d->serverVT && d->reqSrvVT >= 0)
+     {
++        d->plymouthIsRunning = plymouthIsRunning();
++        if (d->plymouthIsRunning) {
++            /* call plymouth deactivate */
++            plymouthPrepareForTransition();
++            if (plymouthHasActiveVT()) {
++                /* plymouth was displaying a splash screen and has
++                 * terminated leaving it on screen
++                 */
++                int vt;
++                vt = getActiveVT();
++                if (vt > 0) {
++                    /* start the X server on the active vt */
++                    d->serverVT = vt;
++                    return;
++                }
++            }
++            else {
++                /* plymouth might have been running but did not display
++                 * a splash screen.
++                 */
++
++                /* call plymouth quit and start the X server as usual */
++                d->plymouthIsRunning = !plymouthQuitWithoutTransition();
++            }
++        }
++
+         if (d->reqSrvVT && d->reqSrvVT < 16) {
+             d->serverVT = d->reqSrvVT;
+         } else {
+Index: kdebase-workspace-4.6.3/kdm/backend/dm.h
+===================================================================
+--- kdebase-workspace-4.6.3.orig/kdm/backend/dm.h	2011-02-25 16:54:48.000000000 -0500
++++ kdebase-workspace-4.6.3/kdm/backend/dm.h	2011-05-31 16:14:58.996291635 -0400
+@@ -303,6 +303,7 @@
+     Xauth **authorizations;     /* authorization data */
+     int authNum;                /* number of authorizations */
+     char *authFile;             /* file to store authorization in */
++    int plymouthIsRunning;      /* Plymouth's status */
+     char *greeterAuthFile;      /* file to store authorization for greeter in */
+ };
+ 
+@@ -416,6 +417,10 @@
+ void forEachDisplay(void (*f)(struct display *));
+ #ifdef HAVE_VTS
+ void forEachDisplayRev(void (*f)(struct display *));
++/* functions for plymouth */
++int get_active_vt (void);
++int plymouthQuitWithTransition(void);
++int plymouthQuitWithoutTransition(void);
+ #endif
+ void removeDisplay(struct display *old);
+ struct display
+Index: kdebase-workspace-4.6.3/kdm/backend/server.c
+===================================================================
+--- kdebase-workspace-4.6.3.orig/kdm/backend/server.c	2011-05-31 16:14:58.576289551 -0400
++++ kdebase-workspace-4.6.3/kdm/backend/server.c	2011-05-31 16:14:58.996291635 -0400
+@@ -43,6 +43,9 @@
+ #include <stdio.h>
+ #include <signal.h>
+ 
++/* These are for bulletproof X */
++#define SERVER_ATTEMPTS 3
++char* failsafeXServer[] = {"/etc/gdm/failsafeXServer", 0};
+ 
+ struct display *startingServer;
+ time_t serverTimeout = TO_INF;
+@@ -50,6 +53,7 @@
+ char **
+ prepareServerArgv(struct display *d, const char *args)
+ {
++    debug( "Preparing X server arguments...\n" );
+     char **argv;
+ #ifdef HAVE_VTS
+     char vtstr[8];
+@@ -121,6 +125,7 @@
+ {
+     startingServer = d;
+     d->startTries = 0;
++    d->serverAttempts = SERVER_ATTEMPTS;
+     startServerOnce();
+ }
+ 
+@@ -131,6 +136,14 @@
+         if (d->serverStatus != ignore) {
+             d->serverStatus = ignore;
+             serverTimeout = TO_INF;
++            if (d->plymouthIsRunning) {
++                /* The xserver was started successfully on 1st try
++                 * as we stop plymouth before entering failsafe X
++                 */
++                debug("Quitting Plymouth with transition\n");
++                d->plymouthIsRunning = !plymouthQuitWithTransition();
++                debug("Is Plymouth still running? %s\n", d->plymouthIsRunning ? "yes" : "no");
++            }
+             debug("aborting X server start\n");
+         }
+         startingServer = 0;
+@@ -144,6 +157,11 @@
+     d->serverStatus = ignore;
+     serverTimeout = TO_INF;
+     debug("X server ready, starting session\n");
++    if (d->plymouthIsRunning) {
++        debug("Quitting Plymouth with transition\n");
++        d->plymouthIsRunning = !plymouthQuitWithTransition();
++        debug("Is Plymouth still running? %s\n", d->plymouthIsRunning ? "yes" : "no");
++    }
+     startDisplayP2(d);
+ }
+ 
+@@ -153,6 +171,11 @@
+     struct display *d = startingServer;
+     if (!d->serverAttempts || d->startTries < d->serverAttempts) {
+         d->serverStatus = pausing;
++        /* Run Failsafe X here */
++        logError("Failed to start X server. Starting failsafe X server.\n");
++        /* Stop plymouth before entering failsafe X */
++        d->plymouthIsRunning = !plymouthQuitWithoutTransition();
++        runAndWait(failsafeXServer, 0);
+         serverTimeout = d->openDelay + now;
+     } else {
+         d->serverStatus = ignore;
