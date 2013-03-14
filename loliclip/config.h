@@ -31,7 +31,7 @@ enum {
  * REGISTER_CLIPBOARD(
  *    clipboard name,
  *    name of clipboard you want to synchorize to,
- *    maximum allowed lenght for clipboard history,
+ *    maximum allowed length for clipboard history,
  *    post-processing flags for new clipboard data
  * )
  *

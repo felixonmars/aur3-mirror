@@ -162,17 +162,17 @@ REGISTER_ARG(arg_wait);
 
 /* arguments are executed in order */
 static cliparg clipargs[] = {
+   { 0, 'w', "wait",       0, arg_wait,      arg_wait,            "\tWait until our X selection is taken. (don't daemonize)" },
    { 0, 'd', "daemon",     0, arg_daemon,    NULL,                "Run as daemon." },
-   { 0, 'w', "wait",       0, arg_wait,      arg_wait,            "\tWait until selection is taken." },
    { 0, 'p', "primary",    0, arg_primary,   arg_primary_sync,    "Operate on PRIMARY." },
    { 0, 's', "secondary",  0, arg_secondary, arg_secondary_sync,  "Operate on SECONDARY." },
    { 0, 'c', "clipboard",  0, arg_clipboard, arg_clipboard_sync,  "Operate on CLIPBOARD." },
+   { 0, 'b', "binary",     1, arg_binary,    NULL,                "Operate on specific clipboard target." },
    { 0, 'g', "get",        0, arg_get,       NULL,                "\tGet clip by index or hash form history." },
    { 0, 'l', "list",       0, arg_list,      NULL,                "\tLists clips from history." },
    { 0, 'm', "dmenu",      0, arg_dmenu,     NULL,                "\tDmenu friendly listing." },
    { 0, 'C', "clear",      0, arg_clear,     NULL,                "\tClears clipboard history." },
    { 0, 'q', "query",      0, arg_query,     NULL,                "\tQuery if loliclip daemon is running." },
-   { 0, 'b', "binary",     1, arg_binary,    NULL,                "Get binary data from clipboard." }
 };
 
 /* xcb connection */
@@ -1558,9 +1558,9 @@ static void handle_notify(xcb_selection_notify_event_t *e) {
    if (reply->type == atoms[ATOM]) {
       if (c->targets) free(c->targets);
       if ((c->targets = get_targets(c, reply, &c->num_targets))) {
-            xcb_convert_selection(xcb, xcbw, c->sel,
-                  c->targets[0], atoms[XSEL_DATA], XCB_CURRENT_TIME);
-            OUT("Ask for: 0x%x", c->targets[0]);
+         xcb_convert_selection(xcb, xcbw, c->sel,
+               c->targets[0], atoms[XSEL_DATA], XCB_CURRENT_TIME);
+         OUT("Ask for: 0x%x", c->targets[0]);
          c->is_waiting   = c->num_targets+5;
          c->cycle_target = c->num_targets;
          OUT("%d valid targets for %s", c->num_targets, c->name);
@@ -1644,17 +1644,6 @@ static int check_lock(int unlock) {
    return 1;
 }
 
-/* check if fd is ready */
-static int fdcheck(unsigned int fd) {
-   fd_set fdset;
-   struct timeval tm;
-   FD_ZERO(&fdset);
-   FD_SET(fd, &fdset);
-   tm.tv_sec   = 1;
-   tm.tv_usec  = 0;
-   return select(fd+1, &fdset, NULL, NULL, &tm)==1?1:0;
-}
-
 /* parse data as CLI argument */
 static char* get_data_as_argument(int argc, char **argv, size_t *len) {
    char buffer[1024], *data = NULL, *tmp;
@@ -1665,8 +1654,7 @@ static char* get_data_as_argument(int argc, char **argv, size_t *len) {
       return NULL;
 
    if (!argc) {
-      while (fdcheck(fileno(stdin)) &&
-            (read = fread(buffer, 1, sizeof(buffer), stdin))) {
+      while ((read = fread(buffer, 1, sizeof(buffer), stdin))) {
          if (data && (tmp = realloc(data, size+read+1)))
             data = tmp;
          else if (data) goto out_of_memory;
@@ -2031,8 +2019,8 @@ fail:
 /* show usage */
 static int usage(char *name) {
    int o;
-   printf("usage: %s [-", basename(name));
-   for (o = 0; o != LENGTH(clipargs); ++o)
+   printf("usage: %s [--wait/-w] [-", basename(name));
+   for (o = 1; o != LENGTH(clipargs); ++o)
       printf("%c", clipargs[o].arg);
    printf("]\n");
    for (o = 0; o != LENGTH(clipargs); ++o)
