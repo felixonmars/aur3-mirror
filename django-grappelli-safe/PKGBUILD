@@ -3,12 +3,12 @@
 
 pkgname=django-grappelli-safe
 pkgver=0.2.12
-pkgrel=1
+pkgrel=2
 pkgdesc="A snapshot of the grappelli_2 branch of django-grappelli, packaged as a dependency for the Mezzanine CMS for Django"
 arch=('any')
 license=('Custom') # may mod of BSD
 url="http://pypi.python.org/pypi/grappelli_safe/"
-depends=('python2' 'django')
+depends=('python2' 'python2-django')
 makedepends=('python2-distribute')
 source=("http://pypi.python.org/packages/source/g/grappelli_safe/grappelli_safe-${pkgver}.tar.gz")
 md5sums=('77470cbc5291de7fd99bcfee841d69dc')

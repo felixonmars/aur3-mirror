@@ -9,9 +9,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.8
 _grsecver=2.9.1
-_timestamp=201303111845
-pkgver=${_basekernel}.2
-pkgrel=15
+_timestamp=201303142235
+pkgver=${_basekernel}.3
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -29,16 +29,6 @@ source=(
   $pkgname.install
   $pkgname.preset
   change-default-console-loglevel.patch
-)
-sha256sums=(
-  e070d1bdfbded5676a4f374721c63565f1c969466c5a3e214004a136b583184b
-  2bd1a39db4608a03250bfef11d3b7894ab1f0ebcb5316bafeeed23535822fd9c
-  c969b85daf641db52925344b66527d92395b50011c17b889cea36ce753e0f7a0
-  cbf87675e2ac1c777bad4ec4f4d1b71bdc218a577914bb66bd7e399b5fbf3659
-  a32c98a7ab445e241d151613c8fa08a1e5b2ae91a8429aafa7086302f0454514
-  671d44a309aaaba2f2fb1fc8584c4b635088fa06ec96c8e093547cf8999e6313
-  ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d
-  b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4
 )
 
 build() {
@@ -298,3 +288,12 @@ package_linux-grsec-headers() {
   # remove unneeded architectures
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
+
+sha256sums=('e070d1bdfbded5676a4f374721c63565f1c969466c5a3e214004a136b583184b'
+            '02b70097dcfbce05ccbfbd5fae6449a811b26a776f89d3c2fdd155b7d086ea82'
+            '9411484c383b5119053b6c1aff1d9e3eb6026304bd1b854b4275caa633759f7b'
+            'cbf87675e2ac1c777bad4ec4f4d1b71bdc218a577914bb66bd7e399b5fbf3659'
+            'a32c98a7ab445e241d151613c8fa08a1e5b2ae91a8429aafa7086302f0454514'
+            '671d44a309aaaba2f2fb1fc8584c4b635088fa06ec96c8e093547cf8999e6313'
+            'ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d'
+            'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')

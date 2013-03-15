@@ -4,13 +4,13 @@
 
 pkgname=mezzanine
 pkgver=1.4.3
-pkgrel=1
+pkgrel=2
 pkgdesc="An open source content management platform built using the Django framework"
 arch=('any')
 license=('BSD')
 url="http://mezzanine.jupo.org/"
 depends=('python2' 
-         'django' 
+         'python2-django' 
          'python2-imaging' 
          'django-grappelli-safe' #
          'django-filebrowser-safe' # 
