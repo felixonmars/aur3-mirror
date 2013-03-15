@@ -6,9 +6,10 @@ pkgname=phpstorm
 _pkgname=PhpStorm  # Directory name in the tar file
 pkgver=6.0
 pkgbuild=127.100
-pkgrel=1
+pkgrel=2
 pkgdesc="Lightweight and Smart PHP IDE. 30-day free trial."
 arch=('i686' 'x86_64')
+options=(!strip)
 url="http://www.jetbrains.com/phpstorm/"
 license=('custom')
 depends=('java-runtime>=6')
