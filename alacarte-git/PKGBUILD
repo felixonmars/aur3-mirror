@@ -1,4 +1,5 @@
-# Maintainer: György Balló <ballogy@freestart.hu>
+# Maintainer: Alastair Stuart <alastair@muto.so>
+
 _pkgname=alacarte
 pkgname=$_pkgname-git
 pkgver=20120307

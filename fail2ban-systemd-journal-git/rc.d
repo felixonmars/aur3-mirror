@@ -9,8 +9,8 @@ case "$1" in
   start)
     stat_busy "Starting fail2ban"
 
-    [ -d /var/run/fail2ban ] || mkdir -p /var/run/fail2ban
-    [ -f /var/run/fail2ban/fail2ban.pid ] && rm -f /var/run/fail2ban/fail2ban.pid
+    [ -d /run/fail2ban ] || mkdir -p /run/fail2ban
+    [ -f /run/fail2ban/fail2ban.pid ] && rm -f /run/fail2ban/fail2ban.pid
     $FAIL2BAN start >/dev/null
     if [ $? -gt 0 ]; then
       stat_fail
@@ -22,7 +22,7 @@ case "$1" in
   stop)
     stat_busy "Stopping fail2ban"
     if [ "`$FAIL2BAN stop`" == "Shutdown successful" ]; then
-      rm -f /var/run/fail2ban/fail2ban.pid &> /dev/null
+      rm -f /run/fail2ban/fail2ban.pid &> /dev/null
       rm_daemon fail2ban
       stat_done
     else
