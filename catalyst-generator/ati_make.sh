@@ -1,21 +1,21 @@
 #!/bin/bash
 ### Vi0L0: it is ati's code from their make.sh file, modified a bit to fit our arch linux system, used inside PKGBUILD
 
-# Copyright 1999-2005 ATI Technologies Inc., Markham, Ontario, CANADA.   
-# All Rights Reserved.                                                   
-#                                                                        
-# Your use and or redistribution of this software in source and \ or     
-# binary form, with or without modification, is subject to: (i) your     
-# ongoing acceptance of and compliance with the terms and conditions of  
+# Copyright 1999-2005 ATI Technologies Inc., Markham, Ontario, CANADA.
+# All Rights Reserved.
+#
+# Your use and or redistribution of this software in source and \ or
+# binary form, with or without modification, is subject to: (i) your
+# ongoing acceptance of and compliance with the terms and conditions of
 # the ATI Technologies Inc. software End User License Agreement; and (ii)
-# your inclusion of this notice in any version of this software that you 
-# use or redistribute.  A copy of the ATI Technologies Inc. software End 
-# User License Agreement is included with this software and is also      
-# available by contacting ATI Technologies Inc. at http://www.ati.com    
+# your inclusion of this notice in any version of this software that you
+# use or redistribute.  A copy of the ATI Technologies Inc. software End
+# User License Agreement is included with this software and is also
+# available by contacting ATI Technologies Inc. at http://www.ati.com
 
 
 function _ati_check()
-{   
+{
 # ==============================================================
 # resolve if we are running a SMP enabled kernel
 
@@ -49,16 +49,16 @@ fi
 
 # Before 2.6.33 autoconf.h is under linux/.
 # For 2.6.33 and later autoconf.h is under generated/.
-if [ -f /${_where_modules}/${_kernver}/build/include/generated/autoconf.h ]; then
-    autoconf_h=/${_where_modules}/${_kernver}/build/include/generated/autoconf.h
+if [ -f /usr/lib/modules/${_kernver}/build/include/generated/autoconf.h ]; then
+    autoconf_h=/usr/lib/modules/${_kernver}/build/include/generated/autoconf.h
 else
-    autoconf_h=/${_where_modules}/${_kernver}/build/include/linux/autoconf.h
+    autoconf_h=/usr/lib/modules/${_kernver}/build/include/linux/autoconf.h
 fi
 src_file=$autoconf_h
 
 if [ ! -e $src_file ]; then
   echo "Warning:"
-  echo "kernel includes at /${_where_modules}/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /usr/lib/modules/${_kernver}/build/include not found or incomplete"
   echo "file: $src_file"
   echo ""
 else
@@ -78,7 +78,7 @@ if [ ! "$SMP" = 0 ]; then
   def_smp=-D__SMP__
 fi
 # ==============================================================
-# resolve whether we need to set PAGE_ATTR_FIX 
+# resolve whether we need to set PAGE_ATTR_FIX
 PAGE_ATTR_FIX=0
 
 src_file=/proc/kallsyms
@@ -99,7 +99,7 @@ src_file=$autoconf_h
 if [ ! -e $src_file ];
 then
   echo "Warning:"
-  echo "kernel includes at /${_where_modules}/${_kernver}/build/include not found or incomplete"
+  echo "kernel includes at /usr/lib/modules/${_kernver}/build/include not found or incomplete"
   echo "file: $src_file"
   echo ""
 else
@@ -128,13 +128,13 @@ fi
 
 COMPAT_ALLOC_USER_SPACE=compat_alloc_user_space
 
-src_file=/${_where_modules}/${_kernver}/build/arch/x86/include/asm/compat.h
+src_file=/usr/lib/modules/${_kernver}/build/arch/x86/include/asm/compat.h
 if [ ! -e $src_file ];
 then
-  echo "Warning:"                                    
-  echo "kernel includes at /${_where_modules}/${_kernver}/build/include not found or incomplete"
-  echo "file: $src_file"                              
-  echo ""                                  
+  echo "Warning:"
+  echo "kernel includes at /usr/lib/modules/${_kernver}/build/include not found or incomplete"
+  echo "file: $src_file"
+  echo ""
 else
   if [ `cat $src_file | grep -c arch_compat_alloc_user_space` -gt 0 ]
   then
