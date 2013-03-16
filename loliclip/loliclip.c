@@ -1663,7 +1663,7 @@ static char* get_data_as_argument(int argc, char **argv, size_t *len) {
          memcpy(data+size, buffer, read);
          size += read;
       }
-      if (!data) goto no_arg;
+      if (!data) goto fail;
    } else {
       for (i = 0; i != argc; ++i) {
          if (data && (tmp = realloc(data, size+strlen(argv[i])+2)))
@@ -1675,7 +1675,7 @@ static char* get_data_as_argument(int argc, char **argv, size_t *len) {
          memcpy(data+(size?size+1:0), argv[i], strlen(argv[i]));
          size += strlen(argv[i])+(size?1:0);
       }
-      if (!data) goto no_arg;
+      if (!data) goto fail;
    }
    data[size] = 0;
    *len = size;
@@ -1684,8 +1684,6 @@ static char* get_data_as_argument(int argc, char **argv, size_t *len) {
 out_of_memory:
    MEMERR();
    goto fail;
-no_arg:
-   ERR("No data supplied as argument nor from stdin.");
 fail:
    if (data) free(data);
    return NULL;
@@ -1799,6 +1797,8 @@ static int do_sync(const char *selection, int argc, char **argv) {
       set_xsel(c->sel, XCB_NONE, buffer, len);
       if (buffer) free(buffer);
    } else {
+      /* dont out data, if we have pipe open */
+      if (!isatty(fileno(stdin))) return 1;
       OUT("\4Get selection from %s", selection);
       if (!(c = get_clipboard(selection)))
          goto fail;
