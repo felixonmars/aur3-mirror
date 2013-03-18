@@ -1,6 +1,6 @@
 # Maintainer: Jussi Timperi <jussi.timperi+arch@gmail.com>
 pkgname=slim-theme-arch-tetra
-pkgver=1.0
+pkgver=1.1
 pkgrel=1
 pkgdesc="Minimal Arch Linux SLiM theme"
 arch=('any')
@@ -9,7 +9,7 @@ license=('CCPL:cc-by-sa')
 depends=('artwiz-fonts')
 optdepends=('slim: login manager providing theme support')
 source=(http://github.com/Beini/${pkgname}/archive/v${pkgver}.tar.gz)
-md5sums=('7e35e532488f9598f96a53f743852083')
+md5sums=('d708c78968900d79a763be7fd6a5e187')
 
 package() {
   cd "${srcdir}"/${pkgname}-${pkgver}/arch-tetra
