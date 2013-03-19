@@ -1,7 +1,7 @@
 # Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=aecium
-pkgver=20121221
+pkgver=20130319
 pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
@@ -12,8 +12,14 @@ license=('GPL2')
 
 build() {
 	cd $srcdir
-	git clone $url
-	cd aecium
+	if [[ -d $pkgname ]]; then
+		cd $pkgname && git pull origin
+	else
+		git clone $url --recursive --depth 1
+	fi
+	rm -rf $srcdir/build
+	cp -r $srcdir/$pkgname $srcdir/build
+	cd $srcdir/build
 	aclocal
 	autoheader
 	automake --add-missing
@@ -23,6 +29,6 @@ build() {
 }
 
 package(){
-	cd $srcdir/aecium
+	cd $srcdir/build
 	make DESTDIR=$pkgdir install
 }
