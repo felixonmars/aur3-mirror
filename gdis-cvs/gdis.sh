@@ -1,3 +1,2 @@
 #!/bin/sh
-cd /opt/gdis
-./gdis
+/opt/gdis/gdis
