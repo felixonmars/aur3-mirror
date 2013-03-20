@@ -7,7 +7,7 @@
 # https://github.com/vorbote/vuze-plugin-mldht
 
 pkgname=vuze-plugin-mldht
-pkgver=1.4.3
+pkgver=1.4.4
 pkgrel=1
 pkgdesc="A Mainline DHT plugin for Vuze. Talk DHT to µTorrent clients."
 arch=('any')
@@ -17,7 +17,7 @@ depends=('vuze')
 options=(!strip)
 source=("http://azureus.sourceforge.net/plugins/mlDHT_${pkgver}.jar")
 noextract=("mlDHT_${pkgver}.jar")
-md5sums=('d7a31ed083181d296dca0ba61299f110')
+md5sums=('d8b3deefba4a03cc0fd34fa575baf636')
 
 build () {
 	cd "$srcdir"
