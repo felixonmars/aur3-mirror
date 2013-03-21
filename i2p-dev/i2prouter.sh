@@ -10,7 +10,7 @@ I2P="/opt/i2p"
 I2P_USER="i2p"
 
 # Wrapper
-WRAPPER_CMD="$I2P/i2psvc"
+WRAPPER_CMD="/usr/bin/java-service-wrapper"
 WRAPPER_CONF="$I2P/wrapper.config"
 LOGFILE="$I2P/wrapper.log"
 PIDDIR="/run/i2p"
@@ -21,7 +21,7 @@ TIMEOUT=30
 
 #-----------------------------------------------------------------------------
 fail() {
-    printf "\e[1;31m>>> ERROR:\033[0m %s\n" "$msg"
+    printf "\e[1;31m>>> ERROR:\033[0m %s\n" "$*"
     exit 1
 }
 
@@ -47,14 +47,13 @@ init_vars() {
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
         fail "\$I2P_USER does not exist: $I2P_USER"
 
-    WRAPPER_BASE=$(basename $WRAPPER_CMD)
     JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
     COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
 
 }
 
 get_pid() {
-    pgrep -u "$I2P_USER" "$WRAPPER_BASE"
+    pgrep -u "$I2P_USER" "java-service"
 }
 
 check_if_running() {
@@ -69,7 +68,7 @@ check_if_running() {
                     echo "Removed stale pid file: $PIDFILE"
                 fi
             else
-                (( pid == $(get_pid) )) ||
+                [[ "$pid" = "$(get_pid)" ]] ||
                     fail "\$PIDFILE $PIDFILE differs from what is actually running!"
             fi
         else
@@ -90,14 +89,14 @@ _console() {
 
 _start() {
     if [[ ! "$pid" ]]; then
-        echo -n "Starting I2P Service."
+        echo -n "Starting I2P Service"
         COMMAND_LINE+=" wrapper.daemonize=TRUE"
         eval $COMMAND_LINE
         [[ $? != 0 ]] && fail "Failed to launch the wrapper!"
         i=0
         while [[ ! "$pid" || $i < $TIMEOUT ]]; do
             echo -n "."
-            sleep 2
+            sleep 1
             check_if_running
             ((i++))
         done
@@ -110,13 +109,13 @@ _start() {
 
 _stop() {
     if [[ "$pid" ]]; then
-        echo -n "Stopping I2P Service."
+        echo -n "Stopping I2P Service"
         kill -TERM $pid
         [[ $? != 0 ]] && fail "Unable to stop I2P Service: kill -TERM $pid"
         i=0
         while [[ "$pid" || $i > $TIMEOUT ]]; do
             echo -n "."
-            sleep 2
+            sleep 1
             [[ ! $(get_pid) ]] && unset pid
             ((i++))
         done
