@@ -1,7 +1,15 @@
 #!/usr/bin/python
 
 from bs4 import BeautifulSoup
-import re, string, spacebgutils
+import urllib.request, re, string
+
+##
+# Return the contents of a url
+def geturl(url):
+	content = urllib.request.urlopen(url)
+	data = content.read()
+	content.close()
+	return BeautifulSoup(data)
 
 ##
 # Find today's astronomy image
@@ -9,7 +17,7 @@ def getbg():
 	# parse the page for image information
 	base = "http://apod.nasa.gov/apod/"
 	item = []
-	tree = spacebgutils.geturl(base)
+	tree = geturl(base)
 	## title
 	i = tree.find_all('center')[1].b.string.strip()
 	item.append(i)
