@@ -4,45 +4,44 @@
 # Contributor: Maël Lavault <moimael@neuf.fr>
 
 _pkgname=abiword
-pkgname=$_pkgname-devel
-pkgver=2.9.3
-pkgrel=2
+pkgname=abiword-devel
+pkgver=2.9.4
+pkgrel=1
 pkgdesc="A fully-featured word processor (development release)"
 arch=('i686' 'x86_64')
 license=('GPL')
 url="http://www.abisource.com"
-depends=('fribidi' 'wv' 'librsvg' 'redland' 'gtk3' 'enchant' 'desktop-file-utils')
-makedepends=('boost' 'libwpg' 'libwps' 'telepathy-glib' 'loudmouth' 'asio' 'psiconv' 'gtkmathview' 'libwmf' 'link-grammar' 'aiksaurus' 'libots')
-optdepends=('libwpg: wordperfect, wpg plugin'
-            'libwps: wordperfect plugin'
-            'telepathy-glib: collab plugin'
+depends=('fribidi' 'libwps' 'psiconv' 'libots' 'aiksaurus' 'libwpg' 'gtkmathview' 'libwmf' 'link-grammar' 'wv' 'librsvg' 'redland' 'gtk3' 'enchant' 'desktop-file-utils' 'libwmf' 'hicolor-icon-theme')
+makedepends=('boost' 'telepathy-glib' 'loudmouth' 'asio' 'psiconv')
+optdepends=('telepathy-glib: collab plugin'
             'loudmouth: collab plugin'
             'asio: collab plugin'
-            'psiconv: psiconv plugin'
-            'gtkmathview: mathview plugin'
-            'libwmf: wmf plugin'
-            'link-grammar: grammar plugin'
-            'aiksaurus: aiksaurus plugin'
-            'libots: ots plugin')
+            'psiconv: psiconv plugin')
 provides=("$_pkgname=$pkgver" "abiword-plugins=$pkgver")
 conflicts=("$_pkgname" "abiword-plugins" "goffice-devel")
 install=$_pkgname.install
 options=('!libtool')
 source=("http://www.abisource.com/downloads/$_pkgname/$pkgver/source/$_pkgname-$pkgver.tar.gz"
         TelepathyBuddy.h)
-sha1sums=('52bfe24fff67f7a0e4b8cf18a8c579ac46663bfd'
+sha1sums=('67cfbc633129128a1aa48ffba8959229cef2ebdd'
           '9bff2f533678706142f1815482b98ca5cb2b06b3')
 
 build() {
   cd "$srcdir/$_pkgname-$pkgver"
+
   sed -i 's/libgoffice-0.10 >= 0.10.0/libgoffice-0.10 >= 0.9.1/
           s/goffice_req >= 0.10.0/goffice_req >= 0.9.1/' configure
+
   cp -rf "$srcdir/TelepathyBuddy.h" plugins/collab/backends/telepathy/unix/TelepathyBuddy.h
 
-  ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
-              --disable-maintainer-mode --disable-static \
-              --enable-plugins --enable-clipart --enable-templates \
-              --without-goffice --without-evolution-data-server
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --disable-maintainer-mode --disable-static \
+    --enable-plugins --enable-clipart --enable-templates \
+    --without-goffice --without-evolution-data-server
+
   make
 }
 
