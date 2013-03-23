@@ -1,71 +1,51 @@
-# $Id: PKGBUILD 130991 2011-07-09 12:23:51Z thomas $
-# Maintainer: Martin Kozák <martinkozak@martinkozak.net>
-# Patches by: Simon Beaumont <seb@modelsciences.com>
+# Maintainer: Steven Noonan <steven@uplinklabs.net>
 
 pkgbase=linux-ec2
-# pkgname=('linux' 'linux-headers' 'linux-docs') # Build stock -ARCH kernel
-#pkgname=('linux-ec2' 'linux-ec2-headers')       # Build kernel with a different name
-pkgname='linux-ec2'       # Build kernel with a different name
-_kernelname=${pkgname#linux}
-_basekernel=3.6
-pkgver=${_basekernel}.6
+_srcname=linux-3.8
+pkgver=3.8.4
 pkgrel=1
 arch=('i686' 'x86_64')
-url="https://github.com/martinkozak/linux-ec2"
+url="http://git.uplinklabs.net/snoonan/archlinux/ec2/ec2-packages.git/tree/linux-ec2"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl')
 options=('!strip')
-source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.xz"
+source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         "http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
         # the main kernel config files
-        'config'
-        'config.x86_64'
+        'config.i686' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
-        "${pkgname}.preset"
-        'change-default-console-loglevel.patch'
-        'module-init-wait-3.6.patch'
-        'module-symbol-waiting-3.6.patch'
-        'xen-xsave.patch')
-md5sums=('1a1760420eac802c541a20ab51a093d1'
-         '11d6d8749d4612a77f43f0531c0f2824'
-         'd8c3ce7e151a6f28a593c7c155ed0e76'
-         'f11238de1e825d2d6a58b917b0fa293a'
-         '24557c9eade2e6ecb632f16924741c7b'
-         '9d3c56a4b999c8bfbd4018089a62f662'
-         '3b8568f67c0a9a9d809273710f86001d'
-         'd9ecff2d89c19218cdffca1838851608'
-         '446cb1590245d41beb7192c7b57af83b')
+        'linux.preset')
+md5sums=('1c738edfc54e7c65faeb90c436104e2f'
+         '40ab82996ff4b49ad3f4e19cf729dcab'
+         'c2215d89acfa9337acd06ea440349124'
+         'a454aeaf3fd4cc8c8852f60b7b521313'
+         'eb14dcfd80c00852ef81ded6e826826a')
+
+_kernelname=${pkgbase#linux}
 
 build() {
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/${_srcname}"
+
+  dots="${pkgver//[^.]}"
+  dotcount="${#dots}"
 
   # add upstream patch
-  patch -p1 -i "${srcdir}/patch-${pkgver}"
+  if [ "$dotcount" -gt 1 ]; then
+    patch -p1 -i "${srcdir}/patch-${pkgver}"
+  fi
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
 
-  # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
-  # remove this when a Kconfig knob is made available by upstream
-  # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
-  patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
-  
-  # fix module initialisation
-  # https://bugs.archlinux.org/task/32122
-  patch -Np1 -i "${srcdir}/module-symbol-waiting-3.6.patch"
-  patch -Np1 -i "${srcdir}/module-init-wait-3.6.patch"
-
-  # fixes XSAVE for Xen (for EC2)
-  patch -Np1 -i "${srcdir}/xen-xsave.patch"
-
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config
   else
-    cat "${srcdir}/config" > ./.config
+    cat "${srcdir}/config.i686" > ./.config
   fi
 
   if [ "${_kernelname}" != "" ]; then
     sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
+    sed -i "s|CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" ./.config
   fi
 
   # set extraversion to pkgrel
@@ -85,55 +65,67 @@ build() {
   #make oldconfig # using old config from previous kernel version
   # ... or manually edit .config
 
+  # rewrite configuration
+  yes "" | make config >/dev/null
+
+  # save configuration for later reuse
+  if [ "${CARCH}" = "x86_64" ]; then
+    cat .config > "${startdir}/config.x86_64.last"
+  else
+    cat .config > "${startdir}/config.i686.last"
+  fi
+
   ####################
   # stop here
   # this is useful to configure the kernel
-  #msg "Stopping build"
-  #return 1
+  #msg "Stopping build"; return 1
   ####################
 
-  yes "" | make config
-
   # build!
-  make ${MAKEFLAGS} bzImage modules
+  make ${MAKEFLAGS} LOCALVERSION= bzImage modules
 }
 
-package_linux-ec2() {
-  pkgdesc="The Linux Kernel and modules with Xen guest support suitable for Amazon EC2"
-  groups=('ec2')
-  depends=('coreutils' 'linux-firmware' 'module-init-tools>=3.16' 'mkinitcpio>=0.7')
-  provides=('kernel26' 'linux')
-  replaces=('kernel26' 'linux')
-  backup=("etc/mkinitcpio.d/${pkgname}.preset")
-  install=${pkgname}.install
+_package() {
+  true && pkgdesc="The ${pkgbase} kernel and modules"
+  [ "${pkgbase}" = "linux" ] && groups=('base')
+  depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
+  optdepends=('crda: to set the correct wireless channels of your country')
+  provides=("kernel26${_kernelname}=${pkgver}" "linux=${pkgver}")
+  conflicts=("kernel26${_kernelname}")
+  replaces=("kernel26${_kernelname}")
+  backup=("etc/mkinitcpio.d/${pkgbase}.preset")
+  install=linux.install
 
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/${_srcname}"
 
   KARCH=x86
 
   # get kernel version
-  _kernver="$(make kernelrelease)"
+  _kernver="$(make LOCALVERSION= kernelrelease)"
+  _basekernel=${_kernver%%-*}
+  _basekernel=${_basekernel%.*}
 
   mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
-  make INSTALL_MOD_PATH="${pkgdir}" modules_install
-  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgname}"
+  make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
+  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgbase}"
 
   # add vmlinux
   install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
 
   # install fallback mkinitcpio.conf file and preset file for kernel
-  install -D -m644 "${srcdir}/${pkgname}.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+  install -D -m644 "${srcdir}/linux.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
 
   # set correct depmod command for install
   sed \
-    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/g" \
-    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/g" \
-    -i "${startdir}/${pkgname}.install"
+    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/" \
+    -i "${startdir}/linux.install"
   sed \
-    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgname}\"|g" \
-    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgname}.img\"|g" \
-    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgname}-fallback.img\"|g" \
-    -i "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+    -e "1s|'linux.*'|'${pkgbase}'|" \
+    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgbase}\"|" \
+    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgbase}.img\"|" \
+    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgbase}-fallback.img\"|" \
+    -i "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
 
   # remove build and source links
   rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
@@ -149,23 +141,23 @@ package_linux-ec2() {
 
   # Now we call depmod...
   depmod -b "$pkgdir" -F System.map "$_kernver"
-  
+
   # move module tree /lib -> /usr/lib
   mv "$pkgdir/lib" "$pkgdir/usr"
-
 }
 
-package_linux-ec2-headers() {
-  pkgdesc="The Linux Kernel and modules with Xen guest support suitable for Amazon EC2"
-  provides=('kernel26-headers linux-headers')
-  replaces=('kernel26-headers linux-headers')
+_package-headers() {
+  true && pkgdesc="Header files and scripts for building modules for ${pkgbase} kernel"
+  provides=("kernel26${_kernelname}-headers=${pkgver}" "linux-headers=${pkgver}")
+  conflicts=("kernel26${_kernelname}-headers")
+  replaces=("kernel26${_kernelname}-headers")
 
   install -dm755 "${pkgdir}/usr/lib/modules/${_kernver}"
 
   cd "${pkgdir}/usr/lib/modules/${_kernver}"
   ln -sf ../../../src/linux-${_kernver} build
 
-  cd "${srcdir}/linux-${_basekernel}"
+  cd "${srcdir}/${_srcname}"
   install -D -m644 Makefile \
     "${pkgdir}/usr/src/linux-${_kernver}/Makefile"
   install -D -m644 kernel/Makefile \
@@ -176,7 +168,7 @@ package_linux-ec2-headers() {
   mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include"
 
   for i in acpi asm-generic config crypto drm generated linux math-emu \
-    media mtd net pcmcia scsi sound trace video xen; do
+    media net pcmcia scsi sound trace uapi video xen; do
     cp -a include/${i} "${pkgdir}/usr/src/linux-${_kernver}/include/"
   done
 
@@ -203,13 +195,22 @@ package_linux-ec2-headers() {
   cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel/"
 
   # add headers for lirc package
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video"
-
-  cp drivers/media/video/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/"
-
-  for i in bt8xx cpia2 cx25840 cx88 em28xx pwc saa7134 sn9c102; do
-    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
-    cp -a drivers/media/video/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/video/${i}"
+  # pci
+  for i in bt8xx cx88 saa7134; do
+    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/pci/${i}"
+    cp -a drivers/media/pci/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/pci/${i}"
+  done
+  # usb
+  for i in cpia2 em28xx pwc sn9c102; do
+    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/usb/${i}"
+    cp -a drivers/media/usb/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/usb/${i}"
+  done
+  # i2c
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c"
+  cp drivers/media/i2c/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/"
+  for i in cx25840; do
+    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/${i}"
+    cp -a drivers/media/i2c/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/${i}"
   done
 
   # add docbook makefile
@@ -227,33 +228,6 @@ package_linux-ec2-headers() {
   # add wireless headers
   mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
   cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
-
-  # add dvb headers for external modules
-  # in reference to:
-  # http://bugs.archlinux.org/task/9912
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core"
-  #cp drivers/media/dvb/dvb-core/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-core/"
-  # and...
-  # http://bugs.archlinux.org/task/11194
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
-  #cp include/config/dvb/*.h "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
-
-  # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
-  # in reference to:
-  # http://bugs.archlinux.org/task/13146
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
-  #cp drivers/media/dvb/frontends/lgdt330x.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
-  #cp drivers/media/video/msp3400-driver.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
-
-  # add dvb headers
-  # in reference to:
-  # http://bugs.archlinux.org/task/20402
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb"
-  #cp drivers/media/dvb/dvb-usb/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/dvb-usb/"
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends"
-  #cp drivers/media/dvb/frontends/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb/frontends/"
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners"
-  #cp drivers/media/common/tuners/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/common/tuners/"
 
   # add xfs and shmem for aufs building
   mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs"
@@ -284,3 +258,33 @@ package_linux-ec2-headers() {
   # remove unneeded architectures
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
+
+_package-docs() {
+  true && pkgdesc="Kernel hackers manual - HTML documentation that comes with the ${pkgbase} kernel"
+  provides=("kernel26${_kernelname}-docs=${pkgver}" "linux-docs=${pkgver}")
+  conflicts=("kernel26${_kernelname}-docs")
+  replaces=("kernel26${_kernelname}-docs")
+
+  cd "${srcdir}/${_srcname}"
+
+  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}"
+  cp -al Documentation "${pkgdir}/usr/src/linux-${_kernver}"
+  find "${pkgdir}" -type f -exec chmod 444 {} \;
+  find "${pkgdir}" -type d -exec chmod 755 {} \;
+
+  # remove a file already in linux package
+  rm -f "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
+}
+
+# AUR hack
+pkgname=linux-ec2
+pkgdesc="Linux kernel for Amazon EC2"
+
+true && pkgname=("${pkgbase}" "${pkgbase}-headers" "${pkgbase}-docs")
+for _p in ${pkgname[@]}; do
+  eval "package_${_p}() {
+    _package${_p#${pkgbase}}
+  }"
+done
+
+# vim:set ts=8 sts=2 sw=2 et:
