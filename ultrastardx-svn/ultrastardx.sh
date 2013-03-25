@@ -1,2 +1,2 @@
 #!/bin/bash
-LD_LIBRARY_PATH=/opt/ffmpeg-usdx/lib ultrastardx.bin
+LD_LIBRARY_PATH=/usr/lib/ffmpeg-usdx ultrastardx.bin
