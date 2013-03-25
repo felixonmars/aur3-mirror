@@ -5,21 +5,22 @@
 # Contributor: Kevin Berry <kb@rubyists.com>
 # Maintainer: TJ Vanderpoel <tj@rubyists.com>
 pkgname='runit-run'
-pkgver=1.1.2
-pkgrel=5
+pkgver=1.1.3
+pkgrel=1
 pkgdesc="A SysV replacement init scheme with parallel start-up and flexible service directories"
 arch=('i686' 'x86_64')
 url="http://github.com/rubyists/runit-run"
 license=('custom')
 provides=('runit-run')
 conflicts=('runit-run-git' 'initscripts')
-depends=('runit' 'runit-services>=1.1.0' 'ngetty' 'sysvinit' 'sysvinit-tools' 'syslog-ng')
+depends=('runit' 'runit-services>=1.1.0' 'ngetty' 'sysvinit' 'sysvinit-tools')
 optdepends=('socklog-dietlibc: advanced logging system' 
+            'syslog-ng: flexible syslog system'
             'sv-helper: Wrapper for easy service management')
 backup=('etc/rc.conf' 'etc/runit/1' 'etc/runit/2' 'etc/runit/3')
 install='runit-run.install'
 source=("https://s3.amazonaws.com/rubyists/aur/${pkgname}/${pkgname}-${pkgver}-${pkgrel}.tar.gz")
-md5sums=('6370f83be667cba9962ffd19e473f705')
+md5sums=('a382fb7eecf95c50ec3007c449636bb7')
 
 package() {
   cd "$srcdir/$pkgname"
