@@ -1,0 +1,151 @@
+From b2c10bbb33a1064b835fa6f6e85fd39b952bc259 Mon Sep 17 00:00:00 2001
+From: Aaron Chen <nextAaron@gmail.com>
+Date: Tue, 26 Mar 2013 01:51:37 -0700
+Subject: [PATCH] Fix for Arch Linux
+
+---
+ Makefile     |  1 -
+ slirp/misc.c |  4 +---
+ ui/vnc-tls.c | 74 ++++++++++++++++++++++++++++++++++++++++++------------------
+ 3 files changed, 53 insertions(+), 26 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index b3ffbe2..954f81b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -199,7 +199,6 @@ common  de-ch  es     fo  fr-ca  hu     ja  mk  nl-be      pt  sl     tr
+ ifdef INSTALL_BLOBS
+ BLOBS=bios.bin vgabios.bin vgabios-cirrus.bin \
+ vgabios-stdvga.bin vgabios-vmware.bin vgabios-qxl.bin \
+-ppc_rom.bin openbios-sparc32 openbios-sparc64 openbios-ppc \
+ pxe-e1000.rom pxe-eepro100.rom pxe-ne2k_pci.rom \
+ pxe-pcnet.rom pxe-rtl8139.rom pxe-virtio.rom \
+ bamboo.dtb petalogix-s3adsp1800.dtb petalogix-ml605.dtb \
+diff --git a/slirp/misc.c b/slirp/misc.c
+index 08eba6a..4b91de6 100644
+--- a/slirp/misc.c
++++ b/slirp/misc.c
+@@ -397,9 +397,7 @@ void slirp_connection_info(Slirp *slirp, Monitor *mon)
+             dst_addr = so->so_faddr;
+             dst_port = so->so_fport;
+         }
+-        memset(&buf[n], ' ', 19 - n);
+-        buf[19] = 0;
+-        monitor_printf(mon, "%s %3d %15s %5d ", buf, so->s,
++        monitor_printf(mon, "%-19s %3d %15s %5d ", buf, so->s,
+                        src.sin_addr.s_addr ? inet_ntoa(src.sin_addr) : "*",
+                        ntohs(src.sin_port));
+         monitor_printf(mon, "%15s %5d %5d %5d\n",
+diff --git a/ui/vnc-tls.c b/ui/vnc-tls.c
+index dec626c..e1e3ac4 100644
+--- a/ui/vnc-tls.c
++++ b/ui/vnc-tls.c
+@@ -99,9 +99,9 @@ static ssize_t vnc_tls_pull(gnutls_transport_ptr_t transport,
+ }
+ 
+ 
+-static gnutls_anon_server_credentials vnc_tls_initialize_anon_cred(void)
++static gnutls_anon_server_credentials_t vnc_tls_initialize_anon_cred(void)
+ {
+-    gnutls_anon_server_credentials anon_cred;
++    gnutls_anon_server_credentials_t anon_cred;
+     int ret;
+ 
+     if ((ret = gnutls_anon_allocate_server_credentials(&anon_cred)) < 0) {
+@@ -283,13 +283,57 @@ int vnc_tls_validate_certificate(struct VncState *vs)
+     return 0;
+ }
+ 
++#if defined(GNUTLS_VERSION_NUMBER) && \
++    GNUTLS_VERSION_NUMBER >= 0x020200 /* 2.2.0 */
++
++static int vnc_set_gnutls_priority(gnutls_session_t s, int x509)
++{
++    const char *priority = x509 ? "NORMAL" : "NORMAL:+ANON-DH";
++    int rc;
++
++    rc = gnutls_priority_set_direct(s, priority, NULL);
++    if (rc != GNUTLS_E_SUCCESS) {
++        return -1;
++    }
++    return 0;
++}
++
++#else
++
++static int vnc_set_gnutls_priority(gnutls_session_t s, int x509)
++{
++    static const int cert_types[] = { GNUTLS_CRT_X509, 0 };
++    static const int protocols[] = {
++        GNUTLS_TLS1_1, GNUTLS_TLS1_0, GNUTLS_SSL3, 0
++    };
++    static const int kx_anon[] = { GNUTLS_KX_ANON_DH, 0 };
++    static const int kx_x509[] = {
++        GNUTLS_KX_DHE_DSS, GNUTLS_KX_RSA,
++        GNUTLS_KX_DHE_RSA, GNUTLS_KX_SRP, 0
++    };
++    int rc;
++
++    rc = gnutls_kx_set_priority(s, x509 ? kx_x509 : kx_anon);
++    if (rc != GNUTLS_E_SUCCESS) {
++        return -1;
++    }
++
++    rc = gnutls_certificate_type_set_priority(s, cert_types);
++    if (rc != GNUTLS_E_SUCCESS) {
++        return -1;
++    }
++
++    rc = gnutls_protocol_set_priority(s, protocols);
++    if (rc != GNUTLS_E_SUCCESS) {
++        return -1;
++    }
++    return 0;
++}
++
++#endif
+ 
+ int vnc_tls_client_setup(struct VncState *vs,
+                          int needX509Creds) {
+-    static const int cert_type_priority[] = { GNUTLS_CRT_X509, 0 };
+-    static const int protocol_priority[]= { GNUTLS_TLS1_1, GNUTLS_TLS1_0, GNUTLS_SSL3, 0 };
+-    static const int kx_anon[] = {GNUTLS_KX_ANON_DH, 0};
+-    static const int kx_x509[] = {GNUTLS_KX_DHE_DSS, GNUTLS_KX_RSA, GNUTLS_KX_DHE_RSA, GNUTLS_KX_SRP, 0};
+ 
+     VNC_DEBUG("Do TLS setup\n");
+     if (vnc_tls_initialize() < 0) {
+@@ -310,21 +354,7 @@ int vnc_tls_client_setup(struct VncState *vs,
+             return -1;
+         }
+ 
+-        if (gnutls_kx_set_priority(vs->tls.session, needX509Creds ? kx_x509 : kx_anon) < 0) {
+-            gnutls_deinit(vs->tls.session);
+-            vs->tls.session = NULL;
+-            vnc_client_error(vs);
+-            return -1;
+-        }
+-
+-        if (gnutls_certificate_type_set_priority(vs->tls.session, cert_type_priority) < 0) {
+-            gnutls_deinit(vs->tls.session);
+-            vs->tls.session = NULL;
+-            vnc_client_error(vs);
+-            return -1;
+-        }
+-
+-        if (gnutls_protocol_set_priority(vs->tls.session, protocol_priority) < 0) {
++        if (vnc_set_gnutls_priority(vs->tls.session, needX509Creds) < 0) {
+             gnutls_deinit(vs->tls.session);
+             vs->tls.session = NULL;
+             vnc_client_error(vs);
+@@ -352,7 +382,7 @@ int vnc_tls_client_setup(struct VncState *vs,
+             }
+ 
+         } else {
+-            gnutls_anon_server_credentials anon_cred = vnc_tls_initialize_anon_cred();
++            gnutls_anon_server_credentials_t anon_cred = vnc_tls_initialize_anon_cred();
+             if (!anon_cred) {
+                 gnutls_deinit(vs->tls.session);
+                 vs->tls.session = NULL;
+-- 
+1.8.2
+
