@@ -21,8 +21,9 @@ build() {
 		git checkout ${__gitbranch}
 	else
 		git clone ${__giturl}
+    cd ${__gitname}
 	fi
-	./auto.sh --prefix=/usr
+  ./auto.sh --prefix=/usr
 }
 package(){
 	cd ${srcdir}/${__gitname}
