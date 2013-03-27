@@ -2,7 +2,7 @@
 
 pkgname=addon-sdk-stab
 _pkgname=addon-sdk
-pkgver=1.14rc2
+pkgver=1.14
 pkgrel=1
 pkgdesc="addon-sdk/jetpack stabilisation release"
 url="http://blog.mozilla.com/addons/"
@@ -16,7 +16,7 @@ replaces=()
 backup=()
 source=("https://ftp.mozilla.org/pub/mozilla.org/labs/jetpack/addon-sdk-${pkgver}.tar.gz")
 install='addon-sdk.install'
-md5sums=('1fe992c6222505c9e06119645e2083d2')
+md5sums=('856d0a90c1c45bab763b8e73417abff0')
 
 build() {
   cd "${srcdir}/${_pkgname}-${pkgver}"
