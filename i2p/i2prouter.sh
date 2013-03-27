@@ -48,12 +48,12 @@ init_vars() {
         fail "\$I2P_USER does not exist: $I2P_USER"
 
     JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2p\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2prouter\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
 
 }
 
 get_pid() {
-    pgrep -u "$I2P_USER" "java-service"
+    pgrep -u "$I2P_USER" -f i2prouter
 }
 
 check_if_running() {
