@@ -1,16 +1,16 @@
-# Maintainer: SpepS <dreamspepser at yahoo dot it>
+# Maintainer: speps <speps at aur dot archlinux dot org>
 
 pkgname=abgate
 pkgver=1.1.6
-pkgrel=1
+pkgrel=2
 pkgdesc="LV2 Noise Gate plugin"
 arch=(i686 x86_64)
 url="http://abgate.sourceforge.net/"
 license=('LGPL3')
 groups=('lv2-plugins')
 depends=('lv2' 'gtkmm')
-makedepends=('qt')
-optdepends=('qt: for qt gui')
+makedepends=('qt4')
+optdepends=('qt4: Qt 4.x UI')
 provides=('lv2-abgate=$pkgver')
 conflicts=('lv2-abgate')
 replaces=('lv2-abgate')
@@ -19,6 +19,10 @@ md5sums=('1c8aea03d44ef023cef3451a9fb16c91')
 
 build() {
   cd "$srcdir/abGate-$pkgver"
+
+  # use qt4
+  sed -i "s/qmake/&-qt4/" Makefile
+
   make
 }
 
