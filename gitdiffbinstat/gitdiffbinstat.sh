@@ -99,6 +99,8 @@ diffstat_awkbin=/tmp/gitdiffstat_awkbin.${timestamp}
 diffstat_renames=/tmp/gitdiffstat_renames.${timestamp}
 diffstat_adds_dels_mods=/tmp/gitdiffstat_addsdelsmods.${timestamp}
 diffstat_M100_awkbin=/tmp/gitdiffstat_M100_awkbin.${timestamp}
+diffstat_renames_workaround_dels=/tmp/gitdiffbinstat_diffstat_renames_workaround_dels.${timestamp}
+diffstat_file_move_rm_workaround=/tmp/gitdiffbinstat_tmpfile.${timestamp}
 # If no argument is given, print this how-to.
 if [ -z "${obj}" ] ; then
 	echo "Usage: \"gitdiffbinstat [<commit/branch/tag/HEAD>]\""
@@ -207,6 +209,7 @@ fi
 
 # get the remaining diffs...
 git diff ${obj_real} -M100% -l999999 --stat=1000,2000 --diff-filter="R" ./  | awk '/>/' > ${diffstat_renames} ; printf . &
+git diff ${obj_real} -l999999 --stat=1000,2000 --diff-filter="D" ./ | awk '/>/' > ${diffstat_renames_workaround_dels} ; printf . &
 git diff ${obj_real} -M100% -l999999 --stat=1000,2000 --diff-filter="A|M|D" ./  > ${diffstat_adds_dels_mods} ; printf . &
 git diff ${obj_real} -M100% --diff-filter="M" --stat  | awk '/\ *Bin/' > ${diffstat_M100_awkbin} ; printf . &
 cat ${diffstat} | awk '/\ \|\ *Bin\ /' > ${diffstat_awkbin} ; printf . &
@@ -371,10 +374,15 @@ echo -e "   ${GREEN}${binary_files_added_amount}${NC} binary ${binary_files_adde
 
 
 # did we rename binary files?
-binary_files_renamed_amount=`awk '/\ \|\ *Bin\ .*\ ->\ /' ${diffstat_renames} | wc -l`
+binary_files_renamed_amount=`awk '/\ \|\ Bin$/' ${diffstat_renames} | wc -l`
 if  [ "${binary_files_renamed_amount}" != "0" ] ; then  # yes, we did
-	binary_files_renamed_size_before=`awk '/\ \|\ *Bin\ .*\ ->\ /' ${diffstat_renames} | awk '{ sum+=$6} END {print sum}'`
-	binary_files_renamed_size_after=`awk '/\ \|\ *Bin\ .*\ ->\ /' ${diffstat_renames} | awk '{ sum+=$8} END {print sum}'`
+	# note: the following section can be improved
+	for i in `cat ${diffstat_renames} | sed -e 's/{//' -e 's/\ =>.*}//' | awk '{print $1}' ` ; do # this hack is neccessary since git diff ${obj}  -M100% -l999999  --stat=1000,2000 --diff-filter="R"   does no longer show file size
+		cat ${diffstat_renames_workaround_dels} | grep "${i}"
+	done | awk '{ sum+=$4} END {print sum}' > ${diffstat_file_move_rm_workaround}
+	binary_files_renamed_size_before=`cat ${diffstat_file_move_rm_workaround} `
+
+	binary_files_renamed_size_after=$binary_files_renamed_size_before
 		echo "${binary_files_renamed_size_before}" > /dev/null &
 		echo "${binary_files_renamed_size_after}" > /dev/null &
 		wait
@@ -384,10 +392,6 @@ if  [ "${binary_files_renamed_amount}" != "0" ] ; then  # yes, we did
 
 	echo -e "    ${WHITEUL}${binary_files_renamed_amount}${NC} binary ${binary_files_renamed_amount_out} renamed [moved ${WHITEUL}${binary_files_renamed_size_after} b${NC} `sizecalc ${binary_files_renamed_size_after} ${WHITEUL}`]"
 
-	if [[ $binary_files_renamed_size_after != $binary_files_renamed_size_before ]] ; then
-		echo "ERROR   binary_files_renamed_size_after \!= binary_files_renamed_size_before"
-		exit
-	fi
 fi
 
 # how many bytes changed when
@@ -460,4 +464,4 @@ echo -e "    file modifications: ${RED}${binary_files_size_changed_before} b${NC
 echo -e "    / ==>  [${binary_files_added_removed__changed_before_after__ratio}]"
 
 # remove the diffstat, we don't need it anymore
-rm ${diffstat} ${diffstat_renames} ${diffstat_adds_dels_mods} ${diffstat_awkbin} ${diffstat_M100_awkbin}
+rm ${diffstat} ${diffstat_renames} ${diffstat_adds_dels_mods} ${diffstat_awkbin} ${diffstat_M100_awkbin} ${diffstat_renames_workaround_dels} ${diffstat_file_move_rm_workaround}
