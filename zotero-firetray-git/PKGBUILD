@@ -1,0 +1,54 @@
+#Maintainer: Robert Orzanna <orschiro@gmail.com>
+
+pkgname=zotero-firetray-git
+pkgver=20130331
+pkgrel=1
+pkgdesc="A Zotero Standalone system tray extension for linux"
+arch=('i686' 'x86_64')
+url="https://github.com/foudfou/FireTray"
+license=('GPL')
+depends=('zotero')
+makedepends=('git' 'unzip' 'zip')
+
+source=()
+md5sums=()
+
+_zotero_dir='/usr/lib/zotero'
+_extension_id='{9533f794-00b4-4354-aa15-c2bbda6989f8}'
+
+_gitroot=https://github.com/foudfou/FireTray.git
+_gitname=firetray
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to GIT server...."
+
+  if [[ -d "$_gitname" ]]; then
+    cd "$_gitname" && git pull origin
+    msg "The local files are updated."
+  else
+    git clone "$_gitroot" "$_gitname"
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting build..."
+
+  rm -rf "$srcdir/$_gitname-build"
+  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
+
+  #
+  # BUILD HERE
+  #
+  cd src
+  make build
+}
+
+package() {
+  cd "$srcdir/$_gitname-build"
+  cd build*
+  mkdir -p "${pkgdir}"/"${_zotero_dir}"/extensions/"${_extension_id}"
+  unzip firetray*.xpi -d "${pkgdir}"/"${_zotero_dir}"/extensions/"${_extension_id}"
+}
+
+# vim:set ts=2 sw=2 et:
