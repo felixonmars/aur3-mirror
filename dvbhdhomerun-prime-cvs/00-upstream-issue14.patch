@@ -1,0 +1,89 @@
+--- dvbhdhomerun-old/kernel/dvb_hdhomerun_data.c	2010-11-17 17:00:06.000000000 -0500
++++ dvbhdhomerun/kernel/dvb_hdhomerun_data.c	2013-03-31 00:03:22.368847284 -0400
+@@ -48,6 +48,8 @@
+ 	dev_t dev;
+ 	struct cdev cdev;
+ 	struct device *device;
++	char *write_buffer;
++	ssize_t write_buffer_size;
+ };
+ 
+ static dev_t hdhomerun_major = -1;
+@@ -62,31 +64,37 @@
+ static ssize_t hdhomerun_data_write(struct file *f, const char __user *buf,
+ 				       size_t count, loff_t *offset)
+ {
+-	char *user_data;
+-	ssize_t retval = count;
+-
+ 	struct hdhomerun_data_state *state = f->private_data;
+ 	
+ 	DEBUG_FUNC(1);
+ 	DEBUG_OUT(HDHOMERUN_DATA, "Count: %Zu, offset %lld\n", count, *offset);
+ 	
+-	user_data = kmalloc(count, GFP_KERNEL);
+-	if(!user_data) {
+-		retval = -ENOMEM;
+-		goto error;
++	// new buffer need to be allocated ?
++	if( (state->write_buffer == NULL) || (count > state->write_buffer_size) ) {
++		// free old buffer
++		if(state->write_buffer) {
++			kfree(state->write_buffer);
++			state->write_buffer = NULL;
++			state->write_buffer_size = 0;
++		}
++		// allocate a bigger buffer
++		state->write_buffer = kmalloc(count, GFP_KERNEL);
++		if(!state->write_buffer) {
++			printk(KERN_ERR "hdhomerun: unable to allocate buffer of %Zu bytes for device %d\n", count, state->id);
++			return -ENOMEM;
++		}
++		state->write_buffer_size = count;
++		printk(KERN_INFO "hdhomerun: allocated buffer of %Zu bytes for device %d\n", count, state->id);
+ 	}
+-	
+-	if (copy_from_user(user_data, buf, count)) {
+-		retval = -EFAULT;
+-		goto error;
++	// write_buffer is allocated and is big enough
++	if (copy_from_user(state->write_buffer, buf, count)) {
++		return -EFAULT;
+ 	}
+ 	
+ 	/* Feed stuff to V4l-DVB */
+-	dvb_dmx_swfilter(state->dvb_demux, user_data, count);
++	dvb_dmx_swfilter(state->dvb_demux, state->write_buffer, count);
+ 
+-error:
+-	kfree(user_data);
+-	return retval;
++	return count;
+ }
+ 
+ static int hdhomerun_data_open(struct inode *inode, struct file *file)
+@@ -170,6 +178,10 @@
+ 	state->dvb_demux = dvb_demux;
+ 	state->id = id;
+ 
++	/* buffer */
++	state->write_buffer = NULL;
++	state->write_buffer_size = 0;
++
+ 	/* Create dev_t for this tuner */
+ 	major = MAJOR(hdhomerun_major);
+ 	minor = MINOR(hdhomerun_major);
+@@ -206,6 +218,13 @@
+ void dvb_hdhomerun_data_delete_device(int id) {
+ 	DEBUG_FUNC(1);
+ 
++	/* free allocated buffer */
++	if(hdhomerun_data_states[id]->write_buffer != NULL) {
++		kfree(hdhomerun_data_states[id]->write_buffer);
++		hdhomerun_data_states[id]->write_buffer = NULL;
++		hdhomerun_data_states[id]->write_buffer_size = 0;
++	}
++
+ 	cdev_del(&hdhomerun_data_states[id]->cdev);
+ 	device_destroy(hdhomerun_class, hdhomerun_data_states[id]->dev);
+ }
