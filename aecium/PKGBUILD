@@ -1,12 +1,12 @@
 # Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=aecium
-pkgver=20130319
+pkgver=20130331
 pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
 depends=('libpcap')
-makedepends=('git' 'automake' 'autoconf' 'libtool')
+makedepends=('git' 'automake' 'autoconf')
 url="http://github.com/Red54/aecium"
 license=('GPL2')
 
@@ -22,13 +22,13 @@ build() {
 	cd $srcdir/build
 	aclocal
 	autoheader
-	automake --add-missing
+	automake -a
 	autoconf
 	./configure --prefix=/usr
 	make
 }
 
-package(){
+package() {
 	cd $srcdir/build
 	make DESTDIR=$pkgdir install
 }
