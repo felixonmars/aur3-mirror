@@ -15,7 +15,7 @@ build() {
 	if [[ -d $pkgname ]]; then
 		cd $pkgname && git pull origin
 	else
-		git clone $url --recursive --depth 1
+		git clone $url --depth 1
 	fi
 	rm -rf $srcdir/build
 	cp -r $srcdir/$pkgname $srcdir/build
