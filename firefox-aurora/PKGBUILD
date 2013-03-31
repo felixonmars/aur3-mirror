@@ -4,14 +4,14 @@
 
 pkgname=firefox-aurora
 pkgver=21.0a2
-pkgrel=3
+pkgrel=4
 pkgdesc="Firefox Aurora channel - Nightly build"
 url=http://www.mozilla.org/en_US/firefox/aurora/
 arch=(i686 x86_64)
 license=(MPL GPL LGPL)
 depends=('gtk2' 'libxt' 'startup-notification' 'mime-types' 'dbus-glib' 'alsa-lib' 'dbus-glib' 'libnotify' 'desktop-file-utils' 'hicolor-icon-theme' 'libvpx' 'libevent' 'nss>=3.14.1' 'hunspell')
 optdepends=()
-makedepends=()
+makedepends=('wget')
 provides=(firefox-aurora)
 conflicts=(firefox-aurora)
 install=$pkgname.install
