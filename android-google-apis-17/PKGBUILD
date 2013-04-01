@@ -1,8 +1,8 @@
 # Maintainer: Joel Pedraza <joel@joelpedraza.com>
 # Contributor: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
-_rev=r01
-_sdkver=4.2
+_rev=r02
+_sdkver=4.2.2
 _sdkint=17
 pkgname=android-google-apis-${_sdkint}
 pkgver=${_sdkver}_${_rev}
@@ -14,10 +14,11 @@ license=('custom')
 depends=("android-platform-${_sdkint}")
 options=('!strip')
 source=("http://dl.google.com/android/repository/google_apis-${_sdkint}_${_rev}.zip")
-sha1sums=('62cb086f11e15713878c8834d58ef1a2454c19a4')
+sha1sums=('65d88cfa6eeb5cd81ad88ab75ca788562b0c05e9')
+
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/add-ons/"
-  mv "${srcdir}/google_apis-526865-mac-x86" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google_inc_-${_sdkint}"
+  mv "${srcdir}/google_apis-576024-mac-x86" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google_inc_-${_sdkint}"
 
   chmod -R ugo+rX "${pkgdir}/opt"
 }
