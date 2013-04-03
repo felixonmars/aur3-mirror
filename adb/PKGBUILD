@@ -1,33 +1,31 @@
-# Maintainer: zhn <zhangn1985 AT gmail com>
+# Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=adb
-pkgver=4.2
-pkgrel=2
-pkgdesc="adb host for Linux"
-arch=("i686" "x86_64")
+pkgver=20130403
+pkgrel=1
+pkgdesc="adb(Android Debug Bridge CLI tool), an Android platform tool"
+arch=('i686' 'x86_64' 'armv7h')
+depends=('libusb')
+makedepends=('gcc' 'git' 'make')
+provides=('adb')
+conflicts=('adb')
+url="http://android.googlesource.com/platform/system/core"
 license=('Apache')
-url="http://www.android.com"
-depends=('zlib' 'openssl')
-makedepends=('git')
+source=('adbMakefile')
+md5sums=('887d868e544330ef850334961685cab3')
 
-__giturl="git://github.com/zhangn1985/adb.git"
-__gitname="adb"
-__gitbranch="master"
 build() {
-	cd ${srcdir}
-	if [ -d ${__gitname} ];then
-		cd ${__gitname}
-		git pull
-		git checkout ${__gitbranch}
+	cd $srcdir
+	if [[ -d core ]]; then
+		cd core && git pull origin
 	else
-		git clone ${__giturl}
-    cd ${__gitname}
+		git clone $url --depth=1
 	fi
-  ./auto.sh --prefix=/usr
+	cd $srcdir/core/adb
+	mv ../../adbMakefile makefile
+	make
 }
+
 package(){
-	cd ${srcdir}/${__gitname}
-	make DESTDIR=${pkgdir} install
+	install -D ${srcdir}/core/adb/adb ${pkgdir}/usr/bin/adb
 }
-
-
