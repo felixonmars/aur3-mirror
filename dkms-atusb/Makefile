@@ -1,4 +1,4 @@
-obj-m := spi_atusb.o
+obj-m := atusb.o
 
 KRELEASE := $(shell uname -r)
 KDIR := /usr/lib/modules/$(KRELEASE)/build

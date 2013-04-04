@@ -1,7 +1,7 @@
 /*
- * AT86RF230/RF231 register and protocol definitions
+ * AT86RF230/RF231 driver
  *
- * Copyright (C) 2009 Siemens AG
+ * Copyright (C) 2009-2012 Siemens AG
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -17,19 +17,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Written by:
- * Dmitry Eremin-Solenikov <dmitry.baryshkov@siemens.com>
+ * Dmitry Eremin-Solenikov <dbaryshkov@gmail.com>
+ * Alexander Smirnov <alex.bluesman.smirnov@gmail.com>
  */
 
-#ifndef ATR86F230_H
-#define	ATR86F230_H
-
-struct at86rf230_platform_data {
-        int rstn;
-        int slp_tr;
-        int dig2;
-	void (*reset)(void *reset_data);
-	void *reset_data;
-};
+#ifndef _AT86RF230_H
+#define	_AT86RF230_H
 
 #define	RG_TRX_STATUS	(0x01)
 #define	SR_TRX_STATUS		0x01, 0x1f, 0
@@ -209,11 +202,11 @@ struct at86rf230_platform_data {
 #define STATE_SLEEP		0x0F
 #define STATE_BUSY_RX_AACK	0x11
 #define STATE_BUSY_TX_ARET	0x12
-#define STATE_BUSY_RX_AACK_ON	0x16
-#define STATE_BUSY_TX_ARET_ON	0x19
+#define STATE_RX_AACK_ON	0x16
+#define STATE_TX_ARET_ON	0x19
 #define STATE_RX_ON_NOCLK	0x1C
 #define STATE_RX_AACK_ON_NOCLK	0x1D
 #define STATE_BUSY_RX_AACK_NOCLK 0x1E
 #define STATE_TRANSITION_IN_PROGRESS 0x1F
 
-#endif /* !ATR86F230_H */
+#endif /* !_AT86RF230_H */
