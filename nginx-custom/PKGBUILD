@@ -23,8 +23,8 @@ _httpupload_ver="2.2.0"
 _authpam_ver="1.2"
 
 pkgname=nginx-custom
-pkgver=1.2.7
-pkgrel=3
+pkgver=1.2.8
+pkgrel=1
 pkgdesc="lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules"
 arch=('i686' 'x86_64')
 
@@ -66,7 +66,7 @@ source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
 		"nginx.logrotate"
 		"nginx.service")
 
-md5sums=('d252f5c689a14a668e241c744ccf5f06'
+md5sums=('b9f7640cca35196d0e719ac5da24c7bd'
          'b403e963108f4e1700607cbe40916807'
          '68a1af12d5c1218fb2b3e05ed7ff6f0c'
          '9dd5dc90990dbaea68881a14d4b6d9f3'
