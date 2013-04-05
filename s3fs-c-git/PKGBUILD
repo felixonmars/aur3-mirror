@@ -1,6 +1,6 @@
 pkgname=s3fs-c-git
-pkgver=20121021
-pkgrel=2
+pkgver=20130405
+pkgrel=1
 pkgdesc="Fork of s3fs compatible with other clients"
 arch=('i686' 'x86_64')
 url="https://github.com/tongwang/s3fs-c"

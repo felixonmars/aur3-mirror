@@ -3,12 +3,12 @@
 
 _pkgname=abiword
 pkgname=$_pkgname-svn
-pkgver=31920
+pkgver=2.9.4.0.32831
 pkgrel=1
 pkgdesc="A fully-featured word processor (SVN Version)"
 arch=(i686 x86_64)
 url=http://www.abisource.com
-license=(GPL)
+license=(GPL2)
 depends=(fribidi wv goffice-devel redland evolution-data-server desktop-file-utils)
 makedepends=(boost libwpg libwps telepathy-glib loudmouth asio
     psiconv gtkmathview libwmf link-grammar aiksaurus libots subversion)
@@ -23,34 +23,22 @@ optdepends=('libwpg: wordperfect, wpg plugin'
     'link-grammar: grammar plugin'
     'aiksaurus: aiksaurus plugin'
     'libots: ots plugin')
-provides=($_pkgname)
+provides=($_pkgname=$pkgver)
 conflicts=($_pkgname)
-options=(!makeflags !libtool)
+options=(!libtool !makeflags)
 install=$_pkgname.install
+source=($pkgname::svn+http://svn.abisource.com/abiword/trunk/)
+sha256sums=('SKIP')
+sha512sums=('SKIP')
 
-_svntrunk=http://svn.abisource.com/abiword/trunk/
-_svnmod=$_pkgname
+pkgver() {
+    echo $(grep -o 'assemblyIdentity version=\"[0-9.]\+\"' $pkgname/src/wp/main/win/AbiWord.exe.x86.MANIFEST | tr -d '[a-zA-z= "]').$(svnversion "$SRCDEST"/$pkgname/)
+}
 
 build() {
-    install -d "$srcdir"/$_pkgname/
-    cd "$srcdir"/$_pkgname/
-
-    msg "Starting SVN checkout..."
-    if [[ -d $_svnmod/.svn ]]; then
-        pushd $_svnmod && svn up -r $pkgver
-        msg2 "The local files have been updated."
-        popd
-    else
-        svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
-    fi
-    msg2 "SVN checkout done or server timeout"
-
-    rm -rf $_svnmod-build/
-    cp -r $_svnmod/ $_svnmod-build/
-    cd $_svnmod-build/
-
-    msg "Compiling..."
-    ./autogen.sh --prefix=/usr \
+    cd $pkgname/
+    ./autogen.sh \
+        --prefix=/usr \
         --sysconfdir=/etc \
         --localstatedir=/var \
         --disable-maintainer-mode \
@@ -63,6 +51,5 @@ build() {
 }
 
 package() {
-    cd "$srcdir"/$_pkgname/$_svnmod-build/
-    make DESTDIR="$pkgdir" install
+    make -C $pkgname DESTDIR="$pkgdir" install
 }

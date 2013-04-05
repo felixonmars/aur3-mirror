@@ -3,13 +3,13 @@
 
 pkgname=2299thegame
 pkgver=1.0
-pkgrel=3
+pkgrel=4
 pkgdesc="An old-school, point and click adventure game with 8-bit inspired, retro graphics."
 arch=(i686 x86_64)
 url=http://lunduke.com/?page_id=2333
 license=(custom:GLL)
-depends=(lib32-cairo1.10 desktop-file-utils gtk2)
-[[ $CARCH == "x86_64" ]] && depends[1]=lib32-gtk2
+depends=(desktop-file-utils lib32-cairo1.10 lib32-gtk2)
+[[ $CARCH == "i686" ]] && depends=(${depends[@]/lib32-/})
 install=$pkgname.install
 source=(http://www.lunduke.com/2299thegame/2299thegame.tar.gz
     $pkgname.desktop
@@ -22,9 +22,9 @@ sha512sums=('2893a3ce01b719ce316965bc970945be2f58bab1778dda27f303ed3b1fb8652c447
     'beba5402b92dd9e756a1afd4b5d2cbcb8b70b110bb0db5b1ca2bc24a010f4ade92bfdca8ef548cfbc52a17b565010421bb793410366c4c41fd0127fc0d6dec90')
 
 package() {
-    cd "$srcdir"/$pkgname/
+    install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
+    desktop-file-install $pkgname.desktop --dir "$pkgdir"/usr/share/applications/
+    cd $pkgname/
     install -Dm755 2299 "$pkgdir"/usr/bin/$pkgname
     install -Dm644 2299.png "$pkgdir"/usr/share/pixmaps/$pkgname.png
-    install -Dm644 ../LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
-    desktop-file-install ../$pkgname.desktop --dir "$pkgdir"/usr/share/applications/
 }
