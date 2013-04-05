@@ -1,42 +1,33 @@
 # Maintainer: Jesse Jaara <gmail.com: jesse.jaara>
 
 pkgname=afrodite-git
-pkgver=20120602
+pkgver=0.12.0.13.g9ec1f44
 pkgrel=1
 pkgdesc="Library containing the completion engine for Vala language"
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/vtg/"
 license=('GPL2')
-depends=('vala')
+depends=('vala0.16')
 makedepends=('git' 'gnome-common')
 options=(!libtool)
 provides=('afrodite')
 conflicts=('afrodite')
+source=('vala-toys::git://gitorious.org/vala-toys/vala-toys.git')
+md5sums=('SKIP')
 
-_gitroot=git://gitorious.org/vala-toys/vala-toys.git
-_gitname=vala-toys
+pkgver() {
+  cd "${srcdir}"/vala-toys
+  git describe --always | sed 's|-|.|g'
+}
+
+prepare() {
+  cd "${srcdir}/vala-toys"
+  sed 's|valac|valac-0.16|g' -i configure.ac
+}
 
 build() {
-  cd "${srcdir}"
-  msg "Connecting to GIT server...."
+  cd "${srcdir}/vala-toys"
 
-  if [[ -d "${_gitname}" ]]; then
-    cd "${_gitname}" && git pull origin
-    msg "The local files are updated."
-  else
-    git clone "${_gitroot}" "${_gitname}" --depth 1
-  fi
-
-  msg "GIT checkout done or server timeout"
-  msg "Starting build..."
-
-  rm -rf "${srcdir}/${_gitname}-build"
-  cp -r "${srcdir}/${_gitname}" "${srcdir}/${_gitname}-build"
-  cd "${srcdir}/${_gitname}-build"
-
-  #
-  # BUILD HERE
-  #
   ./autogen.sh --disable-gen-project --disable-vtg-plugin --enable-afrodite --prefix=/usr
   ## The 1st run determinates if we alredy have afrodite installed in the system
   ## and becouse we don't it exist with failure code and pacman terminates || error 0, prevents that
@@ -45,7 +36,7 @@ build() {
 }
 
 package() {
-  cd "${srcdir}/${_gitname}-build"
+  cd "${srcdir}/vala-toys"
 
   make DESTDIR="${pkgdir}/" install
   mv "${pkgdir}/usr/share/doc/vtg/" "${pkgdir}/usr/share/doc/afrodite"

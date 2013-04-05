@@ -1,43 +1,34 @@
-# Maintainer: Mark Foxwell <fastfret79@archlinux.org.uk>
+# Maintainer: Kazuo Teramoto <kaz.rag@gmail.com>
+# Contributor: Mark Foxwell <fastfret79@archlinux.org.uk>
 pkgname=alot-git
-pkgver=20130326
+pkgver=0.3.4.113.g48b31be
 pkgrel=1
-pkgdesc="A terminal interface for notmuch mail written in python using the urwid toolkit."
+epoch=1
+pkgdesc="A terminal interface for notmuch"
 arch=('any')
 url="https://github.com/pazz/alot"
 license=('GPL')
-depends=('python2-urwid' 'notmuch' 'twisted' 'python2' 'python-magic' 'python2-configobj' 'pygpgme')
+depends=('notmuch' 'pygpgme' 'python-magic' 'python2' 'python2-configobj' \
+            'python2-urwid' 'twisted')
 makedepends=('git')
 provides=('alot')
 conflicts=('alot')
+source=('git://github.com/pazz/alot.git')
+md5sums=('SKIP')
 
-_gitroot="https://github.com/pazz/alot.git"
-_gitname="master"
+pkgver() {
+  cd "$srcdir/alot"
+  git describe --always | sed 's|-|.|g'
+}
 
 build() {
-    cd "$srcdir"
-    msg "Connecting to GIT server...."
-
-    if [ -d $_gitname ] ; then
-            cd $_gitname && git pull origin
-            msg "The local files are updated."
-    else
-            git clone $_gitroot $_gitname
-    fi
-
-    msg "GIT checkout done or server timeout"
-    msg "Starting make..."
-
-    rm -rf "$srcdir/$_gitname-build"
-    git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/alot"
+  python2 setup.py build
 }
 
 package() {
-    cd "$srcdir/$_gitname-build"
-
-    sed -i -e "s|#![ ]*/usr/bin/python$|#!/usr/bin/python2|" \
-            -e "s|#![ ]*/usr/bin/env python$|#!/usr/bin/env python2|" \
-            $(find ./ -name '*.py')
-
-    python2 setup.py install --prefix=${pkgdir}/usr
+  cd "$srcdir/alot"
+  python2 setup.py install --prefix="${pkgdir}/usr"
 }
+
+# vim:set ts=2 sw=2 et:
