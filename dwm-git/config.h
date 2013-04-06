@@ -1,25 +1,38 @@
 /* See LICENSE file for copyright and license details. */
 
+/* William Giokas's dwm config.h
+ * semi-i3 like keybinds, i3 colors
+ * no border
+ * top bar
+ * a few pre-set windows
+ */
+
 /* appearance */
-static const char font[]            = "-*-terminus-medium-r-*-*-16-*-*-*-*-*-*-*";
-static const char normbordercolor[] = "#444444";
-static const char normbgcolor[]     = "#222222";
-static const char normfgcolor[]     = "#bbbbbb";
-static const char selbordercolor[]  = "#005577";
-static const char selbgcolor[]      = "#005577";
+static const char font[]            = "-*-proggytinysz-medium-*-*-*-10-*-*-*-*-*-*-*";
+static const char normbordercolor[] = "#333333";
+static const char normbgcolor[]     = "#5f676a";
+static const char normfgcolor[]     = "#cccccc";
+static const char selbordercolor[]  = "#4c7899";
+static const char selbgcolor[]      = "#285577";
 static const char selfgcolor[]      = "#eeeeee";
-static const unsigned int borderpx  = 1;        /* border pixel of windows */
-static const unsigned int snap      = 32;       /* snap pixel */
+static const unsigned int borderpx  = 0;        /* border pixel of windows */
+static const unsigned int snap      = 16;       /* snap pixel */
 static const Bool showbar           = True;     /* False means no bar */
 static const Bool topbar            = True;     /* False means bottom bar */
 
-/* tagging */
-static const char *tags[] = { "1", "2", "3", "4", "5", "6", "7", "8", "9" };
+/* tagging                     0       1      2       3        4        5        6       7       8     */
+static const char *tags[] = { "term", "web", "web2", "image", "comic", "video", "game", "misc", "hide" };
 
 static const Rule rules[] = {
 	/* class      instance    title       tags mask     isfloating   monitor */
-	{ "Gimp",     NULL,       NULL,       0,            True,        -1 },
-	{ "Firefox",  NULL,       NULL,       1 << 8,       False,       -1 },
+	{ "Dwb",      NULL,       NULL,       1 << 1,       False,       -1 },
+	{ "Gimp",     NULL,       NULL,       1 << 3,       False,       -1 },
+	{ "URxvt",    NULL,       "download_dwb", 1 << 1,   True,        -1 },
+	{ "luakit",   NULL,       NULL,       1 << 2,       False,       -1 },
+	{ "Firefox",  NULL,       NULL,       1 << 2,       False,       -1 },
+	{ "Mcomix",   NULL,       NULL,       1 << 4,       False,       -1 },
+	{ "Steam",    NULL,       NULL,       1 << 6,       True,        -1 },
+	{ "mplayer2", NULL,       NULL,       1 << 5,       True,        -1 },
 };
 
 /* layout(s) */
@@ -30,12 +43,12 @@ static const Bool resizehints = True; /* True means respect size hints in tiled 
 static const Layout layouts[] = {
 	/* symbol     arrange function */
 	{ "[]=",      tile },    /* first entry is default */
-	{ "><>",      NULL },    /* no layout function means floating behavior */
-	{ "[M]",      monocle },
+	{ "<>-",      NULL },    /* no layout function means floating behavior */
+	{ "(M)",      monocle },
 };
 
 /* key definitions */
-#define MODKEY Mod1Mask
+#define MODKEY Mod4Mask
 #define TAGKEYS(KEY,TAG) \
 	{ MODKEY,                       KEY,      view,           {.ui = 1 << TAG} }, \
 	{ MODKEY|ControlMask,           KEY,      toggleview,     {.ui = 1 << TAG} }, \
@@ -46,34 +59,57 @@ static const Layout layouts[] = {
 #define SHCMD(cmd) { .v = (const char*[]){ "/bin/sh", "-c", cmd, NULL } }
 
 /* commands */
-static const char *dmenucmd[] = { "dmenu_run", "-fn", font, "-nb", normbgcolor, "-nf", normfgcolor, "-sb", selbgcolor, "-sf", selfgcolor, NULL };
-static const char *termcmd[]  = { "uxterm", NULL };
+/* dmenu */
+static const char *dmenucmd[]    = { "dmenu_run", "-fn", font, "-nb", normbgcolor, "-nf", normfgcolor, "-sb", selbgcolor, "-sf", selfgcolor, NULL };
+/* Spawning windows */
+static const char *termcmd[]     = { "urxvtc", NULL };
+static const char *dwbcmd[]      = { "systemctl", "--user", "start", "dwb@:0",    NULL};
+static const char *luakitcmd[]   = { "systemctl", "--user", "start", "luakit@:0", NULL};
+static const char *mcomixcmd[]   = { "systemctl", "--user", "start", "mcomix@:0", NULL};
+
+/* Systemd --user stuff */
+static const char *killcmd[]        = { "systemctl", "--user", "exit",                  NULL };
+static const char *restartcmd[]     = { "systemctl", "--user", "restart", "dwm",        NULL };
+static const char *barrestartcmd[]  = { "systemctl", "--user", "restart", "dwm-status", NULL };
 
 static Key keys[] = {
 	/* modifier                     key        function        argument */
-	{ MODKEY,                       XK_p,      spawn,          {.v = dmenucmd } },
+	{ MODKEY,                       XK_d,      spawn,          {.v = dmenucmd } },
 	{ MODKEY|ShiftMask,             XK_Return, spawn,          {.v = termcmd } },
-	{ MODKEY,                       XK_b,      togglebar,      {0} },
+	{ MODKEY|ShiftMask,             XK_e,      spawn,          {.v = killcmd } },
+	{ MODKEY|ShiftMask,             XK_r,      spawn,          {.v = restartcmd } },
+	{ MODKEY|ShiftMask,             XK_c,      killclient,     {0} },
+	{ MODKEY,                       XK_v,      togglebar,      {0} },
+	{ MODKEY|ShiftMask,             XK_v,      spawn,          {.v = barrestartcmd } },
 	{ MODKEY,                       XK_j,      focusstack,     {.i = +1 } },
 	{ MODKEY,                       XK_k,      focusstack,     {.i = -1 } },
-	{ MODKEY,                       XK_i,      incnmaster,     {.i = +1 } },
-	{ MODKEY,                       XK_d,      incnmaster,     {.i = -1 } },
+	{ MODKEY,                       XK_u,      incnmaster,     {.i = +1 } },
+	{ MODKEY,                       XK_i,      incnmaster,     {.i = -1 } },
+    /* Resize main window left and right                                */
 	{ MODKEY,                       XK_h,      setmfact,       {.f = -0.05} },
 	{ MODKEY,                       XK_l,      setmfact,       {.f = +0.05} },
 	{ MODKEY,                       XK_Return, zoom,           {0} },
 	{ MODKEY,                       XK_Tab,    view,           {0} },
-	{ MODKEY|ShiftMask,             XK_c,      killclient,     {0} },
-	{ MODKEY,                       XK_t,      setlayout,      {.v = &layouts[0]} },
-	{ MODKEY,                       XK_f,      setlayout,      {.v = &layouts[1]} },
-	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[2]} },
+    /* Layout Keys:                                                     */
+	{ MODKEY,                       XK_e,      setlayout,      {.v = &layouts[0]} },
+	{ MODKEY,                       XK_w,      setlayout,      {.v = &layouts[1]} },
+	{ MODKEY,                       XK_s,      setlayout,      {.v = &layouts[2]} },
 	{ MODKEY,                       XK_space,  setlayout,      {0} },
 	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
+    /* Move window into master position                                 */
 	{ MODKEY,                       XK_0,      view,           {.ui = ~0 } },
+    /* See all tags                                                     */
 	{ MODKEY|ShiftMask,             XK_0,      tag,            {.ui = ~0 } },
+    /* I think these 4 are broken...                                    */
 	{ MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
 	{ MODKEY|ShiftMask,             XK_period, tagmon,         {.i = +1 } },
+    /* Systemd user unit hotkeys                                        */
+    { MODKEY|ShiftMask,             XK_n,      spawn,          {.v = luakitcmd } },
+    { MODKEY|ShiftMask,             XK_b,      spawn,          {.v = dwbcmd } },
+    { MODKEY|ShiftMask,             XK_m,      spawn,          {.v = mcomixcmd } },
+    /* Workspace Tags                                                   */
 	TAGKEYS(                        XK_1,                      0)
 	TAGKEYS(                        XK_2,                      1)
 	TAGKEYS(                        XK_3,                      2)
@@ -83,7 +119,6 @@ static Key keys[] = {
 	TAGKEYS(                        XK_7,                      6)
 	TAGKEYS(                        XK_8,                      7)
 	TAGKEYS(                        XK_9,                      8)
-	{ MODKEY|ShiftMask,             XK_q,      quit,           {0} },
 };
 
 /* button definitions */
@@ -102,4 +137,3 @@ static Button buttons[] = {
 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
 };
-

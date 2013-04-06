@@ -1,8 +1,10 @@
 # Contributor: Nicolas Quiénot < niQo at aur > 
 
+_pkgname=airplayer
 pkgname=airplayer-git
-pkgver=20110312
+pkgver=0.47.cb6f6a3
 pkgrel=1
+epoch=1
 pkgdesc='Python script to make media playing software Apple Airplay compatible. Currently supports XBMC, Plex and Boxee.'
 arch=('any')
 url='https://github.com/PascalW/Airplayer'
@@ -10,34 +12,19 @@ license=('GPL')
 makedepends=('git')
 depends=('python2' 'python-simplejson' 'pybonjour' 'python-tornado')
 #install=${pkgname}.install
-provide=('airplayer')
-backup=()
-source=()
+provides=('airplayer')
+conflicts=('airplayer')
+source=('airplayer::git://github.com/PascalW/Airplayer.git#branch=master')
+md5sums=('SKIP')
 
-_gitroot="https://github.com/PascalW/Airplayer.git"
-_gitname="airplayer"
 
-build() {
-  cd "$srcdir"
-  msg "Connecting to GIT server...."
-
-  if [ -d $_gitname ] ; then
-    cd $_gitname && git pull origin
-    msg "The local files are updated."
-  else
-    git clone $_gitroot $_gitname
-  fi
-
-  msg "GIT checkout done or server timeout"
-  msg "Starting make..."
-
-  rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-
+pkgver() {
+  cd $_pkgname
+  echo "0.$(git rev-list --count HEAD).$(git describe --always)"
 }
 
 package() {
-  cd "$srcdir/$_gitname-build"
+  cd "$srcdir/$_pkgname"
 
   mkdir -p $pkgdir/usr/lib/python2.7/site-packages/
   mkdir -p $pkgdir/usr/bin/
@@ -47,6 +34,6 @@ package() {
   echo "python2 /usr/lib/python2.7/site-packages/airplayer/airplayer.py" >> $pkgdir/usr/bin/airplayer
   chmod +x $pkgdir/usr/bin/airplayer
 
-  install -Dm644 README.mdown ${pkgdir}/usr/share/doc/${pkgname}/README || return 1
+  install -Dm644 README.mdown ${pkgdir}/usr/share/doc/${pkgname}/README
 }
 
