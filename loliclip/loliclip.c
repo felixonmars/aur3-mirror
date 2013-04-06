@@ -158,17 +158,19 @@ REGISTER_ARG(arg_clear);
 REGISTER_ARG(arg_query);
 REGISTER_ARG(arg_binary);
 REGISTER_ARG(arg_wait);
+REGISTER_ARG(arg_input);
 #undef REGISTER_ARG
 
 /* arguments are executed in order */
 static cliparg clipargs[] = {
    { 0, 'w', "wait",       0, arg_wait,      arg_wait,            "\tWait until our X selection is taken. (don't daemonize)" },
    { 0, 'd', "daemon",     0, arg_daemon,    NULL,                "Run as daemon." },
+   { 0, 'i', "input",      0, arg_input,     arg_input,           "\tInput data to selected selection" },
    { 0, 'p', "primary",    0, arg_primary,   arg_primary_sync,    "Operate on PRIMARY." },
    { 0, 's', "secondary",  0, arg_secondary, arg_secondary_sync,  "Operate on SECONDARY." },
    { 0, 'c', "clipboard",  0, arg_clipboard, arg_clipboard_sync,  "Operate on CLIPBOARD." },
    { 0, 'b', "binary",     1, arg_binary,    NULL,                "Operate on specific clipboard target." },
-   { 0, 'g', "get",        0, arg_get,       NULL,                "\tGet clip by index or hash form history." },
+   { 0, 'g', "get",        0, arg_get,       NULL,                "\tGet clip by index or hash from history." },
    { 0, 'l', "list",       0, arg_list,      NULL,                "\tLists clips from history." },
    { 0, 'm', "dmenu",      0, arg_dmenu,     NULL,                "\tDmenu friendly listing." },
    { 0, 'C', "clear",      0, arg_clear,     NULL,                "\tClears clipboard history." },
@@ -203,7 +205,10 @@ static int xcb_timeout_daemon = 5000;  /* in nanoseconds */
 static xcb_time_t xcb_timestamp = 0;
 
 /* wait mode? */
-char WAIT_MODE = 0;
+static char WAIT_MODE = 0;
+
+/* input mode? */
+static char INPUT_MODE = 0;
 
 /* output helpers */
 #define _D "\1-\2!\1-\5"
@@ -525,7 +530,7 @@ static char* get_clipboard_database_path(clipdata *c, char create) {
          strlen(clipfile)+1+
          strlen(ext)+1;
 
-   if (!(buffer = malloc(len)))
+   if (!(buffer = malloc(len+1)))
       goto out_of_memory;
 
    snprintf(buffer, len, "%s%s%s/%s/%s.%s",
@@ -624,7 +629,7 @@ static int restore_clipboard(void *calldata, clipdata *c,
    if (!cbuf) {
       if (!(cbuf = malloc(size+1)))
          return 0;
-      memset(cbuf, 0, size+1);
+      memset(cbuf, 0, size);
    }
 
    /* copy data */
@@ -654,7 +659,7 @@ static int ls_clipboard(clipdata *c, char *path, void *calldata, lscallback call
    if (USE_ZLIB) {
       ext = "dez";
       len = strlen(path)+1+strlen(ext)+1;
-      if (!(zpath = malloc(len)))
+      if (!(zpath = malloc(len+1)))
          goto out_of_memory;
       snprintf(zpath, len, "%s.%s", path, ext);
 
@@ -715,14 +720,14 @@ static void store_clip(clipdata *c) {
 
    ext = "tmp";
    len = strlen(path)+1+strlen(ext)+1;
-   if (!(tmp = malloc(len)))
+   if (!(tmp = malloc(len+1)))
       goto out_of_memory;
    snprintf(tmp, len, "%s.%s", path, ext);
 
    if (USE_ZLIB) {
       ext = "dez";
       len = strlen(path)+1+strlen(ext)+1;
-      if (!(zpath = malloc(len)))
+      if (!(zpath = malloc(len+1)))
          goto out_of_memory;
       snprintf(zpath, len, "%s.%s", path, ext);
    }
@@ -1650,7 +1655,7 @@ static char* get_data_as_argument(int argc, char **argv, size_t *len) {
    size_t size = 0, read; int i; *len = 0;
 
    /* 100% sure we are terminal */
-   if (!argc && isatty(fileno(stdin)))
+   if (!INPUT_MODE)
       return NULL;
 
    if (!argc) {
@@ -1797,17 +1802,19 @@ static int do_sync(const char *selection, int argc, char **argv) {
       set_xsel(c->sel, XCB_NONE, buffer, len);
       if (buffer) free(buffer);
    } else {
-      /* dont out data, if we have pipe open */
-      if (!isatty(fileno(stdin))) return 1;
+      /* dont out data in input mode */
+      if (INPUT_MODE) return 1;
       OUT("\4Get selection from %s", selection);
       if (!(c = get_clipboard(selection)))
          goto fail;
 
       buffer = get_xsel(c->sel, atoms[UTF8_STRING], &len);
       if (!buffer) buffer = get_xsel(c->sel, atoms[STRING], &len);
-      if (buffer && len)
+      if (buffer && len) {
          for (i = 0; i != len; ++i)
             printf("%c", buffer[i]);
+         if (buffer[len-1] != '\n') puts("");
+      }
       if (buffer) free(buffer);
    }
    return 1;
@@ -1867,6 +1874,7 @@ FUNC_ARG(arg_get) {
    unsigned int arg; size_t len;
 
    OUT("\4Getting from history");
+   INPUT_MODE = 1;
    if (!(data = get_data_as_argument(argc, argv, &len)))
       return -1;
 
@@ -1948,6 +1956,12 @@ FUNC_ARG(arg_wait) {
    return 1;
 }
 
+FUNC_ARG(arg_input) {
+   INPUT_MODE = 1;
+   OUT("INPUT MODE");
+   return 1;
+}
+
 FUNC_ARG(arg_binary) {
    xcb_atom_t *targets;
    char *buffer; size_t i, len = 0, tlen = 0;
@@ -1996,6 +2010,7 @@ FUNC_ARG(arg_binary) {
       set_xsel(c->sel, s->sel, buffer, len);
       if (buffer) free(buffer);
    } else {
+      if (INPUT_MODE) return 1;
       buffer = get_xsel(c->sel, s->sel, &len);
       if (buffer && len) {
          for (i = 0; i != len; ++i)
