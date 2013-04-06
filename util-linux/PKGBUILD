@@ -1,0 +1,81 @@
+# Contributor: Dave Reisner <d@falconindy.com>
+
+pkgname=util-linux
+pkgver=2.23.rc1
+pkgrel=1
+pkgdesc="Miscellaneous system utilities for Linux - the GIT version"
+url="http://userweb.kernel.org/~kzak/util-linux/"
+arch=('i686' 'x86_64')
+license=('GPL2')
+depends=('ncurses' 'pam' 'systemd' 'shadow' 'zlib')
+makedepends=('git')
+provides=("util-linux=$pkgver" 'eject')
+conflicts=('util-linux' 'eject')
+replaces=('eject')
+options=('!libtool')
+backup=(etc/pam.d/{login,ch{fn,sh}})
+source=('git://git.kernel.org/pub/scm/utils/util-linux/util-linux.git'
+        'pam-su'
+        'pam-login'
+        'pam-chfn-chsh'
+        'uuidd.tmpfiles')
+install=util-linux.install
+md5sums=('SKIP'
+         'fa85e5cce5d723275b14365ba71a8aad'
+         '4368b3f98abd8a32662e094c54e7f9b1'
+         'a31374fef2cba0ca34dfc7078e2969e4'
+         'a39554bfd65cccfd8254bb46922f4a67')
+
+pkgver() {
+  cd util-linux
+  git describe | {
+    IFS=- read M m _
+    printf '%s.%s' "${M#v}" "$m"
+  }
+}
+
+build() {
+  cd util-linux
+
+  msg "Configuring..."
+  ./autogen.sh
+  ./configure \
+      --localstatedir=/run \
+      --prefix=/usr \
+      --libdir=/usr/lib \
+      --disable-wall \
+      --disable-kill \
+      --enable-write \
+      --enable-raw \
+      --enable-fs-paths-extra="/usr/sbin:/usr/bin" \
+      --enable-partx \
+      --enable-chfn-chsh \
+      --enable-vipw \
+      --enable-newgrp \
+      --enable-runuser \
+      --enable-socket-activation \
+      --disable-sulogin-emergency-mount \
+      --without-user
+
+  msg "Starting make..."
+  make
+}
+
+package() {
+  make -C "util-linux" DESTDIR="$pkgdir" install
+
+  # enable setuid
+  chmod 4755 "$pkgdir"/usr/bin/{ch{sh,fn},newgrp}
+
+  # PAM
+  install -dm755 "$pkgdir/etc/pam.d"
+  install -m644 "$srcdir/pam-chfn-chsh" "$pkgdir/etc/pam.d/chfn"
+  install -m644 "$srcdir/pam-chfn-chsh" "$pkgdir/etc/pam.d/chsh"
+  install -m644 "$srcdir/pam-login" "$pkgdir/etc/pam.d/login"
+  install -m644 "$srcdir/pam-su" "$pkgdir/etc/pam.d/su"
+  install -m644 "$srcdir/pam-su" "$pkgdir/etc/pam.d/su-l"
+
+  # tmpfiles
+  install -Dm644 "$srcdir/uuidd.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/uuidd.conf"
+}
+

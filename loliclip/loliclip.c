@@ -379,13 +379,13 @@ state_fail:
 
 /* trim trailing and leading whitespace */
 static char* trim_whitespace(char *buffer, size_t len, size_t *nlen) {
-   char *s =buffer; size_t lead = 0, trail = 0, hasnl = 0; *nlen = 0;
+   char *s = buffer; size_t lead = 0, trail = 0, hasnl = 0; *nlen = 0;
    char *nbuffer = NULL;
    for (; *s && isspace(*s); ++s) ++lead;
    if (!*s) return NULL;
 
    for (s = buffer+len-1; len && (isspace(*s) || *s == '\n'); --s, --len)
-      if (*s == '\n') hasnl = trail; else ++trail;
+      if (*s == '\n') hasnl = trail; ++trail;
 
    if (len<=trail+lead)
       return NULL;
