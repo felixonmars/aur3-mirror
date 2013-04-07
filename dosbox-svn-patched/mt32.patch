@@ -1,0 +1,282 @@
+diff -Nur dosbox.orig/src/dosbox.cpp dosbox/src/dosbox.cpp
+--- dosbox.orig/src/dosbox.cpp	2013-04-03 19:53:37.122051610 -0300
++++ dosbox/src/dosbox.cpp	2013-04-03 19:53:49.958219775 -0300
+@@ -483,7 +483,7 @@
+ 	
+ 	const char* mputypes[] = { "intelligent", "uart", "none",0};
+ 	// FIXME: add some way to offer the actually available choices.
+-	const char *devices[] = { "default", "win32", "alsa", "oss", "coreaudio", "coremidi","none", 0};
++	const char *devices[] = { "default", "win32", "alsa", "oss", "coreaudio", "coremidi", "mt32", "none", 0};
+ 	Pstring = secprop->Add_string("mpu401",Property::Changeable::WhenIdle,"intelligent");
+ 	Pstring->Set_values(mputypes);
+ 	Pstring->Set_help("Type of MPU-401 to emulate.");
+@@ -499,6 +499,62 @@
+ 	                  "  In that case, add 'delaysysex', for example: midiconfig=2 delaysysex\n"
+ 	                  "  See the README/Manual for more details.");
+ 
++	const char *mt32ReverseStereo[] = {"off", "on",0};
++	Pstring = secprop->Add_string("mt32.reverse.stereo",Property::Changeable::WhenIdle,"off");
++	Pstring->Set_values(mt32ReverseStereo);
++	Pstring->Set_help("Reverse stereo channels for MT-32 output");
++
++	const char *mt32log[] = {"off", "on",0};
++	Pstring = secprop->Add_string("mt32.verbose",Property::Changeable::WhenIdle,"off");
++	Pstring->Set_values(mt32log);
++	Pstring->Set_help("MT-32 debug logging");
++
++	const char *mt32thread[] = {"off", "on",0};
++	Pstring = secprop->Add_string("mt32.thread",Property::Changeable::WhenIdle,"off");
++	Pstring->Set_values(mt32thread);
++	Pstring->Set_help("MT-32 rendering in separate thread");
++
++	const char *mt32DACModes[] = {"0", "1", "2", "3", "auto",0};
++	Pstring = secprop->Add_string("mt32.dac",Property::Changeable::WhenIdle,"auto");
++	Pstring->Set_values(mt32DACModes);
++	Pstring->Set_help("MT-32 DAC input emulation mode\n"
++		"Nice = 0 - default\n"
++		"Produces samples at double the volume, without tricks.\n"
++		"Higher quality than the real devices\n\n"
++
++		"Pure = 1\n"
++		"Produces samples that exactly match the bits output from the emulated LA32.\n"
++		"Nicer overdrive characteristics than the DAC hacks (it simply clips samples within range)\n"
++		"Much less likely to overdrive than any other mode.\n"
++		"Half the volume of any of the other modes, meaning its volume relative to the reverb\n"
++		"output when mixed together directly will sound wrong. So, reverb level must be lowered.\n"
++		"Perfect for developers while debugging :)\n\n"
++
++		"GENERATION1 = 2\n"
++		"Re-orders the LA32 output bits as in early generation MT-32s (according to Wikipedia).\n"
++		"Bit order at DAC (where each number represents the original LA32 output bit number, and XX means the bit is always low):\n"
++		"15 13 12 11 10 09 08 07 06 05 04 03 02 01 00 XX\n\n"
++
++		"GENERATION2 = 3\n"
++		"Re-orders the LA32 output bits as in later geneerations (personally confirmed on my CM-32L - KG).\n"
++		"Bit order at DAC (where each number represents the original LA32 output bit number):\n"
++		"15 13 12 11 10 09 08 07 06 05 04 03 02 01 00 14\n");
++
++	const char *mt32reverbModes[] = {"0", "1", "2", "3", "auto",0};
++	Pstring = secprop->Add_string("mt32.reverb.mode",Property::Changeable::WhenIdle,"auto");
++	Pstring->Set_values(mt32reverbModes);
++	Pstring->Set_help("MT-32 reverb mode");
++
++	const char *mt32reverbTimes[] = {"0", "1", "2", "3", "4", "5", "6", "7",0};
++	Pint = secprop->Add_int("mt32.reverb.time",Property::Changeable::WhenIdle,5);
++	Pint->Set_values(mt32reverbTimes);
++	Pint->Set_help("MT-32 reverb decaying time"); 
++
++	const char *mt32reverbLevels[] = {"0", "1", "2", "3", "4", "5", "6", "7",0};
++	Pint = secprop->Add_int("mt32.reverb.level",Property::Changeable::WhenIdle,3);
++	Pint->Set_values(mt32reverbLevels);
++	Pint->Set_help("MT-32 reverb level");
++
+ #if C_DEBUG
+ 	secprop=control->AddSection_prop("debug",&DEBUG_Init);
+ #endif
+diff -Nur dosbox.orig/src/gui/Makefile.am dosbox/src/gui/Makefile.am
+--- dosbox.orig/src/gui/Makefile.am	2013-04-03 19:53:37.128718017 -0300
++++ dosbox/src/gui/Makefile.am	2013-04-03 19:53:49.958219775 -0300
+@@ -7,5 +7,5 @@
+ 	render_templates_sai.h render_templates_hq.h \
+ 	render_templates_hq2x.h render_templates_hq3x.h \
+ 	midi.cpp midi_win32.h midi_oss.h midi_coreaudio.h midi_alsa.h \
+-	midi_coremidi.h sdl_gui.cpp dosbox_splash.h
++	midi_coremidi.h midi_mt32.h sdl_gui.cpp dosbox_splash.h
+ 
+diff -Nur dosbox.orig/src/gui/midi.cpp dosbox/src/gui/midi.cpp
+--- dosbox.orig/src/gui/midi.cpp	2013-04-03 19:53:37.128718017 -0300
++++ dosbox/src/gui/midi.cpp	2013-04-03 19:53:49.961552978 -0300
+@@ -103,6 +103,8 @@
+ 
+ #endif
+ 
++#include "midi_mt32.h"
++
+ static struct {
+ 	Bitu status;
+ 	Bitu cmd_len;
+diff -Nur dosbox.orig/src/gui/midi_mt32.h dosbox/src/gui/midi_mt32.h
+--- dosbox.orig/src/gui/midi_mt32.h	1969-12-31 21:00:00.000000000 -0300
++++ dosbox/src/gui/midi_mt32.h	2013-04-03 19:54:54.025731000 -0300
+@@ -0,0 +1,172 @@
++#include <mt32emu/mt32emu.h>
++#include "mixer.h"
++#include "control.h"
++
++class RingBuffer {
++private:
++	static const unsigned int bufferSize = 1024;
++	unsigned int startpos;
++	unsigned int endpos;
++	Bit32u ringBuffer[bufferSize];
++
++public:
++	RingBuffer() {
++		startpos = 0;
++		endpos = 0;
++	}
++
++	bool put(Bit32u data) {
++		unsigned int newEndpos = endpos;
++		newEndpos++;
++		if (newEndpos == bufferSize) newEndpos = 0;
++		if (startpos == newEndpos) return false;
++		ringBuffer[endpos] = data;
++		endpos = newEndpos;
++		return true;
++	}
++
++	Bit32u get() {
++		if (startpos == endpos) return 0;
++		Bit32u data = ringBuffer[startpos];
++		startpos++;
++		if (startpos == bufferSize) startpos = 0;
++		return data;
++	}
++};
++
++static class MidiHandler_mt32 : public MidiHandler {
++private:
++	MixerChannel *chan;
++	MT32Emu::Synth *synth;
++	RingBuffer midiBuffer;
++	bool open, noise, reverseStereo;
++
++	class MT32ReportHandler : public MT32Emu::ReportHandler {
++	protected:
++		virtual void onErrorControlROM() {
++			LOG_MSG("MT32: Couldn't open Control ROM file");
++		}
++
++		virtual void onErrorPCMROM() {
++			LOG_MSG("MT32: Couldn't open PCM ROM file");
++		}
++
++		virtual void showLCDMessage(const char *message) {
++			LOG_MSG("MT32: LCD-Message: %s", message);
++		}
++
++		virtual void printDebug(const char *fmt, va_list list);
++	} reportHandler;
++
++public:
++	MidiHandler_mt32() : open(false), chan(NULL), synth(NULL) {}
++
++	~MidiHandler_mt32() {
++		Close();
++	}
++
++	const char *GetName(void) {
++		return "mt32";
++	}
++
++	bool Open(const char *conf) {
++		MT32Emu::FileStream controlROMFile;
++		MT32Emu::FileStream pcmROMFile;
++
++		if (!controlROMFile.open("CM32L_CONTROL.ROM")) {
++			if (!controlROMFile.open("MT32_CONTROL.ROM")) {
++				LOG_MSG("MT32: Control ROM file not found");
++				return false;
++			}
++		}
++		if (!pcmROMFile.open("CM32L_PCM.ROM")) {
++			if (!pcmROMFile.open("MT32_PCM.ROM")) {
++				LOG_MSG("MT32: PCM ROM file not found");
++				return false;
++			}
++		}
++		const MT32Emu::ROMImage *controlROMImage = MT32Emu::ROMImage::makeROMImage(&controlROMFile);
++		const MT32Emu::ROMImage *pcmROMImage = MT32Emu::ROMImage::makeROMImage(&pcmROMFile);
++		synth = new MT32Emu::Synth(&reportHandler);
++		if (!synth->open(*controlROMImage, *pcmROMImage)) {
++			LOG_MSG("MT32: Error initialising emulation");
++			return false;
++		}
++
++		Section_prop *section = static_cast<Section_prop *>(control->GetSection("midi"));
++		if (strcmp(section->Get_string("mt32.reverb.mode"), "auto") != 0) {
++			Bit8u reverbsysex[] = {0x10, 0x00, 0x01, 0x00, 0x05, 0x03};
++			reverbsysex[3] = (Bit8u)atoi(section->Get_string("mt32.reverb.mode"));
++			reverbsysex[4] = (Bit8u)section->Get_int("mt32.reverb.time");
++			reverbsysex[5] = (Bit8u)section->Get_int("mt32.reverb.level");
++			synth->writeSysex(16, reverbsysex, 6);
++			synth->setReverbOverridden(true);
++		} else {
++			LOG_MSG("MT32: Using default reverb");
++		}
++
++		if (strcmp(section->Get_string("mt32.dac"), "auto") != 0) {
++			synth->setDACInputMode((MT32Emu::DACInputMode)atoi(section->Get_string("mt32.dac")));
++		}
++
++		reverseStereo = strcmp(section->Get_string("mt32.reverse.stereo"), "on") == 0;
++		noise = strcmp(section->Get_string("mt32.verbose"), "on") == 0;
++
++		chan = MIXER_AddChannel(mixerCallBack, MT32Emu::SAMPLE_RATE, "MT32");
++		chan->Enable(true);
++
++		open = true;
++		return true;
++	}
++
++	void Close(void) {
++		if (!open) return;
++		chan->Enable(false);
++		MIXER_DelChannel(chan);
++		chan = NULL;
++		synth->close();
++		delete synth;
++		synth = NULL;
++		open = false;
++	}
++
++	void PlayMsg(Bit8u *msg) {
++		if (!midiBuffer.put(*(Bit32u *)msg)) LOG_MSG("MT32: Playback buffer full!");
++	}
++
++	void PlaySysex(Bit8u *sysex, Bitu len) {
++		synth->playSysex(sysex, len);
++	}
++
++private:
++	static void mixerCallBack(Bitu len);
++
++	void render(Bitu len, Bit16s *buf) {
++		Bit32u msg = midiBuffer.get();
++		if (msg != 0) synth->playMsg(msg);
++		synth->render(buf, len);
++		if (reverseStereo) {
++			Bit16s *revBuf = buf;
++			for(Bitu i = 0; i < len; i++) {
++				Bit16s left = revBuf[0];
++				Bit16s right = revBuf[1];
++				*revBuf++ = right;
++				*revBuf++ = left;
++			}
++		}
++		chan->AddSamples_s16(len, buf);
++	}
++} midiHandler_mt32;
++
++void MidiHandler_mt32::MT32ReportHandler::printDebug(const char *fmt, va_list list) {
++	if (midiHandler_mt32.noise) {
++		char s[1024];
++		strcpy(s, "MT32: ");
++		vsnprintf(s + 6, 1017, fmt, list);
++		LOG_MSG(s);
++	}
++}
++
++void MidiHandler_mt32::mixerCallBack(Bitu len) {
++	midiHandler_mt32.render(len, (Bit16s *)MixTemp);
++}
+diff -Nur dosbox.orig/src/Makefile.am dosbox/src/Makefile.am
+--- dosbox.orig/src/Makefile.am	2013-04-03 19:53:37.118718406 -0300
++++ dosbox/src/Makefile.am	2013-04-03 19:53:49.958219775 -0300
+@@ -17,4 +17,4 @@
+ 
+ EXTRA_DIST = winres.rc dosbox.ico
+ 
+-
++LIBS +=  -lmt32emu
