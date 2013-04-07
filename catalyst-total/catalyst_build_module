@@ -27,6 +27,12 @@ install_module(){
     . ati_make.sh
     _ati_check
 
+#------------------------------------------------------------------------------------------
+# putting our info into module
+    modsymmd5=`md5sum /usr/lib/modules/${kernver}/build/Module.symvers  | cut -d ' ' -f 1`
+    sed "/MODULE_DESCRIPTION/a\MODULE_DESCRIPTION(\"__msm:$modsymmd5\");" -i firegl_public.c
+#------------------------------------------------------------------------------------------
+
   ## Compile module using _ati_check variables
     make -C /usr/lib/modules/${kernver}/build SUBDIRS="`pwd`" ARCH=${arch} \
       MODFLAGS="-DMODULE -DATI -DFGL -DPAGE_ATTR_FIX=$PAGE_ATTR_FIX -DCOMPAT_ALLOC_USER_SPACE=$COMPAT_ALLOC_USER_SPACE $def_smp $def_modversions" \
@@ -121,43 +127,47 @@ remove_old_modules(){
    done
 }
 
-auto_recompile(){
+hook_add(){
     # add hook fglrx to mkiniticpio
     hooks=$(grep ^HOOKS /etc/mkinitcpio.conf | grep fglrx)
     if [ "$hooks" = "" ]; then
         # add hook fglrx
         sed 's/^HOOKS="\([^"]*\)"/HOOKS="\1 fglrx"/' -i /etc/mkinitcpio.conf
+	echo "fgkrx hook was added into /etc/mkinitcpio.conf"
     fi
-    #add linux-headers to SyncFirst array of pacman.conf
-    heads=$(grep ^SyncFirst /etc/pacman.conf | grep linux-headers)
-    if [ "$heads" = "" ]; then
-        # add heads
-	sed '/^SyncFirst/s|$| linux-headers|' -i /etc/pacman.conf
-    fi
-    echo "----------------------------------------------------------------"
-    echo "Answer 'Yes' whenever pacman ask you about updating"
-    echo "'linux-headers' in first place"
-    echo "----------------------------------------------------------------"
 }
 
-auto_recompile_off(){
+hook_remove(){
     # remove hook fglrx
     sed '/^HOOKS/s/ *fglrx//' -i /etc/mkinitcpio.conf
-    # remove heads
-    sed '/^SyncFirst/s/ *linux-headers//' -i /etc/pacman.conf
-    echo "Auto re-compilation is Disabled."
+    echo "fgkrx hook was removed from /etc/mkinitcpio.conf"
+}
+
+check_modules(){
+    for p in /usr/lib/modules/*; do
+	if [ ${p:17:3} != "ext" ] && [ -d $p/build ] && [ -d $p/kernel ]; then
+		if [[ -e $p/extramodules/fglrx.ko.gz ]]; then
+		      compare=$(md5sum $p/build/Module.symvers  | cut -d ' ' -f 1)
+		      test=$(modinfo -F description $p/extramodules/fglrx.ko.gz | grep "__msm:")
+		      if [ "$test" != "__msm:$compare" ]; then
+			    /usr/bin/catalyst_build_module ${p##*/usr/lib/modules/}
+		      fi
+		else /usr/bin/catalyst_build_module ${p##*/usr/lib/modules/}
+		fi
+	fi
+    done
 }
 
 case "$1" in
     help|--help)
-        echo "usage: $0 {version|all|remove|remove_all|ra|auto|autooff}"
+        echo "usage: $0 {version|all|remove|remove_all|ra|hookadd|hookrm}"
         echo "- with no specified kernel version it will use the current kernel version to build module"
 	echo "- all will try to build fglrx modules for all working system's kernels"
         echo "- remove is removing unused fglrx modules and all empty /usr/lib/modules/* directories"
         echo "- remove_all is removing all fglrx modules and all empty /usr/lib/modules/* directories"
         echo "- ra works same as remove_all"
-        echo "- auto will turn ON 'auto re-compilation of fglrx module with every kernel update'"
-        echo "- autooff will turn off auto re-compilation of fglrx module"
+        echo "- hookadd will add fglrx hook into mkinitcpio"
+        echo "- hookrm will remove fglrx hook from mkinitcpio"
         ;;
     remove)
         remove_module
@@ -171,18 +181,21 @@ case "$1" in
     remove_old)
         remove_old_modules
         ;;
-    auto)
-	auto_recompile
+    hookadd)
+	hook_add
 	;;
-    autooff)
-	auto_recompile_off
+    hookrm)
+	hook_remove
 	;;
     all)
 	build_all_modules
 	;;
+    check)
+	check_modules
+	;;
     *)
         test "$1" != "" && kernver="$1"
 	echo "Building fglrx module for ${kernver} kernel ..."
-        install_module >> $LOG 2>&1 && echo "Ok." || echo "Failed!!! Check out log: $LOG"
+        install_module >> $LOG 2>&1 && echo "Ok." || echo -e '\E[37;44m'"\033[1mFailed!!! Check out log: $LOG\033[0m"
         ;;
 esac

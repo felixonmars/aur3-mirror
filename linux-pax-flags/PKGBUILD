@@ -4,7 +4,7 @@
 pkgname=linux-pax-flags
 pkgdesc='Deactivates PaX flags for several binaries to work with PaX enabled kernels.'
 pkgver=2.0.9
-pkgrel=2
+pkgrel=3
 arch=(any)
 url='https://aur.archlinux.org/packages.php?ID=55491'
 license=(GPL3)
@@ -33,7 +33,7 @@ sha256sums=('8581506830903ffcbb0876e4380d660ff044d9805d68f1432753c5bb99dc0db9'
             '81780b9a7b44ab7a9debe5355fff8fa768ba023d420af6bd52dc9c9f2be5f4bb'
             '7031e80b04bbc2a3f720b7d8e1d32bf9c972be0a7baebaa68bcf3cdfde94b45c'
             'bb87f4dce8e20f2ce601bdcb888dd688d8f0e9d0ab367e09c8081daffa15b03a'
-            'a31a938b191cb11a27fbb6b1f89ec0f844ab1a1d9a1bbc3cae2fac5b477cec02'
+            'c1b365817c280a628cfd36eb88e4b51bcc89b8aa263374e0db215b59ce15d821'
             'f53647989743d696714549b87baac7509e136acce004d9f452de88cf369d4296'
             '9dcaaf7a2477cd98b423e641c99c27970dad8a796f8d531cfd8e52c77ce5aae6'
             '1f205fddfb427a696fb00221a3007453e25fbbf180ea026c264d23eeac9e1870'

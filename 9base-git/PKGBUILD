@@ -1,6 +1,7 @@
 # Maintainer: Army
-pkgname=9base-git
-pkgver=20130303
+_pkgname=9base
+pkgname=$_pkgname-git
+pkgver=0.103.51cdf11
 pkgrel=1
 pkgdesc="a port of various original Plan 9 tools for Unix, based on plan9port."
 arch=('i686' 'x86_64')
@@ -10,35 +11,27 @@ depends=('bash')
 makedepends=('git')
 provides=('9base' '9base-hg')
 conflicts=('9base')
-source=(9 plan9.sh)
-md5sums=('ae7108b9f26bed388e9055f35eef2986'
-         '62a9e52043d9c32967fcae9018fffb56')
+source=("$_pkgname::git+http://git.suckless.org/$_pkgname" 9 plan9.sh)
+md5sums=('SKIP'
+         'ae7108b9f26bed388e9055f35eef2986'
+         '0fa02cbcca0bc4584d7378f13ec1a1de')
 
-_gitroot=http://git.suckless.org/9base
-_gitname=9base
+pkgver() {
+  cd "$srcdir/$_pkgname"
+  echo "0.$(git rev-list --count HEAD).$(git describe --always)"
+}
 
-build() {
-  cd "$srcdir"
-  msg "Connecting to GIT server...."
-
-  if [[ -d "$_gitname" ]]; then
-    cd "$_gitname" && git pull origin
-    msg "The local files are updated."
-  else
-    git clone "$_gitroot" "$_gitname"
-  fi
-
-  msg "GIT checkout done or server timeout"
-  msg "Starting build..."
-
-  rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-  cd "$srcdir/$_gitname-build"
+prepare() {
+  cd "$srcdir/$_pkgname"
 
   case $CARCH in
-	i686) sed -i 's#^OBJTYPE\s.*$#OBJTYPE = 386#' config.mk ;;
-	x86_64) sed -i 's#^OBJTYPE\s.*$#OBJTYPE = x86_64#' config.mk ;;
-	esac
+    i686)
+      sed -i 's#^OBJTYPE\s.*$#OBJTYPE = 386#' config.mk
+      ;;
+    x86_64)
+      sed -i 's#^OBJTYPE\s.*$#OBJTYPE = x86_64#' config.mk
+      ;;
+  esac
 
   sed -i 's#^PREFIX\s.*$#PREFIX = /opt/plan9#' config.mk
   sed -i 's#^CFLAGS\s*+=#CFLAGS += -DPLAN9PORT #' config.mk
@@ -47,11 +40,15 @@ build() {
   # when statically linked against the latest glibc.
   sed -i '/-static/d' config.mk
 
+}
+
+build() {
+  cd "$srcdir/$_pkgname"
   make
 }
 
 package() {
-  cd "$srcdir/$_gitname-build"
+  cd "$srcdir/$_pkgname"
   make DESTDIR="$pkgdir/" install
   install -m755 ../9 "$pkgdir/opt/plan9/bin/"
   install -D -m755 ../plan9.sh "$pkgdir/etc/profile.d/plan9.sh"
