@@ -223,15 +223,13 @@ int main(const int argc, char ** __restrict__ argv)
     free(dir);
     qsort(cachepkg, n, sizeof(struct pkginfo *), pkgcomp);
 
-    db = alpm_option_get_localdb(handle);
+    db = alpm_get_localdb(handle);
     pkglist = alpm_db_get_pkgcache(db);
     m = alpm_list_count(pkglist);
     localpkg = (struct pkginfo **)malloc(sizeof(struct pkginfo *) * m);
     for (i = 0; i < m; i++, pkglist = alpm_list_next(pkglist))
-        localpkg[i] = get_pkginfo_from_pmpkg((alpm_pkg_t *)alpm_list_getdata(pkglist));
+        localpkg[i] = get_pkginfo_from_pmpkg((alpm_pkg_t *)(pkglist->data));
     qsort(localpkg, m, sizeof(struct pkginfo *), pkgnamecomp);
-    alpm_list_free_inner(pkglist, (alpm_list_fn_free)alpm_pkg_free);
-    alpm_list_free(pkglist);
 
     for (i = 0; i < n; i++)
     {
