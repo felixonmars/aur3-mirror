@@ -1,7 +1,7 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20130307
+pkgver=20130407
 pkgrel=1
 pkgdesc="A media player for KDE. Without lastfm, mp3tunes, mtp, ipod support. GIT version"
 arch=('i686' 'x86_64')
@@ -10,30 +10,24 @@ license=('GPL')
 depends=('kdebase-runtime'  'taglib>=1.7' 'taglib-extras>=1.0' "libmysqlclient>=${mysqlver}")
 makedepends=('cmake>=2.6.2' 'qtscriptgenerator>=0.1' 'automoc4' 'git')
 conflicts=('amarok2' 'amarok' 'amarok2-svn' 'amarok-svn' 'amarok-git')
-source=( 'sync.patch' )
+source=( 'git://anongit.kde.org/amarok.git'
+	 'sync.patch' )
 install="$pkgname.install"
-md5sums=('32537fa8c26fa197b7973885671d19c4')
-
-
-_gitroot="git://anongit.kde.org/amarok.git"
+md5sums=( 'SKIP'
+	  '32537fa8c26fa197b7973885671d19c4')
+	  
 _gitname="amarok"
 
 
+pkgver() {
+  cd ${srcdir}/${_gitname}
+  git log -1 --format="%cd" --date=short | tr -d '-'
+}
+
 build() {
-  cd ${srcdir}
-  msg "Connecting to GIT server...."
 
-  if [ -d "${srcdir}/${_gitname}" ] ; then
-    cd ${_gitname} && git pull origin
-    git reset --hard 	#rewrite changes
-  else
-    git clone ${_gitroot}
-    cd ${_gitname}
-  fi
+   cd ${srcdir}/${_gitname}
   
-  msg "GIT checkout done or server timeout"
-  msg "Starting make..."
-
   # switch off services
   sed -i '/amazon/d' src/services/CMakeLists.txt
   sed -i '/magnatune/d' src/services/CMakeLists.txt
@@ -80,6 +74,8 @@ build() {
   make || return 1
 
 }
+
+
 package() {
   cd ${srcdir}/${_gitname}/amarok-build
   make DESTDIR=${pkgdir} install || return 1
