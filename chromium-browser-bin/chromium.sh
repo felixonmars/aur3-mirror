@@ -8,8 +8,8 @@
 #  for adaption on ArchLinux, Gentoo, Slackware and T2
 # License: GPLv2 or later
 
-APPNAME=chromium-browser
-LIBDIR=/opt/chromium-browser
+APPNAME=chromium
+LIBDIR=/usr/lib/chromium
 GDB=/usr/bin/gdb
 
 usage () {
@@ -19,8 +19,8 @@ usage () {
   echo "        -h or --help            This help screen"
   echo
   echo " Other supported options are:"
-  MANWIDTH=80 man chromium-browser | sed -e '1,/OPTIONS/d; /ENVIRONMENT/,$d'
-  echo " See 'man chromium-browser' for more details"
+  MANWIDTH=80 man chromium | sed -e '1,/usr/libIONS/d; /ENVIRONMENT/,$d'
+  echo " See 'man chromium' for more details"
 }
 
 if [ -f /etc/$APPNAME/default ] ; then
