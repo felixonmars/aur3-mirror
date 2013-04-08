@@ -1,23 +1,15 @@
-# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
-     
 pkgname=2gis-ryazan
-pkgver=23
+pkgver=24
 pkgrel=1
-pkgdesc="Map of Ryazan for 2GIS, March 2013"
+pkgdesc="Map of Ryazan for 2GIS, April 2013"
 arch=('i686' 'x86_64')
 url="http://ryazan.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.2.2')
-source=("http://download.2gis.ru/arhives/2GISData_Ryazan-23.orig.zip")
-md5sums=('3eecd46ecb1fc95562ec952c0a52c4af')
-     
-build() {
-     
-   cd $startdir
-     
-# Installing to /opt/2gis
-  install -D -m 644 ${startdir}/src/2gis/3.0/Data_Ryazan.dgdat "${startdir}/pkg/opt/2gis/ryazan.dgdat" || return 1
-  install -D -m 644 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Ryazan.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Ryazan.dglf" || return 1
-     
-}
+source=("http://download.2gis.ru/arhives/2GISData_Ryazan-24.orig.zip")
+md5sums=('98043b8558c84b9bc0ac308e54cc4392')
 
+package() {
+  install -D -m 644 ${srcdir}/2gis/3.0/Data_Ryazan.dgdat "${pkgdir}/opt/2gis/city.dgdat" || return 1
+  install -D -m 644 ${srcdir}/2gis/3.0/Plugins/DGisLan/Ryazan.dglf "${pkgdir}/opt/2gis/Plugins/DGisLan/Ryazan.dglf" || return 1
+}

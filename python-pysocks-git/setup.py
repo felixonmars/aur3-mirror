@@ -5,5 +5,5 @@ setup(name='pysocks',
       description='A SocksiPy fork, used in urllib3.'
                   'Contains many improvements to the original.',
       url='https://github.com/Anorov/PySocks',
-      py_modules=['socks', 'sockshandler'],
+      py_modules=['socks'],
      )

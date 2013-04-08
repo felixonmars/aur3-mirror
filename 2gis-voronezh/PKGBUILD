@@ -1,23 +1,15 @@
-# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
-     
 pkgname=2gis-voronezh
-pkgver=32
+pkgver=33
 pkgrel=1
-pkgdesc="Map of Voronezh for 2GIS, March 2013"
+pkgdesc="Map of Voronezh for 2GIS, April 2013"
 arch=('i686' 'x86_64')
 url="http://voronezh.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.2.2')
-source=("http://download.2gis.ru/arhives/2GISData_Voronezh-32.orig.zip")
-md5sums=('139222eac91ad040eea1fd83efccde63')
-     
-build() {
-     
-   cd $startdir
-     
-# Installing to /opt/2gis
-  install -D -m 644 ${startdir}/src/2gis/3.0/Data_Voronezh.dgdat "${startdir}/pkg/opt/2gis/voronezh.dgdat" || return 1
-  install -D -m 644 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Voronezh.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Voronezh.dglf" || return 1
-     
-}
+source=("http://download.2gis.ru/arhives/2GISData_Voronezh-33.orig.zip")
+md5sums=('1e3040228dc744bf1391ba88d2e2f94c')
 
+package() {
+  install -D -m 644 ${srcdir}/2gis/3.0/Data_Voronezh.dgdat "${pkgdir}/opt/2gis/city.dgdat" || return 1
+  install -D -m 644 ${srcdir}/2gis/3.0/Plugins/DGisLan/Voronezh.dglf "${pkgdir}/opt/2gis/Plugins/DGisLan/Voronezh.dglf" || return 1
+}

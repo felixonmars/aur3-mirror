@@ -1,23 +1,15 @@
-# Contributor: max1m <mr[dot]mxm86[at]gmail[dot]com>
-     
 pkgname=2gis-kaliningrad
-pkgver=25
+pkgver=26
 pkgrel=1
-pkgdesc="Map of Kaliningrad for 2GIS, March 2013"
+pkgdesc="Map of Kaliningrad for 2GIS, April 2013"
 arch=('i686' 'x86_64')
 url="http://kaliningrad.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.2.2')
-source=("http://download.2gis.ru/arhives/2GISData_Kaliningrad-25.orig.zip")
-md5sums=('82d24c8d64c09c5513a1d0ea297db2cb')
-     
-build() {
-     
-   cd $startdir
-     
-# Installing to /opt/2gis
-  install -D -m 644 ${startdir}/src/2gis/3.0/Data_Kaliningrad.dgdat "${startdir}/pkg/opt/2gis/kaliningrad.dgdat" || return 1
-  install -D -m 644 ${startdir}/src/2gis/3.0/Plugins/DGisLan/Kaliningrad.dglf "${startdir}/pkg/opt/2gis/Plugins/DGisLan/Kaliningrad.dglf" || return 1
-     
-}
+source=("http://download.2gis.ru/arhives/2GISData_Kaliningrad-26.orig.zip")
+md5sums=('6facbbfe0c8066a713e0377fdb167f46')
 
+package() {
+  install -D -m 644 ${srcdir}/2gis/3.0/Data_Kaliningrad.dgdat "${pkgdir}/opt/2gis/city.dgdat" || return 1
+  install -D -m 644 ${srcdir}/2gis/3.0/Plugins/DGisLan/Kaliningrad.dglf "${pkgdir}/opt/2gis/Plugins/DGisLan/Kaliningrad.dglf" || return 1
+}
