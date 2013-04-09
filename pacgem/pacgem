@@ -3,12 +3,22 @@
 require 'optparse'
 
 module Pacgem
-  VERSION = '0.9.5'
+  VERSION = '0.9.6'
 
   module Util
     def which?(name)
       `which #{name.shellescape} 2>/dev/null`
       $?.success?
+    end
+
+    def fetch_dep(dep)
+      fetcher = Gem::SpecFetcher.fetcher
+      if fetcher.respond_to? :fetch
+        fetcher.fetch(dep, true).last
+      else
+        spec, source = fetcher.spec_for_dependency(dep, true).flatten.compact
+        [spec, source.uri]
+      end
     end
 
     def spew(file, content)
@@ -222,7 +232,7 @@ module Pacgem
     end
 
     def gen_pkgbuild(gemfile, options)
-      spec = Gem::Format.from_file_by_path(gemfile).spec
+      spec = defined?(Gem::Format) ? Gem::Format.from_file_by_path(gemfile).spec : Gem::Package.new(gemfile).spec
 
       depends = [ruby_package]
       conflicts = []
@@ -240,7 +250,7 @@ module Pacgem
 
       optdepends = []
       spec.development_dependencies.each do |dep|
-        optspec, opturi = Gem::SpecFetcher.fetcher.fetch(dep, true).last
+        optspec, opturi = fetch_dep(dep)
         optdepends << "#{build_name dep.name}: #{truncate(optspec.summary, 80)}" if optspec
       end
 
@@ -374,7 +384,7 @@ module Pacgem
 
     def resolve(dep)
       @packages[dep.name] ||= begin
-        spec, uri = Gem::SpecFetcher.fetcher.fetch(dep, true).last
+        spec, uri = fetch_dep(dep)
         raise "Gem #{dep} not found" unless spec
         pkg = Package.new(dep.name, spec.version, uri)
         if pkg.installed?
@@ -420,7 +430,11 @@ module Pacgem
       require 'tmpdir'
       require 'rubygems'
       require 'rubygems/user_interaction'
-      require 'rubygems/format'
+      begin
+        require 'rubygems/format'
+      rescue LoadError
+        require 'rubygems/package'
+      end
       require 'shellwords'
       require 'open-uri'
       require 'digest/sha2'
@@ -668,7 +682,7 @@ _rbconfig() {
   $_ruby -e "require 'rbconfig'; puts RbConfig::CONFIG['$1']"
 }
 
-build() {
+package() {
   # Directories defined inside build() because if ruby is not installed on the system
   # makepkg will barf when sourcing the PKGBUILD
   _gemdestdir=$($_gem environment gemdir)
