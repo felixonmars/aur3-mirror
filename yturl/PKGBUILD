@@ -1,7 +1,7 @@
 pkgname="yturl"
 pkgver=1.13.0
 pkgrel=1
-pkgdesc="Get direct media URLs to YouTube media"
+pkgdesc="Get direct media URLs to YouTube videos"
 url="http://github.com/cdown/yturl"
 arch=( "any" )
 license=( "MIT" )

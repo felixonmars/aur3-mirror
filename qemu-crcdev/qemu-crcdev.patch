@@ -1,0 +1,510 @@
+diff -pruN qemu-1.4.0-orig/hw/crcdev.c qemu-1.4.0/hw/crcdev.c
+--- qemu-1.4.0-orig/hw/crcdev.c	1970-01-01 01:00:00.000000000 +0100
++++ qemu-1.4.0/hw/crcdev.c	2013-04-09 13:38:52.562411004 +0200
+@@ -0,0 +1,422 @@
++/*
++ * CRC accelerator device
++ *
++ * Copyright (C) 2013 Marcin Kościelnicki
++ *
++ * This work is licensed under the terms of the GNU GPL, version 2.  See
++ * the COPYING file in the top-level directory.
++ */
++
++#include "crcdev.h"
++#include "pci/pci.h"
++#include "sysemu/dma.h"
++#include "qemu-common.h"
++
++#define CRCDEV_BUF_SZ 0x1000
++
++typedef struct {
++	PCIDevice dev;
++	uint32_t enable;
++	uint32_t status;
++	uint32_t intr;
++	uint32_t intr_enable;
++	uint32_t crc_poly[CRCDEV_CTX_COUNT];
++	uint32_t crc_sum[CRCDEV_CTX_COUNT];
++	uint32_t fetch_data_addr;
++	uint32_t fetch_data_count;
++	uint32_t fetch_data_ctx;
++	uint32_t fetch_cmd_addr;
++	uint32_t fetch_cmd_size;
++	uint32_t fetch_cmd_read_pos;
++	uint32_t fetch_cmd_write_pos;
++	QEMUTimer *timer;
++	MemoryRegion mmio;
++} CRCdevState;
++
++static const VMStateDescription vmstate_crcdev = {
++	.name = "crcdev",
++	.version_id = 3,
++	.minimum_version_id = 3,
++	.minimum_version_id_old = 3,
++	.fields = (VMStateField[]) {
++		VMSTATE_PCI_DEVICE(dev, CRCdevState),
++		VMSTATE_UINT32(enable, CRCdevState),
++		VMSTATE_UINT32(status, CRCdevState),
++		VMSTATE_UINT32(intr, CRCdevState),
++		VMSTATE_UINT32(intr_enable, CRCdevState),
++		VMSTATE_UINT32_ARRAY(crc_poly, CRCdevState, CRCDEV_CTX_COUNT),
++		VMSTATE_UINT32_ARRAY(crc_sum, CRCdevState, CRCDEV_CTX_COUNT),
++		VMSTATE_UINT32(fetch_data_addr, CRCdevState),
++		VMSTATE_UINT32(fetch_data_count, CRCdevState),
++		VMSTATE_UINT32(fetch_data_ctx, CRCdevState),
++		VMSTATE_UINT32(fetch_cmd_addr, CRCdevState),
++		VMSTATE_UINT32(fetch_cmd_size, CRCdevState),
++		VMSTATE_UINT32(fetch_cmd_read_pos, CRCdevState),
++		VMSTATE_UINT32(fetch_cmd_write_pos, CRCdevState),
++		VMSTATE_END_OF_LIST()
++	}
++};
++
++static void crcdev_crc_data(CRCdevState *d, int idx, uint8_t byte) {
++	int i;
++	if (idx >= CRCDEV_CTX_COUNT) {
++		fprintf(stderr, "crcdev internal error: crcdev_crc_data on context %d\n", idx);
++		return;
++	}
++	uint32_t sum = d->crc_sum[idx];
++	uint32_t poly = d->crc_poly[idx];
++	sum ^= byte;
++	/* Yes, this could be optimised. But that would require table
++	   generation whenever crc_poly changes. */
++	for (i = 0; i < 8; i++) {
++		if (sum & 1) {
++			sum >>= 1;
++			sum ^= poly;
++		} else {
++			sum >>= 1;
++		}
++	}
++	d->crc_sum[idx] = sum;
++}
++
++static void crcdev_status_update(CRCdevState *d, int skip_tick) {
++	/* determine FETCH_CMD full buffer status */
++	int full = 0;
++	if (d->fetch_cmd_write_pos + 1 == d->fetch_cmd_read_pos)
++		full = 1;
++	if (d->fetch_cmd_write_pos == d->fetch_cmd_size - 1 && d->fetch_cmd_read_pos == 0)
++		full = 1;
++	/* determine state of level-triggered interrupts */
++	d->intr &= CRCDEV_INTR_FETCH_DATA;
++	if (d->fetch_cmd_read_pos == d->fetch_cmd_write_pos)
++		d->intr |= CRCDEV_INTR_FETCH_CMD_IDLE;
++	if (!full)
++		d->intr |= CRCDEV_INTR_FETCH_CMD_NONFULL;
++	/* determine fetchers status */
++	d->status = 0;
++	if ((d->enable & CRCDEV_ENABLE_FETCH_DATA) && d->fetch_data_count)
++		d->status |= CRCDEV_STATUS_FETCH_DATA;
++	if ((d->enable & CRCDEV_ENABLE_FETCH_CMD) && !(d->intr & CRCDEV_INTR_FETCH_CMD_IDLE))
++		d->status |= CRCDEV_STATUS_FETCH_CMD;
++	/* determine and set PCI interrupt status */
++	qemu_set_irq(d->dev.irq[0], !!(d->intr & d->intr_enable));
++	/* schedule work */
++	if (!skip_tick && d->status && (d->enable & CRCDEV_ENABLE_FETCH_DATA))
++		qemu_mod_timer(d->timer, qemu_get_clock_ns(vm_clock) + (lrand48() % 1000) * 1000);
++}
++
++static void crcdev_tick(CRCdevState *d) {
++	/* make the device as evil as easily possible by randomizing everything */
++	if ((d->status & CRCDEV_STATUS_FETCH_DATA) && (lrand48() & 1)) {
++		int cnt = lrand48() % CRCDEV_BUF_SZ;
++		if (cnt > d->fetch_data_count)
++			cnt = d->fetch_data_count;
++		if (cnt) {
++			uint8_t buffer[CRCDEV_BUF_SZ];
++			int i;
++			pci_dma_read(&d->dev, d->fetch_data_addr, buffer, cnt);
++			d->fetch_data_addr += cnt;
++			d->fetch_data_count -= cnt;
++			for (i = 0; i < cnt; i++)
++				crcdev_crc_data(d, d->fetch_data_ctx, buffer[i]);
++		}
++		if (!d->fetch_data_count) {
++			d->intr |= CRCDEV_INTR_FETCH_DATA;
++		}
++	}
++	crcdev_status_update(d, 1);
++	if (d->status == CRCDEV_STATUS_FETCH_CMD && (d->enable & CRCDEV_ENABLE_FETCH_DATA) && (lrand48() & 1)) {
++		uint32_t addr = d->fetch_cmd_addr + d->fetch_cmd_read_pos * CRCDEV_CMD_SIZE;
++		uint32_t buf[2];
++		pci_dma_read(&d->dev, addr, &buf, CRCDEV_CMD_SIZE);
++		d->fetch_data_addr = buf[0];
++		d->fetch_data_ctx = buf[1] >> CRCDEV_CMD_CTX_SHIFT & CRCDEV_CMD_CTX_MASK;
++		d->fetch_data_count = buf[1] & CRCDEV_CMD_COUNT_MASK;
++		d->fetch_cmd_read_pos++;
++		if (d->fetch_cmd_read_pos == d->fetch_cmd_size)
++			d->fetch_cmd_read_pos = 0;
++	}
++	/* another time. */
++	crcdev_status_update(d, 0);
++}
++
++static void crcdev_timer_tick(void *opaque) {
++	crcdev_tick(opaque);
++}
++
++static void crcdev_mmio_writeb(void *opaque, hwaddr addr, uint32_t val)
++{
++	CRCdevState *d = opaque;
++	int i;
++	for (i = 0; i < CRCDEV_CTX_COUNT; i++) {
++		if (addr == CRCDEV_CRC_DATA(i)) {
++			if ((d->status & CRCDEV_STATUS_FETCH_DATA) && d->fetch_data_ctx == i)
++				fprintf(stderr, "crcdev error: CRC_DATA[%d] written while fetching data\n", i);
++			crcdev_crc_data(d, i, val & 0xff);
++			return;
++		}
++	}
++	fprintf(stderr, "crcdev error: byte-sized write at %03x, value %02x\n", (int)addr, val);
++}
++
++static void crcdev_mmio_writew(void *opaque, hwaddr addr, uint32_t val)
++{
++	CRCdevState *d = opaque;
++	int i;
++	for (i = 0; i < CRCDEV_CTX_COUNT; i++) {
++		if (addr == CRCDEV_CRC_DATA(i)) {
++			if ((d->status & CRCDEV_STATUS_FETCH_DATA) && d->fetch_data_ctx == i)
++				fprintf(stderr, "crcdev error: CRC_DATA[%d] written while fetching data\n", i);
++			crcdev_crc_data(d, i, val & 0xff);
++			crcdev_crc_data(d, i, val >> 8 & 0xff);
++			return;
++		}
++	}
++	fprintf(stderr, "crcdev error: word-sized write at %03x, value %04x\n", (int)addr, val);
++}
++
++static void crcdev_mmio_writel(void *opaque, hwaddr addr, uint32_t val)
++{
++	CRCdevState *d = opaque;
++	int i;
++	if (addr == CRCDEV_ENABLE) {
++		d->enable = val & (CRCDEV_ENABLE_FETCH_DATA | CRCDEV_ENABLE_FETCH_CMD);
++		if (val & ~(CRCDEV_ENABLE_FETCH_DATA | CRCDEV_ENABLE_FETCH_CMD))
++			fprintf(stderr, "crcdev error: invalid ENABLE value %08x\n", val);
++		crcdev_status_update(d, 0);
++		return;
++	}
++	if (addr == CRCDEV_INTR_ENABLE) {
++		d->intr_enable = val & (CRCDEV_INTR_FETCH_DATA | CRCDEV_INTR_FETCH_CMD_IDLE | CRCDEV_INTR_FETCH_CMD_NONFULL);
++		if (val & ~(CRCDEV_INTR_FETCH_DATA | CRCDEV_INTR_FETCH_CMD_IDLE | CRCDEV_INTR_FETCH_CMD_NONFULL))
++			fprintf(stderr, "crcdev error: invalid INTR_ENABLE value %08x\n", val);
++		crcdev_status_update(d, 0);
++		return;
++	}
++	for (i = 0; i < CRCDEV_CTX_COUNT; i++) {
++		if (addr == CRCDEV_CRC_POLY(i)) {
++			if ((d->status & CRCDEV_STATUS_FETCH_DATA) && d->fetch_data_ctx == i)
++				fprintf(stderr, "crcdev error: CRC_POLY[%d] written while fetching data\n", i);
++			d->crc_poly[i] = val;
++			return;
++		}
++		if (addr == CRCDEV_CRC_SUM(i)) {
++			if ((d->status & CRCDEV_STATUS_FETCH_DATA) && d->fetch_data_ctx == i)
++				fprintf(stderr, "crcdev error: CRC_SUM[%d] written while fetching data\n", i);
++			d->crc_sum[i] = val;
++			return;
++		}
++		if (addr == CRCDEV_CRC_DATA(i)) {
++			if ((d->status & CRCDEV_STATUS_FETCH_DATA) && d->fetch_data_ctx == i)
++				fprintf(stderr, "crcdev error: CRC_DATA[%d] written while fetching data\n", i);
++			crcdev_crc_data(d, i, val & 0xff);
++			crcdev_crc_data(d, i, val >> 8 & 0xff);
++			crcdev_crc_data(d, i, val >> 16 & 0xff);
++			crcdev_crc_data(d, i, val >> 24 & 0xff);
++			return;
++		}
++	}
++	if (addr == CRCDEV_FETCH_DATA_ADDR) {
++		if ((d->status & CRCDEV_STATUS_FETCH_DATA))
++			fprintf(stderr, "crcdev error: FETCH_DATA_ADDR written while fetching data\n");
++		d->fetch_data_addr = val;
++		return;
++	}
++	if (addr == CRCDEV_FETCH_DATA_COUNT) {
++		if ((d->status & CRCDEV_STATUS_FETCH_DATA))
++			fprintf(stderr, "crcdev error: FETCH_DATA_COUNT written while fetching data\n");
++		d->fetch_data_count = val;
++		crcdev_status_update(d, 0);
++		return;
++	}
++	if (addr == CRCDEV_FETCH_DATA_CTX) {
++		if ((d->status & CRCDEV_STATUS_FETCH_DATA))
++			fprintf(stderr, "crcdev error: FETCH_DATA_CTX written while fetching data\n");
++		if (val >= CRCDEV_CTX_COUNT) {
++			fprintf(stderr, "crcdev error: FETCH_DATA_CTX written with invalid index %u\n", val);
++			val %= CRCDEV_CTX_COUNT;
++		}
++		d->fetch_data_ctx = val;
++		return;
++	}
++	if (addr == CRCDEV_FETCH_DATA_INTR_ACK) {
++		d->intr &= ~CRCDEV_INTR_FETCH_DATA;
++		crcdev_status_update(d, 0);
++		return;
++	}
++	if (addr == CRCDEV_FETCH_CMD_ADDR) {
++		if ((d->status & CRCDEV_STATUS_FETCH_CMD))
++			fprintf(stderr, "crcdev error: FETCH_CMD_ADDR written while fetching commands\n");
++		d->fetch_cmd_addr = val;
++		return;
++	}
++	if (addr == CRCDEV_FETCH_CMD_SIZE) {
++		if ((d->status & CRCDEV_STATUS_FETCH_CMD))
++			fprintf(stderr, "crcdev error: FETCH_CMD_SIZE written while fetching commands\n");
++		d->fetch_cmd_size = val;
++		crcdev_status_update(d, 0);
++		return;
++	}
++	if (addr == CRCDEV_FETCH_CMD_READ_POS) {
++		if ((d->enable & CRCDEV_ENABLE_FETCH_CMD))
++			fprintf(stderr, "crcdev error: FETCH_CMD_READ_POS written while command fetch enabled\n");
++		d->fetch_cmd_read_pos = val;
++		crcdev_status_update(d, 0);
++		return;
++	}
++	if (addr == CRCDEV_FETCH_CMD_WRITE_POS) {
++		if ((d->enable & CRCDEV_ENABLE_FETCH_CMD) && val >= d->fetch_cmd_size)
++			fprintf(stderr, "crcdev error: FETCH_CMD_WRITE_POS larger than buffer size\n");
++		d->fetch_cmd_write_pos = val;
++		crcdev_status_update(d, 0);
++		return;
++	}
++	fprintf(stderr, "crcdev error: invalid register write at %03x, value %08x\n", (int)addr, val);
++}
++
++static uint32_t crcdev_mmio_readb(void *opaque, hwaddr addr)
++{
++	fprintf(stderr, "crcdev error: byte-sized read at %03x\n", (int)addr);
++	return 0xff;
++}
++
++static uint32_t crcdev_mmio_readw(void *opaque, hwaddr addr)
++{
++	fprintf(stderr, "crcdev error: word-sized read at %03x\n", (int)addr);
++	return 0xffff;
++}
++
++static uint32_t crcdev_mmio_readl(void *opaque, hwaddr addr)
++{
++	CRCdevState *d = opaque;
++	int i;
++	if (addr == CRCDEV_ENABLE)
++		return d->enable;
++	if (addr == CRCDEV_STATUS)
++		return d->status;
++	if (addr == CRCDEV_INTR)
++		return d->intr;
++	if (addr == CRCDEV_INTR_ENABLE)
++		return d->intr_enable;
++	for (i = 0; i < CRCDEV_CTX_COUNT; i++) {
++		if (addr == CRCDEV_CRC_POLY(i))
++			return d->crc_poly[i];
++		if (addr == CRCDEV_CRC_SUM(i)) {
++			if ((d->status & CRCDEV_STATUS_FETCH_DATA) && d->fetch_data_ctx == i)
++				fprintf(stderr, "crcdev error: CRC_SUM[%d] read while fetching data\n", i);
++			return d->crc_sum[i];
++		}
++	}
++	if (addr == CRCDEV_FETCH_DATA_ADDR)
++		return d->fetch_data_addr;
++	if (addr == CRCDEV_FETCH_DATA_COUNT)
++		return d->fetch_data_count;
++	if (addr == CRCDEV_FETCH_DATA_CTX)
++		return d->fetch_data_ctx;
++	if (addr == CRCDEV_FETCH_CMD_ADDR)
++		return d->fetch_cmd_addr;
++	if (addr == CRCDEV_FETCH_CMD_SIZE)
++		return d->fetch_cmd_size;
++	if (addr == CRCDEV_FETCH_CMD_READ_POS)
++		return d->fetch_cmd_read_pos;
++	if (addr == CRCDEV_FETCH_CMD_WRITE_POS)
++		return d->fetch_cmd_write_pos;
++	fprintf(stderr, "crcdev error: invalid register read at %03x\n", (int)addr);
++	return 0xffffffff;
++}
++
++static const MemoryRegionOps crcdev_mmio_ops = {
++	.old_mmio = {
++		.read = {
++			crcdev_mmio_readb,
++			crcdev_mmio_readw,
++			crcdev_mmio_readl,
++		},
++		.write = {
++			crcdev_mmio_writeb,
++			crcdev_mmio_writew,
++			crcdev_mmio_writel,
++		},
++	},
++	.endianness = DEVICE_NATIVE_ENDIAN,
++};
++
++static void crcdev_reset(DeviceState *d)
++{
++	CRCdevState *s = container_of(d, CRCdevState, dev.qdev);
++	int i;
++	/* These registers play fair. */
++	s->enable = 0;
++	s->intr_enable = 0;
++	s->status = 0;
++	s->intr = mrand48() & 1;
++	/* But these don't; hardware is evil. */
++	for (i = 0; i < CRCDEV_CTX_COUNT; i++) {
++		s->crc_poly[i] = mrand48();
++		s->crc_sum[i] = mrand48();
++	}
++	s->fetch_data_addr = mrand48();
++	s->fetch_data_count = mrand48();
++	s->fetch_data_ctx = mrand48();
++	s->fetch_cmd_addr = mrand48();
++	s->fetch_cmd_size = mrand48();
++	s->fetch_cmd_read_pos = mrand48();
++	s->fetch_cmd_write_pos = mrand48();
++}
++
++static int crcdev_init(PCIDevice *pci_dev)
++{
++	CRCdevState *d = DO_UPCAST(CRCdevState, dev, pci_dev);
++	uint8_t *pci_conf = d->dev.config;
++
++	pci_config_set_interrupt_pin(pci_conf, 1);
++
++	memory_region_init_io(&d->mmio, &crcdev_mmio_ops, d, "crcdev", 0x1000);
++	pci_register_bar(&d->dev, 0, 0, &d->mmio);
++
++	crcdev_reset(&pci_dev->qdev);
++	d->timer = qemu_new_timer_ns(vm_clock, crcdev_timer_tick, d);
++
++	return 0;
++}
++
++static void crcdev_exit(PCIDevice *pci_dev)
++{
++	CRCdevState *d = DO_UPCAST(CRCdevState, dev, pci_dev);
++
++	qemu_free_timer(d->timer);
++	memory_region_destroy(&d->mmio);
++}
++
++static Property crcdev_properties[] = {
++	DEFINE_PROP_END_OF_LIST(),
++};
++
++static void crcdev_class_init(ObjectClass *klass, void *data)
++{
++	DeviceClass *dc = DEVICE_CLASS(klass);
++	PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
++
++	k->init = crcdev_init;
++	k->exit = crcdev_exit;
++	k->vendor_id = CRCDEV_VENDOR_ID;
++	k->device_id = CRCDEV_DEVICE_ID;
++	k->class_id = PCI_CLASS_PROCESSOR_CO;
++	dc->reset = crcdev_reset;
++	dc->vmsd = &vmstate_crcdev;
++	dc->props = crcdev_properties;
++}
++
++static TypeInfo crcdev_info = {
++	.name          = "crcdev",
++	.parent        = TYPE_PCI_DEVICE,
++	.instance_size = sizeof(CRCdevState),
++	.class_init    = crcdev_class_init,
++};
++
++static void crcdev_register_types(void)
++{
++	type_register_static(&crcdev_info);
++}
++
++type_init(crcdev_register_types)
+diff -pruN qemu-1.4.0-orig/hw/crcdev.h qemu-1.4.0/hw/crcdev.h
+--- qemu-1.4.0-orig/hw/crcdev.h	1970-01-01 01:00:00.000000000 +0100
++++ qemu-1.4.0/hw/crcdev.h	2013-04-09 13:38:45.162457557 +0200
+@@ -0,0 +1,40 @@
++#ifndef CRCDEV_H
++#define CRCDEV_H
++
++#define CRCDEV_VENDOR_ID		0x1af4
++#define CRCDEV_DEVICE_ID		0x10fe
++
++#define CRCDEV_CTX_COUNT		4
++
++#define CRCDEV_ENABLE			0x000
++#define CRCDEV_ENABLE_FETCH_DATA	0x00000001
++#define CRCDEV_ENABLE_FETCH_CMD		0x00000002
++#define CRCDEV_STATUS			0x004
++#define CRCDEV_STATUS_FETCH_DATA	0x00000001
++#define CRCDEV_STATUS_FETCH_CMD		0x00000002
++#define CRCDEV_INTR			0x008
++#define CRCDEV_INTR_FETCH_DATA		0x00000001
++#define CRCDEV_INTR_FETCH_CMD_IDLE	0x00000002
++#define CRCDEV_INTR_FETCH_CMD_NONFULL	0x00000004
++#define CRCDEV_INTR_ENABLE		0x00c
++
++#define CRCDEV_CRC_POLY(i)		(0x040 + (i)*0x10)
++#define CRCDEV_CRC_SUM(i)		(0x044 + (i)*0x10)
++#define CRCDEV_CRC_DATA(i)		(0x048 + (i)*0x10)
++
++#define CRCDEV_FETCH_DATA_ADDR		0x080
++#define CRCDEV_FETCH_DATA_COUNT		0x084
++#define CRCDEV_FETCH_DATA_CTX		0x088
++#define CRCDEV_FETCH_DATA_INTR_ACK	0x08c
++
++#define CRCDEV_FETCH_CMD_ADDR		0x0c0
++#define CRCDEV_FETCH_CMD_SIZE		0x0c4
++#define CRCDEV_FETCH_CMD_READ_POS	0x0c8
++#define CRCDEV_FETCH_CMD_WRITE_POS	0x0cc
++
++#define CRCDEV_CMD_SIZE			8
++#define CRCDEV_CMD_COUNT_MASK		0x3fffffff
++#define CRCDEV_CMD_CTX_SHIFT		30
++#define CRCDEV_CMD_CTX_MASK		0x3
++
++#endif
+diff -pruN qemu-1.4.0-orig/hw/Makefile.objs qemu-1.4.0/hw/Makefile.objs
+--- qemu-1.4.0-orig/hw/Makefile.objs	2013-02-16 00:05:35.000000000 +0100
++++ qemu-1.4.0/hw/Makefile.objs	2013-04-09 11:56:00.613602431 +0200
+@@ -14,6 +14,7 @@ common-obj-y += fw_cfg.o
+ common-obj-$(CONFIG_PCI) += pci_bridge_dev.o
+ common-obj-$(CONFIG_PCI) += ioh3420.o xio3130_upstream.o xio3130_downstream.o
+ common-obj-$(CONFIG_PCI) += i82801b11.o
++common-obj-$(CONFIG_PCI) += crcdev.o
+ common-obj-y += watchdog.o
+ common-obj-$(CONFIG_ISA_MMIO) += isa_mmio.o
+ common-obj-$(CONFIG_ECC) += ecc.o
+diff -pruN qemu-1.4.0-orig/qemu-options.hx qemu-1.4.0/qemu-options.hx
+--- qemu-1.4.0-orig/qemu-options.hx	2013-02-16 00:05:35.000000000 +0100
++++ qemu-1.4.0/qemu-options.hx	2013-04-09 13:42:37.740994380 +0200
+@@ -2075,18 +2075,13 @@ QEMU supports using either local sheepdo
+ devices.
+ 
+ Syntax for specifying a sheepdog device
+-@table @list
+-``sheepdog:<vdiname>''
+-
+-``sheepdog:<vdiname>:<snapid>''
+-
+-``sheepdog:<vdiname>:<tag>''
+-
+-``sheepdog:<host>:<port>:<vdiname>''
+-
+-``sheepdog:<host>:<port>:<vdiname>:<snapid>''
+-
+-``sheepdog:<host>:<port>:<vdiname>:<tag>''
++@table @code
++@item sheepdog:<vdiname>
++@item sheepdog:<vdiname>:<snapid>
++@item sheepdog:<vdiname>:<tag>
++@item sheepdog:<host>:<port>:<vdiname>
++@item sheepdog:<host>:<port>:<vdiname>:<snapid>
++@item sheepdog:<host>:<port>:<vdiname>:<tag>
+ @end table
+ 
+ Example
