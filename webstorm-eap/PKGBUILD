@@ -4,8 +4,8 @@
 
 pkgname=webstorm-eap
 _pkgname=WebStorm # Directory name in the tar file
-pkgver=126.309
-pkgbuild=126.309
+pkgver=129.221
+pkgbuild=129.221
 pkgrel=1
 pkgdesc="The smartest JavaScript IDE. 30-day free trial."
 arch=('i686' 'x86_64')
@@ -13,9 +13,9 @@ url="http://www.jetbrains.com/webstorm/"
 license=('custom')
 depends=('java-runtime>=6')
 conflicts=('webstorm')
-source=(http://download.jetbrains.com/webide/WebStorm-EAP-$pkgbuild.tar.gz)
+source=(http://download.jetbrains.com/webstorm/WebStorm-EAP-$pkgbuild.tar.gz)
 #source=(http://download.jetbrains.com/webide/WebStorm-5.0.4.tar.gz)
-md5sums=('998fda29a19f46ff5d1003cad4a89b63')
+md5sums=('8170785265d18e828315d5ffd3700124')
 
 build() {
   cd ${srcdir}
