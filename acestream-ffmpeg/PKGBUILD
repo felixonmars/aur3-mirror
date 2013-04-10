@@ -4,8 +4,8 @@
 
 pkgname=acestream-ffmpeg
 _pkgname=ffmpeg
-pkgver=0.10.6
-pkgrel=2
+pkgver=0.10.7
+pkgrel=1
 epoch=1
 pkgdesc="Old ffmpeg libs for use with AceStream, does not conflict with ffmpeg"
 arch=('i686' 'x86_64')
@@ -14,7 +14,7 @@ license=('GPL')
 depends=('ffmpeg')
 makedepends=('yasm' 'libvdpau')
 source=(http://ffmpeg.org/releases/$_pkgname-$pkgver.tar.bz2)
-md5sums=('30dec94c65ae9a8cec9b950b158abd1c')
+md5sums=('2efd2a9d88b51ad966ac3decf1dc8c81')
 
 build() {
   cd $_pkgname-$pkgver
@@ -54,7 +54,6 @@ package() {
 
   rm -r "$pkgdir"/usr/{bin,include,share}
   rm -r "$pkgdir"/usr/lib/pkgconfig
-  rm "$pkgdir"/usr/lib/{libavcodec.so,libavdevice.*,libavfilter.*}
-  rm "$pkgdir"/usr/lib/{libavformat.so,libavutil.so,libpostproc.*}
-  rm "$pkgdir"/usr/lib/{libswresample.*,libswscale.*}
+  rm "$pkgdir"/usr/lib/{libavcodec.so,libavformat.so,libavutil.so}
+  rm "$pkgdir"/usr/lib/{libavdevice.*,libavfilter.*,libpostproc.*,libswresample.*,libswscale.*}
 }
