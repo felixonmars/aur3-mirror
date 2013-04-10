@@ -2,7 +2,7 @@
 
 pkgname=android-ndk-necessitas
 pkgver=r8e
-pkgrel=2
+pkgrel=3
 pkgdesc="Android C/C++ NDK for the Necessitas Android Qt SDK"
 arch=(i686 x86_64)
 url="http://code.google.com/p/mingw-and-ndk/"
@@ -16,11 +16,11 @@ provides=(android-ndk)
 
 # if [ ${_arch} = "x86_64" ]
 # then
-  # source=("http://mingw-and-ndk.googlecode.com/files/android-ndk-${pkgver}-ma-linux-x86_64.tar.xz")
-  # md5sums=('c2074fc7d3b123e02393723a13d3358c')
+# source=("http://mingw-and-ndk.googlecode.com/files/android-ndk-${pkgver}-ma-linux-x86_64.tar.xz")
+# md5sums=('c2074fc7d3b123e02393723a13d3358c')
 # else
-  source=("http://mingw-and-ndk.googlecode.com/files/android-ndk-${pkgver}-ma-linux-x86.tar.xz")
-  md5sums=('60c196ebfb2888aead65122fb5c8ad0b')
+source=("http://mingw-and-ndk.googlecode.com/files/android-ndk-${pkgver}-ma-linux-x86.tar.xz")
+md5sums=('02271cddeeba17fd9c335e472bd50c96')
 # fi
 options=(!strip)
 
