@@ -2,7 +2,7 @@
 # Contributor: Stephane Travostino <stephane.travostino@gmail.com>
 pkgname=mdns-scan
 pkgver="0.5"
-pkgrel=3
+pkgrel=4
 pkgdesc="Scan mDNS/DNS-SD published services on the local network"
 arch=(i686 x86_64)
 url="http://0pointer.de/lennart/projects/mdns-scan/"
@@ -20,6 +20,6 @@ package() {
 	cd "$srcdir"/$pkgname-$pkgver
 	
 	install -Dm755 mdns-scan   "$pkgdir"/usr/bin/mdns-scan
-	install -Dm644 mdns-scan.1 "$pkgdir"/usr/share/man/man1
+	install -Dm644 mdns-scan.1 "$pkgdir"/usr/share/man/man1/mdns-scan.1
 }
 
