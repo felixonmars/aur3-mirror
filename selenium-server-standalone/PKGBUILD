@@ -4,7 +4,7 @@
 # Contributor: Nathaniel Harward <nharward at gmail dot com>
 # Contributor: Martin Blumenstingl <martin.blumenstingl at googlemail dot com>
 pkgname=selenium-server-standalone
-pkgver=2.31.0
+pkgver=2.32.0
 pkgrel=1
 pkgdesc="Test automation server for web applications"
 arch=('any')
@@ -17,7 +17,7 @@ source=("http://selenium.googlecode.com/files/selenium-server-standalone-$pkgver
         'selenium-server.rc'
         'selenium-server.service')
 noextract=("selenium-server-standalone-$pkgver.jar")
-md5sums=('e3439b8d6448a08ae748250d93fd65dc'
+md5sums=('a8eabb2d3d2aff63d8d794b0603a24c9'
          'e131aeac10172f338bba243652787a3f'
          '68f3c06be724919d8860da92053bdcb4'
          '77b72da5dc04ef9220923b83ad95d4a0')
