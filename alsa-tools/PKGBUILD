@@ -3,7 +3,7 @@
 # Contributor: Jochen Immendœrfer <jochen.immendoerfer@gmail.com>
 
 pkgname=alsa-tools
-pkgver=1.0.26.1
+pkgver=1.0.27
 pkgrel=1
 pkgdesc="ALSA tools package"
 arch=(i686 x86_64)
@@ -12,8 +12,8 @@ license=(GPL2 GPL3)
 depends=(alsa-lib fltk gtk2 gtk3)
 options=(!libtool)
 source=(http://alsa.cybermirror.org/tools/$pkgname-$pkgver.tar.bz2)
-sha256sums=('553338693707fe6ddfc430b9edc4cd2677390e200c9e38de82ede3394e733841')
-sha512sums=('5b71092f7de1b9f7e9282bd79c0f59ecb970fabf285c5816d09251b622ddd25d8fc196a1c3d2bb5d4034dc9106f97bd04e71ebdae661e426a85e85ddfefc2ea9')
+sha256sums=('6562611b5a6560712f109e09740a9d4fa47296b07ed9590cb44139c5f154ada2')
+sha512sums=('aad985329e5649b5bd7c142e95c5d1c415f28bac1afb81ad21fedac76e736d18abe4aa129e798650d91b2dd14fb18f3960ed5218768c689319c2360c432b4589')
 
 build() {
     for f in $(find $pkgname-$pkgver -type f -name configure); do
