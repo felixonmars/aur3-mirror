@@ -23,7 +23,7 @@ _httpupload_ver="2.2.0"
 _authpam_ver="1.2"
 
 pkgname=nginx-custom-dev
-pkgver=1.3.15
+pkgver=1.3.16
 pkgrel=1
 pkgdesc="Development version of lightweight HTTP server and IMAP/POP3 proxy server with standard, additional and 3d party modules"
 arch=('i686' 'x86_64')
@@ -38,15 +38,15 @@ url="http://nginx.org"
 license=('custom')
 conflicts=('nginx' 'nginx-unstable' 'nginx-svn' 'nginx-devel' 'nginx-custom') 
 provides=('nginx')
-backup=("${_conf_path#/}/conf/nginx.conf"
-	"${_conf_path#/}/conf/koi-win"
-	"${_conf_path#/}/conf/koi-utf"
-	"${_conf_path#/}/conf/win-utf"
-	"${_conf_path#/}/conf/mime.types"
-	"${_conf_path#/}/conf/fastcgi.conf"
-	"${_conf_path#/}/conf/fastcgi_params"
-	"${_conf_path#/}/conf/scgi_params"
-	"${_conf_path#/}/conf/uwsgi_params"
+backup=("${_conf_path}/conf/nginx.conf"
+	"${_conf_path}/conf/koi-win"
+	"${_conf_path}/conf/koi-utf"
+	"${_conf_path}/conf/win-utf"
+	"${_conf_path}/conf/mime.types"
+	"${_conf_path}/conf/fastcgi.conf"
+	"${_conf_path}/conf/fastcgi_params"
+	"${_conf_path}/conf/scgi_params"
+	"${_conf_path}/conf/uwsgi_params"
 	"etc/logrotate.d/nginx")
 _user=http
 _group=http
@@ -66,7 +66,7 @@ source=("http://nginx.org/download/nginx-$pkgver.tar.gz"
 		"nginx.logrotate"
 		"nginx.service")
 
-md5sums=('ded252047393c79a31b0862e9166a065'
+md5sums=('e1f4376a0da34f6d1f5e77e2b9be0de4'
          'b403e963108f4e1700607cbe40916807'
          '68a1af12d5c1218fb2b3e05ed7ff6f0c'
          '9dd5dc90990dbaea68881a14d4b6d9f3'

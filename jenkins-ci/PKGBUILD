@@ -2,7 +2,7 @@
 # Contributor: Illarion Kovalchuk <illarion.kovalchuk at gmail dot com>
 
 pkgname=jenkins-ci
-pkgver=1.510
+pkgver=1.511
 pkgrel=1
 epoch=
 pkgdesc="An extendable open source continuous integration server"
@@ -26,7 +26,7 @@ source=(http://mirrors.jenkins-ci.org/war/$pkgver/jenkins.war
         jenkins.service
         LICENSE)
 noextract=(jenkins.war)
-sha256sums=('2dc1b7891c36bab50e595d6785e2a0bd223bd6e7e158a2cfa2f9593fda2977ae'
+sha256sums=('7e676062231f6b80b60e53dc982eb89c36759bdd2da7f82ad8b35a002a36da9a'
             '27f78ce76729c7af3efa70b133d376c92cd2d361d1c8b5abb90b3f6e59108ed0'
             '6ffdcec6c06105710886ff48d3d12bc8cc9cc0f642718c165f658f6475fb268f'
             'd9f107920982cb61d807e349b4eaf190b2d593047e55d3f3ad286c7afe06cf55')

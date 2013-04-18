@@ -1,0 +1,124 @@
+From 96c87c0fffa0baa734de5636cb963a49ca94a61d Mon Sep 17 00:00:00 2001
+From: Ulrich Czekalla <ulrich@localhost.localdomain>
+Date: Tue, 28 Oct 2008 03:55:42 -0400
+Subject: [PATCH] Fix the order that we enable an application window
+
+---
+ dlls/user32/msgbox.c |   55 ++++++++++++++++++++++++++++++++-----------------
+ 1 files changed, 36 insertions(+), 19 deletions(-)
+
+diff --git a/dlls/user32/msgbox.c b/dlls/user32/msgbox.c
+index d9cec53..fe229d3 100644
+--- a/dlls/user32/msgbox.c
++++ b/dlls/user32/msgbox.c
+@@ -42,18 +42,20 @@ struct ThreadWindows
+     UINT numHandles;
+     UINT numAllocs;
+     HWND *handles;
++    HWND dlgHwnd;
+ };
+ 
+ static BOOL CALLBACK MSGBOX_EnumProc(HWND hwnd, LPARAM lParam)
+ {
+     struct ThreadWindows *threadWindows = (struct ThreadWindows *)lParam;
+ 
+-    if (!EnableWindow(hwnd, FALSE))
++    if (threadWindows->dlgHwnd != hwnd && !EnableWindow(hwnd, FALSE))
+     {
+         if(threadWindows->numHandles >= threadWindows->numAllocs)
+         {
+-            threadWindows->handles = HeapReAlloc(GetProcessHeap(), 0, threadWindows->handles,
+-                                                 (threadWindows->numAllocs*2)*sizeof(HWND));
++            threadWindows = (struct ThreadWindows*) HeapReAlloc(GetProcessHeap(), 0, threadWindows,
++                sizeof(struct ThreadWindows) + ((threadWindows->numAllocs * 2) * sizeof(HWND)));
++            threadWindows->handles = (HWND*)(threadWindows + 1);
+             threadWindows->numAllocs *= 2;
+         }
+         threadWindows->handles[threadWindows->numHandles++]=hwnd;
+@@ -61,6 +63,34 @@ static BOOL CALLBACK MSGBOX_EnumProc(HWND hwnd, LPARAM lParam)
+    return TRUE;
+ }
+ 
++static void MSGBOX_DisableThreadWindows(HWND hwnd)
++{
++    struct ThreadWindows* threadWindows;
++    threadWindows = (struct ThreadWindows*) HeapAlloc(GetProcessHeap(), 0, sizeof(struct ThreadWindows) + (10 * sizeof(HWND)));
++    threadWindows->numHandles = 0;
++    threadWindows->numAllocs = 10;
++    threadWindows->handles = (HWND*)(threadWindows + 1);
++    threadWindows->dlgHwnd = hwnd;
++    SetPropA(hwnd, "WINE_MSGBOX_THREADWINS", (HANDLE)threadWindows);
++    EnumThreadWindows(GetCurrentThreadId(), MSGBOX_EnumProc, (LPARAM)threadWindows);
++}
++
++static void MSGBOX_EnableThreadWindows(HWND hwnd)
++{
++   int i;
++   struct ThreadWindows* threadWindows;
++
++   threadWindows = (struct ThreadWindows*) GetPropA(hwnd, "WINE_MSGBOX_THREADWINS");
++   if (threadWindows)
++   {
++       for (i = 0; i < threadWindows->numHandles; i++)
++           EnableWindow(threadWindows->handles[i], TRUE);
++
++       HeapFree(GetProcessHeap(), 0, threadWindows);
++       SetPropA(hwnd, "WINE_MSGBOX_THREADWINS", (HANDLE)0);
++   }
++}
++
+ static HFONT MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
+ {
+     HFONT hFont = 0, hPrevFont = 0;
+@@ -336,6 +366,8 @@ static INT_PTR CALLBACK MSGBOX_DlgProc( HWND hwnd, UINT message,
+    {
+        LPMSGBOXPARAMSW mbp = (LPMSGBOXPARAMSW)lParam;
+        SetWindowContextHelpId(hwnd, mbp->dwContextHelpId);
++       if ((mbp->dwStyle & MB_TASKMODAL) && (mbp->hwndOwner == NULL))
++          MSGBOX_DisableThreadWindows(hwnd);
+        hFont = MSGBOX_OnInit(hwnd, mbp);
+        SetPropA(hwnd, "WINE_MSGBOX_HFONT", (HANDLE)hFont);
+        SetPropA(hwnd, "WINE_MSGBOX_HELPCALLBACK", (HANDLE)mbp->lpfnMsgBoxCallback);
+@@ -355,6 +387,7 @@ static INT_PTR CALLBACK MSGBOX_DlgProc( HWND hwnd, UINT message,
+      case IDTRYAGAIN:
+      case IDCONTINUE:
+       hFont = GetPropA(hwnd, "WINE_MSGBOX_HFONT");
++      MSGBOX_EnableThreadWindows(hwnd);
+       EndDialog(hwnd, wParam);
+       if (hFont)
+ 	  DeleteObject(hFont);
+@@ -506,8 +539,6 @@ INT WINAPI MessageBoxIndirectW( LPMSGBOXPARAMSW msgbox )
+     LPVOID tmplate;
+     HRSRC hRes;
+     int ret;
+-    UINT i;
+-    struct ThreadWindows threadWindows;
+     static const WCHAR msg_box_res_nameW[] = { 'M','S','G','B','O','X',0 };
+ 
+     if (!(hRes = FindResourceExW(user32_module, (LPWSTR)RT_DIALOG,
+@@ -516,22 +547,8 @@ INT WINAPI MessageBoxIndirectW( LPMSGBOXPARAMSW msgbox )
+     if (!(tmplate = LoadResource(user32_module, hRes)))
+         return 0;
+ 
+-    if ((msgbox->dwStyle & MB_TASKMODAL) && (msgbox->hwndOwner==NULL))
+-    {
+-        threadWindows.numHandles = 0;
+-        threadWindows.numAllocs = 10;
+-        threadWindows.handles = HeapAlloc(GetProcessHeap(), 0, 10*sizeof(HWND));
+-        EnumThreadWindows(GetCurrentThreadId(), MSGBOX_EnumProc, (LPARAM)&threadWindows);
+-    }
+-
+     ret=DialogBoxIndirectParamW(msgbox->hInstance, tmplate,
+                                 msgbox->hwndOwner, MSGBOX_DlgProc, (LPARAM)msgbox);
+ 
+-    if ((msgbox->dwStyle & MB_TASKMODAL) && (msgbox->hwndOwner==NULL))
+-    {
+-        for (i = 0; i < threadWindows.numHandles; i++)
+-            EnableWindow(threadWindows.handles[i], TRUE);
+-        HeapFree(GetProcessHeap(), 0, threadWindows.handles);
+-    }
+     return ret;
+ }
+-- 
+1.5.4.1
+

@@ -2,7 +2,7 @@
 
 pkgname=abjad
 _realname=Abjad
-pkgver=2.11
+pkgver=2.12
 pkgrel=1
 pkgdesc="a python program for formalized score control and music composition"
 url="http://www.projectabjad.org"
@@ -14,9 +14,9 @@ conflicts=('abjad-svn')
 options=(!emptydirs)
 source=("http://pypi.python.org/packages/source/A/Abjad/$_realname-$pkgver.tar.gz")
 
-build() {
+package() {
   cd $srcdir/$_realname-$pkgver
   python2 setup.py install --root=$pkgdir/ --optimize=1
 }
 
-md5sums=('13e49c1c0d0e785b22d4f91b72d6a9ef')
+md5sums=('de6c47331c17caf5cd65b55309dc0adf')

@@ -1,110 +1,71 @@
 # Contributor: 3ED <krzysztof1987@gmail.com>
-pkgname=alsa-tools-emu10k1
-pkgver=1.0.26.1
-pkgrel=2
-pkgdesc="ALSA tools package for emu10k1 sound card"
-backup=(etc/rc.d/alsa-emu10k1d etc/conf.d/alsa-emu10k1d)
+pkgbase=alsa-tools-emu10k1
+pkgname=("alsa-tools-emu10k1" "alsa-tools-as10k1" "alsa-tools-ld10k1" "alsa-tools-sbiload")
+pkgver=1.0.27
+pkgrel=1
+pkgdesc="ALSA tools package for emu10k1 sound cards"
 url="http://alsa-project.org/"
 arch=('i686' 'x86_64')
 license=('GPL')
 depends=('alsa-lib' 'alsa-utils')
-optdepends=("alsa-tools-emu10k1-gui: dsp editor with gui in qt3")
-sha256sums=('553338693707fe6ddfc430b9edc4cd2677390e200c9e38de82ede3394e733841'
+source=("ftp://ftp.alsa-project.org/pub/tools/alsa-tools-${pkgver}.tar.bz2"
+        "alsa-emu10k1d"
+        "alsa-emu10k1d.conf")
+sha256sums=('6562611b5a6560712f109e09740a9d4fa47296b07ed9590cb44139c5f154ada2'
             '4db2b08b8391b60bc4306977090562ba226761e7fcd3932d5780dbf8b34480ff'
             '7f6c82a038ed891fe706552baf401eec65b5b396634d217d8e6a9f1f37d45dfe')
 
-#source=("ftp://ftp.alsa-project.org/pub/tools/alsa-tools-$pkgver.tar.bz2"
-#        "alsa-emu10k1d"
-#        "alsa-emu10k1d.conf")
-#----------------------------------------------------------------------
-#mirror:
-
-source=("http://alsa.cybermirror.org/tools/alsa-tools-$pkgver.tar.bz2"
-        "alsa-emu10k1d"
-        "alsa-emu10k1d.conf")
-
-install=alsa-tools-emu10k1.install
-
-[ -n "$alsa_tools_mods" ] || \
-                             \
-alsa_tools_mods=(ac3dec as10k1 ld10k1 seq)
-
 build() {
-  cd "$srcdir/alsa-tools-$pkgver"
+  local i
 
-  local -i modmax=0 modcount=0
-  local nmod imod 
-
-  # ARCHWAY ARRAY (hack for disabled positions)
-  for imod in ${!alsa_tools_mods[*]}
+  for i in as10k1 ld10k1 seq/sbiload
   do
-    [ "${alsa_tools_mods[$imod]:0:1}" = '!' ] || modmax=$[modmax + 1]
-  done
-
-  # COMPILING LOOP
-  for imod in ${!alsa_tools_mods[*]}
-  do
-    nmod="${alsa_tools_mods[$imod]}"
-
-    # checking: if mod has been disabled (archway) then do nothing..
-    [ "${nmod:0:1}" = '!' ] && continue || modcount=$[modcount + 1]
-
-    msg2 "Compiling: ${nmod} ($modcount/$modmax).."
-
-    # exceptions, entering to dir
-    case $nmod in
-      "seq") cd "$nmod/sbiload/";;
-      *)     cd "$nmod/";;
-    esac
-
-    # compiling..
+    cd "$srcdir/alsa-tools-$pkgver/$i"
     ./configure --prefix=/usr
     make
-
-    cd -
   done
 }
 
-package() {
-  cd "$srcdir/alsa-tools-$pkgver"
+package_alsa-tools-emu10k1() {
+  pkgdesc="ALSA tools package for emu10k1 sound cards"
+  depends=('alsa-lib' 'alsa-utils' 'alsa-tools-ld10k1')
+  optdepends=("alsa-tools-sbiload: An OPL2/3 FM instrument loader for ALSA sequencer")
+  install=alsa-tools-emu10k1.install
+  backup=(etc/rc.d/alsa-emu10k1d etc/conf.d/alsa-emu10k1d)
 
-  local -i modmax=0 modcount=0
-  local nmod imod 
+  # Old stuff! :< I don't use it anymore but someday I look at it..
+  # If anyone have systemd service that's working well, please shed..
+  install -dm755 "$pkgdir/etc/"{rc.d,conf.d}
+	install -m 755 "$srcdir/alsa-emu10k1d" "$pkgdir/etc/rc.d/alsa-emu10k1d"
+	install -m 644 "$srcdir/alsa-emu10k1d.conf" "$pkgdir/etc/conf.d/alsa-emu10k1d"
+}
 
-  # ARCHWAY ARRAY (hack for disabled positions)
-  for imod in ${!alsa_tools_mods[*]}
-  do
-    [ "${alsa_tools_mods[$imod]:0:1}" = '!' ] || modmax=$[modmax + 1]
-  done
+package_alsa-tools-as10k1() {
+  pkgdesc="AS10k1 Assembler version A0.99"
+  depends=('alsa-lib' 'alsa-utils')
 
-  # INSTALLING LOOP
-  for imod in ${!alsa_tools_mods[*]}
-  do
-    nmod="${alsa_tools_mods[$imod]}"
-
-    # checking: if mod has been disabled (archway) then do nothing..
-    [ "${nmod:0:1}" = '!' ] && continue || modcount=$[modcount + 1]
-
-    msg2 "Packaging: ${nmod} ($modcount/$modmax).."
-
-    # exceptions, entering to dir
-    case $nmod in
-      "seq") cd "$nmod/sbiload/";;
-      *)     cd "$nmod/";;
-    esac
-
-    # installing files..
-    make DESTDIR="$pkgdir/" install
-
-    cd -
-  done
-
-  # INSTALLING extra files
-  msg2 "Copying: daemon, conf.."
-  install -v -dm755 "$pkgdir/etc/"{rc.d,conf.d}
-	install -v  -m755 "$srcdir/alsa-emu10k1d" "$pkgdir/etc/rc.d/alsa-emu10k1d"
-	install -v  -m644 "$srcdir/alsa-emu10k1d.conf" "$pkgdir/etc/conf.d/alsa-emu10k1d"
-
+  make -C "$srcdir/alsa-tools-$pkgver/as10k1/" DESTDIR="$pkgdir/" install
   find "$pkgdir/" -name '*.la' -type f -delete
 }
 
+package_alsa-tools-ld10k1() {
+  pkgdesc="Attempt to make EMU10K1 (EMU10K2) patch loader for ALSA"
+  depends=('alsa-lib' 'alsa-utils' 'alsa-tools-as10k1')
+  optdepends=("alsa-tools-emu10k1-gui: dsp editor with gui (qt3 needed)")
+
+  make -C "$srcdir/alsa-tools-$pkgver/ld10k1/" DESTDIR="$pkgdir/" install
+  find "$pkgdir/" -name '*.la' -type f -delete
+}
+
+package_alsa-tools-sbiload() {
+  pkgdesc="An OPL2/3 FM instrument loader for ALSA sequencer"
+  depends=('alsa-lib' 'alsa-utils')
+
+  make -C "$srcdir/alsa-tools-$pkgver/seq/sbiload/" DESTDIR="$pkgdir/" install
+  find "$pkgdir/" -name '*.la' -type f -delete
+}
+
+#AUR:
+pkgname=alsa-tools-emu10k1
+pkgdesc="ALSA tools package for emu10k1 sound cards"
+depends=('alsa-lib' 'alsa-utils')

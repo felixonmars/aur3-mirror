@@ -1,5 +1,5 @@
 pkgname=s3fs-c-git
-pkgver=20130405
+pkgver=20130415
 pkgrel=1
 pkgdesc="Fork of s3fs compatible with other clients"
 arch=('i686' 'x86_64')

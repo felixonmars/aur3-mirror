@@ -1,7 +1,7 @@
 # Maintainer: Erik van der Kolk <developer at smerik dot nl>
 pkgname=editorconfig-core-git
-pkgver=20121215
-pkgrel=2
+pkgver=20130416
+pkgrel=1
 pkgdesc="EditorConfig core code written in C (for use by plugins supporting EditorConfig parsing)"
 arch=('i686' 'x86_64')
 url="https://github.com/editorconfig/editorconfig-core"
@@ -35,9 +35,6 @@ build() {
   msg "Starting make..."
   cmake -D CMAKE_INSTALL_PREFIX=/usr .
   make
-
-  msg "Including license..."
-  install -v -D -m 644 "${srcdir}/${_gitname}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
 check() {
@@ -48,4 +45,7 @@ check() {
 package() {
   cd "${srcdir}/${_gitname}"
   make DESTDIR="${pkgdir}" install
+
+  msg "Including license..."
+  install -v -D -m 644 "${srcdir}/${_gitname}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }

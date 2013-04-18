@@ -1,0 +1,206 @@
+From: <Joerg-Cyril.Hoehle@t-systems.com>
+Subject: [PATCH 2/2] kernel32/tests: Verify the stability of CreateTimerQueue.
+Message-Id: <8E4C156DA5797D418DBFADFD8CE655A41FEC9683A7@HE113481.emea1.cds.t-internal.com>
+Date: Thu, 14 Feb 2013 13:38:56 +0100
+
+Hi,
+
+I'm not at all eager to provoke random test failures on testbot, but is not writing tests the solution?
+If I don't stress the timers, how can I show how it behaves?
+
+Testbot simply *will* introduce random delays so large that the average gets boosted too much, e.g.
+sync.c:625: thread 2804 hpctime  700 delta 326 (instead of 31-32)
+sync.c:1055: Test failed: TimerQueue period 48.556<->22
+
+I'm open for any suggestion. If you remember past test submission, you'll note that I have considerably
+reduced the number of timer runs such that errors should be less frequent.
+(Adding more cases increases the winetest log by 1-2KB each time...)
+
+See http://testbot.winehq.org/JobDetails.pl?Key=24398
+for 3 failures from 31 machines. I'm not counting
+sync.c:1015: Test failed: DeleteTimerQueueTimer
+I believe Francois Gouget once investigated that one.
+
+Should I just trace() the values without ok() s.t. curious people can look at it?
+
+Regards,
+ Jörg Höhle
+
+From 105e39916126bb45cf09e470b74525e8e57b638c Mon Sep 17 00:00:00 2001
+From: =?utf-8?q?J=C3=B6rg=20H=C3=B6hle?= <hoehle@users.sourceforge.net>
+Date: Sat, 9 Feb 2013 11:46:36 +0100
+Subject: [PATCH 2/2] kernel32/tests: Verify the stability of CreateTimerQueue.
+
+---
+ dlls/kernel32/tests/sync.c |  110 +++++++++++++++++++++++++++++++++++++++++--
+ 1 files changed, 104 insertions(+), 6 deletions(-)
+
+diff --git a/dlls/kernel32/tests/sync.c b/dlls/kernel32/tests/sync.c
+index 3924dc0..d1d1222 100644
+--- a/dlls/kernel32/tests/sync.c
++++ b/dlls/kernel32/tests/sync.c
+@@ -609,6 +609,73 @@ static void test_iocp_callback(void)
+        "Last error is %d\n", GetLastError());
+ }
+ 
++static LARGE_INTEGER hpctime0, hpcfreq;
++static ULONG collatz;
++static LONG cb_count, cb_time, cb_stress, cb_late;
++
++static void CALLBACK timing_cb(PVOID p, BOOLEAN timedOut)
++{
++    LARGE_INTEGER hpcnow, hpcdelay;
++    LONG old, now;
++    ok(timedOut, "Timer callbacks should always time out\n");
++    InterlockedIncrement(&cb_count);
++    ok(QueryPerformanceCounter(&hpcnow), "PerfCounter failed\n");
++    now = (hpcnow.QuadPart - hpctime0.QuadPart) * 1000 / hpcfreq.QuadPart;
++    old = InterlockedExchange(&cb_time, now);
++    trace("thread %u hpctime %4u delta %2d\n",
++          GetCurrentThreadId(), now, now - old);
++    if (cb_stress)
++    {
++        do {
++            for (now = 50000; now >= 0; now--)
++                collatz = collatz % 2 ? 3 * collatz + 1 : collatz / 2;
++            ok(QueryPerformanceCounter(&hpcdelay), "PerfCounter failed\n");
++            old = (hpcdelay.QuadPart-hpcnow.QuadPart)*1000/hpcfreq.QuadPart;
++        } while (old < cb_stress);
++        trace("thread %u busy %dms\n", GetCurrentThreadId(), old);
++        cb_late = 0;
++    }
++}
++
++static float test_regularq(DWORD period, int iter, int stress, ULONG flags)
++{
++    HANDLE q, t1;
++    float avg;
++    BOOL ret;
++
++    q = pCreateTimerQueue();
++    ok(q != NULL, "CreateTimerQueue\n");
++
++    cb_stress = stress;
++    trace("TimerQueue period %ums with %u stress, flags %x\n", period, stress, flags);
++    ok(QueryPerformanceFrequency(&hpcfreq), "PerfFrequency failed\n");
++    cb_count = cb_time = cb_late = 0;
++    ok(QueryPerformanceCounter(&hpctime0), "PerfCounter unavailable\n");
++    collatz = hpctime0.QuadPart;
++
++    ret = pCreateTimerQueueTimer(&t1, q, timing_cb, NULL,
++              period*3/4, period, flags);
++    ok(ret, "CreateTimerQueueTimer\n");
++
++    Sleep(period * iter);
++    
++    SetLastError(0xdeadbeef);
++    ret = pDeleteTimerQueueTimer(q, t1, INVALID_HANDLE_VALUE);
++    cb_late = 1;
++    ok(ret || GetLastError() == ERROR_IO_PENDING,
++       "DeleteTimerQueueTimer, GetLastError: expected ERROR_IO_PENDING, got %d\n",
++       GetLastError());
++
++    avg = (float)cb_time/cb_count;
++    trace("%u callbacks within %u/%ums, avg %.3f/%u\n", cb_count, cb_time,
++          period * iter, avg, period);
++
++    ret = pDeleteTimerQueueEx(q, INVALID_HANDLE_VALUE);
++    ok(ret, "DeleteTimerQueueEx\n");
++    ok(cb_late==1, "Callback past DeleteTimerQueue\n");
++    return avg;
++}
++
+ static void CALLBACK timer_queue_cb1(PVOID p, BOOLEAN timedOut)
+ {
+     int *pn = p;
+@@ -717,6 +784,7 @@ static void test_timer_queue(void)
+     int n0, n1, n2, n3, n4, n5;
+     struct timer_queue_data1 d1, d2, d3, d4;
+     HANDLE e, et1, et2;
++    float avg;
+     BOOL ret, ret0;
+ 
+     if (!pChangeTimerQueueTimer || !pCreateTimerQueue || !pCreateTimerQueueTimer
+@@ -795,7 +863,7 @@ static void test_timer_queue(void)
+     /* Give them a chance to do some work.  */
+     Sleep(500);
+ 
+-    /* Test deleting a once-only timer.  */
++    /* Test deleting an elapsed once-only timer.  */
+     ret = pDeleteTimerQueueTimer(q, t1, INVALID_HANDLE_VALUE);
+     ok(ret, "DeleteTimerQueueTimer\n");
+ 
+@@ -854,11 +922,11 @@ static void test_timer_queue(void)
+     /* Give them a chance to start.  */
+     Sleep(400);
+ 
+-    /* DeleteTimerQueueTimer always returns PENDING with a NULL event,
+-       even if the timer is finished.  */
++    /* w2k/xp/w2k3: DeleteTimerQueueTimer(event=NULL) always returns PENDING
++       Vista-w7:    returns SUCCESS if elapsed.  */
+     SetLastError(0xdeadbeef);
+     ret = pDeleteTimerQueueTimer(q, t1, NULL);
+-    ok(ret /* vista */ || GetLastError() == ERROR_IO_PENDING,
++    ok(ret /* vista-w7 */ || /* w2k/xp/w2k3 */ GetLastError() == ERROR_IO_PENDING,
+        "DeleteTimerQueueTimer, GetLastError: expected ERROR_IO_PENDING, got %d\n",
+        GetLastError());
+ 
+@@ -871,7 +939,7 @@ static void test_timer_queue(void)
+ 
+     SetLastError(0xdeadbeef);
+     ret = pDeleteTimerQueueTimer(q, t3, et1);
+-    ok(ret, "DeleteTimerQueueTimer call was expected to fail\n");
++    ok(ret, "DeleteTimerQueueTimer call was not expected to fail\n");
+     ok(GetLastError() == 0xdeadbeef,
+        "DeleteTimerQueueTimer, GetLastError: expected 0xdeadbeef, got %d\n",
+        GetLastError());
+@@ -889,7 +957,7 @@ static void test_timer_queue(void)
+ 
+     SetLastError(0xdeadbeef);
+     ret = pDeleteTimerQueueEx(q, e);
+-    ok(ret /* vista */ || GetLastError() == ERROR_IO_PENDING,
++    ok(ret /* Vista-w7 */ || /* w2k/xp/w2k3 */ GetLastError() == ERROR_IO_PENDING,
+        "DeleteTimerQueueEx, GetLastError: expected ERROR_IO_PENDING, got %d\n",
+        GetLastError());
+     ok(WaitForSingleObject(e, 250) == WAIT_OBJECT_0,
+@@ -971,6 +1039,36 @@ static void test_timer_queue(void)
+        GetLastError());
+     ok(d1.num_calls == 1, "DeleteTimerQueueTimer\n");
+ 
++    /* Test stability of callback invocation over time */
++    trace("Output to a console is slow and disturbs timing.\n");
++    trace("Please redirect it to a file, like winetest does.\n");
++
++    /* On some systems (not only testbot), native seems unable to grab a timer with better
++     * resolution than 15.6ms.  In that case all times are multiples of said 15.6ms. */
++    avg = test_regularq(10, 60, 0, WT_EXECUTEDEFAULT);
++    ok((9.5 < avg && avg < 11.5) || broken(15 < avg && avg < 19), "TimerQueue period %.3f/10\n", avg);
++
++    /* Typically, pre-Vista machines only know multiples of 15.6ms
++     * whereas since Vista, 10ms periods are usually possible (why is testbot an exception?) */
++    if (avg > 15){
++    avg = test_regularq(22, 40, 0, WT_EXECUTEINTIMERTHREAD);
++    ok((21.5 < avg && avg < 23) || broken(30.5 < avg && avg < 33), "TimerQueue period %.3f/22\n", avg);
++    }
++
++    /* Expect multiple threads, however testbot uses one.
++     * Here we experience 2 kinds of brokeness:
++     * - machines with timer resolution 15.6ms maintain that rate using 2 threads;
++     * - testbots will most often run using one thread only (why?!), giving
++     *   a rate around 17ms obtained by triggering our callback continuously. */
++    avg = test_regularq(12, 50,17, WT_EXECUTELONGFUNCTION);
++    ok((11.5 < avg && avg < 14) || broken(15 < avg && avg < 19), "TimerQueue period %.3f/10\n", avg);
++    /* Wine struggles with this test on Linux.  It starts more threads (at least 4)
++     * than native (2), they are put to sleep resulting in "busy 45ms" messages,
++     * whereas native is busy no more than 17ms -- exactly as requested.
++     * IOW, the busy Linux threads can be put to sleep for 30ms, ouch! */
++
++    ok(collatz <= 4, "collatz %u\n", collatz);
++
+     /* Test functions on the default timer queue.  */
+     t1 = NULL;
+     n1 = 0;
+-- 
+1.5.6.3
+
+

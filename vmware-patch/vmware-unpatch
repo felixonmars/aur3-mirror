@@ -1,50 +1,104 @@
 #!/bin/bash
 
-KERNEL=`uname -r | sed 's/-.*//'`
+# Some colored makepkg-like functions
+msg() {
+    printf "${GREEN}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+}
 
-VMWARE_VERSION=`vmware-installer -l | egrep "vmware-workstation|vmware-player" | cut -s -d " " -f 2- | cut -d '.' -f -3`
-VMWARE_VERSION=${VMWARE_VERSION// }
+msg2() {
+    printf "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+}
 
-echo "Reverting vmware patches applied for version ${VMWARE_VERSION}"
+msg3() {
+    printf "${YELLOW}    ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+}
 
-timestamp=`date +%Y%m%d-%H%M%S`
-if [ `whoami` != "root" ]
-then
-  echo "This need to be run as root"
-  exit 1
+error() {
+    printf "${RED}==> ERROR:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+}
+
+ALL_OFF="$(tput sgr0)"
+BOLD="$(tput bold)"
+BLUE="${BOLD}$(tput setaf 4)"
+GREEN="${BOLD}$(tput setaf 2)"
+RED="${BOLD}$(tput setaf 1)"
+YELLOW="${BOLD}$(tput setaf 3)"
+
+# Make sure we are root
+if [ $(whoami) != "root" ]; then
+    error "This script needs to be run as root."
+    exit 1
 fi
 
-#DEPRECATED SINCE VMWORKSTATION 8
-#echo "Reverting vmware modconfig libraries:"
-#for mod in `echo \
-#/usr/lib/vmware/lib/libvmware-modconfig-console.so/libvmware-modconfig-console.so  \
-#/usr/lib/vmware/lib/libvmware-modconfig.so/libvmware-modconfig.so \
-#`
-#do
-#  mv "${mod}".bak "${mod}"
-#  res=$?
-#  if [ $res -ne 0 ]
-#  then
-#    echo "* Failed to revert "`basename ${mod}`" (or nothing to revert)"
-#  else
-#    echo "* "`basename ${mod}`" reverted successfully"
-#  fi
-#done
+# Is a VMware product installed?
+if [ ! -f /usr/bin/vmware-installer ]; then
+    error "No VMware product found. Exiting.."
+    exit 1
+fi
 
-echo "Reverting vmware modules source code:"
+# Set some variables (|&: hide "No protocol specified" in KDE by redirecting all output to cut/grep)
+VER=$(vmware-installer -l |& egrep "(player|workstation)" | grep -Po "(\d\.){2}\d")
+if [ $(vmware-installer -l |& egrep "(player|workstation)" | cut -d " " -f1) = "vmware-workstation" ]; then
+    NAME="VMware Workstation"
+else
+    NAME="VMware Player"
+fi
 
-SRC="/usr/lib/vmware/modules/source/"
-for mod in `ls $SRC*.tar-* | sed "s/.*\/\(.*\).tar-.*/\1/" | sort | uniq`
-do
-  echo "* Reverting ${mod} ..."
-  LAST=`ls $SRC$mod.tar-${VMWARE_VERSION}* | sort | head -n 1`
-  cp $LAST $SRC$mod.tar
-  res=$?
-  if [ $res -ne 0 ]
-  then
-    echo "  [${mod}-only] Failed to revert (or nothing to revert)"
-  else
-    echo "  [${mod}-only] Reverted successfully"
-  fi
+# Backup/Convert/Remove old ones, whatever necessary
+cd /usr/lib/vmware/modules/
+# 1) Use double quotes ("[[") and "ls" instead of the builtin -d/-f for multiple arguments
+# 2) 2>&-: supported by "ls", basically same as "2>/dev/null" only shorter (ignore errors (STDERR))
+if [[ $(ls -d source?*/ source/*.tar-* 2>&- | grep -vx source-${VER}/) ]]; then
+    msg "Cleaning up old backups.."
+    # 1) Check the new location first
+    # 2) Remove any duplicated/old ones
+    # 3) Print full paths
+    # 4) Sed: leave out the first result containing ${VER}
+    for i in $(readlink -e source?*/ | sed "0,/${VER}/{//d}"); do
+        msg2 "Removing ${i}"
+        rm -r "${i}"
+    done
+    # If we already have a backup in the new location, remove any from the old one
+    if [ -d source-${VER}*/ ]; then
+        for i in $(readlink -e source/*.tar-*); do
+            msg2 "Removing ${i}"
+            rm -r "${i}"
+        done
+        # Rename it as we like (or as I do)
+        if [ -d source-${VER}?*/ ]; then
+            msg3 "Renaming $(readlink -f source-${VER}*)/ to $(readlink -f source-${VER})/"
+            mv source-${VER}*/ source-${VER}/
+        fi
+    else
+        # Remove any duplicated/old backups
+        for i in vmblock vmci vmmon vmnet vsock; do
+            for j in $(readlink -e source/${i}.tar-* | sed "0,/${VER}/{//d}"); do
+                msg2 "Removing ${j}"
+                rm -r "${j}"
+            done
+        done
+        # Convert leftovers
+        if [ -f source/vmblock.tar-* ]; then
+            # Shorten the msg3 command
+            _old=$(readlink -f source/vmblock.tar-* | sed 's/vmblock/*/')
+            msg3 "Converting backup: ${_old} -> $(readlink -f source-${VER})/"
+            mkdir source-${VER}/
+            for i in vmblock vmci vmmon vmnet vsock; do
+                mv source/${i}.tar-* source-${VER}/${i}.tar
+            done
+        fi
+    fi
+fi
 
-done
+# Revert
+cd /usr/lib/vmware/modules/
+if [ -d source-${VER} ]; then
+    msg "Reverting ${NAME} v${VER} module sources.."
+    msg2 "Removing $(readlink -f source)/"
+    rm -r source/
+    msg3 "Renaming backup: $(readlink -f source-${VER})/ -> $(readlink -f source)/"
+    mv source-${VER}/ source/
+    msg "Done."
+else  # Nothing found
+    msg "No backups found."
+fi
