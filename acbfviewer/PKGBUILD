@@ -1,18 +1,18 @@
 # Maintainer: archtux <antonio dot arias99999 at gmail dot com>
 
 pkgname=acbfviewer
-pkgver=0.95
+pkgver=0.97
 pkgrel=1
 pkgdesc="Comic book viewer for ACBF and CBZ formats."
 arch=('any')
 url="https://launchpad.net/acbf"
-license=('GPL2')
+license=('GPL3')
 depends=('desktop-file-utils' 'hicolor-icon-theme' 'pygtk>=2.12' 'python2' 'python2-imaging>=1.1.5' 'python2-lxml' 'shared-mime-info')
 optdepends=('unzip: for viewing ZIP files containing images')
 source=(https://launchpad.net/acbf/trunk/1.0/+download/ACBFViewer-${pkgver}_linux.tar.gz
         acbfv)
-md5sums=('51763f8215091603dc386dbe898ea23b'
-         '02b119d7c2fe15f4394e9e5e92cb230b')
+md5sums=('824e9695c6c88359c468b6180246dc0d' '02b119d7c2fe15f4394e9e5e92cb230b')
+
 
 package() {
   # Mime type

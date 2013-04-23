@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.9.5
+# ff-downloader v0.5.9.6
 ## Copyright 2011-12 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -268,7 +268,7 @@ $| = 1; # turn on autoflush;
 
 my $ff_bz2 = "${PACKAGE}-${VER}.tar.bz2";
 my $ff_path = "/pub/${PACKAGE}/releases/${VER}/linux-${ARCH}/${LANG}/${ff_bz2}";
-my $ff_url = URI->new('ftp://ftp.mozilla.org');
+my $ff_url = URI->new('http://ftp.mozilla.org');
 $ff_url->path($ff_path);
 
 ##Downloading firefox##

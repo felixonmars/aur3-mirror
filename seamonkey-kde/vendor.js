@@ -5,9 +5,6 @@ pref("intl.locale.matchOS", true);
 pref("extensions.autoDisableScopes", 11);
 pref("extensions.shownSelectionUI", true);
 
-// Auto-update is useless
-pref("app.update.enabled", false);
-
 pref("browser.showQuitWarning", true);
 pref("browser.download.manager.scanWhenDone", false);
 pref("browser.display.use_system_colors", true);

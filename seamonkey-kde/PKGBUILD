@@ -2,18 +2,18 @@
 # based on the seamonkey and firefox packages from community and extra
 
 # Profile-guided optimizatons (takes longer to compile)
-_pgo=y
+_pgo=n
 
 pkgname=seamonkey-kde
-pkgver=2.17
-pkgrel=2
+pkgver=2.17.1
+pkgrel=1
 pkgdesc="SeaMonkey internet suite with OpenSUSE patches for better KDE integration"
 arch=(i686 x86_64)
 license=(MPL GPL LGPL)
-depends=(alsa-lib desktop-file-utils dbus-glib gtk2 hunspell libevent libvpx
-	 mime-types mozilla-common nss startup-notification gstreamer0.10-base
-	 kmozillahelper)
-makedepends=(unzip zip mesa python2 python yasm autoconf2.13)
+depends=(alsa-lib desktop-file-utils dbus-glib gstreamer0.10-base gtk2
+	 hicolor-icon-theme hunspell libevent libvpx mime-types mozilla-common
+	 nss startup-notification kmozillahelper)
+makedepends=(unzip zip mesa python2 yasm autoconf2.13)
 [ $_pgo = y ] && makedepends+=(xorg-server-xvfb)
 optdepends=('networkmanager: Location detection via available WiFi networks')
 provides=("seamonkey=$pkgver")
@@ -33,10 +33,10 @@ source=(http://ftp.mozilla.org/pub/mozilla.org/seamonkey/releases/$pkgver/source
 	$_patchurl/MozillaFirefox/firefox-kde.patch
 	$_patchurl/MozillaFirefox/firefox-712763.patch
 	$_patchurl/MozillaFirefox/kde.js)
-md5sums=(931f027dd6e2aac3e36e788f6d86979b
+md5sums=(a95013068da38fe3f8db30e0ebe6f2f5
 	 8a0cd54ed487e8603d852ee1749a30a9
 	 a0fe28e00b0e24b44cbaeed42cbe13ee
-	 c8b5dc4252223f3bd71cb357adce9106
+	 1ae0a752e723b3e52b52f93620b5679c
 	 183d71a79c0f02eaa1b52b8c71690883
 	 79f113b56057e17ca2466cd0ac578bb3
 	 9f4e6467284a5c82fbba0c0afe862f31
@@ -46,13 +46,9 @@ md5sums=(931f027dd6e2aac3e36e788f6d86979b
 	 7303a96e92e600a46dd6a2cf9af5ada5
 	 75df0f88cc7a7fa7d522459e4ff82cc5)
 
-build() {
+prepare() {
   cd comm-release/mozilla
 
-  msg "WARNING: If you have a Mozilla based browser installed,"
-  msg "you may need to uninstall it before packaging"
-
-  msg2 "Patching"
   patch -Np1 -i "$srcdir/mozilla-nongnome-proxies.patch"
   patch -Np1 -i "$srcdir/mozilla-kde.patch"
   patch -Np1 -i "$srcdir/mozilla-gstreamer-760140.patch"
@@ -63,39 +59,49 @@ build() {
   cd ..
   patch -Np1 -i "$srcdir/system-cairo.patch"
 
-  # disable libmozgnome
-  sed -e 's/MOZ_ENABLE_GNOME_COMPONENT=1/MOZ_ENABLE_GNOME_COMPONENT=/' \
-      -i {.,mozilla}/configure{,.in}
-
-  cp ../mozconfig .mozconfig
-
   # Change install dir
-  sed -e 's/-$(MOZ_APP_VERSION)//g' -i {.,mozilla/js/src}/config/baseconfig.mk
+  sed -e 's/-$(MOZ_APP_VERSION)//g' -i {.,mozilla{,/js/src}}/config/baseconfig.mk
+
+  # Don't exit with error when some files are missing
+  # which we install later
+  sed '/^MOZ_PKG_FATAL_WARNINGS/s@= 1@= 0@' \
+      -i suite/installer/Makefile.in
 
   # Fix PRE_RELEASE_SUFFIX
   sed '/^PRE_RELEASE_SUFFIX := ""/s/ ""//' \
     -i mozilla/browser/base/Makefile.in
 
-  # Fix issue with repackaging (don't fail if files are already removed)
-  sed 's/xargs rm$/xargs rm -f/' -i mozilla/toolkit/mozapps/installer/packager.mk
+  # Disable libmozgnome
+  sed -e '/MOZ_ENABLE_GNOME_COMPONENT/s@=1@=0@' \
+      -i {.,mozilla}/configure{,.in}
+
+  cp ../mozconfig .mozconfig
+}
+
+build() {
+  cd comm-release
 
   export LDFLAGS="$LDFLAGS -Wl,-rpath,/usr/lib/seamonkey"
   export MOZ_MAKE_FLAGS="$MAKEFLAGS"
   unset MAKEFLAGS
-
-  # Tests fail with CPPFLAGS="-D_FORTIFY_SOURCE=2"
+  export CFLAGS="$CFLAGS $CPPFLAGS"
+  export CXXFLAGS="$CXXFLAGS $CPPFLAGS"
   unset CPPFLAGS
 
-  msg2 "Starting build"
+  # Use Python 2
+  export PYTHON="/usr/bin/python2"
+  mkdir "$srcdir/path"
+  ln -s /usr/bin/python2 "$srcdir/path/python"
+  export PATH="$srcdir/path:$PATH"
+
   if [ $_pgo = y ]; then
 
     msg2 "PGO enabled"
-    export MOZ_PGO=1
     export DISPLAY=:99
     Xvfb -nolisten tcp -extension GLX -screen 0 1280x1024x24 $DISPLAY &
     _fail=0
 
-    make -f client.mk build || _fail=1
+    make -f client.mk build MOZ_PGO=1 || _fail=1
 
     kill $! || true
     return $_fail
@@ -110,8 +116,12 @@ build() {
 package() {
   cd comm-release
 
-  make -j1 -f client.mk DESTDIR="$pkgdir" install
-  install -m644 ../{vendor,kde}.js "$pkgdir/usr/lib/seamonkey/defaults/pref/"
+  msg2 "If you have a Mozilla based browser installed, you may need to uninstall it"
+  msg2 "before packaging."
+
+  make -f client.mk DESTDIR="$pkgdir" install
+  install -d "$pkgdir/usr/lib/seamonkey/defaults/preferences"
+  install -m644 ../{vendor,kde}.js "$pkgdir/usr/lib/seamonkey/defaults/preferences/"
 
   # Use system-provided dictionaries
   rm -r "$pkgdir"/usr/lib/seamonkey/dictionaries
@@ -125,7 +135,7 @@ package() {
 	"$pkgdir/usr/share/applications/seamonkey.desktop"
 
   # man page
-  install -Dm644 obj-*/mozilla/dist/man/man1/seamonkey.1 "$pkgdir/usr/share/man/man1/seamonkey.1"
+  install -Dm644 obj-$CHOST/mozilla/dist/man/man1/seamonkey.1 "$pkgdir/usr/share/man/man1/seamonkey.1"
 
   # Remove development stuff
   rm -r "$pkgdir"/usr/{include,lib/seamonkey-devel,share/idl}

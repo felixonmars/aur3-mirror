@@ -32,6 +32,8 @@ static struct argp_option options[] =
     { .name = "dry-run", .key = 'n', .doc = "Perform a trial run with no changes made" },
     { .name = "cachedir", .key = 'd', .arg = "PATH",
       .doc = "Set alternative (absolute) cache directory PATH. Default is "CACHEDIR },
+    { .name = "all-as-installed", .key = 'k',
+      .doc = "Treat not-installed packages as installed" },
     { .name = "verbose", .key = 'v', .doc = "Verbose output" },
     { .name = "quiet", .key = 'q', .doc = "Suppress output, default" },
     { .doc = NULL }
@@ -51,6 +53,7 @@ struct arguments
 {
     int dry_run;
     int preserve;
+    int keep;
     int verbose;
     char *cachedir;
 };
@@ -152,6 +155,8 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         case 'v':
             argument->verbose = 1;
             break;
+        case 'k':
+            argument->keep = 1;
         case 'q':
             argument->verbose = 0;
             break;
@@ -175,22 +180,20 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
 int main(const int argc, char ** __restrict__ argv)
 {
     int count = 0;
-    size_t i, len, m, n;
+    size_t i, len, m = 0, n;
     off_t total_size = 0;
     alpm_handle_t *handle;
-    alpm_db_t *db;
-    alpm_list_t *pkglist;
     struct stat st;
     struct dirent **dir;
     enum _alpm_errno_t error;
-    struct pkginfo **cachepkg, **localpkg;
+    struct pkginfo **cachepkg, **localpkg = NULL;
     struct pkginfo **hit = NULL;
     const char *current = "", *name;
     char cachedir[PATH_MAX] = CACHEDIR;
     struct argp arg_parser = { .options = options, .parser = parse_opt,
         .args_doc = args_doc, .doc = doc };
-    struct arguments args = { .dry_run = 0, .preserve = 0, .verbose = 0,
-                              .cachedir = NULL };
+    struct arguments args = { .dry_run = 0, .preserve = 0, .keep = 0,
+                              .verbose = 0, .cachedir = NULL };
 
     argp_parse(&arg_parser, argc, argv, 0, NULL, &args);
     if (!args.preserve)
@@ -223,13 +226,19 @@ int main(const int argc, char ** __restrict__ argv)
     free(dir);
     qsort(cachepkg, n, sizeof(struct pkginfo *), pkgcomp);
 
-    db = alpm_get_localdb(handle);
-    pkglist = alpm_db_get_pkgcache(db);
-    m = alpm_list_count(pkglist);
-    localpkg = (struct pkginfo **)malloc(sizeof(struct pkginfo *) * m);
-    for (i = 0; i < m; i++, pkglist = alpm_list_next(pkglist))
-        localpkg[i] = get_pkginfo_from_pmpkg((alpm_pkg_t *)(pkglist->data));
-    qsort(localpkg, m, sizeof(struct pkginfo *), pkgnamecomp);
+    if (!args.keep)
+    {
+        alpm_db_t *db;
+        alpm_list_t *pkglist;
+
+        db = alpm_get_localdb(handle);
+        pkglist = alpm_db_get_pkgcache(db);
+        m = alpm_list_count(pkglist);
+        localpkg = (struct pkginfo **)malloc(sizeof(struct pkginfo *) * m);
+        for (i = 0; i < m; i++, pkglist = alpm_list_next(pkglist))
+            localpkg[i] = get_pkginfo_from_pmpkg((alpm_pkg_t *)(pkglist->data));
+        qsort(localpkg, m, sizeof(struct pkginfo *), pkgnamecomp);
+    }
 
     for (i = 0; i < n; i++)
     {
@@ -237,9 +246,21 @@ int main(const int argc, char ** __restrict__ argv)
         if (strcmp(name, current))
         {
             current = name;
-            hit = (struct pkginfo **)bsearch(cachepkg + i, localpkg, m,
-                    sizeof(struct pkginfo *), pkgnamecomp);
-            count = hit ? 0 : args.preserve;
+            if (args.keep)
+            {
+                int j;
+                for (j = (int)i - 1; j >= 0; j--)
+                   if (pkgnamecomp(cachepkg + i, cachepkg + j))
+                       break;
+                hit = cachepkg + j + 1;
+                count = 0;
+            }
+            else
+            {
+                hit = (struct pkginfo **)bsearch(cachepkg + i, localpkg, m,
+                        sizeof(struct pkginfo *), pkgnamecomp);
+                count = hit ? 0 : args.preserve;
+            }
         }
         if (!hit || alpm_pkg_vercmp((*hit)->version,
                     cachepkg[i]->version))
@@ -263,7 +284,8 @@ int main(const int argc, char ** __restrict__ argv)
         printf("\ntotal: %"PRIuMAX" bytes\n", (uintmax_t)total_size);
 
     free_pkginfo_array(cachepkg, n);
-    free_pkginfo_array(localpkg, m);
+    if (!args.keep)
+        free_pkginfo_array(localpkg, m);
 
     alpm_release(handle);
     regfree(&pkgnametest);

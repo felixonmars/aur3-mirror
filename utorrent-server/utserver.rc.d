@@ -3,22 +3,28 @@
 . /etc/rc.conf
 . /etc/rc.d/functions
 
-. /etc/conf.d/utserver
-
-PIDFILE=/var/run/utserver/utserver.pid
+LOGFILE="/var/log/utserver/utserver.log"
+PIDFILE="/var/run/utserver/utserver.pid"
+USER="utserver"
 
 [ -r "$PIDFILE" ] && PID=$(cat "$PIDFILE")
-[ -n "$PID" ] && PID=$(pidof -s /usr/share/utserver/utserver)
+[ -n "$PID" ] || PID=$(pidof -s /usr/share/utserver/utserver)
 
 case "$1" in
     start)
         stat_busy "Starting uTorrent-server"
-        su -l -s /bin/sh -c "/usr/bin/utserver $UTSERVER_ARGS >/dev/null 2>&1" $UTSERVER_USER
-        if [ $? -gt 0 ]; then
-            stat_fail
+        if [ -r "$PIDFILE" ]; then
+            stat_die
         else
-            add_daemon utserver
-            stat_done
+            mkdir -pm755 "$(dirname "$LOGFILE")" && chown "$USER" "$(dirname "$LOGFILE")" &&
+            mkdir -pm755 "$(dirname "$PIDFILE")" && chown "$USER" "$(dirname "$PIDFILE")" &&
+            su -l -s /bin/sh -c "/usr/bin/utserver -configfile /etc/utserver.conf -settingspath /srv/utserver/settings/ -logfile $LOGFILE -pidfile $PIDFILE -daemon >/dev/null 2>&1" "$USER"
+            if [ $? -gt 0 ]; then
+                stat_fail
+            else
+                add_daemon utserver
+                stat_done
+            fi
         fi
         ;;
     stop)

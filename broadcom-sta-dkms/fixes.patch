@@ -1,0 +1,247 @@
+--- a/Makefile	2013-04-22 16:39:29.735047581 +0200
++++ b/Makefile	2013-04-22 16:39:57.183013035 +0200
+@@ -16,7 +16,7 @@
+ ifneq ($(KERNELRELEASE),)
+ 
+   LINUXVER_GOODFOR_CFG80211:=$(strip $(shell \
+-    if [ "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "32" ]; then \
++    if [ "$(VERSION)" -ge "3" -o "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "32" ]; then \
+       echo TRUE; \
+     else \
+       echo FALSE; \
+@@ -24,7 +24,7 @@
+   ))
+ 
+     LINUXVER_WEXT_ONLY:=$(strip $(shell \
+-    if [ "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "17" ]; then \
++    if [ "$(VERSION)" -ge "3" -o "$(VERSION)" -ge "2" -a "$(PATCHLEVEL)" -ge "6" -a "$(SUBLEVEL)" -ge "17" ]; then \
+       echo FALSE; \
+     else \
+       echo TRUE; \
+--- a/src/include/bcmutils.h	2011-10-22 18:56:55.000000000 +0200
++++ b/src/include/bcmutils.h	2013-04-22 16:40:00.606500845 +0200
+@@ -555,7 +555,11 @@
+ extern void prhex(const char *msg, uchar *buf, uint len);
+ 
+ extern bcm_tlv_t *BCMROMFN(bcm_next_tlv)(bcm_tlv_t *elt, int *buflen);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
+ extern bcm_tlv_t *BCMROMFN(bcm_parse_tlvs)(void *buf, int buflen, uint key);
++#else
++extern bcm_tlv_t *BCMROMFN(bcm_parse_tlvs)(const void *buf, int buflen, uint key);
++#endif
+ extern bcm_tlv_t *BCMROMFN(bcm_parse_ordered_tlvs)(void *buf, int buflen, uint key);
+ 
+ extern const char *bcmerrorstr(int bcmerror);
+--- a/src/wl/sys/wl_cfg80211.c	2011-10-22 18:56:55.000000000 +0200
++++ b/src/wl/sys/wl_cfg80211.c	2013-04-22 16:40:03.439960804 +0200
+@@ -42,8 +42,12 @@
+            enum nl80211_iftype type, u32 *flags, struct vif_params *params);
+ static s32 __wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
+            struct cfg80211_scan_request *request, struct cfg80211_ssid *this_ssid);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
++static s32 wl_cfg80211_scan(struct wiphy *wiphy, struct cfg80211_scan_request *request);
++#else
+ static s32 wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
+            struct cfg80211_scan_request *request);
++#endif
+ static s32 wl_cfg80211_set_wiphy_params(struct wiphy *wiphy, u32 changed);
+ static s32 wl_cfg80211_join_ibss(struct wiphy *wiphy, struct net_device *dev,
+            struct cfg80211_ibss_params *params);
+@@ -56,7 +60,11 @@
+            struct cfg80211_connect_params *sme);
+ static s32 wl_cfg80211_disconnect(struct wiphy *wiphy, struct net_device *dev, u16 reason_code);
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
++static s32 wl_cfg80211_set_tx_power(struct wiphy *wiphy,
++           struct wireless_dev *wdev,
++           enum nl80211_tx_power_setting type, s32 dbm);
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
+ static s32 wl_cfg80211_set_tx_power(struct wiphy *wiphy,
+            enum nl80211_tx_power_setting type, s32 dbm);
+ #else
+@@ -64,7 +72,12 @@
+            enum tx_power_setting type, s32 dbm);
+ #endif
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
++static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy,
++           struct wireless_dev *wdev, s32 *dbm);
++#else
+ static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, s32 *dbm);
++#endif
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 38)
+ static s32 wl_cfg80211_config_default_key(struct wiphy *wiphy,
+@@ -570,10 +583,18 @@
+ }
+ 
+ static s32
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
++wl_cfg80211_scan(struct wiphy *wiphy, struct cfg80211_scan_request *request)
++#else
+ wl_cfg80211_scan(struct wiphy *wiphy, struct net_device *ndev,
+                  struct cfg80211_scan_request *request)
++#endif
+ {
+ 	s32 err = 0;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
++    struct wl_priv *wl = wiphy_to_wl(wiphy);
++    struct net_device *ndev = wl_to_ndev(wl);
++#endif
+ 
+ 	CHECK_SYS_UP();
+ 	err = __wl_cfg80211_scan(wiphy, ndev, request, NULL);
+@@ -742,7 +763,11 @@
+ 	else
+ 		memset(&join_params.params.bssid, 0, ETHER_ADDR_LEN);
+ 
+-	wl_ch_to_chanspec(params->channel, &join_params, &join_params_size);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
++ 	wl_ch_to_chanspec(params->channel, &join_params, &join_params_size);
++#else
++	wl_ch_to_chanspec(params->chandef.chan, &join_params, &join_params_size);
++#endif
+ 
+ 	err = wl_dev_ioctl(dev, WLC_SET_SSID, &join_params, join_params_size);
+ 	if (err) {
+@@ -1099,7 +1124,12 @@
+ 	return err;
+ }
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
++static s32
++wl_cfg80211_set_tx_power(struct wiphy *wiphy,
++            struct wireless_dev *wdev,
++            enum nl80211_tx_power_setting type, s32 dbm)
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
+ static s32
+ wl_cfg80211_set_tx_power(struct wiphy *wiphy, enum nl80211_tx_power_setting type, s32 dbm)
+ #else
+@@ -1158,7 +1188,12 @@
+ 	return err;
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0)
++static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy,
++            struct wireless_dev *wdev, s32 *dbm)
++#else
+ static s32 wl_cfg80211_get_tx_power(struct wiphy *wiphy, s32 *dbm)
++#endif
+ {
+ 	struct wl_priv *wl = wiphy_to_wl(wiphy);
+ 	struct net_device *ndev = wl_to_ndev(wl);
+@@ -1466,7 +1501,10 @@
+ 		scb_val.val = 0;
+ 		err = wl_dev_ioctl(dev, WLC_GET_RSSI, &scb_val, sizeof(scb_val_t));
+ 		if (err) {
+-			WL_ERR(("Could not get rssi (%d)\n", err));
++			if (err != -EINVAL) {
++				// Don't fill syslog with EINVAL error
++				WL_ERR(("Could not get rssi (%d)\n", err));
++			}
+ 			return err;
+ 		}
+ 		rssi = dtoh32(scb_val.val);
+@@ -1811,7 +1849,7 @@
+ 	notif_bss_info->frame_len = offsetof(struct ieee80211_mgmt, u.beacon.variable) +
+ 	                            wl_get_ielen(wl);
+ 	freq = ieee80211_channel_to_frequency(notif_bss_info->channel 
+-#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 39)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39)
+ 		,(notif_bss_info->channel <= CH_MAX_2G_CHANNEL) ? IEEE80211_BAND_2GHZ : IEEE80211_BAND_5GHZ
+ #endif
+ 	);
+@@ -2042,9 +2080,14 @@
+ 	struct bcm_tlv *tim;
+ 	u16 beacon_interval;
+ 	s32 dtim_period;
+-	size_t ie_len;
+-	u8 *ie;
+ 	s32 err = 0;
++ 	size_t ie_len;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
++ 	u8 *ie;
++#else
++	const u8 *ie;
++	const struct cfg80211_bss_ies *ies;
++#endif
+ 
+ 	ssid = &wl->profile->ssid;
+ 	bss = cfg80211_get_bss(wl_to_wiphy(wl), NULL, (s8 *)&wl->bssid,
+@@ -2074,10 +2117,25 @@
+ 		beacon_interval = cpu_to_le16(bi->beacon_period);
+ 	} else {
+ 		WL_DBG(("Found the AP in the list - BSSID %pM\n", bss->bssid));
+-		ie = bss->information_elements;
+-		ie_len = bss->len_information_elements;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)
++ 		ie = bss->information_elements;
++ 		ie_len = bss->len_information_elements;
++#else
++		ies = (const struct cfg80211_bss_ies*)rcu_dereference(bss->ies);
++		if (!ies) {
++			/* This should never happen */
++			err = -EIO;
++			goto update_bss_info_out;
++		}
++		ie = ies->data;
++		ie_len = (size_t)(ies->len);
++#endif
+ 		beacon_interval = bss->beacon_interval;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
+ 		cfg80211_put_bss(bss);
++#else
++		cfg80211_put_bss(wl_to_wiphy(wl), bss);
++#endif
+ 	}
+ 
+ 	tim = bcm_parse_tlvs(ie, ie_len, WLAN_EID_TIM);
+--- a/src/wl/sys/wl_iw.h	2011-10-22 18:56:55.000000000 +0200
++++ b/src/wl/sys/wl_iw.h	2013-04-22 16:39:57.186346520 +0200
+@@ -16,6 +16,7 @@
+ #define _wl_iw_h_
+ 
+ #include <linux/wireless.h>
++#include <linux/semaphore.h>
+ 
+ #include <typedefs.h>
+ #include <proto/ethernet.h>
+--- a/src/wl/sys/wl_linux.c	2013-04-22 16:39:29.735047581 +0200
++++ b/src/wl/sys/wl_linux.c	2013-04-22 16:39:57.186346520 +0200
+@@ -40,7 +40,9 @@
+ #include <linux/pci_ids.h>
+ #define WLC_MAXBSSCFG		1	
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 4, 0)
+ #include <asm/system.h>
++#endif
+ #include <asm/io.h>
+ #include <asm/irq.h>
+ #include <asm/pgtable.h>
+@@ -387,7 +389,11 @@
+ #endif
+ 	.ndo_get_stats = wl_get_stats,
+ 	.ndo_set_mac_address = wl_set_mac_address,
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
++	.ndo_set_rx_mode = wl_set_multicast_list,
++#else
+ 	.ndo_set_multicast_list = wl_set_multicast_list,
++#endif
+ 	.ndo_do_ioctl = wl_ioctl
+ };
+ 
+@@ -1581,11 +1587,7 @@
+ 	}
+ 
+ 	WL_LOCK(wl);
+-	if (!capable(CAP_NET_ADMIN)) {
+-		bcmerror = BCME_EPERM;
+-	} else {
+-		bcmerror = wlc_ioctl(wl->wlc, ioc.cmd, buf, ioc.len, wlif->wlcif);
+-	}
++	bcmerror = wlc_ioctl(wl->wlc, ioc.cmd, buf, ioc.len, wlif->wlcif);
+ 	WL_UNLOCK(wl);
+ 
+ done1:

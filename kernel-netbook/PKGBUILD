@@ -43,7 +43,7 @@ true && pkgname=('kernel-netbook' 'kernel-netbook-headers')
 makedepends=('dmidecode' 'xmlto' 'docbook-xsl' 'linux-firmware' 'lzop')
 optdepends=('hibernate-script: tux on ice default script' 'tuxonice-userui: graphical interface for toi [AUR]')
 _basekernel=3.8
-pkgver=${_basekernel}.7
+pkgver=${_basekernel}.8
 pkgrel=1
 pkgdesc="Static kernel for netbooks with Intel Atom N270/N280/N450/N550/N570 such as eeepc with the add-on of external firmware (broadcom-wl) and patchset (BFS + TOI + BFQ optional) - Only Intel GPU - Give more power to your netbook!"
 options=('!strip')
@@ -94,13 +94,11 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-${_basekernel}.tar.bz
 	"license.patch"
 	"user-ioctl.patch"
 	"change-default-console-loglevel.patch"
-	"fix-brcmsmac-timeout-1.patch"
-	"fix-brcmsmac-timeout-2.patch"
 	"kernel-netbook.preset"
 	"config")
 
 md5sums=('fcd1d2e60e1033c935a13ef81c89ea2d'
-         '411bfdadfb9b5ae82580d574416d3235'
+         '95224572ecb1f4c7089683c1f06ef2b4'
          'e15d8b6b9a9a29a2ffe7b64abb408c00'
          '03eca1c188c076041f8d74100d55d659'
          '90b11395c702610bf4b42e72913f23f8'
@@ -112,8 +110,6 @@ md5sums=('fcd1d2e60e1033c935a13ef81c89ea2d'
          '160a6054ceca92db60898852983a42d4'
          '1e06c9b7d92d61eab05e970116837144'
          'f3def2cefdcbb954c21d8505d23cc83c'
-	 '3abe1fde853cd16645c4fb0427e99f50'
-         '8409d9c66502b957b31d85721bd3d745'
          'a9c018cb0b9caa90f03ee90b71a2c457'
          '87ab2cc8b50bed3693f694ca63dad3f0')
          
@@ -150,11 +146,6 @@ build() {
     msg "Minorversion patch"
     patch -p1 -i "${srcdir}/patch-${pkgver}"
   fi
-
-  # The commit b6fc28a158076ca2764edc9a6d1e1402f56e1c0c introduces a lot 
-  # of timeout using the brcmsmac with BCM4313. Reverting: 
-  patch -p1 -i ${srcdir}/fix-brcmsmac-timeout-1.patch
-  patch -p1 -i ${srcdir}/fix-brcmsmac-timeout-2.patch
 
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
