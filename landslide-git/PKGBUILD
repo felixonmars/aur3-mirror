@@ -1,5 +1,6 @@
 # Maintainer: Stunts <f.pinamartins@gmail.com>
-pkgname=landslide-git
+_pkgname=landslide
+pkgname=${_pkgname}-git
 pkgver=20121108
 pkgrel=1
 pkgdesc="Generate html5 slideshow from Markdown or reStructuredText sources"
@@ -10,34 +11,22 @@ depends=('python2' 'python2-pygments' 'python2-markdown' 'python2-jinja' 'python
 makedepends=('python2-distribute')
 optdepends=('princexml')
 conflicts=(landslide)
-source=()
+source=('git+git://github.com/adamzap/landslide.git')
+md5sums=('SKIP')
 
-_gitroot=git://github.com/adamzap/landslide.git
-_gitname=landslide
-_builddir=$srcdir/$_gitname-build
+pkgver() {
+  cd ${srcdir}/${_pkgname}
+  git log -1 --format='%cd' --date=short | tr -d --'-'
+}
 
 build() {
-  cd $srcdir/
-  msg "Connecting to github.com GIT server...."
-  if [ -d $srcdir/$_gitname ] ; then
-    pushd $_gitname && git pull origin && popd
-    msg "The local files are updated."
-  else
-    git clone $_gitroot
-  fi
-  msg "GIT checkout done or server timeout"
-  msg "Starting make..."
-  rm -rf $_gitname-build
-  
-  git clone $_gitname $_gitname-build
-  cd $_builddir
-
+  cd ${srcdir}/${_pkgname}
   python2 setup.py build
 }
 
 package() {
-    cd $_builddir
-    python2 setup.py install --prefix=/usr --root="$pkgdir"
-    find "$pkgdir/" -name '*.pyc' -delete
-    find "$pkgdir/" -type d -empty -delete
+  cd ${srcdir}/${_pkgname}
+  python2 setup.py install --prefix=/usr --root="${pkgdir}"
+  find "${pkgdir}/" -name '*.pyc' -delete
+  find "${pkgdir}/" -type d -empty -delete
 }
