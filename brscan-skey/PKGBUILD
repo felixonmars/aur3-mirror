@@ -1,6 +1,6 @@
 pkgname=brscan-skey
 pkgver=0.2.4_0
-pkgrel=1
+pkgrel=2
 pkgdesc="Brother scan-key-tool"
 depends=('sane' 'sed')
 makedepends=('libarchive')
