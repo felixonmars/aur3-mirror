@@ -6,16 +6,23 @@
 
 pkgname=wine-multimedia-git
 _basename=wine
-pkgver=20130404
-# Equivalent non-git version, for provides
-_equivver=1.5.28
+pkgver=1.5.28.165.gc11da76
 pkgrel=1
+
+epoch=1
 
 pkgdesc="Wine with Maarten Lankhorst's multimedia patches, including PulseAudio support (git version)"
 url="http://www.winehq.com"
 arch=(i686 x86_64)
 license=(LGPL)
 install=wine.install
+
+# Wine gitweb:             http://source.winehq.org/git/wine.git
+# Multimedia tree gitweb:  http://repo.or.cz/w/wine/multimedia.git
+source=(30-win32-aliases.conf
+        wine-multimedia::git://repo.or.cz/wine/multimedia.git)
+sha1sums=('023a5c901c6a091c56e76b6a62d141d87cce9fdb'
+          'SKIP')
 
 _depends=(
   fontconfig      lib32-fontconfig
@@ -57,7 +64,7 @@ makedepends=(autoconf ncurses bison perl fontforge flex prelink
   oss
   samba
 )
-
+  
 optdepends=(
   giflib          lib32-giflib
   libpng          lib32-libpng
@@ -84,11 +91,10 @@ optdepends=(
 # rebase itself all that often.
 _rebase=1
 
-# Wine gitweb:             http://source.winehq.org/git/wine.git
-# Multimedia tree gitweb:  http://repo.or.cz/w/wine/multimedia.git
-_gitroot=git://repo.or.cz/wine/multimedia.git
-_gitname=wine-multimedia
-_upstream=git://source.winehq.org/git/wine.git
+if [ $_rebase -eq 1 ]; then
+    source[${#source[@]}]='git://source.winehq.org/git/wine.git'
+    sha1sums[${#sha1sums[@]}]='SKIP'
+fi
 
 if [[ $CARCH == i686 ]]; then
   # Strip lib32 etc. on i686
@@ -96,71 +102,57 @@ if [[ $CARCH == i686 ]]; then
   makedepends=(${makedepends[@]/*32-*/} ${_depends[@]})
   makedepends=(${makedepends[@]/*-multilib*/})
   optdepends=(${optdepends[@]/*32-*/})
-  provides=("wine=$_equivver")
+  provides=("wine=$pkgver")
   conflicts=('wine')
 else
   makedepends=(${makedepends[@]} ${_depends[@]})
-  provides=("wine=$_equivver" "bin32-wine=$_equivver" "wine-wow64=$_equivver")
+  provides=("wine=$pkgver" "bin32-wine=$pkgver" "wine-wow64=$pkgver")
   conflicts=('wine' 'bin32-wine' 'wine-wow64')
   replaces=('bin32-wine')
 fi
 
-build() {
-  cd "$srcdir"
-  
-  # Get source
-  if [ ! -d "$_gitname" ]; then
-      (
-          # The reason we clone upstream and add a remote
-          # to multimedia is mainly because repo.or.cz
-          # is much slower - it could be done either way.
-          msg2 "Cloning wine git"
-          git clone "$_upstream" "$_gitname"
-          cd "$_gitname"
-          
-          msg2 "Fetching multimedia git"
-          git remote add multimedia "$_gitroot"
-          git fetch multimedia
-          git checkout -b multimedia multimedia/master
-      )
-  fi
-  (
-      cd "$_gitname"
-      msg2 "Updating multimedia git"
-      git checkout -f multimedia/master
-      git fetch multimedia
-      # NOTE This is necessary as this repo frequently rebases. If you're trying
-      #      to add your own work too, you're on your own!
-      git reset --hard multimedia/master
-      git clean -fd
-      
-      if [ "$_rebase" -gt 0 ]; then
-        msg2 "Pulling upstream patches onto multimedia git"
-        git fetch origin
-        # Make a 'temp' branch to rebase on upstream
-        git branch -D temp || true
-        git checkout -b temp
+pkgver() {
+    if [ "$_rebase" -eq 1 ]; then
+        cd "$srcdir"/wine
+    else
+        cd "$srcdir"/wine-multimedia
+    fi
+    local ver=$(git describe --always | sed 's/-/./g')
+    echo ${ver#wine.}
+}
 
-        git merge --squash -Xours origin/master || true
-        # -Xours resolves conflicts by just keeping the multimedia branch versions,
-        # this might return errors due to deleted files, which don't present a problem
-        # to the build
-      fi
-  )
+build() {
+  cd "$srcdir/wine-multimedia"
+
+  if [ "$_rebase" -eq 1 ]; then
+      # Try to auto-rebase onto upstream
+      msg2 "Attempting to auto-rebase onto latest upstream. Set _rebase to 0 to disable this."
+      git remote add upstream "$srcdir"/wine || true
+      git fetch upstream
+      git rebase upstream/master
+      local ret=$?
+      while [ $ret -ne 0 ]; do
+          msg2 "SKIPPING patch that no longer applies: $(cat .git/rebase-apply/msg-clean)"
+          git rebase --skip
+          ret=$?
+      done
+  fi
+  
   
   # Get rid of old build dirs
   rm -rf $_basename-{32,64}-build
   mkdir $_basename-32-build
 
-  # These additional CFLAGS solve FS#27662
-  export CPPFLAGS="${CPPFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
+  # These additional CFLAGS solve FS#27662 and FS#34195
+  export CFLAGS="${CFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
+  export CXXFLAGS="${CXXFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
 
   if [[ $CARCH == x86_64 ]]; then
     msg2 "Building Wine-64..."
 
     mkdir $_basename-64-build
     cd "$srcdir/$_basename-64-build"
-    ../$_gitname/configure \
+    ../wine-multimedia/configure \
       --prefix=/usr \
       --libdir=/usr/lib \
       --with-x \
@@ -180,7 +172,7 @@ build() {
 
   msg2 "Building Wine-32..."
   cd "$srcdir/$_basename-32-build"
-  ../$_gitname/configure \
+  ../wine-multimedia/configure \
     --prefix=/usr \
     --with-x \
     --without-gstreamer \
@@ -209,6 +201,11 @@ package() {
       libdir="$pkgdir/usr/lib" \
       dlldir="$pkgdir/usr/lib/wine" install
   fi
+
+  # Font aliasing settings for Win32 applications
+  install -d "$pkgdir"/etc/fonts/conf.{avail,d}
+  install -m644 "$srcdir/30-win32-aliases.conf" "$pkgdir/etc/fonts/conf.avail"
+  ln -s ../conf.avail/30-win32-aliases.conf "$pkgdir/etc/fonts/conf.d/30-win32-aliases.conf"
 }
 
 # vim:set ts=8 sts=2 sw=2 et:
