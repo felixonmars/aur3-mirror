@@ -2,7 +2,7 @@
 
 pkgname=acpi_call-git
 pkgver=20121230
-pkgrel=1
+pkgrel=2
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
 url=("http://github.com/mkottman/acpi_call")
@@ -15,8 +15,13 @@ install=acpi_call.install
 _gitroot=("https://github.com/mkottman/acpi_call.git")
 _gitname=("acpi_call")
 
+if [ "$CARCH" = "x86_64" ]; then
+  source=('acpi_call-x86_64.patch')
+  sha1sums=('2cfb22deca7687b87d3cbd06dbd1d59e73210f62')
+fi
+
 build() {
-  warning "Please make sure kernel headers are built/installed for the kernel acpi_call will be used with ::"
+  warning "Please make sure linux kernel headers are built/installed for the kernel acpi_call will be used with ::"
   warning "example #1: 'pacman -S linux-headers'"
   warning "example #2: 'pacman -S linux-lts-headers'"
   cd ${srcdir}
@@ -32,7 +37,7 @@ build() {
   fi
   msg "Checkout completed"
 
- ## Build
+ ## Create an 'acpi_call-build' Directory
   rm -rf ${srcdir}/${_gitname}-build
   cp -r ${srcdir}/${_gitname} ${srcdir}/${_gitname}-build
   cd ${srcdir}/${_gitname}-build
@@ -40,6 +45,14 @@ build() {
   if [ -d /usr/lib/modules ] ; then
      sed -i 's|/lib/modules/|/usr/lib/modules/|g' ./Makefile || return 1
   fi
+
+ ## x86_64 Patch
+  if [ "$CARCH" = "x86_64" ]; then
+      msg "Patching for x86_64 systems"
+      patch -p1 -i ${srcdir}/acpi_call-x86_64.patch
+  fi  
+
+ ## Build
   make
 }
 package() {
@@ -63,8 +76,9 @@ package() {
   install -Dm644 README.md \
     ${pkgdir}/usr/share/${_gitname}/README.md
 
-  warning "The following kernel module build instructions *will fail* if your kernel headers aren't built/installed!"
-  # the following code was reused graciously from bbswitch-git PKGBUILD
+  warning "The following kernel module build procedure *will fail* if your kernel headers are not built/installed!"
+
+ ## the following code was reused from the 'bbswitch-git' PKGBUILD
   _PACKAGES=`pacman -Qsq linux`
   _KERNELS=`pacman -Ql $_packages | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g'`
 
@@ -85,21 +99,4 @@ package() {
       fi
     done
   done
-
-
-#  warning "The following kernel module build instructions *will fail* if your kernel headers aren't built/installed!"
-  #for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*version //g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
-#  for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*x86 boot sector//g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
-#    msg2 "Building module for $_kernver..."
-
-    # KDIR is necessary even when cleaning
-    #make KDIR=/usr/src/linux-${_kernver} clean
-#    make KDIR=/usr/src/linux-${_kernver}
-
-#    if [ -d /usr/lib/modules ] ; then
-#      install -D -m644 acpi_call.ko ${pkgdir}/usr/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
-#    else
-#      install -D -m644 acpi_call.ko ${pkgdir}/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
-#    fi
-#  done
 }
