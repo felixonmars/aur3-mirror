@@ -1,2 +1,2 @@
 #!/bin/sh
-mono /usr/lib/MoMA/MoMA.exe $@
+mono /usr/lib/MoMA/MoMA.exe --nogui $@
