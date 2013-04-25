@@ -1,13 +1,13 @@
 # Contributor : eduard_pustobaev <eduard_pustobaev@mail.ru>
 
 pkgname=lightlang-git
-pkgver=20111115
+pkgver=20130425
 pkgrel=1
 pkgdesc="LightLang - system of electronic dictionaries for Linux."
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/lightlang"
 license="GPL"
-depends=('qt' 'pyqt' 'python2-pyqt' 'python-xlib' 'sox')
+depends=('qt4' 'python2-pyqt' 'python-xlib' 'sox')
 makedepends=('git' 'autoconf')
 provides=('lightlang')
 replaces=('lightlang-svn')
