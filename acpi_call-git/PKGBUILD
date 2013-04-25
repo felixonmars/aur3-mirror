@@ -64,17 +64,42 @@ package() {
     ${pkgdir}/usr/share/${_gitname}/README.md
 
   warning "The following kernel module build instructions *will fail* if your kernel headers aren't built/installed!"
-  for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*version //g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
+  # the following code was reused graciously from bbswitch-git PKGBUILD
+  _PACKAGES=`pacman -Qsq linux`
+  _KERNELS=`pacman -Ql $_packages | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g'`
+
+   # Find all extramodules directories
+  _EXTRAMODULES=`find /usr/lib/modules -name version | sed 's|\/usr\/lib\/modules\/||; s|\/version||'`
+
+  # Loop through all detected kernels
+  for _kernver in $_KERNELS; do
     msg2 "Building module for $_kernver..."
+
+    # Loop through all detected extramodules directories
+    for _moduledirs in $_EXTRAMODULES; do
+      # Check which extramodules directory corresponds with the built module
+      if [ `cat "/usr/lib/modules/${_moduledirs}/version"` = $_kernver ]; then
+        mkdir -p "${pkgdir}/usr/lib/modules/${_moduledirs}/"
+        install -D -m644 acpi_call.ko "${pkgdir}/usr/lib/modules/${_moduledirs}/"
+        gzip "${pkgdir}/usr/lib/modules/${_moduledirs}/acpi_call.ko"
+      fi
+    done
+  done
+
+
+#  warning "The following kernel module build instructions *will fail* if your kernel headers aren't built/installed!"
+  #for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*version //g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
+#  for _kernver in $(file /boot/* | grep "Linux kernel" | sed -e 's/^.*x86 boot sector//g' -e 's/ .*$//g' | grep -vi memdisk | xargs); do
+#    msg2 "Building module for $_kernver..."
 
     # KDIR is necessary even when cleaning
     #make KDIR=/usr/src/linux-${_kernver} clean
-    make KDIR=/usr/src/linux-${_kernver}
+#    make KDIR=/usr/src/linux-${_kernver}
 
-    if [ -d /usr/lib/modules ] ; then
-      install -D -m644 acpi_call.ko ${pkgdir}/usr/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
-    else
-      install -D -m644 acpi_call.ko ${pkgdir}/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
-    fi
-  done
+#    if [ -d /usr/lib/modules ] ; then
+#      install -D -m644 acpi_call.ko ${pkgdir}/usr/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
+#    else
+#      install -D -m644 acpi_call.ko ${pkgdir}/lib/modules/${_kernver}/kernel/drivers/acpi/acpi_call.ko
+#    fi
+#  done
 }
