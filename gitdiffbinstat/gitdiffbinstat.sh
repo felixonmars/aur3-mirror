@@ -377,7 +377,7 @@ echo -e "   ${GREEN}${binary_files_added_amount}${NC} binary ${binary_files_adde
 binary_files_renamed_amount=`awk '/\ \|\ Bin$/' ${diffstat_renames} | wc -l`
 if  [ "${binary_files_renamed_amount}" != "0" ] ; then  # yes, we did
 	# note: the following section can be improved
-	for i in `cat ${diffstat_renames} | sed -e 's/{//' -e 's/\ =>.*}//' | awk '{print $1}' ` ; do # this hack is neccessary since git diff ${obj}  -M100% -l999999  --stat=1000,2000 --diff-filter="R"   does no longer show file size
+	for i in `cat ${diffstat_renames} | sed -e 's/{//' -e 's/\ =>.*}//' | awk '{print $1}' | sed s@//@/@i ` ; do # this hack is neccessary since git diff ${obj}  -M100% -l999999  --stat=1000,2000 --diff-filter="R"   does no longer show file size
 		cat ${diffstat_renames_workaround_dels} | grep "${i}"
 	done | awk '{ sum+=$4} END {print sum}' > ${diffstat_file_move_rm_workaround}
 	binary_files_renamed_size_before=`cat ${diffstat_file_move_rm_workaround} `
