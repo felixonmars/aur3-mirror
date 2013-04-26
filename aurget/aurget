@@ -55,7 +55,7 @@ aur_info_url() {
 }
 
 aur_multiinfo_url() {
-  local params=''
+  local params='' arg
 
   for arg; do
     params+="&arg\[\]=$(url_encode "$arg")"
@@ -116,21 +116,28 @@ prompt() {
 
 prompt_to_edit() {
   local name="$1" pkgbuild="$2"; shift 2
-  local reason="${*:-sourcing for dependencies}"
+  local action="${*:-sourcing for dependencies}"
 
   case "${edit_pkgbuilds:-prompt}" in
     never)  return 0 ;;
-    prompt) prompt "Edit $name's PKGBUILD before $reason" || return 0 ;;
+    prompt) prompt "Edit $name's PKGBUILD before $action" || return 0 ;;
   esac
 
   $EDITOR "$pkgbuild" || die "editor returned non-zero ($?), aborting"
 
-  prompt "Continue $reason"
+  prompt "Continue $action"
 }
 
 set_defaults() {
-  build_directory="$PWD"
+  local config_re=' --config +([^ ]+) '
+
   debug=false
+  user_config="${XDG_CONFIG_HOME:-$HOME/.config}/aurgetrc"
+
+  [[ " $* " =~ " --debug " ]] && debug=true
+  [[ " $* " =~ $config_re  ]] && user_config="${BASH_REMATCH[1]}"
+
+  build_directory="$PWD"
   devels=false
   discard_sources=true
   ignore_packages=''
@@ -157,6 +164,13 @@ set_defaults() {
   nocolor="\e[0m"
 }
 
+source_config() {
+  if [[ -r "$user_config" ]]; then
+    debug "sourcing user configuration from $colorM$user_config$nocolor"
+    source "$user_config"
+  fi
+}
+
 set_no_color() {
   colorR=''
   colorG=''
@@ -170,9 +184,42 @@ set_no_color() {
   makepkg_options+=' --nocolor'
 }
 
-source_config() {
-  local config="${XDG_CONFIG_HOME:-$HOME/.config}/aurgetrc"
-  [[ -r "$config" ]] && source "$config"
+parse_options() {
+  while [[ -n "$1" ]]; do
+    case "$1" in
+      -S)            opmode='install'                                ;;
+      -Sy)           opmode='install'; sync_mode='install'           ;;
+      -Sb)           opmode='install'; sync_mode='build'             ;;
+      -Sd)           opmode='install'; sync_mode='download'          ;;
+      -Su)           opmode='upgrade'                                ;;
+      -Syu|-Suy)     opmode='upgrade'; sync_mode='install'           ;;
+      -Sbu|-Sub)     opmode='upgrade'; sync_mode='build'             ;;
+      -Sdu|-Sud)     opmode='upgrade'; sync_mode='download'          ;;
+      -Ss)           opmode='search' ; search_mode='search'          ;;
+      -Ssq|-Sqs)     opmode='search' ; search_mode='quiet'           ;;
+      -Si|-Ssi|-Sis) opmode='search' ; search_mode='info'            ;;
+      -Sp|-Ssp|-Sps) opmode='search' ; search_mode='print'           ;;
+      --ignore)      shift; ignore_packages+=" $1"                   ;;
+      --noconfirm)   noconfirm=true; makepkg_options+=" --noconfirm" ;;
+      --nocolor)     set_no_color                                    ;;
+      --devel)       devels=true                                     ;;
+      --deps)        resolve_dependencies=true                       ;;
+      --nodeps)      resolve_dependencies=false                      ;;
+      --edit)        edit_pkgbuilds='always'                         ;;
+      --noedit)      edit_pkgbuilds='never'                          ;;
+      --discard)     discard_sources=true                            ;;
+      --nodiscard)   discard_sources=false                           ;;
+      -h|--help)     message; exit                                   ;;
+      --)            shift; arguments+=( "$@" ); return              ;;
+      --debug)       :                                               ;;
+      --config)      : ; shift                                       ;;
+      -*)            warn "unknown option $1, treating as makepkg argument..."
+                     makepkg_options+=" $1"                          ;;
+      *)             arguments+=( "$1" )                             ;;
+    esac
+
+    shift
+  done
 }
 
 create_temp_directory() {
@@ -190,21 +237,19 @@ enter_build_directory() {
 
 # Search {{{
 execute_search() {
-  local mode="$1"; shift
+  [[ "$opmode" == 'search' ]] || return 1
 
-  debug "executing search for $colorG$@$nocolor (mode: $colorG$mode$nocolor)"
+  debug "executing search for $colorG$@$nocolor (mode: $colorG$search_mode$nocolor)"
 
-  case "$mode" in
-    search) do_search  "$*" ;;
-    info)   do_info    "$@" ;;
-    quiet)  rpc_search "$*" | sort | cut -d '|' -f 1 ;;
+  case "$search_mode" in
+    search) rpc_search    "$*" | sort | print_search ;;
+    info)   rpc_multiinfo "$@" | sort | print_info   ;;
+    quiet)  rpc_search    "$*" | sort | cut -d '|' -f 1 ;;
     print)  for name; do pkgbuild "$name"; done ;;
   esac
-
-  exit 0
 }
 
-do_search() {
+print_search() {
   local name version description outofdate ood
 
   while IFS='|' read -r name version description _ outofdate _; do
@@ -213,10 +258,10 @@ do_search() {
     ( echo -e "${colorM}aur/$colorW$name $colorG$version$nocolor $ood"
       echo -e "    ${description//\\\///}"
     ) 2>/dev/null
-  done < <(rpc_search "$*" | sort)
+  done
 }
 
-do_info() {
+print_info() {
   local name version description url outofdate ood='No'
 
   while IFS='|' read -r name version description url outofdate _; do
@@ -229,19 +274,26 @@ do_info() {
       echo -e "${colorW}Out of date : $nocolor$ood"
       echo -e "${colorW}Description : $nocolor${description//\\\///}\n"
     ) 2>/dev/null
-  done < <(rpc_multiinfo "$@" | sort)
+  done
 }
 # }}}
 
 # Dependency handling {{{
+set_dependencies() {
+  $resolve_dependencies || return
+
+  info 'Resolving dependencies...'
+  create_temp_directory
+  resolve "${arguments[@]}"
+}
+
 resolve() {
   local name dep
 
   # global: dependencies[]
+  # global: arguments[]
 
   for name; do
-    debug "resolving $colorG$name$nocolor (resolved so far: $colorG${#dependencies[@]}$nocolor)"
-
     if source_pkgbuild "$name"; then
       depends=($(pacman -T -- ${depends[@]} ${makedepends[@]}))
       depends=("${depends[@]%>*}")
@@ -252,7 +304,7 @@ resolve() {
         resolve "$dep"
       done
 
-      [[ ! " ${arguments[*]} " =~ " $name " ]] && dependencies+=( "$name" )
+      [[ " ${arguments[*]} " =~ " $name " ]] || dependencies+=( "$name" )
     fi
   done
 }
@@ -261,16 +313,18 @@ source_pkgbuild() {
   local name="$1" pkgbuild="$temp_directory/${1}_PKGBUILD"
 
   if [[ ! -f "$pkgbuild" ]]; then
+    debug "resolving $colorG$name$nocolor (resolved so far: $colorG${#dependencies[@]}$nocolor)"
+
     if pkgbuild "$name" > "$pkgbuild"; then
       if prompt_to_edit "$name" "$pkgbuild"; then
         debug "sourcing PKGBUILD for $colorG$name$nocolor"
         source "$pkgbuild"
         return 0
       fi
+    else
+      debug "PKGBUILD ${colorR}not$nocolor available for $colorG$name$nocolor, assuming repository package"
     fi
   fi
-
-  debug "no PKGBUILD available for $colorG$name$nocolor"
 
   touch "$pkgbuild"
   return 1
@@ -278,6 +332,13 @@ source_pkgbuild() {
 # }}}
 
 # Available upgrades {{{
+add_available_upgrades() {
+  [[ "$opmode" == 'upgrade' ]] || return
+
+  info 'Starting AUR upgrade...'
+  arguments=( $(available_upgrades) "${arguments[@]}" )
+}
+
 available_upgrades() {
   local versions name version vers versN check
 
@@ -309,7 +370,6 @@ available_upgrades() {
       debug "upgrade available for $colorG$name$nocolor (new version)"
       echo "$name"
     fi
-
   done < <(rpc_multiinfo "${!versions[@]}")
 }
 # }}}
@@ -324,8 +384,6 @@ set_targets() {
 
   (( $# )) || return
 
-  info 'Searching AUR...'
-
   debug "setting targets for $colorG$@$nocolor (dependency flag: $colorG$dep$nocolor)"
 
   while IFS='|' read -r name version _; do
@@ -336,27 +394,30 @@ set_targets() {
       fi
     fi
 
-    if [[ -z "${versions[$name]}" ]]; then
-      versions[$name]=$version
-      deps[$name]=$dep
-    fi
+    versions[$name]=$version
+    deps[$name]=$dep
   done < <(rpc_multiinfo "$@")
 }
 
 process_targets() {
-  local name version
+  local name version packages
 
   # global: versions[]
   # global: deps[]
 
-  echo -en "\n${colorY}Targets (${#versions[@]}):$nocolor "
-
   for name; do
-    version=${versions[$name]}
-    [[ -n "$version" ]] && echo -n "${name}-$version "
+    version="${versions[$name]}"
+
+    if [[ -n "$version" ]]; then
+      packages+="${name}-$version "
+    else
+      die "target not found: $name"
+    fi
   done
 
-  prompt "\n\nProceed with installation" || exit 0
+  echo -e "\n${colorY}Targets ($#):$nocolor $packages\n"
+
+  prompt "Proceed with installation" || exit 0
 
   enter_build_directory
 
@@ -388,6 +449,8 @@ process_target() {
     fi
 
     build_target "$name"
+
+    discard_sources "$name"
   fi
 }
 
@@ -417,21 +480,21 @@ build_target() {
     fi
   fi
 
-  debug "build finished"
+  cd ..
 
-  cd .. && discard_sources "$name"
+  debug "build finished"
 }
 
 discard_sources() {
   local name="$1"
 
   if ! $discard_sources; then
-    debug 'keeping sources (discard false)'
+    debug "keeping sources for $colorG$name$nocolor (discard false)"
     return
   fi
 
-  if $keep_devels && is_devel "${name##*/}"; then
-    debug 'keeping sources (development package)'
+  if $keep_devels && is_devel "$name"; then
+    debug "keeping sources for $colorG$name$nocolor (development package)"
     return
   fi
 
@@ -485,6 +548,8 @@ Usage: aurget [ -h | -S* [ --options ] [ -- ] <arguments> ]
         --ignore <package>
                         add additional packages to be ignored
 
+        --config <file> source <file> for user configuration
+
         -h, --help      display this
 
   Any unrecognized options will be passed directly to makepkg.
@@ -493,74 +558,27 @@ EOF
 }
 # }}}
 
-# Main {{{
-set_defaults
+set_defaults "$@"
 
 source_config
 
-while [[ -n "$1" ]]; do
-  case "$1" in
-    -S)            opmode='install'                                ;;
-    -Sy)           opmode='install'; sync_mode='install'           ;;
-    -Sb)           opmode='install'; sync_mode='build'             ;;
-    -Sd)           opmode='install'; sync_mode='download'          ;;
-    -Su)           opmode='upgrade'                                ;;
-    -Syu|-Suy)     opmode='upgrade'; sync_mode='install'           ;;
-    -Sbu|-Sub)     opmode='upgrade'; sync_mode='build'             ;;
-    -Sdu|-Sud)     opmode='upgrade'; sync_mode='download'          ;;
-    -Ss)           opmode='search' ; search_mode='search'          ;;
-    -Ssq|-Sqs)     opmode='search' ; search_mode='quiet'           ;;
-    -Si|-Ssi|-Sis) opmode='search' ; search_mode='info'            ;;
-    -Sp|-Ssp|-Sps) opmode='search' ; search_mode='print'           ;;
-    --ignore)      shift; ignore_packages+=" $1"                   ;;
-    --noconfirm)   noconfirm=true; makepkg_options+=" --noconfirm" ;;
-    --nocolor)     set_no_color                                    ;;
-    --devel)       devels=true                                     ;;
-    --deps)        resolve_dependencies=true                       ;;
-    --nodeps)      resolve_dependencies=false                      ;;
-    --edit)        edit_pkgbuilds='always'                         ;;
-    --noedit)      edit_pkgbuilds='never'                          ;;
-    --discard)     discard_sources=true                            ;;
-    --nodiscard)   discard_sources=false                           ;;
-    --debug)       debug=true                                      ;;
-    -h|--help)     message; exit                                   ;;
-    --)            shift; arguments+=( "$@" ); return              ;;
-    -*)
-      warn "unknown option $1, treating as makepkg argument..."
-      makepkg_options+=" $1"
-      ;;
-
-    *) arguments+=( "$1" ) ;;
-  esac
-
-  shift
-done
-
 [[ ! -t 1 ]] && set_no_color
 
-[[ "$opmode" == 'search' ]] && execute_search "$search_mode" "${arguments[@]}"
+parse_options "$@"
 
-if [[ "$opmode" == 'upgrade' ]]; then
-  info 'Starting AUR upgrade...'
-  arguments=( $(available_upgrades) "${arguments[@]}" )
-fi
+execute_search "${arguments[@]}" && exit
+
+add_available_upgrades
 
 (( "${#arguments[@]}" )) || err_no_targets
+
+set_dependencies
 
 declare -A versions
 declare -A deps
 
-if $resolve_dependencies; then
-  create_temp_directory
-
-  info 'Resolving dependencies...'
-
-  resolve "${arguments[@]}"
-
-  set_targets 1 "${dependencies[@]}"
-fi
-
+info 'Searching AUR...'
+set_targets 1 "${dependencies[@]}"
 set_targets 0 "${arguments[@]}"
 
 process_targets "${dependencies[@]}" "${arguments[@]}"
-# }}}
