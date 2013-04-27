@@ -2,4 +2,4 @@
 
 cd /usr/share/java/protege
 
-sh run.sh $@
+CMD_OPTIONS="-Dapple.laf.useScreenMenuBar=true -Xdock:name=Protege" sh run.sh $@
