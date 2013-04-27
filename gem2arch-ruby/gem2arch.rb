@@ -34,15 +34,12 @@ package() {
 
 def download(gem_name, gem_ver = nil)
   version = gem_ver || Gem::Requirement.default
-
-  all = Gem::Requirement.default
   dep = Gem::Dependency.new gem_name, version
 
   puts "Fetch #{gem_name} spec"
 
-  specs_and_sources = Gem::SpecFetcher.fetcher.fetch dep, all
-  specs_and_sources.sort_by { |spec,| spec.version }
-  spec, source_uri = specs_and_sources.last
+  specs_and_sources, errs = Gem::SpecFetcher.fetcher.spec_for_dependency dep
+  spec, source_url = specs_and_sources.sort_by { |spec,| spec.version }.first
 
   if spec.nil? then
     $stderr.puts "Could not find #{gem_name} in any repository"
@@ -51,8 +48,7 @@ def download(gem_name, gem_ver = nil)
 
   puts "Downloaded #{spec.full_name}"
 
-  path = Gem::RemoteFetcher.fetcher.download spec, source_uri
-  FileUtils.mv path, "#{spec.full_name}.gem"
+  source_url.download spec
 
   return spec
 end
