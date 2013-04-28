@@ -1,7 +1,7 @@
 # Maintainer: 謝致邦 <Yeking@Red54.com>
 
 pkgname=aecium
-pkgver=20130331
+pkgver=20130428
 pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
