@@ -5,6 +5,58 @@
 ###
 AUR='https://aur.archlinux.org'
 
+# Help message {{{
+message() {
+  cat << EOF
+Usage: aurget [ -h | -S* [ --options ] [ -- ] <arguments> ]
+
+  Options:
+
+        -S  <package>   process <package> using your default sync_mode
+
+        -Sd <package>   download <package>
+        -Sb <package>   download and build <package>
+        -Sy <package>   download, build, and install <package>
+
+        -Su             process available upgrades using your default sync_mode
+
+        -Sdu            download available upgrades
+        -Sbu            download and build available upgrades
+        -Syu            download, build, and install available upgrades
+
+        -Ss  <term>     search aur for <term>
+        -Ssq <term>     search aur for <term>, print only package names
+        -Sp  <package>  print the PKGBUILD for <package>
+        -Si  <package>  print extended info for <package>
+
+        --devel         only affects -Su, add all development packages
+
+        --deps          resolve dependencies
+        --nodeps        don't resolve dependencies
+
+        --edit          prompt to edit all pkgbuilds
+        --noedit        don't prompt to edit any pkgbuilds
+
+        --discard       discard source files after building
+        --nodiscard     don't discard source files after building
+
+        --nocolor       disable coloring
+
+        --noconfirm     auto-answer all prompts
+
+        --ignore <package>
+                        add additional packages to be ignored
+
+        --config <file> source <file> for user configuration
+
+        -h, --help      display this
+
+  Any unrecognized options will be passed directly to makepkg.
+
+EOF
+}
+# }}}
+
 # Support {{{
 die() { error $*; exit 1; }
 
@@ -83,6 +135,16 @@ is_devel() { [[ "$1" =~ -(git|hg|svn|darcs|csv|bzr)$ ]]; }
 
 is_ignored() { [[ " $ignore_packages " =~ " $1 " ]]; }
 
+buildpkg() {
+  debug "executing $colorY$makepkg $makepkg_options $@$nocolor"
+
+  if $silent; then
+    $makepkg $makepkg_options "$@" --noconfirm &>/dev/null
+  else
+    $makepkg $makepkg_options "$@"
+  fi
+}
+
 prompt() {
   local a
 
@@ -114,6 +176,25 @@ prompt_to_edit() {
 
   prompt "Continue $action"
 }
+
+prompt_to_install() {
+  local name
+
+  printf "\n${colorY}Targets ($#):$nocolor "
+
+  for name; do
+    printf "${name}-${target_versions[$name]} "
+  done
+
+  printf "\n\n"
+
+  prompt "Proceed with installation" || exit 0
+}
+
+nothing_to_do() {
+  printf " there is nothing to do\n"
+  exit 0
+}
 # }}}
 
 # Initialization {{{
@@ -137,7 +218,8 @@ set_defaults() {
   opmode='install'
   resolve_dependencies=false
   search_mode='search'
-  sync_mode='build'
+  silent=false
+  sync_mode='install'
   temp_directory='/tmp/aurget'
 
   EDITOR="${EDITOR:-$VISUAL}"
@@ -200,6 +282,7 @@ parse_options() {
       --noedit)      edit_pkgbuilds='never'                          ;;
       --discard)     discard_sources=true                            ;;
       --nodiscard)   discard_sources=false                           ;;
+      --silent)      silent=true                                     ;;
       -h|--help)     message; exit                                   ;;
       --)            shift; arguments+=( "$@" ); return              ;;
       --debug)       :                                               ;;
@@ -227,8 +310,15 @@ enter_build_directory() {
 # }}}
 
 # Search {{{
-execute_search() {
+#
+# Perform an AUR search based on $arguments[]. Returns 1 if we're not
+# searching.
+#
+##
+perform_search() {
   [[ "$opmode" == 'search' ]] || return 1
+
+  set -- "${arguments[@]}"
 
   debug "searching for $colorG$*$nocolor (mode: $colorG$search_mode$nocolor)"
 
@@ -267,65 +357,19 @@ print_info() {
 }
 # }}}
 
-# Dependency handling {{{
-set_dependencies() {
-  $resolve_dependencies || return
-
-  info 'Resolving dependencies...'
-  create_temp_directory
-  resolve "${arguments[@]}"
-}
-
-resolve() {
-  local name dep
-
-  # global: dependencies[]
-  # global: arguments[]
-
-  for name; do
-    if source_pkgbuild "$name"; then
-      depends=($(pacman -T -- ${depends[@]} ${makedepends[@]}))
-      depends=("${depends[@]%>*}")
-      depends=("${depends[@]%=*}")
-      depends=("${depends[@]%<*}")
-
-      for dep in "${depends[@]}"; do
-        resolve "$dep"
-      done
-
-      [[ " ${arguments[*]} " =~ " $name " ]] || dependencies+=( "$name" )
-    fi
-  done
-}
-
-source_pkgbuild() {
-  local name="$1" pkgbuild="$temp_directory/${1}_PKGBUILD"
-
-  if [[ ! -f "$pkgbuild" ]]; then
-    debug "resolving $colorG$name$nocolor (resolved so far: $colorG${#dependencies[@]}$nocolor)"
-
-    if pkgbuild "$name" > "$pkgbuild"; then
-      if prompt_to_edit "$name" "$pkgbuild"; then
-        debug "sourcing PKGBUILD for $colorG$name$nocolor"
-        source "$pkgbuild"
-        return 0
-      fi
-    else
-      debug "PKGBUILD ${colorR}not$nocolor available for $colorG$name$nocolor, assuming repository package"
-    fi
-  fi
-
-  touch "$pkgbuild"
-  return 1
-}
-# }}}
-
-# Available upgrades {{{
+# Add available upgrades {{{
+#
+# Adds any available upgrades to the front of the $arguments[] array.
+# Returns 1 if we're not processing upgrades.
+#
+##
 add_available_upgrades() {
-  [[ "$opmode" == 'upgrade' ]] || return
+  [[ "$opmode" == 'upgrade' ]] || return 1
 
   info 'Starting AUR upgrade...'
   arguments=( $(available_upgrades) "${arguments[@]}" )
+
+  (( "${#arguments[@]}" )) || nothing_to_do
 }
 
 available_upgrades() {
@@ -340,12 +384,8 @@ available_upgrades() {
   debug "found $colorG${#versions[@]}$nocolor foreign packages to check"
 
   while IFS='|' read -r name versN _; do
-    if is_devel $name; then
-      if $devels; then
-        debug "upgrade available for $colorG$name$nocolor (development package)"
-        printf "$name\n"
-      fi
-
+    if is_devel "$name"; then
+      $devels && output_upgrade "$name" "development package"
       continue
     fi
 
@@ -356,38 +396,108 @@ available_upgrades() {
     debug "checking $colorG$name$nocolor ($vers => $versN)"
 
     (( $check > 0 )) && warn "$name: local ($vers) is newer than aur ($versN)"
-
-    if (( $check < 0 )); then
-      debug "upgrade available for $colorG$name$nocolor (new version)"
-      printf "$name\n"
-    fi
+    (( $check < 0 )) && output_upgrade "$name" "$vers => $versN"
   done < <(rpc_info "${!versions[@]}")
+}
+
+output_upgrade() {
+  local name="$1" reason="$2"
+
+  if is_ignored "$name"; then
+    warn "$name: ignoring package upgrade ($reason)"
+  else
+    debug "will upgrade $colorG$name$nocolor ($reason)"
+    printf "$name\n"
+  fi
 }
 # }}}
 
-# Target handling {{{
-err_no_targets() {
-  if [[ "$opmode" == 'upgrade' ]]; then
-    printf "nothing to upgrade\n"
-    exit 0
-  fi
+# Resolve dependencies {{{
+#
+# Resolves dependencies for $arguments[] and places them in the
+# $dependencies[] array. Returns 1 if we're not resolving dependencies.
+#
+##
+resolve_dependencies() {
+  $resolve_dependencies || return 1
 
-  die 'no targets specified (use -h for help)'
+  info 'Resolving dependencies...'
+  create_temp_directory
+  resolve "${arguments[@]}"
 }
 
-set_targets() {
-  local dep="$1"; shift
-  local name version
-
-  # global: targets[]
-  # global: target_versions[]
-  # global: target_deps[]
-
-  (( $# )) || return
-
-  debug "setting targets for $colorG$@$nocolor (dependency flag: $colorG$dep$nocolor)"
+resolve() {
+  local name dep
 
   for name; do
+    if source_pkgbuild "$name"; then
+      depends=($(pacman -T -- ${depends[@]} ${makedepends[@]}))
+      depends=("${depends[@]%>*}")
+      depends=("${depends[@]%=*}")
+      depends=("${depends[@]%<*}")
+
+      for dep in "${depends[@]}"; do
+        resolve "$dep"
+      done
+
+      [[ " ${arguments[*]} " =~ " $name " ]] || dependencies=( "$name" "${dependencies[@]}" )
+    fi
+  done
+}
+
+source_pkgbuild() {
+  local name="$1" pkgbuild="$temp_directory/${1}_PKGBUILD"
+
+  if [[ ! -f "$pkgbuild" ]]; then
+    if pkgbuild "$name" > "$pkgbuild"; then
+      debug "PKGBUILD found for $colorG$name$nocolor"
+
+      if prompt_to_edit "$name" "$pkgbuild"; then
+        debug "executing ${colorY}source $pkgbuild$nocolor"
+        source "$pkgbuild"
+        return 0
+      fi
+    else
+      debug "PKGBUILD ${colorR}not found$nocolor for $colorG$name$nocolor"
+    fi
+  fi
+
+  touch "$pkgbuild"
+  return 1
+}
+# }}}
+
+# Setup targets {{{
+#
+# For each package in the $dependencies[] and $arguments[] arrays,
+# ensure they are available in the AUR, handle ignored packages, and
+# populate the $targets[], $target_versions[], and $target_deps[] arrays
+# for later processing.
+#
+###
+setup_targets() {
+  local name version versions
+
+  declare -A versions
+
+  set -- "${dependencies[@]}" "${arguments[@]}"
+
+  (( "$#" )) || die 'no targets specified (use -h for help)'
+
+  debug "setting up $colorG$#$nocolor targets for processing"
+
+  info 'Searching AUR...'
+
+  while IFS='|' read -r name version _; do
+    debug "found $colorG$name$nocolor in the AUR at version $colorG$version$nocolor"
+    versions[$name]=$version
+  done < <(rpc_info "$@")
+
+  for name; do
+    version="${versions[$name]}"
+
+    [[ -z "$version" ]] && die "target not found: $name"
+
     if is_ignored "$name"; then
       if ! prompt "$name is in ignore_packages. Install anyway"; then
         warn "skipping target: $name"
@@ -396,72 +506,61 @@ set_targets() {
     fi
 
     targets+=( "$name" )
-  done
-
-  while IFS='|' read -r name version _; do
     target_versions[$name]=$version
-    target_deps[$name]=$dep
-  done < <(rpc_info "$@")
-}
-
-process_targets() {
-  local name version packages
-
-  # global: target_versions[]
-
-  for name; do
-    version="${target_versions[$name]}"
-
-    if [[ -n "$version" ]]; then
-      packages+="${name}-$version "
-    else
-      die "target not found: $name"
-    fi
   done
 
-  printf "\n${colorY}Targets ($#):$nocolor $packages\n\n"
+  (( "${#targets[@]}" )) || nothing_to_do
 
-  prompt "Proceed with installation" || exit 0
+  prompt_to_install "${targets[@]}"
 
-  enter_build_directory
+  for name in "${dependencies[@]}"; do target_deps[$name]=1; done
+  for name in "${arguments[@]}";    do target_deps[$name]=0; done
+}
+# }}}
+
+# Process targets {{{
+#
+# For each entry in the $targets[] array, download, build, or install it
+# based on the current sync_mode. Uses $target_deps[] to know if the
+# package is a dependency or not.
+#
+###
+process_targets() {
+  local name
+
+  set -- "${targets[@]}"
 
   [[ "$sync_mode" == 'install' ]] && makepkg_options+=' --install'
 
+  debug "processing $colorG$#$nocolor targets"
+
+  enter_build_directory
+
   for name; do
-    [[ -n "${target_versions[$name]}" ]] && process_target "$name"
+    info 'Retrieving taurball from AUR...'
+
+    if [[ "$sync_mode" == 'download' ]]; then
+      debug "downloading $colorG$name$nocolor to filesystem"
+
+      if ! taurball "$name" > "${name}.tar.gz"; then
+        warn "$name: failed to retrieve aur sources"
+        continue
+      fi
+    else
+      debug "extracting $colorG$name$nocolor directly"
+
+      if ! taurball "$name" | tar xfz -; then
+        warn "$name: failed to retrieve aur sources"
+        continue
+      fi
+
+      build_target "$name" && discard_sources "$name"
+    fi
   done
 }
 
-process_target() {
-  local name="$1"
-
-  info 'Retrieving taurball from AUR...'
-
-  if [[ "$sync_mode" == 'download' ]]; then
-    debug "downloading $colorG$name$nocolor to filesystem"
-
-    if ! taurball "$name" > "${name}.tar.gz"; then
-      warn "$name: failed to retrieve aur sources"
-      return 1
-    fi
-  else
-    debug "extracting $colorG$name$nocolor directly"
-
-    if ! taurball "$name" | tar xfz -; then
-      warn "$name: failed to retrieve aur sources"
-      return 1
-    fi
-
-    build_target "$name"
-
-    discard_sources "$name"
-  fi
-}
-
 build_target() {
-  local name="$1" pkgbuild
-
-  # global: target_deps[]
+  local name="$1" pkgbuild ret=0
 
   info 'Building package...'
 
@@ -477,16 +576,17 @@ build_target() {
   if prompt_to_edit "$name" './PKGBUILD' 'building'; then
     if (( ${target_deps[$name]} )); then
       debug "executing $colorY$makepkg $makepkg_options --asdeps$nocolor"
-      $makepkg $makepkg_options --asdeps || die "dependency package $name failed to build, aborting"
+      buildpkg --asdeps || die "dependency package $name failed to build, aborting"
     else
-      debug "executing $colorY$makepkg $makepkg_options$nocolor"
-      $makepkg $makepkg_options || warn "package $name failed to build, skipping"
+      buildpkg || { ret=1; warn "package $name failed to build, skipping"; }
     fi
   fi
 
-  cd ..
+  cd .. || die 'unable to change out of source directory'
 
-  debug "build finished"
+  debug "build finished, returning $colorG$ret$nocolor"
+
+  return $ret
 }
 
 discard_sources() {
@@ -510,58 +610,6 @@ discard_sources() {
 }
 # }}}
 
-# Help message {{{
-message() {
-  cat << EOF
-Usage: aurget [ -h | -S* [ --options ] [ -- ] <arguments> ]
-
-  Options:
-
-        -S  <package>   process <package> using your default sync_mode
-
-        -Sd <package>   download <package>
-        -Sb <package>   download and build <package>
-        -Sy <package>   download, build, and install <package>
-
-        -Su             process available upgrades using your default sync_mode
-
-        -Sdu            download available upgrades
-        -Sbu            download and build available upgrades
-        -Syu            download, build, and install available upgrades
-
-        -Ss  <term>     search aur for <term>
-        -Ssq <term>     search aur for <term>, print only package names
-        -Sp  <package>  print the PKGBUILD for <package>
-        -Si  <package>  print extended info for <package>
-
-        --devel         only affects -Su, add all development packages
-
-        --deps          resolve dependencies
-        --nodeps        don't resolve dependencies
-
-        --edit          prompt to edit all pkgbuilds
-        --noedit        don't prompt to edit any pkgbuilds
-
-        --discard       discard source files after building
-        --nodiscard     don't discard source files after building
-
-        --nocolor       disable coloring
-
-        --noconfirm     auto-answer all prompts
-
-        --ignore <package>
-                        add additional packages to be ignored
-
-        --config <file> source <file> for user configuration
-
-        -h, --help      display this
-
-  Any unrecognized options will be passed directly to makepkg.
-
-EOF
-}
-# }}}
-
 declare -a arguments
 declare -a dependencies
 declare -a targets
@@ -569,23 +617,15 @@ declare -A target_versions # name->version
 declare -A target_deps     # name->is-dep?
 
 set_defaults "$@"
-
 source_config
 
 [[ ! -t 1 ]] && set_no_color
 
 parse_options "$@"
 
-execute_search "${arguments[@]}" && exit
-
-add_available_upgrades
-
-(( "${#arguments[@]}" )) || err_no_targets
-
-set_dependencies
-
-info 'Searching AUR...'
-set_targets 1 "${dependencies[@]}"
-set_targets 0 "${arguments[@]}"
-
-process_targets "${targets[@]}"
+perform_search || {
+  add_available_upgrades
+  resolve_dependencies
+  setup_targets
+  process_targets
+}
