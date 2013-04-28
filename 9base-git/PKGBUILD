@@ -1,7 +1,7 @@
 # Maintainer: Army
 _pkgname=9base
 pkgname=$_pkgname-git
-pkgver=0.103.51cdf11
+pkgver=20130427.104
 pkgrel=1
 pkgdesc="a port of various original Plan 9 tools for Unix, based on plan9port."
 arch=('i686' 'x86_64')
@@ -9,8 +9,8 @@ url="http://tools.suckless.org/9base"
 license=('GPL')
 depends=('bash')
 makedepends=('git')
-provides=('9base' '9base-hg')
-conflicts=('9base')
+provides=("$_pkgname" "$_pkgname-hg")
+conflicts=("$_pkgname" "$_pkgname-hg")
 source=("$_pkgname::git+http://git.suckless.org/$_pkgname" 9 plan9.sh)
 md5sums=('SKIP'
          'ae7108b9f26bed388e9055f35eef2986'
@@ -18,7 +18,7 @@ md5sums=('SKIP'
 
 pkgver() {
   cd "$srcdir/$_pkgname"
-  echo "0.$(git rev-list --count HEAD).$(git describe --always)"
+  echo "$(git log -1 --format="%cd" --date=short | sed 's|-||g').$(git rev-list --count master)"
 }
 
 prepare() {
@@ -34,10 +34,6 @@ prepare() {
   esac
 
   sed -i 's#^PREFIX\s.*$#PREFIX = /opt/plan9#' config.mk
-  sed -i 's#^CFLAGS\s*+=#CFLAGS += -DPLAN9PORT #' config.mk
-
-  # Force dynamic linking.  Several of the programs in 9base won't work
-  # when statically linked against the latest glibc.
   sed -i '/-static/d' config.mk
 
 }
