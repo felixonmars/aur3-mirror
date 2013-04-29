@@ -1,10 +1,10 @@
 # Maintainer: loafer <davemorgan353 at btinternet dot com>
 
 pkgname=adv770
-pkgver=2.04
+pkgver=2.07
 pkgrel=1
 pkgdesc="770 points version of Adventure"
-arch=('i686')
+arch=('i686' 'x86_64')
 url="http://www.mipmip.org/adv770"
 license=('unknown')
 source=(http://www.mipmip.org/$pkgname/$pkgname.tgz)
@@ -20,4 +20,4 @@ package() {
   install -D -m644 Adv770.desktop "$pkgdir"/usr/share/applications/Adv770.desktop
   install -D -m644 adv770.png "$pkgdir"/usr/share/icons/HighContrast/128x128/apps/adv770.png
 }
-md5sums=('0b118a44b6177d687f853682eaa8d071')
+md5sums=('34231d1133f66ae065844c8a19912051')
