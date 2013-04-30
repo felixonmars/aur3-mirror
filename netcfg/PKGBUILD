@@ -3,13 +3,13 @@
 
 pkgname=netcfg
 pkgver=3.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Network configuration and profile scripts"
 url="https://github.com/GNU-Pony/netcfg"
 license=("BSD")
 backup=(etc/iftab etc/conf.d/netcfg)
 depends=("coreutils" "dhcpcd" "iproute2")
-#makedepends=('asciidoc')  # The source tarball includes pre-built documentation.
+makedepends=('asciidoc')
 optdepends=('dialog: for the menu based profile and wifi selectors'
             'wpa_supplicant: for wireless networking support'
             'ifplugd: for automatic wired connections through net-auto-wired'
