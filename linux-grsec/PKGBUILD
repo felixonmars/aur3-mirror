@@ -3,15 +3,16 @@
 #   Thomas Baechler <thomas@archlinux.org>
 # Contributors:
 #   henning mueller <henning@orgizm.net>
+#   echoblack <dwyer@tormail.com>
 
 pkgname=linux-grsec
 true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.8
 _grsecver=2.9.1
-_timestamp=201304262208
+_timestamp=201304292056
 pkgver=${_basekernel}.10
-pkgrel=2
+pkgrel=3
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -293,7 +294,7 @@ package_linux-grsec-headers() {
 
 sha256sums=('e070d1bdfbded5676a4f374721c63565f1c969466c5a3e214004a136b583184b'
             '24bc5a613b623657b7ea64a3707d39b56d15fc68791052b81fe5a5d7bd959011'
-            'a4ea0298c2ca87920a0d423e46854c06a7ea1eaba4c026b3565d42bbea11a642'
+            '68f8093d387284d856f4ff8a2c2febd9c4dbaa93181f4a5cc98b4aee3f6df3c5'
             '828a3ee4e746c1b92b1d631dff6aeccc071ddefdac66d732b855e348a1930051'
             '587c7975bcd4ea82ebb4bade3c8996a9a61cc6d49330aa911df6922dace7ab39'
             '1e7477e401c51a3607f435cbd98b0d64f9a6845ecb6957efd80c63112feecef4'
