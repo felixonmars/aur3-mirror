@@ -1,16 +1,18 @@
 # Maintainer: Josh VanderLinden <arch@cloudlery.com>
+# URL https://bitbucket.org/codekoala/7z-sfx-tools
+
 pkgname=7z-sfx-tools
-pkgver=1.4.3
+pkgver=1.5
 pkgrel=1
 pkgdesc="Set of tools for 7z SFX archives"
 arch=('any')
-url="https://bitbucket.org/codekoala/7z-sfx-tools"
+url="http://7zsfx.solta.ru/en/"
 license=('LGPL')
 depends=('p7zip')
 makedepends=('p7zip' 'licenses')
 provides=('7z-sfx-tools')
-source=("http://7zsfx.solta.ru/files/7zsd_tools_143_2367.7z")
-md5sums=('120e7047b518748615d2538be2911128')
+source=("http://7zsfx.solta.ru/files/7zsd_tools_150_2712.7z")
+md5sums=('bc274eedd51c046fc76f5f77c9377d8b')
 
 package() {
   install -d "${pkgdir}/usr/lib/p7zip/"
