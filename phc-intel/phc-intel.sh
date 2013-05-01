@@ -2,7 +2,7 @@
 shopt -s nullglob
 
 if [ "$1" = set ]; then
-	. /etc/phc-intel.conf
+	. /etc/default/phc-intel
 	[ -n "$VIDS" ] || exit
 	for i in $(< /proc/cmdline); do
 		[ $i = nophc ] && exit
@@ -15,9 +15,9 @@ fi
 
 case "$1" in
 start)
-	. /etc/phc-intel.conf
+	. /etc/default/phc-intel
 	if [ -z "$VIDS" ]; then
-		echo '=> Please edit /etc/phc-intel.conf'
+		echo '=> Please edit /etc/default/phc-intel'
 		exit 1
 	fi
 	echo ':: Setting PHC VIDs'
@@ -43,7 +43,7 @@ status)
 		done
 	}
 	echo -n 'PHC status: '
-	. /etc/phc-intel.conf
+	. /etc/default/phc-intel
 	if check_off; then
 		echo 'STOPPED'
 	elif check_on; then
