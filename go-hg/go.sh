@@ -1,2 +1,2 @@
-export GOROOT=/opt/go
-export PATH=$PATH:$GOROOT/bin
+export GOPATH=/usr/lib/go/site
+export GOROOT=/usr/lib/go
