@@ -1,13 +1,12 @@
 {-# OPTIONS -fno-warn-missing-signatures #-}
 import XMonad
-import XMonad.Config.Gnome
 import XMonad.Hooks.DynamicLog
 import XMonad.Util.EZConfig
 
-myConfig = gnomeConfig { modMask = mod4Mask }
+myConfig = defaultConfig { modMask = mod4Mask, terminal = "xfce4-terminal" }
     `additionalKeysP`
-        [ ("M-S-q", spawn "gnome-session-quit --logout --no-prompt")
-        , ("M-f", spawn "nautilus --no-desktop ~/Downloads")
+        [ ("M-f", spawn "nautilus --no-desktop ~/Downloads")
+        , ("M1-C-l", spawn "gnome-screensaver-command --lock")
         , ("M-S-,", spawn "gnome-control-center") ]
 
 main = xmonad =<< xmobar myConfig
