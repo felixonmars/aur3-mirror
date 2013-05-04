@@ -1,13 +1,13 @@
 pkgname=2gis-oskol
-pkgver=14
-pkgrel=4
-pkgdesc="Map of Stary Oskol for 2GIS, April 2013"
+pkgver=15
+pkgrel=2
+pkgdesc="Map of Stary Oskol for 2GIS, May 2013"
 arch=('i686' 'x86_64')
 url="http://oskol.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.2.2')
-source=("http://download.2gis.ru/arhives/2GISData_Staroskol-14.orig.zip")
-md5sums=('bb880e925bdcb3381d30c1f793519ad6')
+depends=('2gis>=3.13.5.1')
+source=("http://download.2gis.ru/arhives/2GISData_Staroskol-15.orig.zip")
+md5sums=('91b67bc4b12c7f776200334d862fafe9')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Staroskol.dgdat" "${pkgdir}/opt/2gis/oskol.dgdat" || return 1
