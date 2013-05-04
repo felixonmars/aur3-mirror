@@ -1,174 +1,127 @@
-# Maintainer: fauno <fauno@kiwwwi.com.ar>
-# Maintainer: Hilton Medeiros <medeiros.hilton at gmail dot com>
-# Contributor: Jonne Haß <me@mrzyx.de>
-# Contributor: Splashy <splash at open-web dot fr>
-
-# After installing, see the Diaspora wiki page for more information:
-# https://wiki.archlinux.org/index.php/Diaspora
-
+# Maintainer: Jonne Haß <me@mrzyx.de>
 pkgbase=diaspora-git
 pkgname=diaspora-git
+_projectname=diaspora
 true && pkgname=('diaspora-mysql-git' 'diaspora-postgresql-git')
-pkgver=20120105
-pkgrel=2
-pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network"
+pkgver=0.0.3.4.237.ge70c259
+pkgrel=1
+pkgdesc="A distributed privacy aware social network (development head)"
 arch=('i686' 'x86_64')
-url="https://diasporafoundation.org/"
+url="http://diasporaproject.org"
 license=('AGPL3')
-depends=('ruby' 'redis' 'imagemagick' 'libxslt' 'net-tools')
-makedepends=('git' 'libmysqlclient' 'postgresql-libs')
-provides=('diaspora')
-install=diaspora.install
-source=('diaspora.bin'
-        'diaspora.rc'
-        'diaspora.logrotate'
-        'diaspora.pam'
-        'diaspora.bashrc')
-md5sums=('547b0015c83da22bd739dc85fd79f9b9'
-         'b7a893271d9ba778f74569eff4190c06'
-         '60f6b3972c73cbc6b1c9ab87c88fb655'
-         '96f82c38f3f540b53f3e5144900acf17'
-         '53867bfd389dd267eefcefb053fecc5b')
+depends=('ruby1.9' 'ruby1.9-bundler' 'redis' 'imagemagick' 'libxslt' 'net-tools')
+makedepends=('git' 'libmysqlclient' 'postgresql-libs' 'nodejs')
+conflicts=('diaspora' 'diaspora-mysql' 'diaspora-postgresql')
+options=(!strip)
+backup=("etc/webapps/$_projectname/diaspora.yml"
+        "etc/webapps/$_projectname/database.yml"
+        "etc/webapps/$_projectname/secret_token.rb")
+install="$_projectname.install"
+source=("git://github.com/$_projectname/$_projectname.git#branch=develop"
+        "$_projectname.install"
+        "$_projectname.service"
+        "$_projectname.bashrc")
 
-_gitroot="git://github.com/diaspora/diaspora.git"
-_gitname="diaspora"
-
-build() {
-  cd "$srcdir"
-
-  msg "Connecting to the Git server..."
-
-  if [[ -d $_gitname ]] ; then
-    pushd $_gitname
-    git pull origin
-    msg "The local files are updated."
-    popd
-  else
-    git clone $_gitroot
-    msg "Git clone done."
-  fi
-
-  msg "Start making..."
-
-  [[ -d $_gitname-build ]] && rm -fr $_gitname-build
-  git clone $_gitname $_gitname-build
-  cd ${srcdir}/${_gitname}-build
-
-  # Symlink configs 
-  ln -s /etc/webapps/$_gitname/application.yml config/application.yml
-  ln -s /etc/webapps/$_gitname/database.yml config/database.yml
-  ln -s /etc/webapps/$_gitname/script_server.yml config/script_server.yml
-  ln -s /etc/webapps/$_gitname/oauth_keys.yml config/oauth_keys.yml
-
-  # Set version header
-  sed "s|git_cmd = \`git log -1 --pretty=\"format:%H %ci\"\`|git_cmd = \"$(git log -1 --pretty="format:%H %ci")\"|" \
-      -i config/initializers/version_header.rb
-
-  # Preconfigure config/script_server.yml.example
-  sed 's|rails_env: "development"|rails_env: "production"|' \
-      -i config/script_server.yml.example
-  
-  # Preconfigure right ca_file
-  sed "s|ca_file: '/etc/pki/tls/certs/ca-bundle.crt' # CentOS|ca_file: '/etc/ssl/certs/ca-certificates.crt' # Arch|" \
-      -i config/application.yml.example
-
-  # We make this now because we do not install the git history
-  # Comply with AGPLv3
-  tar czf public/source.tar.gz  `git ls-tree -r master | awk '{print $4}'`
-
-  # Remove git repo
-  rm -fr .git
-
-  # Create gem cache
-  mkdir -p ${srcdir}/gem-cache
+pkgver() {
+  cd $srcdir/$_projectname
+  git describe --always | sed -e 's|-|.|g' -e 's|^v||'
 }
 
-# Helper
 _package() {
-  cd "${srcdir}"
+  _bundle=bundle-1.9
+  _ruby=ruby-1.9
+  _rake=rake-1.9
+  _db=$1
+  _srcdir=$srcdir/$pkgname-$pkgver
 
-  usrdir="${pkgdir}/usr/share/webapps"
+  msg "Setup build directory"
+  mkdir -p $_srcdir
+  cp -Rf $srcdir/$_projectname/{app,config,db,public,lib,script,vendor,config.ru,Gemfile,Gemfile.lock,Procfile,Rakefile} $_srcdir
 
-  install -d "${usrdir}"
-  cp -a ${_gitname}-build "${usrdir}/${_gitname}"
+  cd $_srcdir
 
-  install -Dm755 $_gitname.bin "$pkgdir/usr/bin/$_gitname"
-  install -Dm755 $_gitname.rc "$pkgdir/etc/rc.d/$_gitname"
-  install -Dm644 $_gitname.logrotate "$pkgdir/etc/logrotate.d/$_gitname"
-  install -Dm644 $_gitname.pam "$pkgdir/etc/pam.d/$_gitname"
-  install -Dm644 $_gitname.bashrc "$usrdir/$_gitname/.bashrc"
+  msg "Bundle dependencies"
+  echo "gem: --no-rdoc --no-ri" > $_srcdir/.gemrc
+  HOME=$_srcdir DB=$_db $_bundle install \
+    --without development test heroku --path vendor/
+  HOME=$_srcdir DB=$_db $_bundle clean
 
-# Set the DB in the environment
-  sed -i "s/-DB-/$DB/g" "$usrdir/$_gitname/.bashrc"
-  sed -i "s/-DB-/$_db_rc/g" "$pkgdir/etc/rc.d/$_gitname"
+  msg "Create secret token"
+  HOME=$_srcdir DB=$_db $_bundle exec $_rake generate:secret_token
 
-  install -Dm644 $_gitname-build/config/application.yml.example "$pkgdir/etc/webapps/$_gitname/application.yml"
-  install -Dm644 $_gitname-build/config/database.yml.example "$pkgdir/etc/webapps/$_gitname/database.yml"
-  install -Dm644 $_gitname-build/config/script_server.yml.example "$pkgdir/etc/webapps/$_gitname/script_server.yml"
-  install -Dm644 $_gitname-build/config/oauth_keys.yml.example "$pkgdir/etc/webapps/$_gitname/oauth_keys.yml"
+  msg "Precompile assets"
+  DB=$_db $_bundle exec $_rake assets:precompile
 
-  # Include all gems
-  cd "${usrdir}/${_gitname}"
-  mkdir -p ${usrdir}/${_gitname}/vendor/ruby/1.9.1/
-  ln -s ${srcdir}/gem-cache ${usrdir}/${_gitname}/vendor/cache
-  ln -s ${srcdir}/gem-cache ${usrdir}/${_gitname}/vendor/ruby/1.9.1/cache
+  msg "Copy contents to package directory"
+  install -dm755 $pkgdir/usr/share/webapps/$_projectname
+  cp -Rf $_srcdir/* $pkgdir/usr/share/webapps/$_projectname/
+  cp -Rf $_srcdir/.bundle $pkgdir/usr/share/webapps/$_projectname/
+  install -Dm644 $_srcdir/.gemrc $pkgdir/usr/share/webapps/$_projectname/.gemrc
+  install -Dm640 $_srcdir/config/initializers/secret_token.rb $pkgdir/etc/webapps/$_projectname/secret_token.rb
+  install -Dm644 $srcdir/$_projectname.service $pkgdir/usr/lib/systemd/system/$_projectname.service
+  install -Dm644 $srcdir/$_projectname.bashrc  $pkgdir/usr/share/webapps/$_projectname/.bashrc
 
-  export GEM_HOME="${PWD}/vendor"
-  export GEM_PATH="${PWD}/vendor"
-  export PATH="${GEM_PATH}/bin:${PATH}"
+  msg "Build source.tar.gz to conform the AGPL"
+  tar czf $pkgdir/usr/share/webapps/$_projectname/public/source.tar.gz \
+          $pkgdir/usr/share/webapps/$_projectname/{app,db,lib,script,Gemfile,Gemfile.lock,Rakefile,Procfile,config.ru}
 
-# TODO extract mysql2 version from Gemfile
-  case $DB in
-    mysql)
-      gem install mysql2 -v "0.2.17" -- --with-mysql-config=/usr/bin/mysql_config
+  msg "Symlink ruby and bundle"
+  install -dm755          $pkgdir/usr/share/webapps/$_projectname/bin 
+  ln -s /usr/bin/$_ruby   $pkgdir/usr/share/webapps/$_projectname/bin/ruby
+  ln -s /usr/bin/$_bundle $pkgdir/usr/share/webapps/$_projectname/bin/bundle
 
-      ;;
-    posgres)
-      gem install pg -- --with-pg-config=/usr/bin/pg_config
+  msg "Prepare configuration files"
+  install -dm750 $pkgdir/etc/webapps/$_projectname
+  install -Dm640 $_srcdir/config/diaspora.yml.example $pkgdir/etc/webapps/$_projectname/diaspora.yml
+  install -Dm640 $_srcdir/config/database.yml.example $pkgdir/etc/webapps/$_projectname/database.yml
 
-      # Preconfigure right subsection in database.yml.example
-      sed -e "s/<<: \*mysql/#<<: \*mysql/" \
-          -e "s/#<<: \*postgres/<<: \*postgres/" \
-          -i $_gitname-build/config/database.yml.example
-      
-      # Preconfigure right db in script_server.yml
-      sed "s/db: \"mysql\"/db: \"postgres\"/" \
-          -i $_gitname-build/config/script_server.yml.example
-      
-  esac
+  sed -i -e "s|#certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'|certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'|" \
+         -e "s|#rails_environment: 'production'|rails_environment: 'production'|" \
+         -e "s|#database: 'mysql'|database: '$_db'|" \
+      $pkgdir/etc/webapps/$_projectname/diaspora.yml
+  sed -i -e "s|<<: \*mysql|<<: *$_db|" \
+         -e "s|#<<: \*postgres||" \
+      $pkgdir/etc/webapps/$_projectname/database.yml
+  sed -i -e "s|%db%|$_db|" \
+      $pkgdir/usr/share/webapps/$_projectname/.bashrc
+  sed -i -e "s|%db%|$_db|" \
+         -e "s|mysql|mysqld|" \
+         -e "s|postgres|postgresql|" \
+      $pkgdir/usr/lib/systemd/system/$_projectname.service
 
-  gem install bundler
-  bundle install --path ${GEM_PATH} --without development test heroku
-
-  install -d $pkgdir/usr/share/licenses/$_gitname/
-  install -Dm644 ${srcdir}/$_gitname-build/{AUTHORS,COPYRIGHT,GNU-AGPL-3.0} \
-                 $pkgdir/usr/share/licenses/$_gitname/
-
-  msg "Removing gem cache"
-  rm -vr ${usrdir}/${_gitname}/vendor/{,ruby/1.9.1/}cache
+  msg "Create symlinks"
+  install -dm755 $pkgdir/var/log/$_projectname
+  install -dm755 $pkgdir/tmp/$_projectname
+  install -dm755 $pkgdir/var/lib/$_projectname/uploads
+  rm -Rf $pkgdir/usr/share/webapps/$_projectname/log \
+         $pkgdir/usr/share/webapps/$_projectname/tmp \
+         $pkgdir/usr/share/webapps/$_projectname/public/uploads
+  ln -s  /etc/webapps/$_projectname/diaspora.yml    $pkgdir/usr/share/webapps/$_projectname/config/diaspora.yml
+  ln -s  /etc/webapps/$_projectname/database.yml    $pkgdir/usr/share/webapps/$_projectname/config/database.yml
+  ln -sf /etc/webapps/$_projectname/secret_token.rb $pkgdir/usr/share/webapps/$_projectname/config/initializers/secret_token.rb
+  ln -sf /var/lib/$_projectname/uploads             $pkgdir/usr/share/webapps/$_projectname/public/uploads
+  ln -sf /tmp/$_projectname                         $pkgdir/usr/share/webapps/$_projectname/tmp
+  ln -sf /var/log/$_projectname                     $pkgdir/usr/share/webapps/$_projectname/log
 }
 
 package_diaspora-mysql-git() {
-    pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network (MySQL version)"
-    provides=('diaspora-mysql' 'diaspora')
-    depends=('ruby' 'redis' 'imagemagick' 'libxslt' 'net-tools' 'mysql' 'libmysqlclient')
-    options=(!strip)
+  true && pkgdesc="$pkgdesc (MySQL)"
+  true && depends=(${depends[@]} 'libmysqlclient' 'mysql')
+  true && conflicts=(${conflicts[@]} 'diaspora-postgresql-git')
 
-    export DB="mysql"
-    export _db_rc="mysqld"
-
-    _package
+  _package mysql
 }
 
 package_diaspora-postgresql-git() {
-    pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network (PostgreSQL version)"
-    provides=('diaspora-postgresql' 'diaspora')
-    depends=('ruby' 'redis' 'imagemagick' 'libxslt' 'net-tools' 'postgresql')
-    options=(!strip)
+  true && pkgdesc="$pkgdesc (PostgreSQL)"
+  true && depends=(${depends[@]} 'postgresql-libs' 'postgresql')
+  true && conflicts=(${conflicts[@]} 'diaspora-mysql-git')
 
-    export DB="postgres"
-    export _db_rc="postgresql"
-
-    _package
+  _package postgres
 }
-pkgdesc="A privacy aware, personally controlled, do-it-all, open source social network"
+
+# vim:set ts=2 sw=2 et:
+sha256sums=('SKIP'
+            '4a8154ded485c8ef6ee657217cadeac9604715f9cc5dac866901bb4c778582f6'
+            '06d6d6b786abbb5126a311da1c64cc7004683875f4ecfd7c2735c584987638a7'
+            'a3e17221e8cdbe5a8073f4725960f794c31208b0098177a296356af293b14596')

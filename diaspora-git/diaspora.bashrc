@@ -1,6 +1,4 @@
-export GEM_HOME="${HOME}/.gems"
-export GEM_PATH="${HOME}/.gems"
-export PATH="${GEM_PATH}/bin:${PATH}"
-export RAILS_ENV="production"
-export DB="-DB-"
-
+export HOME=/usr/share/webapps/diaspora \
+       RAILS_ENV=production \
+       DB=%db%
+export PATH=$HOME/bin:$PATH
