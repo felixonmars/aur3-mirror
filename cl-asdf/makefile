@@ -3,28 +3,17 @@ PKGVER=
 PKGNAME=
 REALNAME=
 IFLAGS=
+CL=
+SRC=
 
-ready :
-#	ln -s ../build/asdf.lisp
+clean : 
+	rm -rf bin/asdf.lisp
 
-#
-#	cat asdf-builder | sed 's,exec sbcl --script,exec $(REALNAME) $(IFLAGS),' > asdf-build.sh
-#	sh asdf-build.sh
-    
-    #case $(pyhaslisps 0) in
-#	('clisp') export _iflags=-i;;
- #       ('sbcl')  export _iflags=--script;;
-  #      ('mkcl')  export _iflags=-shell;;
-   #     ('ecl')	  export _iflags=-shell;;
+ready : 
+	ln -s ../build/asdf.lisp
 
-    #esac
-    
-   # make -f $srcdir/makefile \
-	REALNAME=$(pyhaslisps 0) \
-	IFLAGS=$_iflags \
-	ready
 
-install :
+install : clean
 	# install copyright
 		install -Dm 644 doc/copyright $(DESTDIR)/usr/share/licenses/$(PKGNAME)/copyright
 	# install asdf-pkgver.info
@@ -33,6 +22,7 @@ install :
 		install -Dm 644 $(REALNAME).asd $(DESTDIR)/usr/share/common-lisp/source/$(REALNAME)/$(REALNAME).asd
 	# install asdf.lisp
 		install -Dm 644 build/$(REALNAME).lisp $(DESTDIR)/usr/share/common-lisp/source/$(REALNAME)/$(REALNAME).lisp
+		install -Dm 644 build/$(REALNAME).lisp $(DESTDIR)/usr/share/common-lisp/source/$(REALNAME)/build/$(REALNAME).lisp # for abcl, mkcl, ecl, and sbcl
 	# install *.lisp
 		install -d $(DESTDIR)/usr/share/common-lisp/source/$(REALNAME)
 		install -m 644 -t $(DESTDIR)/usr/share/common-lisp/source/$(REALNAME) *.lisp
