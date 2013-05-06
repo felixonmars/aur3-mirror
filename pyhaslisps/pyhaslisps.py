@@ -18,6 +18,13 @@ def mkaregex(string):
 	a = a + 1
     return regex
 
+def comesWith(what, comeswith):
+    if has(what):
+	if getoutput("pacman -Ql %s | grep -P \"[/]usr[/]bin[/]%s\" | sed \'s:.*/::\'" % ( mkaregex(what), comeswith)) == comeswith:
+	    return True
+	else:
+	    return False
+
 def has(what):
     from re import search
     if search(r'^.*-git$', what):
@@ -40,7 +47,9 @@ def lisps_present():
     if has('abcl'):
 	a = a + ['abcl']
     if has('ccl-bin'):
-	a = a + ['ccl-bin']
+	a = a + ['ccl']
+	if comesWith('ccl-bin', 'ccl64'):
+	    a = a + ['ccl64']
     if has('xcl'):
 	a = a + ['xcl']
     if has('xcl-git'):
