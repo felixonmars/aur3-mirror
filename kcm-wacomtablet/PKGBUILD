@@ -6,7 +6,7 @@
 _basename=wacomtablet
 _content=114856
 pkgname=kcm-$_basename
-pkgver=1.99.8
+pkgver=1.99.9
 pkgrel=1
 url="http://kde-apps.org/content/show.php/wacom+tablet?content=$_content"
 pkgdesc="KDE GUI for the Wacom Linux Drivers"
@@ -29,4 +29,4 @@ package() {
 	cd $_basename-$pkgver
 	make DESTDIR="$pkgdir" install
 }
-sha256sums=('390055e427ccee647d2a4f58f97e117f46f9298bb28bf0eff6f3bd699c3f79b3')
+sha256sums=('805f249e17a34f9d4c2e51bd583821726542361c20001f0ba470f0adcb5f3d2a')
