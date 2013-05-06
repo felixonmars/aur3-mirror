@@ -33,10 +33,10 @@ def lisps_present():
     a = ['']
     if has('clisp'):
 	a = a + ['clisp']
-    if has('sbcl'):
-	a = a + ['sbcl']
-    if has('ecl'):
-	a = a + ['ecl']
+    if has('clisp-gtk2'):
+	a = a + ['clisp']
+    if has('clisp-new-clx'):
+	a = a + ['clisp']
     if has('abcl'):
 	a = a + ['abcl']
     if has('ccl-bin'):
@@ -44,8 +44,30 @@ def lisps_present():
     if has('xcl'):
 	a = a + ['xcl']
     if has('xcl-git'):
-	a = a + ['xcl-git']
-    a.remove('')
+	a = a + ['xcl']
+    if has('cmucl'):
+	a = a + ['cmucl']
+    if has('clojure-git'):
+	a = a + ['clj']
+    if has('clojure'):
+	a = a + ['clj']
+    if has('gcl'):
+	a = a + ['gcl']
+    if has('mkcl'):
+	a = a + ['mkcl']
+    if has('ecl-unicode-git'):
+	a = a + ['ecl']
+    if has('ecl-unicode'):
+	a = a + ['ecl']
+    if has('sbcl-git'):
+	a = a + ['sbcl']
+    if has('sbcl'):
+	a = a + ['sbcl']
+    if has('ecl'):
+	a = a + ['ecl']
+    a.remove('') 
+    a = a + [''] # added in so that if there aren't any lisp implementations installed, the user can be informed that
+#    they need to install one.  
     return a
 def haslisp():
     if getoutput("%s %s" %("pacman -Qsq", "^[c][l][i][s][p]$")) == 'clisp': # clisp is the prefered implementation 
