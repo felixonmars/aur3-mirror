@@ -334,7 +334,7 @@ class sshFs:
 
     def mount(self, User="", Password="", Host="", Dir="", Mountpoint="", Port=22, Timeout=120):
 
-        Command = "sshfs -o allow_other -o nonempty -p %s %s@%s:%s %s" % (Port, User, Host, Dir, Mountpoint)
+        Command = "sshfs -o StrictHostKeyChecking=no -o allow_other -o nonempty -p %s %s@%s:%s %s" % (Port, User, Host, Dir, Mountpoint)
         debug_info("Command : %s" % Command)
 
         child = pexpect.spawn(Command)
