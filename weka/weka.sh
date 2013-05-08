@@ -5,7 +5,7 @@
 # to be increased based on how much memory you wish to allow weka to have.
 # Specifying command line arguments will override the defaults shown here.
 # Example: '-Xmx512m'
-DEFAULT_ARGS='-Xms32m -Xmx256m'
+DEFAULT_ARGS='-Xms32m -Xmx1g'
 
 if [ $# -gt 0 ]; then
 	ARGS="$@"
