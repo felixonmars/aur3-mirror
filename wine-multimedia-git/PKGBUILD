@@ -6,7 +6,7 @@
 
 pkgname=wine-multimedia-git
 _basename=wine
-pkgver=1.5.29
+pkgver=1.5.29.123.g8f7779f
 pkgrel=1
 
 epoch=1
@@ -125,18 +125,41 @@ pkgver() {
 build() {
   cd "$srcdir/wine-multimedia"
 
+  # Try to rebase onto upstream, skipping patches that fail
   if [ "$_rebase" -eq 1 ]; then
-      # Try to auto-rebase onto upstream
+      local failed=0
+      local needreconf
       msg2 "Attempting to auto-rebase onto latest upstream. Set _rebase to 0 to disable this."
       git remote add upstream "$srcdir"/wine || true
       git fetch upstream
-      git rebase upstream/master
-      local ret=$?
+      local ret=0
+      git rebase upstream/master || ret=1
       while [ $ret -ne 0 ]; do
-          msg2 "SKIPPING patch that no longer applies: $(cat .git/rebase-apply/msg-clean)"
-          git rebase --skip
-          ret=$?
+        ret=0
+        # If the configure.ac changed, we usually succeed at rebasing it, but
+        # not the generated 'configure', which an autoreconf fixes
+        if [ ! -z "$(git status -s configure)" ]; then
+          git add configure
+          # If the rebase at least got to a new commit, set needreconf and
+          # continue. Otherwise fall through to skipping.
+          local thiscommit="$(cat .git/rebase-apply/original-commit)"
+          msg2 "merge conflict in configure script, nuking (will autoreconf)"
+          git rebase --continue || ret=1
+          if [ "$ret" -eq 0 ] || [ "$(cat .git/rebase-apply/original-commit)" != "$thiscommit" ]; then
+            needreconf=1
+            continue
+          fi
+        fi
+        warning "SKIPPING patch that no longer applies: $(cat .git/rebase-apply/msg-clean)"
+        ret=0
+        (( ++failed ))
+        git rebase --skip || ret=1
       done
+      if [ ! -z "$needreconf" ]; then
+        msg2 "Merge conflicts in configure script, re-generating"
+        autoreconf -v --force --install
+      fi
+      [ "$failed" -eq 0 ] || warning "$failed wine-multimedia patches failed to rebase on upstream and were dropped"
   fi
 
   cd "$srcdir"
