@@ -1,0 +1,92 @@
+
+# Maintainer: Gustavo Alvarez <sl1pkn07@gmail.com>
+# Based on Gentoo v8.ebuild (http://sources.gentoo.org/cgi-bin/viewvc.cgi/gentoo-x86/dev-lang/v8/)
+
+pkgname=v8-dev
+_pkgname=v8
+pkgver=3.18.5.2
+pkgrel=1
+pkgdesc='Fast and modern Javascript engine (Dev Channel)'
+arch=('i686' 'x86_64')
+url='http://code.google.com/p/v8'
+license=('BSD')
+conflicts=('v8')
+provides=('v8')
+depends=('gcc-libs' 'readline')
+makedepends=('subversion' 'python2' 'pax-utils')
+source=("https://gsdview.appspot.com/chromium-browser-official/${_pkgname}-${pkgver}.tar.bz2")
+sha1sums=('b9356ddf160e716044100d265525cfeaba319752')
+
+[ "$CARCH" = 'i686' ] && _arch=ia32
+[ "$CARCH" = 'x86_64' ] && _arch=x64
+
+prepare() {
+  cd "${srcdir}"
+  rm -fr "${_pkgname}"
+  mv "${_pkgname}-${pkgver}" "${_pkgname}"
+}
+
+build() {
+  cd "${_pkgname}"
+
+  # Fix to really use python2.
+  rm -rf "${srcdir}/python"
+  mkdir "${srcdir}/python"
+  ln -s /usr/bin/python2 "${srcdir}/python/python"
+  export PATH="${srcdir}/python":$PATH
+  find . -type f -exec sed -i -r -e 's|/usr/bin/python$|&2|g' -e 's|(/usr/bin/python2)\.4$|\1|g' {} \;
+
+  # Always build v8 as a shared library with proper SONAME.
+  _flags+=" -Dcomponent=shared_library -Dsoname_version=${pkgver}"
+
+  # Set up architecture to build
+  [ "$CARCH" = 'i686' ] && _flags+=" -Dv8_target_arch=ia32"
+  [ "$CARCH" = 'x86_64' ] && _flags+=" -Dv8_target_arch=x64"
+
+  # Make sure that -Werror doesn't get added to CFLAGS by the build system.
+  # Depending on GCC version the warnings are different and we don't
+  # want the build to fail because of that.
+  _flags+=" -Dwerror="
+
+  # gyp does this only for linux, but we always want to use "out" dir, or
+  # all else below fails due to not finding "out" dir.
+  _flags+=" --generator-output=v8/out"
+
+  # gyp defaults to whatever makes the most sense on the platform at hand,
+  # but we want to build using Makefiles, so force that.
+  _flags+=" -f make"
+
+  build/gyp_v8 --depth=. ${_flags}
+
+  make -C out builddir="${srcdir}/v8/out/Release" V=1 BUILDTYPE=Release "mksnapshot.${_arch}"
+  scanelf -Xxz m "${srcdir}/v8/out/Release/mksnapshot.${_arch}" &> /dev/null
+  make -C out builddir="${srcdir}/v8/out/Release" V=1 BUILDTYPE=Release
+  scanelf -Xxz m "${srcdir}/v8/out/Release/"{cctest,d8,preparser} &> /dev/null
+}
+
+check() {
+  cd "${_pkgname}"
+  LD_LIBRARY_PATH=out/Release/lib.target tools/run-tests.py \
+                --j$(nproc) \
+                --no-presubmit \
+                --outdir=v8/out \
+                --buildbot \
+                --arch=native \
+                --mode=Release \
+                --progress=dots
+}
+
+package() {
+  cd "${_pkgname}"
+
+  install -Dm755 "out/Release/d8" "${pkgdir}/usr/bin/d8"
+  scanelf -Xxz m "${pkgdir}/usr/bin/d8" &> /dev/null
+  install -Dm755 "out/Release/lib.target/libv8.so.${pkgver}" "${pkgdir}/usr/lib/libv8.so.${pkgver}"
+  ln -s "/usr/lib/libv8.so.${pkgver}" "${pkgdir}/usr/lib/libv8.so"
+
+  install -d "${pkgdir}/usr/include"
+  install -m644 include/*.h "${pkgdir}/usr/include"
+
+  install -d "${pkgdir}/usr/share/licenses/v8"
+  install -m644 LICENSE* "${pkgdir}/usr/share/licenses/v8"
+}
