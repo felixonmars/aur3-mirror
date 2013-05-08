@@ -5,14 +5,14 @@
 # Contributor: arjan <arjan@archlinux.org>
 
 pkgname=allegro-git
-pkgver=20121206
+pkgver=20130308
 pkgrel=1
-pkgdesc="Portable library mainly aimed at video game and multimedia programming"
+pkgdesc="A portable library mainly aimed at video game and multimedia programming"
 arch=('x86_64' 'i686')
 url="http://alleg.sourceforge.net/"
-license=('custom')
-depends=('jack' 'libxpm' 'libxxf86dga' 'physfs' 'gtk2' 'openal' 'nvidia-cg-toolkit' 'ffmpeg' 'glu')
-makedepends=('cmake' 'mesa' 'git')
+license=('custom:ZLIB')
+depends=('jack' 'libxpm' 'libxxf86dga' 'libgl' 'physfs' 'gtk2' 'openal' 'nvidia-cg-toolkit' 'ffmpeg')
+makedepends=('cmake' 'glu' 'git')
 optdepends=('pandoc: for making the documentation')
 provides=('allegro')
 conflicts=('allegro')
@@ -43,6 +43,7 @@ build() {
   cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_SKIP_RPATH=ON \
     -DWANT_DOCS=ON \
     -DWANT_DOCS_MAN=OFF \
     -DWANT_PHYSFS=ON
@@ -54,9 +55,9 @@ package() {
   make DESTDIR="$pkgdir" install
 
   install -d "$pkgdir/usr/share/doc/"
-  install -d "$pkgdir/opt/$pkgname/examples"
+  install -d "$pkgdir/opt/$pkgname"
   cp -r docs/html "$pkgdir/usr/share/doc/$pkgname"
-  cp -rf examples/data examples/ex_* "$pkgdir/opt/$pkgname/examples"
+  cp -rf examples/data examples/ex_* "$pkgdir/opt/$pkgname"
 
   cd ..
   install -Dm644 "LICENSE.txt" \
