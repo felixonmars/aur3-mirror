@@ -8,7 +8,7 @@ pkgdesc="4K Video Downloader allows to download video and audio content from You
 arch=('i686' 'x86_64')
 url="http://www.4kdownload.com/it/"
 license=('LGPL2.1-EULA')
-depends=('nvidia-utils' 'fontconfig-ubuntu' 'qt5-base' 'ffmpeg' 'icu' 'x264' 'downverter-deb' 'lame')
+depends=('fontconfig-ubuntu' 'qt5-base' 'ffmpeg' 'icu' 'x264' 'downverter-deb' 'lame')
 install="$name.install"
 #makedepends=('')
 
