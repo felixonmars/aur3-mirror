@@ -10,7 +10,7 @@
 
 pkgname=vuze
 pkgver=5.0.0.0
-pkgrel=4
+pkgrel=5
 ##_ver=${pkgver//./} # Just for reference, this is how it should be done.
 _ver=5000 # So people can download the file from the AUR page directly.
 _extra=
@@ -24,6 +24,8 @@ makedepends=('unzip')
 optdepends=(
 	'xulrunner192: for vuze channels GUI. Long compile ahead.'
 	'webkitgtk2: for vuze channels GUI instead of xulrunner192. Crash prone.'
+	'vuze-plugin-mldht: Talk DHT to uTorrent, Transmission, etc.'
+	'vuze-plugin-i2p: Use the i2p darknet.'
 	)
 install=vuze.install
 options=(!strip)
