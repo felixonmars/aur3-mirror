@@ -9,7 +9,7 @@
 pkgname=vuze-plugin-mldht
 pkgver=1.4.5
 pkgrel=2
-pkgdesc="A Mainline DHT plugin for Vuze. Talk DHT to µTorrent clients."
+pkgdesc="Mainline DHT for Vuze. Talk DHT to µTorrent, Transmission, etc."
 arch=('any')
 url=http://azureus.sourceforge.net/plugin_details.php?plugin=mlDHT
 license=('GPL2')
