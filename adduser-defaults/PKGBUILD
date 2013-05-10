@@ -1,7 +1,7 @@
 # Maintainer: Josh VanderLinden <arch@cloudlery.com>
 pkgname=adduser-defaults
 pkgver=1.15
-pkgrel=2
+pkgrel=3
 pkgdesc="Interactive front end to /usr/sbin/useradd from Slackware Linux (patched for consistent defaults)"
 arch=('any')
 url="http://www.slackware.com/"
@@ -20,7 +20,7 @@ package() {
   install -D LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
   cd "${pkgdir}"
-  patch -Np1 -i ../defaults.patch
+  patch -Np1 -i ../../defaults.patch
 }
 
 # vim:set ts=2 sw=2 et:
