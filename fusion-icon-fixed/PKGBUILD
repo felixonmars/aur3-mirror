@@ -1,0 +1,39 @@
+# Maintainer: Pantelis Panayiotou <p.panayiotou@gmail.com>
+# Original package maintainer: Ronald van Haren <ronald.archlinux.org>
+# Contributor: nesl247 <nesl247@gmail.com>
+# Contributor: JJDaNiMoTh <jjdanimoth@gmail.com>
+
+pkgname=fusion-icon-fixed
+pkgname_orig=fusion-icon
+epoch=1
+pkgver=0.1
+pkgrel=1
+pkgdesc="Simple tray icon for compiz - patched to fix crash caused by glib 2.36.1 (FS34892)"
+arch=('any')
+url="http://www.compiz.org/"
+license=('GPL')
+provides=('fusion-icon=0.1')
+conflicts=('fusion-icon')
+depends=('compiz-core>=0.8.4' 'pygtk' 'compizconfig-python'
+         'hicolor-icon-theme' 'xorg-utils' 'mesa-demos')
+makedepends=('git')
+groups=('compiz-fusion' 'compiz-fusion-kde' 'compiz-fusion-gtk')
+install=fusion-icon.install
+source=("ftp://ftp.archlinux.org/other/community/${pkgname_orig}/${pkgname_orig}-${pkgver}.tar.gz" "fix_glib_crash.patch")
+md5sums=('38e7dfb47b1e7a50c3cd191f9b393842' '4e85873bf0dfdde2c56df4e2ec9861c4')
+
+package() {
+  cd $srcdir/$pkgname_orig
+
+  # python2 fix
+  sed -i 's_@python_@python2_' Makefile
+  for file in $(find . -name '*.py' -print); do
+    sed -i 's_^#!.*/usr/bin/python_#!/usr/bin/python2_' $file
+    sed -i 's_^#!.*/usr/bin/env.*python_#!/usr/bin/env python2_' $file
+  done
+
+  # apply patches
+  patch -p1 -i $srcdir/fix_glib_crash.patch
+  
+  make PREFIX=/usr DESTDIR=$pkgdir install
+}
