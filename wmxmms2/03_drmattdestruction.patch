@@ -1,0 +1,314 @@
+Make wxmms2 compile & work with xmmsclient 0.6DrMattDestruction (closes: #533930, #534196)
+Index: wmxmms2/src/xmms2cif.c
+===================================================================
+--- wmxmms2.orig/src/xmms2cif.c	2009-06-27 20:43:11.000000000 +0200
++++ wmxmms2/src/xmms2cif.c	2009-06-27 20:43:11.000000000 +0200
+@@ -10,10 +10,43 @@
+ #include "xmms2cif.h"
+ #include <libgen.h> /* Needed by basename(char *uri)*/
+ #include "options.h"
+-static int res_has_keyword(xmmsc_result_t *res, const char *key);
++#include <xmmsc/xmmsv.h>
++#include "malloc.h"
+ static uint have_songname;
+ uint songlength;
+ 
++/* note: in case of error, res is freed */
++static int is_error_getval(xmmsc_result_t *res, const char * msg, xmmsv_t **value)
++{
++	const char* errbuf;
++	*value = xmmsc_result_get_value (res);
++
++	if (!*value) {
++		fprintf (stderr, "xmmsc_result_get_value returned null value\n");
++		xmmsc_result_unref(res);
++		return 2;
++	}
++
++
++
++	if (xmmsv_is_error (*value) &&
++	    xmmsv_get_error (*value, &errbuf)) {
++		fprintf (stderr, "%s: %s\n", msg, errbuf);
++
++		xmmsc_result_unref(res);
++		return 1;
++	}
++	return 0;
++}
++
++
++static int is_error(xmmsc_result_t *res, const char * msg)
++{
++	xmmsv_t *value;
++	return is_error_getval(res, msg, &value);
++}
++
++
+ /**
+  * Initiate client for use
+  */
+@@ -38,10 +71,9 @@
+ 	xmmsc_result_t *res;
+ 	res = xmmsc_playback_start (srvr);
+ 	xmmsc_result_wait (res);
+-	if (xmmsc_result_iserror (res)) {
+-		fprintf (stderr, "Couldn't start playback: %s\n",
+-				xmmsc_result_get_error (res));
++	if (is_error(res, "Couldn't start playback")) {
+ 		STATE=S_ERROR;
++		return;
+ 	}else
+ 		STATE=S_PLAY;
+ 	xmmsc_result_unref (res);
+@@ -54,10 +86,9 @@
+ 	xmmsc_result_t *res;
+ 	res = xmmsc_playback_stop (srvr);
+ 	xmmsc_result_wait (res);
+-	if (xmmsc_result_iserror (res)) {
+-		fprintf (stderr, "Couldn't stop playback: %s\n",
+-				xmmsc_result_get_error (res));
++	if (is_error(res, "Couldn't stop playback")) {
+ 		STATE=S_ERROR;
++		return;
+ 	}else
+ 		STATE=S_IDLE;
+ 	xmmsc_result_unref (res);
+@@ -70,10 +101,9 @@
+ 	xmmsc_result_t *res;
+ 	res = xmmsc_playlist_shuffle (srvr, NULL);
+ 	xmmsc_result_wait (res);
+-	if (xmmsc_result_iserror (res)) {
+-		fprintf (stderr, "Couldn't randomize playlist: %s\n",
+-				xmmsc_result_get_error (res));
++	if (is_error (res,"Couldn't randomize playlist" )) {
+ 		STATE=S_ERROR;
++		return;
+ 	}
+ 	xmmsc_result_unref (res);
+ }
+@@ -85,10 +115,9 @@
+ 	xmmsc_result_t *res;
+ 	res = xmmsc_playback_pause(srvr);
+ 	xmmsc_result_wait (res);
+-	if (xmmsc_result_iserror (res)) {
+-		fprintf (stderr, "Couldn't pause playback: %s\n",
+-				xmmsc_result_get_error (res));
++	if (is_error (res,"Couldn't pause playback" )) {
+ 		STATE=S_ERROR;
++		return;
+ 	}else
+ 		STATE=S_PAUSE;
+ 	xmmsc_result_unref (res);
+@@ -101,23 +130,18 @@
+ 	xmmsc_result_t *res;
+ 	res = xmmsc_playlist_set_next_rel(srvr, places);
+ 	xmmsc_result_wait (res);
+-	if (xmmsc_result_iserror (res)) {
+-		fprintf (stderr, "Couldn't go to other file: %s\n",
+-				xmmsc_result_get_error (res));
+-		xmmsc_result_unref (res);
++	if (is_error (res,"Couldn't go to other file")) {
+ 		STATE=S_ERROR;
+ 		return;
+ 	}
+ 	xmmsc_result_unref (res);
+ 	res = xmmsc_playback_tickle (srvr);
+-	if (xmmsc_result_iserror (res)) {
+-		fprintf (stderr, "Couldn't tickle playback: %s\n",
+-				xmmsc_result_get_error (res));
+-		xmmsc_result_unref (res);
++	xmmsc_result_wait (res);
++	if (is_error (res, "Couldn't tickle playback" )) {
+ 		STATE=S_ERROR;
++		return;
+ 	}else
+ 		STATE=S_PLAY;
+-	xmmsc_result_wait (res);
+ 	xmmsc_result_unref (res);
+ }
+ 
+@@ -136,13 +160,6 @@
+ }
+ 
+ /**
+- * Determine if a keyword is available
+- */
+-static int res_has_keyword(xmmsc_result_t *res, const char *key){
+-	return xmmsc_result_get_dict_entry_type (res, key) != XMMSC_RESULT_VALUE_TYPE_NONE;
+-}
+-
+-/**
+  * 
+  */
+ void get_songdata(void){
+@@ -155,9 +172,14 @@
+  */
+ void playtime(void){
+ 	xmmsc_result_t *res;
++	xmmsv_t * value;
+ 	res = xmmsc_playback_playtime(srvr);
+ 	xmmsc_result_wait (res);
+-	if (!xmmsc_result_get_uint (res, &(numinfo.played))) {
++	if (is_error_getval(res, "Server error", &value)){
++	   return;
++	}
++
++	if (!xmmsv_get_int (value, &(numinfo.played))) {
+ 		printf ("No time data\n");
+ 	}
+ 	xmmsc_result_unref (res);
+@@ -168,41 +190,61 @@
+  * Or the filename.
+  */
+ void title_info(void){
+-	static uint id_hold=0;
+-	uint id;
++	static int id_hold=0;
++	int id;
+ 	xmmsc_result_t *res;
++	xmmsv_t *value;
++	xmmsv_t *dict_entry;
++	xmmsv_t *infos;
++	const char  *title, *artist, *url;
+ 	res = xmmsc_playback_current_id(srvr);
+ 	xmmsc_result_wait (res);
+ 	have_songname=0;
+-	if(xmmsc_result_iserror (res) ||
+-			!xmmsc_result_get_uint (res, &id)){
++	if (is_error_getval(res, "Server error", &value)){
++	   return;
++	}
++	if (!xmmsv_get_int (value, &id)) {
+ 		printf( "Damn no id!\n");
+ 		xmmsc_result_unref (res);
+ 		return;
+ 	}
+ 	if (id!=0 && id!=id_hold){
++		xmmsc_result_unref (res);
+ 		res = xmmsc_medialib_get_info (srvr, id);
+ 		xmmsc_result_wait (res);
+-		xmmsc_result_get_dict_entry_int (res,"duration",&(numinfo.length));
+-		if (res_has_keyword(res, "title") &&
+-				res_has_keyword (res, "artist") ) {
+-			xmmsc_entry_format (numinfo.title_info,
+-					sizeof (numinfo.title_info),
+-					"${artist} - ${title}", res);
+-		} else if (res_has_keyword(res, "title")) {
+-			xmmsc_entry_format (numinfo.title_info,
+-					sizeof (numinfo.title_info),
+-					"${title}",res);
+-		} else if (res_has_keyword(res, "url")) {
+-			char *url, *filename;
+-			xmmsc_result_get_dict_entry_string (res, "url", &url);
++
++		if (is_error_getval(res,  "medialib get info returns error", &value)) {
++			return;
++		}
++
++		infos = xmmsv_propdict_to_dict (value, NULL);
++		if (!xmmsv_dict_get (infos, "duration", &dict_entry) ||
++		    !xmmsv_get_int (dict_entry, &(numinfo.length))) {
++			numinfo.length = 0;
++		}
++
++		*numinfo.title_info = 0;
++		if (xmmsv_dict_get (infos, "artist", &dict_entry) &&
++		    xmmsv_get_string (dict_entry, &artist)) {
++			strncpy(numinfo.title_info, artist, sizeof(numinfo.title_info));
++		}
++		if (xmmsv_dict_get (infos, "title", &dict_entry) &&
++		    xmmsv_get_string (dict_entry, &title)) {
++			size_t len = strlen(numinfo.title_info);
++			if (len) { strncpy(numinfo.title_info + len, " - ", sizeof(numinfo.title_info) - len); len+=3;}
++			 strncpy(numinfo.title_info + len, title, sizeof(numinfo.title_info) - len);
++		}
++		if (!*numinfo.title_info && xmmsv_dict_get (infos, "url", &dict_entry) &&
++		    xmmsv_get_string (dict_entry, &url)) {
++			char * filename;
+ 			/* Taking a risk at segfault here ;-) */
+-			if ((filename=basename(url))!=NULL) {
++			if ((filename=basename((char*)url))!=NULL) {
+ 				strncpy(numinfo.title_info,filename,
+-						sizeof(numinfo.title_info)-1);
++					sizeof(numinfo.title_info));
+ 			}
+ 		}
+-		if (strlen(numinfo.title_info)>0)
++
++		if(*numinfo.title_info)
+ 			have_songname=1;
+ 		id_hold=id;
+ 	}
+@@ -221,16 +263,17 @@
+ 		return;
+ 	}
+ 	xmmsc_result_t *res;
+-	unsigned int state;
++	int state;
+ 	res =  xmmsc_playback_status(srvr);
+ 	xmmsc_result_wait(res);
+-	if(xmmsc_result_iserror(res)) {
+-		printf( "Could not get playback status: %s\n", xmmsc_result_get_error(res) );
+-		state = S_ERROR;
+-	}
+-	else {
+-		xmmsc_result_get_uint(res, &state);
++
++	xmmsv_t * value;
++	int ret;
++	if ((ret = is_error_getval(res, "Server error", &value))) {
++		if (ret > 1) STATE = S_DOWN;
++		return;
+ 	}
++	xmmsv_get_int(value, &state);
+ 	xmmsc_result_unref(res);
+ 	STATE=state;
+ }
+@@ -253,17 +296,17 @@
+  * Jump in time... Just say how far
+  */
+ void timelaps(int delta){
+-	uint id;
+ 	xmmsc_result_t *res;
+-	res = xmmsc_playback_current_id (srvr);
++	xmmsv_t *value;
++	res = xmmsc_playlist_current_active (srvr);
+ 	xmmsc_result_wait (res);
+-	if (!xmmsc_result_get_uint (res, &id))
+-		printf("No Id!\n");
+-	xmmsc_result_unref (res);
++	if (is_error_getval(res, "Server error", &value))
++		return;
++
+ 	res = xmmsc_playback_playtime (srvr);
+ 	xmmsc_result_wait (res);
+ 	if (numinfo.length == 0 &&
+-			!xmmsc_result_get_uint (res, &(numinfo.played))){
++			!xmmsv_get_int (value, &(numinfo.played))){
+ 		printf("No Timeinfo!\n");
+ 		xmmsc_result_unref (res);
+ 		return;
+@@ -280,8 +323,7 @@
+ 					numinfo.played+delta);
+ 		}
+ 		xmmsc_result_wait (res);
+-		if (xmmsc_result_iserror (res))
+-			fprintf (stderr, "Couldn't seek \n%s\n", xmmsc_result_get_error (res));
++		is_error(res, "Couldn't seek");
+ 		xmmsc_result_unref (res);
+ 	}
+ }
+Index: wmxmms2/src/xmms2cif.h
+===================================================================
+--- wmxmms2.orig/src/xmms2cif.h	2009-06-27 20:43:25.000000000 +0200
++++ wmxmms2/src/xmms2cif.h	2009-06-27 20:43:29.000000000 +0200
+@@ -20,7 +20,7 @@
+ 
+ struct numberinfo {
+ 	int32_t length;
+-	uint played;
++	int played;
+ 	char title_info[100];
+ };
+ typedef struct numberinfo numberinfo;
