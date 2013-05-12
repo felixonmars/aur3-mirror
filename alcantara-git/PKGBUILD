@@ -1,7 +1,8 @@
-# Contributor: Kyle Keen <keenerd@gmail.com>
+# Packager: duca
+# Contributor: duca 
 pkgname=alcantara-git
-pkgver=624d388
-pkgrel=1
+pkgver=c343f9d
+pkgrel=2
 pkgdesc="Qt based launcher similar in spirit to dmenu but graphical."
 url="https://github.com/duca/Alcantara"
 arch=('i686' 'x86_64')
@@ -25,11 +26,12 @@ pkgver() {
 
 build() {
   cd "$srcdir/$_gitname"
+  qmake-qt4 Alcantara.pro PREFIX=/usr/bin
   make
 }
 
 package(){
-   mkdir -p $pkgdir/usr/bin/
+#   mkdir -p $pkgdir/usr/bin/
    cd "$srcdir/$_gitname"
-   make DESTDIR="$pkgdir/usr/bin/" install 
+   make INSTALL_ROOT=$pkgdir install
 }
