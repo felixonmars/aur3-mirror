@@ -155,6 +155,8 @@ def pam_config_setup(pam_config):
   shutil.move("/etc/sssd/" + pam_config + ".tmp", "/etc/pam.d/" + pam_config)
 
 def pam_enable_sss():
+  finish_msg = "Sucessfully enabled support for SSSD in PAM"
+
   if os.path.exists("/etc/sssd/pam.hashes"):
     print("PAM is already set up!")
     exit(1)
@@ -198,7 +200,8 @@ def pam_enable_sss():
   pam_sss.write("auth     required   pam_deny.so\n")
   # Account
   pam_sss.write("account  required   pam_unix.so\n")
-  pam_sss.write("account  [default=bad success=ok user_unknown=ignore] pam_sss.so\n")
+  pam_sss.write("#account  [default=bad success=ok user_unknown=ignore] pam_sss.so\n")
+  pam_sss.write("account  optional   pam_sss.so\n")
   # Password
   pam_sss.write("password sufficient pam_unix.so try_first_pass nullok sha512 shadow\n")
   pam_sss.write("password sufficient pam_sss.so use_authtok\n")
@@ -208,7 +211,11 @@ def pam_enable_sss():
   pam_sss.write("session  optional   pam_sss.so\n")
   pam_sss.close()
 
+  print("Finished: " + finish_msg)
+
 def pam_disable_sss():
+  finish_msg = "Sucessfully disabled support for SSSD in PAM"
+
   if not os.path.exists("/etc/sssd/pam.hashes"):
     print("PAM hasn't been set up yet!")
     exit(1)
@@ -224,6 +231,11 @@ def pam_disable_sss():
       pam_file = open("/etc/pam.d/" + pam_config, 'rb')
       sha512sum = hashlib.sha512(pam_file.read()).hexdigest()
       pam_file.close()
+
+      if not os.path.exists("/etc/sssd/pam.hashes"):
+        print("Info: No more backup files to read")
+        break
+
       sha512sum_bak = pam_hash_read(pam_config)
 
       if sha512sum_bak == "":
@@ -250,6 +262,9 @@ def pam_disable_sss():
     for fullpath, directories, files in os.walk("/etc/sssd/pam.backup/"):
       for pam_config in files:
         print("  /etc/sssd/pam.backup/" + pam_config)
+    finish_msg = "Partially disabled support for SSSD in PAM"
+
+  print("Finished: " + finish_msg)
 
 def parse_arguments():
   import argparse
