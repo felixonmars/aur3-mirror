@@ -3,7 +3,11 @@
 CLIENTARGS=""
 uname -m | grep i686 && CLIENTARGS="-client -Xmx256m"
 
-javabin=${JAVA_HOME}/bin/java
+if [[ -n ${JAVA_HOME} ]]; then
+  javabin=${JAVA_HOME}/bin/java
+else
+  javabin=java
+fi
 
 SCDIR=/usr/lib/jitsi
 LIBPATH=$SCDIR/lib
