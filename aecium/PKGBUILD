@@ -5,10 +5,10 @@ pkgver=20130428
 pkgrel=1
 pkgdesc="Amtium eFlow Client for GNU/Linux"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
-depends=('libpcap')
-makedepends=('git' 'automake' 'autoconf')
 url="http://github.com/Red54/aecium"
 license=('GPL2')
+depends=('libpcap')
+makedepends=('git' 'automake' 'autoconf')
 
 build() {
 	cd $srcdir
