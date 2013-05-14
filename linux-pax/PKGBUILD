@@ -7,9 +7,9 @@
 pkgname=linux-pax
 true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
-_basekernel=3.8
-_paxver=test24
-pkgver=${_basekernel}.13
+_basekernel=3.9
+_paxver=test2
+pkgver=${_basekernel}.2
 pkgrel=1
 arch=(x86_64)
 url="http://www.kernel.org/"
@@ -295,10 +295,10 @@ package_linux-pax-headers() {
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
 
-sha256sums=('e070d1bdfbded5676a4f374721c63565f1c969466c5a3e214004a136b583184b'
-            'abc523f59e4c7a4c8ccadd7fd3cd03b7ae8788b399040a1c949c4232601cfd5b'
-            '6bbaedb8c59411f95102ddd4c8534b7fbccc42627397bf9d029f3369a61a9984'
-            '7c9ffe6f69fd88f740fe7ac8cf6bcb68ee92290bdd7324079b23407e61c2681b'
+sha256sums=('60bc3e64ee5dc778de2cd7cd7640abf518a4c9d4f31b8ed624e16fad53f54541'
+            '069126b2b70acbc27fada2bf67235238fd90ff103267b1bb392244a301321996'
+            '8ea911d851b6c5b2746167d03c1b4b00870f03bed5ad74caada8053233d47524'
+            '3ec387f8afd49e4a797646bc17c0d538c3503b4cc4dcf1fece43b0f46d7f4ee4'
             '1d7c394f2114cf5e3af3a6a7b963772e0ec5397d7c84adcd5aa96299a77b5e2e'
             '92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a'
             'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
