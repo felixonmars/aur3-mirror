@@ -3,7 +3,7 @@
 # Contributors: L42y, aeosynth, Dan Serban, Kalipath
 
 pkgname=firefox-aurora
-pkgver=22.0a2
+pkgver=23.0a2
 pkgrel=1
 pkgdesc="Firefox Aurora channel - Nightly build"
 url=http://www.mozilla.org/en_US/firefox/aurora/

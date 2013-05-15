@@ -2,7 +2,7 @@
 # Based on kang's thunderbird-aurora
 
 pkgname=thunderbird-earlybird
-pkgver=22.0a2
+pkgver=23.0a2
 pkgrel=1
 pkgdesc="Standalone Mail/News reader - Earlybird channel"
 arch=('i686' 'x86_64')
