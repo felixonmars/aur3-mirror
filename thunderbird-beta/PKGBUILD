@@ -1,7 +1,7 @@
 # Contributor: Det <nimetonmaili at gmail a-dot com>
 # Based on [extra]'s thunderbird
 
-# NOTE: Want a PGO (Profile-Guided Optimization) build?: http://en.wikipedia.org/wiki/Profile-guided_optimization
+# NOTE: Enable PGO?: http://en.wikipedia.org/wiki/Profile-guided_optimization
 _pgo="0"  # "1" to enable
 
 pkgname=thunderbird-beta
@@ -10,12 +10,14 @@ pkgrel=1
 pkgdesc="Standalone Mail/News reader - Bleeding edge version with optional PGO"
 arch=('i686' 'x86_64')
 license=('MPL' 'GPL')
-url="http://www.mozilla.org/thunderbird"
-depends=('alsa-lib' 'cairo' 'dbus-glib' 'desktop-file-utils' 'fontconfig' 'freetype2' 'gtk2' 'hicolor-icon-theme' 'hunspell' 'libevent' 'libjpeg' 'libmng' 'libpng' 'libvpx' 'libxt' 'mozilla-common' 'nspr' 'nss' 'shared-mime-info' 'sqlite' 'startup-notification')
-makedepends=('autoconf2.13' 'libgnomeui' 'libnotify' 'mesa' 'python2' 'unzip' 'yasm' 'zip')
+url="https://www.mozilla.org/thunderbird"
+depends=('alsa-lib' 'dbus-glib' 'desktop-file-utils' 'gtk2' 'hicolor-icon-theme' 'hunspell' 'libevent' 'libnotify' 'libvpx' 'libxt' 'mime-types' 'mozilla-common' 'nss' 'sqlite' 'startup-notification')
+makedepends=('autoconf2.13' 'mesa' 'python2' 'unzip' 'wireless_tools' 'yasm' 'zip')
+[ "$_pgo" = "1" ] && makedepends+=('imake' 'xorg-server-xvfb')
 optdepends=('libcanberra: for sound support')
 provides=("thunderbird=$pkgver")
 install=$pkgname.install
+options=('!emptydirs' '!makeflags')
 source=("https://ftp.mozilla.org/pub/mozilla.org/thunderbird/releases/$pkgver/source/thunderbird-$pkgver.source.tar.bz2"
         'mozconfig'
         "$pkgname.desktop"
@@ -27,29 +29,42 @@ md5sums=(`curl -sL ${source/so*}/MD5SUMS | grep source | sed -n 3p | cut -d " " 
 # Alternative mirror:
 # source[0]="http://releases.mozilla.org/pub/mozilla.org/thunderbird/releases/$pkgver/source/thunderbird-$pkgver.source.tar.bz2"
 
-build() {
+prepare() {
   cd comm-*
 
-  cp ../mozconfig .mozconfig
+  cp "$srcdir"/mozconfig .mozconfig
+
+  # configure script misdetects the preprocessor without an optimization level
+  # https://bugs.archlinux.org/task/34644
+  sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure
+}
+
+build() {
+  cd comm-*
 
   export LDFLAGS="$LDFLAGS -Wl,-rpath,/opt/$pkgname-$pkgver"
   export PYTHON="/usr/bin/python2"
 
-  if [[ "$_pgo" = "1" ]]; then
-     LD_PRELOAD="" /usr/bin/Xvfb -nolisten tcp -extension GLX -screen 0 1280x1024x24 :99 &
-     LD_PRELOAD="" DISPLAY=:99 make -j1 -f client.mk profiledbuild MOZ_MAKE_FLAGS="$MAKEFLAGS"
-     kill $! || true
-  else
-     make -j1 -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS"
+  if [ "$_pgo" = "1" ]; then
+    # Tweak .mozconfig
+    _options="mk_add_options PROFILE_GEN_SCRIPT='\$(PYTHON) \$(MOZ_OBJDIR)/_profile/pgo/profileserver.py 10'"
+    echo -e "# PGO\n$_options" >> .mozconfig
+
+    # Prepare
+    export DISPLAY=:99
+    Xvfb -nolisten tcp -extension GLX -screen 0 1280x1024x24 $DISPLAY &
   fi
+
+  # Build
+  make -f client.mk build MOZ_PGO=$_pgo || kill $!
 }
 
 package() {
   cd comm-*/obj-*
-  make -j1 package MOZ_MAKE_FLAGS="$MAKEFLAGS"
+  make package
 
   cd mozilla/dist/
-  tar -x -f thunderbird-*.tar.bz2
+  tar -xf thunderbird-*.tar.bz2
   mkdir -p "$pkgdir"/{opt,usr/bin}
   cp -r thunderbird/ "$pkgdir"/opt/$pkgname-$pkgver/
   ln -sf /opt/$pkgname-$pkgver/thunderbird "$pkgdir"/usr/bin/$pkgname
@@ -62,9 +77,10 @@ package() {
 
   install -Dm644 "$srcdir"/$pkgname.desktop "$pkgdir"/usr/share/applications/$pkgname.desktop
 
-  rm -rf "$pkgdir"/opt/$pkgname-$pkgver/dictionaries
+  rm -rf "$pkgdir"/opt/$pkgname-$pkgver/{dictionaries,hyphenation}
   ln -sf /usr/share/hunspell "$pkgdir"/opt/$pkgname-$pkgver/dictionaries
-  
+  ln -s /usr/share/hyphen "$pkgdir"/opt/$pkgname-$pkgver/hyphenation
+
   # A fix for the (redundant) "Package contains reference to $srcdir" warning
   sed -i 1d "$pkgdir"/opt/$pkgname-$pkgver/defaults/pref/channel-prefs.js
 }

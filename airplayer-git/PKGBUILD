@@ -1,16 +1,16 @@
-# Contributor: Nicolas Quiénot < niQo at aur > 
+# Contributor: Nicolas QuiÃ©not < niQo at aur > 
 
 _pkgname=airplayer
 pkgname=airplayer-git
 pkgver=0.47.cb6f6a3
-pkgrel=1
+pkgrel=2
 epoch=1
 pkgdesc='Python script to make media playing software Apple Airplay compatible. Currently supports XBMC, Plex and Boxee.'
 arch=('any')
 url='https://github.com/PascalW/Airplayer'
 license=('GPL')
 makedepends=('git')
-depends=('python2' 'python-simplejson' 'pybonjour' 'python-tornado')
+depends=('python2' 'python2-simplejson' 'pybonjour' 'python2-tornado')
 #install=${pkgname}.install
 provides=('airplayer')
 conflicts=('airplayer')
