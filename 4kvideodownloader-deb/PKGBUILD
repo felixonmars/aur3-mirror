@@ -16,7 +16,8 @@ if [ "${CARCH}" = 'x86_64' ]; then
     ARCH='amd64'
 md5sums=('6daf62863563ff21fa52e635ae0918ee')
 elif [ "${CARCH}" = 'i686' ]; then
-    ARCH='i386' 
+    ARCH='i386'
+  md5sums=('7c0b05082fc6f45ab21add4acec2d1e1')  
 fi
 
 source=("http://4kdownload.googlecode.com/files/${name}_${pkgver}-${pkgrel}_${ARCH}.deb")
