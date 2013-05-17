@@ -2,7 +2,7 @@
 
 pkgname=4kvideodownloader-deb
 name=4kvideodownloader
-pkgver=2.6
+pkgver=2.7
 pkgrel=1
 pkgdesc="4K Video Downloader allows to download video and audio content from YouTuben for PC, Mac and Linux."
 arch=('i686' 'x86_64')
@@ -14,7 +14,7 @@ install="$name.install"
 
 if [ "${CARCH}" = 'x86_64' ]; then
     ARCH='amd64'
-md5sums=('2c79f9d7a51eb937faebaf034473f2e2')
+md5sums=('6daf62863563ff21fa52e635ae0918ee')
 elif [ "${CARCH}" = 'i686' ]; then
     ARCH='i386' 
 fi
