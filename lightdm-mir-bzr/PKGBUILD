@@ -1,0 +1,189 @@
+# Maintainer: Xiao-Long Chen <chenxiaolong@cxl.epac.to>
+
+# This package no longer depends on a specific toolkit. It will build the GTK and
+# Qt libraries and recommend the installation of those respective tookits using
+# optdepends.
+
+pkgname=lightdm-mir-bzr
+_stable_ver=1.7.0
+pkgver=1607
+pkgrel=1
+pkgdesc="A lightweight display manager"
+arch=('i686' 'x86_64')
+url="https://launchpad.net/lightdm"
+# Libraries are LGPLv3+, everything else is GPLv3+
+license=('GPL3' 'LGPL3')
+groups=('unitynext')
+depends=('libgcrypt' 'libxcb' 'libxdmcp' 'libxklavier' 'mir-bzr' 'unity-system-compositor-bzr')
+# Useful dependencies, but not required
+#depends=('gnome-themes-standard' 'gnome-backgrounds' 'gnome-icon-theme' 'webkitgtk3')
+makedepends=('gnome-common' 'gobject-introspection' 'gtk-doc' 'gtk3' 'intltool' 'qt4' 'qt5-base' 'yelp-tools')
+optdepends=('accountsservice: DBus interface for querying user information'
+            'gnome-keyring: For pam_gnome_keyring.so in the greeter PAM config'
+            'gtk3: For using the GTK greeter'
+            'lightdm-unity-greeter: Default Ubuntu 13.04 Greeter'
+            'qt4: To use the qt4 version of liblightdm-qt'
+            'qt5-base: To use the qt5 version of liblightdm-qt')
+provides=("lightdm=${_stable_ver}" "lightdm-ubuntu=${_stable_ver}")
+conflicts=('lightdm' 'lightdm-ubuntu')
+options=('!libtool' 'emptydirs')
+backup=('etc/apparmor.d/lightdm-guest-session'
+        'etc/lightdm/keys.conf'
+        'etc/lightdm/lightdm.conf'
+        'etc/lightdm/lightdm-gtk-greeter.conf'
+        'etc/lightdm/lightdm-gtk-greeter-ubuntu.conf'
+        'etc/lightdm/users.conf')
+install=lightdm.install
+source=("lightdm::bzr+http://bazaar.launchpad.net/~mir-team/lightdm/unity/"
+        'lightdm.service'
+        'lightdm-plymouth.service'
+        'lightdm-gtk-greeter.conf'
+        'lightdm.tmpfiles.d'
+        'lightdm.pam'
+        'lightdm-autologin.pam'
+        'lightdm-greeter.pam'
+        'lightdm.rules'
+        'guest-session-cross-distro.patch'
+        'guest-session-add-default-gsettings-support.patch'
+        'guest-session-fix-gconf-error.patch'
+        'lightdm-lock-screen-before-switch.patch')
+sha512sums=('SKIP'
+            '26bb333e58ee63a6a0d472bb0a7f9006b93c7de629780399b1dff4af3aaccea02aa74ed0410b8fa6ba55b285f7c7bb6180db059928feba56f779c5b8f3ba8b86'
+            'a13e7df200a6aa7e8e62df9fc2382234258041b30654446e51c48ea9fac7d1128dbbb6ff17a5abca06fbeb1b09c2076f45620a8c58b435d56059abc674917fb3'
+            'fa35ece114255abfc409f1c9da1eb7129055d8669aad11fe3d69084bf2216e93bf09864ac4e8874e88f166be9735fc55ed899056eb3bd94c5b33d3b2cbd55f4d'
+            '81a76a49eb208b1d33f5ac0184d87a377cd37c522d74a93ccd3d96b3d6e32c44872a65873b91fec3daba0846cdb5a938b51944697e636c045d03259bd5424644'
+            '1067bcb25b6d6d01256b176b5854d1ace700ba2b7323b4af257aa95d2f47d5043ac22811f65e99f1e961772cd1e81c153ef69b162918827bd9d7d50d458908df'
+            '6f59d97515b37d53fb4f56de0f65994710e02c197c6d4c096aa7cdb9fe518d29223960018ae4ad8003056fed3210f47f3aa459c85b8efca80089f2046196892c'
+            '3b482f7e551df20a5c5d9331a420275d1dad5bb6aad287247baea82dc40dc31dca22db4da180fbb950865e37cf94f1737fa1ee7ec2f5233540f82f2f570a408b'
+            '8d6aa12c4d129c25e56ecf2904db4e294d46631d11bd8bec2f20a76c871ba758094abb24616d3d2038a684fbb736ee61d1f80697d525d62c4dc68113e101194f'
+            'f573581ccbfaf4502276b80338ac91cd3a42820dfa06317cdffc1142f7282cc20d350ec466e1822a3774a74af718905db82acc9c780cf28552db0744ef8a6369'
+            '501b51b7adf34fb2e3cb54e2de8cc6ed1c404288d3e9e6d871d45579c3a0b3c313c77916c21713273095dffb8f2311f639c2771dbf08c395bce2f264c73e9171'
+            '2ba40c28e296e8c1c8f828e8ec3a658dde2da30f44ff6daa56097b2f657b46aec13f0184f2f6b27a022aaa15ca7a4ff402e4c22f5642e483de84ac79ef3bb5ab'
+            '2e1c78c0112c4e176da4c672a394168020c674288b0f2a16d27daab1438d0753b51bd98c21a7a0fb5b5d01c0900a72f8c8a170907fad761087062fc821b40641')
+
+pkgver() {
+  cd lightdm
+  bzr revno
+}
+
+prepare() {
+  cd "${srcdir}/lightdm"
+
+  # Apply Ubuntu patches
+
+  # Disable patches
+    # Do not use Ubuntu's language-tools
+      sed -i '/04_language_handling.patch/d' debian/patches/series
+
+  for i in $(grep -v '#' debian/patches/series); do
+    msg "Applying ${i} ..."
+    patch -p1 -i "debian/patches/${i}"
+  done
+
+  # Do not depend on Debian/Ubuntu specific adduser package
+  patch -p1 -i "${srcdir}"/guest-session-cross-distro.patch
+
+  # Add support for settings GSettings/dconf defaults in the guest session. Just
+  # put the files in /etc/guest-session/gsettings/. The file format is the same
+  # as the regular GSettings override files.
+  patch -p1 -i "${srcdir}"/guest-session-add-default-gsettings-support.patch
+
+  # Fix issue where gconf cannot connect to the DBus session, causing
+  # guest-account to terminate unsuccessfully.
+  patch -p1 -i "${srcdir}"/guest-session-fix-gconf-error.patch
+
+  # Patch from Fedora to lock the screen before switching users.
+  patch -p1 -i "${srcdir}"/lightdm-lock-screen-before-switch.patch
+}
+
+build() {
+  cd "${srcdir}/lightdm"
+
+  export MOC4=moc-qt4
+  export MOC5=moc-qt5
+
+  gtkdocize
+  aclocal --install --force
+  autoreconf -vfi
+  intltoolize -f
+
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --disable-static \
+    --libexecdir=/usr/lib/lightdm \
+    --localstatedir=/var \
+    --with-user-session=ubuntu \
+    --with-greeter-user=lightdm
+
+  make
+}
+
+check() {
+  # Tests require LightDM to be installed
+  return 0
+}
+
+package() {
+  cd "${srcdir}/lightdm"
+  make DESTDIR="${pkgdir}/" install
+
+  install -dm755 "${pkgdir}/usr/lib/systemd/system/"
+
+  # Please fix your Makefile
+  mv "${pkgdir}"/usr/lib/lightdm/lightdm/lightdm-set-defaults \
+     "${pkgdir}"/usr/lib/lightdm/
+
+  # Install PAM service
+  install -dm755  "${pkgdir}"/etc/pam.d/
+  install -m644 "${srcdir}"/lightdm.pam "${pkgdir}"/etc/pam.d/lightdm
+  install -m644 "${srcdir}"/lightdm-autologin.pam \
+                "${pkgdir}"/etc/pam.d/lightdm-autologin
+  install -m644 "${srcdir}"/lightdm-greeter.pam \
+                "${pkgdir}"/etc/pam.d/lightdm-greeter
+
+  # Install configuration files
+  install -dm755 "${pkgdir}"/usr/share/doc/lightdm/
+  install -m644 "${pkgdir}"/etc/lightdm/lightdm.conf \
+                "${pkgdir}"/usr/share/doc/lightdm/
+  install -m644 "${pkgdir}"/etc/lightdm/keys.conf \
+                "${pkgdir}"/usr/share/doc/lightdm/
+  install -m644 "${srcdir}"/lightdm-gtk-greeter.conf "${pkgdir}"/etc/lightdm/
+
+  # Install binaries and scripts
+  install -dm755 "${pkgdir}"/usr/sbin/
+  install -m755 debian/guest-account "${pkgdir}"/usr/sbin/
+  install -m755 debian/lightdm-session "${pkgdir}"/usr/sbin/
+  install -m755 debian/lightdm-greeter-session "${pkgdir}"/usr/lib/lightdm/
+  chmod +x "${pkgdir}"/usr/lib/lightdm/lightdm-greeter-session
+
+  # Install systemd service
+  install -m644 "${srcdir}"/lightdm.service "${pkgdir}"/usr/lib/systemd/system/
+  install -m644 "${srcdir}"/lightdm-plymouth.service \
+                "${pkgdir}"/usr/lib/systemd/system/
+
+  # Install systemd tmpfiles.d file
+  install -dm755 "${pkgdir}"/usr/lib/tmpfiles.d/
+  install -m644 "${srcdir}"/lightdm.tmpfiles.d \
+                "${pkgdir}"/usr/lib/tmpfiles.d/lightdm.conf
+
+  # Install PolicyKit rules from Fedora which allow the lightdm user to access
+  # the systemd-logind, consolekit, and upower DBus interfaces
+  install -dm700 "${pkgdir}"/usr/share/polkit-1/rules.d/
+  install -m644 "${srcdir}"/lightdm.rules \
+                "${pkgdir}"/usr/share/polkit-1/rules.d/
+
+  # Configuration settings that differ from Ubuntu
+  sed -i \
+    -e 's/^\(minimum-uid=\).*$/\11000/g' \
+    -e 's@/usr\(/sbin/nologin\)$@\1@g' \
+    "${pkgdir}"/etc/lightdm/users.conf
+
+  # Configuration files specific to Ubuntu
+  rm -rvf "${pkgdir}"/etc/init/
+
+  # Create GSettings defaults directory
+  install -dm755 "${pkgdir}"/etc/guest-session/gsettings/
+}
+
+# vim:set ts=2 sw=2 et:
