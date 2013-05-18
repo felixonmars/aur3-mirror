@@ -13,8 +13,16 @@ url="http://ffmpeg.org/"
 license=('GPL')
 depends=('ffmpeg')
 makedepends=('yasm' 'libvdpau')
-source=(http://ffmpeg.org/releases/$_pkgname-$pkgver.tar.bz2)
-md5sums=('2efd2a9d88b51ad966ac3decf1dc8c81')
+source=("http://ffmpeg.org/releases/$_pkgname-$pkgver.tar.bz2"
+        "openjpeg.patch")
+md5sums=('2efd2a9d88b51ad966ac3decf1dc8c81'
+         '9c2c80eb9d5a28a8c88edf4fc6a49dfa')
+
+prepare() {
+  cd "$_pkgname-$pkgver"
+
+  patch -Np1 < ../openjpeg.patch
+}
 
 build() {
   cd $_pkgname-$pkgver
