@@ -1,36 +1,33 @@
-# Maintainer: SpepS <dreamspepser at yahoo dot it>
+# Maintainer: speps <speps at aur dot archlinux dot org>
 
-pkgname=(alien)
+pkgname=alien
 pkgver=0.5.0
-pkgrel=1
-pkgdesc="Lets a Lua application call load dynamic libraries and call C functions in a portable way, using libffi."
+pkgrel=2
+pkgdesc="Foreign Function Interface (FFI) for Lua 5.1"
 arch=('i686' 'x86_64')
 url="http://alien.luaforge.net/"
-license=('GPL')
-depends=('lua' 'libffi')
-source=("$url$pkgname-$pkgver.tar.gz" "Makefile.$pkgname")
+license=('custom:MIT')
+depends=('lua51' 'libffi')
+source=("$url$pkgname-$pkgver.tar.gz"
+        "$pkgname-$pkgver.patch" "license")
 md5sums=('d6b265798f6d610d4651d054f601d468'
-         'dc7d4074bd4ea6935afa59c374fa2e05')
+         'd321f9db5dcbc106957f54db27fba78c'
+         'f8b2318fe5de94dd343a0cdf757d9334')
+
+prepare() {
+  patch -p0 -i "$srcdir/${source[1]}"
+}
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
-
-  # Placing Makefile
-  cp ../Makefile.$pkgname .
-
-  # Removing luarock
-  sed -i "/luarocks/d" samples/*.lua
-
-  # Fixing constants script
-  sed -i "s/lua \(constants\).lua/$pkgname-\1/" src/constants
-
-  # Build
   make -f Makefile.$pkgname
 }
 
 package() {
   cd "$srcdir/$pkgname-$pkgver"
-
-  # Install
   make -f Makefile.$pkgname DESTDIR="$pkgdir/" install
+
+  # license
+  install -Dm644 ../license \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
