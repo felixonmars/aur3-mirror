@@ -3,7 +3,7 @@
 
 pkgname=jenkins-ci
 pkgver=1.515
-pkgrel=1
+pkgrel=2
 epoch=
 pkgdesc="An extendable open source continuous integration server"
 arch=(any)
