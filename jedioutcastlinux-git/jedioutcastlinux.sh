@@ -1,5 +1,5 @@
 #!/bin/bash
 
-cd /usr/share/jedioutcastlinux
+cd /opt/jedioutcastlinux
 
 ./jk2sp "$@"

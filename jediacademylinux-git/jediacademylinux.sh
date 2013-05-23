@@ -1,5 +1,5 @@
 #!/bin/bash
 
-cd /usr/share/jediacademylinux
+cd /opt/jediacademylinux
 
 ./jasp "$@"
