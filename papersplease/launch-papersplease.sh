@@ -6,10 +6,13 @@ DIR="/opt/papersplease"
 prefixdir="$HOME/.papersplease"
 gamedir="$prefixdir/drive_c/dukope/papersplease"
 
-export WINEARCH='win64'
+if [[ $(uname -m) =~ x86_64 ]]
+then
+    export WINEARCH='win64'
+else
+    export WINEARCH='win32'
+fi
 export WINEPREFIX="$prefixdir"
-
-passthroughargs="$@"
 
 launchgame() {
     cd "$gamedir"
@@ -22,7 +25,7 @@ launchgame() {
     fi
 
     # Run program, pass all arguments
-    WINEDEBUG='-all' wine ./PapersPlease.exe $passthroughargs
+    WINEDEBUG='fixme-all' wine ./PapersPlease.exe "$@"
     exitcode="$?"
 
     if ! [ "$exitcode" -eq 0 ]
@@ -71,13 +74,13 @@ createprefix() {
 
 
 # Create the directory if it does not exist, then run the game.
-if ! [ -d $prefixdir ]
+if ! [ -d "$prefixdir" ]
 then
     echo "Creating wineprefix for the game. This only needs to be done once, future runs will skip this step."
     # Don't continue if there's an error when creating the prefix
-    createprefix || exit $?
+    createprefix || exit "$?"
     echo "Wineprefix creation complete, running the game."
 fi
 
-launchgame
-exit $?
+launchgame "$@"
+exit "$?"
