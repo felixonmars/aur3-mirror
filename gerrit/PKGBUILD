@@ -5,7 +5,7 @@
 
 pkgname=gerrit
 pkgver=2.5.4
-pkgrel=1
+pkgrel=2
 epoch=
 pkgdesc="A web-based code review tool built on top of the git version control system"
 arch=(any)
