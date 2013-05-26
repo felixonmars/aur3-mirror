@@ -1,6 +1,6 @@
 # Maintainer: Jonas Amundsen <jonasba+aur at gmail dot com>
 pkgname=rmonitor
-pkgver=0.0.5
+pkgver=0.0.6
 pkgrel=1
 pkgdesc="A tool for creating monitor profiles that are easily invoked."
 arch=('any')
