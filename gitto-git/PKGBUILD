@@ -1,8 +1,8 @@
 # Maintainer: Benjamin Althues <benjamin@babab.nl>
 
 pkgname=gitto-git
-pkgver=20130523
-pkgrel=2
+pkgver=20130526
+pkgrel=1
 pkgdesc="Keep track of your git repositories"
 depends=('guile>=2.0.9' 'git')
 arch=('any')
@@ -23,5 +23,5 @@ build() {
 
 package() {
     cd "$srcdir"/gitto
-    make DESTDIR="$pkgdir" install
+    make DESTDIR="$pkgdir/usr" install
 }
