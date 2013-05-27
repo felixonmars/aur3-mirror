@@ -14,5 +14,6 @@ PLEX_MEDIA_SERVER_TMPDIR=/var/tmp
 # uncomment and change to set it to something else
 #PLEX_MEDIA_SERVER_APPLICATION_SUPPORT_DIR="/usr/local/plexmediaserver/Library/Application\ Support"
 
-# Send plex logs to syslog
-PLEX_MEDIA_SERVER_USE_SYSLOG=true
+# Logs live in /usr/local/plexmediaserver/Library/Application Support/Plex Media Server/Logs
+# Comment this in to send to syslog
+#PLEX_MEDIA_SERVER_USE_SYSLOG=true
