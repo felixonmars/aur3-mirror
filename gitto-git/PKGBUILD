@@ -1,7 +1,7 @@
 # Maintainer: Benjamin Althues <benjamin@babab.nl>
 
 pkgname=gitto-git
-pkgver=20130526
+pkgver=20130527
 pkgrel=1
 pkgdesc="Keep track of your git repositories"
 depends=('guile>=2.0.9' 'git')
@@ -10,6 +10,7 @@ url="http://ryuslash.org/projects/gitto.html"
 license=("GPL3")
 source=('git://github.com/ryuslash/gitto.git')
 md5sums=('SKIP')
+install=gitto.install
 
 pkgver() {
     cd "$srcdir"/gitto
