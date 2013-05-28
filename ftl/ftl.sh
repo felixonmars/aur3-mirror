@@ -1,5 +1,4 @@
 #!/bin/sh
 
-cd /opt/FTL
-
+cd /opt/ftl
 ./FTL "$@"
