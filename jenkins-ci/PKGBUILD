@@ -2,8 +2,8 @@
 # Contributor: Illarion Kovalchuk <illarion.kovalchuk at gmail dot com>
 
 pkgname=jenkins-ci
-pkgver=1.515
-pkgrel=2
+pkgver=1.516
+pkgrel=1
 epoch=
 pkgdesc="An extendable open source continuous integration server"
 arch=(any)
@@ -24,19 +24,20 @@ changelog=changelog
 source=(http://mirrors.jenkins-ci.org/war/$pkgver/jenkins.war
         jenkins.conf
         jenkins.service
+        jenkins.tmpfiles.d
         LICENSE)
 noextract=(jenkins.war)
-sha256sums=('3711f8f0c01a103452ba300761f1bbf38dd15019d725b50a0b3275f630e95b2d'
-            '27f78ce76729c7af3efa70b133d376c92cd2d361d1c8b5abb90b3f6e59108ed0'
+sha256sums=('aaa7fc1fb8cc96d11f0e7213fe924769d73aeafeca0911658048df4bdf6482c6'
+            '13b6e06de1dedff96bdb8e43f6830bbd954dc58df9d4ed5583693d2a6f8427f4'
             '6ffdcec6c06105710886ff48d3d12bc8cc9cc0f642718c165f658f6475fb268f'
+            '0ccff16308b01b02f2699ea64a73b8dce1e1990ee1c656aa8d6119dee510262e'
             'd9f107920982cb61d807e349b4eaf190b2d593047e55d3f3ad286c7afe06cf55')
 package() {
   install -D -m 444 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/jenkins-ci/LICENSE"
   install -D -m 444 "$srcdir/jenkins.war" "$pkgdir/usr/share/java/jenkins/jenkins.war"
   install -D -m 644 "$srcdir/jenkins.service" "$pkgdir/usr/lib/systemd/system/jenkins.service"
+  install -D -m 644 "$srcdir/jenkins.tmpfiles.d" "$pkgdir/usr/lib/tmpfiles.d/jenkins.conf"
   install -D -m 644 "$srcdir/jenkins.conf" "$pkgdir/etc/conf.d/jenkins"
-  install -m 755 -d "$pkgdir/var/lib/jenkins"
-  install -m 755 -d "$pkgdir/var/cache/jenkins/war"
 }
 
 # vim:set ts=2 sw=2 et:
