@@ -47,13 +47,14 @@ init_vars() {
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
         fail "\$I2P_USER does not exist: $I2P_USER"
 
+    wrapper_ver=$(/usr/bin/java-service-wrapper --version |head -n1|cut -d' ' -f7)
     JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2prouter\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=3.5.17"
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2prouter\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=${wrapper_ver}"
 
 }
 
 get_pid() {
-    pgrep -u "$I2P_USER" -f i2prouter
+    pgrep -u "$I2P_USER" -f 'wrapper.name=i2prouter'
 }
 
 check_if_running() {
@@ -61,14 +62,15 @@ check_if_running() {
     if [[ -f "$PIDFILE" ]]; then
         if [[ -r "$PIDFILE" ]]; then
             pid=$(cat "$PIDFILE")
+            #echo "debug: pid:$pid get_pid:$(get_pid)"
             if [[ ! "$pid" ]]; then
                 pid=$(get_pid)
                 if [[ ! "$pid" ]]; then
+                    echo "Removing stale pid file: $PIDFILE"
                     rm -f "$PIDFILE"
-                    echo "Removed stale pid file: $PIDFILE"
                 fi
             else
-                [[ "$pid" = "$(get_pid)" ]] ||
+                [[ "$pid" != "$(get_pid)" ]] &&
                     fail "\$PIDFILE $PIDFILE differs from what is actually running!"
             fi
         else
