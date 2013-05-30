@@ -1,4 +1,4 @@
-# Maintainer: Aaron France <aaron.l.france@hp.com
+# Maintainer: Aaron France <aaron.l.france@gmail.com
 
 pkgname=relx
 pkgrel=1
