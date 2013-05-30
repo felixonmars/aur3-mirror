@@ -1,8 +1,8 @@
 # Contributor: Devaev Maxim <mdevaev@gmail.com>
 
 pkgname=python2-helib-git
-pkgver=20130526
-pkgrel=2
+pkgver=20130530
+pkgrel=1
 pkgdesc="Useful python library"
 arch=('any')
 url="http://github.com/mdevaev/helib.git"
