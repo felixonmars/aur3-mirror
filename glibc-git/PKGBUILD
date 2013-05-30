@@ -1,0 +1,125 @@
+pkgname=glibc-git
+_pkgname=glibc
+pkgver=glibc.2.17.750.g9694571
+pkgrel=1
+pkgdesc="GNU C Library"
+arch=('x86_64')
+url="http://www.gnu.org/software/libc"
+license=('GPL' 'LGPL')
+groups=('base')
+depends=('linux-api-headers>=3.7' 'tzdata' 'filesystem>=2013.01')
+makedepends=('gcc>=4.7')
+backup=(etc/gai.conf
+        etc/locale.gen
+        etc/nscd.conf)
+options=('!strip')
+install=glibc.install
+source=(git://sourceware.org/git/glibc.git
+        nscd.service
+        nscd.tmpfiles
+        locale.gen.txt
+        locale-gen)
+md5sums=('SKIP'
+         'c1e07c0bec0fe89791bfd9d13fc85edf'
+         'bccbe5619e75cf1d97312ec3681c605c'
+         '07ac979b6ab5eeb778d55f041529d623'
+         '476e9113489f93b348b21e144b6a8fcf')
+
+pkgver() {
+    cd "${srcdir}/${_pkgname}"
+    git describe --always | sed 's|-|.|g'
+}
+
+build() {
+    rm -rf "${srcdir}/${_pkgname}-build"
+    mkdir "${srcdir}/${_pkgname}-build"
+    cd "${srcdir}/${_pkgname}-build"
+
+    echo "slibdir=/usr/lib" >> configparms
+
+    CFLAGS=${CFLAGS/-fstack-protector/}
+    CPPFLAGS=${CPPFLAGS/-D_FORTIFY_SOURCE=2/}
+
+    "${srcdir}/${_pkgname}/configure" --prefix=/usr \
+        --libdir=/usr/lib --libexecdir=/usr/lib \
+        --with-headers=/usr/include \
+        --with-bugurl=https://bugs.archlinux.org/ \
+        --enable-add-ons=nptl,libidn \
+        --enable-obsolete-rpc \
+        --enable-kernel=2.6.32 \
+        --enable-bind-now --disable-profile \
+        --enable-stackguard-randomization \
+        --enable-multi-arch
+
+    echo "build-programs=no" >> configparms
+    make
+
+    # re-enable hardening for programs
+    sed -i "/build-programs=/s#no#yes#" configparms
+    echo "CC += -fstack-protector -D_FORTIFY_SOURCE=2" >> configparms
+    echo "CXX += -fstack-protector -D_FORTIFY_SOURCE=2" >> configparms
+    make
+
+    # remove harding in preparation to run test-suite
+    sed -i '2,4d' configparms
+}
+
+check() {
+    # bug to file - the linker commands need to be reordered
+    LDFLAGS=${LDFLAGS/--as-needed,/}
+
+    cd ${srcdir}/${_pkgname}-build
+    make check
+}
+
+package() {
+    cd ${srcdir}/${_pkgname}-build
+
+    install -dm755 ${pkgdir}/etc
+    touch ${pkgdir}/etc/ld.so.conf
+
+    make install_root=${pkgdir} install
+
+    rm -f ${pkgdir}/etc/ld.so.{cache,conf}
+
+    install -dm755 ${pkgdir}/usr/lib/{locale,systemd/system,tmpfiles.d}
+
+    install -m644 ${srcdir}/${_pkgname}/nscd/nscd.conf ${pkgdir}/etc/nscd.conf
+    install -m644 ${srcdir}/nscd.service ${pkgdir}/usr/lib/systemd/system
+    install -m644 ${srcdir}/nscd.tmpfiles ${pkgdir}/usr/lib/tmpfiles.d/nscd.conf
+
+    install -m644 ${srcdir}/${_pkgname}/posix/gai.conf ${pkgdir}/etc/gai.conf
+
+    install -m755 ${srcdir}/locale-gen ${pkgdir}/usr/bin
+
+    # temporary symlink
+    ln -s ../../sbin/ldconfig ${pkgdir}/usr/bin/ldconfig
+
+    # create /etc/locale.gen
+    install -m644 ${srcdir}/locale.gen.txt ${pkgdir}/etc/locale.gen
+    sed -e '1,3d' -e 's|/| |g' -e 's|\\| |g' -e 's|^|#|g' \
+        ${srcdir}/glibc/localedata/SUPPORTED >> ${pkgdir}/etc/locale.gen
+
+    # Do not strip the following files for improved debugging support
+    # ("improved" as in not breaking gdb and valgrind...):
+    #   ld-${pkgver}.so
+    #   libc-${pkgver}.so
+    #   libpthread-${pkgver}.so
+    #   libthread_db-1.0.so
+
+    cd $pkgdir
+    strip $STRIP_BINARIES sbin/{ldconfig,sln} \
+        usr/bin/{gencat,getconf,getent,iconv,locale,localedef} \
+        usr/bin/{makedb,pcprofiledump,pldd,rpcgen,sprof} \
+        usr/lib/getconf/* \
+        usr/sbin/{iconvconfig,nscd}
+    [[ $CARCH = "i686" ]] && strip $STRIP_BINARIES usr/bin/lddlibc4
+
+    strip $STRIP_STATIC usr/lib/*.a
+
+    strip $STRIP_SHARED usr/lib/{libanl,libBrokenLocale,libcidn,libcrypt}-*.so \
+        usr/lib/libnss_{compat,db,dns,files,hesiod,nis,nisplus}-*.so \
+        usr/lib/{libdl,libm,libnsl,libresolv,librt,libutil}-*.so \
+        usr/lib/{libmemusage,libpcprofile,libSegFault}.so \
+        usr/lib/{pt_chown,{audit,gconv}/*.so}
+}
