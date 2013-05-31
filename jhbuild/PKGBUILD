@@ -3,19 +3,14 @@
 
 pkgname=jhbuild
 pkgver=3.5.91
-pkgrel=7
+pkgrel=8
 pkgdesc='\
 JHBuild allows you to automatically download and compile Gnome\
  "modules" (i.e. source code packages).'
 arch=('i686' 'x86_64')
 license=('GPL')
 depends=(python2)
-makedepends=(autoconf
-             automake
-             libtool
-             gettext
-             pkgconfig
-             rsync
+makedepends=(rsync
              subversion
              gnome-common
              git
