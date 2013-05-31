@@ -1,3 +1,3 @@
 #!/bin/sh
-anura-git --module=frogatto-git --config-path=~/.frogatto-git $*
+anura-git --module=frogatto --config-path=~/.frogatto-git $*
 
