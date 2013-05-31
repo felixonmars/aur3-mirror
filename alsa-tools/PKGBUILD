@@ -4,7 +4,7 @@
 
 pkgname=alsa-tools
 pkgver=1.0.27
-pkgrel=2
+pkgrel=3
 pkgdesc="ALSA tools package"
 arch=(i686 x86_64)
 url=http://alsa-project.org/
@@ -17,13 +17,14 @@ sha512sums=('aad985329e5649b5bd7c142e95c5d1c415f28bac1afb81ad21fedac76e736d18abe
 
 prepare() {
     cd $pkgname-$pkgver/
+    #sed -i '/QT_VER=/ s:include:Qt:g' qlo10k1/configure ## requires Qt3, later
     sed -ri 's:(qlo10k1|seq)::' Makefile
     install -d ld10k1/m4
 }
 
 build() {
     cd $pkgname-$pkgver/
-    make configure CONFIGURE_ARGS='--prefix=/usr --x-libraries=/usr/lib'
+    make configure CONFIGURE_ARGS='--prefix=/usr --x-libraries=/usr/lib --bindir=/usr/bin --sbindir=/usr/bin'
     cd seq/sbiload/
     ./configure --prefix=/usr --x-libraries=/usr/lib
     make
