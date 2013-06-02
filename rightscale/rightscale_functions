@@ -1,0 +1,903 @@
+#
+# Copyright (c) 2009-2011 by RightScale Inc., all rights reserved
+# Common utility functions used by RightScale shell scripts.
+#
+
+#############################################################################
+## Setup global environment variables used by most/all functions. Halt if
+## the OS or architecture cannot be determined or if networking is not
+## available.
+#############################################################################
+## accepts no arguments
+###############################################################################
+## sets global RS_DISTRO
+## sets global RS_BASE_OS
+## sets global RS_OS_VERSION
+## sets global RS_ARCH
+###############################################################################
+
+function init_os_state() {
+  # Set Root Home
+  export HOME=/root
+
+  if [ -e /usr/bin/lsb_release ]; then
+    # For LSB-compliant distros, query lsb_release...
+    case `lsb_release -si` in
+      Ubuntu*)
+        export RS_DISTRO=ubuntu
+        export RS_BASE_OS=debian
+        mirror_dir='/etc/apt'
+        ;;
+      Debian*)
+        export RS_DISTRO=debian
+        export RS_BASE_OS=debian
+        ;;
+      CentOS*)
+        export RS_DISTRO=centos
+        export RS_BASE_OS=redhat
+        mirror_dir='/etc/yum'
+        ;;
+      Fedora*)
+        export RS_DISTRO=fedora
+        export RS_BASE_OS=redhat
+        ;;
+      RedHatEnterprise*)
+        export RS_DISTRO=rhel
+        export RS_BASE_OS=redhat
+        ;;
+      EnterpriseEnterpriseServer*)
+        export RS_DISTRO=oel
+        export RS_BASE_OS=redhat
+        ;;
+      SUSE*)
+        export RS_DISTRO=suse
+        export RS_BASE_OS=suse
+        ;;
+      arch*)
+        export RS_DISTRO=archlinux
+        export RS_BASE_OS=archlinux
+        ;;
+      *)
+        export RS_DISTRO=unknown
+        export RS_BASE_OS=unknown
+        ;;
+    esac
+
+    export RS_OS_VERSION=`lsb_release -rs`
+  elif [ -e /etc/fedora-release ]; then
+    #Fedora doesn't always have lsb_release, but it does have a release file
+    export RS_DISTRO=fedora
+    export RS_BASE_OS=redhat
+    export RS_OS_VERSION=`cat /etc/fedora-release | perl -wlne 'print $1 if /Fedora release ([0-9.]+)/'`
+  else
+    #Don't know our distro whatsoever...
+    export RS_DISTRO=unknown
+    export RS_BASE_OS=unknown
+    export RS_OS_VERSION=unknown
+  fi
+
+  # Get the architecture used by the packaging system on this machine
+  if [ "$RS_BASE_OS" == "debian" ]; then
+    #Debian's package manager tells us its architecture directly
+    export RS_ARCH=`dpkg --print-architecture || echo unknown`
+  else
+    #For RedHat and other distros, we need to guess using a heuristic based on the
+    #output of uname.
+    export RS_ARCH=`uname -i || echo unknown`
+
+    #On some systems, uname -i fails
+    if [ "$RS_ARCH" == "unknown" ]; then
+      export RS_ARCH=`uname -m || echo unknown`
+    fi
+
+    #Sometimes i686 is reported; this is equivalent to i386 for our purposes
+    if [ "$RS_ARCH" == "i686" ]; then
+      export RS_ARCH="i386"
+    fi
+  fi
+
+  ###############################################################################
+  ## Determine whether the script has everything it needs to continue
+  ###############################################################################
+
+  if [ "$RS_BASE_OS" == "unknown" -o "$RS_ARCH" == "unknown" ]; then
+    logger -st RightScale "Unsupported OS/architecture $RS_BASE_OS/$RS_ARCH; exiting."
+    exit 2
+  fi
+}
+
+###############################################################################
+## Cache cloud metadata and userdata in /var/spool, then wait for the
+## instance's EIP to converge if one was specified at boot.
+##
+## Terminate if the cloud-type in which we reside cannot be determined
+###############################################################################
+## arg1 is a boolean (1 or 0) argument defaulting to 0
+##   1 -> fetch fresh metadata and wait for EIP to converge
+##   0 -> just load cached metadata (fail if none is found)
+###############################################################################
+## sets global RS_CLOUD       - name of cloud family we are in
+## sets global RS_INCARNATION - server incarnation GUID == RS_RN_AUTH
+## sets globals for all userdata elements
+###############################################################################
+
+function init_cloud_state() {
+  export RS_CLOUD=`cat /etc/rightscale.d/cloud`
+
+  if [ "$1" == "1" ]; then
+    logger -st RightScale "Initializing $RS_CLOUD instance data."
+    /opt/rightscale/bin/cloud --name $RS_CLOUD --action bootstrap 2>&1 | logger -st RightScale
+  fi
+
+  if [ -e /var/spool/cloud/user-data.sh ]; then
+    . /var/spool/cloud/user-data.sh
+  else
+    logger -st RightScale "Unable to obtain user-data; cannot continue."
+    exit 1
+  fi
+
+  export RS_INCARNATION=$RS_RN_AUTH
+}
+
+
+###############################################################################
+## Delete cloud metadata and userdata
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function clear_cloud_state() {
+  local rs_cloud=`cat /etc/rightscale.d/cloud`
+
+  /opt/rightscale/bin/cloud --name $rs_cloud --action clear_state --only-if 2>&1 | logger -st RightScale
+}
+
+###################################################################################
+## Reconfigure mirrors based on region (only do if not launched through the dash)
+###################################################################################
+## accepts no arguments
+## depends on global RS_CLOUD
+###################################################################################
+## returns nothing
+###################################################################################
+
+function configure_mirrors() {
+  ## return if we are not on ec2
+  if [ ! "$RS_CLOUD" == 'ec2' ]; then
+    return
+  fi
+
+  ## return if the mirror_dir is not set
+  if [ -z "$mirror_dir" ]; then
+    return
+  fi
+
+  ## return if the mirror_dir is not a dir
+  if [ ! -d "$mirror_dir" ]; then
+    return
+  fi
+
+  ## return if the meta-data file does not exist
+  if [ ! -e /var/spool/cloud/meta-data.sh ]; then
+    return
+  fi
+
+  ## source the meta-data
+  source /var/spool/cloud/meta-data.sh
+
+  case $EC2_PLACEMENT_AVAILABILITY_ZONE in
+    us-east*)
+      local mirror_endpoint=ec2-us-east-mirror.rightscale.com
+    ;;
+    us-west*)
+      echo us-west
+      local mirror_endpoint=ec2-us-west-mirror.rightscale.com
+    ;;
+    eu-west*)
+      echo eu
+      local mirror_endpoint=ec2-eu-west-mirror.rightscale.com
+    ;;
+    ap-southeast*)
+      echo asia
+      local mirror_endpoint=ec2-ap-southeast-mirror.rightscale.com
+    ;;
+  esac
+
+  ## return if we did not find a mirror
+  if [ -z "$mirror_endpoint" ]; then
+    return
+  fi
+
+  ## recursively search and replace the mirror dir. Replace 'mirror.rightscale.com' with local mirror
+  find $mirror_dir -name "*" -type f | xargs sed -i "s%http://mirror.rightscale.com%http://$mirror_endpoint%g"
+}
+
+
+###############################################################################
+## Determine whether this instance was launched by the RightScale platform
+###############################################################################
+## accepts no arguments
+## depends on global RS_RN_ID
+###############################################################################
+## returns nothing
+###############################################################################
+
+function check_for_rightscale() {
+  . /var/spool/cloud/user-data.sh
+
+  if [ -z "$RS_RN_ID" ]; then
+    logger -st RightScale "RS_rn_id not found in user data. Not attached to RightScale."
+    change_motd /opt/rightscale/etc/motd-complete
+    configure_mirrors
+    exit 0
+  fi
+}
+
+
+###############################################################################
+## Parse user-data for proxy settings and create proxy configuration file
+###############################################################################
+## accepts nothing
+## depends on global RS_HTTP_PROXY
+## depends on global RS_NO_PROXY
+###############################################################################
+## returns nothing
+###############################################################################
+
+function create_proxy_config_file() {
+  /opt/rightscale/bin/system --action proxy 2>&1 | logger -st RightScale
+}
+
+
+###############################################################################
+## Load proxy settings from configuration file, if present
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+## sets global HTTP_PROXY
+## sets global http_proxy
+## sets global NO_PROXY
+## sets global no_proxy
+###############################################################################
+
+configure_proxy() {
+  if [ -f /etc/profile.d/http_proxy.sh ]; then
+    . /etc/profile.d/http_proxy.sh
+  fi
+}
+
+
+###############################################################################
+## Ensure that "hostname --fqdn" will succeed on this host. If DNS is not
+## properly configured, add some fake entries to /etc/hosts to give the
+## illusion that the host actually has an FQDN.
+###############################################################################
+## accepts no arguments
+## depends on global RS_CLOUD
+###############################################################################
+## returns nothing
+###############################################################################
+function ensure_sane_hostname() {
+  /opt/rightscale/bin/system --action hostname 2>&1 | logger -st RightScale
+}
+
+###############################################################################
+## Ensure that the sudoers file allows the rightscale user to sudo, and the
+## rightscale_sudo group as well.
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+function ensure_sudo_privilege() {
+  if [ -z "$RS_ALREADY_BOOTED" ]; then
+    /opt/rightscale/bin/system --action sudoers 2>&1 | logger -st RightScale
+  else
+    echo "Sudoers NOPASSWD already enabled for this incarnation." | logger -st RightScale
+  fi
+}
+
+###############################################################################
+## (Re)generate SSH host keys to ensure they are unique to this instance.
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function ensure_fresh_ssh_host_key() {
+  if [ -z "$RS_ALREADY_BOOTED" ]; then
+    echo "Generate SSH host keys to ensure they are unique to this instance..." | logger -st RightScale
+
+    /opt/rightscale/bin/system --action ssh 2>&1 | logger -st RightScale
+
+    exit_code=$PIPESTATUS
+    if [ $exit_code == 0 ]; then
+      echo "SSH host keys successfully generated." | logger -st RightScale
+    elif [ $exit_code == 1 ]; then
+      echo "SSH host key generation disabled." | logger -st RightScale
+    else
+      echo "SSH host key generation failed." | logger -st RightScale
+      report_failure
+      exit 5
+    fi
+  else
+    echo "SSH host keys already generated for this incarnation." | logger -st RightScale
+  fi
+}
+
+
+###############################################################################
+## Search for and download any available patches that have been published to
+## the RightScale production bucket or its mirrors (or another location,
+## depending on user-data).
+###############################################################################
+## arg1 is the url to query
+## arg2 is the system specific patch
+## arg3 is the generic release patch
+## arg4 is the output destination
+## arg5 is a boolean (1 or 0) argument defaulting to 1
+##   1 -> default timeout to download a patch
+##   0 -> quick connection timeout on download host
+###############################################################################
+## return 0 if no patch was found
+## return 1 if successfully downloaded patch
+## return 2 otherwise
+###############################################################################
+
+function attempt_patch_download {
+  # best effort has quick connection timeout.
+  if [ "$5" -eq "0" ]; then
+    local curl_opt="-s -S -f -L --connect-timeout 1 --retry 1"
+  else
+    local curl_opt="-s -S -f -L --retry 3"
+  fi
+
+  # try to download the specific patch
+  local cmd="curl $curl_opt -w '%{http_code}' -o $4 ${1}${2} 2> /dev/null"
+  res=`eval $cmd`
+
+  # if we successfully downloaded the platform specific patch, then return
+  if [ "$res" -ge "200" -a "$res" -lt "300" ]; then
+    return 1
+
+  # if the specific patch did not exist, then try to download the generic one
+  # if we were not able to successfuly talk to the server, then return
+  elif [ "$res" -ge "400" -a "$res" -lt "500" ]; then
+    cmd="curl $curl_opt -w '%{http_code}' -o $4 ${1}${3} 2> /dev/null"
+    res=`eval $cmd`
+
+    # return if we successfuly downlaoded the generic patch
+    if [ "$res" -ge "200" -a "$res" -lt "300" ]; then
+      return 1
+
+    # return if no patch was found
+    elif [ "$res" -ge "400" -a "$res" -lt "500" ]; then
+      return 0
+    fi
+  fi
+  return 2
+}
+
+
+###############################################################################
+## Determine if we need to download and install a patch and, if so, install it
+###############################################################################
+## accepts no arguments
+## depends on global RS_DISTRO
+## depends on global RS_OS_VERSION
+## depends on global RS_ARCH
+## depends on global RS_PATCH_URL (optional)
+## depends on global RS_SRC (optional)
+###############################################################################
+## arg1 is a boolean (1 or 0) argument defaulting to 1
+##   1 -> try forever to contact a patch host
+##   0 -> best effort to contact a patch host with retry limit
+###############################################################################
+## returns nothing
+###############################################################################
+
+function install_patch_if_needed {
+  local s3_dev_bucket=http://s3.amazonaws.com/rightscale_rightlink_dev
+  local s3_prod_mirror=ec2-us-east-mirror.rightscale.com
+  local s3_prod_mirror_path=/rightscale_rightlink
+
+  ## figure out the package version that's already installed
+  if [ "$RS_BASE_OS" == "debian" ]; then
+    local rs_release=`dpkg-query -W -f='${Version}' rightscale`
+  elif [ "$RS_BASE_OS" == "redhat" ]; then
+    local rs_release=`rpm --query --qf %{version} rightscale`
+  fi
+
+  ## generate patch names
+  test -f /opt/rightscale/etc/patchlevel && local last_patch=`cat /opt/rightscale/etc/patchlevel` || local last_patch=0
+  let local next_patch=1+$last_patch
+  local specific_patch="/${rs_release}/patch/${RS_DISTRO}/${RS_OS_VERSION}/${RS_ARCH}/${next_patch}.tgz"
+  local generic_patch="/${rs_release}/patch/${next_patch}.tgz"
+
+
+  ## generate a list of mirrors to try for patches, using these rules:
+  ##   1) if RS_patch_url is set, then use that value (patch-developer mode)
+  ##   2) if RS_src is set, then use the developer bucket
+  ##   3) otherwise, use a list containing the S3 production bucket and all known mirrors
+  if [ "$RS_PATCH_URL" ]; then
+    local url_list=$RS_PATCH_URL
+  elif [ "$RS_SRC" ]; then
+    local url_list=$s3_dev_bucket
+  else
+    ## keep digging until we get to the DNS treasure (unless best effort).
+    dig_count=0
+    while [ 1 ]; do
+      ips=`dig $s3_prod_mirror +short`
+      if [ "$?" -eq '0' ]; then break 2; fi
+      if [ "$1" -eq '0' ]; then
+        # best effort will try digging then quit.
+        let "dig_count += 1"
+        if [ $dig_count -eq 5 ]; then
+          echo "Patch mirror dig retry limit exceeded."
+          return 1
+        fi
+      fi
+      logger -st RightScale "Could not resolve $s3_prod_mirror"
+    done
+
+    local url_list=""
+    for ip in $ips ; do url_list="$url_list http://${ip}${s3_prod_mirror_path}"; done
+  fi
+
+
+  ## create a random dir to build the patch in
+  local random_dir="/tmp/rightlink_patch_${RANDOM}"
+  mkdir -p $random_dir
+
+
+  ## loop through all of the mirrors until we connect successfully (unless best effort).
+  logger -st RightScale "Checking existence of patch file ${next_patch}.tgz"
+  while [ 1 ]; do
+    for url in $url_list; do
+      attempt_patch_download $url $specific_patch $generic_patch ${random_dir}/patch.tgz $1
+      local res=$?
+      if [ "$res" -eq '0' -o "$res" -eq '1' ]; then break 2; fi
+      logger -st RightScale "Could not get patchfile from $url"
+    done
+
+    # best effort case will try each url once and then quit for now.
+    if [ "$1" -eq '0' ]; then
+      echo "Unable to contact any patch host on first pass."
+      return 1
+    fi
+    sleep 1
+  done
+
+
+  # return 0 if we did not find a patch
+  if [ "$res" -eq "0" ]; then
+    rm -rf $random_dir
+    logger -st RightScale "No patchfile found for ${next_patch}.tgz"
+    return 0
+
+  # if we downloaded a patch, then apply it
+  elif [ "$res" -eq "1" ]; then
+    logger -st RightScale "Applying pathfile ${next_patch}.tgz"
+    cd $random_dir
+    tar -xzf patch.tgz
+    chmod +x patch
+    ./patch
+    local res=$?
+    cd - 1> /dev/null
+    rm -rf $random_dir
+
+    # if we ran the patch successfully, then recurse
+    if [ "$res" -eq "0" ]; then
+      # make sure that the patchlevel was incremented before recursing
+      local patchlevel=`cat /opt/rightscale/etc/patchlevel`
+      if [ "$patchlevel" -ne "$next_patch" ]; then
+        logger -st RightScale "Error: ${next_patch}.tgz did not increment /opt/rightscale/etc/patchlevel. Refusing to continue..."
+        return 2
+      fi
+
+      logger -st RightScale "Successfully applied ${next_patch}.tgz. Checking for more patches..."
+      eval $FUNCNAME
+      return $?
+    else
+      logger -st RightScale "Error while installing ${next_patch}.tgz"
+      return 1
+    fi
+
+  # otherwize we have an error
+  else
+    rm -rf $random_dir
+    logger -st RightScale "Unknown error while trying to patch"
+    return 3
+  fi
+}
+
+
+###############################################################################
+## Determine the previous-boot state of this instance
+###############################################################################
+## depends on global RS_INCARNATION
+###############################################################################
+## sets global RS_ALREADY_BOOTED if this incarnation has booted before
+###############################################################################
+
+function check_boot_state() {
+  if [ -e /var/lib/rightscale/right_link/booted ]; then
+    old_instance_id=`cat /var/lib/rightscale/right_link/booted`
+
+    if [ "$old_instance_id" == "$RS_INCARNATION" ]; then
+      state="rebooting"
+      if [ -e /var/lib/rightscale/right_link/state.js ]; then
+        reboot=`sed -e 's/.*"reboot":\([^,}]*\).*/\1/' /var/lib/rightscale/right_link/state.js`
+        if [ "$reboot" != "true" ]; then
+          state="re-enrolling"
+        fi
+      fi
+      logger -st RightScale "This instance is ${state}."
+      export RS_ALREADY_BOOTED="true"
+    else
+      logger -st RightScale "This instance is booting from a user-bundled image or snapshot."
+    fi
+  else
+    logger -st RightScale "This instance is booting for the first time."
+  fi
+
+  change_motd /opt/rightscale/etc/motd
+}
+
+function update_boot_state() {
+  mkdir -p /var/lib/rightscale/right_link
+  echo -n "$RS_INCARNATION" > /var/lib/rightscale/right_link/booted
+}
+
+#############################################################################
+## Check the RightLink feature config file for the presence of a feature.
+## For example, if config YML looks like:
+##   motd:
+##     update: true
+## You can call this function and ask it about "motd_update" and it will return
+## 0 (success). If the variable (or the file) is missing, then it returns 0
+## because all features are assumed to be enabled by default.
+#############################################################################
+## arg1 is the name of the section and feature you are interested in
+###############################################################################
+## returns 1 if feature is explicitly disabled; 0 otherwise
+###############################################################################
+
+function check_for_feature(){
+  local yaml_config_file="/etc/rightscale.d/right_link/features.yml"
+  local feature_name=$1
+
+  if [ ! -e "$yaml_config_file" ]; then
+    return 0
+  fi
+
+  #save original stdin so we can restore it;
+  #tie stdin to yml config file so we can parse it
+  exec 42<&0
+  exec < $yaml_config_file
+
+  local cat_reg='^[a-z]*: *$'
+  local false_reg='fa?l?s?e?|0|no?'
+
+  local current_prefix=''
+  local result=0
+
+  while read line; do
+    if [[ $line =~ $cat_reg ]]; then
+      current_prefix=`echo $line | sed 's/ *://g'`
+    else
+      local export_variable=$current_prefix"_"`echo $line | sed 's/: */=/g' | sed 's/ /_/g'`
+      local variable_name=${export_variable%=*}
+      local variable_value=${export_variable#*=}
+      if [ "$variable_name" == "$feature_name" ]; then
+        if [[ $variable_value =~ $false_reg ]]; then
+          result=1
+        fi
+      fi
+    fi
+  done
+
+  #restore original stdin, close our copy
+  exec 0<&42 42<&-
+
+  return $result
+}
+
+#############################################################################
+## Update the MOTD with contents of specified file. If this system uses
+## a dynamic MOTD system (e.g. pam_motd), update the motd.tail file instead
+## of updating motd directly.
+#############################################################################
+## arg1 is the name of the file with the relevant message
+###############################################################################
+## returns nothing
+###############################################################################
+
+function change_motd() {
+  check_for_feature 'motd_update'
+
+  if [ "$?" -eq "0" ]; then
+    if [ -d /etc/update-motd.d ]; then
+      cp $1 /etc/motd.tail
+    else
+      cp $1 /etc/motd
+    fi
+  fi
+}
+
+#############################################################################
+## Update the MOTD and send a wall indicating that installation failed
+#############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function report_failure() {
+  change_motd /opt/rightscale/etc/motd-failed
+  echo "RightScale installation failed. Please review /var/log/messages" | wall
+}
+
+###############################################################################
+## Enroll this instance with RightLink registrar, if required
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function enroll_right_link_instance() {
+  if [ -z "$RS_ALREADY_BOOTED" ]; then
+    rm -f /opt/rightscale/right_link/certs/*
+  fi
+
+  echo "Enrolling RightLink instance." | logger -st RightScale
+  if [ "$RS_AUTO" ]; then
+    local die=--or-die
+  else
+    local die=""
+  fi
+
+  #Note that enroll script manages its own logging channel; piping output to logger is not required
+  /opt/rightscale/bin/enroll $die --root-dir /opt/rightscale/right_link --url $RS_RN_URL --host $RS_RN_HOST --id $RS_RN_ID --token $RS_RN_AUTH
+
+  if [ $PIPESTATUS == 0 ]; then
+    echo "Instance successfully enrolled." | logger -st RightScale
+  else
+    echo "Instance enrollment failed." | logger -st RightScale
+    report_failure
+    exit 3
+  fi
+}
+
+###############################################################################
+## Create a configuration file for the RightLink agent.
+###############################################################################
+## depends on global RS_ALREADY_BOOTED
+###############################################################################
+## returns nothing
+###############################################################################
+
+function deploy_right_link_agent() {
+  if [ -z "$RS_ALREADY_BOOTED" ]; then
+    echo "Creating RightLink agent configuration file." | logger -st RightScale
+
+    /opt/rightscale/bin/deploy 2>&1 | logger -st RightScale
+
+    if [ $PIPESTATUS == 0 ]; then
+      echo "Agent configuration successfully generated." | logger -st RightScale
+    else
+      echo "Agent configuration failed." | logger -st RightScale
+      report_failure
+      exit 5
+    fi
+  else
+    echo "Agent has already been configured for this incarnation." | logger -st RightScale
+  fi
+}
+
+###############################################################################
+## Install the RightLink services if required
+###############################################################################
+## depends on nothing
+###############################################################################
+## returns nothing
+###############################################################################
+
+function install_right_link_scripts() {
+  /opt/rightscale/right_link/bin/setup.sh 2>&1 | logger -t RightScale
+
+  if [ $PIPESTATUS == 0 ]; then
+    echo "RightLink script installation succeeded."
+    return 0
+  else
+    echo "RightLink script installation failed."
+    report_failure
+    exit 3
+  fi
+}
+
+
+###############################################################################
+## Enable core dumps for RightLink agent
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function enable_right_link_core_dumps() {
+  echo "Setting resource limits and enabling core dumps"
+
+  # ulimit config
+  ulimit -c unlimited > /dev/null
+
+  # ulimit security limits
+  file="/etc/security/limits.conf"
+  egrep -q "^(root|\*) .* core .*unlimited" $file
+  if [ "$?" == "1" ]; then
+    echo "* soft core unlimited" >> $file
+  fi
+
+  # create dir for dump files
+  crash_dir="/opt/rightscale/crash"
+  install --owner=root --group=root --mode=0750 --directory $crash_dir > /dev/null
+
+  # configure dump location and filename
+  pid_attrib="kernel.core_uses_pid"
+  pattern_attrib="kernel.core_pattern"
+  pattern="$crash_dir/%u_%p_%e"
+  file="/etc/sysctl.conf"
+
+  replace="$pid_attrib = 0"
+  grep -q "$pid_attrib" $file
+  if [ "$?" == "0" ]; then
+    sed -i /^$pid_attrib/c\ "$replace" $file
+  else
+    echo "$replace" >> $file
+  fi
+
+  replace="$pattern_attrib = $pattern"
+  grep -q "$pattern_attrib" $file
+  if [ "$?" == "0" ]; then
+    sed -i /^$pattern_attrib/c\ "$replace" $file
+  else
+    echo "$replace" >> $file
+  fi
+
+  # reload sysctl
+  sysctl -p | logger -t RightScale
+}
+
+###############################################################################
+## Ensure that the user who invoked the shell script is root
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function check_invoking_user_permissions() {
+  if [ `whoami` != "root" ]
+  then
+    echo "You must be root to invoke this script"
+    exit -1
+  fi
+}
+
+###############################################################################
+## Start RightLink through monit
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function start_right_link_agent() {
+  # Prime the pump; ensure monit's state/config dirs exist and that its
+  # config file has the right perms
+  mkdir -p /opt/rightscale/var/run
+  mkdir -p /opt/rightscale/var/lib/monit
+  mkdir -p /opt/rightscale/etc/monit.d
+  chmod 0700 /opt/rightscale/etc/monitrc
+
+  # Start monit daemon (no-op if daemon is already running)
+  /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc
+
+  # Make sure monit's HTTP interface is listening before we continue
+  local cmd="/opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status 2>&1 | grep -qiE 'monit daemon.*uptime'"
+  logger -t "RightScale" "Starting RightLink"
+  echo -n "Starting RightLink.."
+  while [ `eval $cmd ; echo \$?` -ne "0" ]; do
+    echo -n '.'
+    sleep 0.5
+  done
+  echo 'done'
+
+  # Tell monit to start RightLink & friend
+  /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc start instance
+  /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc start checker
+  mkdir -p /var/lock/subsys
+  touch /var/lock/subsys/rightlink
+}
+
+###############################################################################
+## Tell the RightLink agent to decommission itself
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function decommission_right_link_agent() {
+  if [ -e /var/lock/subsys/rightlink ]; then
+    /opt/rightscale/bin/rnac --decommission 2>&1 | logger -st RightScale
+  fi
+}
+
+###############################################################################
+## Stop RightLink agent and checker through monit
+###############################################################################
+## accepts no arguments
+###############################################################################
+## returns nothing
+###############################################################################
+
+function stop_right_link_agent() {
+  if [ -e /opt/rightscale/var/run/monit.pid ]; then
+    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc stop checker
+    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc stop instance
+
+    # Poll for RightLink process to finish via the ultra-high-tech expedient
+    # of looking for it to disappear from ps. Note that we need to filter out
+    # the ps process itself from the output in order to get an accurate
+    # result, hence the extra grep -v
+    local cmd="ps aux | grep rnac | grep -Ev 'ps|grep' | wc -l"
+    logger -t RightScale "Waiting for agent to quit"
+    echo -n "Waiting for agent to quit.."
+    while [ `eval $cmd` -gt "0" ]; do
+      echo -n '.'
+      sleep 0.5
+    done
+    echo 'done'
+
+    /opt/rightscale/sandbox/bin/monit -c  /opt/rightscale/etc/monitrc quit
+
+    # Poll for monit itself to go away
+    local cmd="/opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status 2>&1 | grep -qi 'monit daemon is not running'"
+    logger -t RightScale "Stopping RightLink"
+    echo -n "Stopping RightLink.."
+    while [ `eval $cmd ; echo \$?` -ne "0" ]; do
+      echo -n '.'
+      sleep 0.5
+    done
+    echo 'done'
+  fi
+
+  rm -f /var/lock/subsys/rightlink
+  rm -f /opt/rightscale/var/run/monit.pid
+}
+
+function check_right_link_agent_status() {
+  if [ -e /opt/rightscale/var/run/monit.pid ]; then
+    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status instance |
+      grep -EA 1 "Process.*instance" | grep -Eq "status.*running"
+    return $?
+  else
+    return 1
+  fi
+}
+
+function check_right_link_agent_checker_status() {
+  if [ -e /opt/rightscale/var/run/monit.pid ]; then
+    /opt/rightscale/sandbox/bin/monit -c /opt/rightscale/etc/monitrc status checker |
+      grep -EA 1 "Process.*checker" | grep -Eq "status.*running"
+    return $?
+  else
+    return 1
+  fi
+}
