@@ -1,0 +1,86 @@
+#! /bin/bash
+. /usr/lib/network/network
+
+_quotestring() {
+    echo "\"${1/\"/\\\"}\""
+}
+
+pppoa_up() {
+	if [[ ! -d /proc/net/atm ]]; then
+		if ! modprobe -q pppoatm; then
+			report_fail "Kernel does not support PPP over ATM."
+			return 1
+		fi
+	fi
+
+    local cfg
+    load_profile "$1"
+
+    if [[ -z ${PPPOA_VPI} || -z ${PPPOA_VCI} ]]; then
+        report_fail "Both PPPOA_VPI and PPPOA_VCI must be set."
+        return 1
+    fi
+
+    mkdir -p "$STATE_DIR/pppoa.${INTERFACE}.$1/"
+    chmod 700 "$STATE_DIR/pppoa.${INTERFACE}.$1/"
+    cfg="$STATE_DIR/pppoa.${INTERFACE}.$1/options"
+    : > "${cfg}"
+    chmod 600 "${cfg}"
+
+    echo "plugin pppoatm.so" >> "${cfg}"
+    echo "noauth" >> "${cfg}"
+    if checkyesno ${DEFAULTROUTE:-1}; then
+        echo "defaultroute" >> "${cfg}"
+    else
+        echo "nodefaultroute" >> "${cfg}"
+    fi
+    if checkyesno ${USEPEERDNS:-1}; then
+        echo "usepeerdns" >> "${cfg}"
+    fi
+	echo "linkname $(_quotestring "$1")" >> "${cfg}"
+    echo "maxfail 5" >> "${cfg}"
+    echo "updetach" >> "${cfg}"
+    if [[ ${CONNECTION_MODE} == demand ]]; then
+        echo "demand" >> "${cfg}"
+        echo "idle ${IDLE_TIMEOUT}" >> "${cfg}"
+    else
+        echo "persist" >> "${cfg}"
+    fi
+    echo "user $(_quotestring "${USER}")" >> "${cfg}"
+    echo "password $(_quotestring "${PASSWORD}")" >> "${cfg}"
+
+	echo "$(_quotestring "${PPPOA_VPI}.${PPPOA_VCI}")" >> "${cfg}"
+
+    [[ -n ${LCP_ECHO_INTERVAL} ]] && echo "lcp-echo-interval ${LCP_ECHO_INTERVAL}" >> "${cfg}"
+    [[ -n ${LCP_ECHO_FAILURE} ]] && echo "lcp-echo-failure ${LCP_ECHO_FAILURE}" >> "${cfg}"
+
+    /sbin/ip link set dev "${INTERFACE}" up
+    /usr/sbin/pppd file "${cfg}"
+
+    if [[ $? -ne 0 ]]; then
+        rm "${cfg}"
+        rmdir "$STATE_DIR/pppoa.${INTERFACE}.$1/"
+        report_fail "Couldn't make pppd connection."
+        return 1
+    fi
+}
+
+pppoa_down() {
+    load_profile "$1"
+    local cfg
+    cfg="$STATE_DIR/pppoa.${INTERFACE}.$1/options"
+    PIDFILE="/var/run/ppp-$1.pid"
+
+    if [[ -e $PIDFILE ]]; then
+        read PID < "$PIDFILE"
+        [[ "$PID" ]] && kill "$PID"
+    fi
+
+    rm "${cfg}"
+    rmdir "$STATE_DIR/pppoa.${INTERFACE}.$1/"
+}
+
+pppoa_$1 "$2"
+exit $?
+
+# vim: ft=sh ts=4 et sw=4:
