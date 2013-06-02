@@ -47,9 +47,9 @@ init_vars() {
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
         fail "\$I2P_USER does not exist: $I2P_USER"
 
-    wrapper_ver=$(/usr/bin/java-service-wrapper --version |head -n1|cut -d' ' -f7)
+    #wrapper_ver=$(/usr/bin/java-service-wrapper --version |head -n1|cut -d' ' -f7)
     JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2prouter\" wrapper.logfile=\"$LOGFILE\" wrapper.script.version=${wrapper_ver}"
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2prouter\" wrapper.logfile=\"$LOGFILE\"" #wrapper.script.version=${wrapper_ver}"
 
 }
 
@@ -109,6 +109,11 @@ _start() {
     fi
 }
 
+_restart() {
+    [[ "$pid" ]] &&
+        kill -USR1 $pid || echo "I2P Service is not running"
+}
+
 _stop() {
     if [[ "$pid" ]]; then
         echo -n "Stopping I2P Service"
@@ -144,8 +149,7 @@ _graceful() {
 
 _status() {
     [[ "$pid" ]] &&
-        echo "I2P Service is running: PID:$pid" ||
-        echo "I2P Service is not running."
+        echo "I2P Service is running: PID:$pid" || echo "I2P Service is not running."
 }
 
 _dump() {
@@ -173,7 +177,7 @@ case "$1" in
                 ;;
     'graceful') _graceful
                 ;;
-     'restart') _stop "start"
+     'restart') _restart
                 ;;
       'status') _status
                 ;;
@@ -187,7 +191,7 @@ case "$1" in
         echo "  start       Start in the background as a daemon process"
         echo "  stop        Stop if running as a daemon or in another console"
         echo "  graceful    Stop gracefully, may take up to 11 minutes for all tunnels to close"
-        echo "  restart     Restart only if running"
+        echo "  restart     Restart the JVM"
         echo "  status      Query the current status"
         echo "  dump        Request a Java thread dump if running"
         echo
