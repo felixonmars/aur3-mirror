@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/bash
 ### Vi0L0: it is ati's code from their make.sh file, modified a bit to fit our arch linux system, used inside PKGBUILD
 
 # Copyright 1999-2005 ATI Technologies Inc., Markham, Ontario, CANADA.
