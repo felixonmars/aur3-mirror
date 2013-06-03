@@ -5,7 +5,7 @@
 pkgname=gradm
 pkgver=2.9.1
 _timestamp=201301041755
-pkgrel=1
+pkgrel=2
 pkgdesc='Administrative interface for the grsecurity Role Based Access Control system'
 arch=('i686' 'x86_64')
 url='http://grsecurity.net/'
@@ -16,7 +16,7 @@ sha256sums=(516a1700e88edf7b9dc868f3c02f7571a53d00e078e5deb50189fc1ea8fb8082)
 
 build() {
   cd "$srcdir/${pkgname}2"
-  sed -ie 's/^CFLAGS :=/CFLAGS +=/' Makefile
+  sed -i -e 's/^CFLAGS :=/CFLAGS +=/' -e 's:sbin:usr/bin:' Makefile
   make
 }
 

@@ -1,0 +1,121 @@
+Index: libass/ass_parse.c
+===================================================================
+--- libass/ass_parse.c	(wersja 36279)
++++ libass/ass_parse.c	(kopia robocza)
+@@ -255,11 +255,51 @@
+  */
+ char *parse_tag(ASS_Renderer *render_priv, char *p, double pwr)
+ {
+-    skip_to('\\');
+-    skip('\\');
++  
++    // check if this may be MicroDVD tag - then omit skipping
++    if( !(*p == 'c' || *p == 'C' || *p == 'y' || *p == 'Y') ) {
++        skip_to('\\');
++        skip('\\');
++    }
++
+     if ((*p == '}') || (*p == 0))
+         return p;
+ 
++
++    // ADDED BY CYRYL
++    // MicroDVD format
++    // must have first precedence becouse some things like {c:} can be read as SSA format
++    // TODO: lower letter for current line, upper for whole sub
++    if (mystrcmp(&p, "Y:") || mystrcmp(&p, "y:")) {
++      while(1) {
++        char tp = *p;
++        if(tp == 'i') {
++          render_priv->state.italic = 110;
++          update_font(render_priv);
++        }
++        else if(tp == 'b') {
++          render_priv->state.bold = 200;
++          update_font(render_priv);
++        }
++        else if(tp == 'u') { // SSA doesn't support underline?
++         render_priv->state.flags |= DECO_UNDERLINE;
++         update_font(render_priv);
++        }
++        else if(tp == '}' || tp == 0) {
++          return p;
++        }
++        *p++; // don't know why, but it has to be done at end
++      }
++    }
++    else if (mystrcmp(&p, "C:") || mystrcmp(&p, "c:")) { // $ in strtocolor()
++      uint32_t val;
++      int hex = render_priv->track->track_type == TRACK_TYPE_ASS;
++      if (!strtocolor(render_priv->library, &p, &val, hex))
++        val = render_priv->state.style->PrimaryColour;
++      change_color(&render_priv->state.c[0], val, pwr);
++    }
++    // END MicroDVD
++    else
+     // New tags introduced in vsfilter 2.39
+     if (mystrcmp(&p, "xbord")) {
+         double val;
+@@ -1013,7 +1053,7 @@
+         *str = p;
+         return ' ';
+     }
+-    if (*p == '\\') {
++    else if (*p == '\\') {
+         if ((p[1] == 'N') || ((p[1] == 'n') &&
+                               (render_priv->state.wrap_style == 2))) {
+             p += 2;
+Index: libass/ass_render.c
+===================================================================
+--- libass/ass_render.c	(wersja 36279)
++++ libass/ass_render.c	(kopia robocza)
+@@ -1750,6 +1750,23 @@
+             }
+         } while (*p);
+ 
++
++
++        // ADDED BY CYRYL ( cyrylas @ gmail .com)
++        // when / or * at begining of line, set style to bold or italic
++        if(previous == 0 || previous == '\n') {
++          if(code == '/') {
++            render_priv->state.italic = 110;
++            update_font(render_priv);
++            code = get_next_char(render_priv, &p);
++          } else if(code == '*') {
++            render_priv->state.italic = 200;
++            update_font(render_priv);
++            code = get_next_char(render_priv, &p);
++          }
++        }
++        // END ADDED BY CYRYL
++
+         if (text_info->length >= text_info->max_glyphs) {
+             // Raise maximum number of glyphs
+             text_info->max_glyphs *= 2;
+Index: libass/ass_utils.c
+===================================================================
+--- libass/ass_utils.c	(wersja 36279)
++++ libass/ass_utils.c	(kopia robocza)
+@@ -80,13 +80,16 @@
+     char *p = *q;
+     int base = hex ? 16 : 10;
+ 
+-    if (*p == '&')
+-        ++p;
+-    else
+-        ass_msg(library, MSGL_DBG2, "suspicious color format: \"%s\"\n", p);
++    while(*p <= 0x20) {
++      ass_msg(library, MSGL_DBG2, "suspicious color format: \"%s\"\n", p);
++      ++p;
++    }
+ 
+-    if (*p == 'H' || *p == 'h') {
++    if (*p == '&') ++p;
++
++    if (*p == 'H' || *p == 'h' || *p == '$') { 
+         ++p;
++        if (*p == '#') ++p; // Correction By Xaweryz; for subs like {c:$#007FFF}
+         result = mystrtou32(&p, 16, &color);
+     } else {
+         result = mystrtou32(&p, base, &color);
