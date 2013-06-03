@@ -1,0 +1,99 @@
+Index: httpd-2.2.11/server/mpm/experimental/itk/itk.c
+===================================================================
+--- httpd-2.2.17/server/mpm/experimental/itk/itk.c.orig	
+2010-10-23 
+12:41:31.230000729 -0500
++++ httpd-2.2.17/server/mpm/experimental/itk/itk.c	2010-10-23 13:01:33.276667394 -0500
+@@ -169,6 +169,7 @@
+ typedef struct
+ {
+     int max_clients_vhost;
++    char* root_dir;
+ } itk_server_conf;
+ 
+ module AP_MODULE_DECLARE_DATA mpm_itk_module;
+@@ -1437,6 +1438,7 @@
+     uid_t wanted_uid;
+     gid_t wanted_gid;
+     const char *wanted_username;
++    const char *wanted_dir;
+     int err = 0;
+     
+     itk_server_conf *sconf =
+@@ -1474,13 +1476,43 @@
+     wanted_uid = dconf->uid;
+     wanted_gid = dconf->gid;
+     wanted_username = dconf->username;
+-
+     if (wanted_uid == -1 || wanted_gid == -1) {
+         wanted_uid = unixd_config.user_id;
+         wanted_gid = unixd_config.group_id;
+         wanted_username = unixd_config.user_name;
+     }
+ 
++    int have_chroot = 1;
++    if (!geteuid()) {
++        if (sconf->root_dir == NULL) {
++            if (unixd_config.chroot_dir == NULL) {
++                have_chroot = 0;
++                _DBG("VHostChrootDir and ChrootDir both NULL","");
++//              err = 1;
++            } else {
++                _DBG("VHostChrootDir not set using ChrootDir","");
++                wanted_dir = unixd_config.chroot_dir;
++            }
++        } else {
++            wanted_dir = sconf->root_dir;
++        }
++        if ((have_chroot) && (wanted_dir != NULL)) {
++            if (chdir(wanted_dir) != 0) {
++                _DBG("Cannot chdir(%s)%s", wanted_dir, strerror(errno));
++                err = 1;
++            } else if (chroot(wanted_dir) != 0) {
++                _DBG("Cannot chroot(%s)%s", wanted_dir, strerror(errno));
++                err = 1;
++            } else if (chdir("/") != 0) {
++                _DBG("Cannot chdir to new root(%s)%s", "/", strerror(errno));
++                err = 1;
++            }
++        } else {
++            //err = 1;
++        }
++    }
++
++
+     if (!err && wanted_uid != -1 && wanted_gid != -1 && (getuid() != wanted_uid || getgid() != wanted_gid)) {
+         if (setgid(wanted_gid)) {
+             _DBG("setgid(%d): %s", wanted_gid, strerror(errno));
+@@ -1678,6 +1710,14 @@
+     return NULL;
+ }
+ 
++static const char *set_vhost_root (cmd_parms *cmd, void *ptr, const char *arg)
++{
++    itk_server_conf *sconf =
++        (itk_server_conf *) ap_get_module_config(cmd->server->module_config, &mpm_itk_module);
++    sconf->root_dir = apr_pstrdup(cmd->pool, arg);
++    return NULL;
++}
++
+ static const command_rec itk_cmds[] = {
+ UNIX_DAEMON_COMMANDS,
+ LISTEN_COMMANDS,
+@@ -1697,6 +1737,8 @@
+               "Maximum number of children alive at the same time for this virtual host."),
+ AP_INIT_TAKE1("NiceValue", set_nice_value, NULL, RSRC_CONF|ACCESS_CONF,
+               "Set nice value for the given vhost, from -20 (highest priority) to 19 (lowest priority)."),
++AP_INIT_TAKE1("VHostChrootDir", set_vhost_root, NULL, RSRC_CONF,
++              "Set the VirtualHost's chroot."),
+ AP_GRACEFUL_SHUTDOWN_TIMEOUT_COMMAND,
+ { NULL }
+ };
+@@ -1742,6 +1784,7 @@
+     itk_server_conf *c = (itk_server_conf *)
+         apr_pcalloc(p, sizeof(itk_server_conf));
+     c->max_clients_vhost = -1;
++    c->root_dir = NULL;
+     return c;
+ }
+ 
