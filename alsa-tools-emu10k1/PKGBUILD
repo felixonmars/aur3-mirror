@@ -2,7 +2,7 @@
 pkgbase=alsa-tools-emu10k1
 pkgname=("alsa-tools-emu10k1" "alsa-tools-as10k1" "alsa-tools-ld10k1" "alsa-tools-sbiload")
 pkgver=1.0.27
-pkgrel=1
+pkgrel=2
 pkgdesc="ALSA tools package for emu10k1 sound cards"
 url="http://alsa-project.org/"
 arch=('i686' 'x86_64')
@@ -21,7 +21,7 @@ build() {
   for i in as10k1 ld10k1 seq/sbiload
   do
     cd "$srcdir/alsa-tools-$pkgver/$i"
-    ./configure --prefix=/usr
+    ./configure --prefix=/usr --sbindir=/usr/bin
     make
   done
 }
