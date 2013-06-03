@@ -1,0 +1,346 @@
+diff -Naur zsnes_1_51/src/Makefile.in zsnes_lirc/src/Makefile.in
+--- zsnes_1_51/src/Makefile.in	2007-01-25 07:54:12.000000000 +1100
++++ zsnes_lirc/src/Makefile.in	2013-05-25 12:38:38.000000000 +1000
+@@ -54,6 +54,8 @@
+ 
+ JMA_O=@JMA_FILES@
+ 
++LIRC_O=@LIRC_FILES@
++
+ MAIN_O=cfg.o endmem.o init.o initc.o input.o md.o patch.o ui.o vcache.o\
+ 	version.o zloader.o zmovie.o zpath.o zstate.o ztime.o ztimec.o
+ 
+@@ -81,7 +83,7 @@
+ ZIP_O=$(ZIP_D)/unzip.o $(ZIP_D)/zpng.o
+ 
+ Z_OBJS=$(MAIN_O) $(CHIP_O) $(CPU_O) $(DEBUG_O) $(GUI_O) $(EFF_O) $(JMA_O)\
+-	$(MMLIB_O) $(NET_O) $(VID_O) $(PORT_O) $(ZIP_O)
++	$(LIRC_O) $(MMLIB_O) $(NET_O) $(VID_O) $(PORT_O) $(ZIP_O)
+ 
+ .PHONY: default main tools all install clean tclean distclean
+ .SUFFIXES: .asm .c .cpp .psr
+diff -Naur zsnes_1_51/src/configure.in zsnes_lirc/src/configure.in
+--- zsnes_1_51/src/configure.in	2007-01-21 05:30:31.000000000 +1100
++++ zsnes_lirc/src/configure.in	2013-05-25 12:38:38.000000000 +1000
+@@ -95,7 +95,7 @@
+ fi
+ 
+ dnl - Library checks (requisites marked *, others optionnal):
+-dnl - libSDL*, zlib*, libpng, curses, libao, OpenGL, JMAlib
++dnl - libSDL*, zlib*, libpng, curses, libao, OpenGL, JMAlib, lirc_client
+ 
+ dnl - libsdl stuff
+ AM_PATH_SDL(1.2.0,,[AC_MSG_ERROR(SDL >= 1.2.0 is required)])
+@@ -224,6 +224,22 @@
+   PSRFLAGS="$PSRFLAGS -DNO_JMA"
+ fi
+ 
++dnl - lirc stuff.  Based upon example from LIRC technical documentation.
++dnl Check for LIRC client support
++dnl This really is not worth making a separate file for it.
++
++AC_ARG_ENABLE(lirc,
++  [  --enable-lirc           Build with LIRC support],
++  ,
++  enable_lirc=no)
++AC_MSG_CHECKING(for LIRC support)
++AC_MSG_RESULT($enable_lirc)
++if test x$enable_lirc = xyes; then
++  CFLAGS="$CFLAGS -D__LIRC__"
++  NFLAGS="$NFLAGS -D__LIRC__"
++  LDFLAGS="$LDFLAGS -llirc_client"
++fi
++
+ dnl - Various debug and optimization option checks
+ AM_ARCH_DETECT()
+ 
+@@ -313,6 +329,12 @@
+   ZCFLAGS="$CFLAGS"
+ fi
+ 
++if test x$enable_lirc = xyes; then
++  LIRC_FILES="linux/zlirc.o"
++else
++  LIRC_FILES=""
++fi
++
+ dnl - Check for header files
+ AC_HEADER_STDC
+ AC_HEADER_MAJOR
+@@ -327,6 +349,7 @@
+ AC_SUBST(ZSNESEXE)
+ AC_SUBST(GL_DRAW)
+ AC_SUBST(JMA_FILES)
++AC_SUBST(LIRC_FILES)
+ AC_SUBST(MMLIB_FILES)
+ AC_SUBST(DEBUGGER_FILES)
+ AC_SUBST(PSR_TEMP)
+@@ -366,6 +389,12 @@
+ else
+   echo "${ECHO_T}Yes"
+ fi
++echo $ECHO_N "LIRC support                  $ECHO_C"
++if test x$enable_lirc = xyes; then
++  echo "${ECHO_T}Yes"
++else
++  echo "${ECHO_T}No"
++fi
+ echo $ECHO_N "ZSNES debugger                $ECHO_C"
+ if test x$enable_debugger = xno; then
+   echo "${ECHO_T}Disabled"
+diff -Naur zsnes_1_51/src/linux/sdllink.c zsnes_lirc/src/linux/sdllink.c
+--- zsnes_1_51/src/linux/sdllink.c	2007-01-19 03:56:04.000000000 +1100
++++ zsnes_lirc/src/linux/sdllink.c	2013-05-25 12:38:38.000000000 +1000
+@@ -193,6 +193,10 @@
+ 
+ int Main_Proc(void)
+ {
++  #ifdef __LIRC__
++  LIRC_Main();
++  #endif
++
+   SDL_Event event;
+   unsigned int key;
+ 
+diff -Naur zsnes_1_51/src/linux/zlirc.c zsnes_lirc/src/linux/zlirc.c
+--- zsnes_1_51/src/linux/zlirc.c	1970-01-01 10:00:00.000000000 +1000
++++ zsnes_lirc/src/linux/zlirc.c	2013-05-27 20:36:12.000000000 +1000
+@@ -0,0 +1,164 @@
++#include <lirc/lirc_client.h>
++#include <stdio.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <stdlib.h>
++#include <SDL/SDL_keysym.h>
++
++#include "zlirc.h"
++#include "../cfg.h"
++
++// extern void ProcessKeyBuf(int);
++extern int KeyBuffer[16];
++extern int CurKeyPos;
++extern unsigned char pressed[];
++
++static struct lirc_config *LIRCConfig = 0;
++static int LircWasInit = 0;
++extern unsigned char LircWaitFlag;
++
++extern unsigned char EMUPause;
++extern unsigned char GUIOn;
++extern unsigned char GUIOn2;
++
++
++// These keysyms are hardcoded, and not configurable, but they are defined here as variables for use in the lirc keymap
++static int KeySymUp = 0x5a, KeySymDown = 0x060, KeySymLeft = 0x5c, KeySymRight = 0x5e, KeySymEsc = 0x01, KeySymEnter = 0x01c;
++
++static struct LIRC_KeyMap ZLIRCKeyMap[] = {
++   {ZLIRC_COMMAND_UP, &KeySymUp, 0},
++   {ZLIRC_COMMAND_DOWN, &KeySymDown, 0},
++   {ZLIRC_COMMAND_LEFT, &KeySymLeft, 0},
++   {ZLIRC_COMMAND_RIGHT, &KeySymRight, 0},
++   {ZLIRC_COMMAND_ESC, &KeySymEsc, 0},
++   {ZLIRC_COMMAND_ENTER, &KeySymEnter, 0},
++   {ZLIRC_COMMAND_VOLUP, &KeyVolUp, 0},
++   {ZLIRC_COMMAND_VOLDOWN, &KeyVolDown, 0},
++   {NULL, NULL}
++};
++
++void LIRC_ClearKeyState()
++{
++   // Check all keysyms which are managed by lirc to see if the pressed state contains
++   // both the lirc processed flag.  For all pressed states which have flag set, set them to zero.
++   int MapIndex = 0;
++   int *KeySym = ZLIRCKeyMap[0].KeySym;
++
++   while (KeySym != NULL) {
++      if (ZLIRCKeyMap[MapIndex].pressed == 1) {
++         int KeySymVal = *KeySym;
++         pressed[KeySymVal] = ZLIRCKeyMap[MapIndex].pressed = 0;
++      }
++      MapIndex++;
++      KeySym = ZLIRCKeyMap[MapIndex].KeySym;
++   }
++}
++
++
++LIRC_KeyMap *LIRC_CommandToKeySym(char *LircCommand)
++{
++   LIRC_KeyMap *KeySym = NULL;
++   int MapIndex = 0;
++   char *CurrentCommand = ZLIRCKeyMap[0].LircCommand;
++
++   while (KeySym == NULL && LircCommand != NULL) {
++      if (strcmp(LircCommand, CurrentCommand) == 0) {
++         KeySym = &ZLIRCKeyMap[MapIndex];
++      } else {
++         MapIndex++;
++         CurrentCommand = ZLIRCKeyMap[MapIndex].LircCommand;
++      }
++   }
++
++   return KeySym;
++}
++
++void LIRC_Disable()
++{
++   // printf("LIRC_Disable - Begin.\n");
++   if (LIRCConfig != NULL)
++   {
++      lirc_freeconfig(LIRCConfig);
++      LIRCConfig = NULL;
++      printf("LIRC_Disable - Freed config struct.\n");
++   }
++
++   if (LircWasInit == 1)
++   {
++      lirc_deinit();
++      printf("LIRC_Disable - Called lirc_deinit.\n");
++      LircWasInit = 0;
++   }
++   // printf("LIRC_Disable - End.\n");
++}
++
++int LIRC_Init()
++{
++   int result = 0, LIRCSock, SockFlags;
++   // printf("LIRC_Init - Begin\n");
++
++   LIRCSock = lirc_init("zsnes", 1);
++   if (LIRCSock != -1)
++   {
++      printf("LIRC_Init - lirc_init succeeded with socket: %d\n", LIRCSock);
++      LircWasInit = 1;
++
++      // Set socket to non blocking
++      fcntl(LIRCSock, F_SETOWN, getpid());
++      SockFlags = fcntl(LIRCSock, F_GETFL, 0);
++      if(SockFlags != -1)
++      {
++         fcntl(LIRCSock, F_SETFL, SockFlags|O_NONBLOCK);
++      }
++
++      result = lirc_readconfig(NULL, &LIRCConfig, NULL) == 0;
++      if (result == 0) {
++         LIRC_Disable();
++      }
++   } else {
++      printf("LIRC_Init - lirc_init Failed\n");
++   }
++
++   // printf("LIRC_Init - End with status: %s.\n", result == 1 ? "success" : "failure");
++   return result;
++}
++
++int LIRC_Main()
++{
++   if (LIRCConfig != NULL)
++   {
++      char *LIRCCode;
++
++      // Clear the lirc button/keysym state if the wait flag is not set or the gui menu is active/pasued.
++      // The key pressed state is only required for reference during game mode.
++      if (LircWaitFlag != 1 || GUIOn || GUIOn2 || EMUPause)
++      {
++         LIRC_ClearKeyState();
++      }
++
++      // Now check to see if there are more lirc button codes available
++      if (lirc_nextcode(&LIRCCode) == 0 && LIRCCode != NULL)
++      {
++         char *ZSNESCommand;
++
++         while (lirc_code2char(LIRCConfig, LIRCCode, &ZSNESCommand) == 0 && ZSNESCommand != NULL)
++         {
++            LIRC_KeyMap *LIRCKeySym;
++            LIRCKeySym = LIRC_CommandToKeySym(ZSNESCommand);
++            if (LIRCKeySym != NULL)
++            {
++               int CurrentKeySym = *(LIRCKeySym->KeySym);
++               if (CurrentKeySym != 0)
++               { // If new valid keysym has been pressed, add to key buffer
++                  KeyBuffer[CurKeyPos] = CurrentKeySym;
++                  CurKeyPos = (CurKeyPos + 1) % 16;
++                  LIRCKeySym->pressed = pressed[CurrentKeySym] = 1; // Mark this key state with flag to indicate it was set by LIRC handler
++                  LircWaitFlag = 1;
++               }
++            }
++         }
++         free(LIRCCode);
++      }
++   }
++}
++
+diff -Naur zsnes_1_51/src/linux/zlirc.h zsnes_lirc/src/linux/zlirc.h
+--- zsnes_1_51/src/linux/zlirc.h	1970-01-01 10:00:00.000000000 +1000
++++ zsnes_lirc/src/linux/zlirc.h	2013-05-25 12:38:38.000000000 +1000
+@@ -0,0 +1,20 @@
++#define ZLIRC_COMMAND_UP      "up"
++#define ZLIRC_COMMAND_DOWN    "down"
++#define ZLIRC_COMMAND_LEFT    "left"
++#define ZLIRC_COMMAND_RIGHT   "right"
++#define ZLIRC_COMMAND_ESC     "esc"
++#define ZLIRC_COMMAND_ENTER   "enter"
++#define ZLIRC_COMMAND_VOLUP   "volup"
++#define ZLIRC_COMMAND_VOLDOWN "voldown"
++
++typedef struct LIRC_KeyMap {
++   char *LircCommand;
++   int *KeySym; // pointer to the keysym as configured via menu for input
++   unsigned char pressed;
++} LIRC_KeyMap;
++
++int LIRC_Init();
++
++int LIRC_Main();
++
++void LIRC_Disable();
+diff -Naur zsnes_1_51/src/ui.c zsnes_lirc/src/ui.c
+--- zsnes_1_51/src/ui.c	2007-01-21 16:00:54.000000000 +1100
++++ zsnes_lirc/src/ui.c	2013-05-25 12:38:38.000000000 +1000
+@@ -35,6 +35,9 @@
+ #include "input.h"
+ #include "mmlib/mm.h"
+ #include "zpath.h"
++#ifdef __LIRC__
++#include "linux/zlirc.h"
++#endif
+ 
+ //C++ style code in C
+ #define bool unsigned char
+@@ -371,6 +374,11 @@
+ #endif
+ #endif
+ 
++#ifdef __LIRC__
++  LIRC_Init();
++  atexit(LIRC_Disable);
++#endif
++
+ #ifdef __UNIXSDL__
+   MultiMouseInit();
+ #endif
+diff -Naur zsnes_1_51/src/vcache.asm zsnes_lirc/src/vcache.asm
+--- zsnes_1_51/src/vcache.asm	2007-01-15 11:20:05.000000000 +1100
++++ zsnes_lirc/src/vcache.asm	2013-05-25 12:38:38.000000000 +1000
+@@ -75,6 +75,9 @@
+ NEWSYM sramb4save, dd 0
+ NEWSYM hiresstuff, dd 0
+ NEWSYM overalltimer, dd 0
++%ifdef __LIRC__
++NEWSYM LircWaitFlag, db 0
++%endif
+ 
+ SECTION .text
+ 
+@@ -838,6 +841,11 @@
+     soundselcomp KeyDisableSC6,Voice6Disable,Voice6Status,'7'
+     soundselcomp KeyDisableSC7,Voice7Disable,Voice7Status,'8'
+ 
++    %ifdef __LIRC__
++    ; Clear lirc wait flag to reset lirc button status
++    mov byte[LircWaitFlag],0
++    %endif
++
+     cmp byte[curblank],0h
+     jne near yesblank
+     ; Swap video addresses
