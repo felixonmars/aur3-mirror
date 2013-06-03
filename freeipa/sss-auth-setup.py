@@ -3,13 +3,15 @@
 # Written by: Xiao-Long Chen <chenxiaolong@cxl.epac.to>
 # License: GPLv3
 
-import datetime
+import base64
 import hashlib
 import os
 import re
 import shutil
 
 nss_databases = ['passwd', 'group', 'services', 'netgroup', 'automount']
+
+PAM_CONFIG_DIR = '/etc/pam.d/'
 
 def nss_enable_sss():
   if os.path.exists("/etc/nsswitch.conf.sss_tmp"):
@@ -76,66 +78,70 @@ def nss_disable_sss():
   # Replace original /etc/nsswitch.conf
   shutil.move("/etc/nsswitch.conf.sss_tmp", "/etc/nsswitch.conf")
 
-def pam_hash_write(pam_config):
-  pam_hashes = open("/etc/sssd/pam.hashes", 'a')
-  pam_file = open("/etc/pam.d/" + pam_config, 'rb')
+def pam_check_header(pam_config):
+  pam_file = open(PAM_CONFIG_DIR + pam_config, 'r')
 
-  sha512sum = hashlib.sha512(pam_file.read()).hexdigest()
-
-  pam_file.close()
-
-  pam_hashes.write(pam_config + ' ' + sha512sum + '\n')
-
-  pam_hashes.close()
-
-def pam_hash_read(pam_config):
-  pam_hashes = open("/etc/sssd/pam.hashes", 'r')
+  inside_header = False
+  has_header = False
+  sha512sum = ''
+  base64enc = ''
+  returned = None
 
   while True:
-    current_line = pam_hashes.readline()
+    current_line = pam_file.readline()
     if not current_line:
       break
 
-    if current_line.split()[0] == pam_config:
-      pam_hashes.close()
-      return current_line.split()[1]
-
-  pam_hashes.close()
-  return ""
-
-def pam_hash_remove(pam_config):
-  pam_hashes_orig = open("/etc/sssd/pam.hashes", 'r')
-  pam_hashes_new = open("/etc/sssd/pam.hashes.tmp", 'w')
-  remaining_lines = 0
-
-  while True:
-    current_line = pam_hashes_orig.readline()
-    if not current_line:
-      break;
-
-    if current_line.split()[0] == pam_config:
+    if current_line == '\n' or current_line == '# \n':
       continue
 
-    remaining_lines += 1
-    pam_hashes_new.write(current_line)
+    if current_line == '# -----BEGIN PAM BACKUP-----\n':
+      inside_header = True
 
-  pam_hashes_orig.close()
-  pam_hashes_new.close()
+    elif current_line == '# -----END PAM BACKUP-----\n':
+      if not inside_header:
+        # Invalid because the begin line is missing
+        returned = ('INVALID', None, None)
+        break
 
-  os.remove("/etc/sssd/pam.hashes")
-  shutil.move("/etc/sssd/pam.hashes.tmp", "/etc/sssd/pam.hashes")
+      has_header = True
+      break
 
-  if remaining_lines == 0:
-    os.remove("/etc/sssd/pam.hashes")
+    elif inside_header:
+      if current_line.startswith('# Hash: '):
+        sha512sum = current_line[8:-1]
+      elif current_line.startswith('# Data: '):
+        base64enc = current_line[8:-1]
+      else:
+        # Invalid because unknown data is in the header
+        returned = ('INVALID', None, None)
+        break
+
+  pam_file.close()
+
+  if has_header:
+    if sha512sum == hashlib.sha512(base64.b64decode(base64enc)).hexdigest():
+      returned = ('VALID', sha512sum, base64enc)
+    else:
+      # Invalid because the checksum of the data does not match the hash
+      returned = ('INVALID', None, None)
+
+  if not returned:
+    returned = ('NONE', None, None)
+
+  return returned
 
 def pam_config_setup(pam_config):
-  pam_file_orig = open("/etc/pam.d/" + pam_config, 'r')
-  pam_file_new = open("/etc/sssd/" + pam_config + ".tmp", 'w')
+  pam_file_orig = open(PAM_CONFIG_DIR + pam_config, 'r')
+  pam_file_new = open(PAM_CONFIG_DIR + pam_config + '.sss_tmp', 'a')
 
   while True:
     current_line = pam_file_orig.readline()
     if not current_line:
       break
+
+    if current_line.startswith('#%PAM-1.0'):
+      continue
 
     if current_line != '\n' and current_line[0] != '#':
       current_line_split = current_line.split()
@@ -151,49 +157,69 @@ def pam_config_setup(pam_config):
   pam_file_orig.close()
   pam_file_new.close()
 
-  os.remove("/etc/pam.d/" + pam_config)
-  shutil.move("/etc/sssd/" + pam_config + ".tmp", "/etc/pam.d/" + pam_config)
-
 def pam_enable_sss():
-  finish_msg = "Sucessfully enabled support for SSSD in PAM"
+  print('Enabling sssd support in:')
 
-  if os.path.exists("/etc/sssd/pam.hashes"):
-    print("PAM is already set up!")
-    exit(1)
+  rows, columns = os.popen('stty size', 'r').read().split()
+  columns = int(columns) - 3
 
-  # Backup the backups
-  if os.path.exists("/etc/sssd/pam.backup/"):
-    current_datetime = str(datetime.datetime.now()).replace(' ', '_')
-    print("/etc/sssd/pam.backup/ already exists. Moving to /etc/sssd/pam.backup." + current_datetime + "/")
-    shutil.move("/etc/sssd/pam.backup/", "/etc/sssd/pam.backup." + current_datetime)
-
-  if not os.path.exists("/etc/sssd/pam.backup/"):
-    print("Creating backup directory /etc/sssd/pam.backup/ for the original PAM files...")
-    os.mkdir("/etc/sssd/pam.backup/")
-
-  if os.path.isfile("/etc/sssd/pam.backup/"):
-    print("/etc/sssd/pam.backup is a file!")
-    exit(1)
-
-  print("Backing up:")
-
-  for fullpath, directories, files in os.walk("/etc/pam.d/"):
+  for fullpath, directories, files in os.walk(PAM_CONFIG_DIR):
+    files.sort()
     for pam_config in files:
-      print("  /etc/pam.d/" + pam_config)
-      shutil.copyfile("/etc/pam.d/" + pam_config,
-                      "/etc/sssd/pam.backup/" + pam_config)
+      if pam_config == 'sss' or pam_config == 'sss.bak' or \
+         pam_config.startswith('.') or pam_config.endswith('~'):
+        continue
 
-      pam_config_setup(pam_config)
+      status = pam_check_header(pam_config)[0]
+      if status == 'NONE':
+        status_msg = 'done'
+      elif status == 'VALID':
+        status_msg = 'already enabled (skipping)'
+      elif status == 'INVALID':
+        status_msg = 'invalid backup header (skipping)'
 
-      # Save the hashes of the altered files. When disabling PAM support for
-      # sss, changed files won't be restored (updates, user changes, etc).
-      pam_hash_write(pam_config)
+      pam_config_path = PAM_CONFIG_DIR + pam_config
 
-  if os.path.exists("/etc/pam.d/sss"):
-    print("/etc/pam.d/sss already exists. Moving it to /etc/pam.d/sss.bak")
-    shutil.move("/etc/pam.d/sss", "/etc/pam.d/sss.bak")
+      if status == 'NONE':
+        pam_file = open(pam_config_path, 'rb')
 
-  pam_sss = open("/etc/pam.d/sss", 'w')
+        raw_content = pam_file.read()
+        sha512sum = hashlib.sha512(raw_content).hexdigest()
+        base64enc_raw = base64.b64encode(raw_content)
+        base64enc = base64enc_raw.decode('ascii')
+
+        pam_file.close()
+
+        tmp_file = open(pam_config_path + '.sss_tmp', 'w')
+
+        tmp_file.write('#%PAM-1.0\n')
+        tmp_file.write('# -----BEGIN PAM BACKUP-----\n')
+        tmp_file.write('# Hash: ' + sha512sum + '\n')
+        tmp_file.write('# \n')
+        tmp_file.write('# Data: ' + base64enc + '\n')
+        tmp_file.write('# -----END PAM BACKUP-----\n')
+        tmp_file.write('\n')
+
+        tmp_file.close()
+
+        pam_config_setup(pam_config)
+
+        shutil.move(pam_config_path + '.sss_tmp', pam_config_path)
+
+      if len(pam_config_path + status_msg) > columns:
+        print(pam_config_path)
+        print(('{:>%is} ' % columns + 2).format(status_msg))
+      else:
+        print(('  {:<%is}{:>%is} ' % \
+              (len(pam_config_path), columns - len(pam_config_path))). \
+              format(pam_config_path, status_msg))
+
+  if os.path.exists(PAM_CONFIG_DIR + 'sss'):
+    print('%ssss already exists. Moving it to %ssss.bak' % \
+          (PAM_CONFIG_DIR, PAM_CONFIG_DIR))
+    shutil.move(PAM_CONFIG_DIR + 'sss', PAM_CONFIG_DIR + 'sss.bak')
+
+  pam_sss = open(PAM_CONFIG_DIR + 'sss', 'w')
   # Auth
   pam_sss.write("auth     sufficient pam_unix.so nullok try_first_pass\n")
   pam_sss.write("auth     sufficient pam_sss.so use_first_pass\n")
@@ -211,60 +237,45 @@ def pam_enable_sss():
   pam_sss.write("session  optional   pam_sss.so\n")
   pam_sss.close()
 
-  print("Finished: " + finish_msg)
-
 def pam_disable_sss():
-  finish_msg = "Sucessfully disabled support for SSSD in PAM"
+  print('Disabling sssd support in:')
 
-  if not os.path.exists("/etc/sssd/pam.hashes"):
-    print("PAM hasn't been set up yet!")
-    exit(1)
+  rows, columns = os.popen('stty size', 'r').read().split()
+  columns = int(columns) - 3
 
-  if os.path.exists("/etc/pam.d/sss"):
-    os.remove("/etc/pam.d/sss")
-
-  print("Restoring:")
-
-  for fullpath, directories, files in os.walk("/etc/pam.d/"):
+  for fullpath, directories, files in os.walk(PAM_CONFIG_DIR):
+    files.sort()
     for pam_config in files:
-      
-      pam_file = open("/etc/pam.d/" + pam_config, 'rb')
-      sha512sum = hashlib.sha512(pam_file.read()).hexdigest()
-      pam_file.close()
-
-      if not os.path.exists("/etc/sssd/pam.hashes"):
-        print("Info: No more backup files to read")
-        break
-
-      sha512sum_bak = pam_hash_read(pam_config)
-
-      if sha512sum_bak == "":
-        print("  Not restoring /etc/pam.d/" + pam_config)
-        print("    File was never set up for sss")
+      if pam_config == 'sss' or pam_config == 'sss.bak' or \
+         pam_config.startswith('.') or pam_config.endswith('~'):
         continue
 
-      if sha512sum != sha512sum_bak:
-        print("  Not restoring /etc/pam.d/" + pam_config)
-        print("    File has been altered")
-        continue
+      status, sha512sum, base64enc = pam_check_header(pam_config)
+      if status == 'NONE':
+        status_msg = 'already disabled (skipping)'
+      elif status == 'VALID':
+        status_msg = 'done'
+      elif status == 'INVALID':
+        status_msg = 'invalid backup header (skipping)'
 
-      print("  /etc/pam.d/" + pam_config)
-      shutil.copyfile("/etc/sssd/pam.backup/" + pam_config,
-                      "/etc/pam.d/" + pam_config)
+      pam_config_path = PAM_CONFIG_DIR + pam_config
 
-      pam_hash_remove(pam_config)
-      os.remove("/etc/sssd/pam.backup/" + pam_config)
+      if status == 'VALID':
+        pam_file = open(pam_config_path + '.sss_tmp', 'wb')
+        pam_file.write(base64.b64decode(base64enc))
+        pam_file.close()
+        shutil.move(pam_config_path + '.sss_tmp', pam_config_path)
 
-  try:
-    os.rmdir("/etc/sssd/pam.backup/")
-  except OSError as ex:
-    print("Files not restored:")
-    for fullpath, directories, files in os.walk("/etc/sssd/pam.backup/"):
-      for pam_config in files:
-        print("  /etc/sssd/pam.backup/" + pam_config)
-    finish_msg = "Partially disabled support for SSSD in PAM"
+      if len(pam_config_path + status_msg) > columns:
+        print(pam_config_path)
+        print(('{:>%is} ' % columns + 2).format(status_msg))
+      else:
+        print(('  {:<%is}{:>%is} ' % \
+              (len(pam_config_path), columns - len(pam_config_path))). \
+              format(pam_config_path, status_msg))
 
-  print("Finished: " + finish_msg)
+  if os.path.exists(PAM_CONFIG_DIR + 'sss'):
+    os.remove(PAM_CONFIG_DIR + 'sss')
 
 def parse_arguments():
   import argparse
