@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IPTABLES='/usr/sbin/ip6tables'
+IPTABLES='/usr/bin/ip6tables'
 
 for table in $(cat /proc/net/ip_tables_names) ; do
   $IPTABLES -t $table -F &>/dev/null && \
