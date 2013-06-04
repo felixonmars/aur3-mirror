@@ -22,7 +22,7 @@ case ${0#/etc/rc.} in sysinit | multi | shutdown )
 	# code line copied from /etc/rc.sysinit
 	/bin/mountpoint -q /proc || /bin/mount -n -t proc proc /proc -o nosuid,noexec,nodev
 	export SPLASH_PUSH_MESSAGES SPLASH_VERBOSE_ON_ERRORS
-	. /sbin/splash-functions.sh # /etc/conf.d/splash is also sourced by this
+	. /usr/bin/splash-functions.sh # /etc/conf.d/splash is also sourced by this
 	unset options opt i # eliminate splash_setup non local vars   ## FIX ME ##
 	SPLASH_STEPS=3 # sysinit steps
 	SPLASH_STEPS_DONE=0
