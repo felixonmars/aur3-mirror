@@ -1,0 +1,159 @@
+From ccaf30a2669bcb822899a2e15a4196275e60bba7 Mon Sep 17 00:00:00 2001
+From: Marc Dionne <marc.dionne@your-file-system.com>
+Date: Mon, 6 May 2013 20:20:07 -0400
+Subject: [PATCH 4/4] Linux 3.10: Replace create_proc_entry() with
+ proc_create()
+
+Add an afs_proc_create() compat function that uses the
+appropriate kernel function based on a configure test.
+
+Reviewed-on: http://gerrit.openafs.org/9854
+Tested-by: BuildBot <buildbot@rampaginggeek.com>
+Reviewed-by: Andrew Deason <adeason@sinenomine.net>
+Reviewed-by: Derrick Brashear <shadow@your-file-system.com>
+(cherry picked from commit 9b24013426e03a501fcaa6334ba5a9b48a8da3d1)
+
+Change-Id: I976ef345b1638434026e852e577e1f4474171e3d
+Reviewed-on: http://gerrit.openafs.org/9948
+Reviewed-by: Derrick Brashear <shadow@your-file-system.com>
+Tested-by: BuildBot <buildbot@rampaginggeek.com>
+Reviewed-by: Stephan Wiesand <stephan.wiesand@desy.de>
+(cherry picked from commit d5fcb35aea8a15bb8de760d2e27ef5734cfff16a)
+---
+ acinclude.m4               |  3 +++
+ src/afs/LINUX/osi_compat.h | 13 +++++++++++++
+ src/afs/LINUX/osi_ioctl.c  |  9 +++++----
+ src/afs/LINUX/osi_proc.c   | 16 +++++++---------
+ src/afs/sysincludes.h      |  1 +
+ 5 files changed, 29 insertions(+), 13 deletions(-)
+
+diff --git a/acinclude.m4 b/acinclude.m4
+index 6f5bc8d..db5bd77 100644
+--- a/acinclude.m4
++++ b/acinclude.m4
+@@ -915,6 +915,9 @@ case $AFS_SYSNAME in *_linux* | *_umlinux*)
+ 				     [#include <linux/fs.h>
+ 				      #include <linux/namei.h>],
+ 				     [path_lookup(NULL, 0, NULL);])
++		 AC_CHECK_LINUX_FUNC([proc_create],
++				     [#include <linux/proc_fs.h>],
++				     [proc_create(NULL, 0, NULL, NULL);])
+ 		 AC_CHECK_LINUX_FUNC([rcu_read_lock],
+ 				     [#include <linux/rcupdate.h>],
+ 				     [rcu_read_lock();])
+diff --git a/src/afs/LINUX/osi_compat.h b/src/afs/LINUX/osi_compat.h
+index e8bf003..6653ed4 100644
+--- a/src/afs/LINUX/osi_compat.h
++++ b/src/afs/LINUX/osi_compat.h
+@@ -551,4 +551,17 @@ afs_truncate(struct inode *inode, int len)
+     return code;
+ }
+ 
++static inline struct proc_dir_entry *
++afs_proc_create(char *name, umode_t mode, struct proc_dir_entry *parent, struct file_operations *fops) {
++#if defined(HAVE_LINUX_PROC_CREATE)
++    return proc_create(name, mode, parent, fops);
++#else
++    struct proc_dir_entry *entry;
++    entry = create_proc_entry(name, mode, parent);
++    if (entry)
++	entry->proc_fops = fops;
++    return entry;
++#endif
++}
++
+ #endif /* AFS_LINUX_OSI_COMPAT_H */
+diff --git a/src/afs/LINUX/osi_ioctl.c b/src/afs/LINUX/osi_ioctl.c
+index 45e0fcd..82e907b 100644
+--- a/src/afs/LINUX/osi_ioctl.c
++++ b/src/afs/LINUX/osi_ioctl.c
+@@ -29,12 +29,13 @@
+ #include <linux/ioctl32.h>
+ #endif
+ 
+-#include <linux/proc_fs.h>
+ #include <linux/slab.h>
+ #include <linux/init.h>
+ #include <linux/sched.h>
+ #include <linux/kernel.h>
+ 
++#include "osi_compat.h"
++
+ extern struct proc_dir_entry *openafs_procfs;
+ #if defined(NEED_IOCTL32) && !defined(HAVE_COMPAT_IOCTL)
+ static int ioctl32_done;
+@@ -107,10 +108,10 @@ osi_ioctl_init(void)
+ {
+     struct proc_dir_entry *entry;
+ 
+-    entry = create_proc_entry(PROC_SYSCALL_NAME, 0666, openafs_procfs);
+-    entry->proc_fops = &afs_syscall_fops;
++    entry = afs_proc_create(PROC_SYSCALL_NAME, 0666, openafs_procfs, &afs_syscall_fops);
+ #if defined(STRUCT_PROC_DIR_ENTRY_HAS_OWNER)
+-    entry->owner = THIS_MODULE;
++    if (entry)
++	entry->owner = THIS_MODULE;
+ #endif
+ 
+ #if defined(NEED_IOCTL32) && !defined(HAVE_COMPAT_IOCTL)
+diff --git a/src/afs/LINUX/osi_proc.c b/src/afs/LINUX/osi_proc.c
+index 974c0a7..5e3ac53 100644
+--- a/src/afs/LINUX/osi_proc.c
++++ b/src/afs/LINUX/osi_proc.c
+@@ -29,12 +29,13 @@
+ # include <asm/ia32_unistd.h>
+ #endif
+ 
+-#include <linux/proc_fs.h>
+ #include <linux/slab.h>
+ #include <linux/init.h>
+ #include <linux/sched.h>
+ #include <linux/kernel.h>
+ 
++#include "osi_compat.h"
++
+ struct proc_dir_entry *openafs_procfs;
+ 
+ #ifdef HAVE_LINUX_SEQ_FILE_H
+@@ -367,21 +368,18 @@ osi_proc_init(void)
+     openafs_procfs = proc_mkdir(path, NULL);
+ #endif
+ #ifdef HAVE_LINUX_SEQ_FILE_H
+-    entry = create_proc_entry("unixusers", 0, openafs_procfs);
+-    if (entry) {
+-	entry->proc_fops = &afs_unixuser_fops;
++    entry = afs_proc_create("unixusers", 0, openafs_procfs, &afs_unixuser_fops);
+ # if defined(STRUCT_PROC_DIR_ENTRY_HAS_OWNER)
++    if (entry)
+ 	entry->owner = THIS_MODULE;
+ # endif
+-    }
+-    entry = create_proc_entry(PROC_CELLSERVDB_NAME, 0, openafs_procfs);
+-    if (entry)
+-	entry->proc_fops = &afs_csdb_operations;
++    entry = afs_proc_create(PROC_CELLSERVDB_NAME, 0, openafs_procfs, &afs_csdb_operations);
+ #else
+     entry = create_proc_info_entry(PROC_CELLSERVDB_NAME, (S_IFREG|S_IRUGO), openafs_procfs, csdbproc_info);
+ #endif
+ #if defined(STRUCT_PROC_DIR_ENTRY_HAS_OWNER)
+-    entry->owner = THIS_MODULE;
++    if (entry)
++	entry->owner = THIS_MODULE;
+ #endif
+ }
+ 
+diff --git a/src/afs/sysincludes.h b/src/afs/sysincludes.h
+index f7abc2e..5840227 100644
+--- a/src/afs/sysincludes.h
++++ b/src/afs/sysincludes.h
+@@ -160,6 +160,7 @@ struct xfs_inode_info {
+ # include <linux/sched.h>
+ # include <linux/mm.h>
+ # include <linux/slab.h>
++# include <linux/proc_fs.h>
+ # include <linux/string.h>
+ # if defined(HAVE_LINUX_SEMAPHORE_H)
+ #  include <linux/semaphore.h>
+-- 
+1.8.3
+
