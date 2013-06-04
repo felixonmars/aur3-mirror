@@ -2,7 +2,7 @@
 
 # general config
 
-NGINX_CONFIG="/etc/nginx/conf/nginx.conf"
+NGINX_CONFIG="/etc/nginx/nginx.conf"
 
 . /etc/conf.d/nginx
 . /etc/rc.conf
@@ -10,7 +10,7 @@ NGINX_CONFIG="/etc/nginx/conf/nginx.conf"
 
 function check_config {
   stat_busy "Checking configuration"
-  /usr/sbin/nginx -t -q -c "$NGINX_CONFIG"
+  /usr/bin/nginx -t -q -c "$NGINX_CONFIG"
   if [ $? -ne 0 ]; then
     stat_die
   else
@@ -31,7 +31,7 @@ case "$1" in
       stat_busy "Nginx is already running"
       stat_die
      fi
-    /usr/sbin/nginx -c "$NGINX_CONFIG" &>/dev/null
+    /usr/bin/nginx -c "$NGINX_CONFIG" &>/dev/null
     if [ $? -ne 0 ]; then
       stat_fail
     else
