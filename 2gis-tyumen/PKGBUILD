@@ -1,13 +1,13 @@
 pkgname=2gis-tyumen
-pkgver=78
-pkgrel=2
-pkgdesc="Map of Tyumen for 2GIS, May 2013"
+pkgver=79
+pkgrel=1
+pkgdesc="Map of Tyumen for 2GIS, June 2013"
 arch=('i686' 'x86_64')
 url="http://tyumen.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Tyumen-78.orig.zip")
-md5sums=('a309a727fb7c40df6bea75d665ade51e')
+source=("http://download.2gis.ru/arhives/2GISData_Tyumen-79.orig.zip")
+md5sums=('eb1174442476522b0b09a8b12d17df9f')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Tyumen.dgdat" "${pkgdir}/opt/2gis/tyumen.dgdat" || return 1

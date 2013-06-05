@@ -1,13 +1,13 @@
 pkgname=2gis-lipetsk
-pkgver=18
-pkgrel=2
-pkgdesc="Map of Lipetsk for 2GIS, May 2013"
+pkgver=19
+pkgrel=1
+pkgdesc="Map of Lipetsk for 2GIS, June 2013"
 arch=('i686' 'x86_64')
 url="http://lipetsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Lipetsk-18.orig.zip")
-md5sums=('9cf9cb5eb917c43aa4e4f700d48d937e')
+source=("http://download.2gis.ru/arhives/2GISData_Lipetsk-19.orig.zip")
+md5sums=('60c814741d26d7005e25449b9e2012ed')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Lipetsk.dgdat" "${pkgdir}/opt/2gis/lipetsk.dgdat" || return 1

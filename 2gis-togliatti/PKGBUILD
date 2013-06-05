@@ -1,13 +1,13 @@
 pkgname=2gis-togliatti
-pkgver=58
-pkgrel=2
-pkgdesc="Map of Togliatti for 2GIS, May 2013"
+pkgver=59
+pkgrel=1
+pkgdesc="Map of Togliatti for 2GIS, June 2013"
 arch=('i686' 'x86_64')
 url="http://tlt.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Togliatti-58.orig.zip")
-md5sums=('dd04402fca5ae915fd6ec0a7f8150247')
+source=("http://download.2gis.ru/arhives/2GISData_Togliatti-59.orig.zip")
+md5sums=('fa39d076bb841cd4bd1e84640eb18e50')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Togliatti.dgdat" "${pkgdir}/opt/2gis/togliatti.dgdat" || return 1
