@@ -1,0 +1,209 @@
+# Mantainer: Gianni Vialetto <gianni at rootcube dot net>
+# Mantainer: Paul N. Maxwell <msg dot maxwel at gmail dot com>
+# Contributor: Thomas Mudrunka <harvie@@email..cz>
+# Contributor: Max Fierke <max@maxfierke.com>
+
+_bzrname=apparmor
+pkgbase=apparmor-stable-bzr
+pkgname=apparmor-stable-bzr
+true && pkgname=($pkgbase apparmor-parser-stable-bzr apparmor-libapparmor-stable-bzr apparmor-utils-stable-bzr apparmor-profiles-stable-bzr apparmor-pam-stable-bzr apparmor-vim-stable-bzr)
+pkgver=2.8.1.bzr.2078
+pkgrel=1
+arch=('i686' 'x86_64')
+license=('GPL')
+url='http://wiki.apparmor.net/index.php/Main_Page'
+groups=('apparmor')
+makedepends=('flex' 'swig' 'perl' 'python2' 'ruby' 'perl-locale-gettext' 'perl-rpc-xml' 'wxgtk' 'audit')
+
+
+test -n "$BASH_VERSION" && [[ "$pkgver" =~ ^([0-9]*\.[0-9]*) ]] && bigver="${BASH_REMATCH[1]}"
+test -n "$bigver" || bigver="$(echo ${pkgver} | cut -d . -f -2)"
+
+source=("apparmor::bzr+lp:apparmor/2.8"
+        "apparmor_load.sh"
+        "apparmor_unload.sh"
+        "apparmor.service")
+
+md5sums=('SKIP'
+         'a657bc9e2670509e489615e63ba718c9'
+         'f083aa1926430bc48eb332f1b77fca08'
+         'a5c217ad417d08c2d2c2173bb8cd1842')
+
+#Configuration
+core_perl_dir='/usr/bin/core_perl'
+export MAKEFLAGS+=" POD2MAN=${core_perl_dir}/pod2man"
+export MAKEFLAGS+=" POD2HTML=${core_perl_dir}/pod2html"
+export MAKEFLAGS+=" PROVE=${core_perl_dir}/prove"
+export PYTHON='/usr/bin/python2'
+
+pkgver() {
+  cd $_bzrname
+  echo $(cat common/Version).bzr.$(bzr revno)
+}
+
+build() {
+  msg2 "Building: apparmor-parser"
+  cd "${srcdir}/${_bzrname}/parser"
+  msg2 'Patching: apparmor-parser'
+  # Patch (maybe we can avoid patching by ./configuring things better)
+  patch=Makefile; { rm "$patch"
+    sed -e 's/pdflatex/true/g' > "$patch" # just workaround until we'll get pdflatex package
+  } < "$patch"
+  echo '#!/bin/true' > tst/caching.sh # Can't pass this test with current kernel
+	make
+	
+  # Perl AppArmor library does not support modern perl installation paths
+  # Force us to unset $PERL_MM_OPT before working on the library.
+  unset PERL_MM_OPT
+
+  msg2 "Building: apparmor-libapparmor"
+  cd "${srcdir}/${_bzrname}/libraries/libapparmor"
+  ./autogen.sh
+  ./configure --prefix=/usr --sbindir=/usr/bin --with-perl --with-python --with-profileeditor
+  make
+
+  msg2 "Building: apparmor-utils"
+  cd "${srcdir}/${_bzrname}/utils"
+  # Obvious python2 is obvious
+  patch=Makefile; { rm "$patch"
+    sed -e 's/python /python2 /g' > "$patch"
+  } < "$patch"
+  patch=vim/Makefile; { rm "$patch"
+    sed -e 's/python /python2 /g' > "$patch"
+  } < "$patch"
+  
+  make
+
+  # We have to patch the logprof.conf file to make it compatible
+  # with archlinux syslog-ng standard configuration. And, since
+  # we use /usr/bin for binary commands, we also must patch
+  # logprof.conf so utils will use that path instead of the default.
+  patch=logprof.conf; { rm "$patch"
+     sed -e '/logfiles/ s/syslog /syslog.log /g' \
+         -e '/logfiles/ s/messages/messages.log/g' \
+         -e '/parser/ s# /sbin/# /usr/bin/#g' > "$patch"
+  } < "$patch"
+
+  # We should also patch python based commands so they use python2
+  for util in `file aa-* | grep Python | cut -d ':' -f 1`; do
+    { rm "$util"
+      sed -e '1 s/python/python2/g' > "$util"
+    } < "$util"
+  done
+
+  msg2 "Building: apparmor-profiles"
+  cd "${srcdir}/${_bzrname}/profiles"
+  make
+
+  msg2 "Building: apparmor-pam"
+  cd "${srcdir}/${_bzrname}/changehat/pam_apparmor"
+  make
+
+  msg2 "Building: apparmor-vim"
+  cd "${srcdir}/${_bzrname}/utils/vim/"
+  make || make || true #FIXME: ??????
+}
+
+package_apparmor-stable-bzr() {
+  pkgdesc='Linux application security framework - mandatory access control for programs (metapackage for AUR)'
+  depends=(apparmor-parser apparmor-libapparmor apparmor-utils apparmor-profiles apparmor-pam apparmor-vim)
+  optdepends=('linux-apparmor: an arch kernel with AppArmor patches')
+  install='apparmor.install'
+  conflicts=(apparmor)
+  replaces=(apparmor)
+  provides=(apparmor)
+}
+
+package_apparmor-parser-stable-bzr() {
+  pkgdesc='AppArmor parser - loads AA profiles to kernel module'
+  depends=('apparmor-libapparmor' 'bash')
+  conflicts=(apparmor-parser)
+  replaces=(apparmor-parser)
+  provides=(apparmor-parser)
+
+  cd "${srcdir}/${_bzrname}/parser"
+  make install DESTDIR=${pkgdir}
+  mv ${pkgdir}/lib ${pkgdir}/usr/lib
+  mv ${pkgdir}/sbin ${pkgdir}/usr/bin
+}
+
+package_apparmor-libapparmor-stable-bzr() {
+  pkgdesc='AppArmor library'
+  makedepends=('swig' 'perl' 'python2' 'ruby')
+  depends=('ruby' 'python2')
+  provides=('apparmor-lib' 'libapparmor' 'apparmor-perl' 'apparmor-python' 'apparmor-ruby' 'apparmor-libapparmor')
+  conflicts=(apparmor-libapparmor)
+  replaces=(apparmor-libapparmor)
+
+  cd "${srcdir}/${_bzrname}/libraries/libapparmor"
+  make install DESTDIR=${pkgdir}
+  #FIXME: this file should install automatically:
+  install -m644 "swig/perl/LibAppArmor.pm" "${pkgdir}/usr/lib/perl5/vendor_perl/"
+  #mv ${pkgdir}/usr/lib/ruby/site_ruby ${pkgdir}/usr/lib/ruby/vendor_ruby
+}
+
+package_apparmor-utils-stable-bzr() {
+  pkgdesc='AppArmor userspace utilities'
+  arch=('any')
+  depends=('perl' 'perl-locale-gettext' 'perl-term-readkey' 
+    'perl-file-tail' 'perl-rpc-xml' 'python2' 'bash')
+  provides=('apparmor-notify' 'apparmor-utils')
+  install='apparmor-utils.install'
+  conflicts=(apparmor-utils)
+  replaces=(apparmor-utils)
+
+  cd "${srcdir}/${_bzrname}/utils"
+  make install DESTDIR=${pkgdir} BINDIR=${pkgdir}/usr/bin
+  install -m755 "${srcdir}/apparmor_load.sh" "${pkgdir}/usr/bin/apparmor_load.sh"
+  install -m755 "${srcdir}/apparmor_unload.sh" "${pkgdir}/usr/bin/apparmor_unload.sh"
+  install -Dm644 "${srcdir}/apparmor.service" "${pkgdir}/usr/lib/systemd/system/apparmor.service"
+}
+
+package_apparmor-profiles-stable-bzr() {
+  pkgdesc='AppArmor sample pre-made profiles'
+  arch=('any')
+  conflicts=(apparmor-profiles)
+  replaces=(apparmor-profiles)
+  provides=(apparmor-profiles)
+
+  # /usr merge
+  cd "${srcdir}/${_bzrname}/profiles"
+  for i in `find . -name "*sbin*"`; do sed -i -e 's@sbin@bin@g' ${i} && mv ${i} ${i/sbin/bin}; done
+
+  # backup /etc/apparmor.d/* so using logprof is safe
+  cd "${srcdir}/${_bzrname}/profiles/apparmor.d"
+  declare -a _profiles=(`find -type f|sed 's@./@etc/apparmor.d/@'`)
+  backup=(`echo ${_profiles[@]}`)
+
+  cd "${srcdir}/${_bzrname}/profiles"
+  make install DESTDIR=${pkgdir}
+}
+
+package_apparmor-pam-stable-bzr() {
+  pkgdesc='AppArmor PAM library'
+  depends=('apparmor-libapparmor' 'pam')
+  conflicts=(apparmor-pam)
+  replaces=(apparmor-pam)
+  provides=(apparmor-pam)
+
+  cd "${srcdir}/${_bzrname}/changehat/pam_apparmor"
+  install -dm755 "${pkgdir}/usr/"
+  make install DESTDIR=${pkgdir}/usr
+}
+package_apparmor-vim-stable-bzr() {
+  pkgdesc='AppArmor VIM support'
+  arch=('any')
+  depends=('vim')
+  conflicts=(apparmor-vim)
+  replaces=(apparmor-vim)
+  provides=(apparmor-vim)
+
+  install -dm755 "${pkgdir}/usr/share/vim/vimfiles/"
+  install -m644 \
+    "${srcdir}/${_bzrname}/utils/vim/apparmor.vim" \
+    "${pkgdir}/usr/share/vim/vimfiles/apparmor.vim"
+}
+#AUR hack:
+pkgdesc='Linux application security framework - mandatory access control for programs (stable 2.8 BZR branch)'
+depends=('perl' 'perl-locale-gettext' 'perl-term-readkey' 
+  'perl-file-tail' 'perl-rpc-xml' 'python2' 'bash' 'vim')
