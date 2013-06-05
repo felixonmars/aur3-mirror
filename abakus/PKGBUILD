@@ -3,7 +3,7 @@
 
 pkgname=abakus
 pkgver=0.92
-pkgrel=2
+pkgrel=3
 pkgdesc="Abakus is a simple calculator for KDE. Think of it as bc (the command-line calculator) with a nice GUI." 
 url="http://purinchu.net/abakus/" 
 depends=('kdebase-runtime' 'qt4')
@@ -16,9 +16,11 @@ md5sums=('75df65492b468555b328b834e87f8957')
 
 build() { 
      cd "$srcdir/$pkgname-$pkgver"
+     msg "Precompiling..."
      cmake \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr
+     msg "Compiling..."
      make
 }
 
