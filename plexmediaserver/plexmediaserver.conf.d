@@ -1,6 +1,6 @@
 PLEX_MEDIA_SERVER_USER=plex
 
-PLEX_MEDIA_SERVER_HOME=/usr/local/plexmediaserver
+PLEX_MEDIA_SERVER_HOME=/opt/plexmediaserver
 
 # the number of plugins that can run at the same time
 PLEX_MEDIA_SERVER_MAX_PLUGIN_PROCS=6
@@ -14,6 +14,6 @@ PLEX_MEDIA_SERVER_TMPDIR=/var/tmp
 # Uncomment and change to set it to something else
 #PLEX_MEDIA_SERVER_APPLICATION_SUPPORT_DIR="${PLEX_MEDIA_SERVER_HOME}/Library/Application Support"
 
-# Logs live in /usr/local/plexmediaserver/Library/Application Support/Plex Media Server/Logs
+# Logs live in /opt/plexmediaserver/Library/Application Support/Plex Media Server/Logs
 # Uncomment this to send to syslog-ng
 #PLEX_MEDIA_SERVER_USE_SYSLOG=true
