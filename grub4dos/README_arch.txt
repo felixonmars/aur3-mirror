@@ -43,12 +43,12 @@ bootlace.com --no-backup-mbr --mbr-disable-floppy --time-out=0 /dev/sdd
 
 STEP 2
 ------
-cp /grub/share/grub4dos/grldr /mnt/sda1  # put second stage loader 
+cp /grub/share/grub4dos/grldr /mnt/sda1  # put second stage loader
 
 STEP 3
 ------
 mkdir -p /mnt/sda1/grub
-cp /grub/menu.lst /mnt/sda1/grub # copy default menu, edit it 
+cp /grub/menu.lst /mnt/sda1/grub # copy default menu, edit it
 
 Read document which come from this package in /usr/share/doc/grub4dos.
 After install, you can remove this package.

@@ -1,7 +1,8 @@
-# Maintainer: Joe Davison <joedavison.davison@gmail.com>
+# Maintainer:  Joost Bremmer <toost dot b at gmail dot com>
+# Contributor: Joe Davison <joedavison.davison@gmail.com>
 
 pkgname=adventuregamestudio-git
-pkgver=20120901
+pkgver=20130605
 pkgrel=1
 pkgdesc="Native port of the Adventure Game Studio engine to Linux (git version)"
 arch=('i686' 'x86_64')
@@ -10,36 +11,28 @@ license=('Custom')
 depends=('libogg' 'libvorbis' 'libtheora' 'dumb' 'freetype2' 'allegro4')
 makedepends=('git')
 install=ags-git.install
-source=('ags-git.install')
-md5sums=('fc9706e4e3636d7e789be40480a5fdc0')
+source=('git+git://github.com/adventuregamestudio/ags.git'
+'ags-git.install')
+md5sums=('SKIP'
+'fc9706e4e3636d7e789be40480a5fdc0')
 provides=('adventuregamestudio')
 
-_gitroot="https://github.com/adventuregamestudio/ags.git"
 _gitname="ags"
 _gitbranch="main"
 
+
 build() {
-	cd "$srcdir"
-	msg "Connecting to GIT server...."
 
-		if [ -d $_gitname ] ; then
-			cd $_gitname && git pull origin
-			msg "The local files are updated."
-			else
-			git clone --branch $_gitbranch $_gitroot $_gitname
-		fi
-
-	msg "GIT checkout done or server timeout"
-	msg "Starting make..."
-
-	rm -rf "$srcdir/$_gitname-build"
-	git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-	cd "$srcdir/$_gitname-build"
-
-	make --directory=Engine --file=Makefile.linux || return 1
+        cd $_gitname
+	make --directory=Engine || return 1
 }
 
+pkgver() {
+    cd "${srcdir}/${_gitname}"
+    git log -1 --format="%cd" --date=short | sed 's|-||g'
+    }
+
 package() {
-	install -D -m 755 $srcdir/ags-build/Engine/ags \
-		$pkgdir/usr/bin/ags
+	install -D -m 755 $srcdir/$_gitname/Engine/ags \
+        $pkgdir/usr/bin/ags
 } 
