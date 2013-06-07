@@ -1,13 +1,13 @@
 # Maintainer: hbdee <hbdee.arch@gmail.com>
 
 pkgname=amarok-minimal
-pkgver=2.7.0
-pkgrel=2
+pkgver=2.7.1
+pkgrel=1
 pkgdesc="The powerful music player for KDE without integrated web services, default scripts, iPod and media devices support."
 arch=("i686" "x86_64")
 url="http://amarok.kde.org/"
 license=('GPL2' 'LGPL2.1' 'FDL')
-depends=('kdebase-runtime' 'mysql' 'qtscriptgenerator' 'taglib-extras' 'ffmpeg')
+depends=('kdebase-runtime' 'mariadb' 'qtscriptgenerator' 'taglib-extras' 'ffmpeg')
 makedepends=('pkgconfig' 'automoc4' 'cmake') # Add 'libgpod', 'libmtp', 'loudmouth', 'libmygpo-qt', and/or 'clamz' if you require them.
 optdepends=("libgpod: support for Apple iPod audio devices"
 	    "libmtp: support for portable media devices"
@@ -23,7 +23,7 @@ conflicts=('amarok' 'amarok-devel' 'amarok-git' 'amarok-minimal-git')
 provides=('amarok')
 install="amarok.install"
 source=("http://download.kde.org/stable/amarok/${pkgver}/src/amarok-${pkgver}.tar.bz2")
-sha1sums=('d0ae4a2cb81a54ae94ca24fdb3aed88d7f3a921e')
+sha1sums=('445eba6aaadface756410cf0f568a3770d437d2d')
 
 build() {
   
