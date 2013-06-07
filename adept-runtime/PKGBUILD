@@ -1,7 +1,7 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
 pkgver=2.13.1
-pkgrel=1
+pkgrel=2
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
@@ -28,7 +28,7 @@ prepare() {
 
   sed -i 's_usr/local/share_usr/share_' digilent-adept.conf
 
-  sed -i 's_usr/local/sbin_usr/sbin_' 52-digilent-usb.rules
+  sed -i 's_usr/local/sbin_usr/bin_' 52-digilent-usb.rules
 }
 
 package() {
@@ -70,11 +70,11 @@ package() {
   # ("This application detaches any kernel drivers that are attached
   #   to the interfaces of the device, ensuring that the Runtime will
   #   be able to communicate with the device using libusb.")
-  mkdir "$pkgdir/usr/sbin"
+  mkdir "$pkgdir/usr/bin"
   if [[ $CARCH == i686 ]]; then
-    install -m 755 bin/dftdrvdtch "$pkgdir/usr/sbin"
+    install -m 755 bin/dftdrvdtch "$pkgdir/usr/bin"
   elif [[ $CARCH == x86_64 ]]; then
-    install -m 755 bin64/dftdrvdtch "$pkgdir/usr/sbin"
+    install -m 755 bin64/dftdrvdtch "$pkgdir/usr/bin"
   fi
 
   # udev rules
