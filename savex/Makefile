@@ -21,7 +21,7 @@ clean :
 clena : clean
 
 install : svx
-	install -Dm 755 svx $(DESTDIR)/usr/bin/savex
+	install -Dm 755 svx $(DESTDIR)/usr/bin/svx
 	install -d $(DESTDIR)/usr/share/docs/savex
 	install -m 644 -t $(DESTDIR)/usr/share/docs/savex COPYING BUGS release_notes
 

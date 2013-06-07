@@ -4,7 +4,7 @@
 
 pkgname=adzapper
 pkgver=20110915
-pkgrel=5
+pkgrel=7
 pkgdesc="Ad Zapping With Squid"
 arch=('any')
 url="http://adzapper.sourceforge.net"
@@ -15,16 +15,16 @@ optdepends=('squid: adzapper works with squid' 'polipo: you can use adzapper wit
 install=$pkgname.install
 source=($url/scripts/squid_redirect adzapper.wrapper adzapper.conf bsd-license)
 
-build() {
-  cd $startdir/src/
+package() {
+  cd ${srcdir}/
   /usr/bin/install -D -m 755 squid_redirect \
-      $startdir/pkg/usr/bin/adzapper
+      ${pkgdir}/usr/bin/adzapper
   /usr/bin/install -D -m 755 adzapper.wrapper \
-      $startdir/pkg/usr/bin/adzapper.wrapper
+      ${pkgdir}/usr/bin/adzapper.wrapper
   /usr/bin/install -D -m 644 adzapper.conf \
-      $startdir/pkg/etc/adzapper/adzapper.conf
+      ${pkgdir}/etc/adzapper/adzapper.conf
   /usr/bin/install -D -m 644 bsd-license \
-      $startdir/pkg/usr/share/licenses/$pkgname/bsd-license
+      ${pkgdir}/usr/share/licenses/$pkgname/bsd-license
 }
 
 md5sums=('acbfce12b4d9c3a6103da73adfe612b3'
