@@ -7,6 +7,9 @@ PREFIX ?= /usr/local
 
 CFLAGS := -std=c99 -g -pedantic -Wall -Wextra $(CFLAGS)
 
+CFLAGS  += `pkg-config --cflags libnotify`
+LDFLAGS += `pkg-config --libs libnotify`
+
 all: $(OUT)
 
 $(OUT): $(OBJ)

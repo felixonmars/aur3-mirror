@@ -7,9 +7,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/wait.h>
 #include <getopt.h>
 #include <errno.h>
+#include <libnotify/notify.h>
 
 #define MAXBUF 1024
 #define SEP    "/"
@@ -121,11 +121,11 @@ static struct message_t *parse_message(char *msg) {
     return message;
 }
 
-static void handle_message(char *msg) { /* {{{ */
+static void handle_message(char *msg) {
     printf("message received: %s\n", msg);
 
     struct message_t *message;
-    char *title, *body;
+    char *title;
 
     message = parse_message(msg);
 
@@ -150,21 +150,8 @@ static void handle_message(char *msg) { /* {{{ */
             return;
     }
 
-    asprintf(&body, "%s", message->event_contents);
-
-    char *flags[] = { "notify-send", title, body, (char *)NULL };
-
-    /* double-fork taken from dzen2/util.c; avoids zombie processes
-     * without requiring a signal handler. */
-    if (fork() == 0) {
-        if (fork() == 0) {
-            execvp("notify-send", flags);
-            exit(EXIT_SUCCESS);
-        }
-        exit(EXIT_SUCCESS);
-    }
-
-    wait(0);
+    NotifyNotification *n = notify_notification_new(title, message->event_contents, NULL);
+    notify_notification_show(n, NULL);
 }
 
 int main(int argc, char *argv[]) {
@@ -192,6 +179,8 @@ int main(int argc, char *argv[]) {
         perror("error binding to socket");
         exit(EXIT_FAILURE);
     }
+
+    notify_init("android-receiver");
 
     while (1) {
         while ((n = recvfrom(sock, buf, 1024, 0, (struct sockaddr *)&from, &fromlen)) < 0 && errno == EINTR)

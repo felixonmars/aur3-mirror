@@ -1,7 +1,7 @@
 # Maintainer: Patrick Brisbin <pbrisbin@gmail.com>
 
 pkgname=android-receiver
-pkgver=0.0.1
+pkgver=0.0.2
 pkgrel=1
 pkgdesc="A simple receiver for android notifier"
 arch=('any')
@@ -17,5 +17,5 @@ build() {
 package() {
   make PREFIX=/usr DESTDIR="$pkgdir" install
 }
-md5sums=('0c685faca07b881ecd5a4e60f3705536'
-         '30fa8801633c221bf57795dff0aad871')
+md5sums=('288a7a8e398e6e6638906c1e9d7e5306'
+         '871d2b6af67c6b8d958c053610b7b50a')
