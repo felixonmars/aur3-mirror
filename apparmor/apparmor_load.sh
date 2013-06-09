@@ -2,4 +2,4 @@
 
 aa_profiles='/etc/apparmor.d/'
 aa_log='/var/log/apparmor.init.log'
-/usr/sbin/apparmor_parser -r $(find "$aa_profiles" -maxdepth 1 -type f) 2>> "$aa_log"
+/usr/bin/apparmor_parser -r $(find "$aa_profiles" -maxdepth 1 -type f) 2>> "$aa_log"
