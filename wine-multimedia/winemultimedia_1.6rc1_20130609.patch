@@ -1,11 +1,11 @@
-commit 92ff7a7fef39afee0fa5ad8f2dff94b5e28f89c1
+commit 7d95aa2d2fbd67659a88be6ffbb731c969dd49ef
 Author: John Schoenick <jschoenick@mozilla.com>
-Date:   Wed May 29 13:46:16 2013 -0700
+Date:   Sun Jun 9 14:33:18 2013 -0700
 
-    Rebase wine-multimedia onto wine 1.5.31
+    Rebase wine-multimedia onto wine-1.6-rc1
 
 diff --git a/configure b/configure
-index 9ace38a..7d8d24a 100755
+index 3a551e8..c2f5be6 100755
 --- a/configure
 +++ b/configure
 @@ -649,6 +649,8 @@ OSS4INCL
@@ -150,7 +150,7 @@ index 9ace38a..7d8d24a 100755
  then
      as_fn_append wine_warnings "|No sound system was found. Windows applications will be silent."
  fi
-@@ -16292,6 +16384,7 @@ wine_fn_config_dll winemp3.acm enable_winemp3_acm
+@@ -16293,6 +16385,7 @@ wine_fn_config_dll winemp3.acm enable_winemp3_acm
  wine_fn_config_dll wineoss.drv enable_wineoss_drv
  wine_fn_config_dll wineps.drv enable_wineps_drv install-lib,po
  wine_fn_config_dll wineps16.drv16 enable_win16
@@ -159,7 +159,7 @@ index 9ace38a..7d8d24a 100755
  wine_fn_config_dll winex11.drv enable_winex11_drv
  wine_fn_config_dll wing.dll16 enable_win16
 diff --git a/configure.ac b/configure.ac
-index 1941be1..3c84d55 100644
+index 57d76d9..fbb21d4 100644
 --- a/configure.ac
 +++ b/configure.ac
 @@ -70,6 +70,7 @@ AC_ARG_WITH(oss,       AS_HELP_STRING([--without-oss],[do not use the OSS sound
@@ -218,7 +218,7 @@ index 1941be1..3c84d55 100644
  then
      WINE_WARNING([No sound system was found. Windows applications will be silent.])
  fi
-@@ -3116,6 +3142,7 @@ WINE_CONFIG_DLL(winemp3.acm)
+@@ -3117,6 +3143,7 @@ WINE_CONFIG_DLL(winemp3.acm)
  WINE_CONFIG_DLL(wineoss.drv)
  WINE_CONFIG_DLL(wineps.drv,,[install-lib,po])
  WINE_CONFIG_DLL(wineps16.drv16,enable_win16)
@@ -926,7 +926,7 @@ index 282808e..007180c 100644
  
  	LeaveCriticalSection(&(device->mixlock));
 diff --git a/dlls/dsound/primary.c b/dlls/dsound/primary.c
-index 0bfd5667..95232f9 100644
+index a824477..8f3580a 100644
 --- a/dlls/dsound/primary.c
 +++ b/dlls/dsound/primary.c
 @@ -40,24 +40,6 @@
@@ -1034,7 +1034,11 @@ index 0bfd5667..95232f9 100644
 -        device->render = NULL;
 -        WARN("GetService failed: %08x\n", hres);
 -        return hres;
--    }
++    if (device->pad) {
++        device->playpos += device->pad;
++        device->playpos %= device->buflen;
++        device->pad = 0;
+     }
 -
 -    hres = IAudioClient_GetService(device->client, &IID_IAudioStreamVolume,
 -            (void**)&device->volume);
@@ -1047,11 +1051,7 @@ index 0bfd5667..95232f9 100644
 -        device->clock = NULL;
 -        WARN("GetService failed: %08x\n", hres);
 -        return hres;
-+    if (device->pad) {
-+        device->playpos += device->pad;
-+        device->playpos %= device->buflen;
-+        device->pad = 0;
-     }
+-    }
 -
 -    /* Now kick off the timer so the event fires periodically */
 -    hres = IAudioClient_Start(device->client);
@@ -1082,14 +1082,14 @@ index 0bfd5667..95232f9 100644
 -        int i;
 -
 -	TRACE("(%p)\n", device);
--
--	device->fraglen = DSOUND_fraglen(device);
 +    IDirectSoundBufferImpl** dsb = device->buffers;
 +    LPBYTE newbuf;
 +    DWORD new_buflen;
 +    BOOL mixfloat = FALSE;
 +    int i;
  
+-	device->fraglen = DSOUND_fraglen(device);
+-
 -	/* on original windows, the buffer it set to a fixed size, no matter what the settings are.
 -	   on windows this size is always fixed (tested on win-xp) */
 -	if (!device->buflen)
@@ -1333,7 +1333,7 @@ index 0bfd5667..95232f9 100644
  	if(device->primary && (device->primary->ref || device->primary->numIfaces))
  		WARN("Destroying primary buffer while references held (%u %u)\n", device->primary->ref, device->primary->numIfaces);
  
-@@ -393,53 +351,6 @@ HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device)
+@@ -393,62 +351,19 @@ HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device)
  	return DS_OK;
  }
  
@@ -1384,10 +1384,23 @@ index 0bfd5667..95232f9 100644
 -	return DS_OK;
 -}
 -
- static DWORD DSOUND_GetFormatSize(LPCWAVEFORMATEX wfex)
+ WAVEFORMATEX *DSOUND_CopyFormat(const WAVEFORMATEX *wfex)
  {
- 	if (wfex->wFormatTag == WAVE_FORMAT_PCM)
-@@ -476,7 +387,6 @@ HRESULT primarybuffer_SetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX passe
+     WAVEFORMATEX *pwfx;
+     if(wfex->wFormatTag == WAVE_FORMAT_PCM){
+         pwfx = HeapAlloc(GetProcessHeap(), 0, sizeof(WAVEFORMATEX));
++        if (!pwfx)
++            return NULL;
+         CopyMemory(pwfx, wfex, sizeof(PCMWAVEFORMAT));
+         pwfx->cbSize = 0;
+     }else{
+         pwfx = HeapAlloc(GetProcessHeap(), 0, sizeof(WAVEFORMATEX) + wfex->cbSize);
++        if (!pwfx)
++            return NULL;
+         CopyMemory(pwfx, wfex, sizeof(WAVEFORMATEX) + wfex->cbSize);
+     }
+ 
+@@ -465,7 +380,6 @@ HRESULT primarybuffer_SetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX passe
  	HRESULT err = S_OK;
  	WAVEFORMATEX *old_fmt;
  	WAVEFORMATEXTENSIBLE *fmtex, *passed_fmtex = (WAVEFORMATEXTENSIBLE*)passed_fmt;
@@ -1395,7 +1408,7 @@ index 0bfd5667..95232f9 100644
  
  	TRACE("(%p,%p)\n", device, passed_fmt);
  
-@@ -526,24 +436,12 @@ HRESULT primarybuffer_SetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX passe
+@@ -515,28 +429,20 @@ HRESULT primarybuffer_SetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX passe
  			fmtex->Samples.wValidBitsPerSample = fmtex->Format.wBitsPerSample;
  		}
  
@@ -1421,26 +1434,19 @@ index 0bfd5667..95232f9 100644
 -		else
 +		} else
  			HeapFree(GetProcessHeap(), 0, old_fmt);
- 	} else if (passed_fmt->wFormatTag == WAVE_FORMAT_PCM ||
- 		   passed_fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
-@@ -556,10 +454,15 @@ done:
- 		if (IsEqualGUID(&fmtex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT) &&
- 		    passed_fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) {
- 			fmt->wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-+			fmt->wBitsPerSample = 32;
- 		} else {
- 			fmt->wFormatTag = WAVE_FORMAT_PCM;
--			fmt->wBitsPerSample = 16;
-+			fmt->wBitsPerSample = passed_fmt->wBitsPerSample;
- 		}
-+		fmt->nSamplesPerSec = passed_fmt->nSamplesPerSec;
-+		fmt->nChannels = passed_fmt->nChannels;
-+		if (fmt->nChannels > device->pwfx->nChannels)
-+			fmt->nChannels = device->pwfx->nChannels;
- 		fmt->nBlockAlign = fmt->nChannels * fmt->wBitsPerSample / 8;
- 		fmt->nAvgBytesPerSec = fmt->nBlockAlign * fmt->nSamplesPerSec;
- 		fmt->cbSize = 0;
-@@ -735,16 +638,7 @@ static HRESULT WINAPI PrimaryBufferImpl_Play(IDirectSoundBuffer *iface, DWORD re
+ 	} else {
+-		HeapFree(GetProcessHeap(), 0, device->primary_pwfx);
+-		device->primary_pwfx = DSOUND_CopyFormat(passed_fmt);
++		WAVEFORMATEX *wfx = DSOUND_CopyFormat(passed_fmt);
++		if (wfx) {
++			HeapFree(GetProcessHeap(), 0, device->primary_pwfx);
++			device->primary_pwfx = wfx;
++		} else
++			err = DSERR_OUTOFMEMORY;
+ 	}
+ 
+ out:
+@@ -706,16 +612,7 @@ static HRESULT WINAPI PrimaryBufferImpl_Play(IDirectSoundBuffer *iface, DWORD re
  		return DSERR_INVALIDPARAM;
  	}
  
@@ -1458,7 +1464,7 @@ index 0bfd5667..95232f9 100644
  
  	return DS_OK;
  }
-@@ -755,16 +649,7 @@ static HRESULT WINAPI PrimaryBufferImpl_Stop(IDirectSoundBuffer *iface)
+@@ -726,16 +623,7 @@ static HRESULT WINAPI PrimaryBufferImpl_Stop(IDirectSoundBuffer *iface)
          DirectSoundDevice *device = This->device;
  	TRACE("(%p)\n", iface);
  
@@ -1476,7 +1482,7 @@ index 0bfd5667..95232f9 100644
  
  	return DS_OK;
  }
-@@ -810,7 +695,9 @@ static ULONG WINAPI PrimaryBufferImpl_Release(IDirectSoundBuffer *iface)
+@@ -781,7 +669,9 @@ static ULONG WINAPI PrimaryBufferImpl_Release(IDirectSoundBuffer *iface)
  static HRESULT WINAPI PrimaryBufferImpl_GetCurrentPosition(IDirectSoundBuffer *iface,
          DWORD *playpos, DWORD *writepos)
  {
@@ -1487,7 +1493,7 @@ index 0bfd5667..95232f9 100644
          IDirectSoundBufferImpl *This = impl_from_IDirectSoundBuffer(iface);
          DirectSoundDevice *device = This->device;
  	TRACE("(%p,%p,%p)\n", iface, playpos, writepos);
-@@ -818,17 +705,23 @@ static HRESULT WINAPI PrimaryBufferImpl_GetCurrentPosition(IDirectSoundBuffer *i
+@@ -789,17 +679,23 @@ static HRESULT WINAPI PrimaryBufferImpl_GetCurrentPosition(IDirectSoundBuffer *i
  	/* **** */
  	EnterCriticalSection(&(device->mixlock));
  
@@ -1515,7 +1521,7 @@ index 0bfd5667..95232f9 100644
  	}
  
  	LeaveCriticalSection(&(device->mixlock));
-@@ -850,8 +743,7 @@ static HRESULT WINAPI PrimaryBufferImpl_GetStatus(IDirectSoundBuffer *iface, DWO
+@@ -821,8 +717,7 @@ static HRESULT WINAPI PrimaryBufferImpl_GetStatus(IDirectSoundBuffer *iface, DWO
  	}
  
  	*status = 0;
@@ -1602,7 +1608,7 @@ index feedfde..e3bb5b6 100644
      hr = IAudioClient_Start(ac);
      ok(hr == S_OK, "Start failed: %08x\n", hr);
 diff --git a/dlls/mmdevapi/tests/render.c b/dlls/mmdevapi/tests/render.c
-index beebfb6..f292a44 100644
+index beebfb6..84ce921 100644
 --- a/dlls/mmdevapi/tests/render.c
 +++ b/dlls/mmdevapi/tests/render.c
 @@ -472,6 +472,169 @@ static void test_formats(AUDCLNT_SHAREMODE mode)
@@ -1654,14 +1660,14 @@ index beebfb6..f292a44 100644
 +
 +    pwfx2 = NULL;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == E_INVALIDARG && !pwfx2,
++    ok((hr == E_INVALIDARG || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with nAvgBytesPerSec=0 and nBlockAlign=0 returned %08x %p\n", hr, pwfx2);
 +    CoTaskMemFree(pwfx2);
 +
 +    pwfx->wFormatTag = WAVE_FORMAT_PCM;
 +    pwfx2 = NULL;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == S_OK && !pwfx2,
++    ok((hr == S_OK || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with nAvgBytesPerSec=0 and nBlockAlign=0 returned %08x %p\n", hr, pwfx2);
 +    CoTaskMemFree(pwfx2);
 +
@@ -1720,7 +1726,7 @@ index beebfb6..f292a44 100644
 +
 +    pwfx2 = NULL;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == S_FALSE && pwfx2,
++    ok((hr == S_FALSE || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && pwfx2,
 +       "Shared IsFormatSupported with wValidBitsPerSample=0 returned %08x %p\n", hr, pwfx2);
 +    if (pwfx2) {
 +        pwfe2 = (WAVEFORMATEXTENSIBLE*)pwfx2;
@@ -1733,7 +1739,7 @@ index beebfb6..f292a44 100644
 +    pwfx2 = NULL;
 +    pwfe->Samples.wValidBitsPerSample = pwfx->wBitsPerSample + 1;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == E_INVALIDARG && !pwfx2,
++    ok((hr == E_INVALIDARG || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with wValidBitsPerSample += 1 returned %08x %p\n", hr, pwfx2);
 +
 +    *pwfe = wfe;
@@ -1750,7 +1756,7 @@ index beebfb6..f292a44 100644
 +    pwfx->nBlockAlign = pwfx->wBitsPerSample / 8 * pwfx->nChannels;
 +    pwfx->nAvgBytesPerSec = pwfx->nBlockAlign * pwfx->nSamplesPerSec;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == E_INVALIDARG && !pwfx2,
++    ok((hr == E_INVALIDARG || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with wBitsPerSample=256 returned %08x %p\n", hr, pwfx2);
 +    CoTaskMemFree(pwfx2);
 +
@@ -5431,7 +5437,7 @@ index 4e78116..094e5e1 100644
      wine_init_argv0_path( argv[0] );
      build_dll_path();
 diff --git a/programs/winemenubuilder/winemenubuilder.c b/programs/winemenubuilder/winemenubuilder.c
-index 9c81ab8..aed715d 100644
+index 973bd02..1982c93 100644
 --- a/programs/winemenubuilder/winemenubuilder.c
 +++ b/programs/winemenubuilder/winemenubuilder.c
 @@ -2536,7 +2536,7 @@ static BOOL write_freedesktop_association_entry(const char *desktopPath, const c
