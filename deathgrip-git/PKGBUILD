@@ -1,52 +1,35 @@
-
-
 # Maintainer: "Super" Nathan Weber <supernathansunshine@gmail.com>
-pkgname=deathgrip-git
-pkgver=20130608
+_pkgname=deathgrip
+pkgname=$_pkgname-git
+pkgver=20130607.18
 pkgrel=1
-pkgdesc="Cryptography program for plain text"
-arch=('i686' 'x86_64')
-url="git://github.com/super-nathan/deathgrip.git"
+pkgdesc="Cryptography program for plain text, Deathgrip provides a simple and configurable way to encrypt and decrypt plain text with a custom configuration."
+arch=('any')
+url="http://github.com/super-nathan/deathgrip"
 license=('GPL')
 depends=('python')
 makedepends=('git')
-provides=(deathgrip)
-conflicts=(deathgrip)
-source=('git://github.com/super-nathan/deathgrip.git')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+https://github.com/super-nathan/deathgrip.git")
 md5sums=('SKIP')
 
-_gitname=deathgrip
-_gitroot='git://github.com/super-nathan/deathgrip.git'
-
+pkgver() {
+  cd "$srcdir/$_pkgname"
+  echo "$(git log -1 --format="%cd" --date=short | sed 's|-||g').$(git rev-list --count master)"
+}
 
 build() {
-  cd "$srcdir"
-  msg "Connecting to GIT server...."
-
-  if [[ -d "$_gitname" ]]; then
-    cd "$_gitname" && git pull origin
-    msg "The local files are updated."
-  else
-    git clone "$_gitroot" "$_gitname"
-  fi
-
-  msg "GIT checkout done or server timeout"
-  msg "Starting build..."
-
-  rm -rf "$srcdir/{$_gitname}-build"
-  git clone "$srcdir/$_gitname" "$srcdir/{$_gitname}-build"
-  cd "$srcdir/{$_gitname}-build"
+  cd "$srcdir/$_pkgname"
   gzip deathgrip.1
 }
 
 package() {
-	cd "$srcdir/{$_gitname}-build"
-	mkdir -p ${pkgdir}/usr/bin
-    cp deathgrip ${pkgdir}/usr/bin/deathgrip
-    mkdir -p ${pkgdir}/usr/share/man/man1
-    cp deathgrip.1.gz ${pkgdir}/usr/share/man/man1/deathgrip.1.gz
-    mkdir -p ${pkgdir}/etc
-    cp deathgrip.conf ${pkgdir}/etc/deathgrip.conf
+  cd "$srcdir/$_pkgname"
+  install -Dm755 "$_pkgname" "$pkgdir/usr/bin/$_pkgname"
+  install -Dm644 "$_pkgname.1.gz" "$pkgdir/usr/share/man/man1/$_pkgname.1.gz"
+  install -Dm644 "$_pkgname.conf" "$pkgdir/etc/$_pkgname.conf"
+
 }
 
 # vim:set ts=2 sw=2 et:
