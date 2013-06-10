@@ -12,15 +12,18 @@ do
 	if [ "$?" = "0" ]; then
 		_KVER=`LC_ALL=C pacman -Qi ${i} | grep Version | sed "s/.\+: //g"`
 
-		_KTYPE=`echo ${i} | grep -o -e "ck\|lts\|ARCH"`
+		_KTYPE=`echo ${i} | grep -o -e "ck\|lts\|pf"`
 		
-		if [ "${_AVER}" != "${_KTYPE}" ]; then
+		if [[ "${_AVER}" != "${_KTYPE}" && "${i}" != "linux" ]]; then
 			continue
 		fi
 
 		case "${_KTYPE}" in
 			"ck")
 				export _KLIBVER=${_KVER}-ck
+				;;
+			"pf")
+				export _KLIBVER=${_KVER}-pf
 				;;
 			"lts")
 				export _KLIBVER=${_KVER}-LTS
