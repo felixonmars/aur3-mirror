@@ -1,5 +1,7 @@
 #!/bin/sh
 
+_AVER=`uname -r | grep -o -e "ck\|lts\|ARCH"`
+
 for i in \
 	`echo "linux linux-lts linux-ck linuxkernel26-ck linux-ck-corex linux-ck-p4 \
 	linux-ck-pentm linux-ck-atom linux-ck-core2 linux-ck-nehalem  \
@@ -10,8 +12,12 @@ do
 	if [ "$?" = "0" ]; then
 		_KVER=`LC_ALL=C pacman -Qi ${i} | grep Version | sed "s/.\+: //g"`
 
-		_KTYPE=`echo ${i} | grep -o -e "ck\|lts"`
+		_KTYPE=`echo ${i} | grep -o -e "ck\|lts\|ARCH"`
 		
+		if [ "${_AVER}" != "${_KTYPE}" ]; then
+			continue
+		fi
+
 		case "${_KTYPE}" in
 			"ck")
 				export _KLIBVER=${_KVER}-ck
