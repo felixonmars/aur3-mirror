@@ -1,25 +1,61 @@
-Index: gcc/config/i386/i386.c
-===================================================================
---- gcc/config/i386/i386.c      (Revision 197118)
-+++ gcc/config/i386/i386.c      (Arbeitskopie)
-@@ -3941,6 +3941,20 @@
-   register_pass (&insert_vzeroupper_info);
+diff --git a/gcc/config/i386/i386.c b/gcc/config/i386/i386.c
+index 3470fef..20163b1 100644
+--- a/gcc/config/i386/i386.c
++++ b/gcc/config/i386/i386.c
+@@ -35564,6 +35564,46 @@ ix86_pad_short_function (void)
+     }
  }
-
-+/* Implement TARGET_CANNOT_MODIFY_JUMPS_P.  */
-+static bool
-+ix86_cannot_modify_jumps_p (void)
+ 
++/* Fix up a Windows system unwinder issue.  If an EH region falls thru into
++   the epilogue, the Windows system unwinder will apply epilogue logic and
++   produce incorrect offsets.  This can be avoided by adding a nop between
++   the last insn that can throw and the first insn of the epilogue.  */
++
++static void
++ix86_seh_fixup_eh_fallthru (void)
 +{
-+  if (TARGET_SEH && reload_completed
-+      && cfun && cfun->eh
-+      && cfun->eh->region_tree)
-+    return true;
-+  return false;
++  edge e;
++  edge_iterator ei;
++
++  FOR_EACH_EDGE (e, ei, EXIT_BLOCK_PTR->preds)
++    {
++      rtx insn, next;
++
++      /* Find the beginning of the epilogue.  */
++      for (insn = BB_END (e->src); insn != NULL; insn = PREV_INSN (insn))
++	if (NOTE_P (insn) && NOTE_KIND (insn) == NOTE_INSN_EPILOGUE_BEG)
++	  break;
++      if (insn == NULL)
++	continue;
++
++      /* We only care about preceeding insns that can throw.  */
++      insn = prev_active_insn (insn);
++      if (insn == NULL || !can_throw_internal (insn))
++	continue;
++
++      /* Do not separate calls from their debug information.  */
++      for (next = NEXT_INSN (insn); next != NULL; next = NEXT_INSN (next))
++	if (NOTE_P (next)
++            && (NOTE_KIND (next) == NOTE_INSN_VAR_LOCATION
++                || NOTE_KIND (next) == NOTE_INSN_CALL_ARG_LOCATION))
++	  insn = next;
++	else
++	  break;
++
++      emit_insn_after (gen_nops (const1_rtx), insn);
++    }
 +}
 +
-+#undef  TARGET_CANNOT_MODIFY_JUMPS_P
-+#define TARGET_CANNOT_MODIFY_JUMPS_P ix86_cannot_modify_jumps_p
-+
- /* Update register usage after having seen the compiler flags.  */
-
+ /* Implement machine specific optimizations.  We implement padding of returns
+    for K8 CPUs and pass to avoid 4 jumps in the single 16 byte window.  */
  static void
+@@ -35573,6 +35613,9 @@ ix86_reorg (void)
+      with old MDEP_REORGS that are not CFG based.  Recompute it now.  */
+   compute_bb_for_insn ();
+ 
++  if (TARGET_SEH && current_function_has_exception_handlers ())
++    ix86_seh_fixup_eh_fallthru ();
++
+   if (optimize && optimize_function_for_speed_p (cfun))
+     {
+       if (TARGET_PAD_SHORT_FUNCTION)
