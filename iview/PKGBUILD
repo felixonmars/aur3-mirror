@@ -1,6 +1,6 @@
 pkgname=iview  # TODO: python-iview
-_rev=84970fa
-pkgver="120+g$_rev"  # Commit count: git rev-list --count "$_rev"
+_rev=f3bd571
+pkgver="127+g$_rev"  # Commit count: git rev-list --count "$_rev"
 pkgrel=1
 pkgdesc="Alternative frontend for ABC TV's Iview service"
 url="https://jeremy.visser.name/2009/08/python-iview"
