@@ -1,0 +1,199 @@
+diff -aurN xmobar-0.18/readme.md xmobar-0.18.new/readme.md
+--- xmobar-0.18/readme.md	2013-06-05 00:37:16.000000000 +0200
++++ xmobar-0.18.new/readme.md	2013-06-15 15:54:04.469226343 +0200
+@@ -133,6 +133,9 @@
+      for the MBox and Mail plugins to work. Requires the [hinotify]
+      package.
+ 
++`with_gmail`
++:    Support for GMail. Enables the GMail plugin.
++
+ `with_iwlib`
+ :    Support for wireless cards. Enables the Wireless plugin. No Haskell
+      library is required, but you will need the [iwlib] C library and
+@@ -1020,6 +1023,20 @@
+          Run MBox [("I ", "inbox", "red"), ("O ", "~/foo/mbox", "")]
+                   ["-d", "/var/mail/", "-p", " "] "mbox"
+ 
++### `GMail Account Pass Args RefreshRate`
++
++- This monitor will only be compiled if you enable it with the `with_gmail` flag.
++- Aliases to the account name: so `GMail "user.name" "pAsS321" []` can be used
++  as `%user.name%`
++- Account: Google Mail or Google Apps account in `username@domain` format.
++  Domain `gmail.com` can be omitted.
++- Pass: password for the account.
++- Args: default monitor arguments.
++- Default template: `<account>: <count>`
++- Example:
++
++        Run GMail "user.name@gmail.com" "pAsS321" ["-t", "GMail: <count>"] 600
++
+ ### `XPropertyLog PropName`
+ 
+ - Aliases to `PropName`
+diff -aurN xmobar-0.18/src/Plugins/Monitors/GMail.hs xmobar-0.18.new/src/Plugins/Monitors/GMail.hs
+--- xmobar-0.18/src/Plugins/Monitors/GMail.hs	1970-01-01 01:00:00.000000000 +0100
++++ xmobar-0.18.new/src/Plugins/Monitors/GMail.hs	2013-06-15 15:49:55.747586353 +0200
+@@ -0,0 +1,91 @@
++-----------------------------------------------------------------------------
++-- |
++-- Module      :  Plugins.Monitors.GMail
++-- Copyright   :  (c) Oleg Smirnov
++-- License     :  BSD-style (see LICENSE)
++-- 
++-- Maintainer  :  Oleg Smirnov <oleg.smirnov@gmail.com>
++-- Stability   :  unstable
++-- Portability :  unportable
++--
++-- A GMail checker for Xmobar
++--
++-----------------------------------------------------------------------------
++
++module Plugins.Monitors.GMail where
++
++import Plugins.Monitors.Common
++
++import Control.Monad (when)
++import System.Process
++import System.Exit
++import System.IO
++
++import Text.ParserCombinators.Parsec
++
++gmailConfig :: IO MConfig
++gmailConfig = mkMConfig "<account>: <count>" ["account", "count"]
++
++data GMailInfo =
++    GI { account :: String
++       , count   :: Int
++       } deriving (Show)
++
++pCount :: Parser Int
++pCount = do s <- manyTill digit $ (char '<')
++            return $ read s
++
++parseData :: Parser [GMailInfo]
++parseData = 
++    do skipRestOfLine
++       skipRestOfLine
++       skipTillString "<title>"
++       skipTillString "Gmail - Inbox for "
++       acc <- getAllBut "<"
++       skipRestOfLine
++       skipRestOfLine
++       skipTillString "<fullcount>"
++       cnt <- pCount
++       manyTill skipRestOfLine eof
++       return $ [GI acc cnt]
++
++defUrl :: String
++defUrl = "https://mail.google.com/a/"
++
++defFeed :: String
++defFeed = "/feed/atom"
++
++getDomain :: String -> String
++getDomain s = 
++    if '@' `elem` s
++       then tail $ dropWhile (/= '@') s
++       else "gmail.com"
++
++getData :: String -> String -> IO String
++getData acct pass =
++        do (i,o,e,p) <- runInteractiveCommand ("curl " ++" -u " ++
++                                               acct ++ ":" ++ pass ++ " " ++
++                                               defUrl ++ (getDomain acct) ++ defFeed)
++           exit <- waitForProcess p
++           let closeHandles = do hClose o
++                                 hClose i
++                                 hClose e
++           case exit of
++             ExitSuccess -> do str <- hGetContents o
++                               when (str == str) $ return ()
++                               closeHandles
++                               return str
++             _ -> do closeHandles
++                     return "Could not retrieve data"
++
++formatGMail :: [GMailInfo] -> Monitor String
++formatGMail [(GI acc cnt)] =
++    do cnt_ <- showWithColors show cnt
++       parseTemplate [acc, cnt_]
++formatGMail _ = return "N/A"
++
++runGMail :: [String] -> Monitor String
++runGMail str =
++    do d <- io $ getData (head str) (head . tail $ str)
++       i <- io $ runP parseData d
++       formatGMail i
+diff -aurN xmobar-0.18/src/Plugins/Monitors.hs xmobar-0.18.new/src/Plugins/Monitors.hs
+--- xmobar-0.18/src/Plugins/Monitors.hs	2013-06-05 00:37:16.000000000 +0200
++++ xmobar-0.18.new/src/Plugins/Monitors.hs	2013-06-15 15:24:56.487582650 +0200
+@@ -48,6 +48,9 @@
+ #ifdef MPRIS
+ import Plugins.Monitors.Mpris
+ #endif
++#ifdef GMAIL
++import Plugins.Monitors.GMail
++#endif
+ 
+ data Monitors = Weather      Station     Args Rate
+               | Network      Interface   Args Rate
+@@ -82,6 +85,9 @@
+               | Mpris1   String     Args Rate
+               | Mpris2   String     Args Rate
+ #endif
++#ifdef GMAIL
++              | GMail    Account    Pass Args Rate
++#endif
+                 deriving (Show,Read,Eq)
+ 
+ type Args      = [String]
+@@ -93,6 +99,8 @@
+ type Interface = String
+ type Rate      = Int
+ type DiskSpec  = [(String, String)]
++type Account   = String
++type Pass      = String
+ 
+ instance Exec Monitors where
+     alias (Weather s _ _) = s
+@@ -128,6 +136,9 @@
+     alias (Mpris1 _ _ _) = "mpris1"
+     alias (Mpris2 _ _ _) = "mpris2"
+ #endif
++#ifdef GMAIL
++    alias (GMail  u _ _ _) = u
++#endif
+     start (Network  i a r) = startNet i a r
+     start (DynNetwork a r) = startDynNet a r
+     start (Cpu a r) = startCpu a r
+@@ -162,3 +173,6 @@
+     start (Mpris1 s a r) = runM a mprisConfig (runMPRIS1 s) r
+     start (Mpris2 s a r) = runM a mprisConfig (runMPRIS2 s) r
+ #endif
++#ifdef GMAIL
++    start (GMail  u p a r) = runM ([u, p] ++ a) gmailConfig runGMail      r
++#endif
+diff -aurN xmobar-0.18/xmobar.cabal xmobar-0.18.new/xmobar.cabal
+--- xmobar-0.18/xmobar.cabal	2013-06-05 00:37:16.000000000 +0200
++++ xmobar-0.18.new/xmobar.cabal	2013-06-15 15:37:50.446078430 +0200
+@@ -70,6 +70,10 @@
+   description: Use threaded runtime.
+   default: False
+ 
++flag with_gmail
++  description: Gmail support.
++  default: False
++
+ executable xmobar
+     hs-source-dirs:     src
+     main-is:            Main.hs
+@@ -164,3 +168,6 @@
+        build-depends: dbus >= 0.10
+        other-modules: IPC.DBus
+        cpp-options: -DDBUS
++
++    if flag(with_gmail)
++       cpp-options: -DGMAIL
