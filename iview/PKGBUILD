@@ -15,7 +15,7 @@ optdepends=(
 provides=(python-iview)
 
 source=("https://github.com/vadmium/python-iview/tarball/$_rev")
-md5sums=(31ab0da14137e47fa67970c9fc9fbb3b)
+md5sums=(3f8ed0601426abcfe9a3044978bd8fc3)
 
 package() {
     cd "$srcdir/vadmium-python-iview-$_rev"
