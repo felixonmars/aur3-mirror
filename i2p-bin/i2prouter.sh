@@ -35,11 +35,14 @@ init_vars() {
         fail "Attempting to start as root! Please edit $(basename $0) and set the variable \$I2P_USER"
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
         fail "\$I2P_USER does not exist: $I2P_USER"
-    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.pidfile=\"$PIDFILE\" wrapper.syslog.ident=\"i2prouter\" wrapper.name=\"i2prouter\""
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.name=\"i2prouter\""
 }
 
-get_pid() {
+get_wrapper_pid() {
     pgrep -u "$I2P_USER" -f 'wrapper.name=i2prouter'
+}
+get_pid() {
+    pgrep -u "$I2P_USER" -f 'jar'
 }
 
 check_if_running() {
@@ -96,7 +99,7 @@ _start() {
 
 _restart() {
     [[ "$pid" ]] &&
-        kill -USR1 $pid || echo "I2P Service is not running"
+        kill -USR1 $(get_wrapper_pid) || echo "I2P Service is not running"
 }
 
 _stop() {
