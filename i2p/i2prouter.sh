@@ -1,25 +1,14 @@
 #!/bin/bash
 
 #-----------------------------------------------------------------------------
-# Path
-I2P="/opt/i2p"
-
-# User to run the wrapper as.
-# IMPORTANT - Make sure that the user has the required privileges to write
-#  the PID file and wrapper.log files and that the directories exist.
 I2P_USER="i2p"
-
-# Wrapper
 WRAPPER_CMD="/usr/bin/java-service-wrapper"
-WRAPPER_CONF="$I2P/wrapper.config"
-LOGFILE="$I2P/wrapper.log"
+WRAPPER_CONF="/opt/i2p/wrapper.config"
 PIDDIR="/run/i2p"
 PIDFILE="$PIDDIR/i2p.pid"
-
-# If set, wait for the wrapper to report that the daemon has started
 TIMEOUT=30
-
 #-----------------------------------------------------------------------------
+
 fail() {
     printf "\e[1;31m>>> ERROR:\033[0m %s\n" "$*"
     exit 1
@@ -46,11 +35,7 @@ init_vars() {
         fail "Attempting to start as root! Please edit $(basename $0) and set the variable \$I2P_USER"
     [[ "$(id -un "$I2P_USER")" != "$I2P_USER" ]] &&
         fail "\$I2P_USER does not exist: $I2P_USER"
-
-    #wrapper_ver=$(/usr/bin/java-service-wrapper --version |head -n1|cut -d' ' -f7)
-    JAVABINARY=$(awk -F'=' '/^ *wrapper\.java\.command/{print $2}' "$WRAPPER_CONF")
-    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.syslog.ident=\"i2prouter\" wrapper.java.command=\"$JAVABINARY\" wrapper.pidfile=\"$PIDFILE\" wrapper.name=\"i2prouter\" wrapper.logfile=\"$LOGFILE\"" #wrapper.script.version=${wrapper_ver}"
-
+    COMMAND_LINE="\"$WRAPPER_CMD\" \"$WRAPPER_CONF\" wrapper.pidfile=\"$PIDFILE\" wrapper.syslog.ident=\"i2prouter\" wrapper.name=\"i2prouter\""
 }
 
 get_pid() {
