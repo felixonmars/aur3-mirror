@@ -4,7 +4,7 @@ PLUGINDIR ?= $(shell pkg-config --variable=plugindir purple)
 
 CFLAGS += -Wall -fPIC
 LDFLAGS += -shared
-CPPFLAGS += $(shell pkg-config --cflags glib-2.0 json-glib-1.0 purple)
+CPPFLAGS += $(shell pkg-config --cflags glib-2.0 json-glib-1.0 purple nss)
 LIBS += $(shell pkg-config --libs glib-2.0 json-glib-1.0 purple)
 
 TARGET = libsteam.so
