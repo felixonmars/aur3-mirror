@@ -4,7 +4,7 @@
 
 pkgname=firefox-aurora
 pkgver=23.0a2
-pkgrel=1
+pkgrel=2
 pkgdesc="Firefox Aurora channel - Nightly build"
 url=http://www.mozilla.org/en_US/firefox/aurora/
 arch=(i686 x86_64)
