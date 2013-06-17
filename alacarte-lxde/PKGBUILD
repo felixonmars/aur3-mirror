@@ -21,12 +21,14 @@ source=(
         remove_help_button.patch
         gnome_fix.patch
         automake_fix.patch
+        glib-error_fix.patch
         )
 
 sha256sums=(
             '9d6624e75b88a8430eb2c4c8ea6d84d7e1172dd8f789b569ad10a6445cf7ce49'
             'ecae1344bb63236ec1696c784ec45a64e0cb637c4684a9de2afb188f96feeb4f'
             '3674c89b1a70a4acfee9e228dc5fd261bf870b04878fb462eb801ae9dfe12015'
+            '180ac0cfc62167ce01205e96508192035b27065f068d51bada81576437263e5e'
             )
 
 
@@ -59,6 +61,7 @@ build() {
   patch -Np1 -i   ../remove_help_button.patch
   patch -Np1 -i   ../gnome_fix.patch
   patch -Np1 -i   ../automake_fix.patch
+  patch -Np1 -i   ../glib-error_fix.patch
   sed -e 's/gnome-desktop-item-edit/light-desktop-item-edit/g' -i Alacarte/MainWindow.py
   ./autogen.sh --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
                PYTHON=/usr/bin/python2
