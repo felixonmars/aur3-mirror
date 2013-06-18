@@ -1,24 +1,7 @@
 # Maintainer: Martin Schmölzer <mschmoelzer@gmail.com>
 
-# The sources for this PKGBUILD will most likely be NOT available for download
-# from the vendor (Digilent). You must manually copy them from a Xilinx ISE
-# installation, e.g.
-#
-#  $ cd </path/to/PKGBUILD>
-#  $ tar -cvzf digilent.adept.runtime_2.10.4-x86_64.tar.gz \
-#        -C /opt/Xilinx/14.4/ISE_DS/ISE/bin/lin64/digilent/ \
-#        digilent.adept.runtime_2.10.4-x86_64
-#
-# Then, run "makepkg" to build the package.
-# If you get error messages stating that one or more files did not pass the
-# validity check, you need to generate new checksums using "makepkg -g", then
-# copy the checksums to the sha256sums array.
-#
-# If you are on a 32-bit installation, replace the sha256sums[0]='...' line
-# with the first line of the "makepkg -g" output.
-
 pkgname=adept-runtime-xilinx
-pkgver=2.10.4
+pkgver=2.13.1
 pkgrel=1
 pkgdesc="Core runtime necessary to communicate with Digilent logic devices"
 arch=('i686' 'x86_64')
@@ -29,9 +12,9 @@ options=(!strip)
 install='adept-runtime.install'
 source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_${pkgver}-$CARCH.tar.gz"
         "20-digilent-usb.rules")
-sha256sums=('3488dcc24596025dc750972a0ea825fe27d52146b3a2346181dc6adda407524f'
+sha256sums=('fc789fb1fbdfa156ef8cc6773f0804136c938b438240fdc87be528c1648bd0c1'
             '3096132317149ec4de5f9a753384f0e94e70dd14b2d232532298cb522bbe13b5')
-[[ $CARCH == i686 ]] && sha256sums[0]='3d245b89bede51b7cf6d4cf2026fb4f45b038b8737581878e72a969483739282'
+[[ $CARCH == i686 ]] && sha256sums[0]='c6a51ae4cb1eafb36e1504f0abbf081961e4188851b34ddf792a54bc430ebe0d'
 
 package() {
   cd "${srcdir}/digilent.adept.runtime_$pkgver-$CARCH"
@@ -44,7 +27,7 @@ package() {
     cd "${srcdir}/digilent.adept.runtime_$pkgver-$CARCH/lib64"
   fi
 
-  for _lib in *.so*; do
+  for _lib in *.so.*.*.*; do
     _libBasename=$(basename "${_lib}")
     _temp=(${_libBasename//.so./ })
     _libName=${_temp[0]}
