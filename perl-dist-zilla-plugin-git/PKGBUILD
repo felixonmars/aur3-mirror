@@ -3,7 +3,7 @@
 # Generator  : CPANPLUS::Dist::Arch 1.19
 
 pkgname='perl-dist-zilla-plugin-git'
-pkgver='2.009'
+pkgver='2.013'
 pkgrel='1'
 pkgdesc="update your git repository after release"
 arch=('any')
@@ -35,8 +35,8 @@ makedepends=('perl-dist-zilla'
 'perl-test-fatal>=0.006')
 url='http://search.cpan.org/dist/Dist-Zilla-Plugin-Git'
 source=("http://search.cpan.org/CPAN/authors/id/C/CJ/CJM/Dist-Zilla-Plugin-Git-$pkgver.tar.gz")
-md5sums=('01fd6420e4475f7103f0d67b064efd5b')
-sha512sums=('1aba3167da32ef0bd0ffca574991fe00424b778858c9f75e42e689eac5783a1abe3ec867893910f28950ddfea76c332aed2ed9ffcee1af49a4c08191e149aa3d')
+md5sums=('b86ca469d2745302c5eca1be8a8c95ef')
+sha512sums=('d735b2907192adbc0eb1f237134ea7ff99cd7253983ea858f81dbf18a6d2f9045760a88bb50903b4994b9c3c2ec61e14ba9d8571589ac0f59dd28b274f82a4b4')
 _distdir="${srcdir}/Dist-Zilla-Plugin-Git-$pkgver"
 
 build() {

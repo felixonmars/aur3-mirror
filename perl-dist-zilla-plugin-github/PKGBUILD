@@ -1,6 +1,6 @@
  # Maintainer: Konrad Borowski <glitchmr@myopera.com>
 pkgname=perl-dist-zilla-plugin-github
-pkgver=0.30
+pkgver=0.34
 pkgrel=1
 pkgdesc="Plugins to integrate Dist::Zilla with GitHub"
 arch=('any')
@@ -24,7 +24,7 @@ backup=()
 options=('!emptydirs')
 install=
 source=("http://search.cpan.org/CPAN/authors/id/A/AL/ALEXBIO/Dist-Zilla-Plugin-GitHub-$pkgver.tar.gz")
-md5sums=('44c50f964163187a72ba4e42ae7f16bd')
+md5sums=('7aef86a33ad06a255909d8d9b032538e')
 
 build() {
   cd "$srcdir/Dist-Zilla-Plugin-GitHub-$pkgver"
