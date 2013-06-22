@@ -10,9 +10,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.9
 _grsecver=2.9.1
-_timestamp=201306182033
-pkgver=${_basekernel}.6
-pkgrel=3
+_timestamp=201306220939
+pkgver=${_basekernel}.7
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -294,10 +294,10 @@ package_linux-grsec-headers() {
 }
 
 sha256sums=('60bc3e64ee5dc778de2cd7cd7640abf518a4c9d4f31b8ed624e16fad53f54541'
-            '13296dad939ef4e05adba87b9d0476aa8e2ccf92866f14835327dae8a1402fc3'
-            'a9239636230171b304c4c64c754db978527d3df37a8accbc5b205bf010b60c9a'
-            '11a0c018bcff2f4292a0194b8bb1439351fce8bd4cb25bc3d56eae95c7c0a28f'
-            'aa369ebeb7a04ceb04abea7b9495bb7e2ef4f3fe523dac62873fb55579aacaeb'
+            '23db9de5ffa2f8f36d61da85ee46656a3373f8868415c1f3c77c51c41fabfda8'
+            '0974d3ed3c4f2ad09cf9582a9933deec42fafefe65a645d1a9d67eb4eea6b814'
+            '60cb5aa07f72e29cfffe24e3246dbe690c36c28868f8ef15a995dcfea8382c09'
+            '8572049c77ea06d5e9b4739c328ea658fbfa8be0fdfbd4c389b5374ce02d481b'
             'e1788129f9fce8417bc90556b44f6e012cb627bdf82705770b33aa662a2fef04'
             'ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d'
             'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
