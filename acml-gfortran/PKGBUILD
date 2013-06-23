@@ -1,7 +1,7 @@
 # Maintainer: cornholio <vigo.the.unholy.carpathian@gmail.com>
 
 pkgname=acml-gfortran
-pkgver=5.3.0
+pkgver=5.3.1
 pkgrel=1
 pkgdesc="AMD Core Math Library (ACML) for Linux built with GFORTRAN"
 arch=("x86_64")
@@ -9,13 +9,13 @@ url="http://developer.amd.com"
 license=(custom)
 depends=("gcc-libs-multilib" "gcc-fortran" "bash" "tcsh")
 makedepends=("sed")
-sha1sums=('d8c24bf622e364f34533f9b0246c6f0d07e2349f')
+sha1sums=('ec445af7944b6acdd1d692e5a1bf766395c0041e')
 
-source=("http://developer.amd.com/wordpress/media/download.php?f=YWNtbC01LTMtMC1nZm9ydHJhbi02NGJpdDEudGd6")
+source=("http://developer.amd.com/wordpress/media/download.php?f=YWNtbC01LTMtMS1nZm9ydHJhbi02NGJpdC50Z3o='")
 
 build() {
 	mkdir ${srcdir}/acml
-	gzip -dc ${srcdir}/contents-acml-5-3-0-gfortran-64bit.tgz | tar oxvf - -C ${srcdir}/acml
+	gzip -dc ${srcdir}/contents-acml-5-3-1-gfortran-64bit.tgz | tar oxvf - -C ${srcdir}/acml
 	
 	_fma4_compat=`${srcdir}/acml/util/cpuid.exe | grep FMA4`
 	if [[ "$_fma4_compat" == *not* ]]
