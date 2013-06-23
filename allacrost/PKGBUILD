@@ -14,7 +14,7 @@ makedepends=('boost')
 options=('!emptydirs')
 source=('allacrost.desktop'
         'allacrost.png'
-        "http://downloads.sourceforge.net/project/${pkgname}/development releases/${pkgname}_development_source_${pkgver}.tar.gz")
+        "http://downloads.sourceforge.net/project/${pkgname}/development%20releases/${pkgname}_development_source_${pkgver}.tar.gz")
 
 md5sums=('2bb08a82904ddf16187903e3e13e506e'
          'ace6fc72f9b9cf68a8ab2a11975b1746'
