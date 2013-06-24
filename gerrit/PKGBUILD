@@ -4,7 +4,7 @@
 # Repository: https://github.com/zxiiro/arch-gerrit
 
 pkgname=gerrit
-pkgver=2.6
+pkgver=2.6.1
 pkgrel=1
 epoch=
 pkgdesc="A web-based code review tool built on top of the git version control system"
@@ -27,7 +27,7 @@ source=(gerrit.war::http://gerrit-releases.storage.googleapis.com/gerrit-$pkgver
         gerrit.conf
         gerrit.systemd)
 noextract=(gerrit.war)
-sha256sums=('6986936c4964653a9ba776864f25da027f49db8119cbca96c0efa981d09a1240'
+sha256sums=('bf04186b437dbd6fbb4339e6f0455d8f0e80acb425d135da07a0e9f0190a610b'
             '35becf2754e3779c750b2889909349160c2b0584ec201f6cfb5cf2c42e6fc598'
             'be1d205c6a0f3b24aad3c385f8188c64bfa3a9799ecf8ce5e089149af991a645')
 package() {
