@@ -1,0 +1,187 @@
+From 5fad3847ad2c0488aa637c8bbddf801f7818fc39 Mon Sep 17 00:00:00 2001
+From: Daniel Wallace <danielwallace@gtmanfred.com>
+Date: Sun, 23 Jun 2013 19:30:48 -0500
+Subject: [PATCH] use cumulus for fileconveyor
+
+---
+ fileconveyor/arbitrator.py                         | 13 ++++++--
+ fileconveyor/config.py                             |  4 +--
+ fileconveyor/django_settings.py                    | 12 +++----
+ .../transporters/transporter_cloudfiles.py         | 38 ----------------------
+ fileconveyor/transporters/transporter_cumulus.py   | 35 ++++++++++++++++++++
+ 5 files changed, 53 insertions(+), 49 deletions(-)
+ delete mode 100644 fileconveyor/transporters/transporter_cloudfiles.py
+ create mode 100644 fileconveyor/transporters/transporter_cumulus.py
+
+diff --git a/fileconveyor/arbitrator.py b/fileconveyor/arbitrator.py
+index 394b4b4..8e15976 100644
+--- a/fileconveyor/arbitrator.py
++++ b/fileconveyor/arbitrator.py
+@@ -12,16 +13,21 @@ import os.path
+ import signal
+ 
+ 
+-FILE_CONVEYOR_PATH = os.path.abspath(os.path.dirname(__file__))
+ 
+ 
++if not 'FILECONVEYOR_SETTINGS' in os.environ:
++    FILE_CONVEYOR_PATH = os.path.abspath(os.path.dirname(__file__))
++    from settings import *
++else:
++    sys.path.insert(0, os.environ.get('FILECONVEYOR_SETTINGS'))
++    from settings import *
++    os.environ['DJANGO_SETTINGS_MODULE'] = DJANGO_SETTINGS_MODULE
+ # HACK to make sure that Django-related libraries can be loaded: include dummy
+ # settings if necessary.
+ if not 'DJANGO_SETTINGS_MODULE' in os.environ:
+     os.environ['DJANGO_SETTINGS_MODULE'] = 'fileconveyor.django_settings'
+ 
+ 
+-from settings import *
+ from config import *
+ from persistent_queue import *
+ from persistent_list import *
+@@ -1139,6 +1145,7 @@ class Arbitrator(threading.Thread):
+         """
+         transporter_class = None
+         module = None
++        classname = None
+         alternatives = [transporter]
+         default_prefix = 'transporters.transporter_' # Not 'fileconveyor.transporters.transporter_'!
+         if not transporter.startswith(default_prefix):
+@@ -1155,7 +1162,7 @@ class Arbitrator(threading.Thread):
+             self.logger.error(msg)
+         else:
+             try:
+-                classname = module.TRANSPORTER_CLASS
++                classname = TRANSPORTER_CLASS
+                 module = __import__(module_name, globals(), locals(), [classname])
+                 transporter_class = getattr(module, classname)
+             except AttributeError:
+diff --git a/fileconveyor/config.py b/fileconveyor/config.py
+index 3e82d82..2183393 100644
+--- a/fileconveyor/config.py
++++ b/fileconveyor/config.py
+@@ -229,12 +229,12 @@ if __name__ == '__main__':
+     # Set up logging.
+     logger = logging.getLogger("test")
+     logger.setLevel(logging.DEBUG)
+-    handler = logging.handlers.RotatingFileHandler("config.log")
++    handler = logging.handlers.RotatingFileHandler(os.path.join( LOG_FILE, "config.log"))
+     logger.addHandler(handler)
+ 
+     # Use the Config class.
+     config = Config("test")
+-    config.load("config.xml")
++    config.load(os.path.join(FILE_CONVEYOR_PATH, "config.xml"))
+     print "ignoredDirs", config.ignored_dirs
+     print "sources", config.sources
+     print "servers", config.servers
+diff --git a/fileconveyor/django_settings.py b/fileconveyor/django_settings.py
+index 8f6e7db..f29472d 100644
+--- a/fileconveyor/django_settings.py
++++ b/fileconveyor/django_settings.py
+@@ -6,9 +6,9 @@ FTP_STORAGE_LOCATION=''
+ # `backends/sftp.py`
+ SFTP_STORAGE_HOST=''
+ # django-cumulus
+-#CUMULUS['USERNAME'] = '';
+-#CUMULUS['CUMULUS_API_KEY'] = '';
+-#CUMULUS['CONTAINER'] = '';
+-CUMULUS_API_KEY = '';
+-CUMULUS_USERNAME = '';
+-CUMULUS_CONTAINER = '';
++CUMULUS = {};
++CUMULUS['USERNAME'] = '';
++CUMULUS['CUMULUS_API_KEY'] = '';
++CUMULUS['CONTAINER'] = '';
++CUMULUS['PYRAX_IDENTITY_TYPE'] = '';
++SECRET_KEY=CUMULUS['CUMULUS_API_KEY'];
+diff --git a/fileconveyor/transporters/transporter_cloudfiles.py b/fileconveyor/transporters/transporter_cloudfiles.py
+deleted file mode 100644
+index 310eed6..0000000
+--- a/fileconveyor/transporters/transporter_cloudfiles.py
++++ /dev/null
+@@ -1,38 +0,0 @@
+-from transporter import *
+-from cumulus.storage import CloudFilesStorage
+-
+-
+-TRANSPORTER_CLASS = "TransporterCloudFiles"
+-
+-
+-class TransporterCloudFiles(Transporter):
+-
+-    name              = 'Cloud Files'
+-    valid_settings    = ImmutableSet(["username", "api_key", "container"])
+-    required_settings = ImmutableSet(["username", "api_key", "container"])
+-
+-
+-    def __init__(self, settings, callback, error_callback, parent_logger=None):
+-        Transporter.__init__(self, settings, callback, error_callback, parent_logger)
+-
+-        # Raise exception when required settings have not been configured.
+-        configured_settings = Set(self.settings.keys())
+-        if not "username" in configured_settings:
+-            raise ImpropertlyConfigured, "username not set" 
+-        if not "api_key" in configured_settings:
+-            raise ImpropertlyConfigured, "api_key not set" 
+-        if not "container" in configured_settings:
+-            raise ImpropertlyConfigured, "container not set" 
+-
+-        # Map the settings to the format expected by S3Storage.
+-        try:
+-            self.storage = CloudFilesStorage(
+-            self.settings["username"],
+-            self.settings["api_key"],
+-            self.settings["container"]
+-            )
+-        except Exception, e:
+-            if e.__class__ == cloudfiles.errors.AuthenticationFailed:
+-                raise ConnectionError, "Authentication failed"
+-            else:
+-                raise ConnectionError(e)
+diff --git a/fileconveyor/transporters/transporter_cumulus.py b/fileconveyor/transporters/transporter_cumulus.py
+new file mode 100644
+index 0000000..25ac83e
+--- /dev/null
++++ b/fileconveyor/transporters/transporter_cumulus.py
+@@ -0,0 +1,35 @@
++from transporter import *
++#from cumulus.storage import CloudFilesStorage
++from cumulus.storage import SwiftclientStorage
++
++TRANSPORTER_CLASS = "TransporterCumulus"
++
++
++class TransporterCumulus(Transporter):
++
++    name              = 'Cumulus'
++    valid_settings    = ImmutableSet(["username", "api_key", "container"])
++    required_settings = ImmutableSet(["username", "api_key", "container"])
++
++
++    def __init__(self, settings, callback, error_callback, parent_logger=None):
++        Transporter.__init__(self, settings, callback, error_callback, parent_logger)
++
++        # Raise exception when required settings have not been configured.
++        configured_settings = Set(self.settings.keys())
++        if not "username" in configured_settings:
++            raise ImpropertlyConfigured, "username not set" 
++        if not "api_key" in configured_settings:
++            raise ImpropertlyConfigured, "api_key not set" 
++        if not "container" in configured_settings:
++            raise ImpropertlyConfigured, "container not set" 
++
++        # Map the settings to the format expected by S3Storage.
++        try:
++            self.storage = SwiftclientStorage(
++            self.settings["username"],
++            self.settings["api_key"],
++            self.settings["container"]
++            )
++        except Exception, e:
++                raise ConnectionError(e)
+-- 
+1.8.3.1
+
