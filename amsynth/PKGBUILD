@@ -2,26 +2,25 @@
 # Contributor: Alessio Biancalana <dottorblaster@gmail.com>
 
 pkgname=amsynth
-pkgver=1.3.2
-pkgrel=2
+pkgver=1.4.0
+pkgrel=1
 pkgdesc="Analogue Modeling SYNTHesizer"
 arch=('i686' 'x86_64')
-url="http://code.google.com/p/amsynth/"
+url="http://code.google.com/p/$pkgname/"
 license=('GPL')
 depends=('gtkmm' 'jack' 'liblo')
 makedepends=('desktop-file-utils' 'dssi' 'libtool')
 install="$pkgname.install"
-source=("http://amsynth.googlecode.com/files/amSynth-$pkgver.tar.gz")
-md5sums=('991329e433bb8c496f9ca5158faf0bca')
+source=("http://$pkgname.googlecode.com/files/$pkgname-$pkgver.tar.gz")
+md5sums=('9193d334c89996cf44e98422e03318bb')
 
 build() {
-  cd "$srcdir/amSynth-$pkgver"
-  libtoolize
+  cd "$srcdir/$pkgname-$pkgver"
   ./configure --prefix=/usr
   make
 }
 
 package() {
-  cd "$srcdir/amSynth-$pkgver"
+  cd "$srcdir/$pkgname-$pkgver"
   make DESTDIR="$pkgdir/" install
 }
