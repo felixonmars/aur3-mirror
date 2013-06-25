@@ -2,7 +2,7 @@
 # Based on kang's thunderbird-aurora
 
 pkgname=thunderbird-earlybird
-pkgver=23.0a2
+pkgver=24.0a2
 pkgrel=1
 pkgdesc="Standalone Mail/News reader - Earlybird channel"
 arch=('i686' 'x86_64')
@@ -17,9 +17,16 @@ install=$pkgname.install
 source=(http://ftp.mozilla.org/pub/thunderbird/nightly/latest-comm-aurora/thunderbird-$pkgver.en-US.linux-$CARCH.tar.bz2
         $pkgname.desktop)
 
-sha512sums=(`wget ${source/ta*}checksums -qO - | grep bz | grep 512 | cut -d " " -f1`
-	    'a36bb5710b9cd6637cf6f538808e2fba8c99fdd1d486446ff9ee8094ca30b5592c17b3e808cae1da7ff2b28123f54902ed4ee1501585a8dcfc54d581588638d3')
-	    
+if [[ "$CARCH" == "i686" ]]; then
+    sha512sums=('7d0dfcfb8f33e40d1bb0dfbfbe67ca983d4bcf9cb00cf84195b63c5edf23bffce0e812a338dfd1d82e13197cdc35411c42e792810484d0b6f8fa991be6bb5433'
+	                'a36bb5710b9cd6637cf6f538808e2fba8c99fdd1d486446ff9ee8094ca30b5592c17b3e808cae1da7ff2b28123f54902ed4ee1501585a8dcfc54d581588638d3')
+                fi
+
+if [[ "$CARCH" == "x86_64" ]]; then
+        sha512sums=('0800009f6ae80f10bc9ca1b462533b31cd4c68e6d61fc5dfb2aafbe5bc9fe9a347dfdba26128f7062bbcecd899e5440f63db3c04da9c93e10c1e0d3d5ce2c0eb'
+                        'a36bb5710b9cd6637cf6f538808e2fba8c99fdd1d486446ff9ee8094ca30b5592c17b3e808cae1da7ff2b28123f54902ed4ee1501585a8dcfc54d581588638d3')
+                    fi
+
 package() {
   mkdir -p "$pkgdir"/{usr/bin,opt}
   cp -a thunderbird "$pkgdir/opt/$pkgname"
