@@ -3,7 +3,7 @@
 
 pkgname=thunderbird-earlybird
 pkgver=24.0a2
-pkgrel=1
+pkgrel=2
 pkgdesc="Standalone Mail/News reader - Earlybird channel"
 arch=('i686' 'x86_64')
 license=('MPL' 'GPL' 'LGPL')
@@ -11,21 +11,16 @@ url="http://www.mozilla.org/thunderbird"
 depends=('alsa-lib' 'cairo' 'dbus-glib' 'desktop-file-utils' 'fontconfig' 'freetype2' 'gtk2' 'hicolor-icon-theme' 'hunspell' 'libevent' 'libjpeg' 'libmng' 'libpng' 'libvpx' 'libxt' 'mozilla-common' 'nspr' 'nss' 'shared-mime-info' 'sqlite3' 'startup-notification')
 optdepends=('libcanberra: for sound support')
 makedepends=('wget')
-provides=("thunderbird=$pkgver")
 replaces=("thunderbird-aurora")
 install=$pkgname.install
-source=(http://ftp.mozilla.org/pub/thunderbird/nightly/latest-comm-aurora/thunderbird-$pkgver.en-US.linux-$CARCH.tar.bz2
-        $pkgname.desktop)
+source=($pkgname.desktop
+        http://ftp.mozilla.org/pub/thunderbird/nightly/latest-comm-aurora/thunderbird-$pkgver.en-US.linux-$CARCH.tar.bz2)
+sha512sums=('a36bb5710b9cd6637cf6f538808e2fba8c99fdd1d486446ff9ee8094ca30b5592c17b3e808cae1da7ff2b28123f54902ed4ee1501585a8dcfc54d581588638d3')
 
-if [[ "$CARCH" == "i686" ]]; then
-    sha512sums=('7d0dfcfb8f33e40d1bb0dfbfbe67ca983d4bcf9cb00cf84195b63c5edf23bffce0e812a338dfd1d82e13197cdc35411c42e792810484d0b6f8fa991be6bb5433'
-	                'a36bb5710b9cd6637cf6f538808e2fba8c99fdd1d486446ff9ee8094ca30b5592c17b3e808cae1da7ff2b28123f54902ed4ee1501585a8dcfc54d581588638d3')
-                fi
 
-if [[ "$CARCH" == "x86_64" ]]; then
-        sha512sums=('0800009f6ae80f10bc9ca1b462533b31cd4c68e6d61fc5dfb2aafbe5bc9fe9a347dfdba26128f7062bbcecd899e5440f63db3c04da9c93e10c1e0d3d5ce2c0eb'
-                        'a36bb5710b9cd6637cf6f538808e2fba8c99fdd1d486446ff9ee8094ca30b5592c17b3e808cae1da7ff2b28123f54902ed4ee1501585a8dcfc54d581588638d3')
-                    fi
+[[ "$CARCH" == "i686" ]]  && sha512sums+=('f0136e3008879debe3c653e902b0ed736ede62758bd494867c01c3d08d15a0fd0af47e181d282271164c14e0405068c14972d4b673dcdefb8b52d2b20014d4e2')
+
+[[ "$CARCH" == "x86_64" ]]  && sha512sums+=('691413592741dc4d6b1f7c254c650e205ef4fc12b558aff1293ae4a2efe1f2f24a7266e446e54d0b05667b2479cc7a2a7c261c60b319bca1521ff1953614d935')
 
 package() {
   mkdir -p "$pkgdir"/{usr/bin,opt}

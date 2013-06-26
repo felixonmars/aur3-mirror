@@ -4,7 +4,7 @@
 
 pkgname=firefox-aurora
 pkgver=24.0a2
-pkgrel=1
+pkgrel=2
 pkgdesc="Firefox Aurora channel - Nightly build"
 url=http://www.mozilla.org/en_US/firefox/aurora/
 arch=(i686 x86_64)
@@ -12,25 +12,20 @@ license=(MPL GPL LGPL)
 depends=('gtk2' 'libxt' 'startup-notification' 'mime-types' 'dbus-glib' 'alsa-lib' 'dbus-glib' 'libnotify' 'desktop-file-utils' 'hicolor-icon-theme' 'libvpx' 'libevent' 'nss>=3.14.1' 'hunspell')
 optdepends=()
 makedepends=('wget')
-provides=(firefox-aurora)
-conflicts=(firefox-aurora)
 install=$pkgname.install
+
 _baseurl=http://ftp.mozilla.org/pub/mozilla.org/firefox/nightly/latest-mozilla-aurora
 _filename=firefox-${pkgver}.en-US.linux-${CARCH}
+
 source=(firefox-aurora.desktop
 	firefox-aurora-safe.desktop
 	"${_baseurl}/${_filename}.tar.bz2")
-if [[ "$CARCH" == "i686" ]]; then
-    md5sums=('663176661ce817e40b4217c5e107df42'
-         '1fbf95734ceb475ac2ac6ab085fc1961'
-         '68bf7a0da63f27759da6ce7f5e37da16')
-fi
 
-if [ "$CARCH" = "x86_64" ];then
-    md5sums=('663176661ce817e40b4217c5e107df42'
-        '1fbf95734ceb475ac2ac6ab085fc1961'
-        'feecbb5ba2acb21050e2b816b1b6db35')
-fi
+sha512sums=('1c0eef1129625ecfb70809dbb9ab764054d1680f05b7807f503145b5889bc42babb268cb4e2b7b102f90c50cc249114f773d91992e9ac41b5a6966e3b5c95675'
+            '749bc9bb180909c7319a1576e9df1e4cb06488b33b8dd61b8f1a63e4df9208cb9bb6d0c4ecef3fbe388f78368aef4562ae1dbfda1dbbfa649aa9d247c4903610')
+    
+[[ "$CARCH" == "i686" ]] && sha512sums+=('624349678ef57cf344926aad37699712cdc3ea75ea6b45c51389584e1aaf53ad1a576977e5e53f29c76c12505b8e46d83d47144feb3a81dea3cfe7df9a131ae2')
+[[ "$CARCH" == "x86_64" ]] && sha512sums+=('03fed89a8bee3c895f0ce00969cedd2265981cb6dbc316b0729040fee4d2e12559c5bd718d52f19451873d9fe542ff8b0b2cdcae976928f588f65f03dc4e4403')
              
 package()
 {
