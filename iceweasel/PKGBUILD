@@ -22,22 +22,23 @@ _pgo=false
 
 # We're getting this from Debian Experimental
 _debname=iceweasel
-_debver=21.0
+_debver=22.0
 _debrel=1
 _debrepo=http://ftp.debian.org/debian/pool/main/i/
 
 pkgname=iceweasel
 pkgver=$_debver.deb$_debrel
-pkgrel=2
+pkgrel=1
 pkgdesc="Debian Browser based on Mozilla Firefox"
 arch=('i686' 'x86_64')
 license=('GPL' 'MPL' 'LGPL')
 depends=('alsa-lib' 'dbus-glib' 'desktop-file-utils' 'gtk2' 'hicolor-icon-theme' 'hunspell' 'libevent' 'libnotify' 'libvpx' 'libxt' 'mime-types' 'mozilla-common' 'nss>=3.14.1' 'sqlite3' 'startup-notification')
-makedepends=('autoconf2.13' 'diffutils' 'imagemagick' 'libidl2' 'librsvg' 'libxslt' 'mesa' 'pkg-config' 'python2' 'quilt' 'unzip' 'zip')
-
+makedepends=(autoconf2.13 diffutils imagemagick libidl2 libpulse librsvg libxslt mesa pkg-config python2 quilt unzip zip)
+[ "$CARCH" != "mips64el" ] && makedepends+=('yasm')
+options=(!emptydirs !makeflags)
 if $_pgo; then
-  makedepends+=('xorg-server-xvfb')
-  options=('!emptydirs')
+  makedepends+=(xorg-server-xvfb)
+  options+=(!ccache)
 fi
 
 optdepends=('networkmanager: Location detection via available WiFi networks'
@@ -45,6 +46,7 @@ optdepends=('networkmanager: Location detection via available WiFi networks'
          'mozplugger: A Mozilla & Firefox multimedia plugin'
          'iceweasel-extension-globalmenu: Globalmenu Extension for Iceweasel'
          'iceweasel-extension-archsearch: Iceweasel Arch search engines'
+         'iceweasel-extension-archforumsearch-it: Iceweasel search engines for Arch Linux Italian forum'
          'iceweasel-i18n-it: Italian language pack for Iceweasel'
          'iceweasel-i18n-es: Spanish language pack for Iceweasel'
          'iceweasel-i18n-fr: French language pack for Iceweasel')
@@ -57,18 +59,22 @@ source=("${_debrepo}/${_debname}/${_debname}_${_debver}.orig.tar.bz2"
         'mozconfig.pgo'
         'iceweasel.desktop'
         'iceweasel-install-dir.patch'
-        'iceweasel.js'
+        'vendor.js'
         'shared-libs.patch'
+        'iceweasel-22.0-do-not-fallback-to-manual-proxy-settings.patch'
+        'iceweasel-20.0-fixed-loading-icon.png'
         'Bug-756390-Make-the-Reset-Firefox-feature-more-gener.patch')
-md5sums=('0a7c51bb494463c327af918bae6c4ee4'
-         'c17121a4ffd40f463e16d7828445d96e'
-         '6ceb9a97d815b9c2df4bb15d2a9fc8c6'
+md5sums=('45d7121606cc3b21cd2797c87b5dc3bd'
+         'bf0440dd8c31527359d797daaf0d3edd'
+         '8a3736a53720afeddeb90b2034bf7f00'
          'b9a306d05465050397a79930fdaf904b'
          '7b9e5996dd9fe0b186a43a297db1c6b5'
          'abf5ecb74caa857abb42bcfbb3442d9c'
-         '7f4a8904474492dafadf9d88d746dfd4'
+         '5c17980a124d9fa8b83af548f49e3629'
          '52e52f840a49eb1d14be1c0065b03a93'
-         '85e67561e0e491cd538ce018dfc2d948')
+         'bc27a39d08ab3f6705e487c85598d8bf'
+         '6e335a517c68488941340ee1c23f97b0'
+         '86d4045285a9a15c20a62f46535809cb')
          
 prepare() {
   export DEBIAN_BUILD="mozilla-release"
@@ -105,6 +111,10 @@ prepare() {
     cat "$srcdir/mozconfig.pgo" >> .mozconfig
   fi
 
+  # Should be fixed in Iceweasel 23
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=817533
+  patch -Np1 -i ../iceweasel-22.0-do-not-fallback-to-manual-proxy-settings.patch
+  
   # Fix PRE_RELEASE_SUFFIX
   sed -i '/^PRE_RELEASE_SUFFIX := ""/s/ ""//' \
     browser/base/Makefile.in
@@ -117,6 +127,11 @@ prepare() {
   # configure script misdetects the preprocessor without an optimization level
   # https://bugs.archlinux.org/task/34644
   sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure
+  
+  # Fix tab loading icon (flickers with libpng 1.6)
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=841734
+  cp "$srcdir/iceweasel-20.0-fixed-loading-icon.png" \
+    browser/themes/linux/tabbrowser/loading.png
 }
 
 build() {
@@ -128,6 +143,11 @@ build() {
   
   export MOZ_MAKE_FLAGS="$MAKEFLAGS"
   unset MAKEFLAGS
+  
+  # Work around memory address space exhaustion during linking on i686
+  if [[ $CARCH == i686 ]]; then
+    LDFLAGS+=' -Wl,--no-keep-memory'
+  fi
   
   if $_pgo; then
     export DISPLAY=:99
@@ -145,9 +165,9 @@ build() {
 
 package() {
   cd "$srcdir/$DEBIAN_BUILD"
-  make -j1 -f client.mk DESTDIR="$pkgdir" install
+  make -f client.mk DESTDIR="$pkgdir" install
 
-  install -Dm644 ../iceweasel.js "$pkgdir/usr/lib/$pkgname/defaults/pref/iceweasel.js"
+  install -Dm644 ../vendor.js "$pkgdir/usr/lib/$pkgname/browser/defaults/preferences/vendor.js"
 
   # I don't even know why we're hitting the objdir, and ConnOS didn't
   _brandingdir=debian/branding

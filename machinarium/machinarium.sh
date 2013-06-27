@@ -6,4 +6,4 @@ if [[ $CARCH == 'x86_64' ]]; then
 fi
 
 cd /usr/share/games/machinarium/
-./Machinarium  machinarium-browser.swf
+./Machinarium machinarium-browser.swf
