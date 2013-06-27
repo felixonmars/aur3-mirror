@@ -1,0 +1,216 @@
+dlls/kernel32/kernel32.spec |    4 ++
+ dlls/kernel32/sync.c        |  154 +++++++++++++++++++++++++++++++++++++++++++
+ dlls/kernel32/tests/sync.c  |    3 +-
+ 3 Dateien geÃ¤ndert, 159 Zeilen hinzugefÃ¼gt(+), 2 Zeilen entfernt(-)
+
+diff --git a/dlls/kernel32/kernel32.spec b/dlls/kernel32/kernel32.spec
+index 0bd1adc..69de820 100644
+--- a/dlls/kernel32/kernel32.spec
++++ b/dlls/kernel32/kernel32.spec
+@@ -745,6 +745,7 @@
+ @ stdcall IdnToUnicode(long wstr long ptr long)
+ @ stdcall InitAtomTable(long)
+ @ stdcall InitializeSRWLock(ptr)
++@ stdcall InitializeConditionVariable(ptr)
+ @ stdcall InitializeCriticalSection(ptr)
+ @ stdcall InitializeCriticalSectionAndSpinCount(ptr long)
+ @ stdcall InitializeCriticalSectionEx(ptr long long)
+@@ -1187,6 +1188,7 @@
+ @ stdcall SignalObjectAndWait(long long long long)
+ @ stdcall SizeofResource(long long)
+ @ stdcall Sleep(long)
++@ stdcall SleepConditionVariableCS(ptr ptr long)
+ @ stdcall SleepEx(long long)
+ @ stdcall SuspendThread(long)
+ @ stdcall SwitchToFiber(ptr)
+@@ -1256,6 +1258,8 @@
+ @ stdcall WaitForSingleObjectEx(long long long)
+ @ stdcall WaitNamedPipeA (str long)
+ @ stdcall WaitNamedPipeW (wstr long)
++@ stdcall WakeAllConditionVariable (ptr)
++@ stdcall WakeConditionVariable (ptr)
+ @ stdcall WerRegisterFile(wstr long long)
+ @ stdcall WerRegisterMemoryBlock(ptr long)
+ @ stdcall WerRegisterRuntimeExceptionModule(wstr ptr)
+diff --git a/dlls/kernel32/sync.c b/dlls/kernel32/sync.c
+index 3264884..bc88ede 100644
+--- a/dlls/kernel32/sync.c
++++ b/dlls/kernel32/sync.c
+@@ -20,6 +20,7 @@
+ 
+ #include "config.h"
+ #include "wine/port.h"
++#include "wine/list.h"
+ 
+ #include <string.h>
+ #ifdef HAVE_UNISTD_H
+@@ -2293,3 +2294,156 @@ __ASM_STDCALL_FUNC(InterlockedDecrement, 4,
+                   "ret $4")
+ 
+ #endif  /* __i386__ */
++
++
++struct _condvar_intern {
++    struct list		 entry;
++    PCONDITION_VARIABLE	 condvar;
++
++
++    RTL_CRITICAL_SECTION crit;
++    HANDLE               sem;
++    DWORD                waiters;
++    ULONGLONG            total_seq;
++    ULONGLONG            wakeup_seq;
++    ULONGLONG            woken_seq;
++    DWORD                broadcast_seq;
++};
++
++static struct list global_condvars = LIST_INIT( global_condvars );
++
++/**********************************************************************
++ *           InitializeConditionVariable     (KERNEL32.@)
++ */
++VOID WINAPI InitializeConditionVariable(PCONDITION_VARIABLE variable)
++{
++    variable->Ptr = NULL;
++}
++
++static struct _condvar_intern *
++find_condvar(PCONDITION_VARIABLE variable) {
++    struct _condvar_intern *condvar;
++
++    LIST_FOR_EACH_ENTRY( condvar, &global_condvars, struct _condvar_intern, entry ) {
++	if (condvar->condvar == variable) return condvar;
++    }
++    return NULL;
++}
++
++static struct _condvar_intern *
++find_or_alloc_condvar(PCONDITION_VARIABLE variable) {
++    struct _condvar_intern *condvar;
++
++    LIST_FOR_EACH_ENTRY( condvar, &global_condvars, struct _condvar_intern, entry ) {
++	if (condvar->condvar == variable) return condvar;
++    }
++    condvar = HeapAlloc(GetProcessHeap(),HEAP_ZERO_MEMORY,sizeof(struct _condvar_intern));
++    if (!condvar) return NULL;
++    condvar->condvar = variable;
++    InitializeCriticalSection (&condvar->crit);
++    condvar->crit.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": ConditionVariable.cs");
++
++    list_add_tail (&global_condvars, &condvar->entry);
++    return condvar;
++}
++
++/**********************************************************************
++ *           WakeConditionVariable     (KERNEL32.@)
++ */
++VOID WINAPI WakeConditionVariable(PCONDITION_VARIABLE variable)
++{
++    struct _condvar_intern *var = find_condvar(variable);
++
++    if (!var) return; /* if no one is waiting - nothing to do */
++    RtlEnterCriticalSection(&var->crit);
++    if (var->total_seq > var->wakeup_seq) {
++        /* we have waiting folks */
++        ++var->wakeup_seq;
++        ReleaseSemaphore (var->sem, 1, 0);
++    }
++    RtlLeaveCriticalSection(&var->crit);
++}
++
++/**********************************************************************
++ *           WakeAllConditionVariable     (KERNEL32.@)
++ */
++VOID WINAPI WakeAllConditionVariable(PCONDITION_VARIABLE variable)
++{
++    struct _condvar_intern *var = find_condvar(variable);
++
++    if (!var) return; /* if no one is waiting - nothing to do */
++    RtlEnterCriticalSection(&var->crit);
++    if (var->total_seq > var->wakeup_seq) {
++        /* we have waiters ... wake them all */
++        var->wakeup_seq = var->total_seq;
++        var->woken_seq  = var->total_seq;
++        ++var->broadcast_seq;
++        ReleaseSemaphore (var->sem, var->waiters, 0);
++    }
++    RtlLeaveCriticalSection(&var->crit);
++}
++
++/**********************************************************************
++ *           SleepConditionVariableCS     (KERNEL32.@)
++ */
++BOOL WINAPI SleepConditionVariableCS(PCONDITION_VARIABLE variable,
++    LPCRITICAL_SECTION crit, DWORD timeout
++)
++{
++    struct _condvar_intern *var = find_or_alloc_condvar(variable);
++    LONG val, seq, bseq;
++    BOOL ret = TRUE;
++
++    /* FIXME("(%p, %p, %d): semi-correct stub.\n", variable, crit, timeout);*/
++
++    RtlEnterCriticalSection(&var->crit);
++    RtlLeaveCriticalSection(crit);
++
++    ++var->total_seq;
++    val = seq = var->wakeup_seq;
++    bseq = var->broadcast_seq;
++
++    if (!var->sem)
++        NtCreateSemaphore( &var->sem, SEMAPHORE_ALL_ACCESS, NULL, 0, 1 );
++
++    while (1) {
++        DWORD res;
++
++        ++var->waiters;
++        RtlLeaveCriticalSection(&var->crit);
++
++        res = WaitForSingleObject(var->sem, timeout);
++
++        RtlEnterCriticalSection(&var->crit);
++        --var->waiters;
++        if (bseq != var->broadcast_seq) {
++            /* A broadcast happened, so we are done waiting. */
++            goto bc_out; /* to avoid incrementing woken_seq */
++        }
++        val = var->wakeup_seq;
++        if ((val != seq) && (var->woken_seq != val)) {
++            break;
++        }
++        if (res == WAIT_TIMEOUT) {
++            var->wakeup_seq++;
++            ret = FALSE;
++            /* expected from caller, not set by WaitForSingleObject */
++            SetLastError(ERROR_TIMEOUT);
++            break;
++        }
++	/* We get here if we were woken but not at the right place in
++	 * the queue. We need to release the semaphore again to have to
++	 * release/lock numbers correct.
++         * FIXME: This might wake us immediately again */
++        ReleaseSemaphore(var->sem, 1, NULL);
++    }
++    var->woken_seq++;
++bc_out:
++    if (!var->waiters) {
++        CloseHandle (var->sem);
++        var->sem = NULL;
++    }
++    RtlLeaveCriticalSection(&var->crit);
++    RtlEnterCriticalSection(crit);
++    return ret;
++}
+diff --git a/dlls/kernel32/tests/sync.c b/dlls/kernel32/tests/sync.c
+index 0ab82f0..d99e753 100644
+--- a/dlls/kernel32/tests/sync.c
++++ b/dlls/kernel32/tests/sync.c
+@@ -1316,8 +1316,7 @@ static void test_condvars(void)
+ 
+     if (!pInitializeConditionVariable) {
+         /* function is not yet in XP, only in newer Windows */
+-        /* and not yet implemented in Wine for some days/weeks */
+-        todo_wine win_skip("no condition variable support.\n");
++        win_skip("no condition variable support.\n");
+         return;
+     }

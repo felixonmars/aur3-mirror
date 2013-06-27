@@ -1,0 +1,182 @@
+From: "Erich E. Hoover" <ehoover@mymail.mines.edu>
+Subject: [PATCH 4/4] ws2_32: Use completion information to send AcceptEx completions (try 2, resend).
+Message-Id: <CAEU2+vq=kyvnGru7GuBvB9=2qoZSHNz6JZoevcDKmE3B8e6xYQ@mail.gmail.com>
+Date: Wed, 9 May 2012 13:23:41 -0600
+
+Real Name:
+    Erich Hoover
+
+Description:
+    This patch uses the newly added completion information parameter
+in order to send AcceptEx completions even when the originating handle
+has closed.  The patch fixes an issue with the WoW launcher and the
+Diablo 3 installer (Bug #27657) where the applications do not receive
+the ERROR_OPERATION_ABORTED completions that they need in order to
+properly proceed.  Like patch 3, this version of the patch has been
+updated to use the FILE_COMPLETION_INFORMATION structure.  This
+version therefore requires fewer headers and no-longer requires
+typecasting of the completion key (removing the need for a helper
+function).
+
+Changelog:
+    ws2_32: Use completion information to send AcceptEx completions.
+
+From 0b08ba00ebda07e8efb3d3c1de937eaca1e5577c Mon Sep 17 00:00:00 2001
+From: Erich Hoover <ehoover@mines.edu>
+Date: Wed, 9 May 2012 13:02:07 -0600
+Subject: ws2_32: Use completion information to send AcceptEx completions.
+
+---
+ dlls/ws2_32/socket.c     |   25 ++++++++++++----------
+ dlls/ws2_32/tests/sock.c |   50 +++++++++++++++++++++++-----------------------
+ 2 files changed, 39 insertions(+), 36 deletions(-)
+
+diff --git a/dlls/ws2_32/socket.c b/dlls/ws2_32/socket.c
+index 471ff63..12d09b9 100644
+--- a/dlls/ws2_32/socket.c
++++ b/dlls/ws2_32/socket.c
+@@ -273,15 +273,16 @@ typedef struct ws2_async
+ 
+ typedef struct ws2_accept_async
+ {
+-    HANDLE              listen_socket;
+-    HANDLE              accept_socket;
+-    LPOVERLAPPED        user_overlapped;
+-    ULONG_PTR           cvalue;
+-    PVOID               buf;      /* buffer to write data to */
+-    int                 data_len;
+-    int                 local_len;
+-    int                 remote_len;
+-    struct ws2_async    *read;
++    HANDLE                              listen_socket;
++    HANDLE                              accept_socket;
++    LPOVERLAPPED                        user_overlapped;
++    ULONG_PTR                           cvalue;
++    FILE_COMPLETION_INFORMATION         comp_info; /* information for sending file completions */
++    PVOID                               buf;      /* buffer to write data to */
++    int                                 data_len;
++    int                                 local_len;
++    int                                 remote_len;
++    struct ws2_async                   *read;
+ } ws2_accept_async;
+ 
+ /****************************************************************/
+@@ -1634,7 +1635,8 @@ static NTSTATUS WS2_async_accept_recv( void *arg, IO_STATUS_BLOCK *iosb, NTSTATU
+     if (wsa->user_overlapped->hEvent)
+         SetEvent(wsa->user_overlapped->hEvent);
+     if (wsa->cvalue)
+-        WS_AddCompletion( HANDLE2SOCKET(wsa->listen_socket), wsa->cvalue, iosb->u.Status, iosb->Information );
++        NtSetIoCompletion( wsa->comp_info.CompletionPort, wsa->comp_info.CompletionKey, wsa->cvalue,
++                           iosb->u.Status, iosb->Information );
+ 
+     *apc = ws2_async_accept_apc;
+     return status;
+@@ -1695,6 +1697,7 @@ static NTSTATUS WS2_async_accept( void *arg, IO_STATUS_BLOCK *iosb, NTSTATUS sta
+     if (!wsa->read)
+         goto finish;
+ 
++    wsa->comp_info = *comp;
+     SERVER_START_REQ( register_async )
+     {
+         req->type           = ASYNC_TYPE_READ;
+@@ -1718,7 +1721,7 @@ finish:
+     if (wsa->user_overlapped->hEvent)
+         SetEvent(wsa->user_overlapped->hEvent);
+     if (wsa->cvalue)
+-        WS_AddCompletion( HANDLE2SOCKET(wsa->listen_socket), wsa->cvalue, iosb->u.Status, iosb->Information );
++        NtSetIoCompletion( comp->CompletionPort, comp->CompletionKey, wsa->cvalue, iosb->u.Status, iosb->Information );
+ 
+     *apc = ws2_async_accept_apc;
+     return status;
+diff --git a/dlls/ws2_32/tests/sock.c b/dlls/ws2_32/tests/sock.c
+index e9814e3..29616b2 100644
+--- a/dlls/ws2_32/tests/sock.c
++++ b/dlls/ws2_32/tests/sock.c
+@@ -5494,11 +5494,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5537,11 +5537,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5596,11 +5596,11 @@ static void test_completion_port(void)
+     olp = (WSAOVERLAPPED *)0xdeadbeef;
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && olp->Internal == (ULONG)STATUS_CANCELLED, "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && olp->Internal == (ULONG)STATUS_CANCELLED, "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5663,11 +5663,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5719,11 +5719,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+-- 
+1.7.5.4
+

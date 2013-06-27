@@ -1,0 +1,298 @@
+diff --git a/dlls/ntdll/critsection.c b/dlls/ntdll/critsection.c
+index fb69b31..fef65a3 100644
+--- a/dlls/ntdll/critsection.c
++++ b/dlls/ntdll/critsection.c
+@@ -36,10 +36,57 @@
+ #include "winternl.h"
+ #include "wine/debug.h"
+ #include "ntdll_misc.h"
++#include "ddk/wdm.h"
++
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
+ WINE_DECLARE_DEBUG_CHANNEL(relay);
+ 
++
++/***********************************************************************
++ *           update time information in user shared area
++ */
++extern struct _KUSER_SHARED_DATA *user_shared_data;
++void update_shared_data_time(void)
++{
++    LARGE_INTEGER now, start, irq;
++
++    NtQuerySystemTime( &now );
++
++    //FIXME("%lld\n", now.QuadPart);
++
++    /*
++    if(NtCurrentTeb() && NtCurrentTeb()->Peb && NtCurrentTeb()->Peb->FastPebLock) {
++        RtlEnterCriticalSection(NtCurrentTeb()->Peb->FastPebLock);
++    }
++    */
++
++    start.QuadPart = (now.QuadPart - server_start_time) / 10000;
++
++    //user_shared_data->TickCountQuad = (now.QuadPart - server_start_time) / 10000;
++    user_shared_data->TickCount.High2Time = start.HighPart;
++    user_shared_data->TickCount.LowPart = start.LowPart;
++    user_shared_data->TickCount.High1Time = start.HighPart;
++    user_shared_data->TickCountLowDeprecated = start.LowPart;
++
++    irq.QuadPart = (now.QuadPart - server_start_time);
++
++    user_shared_data->InterruptTime.High2Time = irq.HighPart;
++    user_shared_data->InterruptTime.LowPart = irq.LowPart;
++    user_shared_data->InterruptTime.High1Time = irq.HighPart;
++
++    user_shared_data->SystemTime.High2Time = now.HighPart;
++    user_shared_data->SystemTime.LowPart = now.LowPart;
++    user_shared_data->SystemTime.High1Time = now.HighPart;
++
++    /*
++    if(NtCurrentTeb() && NtCurrentTeb()->Peb && NtCurrentTeb()->Peb->FastPebLock) {
++        RtlLeaveCriticalSection(NtCurrentTeb()->Peb->FastPebLock);
++    }
++    */
++}
++
++
+ static inline LONG interlocked_inc( PLONG dest )
+ {
+     return interlocked_xchg_add( dest, 1 ) + 1;
+@@ -527,6 +574,8 @@ NTSTATUS WINAPI RtlpUnWaitCriticalSection( RTL_CRITICAL_SECTION *crit )
+  */
+ NTSTATUS WINAPI RtlEnterCriticalSection( RTL_CRITICAL_SECTION *crit )
+ {
++    //update_shared_data_time();
++
+     if (crit->SpinCount)
+     {
+         ULONG count;
+diff --git a/dlls/ntdll/ntdll_misc.h b/dlls/ntdll/ntdll_misc.h
+index 20f1c45..2fdb28e 100644
+--- a/dlls/ntdll/ntdll_misc.h
++++ b/dlls/ntdll/ntdll_misc.h
+@@ -94,6 +94,9 @@ extern int server_get_unix_fd( HANDLE handle, unsigned int access, int *unix_fd,
+                                int *needs_close, enum server_fd_type *type, unsigned int *options ) DECLSPEC_HIDDEN;
+ extern int server_pipe( int fd[2] ) DECLSPEC_HIDDEN;
+ 
++extern void update_shared_data_time(void);
++
++
+ /* security descriptors */
+ NTSTATUS NTDLL_create_struct_sd(PSECURITY_DESCRIPTOR nt_sd, struct security_descriptor **server_sd,
+                                 data_size_t *server_sd_len) DECLSPEC_HIDDEN;
+diff --git a/dlls/ntdll/thread.c b/dlls/ntdll/thread.c
+index e328c5f..89583c1 100644
+--- wine-1.5.30/dlls/ntdll/thread.c.orig	2013-05-23 00:01:22.863111689 -0400
++++ wine-1.5.30/dlls/ntdll/thread.c	2013-05-23 00:04:24.002121034 -0400
+@@ -23,6 +23,7 @@
+ 
+ #include <assert.h>
+ #include <stdarg.h>
++#include <stdint.h>
+ #include <sys/types.h>
+ #ifdef HAVE_SYS_MMAN_H
+ #include <sys/mman.h>
+@@ -98,6 +99,48 @@
+ 
+ static LPTHREADMAP s_threadMap;
+ 
++/*
++static void CALLBACK shared_data_timer_apc(void* TimerContext, uint32_t TimerLowValue, int32_t TimerHighValue);
++static HANDLE create_shared_data_timer(void);
++static NTSTATUS set_shared_data_timer(HANDLE handle);
++*/
++
++static void* shared_data_thread(void* arg) {
++    struct timespec req, rem;
++    int policy, s, e;
++    struct sched_param param;
++
++    s = pthread_getschedparam(pthread_self(), &policy, &param);
++    if(!s) {
++        FIXME("policy=%s, priority=%d\n",
++              (policy == SCHED_FIFO)  ? "SCHED_FIFO" :
++              (policy == SCHED_RR)	   ? "SCHED_RR" :
++              (policy == SCHED_OTHER) ? "SCHED_OTHER" :
++              "???",
++              param.sched_priority);
++    } else {
++        FIXME("Unable to read thread priority\n");
++    }
++
++    req.tv_sec = 0;
++    req.tv_nsec = 15625000;
++
++    if(getenv("L_KUSR_THREAD_NSLEEP"))
++        req.tv_nsec = strtoul(getenv("L_KUSR_THREAD_NSLEEP"), NULL, 10);
++
++    while(1) {
++        update_shared_data_time();
++
++        e = nanosleep(&req, &rem);
++        if(e) {
++            FIXME("nanosleep was interrupted with %ld secs and %ld nanosecs left", rem.tv_sec, rem.tv_nsec);
++        }
++    }
++
++    return NULL;
++}
++
++
+ /***********************************************************************
+  *           L_rt_add_pthread
+  */
+@@ -313,6 +356,58 @@
+     return status;
+ }
+ 
++/*
++static void CALLBACK shared_data_timer_apc(void* ctx, uint32_t low, int32_t high)
++{
++    update_shared_data_time();
++    set_shared_data_timer((HANDLE)ctx);
++}
++
++static HANDLE create_shared_data_timer(void)
++{
++    HANDLE handle;
++    NTSTATUS status;
++    OBJECT_ATTRIBUTES attr;
++
++    //FIXME("enter\n");
++
++    attr.Length                   = sizeof(attr);
++    attr.RootDirectory            = 0;
++    attr.ObjectName               = NULL;
++    attr.Attributes               = OBJ_OPENIF;
++    attr.SecurityDescriptor       = NULL;
++    attr.SecurityQualityOfService = NULL;
++
++    status = NtCreateTimer( &handle, TIMER_ALL_ACCESS, &attr, NotificationTimer);
++
++    if (status == STATUS_OBJECT_NAME_EXISTS)
++        SetLastError( ERROR_ALREADY_EXISTS );
++    else
++        SetLastError( RtlNtStatusToDosError(status) );
++
++    return handle;
++}
++
++static NTSTATUS set_shared_data_timer(HANDLE handle)
++{
++    LARGE_INTEGER when;
++    NTSTATUS status;
++
++    //FIXME("enter\n");
++
++    NtQuerySystemTime( &when );
++    when.QuadPart += 10;
++
++    status = NtSetTimer(handle, &when, (PTIMER_APC_ROUTINE)shared_data_timer_apc, handle, 0, 0, NULL);
++    if (status != STATUS_SUCCESS)
++    {
++        SetLastError( RtlNtStatusToDosError(status) );
++    }
++
++    return status;
++}
++*/
++
+ /***********************************************************************
+  *           thread_init
+  *
+@@ -326,7 +421,7 @@
+     void *addr;
+     SIZE_T size, info_size;
+     HANDLE exe_file = 0;
+-    LARGE_INTEGER now;
++    LARGE_INTEGER now, irq;
+     NTSTATUS status;
+     struct ntdll_thread_data *thread_data;
+     static struct debug_info debug_info;  /* debug info for initial thread */
+@@ -426,6 +521,9 @@
+ 
+     /* initialize time values in user_shared_data */
+     NtQuerySystemTime( &now );
++    irq.QuadPart = (now.QuadPart - server_start_time);
++    user_shared_data->InterruptTime.LowPart = irq.LowPart;
++    user_shared_data->InterruptTime.High1Time = user_shared_data->InterruptTime.High2Time = irq.u.HighPart;
+     user_shared_data->SystemTime.LowPart = now.u.LowPart;
+     user_shared_data->SystemTime.High1Time = user_shared_data->SystemTime.High2Time = now.u.HighPart;
+     user_shared_data->u.TickCountQuad = (now.QuadPart - server_start_time) / 10000;
+@@ -435,6 +533,74 @@
+ 
+     fill_cpu_info();
+ 
++    //HANDLE timer = create_shared_data_timer();
++    //set_shared_data_timer(timer);
++
++    if(peb->ProcessParameters->CommandLine.Length) {
++        const size_t N = 1024;
++        char buf[N];
++        char mb[MB_CUR_MAX];
++        int sz, i, j = 0, k;
++
++        for(i = 0; i < peb->ProcessParameters->CommandLine.Length / sizeof(WCHAR); i++) {
++            sz = wctomb(mb, peb->ProcessParameters->CommandLine.Buffer[i]);
++            if(sz != -1) {
++                for(k = 0; k < sz; k++) {
++                    if(j < (N - 1) && mb[k] != 0) {
++                        buf[j++] = mb[k];
++                    } else {
++                        i = peb->ProcessParameters->CommandLine.Length;
++                        break;
++                    }
++                }
++            } else {
++                break;
++            }
++        }
++        buf[j] = 0;
++
++        /*
++        DWORD len;
++        NTSTATUS status;
++        status = RtlUnicodeToMultiByteN(buf, N, &len, peb->ProcessParameters->CommandLine.Buffer, peb->ProcessParameters->CommandLine.Length);
++        */
++
++        if(strstr(buf, "rpcss.exe")) {//ILokDvr.sys")) {
++            pthread_t thread;
++            pthread_attr_t attr;
++            struct sched_param param;
++            int s, p = 2;
++                
++            if(getenv("L_KUSR_PRIO"))
++                p = strtoul(getenv("L_KUSR_PRIO"), NULL, 10);
++
++            param.sched_priority = p;
++                
++            if((s = pthread_attr_init(&attr))) goto error;
++            if((s = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED))) goto error;
++            if((s = pthread_attr_setschedpolicy(&attr, SCHED_FIFO))) goto error;
++            if((s = pthread_attr_setschedparam(&attr, &param))) goto error;
++                
++            if((s = pthread_create(&thread, &attr, &shared_data_thread, NULL))) goto error;
++            if((s = pthread_detach(thread))) goto error;
++
++            FIXME("spawned kuser_shared_data thread for process: %s\n", buf);
++
++            goto exit;
++
++        error:
++            FIXME("unable to spawn thread: %s (%d)\n", strerror(s), s);
++            goto exit;
++
++        } else {
++            FIXME("don't update process: %s\n", buf);
++        }
++
++    } else {
++        FIXME("don't update master process\n");
++    }
++
++exit:
+     return exe_file;
+ }

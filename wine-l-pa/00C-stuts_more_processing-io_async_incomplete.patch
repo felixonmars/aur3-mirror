@@ -1,0 +1,154 @@
+From: "Erich E. Hoover" <ehoover@mymail.mines.edu>
+Subject: [PATCH 3/3] ws2_32: Use STATUS_MORE_PROCESSING_REQUIRED to indicate that the AcceptEx async is incomplete (try 3).
+Message-Id: <CAEU2+vrV0aS-op=9+tdaZLaRJMUtrAp=YFFfV_uX1ecYcK4kow@mail.gmail.com>
+Date: Mon, 14 May 2012 16:14:24 -0600
+
+Real Name:
+    Erich Hoover
+
+Description:
+    This patch changes the way AcceptEx handles completions so that
+canceled sockets can still send completion notifications.  The patch
+fixes a significant issue with the WoW launcher and the Diablo 3
+installer (Bug #28898).
+
+Changelog:
+    ws2_32: Use STATUS_MORE_PROCESSING_REQUIRED to indicate that the
+AcceptEx async is incomplete.
+
+From bd886c015470c786e464f92e2ea7b75c84d73b91 Mon Sep 17 00:00:00 2001
+From: Erich Hoover <ehoover@mines.edu>
+Date: Mon, 14 May 2012 15:50:16 -0600
+Subject: ws2_32: Use STATUS_MORE_PROCESSING_REQUIRED to indicate that the
+ AcceptEx async is incomplete.
+
+---
+ dlls/ws2_32/socket.c     |    8 +++---
+ dlls/ws2_32/tests/sock.c |   50 +++++++++++++++++++++++-----------------------
+ 2 files changed, 29 insertions(+), 29 deletions(-)
+
+diff --git a/dlls/ws2_32/socket.c b/dlls/ws2_32/socket.c
+index 21e084b..007514c 100644
+--- a/dlls/ws2_32/socket.c
++++ b/dlls/ws2_32/socket.c
+@@ -1706,7 +1706,7 @@ static NTSTATUS WS2_async_accept( void *arg, IO_STATUS_BLOCK *iosb, NTSTATUS sta
+     if (status != STATUS_PENDING)
+         goto finish;
+ 
+-    return STATUS_SUCCESS;
++    return STATUS_MORE_PROCESSING_REQUIRED;
+ 
+ finish:
+     iosb->u.Status = status;
+@@ -1714,8 +1714,6 @@ finish:
+ 
+     if (wsa->user_overlapped->hEvent)
+         SetEvent(wsa->user_overlapped->hEvent);
+-    if (wsa->cvalue)
+-        WS_AddCompletion( HANDLE2SOCKET(wsa->listen_socket), wsa->cvalue, iosb->u.Status, iosb->Information );
+ 
+     *apc = ws2_async_accept_apc;
+     return status;
+@@ -2046,7 +2044,9 @@ static BOOL WINAPI WS2_AcceptEx(SOCKET listener, SOCKET acceptor, PVOID dest, DW
+         req->async.callback = wine_server_client_ptr( WS2_async_accept );
+         req->async.iosb     = wine_server_client_ptr( overlapped );
+         req->async.arg      = wine_server_client_ptr( wsa );
+-        /* We don't set event or completion since we may also have to read */
++        req->async.cvalue   = cvalue;
++        /* We don't set event since we may also have to read, the APC returns STATUS_MORE_PROCESSING_REQUIRED
++         * to indicate that the async operation is incomplete and that no completion should be queued. */
+         status = wine_server_call( req );
+     }
+     SERVER_END_REQ;
+diff --git a/dlls/ws2_32/tests/sock.c b/dlls/ws2_32/tests/sock.c
+index e9814e3..29616b2 100644
+--- a/dlls/ws2_32/tests/sock.c
++++ b/dlls/ws2_32/tests/sock.c
+@@ -5494,11 +5494,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5537,11 +5537,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5596,11 +5596,11 @@ static void test_completion_port(void)
+     olp = (WSAOVERLAPPED *)0xdeadbeef;
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && olp->Internal == (ULONG)STATUS_CANCELLED, "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && olp->Internal == (ULONG)STATUS_CANCELLED, "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5663,11 +5663,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+@@ -5719,11 +5719,11 @@ static void test_completion_port(void)
+ 
+     bret = GetQueuedCompletionStatus(io_port, &num_bytes, &key, &olp, 100);
+     ok(bret == FALSE, "failed to get completion status %u\n", bret);
+-    todo_wine ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
+-    todo_wine ok(key == 125, "Key is %lu\n", key);
+-    todo_wine ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
+-    todo_wine ok(olp == &ov, "Overlapped structure is at %p\n", olp);
+-    todo_wine ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
++    ok(GetLastError() == ERROR_OPERATION_ABORTED, "Last error was %d\n", GetLastError());
++    ok(key == 125, "Key is %lu\n", key);
++    ok(num_bytes == 0, "Number of bytes transferred is %u\n", num_bytes);
++    ok(olp == &ov, "Overlapped structure is at %p\n", olp);
++    ok(olp && (olp->Internal == (ULONG)STATUS_CANCELLED), "Internal status is %lx\n", olp ? olp->Internal : 0);
+ 
+     SetLastError(0xdeadbeef);
+     key = 0xdeadbeef;
+-- 
+1.7.5.4
+

@@ -1,0 +1,104 @@
+From: "Erich E. Hoover" <ehoover@mymail.mines.edu>
+Subject: user32: SetTimer should respect the minimum and maximum timeout limits.
+Message-Id: <CAEU2+vqxTayZe9eVCUuYt09XXZutst-bWQ_CMEq32ru=adaoSw@mail.gmail.com>
+Date: Thu, 11 Apr 2013 16:48:28 -0600
+
+The attached patch is the next step in the series of fixes for
+supporting Netflix under Wine.  I'm starting with patches that affect
+more than just Netflix and moving toward more Netflix-specific patches
+as I move along.  In the case of this patch, video rendering in all
+Silverlight applications should be improved dramatically once the
+patch is applied.
+
+So, this particular patch fixes the minimum and maximum timeout limits
+for SetTimer, which has a significant impact on any application using
+SetTimer to render video (Bug #32489).  The old minimum timeout (55
+ms) is nowhere near short enough to render video at 24 FPS, causing
+"choppy" video behavior in a variety of Silverlight apps.  Even though
+MSDN indicates that the minimum timeout should be 10 ms, I'm using the
+value established from the included tests instead (15 ms).
+
+From fec618b4907eab67b6cc11e9f8522f7a610225f6 Mon Sep 17 00:00:00 2001
+From: Erich Hoover <ehoover@mines.edu>
+Date: Thu, 11 Apr 2013 14:25:08 -0600
+Subject: user32: SetTimer should respect the minimum and maximum timeout
+ limits.
+
+---
+ dlls/user32/message.c   |    7 ++++++-
+ dlls/user32/tests/msg.c |   14 ++++++++++++++
+ include/winuser.h       |    4 ++++
+ 3 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/user32/message.c b/dlls/user32/message.c
+index 09a4cb3..339d552 100644
+--- a/dlls/user32/message.c
++++ b/dlls/user32/message.c
+@@ -4385,12 +4385,17 @@ UINT_PTR WINAPI SetTimer( HWND hwnd, UINT_PTR id, UINT timeout, TIMERPROC proc )
+ 
+     if (proc) winproc = WINPROC_AllocProc( (WNDPROC)proc, FALSE );
+ 
++    if (timeout < USER_TIMER_MINIMUM)
++        timeout = USER_TIMER_MINIMUM;
++    else if (timeout > USER_TIMER_MAXIMUM)
++        timeout = USER_TIMER_MAXIMUM;
++
+     SERVER_START_REQ( set_win_timer )
+     {
+         req->win    = wine_server_user_handle( hwnd );
+         req->msg    = WM_TIMER;
+         req->id     = id;
+-        req->rate   = max( timeout, SYS_TIMER_RATE );
++        req->rate   = timeout;
+         req->lparam = (ULONG_PTR)winproc;
+         if (!wine_server_call_err( req ))
+         {
+diff --git a/dlls/user32/tests/msg.c b/dlls/user32/tests/msg.c
+index ac3ba16..f5549a9 100644
+--- a/dlls/user32/tests/msg.c
++++ b/dlls/user32/tests/msg.c
+@@ -8215,6 +8215,7 @@ static VOID CALLBACK callback_count(
+ static void test_timers_no_wnd(void)
+ {
+     UINT_PTR id, id2;
++    DWORD start;
+     MSG msg;
+ 
+     count = 0;
+@@ -8232,6 +8233,19 @@ static void test_timers_no_wnd(void)
+     Sleep(250);
+     while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessage(&msg);
+     ok(count == 1, "killing replaced timer did not work (%i).\n", count);
++
++    /* Check the minimum allowed timeout for a timer.  MSDN indicates that it should be 10.0 ms,
++     * but testing indicates that the minimum timeout is actually about 15.6 ms.  Since there is
++     * some measurement error between test runs we're allowing for Â±4 counts (~1 ms).
++     */
++    count = 0;
++    id = SetTimer(NULL, 0, 0, callback_count);
++    ok(id != 0, "did not get id from SetTimer.\n");
++    start = GetTickCount();
++    while (GetTickCount()-start < 1001)
++        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) DispatchMessage(&msg);
++    ok(abs(count-64) < 5, "did not get expected count for minimum timeout (%i != ~64).\n", count);
++    KillTimer(NULL, id);
+ }
+ 
+ /* Various win events with arbitrary parameters */
+diff --git a/include/winuser.h b/include/winuser.h
+index 59d5b8e..296a2a4 100644
+--- a/include/winuser.h
++++ b/include/winuser.h
+@@ -2521,6 +2521,10 @@ typedef struct tagMINIMIZEDMETRICS {
+ #define PM_QS_PAINT       (QS_PAINT << 16)
+ #define PM_QS_SENDMESSAGE (QS_SENDMESSAGE << 16)
+ 
++/* SetTimer() limits */
++#define USER_TIMER_MINIMUM 0x0000000F
++#define USER_TIMER_MAXIMUM 0x7FFFFFFF
++
+ /* AnimateWindow() flags */
+ #define AW_SLIDE        0x00040000
+ #define AW_ACTIVATE     0x00020000
+-- 
+1.7.9.5

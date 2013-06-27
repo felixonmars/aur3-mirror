@@ -1,0 +1,1371 @@
+From cb8b8673b2d16de4a171b0468a47d70b55727b86 Mon Sep 17 00:00:00 2001
+From: Adam Martinson <adam.r.martinson@gmail.com>
+Date: Thu, 8 Mar 2012 17:24:20 -0600
+Subject: [PATCH 4/4] server: Add support for named pipe message mode.
+
+---
+ dlls/kernel32/sync.c           |    2 +-
+ dlls/kernel32/tests/pipe.c     |   56 ++-----
+ dlls/ntdll/file.c              |  326 +++++++++++++++++++++++++++++++++-----
+ include/wine/server_protocol.h |   61 +++++++-
+ server/named_pipe.c            |  345 ++++++++++++++++++++++++++++++++++++----
+ server/protocol.def            |   31 ++++
+ server/request.h               |   25 +++
+ server/trace.c                 |   48 ++++++
+ 8 files changed, 780 insertions(+), 114 deletions(-)
+
+diff --git a/dlls/kernel32/sync.c b/dlls/kernel32/sync.c
+index dcd59ca..c6a5cee 100644
+--- a/dlls/kernel32/sync.c
++++ b/dlls/kernel32/sync.c
+@@ -1447,7 +1447,7 @@ BOOL WINAPI PeekNamedPipe( HANDLE hPipe, LPVOID lpvBuffer, DWORD cbBuffer,
+         ULONG read_size = io.Information - FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data );
+         if (lpcbAvail) *lpcbAvail = buffer->ReadDataAvailable;
+         if (lpcbRead) *lpcbRead = read_size;
+-        if (lpcbMessage) *lpcbMessage = 0;  /* FIXME */
++        if (lpcbMessage) *lpcbMessage = buffer->MessageLength;
+         if (lpvBuffer) memcpy( lpvBuffer, buffer->Data, read_size );
+     }
+     else SetLastError( RtlNtStatusToDosError(status) );
+diff --git a/dlls/kernel32/tests/pipe.c b/dlls/kernel32/tests/pipe.c
+index 3e3a2ad..decb8c9 100644
+--- a/dlls/kernel32/tests/pipe.c
++++ b/dlls/kernel32/tests/pipe.c
+@@ -152,16 +152,14 @@ static void test_CreateNamedPipe(int pipemode)
+                 ok(readden == sizeof(obuf) + sizeof(obuf2), "peek3 got %d bytes\n", readden);
+             else
+                 todo_wine ok(readden == sizeof(obuf) + sizeof(obuf2), "peek3 got %d bytes\n", readden);
++            if (avail != sizeof(obuf)) /* older Linux kernels only return the first write here */
++                ok(avail == sizeof(obuf) + sizeof(obuf2), "peek3 got %d bytes available\n", avail);
+         }
+         else
+         {
+-            if (readden != sizeof(obuf) + sizeof(obuf2))  /* MacOS returns both messages */
+-                ok(readden == sizeof(obuf), "peek3 got %d bytes\n", readden);
+-            else
+-                todo_wine ok(readden == sizeof(obuf), "peek3 got %d bytes\n", readden);
+-        }
+-        if (avail != sizeof(obuf)) /* older Linux kernels only return the first write here */
++            ok(readden == sizeof(obuf), "peek3 got %d bytes\n", readden);
+             ok(avail == sizeof(obuf) + sizeof(obuf2), "peek3 got %d bytes available\n", avail);
++        }
+         pbuf = ibuf;
+         ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "pipe content 3a check\n");
+         if (pipemode == PIPE_TYPE_BYTE && readden >= sizeof(obuf)+sizeof(obuf2)) {
+@@ -188,16 +186,14 @@ static void test_CreateNamedPipe(int pipemode)
+                 ok(readden == sizeof(obuf) + sizeof(obuf2), "peek4 got %d bytes\n", readden);
+             else
+                 todo_wine ok(readden == sizeof(obuf) + sizeof(obuf2), "peek4 got %d bytes\n", readden);
++            if (avail != sizeof(obuf)) /* older Linux kernels only return the first write here */
++                ok(avail == sizeof(obuf) + sizeof(obuf2), "peek4 got %d bytes available\n", avail);
+         }
+         else
+         {
+-            if (readden != sizeof(obuf) + sizeof(obuf2))  /* MacOS returns both messages */
+-                ok(readden == sizeof(obuf), "peek4 got %d bytes\n", readden);
+-            else
+-                todo_wine ok(readden == sizeof(obuf), "peek4 got %d bytes\n", readden);
+-        }
+-        if (avail != sizeof(obuf)) /* older Linux kernels only return the first write here */
++            ok(readden == sizeof(obuf), "peek4 got %d bytes\n", readden);
+             ok(avail == sizeof(obuf) + sizeof(obuf2), "peek4 got %d bytes available\n", avail);
++        }
+         pbuf = ibuf;
+         ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "pipe content 4a check\n");
+         if (pipemode == PIPE_TYPE_BYTE && readden >= sizeof(obuf)+sizeof(obuf2)) {
+@@ -209,9 +205,7 @@ static void test_CreateNamedPipe(int pipemode)
+             ok(readden == sizeof(obuf) + sizeof(obuf2), "read 4 got %d bytes\n", readden);
+         }
+         else {
+-            todo_wine {
+-                ok(readden == sizeof(obuf), "read 4 got %d bytes\n", readden);
+-            }
++            ok(readden == sizeof(obuf), "read 4 got %d bytes\n", readden);
+         }
+         pbuf = ibuf;
+         ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "content 4a check\n");
+@@ -236,30 +230,20 @@ static void test_CreateNamedPipe(int pipemode)
+             ok(WriteFile(hnp, obuf2, sizeof(obuf2), &written, NULL), " WriteFile5b\n");
+             ok(written == sizeof(obuf2), "write file len 3b\n");
+             ok(PeekNamedPipe(hFile, ibuf, sizeof(ibuf), &readden, &avail, NULL), "Peek5\n");
+-            if (readden != sizeof(obuf) + sizeof(obuf2))  /* MacOS returns both writes */
+-                ok(readden == sizeof(obuf), "peek5 got %d bytes\n", readden);
+-            else
+-                todo_wine ok(readden == sizeof(obuf), "peek5 got %d bytes\n", readden);
+-            if (avail != sizeof(obuf)) /* older Linux kernels only return the first write here */
+-                ok(avail == sizeof(obuf) + sizeof(obuf2), "peek5 got %d bytes available\n", avail);
+-            else
+-                todo_wine ok(avail == sizeof(obuf) + sizeof(obuf2), "peek5 got %d bytes available\n", avail);
++            ok(readden == sizeof(obuf), "peek5 got %d bytes\n", readden);
++            ok(avail == sizeof(obuf) + sizeof(obuf2), "peek5 got %d bytes available\n", avail);
+             pbuf = ibuf;
+             ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "content 5a check\n");
+             ok(ReadFile(hFile, ibuf, sizeof(ibuf), &readden, NULL), "ReadFile\n");
+-            todo_wine {
+-                ok(readden == sizeof(obuf), "read 5 got %d bytes\n", readden);
+-            }
++            ok(readden == sizeof(obuf), "read 5 got %d bytes\n", readden);
+             pbuf = ibuf;
+             ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "content 5a check\n");
+     
+             /* Multiple writes in the reverse direction */
+             /* the write of obuf2 from write4 should still be in the buffer */
+             ok(PeekNamedPipe(hnp, ibuf, sizeof(ibuf), &readden, &avail, NULL), "Peek6a\n");
+-            todo_wine {
+-                ok(readden == sizeof(obuf2), "peek6a got %d bytes\n", readden);
+-                ok(avail == sizeof(obuf2), "peek6a got %d bytes available\n", avail);
+-            }
++            ok(readden == sizeof(obuf2), "peek6a got %d bytes\n", readden);
++            ok(avail == sizeof(obuf2), "peek6a got %d bytes available\n", avail);
+             if (avail > 0) {
+                 ok(ReadFile(hnp, ibuf, sizeof(ibuf), &readden, NULL), "ReadFile\n");
+                 ok(readden == sizeof(obuf2), "read 6a got %d bytes\n", readden);
+@@ -272,18 +256,12 @@ static void test_CreateNamedPipe(int pipemode)
+             ok(WriteFile(hFile, obuf2, sizeof(obuf2), &written, NULL), " WriteFile6b\n");
+             ok(written == sizeof(obuf2), "write file len 6b\n");
+             ok(PeekNamedPipe(hnp, ibuf, sizeof(ibuf), &readden, &avail, NULL), "Peek6\n");
+-            if (readden != sizeof(obuf) + sizeof(obuf2))  /* MacOS returns both writes */
+-                ok(readden == sizeof(obuf), "peek6 got %d bytes\n", readden);
+-            else
+-                todo_wine ok(readden == sizeof(obuf), "peek6 got %d bytes\n", readden);
+-            if (avail != sizeof(obuf)) /* older Linux kernels only return the first write here */
+-                ok(avail == sizeof(obuf) + sizeof(obuf2), "peek6b got %d bytes available\n", avail);
++            ok(readden == sizeof(obuf), "peek6 got %d bytes\n", readden);
++            ok(avail == sizeof(obuf) + sizeof(obuf2), "peek6b got %d bytes available\n", avail);
+             pbuf = ibuf;
+             ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "content 6a check\n");
+             ok(ReadFile(hnp, ibuf, sizeof(ibuf), &readden, NULL), "ReadFile\n");
+-            todo_wine {
+-                ok(readden == sizeof(obuf), "read 6b got %d bytes\n", readden);
+-            }
++            ok(readden == sizeof(obuf), "read 6b got %d bytes\n", readden);
+             pbuf = ibuf;
+             ok(memcmp(obuf, pbuf, sizeof(obuf)) == 0, "content 6a check\n");
+         }
+diff --git a/dlls/ntdll/file.c b/dlls/ntdll/file.c
+index fa91cbc..bba5fe0 100644
+--- a/dlls/ntdll/file.c
++++ b/dlls/ntdll/file.c
+@@ -362,16 +362,70 @@ static NTSTATUS FILE_AsyncReadService(void *user, PIO_STATUS_BLOCK iosb, NTSTATU
+ {
+     async_fileio_read *fileio = user;
+     int fd, needs_close, result;
++    unsigned int pipe_flags = 0;
++    enum server_fd_type type;
++    HANDLE hAvail = INVALID_HANDLE_VALUE;
++
++    TRACE("(%p, %p, %08x, %p)\n", user, iosb, status, apc);
+ 
+     switch (status)
+     {
+     case STATUS_ALERTED: /* got some new data */
+         /* check to see if the data is ready (non-blocking) */
+         if ((status = server_get_unix_fd( fileio->io.handle, FILE_READ_DATA, &fd,
+-                                          &needs_close, NULL, NULL )))
++                                          &needs_close, &type, NULL )))
+             break;
+ 
+-        result = read(fd, &fileio->buffer[fileio->already], fileio->count - fileio->already);
++        if (type == FD_TYPE_PIPE)
++        {
++            SERVER_START_REQ( get_named_pipe_info )
++            {
++                req->handle = wine_server_obj_handle( fileio->io.handle );
++                if (!wine_server_call( req ))
++                {
++                    pipe_flags = reply->flags;
++                }
++            }
++            SERVER_END_REQ;
++        }
++
++        if (pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++        {
++            SERVER_START_REQ( named_pipe_recv_msg )
++            {
++                req->handle = wine_server_obj_handle( fileio->io.handle );
++                req->length = fileio->count - fileio->already;
++                req->wait_avail = 0;
++                wine_server_set_reply( req, &fileio->buffer[fileio->already], req->length );
++                status = wine_server_call( req );
++                if (!status || status == STATUS_MORE_ENTRIES)
++                    result = reply->result;
++                else
++                {
++                    result = -1;
++                    hAvail = wine_server_ptr_handle( reply->avail );
++                }
++            }
++            SERVER_END_REQ;
++
++            if (status && status != STATUS_MORE_ENTRIES)
++            {
++                if (status != STATUS_NO_MORE_ENTRIES && status != STATUS_PIPE_BROKEN)
++                    FIXME("msg mode: recv returned %08x\n", status);
++                if (status != STATUS_NO_MORE_ENTRIES)
++                    break;
++            }
++            else
++            {
++                fileio->already += result;
++                break;
++            }
++            assert ( status == STATUS_NO_MORE_ENTRIES );
++            status = STATUS_SUCCESS;
++            errno = EAGAIN;
++        }
++        else
++            result = read( fd, &fileio->buffer[fileio->already], fileio->count - fileio->already );
+         if (needs_close) close( fd );
+ 
+         if (result < 0)
+@@ -383,20 +437,26 @@ static NTSTATUS FILE_AsyncReadService(void *user, PIO_STATUS_BLOCK iosb, NTSTATU
+         }
+         else if (result == 0)
+         {
+-            status = fileio->already ? STATUS_SUCCESS : STATUS_PIPE_BROKEN;
++            if ((pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE) || fileio->already)
++                status = STATUS_SUCCESS;
++            else
++                status = STATUS_PIPE_BROKEN;
+         }
+         else
+         {
+             fileio->already += result;
+-            if (fileio->already >= fileio->count || fileio->avail_mode)
+-                status = STATUS_SUCCESS;
+-            else
++            if (!(pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE))
+             {
+-                /* if we only have to read the available data, and none is available,
+-                 * simply cancel the request. If data was available, it has been read
+-                 * while in by previous call (NtDelayExecution)
+-                 */
+-                status = (fileio->avail_mode) ? STATUS_SUCCESS : STATUS_PENDING;
++                if (fileio->already >= fileio->count || fileio->avail_mode)
++                    status = STATUS_SUCCESS;
++                else
++                {
++                    /* if we only have to read the available data, and none is available,
++                     * simply cancel the request. If data was available, it has been read
++                     * while in by previous call (NtDelayExecution)
++                     */
++                    status = (fileio->avail_mode) ? STATUS_SUCCESS : STATUS_PENDING;
++                }
+             }
+         }
+         break;
+@@ -576,13 +636,14 @@ NTSTATUS WINAPI NtReadFile(HANDLE hFile, HANDLE hEvent,
+                            PLARGE_INTEGER offset, PULONG key)
+ {
+     int result, unix_handle, needs_close, timeout_init_done = 0;
+-    unsigned int options;
++    unsigned int options, pipe_flags = 0;
+     struct io_timeouts timeouts;
+     NTSTATUS status;
+     ULONG total = 0;
+     enum server_fd_type type;
+     ULONG_PTR cvalue = apc ? 0 : (ULONG_PTR)apc_user;
+     BOOL send_completion = FALSE;
++    HANDLE hAvail = INVALID_HANDLE_VALUE;
+ 
+     TRACE("(%p,%p,%p,%p,%p,%p,0x%08x,%p,%p),partial stub!\n",
+           hFile,hEvent,apc,apc_user,io_status,buffer,length,offset,key);
+@@ -618,8 +679,20 @@ NTSTATUS WINAPI NtReadFile(HANDLE hFile, HANDLE hEvent,
+         status = total ? STATUS_SUCCESS : STATUS_END_OF_FILE;
+         goto done;
+     }
++    else if (type == FD_TYPE_PIPE)
++    {
++        SERVER_START_REQ( get_named_pipe_info )
++        {
++            req->handle = wine_server_obj_handle( hFile );
++            if (!wine_server_call( req ))
++            {
++                pipe_flags = reply->flags;
++            }
++        }
++        SERVER_END_REQ;
++    }
+ 
+-    if (type == FD_TYPE_PIPE && !length)
++    if (type == FD_TYPE_PIPE && !(pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE) && !length)
+     {
+         struct pollfd pfd;
+         pfd.fd = unix_handle;
+@@ -638,9 +711,69 @@ NTSTATUS WINAPI NtReadFile(HANDLE hFile, HANDLE hEvent,
+ 
+     for (;;)
+     {
+-        if ((result = read( unix_handle, (char *)buffer + total, length - total )) >= 0)
++        if (pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++        {
++            SERVER_START_REQ( named_pipe_recv_msg )
++            {
++                req->handle = wine_server_obj_handle( hFile );
++                req->length = length;
++                req->wait_avail = !(pipe_flags & NAMED_PIPE_NONBLOCKING_MODE);
++                wine_server_set_reply( req, buffer, length );
++                status = wine_server_call( req );
++                if (!status || status == STATUS_MORE_ENTRIES)
++                    result = reply->result;
++                else
++                {
++                    result = -1;
++                    hAvail = wine_server_ptr_handle( reply->avail );
++                }
++            }
++            SERVER_END_REQ;
++
++            if (!length)
++            {
++                /* MSDN claims a 0-length read on a named pipe only returns success
++                 * if there was a 0-length write on the other end...  Lies.
++                 * In reality it returns success unless the pipe is broken. */
++                if (!status || status == STATUS_NO_MORE_ENTRIES)
++                {
++                    status = STATUS_SUCCESS;
++                    goto done;
++                }
++                else
++                {
++                    goto err;
++                }
++            }
++
++            if (status && status != STATUS_MORE_ENTRIES)
++            {
++                if (status != STATUS_NO_MORE_ENTRIES && status != STATUS_PIPE_BROKEN)
++                    FIXME("msg mode: recv returned %08x\n", status);
++                if ((pipe_flags & NAMED_PIPE_NONBLOCKING_MODE) || status != STATUS_NO_MORE_ENTRIES)
++                    goto err;
++            }
++            else
++            {
++                total += result;
++                goto done;
++            }
++
++            assert( status == STATUS_NO_MORE_ENTRIES );
++            errno = EAGAIN;
++        }
++        else if (pipe_flags & NAMED_PIPE_NONBLOCKING_MODE)
++            result = recv( unix_handle, (char *)buffer + total, length - total, MSG_DONTWAIT );
++        else
++            result = read( unix_handle, (char *)buffer + total, length - total );
++
++        if (result >= 0)
+         {
+             total += result;
++
++            if (pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++                goto done;
++
+             if (!result || total == length)
+             {
+                 if (total)
+@@ -663,9 +796,23 @@ NTSTATUS WINAPI NtReadFile(HANDLE hFile, HANDLE hEvent,
+             }
+             else if (type == FD_TYPE_FILE) continue;  /* no async I/O on regular files */
+         }
++        else if (errno == EINTR)
++        {
++            continue;
++        }
++        else if (pipe_flags & NAMED_PIPE_NONBLOCKING_MODE)
++        {
++            if (!total)
++            {
++                if (errno == EAGAIN || errno == EWOULDBLOCK)
++                    status = STATUS_NO_MORE_ENTRIES;
++                else
++                    status = FILE_GetNtStatus();
++            }
++            goto done;
++        }
+         else if (errno != EAGAIN)
+         {
+-            if (errno == EINTR) continue;
+             if (!total) status = FILE_GetNtStatus();
+             goto done;
+         }
+@@ -727,21 +874,46 @@ NTSTATUS WINAPI NtReadFile(HANDLE hFile, HANDLE hEvent,
+             }
+             timeout = get_next_io_timeout( &timeouts, total );
+ 
+-            pfd.fd = unix_handle;
+-            pfd.events = POLLIN;
+-
+-            if (!timeout || !(ret = poll( &pfd, 1, timeout )))
++            if (pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
+             {
+-                if (total)  /* return with what we got so far */
+-                    status = STATUS_SUCCESS;
++                if (hAvail == INVALID_HANDLE_VALUE)
++                {
++                    status = STATUS_PIPE_BROKEN;
++                    goto err;
++                }
++
++                if (timeout >= 0)
++                {
++                    LARGE_INTEGER etimeout;
++                    etimeout.QuadPart = (ULONGLONG)timeout * -10000;
++                    status = NtWaitForSingleObject( hAvail, TRUE, &etimeout );
++                }
+                 else
+-                    status = (type == FD_TYPE_MAILSLOT) ? STATUS_IO_TIMEOUT : STATUS_TIMEOUT;
+-                goto done;
++                {
++                    status = NtWaitForSingleObject( hAvail, TRUE, NULL );
++                }
++                if (status && status != STATUS_ALERTED) goto done;
++                NtClose( hAvail );
++                hAvail = INVALID_HANDLE_VALUE;
+             }
+-            if (ret == -1 && errno != EINTR)
++            else
+             {
+-                status = FILE_GetNtStatus();
+-                goto done;
++                pfd.fd = unix_handle;
++                pfd.events = POLLIN;
++
++                if (!timeout || !(ret = poll( &pfd, 1, timeout )))
++                {
++                    if (total)  /* return with what we got so far */
++                        status = STATUS_SUCCESS;
++                    else
++                        status = (type == FD_TYPE_MAILSLOT) ? STATUS_IO_TIMEOUT : STATUS_TIMEOUT;
++                    goto done;
++                }
++                if (ret == -1 && errno != EINTR)
++                {
++                    status = FILE_GetNtStatus();
++                    goto done;
++                }
+             }
+             /* will now restart the read */
+         }
+@@ -752,11 +924,15 @@ done:
+ 
+ err:
+     if (needs_close) close( unix_handle );
+-    if (status == STATUS_SUCCESS)
++    if (hAvail != INVALID_HANDLE_VALUE) NtClose( hAvail );
++    if (status == STATUS_SUCCESS || status == STATUS_MORE_ENTRIES)
+     {
+         io_status->u.Status = status;
+         io_status->Information = total;
+-        TRACE("= SUCCESS (%u)\n", total);
++        if (status == STATUS_MORE_ENTRIES)
++            TRACE("= MORE_ENTRIES (%u)\n", total);
++        else
++            TRACE("= SUCCESS (%u)\n", total);
+         if (hEvent) NtSetEvent( hEvent, NULL );
+         if (apc) NtQueueApcThread( GetCurrentThread(), (PNTAPCFUNC)apc,
+                                    (ULONG_PTR)apc_user, (ULONG_PTR)io_status, 0 );
+@@ -940,7 +1116,7 @@ NTSTATUS WINAPI NtWriteFile(HANDLE hFile, HANDLE hEvent,
+                             PLARGE_INTEGER offset, PULONG key)
+ {
+     int result, unix_handle, needs_close, timeout_init_done = 0;
+-    unsigned int options;
++    unsigned int options, pipe_flags = 0;
+     struct io_timeouts timeouts;
+     NTSTATUS status;
+     ULONG total = 0;
+@@ -984,11 +1160,45 @@ NTSTATUS WINAPI NtWriteFile(HANDLE hFile, HANDLE hEvent,
+         status = STATUS_SUCCESS;
+         goto done;
+     }
++    else if (type == FD_TYPE_PIPE)
++    {
++        SERVER_START_REQ( get_named_pipe_info )
++        {
++            req->handle = wine_server_obj_handle( hFile );
++            if (!wine_server_call( req ))
++            {
++                pipe_flags = reply->flags;
++            }
++        }
++        SERVER_END_REQ;
++    }
+ 
+     for (;;)
+     {
++        if (pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++        {
++            SERVER_START_REQ( named_pipe_send_msg )
++            {
++                req->handle = wine_server_obj_handle( hFile );
++                req->length = length;
++                if (length)
++                    wine_server_add_data( req, buffer, length );
++                status = wine_server_call( req );
++            }
++            SERVER_END_REQ;
++
++            if (status)
++            {
++                goto err;
++            }
++            else
++            {
++                total = length;
++                goto done;
++            }
++        }
+         /* zero-length writes on sockets may not work with plain write(2) */
+-        if (!length && (type == FD_TYPE_MAILSLOT || type == FD_TYPE_PIPE || type == FD_TYPE_SOCKET))
++        else if (!length && (type == FD_TYPE_MAILSLOT || type == FD_TYPE_PIPE || type == FD_TYPE_SOCKET))
+             result = send( unix_handle, buffer, 0, 0 );
+         else
+             result = write( unix_handle, (const char *)buffer + total, length - total );
+@@ -1436,6 +1646,9 @@ NTSTATUS WINAPI NtFsControlFile(HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc
+         {
+             FILE_PIPE_PEEK_BUFFER *buffer = out_buffer;
+             int avail = 0, fd, needs_close;
++            unsigned int pipe_flags = 0;
++            enum server_fd_type type;
++            ULONG data_size = out_size - FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data );
+ 
+             if (out_size < FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data ))
+             {
+@@ -1443,13 +1656,46 @@ NTSTATUS WINAPI NtFsControlFile(HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc
+                 break;
+             }
+ 
+-            if ((status = server_get_unix_fd( handle, FILE_READ_DATA, &fd, &needs_close, NULL, NULL )))
++            if ((status = server_get_unix_fd( handle, FILE_READ_DATA, &fd, &needs_close, &type, NULL )))
+                 break;
+ 
++            if (type == FD_TYPE_PIPE)
++            {
++                SERVER_START_REQ( get_named_pipe_info )
++                {
++                    req->handle = wine_server_obj_handle( handle );
++                    if (!wine_server_call( req ))
++                    {
++                        pipe_flags = reply->flags;
++                    }
++                }
++                SERVER_END_REQ;
++
++                if (pipe_flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++                {
++                    SERVER_START_REQ( named_pipe_peek_msg )
++                    {
++                        req->handle = wine_server_obj_handle( handle );
++                        req->length = data_size;
++                        wine_server_set_reply( req, buffer->Data, data_size );
++                        status = wine_server_call( req );
++                        if (!status)
++                        {
++                            buffer->NamedPipeState = reply->state;
++                            buffer->ReadDataAvailable = reply->avail;
++                            buffer->NumberOfMessages = reply->msg_count;
++                            buffer->MessageLength = reply->msg_length;
++                            io->Information = FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data ) + reply->peeked;
++                        }
++                    }
++                    SERVER_END_REQ;
++                    break;
++                }
++            }
+ #ifdef FIONREAD
+             if (ioctl( fd, FIONREAD, &avail ) != 0)
+             {
+-                TRACE("FIONREAD failed reason: %s\n",strerror(errno));
++                TRACE("FIONREAD failed reason: %s\n", strerror( errno ));
+                 if (needs_close) close( fd );
+                 status = FILE_GetNtStatus();
+                 break;
+@@ -1471,20 +1717,16 @@ NTSTATUS WINAPI NtFsControlFile(HANDLE handle, HANDLE event, PIO_APC_ROUTINE apc
+                     break;
+                 }
+             }
+-            buffer->NamedPipeState    = 0;  /* FIXME */
++            buffer->NamedPipeState    = 3; /* FIXME */
+             buffer->ReadDataAvailable = avail;
+-            buffer->NumberOfMessages  = 0;  /* FIXME */
+-            buffer->MessageLength     = 0;  /* FIXME */
++            buffer->NumberOfMessages  = 0;
++            buffer->MessageLength = 0;
+             io->Information = FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data );
+             status = STATUS_SUCCESS;
+-            if (avail)
++            if (avail && data_size)
+             {
+-                ULONG data_size = out_size - FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data );
+-                if (data_size)
+-                {
+-                    int res = recv( fd, buffer->Data, data_size, MSG_PEEK );
+-                    if (res >= 0) io->Information += res;
+-                }
++                int res = recv( fd, buffer->Data, data_size, MSG_PEEK | MSG_DONTWAIT );
++                if (res >= 0) io->Information += res;
+             }
+             if (needs_close) close( fd );
+         }
+diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
+index f7a0def..870a45d 100644
+--- a/include/wine/server_protocol.h
++++ b/include/wine/server_protocol.h
+@@ -3089,6 +3089,56 @@ struct set_named_pipe_info_reply
+ };
+ 
+ 
++struct named_pipe_send_msg_request
++{
++    struct request_header __header;
++    obj_handle_t   handle;
++    int            length;
++    /* VARARG(data,bytes,length); */
++    char __pad_20[4];
++};
++struct named_pipe_send_msg_reply
++{
++    struct reply_header __header;
++};
++
++
++struct named_pipe_recv_msg_request
++{
++    struct request_header __header;
++    obj_handle_t   handle;
++    unsigned int   length;
++    int            wait_avail;
++};
++struct named_pipe_recv_msg_reply
++{
++    struct reply_header __header;
++    obj_handle_t   avail;
++    int            result;
++    /* VARARG(data,bytes,result); */
++};
++
++
++struct named_pipe_peek_msg_request
++{
++    struct request_header __header;
++    obj_handle_t   handle;
++    int            length;
++    char __pad_20[4];
++};
++struct named_pipe_peek_msg_reply
++{
++    struct reply_header __header;
++    unsigned int   state;
++    unsigned int   avail;
++    unsigned int   msg_count;
++    unsigned int   msg_length;
++    int            peeked;
++    /* VARARG(data,bytes,peeked); */
++    char __pad_28[4];
++};
++
++
+ 
+ struct create_window_request
+ {
+@@ -5046,6 +5096,9 @@ enum request
+     REQ_create_named_pipe,
+     REQ_get_named_pipe_info,
+     REQ_set_named_pipe_info,
++    REQ_named_pipe_send_msg,
++    REQ_named_pipe_recv_msg,
++    REQ_named_pipe_peek_msg,
+     REQ_create_window,
+     REQ_destroy_window,
+     REQ_get_desktop_window,
+@@ -5301,6 +5354,9 @@ union generic_request
+     struct create_named_pipe_request create_named_pipe_request;
+     struct get_named_pipe_info_request get_named_pipe_info_request;
+     struct set_named_pipe_info_request set_named_pipe_info_request;
++    struct named_pipe_send_msg_request named_pipe_send_msg_request;
++    struct named_pipe_recv_msg_request named_pipe_recv_msg_request;
++    struct named_pipe_peek_msg_request named_pipe_peek_msg_request;
+     struct create_window_request create_window_request;
+     struct destroy_window_request destroy_window_request;
+     struct get_desktop_window_request get_desktop_window_request;
+@@ -5554,6 +5610,9 @@ union generic_reply
+     struct create_named_pipe_reply create_named_pipe_reply;
+     struct get_named_pipe_info_reply get_named_pipe_info_reply;
+     struct set_named_pipe_info_reply set_named_pipe_info_reply;
++    struct named_pipe_send_msg_reply named_pipe_send_msg_reply;
++    struct named_pipe_recv_msg_reply named_pipe_recv_msg_reply;
++    struct named_pipe_peek_msg_reply named_pipe_peek_msg_reply;
+     struct create_window_reply create_window_reply;
+     struct destroy_window_reply destroy_window_reply;
+     struct get_desktop_window_reply get_desktop_window_reply;
+diff --git a/server/named_pipe.c b/server/named_pipe.c
+index df5c01a..82c98c2 100644
+--- a/server/named_pipe.c
++++ b/server/named_pipe.c
+@@ -18,9 +18,6 @@
+  * You should have received a copy of the GNU Lesser General Public
+  * License along with this library; if not, write to the Free Software
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+- *
+- * TODO:
+- *   message mode
+  */
+ 
+ #include "config.h"
+@@ -66,6 +63,15 @@ enum pipe_state
+ 
+ struct named_pipe;
+ 
++struct named_pipe_msg
++{
++    struct list          entry;
++    int                  length;
++    int                  offset;
++    char                 data[];
++};
++#define NAMED_PIPE_MSG_SIZE(len) (offsetof(struct named_pipe_msg, data) + len)
++
+ struct pipe_server
+ {
+     struct object        obj;        /* object header */
+@@ -79,12 +85,14 @@ struct pipe_server
+ struct pipe_end
+ {
+     struct object        obj;        /* object header */
+-    struct fd           *fd;         /* pipe file descriptor */
++    struct fd           *fd;         /* byte mode only: pipe file descriptor */
+     struct pipe_server  *server;     /* server that this end is connected to */
+     unsigned int         options;    /* file options */
+     unsigned int         flags;      /* pipe flags */
+-    struct timeout_user *flush_poll;
++    struct list          msgs;       /* message mode only */
++    struct timeout_user *flush_poll; /* byte mode only */
+     struct event        *event_empty;
++    struct event        *event_avail;/* message mode only */
+ };
+ 
+ struct named_pipe
+@@ -375,17 +383,35 @@ static struct fd *pipe_server_get_fd( struct object *obj )
+ 
+ static void notify_empty( struct pipe_end *end )
+ {
+-    if (!end->flush_poll)
+-        return;
+-    assert( end->server && end->server->state == ps_connected );
+-    assert( end->event_empty );
+-    remove_timeout_user( end->flush_poll );
+-    end->flush_poll = NULL;
++    if (!(end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE))
++    {
++        if (!end->flush_poll)
++            return;
++        assert( end->server && end->server->state == ps_connected );
++        assert( end->event_empty );
++        remove_timeout_user( end->flush_poll );
++        end->flush_poll = NULL;
++    }
++    else
++    {
++        if (!end->event_empty)
++            return;
++    }
+     set_event( end->event_empty );
+     release_object( end->event_empty );
+     end->event_empty = NULL;
+ }
+ 
++static void free_msgs( struct pipe_end *end )
++{
++    struct named_pipe_msg *msg1, *msg2;
++    LIST_FOR_EACH_ENTRY_SAFE( msg1, msg2, &end->msgs, struct named_pipe_msg, entry )
++    {
++        list_remove( &msg1->entry );
++        free( msg1 );
++    }
++}
++
+ static void do_disconnect( struct pipe_server *server )
+ {
+     int is_shutdown = 0;
+@@ -394,6 +420,14 @@ static void do_disconnect( struct pipe_server *server )
+     {
+         assert( server->ends[0]->server == server );
+         assert( server->ends[0]->fd );
++        if (server->ends[0]->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++        {
++            assert( server->ends[0]->event_avail );
++            set_event( server->ends[0]->event_avail );
++            release_object( server->ends[0]->event_avail );
++            server->ends[0]->event_avail = NULL;
++            free_msgs( server->ends[0] );
++        }
+         shutdown( get_unix_fd( server->ends[0]->fd ), SHUT_RDWR );
+         is_shutdown = 1;
+         release_object( server->ends[0]->fd );
+@@ -404,6 +438,14 @@ static void do_disconnect( struct pipe_server *server )
+     {
+         assert( server->ends[1]->server == server );
+         assert( server->ends[1]->fd );
++        if (server->ends[1]->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
++        {
++            assert( server->ends[1]->event_avail );
++            set_event( server->ends[1]->event_avail );
++            release_object( server->ends[1]->event_avail );
++            server->ends[1]->event_avail = NULL;
++            free_msgs( server->ends[1] );
++        }
+         if (!is_shutdown) shutdown( get_unix_fd( server->ends[1]->fd ), SHUT_RDWR );
+         release_object( server->ends[1]->fd );
+         server->ends[1]->fd = NULL;
+@@ -429,6 +471,7 @@ static void pipe_end_destroy( struct object *obj)
+ {
+     struct pipe_end *end = (struct pipe_end *)obj;
+     struct pipe_server *server = end->server;
++    struct named_pipe_msg *msg1, *msg2;
+ 
+     assert( obj->ops == &pipe_end_ops );
+     if (end->event_empty)
+@@ -460,6 +503,9 @@ static void pipe_end_destroy( struct object *obj)
+ 
+         release_object( server );
+     }
++
++    free_msgs( end );
++    if (end->event_avail) release_object( end->event_avail );
+     if (end->fd) release_object( end->fd );
+ }
+ 
+@@ -539,6 +585,7 @@ static int pipe_data_remaining( struct pipe_end *end )
+     struct pollfd pfd;
+     int fd;
+ 
++    assert( !(end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE) );
+     assert( end->fd );
+     fd = get_unix_fd( end->fd );
+     if (fd < 0)
+@@ -557,6 +604,7 @@ static void check_flushed( void *arg )
+ {
+     struct pipe_end *end = (struct pipe_end*) arg;
+ 
++    assert( !(end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE) );
+     assert( end->event_empty );
+     if (pipe_data_remaining( end ))
+     {
+@@ -585,19 +633,29 @@ static void pipe_end_flush( struct fd *fd, struct event **event )
+ 
+     /* FIXME: if multiple threads flush the same pipe,
+               maybe should create a list of processes to notify */
+-    if (other_end->flush_poll) return;
+-
+-    if (pipe_data_remaining( other_end ))
++    if (end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
+     {
+-        /* this kind of sux -
+-           there's no unix way to be alerted when a pipe becomes empty */
++        if (other_end->event_empty) return;
++        if (list_empty(&other_end->msgs)) return;
+         other_end->event_empty = create_event( NULL, NULL, 0, 0, 0, NULL );
+         if (!other_end->event_empty) return;
+-        other_end->flush_poll = add_timeout_user( -TICKS_PER_SEC / 10, check_flushed, other_end );
+         *event = other_end->event_empty;
+     }
+-}
++    else
++    {
++        if (other_end->flush_poll) return;
+ 
++        if (pipe_data_remaining( other_end ))
++        {
++            /* this kind of sux -
++               there's no unix way to be alerted when a pipe becomes empty */
++            other_end->event_empty = create_event( NULL, NULL, 0, 0, 0, NULL );
++            if (!other_end->event_empty) return;
++            other_end->flush_poll = add_timeout_user( -TICKS_PER_SEC / 10, check_flushed, other_end );
++            *event = other_end->event_empty;
++        }
++    }
++}
+ 
+ static inline int is_overlapped( unsigned int options )
+ {
+@@ -819,6 +877,19 @@ static struct pipe_end *get_pipe_end_obj( struct process *process,
+     return end;
+ }
+ 
++static struct pipe_end *get_pipe_other_end_obj( struct process *process, obj_handle_t handle )
++{
++    struct pipe_end *end, *other_end = NULL;
++    end = get_pipe_end_obj( process, handle, 0 );
++    if ( end )
++    {
++        if (end->server && end->server->ends[is_server_end( end )])
++            other_end = (struct pipe_end*)grab_object( end->server->ends[is_server_end( end )] );
++        release_object( end );
++    }
++    return other_end;
++}
++
+ static struct pipe_end *create_pipe_end( struct pipe_server *server, unsigned int options, unsigned int flags )
+ {
+     struct pipe_end *end;
+@@ -832,12 +903,19 @@ static struct pipe_end *create_pipe_end( struct pipe_server *server, unsigned in
+     end->options = options;
+     end->flush_poll = NULL;
+     end->event_empty = NULL;
+-    end->flags = flags;
++    end->event_avail = NULL;
++    list_init( &end->msgs );
+ 
+     if (flags & NAMED_PIPE_SERVER_END)
++    {
+         server->ends[0] = end;
++        end->flags = flags;
++    }
+     else
++    {
+         server->ends[1] = end;
++        end->flags = flags & NAMED_PIPE_MESSAGE_STREAM_WRITE;
++    }
+ 
+     grab_object( server );
+ 
+@@ -861,6 +939,10 @@ static struct pipe_server *create_pipe_server( struct named_pipe *pipe, unsigned
+         release_object( server );
+         return NULL;
+     }
++    else
++    {
++        server->ends[0]->server = server;
++    }
+ 
+     list_add_head( &pipe->servers, &server->entry );
+     grab_object( pipe );
+@@ -924,25 +1006,35 @@ static struct object *named_pipe_open_file( struct object *obj, unsigned int acc
+ 
+     if ((client = create_pipe_end( server, options, server->ends[0]->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE )))
+     {
++        /* FIXME: for message mode, maybe create pseudo fds? */
+         if (!socketpair( PF_UNIX, SOCK_STREAM, 0, fds ))
+         {
+             assert( !server->ends[0]->fd );
++            assert( !server->ends[0]->event_avail );
+ 
+-            /* for performance reasons, only set nonblocking mode when using
+-             * overlapped I/O. Otherwise, we will be doing too much busy
+-             * looping */
+-            if (is_overlapped( options )) fcntl( fds[1], F_SETFL, O_NONBLOCK );
+-            if (is_overlapped( server->ends[0]->options )) fcntl( fds[0], F_SETFL, O_NONBLOCK );
+-
+-            if (pipe->insize)
++            if (server->ends[0]->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE)
+             {
+-                setsockopt( fds[0], SOL_SOCKET, SO_RCVBUF, &pipe->insize, sizeof(pipe->insize) );
+-                setsockopt( fds[1], SOL_SOCKET, SO_RCVBUF, &pipe->insize, sizeof(pipe->insize) );
++                server->ends[0]->event_avail = create_event( NULL, NULL, 0, 0, 0, NULL );
++                client->event_avail = create_event( NULL, NULL, 0, 0, 0, NULL );
+             }
+-            if (pipe->outsize)
++            else
+             {
+-                setsockopt( fds[0], SOL_SOCKET, SO_SNDBUF, &pipe->outsize, sizeof(pipe->outsize) );
+-                setsockopt( fds[1], SOL_SOCKET, SO_SNDBUF, &pipe->outsize, sizeof(pipe->outsize) );
++                /* for performance reasons, only set nonblocking mode when using
++                 * overlapped I/O. Otherwise, we will be doing too much busy
++                 * looping */
++                if (is_overlapped( options )) fcntl( fds[1], F_SETFL, O_NONBLOCK );
++                if (is_overlapped( server->ends[0]->options )) fcntl( fds[0], F_SETFL, O_NONBLOCK );
++
++                if (pipe->insize)
++                {
++                    setsockopt( fds[0], SOL_SOCKET, SO_RCVBUF, &pipe->insize, sizeof(pipe->insize) );
++                    setsockopt( fds[1], SOL_SOCKET, SO_RCVBUF, &pipe->insize, sizeof(pipe->insize) );
++                }
++                if (pipe->outsize)
++                {
++                    setsockopt( fds[0], SOL_SOCKET, SO_SNDBUF, &pipe->outsize, sizeof(pipe->outsize) );
++                    setsockopt( fds[1], SOL_SOCKET, SO_SNDBUF, &pipe->outsize, sizeof(pipe->outsize) );
++                }
+             }
+ 
+             client->fd = create_anonymous_fd( &pipe_end_fd_ops, fds[1], &client->obj, options );
+@@ -1170,3 +1262,194 @@ DECL_HANDLER(set_named_pipe_info)
+         release_object( end );
+     }
+ }
++
++DECL_HANDLER(named_pipe_send_msg)
++{
++    struct pipe_end *end, *other_end;
++
++    if (!(end = get_pipe_end_obj( current->process, req->handle, FILE_WRITE_DATA )))
++        return;
++
++    assert( end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE );
++    if ((other_end = get_pipe_other_end_obj( current->process, req->handle )) && end->server->state == ps_connected)
++    {
++        struct named_pipe_msg *msg = malloc( NAMED_PIPE_MSG_SIZE(req->length) );
++        if (msg)
++        {
++            msg->length = req->length;
++            msg->offset = 0;
++            memcpy( msg->data, get_req_data(), req->length );
++            if (list_empty( &other_end->msgs ))
++            {
++                set_event( other_end->event_avail );
++                fd_async_wake_up( other_end->fd, ASYNC_TYPE_READ, STATUS_ALERTED );
++            }
++            list_add_tail( &other_end->msgs, &msg->entry );
++        }
++        else
++        {
++            set_error( STATUS_NO_MEMORY );
++        }
++        release_object( other_end );
++    }
++    else
++    {
++        set_error( STATUS_PIPE_BROKEN );
++    }
++
++    release_object( end );
++}
++
++DECL_HANDLER(named_pipe_recv_msg)
++{
++    struct pipe_end *end;
++
++    if (!(end = get_pipe_end_obj( current->process, req->handle, 0 )))
++        return;
++
++    assert( end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE );
++
++    reply->avail = (obj_handle_t)INVALID_HANDLE_VALUE;
++
++    if (list_empty( &end->msgs ))
++    {
++        if (!end->server || end->server->state != ps_connected)
++        {
++            reply->result = -1;
++            set_error( STATUS_PIPE_BROKEN );
++        }
++        else
++        {
++            if (req->wait_avail)
++                reply->avail = alloc_handle( current->process, end->event_avail, EVENT_ALL_ACCESS, 0 );
++            reply->result = -1;
++            set_error( STATUS_NO_MORE_ENTRIES );
++        }
++    }
++    else if (!req->length)
++    {
++        reply->result = 0;
++    }
++    else
++    {
++        struct named_pipe_msg *msg;
++        char *buf;
++        if ((buf = mem_alloc( req->length )))
++        {
++            reply->result = 0;
++            do
++            {
++                msg = (struct named_pipe_msg*)list_head( &end->msgs );
++                if (msg->length - msg->offset <= req->length - reply->result)
++                {
++                    memcpy( &buf[reply->result], &msg->data[msg->offset], msg->length - msg->offset );
++                    list_remove( &msg->entry );
++                    reply->result += msg->length - msg->offset;
++                    free( msg );
++                }
++                else
++                {
++                    memcpy( &buf[reply->result], &msg->data[msg->offset], req->length - reply->result );
++                    msg->offset += req->length - reply->result;
++                    reply->result = req->length;
++                    if (end->flags & NAMED_PIPE_MESSAGE_STREAM_READ)
++                        set_error( STATUS_MORE_ENTRIES );
++                }
++            }
++            while (!(end->flags & NAMED_PIPE_MESSAGE_STREAM_READ) &&
++                   !list_empty( &end->msgs ) &&
++                   reply->result < req->length);
++
++            set_reply_data_ptr( buf, reply->result );
++
++            if (list_empty( &end->msgs ))
++            {
++                if (end->event_empty) notify_empty( end );
++                if (end->event_avail) reset_event( end->event_avail );
++            }
++        }
++        else
++        {
++            reply->result = -1;
++            set_error( STATUS_NO_MEMORY );
++        }
++    }
++
++    release_object( end );
++}
++
++DECL_HANDLER(named_pipe_peek_msg)
++{
++    struct pipe_end *end;
++
++    if (!(end = get_pipe_end_obj( current->process, req->handle, 0 )))
++        return;
++
++    assert( end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE );
++
++    if (list_empty( &end->msgs ))
++    {
++        if (!end->server)
++        {
++            set_error( STATUS_PIPE_DISCONNECTED );
++        }
++        else if (end->server->state != ps_connected)
++        {
++            set_error( STATUS_PIPE_BROKEN );
++        }
++        else
++        {
++            reply->state = 3; /* FILE_PIPE_CONNECTED_STATE */
++            reply->avail = 0;
++            reply->msg_count = 0;
++            reply->msg_length = 0;
++            reply->peeked = 0;
++        }
++    }
++    else
++    {
++        struct named_pipe_msg *msg = (struct named_pipe_msg*)list_head( &end->msgs );
++        char *buf = NULL;
++
++        if (!req->length || (buf = mem_alloc( req->length )))
++        {
++            if (!end->server || end->server->state != ps_connected)
++                reply->state = 4; /* FILE_PIPE_CLOSING_STATE */
++            else
++                reply->state = 3; /* FILE_PIPE_CONNECTED_STATE */
++
++            reply->msg_length =  msg->length - msg->offset;
++            reply->avail = 0;
++            reply->msg_count = 0;
++            reply->peeked = 0;
++
++            LIST_FOR_EACH_ENTRY( msg, &end->msgs, struct named_pipe_msg, entry )
++            {
++                /* FIXME: MSDN says we should fill the buffer if CreateNamedPipe() was called with PIPE_READMODE_BYTE */
++                if (reply->peeked < req->length && !reply->msg_count)
++                {
++                    if (msg->length - msg->offset <= req->length - reply->peeked)
++                    {
++                        memcpy( &buf[reply->peeked], &msg->data[msg->offset], msg->length - msg->offset );
++                        reply->peeked += msg->length - msg->offset;
++                    }
++                    else
++                    {
++                        memcpy( &buf[reply->peeked], &msg->data[msg->offset], req->length - reply->peeked );
++                        reply->peeked = req->length;
++                    }
++                }
++
++                reply->avail += msg->length - msg->offset;
++                reply->msg_count++;
++            }
++            set_reply_data_ptr( buf, reply->peeked );
++        }
++        else
++        {
++            set_error( STATUS_NO_MEMORY );
++        }
++    }
++
++    release_object( end );
++}
+diff --git a/server/protocol.def b/server/protocol.def
+index 4e00895..8071c04 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -2227,6 +2227,37 @@ enum message_type
+ @END
+ 
+ 
++@REQ(named_pipe_send_msg)
++    obj_handle_t   handle;
++    int            length;
++    VARARG(data,bytes,length);
++@END
++
++
++@REQ(named_pipe_recv_msg)
++    obj_handle_t   handle;
++    unsigned int   length;
++    int            wait_avail;
++@REPLY
++    obj_handle_t   avail;
++    int            result;
++    VARARG(data,bytes,result);
++@END
++
++
++@REQ(named_pipe_peek_msg)
++    obj_handle_t   handle;
++    int            length;
++@REPLY
++    unsigned int   state;
++    unsigned int   avail;
++    unsigned int   msg_count;
++    unsigned int   msg_length;
++    int            peeked;
++    VARARG(data,bytes,peeked);
++@END
++
++
+ /* Create a window */
+ @REQ(create_window)
+     user_handle_t  parent;      /* parent window */
+diff --git a/server/request.h b/server/request.h
+index 7bcf5fd..6f0cbb1 100644
+--- a/server/request.h
++++ b/server/request.h
+@@ -253,6 +253,9 @@ DECL_HANDLER(get_ioctl_result);
+ DECL_HANDLER(create_named_pipe);
+ DECL_HANDLER(get_named_pipe_info);
+ DECL_HANDLER(set_named_pipe_info);
++DECL_HANDLER(named_pipe_send_msg);
++DECL_HANDLER(named_pipe_recv_msg);
++DECL_HANDLER(named_pipe_peek_msg);
+ DECL_HANDLER(create_window);
+ DECL_HANDLER(destroy_window);
+ DECL_HANDLER(get_desktop_window);
+@@ -507,6 +510,9 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
+     (req_handler)req_create_named_pipe,
+     (req_handler)req_get_named_pipe_info,
+     (req_handler)req_set_named_pipe_info,
++    (req_handler)req_named_pipe_send_msg,
++    (req_handler)req_named_pipe_recv_msg,
++    (req_handler)req_named_pipe_peek_msg,
+     (req_handler)req_create_window,
+     (req_handler)req_destroy_window,
+     (req_handler)req_get_desktop_window,
+@@ -1504,6 +1510,25 @@ C_ASSERT( sizeof(struct get_named_pipe_info_reply) == 32 );
+ C_ASSERT( FIELD_OFFSET(struct set_named_pipe_info_request, handle) == 12 );
+ C_ASSERT( FIELD_OFFSET(struct set_named_pipe_info_request, flags) == 16 );
+ C_ASSERT( sizeof(struct set_named_pipe_info_request) == 24 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_send_msg_request, handle) == 12 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_send_msg_request, length) == 16 );
++C_ASSERT( sizeof(struct named_pipe_send_msg_request) == 24 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_recv_msg_request, handle) == 12 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_recv_msg_request, length) == 16 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_recv_msg_request, wait_avail) == 20 );
++C_ASSERT( sizeof(struct named_pipe_recv_msg_request) == 24 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_recv_msg_reply, avail) == 8 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_recv_msg_reply, result) == 12 );
++C_ASSERT( sizeof(struct named_pipe_recv_msg_reply) == 16 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_request, handle) == 12 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_request, length) == 16 );
++C_ASSERT( sizeof(struct named_pipe_peek_msg_request) == 24 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_reply, state) == 8 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_reply, avail) == 12 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_reply, msg_count) == 16 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_reply, msg_length) == 20 );
++C_ASSERT( FIELD_OFFSET(struct named_pipe_peek_msg_reply, peeked) == 24 );
++C_ASSERT( sizeof(struct named_pipe_peek_msg_reply) == 32 );
+ C_ASSERT( FIELD_OFFSET(struct create_window_request, parent) == 12 );
+ C_ASSERT( FIELD_OFFSET(struct create_window_request, owner) == 16 );
+ C_ASSERT( FIELD_OFFSET(struct create_window_request, atom) == 20 );
+diff --git wine-1.5.30/server/trace.c wine-1.5.30/server/trace.c
+index 29fe800..49482f7 100644
+--- wine-1.5.30/server/trace.c.orig	2013-05-21 14:29:07.511883050 -0400
++++ wine-1.5.30/server/trace.c	2013-05-21 14:33:56.378897952 -0400
+@@ -2693,6 +2693,43 @@
+     fprintf( stderr, ", flags=%08x", req->flags );
+ }
+ 
++static void dump_named_pipe_send_msg_request( const struct named_pipe_send_msg_request *req )
++{
++    fprintf( stderr, " handle=%04x", req->handle );
++    fprintf( stderr, ", length=%d", req->length );
++    dump_varargs_bytes( ", data=", min(cur_size,req->length) );
++}
++
++static void dump_named_pipe_recv_msg_request( const struct named_pipe_recv_msg_request *req )
++{
++    fprintf( stderr, " handle=%04x", req->handle );
++    fprintf( stderr, ", length=%08x", req->length );
++    fprintf( stderr, ", wait_avail=%d", req->wait_avail );
++}
++
++static void dump_named_pipe_recv_msg_reply( const struct named_pipe_recv_msg_reply *req )
++{
++    fprintf( stderr, " avail=%04x", req->avail );
++    fprintf( stderr, ", result=%d", req->result );
++    dump_varargs_bytes( ", data=", min(cur_size,req->result) );
++}
++
++static void dump_named_pipe_peek_msg_request( const struct named_pipe_peek_msg_request *req )
++{
++    fprintf( stderr, " handle=%04x", req->handle );
++    fprintf( stderr, ", length=%d", req->length );
++}
++
++static void dump_named_pipe_peek_msg_reply( const struct named_pipe_peek_msg_reply *req )
++{
++    fprintf( stderr, " state=%08x", req->state );
++    fprintf( stderr, ", avail=%08x", req->avail );
++    fprintf( stderr, ", msg_count=%08x", req->msg_count );
++    fprintf( stderr, ", msg_length=%08x", req->msg_length );
++    fprintf( stderr, ", peeked=%d", req->peeked );
++    dump_varargs_bytes( ", data=", min(cur_size,req->peeked) );
++}
++
+ static void dump_create_window_request( const struct create_window_request *req )
+ {
+     fprintf( stderr, " parent=%08x", req->parent );
+@@ -4128,6 +4165,9 @@
+     (dump_func)dump_create_named_pipe_request,
+     (dump_func)dump_get_named_pipe_info_request,
+     (dump_func)dump_set_named_pipe_info_request,
++    (dump_func)dump_named_pipe_send_msg_request,
++    (dump_func)dump_named_pipe_recv_msg_request,
++    (dump_func)dump_named_pipe_peek_msg_request,
+     (dump_func)dump_create_window_request,
+     (dump_func)dump_destroy_window_request,
+     (dump_func)dump_get_desktop_window_request,
+@@ -4381,6 +4421,9 @@
+     (dump_func)dump_create_named_pipe_reply,
+     (dump_func)dump_get_named_pipe_info_reply,
+     NULL,
++    NULL,
++    (dump_func)dump_named_pipe_recv_msg_reply,
++    (dump_func)dump_named_pipe_peek_msg_reply,
+     (dump_func)dump_create_window_reply,
+     NULL,
+     (dump_func)dump_get_desktop_window_reply,
+@@ -4634,6 +4677,9 @@
+     "create_named_pipe",
+     "get_named_pipe_info",
+     "set_named_pipe_info",
++    "named_pipe_send_msg",
++    "named_pipe_recv_msg",
++    "named_pipe_peek_msg",
+     "create_window",
+     "destroy_window",
+     "get_desktop_window",
+@@ -4805,6 +4851,7 @@
+     { "KEY_DELETED",                 STATUS_KEY_DELETED },
+     { "MAPPED_FILE_SIZE_ZERO",       STATUS_MAPPED_FILE_SIZE_ZERO },
+     { "MORE_PROCESSING_REQUIRED",    STATUS_MORE_PROCESSING_REQUIRED },
++    { "MORE_ENTRIES",                STATUS_MORE_ENTRIES },
+     { "MUTANT_NOT_OWNED",            STATUS_MUTANT_NOT_OWNED },
+     { "NAME_TOO_LONG",               STATUS_NAME_TOO_LONG },
+     { "NETWORK_BUSY",                STATUS_NETWORK_BUSY },
+@@ -4833,6 +4880,7 @@
+     { "OBJECT_PATH_SYNTAX_BAD",      STATUS_OBJECT_PATH_SYNTAX_BAD },
+     { "OBJECT_TYPE_MISMATCH",        STATUS_OBJECT_TYPE_MISMATCH },
+     { "PENDING",                     STATUS_PENDING },
++    { "PIPE_BROKEN",                 STATUS_PIPE_BROKEN },
+     { "PIPE_CONNECTED",              STATUS_PIPE_CONNECTED },
+     { "PIPE_DISCONNECTED",           STATUS_PIPE_DISCONNECTED },
+     { "PIPE_LISTENING",              STATUS_PIPE_LISTENING },
