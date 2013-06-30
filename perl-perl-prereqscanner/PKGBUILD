@@ -4,7 +4,7 @@
 # Generator  : CPANPLUS::Dist::Arch 1.04
 
 pkgname='perl-perl-prereqscanner'
-pkgver='1.015'
+pkgver='1.016'
 pkgrel='1'
 pkgdesc="a tool to scan your Perl code for its prerequisites"
 arch=('any')
@@ -17,12 +17,13 @@ depends=('perl-cpan-meta-requirements'
 'perl-params-util'
 'perl-string-rewriteprefix>=0.005'
 'perl-namespace-autoclean'
-'perl>=5.008')
-
+'perl>=5.008'
+'perl-getopt-long-descriptive'
+'perl-module-path')
 options=('!emptydirs')
 
 source=("http://search.cpan.org/CPAN/authors/id/R/RJ/RJBS/Perl-PrereqScanner-$pkgver.tar.gz")
-md5sums=('339b795952e83ebc7ec68ed107fe9ca9')
+md5sums=('7972b7bec2134265ad42a7a08071450c')
 
 build() {
   DIST_DIR="${srcdir}/Perl-PrereqScanner-$pkgver"
