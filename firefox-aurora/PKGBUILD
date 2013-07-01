@@ -5,7 +5,7 @@ _name=firefox
 _channel=aurora
 pkgname="${_name}-${_channel}"
 pkgver=24.0a2
-pkgrel=5
+pkgrel=6
 pkgdesc="Firefox Aurora channel - Nightly build"
 url="http://www.mozilla.org/en_US/${_name}/${_channel}/"
 arch=('i686' 'x86_64')
@@ -17,7 +17,7 @@ install="${pkgname}.install"
 
 _baseurl="http://ftp.mozilla.org/pub/mozilla.org/firefox/nightly/latest-mozilla-aurora"
 _filename="${_name}-${pkgver}.en-US.linux-${CARCH}"
-_sha512sum="$(curl -vs "${_baseurl}/${_filename}.checksums" 2>&1 | grep bz | grep 512 | cut -d " " -f1)"
+_sha512sum="$(curl -vs "${_baseurl}/${_filename}.checksums" 2>&1 | grep bz | grep sha512 | cut -d " " -f1)"
 source=("${pkgname}.desktop"
 	"${pkgname}-safe.desktop"
 	"${_baseurl}/${_filename}.tar.bz2")

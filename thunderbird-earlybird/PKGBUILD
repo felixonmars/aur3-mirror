@@ -5,7 +5,7 @@ _name=thunderbird
 _channel=earlybird
 pkgname="${_name}"-"${_channel}"
 pkgver=24.0a2
-pkgrel=5
+pkgrel=6
 pkgdesc="Standalone Mail/News reader - Earlybird channel"
 arch=('i686' 'x86_64')
 license=('MPL' 'GPL' 'LGPL')
@@ -20,7 +20,7 @@ install="${pkgname}.install"
 
 _baseurl="http://ftp.mozilla.org/pub/mozilla.org/${_name}/nightly/latest-comm-aurora"
 _filename="${_name}-${pkgver}.en-US.linux-${CARCH}"
-_sha512sum="$(curl -vs "${_baseurl}/${_filename}.checksums" 2>&1 | grep bz | grep 512 | cut -d " " -f1)"
+_sha512sum="$(curl -vs "${_baseurl}/${_filename}.checksums" 2>&1 | grep bz | grep sha512 | cut -d " " -f1)"
 
 source=("${pkgname}.desktop"
         "${_baseurl}/${_name}-${pkgver}.en-US.linux-${CARCH}.tar.bz2")
