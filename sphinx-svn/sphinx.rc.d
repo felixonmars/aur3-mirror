@@ -11,6 +11,7 @@ start)
 
         if [[ -z $PID ]] && /usr/bin/sphinx-searchd $SPHINX_ARGS; then
 
+                /usr/bin/mkdir -p /var/run/sphinx
                 PID=$(pidof -o %PPID /var/run/sphinx/searchd.pid)
                 echo "$PID" > /var/run/sphinx/searchd.pid
                 add_daemon sphinx
