@@ -52,18 +52,18 @@ _remove_static_objects_ipp=true
 ########################################
 
 _year='2013'
-_v_a='3'
-_v_b='163' 
+_v_a='5'
+_v_b='192' 
 
-_update='update3'
+_update='update4'
 
-pkgrel=2
+pkgrel=1
 
 _sp=''
 
 pkgver=${_year}.${_v_a}.${_v_b}
 
-_dir_nr='3078'
+_dir_nr='3266'
 
 options=(strip)
 
@@ -71,10 +71,10 @@ options=(strip)
 _icc_ver='13.1'
 _ipp_ver='7.1-1'
 _mkl_ver='11.0-3'
-_openmp_ver='13.1-3'
-_sourcechecker_ver='13.1-3'
+_openmp_ver='13.1-5'
+_sourcechecker_ver='13.1-5'
 
-_tbb_ver='4.1-3'
+_tbb_ver='4.1-4'
 
 if $_amd_64 ; then
   _not_arch_64='intel64'
@@ -126,13 +126,13 @@ if [ "$CARCH" = "i686" ]; then
     _i_arch='ia32'
     _i_arch2='i486'
     _not_arch='intel64'
-    sha256sums=( '57017db1b00345d46ef9dff67dd4e5754ed0fe67fae7335489447f948dbfe7a8' ${sha256sums[@]} )
+    sha256sums=( '5bd75b2747f4b787b8128a83914b060d156ecdc41236f4100363b7ab4f9f6859' ${sha256sums[@]} )
 else
     _i_arch='intel64'
   
     _i_arch2='x86_64'
     _not_arch='ia32' 
-    sha256sums=('081bc3d617f04243d459d92d05398df1a3634faf3de554346f732ed83ed4ef06' ${sha256sums[@]} )
+    sha256sums=('31383f357b9b7d9c76e727e63427387d9ee42358f5b5df75a0d8766cd318a11d' ${sha256sums[@]} )
 fi
 
  _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_update}_${_i_arch}"
@@ -708,6 +708,11 @@ package_intel-tbb() {
 	echo -e " # intel-tbb: Move package "
 	mv ${xe_build_dir}/opt ${pkgdir}
 	mv ${xe_build_dir}/etc ${pkgdir}
+}
+
+package_intel-vtune-amplifier() {
+	pkgdesc="Performance profiler for serial and parallel performance analysis"
+	pkgver=${_year}.${_v_a}.${_v_b}
 }
 
 pkgdesc="Intel C++ C and fortran compiler - Intel Parallel Studio XE  - intel compiler - icc icpc ifort ipp mkl "
