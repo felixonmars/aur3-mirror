@@ -2,7 +2,7 @@
 
 pkgname='ambiance-radiance-xfce-lxde'
 pkgver='12.04'
-pkgrel=1
+pkgrel=2
 pkgdesc="Ambiance & Radiance themes for Xfce and LXDE"
 arch=('any')
 license=('GPL2')
@@ -11,7 +11,7 @@ depends=('gtk-engine-murrine' 'gtk-engine-unico')
 source=('http://dl.dropbox.com/u/85873590/Ambiance%26Radiance-XfceLXDE-12-04.tar.gz')
 md5sums=('a15ffaf22dbdbb69cc12a5b80c94be80')
 
-build() {
+package() {
   	mkdir -p "$pkgdir/usr/share/themes/"
 	cp -r "$srcdir/Ambiance-Xfce-LXDE" "$pkgdir/usr/share/themes"
 	cp -r "$srcdir/Radiance-Xfce-LXDE" "$pkgdir/usr/share/themes"
