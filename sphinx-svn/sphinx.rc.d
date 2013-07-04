@@ -8,10 +8,10 @@ PID=$(pidof -o %PPID /usr/bin/sphinx-searchd)
 case $1 in
 start)
         stat_busy "Starting Sphinx Daemon"
+        /usr/bin/mkdir -p /var/run/sphinx
 
         if [[ -z $PID ]] && /usr/bin/sphinx-searchd $SPHINX_ARGS; then
 
-                /usr/bin/mkdir -p /var/run/sphinx
                 PID=$(pidof -o %PPID /var/run/sphinx/searchd.pid)
                 echo "$PID" > /var/run/sphinx/searchd.pid
                 add_daemon sphinx
