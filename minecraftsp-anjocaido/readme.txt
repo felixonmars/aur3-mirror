@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 Title:
 -----------------------------------------------------------------------------
-Minecraft Alpha - Auto-update launcher - Hybrid(Windows, Mac, Linux) v12.2
+Minecraft Open Launcher - Auto-update launcher - Hybrid(Windows, Mac, Linux) v12.2
 [img]http://small-games.info/s/l/m/Minecraft_Alpha_1.jpg[/img]
 -----------------------------------------------------------------------------
 Game Description:
@@ -19,6 +19,11 @@ plans to move into beta sometime in October 2010. Minecraft was developed for
 about a week before its public release on May 16, 2009 on the TIGSource
 forums, where it gained a considerable level of popularity. It has been
 continually updated since then.
+
+-----------------------------------------------------------------------------
+Changes In Version 1.0.5:
+-----------------------------------------------------------------------------
+- Working again!
 
 -----------------------------------------------------------------------------
 Changes In Version 12.2:
