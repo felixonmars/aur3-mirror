@@ -3,7 +3,7 @@
 require 'optparse'
 
 module Pacgem
-  VERSION = '0.9.9'
+  VERSION = '0.9.10'
 
   module Util
     def which?(name)
@@ -11,7 +11,15 @@ module Pacgem
       $?.success?
     end
 
-    def fetch_dep(dep)
+    def reset_rubygems
+      Gem::Specification.reset
+
+      # Perform only operation on global gems
+      Gem::Specification.dirs.reject! {|dir| dir !~ %r{\A/usr} }
+      raise 'No system gem directory found - are you using local ruby installation (rvm, rbenv, ...)?' if Gem::Specification.dirs.empty?
+    end
+
+    def fetch_spec(dep)
       fetcher = Gem::SpecFetcher.fetcher
       if fetcher.respond_to? :fetch
         # Pre Ruby 2.0 gem spec fetcher
@@ -33,8 +41,10 @@ module Pacgem
     end
 
     def ruby_package
-      @ruby_package ||= if RUBY_VERSION > '1.9'
+      @ruby_package ||= if RUBY_VERSION > '2.0'
                           'ruby'
+                        elsif RUBY_VERSION > '1.9'
+                          'ruby1.9'
                         elsif Gem.ruby.include?('ruby-enterprise')
                           'ruby-enterprise'
                         else
@@ -44,14 +54,6 @@ module Pacgem
 
     def pacman_parse(args)
       `LC_ALL=C pacman #{args} 2>/dev/null`
-    end
-
-    def each_gem
-      Gem::Specification.each do |spec|
-        name = pacman_parse("-Qqo #{spec.loaded_from.shellescape}").chomp
-        yield(spec, name.empty? ? nil : name, !name.empty? &&
-              !pacman_parse("-Qi #{name.shellescape}").match(/^Groups\s+:\s+pacgem$/).nil?)
-      end
     end
 
     extend self
@@ -189,17 +191,12 @@ module Pacgem
       @explicit
     end
 
-    def installed_version
-      unless instance_variable_defined?(:@installed_version)
-        installed = pacman_parse("-Q #{name.shellescape}").strip.split(/\s+/, 2)
-        installed[1] =~ /^(.*?)\-\d+$/
-        @installed_version = $1
-      end
-      @installed_version
-    end
-
-    def installed?
-      installed_version == version
+    def find_installed(name = gemname)
+      reset_rubygems
+      spec = Gem::Dependency.new(name, nil).to_spec
+      pkg = pacman_parse("-Qqo #{spec.loaded_from.shellescape}").chomp
+      pkg.empty? ? nil : [pkg, spec.version.to_s]
+    rescue Exception
     end
 
     def install(options, logger)
@@ -209,7 +206,7 @@ module Pacgem
         gen_pkgbuild(gemfile, options)
         pkgfile = makepkg(options)
         if options[:nonamcap]
-          logger.warning "Skipping namcap checks."
+          logger.warning 'Skipping namcap checks.'
         else
           namcap(pkgfile, logger)
         end
@@ -240,22 +237,32 @@ module Pacgem
       depends = [ruby_package]
       conflicts = []
       spec.runtime_dependencies.each do |dep|
-        dep.requirement.requirements.each do |comp, ver|
-          comp = '>=' if comp == '~>'
-          if comp == '!='
-            depends << "#{build_name dep.name}"
-            conflicts << "#{build_name dep.name}=#{ver}"
-          else
-            depends << "#{build_name dep.name}#{comp}#{ver}"
+        owner_pkg, installed_version = find_installed(dep.name)
+        pkgname = build_name(dep.name)
+        if owner_pkg && owner_pkg != pkgname
+          depends << owner_pkg
+        else
+          dep.requirement.requirements.each do |comp, ver|
+            comp = '>=' if comp == '~>'
+            if comp == '!='
+              depends << pkgname
+              conflicts << "#{pkgname}=#{ver}"
+            else
+              depends << "#{pkgname}#{comp}#{ver}"
+            end
           end
         end
       end
 
       optdepends = []
       spec.development_dependencies.each do |dep|
-        optspec, opturi = fetch_dep(dep)
-        optdepends << "#{build_name dep.name}: #{truncate(optspec.summary, 80)}" if optspec
+        optspec, opturi = fetch_spec(dep)
+        optdepends << "#{build_name dep.name}: #{truncate(optspec.summary, 80)} (Development dependency)" if optspec
       end
+
+      depends.uniq!
+      conflicts.uniq!
+      optdepends.uniq!
 
       builder = %w(install man license fix)
       unless spec.extensions.empty?
@@ -362,39 +369,45 @@ module Pacgem
     end
 
     def update
-      each_gem do |spec, name, pacgem|
-        if pacgem
-          resolve(Gem::Dependency.new(spec.name, nil))
-        elsif name
-          @logger.msg2 "Not installed by pacgem: #{spec.full_name} (Package #{name})"
-        else
-          @logger.msg2 "Not managed by pacman: #{spec.full_name}"
-        end
+      reset_rubygems
+      Gem::Specification.each do |spec|
+        resolve(Gem::Dependency.new(spec.name, nil))
       end
     end
 
     private
 
     def resolve(dep)
-      @packages[dep.name] ||= begin
-        spec, uri = fetch_dep(dep)
-        raise "Gem #{dep} not found" unless spec
-        pkg = Package.new(dep.name, spec.version, uri)
-        if pkg.installed?
-          @logger.msg2 "(Up-to-date) #{spec.full_name}: #{spec.summary}"
-        elsif pkg.installed_version
-          @logger.msg2 "(Update from #{pkg.installed_version}) #{spec.full_name}: #{spec.summary}"
-        else
-          @logger.msg2 "(New) #{spec.full_name}: #{spec.summary}"
+      @packages[dep.name] ||=
+        begin
+          spec, uri = fetch_spec(dep)
+          raise "Gem #{dep} not found" unless spec
+          pkg = Package.new(dep.name, spec.version, uri)
+          install = @options[:create]
+          owner_pkg, installed_version = pkg.find_installed
+          if installed_version
+            if owner_pkg != pkg.name || pacman_parse("-Qi #{pkg.name.shellescape}").match(/^Groups\s+:\s+pacgem$/).nil?
+              @logger.msg2 "(Not installed with pacgem, part of #{owner_pkg}) #{pkg.gemname}-#{installed_version}: #{spec.summary}"
+            elsif installed_version == pkg.version
+              @logger.msg2 "(Up-to-date) #{spec.full_name}: #{spec.summary}"
+            else
+              @logger.msg2 "(Update from #{installed_version}) #{spec.full_name}: #{spec.summary}"
+              install = true
+            end
+          else
+            @logger.msg2 "(New) #{spec.full_name}: #{spec.summary}"
+            install = true
+          end
+          spec.runtime_dependencies.each {|d| resolve(d) } if !@options[:noresolve]
+          @list << pkg if install
+          pkg
         end
-        spec.runtime_dependencies.each {|d| resolve(d) } if !@options[:noresolve]
-        @list << pkg if @options[:create] || !pkg.installed?
-        pkg
-      end
     end
   end
 
   class Command
+    include Util
+
     def initialize(args)
       @args = args
       @options = {}
@@ -432,6 +445,8 @@ module Pacgem
       require 'open-uri'
       require 'digest/sha2'
       require 'fileutils'
+
+      reset_rubygems
     end
 
     def process
@@ -498,10 +513,10 @@ module Pacgem
 Pacgem installs Ruby Gems using the Arch Linux Package Manager (pacman).
 
 Examples:
-    pacgem --create rake             Create ruby-rake package in the directory ./ruby-rake
-    pacgem rake-1.0                  Create temporary ruby-rake package and install it
-    pacgem 'rake>1.0'                Install ruby-rake version > 1.0
-    pacgem thin 'rake~>1.0'          Install ruby-thin and ruby-rake with version ~>1.0
+    pacgem --create slim             Create ruby-slim package in the directory ./ruby-slim
+    pacgem slim-1.0                  Create temporary ruby-slim package and install it
+    pacgem 'slim>1.0'                Install ruby-slim version > 1.0
+    pacgem thin 'slim~>1.0'          Install ruby-thin and ruby-slim with version ~>1.0
 
 Options:
 }
