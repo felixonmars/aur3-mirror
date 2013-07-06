@@ -4,7 +4,7 @@
 
 pkgname=anacron
 pkgver=2.3
-pkgrel=9
+pkgrel=10
 pkgdesc="A cron-like periodic command scheduler"
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/projects/anacron"
@@ -29,12 +29,12 @@ sha1sums=('d0e154123585e9faf615d67230d82d7d1b4c099a'
 
 build() {
   cd ${srcdir}/${pkgname}-${pkgver}
-  sed -i 's/const int isleap;/int isleap;/' gregor.c || return 1
-  make || return 1
-  make PREFIX=${pkgdir} MANDIR=${pkgdir}/usr/share/man install || return 1
+  sed -i 's/const int isleap;/int isleap;/' gregor.c 
+  make 
+  make PREFIX=${pkgdir} BINDIR=${pkgdir}/usr/bin MANDIR=${pkgdir}/usr/share/man install
 
   install -d ${pkgdir}/etc/{rc.d,cron.daily,cron.weekly,cron.monthly}
-  install -D -m755 ../run-anacron ${pkgdir}/usr/sbin/run-anacron
+  install -D -m755 ../run-anacron ${pkgdir}/usr/bin/run-anacron
   install -D -m755 ../anacrond ${pkgdir}/etc/rc.d/anacrond
   install -D -m755 ../00anacron.daily ${pkgdir}/etc/cron.daily/00anacron
   install -D -m755 ../00anacron.weekly ${pkgdir}/etc/cron.weekly/00anacron
