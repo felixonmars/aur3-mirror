@@ -45,11 +45,11 @@ status)
 	echo -n 'PHC status: '
 	. /etc/default/phc-intel
 	if check_off; then
-		echo 'STOPPED'
+		echo 'inactive'
 	elif check_on; then
-		echo 'STARTED'
+		echo 'active'
 	else
-		echo 'UNKNOWN'
+		echo 'unknown'
 	fi
 	;;
 setup)
