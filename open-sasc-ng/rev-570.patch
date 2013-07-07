@@ -1,0 +1,782 @@
+diff -ru rev-570/sc/cam.c sc-build/cam.c
+--- rev-570/sc/cam.c	2013-07-07 14:30:54.464044999 +1200
++++ sc-build/cam.c	2013-07-07 14:30:57.173044939 +1200
+@@ -824,6 +824,7 @@
+     prg.sid=-1;
+     idleTime.Set();
+     prg.pids.Clear();
++    prg.caDescr.Clear();
+     trigger=true;
+     }
+   dataMutex.Unlock();
+@@ -957,7 +958,7 @@
+ 
+     case 0:
+       StopEcm();
+-      if(IsIdle()) { mode=-1; break; }
++      if(filterSid<0 || IsIdle()) { mode=-1; break; }
+ 
+       dolog=LOG_COUNT;
+       NewEcm();
+diff -ru rev-570/sc/contrib/sasc-ng/configure sc-build/contrib/sasc-ng/configure
+--- rev-570/sc/contrib/sasc-ng/configure	2013-07-07 14:30:54.466044999 +1200
++++ sc-build/contrib/sasc-ng/configure	2013-07-07 14:30:57.175044939 +1200
+@@ -79,6 +79,7 @@
+   echo "                           long: Try all known optimizations"
+   echo "                           no: Don't do any optimizations"
+   echo "  --ffdecsa_mode=<val>     use <val> optimization"
++  echo "                           like  --ffdecsa_mode=PARALLEL_128_SSE"
+   echo "  -cxx=<c++ compiler>      command for C++ compilation (default: g++)"
+   exit 0
+ }
+@@ -207,9 +208,17 @@
+    echo "Choosing PARALLEL_MODE = ${MAX_MODE}"
+    echo "FFDECSA_OPTS = \"$FLAGS\" PARALLEL_MODE=${MAX_MODE} COMPILER=$CXX" >> config.mak
+ else
+-   if test "x$ffdecsa_flags" != "x"; then
+-     echo "FFDECSA_OPTS = \"$ffdecsa_flags\" PARALLEL_MODE=${MAX_MODE} COMPILER=$CXX" >> config.mak
+-   elif test "x$MAX_MODE" != "xPARALLEL_32_INT"; then
++   if ! test -f /proc/cpuinfo; then
++     echo "\nYou should not set '--ffdecsa_mode='\n\nAborting...\n"
++     rm -rf "${TMPDIR}"
++     exit 1
++   fi
++   get_cpu_optimization
++   if test "x$MAX_MODE" != "xPARALLEL_32_INT"; then
++     echo "Using PARALLEL_MODE = ${MAX_MODE}"
++     echo "FFDECSA_OPTS = \"$FLAGS\" PARALLEL_MODE=${MAX_MODE} COMPILER=$CXX" >> config.mak
++   else
++     echo "Using PARALLEL_MODE = ${MAX_MODE}"
+      echo "FFDECSA_OPTS = PARALLEL_MODE=${MAX_MODE} COMPILER=$CXX" >> config.mak
+    fi
+ fi
+@@ -221,6 +230,9 @@
+   elif test -e "${dvb_path}/linux/include/linux/dvb/frontend.h"; then
+     echo "DVB_DIR=${dvb_path}/linux" >> config.mak
+     echo "Using DVB_DIR: ${dvb_path}/linux"
++  elif test -e "${dvb_path}/include/uapi/linux/dvb/frontend.h"; then
++    echo "DVB_DIR=${dvb_path}" >> config.mak
++    echo "Using DVB_DIR: ${dvb_path}"
+   else
+     echo "Could not find DVB headers within $dvb_path"
+   fi
+@@ -229,3 +241,4 @@
+ echo "CXX=$CXX" >> config.mak
+ date >> config.log
+ echo "	$0 $*" >> config.log
++
+diff -ru rev-570/sc/contrib/sasc-ng/dvblb_plugins/plugin_cam.c sc-build/contrib/sasc-ng/dvblb_plugins/plugin_cam.c
+--- rev-570/sc/contrib/sasc-ng/dvblb_plugins/plugin_cam.c	2013-07-07 14:30:54.467044999 +1200
++++ sc-build/contrib/sasc-ng/dvblb_plugins/plugin_cam.c	2013-07-07 14:30:57.176044939 +1200
+@@ -260,6 +260,7 @@
+ 
+   if (sidmsg->calen == 0) {
+     free_sidmsg(sidmsg);
++    msg->type = MSG_PROCESSED;
+     return;
+   }
+   for(ch=Channels.First(); ch; ch=Channels.Next(ch)) {
+@@ -280,6 +281,7 @@
+         }
+       }
+       free_sidmsg(sidmsg);
++      msg->type = MSG_PROCESSED;
+       return;
+     }
+   } else {
+diff -ru rev-570/sc/contrib/sasc-ng/dvblb_plugins/plugin_ffdecsa.c sc-build/contrib/sasc-ng/dvblb_plugins/plugin_ffdecsa.c
+--- rev-570/sc/contrib/sasc-ng/dvblb_plugins/plugin_ffdecsa.c	2013-07-07 14:30:54.467044999 +1200
++++ sc-build/contrib/sasc-ng/dvblb_plugins/plugin_ffdecsa.c	2013-07-07 14:30:57.176044939 +1200
+@@ -123,11 +123,13 @@
+           pthread_mutex_unlock(&csa->state_lock);
+           return;
+         }
++        pthread_mutex_lock(&csa->keylock);
+         if(! csa->keyindex[index].valid) {
+           csa->keyindex[index].valid = 1;
+           csa->keyindex[index].status = 0;
+           csa->keyindex[index].queued = 0;
+         }
++        pthread_mutex_unlock(&csa->keylock);
+         pop_entry_from_queue_l(pid_ll, &pidmap_empty_queue, struct pid, &list_lock);
+         pid_ll->pid = pid;
+         pid_ll->index = index;
+@@ -146,7 +148,9 @@
+           ll_find_elem(pid_ll, csa->pid_map, index, index, struct pid);
+           if(pid_ll == NULL) {
+             //no valid pids on this index
++            pthread_mutex_lock(&csa->keylock);
+             csa->keyindex[index].status = 0;
++            pthread_mutex_unlock(&csa->keylock);
+             if(list_empty(&csa->pid_map)) {
+               //state = ENCRYPTED_NOT_READY;
+               csa->state = NOT_ENCRYPTED;
+diff -ru rev-570/sc/contrib/sasc-ng/dvbloopback/module/config-dvb/Makefile sc-build/contrib/sasc-ng/dvbloopback/module/config-dvb/Makefile
+--- rev-570/sc/contrib/sasc-ng/dvbloopback/module/config-dvb/Makefile	2013-07-07 14:30:54.468044999 +1200
++++ sc-build/contrib/sasc-ng/dvbloopback/module/config-dvb/Makefile	2013-07-07 14:30:57.177044939 +1200
+@@ -4,7 +4,7 @@
+ 
+ EXTRA_CFLAGS ?= -Idrivers/media/dvb/dvb-core/ -I$(PWD)
+ 
+-BUILD_DIR := /lib/modules/$(shell uname -r)/build
++BUILD_DIR ?= /lib/modules/$(shell uname -r)/build
+ 
+ all: clean
+ 	make -C $(BUILD_DIR) M=$(PWD) V=1 modules
+Only in sc-build/contrib/sasc-ng/dvbloopback/module: config_dvb_dvbdir.pl
+diff -ru rev-570/sc/contrib/sasc-ng/dvbloopback/module/config_dvb.pl sc-build/contrib/sasc-ng/dvbloopback/module/config_dvb.pl
+--- rev-570/sc/contrib/sasc-ng/dvbloopback/module/config_dvb.pl	2013-07-07 14:30:54.469044999 +1200
++++ sc-build/contrib/sasc-ng/dvbloopback/module/config_dvb.pl	2013-07-07 14:30:57.177044939 +1200
+@@ -17,79 +17,17 @@
+   $cmd = "cd config-dvb && make $vars" . ($debug ? "" : "2>/dev/null 1>/dev/null");
+   print "$cmd\n" if($debug);
+ 
+-  #test linux-version >= 2.6.22
+   system("ln -sf chkdvb-2.6.v4l.c config-dvb/chkdvb.c");
+-  if(system("$cmd") == 0) {
+-    print "Found dvbdev.h from 2.6.22 or later\n";
++  system("ln -sf ../dvbdev-3.7.x.h config-dvb/dvbdev.h");
++   print "Assuming kernel 3.7.1 or later\n";
++   print "Using canned header\n";
++    if(system("$cmd") == 0) {
+     `echo "DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);" >> dvbdevwrap.h`; 
+     `echo "#define wrap_dvb_reg_adapter(a, b, c) dvb_register_adapter(a, b, c, &dvblb_basedev->dev, adapter_nr)" >> dvbdevwrap.h`; 
++     system("ln -sf dvbdev-3.7.x.h dvbdev.h"); 
+     return 0;
+   }
+-  
+-  #test linux-version >= 2.6.18
+-  system("ln -sf chkdvb-2.6.18.c config-dvb/chkdvb.c");
+-  if(system("$cmd") == 0) {
+-    print "Found dvbdev.h from 2.6.18 or later\n";
+-    `echo "#define wrap_dvb_reg_adapter(a, b, c) dvb_register_adapter(a, b, c, &dvblb_basedev->dev)" >> dvbdevwrap.h`;
+-    return 0;
+-  }
+-  
+-  #test linux-version >= 2.6.14
+-  system("ln -sf chkdvb-2.6.14.c config-dvb/chkdvb.c");
+-  if(system("$cmd") == 0) {
+-    print "Found dvbdev.h from 2.6.14 or later\n";
+-    `echo "#define wrap_dvb_reg_adapter dvb_register_adapter" >> dvbdevwrap.h`;
+-    return 0;
+-  }
+-
+-  #test linux-version >= 2.6.5
+-  system("ln -sf chkdvb-2.6.5.c config-dvb/chkdvb.c");
+-  if(system("$cmd") == 0) {
+-    print "Found dvbdev.h from 2.6.5 or later\n";
+-    print "But this is an unsupported kernel!\n";
+-    return 1;
+-  }
+-
+-  #maybe kernel headers aren't available.  let's use canned dvbdev.h
+-  #this is dangerous!
+-  $uname = `uname -r`;
+-  if($uname =~ /2\.6\.(\d\d)/ && $1 >= 22) {
+-    system("ln -sf ../dvbdev-2.6.v4l.h config-dvb/dvbdev.h"); 
+-    system("ln -sf chkdvb-2.6.v4l.c config-dvb/chkdvb.c"); 
+-    if(system("$cmd") == 0) {
+-      print "Found 2.6.22 or later kernel, but no dvbdev.h\n";
+-      print "Using canned header\n";
+-      `echo "DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);" >> dvbdevwrap.h`; 
+-      `echo "#define wrap_dvb_reg_adapter(a, b, c) dvb_register_adapter(a, b, c, &dvblb_basedev->dev, adapter_nr)" >> dvbdevwrap.h`; 
+-      system("ln -sf dvbdev-2.6.v4l.h dvbdev.h"); 
+-      return 0;
+-    }
+-  }
+-  elsif($uname =~ /2\.6\.2[01]/ ||
+-        $uname =~ /2\.6\.1[89]/) {
+-    system("ln -sf ../dvbdev-2.6.18.h config-dvb/dvbdev.h");
+-    system("ln -sf chkdvb-2.6.18.c config-dvb/chkdvb.c");
+-    if(system("$cmd") == 0) {
+-      print "Found 2.6.18 or later kernel, but no dvbdev.h\n";
+-      print "Using canned header\n";
+-      `echo "#define wrap_dvb_reg_adapter(a, b, c) dvb_register_adapter(a, b, c, &dvblb_basedev->dev)" >> dvbdevwrap.h`;
+-      system("ln -sf dvbdev-2.6.18.h dvbdev.h");
+-      return 0;
+-    }
+-  }
+-  elsif($uname =~ /2\.6\.1[4-7]/) {
+-    system("ln -sf ../dvbdev-2.6.14.h config-dvb/dvbdev.h");
+-    system("ln -sf chkdvb-2.6.14.c config-dvb/chkdvb.c");
+-    if(system("$cmd") == 0) {
+-      print "Found 2.6.14 or later kernel, but no dvbdev.h\n";
+-      print "Using canned header\n";
+-      `echo "#define wrap_dvb_reg_adapter dvb_register_adapter" >> dvbdevwrap.h`;
+-      system("ln -sf dvbdev-2.6.14.h dvbdev.h");
+-      return 0;
+-    }
+-  }
+-  print "Could not identify kernel\n";
+-  return 1;
+ }
+ 
+ exit(test_dvb_adapter(@ARGV));
++
+Only in sc-build/contrib/sasc-ng/dvbloopback/module: dvbdev-3.7.x.h
+diff -ru rev-570/sc/contrib/sasc-ng/dvbloopback/module/dvblb_forward.c sc-build/contrib/sasc-ng/dvbloopback/module/dvblb_forward.c
+--- rev-570/sc/contrib/sasc-ng/dvbloopback/module/dvblb_forward.c	2013-07-07 14:30:54.470044999 +1200
++++ sc-build/contrib/sasc-ng/dvbloopback/module/dvblb_forward.c	2013-07-07 14:30:57.179044939 +1200
+@@ -166,9 +166,9 @@
+ 	struct file *ftmp = find_forwardmap(lbdev, f->private_data);
+ 	if (!ftmp || IS_ERR(ftmp))
+ 		return -EFAULT;
+-	if (lbdev->forward_dev->fops &&lbdev->forward_dev->fops->ioctl)
+-		return lbdev->forward_dev->fops->ioctl(
+-		           ftmp->f_dentry->d_inode, ftmp, cmd, arg);
++	if (lbdev->forward_dev->fops &&lbdev->forward_dev->fops->unlocked_ioctl)
++		return lbdev->forward_dev->fops->unlocked_ioctl(
++		           ftmp, cmd, arg);
+ 	return -EFAULT;
+ }
+ 
+diff -ru rev-570/sc/contrib/sasc-ng/dvbloopback/module/dvb_loopback.c sc-build/contrib/sasc-ng/dvbloopback/module/dvb_loopback.c
+--- rev-570/sc/contrib/sasc-ng/dvbloopback/module/dvb_loopback.c	2013-07-07 14:30:54.470044999 +1200
++++ sc-build/contrib/sasc-ng/dvbloopback/module/dvb_loopback.c	2013-07-07 14:30:57.178044939 +1200
+@@ -118,9 +118,9 @@
+ /* This is a copy of dvb_usercopy.  We need to do this because it isn't exported
+    by dvbdev
+ */
+-static int dvblb_usercopy(struct inode *inode, struct file *file,
++static int dvblb_usercopy(struct file *file,
+ 		     unsigned int cmd, unsigned long arg,
+-		     int (*func)(struct inode *inode, struct file *file,
++		     int (*func)(struct file *file,
+ 		     unsigned int cmd, void *arg))
+ {
+ 	char    sbuf[128];
+@@ -180,7 +180,7 @@
+ 	}
+ 
+ 	/* call driver */
+-	if ((err = func(inode, file, cmd, parg)) == -ENOIOCTLCMD)
++	if ((err = func(file, cmd, parg)) == -ENOIOCTLCMD)
+ 		err = -EINVAL;
+ 
+ 	if (err < 0)
+@@ -663,7 +663,7 @@
+    dvb_generic_ioctl) which is called by dvblb_ioctl for device-0.  It is
+    used to forward ioctl commands back to the userspace application
+ */
+-static int dvblb_looped_ioctl(struct inode *inode, struct file *f,
++static int dvblb_looped_ioctl(struct file *f,
+ 	unsigned int cmd, void *parg)
+ {
+ 	int ret;
+@@ -692,7 +692,7 @@
+ 	return ret;
+ }
+ 
+-static int dvblb_ioctl(struct inode *inode, struct file *f,
++static long dvblb_ioctl(struct file *f,
+ 	unsigned int cmd, unsigned long arg)
+ {
+ 	void * parg = (void *)arg;
+@@ -722,8 +722,7 @@
+ 		/* This is the looped device */
+ 		if (lbdev->forward_dev)
+ 			return dvblb_forward_ioctl(lbdev, f, cmd, arg);
+-
+-		return dvblb_usercopy (inode, f, cmd, arg,
++			return dvblb_usercopy (f, cmd, arg,
+ 		                       dvbdev->kernel_ioctl);
+ 	}
+ 	/* This is the userspace control device */
+@@ -978,7 +977,7 @@
+ 	.write		= dvblb_write,
+ 	.poll		= dvblb_poll,
+ 	.mmap		= dvblb_mmap,
+-	.ioctl		= dvblb_ioctl,
++	.unlocked_ioctl	= dvblb_ioctl,
+ };
+ 
+ static struct dvb_device dvbdev_looped = {
+@@ -998,7 +997,7 @@
+ 	.write		= dvblb_write,
+ 	.poll		= dvblb_poll,
+ 	.mmap		= dvblb_mmap,
+-	.ioctl		= dvblb_ioctl,
++        .unlocked_ioctl = dvblb_ioctl,
+ };
+ 
+ static struct dvb_device dvbdev_userspace = {
+diff -ru rev-570/sc/contrib/sasc-ng/dvbloopback/module/Makefile sc-build/contrib/sasc-ng/dvbloopback/module/Makefile
+--- rev-570/sc/contrib/sasc-ng/dvbloopback/module/Makefile	2013-07-07 14:30:54.468044999 +1200
++++ sc-build/contrib/sasc-ng/dvbloopback/module/Makefile	2013-07-07 14:30:57.177044939 +1200
+@@ -4,26 +4,32 @@
+ dvbloopback-objs := dvb_loopback.o dvblb_proc.o dvblb_forward.o
+ 
+ ifdef DVB_DIR
+-  EXTRA_CFLAGS = -I$(DVB_DIR) -I$(DVB_DIR)/drivers/media/dvb/dvb-core
++  EXTRA_CFLAGS = -I$(SOURCE_DIR) -I$(SOURCE_DIR)/include \
++     -I$(SOURCE_DIR)/include/uapi -I$(SOURCE_DIR)/arch/x86/include \
++     -I$(DVB_DIR)/drivers/media/dvb-core
+   DVB_SRC = $(DVB_DIR)
+-  SYMVER = $(DVB_DIR)/../v4l/Module.symvers
++  SYMVER = /lib/modules/$(shell uname -r)/build/Module.symvers
+   have_modver := $(wildcard $(SYMVER))
+-endif
+-EXTRA_CFLAGS += -Idrivers/media/dvb/dvb-core/ -I$(PWD)
+-
+-BUILD_DIR ?= /lib/modules/$(shell uname -r)/build
+-
+-all: add_modver
++  BUILD_DIR ?= /lib/modules/$(shell uname -r)/build
++  all: add_modver
++	./config_dvb_dvbdir.pl "BUILD_DIR=$(BUILD_DIR)" "EXTRA_CFLAGS=$(EXTRA_CFLAGS)"
++	make -C $(BUILD_DIR) M=$(PWD) modules
++else
++  EXTRA_CFLAGS += -Idrivers/media/dvb-core/ -I$(PWD)
++  SYMVER = /lib/modules/$(shell uname -r)/build/Module.symvers
++  have_modver := $(wildcard $(SYMVER))
++  BUILD_DIR ?= /lib/modules/$(shell uname -r)/build
++  all: add_modver
+ 	./config_dvb.pl "BUILD_DIR=$(BUILD_DIR)" "EXTRA_CFLAGS=$(EXTRA_CFLAGS)"
+ 	make -C $(BUILD_DIR) M=$(PWD) modules
++endif
++
+ ifeq ($(strip $(have_modver)),) 
+ add_modver:
+ 	echo "Skipping Modver $(SYMVER)"
+-
+ else
+ add_modver: $(SYMVER)
+ 	cp -f $(SYMVER) .
+-	
+ endif
+ 
+ clean:
+@@ -33,3 +39,4 @@
+ 	rm -f dvbdevwrap.h
+ 	rm -f dvbdev.h
+ 	rm -f Module.symvers
++
+diff -ru rev-570/sc/contrib/sasc-ng/dvbloopback/src/msg_passing.c sc-build/contrib/sasc-ng/dvbloopback/src/msg_passing.c
+--- rev-570/sc/contrib/sasc-ng/dvbloopback/src/msg_passing.c	2013-07-07 14:30:54.471044999 +1200
++++ sc-build/contrib/sasc-ng/dvbloopback/src/msg_passing.c	2013-07-07 14:30:57.180044939 +1200
+@@ -46,11 +46,16 @@
+ {
+   struct msgctrl *msgctrl;
+   int priority;
++  int x;
+   for (priority=0; priority <= MSG_HIGH_PRIORITY; priority++) {
+     msgctrl = &message_control[priority];
+     bzero(msgctrl, sizeof(struct msgctrl));
+     INIT_LIST_HEAD(&msgctrl->msglist);
+     INIT_LIST_HEAD(&msgctrl->empty_queue);
++    for (x = 0; x < 10; x++) {
++      struct msg *msg = (struct msg *)malloc(sizeof(struct msg));
++      list_add(&msg->list, &msgctrl->empty_queue);
++    }
+     pthread_mutex_init(&msgctrl->mutex, NULL);
+     pthread_cond_init(&msgctrl->cond, NULL);
+   }
+@@ -95,6 +100,8 @@
+         list_del(&msg->list);
+         break;
+       }
++      if (!msg)
++        break;
+       //If we've seen all elements on the queue, or the queue is empty,
+       //we are done
+       if(ptr == &msgctrl->msglist)
+diff -ru rev-570/sc/contrib/sasc-ng/Makefile sc-build/contrib/sasc-ng/Makefile
+--- rev-570/sc/contrib/sasc-ng/Makefile	2013-07-07 14:30:54.465044999 +1200
++++ sc-build/contrib/sasc-ng/Makefile	2013-07-07 14:30:57.175044939 +1200
+@@ -8,16 +8,16 @@
+ 
+ CC       ?= gcc
+ CXX      ?= g++
+-CXXFLAGS ?= -Wall -D__user= -Werror 
++CXXFLAGS ?= -Wall -D__user= 
+ CFLAGS   ?= -Wall -D__user= 
+ 
+ ifdef DVB_DIR
+-  INCLUDES = -I$(DVB_DIR)/include
++  INCLUDES = -I$(SOURCE_DIR)/include/uapi -I$(SOURCE_DIR)/arch/x86/include -I$(SOURCE_DIR)/include
+   DVB_MOD_DIR = DVB_DIR=$(DVB_DIR)
+ endif
+ 
+ DEFINES += -DRELEASE_VERSION=\"$(VERSION)\" -D__KERNEL_STRICT_NAMES
+-INCLUDES += -Idvbloopback/module -I/lib/modules/$(shell uname -r)/build/include
++INCLUDES += -Idvbloopback/module
+ LBDIR = dvbloopback/src
+ SCDIR = sc/PLUGINS/src/$(SCVER)
+ SC_FLAGS = -O2 -fPIC -Wall -Woverloaded-virtual
+@@ -57,7 +57,7 @@
+ INC_DEPS := $(shell ls $(LBDIR)/*.h) dvbloopback/module/dvbloopback.h
+ INC_DEPS_LB := $(shell ls dvblb_plugins/*.h)
+ 
+-LIBS = -lpthread -lcrypto -lcrypt
++LIBS = -lpthread -lcrypto -lcrypt -lv4l1
+ 
+ all: $(TOOL) libscanwrap.so
+ 
+diff -ru rev-570/sc/contrib/sasc-ng/sc/dvbdevice.cpp sc-build/contrib/sasc-ng/sc/dvbdevice.cpp
+--- rev-570/sc/contrib/sasc-ng/sc/dvbdevice.cpp	2013-07-07 14:30:54.473044999 +1200
++++ sc-build/contrib/sasc-ng/sc/dvbdevice.cpp	2013-07-07 14:30:57.184044939 +1200
+@@ -10,7 +10,7 @@
+ #include "include/vdr/dvbdevice.h"
+ #include <errno.h>
+ #include <limits.h>
+-#include <linux/videodev.h>
++#include <libv4l1-videodev.h>
+ #include <linux/dvb/audio.h>
+ #include <linux/dvb/dmx.h>
+ #include <linux/dvb/frontend.h>
+diff -ru rev-570/sc/contrib/sasc-ng/sc/sasccam.cpp sc-build/contrib/sasc-ng/sc/sasccam.cpp
+--- rev-570/sc/contrib/sasc-ng/sc/sasccam.cpp	2013-07-07 14:30:54.481044999 +1200
++++ sc-build/contrib/sasc-ng/sc/sasccam.cpp	2013-07-07 14:30:57.196044938 +1200
+@@ -43,7 +43,7 @@
+ extern void _SetCaDescr(int adapter, ca_descr_t *ca_descr);
+ bool cSascDvbDevice::SetCaDescr(ca_descr_t *ca_descr, bool initial)
+ {
+-  printf("Called cSascDvbDevice::SetCaDescr\n");
++  //printf("Called cSascDvbDevice::SetCaDescr\n");
+   _SetCaDescr(cardidx, ca_descr);
+   return true;
+ }
+@@ -51,7 +51,7 @@
+ extern void _SetCaPid(int adapter, ca_pid_t *ca_pid);
+ bool cSascDvbDevice::SetCaPid(ca_pid_t *ca_pid)
+ {
+-  printf("Called cSascDvbDevice::SetCaPid\n");
++  //printf("Called cSascDvbDevice::SetCaPid\n");
+   _SetCaPid(cardidx, ca_pid);
+   return true;
+ }
+diff -ru rev-570/sc/README sc-build/README
+--- rev-570/sc/README	2013-07-07 14:30:54.462044999 +1200
++++ sc-build/README	2013-07-07 14:30:57.172044939 +1200
+@@ -1,329 +1 @@
+-This is a "plugin" for the Video Disk Recorder (VDR).
+-
+-See the file COPYING for license information.
+-
+-Description: SoftCAM for Irdeto, Seca, Viaccess, Nagra, Conax & Cryptoworks
+-
+------------------------------------------------------------------------
+-
+-
+-
+-What is it ?
+-------------
+-
+-First: Most certainly it's not legal to use this software in most countries of
+-the world. But probably you already know this...
+-
+-SC means softcam, which means a software CAM emulation.
+-
+-The plugin captures the DVB devices in an early startup stage of VDR startup
+-(before VDR itself has got access to them) and makes VDR believe that there is
+-another CAM connected to the device. This CAM is emulated from the plugin by
+-providing a cut-down EN50221 interface for communication with the VDR core. From
+-VDR views there is no difference between a real hardware CAM and the emulated
+-CAM. 
+-
+-The plugin decrypts the scrambling codewords from the incomming ECM stream. The
+-actual descrambling of the video stream is either done by the ECD chip on
+-full-featured DVB cards or with the included FFdecsa implementation on budget
+-cards.
+-
+-This piece of software is originaly based on (and still contains code from)
+-mgcam (a standalone CAM emulation). Many thanks to the (anonymous) author for
+-his really fine piece of software :-)
+-
+-
+-
+-Requirements
+-------------
+-
+-* DVB driver from dvb-kernel 2.6 or 2.4 branch with applied patches
+-* a patched firmware version 2620 or newer
+-* VDR 1.6.0 or newer
+-* Openssl package version 0.9.7 or newer
+-
+-
+-
+-How to setup ?
+---------------
+-
+-First you should start with a recent dvb-kernel driver (cvs recomended). Copy
+-the patched firmware in place and apply at least the dvb-cwidx patch. Make sure
+-that you use a patched firmware if you intend to use the plugin together with a
+-full-featured DVB card. You definitely need a patched firmware in this case, but
+-only recent versions support concurrent recording! Recompile the driver, unload
+-the modules, install the new ones and reload the DVB driver. If you suffer from
+-ARM crashes, add "hw_sections=0" while loading the dvb-ttpci module.
+-
+-Contrary to older plugin versions (before 0.7.0) you MUST NOT apply patches to
+-the VDR core (neither vdr-sc nor ffdecsa/softcsa) except if:
+-- you are using VDR 1.7.8 or lower and want to view channels with split ECM
+-
+-To correctly decode channels with split ECM (i.e. audio and video encrypted
+-with different CW) you need to apply a patch to the VDR core if you are using
+-a VDR version before 1.7.9. You can find the "vdr-1.6.0-2-streamca.diff" file
+-in the patches subdirectory. It has been tested with VDR 1.6.0-2 only, but
+-probably will apply to other VDR versions as well.
+-
+-You must have installed the openssl development files. For most distributions
+-this means to install openssl-devel package. You should use a openssl package
+-with AES and IDEA enabled, as support for openssl without these will be removed
+-in the near future.
+-
+-Now follow the VDR instruction to compile plugins (make plugins). Beside the
+-core plugin (libvdr-sc.so), the make process (if successfull) creates an
+-additional shared library object for every supported system (libsc-*.so). You
+-can enable/disable individual systems by adding or removing the shared library
+-from your VDR plugin lib directory.
+-
+-There are some make options to adapt FFdecsa to your system, which can be
+-given on the make command line or added to Make.config. Please refer to
+-README.FFdecsa for it.
+-
+-Note that in combination with other plugins which create devices (e.g.
+-softdevice) it's essential that this plugin is loaded before any of these
+-plugins, i.e. as a rule of thumb put this plugins first on the VDR commandline.
+-The plugin will fail on startup if the plugin load order results in mismatched
+-device numbering inside VDR.
+-
+-Note that some budget card drivers provide a CA device too. This might make VDR
+-and the plugin detect the card as a full-featured card, thus disabling FFdecsa.
+-You should use commandline option -B to force detection as a budget card in such
+-a case. This commandline option takes a device number as argument and may appear
+-multiple times (compare VDR commandline option -D).
+-If you have a full-featured card with Full-TS hardware modification, you need
+-specify option -B for this card to correctly activate hybrid mode.
+-
+-By default the plugin logs his messages to console only. For testing purpose
+-it's a good idea to start VDR in foreground so you can see any error messages.
+-Other available log targets are file and syslog. You can enable/disable any of
+-the log targets in the plugin setup menu. For the file target you have to set a
+-destination filename too. If you set a filesize limit (in KByte) and the logfile
+-grows bigger than the limit, the current logfile is renamed to logfile.old and a
+-new logfile is started. If the filesize limit is zero, the logfile never is
+-rotated.
+-
+-
+-
+-Pre-compiled libraries
+-----------------------
+-
+-
+-There is the possibility that encryption systems are provided in binary, pre-
+-compiled only form. During make process, all pre-compiled libraries are copied
+-to your VDR plugin lib directory.
+-
+-Please be aware, that pre-compiled libraries are more or less bound to the hard-
+-& software configuration they have been build on. Currently the build system is
+-Intel 32bit, gcc 4.3.3, glibc 2.9. If your system differs too much, it may be
+-impossible to use the pre-compiled libraries.
+-
+-Obviously, pre-compiled libraries cannot be exchanged between different SC
+-and/or VDR API versions. Be aware that if you patch your VDR core and this patch
+-involves changes to header files (*.h) this might change the VDR API even if the
+-API version number hasn't changed. This may lead to silent malfunction/failure
+-of pre-compiled libraries. In particular you should stay away from thread.h and
+-tools.h as classes from there are used at many, many places.
+-
+-The naming scheme for the libraries is libsc-<MODULE>-<SCAPI>.so.<APIVERSION>,
+-e.g. libsc-cardclient-2.so.1.3.47
+-
+-
+-
+-CAID and VDR CICAM setup
+-------------------------
+-
+-The activation of the SC is controlled by your CICAM setup. As general setup
+-(which is not SC specific) you should leave the CA values (in channels.conf)
+-set to zero and let VDR's channel scanner (autopid) fill in the correct values.
+-Don't touch the CA values afterwards.
+-In the plugin setup menu, you now have to specify for which DVB cards the SC
+-should be activated. The first two cards can be setup from the menu. If you
+-need more, you can edit the setup.conf file manualy and add up to 10 cards.
+-
+-A real hardware CAM normaly knows which CAIDs it supports. With SC the situation
+-is a bit different. There is support for a wide range of encryption system and
+-cardclients. This results in a huge number of supported CAIDs, but for most of
+-them it's uncertain if SC will actualy be able to decrypt a channel for them. On
+-the other hand VDR limits the number of supported CAIDs to 16 for a CAM slot (64
+-CAIDs in VDR 1.5.3 or later), so SC is able to announce a small number of CAIDs
+-only. This is not as bad as it sounds, as VDR will try a CAM if ANY of the
+-channel CAIDs matches the CAIDs announced by the CAM.
+-On startup and at regular intervals the plugin scans the channels list and
+-builds a chain of CAIDs. The CAIDs are assigned to the simulated CAM. 
+-
+-To reduce the number of CAIDs SC has to deal with, you should obey some rules:
+--Remove all libsc-* files for encryption system which you don't intend to use
+- (e.g. SHL seems pretty useless nowadays).
+--When using a cardclient, be as precise as possible with the CAID/MASK values in
+- the cardclient.conf file. Using wide open 0000/0000 is not recommended.
+--Add CAIDs which you cannot use due to lack of keys to the ignore setup in
+- override.conf.
+-
+-
+-
+-
+-Concurrent Recordings
+----------------------
+-
+-There is an entries in the plugin setup menu to control concurrent usage of a
+-full-featured DVB card. You should enable concurrent usage only if you are using
+-the special patched firmware AND a patched DVB driver. Note that toggling the
+-flag will take effect the next time the plugin is idle on that specific DVB card
+-only (i.e. no channel is being decrypted).
+-
+-There is no possibility to limit the number of concurrent streams. VDR itself
+-has no limit in concurrent streams (neither FTA nor encrypted) and as the VDR
+-core control all aspects of operation, there is no way to enforce a limit
+-(beside disabling concurrent encrypted streams at all).
+-
+-
+-
+-Additional files
+-----------------
+-
+-All config files are expected to be located in the subdirectory "sc" of VDRs
+-plugin config directory. The user executing VDR should have write permissions
+-for this directory, as the plugin will create cache files there.
+-
+-The keyfile must be named "SoftCam.Key". Any updated keys are saved back to this
+-file. At this the structure of the file (e.g. comments) is preserved as far as
+-possible. Updated key are inserted near to the old one (there is a setup option
+-to selected if the old key is commented out or deleted), while new keys are
+-inserted close to the top of the file.
+-
+-Certain parameters (normaly auto-configured from CAT/PMT) can be overriden by
+-entries in override.conf. See example file in the "examples" subdirectory for
+-format. Override configuration is needed if the provider fails to broadcast
+-correct data in CAT/PMT only.
+-
+-For Irdeto, Seca and Viaccess AU you need valid subscription card data, which
+-have to be located in the files "Ird-Beta.KID", "Seca.KID" or "Viaccess.KID".
+-See the files in the "examples" subdirectory for file formats.
+-
+-Note, that for this @SHL implementation the key must be in Z 00 00 <key> format
+-(the V 000000 00 <key> format doesn't work).
+-
+-For Seca2 support you need binary files which contain the hash & mask tables.
+-The file format is the same as for Yankse. The files must be located in the
+-"seca" subdirectory. The name sheme is s2_TTTT_XXXX.bin where TTTT is
+-one of "hash","mt" and XXXX is the provider ID (e.g. s2_hash_0064.bin,
+-s2_mt_0070.bin). The hash file must be 1536 bytes long. The mt file is normaly
+-16384 bytes long, but this may differ for your provider. For advanced Seca2
+-providers you may need additional table files. At the moment these are
+-s2_sse.bin, s2_sse_XXXX.bin and s2_cw_XXXX.bin.
+-
+-For Nagra1 AU you need appropriate binary Rom and Eeprom files. The files have
+-to be named "ROMX.bin", "ROMXext.bin" or "eepX_Z.bin", where X is the ROM number
+-(decimal) and Z is the upper part of the provider ID (hexadecimal). The Eeprom
+-files may be updated from the EMM data, take care that the permissions are set
+-right. The plugin searches for these files in the "nagra" subdirectory.
+-
+-For Nagra2 AU some providers need binary Rom and Eeprom files. The files have to
+-be named "ROMxxx.bin" and "EEPyy_xxx.bin", where xxx is the ROM version (e.g.
+-102) and yy is the upper part of the provider ID (e.g. 09 for BEV). The files
+-must contain the joined contents of all Rom/Eeprom pages. The plugin searches
+-for these files in the "nagra" subdirectory.
+-
+-
+-
+-External key updates
+---------------------
+-
+-If key updates are available from external sources (e.g. website) only, they may
+-be feed from a shell script. To enable this, you have to specify the script name
+-with commandline option "-E". The script will be called at a regular interval
+-(currently 15 minutes) or whenever a needed key is not available (but not more
+-often than every 2 minutes). The script has to output the keys to it's stdout in
+-the same format as for the key file. The script may output several keys in one
+-call (each key on a seperate line). You can find an example script in the
+-"examples" subdirectory.
+-
+-
+-
+-Smartcard support
+------------------
+-
+-For most encrpytion systems this plugin supports original subscription
+-smartcards (e.g. from a Phoenix/Smartmouse ISO interface connected to a serial
+-port).
+-
+-The configuartion of the smartcard slots if done in the "cardslot.conf" file
+-(see example file for format).
+-
+-Some smartcards need additional information to establish communication with the
+-card (e.g. certificate or box key for camcrypt). These information must be
+-available in the "smartcard.conf" file (see example file for format) or you card
+-won't work correctly.
+-
+-If you insert a card into a interface the card is autodetected (your interface
+-should use the CD line to signal card presence or it won't work) and
+-initialised (this may take some seconds to complete). You can use the setup
+-menu to see which cards are currently inserted and detected. You can remove a
+-smartcard at any time without prior action, but of course this will disrupt
+-decryption if you are tuned to a channel which requires the card.
+-
+-
+-
+-Cardserver client
+------------------
+-
+-The cardclient is a client for several cardservers. Supported cardservers are :
+-CCcam, gbox, radegast, newcamd, camd33 (tcp), camd35 (udp), cardd, buffy and
+-aroureos and servers which are protocol compatible with the mentioned ones.
+-
+-You can configure as many clients for different servers as you want. The client
+-configuration is read from the file "cardclient.conf". Every line in the file
+-defines a client-server connection. The line starts with the client name and is
+-followed by additional arguments which depend on the client type. See the file
+-"examples/cardclient.conf.example" for format and arguments.
+-
+-The connections are tried in the order they are defined in the conf file until
+-a valid decryption is obtained. After that, the decryption sticks to that
+-particular connection until next channel switch.
+-
+-
+-
+-Summary of commandline options
+-------------------------------
+-
+--B N    --budget=N        forces DVB device N to budget mode (using FFdecsa)
+--E CMD  --external-au=CMD script for external key updates
+-
+-
+-
+-SVDR interface
+---------------
+-
+-The plugin implements a SVDR interface. Supported commands are:
+-   RELOAD
+-     Reload all configuration files (only if the softcam isn't active at the
+-     moment).
+-     Return codes: 550 - Softcam active, can't reload files.
+-                   901 - Reloading files not entirely successfull. Most of the
+-                         time this will leave you with an unusable softcam.
+-                   900 - Reload successfull.
+-
+-   KEY string
+-     Parse the given string and add the key to the key database (as if it was
+-     received from EMM stream).
+-     Return codes: 501 - Syntax error.
+-                   900 - Key added.
+-                   901 - Invalid key format or key already known.
+-
+-   LOG <on|off> module.option[,module.option][,...]
+-     Enables or disables all given message classes.
+-     Return codes: 501 - Syntax error or unknown message class.
+-                   900 - Options set and saved.
+-
+-   LOGCFG
+-     Display all available message classes and report their status. This can be
+-     usefull if you want to provide an external GUI or whatever to handle the
+-     message classes.
+-     Return codes: 901 - No message classes available.
+-                   900 - Message class status (multi line reply).
+-
+-   LOGFILE <on|off> [filename]
+-     Enables or disables logging to file and optionaly sets the filename.",
+-     Return codes: 501 - Syntax error.
+-                   900 - Logfile option set and saved.
++This branch is based on revision 570 and patched for use with 3.7.x kernels and higher.
+Only in sc-build: vdr-sasc-ng-2.6.38.patch
