@@ -1,0 +1,147 @@
+From 701e9de41f4c7bff1d6aec165380b147512bc96d Mon Sep 17 00:00:00 2001
+From: bwrsandman <bwrsandman@gmail.com>
+Date: Sun, 2 Jun 2013 10:18:20 -0400
+Subject: [PATCH] Updated to match enet 1.3.7 updated call to enet_host_create
+ and enet_peer_receive
+
+---
+ include/enetpp/ENet.h |  4 ++--
+ include/enetpp/Host.h |  6 +++---
+ include/enetpp/Peer.h |  2 +-
+ src/ENet.cpp          |  8 ++++----
+ src/Host.cpp          | 13 +++++++------
+ src/Peer.cpp          |  2 +-
+ 6 files changed, 18 insertions(+), 17 deletions(-)
+
+diff --git a/include/enetpp/ENet.h b/include/enetpp/ENet.h
+index be4e87d..6d869b7 100644
+--- a/include/enetpp/ENet.h
++++ b/include/enetpp/ENet.h
+@@ -46,8 +46,8 @@ namespace enetpp
+ 
+         Event createEvent();
+ 
+-        Host createServerHost(const Address& address, int maxClients, int incomingBandwidth = 0, int outgoingBandwidth = 0);
+-        Host createClientHost(int maxClients, int incomingBandwidth = 0, int outgoingBandwidth = 0);
++        Host createServerHost(const Address& address, int maxClients, int maxChannels = 0, int incomingBandwidth = 0, int outgoingBandwidth = 0);
++        Host createClientHost(int maxClients, int maxChannels = 0, int incomingBandwidth = 0, int outgoingBandwidth = 0);
+         
+         Packet createPacket(const void* data, size_t dataLength, enet_uint32 flags);
+     };
+diff --git a/include/enetpp/Host.h b/include/enetpp/Host.h
+index 0e4bf31..b58f1a3 100644
+--- a/include/enetpp/Host.h
++++ b/include/enetpp/Host.h
+@@ -45,14 +45,14 @@ namespace enetpp
+         ENetHost* _host;
+         std::vector< ENetPeer* > _allPeers;
+ 
+-        Host(ENet* parent, const Address& address, size_t maxClients, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
+-        Host(ENet* parent, size_t maxClients, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
++        Host(ENet* parent, const Address& address, size_t maxClients, size_t maxChannels, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
++        Host(ENet* parent, size_t maxClients, size_t maxChannels, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
+     public:
+         ~Host();
+ 
+         void destroy();
+         int service(Event& event, enet_uint32 timeoutMillis = 0);
+-        Peer connect(const Address& address, size_t channelCount);
++        Peer connect(const Address& address, size_t channelCount, enet_uint32 userData);
+         void broadcast(enet_uint8 channelID, Packet& packet);
+         void flush();
+         void bandwidthThrottle();
+diff --git a/include/enetpp/Peer.h b/include/enetpp/Peer.h
+index e36ba20..a8512a2 100644
+--- a/include/enetpp/Peer.h
++++ b/include/enetpp/Peer.h
+@@ -50,7 +50,7 @@ namespace enetpp
+         void disconnectNow(enet_uint32 data = 0);
+         void reset();
+         void ping();
+-        Packet receive(enet_uint32 channelID);
++        Packet receive(enet_uint8* channelID);
+         int throttle(enet_uint32 rtt);
+         void throttleConfigure(enet_uint32 interval, enet_uint32 acceleration, enet_uint32 deceleration);
+     };
+diff --git a/src/ENet.cpp b/src/ENet.cpp
+index 6323c2d..7758adb 100644
+--- a/src/ENet.cpp
++++ b/src/ENet.cpp
+@@ -55,14 +55,14 @@ namespace enetpp
+         return Event();
+     }
+ 
+-    Host ENet::createServerHost(const Address& address, int maxClients, int incomingBandwidth, int outgoingBandwidth)
++    Host ENet::createServerHost(const Address& address, int maxClients, int maxChannels, int incomingBandwidth, int outgoingBandwidth)
+     {
+-        return Host(this, address, maxClients, incomingBandwidth, outgoingBandwidth);
++        return Host(this, address, maxClients, maxChannels, incomingBandwidth, outgoingBandwidth);
+     }
+ 
+-    Host ENet::createClientHost(int maxClients, int incomingBandwidth, int outgoingBandwidth)
++    Host ENet::createClientHost(int maxClients, int maxChannels, int incomingBandwidth, int outgoingBandwidth)
+     {
+-        return Host(this, maxClients, incomingBandwidth, outgoingBandwidth);
++        return Host(this, maxClients, maxChannels, incomingBandwidth, outgoingBandwidth);
+     }
+ 
+     Packet ENet::createPacket(const void* data, size_t dataLength, enet_uint32 flags)
+diff --git a/src/Host.cpp b/src/Host.cpp
+index 9640b4a..b5998c3 100644
+--- a/src/Host.cpp
++++ b/src/Host.cpp
+@@ -25,21 +25,22 @@
+ #include "enetpp/ENet.h"
+ 
+ #include <stdexcept>
++#include <algorithm>
+ 
+ namespace enetpp
+ {
+ 
+-    Host::Host(ENet* parent, const Address& address, size_t maxClients, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth) :
++    Host::Host(ENet* parent, const Address& address, size_t maxClients, size_t maxChannels, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth) :
+             _parent(parent),
+-            _host(enet_host_create(&address._address, maxClients, incomingBandwidth, outgoingBandwidth))
++            _host(enet_host_create(&address._address, maxClients, maxChannels, incomingBandwidth, outgoingBandwidth))
+     {
+         if (NULL == _host)
+             throw std::runtime_error("An error occurred while trying to create an ENet server host");
+     }
+ 
+-    Host::Host(ENet* parent, size_t maxClients, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth) :
++    Host::Host(ENet* parent, size_t maxClients, size_t maxChannels, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth) :
+             _parent(parent),
+-            _host(enet_host_create(NULL, maxClients, incomingBandwidth, outgoingBandwidth))
++            _host(enet_host_create(NULL, maxClients, maxChannels, incomingBandwidth, outgoingBandwidth))
+     {
+         if (NULL == _host)
+             throw std::runtime_error("An error occurred while trying to create an ENet client host");
+@@ -82,9 +83,9 @@ namespace enetpp
+         }
+     }
+ 
+-    Peer Host::connect(const Address& address, size_t channelCount)
++    Peer Host::connect(const Address& address, size_t channelCount, enet_uint32 userData)
+     {
+-        ENetPeer* peer = enet_host_connect(_host, &address._address, channelCount);
++        ENetPeer* peer = enet_host_connect(_host, &address._address, channelCount, userData);
+         if (NULL == peer)
+             throw std::runtime_error("Creating connection failed");
+ 
+diff --git a/src/Peer.cpp b/src/Peer.cpp
+index 80b6cc1..446daa6 100644
+--- a/src/Peer.cpp
++++ b/src/Peer.cpp
+@@ -79,7 +79,7 @@ namespace enetpp
+         enet_peer_ping(_peer);
+     }
+ 
+-    Packet Peer::receive(enet_uint32 channelID)
++    Packet Peer::receive(enet_uint8* channelID)
+     {
+         return Packet(enet_peer_receive(_peer, channelID));
+     }
+-- 
+1.8.3
+
