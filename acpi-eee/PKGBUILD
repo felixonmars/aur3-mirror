@@ -30,7 +30,7 @@ source=(
 	volume_control.sh	
 
 	http://update.eeepc.asus.com/p701/pool/asus-acpi_1.38-1xandros5_i386.deb
-	ftp://ftp.asus.com/pub/ASUS/EeePC/701/ASUS_ACPI_071126.rar
+	http://non7top.googlecode.com/files/ASUS_ACPI_071126.rar
 
 	Asusosd.desktop 
 	asusosd-volume_toggle_fix.patch 

@@ -1,13 +1,13 @@
 pkgname=2gis-nnovgorod
-pkgver=57
+pkgver=58
 pkgrel=1
-pkgdesc="Map of Nizhny Novgorod for 2GIS, June 2013"
+pkgdesc="Map of Nizhny Novgorod for 2GIS, July 2013"
 arch=('i686' 'x86_64')
 url="http://nnovgorod.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-57.orig.zip")
-md5sums=('508ba60d07175f985a95843210c59376')
+source=("http://download.2gis.ru/arhives/2GISData_N_Novgorod-58.orig.zip")
+md5sums=('e8aeb8d4d5ee92e7df9b43cc9da2c7cc')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_N_Novgorod.dgdat" "${pkgdir}/opt/2gis/nnovgorod.dgdat" || return 1

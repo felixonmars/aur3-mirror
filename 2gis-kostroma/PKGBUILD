@@ -1,13 +1,13 @@
 pkgname=2gis-kostroma
-pkgver=32
+pkgver=33
 pkgrel=1
-pkgdesc="Map of Kostroma for 2GIS, June 2013"
+pkgdesc="Map of Kostroma for 2GIS, July 2013"
 arch=('i686' 'x86_64')
 url="http://kostroma.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Kostroma-32.orig.zip")
-md5sums=('7af4d201f8682c6affac0becf910d3b6')
+source=("http://download.2gis.ru/arhives/2GISData_Kostroma-33.orig.zip")
+md5sums=('b6d9ec3b3d3a3e4239c9e8593f070d87')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Kostroma.dgdat" "${pkgdir}/opt/2gis/kostroma.dgdat" || return 1
