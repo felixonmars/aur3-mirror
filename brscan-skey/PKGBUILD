@@ -1,6 +1,6 @@
 pkgname=brscan-skey
-pkgver=0.2.4_0
-pkgrel=3
+pkgver=0.2.4_1
+pkgrel=1
 pkgdesc="Brother scan-key-tool"
 depends=('sane' 'sed')
 makedepends=('libarchive')
@@ -10,10 +10,10 @@ license=('GPL' 'custom:Brother commercial license')
 install=brscan-skey.install
 if [ $CARCH = 'x86_64' ]; then
     source=("http://pub.brother.com/pub/com/bsc/linux/dlf/${pkgname}-${pkgver/_/-}.x86_64.rpm")
-    md5sums=('494f7256c8e0ee643157e7dba58ff6d4')
+    md5sums=('9ad29a0ef9f8f4d6f742fb4293ee08a6')
 else
     source=("http://pub.brother.com/pub/com/bsc/linux/dlf/${pkgname}-${pkgver/_/-}.i386.rpm")
-    md5sums=('f6ac581adc9cab92551a0aa17508ab62')
+    md5sums=('c6bc7a501f424541130a1b9a38b76493')
 fi
 
 build() {
