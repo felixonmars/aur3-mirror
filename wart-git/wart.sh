@@ -3,7 +3,7 @@
 cd /usr/share/wart
 if command which rlwrap >&/dev/null
 then
-  rlwrap -C wart ./wart_bin $*
+  rlwrap -C wart /usr/bin/wart_bin $*
 else
-  ./wart_bin $*
+  /usr/bin/wart_bin $*
 fi
