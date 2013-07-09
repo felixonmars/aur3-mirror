@@ -1,3 +1,3 @@
-#!/bin/sh
+#! /usr/bin/env sh
 
-exec "/usr/share/katawa-shoujo/Katawa Shoujo.sh" "$@"
+exec "/opt/katawa-shoujo/Katawa Shoujo.sh" "$@"
