@@ -7,9 +7,9 @@
 pkgname=linux-pax
 true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
-_basekernel=3.9
-_paxver=test13
-pkgver=${_basekernel}.9
+_basekernel=3.10
+_paxver=test1
+pkgver=${_basekernel}
 pkgrel=1
 arch=(x86_64)
 url="http://www.kernel.org/"
@@ -22,7 +22,7 @@ _menuconfig=0
 
 source=(
   http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
-  http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
+  #http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
   http://grsecurity.net/test/pax-linux-$pkgver-$_paxver.patch
   config.x86_64
   $pkgname.install
@@ -32,7 +32,7 @@ source=(
 
 [ $LANG = 'de_DE.UTF-8' ] && {
   source[0]=http://ftp.halifax.rwth-aachen.de/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
-  source[1]=http://ftp.halifax.rwth-aachen.de/pub/linux/kernel/v3.x/patch-$pkgver.xz
+  #source[1]=http://ftp.halifax.rwth-aachen.de/pub/linux/kernel/v3.x/patch-$pkgver.xz
 }
 
 build() {
@@ -296,10 +296,9 @@ package_linux-pax-headers() {
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
 
-sha256sums=('60bc3e64ee5dc778de2cd7cd7640abf518a4c9d4f31b8ed624e16fad53f54541'
-            '4ae653db69190a10b842f05c19499a528ae29898e4f2dfbdb420ef5d26112f3b'
-            '2c55f00ef9d313d1115a190675cf2f6c5dcfdfa2f196c3cdb53ea50ab26efd15'
-            '97b1fea9ac4edc919d3e4e42bb78443a7817b251fba2d355602c5938d99bbf89'
-            'cd2de4186257da3d0302f8fc23124d179c63cd2c1ce7de2a0ce8a6712ea853c6'
+sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
+            '9efae26774ac661b156c8a28ff7f4164a16230038323095e05ac2419ebd68949'
+            'c2b53fef17fe95edba93a8aae2a29abe1ee5550271a4f216ab85f57d21ae8afc'
+            'd5cf490189c64ef6d0a590b865bd4523bbd317b26b7b0699d2b1ac14aed2684c'
             '92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a'
             'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
