@@ -14,14 +14,10 @@
 
 pkgname=exfat-git
 pkgver=33.53c9015
-pkgrel=1
+pkgrel=2
 url='https://github.com/rxrz/exfat-nofuse'
 pkgdesc='Native kernel support for extended fat support'
 license=('unknown')
-#
-# build for kernel major
-_major=$(uname -r | cut -d '.' -f-2)
-_extramodules=extramodules-${_major}-ARCH
 #
 arch=('i686' 'x86_64')
 depends=('linux>=3.8' 'linux<3.11')
@@ -32,6 +28,25 @@ install="${pkgname}.install"
 source=("${pkgname}::git+https://github.com/rxrz/exfat-nofuse.git")
 md5sums=('SKIP')
 
+# 'forallkernels' code inspired by nvidia-beta-all, thanks for a working template
+
+_EXTRAMODULES=$(find /usr/lib/modules -name version | sed 's|\/usr\/lib\/modules\/||; s|\/version||')
+
+# Use Pacman's versions instead of the binaries'. Should only be used in case of long version numbers
+# (e.g. those with git-suffixes), as it takes a bit longer, due to needing to search the local repository.
+# "1" to enable.
+_pacman=0
+
+# Source of the kernel release
+if [[ ${_pacman} = 0 ]]; then
+    _KERNELS=$(file -rk /boot/* | grep 'Linux kernel.*boot executable' | sed 's/.*version \([^ ]\+\).*/\1/')
+    sed 's/_pacman=1/_pacman=0/' -i "${startdir}/${install}"
+else
+    _packages=$(pacman -Qsq linux)
+    _KERNELS=$(pacman -Ql ${_packages} | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g')
+    sed 's/_pacman=0/_pacman=1/' -i "${startdir}/${install}"
+fi
+
 pkgver() {
   cd "${pkgname}"
   echo $(git rev-list --count master).$(git rev-parse --short master)
@@ -39,21 +54,30 @@ pkgver() {
 
 build() {
   cd "${pkgname}"
-  make
-  gzip exfat_core.ko exfat_fs.ko
+  for _kernver in $_KERNELS; do
+	make -s clean
+	make KDIR=/usr/lib/modules/"${_kernver}/build"
+	gzip exfat_core.ko exfat_fs.ko
+	mkdir -p "${_kernver}"
+	mv exfat_core.ko.gz exfat_fs.ko.gz  "${_kernver}/"
+  done
 }
 
 package() {
-  cd "${pkgname}"
-  
-  install -d -m0755 \
-	"${pkgdir}/usr/lib/modules/${_extramodules}/"
-  install -m644 exfat_core.ko.gz exfat_fs.ko.gz \
-	"${pkgdir}/usr/lib/modules/${_extramodules}/"
-	
-  # update exfat-git.install with kernel major
-  sed -i "s/_extramodules='.*'/_extramodules='${_extramodules}'/" "${startdir}/${install}"
-
+  # Install module(s) by looping through all detected kernels
+  for _kernver in $_KERNELS; do  
+	cd "${srcdir}/${pkgname}/${_kernver}" 
+	# Loop through all detected extramodules directories
+	for _moduledirs in $_EXTRAMODULES; do
+		# Check which extramodules directory corresponds with the built module
+		if [ $(cat "/usr/lib/modules/${_moduledirs}/version") = "${_kernver}" ]; then
+			install -d -m0755 "${pkgdir}/usr/lib/modules/${_moduledirs}/"
+			install -m644 exfat_core.ko.gz exfat_fs.ko.gz \
+				"${pkgdir}/usr/lib/modules/${_moduledirs}/"
+		fi
+	done
+  done
   # no license yet
-# install -Dm755 LICENSE "${pkgdir}"/usr/share/licenses/exfat-git/LICENSE
+  #cd "$srcdir/$pkgname"
+  #install -Dm755 LICENSE "${pkgdir}"/usr/share/licenses/exfat-git/LICENSE
 }
