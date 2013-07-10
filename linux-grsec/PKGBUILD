@@ -8,12 +8,12 @@
 pkgname=linux-grsec
 true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
-_basekernel=3.9
+_basekernel=3.10
 _grsecver=2.9.1
-_timestamp=201307050017
-pkgver=${_basekernel}.9
-pkgrel=2
-arch=(i686 x86_64)
+_timestamp=201307092224
+pkgver=${_basekernel}.0
+pkgrel=1
+arch=(x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
 options=(!strip)
@@ -27,7 +27,7 @@ _menuconfig=0
 
 source=(
   http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
-  http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
+  #http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
   http://grsecurity.net/test/grsecurity-$_grsecver-$pkgver-$_timestamp.patch
   config.i686
   config.x86_64
@@ -293,11 +293,10 @@ package_linux-grsec-headers() {
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arm,arm26,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
 
-sha256sums=('60bc3e64ee5dc778de2cd7cd7640abf518a4c9d4f31b8ed624e16fad53f54541'
-            '4ae653db69190a10b842f05c19499a528ae29898e4f2dfbdb420ef5d26112f3b'
-            'd864bb3e745101f5a624a2b716a03ec1b5dc31e4b3ddec6c9741426bcbbd1e53'
+sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
+            'c4458c23d861ad8456e5773dfcc6fb140c8ef70cb1d7ea350888b924514c6744'
             '03988009f4c8b8424ca448d809955d5cee98738d6da914642a249806abd3d982'
-            '7d54ce8f2800767d6437fff19cef69b4574190996a915714d6a73ea8c4e05d0b'
+            'c3d95b84abd05fea053ee2073d001833532dda5eadb7a271510098d2edba394d'
             'e1788129f9fce8417bc90556b44f6e012cb627bdf82705770b33aa662a2fef04'
             'ca7e718375b3790888756cc0a64a7500cd57dddb9bf7e10a0df22c860d91f74d'
             'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
