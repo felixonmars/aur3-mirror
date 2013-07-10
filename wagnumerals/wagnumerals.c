@@ -16,6 +16,7 @@ positive and negative numbers can be produced (and zero).
 */
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +58,6 @@ int main(int argc, char **argv)
 		else
 			total -= d;
 	}
-	printf("%d\n", total);
+	printf("%"PRId64"\n", total);
 	return 0;
 }
