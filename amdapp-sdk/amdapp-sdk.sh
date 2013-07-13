@@ -1,0 +1,3 @@
+#!/bin/sh
+export AMDAPPSDKROOT=/PATH/
+export AMDAPPSDKSAMPLESROOT=/PATH/
