@@ -17,7 +17,7 @@ md5sums+=(
   '3aaf3786033d97f488425aa718d7d314'
 )
 
-build() {
+prepare() {
   cd "${srcdir}/${pkgname}-${pkgver}"
 
   # Replace python with python2
