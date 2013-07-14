@@ -1,5 +1,4 @@
 #!/bin/sh
 
-cd /opt/bit.trip.beat/
+cd /opt/bit.trip.beat
 ./bit.trip.beat
-
