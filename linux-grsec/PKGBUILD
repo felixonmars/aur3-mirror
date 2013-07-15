@@ -10,9 +10,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.10
 _grsecver=2.9.1
-_timestamp=201307092224
-pkgver=${_basekernel}.0
-pkgrel=3
+_timestamp=201307141923
+pkgver=${_basekernel}.1
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -27,7 +27,7 @@ _menuconfig=0
 
 source=(
   http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
-  #http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
+  http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
   http://grsecurity.net/test/grsecurity-$_grsecver-$pkgver-$_timestamp.patch
   config.i686
   config.x86_64
@@ -294,7 +294,8 @@ package_linux-grsec-headers() {
 }
 
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
-            'c4458c23d861ad8456e5773dfcc6fb140c8ef70cb1d7ea350888b924514c6744'
+            '1ce8533d0142acf9bb4c2167f0317580735a3c335b7303acbbd8127d01fb73e3'
+            '014e74c035a7f0c9201de70636848024dd7bff8800f2c0c58abe28285e1a2490'
             '18cfe2956c79363b61d76acc5388cd892e81cc81b4b93e4f898682c598d1a8e1'
             '66d3f9fdb3aea018dba58672efc6730a05752884118728960450d7264ef3f1d6'
             'e1788129f9fce8417bc90556b44f6e012cb627bdf82705770b33aa662a2fef04'
