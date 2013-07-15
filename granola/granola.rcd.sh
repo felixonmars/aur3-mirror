@@ -10,7 +10,7 @@ freq_dir=/sys/devices/system/cpu/cpu0/cpufreq
 
 # modded from source
 test_usable_dvfs() {
-    grep userspace $freq_dir/scaling_available_governors >& /dev/null
+    grep userspace $freq_dir/scaling_available_governors &>/dev/null
     return $?
 }
 
