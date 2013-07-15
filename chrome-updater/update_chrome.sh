@@ -12,6 +12,6 @@
 		su `users` -c 'notify-send --icon="google-chrome" "Building Chrome"';
 		su `users` -c "makepkg -s -f --noconfirm";
 		su `users` -c 'notify-send --icon="google-chrome" "Installing Chrome package"';
-		pacman -U google-chrome-*-x86_64.pkg.tar.xz --noconfirm
+		pacman -U google-chrome-*-x86_64.pkg.tar* --noconfirm
 	   	su `users` -c "rm -rf /home/`users | awk '{print $1}'`/.chromeblock";
 	   	su `users` -c "google-chrome"
