@@ -1,0 +1,265 @@
+diff -ur ecwolf.orig/src/id_sd.cpp ecwolf/src/id_sd.cpp
+--- ecwolf.orig/src/id_sd.cpp	2013-05-30 21:18:18.863912519 -0300
++++ ecwolf/src/id_sd.cpp	2013-05-30 21:18:27.886772234 -0300
+@@ -433,28 +433,19 @@
+ 		_asm    and     al,0xfd                 // ~2
+ 		_asm    out     0x61,al
+ }
++#endif
+ 
+ ///////////////////////////////////////////////////////////////////////////
+ //
+ //      SDL_PCPlaySound() - Plays the specified sound on the PC speaker
+ //
+ ///////////////////////////////////////////////////////////////////////////
+-#ifdef  _MUSE_
+-void
+-#else
+ static void
+-#endif
+ SDL_PCPlaySound(PCSound *sound)
+ {
+-//      _asm    pushfd
+-		_asm    cli
+-
+ 		pcLastSample = -1;
+ 		pcLengthLeft = sound->common.length;
+ 		pcSound = sound->data;
+-
+-//      _asm    popfd
+-		_asm    sti
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////
+@@ -462,24 +453,10 @@
+ //      SDL_PCStopSound() - Stops the current sound playing on the PC Speaker
+ //
+ ///////////////////////////////////////////////////////////////////////////
+-#ifdef  _MUSE_
+-void
+-#else
+ static void
+-#endif
+ SDL_PCStopSound(void)
+ {
+-//      _asm    pushfd
+-		_asm    cli
+-
+ 		pcSound = 0;
+-
+-		_asm    in      al,0x61                 // Turn the speaker off
+-		_asm    and     al,0xfd                 // ~2
+-		_asm    out     0x61,al
+-
+-//      _asm    popfd
+-		_asm    sti
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////
+@@ -490,20 +467,118 @@
+ static void
+ SDL_ShutPC(void)
+ {
+-//      _asm    pushfd
+-		_asm    cli
+-
+ 		pcSound = 0;
++}
+ 
+-		_asm    in      al,0x61                 // Turn the speaker & gate off
+-		_asm    and     al,0xfc                 // ~3
+-		_asm    out     0x61,al
++// Adapted from Chocolate Doom (chocolate-doom/pcsound/pcsound_sdl.c)
++#define SQUARE_WAVE_AMP 0x2000
+ 
+-//      _asm    popfd
+-		_asm    sti
+-}
++static void SDL_PCMixCallback(void *udata, Uint8 *stream, int len)
++{
++	static int current_remaining = 0;
++	static int current_freq = 0;
++	static int phase_offset = 0;
+ 
+-#endif
++	Sint16 *leftptr;
++	Sint16 *rightptr;
++	Sint16 this_value;
++	int oldfreq;
++	int i;
++	int nsamples;
++
++	// Number of samples is quadrupled, because of 16-bit and stereo
++
++	nsamples = len / 4;
++
++	leftptr = (Sint16 *) stream;
++	rightptr = ((Sint16 *) stream) + 1;
++
++	// Fill the output buffer
++
++	for (i=0; i<nsamples; ++i)
++	{
++		// Has this sound expired? If so, retrieve the next frequency
++
++		while (current_remaining == 0)
++		{
++			oldfreq = current_freq;
++
++			// Get the next frequency to play
++
++			if(pcSound)
++			{
++				if(*pcSound!=pcLastSample)
++				{
++					pcLastSample=*pcSound;
++
++					if(pcLastSample)
++						// The PC PIC counts down at 1.193180MHz
++						// So pwm_freq = counter_freq / reload_value
++						// reload_value = pcLastSample * 60 (see SDL_DoFX)
++						current_freq = 1193180 / (pcLastSample * 60);
++					else
++						current_freq = 0;
++
++					// The PC speaker sample rate is 140Hz (see SDL_t0SlowAsmService)
++					current_remaining = param_samplerate / 140;
++				}
++				pcSound++;
++				pcLengthLeft--;
++				if(!pcLengthLeft)
++				{
++					pcSound=0;
++					SoundPlaying=FString();
++					SoundPriority=0;
++				}
++			}
++			else
++			{
++				current_freq = 0;
++				current_remaining = 1;
++			}
++
++			if (current_freq != 0)
++				// Adjust phase to match to the new frequency.
++				// This gives us a smooth transition between different tones,
++				// with no impulse changes.
++
++				phase_offset = (phase_offset * oldfreq) / current_freq;
++		}
++
++		// Set the value for this sample.
++
++		if (current_freq == 0)
++			// Silence
++			this_value = 0;
++		else
++		{
++			int frac;
++
++			// Determine whether we are at a peak or trough in the current
++			// sound.  Multiply by 2 so that frac % 2 will give 0 or 1
++			// depending on whether we are at a peak or trough.
++
++			frac = (phase_offset * current_freq * 2) / param_samplerate;
++
++			if ((frac % 2) == 0)
++				this_value = SQUARE_WAVE_AMP;
++			else
++				this_value = -SQUARE_WAVE_AMP;
++
++			++phase_offset;
++		}
++
++		--current_remaining;
++
++		// Use the same value for the left and right channels.
++
++		*leftptr += this_value;
++		*rightptr += this_value;
++
++		leftptr += 2;
++		rightptr += 2;
++	}
++}
+ 
+ void
+ SD_StopDigitized(void)
+@@ -520,6 +595,7 @@
+ 			break;
+ 		case sds_PC:
+ //            SDL_PCStopSampleInIRQ();
++			SDL_PCStopSound();
+ 			break;
+ 		case sds_SoundBlaster:
+ //            SDL_SBStopSampleInIRQ();
+@@ -767,7 +843,7 @@
+ 		default:
+ 			break;
+ 		case sdm_PC:
+-//            SDL_ShutPC();
++			SDL_ShutPC();
+ 			break;
+ 		case sdm_AdLib:
+ 			SDL_ShutAL();
+@@ -1008,6 +1084,9 @@
+ 
+ 	alTimeCount = 0;
+ 
++	// Add PC speaker sound mixer
++	Mix_SetPostMix(SDL_PCMixCallback, NULL);
++
+ 	SD_SetSoundMode(sdm_Off);
+ 	SD_SetMusicMode(smm_Off);
+ 
+@@ -1075,18 +1154,14 @@
+ 	{
+ 		if ((DigiMode == sds_PC) && (SoundMode == sdm_PC))
+ 		{
+-#ifdef NOTYET
+-			if (s->priority < SoundPriority)
++			if (sindex.GetPriority() < SoundPriority)
+ 				return 0;
+ 
+ 			SDL_PCStopSound();
+ 
+ 			SD_PlayDigitized(sindex,lp,rp);
+ 			SoundPositioned = ispos;
+-			SoundPriority = s->priority;
+-#else
+-			return 0;
+-#endif
++			SoundPriority = sindex.GetPriority();
+ 		}
+ 		else
+ 		{
+@@ -1118,7 +1193,8 @@
+ 		default:
+ 			break;
+ 		case sdm_PC:
+-//            SDL_PCPlaySound((PCSound *)s);
++			if(sindex.HasType(SoundData::PCSPEAKER))
++				SDL_PCPlaySound((PCSound *)sindex.GetData(SoundData::PCSPEAKER));
+ 			break;
+ 		case sdm_AdLib:
+ 			if(sindex.HasType(SoundData::ADLIB))
+@@ -1176,7 +1252,7 @@
+ 		default:
+ 			break;
+ 		case sdm_PC:
+-//            SDL_PCStopSound();
++			SDL_PCStopSound();
+ 			break;
+ 		case sdm_AdLib:
+ 			SDL_ALStopSound();
+diff -ur ecwolf.orig/src/wl_menu.cpp ecwolf/src/wl_menu.cpp
+--- ecwolf.orig/src/wl_menu.cpp	2013-05-30 21:18:18.867245677 -0300
++++ ecwolf/src/wl_menu.cpp	2013-05-30 21:18:27.886772234 -0300
+@@ -490,7 +490,6 @@
+ 
+ 	// Collect options and defaults
+ 	const char* soundEffectsOptions[] = {language["STR_NONE"], language["STR_PC"], language["STR_ALSB"] };
+-	soundEffectsOptions[1] = NULL;
+ 	const char* digitizedOptions[] = {language["STR_NONE"], language["STR_SB"] };
+ 	const char* musicOptions[] = { language["STR_NONE"], language["STR_ALSB"] };
+ 	if(!AdLibPresent && !SoundBlasterPresent)
