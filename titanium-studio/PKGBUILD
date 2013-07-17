@@ -3,7 +3,7 @@
 # Contributor: Shanto <shanto@hotmail.com>
 
 pkgname=titanium-studio
-pkgver=3.0.2.201302191606
+pkgver=3.1.1.201306112235
 pkgrel=1
 pkgdesc="A free and open source application development platform, Titanium lets you create native mobile, tablet and desktop application experiences using existing web skills like Javascript, HTML, CSS, Python, Ruby, and PHP."
 url="http://www.appcelerator.com/products/titanium-studio/"
@@ -31,11 +31,11 @@ _pkgarraysize=${#source[@]}
 
 if [ "$CARCH" = "i686" ]; then
 	source[${_pkgarraysize}]="http://titanium-studio.s3.amazonaws.com/latest/titanium.linux.gtk.x86.zip"
-	md5sums[${_pkgarraysize}]='760a4282d1a3eb01c4492e0e4544e94d'
+	md5sums[${_pkgarraysize}]='f1975b7a24cb955b02a1c56d36e46126'
 else
 	# x86_64
 	source[${_pkgarraysize}]="http://titanium-studio.s3.amazonaws.com/latest/titanium.linux.gtk.x86_64.zip"
-	md5sums[${_pkgarraysize}]='47d6f90cc4de3004ed0e0f04b5b5ae20'
+	md5sums[${_pkgarraysize}]='3e173970955a8b7d9827e9cbb71c1a51'
 fi
 
 
