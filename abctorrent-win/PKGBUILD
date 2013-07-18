@@ -14,13 +14,14 @@ makedepends=('zip')
 source=(http://prdownloads.sourceforge.net/pingpong-abc/ABC-win32-v3.1.zip?download)
 md5sums=('2902d0b33aa48f4b34e492ca8ea94ebc')
 
+# Set a variable to easily delete unneded files
 _del_files="abc.exe.manifest abc.nsi clean.bat how_to_compile.txt makedist.bat setupabc.py"
 
 package() {
   cd $startdir/src/$pkgver
   sed -e 's/\, "lang"/, "Lang"/g' -i Lang/lang.py
   ln -s Lang lang
-# remove the french language file because it makes unicode problems in the preferences dialog
+  # Remove the french language file because it makes unicode problems in the preferences dialog
   rm -rf Lang/french.lang
   rm -rf $_del_files
   mkdir -p $startdir/pkg/usr/{share/abctorrent,share/pixmaps,bin}
