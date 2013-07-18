@@ -38,7 +38,7 @@ if [ "$CARCH" == x86_64 ]; then
 	sha256sums+=('31235fc9888ddb30e4f94e90d302a2149133e09edfc32ee5ac51a30ce197ec1d')
 elif [ "$CARCH" == i686 ]; then
 	source+=("http://syncapp.bittorrent.com/$pkgver/btsync_i386-$pkgver.tar.gz")
-        sha256sums+=('8a482f2271a42c5f54c96e816a84340a6f2357a5b81f927d07d00788f5140a41')
+        sha256sums+=('ecc84e88db5fe3054306b1901fb437bf868df9b8ede5dfbc22b79105dd2a8e2b')
 elif [ "$CARCH" == arm ] || [ "$CARCH" == armv6h ]; then
         source+=("http://syncapp.bittorrent.com/$pkgver/btsync_arm-$pkgver.tar.gz")
         sha256sums+=('d8ce53becedabdc03bc06148a2180f5fbd95b53b4c15fadeb67b45cad60b6b56')
