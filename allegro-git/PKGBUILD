@@ -5,9 +5,10 @@
 # Contributor: arjan <arjan@archlinux.org>
 
 pkgname=allegro-git
-pkgver=20130308
+_gitname=allegro
+pkgver=5.1.7.81.g1824b1b
 pkgrel=1
-pkgdesc="A portable library mainly aimed at video game and multimedia programming"
+pkgdesc="A portable library mainly aimed at video game and multimedia programming."
 arch=('x86_64' 'i686')
 url="http://alleg.sourceforge.net/"
 license=('custom:ZLIB')
@@ -16,31 +17,17 @@ makedepends=('cmake' 'glu' 'git')
 optdepends=('pandoc: for making the documentation')
 provides=('allegro')
 conflicts=('allegro')
+source=('git://git.code.sf.net/p/alleg/allegro')
+md5sums=('SKIP')
 
-_gitroot="git://git.code.sf.net/p/alleg/allegro"
-_gitname="allegro"
+pkgver() {
+  cd $_gitname
+  git describe --always | sed 's|-|.|g'
+}
 
 build() {
-  cd "$srcdir"
-
-  msg "Connecting to GIT server...."
-
-  if [ -d $_gitname ] ; then
-    cd $_gitname && git pull origin
-    msg "The local files are updated."
-  else
-    git clone $_gitroot $_gitname
-  fi
-
-  msg "GIT checkout done or server timeout"
-  msg "Starting make..."
-
-  rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-  cd "$srcdir/$_gitname-build"
-
-  mkdir build && cd build
-  cmake .. \
+  cd $_gitname
+  cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_SKIP_RPATH=ON \
@@ -51,15 +38,14 @@ build() {
 }
 
 package() {
-  cd "$srcdir/$_gitname-build/build"
+  cd $_gitname
   make DESTDIR="$pkgdir" install
 
   install -d "$pkgdir/usr/share/doc/"
   install -d "$pkgdir/opt/$pkgname"
-  cp -r docs/html "$pkgdir/usr/share/doc/$pkgname"
+  cp -rf docs/html "$pkgdir/usr/share/doc/$pkgname"
   cp -rf examples/data examples/ex_* "$pkgdir/opt/$pkgname"
 
-  cd ..
   install -Dm644 "LICENSE.txt" \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
