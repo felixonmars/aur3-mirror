@@ -1,7 +1,7 @@
 # Maintainer: rtfreedman  (rob<d0t>til<d0t>freedman<aT>googlemail<d0t>com
 
 pkgname=abs-guide
-pkgver=6.6.15
+pkgver=6.6.17
 pkgrel=1
 pkgdesc="Advanced Bash Scripting HTML Guide"
 arch=(any)
