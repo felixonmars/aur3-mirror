@@ -10,7 +10,7 @@ depends=('python2' 'chromaprint' 'python2-numpy' 'unrar')
 makedepends=('mercurial' 'git' 'dos2unix')
 conflicts=('awescript' 'rescene-bin' 'resample-bin')
 
-_hgrepo="pyrescene"
+_hgrepo='pyrescene'
 _hgroot="${url%/*}"
 
 _gitroot='git://github.com/dryes/rarlinux.git'
