@@ -1,0 +1,108 @@
+diff -Naur xen-b/docs/man/xl.cfg.pod.5 xen/docs/man/xl.cfg.pod.5
+--- xen-b/docs/man/xl.cfg.pod.5	2013-06-26 21:07:32.102091673 -0600
++++ xen/docs/man/xl.cfg.pod.5	2013-05-29 17:55:51.791707539 -0600
+@@ -1005,6 +1005,9 @@
+ for 1024x768 at 32 bpp and videoram option is currently working
+ only when using the upstream qemu-xen device-model.
+ 
++For B<qxl> vga, the default is both default and minimal 128MB.
++If B<videoram> is set less than 128MB, an error will be triggered.
++
+ =item B<stdvga=BOOLEAN>
+ 
+ Select a standard VGA card with VBE (VESA BIOS Extensions) as the
+@@ -1016,9 +1019,14 @@
+ 
+ =item B<vga="STRING">
+ 
+-Selects the emulated video card (stdvga|cirrus).
++Selects the emulated video card (stdvga|cirrus|qxl).
+ The default is cirrus.
+ 
++In general, QXL should work with the Spice remote display protocol
++for acceleration, and QXL driver is necessary in guest in this case.
++QXL can also work with the VNC protocol, but it will be like a standard
++VGA without acceleration.
++
+ =item B<vnc=BOOLEAN>
+ 
+ Allow access to the display via the VNC protocol.  This enables the
+diff -Naur xen-b/tools/libxl/libxl_create.c xen/tools/libxl/libxl_create.c
+--- xen-b/tools/libxl/libxl_create.c	2013-06-26 21:07:32.103091673 -0600
++++ xen/tools/libxl/libxl_create.c	2013-05-29 17:55:52.298374206 -0600
+@@ -213,6 +213,22 @@
+         if (b_info->shadow_memkb == LIBXL_MEMKB_DEFAULT)
+             b_info->shadow_memkb = 0;
+ 
++        if (b_info->u.hvm.vga.kind == LIBXL_VGA_INTERFACE_TYPE_QXL) {
++            if (b_info->device_model_version ==
++               LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN) {
++                if (b_info->video_memkb == LIBXL_MEMKB_DEFAULT) {
++                    b_info->video_memkb = (128 * 1024);
++                } else if (b_info->video_memkb < (128 * 1024)) {
++                    LOG(ERROR,
++                        "128 Mib videoram is the minimum for qxl default");
++                    return ERROR_INVAL;
++                }
++            } else {
++                LOG(ERROR,"qemu upstream required for qxl vga");
++                return ERROR_INVAL;
++            }
++        }
++
+         if (b_info->u.hvm.vga.kind == LIBXL_VGA_INTERFACE_TYPE_STD &&
+             b_info->device_model_version ==
+             LIBXL_DEVICE_MODEL_VERSION_QEMU_XEN) {
+diff -Naur xen-b/tools/libxl/libxl_dm.c xen/tools/libxl/libxl_dm.c
+--- xen-b/tools/libxl/libxl_dm.c	2013-06-26 21:07:32.105091673 -0600
++++ xen/tools/libxl/libxl_dm.c	2013-05-29 17:55:52.298374206 -0600
+@@ -191,6 +191,8 @@
+             break;
+         case LIBXL_VGA_INTERFACE_TYPE_CIRRUS:
+             break;
++        case LIBXL_VGA_INTERFACE_TYPE_QXL:
++            break;
+         }
+ 
+         if (b_info->u.hvm.boot) {
+@@ -477,6 +479,17 @@
+                     libxl__sizekb_to_mb(b_info->video_memkb)), NULL);
+             }
+             break;
++        case LIBXL_VGA_INTERFACE_TYPE_QXL:
++            /* QXL have 2 ram regions, ram and vram */
++            flexarray_vappend(dm_args, "-vga", "qxl", NULL);
++            if (b_info->video_memkb) {
++                flexarray_vappend(dm_args, "-global",
++                    GCSPRINTF("qxl-vga.vram_size_mb=%"PRIu64,
++                    (b_info->video_memkb/2/1024)), "-global",
++                    GCSPRINTF("qxl-vga.ram_size_mb=%"PRIu64,
++                    (b_info->video_memkb/2/1024)), NULL);
++            }
++            break;
+         }
+ 
+         if (b_info->u.hvm.boot) {
+diff -Naur xen-b/tools/libxl/libxl_types.idl xen/tools/libxl/libxl_types.idl
+--- xen-b/tools/libxl/libxl_types.idl	2013-06-26 21:07:32.105091673 -0600
++++ xen/tools/libxl/libxl_types.idl	2013-05-29 17:55:52.301707539 -0600
+@@ -130,6 +130,7 @@
+ libxl_vga_interface_type = Enumeration("vga_interface_type", [
+     (1, "CIRRUS"),
+     (2, "STD"),
++    (3, "QXL"),
+     ], init_val = 0)
+ 
+ #
+diff -Naur xen-b/tools/libxl/xl_cmdimpl.c xen/tools/libxl/xl_cmdimpl.c
+--- xen-b/tools/libxl/xl_cmdimpl.c	2013-06-26 21:07:32.108091673 -0600
++++ xen/tools/libxl/xl_cmdimpl.c	2013-05-29 17:55:52.308374206 -0600
+@@ -1456,6 +1456,8 @@
+                 b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_STD;
+             } else if (!strcmp(buf, "cirrus")) {
+                 b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_CIRRUS;
++            } else if (!strcmp(buf, "qxl")) {
++                b_info->u.hvm.vga.kind = LIBXL_VGA_INTERFACE_TYPE_QXL;
+             } else {
+                 fprintf(stderr, "Unknown vga \"%s\" specified\n", buf);
+                 exit(1);
