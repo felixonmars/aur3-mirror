@@ -1,0 +1,65 @@
+# Maintainer: Ryan Young <ry an. ry. young@gmail.com> (omit spaces)
+# Contributor: Lekensteyn <lekensteyn@gmail.com>
+# Contributor: Samsagax <samsagax@gmail.com>
+
+pkgname=bumblebee-amd-git
+pkgver=20130720
+pkgrel=1
+pkgdesc="common-amd branch of Bumblebee. Hybrid graphics support for Linux through VirtualGL. You need to install proper drivers separately. Can be used with nouveau, nvidia, fglrx, radeon, etc."
+arch=('i686' 'x86_64')
+makedepends=('git')
+depends=('virtualgl' 
+        # Comment this dependency if you intend to use systemd-only config
+        'libbsd' 
+        'glib2')
+optdepends=('xf86-video-nouveau: Nouveau driver' 'nouveau-dri: 3D acceleration features for Nouveau' 'mesa: 3D acceleration features for Nouveau'  'bbswitch: switch on/off discrete card' 'nvidia-utils-bumblebee: Nvidia utils not breaking LibGL' 'nvidia: Nvidia kernel driver')
+if [ "$CARCH" = "x86_64" ]; then
+     optdepends[${#optdepends[@]}]='lib32-virtualgl: run 32bit applications with optirun'
+fi
+url="http://www.Bumblebee-Project.org"
+license=("GPL3")
+install='bumblebee.install'
+conflicts=('bumblebee')
+provides=('bumblebee')
+backup=('etc/bumblebee/bumblebee.conf')
+source=('bumblebeed.in')
+md5sums=('8b05da760e9236ecff2c6820616119f7')
+
+_gitroot="git://github.com/Bumblebee-Project/Bumblebee.git"
+_gitname="Bumblebee"
+_gitbranch="common-amd"
+
+build() {
+    cd "$srcdir"
+    msg "Connecting to GIT server...."
+    if [ -d $_gitname ] ; then
+        cd $_gitname && git pull origin
+        msg "The local files are updated."
+    else
+        git clone "$_gitroot" "$_gitname" -b "$_gitbranch"
+        cd "$_gitname"
+    fi
+    msg "GIT checkout done or server timeout"
+
+    autoreconf -fi
+    ./configure \
+        CONF_DRIVER_MODULE_NVIDIA=nvidia \
+        CONF_LDPATH_NVIDIA=/usr/lib/nvidia-bumblebee:/usr/lib32/nvidia-bumblebee \
+        CONF_MODPATH_NVIDIA=/usr/lib/nvidia-bumblebee/xorg/,/usr/lib/xorg/modules \
+        --prefix=/usr \
+        --sysconfdir=/etc
+# For systemd-only config you'll need this
+#        --without-pidfile
+    make
+}
+
+package() {
+    cd "$srcdir/$_gitname"
+    make install DESTDIR="$pkgdir"
+    install -D -m755 "$srcdir/bumblebeed.in" "$pkgdir/etc/rc.d/bumblebeed"
+    install -D -m755 "scripts/systemd/bumblebeed.service" "$pkgdir/usr/lib/systemd/system/bumblebeed.service"
+    # Make bash_completion work
+    mv -v "${pkgdir}/etc/bash_completion.d/bumblebee" "${pkgdir}/etc/bash_completion.d/optirun"
+    #Install udev rule to prevent GH-#144
+    install -D -m644 conf/99-remove-nvidia-dev.rules "${pkgdir}/usr/lib/udev/rules.d/99-remove-nvidia-dev.rules"
+}
