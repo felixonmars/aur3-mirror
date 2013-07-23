@@ -2,7 +2,7 @@
 
 pkgname=android-google-admob-ads-sdk
 pkgver=6.4.1
-pkgrel=1
+pkgrel=2
 pkgdesc='Google AdMob Ads SDK'
 arch=('any')
 url="https://developers.google.com/mobile-ads-sdk"
@@ -11,7 +11,7 @@ depends=('android-sdk')
 options=('!strip')
 source=("https://dl-ssl.google.com/googleadmobadssdk/googleadmobadssdkandroid-${pkgver}.zip" "source.properties")
 sha1sums=('0102859d9575baa0bf4fd5eb422af2ad0fe6cb82'
-          '1909004a466a95d6421c8acab653a0891881efea')
+          '27a108ce9c4c3307876700174011c21969b0b480')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/extras/google/"
