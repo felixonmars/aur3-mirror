@@ -2,12 +2,12 @@
 
 pkgname=adept-runtime-xilinx
 pkgver=2.13.1
-pkgrel=2
+pkgrel=3
 pkgdesc="Core runtime necessary to communicate with Digilent logic devices"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
 license=('custom')
-depends=('libusb>=1.0' 'libftd2xx=1.0.4' 'usbdrv')
+depends=('libusb>=1.0' 'libftd2xx-digilent=1.0.4' 'usbdrv')
 provides=('adept-runtime')
 options=(!strip)
 install='adept-runtime.install'
