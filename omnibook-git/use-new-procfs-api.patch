@@ -1,0 +1,1230 @@
+diff --git a/Makefile b/Makefile
+index b414f22..a17c495 100644
+--- a/Makefile
++++ b/Makefile
+@@ -126,7 +126,7 @@ ifeq ($(OMNIBOOK_STANDALONE),y)
+ ifeq ($(OMNIBOOK_WANT_BACKLIGHT),y)
+ ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
+ # we support backlight interface only after 2.6.16
+-ifeq ($(shell if [ $(SUBLEVEL) -gt 16 ] ; then echo -n 'y'; fi),y)
++ifeq ($(shell if [ $(VERSION) -eq 2 -a $(SUBLEVEL) -gt 16 ] || [ $(VERSION) -ge 3 ] ; then echo -n 'y'; fi),y)
+ EXTRA_CFLAGS += -DCONFIG_OMNIBOOK_BACKLIGHT
+ else
+ $(warning "Backlight support in only supported for kernel version newer than 2.6.16")
+diff --git a/ac.c b/ac.c
+old mode 100644
+new mode 100755
+index f03cefb..064196b
+--- a/ac.c
++++ b/ac.c
+@@ -18,6 +18,24 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_ac_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	u8 ac;
++	int retval;
++
++	retval = backend_byte_read(io_op, &ac);
++	if (retval < 0)
++		return retval;
++
++	seq_printf(m, "AC %s\n", (!!ac) ? "on-line" : "off-line");
++	return 0;
++}
++#else
+ static int omnibook_ac_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -32,6 +50,7 @@ static int omnibook_ac_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
+ static struct omnibook_tbl ac_table[] __initdata = {
+ 	{XE3GF | TSP10 | TSM30X | TSM70, SIMPLE_BYTE(EC, XE3GF_ADP, XE3GF_ADP_MASK)},
+diff --git a/battery.c b/battery.c
+index c9191fc..fedb4be 100644
+--- a/battery.c
++++ b/battery.c
+@@ -18,6 +18,10 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ struct omnibook_battery_info {
+ 	u8 type;		/* 1 - Li-Ion, 2 NiMH */
+ 	u16 sn;			/* Serial number */
+@@ -446,6 +450,92 @@ static int omnibook_get_battery_status(struct omnibook_operation *io_op,
+ 	return 0;
+ }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_battery_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	char *statustr;
++	char *typestr;
++	int max = 0;
++	int num = 0;
++	int retval;
++	int i;
++	struct omnibook_battery_info battinfo;
++	struct omnibook_battery_state battstat;
++	/*
++	 * XE3GF
++	 * XE3GC
++	 * 0B6000
++	 * 0B6100
++	 * XE4500
++	 * AMILOD
++	 * TSP10
++	 */
++	if (omnibook_ectype & (XE3GF | XE3GC | OB6000 | OB6100 | XE4500 | AMILOD | TSP10))
++		max = 2;
++	/*
++	 * OB500
++	 * 0B510
++	 */
++	else if (omnibook_ectype & (OB500 | OB510))
++		max = 3;
++	/*
++	 * TSM30X
++	 * TSM70
++	 */
++	else if (omnibook_ectype & (TSM70 | TSM30X))
++		max = 1;
++
++	if(mutex_lock_interruptible(&io_op->backend->mutex))
++			return -ERESTARTSYS;
++
++	for (i = 0; i < max; i++) {
++		retval = omnibook_get_battery_info(io_op, i, &battinfo);
++		if (retval == 0) {
++			num++;
++			omnibook_get_battery_status(io_op, i, &battstat);
++			typestr = (battinfo.type) ? "Li-Ion" : "NiMH";
++			switch (battstat.status) {
++			case OMNIBOOK_BATTSTAT_CHARGED:
++				statustr = "charged";
++				break;
++			case OMNIBOOK_BATTSTAT_DISCHARGING:
++				statustr = "discharging";
++				break;
++			case OMNIBOOK_BATTSTAT_CHARGING:
++				statustr = "charging";
++				break;
++			case OMNIBOOK_BATTSTAT_CRITICAL:
++				statustr = "critical";
++				break;
++			default:
++				statustr = "unknown";
++			}
++
++			seq_printf(m, "Battery:            %11d\n", i);
++			seq_printf(m, "Type:               %11s\n", typestr);
++			if (battinfo.sn)
++				seq_printf(m, "Serial Number:      %11d\n",
++					   battinfo.sn);
++			seq_printf(m, "Present Voltage:    %11d mV\n", battstat.pv);
++			seq_printf(m, "Design Voltage:     %11d mV\n", battinfo.dv);
++			seq_printf(m, "Remaining Capacity: %11d mAh\n", battstat.rc);
++			if (battstat.lc)
++				seq_printf(m, "Last Full Capacity: %11d mAh\n",
++					   battstat.lc);
++			seq_printf(m, "Design Capacity:    %11d mAh\n", battinfo.dc);
++			seq_printf(m, "Gauge:              %11d %%\n", battstat.gauge);
++			seq_printf(m, "Status:             %11s\n", statustr);
++			seq_printf(m, "\n");
++		}
++	}
++	if (num == 0)
++		seq_printf(m, "No battery present\n");
++
++	mutex_unlock(&io_op->backend->mutex);
++
++	return 0;
++}
++#else
+ static int omnibook_battery_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	char *statustr;
+@@ -534,6 +624,7 @@ static int omnibook_battery_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
+ static struct omnibook_tbl battery_table[] __initdata = {
+ 	{XE3GF | XE3GC | AMILOD | TSP10 | TSM70 | TSM30X, {EC,}},
+diff --git a/blank.c b/blank.c
+old mode 100644
+new mode 100755
+index 1bad34c..e6c2cd1
+--- a/blank.c
++++ b/blank.c
+@@ -19,6 +19,9 @@
+ 
+ #include <asm/io.h>
+ #include "hardware.h"
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
+ 
+ static struct omnibook_feature blank_driver;
+ 
+@@ -70,6 +73,18 @@ static int console_blank_unregister_hook(void)
+ 	return retval;
+ }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_console_blank_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	spin_lock(&blank_spinlock);
++
++	seq_printf(m, "LCD console blanking hook is %s\n",
++		   (console_blank_hook == omnibook_lcd_blank) ? "enabled" : "disabled");
++
++	spin_unlock(&blank_spinlock);
++	return 0;
++}
++#else
+ static int omnibook_console_blank_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -84,6 +99,7 @@ static int omnibook_console_blank_read(char *buffer, struct omnibook_operation *
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_console_blank_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/bluetooth.c b/bluetooth.c
+old mode 100644
+new mode 100755
+index 1095eec..d44d52b
+--- a/bluetooth.c
++++ b/bluetooth.c
+@@ -17,7 +17,27 @@
+ 
+ #include "omnibook.h"
+ #include "hardware.h"
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_bt_read(struct seq_file* m, struct omnibook_operation *io_op)
++{
++	int retval;
++	unsigned int state;
++
++	if ((retval = backend_aerial_get(io_op, &state)))
++		return retval;
++
++	seq_printf(m, "Bluetooth adapter is %s",
++			   (state & BT_EX) ? "present" : "absent");
++	if (state & BT_EX)
++		seq_printf(m, " and %s", (state & BT_STA) ? "enabled" : "disabled");
++	seq_printf(m, ".\n");
++	return 0;
++}
++#else
+ static int omnibook_bt_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -36,6 +56,7 @@ static int omnibook_bt_read(char *buffer, struct omnibook_operation *io_op)
+ 	return len;
+ 
+ }
++#endif
+ 
+ static int omnibook_bt_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/cooling.c b/cooling.c
+old mode 100644
+new mode 100755
+index 3f507bd..d7bae1b
+--- a/cooling.c
++++ b/cooling.c
+@@ -17,6 +17,23 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif 
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_cooling_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	if(mutex_lock_interruptible(&io_op->backend->mutex))
++		return -ERESTARTSYS;
++
++	seq_printf(m, "Cooling method : %s\n", 
++		   io_op->backend->cooling_state ? "Performance"  : "Powersave" );
++
++	mutex_unlock(&io_op->backend->mutex);
++	return 0;
++}
++#else
+ static int omnibook_cooling_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -30,6 +47,7 @@ static int omnibook_cooling_read(char *buffer, struct omnibook_operation *io_op)
+ 	mutex_unlock(&io_op->backend->mutex);
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_cooling_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/display.c b/display.c
+index 1c5d4d7..d00a758 100644
+--- a/display.c
++++ b/display.c
+@@ -18,6 +18,10 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ static const char display_name[][16] = {
+ 	"Internal LCD",
+ 	"External VGA",
+@@ -25,6 +29,33 @@ static const char display_name[][16] = {
+ 	"External DVI",
+ };
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_display_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	int retval;
++	unsigned int sta, en_mask, det_mask;
++
++	retval = backend_display_get(io_op, &sta);
++	if (retval < 0)
++		return retval;
++
++	for (en_mask = DISPLAY_LCD_ON; en_mask <= DISPLAY_DVI_ON; en_mask = en_mask << 1) {
++		det_mask = en_mask << 4;	/* see display masks in omnibook.h */
++		if (!(retval & en_mask) && !(retval & det_mask))
++			continue;	/* not supported */
++		seq_printf(m, "%s:", display_name[ffs(en_mask) - 1]);
++		if (retval & det_mask)
++			seq_printf(m, " display %s",
++				   (sta & det_mask) ? "present" : "absent");
++		if (retval & en_mask)
++			seq_printf(m, " port %s",
++				    (sta & en_mask) ? "enabled" : "disabled");
++		seq_printf(m, "\n");
++	}
++
++	return 0;
++}
++#else
+ static int omnibook_display_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -53,6 +84,7 @@ static int omnibook_display_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_display_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/dock.c b/dock.c
+index 3264f70..47ea235 100644
+--- a/dock.c
++++ b/dock.c
+@@ -18,19 +18,38 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_dock_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	u8 dock;
++	int retval;
++
++	if ((retval = backend_byte_read(io_op, &dock)))
++		return retval;
++
++	seq_printf(m, "Laptop is %s\n", (dock) ? "docked" : "undocked");
++
++	return 0;
++}
++#else
+ static int omnibook_dock_read(char *buffer, struct omnibook_operation *io_op)
+ {
+-	int len = 0;
++	int len = 0
+ 	u8 dock;
+ 	int retval;
+ 
+ 	if ((retval = backend_byte_read(io_op, &dock)))
+ 		return retval;
+ 
+-	len += sprintf(buffer + len, "Laptop is %s\n", (dock) ? "docked" : "undocked");
++	len = sprintf(buffer + len, "Laptop is %s\n", (dock) ? "docked" : "undocked");
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_dock_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/dump.c b/dump.c
+index ff959e9..c31e2de 100644
+--- a/dump.c
++++ b/dump.c
+@@ -22,18 +22,63 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ static u8 ecdump_regs[256];
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int ecdump_read(struct seq_file* m, struct omnibook_operation *io_op)
++{
++	int i, j;
++	u8 v;
++
++	seq_printf(m,
++		   "EC      " " +00 +01 +02 +03 +04 +05 +06 +07"
++		   " +08 +09 +0a +0b +0c +0d +0e +0f\n");
++
++	if(mutex_lock_interruptible(&io_op->backend->mutex))
++			return -ERESTARTSYS;
++
++	for (i = 0; i < 255; i += 16) {
++		seq_printf(m, "EC 0x%02x:", i);
++		for (j = 0; j < 16; j++) {
++			io_op->read_addr = i +j;
++			if (__backend_byte_read(io_op, &v))
++				break;
++			if (v != ecdump_regs[i + j])
++				seq_printf(m, " *%02x", v);
++			else
++				seq_printf(m, "  %02x", v);
++			ecdump_regs[i + j] = v;
++		}
++		seq_printf(m, "\n");
++		if (j != 16)
++			break;
++	}
++
++	mutex_unlock(&io_op->backend->mutex);
++
++	/* These are way too dangerous to advertise openly... */
++#if 0
++	seq_printf(m,
++		   "commands:\t0x<offset> 0x<value>" " (<offset> is 00-ff, <value> is 00-ff)\n");
++	swq_printf(m,
++		   "commands:\t0x<offset> <value>  " " (<offset> is 00-ff, <value> is 0-255)\n");
++#endif
++	return 0;
++}
++#else
+ static int ecdump_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+ 	int i, j;
+ 	u8 v;
+ 
+-	len +=
+-	    sprintf(buffer + len,
+-		    "EC      " " +00 +01 +02 +03 +04 +05 +06 +07"
+-		    " +08 +09 +0a +0b +0c +0d +0e +0f\n");
++	len += sprintf(buffer + len,
++		   "EC      " " +00 +01 +02 +03 +04 +05 +06 +07"
++		   " +08 +09 +0a +0b +0c +0d +0e +0f\n");
+ 
+ 	if(mutex_lock_interruptible(&io_op->backend->mutex))
+ 			return -ERESTARTSYS;
+@@ -59,15 +104,14 @@ static int ecdump_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	/* These are way too dangerous to advertise openly... */
+ #if 0
+-	len +=
+-	    sprintf(buffer + len,
+-		    "commands:\t0x<offset> 0x<value>" " (<offset> is 00-ff, <value> is 00-ff)\n");
+-	len +=
+-	    sprintf(buffer + len,
+-		    "commands:\t0x<offset> <value>  " " (<offset> is 00-ff, <value> is 0-255)\n");
++	len += sprintf(buffer + len,
++		       "commands:\t0x<offset> 0x<value>" " (<offset> is 00-ff, <value> is 00-ff)\n");
++	len += sprintf(buffer + len,
++		       "commands:\t0x<offset> <value>  " " (<offset> is 00-ff, <value> is 0-255)\n");
+ #endif
+ 	return len;
+ }
++#endif
+ 
+ static int ecdump_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/fan.c b/fan.c
+index d812993..f30d53c 100644
+--- a/fan.c
++++ b/fan.c
+@@ -21,6 +21,10 @@
+ #include <asm/io.h>
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ static const struct omnibook_operation ctmp_io_op = { EC, XE3GF_CTMP, 0, 0, 0, 0 };
+ static const struct omnibook_operation fot_io_op = { EC, XE3GF_FOT, XE3GF_FOT, 0, 0, 0 };
+ 
+@@ -104,10 +108,29 @@ static int omnibook_fan_off(struct omnibook_operation *io_op)
+ 	return retval;
+ }
+ 
+-static int omnibook_fan_read(char *buffer, struct omnibook_operation *io_op)
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_fan_read(struct seq_file *m, struct omnibook_operation *io_op)
+ {
+ 	int fan;
++	char *str;
++
++	fan = omnibook_get_fan(io_op);
++	if (fan < 0)
++		return fan;
++	str = (fan) ? "on" : "off";
++
++	if (fan > 1)
++		seq_printf(m, "Fan is %s (level %d)\n", str, fan);
++	else
++		seq_printf(m, "Fan is %s\n", str);
++
++	return 0;
++}
++#else
++static int omnibook_fan_read(char *buffer, struct omnibook_operation *io_op)
++{
+ 	int len = 0;
++	int fan;
+ 	char *str;
+ 
+ 	fan = omnibook_get_fan(io_op);
+@@ -122,6 +145,7 @@ static int omnibook_fan_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_fan_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/fan_policy.c b/fan_policy.c
+index 67915ff..6d456fb 100644
+--- a/fan_policy.c
++++ b/fan_policy.c
+@@ -20,6 +20,9 @@
+ #include <linux/ctype.h>
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
+ /*
+  * Default temperature limits.
+  * Danger! You may overheat your CPU!
+@@ -87,10 +90,39 @@ static int omnibook_set_fan_policy(struct omnibook_operation *io_op, const u8 *f
+ 	return 0;
+ }
+ 
+-static int omnibook_fan_policy_read(char *buffer, struct omnibook_operation *io_op)
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_fan_policy_read(struct seq_file *m, struct omnibook_operation *io_op)
+ {
+ 	int retval;
++	u8 i;
++	u8 fan_policy[OMNIBOOK_FAN_LEVELS];
++
++	if(mutex_lock_interruptible(&io_op->backend->mutex))
++		return -ERESTARTSYS;
++
++	retval = omnibook_get_fan_policy(io_op, &fan_policy[0]);
++
++	mutex_unlock(&io_op->backend->mutex);
++
++	if(retval)
++		return retval;
++
++	seq_printf(m, "Fan off temperature:        %2d C\n", fan_policy[0]);
++	seq_printf(m, "Fan on temperature:         %2d C\n", fan_policy[1]);
++	for (i = 2; i < OMNIBOOK_FAN_LEVELS; i++) {
++		seq_printf(m, "Fan level %1d temperature:    %2d C\n", i,
++			   fan_policy[i]);
++	}
++	seq_printf(m, "Minimal temperature to set: %2d C\n", OMNIBOOK_FAN_MIN);
++	seq_printf(m, "Maximal temperature to set: %2d C\n", OMNIBOOK_FAN_MAX);
++
++	return 0;
++}
++#else
++static int omnibook_fan_policy_read(char *buffer, struct omnibook_operation *io_op)
++{
+ 	int len = 0;
++	int retval;
+ 	u8 i;
+ 	u8 fan_policy[OMNIBOOK_FAN_LEVELS];
+ 
+@@ -116,6 +148,7 @@ static int omnibook_fan_policy_read(char *buffer, struct omnibook_operation *io_
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_fan_policy_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/hotkeys.c b/hotkeys.c
+index 7d541e1..97de6ff 100644
+--- a/hotkeys.c
++++ b/hotkeys.c
+@@ -18,6 +18,10 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ /* Predefined convinient on/off states */
+ #define HKEY_ON  HKEY_ONETOUCH|HKEY_MULTIMEDIA|HKEY_FN|HKEY_DOCK|HKEY_FNF5
+ #define HKEY_OFF 0
+@@ -106,6 +110,29 @@ static const char pretty_name[][27] = {
+ 	"Fn + F5 hotkey is",
+ };
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_hotkeys_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	int retval;
++	unsigned int read_state = 0; /* buggy gcc 4.1 warning fix */
++	unsigned int shift, mask;
++
++	retval = hotkeys_get_save(io_op, &read_state);
++
++	if (retval < 0)
++		return retval;
++
++	for (shift = 0; shift <= HKEY_LAST_SHIFT ; shift++) {
++		mask = 1 << shift;
++		/* we assume write capability or read capability imply support */
++		if ((io_op->backend->hotkeys_read_cap | io_op->backend->hotkeys_write_cap) & mask)
++			seq_printf(m, "%s %s.\n", pretty_name[shift],
++				   (read_state & mask) ? "enabled" : "disabled");
++	}
++
++	return 0;
++}
++#else
+ static int omnibook_hotkeys_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -129,6 +156,7 @@ static int omnibook_hotkeys_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_hotkeys_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/info.c b/info.c
+index 8e25e7a..f1914aa 100644
+--- a/info.c
++++ b/info.c
+@@ -20,6 +20,18 @@
+ #include <linux/dmi.h>
+ #include <linux/version.h>
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_version_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	seq_printf(m, "%s\n", OMNIBOOK_MODULE_VERSION);
++
++	return 0;
++}
++#else
+ static int omnibook_version_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -28,7 +40,26 @@ static int omnibook_version_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_dmi_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	seq_printf(m, "BIOS Vendor:   %s\n", dmi_get_system_info(DMI_BIOS_VENDOR));
++	seq_printf(m, "BIOS Version:  %s\n", dmi_get_system_info(DMI_BIOS_VERSION));
++	seq_printf(m, "BIOS Release:  %s\n", dmi_get_system_info(DMI_BIOS_DATE));
++	seq_printf(m, "System Vendor: %s\n", dmi_get_system_info(DMI_SYS_VENDOR));
++	seq_printf(m, "Product Name:  %s\n", dmi_get_system_info(DMI_PRODUCT_NAME));
++	seq_printf(m, "Version:       %s\n", dmi_get_system_info(DMI_PRODUCT_VERSION));
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15))
++	seq_printf(m, "Serial Number: %s\n", dmi_get_system_info(DMI_PRODUCT_SERIAL));
++#endif
++	seq_printf(m, "Board Vendor:  %s\n", dmi_get_system_info(DMI_BOARD_VENDOR));
++	seq_printf(m, "Board Name:    %s\n", dmi_get_system_info(DMI_BOARD_VERSION));
++
++	return 0;
++}
++#else
+ static int omnibook_dmi_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -49,6 +80,7 @@ static int omnibook_dmi_read(char *buffer, struct omnibook_operation *io_op)
+ 
+ 	return len;
+ }
++#endif
+ 
+ static struct omnibook_feature __declared_feature version_driver = {
+ 	.name = "version",
+diff --git a/init.c b/init.c
+index 70d5415..1536102 100644
+--- a/init.c
++++ b/init.c
+@@ -21,6 +21,10 @@
+ #include <linux/dmi.h>
+ #include <linux/version.h>
+ #include <asm/uaccess.h>
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++//#include <linux/fs.h>
++#endif
+ 
+ #include "hardware.h"
+ #include "laptop.h"
+@@ -43,6 +47,16 @@ static int __init omnibook_probe(struct platform_device *dev);
+ static int __exit omnibook_remove(struct platform_device *dev);
+ static int omnibook_suspend(struct platform_device *dev, pm_message_t state);
+ static int omnibook_resume(struct platform_device *dev);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_feature_open(struct inode *inode, struct file *file);
++static int omnibook_feature_show(struct seq_file *m, void *v);
++static ssize_t omnibook_feature_write(struct file *f, const char __user *userbuf, size_t s, loff_t *off);
++#endif
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
++static inline void *PDE_DATA(const struct inode *inode) {
++	return PDE(inode)->data;
++}
++#endif
+ 
+ /*
+  * For compatibility with kernel older than 2.6.15
+@@ -128,6 +142,25 @@ static struct platform_device omnibook_device = {
+ /* Linked list of all enabled features */
+ static struct omnibook_feature *omnibook_available_feature;
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static const struct file_operations proc_fops_ro = {
++	.owner = THIS_MODULE,
++	.open = omnibook_feature_open,
++	.read = seq_read,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++
++static const struct file_operations proc_fops_rw = {
++	.owner = THIS_MODULE,
++	.open = omnibook_feature_open,
++	.read = seq_read,
++	.write = omnibook_feature_write,
++	.llseek = seq_lseek,
++	.release = single_release,
++};
++#endif
++
+ /* Delimiters of the .features section wich holds all the omnibook_feature structs */
+ extern struct omnibook_feature _start_features_driver[];
+ extern struct omnibook_feature _end_features_driver[];
+@@ -146,6 +179,51 @@ static int __init dmi_matched(const struct dmi_system_id *dmi)
+ 	return 1;		/* return non zero means we stop the parsing selecting this entry */
+ }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_feature_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, omnibook_feature_show, PDE_DATA(inode));
++}
++
++static int omnibook_feature_show(struct seq_file *m, void *v)
++{
++	struct omnibook_feature *feature = m->private;
++
++	if (!feature || !feature->read)
++		return -EINVAL;
++
++	return feature->read(m, feature->io_op);
++}
++static ssize_t omnibook_feature_write(struct file *f, const char __user *userbuf, size_t s, loff_t *off)
++{
++	struct omnibook_feature *feature = PDE_DATA(f->f_dentry->d_inode);
++	char *kernbuf;
++	int retval;
++
++	if (!feature || !feature->write)
++		return -EINVAL;
++
++	kernbuf = kmalloc(s + 1, GFP_KERNEL);
++	if (!kernbuf)
++		return -ENOMEM;
++
++	if (copy_from_user(kernbuf, userbuf, s)) {
++		kfree(kernbuf);
++		return -EFAULT;
++	}
++
++	/* Make sure the string is \0 terminated */
++	kernbuf[s] = '\0';
++
++	retval = feature->write(kernbuf, feature->io_op);
++	if (retval == 0)
++		retval = s;
++
++	kfree(kernbuf);
++
++	return retval;
++}
++#else
+ /* 
+  * Callback function for procfs file reading: the name of the file read was stored in *data 
+  */
+@@ -203,6 +281,7 @@ static int procfile_write_dispatch(struct file *file, const char __user * userbu
+ 
+ 	return retval;
+ }
++#endif
+ 
+ /*
+  * Match an ectype and return pointer to corresponding omnibook_operation.
+@@ -231,6 +310,8 @@ static struct omnibook_operation *omnibook_backend_match(struct omnibook_tbl *tb
+ 	return matched;
+ }
+ 
++
++
+ /* 
+  * Initialise a feature and add it to the linked list of active features
+  */
+@@ -281,8 +362,16 @@ static int __init omnibook_init(struct omnibook_feature *feature)
+ 				pmode |= S_IWUGO;
+ 		}
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++		if (feature->write)
++			proc_entry = proc_create_data(feature->name, pmode, omnibook_proc_root, &proc_fops_rw, feature);
++		else
++			proc_entry = proc_create_data(feature->name, pmode, omnibook_proc_root, &proc_fops_ro, feature);
++#else
+ 		proc_entry = create_proc_entry(feature->name, pmode, omnibook_proc_root);
+ 
++#endif
++
+ 		if (!proc_entry) {
+ 			printk(O_ERR "Unable to create proc entry %s\n", feature->name);
+ 			if (feature->exit)
+@@ -290,6 +379,7 @@ static int __init omnibook_init(struct omnibook_feature *feature)
+ 			retval = -ENOENT;
+ 			goto err;
+ 		}
++#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,26))
+ 		proc_entry->data = feature;
+ 		proc_entry->read_proc = &procfile_read_dispatch;
+ 		if (feature->write)
+@@ -297,6 +387,7 @@ static int __init omnibook_init(struct omnibook_feature *feature)
+ 		#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,30)
+ 			proc_entry->owner = THIS_MODULE;
+ 		#endif
++#endif
+ 	}
+ 	list_add_tail(&feature->list, &omnibook_available_feature->list);
+ 	return 0;
+diff --git a/lcd.c b/lcd.c
+index 85fe17c..2ee40e3 100644
+--- a/lcd.c
++++ b/lcd.c
+@@ -25,6 +25,10 @@
+ 
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ unsigned int omnibook_max_brightness;
+ 
+ #ifdef CONFIG_OMNIBOOK_BACKLIGHT
+@@ -82,6 +86,20 @@ static int omnibook_set_backlight(struct backlight_device *bd)
+ }
+ #endif /* CONFIG_OMNIBOOK_BACKLIGHT */
+ 
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_brightness_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	u8 brgt;
++
++	backend_byte_read(io_op, &brgt);
++
++	seq_printf(m, "LCD brightness: %2d (max value: %d)\n", brgt,
++		   omnibook_max_brightness);
++
++	return 0;
++}
++#else
+ static int omnibook_brightness_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -95,6 +113,7 @@ static int omnibook_brightness_read(char *buffer, struct omnibook_operation *io_
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_brightness_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/muteled.c b/muteled.c
+index a21793a..a383cf3 100644
+--- a/muteled.c
++++ b/muteled.c
+@@ -18,6 +18,10 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ static int omnibook_muteled_set(struct omnibook_operation *io_op, int status)
+ {
+ 	int retval = 0;
+@@ -40,6 +44,18 @@ static int omnibook_muteled_set(struct omnibook_operation *io_op, int status)
+ /*
+  * Hardware query is unsupported, reading is unreliable.
+  */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_muteled_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	if(mutex_lock_interruptible(&io_op->backend->mutex))
++		return -ERESTARTSYS;
++	seq_printf(m, "Last mute LED action was an %s command.\n",
++		   io_op->backend->touchpad_state ? "on" : "off");
++
++	mutex_unlock(&io_op->backend->mutex);
++	return 0;
++}
++#else
+ static int omnibook_muteled_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -53,6 +69,7 @@ static int omnibook_muteled_read(char *buffer, struct omnibook_operation *io_op)
+ 	mutex_unlock(&io_op->backend->mutex);
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_muteled_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/omnibook.h b/omnibook.h
+old mode 100644
+new mode 100755
+index 762d936..493c396
+--- a/omnibook.h
++++ b/omnibook.h
+@@ -56,7 +56,11 @@ struct omnibook_operation;
+ struct omnibook_feature {
+ 	char *name;						/* Name */
+ 	int enabled;						/* Set from module parameter */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++	int (*read)(struct seq_file *,struct omnibook_operation *);
++#else
+ 	int (*read) (char *,struct omnibook_operation *);	/* Procfile read function */
++#endif
+ 	int (*write) (char *,struct omnibook_operation *);	/* Procfile write function */
+ 	int (*init) (struct omnibook_operation *);		/* Specific Initialization function */
+ 	void (*exit) (struct omnibook_operation *);		/* Specific Cleanup function */
+diff --git a/polling.c b/polling.c
+index 2d28f7e..9e0b090 100644
+--- a/polling.c
++++ b/polling.c
+@@ -20,6 +20,10 @@
+ #include <linux/workqueue.h>
+ #include <linux/jiffies.h>
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ /*
+  * XE3GC type key_polling polling:
+  *
+@@ -125,7 +129,11 @@ static int omnibook_key_polling_disable(void)
+ 	if(!key_polling_enabled)
+ 		goto out;
+ 
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,0,0))
++	cancel_delayed_work_sync(&omnibook_poll_work);
++#else
+ 	cancel_rearming_delayed_workqueue(omnibook_wq, &omnibook_poll_work);
++#endif
+ 	dprintk("Scancode emulation for volume buttons disabled.\n");
+ 	key_polling_enabled = 0;
+ 
+@@ -134,7 +142,23 @@ static int omnibook_key_polling_disable(void)
+ 	return 0;
+ }
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_key_polling_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	if(mutex_lock_interruptible(&poll_mutex))
++		return -ERESTARTSYS;
+ 
++	seq_printf(m, "Volume buttons polling is %s.\n",
++		   (key_polling_enabled) ? "enabled" : "disabled");
++#ifdef CONFIG_OMNIBOOK_DEBUG
++	if(key_polling_enabled)	
++		seq_printf(m, "Will poll in %i msec.\n",
++		jiffies_to_msecs(omnibook_poll_work.timer.expires - jiffies));
++#endif
++	mutex_unlock(&poll_mutex);
++	return 0;
++}
++#else
+ static int omnibook_key_polling_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -152,6 +176,7 @@ static int omnibook_key_polling_read(char *buffer, struct omnibook_operation *io
+ 	mutex_unlock(&poll_mutex);
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_key_polling_write(char *buffer, struct omnibook_operation *io_op)
+ {
+@@ -169,7 +194,6 @@ static int omnibook_key_polling_write(char *buffer, struct omnibook_operation *i
+ 	return retval;
+ }
+ 
+-
+ /*
+  * Stop polling upon suspend an restore it upon resume
+  */
+@@ -188,7 +212,11 @@ static int omnibook_key_polling_suspend(struct omnibook_operation *io_op)
+ {
+ 	mutex_lock(&poll_mutex);
+ 	if(key_polling_enabled)
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,0,0))
++		cancel_delayed_work_sync(&omnibook_poll_work);
++#else
+ 		cancel_rearming_delayed_workqueue(omnibook_wq, &omnibook_poll_work);
++#endif
+ 	mutex_unlock(&poll_mutex);
+ 	return 0;
+ }
+diff --git a/temperature.c b/temperature.c
+index b27b611..2638da9 100644
+--- a/temperature.c
++++ b/temperature.c
+@@ -18,6 +18,24 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_temperature_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	int retval;
++	u8 temp;
++
++	if ((retval = backend_byte_read(io_op, &temp)))
++		return retval;
++
++	seq_printf(m, "CPU temperature:            %2d C\n", temp);
++
++	return 0;
++}
++#else
+ static int omnibook_temperature_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -31,6 +49,7 @@ static int omnibook_temperature_read(char *buffer, struct omnibook_operation *io
+ 
+ 	return len;
+ }
++#endif
+ 
+ static struct omnibook_tbl temp_table[] __initdata = {
+ 	{XE3GF | TSP10 | TSM70 | TSM30X | TSX205, SIMPLE_BYTE(EC, XE3GF_CTMP, 0)},
+diff --git a/throttling.c b/throttling.c
+index 945eafa..c7234d7 100644
+--- a/throttling.c
++++ b/throttling.c
+@@ -17,13 +17,39 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ /*
+  * Throttling level/rate mapping found in ICH6M datasheets
+  * the output is set to mimic the one of /proc/acpi/cpu/CPU0/throttling
+  * XXX: We always assume that there are 8 T-States and one processor.
+  */
+ static const int trate[8] = { 0, 12, 25, 37, 50, 62, 75, 87 };
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_throttle_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	int tstate = 0;
++	int retval, i;
+ 
++	retval = backend_throttle_get(io_op, &tstate);
++	if (retval < 0)
++		return retval;
++
++	seq_printf(m, "state count:             8\n");
++        seq_printf(m, "active state:            T%d\n", tstate);
++	for (i = 0; i < 8; i += 1)
++	{
++		seq_printf(m, "   %cT%d:                  %02d%%\n",
++			   (i == tstate ? '*' : ' '),
++			   i,
++			   trate[i]);
++	}
++
++	return 0;
++}
++#else
+ static int omnibook_throttle_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -46,6 +72,7 @@ static int omnibook_throttle_read(char *buffer, struct omnibook_operation *io_op
+ 
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_throttle_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/touchpad.c b/touchpad.c
+index b95e2ec..b835935 100644
+--- a/touchpad.c
++++ b/touchpad.c
+@@ -18,6 +18,10 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
+ static int omnibook_touchpad_set(struct omnibook_operation *io_op, int status)
+ {
+ 	int retval = 0;
+@@ -52,6 +56,19 @@ static int omnibook_touchpad_resume(struct omnibook_operation *io_op)
+ /*
+  * Hardware query is unsupported, so reading is unreliable.
+  */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_touchpad_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	if(mutex_lock_interruptible(&io_op->backend->mutex))
++		return -ERESTARTSYS;
++
++	seq_printf(m, "Last touchpad action was an %s command.\n",
++		   io_op->backend->touchpad_state ? "enable" : "disable");
++
++	mutex_unlock(&io_op->backend->mutex);
++	return 0;
++}
++#else
+ static int omnibook_touchpad_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -66,6 +83,7 @@ static int omnibook_touchpad_read(char *buffer, struct omnibook_operation *io_op
+ 	mutex_unlock(&io_op->backend->mutex);
+ 	return len;
+ }
++#endif
+ 
+ static int omnibook_touchpad_write(char *buffer, struct omnibook_operation *io_op)
+ {
+diff --git a/wireless.c b/wireless.c
+index 71b0c41..2547032 100644
+--- a/wireless.c
++++ b/wireless.c
+@@ -18,6 +18,28 @@
+ #include "omnibook.h"
+ #include "hardware.h"
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++#include <linux/seq_file.h>
++#endif
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26))
++static int omnibook_wifi_read(struct seq_file *m, struct omnibook_operation *io_op)
++{
++	int retval;
++	unsigned int state;
++
++	if ((retval = backend_aerial_get(io_op, &state)))
++		return retval;
++
++	seq_printf(m, "Wifi adapter is %s", (state & WIFI_EX) ? "present" : "absent");
++	if (state & WIFI_EX)
++		seq_printf(m, " and %s", (state & WIFI_STA) ? "enabled" : "disabled");
++	seq_printf(m, ".\n");
++	seq_printf(m, "Wifi Kill switch is %s.\n", (state & KILLSWITCH) ? "on" : "off");
++
++	return 0;
++}
++#else
+ static int omnibook_wifi_read(char *buffer, struct omnibook_operation *io_op)
+ {
+ 	int len = 0;
+@@ -39,6 +61,7 @@ static int omnibook_wifi_read(char *buffer, struct omnibook_operation *io_op)
+ 	return len;
+ 
+ }
++#endif
+ 
+ static int omnibook_wifi_write(char *buffer, struct omnibook_operation *io_op)
+ {
