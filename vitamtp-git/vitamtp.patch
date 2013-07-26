@@ -1,6 +1,8 @@
---- a/configure.ac	2013-07-24 09:38:59.241386193 -0430
-+++ b/configure.ac	2013-07-23 15:05:44.136713469 -0430
-@@ -98,6 +98,9 @@
+diff --git a/configure.ac b/configure.ac
+index 01f9d61..42d70a9 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -98,6 +98,9 @@ AC_FUNC_STAT
  AC_FUNC_REALLOC
  AC_CHECK_FUNCS([getcwd memset mkdir strchr strcspn strdup strrchr strstr strtol], [], [AC_MSG_ERROR([Cannot find required function.])])
  
@@ -10,3 +12,142 @@
  # Output
  # Required for gphoto-ptp2
  AX_NEED_STDINT_H([src/_stdint.h])
+diff --git a/src/database.c b/src/database.c
+index 7120f36..66817e6 100644
+--- a/src/database.c
++++ b/src/database.c
+@@ -18,6 +18,7 @@
+ //
+ 
+ #define _GNU_SOURCE
++#include "config.h"
+ #include <assert.h>
+ #include <dirent.h>
+ #include <limits.h>
+diff --git a/src/opencma.c b/src/opencma.c
+index 7c23f2f..ce2f014 100644
+--- a/src/opencma.c
++++ b/src/opencma.c
+@@ -18,6 +18,7 @@
+ //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ //
+ 
++#include "config.h"
+ #include <assert.h>
+ #include <fcntl.h>
+ #include <limits.h>
+diff --git a/src/opencma.h b/src/opencma.h
+index 6f1f58d..76c4f00 100644
+--- a/src/opencma.h
++++ b/src/opencma.h
+@@ -118,8 +118,8 @@ int filterObjects(int ohfiParent, metadata_t **p_head);
+ /* Utility functions */
+ int createNewDirectory(const char *path);
+ int createNewFile(const char *name);
+-int readFileToBuffer(const char *name, size_t seek, unsigned char **p_data, unsigned int *p_len);
+-int writeFileFromBuffer(const char *name, size_t seek, unsigned char *data, size_t len);
++int readFileToBuffer(const char *name, off_t seek, unsigned char **p_data, unsigned int *p_len);
++int writeFileFromBuffer(const char *name, off_t seek, unsigned char *data, size_t len);
+ int deleteEntry(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftw);
+ void deleteAll(const char *path);
+ int fileExists(const char *path);
+diff --git a/src/utilities.c b/src/utilities.c
+index ac7bc96..d33305f 100644
+--- a/src/utilities.c
++++ b/src/utilities.c
+@@ -18,6 +18,7 @@
+ //
+ 
+ #define _GNU_SOURCE
++#include "config.h"
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <ftw.h>
+@@ -87,7 +88,7 @@ int createNewFile(const char *name)
+     return close(fd);
+ }
+ 
+-int readFileToBuffer(const char *name, size_t seek, unsigned char **p_data, unsigned int *p_len)
++int readFileToBuffer(const char *name, off_t seek, unsigned char **p_data, unsigned int *p_len)
+ {
+     FILE *file = fopen(name, "r");
+ 
+@@ -102,17 +103,22 @@ int readFileToBuffer(const char *name, size_t seek, unsigned char **p_data, unsi
+ 
+     if (buflen == 0)
+     {
+-        if (fseek(file, 0, SEEK_END) < 0)
++        if (fseeko(file, 0, SEEK_END) < 0)
+         {
+             LOG(LERROR, "Cannot seek to end of file.\n");
+             fclose(file);
+             return -1;
+         }
+ 
++        /*
++         FIXME: this will produce undefined results on 32bit systems
++         if readFileToBuffer is called with p_len = 0 and the file
++         is greater than 2GiB
++        */
+         buflen = (unsigned int)ftell(file);
+     }
+ 
+-    if (fseek(file, seek, SEEK_SET) < 0)
++    if (fseeko(file, seek, SEEK_SET) < 0)
+     {
+         LOG(LERROR, "Cannot seek to %zu.\n", seek);
+         fclose(file);
+@@ -142,23 +148,49 @@ int readFileToBuffer(const char *name, size_t seek, unsigned char **p_data, unsi
+     return 0;
+ }
+ 
+-int writeFileFromBuffer(const char *name, size_t seek, unsigned char *data, size_t len)
++int writeFileFromBuffer(const char *name, off_t seek, unsigned char *data, size_t len)
+ {
+     FILE *file = fopen(name, "a+");
+ 
+     if (file == NULL)
+     {
+-        LOG(LERROR, "Cannot open %s for writing.\n", name);
++        LOG(LERROR, "Cannot open %s for appending.\n", name);
+         return -1;
+     }
+ 
+-    if (fseek(file, seek, SEEK_SET) < 0)
++    if (fseeko(file, 0, SEEK_END) < 0)
+     {
+-        LOG(LERROR, "Cannot seek to %zu.\n", seek);
++        LOG(LERROR, "Cannot seek to the end of the stream.\n");
+         fclose(file);
+         return -1;
+     }
+ 
++    off_t file_size = ftello(file);
++    if (file_size < 0)
++    {
++        LOG(LERROR, "Cannot get the current position on the stream\n");
++        fclose(file);
++        return -1;
++    }
++
++    if (file_size > 0 && seek < file_size)
++    {
++        file = freopen(name, "r+", file);
++
++        if (file == NULL)
++        {
++            LOG(LERROR, "Cannot reopen %s for writing.\n", name);
++            return -1;
++        }
++
++        if (fseeko(file, seek, SEEK_SET) < 0)
++        {
++            LOG(LERROR, "Cannot seek to %zu.\n", seek);
++            fclose(file);
++            return -1;
++        }
++    }
++
+     if (fwrite(data, sizeof(char), len, file) < len)
+     {
+         LOG(LERROR, "Write short of %zu bytes.\n", len);
