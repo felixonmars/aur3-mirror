@@ -1,0 +1,155 @@
+diff -r -u old/include/synaptics-properties.h new/include/synaptics-properties.h 
+--- old/include/synaptics-properties.h	2013-07-28 14:57:34.717893146 +0200
++++ new/include/synaptics-properties.h	2013-07-28 15:38:51.887983024 +0200
+@@ -152,5 +152,7 @@
+ 
+ /* 32 Bit Integer, 2 values, horizontal hysteresis, vertical hysteresis */
+ #define SYNAPTICS_PROP_NOISE_CANCELLATION "Synaptics Noise Cancellation"
++
++#define SYNAPTICS_ORIENTATION "Synaptics Orientation"
+ 
+ #endif                          /* _SYNAPTICS_PROPERTIES_H_ */
+
+diff -r -u old/src/eventcomm.c new/src/eventcomm.c
+--- old/src/eventcomm.c	2013-07-28 14:57:34.721226479 +0200
++++ new/src/eventcomm.c	2013-07-28 15:32:10.197968449 +0200
+@@ -709,11 +709,44 @@
+             if (ev.code < ABS_MT_SLOT) {
+                 switch (ev.code) {
+                 case ABS_X:
+-                    hw->x = apply_st_scaling(proto_data, ev.value, 0);
+-                    break;
++                  if (para->orientation==0)
++                      hw->x = apply_st_scaling(proto_data, ev.value, 0);
++                  else if (para->orientation==2)
++									    hw->x = priv->maxx + priv->minx - 
++								        (apply_st_scaling(proto_data, ev.value, 0));
++                  else if (para->orientation==3)
++									    hw->y = (priv->maxx - 
++                        (apply_st_scaling(proto_data, ev.value, 0))) *
++                        (priv->maxy - priv->miny) /
++                        (priv->maxx - priv->minx) + priv->miny;
++								  else if (para->orientation==1)
++                       hw->y = 
++											   ((apply_st_scaling(proto_data, ev.value, 0)) -
++                         priv->minx) *
++                         (priv->maxy - priv->miny) /
++										  	(priv->maxx - priv->minx) + priv->miny;
++								  else
++                      hw->x = apply_st_scaling(proto_data, ev.value, 0);
++								  break;
+                 case ABS_Y:
++                  if (para->orientation==0)
++									  hw->y = apply_st_scaling(proto_data, ev.value, 1);
++								  else if (para->orientation==2)
++                    hw->y = priv->maxy + priv->miny - 
++									    (apply_st_scaling(proto_data, ev.value, 1));
++                  else if (para->orientation==3)
++									  hw->x = ((apply_st_scaling(proto_data, ev.value, 1)) 
++									          - priv->miny) *
++														(priv->maxx - priv->minx) /
++														(priv->maxy - priv->miny) + priv->minx;
++                  else if (para->orientation==1)
++                    hw->x = (priv->maxy - 
++										  (apply_st_scaling(proto_data, ev.value, 1))) *
++                      (priv->maxx - priv->minx) /
++                      (priv->maxy - priv->miny) + priv->minx;
++                  else
+                     hw->y = apply_st_scaling(proto_data, ev.value, 1);
+-                    break;
++									break;
+                 case ABS_PRESSURE:
+                     hw->z = ev.value;
+                     break;
+
+diff -r -u old/src/properties.c new/src/properties.c
+--- old/src/properties.c	2013-07-28 14:57:34.717893146 +0200
++++ new/src/properties.c	2013-07-28 15:36:49.997978602 +0200
+@@ -54,6 +54,7 @@
+ 
+ Atom prop_edges = 0;
+ Atom prop_finger = 0;
++Atom prop_orientation = 0;
+ Atom prop_tap_time = 0;
+ Atom prop_tap_move = 0;
+ Atom prop_tap_durations = 0;
+@@ -299,6 +300,8 @@
+ 
+     fvalues[0] = para->press_motion_min_factor;
+     fvalues[1] = para->press_motion_max_factor;
++    
++		prop_orientation = InitAtom(pInfo->dev, SYNAPTICS_ORIENTATION, 32, 1, &para->orientation);
+ 
+     prop_pressuremotion_factor =
+         InitFloatAtom(pInfo->dev, SYNAPTICS_PROP_PRESSURE_MOTION_FACTOR, 2,
+@@ -376,8 +379,14 @@
+         para = &tmp;
+     }
+ 
+-    if (property == prop_edges) {
+-        INT32 *edges;
++    if (property == prop_orientation){
++      if (prop->size != 1 || prop->format != 32 || prop->type != XA_INTEGER)
++          return BadMatch;
++      para->orientation = *(INT32*)prop->data;
++    }
++		
++    else if (property == prop_edges){
++		INT32 *edges;
+ 
+         if (prop->size != 4 || prop->format != 32 || prop->type != XA_INTEGER)
+             return BadMatch;
+diff -r -u old/src/synaptics.c new/src/synaptics.c
+--- old/src/synaptics.c	2013-07-28 14:57:34.721226479 +0200
++++ new/src/synaptics.c	2013-07-28 15:38:20.347981880 +0200
+@@ -619,6 +619,7 @@
+     }
+ 
+     /* set the parameters */
++		pars->orientation = xf86SetIntOption(opts, "Orientation", 0);
+     pars->left_edge = xf86SetIntOption(opts, "LeftEdge", l);
+     pars->right_edge = xf86SetIntOption(opts, "RightEdge", r);
+     pars->top_edge = xf86SetIntOption(opts, "TopEdge", t);
+@@ -2993,8 +2994,14 @@
+     int xCenter = (priv->synpara.left_edge + priv->synpara.right_edge) / 2;
+     int yCenter = (priv->synpara.top_edge + priv->synpara.bottom_edge) / 2;
+ 
+-    hw->x = (hw->x - xCenter) * priv->horiz_coeff + xCenter;
+-    hw->y = (hw->y - yCenter) * priv->vert_coeff + yCenter;
++    if ((priv->synpara.orientation==1) || (priv->synpara.orientation==3)) {
++         hw->x = (hw->x - xCenter) * priv->vert_coeff + xCenter;
++         hw->y = (hw->y - yCenter) * priv->horiz_coeff + yCenter;
++     } else {
++         hw->x = (hw->x - xCenter) * priv->horiz_coeff + xCenter;
++         hw->y = (hw->y - yCenter) * priv->vert_coeff + yCenter;
++     }
++
+ }
+ 
+ void
+diff -r -u old/src/synapticsstr.h new/src/synapticsstr.h
+--- old/src/synapticsstr.h	2013-07-28 14:57:34.717893146 +0200
++++ new/src/synapticsstr.h	2013-07-28 15:38:51.887983024 +0200
+@@ -141,7 +141,8 @@
+     /* Parameter data */
+     int left_edge, right_edge, top_edge, bottom_edge;   /* edge coordinates absolute */
+     int finger_low, finger_high, finger_press;  /* finger detection values in Z-values */
+-    int tap_time;
++    int orientation;
++		int tap_time;
+     int tap_move;               /* max. tapping time and movement in packets and coord. */
+     int single_tap_timeout;     /* timeout to recognize a single tap */
+     int tap_time_2;             /* max. tapping time for double taps */
+
+diff --git a/tools/synclient.c b/tools/synclient.c
+index 8d1e8f4..29d14f3 100644
+--- old/tools/synclient.c
++++ new/tools/synclient.c
+@@ -77,6 +77,7 @@ static struct Parameter params[] = {
+     {"RightEdge",             PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	1},
+     {"TopEdge",               PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	2},
+     {"BottomEdge",            PT_INT,    0, 10000, SYNAPTICS_PROP_EDGES,	32,	3},
++    {"Orientation",           PT_INT,    0, 3,     SYNAPTICS_ORIENTATION,	32,	0},
+     {"FingerLow",             PT_INT,    0, 255,   SYNAPTICS_PROP_FINGER,	32,	0},
+     {"FingerHigh",            PT_INT,    0, 255,   SYNAPTICS_PROP_FINGER,	32,	1},
+     {"FingerPress",           PT_INT,    0, 256,   SYNAPTICS_PROP_FINGER,	32,	2},
