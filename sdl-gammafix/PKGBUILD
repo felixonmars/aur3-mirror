@@ -1,0 +1,53 @@
+# Maintainer: mickael9 <mickael9@gmail.com>
+# Contributor: Jan Alexander Steffens (heftig) <jan.steffens@gmail.com>
+# Contributor: Allan McRae <allan@archlinux.org>
+# Contributor: dorphell <dorphell@archlinux.org>
+
+pkgname=sdl-gammafix
+pkgver=1.2.15
+pkgrel=1
+pkgdesc="A library for portable low-level access to a video framebuffer, audio output, mouse, and keyboard. With gamma patch from http://bugzilla.libsdl.org/show_bug.cgi?id=971#c10."
+arch=('i686' 'x86_64')
+url="http://www.libsdl.org"
+license=('LGPL')
+depends=('glibc' 'libxext' 'libxrender' 'libx11')
+conflicts=('sdl')
+provides=("sdl=$pkgver")
+makedepends=('alsa-lib' 'mesa' 'libpulse')
+optdepends=('alsa-lib: ALSA audio driver'
+            'libpulse: PulseAudio audio driver')
+options=('!libtool')
+source=(http://www.libsdl.org/release/SDL-${pkgver}.tar.gz
+        sdl-1.2.14-fix-mouse-clicking.patch
+        sdl-1.2.14-disable-mmx.patch
+        fix_joystick_misc_axes.diff
+        libsdl-1.2.15-resizing.patch
+        libsdl-1.2.15-const-xdata32.patch
+        sdl-fix-gamma.patch)
+
+md5sums=('9d96df8417572a2afb781a7c4c811a85'
+        '04d8c179f125e04bcd4c9d60e013c2d7'
+        'e5c16b7611f62c7cb25f0534eff68852'
+        '687586a108b597a2a6b73070c1d37e51'
+        '3dd50347d8856160a9cbd7f80383a1f8'
+        'b180bda442d2b250b2be4c9d7908f3ac'
+        '22348ec15765ef035bda6d4e9c792be5')
+
+build() {
+  cd SDL-$pkgver
+  patch -Np1 -i ../sdl-1.2.14-fix-mouse-clicking.patch
+  patch -Np1 -i ../sdl-1.2.14-disable-mmx.patch
+  patch -Np1 -i ../fix_joystick_misc_axes.diff
+  patch -Np1 -i ../libsdl-1.2.15-resizing.patch
+  patch -Np1 -i ../libsdl-1.2.15-const-xdata32.patch
+  patch -Np1 -i ../sdl-fix-gamma.patch
+  ./autogen.sh
+  ./configure --prefix=/usr --disable-nasm --enable-alsa \
+              --with-x --disable-rpath --disable-static
+  make
+}
+
+package() {
+  cd SDL-$pkgver
+  make DESTDIR="$pkgdir" install
+}
