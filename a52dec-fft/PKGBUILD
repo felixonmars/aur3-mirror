@@ -1,5 +1,5 @@
 # $Id$
-# Maintainer: JSpaces <jspaces |aT| incentre |dOt| net>
+# Maintainer: JSpaces <jspaces -aT- incentre -d0T- net>
 # contributor: Thomas Baechler <thomas@archlinux.org>
 # contributor: Sarah Hay <sarahhay@mb.sympatico.ca>
 
@@ -17,23 +17,22 @@ conflicts=('a52dec')
 provides=('a52dec=$pkgver')
 source=(http://liba52.sourceforge.net/files/${_srcname}-${pkgver}.tar.gz
         a52dec-0.7.4-build.patch)
-md5sums=('caa9f5bc44232dc8aeea773fea56be80'
-         '74ec489441551acc2422d00aa4e777fa')
+sha256sums=('a21d724ab3b3933330194353687df82c475b5dfb997513eef4c25de6c865ec33'
+            'ff1d303dbea72f6b38f2d712b933531ca3ad5e3362f24cd4a5e4ac5c8325c135')
+
+prepare() {
+  cd "$srcdir/$_srcname-$pkgver"
+  msg2 "Patching ..."
+  # Patch from http://www.linuxfromscratch.org/blfs/view/svn/multimedia/liba52.html
+  patch -Np1 -i ${srcdir}/a52dec-0.7.4-build.patch
+}
 
 build() {
-  cd ${srcdir}/${_srcname}-${pkgver}
-  
-  # Update patch
-  patch -Np1 -i ${srcdir}/a52dec-0.7.4-build.patch
-
-  # This now causes the build to fail
-  #./bootstrap
+  cd "$srcdir/$_srcname-$pkgver"
 
   # add CFLAGS="-fpic" to allow --enable-shared to compile on x86_64
-  # disable static library - who needs it
-  # from http://www.linuxfromscratch.org/blfs/view/svn/multimedia/liba52.html
+  # disable static library - who needs it  
   # djbfft support enabled
-
   ./configure --prefix=/usr \
   --enable-shared \
   --disable-static \
@@ -44,10 +43,11 @@ build() {
 }
 
 package() {
-  cd ${srcdir}/${_srcname}-${pkgver}
-  make DESTDIR=${pkgdir} install
+  cd "$srcdir/$_srcname-$pkgver"
+  make DESTDIR="$pkgdir" install
   
-  # Copy header file in case needed.
-  install -m644 liba52/a52_internal.h ${pkgdir}/usr/include/a52dec/
+  msg2 "Installing include file in case it is needed."
+  install -m644 liba52/a52_internal.h "$pkgdir"/usr/include/a52dec/
 }
+
 # vim:set ts=2 sw=2 et: 
