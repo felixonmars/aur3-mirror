@@ -1160,10 +1160,10 @@ static void* fetch_xsel(xcb_window_t win, xcb_atom_t property, xcb_atom_t type, 
       return NULL;
    }
 
-   OUT("LEN/FORMAT: %d, %d", xsel->value_len, xsel->format/8);
    uint8_t format = xsel->format;
+   OUT("LEN/FORMAT: %d, %d", xsel->value_len, format/8);
    if (format < 8) format = 8;
-   size_t rlen = xsel->value_len * xsel->format/8;
+   size_t rlen = xsel->value_len * format/8;
    if (!(string = malloc(rlen+1))) {
       free(xsel);
       return NULL;
