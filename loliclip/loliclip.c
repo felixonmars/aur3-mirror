@@ -451,7 +451,8 @@ static int set_clipboard_data(clipdata *c, void *buffer, size_t len) {
       OUT("Binary data! [%zu]", len);
       if (!(copy = malloc(len+1)))
          goto fail;
-      memcpy(copy, buffer, len); copy[len] = 0;
+      memcpy(copy, buffer, len);
+      memset(copy+len, 0, 1);
       if (c->data) free(c->data);
       c->data = copy; c->size = len;
       c->cflags = CLIP_SKIP_HISTORY;
@@ -986,7 +987,7 @@ static void sync_clip(clipdata *c) {
      return;
 
    set_clipboard_own(s);
-   set_clipboard_data(s, (char*)c->data, c->size);
+   set_clipboard_data(s, c->data, c->size);
    OUT("\2Synced from %s to %s", c->name, c->sync);
 }
 
@@ -1159,15 +1160,19 @@ static void* fetch_xsel(xcb_window_t win, xcb_atom_t property, xcb_atom_t type, 
       return NULL;
    }
 
-   if (!(string = malloc(xsel->value_len+1))) {
+   OUT("LEN/FORMAT: %d, %d", xsel->value_len, xsel->format/8);
+   uint8_t format = xsel->format;
+   if (format < 8) format = 8;
+   size_t rlen = xsel->value_len * xsel->format/8;
+   if (!(string = malloc(rlen+1))) {
       free(xsel);
       return NULL;
    }
 
-   memcpy(string, data, xsel->value_len);
-   memset(string+xsel->value_len, 0, 1);
+   memcpy(string, data, rlen);
+   memset(string+rlen, 0, 1);
 
-   *len = xsel->value_len; free(xsel);
+   *len = rlen; free(xsel);
    xcb_delete_property(xcb, win, property);
    return string;
 }
@@ -1449,7 +1454,7 @@ static void handle_special_copy(clipdata *c, specialclip *s, void *buffer, size_
       return;
    }
 
-   OUT("Got special data from %s", s->name);
+   OUT("Got special data from %s [%zu]", s->name, len);
    if (!set_special_selection_data(s, buffer, len)) {
       free(buffer);
       return;
@@ -1560,7 +1565,8 @@ static void handle_notify(xcb_selection_notify_event_t *e) {
       return;
    }
 
-   if (reply->type == atoms[ATOM]) {
+   if (reply->type == atoms[ATOM] ||
+       reply->type == atoms[TARGETS]) {
       if (c->targets) free(c->targets);
       if ((c->targets = get_targets(c, reply, &c->num_targets))) {
          xcb_convert_selection(xcb, xcbw, c->sel,
@@ -1579,11 +1585,16 @@ static void handle_notify(xcb_selection_notify_event_t *e) {
    } else if (reply->type != atoms[INCR]) { /* NON INCR */
       OUT("NON INCR [0x%x]", reply->type);
       string = fetch_xsel(e->requestor, e->property, e->target, &len);
-      if ((s = we_handle_special_selection(e->target))) {
-         handle_special_copy(c, s, string, len); /* string is not copied */
-         string = NULL; /* don't free */
+      if (e->target != atoms[UTF8_STRING] ||
+          e->target == atoms[UTF8_STRING] && !isbinary(string, len)) {
+         if ((s = we_handle_special_selection(e->target))) {
+            handle_special_copy(c, s, string, len); /* string is not copied */
+            string = NULL; /* don't free */
+         } else {
+            handle_copy(c, string, len); /* string is copied */
+         }
       } else {
-         handle_copy(c, string, len); /* string is copied */
+         OUT("GOT BINARY WHEN UTF8 EXPECTED!");
       }
       ask_for_next_selection(c);
       if (c->is_waiting) --c->is_waiting;
