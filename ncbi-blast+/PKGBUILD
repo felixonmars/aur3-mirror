@@ -1,0 +1,174 @@
+# Maintainer: Alex Leach <beamesleach /at/ gmail /dot/ com>
+
+pkgname=('ncbi-blast+')
+true && pkgname=(
+    'ncbi-blast+'
+    'ncbi-blast+-dev'
+    'ncbi-blast+-static'
+    )
+pkgver='2.2.28'
+pkgrel=1
+pkgdesc="C++ Toolkit and API for DNA sequence management, searching and analysis."
+arch=('i686' 'x86_64')
+url="http://www.ncbi.nlm.nih.gov/books/NBK7152/"
+license=('custom')
+
+depends=(
+    'pcre'
+    'sqlite'
+)
+
+optdepends=(
+    'db: for Berkeley database storage engine'
+    'fcgi: FastCGI WWW functionality'
+    'gnutls'
+    'libgcrypt'
+    'lzo2: compression library (deprecated from gnu_tls)'
+    'python: For utility scripts'
+    'zlib'
+)
+
+checkdepends=('boost')
+
+makedepends=('autoconf' 'binutils')
+conflicts=('ncbi-gbench')
+
+source=(
+    "ftp://ftp.ncbi.nih.gov/blast/executables/blast+/2.2.28/ncbi-blast-2.2.28+-src.tar.gz"
+    'ncbi-blast-2.2.28-patches.udiff'
+)
+
+sha1sums=(
+    '6941d2b83c410b2e2424266d8ee29ee7581c23d6'
+    'ce6dafeaa38f29e2f3ae1b1ec15cd3636f390f46'
+)
+
+prepare() {
+    # Patch sources to reduce warnings and get around compiler errors
+    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++
+    patch -p1 -i ../../ncbi-blast-${pkgver}-patches.udiff
+}
+
+build()
+{
+    CONFIG_ARGS="--with-autodep \
+                --with-bin-release \
+                --with-bincopy \
+                --with-check \
+                --with-dll \
+                --with-optimization \
+                --libdir=${PREFIX}/lib/blast+ \
+                --with-mt \
+                --prefix=${PREFIX} \
+                --with-relative-runpath=../lib/blast+ \
+                --without-caution \
+                --without-debug \
+                --without-internal \
+                --without-wxwidgets \
+                "
+                # --with-wxwidgets-ucs #< flag compatible w/ Arch package extra/wxgtk
+
+    if [ $CARCH = "x86_64" ]; then
+        FLAGS="$FLAGS --with-64"
+    fi
+
+    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++/
+
+    ## Don't break when linking shared libraries to executables, where the
+    # shared library is missing symbols. The default behaviour of GCC must
+    # be different from NCBI test compilers, where symbols are expected to
+    # be lazy loaded by the dynamic linker.
+    LDFLAGS="-Wl,--allow-shlib-undefined ${LDFLAGS}" \
+        ./configure $CONFIG_ARGS
+
+    # Get the last build directory. There should only be one,
+    # but if there is more, get the last one, in case someone
+    # recently updated their compiler, but didn't delete the
+    # old build directory, maybe. Likely? No.
+    BUILD_DIR="`ls -d ./*ReleaseMT*/build | tail -n 1`"
+    cd "${BUILD_DIR}"
+
+    # remove reference to ${srcdir} from ncbiconf_unix.h (delete the
+    # first line, which is a comment). Keeps `namcap` happy.
+    tail -n +2 "../inc/ncbiconf_unix.h" > ../inc/ncbiconf_unix.h.new
+    mv ../inc/ncbiconf_unix.h{.new,}
+
+    # Take a break from staring at the output. This will take a while!
+    make all_r
+}
+
+check() {
+    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++/
+    make check
+}
+
+# executables, shared libraries, and configuration headers.
+package_ncbi-blast+() {
+    provides=('blast+-bin')
+    top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
+    # install everything into pkgdir
+    cd ${top_srcdir}
+    make install prefix="${pkgdir}/usr"
+    cd ${pkgdir}/usr
+
+    # remove all headers except ncbiconf*.h
+    $(rm -r ./include/ncbi-tools++/!(ncbiconf*.h))
+
+    # remove static libs
+    find ./lib \( -type f -o -type l \) -name "*.a" -delete
+
+    # make shared libs executable
+    find ./lib \( -type f -o -type l \) -name "*.so" -exec chmod 0755 {} +
+
+    # install license
+    _license="${top_srcdir}/scripts/projects/blast/LICENSE"
+    install -D -m644 "${_license}" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
+
+# headers and config Makefiles.
+package_ncbi-blast+-dev() {
+    depends=('blast+-bin')
+    _top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
+    cd "${_top_srcdir}"
+    BUILD_DIR="`ls -d ./*ReleaseMT*/build | tail -n 1`"
+    cd "${BUILD_DIR}"
+
+    # install makefiles, etc. (different to `make install`, above)
+    ./install.sh ${pkgdir}/usr --srcdir="${_top_srcdir}"
+
+    # copy headers across
+    mkdir -p "${pkgdir}/usr/include/ncbi-tools++"
+    cp -r "${_top_srcdir}/include/"* "${pkgdir}/usr/include/ncbi-tools++"
+
+    ## clean up package dir of items in base package
+    cd ${pkgdir}/usr
+
+    # 1. delete libraries
+    rm -r lib/
+    # 2. remove ncbiconf*.h headers, which are in main package
+    rm -r inc/
+    rm "${pkgdir}/usr/include/ncbi-tools++/ncbiconf"*.h
+    # 3. delete bin/
+    rm -r ./bin
+    # 4. Put build dir in /usr/share/ncbi-blast+
+    mkdir -p share/ncbi-blast+
+    mv build share/ncbi-blast+/
+    # 5. delete status/ (?) Could put it in /usr/share..
+    rm -r ./status
+}
+
+# static libs
+package_ncbi-blast+-static() {
+    top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
+    cd ${top_srcdir}
+    make install prefix="${pkgdir}/usr"
+    cd ${pkgdir}/usr
+    ## clean up
+    # 1. delete dynamic libs
+    rm lib/*.so
+    # 2. delete executables
+    rm -r bin
+    # 3. delete headers
+    rm -r include
+}
