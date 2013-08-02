@@ -1,6 +1,7 @@
 # Maintainer: Alex Leach <beamesleach /at/ gmail /dot/ com>
 
 # The package name, as seen on AUR
+pkgbase=('ncbi-blast+')
 pkgname=('ncbi-blast+')
 
 # Other packages need listing separately, to comply with AUR's PKGBUILD parser
@@ -10,15 +11,14 @@ true && pkgname=(
     'ncbi-blast+-static'
     )
 
-
 ###################################
 # Package metadata
 
 pkgver='2.2.28'
-pkgrel=3
-pkgdesc="NCBI Blast C++ Toolkit, with shared library support. Static libs and headers packaged separately."
+pkgrel=4
+pkgdesc="NCBI Blast C++ Toolkit, with shared library support. Static libs and headers also packaged, but separately."
 arch=('i686' 'x86_64')
-url="http://www.ncbi.nlm.nih.gov/books/NBK7152/"
+url="http://www.ncbi.nlm.nih.gov/books/NBK7160/"
 license=('custom')
 
 depends=('pcre' 'sqlite')
@@ -29,6 +29,7 @@ optdepends=(
     'db: for Berkeley database storage engine'
     'fcgi: FastCGI WWW functionality'
     'gnutls'
+    'intel-compiler-base: To compile with Intel compilers'
     'libgcrypt'
     'lzo2: compression library (deprecated from gnu_tls)'
     'python: For utility scripts'
@@ -41,11 +42,13 @@ conflicts=('ncbi-gbench')
 source=(
     "ftp://ftp.ncbi.nih.gov/blast/executables/blast+/2.2.28/ncbi-blast-2.2.28+-src.tar.gz"
     'ncbi-blast-2.2.28-patches.udiff'
+    'ChangeLog'
 )
 
 sha1sums=(
     '6941d2b83c410b2e2424266d8ee29ee7581c23d6'
     'ce6dafeaa38f29e2f3ae1b1ec15cd3636f390f46'
+    'SKIP'
 )
 
 
@@ -53,30 +56,38 @@ sha1sums=(
 ######################################################
 # Configure, build and package procedures
 
-prepare()
-{
-    # Patch sources to reduce warnings and get around compiler errors
-    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++
-    patch -p1 -i ../../ncbi-blast-${pkgver}-patches.udiff
-}
+# Test to see if compiling with Intel's compiler suite
+if [ ! -z "$(echo ${CC} | grep icc)" ] ; then
+    _intel=true
+else
+    _intel=false
+fi
 
-build()
-{
-    PREFIX=/usr
-    CONFIG_ARGS="\
-        --prefix="${PREFIX}" \
+# For fast packaging, don't compress
+#PKGEXT=.pkg.tar
+
+prepare() {
+    local PREFIX=/usr
+
+    local CONFIG_ARGS="\
+        --prefix=${PREFIX} \
         --with-autodep \
         --with-bin-release \
         --with-check \
         --with-dll \
         --with-optimization \
         --with-mt \
-        --libdir="\${prefix}/lib/blast+" \
+        --libdir=\${prefix}/lib/blast+ \
+        --with-runpath='\$\$ORIGIN'
         --with-relative-runpath=../lib/blast+ \
         --without-caution \
         --without-debug \
         --without-internal \
     "
+
+    # Patch sources to reduce warnings and get around compiler errors
+    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++
+    patch -p1 -i ../../ncbi-blast-${pkgver}-patches.udiff
 
     # test for wxgtk
     if [ -z $(pacman -Ss '^wxgtk$' | grep installed) ] ; then
@@ -89,17 +100,26 @@ build()
         FLAGS="$FLAGS --with-64"
     fi
 
-    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++/
-
     ## Don't break when linking shared libraries to executables, where the
     # shared library is missing symbols. The default behaviour of GCC must
     # be different from NCBI test compilers, where symbols are expected to
     # be lazy loaded by the dynamic linker.
-    #LDFLAGS="-Wl,--allow-shlib-undefined -Wl,-R. ${LDFLAGS}" \
+    if ${_intel} ; then
+        # If using the Intel compiler, run the ICC.sh script and add some
+        # Intel-specific flags.
+        local LIBS="-limf -liomp5 -lirc"
 
-    CPPFLAGS="-Wno-unused-local-typedefs ${CPPFLAGS}" \
-    LDFLAGS="-Wl,-rpath-link=." \
-        ./configure $CONFIG_ARGS
+        CFLAGS="-no-intel-extensions ${CFLAGS}" \
+        CXXFLAGS="-no-intel-extensions ${CXXFLAGS}" \
+        LDFLAGS="-Wl,-rpath-link,." \
+        LIBS="${LIBS}" C_LIBS="${LIBS}" \
+            ./compilers/unix/ICC.sh $CONFIG_ARGS
+    else
+        # else build with GCC, so run the normal configure script
+        CPPFLAGS="-Wno-unused-local-typedefs ${CPPFLAGS}" \
+        LDFLAGS="-Wl,-rpath-link=." \
+            ./configure $CONFIG_ARGS
+    fi
 
     # Final link flags should thus look like:-
     # ... -rpath-link=. -rpath=$ORIGIN/../lib/blast+ ...
@@ -115,17 +135,36 @@ build()
     #       into shared libraries, but the ORIGIN path is the path of the
     #       executable (i.e $PREFIX/bin), not the library ($PREFIX/lib).
 
+    # remove reference to ${srcdir} from ncbiconf_unix.h (delete the
+    # first line, which is a comment). Keeps `namcap` happy.
+    local INC_DIR="$(realpath $(ls -d ./*ReleaseMT*/inc | tail -n 1))"
+    cd ${INC_DIR}
+    tail -n +2 ./ncbiconf_unix.h > ./ncbiconf_unix.h.new
+    mv ./ncbiconf_unix.h{.new,}
+
+}
+
+build() {
+    cd ${srcdir}/ncbi-blast-${pkgver}+-src/c++
+
     # Get the last build directory. There should only be one,
     # but if there is more, get the last one, in case someone
     # recently updated their compiler, but didn't delete the
     # old build directory, maybe. Likely? No.
-    BUILD_DIR="$(realpath $(ls -d ./*ReleaseMT*/build | tail -n 1))"
+    local BUILD_DIR="$(realpath $(ls -d ./*ReleaseMT*/build | tail -n 1))"
     cd "${BUILD_DIR}"
 
-    # remove reference to ${srcdir} from ncbiconf_unix.h (delete the
-    # first line, which is a comment). Keeps `namcap` happy.
-    tail -n +2 "../inc/ncbiconf_unix.h" > ../inc/ncbiconf_unix.h.new
-    mv ../inc/ncbiconf_unix.h{.new,}
+    if ${_intel} ; then
+        ## Need to replace some variables in Makefile.mk
+        LIBS="-limf -liomp5 -lstdc++ -lirc"
+        C_LIBS="-limf -liomp5 -lirc"
+        sed -i.bak \
+            -e "s|\(CONF_AR\s*=\s*\).*|\1xiar r|" \
+            -e "s|\(CONF_APP_LDFLAGS\s*=.*\)|\1 -no-intel-extensions|" \
+            -e "s|\(CONF_DLL_LDFLAGS\s*=\).*|\1 -no-intel-extensions -shared|" \
+            -e "s|-axW -ip|-ipo|" \
+            Makefile.mk
+    fi
 
     # Take a break from staring at the output. This will take a while!
     make all_r
@@ -136,7 +175,7 @@ build()
     ## whereas the link-time settings are specialised for the installed
     ## binary locations, so need to add the sym-links.
 
-    LIBDIR=$(realpath "${PWD}/../lib")
+    local LIBDIR=$(realpath "${PWD}/../lib")
 
     ln -sf ${LIBDIR} ${BUILD_DIR}/objtools/blast/gene_info_reader/
     ln -sf ${LIBDIR} ${BUILD_DIR}/objtools/blast/services/
@@ -167,16 +206,15 @@ package_ncbi-blast+() {
     find ./lib \( -type f -o -type l \) -name "*.so" -exec chmod 0755 {} +
 
     # install license
-    _license="${top_srcdir}/scripts/projects/blast/LICENSE"
-    install -D -m644 "${_license}" \
+    install -D -m644 "${top_srcdir}/scripts/projects/blast/LICENSE" \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
 # headers and config Makefiles.
 package_ncbi-blast+-dev() {
-    _top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
+    local _top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
     cd "${_top_srcdir}"
-    BUILD_DIR="`ls -d ./*ReleaseMT*/build | tail -n 1`"
+    local BUILD_DIR="$(ls -d ./*ReleaseMT*/build | tail -n 1)"
     cd "${BUILD_DIR}"
 
     # install makefiles, etc. (different to `make install`, above)
@@ -205,8 +243,8 @@ package_ncbi-blast+-dev() {
 
 # static libs
 package_ncbi-blast+-static() {
-    top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
-    cd ${top_srcdir}
+    local _top_srcdir="${srcdir}/ncbi-blast-${pkgver}+-src/c++"
+    cd ${_top_srcdir}
     make install prefix="${pkgdir}/usr"
     ## clean up
     cd ${pkgdir}/usr
