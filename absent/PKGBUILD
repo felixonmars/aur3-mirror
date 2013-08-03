@@ -1,4 +1,4 @@
-pkgver=20110712
+pkgver=047dedd
 pkgrel=1
 pkgname="absent"
 pkgdesc="Bash script to ease installing from ABS"
@@ -8,21 +8,17 @@ arch=("any")
 makedepends=("git")
 depends=("findutils" "bash" "pacman")
 optdepends=()
-_gitroot="http://github.com/JohannesSM64/absent.git"
-_gitname="absent"
+_gitname=absent
+source=('git+https://github.com/JohannesSM64/absent.git')
+md5sums=('SKIP')
 
-build() {
-    cd "$startdir/src"
-  
-    msg "Connecting to github GIT server...."
-    
-    if [[ -d "$startdir/src/$_gitname" ]]; then
-        cd $_gitname && git pull origin
-    else
-        git clone "$_gitroot"
-        cd $_gitname
-    fi
-      
-    mkdir -p "$startdir/pkg/usr/bin/"
-    install -m 755 absent "$startdir/pkg/usr/bin/absent"
+pkgver() {
+    cd $_gitname
+    git describe --always | sed 's|-|.|g'
+}
+
+package() {
+    cd $_gitname      
+    mkdir -p "$pkgdir/usr/bin"
+    install -m 755 absent "$pkgdir/usr/bin/absent"
 }
