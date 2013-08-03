@@ -1,0 +1,326 @@
+From d9263fccaa22296e28d926ef99be2551d003c423 Mon Sep 17 00:00:00 2001
+From: David Strauss <david@davidstrauss.net>
+Date: Sat, 27 Oct 2012 07:11:58 -0400
+Subject: [PATCH] Socket activation support for systemd.
+
+---
+ auto/options                    |   3 +
+ auto/os/linux                   |  18 +++++
+ src/core/ngx_inet.c             | 147 ++++++++++++++++++++++++++++++++++++++++
+ src/core/ngx_inet.h             |   3 +
+ src/http/ngx_http.c             |   8 +++
+ src/http/ngx_http_core_module.c |  10 ++-
+ src/http/ngx_http_core_module.h |   3 +
+ 7 files changed, 191 insertions(+), 1 deletion(-)
+
+diff --git a/auto/options b/auto/options
+index a75bead..94ae615 100644
+--- a/auto/options
++++ b/auto/options
+@@ -46,6 +46,7 @@ USE_THREADS=NO
+ 
+ NGX_FILE_AIO=NO
+ NGX_IPV6=NO
++NGX_SYSTEMD=NO
+ 
+ HTTP=YES
+ 
+@@ -190,6 +191,7 @@ do
+ 
+         --with-file-aio)                 NGX_FILE_AIO=YES           ;;
+         --with-ipv6)                     NGX_IPV6=YES               ;;
++        --with-systemd)                  NGX_SYSTEMD=YES            ;;
+ 
+         --without-http)                  HTTP=NO                    ;;
+         --without-http-cache)            HTTP_CACHE=NO              ;;
+@@ -347,6 +349,7 @@ cat << END
+ 
+   --with-file-aio                    enable file AIO support
+   --with-ipv6                        enable IPv6 support
++  --with-systemd                     enable systemd socket support
+ 
+   --with-http_ssl_module             enable ngx_http_ssl_module
+   --with-http_realip_module          enable ngx_http_realip_module
+diff --git a/auto/os/linux b/auto/os/linux
+index c506d3d..470528f 100644
+--- a/auto/os/linux
++++ b/auto/os/linux
+@@ -134,6 +134,24 @@ ngx_feature_test="cpu_set_t mask;
+ . auto/feature
+ 
+ 
++# systemd()
++
++if [ $NGX_SYSTEMD = YES ]; then
++    ngx_feature="systemd()"
++    ngx_feature_name="NGX_HAVE_SYSTEMD"
++    ngx_feature_run=yes
++    ngx_feature_incs="#include <systemd/sd-daemon.h>"
++    ngx_feature_path=
++    ngx_feature_libs=-lsystemd-daemon
++    ngx_feature_test="sd_is_socket(1, 0, 0, 0);"
++    . auto/feature
++    
++    if [ $ngx_found = yes ]; then
++        CORE_LIBS="$CORE_LIBS -lsystemd-daemon"
++    fi
++fi
++
++
+ # crypt_r()
+ 
+ ngx_feature="crypt_r()"
+diff --git a/src/core/ngx_inet.c b/src/core/ngx_inet.c
+index 3db0136..c8302fc 100644
+--- a/src/core/ngx_inet.c
++++ b/src/core/ngx_inet.c
+@@ -8,10 +8,14 @@
+ #include <ngx_config.h>
+ #include <ngx_core.h>
+ 
++#if (NGX_HAVE_SYSTEMD)
++#include <systemd/sd-daemon.h>
++#endif
+ 
+ static ngx_int_t ngx_parse_unix_domain_url(ngx_pool_t *pool, ngx_url_t *u);
+ static ngx_int_t ngx_parse_inet_url(ngx_pool_t *pool, ngx_url_t *u);
+ static ngx_int_t ngx_parse_inet6_url(ngx_pool_t *pool, ngx_url_t *u);
++static ngx_int_t ngx_parse_file_descriptor_url(ngx_pool_t *pool, ngx_url_t *u);
+ 
+ 
+ in_addr_t
+@@ -522,6 +526,10 @@ ngx_parse_url(ngx_pool_t *pool, ngx_url_t *u)
+         return ngx_parse_unix_domain_url(pool, u);
+     }
+ 
++    if (ngx_strncasecmp(p, (u_char *) "fd:", 3) == 0) {
++        return ngx_parse_file_descriptor_url(pool, u);
++    }
++
+     if (p[0] == '[') {
+         return ngx_parse_inet6_url(pool, u);
+     }
+@@ -607,6 +615,145 @@ ngx_parse_unix_domain_url(ngx_pool_t *pool, ngx_url_t *u)
+ #endif
+ }
+ 
++static ngx_int_t
++ngx_parse_file_descriptor_url(ngx_pool_t *pool, ngx_url_t *u)
++{
++#if (NGX_HAVE_SYSTEMD)
++    u_char               *path;
++    size_t                len;
++    socklen_t             l;
++    int                   fd;
++    u_char                printable[256];
++    struct sockaddr      *sa;
++    struct sockaddr_in   *sin;
++#if (NGX_HAVE_INET6)
++    struct sockaddr_in6  *sin6;
++#endif
++#if (NGX_HAVE_UNIX_DOMAIN)
++    struct sockaddr_un   *saun;
++#endif
++
++    printf("Parsing listening URL: %s\n", u->url.data);
++
++    // This doesn't seem to be used for fd: listeners, but validate that assumption.
++    if (u->uri_part) {
++        u->err = "u->uri_part is unsupported for file descriptors";
++        return NGX_ERROR;
++    }
++
++    // Truncate the preceding "fd:" and ensure there's text left.
++    path = u->url.data + 3;
++    len = u->url.len - 3;
++    if (len == 0) {
++        u->err = "No number specified for the listening file descriptor.";
++        return NGX_ERROR;
++    }
++
++    // Convert the fd text to a numeric file descriptor.
++    fd = ngx_atoi(path, len);
++    printf("Parsed file descriptor #%d\n", fd);
++
++    // Check that it's the proper type of socket.
++    if (!sd_is_socket(fd, 0, SOCK_STREAM, 1)) {
++        u->err = "the systemd file descriptor passed in is not is listening, streaming socket";
++        return NGX_ERROR;
++    }
++    
++    u->fd = fd;
++    sa = (struct sockaddr *) &u->sockaddr;
++    l = sizeof(sa);
++    
++#if (NGX_HAVE_UNIX_DOMAIN)
++    // Bump up the allocation if it's a Unix domain socket.
++    if (sd_is_socket_unix(fd, SOCK_STREAM, 1, NULL, 0) > 0) {
++        printf("Reallocating for socket size %lu\n", sizeof(struct sockaddr_un));
++        sa = ngx_pcalloc(pool, sizeof(struct sockaddr_un));
++        if (sa == NULL) {
++            return NGX_ERROR;
++        }
++        memset(sa, 0, sizeof(struct sockaddr_un));
++        l = sizeof(struct sockaddr_un);
++    }
++#endif
++
++    // Get the socket information from the file descriptor.
++    if (getsockname(u->fd, sa, &l) < 0) {
++        u->err = "Couldn't read socket information out of the specified file descriptor.";
++        return NGX_ERROR;
++    }
++    
++    u->family = sa->sa_family;
++
++    // Get type-specific information.
++    if (u->family == AF_INET) {
++        printf("INET\n");
++        sin = (struct sockaddr_in *) sa;
++        u->socklen = sizeof(struct sockaddr_in);
++        u->port = ntohs(sin->sin_port);
++        u->no_port = 1;
++        sin->sin_family = AF_INET;
++
++        if (&sin->sin_addr == NULL) {
++            printf("Wildcard address.\n");
++            u->wildcard = 1;
++        }
++    }
++#if (NGX_HAVE_INET6)
++    else if (u->family == AF_INET6) {
++        printf("INET6\n");
++        sin6 = (struct sockaddr_in6 *) sa;
++        u->socklen = sizeof(struct sockaddr_in6);
++        u->port = ntohs(sin6->sin6_port);
++        u->no_port = 1;
++        sin6->sin6_family = AF_INET6;
++
++        if (IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr)) {
++            printf("Wildcard address.\n");
++            u->wildcard = 1;
++        }
++    }
++#endif
++#if (NGX_HAVE_UNIX_DOMAIN)
++    else if (u->family == AF_UNIX) {
++        saun = (struct sockaddr_un *) sa;
++        saun->sun_family = AF_UNIX;
++        u->socklen = sizeof(struct sockaddr_un);        
++        u->naddrs = 1;
++        u->addrs = ngx_pcalloc(pool, sizeof(ngx_addr_t));
++        if (u->addrs == NULL) {
++            return NGX_ERROR;
++        }
++        u->addrs[0].sockaddr = (struct sockaddr *) saun;
++        u->addrs[0].socklen = sizeof(struct sockaddr_un);
++        u->addrs[0].name.len = len + 2;
++        u->addrs[0].name.data = u->url.data;
++    }
++#endif
++    else {
++        u->err = "File descriptor uses a socket family whose support is not compiled in";
++        return NGX_ERROR;
++    }
++
++    // Get a human-readable/printable representation of the socket address.
++    ngx_sock_ntop(sa, sizeof(struct sockaddr_in), printable, sizeof(printable), u->port);
++
++    // Set the "host" to the file descriptor number text (for now).
++    u->host.len = len + 1;
++    u->host.data = path;
++
++    printf("Prepared socket: %s\n", printable);
++
++    return NGX_OK;
++
++#else
++
++    u->err = "the systemd file descriptor sockets are not supported on this platform";
++
++    return NGX_ERROR;
++
++#endif
++}
++
+ 
+ static ngx_int_t
+ ngx_parse_inet_url(ngx_pool_t *pool, ngx_url_t *u)
+diff --git a/src/core/ngx_inet.h b/src/core/ngx_inet.h
+index c5a3d76..6396e3e 100644
+--- a/src/core/ngx_inet.h
++++ b/src/core/ngx_inet.h
+@@ -99,6 +99,9 @@ typedef struct {
+     ngx_uint_t                naddrs;
+ 
+     char                     *err;
++
++    // Pre-initialized file descriptor.
++    int                       fd;
+ } ngx_url_t;
+ 
+ 
+diff --git a/src/http/ngx_http.c b/src/http/ngx_http.c
+index f1f8a48..2bdcd90 100644
+--- a/src/http/ngx_http.c
++++ b/src/http/ngx_http.c
+@@ -1791,6 +1791,14 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
+     ls->setfib = addr->opt.setfib;
+ #endif
+ 
++    ngx_log_error(NGX_LOG_INFO, cf->log, 0,
++                  "Looking for a file descriptor in the listening options.");
++    if (addr->opt.fd) {
++        ngx_log_error(NGX_LOG_INFO, cf->log, 0,
++                      "Found file descriptor %d on listening options. Using it.", addr->opt.fd);
++        ls->fd = addr->opt.fd;
++    }
++
+     return ls;
+ }
+ 
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+index 826e4e5..5593b27 100644
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -1820,7 +1820,7 @@ ngx_http_set_etag(ngx_http_request_t *r)
+ {
+     ngx_table_elt_t           *etag;
+     ngx_http_core_loc_conf_t  *clcf;
+-
++    
+     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+ 
+     if (!clcf->etag) {
+@@ -3905,6 +3905,14 @@ ngx_http_core_listen(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ 
+     ngx_memcpy(&lsopt.u.sockaddr, u.sockaddr, u.socklen);
+ 
++    // If there's a file descriptor to inherit, use it.
++    if (u.fd) {
++        ngx_conf_log_error(NGX_LOG_INFO, cf, 0,
++                   "Found file descriptor #%d. Setting it as a listening option.\n",
++                    u.fd);
++        lsopt.fd = u.fd;
++    }
++
+     lsopt.socklen = u.socklen;
+     lsopt.backlog = NGX_LISTEN_BACKLOG;
+     lsopt.rcvbuf = -1;
+diff --git a/src/http/ngx_http_core_module.h b/src/http/ngx_http_core_module.h
+index ff1c2df..21454d2 100644
+--- a/src/http/ngx_http_core_module.h
++++ b/src/http/ngx_http_core_module.h
+@@ -67,6 +67,9 @@ typedef struct {
+     } u;
+ 
+     socklen_t                  socklen;
++    
++    // Inherited file descriptor.
++    int                        fd;
+ 
+     unsigned                   set:1;
+     unsigned                   default_server:1;
+-- 
+1.7.11.7
+
