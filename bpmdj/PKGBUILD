@@ -3,7 +3,7 @@
 
 pkgname=bpmdj
 pkgver=v4.2_pl4
-pkgrel=3
+pkgrel=4
 pkgdesc="Free Dj tools with a fully automatic BPM counter"
 arch=('i686' 'x86_64')
 url="http://bpmdj.yellowcouch.org/index.html"
@@ -60,6 +60,7 @@ package() {
 #bpmdj-v4.2_pl3/bpmdj-64.png
 #bpmdj-v4.2_pl3/bpmdj-96.png
 
-md5sums=('e8fed1eaee68bddccfa8ddb346787e05'
-         '7340f5eba862136b8ba4619ebcf39c8a'
-         '54ccd1e71d2007d3a109cceabbdf8b9e')
+
+sha256sums=('3b2fe27d91d0e728edcd9a8b1803b3b7ee621f6d6da51cad58ceababb40ddff3'
+            'd28c5fa681cd99e92c5664224cd15f9cce14056b5c9d9249218319f9e0cc1ac2'
+            '0720362e44e757efcc346ca47d3013941c0827dc7608246cfa8dd25f427a02d5')
