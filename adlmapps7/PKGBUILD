@@ -10,7 +10,7 @@ license=('custom')
 depends=('fontconfig' 'krb5' 'libtiff3' 'libxext' 'libsm' \
 		'libpng12' 'libmng' 'glib2' 'libxrender' 'libjpeg6')
 makedepends=('rpmextract')
-source=(https://www.dropbox.com/s/r8vu3yacrfmvqfy/${pkgname}-${pkgver}-0.${CARCH}.tar.bz2)
+source=(https://www.dropbox.com/s/nh19gq4mkz0k735/${pkgname}-${pkgver}-0.${CARCH}.tar.bz2)
 md5sums=('36e675c087a8f937a64abab8928d8d9f')
 sha1sums=('817adc7e87e927c6454d72942f2e63319be35190')
 options=('!strip')
