@@ -1,0 +1,353 @@
+diff -Naur compiz-0.9.8.6.orig/include/core/screen.h compiz-0.9.8.6/include/core/screen.h
+--- compiz-0.9.8.6.orig/include/core/screen.h	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/include/core/screen.h	2013-08-07 21:22:21.659837741 +0200
+@@ -163,9 +163,17 @@
+ class DesktopWindowCount
+ {
+ public:
+-    virtual void incrementDesktopWindowCount() = 0;
+-    virtual void decrementDesktopWindowCount() = 0;
+-    virtual int desktopWindowCount() = 0;
++
++    enum VisualType
++    {
++	RGB,
++	ARGB
++    };
++
++    virtual void incrementDesktopWindowCount (VisualType) = 0;
++    virtual void decrementDesktopWindowCount (VisualType) = 0;
++    virtual int desktopWindowCount () = 0;
++    virtual int argbDesktopWindowCount () = 0;
+ protected:
+     ~DesktopWindowCount() {}
+ };
+diff -Naur compiz-0.9.8.6.orig/plugins/opengl/src/paint.cpp compiz-0.9.8.6/plugins/opengl/src/paint.cpp
+--- compiz-0.9.8.6.orig/plugins/opengl/src/paint.cpp	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/plugins/opengl/src/paint.cpp	2013-08-07 21:22:21.659837741 +0200
+@@ -86,7 +86,12 @@
+     if (!nBox)
+ 	return;
+ 
+-    if (screen->desktopWindowCount ())
++    unsigned int rgbDesktops = screen->desktopWindowCount () -
++			       screen->argbDesktopWindowCount ();
++
++    /* RGB desktops are assumed to cover the entire background
++     * so we do not need to paint any background behind them */
++    if (rgbDesktops > 0)
+     {
+ 	if (!backgroundTextures.empty ())
+ 	{
+diff -Naur compiz-0.9.8.6.orig/plugins/wallpaper/src/wallpaper.cpp compiz-0.9.8.6/plugins/wallpaper/src/wallpaper.cpp
+--- compiz-0.9.8.6.orig/plugins/wallpaper/src/wallpaper.cpp	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/plugins/wallpaper/src/wallpaper.cpp	2013-08-07 21:24:49.940386606 +0200
+@@ -599,6 +599,7 @@
+ 	attrib.setOpacity (OPAQUE);
+     }
+ 
++    /* Draw wallpaper behind window */
+     return gWindow->glDraw (transform, attrib, region, mask);
+ }
+ 
+@@ -675,14 +676,40 @@
+ 	destroyFakeDesktopWindow ();
+ }
+ 
++bool
++WallpaperWindow::alpha () const
++{
++    return true;
++}
++
+ WallpaperWindow::WallpaperWindow (CompWindow *window) :
+     PluginClassHandler <WallpaperWindow, CompWindow> (window),
+     window (window),
+     cWindow (CompositeWindow::get (window)),
+     gWindow (GLWindow::get (window))
+ {
++    WallpaperScreen *ws = WallpaperScreen::get (screen);
++
++    bool isFakeDesktopWindow =
++	window->id () == ws->fakeDesktop;
++
++    /* If we are the fake desktop, tell compiz that we have
++     * an alpha channel so that we don't get added to the argb
++     * desktop window count and compiz doesn't draw its own
++     * background */
++    WindowInterface::setHandler (window, isFakeDesktopWindow);
+     CompositeWindowInterface::setHandler (cWindow, true);
+     GLWindowInterface::setHandler (gWindow, true);
++
++    if (isFakeDesktopWindow)
++	ws->desktop = window;
++}
++
++WallpaperWindow::~WallpaperWindow ()
++{
++    WallpaperScreen *ws = WallpaperScreen::get (screen);
++    if (ws->desktop == window)
++	ws->desktop = NULL;
+ }
+ 
+ bool
+diff -Naur compiz-0.9.8.6.orig/plugins/wallpaper/src/wallpaper.h compiz-0.9.8.6/plugins/wallpaper/src/wallpaper.h
+--- compiz-0.9.8.6.orig/plugins/wallpaper/src/wallpaper.h	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/plugins/wallpaper/src/wallpaper.h	2013-08-07 21:23:43.688652586 +0200
+@@ -120,12 +120,14 @@
+ 
+ class WallpaperWindow :
+     public PluginClassHandler <WallpaperWindow, CompWindow>,
++    public WindowInterface,
+     public CompositeWindowInterface,
+     public GLWindowInterface
+ {
+     public:
+ 
+ 	WallpaperWindow (CompWindow *);
++	~WallpaperWindow ();
+ 
+ 	CompWindow      *window;
+ 	CompositeWindow *cWindow;
+@@ -139,7 +141,8 @@
+ 	bool glDraw (const GLMatrix &, GLFragment::Attrib &,
+ 		     const CompRegion &, unsigned int);
+ 
+-	bool damageRect (bool, const CompRect &);
++	bool damageRect (bool, const CompRect &);+
++	bool alpha () const;
+ };
+ 
+ #define WALLPAPER_SCREEN(s)				\
+diff -Naur compiz-0.9.8.6.orig/src/event.cpp compiz-0.9.8.6/src/event.cpp
+--- compiz-0.9.8.6.orig/src/event.cpp	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/src/event.cpp	2013-08-07 21:22:21.663171161 +0200
+@@ -1468,10 +1468,15 @@
+ 		{
+ 		    if (w->isViewable ())
+ 		    {
++			::compiz::DesktopWindowCount::VisualType visual =
++			    w->alpha () ?
++			    ::compiz::DesktopWindowCount::ARGB :
++			    ::compiz::DesktopWindowCount::RGB;
++
+ 			if (w->type () == CompWindowTypeDesktopMask)
+-			    decrementDesktopWindowCount();
++			    decrementDesktopWindowCount (visual);
+ 			else if (type == CompWindowTypeDesktopMask)
+-			    incrementDesktopWindowCount();
++			    incrementDesktopWindowCount (visual);
+ 		    }
+ 
+ 		    w->wmType () = type;
+diff -Naur compiz-0.9.8.6.orig/src/privatescreen/tests/test-privatescreen.cpp compiz-0.9.8.6/src/privatescreen/tests/test-privatescreen.cpp
+--- compiz-0.9.8.6.orig/src/privatescreen/tests/test-privatescreen.cpp	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/src/privatescreen/tests/test-privatescreen.cpp	2013-08-07 21:22:21.663171161 +0200
+@@ -141,6 +141,7 @@
+ 				CompSize   &size,
+ 				void       *&data));
+     MOCK_METHOD0(desktopWindowCount, int ());
++    MOCK_METHOD0(argbDesktopWindowCount, int ());
+     MOCK_METHOD0(attrib, XWindowAttributes ());
+     MOCK_CONST_METHOD0(defaultIcon, CompIcon *());
+     virtual bool otherGrabExist (const char *, ...) { return false; }  // TODO How to mock?
+@@ -175,8 +176,8 @@
+     MOCK_METHOD0(grabbed, bool ());
+     MOCK_METHOD0(snDisplay, SnDisplay * ());
+     MOCK_CONST_METHOD0(createFailed, bool ());
+-    MOCK_METHOD0(incrementDesktopWindowCount, void ());
+-    MOCK_METHOD0(decrementDesktopWindowCount, void ());
++    MOCK_METHOD1(incrementDesktopWindowCount, void (VisualType));
++    MOCK_METHOD1(decrementDesktopWindowCount, void (VisualType));
+     MOCK_METHOD0(nextMapNum, unsigned int ());
+     MOCK_CONST_METHOD0(updatePassiveKeyGrabs, void ());
+     MOCK_METHOD1(updatePassiveButtonGrabs, void (Window serverFrame));
+@@ -909,3 +910,67 @@
+ 
+     EXPECT_EQ (vp, CompPoint (0, 1));
+ }
++
++class DesktopWindowCountTest :
++    public ::testing::Test
++{
++    protected:
++
++	::compiz::private_screen::DesktopWindowCount count;
++};
++
++TEST_F (DesktopWindowCountTest, IncrementRGBIncCount)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    EXPECT_EQ (1, count.desktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, IncrementRGBNoIncARGBCount)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    EXPECT_EQ (0, count.argbDesktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, DecrementRGBDecCount)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    count.decrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    EXPECT_EQ (0, count.desktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, DecrementRGBNoDecARGBCount)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::ARGB);
++    count.decrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    EXPECT_EQ (1, count.argbDesktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, IncrementARGBandRGBIncrementCountTwice)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::ARGB);
++    EXPECT_EQ (2, count.desktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, DecrementARGBandRGBDecrementCountTwice)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::ARGB);
++    count.decrementDesktopWindowCount (compiz::DesktopWindowCount::RGB);
++    count.decrementDesktopWindowCount (compiz::DesktopWindowCount::ARGB);
++    EXPECT_EQ (0, count.desktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, IncrementARGBNoIncRGBCount)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::ARGB);
++    EXPECT_EQ (1, count.desktopWindowCount ());
++}
++
++TEST_F (DesktopWindowCountTest, NoRGBDesktopWindowsTest)
++{
++    count.incrementDesktopWindowCount (compiz::DesktopWindowCount::ARGB);
++    EXPECT_EQ (0, count.desktopWindowCount () -
++		  count.argbDesktopWindowCount ());
++}
+diff -Naur compiz-0.9.8.6.orig/src/privatescreen.h compiz-0.9.8.6/src/privatescreen.h
+--- compiz-0.9.8.6.orig/src/privatescreen.h	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/src/privatescreen.h	2013-08-07 21:22:21.663171161 +0200
+@@ -566,11 +566,14 @@
+ {
+ public:
+     DesktopWindowCount();
+-    virtual void incrementDesktopWindowCount();
+-    virtual void decrementDesktopWindowCount();
++
++    virtual void incrementDesktopWindowCount(VisualType);
++    virtual void decrementDesktopWindowCount(VisualType);
+     virtual int desktopWindowCount();
++    virtual int argbDesktopWindowCount();
+ private:
+-    int       count;
++    int       rgbCount;
++    int       argbCount;
+ };
+ 
+ class MapNum :
+diff -Naur compiz-0.9.8.6.orig/src/screen.cpp compiz-0.9.8.6/src/screen.cpp
+--- compiz-0.9.8.6.orig/src/screen.cpp	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/src/screen.cpp	2013-08-07 21:22:21.666504582 +0200
+@@ -4596,7 +4596,13 @@
+ int
+ cps::DesktopWindowCount::desktopWindowCount ()
+ {
+-    return count;
++    return rgbCount + argbCount;
++}
++
++int
++cps::DesktopWindowCount::argbDesktopWindowCount ()
++{
++    return argbCount;
+ }
+ 
+ unsigned int
+@@ -4908,20 +4914,27 @@
+     windowManager.incrementPendingDestroys();
+ }
+ 
+-cps::DesktopWindowCount::DesktopWindowCount() :
+-count(0)
++cps::DesktopWindowCount::DesktopWindowCount () :
++    rgbCount (0),
++    argbCount (0)
+ {
+ }
+ 
+ void
+-cps::DesktopWindowCount::incrementDesktopWindowCount()
++cps::DesktopWindowCount::incrementDesktopWindowCount (VisualType type)
+ {
+-    count++;
++    if (type == ARGB)
++	++argbCount;
++    else
++	++rgbCount;
+ }
+ void
+-cps::DesktopWindowCount::decrementDesktopWindowCount()
++cps::DesktopWindowCount::decrementDesktopWindowCount (VisualType type)
+ {
+-    count--;
++    if (type == ARGB)
++	--argbCount;
++    else
++	--rgbCount;
+ }
+ 
+ cps::MapNum::MapNum() :
+diff -Naur compiz-0.9.8.6.orig/src/window.cpp compiz-0.9.8.6/src/window.cpp
+--- compiz-0.9.8.6.orig/src/window.cpp	2012-11-21 04:38:40.000000000 +0100
++++ compiz-0.9.8.6/src/window.cpp	2013-08-07 21:26:06.329051534 +0200
+@@ -1367,7 +1367,13 @@
+ 	screen->updateClientList ();
+ 
+ 	if (priv->type & CompWindowTypeDesktopMask)
+-	    screen->incrementDesktopWindowCount();
++	{
++	    ::compiz::DesktopWindowCount::VisualType visual =
++		alpha () ?
++		::compiz::DesktopWindowCount::ARGB :
++		::compiz::DesktopWindowCount::RGB;
++	    screen->incrementDesktopWindowCount (visual);
++	}
+ 
+ 	if (priv->protocols & CompWindowProtocolSyncRequestMask)
+ 	{
+@@ -1453,7 +1459,13 @@
+ 	return;
+ 
+     if (priv->type == CompWindowTypeDesktopMask)
+-	screen->decrementDesktopWindowCount();
++    {
++	::compiz::DesktopWindowCount::VisualType visual =
++	    alpha () ?
++	    ::compiz::DesktopWindowCount::ARGB :
++	    ::compiz::DesktopWindowCount::RGB;
++	screen->decrementDesktopWindowCount (visual);
++    }
+ 
+     priv->attrib.map_state = IsUnmapped;
+     priv->invisible = true;
+@@ -6230,8 +6242,13 @@
+ 
+     if (priv->attrib.map_state == IsViewable)
+     {
++	::compiz::DesktopWindowCount::VisualType visual =
++	    alpha () ?
++	    ::compiz::DesktopWindowCount::ARGB :
++	    ::compiz::DesktopWindowCount::RGB;
++
+ 	if (priv->type == CompWindowTypeDesktopMask)
+-	    screen->decrementDesktopWindowCount();
++	    screen->decrementDesktopWindowCount (visual);
+ 
+ 	if (priv->destroyed && priv->struts)
+ 	    screen->updateWorkarea ();
