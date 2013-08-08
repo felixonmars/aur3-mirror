@@ -12,3 +12,10 @@ if [ "`uname -m`" == "x86_64" ]; then
 fi
 
 $SCRIPT_DIR/UpLauncher $*
+
+# UpLauncher may overwrite air-generic-launcher with the official
+# Dofus executable, which requires an Adobe Air runtime and does not
+# work here. This overwrites it with air-generic-launcher again.
+
+ln -sfT /opt/dofus-beta/bin/air-generic-launcher.sh /opt/dofus-beta/bin/Dofus
+
