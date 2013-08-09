@@ -22,7 +22,13 @@ if [ ! -e "$localdir/config.ini" ] ; then
   done;
 fi
 
+# make sure it uses avbin7
+
+if [ ! -e "$localdir/libavbin.so" ] ; then
+  ln -s /usr/lib/libavbin.so.7 "$localdir/libavbin.so"
+fi
+
 # run the game
 
 cd "$localdir" 
-python2 chimera.py
+LD_LIBRARY_PATH=. python2 chimera.py
