@@ -7,10 +7,10 @@ pkgdesc="Autodesk License Manager server"
 url="http://www.autodesk.com"
 arch=('x86_64')
 license=('custom')
-depends=('gcc-libs')
+depends=('gcc-libs' 'ld-lsb')
 makedepends=('rpmextract')
 source=(https://www.dropbox.com/s/htqjfuqw266l0h7/${pkgname}-${pkgver}-0.${CARCH}.rpm.bz2)
-sha1sums=('2d02eb1a1e5715d2df84ae0bd0f7a006e6bc068c')
+md5sums=('6780798c7c1b0569af8a348dd0e3a711')
 options=('!strip')
 
 package() {
