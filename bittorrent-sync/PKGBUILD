@@ -6,8 +6,8 @@
 # Contributor: Emil Lundberg <lundberg.emil@gmail.com>
 
 pkgname=bittorrent-sync
-pkgver=1.1.48
-pkgrel=2
+pkgver=1.1.69
+pkgrel=1
 pkgdesc="BitTorrent Sync - automatically sync files via secure, distributed technology"
 arch=('i686' 'x86_64' 'arm' 'armv6h' 'armv7h')
 url="http://labs.bittorrent.com/experiments/sync.html"
@@ -35,13 +35,13 @@ sha256sums=('7ffd62c83bd6cb6d083972b811e662323515153d6c543006ec7c18762566dd3d'
 
 if [ "$CARCH" == x86_64 ]; then
 	source+=("http://syncapp.bittorrent.com/$pkgver/btsync_x64-$pkgver.tar.gz")
-	sha256sums+=('4c58e68a8ef30d3a1c39fb15a62cff863fc8496abc7720b5e9b30842b92e4dc4')
+	sha256sums+=('00f131aeac115cd380cc08dafeaa099f2c223a3ffb68e190d37774370c3d5b61')
 elif [ "$CARCH" == i686 ]; then
 	source+=("http://syncapp.bittorrent.com/$pkgver/btsync_i386-$pkgver.tar.gz")
-        sha256sums+=('e44bfcc4ba5c6dcf5bd01775abf8a5bcbb44584f92dd26546bd307f63b9c5536')
+        sha256sums+=('af191bf42301809a1e5faa9705718ef5defe88dd91bcf11dfe4dfb70d539ab19')
 elif [ "$CARCH" == arm ] || [ "$CARCH" == armv6h ] || [ "$CARCH" == armv7h ]; then
         source+=("http://syncapp.bittorrent.com/$pkgver/btsync_arm-$pkgver.tar.gz")
-        sha256sums+=('ea6e1c6e73c1aa7e4d756fad278143618bf9d760f66a50f1f847ee3821ed1713')
+        sha256sums+=('0703588a9f5dd371284ff16c1a6c1de2c9f22c3bb3953e7dcc7e029a16e1bdb5')
 fi
 
 build() {
