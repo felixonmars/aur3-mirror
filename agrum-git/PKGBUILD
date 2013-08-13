@@ -10,7 +10,7 @@ license=('GPL')
 depends=('gcc-libs')
 makedepends=('git' 'cmake' 'cococpp')
 source=('agrum-build.patch')
-md5sums=('392790ac13dee76edfe72a3a6a869cb8')
+md5sums=('3bac599d0d53dfa53fe80a0579451663')
 
 build() {
   git clone git://forge.lip6.fr/aGrUM $srcdir/$pkgname-$pkgver
