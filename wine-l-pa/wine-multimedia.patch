@@ -2,7 +2,7 @@ commit a8abbd08174a711b6cbad2e319d9d19833a8b62c
 Author: John Schoenick <jschoenick@mozilla.com>
 Date:   Sat May 18 15:30:09 2013 -0700
 
-    Rebase wine-multimedia onto wine-1.5.30
+    Rebase wine-multimedia onto wine-1.6-rc4
 
 diff --git a/configure b/configure
 index d4c1f8e..40b34bd 100755
@@ -237,12 +237,12 @@ index 5c9ef4a..9f79e7d 100644
 +    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
      return (HANDLE)0x12345678;
  }
-
-diff --git wine-1.5.30/dlls/dsound/dsound.c wine-1.5.30/dlls/dsound/dsound.c
-index 381d0e1..362f0e8 100644 
---- wine-1.5.30/dlls/dsound/dsound.c.orig	2013-05-23 17:58:04.933077312 -0400
-+++ wine-1.5.30/dlls/dsound/dsound.c	2013-05-23 18:02:35.627091277 -0400
-@@ -306,7 +306,6 @@
+ 
+diff --git a/dlls/dsound/dsound.c b/dlls/dsound/dsound.c
+index 381d0e1..362f0e8 100644
+--- a/dlls/dsound/dsound.c
++++ b/dlls/dsound/dsound.c
+@@ -306,7 +306,6 @@ static HRESULT WINAPI IDirectSound8Impl_SetCooperativeLevel(IDirectSound8 *iface
  {
      IDirectSoundImpl *This = impl_from_IDirectSound8(iface);
      DirectSoundDevice *device = This->device;
@@ -250,7 +250,7 @@ index 381d0e1..362f0e8 100644
      HRESULT hr = S_OK;
  
      TRACE("(%p,%p,%s)\n", This, hwnd, dumpCooperativeLevel(level));
-@@ -323,15 +322,10 @@
+@@ -323,15 +322,10 @@ static HRESULT WINAPI IDirectSound8Impl_SetCooperativeLevel(IDirectSound8 *iface
  
      RtlAcquireResourceExclusive(&device->buffer_list_lock, TRUE);
      EnterCriticalSection(&device->mixlock);
@@ -269,7 +269,20 @@ index 381d0e1..362f0e8 100644
      LeaveCriticalSection(&device->mixlock);
      RtlReleaseResource(&device->buffer_list_lock);
      return hr;
-@@ -626,24 +620,20 @@
+@@ -602,7 +596,7 @@ static HRESULT DirectSoundDevice_Create(DirectSoundDevice ** ppDevice)
+ 
+     device->ref            = 1;
+     device->priolevel      = DSSCL_NORMAL;
+-    device->state          = STATE_STOPPED;
++    device->stopped = 1;
+     device->speaker_config = DSSPEAKER_COMBINED(DSSPEAKER_STEREO, DSSPEAKER_GEOMETRY_WIDE);
+ 
+     /* 3D listener initial parameters */
+@@ -623,28 +617,23 @@ static HRESULT DirectSoundDevice_Create(DirectSoundDevice ** ppDevice)
+     device->ds3dl.flRolloffFactor = DS3D_DEFAULTROLLOFFFACTOR;
+     device->ds3dl.flDopplerFactor = DS3D_DEFAULTDOPPLERFACTOR;
+ 
+-    device->prebuf = ds_snd_queue_max;
      device->guid = GUID_NULL;
  
      /* Set default wave format (may need it for waveOutOpen) */
@@ -302,7 +315,7 @@ index 381d0e1..362f0e8 100644
  
      InitializeCriticalSection(&(device->mixlock));
      device->mixlock.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": DirectSoundDevice.mixlock");
-@@ -692,17 +682,16 @@
+@@ -693,17 +682,17 @@ ULONG DirectSoundDevice_Release(DirectSoundDevice * device)
          if (hr != DS_OK)
              WARN("DSOUND_PrimaryDestroy failed\n");
  
@@ -320,10 +333,11 @@ index 381d0e1..362f0e8 100644
  
          HeapFree(GetProcessHeap(), 0, device->tmp_buffer);
 -        HeapFree(GetProcessHeap(), 0, device->mix_buffer);
++        HeapFree(GetProcessHeap(), 0, device->cp_buffer);
          HeapFree(GetProcessHeap(), 0, device->buffer);
          RtlDeleteResource(&device->buffer_list_lock);
          device->mixlock.DebugInfo->Spare[0] = 0;
-@@ -812,6 +801,7 @@
+@@ -813,6 +802,7 @@ HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGUID lpcG
      device->mmdevice = mmdevice;
      device->guid = devGUID;
      device->sleepev = CreateEventW(0, 0, 0, 0);
@@ -331,7 +345,7 @@ index 381d0e1..362f0e8 100644
  
      hr = DSOUND_ReopenDevice(device, FALSE);
      if (FAILED(hr))
-@@ -867,12 +857,8 @@
+@@ -868,12 +858,8 @@ HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGUID lpcG
  
      ZeroMemory(&device->volpan, sizeof(device->volpan));
  
@@ -342,7 +356,7 @@ index 381d0e1..362f0e8 100644
 -    } else
 -        WARN("DSOUND_PrimaryCreate failed: %08x\n", hr);
 +    device->thread = CreateThread(0, 0, DSOUND_mixthread, device, 0, 0);
-+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
++    SetThreadPriority(device->thread, THREAD_PRIORITY_TIME_CRITICAL); 
  
      *ppDevice = device;
      list_add_tail(&DSOUND_renderers, &device->entry);
@@ -378,6 +392,1145 @@ index d3d686a..d410d5e 100644
      (normfunc)norm32,
 -    (normfunc)normieee32
  };
+diff --git a/dlls/dsound/dsound_main.c b/dlls/dsound/dsound_main.c
+index 7a16366..4f533b4 100644
+--- a/dlls/dsound/dsound_main.c
++++ b/dlls/dsound/dsound_main.c
+@@ -91,8 +91,7 @@ GUID                    DSOUND_capture_guids[MAXWAVEDRIVERS];
+ WCHAR wine_vxd_drv[] = { 'w','i','n','e','m','m','.','v','x','d', 0 };
+ 
+ /* All default settings, you most likely don't want to touch these, see wiki on UsefulRegistryKeys */
+-int ds_hel_buflen = 32768 * 2;
+-int ds_snd_queue_max = 10;
++int ds_hel_buflen = 32768;
+ static HINSTANCE instance;
+ 
+ /*
+@@ -145,15 +144,10 @@ void setup_dsound_options(void)
+     if (!get_config_key( hkey, appkey, "HelBuflen", buffer, MAX_PATH ))
+         ds_hel_buflen = atoi(buffer);
+ 
+-    if (!get_config_key( hkey, appkey, "SndQueueMax", buffer, MAX_PATH ))
+-        ds_snd_queue_max = atoi(buffer);
+-
+-
+     if (appkey) RegCloseKey( appkey );
+     if (hkey) RegCloseKey( hkey );
+ 
+     TRACE("ds_hel_buflen = %d\n", ds_hel_buflen);
+-    TRACE("ds_snd_queue_max = %d\n", ds_snd_queue_max);
+ }
+ 
+ static const char * get_device_id(LPCGUID pGuid)
+diff --git a/dlls/dsound/dsound_private.h b/dlls/dsound/dsound_private.h
+index 1a3900c..19b6ccc 100644
+--- a/dlls/dsound/dsound_private.h
++++ b/dlls/dsound/dsound_private.h
+@@ -31,7 +31,6 @@
+ #include "wine/list.h"
+ 
+ extern int ds_hel_buflen DECLSPEC_HIDDEN;
+-extern int ds_snd_queue_max DECLSPEC_HIDDEN;
+ 
+ /*****************************************************************************
+  * Predeclare the interface implementation structures
+@@ -70,18 +69,16 @@ struct DirectSoundDevice
+     DSCAPS                      drvcaps;
+     DWORD                       priolevel, sleeptime;
+     PWAVEFORMATEX               pwfx, primary_pwfx;
+-    UINT                        playing_offs_bytes, in_mmdev_bytes, prebuf;
+-    DWORD                       fraglen;
+     LPBYTE                      buffer;
+-    DWORD                       writelead, buflen, state, playpos, mixpos;
++    DWORD                       writelead, buflen, aclen, fraglen, playpos, pad, stopped;
+     int                         nrofbuffers;
+     IDirectSoundBufferImpl**    buffers;
+     RTL_RWLOCK                  buffer_list_lock;
+     CRITICAL_SECTION            mixlock;
+     IDirectSoundBufferImpl     *primary;
+     DWORD                       speaker_config;
+-    float *mix_buffer, *tmp_buffer;
+-    DWORD                       tmp_buffer_len, mix_buffer_len;
++    float *tmp_buffer, *cp_buffer;
++    DWORD                       tmp_buffer_len, mix_buffer_len, cp_buffer_len;
+ 
+     DSVOLUMEPAN                 volpan;
+ 
+@@ -93,7 +90,6 @@ struct DirectSoundDevice
+ 
+     IMMDevice *mmdevice;
+     IAudioClient *client;
+-    IAudioClock *clock;
+     IAudioStreamVolume *volume;
+     IAudioRenderClient *render;
+ 
+@@ -202,14 +198,11 @@ HRESULT IDirectSoundImpl_Create(IUnknown *outer_unk, REFIID riid, void **ppv, BO
+ 
+ /* primary.c */
+ 
+-HRESULT DSOUND_PrimaryCreate(DirectSoundDevice *device) DECLSPEC_HIDDEN;
+ HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device) DECLSPEC_HIDDEN;
+ HRESULT DSOUND_PrimaryPlay(DirectSoundDevice *device) DECLSPEC_HIDDEN;
+ HRESULT DSOUND_PrimaryStop(DirectSoundDevice *device) DECLSPEC_HIDDEN;
+-HRESULT DSOUND_PrimaryGetPosition(DirectSoundDevice *device, LPDWORD playpos, LPDWORD writepos) DECLSPEC_HIDDEN;
+ LPWAVEFORMATEX DSOUND_CopyFormat(LPCWAVEFORMATEX wfex) DECLSPEC_HIDDEN;
+ HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave) DECLSPEC_HIDDEN;
+-HRESULT DSOUND_PrimaryOpen(DirectSoundDevice *device) DECLSPEC_HIDDEN;
+ HRESULT primarybuffer_create(DirectSoundDevice *device, IDirectSoundBufferImpl **ppdsb,
+     const DSBUFFERDESC *dsbd) DECLSPEC_HIDDEN;
+ void primarybuffer_destroy(IDirectSoundBufferImpl *This) DECLSPEC_HIDDEN;
+diff --git a/dlls/dsound/mixer.c b/dlls/dsound/mixer.c
+index 282808e..007180c 100644
+--- a/dlls/dsound/mixer.c
++++ b/dlls/dsound/mixer.c
+@@ -251,7 +251,8 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, float *f
+ {
+     UINT i, channel;
+     UINT istride = dsb->pwfx->nBlockAlign;
+-    UINT ostride = dsb->device->pwfx->nChannels * sizeof(float);
++    DirectSoundDevice *dev = dsb->device;
++    UINT ostride = dev->pwfx->nChannels * sizeof(float);
+ 
+     float freqAdjust = dsb->freqAdjust;
+     float freqAcc_start = *freqAcc;
+@@ -262,18 +263,29 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, float *f
+ 
+     UINT fir_cachesize = (fir_len + dsbfirstep - 2) / dsbfirstep;
+     UINT required_input = max_ipos + fir_cachesize;
++    float *intermediate, *fir_copy, *itmp;
++
++    DWORD len = required_input * channels;
++    len += fir_cachesize;
++    len *= sizeof(float);
++
++    if (!dev->cp_buffer) {
++        dev->cp_buffer = HeapAlloc(GetProcessHeap(), 0, len);
++        dev->cp_buffer_len = len;
++    } else if (len > dev->cp_buffer_len) {
++        dev->cp_buffer = HeapReAlloc(GetProcessHeap(), 0, dev->cp_buffer, len);
++        dev->cp_buffer_len = len;
++    }
+ 
+-    float* intermediate = HeapAlloc(GetProcessHeap(), 0,
+-            sizeof(float) * required_input * channels);
++    fir_copy = dev->cp_buffer;
++    intermediate = fir_copy + fir_cachesize;
+ 
+-    float* fir_copy = HeapAlloc(GetProcessHeap(), 0,
+-            sizeof(float) * fir_cachesize);
+ 
+     /* Important: this buffer MUST be non-interleaved
+      * if you want -msse3 to have any effect.
+      * This is good for CPU cache effects, too.
+      */
+-    float* itmp = intermediate;
++    itmp = intermediate;
+     for (channel = 0; channel < channels; channel++)
+         for (i = 0; i < required_input; i++)
+             *(itmp++) = get_current_sample(dsb,
+@@ -309,9 +321,6 @@ static UINT cp_fields_resample(IDirectSoundBufferImpl *dsb, UINT count, float *f
+     freqAcc_end -= (int)freqAcc_end;
+     *freqAcc = freqAcc_end;
+ 
+-    HeapFree(GetProcessHeap(), 0, fir_copy);
+-    HeapFree(GetProcessHeap(), 0, intermediate);
+-
+     return max_ipos;
+ }
+ 
+@@ -427,7 +436,7 @@ static void DSOUND_MixerVol(const IDirectSoundBufferImpl *dsb, INT frames)
+  * writepos = position (offset) in device buffer to write at
+  * fraglen = number of bytes to mix
+  */
+-static DWORD DSOUND_MixInBuffer(IDirectSoundBufferImpl *dsb, DWORD writepos, DWORD fraglen)
++static DWORD DSOUND_MixInBuffer(IDirectSoundBufferImpl *dsb, float *mix_buffer, DWORD writepos, DWORD fraglen)
+ {
+ 	INT len = fraglen;
+ 	float *ibuf;
+@@ -452,7 +461,7 @@ static DWORD DSOUND_MixInBuffer(IDirectSoundBufferImpl *dsb, DWORD writepos, DWO
+ 	/* Apply volume if needed */
+ 	DSOUND_MixerVol(dsb, frames);
+ 
+-	mixieee32(ibuf, dsb->device->mix_buffer, frames * dsb->device->pwfx->nChannels);
++	mixieee32(ibuf, mix_buffer, frames * dsb->device->pwfx->nChannels);
+ 
+ 	/* check for notification positions */
+ 	if (dsb->dsbd.dwFlags & DSBCAPS_CTRLPOSITIONNOTIFY &&
+@@ -476,7 +485,7 @@ static DWORD DSOUND_MixInBuffer(IDirectSoundBufferImpl *dsb, DWORD writepos, DWO
+  *
+  * Returns: the number of bytes beyond the writepos that were mixed.
+  */
+-static DWORD DSOUND_MixOne(IDirectSoundBufferImpl *dsb, DWORD writepos, DWORD mixlen)
++static DWORD DSOUND_MixOne(IDirectSoundBufferImpl *dsb, float *mix_buffer, DWORD writepos, DWORD mixlen)
+ {
+ 	DWORD primary_done = 0;
+ 
+@@ -503,7 +512,7 @@ static DWORD DSOUND_MixOne(IDirectSoundBufferImpl *dsb, DWORD writepos, DWORD mi
+ 	/* First try to mix to the end of the buffer if possible
+ 	 * Theoretically it would allow for better optimization
+ 	*/
+-	primary_done += DSOUND_MixInBuffer(dsb, writepos, mixlen);
++	primary_done += DSOUND_MixInBuffer(dsb, mix_buffer, writepos, mixlen);
+ 
+ 	TRACE("total mixed data=%d\n", primary_done);
+ 
+@@ -518,14 +527,12 @@ static DWORD DSOUND_MixOne(IDirectSoundBufferImpl *dsb, DWORD writepos, DWORD mi
+  * writepos = the current safe-to-write position in the primary buffer
+  * mixlen = the maximum amount to mix into the primary buffer
+  *          (beyond the current writepos)
+- * recover = true if the sound device may have been reset and the write
+- *           position in the device buffer changed
+  * all_stopped = reports back if all buffers have stopped
+  *
+  * Returns:  the length beyond the writepos that was mixed to.
+  */
+ 
+-static void DSOUND_MixToPrimary(const DirectSoundDevice *device, DWORD writepos, DWORD mixlen, BOOL recover, BOOL *all_stopped)
++static void DSOUND_MixToPrimary(const DirectSoundDevice *device, float *mix_buffer, DWORD writepos, DWORD mixlen, BOOL *all_stopped)
+ {
+ 	INT i;
+ 	IDirectSoundBufferImpl	*dsb;
+@@ -533,7 +540,7 @@ static void DSOUND_MixToPrimary(const DirectSoundDevice *device, DWORD writepos,
+ 	/* unless we find a running buffer, all have stopped */
+ 	*all_stopped = TRUE;
+ 
+-	TRACE("(%d,%d,%d)\n", writepos, mixlen, recover);
++	TRACE("(%d,%d)\n", writepos, mixlen);
+ 	for (i = 0; i < device->nrofbuffers; i++) {
+ 		dsb = device->buffers[i];
+ 
+@@ -553,7 +560,7 @@ static void DSOUND_MixToPrimary(const DirectSoundDevice *device, DWORD writepos,
+ 					dsb->state = STATE_PLAYING;
+ 
+ 				/* mix next buffer into the main buffer */
+-				DSOUND_MixOne(dsb, writepos, mixlen);
++				DSOUND_MixOne(dsb, mix_buffer, writepos, mixlen);
+ 
+ 				*all_stopped = FALSE;
+ 			}
+@@ -572,85 +579,29 @@ static void DSOUND_MixToPrimary(const DirectSoundDevice *device, DWORD writepos,
+  * Returns:  None
+  */
+ 
+-static void DSOUND_WaveQueue(DirectSoundDevice *device, BOOL force)
++static void DSOUND_WaveQueue(DirectSoundDevice *device, LPBYTE pos, DWORD bytes)
+ {
+-	DWORD prebuf_frames, prebuf_bytes, read_offs_bytes;
+ 	BYTE *buffer;
+ 	HRESULT hr;
+ 
+ 	TRACE("(%p)\n", device);
+ 
+-	read_offs_bytes = (device->playing_offs_bytes + device->in_mmdev_bytes) % device->buflen;
+-
+-	TRACE("read_offs_bytes = %u, playing_offs_bytes = %u, in_mmdev_bytes: %u, prebuf = %u\n",
+-		read_offs_bytes, device->playing_offs_bytes, device->in_mmdev_bytes, device->prebuf);
+-
+-	if (!force)
+-	{
+-		if(device->mixpos < device->playing_offs_bytes)
+-			prebuf_bytes = device->mixpos + device->buflen - device->playing_offs_bytes;
+-		else
+-			prebuf_bytes = device->mixpos - device->playing_offs_bytes;
+-	}
+-	else
+-		/* buffer the maximum amount of frags */
+-		prebuf_bytes = device->prebuf * device->fraglen;
+-
+-	/* limit to the queue we have left */
+-	if(device->in_mmdev_bytes + prebuf_bytes > device->prebuf * device->fraglen)
+-		prebuf_bytes = device->prebuf * device->fraglen - device->in_mmdev_bytes;
+-
+-	TRACE("prebuf_bytes = %u\n", prebuf_bytes);
+-
+-	if(!prebuf_bytes)
+-		return;
+-
+-	device->in_mmdev_bytes += prebuf_bytes;
+-
+-	if(prebuf_bytes + read_offs_bytes > device->buflen){
+-		DWORD chunk_bytes = device->buflen - read_offs_bytes;
+-		prebuf_frames = chunk_bytes / device->pwfx->nBlockAlign;
+-		prebuf_bytes -= chunk_bytes;
+-	}else{
+-		prebuf_frames = prebuf_bytes / device->pwfx->nBlockAlign;
+-		prebuf_bytes = 0;
+-	}
+-
+-	hr = IAudioRenderClient_GetBuffer(device->render, prebuf_frames, &buffer);
++	hr = IAudioRenderClient_GetBuffer(device->render, bytes / device->pwfx->nBlockAlign, &buffer);
+ 	if(FAILED(hr)){
+ 		WARN("GetBuffer failed: %08x\n", hr);
+ 		return;
+ 	}
+ 
+-	memcpy(buffer, device->buffer + read_offs_bytes,
+-			prebuf_frames * device->pwfx->nBlockAlign);
++	memcpy(buffer, pos, bytes);
+ 
+-	hr = IAudioRenderClient_ReleaseBuffer(device->render, prebuf_frames, 0);
+-	if(FAILED(hr)){
+-		WARN("ReleaseBuffer failed: %08x\n", hr);
++	hr = IAudioRenderClient_ReleaseBuffer(device->render, bytes / device->pwfx->nBlockAlign, 0);
++	if(FAILED(hr)) {
++		ERR("ReleaseBuffer failed: %08x\n", hr);
++		IAudioRenderClient_ReleaseBuffer(device->render, 0, 0);
+ 		return;
+ 	}
+ 
+-	/* check if anything wrapped */
+-	if(prebuf_bytes > 0){
+-		prebuf_frames = prebuf_bytes / device->pwfx->nBlockAlign;
+-
+-		hr = IAudioRenderClient_GetBuffer(device->render, prebuf_frames, &buffer);
+-		if(FAILED(hr)){
+-			WARN("GetBuffer failed: %08x\n", hr);
+-			return;
+-		}
+-
+-		memcpy(buffer, device->buffer, prebuf_frames * device->pwfx->nBlockAlign);
+-
+-		hr = IAudioRenderClient_ReleaseBuffer(device->render, prebuf_frames, 0);
+-		if(FAILED(hr)){
+-			WARN("ReleaseBuffer failed: %08x\n", hr);
+-			return;
+-		}
+-	}
+-
+-	TRACE("in_mmdev_bytes now = %i\n", device->in_mmdev_bytes);
++	device->pad += bytes;
+ }
+ 
+ /**
+@@ -663,12 +614,12 @@ static void DSOUND_WaveQueue(DirectSoundDevice *device, BOOL force)
+  * secondary->buffer (secondary format)
+  *   =[Resample]=> device->tmp_buffer (float format)
+  *   =[Volume]=> device->tmp_buffer (float format)
+- *   =[Mix]=> device->mix_buffer (float format)
+- *   =[Reformat]=> device->buffer (device format)
++ *   =[Reformat]=> device->buffer (device format, skipped on float)
+  */
+ static void DSOUND_PerformMix(DirectSoundDevice *device)
+ {
+-	UINT32 pad, to_mix_frags, to_mix_bytes;
++	UINT32 pad, maxq, writepos;
++	DWORD block;
+ 	HRESULT hr;
+ 
+ 	TRACE("(%p)\n", device);
+@@ -682,161 +633,68 @@ static void DSOUND_PerformMix(DirectSoundDevice *device)
+ 		LeaveCriticalSection(&device->mixlock);
+ 		return;
+ 	}
+-
+-	to_mix_frags = device->prebuf - (pad * device->pwfx->nBlockAlign + device->fraglen - 1) / device->fraglen;
+-
+-	to_mix_bytes = to_mix_frags * device->fraglen;
+-
+-	if(device->in_mmdev_bytes > 0){
+-		DWORD delta_bytes = min(to_mix_bytes, device->in_mmdev_bytes);
+-		device->in_mmdev_bytes -= delta_bytes;
+-		device->playing_offs_bytes += delta_bytes;
+-		device->playing_offs_bytes %= device->buflen;
++	block = device->pwfx->nBlockAlign;
++	pad *= block;
++	device->playpos += device->pad - pad;
++	device->playpos %= device->buflen;
++	device->pad = pad;
++
++	maxq = device->aclen - pad;
++	if(!maxq){
++		/* nothing to do! */
++		LeaveCriticalSection(&device->mixlock);
++		return;
+ 	}
++	if (maxq > device->fraglen * 3)
++		maxq = device->fraglen * 3;
++
++	writepos = (device->playpos + pad) % device->buflen;
+ 
+ 	if (device->priolevel != DSSCL_WRITEPRIMARY) {
+-		BOOL recover = FALSE, all_stopped = FALSE;
+-		DWORD playpos, writepos, writelead, maxq, prebuff_max, prebuff_left, size1, size2;
+-		LPVOID buf1, buf2;
++		BOOL all_stopped = FALSE;
+ 		int nfiller;
++		void *buffer = NULL;
+ 
+ 		/* the sound of silence */
+ 		nfiller = device->pwfx->wBitsPerSample == 8 ? 128 : 0;
+ 
+-		/* get the position in the primary buffer */
+-		if (DSOUND_PrimaryGetPosition(device, &playpos, &writepos) != 0){
+-			LeaveCriticalSection(&(device->mixlock));
+-			return;
+-		}
+-
+-		TRACE("primary playpos=%d, writepos=%d, clrpos=%d, mixpos=%d, buflen=%d\n",
+-			playpos,writepos,device->playpos,device->mixpos,device->buflen);
+-		assert(device->playpos < device->buflen);
+-
+-		/* calc maximum prebuff */
+-		prebuff_max = (device->prebuf * device->fraglen);
+-
+-		/* check how close we are to an underrun. It occurs when the writepos overtakes the mixpos */
+-		prebuff_left = DSOUND_BufPtrDiff(device->buflen, device->mixpos, playpos);
+-		writelead = DSOUND_BufPtrDiff(device->buflen, writepos, playpos);
+-
+ 		/* check for underrun. underrun occurs when the write position passes the mix position
+ 		 * also wipe out just-played sound data */
+-		if((prebuff_left > prebuff_max) || (device->state == STATE_STOPPED) || (device->state == STATE_STARTING)){
+-			if (device->state == STATE_STOPPING || device->state == STATE_PLAYING)
+-				WARN("Probable buffer underrun\n");
+-			else TRACE("Buffer starting or buffer underrun\n");
+-
+-			/* recover mixing for all buffers */
+-			recover = TRUE;
+-
+-			/* reset mix position to write position */
+-			device->mixpos = writepos;
+-
+-			ZeroMemory(device->buffer, device->buflen);
+-		} else if (playpos < device->playpos) {
+-			buf1 = device->buffer + device->playpos;
+-			buf2 = device->buffer;
+-			size1 = device->buflen - device->playpos;
+-			size2 = playpos;
+-			FillMemory(buf1, size1, nfiller);
+-			if (playpos && (!buf2 || !size2))
+-				FIXME("%d: (%d, %d)=>(%d, %d) There should be an additional buffer here!!\n", __LINE__, device->playpos, device->mixpos, playpos, writepos);
+-			FillMemory(buf2, size2, nfiller);
+-		} else {
+-			buf1 = device->buffer + device->playpos;
+-			buf2 = NULL;
+-			size1 = playpos - device->playpos;
+-			size2 = 0;
+-			FillMemory(buf1, size1, nfiller);
+-		}
+-		device->playpos = playpos;
+-
+-		/* find the maximum we can prebuffer from current write position */
+-		maxq = (writelead < prebuff_max) ? (prebuff_max - writelead) : 0;
+-
+-		TRACE("prebuff_left = %d, prebuff_max = %dx%d=%d, writelead=%d\n",
+-			prebuff_left, device->prebuf, device->fraglen, prebuff_max, writelead);
+-
+-		ZeroMemory(device->mix_buffer, device->mix_buffer_len);
++		if (!pad)
++			WARN("Probable buffer underrun\n");
+ 
+-		/* do the mixing */
+-		DSOUND_MixToPrimary(device, writepos, maxq, recover, &all_stopped);
+-
+-		if (maxq + writepos > device->buflen)
+-		{
+-			DWORD todo = device->buflen - writepos;
+-			DWORD offs_float = (todo / device->pwfx->nBlockAlign) * device->pwfx->nChannels;
+-			device->normfunction(device->mix_buffer, device->buffer + writepos, todo);
+-			device->normfunction(device->mix_buffer + offs_float, device->buffer, maxq - todo);
+-		}
+-		else
+-			device->normfunction(device->mix_buffer, device->buffer + writepos, maxq);
+-
+-		/* update the mix position, taking wrap-around into account */
+-		device->mixpos = writepos + maxq;
+-		device->mixpos %= device->buflen;
+-
+-		/* update prebuff left */
+-		prebuff_left = DSOUND_BufPtrDiff(device->buflen, device->mixpos, playpos);
+-
+-		/* check if have a whole fragment */
+-		if (prebuff_left >= device->fraglen){
+-
+-			/* update the wave queue */
+-			DSOUND_WaveQueue(device, FALSE);
+-
+-			/* buffers are full. start playing if applicable */
+-			if(device->state == STATE_STARTING){
+-				TRACE("started primary buffer\n");
+-				if(DSOUND_PrimaryPlay(device) != DS_OK){
+-					WARN("DSOUND_PrimaryPlay failed\n");
+-				}
+-				else{
+-					/* we are playing now */
+-					device->state = STATE_PLAYING;
+-				}
+-			}
+-
+-			/* buffers are full. start stopping if applicable */
+-			if(device->state == STATE_STOPPED){
+-				TRACE("restarting primary buffer\n");
+-				if(DSOUND_PrimaryPlay(device) != DS_OK){
+-					WARN("DSOUND_PrimaryPlay failed\n");
+-				}
+-				else{
+-					/* start stopping again. as soon as there is no more data, it will stop */
+-					device->state = STATE_STOPPING;
+-				}
+-			}
++		hr = IAudioRenderClient_GetBuffer(device->render, maxq / block, (void*)&buffer);
++		if(FAILED(hr)){
++			WARN("GetBuffer failed: %08x\n", hr);
++			LeaveCriticalSection(&device->mixlock);
++			return;
+ 		}
+ 
+-		/* if device was stopping, its for sure stopped when all buffers have stopped */
+-		else if((all_stopped == TRUE) && (device->state == STATE_STOPPING)){
+-			TRACE("All buffers have stopped. Stopping primary buffer\n");
+-			device->state = STATE_STOPPED;
+-
+-			/* stop the primary buffer now */
+-			DSOUND_PrimaryStop(device);
+-		}
++		memset(buffer, nfiller, maxq);
+ 
+-	} else if (device->state != STATE_STOPPED) {
++		if (!device->normfunction)
++			DSOUND_MixToPrimary(device, buffer, writepos, maxq, &all_stopped);
++		else {
+ 
+-		DSOUND_WaveQueue(device, TRUE);
++			/* do the mixing */
++			DSOUND_MixToPrimary(device, (float*)device->buffer, writepos, maxq, &all_stopped);
+ 
+-		/* in the DSSCL_WRITEPRIMARY mode, the app is totally in charge... */
+-		if (device->state == STATE_STARTING) {
+-			if (DSOUND_PrimaryPlay(device) != DS_OK)
+-				WARN("DSOUND_PrimaryPlay failed\n");
+-			else
+-				device->state = STATE_PLAYING;
+-		}
+-		else if (device->state == STATE_STOPPING) {
+-			if (DSOUND_PrimaryStop(device) != DS_OK)
+-				WARN("DSOUND_PrimaryStop failed\n");
+-			else
+-				device->state = STATE_STOPPED;
++			device->normfunction(device->buffer, buffer, maxq);
+ 		}
++
++		hr = IAudioRenderClient_ReleaseBuffer(device->render, maxq / block, 0);
++		if(FAILED(hr))
++			ERR("ReleaseBuffer failed: %08x\n", hr);
++
++		device->pad += maxq;
++	} else if (!device->stopped) {
++		if (maxq > device->buflen)
++			maxq = device->buflen;
++		if (writepos + maxq > device->buflen) {
++			DSOUND_WaveQueue(device, device->buffer + writepos, device->buflen - writepos);
++			DSOUND_WaveQueue(device, device->buffer, writepos + maxq - device->buflen);
++		} else
++			DSOUND_WaveQueue(device, device->buffer + writepos, maxq);
+ 	}
+ 
+ 	LeaveCriticalSection(&(device->mixlock));
+diff --git a/dlls/dsound/primary.c b/dlls/dsound/primary.c
+index a824477..8f3580a 100644
+--- a/dlls/dsound/primary.c
++++ b/dlls/dsound/primary.c
+@@ -40,24 +40,6 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(dsound);
+ 
+-static DWORD DSOUND_fraglen(DirectSoundDevice *device)
+-{
+-    REFERENCE_TIME period;
+-    HRESULT hr;
+-    DWORD ret;
+-
+-    hr = IAudioClient_GetDevicePeriod(device->client, &period, NULL);
+-    if(FAILED(hr)){
+-        /* just guess at 10ms */
+-        WARN("GetDevicePeriod failed: %08x\n", hr);
+-        ret = MulDiv(device->pwfx->nBlockAlign, device->pwfx->nSamplesPerSec, 100);
+-    }else
+-        ret = MulDiv(device->pwfx->nSamplesPerSec * device->pwfx->nBlockAlign, period, 10000000);
+-
+-    ret -= ret % device->pwfx->nBlockAlign;
+-    return ret;
+-}
+-
+ static HRESULT DSOUND_WaveFormat(DirectSoundDevice *device, IAudioClient *client,
+ 				 BOOL forcewave, WAVEFORMATEX **wfx)
+ {
+@@ -146,17 +128,8 @@ static HRESULT DSOUND_WaveFormat(DirectSoundDevice *device, IAudioClient *client
+     return S_OK;
+ }
+ 
+-HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave)
++static void DSOUND_ReleaseDevice(DirectSoundDevice *device)
+ {
+-    UINT prebuf_frames;
+-    REFERENCE_TIME prebuf_rt;
+-    WAVEFORMATEX *wfx = NULL;
+-    HRESULT hres;
+-    REFERENCE_TIME period;
+-    DWORD period_ms;
+-
+-    TRACE("(%p, %d)\n", device, forcewave);
+-
+     if(device->client){
+         IAudioClient_Release(device->client);
+         device->client = NULL;
+@@ -165,166 +138,88 @@ HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave)
+         IAudioRenderClient_Release(device->render);
+         device->render = NULL;
+     }
+-    if(device->clock){
+-        IAudioClock_Release(device->clock);
+-        device->clock = NULL;
+-    }
+     if(device->volume){
+         IAudioStreamVolume_Release(device->volume);
+         device->volume = NULL;
+     }
+ 
+-    hres = IMMDevice_Activate(device->mmdevice, &IID_IAudioClient,
+-            CLSCTX_INPROC_SERVER, NULL, (void **)&device->client);
+-    if(FAILED(hres)) {
+-        WARN("Activate failed: %08x\n", hres);
+-        return hres;
+-    }
+-
+-    hres = DSOUND_WaveFormat(device, device->client, forcewave, &wfx);
+-    if (FAILED(hres)) {
+-        IAudioClient_Release(device->client);
+-        device->client = NULL;
+-        return hres;
+-    }
+-    HeapFree(GetProcessHeap(), 0, device->pwfx);
+-    device->pwfx = wfx;
+-
+-    prebuf_frames = device->prebuf * DSOUND_fraglen(device) / device->pwfx->nBlockAlign;
+-    prebuf_rt = (10000000 * (UINT64)prebuf_frames) / device->pwfx->nSamplesPerSec;
+-
+-    hres = IAudioClient_Initialize(device->client,
+-            AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_NOPERSIST |
+-            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, prebuf_rt, 0, device->pwfx, NULL);
+-    if(FAILED(hres)){
+-        IAudioClient_Release(device->client);
+-        device->client = NULL;
+-        WARN("Initialize failed: %08x\n", hres);
+-        return hres;
+-    }
+-    IAudioClient_SetEventHandle(device->client, device->sleepev);
+-
+-    hres = IAudioClient_GetService(device->client, &IID_IAudioRenderClient,
+-            (void**)&device->render);
+-    if(FAILED(hres)){
+-        IAudioClient_Release(device->client);
+-        device->client = NULL;
+-        WARN("GetService failed: %08x\n", hres);
+-        return hres;
+-    }
+-
+-    hres = IAudioClient_GetService(device->client, &IID_IAudioClock,
+-            (void**)&device->clock);
+-    if(FAILED(hres)){
+-        IAudioClient_Release(device->client);
+-        IAudioRenderClient_Release(device->render);
+-        device->client = NULL;
+-        device->render = NULL;
+-        WARN("GetService failed: %08x\n", hres);
+-        return hres;
++    if (device->pad) {
++        device->playpos += device->pad;
++        device->playpos %= device->buflen;
++        device->pad = 0;
+     }
+-
+-    hres = IAudioClient_GetService(device->client, &IID_IAudioStreamVolume,
+-            (void**)&device->volume);
+-    if(FAILED(hres)){
+-        IAudioClient_Release(device->client);
+-        IAudioRenderClient_Release(device->render);
+-        IAudioClock_Release(device->clock);
+-        device->client = NULL;
+-        device->render = NULL;
+-        device->clock = NULL;
+-        WARN("GetService failed: %08x\n", hres);
+-        return hres;
+-    }
+-
+-    /* Now kick off the timer so the event fires periodically */
+-    hres = IAudioClient_Start(device->client);
+-    if (FAILED(hres))
+-        WARN("starting failed with %08x\n", hres);
+-
+-    hres = IAudioClient_GetStreamLatency(device->client, &period);
+-    if (FAILED(hres)) {
+-        WARN("GetStreamLatency failed with %08x\n", hres);
+-        period_ms = 10;
+-    } else
+-        period_ms = (period + 9999) / 10000;
+-    TRACE("period %u ms fraglen %u prebuf %u\n", period_ms, device->fraglen, device->prebuf);
+-
+-    if (period_ms < 3)
+-        device->sleeptime = 5;
+-    else
+-        device->sleeptime = period_ms * 5 / 2;
+-
+-    return S_OK;
+ }
+ 
+-HRESULT DSOUND_PrimaryOpen(DirectSoundDevice *device)
++static HRESULT DSOUND_PrimaryOpen(DirectSoundDevice *device, WAVEFORMATEX *wfx, DWORD aclen, BOOL forcewave)
+ {
+-	IDirectSoundBufferImpl** dsb = device->buffers;
+-	LPBYTE newbuf;
+-        int i;
+-
+-	TRACE("(%p)\n", device);
++    IDirectSoundBufferImpl** dsb = device->buffers;
++    LPBYTE newbuf;
++    DWORD new_buflen;
++    BOOL mixfloat = FALSE;
++    int i;
+ 
+-	device->fraglen = DSOUND_fraglen(device);
+-
+-	/* on original windows, the buffer it set to a fixed size, no matter what the settings are.
+-	   on windows this size is always fixed (tested on win-xp) */
+-	if (!device->buflen)
+-		device->buflen = ds_hel_buflen;
+-	device->buflen -= device->buflen % device->pwfx->nBlockAlign;
+-	while(device->buflen < device->fraglen * device->prebuf){
+-		device->buflen += ds_hel_buflen;
+-		device->buflen -= device->buflen % device->pwfx->nBlockAlign;
+-	}
++    TRACE("(%p)\n", device);
+ 
+-	HeapFree(GetProcessHeap(), 0, device->mix_buffer);
+-	device->mix_buffer_len = (device->buflen / (device->pwfx->wBitsPerSample / 8)) * sizeof(float);
+-	device->mix_buffer = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, device->mix_buffer_len);
+-	if (!device->mix_buffer)
+-		return DSERR_OUTOFMEMORY;
++    new_buflen = device->buflen;
++    new_buflen -= new_buflen % wfx->nBlockAlign;
+ 
+-	if (device->state == STATE_PLAYING) device->state = STATE_STARTING;
+-	else if (device->state == STATE_STOPPING) device->state = STATE_STOPPED;
++    if (wfx->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
++        (wfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
++         IsEqualGUID(&((WAVEFORMATEXTENSIBLE*)wfx)->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)))
++        mixfloat = TRUE;
+ 
+     /* reallocate emulated primary buffer */
+-    if (device->buffer)
+-        newbuf = HeapReAlloc(GetProcessHeap(),0,device->buffer, device->buflen);
+-    else
+-        newbuf = HeapAlloc(GetProcessHeap(),0, device->buflen);
++    if (forcewave) {
++        if (device->buffer)
++            newbuf = HeapReAlloc(GetProcessHeap(), 0, device->buffer, new_buflen);
++        else
++            newbuf = HeapAlloc(GetProcessHeap(), 0, new_buflen);
++
++        if (!newbuf) {
++            ERR("failed to allocate primary buffer\n");
++            return DSERR_OUTOFMEMORY;
++        }
++        device->mix_buffer_len = 0;
++    } else if (!mixfloat) {
++        DWORD alloc_len = aclen / (wfx->nBlockAlign / 8) * sizeof(float);
+ 
+-    if (!newbuf) {
+-        ERR("failed to allocate primary buffer\n");
+-        return DSERR_OUTOFMEMORY;
+-        /* but the old buffer might still exist and must be re-prepared */
+-    }
++        if (device->buffer)
++            newbuf = HeapReAlloc(GetProcessHeap(), 0, device->buffer, alloc_len);
++        else
++            newbuf = HeapAlloc(GetProcessHeap(), 0, alloc_len);
+ 
+-    device->writelead = (device->pwfx->nSamplesPerSec / 100) * device->pwfx->nBlockAlign;
++        if (!newbuf) {
++            ERR("failed to allocate primary buffer\n");
++            return DSERR_OUTOFMEMORY;
++        }
++        device->mix_buffer_len = alloc_len;
++    } else {
++        HeapFree(GetProcessHeap(), 0, device->buffer);
++        newbuf = NULL;
++        device->mix_buffer_len = 0;
++    }
+ 
+     device->buffer = newbuf;
++    device->buflen = new_buflen;
++    HeapFree(GetProcessHeap(), 0, device->pwfx);
++    device->pwfx = wfx;
++
++    device->writelead = (wfx->nSamplesPerSec / 100) * wfx->nBlockAlign;
+ 
+     TRACE("buflen: %u, fraglen: %u, mix_buffer_len: %u\n",
+-            device->buflen, device->fraglen, device->mix_buffer_len);
++          device->buflen, device->fraglen, device->mix_buffer_len);
+ 
+-    if(device->pwfx->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+-            (device->pwfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+-             IsEqualGUID(&((WAVEFORMATEXTENSIBLE*)device->pwfx)->SubFormat,
+-                 &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)))
+-        device->normfunction = normfunctions[4];
++    if (!forcewave && !mixfloat)
++        device->normfunction = normfunctions[wfx->nBlockAlign/8 - 1];
+     else
+-        device->normfunction = normfunctions[device->pwfx->wBitsPerSample/8 - 1];
++        device->normfunction = NULL;
+ 
+-    FillMemory(device->buffer, device->buflen, (device->pwfx->wBitsPerSample == 8) ? 128 : 0);
+-    FillMemory(device->mix_buffer, device->mix_buffer_len, 0);
++    if (device->mix_buffer_len)
++        FillMemory(device->buffer, device->mix_buffer_len, 0);
++    else if (device->buffer)
++        FillMemory(device->buffer, device->buflen, (wfx->wBitsPerSample == 8) ? 128 : 0);
+     device->playpos = 0;
+ 
+-    if (device->pwfx->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
+-	 (device->pwfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
+-	  IsEqualGUID(&((WAVEFORMATEXTENSIBLE*)device->pwfx)->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)))
+-        device->normfunction = normfunctions[4];
+-    else
+-        device->normfunction = normfunctions[device->pwfx->wBitsPerSample/8 - 1];
+-
+     for (i = 0; i < device->nrofbuffers; i++) {
+         RtlAcquireResourceExclusive(&dsb[i]->lock, TRUE);
+         DSOUND_RecalcFormat(dsb[i]);
+@@ -334,38 +229,103 @@ HRESULT DSOUND_PrimaryOpen(DirectSoundDevice *device)
+     return DS_OK;
+ }
+ 
+-
+-static void DSOUND_PrimaryClose(DirectSoundDevice *device)
++HRESULT DSOUND_ReopenDevice(DirectSoundDevice *device, BOOL forcewave)
+ {
+-    HRESULT hr;
++    HRESULT hres;
++    REFERENCE_TIME period;
++    UINT32 frames;
++    DWORD period_ms;
++    IAudioClient *client = NULL;
++    IAudioRenderClient *render = NULL;
++    IAudioStreamVolume *volume = NULL;
++    DWORD fraglen, aclen;
++    WAVEFORMATEX *wfx = NULL;
+ 
+-    TRACE("(%p)\n", device);
++    TRACE("(%p, %d)\n", device, forcewave);
+ 
+-    if(device->client){
+-        hr = IAudioClient_Stop(device->client);
+-        if(FAILED(hr))
+-            WARN("Stop failed: %08x\n", hr);
++    hres = IMMDevice_Activate(device->mmdevice, &IID_IAudioClient,
++            CLSCTX_INPROC_SERVER, NULL, (void **)&client);
++    if(FAILED(hres)){
++        WARN("Activate failed: %08x\n", hres);
++        return hres;
+     }
+ 
+-    /* clear the queue */
+-    device->in_mmdev_bytes = 0;
+-}
++    hres = DSOUND_WaveFormat(device, client, forcewave, &wfx);
++    if (FAILED(hres)) {
++        IAudioClient_Release(client);
++        return hres;
++    }
+ 
+-HRESULT DSOUND_PrimaryCreate(DirectSoundDevice *device)
+-{
+-	HRESULT err = DS_OK;
+-	TRACE("(%p)\n", device);
++    hres = IAudioClient_Initialize(client,
++            AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_NOPERSIST |
++            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 800000, 0, wfx, NULL);
++    if(FAILED(hres)){
++        IAudioClient_Release(client);
++        ERR("Initialize failed: %08x\n", hres);
++        return hres;
++    }
+ 
+-	device->buflen = ds_hel_buflen;
+-	err = DSOUND_PrimaryOpen(device);
++    IAudioClient_SetEventHandle(client, device->sleepev);
+ 
+-	if (err != DS_OK) {
+-		WARN("DSOUND_PrimaryOpen failed\n");
+-		return err;
+-	}
++    hres = IAudioClient_GetService(client, &IID_IAudioRenderClient, (void**)&render);
++    if(FAILED(hres))
++        goto err_service;
+ 
+-	device->state = STATE_STOPPED;
+-	return DS_OK;
++    hres = IAudioClient_GetService(client, &IID_IAudioStreamVolume, (void**)&volume);
++    if(FAILED(hres))
++        goto err_service;
++
++    /* Now kick off the timer so the event fires periodically */
++    hres = IAudioClient_Start(client);
++    if (FAILED(hres)) {
++        WARN("Start failed with %08x\n", hres);
++        goto err;
++    }
++    hres = IAudioClient_GetStreamLatency(client, &period);
++    if (FAILED(hres)) {
++        WARN("GetStreamLatency failed with %08x\n", hres);
++        goto err;
++    }
++    hres = IAudioClient_GetBufferSize(client, &frames);
++    if (FAILED(hres)) {
++        WARN("GetBufferSize failed with %08x\n", hres);
++        goto err;
++    }
++
++    period_ms = (period + 9999) / 10000;
++    fraglen = MulDiv(wfx->nSamplesPerSec, period, 10000000) * wfx->nBlockAlign;
++    aclen = frames * wfx->nBlockAlign;
++    TRACE("period %u ms fraglen %u buflen %u\n", period_ms, fraglen, aclen);
++
++    hres = DSOUND_PrimaryOpen(device, wfx, aclen, forcewave);
++    if(FAILED(hres))
++        goto err;
++
++    DSOUND_ReleaseDevice(device);
++    device->client = client;
++    device->render = render;
++    device->volume = volume;
++    device->fraglen = fraglen;
++    device->aclen = aclen;
++
++    if (period_ms < 3)
++        device->sleeptime = 5;
++    else
++        device->sleeptime = period_ms * 5 / 2;
++
++    return S_OK;
++
++err_service:
++    WARN("GetService failed: %08x\n", hres);
++err:
++    if (volume)
++        IAudioStreamVolume_Release(volume);
++    if (render)
++        IAudioRenderClient_Release(render);
++    if (client)
++        IAudioClient_Release(client);
++    HeapFree(GetProcessHeap(), 0, wfx);
++    return hres;
+ }
+ 
+ HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device)
+@@ -375,8 +335,6 @@ HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device)
+ 	/* **** */
+ 	EnterCriticalSection(&(device->mixlock));
+ 
+-	DSOUND_PrimaryClose(device);
+-
+ 	if(device->primary && (device->primary->ref || device->primary->numIfaces))
+ 		WARN("Destroying primary buffer while references held (%u %u)\n", device->primary->ref, device->primary->numIfaces);
+ 
+@@ -393,62 +351,19 @@ HRESULT DSOUND_PrimaryDestroy(DirectSoundDevice *device)
+ 	return DS_OK;
+ }
+ 
+-HRESULT DSOUND_PrimaryPlay(DirectSoundDevice *device)
+-{
+-    HRESULT hr;
+-
+-    TRACE("(%p)\n", device);
+-
+-    hr = IAudioClient_Start(device->client);
+-    if(FAILED(hr) && hr != AUDCLNT_E_NOT_STOPPED){
+-        WARN("Start failed: %08x\n", hr);
+-        return hr;
+-    }
+-
+-    return DS_OK;
+-}
+-
+-HRESULT DSOUND_PrimaryStop(DirectSoundDevice *device)
+-{
+-    HRESULT hr;
+-
+-    TRACE("(%p)\n", device);
+-
+-    hr = IAudioClient_Stop(device->client);
+-    if(FAILED(hr)){
+-        WARN("Stop failed: %08x\n", hr);
+-        return hr;
+-    }
+-
+-    return DS_OK;
+-}
+-
+-HRESULT DSOUND_PrimaryGetPosition(DirectSoundDevice *device, LPDWORD playpos, LPDWORD writepos)
+-{
+-	TRACE("(%p,%p,%p)\n", device, playpos, writepos);
+-
+-	/* check if playpos was requested */
+-	if (playpos)
+-		*playpos = device->playing_offs_bytes;
+-
+-	/* check if writepos was requested */
+-	if (writepos)
+-		/* the writepos is the first non-queued position */
+-		*writepos = (device->playing_offs_bytes + device->in_mmdev_bytes) % device->buflen;
+-
+-	TRACE("playpos = %d, writepos = %d (%p, time=%d)\n", playpos?*playpos:-1, writepos?*writepos:-1, device, GetTickCount());
+-	return DS_OK;
+-}
+-
+ WAVEFORMATEX *DSOUND_CopyFormat(const WAVEFORMATEX *wfex)
+ {
+     WAVEFORMATEX *pwfx;
+     if(wfex->wFormatTag == WAVE_FORMAT_PCM){
+         pwfx = HeapAlloc(GetProcessHeap(), 0, sizeof(WAVEFORMATEX));
++        if (!pwfx)
++            return NULL;
+         CopyMemory(pwfx, wfex, sizeof(PCMWAVEFORMAT));
+         pwfx->cbSize = 0;
+     }else{
+         pwfx = HeapAlloc(GetProcessHeap(), 0, sizeof(WAVEFORMATEX) + wfex->cbSize);
++        if (!pwfx)
++            return NULL;
+         CopyMemory(pwfx, wfex, sizeof(WAVEFORMATEX) + wfex->cbSize);
+     }
+ 
+@@ -465,7 +380,6 @@ HRESULT primarybuffer_SetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX passe
+ 	HRESULT err = S_OK;
+ 	WAVEFORMATEX *old_fmt;
+ 	WAVEFORMATEXTENSIBLE *fmtex, *passed_fmtex = (WAVEFORMATEXTENSIBLE*)passed_fmt;
+-	BOOL forced = (device->priolevel == DSSCL_WRITEPRIMARY);
+ 
+ 	TRACE("(%p,%p)\n", device, passed_fmt);
+ 
+@@ -515,28 +429,20 @@ HRESULT primarybuffer_SetFormat(DirectSoundDevice *device, LPCWAVEFORMATEX passe
+ 			fmtex->Samples.wValidBitsPerSample = fmtex->Format.wBitsPerSample;
+ 		}
+ 
+-		DSOUND_PrimaryClose(device);
+-
+-		err = DSOUND_ReopenDevice(device, forced);
++		err = DSOUND_ReopenDevice(device, TRUE);
+ 		if (FAILED(err)) {
+ 			ERR("No formats could be opened\n");
+-			goto done;
+-		}
+-
+-		err = DSOUND_PrimaryOpen(device);
+-		if (err != DS_OK) {
+-			ERR("DSOUND_PrimaryOpen failed\n");
+-			goto done;
+-		}
+-
+-done:
+-		if (err != DS_OK)
++			HeapFree(GetProcessHeap(), 0, device->primary_pwfx);
+ 			device->primary_pwfx = old_fmt;
+-		else
++		} else
+ 			HeapFree(GetProcessHeap(), 0, old_fmt);
+ 	} else {
+-		HeapFree(GetProcessHeap(), 0, device->primary_pwfx);
+-		device->primary_pwfx = DSOUND_CopyFormat(passed_fmt);
++		WAVEFORMATEX *wfx = DSOUND_CopyFormat(passed_fmt);
++		if (wfx) {
++			HeapFree(GetProcessHeap(), 0, device->primary_pwfx);
++			device->primary_pwfx = wfx;
++		} else
++			err = DSERR_OUTOFMEMORY;
+ 	}
+ 
+ out:
+@@ -706,16 +612,7 @@ static HRESULT WINAPI PrimaryBufferImpl_Play(IDirectSoundBuffer *iface, DWORD re
+ 		return DSERR_INVALIDPARAM;
+ 	}
+ 
+-	/* **** */
+-	EnterCriticalSection(&(device->mixlock));
+-
+-	if (device->state == STATE_STOPPED)
+-		device->state = STATE_STARTING;
+-	else if (device->state == STATE_STOPPING)
+-		device->state = STATE_PLAYING;
+-
+-	LeaveCriticalSection(&(device->mixlock));
+-	/* **** */
++	device->stopped = 0;
+ 
+ 	return DS_OK;
+ }
+@@ -726,16 +623,7 @@ static HRESULT WINAPI PrimaryBufferImpl_Stop(IDirectSoundBuffer *iface)
+         DirectSoundDevice *device = This->device;
+ 	TRACE("(%p)\n", iface);
+ 
+-	/* **** */
+-	EnterCriticalSection(&(device->mixlock));
+-
+-	if (device->state == STATE_PLAYING)
+-		device->state = STATE_STOPPING;
+-	else if (device->state == STATE_STARTING)
+-		device->state = STATE_STOPPED;
+-
+-	LeaveCriticalSection(&(device->mixlock));
+-	/* **** */
++	device->stopped = 1;
+ 
+ 	return DS_OK;
+ }
+@@ -781,7 +669,9 @@ static ULONG WINAPI PrimaryBufferImpl_Release(IDirectSoundBuffer *iface)
+ static HRESULT WINAPI PrimaryBufferImpl_GetCurrentPosition(IDirectSoundBuffer *iface,
+         DWORD *playpos, DWORD *writepos)
+ {
+-	HRESULT	hres;
++	HRESULT	hres = DS_OK;
++	UINT32 pad = 0;
++	UINT32 mixpos;
+         IDirectSoundBufferImpl *This = impl_from_IDirectSoundBuffer(iface);
+         DirectSoundDevice *device = This->device;
+ 	TRACE("(%p,%p,%p)\n", iface, playpos, writepos);
+@@ -789,17 +679,23 @@ static HRESULT WINAPI PrimaryBufferImpl_GetCurrentPosition(IDirectSoundBuffer *i
+ 	/* **** */
+ 	EnterCriticalSection(&(device->mixlock));
+ 
+-	hres = DSOUND_PrimaryGetPosition(device, playpos, writepos);
++	if (device->client)
++		hres = IAudioClient_GetCurrentPadding(device->client, &pad);
+ 	if (hres != DS_OK) {
+-		WARN("DSOUND_PrimaryGetPosition failed\n");
++		WARN("IAudioClient_GetCurrentPadding failed\n");
+ 		LeaveCriticalSection(&(device->mixlock));
+ 		return hres;
+ 	}
++	mixpos = (device->playpos + pad * device->pwfx->nBlockAlign) % device->buflen;
++	if (playpos)
++		*playpos = mixpos;
+ 	if (writepos) {
+-		if (device->state != STATE_STOPPED)
++		*writepos = mixpos;
++		if (!device->stopped) {
+ 			/* apply the documented 10ms lead to writepos */
+ 			*writepos += device->writelead;
+-		while (*writepos >= device->buflen) *writepos -= device->buflen;
++			*writepos %= device->buflen;
++		}
+ 	}
+ 
+ 	LeaveCriticalSection(&(device->mixlock));
+@@ -821,8 +717,7 @@ static HRESULT WINAPI PrimaryBufferImpl_GetStatus(IDirectSoundBuffer *iface, DWO
+ 	}
+ 
+ 	*status = 0;
+-	if ((device->state == STATE_STARTING) ||
+-	    (device->state == STATE_PLAYING))
++	if (!device->stopped)
+ 		*status |= DSBSTATUS_PLAYING | DSBSTATUS_LOOPING;
+ 
+ 	TRACE("status=%x\n", *status);
 diff --git a/dlls/mmdevapi/main.c b/dlls/mmdevapi/main.c
 index 447813f..b9ae99e 100644
 --- a/dlls/mmdevapi/main.c
@@ -507,14 +1660,14 @@ index beebfb6..f292a44 100644
 +
 +    pwfx2 = NULL;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == E_INVALIDARG && !pwfx2,
++    ok((hr == E_INVALIDARG || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with nAvgBytesPerSec=0 and nBlockAlign=0 returned %08x %p\n", hr, pwfx2);
 +    CoTaskMemFree(pwfx2);
 +
 +    pwfx->wFormatTag = WAVE_FORMAT_PCM;
 +    pwfx2 = NULL;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == S_OK && !pwfx2,
++    ok((hr == S_OK || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with nAvgBytesPerSec=0 and nBlockAlign=0 returned %08x %p\n", hr, pwfx2);
 +    CoTaskMemFree(pwfx2);
 +
@@ -573,7 +1726,7 @@ index beebfb6..f292a44 100644
 +
 +    pwfx2 = NULL;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == S_FALSE && pwfx2,
++    ok((hr == S_FALSE || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && pwfx2,
 +       "Shared IsFormatSupported with wValidBitsPerSample=0 returned %08x %p\n", hr, pwfx2);
 +    if (pwfx2) {
 +        pwfe2 = (WAVEFORMATEXTENSIBLE*)pwfx2;
@@ -586,7 +1739,7 @@ index beebfb6..f292a44 100644
 +    pwfx2 = NULL;
 +    pwfe->Samples.wValidBitsPerSample = pwfx->wBitsPerSample + 1;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == E_INVALIDARG && !pwfx2,
++    ok((hr == E_INVALIDARG || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with wValidBitsPerSample += 1 returned %08x %p\n", hr, pwfx2);
 +
 +    *pwfe = wfe;
@@ -603,7 +1756,7 @@ index beebfb6..f292a44 100644
 +    pwfx->nBlockAlign = pwfx->wBitsPerSample / 8 * pwfx->nChannels;
 +    pwfx->nAvgBytesPerSec = pwfx->nBlockAlign * pwfx->nSamplesPerSec;
 +    hr = IAudioClient_IsFormatSupported(ac, AUDCLNT_SHAREMODE_SHARED, pwfx, &pwfx2);
-+    ok(hr == E_INVALIDARG && !pwfx2,
++    ok((hr == E_INVALIDARG || hr == AUDCLNT_E_UNSUPPORTED_FORMAT) && !pwfx2,
 +       "Shared IsFormatSupported with wBitsPerSample=256 returned %08x %p\n", hr, pwfx2);
 +    CoTaskMemFree(pwfx2);
 +
@@ -841,6 +1994,132 @@ index beebfb6..f292a44 100644
      test_references();
      trace("Output to a MS-DOS console is particularly slow and disturbs timing.\n");
      trace("Please redirect output to a file.\n");
+diff --git a/dlls/ntdll/server.c b/dlls/ntdll/server.c
+index 46494e2..49c6ced 100644
+--- a/dlls/ntdll/server.c
++++ b/dlls/ntdll/server.c
+@@ -81,6 +81,9 @@
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(server);
+ WINE_DECLARE_DEBUG_CHANNEL(rtcheck);
++WINE_DECLARE_DEBUG_CHANNEL(winediag);
++WINE_DECLARE_DEBUG_CHANNEL(tid);
++WINE_DECLARE_DEBUG_CHANNEL(timestamp);
+ 
+ /* Some versions of glibc don't define this */
+ #ifndef SCM_RIGHTS
+@@ -979,6 +982,88 @@ static int get_unix_tid(void)
+ }
+ 
+ 
++#ifdef SIGXCPU
++static int convert_tidtostr_r(char *s, unsigned hex)
++{
++    int i;
++    char *start = s;
++
++    for (i = 0; i < 8; ++i) {
++        unsigned c = hex >> (28 - 4 * i);
++
++        if (c || i >= 4)
++        { /* last 4 digits always printed */
++            c &= 0xf;
++
++            if (c < 10)
++                *s++ = '0' + c;
++            else
++                *s++ = 'a' + c - 10;
++        }
++    }
++
++    *s++ = ':';
++    return s - start;
++}
++
++static int convert_stamptostr_r(char *s, unsigned stamp)
++{
++    unsigned high = stamp / 1000, low = stamp % 1000, i;
++    char *start = s;
++
++    for (i = 1000000; i; i /= 10) {
++        if (high >= i)
++            *s++ = '0' + (high / i) % 10;
++        else if (i <= 100)
++            *s++ = ' ';
++    }
++
++    *s++ = '.';
++
++    for (i = 100; i; i /= 10)
++         *s++ = '0' + (low / i) % 10;
++
++    *s++ = ':';
++
++    return s - start;
++}
++
++
++static const char throttle_str[] =
++"fixme:winediag:sigxcpu_handler real-critic priority was throttled due to program exceeding time limit\n";
++
++static void sigxcpu_handler( int sig )
++{
++    char temp[16];
++    int old_errno = errno, ret;
++
++    if (server_pid > 0)
++        kill(server_pid, SIGXCPU);
++    else {
++        /* uh oh, somehow init failed to get server_pid */
++        struct sched_param parm;
++        memset(&parm, 0, sizeof(parm));
++        sched_setscheduler(0, SCHED_OTHER | SCHED_RESET_ON_FORK, &parm);
++    }
++
++    if (FIXME_ON(winediag)) {
++        if (TRACE_ON(timestamp)) {
++            ret = convert_stamptostr_r(temp, NtGetTickCount());
++            write(2, temp, ret);
++        }
++
++        if (TRACE_ON(tid)) {
++            ret = convert_tidtostr_r(temp, GetCurrentThreadId());
++            write(2, temp, ret);
++        }
++
++        write(2, throttle_str, sizeof(throttle_str)-1);
++    }
++
++    errno = old_errno;
++}
++#endif
++
+ /***********************************************************************
+  *           server_init_process
+  *
+@@ -988,6 +1073,14 @@ void server_init_process(void)
+ {
+     obj_handle_t version;
+     const char *env_socket = getenv( "WINESERVERSOCKET" );
++#ifdef SIGXCPU
++    struct sigaction sa;
++
++    sa.sa_handler = sigxcpu_handler;
++    sigemptyset(&sa.sa_mask);
++    sa.sa_flags = 0;
++    sigaction( SIGXCPU, &sa, NULL );
++#endif
+ 
+     server_pid = -1;
+     if (env_socket)
+@@ -1071,7 +1164,6 @@ NTSTATUS server_init_process_done(void)
+     return status;
+ }
+ 
+-
+ /***********************************************************************
+  *           server_init_thread
+  *
 diff --git a/dlls/winepulse.drv/Makefile.in b/dlls/winepulse.drv/Makefile.in
 new file mode 100644
 index 0000000..0f595f1
@@ -858,10 +2137,10 @@ index 0000000..0f595f1
 +@MAKE_DLL_RULES@
 diff --git a/dlls/winepulse.drv/mmdevdrv.c b/dlls/winepulse.drv/mmdevdrv.c
 new file mode 100644
-index 0000000..5b041a2
+index 0000000..a09ce7f
 --- /dev/null
 +++ b/dlls/winepulse.drv/mmdevdrv.c
-@@ -0,0 +1,3179 @@
+@@ -0,0 +1,3190 @@
 +/*
 + * Copyright 2011-2012 Maarten Lankhorst
 + * Copyright 2010-2011 Maarten Lankhorst for CodeWeavers
@@ -886,6 +2165,8 @@ index 0000000..5b041a2
 +
 +#define NONAMELESSUNION
 +#define COBJMACROS
++#define _GNU_SOURCE
++
 +#include "config.h"
 +#include <poll.h>
 +#include <pthread.h>
@@ -894,6 +2175,7 @@ index 0000000..5b041a2
 +#include <unistd.h>
 +#include <math.h>
 +#include <stdio.h>
++#include <errno.h>
 +
 +#include <pulse/pulseaudio.h>
 +
@@ -925,14 +2207,14 @@ index 0000000..5b041a2
 +WINE_DEFAULT_DEBUG_CHANNEL(pulse);
 +WINE_DECLARE_DEBUG_CHANNEL(winediag);
 +
-+static const REFERENCE_TIME MinimumPeriod = 30000;
-+static const REFERENCE_TIME DefaultPeriod = 100000;
++static const REFERENCE_TIME MinimumPeriod = 13333;
++static const REFERENCE_TIME DefaultPeriod = 26666;
 +
 +static pa_context *pulse_ctx;
 +static pa_mainloop *pulse_ml;
 +
 +static HANDLE pulse_thread;
-+static pthread_mutex_t pulse_lock = PTHREAD_MUTEX_INITIALIZER;
++static pthread_mutex_t pulse_lock;
 +static pthread_cond_t pulse_cond = PTHREAD_COND_INITIALIZER;
 +static struct list g_sessions = LIST_INIT(g_sessions);
 +
@@ -957,6 +2239,8 @@ index 0000000..5b041a2
 +{
 +    if (reason == DLL_PROCESS_ATTACH) {
 +        HKEY key;
++        pthread_mutexattr_t attr;
++
 +        if (RegOpenKeyW(HKEY_CURRENT_USER, pulse_keyW, &key) == ERROR_SUCCESS) {
 +            DWORD size = sizeof(pulse_stream_volume);
 +            RegQueryValueExW(key, pulse_streamW, 0, NULL,
@@ -964,9 +2248,15 @@ index 0000000..5b041a2
 +            RegCloseKey(key);
 +        }
 +        DisableThreadLibraryCalls(dll);
++
++        pthread_mutexattr_init(&attr);
++        pthread_mutexattr_setprotocol(&attr, PTHREAD_PRIO_INHERIT);
++
++        if (pthread_mutex_init(&pulse_lock, &attr) != 0)
++            pthread_mutex_init(&pulse_lock, NULL);
 +    } else if (reason == DLL_PROCESS_DETACH) {
 +        if (pulse_thread)
-+           SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
++           SetThreadPriority(pulse_thread, THREAD_PRIORITY_TIME_CRITICAL);
 +        if (pulse_ctx) {
 +           pa_context_disconnect(pulse_ctx);
 +           pa_context_unref(pulse_ctx);
@@ -1272,7 +2562,7 @@ index 0000000..5b041a2
 +            ERR("Failed to create mainloop thread.");
 +            return E_FAIL;
 +        }
-+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
++        SetThreadPriority(pulse_thread, THREAD_PRIORITY_TIME_CRITICAL);
 +        pthread_cond_wait(&pulse_cond, &pulse_lock);
 +    }
 +
@@ -1309,7 +2599,7 @@ index 0000000..5b041a2
 +        pa_context_state_t state = pa_context_get_state(pulse_ctx);
 +
 +        if (state == PA_CONTEXT_FAILED || state == PA_CONTEXT_TERMINATED)
-+            goto fail;
++            break;
 +
 +        if (state == PA_CONTEXT_READY)
 +            break;
@@ -1451,7 +2741,7 @@ index 0000000..5b041a2
 +        }
 +        QueryPerformanceCounter(&stamp);
 +        QueryPerformanceFrequency(&freq);
-+        p->qpcpos = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
++        p->qpcpos = (stamp.QuadPart * (INT64)5333000) / freq.QuadPart;
 +        p->discont = 0;
 +        list_remove(&p->entry);
 +        list_add_tail(&This->packet_filled_head, &p->entry);
@@ -2088,8 +3378,8 @@ index 0000000..5b041a2
 +    }
 +    period_bytes = pa_frame_size(&This->ss) * MulDiv(period, This->ss.rate, 10000000);
 +
-+    if (duration < 20000000)
-+        This->bufsize_frames = ceil((duration / 10000000.) * fmt->nSamplesPerSec);
++    if (duration < 10000000)
++        This->bufsize_frames = ceil((duration / 5333000.) * fmt->nSamplesPerSec);
 +    else
 +        This->bufsize_frames = 2 * fmt->nSamplesPerSec;
 +    This->bufsize_bytes = This->bufsize_frames * pa_frame_size(&This->ss);
@@ -2194,7 +3484,7 @@ index 0000000..5b041a2
 +        lat = attr->minreq / pa_frame_size(&This->ss);
 +    else
 +        lat = attr->fragsize / pa_frame_size(&This->ss);
-+    *latency = 10000000;
++    *latency = 5333000;
 +    *latency *= lat;
 +    *latency /= This->ss.rate;
 +    pthread_mutex_unlock(&pulse_lock);
@@ -3042,7 +4332,7 @@ index 0000000..5b041a2
 +        LARGE_INTEGER stamp, freq;
 +        QueryPerformanceCounter(&stamp);
 +        QueryPerformanceFrequency(&freq);
-+        *qpctime = (stamp.QuadPart * (INT64)10000000) / freq.QuadPart;
++        *qpctime = (stamp.QuadPart * (INT64)5333000) / freq.QuadPart;
 +    }
 +
 +    return S_OK;
@@ -4068,3 +5358,530 @@ index f387323..3b1be27 100644
  
      HeapFree(GetProcessHeap(), 0, drvA);
      PropVariantClear(&pv);
+diff --git a/libs/wine/loader.c b/libs/wine/loader.c
+index 4e78116..094e5e1 100644
+--- a/libs/wine/loader.c
++++ b/libs/wine/loader.c
+@@ -59,6 +59,10 @@ extern char **environ;
+ #include "winbase.h"
+ #include "wine/library.h"
+ 
++#ifdef HAVE_VALGRIND_MEMCHECK_H
++#include <valgrind/memcheck.h>
++#endif
++
+ /* argc/argv for the Windows application */
+ int __wine_main_argc = 0;
+ char **__wine_main_argv = NULL;
+@@ -644,7 +648,6 @@ int wine_dll_get_owner( const char *name, char *buffer, int size, int *exists )
+     return ret;
+ }
+ 
+-
+ /***********************************************************************
+  *           set_max_limit
+  *
+@@ -655,6 +658,11 @@ static void set_max_limit( int limit )
+ #ifdef HAVE_SETRLIMIT
+     struct rlimit rlimit;
+ 
++#if defined(RLIMIT_NOFILE) && defined(RUNNING_ON_VALGRIND)
++    if (limit == RLIMIT_NOFILE && RUNNING_ON_VALGRIND)
++        return;
++#endif
++
+     if (!getrlimit( limit, &rlimit ))
+     {
+         rlimit.rlim_cur = rlimit.rlim_max;
+@@ -802,6 +810,34 @@ static void apple_main_thread( void (*init_func)(void) )
+ 
+ 
+ /***********************************************************************
++ *           set_rttime_limit
++ *
++ * set a limit on the cpu time used
++ */
++static void set_rttime_limit(void)
++{
++#if defined(HAVE_SETRLIMIT) && defined(__linux__)
++#ifndef RLIMIT_RTTIME
++#define RLIMIT_RTTIME 15
++#endif
++    struct rlimit rlimit;
++
++    if (!getrlimit( RLIMIT_RTTIME, &rlimit ))
++    {
++        /* 1000 ms maximum realtime before the first SIGXCPU, this will drop
++         * all realtime threads to normal priority.
++         */
++        if (rlimit.rlim_max > 5000000)
++            rlimit.rlim_max = 5000000;
++        rlimit.rlim_cur = 1000000;
++
++        setrlimit( RLIMIT_RTTIME, &rlimit );
++    }
++#endif
++}
++
++
++/***********************************************************************
+  *           wine_init
+  *
+  * Main Wine initialisation.
+@@ -820,6 +856,7 @@ void wine_init( int argc, char *argv[], char *error, int error_size )
+ #ifdef RLIMIT_AS
+     set_max_limit( RLIMIT_AS );
+ #endif
++    set_rttime_limit();
+ 
+     wine_init_argv0_path( argv[0] );
+     build_dll_path();
+diff --git a/programs/winemenubuilder/winemenubuilder.c b/programs/winemenubuilder/winemenubuilder.c
+index 973bd02..1982c93 100644
+--- a/programs/winemenubuilder/winemenubuilder.c
++++ b/programs/winemenubuilder/winemenubuilder.c
+@@ -2536,7 +2536,7 @@ static BOOL write_freedesktop_association_entry(const char *desktopPath, const c
+         fclose(desktop);
+     }
+     else
+-        WINE_ERR("error writing association file %s\n", wine_dbgstr_a(desktopPath));
++        WINE_WARN("error writing association file %s\n", wine_dbgstr_a(desktopPath));
+     return ret;
+ }
+ 
+diff --git a/server/Makefile.in b/server/Makefile.in
+index 2e9bba1..03b13c2 100644
+--- a/server/Makefile.in
++++ b/server/Makefile.in
+@@ -1,5 +1,6 @@
+ DEFS      = -D__WINESRC__
+ EXTRALIBS = @LIBPOLL@ @LIBRT@
++EXTRAINCL = @DBUS_CFLAGS@
+ 
+ C_SRCS = \
+ 	async.c \
+@@ -31,6 +32,7 @@ C_SRCS = \
+ 	region.c \
+ 	registry.c \
+ 	request.c \
++	rtkit.c \
+ 	semaphore.c \
+ 	serial.c \
+ 	signal.c \
+diff --git a/server/main.c b/server/main.c
+index 7aed338..f78c0fb 100644
+--- a/server/main.c
++++ b/server/main.c
+@@ -28,6 +28,7 @@
+ #include <stdlib.h>
+ #include <sys/time.h>
+ #include <unistd.h>
++#include <sys/syscall.h>
+ #ifdef HAVE_GETOPT_H
+ # include <getopt.h>
+ #endif
+@@ -38,6 +39,8 @@
+ #include "request.h"
+ #include "wine/library.h"
+ 
++extern int rtkit_make_realtime(struct thread *thread, pid_t tid, int priority);
++
+ /* command-line options */
+ int debug_level = 0;
+ int foreground = 0;
+@@ -145,6 +148,7 @@ int main( int argc, char *argv[] )
+     init_signals();
+     init_directories();
+     init_registry();
++    rtkit_make_realtime(NULL, syscall( SYS_gettid ), 3);
+     main_loop();
+     return 0;
+ }
+diff --git a/server/rtkit.c b/server/rtkit.c
+new file mode 100644
+index 0000000..53e5ce4
+--- /dev/null
++++ b/server/rtkit.c
+@@ -0,0 +1,292 @@
++/*
++ * Rtkit dbus calls
++ * Copyright 2010 Maarten Lankhorst for CodeWeavers
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#include "config.h"
++#include "wine/port.h"
++#include "wine/library.h"
++
++#include <errno.h>
++#include <sys/types.h>
++#ifdef HAVE_SYS_SCHED_H
++#include <sys/sched.h>
++#endif
++#include <sys/resource.h>
++
++#if defined(HAVE_SETRLIMIT) && defined(__linux__) && defined(SONAME_LIBDBUS_1) && defined(HAVE_SCHED_H)
++
++#include <sched.h>
++#include <string.h>
++#include <unistd.h>
++#include <dbus/dbus.h>
++#include <stdio.h>
++#include <signal.h>
++#include <limits.h>
++#include <syscall.h>
++#include "object.h"
++#include "thread.h"
++
++#ifndef RLIMIT_RTTIME
++#define RLIMIT_RTTIME 15
++#endif
++
++#define FUNCPTR(fn) static typeof(fn) *p ##fn
++
++FUNCPTR(dbus_error_init);
++FUNCPTR(dbus_error_free);
++FUNCPTR(dbus_bus_get);
++FUNCPTR(dbus_message_new_method_call);
++FUNCPTR(dbus_message_append_args);
++FUNCPTR(dbus_connection_send_with_reply_and_block);
++FUNCPTR(dbus_message_unref);
++FUNCPTR(dbus_set_error_from_message);
++#undef FUNCPTR
++
++static struct list rt_thread_list = LIST_INIT(rt_thread_list);
++
++static int translate_error( unsigned tid, const char *name )
++{
++    if (!strcmp( name, DBUS_ERROR_NO_MEMORY ))
++        return -ENOMEM;
++    if (!strcmp( name, DBUS_ERROR_SERVICE_UNKNOWN ) ||
++        !strcmp( name, DBUS_ERROR_NAME_HAS_NO_OWNER ))
++        return -ENOENT;
++    if (!strcmp( name, DBUS_ERROR_ACCESS_DENIED ) ||
++        !strcmp( name, DBUS_ERROR_AUTH_FAILED ))
++        return -EACCES;
++
++    if (debug_level)
++        fprintf( stderr, "%04x: Could not map error \"%s\"\n", tid, name );
++    return -EIO;
++}
++
++static void init_dbus(void)
++{
++#define FUNCPTR(fn) p ##fn = wine_dlsym( libdbus, #fn, NULL, 0 );
++    char error[512];
++    void *libdbus = wine_dlopen( SONAME_LIBDBUS_1, RTLD_NOW, error, sizeof( error ) );
++    FUNCPTR(dbus_error_init);
++    FUNCPTR(dbus_error_free);
++    FUNCPTR(dbus_bus_get);
++    FUNCPTR(dbus_message_new_method_call);
++    FUNCPTR(dbus_message_append_args);
++    FUNCPTR(dbus_connection_send_with_reply_and_block);
++    FUNCPTR(dbus_message_unref);
++    FUNCPTR(dbus_set_error_from_message);
++#undef FUNCPTR
++}
++
++#define MSG_SIGXCPU "wineserver: SIGXCPU called on wineserver from kernel, realtime priority removed!\n"
++
++static int sched_normal(struct thread *cur)
++{
++    int ret = 0;
++
++    if (cur->unix_tid != -1) {
++        struct sched_param parm;
++        memset( &parm, 0, sizeof( parm ) );
++        ret = sched_setscheduler(cur->unix_tid, SCHED_OTHER | SCHED_RESET_ON_FORK, &parm);
++        if (ret < 0)
++            ret = -errno;
++    }
++
++    list_remove(&cur->rt_entry);
++    list_init(&cur->rt_entry);
++    cur->rt_prio = 0;
++    cur->priority = 0;
++    return ret;
++}
++
++static void sigxcpu_handler(int sig, siginfo_t *si, void *ucontext)
++{
++    struct thread *cur, *tmp;
++    int found = 0;
++    int old_errno = errno;
++
++    if (si->si_code & SI_KERNEL) {
++        struct sched_param parm;
++        memset( &parm, 0, sizeof( parm ) );
++
++        sched_setscheduler(syscall( SYS_gettid ), SCHED_OTHER | SCHED_RESET_ON_FORK, &parm);
++
++        write(2, MSG_SIGXCPU, sizeof(MSG_SIGXCPU)-1);
++        goto restore_errno;
++    }
++
++    LIST_FOR_EACH_ENTRY_SAFE(cur, tmp, &rt_thread_list, struct thread, rt_entry)
++    {
++        if (si->si_pid == cur->unix_pid && cur->rt_prio == 1) {
++            found = 1;
++            sched_normal(cur);
++        }
++    }
++
++    if (!found) {
++        LIST_FOR_EACH_ENTRY_SAFE(cur, tmp, &rt_thread_list, struct thread, rt_entry)
++        {
++            if (si->si_pid == cur->unix_pid)
++                sched_normal(cur);
++        }
++    }
++
++restore_errno:
++    errno = old_errno;
++}
++
++static void setup_rt(void)
++{
++    struct sigaction sa;
++    struct rlimit rlimit;
++
++    sa.sa_sigaction = sigxcpu_handler;
++    sigemptyset(&sa.sa_mask);
++    sa.sa_flags = SA_SIGINFO;
++    sigaction(SIGXCPU, &sa, NULL);
++
++    if (!getrlimit( RLIMIT_RTTIME, &rlimit ))
++    {
++        /* wineserver can run for 1.5 seconds continuously at realtime before
++         * it gets throttled down. At this point we probably hit a bug
++         * somewhere.
++         */
++        if (rlimit.rlim_max > 2000000)
++            rlimit.rlim_max = 2000000;
++        if (rlimit.rlim_cur > 1500000)
++            rlimit.rlim_cur = 1500000;
++
++        setrlimit( RLIMIT_RTTIME, &rlimit );
++    }
++}
++
++static DBusConnection *get_dbus(void)
++{
++    static DBusConnection *bus;
++    DBusError error;
++
++    if (bus)
++        return bus;
++    init_dbus();
++    pdbus_error_init( &error );
++
++    bus = pdbus_bus_get( DBUS_BUS_SYSTEM, &error );
++    setup_rt();
++    return bus;
++}
++
++int rtkit_make_realtime( struct thread *thread, pid_t unix_tid, int priority )
++{
++    DBusConnection *bus;
++    DBusMessage *m = NULL, *r = NULL;
++    dbus_uint64_t pid = thread ? thread->unix_pid : getpid();
++    dbus_uint64_t tid = unix_tid;
++    dbus_uint32_t rtprio = priority;
++    sigset_t sigset;
++    DBusError error;
++    int ret;
++
++    bus = get_dbus();
++    if (!bus)
++        return -ENOTSUP;
++
++    pdbus_error_init( &error );
++    m = pdbus_message_new_method_call( "org.freedesktop.RealtimeKit1",
++                                       "/org/freedesktop/RealtimeKit1",
++                                       "org.freedesktop.RealtimeKit1",
++                                       "MakeThreadRealtimeWithPID" );
++    if (!m)
++    {
++        ret = -ENOMEM;
++        goto out;
++    }
++
++    ret = pdbus_message_append_args( m, DBUS_TYPE_UINT64, &pid,
++                                     DBUS_TYPE_UINT64, &tid,
++                                     DBUS_TYPE_UINT32, &rtprio,
++                                     DBUS_TYPE_INVALID );
++    if (!ret)
++    {
++        ret = -ENOMEM;
++        goto out;
++    }
++
++    sigemptyset( &sigset );
++    sigaddset( &sigset, SIGXCPU );
++    sigprocmask( SIG_BLOCK, &sigset, NULL );
++
++    r = pdbus_connection_send_with_reply_and_block( bus, m, -1, &error );
++    if (!r)
++    {
++        ret = translate_error( tid, error.name );
++        goto out_unblock;
++    }
++    if (pdbus_set_error_from_message( &error, r ))
++        ret = translate_error( tid, error.name );
++    else {
++        ret = 0;
++        if (thread) {
++            if (list_empty(&thread->rt_entry))
++                list_add_tail( &rt_thread_list, &thread->rt_entry );
++            thread->rt_prio = rtprio;
++        }
++    }
++out_unblock:
++    sigprocmask( SIG_UNBLOCK, &sigset, NULL );
++out:
++    if (m)
++        pdbus_message_unref( m );
++    if (r)
++        pdbus_message_unref( r );
++    pdbus_error_free( &error );
++    if (debug_level)
++        fprintf( stderr, "%04x: Setting realtime priority of %u returns %i %m\n", (int)tid, rtprio, ret );
++    return ret;
++}
++
++int rtkit_undo_realtime( struct thread *thread )
++{
++    sigset_t sigset;
++    int ret = 0;
++
++    sigemptyset( &sigset );
++    sigaddset( &sigset, SIGXCPU );
++    sigprocmask( SIG_BLOCK, &sigset, NULL );
++
++    if (!list_empty(&thread->rt_entry))
++        ret = sched_normal(thread);
++
++    if (debug_level)
++        fprintf( stderr, "%04x: Removing realtime priority of %u returns %i %m\n",
++                 (int)thread->unix_tid, thread->rt_prio, ret );
++
++    sigprocmask( SIG_UNBLOCK, &sigset, NULL );
++    return ret < 0 ? -errno : 0;
++}
++
++#else
++
++int rtkit_make_realtime( struct thread *thread, pid_t unix_tid, int priority )
++{
++    return -ENOTSUP;
++}
++
++int rtkit_undo_realtime( struct thread *thread )
++{
++    return -ENOTSUP;
++}
++
++#endif
+diff --git wine-1.6-rc4/server/thread.c wine-1.6-rc4/server/thread.c
+index 5f9738d..573719f 100644
+--- wine-1.6-rc4/server/thread.c.orig	2013-07-02 12:50:45.079032855 -0400
++++ wine-1.6-rc4/server/thread.c	2013-07-02 13:16:09.464111497 -0400
+@@ -59,6 +59,8 @@
+ #include "user.h"
+ #include "security.h"
+ 
++extern int rtkit_make_realtime(struct thread *thread, pid_t tid, int priority);
++extern int rtkit_undo_realtime(struct thread *thread);
+ 
+ #ifdef __i386__
+ static const unsigned int supported_cpus = CPU_FLAG(CPU_x86);
+@@ -207,6 +209,8 @@
+     list_init( &thread->mutex_list );
+     list_init( &thread->system_apc );
+     list_init( &thread->user_apc );
++    list_init( &thread->rt_entry );
++    thread->rt_prio = 0;
+ 
+     for (i = 0; i < MAX_INFLIGHT_FDS; i++)
+         thread->inflight[i].server = thread->inflight[i].client = -1;
+@@ -275,6 +279,9 @@
+ {
+     int i;
+ 
++    thread->unix_tid = -1;
++    if (!list_empty(&thread->rt_entry))
++        rtkit_undo_realtime(thread);
+     clear_apc_queue( &thread->system_apc );
+     clear_apc_queue( &thread->user_apc );
+     free( thread->req_data );
+@@ -517,21 +524,44 @@
+ #endif
+ }
+ 
++static int rtprio(int ntprio)
++{
++    if (ntprio == THREAD_PRIORITY_TIME_CRITICAL - 1)
++        return 1;
++    else if (ntprio == THREAD_PRIORITY_TIME_CRITICAL)
++        return 2;
++    return 0;
++}
++
+ /* set all information about a thread */
+ static void set_thread_info( struct thread *thread,
+                              const struct set_thread_info_request *req )
+ {
+     if (req->mask & SET_THREAD_INFO_PRIORITY)
++        req->priority == THREAD_PRIORITY_TIME_CRITICAL - 1;
+         set_thread_priority( thread, req->priority );
+     if (req->mask & SET_THREAD_INFO_AFFINITY)
+     {
++        int newprio = rtprio(req->priority);
+         if ((req->affinity & thread->process->affinity) != req->affinity)
+             set_error( STATUS_INVALID_PARAMETER );
+         else if (thread->state == TERMINATED)
+             set_error( STATUS_THREAD_IS_TERMINATING );
+         else if (set_thread_affinity( thread, req->affinity ))
+             file_set_error();
++        else if (thread->unix_tid == -1)
++            thread->rt_prio = newprio;
++        else if (thread->priority == THREAD_PRIORITY_TIME_CRITICAL && !newprio)
++            rtkit_undo_realtime(thread);
++        else if (thread->rt_prio != newprio)
++            rtkit_make_realtime(thread, thread->unix_tid, newprio);
++
++        if (newprio)
++            thread->priority = THREAD_PRIORITY_TIME_CRITICAL;
++        else
++            thread->priority = req->priority;
+     }
++
+     if (req->mask & SET_THREAD_INFO_TOKEN)
+         security_set_thread_token( thread, req->token );
+ }
+diff --git a/server/thread.h b/server/thread.h
+index 1c4a74a..66275f1 100644
+--- a/server/thread.h
++++ b/server/thread.h
+@@ -87,6 +87,8 @@ struct thread
+     timeout_t              creation_time; /* Thread creation time */
+     timeout_t              exit_time;     /* Thread exit time */
+     struct token          *token;         /* security token associated with this thread */
++    struct list            rt_entry;      /* entry for member in linked realtime list */
++    int                    rt_prio;       /* current realtime thread priority */
+ };
+ 
+ struct thread_snapshot
