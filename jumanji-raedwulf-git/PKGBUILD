@@ -1,0 +1,49 @@
+# Maintainer: Tai Chi Minh Ralph Eastwood <tcmreastwood@gmail.com>
+pkgname=jumanji-raedwulf-git
+pkgver=20130805
+pkgrel=1
+pkgdesc="a web browser (raedwulf's experimental patches)"
+arch=('i686' 'x86_64')
+url="http://pwmt.org/projects/jumanji"
+license=('custom')
+depends=('girara-gtk3-git' 'libwebkit3>=1.6.1' 'libsoup>=2.36.1')
+makedepends=('git')
+
+conflicts=('jumanji' 'jumanji-git')
+provides=('jumanji' 'jumanji-git')
+
+_gitroot='git://github.com/raedwulf/jumanji'
+_gitname='jumanji'
+_gitbranch='raedwulf-develop'
+
+prepare() {
+  cd "$srcdir"
+  msg "Connecting to GIT server...."
+
+  if [[ -d "$_gitname" ]]; then
+    cd "$_gitname" && git pull origin
+    msg "The local files are updated."
+  else
+    git clone --branch "$_gitbranch" "$_gitroot" "$_gitname"
+  fi
+
+  msg "GIT checkout done or server timeout"
+  msg "Starting make..."
+
+  rm -rf "$srcdir/$_gitname-build"
+  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname-build"
+}
+
+build() {
+  cd "$srcdir/$_gitname-build"
+  make DATABASE=plain
+}
+
+package() {
+  cd "$srcdir/$_gitname-build"
+  make DESTDIR="$pkgdir/" install
+  install -D -m664 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+# vim:set ts=2 sw=2 et:
