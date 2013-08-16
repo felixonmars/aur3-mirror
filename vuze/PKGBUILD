@@ -10,7 +10,7 @@
 
 pkgname=vuze
 pkgver=5.1.0.0
-pkgrel=1
+pkgrel=2
 # _ver=${pkgver//./} # Just for reference, this is how it should be done.
 _ver=5100 # But this way people can download the file from the AUR page directly.
 _extra= # Extra version used in fixup releases, usually takes months... Or years.
