@@ -1,2 +1,3 @@
 #!/bin/sh
-exec mono --debug /srv/aurora-sim/Aurora.WebServer.exe $@
+cd /srv/aurora-sim
+exec mono --debug Aurora.WebServer.exe $@

@@ -1,10 +1,10 @@
-# Maintainer: David Mikalova <superfuzzykittens at gmail dot com>
+# Maintainer: David Mikalova <dmikalova at gmail dot com>
 pkgname=brocket
 pkgver=2.1
-pkgrel=1
+pkgrel=2
 pkgdesc='A launcher for X11 WMs that attempts to prevent multiple instances.'
 arch=(any)
-url=https://github.com/superfuzzykittens/brocket
+url=https://github.com/dmikalova/brocket
 license=('GPL')
 groups=()
 depends=('bash' 'wmctrl' 'bc')
@@ -16,8 +16,8 @@ backup=()
 options=()
 install=
 source=(brocket)
-md5sums=('1b70f45befe082165e61b78354b121d2')
+md5sums=('a4d4687c11cef5eba44d427f89990c74')
 
-build() {
+package() {
   install -Dm 755 $srcdir/brocket ${pkgdir}/usr/bin/brocket
 }

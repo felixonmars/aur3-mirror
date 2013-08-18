@@ -1,2 +1,3 @@
 #!/bin/sh
-exec mono --debug /srv/aurora-sim/Aurora.exe $@
+cd /srv/aurora-sim
+exec mono --debug Aurora.exe $@

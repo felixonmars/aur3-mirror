@@ -1,2 +1,3 @@
 #!/bin/sh
-exec mono --debug /srv/aurora-sim/Aurora.GridServer.exe $@
+cd /srv/aurora-sim
+exec mono --debug Aurora.GridServer.exe $@
