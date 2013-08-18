@@ -4,15 +4,14 @@
 
 pkgname=gradm
 pkgver=2.9.1
-_timestamp=201301041755
-pkgrel=2
+_timestamp=201308091629
+pkgrel=3
 pkgdesc='Administrative interface for the grsecurity Role Based Access Control system'
-arch=('i686' 'x86_64')
-url='http://grsecurity.net/'
-license=('GPL2')
-depends=('pam')
-source=("http://grsecurity.net/stable/$pkgname-$pkgver-$_timestamp.tar.gz")
-sha256sums=(516a1700e88edf7b9dc868f3c02f7571a53d00e078e5deb50189fc1ea8fb8082)
+arch=(i686 x86_64)
+url=http://grsecurity.net/
+license=(GPL2)
+depends=(pam)
+source=(http://grsecurity.net/stable/$pkgname-$pkgver-$_timestamp.tar.gz)
 
 build() {
   cd "$srcdir/${pkgname}2"
@@ -25,3 +24,5 @@ package() {
   make DESTDIR="$pkgdir" install
   rm -rf "$pkgdir/dev"
 }
+
+sha256sums=('10af8959fc9f9cf70d16188bca65ab6025b1fe6590920298ed10c20b217c57c4')
