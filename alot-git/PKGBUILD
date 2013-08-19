@@ -1,7 +1,7 @@
 # Maintainer: Kazuo Teramoto <kaz.rag@gmail.com>
 # Contributor: Mark Foxwell <fastfret79@archlinux.org.uk>
 pkgname=alot-git
-pkgver=0.3.4.113.g48b31be
+pkgver=0.3.5.7.ga0995f9
 pkgrel=1
 epoch=1
 pkgdesc="A terminal interface for notmuch"
@@ -28,7 +28,7 @@ build() {
 
 package() {
   cd "$srcdir/alot"
-  python2 setup.py install --prefix="${pkgdir}/usr"
+  python2 setup.py install --root="${pkgdir}" --optimize=1
 }
 
 # vim:set ts=2 sw=2 et:
