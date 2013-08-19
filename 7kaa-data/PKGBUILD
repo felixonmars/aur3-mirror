@@ -1,11 +1,11 @@
 #! /bin/bash
+# Maintainer: jorge_barroso <jorge.barroso.11@gmail.com>
 # Contributor: xnitropl <xnitropl at gmail dot com>
 # Contributor: Anton Larionov <diffident dot cat at gmail dot com>
-# Maintainer: jorge_barroso <jorge.barroso.11@gmail.com>
 
 pkgname=7kaa-data
 pkgver=2.14.4
-pkgrel=3
+pkgrel=4
 pkgdesc="Free data set for Seven Kingdoms: Ancient Adversaries"
 url='http://7kfans.com/'
 _projecturl=http://sourceforge.net/projects/skfans
@@ -18,17 +18,17 @@ sha512sums=('7ee39aba89993d9f0041ab991e053069e0c3ab4298f74c0ec95e3f30f49a71731ef
 
 build() {
   cd "$srcdir/7kaa-$pkgver"
-  ./configure --prefix=/usr || return 1
-  make || return 1
+  ./configure --prefix=/usr
+  make
 }
 
 check() {
   cd "$srcdir/7kaa-$pkgver"
-  make -k check || return 1
+  make -k check
 }
 
 package() {
   cd "$srcdir/7kaa-$pkgver"
-  make DESTDIR="$pkgdir/" install || return 1
+  make DESTDIR="$pkgdir/" install
 }  
 # vim:set ts=2 sw=2 et:
