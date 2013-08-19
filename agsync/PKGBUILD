@@ -1,0 +1,29 @@
+# $Id: PKGBUILD 83690 2013-02-04 13:36:21Z spupykin $
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Zhukov Pavel <gelios@gmail.com>
+
+pkgname=agsync
+pkgver=0.2_pre
+_xpkgver=${pkgver/_/-}
+pkgrel=5
+pkgdesc="AvantGo sync plugin"
+arch=('i686' 'x86_64')
+url="http://duskwood.lownewulf.com/"
+license=("GPL")
+depends=('synce-librapi')
+makedepends=('synce-libsynce')
+source=(http://duskwood.lownewulf.com/$pkgname-$_xpkgver.tgz)
+md5sums=('74de1b1452a718c85364fab5ce3c0c2a')
+
+build() {
+  cd $srcdir/$pkgname-$_xpkgver
+  make
+}
+
+package() {
+  cd $srcdir/$pkgname-$_xpkgver
+  mkdir -p $pkgdir/usr/{bin,lib,include}
+  cp agsync $pkgdir/usr/bin/
+  cp mal-files/mal-funcs.a $pkgdir/usr/lib/
+  cp mal-files/AG{Net,Types}.h $pkgdir/usr/include/
+}

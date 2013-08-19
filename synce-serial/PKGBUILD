@@ -1,0 +1,27 @@
+# $Id: PKGBUILD 91841 2013-05-28 17:05:34Z spupykin $
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Zhukov Pavel <gelios@gmail.com>
+
+pkgname=synce-serial
+pkgver=0.11
+pkgrel=5
+pkgdesc="provide a means of communication with a Windows CE device - helper scripts for setting up a serial connection"
+arch=('i686' 'x86_64')
+url="http://synce.sourceforge.net/"
+depends=(sh)
+license=('GPL')
+source=(http://downloads.sourceforge.net/synce/$pkgname-$pkgver.tar.gz)
+md5sums=('a83f20eb59c845de192645158d051062')
+
+build() {
+  cd $srcdir/$pkgname-$pkgver
+  ./configure --prefix=/usr --libexecdir=/usr/lib/$pkgname --sbindir=/usr/bin
+  make
+}
+
+package() {
+  cd $srcdir/$pkgname-$pkgver
+  make DESTDIR=$pkgdir install
+  sed -i 's#/usr/etc/#/etc/#' $pkgdir/usr/share/synce/synce-serial-common
+  sed -i 's#/usr/etc/#/etc/#' $pkgdir/usr/share/synce/synce-serial.conf
+}
