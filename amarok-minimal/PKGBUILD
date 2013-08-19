@@ -1,7 +1,7 @@
 # Maintainer: hbdee <hbdee.arch@gmail.com>
 
 pkgname=amarok-minimal
-pkgver=2.7.1
+pkgver=2.8.0
 pkgrel=1
 pkgdesc="The powerful music player for KDE without integrated web services, default scripts, iPod and media devices support."
 arch=("i686" "x86_64")
@@ -12,27 +12,24 @@ makedepends=('pkgconfig' 'automoc4' 'cmake') # Add 'libgpod', 'libmtp', 'loudmou
 optdepends=("libgpod: support for Apple iPod audio devices"
 	    "libmtp: support for portable media devices"
 	    "loudmouth: backend for Mp3tunes.com integration"
+	    "openssl: Mp3tunes.com integration"
 	    "ifuse: support for Apple iPod Touch and iPhone"
 	    "libmygpo-qt: gpodder.net Internet Service"
 	    "liblastfm: LastFM Internet Service"
 	    "libofa: Open Fingerprint Architecture library for Musicbrainz and AmpliFIND"
 	    "qjson: JSON parser for the Playdar Collection"
-	    "mesa: support for the Spectrum Analyzer"
-	    "clamz: support for downloading songs from Amazon.com")
+	    "clamz: support for downloading songs from Amazon.com"
+	    "phonon-gstreamer: alternative backend supports Equalizer and Audio Analyzer Visualization Applet"
+	    "kdemultimedia-audiocd-kio: Compact Disc(CD) support"
+	    "taglib-1.9-or-higher: support of Opus files")
 conflicts=('amarok' 'amarok-devel' 'amarok-git' 'amarok-minimal-git')
 provides=('amarok')
 install="amarok.install"
 source=("http://download.kde.org/stable/amarok/${pkgver}/src/amarok-${pkgver}.tar.bz2")
-sha1sums=('445eba6aaadface756410cf0f568a3770d437d2d')
+sha1sums=('e76ccd53c05d57f9457d74cd08c2c41383c00937')
 
-build() {
+prepare() {
   
-  if [[ -d build ]]
-  then
-    rm -rf build
-  fi
-   mkdir build
-
   # services
   sed -i '/amazon/d' amarok-${pkgver}/src/services/CMakeLists.txt
   sed -i '/magnatune/d' amarok-${pkgver}/src/services/CMakeLists.txt
@@ -53,10 +50,21 @@ build() {
   
   # utilities
   sed -i '/amzdownloader/d' amarok-${pkgver}/utilities/CMakeLists.txt
+
+  if [[ -d build ]]
+  then
+    rm -rf build
+  fi
+   mkdir build
   
+}
+
+build() {
+
   cd build
   cmake ../amarok-${pkgver} \
     -DCMAKE_BUILD_TYPE=Release \
+    -DQT_QMAKE_EXECUTABLE=qmake-qt4 \
     -DKDE4_BUILD_TESTS=OFF \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DWITH_LibLastFm=OFF \
@@ -66,14 +74,16 @@ build() {
     -DWITH_LibOFA=OFF \
     -DWITH_QJSON=OFF \
     -DWITH_Mygpo-qt=OFF \
-    -DWITH_SPECTRUM_ANALYZER=OFF \
     -DWITH_NepomukCore=OFF \
     -DWITH_Soprano=OFF \
     -DWITH_PLAYGROUND=OFF
   make
+  
 }
 
 package(){
+
   cd build
   make DESTDIR="${pkgdir}" install
+  
 }
