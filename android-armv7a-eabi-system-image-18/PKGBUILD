@@ -2,7 +2,7 @@
 # Contributor: Joel Pedraza <joel@joelpedraza.com>
 # Contributor: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
-_rev=r01
+_rev=r02
 _sdkver=4.3
 _sdkint=18
 pkgname=android-armv7a-eabi-system-image-${_sdkint}
@@ -15,7 +15,7 @@ license=('custom')
 depends=("android-platform-${_sdkint}")
 options=('!strip')
 source=("http://dl.google.com/android/repository/sysimg_armv7a-${_sdkint}_${_rev}.zip")
-sha1sums=('5a9b8ac5b57dd0e3278f47deb5ee58e1db6f1f9e')
+sha1sums=('4a1a93200210d8c42793324362868846f67401ab')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/system-images/android-${_sdkint}/"
