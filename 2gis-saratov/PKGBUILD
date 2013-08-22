@@ -1,13 +1,13 @@
 pkgname=2gis-saratov
-pkgver=27
+pkgver=28
 pkgrel=1
-pkgdesc="Map of Saratov for 2GIS, July 2013"
+pkgdesc="Map of Saratov for 2GIS, August 2013"
 arch=('i686' 'x86_64')
 url="http://saratov.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Saratov-27.orig.zip")
-md5sums=('b1abbfafd18c26d71d43205bcd3efe54')
+source=("http://download.2gis.ru/arhives/2GISData_Saratov-28.orig.zip")
+md5sums=('a1add10536d0e820947137d9873e481e')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Saratov.dgdat" "${pkgdir}/opt/2gis/saratov.dgdat" || return 1

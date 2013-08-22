@@ -1,13 +1,13 @@
 pkgname=2gis-surgut
-pkgver=29
+pkgver=30
 pkgrel=1
-pkgdesc="Map of Surgut for 2GIS, July 2013"
+pkgdesc="Map of Surgut for 2GIS, August 2013"
 arch=('i686' 'x86_64')
 url="http://surgut.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Surgut-29.orig.zip")
-md5sums=('a18a64d7c5523df3ca470c66d88cf832')
+source=("http://download.2gis.ru/arhives/2GISData_Surgut-30.orig.zip")
+md5sums=('35f1af045a26beeddf460dd354db790f')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Surgut.dgdat" "${pkgdir}/opt/2gis/surgut.dgdat" || return 1

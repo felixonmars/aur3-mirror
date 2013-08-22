@@ -1,13 +1,13 @@
 pkgname=2gis-ulanude
-pkgver=30
+pkgver=31
 pkgrel=1
-pkgdesc="Map of Ulan-Ude for 2GIS, July 2013"
+pkgdesc="Map of Ulan-Ude for 2GIS, August 2013"
 arch=('i686' 'x86_64')
 url="http://ulanude.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Ulanude-30.orig.zip")
-md5sums=('d0cbe149a4104c0efd40ea868cc09ab4')
+source=("http://download.2gis.ru/arhives/2GISData_Ulanude-31.orig.zip")
+md5sums=('e616c3c232f3fdf1572c53cb03a33caa')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Ulanude.dgdat" "${pkgdir}/opt/2gis/ulanude.dgdat" || return 1
