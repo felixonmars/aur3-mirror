@@ -1,19 +1,5 @@
-From ea4ea27cae735f107c191eb4590db357f9ee5d4f Mon Sep 17 00:00:00 2001
-From: Bastien Dejean <nihilhill@gmail.com>
-Date: Mon, 13 May 2013 10:49:33 +0200
-Subject: [PATCH] Use XFT to draw characters
-
----
- Makefile     |   4 +--
- config.def.h |   2 +-
- main.c       |   4 +--
- thumbs.c     |   2 +-
- window.c     | 110 +++++++++++++++++++++++------------------------------------
- window.h     |  17 ++++-----
- 6 files changed, 58 insertions(+), 81 deletions(-)
-
 diff --git a/Makefile b/Makefile
-index 29484db..15df6f5 100644
+index f45b2d4..466a0d5 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -4,9 +4,9 @@ PREFIX    = /usr/local
@@ -28,8 +14,60 @@ index 29484db..15df6f5 100644
  
  SRC = commands.c exif.c image.c main.c options.c thumbs.c util.c window.c
  OBJ = $(SRC:.c=.o)
+diff --git a/commands.c b/commands.c
+index 09ba926..6067a9c 100644
+--- a/commands.c
++++ b/commands.c
+@@ -312,6 +312,35 @@ bool i_scroll_to_edge(arg_t a)
+ 		return false;
+ }
+ 
++bool i_scroll_to_edge_seq(arg_t a)
++{
++	if (mode == MODE_IMAGE) {
++		switch (img.edgedir) {
++			case 1:
++				img.edgedir++;
++				img_pan_edge(&img, DIR_DOWN);
++				break;
++			case 2:
++				img.edgedir++;
++				img_pan_edge(&img, DIR_UP);
++				img_pan_edge(&img, DIR_LEFT);
++				break;
++			case 3:
++				img.edgedir++;
++				img_pan_edge(&img, DIR_DOWN);
++				break;
++			case 4:
++				img.edgedir = 1;
++				img_pan_edge(&img, DIR_UP);
++				img_pan_edge(&img, DIR_RIGHT);
++				break;
++		}
++		return true;
++	} else {
++		return false;
++	}
++}
++
+ /* Xlib helper function for i_drag() */
+ Bool is_motionnotify(Display *d, XEvent *e, XPointer a)
+ {
+diff --git a/commands.h b/commands.h
+index 118c89a..919bbbd 100644
+--- a/commands.h
++++ b/commands.h
+@@ -59,6 +59,7 @@ bool it_navigate_marked(arg_t);
+ bool it_scroll_move(arg_t);
+ bool it_scroll_screen(arg_t);
+ bool i_scroll_to_edge(arg_t);
++bool i_scroll_to_edge_seq(arg_t);
+ bool i_drag(arg_t);
+ bool i_zoom(arg_t);
+ bool i_set_zoom(arg_t);
 diff --git a/config.def.h b/config.def.h
-index cd89b5f..5c6c66f 100644
+index f5d048a..ffa0c5d 100644
 --- a/config.def.h
 +++ b/config.def.h
 @@ -9,7 +9,7 @@ enum {
@@ -41,11 +79,48 @@ index cd89b5f..5c6c66f 100644
  
  /* colors:
   * (see X(7) section "COLOR NAMES" for valid values)
+@@ -120,6 +120,7 @@ static const keymap_t keys[] = {
+ 	{ false,  XK_J,             i_scroll_to_edge,     (arg_t) DIR_DOWN },
+ 	{ false,  XK_K,             i_scroll_to_edge,     (arg_t) DIR_UP },
+ 	{ false,  XK_L,             i_scroll_to_edge,     (arg_t) DIR_RIGHT },
++	{ false,  XK_m,             i_scroll_to_edge_seq, (arg_t) None },
+ 
+ 	{ false,  XK_plus,          i_zoom,               (arg_t) +1 },
+ 	{ false,  XK_KP_Add,        i_zoom,               (arg_t) +1 },
+diff --git a/image.c b/image.c
+index ec248e1..b676274 100644
+--- a/image.c
++++ b/image.c
+@@ -422,10 +422,11 @@ void img_render(img_t *img)
+ 	if (!img->re) {
+ 		/* rendered for the first time */
+ 		img->re = true;
++		img->edgedir = 1;
+ 		if (img->zoom * img->w <= win->w)
+ 			img->x = (win->w - img->w * img->zoom) / 2;
+ 		else
+-			img->x = 0;
++			img->x = options->manga_mode ? (win->w - img->w * img->zoom) : 0;
+ 		if (img->zoom * img->h <= win->h)
+ 			img->y = (win->h - img->h * img->zoom) / 2;
+ 		else
+diff --git a/image.h b/image.h
+index 9a4efe6..dcd0b06 100644
+--- a/image.h
++++ b/image.h
+@@ -54,6 +54,7 @@ typedef struct {
+ 	bool dirty;
+ 	bool aa;
+ 	bool alpha;
++	int edgedir;
+ 
+ 	multi_img_t multi;
+ } img_t;
 diff --git a/main.c b/main.c
-index 4962782..fc72522 100644
+index fb8b8b6..323efa3 100644
 --- a/main.c
 +++ b/main.c
-@@ -350,8 +350,8 @@ void update_info(void)
+@@ -353,8 +353,8 @@ void update_info(void)
  	if (ow_info) {
  		fn = strlen(files[sel].name);
  		if (fn < llen &&
@@ -56,11 +131,85 @@ index 4962782..fc72522 100644
  		{
  			strncpy(lt, files[sel].name, llen);
  		} else {
+diff --git a/options.c b/options.c
+index e47ad37..edf3fcc 100644
+--- a/options.c
++++ b/options.c
+@@ -33,7 +33,7 @@ const options_t *options = (const options_t*) &_options;
+ 
+ void print_usage(void)
+ {
+-	printf("usage: sxiv [-bcdFfhioqrstvZ] [-g GEOMETRY] [-n NUM] "
++	printf("usage: sxiv [-bcdFfhimoqrstvZ] [-g GEOMETRY] [-n NUM] "
+ 	       "[-N name] [-z ZOOM] FILES...\n");
+ }
+ 
+@@ -62,9 +62,10 @@ void parse_options(int argc, char **argv)
+ 
+ 	_options.quiet = false;
+ 	_options.thumb_mode = false;
++	_options.manga_mode = false;
+ 	_options.clean_cache = false;
+ 
+-	while ((opt = getopt(argc, argv, "bcdFfg:hin:N:oqrstvZz:")) != -1) {
++	while ((opt = getopt(argc, argv, "bcdFfg:hin:N:moqrstvZz:")) != -1) {
+ 		switch (opt) {
+ 			case '?':
+ 				print_usage();
+@@ -93,6 +94,11 @@ void parse_options(int argc, char **argv)
+ 			case 'i':
+ 				_options.from_stdin = true;
+ 				break;
++			case 'm':
++				_options.manga_mode = true;
++				_options.scalemode = SCALE_ZOOM;
++				_options.zoom = 1.0;
++				break;
+ 			case 'n':
+ 				if (sscanf(optarg, "%d", &t) <= 0 || t < 1) {
+ 					fprintf(stderr, "sxiv: invalid argument for option -n: %s\n",
+diff --git a/options.h b/options.h
+index 848a6b2..4db89f8 100644
+--- a/options.h
++++ b/options.h
+@@ -45,6 +45,7 @@ typedef struct {
+ 	/* misc flags: */
+ 	bool quiet;
+ 	bool thumb_mode;
++	bool manga_mode;
+ 	bool clean_cache;
+ } options_t;
+ 
+diff --git a/sxiv.1 b/sxiv.1
+index ee42a00..496c59e 100644
+--- a/sxiv.1
++++ b/sxiv.1
+@@ -49,6 +49,10 @@ Set window position and size. See section GEOMETRY SPECIFICATIONS of X(7) for
+ more information on
+ .IR GEOMETRY .
+ .TP
++.BI "\-m "
++Start in manga mode, scale all images to 100% and read images from right to
++left.
++.TP
+ .BI "\-n " NUM
+ Start at picture number NUM.
+ .TP
+@@ -254,6 +258,9 @@ Pan to top image edge.
+ .B L
+ Pan to right image edge.
+ .TP
++.B m
++Pan in manga way (topright, bottomright, topleft, bottomleft).
++.TP
+ .BR Ctrl-h ", " Ctrl-Left
+ Pan image one window width left.
+ .TP
 diff --git a/thumbs.c b/thumbs.c
-index 48b3a75..a2f2a15 100644
+index ec6e5ef..683dcd7 100644
 --- a/thumbs.c
 +++ b/thumbs.c
-@@ -378,7 +378,7 @@ void tns_highlight(tns_t *tns, int n, bool hl)
+@@ -379,7 +379,7 @@ void tns_highlight(tns_t *tns, int n, bool hl)
  	thumb_t *t;
  	win_t *win;
  	int x, y;
@@ -82,7 +231,7 @@ index e0b7273..6fe6be0 100644
  
  #include "options.h"
  #include "util.h"
-@@ -44,59 +46,38 @@ enum {
+@@ -44,59 +46,38 @@ Atom wm_delete_win;
  static struct {
  	int ascent;
  	int descent;
@@ -299,7 +448,7 @@ index 19a7171..b1f49ad 100644
  
  #include "types.h"
  
-@@ -42,10 +43,10 @@ enum {
+@@ -42,10 +43,10 @@ typedef struct {
  	Window xwin;
  	win_env_t env;
  
@@ -314,7 +463,7 @@ index 19a7171..b1f49ad 100644
  	Pixmap pm;
  
  	int x;
-@@ -62,8 +63,8 @@ enum {
+@@ -62,8 +63,8 @@ typedef struct {
  		unsigned int h;
  		char l[BAR_L_LEN];
  		char r[BAR_R_LEN];
@@ -325,7 +474,7 @@ index 19a7171..b1f49ad 100644
  	} bar;
  } win_t;
  
-@@ -83,11 +84,11 @@ enum {
+@@ -83,11 +84,11 @@ void win_toggle_bar(win_t*);
  void win_clear(win_t*);
  void win_draw(win_t*);
  void win_draw_rect(win_t*, Pixmap, int, int, int, int, bool, int,
@@ -339,6 +488,3 @@ index 19a7171..b1f49ad 100644
  
  void win_set_title(win_t*, const char*);
  void win_set_cursor(win_t*, cursor_t);
--- 
-1.8.1.6
-
