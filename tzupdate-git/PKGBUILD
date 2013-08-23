@@ -2,8 +2,8 @@
 
 pkgname=tzupdate-git
 _gitname=tzupdate
-pkgver=20130804170828.85cbbca
-pkgrel=2
+pkgver=20130823150922.47977f2
+pkgrel=1
 pkgdesc="Set the local timezone based on IP geolocation."
 license=( MIT )
 url=https://github.com/cdown/tzupdate
