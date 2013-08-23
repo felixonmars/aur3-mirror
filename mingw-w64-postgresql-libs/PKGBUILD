@@ -2,49 +2,62 @@
 # Contributor: Schala Zeal <schalaalexiazeal@gmail.com>
 pkgname=mingw-w64-postgresql-libs
 pkgver=9.2.4
-pkgrel=3
+pkgrel=4
 pkgdesc="Libraries for use with PostgreSQL (mingw-w64)"
 arch=('any')
 url="http://www.postgresql.org/"
 license=('custom:PostgreSQL')
-makedepends=('mingw-w64-gcc')
-depends=('mingw-w64-crt')
+makedepends=('mingw-w64-gcc' 'libxml2')
+depends=('mingw-w64-crt' 'mingw-w64-gettext' 'mingw-w64-libxml2' 'mingw-w64-openssl' 'mingw-w64-readline' 'mingw-w64-zlib')
+# other needed depends 'mingw-w64-tcl' 'mingw-w64-libxslt'
 options=(!libtool !strip !buildflags)
 source=("http://ftp.postgresql.org/pub/source/v${pkgver}/postgresql-${pkgver}.tar.bz2"
-        "http://sourceforge.net/projects/mingw-w64/files/Toolchains%20targetting%20Win32/Personal%20Builds/rubenvb/gcc-4.7-release/i686-w64-mingw32-gcc-4.7.4-release-linux64_rubenvb.tar.xz"
-        "http://sourceforge.net/projects/mingw-w64/files/Toolchains%20targetting%20Win64/Personal%20Builds/rubenvb/gcc-4.7-release/x86_64-w64-mingw32-gcc-4.7.4-release-linux64_rubenvb.tar.xz")
+        'postgresql-mingw-errno-v2.patch')
 md5sums=('6ee5bb53b97da7c6ad9cb0825d3300dd'
-         '30578855ad61011b902ebfd79f43adbc'
-         '5fb5e8ce6b7c4d4c6144e9b65bfc139c')
+         'b06162e219856ff8ea6055b5338c8b6c')
 
 _architectures="i686-w64-mingw32 x86_64-w64-mingw32"
 
+prepare() {
+  cd ${srcdir}/postgresql-${pkgver}
+
+  # Use upstream patch for Windows error checking
+  patch -p1 -i ${srcdir}/postgresql-mingw-errno-v2.patch
+}
+
 build() {
   unset LDFLAGS
-  original_path=$PATH  
-  mv "${srcdir}/mingw64" "${srcdir}/x86_64-w64-mingw32-mingw"
-  mv "${srcdir}/mingw32" "${srcdir}/i686-w64-mingw32-mingw"
   
   for _arch in ${_architectures}; do
-    mkdir -p "${srcdir}/build-${_arch}"
-    cp -r "$srcdir/postgresql-$pkgver/"* "${srcdir}/build-${_arch}"
-    cd "${srcdir}/build-${_arch}"
-    export PATH=${srcdir}/${_arch}-mingw/bin:${srcdir}/${_arch}-mingw/${_arch}/bin:$original_path
-    ./configure \
-	    --host=${_arch} \
-	    --prefix=/usr/${_arch} \
-            --without-zlib
+    mkdir -p "${srcdir}/build-${_arch}" && pushd "${srcdir}/build-${_arch}"
+    ../postgresql-$pkgver/configure \
+        --host=${_arch} \
+        --prefix=/usr/${_arch} \
+        --with-openssl \
+        --enable-thread-safety \
+        --enable-integer-datetimes \
+        --enable-nls \
+        --with-ldap \
+        --with-libxml # \
+        #--with-libxslt \
+        #--with-tcl --with-tclconfig=/usr/${_arch}/lib
+
+    # Make DLL definition file visible during each arch build
+    ln -s ${srcdir}/postgresql-$pkgver/src/interfaces/libpq/libpqdll.def src/interfaces/libpq/
+    ln -s ${srcdir}/postgresql-$pkgver/src/interfaces/ecpg/ecpglib/libecpgdll.def src/interfaces/ecpg/ecpglib/
+    ln -s ${srcdir}/postgresql-$pkgver/src/interfaces/ecpg/pgtypeslib/libpgtypesdll.def src/interfaces/ecpg/pgtypeslib/
+    ln -s ${srcdir}/postgresql-$pkgver/src/interfaces/ecpg/compatlib/libecpg_compatdll.def src/interfaces/ecpg/compatlib/
+
     for dir in src/interfaces src/bin/pg_config src/bin/psql; do
       make -C ${dir}
     done
+    popd
   done
 }
 
 package() {
-  original_path=$PATH
   for _arch in ${_architectures}; do
   
-    export PATH=${srcdir}/${_arch}-mingw/bin:${srcdir}/${_arch}-mingw/${_arch}-i686-w64-mingw32/bin:$original_path
     cd "${srcdir}/build-${_arch}"
     mkdir -p ${pkgdir}/usr/${_arch}/{bin,include,lib}
 
@@ -52,19 +65,25 @@ package() {
     for dir in src/interfaces src/bin/pg_config src/bin/psql; do
       make -C ${dir} DESTDIR="${pkgdir}" install
     done
+    
+    # Rename the .a files to .dll.a as they're actually import libraries and not static libraries
+    for implib in ${pkgdir}/usr/${_arch}/lib/*.a; do
+      mv $implib ${implib/.a/.dll.a}
+    done
+    
     mv "$pkgdir/usr/${_arch}/lib/"*.dll "$pkgdir/usr/${_arch}/bin/"
-    find "$pkgdir/usr/${_arch}" -name '*.exe' -o -name '*.bat' -o -name '*.def' -o -name '*.exp' | xargs -rtl1 rm
-    find "$pkgdir/usr/${_arch}" -name '*.dll' | xargs -rtl1 ${_arch}-strip -x
-    find "$pkgdir/usr/${_arch}" -name '*.a' -o -name '*.dll' | xargs -rtl1 ${_arch}-strip -g
+    ${_arch}-strip -g "$pkgdir/usr/${_arch}/lib/"*.a
+    ${_arch}-strip --strip-unneeded "$pkgdir/usr/${_arch}/bin/"*.dll
     rm -r "$pkgdir/usr/${_arch}/share"
+    rm "$pkgdir/usr/${_arch}/bin/"*.exe
     
     cd src/include
-    
     mkdir -p "${pkgdir}"/usr/${_arch}/include/{libpq,postgresql/internal/libpq}
     
     # these headers are needed by the public headers of the interfaces
     install -m644 pg_config.h "${pkgdir}/usr/${_arch}/include/"
     install -m644 pg_config_os.h "${pkgdir}/usr/${_arch}/include/"
+    cd ${srcdir}/postgresql-$pkgver/src/include
     install -m644 postgres_ext.h "${pkgdir}/usr/${_arch}/include/"
     install -m644 libpq/libpq-fs.h "${pkgdir}/usr/${_arch}/include/libpq/"
     install -m644 pg_config_manual.h "${pkgdir}/usr/${_arch}/include/"
