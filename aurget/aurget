@@ -29,6 +29,9 @@ Usage: aurget [ -h | -S* [ --options ] [ -- ] <arguments> ]
         -Sp  <package>  print the PKGBUILD for <package>
         -Si  <package>  print extended info for <package>
 
+        --builddir <directory>
+                        build in <directory>
+
         --devel         only affects -Su, add all development packages
 
         --deps          resolve dependencies
@@ -133,9 +136,15 @@ parse_rpc() {
   '
 }
 
+keep_sources() { [[ " $keep_source_packages " =~ " $1 " ]]; }
+
 is_devel() { [[ "$1" =~ -(git|hg|svn|darcs|csv|bzr)$ ]]; }
 
 is_ignored() { [[ " $ignore_packages " =~ " $1 " ]]; }
+
+downloading() { [[ "$sync_mode" == 'download' ]]; }
+
+installing() { [[ "$sync_mode" == 'install' ]]; }
 
 searching() { [[ "$opmode" == 'search' ]]; }
 
@@ -209,7 +218,7 @@ prompt_to_install() {
 
   printf "\n\n"
 
-  prompt "Proceed with installation" || exit 0
+  prompt 'Proceed with installation' || exit 0
 }
 
 nothing_to_do() {
@@ -225,7 +234,7 @@ initialize() {
   debug=false
   user_config="${XDG_CONFIG_HOME:-$HOME/.config}/aurgetrc"
 
-  [[ " $* " =~ " --debug "    ]] && debug=true
+  [[ " $* " =~ ' --debug '    ]] && debug=true
   [[ " $* " =~ $config_regex  ]] && user_config="${BASH_REMATCH[1]}"
 
   set_defaults
@@ -246,8 +255,9 @@ initialize() {
       -Ssq|-Sqs)     opmode='search' ; search_mode='quiet'           ;;
       -Si|-Ssi|-Sis) opmode='search' ; search_mode='info'            ;;
       -Sp|-Ssp|-Sps) opmode='search' ; search_mode='print'           ;;
+      --builddir)    shift; build_directory="$1"                     ;;
       --ignore)      shift; ignore_packages+=" $1"                   ;;
-      --noconfirm)   noconfirm=true; makepkg_options+=" --noconfirm" ;;
+      --noconfirm)   noconfirm=true; makepkg_options+=' --noconfirm' ;;
       --nocolor)     disable_color=true                              ;;
       --devel)       devels=true                                     ;;
       --deps)        resolve_dependencies=true                       ;;
@@ -268,6 +278,8 @@ initialize() {
 
     shift
   done
+
+  [[ -z "$opmode" ]] && { message; exit 1; }
 }
 
 set_defaults() {
@@ -277,10 +289,11 @@ set_defaults() {
   discard_sources=true
   ignore_packages=''
   keep_devels=true
+  keep_source_packages=''
   makepkg='makepkg'
   makepkg_options='--syncdeps'
   noconfirm=false
-  opmode='install'
+  opmode=''
   resolve_dependencies=false
   search_mode='search'
   silent=false
@@ -510,7 +523,7 @@ process_targets() {
 
   set -- "${targets[@]}"
 
-  [[ "$sync_mode" == 'install' ]] && makepkg_options+=' --install'
+  installing && makepkg_options+=' --install'
 
   debug "processing $colorG$#$nocolor targets"
 
@@ -519,7 +532,7 @@ process_targets() {
   for name; do
     info 'Retrieving taurball from AUR...'
 
-    if [[ "$sync_mode" == 'download' ]]; then
+    if downloading; then
       debug "downloading $colorG$name$nocolor to filesystem"
 
       if ! taurball "$name" > "${name}.tar.gz"; then
@@ -535,7 +548,7 @@ process_targets() {
           die "dependency package $name failed to download, aborting"
         else
           ret=1
-          warn "package $name failed download, skipping"
+          warn "package $name failed to download, skipping"
           continue
         fi
       fi
@@ -584,6 +597,11 @@ discard_sources() {
 
   if ! $discard_sources; then
     debug "keeping sources for $colorG$name$nocolor (discard false)"
+    return
+  fi
+
+  if keep_sources "$name"; then
+    debug "keeping sources for $colorG$name$nocolor (keep sources)"
     return
   fi
 
