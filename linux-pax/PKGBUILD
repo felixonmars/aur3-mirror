@@ -10,7 +10,7 @@ _kernelname=${pkgname#linux}
 _basekernel=3.10
 _paxver=test18
 pkgver=${_basekernel}.9
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -300,8 +300,8 @@ package_linux-pax-headers() {
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
             '851224c4719e362a8ae6785abd7a8e59aa7200ee82fffbea291003da47a64bf6'
             'd9b72d1e306dc0a80db9bc0120c73bdeca83dd33501850aad926bff1af968614'
-            'c28d3386fd25dc659c3ae806f9104d414abe09d46705c9072e63351fc58ef699'
-            'c2b53fef17fe95edba93a8aae2a29abe1ee5550271a4f216ab85f57d21ae8afc'
+            '1895055ceb691361b48a2746f90105f900b52792fc828720181919ab18f7b2a1'
+            '031925da481b89eea665aa3bd4e0be4835da95e645c53dd9d1c793d83f842a9e'
             '2d62c4be4a515cc6aca5a66c0e9fdc23cb7775531c6d102bc3c1be069dd6b0a8'
             '92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a'
             'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
