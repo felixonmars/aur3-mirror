@@ -1,9 +1,8 @@
 pkgname=brscan-skey
 pkgver=0.2.4_1
-pkgrel=1
+pkgrel=2
 pkgdesc="Brother scan-key-tool"
 depends=('sane' 'sed')
-makedepends=('libarchive')
 arch=('i686' 'x86_64')
 url="http://welcome.solutions.brother.com/bsc/public_s/id/linux/en/index.html"
 license=('GPL' 'custom:Brother commercial license')
