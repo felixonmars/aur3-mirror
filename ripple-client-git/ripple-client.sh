@@ -1,3 +1,3 @@
 #!/bin/bash
 
-$BROWSER /opt/ripple-client/index_debug.html
+$BROWSER /opt/ripple-client/index.html
