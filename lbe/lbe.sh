@@ -1,23 +1,32 @@
 #!/bin/sh -e
-appdir='/opt/lbe'
 
-if [ ! -d "$HOME/.lbe" ]; then
-	mkdir -pm0700 "$HOME/.lbe"
+: ${XDG_CONFIG_HOME:=~/.config}
 
-	cat > "$HOME/.lbe/lbe.properties" <<-EOF
-	base=$HOME/.lbe/
-	session.dir=$HOME/.lbe/
-	cacert.file=$HOME/.lbe/lbecacerts
-	EOF
+appdir="/opt/lbe"
 
-	cp -a "$appdir/help/uofmichigan.cfg.sample" "$HOME/.lbe/U of Michigan.cfg"
-
-	cp -a "$appdir/attributes.config" "$HOME/.lbe/"
-
-	cp -a "$appdir/templates" "$HOME/.lbe/"
+if [ -d "$HOME/.lbe" ]; then
+	confdir="$HOME/.lbe"
+else
+	confdir="$XDG_CONFIG_HOME/lbe"
 fi
 
-cd "$HOME/.lbe" # FIXME: if we do this, we can ditch lbe.properties; any disadvantages?
+if [ ! -d "$confdir" ]; then
+	mkdir -pm0700 "$confdir"
+
+	cat > "$confdir/lbe.properties" <<-EOF
+	base=$confdir/
+	session.dir=$confdir/
+	cacert.file=$confdir/lbecacerts
+	EOF
+
+	cp -a "$appdir/help/uofmichigan.cfg.sample" "$confdir/U of Michigan.cfg"
+
+	cp -a "$appdir/attributes.config" "$confdir/"
+
+	cp -a "$appdir/templates" "$confdir/"
+fi
+
+cd "$confdir" # FIXME: if we do this, we can ditch lbe.properties; any disadvantages?
 
 umask 077 # protect session files
 
