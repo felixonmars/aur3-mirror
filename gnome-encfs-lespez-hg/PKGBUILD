@@ -1,0 +1,44 @@
+# Contributer: Jonathan Curran <joncfoo at gmail com>
+# Maintainer: Heiko Baums <heiko@baums-on-web.de>
+# Maintainer: Lucas Saliés Brum <lucas@archlinux.com.br>
+
+pkgname=gnome-encfs-lespez-hg
+pkgver=30
+pkgrel=1
+pkgdesc="Gnome keyring integration for EncFS folders"
+url="https://bitbucket.org/frederic_lespez/gnome-encfs"
+arch=('i686' 'x86_64')
+license=('GPL3')
+depends=('encfs' 'python2' 'python2-gnomekeyring' 'python2-xdg' 'python2-gnomekeyring')
+makedepends=('mercurial')
+
+_hgroot='https://bitbucket.org/frederic_lespez'
+_hgrepo='gnome-encfs'
+
+build() {
+  cd "$srcdir"
+  msg "Connecting to Mercurial server...."
+
+  if [[ -d "$_hgrepo" ]]; then
+    cd "$_hgrepo"
+    hg pull -u
+    msg "The local files are updated."
+  else
+    hg clone "$_hgroot/$_hgrepo"
+  fi
+
+  msg "Mercurial checkout done or server timeout"
+  msg "Starting build..."
+
+  rm -rf "$srcdir/$_hgrepo-build"
+  cp -r "$srcdir/$_hgrepo" "$srcdir/$_hgrepo-build"
+  cd "$srcdir/$_hgrepo-build"
+
+  sed -i -e "s|bin\/python|bin\/python2|" gnome-encfs
+}
+
+package() {
+  cd "$srcdir/$_hgrepo-build"
+  mkdir -p "$pkgdir/usr/bin"
+  install -D -m755 gnome-encfs "$pkgdir/usr/bin/"
+}
