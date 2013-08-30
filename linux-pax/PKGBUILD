@@ -9,8 +9,8 @@ true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.10
 _paxver=test21
-pkgver=${_basekernel}.9
-pkgrel=5
+pkgver=${_basekernel}.10
+pkgrel=1
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -298,8 +298,8 @@ package_linux-pax-headers() {
 }
 
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
-            '851224c4719e362a8ae6785abd7a8e59aa7200ee82fffbea291003da47a64bf6'
-            '9e6df34d7baae4a50e1ef9014253f4999f011813ecf65c5ecc5618448ce116e7'
+            '22cb9a7721bacd40d83c2d630f672e09495ce9d29f896e874ea8669bb577e193'
+            '3514af8e4eea7bb6da5f8cc2f31e0b6d7fc13003cd09b7e8b8ed71e6c6c892bd'
             '1895055ceb691361b48a2746f90105f900b52792fc828720181919ab18f7b2a1'
             '031925da481b89eea665aa3bd4e0be4835da95e645c53dd9d1c793d83f842a9e'
             '2d62c4be4a515cc6aca5a66c0e9fdc23cb7775531c6d102bc3c1be069dd6b0a8'
