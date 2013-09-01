@@ -10,7 +10,7 @@
 
 pkgname=vuze
 pkgver=5.1.0.0
-pkgrel=3
+pkgrel=4
 # _ver=${pkgver//./} # Just for reference, this is how it should be done.
 _ver=5100 # But this way people can download the file from the AUR page directly.
 _extra= # Extra version used in fixup releases, usually takes months... Or years.
@@ -32,12 +32,14 @@ optdepends=(
 	'vuze-plugin-i2p: Use the i2p dark-net.'
 	)
 
-noextract=("Vuze_${_ver}${_extra}.jar") 
+noextract=("Vuze_${_ver}${_extra}.jar" "azrating_1.4.3.jar") 
 
 source=(
-	 "http://downloads.sourceforge.net/azureus/vuze/Vuze_${_ver}/Vuze_${_ver}${_extra}_linux.tar.bz2")
+	 "http://downloads.sourceforge.net/azureus/vuze/Vuze_${_ver}/Vuze_${_ver}${_extra}_linux.tar.bz2"
+	 "http://plugins.vuze.com/plugins/azrating_1.4.3.jar")
 
-sha256sums=('f9544fbd8d6fe00af71699accca8a553735567aad0d42376ac18345fbfb595d9')
+sha256sums=('f9544fbd8d6fe00af71699accca8a553735567aad0d42376ac18345fbfb595d9'
+            'd58db1b4da7ca4798e3da6acb4593c1e682fe6b5559acf6c3339603f20931774')
 
 package() {
 	cd "$srcdir/$pkgname"
@@ -73,9 +75,9 @@ package() {
 	# install SWT
 
 	if [[ $CARCH == i686 ]] ; then
-		install -pm644 swt/swt32.jar -t "$pkgdir/usr/lib/vuze"
+		install -pm644 swt/swt32.jar "$pkgdir/usr/lib/vuze/swt.jar"
 	elif [[ $CARCH == x86_64 ]] ; then
-		install -pm644 swt/swt64.jar -t "$pkgdir/usr/lib/vuze"
+		install -pm644 swt/swt64.jar "$pkgdir/usr/lib/vuze/swt.jar"
 	fi
 
 
@@ -98,10 +100,14 @@ package() {
 
 	cp -a "$srcdir/$pkgname/plugins" "$pkgdir/usr/lib/vuze"
 
-
 	# install the license
 
 	install -pm644 TOS.txt -t "$pkgdir/usr/share/licenses/vuze"
 	
+	# Here come the fixups.
+
+	install -d "$pkgdir/usr/lib/vuze/plugins/azrating"
+	install -pm644 "$srcdir"/azrating_1.4.3.jar -t "$pkgdir/usr/lib/vuze/plugins/azrating"
+
 }
 
