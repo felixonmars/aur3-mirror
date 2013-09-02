@@ -1,136 +1,176 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-VERSION='1.0.4'
-PROTOCOL=('http' 'ftp')
+VERSION='1.0.9'
+PROTOCOL=('http' 'https')
 IPV=(4)
 USE_STATUS=true
 MAX=0
 COUNTRIES=()
 PACSERVE=''
+MIRRORLIST='/etc/pacman.d/mirrorlist'
+PACSAVE='/etc/pacman.d/mirrorlist.original'
 
 . /etc/pacman.d/update-mirrorlist.conf
 
+if [ $COLOR ]; then
+  # colors:
+  WHITE="\033[38;1m"
+  GREEN="\033[32;1m"
+  BLUE="\033[34;1m"
+  RED="\033[31;1m"
+  CLOSE="\033[0m"
+
+  # prefixes:
+  WORK="${BLUE}::${CLOSE}"
+  INFO="${GREEN} >${CLOSE}"
+  ARROW="${BLUE}->${CLOSE}"
+  ERROR="${RED} >${CLOSE}"
+fi
+
+# log <msg> [<is_error>]
 log() {
-	echo "$1"
-	echo `date +'[%Y-%m-%d %H:%M]'` "$1" >> /var/log/pacman.log
+  if [ $COLOR ]; then
+    if [ $2 ]; then
+      printf "${ERROR} ${WHITE}%s${CLOSE}\n" "${1}"
+    else
+      printf "${WORK} ${WHITE}%s${CLOSE}\n" "${1}"
+    fi
+  else
+    printf '%s\n' "${1}"
+  fi
+
+  printf '[%s] %s' "$(date +'%Y-%m-%d %H:%M')" "${1}" | logger
 }
 
+# error <msg>
+error() {
+  log "${1}" 1
+}
+
+# test_root
 test_root() {
-	if [ $EUID -ne 0 ]; then
-		echo "Only root can update the mirrorlist"
-		exit 1
-	fi
+  if [ $EUID -ne 0 ]; then
+    error 'Only root can update the mirrorlist'
+    exit 1
+  fi
 }
 
+# usage
 usage() {
-	echo "Usage: ${0} [options]"
-	echo ''
-	echo 'Update options:'
-	echo '  -m <num>   Set max number of mirrors'
-	echo ''
-	echo 'Other options:'
-	echo '  -h  Show this help'
-	echo '  -v  Show version and exit'
-	echo '  -r  Restore original mirrorlist'
-	echo '  -c  Check mirrorlist for errors'
-	echo ''
-	echo 'update-mirrorlist updates the pacman mirrorlist by retrieving'
-	echo 'a fresh list from http://www.archlinux.org/mirrorlist/'
-	echo ''
-	echo 'See /etc/pacman.d/update-mirrorlist.conf for configuration'
+  cat <<EOF
+Usage: ${0} [options]
+
+Update options:
+  -m <num>   Set max number of mirrors
+
+Other options:
+  -h  Show this help
+  -v  Show version and exit
+  -r  Restore original mirrorlist
+  -c  Check mirrorlist for errors
+
+update-mirrorlist updates the pacman mirrorlist by retrieving
+a fresh list from http://www.archlinux.org/mirrorlist/
+
+See /etc/pacman.d/update-mirrorlist.conf for configuration
+EOF
 }
 
+# check <file>
 check() {
-	# Test for invalid lines
-	if [ -n "$(egrep -v '^#|^[[:blank:]]*$|^Server = (http|ftp)://' "$1")" ]; then
-		return 0
-	fi
+  # Test for invalid lines
+  egrep -v '^#|^[[:blank:]]*$|^Server = (http|https)://' "$1" &>/dev/null
+  [[ $? -eq 0 ]] && return 0
 
-	# Check if there is at least one mirror
-	if [ -z "$(egrep '^Server = (http|ftp)://' "$1")" ]; then
-		return 0
-	fi
+  # Check if there is at least one mirror
+  egrep '^Server = (http|https)://' "$1" &>/dev/null
+  [[ $? -ne 0 ]] && return 0
 
-	return 1
+  return 1
 }
 
+# restore
 restore() {
-	log 'Restoring original mirrorlist'
+  log 'Restoring original mirrorlist'
 
-	if [ ! -f /etc/pacman.d/mirrorlist.original ]; then
-		log 'File does not exist: /etc/pacman.d/mirrorlist.original'
-		exit 1
-	fi
+  if [ ! -f "${PACSAVE}" ]; then
+    log "File does not exist: ${PACSAVE}"
+    exit 1
+  fi
 
-	check /etc/pacman.d/mirrorlist.original
+  check "${PACSAVE}"
 
-	if [ $? -ne 1 ]; then
-		log 'Original mirrorlist seems to be corrupted.'
-		exit 1
-	fi
+  if [ $? -ne 1 ]; then
+    log 'Original mirrorlist seems to be corrupted.'
+    exit 1
+  fi
 
-	mv /etc/pacman.d/mirrorlist.original /etc/pacman.d/mirrorlist
-	log 'Restored original mirrorlist'
-	exit 0
+  mv "${PACSAVE}" "${MIRRORLIST}"
+  log 'Restored original mirrorlist'
+  exit 0
 }
 
+# check_curlist
 check_curlist() {
-	check /etc/pacman.d/mirrorlist
+  check "${MIRRORLIST}"
 
-	if [ $? -eq 1 ]; then
-		echo 'No errors found.'
-	else
-		echo 'WARNING: The mirrorlist seems to be corrupted!'
-		echo ''
-		echo 'Try:'
-		echo "  ${0}     to retrieve a new list from the server"
-		echo "  ${0} -r  to restore the original mirrorlist"
-	fi
+  if [ $? -ne 0 ]; then
+    log 'No errors found.'
+  else
+    cat << EOF
+WARNING: The mirrorlist seems to be corrupted!
 
-	exit 0
+Try:
+  ${0}     to retrieve a new list from the server
+  ${0} -r  to restore the original mirrorlist
+EOF
+  fi
+
+  exit 0
 }
 
+# set_max <num>
 set_max() {
-	if ! [[ "$1" =~ ^[0-9]+$ ]]; then
-		echo "Given value is not a number: $1"
-		exit 1
-	fi
+  if ! [[ "$1" =~ ^[0-9]+$ ]]; then
+    printf 'Given value is not a number: %s\n' "${1}"
+    exit 1
+  fi
 
-	MAX=$1
+  MAX=$1
 }
 
 while getopts 'm:ovhrc' opt; do
-	case ${opt} in
-		m) set_max $OPTARG;;
-		v) echo "update-mirrorlist, version ${VERSION}"; exit 0;;
-		r) test_root; restore;;
-		c) check_curlist;;
-		*) usage; exit 0;;
-	esac
+  case ${opt} in
+    m) set_max $OPTARG;;
+    v) printf 'update-mirrorlist, version %s\n' "${VERSION}"; exit 0;;
+    r) test_root; restore;;
+    c) check_curlist;;
+    *) usage; exit 0;;
+  esac
 done
 
 test_root
 uri='https://www.archlinux.org/mirrorlist/?'
 
 if $USE_STATUS; then
-	uri+='use_mirror_status=on&'
+  uri+='use_mirror_status=on&'
 fi
 
 for x in "${PROTOCOL[@]}"; do
-	uri+="protocol=${x}&"
+  uri+="protocol=${x}&"
 done
 
 for x in "${IPV[@]}"; do
-	uri+="ip_version=${x}&"
+  uri+="ip_version=${x}&"
 done
 
 for x in "${COUNTRIES[@]}"; do
-	uri+="country=${x}&"
+  uri+="country=${x}&"
 done
 
-if [ ! -e /etc/pacman.d/mirrorlist.original ]; then
-	log 'Backing up original mirrorlist'
-	cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.original
+if [ ! -e "${PACSAVE}" ]; then
+  log 'Backing up original mirrorlist'
+  cp "${MIRRORLIST}" "${PACSAVE}"
 fi
 
 log 'Updating mirrorlist'
@@ -138,29 +178,29 @@ log 'Updating mirrorlist'
 tmpfile=$(mktemp --tmpdir mirrorlist-XXXXXXXXXXXX)
 
 if [ ! "`ping -c 1 archlinux.org`" ]; then
-	log 'Error: Could not reach host: archlinux.org'
-	exit 1
+  error 'Error: Could not reach host: archlinux.org'
+  exit 1
 fi
 
 curl -s "$uri" | sed 's/^#Server/Server/g' > "$tmpfile"
 check "$tmpfile"
 
 if [ $? -ne 1 ]; then
-	log 'Retrieved mirrorlist seems to be corrupted.'
-	exit 1
+  error 'Retrieved mirrorlist seems to be corrupted.'
+  exit 1
 fi
 
 if [ $MAX -gt 0 ]; then
-	egrep -m $MAX '^Server = (http|ftp)://' "$tmpfile" > /etc/pacman.d/mirrorlist
+  egrep -m $MAX '^Server = (http|https)://' "$tmpfile" > "${MIRRORLIST}"
 else
-	mv "$tmpfile" /etc/pacman.d/mirrorlist
+  mv "$tmpfile" "${MIRRORLIST}"
 fi
 
-if [ -n "$PACSERVE" -a -f /usr/bin/pacserve ]; then
-	sed "1 i## Pacserve repository\nServer=$PACSERVE\n" -i /etc/pacman.d/mirrorlist
+if [ -n "${PACSERVE}" -a -f /usr/bin/pacserve ]; then
+  sed "1 i## Pacserve repository\nServer=${PACSERVE}\n" -i "${MIRRORLIST}"
 fi
 
-chmod 644 /etc/pacman.d/mirrorlist
+chmod 644 "${MIRRORLIST}"
 log 'Updated mirrorlist'
 
 exit 0
