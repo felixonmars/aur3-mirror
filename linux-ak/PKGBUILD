@@ -1,17 +1,24 @@
 # $Id$
 # Maintainer: Alexey <kovyale@gmail.com>
 
-pkgbase=linux-ak
-pkgname=$pkgbase
+pkgname=linux-ak
 _srcname=linux-3.11
 pkgver=3.11
 pkgrel=1
+
+pkgdesc="The Linux $pkgver kernel, modules, headers and docs. Patched for blank screen bug on UEFI i915 laptops(zenbook). Disable backlight change by i915 via acpi calls, still available via X keys XF86MonBrightnessUp/Down. See PKGBUILD for more."
+# disable changin backlight via acpi keys, let it be controlled by /sys/class/backlight/intel_backlight/*
+# keys Fn+<F5> Fn+<F6> is working on zenbook with kernel parameter "acpi_osi="
+# keys accesible in X as XF86MonBrightnessUp and XF86MonBrightnessDown
+# check example scripts XF86KbdBrightness.sh, XF86MonBrightness.sh, XF86TouchpadToggle.sh
+# do not forget to permit you user(s) to write to controls files in /sys, see example scripts
 
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc')
 options=('!strip')
+
 source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         #"http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
         # the main kernel config files
@@ -37,7 +44,7 @@ md5sums=('fea363551ff45fbe4cb88497b863b261'
          '7079ab27c560185395a998f2577e2c57'
          '723900306cb607cb7b351dca4f1c2eb4')
 
-_kernelname=${pkgbase#linux}
+_kernelname=${pkgname#linux}
 
 prepare() {
   cd "${srcdir}/${_srcname}"
@@ -51,14 +58,8 @@ prepare() {
   # code rearrangement patch https://bugzilla.kernel.org/show_bug.cgi?id=59841
   patch -Np0 -b -i "${srcdir}/intel_dp-code-rearrangement.patch"
 
-  # disable changin backlight via acpi keys, let it be controlled 
-  # by /sys/class/backlight/intel_backlight/*
-  # keys Fn+<F5> Fn+<F6> will be working with kernel parameter "acpi_osi="
-  # keys accesible in X as XF86MonBrightnessUp and XF86MonBrightnessDown
-  # Check example scripts XF86KbdBrightness.sh, XF86MonBrightness.sh, XF86TouchpadToggle.sh
-  # Do not forget to permit you user(s) to write to controls files in /sys, see the particular
-  # names in example scripts.
-  # Or comment out the patch i915-disable-acpi-backlight-change.patch to get things usual way.
+  # disable changin backlight via acpi keys
+  # comment this out if you want things go usual
   patch -Np0 -b -i "${srcdir}/i915-disable-acpi-backlight-change.patch"
 
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
@@ -122,9 +123,64 @@ build() {
   make ${MAKEFLAGS} LOCALVERSION= bzImage modules
 }
 
-_package-headers() {
-  pkgdesc="Header files and scripts for building modules for ${pkgbase/linux/Linux} kernel"
-  provides=("kernel26${_kernelname}-headers=${pkgver}")
+package() {
+  [ "${pkgname}" = "linux" ] && groups=('base')
+  depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
+  optdepends=('crda: to set the correct wireless channels of your country')
+  provides=("kernel26${_kernelname}=${pkgver}")
+  backup=("etc/mkinitcpio.d/${pkgname}.preset")
+  install=linux.install
+
+  cd "${srcdir}/${_srcname}"
+
+  KARCH=x86
+
+  # get kernel version
+  _kernver="$(make LOCALVERSION= kernelrelease)"
+  _basekernel=${_kernver%%-*}
+  _basekernel=${_basekernel%.*}
+
+  mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
+  make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
+  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgname}"
+
+  # add vmlinux
+  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
+
+  # set correct depmod command for install
+  cp -f "${startdir}/${install}" "${startdir}/${install}.pkg"
+  true && install=${install}.pkg
+  sed \
+    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/" \
+    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/" \
+    -i "${startdir}/${install}"
+
+  # install mkinitcpio preset file for kernel
+  install -D -m644 "${srcdir}/linux.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+  sed \
+    -e "1s|'linux.*'|'${pkgname}'|" \
+    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgname}\"|" \
+    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgname}.img\"|" \
+    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgname}-fallback.img\"|" \
+    -i "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+
+  # remove build and source links
+  rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
+  # remove the firmware
+  rm -rf "${pkgdir}/lib/firmware"
+  # gzip -9 all modules to save 100MB of space
+  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
+  # make room for external modules
+  ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
+  # add real version for building modules and running depmod from post_install/upgrade
+  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
+  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
+
+  # Now we call depmod...
+  depmod -b "$pkgdir" -F System.map "$_kernver"
+
+  # move module tree /lib -> /usr/lib
+  mv "$pkgdir/lib" "$pkgdir/usr"
 
   install -dm755 "${pkgdir}/usr/lib/modules/${_kernver}"
 
@@ -186,10 +242,6 @@ _package-headers() {
     mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/${i}"
     cp -a drivers/media/i2c/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/${i}"
   done
-
-  # add docbook makefile
-  install -D -m644 Documentation/DocBook/Makefile \
-    "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
 
   # add dm headers
   mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
@@ -258,11 +310,6 @@ _package-headers() {
 
   # remove unneeded architectures
   rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arc,arm,arm26,arm64,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,metag,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
-}
-
-_package-docs() {
-  pkgdesc="Kernel hackers manual - HTML documentation that comes with the ${pkgbase/linux/Linux} kernel"
-  provides=("kernel26${_kernelname}-docs=${pkgver}")
 
   cd "${srcdir}/${_srcname}"
 
@@ -270,77 +317,6 @@ _package-docs() {
   cp -al Documentation "${pkgdir}/usr/src/linux-${_kernver}"
   find "${pkgdir}" -type f -exec chmod 444 {} \;
   find "${pkgdir}" -type d -exec chmod 755 {} \;
-
-  # remove a file already in linux package
-  rm -f "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
 }
-
-_package() {
-  pkgdesc="The Arch Linux $pkgver kernel and modules. Patched for bug blank screen on UEFI intel video laptops(zenbook). Disable backlight change by intel driver via acpi keys, still available via X keys XF86MonBrightnessUp/Down. See PKGBUILD for more info."
-  [ "${pkgbase}" = "linux" ] && groups=('base')
-  depends=('coreutils' 'linux-firmware' 'kmod' 'mkinitcpio>=0.7')
-  optdepends=('crda: to set the correct wireless channels of your country')
-  provides=("kernel26${_kernelname}=${pkgver}")
-  backup=("etc/mkinitcpio.d/${pkgbase}.preset")
-  install=linux.install
-
-  cd "${srcdir}/${_srcname}"
-
-  KARCH=x86
-
-  # get kernel version
-  _kernver="$(make LOCALVERSION= kernelrelease)"
-  _basekernel=${_kernver%%-*}
-  _basekernel=${_basekernel%.*}
-
-  mkdir -p "${pkgdir}"/{lib/modules,lib/firmware,boot}
-  make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
-  cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgbase}"
-
-  # add vmlinux
-  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
-
-  # set correct depmod command for install
-  cp -f "${startdir}/${install}" "${startdir}/${install}.pkg"
-  true && install=${install}.pkg
-  sed \
-    -e  "s/KERNEL_NAME=.*/KERNEL_NAME=${_kernelname}/" \
-    -e  "s/KERNEL_VERSION=.*/KERNEL_VERSION=${_kernver}/" \
-    -i "${startdir}/${install}"
-
-  # install mkinitcpio preset file for kernel
-  install -D -m644 "${srcdir}/linux.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
-  sed \
-    -e "1s|'linux.*'|'${pkgbase}'|" \
-    -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgbase}\"|" \
-    -e "s|default_image=.*|default_image=\"/boot/initramfs-${pkgbase}.img\"|" \
-    -e "s|fallback_image=.*|fallback_image=\"/boot/initramfs-${pkgbase}-fallback.img\"|" \
-    -i "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
-
-  # remove build and source links
-  rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
-  # remove the firmware
-  rm -rf "${pkgdir}/lib/firmware"
-  # gzip -9 all modules to save 100MB of space
-  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
-  # make room for external modules
-  ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
-  # add real version for building modules and running depmod from post_install/upgrade
-  mkdir -p "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}"
-  echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
-
-  # Now we call depmod...
-  depmod -b "$pkgdir" -F System.map "$_kernver"
-
-  # move module tree /lib -> /usr/lib
-  mv "$pkgdir/lib" "$pkgdir/usr"
-}
-
-pkgs=("${pkgbase}" "${pkgbase}-headers" "${pkgbase}-docs")
-for _p in ${pkgs[@]}; do
-  eval "package_${_p}() {
-    _package${_p#${pkgbase}}
-  }"
-done
 
 # vim:set ts=8 sts=2 sw=2 et:
