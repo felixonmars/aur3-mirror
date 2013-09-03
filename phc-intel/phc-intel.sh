@@ -3,7 +3,7 @@ shopt -s nullglob
 
 if [ "$1" = set ]; then
 	. /etc/default/phc-intel
-	[ -n "$VIDS" ] || exit
+	[ -z "$VIDS" ] && exit
 	for i in $(< /proc/cmdline); do
 		[ $i = nophc ] && exit
 	done
