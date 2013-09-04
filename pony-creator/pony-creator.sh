@@ -1,2 +1,2 @@
-#! /bin/sh
-flashplayer /usr/share/games/pony-creator/pony_creator_full_version_by_generalzoi-d47efz4.swf --class $(basename "${0%.*}") "$@"
+#!/usr/bin/env bash
+flashplayer /usr/share/games/pony-creator/Pony-Creator-v3.swf --class $(basename "${0%.*}") "$@"
