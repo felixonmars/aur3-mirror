@@ -1,0 +1,118 @@
+From: Davidlohr Bueso <davidlohr.bueso@hp.com>
+
+Upon entering the slowpath, we immediately attempt to acquire the lock
+by checking if it is already unlocked. If we are lucky enough that this
+is the case, then we don't need to deal with any waiter related logic.
+
+Furthermore any checks for an empty wait_list are unnecessary as we
+already know that count is non-negative and hence no one is waiting for
+the lock.
+
+Move the count check and xchg calls to be done before any waiters are
+setup - including waiter debugging. Upon failure to acquire the lock,
+the xchg sets the counter to 0, instead of -1 as it was originally.
+This can be done here since we set it back to -1 right at the beginning
+of the loop so other waiters are woken up when the lock is released.
+
+When tested on a 8-socket (80 core) system against a vanilla 3.10-rc1
+kernel, this patch provides some small performance benefits (+2-6%).
+While it could be considered in the noise level, the average percentages
+were stable across multiple runs and no performance regressions were seen.
+Two big winners, for small amounts of users (10-100), were the short and
+compute workloads had a +19.36% and +%15.76% in jobs per minute.
+  
+Signed-off-by: Davidlohr Bueso <davidlohr.bueso@hp.com>
+---
+ kernel/mutex.c | 26 ++++++++++++++------------
+ 1 file changed, 14 insertions(+), 12 deletions(-)
+
+diff --git a/kernel/mutex.c b/kernel/mutex.c
+index ad53a66..a8cd741 100644
+--- a/kernel/mutex.c
++++ b/kernel/mutex.c
+@@ -306,7 +306,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
+ 		owner = ACCESS_ONCE(lock->owner);
+ 		if (owner && !mutex_spin_on_owner(lock, owner)) {
+ 			mspin_unlock(MLOCK(lock), &node);
+-			break;
++			goto slowpath;
+ 		}
+ 
+ 		if ((atomic_read(&lock->count) == 1) &&
+@@ -314,8 +314,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
+ 			lock_acquired(&lock->dep_map, ip);
+ 			mutex_set_owner(lock);
+ 			mspin_unlock(MLOCK(lock), &node);
+-			preempt_enable();
+-			return 0;
++			goto done;
+ 		}
+ 		mspin_unlock(MLOCK(lock), &node);
+ 
+@@ -326,7 +325,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
+ 		 * the owner complete.
+ 		 */
+ 		if (!owner && (need_resched() || rt_task(task)))
+-			break;
++			goto slowpath;
+ 
+ 		/*
+ 		 * The cpu_relax() call is a compiler barrier which forces
+@@ -340,6 +339,14 @@ slowpath:
+ #endif
+ 	spin_lock_mutex(&lock->wait_lock, flags);
+ 
++	/* once more, can we acquire the lock? */
++	if (MUTEX_SHOW_NO_WAITER(lock) && (atomic_xchg(&lock->count, 0) == 1)) {
++		lock_acquired(&lock->dep_map, ip);
++		mutex_set_owner(lock);
++		spin_unlock_mutex(&lock->wait_lock, flags);
++		goto done;
++	}
++
+ 	debug_mutex_lock_common(lock, &waiter);
+ 	debug_mutex_add_waiter(lock, &waiter, task_thread_info(task));
+ 
+@@ -347,9 +354,6 @@ slowpath:
+ 	list_add_tail(&waiter.list, &lock->wait_list);
+ 	waiter.task = task;
+ 
+-	if (MUTEX_SHOW_NO_WAITER(lock) && (atomic_xchg(&lock->count, -1) == 1))
+-		goto done;
+-
+ 	lock_contended(&lock->dep_map, ip);
+ 
+ 	for (;;) {
+@@ -363,7 +367,7 @@ slowpath:
+ 		 * other waiters:
+ 		 */
+ 		if (MUTEX_SHOW_NO_WAITER(lock) &&
+-		   (atomic_xchg(&lock->count, -1) == 1))
++		    (atomic_xchg(&lock->count, -1) == 1))
+ 			break;
+ 
+ 		/*
+@@ -388,9 +392,8 @@ slowpath:
+ 		spin_lock_mutex(&lock->wait_lock, flags);
+ 	}
+ 
+-done:
++	/* got the lock - cleanup and rejoice! */
+ 	lock_acquired(&lock->dep_map, ip);
+-	/* got the lock - rejoice! */
+ 	mutex_remove_waiter(lock, &waiter, current_thread_info());
+ 	mutex_set_owner(lock);
+ 
+@@ -399,10 +402,9 @@ done:
+ 		atomic_set(&lock->count, 0);
+ 
+ 	spin_unlock_mutex(&lock->wait_lock, flags);
+-
+ 	debug_mutex_free_waiter(&waiter);
++done:
+ 	preempt_enable();
+-
+ 	return 0;
+ }
+ 
+
