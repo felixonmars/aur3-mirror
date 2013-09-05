@@ -3,7 +3,7 @@
 _basename=acx-mac80211
 pkgname=${_basename}-dkms-git
 pkgver=1605.1daf4bf
-pkgrel=3
+pkgrel=4
 pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB) with DKMS support"
 url="http://acx100.sourceforge.net/"
 arch=('any')
@@ -33,6 +33,7 @@ prepare() {
 
 package() {
     cd ${srcdir}/${_basename}
+
     install -dm755 "${pkgdir}/usr/src/${_basename}-${pkgver}/"
     cp -r * ${pkgdir}/usr/src/${_basename}-${pkgver}/
 }
