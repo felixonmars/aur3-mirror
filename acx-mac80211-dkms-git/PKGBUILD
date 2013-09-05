@@ -3,11 +3,11 @@
 _basename=acx-mac80211
 pkgname=${_basename}-dkms-git
 pkgver=1605.1daf4bf
-pkgrel=5
+pkgrel=6
 pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB) with DKMS support"
 url="http://acx100.sourceforge.net/"
 arch=('any')
-license=('GPL2')
+license=('GPL')
 depends=('dkms' 'acx111-firmware')
 makedepends=('linux-headers' 'git')
 options=('!strip')
@@ -28,7 +28,8 @@ pkgver() {
 
 prepare() {
     # Create dkms.conf
-    sed -e "s/@PKGVER@/${pkgver}/" < ${srcdir}/dkms.conf.in > dkms.conf
+    sed -e "s/@PKGVER@/${pkgver}/" < ${srcdir}/dkms.conf.in > \
+        "${srcdir}/${_basename}/dkms.conf"
 }
 
 package() {

@@ -3,7 +3,7 @@
 _basename=acx-mac80211
 pkgname=${_basename}-git
 pkgver=1605.1daf4bf
-pkgrel=2
+pkgrel=3
 pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB)"
 url="http://acx100.sourceforge.net/"
 arch=('any')
@@ -31,7 +31,7 @@ build() {
     cd "${srcdir}/${_basename}"
 
     # Build module
-    make -C /usr/lib/modules/3.10.10-1-ARCH/build M=`pwd` \
+    make -C /usr/lib/modules/${_kernver}/build M=`pwd` \
         CONFIG_ACX_MAC80211=m \
         CONFIG_ACX_MAC80211_PCI=y \
         CONFIG_ACX_MAC80211_USB=m \
