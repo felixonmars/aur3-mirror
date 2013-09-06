@@ -2,12 +2,12 @@
 
 pkgname=yturl-git
 _gitname=yturl
-pkgver=20130824041733.85d42ac
-pkgrel=3
+pkgver=20130905223925.685382e
+pkgrel=1
 pkgdesc="Print direct URLs to YouTube videos."
 url=http://github.com/cdown/yturl
 license=( MIT )
-depends=( python )
+depends=( python python-docopt )
 
 arch=( any )
 makedepends=( git )
