@@ -3,20 +3,22 @@
 _basename=acx-mac80211
 pkgname=${_basename}-git
 pkgver=1605.1daf4bf
-pkgrel=3
+pkgrel=4
 pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB)"
 url="http://acx100.sourceforge.net/"
 arch=('any')
 license=('GPL')
-depends=('linux>=3.10' 'acx111-firmware')
-makedepends=('linux-headers' 'git')
-options=('!strip')
+depends=('linux>=3.10')
+optdepends=(
+    'acx111-firmware: firmware for TI ACX111 cards'
+)
+makedepends=('linux-headers>=3.10' 'git')
+install="${pkgname}.install"
+
 
 source=("git://git.code.sf.net/p/acx100/${_basename}")
-
 sha256sums=('SKIP')
 
-install="${pkgname}.install"
 
 _extramodules=extramodules-3.10-ARCH
 _kernver="$(cat /usr/lib/modules/${_extramodules}/version)"
@@ -39,12 +41,13 @@ build() {
         EXTRA_CFLAGS=" -DCONFIG_ACX_MAC80211=1 \
                         -DCONFIG_ACX_MAC80211_USB=1 \
                         -DCONFIG_ACX_MAC80211_MEM=1 \
-                        -DCONFIG_ACX_MAC80211_PCI=1" \
+                        -DCONFIG_ACX_MAC80211_PCI=1 \
+                        -DACX_GIT_VERSION=\\\"${pkgver}\\\"" \
         modules
 }
 
 package() {
-    cd ${srcdir}/${_basename}
+    cd "${srcdir}/${_basename}"
 
     install -D -m 644 ${_basename}.ko \
         "${pkgdir}/usr/lib/modules/${_extramodules}/${_basename}.ko"

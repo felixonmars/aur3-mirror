@@ -1,2 +1,2 @@
 #!/bin/sh
-exec java -jar /usr/lib/liteloader/liteloader-installer.jar
+exec java -jar /usr/share/java/liteloader-installer.jar
