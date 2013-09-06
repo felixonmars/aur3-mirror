@@ -3,7 +3,7 @@
 _basename=acx111
 pkgname=${_basename}-firmware
 pkgver=1.2.1.34
-pkgrel=1
+pkgrel=2
 pkgdesc="Firmware for TI ACX111 wireless cards"
 arch=("any")
 url="http://acx100.erley.org/"
@@ -23,6 +23,6 @@ sha256sums=('e2896ddd2af3ef16bcb27580b6b916a6f785a702b50aae73e4dd02c502af28d7'
 
 
 package() {
-    mkdir -p ${pkgdir}/usr/lib/firmware
-    install -m644 tiacx111* ${pkgdir}/usr/lib/firmware
+    install -d -m 755 "${pkgdir}/usr/lib/firmware"
+    install -D -m 644 tiacx111* "${pkgdir}/usr/lib/firmware"
 }
