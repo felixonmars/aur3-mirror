@@ -1,0 +1,909 @@
+From 0e12e9c04eb6554c12cbdff727bf5a8b8a405ce5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Wed, 7 Aug 2013 16:53:01 +0200
+Subject: [PATCH 004/127] wined3d: Move the decoded stream info into the
+ context
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/arb_program_shader.c |  13 ++-
+ dlls/wined3d/buffer.c             |  13 ++-
+ dlls/wined3d/context.c            | 215 +++++++++++++++++++++++++++++++++++++-
+ dlls/wined3d/device.c             | 213 +------------------------------------
+ dlls/wined3d/drawprim.c           |  10 +-
+ dlls/wined3d/glsl_shader.c        |   8 +-
+ dlls/wined3d/shader.c             |  14 +--
+ dlls/wined3d/state.c              |  29 +++--
+ dlls/wined3d/wined3d_private.h    |  25 ++---
+ 9 files changed, 268 insertions(+), 272 deletions(-)
+
+diff --git a/dlls/wined3d/arb_program_shader.c b/dlls/wined3d/arb_program_shader.c
+index 2ec9de0..fd6d870 100644
+--- a/dlls/wined3d/arb_program_shader.c
++++ b/dlls/wined3d/arb_program_shader.c
+@@ -4418,12 +4418,11 @@ static inline BOOL vs_args_equal(const struct arb_vs_compile_args *stored, const
+ }
+ 
+ static struct arb_vs_compiled_shader *find_arb_vshader(struct wined3d_shader *shader,
+-        const struct arb_vs_compile_args *args,
++        const struct wined3d_context *context, const struct arb_vs_compile_args *args,
+         const struct wined3d_shader_signature_element *ps_input_sig)
+ {
+-    struct wined3d_device *device = shader->device;
+-    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+-    DWORD use_map = device->stream_info.use_map;
++    const struct wined3d_gl_info *gl_info = context->gl_info;
++    DWORD use_map = context->stream_info.use_map;
+     UINT i;
+     DWORD new_size;
+     struct arb_vs_compiled_shader *new_array;
+@@ -4514,7 +4513,7 @@ static void find_arb_ps_compile_args(const struct wined3d_state *state,
+     int i;
+     WORD int_skip;
+ 
+-    find_ps_compile_args(state, shader, &args->super);
++    find_ps_compile_args(state, shader, context->stream_info.position_transformed, &args->super);
+ 
+     /* This forces all local boolean constants to 1 to make them stateblock independent */
+     args->bools = shader->reg_maps.local_bool_consts;
+@@ -4572,7 +4571,7 @@ static void find_arb_vs_compile_args(const struct wined3d_state *state,
+     int i;
+     WORD int_skip;
+ 
+-    find_vs_compile_args(state, shader, &args->super);
++    find_vs_compile_args(state, shader, context->stream_info.swizzle_map, &args->super);
+ 
+     args->clip.boolclip_compare = 0;
+     if (use_ps(state))
+@@ -4734,7 +4733,7 @@ static void shader_arb_select(void *shader_priv, struct wined3d_context *context
+         else
+             ps_input_sig = state->pixel_shader->input_signature;
+ 
+-        compiled = find_arb_vshader(vs, &compile_args, ps_input_sig);
++        compiled = find_arb_vshader(vs, context, &compile_args, ps_input_sig);
+         priv->current_vprogram_id = compiled->prgId;
+         priv->compiled_vprog = compiled;
+ 
+diff --git a/dlls/wined3d/buffer.c b/dlls/wined3d/buffer.c
+index 8f1b541..a2fd190 100644
+--- a/dlls/wined3d/buffer.c
++++ b/dlls/wined3d/buffer.c
+@@ -310,14 +310,13 @@ static BOOL buffer_check_attribute(struct wined3d_buffer *This, const struct win
+     return ret;
+ }
+ 
+-static BOOL buffer_find_decl(struct wined3d_buffer *This)
++static BOOL buffer_find_decl(struct wined3d_buffer *This, const struct wined3d_context *context)
+ {
+     struct wined3d_device *device = This->resource.device;
+-    const struct wined3d_adapter *adapter = device->adapter;
+-    const struct wined3d_stream_info *si = &device->stream_info;
+-    const struct wined3d_state *state = &device->state;
+-    BOOL support_d3dcolor = adapter->gl_info.supported[ARB_VERTEX_ARRAY_BGRA];
+-    BOOL support_xyzrhw = adapter->d3d_info.xyzrhw;
++    const struct wined3d_stream_info *si = &context->stream_info;
++    const struct wined3d_state *state = &device->state; /* FIXME */
++    BOOL support_d3dcolor = context->gl_info->supported[ARB_VERTEX_ARRAY_BGRA];
++    BOOL support_xyzrhw = context->d3d_info->xyzrhw;
+     UINT stride_this_run = 0;
+     BOOL ret = FALSE;
+ 
+@@ -771,7 +770,7 @@ void buffer_internal_preload(struct wined3d_buffer *buffer, struct wined3d_conte
+     /* Reading the declaration makes only sense if the stateblock is finalized and the buffer bound to a stream */
+     if (device->isInDraw && buffer->resource.bind_count > 0)
+     {
+-        decl_changed = buffer_find_decl(buffer);
++        decl_changed = buffer_find_decl(buffer, context);
+         buffer->flags |= WINED3D_BUFFER_HASDESC;
+     }
+ 
+diff --git a/dlls/wined3d/context.c b/dlls/wined3d/context.c
+index f2386e9..0245675 100644
+--- a/dlls/wined3d/context.c
++++ b/dlls/wined3d/context.c
+@@ -2349,6 +2349,217 @@ void context_state_drawbuf(struct wined3d_context *context, const struct wined3d
+     }
+ }
+ 
++static BOOL fixed_get_input(BYTE usage, BYTE usage_idx, unsigned int *regnum)
++{
++    if ((usage == WINED3D_DECL_USAGE_POSITION || usage == WINED3D_DECL_USAGE_POSITIONT) && !usage_idx)
++        *regnum = WINED3D_FFP_POSITION;
++    else if (usage == WINED3D_DECL_USAGE_BLEND_WEIGHT && !usage_idx)
++        *regnum = WINED3D_FFP_BLENDWEIGHT;
++    else if (usage == WINED3D_DECL_USAGE_BLEND_INDICES && !usage_idx)
++        *regnum = WINED3D_FFP_BLENDINDICES;
++    else if (usage == WINED3D_DECL_USAGE_NORMAL && !usage_idx)
++        *regnum = WINED3D_FFP_NORMAL;
++    else if (usage == WINED3D_DECL_USAGE_PSIZE && !usage_idx)
++        *regnum = WINED3D_FFP_PSIZE;
++    else if (usage == WINED3D_DECL_USAGE_COLOR && !usage_idx)
++        *regnum = WINED3D_FFP_DIFFUSE;
++    else if (usage == WINED3D_DECL_USAGE_COLOR && usage_idx == 1)
++        *regnum = WINED3D_FFP_SPECULAR;
++    else if (usage == WINED3D_DECL_USAGE_TEXCOORD && usage_idx < WINED3DDP_MAXTEXCOORD)
++        *regnum = WINED3D_FFP_TEXCOORD0 + usage_idx;
++    else
++    {
++        FIXME("Unsupported input stream [usage=%s, usage_idx=%u]\n", debug_d3ddeclusage(usage), usage_idx);
++        *regnum = ~0U;
++        return FALSE;
++    }
++
++    return TRUE;
++}
++
++/* FIXME: Separate buffer loading from declaration decoding */
++/* Context activation is done by the caller. */
++void context_stream_info_from_declaration(struct wined3d_context *context,
++        const struct wined3d_state *state, struct wined3d_stream_info *stream_info)
++{
++    /* We need to deal with frequency data! */
++    struct wined3d_vertex_declaration *declaration = state->vertex_declaration;
++    BOOL use_vshader;
++    unsigned int i;
++    WORD map;
++
++    stream_info->use_map = 0;
++    stream_info->swizzle_map = 0;
++    stream_info->all_vbo = 1;
++
++    /* Check for transformed vertices, disable vertex shader if present. */
++    stream_info->position_transformed = declaration->position_transformed;
++    use_vshader = state->vertex_shader && !declaration->position_transformed;
++
++    /* Translate the declaration into strided data. */
++    for (i = 0; i < declaration->element_count; ++i)
++    {
++        const struct wined3d_vertex_declaration_element *element = &declaration->elements[i];
++        const struct wined3d_stream_state *stream = &state->streams[element->input_slot];
++        struct wined3d_buffer *buffer = stream->buffer;
++        struct wined3d_bo_address data;
++        BOOL stride_used;
++        unsigned int idx;
++        DWORD stride;
++
++        TRACE("%p Element %p (%u of %u)\n", declaration->elements,
++                element, i + 1, declaration->element_count);
++
++        if (!buffer) continue;
++
++        stride = stream->stride;
++        TRACE("Stream %u in buffer %p\n", element->input_slot, buffer);
++        buffer_get_memory(buffer, context, &data);
++
++        /* Can't use vbo's if the base vertex index is negative. OpenGL doesn't accept negative offsets
++         * (or rather offsets bigger than the vbo, because the pointer is unsigned), so use system memory
++         * sources. In most sane cases the pointer - offset will still be > 0, otherwise it will wrap
++         * around to some big value. Hope that with the indices, the driver wraps it back internally. If
++         * not, drawStridedSlow is needed, including a vertex buffer path. */
++        if (state->load_base_vertex_index < 0)
++        {
++            WARN_(d3d_perf)("load_base_vertex_index is < 0 (%d), not using VBOs.\n",
++                    state->load_base_vertex_index);
++            data.buffer_object = 0;
++            data.addr = buffer_get_sysmem(buffer, context);
++            if ((UINT_PTR)data.addr < -state->load_base_vertex_index * stride)
++            {
++                FIXME("System memory vertex data load offset is negative!\n");
++            }
++        }
++        data.addr += element->offset;
++
++        TRACE("offset %u input_slot %u usage_idx %d\n", element->offset, element->input_slot, element->usage_idx);
++
++        if (use_vshader)
++        {
++            if (element->output_slot == ~0U)
++            {
++                /* TODO: Assuming vertexdeclarations are usually used with the
++                 * same or a similar shader, it might be worth it to store the
++                 * last used output slot and try that one first. */
++                stride_used = vshader_get_input(state->vertex_shader,
++                        element->usage, element->usage_idx, &idx);
++            }
++            else
++            {
++                idx = element->output_slot;
++                stride_used = TRUE;
++            }
++        }
++        else
++        {
++            if (!element->ffp_valid)
++            {
++                WARN("Skipping unsupported fixed function element of format %s and usage %s\n",
++                        debug_d3dformat(element->format->id), debug_d3ddeclusage(element->usage));
++                stride_used = FALSE;
++            }
++            else
++            {
++                stride_used = fixed_get_input(element->usage, element->usage_idx, &idx);
++            }
++        }
++
++        if (stride_used)
++        {
++            TRACE("Load %s array %u [usage %s, usage_idx %u, "
++                    "input_slot %u, offset %u, stride %u, format %s, buffer_object %u]\n",
++                    use_vshader ? "shader": "fixed function", idx,
++                    debug_d3ddeclusage(element->usage), element->usage_idx, element->input_slot,
++                    element->offset, stride, debug_d3dformat(element->format->id), data.buffer_object);
++
++            data.addr += stream->offset;
++
++            stream_info->elements[idx].format = element->format;
++            stream_info->elements[idx].data = data;
++            stream_info->elements[idx].stride = stride;
++            stream_info->elements[idx].stream_idx = element->input_slot;
++
++            if (!context->gl_info->supported[ARB_VERTEX_ARRAY_BGRA]
++                    && element->format->id == WINED3DFMT_B8G8R8A8_UNORM)
++            {
++                stream_info->swizzle_map |= 1 << idx;
++            }
++            stream_info->use_map |= 1 << idx;
++        }
++    }
++
++    /* PreLoad all the vertex buffers. */
++    context->num_buffer_queries = 0;
++    for (i = 0, map = stream_info->use_map; map; map >>= 1, ++i)
++    {
++        struct wined3d_stream_info_element *element;
++        struct wined3d_buffer *buffer;
++
++        if (!(map & 1))
++            continue;
++
++        element = &stream_info->elements[i];
++        buffer = state->streams[element->stream_idx].buffer;
++        buffer_internal_preload(buffer, context);
++
++        /* If the preload dropped the buffer object, update the stream info. */
++        if (buffer->buffer_object != element->data.buffer_object)
++        {
++            element->data.buffer_object = 0;
++            element->data.addr = buffer_get_sysmem(buffer, context)
++                    + (ptrdiff_t)element->data.addr;
++        }
++
++        if (!buffer->buffer_object)
++            stream_info->all_vbo = 0;
++
++        if (buffer->query)
++            context->buffer_queries[context->num_buffer_queries++] = buffer->query;
++    }
++}
++
++/* Context activation is done by the caller. */
++static void context_update_stream_info(struct wined3d_context *context, const struct wined3d_state *state)
++{
++    const struct wined3d_gl_info *gl_info = context->gl_info;
++    const struct wined3d_d3d_info *d3d_info = context->d3d_info;
++    struct wined3d_stream_info *stream_info = &context->stream_info;
++    DWORD prev_all_vbo = stream_info->all_vbo;
++
++    TRACE("============================= Vertex Declaration =============================\n");
++    context_stream_info_from_declaration(context, state, stream_info);
++
++    if (state->vertex_shader && !stream_info->position_transformed)
++    {
++        if (state->vertex_declaration->half_float_conv_needed && !stream_info->all_vbo)
++        {
++            TRACE("Using drawStridedSlow with vertex shaders for FLOAT16 conversion.\n");
++            context->use_draw_strided_slow = TRUE;
++        }
++        else
++        {
++            context->use_draw_strided_slow = FALSE;
++        }
++    }
++    else
++    {
++        WORD slow_mask = (1 << WINED3D_FFP_PSIZE);
++        slow_mask |= -!gl_info->supported[ARB_VERTEX_ARRAY_BGRA]
++                & ((1 << WINED3D_FFP_DIFFUSE) | (1 << WINED3D_FFP_SPECULAR));
++
++        if (((stream_info->position_transformed && !d3d_info->xyzrhw)
++                || (stream_info->use_map & slow_mask)) && !stream_info->all_vbo)
++            context->use_draw_strided_slow = TRUE;
++        else
++            context->use_draw_strided_slow = FALSE;
++    }
++
++    if (prev_all_vbo != stream_info->all_vbo)
++        context_invalidate_state(context, STATE_INDEXBUFFER);
++}
++
+ /* Context activation is done by the caller. */
+ BOOL context_apply_draw_state(struct wined3d_context *context, struct wined3d_device *device)
+ {
+@@ -2372,10 +2583,10 @@ BOOL context_apply_draw_state(struct wined3d_context *context, struct wined3d_de
+     device_update_tex_unit_map(device);
+     device_preload_textures(device);
+     if (isStateDirty(context, STATE_VDECL) || isStateDirty(context, STATE_STREAMSRC))
+-        device_update_stream_info(device, context);
++        context_update_stream_info(context, state);
+     if (state->index_buffer)
+     {
+-        if (device->stream_info.all_vbo)
++        if (context->stream_info.all_vbo)
+             buffer_internal_preload(state->index_buffer, context);
+         else
+             buffer_get_sysmem(state->index_buffer, context);
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 3c0392e..2d616d7 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -35,7 +35,6 @@
+ #include "wined3d_private.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(d3d);
+-WINE_DECLARE_DEBUG_CHANNEL(d3d_perf);
+ 
+ /* Define the default light parameters as specified by MSDN. */
+ const struct wined3d_light WINED3D_default_light =
+@@ -135,216 +134,6 @@ static enum wined3d_primitive_type d3d_primitive_type_from_gl(GLenum primitive_t
+     }
+ }
+ 
+-static BOOL fixed_get_input(BYTE usage, BYTE usage_idx, unsigned int *regnum)
+-{
+-    if ((usage == WINED3D_DECL_USAGE_POSITION || usage == WINED3D_DECL_USAGE_POSITIONT) && !usage_idx)
+-        *regnum = WINED3D_FFP_POSITION;
+-    else if (usage == WINED3D_DECL_USAGE_BLEND_WEIGHT && !usage_idx)
+-        *regnum = WINED3D_FFP_BLENDWEIGHT;
+-    else if (usage == WINED3D_DECL_USAGE_BLEND_INDICES && !usage_idx)
+-        *regnum = WINED3D_FFP_BLENDINDICES;
+-    else if (usage == WINED3D_DECL_USAGE_NORMAL && !usage_idx)
+-        *regnum = WINED3D_FFP_NORMAL;
+-    else if (usage == WINED3D_DECL_USAGE_PSIZE && !usage_idx)
+-        *regnum = WINED3D_FFP_PSIZE;
+-    else if (usage == WINED3D_DECL_USAGE_COLOR && !usage_idx)
+-        *regnum = WINED3D_FFP_DIFFUSE;
+-    else if (usage == WINED3D_DECL_USAGE_COLOR && usage_idx == 1)
+-        *regnum = WINED3D_FFP_SPECULAR;
+-    else if (usage == WINED3D_DECL_USAGE_TEXCOORD && usage_idx < WINED3DDP_MAXTEXCOORD)
+-        *regnum = WINED3D_FFP_TEXCOORD0 + usage_idx;
+-    else
+-    {
+-        FIXME("Unsupported input stream [usage=%s, usage_idx=%u]\n", debug_d3ddeclusage(usage), usage_idx);
+-        *regnum = ~0U;
+-        return FALSE;
+-    }
+-
+-    return TRUE;
+-}
+-
+-/* Context activation is done by the caller. */
+-static void device_stream_info_from_declaration(struct wined3d_device *device, struct wined3d_stream_info *stream_info,
+-        struct wined3d_context *context)
+-{
+-    const struct wined3d_state *state = &device->state;
+-    /* We need to deal with frequency data! */
+-    struct wined3d_vertex_declaration *declaration = state->vertex_declaration;
+-    BOOL use_vshader;
+-    unsigned int i;
+-    WORD map;
+-
+-    stream_info->use_map = 0;
+-    stream_info->swizzle_map = 0;
+-    stream_info->all_vbo = 1;
+-
+-    /* Check for transformed vertices, disable vertex shader if present. */
+-    stream_info->position_transformed = declaration->position_transformed;
+-    use_vshader = state->vertex_shader && !declaration->position_transformed;
+-
+-    /* Translate the declaration into strided data. */
+-    for (i = 0; i < declaration->element_count; ++i)
+-    {
+-        const struct wined3d_vertex_declaration_element *element = &declaration->elements[i];
+-        const struct wined3d_stream_state *stream = &state->streams[element->input_slot];
+-        struct wined3d_buffer *buffer = stream->buffer;
+-        struct wined3d_bo_address data;
+-        BOOL stride_used;
+-        unsigned int idx;
+-        DWORD stride;
+-
+-        TRACE("%p Element %p (%u of %u)\n", declaration->elements,
+-                element, i + 1, declaration->element_count);
+-
+-        if (!buffer) continue;
+-
+-        stride = stream->stride;
+-
+-        TRACE("Stream %u, buffer %p.\n", element->input_slot, buffer);
+-        buffer_get_memory(buffer, context, &data);
+-
+-        /* We can't use VBOs if the base vertex index is negative. OpenGL
+-         * doesn't accept negative offsets (or rather offsets bigger than the
+-         * VBO, because the pointer is unsigned), so use system memory
+-         * sources. In most sane cases the pointer - offset will still be > 0,
+-         * otherwise it will wrap around to some big value. Hope that with the
+-         * indices, the driver wraps it back internally. If not,
+-         * drawStridedSlow() is needed, including a vertex buffer path. */
+-        if (state->load_base_vertex_index < 0)
+-        {
+-            WARN_(d3d_perf)("load_base_vertex_index is < 0 (%d), not using VBOs.\n", state->load_base_vertex_index);
+-            data.buffer_object = 0;
+-            data.addr = buffer_get_sysmem(buffer, context);
+-            if ((UINT_PTR)data.addr < -state->load_base_vertex_index * stride)
+-                FIXME("System memory vertex data load offset is negative!\n");
+-        }
+-        data.addr += element->offset;
+-
+-        TRACE("offset %u input_slot %u usage_idx %d\n", element->offset, element->input_slot, element->usage_idx);
+-
+-        if (use_vshader)
+-        {
+-            if (element->output_slot == ~0U)
+-            {
+-                /* TODO: Assuming vertexdeclarations are usually used with the
+-                 * same or a similar shader, it might be worth it to store the
+-                 * last used output slot and try that one first. */
+-                stride_used = vshader_get_input(state->vertex_shader,
+-                        element->usage, element->usage_idx, &idx);
+-            }
+-            else
+-            {
+-                idx = element->output_slot;
+-                stride_used = TRUE;
+-            }
+-        }
+-        else
+-        {
+-            if (!element->ffp_valid)
+-            {
+-                WARN("Skipping unsupported fixed function element of format %s and usage %s\n",
+-                        debug_d3dformat(element->format->id), debug_d3ddeclusage(element->usage));
+-                stride_used = FALSE;
+-            }
+-            else
+-            {
+-                stride_used = fixed_get_input(element->usage, element->usage_idx, &idx);
+-            }
+-        }
+-
+-        if (stride_used)
+-        {
+-            TRACE("Load %s array %u [usage %s, usage_idx %u, "
+-                    "input_slot %u, offset %u, stride %u, format %s, buffer_object %u]\n",
+-                    use_vshader ? "shader": "fixed function", idx,
+-                    debug_d3ddeclusage(element->usage), element->usage_idx, element->input_slot,
+-                    element->offset, stride, debug_d3dformat(element->format->id), data.buffer_object);
+-
+-            data.addr += stream->offset;
+-
+-            stream_info->elements[idx].format = element->format;
+-            stream_info->elements[idx].data = data;
+-            stream_info->elements[idx].stride = stride;
+-            stream_info->elements[idx].stream_idx = element->input_slot;
+-
+-            if (!context->gl_info->supported[ARB_VERTEX_ARRAY_BGRA]
+-                    && element->format->id == WINED3DFMT_B8G8R8A8_UNORM)
+-            {
+-                stream_info->swizzle_map |= 1 << idx;
+-            }
+-            stream_info->use_map |= 1 << idx;
+-        }
+-    }
+-
+-    /* Preload the vertex buffers. */
+-    device->num_buffer_queries = 0;
+-    for (i = 0, map = stream_info->use_map; map; map >>= 1, ++i)
+-    {
+-        struct wined3d_stream_info_element *element;
+-        struct wined3d_buffer *buffer;
+-
+-        if (!(map & 1))
+-            continue;
+-
+-        element = &stream_info->elements[i];
+-        buffer = state->streams[element->stream_idx].buffer;
+-        buffer_internal_preload(buffer, context);
+-
+-        /* If the preload dropped the buffer object, update the stream info. */
+-        if (buffer->buffer_object != element->data.buffer_object)
+-        {
+-            element->data.buffer_object = 0;
+-            element->data.addr = buffer_get_sysmem(buffer, context) + (ptrdiff_t)element->data.addr;
+-        }
+-
+-        if (!buffer->buffer_object)
+-            stream_info->all_vbo = 0;
+-
+-        if (buffer->query)
+-            device->buffer_queries[device->num_buffer_queries++] = buffer->query;
+-    }
+-}
+-
+-/* Context activation is done by the caller. */
+-void device_update_stream_info(struct wined3d_device *device, struct wined3d_context *context)
+-{
+-    const struct wined3d_gl_info *gl_info = context->gl_info;
+-    struct wined3d_stream_info *stream_info = &device->stream_info;
+-    const struct wined3d_state *state = &device->state;
+-    DWORD prev_all_vbo = stream_info->all_vbo;
+-
+-    TRACE("============================= Vertex Declaration =============================\n");
+-    device_stream_info_from_declaration(device, stream_info, context);
+-
+-    if (state->vertex_shader && !stream_info->position_transformed)
+-    {
+-        if (state->vertex_declaration->half_float_conv_needed && !stream_info->all_vbo)
+-        {
+-            TRACE("Using drawStridedSlow with vertex shaders for FLOAT16 conversion.\n");
+-            device->useDrawStridedSlow = TRUE;
+-        }
+-        else
+-        {
+-            device->useDrawStridedSlow = FALSE;
+-        }
+-    }
+-    else
+-    {
+-        WORD slow_mask = (1 << WINED3D_FFP_PSIZE);
+-        slow_mask |= -!gl_info->supported[ARB_VERTEX_ARRAY_BGRA]
+-                & ((1 << WINED3D_FFP_DIFFUSE) | (1 << WINED3D_FFP_SPECULAR));
+-
+-        if (((stream_info->position_transformed && !device->adapter->d3d_info.xyzrhw)
+-                || (stream_info->use_map & slow_mask)) && !stream_info->all_vbo)
+-            device->useDrawStridedSlow = TRUE;
+-        else
+-            device->useDrawStridedSlow = FALSE;
+-    }
+-
+-    if (prev_all_vbo != stream_info->all_vbo)
+-        device_invalidate_state(device, STATE_INDEXBUFFER);
+-}
+-
+ static void device_preload_texture(const struct wined3d_state *state, unsigned int idx)
+ {
+     struct wined3d_texture *texture;
+@@ -3541,7 +3330,7 @@ HRESULT CDECL wined3d_device_process_vertices(struct wined3d_device *device,
+ 
+     vs = state->vertex_shader;
+     state->vertex_shader = NULL;
+-    device_stream_info_from_declaration(device, &stream_info, context);
++    context_stream_info_from_declaration(context, state, &stream_info);
+     state->vertex_shader = vs;
+ 
+     /* We can't convert FROM a VBO, and vertex buffers used to source into
+diff --git a/dlls/wined3d/drawprim.c b/dlls/wined3d/drawprim.c
+index b1901e0..6869a09 100644
+--- a/dlls/wined3d/drawprim.c
++++ b/dlls/wined3d/drawprim.c
+@@ -678,7 +678,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+         FIXME("Point sprite coordinate origin switching not supported.\n");
+     }
+ 
+-    stream_info = &device->stream_info;
++    stream_info = &context->stream_info;
+     if (device->instance_count)
+         instance_count = device->instance_count;
+ 
+@@ -728,13 +728,13 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+ 
+         if (emulation)
+         {
+-            si_emulated = device->stream_info;
++            si_emulated = context->stream_info;
+             remove_vbos(context, state, &si_emulated);
+             stream_info = &si_emulated;
+         }
+     }
+ 
+-    if (device->useDrawStridedSlow || emulation)
++    if (context->use_draw_strided_slow || emulation)
+     {
+         /* Immediate mode drawing. */
+         if (use_vs(state))
+@@ -769,9 +769,9 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+ 
+     if (ib_query)
+         wined3d_event_query_issue(ib_query, device);
+-    for (i = 0; i < device->num_buffer_queries; ++i)
++    for (i = 0; i < context->num_buffer_queries; ++i)
+     {
+-        wined3d_event_query_issue(device->buffer_queries[i], device);
++        wined3d_event_query_issue(context->buffer_queries[i], device);
+     }
+ 
+     if (wined3d_settings.strict_draw_ordering)
+diff --git a/dlls/wined3d/glsl_shader.c b/dlls/wined3d/glsl_shader.c
+index 7e0971b..9cacc61 100644
+--- a/dlls/wined3d/glsl_shader.c
++++ b/dlls/wined3d/glsl_shader.c
+@@ -4785,7 +4785,7 @@ static GLhandleARB find_glsl_vshader(const struct wined3d_context *context,
+ {
+     UINT i;
+     DWORD new_size;
+-    DWORD use_map = shader->device->stream_info.use_map;
++    DWORD use_map = context->stream_info.use_map;
+     struct glsl_vs_compiled_shader *gl_shaders, *new_array;
+     struct glsl_shader_private *shader_data;
+     GLhandleARB ret;
+@@ -5870,7 +5870,7 @@ static void set_glsl_shader_program(const struct wined3d_context *context, const
+         struct vs_compile_args vs_compile_args;
+         vshader = state->vertex_shader;
+ 
+-        find_vs_compile_args(state, vshader, &vs_compile_args);
++        find_vs_compile_args(state, vshader, context->stream_info.swizzle_map, &vs_compile_args);
+         vs_id = find_glsl_vshader(context, &priv->shader_buffer, vshader, &vs_compile_args);
+         vs_list = &vshader->linked_programs;
+ 
+@@ -5882,7 +5882,7 @@ static void set_glsl_shader_program(const struct wined3d_context *context, const
+         struct glsl_ffp_vertex_shader *ffp_shader;
+         struct wined3d_ffp_vs_settings settings;
+ 
+-        wined3d_ffp_get_vs_settings(state, &device->stream_info, &settings);
++        wined3d_ffp_get_vs_settings(state, &context->stream_info, &settings);
+         ffp_shader = shader_glsl_find_ffp_vertex_shader(priv, gl_info, &settings);
+         vs_id = ffp_shader->id;
+         vs_list = &ffp_shader->linked_programs;
+@@ -5900,7 +5900,7 @@ static void set_glsl_shader_program(const struct wined3d_context *context, const
+     {
+         struct ps_compile_args ps_compile_args;
+         pshader = state->pixel_shader;
+-        find_ps_compile_args(state, pshader, &ps_compile_args);
++        find_ps_compile_args(state, pshader, context->stream_info.position_transformed, &ps_compile_args);
+         ps_id = find_glsl_pshader(context, &priv->shader_buffer,
+                 pshader, &ps_compile_args, &np2fixup_info);
+         ps_list = &pshader->linked_programs;
+diff --git a/dlls/wined3d/shader.c b/dlls/wined3d/shader.c
+index 624d091..b61076e 100644
+--- a/dlls/wined3d/shader.c
++++ b/dlls/wined3d/shader.c
+@@ -1813,14 +1813,14 @@ HRESULT CDECL wined3d_shader_set_local_constants_float(struct wined3d_shader *sh
+     return WINED3D_OK;
+ }
+ 
+-void find_vs_compile_args(const struct wined3d_state *state,
+-        const struct wined3d_shader *shader, struct vs_compile_args *args)
++void find_vs_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
++        WORD swizzle_map, struct vs_compile_args *args)
+ {
+     args->fog_src = state->render_states[WINED3D_RS_FOGTABLEMODE]
+             == WINED3D_FOG_NONE ? VS_FOG_COORD : VS_FOG_Z;
+     args->clip_enabled = state->render_states[WINED3D_RS_CLIPPING]
+             && state->render_states[WINED3D_RS_CLIPPLANEENABLE];
+-    args->swizzle_map = shader->device->stream_info.swizzle_map;
++    args->swizzle_map = swizzle_map;
+ }
+ 
+ static BOOL match_usage(BYTE usage1, BYTE usage_idx1, BYTE usage2, BYTE usage_idx2)
+@@ -2021,8 +2021,8 @@ static HRESULT geometryshader_init(struct wined3d_shader *shader, struct wined3d
+     return WINED3D_OK;
+ }
+ 
+-void find_ps_compile_args(const struct wined3d_state *state,
+-        const struct wined3d_shader *shader, struct ps_compile_args *args)
++void find_ps_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
++        BOOL position_transformed, struct ps_compile_args *args)
+ {
+     struct wined3d_device *device = shader->device;
+     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+@@ -2154,7 +2154,7 @@ void find_ps_compile_args(const struct wined3d_state *state,
+     }
+     if (shader->reg_maps.shader_version.major >= 3)
+     {
+-        if (device->stream_info.position_transformed)
++        if (position_transformed)
+             args->vp_mode = pretransformed;
+         else if (use_vs(state))
+             args->vp_mode = vertexshader;
+@@ -2170,7 +2170,7 @@ void find_ps_compile_args(const struct wined3d_state *state,
+             switch (state->render_states[WINED3D_RS_FOGTABLEMODE])
+             {
+                 case WINED3D_FOG_NONE:
+-                    if (device->stream_info.position_transformed || use_vs(state))
++                    if (position_transformed || use_vs(state))
+                     {
+                         args->fog = WINED3D_FFP_PS_FOG_LINEAR;
+                         break;
+diff --git a/dlls/wined3d/state.c b/dlls/wined3d/state.c
+index 7617f8f..22d7902 100644
+--- a/dlls/wined3d/state.c
++++ b/dlls/wined3d/state.c
+@@ -87,7 +87,7 @@ static void state_lighting(struct wined3d_context *context, const struct wined3d
+         return;
+ 
+     if (state->render_states[WINED3D_RS_LIGHTING]
+-            && !context->swapchain->device->stream_info.position_transformed)
++            && !context->stream_info.position_transformed)
+     {
+         gl_info->gl_ops.gl.p_glEnable(GL_LIGHTING);
+         checkGLcall("glEnable GL_LIGHTING");
+@@ -134,7 +134,7 @@ static void state_zenable(struct wined3d_context *context, const struct wined3d_
+ 
+     if (context->gl_info->supported[ARB_DEPTH_CLAMP])
+     {
+-        if (!zenable && context->swapchain->device->stream_info.position_transformed)
++        if (!zenable && context->stream_info.position_transformed)
+         {
+             gl_info->gl_ops.gl.p_glEnable(GL_DEPTH_CLAMP);
+             checkGLcall("glEnable(GL_DEPTH_CLAMP)");
+@@ -1250,7 +1250,6 @@ void state_fogdensity(struct wined3d_context *context, const struct wined3d_stat
+ 
+ static void state_colormat(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+ {
+-    const struct wined3d_device *device = context->swapchain->device;
+     const struct wined3d_gl_info *gl_info = context->gl_info;
+     GLenum Parm = 0;
+ 
+@@ -1263,7 +1262,7 @@ static void state_colormat(struct wined3d_context *context, const struct wined3d
+     }
+ 
+     context->num_untracked_materials = 0;
+-    if ((device->stream_info.use_map & (1 << WINED3D_FFP_DIFFUSE))
++    if ((context->stream_info.use_map & (1 << WINED3D_FFP_DIFFUSE))
+             && state->render_states[WINED3D_RS_COLORVERTEX])
+     {
+         TRACE("diff %d, amb %d, emis %d, spec %d\n",
+@@ -1416,7 +1415,7 @@ static void state_normalize(struct wined3d_context *context, const struct wined3
+      * by zero and is not properly defined in opengl, so avoid it
+      */
+     if (state->render_states[WINED3D_RS_NORMALIZENORMALS]
+-            && (context->swapchain->device->stream_info.use_map & (1 << WINED3D_FFP_NORMAL)))
++            && (context->stream_info.use_map & (1 << WINED3D_FFP_NORMAL)))
+     {
+         gl_info->gl_ops.gl.p_glEnable(GL_NORMALIZE);
+         checkGLcall("glEnable(GL_NORMALIZE);");
+@@ -3318,8 +3317,8 @@ void transform_texture(struct wined3d_context *context, const struct wined3d_sta
+     set_texture_matrix(gl_info, &state->transforms[WINED3D_TS_TEXTURE0 + texUnit].u.m[0][0],
+             state->texture_states[texUnit][WINED3D_TSS_TEXTURE_TRANSFORM_FLAGS],
+             generated, context->last_was_rhw,
+-            device->stream_info.use_map & (1 << (WINED3D_FFP_TEXCOORD0 + coordIdx))
+-            ? device->stream_info.elements[WINED3D_FFP_TEXCOORD0 + coordIdx].format->id
++            context->stream_info.use_map & (1 << (WINED3D_FFP_TEXCOORD0 + coordIdx))
++            ? context->stream_info.elements[WINED3D_FFP_TEXCOORD0 + coordIdx].format->id
+             : WINED3DFMT_UNKNOWN,
+             device->shader_backend->shader_has_ffp_proj_control(device->shader_priv));
+ 
+@@ -3582,7 +3581,7 @@ static void tex_coordindex(struct wined3d_context *context, const struct wined3d
+         GLuint curVBO = gl_info->supported[ARB_VERTEX_BUFFER_OBJECT] ? ~0U : 0;
+ 
+         unload_tex_coords(gl_info);
+-        load_tex_coords(context, &device->stream_info, &curVBO, state);
++        load_tex_coords(context, &context->stream_info, &curVBO, state);
+     }
+ }
+ 
+@@ -4479,9 +4478,8 @@ static void load_vertex_data(const struct wined3d_context *context,
+ 
+ static void streamsrc(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+ {
+-    const struct wined3d_device *device = context->swapchain->device;
+-    BOOL load_numbered = use_vs(state) && !device->useDrawStridedSlow;
+-    BOOL load_named = !use_vs(state) && !device->useDrawStridedSlow;
++    BOOL load_numbered = use_vs(state) && !context->use_draw_strided_slow;
++    BOOL load_named = !use_vs(state) && !context->use_draw_strided_slow;
+ 
+     if (isStateDirty(context, STATE_VDECL)) return;
+     if (context->numberedArraysLoaded && !load_numbered)
+@@ -4499,13 +4497,13 @@ static void streamsrc(struct wined3d_context *context, const struct wined3d_stat
+     if (load_numbered)
+     {
+         TRACE("Loading numbered arrays\n");
+-        load_numbered_arrays(context, &device->stream_info, state);
++        load_numbered_arrays(context, &context->stream_info, state);
+         context->numberedArraysLoaded = TRUE;
+     }
+     else if (load_named)
+     {
+         TRACE("Loading vertex data\n");
+-        load_vertex_data(context, &device->stream_info, state);
++        load_vertex_data(context, &context->stream_info, state);
+         context->namedArraysLoaded = TRUE;
+     }
+ }
+@@ -4519,7 +4517,6 @@ static void vdecl_miscpart(struct wined3d_context *context, const struct wined3d
+ 
+ void vertexdeclaration(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+ {
+-    const struct wined3d_device *device = context->swapchain->device;
+     const struct wined3d_gl_info *gl_info = context->gl_info;
+     BOOL useVertexShaderFunction = use_vs(state);
+     BOOL updateFog = FALSE;
+@@ -4527,7 +4524,7 @@ void vertexdeclaration(struct wined3d_context *context, const struct wined3d_sta
+     BOOL wasrhw = context->last_was_rhw;
+     unsigned int i;
+ 
+-    transformed = device->stream_info.position_transformed;
++    transformed = context->stream_info.position_transformed;
+     if (transformed != context->last_was_rhw && !useVertexShaderFunction)
+         updateFog = TRUE;
+ 
+@@ -4848,7 +4845,7 @@ static void scissorrect(struct wined3d_context *context, const struct wined3d_st
+ 
+ static void indexbuffer(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+ {
+-    const struct wined3d_stream_info *stream_info = &context->swapchain->device->stream_info;
++    const struct wined3d_stream_info *stream_info = &context->stream_info;
+     const struct wined3d_gl_info *gl_info = context->gl_info;
+ 
+     if (!state->index_buffer || !stream_info->all_vbo)
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index f01ebbf..0580318 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -1086,6 +1086,7 @@ struct wined3d_context
+     DWORD padding : 1;
+     DWORD texShaderBumpMap : 8;         /* MAX_TEXTURES, 8 */
+     DWORD lastWasPow2Texture : 8;       /* MAX_TEXTURES, 8 */
++    DWORD use_draw_strided_slow : 1;
+     DWORD shader_update_mask;
+     DWORD constant_update_mask;
+     DWORD                   numbered_array_mask;
+@@ -1132,6 +1133,12 @@ struct wined3d_context
+     UINT free_event_query_count;
+     struct list event_queries;
+ 
++    struct wined3d_stream_info stream_info;
++
++    /* Fences for GL_APPLE_flush_buffer_range */
++    struct wined3d_event_query *buffer_queries[MAX_ATTRIBS];
++    unsigned int num_buffer_queries;
++
+     /* Extension emulation */
+     GLint                   gl_fog_source;
+     GLfloat                 fog_coord_value;
+@@ -1299,6 +1306,8 @@ void context_state_drawbuf(struct wined3d_context *context,
+ void context_state_fb(struct wined3d_context *context,
+         const struct wined3d_state *state, DWORD state_id) DECLSPEC_HIDDEN;
+ void context_surface_update(struct wined3d_context *context, const struct wined3d_surface *surface) DECLSPEC_HIDDEN;
++void context_stream_info_from_declaration(struct wined3d_context *context,
++        const struct wined3d_state *state, struct wined3d_stream_info *stream_info) DECLSPEC_HIDDEN;
+ 
+ /*****************************************************************************
+  * Internal representation of a light
+@@ -1878,9 +1887,7 @@ struct wined3d_device
+     WORD d3d_initialized : 1;
+     WORD inScene : 1;                   /* A flag to check for proper BeginScene / EndScene call pairs */
+     WORD softwareVertexProcessing : 1;  /* process vertex shaders using software or hardware */
+-    WORD useDrawStridedSlow : 1;
+     WORD filter_messages : 1;
+-    WORD padding : 8;
+ 
+     BYTE fixed_function_usage_map;      /* MAX_TEXTURES, 8 */
+ 
+@@ -1930,11 +1937,6 @@ struct wined3d_device
+     DWORD                     texUnitMap[MAX_COMBINED_SAMPLERS];
+     DWORD                     rev_tex_unit_map[MAX_COMBINED_SAMPLERS];
+ 
+-    /* Stream source management */
+-    struct wined3d_stream_info stream_info;
+-    struct wined3d_event_query *buffer_queries[MAX_ATTRIBS];
+-    unsigned int num_buffer_queries;
+-
+     /* Context management */
+     struct wined3d_context **contexts;
+     UINT context_count;
+@@ -1955,7 +1957,6 @@ void device_resource_add(struct wined3d_device *device, struct wined3d_resource
+ void device_resource_released(struct wined3d_device *device, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
+ void device_switch_onscreen_ds(struct wined3d_device *device, struct wined3d_context *context,
+         struct wined3d_surface *depth_stencil) DECLSPEC_HIDDEN;
+-void device_update_stream_info(struct wined3d_device *device, struct wined3d_context *context) DECLSPEC_HIDDEN;
+ void device_update_tex_unit_map(struct wined3d_device *device) DECLSPEC_HIDDEN;
+ void device_invalidate_state(const struct wined3d_device *device, DWORD state) DECLSPEC_HIDDEN;
+ 
+@@ -2771,11 +2772,11 @@ struct wined3d_shader
+ };
+ 
+ void pixelshader_update_samplers(struct wined3d_shader *shader, WORD tex_types) DECLSPEC_HIDDEN;
+-void find_ps_compile_args(const struct wined3d_state *state,
+-        const struct wined3d_shader *shader, struct ps_compile_args *args) DECLSPEC_HIDDEN;
++void find_ps_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
++        BOOL position_transformed, struct ps_compile_args *args) DECLSPEC_HIDDEN;
+ 
+-void find_vs_compile_args(const struct wined3d_state *state,
+-        const struct wined3d_shader *shader, struct vs_compile_args *args) DECLSPEC_HIDDEN;
++void find_vs_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
++        WORD swizzle_map, struct vs_compile_args *args) DECLSPEC_HIDDEN;
+ 
+ void shader_buffer_clear(struct wined3d_shader_buffer *buffer) DECLSPEC_HIDDEN;
+ BOOL shader_buffer_init(struct wined3d_shader_buffer *buffer) DECLSPEC_HIDDEN;
+-- 
+1.8.1.5
+

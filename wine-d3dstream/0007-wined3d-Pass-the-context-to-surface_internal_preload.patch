@@ -1,0 +1,177 @@
+From c3cb303f1d687d32574162b875ff3598dcb0b64c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Tue, 18 Dec 2012 13:10:36 +0100
+Subject: [PATCH 007/127] wined3d: Pass the context to surface_internal_preload
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/arb_program_shader.c |  7 ++++---
+ dlls/wined3d/context.c            |  6 +++---
+ dlls/wined3d/surface.c            | 30 ++++++++++++++----------------
+ dlls/wined3d/wined3d_private.h    |  3 ++-
+ 4 files changed, 23 insertions(+), 23 deletions(-)
+
+diff --git a/dlls/wined3d/arb_program_shader.c b/dlls/wined3d/arb_program_shader.c
+index fd6d870..d29b9f3 100644
+--- a/dlls/wined3d/arb_program_shader.c
++++ b/dlls/wined3d/arb_program_shader.c
+@@ -7444,6 +7444,9 @@ HRESULT arbfp_blit_surface(struct wined3d_device *device, DWORD filter,
+     RECT src_rect = *src_rect_in;
+     RECT dst_rect = *dst_rect_in;
+ 
++    /* Activate the destination context, set it up for blitting */
++    context = context_acquire(device, dst_surface);
++
+     /* Now load the surface */
+     if (wined3d_settings.offscreen_rendering_mode != ORM_FBO
+             && (src_surface->flags & (SFLAG_INTEXTURE | SFLAG_INDRAWABLE)) == SFLAG_INDRAWABLE)
+@@ -7459,10 +7462,8 @@ HRESULT arbfp_blit_surface(struct wined3d_device *device, DWORD filter,
+         src_rect.bottom = src_surface->resource.height - src_rect.bottom;
+     }
+     else
+-        surface_internal_preload(src_surface, SRGB_RGB);
++        surface_internal_preload(src_surface, context, SRGB_RGB);
+ 
+-    /* Activate the destination context, set it up for blitting */
+-    context = context_acquire(device, dst_surface);
+     context_apply_blit_state(context, device);
+ 
+     if (!surface_is_offscreen(dst_surface))
+diff --git a/dlls/wined3d/context.c b/dlls/wined3d/context.c
+index 10ce50e..d32d528 100644
+--- a/dlls/wined3d/context.c
++++ b/dlls/wined3d/context.c
+@@ -2127,7 +2127,7 @@ void context_apply_blit_state(struct wined3d_context *context, const struct wine
+ 
+         if (context->render_offscreen)
+         {
+-            surface_internal_preload(rt, SRGB_RGB);
++            surface_internal_preload(rt, context, SRGB_RGB);
+ 
+             context_apply_fbo_state_blit(context, GL_FRAMEBUFFER, rt, NULL, rt->draw_binding);
+             if (rt->resource.format->id != WINED3DFMT_NULL)
+@@ -2666,8 +2666,8 @@ static void context_setup_target(struct wined3d_context *context, struct wined3d
+         {
+             /* Read the back buffer of the old drawable into the destination texture. */
+             if (context->current_rt->texture_name_srgb)
+-                surface_internal_preload(context->current_rt, SRGB_SRGB);
+-            surface_internal_preload(context->current_rt, SRGB_RGB);
++                surface_internal_preload(context->current_rt, context, SRGB_SRGB);
++            surface_internal_preload(context->current_rt, context, SRGB_RGB);
+             surface_modify_location(context->current_rt, SFLAG_INDRAWABLE, FALSE);
+         }
+     }
+diff --git a/dlls/wined3d/surface.c b/dlls/wined3d/surface.c
+index 1849b37..c8c8922 100644
+--- a/dlls/wined3d/surface.c
++++ b/dlls/wined3d/surface.c
+@@ -3005,6 +3005,7 @@ DWORD CDECL wined3d_surface_get_priority(const struct wined3d_surface *surface)
+ 
+ void CDECL wined3d_surface_preload(struct wined3d_surface *surface)
+ {
++    struct wined3d_context *context;
+     TRACE("surface %p.\n", surface);
+ 
+     if (!surface->resource.device->d3d_initialized)
+@@ -3013,7 +3014,9 @@ void CDECL wined3d_surface_preload(struct wined3d_surface *surface)
+         return;
+     }
+ 
+-    surface_internal_preload(surface, SRGB_ANY);
++    context = context_acquire(surface->resource.device, NULL);
++    surface_internal_preload(surface, context, SRGB_ANY);
++    context_release(context);
+ }
+ 
+ void * CDECL wined3d_surface_get_parent(const struct wined3d_surface *surface)
+@@ -4058,17 +4061,12 @@ HRESULT CDECL wined3d_surface_flip(struct wined3d_surface *surface, struct wined
+     return WINED3D_OK;
+ }
+ 
+-/* Do not call while under the GL lock. */
+-void surface_internal_preload(struct wined3d_surface *surface, enum WINED3DSRGB srgb)
++/* Context activation is done by the caller */
++void surface_internal_preload(struct wined3d_surface *surface,
++        struct wined3d_context *context, enum WINED3DSRGB srgb)
+ {
+-    struct wined3d_device *device = surface->resource.device;
+-    struct wined3d_context *context;
+-
+     TRACE("iface %p, srgb %#x.\n", surface, srgb);
+ 
+-    /* TODO: Use already acquired context when possible. */
+-    context = context_acquire(device, NULL);
+-
+     if (surface->container)
+     {
+         struct wined3d_texture *texture = surface->container;
+@@ -4090,7 +4088,6 @@ void surface_internal_preload(struct wined3d_surface *surface, enum WINED3DSRGB
+             context->gl_info->gl_ops.gl.p_glPrioritizeTextures(1, &surface->texture_name, &tmp);
+         }
+     }
+-    context_release(context);
+ }
+ 
+ /* Read the framebuffer back into the surface */
+@@ -4765,7 +4762,7 @@ static void fb_copy_to_texture_direct(struct wined3d_surface *dst_surface, struc
+     context = context_acquire(device, src_surface);
+     gl_info = context->gl_info;
+     context_apply_blit_state(context, device);
+-    surface_internal_preload(dst_surface, SRGB_RGB);
++    surface_internal_preload(dst_surface, context, SRGB_RGB);
+ 
+     /* Bind the target texture */
+     context_bind_texture(context, dst_target, dst_surface->texture_name);
+@@ -4873,14 +4870,14 @@ static void fb_copy_to_texture_hwstretch(struct wined3d_surface *dst_surface, st
+     context = context_acquire(device, src_surface);
+     gl_info = context->gl_info;
+     context_apply_blit_state(context, device);
+-    surface_internal_preload(dst_surface, SRGB_RGB);
++    surface_internal_preload(dst_surface, context, SRGB_RGB);
+ 
+     src_offscreen = surface_is_offscreen(src_surface);
+     noBackBufferBackup = src_offscreen && wined3d_settings.offscreen_rendering_mode == ORM_FBO;
+     if (!noBackBufferBackup && !src_surface->texture_name)
+     {
+         /* Get it a description */
+-        surface_internal_preload(src_surface, SRGB_RGB);
++        surface_internal_preload(src_surface, context, SRGB_RGB);
+     }
+ 
+     /* Try to use an aux buffer for drawing the rectangle. This way it doesn't need restoring.
+@@ -5163,14 +5160,15 @@ static void surface_blt_to_drawable(const struct wined3d_device *device,
+     src_rect = *src_rect_in;
+     dst_rect = *dst_rect_in;
+ 
++    context = context_acquire(device, dst_surface);
++    gl_info = context->gl_info;
++
+     /* Make sure the surface is up-to-date. This should probably use
+      * surface_load_location() and worry about the destination surface too,
+      * unless we're overwriting it completely. */
+-    surface_internal_preload(src_surface, SRGB_RGB);
++    surface_internal_preload(src_surface, context, SRGB_RGB);
+ 
+     /* Activate the destination context, set it up for blitting */
+-    context = context_acquire(device, dst_surface);
+-    gl_info = context->gl_info;
+     context_apply_blit_state(context, device);
+ 
+     if (!surface_is_offscreen(dst_surface))
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 0f03272..634ff27 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2251,7 +2251,8 @@ void surface_add_dirty_rect(struct wined3d_surface *surface, const struct wined3
+ HRESULT surface_color_fill(struct wined3d_surface *s,
+         const RECT *rect, const struct wined3d_color *color) DECLSPEC_HIDDEN;
+ GLenum surface_get_gl_buffer(const struct wined3d_surface *surface) DECLSPEC_HIDDEN;
+-void surface_internal_preload(struct wined3d_surface *surface, enum WINED3DSRGB srgb) DECLSPEC_HIDDEN;
++void surface_internal_preload(struct wined3d_surface *surface,
++        struct wined3d_context *context, enum WINED3DSRGB srgb) DECLSPEC_HIDDEN;
+ BOOL surface_is_offscreen(const struct wined3d_surface *surface) DECLSPEC_HIDDEN;
+ HRESULT surface_load(struct wined3d_surface *surface, BOOL srgb) DECLSPEC_HIDDEN;
+ void surface_load_ds_location(struct wined3d_surface *surface,
+-- 
+1.8.1.5
+

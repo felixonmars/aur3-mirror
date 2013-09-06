@@ -1,0 +1,109 @@
+From 3ed41d64f9681fec790ad5f2364b8b73c395e3c0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Thu, 4 Jul 2013 22:46:59 +0200
+Subject: [PATCH 072/127] wined3d: Use the internal map function in
+ surface_cpu_blt
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+This should be merged into the previous patch (send surface maps through
+the command stream). I kept it as a separate patch for easier reading.
+---
+ dlls/wined3d/surface.c | 45 +++++++++++++++++++++++++++++++--------------
+ 1 file changed, 31 insertions(+), 14 deletions(-)
+
+diff --git a/dlls/wined3d/surface.c b/dlls/wined3d/surface.c
+index 77cc520..22f546d 100644
+--- a/dlls/wined3d/surface.c
++++ b/dlls/wined3d/surface.c
+@@ -926,7 +926,7 @@ static void surface_map(struct wined3d_surface *surface, const RECT *rect, DWORD
+         /* This shouldn't happen but could occur if some other function
+          * didn't handle the PBO properly. */
+         if (surface->resource.allocatedMemory)
+-            ERR("The surface already has PBO memory allocated.\n");
++            ERR("%p: The surface already has PBO memory allocated.\n", surface);
+ 
+         surface->resource.allocatedMemory = GL_EXTCALL(glMapBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, GL_READ_WRITE_ARB));
+         checkGLcall("glMapBufferARB");
+@@ -6456,10 +6456,17 @@ static HRESULT surface_cpu_blt(struct wined3d_surface *dst_surface, const RECT *
+ 
+     if (src_surface == dst_surface)
+     {
+-        wined3d_surface_map(dst_surface, &dst_map, NULL, 0);
++        dst_format = dst_surface->resource.format;
++        dst_surface->surface_ops->surface_map(dst_surface, NULL, 0);
++
++        dst_map.data = dst_surface->resource.allocatedMemory;
++        if (dst_format->flags & WINED3DFMT_FLAG_BROKEN_PITCH)
++            dst_map.row_pitch = dst_surface->resource.width * dst_format->byte_count;
++        else
++            dst_map.row_pitch = wined3d_surface_get_pitch(dst_surface);
++
+         src_map = dst_map;
+-        src_format = dst_surface->resource.format;
+-        dst_format = src_format;
++        src_format = dst_format;
+     }
+     else
+     {
+@@ -6476,15 +6483,28 @@ static HRESULT surface_cpu_blt(struct wined3d_surface *dst_surface, const RECT *
+                     goto release;
+                 }
+             }
+-            wined3d_surface_map(src_surface, &src_map, NULL, WINED3D_MAP_READONLY);
+             src_format = src_surface->resource.format;
++            src_surface->surface_ops->surface_map(src_surface, NULL, 0);
++
++            src_map.data = src_surface->resource.allocatedMemory;
++            if (src_format->flags & WINED3DFMT_FLAG_BROKEN_PITCH)
++                src_map.row_pitch = src_surface->resource.width * src_format->byte_count;
++            else
++                src_map.row_pitch = wined3d_surface_get_pitch(src_surface);
+         }
+         else
+         {
+             src_format = dst_format;
++            src_map.row_pitch = ~0; /* Stupid compiler */
+         }
+ 
+-        wined3d_surface_map(dst_surface, &dst_map, dst_rect, 0);
++        dst_surface->surface_ops->surface_map(dst_surface, NULL, 0);
++
++        dst_map.data = dst_surface->resource.allocatedMemory;
++        if (dst_format->flags & WINED3DFMT_FLAG_BROKEN_PITCH)
++            dst_map.row_pitch = dst_surface->resource.width * dst_format->byte_count;
++        else
++            dst_map.row_pitch = wined3d_surface_get_pitch(dst_surface);
+     }
+ 
+     bpp = dst_surface->resource.format->byte_count;
+@@ -6498,12 +6518,9 @@ static HRESULT surface_cpu_blt(struct wined3d_surface *dst_surface, const RECT *
+         sbase = (BYTE *)src_map.data
+                 + ((src_rect->top / src_format->block_height) * src_map.row_pitch)
+                 + ((src_rect->left / src_format->block_width) * src_format->block_byte_count);
+-    if (src_surface != dst_surface)
+-        dbuf = dst_map.data;
+-    else
+-        dbuf = (BYTE *)dst_map.data
+-                + ((dst_rect->top / dst_format->block_height) * dst_map.row_pitch)
+-                + ((dst_rect->left / dst_format->block_width) * dst_format->block_byte_count);
++    dbuf = (BYTE *)dst_map.data
++            + ((dst_rect->top / dst_format->block_height) * dst_map.row_pitch)
++            + ((dst_rect->left / dst_format->block_width) * dst_format->block_byte_count);
+ 
+     if (src_format->flags & dst_format->flags & WINED3DFMT_FLAG_BLOCKS)
+     {
+@@ -6924,9 +6941,9 @@ error:
+     }
+ 
+ release:
+-    wined3d_surface_unmap(dst_surface);
++    dst_surface->surface_ops->surface_unmap(dst_surface);
+     if (src_surface && src_surface != dst_surface)
+-        wined3d_surface_unmap(src_surface);
++        src_surface->surface_ops->surface_unmap(src_surface);
+     /* Release the converted surface, if any. */
+     if (src_surface && src_surface != orig_src)
+         wined3d_surface_decref(src_surface);
+-- 
+1.8.1.5
+

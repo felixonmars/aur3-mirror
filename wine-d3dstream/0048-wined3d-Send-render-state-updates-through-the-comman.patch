@@ -1,0 +1,123 @@
+From 89cb4a804421dd83e006b684778acca3c9922360 Mon Sep 17 00:00:00 2001
+From: Henri Verbeet <hverbeet@codeweavers.com>
+Date: Sat, 8 Dec 2012 19:29:00 +0100
+Subject: [PATCH 048/127] wined3d: Send render state updates through the
+ command stream.
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/cs.c              | 35 +++++++++++++++++++++++++++++++----
+ dlls/wined3d/device.c          |  2 +-
+ dlls/wined3d/wined3d_private.h |  2 ++
+ 3 files changed, 34 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index a479120..f16ee7b 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -43,6 +43,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_SET_TEXTURE,
+     WINED3D_CS_OP_SET_VERTEX_SHADER,
+     WINED3D_CS_OP_SET_PIXEL_SHADER,
++    WINED3D_CS_OP_SET_RENDER_STATE,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -184,6 +185,13 @@ struct wined3d_cs_set_shader
+     struct wined3d_shader *shader;
+ };
+ 
++struct wined3d_cs_set_render_state
++{
++    enum wined3d_cs_op opcode;
++    enum wined3d_render_state state;
++    DWORD value;
++};
++
+ static CRITICAL_SECTION wined3d_cs_list_mutex;
+ static CRITICAL_SECTION_DEBUG wined3d_cs_list_mutex_debug =
+ {
+@@ -435,8 +443,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
+ 
+     memcpy(cs->state.lights, op->state.lights, sizeof(cs->state.lights));
+ 
+-    memcpy(cs->state.render_states, op->state.render_states, sizeof(cs->state.render_states));
+-
+     return sizeof(*op);
+ }
+ 
+@@ -480,8 +486,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
+      * It will go away soon anyway. */
+     memcpy(op->state.lights, state->lights, sizeof(op->state.lights));
+ 
+-    memcpy(op->state.render_states, state->render_states, sizeof(op->state.render_states));
+-
+     cs->ops->submit(cs);
+ }
+ 
+@@ -936,6 +940,28 @@ void wined3d_cs_emit_set_pixel_shader(struct wined3d_cs *cs, struct wined3d_shad
+     cs->ops->submit(cs);
+ }
+ 
++static UINT wined3d_cs_exec_set_render_state(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_set_render_state *op = data;
++
++    cs->state.render_states[op->state] = op->value;
++    device_invalidate_state(cs->device, STATE_RENDER(op->state));
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_set_render_state(struct wined3d_cs *cs, enum wined3d_render_state state, DWORD value)
++{
++    struct wined3d_cs_set_render_state *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_SET_RENDER_STATE;
++    op->state = state;
++    op->value = value;
++
++    cs->ops->submit(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+@@ -958,6 +984,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_SET_TEXTURE            */ wined3d_cs_exec_set_texture,
+     /* WINED3D_CS_OP_SET_VERTEX_SHADER      */ wined3d_cs_exec_set_vertex_shader,
+     /* WINED3D_CS_OP_SET_PIXEL_SHADER       */ wined3d_cs_exec_set_pixel_shader,
++    /* WINED3D_CS_OP_SET_RENDER_STATE       */ wined3d_cs_exec_set_render_state,
+ };
+ 
+ static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 677a887..e47b8bf 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -1911,7 +1911,7 @@ void CDECL wined3d_device_set_render_state(struct wined3d_device *device,
+     if (value == old_value)
+         TRACE("Application is setting the old value over, nothing to do.\n");
+     else
+-        device_invalidate_state(device, STATE_RENDER(state));
++        wined3d_cs_emit_set_render_state(device->cs, state, value);
+ 
+     if (state == WINED3D_RS_POINTSIZE && value == WINED3D_RESZ_CODE)
+     {
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index b9ee420..507957d 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2547,6 +2547,8 @@ void wined3d_cs_emit_set_index_buffer(struct wined3d_cs *cs, struct wined3d_buff
+ void wined3d_cs_emit_set_texture(struct wined3d_cs *cs, UINT stage, struct wined3d_texture *texture) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_vertex_shader(struct wined3d_cs *cs, struct wined3d_shader *shader) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_pixel_shader(struct wined3d_cs *cs, struct wined3d_shader *shader) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_set_render_state(struct wined3d_cs *cs, enum wined3d_render_state state,
++        DWORD value) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

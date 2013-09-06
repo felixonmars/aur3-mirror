@@ -1,0 +1,116 @@
+From c3ee5ae42a6d654b26fe858405d87f58d77d7a83 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Thu, 1 Aug 2013 00:15:58 +0200
+Subject: [PATCH 105/127] wined3d: Send surface preloads through the CS
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/cs.c              | 31 +++++++++++++++++++++++++++++++
+ dlls/wined3d/surface.c         |  8 +++-----
+ dlls/wined3d/wined3d_private.h |  1 +
+ 3 files changed, 35 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 0237362..6fbcf69 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -79,6 +79,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_SHADER_CLEANUP,
+     WINED3D_CS_OP_UPDATE_SURFACE,
+     WINED3D_CS_OP_TEXTURE_PRELOAD,
++    WINED3D_CS_OP_SURFACE_PRELOAD,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -418,6 +419,12 @@ struct wined3d_cs_texture_preload
+     struct wined3d_texture *texture;
+ };
+ 
++struct wined3d_cs_surface_preload
++{
++    enum wined3d_cs_op opcode;
++    struct wined3d_surface *surface;
++};
++
+ static void wined3d_cs_mt_submit(struct wined3d_cs *cs, size_t size)
+ {
+     LONG new_val = (cs->queue.head + size) & (WINED3D_CS_QUEUE_SIZE - 1);
+@@ -2090,6 +2097,29 @@ void wined3d_cs_emit_texture_preload(struct wined3d_cs *cs, struct wined3d_textu
+     cs->ops->submit(cs, sizeof(*op));
+ }
+ 
++static UINT wined3d_cs_exec_surface_preload(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_surface_preload *op = data;
++    struct wined3d_context *context;
++
++    context = context_acquire(cs->device, NULL);
++    surface_internal_preload(op->surface, context, SRGB_ANY);
++    context_release(context);
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_surface_preload(struct wined3d_cs *cs, struct wined3d_surface *surface)
++{
++    struct wined3d_cs_surface_preload *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_SURFACE_PRELOAD;
++    op->surface = surface;
++
++    cs->ops->submit(cs, sizeof(*op));
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_NOP                    */ wined3d_cs_exec_nop,
+@@ -2148,6 +2178,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_SHADER_CLEANUP         */ wined3d_cs_exec_shader_cleanup,
+     /* WINED3D_CS_OP_UPDATE_SURFACE         */ wined3d_cs_exec_update_surface,
+     /* WINED3D_CS_OP_TEXTURE_PRELOAD        */ wined3d_cs_exec_texture_preload,
++    /* WINED3D_CS_OP_SURFACE_PRELOAD        */ wined3d_cs_exec_surface_preload,
+ };
+ 
+ static inline void *_wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size, BOOL prio)
+diff --git a/dlls/wined3d/surface.c b/dlls/wined3d/surface.c
+index b9241e0..9e668fb 100644
+--- a/dlls/wined3d/surface.c
++++ b/dlls/wined3d/surface.c
+@@ -3054,18 +3054,16 @@ DWORD CDECL wined3d_surface_get_priority(const struct wined3d_surface *surface)
+ 
+ void CDECL wined3d_surface_preload(struct wined3d_surface *surface)
+ {
+-    struct wined3d_context *context;
++    const struct wined3d_device *device = surface->resource.device;
+     TRACE("surface %p.\n", surface);
+ 
+-    if (!surface->resource.device->d3d_initialized)
++    if (!device->d3d_initialized)
+     {
+         ERR("D3D not initialized.\n");
+         return;
+     }
+ 
+-    context = context_acquire(surface->resource.device, NULL);
+-    surface_internal_preload(surface, context, SRGB_ANY);
+-    context_release(context);
++    wined3d_cs_emit_surface_preload(device->cs, surface);
+ }
+ 
+ void * CDECL wined3d_surface_get_parent(const struct wined3d_surface *surface)
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index bbf76c7..9347ba3 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2607,6 +2607,7 @@ void wined3d_cs_emit_shader_cleanup(struct wined3d_cs *cs, struct wined3d_shader
+ void wined3d_cs_emit_update_surface(struct wined3d_cs *cs, struct wined3d_surface *src,
+         const RECT *src_rect, struct wined3d_surface *dst, const POINT *dst_point) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_texture_preload(struct wined3d_cs *cs, struct wined3d_texture *texture) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_surface_preload(struct wined3d_cs *cs, struct wined3d_surface *surface) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

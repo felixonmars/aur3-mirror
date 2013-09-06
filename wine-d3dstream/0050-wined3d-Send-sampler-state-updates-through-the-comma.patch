@@ -1,0 +1,126 @@
+From 63bd81375a4d047af2f13b72a24ccb3389e246ee Mon Sep 17 00:00:00 2001
+From: Henri Verbeet <hverbeet@codeweavers.com>
+Date: Sat, 8 Dec 2012 19:29:00 +0100
+Subject: [PATCH 050/127] wined3d: Send sampler state updates through the
+ command stream.
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/cs.c              | 38 ++++++++++++++++++++++++++++++++++----
+ dlls/wined3d/device.c          |  2 +-
+ dlls/wined3d/wined3d_private.h |  2 ++
+ 3 files changed, 37 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 5174875..c2815d3 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -45,6 +45,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_SET_PIXEL_SHADER,
+     WINED3D_CS_OP_SET_RENDER_STATE,
+     WINED3D_CS_OP_SET_TEXTURE_STATE,
++    WINED3D_CS_OP_SET_SAMPLER_STATE,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -201,6 +202,14 @@ struct wined3d_cs_set_texture_state
+     DWORD value;
+ };
+ 
++struct wined3d_cs_set_sampler_state
++{
++    enum wined3d_cs_op opcode;
++    UINT sampler_idx;
++    enum wined3d_sampler_state state;
++    DWORD value;
++};
++
+ static CRITICAL_SECTION wined3d_cs_list_mutex;
+ static CRITICAL_SECTION_DEBUG wined3d_cs_list_mutex_debug =
+ {
+@@ -442,8 +451,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
+     memcpy(cs->state.ps_consts_b, op->state.ps_consts_b, sizeof(cs->state.ps_consts_b));
+     memcpy(cs->state.ps_consts_i, op->state.ps_consts_i, sizeof(cs->state.ps_consts_i));
+ 
+-    memcpy(cs->state.sampler_states, op->state.sampler_states, sizeof(cs->state.sampler_states));
+-
+     memcpy(cs->state.transforms, op->state.transforms, sizeof(cs->state.transforms));
+     memcpy(cs->state.clip_planes, op->state.clip_planes, sizeof(cs->state.clip_planes));
+     cs->state.material = op->state.material;
+@@ -481,8 +488,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
+     memcpy(op->state.ps_consts_b, state->ps_consts_b, sizeof(op->state.ps_consts_b));
+     memcpy(op->state.ps_consts_i, state->ps_consts_i, sizeof(op->state.ps_consts_i));
+ 
+-    memcpy(op->state.sampler_states, state->sampler_states, sizeof(op->state.sampler_states));
+-
+     memcpy(op->state.transforms, state->transforms, sizeof(op->state.transforms));
+     memcpy(op->state.clip_planes, state->clip_planes, sizeof(op->state.clip_planes));
+     op->state.material = state->material;
+@@ -1048,6 +1053,30 @@ void wined3d_cs_emit_set_texture_state(struct wined3d_cs *cs, UINT stage,
+     cs->ops->submit(cs);
+ }
+ 
++static UINT wined3d_cs_exec_set_sampler_state(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_set_sampler_state *op = data;
++
++    cs->state.sampler_states[op->sampler_idx][op->state] = op->value;
++    device_invalidate_state(cs->device, STATE_SAMPLER(op->sampler_idx));
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_set_sampler_state(struct wined3d_cs *cs, UINT sampler_idx,
++        enum wined3d_sampler_state state, DWORD value)
++{
++    struct wined3d_cs_set_sampler_state *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_SET_SAMPLER_STATE;
++    op->sampler_idx = sampler_idx;
++    op->state = state;
++    op->value = value;
++
++    cs->ops->submit(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+@@ -1072,6 +1101,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_SET_PIXEL_SHADER       */ wined3d_cs_exec_set_pixel_shader,
+     /* WINED3D_CS_OP_SET_RENDER_STATE       */ wined3d_cs_exec_set_render_state,
+     /* WINED3D_CS_OP_SET_TEXTURE_STATE      */ wined3d_cs_exec_set_texture_state,
++    /* WINED3D_CS_OP_SET_SAMPLER_STATE      */ wined3d_cs_exec_set_sampler_state,
+ };
+ 
+ static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 4b4b57f..08049bc 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -1961,7 +1961,7 @@ void CDECL wined3d_device_set_sampler_state(struct wined3d_device *device,
+         return;
+     }
+ 
+-    device_invalidate_state(device, STATE_SAMPLER(sampler_idx));
++    wined3d_cs_emit_set_sampler_state(device->cs, sampler_idx, state, value);
+ }
+ 
+ DWORD CDECL wined3d_device_get_sampler_state(const struct wined3d_device *device,
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 2749856..90ab9ad 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2551,6 +2551,8 @@ void wined3d_cs_emit_set_render_state(struct wined3d_cs *cs, enum wined3d_render
+         DWORD value) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_texture_state(struct wined3d_cs *cs, UINT stage,
+         enum wined3d_texture_stage_state state, DWORD value) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_set_sampler_state(struct wined3d_cs *cs, UINT sampler_idx,
++        enum wined3d_sampler_state state, DWORD value) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

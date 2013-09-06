@@ -1,0 +1,188 @@
+From 6f3a820f89beb6289a11a60efd07a086349e1fc7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Fri, 5 Apr 2013 13:59:56 +0200
+Subject: [PATCH 039/127] wined3d: Set depth stencil binding updates through
+ the command stream
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/cs.c              | 64 +++++++++++++++++++++++++++++++++++++++---
+ dlls/wined3d/device.c          | 31 ++------------------
+ dlls/wined3d/wined3d_private.h |  2 ++
+ 3 files changed, 64 insertions(+), 33 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index aabd5c1..39532e9 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -35,6 +35,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_GLFINISH,
+     WINED3D_CS_OP_SET_VIEWPORT,
+     WINED3D_CS_OP_SET_SCISSOR_RECT,
++    WINED3D_CS_OP_SET_DEPTH_STENCIL,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -127,6 +128,12 @@ struct wined3d_cs_set_scissor_rect
+     RECT rect;
+ };
+ 
++struct wined3d_cs_set_depth_stencil
++{
++    enum wined3d_cs_op opcode;
++    struct wined3d_surface *depth_stencil;
++};
++
+ static CRITICAL_SECTION wined3d_cs_list_mutex;
+ static CRITICAL_SECTION_DEBUG wined3d_cs_list_mutex_debug =
+ {
+@@ -349,8 +356,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
+ 
+     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
+      * ops for setting states */
+-    cs->state.fb.depth_stencil = op->state.fb.depth_stencil;
+-
+     cs->state.vertex_declaration = op->state.vertex_declaration;
+     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
+     memcpy(cs->state.streams, op->state.streams, sizeof(cs->state.streams));
+@@ -401,8 +406,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
+ 
+     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
+      * ops for setting states */
+-    op->state.fb.depth_stencil = state->fb.depth_stencil;
+-
+     op->state.vertex_declaration = state->vertex_declaration;
+     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
+     memcpy(op->state.streams, state->streams, sizeof(op->state.streams));
+@@ -612,6 +615,58 @@ void wined3d_cs_emit_set_scissor_rect(struct wined3d_cs *cs, const RECT *rect)
+     cs->ops->submit(cs);
+ }
+ 
++static UINT wined3d_cs_exec_set_depth_stencil(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_set_depth_stencil *op = data;
++    struct wined3d_surface *prev = cs->state.fb.depth_stencil;
++    struct wined3d_device *device = cs->device;
++
++    if (prev)
++    {
++        if (device->swapchains[0]->desc.flags & WINED3DPRESENTFLAG_DISCARD_DEPTHSTENCIL
++                || prev->flags & SFLAG_DISCARD)
++        {
++            surface_modify_ds_location(prev, SFLAG_DISCARDED,
++                    prev->resource.width, prev->resource.height);
++            if (prev == device->onscreen_depth_stencil)
++            {
++                wined3d_surface_decref(device->onscreen_depth_stencil);
++                device->onscreen_depth_stencil = NULL;
++            }
++        }
++    }
++
++    cs->state.fb.depth_stencil = op->depth_stencil;
++
++    if (!prev != !op->depth_stencil)
++    {
++        /* Swapping NULL / non NULL depth stencil affects the depth and tests */
++        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_ZENABLE));
++        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_STENCILENABLE));
++        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_STENCILWRITEMASK));
++        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_DEPTHBIAS));
++    }
++    else if (prev && prev->resource.format->depth_size != op->depth_stencil->resource.format->depth_size)
++    {
++        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_DEPTHBIAS));
++    }
++
++    device_invalidate_state(device, STATE_FRAMEBUFFER);
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_set_depth_stencil(struct wined3d_cs *cs, struct wined3d_surface *depth_stencil)
++{
++    struct wined3d_cs_set_depth_stencil *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_SET_DEPTH_STENCIL;
++    op->depth_stencil = depth_stencil;
++
++    cs->ops->submit(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+@@ -626,6 +681,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_GLFINISH               */ wined3d_cs_exec_glfinish,
+     /* WINED3D_CS_OP_SET_VIEWPORT           */ wined3d_cs_exec_set_viewport,
+     /* WINED3D_CS_OP_SET_SCISSOR_RECT       */ wined3d_cs_exec_set_scissor_rect,
++    /* WINED3D_CS_OP_SET_DEPTH_STENCIL      */ wined3d_cs_exec_set_depth_stencil,
+ };
+ 
+ static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index d809940..6ca9e7c 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -4091,42 +4091,15 @@ void CDECL wined3d_device_set_depth_stencil(struct wined3d_device *device, struc
+         return;
+     }
+ 
+-    if (prev)
+-    {
+-        if (device->swapchains[0]->desc.flags & WINED3DPRESENTFLAG_DISCARD_DEPTHSTENCIL
+-                || prev->flags & SFLAG_DISCARD)
+-        {
+-            surface_modify_ds_location(prev, SFLAG_DISCARDED,
+-                    prev->resource.width, prev->resource.height);
+-            if (prev == device->onscreen_depth_stencil)
+-            {
+-                wined3d_surface_decref(device->onscreen_depth_stencil);
+-                device->onscreen_depth_stencil = NULL;
+-            }
+-        }
+-    }
+-
+     fb->depth_stencil = depth_stencil;
+     if (depth_stencil)
+         wined3d_surface_incref(depth_stencil);
+ 
+-    if (!prev != !depth_stencil)
+-    {
+-        /* Swapping NULL / non NULL depth stencil affects the depth and tests */
+-        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_ZENABLE));
+-        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_STENCILENABLE));
+-        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_STENCILWRITEMASK));
+-        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_DEPTHBIAS));
+-    }
+-    else if (prev && prev->resource.format->depth_size != depth_stencil->resource.format->depth_size)
+-    {
+-        device_invalidate_state(device, STATE_RENDER(WINED3D_RS_DEPTHBIAS));
+-    }
++    wined3d_cs_emit_set_depth_stencil(device->cs, depth_stencil);
++
+     if (prev)
+         wined3d_surface_decref(prev);
+ 
+-    device_invalidate_state(device, STATE_FRAMEBUFFER);
+-
+     return;
+ }
+ 
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index ab0f78b..9ca3448 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2537,6 +2537,8 @@ void wined3d_cs_emit_glfinish(struct wined3d_cs *cs) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_viewport(struct wined3d_cs *cs,
+         const struct wined3d_viewport *vp) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_scissor_rect(struct wined3d_cs *cs, const RECT *rect) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_set_depth_stencil(struct wined3d_cs *cs,
++        struct wined3d_surface *depth_stencil) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

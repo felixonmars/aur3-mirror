@@ -1,0 +1,268 @@
+From 83c0888722717774d2c899ae9443fd195450f95c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Tue, 2 Apr 2013 17:25:19 +0200
+Subject: [PATCH 023/127] wined3d: Pass the state to draw_primitive
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/buffer.c          |  6 +++---
+ dlls/wined3d/context.c         |  8 ++++----
+ dlls/wined3d/cs.c              |  2 +-
+ dlls/wined3d/directx.c         |  2 +-
+ dlls/wined3d/drawprim.c        | 25 ++++++++++++-------------
+ dlls/wined3d/state.c           |  4 ++--
+ dlls/wined3d/utils.c           |  2 +-
+ dlls/wined3d/wined3d_private.h |  8 +++++---
+ 8 files changed, 29 insertions(+), 28 deletions(-)
+
+diff --git a/dlls/wined3d/buffer.c b/dlls/wined3d/buffer.c
+index 3ca547b..ce03fda 100644
+--- a/dlls/wined3d/buffer.c
++++ b/dlls/wined3d/buffer.c
+@@ -431,7 +431,7 @@ static inline void fixup_d3dcolor(DWORD *dst_color)
+ {
+     DWORD src_color = *dst_color;
+ 
+-    /* Color conversion like in drawStridedSlow. watch out for little endianity
++    /* Color conversion like in draw_strided_slow. watch out for little endianity
+      * If we want that stuff to work on big endian machines too we have to consider more things
+      *
+      * 0xff000000: Alpha mask
+@@ -1167,11 +1167,11 @@ static HRESULT buffer_init(struct wined3d_buffer *buffer, struct wined3d_device
+ 
+     dynamic_buffer_ok = gl_info->supported[APPLE_FLUSH_BUFFER_RANGE] || gl_info->supported[ARB_MAP_BUFFER_RANGE];
+ 
+-    /* Observations show that drawStridedSlow is faster on dynamic VBs than converting +
++    /* Observations show that draw_strided_slow is faster on dynamic VBs than converting +
+      * drawStridedFast (half-life 2 and others).
+      *
+      * Basically converting the vertices in the buffer is quite expensive, and observations
+-     * show that drawStridedSlow is faster than converting + uploading + drawStridedFast.
++     * show that draw_strided_slow is faster than converting + uploading + drawStridedFast.
+      * Therefore do not create a VBO for WINED3DUSAGE_DYNAMIC buffers.
+      */
+     if (!gl_info->supported[ARB_VERTEX_BUFFER_OBJECT])
+diff --git a/dlls/wined3d/context.c b/dlls/wined3d/context.c
+index 864a0c7..861b812 100644
+--- a/dlls/wined3d/context.c
++++ b/dlls/wined3d/context.c
+@@ -2662,7 +2662,7 @@ void context_stream_info_from_declaration(struct wined3d_context *context,
+          * (or rather offsets bigger than the vbo, because the pointer is unsigned), so use system memory
+          * sources. In most sane cases the pointer - offset will still be > 0, otherwise it will wrap
+          * around to some big value. Hope that with the indices, the driver wraps it back internally. If
+-         * not, drawStridedSlow is needed, including a vertex buffer path. */
++         * not, draw_strided_slow is needed, including a vertex buffer path. */
+         if (state->load_base_vertex_index < 0)
+         {
+             WARN_(d3d_perf)("load_base_vertex_index is < 0 (%d), not using VBOs.\n",
+@@ -2777,7 +2777,7 @@ static void context_update_stream_info(struct wined3d_context *context, const st
+     {
+         if (state->vertex_declaration->half_float_conv_needed && !stream_info->all_vbo)
+         {
+-            TRACE("Using drawStridedSlow with vertex shaders for FLOAT16 conversion.\n");
++            TRACE("Using draw_strided_slow with vertex shaders for FLOAT16 conversion.\n");
+             context->use_draw_strided_slow = TRUE;
+         }
+         else
+@@ -2849,9 +2849,9 @@ static void context_preload_textures(struct wined3d_context *context, const stru
+ }
+ 
+ /* Context activation is done by the caller. */
+-BOOL context_apply_draw_state(struct wined3d_context *context, struct wined3d_device *device)
++BOOL context_apply_draw_state(struct wined3d_context *context, const struct wined3d_device *device,
++        const struct wined3d_state *state)
+ {
+-    const struct wined3d_state *state = &device->state;
+     const struct StateEntry *state_table = context->state_table;
+     const struct wined3d_fb_state *fb = &state->fb;
+     unsigned int i;
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 5e5fc65..3032e3f 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -270,7 +270,7 @@ static UINT wined3d_cs_exec_draw(struct wined3d_cs *cs, const void *data)
+ {
+     const struct wined3d_cs_draw *op = data;
+ 
+-    draw_primitive(cs->device, op->start_idx, op->index_count,
++    draw_primitive(cs->device, &cs->device->state, op->start_idx, op->index_count,
+             op->start_instance, op->instance_count, op->indexed);
+ 
+     return sizeof(*op);
+diff --git a/dlls/wined3d/directx.c b/dlls/wined3d/directx.c
+index 570299b3..cb98a17 100644
+--- a/dlls/wined3d/directx.c
++++ b/dlls/wined3d/directx.c
+@@ -4720,7 +4720,7 @@ static void WINE_GLAPI invalid_texcoord_func(GLenum unit, const void *data)
+ }
+ 
+ /* Helper functions for providing vertex data to opengl. The arrays are initialized based on
+- * the extension detection and are used in drawStridedSlow
++ * the extension detection and are used in draw_strided_slow
+  */
+ static void WINE_GLAPI position_d3dcolor(const void *data)
+ {
+diff --git a/dlls/wined3d/drawprim.c b/dlls/wined3d/drawprim.c
+index 1ff9763..76d1105 100644
+--- a/dlls/wined3d/drawprim.c
++++ b/dlls/wined3d/drawprim.c
+@@ -36,7 +36,7 @@ WINE_DECLARE_DEBUG_CHANNEL(d3d_perf);
+ #include <math.h>
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedFast(const struct wined3d_gl_info *gl_info, GLenum primitive_type, UINT count, UINT idx_size,
++static void draw_strided_fast(const struct wined3d_gl_info *gl_info, GLenum primitive_type, UINT count, UINT idx_size,
+         const void *idx_data, UINT start_idx, INT base_vertex_index, UINT start_instance, UINT instance_count)
+ {
+     if (idx_size)
+@@ -83,7 +83,7 @@ static void drawStridedFast(const struct wined3d_gl_info *gl_info, GLenum primit
+  */
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedSlow(const struct wined3d_device *device, struct wined3d_context *context,
++static void draw_strided_slow(const struct wined3d_state *state, struct wined3d_context *context,
+         const struct wined3d_stream_info *si, UINT NumVertexes, GLenum glPrimType,
+         const void *idxData, UINT idxSize, UINT startIdx)
+ {
+@@ -91,7 +91,6 @@ static void drawStridedSlow(const struct wined3d_device *device, struct wined3d_
+     const WORD                *pIdxBufS     = NULL;
+     const DWORD               *pIdxBufL     = NULL;
+     UINT vx_index;
+-    const struct wined3d_state *state = &device->state;
+     LONG SkipnStrides = startIdx;
+     BOOL pixelShader = use_ps(state);
+     BOOL specular_fog = FALSE;
+@@ -441,7 +440,7 @@ static inline void send_attribute(const struct wined3d_gl_info *gl_info,
+ }
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedSlowVs(struct wined3d_context *context, const struct wined3d_state *state,
++static void draw_strided_slow_vs(struct wined3d_context *context, const struct wined3d_state *state,
+         const struct wined3d_stream_info *si, UINT numberOfVertices, GLenum glPrimitiveType,
+         const void *idxData, UINT idxSize, UINT startIdx)
+ {
+@@ -498,7 +497,7 @@ static void drawStridedSlowVs(struct wined3d_context *context, const struct wine
+ }
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedInstanced(struct wined3d_context *context, const struct wined3d_state *state,
++static void draw_strided_instanced(struct wined3d_context *context, const struct wined3d_state *state,
+         const struct wined3d_stream_info *si, UINT numberOfVertices, GLenum glPrimitiveType,
+         const void *idxData, UINT idxSize, UINT startIdx, UINT base_vertex_index, UINT instance_count)
+ {
+@@ -583,10 +582,10 @@ static void remove_vbos(struct wined3d_context *context,
+ }
+ 
+ /* Routine common to the draw primitive and draw indexed primitive routines */
+-void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_count,
+-        UINT start_instance, UINT instance_count, BOOL indexed)
++void draw_primitive(struct wined3d_device *device, const struct wined3d_state *state,
++        UINT start_idx, UINT index_count, UINT start_instance, UINT instance_count,
++        BOOL indexed)
+ {
+-    const struct wined3d_state *state = &device->state;
+     const struct wined3d_stream_info *stream_info;
+     struct wined3d_event_query *ib_query = NULL;
+     struct wined3d_stream_info si_emulated;
+@@ -651,7 +650,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+         }
+     }
+ 
+-    if (!context_apply_draw_state(context, device))
++    if (!context_apply_draw_state(context, device, state))
+     {
+         context_release(context);
+         WARN("Unable to apply draw state, skipping draw.\n");
+@@ -743,24 +742,24 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+             else
+                 WARN_(d3d_perf)("Using immediate mode with vertex shaders for half float emulation.\n");
+ 
+-            drawStridedSlowVs(context, state, stream_info, index_count,
++            draw_strided_slow_vs(context, state, stream_info, index_count,
+                     state->gl_primitive_type, idx_data, idx_size, start_idx);
+         }
+         else
+         {
+-            drawStridedSlow(device, context, stream_info, index_count,
++            draw_strided_slow(state, context, stream_info, index_count,
+                     state->gl_primitive_type, idx_data, idx_size, start_idx);
+         }
+     }
+     else if (!gl_info->supported[ARB_INSTANCED_ARRAYS] && instance_count)
+     {
+         /* Instancing emulation by mixing immediate mode and arrays. */
+-        drawStridedInstanced(context, state, stream_info, index_count, state->gl_primitive_type,
++        draw_strided_instanced(context, state, stream_info, index_count, state->gl_primitive_type,
+                 idx_data, idx_size, start_idx, state->base_vertex_index, instance_count);
+     }
+     else
+     {
+-        drawStridedFast(gl_info, state->gl_primitive_type, index_count, idx_size, idx_data,
++        draw_strided_fast(gl_info, state->gl_primitive_type, index_count, idx_size, idx_data,
+                 start_idx, state->base_vertex_index, start_instance, instance_count);
+     }
+ 
+diff --git a/dlls/wined3d/state.c b/dlls/wined3d/state.c
+index 7fa590e..b256b19 100644
+--- a/dlls/wined3d/state.c
++++ b/dlls/wined3d/state.c
+@@ -1175,7 +1175,7 @@ void state_fog_fragpart(struct wined3d_context *context, const struct wined3d_st
+ 
+                 case WINED3D_FOG_NONE:
+                     /* Both are none? According to msdn the alpha channel of the specular
+-                     * color contains a fog factor. Set it in drawStridedSlow.
++                     * color contains a fog factor. Set it in draw_strided_slow.
+                      * Same happens with Vertexfog on transformed vertices
+                      */
+                     new_source = FOGSOURCE_COORD;
+@@ -4287,7 +4287,7 @@ static void load_vertex_data(struct wined3d_context *context,
+                 }
+             }
+         } else {
+-            /* TODO: support blends in drawStridedSlow
++            /* TODO: support blends in draw_strided_slow
+              * No need to write a FIXME here, this is done after the general vertex decl decoding
+              */
+             WARN("unsupported blending in openGl\n");
+diff --git a/dlls/wined3d/utils.c b/dlls/wined3d/utils.c
+index 88b96ea..6fc1144 100644
+--- a/dlls/wined3d/utils.c
++++ b/dlls/wined3d/utils.c
+@@ -2846,7 +2846,7 @@ void set_texture_matrix(const struct wined3d_gl_info *gl_info, const float *smat
+                 * check for pixel shaders, and the shader has to undo the default gl divide.
+                 *
+                 * A more serious problem occurs if the app passes 4 coordinates in, and the
+-                * 4th is != 1.0(opengl default). This would have to be fixed in drawStridedSlow
++                * 4th is != 1.0(opengl default). This would have to be fixed in draw_strided_slow
+                 * or a replacement shader. */
+                 default:
+                     mat[3] = mat[7] = mat[11] = 0; mat[15] = 1;
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 9b3e767..2f68ba9 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -934,8 +934,9 @@ struct wined3d_stream_info
+     WORD use_map; /* MAX_ATTRIBS, 16 */
+ };
+ 
+-void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_count,
+-        UINT start_instance, UINT instance_count, BOOL indexed) DECLSPEC_HIDDEN;
++void draw_primitive(struct wined3d_device *device, const struct wined3d_state *state,
++        UINT start_idx, UINT index_count, UINT start_instance, UINT instance_count,
++        BOOL indexed) DECLSPEC_HIDDEN;
+ DWORD get_flexible_vertex_size(DWORD d3dvtVertexType) DECLSPEC_HIDDEN;
+ 
+ #define eps 1e-8
+@@ -1310,7 +1311,8 @@ void context_alloc_occlusion_query(struct wined3d_context *context,
+ void context_apply_blit_state(struct wined3d_context *context, const struct wined3d_device *device) DECLSPEC_HIDDEN;
+ BOOL context_apply_clear_state(struct wined3d_context *context, const struct wined3d_device *device,
+         UINT rt_count, const struct wined3d_fb_state *fb) DECLSPEC_HIDDEN;
+-BOOL context_apply_draw_state(struct wined3d_context *context, struct wined3d_device *device) DECLSPEC_HIDDEN;
++BOOL context_apply_draw_state(struct wined3d_context *context, const struct wined3d_device *device,
++        const struct wined3d_state *state) DECLSPEC_HIDDEN;
+ void context_apply_fbo_state_blit(struct wined3d_context *context, GLenum target,
+         struct wined3d_surface *render_target, struct wined3d_surface *depth_stencil, DWORD location) DECLSPEC_HIDDEN;
+ void context_active_texture(struct wined3d_context *context, const struct wined3d_gl_info *gl_info,
+-- 
+1.8.1.5
+

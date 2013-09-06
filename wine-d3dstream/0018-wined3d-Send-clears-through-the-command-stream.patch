@@ -1,0 +1,161 @@
+From 2bd5318a9ee04ae255beb07847fd3185f2fa192e Mon Sep 17 00:00:00 2001
+From: Henri Verbeet <hverbeet@codeweavers.com>
+Date: Sat, 8 Dec 2012 19:28:55 +0100
+Subject: [PATCH 018/127] wined3d: Send clears through the command stream.
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/cs.c              | 48 +++++++++++++++++++++++++++++++++++++++++-
+ dlls/wined3d/device.c          |  7 ++----
+ dlls/wined3d/wined3d_private.h |  5 ++++-
+ 3 files changed, 53 insertions(+), 7 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 59fe268..d6ee7f7 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -25,6 +25,7 @@ enum wined3d_cs_op
+ {
+     WINED3D_CS_OP_FENCE,
+     WINED3D_CS_OP_PRESENT,
++    WINED3D_CS_OP_CLEAR,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -53,6 +54,17 @@ struct wined3d_cs_present
+     DWORD flags;
+ };
+ 
++struct wined3d_cs_clear
++{
++    enum wined3d_cs_op opcode;
++    DWORD rect_count;
++    const RECT *rects;
++    DWORD flags;
++    const struct wined3d_color *color;
++    float depth;
++    DWORD stencil;
++};
++
+ static CRITICAL_SECTION wined3d_cs_list_mutex;
+ static CRITICAL_SECTION_DEBUG wined3d_cs_list_mutex_debug =
+ {
+@@ -191,10 +203,43 @@ void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *sw
+     cs->ops->submit(cs);
+ }
+ 
++static UINT wined3d_cs_exec_clear(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_clear *op = data;
++    struct wined3d_device *device = cs->device;
++    const struct wined3d_fb_state *fb = &device->state.fb;
++    RECT draw_rect;
++
++    wined3d_get_draw_rect(&device->state, &draw_rect);
++    device_clear_render_targets(device, device->adapter->gl_info.limits.buffers,
++            fb, op->rect_count, op->rects, &draw_rect, op->flags,
++            op->color, op->depth, op->stencil);
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_clear(struct wined3d_cs *cs, DWORD rect_count, const RECT *rects,
++        DWORD flags, const struct wined3d_color *color, float depth, DWORD stencil)
++{
++    struct wined3d_cs_clear *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_CLEAR;
++    op->rect_count = rect_count;
++    op->rects = rects;
++    op->flags = flags;
++    op->color = color;
++    op->depth = depth;
++    op->stencil = stencil;
++
++    cs->ops->submit(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+     /* WINED3D_CS_OP_PRESENT                */ wined3d_cs_exec_present,
++    /* WINED3D_CS_OP_CLEAR                  */ wined3d_cs_exec_clear,
+ };
+ 
+ static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
+@@ -336,7 +381,7 @@ done:
+ /* We could also create a single thread for all of wined3d, instead of one for
+  * each device, at the cost of some extra overhead for each block. I'm not
+  * sure that we'd gain anything from that though. */
+-struct wined3d_cs *wined3d_cs_create(void)
++struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device)
+ {
+     struct wined3d_cs *cs;
+     DWORD ret;
+@@ -374,6 +419,7 @@ struct wined3d_cs *wined3d_cs_create(void)
+     {
+         cs->ops = &wined3d_cs_st_ops;
+     }
++    cs->device = device;
+ 
+     return cs;
+ }
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index e2d2b14..87220d1 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -3451,7 +3451,6 @@ HRESULT CDECL wined3d_device_present(const struct wined3d_device *device, const
+ HRESULT CDECL wined3d_device_clear(struct wined3d_device *device, DWORD rect_count,
+         const RECT *rects, DWORD flags, const struct wined3d_color *color, float depth, DWORD stencil)
+ {
+-    RECT draw_rect;
+     const struct wined3d_fb_state *fb = &device->state.fb;
+ 
+     TRACE("device %p, rect_count %u, rects %p, flags %#x, color {%.8e, %.8e, %.8e, %.8e}, depth %.8e, stencil %u.\n",
+@@ -3483,9 +3482,7 @@ HRESULT CDECL wined3d_device_clear(struct wined3d_device *device, DWORD rect_cou
+         }
+     }
+ 
+-    wined3d_get_draw_rect(&device->state, &draw_rect);
+-    device_clear_render_targets(device, device->adapter->gl_info.limits.buffers,
+-            fb, rect_count, rects, &draw_rect, flags, color, depth, stencil);
++    wined3d_cs_emit_clear(device->cs, rect_count, rects, flags, color, depth, stencil);
+ 
+     return WINED3D_OK;
+ }
+@@ -5005,7 +5002,7 @@ HRESULT device_init(struct wined3d_device *device, struct wined3d *wined3d,
+     }
+     device->update_state = &device->state;
+ 
+-    if (!(device->cs = wined3d_cs_create()))
++    if (!(device->cs = wined3d_cs_create(device)))
+     {
+         WARN("Failed to create command stream.\n");
+         state_cleanup(&device->state);
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index a7ea5a7..46c7c00 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2506,14 +2506,17 @@ struct wined3d_cs
+ #if 0
+     UINT present_idx;
+ #endif
++    struct wined3d_device *device;
+ };
+ 
+-struct wined3d_cs *wined3d_cs_create(void) DECLSPEC_HIDDEN;
++struct wined3d_cs *wined3d_cs_create(struct wined3d_device *device) DECLSPEC_HIDDEN;
+ void wined3d_cs_destroy(struct wined3d_cs *cs) DECLSPEC_HIDDEN;
+ 
+ void wined3d_cs_emit_present(struct wined3d_cs *cs, struct wined3d_swapchain *swapchain,
+         const RECT *src_rect, const RECT *dst_rect, HWND dst_window_override,
+         const RGNDATA *dirty_region, DWORD flags) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_clear(struct wined3d_cs *cs, DWORD rect_count, const RECT *rects,
++        DWORD flags, const struct wined3d_color *color, float depth, DWORD stencil) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

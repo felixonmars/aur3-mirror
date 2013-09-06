@@ -1,0 +1,252 @@
+From a9d00e584ddc887b6a313741dcf6b3e1da4844e5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Mon, 17 Dec 2012 17:59:51 +0100
+Subject: [PATCH 002/127] wined3d: Don't mess with the device in
+ buffer_get_sysmem
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/buffer.c          | 12 +++++++-----
+ dlls/wined3d/context.c         |  2 +-
+ dlls/wined3d/device.c          |  6 +++---
+ dlls/wined3d/drawprim.c        | 24 +++++++++++++-----------
+ dlls/wined3d/state.c           |  2 +-
+ dlls/wined3d/wined3d_private.h |  2 +-
+ 6 files changed, 26 insertions(+), 22 deletions(-)
+
+diff --git a/dlls/wined3d/buffer.c b/dlls/wined3d/buffer.c
+index 83d59c9..36200b6 100644
+--- a/dlls/wined3d/buffer.c
++++ b/dlls/wined3d/buffer.c
+@@ -496,8 +496,10 @@ ULONG CDECL wined3d_buffer_incref(struct wined3d_buffer *buffer)
+ }
+ 
+ /* Context activation is done by the caller. */
+-BYTE *buffer_get_sysmem(struct wined3d_buffer *This, const struct wined3d_gl_info *gl_info)
++BYTE *buffer_get_sysmem(struct wined3d_buffer *This, struct wined3d_context *context)
+ {
++    const struct wined3d_gl_info *gl_info = context->gl_info;
++
+     /* AllocatedMemory exists if the buffer is double buffered or has no buffer object at all */
+     if(This->resource.allocatedMemory) return This->resource.allocatedMemory;
+ 
+@@ -505,7 +507,7 @@ BYTE *buffer_get_sysmem(struct wined3d_buffer *This, const struct wined3d_gl_inf
+     This->resource.allocatedMemory = This->resource.heap_memory;
+ 
+     if (This->buffer_type_hint == GL_ELEMENT_ARRAY_BUFFER_ARB)
+-        device_invalidate_state(This->resource.device, STATE_INDEXBUFFER);
++        context_invalidate_state(context, STATE_INDEXBUFFER);
+ 
+     GL_EXTCALL(glBindBufferARB(This->buffer_type_hint, This->buffer_object));
+     GL_EXTCALL(glGetBufferSubDataARB(This->buffer_type_hint, 0, This->resource.size, This->resource.allocatedMemory));
+@@ -531,7 +533,7 @@ static void buffer_unload(struct wined3d_resource *resource)
+         /* Download the buffer, but don't permanently enable double buffering */
+         if (!(buffer->flags & WINED3D_BUFFER_DOUBLEBUFFER))
+         {
+-            buffer_get_sysmem(buffer, context->gl_info);
++            buffer_get_sysmem(buffer, context);
+             buffer->flags &= ~WINED3D_BUFFER_DOUBLEBUFFER;
+         }
+ 
+@@ -880,7 +882,7 @@ void CDECL wined3d_buffer_preload(struct wined3d_buffer *buffer)
+ 
+     if(!(buffer->flags & WINED3D_BUFFER_DOUBLEBUFFER))
+     {
+-        buffer_get_sysmem(buffer, gl_info);
++        buffer_get_sysmem(buffer, context);
+     }
+ 
+     /* Now for each vertex in the buffer that needs conversion */
+@@ -1013,7 +1015,7 @@ HRESULT CDECL wined3d_buffer_map(struct wined3d_buffer *buffer, UINT offset, UIN
+                     else
+                     {
+                         TRACE("Falling back to doublebuffered operation\n");
+-                        buffer_get_sysmem(buffer, gl_info);
++                        buffer_get_sysmem(buffer, context);
+                     }
+                     TRACE("New pointer is %p.\n", buffer->resource.allocatedMemory);
+                 }
+diff --git a/dlls/wined3d/context.c b/dlls/wined3d/context.c
+index 61d6cb1..d062c22 100644
+--- a/dlls/wined3d/context.c
++++ b/dlls/wined3d/context.c
+@@ -2378,7 +2378,7 @@ BOOL context_apply_draw_state(struct wined3d_context *context, struct wined3d_de
+         if (device->stream_info.all_vbo)
+             wined3d_buffer_preload(state->index_buffer);
+         else
+-            buffer_get_sysmem(state->index_buffer, context->gl_info);
++            buffer_get_sysmem(state->index_buffer, context);
+     }
+ 
+     for (i = 0; i < context->numDirtyEntries; ++i)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 696604e..95e1a61 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -214,7 +214,7 @@ static void device_stream_info_from_declaration(struct wined3d_device *device, s
+         {
+             WARN_(d3d_perf)("load_base_vertex_index is < 0 (%d), not using VBOs.\n", state->load_base_vertex_index);
+             data.buffer_object = 0;
+-            data.addr = buffer_get_sysmem(buffer, context->gl_info);
++            data.addr = buffer_get_sysmem(buffer, context);
+             if ((UINT_PTR)data.addr < -state->load_base_vertex_index * stride)
+                 FIXME("System memory vertex data load offset is negative!\n");
+         }
+@@ -294,7 +294,7 @@ static void device_stream_info_from_declaration(struct wined3d_device *device, s
+         if (buffer->buffer_object != element->data.buffer_object)
+         {
+             element->data.buffer_object = 0;
+-            element->data.addr = buffer_get_sysmem(buffer, &device->adapter->gl_info) + (ptrdiff_t)element->data.addr;
++            element->data.addr = buffer_get_sysmem(buffer, context) + (ptrdiff_t)element->data.addr;
+         }
+ 
+         if (!buffer->buffer_object)
+@@ -3561,7 +3561,7 @@ HRESULT CDECL wined3d_device_process_vertices(struct wined3d_device *device,
+         {
+             struct wined3d_buffer *vb = state->streams[e->stream_idx].buffer;
+             e->data.buffer_object = 0;
+-            e->data.addr = (BYTE *)((ULONG_PTR)e->data.addr + (ULONG_PTR)buffer_get_sysmem(vb, gl_info));
++            e->data.addr = (BYTE *)((ULONG_PTR)e->data.addr + (ULONG_PTR)buffer_get_sysmem(vb, context));
+             GL_EXTCALL(glDeleteBuffersARB(1, &vb->buffer_object));
+             vb->buffer_object = 0;
+         }
+diff --git a/dlls/wined3d/drawprim.c b/dlls/wined3d/drawprim.c
+index 8814ed9..b1901e0 100644
+--- a/dlls/wined3d/drawprim.c
++++ b/dlls/wined3d/drawprim.c
+@@ -83,7 +83,7 @@ static void drawStridedFast(const struct wined3d_gl_info *gl_info, GLenum primit
+  */
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedSlow(const struct wined3d_device *device, const struct wined3d_context *context,
++static void drawStridedSlow(const struct wined3d_device *device, struct wined3d_context *context,
+         const struct wined3d_stream_info *si, UINT NumVertexes, GLenum glPrimType,
+         const void *idxData, UINT idxSize, UINT startIdx)
+ {
+@@ -115,7 +115,7 @@ static void drawStridedSlow(const struct wined3d_device *device, const struct wi
+          * supported or other reason), or with user pointer drawing idxData
+          * will be non-NULL. */
+         if (!idxData)
+-            idxData = buffer_get_sysmem(state->index_buffer, gl_info);
++            idxData = buffer_get_sysmem(state->index_buffer, context);
+ 
+         if (idxSize == 2) pIdxBufS = idxData;
+         else pIdxBufL = idxData;
+@@ -441,10 +441,11 @@ static inline void send_attribute(const struct wined3d_gl_info *gl_info,
+ }
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedSlowVs(const struct wined3d_gl_info *gl_info, const struct wined3d_state *state,
++static void drawStridedSlowVs(struct wined3d_context *context, const struct wined3d_state *state,
+         const struct wined3d_stream_info *si, UINT numberOfVertices, GLenum glPrimitiveType,
+         const void *idxData, UINT idxSize, UINT startIdx)
+ {
++    const struct wined3d_gl_info *gl_info = context->gl_info;
+     LONG SkipnStrides = startIdx + state->load_base_vertex_index;
+     const DWORD *pIdxBufL = NULL;
+     const WORD *pIdxBufS = NULL;
+@@ -459,7 +460,7 @@ static void drawStridedSlowVs(const struct wined3d_gl_info *gl_info, const struc
+          * supported or other reason), or with user pointer drawing idxData
+          * will be non-NULL. */
+         if (!idxData)
+-            idxData = buffer_get_sysmem(state->index_buffer, gl_info);
++            idxData = buffer_get_sysmem(state->index_buffer, context);
+ 
+         if (idxSize == 2) pIdxBufS = idxData;
+         else pIdxBufL = idxData;
+@@ -497,10 +498,11 @@ static void drawStridedSlowVs(const struct wined3d_gl_info *gl_info, const struc
+ }
+ 
+ /* Context activation is done by the caller. */
+-static void drawStridedInstanced(const struct wined3d_gl_info *gl_info, const struct wined3d_state *state,
++static void drawStridedInstanced(struct wined3d_context *context, const struct wined3d_state *state,
+         const struct wined3d_stream_info *si, UINT numberOfVertices, GLenum glPrimitiveType,
+         const void *idxData, UINT idxSize, UINT startIdx, UINT base_vertex_index, UINT instance_count)
+ {
++    const struct wined3d_gl_info *gl_info = context->gl_info;
+     int numInstancedAttribs = 0, j;
+     UINT instancedData[sizeof(si->elements) / sizeof(*si->elements) /* 16 */];
+     GLenum idxtype = idxSize == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+@@ -538,7 +540,7 @@ static void drawStridedInstanced(const struct wined3d_gl_info *gl_info, const st
+             if (si->elements[instancedData[j]].data.buffer_object)
+             {
+                 struct wined3d_buffer *vb = state->streams[si->elements[instancedData[j]].stream_idx].buffer;
+-                ptr += (ULONG_PTR)buffer_get_sysmem(vb, gl_info);
++                ptr += (ULONG_PTR)buffer_get_sysmem(vb, context);
+             }
+ 
+             send_attribute(gl_info, si->elements[instancedData[j]].format->id, instancedData[j], ptr);
+@@ -559,7 +561,7 @@ static void drawStridedInstanced(const struct wined3d_gl_info *gl_info, const st
+     }
+ }
+ 
+-static void remove_vbos(const struct wined3d_gl_info *gl_info,
++static void remove_vbos(struct wined3d_context *context,
+         const struct wined3d_state *state, struct wined3d_stream_info *s)
+ {
+     unsigned int i;
+@@ -575,7 +577,7 @@ static void remove_vbos(const struct wined3d_gl_info *gl_info,
+         {
+             struct wined3d_buffer *vb = state->streams[e->stream_idx].buffer;
+             e->data.buffer_object = 0;
+-            e->data.addr = (BYTE *)((ULONG_PTR)e->data.addr + (ULONG_PTR)buffer_get_sysmem(vb, gl_info));
++            e->data.addr = (BYTE *)((ULONG_PTR)e->data.addr + (ULONG_PTR)buffer_get_sysmem(vb, context));
+         }
+     }
+ }
+@@ -727,7 +729,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+         if (emulation)
+         {
+             si_emulated = device->stream_info;
+-            remove_vbos(gl_info, state, &si_emulated);
++            remove_vbos(context, state, &si_emulated);
+             stream_info = &si_emulated;
+         }
+     }
+@@ -744,7 +746,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+             else
+                 WARN_(d3d_perf)("Using immediate mode with vertex shaders for half float emulation.\n");
+ 
+-            drawStridedSlowVs(gl_info, state, stream_info, index_count,
++            drawStridedSlowVs(context, state, stream_info, index_count,
+                     state->gl_primitive_type, idx_data, idx_size, start_idx);
+         }
+         else
+@@ -756,7 +758,7 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+     else if (!gl_info->supported[ARB_INSTANCED_ARRAYS] && instance_count)
+     {
+         /* Instancing emulation by mixing immediate mode and arrays. */
+-        drawStridedInstanced(gl_info, state, stream_info, index_count, state->gl_primitive_type,
++        drawStridedInstanced(context, state, stream_info, index_count, state->gl_primitive_type,
+                 idx_data, idx_size, start_idx, state->base_vertex_index, instance_count);
+     }
+     else
+diff --git a/dlls/wined3d/state.c b/dlls/wined3d/state.c
+index 59debd5..7617f8f 100644
+--- a/dlls/wined3d/state.c
++++ b/dlls/wined3d/state.c
+@@ -4148,7 +4148,7 @@ static void load_numbered_arrays(struct wined3d_context *context,
+             const BYTE *ptr = stream_info->elements[i].data.addr;
+             if (stream_info->elements[i].data.buffer_object)
+             {
+-                ptr += (ULONG_PTR)buffer_get_sysmem(stream->buffer, gl_info);
++                ptr += (ULONG_PTR)buffer_get_sysmem(stream->buffer, context);
+             }
+ 
+             if (context->numbered_array_mask & (1 << i)) unload_numbered_array(context, i);
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 2f83c38..e07fa82 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2520,7 +2520,7 @@ static inline struct wined3d_buffer *buffer_from_resource(struct wined3d_resourc
+ 
+ void buffer_get_memory(struct wined3d_buffer *buffer, struct wined3d_context *context,
+         struct wined3d_bo_address *data) DECLSPEC_HIDDEN;
+-BYTE *buffer_get_sysmem(struct wined3d_buffer *This, const struct wined3d_gl_info *gl_info) DECLSPEC_HIDDEN;
++BYTE *buffer_get_sysmem(struct wined3d_buffer *This, struct wined3d_context *context) DECLSPEC_HIDDEN;
+ 
+ struct wined3d_rendertarget_view
+ {
+-- 
+1.8.1.5
+

@@ -1,0 +1,150 @@
+From ae4208c5aab13e81c140a09f437de5c6e575a9fb Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Wed, 28 Aug 2013 13:49:10 +0200
+Subject: [PATCH 043/127] wined3d: Send stream frequency updates through the
+ command stream.
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+Based on a patch by Henri Verbeet.
+---
+ dlls/wined3d/cs.c              | 49 +++++++++++++++++++++++++++++++-----------
+ dlls/wined3d/device.c          |  2 +-
+ dlls/wined3d/wined3d_private.h |  2 ++
+ 3 files changed, 40 insertions(+), 13 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index dede651..4e4e1fa 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -38,6 +38,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_SET_DEPTH_STENCIL,
+     WINED3D_CS_OP_SET_VERTEX_DECLARATION,
+     WINED3D_CS_OP_SET_STREAM_SOURCE,
++    WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -151,6 +152,14 @@ struct wined3d_cs_set_stream_source
+     UINT stride;
+ };
+ 
++struct wined3d_cs_set_stream_source_freq
++{
++    enum wined3d_cs_op opcode;
++    UINT stream_idx;
++    UINT frequency;
++    UINT flags;
++};
++
+ static CRITICAL_SECTION wined3d_cs_list_mutex;
+ static CRITICAL_SECTION_DEBUG wined3d_cs_list_mutex_debug =
+ {
+@@ -369,17 +378,11 @@ void wined3d_cs_emit_draw(struct wined3d_cs *cs, UINT start_idx, UINT index_coun
+ 
+ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const void *data)
+ {
+-    unsigned int i;
+     const struct wined3d_cs_stateblock *op = data;
+ 
+     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
+      * ops for setting states */
+     memcpy(cs->state.stream_output, op->state.stream_output, sizeof(cs->state.stream_output));
+-    for (i = 0; i < sizeof(cs->state.streams) / sizeof(*cs->state.streams); i++)
+-    {
+-        cs->state.streams[i].frequency = op->state.streams[i].frequency;
+-        cs->state.streams[i].flags = op->state.streams[i].flags;
+-    }
+     cs->state.index_buffer = op->state.index_buffer;
+     cs->state.index_format = op->state.index_format;
+     cs->state.base_vertex_index = op->state.base_vertex_index;
+@@ -420,7 +423,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
+ 
+ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct wined3d_state *state)
+ {
+-    unsigned int i;
+     struct wined3d_cs_stateblock *op;
+ 
+     op = cs->ops->require_space(cs, sizeof(*op));
+@@ -429,11 +431,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
+     /* Don't memcpy the entire struct, we'll remove single items as we add dedicated
+      * ops for setting states */
+     memcpy(op->state.stream_output, state->stream_output, sizeof(op->state.stream_output));
+-    for (i = 0; i < sizeof(cs->state.streams) / sizeof(*cs->state.streams); i++)
+-    {
+-        op->state.streams[i].frequency = state->streams[i].frequency;
+-        op->state.streams[i].flags = state->streams[i].flags;
+-    }
+     op->state.index_buffer = state->index_buffer;
+     op->state.index_format = state->index_format;
+     op->state.base_vertex_index = state->base_vertex_index;
+@@ -752,6 +749,33 @@ void wined3d_cs_emit_set_stream_source(struct wined3d_cs *cs, UINT stream_idx,
+     cs->ops->submit(cs);
+ }
+ 
++static UINT wined3d_cs_exec_set_stream_source_freq(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_set_stream_source_freq *op = data;
++    struct wined3d_stream_state *stream;
++
++    stream = &cs->state.streams[op->stream_idx];
++    stream->frequency = op->frequency;
++    stream->flags = op->flags;
++
++    device_invalidate_state(cs->device, STATE_STREAMSRC);
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_set_stream_source_freq(struct wined3d_cs *cs, UINT stream_idx, UINT frequency, UINT flags)
++{
++    struct wined3d_cs_set_stream_source_freq *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ;
++    op->stream_idx = stream_idx;
++    op->frequency = frequency;
++    op->flags = flags;
++
++    cs->ops->submit(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+@@ -769,6 +793,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_SET_DEPTH_STENCIL      */ wined3d_cs_exec_set_depth_stencil,
+     /* WINED3D_CS_OP_SET_VERTEX_DECLARATION */ wined3d_cs_exec_set_vertex_declaration,
+     /* WINED3D_CS_OP_SET_STREAM_SOURCE      */ wined3d_cs_exec_set_stream_source,
++    /* WINED3D_CS_OP_SET_STREAM_SOURCE_FREQ */ wined3d_cs_exec_set_stream_source_freq,
+ };
+ 
+ static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 5964ae3..3a39179 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -1272,7 +1272,7 @@ HRESULT CDECL wined3d_device_set_stream_source_freq(struct wined3d_device *devic
+     if (device->recording)
+         device->recording->changed.streamFreq |= 1 << stream_idx;
+     else if (stream->frequency != old_freq || stream->flags != old_flags)
+-        device_invalidate_state(device, STATE_STREAMSRC);
++        wined3d_cs_emit_set_stream_source_freq(device->cs, stream_idx, stream->frequency, stream->flags);
+ 
+     return WINED3D_OK;
+ }
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index f1c5acb..af31cab 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2540,6 +2540,8 @@ void wined3d_cs_emit_set_vertex_declaration(struct wined3d_cs *cs,
+         struct wined3d_vertex_declaration *declaration) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_stream_source(struct wined3d_cs *cs, UINT stream_idx,
+         struct wined3d_buffer *buffer, UINT offset, UINT stride) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_set_stream_source_freq(struct wined3d_cs *cs, UINT stream_idx,
++        UINT frequency, UINT flags) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

@@ -1,0 +1,137 @@
+From 0a17b867929c489be118a7ca5200179792ea3367 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Wed, 28 Aug 2013 14:19:38 +0200
+Subject: [PATCH 047/127] wined3d: Send pixel shader binding updates through
+ the command stream.
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+Based on a patch by Henri Verbeet.
+---
+ dlls/wined3d/cs.c              | 25 +++++++++++++++++++++++--
+ dlls/wined3d/device.c          | 24 ++++++++++++------------
+ dlls/wined3d/wined3d_private.h |  1 +
+ 3 files changed, 36 insertions(+), 14 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 46288a8..a479120 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -42,6 +42,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_SET_INDEX_BUFFER,
+     WINED3D_CS_OP_SET_TEXTURE,
+     WINED3D_CS_OP_SET_VERTEX_SHADER,
++    WINED3D_CS_OP_SET_PIXEL_SHADER,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -419,7 +420,6 @@ static UINT wined3d_cs_exec_transfer_stateblock(struct wined3d_cs *cs, const voi
+     memcpy(cs->state.gs_cb, op->state.gs_cb, sizeof(cs->state.gs_cb));
+     memcpy(cs->state.gs_sampler, op->state.gs_sampler, sizeof(cs->state.gs_sampler));
+ 
+-    cs->state.pixel_shader = op->state.pixel_shader;
+     memcpy(cs->state.ps_cb, op->state.ps_cb, sizeof(cs->state.ps_cb));
+     memcpy(cs->state.ps_sampler, op->state.ps_sampler, sizeof(cs->state.ps_sampler));
+     memcpy(cs->state.ps_consts_b, op->state.ps_consts_b, sizeof(cs->state.ps_consts_b));
+@@ -463,7 +463,6 @@ void wined3d_cs_emit_transfer_stateblock(struct wined3d_cs *cs, const struct win
+     memcpy(op->state.gs_cb, state->gs_cb, sizeof(op->state.gs_cb));
+     memcpy(op->state.gs_sampler, state->gs_sampler, sizeof(op->state.gs_sampler));
+ 
+-    op->state.pixel_shader = state->pixel_shader;
+     memcpy(op->state.ps_cb, state->ps_cb, sizeof(op->state.ps_cb));
+     memcpy(op->state.ps_sampler, state->ps_sampler, sizeof(op->state.ps_sampler));
+     memcpy(op->state.ps_consts_b, state->ps_consts_b, sizeof(op->state.ps_consts_b));
+@@ -916,6 +915,27 @@ void wined3d_cs_emit_set_vertex_shader(struct wined3d_cs *cs, struct wined3d_sha
+     cs->ops->submit(cs);
+ }
+ 
++static UINT wined3d_cs_exec_set_pixel_shader(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_set_shader *op = data;
++
++    cs->state.pixel_shader = op->shader;
++    device_invalidate_state(cs->device, STATE_PIXELSHADER);
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_set_pixel_shader(struct wined3d_cs *cs, struct wined3d_shader *shader)
++{
++    struct wined3d_cs_set_shader *op;
++
++    op = cs->ops->require_space(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_SET_PIXEL_SHADER;
++    op->shader = shader;
++
++    cs->ops->submit(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_FENCE                  */ wined3d_cs_exec_fence,
+@@ -937,6 +957,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_SET_INDEX_BUFFER       */ wined3d_cs_exec_set_index_buffer,
+     /* WINED3D_CS_OP_SET_TEXTURE            */ wined3d_cs_exec_set_texture,
+     /* WINED3D_CS_OP_SET_VERTEX_SHADER      */ wined3d_cs_exec_set_vertex_shader,
++    /* WINED3D_CS_OP_SET_PIXEL_SHADER       */ wined3d_cs_exec_set_pixel_shader,
+ };
+ 
+ static void *wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index ddb24bf..677a887 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -2333,19 +2333,8 @@ void CDECL wined3d_device_set_pixel_shader(struct wined3d_device *device, struct
+ 
+     TRACE("device %p, shader %p.\n", device, shader);
+ 
+-    if (shader)
+-        wined3d_shader_incref(shader);
+-    if (prev)
+-        wined3d_shader_decref(prev);
+-
+-    device->update_state->pixel_shader = shader;
+-
+     if (device->recording)
+-    {
+-        TRACE("Recording... not performing anything.\n");
+         device->recording->changed.pixelShader = TRUE;
+-        return;
+-    }
+ 
+     if (shader == prev)
+     {
+@@ -2353,7 +2342,18 @@ void CDECL wined3d_device_set_pixel_shader(struct wined3d_device *device, struct
+         return;
+     }
+ 
+-    device_invalidate_state(device, STATE_PIXELSHADER);
++    device->update_state->pixel_shader = shader;
++
++    if (shader)
++        wined3d_shader_incref(shader);
++
++    if (device->recording)
++        TRACE("Recording... not performing anything.\n");
++    else
++        wined3d_cs_emit_set_pixel_shader(device->cs, shader);
++
++    if (prev)
++        wined3d_shader_decref(prev);
+ }
+ 
+ struct wined3d_shader * CDECL wined3d_device_get_pixel_shader(const struct wined3d_device *device)
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 81ee31d..b9ee420 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2546,6 +2546,7 @@ void wined3d_cs_emit_set_index_buffer(struct wined3d_cs *cs, struct wined3d_buff
+         enum wined3d_format_id format_id) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_texture(struct wined3d_cs *cs, UINT stage, struct wined3d_texture *texture) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_set_vertex_shader(struct wined3d_cs *cs, struct wined3d_shader *shader) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_set_pixel_shader(struct wined3d_cs *cs, struct wined3d_shader *shader) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

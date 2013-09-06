@@ -1,0 +1,191 @@
+From 98b57544cf1920ec9c21cae8e59d1c0830e5e7b9 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Fri, 30 Aug 2013 18:46:01 +0200
+Subject: [PATCH 120/127] wined3d: Request volume sysmem loads through the CS
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/cs.c              | 35 +++++++++++++++++++++++++++++++++++
+ dlls/wined3d/volume.c          | 33 ++++++++++++++-------------------
+ dlls/wined3d/wined3d_private.h |  4 ++++
+ 3 files changed, 53 insertions(+), 19 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 341a944..e4f9e29 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -85,6 +85,7 @@ enum wined3d_cs_op
+     WINED3D_CS_OP_SURFACE_FLIP,
+     WINED3D_CS_OP_BO_INIT,
+     WINED3D_CS_OP_BO_DESTROY,
++    WINED3D_CS_OP_VOLUME_LOAD_LOCATION,
+     WINED3D_CS_OP_STOP,
+ };
+ 
+@@ -454,6 +455,14 @@ struct wined3d_cs_bo_init_destroy
+     struct wined3d_gl_bo *bo;
+ };
+ 
++struct wined3d_cs_volume_load_location
++{
++    enum wined3d_cs_op opcode;
++    struct wined3d_volume *volume;
++    DWORD location;
++};
++
++
+ static void wined3d_cs_mt_submit(struct wined3d_cs *cs, size_t size)
+ {
+     LONG new_val = (cs->queue.head + size) & (WINED3D_CS_QUEUE_SIZE - 1);
+@@ -2316,6 +2325,31 @@ void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
+     cs->ops->submit(cs, sizeof(*op));
+ }
+ 
++static UINT wined3d_cs_exec_volume_load_location(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_volume_load_location *op = data;
++    struct wined3d_context *context = context_acquire(cs->device, NULL);
++
++    wined3d_volume_load_location(op->volume, context, op->location);
++    context_release(context);
++
++    return sizeof(*op);
++}
++
++void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
++        DWORD location)
++{
++    struct wined3d_cs_volume_load_location *op;
++
++    op = cs->ops->require_space_prio(cs, sizeof(*op));
++    op->opcode = WINED3D_CS_OP_VOLUME_LOAD_LOCATION;
++    op->volume = volume;
++    op->location = location;
++
++    cs->ops->submit_prio(cs, sizeof(*op));
++    cs->ops->finish_prio(cs);
++}
++
+ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void *data) =
+ {
+     /* WINED3D_CS_OP_NOP                    */ wined3d_cs_exec_nop,
+@@ -2380,6 +2414,7 @@ static UINT (* const wined3d_cs_op_handlers[])(struct wined3d_cs *cs, const void
+     /* WINED3D_CS_OP_SURFACE_FLIP           */ wined3d_cs_exec_surface_flip,
+     /* WINED3D_CS_OP_BO_INIT                */ wined3d_cs_exec_bo_init,
+     /* WINED3D_CS_OP_BO_DESTROY             */ wined3d_cs_exec_bo_destroy,
++    /* WINED3D_CS_OP_VOLUME_LOAD_LOCATION   */ wined3d_cs_exec_volume_load_location,
+ };
+ 
+ static inline void *_wined3d_cs_mt_require_space(struct wined3d_cs *cs, size_t size, BOOL prio)
+diff --git a/dlls/wined3d/volume.c b/dlls/wined3d/volume.c
+index 4a616e9..a34369e 100644
+--- a/dlls/wined3d/volume.c
++++ b/dlls/wined3d/volume.c
+@@ -196,7 +196,7 @@ static void wined3d_volume_srgb_transfer(struct wined3d_volume *volume,
+ }
+ 
+ /* Context activation is done by the caller. */
+-static void wined3d_volume_load_location(struct wined3d_volume *volume,
++void wined3d_volume_load_location(struct wined3d_volume *volume,
+         struct wined3d_context *context, DWORD location)
+ {
+     DWORD required_access = volume_access_from_location(location);
+@@ -398,7 +398,6 @@ static void volume_unload(struct wined3d_resource *resource)
+ {
+     struct wined3d_volume *volume = volume_from_resource(resource);
+     struct wined3d_device *device = volume->resource.device;
+-    struct wined3d_context *context;
+ 
+     if (volume->resource.pool == WINED3D_POOL_DEFAULT)
+         ERR("Unloading DEFAULT pool volume.\n");
+@@ -407,9 +406,7 @@ static void volume_unload(struct wined3d_resource *resource)
+ 
+     if (volume_prepare_system_memory(volume))
+     {
+-        context = context_acquire(device, NULL);
+-        wined3d_volume_load_location(volume, context, WINED3D_LOCATION_SYSMEM);
+-        context_release(context);
++        wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_SYSMEM);
+         wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
+     }
+     else
+@@ -530,8 +527,6 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
+         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags)
+ {
+     struct wined3d_device *device = volume->resource.device;
+-    struct wined3d_context *context;
+-    const struct wined3d_gl_info *gl_info;
+     BYTE *base_memory;
+ 
+     TRACE("volume %p, map_desc %p, box %p, flags %#x.\n",
+@@ -550,17 +545,22 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
+     else
+         wined3d_volume_wait_cs(volume);
+ 
++    /* Note that the location flags are up to date because we waited for all
++     * data transfers to finish */
+     if (volume->flags & WINED3D_VFLAG_PBO)
+     {
+-        wined3d_volume_prepare_pbo(volume);
++        struct wined3d_context *context;
++        const struct wined3d_gl_info *gl_info;
+ 
+-        context = context_acquire(device, NULL);
+-        gl_info = context->gl_info;
++        wined3d_volume_prepare_pbo(volume);
+ 
+         if (flags & WINED3D_MAP_DISCARD)
+             wined3d_volume_validate_location(volume, WINED3D_LOCATION_BUFFER);
+-        else
+-            wined3d_volume_load_location(volume, context, WINED3D_LOCATION_BUFFER);
++        else if (!(volume->locations & WINED3D_LOCATION_BUFFER))
++            wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_BUFFER);
++
++        context = context_acquire(device, NULL);
++        gl_info = context->gl_info;
+ 
+         GL_EXTCALL(glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB, volume->resource.map_buffer->name));
+ 
+@@ -591,15 +591,10 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
+         }
+ 
+         if (flags & WINED3D_MAP_DISCARD)
+-        {
+             wined3d_volume_validate_location(volume, WINED3D_LOCATION_SYSMEM);
+-        }
+         else if (!(volume->locations & WINED3D_LOCATION_SYSMEM))
+-        {
+-            context = context_acquire(device, NULL);
+-            wined3d_volume_load_location(volume, context, WINED3D_LOCATION_SYSMEM);
+-            context_release(context);
+-        }
++            wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_SYSMEM);
++
+         base_memory = volume->resource.allocatedMemory;
+     }
+ 
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 59916d4..8abf806 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2205,6 +2205,8 @@ void wined3d_volume_upload_data(struct wined3d_volume *volume, const struct wine
+         const struct wined3d_bo_address *data) DECLSPEC_HIDDEN;
+ void wined3d_volume_get_memory(const struct wined3d_volume *volume,
+         struct wined3d_bo_address *data) DECLSPEC_HIDDEN;
++void wined3d_volume_load_location(struct wined3d_volume *volume,
++        struct wined3d_context *context, DWORD location) DECLSPEC_HIDDEN;
+ 
+ struct wined3d_surface_dib
+ {
+@@ -2649,6 +2651,8 @@ void wined3d_cs_emit_surface_flip(struct wined3d_cs *cs, struct wined3d_surface
+         struct wined3d_surface *override) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_bo_destroy(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
++        DWORD location) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

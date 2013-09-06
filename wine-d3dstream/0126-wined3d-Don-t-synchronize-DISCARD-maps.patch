@@ -1,0 +1,199 @@
+From fcc50933153def9a9a4bc11d42b8d1384e69d51c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Sat, 31 Aug 2013 00:04:32 +0200
+Subject: [PATCH 126/127] wined3d: Don't synchronize DISCARD maps
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+Implementing NO_OVERWRITE maps in addition sounds easy at first, but is
+fairly tricky because the main thread might map a buffer after
+scheduling a command that reads from that buffer. In this situation, the
+worker thread receives an error from GL. It would have to wait until the
+application unmaps that buffer again. This in turn deadlocks if the
+application forces us to wait for the CS before unmapping the buffer,
+e.g. with a non-dynamic map of a separate resource.
+
+The solution is GL_ARB_buffer_storage, which allows us to lift the
+restriction that a buffer must be unmapped before it can be used for
+texture uploads.
+
+For DISCARD maps this is not an issue because we use new or recycled
+buffers that are not referenced by pending commands.
+---
+ dlls/wined3d/cs.c              | 32 +++++++++++++++++++++++---------
+ dlls/wined3d/volume.c          | 28 ++++++++++++++++++++++++++--
+ dlls/wined3d/wined3d_private.h |  4 +++-
+ 3 files changed, 52 insertions(+), 12 deletions(-)
+
+diff --git a/dlls/wined3d/cs.c b/dlls/wined3d/cs.c
+index 55b507c..3a114c4 100644
+--- a/dlls/wined3d/cs.c
++++ b/dlls/wined3d/cs.c
+@@ -477,6 +477,7 @@ struct wined3d_cs_volume_dirtify
+ {
+     enum wined3d_cs_op opcode;
+     struct wined3d_volume *volume;
++    struct wined3d_gl_bo *swap_bo;
+ };
+ 
+ static void wined3d_cs_mt_submit(struct wined3d_cs *cs, size_t size)
+@@ -2324,18 +2325,22 @@ void wined3d_cs_emit_bo_init(struct wined3d_cs *cs, struct wined3d_gl_bo *bo)
+     cs->ops->finish_prio(cs);
+ }
+ 
+-static UINT wined3d_cs_exec_bo_destroy(struct wined3d_cs *cs, const void *data)
++static void destroy_bo(struct wined3d_device *device, struct wined3d_gl_bo *bo)
+ {
+-    const struct wined3d_cs_bo_misc *op = data;
+-    struct wined3d_context *context = context_acquire(cs->device, NULL);
++    struct wined3d_context *context = context_acquire(device, NULL);
+     const struct wined3d_gl_info *gl_info = context->gl_info;
+ 
+-    GL_EXTCALL(glDeleteBuffersARB(1, &op->bo->name));
++    GL_EXTCALL(glDeleteBuffersARB(1, &bo->name));
+     checkGLcall("glDeleteBuffersARB");
+     context_release(context);
+ 
+-    HeapFree(GetProcessHeap(), 0, op->bo);
++    HeapFree(GetProcessHeap(), 0, bo);
++}
+ 
++static UINT wined3d_cs_exec_bo_destroy(struct wined3d_cs *cs, const void *data)
++{
++    const struct wined3d_cs_bo_misc *op = data;
++    destroy_bo(cs->device, op->bo);
+     return sizeof(*op);
+ }
+ 
+@@ -2449,24 +2454,33 @@ void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_
+ static UINT wined3d_cs_exec_volume_dirtify(struct wined3d_cs *cs, const void *data)
+ {
+     const struct wined3d_cs_volume_dirtify *op = data;
++    struct wined3d_volume *volume = op->volume;
+ 
+     wined3d_texture_set_dirty(op->volume->container, TRUE);
+ 
+-    if (op->volume->flags & WINED3D_VFLAG_PBO)
+-        wined3d_volume_invalidate_location(op->volume, ~WINED3D_LOCATION_BUFFER);
++    if (op->swap_bo)
++    {
++        destroy_bo(cs->device, volume->resource.buffer);
++        volume->resource.buffer = op->swap_bo;
++    }
++
++    if (volume->flags & WINED3D_VFLAG_PBO)
++        wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_BUFFER);
+     else
+-        wined3d_volume_invalidate_location(op->volume, ~WINED3D_LOCATION_SYSMEM);
++        wined3d_volume_invalidate_location(volume, ~WINED3D_LOCATION_SYSMEM);
+ 
+     return sizeof(*op);
+ }
+ 
+-void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume)
++void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume,
++        struct wined3d_gl_bo *swap_bo)
+ {
+     struct wined3d_cs_volume_dirtify *op;
+ 
+     op = cs->ops->require_space(cs, sizeof(*op));
+     op->opcode = WINED3D_CS_OP_VOLUME_DIRTIFY;
+     op->volume = volume;
++    op->swap_bo = swap_bo;
+ 
+     cs->ops->submit(cs, sizeof(*op));
+ }
+diff --git a/dlls/wined3d/volume.c b/dlls/wined3d/volume.c
+index d19ed73..14106e3 100644
+--- a/dlls/wined3d/volume.c
++++ b/dlls/wined3d/volume.c
+@@ -529,7 +529,7 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
+     }
+     flags = wined3d_resource_sanitize_map_flags(&volume->resource, flags);
+ 
+-    if (flags & (WINED3D_MAP_DISCARD | WINED3D_MAP_READONLY | WINED3D_MAP_NOOVERWRITE))
++    if (flags & (WINED3D_MAP_READONLY | WINED3D_MAP_NOOVERWRITE))
+         FIXME("Fast path for 0x%04x maps not implemented yet\n", flags);
+ 
+     wined3d_resource_wait_fence(&volume->container->resource);
+@@ -543,15 +543,35 @@ HRESULT CDECL wined3d_volume_map(struct wined3d_volume *volume,
+         wined3d_volume_prepare_pbo(volume);
+ 
+         if (flags & WINED3D_MAP_DISCARD)
++        {
+             wined3d_volume_validate_location(volume, WINED3D_LOCATION_BUFFER);
++            if (volume->resource.access_fence)
++            {
++                struct wined3d_gl_bo *new_bo;
++                new_bo = wined3d_device_get_bo(device, volume->resource.size,
++                        GL_STREAM_DRAW_ARB, GL_PIXEL_UNPACK_BUFFER_ARB);
++                volume->resource.map_buffer = new_bo;
++            }
++        }
+         else if (!(volume->locations & WINED3D_LOCATION_BUFFER))
++        {
+             wined3d_cs_emit_volume_load_location(device->cs, volume, WINED3D_LOCATION_BUFFER);
++        }
+ 
+         mapflags &= ~GL_MAP_FLUSH_EXPLICIT_BIT;
+         base_memory = wined3d_cs_emit_bo_map(device->cs, volume->resource.map_buffer, mapflags);
+     }
+     else
+     {
++        if (flags & WINED3D_MAP_DISCARD)
++        {
++            /* This happens either with converted volumes or when PBOs are not
++             * supported. Both cases are probably slow either way. When implementing
++             * this, keep GL_APPLE_client_storage in mind */
++            WARN_(d3d_perf)("Discard maps without PBOs are not yet implemented\n");
++            wined3d_resource_wait_fence(&volume->container->resource);
++        }
++
+         if (!volume_prepare_system_memory(volume))
+         {
+             WARN("Out of memory.\n");
+@@ -608,6 +628,7 @@ struct wined3d_volume * CDECL wined3d_volume_from_resource(struct wined3d_resour
+ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
+ {
+     const struct wined3d_device *device = volume->resource.device;
++    struct wined3d_gl_bo *swap_bo = NULL;
+     TRACE("volume %p.\n", volume);
+ 
+     if (!(volume->flags & WINED3D_VFLAG_LOCKED))
+@@ -619,8 +640,11 @@ HRESULT CDECL wined3d_volume_unmap(struct wined3d_volume *volume)
+     if (volume->flags & WINED3D_VFLAG_PBO)
+         wined3d_cs_emit_bo_unmap(device->cs, volume->resource.map_buffer);
+ 
++    if (volume->resource.buffer != volume->resource.map_buffer)
++        swap_bo = volume->resource.map_buffer;
++
+     if (volume->flags & WINED3D_VFLAG_DIRTIFY_ON_UNMAP)
+-        wined3d_cs_emit_volume_dirtify(device->cs, volume);
++        wined3d_cs_emit_volume_dirtify(device->cs, volume, swap_bo);
+ 
+     volume->flags &= ~WINED3D_VFLAG_LOCKED;
+ 
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 8b0994e..1110f34 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -2342,6 +2342,7 @@ HRESULT surface_upload_from_surface(struct wined3d_surface *dst_surface, const P
+ void surface_blt_ugly(struct wined3d_surface *dst_surface, const RECT *dst_rect_in,
+         struct wined3d_surface *src_surface, const RECT *src_rect_in, DWORD flags,
+         const WINEDDBLTFX *fx, enum wined3d_texture_filter_type filter) DECLSPEC_HIDDEN;
++BOOL surface_check_block_align(struct wined3d_surface *surface, const RECT *rect) DECLSPEC_HIDDEN;
+ 
+ void get_drawable_size_swapchain(const struct wined3d_context *context, UINT *width, UINT *height) DECLSPEC_HIDDEN;
+ void get_drawable_size_backbuffer(const struct wined3d_context *context, UINT *width, UINT *height) DECLSPEC_HIDDEN;
+@@ -2656,7 +2657,8 @@ BYTE *wined3d_cs_emit_bo_map(struct wined3d_cs *cs, const struct wined3d_gl_bo *
+ void wined3d_cs_emit_bo_unmap(struct wined3d_cs *cs, struct wined3d_gl_bo *bo) DECLSPEC_HIDDEN;
+ void wined3d_cs_emit_volume_load_location(struct wined3d_cs *cs, struct wined3d_volume *volume,
+         DWORD location) DECLSPEC_HIDDEN;
+-void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume) DECLSPEC_HIDDEN;
++void wined3d_cs_emit_volume_dirtify(struct wined3d_cs *cs, struct wined3d_volume *volume,
++        struct wined3d_gl_bo *swap_bo) DECLSPEC_HIDDEN;
+ 
+ /* Direct3D terminology with little modifications. We do not have an issued state
+  * because only the driver knows about it, but we have a created state because d3d
+-- 
+1.8.1.5
+

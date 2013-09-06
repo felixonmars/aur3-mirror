@@ -1,0 +1,113 @@
+From 0badb8e01505a77adc3146b23a6dc0dc5f13989a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Sat, 31 Aug 2013 00:13:52 +0200
+Subject: [PATCH 127/127] wined3d: Put update_surface checks back in place
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+Unfortunately I can't remove the code from surface_update_from_surface
+yet because blits depend on them.
+---
+ dlls/wined3d/device.c  | 66 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ dlls/wined3d/surface.c |  2 +-
+ 2 files changed, 67 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 7615566..99a529c 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -3700,6 +3700,13 @@ HRESULT CDECL wined3d_device_update_surface(struct wined3d_device *device,
+         struct wined3d_surface *src_surface, const RECT *src_rect,
+         struct wined3d_surface *dst_surface, const POINT *dst_point)
+ {
++    const struct wined3d_format *src_format = src_surface->resource.format;
++    const struct wined3d_format *dst_format = dst_surface->resource.format;
++    UINT update_w, update_h;
++    UINT dst_w, dst_h;
++    RECT r, dst_rect;
++    POINT p;
++
+     TRACE("device %p, src_surface %p, src_rect %s, dst_surface %p, dst_point %s.\n",
+             device, src_surface, wine_dbgstr_rect(src_rect),
+             dst_surface, wine_dbgstr_point(dst_point));
+@@ -3711,6 +3718,65 @@ HRESULT CDECL wined3d_device_update_surface(struct wined3d_device *device,
+         return WINED3DERR_INVALIDCALL;
+     }
+ 
++    if (src_format->id != dst_format->id)
++    {
++        WARN("Source and destination surfaces should have the same format.\n");
++        return WINED3DERR_INVALIDCALL;
++    }
++
++    if (!dst_point)
++    {
++        p.x = 0;
++        p.y = 0;
++        dst_point = &p;
++    }
++    else if (dst_point->x < 0 || dst_point->y < 0)
++    {
++        WARN("Invalid destination point.\n");
++        return WINED3DERR_INVALIDCALL;
++    }
++
++    if (!src_rect)
++    {
++        r.left = 0;
++        r.top = 0;
++        r.right = src_surface->resource.width;
++        r.bottom = src_surface->resource.height;
++        src_rect = &r;
++    }
++    else if (src_rect->left < 0 || src_rect->left >= src_rect->right
++            || src_rect->top < 0 || src_rect->top >= src_rect->bottom)
++    {
++        WARN("Invalid source rectangle.\n");
++        return WINED3DERR_INVALIDCALL;
++    }
++
++    dst_w = dst_surface->resource.width;
++    dst_h = dst_surface->resource.height;
++
++    update_w = src_rect->right - src_rect->left;
++    update_h = src_rect->bottom - src_rect->top;
++
++    if (update_w > dst_w || dst_point->x > dst_w - update_w
++            || update_h > dst_h || dst_point->y > dst_h - update_h)
++    {
++        WARN("Destination out of bounds.\n");
++        return WINED3DERR_INVALIDCALL;
++    }
++
++    if ((src_format->flags & WINED3DFMT_FLAG_BLOCKS) && !surface_check_block_align(src_surface, src_rect))
++    {
++        WARN("Source rectangle not block-aligned.\n");
++        return WINED3DERR_INVALIDCALL;
++    }
++
++    SetRect(&dst_rect, dst_point->x, dst_point->y, dst_point->x + update_w, dst_point->y + update_h);
++    if ((dst_format->flags & WINED3DFMT_FLAG_BLOCKS) && !surface_check_block_align(dst_surface, &dst_rect))
++    {
++        WARN("Destination rectangle not block-aligned.\n");
++        return WINED3DERR_INVALIDCALL;
++    }
++
+     wined3d_cs_emit_update_surface(device->cs, src_surface, src_rect, dst_surface, dst_point);
+ 
+     return WINED3D_OK;
+diff --git a/dlls/wined3d/surface.c b/dlls/wined3d/surface.c
+index a69f5ad..1519a2e 100644
+--- a/dlls/wined3d/surface.c
++++ b/dlls/wined3d/surface.c
+@@ -2526,7 +2526,7 @@ static HRESULT d3dfmt_get_conv(const struct wined3d_surface *surface, BOOL need_
+     return WINED3D_OK;
+ }
+ 
+-static BOOL surface_check_block_align(struct wined3d_surface *surface, const RECT *rect)
++BOOL surface_check_block_align(struct wined3d_surface *surface, const RECT *rect)
+ {
+     UINT width_mask, height_mask;
+ 
+-- 
+1.8.1.5
+

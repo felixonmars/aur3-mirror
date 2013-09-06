@@ -1,0 +1,294 @@
+From 9e9b51735a6338db99d84d2b0c70977f6d44cd64 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Stefan=20D=C3=B6singer?= <stefan@codeweavers.com>
+Date: Wed, 7 Aug 2013 17:18:16 +0200
+Subject: [PATCH 006/127] wined3d: Pass the context to the internal
+ texture_preload function
+Reply-To: wine-devel <wine-devel@winehq.org>
+
+---
+ dlls/wined3d/context.c         |  2 +-
+ dlls/wined3d/device.c          | 18 +++++++++++-------
+ dlls/wined3d/drawprim.c        |  6 ------
+ dlls/wined3d/surface.c         | 14 ++++++--------
+ dlls/wined3d/texture.c         | 33 +++++++++++----------------------
+ dlls/wined3d/wined3d_private.h |  6 +++---
+ 6 files changed, 32 insertions(+), 47 deletions(-)
+
+diff --git a/dlls/wined3d/context.c b/dlls/wined3d/context.c
+index a5e0b4e..10ce50e 100644
+--- a/dlls/wined3d/context.c
++++ b/dlls/wined3d/context.c
+@@ -2581,7 +2581,7 @@ BOOL context_apply_draw_state(struct wined3d_context *context, struct wined3d_de
+      * result in changes to the current FBO, due to using e.g. FBO blits for
+      * updating a resource location. */
+     device_update_tex_unit_map(device);
+-    device_preload_textures(device);
++    device_preload_textures(device, context);
+     if (isStateDirty(context, STATE_VDECL) || isStateDirty(context, STATE_STREAMSRC))
+         context_update_stream_info(context, state);
+     if (state->index_buffer)
+diff --git a/dlls/wined3d/device.c b/dlls/wined3d/device.c
+index 2d616d7..13fc139 100644
+--- a/dlls/wined3d/device.c
++++ b/dlls/wined3d/device.c
+@@ -134,17 +134,18 @@ static enum wined3d_primitive_type d3d_primitive_type_from_gl(GLenum primitive_t
+     }
+ }
+ 
+-static void device_preload_texture(const struct wined3d_state *state, unsigned int idx)
++static void device_preload_texture(const struct wined3d_state *state,
++        struct wined3d_context *context, unsigned int idx)
+ {
+     struct wined3d_texture *texture;
+     enum WINED3DSRGB srgb;
+ 
+     if (!(texture = state->textures[idx])) return;
+     srgb = state->sampler_states[idx][WINED3D_SAMP_SRGB_TEXTURE] ? SRGB_SRGB : SRGB_RGB;
+-    texture->texture_ops->texture_preload(texture, srgb);
++    texture->texture_ops->texture_preload(texture, context, srgb);
+ }
+ 
+-void device_preload_textures(const struct wined3d_device *device)
++void device_preload_textures(const struct wined3d_device *device, struct wined3d_context *context)
+ {
+     const struct wined3d_state *state = &device->state;
+     unsigned int i;
+@@ -154,7 +155,7 @@ void device_preload_textures(const struct wined3d_device *device)
+         for (i = 0; i < MAX_VERTEX_SAMPLERS; ++i)
+         {
+             if (state->vertex_shader->reg_maps.sampler_type[i])
+-                device_preload_texture(state, MAX_FRAGMENT_SAMPLERS + i);
++                device_preload_texture(state, context, MAX_FRAGMENT_SAMPLERS + i);
+         }
+     }
+ 
+@@ -163,7 +164,7 @@ void device_preload_textures(const struct wined3d_device *device)
+         for (i = 0; i < MAX_FRAGMENT_SAMPLERS; ++i)
+         {
+             if (state->pixel_shader->reg_maps.sampler_type[i])
+-                device_preload_texture(state, i);
++                device_preload_texture(state, context, i);
+         }
+     }
+     else
+@@ -173,7 +174,7 @@ void device_preload_textures(const struct wined3d_device *device)
+         for (i = 0; ffu_map; ffu_map >>= 1, ++i)
+         {
+             if (ffu_map & 1)
+-                device_preload_texture(state, i);
++                device_preload_texture(state, context, i);
+         }
+     }
+ }
+@@ -3919,6 +3920,7 @@ HRESULT CDECL wined3d_device_update_texture(struct wined3d_device *device,
+     enum wined3d_resource_type type;
+     unsigned int level_count, i;
+     HRESULT hr;
++    struct wined3d_context *context;
+ 
+     TRACE("device %p, src_texture %p, dst_texture %p.\n", device, src_texture, dst_texture);
+ 
+@@ -3957,7 +3959,9 @@ HRESULT CDECL wined3d_device_update_texture(struct wined3d_device *device,
+     }
+ 
+     /* Make sure that the destination texture is loaded. */
+-    dst_texture->texture_ops->texture_preload(dst_texture, SRGB_RGB);
++    context = context_acquire(device, NULL);
++    dst_texture->texture_ops->texture_preload(dst_texture, context, SRGB_RGB);
++    context_release(context);
+ 
+     /* Update every surface level of the texture. */
+     switch (type)
+diff --git a/dlls/wined3d/drawprim.c b/dlls/wined3d/drawprim.c
+index 6869a09..af03778 100644
+--- a/dlls/wined3d/drawprim.c
++++ b/dlls/wined3d/drawprim.c
+@@ -613,9 +613,6 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+         }
+     }
+ 
+-    /* Signals other modules that a drawing is in progress and the stateblock finalized */
+-    device->isInDraw = TRUE;
+-
+     context = context_acquire(device, device->fb.render_targets[0]);
+     if (!context->valid)
+     {
+@@ -780,7 +777,4 @@ void draw_primitive(struct wined3d_device *device, UINT start_idx, UINT index_co
+     context_release(context);
+ 
+     TRACE("Done all gl drawing\n");
+-
+-    /* Control goes back to the device, stateblock values may change again */
+-    device->isInDraw = FALSE;
+ }
+diff --git a/dlls/wined3d/surface.c b/dlls/wined3d/surface.c
+index 66f15fb..1849b37 100644
+--- a/dlls/wined3d/surface.c
++++ b/dlls/wined3d/surface.c
+@@ -4062,25 +4062,24 @@ HRESULT CDECL wined3d_surface_flip(struct wined3d_surface *surface, struct wined
+ void surface_internal_preload(struct wined3d_surface *surface, enum WINED3DSRGB srgb)
+ {
+     struct wined3d_device *device = surface->resource.device;
++    struct wined3d_context *context;
+ 
+     TRACE("iface %p, srgb %#x.\n", surface, srgb);
+ 
++    /* TODO: Use already acquired context when possible. */
++    context = context_acquire(device, NULL);
++
+     if (surface->container)
+     {
+         struct wined3d_texture *texture = surface->container;
+ 
+         TRACE("Passing to container (%p).\n", texture);
+-        texture->texture_ops->texture_preload(texture, srgb);
++        texture->texture_ops->texture_preload(texture, context, srgb);
+     }
+     else
+     {
+-        struct wined3d_context *context;
+-
+         TRACE("(%p) : About to load surface\n", surface);
+ 
+-        /* TODO: Use already acquired context when possible. */
+-        context = context_acquire(device, NULL);
+-
+         surface_load(surface, srgb == SRGB_SRGB);
+ 
+         if (surface->resource.pool == WINED3D_POOL_DEFAULT)
+@@ -4090,9 +4089,8 @@ void surface_internal_preload(struct wined3d_surface *surface, enum WINED3DSRGB
+             tmp = 0.9f;
+             context->gl_info->gl_ops.gl.p_glPrioritizeTextures(1, &surface->texture_name, &tmp);
+         }
+-
+-        context_release(context);
+     }
++    context_release(context);
+ }
+ 
+ /* Read the framebuffer back into the surface */
+diff --git a/dlls/wined3d/texture.c b/dlls/wined3d/texture.c
+index c7d5de8..2b87dba 100644
+--- a/dlls/wined3d/texture.c
++++ b/dlls/wined3d/texture.c
+@@ -474,7 +474,10 @@ DWORD CDECL wined3d_texture_get_priority(const struct wined3d_texture *texture)
+ /* Do not call while under the GL lock. */
+ void CDECL wined3d_texture_preload(struct wined3d_texture *texture)
+ {
+-    texture->texture_ops->texture_preload(texture, SRGB_ANY);
++    struct wined3d_context *context;
++    context = context_acquire(texture->resource.device, NULL);
++    texture->texture_ops->texture_preload(texture, context, SRGB_ANY);
++    context_release(context);
+ }
+ 
+ void * CDECL wined3d_texture_get_parent(const struct wined3d_texture *texture)
+@@ -665,13 +668,13 @@ static BOOL texture_srgb_mode(const struct wined3d_texture *texture, enum WINED3
+     }
+ }
+ 
+-/* Do not call while under the GL lock. */
+-static void texture2d_preload(struct wined3d_texture *texture, enum WINED3DSRGB srgb)
++/* Context activation is done by the caller */
++static void texture2d_preload(struct wined3d_texture *texture,
++        struct wined3d_context *context, enum WINED3DSRGB srgb)
+ {
+     UINT sub_count = texture->level_count * texture->layer_count;
+     struct wined3d_device *device = texture->resource.device;
+     const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+-    struct wined3d_context *context = NULL;
+     struct gl_texture *gl_tex;
+     BOOL srgb_mode;
+     UINT i;
+@@ -681,13 +684,6 @@ static void texture2d_preload(struct wined3d_texture *texture, enum WINED3DSRGB
+     srgb_mode = texture_srgb_mode(texture, srgb);
+     gl_tex = wined3d_texture_get_gl_texture(texture, gl_info, srgb_mode);
+ 
+-    if (!device->isInDraw)
+-    {
+-        /* No danger of recursive calls, context_acquire() sets isInDraw to TRUE
+-         * when loading offscreen render targets into the texture. */
+-        context = context_acquire(device, NULL);
+-    }
+-
+     if (gl_tex->dirty)
+     {
+         /* Reload the surfaces if the texture is marked dirty. */
+@@ -703,8 +699,6 @@ static void texture2d_preload(struct wined3d_texture *texture, enum WINED3DSRGB
+ 
+     /* No longer dirty. */
+     gl_tex->dirty = FALSE;
+-
+-    if (context) context_release(context);
+ }
+ 
+ static void texture2d_sub_resource_add_dirty_region(struct wined3d_resource *sub_resource,
+@@ -1049,13 +1043,12 @@ static HRESULT texture3d_bind(struct wined3d_texture *texture,
+     return wined3d_texture_bind(texture, context, srgb, &dummy);
+ }
+ 
+-/* Do not call while under the GL lock. */
+-static void texture3d_preload(struct wined3d_texture *texture, enum WINED3DSRGB srgb)
++/* Context activation is done by the caller. */
++static void texture3d_preload(struct wined3d_texture *texture,
++        struct wined3d_context *context, enum WINED3DSRGB srgb)
+ {
+     UINT sub_count = texture->level_count * texture->layer_count;
+-    struct wined3d_device *device = texture->resource.device;
+-    const struct wined3d_gl_info *gl_info = &device->adapter->gl_info;
+-    struct wined3d_context *context = NULL;
++    const struct wined3d_gl_info *gl_info = context->gl_info;
+     struct gl_texture *gl_tex;
+     BOOL srgb_mode;
+     UINT i;
+@@ -1067,16 +1060,12 @@ static void texture3d_preload(struct wined3d_texture *texture, enum WINED3DSRGB
+ 
+     if (gl_tex->dirty)
+     {
+-        context = context_acquire(device, NULL);
+-
+         /* Reload the surfaces if the texture is marked dirty. */
+         for (i = 0; i < sub_count; ++i)
+         {
+             wined3d_volume_load(volume_from_resource(texture->sub_resources[i]), context,
+                     srgb_mode);
+         }
+-
+-        context_release(context);
+     }
+     else
+     {
+diff --git a/dlls/wined3d/wined3d_private.h b/dlls/wined3d/wined3d_private.h
+index 696a95c..0f03272 100644
+--- a/dlls/wined3d/wined3d_private.h
++++ b/dlls/wined3d/wined3d_private.h
+@@ -1882,7 +1882,6 @@ struct wined3d_device
+     UINT instance_count;
+ 
+     WORD vertexBlendUsed : 1;           /* To avoid needless setting of the blend matrices */
+-    WORD isInDraw : 1;
+     WORD bCursorVisible : 1;
+     WORD d3d_initialized : 1;
+     WORD inScene : 1;                   /* A flag to check for proper BeginScene / EndScene call pairs */
+@@ -1950,7 +1949,7 @@ void device_context_remove(struct wined3d_device *device, struct wined3d_context
+ HRESULT device_init(struct wined3d_device *device, struct wined3d *wined3d,
+         UINT adapter_idx, enum wined3d_device_type device_type, HWND focus_window, DWORD flags,
+         BYTE surface_alignment, struct wined3d_device_parent *device_parent) DECLSPEC_HIDDEN;
+-void device_preload_textures(const struct wined3d_device *device) DECLSPEC_HIDDEN;
++void device_preload_textures(const struct wined3d_device *device, struct wined3d_context *context) DECLSPEC_HIDDEN;
+ LRESULT device_process_message(struct wined3d_device *device, HWND window, BOOL unicode,
+         UINT message, WPARAM wparam, LPARAM lparam, WNDPROC proc) DECLSPEC_HIDDEN;
+ void device_resource_add(struct wined3d_device *device, struct wined3d_resource *resource) DECLSPEC_HIDDEN;
+@@ -2064,7 +2063,8 @@ struct wined3d_texture_ops
+ {
+     HRESULT (*texture_bind)(struct wined3d_texture *texture,
+             struct wined3d_context *context, BOOL srgb);
+-    void (*texture_preload)(struct wined3d_texture *texture, enum WINED3DSRGB srgb);
++    void (*texture_preload)(struct wined3d_texture *texture, struct wined3d_context *context,
++            enum WINED3DSRGB srgb);
+     void (*texture_sub_resource_add_dirty_region)(struct wined3d_resource *sub_resource,
+             const struct wined3d_box *dirty_region);
+     void (*texture_sub_resource_cleanup)(struct wined3d_resource *sub_resource);
+-- 
+1.8.1.5
+
