@@ -1,14 +1,14 @@
 # Maintainer : boronology <boronology at gmail dot com>
 pkgname=otf-flop-design
 pkgver=20130731
-pkgrel=1
+pkgrel=2
 depends=('fontconfig' 'xorg-font-utils')
 makedepends=('convmv')
 pkgdesc="Simple japanese gothic fonts(includes both OpenType and TrueType)"
 arch=('any')
 license=('custom')
 url="http://www.flopdesign.com/freefont/flopdesignfont.html"
-source=(http://www.flopdesign.com/freefont/FLOPDESIGN_FONT.zip)
+source=(http://www.flopdesign.com/images/datafont/FLOPDESIGN_FONT.zip)
 
 install=$pkgname.install
 
