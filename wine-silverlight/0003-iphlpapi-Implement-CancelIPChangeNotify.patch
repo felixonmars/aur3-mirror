@@ -1,0 +1,98 @@
+From 678678719b115d78006575f1e64338e02a2c0f9e Mon Sep 17 00:00:00 2001
+From: "Erich E. Hoover" <erich.e.hoover@gmail.com>
+Date: Sun, 4 Aug 2013 22:17:42 -0600
+Subject: iphlpapi: Implement CancelIPChangeNotify.
+
+---
+ dlls/iphlpapi/iphlpapi_main.c  |   19 +++++++++++++++++--
+ dlls/iphlpapi/tests/iphlpapi.c |   13 +++++++++++--
+ 2 files changed, 28 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/iphlpapi/iphlpapi_main.c b/dlls/iphlpapi/iphlpapi_main.c
+index 15cfcda..1e4412b 100644
+--- a/dlls/iphlpapi/iphlpapi_main.c
++++ b/dlls/iphlpapi/iphlpapi_main.c
+@@ -211,8 +211,15 @@ DWORD WINAPI AllocateAndGetIpAddrTableFromStack(PMIB_IPADDRTABLE *ppIpAddrTable,
+  */
+ BOOL WINAPI CancelIPChangeNotify(LPOVERLAPPED overlapped)
+ {
+-  FIXME("(overlapped %p): stub\n", overlapped);
+-  return FALSE;
++    IO_STATUS_BLOCK *iosb = (IO_STATUS_BLOCK *) overlapped;
++    HANDLE handle;
++
++    TRACE("(overlapped %p)\n", overlapped);
++
++    if (!iosb || iosb->u.Status != STATUS_PENDING)
++        return FALSE;
++    handle = (HANDLE) overlapped->u.Pointer;
++    return CloseHandle( handle );
+ }
+ 
+ 
+@@ -2137,9 +2144,15 @@ static NTSTATUS IPHLPAPI_apc_NotifyAddrChange(void *arg, IO_STATUS_BLOCK *iosb,
+     LPOVERLAPPED overlapped = (LPOVERLAPPED) iosb;
+     HANDLE h = (HANDLE) arg;
+ 
++    if (status == STATUS_HANDLES_CLOSED)
++    {
++        status = STATUS_CANCELLED;
++        goto done;
++    }
+     if (status != STATUS_ALERTED)
+         return status;
+     status = IPHLPAPI_monitorifchange( h );
++done:
+     if (iosb)
+     {
+         iosb->u.Status = status;
+@@ -2206,6 +2219,8 @@ DWORD WINAPI NotifyAddrChange(PHANDLE handle, LPOVERLAPPED overlapped)
+         status = wine_server_call( req );
+     }
+     SERVER_END_REQ;
++    if (status == STATUS_PENDING)
++        overlapped->u.Pointer = h;
+ 
+ done:
+     if (iosb) iosb->u.Status = status;
+diff --git a/dlls/iphlpapi/tests/iphlpapi.c b/dlls/iphlpapi/tests/iphlpapi.c
+index 872a312..67e81d3 100644
+--- a/dlls/iphlpapi/tests/iphlpapi.c
++++ b/dlls/iphlpapi/tests/iphlpapi.c
+@@ -35,6 +35,8 @@
+  */
+ 
+ #include <stdarg.h>
++#include "ntstatus.h"
++#define WIN32_NO_STATUS
+ #include "winsock2.h"
+ #include "windef.h"
+ #include "winbase.h"
+@@ -1054,7 +1056,7 @@ static void testNotifyAddrChange(void)
+     ret = GetLastError();
+     todo_wine ok(ret == ERROR_IO_PENDING, "GetLastError returned %d, expected ERROR_IO_PENDING\n", ret);
+     success = pCancelIPChangeNotify(&overlapped);
+-    todo_wine ok(success == TRUE, "CancelIPChangeNotify returned FALSE, expected TRUE\n");
++    ok(success == TRUE, "CancelIPChangeNotify returned FALSE, expected TRUE\n");
+ 
+     ZeroMemory(&overlapped, sizeof(overlapped));
+     success = pCancelIPChangeNotify(&overlapped);
+@@ -1071,7 +1073,14 @@ static void testNotifyAddrChange(void)
+     ret = GetLastError();
+     ok(ret == ERROR_IO_INCOMPLETE, "GetLastError returned %d, expected ERROR_IO_INCOMPLETE\n", ret);
+     success = pCancelIPChangeNotify(&overlapped);
+-    todo_wine ok(success == TRUE, "CancelIPChangeNotify returned FALSE, expected TRUE\n");
++    ok(success == TRUE, "CancelIPChangeNotify returned FALSE, expected TRUE\n");
++    ok((NTSTATUS)overlapped.Internal == STATUS_CANCELLED,
++       "Overlapped IO returned %x, expected %x\n", (NTSTATUS)overlapped.Internal, STATUS_CANCELLED);
++    success = GetOverlappedResult(handle, &overlapped, &bytes, FALSE);
++    ok(success == FALSE, "GetOverlappedResult returned TRUE, expected FALSE\n");
++    ret = GetLastError();
++    ok(ret == ERROR_OPERATION_ABORTED,
++       "GetLastError returned %d, expected ERROR_OPERATION_ABORTED\n", ret);
+ 
+     if (winetest_interactive)
+     {
+-- 
+1.7.9.5
+
