@@ -1,0 +1,534 @@
+From: Andrew Cook <ariscop@gmail.com>
+Subject: ntdll: Implement job objects. (try 3)
+Message-Id: <522A9B38.9080009@gmail.com>
+Date: Sat, 07 Sep 2013 13:19:20 +1000
+
+This will be my last submission for this piece of code, i want to work
+on other things and it's been almost 2 weeks with zero comments on my
+previous submission.
+
+tests are in 98562, only difference between this and the previous patch
+is job_signaled always returns false, it's supposedly a fault condition
+and the behaviour required (timeouts) isn't implemented anyway.
+
+---
+ dlls/ntdll/sync.c   |  89 +++++++++++++++---
+ include/winnt.h     |   5 +
+ server/process.c    | 260
+++++++++++++++++++++++++++++++++++++++++++++++++++++
+ server/process.h    |   3 +
+ server/protocol.def |  25 +++++
+ 5 files changed, 371 insertions(+), 11 deletions(-)
+
+diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
+index af1dba9..d9465ca 100644
+--- a/dlls/ntdll/sync.c
++++ b/dlls/ntdll/sync.c
+@@ -58,6 +58,7 @@
+ #include "wine/server.h"
+ #include "wine/debug.h"
+ #include "ntdll_misc.h"
++#include "winnt.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
+ 
+@@ -539,9 +540,19 @@ NTSTATUS WINAPI NtQueryMutant(IN HANDLE handle,
+  */
+ NTSTATUS WINAPI NtCreateJobObject( PHANDLE handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr )
+ {
+-    FIXME( "stub: %p %x %s\n", handle, access, attr ? debugstr_us(attr->ObjectName) : "" );
+-    *handle = (HANDLE)0xdead;
+-    return STATUS_SUCCESS;
++    NTSTATUS status;
++
++    FIXME( "(%p, %x, %s): Partial stub\n", handle, access, attr ? debugstr_us(attr->ObjectName) : "NULL" );
++
++    SERVER_START_REQ( create_job )
++    {
++        status = wine_server_call( req );
++        if(status == STATUS_SUCCESS)
++            *handle = wine_server_ptr_handle(reply->handle);
++    }
++    SERVER_END_REQ;
++
++    return status;
+ }
+ 
+ /******************************************************************************
+@@ -560,8 +571,19 @@ NTSTATUS WINAPI NtOpenJobObject( PHANDLE handle, ACCESS_MASK access, const OBJEC
+  */
+ NTSTATUS WINAPI NtTerminateJobObject( HANDLE handle, NTSTATUS status )
+ {
+-    FIXME( "stub: %p %x\n", handle, status );
+-    return STATUS_SUCCESS;
++    NTSTATUS ret;
++
++    TRACE( "(%p, %d)\n", handle, status );
++
++    SERVER_START_REQ( terminate_job )
++    {
++        req->handle = wine_server_obj_handle(handle);
++        req->status = status;
++        ret = wine_server_call( req );
++    }
++    SERVER_END_REQ;
++
++    return ret;
+ }
+ 
+ /******************************************************************************
+@@ -581,8 +603,33 @@ NTSTATUS WINAPI NtQueryInformationJobObject( HANDLE handle, JOBOBJECTINFOCLASS c
+  */
+ NTSTATUS WINAPI NtSetInformationJobObject( HANDLE handle, JOBOBJECTINFOCLASS class, PVOID info, ULONG len )
+ {
+-    FIXME( "stub: %p %u %p %u\n", handle, class, info, len );
+-    return STATUS_SUCCESS;
++    NTSTATUS status;
++    PJOBOBJECT_ASSOCIATE_COMPLETION_PORT cInfo;
++
++    TRACE( "(%p, %u, %p, %u)\n", handle, class, info, len );
++
++    if(class == JobObjectAssociateCompletionPortInformation)
++    {
++        if(len != sizeof(JOBOBJECT_ASSOCIATE_COMPLETION_PORT))
++            return STATUS_INVALID_PARAMETER;
++
++        cInfo = (PJOBOBJECT_ASSOCIATE_COMPLETION_PORT)info;
++
++        SERVER_START_REQ( job_set_completion )
++        {
++            req->handle = wine_server_obj_handle(handle);
++            req->CompletionKey = wine_server_client_ptr(cInfo->CompletionKey);
++            req->CompletionPort = wine_server_obj_handle(cInfo->CompletionPort);
++            status = wine_server_call(req);
++        }
++        SERVER_END_REQ;
++    }
++    else
++    {
++        status = STATUS_INVALID_INFO_CLASS;
++    }
++
++    return status;
+ }
+ 
+ /******************************************************************************
+@@ -591,8 +638,18 @@ NTSTATUS WINAPI NtSetInformationJobObject( HANDLE handle, JOBOBJECTINFOCLASS cla
+  */
+ NTSTATUS WINAPI NtIsProcessInJob( HANDLE process, HANDLE job )
+ {
+-    FIXME( "stub: %p %p\n", process, job );
+-    return STATUS_PROCESS_NOT_IN_JOB;
++    NTSTATUS status;
++    TRACE( "(%p %p)\n", job, process );
++
++    SERVER_START_REQ( process_in_job )
++    {
++        req->process_handle = wine_server_obj_handle(process);
++        req->job_handle = wine_server_obj_handle(job);
++        status = wine_server_call(req);
++    }
++    SERVER_END_REQ;
++
++    return status;
+ }
+ 
+ /******************************************************************************
+@@ -601,8 +658,18 @@ NTSTATUS WINAPI NtIsProcessInJob( HANDLE process, HANDLE job )
+  */
+ NTSTATUS WINAPI NtAssignProcessToJobObject( HANDLE job, HANDLE process )
+ {
+-    FIXME( "stub: %p %p\n", job, process );
+-    return STATUS_SUCCESS;
++    NTSTATUS status;
++    TRACE( "(%p %p)\n", job, process );
++
++    SERVER_START_REQ( job_assign )
++    {
++        req->job_handle = wine_server_obj_handle(job);
++        req->process_handle = wine_server_obj_handle(process);
++        status = wine_server_call(req);
++    }
++    SERVER_END_REQ;
++
++    return status;
+ }
+ 
+ /*
+diff --git a/include/winnt.h b/include/winnt.h
+index 1f71423..74baee5 100644
+--- a/include/winnt.h
++++ b/include/winnt.h
+@@ -5372,6 +5372,11 @@ typedef enum _JOBOBJECTINFOCLASS
+     MaxJobObjectInfoClass
+ } JOBOBJECTINFOCLASS;
+ 
++typedef struct _JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
++    PVOID  CompletionKey;
++    HANDLE CompletionPort;
++} JOBOBJECT_ASSOCIATE_COMPLETION_PORT, *PJOBOBJECT_ASSOCIATE_COMPLETION_PORT;
++
+ typedef enum _LOGICAL_PROCESSOR_RELATIONSHIP
+ {
+     RelationProcessorCore    = 0,
+diff --git a/server/process.c b/server/process.c
+index 58ca9a8..55ad9cc 100644
+--- a/server/process.c
++++ b/server/process.c
+@@ -133,6 +133,152 @@ static const struct object_ops startup_info_ops =
+     startup_info_destroy           /* destroy */
+ };
+ 
++/* job object */
++
++static void job_dump_info( struct object *obj, int verbose );
++static unsigned int job_map_access( struct object *obj, unsigned int access );
++static int job_signaled( struct object *obj, struct thread *thread );
++static void job_destroy( struct object *obj );
++static struct object_type *job_get_type( struct object *obj );
++static struct job *get_job_from_handle( struct process *process, obj_handle_t handle, unsigned int access );
++static struct job *create_job_object(void);
++
++struct job
++{
++    struct object obj;             /* object header */
++    struct list processes;
++    apc_param_t completion_key;
++    struct completion *completion;
++};
++
++static const struct object_ops job_ops =
++{
++    sizeof(struct job),            /* size */
++    job_dump_info,                 /* dump */
++    job_get_type,                  /* get_type */
++    add_queue,                     /* add_queue */
++    remove_queue,                  /* remove_queue */
++    job_signaled,                  /* signaled */
++    no_satisfied,                  /* satisfied */
++    no_signal,                     /* signal */
++    no_get_fd,                     /* get_fd */
++    job_map_access,                /* map_access */
++    default_get_sd,                /* get_sd */
++    default_set_sd,                /* set_sd */
++    no_lookup_name,                /* lookup_name */
++    no_open_file,                  /* open_file */
++    no_close_handle,               /* close_handle */
++    job_destroy                    /* destroy */
++};
++
++static struct job *create_job_object(void)
++{
++    struct job *job = (struct job*)alloc_object( &job_ops );
++
++    job->completion_key = 0;
++    job->completion = NULL;
++
++    list_init(&job->processes);
++
++    return job;
++}
++
++static struct job *get_job_from_handle( struct process *process, obj_handle_t handle, unsigned int access )
++{
++    return (struct job*)get_handle_obj( process, handle, access, &job_ops );
++}
++
++static struct object_type *job_get_type( struct object *obj )
++{
++    static const WCHAR name[] = {'J', 'o', 'b'};
++    static const struct unicode_str str = { name, sizeof(name) };
++    return get_object_type( &str );
++};
++
++static unsigned int job_map_access( struct object *obj, unsigned int access )
++{
++    /* TODO: Check permissions */
++    /* if (access & GENERIC_READ)    access |= STANDARD_RIGHTS_READ;
++       if (access & GENERIC_WRITE)   access |= STANDARD_RIGHTS_WRITE;
++       if (access & GENERIC_EXECUTE) access |= STANDARD_RIGHTS_EXECUTE;
++       if (access & GENERIC_ALL)     access |= JOB_OBJECT_ALL_ACCESS; */
++    access |= JOB_OBJECT_ALL_ACCESS;
++    return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
++}
++
++#define JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO 4
++#define JOB_OBJECT_MSG_NEW_PROCESS 6
++#define JOB_OBJECT_MSG_EXIT_PROCESS 7
++
++static void job_add_process( struct job *job, struct process *process )
++{
++    process->job = (struct job*)grab_object(job);
++
++    if(job->completion)
++        add_completion(
++            job->completion,
++            job->completion_key,
++            get_process_id( process ),
++            1, /* TODO: why is this 1s */
++            JOB_OBJECT_MSG_NEW_PROCESS);
++
++    list_add_tail(&job->processes, &process->job_entry);
++}
++
++static void job_remove_process( struct process *process )
++{
++    struct job *job = process->job;
++
++    if(!job)
++        return;
++
++    assert(job->obj.ops == &job_ops);
++
++    list_remove(&process->job_entry);
++
++    if(job->completion) {
++        add_completion(
++            job->completion,
++            job->completion_key,
++            get_process_id( process ),
++            1, /* TODO: why is this 1s */
++            JOB_OBJECT_MSG_EXIT_PROCESS
++        );
++
++        if(list_count(&job->processes) == 0) {
++            add_completion(
++                job->completion,
++                job->completion_key,
++                0,
++                1,
++                JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
++            );
++        }
++    }
++}
++
++static void job_destroy( struct object *obj )
++{
++    struct job *job = (struct job*)obj;
++    assert(obj->ops == &job_ops);
++
++    if(job->completion)
++        release_object(job->completion);
++}
++
++static void job_dump_info( struct object *obj, int verbose )
++{
++    struct job *job = (struct job *)obj;
++    assert( obj->ops == &job_ops );
++
++    fprintf( stderr, "Job processes=%d\n", list_count(&job->processes) );
++}
++
++static int job_signaled( struct object *obj, struct thread *thread )
++{
++    /* TODO: job object should become signaled after a timeout */
++    return 0;
++}
+ 
+ struct ptid_entry
+ {
+@@ -325,6 +471,7 @@ struct thread *create_process( int fd, struct thread *parent_thread, int inherit
+     process->debug_children  = 0;
+     process->is_terminating  = 0;
+     process->console         = NULL;
++    process->job             = NULL;
+     process->startup_state   = STARTUP_IN_PROGRESS;
+     process->startup_info    = NULL;
+     process->idle_event      = NULL;
+@@ -423,6 +570,8 @@ static void process_destroy( struct object *obj )
+ 
+     close_process_handles( process );
+     set_process_startup_state( process, STARTUP_ABORTED );
++
++    if (process->job) release_object( process->job );
+     if (process->console) release_object( process->console );
+     if (process->parent) release_object( process->parent );
+     if (process->msg_fd) release_object( process->msg_fd );
+@@ -582,6 +731,7 @@ restart:
+         kill_thread( thread, 1 );
+         goto restart;
+     }
++    job_remove_process( process );
+     release_object( process );
+ }
+ 
+@@ -952,6 +1102,8 @@ DECL_HANDLER(new_process)
+     process = thread->process;
+     process->debug_children = !!(req->create_flags & DEBUG_PROCESS);
+     process->startup_info = (struct startup_info *)grab_object( info );
++    if(parent->job)
++        job_add_process(parent->job, process);
+ 
+     /* connect to the window station */
+     connect_process_winstation( process, current );
+@@ -1286,3 +1438,111 @@ DECL_HANDLER(make_process_system)
+             shutdown_timeout = add_timeout_user( master_socket_timeout, server_shutdown_timeout, NULL );
+     }
+ }
++
++DECL_HANDLER(create_job)
++{
++    struct job *job;
++
++    job = create_job_object();
++
++    if(job) {
++        reply->handle = alloc_handle( current->process, (struct object*)job, 0, 0);
++        release_object(job);
++    } else {
++        reply->handle = 0;
++    }
++}
++
++DECL_HANDLER(job_assign)
++{
++    struct job *job;
++    struct process *process;
++
++    if(!(job = get_job_from_handle( current->process, req->job_handle, JOB_OBJECT_ASSIGN_PROCESS )))
++        return;
++
++    if(!(process = get_process_from_handle( req->process_handle, PROCESS_SET_QUOTA|PROCESS_TERMINATE )))
++        goto error;
++
++    job_add_process( job, process );
++
++    release_object(process);
++error:
++    release_object(job);
++}
++
++DECL_HANDLER(process_in_job)
++{
++    struct job *job;
++    struct process *process, *itter;
++
++    if(!(job = get_job_from_handle( current->process, req->job_handle, JOB_OBJECT_ASSIGN_PROCESS )))
++        return;
++
++    if(!(process = get_process_from_handle( req->process_handle, PROCESS_SET_QUOTA|PROCESS_TERMINATE )))
++        goto error;
++
++    set_error(STATUS_PROCESS_NOT_IN_JOB);
++
++    LIST_FOR_EACH_ENTRY(itter, &job->processes, struct process, job_entry )
++    {
++        if(itter == process) {
++            set_error(STATUS_PROCESS_IN_JOB);
++            break;
++        }
++    }
++
++    release_object(process);
++error:
++    release_object(job);
++}
++
++DECL_HANDLER(terminate_job)
++{
++    struct job *job;
++    struct process *process;
++    struct completion *completion;
++
++    if(!(job = get_job_from_handle( current->process, req->handle, JOB_OBJECT_TERMINATE )))
++        return;
++
++    completion = job->completion;
++    job->completion = NULL;
++
++    LIST_FOR_EACH_ENTRY(process, &job->processes, struct process, job_entry )
++    {
++        terminate_process(process, NULL, req->status);
++    }
++
++    job->completion = completion;
++    if(job->completion)
++    {
++        add_completion(
++            job->completion,
++            job->completion_key,
++            0, 1,
++            JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO
++        );
++    }
++
++    release_object(job);
++}
++
++DECL_HANDLER(job_set_completion)
++{
++    struct job *job;
++    struct completion *completion;
++
++    if(!(job = get_job_from_handle( current->process, req->handle, JOB_OBJECT_ASSIGN_PROCESS )))
++        return;
++
++    if(!(completion = get_completion_obj( current->process, req->CompletionPort, JOB_OBJECT_SET_ATTRIBUTES ))) {
++        release_object(job);
++        return;
++    }
++
++    job->completion_key = req->CompletionKey;
++    job->completion = completion;
++
++    release_object(job);
++}
+diff --git a/server/process.h b/server/process.h
+index a50b537..8d933e4 100644
+--- a/server/process.h
++++ b/server/process.h
+@@ -26,6 +26,7 @@
+ struct atom_table;
+ struct handle_table;
+ struct startup_info;
++struct job;
+ 
+ /* process startup state */
+ enum startup_state { STARTUP_IN_PROGRESS, STARTUP_DONE, STARTUP_ABORTED };
+@@ -60,6 +61,8 @@ struct process
+     struct thread       *debugger;        /* thread debugging this process */
+     struct handle_table *handles;         /* handle entries */
+     struct fd           *msg_fd;          /* fd for sendmsg/recvmsg */
++    struct job          *job;             /* job object ascoicated with this process */
++    struct list          job_entry;       /* list entry for job object */
+     process_id_t         id;              /* id of the process */
+     process_id_t         group_id;        /* group id of the process */
+     struct timeout_user *sigkill_timeout; /* timeout for final SIGKILL */
+diff --git a/server/protocol.def b/server/protocol.def
+index 9164e3e..d974eaa 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -692,6 +692,31 @@ struct rawinput_device
+     obj_handle_t thandle;        /* thread handle (in the current process) */
+ @END
+ 
++@REQ(create_job)
++@REPLY
++    obj_handle_t handle;
++@END
++
++@REQ(terminate_job)
++    obj_handle_t handle;
++    int          status;
++@END
++
++@REQ(process_in_job)
++    obj_handle_t job_handle;
++    obj_handle_t process_handle;
++@END
++
++@REQ(job_assign)
++    obj_handle_t job_handle;
++    obj_handle_t process_handle;
++@END
++
++@REQ(job_set_completion)
++    obj_handle_t handle;
++    client_ptr_t CompletionKey;
++    obj_handle_t CompletionPort;
++@END
+ 
+ /* Retrieve information about a newly started process */
+ @REQ(get_new_process_info)
+

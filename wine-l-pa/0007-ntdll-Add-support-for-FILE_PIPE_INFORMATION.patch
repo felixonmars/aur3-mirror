@@ -1,0 +1,325 @@
+From a0d70f4f1c65a6c193c638b5cf62696bc81a4399 Mon Sep 17 00:00:00 2001
+From: Adam Martinson <adam.r.martinson@gmail.com>
+Date: Tue, 18 Dec 2012 16:57:16 -0600
+Subject: [PATCH 07/10] ntdll: Add support for FILE_PIPE_INFORMATION.
+Reply-To: wine-devel <wine-devel@winehq.org>
+To: wine-patches <wine-patches@winehq.org>
+
+---
+ dlls/ntdll/file.c              |   43 +++++++++++++++++++++++++++++++++++++++-
+ include/wine/server_protocol.h |   18 +++++++++++++++-
+ include/winternl.h             |   13 +++++++++++-
+ server/named_pipe.c            |   39 ++++++++++++++++++++++++++++++++++++
+ server/protocol.def            |    6 +++++
+ server/request.h               |    5 ++++
+ server/trace.c                 |   10 ++++++++-
+ 7 files changed, 130 insertions(+), 4 deletions(-)
+
+diff --git a/dlls/ntdll/file.c b/dlls/ntdll/file.c
+index 7b36392..ad90ba4 100644
+--- a/dlls/ntdll/file.c
++++ b/dlls/ntdll/file.c
+@@ -1890,7 +1890,7 @@ NTSTATUS WINAPI NtQueryInformationFile( HANDLE hFile, PIO_STATUS_BLOCK io,
+         sizeof(FILE_END_OF_FILE_INFORMATION),          /* FileEndOfFileInformation */
+         0,                                             /* FileAlternateNameInformation */
+         sizeof(FILE_STREAM_INFORMATION)-sizeof(WCHAR), /* FileStreamInformation */
+-        0,                                             /* FilePipeInformation */
++        sizeof(FILE_PIPE_INFORMATION),                 /* FilePipeInformation */
+         sizeof(FILE_PIPE_LOCAL_INFORMATION),           /* FilePipeLocalInformation */
+         0,                                             /* FilePipeRemoteInformation */
+         sizeof(FILE_MAILSLOT_QUERY_INFORMATION),       /* FileMailslotQueryInformation */
+@@ -2056,6 +2056,24 @@ NTSTATUS WINAPI NtQueryInformationFile( HANDLE hFile, PIO_STATUS_BLOCK io,
+             }
+         }
+         break;
++    case FilePipeInformation:
++        {
++            FILE_PIPE_INFORMATION* pi = ptr;
++
++            SERVER_START_REQ( get_named_pipe_info )
++            {
++                req->handle = wine_server_obj_handle( hFile );
++                if (!(io->u.Status = wine_server_call( req )))
++                {
++                    pi->ReadMode = (reply->flags & NAMED_PIPE_MESSAGE_STREAM_READ) ?
++                        FILE_PIPE_MESSAGE_MODE : FILE_PIPE_BYTE_STREAM_MODE;
++                    pi->CompletionMode = (reply->flags & NAMED_PIPE_NONBLOCKING_MODE) ?
++                        FILE_PIPE_COMPLETE_OPERATION : FILE_PIPE_QUEUE_OPERATION;
++                }
++            }
++            SERVER_END_REQ;
++        }
++        break;
+     case FilePipeLocalInformation:
+         {
+             FILE_PIPE_LOCAL_INFORMATION* pli = ptr;
+@@ -2227,6 +2245,29 @@ NTSTATUS WINAPI NtSetInformationFile(HANDLE handle, PIO_STATUS_BLOCK io,
+         else io->u.Status = STATUS_INVALID_PARAMETER_3;
+         break;
+ 
++    case FilePipeInformation:
++        if (len >= sizeof(FILE_PIPE_INFORMATION))
++        {
++            FILE_PIPE_INFORMATION *info = ptr;
++
++            if ((info->CompletionMode & (~1)) || (info->ReadMode & (~1)))
++            {
++                io->u.Status = STATUS_INVALID_PARAMETER;
++                break;
++            }
++
++            SERVER_START_REQ( set_named_pipe_info )
++            {
++                req->handle = wine_server_obj_handle( handle );
++                req->flags = (info->CompletionMode? NAMED_PIPE_NONBLOCKING_MODE : 0) |
++                             (info->ReadMode? NAMED_PIPE_MESSAGE_STREAM_READ : 0);
++                io->u.Status = wine_server_call( req );
++            }
++            SERVER_END_REQ;
++        }
++        else io->u.Status = STATUS_INVALID_PARAMETER_3;
++        break;
++
+     case FileMailslotSetInformation:
+         {
+             FILE_MAILSLOT_SET_INFORMATION *info = ptr;
+diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
+index 2a181fc..71359ae 100644
+--- a/include/wine/server_protocol.h
++++ b/include/wine/server_protocol.h
+@@ -3104,6 +3104,19 @@ struct get_named_pipe_info_reply
+ };
+ 
+ 
++struct set_named_pipe_info_request
++{
++    struct request_header __header;
++    obj_handle_t   handle;
++    unsigned int   flags;
++    char __pad_20[4];
++};
++struct set_named_pipe_info_reply
++{
++    struct reply_header __header;
++};
++
++
+ 
+ struct create_window_request
+ {
+@@ -5093,6 +5106,7 @@ enum request
+     REQ_get_ioctl_result,
+     REQ_create_named_pipe,
+     REQ_get_named_pipe_info,
++    REQ_set_named_pipe_info,
+     REQ_create_window,
+     REQ_destroy_window,
+     REQ_get_desktop_window,
+@@ -5349,6 +5363,7 @@ union generic_request
+     struct get_ioctl_result_request get_ioctl_result_request;
+     struct create_named_pipe_request create_named_pipe_request;
+     struct get_named_pipe_info_request get_named_pipe_info_request;
++    struct set_named_pipe_info_request set_named_pipe_info_request;
+     struct create_window_request create_window_request;
+     struct destroy_window_request destroy_window_request;
+     struct get_desktop_window_request get_desktop_window_request;
+@@ -5603,6 +5618,7 @@ union generic_reply
+     struct get_ioctl_result_reply get_ioctl_result_reply;
+     struct create_named_pipe_reply create_named_pipe_reply;
+     struct get_named_pipe_info_reply get_named_pipe_info_reply;
++    struct set_named_pipe_info_reply set_named_pipe_info_reply;
+     struct create_window_reply create_window_reply;
+     struct destroy_window_reply destroy_window_reply;
+     struct get_desktop_window_reply get_desktop_window_reply;
+@@ -5713,6 +5729,6 @@ union generic_reply
+     struct set_suspend_context_reply set_suspend_context_reply;
+ };
+ 
+-#define SERVER_PROTOCOL_VERSION 447
++#define SERVER_PROTOCOL_VERSION 448
+ 
+ #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
+diff --git a/include/winternl.h b/include/winternl.h
+index 79078f0..c62f826 100644
+--- a/include/winternl.h
++++ b/include/winternl.h
+@@ -622,6 +622,11 @@ typedef struct _FILE_MAILSLOT_SET_INFORMATION {
+     LARGE_INTEGER ReadTimeout;
+ } FILE_MAILSLOT_SET_INFORMATION, *PFILE_MAILSLOT_SET_INFORMATION;
+ 
++typedef struct _FILE_PIPE_INFORMATION {
++    ULONG ReadMode;
++    ULONG CompletionMode;
++} FILE_PIPE_INFORMATION, *PFILE_PIPE_INFORMATION;
++
+ typedef struct _FILE_PIPE_LOCAL_INFORMATION {
+     ULONG NamedPipeType;
+     ULONG NamedPipeConfiguration;
+@@ -1136,7 +1141,7 @@ typedef struct _SYSTEM_CPU_INFORMATION {
+ #define CPU_FEATURE_VME    0x00000005   /* Virtual 86 Mode Extensions */
+ #define CPU_FEATURE_TSC    0x00000002   /* Time Stamp Counter available */
+ #define CPU_FEATURE_CMOV   0x00000008   /* Conditional Move instruction*/
+-#define CPU_FEATURE_PGE    0x00000014   /* Page table Entry Global bit */ 
++#define CPU_FEATURE_PGE    0x00000014   /* Page table Entry Global bit */
+ #define CPU_FEATURE_PSE    0x00000024   /* Page Size Extension */
+ #define CPU_FEATURE_MTRR   0x00000040   /* Memory Type Range Registers */
+ #define CPU_FEATURE_CX8    0x00000080   /* Compare and eXchange 8 byte instr. */
+@@ -1600,6 +1605,12 @@ typedef struct _RTL_HANDLE_TABLE
+ /* options for pipe's type */
+ #define FILE_PIPE_TYPE_MESSAGE          0x00000001
+ #define FILE_PIPE_TYPE_BYTE             0x00000000
++/* options for pipe's message mode */
++#define FILE_PIPE_MESSAGE_MODE          0x00000001
++#define FILE_PIPE_BYTE_STREAM_MODE      0x00000000
++/* options for pipe's blocking mode */
++#define FILE_PIPE_COMPLETE_OPERATION    0x00000001
++#define FILE_PIPE_QUEUE_OPERATION       0x00000000
+ /* and client / server end */
+ #define FILE_PIPE_SERVER_END            0x00000001
+ #define FILE_PIPE_CLIENT_END            0x00000000
+diff --git a/server/named_pipe.c b/server/named_pipe.c
+index 9e5d158..6c0c637 100644
+--- a/server/named_pipe.c
++++ b/server/named_pipe.c
+@@ -1146,3 +1146,42 @@ DECL_HANDLER(get_named_pipe_info)
+         release_object( end );
+     }
+ }
++
++DECL_HANDLER(set_named_pipe_info)
++{
++    struct pipe_end *end;
++    NTSTATUS status = STATUS_SUCCESS;
++
++    if ((end = get_pipe_end_obj( current->process, req->handle, FILE_WRITE_ATTRIBUTES )))
++    {
++        if (req->flags & NAMED_PIPE_MESSAGE_STREAM_READ)
++        {
++            if (!(end->flags & NAMED_PIPE_MESSAGE_STREAM_WRITE))
++                status = STATUS_INVALID_PARAMETER;
++            else
++                end->flags |= NAMED_PIPE_MESSAGE_STREAM_READ;
++        }
++        else
++        {
++            end->flags &= (~(unsigned int)NAMED_PIPE_MESSAGE_STREAM_READ);
++        }
++
++        if (status)
++        {
++            set_error(status);
++        }
++        else
++        {
++            if (req->flags & NAMED_PIPE_NONBLOCKING_MODE)
++            {
++                end->flags |= NAMED_PIPE_NONBLOCKING_MODE;
++            }
++            else
++            {
++                end->flags &= (~(unsigned int)NAMED_PIPE_NONBLOCKING_MODE);
++            }
++        }
++
++        release_object( end );
++    }
++}
+diff --git a/server/protocol.def b/server/protocol.def
+index 886853f..1fcf7b4 100644
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -2248,6 +2248,12 @@ enum message_type
+ @END
+ 
+ 
++@REQ(set_named_pipe_info)
++    obj_handle_t   handle;
++    unsigned int   flags;
++@END
++
++
+ /* Create a window */
+ @REQ(create_window)
+     user_handle_t  parent;      /* parent window */
+diff --git a/server/request.h b/server/request.h
+index f566e0d..8748449 100644
+--- a/server/request.h
++++ b/server/request.h
+@@ -252,6 +252,7 @@ DECL_HANDLER(ioctl);
+ DECL_HANDLER(get_ioctl_result);
+ DECL_HANDLER(create_named_pipe);
+ DECL_HANDLER(get_named_pipe_info);
++DECL_HANDLER(set_named_pipe_info);
+ DECL_HANDLER(create_window);
+ DECL_HANDLER(destroy_window);
+ DECL_HANDLER(get_desktop_window);
+@@ -507,6 +508,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
+     (req_handler)req_get_ioctl_result,
+     (req_handler)req_create_named_pipe,
+     (req_handler)req_get_named_pipe_info,
++    (req_handler)req_set_named_pipe_info,
+     (req_handler)req_create_window,
+     (req_handler)req_destroy_window,
+     (req_handler)req_get_desktop_window,
+@@ -1504,6 +1506,9 @@ C_ASSERT( FIELD_OFFSET(struct get_named_pipe_info_reply, instances) == 20 );
+ C_ASSERT( FIELD_OFFSET(struct get_named_pipe_info_reply, outsize) == 24 );
+ C_ASSERT( FIELD_OFFSET(struct get_named_pipe_info_reply, insize) == 28 );
+ C_ASSERT( sizeof(struct get_named_pipe_info_reply) == 32 );
++C_ASSERT( FIELD_OFFSET(struct set_named_pipe_info_request, handle) == 12 );
++C_ASSERT( FIELD_OFFSET(struct set_named_pipe_info_request, flags) == 16 );
++C_ASSERT( sizeof(struct set_named_pipe_info_request) == 24 );
+ C_ASSERT( FIELD_OFFSET(struct create_window_request, parent) == 12 );
+ C_ASSERT( FIELD_OFFSET(struct create_window_request, owner) == 16 );
+ C_ASSERT( FIELD_OFFSET(struct create_window_request, atom) == 20 );
+diff --git a/server/trace.c b/server/trace.c
+index dc5074f..706cf3e 100644
+--- a/server/trace.c
++++ b/server/trace.c
+@@ -2659,6 +2659,12 @@ static void dump_get_named_pipe_info_reply( const struct get_named_pipe_info_rep
+     fprintf( stderr, ", insize=%08x", req->insize );
+ }
+ 
++static void dump_set_named_pipe_info_request( const struct set_named_pipe_info_request *req )
++{
++    fprintf( stderr, " handle=%04x", req->handle );
++    fprintf( stderr, ", flags=%08x", req->flags );
++}
++
+ static void dump_create_window_request( const struct create_window_request *req )
+ {
+     fprintf( stderr, " parent=%08x", req->parent );
+@@ -4092,6 +4098,7 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
+     (dump_func)dump_get_ioctl_result_request,
+     (dump_func)dump_create_named_pipe_request,
+     (dump_func)dump_get_named_pipe_info_request,
++    (dump_func)dump_set_named_pipe_info_request,
+     (dump_func)dump_create_window_request,
+     (dump_func)dump_destroy_window_request,
+     (dump_func)dump_get_desktop_window_request,
+@@ -4344,6 +4351,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
+     (dump_func)dump_get_ioctl_result_reply,
+     (dump_func)dump_create_named_pipe_reply,
+     (dump_func)dump_get_named_pipe_info_reply,
++    NULL,
+     (dump_func)dump_create_window_reply,
+     NULL,
+     (dump_func)dump_get_desktop_window_reply,
+@@ -4596,6 +4604,7 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
+     "get_ioctl_result",
+     "create_named_pipe",
+     "get_named_pipe_info",
++    "set_named_pipe_info",
+     "create_window",
+     "destroy_window",
+     "get_desktop_window",
+@@ -4795,7 +4804,6 @@ static const struct
+     { "OBJECT_PATH_SYNTAX_BAD",      STATUS_OBJECT_PATH_SYNTAX_BAD },
+     { "OBJECT_TYPE_MISMATCH",        STATUS_OBJECT_TYPE_MISMATCH },
+     { "PENDING",                     STATUS_PENDING },
+-    { "PIPE_BUSY",                   STATUS_PIPE_BUSY },
+     { "PIPE_CONNECTED",              STATUS_PIPE_CONNECTED },
+     { "PIPE_DISCONNECTED",           STATUS_PIPE_DISCONNECTED },
+     { "PIPE_LISTENING",              STATUS_PIPE_LISTENING },
+-- 
+1.7.1
+

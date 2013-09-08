@@ -1,0 +1,361 @@
+From 1fc244675e34f63b48bdb0aecb83948e91839d13 Mon Sep 17 00:00:00 2001
+From: Adam Martinson <adam.r.martinson@gmail.com>
+Date: Thu, 20 Dec 2012 16:58:26 -0600
+Subject: [PATCH 02/10] server/named_pipe: (no-op) Renames to make actual behavior clearer part 1.
+Reply-To: wine-devel <wine-devel@winehq.org>
+To: wine-patches <wine-patches@winehq.org>
+
+---
+ server/named_pipe.c |  135 ++++++++++++++++++++++++++-------------------------
+ 1 files changed, 68 insertions(+), 67 deletions(-)
+
+diff --git wine-1.7.1/server/named_pipe.c.orig wine-1.7.1/server/named_pipe.c
+index 590adca..fa7ae88 100644
+--- wine-1.7.1/server/named_pipe.c.orig	2013-08-30 13:55:16.000000000 -0400
++++ wine-1.7.1/server/named_pipe.c	2013-09-04 00:20:07.403816352 -0400
+@@ -57,8 +57,8 @@
+ {
+     ps_idle_server,
+     ps_wait_open,
+-    ps_connected_server,
+-    ps_wait_disconnect,
++    ps_connected,
++    ps_disconnected_client,
+     ps_disconnected_server,
+     ps_wait_connect
+ };
+@@ -72,19 +72,19 @@
+     struct fd           *ioctl_fd;   /* file descriptor for ioctls when not connected */
+     struct list          entry;      /* entry in named pipe servers list */
+     enum pipe_state      state;      /* server state */
+-    struct pipe_client  *client;     /* client that this server is connected to */
++    struct pipe_end     *client;     /* client that this server is connected to */
+     struct named_pipe   *pipe;
+     struct timeout_user *flush_poll;
+     struct event        *event;
+     unsigned int         options;    /* pipe options */
+ };
+ 
+-struct pipe_client
++struct pipe_end
+ {
+     struct object        obj;        /* object header */
+     struct fd           *fd;         /* pipe file descriptor */
+-    struct pipe_server  *server;     /* server that this client is connected to */
+-    unsigned int         flags;      /* file flags */
++    struct pipe_server  *server;     /* server that this end is connected to */
++    unsigned int         flags;      /* pipe flags */
+ };
+ 
+ struct named_pipe
+@@ -176,39 +176,39 @@
+ };
+ 
+ /* client end functions */
+-static void pipe_client_dump( struct object *obj, int verbose );
+-static int pipe_client_signaled( struct object *obj, struct wait_queue_entry *entry );
+-static struct fd *pipe_client_get_fd( struct object *obj );
+-static void pipe_client_destroy( struct object *obj );
+-static void pipe_client_flush( struct fd *fd, struct event **event );
+-static enum server_fd_type pipe_client_get_fd_type( struct fd *fd );
++static void pipe_end_dump( struct object *obj, int verbose );
++static int pipe_end_signaled( struct object *obj, struct thread *thread );
++static struct fd *pipe_end_get_fd( struct object *obj );
++static void pipe_end_destroy( struct object *obj );
++static void pipe_end_flush( struct fd *fd, struct event **event );
++static enum server_fd_type pipe_end_get_fd_type( struct fd *fd );
+ 
+-static const struct object_ops pipe_client_ops =
++static const struct object_ops pipe_end_ops =
+ {
+-    sizeof(struct pipe_client),   /* size */
+-    pipe_client_dump,             /* dump */
++    sizeof(struct pipe_end),      /* size */
++    pipe_end_dump,                /* dump */
+     no_get_type,                  /* get_type */
+     add_queue,                    /* add_queue */
+     remove_queue,                 /* remove_queue */
+-    pipe_client_signaled,         /* signaled */
++    pipe_end_signaled,            /* signaled */
+     no_satisfied,                 /* satisfied */
+     no_signal,                    /* signal */
+-    pipe_client_get_fd,           /* get_fd */
++    pipe_end_get_fd,              /* get_fd */
+     default_fd_map_access,        /* map_access */
+     default_get_sd,               /* get_sd */
+     default_set_sd,               /* set_sd */
+     no_lookup_name,               /* lookup_name */
+     no_open_file,                 /* open_file */
+     fd_close_handle,              /* close_handle */
+-    pipe_client_destroy           /* destroy */
++    pipe_end_destroy              /* destroy */
+ };
+ 
+-static const struct fd_ops pipe_client_fd_ops =
++static const struct fd_ops pipe_end_fd_ops =
+ {
+     default_fd_get_poll_events,   /* get_poll_events */
+     default_poll_event,           /* poll_event */
+-    pipe_client_flush,            /* flush */
+-    pipe_client_get_fd_type,      /* get_fd_type */
++    pipe_end_flush,               /* flush */
++    pipe_end_get_fd_type,         /* get_fd_type */
+     default_fd_ioctl,             /* ioctl */
+     default_fd_queue_async,       /* queue_async */
+     default_fd_reselect_async,    /* reselect_async */
+@@ -284,18 +284,18 @@
+     fprintf( stderr, "Named pipe server pipe=%p state=%d\n", server->pipe, server->state );
+ }
+ 
+-static void pipe_client_dump( struct object *obj, int verbose )
++static void pipe_end_dump( struct object *obj, int verbose )
+ {
+-    struct pipe_client *client = (struct pipe_client *) obj;
+-    assert( obj->ops == &pipe_client_ops );
+-    fprintf( stderr, "Named pipe client server=%p\n", client->server );
++    struct pipe_end *end = (struct pipe_end *) obj;
++    assert( obj->ops == &pipe_end_ops );
++    fprintf( stderr, "Named pipe client server=%p\n", end->server );
+ }
+ 
+-static int pipe_client_signaled( struct object *obj, struct wait_queue_entry *entry )
++static int pipe_end_signaled( struct object *obj, struct thread *thread )
+ {
+-    struct pipe_client *client = (struct pipe_client *) obj;
++    struct pipe_end *end = (struct pipe_end *) obj;
+ 
+-    return client->fd && is_fd_signaled(client->fd);
++    return end->fd && is_fd_signaled(end->fd);
+ }
+ 
+ static void named_pipe_destroy( struct object *obj)
+@@ -307,11 +307,11 @@
+     free_async_queue( pipe->waiters );
+ }
+ 
+-static struct fd *pipe_client_get_fd( struct object *obj )
++static struct fd *pipe_end_get_fd( struct object *obj )
+ {
+-    struct pipe_client *client = (struct pipe_client *) obj;
+-    if (client->fd)
+-        return (struct fd *) grab_object( client->fd );
++    struct pipe_end *end = (struct pipe_end *) obj;
++    if (end->fd)
++        return (struct fd *) grab_object( end->fd );
+     set_error( STATUS_PIPE_DISCONNECTED );
+     return NULL;
+ }
+@@ -322,8 +322,8 @@
+ 
+     switch(state)
+     {
+-    case ps_connected_server:
+-    case ps_wait_disconnect:
++    case ps_connected:
++    case ps_disconnected_client:
+         assert( server->fd );
+         break;
+     case ps_wait_open:
+@@ -351,7 +351,7 @@
+ {
+     if (!server->flush_poll)
+         return;
+-    assert( server->state == ps_connected_server );
++    assert( server->state == ps_connected );
+     assert( server->event );
+     remove_timeout_user( server->flush_poll );
+     server->flush_poll = NULL;
+@@ -402,12 +402,12 @@
+     release_object( server->pipe );
+ }
+ 
+-static void pipe_client_destroy( struct object *obj)
++static void pipe_end_destroy( struct object *obj)
+ {
+-    struct pipe_client *client = (struct pipe_client *)obj;
+-    struct pipe_server *server = client->server;
++    struct pipe_end *end = (struct pipe_end *)obj;
++    struct pipe_server *server = end->server;
+ 
+-    assert( obj->ops == &pipe_client_ops );
++    assert( obj->ops == &pipe_end_ops );
+ 
+     if (server)
+     {
+@@ -415,25 +415,26 @@
+ 
+         switch(server->state)
+         {
+-        case ps_connected_server:
++        case ps_connected:
+             /* Don't destroy the server's fd here as we can't
+                do a successful flush without it. */
+-            set_server_state( server, ps_wait_disconnect );
++            set_server_state( server, ps_disconnected_client );
+             break;
+         case ps_disconnected_server:
+             set_server_state( server, ps_wait_connect );
+             break;
+         case ps_idle_server:
+         case ps_wait_open:
+-        case ps_wait_disconnect:
++        case ps_disconnected_client:
+         case ps_wait_connect:
+             assert( 0 );
++            break;
+         }
+         assert( server->client );
+         server->client = NULL;
+-        client->server = NULL;
++        end->server = NULL;
+     }
+-    if (client->fd) release_object( client->fd );
++    if (end->fd) release_object( end->fd );
+ }
+ 
+ static void named_pipe_device_dump( struct object *obj, int verbose )
+@@ -550,7 +551,7 @@
+ {
+     struct pipe_server *server = get_fd_user( fd );
+ 
+-    if (!server || server->state != ps_connected_server) return;
++    if (!server || server->state != ps_connected) return;
+ 
+     /* FIXME: if multiple threads flush the same pipe,
+               maybe should create a list of processes to notify */
+@@ -567,7 +568,7 @@
+     }
+ }
+ 
+-static void pipe_client_flush( struct fd *fd, struct event **event )
++static void pipe_end_flush( struct fd *fd, struct event **event )
+ {
+     /* FIXME: what do we have to do for this? */
+ }
+@@ -582,7 +583,7 @@
+     return FD_TYPE_PIPE;
+ }
+ 
+-static enum server_fd_type pipe_client_get_fd_type( struct fd *fd )
++static enum server_fd_type pipe_end_get_fd_type( struct fd *fd )
+ {
+     return FD_TYPE_PIPE;
+ }
+@@ -636,13 +637,13 @@
+                 return wait_handle;
+             }
+             break;
+-        case ps_connected_server:
++        case ps_connected:
+             set_error( STATUS_PIPE_CONNECTED );
+             break;
+         case ps_disconnected_server:
+             set_error( STATUS_PIPE_BUSY );
+             break;
+-        case ps_wait_disconnect:
++        case ps_disconnected_client:
+             set_error( STATUS_NO_DATA_DETECTED );
+             break;
+         case ps_wait_open:
+@@ -654,7 +655,7 @@
+     case FSCTL_PIPE_DISCONNECT:
+         switch(server->state)
+         {
+-        case ps_connected_server:
++        case ps_connected:
+             assert( server->client );
+             assert( server->client->fd );
+ 
+@@ -665,7 +666,7 @@
+             do_disconnect( server );
+             set_server_state( server, ps_disconnected_server );
+             break;
+-        case ps_wait_disconnect:
++        case ps_disconnected_client:
+             assert( !server->client );
+             do_disconnect( server );
+             set_server_state( server, ps_wait_connect );
+@@ -762,19 +763,19 @@
+     return server;
+ }
+ 
+-static struct pipe_client *create_pipe_client( unsigned int flags )
++static struct pipe_end *create_pipe_end( unsigned int flags )
+ {
+-    struct pipe_client *client;
++    struct pipe_end *end;
+ 
+-    client = alloc_object( &pipe_client_ops );
+-    if (!client)
++    end = alloc_object( &pipe_end_ops );
++    if (!end)
+         return NULL;
+ 
+-    client->fd = NULL;
+-    client->server = NULL;
+-    client->flags = flags;
++    end->fd = NULL;
++    end->server = NULL;
++    end->flags = flags;
+ 
+-    return client;
++    return end;
+ }
+ 
+ static struct pipe_server *find_available_server( struct named_pipe *pipe )
+@@ -803,7 +804,7 @@
+ {
+     struct named_pipe *pipe = (struct named_pipe *)obj;
+     struct pipe_server *server;
+-    struct pipe_client *client;
++    struct pipe_end *client;
+     unsigned int pipe_sharing;
+     int fds[2];
+ 
+@@ -822,7 +823,7 @@
+         return NULL;
+     }
+ 
+-    if ((client = create_pipe_client( options )))
++    if ((client = create_pipe_end( options )))
+     {
+         if (!socketpair( PF_UNIX, SOCK_STREAM, 0, fds ))
+         {
+@@ -845,7 +846,7 @@
+                 setsockopt( fds[1], SOL_SOCKET, SO_SNDBUF, &pipe->outsize, sizeof(pipe->outsize) );
+             }
+ 
+-            client->fd = create_anonymous_fd( &pipe_client_fd_ops, fds[1], &client->obj, options );
++            client->fd = create_anonymous_fd( &pipe_end_fd_ops, fds[1], &client->obj, options );
+             server->fd = create_anonymous_fd( &pipe_server_fd_ops, fds[0], &server->obj, server->options );
+             if (client->fd && server->fd)
+             {
+@@ -854,7 +855,7 @@
+                 fd_copy_completion( server->ioctl_fd, server->fd );
+                 if (server->state == ps_wait_open)
+                     fd_async_wake_up( server->ioctl_fd, ASYNC_TYPE_WAIT, STATUS_SUCCESS );
+-                set_server_state( server, ps_connected_server );
++                set_server_state( server, ps_connected );
+                 server->client = client;
+                 client->server = server;
+             }
+@@ -1011,7 +1012,7 @@
+ DECL_HANDLER(get_named_pipe_info)
+ {
+     struct pipe_server *server;
+-    struct pipe_client *client = NULL;
++    struct pipe_end *client = NULL;
+ 
+     server = get_pipe_server_obj( current->process, req->handle, FILE_READ_ATTRIBUTES );
+     if (!server)
+@@ -1020,8 +1021,8 @@
+             return;
+ 
+         clear_error();
+-        client = (struct pipe_client *)get_handle_obj( current->process, req->handle,
+-                                                       0, &pipe_client_ops );
++        client = (struct pipe_end *)get_handle_obj( current->process, req->handle,
++                                                       0, &pipe_end_ops );
+         if (!client) return;
+         server = client->server;
+     }

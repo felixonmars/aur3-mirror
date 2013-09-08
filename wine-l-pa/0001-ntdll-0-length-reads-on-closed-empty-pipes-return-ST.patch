@@ -1,0 +1,56 @@
+From 0b4b00db105bcaade3925a92ea5ad681864c1af2 Mon Sep 17 00:00:00 2001
+From: Adam Martinson <adam.r.martinson@gmail.com>
+Date: Thu, 20 Dec 2012 14:43:49 -0600
+Subject: [PATCH 01/10] ntdll: 0-length reads on closed, empty pipes return STATUS_PIPE_BROKEN.
+Reply-To: wine-devel <wine-devel@winehq.org>
+To: wine-patches <wine-patches@winehq.org>
+
+---
+ dlls/kernel32/file.c |    2 +-
+ dlls/ntdll/file.c    |   17 +++++++++++++++++
+ 2 files changed, 18 insertions(+), 1 deletions(-)
+
+diff --git a/dlls/kernel32/file.c b/dlls/kernel32/file.c
+index 73b8416..33d6561 100644
+--- a/dlls/kernel32/file.c
++++ b/dlls/kernel32/file.c
+@@ -404,7 +404,7 @@ BOOL WINAPI ReadFile( HANDLE hFile, LPVOID buffer, DWORD bytesToRead,
+           bytesRead, overlapped );
+ 
+     if (bytesRead) *bytesRead = 0;  /* Do this before anything else */
+-    if (!bytesToRead) return TRUE;
++    if (!bytesToRead && GetFileType(hFile) != FILE_TYPE_PIPE) return TRUE;
+ 
+     if (is_console_handle(hFile))
+     {
+diff --git a/dlls/ntdll/file.c b/dlls/ntdll/file.c
+index 1b292d4..7b36392 100644
+--- a/dlls/ntdll/file.c
++++ b/dlls/ntdll/file.c
+@@ -620,6 +620,23 @@ NTSTATUS WINAPI NtReadFile(HANDLE hFile, HANDLE hEvent,
+         goto done;
+     }
+ 
++    if (type == FD_TYPE_PIPE && !length)
++    {
++        struct pollfd pfd;
++        pfd.fd = unix_handle;
++        pfd.events = POLLHUP;
++        pfd.revents = 0;
++
++        status = STATUS_SUCCESS;
++        if (poll(&pfd, 1, 0) > 0 && pfd.revents == POLLHUP)
++        { /* the other end has closed, but we only return an error if the pipe is also empty */
++            char check;
++            if (recv( unix_handle, &check, sizeof(check), MSG_PEEK | MSG_DONTWAIT ) != sizeof(check))
++                status = STATUS_PIPE_BROKEN;
++        }
++        goto done;
++    }
++
+     for (;;)
+     {
+         if ((result = read( unix_handle, (char *)buffer + total, length - total )) >= 0)
+-- 
+1.7.1
+
