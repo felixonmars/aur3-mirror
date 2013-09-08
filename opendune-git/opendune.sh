@@ -1,14 +1,14 @@
 #!/bin/sh
 #
-# OpenDUNE launcher
+# OpenDUNE launcher // carstene1ns 2013
 #
-# Does some magic juggling with the data files
+# Does some juggling with the data files and path
 
-mkdir -p $HOME/.opendune/data
+[ ! -d $HOME/.opendune/data ] && mkdir -p $HOME/.opendune/data
 
-if [ ! -f $HOME/.opendune/data/dune.cfg ]; then
+if [ ! -f $HOME/.opendune/data/put_dune2_here.cfg ]; then
 
-  cp /opt/opendune/data/{dune.cfg,put_dune2_here.txt} $HOME/.opendune/data/
+  cp /opt/opendune/data/put_dune2_here.txt $HOME/.opendune/data/
 
 fi
 
