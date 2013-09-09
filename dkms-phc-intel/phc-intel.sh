@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/bash -e
 shopt -s nullglob
 
 if [ "$1" = set ]; then
-	. /etc/conf.d/phc-intel
-	[ -n "$VIDS" ] || exit
+	. /etc/default/phc-intel
+	[ -z "$VIDS" ] && exit
 	for i in $(< /proc/cmdline); do
 		[ $i = nophc ] && exit
 	done
@@ -13,26 +13,23 @@ if [ "$1" = set ]; then
 	exit
 fi
 
-. /etc/rc.conf
-. /etc/rc.d/functions
-
 case "$1" in
 start)
-	. /etc/conf.d/phc-intel
+	. /etc/default/phc-intel
 	if [ -z "$VIDS" ]; then
-		printhl 'Please edit /etc/conf.d/phc-intel'
+		echo '=> Please edit /etc/default/phc-intel'
 		exit 1
 	fi
-	stat_busy 'Setting PHC VIDs'
+	echo ':: Setting PHC VIDs'
 	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
 		echo $VIDS > "$i"
-	done && stat_done || stat_fail
+	done
 	;;
 stop)
-	stat_busy 'Resetting default PHC VIDs'
+	echo ':: Resetting default PHC VIDs'
 	for i in /sys/devices/system/cpu/cpu*/cpufreq; do
 		[ -e "$i/phc_default_vids" -a -e "$i/phc_vids" ] && cp "$i"/phc_{default_,}vids
-	done && stat_done || stat_fail
+	done
 	;;
 status)
 	check_off () {
@@ -45,25 +42,20 @@ status)
 			[[ "$(< $i)" =~ "$VIDS" ]] || return;
 		done
 	}
-	stat_busy 'PHC status'
-	. /etc/conf.d/phc-intel
+	echo -n 'PHC status: '
+	. /etc/default/phc-intel
 	if check_off; then
-		status_stopped
+		echo 'inactive'
 	elif check_on; then
-		status_started
+		echo 'active'
 	else
-		stat_fail
+		echo 'unknown'
 	fi
 	;;
 setup)
-	LOG='/var/log/phc-intel.log'
-	fail () {
-		stat_fail
-		printhl "Look at $LOG to find out what went wrong"
-		exit 1
-	}
-	stat_busy 'Removing old phc-intel modules'
-	for i in /lib/modules/*; do
+	echo ':: Removing old phc-intel modules'
+	echo
+	for i in /usr/lib/modules/*; do
 		if [ -f "$i/phc-intel.ko" -a ! -f "$i/version" ]; then
 			rm -f "$i/phc-intel.ko"
 			rmdir --ignore-fail-on-non-empty "$i"
@@ -72,14 +64,18 @@ setup)
 			rmdir -p --ignore-fail-on-non-empty "$i/extra"
 		fi
 	done
-	stat_done
-	stat_busy 'Compiling new phc-intel module'
+	echo ':: Compiling new phc-intel module'
+	echo
 	cd /usr/src/phc-intel/
-	make &>$LOG && stat_done || fail
-	stat_busy 'Installing new phc-intel module'
-	make install &>>$LOG && stat_done || fail
-	stat_busy 'Cleaning up'
-	make clean &>>$LOG && stat_done || fail
+	make
+	echo
+	echo ':: Installing new phc-intel module'
+	echo
+	make install
+	echo
+	echo ':: Cleaning up'
+	echo
+	make clean
 	;;
 *)
 	echo "usage: $0 {start|stop|status|setup|set}"
