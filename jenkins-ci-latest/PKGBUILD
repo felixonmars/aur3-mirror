@@ -3,7 +3,7 @@
 # Contributor: Illarion Kovalchuk <illarion.kovalchuk at gmail dot com>
 
 pkgname=jenkins-ci-latest
-pkgver=1.529
+pkgver=1.530
 pkgrel=1
 pkgdesc='Extendable continuous integration server (latest and greatest)'
 arch=('any')
@@ -21,7 +21,7 @@ source=("http://mirrors.jenkins-ci.org/war/latest/jenkins.war"
         'jenkins.service'
         'jenkins.tmpfiles.d'
         'LICENSE')
-sha256sums=('85a0bbf40e748232527a2e1886aa2c9eb06a88ed627b8c198be5befe63a613e2'
+sha256sums=('2d9289b69e5baba94173625f7b175ede4e39c1c6600ffed74d32b251c5ed8ebb'
             '13b6e06de1dedff96bdb8e43f6830bbd954dc58df9d4ed5583693d2a6f8427f4'
             '23b748ae4c418bd1b98e33dd6bb55ad0d578803aecd26176998b759689b82e73'
             '0ccff16308b01b02f2699ea64a73b8dce1e1990ee1c656aa8d6119dee510262e'
