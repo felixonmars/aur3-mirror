@@ -3,7 +3,7 @@
 
 pkgname=keepass
 pkgver=2.23
-pkgrel=1
+pkgrel=2
 pkgdesc='KeePass Password Safe, the free, open source, light-weight and easy-to-use password manager'
 arch=('any')
 url='http://keepass.info/'
@@ -25,10 +25,10 @@ source=("http://downloads.sourceforge.net/keepass/KeePass-$pkgver.zip"
 
 package() {
   cd "$srcdir"
-  
+
   install -dm755 "$pkgdir"/usr/bin
   install -dm755 "$pkgdir"/usr/share/keepass/XSL
-  
+
   install -Dm755 keepass "$pkgdir"/usr/bin/keepass
   install -Dm755 KeePass.exe "$pkgdir"/usr/share/keepass/KeePass.exe
   install -Dm755 KeePass.config.xml "$pkgdir"/usr/share/keepass/KeePass.config.xml
@@ -36,19 +36,19 @@ package() {
   install -Dm755 KeePass.chm "$pkgdir"/usr/share/keepass/KeePass.chm
 
   install -m644 XSL/* "$pkgdir"/usr/share/keepass/XSL
-  
+
   install -Dm644 keepass.1 "$pkgdir"/usr/share/man/man1/keepass.1
-  
+
   # Proper installation of .desktop file
   desktop-file-install -m 644 --dir "$pkgdir"/usr/share/applications/ keepass.desktop
-  
+
   # Install Icons (got from source package with "icotool -x KeePass.ico")
   for size in 16 32 48 256; do
     install -Dm644 \
     KeePass_*_${size}x${size}x32.png \
     "$pkgdir"/usr/share/icons/hicolor/${size}x${size}/apps/keepass.png
   done
-  
+
   # Needed for postinst with xdg-utils
   install -Dm644 keepass.xml "$pkgdir"/usr/share/mime/packages/keepass.xml
 }
@@ -56,7 +56,7 @@ package() {
 md5sums=('f7547420a302199187071d5af449ba8c'
          'daa5d6c01c11cf38c6f5cc207333aa9a'
          'a2a0dff1ebf0aaf6cbfb6f8566f4a010'
-         '226934813eaa6bf01f01cc3926846707'
+         'e910fabacfd7a5f7caa7c1fac0b5254e'
          '1d7545e79e7aa1107a9f78cb46ced251'
          'ac0f1e104f82d295c27646bfff39fecc'
          '490859f348e492b5e33739262ff07f00'
