@@ -1,83 +1,96 @@
-# Maintainer: Perberos <perberos@gmail.com>
-pkgname=mate-display-manager
-pkgver=20120308
-pkgrel=1
-pkgdesc="The MATE Display Manager"
-arch=(i686 x86_64)
-license=('GPL')
-depends=('pam' 'libdmx' 'mate-panel' 'libmatecanvas' 'librsvg' 'gksu' 'dbus-glib' 'consolekit' 'mate-dialogs')
-makedepends=('pkgconfig' 'intltool' 'mate-doc-utils' 'xtrans' 'xorg-server')
-# do not add !emptydirs
-options=('!libtool')
-install=mate-display-manager.install
-url="http://matsusoft.com.ar/projects/mate/"
-groups=('mate-extras')
-source=(mdm
-        mdm.pam
-        mdm-autologin.pam)
-sha256sums=('512de7022bd88d14cfe84b43bc29dc6f211fec28ba76e0e71470799c4292f036'
-            'ab7931f226d437900000daee29fa33a8d3fd5ccd1f9b30522d269e8a699372f4'
-            '3daff680ff6b7ea56f84f40843e46e72477c81e9e405028203c942af04d07ae5')
-backup=('etc/pam.d/mdm' 'etc/pam.d/mdm-autologin' 'etc/mdm/custom.conf')
+# Maintainer: Piotr Gorski <prgorski88@gmail.com>
 
-_gitroot=git://github.com/mate-desktop/mate-display-manager.git
-_gitname=mate-display-manager
+
+pkgname=mate-display-manager
+_name=mdm
+pkgver=1.3.1
+pkgrel=4
+pkgdesc="The MATE Display Manager"
+arch=('i686' 'x86_64')
+url="http://www.linuxmint.com"
+license=('GPL')
+depends=('pam' 'libdmx' 'gtk2' 'libgnomecanvas' 'librsvg' 
+         'libxml2' 'libart-lgpl' 'dbus-glib' 'libwebkit')
+makedepends=('gnome-common' 'intltool' 'perl' 'gnome-doc-utils' 'xorg-server' 'pango' 'zenity')
+provides=('gdm' 'gdm-old')
+conflicts=('gdm')
+options=('!libtool')
+install='mate-display-manager.install'
+source=("$_name-$pkgver.zip::https://github.com/linuxmint/$_name/archive/$pkgver.zip"
+	'mdm.pam'
+	'mdm.service'
+	'mdm-autologin.pam'
+	'defaults.conf'
+	'org.cinnamon.pkexec.mdmsetup.policy'
+	'mdm-plymouth.service')
+noextract=()
 
 build() {
-	cd "$srcdir"
-	msg "Connecting to GIT server...."
-
-	if [[ -d "$_gitname" ]]; then
-		cd "$_gitname" && git pull origin
-		msg "The local files are updated."
-	else
-		git clone "$_gitroot" "$_gitname"
-	fi
-
-	msg "GIT checkout done or server timeout"
-	msg "Starting build..."
-
-	rm -rf "$srcdir/$_gitname-build"
-	git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-	cd "$srcdir/$_gitname-build"
-
-
-    ./autogen.sh --prefix=/usr \
-        --sysconfdir=/etc \
-        --libexecdir=/usr/lib/mdm \
-        --localstatedir=/var \
-        --disable-static \
-        --with-at-spi-registryd-directory=/usr/lib/at-spi \
-        --disable-scrollkeeper \
-        --without-tcp-wrappers \
-        --disable-debug || return 1
-
-    make
+	cd ${srcdir}/${_name}-${pkgver}
+	chmod +x ./autogen.sh
+	export AUTOMAKE=automake
+	./autogen.sh --enable-ipv6=yes --with-prefetch \
+	--prefix=/usr --with-console-kit=no --sysconfdir=/etc \
+	--with-systemd --libexecdir=/usr/lib/mdm --localstatedir=/var/lib \
+	--disable-static --with-xevie=yes --disable-scrollkeeper \
+	--enable-secureremote=yes --enable-ipv6=yes \
+    --enable-compile-warnings=no --sbindir=/usr/bin \
+	LDFLAGS="-lXau -lm"
+	sed -i -e 's|${prefix}|/usr|' config.h
+	make DESTDIR=$pkgdir
 }
 
 package() {
-	cd "$srcdir/$_gitname-build"
+	cd ${srcdir}/${_name}-${pkgver}
+	make DESTDIR=$pkgdir install
 
-    make MATECONF_DISABLE_MAKEFILE_SCHEMA_INSTALL=1 DESTDIR="${pkgdir}" install
-    install -m755 -d "${pkgdir}/usr/share/mateconf/schemas"
-    mateconf-merge-schema "${pkgdir}/usr/share/mateconf/schemas/${pkgname}.schemas" --domain ${pkgname} ${pkgdir}/etc/mateconf/schemas/*.schemas
-    rm -f ${pkgdir}/etc/mateconf/schemas/*.schemas
+msg2 'Adding PAM rules'
+	#PAM, we use our own, not LinuxMint stuff, problem?...
+	install -m755 -d $pkgdir/etc/pam.d
+	install -m644 $srcdir/mdm-autologin.pam $pkgdir/etc/pam.d/mdm-autologin
+	install -m644 $srcdir/mdm.pam $pkgdir/etc/pam.d/mdm
 
-    # fix for wrong path to executables
-    _path=${pkgdir}/usr/share/mdm/autostart/LoginWindow
+msg2 'Adding SystemD services'
+	#systemd Init script, but ... SysV Inint is soo old
+	install -m755 -d $pkgdir/usr/lib/systemd/system
+	install -m644 $srcdir/mdm.service $pkgdir/usr/lib/systemd/system/mdm.service
 
-    sed -i 's_/usr/lib/mdm/_/usr/lib/polkit-mate/_' ${_path}/polkit-mate-authentication-agent-1.desktop
-    sed -i 's_/usr/lib/mdm/__' ${_path}/mate-settings-daemon.desktop
+msg2 'Adding config files'
+	#configuration
+	install -m444 "${srcdir}/defaults.conf" "${pkgdir}/usr/share/mdm/" 
+	rm -f ${pkgdir}/usr/share/xsessions/gnome.desktop || true
 
+msg2 'Adding PolicyKit execution scheme'
+	#PolicyKit execution scheme (need some tests)
+	install -m755 -d $pkgdir/usr/share/polkit-1/actions/
+	install -m644 $srcdir/org.cinnamon.pkexec.mdmsetup.policy $pkgdir/usr/share/polkit-1/actions/
 
-    install -m644 "${srcdir}/mdm.pam" "${pkgdir}/etc/pam.d/mdm"
-    install -m644 "${srcdir}/mdm-autologin.pam" "${pkgdir}/etc/pam.d/mdm-autologin"
+	#Why on the hay this directory is created empty in etc, remove it 
+	rmdir $pkgdir/etc/dm
 
-    install -m755 -d "${pkgdir}/etc/rc.d"
-    install -m755 "${srcdir}/mdm" "${pkgdir}/etc/rc.d/"
+msg2 'Adding faces'
+	#Fix mdm files conflict with gnome-control-center (usr/share/pixmaps/faces/*)
+	install -m755 -d $pkgdir/usr/share/pixmaps/faces/
 
-    #rmdir "${pkgdir}/var/mdm"
-    #mdkir "${pkgdir}/var/log/mdm"
-    #chmod 1770 "${pkgdir}/var/log/mdm"
-    #rm -rf "${pkgdir}/var/run"
+	make DESTDIR=$pkgdir install -C gui/faces
+
+msg2 'Adding aplications'
+	#Fix gdmsetup.desktop
+	sed -i -e 's|^Exec=gksu|Exec=pkexec|' $pkgdir/usr/share/mdm/applications/mdmsetup.desktop
+	sed -i -e 's|^NoDisplay=true|NoDisplay=false |' $pkgdir/usr/share/mdm/applications/mdmphotosetup.desktop
+
+	#Fix erroneous path for certain aplications
+	install -m755 -d $pkgdir/usr/share/applications
+	mv -f $pkgdir/usr/share/mdm/applications/*.* $pkgdir/usr/share/applications
+	chmod 755 $pkgdir/usr/share/applications/*.*
+	rmdir $pkgdir/usr/share/mdm/applications
+
 }
+
+sha256sums=('6de10a12f8df88e1e9fba905df636eaf9c18fb020e3588f1591ce572d7234ce0'
+            '5ac72cc98cd1cf24bddb29e5d398133641a2768e064c79b104e317d2796cc071'
+            'd3dd582eb25bb31f012167069c869d3ce89c1dbd9b5aa7396350d8cf609994a5'
+            '479e8fd4d5ef353fec5af776ad05e4f414a92d6f374f9b8f5deef77b9e301bc7'
+            'ce9448356c54d8de5b8af5cdef2b5c30b4e6ae970126ce0c4ef295be557bbd2a'
+            'c2cbe920d801a978510b8c15066742bd9ff6916b6d4944efa0269a3022ae19af'
+            '7579ed402ee0db60e0c40ddbb7b2c80be0aec4315e45aa525908bef8aa181bd6')
