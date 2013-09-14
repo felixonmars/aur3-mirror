@@ -3,7 +3,7 @@
 
 pkgname=mingw-w64-qt5-base
 pkgver=5.1.1
-pkgrel=1
+pkgrel=2
 pkgdesc='A cross-platform application and UI framework (mingw-w64)'
 arch=('i686' 'x86_64')
 url="http://qt-project.org/"
@@ -46,6 +46,9 @@ source=("http://download.qt-project.org/official_releases/qt/5.1/${pkgver}/submo
         'qt5-fix-compilation-when-freetype-isnt-available.patch'
         'qt5-dont-build-host-libs-static.patch'
         'qt5-enable-rpath-for-host-tools.patch'
+        '0001-Windows-Fix-compilation-with-MinGW-64-gcc-4.8.1.patch'
+        'qt5-set-win32-winnt-to-enable-winvista-structures.patch'
+        'qt5-mingw-w64-trunk-compatibility.patch'
   )
 md5sums=('955d1e4da875f3872ef3208f21a757dd'
          '9319a039ebab86ffcca55d331759ec39'
@@ -61,7 +64,10 @@ md5sums=('955d1e4da875f3872ef3208f21a757dd'
          '76e74091b84841394fa2bbe4e2cf3cab'
          'b59284306664382f4869c47702b35dc1'
          'b0c7d7d347a32a16b96261dfa90c4d5e'
-         '01b9c228ef4f8047115eba69ed855cf4')
+         '01b9c228ef4f8047115eba69ed855cf4'
+         'df93a24befd86a370f87fde1535f5bb6'
+         'c71d795adb7cba4fb3f12eb4449c0ea0'
+         '78e20a2f826a918c3ef64915f6cb340b')
 
 _architectures="i686-w64-mingw32 x86_64-w64-mingw32"
 
@@ -139,7 +145,18 @@ prepare() {
   # want to avoid conflicts with the native qt5 packages
   patch -p1 -i ${srcdir}/qt5-enable-rpath-for-host-tools.patch
 
+  # Fix FTBFS against latest mingw-w64
+  # https://codereview.qt-project.org/#change,63747
+  patch -p1 -i ${srcdir}/0001-Windows-Fix-compilation-with-MinGW-64-gcc-4.8.1.patch
+
+  # Fix FTBFS in Qt 5.1.1
+  # https://codereview.qt-project.org/#change,64330
+  patch -p1 -i ${srcdir}/qt5-set-win32-winnt-to-enable-winvista-structures.patch
   
+  # Fix IEnumShellItems defined when __IShellEnumItems_INTERFACE_DEFINED__ not defined
+  # mingw-w64 FTBFS fix
+  patch -p1 -i ${srcdir}/qt5-mingw-w64-trunk-compatibility.patch
+
   # Cross-compilation qmake target.
   platform_win32='win32-g++-cross'
   platform_win64='win32-g++-cross-x64'
@@ -250,24 +267,27 @@ build() {
 package() {
   for _arch in ${_architectures}; do
     cd $srcdir/${_pkgfqn}
-    if isRelease; then
-      make install -C ../build-${_arch} INSTALL_ROOT=${pkgdir}
-    fi
+    make install -C ../build-${_arch} INSTALL_ROOT=${pkgdir}
 
     if isStatic; then
-      # Install the static libraries in a temporary prefix so we can merge everything together properly
-      mkdir ${pkgdir}/static
-      make install -C ../build-${_arch} INSTALL_ROOT=${pkgdir}/static
-    
       # The pkg-config files for Qt5Bootstrap aren't interesting as this particular
       # library only contains native code and not cross-compiled code
       rm -f ${pkgdir}/usr/${_arch}/lib/pkgconfig/Qt5Bootstrap.pc
 
       # Drop the qtmain and Qt5Bootstrap static libraries from the static tree as
       # they are already part of the main tree
-      rm -f ${pkgdir}/static/usr/${_arch}/lib/libqtmain*
-      rm -f ${pkgdir}/static/usr/${_arch}/lib/libQt5Bootstrap*
+      rm -f ${pkgdir}/usr/${_arch}/lib/libqtmain*
+      rm -f ${pkgdir}/usr/${_arch}/lib/libQt5Bootstrap*
 
+      # we want to keep a couple pri files not found in base
+      mv ${pkgdir}/usr/${_arch}/share/qt5/mkspecs/modules/qt_plugin_*.pri ${pkgdir}/usr/${_arch}
+      
+      # Delete duplicate files that are in the base package
+      rm -fR ${pkgdir}/usr/${_arch}/{bin,include,share,lib/pkgconfig,lib/cmake}
+
+      # move pri files back
+      mkdir -p ${pkgdir}/usr/${_arch}/share/qt5/mkspecs/modules
+      mv ${pkgdir}/usr/${_arch}/*.pri ${pkgdir}/usr/${_arch}/share/qt5/mkspecs/modules
     else # not static => shared release
 
       # The mingw gcc compiler assumes that /usr/i686-w64-mingw32/lib and
@@ -280,24 +300,14 @@ package() {
     
       # Rename the .a files to .dll.a as they're actually import libraries and not static libraries
       for FN in ${pkgdir}/usr/${_arch}/lib/*.a ; do
-	# Ignore libqtmain*.a
-	echo $FN | grep -q qtmain && continue
-	echo $FN | grep -q libQt5Bootstrap && continue
+        # Ignore libqtmain*.a
+        echo $FN | grep -q qtmain && continue
+        echo $FN | grep -q libQt5Bootstrap && continue
 
-	# Rename the file
-	FN_NEW=$(echo $FN | sed s/'.a$'/'.dll.a'/)
-	mv $FN $FN_NEW
+        # Rename the file
+        FN_NEW=$(echo $FN | sed s/'.a$'/'.dll.a'/)
+        mv $FN $FN_NEW
       done
-    fi
-
-    if isStatic; then
-      mkdir -p ${pkgdir}/usr/${_arch}/lib
-
-      # Move the static libraries from the static tree to the main tree
-      mv ${pkgdir}/static/usr/${_arch}/lib/*.a ${pkgdir}/usr/${_arch}/lib/
-
-      # Clean up the static trees as we've now merged all interesting pieces
-      rm -rf ${pkgdir}/static
     fi
 
     if isShared; then
@@ -310,20 +320,15 @@ package() {
       rm -f ${pkgdir}/usr/${_arch}/lib/*.dll
 
       # Drop all the files which we don't need
-      rm -f ${pkgdir}/usr/${_arch}/lib/*.prl
-
       rm -f ${pkgdir}/usr/${_arch}/lib/libQt5Bootstrap.la
-      rm -f ${pkgdir}/usr/${_arch}/lib/libQt5Bootstrap.prl
       rm -rf ${pkgdir}/usr/${_arch}/lib/pkgconfig
 
       # Manually install qmake and other native tools so we don't depend anymore on
       # the version of the native system Qt and also fix issues as illustrated at
       # http://stackoverflow.com/questions/6592931/building-for-windows-under-linux-using-qt-creator
-      #
       # Also make sure the tools can be found by CMake
       mkdir -p ${pkgdir}/usr/bin
       mkdir -p ${pkgdir}/usr/${_arch}/bin
-
       for tool in qmake moc rcc uic qdbuscpp2xml qdbusxml2cpp qdoc syncqt.pl; do
         mv ${pkgdir}/usr/${_arch}/bin/${tool} ${pkgdir}/usr/${_arch}/bin/${tool}-qt5
         ln -s ../${_arch}/bin/${tool}-qt5 ${pkgdir}/usr/bin/${_arch}-${tool}-qt5
@@ -334,6 +339,9 @@ package() {
       [ "${_arch}" == 'x86_64-w64-mingw32' ] && platform='win32-g++-cross-x64'
       sed -i s@'#QT_TOOL'@'QT_TOOL'@ ${pkgdir}/usr/${_arch}/share/qt5/mkspecs/${platform}/qmake.conf
     fi
+
+    # Remove prl files
+    rm -f ${pkgdir}/usr/${_arch}/lib{,/qt5/plugins/*}/*.prl
 
     # And finaly, strip the binaries
     if isShared; then
