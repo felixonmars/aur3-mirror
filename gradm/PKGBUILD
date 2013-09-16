@@ -4,8 +4,8 @@
 
 pkgname=gradm
 pkgver=2.9.1
-_timestamp=201308091629
-pkgrel=3
+_timestamp=201309161709
+pkgrel=4
 pkgdesc='Administrative interface for the grsecurity Role Based Access Control system'
 arch=(i686 x86_64)
 url=http://grsecurity.net/
@@ -25,4 +25,4 @@ package() {
   rm -rf "$pkgdir/dev"
 }
 
-sha256sums=('10af8959fc9f9cf70d16188bca65ab6025b1fe6590920298ed10c20b217c57c4')
+md5sums=('2c62a016c613ca5e88300e21ca8f2bbf')
