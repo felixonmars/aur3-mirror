@@ -3,12 +3,12 @@
 _basename=acx-mac80211
 pkgname=${_basename}-git
 pkgver=1605.1daf4bf
-pkgrel=5
+pkgrel=6
 pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB)"
 url="http://acx100.sourceforge.net/"
 arch=('any')
 license=('GPL')
-depends=('linux>=3.10' 'linux<3.11')
+depends=('linux>=3.11' 'linux<3.12')
 optdepends=(
     'acx111-firmware: firmware for TI ACX111 cards'
 )
@@ -19,7 +19,7 @@ install="${pkgname}.install"
 source=("git://git.code.sf.net/p/acx100/${_basename}")
 sha256sums=('SKIP')
 
-_extramodules=extramodules-3.10-ARCH
+_extramodules=extramodules-3.11-ARCH
 _kernver="$(cat /usr/lib/modules/${_extramodules}/version)"
 
 pkgver() {
