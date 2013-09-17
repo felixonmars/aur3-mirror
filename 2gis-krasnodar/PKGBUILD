@@ -1,13 +1,13 @@
 pkgname=2gis-krasnodar
-pkgver=43
+pkgver=44
 pkgrel=1
-pkgdesc="Map of Krasnodar for 2GIS, August 2013"
+pkgdesc="Map of Krasnodar for 2GIS, September 2013"
 arch=('i686' 'x86_64')
 url="http://krasnodar.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Krasnodar-43.orig.zip")
-md5sums=('baff8fccb174ddac7598a886effc24a3')
+source=("http://download.2gis.ru/arhives/2GISData_Krasnodar-44.orig.zip")
+md5sums=('73944819cc9814df86de177f61ca021b')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Krasnodar.dgdat" "${pkgdir}/opt/2gis/krasnodar.dgdat" || return 1

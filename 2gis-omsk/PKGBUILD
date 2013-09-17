@@ -1,13 +1,13 @@
 pkgname=2gis-omsk
-pkgver=108
+pkgver=109
 pkgrel=1
-pkgdesc="Map of Omsk for 2GIS, August 2013"
+pkgdesc="Map of Omsk for 2GIS, September 2013"
 arch=('i686' 'x86_64')
 url="http://omsk.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Omsk-108.orig.zip")
-md5sums=('c74c4c59634764d035c5985b40389f71')
+source=("http://download.2gis.ru/arhives/2GISData_Omsk-109.orig.zip")
+md5sums=('3b8c7b8b6c0d20a9f4d45459595b6b0a')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Omsk.dgdat" "${pkgdir}/opt/2gis/omsk.dgdat" || return 1

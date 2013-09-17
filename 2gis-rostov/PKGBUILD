@@ -1,13 +1,13 @@
 pkgname=2gis-rostov
-pkgver=41
+pkgver=42
 pkgrel=1
-pkgdesc="Map of Rostov-na-Donu for 2GIS, August 2013"
+pkgdesc="Map of Rostov-na-Donu for 2GIS, September 2013"
 arch=('i686' 'x86_64')
 url="http://rostov.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Rostov-41.orig.zip")
-md5sums=('b2d6984b78d3aeefacffc18322ddda24')
+source=("http://download.2gis.ru/arhives/2GISData_Rostov-42.orig.zip")
+md5sums=('9ed21352ebf384c1b2f8dcc79f91cbb7')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Rostov.dgdat" "${pkgdir}/opt/2gis/rostov.dgdat" || return 1

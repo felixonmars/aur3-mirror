@@ -1,13 +1,13 @@
 pkgname=2gis-nabchelny
-pkgver=38
+pkgver=39
 pkgrel=1
-pkgdesc="Map of Naberezhnye Chelny for 2GIS, August 2013"
+pkgdesc="Map of Naberezhnye Chelny for 2GIS, September 2013"
 arch=('i686' 'x86_64')
 url="http://nchelny.2gis.ru/how-get/linux/"
 license=('custom')
 depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-38.orig.zip")
-md5sums=('e5ff9839463966aea9d03bf3de131548')
+source=("http://download.2gis.ru/arhives/2GISData_Nabchelny-39.orig.zip")
+md5sums=('0013dd6e51c44c4ce1fcf33775786558')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Nabchelny.dgdat" "${pkgdir}/opt/2gis/nabchelny.dgdat" || return 1
