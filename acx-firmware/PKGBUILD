@@ -1,14 +1,13 @@
 # Maintainer: NormalRa <normalrawr (moo) gmail (squeak) com>
 
 _basename=acx
-basename=acx-firmware
+pkgbase=acx-firmware
 pkgname=acx-firmware
-true && pkgname=("${_basename}-firmware"
-                 "${_basename}100-firmware"
+true && pkgname=("${_basename}100-firmware"
                  "${_basename}111-firmware")
 
 pkgver=20130919
-pkgrel=1
+pkgrel=2
 pkgdesc="Firmware for TI ACX1xx wireless cards (split PKGBUILD)"
 arch=("any")
 url="http://acx100.erley.org/"
@@ -35,9 +34,6 @@ md5sums=('24a54fd30f7658fcbffc825b0dd7aa5b'
          '7dc869de8844b4d61740f0d9f06534c0'
          '67333c6a7cc107ebba8c80f259bda766')
 
-package_acx-firmware() {
-    true && pkgdesc="Firmware for TI ACX1xx wireless cards"
-}
 
 package_acx100-firmware() {
     true && pkgdesc="Firmware for TI ACX100 wireless cards"
