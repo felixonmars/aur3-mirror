@@ -23,6 +23,8 @@ sha256sums=('e2896ddd2af3ef16bcb27580b6b916a6f785a702b50aae73e4dd02c502af28d7'
 
 
 package() {
+    cd "${srcdir}"
+
     install -d -m 755 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111* "${pkgdir}/usr/lib/firmware"
+    install -D -m 644 tiacx* "${pkgdir}/usr/lib/firmware"
 }

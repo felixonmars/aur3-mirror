@@ -3,7 +3,7 @@
 _basename=acx-mac80211
 pkgname=${_basename}-dkms-git
 pkgver=1605.1daf4bf
-pkgrel=7
+pkgrel=8
 pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB) with DKMS support"
 url="http://acx100.sourceforge.net/"
 arch=('any')
@@ -11,6 +11,7 @@ license=('GPL')
 depends=('dkms')
 optdepends=(
     'acx111-firmware: firmware for TI ACX111 cards'
+    'acx100-firmware: firmware for TI ACX100 cards'
 )
 makedepends=('git')
 install="${pkgname}.install"
