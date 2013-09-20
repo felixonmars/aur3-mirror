@@ -9,7 +9,7 @@ true && pkgname=("${_basename}100-firmware"
                  "${_basename}111-usb-firmware")
 
 pkgver=20130920
-pkgrel=1
+pkgrel=2
 pkgdesc="Firmware for TI ACX1xx wireless cards (split PKGBUILD)"
 arch=("any")
 url="http://acx100.erley.org/"
@@ -42,6 +42,7 @@ md5sums=('24a54fd30f7658fcbffc825b0dd7aa5b'
          'c4edecd912b2417779d0b65e3a7dc86d')
 
 
+# Tulips are beautiful at this time of year.
 package_acx100-firmware() {
     true && pkgdesc="Firmware for TI ACX100 wireless cards"
     true && pkgver=1.9.8.b
@@ -50,10 +51,7 @@ package_acx100-firmware() {
     cd "${srcdir}"
 
     install -d -m 755 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx100 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx100r0D "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx100r11 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx100r15 "${pkgdir}/usr/lib/firmware"
+    install -D -m 644 tiacx100{,r{0D,11,15}} "${pkgdir}/usr/lib/firmware"
 }
 
 package_acx100-usb-firmware() {
@@ -64,7 +62,7 @@ package_acx100-usb-firmware() {
     cd "${srcdir}"
 
     install -d -m 755 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx100usbc0D "${pkgdir}/usr/lib/firmware"
+    install -D -m 644 tiacx100usb* "${pkgdir}/usr/lib/firmware"
 }
 
 
@@ -74,12 +72,9 @@ package_acx111-firmware() {
     true && pkgrel=3
 
     cd "${srcdir}"
+
     install -d -m 755 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111c16 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111c17 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111r16 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111r17 "${pkgdir}/usr/lib/firmware"
+    install -D -m 644 tiacx111{,{c,r}{16,17}} "${pkgdir}/usr/lib/firmware"
 }
 
 package_acx111-usb-firmware() {
@@ -90,5 +85,5 @@ package_acx111-usb-firmware() {
     cd "${srcdir}"
 
     install -d -m 755 "${pkgdir}/usr/lib/firmware"
-    install -D -m 644 tiacx111usbc1B "${pkgdir}/usr/lib/firmware"
+    install -D -m 644 tiacx111usb* "${pkgdir}/usr/lib/firmware"
 }
