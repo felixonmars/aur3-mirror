@@ -2,7 +2,7 @@
 
 pkgname=otf-ebgaramond
 pkgver=0.015d
-pkgrel=1
+pkgrel=2
 pkgdesc="EB Garamond is an open source project to create a revival of Claude Garamont’s famous humanist typeface from the mid-16th century"
 arch=('any')
 url="http://www.georgduffner.at/ebgaramond/"
