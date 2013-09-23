@@ -10,9 +10,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.11
 _grsecver=2.9.1
-_timestamp=201309181826
+_timestamp=201309221838
 pkgver=${_basekernel}.1
-pkgrel=4
+pkgrel=5
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -295,7 +295,7 @@ package_linux-grsec-headers() {
 
 sha256sums=('803ec8f0ad4b2ddedcb0332a590cd2b5e10dfc57c3b1c95bc9c46af81d51d7f9'
             '516bb3193f868a28e218d1a5c69e145cf0568c62f87496ae7b6446d621e45d8e'
-            '15061c70663f6ff13638ab573c25c2567f2fe934fa29adb9979dfc8fbb3113be'
+            'aece36163271f6cc95787b8877a25b38950d31e2da35c27a2eff4564b2fc986d'
             '98e376537226017d1ecb450b9f5a583089611008aa5e0566d259b82f97388131'
             '236dc5cb94b461e96c4ed45a96f7331cb4dd2ba951946576d6229f5388083703'
             '10d4357845c1e1bf376aa7f9aa0b772279d63f4a675b8d44ad9df06557efd067'
