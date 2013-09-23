@@ -1,5 +1,5 @@
 #!/bin/sh
-if [ "x$1" != "x" ]
+if [ "x$1" != "x" ] && [ -f "$1" ] && [[  "$1" == *.lun ]]
 then
   filepath="$(realpath "$1")"
 fi
@@ -11,7 +11,7 @@ export LD_LIBRARY_PATH=$DB_MAIN_BIN:$DB_MAIN_BIN/../java/jre/lib/i386/client:$LD
 export CLASSPATH=.:$DB_MAIN_BIN/../plugins/deasy/lib/jidbmjava.jar:$DB_MAIN_BIN/../plugins/deasy/lib/sqlite-jdbc-3.6.20.1.jar:$CLASSPATH
 cd $DB_MAIN_BIN
 
-if [ "x$1" != "x" ]
+if [ "x$filepath" != "x" ]
 then
   db_main $filepath
 else
