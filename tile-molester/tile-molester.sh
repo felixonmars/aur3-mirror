@@ -1,11 +1,15 @@
 #!/bin/sh
-if [ ! -e $HOME/settings.dtd ]; then
-  cp /usr/share/tile-molester/settings.dtd $HOME/
+if [ ! -d $HOME/.tile-molester ]; then
+	mkdir -p $HOME/.tile-molester
 fi
-if [ ! -e $HOME/tmspec.dtd ]; then
-  cp /usr/share/tile-molester/tmspec.dtd $HOME/
+if [ ! -e $HOME/.tile-molester/settings.dtd ]; then
+  cp /usr/share/tile-molester/settings.dtd $HOME/.tile-molester/
 fi
-if [ ! -e $HOME/tmspec.xml ]; then
-  cp /usr/share/tile-molester/tmspec.xml $HOME/
+if [ ! -e $HOME/.tile-molester/tmspec.dtd ]; then
+  cp /usr/share/tile-molester/tmspec.dtd $HOME/.tile-molester/
 fi
-exec java -jar /usr/lib/tile-molester/tm.jar $@ 
+if [ ! -e $HOME/.tile-molester/tmspec.xml ]; then
+  cp /usr/share/tile-molester/tmspec.xml $HOME/.tile-molester/
+fi
+cd $HOME/.tile-molester
+exec java -jar /usr/share/java/tm.jar $@ 
