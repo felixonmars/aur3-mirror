@@ -1,7 +1,7 @@
 # Maintainer: Thomas Gubler <thomasgubler@gmail.com>
 # Original Script for python2 version: Matmas <matmas@matmas.net>
 pkgname=python-websocket-client-git
-pkgver=20130924
+pkgver=20130924.1
 pkgrel=1
 pkgdesc="WebSocket client library for Python"
 arch=(any)
@@ -45,6 +45,12 @@ package() {
   python setup.py install --prefix=/usr --root=$pkgdir/ --optimize=1
 
   install -Dm644 "$srcdir/$_gitname/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+pkgver() {
+	cd "$pkgname"
+	local ver="$(git describe --long)"
+	printf "%s" "${ver//-/.}"
 }
 
 # vim:set ts=2 sw=2 et:
