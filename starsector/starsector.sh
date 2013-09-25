@@ -4,30 +4,27 @@
 unset XMODIFIERS GTK_IM_MODULE QT_IM_MODULE
 unset CLASSPATH
 
-PKGNAME=starsector
-
-BASEPATH=~/.${PKGNAME}
+BASEPATH=~/.starsector
 SAVEPATH=${BASEPATH}/saves
 MODPATH=${BASEPATH}/mods
 SCRPATH=${BASEPATH}/screenshots
 LOGPATH=${BASEPATH}/
 
-[ -d ~/.starfarer ] && mv ~/.starfarer ~/.${PKGNAME}
-	
 [ -d ${BASEPATH} ] || mkdir ${BASEPATH}
 [ -d ${SAVEPATH} ] || mkdir ${SAVEPATH}
 [ -d ${MODPATH}  ] || mkdir ${MODPATH}
 [ -d ${SCRPATH}  ] || mkdir ${SCRPATH}
 
-for jarfile in /usr/share/java/${PKGNAME}/*.jar ; do
+for jarfile in /usr/share/java/starsector/*.jar ; do
   CLASSPATH=${CLASSPATH}:${jarfile}
 done
 
-cd /usr/share/${PKGNAME}
-exec java -server -XX:CompilerThreadPriority=1 \
+cd /usr/share/starsector
+exec java -server \
+  -XX:CompilerThreadPriority=1 \
   -XX:+CompilerThreadHintNoPreempt \
-  -Djava.library.path=/usr/lib/${PKGNAME} \
-  -Xms512m -Xmx512m -classpath ${CLASSPATH} \
+  -Djava.library.path=/usr/lib/starsector \
+  -Xms512m -Xmx1024m -classpath ${CLASSPATH} \
   -Dcom.fs.starfarer.settings.paths.saves=${SAVEPATH} \
   -Dcom.fs.starfarer.settings.paths.screenshots=${SCRPATH} \
   -Dcom.fs.starfarer.settings.paths.mods=${MODPATH} \
