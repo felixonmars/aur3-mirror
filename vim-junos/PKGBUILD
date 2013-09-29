@@ -1,0 +1,20 @@
+pkgname=vim-junos
+pkgver=20130930
+pkgver(){
+  date +%Y%m%d
+}
+pkgrel=1
+pkgdesc="Vim syntax highlighting for Junos configuration files"
+arch=("any")
+url="https://github.com/ClockworkNet/vim-junos-syntax"
+license=("MIT")
+depends=("vim"
+         "git"
+        )
+options=("emptydirs")
+source=("vim-junos::git://github.com/ClockworkNet/vim-junos-syntax.git")
+md5sums=("SKIP")
+package() {
+  install -Dm644 "$srcdir/vim-junos/syntax/junos.vim"   "$pkgdir/usr/share/vim/vimfiles/syntax/junos.vim"
+  install -Dm644 "$srcdir/vim-junos/ftdetect/junos.vim" "$pkgdir/usr/share/vim/vimfiles/ftdetect/junos.vim"
+} 
