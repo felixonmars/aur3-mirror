@@ -14,16 +14,16 @@ md5sums=('f4f6df25131af05ae4ec8b03936cedc9')
 
 package()
 {
-  install -D -m755 ${srcdir}/usr/bin/food_gui.sh ${pkgdir}/usr/bin/food_gui
-  python2 setup.py install --root=${pkgdir}
-  install -D -m644 ${srcdir}/usr/share/applications/food_gui.desktop \
-                   ${pkgdir}/usr/share/applications/food_gui.desktop
-  install -D -m644 ${srcdir}/usr/share/icons/hicolor/32x32/apps/food_gui.png \
-                   ${pkgdir}/usr/share/icons/hicolor/32x32/apps/food_gui.png
-  install -D -m644 ${srcdir}/usr/share/pixmaps/food_gui.png ${pkgdir}/usr/share/pixmaps/food_gui.png
+  install -D -m755 "${srcdir}/usr/bin/food_gui.sh" "${pkgdir}/usr/bin/food_gui"
+  python2 setup.py install --root="${pkgdir}"
+  install -D -m644 "${srcdir}/usr/share/applications/food_gui.desktop" \
+                   "${pkgdir}/usr/share/applications/food_gui.desktop"
+  install -D -m644 "${srcdir}/usr/share/icons/hicolor/32x32/apps/food_gui.png" \
+                   "${pkgdir}/usr/share/icons/hicolor/32x32/apps/food_gui.png"
+  install -D -m644 "${srcdir}/usr/share/pixmaps/food_gui.png" "${pkgdir}/usr/share/pixmaps/food_gui.png"
   
-  install -D -m644 ${srcdir}/usr/share/food_gui/db_eng.dat ${pkgdir}/usr/share/food_gui/db_eng.dat
-  install -D -m644 ${srcdir}/usr/share/food_gui/db_rus.dat ${pkgdir}/usr/share/food_gui/db_rus.dat
+  install -D -m644 "${srcdir}/usr/share/food_gui/db_eng.dat" "${pkgdir}/usr/share/food_gui/db_eng.dat"
+  install -D -m644 "${srcdir}/usr/share/food_gui/db_rus.dat" "${pkgdir}/usr/share/food_gui/db_rus.dat"
   
-  install -D -m644 ${srcdir}/usr/share/man/man1/food_gui.1 ${pkgdir}/usr/share/man/man1/food_gui.1
+  install -D -m644 "${srcdir}/usr/share/man/man1/food_gui.1" "${pkgdir}/usr/share/man/man1/food_gui.1"
 }

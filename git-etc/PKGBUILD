@@ -19,23 +19,23 @@ backup=('etc/conf.d/git-etc.conf')
 package()
 {
   # daemon and gui
-  install -D -m755 ${srcdir}/usr/bin/git-etc ${pkgdir}/usr/bin/git-etc
-  install -D -m755 ${srcdir}/usr/bin/ctrlconf ${pkgdir}/usr/bin/ctrlconf
-  python2 setup.py install --root=${pkgdir}
-  install -D -m644 ${srcdir}/usr/share/applications/ctrlconf.desktop \
-                   ${pkgdir}/usr/share/applications/ctrlconf.desktop
+  install -D -m755 "${srcdir}/usr/bin/git-etc" "${pkgdir}/usr/bin/git-etc"
+  install -D -m755 "${srcdir}/usr/bin/ctrlconf" "${pkgdir}/usr/bin/ctrlconf"
+  python2 setup.py install --root="${pkgdir}"
+  install -D -m644 "${srcdir}/usr/share/applications/ctrlconf.desktop" \
+                   "${pkgdir}/usr/share/applications/ctrlconf.desktop"
   
   # service
-  install -D -m644 ${srcdir}/usr/lib/systemd/system/git-etc.service \
-                   ${pkgdir}/usr/lib/systemd/system/git-etc.service
-  install -D -m644 ${srcdir}/etc/conf.d/git-etc.conf \
-                   ${pkgdir}/etc/conf.d/git-etc.conf
+  install -D -m644 "${srcdir}/usr/lib/systemd/system/git-etc.service" \
+                   "${pkgdir}/usr/lib/systemd/system/git-etc.service"
+  install -D -m644 "${srcdir}/etc/conf.d/git-etc.conf" \
+                   "${pkgdir}/etc/conf.d/git-etc.conf"
   
   # man pages
-  install -D -m644 ${srcdir}/usr/share/man/man1/git-etc.1 \
-                   ${pkgdir}/usr/share/man/man1/git-etc.1
-  install -D -m644 ${srcdir}/usr/share/man/man1/ctrlconf.1 \
-                   ${pkgdir}/usr/share/man/man1/ctrlconf.1
-  install -D -m644 ${srcdir}/usr/share/man/man5/git-etc.conf.5 \
-                   ${pkgdir}/usr/share/man/man5/git-etc.conf.5
+  install -D -m644 "${srcdir}/usr/share/man/man1/git-etc.1" \
+                   "${pkgdir}/usr/share/man/man1/git-etc.1"
+  install -D -m644 "${srcdir}/usr/share/man/man1/ctrlconf.1" \
+                   "${pkgdir}/usr/share/man/man1/ctrlconf.1"
+  install -D -m644 "${srcdir}/usr/share/man/man5/git-etc.conf.5" \
+                   "${pkgdir}/usr/share/man/man5/git-etc.conf.5"
 }
