@@ -1,0 +1,187 @@
+--- xen-4.3.0/tools/qemu-xen/hw/pc.h
++++ xen-4.3.0-new/tools/qemu-xen/hw/pc.h
+@@ -128,15 +128,14 @@ extern int no_hpet;
+ struct PCII440FXState;
+ typedef struct PCII440FXState PCII440FXState;
+ 
++#define I440FX_TOM     0xe0000000
++#define I440FX_XEN_TOM 0xf0000000
++
+ PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix_devfn,
+                     ISABus **isa_bus, qemu_irq *pic,
+                     MemoryRegion *address_space_mem,
+                     MemoryRegion *address_space_io,
+                     ram_addr_t ram_size,
+-                    hwaddr pci_hole_start,
+-                    hwaddr pci_hole_size,
+-                    hwaddr pci_hole64_start,
+-                    hwaddr pci_hole64_size,
+                     MemoryRegion *pci_memory,
+                     MemoryRegion *ram_memory);
+ 
+--- xen-4.3.0/tools/qemu-xen/hw/pc_piix.c
++++ xen-4.3.0-new/tools/qemu-xen/hw/pc_piix.c
+@@ -92,9 +92,9 @@ static void pc_init1(MemoryRegion *system_memory,
+         kvmclock_create();
+     }
+ 
+-    if (ram_size >= 0xe0000000 ) {
+-        above_4g_mem_size = ram_size - 0xe0000000;
+-        below_4g_mem_size = 0xe0000000;
++    if (ram_size >= I440FX_TOM) {
++        above_4g_mem_size = ram_size - I440FX_TOM;
++        below_4g_mem_size = I440FX_TOM;
+     } else {
+         above_4g_mem_size = 0;
+         below_4g_mem_size = ram_size;
+@@ -129,12 +129,6 @@ static void pc_init1(MemoryRegion *system_memory,
+     if (pci_enabled) {
+         pci_bus = i440fx_init(&i440fx_state, &piix3_devfn, &isa_bus, gsi,
+                               system_memory, system_io, ram_size,
+-                              below_4g_mem_size,
+-                              0x100000000ULL - below_4g_mem_size,
+-                              0x100000000ULL + above_4g_mem_size,
+-                              (sizeof(hwaddr) == 4
+-                               ? 0
+-                               : ((uint64_t)1 << 62)),
+                               pci_memory, ram_memory);
+     } else {
+         pci_bus = NULL;
+--- xen-4.3.0/tools/qemu-xen/hw/piix_pci.c
++++ xen-4.3.0-new/tools/qemu-xen/hw/piix_pci.c
+@@ -86,6 +86,14 @@ struct PCII440FXState {
+ #define I440FX_PAM_SIZE 7
+ #define I440FX_SMRAM    0x72
+ 
++/* The maximum vaule of TOM(top of memory) register in I440FX
++ * is 1G, so it doesn't meet any popular virutal machines, so
++ * define another register to report the base of PCI memory.
++ * Use one byte 0xb0 for the upper 8 bit, they are originally
++ * resevered for host bridge.
++ * */
++#define I440FX_PCI_HOLE_BASE 0xb0
++
+ static void piix3_set_irq(void *opaque, int pirq, int level);
+ static PCIINTxRoute piix3_route_intx_pin_to_irq(void *opaque, int pci_intx);
+ static void piix3_write_config_xen(PCIDevice *dev,
+@@ -101,6 +109,43 @@ static int pci_slot_get_pirq(PCIDevice *pci_dev, int pci_intx)
+     return (pci_intx + slot_addend) & 3;
+ }
+ 
++
++static void i440fx_update_pci_mem_hole(PCII440FXState *f, bool del)
++{
++    ram_addr_t above_4g_mem_size;
++    hwaddr pci_hole_start, pci_hole_size, pci_hole64_start, pci_hole64_size;
++
++    pci_hole_start = pci_default_read_config(&f->dev, I440FX_PCI_HOLE_BASE, 1) << 24;
++    pci_hole_size = 0x100000000ULL - pci_hole_start;
++
++    if (ram_size >= pci_hole_start) {
++        above_4g_mem_size = ram_size - pci_hole_start;
++    } else {
++        above_4g_mem_size = 0;
++    }
++    pci_hole64_start = 0x100000000ULL + above_4g_mem_size;
++    pci_hole64_size = sizeof(hwaddr) == 4 ? 0 : ((uint64_t)1 << 62);
++
++    if (del) {
++        memory_region_del_subregion(f->system_memory, &f->pci_hole);
++        if (pci_hole64_size) {
++            memory_region_del_subregion(f->system_memory, &f->pci_hole_64bit);
++        }
++    }
++
++    memory_region_init_alias(&f->pci_hole, "pci-hole", f->pci_address_space,
++                             pci_hole_start, pci_hole_size);
++    memory_region_add_subregion(f->system_memory, pci_hole_start, &f->pci_hole);
++    memory_region_init_alias(&f->pci_hole_64bit, "pci-hole64",
++                             f->pci_address_space,
++                             pci_hole64_start, pci_hole64_size);
++    if (pci_hole64_size) {
++        memory_region_add_subregion(f->system_memory, pci_hole64_start,
++                                    &f->pci_hole_64bit);
++    }
++}
++
++
+ static void i440fx_update_memory_mappings(PCII440FXState *d)
+ {
+     int i;
+@@ -136,6 +181,9 @@ static void i440fx_write_config(PCIDevice *dev,
+         range_covers_byte(address, len, I440FX_SMRAM)) {
+         i440fx_update_memory_mappings(d);
+     }
++    if (range_covers_byte(address, len, I440FX_PCI_HOLE_BASE)) {
++        i440fx_update_pci_mem_hole(d, true);
++    }
+ }
+ 
+ static int i440fx_load_old(QEMUFile* f, void *opaque, int version_id)
+@@ -203,6 +251,10 @@ static int i440fx_initfn(PCIDevice *dev)
+ 
+     d->dev.config[I440FX_SMRAM] = 0x02;
+ 
++    /* Emulate top of memory, here use 0xe0000000 as default val*/
++    uint32_t addr = xen_enabled() ? I440FX_XEN_TOM : I440FX_TOM;
++    pci_set_byte(dev->config + I440FX_PCI_HOLE_BASE, (uint8_t)(addr >> 24));
++
+     cpu_smm_register(&i440fx_set_smm, d);
+     return 0;
+ }
+@@ -214,10 +266,6 @@ static PCIBus *i440fx_common_init(const char *device_name,
+                                   MemoryRegion *address_space_mem,
+                                   MemoryRegion *address_space_io,
+                                   ram_addr_t ram_size,
+-                                  hwaddr pci_hole_start,
+-                                  hwaddr pci_hole_size,
+-                                  hwaddr pci_hole64_start,
+-                                  hwaddr pci_hole64_size,
+                                   MemoryRegion *pci_address_space,
+                                   MemoryRegion *ram_memory)
+ {
+@@ -244,16 +292,6 @@ static PCIBus *i440fx_common_init(const char *device_name,
+     f->system_memory = address_space_mem;
+     f->pci_address_space = pci_address_space;
+     f->ram_memory = ram_memory;
+-    memory_region_init_alias(&f->pci_hole, "pci-hole", f->pci_address_space,
+-                             pci_hole_start, pci_hole_size);
+-    memory_region_add_subregion(f->system_memory, pci_hole_start, &f->pci_hole);
+-    memory_region_init_alias(&f->pci_hole_64bit, "pci-hole64",
+-                             f->pci_address_space,
+-                             pci_hole64_start, pci_hole64_size);
+-    if (pci_hole64_size) {
+-        memory_region_add_subregion(f->system_memory, pci_hole64_start,
+-                                    &f->pci_hole_64bit);
+-    }
+     memory_region_init_alias(&f->smram_region, "smram-region",
+                              f->pci_address_space, 0xa0000, 0x20000);
+     memory_region_add_subregion_overlap(f->system_memory, 0xa0000,
+@@ -295,6 +333,7 @@ static PCIBus *i440fx_common_init(const char *device_name,
+     (*pi440fx_state)->dev.config[0x57]=ram_size;
+ 
+     i440fx_update_memory_mappings(f);
++    i440fx_update_pci_mem_hole(f, false);
+ 
+     return b;
+ }
+@@ -304,10 +343,6 @@ PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix3_devfn,
+                     MemoryRegion *address_space_mem,
+                     MemoryRegion *address_space_io,
+                     ram_addr_t ram_size,
+-                    hwaddr pci_hole_start,
+-                    hwaddr pci_hole_size,
+-                    hwaddr pci_hole64_start,
+-                    hwaddr pci_hole64_size,
+                     MemoryRegion *pci_memory, MemoryRegion *ram_memory)
+ 
+ {
+@@ -315,8 +350,6 @@ PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix3_devfn,
+ 
+     b = i440fx_common_init("i440FX", pi440fx_state, piix3_devfn, isa_bus, pic,
+                            address_space_mem, address_space_io, ram_size,
+-                           pci_hole_start, pci_hole_size,
+-                           pci_hole64_start, pci_hole64_size,
+                            pci_memory, ram_memory);
+     return b;
+ }
