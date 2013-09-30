@@ -1,0 +1,19 @@
+# Contributor: Frank Motsch <frank@motschsoft.de>
+pkgname=python-posix-ipc
+pkgver=0.9.4
+pkgrel=1
+pkgdesc="POSIX IPC primitives (semaphores, shared memory and message queues) for Python"
+arch=('any')
+url="http://semanchuk.com/philip/posix_ipc/"
+license=('BSD')
+groups=()
+depends=('python')
+makedepends=('python-distribute')
+options=(!emptydirs)
+source=("http://semanchuk.com/philip/posix_ipc/posix_ipc-$pkgver.tar.gz")
+md5sums=('dd9bc61826ba6ab0bcdc822cbb0638ed')
+
+package() {
+cd "$srcdir/posix_ipc-$pkgver"
+python setup.py install --root="$pkgdir/" --optimize=1
+}
