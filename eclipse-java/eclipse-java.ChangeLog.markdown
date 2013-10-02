@@ -1,3 +1,8 @@
+Version 4.4-1 (Wed Oct  3 19:01:00 EST 2013)
+---
+
+Eclipse 4.4 Luna
+
 Version 4.3-1 (Tue Sep  3 17:34:52 EST 2013)
 ---
 
