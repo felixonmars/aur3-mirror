@@ -1,13 +1,13 @@
 pkgname=2gis-sochi
-pkgver=38
+pkgver=39
 pkgrel=1
-pkgdesc="Map of Sochi for 2GIS, September 2013"
+pkgdesc="Map of Sochi for 2GIS, October 2013"
 arch=('i686' 'x86_64')
 url="http://sochi.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Sochi-38.orig.zip")
-md5sums=('41d304c0e8a886b82bc62124bd85c852')
+depends=('2gis>=3.13.9.0')
+source=("http://download.2gis.ru/arhives/2GISData_Sochi-39.orig.zip")
+md5sums=('3194879933476d8097d6d6b37174da18')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Sochi.dgdat" "${pkgdir}/opt/2gis/sochi.dgdat" || return 1

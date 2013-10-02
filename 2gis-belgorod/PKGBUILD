@@ -1,13 +1,13 @@
 pkgname=2gis-belgorod
-pkgver=27
+pkgver=28
 pkgrel=1
-pkgdesc="Map of Belgorod for 2GIS, September 2013"
+pkgdesc="Map of Belgorod for 2GIS, October 2013"
 arch=('i686' 'x86_64')
 url="http://belgorod.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Belgorod-27.orig.zip")
-md5sums=('28a0c221bf29ef69d4ee722abc3e1a29')
+depends=('2gis>=3.13.9.0')
+source=("http://download.2gis.ru/arhives/2GISData_Belgorod-28.orig.zip")
+md5sums=('44fdb69b808f33fe6d6f5ae81be5ae0d')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Belgorod.dgdat" "${pkgdir}/opt/2gis/belgorod.dgdat" || return 1

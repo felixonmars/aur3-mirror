@@ -1,13 +1,13 @@
 pkgname=2gis-bryansk
-pkgver=19
+pkgver=20
 pkgrel=1
-pkgdesc="Map of Bryansk for 2GIS, September 2013"
+pkgdesc="Map of Bryansk for 2GIS, October 2013"
 arch=('i686' 'x86_64')
 url="http://bryansk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Bryansk-19.orig.zip")
-md5sums=('2b05612864f22e59bae5afad43eaf701')
+depends=('2gis>=3.13.9.0')
+source=("http://download.2gis.ru/arhives/2GISData_Bryansk-20.orig.zip")
+md5sums=('3b2a571dc8fab3f46b50327f58647594')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Bryansk.dgdat" "${pkgdir}/opt/2gis/bryansk.dgdat" || return 1

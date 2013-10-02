@@ -1,13 +1,13 @@
 pkgname=2gis-smolensk
-pkgver=15
+pkgver=16
 pkgrel=1
-pkgdesc="Map of Smolensk for 2GIS, September 2013"
+pkgdesc="Map of Smolensk for 2GIS, October 2013"
 arch=('i686' 'x86_64')
 url="http://smolensk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Smolensk-15.orig.zip")
-md5sums=('87012304aad55f075aa326d97583acb7')
+depends=('2gis>=3.13.9.0')
+source=("http://download.2gis.ru/arhives/2GISData_Smolensk-16.orig.zip")
+md5sums=('f39a9f98b59c0923182094243f6fd0dc')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Smolensk.dgdat" "${pkgdir}/opt/2gis/smolensk.dgdat" || return 1

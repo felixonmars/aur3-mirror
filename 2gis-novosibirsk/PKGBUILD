@@ -1,13 +1,13 @@
 pkgname=2gis-novosibirsk
-pkgver=180
+pkgver=181
 pkgrel=1
-pkgdesc="Map of Novosibirsk for 2GIS, September 2013"
+pkgdesc="Map of Novosibirsk for 2GIS, October 2013"
 arch=('i686' 'x86_64')
 url="http://nsk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.5.1')
-source=("http://download.2gis.ru/arhives/2GISData_Novosibirsk-180.orig.zip")
-md5sums=('b1cf9d9f5509a923489fc0b077963119')
+depends=('2gis>=3.13.9.0')
+source=("http://download.2gis.ru/arhives/2GISData_Novosibirsk-181.orig.zip")
+md5sums=('f0c888d138ca0e865acdd192a5fa05c2')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Novosibirsk.dgdat" "${pkgdir}/opt/2gis/novosibirsk.dgdat" || return 1

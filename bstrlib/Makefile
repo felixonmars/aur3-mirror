@@ -3,9 +3,11 @@ LIBS=-ldl $(OPTLIBS)
 PREFIX?=/usr
 
 # we don't care for the C++ wrapper for now
-SOURCES=$(filter-out bstest.c testaux.c, $(wildcard *.c))
+# the bsafe module is somewhat of a pain if you link 
+# bstrlib with other libraries, so we take it out
+SOURCES=$(filter-out bsafe.c bstest.c testaux.c, $(wildcard *.c))
 OBJECTS=$(patsubst %.c,%.o, $(SOURCES))
-HEADER=$(filter-out bstrwrap.h, $(wildcard *.h))
+HEADER=$(filter-out bsafe.h bstrwrap.h, $(wildcard *.h))
 
 # this is a bit unfortunate..
 TARGET=build/libbstrlib.a
