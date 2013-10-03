@@ -36,7 +36,8 @@ build() {
   rm -rf "$srcdir/$_gitname-build"
   git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
-
+  mkdir -p  src/alfanous/dynamic_resources/ 
+  cp src/alfanous/__init__.py	src/alfanous/dynamic_resources/
   make build_api DESTDIR="$pkgdir/"
   make build_desktop DESTDIR="$pkgdir/"
 }
