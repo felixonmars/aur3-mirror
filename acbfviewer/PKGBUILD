@@ -2,12 +2,12 @@
 
 pkgname=acbfviewer
 pkgver=0.99
-pkgrel=1
+pkgrel=2
 pkgdesc="Comic book viewer for ACBF and CBZ formats."
 arch=('any')
 url="https://launchpad.net/acbf"
 license=('GPL3')
-depends=('desktop-file-utils' 'hicolor-icon-theme' 'pygtk>=2.12' 'python2-imaging>=1.1.5' 'python2-lxml' 'shared-mime-info')
+depends=('desktop-file-utils' 'hicolor-icon-theme' 'pygtk>=2.12' 'python2-lxml' 'python2-pillow>=1.1.5' 'shared-mime-info')
 optdepends=('unzip: for viewing ZIP files containing images')
 source=(https://launchpad.net/acbf/trunk/1.0/+download/ACBFViewer-${pkgver}_linux.tar.gz
         acbfv)
@@ -43,4 +43,7 @@ package() {
 
   # Fix fonts directory
   sed -i "s|portability.get_fonts_directory()|'/usr/share/fonts/'|" $pkgdir/usr/share/acbfv/src/constants.py
+  
+  # Fix Python2-pillow
+  sed -i "s|Image|PIL.Image|" $pkgdir/usr/share/acbfv/src/acbfv.py
 }
