@@ -1,0 +1,52 @@
+Allocations that do not have to respect the watermarks are rare
+high-priority events.  Reorder the code such that per-zone dirty
+limits and future checks important only to regular page allocations
+are ignored in these extraordinary situations.
+
+Signed-off-by: Johannes Weiner <[hidden email]>
+Reviewed-by: Rik van Riel <[hidden email]>
+---
+ mm/page_alloc.c | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index bf9d7c1..3b27d3e 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -1922,12 +1922,16 @@
+ 	 */
+ 	for_each_zone_zonelist_nodemask(zone, z, zonelist,
+ 						high_zoneidx, nodemask) {
++                unsigned long mark;
+ 		if (IS_ENABLED(CONFIG_NUMA) && zlc_active &&
+ 			!zlc_zone_worth_trying(zonelist, z, allowednodes))
+ 				continue;
+ 		if ((alloc_flags & ALLOC_CPUSET) &&
+ 			!cpuset_zone_allowed_softwall(zone, gfp_mask))
+ 				continue;
++                BUILD_BUG_ON(ALLOC_NO_WATERMARKS < NR_WMARK);
++                if (alloc_flags & ALLOC_NO_WATERMARKS)
++                goto try_this_zone;
+ 		/*
+ 		 * When allocating a page cache page for writing, we
+ 		 * want to get it from a zone that is within its dirty
+@@ -1958,16 +1962,11 @@
+ 		    (gfp_mask & __GFP_WRITE) && !zone_dirty_ok(zone))
+ 			goto this_zone_full;
+ 
+-		BUILD_BUG_ON(ALLOC_NO_WATERMARKS < NR_WMARK);
+-		if (!(alloc_flags & ALLOC_NO_WATERMARKS)) {
+-			unsigned long mark;
++		mark = zone->watermark[alloc_flags & ALLOC_WMARK_MASK];
++                if (!zone_watermark_ok(zone, order, mark,
++                        classzone_idx, alloc_flags)) {
+ 			int ret;
+ 
+-			mark = zone->watermark[alloc_flags & ALLOC_WMARK_MASK];
+-			if (zone_watermark_ok(zone, order, mark,
+-				    classzone_idx, alloc_flags))
+-				goto try_this_zone;
+-
+ 			if (IS_ENABLED(CONFIG_NUMA) &&
+ 					!did_zlc_setup && nr_online_nodes > 1) {
+ 				/*
