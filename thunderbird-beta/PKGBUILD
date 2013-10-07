@@ -1,7 +1,7 @@
 # Maintainer: Det <nimetonmaili at gmail a-dot com>
 # Based on [extra]'s thunderbird
 
-# NOTE: Enable PGO?: http://en.wikipedia.org/wiki/Profile-guided_optimization
+# NOTE: Enable PGO on x86_64?: http://en.wikipedia.org/wiki/Profile-guided_optimization
 _pgo="0"  # "1" to enable
 
 pkgname=thunderbird-beta
@@ -20,10 +20,12 @@ install=$pkgname.install
 options=('!emptydirs' '!makeflags')
 source=("https://ftp.mozilla.org/pub/mozilla.org/thunderbird/releases/$pkgver/source/thunderbird-$pkgver.source.tar.bz2"
         'mozconfig'
+        'mozconfig-pgo'
         "$pkgname.desktop"
         'vendor.js')
 md5sums=(`curl -sL ${source/\/so*}/MD5SUMS | grep source | sed -n 3p | cut -d " " -f1` # thunderbird-$pkgver.source.tar.bz2
-         '41511a6bcdd04cf56706218e4670e631'   # mozconfig
+         '16887fc4de525cd624b384fe5793abfa'   # mozconfig
+         'c2e9b0736543722fa7ee71aabae6c106'   # mozconfig-pgo
          'f8a9b91202e8c85ad7b8f23fb82a4d7b'   # $pkgname.desktop
          '5a53179d14ae9631b7afe5e4d0fc0b25')  # vendor.js
 # # Alternative mirror:
@@ -32,7 +34,11 @@ md5sums=(`curl -sL ${source/\/so*}/MD5SUMS | grep source | sed -n 3p | cut -d " 
 prepare() {
   cd comm-*
 
-  cp "$srcdir"/mozconfig .mozconfig
+  if [ $CARCH = x86_64 ] && [ $_pgo = 1 ]; then
+    cp "$srcdir"/mozconfig-pgo .mozconfig
+  else
+    cp "$srcdir"/mozconfig .mozconfig
+  fi
 
   # configure script misdetects the preprocessor without an optimization level
   # https://bugs.archlinux.org/task/34644
@@ -45,18 +51,24 @@ build() {
   export LDFLAGS="$LDFLAGS -Wl,-rpath,/opt/$pkgname-$pkgver"
   export PYTHON="/usr/bin/python2"
 
-  if [ "$_pgo" = "1" ]; then
-    # Tweak .mozconfig
-    _options="mk_add_options PROFILE_GEN_SCRIPT='\$(PYTHON) \$(MOZ_OBJDIR)/_profile/pgo/profileserver.py 10'"
-    echo -e "# PGO\n$_options" >> .mozconfig
-
-    # Prepare
+  if [ $CARCH = i686 ]; then
+    # Work around memory address space exhaustion during linking on i686
+    LDFLAGS+=' --no-keep-memory'
+    make -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS"
+  elif [ $CARCH = x86_64 ] && [ $_pgo = 0 ]; then
+    make -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS"
+  else
+    # Set up PGO
     export DISPLAY=:99
     Xvfb -nolisten tcp -extension GLX -screen 0 1280x1024x24 $DISPLAY &
-  fi
 
-  # Build
-  make -f client.mk build MOZ_PGO=$_pgo || kill $!
+    if ! make -f client.mk build MOZ_MAKE_FLAGS="$MAKEFLAGS" MOZ_PGO=1; then
+      kill $!
+      return 1
+    fi
+
+    kill $! || true
+  fi
 }
 
 package() {
