@@ -1,0 +1,184 @@
+From: Bernard Ladenthin <bernard@ladenthin.net>
+Subject: kernel32/time: Implement GetSystemTimes for linux.
+Message-Id: <52473347.8080300@ladenthin.net>
+Date: Sat, 28 Sep 2013 21:51:35 +0200
+
+---
+ dlls/kernel32/time.c |  149
+++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 149 insertions(+)
+
+
+diff --git a/dlls/kernel32/time.c b/dlls/kernel32/time.c
+index a1875f4..e8e9f35 100644
+--- a/dlls/kernel32/time.c
++++ b/dlls/kernel32/time.c
+@@ -20,6 +20,7 @@
+ 
+ #include "config.h"
+ 
++#include <stdio.h>
+ #include <string.h>
+ #ifdef HAVE_UNISTD_H
+ # include <unistd.h>
+@@ -1077,9 +1078,157 @@ BOOL WINAPI FileTimeToDosDateTime( const FILETIME *ft, LPWORD fatdate,
+  */
+ BOOL WINAPI GetSystemTimes(LPFILETIME lpIdleTime, LPFILETIME lpKernelTime, LPFILETIME lpUserTime)
+ {
++#ifdef linux
++    unsigned long long sumLpIdleTime, sumKernelTime, sumUserTime;
++    float idleTime, kernelTime, userTime;
++
++    FILE *fp;
++    int successfulValues;
++    unsigned int numCPUs;
++    const char* STAT = "/proc/stat";
++    const unsigned int factor = 10000;
++
++    // description from PROC(5): proc - process information pseudo-filesystem
++    unsigned long long
++    cpu_user,       // Time spent in user mode.
++
++    cpu_nice,       // Time spent in user mode with low priority (nice).
++
++    cpu_sys,        // Time spent in system mode.
++
++    cpu_idle,       // Time spent in the idle task. This value
++                    // should be USER_HZ times the second entry in the
++                    // /proc/uptime pseudo-file.
++
++    cpu_iowait,     // Time waiting for I/O to complete. (since Linux 2.5.41)
++
++    cpu_hardirq,    // Time servicing interrupts. (since Linux 2.6.0-test4)
++
++    cpu_softirq,    // Time servicing softirqs. (since Linux 2.6.0-test4)
++
++    cpu_steal,      // Stolen time, which is the time spent in
++                    // other operating systems when running in a
++                    // virtualized environment. (since Linux 2.6.11)
++
++    cpu_guest,      // Time spent running a virtual CPU for guest
++                    // operating systems under the control of the Linux kernel.
++                    // (since Linux 2.6.24)
++
++    cpu_guest_nice; // Time spent running a niced guest (virtual
++                    // CPU for guest operating systems under the
++                    // control of the Linux kernel). (since Linux 2.6.33)
++
++    // enough for the first /proc/stat lines
++    char line[4096];
++
++    if(!(fp = fopen(STAT, "r"))) {
++        SetLastError(ERROR_FILE_NOT_FOUND);
++        goto error;
++    }
++
++    // read the cpu summary line
++    if(!fgets(line, sizeof(line), fp)) {
++        SetLastError(ERROR_BAD_FORMAT);
++        goto closefileanderror;
++    }
++
++    if(strncmp(line, "cpu ", 4) != 0) {
++        goto closefileanderror;
++    }
++
++    // All the fields don't necessarily exist, depending on the kernel version used.
++    cpu_user =
++    cpu_nice =
++    cpu_sys =
++    cpu_idle =
++    cpu_iowait =
++    cpu_hardirq =
++    cpu_softirq =
++    cpu_steal =
++    cpu_guest =
++    cpu_guest_nice = 0;
++
++    successfulValues = sscanf(
++        line + 5,
++        "%llu %llu %llu %llu %llu %llu %llu %llu %llu %llu",
++
++        &cpu_user,
++        &cpu_nice,
++        &cpu_sys,
++        &cpu_idle,
++        &cpu_iowait,
++        &cpu_hardirq,
++        &cpu_softirq,
++        &cpu_steal,
++        &cpu_guest,
++        &cpu_guest_nice
++    );
++
++    numCPUs = 0;
++    for(;;) {
++        if(!fgets(line, sizeof(line), fp)) {
++            SetLastError(ERROR_BAD_FORMAT);
++            goto closefileanderror;
++        }
++
++        if(strncmp(line, "cpu", 3) != 0) {
++            break;
++        } else {
++            ++numCPUs;
++        }
++    }
++
++    if(fclose(fp) !=0) {
++        SetLastError(ERROR_INVALID_HANDLE);
++        goto error;
++    }
++
++    if(successfulValues < 8) {
++        SetLastError(ERROR_BAD_FORMAT);
++        goto error;
++    }
++
++    // cpu_user/cpu_nice already include cpu_guest/cpu_guest_nice.
++    // Times are multiplied by the number of processors.
++    sumLpIdleTime = cpu_idle;
++    sumKernelTime = cpu_sys + sumLpIdleTime + cpu_iowait +
++        cpu_hardirq + cpu_softirq + cpu_steal;
++    sumUserTime = cpu_user + cpu_nice;
++
++    idleTime = sumLpIdleTime;
++    idleTime /= factor * numCPUs;
++
++    kernelTime = sumKernelTime;
++    kernelTime /= factor * numCPUs;
++
++    userTime = sumUserTime;
++    userTime /= factor * numCPUs;
++
++    lpIdleTime->dwHighDateTime = idleTime;
++    lpIdleTime->dwLowDateTime = MAXDWORD;
++    lpIdleTime->dwLowDateTime *= idleTime-(int)idleTime;
++
++    lpKernelTime->dwHighDateTime = kernelTime;
++    lpKernelTime->dwLowDateTime = MAXDWORD;
++    lpKernelTime->dwLowDateTime *= kernelTime-(int)kernelTime;
++
++    lpUserTime->dwHighDateTime = userTime;
++    lpUserTime->dwLowDateTime = MAXDWORD;
++    lpUserTime->dwLowDateTime *= userTime-(int)userTime;
++
++    return TRUE;
++
++    closefileanderror:
++    if(fclose(fp) !=0) {
++        SetLastError(ERROR_INVALID_HANDLE);
++    }
++    error:
++    return FALSE;
++#else
+     FIXME("(%p,%p,%p): Stub!\n", lpIdleTime, lpKernelTime, lpUserTime);
+ 
+     return FALSE;
++#endif
+ }
+ 
+ /***********************************************************************
+
+
+---
