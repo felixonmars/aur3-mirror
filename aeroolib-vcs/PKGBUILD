@@ -2,11 +2,11 @@
 _pkgname=aeroolib
 pkgname=$_pkgname-vcs
 pkgver=1.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc="report creation library for the python programming language. current development version from bazaar"
 arch=(any)
 license=(gpl3)
-depends=(bzr python2 python-genshi python-lxml libreoffice-extension-scripting-python)
+depends=(bzr python2 python2-genshi python2-setuptools python-lxml libreoffice-extension-scripting-python)
 conflicts=(aeroolib)
 url=https://launchpad.net/$_pkgname
 
