@@ -1,7 +1,7 @@
 # Maintainer: Leif Warner <abimelech@gmail.com>
 # Contributor: Christophe Gueret <christophe.gueret@gmail.com>
 pkgname=4store-git
-pkgver=20120710
+pkgver=v1.1.5.51.g276c021
 pkgrel=1
 pkgdesc="4store is an efficient, scalable and stable RDF database"
 arch=('i686' 'x86_64')
@@ -12,41 +12,32 @@ makedepends=('git')
 provides=('4store')
 conflicts=('4store')
 
-_gitroot="git://github.com/garlik/4store.git"
+source=("git://github.com/garlik/4store.git")
+md5sums=('SKIP')
 _gitname="4store"
 
+pkgver() {
+  cd "$srcdir/$_gitname/"
+  local ver="$(git describe --long)"
+  echo "${ver//-/.}"
+}
+
 build() {
-  msg "Avahi needs to be running to run tests."
-  msg "Remove the 'make test' line in the PKGBUILD if you don't want to run tests."
-  cd "$srcdir"
-  msg "Connecting to GIT server...."
-
-  if [ -d $_gitname ] ; then
-    cd $_gitname && git pull origin
-    msg "The local files are updated."
-  else
-    git clone $_gitroot $_gitname
-  fi
-
-  msg "GIT checkout done or server timeout"
-  msg "Starting make..."
-
-  rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-  cd "$srcdir/$_gitname-build"
-
-  #
-  # BUILD HERE
-  #
-
+  cd "$srcdir/$_gitname"
   export LDFLAGS=${LDFLAGS//,--as-needed}
   ./autogen.sh
   ./configure --prefix=/usr
   make
+}
+
+check() {
+  msg "Avahi needs to be running to run tests."
+  msg "Disable the 'check' function (!check) if you don't want to run tests."
+  cd "$srcdir/$_gitname"
   make test
 }
 
 package() {
-  cd "$srcdir/$_gitname-build"
+  cd "$srcdir/$_gitname"
   make DESTDIR="$pkgdir/" install
 } 
