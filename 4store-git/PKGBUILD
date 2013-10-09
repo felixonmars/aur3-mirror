@@ -32,6 +32,9 @@ build() {
 
 check() {
   msg "Avahi needs to be running to run tests."
+  msg "As mentioned on their docs, this needs to be installed before tests will run."
+  msg "(/var/lib/4store needs to exist, created by 'make install' http://4store.org/trac/wiki/Install#Testing)"
+  msg "It's just a dir with perms set to 777, if you want to make it yourself."
   msg "Disable the 'check' function (!check) if you don't want to run tests."
   cd "$srcdir/$_gitname"
   make test
