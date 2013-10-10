@@ -3,7 +3,7 @@
 export OS_NAME=`uname`
 
 export PATH="$PATH:$CASROOT/bin"
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CASROOT/lib"
+export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$CASROOT/lib"
 
 export CSF_LANGUAGE=us
 export MMGT_CLEAR=1
