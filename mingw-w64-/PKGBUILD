@@ -1,0 +1,43 @@
+# Maintainer: xantares <xantares09 at hotmail dot com>
+
+_pkgname=mpfr
+pkgname=mingw-w64-$pkgname
+pkgver=3.1.2
+pkgrel=2
+pkgdesc="Multiple-precision floating-point library (mingw-w64)"
+arch=(any)
+url="http://www.mpfr.org"
+license=("LGPL")
+makedepends=('mingw-w64-gcc')
+depends=('mingw-w64-crt' 'mingw-w64-gmp')
+options=('!libtool' '!strip' '!buildflags')
+source=("http://www.mpfr.org/mpfr-current/mpfr-${pkgver}.tar.xz")
+md5sums=('e3d203d188b8fe60bb6578dd3152e05c')
+_architectures="i686-w64-mingw32 x86_64-w64-mingw32"
+
+build() {
+  cd "${srcdir}"/${_pkgname}-${pkgver}
+  for _arch in ${_architectures}; do
+    unset LDFLAGS
+    mkdir -p build-${_arch} && pushd build-${_arch}
+    ../configure \
+      --prefix=/usr/${_arch} \
+      --host=${_arch} \
+      --build=$CHOST \
+      --enable-shared \
+      --disable-static \
+      --enable-thread-safe
+    make
+    popd
+  done
+}
+
+package() {
+  for _arch in ${_architectures}; do
+    cd "${srcdir}"/${_pkgname}-${pkgver}/build-${_arch}
+    make DESTDIR="$pkgdir" install
+    ${_arch}-strip --strip-unneeded "$pkgdir"/usr/${_arch}/bin/*.dll
+    ${_arch}-strip -g "$pkgdir"/usr/${_arch}/lib/*.a
+    rm -r "$pkgdir/usr/${_arch}/share"
+  done
+}
