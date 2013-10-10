@@ -1,19 +1,19 @@
 pkgname=rar2fs
-pkgver=1.17.2
+pkgver=1.18.0
 _rls="$pkgname-$pkgver"
 pkgrel=1
 pkgdesc="Fuse file system for reading Rar archives"
 arch=(i686 x86_64)
 license=(GPL3)
 url="https://code.google.com/p/$pkgname"
-depends=(fuse "libunrar<1:5")
-makedepends=("libunrar<1:5")
+depends=(fuse "libunrar<1:6")
+makedepends=("libunrar<1:6")
 
 source=("https://$pkgname.googlecode.com/files/$_rls.tar.gz")
-sha1sums=(b47286dc0f10314dd80e36135aab9b9727a0237b)
+sha1sums=(43585590a73d5f8fb59605c43e172e5e73d12c8f)
 
-source+=(http://www.rarlab.com/rar/unrarsrc-4.2.4.tar.gz)
-sha1sums+=(1cc29603fb4e4df16a3aa9bfc7da1afaf0923259)
+source+=(http://www.rarlab.com/rar/unrarsrc-5.0.12.tar.gz)
+sha1sums+=(03d61213ff810650fc06113ffe153712176af4dd)
 
 build() {
     cd "$srcdir/$_rls"
