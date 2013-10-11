@@ -1,7 +1,7 @@
 # Maintainer: Mattias Andrée <`base64 -d`(bWFhbmRyZWUK)@member.fsf.org>
 
 pkgname=bash.d
-pkgver=1381025867
+pkgver=1381473521
 pkgrel=1
 pkgdesc="Subscripts for GNU Bash shells"
 url="https://github.com/GNU-Pony/bash.d"
@@ -13,7 +13,7 @@ optdepends=("libnotify: for alert.bash"
 	    "git: for git branch in prompt.bash"
 	    "acpi: for battery status in prompt.bash")
 source=("${url}/archive/${pkgver}.tar.gz")
-sha256sums=(38e7fa9dab24b97aeb5ef1dc47f0f47a333f9bc2f307f94f8fbd01284d429172)
+sha256sums=(34d9011fff8ac8841804b72019d6ca7be22bfda8545c120ac2f20049fcf13900)
 
 _prefix=/usr
 
