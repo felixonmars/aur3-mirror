@@ -1,7 +1,7 @@
 # Maintainer: Kevin Mäder <kmaeder[AT]kevin-maeder[dot]de>
 # TU Dresden corporate design font install
 
-# copy DIN_Bd_PS.zip and Univers_PS.zip to directory with PKGBUILD
+# copy DIN_Bd_PS.zip and Univers_ps.zip to directory with PKGBUILD
 
 pkgname=texlive-tud-cd-fonts
 pkgver=0.2
@@ -12,7 +12,7 @@ arch=('any')
 depends=('texlive-core')
 url=("http://latex.wcms-file3.tu-dresden.de/phpBB3/index.php")
 install=texlive.install
-source=("DIN_Bd_PS.zip" "Univers_PS.zip" "LICENSE")
+source=("DIN_Bd_PS.zip" "Univers_ps.zip" "LICENSE")
 md5sums=('SKIP' 'SKIP' '6cfb9405ed5429fb03883fad19153fdc')
 
 # if you change the path here make sure to change it in texlive.install too
