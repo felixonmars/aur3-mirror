@@ -1,0 +1,481 @@
+--- wine-1.3.24/configure.ac.0064	2011-12-29 18:25:07.738151474 -0800
++++ wine-1.3.24/configure.ac	2012-02-08 11:49:31.886495263 -0800
+@@ -2861,6 +2861,7 @@
+ WINE_CONFIG_DLL(urlmon,,[implib])
+ WINE_CONFIG_TEST(dlls/urlmon/tests)
+ WINE_CONFIG_DLL(usbd.sys,,[implib])
++WINE_CONFIG_DLL(usbhub.sys,,[implib])
+ WINE_CONFIG_DLL(user.exe16,enable_win16)
+ WINE_CONFIG_DLL(user32,,[implib,po])
+ WINE_CONFIG_TEST(dlls/user32/tests)
+--- wine-1.3.24/dlls/ntdll/virtual.c.0064	2011-07-08 11:37:06.000000000 -0700
++++ wine-1.3.24/dlls/ntdll/virtual.c	2012-02-08 11:49:31.894495347 -0800
+@@ -1289,6 +1289,7 @@
+ 
+     if (ptr != base &&
+         ((nt->FileHeader.Characteristics & IMAGE_FILE_DLL) ||
++         (nt->OptionalHeader.Subsystem == IMAGE_SUBSYSTEM_NATIVE) ||
+           !NtCurrentTeb()->Peb->ImageBaseAddress) )
+     {
+         IMAGE_BASE_RELOCATION *rel, *end;
+--- wine-1.3.24/dlls/ntoskrnl.exe/ntoskrnl.c.0064	2012-02-13 21:06:01.849177254 -0800
++++ wine-1.3.24/dlls/ntoskrnl.exe/ntoskrnl.c	2012-02-16 12:48:57.763900787 -0800
+@@ -55,6 +55,7 @@
+ extern LONG CALLBACK vectored_handler( EXCEPTION_POINTERS *ptrs );
+ 
+ KSYSTEM_TIME KeTickCount = { 0, 0, 0 };
++static struct _KTIMER KeTimers;
+ 
+ typedef struct _KSERVICE_TABLE_DESCRIPTOR
+ {
+@@ -361,6 +362,88 @@
+     }
+ }
+ 
++static DWORD next_timer(VOID)
++{
++    DWORD timeout = INFINITE;
++    LARGE_INTEGER t;
++    struct _KTIMER* ptr = &KeTimers;
++
++    TRACE("\n");
++
++    NtQuerySystemTime(&t);
++
++    TRACE("%p head->next %p\n", ptr->TimerListEntry.Flink, &KeTimers.TimerListEntry);
++
++    TRACE("%p %lu %lu\n",
++        ((char*)ptr->TimerListEntry.Flink) - (intptr_t)(&((struct _KTIMER *)0)->TimerListEntry),
++        LIST_ENTRY(ptr->TimerListEntry.Flink,
++        struct _KTIMER, TimerListEntry)->DueTime.QuadPart, t.QuadPart);
++
++    if (ptr->TimerListEntry.Flink != &KeTimers.TimerListEntry)
++    {
++        ULARGE_INTEGER entryT;
++
++        entryT = LIST_ENTRY(ptr->TimerListEntry.Flink, struct _KTIMER, TimerListEntry)->DueTime;
++        if (entryT.QuadPart > t.QuadPart)
++            timeout = (entryT.QuadPart - t.QuadPart) / 10000;
++        else
++            timeout = 0;
++    }
++
++    TRACE("ret = %u\n", timeout);
++
++    return timeout;
++}
++
++static void queue_timer(struct _KTIMER* n)
++{
++    struct _KTIMER* ptr = &KeTimers;
++
++    TRACE("%p (%p) %lu\n", n, &n->TimerListEntry, n->DueTime.QuadPart);
++
++    while (ptr->TimerListEntry.Flink != &KeTimers.TimerListEntry)
++    {
++        if (ptr->DueTime.QuadPart > n->DueTime.QuadPart) break;
++        ptr = LIST_ENTRY(ptr->TimerListEntry.Flink, struct _KTIMER, TimerListEntry);
++    }
++
++    n->TimerListEntry.Flink = &ptr->TimerListEntry;
++    n->TimerListEntry.Blink = ptr->TimerListEntry.Blink;
++    ptr->TimerListEntry.Blink->Flink = &n->TimerListEntry;
++    ptr->TimerListEntry.Blink = &n->TimerListEntry;
++
++    TRACE("%p head->next %p\n", n, LIST_ENTRY(KeTimers.TimerListEntry.Flink, struct _KTIMER, TimerListEntry));
++}
++
++static void signal_timers(VOID)
++{
++    LARGE_INTEGER t;
++    struct _KTIMER* ptr = &KeTimers;
++
++    NtQuerySystemTime(&t);
++
++    TRACE("%p %p\n", ptr->TimerListEntry.Flink, &KeTimers.TimerListEntry);
++
++    while (ptr->TimerListEntry.Flink != &KeTimers.TimerListEntry)
++    {
++        ptr = LIST_ENTRY(ptr->TimerListEntry.Flink, struct _KTIMER, TimerListEntry);
++
++        if (ptr->DueTime.QuadPart > t.QuadPart) break;
++
++        if (ptr->Dpc)
++        {
++            TRACE("Calling dpc\n");
++            ptr->Dpc->DeferredRoutine(ptr->Dpc, ptr->Dpc->DeferredContext,
++                ptr->Dpc->SystemArgument1, ptr->Dpc->SystemArgument2);
++        }
++
++        TRACE("Dequeuing %p\n", ptr);
++
++        ptr->TimerListEntry.Blink->Flink = ptr->TimerListEntry.Flink;
++        ptr->TimerListEntry.Flink->Blink = ptr->TimerListEntry.Blink;
++    }
++}
++
+ static HANDLE get_device_manager(void)
+ {
+     static HANDLE device_manager;
+@@ -544,9 +627,11 @@
+ 
+     handles[0] = stop_event;
+     handles[1] = manager;
++    handles[2] = (HANDLE)(LONG_PTR)KeTimers.Header.SignalState;
+ 
+     for (;;)
+     {
++        TRACE(" get_next_device_request\n");
+         SERVER_START_REQ( get_next_device_request )
+         {
+             req->manager = wine_server_obj_handle( manager );
+@@ -591,12 +676,16 @@
+             /* restart with larger buffer */
+             break;
+         case STATUS_PENDING:
+-            if (WaitForMultipleObjects( 2, handles, FALSE, INFINITE ) == WAIT_OBJECT_0)
++            timeout = next_timer();
++            status = WaitForMultipleObjectsEx( 3, handles, FALSE, timeout, TRUE );
++            if (status == WAIT_OBJECT_0)
+             {
+                 HeapFree( GetProcessHeap(), 0, in_buff );
+                 HeapFree( GetProcessHeap(), 0, out_buff );
+                 return STATUS_SUCCESS;
+             }
++            else if (status == WAIT_TIMEOUT) /* Timer went off */
++                signal_timers();
+             break;
+         }
+     }
+@@ -1180,6 +1297,17 @@
+         req->manager    = wine_server_obj_handle( manager );
+         req->user_ptr   = wine_server_client_ptr( device );
+         if (name) wine_server_add_data( req, name->Buffer, name->Length );
++        else if (driver->DriverName.Length > 0)
++        {
++            nameW.Buffer = HeapAlloc(GetProcessHeap(), 0, 1024*sizeof(WCHAR));
++            strcpyW(nameW.Buffer, DEVICE_PREFIX);
++            nameW.Length = strlenW(nameW.Buffer) * sizeof(WCHAR);
++            nameW.MaximumLength = 1024 * sizeof(WCHAR);
++
++            RtlAppendUnicodeToString(&nameW, driver->DriverName.Buffer);
++
++            wine_server_add_data( req, nameW.Buffer, nameW.Length );
++        }
+         if (!(status = wine_server_call( req ))) handle = wine_server_ptr_handle( reply->handle );
+     }
+     SERVER_END_REQ;
+@@ -1597,6 +1725,8 @@
+         status = STATUS_NOT_IMPLEMENTED;
+     }
+ 
++    RtlFreeUnicodeString(&nameW);
++
+     return status;
+ }
+ 
+@@ -1665,6 +1795,26 @@
+ }
+ 
+ /***********************************************************************
++ *           IoOpenDeviceRegistryKey (NTOSKRNL.EXE.@)
++ */
++NTSTATUS WINAPI IoOpenDeviceRegistryKey(PDEVICE_OBJECT DeviceObject,
++    ULONG DevInstKeyType, ACCESS_MASK DesiredAccess, PHANDLE DevInstRegKey)
++{
++    NTSTATUS status = STATUS_INVALID_PARAMETER;
++
++    TRACE("%p %d\n", DeviceObject, DevInstKeyType);
++
++    switch (DevInstKeyType)
++    {
++        default:
++            return STATUS_INVALID_PARAMETER;
++    }
++
++    return status;
++}
++
++
++/***********************************************************************
+  *           IoGetRelatedDeviceObject    (NTOSKRNL.EXE.@)
+  */
+ PDEVICE_OBJECT WINAPI IoGetRelatedDeviceObject( PFILE_OBJECT obj )
+@@ -2200,6 +2381,16 @@
+ }
+ 
+ /***********************************************************************
++ *           KeAcquireSpinLockRaiseToDpc   (NTOSKRNL.EXE.@)
++ */
++KIRQL WINAPI KeAcquireSpinLockRaiseToDpc( PKSPIN_LOCK SpinLock )
++{
++    FIXME("Hack - %p\n", SpinLock);
++    return(0);
++}
++
++
++/***********************************************************************
+  *           KeGetCurrentThread / PsGetCurrentThread   (NTOSKRNL.EXE.@)
+  */
+ PRKTHREAD WINAPI KeGetCurrentThread(void)
+@@ -2219,6 +2410,14 @@
+     return STATUS_SUCCESS;
+ }
+ 
++/***********************************************************************
++ *           KeCancelTimer (NTOSKRNL.EXE.@)
++ */
++BOOLEAN WINAPI KeCancelTimer(PKTIMER timer)
++{
++    FIXME( "%p\n", timer );
++    return TRUE;
++}
+ 
+ /***********************************************************************
+  *           KeInitializeEvent   (NTOSKRNL.EXE.@)
+@@ -2232,6 +2431,12 @@
+     if (State)
+         Event->Header.SignalState = 1;
+     InitializeListHead( &Event->Header.WaitListHead );
++    HANDLE EventHandle;
++
++    FIXME( "Hack - %p %d %d\n", Event, Type, State );
++
++    NtCreateEvent(&EventHandle, EVENT_ALL_ACCESS, NULL, Type == NotificationEvent, State);
++    Event->Header.SignalState = (LONG_PTR)EventHandle; /* Hack */
+ }
+ 
+ 
+@@ -2276,8 +2481,8 @@
+  */
+ LONG WINAPI KeReleaseMutex(PRKMUTEX Mutex, BOOLEAN Wait)
+ {
+-    FIXME( "stub: %p, %d\n", Mutex, Wait );
+-    return STATUS_SUCCESS;
++    FIXME( "L_ Hack - %p, %d\n", Mutex, Wait );
++    return NtReleaseMutant((HANDLE)(LONG_PTR)Mutex->Header.SignalState, NULL);
+ }
+ 
+ 
+@@ -2297,7 +2502,8 @@
+  */
+ void WINAPI KeInitializeSpinLock( PKSPIN_LOCK SpinLock )
+ {
+-    FIXME( "stub: %p\n", SpinLock );
++    FIXME("Hack - %p\n", SpinLock);
++    *SpinLock = 0xfefefefe;
+ }
+ 
+ 
+@@ -2306,9 +2512,8 @@
+  */
+ void WINAPI KeInitializeTimerEx( PKTIMER Timer, TIMER_TYPE Type )
+ {
+-    FIXME( "stub: %p %d\n", Timer, Type );
+-    RtlZeroMemory( Timer, sizeof(KTIMER) );
+-    Timer->Header.Type = Type ? 9 : 8;
++    FIXME( "%p %d\n", Timer, Type );
++    Timer->DueTime.QuadPart = 0; /* Clear timer */
+ }
+ 
+ 
+@@ -2355,6 +2560,20 @@
+ 
+ 
+ /***********************************************************************
++ *           KeInsertQueueDpc (NTOSKRNL.EXE.@)
++ */
++BOOLEAN WINAPI KeInsertQueueDpc(PRKDPC dpc, PVOID arg1, PVOID arg2)
++{
++    FIXME("%p %p %p\n", dpc, arg1, arg2);
++
++    dpc->SystemArgument1 = arg1;
++    dpc->SystemArgument2 = arg2;
++
++    return TRUE;
++}
++
++
++/***********************************************************************
+  *           KeQuerySystemTime   (NTOSKRNL.EXE.@)
+  */
+ void WINAPI KeQuerySystemTime( LARGE_INTEGER *time )
+@@ -2386,6 +2605,14 @@
+     return 0;
+ }
+ 
++/***********************************************************************
++ *           KeReleaseSpinLock   (NTOSKRNL.EXE.@)
++ */
++VOID WINAPI KeReleaseSpinLock( PKSPIN_LOCK SpinLock, KIRQL NewIrql )
++{
++    FIXME("(%p %u) stub\n", SpinLock, NewIrql );
++}
++
+ 
+ /***********************************************************************
+  *           KeQueryTimeIncrement   (NTOSKRNL.EXE.@)
+@@ -2547,6 +2774,34 @@
+ }
+ 
+ /***********************************************************************
++ *           KeSetTimer (NTOSKRNL.EXE.@)
++ */
++BOOLEAN KeSetTimer(PKTIMER timer, LARGE_INTEGER due, PKDPC dpc)
++{
++   TRACE("%p %d %p\n", timer, due.u.LowPart, dpc);
++
++    if (due.QuadPart > 0)
++        timer->DueTime.QuadPart = due.QuadPart;
++    else
++    {
++        LARGE_INTEGER t;
++
++        KeQuerySystemTime(&t);
++        TRACE("systime %lu delta %ld\n", t.QuadPart, -due.QuadPart);
++        timer->DueTime.QuadPart = t.QuadPart + (-due.QuadPart);
++    }
++
++    timer->Dpc = dpc;
++    //!CancelTimer(timer);
++    queue_timer(timer);
++
++    /* Interrupt wait and queue timer */
++    NtSetEvent((HANDLE)(LONG_PTR)KeTimers.Header.SignalState, NULL);
++
++    return TRUE;
++}
++
++/***********************************************************************
+  *           MmAllocateNonCachedMemory   (NTOSKRNL.EXE.@)
+  */
+ PVOID WINAPI MmAllocateNonCachedMemory( SIZE_T size )
+@@ -2778,8 +3033,8 @@
+  *           PsCreateSystemThread   (NTOSKRNL.EXE.@)
+  */
+ NTSTATUS WINAPI PsCreateSystemThread(PHANDLE ThreadHandle, ULONG DesiredAccess,
+-				     POBJECT_ATTRIBUTES ObjectAttributes,
+-			             HANDLE ProcessHandle, PCLIENT_ID ClientId,
++                                     POBJECT_ATTRIBUTES ObjectAttributes,
++                                     HANDLE ProcessHandle, PCLIENT_ID ClientId,
+                                      PKSTART_ROUTINE StartRoutine, PVOID StartContext)
+ {
+     if (!ProcessHandle) ProcessHandle = GetCurrentProcess();
+@@ -2931,7 +3186,9 @@
+  */
+ VOID WINAPI KeInitializeDpc(PRKDPC Dpc, PKDEFERRED_ROUTINE DeferredRoutine, PVOID DeferredContext)
+ {
+-    FIXME("stub\n");
++    FIXME( "%p %p %p\n", Dpc, DeferredRoutine, DeferredContext );
++    Dpc->DeferredRoutine = DeferredRoutine;
++    Dpc->DeferredContext = DeferredContext;
+ }
+ 
+ /***********************************************************************
+@@ -2953,7 +3210,7 @@
+ 
+     p.DeviceState = PowerDeviceD1;
+ 
+-    return (POWER_STATE)p.DeviceState;
++    return /*(POWER_STATE)*/p.DeviceState;
+ }
+ 
+ /*****************************************************
+@@ -3035,6 +3292,18 @@
+         handler = RtlAddVectoredExceptionHandler( TRUE, vectored_handler );
+ #endif
+         KeQueryTickCount( &count );  /* initialize the global KeTickCount */
++        InitializeListHead( &KeTimers.TimerListEntry );
++
++        // This object used to be created with EVENT_ALL_ACCESS, but since it
++        // isn't shared, that is not important (according to Ulrich)
++        // NOTE: SignalState is used as a HANDLE but is stored as a LONG;
++        // let compiler warn for future reference
++        KeTimers.Header.SignalState = (LONG_PTR) CreateEventA(0, FALSE, FALSE, "krnltm");
++        if (!KeTimers.Header.SignalState)
++        {
++                WARN("Failed to create kernel timer:  Error %x\n",
++                        GetLastError());
++        }
+         break;
+     case DLL_PROCESS_DETACH:
+         if (reserved) break;
+--- wine-1.3.24/dlls/ntoskrnl.exe/ntoskrnl.exe.spec.0064	2011-07-08 11:37:06.000000000 -0700
++++ wine-1.3.24/dlls/ntoskrnl.exe/ntoskrnl.exe.spec	2012-02-15 15:02:01.364203589 -0800
+@@ -409,7 +410,7 @@
+ @ stdcall IoIsWdmVersionAvailable(long long)
+ @ stub IoMakeAssociatedIrp
+ @ stub IoOpenDeviceInterfaceRegistryKey
+-@ stub IoOpenDeviceRegistryKey
++@ stdcall IoOpenDeviceRegistryKey(ptr long long ptr)
+ @ stub IoPageRead
+ @ stub IoPnPDeliverServicePowerNotification
+ @ stdcall IoQueryDeviceDescription(ptr ptr ptr ptr ptr ptr ptr ptr)
+@@ -491,7 +492,7 @@
+ @ stub IoWMISetSingleItem
+ @ stub IoWMISuggestInstanceName
+ @ stub IoWMIWriteEvent
+-@ stub IoWriteErrorLogEntry
++@ stdcall IoWriteErrorLogEntry(ptr)
+ @ stub IoWriteOperationCount
+ @ stub IoWritePartitionTableEx
+ @ stub IoWriteTransferCount
+@@ -508,12 +509,13 @@
+ @ stdcall Ke386SetIoAccessMap(long ptr)
+ @ stub KeAcquireInterruptSpinLock
+ @ stub KeAcquireSpinLockAtDpcLevel
++@ stdcall KeAcquireSpinLockRaiseToDpc(ptr)
+ @ stub KeAddSystemServiceTable
+ @ stub KeAreApcsDisabled
+ @ stub KeAttachProcess
+ @ stub KeBugCheck
+ @ stub KeBugCheckEx
+-@ stub KeCancelTimer
++@ stdcall KeCancelTimer(ptr)
+ @ stub KeCapturePersistentThreadState
+ @ stdcall KeClearEvent(ptr)
+ @ stub KeConnectInterrupt
+@@ -560,7 +562,7 @@
+ @ stub KeInsertHeadQueue
+ @ stub KeInsertQueue
+ @ stub KeInsertQueueApc
+-@ stub KeInsertQueueDpc
++@ stdcall KeInsertQueueDpc(ptr ptr ptr)
+ @ stub KeIsAttachedProcess
+ @ stub KeIsExecutingDpc
+ @ stub KeLeaveCriticalRegion
+@@ -589,6 +591,7 @@
+ @ stub KeReleaseMutant
+ @ stdcall KeReleaseMutex(ptr long)
+ @ stdcall KeReleaseSemaphore(ptr long long long)
++@ stdcall KeReleaseSpinLock(ptr long)
+ @ stub KeReleaseSpinLockFromDpcLevel
+ @ stub KeRemoveByKeyDeviceQueue
+ @ stub KeRemoveByKeyDeviceQueueIfBusy
+@@ -617,7 +620,7 @@
+ @ stub KeSetSystemAffinityThread
+ @ stub KeSetTargetProcessorDpc
+ @ stub KeSetTimeIncrement
+-@ stub KeSetTimer
++@ stdcall KeSetTimer(ptr double ptr)
+ @ stub KeSetTimerEx
+ @ stub KeStackAttachProcess
+ @ stub KeSynchronizeExecution
+@@ -963,6 +966,7 @@
+ @ stdcall RtlConvertSidToUnicodeString(ptr ptr long) ntdll.RtlConvertSidToUnicodeString
+ @ stdcall -arch=win32 -ret64 RtlConvertUlongToLargeInteger(long) ntdll.RtlConvertUlongToLargeInteger
+ @ stdcall RtlCopyLuid(ptr ptr) ntdll.RtlCopyLuid
++@ stdcall RtlCopyMemory(ptr ptr long) ntdll.memcpy
+ @ stub RtlCopyRangeList
+ @ stdcall RtlCopySid(long ptr ptr) ntdll.RtlCopySid
+ @ stdcall RtlCopyString(ptr ptr) ntdll.RtlCopyString
+--- wine-1.3.24/include/ddk/wdm.h.0064	2011-07-08 11:37:06.000000000 -0700
++++ wine-1.3.24/include/ddk/wdm.h	2012-02-16 11:48:04.205900472 -0800
+@@ -1206,6 +1206,7 @@
+ void      WINAPI ExFreePool(PVOID);
+ void      WINAPI ExFreePoolWithTag(PVOID,ULONG);
+ 
++PDEVICE_OBJECT WINAPI IoAttachDeviceToDeviceStack(PDEVICE_OBJECT source, PDEVICE_OBJECT target);
+ NTSTATUS  WINAPI IoAllocateDriverObjectExtension(PDRIVER_OBJECT,PVOID,ULONG,PVOID*);
+ PVOID     WINAPI IoAllocateErrorLogEntry(PVOID,UCHAR);
+ PIRP      WINAPI IoAllocateIrp(CCHAR,BOOLEAN);
