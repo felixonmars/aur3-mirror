@@ -30,13 +30,13 @@ true && pkgname=('python2-neutron'
                  'neutron-server')
 
 pkgver=2013.2.rc2
-pkgrel=1
+pkgrel=2
 pkgdesc="A virtual network service for Openstack"
 arch=(any)
 url="https://launchpad.net/neutron"
 license=('Apache')
 depends=('python2' 'python2-setuptools')
-makedepends=('python2-setuptools')
+makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslo-sphinx')
 install=neutron.install
 source=("$url/havana/havana-rc2/+download/$pkgbase-$pkgver.tar.gz"
         "neutron-dhcp-agent.service"
@@ -72,9 +72,11 @@ md5sums=('9cd64b6239a38bef86cd174820cd8b3e'
 build() {
   cd "$pkgbase-$pkgver"
   /usr/bin/python2 setup.py build
+  /usr/bin/python2 setup.py build_sphinx
   /usr/bin/python2 setup.py install --root="$srcdir/tmp" \
                                     --install-data="/" \
                                     --optimize=1
+  cp -R doc/build/man/ "$srcdir/tmp/"
 }
 
 package_python2-neutron() {
@@ -138,6 +140,9 @@ package_neutron-common() {
   install -m 755 usr/bin/neutron-rootwrap ${pkgdir}/usr/bin/
   install -m 755 usr/bin/neutron-rootwrap-xen-dom0 ${pkgdir}/usr/bin/
   install -m 755 usr/bin/neutron-usage-audit ${pkgdir}/usr/bin/
+
+  install -d ${pkgdir}/usr/share/man/man1/
+  cp -R man/* ${pkgdir}/usr/share/man/man1/
 
   install -d -m 0750 ${pkgdir}/etc/sudoers.d/
   install -m 440 ${srcdir}/neutron_sudoers ${pkgdir}/etc/sudoers.d/
