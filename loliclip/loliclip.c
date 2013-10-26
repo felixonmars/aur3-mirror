@@ -576,13 +576,11 @@ static int dmenu_puts(void *calldata, clipdata *c,
       const char *buffer, size_t blen, size_t rlen, size_t size,
       unsigned int hash, unsigned int index) {
    size_t i, i2, limit; char ws = 0;
-   if (rlen) return 1; limit = (blen>DMENU_LIMIT?DMENU_LIMIT:blen);
+   if (rlen) return 1;
+   limit = (blen>DMENU_LIMIT?DMENU_LIMIT:blen);
+   for (; ((buffer[limit] & 0xc0) == 0x80); --limit);
    printf("%4d: ", index);
    for (i = 0; i != limit; ++i) {
-      if (limit != blen && (buffer[i] & 0xc0)) {
-         for (i2 = i; i2 != limit && (buffer[i2] & 0xc0); ++i2);
-         if (i2 == limit) break;
-      }
       if (ws && buffer[i]==' ') continue; ws = 0;
       printf("%c", (buffer[i]=='\n'||buffer[i]=='\r')?' ':buffer[i]);
       ws = (buffer[i]==' '||buffer[i]=='\n'||buffer[i]=='\r')?1:0;

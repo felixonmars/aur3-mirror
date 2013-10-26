@@ -232,12 +232,16 @@ initialize() {
   local config_regex=' --config +([^ ]+) '
 
   debug=false
+  disable_color=false
   user_config="${XDG_CONFIG_HOME:-$HOME/.config}/aurgetrc"
 
   [[ " $* " =~ ' --debug '    ]] && debug=true
+  [[ " $* " =~ ' --nocolor '  ]] && disable_color=true
   [[ " $* " =~ $config_regex  ]] && user_config="${BASH_REMATCH[1]}"
 
   set_defaults
+  setup_colors
+
   source_config
   setup_colors
 
@@ -258,7 +262,6 @@ initialize() {
       --builddir)    shift; build_directory="$1"                     ;;
       --ignore)      shift; ignore_packages+=" $1"                   ;;
       --noconfirm)   noconfirm=true; makepkg_options+=' --noconfirm' ;;
-      --nocolor)     disable_color=true                              ;;
       --devel)       devels=true                                     ;;
       --deps)        resolve_dependencies=true                       ;;
       --nodeps)      resolve_dependencies=false                      ;;
@@ -270,6 +273,7 @@ initialize() {
       -h|--help)     message; exit                                   ;;
       --)            shift; arguments+=( "$@" ); return              ;;
       --debug)       :                                               ;;
+      --nocolor)     :                                               ;;
       --config)      : ; shift                                       ;;
       -*)            warn "unknown option $1, treating as makepkg argument..."
                      makepkg_options+=" $1"                          ;;
@@ -285,7 +289,6 @@ initialize() {
 set_defaults() {
   build_directory="$PWD"
   devels=false
-  disable_color=false
   discard_sources=true
   ignore_packages=''
   keep_devels=true
@@ -475,13 +478,16 @@ source_pkgbuild() {
 
 # Setup targets {{{
 setup_targets() {
-  local name version versions
+  local name version versions pkgbuild
 
   declare -A versions
 
   set -- "${dependencies[@]}" "${arguments[@]}"
 
   (( "$#" )) || die 'no targets specified (use -h for help)'
+
+  for name in "${dependencies[@]}"; do target_deps[$name]=1; done
+  for name in "${arguments[@]}";    do target_deps[$name]=0; done
 
   debug "setting up $colorG$#$nocolor targets for processing"
 
@@ -495,7 +501,19 @@ setup_targets() {
   for name; do
     version="${versions[$name]}"
 
-    [[ -z "$version" ]] && die "target not found: $name"
+    if [[ -z "$version" ]]; then
+      pkgbuild="$temp_directory/${name}_PKGBUILD"
+
+      if [[ -f "$pkgbuild" ]]; then
+        debug "target $colorG$name$nocolor may have moved to repos"
+        debug "legacy PKGBUILD: $colorG$pkgbuild$nocolor"
+
+        # let makepkg deal with it
+        (( ${target_deps[$name]} )) && continue
+      fi
+
+      die "target not found: $name"
+    fi
 
     if is_ignored "$name"; then
       if ! prompt "$name is in ignore_packages. Install anyway"; then
@@ -511,9 +529,6 @@ setup_targets() {
   (( "${#targets[@]}" )) || nothing_to_do
 
   prompt_to_install "${targets[@]}"
-
-  for name in "${dependencies[@]}"; do target_deps[$name]=1; done
-  for name in "${arguments[@]}";    do target_deps[$name]=0; done
 }
 # }}}
 

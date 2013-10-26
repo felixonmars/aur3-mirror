@@ -1,0 +1,32 @@
+# $Id$
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Alexander Fehr <pizzapunk gmail com>
+# Contributor: William Rea <sillywilly@gmail.com>
+# Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
+# Maintainer: Vojtěch Aschenbrenner <v@asch.cz>
+
+pkgname=xapian-core-old
+pkgver=1.2.15
+pkgrel=1
+pkgdesc='Open source search engine library.'
+arch=('i686' 'x86_64')
+url='http://www.xapian.org/'
+license=('GPL')
+depends=('sh' 'gcc-libs' 'zlib' 'util-linux')
+conflicts=('xapian-core')
+# xapian config requires libxapian.la
+options=('libtool')
+#source=("http://oligarchy.co.uk/xapian/${pkgver}/${pkgname}-${pkgver}.tar.gz")
+source=("http://oligarchy.co.uk/xapian/${pkgver}/xapian-core-${pkgver}.tar.gz")
+md5sums=('3af45069c6a14a7ecad2da24cbc3d2c5')
+
+build() {
+  cd "${srcdir}/xapian-core-${pkgver}"
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd "${srcdir}/xapian-core-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+}

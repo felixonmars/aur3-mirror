@@ -9,6 +9,7 @@ makedepends=(fpc)
 depends=(fpc)
 source=("http://downloads.sourceforge.net/allegro-pas/allegro-pas.$pkgver.zip")
 md5sums=('e8c138a5f113784e44d58ded643d4d59')
+options=(staticlibs)
 _unittgt=`fpc -iSP`-`fpc -iSO`
 _fpcver=`fpc -iV`
 

@@ -82,7 +82,7 @@ class ToggleTextWrapHelper:
         self._DEBUG = False
         
         if self._DEBUG:
-            print "Plugin", plugin_name, "created for", window
+            print ("Plugin", plugin_name, "created for", window)
         self._window = window
         self._plugin = plugin
         
@@ -100,11 +100,11 @@ class ToggleTextWrapHelper:
             else:
                 self._initial_toggle_state = True
             if self._DEBUG:
-                print "Plugin", plugin_name, "from current wrap mode using initial toggle state", self._initial_toggle_state
-    	except:
+                print ("Plugin", plugin_name, "from current wrap mode using initial toggle state", self._initial_toggle_state)
+        except:
             self._initial_toggle_state = _initial_toggle_state_default
             if self._DEBUG:
-            	print "Plugin", plugin_name, "using _default_ initial toggle state", _initial_toggle_state_default
+            	print ("Plugin", plugin_name, "using _default_ initial toggle state", _initial_toggle_state_default)
         
         # Add "Toggle Text Wrap" to the View menu and to the Toolbar
         self._insert_ui_items()
@@ -112,7 +112,7 @@ class ToggleTextWrapHelper:
 
     def deactivate(self):
         if self._DEBUG:
-            print "Plugin", plugin_name, "stopped for", self._window
+            print ("Plugin", plugin_name, "stopped for", self._window)
         self._remove_ui_items()
         self._window = None
         self._plugin = None
@@ -152,7 +152,7 @@ class ToggleTextWrapHelper:
         self._ui_id = self._manager.add_ui_from_string(ui_str)
         # Debug merged ui
         if self._DEBUG:
-        	print self._manager.get_ui()
+          print (self._manager.get_ui())
 
 
     def _remove_ui_items(self):
@@ -169,34 +169,34 @@ class ToggleTextWrapHelper:
     def update_ui(self):
         self._action_group.set_sensitive(self._window.get_active_document() != None)
         if self._DEBUG:
-            print "Plugin", plugin_name, "called for UI update", self._window
+            print ("Plugin", plugin_name, "called for UI update", self._window)
         try:
             # Get initial state from word wrapping in this view (if any)
             _active_view = self._window.get_active_view()
             _current_wrap_mode = _active_view.get_wrap_mode()
             if self._DEBUG:
-                print "Plugin", plugin_name, "current wrap mode", _current_wrap_mode
+                print ("Plugin", plugin_name, "current wrap mode", _current_wrap_mode)
             # Get our action and set state according to current wrap mode
             _current_action = self._action_group.get_action("ToggleTextWrap")
             if _current_wrap_mode == Gtk.WrapMode.NONE:
                 _current_action.set_active(False)
             else:
                 _current_action.set_active(True)
-    	except:
+        except:
             return
 
 
-    def on_toggle_linebreak(self, action, _dummy = None):
+    def on_toggle_linebreak(self, action, _dummy=None):
         if self._DEBUG:
-            print "Plugin", plugin_name, "action in", self._window
+            print ("Plugin", plugin_name, "action in", self._window)
         _active_view = self._window.get_active_view()
         _current_wrap_mode = _active_view.get_wrap_mode()
         if self._DEBUG:
-            print "Plugin", plugin_name, "current wrap mode", _current_wrap_mode
+            print ("Plugin", plugin_name, "current wrap mode", _current_wrap_mode)
         _current_action = self._action_group.get_action("ToggleTextWrap")
         _is_active = _current_action.get_active()
         if self._DEBUG:
-            print "Plugin", plugin_name, "current action state", _is_active
+            print ("Plugin", plugin_name, "current action state", _is_active)
         if _is_active:
             _active_view.set_wrap_mode(Gtk.WrapMode.WORD)
         else:
@@ -205,7 +205,7 @@ class ToggleTextWrapHelper:
 
     def _console(self, vartext):
         if self._DEBUG:
-            print "Plugin", plugin_name, vartext
+            print ("Plugin", plugin_name, vartext)
 
 
 

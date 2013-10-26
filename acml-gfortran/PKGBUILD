@@ -2,13 +2,14 @@
 
 pkgname=acml-gfortran
 pkgver=5.3.1
-pkgrel=1
+pkgrel=3
 pkgdesc="AMD Core Math Library (ACML) for Linux built with GFORTRAN"
 arch=("x86_64")
 url="http://developer.amd.com"
 license=(custom)
 depends=("gcc-libs-multilib" "gcc-fortran" "bash" "tcsh")
 makedepends=("sed")
+options=('staticlibs')
 sha1sums=('ec445af7944b6acdd1d692e5a1bf766395c0041e')
 
 source=("http://developer.amd.com/wordpress/media/download.php?f=YWNtbC01LTMtMS1nZm9ydHJhbi02NGJpdC50Z3o='")

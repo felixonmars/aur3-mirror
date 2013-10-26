@@ -16,7 +16,7 @@ source=()
 md5sums=()
 
 _svnmod=aircrack-ng-cuda
-_svntrunk="http://trac.aircrack-ng.org/svn/branch/aircrack-ng-cuda"
+_svntrunk="http://svn.aircrack-ng.org/branch/aircrack-ng-cuda"
 
 build() {
   cd ${srcdir}

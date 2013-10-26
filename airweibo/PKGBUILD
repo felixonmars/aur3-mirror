@@ -1,7 +1,8 @@
+# Maintainer: shmilee <shmilee.zju@gmail.com>
 # Coutributer: limser <echo bGltc2VyQHFxLmNvbQo=|base64 -d>
 
 pkgname=airweibo
-pkgver=2.3.1
+pkgver=2.4.1
 _fullname="AIRweibo($pkgver).air"
 pkgrel=1
 pkgdesc="A Sina Weibo client based on Adobe AIR."
@@ -18,7 +19,7 @@ source=("http://airweibo-install.stor.sinaapp.com/$_fullname"
 		'airweibo.desktop'
 		'airweibo'
 		'icon.png')
-md5sums=('b7f6f8a1e1f70be75a6929168e5db92b'
+md5sums=('f6e55e9957e23201b336e83615e8cbc9'
          'b396179105ec568ba06421dc6a471df0'
          '8bb804dc6dc46ee45eb710e1955373e4'
          '1976615c279569f20ae51a4865383064')

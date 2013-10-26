@@ -1,0 +1,31 @@
+# Maintainer: Ido Rosen <ido@kernel.org>
+# Contributor: Brett Hoerner <brett@bretthoerner.com>
+# Contributor: Jochen Schalanda <jochen+aur@schalanda.name>
+# Contributor: Mathieu Clabaut <mathieu.clabaut@gmail.com>
+# Contributor: helios <aur@wiresphere.de>\
+# Contributor: George Ornbo <gornbo@gmail.com>
+#
+# NOTE: To request changes to this package, please submit a pull request
+#       to the GitHub repository at https://github.com/ido/packages-archlinux
+#       Otherwise, open a GitHub issue.  Thank you! -Ido
+#
+
+
+pkgname=vagrant-bin
+pkgver=1.3.5
+pkgrel=1
+pkgdesc="Tool for building and distributing virtualized development environments"
+arch=('i686' 'x86_64')
+url="http://vagrantup.com/"
+license=('MIT')
+options=(!strip)
+depends=
+_git_revision='a40522f5fabccb9ddabad03d836e120ff5d14093'
+source=(http://files.vagrantup.com/packages/${_git_revision}/${pkgname//-bin/}_${pkgver}_${CARCH}.rpm)
+[[ "$CARCH" == "x86_64" ]] && sha512sums=('9f6ffb5a7044a5199a911550ea5892bda6f64be1a14ebd74e4e453c999d5d45cf6a24865938b7d33529906ba0fc58e4be9c2974f8b574c2eb3c8226898d9a7f0')
+[[ "$CARCH" == "i686" ]] && sha512sums=('8bc417fa36506b71cb8d5e4f4cc4d2cc91199155b6fe30dfd3b7dbadda0920e690ace5d35aa3f02c9992bf6e76e66c285fe6eac0a05f274daa0fe66c7ddc8b7b')
+ 
+ 
+package() {
+  mv $srcdir/{opt,usr} $pkgdir
+}

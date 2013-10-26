@@ -25,21 +25,29 @@ Options:
   -v        Be verbose.
   -i        Use iconv [from utf16be to utf8] to reply
   -w        reply workaround (try it if script can not decode reply)
+  -z        Do not encode request to 7bit PDU
 __EOU
 
 sub HELP_MESSAGE {print "$USAGE\n"; exit;}
 sub VERSION_MESSAGE {};
-getopts ('r:s:hnvwi');
+getopts ('r:s:hnvwiz');
 HELP_MESSAGE() and exit if (! $ARGV[0]) or defined($opt_h);
-
+my $ussd_req ='';
 print "USSD MSG: $ARGV[0]\n" if $opt_v;
-my $ussd_req = Device::Gsm::Pdu::encode_text7($ARGV[0]);
-$ussd_req =~ s/^..//;
+if (! $opt_z) {
+	$ussd_req = Device::Gsm::Pdu::encode_text7($ARGV[0]);
+	$ussd_req =~ s/^..//;
+}
+else {
+	$ussd_req = ($ARGV[0]);
+}
+
 print "PDU ENCODED: $ussd_req\n" if $opt_v;
 
 my $ussd_reply;
 if (! $opt_n) {
     open (SENDPORT, '+<', $opt_s) or die "Can't open '$opt_s': $!\n";
+    print 'Sending AT+CUSD=1,',$ussd_req,",15\r\n" if $opt_v;
     print SENDPORT 'AT+CUSD=1,',$ussd_req,",15\r\n";
     close SENDPORT;
     open (RCVPORT, $opt_r) or die "Can't open '$opt_r': $!\n";

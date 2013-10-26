@@ -15,7 +15,7 @@ conflicts=('airdrop-ng' 'aircrack-ng-scripts')
 options=(!emptydirs)
 
 _svnmod=airdrop-ng
-_svntrunk="http://trac.aircrack-ng.org/svn/trunk/scripts/airdrop-ng"
+_svntrunk="http://svn.aircrack-ng.org/trunk/scripts/airdrop-ng"
 
 build() {
   cd ${srcdir}
@@ -23,7 +23,7 @@ build() {
   msg "Connecting to SVN server...."
   if [ -d ${_svnmod}/.svn ]; then
     msg "Updating airdrop-ng SVN..."
-    svn up ${_svnmod}}
+    svn up ${_svnmod}
   else
     msg "Checking out airdrop-ng SVN..."
     svn co ${_svntrunk} ${_svnmod}

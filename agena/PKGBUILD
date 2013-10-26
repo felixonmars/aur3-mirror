@@ -1,69 +1,66 @@
-# Contributor: Alexander Rødseth <rodseth@gmail.com>
+# Maintainer: Alexander Rødseth <rodseth@gmail.com>
+
 pkgname=agena
-pkgver=1.4.1
+pkgver=1.5.1
 pkgrel=1
-pkgdesc="A procedural programming language based on Lua"
+pkgdesc='Procedural programming language based on Lua'
 arch=('x86_64' 'i686')
-url="http://agena.sourceforge.net/"
+url='http://agena.sourceforge.net/'
 license=('LGPL')
 depends=('readline')
 optdeps=("gnumeric: for reading /usr/share/doc/$pkgname/$pkgname.xls")
 source=("http://downloads.sourceforge.net/$pkgname/$pkgname-$pkgver-src.tar.gz"
-        "arch.patch")
-md5sums=('b28b1d1d146791d0644300ba01049c4b'
-         'fa431cc8c7171ace90809cd2c1dbfa3d')
+       'arch.patch'
+       'run.sh')
+sha256sums=('SKIP'
+            '1d9a22af9ff167ad28bc7bc30f5b3368391c0123831282195da48542a6c1412d'
+            'b7dc41cf7b79d4b5ba26117de08adaa63d3d417b3119d1ed5b2d0ca12c8e2485')
 
-build() {
-  cd "$srcdir/$pkgname-$pkgver-src"
+prepare() {
+  cd "$pkgname-$pkgver-src"
 
-  msg2 "Patching..."
-  patch -p1 < ../arch.patch
-
-  msg2 "Compiling..."
-  make -C src config
-  make CFLAGS+="-fPIC" -C src linux
-
-  msg2 "Creating wrapperscript..."
-  echo '#!/bin/sh' > run
-  echo 'if [ ! -f $AGENAPATH/library.agn ]; then' >> run
-  echo '  AGENAPATH=/usr/lib/agena agena.elf $*' >> run
-  echo 'else' >> run
-  echo '  agena.elf $*' >> run
-  echo 'fi' >> run
-
-  msg2 "Creating script for /etc/profile.d..."
+  # Script for /etc/profile.d/
   echo "export AGENAPATH=/usr/lib/agena" > $pkgname.sh
 }
 
+build() {
+  cd "$pkgname-$pkgver-src"
+
+  patch -p1 -i "$srcdir/arch.patch"
+  make -C src config
+  make CFLAGS+="-fPIC" -C src linux
+
+}
+
 package() {
-  cd "$srcdir/$pkgname-$pkgver-src"
+  cd "$pkgname-$pkgver-src"
 
-  msg2 "Packaging scripts..."
+  # Scripts
   install -Dm755 $pkgname.sh "$pkgdir/etc/profile.d/$pkgname.sh"
-  install -Dm755 run "$pkgdir/usr/bin/$pkgname"
+  install -Dm755 run.sh "$pkgdir/usr/bin/$pkgname"
 
-  msg2 "Packaging include files..."
+  # Include files
   mkdir -p "$pkgdir/usr/include/"
   cp include/*.h "$pkgdir/usr/include"
 
-  msg2 "Packaging executables..."
-  install -Dm755 src/$pkgname "$pkgdir/usr/bin/$pkgname.elf"
-  install -Dm644 src/lib$pkgname.so "$pkgdir/usr/lib/lib$pkgname.so"
+  # Executables
+  install -Dm755 "src/$pkgname" "$pkgdir/usr/bin/$pkgname.elf"
 
-  msg2 "Packaging library files..."
+  # Libraries
+  install -Dm644 "src/lib$pkgname.so" "$pkgdir/usr/lib/lib$pkgname.so"
   mkdir -p "$pkgdir/usr/lib/$pkgname/"
   cp lib/* "$pkgdir/usr/lib/$pkgname/"
 
-  msg2 "Packaging documentation..."
+  # Documentation
   mkdir -p "$pkgdir/usr/share/doc/$pkgname/"
   cp doc/$pkgname* "$pkgdir/usr/share/doc/$pkgname/"
 
-  msg2 "Packaging icons..."
+  # Icons
   mkdir -p "$pkgdir/usr/share/pixmaps/"
   cp share/*.png "$pkgdir/usr/share/pixmaps/"
   cp share/*.gif "$pkgdir/usr/share/pixmaps/"
 
-  msg2 "Packaging license..."
+  # License
   install -Dm644 src/licence \
     "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

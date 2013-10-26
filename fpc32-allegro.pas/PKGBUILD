@@ -6,6 +6,7 @@ url="http://allegro-pas.sourceforge.net"
 license=("unknown")
 arch=(x86_64)
 depends=(fpc-multilib)
+options=(staticlibs)
 source=("http://downloads.sourceforge.net/allegro-pas/allegro-pas.$pkgver.zip")
 md5sums=('e8c138a5f113784e44d58ded643d4d59')
 _fpcvers=`fpc -iV`

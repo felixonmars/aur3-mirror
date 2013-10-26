@@ -1,7 +1,7 @@
 # Contributor: Nicolas Bigaouette nbigaouette a_t gmail c o m
 
 pkgname=acpi-eeepc-generic
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="ACPI scripts for many EeePC netbook computers"
 url="https://github.com/nbigaouette/acpi-eeepc-generic"
@@ -34,6 +34,7 @@ source=(
     "acpi-eeepc-1005PEB-events.conf"
     "acpi-eeepc-1005P-events.conf"
     "acpi-eeepc-1005PX-events.conf"
+    "acpi-eeepc-1005PXD-events.conf"
     "acpi-eeepc-1008HA-events.conf"
     "acpi-eeepc-1015B-events.conf"
     "acpi-eeepc-1015P-events.conf"
@@ -109,6 +110,7 @@ md5sums=('cf253e386d7e743a3d25ec4165051521'
          '5ec8097c18e623d6ba2bff1f5a814885'
          'be56ea98b9aa016098bdab9cbb110334'
          '5ec8097c18e623d6ba2bff1f5a814885'
+         '03c04440f12e3700592664320b9138a6'
          '03c04440f12e3700592664320b9138a6'
          '03c04440f12e3700592664320b9138a6'
          '03c04440f12e3700592664320b9138a6'

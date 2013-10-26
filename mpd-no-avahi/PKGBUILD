@@ -1,0 +1,66 @@
+# $Id: PKGBUILD 196535 2013-10-14 22:08:24Z bisson $
+# Maintainer: Gaetan Bisson <bisson@archlinux.org>
+# Contributor: Angel Velasquez <angvp@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+# Contributor: Damir Perisa <damir.perisa@bluewin.ch>
+# Contributor: Ben <ben@benmazer.net>
+
+pkgname=mpd-no-avahi
+_pkgname=mpd
+pkgver=0.17.6
+pkgrel=1
+pkgdesc='Flexible, powerful, server-side application for playing music, without Avahi support'
+url='http://www.musicpd.org/'
+license=('GPL')
+arch=('i686' 'x86_64')
+depends=('libao' 'ffmpeg' 'libmodplug' 'audiofile' 'libshout' 'libmad' 'curl' 'faad2'
+         'sqlite' 'jack' 'libmms' 'wavpack' 'libid3tag' 'yajl')
+conflicts=('mpd')
+provides=('mpd')
+makedepends=('doxygen')
+source=("http://www.musicpd.org/download/${_pkgname}/${pkgver%.*}/${_pkgname}-${pkgver}.tar.xz"
+        'tmpfiles.d')
+sha1sums=('c8cea5cbf87ece252d15457d2249090e73a8d11f'
+          'f4d5922abb69abb739542d8e93f4dfd748acdad7')
+
+backup=('etc/mpd.conf')
+install=install
+
+prepare() {
+	cd "${srcdir}/${_pkgname}-${pkgver}"
+	sed 's:cdio/paranoia.h:cdio/paranoia/paranoia.h:g' -i src/input/cdio_paranoia_input_plugin.c
+	sed 's:AVCODEC_MAX_AUDIO_FRAME_SIZE:192000:g' -i src/decoder/ffmpeg_decoder_plugin.c
+}
+
+build() {
+	cd "${srcdir}/${_pkgname}-${pkgver}"
+	./configure \
+		--prefix=/usr \
+		--sysconfdir=/etc \
+		--enable-jack \
+		--enable-lastfm \
+		--enable-soundcloud \
+		--enable-pipe-output \
+		--enable-pulse \
+		--disable-sidplay \
+		--with-zeroconf=no \
+		--with-systemdsystemunitdir=/usr/lib/systemd/system
+	make
+}
+
+package() {
+	cd "${srcdir}/${_pkgname}-${pkgver}"
+	make DESTDIR="${pkgdir}" install
+	install -d "${pkgdir}"/usr/lib/systemd/user
+	install -d -g 45 -o 45 "${pkgdir}"/var/lib/mpd/playlists
+	install -Dm644 doc/mpdconf.example "${pkgdir}"/etc/mpd.conf
+	install -Dm644 ../tmpfiles.d "${pkgdir}"/usr/lib/tmpfiles.d/mpd.conf
+	ln -s ../system/mpd.service "${pkgdir}"/usr/lib/systemd/user/mpd.service
+	sed \
+		-e '/^#playlist_directory/c playlist_directory "/var/lib/mpd/playlists"' \
+		-e '/^#db_file/c db_file "/var/lib/mpd/mpd.db"' \
+		-e '/^#pid_file/c pid_file "/run/mpd/mpd.pid"' \
+		-e '/^#state_file/c state_file "/var/lib/mpd/mpdstate"' \
+		-e '/^#user/c user "mpd"' \
+		-i "${pkgdir}"/etc/mpd.conf
+}

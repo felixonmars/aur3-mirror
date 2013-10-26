@@ -1,17 +1,18 @@
 DEBUG=0
+GLIDE2GL=1
+
+UNAME=$(shell uname -a)
 
 ifeq ($(platform),)
 platform = unix
-ifeq ($(shell uname -a),)
+ifeq ($(UNAME),)
    platform = win
-else ifneq ($(findstring MINGW,$(shell uname -a)),)
+else ifneq ($(findstring MINGW,$(UNAME)),)
    platform = win
-else ifneq ($(findstring Darwin,$(shell uname -a)),)
+else ifneq ($(findstring Darwin,$(UNAME)),)
    platform = osx
-else ifneq ($(findstring win,$(shell uname -a)),)
+else ifneq ($(findstring win,$(UNAME)),)
    platform = win
-else ifneq ($(findstring armv6l,$(shell uname -m)),)
-   platform = rpi
 endif
 endif
 
@@ -20,7 +21,7 @@ CC_AS ?= $(CC)
 
 ifneq (,$(findstring unix,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.so
-   LDFLAGS += -shared -Wl,--version-script=libretro/link.T
+   LDFLAGS += -shared -Wl,--version-script=libretro/link.T -Wl,--no-undefined
    
    fpic = -fPIC
 ifneq (,$(findstring gles,$(platform)))
@@ -30,17 +31,15 @@ else
    GL_LIB := -lGL
 endif
 else ifneq (,$(findstring rpi,$(platform)))
-   TARGET := $(TARGET_NAME)_libretro.so
+   TARGET := $(TARGET_NAME)libretro.so
    LDFLAGS += -shared -Wl,--version-script=libretro/link.T
-
    fpic = -fPIC
    GLES = 1
-#   GL_LIB := -lGLESv2
-   #took lGLESv2 out because of some linker errors in archlinux arm
-   CPPFLAGS = -DNOSSE -DNO_ASM -DRPI -I/opt/vc/include
-   #the RPI useflag will maybe later on be used for RPI code enhancements
+#archlinux for arm linking problem fix
+#   GLLIB := -lGLESv2
+   CPPFLAGS = -DNOSSE -I/opt/vc/include -DARMv5_ONLY -DNO_ASM
    OBJECTS += libretro/libco/armeabi_asm.o
-
+   PLATFORM_EXT := unix
    PLATFORM_EXT := unix
 else ifneq (,$(findstring osx,$(platform)))
    TARGET := $(TARGET_NAME)_libretro.dylib
@@ -50,6 +49,12 @@ else ifneq (,$(findstring osx,$(platform)))
    CPPFLAGS += -D__MACOSX__
    GL_LIB := -framework OpenGL
    PLATFORM_EXT := unix
+ifeq ($(firstword $(filter x86_64,$(UNAME))),x86_64)
+	WITH_DYNAREC=x86
+endif
+ifeq ($(firstword $(filter amd64,$(UNAME))),amd64)
+	WITH_DYNAREC=x86_64
+endif
 else ifneq (,$(findstring ios,$(platform)))
    TARGET := $(TARGET_NAME)_libretro_ios.dylib
    CPPFLAGS += -DIOS -marm
@@ -74,8 +79,15 @@ else ifneq (,$(findstring android,$(platform)))
 
    CC = arm-linux-androideabi-gcc
    CXX = arm-linux-androideabi-g++
+	WITH_DYNAREC=arm
    GLES = 1
-   CPPFLAGS += -DNO_ASM -DNOSSE
+   CPPFLAGS += -DNO_ASM -DNOSSE -DANDROID
+   HAVE_NEON = 1
+	CPUFLAGS += -marm -mcpu=cortex-a8 -mfpu=neon -mfloat-abi=softfp -D__arm__
+   CPPFLAGS += $(CPUFLAGS)
+	CFLAGS += $(CPUFLAGS) -DANDROID
+	CPPFLAGS += -DARM_ASM -D__NEON_OPT
+	CFILES += gles2n64/cpufeatures.c
    
    fpic = -fPIC
    PLATFORM_EXT := unix
@@ -86,6 +98,7 @@ else ifneq (,$(findstring armv,$(platform)))
    fpic := -fPIC
    SHARED := -shared -Wl,--version-script=libretro/link.T -Wl,--no-undefined
    CPPFLAGS += -I.
+	WITH_DYNAREC=arm
    LIBS := -lz
 ifneq (,$(findstring gles,$(platform)))
    GLES := 1
@@ -118,13 +131,17 @@ else ifneq (,$(findstring win,$(platform)))
    CXX = g++
 endif
 
-# libretro
-CFILES += $(wildcard libretro/*.c) libretro/libco/libco.c
+# libco
+CFILES += libretro/libco/libco.c
 
-# RSP Plugin
+# RSP Plugins
 RSPDIR = mupen64plus-rsp-hle
 CFILES += $(wildcard $(RSPDIR)/src/*.c)
 CXXFILES += $(wildcard $(RSPDIR)/src/*.cpp)
+
+CXB4DIR = mupen64plus-rsp-cxd4
+CFILES += $(wildcard $(CXB4DIR)/*.c)
+CXXFILES += $(wildcard $(CXB4DIR)/*.cpp)
 
 # Core
 COREDIR = mupen64plus-core
@@ -133,6 +150,8 @@ CFILES += \
     $(COREDIR)/src/api/common.c \
     $(COREDIR)/src/api/config.c \
     $(COREDIR)/src/api/frontend.c \
+    $(COREDIR)/src/main/cheat.c \
+    $(COREDIR)/src/main/eventloop.c \
     $(COREDIR)/src/main/main.c \
     $(COREDIR)/src/main/md5.c \
     $(COREDIR)/src/main/rom.c \
@@ -179,48 +198,43 @@ else
 endif
 
 ### VIDEO PLUGINS ###
-
-# Rice
-VIDEODIR_RICE=gles2rice/src
-CPPFLAGS += -DSDL_VIDEO_OPENGL_ES2=1
-#LDFLAGS += -lpng
-
-ricevideosrc = $(wildcard $(VIDEODIR_RICE)/*.cpp)
-ricevideoblack = $(VIDEODIR_RICE)/CNvTNTCombiner.cpp $(VIDEODIR_RICE)/OGLCombinerNV.cpp $(VIDEODIR_RICE)/OGLCombinerTNT2.cpp \
-             $(VIDEODIR_RICE)/OGLExtensions.cpp $(VIDEODIR_RICE)/OGLFragmentShaders.cpp 
-CXXFILES += $(filter-out $(ricevideoblack), $(ricevideosrc))
-
-CFILES += \
-   $(VIDEODIR_RICE)/osal_files_$(PLATFORM_EXT).c \
-   $(VIDEODIR_RICE)/liblinux/BMGImage.c \
-   $(VIDEODIR_RICE)/liblinux/BMGUtils.c \
-   $(VIDEODIR_RICE)/liblinux/bmp.c 
-   #$(VIDEODIR_RICE)/liblinux/pngrw.c
-
 # gln64
 VIDEODIR_GLN64 = gles2n64/src
 
 # TODO: Use neon versions when possible
-gln64videosrc = $(wildcard $(VIDEODIR_GLN64)/*.cpp)
-gln64videoblack = $(VIDEODIR_GLN64)/3DMathNeon.cpp $(VIDEODIR_GLN64)/gSPNeon.cpp
-CXXFILES += $(filter-out $(gln64videoblack), $(gln64videosrc))
+
+libretrosrc += $(wildcard libretro/*.c)
+
+ifeq ($(HAVE_NEON), 1)
+CFILES += $(wildcard $(VIDEODIR_GLN64)/*.c)
+CFLAGS += -DHAVE_NEON -DSINC_LOWER_QUALITY
+CPPFLAGS += -DHAVE_NEON -DSINC_LOWER_QUALITY
+OBJECTS += libretro/utils_neon.o libretro/sinc_neon.o
+else
+gln64videoblack = $(VIDEODIR_GLN64)/3DMathNeon.c $(VIDEODIR_GLN64)/gSPNeon.c
+CFILES += $(filter-out $(gln64videoblack), $(wildcard $(VIDEODIR_GLN64)/*.c))
+endif
+
+CFILES += $(libretrosrc)
 
 # Glide64
+ifeq ($(GLIDE2GL), 1)
+VIDEODIR_GLIDE = glide2gl/src
+else
 VIDEODIR_GLIDE = gles2glide64/src
+endif
 CPPFLAGS += -I$(VIDEODIR_GLIDE)/Glitch64/inc
+CFILES += $(wildcard $(VIDEODIR_GLIDE)/Glide64/*.c)
 CXXFILES += $(wildcard $(VIDEODIR_GLIDE)/Glide64/*.cpp)
+CFILES += $(wildcard $(VIDEODIR_GLIDE)/Glitch64/*.c)
 CXXFILES += $(wildcard $(VIDEODIR_GLIDE)/Glitch64/*.cpp)
 
 ### Finalize ###
 OBJECTS    += $(CXXFILES:.cpp=.o) $(CFILES:.c=.o)
-CPPFLAGS   += -D__LIBRETRO__ -I$(COREDIR)/src -I$(COREDIR)/src/api -Ilibretro/libco -Ilibretro
+CPPFLAGS   += -D__LIBRETRO__ -DM64P_PLUGIN_API -I$(COREDIR)/src -I$(COREDIR)/src/api -Ilibretro/libco -Ilibretro
 CPPFLAGS   += -DM64P_CORE_PROTOTYPES -D_ENDUSER_RELEASE $(fpic)
 CFLAGS     += -std=gnu99
 LDFLAGS    += -lm $(fpic) -lz
-
-ifneq (,$(findstring rpi,$(platform)))
-OBJECTS    +=
-endif
 
 ifeq ($(GLES), 1)
 CPPFLAGS += -DGLES
@@ -230,7 +244,7 @@ ifeq ($(DEBUG), 1)
    CPPFLAGS += -O0 -g
    CPPFLAGS += -DOPENGL_DEBUG
 else
-   CPPFLAGS += -O3
+   CPPFLAGS += -O3 -DNDEBUG
 endif
 
 all: $(TARGET)
@@ -240,6 +254,9 @@ $(COREDIR)/src/r4300/new_dynarec/linkage_arm.o: $(COREDIR)/src/r4300/new_dynarec
 
 $(COREDIR)/src/r4300/new_dynarec/new_dynarec.o: $(COREDIR)/src/r4300/new_dynarec/new_dynarec.c
 	$(CC) -c -o $@ $< $(CPPFLAGS) $(CFLAGS) -O0
+
+%.o: %.S
+	$(CC_AS) $(CFLAGS) -c $^ -o $@
 
 $(TARGET): $(OBJECTS)
 	$(CXX) -o $@ $(OBJECTS) $(LDFLAGS) $(GL_LIB)
