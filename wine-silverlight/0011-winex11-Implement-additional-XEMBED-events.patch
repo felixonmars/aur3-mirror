@@ -1,15 +1,15 @@
-From f3150903343d7e39e841ef51f57272333d0faaa4 Mon Sep 17 00:00:00 2001
+From d4a65db7d42bcae783cf5357e4a38a3c27820047 Mon Sep 17 00:00:00 2001
 From: Sebastian Lackner <sebastian@fds-team.de>
-Date: Tue, 24 Sep 2013 09:33:50 +0200
-Subject: winex11: Splitted functions X11DRV_FocusOut and
- X11DRV_ReparentNotify
+Date: Sat, 26 Oct 2013 18:34:32 +0200
+Subject: winex11: Implement additional XEMBED events
 
 ---
- dlls/winex11.drv/event.c |   99 +++++++++++++++++++++++++++-------------------
- 1 file changed, 58 insertions(+), 41 deletions(-)
+ dlls/winex11.drv/event.c  |  145 ++++++++++++++++++++++++++++++---------------
+ dlls/winex11.drv/window.c |    2 +-
+ 2 files changed, 98 insertions(+), 49 deletions(-)
 
 diff --git a/dlls/winex11.drv/event.c b/dlls/winex11.drv/event.c
-index 5e5b19e..4dcdd68 100644
+index 4218949..64188bc 100644
 --- a/dlls/winex11.drv/event.c
 +++ b/dlls/winex11.drv/event.c
 @@ -748,34 +748,22 @@ static void X11DRV_FocusIn( HWND hwnd, XEvent *xev )
@@ -91,7 +91,7 @@ index 5e5b19e..4dcdd68 100644
  }
  
  
-@@ -935,6 +943,37 @@ static BOOL is_net_wm_state_maximized( Display *display, struct x11drv_win_data
+@@ -940,6 +948,37 @@ static BOOL is_net_wm_state_maximized( Display *display, struct x11drv_win_data
      return (ret == 2);
  }
  
@@ -129,7 +129,7 @@ index 5e5b19e..4dcdd68 100644
  
  /***********************************************************************
   *           X11DRV_ReparentNotify
-@@ -943,8 +982,6 @@ static void X11DRV_ReparentNotify( HWND hwnd, XEvent *xev )
+@@ -948,8 +987,6 @@ static void X11DRV_ReparentNotify( HWND hwnd, XEvent *xev )
  {
      XReparentEvent *event = &xev->xreparent;
      struct x11drv_win_data *data;
@@ -138,7 +138,7 @@ index 5e5b19e..4dcdd68 100644
  
      if (!(data = get_win_data( hwnd ))) return;
  
-@@ -970,27 +1007,7 @@ static void X11DRV_ReparentNotify( HWND hwnd, XEvent *xev )
+@@ -975,27 +1012,7 @@ static void X11DRV_ReparentNotify( HWND hwnd, XEvent *xev )
      TRACE( "%p/%lx reparented to %lx\n", hwnd, data->whole_window, event->parent );
      release_win_data( data );
  
@@ -164,6 +164,81 @@ index 5e5b19e..4dcdd68 100644
 -    /* make old parent destroy itself if it no longer has children */
 -    if (old_parent != GetDesktopWindow()) PostMessageW( old_parent, WM_CLOSE, 0, 0 );
 +    reparent_notify( event->display, hwnd, event->parent, event->x, event->y );
+ }
+ 
+ 
+@@ -1594,22 +1611,54 @@ static void EVENT_DropURLs( HWND hWnd, XClientMessageEvent *event )
+  */
+ static void handle_xembed_protocol( HWND hwnd, XClientMessageEvent *event )
+ {
+-    struct x11drv_win_data *data = get_win_data( hwnd );
+-
+-    if (!data) return;
+-
+     switch (event->data.l[1])
+     {
+     case XEMBED_EMBEDDED_NOTIFY:
+-        TRACE( "win %p/%lx XEMBED_EMBEDDED_NOTIFY owner %lx\n", hwnd, event->window, event->data.l[3] );
+-        data->embedder = event->data.l[3];
++        {
++            struct x11drv_win_data *data = get_win_data( hwnd );
++            if (!data) break;
++
++            TRACE( "win %p/%lx XEMBED_EMBEDDED_NOTIFY owner %lx\n", hwnd, event->window, event->data.l[3] );
++            data->embedder = event->data.l[3];
++
++            /* window has been marked as embedded before (e.g. systray) */
++            if (data->embedded)
++            {
++                release_win_data( data );
++                break;
++            }
++
++            make_window_embedded( data );
++            release_win_data( data );
++            reparent_notify( event->display, hwnd, event->data.l[3], 0, 0 );
++        }
++        break;
++
++    case XEMBED_WINDOW_DEACTIVATE:
++        TRACE( "win %p/%lx XEMBED_WINDOW_DEACTIVATE message\n", hwnd, event->window );
++        focus_out( event->display, GetAncestor( hwnd, GA_ROOT ) );
++        break;
++
++    case XEMBED_FOCUS_OUT:
++        TRACE( "win %p/%lx XEMBED_FOCUS_OUT message\n", hwnd, event->window );
++        focus_out( event->display, GetAncestor( hwnd, GA_ROOT ) );
+         break;
++
++    case XEMBED_MODALITY_ON:
++        TRACE( "win %p/%lx XEMBED_MODALITY_ON message\n", hwnd, event->window );
++        EnableWindow( hwnd, FALSE );
++        break;
++
++    case XEMBED_MODALITY_OFF:
++        TRACE( "win %p/%lx XEMBED_MODALITY_OFF message\n", hwnd, event->window );
++        EnableWindow( hwnd, TRUE );
++        break;
++
+     default:
+         TRACE( "win %p/%lx XEMBED message %lu(%lu)\n",
+                hwnd, event->window, event->data.l[1], event->data.l[2] );
+         break;
+     }
+-    release_win_data( data );
+ }
+ 
+ 
+diff --git a/dlls/winex11.drv/window.c b/dlls/winex11.drv/window.c
+index a76e80d..e78f226 100644
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1137,7 +1137,7 @@ void make_window_embedded( struct x11drv_win_data *data )
+     data->embedded = TRUE;
+     data->managed = TRUE;
+     sync_window_style( data );
+-    set_xembed_flags( data, data->mapped ? XEMBED_MAPPED : 0 );
++    set_xembed_flags( data, (data->mapped || data->embedder) ? XEMBED_MAPPED : 0 );
  }
  
  

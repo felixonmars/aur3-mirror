@@ -1,18 +1,42 @@
-2013-10-18 Firef0x < Firefgx { at } gmail (dot) com >
+## 2013-10-27 Firef0x < Firefgx { at } gmail (dot) com >
 
-    ## 1845.*-2 :
-	* Add Dependency 'help2man', for generating manual in /usr/share/man
-	* Remove Dependency 'ncurses', since 'make'(in group base-devel) depends
+------
+
+### 1845.*-3 :
+
+	* Add 'install-info', for installing info file into /usr/share/info/dir
+	* Add 'burg-mkconfig', for generating burg.cfg.example into /boot/burg
+	* Change dependency 'sdl' to optional dependency as what package 'grub-git' does.
+
+	Following is Simplified Chinese Translation :
+
+	* 添加 install-info 命令，用来安装 info 文档到 /usr/share/info/dir 下。
+	* 添加 burg-mkconfig 命令，用来生成 burg.cfg.example 到 /boot/burg/ 目录下。
+	* 依据包 grub-git 的做法将sdl从依赖改为可选依赖。
+
+------
+
+## 2013-10-24 Firef0x < Firefgx { at } gmail (dot) com >
+
+### 1845.*-2 :
+
+	* Add dependency 'help2man', for generating manual in /usr/share/man
+	* Remove dependency 'ncurses', since 'make'(in group base-devel) depends
 	  on it and 'make' is installed by default.
 
 	Following is Simplified Chinese Translation :
 
-	* 添加依赖包help2man，用来生成man文档，放在/usr/share/man下
-	* 去掉依赖包ncurses，因为base-devel的包make依赖此包，默认已经安装
+	* 添加依赖包 help2man，用来生成 man 文档，放在 /usr/share/man 下。
+	* 去掉依赖包 ncurses，因为 base-devel 的包 make 依赖此包，默认已经安装。
 
-	## 1845.*-1 :
-	Migrate to GitHub
-	(Since I don't know how to work with bazaar and I don't want to install the big bazaar package)
+------
+
+## 2013-10-18 Firef0x < Firefgx { at } gmail (dot) com >
+
+### 1845.*-1 :
+
+	Migrate to GitHub (https://github.com/Firef0x/burg)
+	(Since I don't know how to work with bazaar and I don't want to install the big bzr package)
 	Fix :
 	* Fix GCC 4.6 compilation error ：
 		https://bugs.launchpad.net/burg/+bug/775460
@@ -30,22 +54,24 @@
 
 	Following is Simplified Chinese Translation :
 
-    迁移代码仓库到GitHub（章鱼猫,www.github.com)
-	(因为我完全不会搞Bazzar并且不想装bazaar这个包)
+    迁移代码仓库到GitHub（章鱼猫， https://github.com/Firef0x/burg)
+	(因为我完全不会搞Bazzar并且不想装bzr这个包)
 	修复：
 	* 修复 GCC 4.6 编译错误 ：
 		https://bugs.launchpad.net/burg/+bug/775460
-	* 修复 文件系统挂载为只读导致fsck检查两次的警告  ：
+	* 修复 文件系统挂载为只读导致fsck检查两次的警告 ：
 		https://bugs.archlinux.org/task/36275
-	* 修复操作系统命名为Arch Linux : (Arch官方让GNU情何以堪-.-b)
+	* 修复操作系统命名为 Arch Linux : (Arch官方让GNU情何以堪-.-b)
 		https://bugs.archlinux.org/task/33393
-	* 指定init为systemd，修复启动时找不到/sbin/init导致启动失败
-	* 修复autogen.sh调用的Python版本问题
-	* 改变sbin目录为/usr/bin
-	* 修复unifont.bdf的路径为/usr/share/fonts/misc
-	* 隐藏烦人的"Grub loading."提示
+	* 指定 init 为 systemd，修复启动时找不到 /sbin/init 导致启动失败。
+	* 修复autogen.sh调用的 Python 版本问题。
+	* 改变sbin目录为 /usr/bin。
+	* 修复 unifont.bdf 的路径为 /usr/share/fonts/misc。
+	* 隐藏烦人的"Grub loading."提示 ：
 		https://bugs.launchpad.net/burg/+bug/692706
-	* 引入简体中文翻译并且稍微润色(欢迎各位中国好翻译帮忙完善)
+	* 引入简体中文翻译并且稍微润色(欢迎各位中国好翻译帮忙完善)。
+
+------
 
 2011-09-24 Keshav P R <(skodabenz) (aatt) (rocketmail) (ddoott) (ccoomm)>
 
