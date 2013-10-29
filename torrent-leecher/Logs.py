@@ -15,4 +15,5 @@ class Logs:
 		#print("["+str(strftime("%H:%M:%S", gmtime()))+"] "+str(message))
 		logfile = open("/var/log/torrent-leecher.log", "a") 
 		logfile.write("["+str(strftime("%H:%M:%S", localtime()))+"] "+str(message)+"\r\n")
+		print("["+str(strftime("%H:%M:%S", localtime()))+"] "+str(message))
 		logfile.close()

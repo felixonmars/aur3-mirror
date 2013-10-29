@@ -65,6 +65,8 @@ def usage
     -h, --help       This help.
     -p, --prepend    Do not change anything.
     -y, --yes        Non-interactive mode. Assume yes on questions.
+    -x, --xattr      Sets the PaX flags through setfattr, underlying
+                     filesystems need xattr support.
 
   FILTERS
 
@@ -121,6 +123,7 @@ options = GetoptLong.new(
   ['--config',  '-c', GetoptLong::REQUIRED_ARGUMENT],
   ['--help',    '-h', GetoptLong::NO_ARGUMENT],
   ['--prepend', '-p', GetoptLong::NO_ARGUMENT],
+  ['--xattr',   '-x', GetoptLong::NO_ARGUMENT],
   ['--yes',     '-y', GetoptLong::NO_ARGUMENT],
 )
 
@@ -128,6 +131,7 @@ options = GetoptLong.new(
 new_configs = []
 prepend = false
 yes = false
+xattr = false
 
 # Set option variables.
 begin
@@ -139,6 +143,8 @@ begin
         usage
       when '--prepend'
         prepend = true
+      when '--xattr'
+        xattr = true
       when '--yes'
         yes = true
     end
@@ -245,13 +251,26 @@ each_entry config, filters do |flags, entry, pattern, path|
       end
     end
 
+    if xattr
+      # setfattr seems to be picky about the order of the flags,
+      # rearrange it beforehand
+      xflags = flags[/[Pp]/] + flags[/[Ee]/] + flags[/[Mm]/] +
+               flags[/[Rr]/] + flags[/[Ss]/]
+      print xflags, ' ', path, "\n"
+    else
+      print flags, ' ', path, "\n"
+    end
+
     # Set the flags and notify the user.
     unless prepend
-      header = 'c'
-      header = 'C' if e['header'] == 'create'
-      `paxctl -#{header}#{flags} "#{path}"`
+      if xattr
+        `setfattr -n user.pax.flags -v #{xflags} "#{path}"`
+      else
+        header = 'c'
+        header = 'C' if e['header'] == 'create'
+        `paxctl -#{header}#{flags} "#{path}"`
+      end
     end
-    print flags, ' ', path, "\n"
 
     # Start the complex entries service again, if it is neccessary.
     system start unless prepend if start_again

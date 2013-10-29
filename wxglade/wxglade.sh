@@ -1,2 +1,2 @@
 #!/bin/sh
-python2 /usr/share/wxGlade/wxglade.py @
+python2 /usr/share/wxGlade/wxglade.py "$@"

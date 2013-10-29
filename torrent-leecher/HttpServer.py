@@ -5,6 +5,7 @@
 ###################################################################################
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from sys import exc_info
+from pprint import pprint
 
 #Remove unnecessary messages from http.server
 ###################################################################################
@@ -59,8 +60,7 @@ class Handler(BaseHTTPRequestHandler):
 					self.server.Parent.Logs.log("ERROR: "+str(output["status"])+" "+str(output["reason"]))
 				try:
 					self.send_response(output["status"])
-					for header in output["headers"]:
-						self.send_header(header[0], header[1])
+					self.send_header("Content-type", "text/plain")
 					self.end_headers()
 					if output["data"]:
 						self.wfile.write(output["data"])

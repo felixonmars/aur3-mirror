@@ -25,5 +25,5 @@ package() {
   cd "${srcdir}/allegro-pas.${pkgver%.alpha*}/lib"
   find . -name '*.o' -o -name '*.ppu' -o -name '*.rst' -o -name '*.a'|
     xargs -rtl1 -I {} install -Dm644 {} "$pkgdir/usr/lib/fpc/$_fpcver/units/$_unittgt/allegro.pas/"{}
-  find $pkgdir -name '*.o' -o -name '*.a' | xargs -rtl1 i686-w64-mingw32-strip -g
+  find "$pkgdir" -name '*.o' -o -name '*.a' | xargs -rtl1 i686-w64-mingw32-strip -g
 }
