@@ -1,0 +1,99 @@
+# Maintainer: Guillaume Maudoux <layus DOT on @AT@ gmail DOT com>
+
+pkgname=mozart2-git
+pkgver=v2.0.0.alpha.0.3792.g576ab5a
+pkgrel=1
+pkgdesc="The Mozart Programming System version 2"
+arch=('i686' 'x86_64')
+url="https://github.com/mozart/mozart2"
+license=('BSD')
+depends=('boost-libs>=1.49.0' 'tk>=8.5')
+optdepends=('emacs: Interactive programming interface (recommended)')
+makedepends=('java-runtime-headless>=6' 'gcc>=4.7.1' 'boost>=1.49.0' 'cmake>=2.8.6' 'gtest' 'sbt' 'clang>=3.3' 'llvm=3.3')
+provides=('mozart')
+conflicts=('mozart' 'mozart-git' 'mozart2')
+source=( 
+        'git+http://github.com/mozart/mozart2.git'
+        'git+http://github.com/mozart/mozart2-stdlib.git'
+       )
+noextract=()
+md5sums=(SKIP SKIP)
+
+pkgver() {
+  cd mozart2
+  git describe --always | sed 's|-|.|g'
+}
+
+_patch(){
+
+    cd "$srcdir/mozart2"
+
+    # We use the packaged gtest, which contains only shared objects.
+    # Make Mozart use dynamic libgtest.
+    sed -i'' \
+        -e '/add_library/s/STATIC/SHARED/' \
+        -e '/libgtest/s/\.a/.so/' \
+        $srcdir/mozart2/vm/vm/test/CMakeLists.txt
+
+    # Add required libraries to executable.
+    # TODO : Explore clang build process, I have no idea why this may be needed.
+    #        Normally ld should be able to identify required LLVM/Clang libs by itself.
+    libs="LLVM-3.3 clang clangTooling clangFrontendTool clangFrontend \
+          clangDriver clangSerialization clangCodeGen clangParse clangSema \
+          clangStaticAnalyzerFrontend clangStaticAnalyzerCheckers \
+          clangStaticAnalyzerCore clangAnalysis clangARCMigrate clangEdit \
+          clangAST clangLex clangBasic"
+    sed -i'' \
+        -e "s/(generator \"\${CLANG_LIBRARY}\"/\\0 $libs/" \
+        $srcdir/mozart2/vm/generator/main/CMakeLists.txt 
+
+    # Set SBT to packaged command.
+    # We use the option '-no-share' from the sbt package.
+    # This avoids a bug when running sbt in fakeroot (trying to access /root/.{sbt,ivy2} fails)
+    # This is only available because of the wrapper provided in the ArchLinux 'sbt' package.
+    # It also avoids mingling with user ~/.sbt/*
+    # TODO : remove/bypass/configure sbt to allow offline compilation
+    sed -i'' '/set(SBT/{N; s/set(\s*SBT.*)/set(SBT sbt -offline -no-share -batch)/}' \
+        $srcdir/mozart2/bootcompiler/CMakeLists.txt
+
+    # Remove hard-coded palette settings in QTk (Avoids bug in GUI's on Linux).
+    sed -i'' '/tk_setPalette/s/^/%/' \
+        $srcdir/mozart2/stdlib/wp/qtk/QTkBare.oz
+}
+
+prepare() {
+	cd "$srcdir/mozart2"
+    git submodule init
+    git config submodule.stdlib.url "$srcdir/mozart2-stdlib"
+    git submodule update
+
+    # Ultimately this should not be needed.
+    _patch
+}
+
+build() {
+    cd "$srcdir/mozart2"
+    cmake \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr/ \
+          -DMOZART_BOOST_USE_STATIC_LIBS=OFF \
+          -DGTEST_BUILD_DIR=/usr/lib/ \
+          -DGTEST_SRC_DIR=/usr/include/gtest/ \
+          -DLLVM_BUILD_DIR=/usr/ \
+          -DLLVM_SRC_DIR=/usr/ \
+
+    make mozartvm
+    #make VERBOSE=1 mozartvm 
+}
+
+#check() {
+#    TODO
+#}
+
+package() {
+	cd "$srcdir/mozart2"
+	make DESTDIR="$pkgdir/" install
+
+    install -D -m644 LICENSE.txt "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
+

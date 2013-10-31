@@ -1,9 +1,10 @@
+# Maintainer: Pengyu CHEN <cpy.prefers.you[at]gmail.com>
 # Contributor: Lee.MaRS <leemars@gmail.com>
 # Contributor: monson <holymonson@gmail.com>
 
 pkgname=acroread9-fonts
 pkgver=9.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Chinese Simplified, Chinese Traditional, Japanese, Korean and Extended Language font packs for Adobe Acrobat Reader 9"
 url="http://www.adobe.com/support/downloads/product.jsp?platform=unix&product=10"
 license=('custom')
@@ -21,7 +22,7 @@ md5sums=('8abe3f7fb77918a8376b6793b841eaab'
          '76a3dd2511d82c9dc1556bb0f0eae6c1'
          'a2de87858345cf3b2199d4a2fe424b65')
 
-_prefix='/usr/lib/acroread/'
+_prefix='/opt/'
 
 build() {
     cd "$srcdir"
@@ -31,5 +32,5 @@ build() {
 
 package() {
     mkdir -p "$pkgdir/$_prefix"    
-    mv "$srcdir"/Adobe/Reader9/Resource "$pkgdir/$_prefix"/    
+    mv "$srcdir"/Adobe "$pkgdir/$_prefix"/    
 }
