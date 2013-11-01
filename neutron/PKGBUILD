@@ -29,16 +29,17 @@ true && pkgname=('python2-neutron'
                  'neutron-plugin-vpn-agent'
                  'neutron-server')
 
-pkgver=2013.2.rc3
+pkgver=2013.2
 pkgrel=1
 pkgdesc="A virtual network service for Openstack"
+epoch=$(date +%Y%m%d)
 arch=(any)
 url="https://launchpad.net/neutron"
 license=('Apache')
 depends=('python2' 'python2-setuptools')
 makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslo-sphinx')
 install=neutron.install
-source=("$url/havana/havana-rc3/+download/$pkgbase-$pkgver.tar.gz"
+source=("$url/havana/2013.2/+download/$pkgbase-$pkgver.tar.gz"
         "neutron-dhcp-agent.service"
         "neutron-l3-agent.service"
         "neutron-lbaas-agent.service"
@@ -53,7 +54,7 @@ source=("$url/havana/havana-rc3/+download/$pkgbase-$pkgver.tar.gz"
         "neutron-server-default"
         "neutron-server.service"
         "neutron_sudoers")
-md5sums=('c184fc854765907b5ddaf3a668974b75'
+md5sums=('dcdf31a94dc2161f716f587930e34be3'
          'c59c436057efbb2317487a0822aa97e7'
          'ca5d870e84ca2cce40bab18bf770870f'
          'f080ddbe9b270c1ffd241db9723bc565'

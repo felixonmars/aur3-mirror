@@ -52,10 +52,10 @@ _remove_static_objects_ipp=true
 ########################################
 
 _year='2013'
-_v_a='0'
-_v_b='080' 
+_v_a='1'
+_v_b='106' 
 
-_update=''
+_update='update1'
 
 pkgrel=1
 
@@ -63,11 +63,11 @@ _sp='sp1'
 
 _icc_ver='14.0'
 _ipp_ver='8.0.1'
-_mkl_ver='11.1.0'
-_openmp_ver='14.0.0'
-_sourcechecker_ver='14.0.0'
+_mkl_ver='11.1.1'
+_openmp_ver='14.0.1'
+_sourcechecker_ver='14.0.1'
 
-_tbb_ver='4.1.4'
+_tbb_ver='4.2.1'
 
 
 pkgver=${_year}.${_icc_ver}.${_v_a}.${_v_b}
@@ -106,7 +106,7 @@ source=('intel_compilers.sh'
 	)
 
 sha256sums=( 
-	'ba65fdf7afbac0276a948ef8d4e1578297a0115548d5f3465c7ed4012030f696' # parralel studio main pkg
+	'5d0147c6907ed7950d7f14b615785f5e3c7977c62368f4a8ec7b06be758d614a' # parralel studio main pkg
 	'338041f924d8f3ac31d349bca57f8ab66f094a5bb53d4f821f48fa710a112111' # intel_compilers.sh
 	'b7e1a3849c62f293245221d7ab5ee35c0e737b90b3eb4ae83c1eb41023d4e3ec' # intel-composer.install
 	'31ac4d0f30a93fe6393f48cb13761d7d1ce9719708c76a377193d96416bed884' # intel-compiler-base.conf
@@ -142,7 +142,7 @@ else
     #sha256sums=('ba65fdf7afbac0276a948ef8d4e1578297a0115548d5f3465c7ed4012030f696' ${sha256sums[@]} )
 fi
 
- _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}"
+ _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}_${_update}"
 
          
 source=("http://registrationcenter-download.intel.com/akdlm/irc_nas/${_dir_nr}/${_parallel_studio_xe_dir}.tgz" ${source[@]})
@@ -160,7 +160,7 @@ set_build_vars() {
   _pkg_ver=${_year}.${_icc_ver}.${_v_a}.${_v_b}
 
   _composer_xe_dir="composer_xe_${_year}_${_sp}.${_v_a}.${_v_b}"
-  _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}"
+  _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}_${_update}"
   rpm_dir=${srcdir}/${_parallel_studio_xe_dir}/rpm
 
   xe_build_dir=${srcdir}/cxe_build
@@ -247,12 +247,13 @@ build() {
 	if [[ ! -f "${_lic_file[0]}" ]]; then
 	  echo -e ""
 	  echo -e "-----------------------------------------------------------------------------------"
-	  echo -e "\e[1mERROR:\e[0m license file not foud!"
-	  echo -e "To continue this procedure you must obtain an original license file from Intel"
+	  echo -e "\e[1mWARNING :\e[0m license file not foud!"
+	  echo -e "For using this product you must obtain an original license file from Intel"
 	  echo -e "that must be copied in the PKGBUILD directory"
+	  echo -e " or at your choice, in the folder: /opt/intel/licenses "
 	  echo -e "visit:  http://software.intel.com/en-us/articles/non-commercial-software-download/"
 	  echo -e "-----------------------------------------------------------------------------------"
-	  return 1 ;
+	  #return 1 ;
 	fi
 
 	mkdir -p ${xe_build_dir}/opt/intel/licenses
@@ -437,9 +438,9 @@ package_intel-fortran-compiler() {
 	rm *.csh
 
 	#rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/Documentation/en_US/gs_resources/intel_f_logo.gif
-	#rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/compiler/lib/${_i_arch}/locale/ja_JP/diagspt.cat
-	#rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/compiler/lib/${_i_arch}/locale/ja_JP/flexnet.cat
-	#rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/compiler/lib/${_i_arch}/locale/ja_JP/helpxi.cat
+	rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/compiler/lib/${_i_arch}/locale/ja_JP/diagspt.cat
+	rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/compiler/lib/${_i_arch}/locale/ja_JP/flexnet.cat
+	rm ${xe_build_dir}/opt/intel/${_composer_xe_dir}/compiler/lib/${_i_arch}/locale/ja_JP/helpxi.cat
 
 	if $_remove_docs ; then
 	  echo -e " # intel-fortran-compiler: Remove documentation"
