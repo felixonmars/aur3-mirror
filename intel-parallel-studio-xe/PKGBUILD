@@ -72,7 +72,7 @@ _tbb_ver='4.2.1'
 
 pkgver=${_year}.${_icc_ver}.${_v_a}.${_v_b}
 
-_dir_nr='3447'
+_dir_nr='3644'
 
 options=(strip libtool staticlibs)
 
@@ -89,7 +89,11 @@ arch=('i686' 'x86_64')
 license=('custom')
 makedepends=('libarchive' 'sed' 'gzip')
 
-source=('intel_compilers.sh' 
+_parallel_studio_xe_dir="parallel_studio_xe${_year:+_${_year}}${_sp:+_${_sp}}${_update:+_${_update}}"
+
+source=(
+	"http://registrationcenter-download.intel.com/akdlm/irc_nas/${_dir_nr}/${_parallel_studio_xe_dir}.tgz"
+	'intel_compilers.sh'
 	'intel-composer.install'
 	'intel-compiler-base.conf' 
 	'intel-fortran.conf'
@@ -105,10 +109,14 @@ source=('intel_compilers.sh'
 	'EULA.txt'
 	)
 
-sha256sums=( 
-	'5d0147c6907ed7950d7f14b615785f5e3c7977c62368f4a8ec7b06be758d614a' # parralel studio main pkg
+
+
+
+
+sha256sums=(
+	'5d0147c6907ed7950d7f14b615785f5e3c7977c62368f4a8ec7b06be758d614a' # parallel_studio_xe_2013_sp1_update1.tgz
 	'338041f924d8f3ac31d349bca57f8ab66f094a5bb53d4f821f48fa710a112111' # intel_compilers.sh
-	'b7e1a3849c62f293245221d7ab5ee35c0e737b90b3eb4ae83c1eb41023d4e3ec' # intel-composer.install
+	'3f96dec03111e69d16bb363acf4d0570e8a9526c09e5e542a7558f1b26d043ef' # intel-composer.install
 	'31ac4d0f30a93fe6393f48cb13761d7d1ce9719708c76a377193d96416bed884' # intel-compiler-base.conf
 	'c165386ba33b25453d4f5486b7fefcdba7d31e156ad280cbdfa13ed924b01bef' # intel-fortran.conf
 	'99cc9683cc75934cc21bb5a09f6ad83365ee48712719bfd914de9444695eed13' # intel-openmp.conf
@@ -131,21 +139,18 @@ if [ "$CARCH" = "i686" ]; then
 
     _not_arch='intel64'
     _not_arch2='x86_64'
-
-    #sha256sums=( 'ba65fdf7afbac0276a948ef8d4e1578297a0115548d5f3465c7ed4012030f696' ${sha256sums[@]} )
 else
     _i_arch='intel64' 
     _i_arch2='x86_64'
 
     _not_arch='ia32' 
     _not_arch2='i486'
-    #sha256sums=('ba65fdf7afbac0276a948ef8d4e1578297a0115548d5f3465c7ed4012030f696' ${sha256sums[@]} )
 fi
 
- _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}_${_update}"
 
-         
-source=("http://registrationcenter-download.intel.com/akdlm/irc_nas/${_dir_nr}/${_parallel_studio_xe_dir}.tgz" ${source[@]})
+ #_parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}_${_update}"         
+#source=("http://registrationcenter-download.intel.com/akdlm/irc_nas/${_dir_nr}/${_parallel_studio_xe_dir}.tgz" ${source[@]})
+
 
 extract_rpms() {
   cd $2
@@ -156,13 +161,9 @@ extract_rpms() {
 }
 
 set_build_vars() {
-
   _pkg_ver=${_year}.${_icc_ver}.${_v_a}.${_v_b}
-
   _composer_xe_dir="composer_xe_${_year}_${_sp}.${_v_a}.${_v_b}"
-  _parallel_studio_xe_dir="parallel_studio_xe_${_year}_${_sp}_${_update}"
   rpm_dir=${srcdir}/${_parallel_studio_xe_dir}/rpm
-
   xe_build_dir=${srcdir}/cxe_build
   base_dir=${srcdir}/..
   _man_dir=${xe_build_dir}/usr/share/man/man1
@@ -244,20 +245,23 @@ build() {
 	  _cnt=$(($_cnt+1))
 	done
 
-	if [[ ! -f "${_lic_file[0]}" ]]; then
-	  echo -e ""
-	  echo -e "-----------------------------------------------------------------------------------"
-	  echo -e "\e[1mWARNING :\e[0m license file not foud!"
-	  echo -e "For using this product you must obtain an original license file from Intel"
-	  echo -e "that must be copied in the PKGBUILD directory"
-	  echo -e " or at your choice, in the folder: /opt/intel/licenses "
-	  echo -e "visit:  http://software.intel.com/en-us/articles/non-commercial-software-download/"
-	  echo -e "-----------------------------------------------------------------------------------"
-	  #return 1 ;
-	fi
 
+    echo -e ""
+	echo -e "-----------------------------------------------------------------------------------"
 	mkdir -p ${xe_build_dir}/opt/intel/licenses
-	cp ${base_dir}/*.lic ${xe_build_dir}/opt/intel/licenses
+    if [ -f "${_lic_file[0]}" ]; then
+	    cp ${base_dir}/*.lic ${xe_build_dir}/opt/intel/licenses
+	    echo -e "\e[1mFound license files in ${base_dir}."
+        echo -e "These will be installed into /opt/intel/licenses ...\e[0m"
+    else
+	    echo -e "\e[1mNo license files found in ${base_dir}."
+        echo -e "Remember to place license files in one of these locations:"
+        echo -e "    /opt/intel/licenses"
+        echo -e "    ~/intel/licenses"
+        echo -e "Or the compiler will not work!\e[0m"
+    fi
+	echo -e "-----------------------------------------------------------------------------------"
+    echo -e ""
 
 	cp ${srcdir}/${_parallel_studio_xe_dir}/license.txt ${xe_build_dir}/opt/intel/license.txt
 	
@@ -281,8 +285,9 @@ build() {
 	echo -e ""
 	echo -e ""
 	echo -e "-----------------------------------------------------------------------------------"
-	echo -e " \e[1m\e[5mATTENTION: \e[0m \e[1m\e[31mThis PKGBUILD don't work with yaourt! \e[0m "
-	echo -e " You must use the makepkg command for building this package"
+	echo -e " \e[1m\e[5mATTENTION: \e[0m \e[1m\e[31mThis PKGBUILD works with yaourt, "
+    echo -e "but consumes a lot of RAM! \e[0m "
+	echo -e " Using the makepkg command for building this package is recommended."
 	echo -e "-----------------------------------------------------------------------------------"
 	echo -e ""
 	echo -e ""
