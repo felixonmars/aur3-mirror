@@ -1,0 +1,52 @@
+# Maintainer: Никола Вукосављевић <hauzer@gmx.com>
+# Contributor: Daniel Kirchner <daniel AT ekpyron DOT org>
+
+pkgname=mingw-w64-zlib-static
+pkgver=1.2.8
+pkgrel=1
+pkgdesc="A compression/decompression Library (mingw-w64, static)"
+arch=('any')
+license=('custom:zlib')
+depends=(mingw-w64-crt)
+makedepends=(mingw-w64-gcc)
+url="http://www.zlib.net/"
+source=("http://zlib.net/zlib-${pkgver}.tar.gz")
+provides=('mingw-w64-zlib')
+conflicts=('mingw-w64-zlib')
+options=(!strip !buildflags staticlibs)
+md5sums=('44d667c142d7cda120332623eab69f40')
+
+_architectures="i686-w64-mingw32 x86_64-w64-mingw32"
+
+build() {
+  unset LDFLAGS
+  
+  for _arch in ${_architectures}; do
+    rm -rf "${srcdir}/build-${_arch}"
+  	cp -r "${srcdir}/zlib-${pkgver}" "${srcdir}/build-${_arch}"
+  	cd "${srcdir}/build-${_arch}"
+  	
+  	./configure --prefix=/usr/${_arch} -static
+        make -f win32/Makefile.gcc \
+            CC=${_arch}-gcc \
+            AR=${_arch}-ar \
+            RC=${_arch}-windres \
+            STRIP=${_arch}-strip \
+            CFLAGS="-DNO_FSEEKO -Wall -O3"
+  done
+}
+
+package () {
+  for _arch in ${_architectures}; do
+    cd "${srcdir}/build-${_arch}"
+    install -d "${pkgdir}/usr/${_arch}/"{bin,include,lib}
+    install -m644 -t "${pkgdir}/usr/${_arch}/include" zlib.h zconf.h
+    install -m644 -t "${pkgdir}/usr/${_arch}/lib" libz.a
+    install -d "${pkgdir}/usr/${_arch}/lib/pkgconfig"
+    
+    sed "s,@prefix@,/usr/${_arch},;s,@exec_prefix@,\${prefix},;s,@libdir@,\${exec_prefix}/lib,;s,@sharedlibdir@,\${libdir},;s,@includedir@,\${prefix}/include,;s,@VERSION@,$pkgver," < zlib.pc.in > "${pkgdir}/usr/${_arch}/lib/pkgconfig/zlib.pc"
+    
+    ${_arch}-strip -g "${pkgdir}/usr/${_arch}/lib/"*.a
+  done
+}
+
