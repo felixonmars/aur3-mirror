@@ -1,0 +1,144 @@
+diff -ruN backintime-1.0.28/common/askpass.py backintime-1.0.28-6/common/askpass.py
+--- backintime-1.0.28/common/askpass.py	2013-05-28 09:35:49.000000000 +0200
++++ backintime-1.0.28-6/common/askpass.py	2013-11-03 20:50:07.985111000 +0100
+@@ -18,6 +18,10 @@
+ import os
+ import sys
+ import base64
++try:
++    import gtk
++except:
++    pass
+ 
+ import password
+ import password_ipc
+@@ -30,14 +34,12 @@
+     """
+     cfg = config.Config()
+     tools.load_env(cfg)
+-    try:
+-        profile_id = os.environ['ASKPASS_PROFILE_ID']
+-        mode = os.environ['ASKPASS_MODE']
+-    except KeyError:
+-        pass
+-    try:
+-        temp_file = os.environ['ASKPASS_TEMP']
+-    except KeyError:
++
++    profile_id = os.getenv('ASKPASS_PROFILE_ID', '1')
++    mode = os.getenv('ASKPASS_MODE', 'local')
++
++    temp_file = os.getenv('ASKPASS_TEMP')
++    if temp_file is None:
+         #normal mode, get password from module password
+         pw = password.Password(cfg)
+         print(pw.get_password(None, profile_id, mode))
+diff -ruN backintime-1.0.28/common/password.py backintime-1.0.28-6/common/password.py
+--- backintime-1.0.28/common/password.py	2013-10-19 15:52:07.000000000 +0200
++++ backintime-1.0.28-6/common/password.py	2013-11-03 20:50:45.196507000 +0100
+@@ -22,7 +22,6 @@
+ import base64
+ import subprocess
+ import gettext
+-import keyring
+ import re
+ 
+ import config
+@@ -325,7 +324,7 @@
+                             service_name = self.config.get_keyring_service_name(profile_id, mode, pw_id)
+                             user_name = self.config.get_keyring_user_name(profile_id)
+                                 
+-                            password = keyring.get_password(service_name, user_name)
++                            password = tools.get_password(service_name, user_name)
+                             if password is None:
+                                 continue
+                             #add some snakeoil
+@@ -397,7 +396,7 @@
+         """
+         if self.keyring_supported:
+             try:
+-                return keyring.get_password(service_name, user_name)
++                return tools.get_password(service_name, user_name)
+             except Exception:
+                 logger.error('get password from Keyring failed')
+         return None
+@@ -481,7 +480,7 @@
+             self._set_password_db(service_name, user_name, password)
+ 
+     def _set_password_to_keyring(self, service_name, user_name, password):
+-        return keyring.set_password(service_name, user_name, password)
++        return tools.set_password(service_name, user_name, password)
+ 
+     def _set_password_to_cache(self, service_name, user_name, password):
+         if self.pw_cache.status():
+diff -ruN backintime-1.0.28/common/tools.py backintime-1.0.28-6/common/tools.py
+--- backintime-1.0.28/common/tools.py	2013-10-19 15:52:07.000000000 +0200
++++ backintime-1.0.28-6/common/tools.py	2013-11-03 20:54:28.588819355 +0100
+@@ -24,9 +24,15 @@
+ import commands
+ import signal
+ import re
+-import keyring
++keyring = None
++try:
++    if os.getenv('BIT_USE_KEYRING', 'true') == 'true':
++        import keyring
++except:
++    os.putenv('BIT_USE_KEYRING', 'false')
+ 
+ import configfile
++import logger
+ 
+ ON_AC = 0
+ ON_BATTERY = 1
+@@ -503,15 +509,34 @@
+         env_file.set_str_value(key, env[key])
+ 
+ def keyring_supported():
+-    try:
+-        backends = (keyring.backends.SecretService.Keyring,
+-                    keyring.backends.Gnome.Keyring,
+-                    keyring.backends.kwallet.Keyring)
+-    except AttributeError:
+-        backends = (keyring.backend.SecretServiceKeyring,
+-                    keyring.backend.GnomeKeyring,
+-                    keyring.backend.KDEKWallet)
+-    return isinstance(keyring.get_keyring(), backends)
++    if keyring is None:
++        return False
++    backends = []
++    try: backends.append(keyring.backends.SecretService.Keyring)
++    except: pass
++    try: backends.append(keyring.backends.Gnome.Keyring)
++    except: pass
++    try: backends.append(keyring.backends.kwallet.Keyring)
++    except: pass
++    try: backends.append(keyring.backend.SecretServiceKeyring)
++    except: pass
++    try: backends.append(keyring.backend.GnomeKeyring)
++    except: pass
++    try: backends.append(keyring.backend.KDEKWallet)
++    except: pass
++    if len(backends) == 0:
++        return False
++    return isinstance(keyring.get_keyring(), tuple(backends))
++
++def get_password(*args):
++    if not keyring is None:
++        return keyring.get_password(*args)
++    return None
++
++def set_password(*args):
++    if not keyring is None:
++        return keyring.set_password(*args)
++    return False
+ 
+ def get_mountpoint(path):
+     '''return (DEVICE, MOUNTPOINT) for given PATH'''
+@@ -660,3 +685,6 @@
+             raise Timeout()
+         else:
+             self.callback()
++
++if keyring is None:
++    logger.warning('import keyring failed')

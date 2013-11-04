@@ -1,5 +1,5 @@
 #!/bin/sh
-# launcher script for unvanquished
+# launcher script for unvanquished client
 # handles unv:// URI's as first parameter securely
 
 if echo "$1" | grep -q '^unv://'; then
@@ -11,6 +11,5 @@ if echo "$1" | grep -q '^unv://'; then
 		$0 +connect $uri
 	fi
 else
-	cd /opt/unvanquished
-	exec ./daemon +set fs_libpath $PWD +set fs_basepath $PWD $@
+	exec /usr/lib/unvanquished/daemon +set fs_libpath /usr/lib/unvanquished +set fs_basepath /var/lib/unvanquished $@
 fi

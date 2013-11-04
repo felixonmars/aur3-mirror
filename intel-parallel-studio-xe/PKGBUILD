@@ -764,6 +764,7 @@ package_intel-tbb() {
 package_intel-vtune-amplifier-xe() {
 	pkgdesc="Performance profiler for serial and parallel performance analysis"
 	pkgver=${_year}.${_vtune_ver}.${_v_b}
+	depends=('pangox-compat')
 	
 	echo -e " # intel-vtune-amplifier-xe: Start building"
 	mkdir -p ${xe_build_dir}/opt

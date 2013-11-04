@@ -1,15 +1,15 @@
-# Maintainer: Sigitas Mazaliauskas <sigisnn at gmail dot com>
+# Maintainer: Ruben Reyes <ruben at losreyes dot us>
 # Contributor: Roman Kyrylych <roman@archlinux.org>
 
 pkgname=abyssws
-pkgver=2.7
+pkgver=2.9.0.1
 pkgrel=1
 pkgdesc="Abyss Web Server X1 - a compact full-featured web server"
 arch=('i686' 'x86_64')
 url="http://www.aprelium.com/abyssws/"
 license=('custom')
 depends=('glibc')
-backup=('opt/abyssws/abyss.conf' 'etc/conf.d/abyssws')
+backup=('opt/abyssws/abyss.conf' 'etc/conf.d/abyssws.conf.d')
 _lurl=http://www.aprelium.com/abyssws/languages/a/
 source=(http://www.aprelium.com/data/abwsx1.tgz
     $_lurl/ar.lng
@@ -41,14 +41,15 @@ source=(http://www.aprelium.com/data/abwsx1.tgz
 	$_lurl/zh-cn.lng
 	$_lurl/zh-tw.lng
     'abyss.conf'
-	'abyssws.rc.d'
+	'abyssws.service'
 	'abyssws.conf.d')
-md5sums=('f3d0e85b69c068c0004097285ca09220'
+
+md5sums=('0581877bcd1ba9b59092ec4d23f84f5f'
          '9acc9ac324872ab6e7b8309e6460d741'
          '7d0d16ef1329271af6669e497dd010aa'
          'b7545f4fdbbe2962919c499e9258b446'
          'ff562d8113c393728b4f80a4be004d61'
-         'c012b963d0a12c453b1aa3d3b4358fa6'
+         '3ded66c83d624f225befca9808ba4677'
          'd212694cb63a9c29bb7eab5ab053fb36'
          'e1b2cd53d79fdfb46e430cd9f98b4a41'
          '3ac9bcd72d854a91a00a45bb7ba9285e'
@@ -56,7 +57,7 @@ md5sums=('f3d0e85b69c068c0004097285ca09220'
          'ca7f4b91670994bd2181dcb658f45c81'
          'd30ecd91414b2a6129aae5730fbfb64e'
          '3c9fd8471ca043335fb7b3cbdac0ef40'
-         '26a926ea3177475f0ba21e398694a5c9'
+         '3871d53f862e4c656fc4a24de19eac10'
          '5572871c8bd43c932d5b7e72c54233b8'
          '0b52c44befcf96a7b9eb14683c967b4d'
          '1644464141ab4b690e640dfef2f9b56f'
@@ -73,16 +74,16 @@ md5sums=('f3d0e85b69c068c0004097285ca09220'
          'b9a4567de4433ddbbc3767f0175f4448'
          'ff3bb82cb25e14c34647de72b1992f64'
          '7eff46b7e04f9a2ec13d87c873421283'
-         '8e294c6a190323d73658e21bab0aca8e'
+         'b4133e6b0152ac7658bfc615e67cc66f'
          '92c9079247c1ea79506361c82216bbdb')
 
-build() {
+package() {
   cd ${srcdir}
   install -d ${pkgdir}/opt
   cp -Rp abyssws ${pkgdir}/opt
   install -m644 abyss.conf ${pkgdir}/opt/abyssws/abyss.conf
-  install -Dm755 abyssws.rc.d ${pkgdir}/etc/rc.d/abyssws
-  install -Dm644 abyssws.conf.d ${pkgdir}/etc/conf.d/abyssws
+  install -Dm755 abyssws.service ${pkgdir}/etc/systemd/system/abyssws.service
+  install -Dm644 abyssws.conf.d ${pkgdir}/etc/conf.d/abyssws.conf.d
   install -Dm644 *.lng ${pkgdir}/opt/abyssws/lang/
   install -Dm644 ${srcdir}/abyssws/license.txt \
     ${pkgdir}/usr/share/licenses/${pkgname}/LICENSE

@@ -391,11 +391,10 @@ static char* trim_whitespace(char *buffer, size_t len, size_t *nlen) {
       return NULL;
 
    *nlen = len-trail-lead+(hasnl?1:0)+1;
-   if (!(nbuffer = malloc(*nlen+1)))
+   if (!(nbuffer = calloc(1, *nlen+1)))
       return NULL;
    memcpy(nbuffer, buffer+lead, *nlen);
    if (hasnl) nbuffer[*nlen-1] = '\n';
-   nbuffer[*nlen] = 0;
    return nbuffer;
 }
 
@@ -449,10 +448,9 @@ static int set_clipboard_data(clipdata *c, void *buffer, size_t len) {
    /* don't process binary */
    if (isbinary(buffer, len)) {
       OUT("Binary data! [%zu]", len);
-      if (!(copy = malloc(len+1)))
+      if (!(copy = calloc(1, len+1)))
          goto fail;
       memcpy(copy, buffer, len);
-      memset(copy+len, 0, 1);
       if (c->data) free(c->data);
       c->data = copy; c->size = len;
       c->cflags = CLIP_SKIP_HISTORY;
@@ -483,9 +481,9 @@ static int set_clipboard_data(clipdata *c, void *buffer, size_t len) {
    }
 
    if (!copy) {
-      if (!len || !(copy = malloc(len+1)))
+      if (!len || !(copy = calloc(1, len+1)))
          goto fail;
-      memcpy(copy, s, len); copy[len] = 0;
+      memcpy(copy, s, len);
    }
 
    if (c->flags & CLIPBOARD_TRIM_TRAILING_NEWLINE) {
@@ -525,16 +523,13 @@ static char* get_clipboard_database_path(clipdata *c, char create) {
    clipfile   = c->name;
    if (!clipfile) goto unknown_clip;
 
-   len = (home?strlen(home)+1:0)+
-         strlen(xdg_data)+1+
-         strlen(programdir)+1+
-         strlen(clipfile)+1+
-         strlen(ext)+1;
+   len = snprintf(NULL, 0, "%s%s%s/%s/%s.%s",
+         home?home:"", home?"/":"", xdg_data, programdir, clipfile, ext)+1;
 
-   if (!(buffer = malloc(len+1)))
+   if (!(buffer = malloc(len)))
       goto out_of_memory;
 
-   snprintf(buffer, len, "%s%s%s/%s/%s.%s",
+   sprintf(buffer, "%s%s%s/%s/%s.%s",
          home?home:"", home?"/":"", xdg_data, programdir, clipfile, ext);
 
    dirc = strdup(buffer);
@@ -578,7 +573,11 @@ static int dmenu_puts(void *calldata, clipdata *c,
    size_t i, i2, limit; char ws = 0;
    if (rlen) return 1;
    limit = (blen>DMENU_LIMIT?DMENU_LIMIT:blen);
-   for (; ((buffer[limit] & 0xc0) == 0x80); --limit);
+   if (limit > 0 && (buffer[limit-1] & 0xc0) == 0x80) {
+      for (; limit > 0 && (buffer[limit-1] & 0xc0) == 0x80; --limit);
+      --limit;
+      if (limit == 0) limit = (blen>DMENU_LIMIT?DMENU_LIMIT:blen);
+   }
    printf("%4d: ", index);
    for (i = 0; i != limit; ++i) {
       if (ws && buffer[i]==' ') continue; ws = 0;
@@ -625,11 +624,8 @@ static int restore_clipboard(void *calldata, clipdata *c,
    }
 
    /* create buffer */
-   if (!cbuf) {
-      if (!(cbuf = malloc(size+1)))
-         return 0;
-      memset(cbuf, 0, size);
-   }
+   if (!cbuf && !(cbuf = calloc(1, size+1)))
+      return 0;
 
    /* copy data */
    memcpy(cbuf+rlen, buffer, blen);
@@ -657,10 +653,10 @@ static int ls_clipboard(clipdata *c, char *path, void *calldata, lscallback call
 
    if (USE_ZLIB) {
       ext = "dez";
-      len = strlen(path)+1+strlen(ext)+1;
-      if (!(zpath = malloc(len+1)))
+      len = snprintf(NULL, 0, "%s.%s", path, ext)+1;
+      if (!(zpath = malloc(len)))
          goto out_of_memory;
-      snprintf(zpath, len, "%s.%s", path, ext);
+      sprintf(zpath, "%s.%s", path, ext);
 
       if (!(f = fopen(path, "rb")) || !(z = fopen(zpath, "w+b")))
          goto fail;
@@ -718,17 +714,17 @@ static void store_clip(clipdata *c) {
       goto fail;
 
    ext = "tmp";
-   len = strlen(path)+1+strlen(ext)+1;
-   if (!(tmp = malloc(len+1)))
+   len = snprintf(NULL, 0, "%s.%s", path, ext)+1;
+   if (!(tmp = malloc(len)))
       goto out_of_memory;
-   snprintf(tmp, len, "%s.%s", path, ext);
+   sprintf(tmp, "%s.%s", path, ext);
 
    if (USE_ZLIB) {
       ext = "dez";
-      len = strlen(path)+1+strlen(ext)+1;
-      if (!(zpath = malloc(len+1)))
+      len = snprintf(NULL, 0, "%s.%s", path, ext)+1;
+      if (!(zpath = malloc(len)))
          goto out_of_memory;
-      snprintf(zpath, len, "%s.%s", path, ext);
+      sprintf(zpath, "%s.%s", path, ext);
    }
 
    OUT("\2Storing to \4%s\5\n%s", c->name, (char*)c->data);
@@ -1162,14 +1158,12 @@ static void* fetch_xsel(xcb_window_t win, xcb_atom_t property, xcb_atom_t type, 
    OUT("LEN/FORMAT: %d, %d", xsel->value_len, format/8);
    if (format < 8) format = 8;
    size_t rlen = xsel->value_len * format/8;
-   if (!(string = malloc(rlen+1))) {
+   if (!(string = calloc(1, rlen+1))) {
       free(xsel);
       return NULL;
    }
 
    memcpy(string, data, rlen);
-   memset(string+rlen, 0, 1);
-
    *len = rlen; free(xsel);
    xcb_delete_property(xcb, win, property);
    return string;
