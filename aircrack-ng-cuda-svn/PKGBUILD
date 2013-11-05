@@ -2,8 +2,8 @@
 # Contributor: fnord0 <fnord0 AT riseup DOT net>
 
 pkgname=aircrack-ng-cuda-svn
-pkgver=1550
-pkgrel=10
+pkgver=2342
+pkgrel=1
 pkgdesc="Wifi security suite with NVIDIA GPU-enhanced (using CUDA) WPA/WPA2 key cracking"
 arch=('i686' 'x86_64')
 url="http://www.aircrack-ng.org"
@@ -19,44 +19,51 @@ _svnmod=aircrack-ng-cuda
 _svntrunk="http://svn.aircrack-ng.org/branch/aircrack-ng-cuda"
 
 build() {
-  cd ${srcdir}
+  cd "${srcdir}"
   msg "Connecting to SVN server...."
-  if [ -d ${_svnmod}/.svn ]; then
-    (cd ${_svnmod} && svn up -r ${pkgver})
+
+  if [ -d "${_svnmod}/.svn" ]; then
+    (cd "${_svnmod}" && svn up -r "${pkgver}")
   else
-    svn co ${_svntrunk} ${_svnmod} || return 1
+    #svn co "${_svntrunk}" "${_svnmod}"
+    svn co "$_svntrunk" --config-dir ./ -r "$pkgver" "$_svnmod"
   fi
 
   msg "SVN checkout done or server timeout"
   msg "Starting make..."
 
-  cd ${_svnmod}
+  rm -rf "$srcdir/$_svnmod-build"
+  svn export "$srcdir/$_svnmod" "$srcdir/$_svnmod-build"
+  cd "$srcdir/$_svnmod-build"
+
+  # disable 'all warnings be treated as errors'
+  # -- leaving '-Wall' will make it so this will NOT compile properly
+  sed -i "s/?= -g -W -Wall -Werror -O3/?= -g -W -Werror -O3/" common.mak
 
   # setting the right location of nvcc
-  sed -i "s/#NVCCFLAGS/NVCCFLAGS/" src/Makefile || return 1
+  sed -i "s/#NVCCFLAGS/NVCCFLAGS/" src/Makefile
 
   if  test "$CARCH" == x86_64; then
-    sed -i "s/lib -lcuda -lcudart/lib64 -lcuda -lcudart -lstdc++/" src/Makefile || return 1
-    #sed -i "s|lib -lcuda -lcudart|opt/cuda/lib64 -lcuda -lcudart -lstdc++|" src/Makefile || return 1
+    sed -i "s/lib -lcuda -lcudart/lib64 -lcuda -lcudart -lstdc++/" src/Makefile
+    #sed -i "s|lib -lcuda -lcudart|opt/cuda/lib64 -lcuda -lcudart -lstdc++|" src/Makefile
   else
     #uncomment below line, and comment out the one below it = if you are on x86 (32bit), and running cuda earlier then v5
-    #sed -i "s|lib -lcuda -lcudart|lib -lcuda -lcudart -lstdc++|" src/Makefile || return 1
-    sed -i "s|lib -lcuda -lcudart|lib -lcudart -lstdc++|" src/Makefile || return 1
+    #sed -i "s|lib -lcuda -lcudart|lib -lcuda -lcudart -lstdc++|" src/Makefile
+    sed -i "s|lib -lcuda -lcudart|lib -lcudart -lstdc++|" src/Makefile
   fi
 
-  #sed -i s#/bin/nvcc#/opt/cuda/bin/nvcc#g src/Makefile || return 1
-  sed -i "s/--compiler-options -fno-strict-aliasing --host-compilation=C/--compiler-options -fno-strict-aliasing --host-compilation=C --compiler-options -fpermissive/" src/Makefile || return 1
+  sed -i "s/--compiler-options -fno-strict-aliasing --host-compilation=C/--compiler-options -fno-strict-aliasing --host-compilation=C --compiler-options -fpermissive/" src/Makefile
 
   # BUILD
   make clean
-  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda DESTDIR=${pkgdir} CUDA=true SQLITE=true UNSTABLE=true || return 1
+  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda DESTDIR="${pkgdir}/" CUDA=true SQLITE=true UNSTABLE=true
 }
 
 package() {
-  cd ${srcdir}/${_svnmod}
-  mkdir -p ${pkgdir}/usr/local/share/aircrack-ng-cuda || return 1
-  cp -R test/* ${pkgdir}/usr/local/share/aircrack-ng-cuda/ || return 1
-  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda DESTDIR=${pkgdir} CUDA=true SQLITE=true UNSTABLE=true install  || return 1
+  cd "${srcdir}/${_svnmod}-build"
+  mkdir -p "${pkgdir}/usr/local/share/aircrack-ng-cuda"
+  cp -R test/* "${pkgdir}/usr/local/share/aircrack-ng-cuda/"
+  make prefix=/usr/local CUDA_INSTALL_PATH=/opt/cuda DESTDIR="${pkgdir}/" CUDA=true SQLITE=true UNSTABLE=true install 
 
   #user notification
   echo -e ""
