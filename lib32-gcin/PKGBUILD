@@ -1,6 +1,4 @@
 # Maintainer: Yushin Huang <hyslion@gmail.com>
-# Contributor: Andreas Radke <andyrtr@archlinux.org>
-# Contributor: damir <damir@archlinux.org>
 
 pkgbase=lib32-gcin
 pkgname=lib32-gcin

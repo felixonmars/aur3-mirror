@@ -1,9 +1,9 @@
 # Contributor: C Anthony Risinger
-# Contributor: Michael Göhler
+# Contributor: Michael Goehler
 pkgname='mkinitcpio-btrfs'
-pkgver=0.4.0
-pkgrel=2
-pkgdesc='[initramfs] Rollback operations on BTRFS-based root devices'
+pkgver=0.4.1
+pkgrel=1
+pkgdesc='mkinitcpio hook containing advanced features for btrfs-based root devices'
 url='https://github.com/xtfxme/mkinitcpio-btrfs'
 arch=('any')
 license=('BSD')
@@ -17,6 +17,6 @@ package() {
     install -o root -g root -D ${srcdir}/btrfs_config  ${pkgdir}/etc/default/btrfs_advanced
 }
 
-md5sums=('acdbaa277e58ffbc86332736997bafb2'
+md5sums=('3c8e8b5b48f1e92c84178c63f1a2655f'
          '8198a307fe8a38195016e7265833473c'
-         'dc9e745e44e9c9c3c4a2de5aa48ce3e1')
+         'aef37ebd18ae5c83b3e55056b666870b')

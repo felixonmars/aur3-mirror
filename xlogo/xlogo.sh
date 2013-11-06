@@ -1,4 +1,5 @@
 #!/bin/sh
 VERSION=0.9.93
-cd /usr/share/xlogo-lang
-java -jar "/usr/share/xlogo-lang/xlogo-$VERSION.jar" "$@"
+XLOGO_HOME=/usr/share/xlogo
+cd "$XLOGO_HOME"
+java -jar "$XLOGO_HOME/xlogo-$VERSION.jar" "$@"
