@@ -12,7 +12,13 @@ makedepends=("sed")
 options=('staticlibs')
 sha1sums=('ec445af7944b6acdd1d692e5a1bf766395c0041e')
 
-source=("http://developer.amd.com/wordpress/media/download.php?f=YWNtbC01LTMtMS1nZm9ydHJhbi02NGJpdC50Z3o='")
+DLAGENTS=('http::/usr/bin/curl -fLC - --retry 3 --retry-delay 3 \
+        -d amd_developer_central_nonce=84ebc88e3c \
+        -d _wp_http_referer=/license-agreement-amd-core-math-library/?f=acml-5-3-1-gfortran-64bit.tgz \
+        -d f=YWNtbC01LTMtMS1nZm9ydHJhbi02NGJpdC50Z3o= \
+        -o %o')
+
+source=("http://developer.amd.com/license-agreement-amd-core-math-library/?f=acml-5-3-1-gfortran-64bit.tgz")
 
 build() {
 	mkdir ${srcdir}/acml

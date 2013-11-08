@@ -1,15 +1,15 @@
 pkgname=2gis-biysk
-pkgver=60
+pkgver=61
 pkgrel=1
-pkgdesc="Map of Biysk for 2GIS, October 2013"
+pkgdesc="Map of Biysk for 2GIS, November 2013"
 arch=('i686' 'x86_64')
 url="http://biysk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.9.0')
-source=("http://download.2gis.ru/arhives/2GISData_Biysk-60.orig.zip")
-md5sums=('0c3d6d39d4e58d4c03ff41618d438769')
+depends=('2gis>=3.13.11.0')
+source=("http://download.2gis.ru/arhives/2GISData_Biysk-61.orig.zip")
+md5sums=('b04858ad7d6d8b80f0db6888b637e273')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Biysk.dgdat" "${pkgdir}/opt/2gis/biysk.dgdat" || return 1
-  install -D -m 644 "${srcdir}/2gis/3.0/Plugins/DGisLan/Biysk.dglf" "${pkgdir}/opt/2gis/Plugins/DGisLan/biysk.dglf" || return 1
+  
 }
