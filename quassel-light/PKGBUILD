@@ -3,7 +3,7 @@
 
 pkgname=quassel-light
 pkgver=0.9.1
-pkgrel=1
+pkgrel=2
 pkgdesc="Modern, cross-platform, distributed IRC client; built with few dependencies"
 arch=('i686' 'x86_64')
 url="http://quassel-irc.org/"
@@ -11,8 +11,8 @@ license=('GPL')
 depends=('qt4')
 optdepends=('qca-ossl')
 makedepends=('cmake' 'automoc4')
-provides=('quassel' 'quasselcore' 'quasselclient')
-conflicts=('quassel' 'quasselcore' 'quasselclient')
+provides=('quassel-core' 'quassel-client')
+conflicts=('quassel-core' 'quassel-client')
 install=quassel.install
 backup=(etc/conf.d/quassel)
 source=("http://quassel-irc.org/pub/quassel-$pkgver.tar.bz2"
