@@ -1,3 +1,7 @@
+## 1.5.6-2
+* pagespeed dropped
+* passenger dropped
+
 ## 1.5.6-1
 * sflow-0.9.7
 

@@ -1,68 +1,82 @@
-# Contributor: Sergio Correia <sergio@correia.cc>
+# Maintainer: Andreas Wagner <AndreasBWagner@pointfree.net>
 # Contributor: Joe Davison <joedavison.davison@gmail.com>
 
-pkgname='qemu-rpi-git'
-pkgver=20130318
-pkgrel=1
-pkgdesc='Processor emulator and virtual machine with with expansive multi-arch support and fast operation (with an accelerator), git version with Raspberry Pi emulation.'
+pkgname=qemu-rpi-git
+_gitname=qemu
+pkgver=1.7.r28335.gc84dccd
+pkgrel=2
+pkgdesc="A generic and open source processor emulator which achieves a good emulation speed by using dynamic translation. Git version with Raspberry Pi emulation."
 arch=('i686' 'x86_64')
 license=('GPL2' 'LGPL2')
-url='http://wiki.qemu.org/Index.html'
-makedepends=('git' 'texi2html' 'perl')
-depends=('brltty' 'gnutls' 'libpulse' 'bluez' 'vde2' 'curl' 'sdl' 'spice' 'libcap-ng')
-conflicts=('qemu' 'qemu-linaro' 'kvm' 'kvm-git' 'seabios' 'libcacard')
-provides=('qemu')
-options=('!strip')
-
-source=('65-kvm.rules'
-        'qemu.install'
-        'baum_h_build_fix.patch')
-
-md5sums=('b316a066d2f1bb57d8f5b7ea1d0d1caf'
-         '01c35861fe8ca651b4e202280cbac9cf'
-         'f3393228cda2d83e2246c782c31c5d77')
-
+url="http://wiki.qemu.org/Index.html"
+depends=('pixman' 'libjpeg' 'libpng' 'sdl' 'alsa-lib' 'nss' 'glib2'
+         'gnutls>=2.4.1' 'bluez-libs' 'vde2' 'util-linux' 'curl' 'libsasl'
+         'libgl' 'libpulse' 'seabios' 'libcap-ng' 'libaio' 'libseccomp'
+         'libiscsi' 'libcacard' 'spice')
+makedepends=('git' 'texi2html' 'perl' 'python2' 'dtc' 'spice-protocol')
+optdepends=('ovmf-svn: UEFI Firmware (OVMF) with Secure Boot Support - for Virtual Machines (QEMU) ')
+conflicts=('qemu' 'kvm' 'kvm-git' 'qemu-spice')
+provides=('qemu' 'qemu-kvm' 'qemu-spice')
+backup=('etc/qemu/target-x86_64.conf')
+source=("git+https://github.com/Torlus/qemu.git#branch=rpi"
+        '65-kvm.rules'
+        'qemu.install')
+sha256sums=('SKIP'
+            '9c8a15c34461a9481a34ca9e0ab4ae3825eabe8fd863227f2445325413cd755c'
+            '78ae4c98ab868e6c4e2ba03dd7f1e9ae2f73996758ed19ca99384fbd81d9970c')
 install='qemu.install'
+options=(!strip)
 
+pkgver() {
+	cd "${srcdir}/$_gitname"
+	echo "1.7.r$(git rev-list --count master).g$(git log -1 --format="%h")"
+}
 
-_gitroot='git://github.com/Torlus/qemu.git'
-_gitname='qemu-rpi'
-_gitbranch='rpi'
+build()
+{
+	cd $_gitname
+	# qemu vs. make 4 == bad
+	export ARFLAGS="rv"
+	# http://permalink.gmane.org/gmane.comp.emulators.qemu/238740
+	# gtk gui breaks keymappings at the moment
 
-build() {
-    if [ ! -d "${_gitname}" ]; then
-        git clone -b "${_gitbranch}" --depth 1 "${_gitroot}" "${_gitname}" && cd "${_gitname}"
-    else
-        cd "${_gitname}" && git reset --hard && git pull origin && git clean -dfx
-    fi
-
-    msg "GIT checkout done."
-
-    patch -uNp1 -i ../baum_h_build_fix.patch
-
-    ./configure --prefix=/usr --sysconfdir=/etc --audio-drv-list=alsa,sdl,pa \
-              --python=/usr/bin/python2 \
-              --audio-card-list=ac97,sb16,es1370,hda \
-              --enable-docs --enable-mixemu --libexecdir=/usr/lib/qemu --disable-werror
-    make
+	./configure --prefix=/usr --sysconfdir=/etc --audio-drv-list='pa alsa sdl' \
+              --python=/usr/bin/python2 --smbd=/usr/bin/smbd \
+              --enable-docs --libexecdir=/usr/lib/qemu \
+              --disable-gtk --enable-linux-aio --enable-seccomp \
+              --enable-spice --localstatedir=/var
+	make V=99
 }
 
 package() {
-    cd "${_gitname}"
+ 
+	cd $_gitname
 
-    make DESTDIR="${pkgdir}" libexecdir="/usr/lib/qemu" install
-
-    install -D -m644 "${srcdir}/65-kvm.rules" "${pkgdir}/usr/lib/udev/rules.d/65-kvm.rules"
-
-    # bridge_helper needs suid
-    # https://bugs.archlinux.org/task/32565
-    chmod u+s "${pkgdir}/usr/lib/qemu/qemu-bridge-helper"
-
-    # strip scripts directory
+  make DESTDIR="${pkgdir}" libexecdir="/usr/lib/qemu" install
+  # provided by seabios package
+  rm "${pkgdir}/usr/share/qemu/bios.bin"
+  rm "${pkgdir}/usr/share/qemu/acpi-dsdt.aml"
+  rm "${pkgdir}/usr/share/qemu/q35-acpi-dsdt.aml"
+  # remove conflicting /var/run directory
+  rm -r "${pkgdir}/var"
+  install -D -m644 "${srcdir}/65-kvm.rules" \
+                   "${pkgdir}/usr/lib/udev/rules.d/65-kvm.rules"
+  # bridge_helper needs suid
+  # https://bugs.archlinux.org/task/32565
+  chmod u+s "${pkgdir}/usr/lib/qemu/qemu-bridge-helper"
+  # add sample config
+  echo "allow br0" > ${pkgdir}/etc/qemu/bridge.conf.sample
+  # strip scripts directory
     find "${pkgdir}/usr/src/linux-${_kernver}/scripts"  -type f -perm -u+w 2>/dev/null | while read binary ; do
-        case "$(file -bi "$binary")" in
-            *application/x-executable*) # Binaries
-            /usr/bin/strip $STRIP_BINARIES "$binary";;
-        esac
+      case "$(file -bi "$binary")" in
+        *application/x-executable*) # Binaries
+        /usr/bin/strip $STRIP_BINARIES "$binary";;
+      esac
     done
+  # remove libcacard files
+  rm -rf ${pkgdir}/usr/include/cacard
+  rm -rf ${pkgdir}/usr/lib/libcacard*
+  rm -rf ${pkgdir}/usr/lib/pkgconfig/libcacard.pc
+  rm -rf ${pkgdir}/usr/bin/vscclient
 }
+

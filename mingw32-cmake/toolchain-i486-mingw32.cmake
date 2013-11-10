@@ -1,4 +1,4 @@
-me of the target operating system
+# name of the target operating system
 SET(CMAKE_SYSTEM_NAME Windows)
 
 # which compilers to use for C and C++
