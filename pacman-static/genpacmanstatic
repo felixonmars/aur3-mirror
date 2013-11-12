@@ -1,0 +1,151 @@
+#!/bin/bash -e
+
+#
+# Typical usage:
+#     sudo ./genpacmanstatic --32 -j8 pacman-static
+#
+
+: ${TMPDIR:=/var/tmp}
+unset dir
+unset wipe
+unset makeflags
+exitval=1
+
+usage() {
+    echo "usage: $0 [--32] [-d build-dir] [-j N] [dest-dir]" >&2
+    exit 1
+}
+
+unset linux32
+while :; do
+    case $1 in
+	-d)
+	    wipe=n
+	    shift
+	    dir=$(readlink -vf "$1") || usage
+	    shift
+	    ;;
+	-j)
+	    shift
+	    makeflags="-j$1"
+	    shift
+	    ;;
+	-j*)
+	    makeflags="$1"
+	    shift
+	    ;;
+	--32)
+	    linux32=linux32
+	    shift
+	    ;;
+	-*)
+	    usage
+	    ;;
+	*)
+	    break
+	    ;;
+    esac
+done
+
+if test -z "$dir"; then
+    dir=$(mktemp -d "$TMPDIR/pacmanstatic.XXXXXXXXXXXXXX")
+    rmdir "$dir" || :
+    wipe=y
+fi
+
+dest="${1:-pacman-static.$($linux32 uname -m)}"
+
+echo "*"
+echo "* Attempting to build pacman-static in chroot directory:"
+echo "*     $dir"
+echo "*"
+echo "* and copy result to"
+echo "*     $dest"
+echo "*"
+
+cleanup() {
+    ! mountpoint -q "$dir/home/sources" || umount "$dir/home/sources" \
+	|| exit 1
+    test y"$wipe" != yy || rm -rf "$dir"{,.lock}
+    exit $exitval
+}
+
+trap cleanup 0 2 15
+
+set -x
+test -d "$dir" || \
+    $linux32 mkarchroot -C /usr/share/devtools/pacman-extra.conf \
+    "$dir" base-devel abs
+mkdir -p "$dir/home/"{sources,packages}
+sed -i -e '/^OPTIONS=/s/!staticlibs\>/staticlibs/' \
+    -e 's/^#MAKEFLAGS=.*/MAKEFLAGS="'$makeflags'"/' \
+    -e '/^#\(SRC\|PKG\)DEST/s/^#//' \
+    "$dir/etc/makepkg.conf"
+
+srcdest=$(. /etc/makepkg.conf && echo "$SRCDEST")
+if test -d "$srcdest"; then
+    mount -B "$srcdest" "$dir/home/sources"
+fi
+
+REBUILD=(core/glibc core/openssl core/attr core/acl
+         core/expat core/xz core/lzo2 core/bzip2 core/libarchive
+         core/libgpg-error core/gpgme core/libassuan
+	 core/libssh2 core/curl
+         extra/nettle)
+
+$linux32 arch-nspawn "$dir" abs ${REBUILD[@]} core/pacman
+
+sed -i -e 's|\/configure --prefix|/configure --enable-static-nss --prefix|' \
+    "$dir/var/abs/core/"glibc/PKGBUILD
+
+sed -i -e '/\.\/configure\>/s|.*|./configure --prefix=/usr --enable-static|' \
+    "$dir/var/abs/core/"{libassuan,libgpg-error}/PKGBUILD
+
+sed -i -e "/^options=/s/'debug'/'!debug'/" \
+    "$dir/var/abs/core/"{libarchive,curl}/PKGBUILD
+
+sed -i -e '/^[	 ]*make test *\(#\|$\)/s/^/#/' \
+    "$dir/var/abs/core/"{bzip2,lzo2,openssl}/PKGBUILD
+
+sed -i -e '/\.\/configure\>/s/ --disable-static/ --enable-static/' \
+    "$dir/var/abs/core/"gpgme/PKGBUILD
+
+sed -i -e '/^ *rm .*\.a$/s/^/#/' \
+    "$dir/var/abs/"{core/attr,extra/nettle}/PKGBUILD
+
+egrep -q '^ *install .* libbz2.a' "$dir/var/abs/core/"bzip2/PKGBUILD || \
+    sed -i -e '/^ *install .* libbz2\.so/s|$|\n  install -m644 libbz2.a $pkgdir/usr/lib|' \
+    "$dir/var/abs/core/"bzip2/PKGBUILD
+
+for pkg in "${REBUILD[@]}"; do
+    $linux32 arch-nspawn "$dir" sh -c \
+        "cd /var/abs/$pkg && yes | makepkg --asroot --nocheck -ci"
+done
+
+cat > "$dir/mkpac" <<'EOF'
+#!/bin/bash
+set -x
+cd /var/abs/core/pacman
+makepkg --asroot -o
+cd src/pacman-*
+LDFLAGS="-static" \
+     LIBS="-lz -lgpg-error -lassuan -lssl -lcrypto -lssh2 -ldl \
+         -lstdc++ -lpthread" \
+     ./configure --disable-shared --disable-doc \
+       --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
+       --with-scriptlet-shell=/usr/bin/bash \
+       --with-ldconfig=/usr/bin/ldconfig
+EOF
+cat >> "$dir/mkpac" <<EOF
+make $makeflags AM_LDFLAGS=-all-static
+install -sD src/pacman/pacman /usr/bin/pacman-static
+EOF
+chmod +x "$dir/mkpac"
+$linux32 arch-nspawn "$dir" /mkpac
+
+if [[ -n "$SUDO_USER" ]]; then
+    su -c "cp '$dir/usr/bin/pacman-static' '$dest'" $SUDO_USER
+else
+    cp "$dir/usr/bin/pacman-static" "$dest"
+fi
+exitval=0
