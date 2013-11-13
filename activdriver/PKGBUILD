@@ -2,7 +2,7 @@
 # Contributor: Zsolt Udvari <udvzsolt@gmail.com>
 pkgname=activdriver
 pkgver=5.8.46
-pkgrel=1
+pkgrel=2
 pkgdesc="The kernel mode and X11 drivers for Promethean ActivBoard and ActivHub."
 arch=('i686' 'x86_64')
 url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
@@ -35,11 +35,8 @@ package() {
   cp -r usr/bin usr/lib usr/share $pkgdir/usr
   install -D usr/src/promethean/activlc/release/activlc $pkgdir/usr/bin/activlc
   _extmoddir=$(uname -r | sed "s@\([0-9]*\.[0-9]*\)\.[0-9]*-[0-9]*\(.*\)@\1\2@")
-  if [ -d /lib/modules/extramodules-${_extmoddir} ]; then
-      _moddir="/lib/modules/extramodules-${_extmoddir}"/
-  else
-      _moddir="/lib/modules/$(uname -r)"/kernel/drivers/input/tablet/
-  fi
+  _moddir="/lib/modules/extramodules-${_extmoddir}"/kernel/drivers/input/tablet/
+
   install -m644 -D usr/src/promethean/kernel/promethean.ko \
     $pkgdir${_moddir}/promethean.ko
   find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
