@@ -22,5 +22,3 @@ pref("browser.shell.checkDefaultBrowser", false);
 pref("extensions.autoDisableScopes", 11);
 pref("extensions.shownSelectionUI", true);
 
-// Enable gstreamer support
-pref("media.gstreamer.enabled", true);
