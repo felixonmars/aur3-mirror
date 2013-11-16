@@ -1,6 +1,6 @@
 # Maintainer: Denis Tikhomirov <dvtikhomirov@gmail.com>
 pkgname=mattext
-pkgver=0.3
+pkgver=0.4
 pkgrel=1
 pkgdesc="Simple matix-style pager"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ license=('BSD')
 depends=('ncurses' 'gcc-libs')
 makedepends=('git' 'cmake')
 source=( https://github.com/dhurum/${pkgname}/archive/v${pkgver}.tar.gz)
-sha256sums=('7463c2cd4151e71ff3f32757dec3f389cc18130f3855dfa340f0a1ce88ab5c5f')
+sha256sums=('26838cfb5f987ec665eeb0676aa4514882411313e05f21ce92876bd7af058fcc')
 
 build() {
 	cd "$srcdir/$pkgname-$pkgver"
