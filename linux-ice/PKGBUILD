@@ -5,9 +5,9 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.11
-pkgver=3.11.6
+pkgver=3.11.8
 pkgrel=1
-_toipatch=tuxonice-for-linux-3.11.6-2013-10-19.patch
+_toipatch=tuxonice-for-linux-3.11.8-2013-11-15.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -25,14 +25,14 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 md5sums=('fea363551ff45fbe4cb88497b863b261'
-         'c44ebb225fe9956b636b79ab6b61aa42'
+         'e6c14ecc86eab4cfaf498ba3c70b3f04'
          '376d9fc6a7a32c78c8c49981a97f399a'
          'b4087845b70c0f26f4c45b9851a820bd'
          'eb14dcfd80c00852ef81ded6e826826a'
          '98beb36f9b8cf16e58de2483ea9985e3'
          'd50c1ac47394e9aec637002ef3392bd1'
          'b479ae335174532db96aac4b24dff7ea'
-         '365c1ec21dfed6050572776ac731ddb5')
+         '2927c8e811830fdaf513348d0a5f5d99')
 
 _kernelname=${pkgbase#linux}
 
