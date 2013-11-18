@@ -10,7 +10,7 @@ _kernelname=${pkgname#linux}
 _basekernel=3.11
 _paxver=test13
 pkgver=${_basekernel}.8
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url="http://www.kernel.org/"
 license=(GPL2)
@@ -23,12 +23,11 @@ _menuconfig=0
 source=(
   http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
   http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
-  http://grsecurity.net/test/pax-linux-$pkgver-$_paxver.patch
+  http://grsecurity.net/~paxguy1/pax-linux-$pkgver-$_paxver.patch
   config.i686
   config.x86_64
   $pkgname.install
   $pkgname.preset
-  change-default-console-loglevel.patch
 )
 
 [ $LANG = 'de_DE.UTF-8' ] && {
@@ -47,7 +46,7 @@ build() {
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
-# patch -Np1 -i "$srcdir/change-default-console-loglevel.patch"
+  sed -i 's/DEFAULT_CONSOLE_LOGLEVEL 7/DEFAULT_CONSOLE_LOGLEVEL 4/' kernel/printk/printk.c
 
   # Add PaX patches
   patch -Np1 -i "$srcdir/pax-linux-$pkgver-$_paxver.patch"
@@ -303,5 +302,4 @@ sha256sums=('803ec8f0ad4b2ddedcb0332a590cd2b5e10dfc57c3b1c95bc9c46af81d51d7f9'
             'c50abd15dad70822fbf95deda7865dd298430eb050c491193582fbb3ba4a574d'
             'eb644b83631ada086268150c883cb4ed974a7a1388b9b4c549171deb6b1bf043'
             '2d62c4be4a515cc6aca5a66c0e9fdc23cb7775531c6d102bc3c1be069dd6b0a8'
-            '92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a'
-            'b9d79ca33b0b51ff4f6976b7cd6dbb0b624ebf4fbf440222217f8ffc50445de4')
+            '92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a')
