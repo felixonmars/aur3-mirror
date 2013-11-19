@@ -1,8 +1,8 @@
 SET(CMAKE_SYSTEM_NAME Windows)
 
 # specify the cross compiler
-SET(CMAKE_C_COMPILER /usr/bin/x86_64-w64-mingw32-gcc)
-SET(CMAKE_CXX_COMPILER /usr/bin/x86_64-w64-mingw32-g++)
+SET(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)
+SET(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
 
 # where is the target environment
 SET(CMAKE_FIND_ROOT_PATH /usr/x86_64-w64-mingw32)
@@ -17,13 +17,13 @@ SET(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 SET(QT_BINARY_DIR /usr/x86_64-w64-mingw32/bin /usr/bin)
 
 # set the resource compiler (RHBZ #652435)
-SET(CMAKE_RC_COMPILER /usr/bin/x86_64-w64-mingw32-windres)
+SET(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
 
 # override boost library suffix which defaults to -mgw
 SET(Boost_COMPILER -gcc47)
 
 # These are needed for compiling lapack (RHBZ #753906)
-SET(CMAKE_Fortran_COMPILER /usr/bin/x86_64-w64-mingw32-gfortran)
-SET(CMAKE_AR:FILEPATH /usr/bin/x86_64-w64-mingw32-ar)
-SET(CMAKE_RANLIB:FILEPATH /usr/bin/x86_64-w64-mingw32-ranlib)
+SET(CMAKE_Fortran_COMPILER x86_64-w64-mingw32-gfortran)
+SET(CMAKE_AR:FILEPATH x86_64-w64-mingw32-ar)
+SET(CMAKE_RANLIB:FILEPATH x86_64-w64-mingw32-ranlib)
 
