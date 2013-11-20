@@ -8,7 +8,7 @@ pkgdesc="Kernel driver for TI ACX1xx based wireless cards (CardBus/PCI/USB)"
 url="http://acx100.sourceforge.net/"
 arch=('any')
 license=('GPL')
-depends=('linux>=3.11' 'linux<3.12')
+depends=('linux>=3.12' 'linux<3.13')
 optdepends=(
     'acx111-firmware: firmware for TI ACX111 cards'
     'acx100-firmware: firmware for TI ACX100 cards'
@@ -20,7 +20,7 @@ install="${pkgname}.install"
 source=("git://git.code.sf.net/p/acx100/${_basename}")
 sha256sums=('SKIP')
 
-_extramodules=extramodules-3.11-ARCH
+_extramodules=extramodules-3.12-ARCH
 _kernver="$(cat /usr/lib/modules/${_extramodules}/version)"
 
 pkgver() {

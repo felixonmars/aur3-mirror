@@ -1,3 +1,8 @@
+Version 4.3.1-1 (Tue Sep 19 12:44:00 EST 2013)
+---
+
+Eclipse 4.3 Kepler SR1 (downgrade to latest present release, future is now maintained in eclipse-java-future package)
+
 Version 4.4-1 (Wed Oct  3 19:01:00 EST 2013)
 ---
 
