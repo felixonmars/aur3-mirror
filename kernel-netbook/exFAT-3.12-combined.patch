@@ -1,0 +1,134 @@
+unchanged:
+--- b/exfat_super.c	2013-09-07 13:16:44.442345059 +0200
++++ b/exfat_super.c     2013-10-06 13:16:44.442345059 +0200
+@@ -71,6 +71,9 @@
+ #include <linux/namei.h>
+ #include <asm/current.h>
+ #include <asm/unaligned.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++#include <linux/aio.h>
++#endif
+ 
+ #include "exfat_version.h"
+ #include "exfat_config.h"
+@@ -273,9 +276,15 @@
+ #endif
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
++static int exfat_readdir(struct file *filp, struct dir_context *ctx)
++{
++	struct inode *inode = file_inode(filp);
++#else
+ static int exfat_readdir(struct file *filp, void *dirent, filldir_t filldir)
+ {
+ 	struct inode *inode = filp->f_path.dentry->d_inode;
++#endif
+ 	struct super_block *sb = inode->i_sb;
+ 	struct exfat_sb_info *sbi = EXFAT_SB(sb);
+ 	FS_INFO_T *p_fs = &(sbi->fs_info);
+@@ -286,8 +295,11 @@
+ 	int err = 0;
+ 
+ 	__lock_super(sb);
+-
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
++	cpos = ctx->pos;
++#else
+ 	cpos = filp->f_pos;
++#endif
+ 	if ((p_fs->vol_type == EXFAT) || (inode->i_ino == EXFAT_ROOT_INO)) {
+ 		while (cpos < 2) {
+ 			if (inode->i_ino == EXFAT_ROOT_INO)
+@@ -296,12 +308,19 @@
+ 				inum = inode->i_ino;
+ 			else
+ 				inum = parent_ino(filp->f_path.dentry);
+-
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
++			if (!dir_emit_dots(filp, ctx))
++				goto out;
++			cpos++;
++			ctx->pos++;
++		}
++#else
+ 			if (filldir(dirent, "..", cpos+1, cpos, inum, DT_DIR) < 0)
+ 				goto out;
+ 			cpos++;
+ 			filp->f_pos++;
+ 		}
++#endif
+ 		if (cpos == 2) {
+ 			cpos = 0;
+ 		}
+@@ -347,14 +366,20 @@
+ 			inum = iunique(sb, EXFAT_ROOT_INO);
+ 		}
+ 	}
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
++	if (!dir_emit(ctx, de.Name, strlen(de.Name), inum,
++			(de.Attr & ATTR_SUBDIR) ? DT_DIR : DT_REG))
++		goto out;
+ 
++	ctx->pos = cpos;
++#else
+ 	if (filldir(dirent, de.Name, strlen(de.Name), cpos-1, inum,
+ 				(de.Attr & ATTR_SUBDIR) ? DT_DIR : DT_REG) < 0)
+ 		goto out;
+ 
+ 	filp->f_pos = cpos;
++#endif
+ 	goto get_new;
+-
+ end_of_dir:
+ 	filp->f_pos = cpos;
+ out:
+@@ -436,7 +461,11 @@
+ const struct file_operations exfat_dir_operations = {
+ 	.llseek     = generic_file_llseek,
+ 	.read       = generic_read_dir,
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0)
++	.iterate    = exfat_readdir,
++#else
+ 	.readdir    = exfat_readdir,
++#endif
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,36)
+ 	.ioctl      = exfat_generic_ioctl,
+ 	.fsync      = exfat_file_fsync,
+@@ -1285,7 +1314,11 @@
+ {
+ 	struct inode *inode = mapping->host;
+ 	if (to > i_size_read(inode)) {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,0)
++		truncate_pagecache(inode, i_size_read(inode));
++#else
+ 		truncate_pagecache(inode, to, i_size_read(inode));
++#endif
+ 		EXFAT_I(inode)->fid.size = i_size_read(inode);
+ 		_exfat_truncate(inode, i_size_read(inode));
+ }$jo!m
+@@ -1406,7 +1439,11 @@
+ 	struct inode *inode = NULL;
+ 
+ 	spin_lock(&sbi->inode_hash_lock);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)
++	hlist_for_each_entry(info, head, i_hash_fat) {
++#else
+ 	hlist_for_each_entry(info, node, head, i_hash_fat) {
++#endif
+ 		CHECK_ERR(info->vfs_inode.i_sb != sb);
+ 
+ 		if (i_pos != info->i_pos)
+only in patch2:
+unchanged:
+--- src/exfat_super.c	2013-08-22 22:45:20.731416226 +0200
++++ src.new/exfat_super.c	2013-08-22 22:44:39.829418640 +0200
+@@ -2159,3 +2159,8 @@
+ module_exit(exit_exfat_fs);
+ 
+ MODULE_LICENSE("GPL");
++MODULE_ALIAS("exfat");
++MODULE_DESCRIPTION("exFAT Filesystem Driver");
++#ifdef MODULE_ALIAS_FS
++MODULE_ALIAS_FS("exfat");
++#endif

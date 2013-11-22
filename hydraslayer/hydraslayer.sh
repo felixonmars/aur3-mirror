@@ -6,5 +6,5 @@ fi
  
 mkdir -p "$_config_dir" || return 1
 
- 
-/usr/share/hydraslayer/hydraslayer -f $_config_dir/hydra.sav -t $_config_dir/hydralog.txt -g /usr/share/hydraslayer/hydrascores.sav $*
+cd /usr/share/hydraslayer 
+./hydraslayer -f $_config_dir/hydra.sav -t $_config_dir/hydralog.txt -g /usr/share/hydraslayer/hydrascores.sav $*

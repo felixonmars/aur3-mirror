@@ -1,3 +1,7 @@
+Version 4.3.1-2 (Thu Nov 21 12:50:32 EST 2013)
+
+Default to x86_64 in source URL of PKBUILD instead of using $CARCH.
+
 Version 4.3.1-1 (Tue Sep 19 12:44:00 EST 2013)
 ---
 
