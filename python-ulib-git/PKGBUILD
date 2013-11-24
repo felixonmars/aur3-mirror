@@ -1,14 +1,14 @@
 # Contributor: Devaev Maxim <mdevaev@gmail.com>
 
 pkgname=python-ulib-git
-pkgver="0.6"
+pkgver="0.7"
 pkgrel=1
 pkgdesc="Useful python library"
 arch=('any')
 url="http://github.com/mdevaev/ulib.git"
 license="GPL"
 depends=('python')
-optdepends=('python-socksipy-branch')
+optdepends=('python-pysocks-git')
 makedepends=('git')
 
 _gitroot="git://github.com/mdevaev/ulib.git"
