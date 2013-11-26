@@ -4,7 +4,7 @@
 
 pkgname=mingw-w64-qt4-debug
 pkgver=4.8.5
-pkgrel=4
+pkgrel=5
 pkgdesc='A cross-platform application and UI framework (mingw-w64)'
 arch=('i686' 'x86_64')
 url="http://qt-project.org/"
@@ -13,14 +13,13 @@ depends=(
   'mingw-w64-crt'
   'mingw-w64-zlib'
   'mingw-w64-libjpeg-turbo'
-  'mingw-w64-win-iconv'
+  'mingw-w64-libiconv'
   'mingw-w64-libtiff'
   'mingw-w64-sqlite3'
   'mingw-w64-libpng'
   'mingw-w64-openssl'
-  'mingw-w64-dbus'
-  'mingw-w64-pkg-config')
-makedepends=('mingw-w64-gcc' 'mingw-w64-libmariadbclient' 'mingw-w64-postgresql-libs')
+  'mingw-w64-dbus')
+makedepends=('mingw-w64-gcc' 'mingw-w64-libmariadbclient' 'mingw-w64-postgresql-libs' 'mingw-w64-pkg-config')
 optdepends=('mingw-w64-postgresql-libs: PostgreSQL driver'
             'mingw-w64-libmariadbclient: MariaDB driver')
 options=(!strip !buildflags !libtool staticlibs)
@@ -123,9 +122,11 @@ prepare() {
   install -m644 "${srcdir}"/qplatformdefs.h mkspecs/win32-g++-cross/
   install -m644 "${srcdir}"/qplatformdefs.h mkspecs/win32-g++-cross-x64/
   
-  # fix mysql plugin
-  sed -e 's|lmysqlclient_r|lmysql|g' -i "${srcdir}"/"${_pkgfqn}"/config.tests/unix/mysql_r/mysql_r.pro
-  sed -e 's|lmysqlclient|lmysql|g' -i "${srcdir}"/"${_pkgfqn}"/config.tests/unix/mysql/mysql.pro
+  # MySQL lib is -lmysql not mysqlclient, so fix that in config tests
+  sed -e 's|lmysqlclient_r|lmysql|g' -i "${srcdir}/${_pkgfqn}/config.tests/unix/mysql_r/mysql_r.pro"
+  sed -e 's|lmysqlclient|lmysql|g' -i "${srcdir}/${_pkgfqn}/config.tests/unix/mysql/mysql.pro"
+  # fix configure to not fails in case you have system's libmariadbclient installed
+  sed -e "s|mysql_config|mysql_config_doesnt_exists|g" -i "${srcdir}/${_pkgfqn}/configure"
 }
 
 build() {
@@ -216,8 +217,8 @@ build() {
     fi
 
     if isRelease; then
-      mkdir -p ../${_arch}-release
-      pushd ../${_arch}-release
+      mkdir -p ../${_arch}
+      pushd ../${_arch}
       ../${_pkgfqn}/configure \
         -release \
         -shared \
@@ -225,6 +226,7 @@ build() {
       make
       popd
     fi
+  
   done
 }
 
@@ -240,11 +242,11 @@ package() {
     fi
 
     if isRelease; then
-      make install -C ../${_arch}-release INSTALL_ROOT="${pkgdir}"
+      make install -C ../${_arch} INSTALL_ROOT="${pkgdir}"
       # Also install the lrelease tool
-      make -C ../${_arch}-release/tools/linguist/lrelease install INSTALL_ROOT="${pkgdir}"
+      make -C ../${_arch}/tools/linguist/lrelease install INSTALL_ROOT="${pkgdir}"
       # move QtUiTools4.dll from lib/ to bin/
-      mv "${pkgdir}"/usr/${_arch}/lib/QtUiTools4.dll ${pkgdir}/usr/${_arch}/bin/
+      mv "${pkgdir}"/usr/${_arch}/lib/QtUiTools4.dll "${pkgdir}"/usr/${_arch}/bin/
       # add links with version suffix for convenience
       ln -s libqtmain.a "${pkgdir}"/usr/${_arch}/lib/libqtmain4.a
 
@@ -252,7 +254,7 @@ package() {
       mkdir -p "${pkgdir}"/usr/bin
       mkdir -p "${pkgdir}"/usr/${_arch}/bin
 
-      install -m0755 ../${_arch}-release/bin/qmake "${pkgdir}"/usr/${_arch}/bin
+      install -m0755 ../${_arch}/bin/qmake "${pkgdir}"/usr/${_arch}/bin
       ln -s ../${_arch}/bin/qmake "${pkgdir}"/usr/bin/${_arch}-qmake
 
       for tool in lrelease moc rcc uic ; do
@@ -337,32 +339,31 @@ package() {
       rm -rf "${pkgdir}"/usr/${_arch}/share/qt4/phrasebooks/
 
       # Move imports to lib/qt4, just like the plugins
-      mv "${pkgdir}"/usr/${_arch}/imports ${pkgdir}/usr/${_arch}/lib/qt4/
+      mv "${pkgdir}"/usr/${_arch}/imports "${pkgdir}"/usr/${_arch}/lib/qt4/
     fi
 
     # And finaly, strip the binaries
-    if isShared; then
-      ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/bin/*.dll
-    fi
     if isRelease; then
       ${_arch}-strip --strip-all "${pkgdir}"/usr/${_arch}/bin/*.exe
-    fi
-    if isStatic; then
-      ${_arch}-strip --strip-debug "${pkgdir}"/usr/${_arch}/lib/*4.a # static libs
-    else
-      ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/libqtmain*.a
-      ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/*4.dll.a # dynamic lib interfaces
+      ${_arch}-strip --strip-debug "${pkgdir}"/usr/${_arch}/lib/*.a
+      ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/bin/*.dll
       ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/qt4/plugins/*/*.dll
       ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/qt4/imports/Qt/labs/*/*.dll
       ${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/qt4/imports/QtWebKit/*.dll
     fi
+    if isStatic; then
+      ${_arch}-strip --strip-debug "${pkgdir}"/usr/${_arch}/lib/*.a
+      ${_arch}-strip --strip-debug "${pkgdir}"/usr/${_arch}/lib/qt4/plugins/*/*.a
+      ${_arch}-strip --strip-debug "${pkgdir}"/usr/${_arch}/lib/qt4/imports/Qt/labs/*/*.a
+    fi
     
+    # Apply a patch which incorporates all the differences between
+    # the static and the shared library build while staying compatible
     if isRelease; then
-      # Apply a patch which incorporates all the differences between
-      # the static and the shared library build while staying compatible
       pushd "${pkgdir}"/usr/"${_arch}"
       patch -Np0 -i "${srcdir}"/qt-merge-static-and-shared-library-trees.patch
       popd
     fi
+
   done
 }
