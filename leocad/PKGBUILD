@@ -24,7 +24,7 @@ build() {
 cd "${srcdir}/${pkgname}"
  
 # install the binary to /usr/share
-qmake leocad.pro
+qmake-qt4 leocad.pro
 sed 's#$(INSTALL_ROOT)/usr/bin#$(INSTALL_ROOT)/usr/share/leocad/bin#g' -i Makefile
 make
 }
