@@ -2,8 +2,8 @@
 # Contributor: Gaetan Bisson <bisson@archlinux.org>
 
 pkgname=quassel-light
-pkgver=0.9.1
-pkgrel=2
+pkgver=0.9.2
+pkgrel=1
 pkgdesc="Modern, cross-platform, distributed IRC client; built with few dependencies"
 arch=('i686' 'x86_64')
 url="http://quassel-irc.org/"
@@ -18,7 +18,7 @@ backup=(etc/conf.d/quassel)
 source=("http://quassel-irc.org/pub/quassel-$pkgver.tar.bz2"
 		'quassel.service'
 		'quassel.conf')
-sha256sums=('39e97bd67160d6575a57d4f71c4b1be5c13461ca238baef462ab43164419864e'
+sha256sums=('f04d01602509c1d950602502e5f51aba47d99c73a9c70e77c563bb7749fc53c0'
 			'91a1aaae47d41c11aa418dd560039ddbbfb659e02b86379d8c4789c5ada362d3'
 			'f3031ea8217e01ba42cea14606169e3e27affa5918968ffd5a03c21ae92fe2b8')
 
