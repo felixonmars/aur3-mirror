@@ -1,0 +1,54 @@
+# $Id$
+# Maintainer: Eric Bélanger <eric@archlinux.org>
+
+pkgname=icewm-ak-stable
+_srcname=icewm
+pkgver=1.3.7
+pkgrel=9
+pkgdesc="A Lightweight Window Manager (stable version). Patched: more network device monitors, better acpi power support, cpuinfo_cur_freq to support intel_pstate freqs"
+arch=('i686' 'x86_64')
+url="http://www.icewm.org/"
+license=('LGPL')
+depends=('libxrandr' 'libxft' 'libsm' 'libxinerama' 'gdk-pixbuf2')
+makedepends=('xorg-mkfontdir')
+provides=('icewm')
+conflicts=('icewm')
+replaces=('icewm')
+source=(http://downloads.sourceforge.net/sourceforge/icewm/${_srcname}-${pkgver}.tar.gz
+        use_ICEWM_deprecated.patch ignore_workarea_hints.patch no_proc_acpi.patch 
+        wmclient.patch icewm-cpustatus.patch aapm_power.patch
+        acpustatus_read_cpuinfo_cur_freq.patch
+		net-rate-in-bits-per-second.patch
+        hack_more_netdevs.patch)
+
+sha1sums=('ce8d86190e275dc7db2d8c28472a579264120803'
+          'ac8f352ba5ee33e19ce75fdeed890361550e125a'
+          '49ca37ae41290f17a71a177b1f774235f91d79f1'
+          'a47fb4191f30b8f42a6bd90ca5d7941bb3d65338'
+          'd16b4b3ab269a657e735e343833973d000c0b35b'
+          '0f4a02153496dadd26742f6bd3bdc166d7eafaed'
+          'a0d126e0328c1de211484f591dd07c91765ec679'
+          'c4942fdd7b499228a8c1ec17e57ca704ea57bfc8'
+		  '5285ecfcd1654749951338b80c6c16e3dfa4d1d0'
+          'c35522fe9647ce8c64f5b333a83433356ba21aac')
+
+build() {
+  cd "${srcdir}/${_srcname}-${pkgver}"
+  patch -p1 -b -i "${srcdir}/use_ICEWM_deprecated.patch"
+  patch -p1 -b -i "${srcdir}/ignore_workarea_hints.patch"
+  patch -p1 -b -i "${srcdir}/no_proc_acpi.patch"
+  patch -p1 -b -i "${srcdir}/wmclient.patch"
+  patch -p2 -b -i "${srcdir}/icewm-cpustatus.patch"
+  patch -p1 -b -i "${srcdir}/aapm_power.patch"
+  patch -p0 -b -i "${srcdir}/hack_more_netdevs.patch"
+  patch -p0 -b -i "${srcdir}/acpustatus_read_cpuinfo_cur_freq.patch"
+  patch -p0 -b -i "${srcdir}/net-rate-in-bits-per-second.patch"
+  LIBS+="-lfontconfig" ./configure --prefix=/usr --sysconfdir=/etc \
+    --enable-shaped-decorations --enable-gradients
+  make
+}
+
+package() {
+  cd "${srcdir}/${_srcname}-${pkgver}"
+  make DESTDIR="${pkgdir}" install install-man install-docs install-desktop
+}
