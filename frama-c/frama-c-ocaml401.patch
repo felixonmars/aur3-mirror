@@ -1,0 +1,132 @@
+--- ./share/Makefile.common.orig	2013-06-11 08:13:56.000000000 -0600
++++ ./share/Makefile.common	2013-09-16 21:45:00.000000000 -0600
+@@ -59,8 +59,8 @@ ifeq ($(HAS_OCAML311),yes)
+   ifeq ($(findstring 3.13,$(OCAMLVERSION)),) # obsolete version number
+    ifeq ($(findstring 4.00,$(OCAMLVERSION)),)
+     ifeq ($(findstring 4.01,$(OCAMLVERSION)),)
+-     HAS_OCAML312 = no  # Ocaml 3.11
+-     HAS_OCAML400 = no
++     HAS_OCAML312 = yes  # Ocaml 3.11
++     HAS_OCAML400 = yes
+     else
+      HAS_OCAML312 = yes
+      HAS_OCAML400 = yes
+--- ./src/kernel/file.ml.orig	2013-06-11 08:13:13.000000000 -0600
++++ ./src/kernel/file.ml	2013-09-16 21:45:00.000000000 -0600
+@@ -321,18 +321,6 @@ object(self)
+          C variable %a"
+ 	Printer.pp_logic_var lv Printer.pp_varinfo v
+ 
+-  method vlogic_info_decl li =
+-    List.iter
+-      (fun lv ->
+-        if lv.lv_kind <> LVFormal then
+-          check_abort 
+-            "Formal parameter %a of logic function/predicate is \
+-             flagged with wrong origin"
+-            Printer.pp_logic_var lv)
+-      li.l_profile;
+-    DoChildren
+-
+-
+   method vlogic_var_use v =
+     if v.lv_name <> "\\exit_status" then begin
+       if Logic_env.is_builtin_logic_function v.lv_name then begin
+@@ -770,6 +758,14 @@ object(self)
+     | _ -> DoChildren
+ 
+   method vlogic_info_decl li =
++    List.iter
++      (fun lv ->
++        if lv.lv_kind <> LVFormal then
++          check_abort 
++            "Formal parameter %a of logic function/predicate is \
++             flagged with wrong origin"
++            Printer.pp_logic_var lv)
++      li.l_profile;
+     Logic_var.Hashtbl.add known_logic_info li.l_var_info li;
+     DoChildren
+ 
+--- ./src/lib/hptset.ml.orig	2013-06-11 08:13:42.000000000 -0600
++++ ./src/lib/hptset.ml	2013-09-16 21:45:00.000000000 -0600
+@@ -46,6 +46,7 @@ module type S = sig
+   val contains_single_elt: t -> elt option
+   val choose: t -> elt
+   val split: elt -> t -> t * bool * t
++  val find: elt -> t -> elt
+   val intersects: t -> t -> bool
+   val clear_caches: unit -> unit
+ end
+@@ -97,6 +98,8 @@ module Make(X: Id_Datatype)
+ 
+   let mem x s = try find x s; true with Not_found -> false
+ 
++  let find x s = if mem x s then x else raise Not_found
++
+   let diff s1 s2 =
+     fold (fun x acc -> if mem x s2 then acc else add x acc) s1 empty
+ 
+--- ./src/lib/hptset.mli.orig	2013-06-11 08:13:42.000000000 -0600
++++ ./src/lib/hptset.mli	2013-09-16 21:45:00.000000000 -0600
+@@ -137,6 +137,12 @@ module type S = sig
+           [present] is [false] if [s] contains no element equal to [x],
+           or [true] if [s] contains an element equal to [x]. *)
+ 
++    val find : elt -> t -> elt
++    (** [find x s] returns the element of [s] equal to [x] (according
++	to [Ord.compare]), or raise [Not_found] if no such element
++	exists.
++	@since 4.01.0 *)
++
+     val intersects: t -> t -> bool
+     (** [intersects s1 s2] returns [true] if and only if [s1] and [s2]
+         have an element in common *)
+--- ./src/lib/setWithNearest.ml.orig	2013-06-11 08:13:42.000000000 -0600
++++ ./src/lib/setWithNearest.ml	2013-09-16 21:45:00.000000000 -0600
+@@ -286,6 +286,13 @@ module Make(Ord: Datatype.S) = struct
+ 
+     let choose = min_elt
+ 
++    let rec find x = function
++	Empty -> raise Not_found
++      | Node(l, v, r, _) ->
++	let c = Ord.compare x v in
++	if c = 0 then v
++	else find x (if c < 0 then l else r)
++
+     (************************* Extra functions **************************)
+ 
+     (* The nearest value of [s] le [v]. Raise Not_found if none *)
+--- ./src/memory_state/cvalue.mli.orig	2013-06-11 08:13:51.000000000 -0600
++++ ./src/memory_state/cvalue.mli	2013-09-16 21:45:00.000000000 -0600
+@@ -35,8 +35,8 @@ module V : sig
+   include module type of Location_Bytes
+     (* Too many aliases, and OCaml module system is not able to keep track
+        of all of them. Use some shortcuts *)
+-    with type z = Location_Bytes.z
+-    and type M.t = Location_Bytes.M.t
++    with type M.t = Location_Bytes.M.t
++    and type z = Location_Bytes.z
+ 
+   include Lattice_With_Isotropy.S
+       with type t := t
+--- ./src/wp/qed/src/idxset.ml.orig	2013-06-11 08:13:23.000000000 -0600
++++ ./src/wp/qed/src/idxset.ml	2013-09-16 21:45:00.000000000 -0600
+@@ -59,6 +59,8 @@ struct
+ 
+   let mem e s = mem_k (E.id e) s
+ 
++  let find x s = if mem x s then x else raise Not_found
++
+   let lowest_bit x = x land (-x)
+     
+   let branching_bit p0 p1 = lowest_bit (p0 lxor p1)
+@@ -360,6 +362,8 @@ struct
+ 
+   let mem e s = mem_k (index e) s
+ 
++  let find x s = if mem x s then x else raise Not_found
++
+   let mask k m  = (k lor (m-1)) land (lnot m)
+ 
+   (* we first write a naive implementation of [highest_bit] 

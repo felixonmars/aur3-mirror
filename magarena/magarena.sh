@@ -1,26 +1,30 @@
 #!/bin/sh
 
-# Magarena Start Script for Arch Linux supplied with AUR
+# Magarena Start Script
+# License: GPL3+
 
-rebase() {
-  echo -e "\033[1m ==> Updating Magarena Base...\033[0m"
-  echo -e
-  cp -rfp /usr/share/magarena-base/. $HOME/.magarena/
+maghome="$HOME/.magarena"
+
+bootstrap() {
+  echo -e "\033[1m==> Updating local cache..\033[0m\n"
+  cp -rf /usr/share/magarena-base/. $maghome/
 }
 
 # check if user needs update
-if [ ! -d "$HOME/.magarena" ]; then
-    mkdir $HOME/.magarena
-    rebase
-elif [ "$1" == "rebase" ]; then
-    rebase
-elif ! diff /usr/share/magarena-base/Magarena/VERSION $HOME/.magarena/Magarena/VERSION >/dev/null 2>&1; then
-    rebase
+if [ ! -d "$maghome" ]; then
+    mkdir $maghome
+    bootstrap
+elif [ "$1" == "update" ]; then
+    bootstrap
+elif ! diff /usr/share/magarena-base/Magarena/VERSION $maghome/Magarena/VERSION >/dev/null 2>&1; then
+    bootstrap
 fi
 
 # this is needed to get Readme.txt to work
-cd $HOME/.magarena/Magarena
+cd $maghome/Magarena
 
-CP=$CP:/usr/share/java/magarena/magarena.jar
-CP=$CP:/usr/share/groovy/embeddable/groovy-all.jar
-exec "$JAVA_HOME/bin/java" -Xms256M -Xmx512M -Dmagarena.dir=$HOME/.magarena -cp $CP magic.MagicMain
+jardir=/usr/share/java/magarena
+CP=$CP:$jardir/magarena.jar:$jardir/lib/groovy-all-2.2.1.jar
+CP=$CP:$jardir/lib/miglayout-core-4.2.jar:$jardir/lib/miglayout-swing-4.2.jar
+
+exec "$JAVA_HOME/bin/java" -Xms256M -Xmx256M -Dmagarena.dir=$maghome -cp $CP magic.MagicMain

@@ -1,5 +1,5 @@
 #!/bin/sh
 
 cd /usr/share/anura-git
-/usr/lib/anura-git/game $*
+/usr/lib/anura-git/anura $*
 
