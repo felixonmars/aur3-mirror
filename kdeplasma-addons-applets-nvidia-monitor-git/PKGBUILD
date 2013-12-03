@@ -5,13 +5,13 @@ pkgname=kdeplasma-addons-applets-nvidia-monitor-git
 _gitname=nvidia-monitor
 _gitrepo=https://github.com/mdevlamynck/nvidia-monitor.git
 url=https://github.com/mdevlamynck/nvidia-monitor
-pkgver=0.2
+pkgver=0.3
 pkgrel=1
 pkgdesc="An applet that monitor nvidia GPU using nvidia-settings (using proprietary drivers). Not supporting SLI and bumblebee yet."
 
 arch=('i686' 'x86_64')
 license=('GPL')
-depends=('nvidia-utils')
+depends=('nvidia-utils' 'kdebase-workspace')
 makedepends=('git' 'cmake' 'kdeplasma-addons-libs')
 
 source=("git+${_gitrepo}")
