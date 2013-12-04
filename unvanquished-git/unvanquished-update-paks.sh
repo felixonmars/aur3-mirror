@@ -5,4 +5,7 @@ if [ ! $EUID -eq 0 ]; then
 	exit
 fi
 
+# Make sure unvanquished has read access
+umask 033
+
 exec /usr/lib/unvanquished/download-pk3.sh /var/lib/unvanquished/main /var/cache/unvanquished/update-paks

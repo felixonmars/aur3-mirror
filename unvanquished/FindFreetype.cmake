@@ -1,6 +1,0 @@
-execute_process( COMMAND sh -c "test -f /usr/include/ft2build.h && echo /usr/include || echo /usr/include/freetype2" OUTPUT_VARIABLE FREETYPE_INCLUDE_DIR_ft2build OUTPUT_STRIP_TRAILING_WHITESPACE )
-set( FREETYPE_INCLUDE_DIR_ft2build "${FREETYPE_INCLUDE_DIR_ft2build}" CACHE PATH "Freetype2 include path (ft2build)" )
-set( FREETYPE_INCLUDE_DIR_freetype2 "/usr/include/freetype2" CACHE PATH "Freetype2 include path" )
-set( FREETYPE_INCLUDE_DIRS "${FREETYPE_INCLUDE_DIR_ft2build}" "${FREETYPE_INCLUDE_DIR_freetype2}" )
-find_library( FREETYPE_LIBRARY NAMES freetype libfreetype )
-set( FREETYPE_LIBRARIES "${FREETYPE_LIBRARY}" )
