@@ -1,0 +1,227 @@
+diff --git a/src/script.c b/src/script.c
+index b71e25d..c38c45c 100644
+--- a/src/script.c
++++ b/src/script.c
+@@ -4,6 +4,7 @@
+ #include <string.h>
+ #include "script.h"
+ #include "http_parser.h"
++#include "zmalloc.h"
+ 
+ typedef struct {
+     char *name;
+@@ -74,13 +75,49 @@ void script_init(lua_State *L, char *script, int argc, char **argv) {
+     lua_call(L, 1, 0);
+ }
+ 
+-void script_request(lua_State *L, char **buf, size_t *len) {
++static void script_request_single(lua_State *L, char **buf, size_t *len) {
+     lua_getglobal(L, "request");
+     lua_call(L, 0, 1);
+     *buf = (char *) lua_tolstring(L, 1, len);
+     lua_pop(L, 1);
+ }
+ 
++void script_request(lua_State *L, char **buf, size_t *len, size_t num_requests) {
++    size_t i;
++    size_t merged_length;
++    size_t single_length;
++    char* merged_buf;
++    size_t merged_buf_cap;
++    char* single_buf;
++
++    script_request_single(L, &single_buf, &single_length);
++
++    merged_buf_cap = single_length * num_requests * 2 + 1;
++    merged_buf = zmalloc(merged_buf_cap);
++    merged_length = single_length;
++    memcpy(merged_buf, single_buf, single_length);
++
++    for (i = 1; i < num_requests; i ++) {
++        script_request_single(L, &single_buf, &single_length);
++
++        if (merged_length + single_length > merged_buf_cap) {
++            merged_buf_cap <<= 1;
++            merged_buf = zrealloc(merged_buf, merged_buf_cap);
++        }
++
++        memcpy(merged_buf + merged_length, single_buf, single_length);
++        merged_length += single_length;
++    }
++
++    if (merged_length == merged_buf_cap) {
++        merged_buf = zrealloc(merged_buf, merged_buf_cap + 1);
++    }
++    merged_buf[merged_length] = '\0';
++
++    *buf = merged_buf;
++    *len = merged_length;
++}
++
+ void script_response(lua_State *L, int status, buffer *headers, buffer *body) {
+     lua_getglobal(L, "response");
+     lua_pushinteger(L, status);
+@@ -192,7 +229,7 @@ size_t script_verify_request(lua_State *L) {
+     char *request;
+     size_t len, count = 0;
+ 
+-    script_request(L, &request, &len);
++    script_request_single(L, &request, &len);
+     http_parser_init(&parser, HTTP_REQUEST);
+     parser.data = &count;
+ 
+diff --git a/src/script.h b/src/script.h
+index 72a3c32..5c8a40b 100644
+--- a/src/script.h
++++ b/src/script.h
+@@ -19,7 +19,7 @@ size_t script_verify_request(lua_State *L);
+ 
+ void script_init(lua_State *, char *, int, char **);
+ void script_done(lua_State *, stats *, stats *);
+-void script_request(lua_State *, char **, size_t *);
++void script_request(lua_State *, char **, size_t *, size_t);
+ void script_response(lua_State *, int, buffer *, buffer *);
+ 
+ bool script_is_static(lua_State *);
+diff --git a/src/wrk.c b/src/wrk.c
+index d7f5027..511c75b 100644
+--- a/src/wrk.c
++++ b/src/wrk.c
+@@ -8,6 +8,7 @@ static struct config {
+     uint64_t threads;
+     uint64_t connections;
+     uint64_t duration;
++    uint64_t pipeline;
+     uint64_t timeout;
+     bool     latency;
+     bool     dynamic;
+@@ -51,6 +52,7 @@ static void usage() {
+            "        --latency          Print latency statistics   \n"
+            "        --timeout     <T>  Socket/request timeout     \n"
+            "    -v, --version          Print version details      \n"
++           "        --pipeline    <N>  Send N pipelined requests  \n"
+            "                                                      \n"
+            "  Numeric arguments may include a SI unit (1k, 1M, 1G)\n"
+            "  Time arguments may include a time unit (2s, 2m, 2h)\n");
+@@ -170,7 +172,7 @@ int main(int argc, char **argv) {
+ 
+     char *time = format_time_s(cfg.duration);
+     printf("Running %s test @ %s\n", time, url);
+-    printf("  %"PRIu64" threads and %"PRIu64" connections\n", cfg.threads, cfg.connections);
++    printf("  %"PRIu64" threads and %"PRIu64" connections with pipeline length %"PRIu64"\n", cfg.threads, cfg.connections, cfg.pipeline);
+ 
+     uint64_t start    = time_us();
+     uint64_t complete = 0;
+@@ -238,7 +240,7 @@ void *thread_main(void *arg) {
+     size_t length = 0;
+ 
+     if (!cfg.dynamic) {
+-        script_request(thread->L, &request, &length);
++        script_request(thread->L, &request, &length, cfg.pipeline);
+     }
+ 
+     connection *c = thread->cs;
+@@ -259,6 +261,9 @@ void *thread_main(void *arg) {
+ 
+     aeDeleteEventLoop(loop);
+     zfree(thread->cs);
++    if (!cfg.dynamic) {
++        zfree(request);
++    }
+ 
+     uint64_t max = thread->latency->max;
+     stats_free(thread->latency);
+@@ -386,8 +391,6 @@ static int response_complete(http_parser *parser) {
+     thread->complete++;
+     thread->requests++;
+ 
+-    stats_record(thread->latency, now - c->start);
+-
+     if (status > 399) {
+         thread->errors.status++;
+     }
+@@ -403,10 +406,13 @@ static int response_complete(http_parser *parser) {
+         goto done;
+     }
+ 
++    if (--c->pending == 0) stats_record(thread->latency, now - c->start);
+     if (!http_should_keep_alive(parser)) goto reconnect;
+ 
+     http_parser_init(parser, HTTP_RESPONSE);
+-    aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
++    if (c->pending == 0) {
++        aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
++    }
+ 
+     goto done;
+ 
+@@ -465,7 +471,7 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
+     thread *thread = c->thread;
+ 
+     if (!c->written && cfg.dynamic) {
+-        script_request(thread->L, &c->request, &c->length);
++        script_request(thread->L, &c->request, &c->length, cfg.pipeline);
+     }
+ 
+     char  *buf = c->request + c->written;
+@@ -478,11 +484,17 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
+         case RETRY: return;
+     }
+ 
+-    if (!c->written) c->start = time_us();
++    if (!c->written) {
++        c->start = time_us();
++        c->pending = cfg.pipeline;
++    }
+ 
+     c->written += n;
+     if (c->written == c->length) {
+         c->written = 0;
++        if (cfg.dynamic) {
++            zfree(c->request);
++        }
+         aeDeleteFileEvent(loop, fd, AE_WRITABLE);
+     }
+ 
+@@ -543,6 +555,7 @@ static struct option longopts[] = {
+     { "header",      required_argument, NULL, 'H' },
+     { "latency",     no_argument,       NULL, 'L' },
+     { "timeout",     required_argument, NULL, 'T' },
++    { "pipeline",    required_argument, NULL, 'P' },
+     { "help",        no_argument,       NULL, 'h' },
+     { "version",     no_argument,       NULL, 'v' },
+     { NULL,          0,                 NULL,  0  }
+@@ -555,9 +568,10 @@ static int parse_args(struct config *cfg, char **url, char **headers, int argc,
+     cfg->threads     = 2;
+     cfg->connections = 10;
+     cfg->duration    = 10;
++    cfg->pipeline    = 1;
+     cfg->timeout     = SOCKET_TIMEOUT_MS;
+ 
+-    while ((c = getopt_long(argc, argv, "t:c:d:s:H:T:Lrv?", longopts, NULL)) != -1) {
++    while ((c = getopt_long(argc, argv, "t:c:d:s:H:P:T:Lrv?", longopts, NULL)) != -1) {
+         switch (c) {
+             case 't':
+                 if (scan_metric(optarg, &cfg->threads)) return -1;
+@@ -581,6 +595,9 @@ static int parse_args(struct config *cfg, char **url, char **headers, int argc,
+                 if (scan_time(optarg, &cfg->timeout)) return -1;
+                 cfg->timeout *= 1000;
+                 break;
++            case 'P':
++                if (scan_metric(optarg, &cfg->pipeline)) return -1;
++                break;
+             case 'v':
+                 printf("wrk %s [%s] ", VERSION, aeGetApiName());
+                 printf("Copyright (C) 2012 Will Glozer\n");
+diff --git a/src/wrk.h b/src/wrk.h
+index 785c779..06560d5 100644
+--- a/src/wrk.h
++++ b/src/wrk.h
+@@ -53,6 +53,7 @@ typedef struct connection {
+     char *request;
+     size_t length;
+     size_t written;
++    uint64_t pending;
+     buffer headers;
+     buffer body;
+     char buf[RECVBUF];

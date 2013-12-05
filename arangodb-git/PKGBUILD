@@ -1,6 +1,6 @@
 # Maintainer:  Neng Xu <neng2.xu2@gmail.com>
 pkgname=arangodb-git
-pkgver=20131202
+pkgver=p20131202
 pkgrel=1
 pkgdesc="An open-source database with a flexible data model for documents, graphs, and key-values."
 provides=("arangodb")
@@ -19,7 +19,7 @@ md5sums=("SKIP"
 
 pkgver() {
   cd ArangoDB
-  git describe --tags | sed 's/-/./g'
+  git describe --long --tags | sed -E 's/([^-]*-g)/r\1/;s/-/./g'
 }
 
 build() {
