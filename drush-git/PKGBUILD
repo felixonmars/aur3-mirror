@@ -5,7 +5,7 @@
 
 # Maintainer: Tess 'socketwench' Flynn <tess@deninet.com>
 pkgname=drush-git
-pkgver=6.0.0.103.gd8ae4d7
+pkgver=0.0.0
 pkgrel=1
 pkgdesc="The Drupal command-line shell, git version."
 arch=('any')
@@ -16,12 +16,10 @@ conflicts=('drush5' 'drush')
 install=${pkgname}.install
 source=("$pkgname"::'git://github.com/drush-ops/drush.git')
 md5sums=('SKIP')
-#         '34b5f34db1ab0c4daedf2862958af257')
 
 pkgver() {
   cd $pkgname
-  local ver="$(git describe --long)"
-  printf "%s" "${ver//-/.}"
+  git describe --long | sed -E 's/([^-]*-g)/r\1/;s/-/./g'
 }
 
 build() {

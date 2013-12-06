@@ -1,3 +1,2 @@
 #!/usr/bin/env sh
-source /etc/profile
-exec env python2 -OO "/usr/share/donttakeitpersonally/don't take it personally, babe.py" --game /usr/share/donttakeitpersonally "$@"
+exec env RENPY_BASE=${RENPY_BASE:-/usr/share/renpy/} python2 -OO "/usr/share/donttakeitpersonally/don't take it personally, babe.py" /usr/share/donttakeitpersonally "$@"
