@@ -2,7 +2,7 @@
 # Contributor: Bill Durr <billyburly [at] gmail [dot] com>
 pkgname=crashplan
 pkgver=3.5.3
-pkgrel=1
+pkgrel=2
 pkgdesc="an online/offsite backup solution"
 url="http://www.crashplan.com"
 arch=('i686' 'x86_64')

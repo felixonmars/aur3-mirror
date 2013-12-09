@@ -1,11 +1,15 @@
-From 6b768089d1fc276c1159ef8fb4ade5851a0c46cc Mon Sep 17 00:00:00 2001
+From 7e2f8eb34453c18c64e0fa45bdd11e1dc1a9a5e6 Mon Sep 17 00:00:00 2001
 From: Maarten Lankhorst <maarten.lankhorst@canonical.com>
-Date: Sat, 31 Aug 2013 08:36:03 +0200
-Subject: [PATCH 1/1] TESTING -- override pthreads to fix gstreamer
+Date: Fri, 6 Dec 2013 21:18:55 +0100
+Subject: [PATCH] TESTING -- override pthreads to fix gstreamer v2
 
 I believe the code is ready and will work properly now in all cases.
 but please test before cherry picking this patch, and report
 success or failure to me please.
+
+Changes since v1:
+  - Call pthread_yield to make sure that we link against libpthread.
+    This fixes the build on saucy.
 ---
  dlls/ntdll/ntdll_misc.h         |    3 +
  dlls/ntdll/thread.c             |  261 +++++++++++++++++++++++++++++++++++++--
@@ -13,11 +17,11 @@ success or failure to me please.
  libs/wine/loader.c              |    7 +
  libs/wine/wine.map              |    6 +
  loader/Makefile.in              |    2 +-
- loader/main.c                   |   38 ++++++
- 7 files changed, 318 insertions(+), 12 deletions(-)
+ loader/main.c                   |   41 ++++++
+ 7 files changed, 321 insertions(+), 12 deletions(-)
 
 diff --git a/dlls/ntdll/ntdll_misc.h b/dlls/ntdll/ntdll_misc.h
-index 3d9264d..9c0b565 100644
+index a13c55b..5abf2d1 100644
 --- a/dlls/ntdll/ntdll_misc.h
 +++ b/dlls/ntdll/ntdll_misc.h
 @@ -28,6 +28,7 @@
@@ -28,7 +32,7 @@ index 3d9264d..9c0b565 100644
  
  #define MAX_NT_PATH_LENGTH 277
  
-@@ -233,6 +234,8 @@ struct ntdll_thread_data
+@@ -234,6 +235,8 @@ struct ntdll_thread_data
      WINE_VM86_TEB_INFO vm86;          /* 1fc vm86 private data */
      void              *exit_frame;    /* 204 exit frame pointer */
  #endif
@@ -38,7 +42,7 @@ index 3d9264d..9c0b565 100644
  
  static inline struct ntdll_thread_data *ntdll_get_thread_data(void)
 diff --git a/dlls/ntdll/thread.c b/dlls/ntdll/thread.c
-index 703e83c..8c73ef0 100644
+index 8a63725..2bbfc55 100644
 --- a/dlls/ntdll/thread.c
 +++ b/dlls/ntdll/thread.c
 @@ -33,6 +33,7 @@
@@ -57,9 +61,9 @@ index 703e83c..8c73ef0 100644
  };
  
  static PEB *peb;
-@@ -186,6 +188,78 @@ done:
-     return status;
+@@ -203,6 +205,78 @@ static ULONG get_dyld_image_info_addr(void)
  }
+ #endif  /* __APPLE__ */
  
 +#ifdef __linux__
 +extern typeof(pthread_create) *__glob_pthread_create, *call_pthread_create;
@@ -136,7 +140,7 @@ index 703e83c..8c73ef0 100644
  /***********************************************************************
   *           thread_init
   *
-@@ -204,6 +278,7 @@ HANDLE thread_init(void)
+@@ -221,6 +295,7 @@ HANDLE thread_init(void)
      struct ntdll_thread_data *thread_data;
      static struct debug_info debug_info;  /* debug info for initial thread */
  
@@ -144,7 +148,7 @@ index 703e83c..8c73ef0 100644
      virtual_init();
  
      /* reserve space for shared user data */
-@@ -329,14 +404,12 @@ void terminate_thread( int status )
+@@ -349,14 +424,12 @@ void terminate_thread( int status )
      pthread_exit( UIntToPtr(status) );
  }
  
@@ -162,7 +166,7 @@ index 703e83c..8c73ef0 100644
  
      if (status)  /* send the exit code to the server (0 is already the default) */
      {
-@@ -364,24 +437,158 @@ void exit_thread( int status )
+@@ -384,24 +457,158 @@ void exit_thread( int status )
  
      pthread_sigmask( SIG_BLOCK, &server_block_set, NULL );
  
@@ -322,7 +326,7 @@ index 703e83c..8c73ef0 100644
  
  /***********************************************************************
   *           start_thread
-@@ -414,9 +621,26 @@ static void start_thread( struct startup_info *info )
+@@ -434,9 +641,26 @@ static void start_thread( struct startup_info *info )
      if (TRACE_ON(relay))
          DPRINTF( "%04x:Starting thread proc %p (arg=%p)\n", GetCurrentThreadId(), func, arg );
  
@@ -351,7 +355,7 @@ index 703e83c..8c73ef0 100644
  
  /***********************************************************************
   *              RtlCreateUserThread   (NTDLL.@)
-@@ -499,8 +723,18 @@ NTSTATUS WINAPI RtlCreateUserThread( HANDLE process, const SECURITY_DESCRIPTOR *
+@@ -534,8 +758,18 @@ NTSTATUS WINAPI RtlCreateUserThread( HANDLE process, const SECURITY_DESCRIPTOR *
  
      info = (struct startup_info *)(teb + 1);
      info->teb         = teb;
@@ -372,7 +376,7 @@ index 703e83c..8c73ef0 100644
  
      thread_data = (struct ntdll_thread_data *)teb->SpareBytes1;
      thread_data->request_fd  = request_pipe[1];
-@@ -515,7 +749,7 @@ NTSTATUS WINAPI RtlCreateUserThread( HANDLE process, const SECURITY_DESCRIPTOR *
+@@ -550,7 +784,7 @@ NTSTATUS WINAPI RtlCreateUserThread( HANDLE process, const SECURITY_DESCRIPTOR *
                             (char *)teb->Tib.StackBase - (char *)teb->DeallocationStack );
      pthread_attr_setscope( &attr, PTHREAD_SCOPE_SYSTEM ); /* force creating a kernel thread */
      interlocked_xchg_add( &nb_threads, 1 );
@@ -381,7 +385,7 @@ index 703e83c..8c73ef0 100644
      {
          interlocked_xchg_add( &nb_threads, -1 );
          pthread_attr_destroy( &attr );
-@@ -525,6 +759,11 @@ NTSTATUS WINAPI RtlCreateUserThread( HANDLE process, const SECURITY_DESCRIPTOR *
+@@ -560,6 +794,11 @@ NTSTATUS WINAPI RtlCreateUserThread( HANDLE process, const SECURITY_DESCRIPTOR *
      pthread_attr_destroy( &attr );
      pthread_sigmask( SIG_SETMASK, &sigset, NULL );
  
@@ -394,7 +398,7 @@ index 703e83c..8c73ef0 100644
      if (handle_ptr) *handle_ptr = handle;
      else NtClose( handle );
 diff --git a/dlls/winegstreamer/glibthread.c b/dlls/winegstreamer/glibthread.c
-index 25eceb8..7417941 100644
+index 0d829a0..46e22f4 100644
 --- a/dlls/winegstreamer/glibthread.c
 +++ b/dlls/winegstreamer/glibthread.c
 @@ -43,6 +43,7 @@
@@ -422,10 +426,10 @@ index 25eceb8..7417941 100644
 +
 +#endif
 diff --git a/libs/wine/loader.c b/libs/wine/loader.c
-index 094e5e1..5d67c4c 100644
+index a9ad0be..365144c 100644
 --- a/libs/wine/loader.c
 +++ b/libs/wine/loader.c
-@@ -69,6 +69,13 @@ char **__wine_main_argv = NULL;
+@@ -73,6 +73,13 @@ char **__wine_main_argv = NULL;
  WCHAR **__wine_main_wargv = NULL;
  char **__wine_main_environ = NULL;
  
@@ -457,7 +461,7 @@ index 2159fac..fb3b951 100644
    local: *;
  };
 diff --git a/loader/Makefile.in b/loader/Makefile.in
-index a7ab893..6a47fdb 100644
+index df8d0fd..366de04 100644
 --- a/loader/Makefile.in
 +++ b/loader/Makefile.in
 @@ -1,5 +1,5 @@
@@ -468,10 +472,10 @@ index a7ab893..6a47fdb 100644
  C_SRCS = \
  	main.c \
 diff --git a/loader/main.c b/loader/main.c
-index ac67290..e2410c4 100644
+index ac67290..76609e1 100644
 --- a/loader/main.c
 +++ b/loader/main.c
-@@ -202,6 +202,42 @@ static int pre_exec(void)
+@@ -202,6 +202,45 @@ static int pre_exec(void)
  
  #endif
  
@@ -504,6 +508,9 @@ index ac67290..e2410c4 100644
 +
 +    call_pthread_detach = __glob_pthread_detach = dlsym(RTLD_NEXT, "pthread_detach");
 +    call_pthread_join = __glob_pthread_join = dlsym(RTLD_NEXT, "pthread_join");
++
++    /* Call a function from libpthread to ensure being linked against it */
++    pthread_yield();
 +}
 +
 +#else
@@ -514,7 +521,7 @@ index ac67290..e2410c4 100644
  
  /**********************************************************************
   *           main
-@@ -211,6 +247,8 @@ int main( int argc, char *argv[] )
+@@ -211,6 +250,8 @@ int main( int argc, char *argv[] )
      char error[1024];
      int i;
  
@@ -525,3 +532,5 @@ index ac67290..e2410c4 100644
          static char noexec[] = "WINELOADERNOEXEC=1";
 -- 
 1.7.0.9.GIT
+
+

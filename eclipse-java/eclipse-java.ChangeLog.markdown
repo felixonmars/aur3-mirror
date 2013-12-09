@@ -1,4 +1,10 @@
+Version 4.3.1-3 (Sun Dec  8 13:14:12 EST 2013)
+---
+
+Use correct sha256sum with i686 arch.
+
 Version 4.3.1-2 (Thu Nov 21 12:50:32 EST 2013)
+---
 
 Default to x86_64 in source URL of PKBUILD instead of using $CARCH.
 

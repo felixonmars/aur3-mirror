@@ -1,3 +1,8 @@
+Version 4.4.0-4 (Sun Dec  8 13:14:12 EST 2013)
+---
+
+Use correct sha256sum with i686 arch.
+
 Version 4.4.0-3 (Wed Nov 20 15:01:17 EST 2013)
 ---
 
