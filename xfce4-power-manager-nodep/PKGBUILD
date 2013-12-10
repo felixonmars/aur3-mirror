@@ -1,0 +1,66 @@
+# Maintainer: Black_Codec <abadirgod@gmail.com>
+
+
+pkgname=xfce4-power-manager-nodep
+_pkgname=xfce4-power-manager
+pkgver=1.2.0
+pkgrel=7
+pkgdesc="Power manager for Xfce desktop without dependencies"
+arch=('i686' 'x86_64')
+url="http://www.xfce.org/"
+license=('GPL2')
+groups=('xfce4')
+depends=('libxfce4ui' 'upower' 'udisks' 'libnotify' 'hicolor-icon-theme')
+makedepends=('pkgconfig' 'intltool')
+install=$_pkgname.install
+provides=('xfce4-power-manager')
+conflicts=('xfce4-power-manager')
+source=(http://archive.xfce.org/src/apps/$_pkgname/1.2/$_pkgname-$pkgver.tar.bz2
+        xfce4-power-manager-1.2.0-logind-support-for-suspend-hibernate.patch
+        xfce4-power-manager-1.2.0-change-brightness-level-from-glong-to-gint32.patch
+        xfce4-power-manager-1.2.0-sync-en-gb-translation.patch)
+sha256sums=('d7fb98a540284b62f4201527de17d4b24123f9d26c9f49131dd497c8387184e9'
+            '4166f61234abfcd385d43b1e7f7ab5b73711bcb7335ef0f6b217ac799dc9266b'
+            '689751b6369fd8ade6337713283f5ef3dd40715bbbe69e4a8723c9cbe56e7465'
+            'c8e1dfafd685c2abf1fcc2b3682f5b1eb2e7f1d4fa557f11a7478437eef9a933')
+
+prepare() {
+  cd "$srcdir/$_pkgname-$pkgver"
+
+  # Use logind interfaces for suspend and hibernate
+  # https://bugzilla.xfce.org/show_bug.cgi?id=9963
+  patch -Np1 -i "$srcdir/xfce4-power-manager-1.2.0-logind-support-for-suspend-hibernate.patch"
+
+  # Fix brightness level handling
+  # https://bugzilla.xfce.org/show_bug.cgi?id=8840
+  patch -Np1 -i "$srcdir/xfce4-power-manager-1.2.0-change-brightness-level-from-glong-to-gint32.patch"
+
+  # Fix en_GB translation
+  # https://bugs.archlinux.org/task/30055
+  patch -d po -Np0 -i \
+    "$srcdir/xfce4-power-manager-1.2.0-sync-en-gb-translation.patch"
+}
+
+build() {
+  cd "$srcdir/$_pkgname-$pkgver"
+
+  ./configure \
+    --prefix=/usr \
+    --sysconfdir=/etc \
+    --sbindir=/usr/bin \
+    --libexecdir=/usr/lib \
+    --localstatedir=/var \
+    --disable-network-manager \
+    --enable-polkit \
+    --enable-dpms \
+    --disable-debug \
+    --disable-panel-plugins
+  make
+}
+
+package() {
+  cd "$srcdir/$_pkgname-$pkgver"
+  make DESTDIR="$pkgdir" install
+}
+
+# vim:set ts=2 sw=2 et:

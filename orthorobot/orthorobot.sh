@@ -1,3 +1,3 @@
-#!/bin/bash
-
-love07 /usr/share/games/orthorobot/orthorobot.love
+#!/bin/sh
+cd /usr/share/games/orthorobot
+love07 ./orthorobot.love
