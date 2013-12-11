@@ -1,2 +1,2 @@
 #!/bin/bash
-dosbox -fullscreen -c "mount c replaceme" -c "C:\SINT.EXE" -c exit
+dosbox -fullscreen -c "mount c replaceme" -c "C:\sint.exe" -c exit

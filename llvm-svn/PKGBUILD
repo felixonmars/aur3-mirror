@@ -5,21 +5,27 @@
 # Contributor: Anders Bergh <anders@archlinuxppc.org>
 # Contributor: Tomas Wilhelmsson <tomas.wilhelmsson@gmail.com>
 
+pkgbase=llvm-svn
 pkgname=llvm-svn
+true && pkgname=('llvm-svn' 'llvm-libs-svn' 'llvm-ocaml-svn')
+
 _pkgname='llvm'
-pkgver=183418
+pkgver=196918
 pkgrel=1
 pkgdesc='Low Level Virtual Machine - Compiler infrastructure.'
 arch=('i686' 'x86_64')
 url="http://llvm.org"
 license=('custom:University of Illinois')
-makedepends=('subversion' 'libffi' 'python2' 'ocaml')
-provides=('llvm')
-conflicts=('llvm')
-source=("${_pkgname}::svn+http://llvm.org/svn/llvm-project/llvm/trunk")
-sha1sums=('SKIP')
+makedepends=('subversion' 'libffi' 'python2' 'ocaml' 'python-sphinx')
+
 # this is always the latest svn so debug info can be useful
-options=('!strip')
+options=('staticlibs' '!strip')
+source=("${_pkgname}::svn+http://llvm.org/svn/llvm-project/llvm/trunk"
+	llvm-Config-config.h
+        llvm-Config-llvm-config.h)
+sha256sums=('SKIP'
+	    '312574e655f9a87784ca416949c505c452b819fad3061f2cde8aced6540a19a3'
+            '597dc5968c695bbdbb0eac9e8eb5117fcd2773bc91edf5ec103ecffffab8bc48')
 
 pkgver()
 {
@@ -36,26 +42,111 @@ build()
     [[ $(check_option strip) == n ]] && _optimized_switch="disable"
 
     # Include location of libffi headers in CPPFLAGS
-    export CPPFLAGS="$CPPFLAGS $(pkg-config --cflags libffi)"
+    CPPFLAGS+=" $(pkg-config --cflags libffi)"
 
     # Force the use of GCC instead of clang
-    PYTHON=/usr/bin/python2 CC=gcc CXX=g++ \
+    CC=gcc CXX=g++ \
     ./configure \
         --prefix=/usr \
-        --libdir=/usr/lib/llvm \
         --sysconfdir=/etc \
         --enable-shared \
         --enable-libffi \
         --enable-targets=all \
         --disable-expensive-checks \
+        --disable-debug-runtime \
+        --disable-assertions \
         --with-binutils-include=/usr/include \
+        --with-python=/usr/bin/python2 \
         --$_optimized_switch-optimized
 
     make REQUIRES_RTTI=1
+    make -C docs -f Makefile.sphinx man
+    make -C docs -f Makefile.sphinx html
 }
 
-package()
-{
+package_llvm-svn() {
+    pkgdesc="Low Level Virtual Machine"
+    depends=("llvm-libs-svn=$pkgver-$pkgrel" 'perl')
+    provides=('llvm')
+    conflicts=('llvm')
+
     cd "${srcdir}/${_pkgname}"
-    make install DESTDIR=${pkgdir}
+
+    # -j1 is due to race conditions during the installation of the OCaml bindings
+    make -j1 DESTDIR="$pkgdir" install
+
+    # The runtime library goes into llvm-libs
+    mv "$pkgdir"/usr/lib/libLLVM-*.so "$srcdir"
+
+    # OCaml bindings go to a separate package
+    rm -rf "$srcdir"/{ocaml,ocamldoc}
+    mv "$pkgdir"/usr/{lib/ocaml,docs/llvm/ocamldoc} "$srcdir"
+
+    # Remove duplicate files installed by the OCaml bindings
+    rm "$pkgdir"/usr/{lib/libllvm*,docs/llvm/ocamldoc.tar.gz}
+
+    # Fix permissions of static libs
+    chmod -x "$pkgdir"/usr/lib/*.a
+
+    # Get rid of example Hello transformation
+    rm "$pkgdir"/usr/lib/*LLVMHello.*
+
+    # Symlink LLVMgold.so into /usr/lib/bfd-plugins
+    # (https://bugs.archlinux.org/task/28479)
+    install -d "$pkgdir/usr/lib/bfd-plugins"
+    ln -s ../LLVMgold.so "$pkgdir/usr/lib/bfd-plugins/LLVMgold.so"
+
+    if [[ $CARCH == x86_64 ]]; then
+        # Needed for multilib (https://bugs.archlinux.org/task/29951)
+        # Header stubs are taken from Fedora
+        for _header in config llvm-config; do
+            echo "$pkgdir/usr/include/llvm/Config/$_header"{,-64}.h
+            mv "$pkgdir/usr/include/llvm/Config/$_header"{,-64}.h
+            cp "$srcdir/llvm-Config-$_header.h" \
+                 "$pkgdir/usr/include/llvm/Config/$_header.h"
+        done
+    fi
+
+    # Install man pages
+    install -d "$pkgdir/usr/share/man/man1"
+    cp docs/_build/man/*.1 "$pkgdir/usr/share/man/man1/"
+
+    # Install html docs
+    cp -r docs/_build/html/* "$pkgdir/usr/docs/$_pkgname/html/"
+    rm -r "$pkgdir/usr/docs/$_pkgname/html/_sources"
+
+    install -Dm644 LICENSE.TXT "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
+
+package_llvm-libs-svn() {
+    pkgdesc="Low Level Virtual Machine (runtime library)"
+    depends=('gcc-libs' 'zlib' 'libffi')
+    provides=('llvm-libs')
+    conflicts=('llvm-libs')
+
+    mkdir -p "$pkgdir"/usr/lib/
+    install -D "$srcdir"/libLLVM-*.so "$pkgdir/usr/lib/"
+
+    install -Dm644 "${srcdir}/${_pkgname}/LICENSE.TXT" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+package_llvm-ocaml-svn() {
+    pkgdesc="OCaml bindings for LLVM"
+    depends=("llvm-svn=$pkgver-$pkgrel" 'ocaml')
+    provides=('llvm-ocaml')
+    conflicts=('llvm-ocaml')
+
+    cd "${srcdir}/${_pkgname}"
+
+    install -d "$pkgdir"/{usr/lib,usr/share/doc/llvm}
+    cp -r "$srcdir/ocaml" "$pkgdir/usr/lib"
+    cp -r "$srcdir/ocamldoc" "$pkgdir/usr/share/doc/llvm"
+
+    # Remove execute bit from static libraries
+    chmod -x "$pkgdir"/usr/lib/ocaml/libllvm*.a
+
+    install -Dm644 LICENSE.TXT "$pkgdir/usr/share/licenses/llvm-ocaml/LICENSE"
+}
+
+# vim:set ts=2 sw=2 et:
