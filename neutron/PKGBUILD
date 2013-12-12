@@ -30,7 +30,7 @@ true && pkgname=('python2-neutron'
                  'neutron-server')
 
 pkgver=2013.2
-pkgrel=1
+pkgrel=2
 pkgdesc="A virtual network service for Openstack"
 epoch=$(date +%Y%m%d)
 arch=(any)
@@ -38,7 +38,6 @@ url="https://launchpad.net/neutron"
 license=('Apache')
 depends=('python2' 'python2-setuptools')
 makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslo-sphinx')
-install=neutron.install
 source=("$url/havana/2013.2/+download/$pkgbase-$pkgver.tar.gz"
         "neutron-dhcp-agent.service"
         "neutron-l3-agent.service"
@@ -119,6 +118,7 @@ package_python2-neutron() {
 
 package_neutron-common() {
   pkgdesc+=" - common"
+  install=neutron.install
   depends=('python2-neutron')
   conflics=('quantum-common')
   backup=('etc/neutron/api-paste.ini'

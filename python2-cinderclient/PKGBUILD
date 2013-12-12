@@ -2,25 +2,25 @@
 
 pkgname=python2-cinderclient
 _pypiname=python-cinderclient
-pkgver=1.0.6
+pkgver=1.0.7
 pkgrel=1
 pkgdesc="OpenStack Block Storage API Client Library"
 arch=(any)
 url="https://pypi.python.org/pypi/python-cinderclient/"
 license=('Apache')
 depends=('python2'
-         'python2-babel>=0.9.6'
+         'python2-babel>=1.3'
          'python2-pbr>=0.5.21'
          'python2-pbr<1.0'
          'python2-prettytable>=0.6'
          'python2-prettytable<0.8'
          'python2-requests>=1.1'
          'python2-simplejson>=2.0.9'
-         'python2-six')
+         'python2-six>=1.4.1')
 makedepends=('python2-setuptools')
 options=(!emptydirs)
 source=("https://pypi.python.org/packages/source/p/${_pypiname}/${_pypiname}-${pkgver}.tar.gz")
-md5sums=('71189cd4d94fa2d0c2a5486ad2a7b11b')
+md5sums=('3d421508b8c938e5aec449a6a714487a')
 
 build() {
   cd "python-cinderclient-$pkgver"
