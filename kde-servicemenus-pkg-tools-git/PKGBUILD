@@ -1,7 +1,7 @@
 # Maintainer: udeved <udeved@openrc4arch.site40.net>
 
 pkgname=kde-servicemenus-pkg-tools-git
-pkgver=0.r57.765c583
+pkgver=0.r64.63d66c2
 pkgrel=1
 pkgdesc="Kde servicemenu for makepkg, repo-add & repo-remove, namcap & aur upload."
 arch=('any')
