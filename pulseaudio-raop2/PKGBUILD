@@ -1,0 +1,94 @@
+# Maintainer: Trustin Lee <t@motd.kr>
+# Contributor: Jerome Leclanche <jerome.leclanche+arch@gmail.com>
+# Contributor: Clément Démoulins <clement@archivel.fr>
+# Contributor: Jan "heftig" Steffens <jan.steffens@gmail.com>
+# Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
+# Contributor: Corrado Primier <bardo@aur.archlinux.org>
+# Contributor: William Rea <sillywilly@gmail.com>
+# Contributor: Lorenzo Nizzi Grifi Gargiolli <lorenzo.nizzi.grifi@gmail.com>
+
+pkgname="pulseaudio-raop2"
+_pkgname="pulseaudio"
+pkgdesc="PulseAudio sound server with AirPlay/Airtunes/RAOP v2 (UDP) patches"
+pkgver=4.0
+pkgrel=2
+arch=('i686' 'x86_64')
+url="http://hfujita.github.io/pulseaudio-raop2/"
+license=('GPL' 'LGPL')
+depends=('rtkit' 'libltdl' 'speex' 'tdb' 'systemd' 'fftw' 'orc' 'libsamplerate'
+         'webrtc-audio-processing' 'sbc' 'libasyncns' 'libxtst' 'libsm' 'libsndfile' 'json-c')
+makedepends=('git' 'attr' 'avahi' 'bluez' 'gconf' 'intltool' 'jack' 'lirc-utils' 'openssl')
+optdepends=('alsa-plugins: ALSA support'
+            'avahi: zeroconf support'
+            'bluez: bluetooth support'
+            'gconf: configuration through gconf'
+            'jack: jack support'
+            'lirc-utils: infra-red support'
+            'openssl: RAOP support'
+            'python2-pyqt: Equalizer GUI (qpaeq)')
+backup=(etc/pulse/{daemon.conf,default.pa,system.pa,client.conf})
+provides=('pulseaudio' 'libpulse')
+conflicts=('pulseaudio' 'libpulse')
+replaces=('pulseaudio' 'libpulse')
+options=(!emptydirs !libtool)
+source=("git://anongit.freedesktop.org/pulseaudio/pulseaudio#commit=09e88de"
+        "pulseaudio.xinit"
+        "raop2.patch")
+sha256sums=('SKIP'
+         '3fb64aee43c482b3ea18e1b260c8f310884362b24bcd02a1c117dcd99237312f'
+         '3128c51db176b8cc307462a8ca1f56d710d90402159ecb07b853a72a35ed2aac')
+_gitname="pulseaudio"
+
+prepare() {
+  cd "$srcdir/$_gitname"
+  # ABI break https://bugs.freedesktop.org/show_bug.cgi?id=71047
+  git revert -n 16886bb b98a2e1
+  # RAOP2
+  patch -p1 < ../raop2.patch
+}
+
+build() {
+  cd "$srcdir/$_gitname"
+
+  ./autogen.sh  --prefix=/usr \
+    --sysconfdir=/etc \
+    --libexecdir=/usr/lib \
+    --localstatedir=/var \
+    --with-udev-rules-dir=/usr/lib/udev/rules.d \
+    --with-database=tdb \
+    --disable-hal-compat \
+    --disable-rpath \
+    --disable-tcpwrap \
+    --disable-default-build-tests
+
+  make
+}
+
+package() {
+  cd "$srcdir/$_gitname"
+  make DESTDIR="$pkgdir" install
+
+  # Disable autospawn by default
+  sed -e '/autospawn/iautospawn=no' -i "$pkgdir/etc/pulse/client.conf"
+
+  # Speed up pulseaudio shutdown
+  # Lower resample quality, saves CPU
+  sed -e '/exit-idle-time/iexit-idle-time=0' -e '/resample-method/iresample-method=speex-float-0' -i "$pkgdir/etc/pulse/daemon.conf"
+
+  # Disable cork-request module, can result in e.g. media players unpausing
+  # when there's a Skype call incoming
+  sed -e 's|/usr/bin/pactl load-module module-x11-cork-request|#&|' -i "$pkgdir/usr/bin/start-pulseaudio-x11"
+
+  # Make ConsoleKit optional
+  sed -e $'/load-module module-console-kit/{i.nofail\n;a.fail\n;}' -i "$pkgdir/etc/pulse/default.pa"
+
+  # Python fix
+  sed -i '1s:python$:&2:' "$pkgdir/usr/bin/qpaeq"
+
+  install -Dm755 "$srcdir/pulseaudio.xinit" "$pkgdir/etc/X11/xinit/xinitrc.d/pulseaudio"
+
+  rm "$pkgdir/etc/dbus-1/system.d/pulseaudio-system.conf"
+
+  install -Dm644 shell-completion/pulseaudio-zsh-completion.zsh "$pkgdir/usr/share/zsh/site-functions/_pulseaudio"
+}
+
