@@ -253,6 +253,10 @@ void cascadeuncover(grid a[][N],int i,int k,int row,int col){
 			cascadeuncover(a,i,k-1,row,col);
 			cascadeuncover(a,i+1,k,row,col);
 			cascadeuncover(a,i-1,k,row,col);
+			cascadeuncover(a,i-1,k+1,row,col);
+			cascadeuncover(a,i-1,k-1,row,col);
+			cascadeuncover(a,i+1,k+1,row,col);
+			cascadeuncover(a,i+1,k-1,row,col);
 		}
 	}
 	return;			

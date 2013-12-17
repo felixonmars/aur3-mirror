@@ -1,7 +1,7 @@
 # Maintainer: Artur Sobierak <asobierak@gmail.com>
 
 pkgname=aceorb
-pkgver=6.1.8
+pkgver=6.2.3
 pkgrel=2
 pkgdesc="C++ CORBA implementation"
 arch=('i686' 'x86_64')
@@ -10,7 +10,7 @@ license=('Other')
 groups=('base-devel')
 depends=('glibc')
 source=(http://download.dre.vanderbilt.edu/previous_versions/ACE+TAO-${pkgver}.tar.gz)
-md5sums=('0904ac104875c5eedc1c2038679763d0')
+md5sums=('96b517a9999ecfe27cbe8e140a8806ce')
 
 build() {
   cd "$srcdir"/ACE_wrappers
