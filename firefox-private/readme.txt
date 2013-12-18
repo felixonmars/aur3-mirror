@@ -1,6 +1,6 @@
-firefox-25.0 for linux 自编译版:
+firefox-26.0 for linux 自编译版:
 
-1)使用gcc4.7.2 -O4 sse2 参数优化.betterpgo编译.
+1)使用gcc4.7.2 -O3 sse2 参数优化.betterpgo编译.
 2)移除自动升级,崩溃报告,健康报告,webapp等组件,移除CNNIC证书.
 3)对默认参数做了微调,集成中文语言.
 4)集成flashplay_x64 for linux与支付宝64bit插件.
@@ -20,7 +20,7 @@ sudo aptitude remove firefox-globalmenu
 安装依赖库:
 sudo apt-get install libglib2.0 libcairo2 libsqlite3-dev libgstreamer-plugins-base0.10-0
 安装新的浏览器:
-sudo dpkg -i firefox-private-25.0.zh-CN.linux-x86_64.deb
+sudo dpkg -i firefox-private-26.0.zh-CN.linux-x86_64.deb
 
 删除集成的插件:
 sudo rm -f /usr/lib/firefox/browser/plugins
@@ -41,8 +41,8 @@ sudo yum remove firefox
 安装依赖库:
 sudo yum install cairo sqlite alien
 安装新的浏览器:
-sudo alien -r firefox-private-25.0.zh-CN.linux-x86_64.deb
-sudo rpm -ivh --force --nodeps firefox-private-25.0.zh-CN.linux-x86_64.rpm
+sudo alien -r firefox-private-26.0.zh-CN.linux-x86_64.deb
+sudo rpm -ivh --force --nodeps firefox-private-26.0.zh-CN.linux-x86_64.rpm
 
 卸载:
 sudo rpm -e firefox-private

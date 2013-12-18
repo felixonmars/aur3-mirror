@@ -1,0 +1,1842 @@
+From e4835fb42b914327192e87f9f8ede970d82bdc50 Mon Sep 17 00:00:00 2001
+From: Brandon Wood <btwood@geometeor.com>
+Date: Sun, 17 Nov 2013 17:22:25 -0500
+Subject: [PATCH] Modified QwtPolar to be up-to-date (trunk), removed incorrect
+ requirement stating that QwtPolar was incompatible with Qwt >= 6.1
+
+---
+ src/app/CMakeLists.txt                             |   4 -
+ src/app/gps/qwtpolar-1.0/qwt_polar_canvas.cpp      |  30 ++-
+ src/app/gps/qwtpolar-1.0/qwt_polar_curve.cpp       | 129 ++++-------
+ src/app/gps/qwtpolar-1.0/qwt_polar_curve.h         |  10 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_global.h        |  14 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_grid.cpp        |  21 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_item.cpp        | 216 ++++++++++--------
+ src/app/gps/qwtpolar-1.0/qwt_polar_item.h          |  30 +--
+ src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.cpp    |  28 +--
+ src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.h      |   8 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_layout.cpp      |  22 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_picker.cpp      |   3 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_plot.cpp        | 243 ++++++++++++++-------
+ src/app/gps/qwtpolar-1.0/qwt_polar_plot.h          |  54 ++---
+ src/app/gps/qwtpolar-1.0/qwt_polar_renderer.cpp    | 144 ++++++------
+ src/app/gps/qwtpolar-1.0/qwt_polar_renderer.h      |  13 +-
+ src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.cpp |  40 +---
+ src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.h   |   3 -
+ 18 files changed, 557 insertions(+), 455 deletions(-)
+
+diff --git a/src/app/CMakeLists.txt b/src/app/CMakeLists.txt
+index b232140..bf9faad 100644
+--- a/src/app/CMakeLists.txt
++++ b/src/app/CMakeLists.txt
+@@ -323,10 +323,6 @@ IF(WITH_INTERNAL_QWTPOLAR)
+ 
+     SET(QWTPOLAR_INCLUDE_DIR gps/qwtpolar-0.1)
+   ELSE(QWT_VERSION_STR VERSION_LESS "6.0.0")
+-    IF(NOT QWT_VERSION_STR VERSION_LESS "6.1.0")
+-      MESSAGE(FATAL_ERROR "Internal QwtPolar does not support Qwt 6.1 and above")
+-    ENDIF(NOT QWT_VERSION_STR VERSION_LESS "6.1.0")
+-
+     SET(QGIS_APP_SRCS
+       ${QGIS_APP_SRCS}
+       gps/qwtpolar-1.0/qwt_polar_canvas.cpp
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_canvas.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_canvas.cpp
+index d7144ec..ae29bab 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_canvas.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_canvas.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "qwt_polar_canvas.h"
+ #include "qwt_polar_plot.h"
++#include <qwt_painter.h>
+ #include <qpainter.h>
+ #include <qevent.h>
+ #include <qpixmap.h>
+@@ -212,7 +213,10 @@ void QwtPolarCanvas::paintEvent( QPaintEvent *event )
+                 else
+                 {
+                     QWidget *bgWidget = qwtBackgroundWidget( plot() );
+-                    bs.fill( bgWidget, mapTo( bgWidget, rect().topLeft() ) );
++
++					QwtPainter::fillPixmap( bgWidget, bs,
++						mapTo( bgWidget, rect().topLeft() ) );
++
+                     p.begin( &bs );
+                 }
+             }
+@@ -263,12 +267,30 @@ QwtPointPolar QwtPolarCanvas::invTransform( const QPoint &pos ) const
+     const QwtScaleMap azimuthMap = pl->scaleMap( QwtPolar::Azimuth );
+     const QwtScaleMap radialMap = pl->scaleMap( QwtPolar::Radius );
+ 
+-    double dx = pos.x() - pl->plotRect().center().x();
+-    double dy = -( pos.y() - pl->plotRect().center().y() );
++    const QPointF center = pl->plotRect().center();
++
++    double dx = pos.x() - center.x();
++    double dy = -( pos.y() - center.y() );
+ 
+     const QwtPointPolar polarPos = QwtPointPolar( QPoint( dx, dy ) ).normalized();
+ 
+-    const double azimuth = azimuthMap.invTransform( polarPos.azimuth() );
++    double azimuth = azimuthMap.invTransform( polarPos.azimuth() );
++
++    // normalize the azimuth
++    double min = azimuthMap.s1();
++    double max = azimuthMap.s2();
++    if ( max < min )
++        qSwap( min, max );
++
++    if ( azimuth < min )
++    {
++        azimuth += max - min;
++    }
++    else if ( azimuth > max )
++    {
++        azimuth -= max - min;
++    }
++
+     const double radius = radialMap.invTransform( polarPos.radius() );
+ 
+     return QwtPointPolar( azimuth, radius );
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_curve.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_curve.cpp
+index d63206a..e356455 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_curve.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_curve.cpp
+@@ -7,13 +7,12 @@
+  *****************************************************************************/
+ 
+ #include "qwt_polar_curve.h"
++#include "qwt_polar.h"
+ #include <qwt_painter.h>
+-#include <qwt_polar.h>
+ #include <qwt_scale_map.h>
+ #include <qwt_math.h>
+ #include <qwt_symbol.h>
+ #include <qwt_legend.h>
+-#include <qwt_legend_item.h>
+ #include <qwt_curve_fitter.h>
+ #include <qwt_clipper.h>
+ #include <qpainter.h>
+@@ -173,7 +172,7 @@ void QwtPolarCurve::setStyle( CurveStyle style )
+   \param symbol Symbol
+   \sa symbol()
+ */
+-void QwtPolarCurve::setSymbol( const QwtSymbol *symbol )
++void QwtPolarCurve::setSymbol( QwtSymbol *symbol )
+ {
+     if ( symbol != d_data->symbol )
+     {
+@@ -388,7 +387,7 @@ void QwtPolarCurve::drawLines( QPainter *painter,
+         polyline.resize( points.size() );
+ 
+         QPointF *polylineData = polyline.data();
+-        QPointF *pointsData = polyline.data();
++        QPointF *pointsData = points.data();
+ 
+         for ( int i = 0; i < points.size(); i++ )
+         {
+@@ -433,7 +432,7 @@ void QwtPolarCurve::drawLines( QPainter *painter,
+ 
+     if ( !clipRect.isEmpty() )
+     {
+-        double off = qCeil( qMax( 1.0, painter->pen().widthF() ) );
++        double off = qCeil( qMax( qreal( 1.0 ), painter->pen().widthF() ) );
+         clipRect = clipRect.toRect().adjusted( -off, -off, off, off );
+         polyline = QwtClipper::clipPolygonF( clipRect, polyline );
+     }
+@@ -500,116 +499,76 @@ size_t QwtPolarCurve::dataSize() const
+     return d_series->size();
+ }
+ 
+-//!  Update the widget that represents the curve on the legend
+-void QwtPolarCurve::updateLegend( QwtLegend *legend ) const
+-{
+-    if ( legend && testItemAttribute( QwtPolarCurve::Legend )
+-            && ( d_data->legendAttributes & QwtPolarCurve::LegendShowSymbol )
+-            && d_data->symbol
+-            && d_data->symbol->style() != QwtSymbol::NoSymbol )
+-    {
+-        QWidget *lgdItem = legend->find( this );
+-        if ( lgdItem == NULL )
+-        {
+-            lgdItem = legendItem();
+-            if ( lgdItem )
+-                legend->insert( this, lgdItem );
+-        }
+-
+-        QwtLegendItem *l = qobject_cast<QwtLegendItem *>( lgdItem );
+-        if ( l )
+-        {
+-            QSize sz = d_data->symbol->boundingSize();
+-            sz += QSize( 2, 2 ); // margin
+-
+-            if ( d_data->legendAttributes & QwtPolarCurve::LegendShowLine )
+-            {
+-                // Avoid, that the line is completely covered by the symbol
+-
+-                int w = qCeil( 1.5 * sz.width() );
+-                if ( w % 2 )
+-                    w++;
+-
+-                sz.setWidth( qMax( 8, w ) );
+-            }
+-
+-            l->setIdentifierSize( sz );
+-        }
+-    }
+-
+-    QwtPolarItem::updateLegend( legend );
+-}
+-
+ /*!
+-  \brief Draw the identifier representing the curve on the legend
++   \return Icon representing the curve on the legend
+ 
+-  \param painter Qt Painter
+-  \param rect Bounding rectangle for the identifier
++   \param index Index of the legend entry 
++                ( ignored as there is only one )
++   \param size Icon size
+ 
+-  \sa setLegendAttribute
+-*/
+-void QwtPolarCurve::drawLegendIdentifier(
+-    QPainter *painter, const QRectF &rect ) const
++   \sa QwtPolarItem::setLegendIconSize(), QwtPolarItem::legendData()
++ */
++QwtGraphic QwtPolarCurve::legendIcon( int index,
++    const QSizeF &size ) const
+ {
+-    if ( rect.isEmpty() )
+-        return;
++    Q_UNUSED( index );
+ 
+-    const double dim = qMin( rect.width(), rect.height() );
++    if ( size.isEmpty() )
++        return QwtGraphic();
+ 
+-    QSizeF size( dim, dim );
++    QwtGraphic graphic;
++    graphic.setDefaultSize( size );
++    graphic.setRenderHint( QwtGraphic::RenderPensUnscaled, true );
+ 
+-    QRectF r( 0, 0, size.width(), size.height() );
+-    r.moveCenter( rect.center() );
++    QPainter painter( &graphic );
++    painter.setRenderHint( QPainter::Antialiasing,
++        testRenderHint( QwtPolarItem::RenderAntialiased ) );
+ 
+     if ( d_data->legendAttributes == 0 )
+     {
+         QBrush brush;
++
+         if ( style() != QwtPolarCurve::NoCurve )
++        {
+             brush = QBrush( pen().color() );
++        }
+         else if ( d_data->symbol &&
+             ( d_data->symbol->style() != QwtSymbol::NoSymbol ) )
+         {
+             brush = QBrush( d_data->symbol->pen().color() );
+         }
++
+         if ( brush.style() != Qt::NoBrush )
+-            painter->fillRect( r, brush );
++        {
++            QRectF r( 0, 0, size.width(), size.height() );
++            painter.fillRect( r, brush );
++        }
+     }
++
+     if ( d_data->legendAttributes & QwtPolarCurve::LegendShowLine )
+     {
+         if ( pen() != Qt::NoPen )
+         {
+-            painter->setPen( pen() );
+-            QwtPainter::drawLine( painter, rect.left(), rect.center().y(),
+-                rect.right() - 1.0, rect.center().y() );
++            QPen pn = pen();
++            pn.setCapStyle( Qt::FlatCap );
++
++            painter.setPen( pn );
++
++            const double y = 0.5 * size.height();
++            QwtPainter::drawLine( &painter, 0.0, y, size.width(), y );
+         }
+     }
++
+     if ( d_data->legendAttributes & QwtPolarCurve::LegendShowSymbol )
+     {
+-        if ( d_data->symbol &&
+-            ( d_data->symbol->style() != QwtSymbol::NoSymbol ) )
++        if ( d_data->symbol )
+         {
+-            QSize symbolSize = d_data->symbol->boundingSize();
+-            symbolSize -= QSize( 2, 2 );
+-
+-            // scale the symbol size down if it doesn't fit into rect.
+-
+-            double xRatio = 1.0;
+-            if ( rect.width() < symbolSize.width() )
+-                xRatio = rect.width() / symbolSize.width();
+-            double yRatio = 1.0;
+-            if ( rect.height() < symbolSize.height() )
+-                yRatio = rect.height() / symbolSize.height();
+-
+-            const double ratio = qMin( xRatio, yRatio );
+-
+-            painter->save();
+-            painter->scale( ratio, ratio );
+-
+-            d_data->symbol->drawSymbol( painter, rect.center() / ratio );
+-
+-            painter->restore();
++            QRectF r( 0, 0, size.width(), size.height() );
++            d_data->symbol->drawSymbol( &painter, r );
+         }
+     }
++
++    return graphic;
+ }
+ 
+ /*!
+@@ -633,3 +592,5 @@ QwtInterval QwtPolarCurve::boundingInterval( int scaleId ) const
+ 
+     return QwtInterval();
+ }
++
++
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_curve.h b/src/app/gps/qwtpolar-1.0/qwt_polar_curve.h
+index 8143795..a474522 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_curve.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_curve.h
+@@ -57,8 +57,7 @@ class QWT_POLAR_EXPORT QwtPolarCurve: public QwtPolarItem
+         a color representing the curve and paints a rectangle with it.
+         In the default setting all attributes are off.
+ 
+-        \sa setLegendAttribute(), testLegendAttribute(),
+-            drawLegendIdentifier()
++        \sa setLegendAttribute(), testLegendAttribute()
+      */
+ 
+     enum LegendAttribute
+@@ -100,7 +99,7 @@ class QWT_POLAR_EXPORT QwtPolarCurve: public QwtPolarItem
+     void setStyle( CurveStyle style );
+     CurveStyle style() const;
+ 
+-    void setSymbol( const QwtSymbol * );
++    void setSymbol( QwtSymbol * );
+     const QwtSymbol *symbol() const;
+ 
+     void setCurveFitter( QwtCurveFitter * );
+@@ -115,10 +114,9 @@ class QWT_POLAR_EXPORT QwtPolarCurve: public QwtPolarItem
+         const QwtScaleMap &azimuthMap, const QwtScaleMap &radialMap,
+         const QPointF &pole, int from, int to ) const;
+ 
+-    virtual void updateLegend( QwtLegend * ) const;
+     virtual QwtInterval boundingInterval( int scaleId ) const;
+ 
+-    virtual void drawLegendIdentifier( QPainter *, const QRectF & ) const;
++    virtual QwtGraphic legendIcon( int index, const QSizeF & ) const;
+ 
+ protected:
+ 
+@@ -143,7 +141,7 @@ class QWT_POLAR_EXPORT QwtPolarCurve: public QwtPolarItem
+     PrivateData *d_data;
+ };
+ 
+-//! \return the curve data
++//! \return the the curve data
+ inline const QwtSeriesData<QwtPointPolar> *QwtPolarCurve::data() const
+ {
+     return d_series;
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_global.h b/src/app/gps/qwtpolar-1.0/qwt_polar_global.h
+index 2437a43..b8b70fa 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_global.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_global.h
+@@ -13,10 +13,8 @@
+ 
+ // QWT_POLAR_VERSION is (major << 16) + (minor << 8) + patch.
+ 
+-#define QWT_POLAR_VERSION       0x010000
+-#define QWT_POLAR_VERSION_STR   "1.0.0"
+-
+-#if defined(Q_WS_WIN) || defined(Q_WS_S60)
++#define QWT_POLAR_VERSION       0x010100
++#define QWT_POLAR_VERSION_STR   "1.1.0"
+ 
+ #if defined(_MSC_VER) /* MSVC Compiler */
+ /* template-class specialization 'identifier' is already instantiated */
+@@ -25,16 +23,14 @@
+ 
+ #ifdef QWT_POLAR_DLL
+ 
+-#if defined(QWT_POLAR_MAKEDLL)     // create a Qwt DLL library 
++#if defined(QWT_POLAR_MAKEDLL)     // create DLL library 
+ #define QWT_POLAR_EXPORT  __declspec(dllexport)
+ #define QWT_POLAR_TEMPLATEDLL
+-#else                        // use a Qwt DLL library
++#else                        // use DLL library
+ #define QWT_POLAR_EXPORT  __declspec(dllimport)
+ #endif
+ 
+-#endif // QWT_POLAR_MAKEDLL
+-
+-#endif // Q_WS_WIN
++#endif // QWT_POLAR_DLL
+ 
+ #ifndef QWT_POLAR_EXPORT
+ #define QWT_POLAR_EXPORT
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_grid.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_grid.cpp
+index 7fa0cfb..3ea1ca4 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_grid.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_grid.cpp
+@@ -876,7 +876,12 @@ void QwtPolarGrid::updateScaleDraws(
+                 from += 360.0;
+ 
+             scaleDraw->setAngleRange( from, from - 360.0 );
+-            scaleDraw->setTransformation( azimuthMap.transformation()->copy() );
++
++            const QwtTransform *transform = azimuthMap.transformation();
++            if ( transform )
++                scaleDraw->setTransformation( transform->copy() );
++            else
++                scaleDraw->setTransformation( NULL );
+         }
+         else
+         {
+@@ -910,7 +915,11 @@ void QwtPolarGrid::updateScaleDraws(
+                     break;
+                 }
+             }
+-            scaleDraw->setTransformation( radialMap.transformation()->copy() );
++            const QwtTransform *transform = radialMap.transformation();
++            if ( transform )
++                scaleDraw->setTransformation( transform->copy() );
++            else
++                scaleDraw->setTransformation( NULL );
+         }
+     }
+ }
+@@ -975,8 +984,7 @@ void QwtPolarGrid::updateScaleDiv( const QwtScaleDiv &azimuthScaleDiv,
+             {
+                 QwtScaleDiv sd = radialGrid.scaleDiv;
+ 
+-                QList<double> &ticks =
+-                    const_cast<QList<double> &>( sd.ticks( QwtScaleDiv::MajorTick ) );
++                QList<double> ticks = sd.ticks( QwtScaleDiv::MajorTick );
+ 
+                 if ( testDisplayFlag( SmartOriginLabel ) )
+                 {
+@@ -1010,6 +1018,7 @@ void QwtPolarGrid::updateScaleDiv( const QwtScaleDiv &azimuthScaleDiv,
+                         ticks.removeLast();
+                 }
+ 
++                sd.setTicks( QwtScaleDiv::MajorTick, ticks );
+                 axis.scaleDraw->setScaleDiv( sd );
+ 
+                 if ( testDisplayFlag( SmartScaleDraw ) )
+@@ -1048,7 +1057,7 @@ int QwtPolarGrid::marginHint() const
+ */
+ const QwtScaleDraw *QwtPolarGrid::scaleDraw( int axisId ) const
+ {
+-    if ( axisId >= QwtPolar::AxisLeft || axisId <= QwtPolar::AxisBottom )
++    if ( axisId >= QwtPolar::AxisLeft && axisId <= QwtPolar::AxisBottom )
+         return static_cast<QwtScaleDraw *>( d_data->axisData[axisId].scaleDraw );
+ 
+     return NULL;
+@@ -1063,7 +1072,7 @@ const QwtScaleDraw *QwtPolarGrid::scaleDraw( int axisId ) const
+ */
+ QwtScaleDraw *QwtPolarGrid::scaleDraw( int axisId )
+ {
+-    if ( axisId >= QwtPolar::AxisLeft || axisId <= QwtPolar::AxisBottom )
++    if ( axisId >= QwtPolar::AxisLeft && axisId <= QwtPolar::AxisBottom )
+         return static_cast<QwtScaleDraw *>( d_data->axisData[axisId].scaleDraw );
+ 
+     return NULL;
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_item.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_item.cpp
+index 1541295..7d7895d 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_item.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_item.cpp
+@@ -9,7 +9,7 @@
+ #include "qwt_polar_plot.h"
+ #include "qwt_polar_item.h"
+ #include <qwt_legend.h>
+-#include <qwt_legend_item.h>
++#include <qwt_scale_div.h>
+ #include <qpainter.h>
+ 
+ class QwtPolarItem::PrivateData
+@@ -20,7 +20,9 @@ class QwtPolarItem::PrivateData
+         isVisible( true ),
+         attributes( 0 ),
+         renderHints( 0 ),
+-        z( 0.0 )
++        renderThreadCount( 1 ),
++        z( 0.0 ),
++        legendIconSize( 8, 8 )
+     {
+     }
+ 
+@@ -29,9 +31,12 @@ class QwtPolarItem::PrivateData
+     bool isVisible;
+     QwtPolarItem::ItemAttributes attributes;
+     QwtPolarItem::RenderHints renderHints;
++    uint renderThreadCount;
++
+     double z;
+ 
+     QwtText title;
++    QSize legendIconSize;
+ };
+ 
+ /*!
+@@ -72,28 +77,25 @@ void QwtPolarItem::attach( QwtPolarPlot *plot )
+     if ( plot == d_data->plot )
+         return;
+ 
+-    // remove the item from the previous plot
+-
+     if ( d_data->plot )
+-    {
+-        if ( d_data->plot->legend() )
+-            d_data->plot->legend()->remove( this );
+-
+         d_data->plot->attachItem( this, false );
+ 
+-        if ( d_data->plot->autoReplot() )
+-            d_data->plot->update();
+-    }
+-
+     d_data->plot = plot;
+ 
+     if ( d_data->plot )
+-    {
+-        // insert the item into the current plot
+-
+         d_data->plot->attachItem( this, true );
+-        itemChanged();
+-    }
++}
++
++/*!
++   \brief This method detaches a QwtPolarItem from the QwtPolarPlot it
++          has been associated with.
++
++   detach() is equivalent to calling attach( NULL )
++   \sa attach()
++*/
++void QwtPolarItem::detach() 
++{ 
++    attach( NULL ); 
+ }
+ 
+ /*!
+@@ -255,6 +257,60 @@ bool QwtPolarItem::testRenderHint( RenderHint hint ) const
+     return ( d_data->renderHints & hint );
+ }
+ 
++/*!
++   On multi core systems rendering of certain plot item 
++   ( f.e QwtPolarSpectrogram ) can be done in parallel in 
++   several threads.
++
++   The default setting is set to 1.
++
++   \param numThreads Number of threads to be used for rendering.
++                     If numThreads is set to 0, the system specific
++                     ideal thread count is used.
++
++   The default thread count is 1 ( = no additional threads )
++*/
++void QwtPolarItem::setRenderThreadCount( uint numThreads )
++{
++    d_data->renderThreadCount = numThreads;
++}
++
++/*!
++   \return Number of threads to be used for rendering.
++           If numThreads() is set to 0, the system specific
++           ideal thread count is used.
++*/
++uint QwtPolarItem::renderThreadCount() const
++{
++    return d_data->renderThreadCount;
++}
++
++/*!
++   Set the size of the legend icon
++
++   The default setting is 8x8 pixels
++
++   \param size Size
++   \sa legendIconSize(), legendIcon()
++*/
++void QwtPolarItem::setLegendIconSize( const QSize &size )
++{
++    if ( d_data->legendIconSize != size )
++    {
++        d_data->legendIconSize = size;
++        legendChanged();
++    }
++}
++
++/*!
++   \return Legend icon size
++   \sa setLegendIconSize(), legendIcon()
++*/
++QSize QwtPolarItem::legendIconSize() const
++{
++    return d_data->legendIconSize;
++}
++
+ //! Show the item
+ void QwtPolarItem::show()
+ {
+@@ -300,12 +356,17 @@ bool QwtPolarItem::isVisible() const
+ void QwtPolarItem::itemChanged()
+ {
+     if ( d_data->plot )
+-    {
+-        if ( d_data->plot->legend() )
+-            updateLegend( d_data->plot->legend() );
+-
+         d_data->plot->autoRefresh();
+-    }
++}
++
++/*!
++   Update the legend of the parent plot.
++   \sa QwtPolarPlot::updateLegend(), itemChanged()
++*/
++void QwtPolarItem::legendChanged()
++{
++    if ( testItemAttribute( QwtPolarItem::Legend ) && d_data->plot )
++        d_data->plot->updateLegend( this );
+ }
+ 
+ /*!
+@@ -349,86 +410,65 @@ void QwtPolarItem::updateScaleDiv( const QwtScaleDiv &azimuthScaleDiv,
+ }
+ 
+ /*!
+-   \brief Update the widget that represents the item on the legend
+-
+-   updateLegend() is called from itemChanged() to adopt the widget
+-   representing the item on the legend to its new configuration.
++   \brief Return all information, that is needed to represent
++          the item on the legend
+ 
+-   The default implementation is made for QwtPolarCurve and updates a
+-   QwtLegendItem(), but an item could be represented by any type of widget,
+-   by overloading legendItem() and updateLegend().
++   Most items are represented by one entry on the legend
++   showing an icon and a text.
+ 
+-   \sa legendItem(), itemChanged(), QwtLegend()
+-*/
+-void QwtPolarItem::updateLegend( QwtLegend *legend ) const
+-{
+-    if ( legend == NULL )
+-        return;
+-
+-    QWidget *lgdItem = legend->find( this );
+-    if ( testItemAttribute( QwtPolarItem::Legend ) )
+-    {
+-        if ( lgdItem == NULL )
+-        {
+-            lgdItem = legendItem();
+-            if ( lgdItem )
+-                legend->insert( this, lgdItem );
+-        }
+-
+-        QwtLegendItem* label = qobject_cast<QwtLegendItem *>( lgdItem );
+-        if ( label )
+-        {
+-            // paint the identifier
+-            const QSize sz = label->identifierSize();
+-
+-            QPixmap identifier( sz.width(), sz.height() );
+-            identifier.fill( Qt::transparent );
+-
+-            QPainter painter( &identifier );
+-            painter.setRenderHint( QPainter::Antialiasing,
+-                testRenderHint( QwtPolarItem::RenderAntialiased ) );
+-
+-            drawLegendIdentifier( &painter,
+-                QRect( 0, 0, sz.width(), sz.height() ) );
++   QwtLegendData is basically a list of QVariants that makes it
++   possible to overload and reimplement legendData() to 
++   return almost any type of information, that is understood
++   by the receiver that acts as the legend.
+ 
+-            painter.end();
++   The default implementation returns one entry with 
++   the title() of the item and the legendIcon().
+ 
+-            const bool doUpdate = label->updatesEnabled();
+-            if ( doUpdate )
+-                label->setUpdatesEnabled( false );
++   \sa title(), legendIcon(), QwtLegend
++ */
++QList<QwtLegendData> QwtPolarItem::legendData() const
++{
++    QwtLegendData data;
+ 
+-            label->setText( title() );
+-            label->setIdentifier( identifier );
+-            label->setItemMode( legend->itemMode() );
++    QwtText label = title();
++    label.setRenderFlags( label.renderFlags() & Qt::AlignLeft );
+ 
+-            if ( doUpdate )
+-                label->setUpdatesEnabled( true );
++    QVariant titleValue;
++    qVariantSetValue( titleValue, label );
++    data.setValue( QwtLegendData::TitleRole, titleValue );
+ 
+-            label->update();
+-        }
+-    }
+-    else
++    const QwtGraphic graphic = legendIcon( 0, legendIconSize() );
++    if ( !graphic.isNull() )
+     {
+-        if ( lgdItem )
+-        {
+-            lgdItem->hide();
+-            lgdItem->deleteLater();
+-        }
++        QVariant iconValue;
++        qVariantSetValue( iconValue, graphic );
++        data.setValue( QwtLegendData::IconRole, iconValue );
+     }
++
++    QList<QwtLegendData> list;
++    list += data;
++
++    return list;
+ }
++
+ /*!
+-   \brief Allocate the widget that represents the item on the legend
++   \return Icon representing the item on the legend
+ 
+-   The default implementation is made for QwtPolarCurve and returns a
+-   QwtLegendItem(), but an item could be represented by any type of widget,
+-   by overloading legendItem() and updateLegend().
++   The default implementation returns an invalid icon
+ 
+-   \return QwtLegendItem()
+-   \sa updateLegend() QwtLegend()
+-*/
+-QWidget *QwtPolarItem::legendItem() const
++   \param index Index of the legend entry 
++                ( usually there is only one )
++   \param size Icon size
++
++   \sa setLegendIconSize(), legendData()
++ */
++QwtGraphic QwtPolarItem::legendIcon(
++    int index, const QSizeF &size ) const
+ {
+-    return new QwtLegendItem;
++    Q_UNUSED( index )
++    Q_UNUSED( size )
++
++    return QwtGraphic();
+ }
+ 
+ /*!
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_item.h b/src/app/gps/qwtpolar-1.0/qwt_polar_item.h
+index 34446d7..f83ed94 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_item.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_item.h
+@@ -11,7 +11,8 @@
+ 
+ #include "qwt_polar_global.h"
+ #include <qwt_text.h>
+-#include <qwt_legend_itemmanager.h>
++#include <qwt_legend_data.h>
++#include <qwt_graphic.h>
+ #include <qwt_interval.h>
+ 
+ class QString;
+@@ -33,7 +34,7 @@
+   but deriving from QwtPolarItem makes it easy to implement additional
+   types of items.
+ */
+-class QWT_POLAR_EXPORT QwtPolarItem: public QwtLegendItemManager
++class QWT_POLAR_EXPORT QwtPolarItem
+ {
+ public:
+     /*!
+@@ -102,15 +103,7 @@ class QWT_POLAR_EXPORT QwtPolarItem: public QwtLegendItemManager
+     virtual ~QwtPolarItem();
+ 
+     void attach( QwtPolarPlot *plot );
+-
+-    /*!
+-       \brief This method detaches a QwtPolarItem from any QwtPolarPlot it
+-              has been associated with.
+-
+-       detach() is equivalent to calling attach( NULL )
+-       \sa attach( QwtPolarPlot* plot )
+-    */
+-    void detach() { attach( NULL ); }
++    void detach();
+ 
+     QwtPolarPlot *plot() const;
+ 
+@@ -126,6 +119,9 @@ class QWT_POLAR_EXPORT QwtPolarItem: public QwtLegendItemManager
+     void setRenderHint( RenderHint, bool on = true );
+     bool testRenderHint( RenderHint ) const;
+ 
++    void setRenderThreadCount( uint numThreads );
++    uint renderThreadCount() const;
++
+     double z() const;
+     void setZ( double z );
+ 
+@@ -135,6 +131,7 @@ class QWT_POLAR_EXPORT QwtPolarItem: public QwtLegendItemManager
+     bool isVisible () const;
+ 
+     virtual void itemChanged();
++    virtual void legendChanged();
+ 
+     /*!
+       \brief Draw the item
+@@ -153,14 +150,17 @@ class QWT_POLAR_EXPORT QwtPolarItem: public QwtLegendItemManager
+ 
+     virtual QwtInterval boundingInterval( int scaleId ) const;
+ 
+-    virtual QWidget *legendItem() const;
+-
+-    virtual void updateLegend( QwtLegend * ) const;
+     virtual void updateScaleDiv( const QwtScaleDiv &,
+         const QwtScaleDiv &, const QwtInterval & );
+ 
+     virtual int marginHint() const;
+ 
++    void setLegendIconSize( const QSize & );
++    QSize legendIconSize() const;
++
++    virtual QList<QwtLegendData> legendData() const;
++    virtual QwtGraphic legendIcon( int index, const QSizeF  & ) const;
++
+ private:
+     // Disabled copy constructor and operator=
+     QwtPolarItem( const QwtPolarItem & );
+@@ -173,4 +173,6 @@ class QWT_POLAR_EXPORT QwtPolarItem: public QwtLegendItemManager
+ Q_DECLARE_OPERATORS_FOR_FLAGS( QwtPolarItem::ItemAttributes )
+ Q_DECLARE_OPERATORS_FOR_FLAGS( QwtPolarItem::RenderHints )
+ 
++Q_DECLARE_METATYPE( QwtPolarItem * )
++
+ #endif
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.cpp
+index d239ac3..171aaac 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.cpp
+@@ -109,23 +109,25 @@ bool QwtPolarItemDict::autoDelete() const
+ }
+ 
+ /*!
+-   Attach/Detach a plot item
++  Insert a plot item
+ 
+-   Attached items will be deleted in the destructor,
+-   if auto deletion is enabled (default). Manually detached
+-   items are not deleted.
++  \param item PlotItem
++  \sa removeItem()
++ */
++void QwtPolarItemDict::insertItem( QwtPolarItem *item )
++{
++    d_data->itemList.insertItem( item );
++}
+ 
+-   \param item Plot item to attach/detach
+-   \ on If true attach, else detach the item
++/*!
++  Remove a plot item
+ 
+-   \sa setAutoDelete, ~QwtPolarItemDict
+-*/
+-void QwtPolarItemDict::attachItem( QwtPolarItem *item, bool on )
++  \param item PlotItem
++  \sa insertItem()
++ */
++void QwtPolarItemDict::removeItem( QwtPolarItem *item )
+ {
+-    if ( on )
+-        d_data->itemList.insertItem( item );
+-    else
+-        d_data->itemList.removeItem( item );
++    d_data->itemList.removeItem( item );
+ }
+ 
+ /*!
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.h b/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.h
+index f24bd8f..862bc9d 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_itemdict.h
+@@ -43,11 +43,11 @@ class QWT_POLAR_EXPORT QwtPolarItemDict
+     void detachItems( int rtti = QwtPolarItem::Rtti_PolarItem,
+         bool autoDelete = true );
+ 
+-private:
+-    friend class QwtPolarItem;
+-
+-    void attachItem( QwtPolarItem *, bool );
++protected:
++    void insertItem( QwtPolarItem * );
++    void removeItem( QwtPolarItem * );
+ 
++private:
+     class PrivateData;
+     PrivateData *d_data;
+ };
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_layout.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_layout.cpp
+index 1db2379..ed99294 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_layout.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_layout.cpp
+@@ -22,8 +22,8 @@ class QwtPolarLayout::LayoutData
+     struct t_legendData
+     {
+         int frameWidth;
+-        int vScrollBarWidth;
+-        int hScrollBarHeight;
++        int hScrollExtent;
++        int vScrollExtent;
+         QSizeF hint;
+     } legend;
+ 
+@@ -48,10 +48,10 @@ void QwtPolarLayout::LayoutData::init(
+             && plot->legend() )
+     {
+         legend.frameWidth = plot->legend()->frameWidth();
+-        legend.vScrollBarWidth =
+-            plot->legend()->verticalScrollBar()->sizeHint().width();
+-        legend.hScrollBarHeight =
+-            plot->legend()->horizontalScrollBar()->sizeHint().height();
++        legend.hScrollExtent =
++            plot->legend()->scrollExtent( Qt::Horizontal );
++        legend.vScrollExtent =
++            plot->legend()->scrollExtent( Qt::Vertical );
+ 
+         const QSizeF hint = plot->legend()->sizeHint();
+ 
+@@ -61,7 +61,7 @@ void QwtPolarLayout::LayoutData::init(
+             h = hint.height();
+ 
+         if ( h > rect.height() )
+-            w += legend.vScrollBarWidth;
++            w += legend.hScrollExtent;
+ 
+         legend.hint = QSizeF( w, h );
+     }
+@@ -278,7 +278,7 @@ QRectF QwtPolarLayout::layoutLegend( Options options, QRectF &rect ) const
+         // We don't allow vertical legends to take more than
+         // half of the available space.
+ 
+-        dim = qMin( hint.width(), rect.width() * d_data->legendRatio );
++        dim = qMin( double( hint.width() ), rect.width() * d_data->legendRatio );
+ 
+         if ( !( options & IgnoreScrollbars ) )
+         {
+@@ -287,14 +287,14 @@ QRectF QwtPolarLayout::layoutLegend( Options options, QRectF &rect ) const
+                 // The legend will need additional
+                 // space for the vertical scrollbar.
+ 
+-                dim += d_data->layoutData.legend.vScrollBarWidth;
++                dim += d_data->layoutData.legend.hScrollExtent;
+             }
+         }
+     }
+     else
+     {
+-        dim = qMin( hint.height(), rect.height() * d_data->legendRatio );
+-        dim = qMax( dim, d_data->layoutData.legend.hScrollBarHeight );
++        dim = qMin( double( hint.height() ), rect.height() * d_data->legendRatio );
++        dim = qMax( dim, d_data->layoutData.legend.vScrollExtent );
+     }
+ 
+     QRectF legendRect = rect;
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_picker.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_picker.cpp
+index 0b6a6c1..7a95fc4 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_picker.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_picker.cpp
+@@ -98,7 +98,8 @@ const QwtPolarPlot *QwtPolarPicker::plot() const
+ */
+ QwtText QwtPolarPicker::trackerText( const QPoint &pos ) const
+ {
+-    return trackerTextPolar( invTransform( pos ) );
++    const QwtPointPolar polarPoint = invTransform( pos );
++    return trackerTextPolar( polarPoint );
+ }
+ 
+ /*!
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_plot.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_plot.cpp
+index aa6c404..09cc540 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_plot.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_plot.cpp
+@@ -15,7 +15,6 @@
+ #include <qwt_text_label.h>
+ #include <qwt_round_scale_draw.h>
+ #include <qwt_legend.h>
+-#include <qwt_legend_item.h>
+ #include <qwt_dyngrid_layout.h>
+ #include <qpointer.h>
+ #include <qpaintengine.h>
+@@ -34,6 +33,7 @@ class QwtPolarPlot::ScaleData
+ {
+ public:
+     ScaleData():
++        isValid( false ),
+         scaleEngine( NULL )
+     {
+     }
+@@ -52,6 +52,8 @@ class QwtPolarPlot::ScaleData
+     int maxMajor;
+     int maxMinor;
+ 
++    bool isValid;
++
+     QwtScaleDiv scaleDiv;
+     QwtScaleEngine *scaleEngine;
+ };
+@@ -69,7 +71,7 @@ class QwtPolarPlot::PrivateData
+     ScaleData scaleData[QwtPolar::ScaleCount];
+     QPointer<QwtTextLabel> titleLabel;
+     QPointer<QwtPolarCanvas> canvas;
+-    QPointer<QwtLegend> legend;
++    QPointer<QwtAbstractLegend> legend;
+     double azimuthOrigin;
+ 
+     QwtPolarLayout *layout;
+@@ -99,6 +101,8 @@ class QwtPolarPlot::PrivateData
+ //! Destructor
+ QwtPolarPlot::~QwtPolarPlot()
+ {
++    detachItems( QwtPolarItem::Rtti_PolarItem, autoDelete() );
++
+     delete d_data->layout;
+     delete d_data;
+ }
+@@ -180,10 +184,11 @@ const QwtTextLabel *QwtPolarPlot::titleLabel() const
+   \sa legend(), QwtPolarLayout::legendPosition(),
+       QwtPolarLayout::setLegendPosition()
+ */
+-void QwtPolarPlot::insertLegend( QwtLegend *legend,
++void QwtPolarPlot::insertLegend( QwtAbstractLegend *legend,
+     QwtPolarPlot::LegendPosition pos, double ratio )
+ {
+     d_data->layout->setLegendPosition( pos, ratio );
++
+     if ( legend != d_data->legend )
+     {
+         if ( d_data->legend && d_data->legend->parent() == this )
+@@ -193,91 +198,99 @@ void QwtPolarPlot::insertLegend( QwtLegend *legend,
+ 
+         if ( d_data->legend )
+         {
+-            if ( pos != ExternalLegend )
+-            {
+-                if ( d_data->legend->parent() != this )
+-                    d_data->legend->setParent( this );
+-            }
++            connect( this,
++                SIGNAL( legendDataChanged(
++                    const QVariant &, const QList<QwtLegendData> & ) ),
++                d_data->legend,
++                SLOT( updateLegend(
++                    const QVariant &, const QList<QwtLegendData> & ) )
++            );
+ 
+-            const QwtPolarItemList& itmList = itemList();
+-            for ( QwtPolarItemIterator it = itmList.begin();
+-                    it != itmList.end(); ++it )
+-            {
+-                ( *it )->updateLegend( d_data->legend );
+-            }
++            if ( d_data->legend->parent() != this )
++                d_data->legend->setParent( this );
+ 
+-            QwtDynGridLayout *tl = qobject_cast<QwtDynGridLayout *>(
+-                d_data->legend->contentsWidget()->layout() );
++            updateLegend();
+ 
+-            if ( tl )
++            QwtLegend *lgd = qobject_cast<QwtLegend *>( legend );
++            if ( lgd )
+             {
+-                switch( d_data->layout->legendPosition() )
++                switch ( d_data->layout->legendPosition() )
+                 {
+                     case LeftLegend:
+                     case RightLegend:
+-                        tl->setMaxCols( 1 ); // 1 column: align vertical
++                    {
++                        if ( lgd->maxColumns() == 0     )
++                            lgd->setMaxColumns( 1 ); // 1 column: align vertical
+                         break;
+-
++                    }
+                     case TopLegend:
+                     case BottomLegend:
+-                        tl->setMaxCols( 0 ); // unlimited
++                    {
++                        lgd->setMaxColumns( 0 ); // unlimited
+                         break;
+-
+-                    case ExternalLegend:
++                    }
++                    default:
+                         break;
+                 }
+             }
++
+         }
+     }
++
+     updateLayout();
+ }
+ 
+ /*!
+-  \return the plot's legend
+-  \sa insertLegend()
+-*/
+-QwtLegend *QwtPolarPlot::legend()
++  Emit legendDataChanged() for all plot item
++
++  \sa QwtPlotItem::legendData(), legendDataChanged()
++ */
++void QwtPolarPlot::updateLegend()
+ {
+-    return d_data->legend;
++    const QwtPolarItemList& itmList = itemList();
++    for ( QwtPolarItemIterator it = itmList.begin();
++        it != itmList.end(); ++it )
++    {
++        updateLegend( *it );
++    }
+ }
+ 
+ /*!
+-  \return the plot's legend
+-  \sa insertLegend()
+-*/
+-const QwtLegend *QwtPolarPlot::legend() const
++  Emit legendDataChanged() for a plot item
++
++  \param plotItem Plot item
++  \sa QwtPlotItem::legendData(), legendDataChanged()
++ */
++void QwtPolarPlot::updateLegend( const QwtPolarItem *plotItem )
+ {
+-    return d_data->legend;
++    if ( plotItem == NULL )
++        return;
++
++    QList<QwtLegendData> legendData;
++
++    if ( plotItem->testItemAttribute( QwtPolarItem::Legend ) )
++        legendData = plotItem->legendData();
++
++    const QVariant itemInfo = itemToInfo( const_cast< QwtPolarItem *>( plotItem) );
++    Q_EMIT legendDataChanged( itemInfo, legendData );
+ }
+ 
+ /*!
+-  Called internally when the legend has been clicked on.
+-  Emits a legendClicked() signal.
++  \return the plot's legend
++  \sa insertLegend()
+ */
+-void QwtPolarPlot::legendItemClicked()
++QwtAbstractLegend *QwtPolarPlot::legend()
+ {
+-    if ( d_data->legend && sender()->isWidgetType() )
+-    {
+-        QwtPolarItem *plotItem = static_cast< QwtPolarItem* >(
+-            d_data->legend->find( qobject_cast<const QWidget *>( sender() ) ) );
+-        if ( plotItem )
+-            Q_EMIT legendClicked( plotItem );
+-    }
++    return d_data->legend;
+ }
+ 
+ /*!
+-  Called internally when the legend has been checked
+-  Emits a legendClicked() signal.
++  \return the plot's legend
++  \sa insertLegend()
+ */
+-void QwtPolarPlot::legendItemChecked( bool on )
++const QwtAbstractLegend *QwtPolarPlot::legend() const
+ {
+-    if ( d_data->legend && sender()->isWidgetType() )
+-    {
+-        QwtPolarItem *plotItem = static_cast< QwtPolarItem* >(
+-            d_data->legend->find( qobject_cast<const QWidget *>( sender() ) ) );
+-        if ( plotItem )
+-            Q_EMIT legendChecked( plotItem, on );
+-    }
++    return d_data->legend;
+ }
+ 
+ /*!
+@@ -386,17 +399,14 @@ void QwtPolarPlot::setScaleMaxMinor( int scaleId, int maxMinor )
+     if ( scaleId < 0 || scaleId >= QwtPolar::ScaleCount )
+         return;
+ 
+-    if ( maxMinor < 0 )
+-        maxMinor = 0;
+-    if ( maxMinor > 100 )
+-        maxMinor = 100;
++    maxMinor = qBound( 0, maxMinor, 100 );
+ 
+     ScaleData &scaleData = d_data->scaleData[scaleId];
+ 
+     if ( maxMinor != scaleData.maxMinor )
+     {
+         scaleData.maxMinor = maxMinor;
+-        scaleData.scaleDiv.invalidate();
++        scaleData.isValid = false;
+         autoRefresh();
+     }
+ }
+@@ -426,16 +436,13 @@ void QwtPolarPlot::setScaleMaxMajor( int scaleId, int maxMajor )
+     if ( scaleId < 0 || scaleId >= QwtPolar::ScaleCount )
+         return;
+ 
+-    if ( maxMajor < 1 )
+-        maxMajor = 1;
+-    if ( maxMajor > 1000 )
+-        maxMajor = 10000;
++    maxMajor = qBound( 1, maxMajor, 10000 );
+ 
+     ScaleData &scaleData = d_data->scaleData[scaleId];
+     if ( maxMajor != scaleData.maxMinor )
+     {
+         scaleData.maxMajor = maxMajor;
+-        scaleData.scaleDiv.invalidate();
++        scaleData.isValid = false;
+         autoRefresh();
+     }
+ }
+@@ -474,7 +481,7 @@ void QwtPolarPlot::setScaleEngine( int scaleId, QwtScaleEngine *scaleEngine )
+     delete scaleData.scaleEngine;
+     scaleData.scaleEngine = scaleEngine;
+ 
+-    scaleData.scaleDiv.invalidate();
++    scaleData.isValid = false;
+ 
+     autoRefresh();
+ }
+@@ -524,7 +531,7 @@ void QwtPolarPlot::setScale( int scaleId,
+ 
+     ScaleData &scaleData = d_data->scaleData[scaleId];
+ 
+-    scaleData.scaleDiv.invalidate();
++    scaleData.isValid = false;
+ 
+     scaleData.minValue = min;
+     scaleData.maxValue = max;
+@@ -548,6 +555,7 @@ void QwtPolarPlot::setScaleDiv( int scaleId, const QwtScaleDiv &scaleDiv )
+     ScaleData &scaleData = d_data->scaleData[scaleId];
+ 
+     scaleData.scaleDiv = scaleDiv;
++    scaleData.isValid = true;
+     scaleData.doAutoScale = false;
+ 
+     autoRefresh();
+@@ -729,7 +737,7 @@ QwtScaleMap QwtPolarPlot::scaleMap( int scaleId, const double radius ) const
+     if ( scaleId == QwtPolar::Azimuth )
+     {
+         map.setPaintInterval( d_data->azimuthOrigin,
+-            d_data->azimuthOrigin + M_2PI );
++            d_data->azimuthOrigin + 2 * M_PI );
+     }
+     else
+     {
+@@ -817,8 +825,9 @@ void QwtPolarPlot::initPlot( const QwtText &title )
+         scaleData.maxMinor = 5;
+         scaleData.maxMajor = 8;
+ 
++        scaleData.isValid = false;
++
+         scaleData.scaleEngine = new QwtLinearScaleEngine;
+-        scaleData.scaleDiv.invalidate();
+     }
+     d_data->zoomFactor = 1.0;
+     d_data->azimuthOrigin = 0.0;
+@@ -855,16 +864,18 @@ void QwtPolarPlot::updateLayout()
+             d_data->titleLabel->hide();
+     }
+ 
+-    if ( d_data->legend &&
+-        d_data->layout->legendPosition() != ExternalLegend )
++    if ( d_data->legend )
+     {
+-        if ( d_data->legend->itemCount() > 0 )
++        if ( d_data->legend->isEmpty() )
+         {
+-            d_data->legend->setGeometry( d_data->layout->legendRect().toRect() );
+-            d_data->legend->show();
++            d_data->legend->hide();
+         }
+         else
+-            d_data->legend->hide();
++        {
++            const QRectF legendRect = d_data->layout->legendRect();
++            d_data->legend->setGeometry( legendRect.toRect() );
++            d_data->legend->show();
++        }
+     }
+ 
+     d_data->canvas->setGeometry( d_data->layout->canvasRect().toRect() );
+@@ -1051,13 +1062,14 @@ void QwtPolarPlot::updateScale( int scaleId )
+ 
+         d.scaleEngine->autoScale( d.maxMajor,
+                                   minValue, maxValue, stepSize );
+-        d.scaleDiv.invalidate();
++        d.isValid = false;
+     }
+ 
+-    if ( !d.scaleDiv.isValid() )
++    if ( !d.isValid )
+     {
+         d.scaleDiv = d.scaleEngine->divideScale(
+             minValue, maxValue, d.maxMajor, d.maxMinor, stepSize );
++        d.isValid = true;
+     }
+ 
+     const QwtInterval interval = visibleInterval();
+@@ -1267,3 +1279,84 @@ const QwtPolarLayout *QwtPolarPlot::plotLayout() const
+ {
+     return d_data->layout;
+ }
++
++/*!
++  \brief Attach/Detach a plot item 
++
++  \param plotItem Plot item
++  \param on When true attach the item, otherwise detach it
++ */
++void QwtPolarPlot::attachItem( QwtPolarItem *plotItem, bool on )
++{
++    if ( on )
++        insertItem( plotItem );
++    else
++        removeItem( plotItem );
++
++    Q_EMIT itemAttached( plotItem, on );
++
++    if ( plotItem->testItemAttribute( QwtPolarItem::Legend ) )
++    {
++        // the item wants to be represented on the legend
++
++        if ( on )
++        {
++            updateLegend( plotItem );
++        }
++        else
++        {
++            const QVariant itemInfo = itemToInfo( plotItem );
++            Q_EMIT legendDataChanged( itemInfo, QList<QwtLegendData>() );
++        }
++    }
++
++    if ( autoReplot() )
++        update();
++}
++
++/*!
++  \brief Build an information, that can be used to identify
++         a plot item on the legend.
++
++  The default implementation simply wraps the plot item
++  into a QVariant object. When overloading itemToInfo()
++  usually infoToItem() needs to reimplemeted too.
++
++\code
++    QVariant itemInfo;
++    qVariantSetValue( itemInfo, plotItem );
++\endcode
++
++  \param plotItem Plot item
++  \sa infoToItem()
++ */
++QVariant QwtPolarPlot::itemToInfo( QwtPolarItem *plotItem ) const
++{
++    QVariant itemInfo;
++    qVariantSetValue( itemInfo, plotItem );
++
++    return itemInfo;
++}
++
++/*!
++  \brief Identify the plot item according to an item info object,
++         that has bee generated from itemToInfo().
++
++  The default implementation simply tries to unwrap a QwtPlotItem 
++  pointer:
++
++\code
++    if ( itemInfo.canConvert<QwtPlotItem *>() )
++        return qvariant_cast<QwtPlotItem *>( itemInfo );
++\endcode
++  \param itemInfo Plot item
++  \return A plot item, when successful, otherwise a NULL pointer.
++  \sa itemToInfo()
++*/
++QwtPolarItem *QwtPolarPlot::infoToItem( const QVariant &itemInfo ) const
++{
++    if ( itemInfo.canConvert<QwtPolarItem *>() )
++        return qvariant_cast<QwtPolarItem *>( itemInfo );
++
++    return NULL;
++}
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_plot.h b/src/app/gps/qwtpolar-1.0/qwt_polar_plot.h
+index f6ce701..2e65aca 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_plot.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_plot.h
+@@ -23,6 +23,7 @@
+ class QwtTextLabel;
+ class QwtPolarCanvas;
+ class QwtPolarLayout;
++class QwtAbstractLegend;
+ 
+ /*!
+   \brief A plotting widget, displaying a polar coordinate system
+@@ -140,11 +141,14 @@ class QWT_POLAR_EXPORT QwtPolarPlot: public QFrame, public QwtPolarItemDict
+ 
+     // Legend
+ 
+-    void insertLegend( QwtLegend *,
++    void insertLegend( QwtAbstractLegend *,
+         LegendPosition = RightLegend, double ratio = -1.0 );
+ 
+-    QwtLegend *legend();
+-    const QwtLegend *legend() const;
++    QwtAbstractLegend *legend();
++    const QwtAbstractLegend *legend() const;
++
++    void updateLegend();
++    void updateLegend( const QwtPolarItem * );
+ 
+     // Layout
+     QwtPolarLayout *plotLayout();
+@@ -156,31 +160,28 @@ class QWT_POLAR_EXPORT QwtPolarPlot: public QFrame, public QwtPolarItemDict
+ 
+     int plotMarginHint() const;
+ 
++    virtual QVariant itemToInfo( QwtPolarItem * ) const;
++    virtual QwtPolarItem *infoToItem( const QVariant & ) const;
++
+ Q_SIGNALS:
+     /*!
+-      A signal which is emitted when the user has clicked on
+-      a legend item, which is in QwtLegend::ClickableItem mode.
+-
+-      \param plotItem Corresponding plot item of the
+-                 selected legend item
++      A signal indicating, that an item has been attached/detached
+ 
+-      \note clicks are disabled as default
+-      \sa QwtLegend::setItemMode, QwtLegend::itemMode
++      \param plotItem Plot item
++      \param on Attached/Detached
+      */
+-    void legendClicked( QwtPolarItem *plotItem );
+-
+-    /*!
+-      A signal which is emitted when the user has clicked on
+-      a legend item, which is in QwtLegend::CheckableItem mode
+-
+-      \param plotItem Corresponding plot item of the
+-                 selected legend item
+-      \param on True when the legen item is checked
+-
+-      \note clicks are disabled as default
+-      \sa QwtLegend::setItemMode, QwtLegend::itemMode
++    void itemAttached( QwtPolarItem *plotItem, bool on );
++
++    /*! 
++      A signal with the attributes how to update 
++      the legend entries for a plot item.
++                
++      \param itemInfo Info about a plot, build from itemToInfo()
++    
++      \sa itemToInfo(), infoToItem(), QwtAbstractLegend::updateLegend()
+      */
+-    void legendChecked( QwtPolarItem *plotItem, bool on );
++    void legendDataChanged( const QVariant &itemInfo,
++        const QList<QwtLegendData> &data );
+ 
+     /*!
+       A signal that is emitted, whenever the layout of the plot
+@@ -193,10 +194,6 @@ class QWT_POLAR_EXPORT QwtPolarPlot: public QFrame, public QwtPolarItemDict
+     void autoRefresh();
+     void setAzimuthOrigin( double );
+ 
+-protected Q_SLOTS:
+-    virtual void legendItemClicked();
+-    virtual void legendItemChecked( bool );
+-
+ protected:
+     virtual bool event( QEvent * );
+     virtual void resizeEvent( QResizeEvent * );
+@@ -209,6 +206,9 @@ class QWT_POLAR_EXPORT QwtPolarPlot: public QFrame, public QwtPolarItemDict
+         const QRectF &canvasRect ) const;
+ 
+ private:
++    friend class QwtPolarItem;
++    void attachItem( QwtPolarItem *, bool );
++
+     void initPlot( const QwtText & );
+ 
+     class ScaleData;
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.cpp
+index 890b295..a9dc4fa 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.cpp
+@@ -10,12 +10,13 @@
+ #include "qwt_polar_plot.h"
+ #include "qwt_polar_layout.h"
+ #include <qwt_legend.h>
+-#include <qwt_legend_item.h>
+ #include <qwt_dyngrid_layout.h>
+ #include <qwt_text_label.h>
+ #include <qwt_text.h>
+ #include <qpainter.h>
+ #include <qprinter.h>
++#include <qprintdialog.h>
++#include <qfiledialog.h>
+ #include <qimagewriter.h>
+ #include <qfileinfo.h>
+ #include <qmath.h>
+@@ -114,19 +115,39 @@ void QwtPolarRenderer::renderDocument( QwtPolarPlot *plot,
+     const QRectF documentRect( 0.0, 0.0, size.width(), size.height() );
+ 
+     const QString fmt = format.toLower();
+-    if ( format == "pdf" || format == "ps" )
++    if ( format == "pdf" )
+     {
++#ifndef QT_NO_PRINTER
+         QPrinter printer;
++        printer.setColorMode( QPrinter::Color );
+         printer.setFullPage( true );
+         printer.setPaperSize( sizeMM, QPrinter::Millimeter );
+         printer.setDocName( title );
+         printer.setOutputFileName( fileName );
+-        printer.setOutputFormat( ( format == "pdf" )
+-            ? QPrinter::PdfFormat : QPrinter::PostScriptFormat );
++        printer.setOutputFormat( QPrinter::PdfFormat );
+         printer.setResolution( resolution );
+ 
+         QPainter painter( &printer );
+         render( plot, &painter, documentRect );
++#endif
++    }
++    else if ( format == "ps" )
++    {
++#if QT_VERSION < 0x050000
++#ifndef QT_NO_PRINTER
++        QPrinter printer;
++        printer.setColorMode( QPrinter::Color );
++        printer.setFullPage( true );
++        printer.setPaperSize( sizeMM, QPrinter::Millimeter );
++        printer.setDocName( title );
++        printer.setOutputFileName( fileName );
++        printer.setOutputFormat( QPrinter::PostScriptFormat );
++        printer.setResolution( resolution );
++
++        QPainter painter( &printer );
++        render( plot, &painter, documentRect );
++#endif
++#endif
+     }
+ #ifndef QWT_NO_POLAR_SVG
+ #ifdef QT_SVG_LIB
+@@ -299,7 +320,7 @@ void QwtPolarRenderer::render( QwtPolarPlot *plot,
+     painter->restore();
+ 
+     painter->save();
+-    renderLegend( painter, layout->legendRect() );
++    renderLegend( plot, painter, layout->legendRect() );
+     painter->restore();
+ 
+     const QRectF canvasRect = layout->canvasRect();
+@@ -339,83 +360,78 @@ void QwtPolarRenderer::renderTitle( QPainter *painter, const QRectF &rect ) cons
+ /*!
+   Render the legend into a given rectangle.
+ 
++  \param plot Plot widget
+   \param painter Painter
+   \param rect Bounding rectangle
+ */
+-
+-void QwtPolarRenderer::renderLegend(
++void QwtPolarRenderer::renderLegend( const QwtPolarPlot *plot,
+     QPainter *painter, const QRectF &rect ) const
+ {
+-    QwtLegend *legend = d_data->plot->legend();
+-    if ( legend == NULL || legend->isEmpty() )
+-        return;
++    if ( plot->legend() )
++        plot->legend()->renderLegend( painter, rect, true );
++}
+ 
+-    const QwtDynGridLayout *legendLayout = qobject_cast<QwtDynGridLayout *>(
+-        legend->contentsWidget()->layout() );
+-    if ( legendLayout == NULL )
+-        return;
++/*!
++   \brief Execute a file dialog and render the plot to the selected file
+ 
+-    uint numCols = legendLayout->columnsForWidth( rect.width() );
+-    const QList<QRect> itemRects =
+-        legendLayout->layoutItems( rect.toRect(), numCols );
++   The document will be rendered in 85 dpi for a size 30x30 cm
+ 
+-    int index = 0;
++   \param plot Plot widget
++   \param documentName Default document name
++   \param sizeMM Size for the document in millimeters.
++   \param resolution Resolution in dots per Inch (dpi)
+ 
+-    for ( int i = 0; i < legendLayout->count(); i++ )
+-    {
+-        QLayoutItem *item = legendLayout->itemAt( i );
+-        QWidget *w = item->widget();
+-        if ( w )
+-        {
+-            painter->save();
++   \sa renderDocument()
++*/
++bool QwtPolarRenderer::exportTo( QwtPolarPlot *plot, 
++    const QString &documentName, const QSizeF &sizeMM, int resolution )
++{
++    if ( plot == NULL )
++        return false;
+ 
+-            painter->setClipRect( itemRects[index] );
+-            renderLegendItem( painter, w, itemRects[index] );
++    QString fileName = documentName;
+ 
+-            index++;
+-            painter->restore();
+-        }
+-    }
++    // What about translation 
+ 
+-}
++#ifndef QT_NO_FILEDIALOG
++    const QList<QByteArray> imageFormats =
++        QImageWriter::supportedImageFormats();
+ 
+-/*!
+-  Print the legend item into a given rectangle.
+-
+-  \param painter Painter
+-  \param widget Widget representing a legend item
+-  \param rect Bounding rectangle
++    QStringList filter;
++#ifndef QT_NO_PRINTER
++    filter += QString( "PDF " ) + tr( "Documents" ) + " (*.pdf)";
++#endif
++#ifndef QWT_NO_SVG
++    filter += QString( "SVG " ) + tr( "Documents" ) + " (*.svg)";
++#endif
++#ifndef QT_NO_PRINTER
++    filter += QString( "Postscript " ) + tr( "Documents" ) + " (*.ps)";
++#endif
+ 
+-  \note When widget is not derived from QwtLegendItem renderLegendItem
+-        does nothing and needs to be overloaded
+-*/
+-void QwtPolarRenderer::renderLegendItem( QPainter *painter,
+-    const QWidget *widget, const QRectF &rect ) const
+-{
+-    const QwtLegendItem *item = qobject_cast<const QwtLegendItem *>( widget );
+-    if ( item )
++    if ( imageFormats.size() > 0 )
+     {
+-        const QSize sz = item->identifierSize();
+-
+-        const QRectF identifierRect( rect.x() + item->margin(),
+-            rect.center().y() - 0.5 * sz.height(), sz.width(), sz.height() );
+-
+-        QwtLegendItemManager *itemManger = d_data->plot->legend()->find( item );
+-        if ( itemManger )
++        QString imageFilter( tr( "Images" ) );
++        imageFilter += " (";
++        for ( int i = 0; i < imageFormats.size(); i++ )
+         {
+-            painter->save();
+-            painter->setClipRect( identifierRect, Qt::IntersectClip );
+-            itemManger->drawLegendIdentifier( painter, identifierRect );
+-            painter->restore();
++            if ( i > 0 )
++                imageFilter += " ";
++            imageFilter += "*.";
++            imageFilter += imageFormats[i];
+         }
++        imageFilter += ")";
+ 
+-        // Label
++        filter += imageFilter;
++    }
+ 
+-        QRectF titleRect = rect;
+-        titleRect.setX( identifierRect.right() + 2 * item->spacing() );
++    fileName = QFileDialog::getSaveFileName(
++        NULL, tr( "Export File Name" ), fileName,
++        filter.join( ";;" ), NULL, QFileDialog::DontConfirmOverwrite );
++#endif
++    if ( fileName.isEmpty() )
++        return false;
+ 
+-        painter->setFont( item->font() );
+-        item->text().draw( painter, titleRect );
+-    }
+-}
++    renderDocument( plot, fileName, sizeMM, resolution );
+ 
++    return true;
++}
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.h b/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.h
+index b562817..993e332 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_renderer.h
+@@ -11,9 +11,9 @@
+ 
+ #include "qwt_polar_global.h"
+ #include <qobject.h>
++#include <qsize.h>
+ 
+ class QwtPolarPlot;
+-class QSizeF;
+ class QRectF;
+ class QPainter;
+ class QPrinter;
+@@ -51,17 +51,18 @@ class QWT_POLAR_EXPORT QwtPolarRenderer: public QObject
+ #endif
+ #endif
+     void renderTo( QwtPolarPlot *, QPrinter & ) const;
+-    void renderTo( QwtPolarPlot *, QPaintDevice &p ) const;
++    void renderTo( QwtPolarPlot *, QPaintDevice & ) const;
+ 
+     virtual void render( QwtPolarPlot *,
+         QPainter *, const QRectF &rect ) const;
+ 
+-protected:
++    bool exportTo( QwtPolarPlot *, const QString &documentName,
++        const QSizeF &sizeMM = QSizeF( 200, 200 ), int resolution = 85 );
++
+     virtual void renderTitle( QPainter *, const QRectF & ) const;
+-    virtual void renderLegend( QPainter *, const QRectF & ) const;
+ 
+-    virtual void renderLegendItem( QPainter *,
+-        const QWidget *, const QRectF & ) const;
++    virtual void renderLegend(
++        const QwtPolarPlot *, QPainter *, const QRectF & ) const;
+ 
+ private:
+     class PrivateData;
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.cpp b/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.cpp
+index 355e5b1..325b07a 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.cpp
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.cpp
+@@ -94,21 +94,20 @@ class QwtPolarSpectrogram::PrivateData
+ {
+ public:
+     PrivateData():
+-        data( NULL ),
+-        renderThreadCount( 1 )
++        data( NULL )
+     {
+         colorMap = new QwtLinearColorMap();
+     }
+ 
+     ~PrivateData()
+     {
++        delete data;
++        delete colorMap;
+     }
+ 
+     QwtRasterData *data;
+     QwtColorMap *colorMap;
+ 
+-    uint renderThreadCount;
+-
+     QwtPolarSpectrogram::PaintAttributes paintAttributes;
+ };
+ 
+@@ -223,37 +222,6 @@ bool QwtPolarSpectrogram::testPaintAttribute( PaintAttribute attribute ) const
+ }
+ 
+ /*!
+-   Rendering an image from the raster data can often be done
+-   parallel on a multicore system.
+-
+-   \param numThreads Number of threads to be used for rendering.
+-                     If numThreads is set to 0, the system specific
+-                     ideal thread count is used.
+-
+-   The default thread count is 1 ( = no additional threads )
+-
+-   \warning Rendering in multiple threads is only supported for Qt >= 4.4
+-   \sa renderThreadCount(), renderImage(), renderTile()
+-*/
+-void QwtPolarSpectrogram::setRenderThreadCount( uint numThreads )
+-{
+-    d_data->renderThreadCount = numThreads;
+-}
+-
+-/*!
+-   \return Number of threads to be used for rendering.
+-           If numThreads is set to 0, the system specific
+-           ideal thread count is used.
+-
+-   \warning Rendering in multiple threads is only supported for Qt >= 4.4
+-   \sa setRenderThreadCount(), renderImage(), renderTile()
+-*/
+-uint QwtPolarSpectrogram::renderThreadCount() const
+-{
+-    return d_data->renderThreadCount;
+-}
+-
+-/*!
+   Draw the spectrogram
+ 
+   \param painter Painter
+@@ -354,7 +322,7 @@ QImage QwtPolarSpectrogram::renderImage(
+ 
+ 
+ #if QT_VERSION >= 0x040400 && !defined(QT_NO_QFUTURE)
+-    uint numThreads = d_data->renderThreadCount;
++    uint numThreads = renderThreadCount();
+ 
+     if ( numThreads <= 0 )
+         numThreads = QThread::idealThreadCount();
+diff --git a/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.h b/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.h
+index 0d175f0..4bbf8f2 100644
+--- a/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.h
++++ b/src/app/gps/qwtpolar-1.0/qwt_polar_spectrogram.h
+@@ -59,9 +59,6 @@ class QWT_POLAR_EXPORT QwtPolarSpectrogram: public QwtPolarItem
+     void setPaintAttribute( PaintAttribute, bool on = true );
+     bool testPaintAttribute( PaintAttribute ) const;
+ 
+-    void setRenderThreadCount( uint numThreads );
+-    uint renderThreadCount() const;
+-
+     virtual int rtti() const;
+ 
+     virtual void draw( QPainter *painter,
+-- 
+1.8.5.1
+
