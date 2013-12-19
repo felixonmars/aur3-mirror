@@ -1,0 +1,79 @@
+# Maintainer : Cian Mc Govern <cian@cianmcgovern.com>
+# Contributor : Ng Oon-Ee <ngoonee.talk@gmail.com>
+# Based on nvidia-beta by Dan Vratil <vratil@progdansoft.com>
+
+pkgname=nvidia-all-325
+pkgver=325.15
+pkgrel=4
+pkgdesc="NVIDIA drivers for linux."
+arch=('i686' 'x86_64')
+provides=("nvidia=${pkgver}")
+url="http://www.nvidia.com/"
+depends=("nvidia-utils=${pkgver}")
+makedepends=('linux-headers' 'kmod>=9-2')
+conflicts=('nvidia-96xx' 'nvidia-71xx' 'nvidia-legacy' 'nvidia' 'nvidia-beta' 'nvidia-beta-all')
+license=('custom')
+install=nvidia.install
+source=('nvidia-linux-3.11.patch' 'nvidia-linux-3.12.patch')
+md5sums=('5c962760de069ed4ad34e64d5988686a' 'd267069bc456de269424b4e1b46a3745')
+
+if [ "$CARCH" = "i686" ]; then
+    _arch='x86'
+    _pkg="NVIDIA-Linux-${_arch}-${pkgver}"
+    source+=("ftp://download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
+    md5sums+=('528fc538584de6446384b9cec3099d6c')
+elif [ "$CARCH" = "x86_64" ]; then
+    _arch='x86_64'
+   _pkg="NVIDIA-Linux-${_arch}-${pkgver}-no-compat32"
+    source+=("ftp://download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
+    md5sums+=('63b2caa0cb128efa1a7808d7bddb2074')
+fi
+
+KERNELS=`cat /usr/lib/modules/extramodules*/version`
+
+build()
+{
+    cd ${srcdir}
+    sh ${_pkg}.run --extract-only
+    # Loop through all detected kernels
+    for _kernver in $KERNELS;
+    do
+        cd ${srcdir}/${_pkg}
+        cp -R kernel kernel-${_kernver}
+        cd kernel-${_kernver}
+        echo Building module for $_kernver
+        if [ `echo $_kernver | grep 3.11` ];
+        then
+            patch -Np2 < ${srcdir}/nvidia-linux-3.11.patch
+        elif [ `echo $_kernver | grep 3.12` ];
+        then
+            patch -Np2 < ${srcdir}/nvidia-linux-3.12.patch
+        fi
+        make SYSSRC=/usr/lib/modules/"${_kernver}"/build module
+    done
+}
+
+package() {
+
+    # Find all extramodules directories
+    _EXTRAMODULES=`find /usr/lib/modules -name version | sed 's|\/usr\/lib\/modules\/||; s|\/version||'`
+
+    # Loop through all detected kernels
+    for _kernver in $KERNELS;
+    do
+        cd "${srcdir}/${_pkg}/kernel-${_kernver}"
+        # Loop through all detected extramodules directories
+        for _moduledirs in $_EXTRAMODULES
+        do
+            # Check which extramodules directory corresponds with the built module
+            if [ `cat "/usr/lib/modules/${_moduledirs}/version"` = $_kernver ]; then
+                mkdir -p "${pkgdir}/usr/lib/modules/${_moduledirs}/"
+                install -m644 nvidia.ko "${pkgdir}/usr/lib/modules/${_moduledirs}/"
+                gzip "${pkgdir}/usr/lib/modules/${_moduledirs}/nvidia.ko"
+            fi
+        done
+    done
+
+    install -d -m755 "${pkgdir}/usr/lib/modprobe.d"
+    echo "blacklist nouveau" >> "${pkgdir}/usr/lib/modprobe.d/nvidia.conf"
+}
