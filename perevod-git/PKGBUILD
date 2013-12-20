@@ -2,7 +2,7 @@
 
 pkgname=perevod-git
 pkgver=0.0.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Translate selection (lightweight GTK+)'
 arch=('any')
 url='https://github.com/naspeh/perevod'
@@ -18,7 +18,7 @@ pkgver() {
     printf "%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
-build() {
+package() {
     cd "$pkgname"
     python setup.py build || return 1
     python setup.py install --root=$pkgdir --optimize=1 || return 1

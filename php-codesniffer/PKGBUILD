@@ -3,7 +3,7 @@
 
 pkgname=php-codesniffer
 _pkgname=PHP_CodeSniffer
-pkgver=1.4.7
+pkgver=1.5.1
 pkgrel=1
 pkgdesc="PHP_CodeSniffer tokenises PHP, JavaScript and CSS files and detects violations of a defined set of coding standards."
 arch=('any')
@@ -14,7 +14,7 @@ makedepends=('php-pear')
 source=(http://download.pear.php.net/package/${_pkgname}-${pkgver}.tgz)
 noextract=("${_pkgname}-${pkgver}.tgz")
 
-md5sums=('858665debdb37fb9a6af41e60e3bfe4a')
+md5sums=('1b24b00d9308f5f37db5c7525eba99e7')
 
 package() {
   pear install -P ${pkgdir} ${srcdir}/${_pkgname}-${pkgver}.tgz
