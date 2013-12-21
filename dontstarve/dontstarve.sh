@@ -1,4 +1,3 @@
 #!/bin/sh
-
-cd /opt/dontstarve
+cd /opt/dontstarve/bin
 ./dontstarve.sh

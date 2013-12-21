@@ -7,7 +7,7 @@ arch=('i686' 'x86_64')
 url="http://www.afflib.org"
 license=('GPL')
 depends=('afflib')
-source=("http://www.afflib.org/downloads/${pkgname}-${pkgver}.tar.gz")
+source=("https://launchpad.net/ubuntu/+archive/primary/+files/${pkgname}_${pkgver}.orig.tar.gz")
 md5sums=('07a11d653cdd1d7a5aefe4d99cdbd408')
 
 build() {

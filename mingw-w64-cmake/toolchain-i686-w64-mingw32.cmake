@@ -15,6 +15,7 @@ SET(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 # Make sure Qt can be detected by CMake
 SET(QT_BINARY_DIR /usr/i686-w64-mingw32/bin /usr/bin)
+SET(QT_INCLUDE_DIRS_NO_SYSTEM ON)
 
 # set the resource compiler (RHBZ #652435)
 SET(CMAKE_RC_COMPILER i686-w64-mingw32-windres)

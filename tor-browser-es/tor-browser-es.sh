@@ -28,7 +28,7 @@ DIRECTORY=~/.$NAME
 INSTALL_DIRECTORY=$DIRECTORY/INSTALL
 VERSION_FILE=$DIRECTORY/VERSION
 LOG_FILE=$DIRECTORY/LOG
-ARCH=$(uname -m)
+ARCH=linux$(getconf LONG_BIT)
 
 notify() {
   local title="$1"
@@ -48,7 +48,7 @@ notify() {
 update() {
 	echo "$0: Extracting files to $INSTALL_DIRECTORY." >> $LOG_FILE
 	rm -rf $INSTALL_DIRECTORY/*
-	tar --strip-components=1 -xzf /opt/$NAME/tor-browser-gnu-linux-${ARCH}-${VERSION}-${LANGUAGE}.tar.gz \
+	tar --strip-components=1 -xJf /opt/$NAME/tor-browser-$ARCH-${VERSION}_${LANGUAGE}.tar.xz \
 		-C $INSTALL_DIRECTORY >> $LOG_FILE 2>&1 || notify "Error" \
 		"The tor-browser archive could not be extracted to your home directory. \
 		\nCheck permissions of $INSTALL_DIRECTORY. \
