@@ -1,24 +1,33 @@
-# Contributor: William Rea <sillywilly@gmail.com>
-# Contributor: Shinlun Hsieh <yngwiexx@yahoo.com.tw>
-# Maintainer: Filip Wojciechowski, filip at loka dot pl
+# Maintainer:   Nyarcel              <nyarcel AT SPAMFREE gmail DOT com>
+# Contributor:  Filip Wojciechowski  <filip AT SPAMFREE loka DOT pl>
+# Contributor:  Shinlun Hsieh        <yngwiexx AT SPAMFREE yahoo DOT com DOT tw>
+# Contributor:  William Rea          <sillywilly AT SPAMFREE gmail DOT com>
+#
+# PKGBUILD revision: 2013-12-21
+
 pkgname=alac_decoder
 pkgver=0.2.0
-pkgrel=1
-pkgdesc="A basic decoder for Apple Lossless Audio Codec files"
+pkgrel=2
+pkgdesc="A basic decoder for Apple Lossless Audio Codec (ALAC) files"
 arch=('i686' 'x86_64')
 url="http://craz.net/programs/itunes/alac.html"
-license=('custom')
+license=('MIT')
 depends=('glibc')
-source=(http://craz.net/programs/itunes/files/${pkgname}-${pkgver}.tgz \
-	    LICENSE.txt)
+source=(http://craz.net/programs/itunes/files/${pkgname}-${pkgver}.tgz
+        MIT-LICENSE)
 md5sums=('cec75c35f010d36e7bed91935b57f2d1'
-         '19918a12e58dd8a53bc724273ad0161f')
+         'fe0f525ad579bf624ee9982d38b4d440')
 
 build() {
-  cd ${startdir}/src/${pkgname}
+	cd ${srcdir}/${pkgname}
+	echo "Building from sources..."
+	make
+}
 
-  make || return 1
-
-  install -D -m755 alac ${startdir}/pkg/usr/bin/alac || return 1
-  install -D -m644 ../LICENSE.txt ${startdir}/pkg/usr/share/licenses/${pkgname}/LICENSE.txt || return 1
+package() {
+	echo "Installing alac..."
+	install -D -m755 ${srcdir}/${pkgname}/alac ${pkgdir}/usr/bin/alac
+	echo "Installing license..."
+	install -D -m644 ${srcdir}/MIT-LICENSE \
+	                 ${pkgdir}/usr/share/licenses/${pkgname}/MIT-LICENSE
 }

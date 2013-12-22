@@ -2,7 +2,7 @@
 # Contributor: lobotomius at gmail dot com
 
 pkgname=64tass-svn
-pkgver=518  
+pkgver=521  
 pkgrel=1
 pkgdesc="6502/65C02/R65C02/W65C02/65CE02/65816/DTV/65EL02 Turbo Assembler"
 arch=('i686' 'x86_64')

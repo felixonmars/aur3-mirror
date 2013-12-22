@@ -1,6 +1,6 @@
 # Maintainer: Robert Holak <rholak@gmail.com>
 pkgname=greyhole
-pkgver=0.9.31
+pkgver=0.9.35
 pkgrel=1
 pkgdesc="Greyhole is an application that uses Samba to create a storage pool of all your available hard drives and allows you to create redundant copies of the files you store, in order to prevent data loss when part of your hardware fails."
 url="http://greyhole.net"
@@ -10,10 +10,10 @@ depends=('php' 'php-intl' 'samba' 'mysql' 'rsync' )
 backup=("etc/greyhole.conf")
 install='greyhole.install'
 source=("http://www.greyhole.net/releases/${pkgname}-${pkgver}.tar.gz"
-"greyhole.init")
+"greyhole.service")
 
-md5sums=('0c1b544333b2efbd94e01b4995de143d'
-         'df5cfd0b218aac733d8667eefee24bb6')
+md5sums=('987c5a7842a19561d045da28053cf97c'
+         '2fed371aa5cb4d71bc34390d0d5688da')
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
@@ -36,7 +36,7 @@ package() {
   install -m 0644 -D -p docs/greyhole.1.gz $pkgdir/usr/share/man/man1/greyhole.1.gz
   install -m 0644 -D -p docs/greyhole-dfree.1.gz $pkgdir/usr/share/man/man1/greyhole-dfree.1.gz
   install -m 0644 -D -p docs/greyhole.conf.5.gz $pkgdir/usr/share/man/man5/greyhole.conf.5.gz
-  install -m 0755 -D -p $startdir/greyhole.init $pkgdir/etc/rc.d/greyhole
+  install -m 0755 -D -p $startdir/greyhole.service $pkgdir/usr/lib/systemd/system/greyhole.service
   install -m 0644 -D -p schema-mysql.sql $pkgdir/usr/share/greyhole/schema-mysql.sql
   install -m 0644 -D -p USAGE $pkgdir/usr/share/greyhole/USAGE
 
@@ -47,7 +47,7 @@ package() {
     vfs_file=greyhole-x86_64.so
   fi
 
-  install -m 0644 -D -p samba-module/bin/3.6/$vfs_file $pkgdir/usr/lib/samba/vfs/greyhole.so
+  install -m 0644 -D -p samba-module/bin/4.0/$vfs_file $pkgdir/usr/lib/samba/vfs/greyhole.so
 
 }
 
