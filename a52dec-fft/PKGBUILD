@@ -1,12 +1,13 @@
 # $Id$
 # Maintainer: JSpaces <jspaces -aT- incentre -d0T- net>
-# contributor: Thomas Baechler <thomas@archlinux.org>
-# contributor: Sarah Hay <sarahhay@mb.sympatico.ca>
+# contributor: aleb <alexandru.balut -aT- gmail -d0t- com>
+# contributor: Thomas Baechler <thomas -aT- archlinux -d0t- org>
+# contributor: Sarah Hay <sarahhay -aT- mb.sympatico -d0t- ca>
 
 pkgname=a52dec-fft
 _srcname=a52dec
 pkgver=0.7.4
-pkgrel=6
+pkgrel=9
 pkgdesc="A free Fast Fourier Transformation optimized ATSC A/52 stream decoder."
 url="http://liba52.sourceforge.net/"
 arch=('i686' 'x86_64')
@@ -25,6 +26,9 @@ prepare() {
   msg2 "Patching ..."
   # Patch from http://www.linuxfromscratch.org/blfs/view/svn/multimedia/liba52.html
   patch -Np1 -i ${srcdir}/a52dec-0.7.4-build.patch
+  # aleb's fix for "Using djbfft for IMDCT transform" message spammed to stderr.
+  mv liba52/imdct.c liba52/imdct-original.c
+  cat liba52/imdct-original.c | grep -v "Using djbfft for IMDCT transform" > liba52/imdct.c
 }
 
 build() {
@@ -33,10 +37,11 @@ build() {
   # add CFLAGS="-fpic" to allow --enable-shared to compile on x86_64
   # disable static library - who needs it  
   # djbfft support enabled
-  ./configure --prefix=/usr \
-  --enable-shared \
-  --disable-static \
-  --enable-djbfft \
+  ./configure \
+    --prefix=/usr \
+    --enable-shared \
+    --disable-static \
+    --enable-djbfft \
   CFLAGS="$([ $(uname -m) = x86_64 ] && echo -fPIC)"
   
   make
