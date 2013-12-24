@@ -1,3 +1,3 @@
 #!/bin/bash
-cd /usr/share/knime-sdk
-./eclipse
+export KNIME_SDK_HOME=/usr/share/knime-sdk
+${KNIME_SDK_HOME}/eclipse "$@"

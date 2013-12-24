@@ -1,3 +1,3 @@
 #!/bin/bash
-cd /usr/share/knime-desktop
-./knime
+export KNIME_DESKTOP_HOME=/usr/share/knime-desktop
+${KNIME_DESKTOP_HOME}/knime "$@"
