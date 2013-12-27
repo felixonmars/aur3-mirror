@@ -34,9 +34,9 @@
 #include "ol_debug.h"
 #include "ol_md5.h"
 
-#define USER_AGENT "MiniLyrics"
+#define USER_AGENT "MiniLyrics4Android"
 #define SEARCH_URL "http://search.crintsoft.com/searchlyrics.htm"
-#define SEARCH_XML "<?xml version='1.0' encoding='utf-8' standalone='yes' ?><search filetype=\"lyrics\" artist=\"%s\" title=\"%s\" client=\"MiniLyrics\" />"
+#define SEARCH_XML "<?xml version='1.0' encoding='utf-8' standalone='yes' ?><search filetype=\"lyrics\" artist=\"%s\" title=\"%s\" client=\"MiniLyricsForAndroid\" />"
 #define MAX_CANDIDATE 5
 
 struct CandidateParserData
