@@ -1,14 +1,14 @@
 # Maintainer: Daniel Landau <daniel.landau@iki.fi>
 
 pkgname=thunderbird-conversations-git
-pkgver=r1302.d41cbd2
+pkgver=r1304.f60c4cd
 pkgrel=1
 pkgdesc="GMail-like conversation view for Thunderbird"
 arch=('any')
 url="https://github.com/protz/GMail-Conversation-View"
 license=('MPL' 'GPL2' 'LGPL2.1')
 depends=('thunderbird')
-makedepends=('git' 'nodejs')
+makedepends=('git' 'nodejs' 'zip')
 source=("$pkgname"::'git://github.com/protz/GMail-Conversation-View.git')
 md5sums=('SKIP')
 pkgver() {
