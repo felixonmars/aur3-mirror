@@ -1,33 +1,32 @@
 # Maintainer: NormalRa <normalrawr (moo) gmail (squeak) com>
 
-_basename=acx
 pkgbase=acx-firmware
 pkgname=acx-firmware
-true && pkgname=("${_basename}100-firmware"
-                 "${_basename}100-usb-firmware"
-                 "${_basename}111-firmware"
-                 "${_basename}111-usb-firmware")
+true && pkgname=("acx100-firmware"
+                 "acx100-usb-firmware"
+                 "acx111-firmware"
+                 "acx111-usb-firmware")
 
-pkgver=20130920
-pkgrel=2
+pkgver=20131230
+pkgrel=1
 pkgdesc="Firmware for TI ACX1xx wireless cards (split PKGBUILD)"
 arch=("any")
 url="http://acx100.erley.org/"
 license=("unknown")
 
-source=("http://acx100.erley.org/fw/${_basename}100_1.9.8.b/tiacx100"
-        "http://acx100.erley.org/fw/${_basename}100_1.9.8.b/tiacx100r0D"
-        "http://acx100.erley.org/fw/${_basename}100_1.9.8.b/tiacx100r11"
-        "http://acx100.erley.org/fw/${_basename}100_1.9.8.b/tiacx100r15"
+source=("http://acx100.erley.org/fw/acx100_1.9.8.b/tiacx100"
+        "http://acx100.erley.org/fw/acx100_1.9.8.b/tiacx100r0D"
+        "http://acx100.erley.org/fw/acx100_1.9.8.b/tiacx100r11"
+        "http://acx100.erley.org/fw/acx100_1.9.8.b/tiacx100r15"
 
-        "http://acx100.erley.org/fw/${_basename}111_1.2.1.34/tiacx111"
-        "http://acx100.erley.org/fw/${_basename}111_1.2.1.34/tiacx111c16"
-        "http://acx100.erley.org/fw/${_basename}111_1.2.1.34/tiacx111c17"
-        "http://acx100.erley.org/fw/${_basename}111_1.2.1.34/tiacx111r16"
-        "http://acx100.erley.org/fw/${_basename}111_1.2.1.34/tiacx111r17"
+        "http://acx100.erley.org/fw/acx111_1.2.1.34/tiacx111"
+        "http://acx100.erley.org/fw/acx111_1.2.1.34/tiacx111c16"
+        "http://acx100.erley.org/fw/acx111_1.2.1.34/tiacx111c17"
+        "http://acx100.erley.org/fw/acx111_1.2.1.34/tiacx111r16"
+        "http://acx100.erley.org/fw/acx111_1.2.1.34/tiacx111r17"
 
-        "http://acx100.erley.org/fw/${_basename}100_1.0.9-USB/tiacx100usbc0D"
-        "http://acx100.erley.org/fw/${_basename}111_2.4.0.70-USB/tiacx111usbc1B")
+        "http://acx100.erley.org/fw/acx100_1.0.9-USB/tiacx100usbc0D"
+        "http://acx100.erley.org/fw/acx111_2.4.0.70-USB/tiacx111usbc1B")
 
 md5sums=('24a54fd30f7658fcbffc825b0dd7aa5b'
          '1c7413e7b0be4ef7d1e424a132e17fab'

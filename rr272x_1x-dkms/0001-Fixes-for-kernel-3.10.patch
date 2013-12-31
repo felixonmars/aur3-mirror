@@ -1,0 +1,229 @@
+From ab64597840a418de645cdd7aeb3d3d480f7213a8 Mon Sep 17 00:00:00 2001
+From: Thomas Matysik <thomas@matysik.co.nz>
+Date: Mon, 30 Dec 2013 15:50:20 +1300
+Subject: [PATCH] Fixes for kernel >= 3.10
+
+The rr272x driver used Scsi_Host_Template->proc_info which was removed
+in 3.10 (commit 70ef457dc92bdd03c0c8d640fce45909166983a1 by Al Viro)
+
+This patch updates the driver to use the replacement ->write_info and ->show_info instead when compiled against 3.10 or later.
+---
+ osm/linux/hptinfo.c   | 61 ++++++++++++++++++++++++++++++++++++---------------
+ osm/linux/osm_linux.c | 11 +++++++---
+ osm/linux/osm_linux.h |  5 +++++
+ 3 files changed, 56 insertions(+), 21 deletions(-)
+
+diff --git a/osm/linux/hptinfo.c b/osm/linux/hptinfo.c
+index 29909b6..b74cad2 100644
+--- a/osm/linux/hptinfo.c
++++ b/osm/linux/hptinfo.c
+@@ -8,6 +8,9 @@
+ #include "osm_linux.h"
+ #include "hptintf.h"
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++typedef struct seq_file HPT_GET_INFO;
++#else
+ typedef struct _hpt_GET_INFO {
+ 	char *buffer;
+ 	int buflength;
+@@ -15,7 +18,9 @@ typedef struct _hpt_GET_INFO {
+ 	int buffillen;
+ 	int filpos;
+ } HPT_GET_INFO;
++#endif
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+ static void hpt_copy_mem_info(HPT_GET_INFO *pInfo, char *data, int datalen)
+ {
+ 	if (pInfo->filpos < pInfo->bufoffset) {
+@@ -39,17 +44,25 @@ static void hpt_copy_mem_info(HPT_GET_INFO *pInfo, char *data, int datalen)
+ 	memcpy(pInfo->buffer + pInfo->buffillen, data, datalen);
+ 	pInfo->buffillen += datalen;
+ }
++#endif
+ 
+ static int hpt_copy_info(HPT_GET_INFO *pinfo, char *fmt, ...)
+ {
+ 	va_list args;
+-	char buf[128];
+ 	int len;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++	va_start(args, fmt);
++	len = seq_printf(pinfo, fmt, args);
++	va_end(args);
++#else
++	char buf[128];
++
+ 	va_start(args, fmt);
+ 	len = vsprintf(buf, fmt, args);
+ 	va_end(args);
+ 	hpt_copy_mem_info(pinfo, buf, len);
++#endif
+ 	return len;
+ }
+ 
+@@ -234,32 +247,44 @@ static void hpt_dump_devinfo(HPT_GET_INFO *pinfo, DEVICEID id, int indent)
+ }
+ 
+ #define MAX_PHYSICAL_DEVICE	128
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++#define HPT_INFO_RETURN 0
++int hpt_proc_show_info(struct seq_file *info, struct Scsi_Host *host)
++{
++#else
++#define HPT_INFO_RETURN info.buffillen
+ int hpt_proc_get_info(struct Scsi_Host *host, char *buffer, char **start, off_t offset, int length)
+ {
+-	HPT_GET_INFO info;
++	HPT_GET_INFO hpt_info;
++	HPT_GET_INFO *info;
++#endif
+ 	int i, j, count;
+ 	CONTROLLER_INFO_V2 conInfo2;
+ 	DEVICEID *ids;
+ 	int devs;	
+ 	PVBUS_EXT vbus_ext = get_vbus_ext(host);
+ 
+-	info.buffer     = buffer;
+-	info.buflength  = length;
+-	info.bufoffset  = offset;
+-	info.filpos     = 0;
+-	info.buffillen  = 0;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
++	info = &hpt_info;
++
++	hpt_info.buffer     = buffer;
++	hpt_info.buflength  = length;
++	hpt_info.bufoffset  = offset;
++	hpt_info.filpos     = 0;
++	hpt_info.buffillen  = 0;
+ 
+ 	if (start) *start = buffer;
++#endif
+ 
+-	hpt_copy_info(&info, "%s %s\n\n", driver_name_long, driver_ver);
++	hpt_copy_info(info, "%s %s\n\n", driver_name_long, driver_ver);
+ 
+ 	count = hpt_get_controller_count();
+ 
+ 	if (!(count>0) || !(ids = kmalloc(MAX_PHYSICAL_DEVICE * sizeof(DEVICEID), GFP_KERNEL)))
+-		return info.buffillen;
++		return HPT_INFO_RETURN;
+ 
+ 	if ((devs = hpt_get_physical_devices(ids, MAX_PHYSICAL_DEVICE))<0)
+-		return info.buffillen;
++		return HPT_INFO_RETURN;
+ 	
+ 	for (j=0; j<count; j++) {
+ 		int found;
+@@ -276,8 +301,8 @@ int hpt_proc_get_info(struct Scsi_Host *host, char *buffer, char **start, off_t
+ 
+ 		if (!found) continue;
+ 
+-		hpt_copy_info(&info, "Controller %d: %s\n", j+1, conInfo2.szProductID);
+-		hpt_copy_info(&info, "------------------------------------------------\n");
++		hpt_copy_info(info, "Controller %d: %s\n", j+1, conInfo2.szProductID);
++		hpt_copy_info(info, "------------------------------------------------\n");
+ 
+ 		for (i=0; i<devs; i++) {
+ 			if (DEVICEID_VALID(ids[i])) {
+@@ -286,29 +311,29 @@ int hpt_proc_get_info(struct Scsi_Host *host, char *buffer, char **start, off_t
+ 					continue;
+ 
+ 				if (devinfo.VBusId == host->host_no)
+-					hpt_dump_devinfo(&info, ids[i], 0);
++					hpt_dump_devinfo(info, ids[i], 0);
+ 			}
+ 		}
+ 	}
+ 
+ 	count = hpt_get_logical_devices(ids, MAX_PHYSICAL_DEVICE);
+-	hpt_copy_info(&info, "\nLogical devices\n");
+-	hpt_copy_info(&info, "------------------------------------------------\n");
++	hpt_copy_info(info, "\nLogical devices\n");
++	hpt_copy_info(info, "------------------------------------------------\n");
+ 
+ 	for (j=0; j<count; j++) {
+ 		LOGICAL_DEVICE_INFO_V3 devinfo;
+ 		if (hpt_get_device_info_v3(ids[j], &devinfo)) {
+-			hpt_copy_info(&info, "unknown\n");
++			hpt_copy_info(info, "unknown\n");
+ 			continue;
+ 		}
+ 
+ 		if (devinfo.VBusId == host->host_no)
+-			hpt_dump_devinfo(&info, ids[j], 0);
++			hpt_dump_devinfo(info, ids[j], 0);
+ 	}
+ 
+ 	kfree(ids);
+ 
+-	return info.buffillen;
++	return HPT_INFO_RETURN;
+ }
+ 
+ /* not belong to this file logically, but we want to use ioctl interface */
+diff --git a/osm/linux/osm_linux.c b/osm/linux/osm_linux.c
+index 5dd96ab..f0c66b5 100644
+--- a/osm/linux/osm_linux.c
++++ b/osm/linux/osm_linux.c
+@@ -1807,6 +1807,7 @@ invalid:
+ 	return -EINVAL;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0)
+ static int hpt_proc_info26(struct Scsi_Host *host, char *buffer, char **start,
+ 					off_t offset, int length, int inout)
+ {
+@@ -1816,6 +1817,7 @@ static int hpt_proc_info26(struct Scsi_Host *host, char *buffer, char **start,
+ 	else
+ 		return hpt_proc_get_info(host, buffer, start, offset, length);
+ }
++#endif
+ 
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(2,5,0)
+ static int hpt_proc_info24(char *buffer,char **start, off_t offset,
+@@ -2116,16 +2118,19 @@ static Scsi_Host_Template driver_template = {
+ 	proc_name:               driver_name,
+ 	proc_info:               hpt_proc_info24,
+ 	select_queue_depths:     NULL,
+-	max_sectors:             128,
+ 
+ 	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,18))
+ 		highmem_io:              1,
+ 	#endif
+-#else /* 2.6.x */
++#elif LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0) /* 2.6.x */
+ 	proc_name:               driver_name,
+ 	proc_info:               hpt_proc_info26,
+-	max_sectors:             128,
++#else /* 3.10.x */
++	proc_name:               driver_name,
++        write_info:              hpt_proc_set_info,
++        show_info:               hpt_proc_show_info,
+ #endif
++	max_sectors:             128,
+ 	this_id:                 -1
+ };
+ 
+diff --git a/osm/linux/osm_linux.h b/osm/linux/osm_linux.h
+index 5edd242..e636a1f 100644
+--- a/osm/linux/osm_linux.h
++++ b/osm/linux/osm_linux.h
+@@ -297,6 +297,11 @@ VBUS_EXT, *PVBUS_EXT;
+ void refresh_sd_flags(PVBUS_EXT vbus_ext);
+ void hpt_do_ioctl(IOCTL_ARG *ioctl_args);
+ void hpt_stop_tasks(PVBUS_EXT vbus_ext);
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0)
++int hpt_proc_show_info(struct seq_file *info, struct Scsi_Host *host);
++#else
+ int hpt_proc_get_info(struct Scsi_Host *host, char *buffer, char **start, off_t offset, int length);
++#endif
+ 
+ #endif
+-- 
+1.8.5.2
+

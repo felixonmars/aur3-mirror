@@ -7,8 +7,8 @@
 # https://github.com/palopezv/vuze-plugin-i2p
 
 pkgname=vuze-plugin-i2p
-pkgver=0.3.2
-pkgrel=6
+pkgver=0.3.3
+pkgrel=1
 pkgdesc="Vuze plugin for the I2P darknet network."
 arch=('any')
 url=http://azureus.sourceforge.net/plugin_details.php?plugin=azneti2p
@@ -18,7 +18,7 @@ options=(!strip)
 source=("http://azureus.sourceforge.net/plugins/azneti2p_${pkgver}.jar")
 noextract=("azneti2p_${pkgver}.jar")
 PKGEXT=".pkg.tar"
-sha256sums=('4de305776722c29b9b0bc33b24160d76d755c34f18894942489b81675e4a36cd')
+sha256sums=('b421dc5eb48326e23569523e2d59f09b150929df7a8c2c34af50593a7104fb4d')
 
 package () {
 	cd "$srcdir"

@@ -1,21 +1,21 @@
 # Maintainer: Julien Nicoulaud <julien.nicoulaud@gmail.com>
 # Source: https://github.com/nicoulaj/archlinux-packages
 pkgname=actdiag
-pkgver=0.4.1
+pkgver=0.5.1
 pkgrel=1
 pkgdesc="Generate activity-diagram image files from spec-text files."
 arch=(any)
 url="http://blockdiag.com/en/actdiag"
 license=(APACHE)
-depends=('python2' 'blockdiag')
+depends=('python' 'blockdiag>=1.3.0')
 optdepends=('python-reportlab: to use the PDF output format')
-makedepends=(python2-distribute)
+makedepends=(python-distribute)
 changelog=Changelog
 conflicts=('actdiag-hg')
 source=("http://pypi.python.org/packages/source/a/${pkgname}/${pkgname}-${pkgver}.tar.gz")
-md5sums=('c165d0a15a8191ba7a2fe4f16d4ecabc')
+md5sums=('171c47bc1f70e5fadfffd9df0c3157be')
 
 package() {
   cd "${srcdir}/${pkgname}-${pkgver}"
-  python2 setup.py install --root="$pkgdir/" --optimize=1
+  python setup.py install --root="$pkgdir/" --optimize=1
 }
