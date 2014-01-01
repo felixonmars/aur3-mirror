@@ -1,7 +1,7 @@
 # Maintainer: Neng Xu <neng2.xu2@gmail.com>
 
 pkgname=gnucash-latest
-pkgver=2.4.13
+pkgver=2.6.0
 pkgrel=1
 pkgdesc="A personal and small-business financial-accounting application"
 arch=('i686' 'x86_64')
@@ -13,11 +13,11 @@ optdepends=('evince: for print preview'
             'perl-finance-quote: for stock information lookups'
             'perl-date-manip: for stock information lookups')
 options=('!libtool' '!makeflags' '!emptydirs')
-conflicts=('gnucash')
+conflicts=('gnucash' 'gnucash-devel')
 provides=('gnucash')
 install=gnucash.install
 source=(http://downloads.sourceforge.net/sourceforge/gnucash/gnucash-${pkgver}.tar.bz2)
-sha1sums=('cd28d4e7d84d71ade56173734d634ccadc59ed81')
+md5sums=('52edee40b03120d2646a47463f675d9a')
 
 build() {
   cd "${srcdir}/gnucash-${pkgver}"
