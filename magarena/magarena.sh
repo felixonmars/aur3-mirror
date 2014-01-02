@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Magarena Start Script
 # License: GPL3+
@@ -8,6 +8,15 @@ maghome="$HOME/.magarena"
 bootstrap() {
   echo -e "\033[1m==> Updating local cache..\033[0m\n"
   cp -rf /usr/share/magarena-base/. $maghome/
+
+  # delete duplicate decks (for 1.45 change)
+  ddir="$maghome/Magarena/decks"
+  for i in $(\ls $ddir/*.dec 2>/dev/null); do 
+    preblti="$ddir/prebuilt/$(basename $i)"
+    if [ -f $preblti ]; then 
+       if [ "$(cksum < $i)" == "$(cksum < $preblti)" ]; then rm -f $i; fi
+    fi;
+  done
 }
 
 # check if user needs update

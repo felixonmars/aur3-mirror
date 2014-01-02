@@ -8,7 +8,7 @@ export /etc/loop-swapfile.conf
 # chattr -C $swapfile - can do some speed up on HDD, because file flaged 
 # no CoW, not fragmentated on disk. This option safety for use on only empty files.
 loopdev=$(losetup -f)
-truncate -s $size $swapfile && chattr -C $swapfile
+truncate -s $size $swapfile && chattr +C $swapfile
 losetup $loopdev $swapfile
 mkswap $loopdev
 swapon $loopdev && echo $loopdev > /tmp/swaploopdev
