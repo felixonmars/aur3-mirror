@@ -2,7 +2,7 @@
 
 pkgname=4kslideshowmaker-deb
 name=4kslideshowmaker
-pkgver=1.1
+pkgver=1.3
 pkgrel=1
 pkgdesc="is an easy and free app to create slideshows for PC, Mac and Linux."
 arch=('i686' 'x86_64')
@@ -14,10 +14,10 @@ install="$name.install"
 
 if [ "${CARCH}" = 'x86_64' ]; then
     ARCH='amd64'
-    md5sums=('32ab1b52d258e1782b6383dbc65d099f')
+    md5sums=('2d7401a3478fb63341ab3a00281f3b0f')
 elif [ "${CARCH}" = 'i686' ]; then
     ARCH='i386' 
-    md5sums=('055828fe8038c8001af3e5d7e8d49299')
+    md5sums=('4c2b2b1058aab10b268d5c784f5fb16f')
 fi
 
 source=("http://4kdownload.googlecode.com/files/${name}_${pkgver}-${pkgrel}_${ARCH}.deb")

@@ -1,11 +1,11 @@
 # Maintainer: Tom Richards <tom@tomrichards.net>
 
 _nginxver=1.4.4
-_passengerver=4.0.30
+_passengerver=4.0.33
 
 pkgname=nginx-passenger
 pkgver=1.4.4
-pkgrel=1
+pkgrel=2
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -27,7 +27,7 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
 	'service'
 	'logrotate')
 sha256sums=('7c989a58e5408c9593da0bebcd0e4ffc3d892d1316ba5042ddb0be5b0b4102b9'
-            '1fef90db1d39f485b8853ba223aa7e4615b91583466068982140f3323b1dcfb4'
+            '12833d5cf4bcdf58018986520c5c9669ff438e868733ba946362c5e0dff9c993'
             '05fdc0c0483410944b988d7f4beabb00bec4a44a41bd13ebc9b78585da7d3f9b'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
 
