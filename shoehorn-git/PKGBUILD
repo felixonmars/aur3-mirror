@@ -1,13 +1,12 @@
 # Maintainer: Zac Kleinpeter <zac@kleinpeter.org>
 
 pkgname=shoehorn-git
-pkgver=20130910
+pkgver=20140103
 pkgrel=1
 pkgdesc="docker container manager"
 arch=('x86_64' 'i686')
 url="https://github.com/cajun/shoehorn"
 license=('MIT')
-depends=('lxc-docker')
 makedepends=('go' 'git')
 options=('!strip' '!emptydirs')
 md5sums=('SKIP')
