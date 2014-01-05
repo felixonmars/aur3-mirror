@@ -1,0 +1,40 @@
+# Maintainer: Andrea Scarpino <andrea@archlinux.org>
+
+pkgname=kf5-attica-qt5-git
+pkgver=v0.4.2.r14.ga84850f
+pkgrel=1
+arch=('i686' 'x86_64')
+url='https://projects.kde.org/projects/kdesupport/attica'
+pkgdesc='A Qt5 library that implements the Open Collaboration Services API'
+license=('LGPL')
+depends=('qt5-base')
+makedepends=('extra-cmake-modules-git' 'qt5-base' 'git')
+conflicts=('kf5-attica-qt5')
+provides=('kf5-attica-qt5')
+source=("git://anongit.kde.org/attica.git")
+md5sums=('SKIP')
+
+pkgver() {
+  cd attica
+  git describe --long --tags | sed -E 's/([^-]*-g)/r\1/;s/-/./g'
+}
+
+prepare() {
+  mkdir -p build
+}
+
+build() {
+  cd build
+  cmake ../attica \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/opt/kf5 \
+    -DATTICA_ENABLE_TESTS=OFF \
+    -DQT4_BUILD=OFF \
+    -DLIB_DESTINATION=/opt/kf5/lib
+  make
+}
+
+package() {
+  cd build
+  make DESTDIR="${pkgdir}" install
+}
