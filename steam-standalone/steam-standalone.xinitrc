@@ -12,7 +12,7 @@ fi
 #export SDL_AUDIODRIVER=alsa
 #export SDL_AUDIODRIVER=pulseaudio
 
-xfwm4 --replace --daemon --compositor=off &
+xfwm4 --replace --daemon --compositor=off
 
 exec steam -bigpicture
 
