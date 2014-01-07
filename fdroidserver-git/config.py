@@ -3,6 +3,7 @@
 #your system configuration.
 
 sdk_path = "/opt/android-sdk"
+build_tools = '19.0.1'
 ndk_path = "/opt/android-ndk"
 
 #You probably don't need to change this...
@@ -21,24 +22,24 @@ repo_keyalias = None
 
 #The keystore to use for release keys when building. This needs to be
 #somewhere safe and secure, and backed up!
-keystore = "/home/me/somewhere/my.keystore"
+#keystore = "/home/me/somewhere/my.keystore"
 
 #The password for the keystore (at least 6 characters).
-keystorepass = "password1"
+#keystorepass = "password1"
 
 #The password for keys - the same is used for each auto-generated key
 #as well as for the repository key.
-keypass = "password2"
+#keypass = "password2"
 
 #The distinguished name used for all keys.
-keydname = "CN=Birdman, OU=Cell, O=Alcatraz, L=Alcatraz, S=California, C=US"
+#keydname = "CN=Birdman, OU=Cell, O=Alcatraz, L=Alcatraz, S=California, C=US"
 
 #Use this to override the auto-generated key aliases with specific ones
 #for particular applications. Normally, just leave it empty.
-keyaliases = {}
-keyaliases['com.example.app'] = 'example'
+#keyaliases = {}
+#keyaliases['com.example.app'] = 'example'
 
 #The ssh path to the server's public web root directory. This is used for
 #uploading data, etc.
-serverwebroot = 'user@example:/var/www/repo'
+#serverwebroot = 'user@example:/var/www/repo'
 
