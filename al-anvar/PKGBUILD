@@ -2,17 +2,17 @@
 # Contributor: neo14515  <neo14515@gmail.com>
 
 pkgname=al-anvar
-pkgver=0.5.0
-pkgrel=3
+pkgver=0.6.0
+pkgrel=2
 pkgdesc="open source freeware software for study Quran ( koran ) and research "
 arch=('i686' 'x86_64')
 url="http://al-anvar.sourceforge.net/"
 license=('GPL')
-depends=('qt4' 'phonon')
-makedepends=('qt4' 'phonon')
+depends=('qt4' 'phonon' 'qtwebkit')
+makedepends=('qt4' 'phonon' 'qtwebkit')
 options=('!strip')
 source=("http://downloads.sourceforge.net/sourceforge/${pkgname}/src-${pkgname}-${pkgver}.tar.gz")
-md5sums=('b29408a8fee7ae31ca8a7efe2775f1a4')
+md5sums=('13575c05adfdec3e96408776067f41eb')
 
 build() {
   tar xf src-${pkgname}-${pkgver}.tar.gz
