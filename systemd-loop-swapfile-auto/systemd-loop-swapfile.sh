@@ -3,20 +3,21 @@ size=$(/usr/bin/free -o -h | /usr/bin/grep Mem | /usr/bin/awk '{print $2}')K
 swapfile=/var/swap
 source /etc/systemd-loop-swapfile.conf
 
-start_swapfile(){
-	loopdev=$(/usr/bin/losetup -f)
-	/usr/bin/truncate -s $size $swapfile
+start(){
+	loopdev=$(/usr/bin/losetup -f) && echo find loop device
+	/usr/bin/truncate -s $size $swapfile && echo swap file created
 	/usr/bin/chattr +C $swapfile
-	/usr/bin/losetup $loopdev $swapfile
-	/usr/bin/mkswap $loopdev
-	/usr/bin/swapon $loopdev
+	/usr/bin/losetup $loopdev $swapfile && echo mount swap file via loop device
+	/usr/bin/mkswap -L swapfile $loopdev && echo create swap space on loop device
+	/usr/bin/swapon $loopdev && echo mount swap device
 }
 
-stop_swapfile(){
-	swap_devs=( $(/usr/bin/swapon | /usr/bin/grep dev | /usr/bin/awk '{print $1}') )
-	/usr/bit/swapoff $swap_devs
-	/usr/bin/losetup -d $swap_devs
-	/usr/bin/rm $swapfile
+stop(){
+	/usr/bin/losetup -d $(losetup | /usr/bin/grep $swapfile | /usr/bin/awk '{print $1}')
+	/usr/bin/swapoff -a && echo deatach all swaps
+	/usr/bin/rm $swapfile && echo remove all swap files
 }
-[[ "$1"=="on" ]] && start_swapfile
-[[ "$1"=="off" ]] && stop_swapfile
+
+case $1 in
+	start|stop) $1 ;;
+esac
