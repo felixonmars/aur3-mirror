@@ -1,3 +1,10 @@
+## 1.5.8-1
+* naxsi-0.53-2
+* sflow-0.9.8
+* http_auth_pam-1.3
+* headers_more-0.25
+* modsecurity-2.7.6
+
 ## 1.5.6-2
 * pagespeed dropped
 * passenger dropped

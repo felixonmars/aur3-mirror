@@ -5,32 +5,39 @@
 # Contributor: Giovanni Scafora <giovanni@archlinux.org>
 
 pkgname=wine-rt-lts
-pkgver=1.4.1
+pkgver=1.6.2
 pkgrel=1
 
 _pkgbasever=${pkgver/rc/-rc}
 
-source=(http://ibiblio.org/pub/linux/system/emulators/wine/wine-${_pkgbasever}.tar.bz2
+source=(http://prdownloads.sourceforge.net/wine/wine-$_pkgbasever.tar.bz2{,.sign}
+        30-win32-aliases.conf
         wine-rt-101107.patch
         wine-rt-lts.install)
-md5sums=('0c28702ed478df7a1c097f3a9c4cabd6'
+md5sums=('0f6c56f86befe38e219090915f81f48a'
+         'SKIP'
+         '1ff4e467f59409272088d92173a0f801'
          '865b770292f5e84cde618fe4beb8748c'
          'b2e3ba93933f64bd98a3aa8ec64ffcfd')
 
 pkgdesc="Realtime Wine (LTS) - maps windows priority levels to linux scheduling policies"
 url="http://www.winehq.com"
 arch=(i686 x86_64)
+options=(staticlibs)
 license=(LGPL)
 install=wine-rt-lts.install
 
-depends=(
+_depends=(
   fontconfig      lib32-fontconfig
-  mesa            lib32-mesa 
   libxcursor      lib32-libxcursor
   libxrandr       lib32-libxrandr
   libxdamage      lib32-libxdamage
   libxi           lib32-libxi
   gettext         lib32-gettext
+  freetype2       lib32-freetype2
+  glu             lib32-glu
+  libsm           lib32-libsm
+  gcc-libs        lib32-gcc-libs
   desktop-file-utils
 )
 
@@ -50,7 +57,12 @@ makedepends=(autoconf ncurses bison perl fontforge flex prelink
   openal          lib32-openal
   v4l-utils       lib32-v4l-utils
   alsa-lib        lib32-alsa-lib
-  oss
+  libxcomposite   lib32-libxcomposite
+  mesa            lib32-mesa
+  mesa-libgl      lib32-mesa-libgl
+  libcl           lib32-libcl
+  samba
+  opencl-headers
 )
   
 optdepends=(
@@ -66,7 +78,13 @@ optdepends=(
   libpulse        lib32-libpulse
   alsa-plugins    lib32-alsa-plugins
   alsa-lib        lib32-alsa-lib
-  oss             cups
+  libjpeg-turbo   lib32-libjpeg-turbo
+  libxcomposite   lib32-libxcomposite
+  libxinerama     lib32-libxinerama
+  ncurses         lib32-ncurses
+  libcl           lib32-libcl
+  cups
+  samba           dosbox
 )
 
 if [[ $CARCH == i686 ]]; then
@@ -75,42 +93,48 @@ if [[ $CARCH == i686 ]]; then
   replaces=('wine')
 
   # Strip lib32 etc. on i686
-  depends=(${depends[@]/*32-*/})
-  makedepends=(${makedepends[@]/*32-*/})
+  _depends=(${_depends[@]/*32-*/})
+  makedepends=(${makedepends[@]/*32-*/} ${_depends[@]})
   makedepends=(${makedepends[@]/*-multilib*/})
   optdepends=(${optdepends[@]/*32-*/})
 else
+  makedepends=(${makedepends[@]} ${_depends[@]})
   provides=("wine=$pkgver" "bin32-wine=$pkgver" "wine-wow64=$pkgver")
   conflicts=('wine' 'bin32-wine' 'wine-wow64')
   replaces=('wine' 'bin32-wine')
 fi
 
-build() {
+prepare() {
   if [ -f "$srcdir//wine-$pkgver/README.WINE-RT" ]
   then
     rm  "$srcdir//wine-$pkgver/README.WINE-RT"
   fi
 
+  cd "$srcdir/wine-$_pkgbasever"
+
   # apply the realtime patch
   msg2 "Applying rt patch"
-  cd "$srcdir/wine-$_pkgbasever"
   patch -s -Np1 -i $srcdir/wine-rt-101107.patch
+  
+  msg2 "Patches applied cleanly, continue building wine"
+}
 
-  msg2 "Patch applied cleanly, continue building wine"
+build() {
   cd "$srcdir"
 
   # Allow ccache to work
   mv wine-$_pkgbasever wine
 
+  # ncurses fix
+  sed -i 's|libncurses|libncursesw|g' "$srcdir/wine/configure"
+  sed -i 's|lncurses|lncursesw|g' "$srcdir/wine/configure"
+
   # Get rid of old build dirs
   rm -rf wine-{32,64}-build
   mkdir wine-32-build
 
-  #This is unneeded as wine itself takes care of it
-
-  # These additional CFLAGS solve FS#27662
-  #export CFLAGS="${CFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
-  #export CXXFLAGS="${CFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
+  # These additional CPPFLAGS solve FS#27662 and FS#34195
+  export CPPFLAGS="${CPPFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
 
   if [[ $CARCH == x86_64 ]]; then
     msg2 "Building Wine-64..."
@@ -119,9 +143,11 @@ build() {
     cd "$srcdir/wine-64-build"
     ../wine/configure \
       --prefix=/usr \
-      --disable-tests \
       --libdir=/usr/lib \
+      --with-x \
+      --without-gstreamer \
       --enable-win64
+    # Gstreamer was disabled for FS#33655
 
     make
 
@@ -137,14 +163,19 @@ build() {
   cd "$srcdir/wine-32-build"
   ../wine/configure \
     --prefix=/usr \
-    --disable-tests \
+    --with-x \
+    --without-gstreamer \
     "${_wine32opts[@]}"
 
-  # These additional CFLAGS solve FS#27560
-  make CFLAGS+="-mstackrealign" CXXFLAGS+="-mstackrealign"
+  # Not needed...
+
+  # These additional flags solve FS#23277
+  make CFLAGS+="-mstackrealign -mincoming-stack-boundary=2" CXXFLAGS+="-mstackrealign -mincoming-stack-boundary=2"
 }
 
 package() {
+  depends=(${_depends[@]})
+
   msg2 "Packaging Wine-32..."
   cd "$srcdir/wine-32-build"
 
@@ -161,6 +192,11 @@ package() {
       libdir="$pkgdir/usr/lib" \
       dlldir="$pkgdir/usr/lib/wine" install
   fi
+
+  # Font aliasing settings for Win32 applications
+  install -d "$pkgdir"/etc/fonts/conf.{avail,d}
+  install -m644 "$srcdir/30-win32-aliases.conf" "$pkgdir/etc/fonts/conf.avail"
+  ln -s ../conf.avail/30-win32-aliases.conf "$pkgdir/etc/fonts/conf.d/30-win32-aliases.conf"
 
   mkdir -p "$pkgdir/usr/share/doc/wine-rt"
   cp "$srcdir/wine/README.WINE-RT" "$pkgdir/usr/share/doc/wine-rt"
