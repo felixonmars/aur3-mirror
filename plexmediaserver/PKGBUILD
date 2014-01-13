@@ -7,7 +7,7 @@
 
 pkgname=plexmediaserver
 pkgver=0.9.8.18.290
-pkgrel=2
+pkgrel=3
 _subver=11b7fdd
 pkgdesc="Plex Media Server for Linux"
 url='http://www.plexapp.com'
