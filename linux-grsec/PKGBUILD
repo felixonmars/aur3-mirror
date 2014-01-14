@@ -18,9 +18,9 @@ true && pkgname=(linux-grsec linux-grsec-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.12
 _grsecver=3.0
-_timestamp=201401091837
+_timestamp=201401120824
 pkgver=${_basekernel}.7
-pkgrel=1
+pkgrel=2
 arch=(i686 x86_64)
 url='https://github.com/nning/linux-grsec'
 license=(GPL2)
@@ -319,7 +319,7 @@ package_linux-grsec-headers() {
 
 sha256sums=('2e120ec7fde19fa51dc6b6cc11c81860a0775defcad5a5bf910ed9a50e845a02'
             'ac57d56064bb23dae55fe656c407c662e842c98a6a5411251d6bb79c9718f555'
-            'c65b4ac680c550f48ee8dbd90faa977df46e489ac59eab68dd4e8cf198427a90'
+            '1ff99432fb966b8646bfa73f6828c8e25351afcfac2acbd3f019448926de9278'
             'af6927f770f3c4c190111b05c1b97265ef8f245defeb25b59d5a731132524fbd'
             '5c5311c661cf16e405734cb94b4a9556312d663e1d78cee61a1f6514c2c78915'
             '74073b8813a44c0cdd8f9ad8b1c8eab39662f2263fb775db6a1e636890d823c4'

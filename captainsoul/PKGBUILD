@@ -8,7 +8,7 @@
 
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=captainsoul
-pkgver="0.1.7"
+pkgver="0.1.8"
 pkgrel=1
 pkgdesc="Netsoul client with pygtk and twisted"
 arch=('any')
@@ -34,7 +34,7 @@ install=
 source=(
 	https://pypi.python.org/packages/source/C/CaptainSoul/CaptainSoul-$pkgver.tar.gz
 )
-md5sums=('c4dc2bc39d6ad4a6323ec26f2ce4448a')
+md5sums=('6ba6c2757070bc5e70e12ff268107a0f')
 
 package() {
   cd "$srcdir/CaptainSoul-$pkgver"

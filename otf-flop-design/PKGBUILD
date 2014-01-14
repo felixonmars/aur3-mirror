@@ -1,7 +1,7 @@
 # Maintainer : boronology <boronology at gmail dot com>
 pkgname=otf-flop-design
 pkgver=20140110
-pkgrel=1
+pkgrel=2
 depends=('fontconfig' 'xorg-font-utils')
 makedepends=('convmv')
 pkgdesc="Simple japanese gothic fonts(includes both OpenType and TrueType)"
@@ -12,14 +12,14 @@ source=(http://www.flopdesign.com/images/datafont/FLOPDESIGN-FONT.zip)
 install=$pkgname.install
 
 package() {
-	  cd $srcdir/FLOPDESIGN_FONT
+	  cd $srcdir/FLOPDESIGN-FONT
 	  convmv -f cp-932 -t utf-8 --notest M*
 
 	  # install OpenType fonts
-	  install -Dm644 01FLOPDESIGN.otf "$pkgdir/usr/share/fonts/OTF/01flopdesign.otf"
+	  install -Dm644 FlopDesignFONT.otf "$pkgdir/usr/share/fonts/OTF/FlopDesignFONT.otf"
 
 	  # install TrueType fonts
-	  install -Dm644 TrueType/01FLOPDESIGN.ttf "$pkgdir/usr/share/fonts/TTF/01flopdesign.ttf"
+	  install -Dm644 TrueType/FLOPDesignFont.ttf "$pkgdir/usr/share/fonts/TTF/FLOPDesignFont.ttf"
 	  
 	  # install IPAex fonts License
 	  install -Dm644 M+、IPAフォント/ipaexg00201/IPA_Font_License_Agreement_v1.0.txt \

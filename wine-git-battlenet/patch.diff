@@ -1,0 +1,106 @@
+@@ -, +, @@ 
+---
+ dlls/crypt32/chain.c | 28 ++++++++++++++++------------
+ 1 file changed, 16 insertions(+), 12 deletions(-)
+--- a/dlls/crypt32/chain.c	
++++ a/dlls/crypt32/chain.c	
+@@ -33,7 +33,10 @@ WINE_DECLARE_DEBUG_CHANNEL(chain);
+ 
+ #define DEFAULT_CYCLE_MODULUS 7
+ 
+-static HCERTCHAINENGINE CRYPT_defaultChainEngine;
++/* There are two default chain engines which correspond to HCCE_CURRENT_USER and
++ * HCCE_LOCAL_MACHINE.
++*/
++static HCERTCHAINENGINE CRYPT_defaultChainEngine[2] = { NULL, NULL };
+ 
+ /* This represents a subset of a certificate chain engine:  it doesn't include
+  * the "hOther" store described by MSDN, because I'm not sure how that's used.
+@@ -212,7 +215,7 @@ VOID WINAPI CertFreeCertificateChainEngine(HCERTCHAINENGINE hChainEngine)
+ 
+     TRACE("(%p)\n", hChainEngine);
+ 
+-    if (engine && InterlockedDecrement(&engine->ref) == 0)
++    if (engine > HCCE_LOCAL_MACHINE && InterlockedDecrement(&engine->ref) == 0)
+     {
+         CertCloseStore(engine->hWorld, 0);
+         CertCloseStore(engine->hRoot, 0);
+@@ -220,26 +223,28 @@ VOID WINAPI CertFreeCertificateChainEngine(HCERTCHAINENGINE hChainEngine)
+     }
+ }
+ 
+-static HCERTCHAINENGINE CRYPT_GetDefaultChainEngine(void)
++static HCERTCHAINENGINE CRYPT_GetDefaultChainEngine(HCERTCHAINENGINE h)
+ {
+-    if (!CRYPT_defaultChainEngine)
++    if (!CRYPT_defaultChainEngine[(int)h])
+     {
+         CERT_CHAIN_ENGINE_CONFIG config = { 0 };
+         HCERTCHAINENGINE engine;
+ 
+         config.cbSize = sizeof(config);
++        if (h == HCCE_LOCAL_MACHINE)
++            config.dwFlags = CERT_CHAIN_USE_LOCAL_MACHINE_STORE;
+         CertCreateCertificateChainEngine(&config, &engine);
+-        InterlockedCompareExchangePointer(&CRYPT_defaultChainEngine, engine,
++        InterlockedCompareExchangePointer(&CRYPT_defaultChainEngine[(int)h], engine,
+          NULL);
+-        if (CRYPT_defaultChainEngine != engine)
++        if (CRYPT_defaultChainEngine[(int)h] != engine)
+             CertFreeCertificateChainEngine(engine);
+     }
+-    return CRYPT_defaultChainEngine;
++    return CRYPT_defaultChainEngine[(int)h];
+ }
+ 
+-void default_chain_engine_free(void)
++void default_chain_engine_free(HCERTCHAINENGINE h)
+ {
+-    CertFreeCertificateChainEngine(CRYPT_defaultChainEngine);
++    CertFreeCertificateChainEngine(CRYPT_defaultChainEngine[(int)h]);
+ }
+ 
+ typedef struct _CertificateChain
+@@ -2886,11 +2891,10 @@ BOOL WINAPI CertGetCertificateChain(HCERTCHAINENGINE hChainEngine,
+         return FALSE;
+     }
+ 
+-    if (!engine)
+-        engine = CRYPT_GetDefaultChainEngine();
++    if (engine <= HCCE_LOCAL_MACHINE)
++        engine = CRYPT_GetDefaultChainEngine(engine);
+     if (TRACE_ON(chain))
+         dump_chain_para(pChainPara);
+-    /* FIXME: what about HCCE_LOCAL_MACHINE? */
+     ret = CRYPT_BuildCandidateChainFromCert(engine, pCertContext, pTime,
+      hAdditionalStore, dwFlags, &chain);
+     if (ret)
+-- 
+---
+ dlls/crypt32/crypt32_private.h | 2 +-
+ dlls/crypt32/main.c            | 3 ++-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+--- a/dlls/crypt32/crypt32_private.h	
++++ a/dlls/crypt32/crypt32_private.h	
+@@ -157,7 +157,7 @@ void crypt_oid_init(void) DECLSPEC_HIDDEN;
+ void crypt_oid_free(void) DECLSPEC_HIDDEN;
+ void crypt_sip_free(void) DECLSPEC_HIDDEN;
+ void root_store_free(void) DECLSPEC_HIDDEN;
+-void default_chain_engine_free(void) DECLSPEC_HIDDEN;
++void default_chain_engine_free(HCERTCHAINENGINE) DECLSPEC_HIDDEN;
+ 
+ /* (Internal) certificate store types and functions */
+ struct WINE_CRYPTCERTSTORE;
+--- a/dlls/crypt32/main.c	
++++ a/dlls/crypt32/main.c	
+@@ -50,7 +50,8 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD fdwReason, PVOID pvReserved)
+             crypt_oid_free();
+             crypt_sip_free();
+             root_store_free();
+-            default_chain_engine_free();
++            default_chain_engine_free(HCCE_CURRENT_USER);
++            default_chain_engine_free(HCCE_LOCAL_MACHINE);
+             if (hDefProv) CryptReleaseContext(hDefProv, 0);
+             break;
+     }
+-- 

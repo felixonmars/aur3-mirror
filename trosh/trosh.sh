@@ -1,2 +1,2 @@
 #!/bin/bash
-love /usr/share/trosh/trosh.love
+love08 /usr/share/trosh/trosh.love

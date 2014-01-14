@@ -5,7 +5,7 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.12
-pkgver=3.12.6
+pkgver=3.12.7
 pkgrel=1
 _toipatch=tuxonice-for-linux-3.12.4-2013-12-09.patch
 arch=('i686' 'x86_64')
@@ -21,17 +21,29 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'linux.preset'
         'change-default-console-loglevel.patch'
         'criu-no-expert.patch'
+        'sunrpc-create-a-new-dummy-pipe-for-gssd-to-hold-open.patch'
+        'sunrpc-replace-gssd_running-with-more-reliable-check.patch'
+        'nfs-check-gssd-running-before-krb5i-auth.patch'
+        'rpc_pipe-remove-the-clntXX-dir-if-creating-the-pipe-fails.patch'
+        'sunrpc-add-an-info-file-for-the-dummy-gssd-pipe.patch'
+        'rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-notification-fails.patch'
         'fix_i915.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 md5sums=('cc6ee608854e0da4b64f6c1ff8b6398c'
-         '9e75be8b127e58f1a76c0015eabb12ae'
-         '5259c05d5791002e81cb6eca368caa60'
-         '80bf5c1031eff56a7574c0a389469007'
+         'a158a29ecf49e768ebd2f34967991606'
+         'a9281e90e529795eaf10b45d70ab2868'
+         '6000a9c7bd83081a65611d9dfbdd8eda'
          'eb14dcfd80c00852ef81ded6e826826a'
          '98beb36f9b8cf16e58de2483ea9985e3'
          'd50c1ac47394e9aec637002ef3392bd1'
+         'd4a75f77e6bd5d700dcd534cd5f0dfce'
+         'dc86fdc37615c97f03c1e0c31b7b833a'
+         '88eef9d3b5012ef7e82af1af8cc4e517'
+         'cec0bb8981936eab2943b2009b7a6fff'
+         '88d9cddf9e0050a76ec4674f264fb2a1'
+         'cb9016630212ef07b168892fbcfd4e5d'
          '7d03e3fa734cde6ff8756179236cd005'
          'c2f350058592f64a3c0c483f608cf018')
 
@@ -60,6 +72,17 @@ prepare() {
   # allow criu without expert option set
   # patch from fedora
   patch -Np1 -i "${srcdir}/criu-no-expert.patch"
+
+  # fix 15 seocnds nfs delay
+  patch -Np1 -i "${srcdir}/sunrpc-create-a-new-dummy-pipe-for-gssd-to-hold-open.patch"
+  patch -Np1 -i "${srcdir}/sunrpc-replace-gssd_running-with-more-reliable-check.patch"
+  patch -Np1 -i "${srcdir}/nfs-check-gssd-running-before-krb5i-auth.patch"
+  # fix nfs kernel oops
+  # #37866
+  patch -Np1 -i "${srcdir}/rpc_pipe-remove-the-clntXX-dir-if-creating-the-pipe-fails.patch"
+  patch -Np1 -i "${srcdir}/sunrpc-add-an-info-file-for-the-dummy-gssd-pipe.patch"
+
+  patch -Np1 -i "${srcdir}/rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-notification-fails.patch"
 
   # fix i915 drm driver on Asus Zenbook
   # patch from http://www.spinics.net/lists/intel-gfx/msg33592.html
