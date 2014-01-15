@@ -20,7 +20,7 @@ build() {
 	wget ${_source}
 	mv "index.html?f=acml-5-3-1-gfortran-64bit.tgz" "${srcdir}/index.html"
 	_nonce=`grep "nonce" "${srcdir}/index.html" | awk '{print $5;}' | sed "s^value=^^g" | sed 's^"^^g'`
-	_f=`grep "nonce" "${srcdir}/index.html" | awk '{print $14;}' | sed "s^value=^^g" | sed 's^"^^g'`
+	_f=`grep "nonce" "${srcdir}/index.html" | awk '{print $14;}' | sed "s^value=^^g" | sed 's^"/>^^g'`
 
 	# Request actual file using acquired variables
 	curl -fLC - --retry 3 --retry-delay 3 -d amd_developer_central_nonce=${_nonce} \

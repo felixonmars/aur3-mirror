@@ -2,7 +2,7 @@
 
 pkgname=tidyp
 pkgver=1.04
-pkgrel=2
+pkgrel=3
 pkgdesc="Validate your HTML, and output cleaned-up HTML."
 depends=('glibc')
 arch=('i686' 'x86_64')
@@ -23,6 +23,6 @@ package() {
   cd "$srcdir"/$pkgname-$pkgver
   make prefix="$pkgdir"/usr install
 
-  install -D -m644 "$startdir"/LICENSE \
+  install -D -m644 "$srcdir"/LICENSE \
     "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
