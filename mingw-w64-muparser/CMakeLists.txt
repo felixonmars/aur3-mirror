@@ -3,7 +3,7 @@ project (muParser CXX)
 cmake_minimum_required(VERSION 2.8)
 
 
-option ( USE_OPENMP "Use OpenMP for multithreading" ON )
+option ( USE_OPENMP "Use OpenMP for multithreading" OFF )
 
 
 if ( USE_OPENMP )
