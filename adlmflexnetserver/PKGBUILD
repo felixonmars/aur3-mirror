@@ -9,7 +9,7 @@ arch=('x86_64')
 license=('custom')
 depends=('gcc-libs' 'ld-lsb')
 makedepends=('rpmextract')
-source=(https://www.dropbox.com/s/htqjfuqw266l0h7/${pkgname}-${pkgver}-0.${CARCH}.rpm.bz2)
+source=(https://www.dropbox.com/s/htqjfuqw266l0h7/${pkgname}-${pkgver}-0.${arch}.rpm.bz2)
 md5sums=('6780798c7c1b0569af8a348dd0e3a711')
 options=('!strip')
 
