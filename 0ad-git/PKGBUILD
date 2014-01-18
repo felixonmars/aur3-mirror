@@ -1,8 +1,9 @@
 # Maintainer: Joop Kiefte <ikojba@gmail.com>
 pkgname=0ad-git
 _pkgname=0ad
-pkgver=20140111
-pkgrel=1
+pkgver=20140117
+[ "1" = "1" ] && pkgver=`date +"%Y%m%d"`
+pkgrel=2
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://play0ad.com/"
@@ -26,11 +27,10 @@ build() {
 
   cd "$srcdir/${_pkgname}/build/workspaces/gcc"
 
-  make CONFIG=Release
+  make # CONFIG=debug ## Uncoment this to build a debug release
 }
 
 package() {
-  msg "Packaging binaries"
   install -d "${pkgdir}"/usr/{bin,lib/${pkgname}}
   install -Dm755 "${srcdir}"/${_pkgname}/binaries/system/pyrogenesis "${pkgdir}/usr/bin/pyrogenesis-git"
   install -Dm755 "${srcdir}"/${_pkgname}/binaries/system/*.so{,.1.0} "${pkgdir}/usr/lib/${pkgname}"
@@ -41,9 +41,9 @@ package() {
   sed -i "s/0ad/0ad-git/" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
   install -Dm644 "${srcdir}/${_pkgname}/build/resources/${_pkgname}.png" "${pkgdir}/usr/share/pixmaps/${pkgname}.png"
 
-  msg "Packaging data"
+  msg "Copy 0ad-data for packaging"
   install -d ${pkgdir}/usr/share/${pkgname}/data
 
   cp -r ${srcdir}/${_pkgname}/binaries/data ${pkgdir}/usr/share/${pkgname}
-  msg "Packaging structure ready, magic begins here..."
+  msg "Done copying 0ad-data"
 }
