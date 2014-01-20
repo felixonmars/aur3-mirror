@@ -3,7 +3,7 @@
 
 pkgname=mingw-w64-angleproject-git
 pkgver=1.2.0.r2453
-pkgrel=1
+pkgrel=2
 pkgdesc='Angle project built from git source (mingw-w64)'
 arch=('any')
 url='http://code.google.com/p/angleproject/'
@@ -15,19 +15,19 @@ provides=('mingw-w64-angleproject')
 conflicts=('mingw-w64-angleproject')
 options=('!strip' '!buildflags' 'staticlibs')
 source=('angleproject::git+https://chromium.googlesource.com/angle/angle'
-		'angleproject-fix-case-sensitive-include.patch'
 		'angleproject-include-import-library-and-use-def-file.patch'
 		'angleproject-fix-mingw-compatibility.patch'
-		'angleproject-fix-typedefs-for-win64.patch'
 		'angleproject-export-shader-symbols.patch'
-		'angleproject-fix-trace_event.patch')
+		'angleproject-fix-trace_event.patch'
+		'angleproject-fix-translator-link.patch'
+		'angleproject-fix-renderer9-stencilformat.patch')
 md5sums=('SKIP'
-		'3c66f4870446b66b4782a37dc580f5ba'
-		'97300dafb8960ca17ece0421df63732f'
+		'11bd81ef12630aa2dc1f325f0b593de5'
 		'10b197b483a543fcf7e1ae5ec379848f'
-		'20272d2b46091f629962f4f597973ff5'
 		'079e79c52e83d4f91b7eebf4d350980c'
-		'59a3d60f5b1b6676056444db8a7883fe')
+		'59a3d60f5b1b6676056444db8a7883fe'
+		'90f96b5705820e71067a332e3ad0f535'
+		'5f30f3a3c668e4a76920a71e0dddc87d')
 
 _architectures="i686-w64-mingw32 x86_64-w64-mingw32"
 
@@ -39,7 +39,6 @@ pkgver() {
 build() {
 	cd "${srcdir}"/angleproject
 
-	cp src/build_angle.gypi{,.orig}
 	# Make sure an import library is created and the correct .def file is used during the build
 	patch -p0 -i "${srcdir}"/angleproject-include-import-library-and-use-def-file.patch
 
@@ -54,12 +53,17 @@ build() {
 	# Fix missing methods in trace_event.h
 	patch -p0 -i "${srcdir}"/angleproject-fix-trace_event.patch
 
+	# Fix stencil format method in renderer9_utils.cpp
+	patch -p0 -i "${srcdir}"/angleproject-fix-renderer9-stencilformat.patch
+
 	export CFLAGS="-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions --param=ssp-buffer-size=4"
 	export CXXFLAGS="-O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions --param=ssp-buffer-size=4"
 	unset LDFLAGS
 
-	CORE_COUNT="$(nproc)"
-	touch "${srcdir}/d3dcompiler_46.dll"
+	CORE_COUNT=1 #"$(nproc)"
+	
+	sed -i -e 's_python _python2 _g' -e 's_"python"_"python2"_g' -e "s_'python'_'python2'_g" -e 's_/usr/bin/python_/usr/bin/python2_g' $(find -type f)
+	sed -i -e 's|vsprintf_s|vsprintf|g' $(find . \( -name '*.h' -or -name '*.cpp' \) -and -type f)
 
 	for _arch in ${_architectures}
 	do
@@ -75,46 +79,34 @@ build() {
 			target="win64"
 		fi
 
-		sed -i s@'<(windows_sdk_path)/Redist/D3D/<(winsdk_arch)/d3dcompiler_46.dll'@"${srcdir}/d3dcompiler_46.dll"@ ../src/build_angle.gypi
-		gyp -D OS=win -D TARGET=$target --depth . -I ../build/common.gypi ../src/build_angle.gyp
+		gyp -D OS=win -D MSVS_VERSION=2010e -D TARGET=$target --depth . -I ../build/common.gypi ../src/build_angle.gyp
 
 		# Make sure the correct libraries are linked in
+		#sed -i s@'^LIBS :='@'LIBS := -ld3d9 -ldxguid -static -lmsvcrt'@ ../src/libGLESv2.target.mk
 		sed -i s@'^LIBS :='@'LIBS := -ld3d9 -ldxguid'@ ../src/libGLESv2.target.mk
+		
 		sed -i s@'^LIBS :='@'LIBS := -ld3d9 -ldxguid -L. -lGLESv2'@ ../src/libEGL.target.mk
+		#sed -i s@'^LIBS :='@'LIBS := -Wl,--whole-archive -ld3d9 -ldxguid -Wl,--no-whole-archive -L. -lGLESv2 out/Debug/obj.target/src/compiler/translator/ShaderLang.o out/Debug/obj.target/src/third_party/murmurhash/MurmurHash3.o out/Debug/src/libtranslator.a out/Debug/src/libpreprocessor.a'@ ../src/libEGL.target.mk
+		#sed -i s@'^LIBS :='@'LIBS := -static -Wl,--whole-archive -ld3d9 -ldxguid -Wl,--no-whole-archive -L. libGLESv2.dll.a out/Debug/obj.target/src/compiler/translator/ShaderLang.o out/Debug/obj.target/src/third_party/murmurhash/MurmurHash3.o out/Debug/src/libtranslator.a out/Debug/src/libpreprocessor.a'@ ../src/libEGL.target.mk
+
+		# Fix linking of libtranslator.a
+		pushd "${srcdir}"/angleproject
+		patch -p0 -i "${srcdir}"/angleproject-fix-translator-link.patch
+		popd
 
 		make V=1 CXXFLAGS="-std=c++11 -msse2 -DUNICODE -D_UNICODE" -j"${CORE_COUNT}"
 
-		# Also build static libraries (which are needed by the static Qt build)
-		${AR} rcs libGLESv2.a out/Debug/obj.target/libGLESv2/../src/common/debug.o \
-			out/Debug/obj.target/libGLESv2/../src/common/RefCountObject.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/renderer/IndexDataManager.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/renderer/VertexDataManager.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/renderer/Blit.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Buffer.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Context.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Fence.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Float16ToFloat32.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Framebuffer.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/HandleAllocator.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/libGLESv2.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/main.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Program.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/ProgramBinary.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Query.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Renderbuffer.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/ResourceManager.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Shader.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/Texture.o \
-			out/Debug/obj.target/libGLESv2/../src/libGLESv2/utilities.o \
-			out/Debug/obj.target/../src/libtranslator.a \
-			out/Debug/obj.target/../src/libpreprocessor.a
-		${AR} rcs libEGL.a out/Debug/obj.target/libEGL/../src/common/debug.o \
-			out/Debug/obj.target/libEGL/../src/common/RefCountObject.o \
-			out/Debug/obj.target/libEGL/../src/libEGL/Config.o \
-			out/Debug/obj.target/libEGL/../src/libEGL/Display.o \
-			out/Debug/obj.target/libEGL/../src/libEGL/libEGL.o \
-			out/Debug/obj.target/libEGL/../src/libEGL/main.o \
-			out/Debug/obj.target/libEGL/../src/libEGL/Surface.o
+		${AR} rcs libGLESv2.a \
+			out/Debug/obj.target/libGLESv2/../src/common/*.o \
+			out/Debug/obj.target/libGLESv2/../src/libGLESv2/renderer/*.o \
+			out/Debug/obj.target/libGLESv2/../src/libGLESv2/renderer/d3d9/*.o \
+			out/Debug/obj.target/libGLESv2/../src/libGLESv2/renderer/d3d11/*.o \
+			out/Debug/obj.target/libGLESv2/../src/libGLESv2/*.o \
+			#out/Debug/obj.target/../src/libtranslator.a \
+			#out/Debug/obj.target/../src/libpreprocessor.a
+		${AR} rcs libEGL.a \
+			out/Debug/obj.target/libEGL/../src/common/*.o \
+			out/Debug/obj.target/libEGL/../src/libEGL/*.o
 
 		popd
 	done
@@ -139,9 +131,8 @@ package() {
 
 		${_arch}-strip --strip-debug "${pkgdir}"/usr/${_arch}/lib/libEGL.a
 		install libEGL.dll.a "${pkgdir}"/usr/${_arch}/lib/
-		${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/libEGL.dll.a
-
-		install libGLESv2.a "${pkgdir}"/usr/${_arch}/lib/libGLESv2.dll.a
+		install libGLESv2.dll.a "${pkgdir}"/usr/${_arch}/lib/
+		${_arch}-strip --strip-unneeded "${pkgdir}"/usr/${_arch}/lib/*.dll.a
 
 		cp -Rv ../include/* "${pkgdir}"/usr/${_arch}/include/
 
