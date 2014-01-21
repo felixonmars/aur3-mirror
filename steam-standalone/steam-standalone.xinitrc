@@ -12,6 +12,12 @@ fi
 #export SDL_AUDIODRIVER=alsa
 #export SDL_AUDIODRIVER=pulseaudio
 
+export SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0
+
+# Disable DPMS and screen blanking 
+xset -dpms
+xset s off
+
 xfwm4 --replace --daemon --compositor=off
 
 exec steam -bigpicture
