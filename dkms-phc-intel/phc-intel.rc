@@ -1,0 +1,86 @@
+#!/bin/bash
+shopt -s nullglob
+
+if [ "$1" = set ]; then
+	. /etc/conf.d/phc-intel
+	[ -n "$VIDS" ] || exit
+	for i in $(< /proc/cmdline); do
+		[ $i = nophc ] && exit
+	done
+	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
+		echo $VIDS > "$i"
+	done
+	exit
+fi
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+
+case "$1" in
+start)
+	. /etc/conf.d/phc-intel
+	if [ -z "$VIDS" ]; then
+		printhl 'Please edit /etc/conf.d/phc-intel'
+		exit 1
+	fi
+	stat_busy 'Setting PHC VIDs'
+	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
+		echo $VIDS > "$i"
+	done && stat_done || stat_fail
+	;;
+stop)
+	stat_busy 'Resetting default PHC VIDs'
+	for i in /sys/devices/system/cpu/cpu*/cpufreq; do
+		[ -e "$i/phc_default_vids" -a -e "$i/phc_vids" ] && cp "$i"/phc_{default_,}vids
+	done && stat_done || stat_fail
+	;;
+status)
+	check_off () {
+		for i in /sys/devices/system/cpu/cpu*/cpufreq; do
+			[ "$(< $i/phc_vids)" = "$(< $i/phc_default_vids)" ] || return;
+		done
+	}
+	check_on () {
+		for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
+			[[ "$(< $i)" =~ "$VIDS" ]] || return;
+		done
+	}
+	stat_busy 'PHC status'
+	. /etc/conf.d/phc-intel
+	if check_off; then
+		status_stopped
+	elif check_on; then
+		status_started
+	else
+		stat_fail
+	fi
+	;;
+setup)
+	LOG='/var/log/phc-intel.log'
+	fail () {
+		stat_fail
+		printhl "Look at $LOG to find out what went wrong"
+		exit 1
+	}
+	stat_busy 'Removing old phc-intel modules'
+	for i in /lib/modules/*; do
+		if [ -f "$i/phc-intel.ko" -a ! -f "$i/version" ]; then
+			rm -f "$i/phc-intel.ko"
+			rmdir --ignore-fail-on-non-empty "$i"
+		elif [ -f "$i/extra/phc-intel.ko" -a ! -d "$i/kernel" ]; then
+			rm -f "$i/extra/phc-intel.ko"
+			rmdir -p --ignore-fail-on-non-empty "$i/extra"
+		fi
+	done
+	stat_done
+	stat_busy 'Compiling new phc-intel module'
+	cd /usr/src/phc-intel/
+	make &>$LOG && stat_done || fail
+	stat_busy 'Installing new phc-intel module'
+	make install &>>$LOG && stat_done || fail
+	stat_busy 'Cleaning up'
+	make clean &>>$LOG && stat_done || fail
+	;;
+*)
+	echo "usage: $0 {start|stop|status|setup|set}"
+esac

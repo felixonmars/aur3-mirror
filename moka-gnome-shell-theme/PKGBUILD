@@ -1,5 +1,5 @@
-_pkgname=moka-gnome-shell-theme
 pkgname=moka-gnome-shell-theme
+_pkgname=moka-gnome-shell-theme
 pkgver=1.0.0
 pkgrel=1
 pkgdesc="Moka is the titular GNOME Shell theme of the Moka Project."

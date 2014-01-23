@@ -1,5 +1,5 @@
-_pkgname=faba-mono-icons
 pkgname=faba-mono-icons
+_pkgname=faba-mono-icons
 pkgver=1.0.0
 pkgrel=1
 pkgdesc="The monochromatic panel icon sets for Faba."

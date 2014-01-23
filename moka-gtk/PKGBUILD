@@ -1,5 +1,5 @@
-_pkgname=moka-gtk-theme
 pkgname=moka-gtk
+_pkgname=moka-gtk-theme
 pkgver=1.0.0
 pkgrel=1
 pkgdesc="Moka is an accompanying GTK3 theme to the Moka icon set."
@@ -23,8 +23,11 @@ package() {
 
   # create theme dirs
   install -d -m 755 "$pkgdir"/usr/share/themes/Moka
+  install -d -m 755 "$pkgdir"/usr/share/themes/Moka-Dark
 
   # install theme
   cd $srcdir/moka-gtk-theme/Moka
   cp -r . "$pkgdir"/usr/share/themes/Moka/
+  cd $srcdir/moka-gtk-theme/Moka-Dark
+  cp -r . "$pkgdir"/usr/share/themes/Moka-Dark/
 }

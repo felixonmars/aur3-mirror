@@ -1,7 +1,7 @@
 # Contributor: Devaev Maxim <mdevaev@gmail.com>
 
 pkgname=python-ulib-git
-pkgver="0.22"
+pkgver="0.23"
 pkgrel=1
 pkgdesc="Useful python library"
 arch=('any')
