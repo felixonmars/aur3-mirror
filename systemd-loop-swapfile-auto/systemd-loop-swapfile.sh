@@ -19,5 +19,5 @@ stop(){
 }
 
 case $1 in
-	start|stop) $1 & ;;
+	start|stop) $1 ;;
 esac
