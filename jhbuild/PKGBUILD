@@ -2,8 +2,8 @@
 # Contributor: Thijs Vermeir <thijsvermeir@gmail.com>
 
 pkgname=jhbuild
-pkgver=20131228
-pkgrel=2
+pkgver=20140125
+pkgrel=1
 pkgdesc='JHBuild allows you to automatically download and compile Gnome "modules" (i.e. source code packages).'
 arch=('i686' 'x86_64')
 license=('GPL')
@@ -19,7 +19,7 @@ install=jhbuild.install
 source=('git://git.gnome.org/jhbuild'
         'use_python2_when_building_some_modules.patch')
 sha256sums=('SKIP'
-            '9e0a0681cd5a7a67368dc19fe804033066c96a17612a69d06741db927340bce4')
+            '927fd86379a3f5f4428367f04c745af212017f0f747089ca81346eca55a0c0a5')
 url='https://live.gnome.org/Jhbuild/'
 
 build() {

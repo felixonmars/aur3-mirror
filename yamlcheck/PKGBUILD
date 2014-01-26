@@ -4,7 +4,7 @@
 # @Arch users: This file is included in the projects git repository.
 
 pkgname=yamlcheck
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc="Check if files adhere to YAML syntax"
 url='https://github.com/fxkr/yamlcheck'
