@@ -1,18 +1,20 @@
 # Maintainer: Mattias Andrée <`base64 -d`(bWFhbmRyZWUK)@member.fsf.org>
+
 pkgname=adjbacklight-git
-pkgver=20130120
+pkgver=20140126
 pkgrel=1
 pkgdesc="Convient method for adjusting the backlight on your portable computer"
-arch=('any')
+arch=('x86_64' 'i686')
 url="https://github.com/maandree/adjbacklight"
 license=('GPL3')
-depends=('java-runtime>=6')
-makedepends=('git' 'java-environment>=6' 'bash')
+depends=('linux')
+makedepends=('git' 'gcc' 'make' 'coreutils')
 provides=('adjbacklight')
 conflicts=('adjbacklight')
 
 _gitroot=https://github.com/maandree/adjbacklight.git
 _gitname=adjbacklight
+
 
 build() {
   cd "$srcdir"
@@ -32,10 +34,11 @@ build() {
   git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
   cd "$srcdir/$_gitname-build"
   
-  make -B DESTDIR="$pkgdir/"
+  make DESTDIR="$pkgdir/"
 }
 
 package() {
   cd "$srcdir/$_gitname-build"
   make DESTDIR="$pkgdir/" install
 }
+

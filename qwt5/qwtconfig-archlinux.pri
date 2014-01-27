@@ -29,6 +29,7 @@ CONFIG           += thread
 ######################################################################
 
 CONFIG           += release     # release/debug
+RELEASE_SUFFIX   = 5
 
 ######################################################################
 # Build the static/shared libraries.

@@ -11,7 +11,7 @@ makedepends=('git')
 optdepends=()
 provides=('moka-gnome-shell-theme')
 conflicts=('moka-gnome-shell-theme')
-source=('git://github.com/snwh/moka-gnome-shell-theme.git')
+source=('git+https://github.com/snwh/moka-gnome-shell-theme.git')
 md5sums=('SKIP')
 
 pkgver() {

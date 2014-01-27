@@ -1,9 +1,8 @@
 pkgname=amule-wx28
 provides=('amule')
-replaces=('amule')
 conflicts=('amule')
 pkgver=10834
-pkgrel=1
+pkgrel=2
 pkgdesc="An eMule-like client for ed2k p2p network. Compiled with wxGTK 2.8."
 arch=('i686' 'x86_64')
 url="http://www.amule.org"

@@ -11,7 +11,7 @@ makedepends=('git')
 optdepends=()
 provides=('moka-gtk')
 conflicts=('moka-gtk')
-source=('git://github.com/snwh/moka-gtk-theme.git')
+source=('git+https://github.com/snwh/moka-gtk-theme.git')
 md5sums=('SKIP')
 
 pkgver() {

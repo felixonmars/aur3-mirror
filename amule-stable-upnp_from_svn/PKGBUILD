@@ -1,7 +1,7 @@
 
 pkgname=amule-stable-upnp_from_svn
 pkgver=2.3.1
-pkgrel=1
+pkgrel=2
 pkgdesc="An eMule-like client for ed2k p2p network. Stable version with the Debian patches to fix compiling on newer gcc/g++ versions. UPnP support taken from the SVN version, so UPnP may be broken (Although it works for me fine)!"
 arch=('i686' 'x86_64')
 url="http://www.amule.org"
@@ -27,7 +27,6 @@ md5sums=('31724290a440943f5b05d4dca413fe02'
 	 '2e4fd6572b8c918bb0a3daa31e63aab8'
 	 '892993222e4cd393cc82ed3d64f48e14')
 provides=('amule')
-replaces=('amule')
 conflicts=('amule')
 build() {
   cd "${srcdir}/aMule-${pkgver}"
