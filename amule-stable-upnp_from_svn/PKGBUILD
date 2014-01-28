@@ -1,14 +1,14 @@
 
 pkgname=amule-stable-upnp_from_svn
 pkgver=2.3.1
-pkgrel=2
+pkgrel=3
 pkgdesc="An eMule-like client for ed2k p2p network. Stable version with the Debian patches to fix compiling on newer gcc/g++ versions. UPnP support taken from the SVN version, so UPnP may be broken (Although it works for me fine)!"
 arch=('i686' 'x86_64')
 url="http://www.amule.org"
 license=('GPL')
-depends=('wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
+depends=('wxgtk' 'wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
 #Alright, I didn't know what are the make depends so I included the same ones as depends (That's lame, I know...)
-makedepends=('wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
+makedepends=('wxgtk' 'wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
 install=amule.install
 source=("http://sourceforge.net/projects/amule/files/aMule/${pkgver}/aMule-${pkgver}.tar.bz2/download"
         'amuled.systemd'

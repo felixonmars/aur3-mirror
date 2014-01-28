@@ -2,13 +2,13 @@ pkgname=amule-wx28
 provides=('amule')
 conflicts=('amule')
 pkgver=10834
-pkgrel=2
+pkgrel=3
 pkgdesc="An eMule-like client for ed2k p2p network. Compiled with wxGTK 2.8."
 arch=('i686' 'x86_64')
 url="http://www.amule.org"
 license=('GPL')
-depends=('wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
-makedepends=('wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
+depends=('wxgtk' 'wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
+makedepends=('wxgtk' 'wxgtk2.8' 'gd' 'geoip' 'libupnp' 'crypto++' 'libsm')
 install=amule.install
 source=("http://amule.sourceforge.net/tarballs/aMule-SVN-r${pkgver}.tar.bz2"
         'amuled.systemd'

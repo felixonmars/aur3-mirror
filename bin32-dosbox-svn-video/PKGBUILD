@@ -17,7 +17,7 @@ source=("${_pkgbase}"::'svn+https://dosbox.svn.sourceforge.net/svnroot/dosbox/do
 	'dosbox.png'
         'dosbox.desktop')
 sha1sums=('SKIP'
-	'9ea62f52114993193a1cad48759930c5ed9fd308'
+	'fe56985496db5a08af220c538ac2cb6285925743'
 	'1279b43a3f1fd833db4d85e06fa583ed9f606ec1'
 	'dbd7fd8addaf8062895b5f02d808d12c02bb5695')
 
