@@ -10,10 +10,12 @@ import os.path
 import urllib2
 import urlparse
 import yaml
+import re
+from collections import OrderedDict
 
 class PackageBase(object):
 
-  def __init__(self, distro, repository_url, name, version, version_minor):
+  def __init__(self, distro, repository_url, name, version, version_patch):
     self.packages = []
     self.distro = distro
     self.repository_url = repository_url
@@ -21,11 +23,24 @@ class PackageBase(object):
       self._get_package_xml_url(repository_url, name, version))
     self.name = package.name
     self.version = package.version
-    self.version_minor = version_minor
+    self.version_patch = version_patch
     self.licenses = package.licenses
-    self.description = package.description
-    self.dependencies = [self._ensure_python2_dependency(dependency.name)
-                         for dependency in package.build_depends + package.run_depends]
+    self.run_dependencies = list(OrderedDict.fromkeys([dependency.name for dependency in package.run_depends]))
+    self.build_dependencies = list(OrderedDict.fromkeys([dependency.name for dependency in package.build_depends + package.buildtool_depends]))
+    # Build dependencies already added:
+    if 'git' in self.build_dependencies: self.build_dependencies.remove('git')
+    if 'cmake' in self.build_dependencies: self.build_dependencies.remove('cmake')
+
+    # Remove HTML tags from description
+    self.description = re.sub('<[^<]+?>', '', package.description)
+    # Put it on one line to motivate packagers to make shorter descriptions
+    self.description = re.sub('\n', ' ', self.description)
+    # Multiple consecutive spaces turned into one
+    self.description = re.sub('([ ]+)', ' ', self.description)
+    # Only take the first sentence (keep short description)
+    self.description = self.description.split(".")[0] + "."
+    # Handle quotes
+    self.description = self.description.replace('"', '').replace('`', '').replace('&quot;', '').replace('\'','')
 
   def _parse_package_file(self, url):
     """
@@ -37,35 +52,56 @@ class PackageBase(object):
     return catkin_pkg.package.parse_package_string(
       urllib2.urlopen(url).read())
 
-  def _get_ros_dependencies(self):
-    known_packages = self.distro.package_names(expand_metapackages=True)
-    return list(set(
-        [self._rosify_package_name(
-            'ros-%s-' % self.distro.name + dependency)
-         for dependency in self.dependencies if dependency in known_packages]))
-
-  def _get_non_ros_dependencies(self, rosdep_urls=[]):
-    known_packages = self.distro.package_names(expand_metapackages=True)
-
-    other_dependencies = list(set([dependency for dependency in self.dependencies
-                     if dependency not in known_packages]))
-
+  def _fix_dependencies(self, rosdep_urls, build_dep, run_dep):
     # Fix usual non-ROS dependencies:
     #  - load replacement dictionary: these are found in rosdep yaml files. We
     #                                 just need to download and merge these files
     #                                 in a dictionary.
     dependency_map = self._get_rosdep_dictionary(rosdep_urls)
-    other_fixed_dependencies = set()
-    #  - replace in other_dependencies
-    for index, dep in enumerate(other_dependencies):
-      if (dep in dependency_map):
-        # The map may replace one package by multiple ones, or even by none
-        for package in dependency_map[dep]:
-          other_fixed_dependencies.add(package)
-      else:
-        other_fixed_dependencies.add(dep)
 
-    return other_fixed_dependencies
+    def _fix_dependencies_with_map(dependencies):
+      fixed_dependencies = set()
+      #  - replace in other_dependencies
+      for index, dep in enumerate(dependencies):
+        if (dep in dependency_map):
+          # The map may replace one package by multiple ones, or even by none
+          for package in dependency_map[dep]:
+            fixed_dependencies.add(package)
+        else:
+          fixed_dependencies.add(dep)
+
+      # Fix some possibly missing Python 2 package conflicts
+      fixed_dependencies = [self._ensure_python2_dependency(dependency)
+                            for dependency in fixed_dependencies]
+      return fixed_dependencies
+
+    fixed_build_dep = _fix_dependencies_with_map(build_dep)
+    fixed_run_dep = _fix_dependencies_with_map(run_dep)
+
+    return fixed_build_dep, fixed_run_dep
+
+  def _get_ros_dependencies(self):
+    """
+    Returns (build_dependencies, run_dependencies)
+    """
+    known_packages = self.distro.package_names(expand_metapackages=True)
+    build_dep = list(set([self._rosify_package_name('ros-%s-' % self.distro.name + dependency)
+                           for dependency in self.build_dependencies if dependency in known_packages]))
+    run_dep = list(set([self._rosify_package_name('ros-%s-' % self.distro.name + dependency)
+                           for dependency in self.run_dependencies if dependency in known_packages]))
+    return build_dep, run_dep
+
+  def _get_non_ros_dependencies(self, rosdep_urls=[]):
+    """
+    Returns (build_dependencies, run_dependencies)
+    """
+    known_packages = self.distro.package_names(expand_metapackages=True)
+
+    other_build_dep = list(set([dependency for dependency in self.build_dependencies
+                               if dependency not in known_packages]))
+    other_run_dep = list(set([dependency for dependency in self.run_dependencies
+                               if dependency not in known_packages]))
+    return self._fix_dependencies(rosdep_urls, other_build_dep, other_run_dep)
 
   def _rosify_package_name(self, name):
     return name.replace('_', '-')
@@ -104,16 +140,21 @@ url='http://www.ros.org/'
 
 pkgname='ros-%(distro)s-%(arch_package_name)s'
 pkgver='%(package_version)s'
+_pkgver_patch=%(package_version_patch)s
 arch=('i686' 'x86_64')
 pkgrel=1
 license=('%(license)s')
-makedepends=('ros-build-tools')
 
-ros_depends=(%(ros_package_dependencies)s)
+ros_makedepends=(%(ros_build_dependencies)s)
+makedepends=('cmake' 'git' 'ros-build-tools'
+  ${ros_makedepends[@]}
+  %(other_build_dependencies)s)
+
+ros_depends=(%(ros_run_dependencies)s)
 depends=(${ros_depends[@]}
-  %(other_dependencies)s)
+  %(other_run_dependencies)s)
 
-_tag=release/%(distro)s/%(package_name)s/${pkgver}-%(package_version_minor)s
+_tag=release/%(distro)s/%(package_name)s/${pkgver}-${_pkgver_patch}
 _dir=%(package_name)s
 source=("${_dir}"::"git+%(package_url)s"#tag=${_tag})
 md5sums=('SKIP')
@@ -127,9 +168,10 @@ build() {
   [ -d ${srcdir}/build ] || mkdir ${srcdir}/build
   cd ${srcdir}/build
 
-  # Fix Python3 error
+  # Fix Python2/Python3 conflicts
   /usr/share/ros-build-tools/fix-python-scripts.sh ${srcdir}/${_dir}
 
+  # Build project
   cmake ${srcdir}/${_dir} \\
         -DCMAKE_BUILD_TYPE=Release \\
         -DCATKIN_BUILD_BINARY_PACKAGE=ON \\
@@ -148,28 +190,42 @@ package() {
 """
 
   def generate(self, exclude_dependencies=[], rosdep_urls=[]):
-    ros_dependencies = [dependency for dependency in self._get_ros_dependencies()
-                        if dependency not in exclude_dependencies]
-    other_dependencies = [dependency for dependency in self._get_non_ros_dependencies(rosdep_urls)
-                          if dependency not in exclude_dependencies]
+    raw_build_dep, raw_run_dep = self._get_ros_dependencies()
+    ros_build_dep = [dependency for dependency in raw_build_dep
+                     if dependency not in exclude_dependencies]
+    ros_run_dep = [dependency for dependency in raw_run_dep
+                   if dependency not in exclude_dependencies]
 
-    return self.BUILD_TEMPLATE % {
+    other_raw_build_dep, other_raw_run_dep = self._get_non_ros_dependencies(rosdep_urls)
+    other_build_dep = [dependency for dependency in other_raw_build_dep
+                     if dependency not in exclude_dependencies]
+    other_run_dep = [dependency for dependency in other_raw_run_dep
+                   if dependency not in exclude_dependencies]
+
+    pkgbuild = self.BUILD_TEMPLATE % {
       'distro': self.distro.name,
       'arch_package_name': self._rosify_package_name(self.name),
       'package_name': self.name,
       'package_version': self.version,
-      'package_version_minor': self.version_minor,
+      'package_version_patch': self.version_patch,
       'package_url': self.repository_url,
       'license': ', '.join(self.licenses),
-      'description': self.description.replace('"', '\\"').replace('`', '\`'),
-      'ros_package_dependencies': '\n  '.join(ros_dependencies),
-      'other_dependencies': '\n  '.join(other_dependencies)
+      'description': self.description,
+      'ros_build_dependencies': '\n  '.join(ros_build_dep),
+      'ros_run_dependencies': '\n  '.join(ros_run_dep),
+      'other_build_dependencies': '\n  '.join(other_build_dep),
+      'other_run_dependencies': '\n  '.join(other_run_dep)
       }
+
+    # Post-processing:
+    # Remove useless carriage return
+    pkgbuild = re.sub('\\n  \)', ')', pkgbuild)
+    return pkgbuild
 
 
 class MetaPackage(PackageBase):
   BUILD_TEMPLATE = """
-pkgdesc="%(description)s"
+pkgdesc="ROS - %(description)s"
 url='http://www.ros.org/'
 
 pkgname='ros-%(distro)s-%(arch_package_name)s'
@@ -177,38 +233,56 @@ pkgver='%(package_version)s'
 arch=('i686' 'x86_64')
 pkgrel=1
 license=('%(license)s')
-makedepends=('ros-build-tools')
 
-ros_depends=(%(ros_package_dependencies)s)
+ros_makedepends=(%(ros_build_dependencies)s)
+makedepends=('cmake' 'git' 'ros-build-tools'
+  ${ros_makedepends[@]}
+  %(other_build_dependencies)s)
+
+ros_depends=(%(ros_run_dependencies)s)
 depends=(${ros_depends[@]}
-  %(other_dependencies)s)
+  %(other_run_dependencies)s)
 
 source=()
 md5sums=()
-
 """
 
-  def __init__(self, distro, repository_url, name, version, version_minor):
-    super(MetaPackage, self).__init__(distro, repository_url, name, version, version_minor)
-    self.packages = [Package(distro, repository_url, child_name, version, version_minor)
+  def __init__(self, distro, repository_url, name, version, version_patch):
+    super(MetaPackage, self).__init__(distro, repository_url, name, version, version_patch)
+    self.packages = [Package(distro, repository_url, child_name, version, version_patch)
                      for child_name in distro.meta_package_package_names(name)]
 
   def generate(self, exclude_dependencies=[], rosdep_urls=[]):
-    ros_dependencies = [dependency for dependency in self._get_ros_dependencies()
-                        if dependency not in exclude_dependencies]
-    other_dependencies = [dependency for dependency in self._get_non_ros_dependencies(rosdep_urls)
-                          if dependency not in exclude_dependencies]
-    return self.BUILD_TEMPLATE % {
+    raw_build_dep, raw_run_dep = self._get_ros_dependencies()
+    ros_build_dep = [dependency for dependency in raw_build_dep
+                     if dependency not in exclude_dependencies]
+    ros_run_dep = [dependency for dependency in raw_run_dep
+                   if dependency not in exclude_dependencies]
+
+    other_raw_build_dep, other_raw_run_dep = self._get_non_ros_dependencies(rosdep_urls)
+    other_build_dep = [dependency for dependency in other_raw_build_dep
+                     if dependency not in exclude_dependencies]
+    other_run_dep = [dependency for dependency in other_raw_run_dep
+                   if dependency not in exclude_dependencies]
+    pkgbuild = self.BUILD_TEMPLATE % {
       'distro': self.distro.name,
       'arch_package_name': self._rosify_package_name(self.name),
       'package_name': self.name,
       'package_version': self.version,
-      'package_version_minor': self.version_minor,
+      'package_version_patch': self.version_patch,
       'license': ', '.join(self.licenses),
-      'description': self.description.replace('"', '\"'),
-      'ros_package_dependencies': '\n  '.join(ros_dependencies),
-      'other_dependencies': '\n  '.join(other_dependencies)
+      'description': self.description,
+      'ros_build_dependencies': '\n  '.join(ros_build_dep),
+      'ros_run_dependencies': '\n  '.join(ros_run_dep),
+      'other_build_dependencies': '\n  '.join(other_build_dep),
+      'other_run_dependencies': '\n  '.join(other_run_dep)
       }
+
+    # Post-processing:
+    # Remove useless carriage return
+    pkgbuild = re.sub('\${ros_depends\[@\]}\\n  \)',
+                      '${ros_depends[@]})', pkgbuild)
+    return pkgbuild
 
 
 class DistroDescription(object):
@@ -221,6 +295,15 @@ class DistroDescription(object):
     if self.name == "fuerte":
       if self.name != self._distro['release-name']:
         raise Exception('ROS distro names do not match (%s != %s)' % (self.name, self._distro['release-name']))
+    # process "metapackages"
+    if 'metapackages' in self._distro['repositories'].keys():
+      metapackages = self._distro['repositories']['metapackages']
+      for meta in metapackages['packages']:
+        self._distro['repositories'][meta] = {}
+        self._distro['repositories'][meta]['url'] = metapackages['url']
+        self._distro['repositories'][meta]['version'] = metapackages['version']
+    del self._distro['repositories']['metapackages']
+
 
   def package_names(self, expand_metapackages=False):
     packages = [name for name in self._distro['repositories'].keys()]
@@ -242,11 +325,13 @@ class DistroDescription(object):
       return self._package_cache[name]
     url = package_data['url']
     version = package_data['version'].split('-')[0]
-    version_minor = package_data['version'].split('-')[1]
-    if self._is_meta_package(name):
-      package = MetaPackage(self, url, name, version, version_minor)
+    version_patch = package_data['version'].split('-')[1]
+    # WARNING: some metapackages embed a package with the same name. In this case,
+    #          we treat the package as a normal package.
+    if self._is_meta_package(name) and (not name in self._distro['repositories'][name]['packages']):
+      package = MetaPackage(self, url, name, version, version_patch)
     else:
-      package = Package(self, url, name, version, version_minor)
+      package = Package(self, url, name, version, version_patch)
     self._package_cache[name] = package
     return package
 
@@ -333,7 +418,7 @@ def generate_pkgbuild(distro, package, directory, force=False,
                         no_overwrite=no_overwrite, recursive=recursive,
                         rosdep_urls=rosdep_urls, generated=generated)
   if recursive:
-    for dependency in package.dependencies:
+    for dependency in package.run_dependencies + package.build_dependencies:
       if distro.is_package(dependency):
         generate_pkgbuild(distro, distro.package(dependency), directory,
                           force=force, no_overwrite=no_overwrite, recursive=recursive,
@@ -345,11 +430,11 @@ def generate_pkgbuild(distro, package, directory, force=False,
   if os.path.exists(os.path.join(output_directory, 'PKGBUILD')):
     if no_overwrite:
       return
-    if not force and not query_yes_no(
+    if not force and query_yes_no(
       "Directory '%s' already contains a PKGBUILD file. Overwrite?" % (
-        output_directory)):
+        output_directory)) == "no":
       return
-  print('Generating PKGBUILD for package %s.' % package.name)
+  print('Generating PKGBUILD for package %s' % package.name)
   with open(os.path.join(output_directory, 'PKGBUILD'), 'w') as pkgbuild:
     pkgbuild.write(package.generate(exclude_dependencies, rosdep_urls))
 
@@ -373,7 +458,7 @@ def main():
     help='The URLs of the rosdep mapping files.')
   parser.add_option(
     '--exclude-dependencies', metavar='exclude_dependencies',
-    default='python2-catkin-pkg,python2-rospkg,python2-rosdep',
+    default='',
     help='Comma-separated list of (source) package dependencies to exclude from the generated PKGBUILD file.')
   parser.add_option('-f', '--force', dest='force', action='store_true', default=False,
                     help='Always overwrite exiting PKGBUILD files.')

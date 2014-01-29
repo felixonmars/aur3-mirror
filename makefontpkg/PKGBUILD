@@ -16,4 +16,5 @@ md5sums=('SKIP')
 package() {
   install -d "$pkgdir/usr/bin"
   cp -dpr --no-preserve=ownership "$srcdir/$pkgname/$pkgname" "$pkgdir/usr/bin/"
+  chmod +x "$pkgdir/usr/bin/$pkgname"
 }
