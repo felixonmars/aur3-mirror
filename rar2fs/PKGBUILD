@@ -1,5 +1,5 @@
 pkgname=rar2fs
-pkgver=1.19.1
+pkgver=1.19.2
 _rls="$pkgname-$pkgver"
 pkgrel=1
 pkgdesc="Fuse file system for reading Rar archives"
@@ -11,12 +11,12 @@ url="https://code.google.com/p/$pkgname"
 depends=(fuse "libunrar>=1:5" "libunrar<1:6")
 makedepends=("libunrar>=1:5" "libunrar<1:6")
 
-source=("https://$pkgname.googlecode.com/files/$_rls.tar.gz")
-sha1sums=(ce18fe4bab64769869cbe67239396335fcb957c6)
-md5sums=(SKIP)
+source=(
+"$_rls.tar.gz::https://docs.google.com/uc?id=0B-2uEqYiZg3zVDN0Q0h3VjRlZTQ"
+)
+md5sums=(047be8d156046f8430eba8d30f2490f0)
 
 source+=(http://www.rarlab.com/rar/unrarsrc-5.0.14.tar.gz)
-sha1sums+=(SKIP)
 md5sums+=(be4261c70a790c61c1747aef59e72db0)  # From Arch's "unrar" package
 
 build() {

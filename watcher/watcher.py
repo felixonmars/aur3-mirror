@@ -26,7 +26,7 @@
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
 # Short-Description: Monitor directories for file changes
-# Description:       Monitor directories specified in /etc/watcher.ini for
+# Description:       Monitor directories specified in /etc/conf.d/watcher.ini for
 #                    changes using the Kernel's inotify mechanism and run
 #                    jobs when files or directories change
 ### END INIT INFO
@@ -41,6 +41,7 @@ from types import *
 from string import Template
 import ConfigParser
 import argparse
+from systemd import journal
 
 class Daemon:
     """
@@ -49,10 +50,10 @@ class Daemon:
     Usage: subclass the Daemon class and override the run method
     """
     def __init__(self, pidfile, stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):
-        self.stdin = stdin
+	self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
-        self.pidfile = pidfile
+	self.pidfile = pidfile
 
     def daemonize(self):
         """
@@ -66,33 +67,14 @@ class Daemon:
                 #exit first parent
                 sys.exit(0)
         except OSError, e:
-            sys.stderr.write("fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
+            message = "fork #1 failed: %d (%s)\n"
+	    journal.send(message % (e.errno, e.strerror))
             sys.exit(1)
 
         # decouple from parent environment
         os.chdir("/")
         os.setsid()
         os.umask(0)
-
-        # do second fork
-        try:
-            pid = os.fork()
-            if pid > 0:
-                # exit from second parent
-                sys.exit(0)
-        except OSError, e:
-            sys.stderr.write("fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
-            sys.exit(1)
-
-        #redirect standard file descriptors
-        sys.stdout.flush()
-        sys.stderr.flush()
-        si = file(self.stdin, 'r')
-        so = file(self.stdout, 'a+')
-        se = file(self.stderr, 'a+', 0)
-        os.dup2(si.fileno(), sys.stdin.fileno())
-        os.dup2(so.fileno(), sys.stdout.fileno())
-        os.dup2(se.fileno(), sys.stderr.fileno())
 
         #write pid file
         atexit.register(self.delpid)
@@ -116,7 +98,7 @@ class Daemon:
 
         if pid:
             message = "pidfile %s already exists. Daemon already running?\n"
-            sys.stderr.write(message % self.pidfile)
+            journal.send(message % self.pidfile)
             sys.exit(1)
 
         # Start the Daemon
@@ -137,7 +119,7 @@ class Daemon:
 
         if not pid:
             message = "pidfile %s does not exist. Daemon not running?\n"
-            sys.stderr.write(message % self.pidfile)
+            journal.send(message % self.pidfile)
             return # not an error in a restart
 
         # Try killing the daemon process
@@ -187,59 +169,69 @@ class EventHandler(pyinotify.ProcessEvent):
         try:
             os.system(command)
         except OSError, err:
-            print "Failed to run command '%s' %s" % (command, str(err))
+	    message = "Failed to run command '%s' %s"
+            log(message % (command, str(err)))
 
     def process_IN_ACCESS(self, event):
-        print "Access: ", event.pathname
+	message = "Access"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_ATTRIB(self, event):
-        print "Attrib: ", event.pathname
+	message = "Attrib"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_CLOSE_WRITE(self, event):
-        print "Close write: ", event.pathname
+	message = "Close write"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_CLOSE_NOWRITE(self, event):
-        print "Close nowrite: ", event.pathname
+	message = "Close nowrite"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_CREATE(self, event):
-        print "Creating: ", event.pathname
+	message = "Creating"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_DELETE(self, event):
-        print "Deleteing: ", event.pathname
+	message = "Deleteing"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MODIFY(self, event):
-        print "Modify: ", event.pathname
+	message = "Modify"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MOVE_SELF(self, event):
-        print "Move self: ", event.pathname
+	message = "Move self"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MOVED_FROM(self, event):
-        print "Moved from: ", event.pathname
+	message = "Moved from"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MOVED_TO(self, event):
-        print "Moved to: ", event.pathname
+	message = "Moved to"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_OPEN(self, event):
-        print "Opened: ", event.pathname
+	message = "Opened"
+        log(message + ": " + event.pathname)
         self.runCommand(event)
 
 class WatcherDaemon(Daemon):
 
     def __init__(self, config):
         self.stdin   = '/dev/null'
-        self.stdout  = config.get('DEFAULT','logfile')
-        self.stderr  = config.get('DEFAULT','logfile')
-        self.pidfile = config.get('DEFAULT','pidfile')
+        self.pidfile = '/run/watcher.pid'
         self.config  = config
 
     def run(self):
@@ -334,7 +326,7 @@ class WatcherDaemon(Daemon):
 
 
 def log(msg):
-    sys.stdout.write("%s %s\n" % ( str(datetime.datetime.now()), msg ))
+    journal.send("%s %s\n" % ( str(datetime.datetime.now()), msg ))
 
 
 if __name__ == "__main__":
@@ -359,7 +351,7 @@ if __name__ == "__main__":
         confok = config.read(['/etc/conf.d/watcher.ini', os.path.expanduser('~/.watcher.ini')]);
 
     if(not confok):
-        sys.stderr.write("Failed to read config file. Try -c parameter\n")
+        journal.send("Failed to read config file. Try -c parameter\n")
         sys.exit(4);
 
     # Initialize the daemon
@@ -375,6 +367,6 @@ if __name__ == "__main__":
     elif 'debug' == args.command:
         daemon.run()
     else:
-        print "Unkown Command"
+        journal.send("Unkown Command")
         sys.exit(2)
     sys.exit(0)
