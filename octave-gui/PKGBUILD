@@ -1,0 +1,48 @@
+# $Id: PKGBUILD 204807 2014-01-27 19:22:09Z ronald $
+# Maintainer : Philip Abernethy <chais.z3r0@gmail.com>
+# Contributor : Ronald van Haren <ronald.archlinux.org>
+# Contributor : shining <shiningxc.at.gmail.com>
+# Contributor : cyberdune <cyberdune@gmail.com>
+
+pkgname=octave-gui
+pkgver=3.8.0
+pkgrel=1
+provides=('octave')
+conflicts=('octave')
+pkgdesc="A high-level language, primarily intended for numerical computations. With proper GUI support."
+arch=('i686' 'x86_64')
+url="http://www.octave.org"
+license=('GPL')
+depends=('fftw' 'curl' 'graphicsmagick' 'glpk' 'hdf5' 'qhull' 'fltk' 'arpack' 'glu' 'qscintilla') 
+makedepends=('gcc-fortran' 'texlive-core' 'suitesparse' 'texinfo' 'gnuplot')
+optdepends=('texinfo: for help-support in octave'
+            'gnuplot: alternative plotting'
+	    'qt4: experimental gui')
+source=(ftp://ftp.gnu.org/gnu/octave/octave-$pkgver.tar.bz2{,.sig})
+options=('!emptydirs')
+install=octave.install
+sha1sums=('ebb03485b72d97fa01f105460f81016f94680f77'
+          'SKIP')
+
+build() {
+  cd "${srcdir}/${provides}-${pkgver}"
+
+  autoreconf -vfi
+
+  ./configure --prefix=/usr --libexecdir=/usr/lib \
+  --enable-shared --disable-static \
+  --with-quantum-depth=16 \
+  --with-umfpack="-lumfpack -lsuitesparseconfig" # https://mailman.cae.wisc.edu/pipermail/help-octave/2012-September/053991.html
+
+  LANG=C make
+}
+
+package(){
+  cd "${srcdir}/${provides}-${pkgver}"
+
+  make DESTDIR="${pkgdir}" install
+
+  # add octave library path to ld.so.conf.d
+  install -d "${pkgdir}/etc/ld.so.conf.d"
+  echo "/usr/lib/${provides}/${pkgver}" > "${pkgdir}/etc/ld.so.conf.d/${provides}.conf"
+}

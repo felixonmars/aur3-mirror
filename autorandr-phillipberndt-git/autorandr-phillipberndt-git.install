@@ -1,0 +1,13 @@
+#!/bin/sh
+
+post_install() {
+	udevadm control --reload-rules
+}
+
+post_upgrade() {
+	post_install
+}
+
+post_remove() {
+	post_install
+}
