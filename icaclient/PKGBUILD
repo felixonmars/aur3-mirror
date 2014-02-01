@@ -34,7 +34,7 @@ optdepends=(
 conflicts=('bin32-citrix-client' 'citrix-client')
 options=(!strip)
 
-source_url="$(curl -L -silent 'http://www.citrix.com/downloads/citrix-receiver/linux/receiver-for-linux-130.html' | awk -F 'rel=\"' '/linuxx86-/ {print $2}'| awk -F'"' '{print $1}'| sed '/^$/d' |uniq)"
+source_url="http:$(curl -L -silent 'http://www.citrix.com/downloads/citrix-receiver/linux/receiver-for-linux-130.html' | awk -F 'rel=\"' '/linuxx86-/ {print $2}'| awk -F'"' '{print $1}'| sed '/^$/d' |uniq)"
 source=($pkgname-$pkgver.tar.gz::$source_url wfica.sh)
 
 

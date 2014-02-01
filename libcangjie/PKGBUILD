@@ -1,20 +1,19 @@
 # Maintainer: Antony Ho <ntonyworkshop@gmail.com>
 pkgname=libcangjie
-pkgver=0.0.1a
+pkgver=1.0
 pkgrel=1
 pkgdesc="CangJie Input Method Library"
 arch=('x86_64' 'i686')
-url="https://github.com/wanleung/libcangjie"
+url="http://cangjians.github.io/projects/libcangjie/"
 license=('LGPL3')
-depends=('db')
+depends=('sqlite')
 makedepends=()  
 replaces=('libcangjie-git')
-sha1sums=('1b5b2140bfeb987b9cfcd36b0e5e6b608841da9a' 'SKIP')
-source=("http://www.wanleung.com/$pkgname/$pkgname-$pkgver.tar.xz" "0001-classicfreq-Rebuild-the-freq-data-with-the-latest-sc.patch")
+sha256sums=('8b1d0775d809daa2fda2c2c44a3c5ba7d49cb95b7f2252194899b2a43f6b5baa')
+source=("http://cangjians.github.io/downloads/libcangjie/$pkgname-$pkgver.tar.xz")
 
 prepare() {
   cd "$srcdir/$pkgname-$pkgver"
-  patch -p1 < ../0001-classicfreq-Rebuild-the-freq-data-with-the-latest-sc.patch
 }
 
 build() {
