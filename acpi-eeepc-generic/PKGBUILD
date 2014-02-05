@@ -2,7 +2,7 @@
 
 pkgname=acpi-eeepc-generic
 pkgver=1.0.2
-pkgrel=1
+pkgrel=2
 pkgdesc="ACPI scripts for many EeePC netbook computers"
 url="https://github.com/nbigaouette/acpi-eeepc-generic"
 arch=(any)

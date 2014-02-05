@@ -3,7 +3,7 @@
 
 pkgname=texlive-tudscr
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="TeX Live - TU Dresden corporate design classes tudscr by Falk Hanisch"
 license=('unknown')
 arch=('any')
@@ -17,7 +17,7 @@ TEXPATH=/usr/share/texmf/
 
 package() {
 	cd $srcdir
-	bsdtar -xf tudscr.zip
+	bsdtar -xf tudscr_v1.0.zip
 	mkdir -p $pkgdir$TEXPATH
 	cp -r doc $pkgdir$TEXPATH
 	cp -r tex $pkgdir$TEXPATH

@@ -150,8 +150,11 @@ static void handle_message(char *msg) {
             return;
     }
 
+    notify_init("android-receiver");
     NotifyNotification *n = notify_notification_new(title, message->event_contents, NULL);
     notify_notification_show(n, NULL);
+    g_object_unref(G_OBJECT(n));
+    notify_uninit();
 }
 
 int main(int argc, char *argv[]) {
@@ -179,8 +182,6 @@ int main(int argc, char *argv[]) {
         perror("error binding to socket");
         exit(EXIT_FAILURE);
     }
-
-    notify_init("android-receiver");
 
     while (1) {
         while ((n = recvfrom(sock, buf, 1024, 0, (struct sockaddr *)&from, &fromlen)) < 0 && errno == EINTR)

@@ -151,9 +151,10 @@ class Daemon:
         """
 
 class EventHandler(pyinotify.ProcessEvent):
-    def __init__(self, command):
+    def __init__(self, command, section):
         pyinotify.ProcessEvent.__init__(self)
         self.command = command
+        self.section = section
 
     # from http://stackoverflow.com/questions/35817/how-to-escape-os-system-calls-in-python
     def shellquote(self,s):
@@ -176,57 +177,57 @@ class EventHandler(pyinotify.ProcessEvent):
 
     def process_IN_ACCESS(self, event):
 	message = "Access"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_ATTRIB(self, event):
 	message = "Attrib"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_CLOSE_WRITE(self, event):
 	message = "Close write"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_CLOSE_NOWRITE(self, event):
 	message = "Close nowrite"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_CREATE(self, event):
 	message = "Creating"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_DELETE(self, event):
 	message = "Deleteing"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MODIFY(self, event):
 	message = "Modify"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MOVE_SELF(self, event):
 	message = "Move self"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MOVED_FROM(self, event):
 	message = "Moved from"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_MOVED_TO(self, event):
 	message = "Moved to"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
     def process_IN_OPEN(self, event):
 	message = "Opened"
-        log(message + ": " + event.pathname)
+        log(self.section + ": " + message + ": " + event.pathname)
         self.runCommand(event)
 
 class WatcherDaemon(Daemon):
@@ -241,19 +242,65 @@ class WatcherDaemon(Daemon):
         wdds      = []
         notifiers = []
 
+        # add config file to watch list
+        log('config file: /etc/conf.d/watcher.ini ...section added')
+        section   = 'configfile'
+        mask      = self._parseMask(('modify').split(','))
+        folder    = '/etc/conf.d/watcher.ini'
+        recursive = bool('False')
+        autoadd   = bool('False')
+        command   = '/bin/systemctl restart watcher.service'
+
+        wm = pyinotify.WatchManager()
+        handler = EventHandler(command, section)
+
+        wdds.append(wm.add_watch(folder, mask, rec=recursive,auto_add=autoadd))
+
+        notifiers.append(pyinotify.ThreadedNotifier(wm, handler))
+
         # read jobs from config file
         for section in self.config.sections():
-            log(section + ": " + self.config.get(section,'watch'))
             # get the basic config info
             mask      = self._parseMask(self.config.get(section,'events').split(','))
-            folder    = self.config.get(section,'watch')
-            recursive = self.config.getboolean(section,'recursive')
-            autoadd   = self.config.getboolean(section,'autoadd')
-            excluded  = self.config.get(section,'excluded').split(',')
-            command   = self.config.get(section,'command')
-
+            try:
+                folder = self.config.get(section,'watch')
+            except:
+                log('No watch specified in Section: ' + section + ' ...section skipped')
+                self.config.remove_section(section)
+                continue
+            try:
+                recursive = self.config.getboolean(section,'recursive')
+            except ConfigParser.NoOptionError:
+                self.config.set(section, 'recursive', 'false')
+                recursive = self.config.getboolean(section,'recursive')
+            except:
+                log('Invalid parameter for recursive in Section: ' + section + ' ...fixed to False')
+                self.config.set(section, 'recursive', 'false')
+                recursive = self.config.getboolean(section,'recursive')
+            try:
+                autoadd = self.config.getboolean(section,'autoadd')
+            except ConfigParser.NoOptionError:
+                self.config.set(section, 'autoadd', 'false')
+                autoadd = self.config.getboolean(section,'autoadd')
+            except:
+                log('Invalid parameter for autoadd in Section: ' + section + ' ...fixed to False')
+                self.config.set(section, 'autoadd', 'false')
+                autoadd = self.config.getboolean(section,'autoadd')
+            try:
+                excluded = self.config.get(section,'excluded').split(',')
+            except:
+                self.config.set(section, 'excluded', '')
+                excluded = self.config.get(section,'excluded').split(',')
+            try:
+                command = self.config.get(section,'command')
+            except:
+                log('No command specified in Section: ' + section + ' ...section skipped')
+                self.config.remove_section(section)
+                continue
+ 
+            log(section + ': ' + folder + ' ...section added')
             wm = pyinotify.WatchManager()
-            handler = EventHandler(command)
+            handler = EventHandler(command, section)
 
             wdds.append(wm.add_watch(folder, mask, rec=recursive,auto_add=autoadd))
             # Remove watch about excluded dir. Not the perfect solution as they would
@@ -328,7 +375,7 @@ class WatcherDaemon(Daemon):
 
 
 def log(msg):
-    journal.send("%s %s\n" % ( str(datetime.datetime.now()), msg ))
+    journal.send(msg)
 
 
 if __name__ == "__main__":
@@ -338,7 +385,8 @@ if __name__ == "__main__":
              )
     parser.add_argument('-c','--config',
                         action='store',
-                        help='Path to the config file (default: %(default)s)')
+                        help='Path to the config file (default: /etc/conf.d/watcher.ini)',
+             )
     parser.add_argument('command',
                         action='store',
                         choices=['start','stop','restart','debug'],
@@ -346,11 +394,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Parse the config file
-    config = ConfigParser.ConfigParser()
+    config = ConfigParser.ConfigParser(allow_no_value=True)
     if(args.config):
         confok = config.read(args.config)
     else:
-        confok = config.read(['/etc/conf.d/watcher.ini', os.path.expanduser('~/.watcher.ini')]);
+        confok = config.read(['/etc/conf.d/watcher.ini']);
 
     if(not confok):
         journal.send("Failed to read config file. Try -c parameter\n")

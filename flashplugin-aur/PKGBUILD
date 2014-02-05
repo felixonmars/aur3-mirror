@@ -1,0 +1,53 @@
+# Maintainer of this AUR package: Thermi
+# Original: : Ionut Biru <ibiru@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+
+pkgname=flashplugin-aur
+_licensefile='PlatformClients_PC_WWEULA_Combined_20100108_1657.pdf'
+pkgver=11.2.202.336
+pkgrel=1
+pkgdesc='A newer version of the Adobe Flash Player'
+url='http://get.adobe.com/flashplayer'
+arch=('i686' 'x86_64')
+depends=('mozilla-common' 'libxt' 'libxpm' 'gtk2' 'nss' 'curl' 'hicolor-icon-theme')
+optdepends=('libvdpau: GPU acceleration on Nvidia card')
+provides=('flashplayer')
+conflicts=('flashplugin')
+license=('custom')
+options=(!strip)
+install=flashplugin.install
+backup=(etc/adobe/mms.cfg)
+
+if [ "$CARCH" = "i686" ]; then
+    source=("https://fpdownload.macromedia.com/get/flashplayer/pdc/$pkgver/install_flash_player_11_linux.i386.tar.gz"
+            "https://www.adobe.com/products/eulas/pdfs/${_licensefile}"
+            mms.cfg)
+    md5sums=('bd7f77dfd0a03bbbd5d124febb8c83d5'
+             '94ca2aecb409abfe36494d1a7ec7591d'
+             'f34aae6279b40e0bd2abfb0d9963d7b8')
+elif [ "$CARCH" = "x86_64" ]; then
+    source=("https://fpdownload.macromedia.com/get/flashplayer/pdc/$pkgver/install_flash_player_11_linux.x86_64.tar.gz"
+            "https://www.adobe.com/products/eulas/pdfs/${_licensefile}"
+            mms.cfg)
+    md5sums=('63d0a9b141f5a52cf9c7a71bd4f785f2'
+             '94ca2aecb409abfe36494d1a7ec7591d'
+             'f34aae6279b40e0bd2abfb0d9963d7b8')
+fi
+
+package () {
+    install -Dm755 libflashplayer.so "$pkgdir/usr/lib/mozilla/plugins/libflashplayer.so"
+    if [ "$CARCH" = x86_64 ]; then
+        install -Dm755 usr/lib64/kde4/kcm_adobe_flash_player.so "$pkgdir/usr/lib/kde4/kcm_adobe_flash_player.so"
+    else
+        install -Dm755 usr/lib/kde4/kcm_adobe_flash_player.so "$pkgdir/usr/lib/kde4/kcm_adobe_flash_player.so"
+    fi
+    install -Dm755 usr/bin/flash-player-properties "$pkgdir/usr/bin/flash-player-properties"
+    for i in 16x16 22x22 24x24 32x32 48x48; do
+        install -Dm644 usr/share/icons/hicolor/$i/apps/flash-player-properties.png \
+            "$pkgdir/usr/share/icons/hicolor/$i/apps/flash-player-properties.png"
+    done
+    install -Dm644 usr/share/applications/flash-player-properties.desktop "$pkgdir/usr/share/applications/flash-player-properties.desktop"
+    install -Dm644 usr/share/kde4/services/kcm_adobe_flash_player.desktop "$pkgdir/usr/share/kde4/services/kcm_adobe_flash_player.desktop"
+    install -Dm644 "${_licensefile}" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.pdf"
+    install -Dm644 mms.cfg "$pkgdir/etc/adobe/mms.cfg"
+}

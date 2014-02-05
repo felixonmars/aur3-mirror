@@ -6,7 +6,7 @@
 pkgname=linux-git
 pkgbase=${pkgname}
 _srcname=linux
-pkgver=3.13.rc7.r55.gef350bb
+pkgver=3.14.rc1.r0.g38dbfb5
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -17,15 +17,14 @@ source=('git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git'
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
-        'linux.preset'
+        'linux-git.preset'
         'change-default-console-loglevel.patch'
-        'criu-no-expert.patch')
+        )
 md5sums=('SKIP'
-         '798bca5d2f0a1505c9b86a5227a2b339'
-         '174aca18d487f8455191257cbd94c55c'
-         'cb9664044023151113e1b1ed018a48b6'
-         '98beb36f9b8cf16e58de2483ea9985e3'
-         'd50c1ac47394e9aec637002ef3392bd1')
+         '2ee3bb668630f91a293f0521f6e7c950'
+         '09ad9e2d7f01fc35171ebde008ffdf4e'
+         'ddfc10f687c3aaa029626ade9ed4e307'
+         '98beb36f9b8cf16e58de2483ea9985e3')
 
 _kernelname=${pkgbase#linux}
 
@@ -44,41 +43,32 @@ prepare() {
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
-  patch -Np1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # allow criu without expert option set
-  # patch from fedora
-  patch -Np1 -i "${srcdir}/criu-no-expert.patch"
+  patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
 
   # Use saved config if it exists
-  if [ -e "${startdir}/config.x86_64.last" ]; then
-    msg "Using saved config ${startdir}/config.x86_64.last"
-    cat "${startdir}/config.x86_64.last" > ./.config
-  elif [ -e "${startdir}/config.last" ]; then
+  if [ "${CARCH}" = "x86_64" ]; then
+    if [ -r "${startdir}/config.x86_64.last" ]; then
+      msg "Using saved config ${startdir}/config.x86_64.last"
+      cat "${startdir}/config.x86_64.last" > ./.config
+    else
+      msg "Using default config ${srcdir}/config.x86_64"
+      cat "${srcdir}/config.x86_64" > ./.config
+    fi
+  elif [ -r "${startdir}/config.last" ]; then
     msg "Using saved config ${startdir}/config.last"
     cat "${startdir}/config.last" > ./.config
-  # Else use default config
-  elif [ "${CARCH}" = "x86_64" ]; then
-    msg "Using default config ${srcdir}/config.x86_64"
-    cat "${srcdir}/config.x86_64" > ./.config
   else
     msg "Using default config ${srcdir}/config"
     cat "${srcdir}/config" > ./.config
   fi
 
   if [ "${_kernelname}" != "" ]; then
-    sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" \
-      ./.config
-    sed -i "s|CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" \
-      ./.config
+    sed -i "s|CONFIG_LOCALVERSION=.*|CONFIG_LOCALVERSION=\"${_kernelname}\"|g" ./.config
+    sed -i "s|CONFIG_LOCALVERSION_AUTO=.*|CONFIG_LOCALVERSION_AUTO=n|" ./.config
   fi
 
   # don't run depmod on 'make install'. We'll do this ourselves in packaging
   sed -i '2iexit 0' scripts/depmod.sh
-}
-
-build() {
-  cd "${srcdir}/${_srcname}"
 
   # get kernel version
   make prepare
@@ -91,9 +81,6 @@ build() {
   #make oldconfig # using old config from previous kernel version
   # ... or manually edit .config
 
-  # Localmodconfig recommended for first build
-  #make localmodconfig
-
   # rewrite configuration
   yes "" | make config >/dev/null
 
@@ -103,14 +90,11 @@ build() {
   else
     cat .config > "${startdir}/config.last"
   fi
+}
 
-  ####################
-  # stop here
-  # this is useful to configure the kernel
-  #msg "Stopping build"; return 1
-  ####################
+build() {
+  cd "${srcdir}/${_srcname}"
 
-  # build!
   make ${MAKEFLAGS} LOCALVERSION= bzImage modules
 }
 
@@ -123,7 +107,7 @@ package_linux-git() {
   conflicts=("kernel26${_kernelname}")
   replaces=("kernel26${_kernelname}")
   backup=("etc/mkinitcpio.d/${pkgbase}.preset")
-  install=linux.install
+  install=linux-git.install
 
   cd "${srcdir}/${_srcname}"
 
@@ -138,9 +122,6 @@ package_linux-git() {
   make LOCALVERSION= INSTALL_MOD_PATH="${pkgdir}" modules_install
   cp arch/$KARCH/boot/bzImage "${pkgdir}/boot/vmlinuz-${pkgbase}"
 
-  # add vmlinux
-  install -D -m644 vmlinux "${pkgdir}/usr/src/linux-${_kernver}/vmlinux"
-
   # set correct depmod command for install
   cp -f "${startdir}/${install}" "${startdir}/${install}.pkg"
   true && install=${install}.pkg
@@ -150,8 +131,7 @@ package_linux-git() {
     -i "${startdir}/${install}"
 
   # install mkinitcpio preset file for kernel
-  install -D -m644 "${srcdir}/linux.preset" \
-    "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
+  install -D -m644 "${srcdir}/linux-git.preset" "${pkgdir}/etc/mkinitcpio.d/${pkgbase}.preset"
   sed \
     -e "1s|'linux.*'|'${pkgbase}'|" \
     -e "s|ALL_kver=.*|ALL_kver=\"/boot/vmlinuz-${pkgbase}\"|" \
@@ -172,13 +152,14 @@ package_linux-git() {
   echo "${_kernver}" > "${pkgdir}/lib/modules/extramodules-${_basekernel}${_kernelname:--ARCH}/version"
 
   # Now we call depmod...
-  depmod -b "$pkgdir" -F System.map "$_kernver"
-
-  # Copy symbol file
-  cp System.map "${pkgdir}/boot/System.map-${pkgbase}"
+  depmod -b "${pkgdir}" -F System.map "${_kernver}"
 
   # move module tree /lib -> /usr/lib
-  mv "$pkgdir/lib" "$pkgdir/usr"
+  mkdir -p "${pkgdir}/usr"
+  mv "${pkgdir}/lib" "${pkgdir}/usr/"
+
+  # add vmlinux
+  install -D -m644 vmlinux "${pkgdir}/usr/lib/modules/${_kernver}/build/vmlinux" 
 }
 
 package_linux-git-headers() {
@@ -189,124 +170,124 @@ package_linux-git-headers() {
 
   install -dm755 "${pkgdir}/usr/lib/modules/${_kernver}"
 
-  cd "${pkgdir}/usr/lib/modules/${_kernver}"
-  ln -sf ../../../src/linux-${_kernver} build
-
   cd "${srcdir}/${_srcname}"
   install -D -m644 Makefile \
-    "${pkgdir}/usr/src/linux-${_kernver}/Makefile"
+    "${pkgdir}/usr/lib/modules/${_kernver}/build/Makefile"
   install -D -m644 kernel/Makefile \
-    "${pkgdir}/usr/src/linux-${_kernver}/kernel/Makefile"
+    "${pkgdir}/usr/lib/modules/${_kernver}/build/kernel/Makefile"
   install -D -m644 .config \
-    "${pkgdir}/usr/src/linux-${_kernver}/.config"
+    "${pkgdir}/usr/lib/modules/${_kernver}/build/.config"
 
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/include"
 
   for i in acpi asm-generic config crypto drm generated keys linux math-emu \
     media net pcmcia scsi sound trace uapi video xen; do
-    cp -a include/${i} "${pkgdir}/usr/src/linux-${_kernver}/include/"
+    cp -a include/${i} "${pkgdir}/usr/lib/modules/${_kernver}/build/include/"
   done
 
   # copy arch includes for external modules
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/x86"
-  cp -a arch/x86/include "${pkgdir}/usr/src/linux-${_kernver}/arch/x86/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/arch/x86"
+  cp -a arch/x86/include "${pkgdir}/usr/lib/modules/${_kernver}/build/arch/x86/"
 
   # copy files necessary for later builds, like nvidia and vmware
-  cp Module.symvers "${pkgdir}/usr/src/linux-${_kernver}"
-  cp -a scripts "${pkgdir}/usr/src/linux-${_kernver}"
+  cp Module.symvers "${pkgdir}/usr/lib/modules/${_kernver}/build"
+  cp -a scripts "${pkgdir}/usr/lib/modules/${_kernver}/build"
 
   # fix permissions on scripts dir
-  chmod og-w -R "${pkgdir}/usr/src/linux-${_kernver}/scripts"
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/.tmp_versions"
+  chmod og-w -R "${pkgdir}/usr/lib/modules/${_kernver}/build/scripts"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/.tmp_versions"
 
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/arch/${KARCH}/kernel"
 
-  cp arch/${KARCH}/Makefile "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+  cp arch/${KARCH}/Makefile "${pkgdir}/usr/lib/modules/${_kernver}/build/arch/${KARCH}/"
 
   if [ "${CARCH}" = "i686" ]; then
-    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/"
+    cp arch/${KARCH}/Makefile_32.cpu "${pkgdir}/usr/lib/modules/${_kernver}/build/arch/${KARCH}/"
   fi
 
-  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/src/linux-${_kernver}/arch/${KARCH}/kernel/"
+  cp arch/${KARCH}/kernel/asm-offsets.s "${pkgdir}/usr/lib/modules/${_kernver}/build/arch/${KARCH}/kernel/"
 
   # add headers for lirc package
   # pci
   for i in bt8xx cx88 saa7134; do
-    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/pci/${i}"
-    cp -a drivers/media/pci/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/pci/${i}"
+    mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/pci/${i}"
+    cp -a drivers/media/pci/${i}/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/pci/${i}"
   done
-  # usb
-  for i in cpia2 em28xx pwc sn9c102; do
-    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/usb/${i}"
-    cp -a drivers/media/usb/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/usb/${i}"
+  ## usb
+  for i in cpia2 em28xx pwc; do
+    mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/usb/${i}"
+    cp -a drivers/media/usb/${i}/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/usb/${i}"
   done
-  # i2c
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c"
-  cp drivers/media/i2c/*.h  "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/"
+  ## sn9c102
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/staging/media/sn9c102"
+  cp -a drivers/staging/media/sn9c102/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/staging/media/sn9c102"
+  ## i2c
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/i2c"
+  cp drivers/media/i2c/*.h  "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/i2c/"
   for i in cx25840; do
-    mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/${i}"
-    cp -a drivers/media/i2c/${i}/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/${i}"
+    mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/i2c/${i}"
+    cp -a drivers/media/i2c/${i}/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/i2c/${i}"
   done
 
   # add docbook makefile
   install -D -m644 Documentation/DocBook/Makefile \
-    "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
+    "${pkgdir}/usr/lib/modules/${_kernver}/build/Documentation/DocBook/Makefile"
 
   # add dm headers
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
-  cp drivers/md/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/md"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/md"
+  cp drivers/md/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/md"
 
   # add inotify.h
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/linux"
-  cp include/linux/inotify.h "${pkgdir}/usr/src/linux-${_kernver}/include/linux/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/include/linux"
+  cp include/linux/inotify.h "${pkgdir}/usr/lib/modules/${_kernver}/build/include/linux/"
 
   # add wireless headers
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
-  cp net/mac80211/*.h "${pkgdir}/usr/src/linux-${_kernver}/net/mac80211/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/net/mac80211/"
+  cp net/mac80211/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/net/mac80211/"
 
   # add dvb headers for external modules
   # in reference to:
   # http://bugs.archlinux.org/task/9912
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb-core"
-  #cp drivers/media/dvb-core/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb-core/"
-  # and...
-  # http://bugs.archlinux.org/task/11194
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
-  #cp include/config/dvb/*.h "${pkgdir}/usr/src/linux-${_kernver}/include/config/dvb/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/dvb-core"
+  cp drivers/media/dvb-core/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/dvb-core/"
+  ## and...
+  ## http://bugs.archlinux.org/task/11194
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/include/config/dvb/"
+  cp include/config/dvb/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/include/config/dvb/"
 
   # add dvb headers for http://mcentral.de/hg/~mrec/em28xx-new
   # in reference to:
   # http://bugs.archlinux.org/task/13146
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb-frontends/"
-  #cp drivers/media/dvb-frontends/lgdt330x.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb-frontends/"
-  #cp drivers/media/i2c/msp3400-driver.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/i2c/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/dvb-frontends/"
+  cp drivers/media/dvb-frontends/lgdt330x.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/dvb-frontends/"
+  cp drivers/media/i2c/msp3400-driver.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/i2c/"
 
   # add dvb headers
   # in reference to:
   # http://bugs.archlinux.org/task/20402
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/usb/dvb-usb"
-  #cp drivers/media/usb/dvb-usb/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/usb/dvb-usb/"
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb-frontends"
-  #cp drivers/media/dvb-frontends/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/dvb-frontends/"
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/tuners"
-  #cp drivers/media/tuners/*.h "${pkgdir}/usr/src/linux-${_kernver}/drivers/media/tuners/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/usb/dvb-usb"
+  cp drivers/media/usb/dvb-usb/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/usb/dvb-usb/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/dvb-frontends"
+  cp drivers/media/dvb-frontends/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/dvb-frontends/"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/tuners"
+  cp drivers/media/tuners/*.h "${pkgdir}/usr/lib/modules/${_kernver}/build/drivers/media/tuners/"
 
-  # add xfs and shmem for aufs building
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs"
-  #mkdir -p "${pkgdir}/usr/src/linux-${_kernver}/mm"
-  #cp fs/xfs/xfs_sb.h "${pkgdir}/usr/src/linux-${_kernver}/fs/xfs/xfs_sb.h"
+  ## add xfs and shmem for aufs building
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/fs/xfs"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/mm"
+  cp fs/xfs/xfs_sb.h "${pkgdir}/usr/lib/modules/${_kernver}/build/fs/xfs/xfs_sb.h"
 
   # copy in Kconfig files
-  for i in `find . -name "Kconfig*"`; do
-    mkdir -p "${pkgdir}"/usr/src/linux-${_kernver}/`echo ${i} | sed 's|/Kconfig.*||'`
-    cp ${i} "${pkgdir}/usr/src/linux-${_kernver}/${i}"
+  for i in $(find . -name "Kconfig*"); do
+    mkdir -p "${pkgdir}"/usr/lib/modules/${_kernver}/build/`echo ${i} | sed 's|/Kconfig.*||'`
+    cp ${i} "${pkgdir}/usr/lib/modules/${_kernver}/build/${i}"
   done
 
-  chown -R root.root "${pkgdir}/usr/src/linux-${_kernver}"
-  find "${pkgdir}/usr/src/linux-${_kernver}" -type d -exec chmod 755 {} \;
+  chown -R root.root "${pkgdir}/usr/lib/modules/${_kernver}/build"
+  find "${pkgdir}/usr/lib/modules/${_kernver}/build" -type d -exec chmod 755 {} \;
 
   # strip scripts directory
-  find "${pkgdir}/usr/src/linux-${_kernver}/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
+  find "${pkgdir}/usr/lib/modules/${_kernver}/build/scripts" -type f -perm -u+w 2>/dev/null | while read binary ; do
     case "$(file -bi "${binary}")" in
       *application/x-sharedlib*) # Libraries (.so)
         /usr/bin/strip ${STRIP_SHARED} "${binary}";;
@@ -318,7 +299,7 @@ package_linux-git-headers() {
   done
 
   # remove unneeded architectures
-  rm -rf "${pkgdir}"/usr/src/linux-${_kernver}/arch/{alpha,arc,arm,arm26,arm64,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,metag,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
+  rm -rf "${pkgdir}"/usr/lib/modules/${_kernver}/build/arch/{alpha,arc,arm,arm26,arm64,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,metag,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
 
 package_linux-git-docs() {
@@ -329,15 +310,15 @@ package_linux-git-docs() {
 
   cd "${srcdir}/${_srcname}"
 
-  mkdir -p "${pkgdir}/usr/src/linux-${_kernver}"
-  cp -al Documentation "${pkgdir}/usr/src/linux-${_kernver}"
+  mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build"
+  cp -al Documentation "${pkgdir}/usr/lib/modules/${_kernver}/build"
   find "${pkgdir}" -type f -exec chmod 444 {} \;
   find "${pkgdir}" -type d -exec chmod 755 {} \;
 
   # remove a file already in linux package
-  rm -f "${pkgdir}/usr/src/linux-${_kernver}/Documentation/DocBook/Makefile"
+  rm -f "${pkgdir}/usr/lib/modules/${_kernver}/build/Documentation/DocBook/Makefile"
 }
-  
+
 # Set pkgdesc again to work around AUR parser
 pkgdesc="The Linux kernel and modules (git version)"
 
