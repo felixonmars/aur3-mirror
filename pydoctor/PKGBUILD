@@ -1,6 +1,6 @@
 # Contributor: Alexandre Défossez <alexandre.defossez at google famous mailing service>
 pkgname=pydoctor
-pkgver=0.4
+pkgver=0.5
 pkgrel=1
 pkgdesc="API documentation generator for Python using static analysis"
 arch=('any') # python
@@ -11,7 +11,7 @@ optdepends=("epydoc: Restructured Text parser")
 source=(
 "https://pypi.python.org/packages/source/p/pydoctor/pydoctor-$pkgver.tar.gz"{,.asc}
 )
-md5sums=(b7564e12b5d35d4cb529a2c220b25d3a SKIP)
+md5sums=(76652703e59f8ee4e767f33d3510ba81 SKIP)
 
 build() {
   cd "$srcdir/pydoctor-$pkgver"

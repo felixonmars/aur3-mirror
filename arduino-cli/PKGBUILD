@@ -1,7 +1,7 @@
 # Contributor : Devaev Maxim <mdevaev@gmail.com>
 
 pkgname=arduino-cli
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
 pkgdesc="CLI development tools for Arduino without Java and Arduino IDE"
 arch=('any')
@@ -9,6 +9,8 @@ url="http://code.google.com/p/arduino-cli"
 license="GPL"
 depends=('avr-libc' 'gcc-avr' 'binutils-avr' 'avrdude' 'python2')
 makedepends=('git')
+conflicts=('arduino')
+replaces=('arduino')
 
 _gitroot="git://github.com/mdevaev/arduino-cli.git"
 _gitname="arduino-cli"

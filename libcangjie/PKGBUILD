@@ -1,6 +1,6 @@
 # Maintainer: Antony Ho <ntonyworkshop@gmail.com>
 pkgname=libcangjie
-pkgver=1.0
+pkgver=1.1
 pkgrel=1
 pkgdesc="CangJie Input Method Library"
 arch=('x86_64' 'i686')
@@ -9,7 +9,7 @@ license=('LGPL3')
 depends=('sqlite')
 makedepends=()  
 replaces=('libcangjie-git')
-sha256sums=('8b1d0775d809daa2fda2c2c44a3c5ba7d49cb95b7f2252194899b2a43f6b5baa')
+sha256sums=('2909722abb9d85e83ad43c8ebd555d057c079014eb8e883c8d0f69b72d23031a')
 source=("http://cangjians.github.io/downloads/libcangjie/$pkgname-$pkgver.tar.xz")
 
 prepare() {
