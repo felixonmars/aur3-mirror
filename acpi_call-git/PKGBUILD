@@ -1,6 +1,6 @@
 pkgname=acpi_call-git
 pkgver=1.1.0
-pkgrel=4
+pkgrel=5
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
 url=("http://github.com/mkottman/acpi_call")
@@ -13,7 +13,8 @@ install=acpi_call.install
 _gitname=("acpi_call")
 source=("$_gitname"::'git://github.com/mkottman/acpi_call.git')
 md5sums=('SKIP')
-
+provides=('acpi_call')
+conflicts=('acpi_call' 'acpi_call-lts')
 
 pkgver() {
   cd ${_gitname}
