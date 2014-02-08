@@ -1,7 +1,7 @@
 # Maintainer: George Gibbs <vash63 at gmail dot com>
 
 pkgname=ds4drv-git
-pkgver=82
+pkgver=0.2.1.r30.g4db5fc7
 pkgrel=1
 pkgdesc="Sony DualShock 4 Bluetooth Driver"
 arch=('any')
@@ -17,7 +17,7 @@ sha256sums=('SKIP')
 
 pkgver() {
 	cd "${srcdir}"/${pkgname}
-	git rev-list --count HEAD
+	git describe --long | sed -r 's/^v//;s/([^-]*-g)/r\1/;s/-/./g' 
 }
 
 package() { 
@@ -29,8 +29,7 @@ package() {
 	python setup.py install --root="$pkgdir/" --optimize=1
 	mkdir -pm755 $pkgdir/etc/systemd/system
 	cp $srcdir/$pkgname/systemd/ds4drv.service $pkgdir/etc/systemd/system/ds4drv.service
-	mkdir -pm755 $pkgdir/etc/conf.d
-	cp $srcdir/$pkgname/systemd/ds4drv.conf $pkgdir/etc/conf.d/ds4drv.conf
+	cp $srcdir/$pkgname/ds4drv.conf $pkgdir/etc/ds4drv.conf
 }
 
 # vim: ft=sh syn=sh

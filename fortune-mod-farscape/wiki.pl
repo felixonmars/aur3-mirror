@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use utf8;
 
 use MediaWiki::API;
 
@@ -33,9 +34,6 @@ s/\n{2,}/\n/g;
 # collapse any multiple occurances of '%'
 s/%\n(%\n)+/%\n/g;
 
-# remove preceding whitespace
-s/^\s+//gm;
-
 # remove everything before, and including, the first '%'
 s/.*?%\n//s;
 
@@ -48,6 +46,13 @@ s/'''(.+?)'''/$1/g;
 s/''(.+?)''/$1/g;
 
 # replace wiki links with just the text
-s/\[\[w:.+?\|(.+?)\]\]/$1/g;
+s/\[\[(w:.+?\|)?(.+?)\]\]/$2/g;
+
+# remove trailing whitespace
+s/\s+$//gm;
+# remove preceding whitespace
+s/^\s+//gm;
+# collapse runs of spaces
+s/(\s)\s+/$1/gm;
 
 print;
