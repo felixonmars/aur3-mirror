@@ -1,7 +1,4 @@
-#!/bin/bash
-pkgname=<>
-pkgdir=<>
+#!/bin/sh
 
-pushd "$pkgdir" > /dev/null
-"./$pkgname" "$@"
-popd > /dev/null
+cd /opt/swaag
+exec ./swaag "$@"

@@ -57,8 +57,8 @@ pkgname=linux-lts-ck
 true && pkgname=(linux-lts-ck linux-lts-ck-headers)
 _kernelname=-lts-ck
 _srcname=linux-3.10
-pkgver=3.10.28
-pkgrel=3
+pkgver=3.10.29
+pkgrel=1
 arch=('i686' 'x86_64')
 url="https://wiki.archlinux.org/index.php/Linux-ck"
 license=('GPL2')
@@ -80,11 +80,10 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 "${_bfqpath}/0001-block-cgroups-kconfig-build-bits-for-BFQ-v7-3.10.patch"
 "${_bfqpath}/0002-block-introduce-the-BFQ-v7-I-O-sched-for-3.10.patch"
 "${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7-for-3.10.0.patch"
-'0004-block-Switch-from-BFQ-v6r2-for-3.10.0-to-BFQ-v6r2-fo.patch'
-'x86-x32-Correct-invalid-use-of-user-timespec-in-the-kerne.patch')
+'0004-block-Switch-from-BFQ-v6r2-for-3.10.0-to-BFQ-v6r2-fo.patch')
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
-            'b169d1491e69307ef472b86b831ac524deefa542715c065d34c31409d35b674c'
-	    	'747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
+            'ebe2e152df34429b588bd8d97ab4e40ad3d0f376325cdb4248ff1f87d47be040'
+	    '747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
             'd5fd60f5fae0813eb398b3eac410ce65b8b958360300aa66e1597dc16e9dfe78'
             'd7fada52453d12a24af9634024c36792697f97ce0bc6552939cd7b2344d00cd9'
             '205fe05977dffb72f584ad23b2db8d31c6d8361e1cb9a69a9c4aa546727b0145'
@@ -95,8 +94,7 @@ sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
             '84eb6106cef248be03f01636e62610c2a638ae0c6eca6251c1c9fae34275a0b0'
             '5ddacea9934522a0625cc91387623c2dbf17cb376a53d9f3a3870358fac4c1b6'
             'a195af9f0b93090fef07bb28422b973fc90f07eb6c0644c0c2159ec136460f06'
-            'af047d657b5f1e6ffeb90ab9d5d1cacb6858a9d0648b717d81d80eb76c4340aa'
-			'6362508ca428dd54ebfe6327287640664feda7748704f597c3b1c9c52ccd3f56')
+            'af047d657b5f1e6ffeb90ab9d5d1cacb6858a9d0648b717d81d80eb76c4340aa')
 
 
 prepare() {
@@ -115,10 +113,6 @@ prepare() {
 	# patch from fedora
 	patch -Np1 -i "${srcdir}/criu-no-expert.patch"
 
-	# CVE-2014-0038
-	msg "x86, x32: Correct invalid use of user timespec in the kernel. The x32 case for the recvmsg() timout handling is broken"
-	patch -Np1 -i "${srcdir}/x86-x32-Correct-invalid-use-of-user-timespec-in-the-kerne.patch"
-
 	### Patch source with ck patchset with BFS
 	# Fix double name in EXTRAVERSION
 	sed -i -re "s/^(.EXTRAVERSION).*$/\1 = /" "${srcdir}/${_ckpatchname}"
@@ -136,13 +130,10 @@ prepare() {
 	patch -Np1 -i "${srcdir}/${_gcc_patch}"
 
 	msg "Patching source with BFQ patches"
-	for p in $(ls ${srcdir}/000{1,2,3}-block*.patch); do
+	for p in $(ls ${srcdir}/000{1,2,3,4}-block*.patch); do
 		msg " $p"
 		patch -Np1 -i "$p"
 	done
-	
-	### This is the BFQ v6r2 3.10.0 to 3.10.8 patch re-implemented for BFQ v7.
-	patch -Np1 -i "${srcdir}/0004-block-Switch-from-BFQ-v6r2-for-3.10.0-to-BFQ-v6r2-fo.patch"
 
 	### Clean tree and copy ARCH config over
 	msg "Running make mrproper to clean source tree"
