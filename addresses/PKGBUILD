@@ -1,5 +1,4 @@
-# Maintainer: libernux <dutchman55@gmx.com>
-
+# Maintainer: David Phillips (aka phillid) <dbphillipsnz at _remove this part if you want_ gmail dot com>
 pkgname=addresses
 pkgver=0.4.8
 pkgrel=1
@@ -15,10 +14,11 @@ md5sums=('35c929e3d2361ab26e3387fa07ca1d29')
 
 
 build() {
-  cd $srcdir/Addresses-${pkgver}
-  # necessary to set environment if not in user startup.
-  . /usr/share/GNUstep/Makefiles/GNUstep.sh
-  make
-  make DESTDIR=$pkgdir install
+	# necessary to set environment if not in user startup.
+	. /usr/share/GNUstep/Makefiles/GNUstep.sh
+	make --directory=$srcdir/Addresses-${pkgver}
 }
 
+package() {
+	make DESTDIR=$pkgdir install --directory=$srcdir/Addresses-${pkgver}
+}

@@ -1,5 +1,5 @@
 #!/bin/sh
-cd /usr/share/vrchat
+cd /opt/vrchat
 if [[ $(uname -m) == x86_64 ]]; then
     exec ./VRChat.x86_64 $@
 else
