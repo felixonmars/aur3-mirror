@@ -7,11 +7,11 @@ CONF=/etc/conf.d/murmur
 
 [ -f $CONF ] && . $CONF
 
-PID=$(pidof -o %PPID /usr/sbin/murmurd)
+PID=$(pidof -o %PPID /usr/bin/murmurd)
 case "$1" in
   start)
     stat_busy "Starting murmur"
-    [ -z "$PID" ] && /usr/sbin/murmurd $PARAMS
+    [ -z "$PID" ] && /usr/bin/murmurd $PARAMS
     if [ $? -gt 0 ]; then
       stat_fail
     else

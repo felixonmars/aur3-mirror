@@ -47,13 +47,13 @@ source=(
     'jukin.css::https://raw.github.com/vrana/adminer/master/designs/jukin/adminer.css'
 )
 
-md5sums=('8582848fdb2b459ae96b7f392093be48'
+md5sums=('cd9f03ca11aa47f5e43ccb675588007c'
          '9da6b73dfa3bb538b253676e14c50d1e'
-         '0077baa49eef35467a8c770a44ce40e8'
-         '79cdfdd79bc42e597121b6adf8cc26f3'
+         'f57bf50b557c87b782f9f8962a648c4d'
+         '0c01f846113983d30254abba6dac7584'
          'aa030a380ca2dca615d01856a333e4d8'
          '1520661c238a8460170afa0b49ad894a'
-         '0e4e5cbcfe4528e44ba62e34df1e0324'
+         '0596554c5535bc792edb051e5dcd15c0'
          '6c69bf9a12232832d99cf508f2eb8b7f'
          '0429c1df7811e6730e5e5e81f6a3dc10'
          '379d27d158530d478dc68e144c3004c4'
