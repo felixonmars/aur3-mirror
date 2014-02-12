@@ -5,7 +5,7 @@ _passengerver=4.0.37
 
 pkgname=nginx-passenger
 pkgver=1.4.4
-pkgrel=5
+pkgrel=6
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -106,17 +106,15 @@ package() {
 	install -d "$pkgdir"/usr/lib/passenger/buildout
 	rm -r $(find . -name "Makefile" -or -name "*.o")
 	cp -R buildout/{agents,ruby} "$pkgdir"/usr/lib/passenger/buildout
-	cp -R {bin,helper-scripts,lib} "$pkgdir"/usr/lib/passenger/
+	cp -R {bin,helper-scripts,lib,node_lib} "$pkgdir"/usr/lib/passenger/
 
 	#Passenger doc
 	install -d "$pkgdir"/usr/share/doc/passenger
 	cp -R doc "$pkgdir"/usr/share/doc/passenger/
 
 	#Passenger man
-	install -d "$pkgdir"/usr/share/man/man1
-	install -d "$pkgdir"/usr/share/man/man8
-	gzip -9 man/passenger-config.1 > "$pkgdir"/usr/share/man/man1/passenger-config.1.gz
-	gzip -9 man/passenger-stress-test.1 > "$pkgdir"/usr/share/man/man1/passenger-stress-test.1.gz
-	gzip -9 man/passenger-memory-stats.8 > "$pkgdir"/usr/share/man/man8/passenger-memory-stats.8.gz
-	gzip -9 man/passenger-status.8 > "$pkgdir"/usr/share/man/man8/passenger-status.8.gz
+	install -Dm644 man/passenger-config.1 "$pkgdir"/usr/share/man/man1/passenger-config.1
+	install -Dm644 man/passenger-stress-test.1 "$pkgdir"/usr/share/man/man1/passenger-stress-test.1
+	install -Dm644 man/passenger-memory-stats.8 "$pkgdir"/usr/share/man/man8/passenger-memory-stats.8
+	install -Dm644 man/passenger-status.8 "$pkgdir"/usr/share/man/man8/passenger-status.8
 }
