@@ -58,7 +58,7 @@ true && pkgname=(linux-lts-ck linux-lts-ck-headers)
 _kernelname=-lts-ck
 _srcname=linux-3.10
 pkgver=3.10.29
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 url="https://wiki.archlinux.org/index.php/Linux-ck"
 license=('GPL2')
@@ -67,7 +67,7 @@ options=('!strip')
 _ckpatchversion=1
 _ckpatchname="patch-3.10-ck${_ckpatchversion}"
 _gcc_patch="kernel-310-gcc48-2.patch"
-_bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.10.0-v7/"
+_bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.10.0-v7r1/"
 source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 "http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
 "http://ck.kolivas.org/patches/3.0/3.10/3.10-ck${_ckpatchversion}/${_ckpatchname}.bz2"
@@ -77,13 +77,13 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 'change-default-console-loglevel.patch'
 'config' 'config.x86_64'
 'criu-no-expert.patch'
-"${_bfqpath}/0001-block-cgroups-kconfig-build-bits-for-BFQ-v7-3.10.patch"
-"${_bfqpath}/0002-block-introduce-the-BFQ-v7-I-O-sched-for-3.10.patch"
-"${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7-for-3.10.0.patch"
+"${_bfqpath}/0001-block-cgroups-kconfig-build-bits-for-BFQ-v7r1-3.10.patch"
+"${_bfqpath}/0002-block-introduce-the-BFQ-v7r1-I-O-sched-for-3.10.patch"
+"${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7r1-for-3.10.0.patch"
 '0004-block-Switch-from-BFQ-v6r2-for-3.10.0-to-BFQ-v6r2-fo.patch')
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
             'ebe2e152df34429b588bd8d97ab4e40ad3d0f376325cdb4248ff1f87d47be040'
-	    '747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
+            '747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
             'd5fd60f5fae0813eb398b3eac410ce65b8b958360300aa66e1597dc16e9dfe78'
             'd7fada52453d12a24af9634024c36792697f97ce0bc6552939cd7b2344d00cd9'
             '205fe05977dffb72f584ad23b2db8d31c6d8361e1cb9a69a9c4aa546727b0145'
@@ -91,11 +91,10 @@ sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
             'a24863abb539f33f2dd15805e73f2280d10dc11a88cf2a6d491a8a76216b3ec9'
             '8792fbb60e2a5dfa7bd643cfb3060fc5b8798fd0a5b86e948b0cf5a82ca95b37'
             'daa75228a4c45a925cc5dbfeba884aa696a973a26af7695adc198c396474cbd5'
-            '84eb6106cef248be03f01636e62610c2a638ae0c6eca6251c1c9fae34275a0b0'
-            '5ddacea9934522a0625cc91387623c2dbf17cb376a53d9f3a3870358fac4c1b6'
-            'a195af9f0b93090fef07bb28422b973fc90f07eb6c0644c0c2159ec136460f06'
-            'af047d657b5f1e6ffeb90ab9d5d1cacb6858a9d0648b717d81d80eb76c4340aa')
-
+            '85d0969c0ed298d09216fc95e92a592c9457b306e3bf9e2f219604357f060787'
+            'a1a98f0e7bc4a96187a62c80e42c3a467b876fedfe7e13f6c6323c6966b04090'
+            'c24e6cde0475d8f3aa980506ab55946bbe5092deb0edbc5302f2c4c024fa6a9a'
+            '3af0808452d885847b898503765e1691184cefc8a84f82cc682fc8374d10cba2')
 
 prepare() {
 	cd "${_srcname}"

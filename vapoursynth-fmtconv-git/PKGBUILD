@@ -1,0 +1,37 @@
+# Maintainer:  Gustavo Alvarez <sl1pkn07@gmail.com>
+
+_plug=fmtconv
+pkgname=vapoursynth-${_plug}-git
+pkgver=20131130.ce9e577
+pkgrel=1
+pkgdesc="Plugin for Vapoursynth: ${_plug} (GIT version)"
+arch=('i686' 'x86_64')
+url="https://github.com/vapoursynth/fmtconv"
+license=('custom')
+depends=('vapoursynth')
+provides=("vapoursynth-${_plug}")
+conflicts=("vapoursynth-${_plug}" "vapoursynth-plugin-${_plug}")
+makedepends=('git')
+source=("git+https://github.com/vapoursynth/${_plug}.git")
+md5sums=('SKIP')
+_gitname="${_plug}"
+
+pkgver() {
+  cd "${_gitname}"
+  echo "$(git log -1 --format="%cd" --date=short | tr -d '-').$(git log -1 --format="%h")"
+}
+
+build() {
+  cd "${_gitname}/src"
+  echo "all:
+	  g++ -shared -msse2 -fPIC -o libfmtconv.so AvstpWrapper.cpp main.cpp fmtc/*.cpp fstb/*.cpp vsutl/*.cpp -I." > Makefile
+  make
+}
+
+package(){
+  cd "${_gitname}/src"
+  install -Dm755 "lib${_plug}.so" "${pkgdir}/usr/lib/vapoursynth/lib${_plug}.so"
+  install -d "${pkgdir}/usr/share/doc/vapoursynth/plugins/${_plug}/"
+  install -m644 ../doc/*.{png,html,css} "${pkgdir}/usr/share/doc/vapoursynth/plugins/${_plug}/"
+  install -Dm644 ../doc/license.txt "${pkgdir}/usr/share/licenses/${pkgname}/license.txt"
+}

@@ -1,0 +1,57 @@
+# $Id: PKGBUILD 103974 2014-01-14 11:36:51Z spupykin $
+# Maintainer: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Maintainer: rubenvb vanboxem <dottie> ruben <attie> gmail <dottie> com
+# Contributor: jellysheep <max.mail@dameweb.de>
+
+_targets="i686-w64-mingw32 x86_64-w64-mingw32"
+
+pkgname=mingw-w64-crt-patched
+pkgver=3.1.0
+pkgrel=2
+pkgdesc='MinGW-w64 CRT for Windows'
+arch=('any')
+url='http://mingw-w64.sourceforge.net'
+license=('custom')
+groups=('mingw-w64-toolchain' 'mingw-w64')
+makedepends=('mingw-w64-gcc-base' 'mingw-w64-binutils' 'mingw-w64-headers')
+options=('!strip' '!buildflags' 'staticlibs' '!emptydirs')
+source=("http://sourceforge.net/projects/mingw-w64/files/mingw-w64/mingw-w64-release/mingw-w64-v${pkgver}.tar.bz2"
+		"0001-Add-_gmtime32-and-_localtime32-to-lib64-msvcrt.def.patch"
+		"0002-Remove-rand_s-and-vsprintf_s-from-msvcrt.def.in.patch"
+		"0001-Add-secapi-wrapper-for-sprintf_s.patch")
+md5sums=('df0e7657f46cbd59ed9cbe2a50c66e15'
+		'a6df990508d09dae874778a7863a796d'
+		'0a91be4a5ee7154c6faa35e5078f29cf'
+		'b116e994bfce8e3fc54e71219d5ad409')
+
+build() {
+	cd ${srcdir}/mingw-w64-v${pkgver}
+	# See https://bugzilla.redhat.com/show_bug.cgi?id=1054481
+	# 0001-Add-secapi-wrapper-for-sprintf_s.patch was adapted to match sources
+	patch -p1 < ${srcdir}/0001-Add-secapi-wrapper-for-sprintf_s.patch
+	patch -p1 < ${srcdir}/0001-Add-_gmtime32-and-_localtime32-to-lib64-msvcrt.def.patch
+	patch -p1 < ${srcdir}/0002-Remove-rand_s-and-vsprintf_s-from-msvcrt.def.in.patch
+
+	cd ${srcdir}
+	for _target in ${_targets}; do
+		msg "Building ${_target} CRT"
+		if [ ${_target} == "i686-w64-mingw32" ]; then
+			_crt_configure_args="--disable-lib64 --enable-lib32"
+		elif [ ${_target} == "x86_64-w64-mingw32" ]; then
+			_crt_configure_args="--disable-lib32 --enable-lib64"
+		fi
+		mkdir -p ${srcdir}/crt-${_target} && cd ${srcdir}/crt-${_target}
+		${srcdir}/mingw-w64-v${pkgver}/mingw-w64-crt/configure --prefix=/usr/${_target} \
+			--host=${_target} --enable-wildcard \
+			${_crt_configure_args}
+		make
+	done
+}
+
+package() {
+	for _target in ${_targets}; do
+		msg "Installing ${_target} crt"
+		cd ${srcdir}/crt-${_target}
+		make DESTDIR=${pkgdir} install
+	done
+}
