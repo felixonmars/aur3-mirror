@@ -8,7 +8,7 @@ require 'nokogiri'
 require 'open-uri'
 require 'optparse'
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 @options = {}
 @options[:commits] = 1
 @options[:show_git_svn] = false
@@ -57,18 +57,12 @@ end
 def get_pkg(pkg)
   repo, arch = "", ""
   IO.popen([{"LC_ALL"=>"C"}, "pacman", "-Si", pkg[:name], :err => :close]) do |io|
-    io.lines do |line|
+    io.each do |line|
       case line
       when /^Repository(\s?)*: (.+)$/
         pkg[:repo] = $2
       when /^Architecture(\s?)*: (.+)$/
         pkg[:arch] = $2
-      when /^Build Date(\s?)*: (.+)$/
-        build_date = Time.parse($2)
-        if build_date.strftime("%F") == Time.now.strftime("%F")
-          build_date = Time.now
-        end
-        pkg[:build_date] = build_date
       when /^$/
         break
       end
@@ -80,8 +74,15 @@ def get_pkg_info(pkg)
   # I need to get the correct git url from here, since some packages use a
   # different tracking repo (e.g. linux-headers => linux)
   # I'm also getting the last updated date from this url
-  uri = "http://www.archlinux.org/packages/#{pkg[:repo]}/#{pkg[:arch]}/#{pkg[:name]}"
+  uri = "https://www.archlinux.org/packages/#{pkg[:repo]}/#{pkg[:arch]}/#{pkg[:name]}"
   doc = Nokogiri::HTML(open(uri))
+
+  u_date = doc.at_xpath('.//th[text()="Last Updated:"]').parent.children[2].content
+  u_date = Time.parse(u_date + " 23:59:59 UTC")
+  if u_date.strftime("%F") == Time.now.utc.strftime("%F")
+    u_date = Time.now.utc
+  end
+  pkg[:u_date] = u_date
 
   pkg[:git_url] = doc.css("div#actionlist ul li a")[1]['href']
 end
@@ -89,16 +90,16 @@ end
 def age_test(commit_age, pkg)
   case commit_age
   when /days/
-    git_time = Time.now - commit_age.to_i*60*60*24
+    git_time = Time.now.utc - commit_age.to_i*60*60*24
   when /hours/
-    git_time = Time.now - commit_age.to_i*60*60
+    git_time = Time.now.utc - commit_age.to_i*60*60
   when /min/
-    git_time = Time.now - commit_age.to_i*60
+    git_time = Time.now.utc - commit_age.to_i*60
   else
-    git_time = Time.parse(commit_age)
+    git_time = Time.parse(commit_age+" 00:00:00 UTC")
   end
 
-  if git_time > pkg[:build_date] then
+  if git_time > pkg[:u_date] then
     return false
   else
     return true
