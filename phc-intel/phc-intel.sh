@@ -1,18 +1,6 @@
 #!/bin/bash -e
 shopt -s nullglob
 
-if [ "$1" = set ]; then
-	. /etc/default/phc-intel
-	[ -z "$VIDS" ] && exit
-	for i in $(< /proc/cmdline); do
-		[ $i = nophc ] && exit
-	done
-	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
-		echo $VIDS > "$i"
-	done
-	exit
-fi
-
 case "$1" in
 start)
 	. /etc/default/phc-intel
@@ -76,6 +64,17 @@ setup)
 	echo ':: Cleaning up'
 	echo
 	make clean
+	;;
+set)
+	. /etc/default/phc-intel
+	[ -z "$VIDS" ] && exit
+	for i in $(< /proc/cmdline); do
+		[ $i = nophc ] && exit
+	done
+	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
+		echo $VIDS > "$i"
+	done
+	exit
 	;;
 *)
 	echo "usage: $0 {start|stop|status|setup|set}"

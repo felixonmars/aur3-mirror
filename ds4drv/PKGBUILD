@@ -1,7 +1,7 @@
 # Maintainer: George Gibbs <vash63 at gmail dot com>
 
 pkgname=ds4drv
-pkgver=0.3.0
+pkgver=0.4.1
 pkgrel=1
 pkgdesc="Sony DualShock 4 Userspace Driver"
 arch=('any')
@@ -12,7 +12,7 @@ makedepends=('git')
 conflicts=('ds4drv-git')
 install=ds4drv.install
 source=(https://github.com/chrippa/ds4drv/archive/v$pkgver.tar.gz)
-sha256sums=('d2c5ffecf00970e2c516920bf007656aa75e6ceb01ef3ff97f9b32c032bfc636')
+sha256sums=('5fcd70aa7c48fabf584b84d66303ad8e7da8d2d06cee44ca036d6f5a9bd2f573')
 
 package() { 
 	cd "$srcdir/$pkgname-$pkgver"
