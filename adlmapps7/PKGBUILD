@@ -8,7 +8,7 @@ arch=('x86_64')
 url="http://www.autodesk.com"
 license=('custom')
 depends=('fontconfig' 'krb5' 'libtiff3' 'libxext' 'libsm' \
-		'libpng12' 'libmng' 'glib2' 'libxrender' 'libjpeg6')
+		'libpng12' 'glib2' 'libxrender' 'libjpeg6')
 makedepends=('rpmextract')
 source=(https://www.dropbox.com/s/nh19gq4mkz0k735/${pkgname}-${pkgver}-0.${arch}.tar.bz2)
 sha1sums=('817adc7e87e927c6454d72942f2e63319be35190')
