@@ -10,27 +10,9 @@ include_directories("${COMMON_SOURCE_DIR}")
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
 
-set(HEADERS
-    ${PROJECT_INCLUDE_DIR}/abstract_curl.h
-    ${PROJECT_INCLUDE_DIR}/curl_easy.h
-    ${PROJECT_INCLUDE_DIR}/curl_header.h
-    ${PROJECT_INCLUDE_DIR}/curl_http_post.h
-    ${PROJECT_INCLUDE_DIR}/curl_multi.h
-    ${PROJECT_INCLUDE_DIR}/easy_option_pair.h
-    ${PROJECT_INCLUDE_DIR}/exceptions.h
-    ${PROJECT_INCLUDE_DIR}/form_pair.h
-    ${PROJECT_INCLUDE_DIR}/multi_message.h
-    ${PROJECT_INCLUDE_DIR}/multi_option_pair.h
-)
+file(GLOB HEADERS ${PROJECT_INCLUDE_DIR}/*.h)
 
-set(SOURCES
-    ${COMMON_SOURCE_DIR}/abstract_curl.cpp
-    ${COMMON_SOURCE_DIR}/curl_easy.cpp
-    ${COMMON_SOURCE_DIR}/curl_header.cpp
-    ${COMMON_SOURCE_DIR}/curl_http_post.cpp
-    ${COMMON_SOURCE_DIR}/curl_multi.cpp
-    ${COMMON_SOURCE_DIR}/curl_multi_message.cpp
-)
+file(GLOB SOURCES ${COMMON_SOURCE_DIR}/*.cpp)
 
 add_library(curlcpp SHARED ${SOURCES} ${HEADERS})
 target_link_libraries(curlcpp curl)
