@@ -1,0 +1,36 @@
+# $Id: PKGBUILD 105371 2014-02-06 05:24:17Z bisson $
+# Maintainer: Wesley Merkel <ooesili@gmail.com>
+# (forked from xmobar in community)
+# Contributor: Sergej Pupykin <pupykin.s+arch@gmail.com>
+# Contributor: Arch Haskell Team <arch-haskell@haskell.org>
+
+pkgname=xmobar-mpd
+pkgver=0.19
+pkgrel=1
+pkgdesc="A Minimalistic Text Based Status Bar - with mpd support"
+url="http://hackage.haskell.org/package/xmobar"
+license=('custom:BSD3')
+arch=('i686' 'x86_64')
+depends=('gmp' 'libxft' 'libxinerama' 'wireless_tools' 'libxrandr')
+makedepends=('ghc=7.6.3-1' 'haskell-x11=1.6.1.1-3' 'haskell-x11-xft=0.3.1-9' 'haskell-utf8-string=0.3.7-5'
+	     'haskell-stm=2.4.2-2' 'haskell-parsec=3.1.3-3' 'haskell-mtl=2.1.2-3' 'haskell-regex-base' 'haskell-regex-compat'
+             'haskell-libmpd=0.8.0.2-2')
+conflicts=('xmobar')
+provides=('xmobar')
+options=('strip')
+source=(http://hackage.haskell.org/packages/archive/xmobar/$pkgver/xmobar-$pkgver.tar.gz)
+
+build() {
+    cd ${srcdir}/xmobar-$pkgver
+
+    runhaskell Setup configure --disable-optimization --prefix=/usr --flags="with_utf8 with_xft with_iwlib with_mpd"
+    runhaskell Setup build
+}
+
+package() {
+    cd ${srcdir}/xmobar-$pkgver
+    runhaskell Setup copy --destdir=${pkgdir}
+    install -D -m644 license ${pkgdir}/usr/share/licenses/$pkgname/LICENSE
+}
+
+md5sums=('1c5b6ac7e7afe837b79c10ae4e8b8e4d')
