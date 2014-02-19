@@ -1,7 +1,7 @@
 # Maintainer: burntcookie90
 
 pkgname=pidcat-git
-pkgver=1.4.1.r0.g55c8786
+pkgver=1.4.1.r2.gd4d265a
 pkgrel=2
 pkgdesc="Colored logcat script which only shows log entries for a specific application package."
 conflicts=("pidcat")
