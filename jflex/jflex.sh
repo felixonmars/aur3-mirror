@@ -1,3 +1,3 @@
 #!/usr/bin/sh
 
-java -cp /usr/share/java/jflex/JFlex.jar JFlex.Main "$@"
+java -jar /usr/share/java/jflex/jflex.jar "$@"

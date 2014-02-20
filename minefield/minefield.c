@@ -6,10 +6,11 @@
 #define N 20
 
 typedef struct{
-	char sign;		// char to be printed (* = has bomb, ? = don't know)
+	char sign;		// char to be printed (* = has bomb, - = covered)
 	int nearby; 	// =-1 if bomb. Else is the number of bombs near the cell.
 }grid;
 
+void grid_init(grid a[][N],int bombs); // initialize grid
 int num_bombs(); // calculate bomb's number
 void cascadeuncover(grid a[][N],int i,int k,int row,int col); // uncover until there are 0-bombs-cell
 int checknear(grid a[][N],int i,int k); // check number of bombs nearby
@@ -20,31 +21,11 @@ int main()
 {	
 	int bombs,i,k,row,col,rowtot,coltot,victory=1;
 	grid a[N][N];
+	char exitmsg[]="Leaving...bye! See you later :)";
+	srand(time(NULL));
 	
   bombs=num_bombs();
-  
-//initialize grid
-	for(i=0;i<N;i++){
-		for(k=0;k<N;k++){
-			a[i][k].sign='-';
-		}
-	}
-//produce %num random bombs	
-	srand (time(NULL));
-	for(i=0;i<bombs;i++){
-		do{
-			row=(rand()%N);
-			col=(rand()%N);
-		}while(a[row][col].nearby==-1);
-		a[row][col].nearby=-1;
-	}	
-//check near bombs
-	for(i=0;i<N;i++){
-		for(k=0;k<N;k++){
-			if(a[i][k].nearby!=-1)
-				a[i][k].nearby=checknear(a,i-1,k-1)+checknear(a,i-1,k)+checknear(a,i-1,k+1)+checknear(a,i,k-1)+checknear(a,i,k+1)+checknear(a,i+1,k-1)+checknear(a,i+1,k)+checknear(a,i+1,k+1);
-		}
-	}	
+  grid_init(a,bombs);	
 //initialize screen	
 	initscr();
 	start_color();
@@ -75,89 +56,59 @@ int main()
 		}		
 	}
 			
-	i=0;
-	k=0;	
-	mvprintw(rowtot-1,1,"Enter to put a bomb (*), twice to put a '?'. Space to uncover. 'c' to check before filling everything.\n");
+	mvprintw(rowtot-1,1,"Enter to put a bomb (*). Space to uncover.\n");
 	mvprintw(rowtot-2,1,"F2 anytime to *rage* quit.\n");
 	mvprintw(rowtot-3,1,"Still %d bombs.\n", bombs);	
-	refresh();
-	attron(A_BLINK);
-	move(row,col);
-	attroff(A_BLINK);
-	
+	i=0;
+	k=0;	
 	while((victory)&&(bombs>0)){
+		move(row+i*2,col+k*8);
+		refresh();
 		switch(getch())
 		{	
 			case KEY_LEFT:
-				if(k!=0){
+				if(k!=0)
 					k--;
-					attron(A_BLINK);
-					move(row+i*2,col+k*8);
-					attroff(A_BLINK);
-				}
 				break;
 			case KEY_RIGHT:
-				if(k!=N-1){
+				if(k!=N-1)
 					k++;
-					attron(A_BLINK);
-					move(row+i*2,col+k*8);
-					attroff(A_BLINK);
-				}
 				break;
 			case KEY_UP:
-				if(i!=0){
+				if(i!=0)
 					i--;
-					attron(A_BLINK);
-					move(row+i*2,col+k*8);
-					attroff(A_BLINK);
-				}
 				break;
 			case KEY_DOWN:
-				if(i!=N-1){
+				if(i!=N-1)
 					i++;
-					attron(A_BLINK);
-					move(row+i*2,col+k*8);
-					attroff(A_BLINK);
-				}
 				break;	
 			case 32: //space to uncover
 				if(a[i][k].sign=='-'){
 					if(a[i][k].nearby==-1)
 						victory=0;
-					else{
+					else
 						cascadeuncover(a,i,k,row,col);					
-						refresh();
-						move(row+i*2,col+k*8);
-					}
-				}	
+				}
 				break;
 			case 10: //Enter to  identify a bomb
-				if(a[i][k].sign=='*'){
-					a[i][k].sign='?';						
-					printw("%c", a[i][k].sign);
-					bombs++;
-					mvprintw(rowtot-3,1,"Still %d bombs.\n",bombs);
-				}else{
-					if(a[i][k].sign=='?'){
-						a[i][k].sign='-';
-						printw("%c", a[i][k].sign);
+				if((a[i][k].sign=='*')||(a[i][k].sign=='-')){
+					if(a[i][k].sign=='*'){
+						a[i][k].sign='-';						
+						bombs++;		
 					}else{
-						if(a[i][k].sign=='-'){
-							a[i][k].sign='*';
-							printw("%c", a[i][k].sign);
-							bombs--;
-							mvprintw(rowtot-3,1,"Still %d bombs.\n",bombs);
-						}
+						a[i][k].sign='*';
+						bombs--;
 					}
+					printw("%c", a[i][k].sign);
+					mvprintw(rowtot-3,1,"Still %d bombs.\n",bombs);		
 				}
-				move(row+i*2,col+k*8);
-				refresh();
 				break;
-			case 99:
-				victory_check(a,victory,rowtot,coltot);
-				return 0;
 			case KEY_F(2): //f2 to exit
 				clear();
+				attron(COLOR_PAIR(rand()%6+1));
+				mvprintw(rowtot/2,(coltot-strlen(exitmsg))/2,"%s", exitmsg);
+				attroff(COLOR_PAIR);
+				getch();
 				endwin();
 				return 0;		
 		}
@@ -165,6 +116,31 @@ int main()
 //victory check.
 	victory_check(a,victory,rowtot,coltot);
 	return 0;
+}
+
+void grid_init(grid a[][N],int bombs){
+	int i,k,row,col;
+	//initialize grid
+	for(i=0;i<N;i++){
+		for(k=0;k<N;k++){
+			a[i][k].sign='-';
+		}
+	}
+//produce %num random bombs	
+	for(i=0;i<bombs;i++){
+		do{
+			row=(rand()%N);
+			col=(rand()%N);
+		}while(a[row][col].nearby==-1);
+		a[row][col].nearby=-1;
+	}	
+//check near bombs
+	for(i=0;i<N;i++){
+		for(k=0;k<N;k++){
+			if(a[i][k].nearby!=-1)
+				a[i][k].nearby=checknear(a,i-1,k-1)+checknear(a,i-1,k)+checknear(a,i-1,k+1)+checknear(a,i,k-1)+checknear(a,i,k+1)+checknear(a,i+1,k-1)+checknear(a,i+1,k)+checknear(a,i+1,k+1);
+		}
+	}	
 }
 
 int num_bombs(){
@@ -193,32 +169,21 @@ int num_bombs(){
 
 void cascadeuncover(grid a[][N],int i,int k,int row,int col){
 	if(((i>=0)&&(i<N)&&(k>=0)&&(k<N))&&(a[i][k].sign=='-')){					
+		a[i][k].sign='0'+a[i][k].nearby;
+		move(row+i*2,col+k*8);
 		if(a[i][k].nearby!=0){
-			a[i][k].sign='0'+a[i][k].nearby;
-			move(row+i*2,col+k*8);
-			if(a[i][k].nearby==1)
-				attron(COLOR_PAIR(4));
-			else{
-				if(a[i][k].nearby==2)
-					attron(COLOR_PAIR(5));
-				else{
-					if(a[i][k].nearby==3)
-						attron(COLOR_PAIR(6));		
-					else{
-						if(a[i][k].nearby>=4)
-							attron(COLOR_PAIR(1));
-					}
-				}
+			if(a[i][k].nearby>=4)
+				attron(COLOR_PAIR(1));
+			else{ 
+				attron(COLOR_PAIR(a[i][k].nearby+3));
 			}
 			printw("%c",a[i][k].sign);
 			attroff(COLOR_PAIR);
 		}else{				
-			a[i][k].sign='0';
-			move(row+i*2,col+k*8);
 			attron(A_BOLD);
 			attron(COLOR_PAIR(3));
 			printw("%c", a[i][k].sign);
-			attroff(COLOR_PAIR(3));
+			attroff(COLOR_PAIR);
 			attroff(A_BOLD);			
 			cascadeuncover(a,i,k+1,row,col);
 			cascadeuncover(a,i,k-1,row,col);
@@ -247,7 +212,7 @@ int win_check(grid a[][N]){
 				return 0;
 		}
 	}
-	return 1; // F**k yoy won :(
+	return 1; // S**t! you won :(
 }
 
 void victory_check(grid a[][N],int victory,int rowtot,int coltot){
@@ -267,7 +232,7 @@ void victory_check(grid a[][N],int victory,int rowtot,int coltot){
 	refresh();
 	attroff(A_BOLD);
 	attroff(A_REVERSE);
-	attroff(COLOR_PAIR(2));
+	attroff(COLOR_PAIR);
 	getch();
 	endwin();	
 	return;	
