@@ -1,0 +1,4 @@
+compilerInstall=system
+export WM_MPLIB=SYSTEMOPENMPI
+export ParaView_VERSION=20140120.9de8abd
+export ParaView_MAJOR=20140120

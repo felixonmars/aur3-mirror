@@ -6,22 +6,24 @@
 #define N 20
 
 typedef struct{
-	char sign;		// char to be printed (* = has bomb, - = covered)
-	int nearby; 	// =-1 if bomb. Else is the number of bombs near the cell.
+	char sign;		//char to be printed (* = has bomb, - = covered)
+	int nearby; 	//=-1 if bomb. Else is the number of bombs near the cell.
 }grid;
 
-void grid_init(grid a[][N],int bombs); // initialize grid
-int num_bombs(); // calculate bomb's number
-void cascadeuncover(grid a[][N],int i,int k,int row,int col); // uncover until there are 0-bombs-cell
-int checknear(grid a[][N],int i,int k); // check number of bombs nearby
-int win_check(grid a[][N]); // check if we won
-void victory_check(grid a[][N],int victory,int rowtot,int coltot); // end check
+void grid_init(grid a[][N],int bombs); //initialize grid
+int num_bombs(); //calculate bomb's number
+void cascadeuncover(grid a[][N],int i,int k,int row,int col,int horiz_space,int vert_space); //uncover until there are 0-bombs-cell
+int checknear(grid a[][N],int i,int k); //check number of bombs nearby
+int win_check(grid a[][N]); //check if we won
+void victory_check(grid a[][N],int victory,int rowtot,int coltot); //final check
 
 int main()
 {	
 	int bombs,i,k,row,col,rowtot,coltot,victory=1;
 	grid a[N][N];
 	char exitmsg[]="Leaving...bye! See you later :)";
+	int horiz_space,vert_space; //scaled values to fit terminal size
+	
 	srand(time(NULL));
 	
   bombs=num_bombs();
@@ -40,20 +42,20 @@ int main()
 	keypad(stdscr, TRUE);	
 	getmaxyx(stdscr,rowtot,coltot); 	
 //check terminal size
-	if((rowtot<(N-1)*2+3+1)||(coltot<(N-1)*8+5)){
+	if((rowtot<N+4)||(coltot<N)){
 		clear();
 		endwin();
-		printf("This screen has %d rows and %d columns. Try to enlarge it.\nYou need at least %d rows and %d columns.\n", rowtot, coltot, (N-1)*2+3+1, (N-1)*8+5);
+		printf("This screen has %d rows and %d columns. Try to enlarge it.\nYou need at least %d rows and %d columns.\n", rowtot, coltot, N+4, N);
 		return 1;
 	}
+	vert_space=(rowtot-4)/(N-1); //-4 to leave vertical space to the 3 helper lines below.
+	horiz_space=coltot/(N-1);
 //print grid centered	
-	row=(rowtot-(N-1)*2-4)/2;   //-4 to leave vertical space to the 3 helper lines below.
-	col=(coltot-(N-1)*8)/2;
+	row=(rowtot-4-(N-1)*vert_space)/2;   //-4 to leave vertical space to the 3 helper lines below.
+	col=(coltot-(N-1)*horiz_space)/2;
 	for(i=0;i<N;i++){
-		for(k=0;k<N;k++){
-			move(row+i*2,col+k*8);
-			printw("%c", a[i][k].sign);
-		}		
+		for(k=0;k<N;k++)
+			mvprintw(row+i*vert_space,col+k*horiz_space,"%c",a[i][k].sign);	
 	}
 			
 	mvprintw(rowtot-1,1,"Enter to put a bomb (*). Space to uncover.\n");
@@ -62,7 +64,7 @@ int main()
 	i=0;
 	k=0;	
 	while((victory)&&(bombs>0)){
-		move(row+i*2,col+k*8);
+		move(row+i*vert_space,col+k*horiz_space);
 		refresh();
 		switch(getch())
 		{	
@@ -87,7 +89,7 @@ int main()
 					if(a[i][k].nearby==-1)
 						victory=0;
 					else
-						cascadeuncover(a,i,k,row,col);					
+						cascadeuncover(a,i,k,row,col,horiz_space,vert_space);					
 				}
 				break;
 			case 10: //Enter to  identify a bomb
@@ -120,7 +122,7 @@ int main()
 
 void grid_init(grid a[][N],int bombs){
 	int i,k,row,col;
-	//initialize grid
+//initialize grid
 	for(i=0;i<N;i++){
 		for(k=0;k<N;k++){
 			a[i][k].sign='-';
@@ -167,16 +169,15 @@ int num_bombs(){
 	return bombs;
 }
 
-void cascadeuncover(grid a[][N],int i,int k,int row,int col){
+void cascadeuncover(grid a[][N],int i,int k,int row,int col,int horiz_space,int vert_space){
 	if(((i>=0)&&(i<N)&&(k>=0)&&(k<N))&&(a[i][k].sign=='-')){					
 		a[i][k].sign='0'+a[i][k].nearby;
-		move(row+i*2,col+k*8);
+		move(row+i*vert_space,col+k*horiz_space);
 		if(a[i][k].nearby!=0){
 			if(a[i][k].nearby>=4)
 				attron(COLOR_PAIR(1));
-			else{ 
+			else
 				attron(COLOR_PAIR(a[i][k].nearby+3));
-			}
 			printw("%c",a[i][k].sign);
 			attroff(COLOR_PAIR);
 		}else{				
@@ -185,14 +186,14 @@ void cascadeuncover(grid a[][N],int i,int k,int row,int col){
 			printw("%c", a[i][k].sign);
 			attroff(COLOR_PAIR);
 			attroff(A_BOLD);			
-			cascadeuncover(a,i,k+1,row,col);
-			cascadeuncover(a,i,k-1,row,col);
-			cascadeuncover(a,i+1,k,row,col);
-			cascadeuncover(a,i-1,k,row,col);
-			cascadeuncover(a,i-1,k+1,row,col);
-			cascadeuncover(a,i-1,k-1,row,col);
-			cascadeuncover(a,i+1,k+1,row,col);
-			cascadeuncover(a,i+1,k-1,row,col);
+			cascadeuncover(a,i,k+1,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i,k-1,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i+1,k,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i-1,k,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i-1,k+1,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i-1,k-1,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i+1,k+1,row,col,horiz_space,vert_space);
+			cascadeuncover(a,i+1,k-1,row,col,horiz_space,vert_space);
 		}
 	}
 	return;			

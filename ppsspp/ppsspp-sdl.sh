@@ -1,3 +1,3 @@
 #!/bin/sh
 cd /usr/share/ppsspp
-exec PPSSPPSDL $@
+exec ./PPSSPPSDL $@

@@ -1,6 +1,6 @@
 # Maintainer: Jon Gjengset <jon@thesquareplanet.com>
 pkgname=cryptsetup-gui
-pkgver=0.6
+pkgver=0.6.1
 pkgrel=1
 epoch=
 pkgdesc="Simple GUI for unlocking LUKS encrypted devices"
@@ -16,7 +16,7 @@ install=$pkgname.install
 changelog=
 source=("http://csg.thesquareplanet.com/release/$pkgname-$pkgver.tar.gz")
 noextract=()
-md5sums=('27a3d86d04fab3f9152f0187c28c972e')
+md5sums=('a3b0058d6c0439b99b6e435ef61977f0')
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
