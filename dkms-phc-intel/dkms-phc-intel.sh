@@ -4,8 +4,9 @@ case "$1" in
   start)
   ;;
   stop)
-    version="$(\ls -d /usr/src/linux-*-ARCH | tail -n 1)"
-    dkms autoinstall -k "${version#*/linux-}"
+    version="$(\ls -dt /usr/lib/modules/extramodules-* | head -n 1)"
+    version="$(< $version/version)"
+    dkms autoinstall -k "${version}"
   ;;
   *)
     echo "usage: $0 {start|stop}" >&2

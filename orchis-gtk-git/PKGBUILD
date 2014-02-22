@@ -28,6 +28,6 @@ package() {
   # install theme
   cd $srcdir/orchis-gtk-theme/Orchis
   cp -r . "$pkgdir"/usr/share/themes/Orchis/
-  cd $srcdir/moka-gtk-theme/Orchis-Dark
+  cd $srcdir/orchis-gtk-theme/Orchis-Dark
   cp -r . "$pkgdir"/usr/share/themes/Orchis-Dark/
 }
