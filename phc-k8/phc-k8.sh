@@ -1,18 +1,6 @@
 #!/bin/bash -e
 shopt -s nullglob
 
-if [ "$1" = set ]; then
-	. /etc/default/phc-k8
-	[ -n "$VIDS" ] || exit
-	for i in $(< /proc/cmdline); do
-		[ $i = nophc ] && exit
-	done
-	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
-		echo $VIDS > "$i"
-	done
-	exit
-fi
-
 case "$1" in
 start)
 	. /etc/default/phc-k8
@@ -45,11 +33,11 @@ status)
 	echo -n 'PHC status: '
 	. /etc/default/phc-k8
 	if check_off; then
-		echo 'STOPPED'
+		echo 'inactive'
 	elif check_on; then
-		echo 'STARTED'
+		echo 'active'
 	else
-		echo 'UNKNOWN'
+		echo 'unknown'
 	fi
 	;;
 setup)
@@ -76,6 +64,17 @@ setup)
 	echo ':: Cleaning up'
 	echo
 	make clean
+	;;
+set)
+	. /etc/default/phc-k8
+	[ -z "$VIDS" ] && exit
+	for i in $(< /proc/cmdline); do
+		[ $i = nophc ] && exit
+	done
+	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
+		echo $VIDS > "$i"
+	done
+	exit
 	;;
 *)
 	echo "usage: $0 {start|stop|status|setup|set}"

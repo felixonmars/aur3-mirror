@@ -58,7 +58,7 @@ pkgname=linux-lts-ck
 true && pkgname=(linux-lts-ck linux-lts-ck-headers)
 _kernelname=-lts-ck
 _srcname=linux-3.10
-pkgver=3.10.31
+pkgver=3.10.32
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://wiki.archlinux.org/index.php/Linux-ck"
@@ -82,7 +82,7 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 		"${_bfqpath}/0002-block-introduce-the-BFQ-v7r2-I-O-sched-for-3.10.8+.patch"
 		"${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7r2-for-3.10.8+.patch")
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
-            '023b90afa04edf1da927d11d90cccf042a19e1dd4abd41815d840a17d48bc895'
+            'e05a8b9bbd475a3b85b893b447109aa5a4af3c981d4fb4e500e25e20cae9286a'
             '747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
             'd5fd60f5fae0813eb398b3eac410ce65b8b958360300aa66e1597dc16e9dfe78'
             'd7fada52453d12a24af9634024c36792697f97ce0bc6552939cd7b2344d00cd9'
