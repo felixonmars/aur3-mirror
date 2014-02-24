@@ -7,24 +7,18 @@
 # remain until the packages are removed. "1" to enable.
 _lib32=0
 
-# Use Pacman's versions instead of the binaries'. Should only be used in case of long version numbers
-# (e.g. those with git-suffixes), as it takes a bit longer, due to needing to search the local repository.
-# "1" to enable.
-_pacman=0
-
 pkgname=nvidia-full-beta-all
 pkgname+=('nvidia-utils-full-beta' 'nvidia-libgl-full-beta' 'opencl-nvidia-full-beta')
 pkgver=334.16
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 url="http://www.nvidia.com/"
 license=('custom:NVIDIA')
 options=('!strip')
 
-if [ "${CARCH}" = 'i686' ]; then
-    _arch='x86'
-    _pkg="NVIDIA-Linux-${_arch}-${pkgver}"
-elif [ "${CARCH}" = 'x86_64' ]; then
+_arch='x86'
+_pkg="NVIDIA-Linux-${_arch}-${pkgver}"
+if [ "${CARCH}" = 'x86_64' ]; then
     _arch='x86_64'
     _pkg="NVIDIA-Linux-${_arch}-${pkgver}-no-compat32"
 
@@ -45,23 +39,18 @@ md5sums=(`curl -s ${source}.md5 | cut -d " " -f1` # ${_pkg}.run
          '9761c3f33c47f4ce29d31d6fbaba7559'       # nvidia-linux-3.13.patch
          '4b30d667e50f963f7cd2a118ffe17523')      # nvidia-linux-3.14.patch
 
-# Source for the kernel release
-if [ ${_pacman} = 0 ]; then
-    _KERNELS=$(file -rk /boot/* | grep 'Linux kernel.*boot executable' | sed 's/.*version \([^ ]\+\).*/\1/')
-    sed 's/_pacman=1/_pacman=0/' -i "${startdir}/${pkgname}.install"
-else
-    _packages=$(pacman -Qsq linux)
-    _KERNELS=$(pacman -Ql ${_packages} | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g')
-    sed 's/_pacman=0/_pacman=1/' -i "${startdir}/${pkgname}.install"
-fi
+_create_links() {
+    # create missing soname links
+    for _lib in $(find "${pkgdir}" -name '*.so*'); do
+        # Get the soname name
+        _soname=$(dirname ${_lib})/$(readelf -d ${_lib} | grep SONAME | cut -d "[" -f2 | tr -d "]")
 
-create_links() {
-    # create soname links
-    while read -d '' _lib; do
-        _soname="$(dirname "${_lib}")/$(LC_ALL=C readelf -d "${_lib}" | sed -nr 's/.*Library soname: \[(.*)\].*/\1/p')"
-        [[ -e "${_soname}" ]] || ln -sf "$(basename "${_lib}")" "${_soname}"
-        [[ -e "${_soname/.[0-9]*/}" ]] || ln -sf "$(basename "${_soname}")" "${_soname/.[0-9]*/}"
-    done < <(find "${pkgdir}" -type f -name '*.so*' -print0)
+        # Create missing links
+        if [ ! -e ${_soname} ]; then
+            ln -s $(basename ${_lib}) ${_soname}
+            ln -s $(basename ${_soname}) ${_soname/.[0-9]*/}
+        fi
+    done
 }
 
 prepare() {
@@ -73,32 +62,36 @@ prepare() {
     # Extract
     msg2 "Self-Extracting ${_pkg}.run.."
     sh ${_pkg}.run --extract-only
+
     cd ${_pkg}
-    
-    # Loop through all detected kernels
-    for _kernver in ${_KERNELS}; do
-        cp -r kernel "kernel-${_kernver}"
+
+    # Use separate source directories
+    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+        _kernel=$(cat ${_extramod}/version)
+        cp -r kernel kernel-${_kernel}
     done
 }
 
 build() {
-    # Build module(s) by looping through all detected kernels
-    for _kernver in ${_KERNELS}; do
-        msg "Building module for ${_kernver}..."
-        cd "${srcdir}/${_pkg}/kernel-${_kernver}"
+    # Build for all kernels
+    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+        _kernel=$(cat ${_extramod}/version)
+
+        msg "Building module for ${_kernel}..."
+        cd "${srcdir}"/${_pkg}/kernel-${_kernel}
 
        # Patch
-       if [[ ${_kernver} = 3.13* ]]; then
+       if [[ ${_kernel} = 3.13* ]]; then
            msg2 "Updating for linux 3.13..."
-           patch -p2 -i "${srcdir}/nvidia-linux-3.13.patch"
-       elif [[ ${_kernver} = 3.14* ]]; then
+           patch -p2 -i "${srcdir}"/nvidia-linux-3.13.patch
+       elif [[ ${_kernel} = 3.14* ]]; then
            msg2 "Updating for linux 3.14..."
-           patch -p2 -i "${srcdir}/nvidia-linux-3.14.patch"
+           patch -p2 -i "${srcdir}"/nvidia-linux-3.14.patch
        fi
 
         # Build
         msg2 "Starting make module..."
-        make SYSSRC=/usr/lib/modules/"${_kernver}/build" module
+        make SYSSRC=/usr/lib/modules/${_kernel}/build module
     done
 }
 
@@ -111,11 +104,16 @@ package_opencl-nvidia-full-beta() {
     cd ${_pkg}
 
     # OpenCL
-    install -Dm644 nvidia.icd "${pkgdir}/etc/OpenCL/vendors/nvidia.icd"
-    install -Dm755 "libnvidia-compiler.so.${pkgver}" "${pkgdir}/usr/lib/libnvidia-compiler.so.${pkgver}"
-    install -Dm755 "libnvidia-opencl.so.${pkgver}" "${pkgdir}/usr/lib/libnvidia-opencl.so.${pkgver}"
+    install -Dm644 nvidia.icd "${pkgdir}"/etc/OpenCL/vendors/nvidia.icd
+    install -Dm755 libnvidia-compiler.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-compiler.so.${pkgver}
+    install -Dm755 libnvidia-opencl.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-opencl.so.${pkgver}
 
-    create_links
+    # create missing soname links
+    _create_links
+
+    # License
+    install -d "${pkgdir}"/usr/share/licenses/
+    ln -s nvidia/ "${pkgdir}"/usr/share/licenses/opencl-nvidia
 }
 
 package_nvidia-libgl-full-beta() {
@@ -126,15 +124,20 @@ package_nvidia-libgl-full-beta() {
     cd ${_pkg}
 
     # libglx
-    mkdir -p "${pkgdir}/usr/lib/xorg/modules/extensions"
-    ln -sf "/usr/lib/nvidia/xorg/modules/extensions/libglx.so.${pkgver}" "${pkgdir}/usr/lib/xorg/modules/extensions/libglx.so.${pkgver}"
-    ln -sf "libglx.so.${pkgver}" "${pkgdir}/usr/lib/xorg/modules/extensions/libglx.so.1"
-    ln -sf "libglx.so.${pkgver}" "${pkgdir}/usr/lib/xorg/modules/extensions/libglx.so"
+    install -d "${pkgdir}"/usr/lib/xorg/modules/extensions/
+    ln -s /usr/lib/nvidia/xorg/modules/extensions/libglx.so.${pkgver} \
+          "${pkgdir}"/usr/lib/xorg/modules/extensions/libglx.so.${pkgver}
+    ln -s libglx.so.${pkgver} "${pkgdir}"/usr/lib/xorg/modules/extensions/libglx.so.1
+    ln -s libglx.so.${pkgver} "${pkgdir}"/usr/lib/xorg/modules/extensions/libglx.so
 
     # libGL
-    ln -sf "/usr/lib/nvidia/libGL.so.${pkgver}" "${pkgdir}/usr/lib/libGL.so.${pkgver}"
-    ln -sf "libGL.so.${pkgver}" "${pkgdir}/usr/lib/libGL.so.1"
-    ln -sf "libGL.so.${pkgver}" "${pkgdir}/usr/lib/libGL.so"
+    ln -s /usr/lib/nvidia/libGL.so.${pkgver} "${pkgdir}"/usr/lib/libGL.so.${pkgver}
+    ln -s libGL.so.${pkgver} "${pkgdir}"/usr/lib/libGL.so.1
+    ln -s libGL.so.${pkgver} "${pkgdir}"/usr/lib/libGL.so
+
+    # License
+    install -d "${pkgdir}"/usr/share/licenses/
+    ln -s nvidia/ "${pkgdir}"/usr/share/licenses/nvidia-libgl
 }
 
 package_nvidia-utils-full-beta() {
@@ -145,59 +148,82 @@ package_nvidia-utils-full-beta() {
                 'opencl-nvidia-full-beta: OpenCL support')
     conflicts=('nvidia-utils')
     provides=("nvidia-utils=${pkgver}")
+    install=${pkgname}.install
     cd ${_pkg}
 
     # X driver
-    install -Dm755 nvidia_drv.so "${pkgdir}/usr/lib/xorg/modules/drivers/nvidia_drv.so"
+    install -Dm755 nvidia_drv.so "${pkgdir}"/usr/lib/xorg/modules/drivers/nvidia_drv.so
     # GLX extension module for X
-    install -Dm755 "libglx.so.${pkgver}" "${pkgdir}/usr/lib/nvidia/xorg/modules/extensions/libglx.so.${pkgver}"
-    ln -sf "libglx.so.${pkgver}" "${pkgdir}/usr/lib/nvidia/xorg/modules/extensions/libglx.so"    # X doesn't find glx otherwise
+    install -Dm755 libglx.so.${pkgver} "${pkgdir}"/usr/lib/nvidia/xorg/modules/extensions/libglx.so.${pkgver}
+    ln -s libglx.so.${pkgver} "${pkgdir}"/usr/lib/nvidia/xorg/modules/extensions/libglx.so
     # OpenGL library
-    install -Dm755 "libGL.so.${pkgver}" "${pkgdir}/usr/lib/nvidia/libGL.so.${pkgver}"
+    install -Dm755 libGL.so.${pkgver} "${pkgdir}"/usr/lib/nvidia/libGL.so.${pkgver}
     # OpenGL core library
-    install -Dm755 "libnvidia-glcore.so.${pkgver}" "${pkgdir}/usr/lib/libnvidia-glcore.so.${pkgver}"
+    install -Dm755 libnvidia-glcore.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-glcore.so.${pkgver}
+    # EGL component (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 libnvidia-eglcore.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-eglcore.so.${pkgver}
+    # OpenGL ES component (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 libnvidia-glsi.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-glsi.so.${pkgver}
     # VDPAU
-    install -Dm755 "libvdpau_nvidia.so.${pkgver}" "${pkgdir}/usr/lib/vdpau/libvdpau_nvidia.so.${pkgver}"
+    install -Dm755 libvdpau_nvidia.so.${pkgver} "${pkgdir}"/usr/lib/vdpau/libvdpau_nvidia.so.${pkgver}
+    # Video encoding (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 libnvidia-encode.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-encode.so.${pkgver}
     # nvidia-tls library
-    install -Dm755 "tls/libnvidia-tls.so.${pkgver}" "${pkgdir}/usr/lib/libnvidia-tls.so.${pkgver}"
-    install -Dm755 "libnvidia-cfg.so.${pkgver}" "${pkgdir}/usr/lib/libnvidia-cfg.so.${pkgver}"
-
+    install -Dm755 tls/libnvidia-tls.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-tls.so.${pkgver}
+    install -Dm755 libnvidia-cfg.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-cfg.so.${pkgver}
     # NVML
-    install -Dm755 "libnvidia-ml.so.${pkgver}" "${pkgdir}/usr/lib/libnvidia-ml.so.${pkgver}"
+    install -Dm755 libnvidia-ml.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-ml.so.${pkgver}
     # CUDA
-    install -Dm755 "libcuda.so.${pkgver}" "${pkgdir}/usr/lib/libcuda.so.${pkgver}"
-    install -Dm755 "libnvcuvid.so.${pkgver}" "${pkgdir}/usr/lib/libnvcuvid.so.${pkgver}"
-    #install -Dm755 nvidia-cuda-proxy-server "${pkgdir}/usr/bin/nvidia-cuda-proxy-server"
-    #install -Dm644 nvidia-cuda-proxy-control.1.gz "${pkgdir}/usr/share/man/man1/nvidia-cuda-proxy-control.1.gz"
-    # DEBUG
-    install -Dm755 nvidia-debugdump "${pkgdir}/usr/bin/nvidia-debugdump"
+    install -Dm755 libcuda.so.${pkgver} "${pkgdir}"/usr/lib/libcuda.so.${pkgver}
+    install -Dm755 libnvcuvid.so.${pkgver} "${pkgdir}"/usr/lib/libnvcuvid.so.${pkgver}
+    install -Dm755 nvidia-cuda-mps-server "${pkgdir}"/usr/bin/nvidia-cuda-mps-server
+    install -Dm644 nvidia-cuda-mps-control.1.gz "${pkgdir}"/usr/share/man/man1/nvidia-cuda-mps-control.1.gz
+    # Helper libs for approved partners' GRID remote apps (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 libnvidia-ifr.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-ifr.so.${pkgver}
+    install -Dm755 libnvidia-fbc.so.${pkgver} "${pkgdir}"/usr/lib/libnvidia-fbc.so.${pkgver}
+
+    # Debug
+    install -Dm755 nvidia-debugdump "${pkgdir}"/usr/bin/nvidia-debugdump
     # nvidia-xconfig
-    install -Dm755 nvidia-xconfig "${pkgdir}/usr/bin/nvidia-xconfig"
-    install -Dm644 nvidia-xconfig.1.gz "${pkgdir}/usr/share/man/man1/nvidia-xconfig.1.gz"
+    install -Dm755 nvidia-xconfig "${pkgdir}"/usr/bin/nvidia-xconfig
+    install -Dm644 nvidia-xconfig.1.gz "${pkgdir}"/usr/share/man/man1/nvidia-xconfig.1.gz
     # nvidia-settings
-    install -Dm755 nvidia-settings "${pkgdir}/usr/bin/nvidia-settings"
-    install -Dm644 nvidia-settings.1.gz "${pkgdir}/usr/share/man/man1/nvidia-settings.1.gz"
-    install -Dm644 nvidia-settings.desktop "${pkgdir}/usr/share/applications/nvidia-settings.desktop"
-    install -Dm644 nvidia-settings.png "${pkgdir}/usr/share/pixmaps/nvidia-settings.png"
-    sed -e 's:__UTILS_PATH__:/usr/bin:' -e 's:__PIXMAP_PATH__:/usr/share/pixmaps:' -i "${pkgdir}/usr/share/applications/nvidia-settings.desktop"
+    install -Dm755 nvidia-settings "${pkgdir}"/usr/bin/nvidia-settings
+    install -Dm644 nvidia-settings.1.gz "${pkgdir}"/usr/share/man/man1/nvidia-settings.1.gz
+    install -Dm644 nvidia-settings.desktop "${pkgdir}"/usr/share/applications/nvidia-settings.desktop
+    install -Dm644 nvidia-settings.png "${pkgdir}"/usr/share/pixmaps/nvidia-settings.png
+    sed -e 's:__UTILS_PATH__:/usr/bin:' -e 's:__PIXMAP_PATH__:/usr/share/pixmaps:' \
+        -i "${pkgdir}"/usr/share/applications/nvidia-settings.desktop
     # nvidia-bug-report
-    install -Dm755 nvidia-bug-report.sh "${pkgdir}/usr/bin/nvidia-bug-report.sh"
+    install -Dm755 nvidia-bug-report.sh "${pkgdir}"/usr/bin/nvidia-bug-report.sh
     # nvidia-smi
-    install -Dm755 nvidia-smi "${pkgdir}/usr/bin/nvidia-smi"
-    install -Dm644 nvidia-smi.1.gz "${pkgdir}/usr/share/man/man1/nvidia-smi.1.gz"
+    install -Dm755 nvidia-smi "${pkgdir}"/usr/bin/nvidia-smi
+    install -Dm644 nvidia-smi.1.gz "${pkgdir}"/usr/share/man/man1/nvidia-smi.1.gz
+    # vendor profiles (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm644 nvidia-application-profiles-${pkgver}-rc \
+                   "${pkgdir}"/usr/share/nvidia/nvidia-application-profiles-${pkgver}-rc
 
     # Licenses
-    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/nvidia/LICENSE"
-    ln -sf nvidia "${pkgdir}/usr/share/licenses/nvidia-utils"
+    install -Dm644 LICENSE "${pkgdir}"/usr/share/licenses/nvidia/LICENSE
+    ln -s nvidia/ "${pkgdir}"/usr/share/licenses/nvidia-utils
     # Documentation
-    install -Dm644 README.txt "${pkgdir}/usr/share/doc/nvidia/README"
-    install -Dm644 NVIDIA_Changelog "${pkgdir}/usr/share/doc/nvidia/NVIDIA_Changelog"
-    ln -sf nvidia "${pkgdir}/usr/share/doc/nvidia-utils"
+    install -Dm644 README.txt "${pkgdir}"/usr/share/doc/nvidia/README
+    install -Dm644 NVIDIA_Changelog "${pkgdir}"/usr/share/doc/nvidia/NVIDIA_Changelog
+    ln -s nvidia/ "${pkgdir}"/usr/share/doc/nvidia-utils
 
-    create_links
+    # create missing soname links
+    _create_links
+
+    # The following EGL/OpenGL ES libs require conflicting links with mesa, so handle these in .install
+    # See: FS#38604 (https://bugs.archlinux.org/task/38604)
+    # EGL component
+    install -Dm755 libEGL.so.${pkgver} "${pkgdir}"/usr/lib/libEGL.so.${pkgver}
+    # OpenGL ES component
+    install -Dm755 libGLESv1_CM.so.${pkgver} "${pkgdir}"/usr/lib/libGLESv1_CM.so.${pkgver}
+    install -Dm755 libGLESv2.so.${pkgver} "${pkgdir}"/usr/lib/libGLESv2.so.${pkgver}
 
     # Disable logo splash
-    install -Dm644 "${srcdir}/20-nvidia.conf" "${pkgdir}/etc/X11/xorg.conf.d/20-nvidia.conf"
+    install -Dm644 "${srcdir}"/20-nvidia.conf "${pkgdir}"/etc/X11/xorg.conf.d/20-nvidia.conf
 }
 
 package_nvidia-full-beta-all() {
@@ -207,24 +233,21 @@ package_nvidia-full-beta-all() {
     conflicts=('nvidia-96xx' 'nvidia-173xx' 'nvidia')
     provides=('nvidia')
     install=${pkgname}.install
-    _EXTRAMODULES=$(find /usr/lib/modules -name version | sed 's|\/usr\/lib\/modules\/||; s|\/version||')
 
-    # Install module(s) by looping through all detected kernels
-    for _kernver in ${_KERNELS}; do
-        # Loop through all detected extramodules directories
-        for _moduledirs in ${_EXTRAMODULES}; do
-            # Check which extramodules directory corresponds with the built module
-            if [ $(cat "/usr/lib/modules/${_moduledirs}/version") = "${_kernver}" ]; then
-                install -Dm644 "${srcdir}/${_pkg}/kernel-${_kernver}/nvidia.ko" \
-                               "${pkgdir}/usr/lib/modules/${_moduledirs}/nvidia.ko"
-                gzip "${pkgdir}/usr/lib/modules/${_moduledirs}/nvidia.ko"
-            fi
-        done
+    # Install for all kernels
+    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+        _kernel=$(cat ${_extramod}/version)
+
+        # Install
+        install -Dm644 ${_pkg}/kernel-${_kernel}/nvidia.ko "${pkgdir}"/${_extramod}/nvidia.ko
+
+        # Compress
+        gzip -9 "${pkgdir}"/${_extramod}/nvidia.ko
     done
 
     # Blacklist Nouveau
-    install -d "${pkgdir}/usr/lib/modprobe.d"
-    echo "blacklist nouveau" >> "${pkgdir}/usr/lib/modprobe.d/nvidia.conf"
+    install -d "${pkgdir}"/usr/lib/modprobe.d/
+    echo "blacklist nouveau" >> "${pkgdir}"/usr/lib/modprobe.d/nvidia.conf
 }
 
 package_lib32-opencl-nvidia-full-beta() {
@@ -236,13 +259,17 @@ package_lib32-opencl-nvidia-full-beta() {
     cd ${_pkg}
 
     # OpenCL
-    install -Dm755 "32/libnvidia-compiler.so.${pkgver}" "${pkgdir}/usr/lib32/libnvidia-compiler.so.${pkgver}"
-    ln -sf "libnvidia-compiler.so.${pkgver}" "${pkgdir}/usr/lib32/libnvidia-compiler.so.1"
-    ln -sf "libnvidia-compiler.so.${pkgver}" "${pkgdir}/usr/lib32/libnvidia-compiler.so"
+    install -Dm755 32/libnvidia-compiler.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-compiler.so.${pkgver}
+    ln -s libnvidia-compiler.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-compiler.so.1
+    ln -s libnvidia-compiler.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-compiler.so
 
-    install -Dm755 "32/libnvidia-opencl.so.${pkgver}" "${pkgdir}/usr/lib32/libnvidia-opencl.so.${pkgver}"
-    ln -sf "libnvidia-opencl.so.${pkgver}" "${pkgdir}/usr/lib32/libnvidia-opencl.so.1"
-    ln -sf "libnvidia-opencl.so.${pkgver}" "${pkgdir}/usr/lib32/libnvidia-opencl.so"
+    install -Dm755 32/libnvidia-opencl.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-opencl.so.${pkgver}
+    ln -s libnvidia-opencl.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-opencl.so.1
+    ln -s libnvidia-opencl.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-opencl.so
+
+    # License
+    install -d "${pkgdir}"/usr/share/licenses/
+    ln -s nvidia-utils/ "${pkgdir}"/usr/share/licenses/lib32-opencl-nvidia
 }
 
 package_lib32-nvidia-libgl-full-beta() {
@@ -254,47 +281,63 @@ package_lib32-nvidia-libgl-full-beta() {
     cd ${_pkg}
 
     # libGL
-    mkdir -p "${pkgdir}/usr/lib32"
-    ln -sf "/usr/lib32/nvidia/libGL.so.${pkgver}" "${pkgdir}/usr/lib32/libGL.so.${pkgver}"
-    ln -sf "libGL.so.${pkgver}" "${pkgdir}/usr/lib32/libGL.so.1"
-    ln -sf "libGL.so.${pkgver}" "${pkgdir}/usr/lib32/libGL.so"
+    install -d "${pkgdir}"/usr/lib32/
+    ln -s /usr/lib32/nvidia/libGL.so.${pkgver} "${pkgdir}"/usr/lib32/libGL.so.${pkgver}
+    ln -s libGL.so.${pkgver} "${pkgdir}"/usr/lib32/libGL.so.1
+    ln -s libGL.so.${pkgver} "${pkgdir}"/usr/lib32/libGL.so
+
+    # License
+    install -d "${pkgdir}"/usr/share/licenses/
+    ln -s nvidia-utils/ "${pkgdir}"/usr/share/licenses/lib32-nvidia-libgl
 }
 
 package_lib32-nvidia-utils-full-beta() {
     pkgdesc="NVIDIA libraries (32-bit, beta)"
     depends=('lib32-zlib' 'lib32-gcc-libs')
-    optdepends=('lib32-opencl-nvidia-full-beta')
+    optdepends=('lib32-opencl-nvidia-full-beta: OpenCL support')
     conflicts=('lib32-nvidia-utils')
     provides=("lib32-nvidia-utils=${pkgver}")
+    install=${pkgname}.install
     cd ${_pkg}
 
     # OpenGL library
-    install -Dm755 32/libGL.so.${pkgver} "${pkgdir}/usr/lib32/nvidia/libGL.so.${pkgver}"
+    install -Dm755 32/libGL.so.${pkgver} "${pkgdir}"/usr/lib32/nvidia/libGL.so.${pkgver}
     # OpenGL core library
-    install -Dm755 32/libnvidia-glcore.so.${pkgver} "${pkgdir}/usr/lib32/libnvidia-glcore.so.${pkgver}"
+    install -Dm755 32/libnvidia-glcore.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-glcore.so.${pkgver}
+    # EGL component (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 32/libnvidia-eglcore.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-eglcore.so.${pkgver}
+    # OpenGL ES component (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 32/libnvidia-glsi.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-glsi.so.${pkgver}
     # VDPAU
-    install -Dm755 32/libvdpau_nvidia.so.${pkgver} "${pkgdir}/usr/lib32/vdpau/libvdpau_nvidia.so.${pkgver}"
-    # CUDA
-    install -Dm755 32/libcuda.so.${pkgver} "${pkgdir}/usr/lib32/libcuda.so.${pkgver}"
-    install -Dm755 32/libnvcuvid.so.${pkgver} "${pkgdir}/usr/lib32/libnvcuvid.so.${pkgver}"
+    install -Dm755 32/libvdpau_nvidia.so.${pkgver} "${pkgdir}"/usr/lib32/vdpau/libvdpau_nvidia.so.${pkgver}
+    # Video encoding (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 32/libnvidia-encode.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-encode.so.${pkgver}
     # nvidia-tls library
-    install -Dm755 32/tls/libnvidia-tls.so.${pkgver} "${pkgdir}/usr/lib32/libnvidia-tls.so.${pkgver}"
-    #install -Dm755 32/libnvidia-cfg.so.${pkgver} "${pkgdir}/usr/lib32/libnvidia-cfg.so.${pkgver}"
+    install -Dm755 32/tls/libnvidia-tls.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-tls.so.${pkgver}
     # NVML
-    install -Dm755 32/libnvidia-ml.so.${pkgver} "${pkgdir}/usr/lib32/libnvidia-ml.so.${pkgver}"
+    install -Dm755 32/libnvidia-ml.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-ml.so.${pkgver}
+    # CUDA
+    install -Dm755 32/libcuda.so.${pkgver} "${pkgdir}"/usr/lib32/libcuda.so.${pkgver}
+    install -Dm755 32/libnvcuvid.so.${pkgver} "${pkgdir}"/usr/lib32/libnvcuvid.so.${pkgver}
+    # Helper libs for approved partners' GRID remote apps (FS#38604: https://bugs.archlinux.org/task/38604)
+    install -Dm755 32/libnvidia-ifr.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-ifr.so.${pkgver}
+    #install -Dm755 32/libnvidia-fbc.so.${pkgver} "${pkgdir}"/usr/lib32/libnvidia-fbc.so.${pkgver}
 
-    # create soname links
-    for _lib in $(find "${pkgdir}" -name '*.so*'); do
-        _soname="$(dirname ${_lib})/$(LC_ALL=C readelf -d "$_lib" | sed -nr 's/.*Library soname: \[(.*)\].*/\1/p')"
-        if [ ! -e "${_soname}" ]; then
-            ln -sf "$(basename ${_lib})" "${_soname}"
-            ln -sf "$(basename ${_soname})" "${_soname/.[0-9]*/}"
-        fi
-    done
+    # create missing soname links
+    _create_links
+
+    # The following EGL/OpenGL ES libs require conflicting links with lib32-mesa, so handle these in .install
+    # See: FS#38604 (https://bugs.archlinux.org/task/38604)
+    # EGL component
+    install -Dm755 32/libEGL.so.${pkgver} "${pkgdir}"/usr/lib32/libEGL.so.${pkgver}
+    # OpenGL ES component
+    install -Dm755 32/libGLESv1_CM.so.${pkgver} "${pkgdir}"/usr/lib32/libGLESv1_CM.so.${pkgver}
+    install -Dm755 32/libGLESv2.so.${pkgver} "${pkgdir}"/usr/lib32/libGLESv2.so.${pkgver}
+
+    # License
+    install -d "${pkgdir}"/usr/share/licenses/
+    ln -s nvidia-utils/ "${pkgdir}"/usr/share/licenses/lib32-nvidia-utils
 
     # Remove redundancies
     rm -rf "${pkgdir}"/usr/{include,share,bin}
-    # License
-    mkdir -p "${pkgdir}/usr/share/licenses"
-    ln -sf nvidia-utils "${pkgdir}/usr/share/licenses/lib32-nvidia-utils"
 }

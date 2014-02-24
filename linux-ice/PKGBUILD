@@ -5,9 +5,9 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.13
-pkgver=3.13.3
+pkgver=3.13.4
 pkgrel=1
-_toipatch=tuxonice-for-linux-3.13.2-2014-02-13.patch
+_toipatch=tuxonice-for-linux-3.13.4-2014-02-22.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -27,15 +27,15 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         '0004-rpc_pipe-remove-the-clntXX-dir-if-creating-the-pipe-.patch'
         '0005-sunrpc-add-an-info-file-for-the-dummy-gssd-pipe.patch'
         '0006-rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-no.patch'
+        '0001-SUNRPC-Ensure-that-gss_auth-isn-t-freed-before-its-u.patch'
         '0001-syscalls.h-use-gcc-alias-instead-of-assembler-aliase.patch'
         '0001-quirk-asm_volatile_goto.patch'
-        'tuxonice-sources-3.13.2-build.patch'
         'i8042-fix-aliases.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 md5sums=('0ecbaf65c00374eb4a826c2f9f37606f'
-         '2d3d298f2b430122f4baf2af88277231'
+         '77ca721ea0e8373f58f596fe0d9b1b47'
          'f766e5dfb405359215b5adb2b2da5f4e'
          'ca3c4d253a31bc3edea12c857d3be743'
          'eb14dcfd80c00852ef81ded6e826826a'
@@ -47,11 +47,11 @@ md5sums=('0ecbaf65c00374eb4a826c2f9f37606f'
          '10dbaf863e22b2437e68f9190d65c861'
          'd5907a721b97299f0685c583499f7820'
          'a724515b350b29c53f20e631c6cf9a14'
+         '1ae4ec847f41fa1b6d488f956e94c893'
          'e6fa278c092ad83780e2dd0568e24ca6'
          '6baa312bc166681f48e972824f3f6649'
-         'd10aff47ea340d6d67e72aa4e731a83d'
          '47fc9cc705752f1f16db23383504e194'
-         '0c6f735ad99dfd96a23301c445dff840')
+         '1077c5a6793dd198c5e42b5ab15e1032')
 
 _kernelname=${pkgbase#linux}
 
@@ -72,7 +72,7 @@ prepare() {
   # allow Checkpoint/restore (for criu) without EXPERT=y
   patch -p1 -i "${srcdir}/criu-no-expert.patch"
 
-  # fix 15 seocnds nfs delay
+  # fix 15 seconds nfs delay
   # http://git.linux-nfs.org/?p=trondmy/linux-nfs.git;a=commitdiff;h=4b9a445e3eeb8bd9278b1ae51c1b3a651e370cd6
   patch -p1 -i "${srcdir}/0001-sunrpc-create-a-new-dummy-pipe-for-gssd-to-hold-open.patch"
   # http://git.linux-nfs.org/?p=trondmy/linux-nfs.git;a=commitdiff;h=89f842435c630f8426f414e6030bc2ffea0d6f81
@@ -88,6 +88,10 @@ prepare() {
   # http://git.linux-nfs.org/?p=trondmy/linux-nfs.git;a=commitdiff;h=23e66ba97127ff3b064d4c6c5138aa34eafc492f
   patch -p1 -i "${srcdir}/0006-rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-no.patch"
 
+  # Fix FS#38921
+  # http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=9eb2ddb48ce3a7bd745c14a933112994647fa3cd
+  patch -p1 -i "${srcdir}/0001-SUNRPC-Ensure-that-gss_auth-isn-t-freed-before-its-u.patch"
+
   # Fix symbols: Revert http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=83460ec8dcac14142e7860a01fa59c267ac4657c
   patch -Rp1 -i "${srcdir}/0001-syscalls.h-use-gcc-alias-instead-of-assembler-aliase.patch"
 
@@ -100,10 +104,6 @@ prepare() {
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
-
-  # tuxonice build patch
-  # http://bugzilla.tuxonice.net/show_bug.cgi?id=489
-  patch -p0 -i "${srcdir}/tuxonice-sources-3.13.2-build.patch"
 
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config

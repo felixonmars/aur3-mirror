@@ -1,7 +1,7 @@
 # Maintainer: chliny <chliny11 at gmail dot com>
 
 pkgname=neobundle-git
-pkgver=2.1.414.g0824ec9
+pkgver=2.1.484.g39bcbb2
 pkgrel=1
 pkgdesc="Ultimate Vim plugin manager inspired by Vundle"
 arch=('any')

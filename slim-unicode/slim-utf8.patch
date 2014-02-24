@@ -1,43 +1,43 @@
 diff -U 3 -b -B -d -r -- a/const.h b/const.h
---- a/const.h	2013-10-30 19:01:38.023100334 +0100
-+++ b/const.h	2013-10-30 19:01:45.129766742 +0100
+--- a/const.h	2013-10-02 00:38:05.000000000 +0200
++++ b/const.h	2014-02-23 17:30:27.297796331 +0100
 @@ -24,9 +24,6 @@
  #define HIDE		0
  #define SHOW		1
-
+ 
 -#define GET_NAME	0
 -#define GET_PASSWD  1
 -
  #define OK_EXIT	 0
  #define ERR_EXIT	1
-
+ 
 diff -U 3 -b -B -d -r -- a/main.cpp b/main.cpp
---- a/main.cpp	2013-10-30 19:01:38.023100334 +0100
-+++ b/main.cpp	2013-10-30 19:01:45.133100073 +0100
+--- a/main.cpp	2013-10-02 00:38:05.000000000 +0200
++++ b/main.cpp	2014-02-23 17:33:57.891121965 +0100
 @@ -16,6 +16,8 @@
-
+ 
  int main(int argc, char** argv)
  {
-+    // We need to set the locale to use the iconv conversion function
++    // We need to set the locale to get the input encoded in UTF-8
 +    setlocale (LC_ALL, "");
  	LoginApp = new App(argc, argv);
  	LoginApp->Run();
  	return 0;
 diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
---- a/panel.cpp	2013-10-30 19:01:38.023100334 +0100
-+++ b/panel.cpp	2013-10-30 19:01:45.133100073 +0100
+--- a/panel.cpp	2013-10-02 00:38:05.000000000 +0200
++++ b/panel.cpp	2014-02-23 17:30:27.297796331 +0100
 @@ -13,6 +13,7 @@
  #include <poll.h>
  #include <X11/extensions/Xrandr.h>
  #include "panel.h"
 +#include "util.h"
-
+ 
  using namespace std;
-
+ 
 @@ -78,6 +79,15 @@
  	XftColorAllocName(Dpy, visual, colormap,
  					  cfg->getOption("session_shadow_color").c_str(), &sessionshadowcolor);
-
+ 
 +	/* Build XIC and XIM to be able to get unicode string from keyboard events */
 +	char classname = 0;
 +	displayIc = NULL;
@@ -53,7 +53,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 @@ -91,6 +101,8 @@
  		input_pass_y = input_name_y;
  	}
-
+ 
 +	Reset();
 +
  	/* Load panel and background image */
@@ -62,7 +62,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 @@ -210,6 +222,12 @@
  	Visual* visual = DefaultVisual(Dpy, Scr);
  	Colormap colormap = DefaultColormap(Dpy, Scr);
-
+ 
 +	if(displayIc) {
 +		XDestroyIC(displayIc);
 +	}
@@ -73,23 +73,23 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  	XftColorFree(Dpy, visual, colormap, &inputshadowcolor);
  	XftColorFree(Dpy, visual, colormap, &welcomecolor);
 @@ -289,7 +307,8 @@
-
+ 
  	XftDraw *draw = XftDrawCreate(Dpy, Win,
  		DefaultVisual(Dpy, Scr), DefaultColormap(Dpy, Scr));
 -		XftTextExtents8(Dpy, msgfont, reinterpret_cast<const XftChar8*>(message.c_str()),
 +
 +	XftTextExtentsUtf8(Dpy, msgfont, reinterpret_cast<const XftChar8*>(message.c_str()),
  		message.length(), &extents);
-
+ 
  	string cfgX = cfg->getOption("passwd_feedback_x");
 @@ -300,7 +319,7 @@
  	int msg_y = Cfg::absolutepos(cfgY, XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)), extents.height);
-
+ 
  	OnExpose();
 -	SlimDrawString8(draw, &msgcolor, msgfont, msg_x, msg_y, message,
 +	SlimDrawStringUtf8(draw, &msgcolor, msgfont, msg_x, msg_y, message,
  		&msgshadowcolor, shadowXOffset, shadowYOffset);
-
+ 
  	if (cfg->getOption("bell") == "1")
 @@ -312,7 +331,7 @@
  	OnExpose();
@@ -103,7 +103,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 @@ -330,9 +349,8 @@
  		draw = XftDrawCreate(Dpy, Root,
  			DefaultVisual(Dpy, Scr), DefaultColormap(Dpy, Scr));
-
+ 
 -	XftTextExtents8(Dpy, msgfont,
 -		reinterpret_cast<const XftChar8*>(text.c_str()),
 -					text.length(), &extents);
@@ -115,7 +115,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 @@ -347,9 +365,8 @@
  		msg_y = Cfg::absolutepos(cfgY, XHeightOfScreen(ScreenOfDisplay(Dpy, Scr)), extents.height);
  	}
-
+ 
 -	SlimDrawString8 (draw, &msgcolor, msgfont, msg_x, msg_y,
 -					 text,
 -					 &msgshadowcolor,
@@ -126,14 +126,14 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  	XftDrawDestroy(draw);
 @@ -383,24 +400,27 @@
  }
-
+ 
  void Panel::Cursor(int visible) {
 -	const char* text = NULL;
 -	int xx = 0, yy = 0, y2 = 0, cheight = 0;
 +	const uint16_t* text = NULL;
 +	int xx = 0, yy = 0, y2 = 0, cheight = 0, textLen = 0;
  	const char* txth = "Wj"; /* used to get cursor height */
-
+ 
  	if (mode == Mode_Lock) {
 -			text = HiddenPasswdBuffer.c_str();
 +			text = hiddenPasswdBuffer;
@@ -149,7 +149,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  				xx = input_pass_x;
  				yy = input_pass_y;
  				break;
-
+ 
  			case Get_Name:
 -				text = NameBuffer.c_str();
 +				text = nameBuffer;
@@ -164,11 +164,11 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 -	XftTextExtents8(Dpy, font, (XftChar8*)text, strlen(text), &extents);
 +	XftTextExtents16(Dpy, font, (XftChar16*)text, textLen, &extents);
  	xx += extents.width;
-
+ 
  	if(visible == SHOW) {
 @@ -478,27 +498,25 @@
  		XClearWindow(Dpy, Win);
-
+ 
  	if (input_pass_x != input_name_x || input_pass_y != input_name_y){
 -		SlimDrawString8 (draw, &inputcolor, font, input_name_x, input_name_y,
 -						 NameBuffer,
@@ -205,7 +205,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 @@ -510,35 +528,105 @@
  	ShowText();
  }
-
+ 
 -void Panel::EraseLastChar(string &formerString) {
 +int Panel::FieldEraseLastChar(const uint16_t **buf, int *len) {
 +
@@ -225,7 +225,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +			*buf = nameBuffer;
 +			*len = nameBufferLen;
  		break;
-
+ 
 -	case GET_PASSWD:
 -		if (!PasswdBuffer.empty()) {
 -			formerString=HiddenPasswdBuffer;
@@ -248,7 +248,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  	}
 +	return formerTextBufferLen;
  }
-
+ 
 +int Panel::FieldClear(const uint16_t **buf, int *len) {
 +
 +	static const uint16_t emptyBuf = 0;
@@ -319,7 +319,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +										  utf16buf, SIZE_BUFFER_KEY_PRESS);
 +		}
 +	}
-
+ 
 -	XLookupString(&event.xkey, &ascii, 1, &keysym, &compstatus);
  	switch(keysym){
  		case XK_F1:
@@ -330,7 +330,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  				/* Don't allow an empty username */
 -				if (NameBuffer.empty()) return true;
 +				if (nameBufferLen <= 0) return true;
-
+ 
 -				if (NameBuffer==CONSOLE_STR){
 +				if (Util::utf16EqualToAscii(CONSOLE_STR, nameBuffer, nameBufferLen)) {
  					action = Console;
@@ -355,7 +355,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 -			EraseLastChar(formerString);
 +			formerTextBufferLen = FieldEraseLastChar(&textBuffer, &textBufferLen);
  			break;
-
+ 
  		case XK_w:
  		case XK_u:
  			if (reinterpret_cast<XKeyEvent&>(event).state & ControlMask) {
@@ -380,7 +380,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  				break;
  			}
  			/* Deliberate fall-through */
-
+ 
  		default:
 -			if (isprint(ascii) && (keysym < XK_Shift_L || keysym > XK_Hyper_R)){
 +			if(nbReadBuf > 0) {
@@ -428,20 +428,20 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +			}
  			break;
  	};
-
+ 
 -	XGlyphInfo extents;
 -	XftDraw *draw = XftDrawCreate(Dpy, Win,
 -			  DefaultVisual(Dpy, Scr), DefaultColormap(Dpy, Scr));
 +	int xx = 0, yy = 0;
 +	if (formerTextBufferLen > 0 || textBufferLen > 0) {
-
+ 
  	switch(field) {
  		case Get_Name:
 -			text = NameBuffer;
  			xx = input_name_x;
  			yy = input_name_y;
  			break;
-
+ 
  		case Get_Passwd:
 -			text = HiddenPasswdBuffer;
  			xx = input_pass_x;
@@ -449,7 +449,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  			break;
  	}
 +	}
-
+ 
 -	if (!formerString.empty()){
 +	if (formerTextBufferLen > 0) {
 +		XGlyphInfo extents;
@@ -457,18 +457,18 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  		XftTextExtents8(Dpy, font,
  				reinterpret_cast<const XftChar8*>(txth), strlen(txth), &extents);
  		int maxHeight = extents.height;
-
+ 
 -		XftTextExtents8(Dpy, font,
 -				reinterpret_cast<const XftChar8*>(formerString.c_str()),
 -						formerString.length(), &extents);
 +		XftTextExtents16(Dpy, font, (XftChar16*)textBuffer, formerTextBufferLen, &extents);
  		int maxLength = extents.width;
-
+ 
  		if (mode == Mode_Lock)
 @@ -666,14 +754,15 @@
  				maxLength + 6, maxHeight + 6, false);
  	}
-
+ 
 -	if (!text.empty()) {
 -		SlimDrawString8 (draw, &inputcolor, font, xx, yy,
 -				 text,
@@ -482,7 +482,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +			XftDrawDestroy(draw);
 +		}
  	}
-
+ 
 -	XftDrawDestroy (draw);
  	Cursor(SHOW);
  	return true;
@@ -507,7 +507,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +						   welcome_x, welcome_y, welcome_message,
  						 &welcomeshadowcolor, shadowXOffset, shadowYOffset);
  	}
-
+ 
 @@ -710,7 +798,7 @@
  	string msg;
  	if ((!singleInputMode|| field == Get_Passwd) && mode == Mode_DM) {
@@ -526,7 +526,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  							 msg, &entershadowcolor, shadowXOffset, shadowYOffset);
  		}
  	}
-
+ 
  	if (!singleInputMode|| field == Get_Name) {
  		msg = cfg->getOption("username_msg");
 -		XftTextExtents8(Dpy, enterfont, (XftChar8*)msg.c_str(),
@@ -544,7 +544,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  		}
  	}
 @@ -776,7 +864,7 @@
-
+ 
  	XftDraw *draw = XftDrawCreate(Dpy, Root,
  								  DefaultVisual(Dpy, Scr), DefaultColormap(Dpy, Scr));
 -	XftTextExtents8(Dpy, sessionfont, reinterpret_cast<const XftChar8*>(currsession.c_str()),
@@ -555,7 +555,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 @@ -785,16 +873,37 @@
  	int shadowXOffset = cfg->getIntOption("session_shadow_xoffset");
  	int shadowYOffset = cfg->getIntOption("session_shadow_yoffset");
-
+ 
 -	SlimDrawString8(draw, &sessioncolor, sessionfont, x, y,
 -					currsession,
 -					&sessionshadowcolor,
@@ -565,7 +565,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  	XFlush(Dpy);
  	XftDrawDestroy(draw);
  }
-
+ 
 +void Panel::SlimDrawString16(XftDraw *d, XftColor *color, XftFont *font,
 +							 int x, int y, const uint16_t *str, int strLen,
 +							 XftColor* shadowColor, int xOffset, int yOffset)
@@ -576,7 +576,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +		calc_x = viewport.x;
 +		calc_y = viewport.y;
 +	}
-
+ 
 -void Panel::SlimDrawString8(XftDraw *d, XftColor *color, XftFont *font,
 +	if (xOffset && yOffset) {
 +		XftDrawString16(d, shadowColor, font,
@@ -597,13 +597,13 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  							int xOffset, int yOffset)
 @@ -831,28 +940,31 @@
  }
-
+ 
  void Panel::ResetName(void){
 -	NameBuffer.clear();
 +	nameBufferLen = 0;
 +	memset(nameBuffer, 0, sizeof(nameBuffer));
  }
-
+ 
  void Panel::ResetPasswd(void){
 -	PasswdBuffer.clear();
 -	HiddenPasswdBuffer.clear();
@@ -611,7 +611,7 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
 +	memset(passwdBuffer, 0, sizeof(passwdBuffer));
 +	memset(hiddenPasswdBuffer, 0, sizeof(hiddenPasswdBuffer));
  }
-
+ 
  void Panel::SetName(const string& name){
 -	NameBuffer=name;
 +	nameBufferLen = Util::utf8ToUtf16(name.c_str(), name.length(),
@@ -621,24 +621,24 @@ diff -U 3 -b -B -d -r -- a/panel.cpp b/panel.cpp
  	else
  		action = Lock;
  }
-
+ 
 -const string& Panel::GetName(void) const{
 -	return NameBuffer;
 +const string Panel::GetName(void) const{
 +	return Util::utf16BufToUtf8String(nameBuffer, nameBufferLen);
  }
-
+ 
 -const string& Panel::GetPasswd(void) const{
 -	return PasswdBuffer;
 +const string Panel::GetPasswd(void) const{
 +	return Util::utf16BufToUtf8String(passwdBuffer, passwdBufferLen);
  }
-
+ 
  Rectangle Panel::GetPrimaryViewport() {
 diff -U 3 -b -B -d -r -- a/panel.h b/panel.h
---- a/panel.h	2013-10-30 19:01:38.023100334 +0100
-+++ b/panel.h	2013-10-30 19:01:45.133100073 +0100
-@@ -20,9 +20,11 @@
+--- a/panel.h	2013-10-02 00:38:05.000000000 +0200
++++ b/panel.h	2014-02-23 17:32:44.154457995 +0100
+@@ -20,6 +20,7 @@
  #include <X11/Xmu/WinUtil.h>
  #include <sys/wait.h>
  #include <stdlib.h>
@@ -646,11 +646,7 @@ diff -U 3 -b -B -d -r -- a/panel.h b/panel.h
  #include <signal.h>
  #include <iostream>
  #include <string>
-+#include <iconv.h>
-
- #ifdef NEEDS_BASENAME
- #include <libgen.h>
-@@ -86,20 +88,26 @@
+@@ -86,20 +87,26 @@
  	void ResetName(void);
  	void ResetPasswd(void);
  	void SetName(const std::string &name);
@@ -670,7 +666,7 @@ diff -U 3 -b -B -d -r -- a/panel.h b/panel.h
  	bool OnKeyPress(XEvent& event);
  	void ShowText();
  	void ShowSession();
-
+ 
 -	void SlimDrawString8(XftDraw *d, XftColor *color, XftFont *font,
 +	static bool isUtf16CharAllowed(uint16_t c);
 +	void SlimDrawString16(XftDraw *d, XftColor *color, XftFont *font,
@@ -681,7 +677,7 @@ diff -U 3 -b -B -d -r -- a/panel.h b/panel.h
  							int x, int y, const std::string &str,
  							XftColor *shadowColor,
  							int xOffset, int yOffset);
-@@ -136,12 +144,16 @@
+@@ -136,12 +143,16 @@
  	XftColor entershadowcolor;
  	ActionType action;
  	FieldType field;
@@ -698,15 +694,15 @@ diff -U 3 -b -B -d -r -- a/panel.h b/panel.h
 +	uint16_t passwdBuffer[INPUT_MAXLENGTH_PASSWD + 1];
 +	int passwdBufferLen;
 +	uint16_t hiddenPasswdBuffer[INPUT_MAXLENGTH_PASSWD + 1];
-
+ 
  	/* screen stuff */
  	Rectangle viewport;
 diff -U 3 -b -B -d -r -- a/switchuser.h b/switchuser.h
---- a/switchuser.h	2013-10-30 19:01:38.023100334 +0100
-+++ b/switchuser.h	2013-10-30 19:01:45.133100073 +0100
+--- a/switchuser.h	2013-10-02 00:38:05.000000000 +0200
++++ b/switchuser.h	2014-02-23 17:30:27.301129665 +0100
 @@ -32,8 +32,6 @@
  	void Login(const char* cmd, const char* mcookie);
-
+ 
  private:
 -	SwitchUser();
 -	void SetEnvironment();
@@ -714,10 +710,10 @@ diff -U 3 -b -B -d -r -- a/switchuser.h b/switchuser.h
  	void Execute(const char* cmd);
  	void SetClientAuth(const char* mcookie);
 diff -U 3 -b -B -d -r -- a/util.cpp b/util.cpp
---- a/util.cpp	2013-10-30 19:01:38.023100334 +0100
-+++ b/util.cpp	2013-10-30 19:01:45.136433405 +0100
+--- a/util.cpp	2013-10-02 00:38:05.000000000 +0200
++++ b/util.cpp	2014-02-23 17:30:27.301129665 +0100
 @@ -67,3 +67,162 @@
-
+ 
  	return pid + tm + (ts.tv_sec ^ ts.tv_nsec);
  }
 +
@@ -880,25 +876,24 @@ diff -U 3 -b -B -d -r -- a/util.cpp b/util.cpp
 +	return outStr;
 +}
 diff -U 3 -b -B -d -r -- a/util.h b/util.h
---- a/util.h	2013-10-30 19:01:38.023100334 +0100
-+++ b/util.h	2013-10-30 19:01:45.136433405 +0100
-@@ -10,6 +10,8 @@
+--- a/util.h	2013-10-02 00:38:05.000000000 +0200
++++ b/util.h	2014-02-23 17:32:32.471125088 +0100
+@@ -10,6 +10,7 @@
  #define _UTIL_H__
-
+ 
  #include <string>
 +#include <stdint.h>
-+#include <iconv.h>
-
+ 
  namespace Util {
  	bool add_mcookie(const std::string &mcookie, const char *display,
-@@ -19,6 +21,10 @@
+@@ -19,6 +20,10 @@
  	long random(void);
-
+ 
  	long makeseed(void);
 +	int utf8ToUtf16(const char *utf8, const int utf8_length,
 +					uint16_t *utf16, const int utf16_max_length);
 +	bool utf16EqualToAscii(const char *ascii, uint16_t *utf16, int utf16Len);
 +	std::string utf16BufToUtf8String(const uint16_t *utf16Buf, int utf16Len);
  }
-
+ 
  #endif /* _UTIL_H__ */

@@ -2,14 +2,8 @@
 # Contributor: Ng Oon-Ee
 # Based on nvidia-beta: https://aur.archlinux.org/packages/nvidia-beta/
 
-# Use Pacman's versions instead of the binaries'. Should only be used in case of long version numbers
-# (e.g. those with git-suffixes), as it takes a bit longer, due to needing to search the local repository.
-# "1" to enable.
-_pacman=0
-
 pkgname=nvidia-beta-all
 pkgver=334.16
-_EXTRAMODULES=$(find /usr/lib/modules -name version | sed 's|\/usr\/lib\/modules\/||; s|\/version||')
 pkgrel=1
 pkgdesc="NVIDIA drivers for all kernels (beta)"
 arch=('i686' 'x86_64')
@@ -22,10 +16,9 @@ license=('custom:NVIDIA')
 install=${pkgname}.install
 options=('!strip')
 
-if [ "${CARCH}" = 'i686' ]; then
-    _arch='x86'
-    _pkg="NVIDIA-Linux-${_arch}-${pkgver}"
-elif [ "${CARCH}" = 'x86_64' ]; then
+_arch='x86'
+_pkg="NVIDIA-Linux-${_arch}-${pkgver}"
+if [ "${CARCH}" = 'x86_64' ]; then
     _arch='x86_64'
     _pkg="NVIDIA-Linux-${_arch}-${pkgver}-no-compat32"
 fi
@@ -38,16 +31,6 @@ md5sums=(`curl -s ${source}.md5 | cut -d " " -f1` # ${_pkg}.run
          '9761c3f33c47f4ce29d31d6fbaba7559'       # nvidia-linux-3.13.patch
          '4b30d667e50f963f7cd2a118ffe17523')      # nvidia-linux-3.14.patch
 
-# Source for the kernel release
-if [ ${_pacman} = 0 ]; then
-    _KERNELS=$(file -rk /boot/* | grep 'Linux kernel.*boot executable' | sed 's/.*version \([^ ]\+\).*/\1/')
-    sed 's/_pacman=1/_pacman=0/' -i "${startdir}/${install}"
-else
-    _packages=$(pacman -Qsq linux)
-    _KERNELS=$(pacman -Ql ${_packages} | grep /modules.alias.bin | sed 's/.*\/lib\/modules\/\(.*\)\/modules.alias.bin/\1/g')
-    sed 's/_pacman=0/_pacman=1/' -i "${startdir}/${install}"
-fi
-
 prepare() {
     # Remove previous builds
     if [ -d ${_pkg} ]; then
@@ -57,50 +40,52 @@ prepare() {
     # Extract
     msg2 "Self-Extracting ${_pkg}.run.."
     sh ${_pkg}.run --extract-only
+
     cd ${_pkg}
 
-    # Loop through all detected kernels
-    for _kernver in ${_KERNELS}; do
-        cp -r kernel "kernel-${_kernver}"
+    # Use separate source directories
+    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+        _kernel=$(cat ${_extramod}/version)
+        cp -r kernel kernel-${_kernel}
     done
 }
 
 build() {
-    # Build module(s) by looping through all detected kernels
-    for _kernver in ${_KERNELS}; do
-        msg "Building module for ${_kernver}..."
-        cd "${srcdir}/${_pkg}/kernel-${_kernver}"
+    # Build for all kernels
+    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+        _kernel=$(cat ${_extramod}/version)
+
+        msg "Building module for ${_kernel}..."
+        cd "${srcdir}"/${_pkg}/kernel-${_kernel}
 
         # Patch
-        if [[ ${_kernver} = 3.13* ]]; then
+        if [[ ${_kernel} = 3.13* ]]; then
             msg2 "Updating for linux 3.13..."
-            patch -p2 -i "${srcdir}/nvidia-linux-3.13.patch"
-        elif [[ ${_kernver} = 3.14* ]]; then
+            patch -p2 -i "${srcdir}"/nvidia-linux-3.13.patch
+        elif [[ ${_kernel} = 3.14* ]]; then
             msg2 "Updating for linux 3.14..."
-            patch -p2 -i "${srcdir}/nvidia-linux-3.14.patch"
+            patch -p2 -i "${srcdir}"/nvidia-linux-3.14.patch
         fi
 
         # Build
         msg2 "Starting make module..."
-        make SYSSRC=/usr/lib/modules/"${_kernver}/build" module
+        make SYSSRC=/usr/lib/modules/${_kernel}/build module
     done
 }
 
 package() {
-    # Install module(s) by looping through all detected kernels
-    for _kernver in ${_KERNELS}; do
-        # Loop through all detected extramodules directories
-        for _moduledirs in ${_EXTRAMODULES}; do
-            # Check which extramodules directory corresponds with the built module
-            if [ $(cat "/usr/lib/modules/${_moduledirs}/version") = "${_kernver}" ]; then
-                install -Dm644 "${srcdir}/${_pkg}/kernel-${_kernver}/nvidia.ko" \
-                               "${pkgdir}/usr/lib/modules/${_moduledirs}/nvidia.ko"
-                gzip "${pkgdir}/usr/lib/modules/${_moduledirs}/nvidia.ko"
-            fi
-        done
+    # Install for all kernels
+    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+        _kernel=$(cat ${_extramod}/version)
+
+        # Install
+        install -Dm644 ${_pkg}/kernel-${_kernel}/nvidia.ko "${pkgdir}"/${_extramod}/nvidia.ko
+
+        # Compress
+        gzip -9 "${pkgdir}"/${_extramod}/nvidia.ko
     done
 
     # Blacklist Nouveau
-    install -d "${pkgdir}/usr/lib/modprobe.d"
-    echo "blacklist nouveau" >> "${pkgdir}/usr/lib/modprobe.d/nvidia.conf"
+    install -d "${pkgdir}"/usr/lib/modprobe.d/
+    echo "blacklist nouveau" >> "${pkgdir}"/usr/lib/modprobe.d/nvidia.conf
 }
