@@ -1,0 +1,35 @@
+# $Id$
+# Maintainer: Chris Fordham <chris at fordham-nagy dot id dot au> aka flaccid
+# Contributor: Anatol Pomozov <anatol.pomozov@gmail.com>
+# Contributor: Alfredo Palhares <masterkorp@masterkorp.net>
+
+_gemname=test-kitchen
+pkgname="$_gemname"
+pkgver=1.2.1
+pkgrel=1
+pkgdesc='Test Kitchen is an integration tool for developing and testing infrastructure code and software on isolated target platforms.'
+arch=(any)
+url='http://kitchen.ci'
+license=('Apache 2.0')
+depends=(
+  ruby
+  ruby-mixlib-shellout
+  ruby-net-scp
+  ruby-net-ssh
+  ruby-safe_yaml
+  ruby-thor
+)
+conflicts=(ruby-test-kitchen)
+options=(!emptydirs)
+source=("https://rubygems.org/downloads/$_gemname-$pkgver.gem")
+noextract=("$_gemname-$pkgver.gem")
+sha1sums=('66f921c3786f5632b6cf19c277e80d8a380d6c86')
+
+package() {
+  local _gemdir="$(ruby -e'puts Gem.default_dir')"
+  gem install --ignore-dependencies --no-user-install -i "$pkgdir/$_gemdir" -n "$pkgdir/usr/bin" $_gemname-$pkgver.gem
+  rm "$pkgdir/$_gemdir/cache/$_gemname-$pkgver.gem"
+  install -D -m644 "$pkgdir/$_gemdir/gems/$_gemname-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+# vim:set ts= 2 sw=2 Et:

@@ -5,7 +5,7 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.13
-pkgver=3.13.4
+pkgver=3.13.5
 pkgrel=1
 _toipatch=tuxonice-for-linux-3.13.4-2014-02-22.patch
 arch=('i686' 'x86_64')
@@ -29,13 +29,12 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         '0006-rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-no.patch'
         '0001-SUNRPC-Ensure-that-gss_auth-isn-t-freed-before-its-u.patch'
         '0001-syscalls.h-use-gcc-alias-instead-of-assembler-aliase.patch'
-        '0001-quirk-asm_volatile_goto.patch'
         'i8042-fix-aliases.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 md5sums=('0ecbaf65c00374eb4a826c2f9f37606f'
-         '77ca721ea0e8373f58f596fe0d9b1b47'
+         '114c391a592131f1c12544e063173a45'
          'f766e5dfb405359215b5adb2b2da5f4e'
          'ca3c4d253a31bc3edea12c857d3be743'
          'eb14dcfd80c00852ef81ded6e826826a'
@@ -49,7 +48,6 @@ md5sums=('0ecbaf65c00374eb4a826c2f9f37606f'
          'a724515b350b29c53f20e631c6cf9a14'
          '1ae4ec847f41fa1b6d488f956e94c893'
          'e6fa278c092ad83780e2dd0568e24ca6'
-         '6baa312bc166681f48e972824f3f6649'
          '47fc9cc705752f1f16db23383504e194'
          '1077c5a6793dd198c5e42b5ab15e1032')
 
@@ -97,10 +95,6 @@ prepare() {
 
   # Fix i8042 aliases
   patch -p1 -i "${srcdir}/i8042-fix-aliases.patch"
-
-  # Fix compile issues
-  # http://git.kernel.org/cgit/linux/kernel/git/tip/tip.git/patch/?id=a9f180345f5378ac87d80ed0bea55ba421d83859
-  patch -Np1 -i "${srcdir}/0001-quirk-asm_volatile_goto.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"

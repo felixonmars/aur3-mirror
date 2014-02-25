@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Magarena Start Script
-# License: GPL3+
+# License: Public Domain
 
 maghome="$HOME/.magarena"
 
@@ -36,4 +36,4 @@ jardir=/usr/share/java/magarena
 CP=$CP:$jardir/magarena.jar:$jardir/lib/groovy-all-2.2.1.jar
 CP=$CP:$jardir/lib/miglayout-core-4.2.jar:$jardir/lib/miglayout-swing-4.2.jar
 
-exec "$JAVA_HOME/bin/java" -Xms256M -Xmx256M -Dmagarena.dir=$maghome -cp $CP magic.MagicMain
+exec "$JAVA_HOME/bin/java" -Xms256M -Xmx512M -Dmagarena.dir=$maghome -cp $CP magic.MagicMain
