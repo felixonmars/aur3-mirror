@@ -1,11 +1,11 @@
 # Maintainer: Christoph Glaubitz <chris at chrigl dot de>
 
 pkgname=ttf-lancelot
-pkgver=20111107
+pkgver=20140227
 pkgrel=1
 pkgdesc="Lancelot is a new ornate serif type based on French traditions. It has two sets of capitals, swash and classical. Author: Marion Kadi"
 arch=('any')
-url="http://code.google.com/p/googlefontdirectory/source/browse/lancelot/"
+url="http://www.google.com/fonts/specimen/Lancelot"
 license=('custom:OFL')
 depends=('fontconfig' 'xorg-font-utils')
 source=('http://googlefontdirectory.googlecode.com/hg-history/0bdda0f9ba3212ba2a73672b395f85f2d11e2e8a/lancelot/Lancelot-Regular.ttf'
