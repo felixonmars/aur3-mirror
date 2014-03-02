@@ -3,7 +3,7 @@
 pkgname=runner2
 pkgver=1.0
 _hibver=1388171186
-pkgrel=1
+pkgrel=2
 pkgdesc="BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien"
 url="http://www.runner2.com/"
 arch=('i686' 'x86_64')
@@ -11,20 +11,21 @@ license=('custom')
 depends=('sdl' 'libgl' 'zlib')
 DLAGENTS+=('hib::/usr/bin/echo "Could not find %u. Manually download it to \"$(pwd)\", or set up a hib:// DLAGENT in /etc/makepkg.conf."; exit 1')
 
-source=("hib://BITTrip2_linux_${_hibver}.zip")
-md5sums=('cd3308ef1a38df43702fa97029a6ecb1')
+case $CARCH in
+  i686)
+    _archive_arch='i386'
+    _archive_md5='ea105bdcd486879fb99889b87e90eed5' ;;
+  x86_64)
+    _archive_arch='amd64'
+    _archive_md5='2f7ccdb675a63a5fc152514682e97480' ;;
+esac
+_archive="runner2_${_archive_arch}_${_hibver}.tar.gz"
 
+source=("hib://${_archive}")
+md5sums=("${_archive_md5}")
 
 package()
 {
-  # untar correct embedded archive
-  mkdir -p "${pkgdir}/opt/tmp/"
-  cd "${pkgdir}/opt/tmp/"
-  
-  [ "$CARCH" = "x86_64" ] && _arch=amd64 || _arch=i386
-  tar xzf "${srcdir}/Linux/${pkgname}_$_arch.tar.gz"
-  
-  # install
   cd "${pkgname}-1.0/"
 
   # Install game files
