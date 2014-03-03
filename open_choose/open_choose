@@ -4,47 +4,76 @@ filename=$(basename "$1")
 tp=`mimetype "$1"`           # get mimetype of the file
 tp="${tp#$1:' '}"            # remove path/file from the output to just get the mimetype
                              # get the list of .desktop files for that mimetype
-apps=`cat /usr/share/applications/mimeinfo.cache | grep "$tp""="` 
-apps="${apps#$tp\=}"         # remove mimetype from front of .desktop list
+allapps=""                   # checking mimeapps.list and mimeinfo.cache both in .local & /usr
+for prepath in "$HOME"/.local /usr 
+do
+  for mimefile in mimeapps.list mimeinfo.cache
+  do
+    if [ -f "$prepath"/share/applications/$mimefile ]; then
+      apps=`cat "$prepath"/share/applications/$mimefile | grep -m 1 "$tp""="`
+      apps="${apps#$tp\=}"   # remove the mimetype from start of line     
+      allapps="$allapps;$apps"
+    fi
+    allapps="${allapps%';'}"   # remove final ;
+  done
+done
+allapps="${allapps#';'}"     # remove extra ; from start of line
 
-# setup array for the list of .desktop files
+uniqapps=`echo "$allapps" | tr ';' '\012' | awk ' !x[$0]++'`  # remove duplicate apps
+apps=`echo "$uniqapps" | tr '\012' ';'`                       # get it back onto one line
 
 oldIFS=$IFS
 IFS=';'                      # use semi-colon as delimiter
-list_arr=( $apps )
+arr=( $apps )                # in array of apps
+
+localpath="$HOME/.local/share/applications" # find local and system paths to each app and store in arr
+syspath="/usr/share/applications"
 i=0
-for app in ${list_arr[@]}    # insert the names of each app into the array
+for app in ${arr[@]}
 do
-  name=`cat "/usr/share/applications/""$app" | grep -m 1 "^Name"`
-  name="${name#'Name='}"     # remove Name= at start of line
-  list_arr[i++]="$app;$name"
+  app_path_filenames=""
+  if [ -e "$localpath/$app" ]; then
+    app_path_filenames="$localpath/$app"";"
+  fi
+  if [ -e "$syspath/$app" ]; then
+    app_path_filenames="$app_path_filename""$syspath/$app"
+  fi
+  app_path_filenames="${app_path_filenames%';'}"     # remove extra ; at end of line if it's there
+  arr[i++]="$app_path_filenames"
 done
 
-list_arr+=( "Other;Other .desktop file" )
+i=0                                                  # insert app names into arr from Name= line of .desktop files
+for app_path_filename in ${arr[@]}
+do
+  name=`cat "$app_path_filename" | grep -m 1 "^Name"`
+  name="${name#'Name='}"     # remove Name= at start of line
+  arr[i++]="$name;$app_path_filename"
+done
+
+arr+=( "Other;Other .desktop file" )
 
 # Ask what .desktop file should be used to open $1
 
-desktop_file=`zenity --list --width=480 --height=240 --title="Open Choose " --text="$filename" --column="Open With ..." --column="i.e." ${list_arr[@]}`
+desktop_file=`zenity --list --print-column="2" --width=700 --height=400 --title="Open Choose " --text="$filename" --column="Open With ..." --column="Full path to .desktop file" ${arr[@]}`
 IFS=$oldIFS                  # restore old delimiter
 
-# if Other .desktop is desired, let them choose whatever they want
-
-if [ "$desktop_file" == "Other" ]; then 
+if [ "$desktop_file" == "Other" ]; then                         # if Other .desktop is desired, let them choose whatever they want
   desktop_file=`zenity --file-selection`
-  app=`cat "$desktop_file" | grep -m 1 "^Exec"`                     # find 1st Exec=... in Other .desktop file
-else
-  app=`cat "/usr/share/applications/""$desktop_file" | grep -m 1 "^Exec"` # find 1st Exec=... in .desktop file
 fi
 
-app="${app#'Exec='}"                                              # remove Exec= at start of line
-app="${app%\%*}"                                                  # remove trailing %U or whatever
-app=$( echo "$app" | sed -e 's/^ *//g' -e 's/ *$//g')             # remove trailing and leading spaces
-app=$( echo "$app" | sed 's/ /\\ /g' )                            # escape remaining spaces
+app=""
+if [ $desktop_file ]; then
+  app=`cat "$desktop_file" | grep -m 1 "^Exec="`                    # find 1st Exec=... in Other .desktop file
+  app="${app#'Exec='}"                                              # remove Exec= at start of line
+  app="${app%\%*}"                                                  # remove trailing %U or whatever
+  app=$( echo "$app" | sed -e 's/^ *//g' -e 's/ *$//g')             # remove trailing and leading spaces
+                                            # no need to escape spaces because already done in .desktop files
+fi
 
 if [ "$app" ]; then
   to_open="$1"
   to_open=$( echo "$to_open" | sed 's/ /\\ /g' )                    # escape spaces in file to open
-  eval "$app"" ""$to_open"                                          # finally open it
+  eval "$app $to_open"                                              # finally open it
 else
   if [ $desktop_file ]; then
     zenity --error --text="$desktop_file is not a valid .desktop file because it is missing Exec=..."

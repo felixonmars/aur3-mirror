@@ -1,4 +1,4 @@
 #!/bin/sh
 
 cd /opt/swaag
-exec ./swaag "$@"
+exec /bin/sudo -EHnu swaag -- ./swaag "$@"

@@ -14,7 +14,14 @@ my $mw = MediaWiki::API->new({ api_url => 'http://en.wikiquote.org/w/api.php' })
 # TODO add series numbers + episode names to the end?
 # TODO actually scrape it into an array?
 
-$_ = $mw->get_page( { title => 'Farscape' } )->{ '*' };
+my $page = $mw->get_page( { title => 'Farscape' } );
+
+if (shift eq "revision") {
+  print $page->{ 'revid' };
+  exit;
+}
+
+$_ = $page->{ '*' };
 
 # remove everything after, and including, the cast section
 s/== Cast ==.*$//s;

@@ -3,7 +3,7 @@
 pkgname=runner2
 pkgver=1.0
 _hibver=1388171186
-pkgrel=2
+pkgrel=3
 pkgdesc="BIT.TRIP Presents... Runner2: Future Legend of Rhythm Alien"
 url="http://www.runner2.com/"
 arch=('i686' 'x86_64')
@@ -23,6 +23,9 @@ _archive="runner2_${_archive_arch}_${_hibver}.tar.gz"
 
 source=("hib://${_archive}")
 md5sums=("${_archive_md5}")
+
+# don't compress the generated package as it's just a transient package
+PKGEXT='.pkg.tar'
 
 package()
 {

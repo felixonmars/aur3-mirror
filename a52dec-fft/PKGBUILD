@@ -1,5 +1,5 @@
 # $Id$
-# Maintainer: JSpaces <jspaces -aT- incentre -d0T- net>
+# Maintainer: JSpaces <xpace -aT- incentre -d0T- net>
 # contributor: aleb <alexandru.balut -aT- gmail -d0t- com>
 # contributor: Thomas Baechler <thomas -aT- archlinux -d0t- org>
 # contributor: Sarah Hay <sarahhay -aT- mb.sympatico -d0t- ca>
