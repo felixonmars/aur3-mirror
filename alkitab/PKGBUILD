@@ -1,7 +1,7 @@
 # Contributor: gnud <ach.gnud@gmail.com>
 # Maintainer: The Ringmaster <theringmaster@archlinux.us>
 pkgname=alkitab
-pkgver=2.6
+pkgver=2.9.1
 pkgrel=1
 pkgdesc="Bible study software"
 arch=('i686' 'x86_64')
@@ -13,7 +13,7 @@ source=(
         http://www.kiyut.com/products/${pkgname}/LICENSE-${pkgname}.txt
         patch.alkitab)
 md5sums=(
-         '26599b6a43224816ec0330e2fa296150' 
+         'dec3f05d9f97d13fde7163d34552ea1c' 
          '17dbdd02bead49be73f5f731b48c01f0'
          'b73935c33e992c9b5f3f75fef56a268c')
 

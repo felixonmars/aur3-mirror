@@ -3,19 +3,17 @@
 
 
 pkgname=anathema
-pkgver=2.0.1
-pkgrel=2
+pkgver=5.1.3
+pkgrel=1
 pkgdesc="An Exalted toolkit, offering basic character generation & campaign management functions."
 url="http://anathema.sourceforge.net"
 license="GPL"
 depends=('j2re>=1.5')
 arch=('any')
-md5sums=('c83686adae65fef0e66adf977e6c9974'
-         'a4b12673543de2566350c0ee0ca031f8'
-         '7e2ee61a30f567881649cad9ab18c98f'
-         '72585482a64a1027796b0195c122e15d')
-source=("http://downloads.sourceforge.net/project/anathema/Anathema%20${pkgver}%20Calibration/Anathema_v${pkgver}.zip" \
-        "${pkgname}.launcher" "${pkgname}.desktop" anathema.png)
+md5sums=('426de227cea19de49d05cdefcb7a5dcb')
+source=(http://anathema.butatopanto.de:8081/full/5.1.3/Anathema_Zip_v5.1.3.zip)
+#source=("http://downloads.sourceforge.net/project/anathema/Anathema%20${pkgver}%20Calibration/Anathema_v${pkgver}.zip" \
+#        "${pkgname}.launcher" "${pkgname}.desktop" anathema.png)
 
 build() {
     cd $startdir/src

@@ -2,7 +2,7 @@
 
 pkgname=python2-heatclient
 _pypiname=python-heatclient
-pkgver=0.2.7
+pkgver=0.2.8
 pkgrel=1
 pkgdesc="OpenStack Orchestration API Client Library"
 arch=(any)
@@ -10,9 +10,9 @@ url="https://pypi.python.org/pypi/python-heatclient/"
 license=('Apache')
 depends=('python2'
          'python2-iso8601>=0.1.8'
-         'python2-keystoneclient>=0.4.2'
+         'python2-keystoneclient>=0.6.0'
          'python2-pbr<1.0'
-         'python2-pbr>=0.5.21'
+         'python2-pbr>=0.6'
          'python2-prettytable<0.8'
          'python2-prettytable>=0.7'
          'python2-requests>=1.1'
@@ -21,7 +21,7 @@ depends=('python2'
 makedepends=('python2-setuptools')
 options=(!emptydirs)
 source=("https://pypi.python.org/packages/source/p/${_pypiname}/${_pypiname}-${pkgver}.tar.gz")
-md5sums=('880935fa5cd19267d360c7f9234009a7')
+md5sums=('32749bd0c5f97d4165fb4f215133fc1b')
 
 build() {
   cd "$_pypiname-$pkgver"

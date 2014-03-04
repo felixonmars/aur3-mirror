@@ -1,70 +1,93 @@
 # Maintainer:  Daniel YC Lin <dlin.tw (at) gmail.com>
 pkgname=grub4dos-svn
-pkgver=212
+pkgver=372
 pkgrel=1
 pkgdesc="A GRUB boot loader support menu on windows(fat,ntfs)/linux(ext2,3,4)"
-arch=('any')
+arch=(i686 x86_64)
 url="http://code.google.com/p/grub4dos-chenall"
 license=('GPL2')
-backup=(etc/grub4dos.conf boot/grub/menu.lst)
-makedepends=('svn')
+backup=(etc/grub4dos.conf grub/menu.lst)
+makedepends=('svn' 'upx' 'nasm' 'p7zip')
 install=grub4dos.install
 conflicts=(grub4dos)
+options=('!strip' '!buildflags' '!makeflags')
 
 # known namcap warnings: these are acceptable
 #grub4dos-svn E: ELF file ('usr/sbin/bootlace.com') found in an 'any' package.
 #grub4dos-svn W: File (boot) exists in a non-standard directory.
 
+noextract=(unifont.hex.gz)
 source=(
-  http://grubutils.googlecode.com/files/unifont-2011-05-10.zip
-  http://grub4dos-chenall.googlecode.com/files/arialuni_U16.zip
+  repo::svn+http://grub4dos-chenall.googlecode.com/svn/trunk
+  http://grub4dos-chenall.googlecode.com/files/unifont.hex.gz
   README_arch.txt
   grub4dos.conf
   menu.lst
   )
+pkgver() {
+  cd "$srcdir/repo"
+  local ver="$(svnversion)"
+  printf "%s" "${ver//[[:alpha:]]}"
+}
 
-_svntrunk="http://grub4dos-chenall.googlecode.com/svn/trunk/"
-_svnmod="grub4dos-svn"
-
+prepare() {
+  cd repo
+  # patch for the makefile only allow single thread
+  sed -i -e 's:make |:make -j1 |:' build
+}
 build() {
-  cd $srcdir
-  msg "Connecting to $_svntrunk SVN server...."
-  if [ -d $_svnmod/.svn ]; then
-    (cd $_svnmod && svn up)
-  else
-    svn co $_svntrunk $_svnmod
-  fi
-  msg "SVN checkout done or server timeout"
-  msg "Starting make..."
-  #rm -rf $_svnmod-build
-  svn export --force $_svnmod $_svnmod-build
-  cd $_svnmod-build
+  cd repo
+  #GRUB4DOS_TEMP=$PWD/tmp ./build
+  unset CFLAGS
+  unset CFLAGS
+  unset CXXFLAGS
+  unset LDFLGAS
+  unset CPPFLAGS
+  temp_flags=(`grep -E '^CFLAGS=.+' /etc/makepkg.conf | cut -d '"' -f 2`)
+  for i in ${temp_flags[@]};do [ "$i" != "-fstack-protector" ] && CFLAGS+="$i ";done
+  CXXFLAGS=("`grep -E '^CXXFLAGS=.+' /etc/makepkg.conf | cut -d '"' -f 2`")
+  LDFLAGS=("`grep -E '^LDFLAGS=.+' /etc/makepkg.conf | cut -d '"' -f 2`")
+  CPPFLAGS=("`grep -E '^CPPFLAGS=.+' /etc/makepkg.conf | cut -d '"' -f 2`")
   ./configure --enable-preset-menu=preset_menu.lst
-  make
+  make -j1
+  cd stage2
+  # generate bootlace64.com
+	size=`ls -l bootlace.com|awk '{print $5}'`
+	dd if=bootlace.com of=bootlace.head bs=1 count=64
+	dd if=bootlace.com of=bootlace.body bs=1 count=`expr $size - 128` skip=64
+	dd if=bootlace.com of=bootlace.tail bs=1 count=64 skip=`expr $size - 64`
+	cat bootlace.tail bootlace.body bootlace.head > bootlace64.com
+	chmod a+x bootlace64.com
+	rm -f bootlace.tail bootlace.body bootlace.head
 }
 
 package() {
-  install -Dm 644 "$srcdir/grub4dos.conf" "$pkgdir/etc/grub4dos.conf"
-  for _f in grub.exe grldr ; do
-    install -Dm 644 "$srcdir/$_svnmod-build/stage2/$_f" "$pkgdir/boot/grub/$_f"
+  cd $srcdir
+  for _f in menu.lst unifont.hex.gz ; do
+    install -Dm 644 "$_f" "$pkgdir/grub/$_f"
   done
-  _f=menu.lst ;  install -Dm 644 "$srcdir/$_f" "$pkgdir/boot/grub/$_f"
-  _f=default ;  install -Dm 644 "$srcdir/$_svnmod-build/$_f" "$pkgdir/boot/grub/$_f"
-  for _f in unifont arialuni_U16.bin ; do
-    install -Dm 644 "$srcdir/$_f" "$pkgdir/boot/grub/$_f"
-  done
-  gzip $pkgdir/boot/grub/arialuni_U16.bin
-  _f=bootlace.com ; install -Dm 755 "$srcdir/$_svnmod-build/stage2/$_f" "$pkgdir/usr/sbin/$_f"
-  _f=README_arch.txt ; install -Dm 644 "$srcdir/$_f" "$pkgdir/usr/share/doc/grub4dos/$_f"
-  for _f in README_GRUB4DOS.txt ChangeLog_chenall.txt ChangeLog_GRUB4DOS.txt ; do
-    cp $srcdir/$_svnmod-build/$_f $pkgdir/usr/share/doc/grub4dos
-  done
+  _f=grub4dos.conf ; install -Dm 644 "$_f" "$pkgdir/etc/$_f"
+  _f=README_arch.txt ; install -Dm 644 "$_f" "$pkgdir/usr/share/doc/grub4dos/$_f"
 
-  #rm -r $srcdir/$_svnmod-build/
+  cd $srcdir/repo
+  _f=default ; install -Dm 644 "$_f" "$pkgdir/grub/$_f"
+  for _f in grub.exe grldr ; do
+    install -Dm 644 "stage2/$_f" "$pkgdir/grub/$_f"
+  done
+  _f=bootlace.com ; install -Dm 755 "stage2/$_f" "$pkgdir/usr/bin/$_f"
+  if [ `uname -m` = x86_64 ] ; then
+    _f=bootlace64.com ; install -Dm 755 stage2/$_f "$pkgdir/usr/bin/$_f"
+  fi
+
+  for _f in README_GRUB4DOS.txt ChangeLog_GRUB4DOS.txt README_GRUB4DOS_CN.txt \
+    ChangeLog_chenall.txt ; do
+
+    install -Dm 644 $_f "$pkgdir/usr/share/doc/grub4dos-svn/$_f"
+  done
 }
-md5sums=('3984c1b0dfdf22ece221e54b6690196b'
-         '479f066a8f84095a2cb40ac3c473430d'
-         '4fe1655e3f7f3eb45c3c58d6cc74e17c'
-         'b706d5506f9c6a29727a71e32a546854'
-         'be41e2a0a8080db15497eb73ac43db15')
+md5sums=('SKIP'
+         '9afd47aaf5bcc56ab733facdc0ef30db'
+         'e02d0a55499854daef395b9541c7c4be'
+         '254061e71bb66ebeb2cda6103f67b1e7'
+         '1f8388aa2aee190a047003bf50ef8a40')
 # vim:set ts=2 sw=2 et sta:

@@ -1,31 +1,27 @@
-# Maintainer: 謝致邦 <Yeking@Red54.com>
+# Modified from adb-git
+# Maintainer: Chris Down <chris@chrisdown.name>
 
 pkgname=adb
-pkgver=20130403
+pkgver=android.4.4.2_r2
 pkgrel=1
-pkgdesc="adb(Android Debug Bridge CLI tool), an Android platform tool"
+pkgdesc="adb (Android Debug Bridge CLI tool), an Android platform tool"
 arch=('i686' 'x86_64' 'armv7h')
-depends=('libusb')
-makedepends=('gcc' 'git' 'make')
-provides=('adb')
-conflicts=('adb')
-url="http://android.googlesource.com/platform/system/core"
+url="http://tools.android.com/"
 license=('Apache')
-source=('adbMakefile')
-md5sums=('887d868e544330ef850334961685cab3')
+depends=('openssl' 'zlib')
+makedepends=('git')
+conflicts=('adb-git')
+source=("git+https://android.googlesource.com/platform/system/core#commit=e65b7ea"
+        'adbMakefile')
+md5sums=('SKIP'
+         '887d868e544330ef850334961685cab3')
 
 build() {
-	cd $srcdir
-	if [[ -d core ]]; then
-		cd core && git pull origin
-	else
-		git clone $url --depth=1
-	fi
-	cd $srcdir/core/adb
-	mv ../../adbMakefile makefile
-	make
+  cd core/adb
+  mv ../../adbMakefile makefile
+  make
 }
 
 package(){
-	install -D ${srcdir}/core/adb/adb ${pkgdir}/usr/bin/adb
+  install -Dm755 core/adb/adb "${pkgdir}"/usr/bin/adb
 }

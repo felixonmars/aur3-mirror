@@ -43,7 +43,7 @@ myopts="-o dn: -l name:,static:,git:,rootdir:"
 getopt -Q $myopts -- "$@" || exit 2
 eval set -- `getopt -q $myopts -- "$@"`
 
-DEPLOY_DIR=/opt/tomcat/webapps
+DEPLOY_DIR=/var/lib/tomcat8/webapps/
 OPENGROK_WAR=/opt/opengrok/lib/source.war
 
 PROJECT=`basename \`pwd\``

@@ -1,13 +1,4 @@
-========
-Document
-========
-
-Try these to fill the hole of lack of document.
-
-* Best grub4dos Guide (17th May 2009) http://diddy.boot-land.net/grub4dos/Grub4dos.htm
-* online help of grub4dos( usage: help <command> )
-* google search
-* changelog files in /usr/share/doc/grub4dos
+ChangeLog is on http://code.google.com/p/grub4dos-chenall/source/list
 
 =======
 INSTALL
@@ -31,6 +22,8 @@ Assume /mnt/sda1 is your boot partition mount point
 
 STEP 1
 ------
+# NOTE: use bootlace64.com instead of bootlace.com in x86_64 system
+
 # install first stage boot loader to MBR of /dev/sda
 bootlace.com --no-backup-mbr --mbr-disable-floppy --time-out=0 /dev/sda
 
@@ -53,6 +46,8 @@ cp /grub/menu.lst /mnt/sda1/grub # copy default menu, edit it
 Read document which come from this package in /usr/share/doc/grub4dos.
 After install, you can remove this package.
 
+Ref: Best grub4dos manual http://diddy.boot-land.net/grub4dos/Grub4dos.htm
+
 STEP 4 (optional)
 -----------------
 if you want to use 'default' option in menu.lst
@@ -62,10 +57,3 @@ STEP 5 (optional)
 -----------------
 if you want to use window's boot.ini bootmgr.ini to chain grub4dos
 cp /grub/grub.exe /mnt/sda1/grub
-
-STEP 5 (optional)
------------------
-if you want display unicode modify menu.lst, add graphicsmode and font command.
-
-mkdir -p /mnt/sda1/grub # make a directory to put related files.
-cp /grub/unifont.hex.gz /mnt/sda1/grub

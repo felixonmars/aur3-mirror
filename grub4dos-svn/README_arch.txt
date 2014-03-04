@@ -22,6 +22,8 @@ Assume /mnt/sda1 is your boot partition mount point
 
 STEP 1
 ------
+# NOTE: use bootlace64.com instead of bootlace.com in x86_64 system
+
 # install first stage boot loader to MBR of /dev/sda
 bootlace.com --no-backup-mbr --mbr-disable-floppy --time-out=0 /dev/sda
 
@@ -34,12 +36,12 @@ bootlace.com --no-backup-mbr --mbr-disable-floppy --time-out=0 /dev/sdd
 
 STEP 2
 ------
-cp /grub/share/grub4dos/grldr /mnt/sda1  # put second stage loader 
+cp /grub/share/grub4dos/grldr /mnt/sda1  # put second stage loader
 
 STEP 3
 ------
 mkdir -p /mnt/sda1/grub
-cp /grub/menu.lst /mnt/sda1/grub # copy default menu, edit it 
+cp /grub/menu.lst /mnt/sda1/grub # copy default menu, edit it
 
 Read document which come from this package in /usr/share/doc/grub4dos.
 After install, you can remove this package.
@@ -55,16 +57,3 @@ STEP 5 (optional)
 -----------------
 if you want to use window's boot.ini bootmgr.ini to chain grub4dos
 cp /grub/grub.exe /mnt/sda1/grub
-
-STEP 5 (optional)
------------------
-For unicode menu read http://chenall.net/post/grub4dos_unifont/ .
-
-mkdir -p /mnt/sda1/grub # make a directory to put related files.
-cp /grub/unifont /mnt/sda1/grub
-cp /grub/arialuni_U16.bin.gz /mnt/sda1/grub
-
-edit /mnt/sda1/grub/menu.lst like this
-  unifont /grub/arialuni_U16.bin.gz
-  ...
-  title utf-8 title is workable # first boot entry
