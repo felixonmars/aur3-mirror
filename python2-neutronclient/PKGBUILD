@@ -2,7 +2,7 @@
 
 pkgname=python2-neutronclient
 _pypiname=python-neutronclient
-pkgver=2.3.3
+pkgver=2.3.4
 pkgrel=1
 pkgdesc="CLI and Client Library for OpenStack Networking"
 arch=(any)
@@ -11,7 +11,7 @@ license=('Apache')
 depends=('python2'
          'python2-babel>=1.3'
          'python2-cliff>=1.4.3'
-         'python2-httplib2'
+         'python2-httplib2>=0.7.5'
          'python2-iso8601>=0.1.4'
          'python2-pbr>=0.5.21'
          'python2-pbr<1.0'
@@ -22,7 +22,7 @@ makedepends=('python2-setuptools')
 conflicts=('python2-quantumclient')
 options=(!emptydirs)
 source=("https://pypi.python.org/packages/source/p/${_pypiname}/${_pypiname}-${pkgver}.tar.gz")
-md5sums=('33acfcb8634d1dd68406ec5a8699a4e5')
+md5sums=('90074e5498087d1ab8464294fc68eb80')
 
 build() {
   cd "${_pypiname}-${pkgver}"

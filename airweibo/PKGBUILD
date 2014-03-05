@@ -1,5 +1,4 @@
 # Maintainer: shmilee <shmilee.zju@gmail.com>
-# Coutributer: limser <echo bGltc2VyQHFxLmNvbQo=|base64 -d>
 
 pkgname=airweibo
 pkgver=2.4.1

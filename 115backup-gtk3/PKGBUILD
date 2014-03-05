@@ -1,4 +1,4 @@
-# Contributor: limser <echo bGltc2VyQHFxLmNvbQo=|base64 -d>
+# Contributor: lishengming.zju <lishengming.zju@gmail.com>
 
 pkgname=115backup-gtk3
 _pkgname=115backup

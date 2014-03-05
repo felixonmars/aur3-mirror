@@ -1,10 +1,10 @@
 # Maintainer: Tom Richards <tom@tomrichards.net>
 
-_nginxver=1.4.5
+_nginxver=1.4.6
 _passengerver=4.0.37
 
 pkgname=nginx-passenger
-pkgver=1.4.5
+pkgver=1.4.6
 pkgrel=1
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
@@ -27,7 +27,7 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
 	"https://github.com/phusion/passenger/archive/release-$_passengerver.tar.gz"
 	'service'
 	'logrotate')
-sha256sums=('ade9024356a8f2b0679ea50e477b2585d46f43aa695cbe8ace9d65f457e0077e'
+sha256sums=('7a8b5b15d708b5b9c61e723bd93faa247b06c8b90babb76f612c128edb5812c6'
             '7853e020844b5c2a2d076d93aa67990f5ce1f000db3ebb973a4c7329cdc6122a'
             '05fdc0c0483410944b988d7f4beabb00bec4a44a41bd13ebc9b78585da7d3f9b'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
@@ -97,7 +97,7 @@ package() {
 	install -Dm644 "$srcdir"/logrotate "$pkgdir"/etc/logrotate.d/nginx
 	install -Dm644 "$srcdir"/service "$pkgdir"/usr/lib/systemd/system/nginx.service
 	install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
-	rmdir "$pkgdir/run"
+	rmdir "$pkgdir"/run
 
 	#Passenger
 	cd "$srcdir/passenger-release-$_passengerver"

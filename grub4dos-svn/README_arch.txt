@@ -38,6 +38,8 @@ STEP 2
 ------
 cp /grub/share/grub4dos/grldr /mnt/sda1  # put second stage loader
 
+NOTE: target directory (/mnt/sda1) only support FAT/NTFS/ext2 (not ext4)
+
 STEP 3
 ------
 mkdir -p /mnt/sda1/grub

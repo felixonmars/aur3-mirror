@@ -1,4 +1,4 @@
-# Contributor: limser <echo bGltc2VyQHFxLmNvbQo=|base64 -d>
+# Contributor: lishengming.zju <lishengming.zju@gmail.com>
 
 pkgname=115backup-gtk2
 _pkgname=115backup
@@ -21,6 +21,6 @@ elif [ "$CARCH" = "x86_64" ]; then
 fi
 
 package(){
-	cd ${srcdir}
+    cd ${srcdir}
     tar azxvf data.tar.gz -C ${pkgdir}
 }
