@@ -1,2 +1,4 @@
+#!/bin/bash
+
 export Nemerle=/opt/nemerle
-export ncc=$Nemerle/ncc.exe
+alias ncc="mono $Nemerle/ncc.exe"
