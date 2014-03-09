@@ -1,0 +1,1337 @@
+diff -ruN xscreensaver-5.26.orig/hacks/config/tetris.xml xscreensaver-5.26/hacks/config/tetris.xml
+--- xscreensaver-5.26.orig/hacks/config/tetris.xml	1970-01-01 01:00:00.000000000 +0100
++++ xscreensaver-5.26/hacks/config/tetris.xml	2013-10-14 21:52:38.000000000 +0200
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="ISO-8859-1"?>
++
++<screensaver name="tetris" _label="Tetris" gl="yes">
++
++  <command arg="-root"/>
++
++  <number id="delay" type="slider" arg="-delay %"
++          _label="Frame rate" _low-label="Low" _high-label="High"
++          low="0" high="100000" default="20000"
++          convert="invert"/>
++
++  <boolean id="showfps" _label="Show frame rate" arg-set="-fps"/>
++
++  <_description>
++Tetris !!
++
++Written by Vivien HENRIET; 2013.
++  </_description>
++</screensaver>
+diff -ruN xscreensaver-5.26.orig/hacks/glx/Makefile.in xscreensaver-5.26/hacks/glx/Makefile.in
+--- xscreensaver-5.26.orig/hacks/glx/Makefile.in	2013-07-16 11:23:33.000000000 +0200
++++ xscreensaver-5.26/hacks/glx/Makefile.in	2013-10-11 14:49:14.000000000 +0200
+@@ -117,7 +117,7 @@
+ 		  hilbert.c companion.c companion_quad.c companion_disc.c \
+ 		  companion_heart.c tronbit.c tronbit_idle1.c tronbit_idle2.c \
+ 		  tronbit_no.c tronbit_yes.c jwzgles.c kaleidocycle.c \
+-		  quasicrystal.c unknownpleasures.c geodesic.c
++		  quasicrystal.c unknownpleasures.c geodesic.c tetris.c
+ 
+ OBJS		= xscreensaver-gl-helper.o normals.o glxfonts.o fps-gl.o \
+ 		  atlantis.o b_draw.o b_lockglue.o b_sphere.o bubble3d.o \
+@@ -157,7 +157,7 @@
+ 		  hilbert.o companion.o companion_quad.o companion_disc.o \
+ 		  companion_heart.o tronbit.o tronbit_idle1.o tronbit_idle2.o \
+ 		  tronbit_no.o tronbit_yes.o jwzgles.o kaleidocycle.o \
+-		  quasicrystal.o unknownpleasures.o geodesic.o
++		  quasicrystal.o unknownpleasures.o geodesic.o tetris.o
+ 
+ GL_EXES		= cage gears moebius pipes sproingies stairs superquadrics \
+ 		  morph3d rubik atlantis lament bubble3d glplanet pulsar \
+@@ -173,7 +173,7 @@
+ 		  juggler3d topblock glschool glcells voronoi moebiusgears \
+ 		  lockward cubicgrid hypnowheel skytentacles jigsaw photopile \
+ 		  rubikblocks surfaces hilbert companioncube tronbit \
+-		  kaleidocycle quasicrystal unknownpleasures geodesic
++		  kaleidocycle quasicrystal unknownpleasures geodesic tetris
+ GLE_EXES	= extrusion
+ SUID_EXES	= sonar
+ GL_UTIL_EXES	= xscreensaver-gl-helper
+@@ -229,7 +229,7 @@
+ 		  hypnowheel.man skytentacles.man sonar.man jigsaw.man \
+ 		  photopile.man rubikblocks.man surfaces.man hilbert.man \
+ 		  companioncube.man tronbit.man kaleidocycle.man \
+-		  quasicrystal.man unknownpleasures.man geodesic.man
++		  quasicrystal.man unknownpleasures.man geodesic.man tetris.man
+ MEN		= @GL_MEN@
+ RETIRED_MEN	= glforestfire.man
+ EXTRAS		= README Makefile.in dxf2gl.pl vrml2gl.pl wfront2gl.pl \
+@@ -689,6 +689,10 @@
+ stonerview:	stonerview.o	$(STONER_OBJS) $(HACK_TRACK_OBJS)
+ 	$(CC_HACK) -o $@ $@.o	$(STONER_OBJS) $(HACK_TRACK_OBJS) $(HACK_LIBS)
+ 
++tetris:	tetris.o	$(DB_OBJS)
++	$(CC_HACK) -o $@ $@.o	$(DB_OBJS) $(HACK_LIBS)
++
++
+ 
+ molecules.h:
+ 	@echo "building molecules.h from $(HACK_SRC)/images/molecules/*.pdb"; \
+
+
+ ##############################################################################
+ #
+diff -ruN xscreensaver-5.26.orig/hacks/glx/tetris.c xscreensaver-5.26/hacks/glx/tetris.c
+--- xscreensaver-5.26.orig/hacks/glx/tetris.c	1970-01-01 01:00:00.000000000 +0100
++++ xscreensaver-5.26/hacks/glx/tetris.c	2013-10-14 22:39:23.000000000 +0200
+@@ -0,0 +1,1007 @@
++/* tetris, Copyright (c) 2013 Vivien HENRIET <henriet@bubuabu.org>
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that
++ * copyright notice and this permission notice appear in supporting
++ * documentation.  No representations are made about the suitability of this
++ * software for any purpose.  It is provided "as is" without express or 
++ * implied warranty.
++ */
++
++#include "screenhackI.h"
++#include "config.h"
++
++#include <stdarg.h>
++#include <limits.h>
++#include "xlockmore.h"
++#include "tetris.h"
++
++#define DEFAULTS	"*delay:	00000       \n" \
++			"*showFPS:      True       \n" \
++
++# define refresh_tetris 0
++
++ENTRYPOINT ModeSpecOpt tetris_opts = {0, NULL, 0, NULL, NULL};
++
++static tetrisstruct *tetris=NULL;
++
++static int count_holes_shadowed(int stack[WIDTH][HEIGHT])
++{
++	int i,j;
++	int nb_shadow=0;
++	for (i=0; i<WIDTH; i++, j=0)
++	{
++		while (!stack[i][j] && j<HEIGHT)
++		{
++			j++;
++		}
++		for (; j<HEIGHT; j++)
++		{
++			if (!stack[i][j])
++			{
++				nb_shadow++;
++			}
++		}
++	}
++	return nb_shadow;
++}
++
++static int count_stack_height(int stack[WIDTH][HEIGHT], t_piece *piece)
++{
++	int i, j, k;
++	int height=0;
++	if (piece->i < 0)
++	{
++		k=0;
++	}
++	else
++	{
++		k=piece->i;
++	}
++
++	for (j=0; j<HEIGHT; j++)
++	{
++		for (i=0; (i<4)&&((i+k)<WIDTH); i++)
++		{
++			if (stack[i+k][j])
++			{
++				if
++				(
++					(piece->i > 0) && 
++					(
++						piece->blocks[i][0] ||
++						piece->blocks[i][1] ||
++						piece->blocks[i][2] ||
++						piece->blocks[i][3]
++					)
++				)
++				{
++					return (HEIGHT-j);
++				}
++				else if
++				(
++					piece->blocks[i-piece->i][0] ||
++					piece->blocks[i-piece->i][1] ||
++					piece->blocks[i-piece->i][2] ||
++					piece->blocks[i-piece->i][3]
++				)
++				{
++					return (HEIGHT-j);
++				}
++			}
++		}
++	}
++	return height;
++}
++
++static int count_well_depth(int stack[WIDTH][HEIGHT])
++{
++	int i, j, k;
++	int depth=0;
++	
++	for (j=0; j<HEIGHT; j++)
++	{
++		if (!stack[0][j] && stack[1][j])
++		{
++			depth++;
++			for (k=j+1; k<HEIGHT; k++)
++			{
++				if (!stack[0][k] && stack[1][k])
++				{
++					depth++;
++				}
++			}
++		}
++	}
++
++	for (i=1; i<WIDTH-1; i++)
++	{
++		for (j=0; j<HEIGHT; j++)
++		{
++			if (!stack[i][j] && stack[i-1][j] && stack[i+1][j])
++			{
++				depth++;
++				for (k=j+1; k<HEIGHT; k++)
++				{
++					if (!stack[i][k] && stack[i-1][k] && stack[i+1][k])
++					{
++						depth++;
++					}
++				}
++			}
++		}
++	}
++
++	for (j=0; j<HEIGHT; j++)
++	{
++		if (!stack[WIDTH-1][j] && stack[WIDTH-2][j])
++		{
++			depth++;
++			for (k=j+1; k<HEIGHT; k++)
++			{
++				if (!stack[WIDTH-1][k] && stack[WIDTH-2][k])
++				{
++					depth++;
++				}
++			}
++		}
++	}
++	
++	return depth;
++}
++
++static int count_line_transition(int stack[WIDTH][HEIGHT])
++{
++	int transition=0;
++	int i,j;
++	
++	for (j=0; j<HEIGHT-1; j++)
++	{
++		for (i=0; i<WIDTH; i++)
++		{
++			if (stack[i][j] && !stack[i][j+1])
++			{
++				transition++;
++			}
++		}
++	}
++
++	for (i=0; i<WIDTH; i++)
++	{
++		if (!stack[i][HEIGHT-1])
++		{
++			transition++;
++		}
++	}
++	
++	return transition;
++}
++
++static int count_row_transition(int stack[WIDTH][HEIGHT])
++{
++	int transition=0;
++	int i,j;
++	
++	for (j=0; j<HEIGHT; j++)
++	{
++		if (!stack[0][j])
++		{
++			transition++;
++		}
++	}
++
++	for (i=0; i<WIDTH-1; i++)
++	{
++		for (j=0; j<HEIGHT; j++)
++		{
++			if (stack[i][j] && !stack[i+1][j])
++			{
++				transition++;
++			}
++		}
++	}
++
++	for (j=0; j<HEIGHT; j++)
++	{
++		if (!stack[WIDTH-1][j])
++		{
++			transition++;
++		}
++	}
++	
++	return transition;
++}
++
++/*
++ * LANDING_HEIGHT 	 		-1	landing height
++ * ERODED_PIECE_CELLS		 1	eroded piece cells
++ * ROW_TRANSITIONS			-1	row transitions
++ * COLUMN_TRANSITIONS		-1	column transitions
++ * HOLES					-4	holes
++ * WELL_SUMS_DELLACHERIE	-1	for each well, a value depending on the well depth
++ */
++
++static int compute_score(tetrisstruct *env, t_piece *piece)
++{
++	int score;
++	int eroded_pieces;
++
++	eroded_pieces = fix_piece(env, piece, 1);
++
++	score  = -1 * count_stack_height(env->tmp_stack, piece);
++	score +=  1 * eroded_pieces;
++	score += -1 * count_row_transition(env->tmp_stack);
++	score += -1 * count_line_transition(env->tmp_stack);
++	score += -4 * count_holes_shadowed(env->tmp_stack);
++	score += -1 * count_well_depth(env->tmp_stack);
++
++	return score;
++}
++
++static void compute_best_move(tetrisstruct *env, t_move *best_move)
++{
++	t_piece current_piece, next_piece;
++	int rotation, translation = 0;
++	int current_score, best_score;
++
++	current_piece.i = env->current_piece.i;
++	current_piece.j = env->current_piece.j;
++	memcpy(current_piece.blocks, env->current_piece.blocks, sizeof(current_piece.blocks));
++
++	next_piece.i=env->next_piece.i;
++	next_piece.j=env->next_piece.j;
++	memcpy(next_piece.blocks, env->next_piece.blocks, sizeof(next_piece.blocks));
++	
++	best_score=INT_MIN;
++	/* try rotation */
++	for (rotation=0; rotation<4; rotation++)
++	{
++		/* start in the left side */
++		while (!move(env->stack, &current_piece, LEFT));
++		/* try all move to RIGHT */
++		do
++		{
++			while (!move(env->stack, &current_piece, DOWN));
++
++			next_piece.i=current_piece.i;
++			next_piece.j=current_piece.j;
++			memcpy(next_piece.blocks, current_piece.blocks, sizeof(next_piece.blocks));
++
++			translation = 0;
++			while (!move(env->stack, &next_piece, LEFT) && move(env->stack, &next_piece, DOWN))
++			{
++				translation--;
++			}
++			
++			next_piece.i=current_piece.i+translation; 
++			next_piece.j=current_piece.j;
++			do
++			{
++				current_score=compute_score(env, &next_piece);
++				if (current_score == best_score && (translation*translation < best_move->t2*best_move->t2))
++				{
++					best_move->r=rotation;
++					best_move->t=current_piece.i-env->current_piece.i;
++					best_move->t2=translation;
++				}
++				if (current_score > best_score)
++				{
++					best_score=current_score;
++					best_move->r=rotation;
++					best_move->t=current_piece.i-env->current_piece.i;
++					best_move->t2=translation;
++				}
++				translation++;
++			} while (!move(env->stack, &next_piece, RIGHT) && move(env->stack, &next_piece, DOWN));
++
++			current_piece.j=env->current_piece.j;
++		} while (!move(env->stack, &current_piece, RIGHT));
++
++		current_piece.i=env->current_piece.i;
++		move(env->stack, &current_piece, ROT);
++	}
++}
++
++static int check_collision(int stack[WIDTH][HEIGHT], t_piece *piece)
++{
++	int i,j;
++	for (i=0; i<4; i++)
++	{
++		for (j=0; j<4; j++)
++		{
++			if (
++					piece->blocks[i][j] &&
++					(	(i+piece->i)<0 ||
++						(i+piece->i)>(WIDTH-1) ||
++						(j+piece->j)>(HEIGHT-1) ||
++						stack[i+piece->i][j+piece->j]
++					)
++				)
++			{
++				return 1;
++			}
++		}
++	}
++	return 0;
++}
++
++static void copy_piece(t_piece *dest, t_piece *src)
++{
++	dest->i=src->i;
++	dest->j=src->j;
++	memcpy(dest->blocks, src->blocks, sizeof(dest->blocks));
++	dest->moves.ready=src->moves.ready;
++	dest->moves.r=src->moves.r;
++	dest->moves.t=src->moves.t;
++}
++
++static void new_piece(t_piece *piece)
++{
++	int rd;
++
++	rd=(int)( 7.0 * random() / ( RAND_MAX + 1.0 ) );
++	piece->i=3;
++	piece->j=0;
++	memcpy(piece->blocks, lbl[rd], sizeof(piece->blocks));
++	piece->moves.ready=0;
++}
++
++static int fix_piece(tetrisstruct *env, t_piece *piece, int tmp)
++{
++	int i,j,k;
++	int line;
++	int nb_line=0;
++	int (*stack)[WIDTH][HEIGHT];
++	int cells=0;
++
++	if (tmp)
++	{
++		memcpy(env->tmp_stack, env->stack, sizeof(env->tmp_stack));
++		stack=&(env->tmp_stack);
++	}
++	else
++	{
++		stack=&(env->stack);
++	}
++
++	for (i=0; i<4; i++)
++	{
++		for (j=0; j<4; j++)
++		{
++			if (piece->blocks[i][j])
++			{
++				if (tmp)
++				{
++					(*stack)[i+piece->i][j+piece->j] = -1;
++				}
++				else
++				{
++					(*stack)[i+piece->i][j+piece->j] = piece->blocks[i][j];
++				}
++			}
++		}
++	}
++	for (j=0; j<HEIGHT; j++)
++	{
++		line=1;
++		for (i=0; i<WIDTH; i++)
++		{
++			if (!(*stack)[i][j])
++			{
++				line=0;
++				break;
++			}
++		}
++		if (line)
++		{
++			nb_line++;
++			for (k=j; k>0; k--)
++			{
++				for (i=0; i<WIDTH; i++)
++				{
++					if (tmp && (*stack)[i][k]==-1)
++					{
++						cells++;
++					}
++					(*stack)[i][k]=(*stack)[i][k-1];
++				}
++			}
++			for (i=0; i<WIDTH; i++)
++			{
++				(*stack)[i][0]=0;
++			}
++		}
++	}
++
++	if (!tmp)
++	{
++		copy_piece(&(env->current_piece), &(env->next_piece));
++		new_piece(&(env->next_piece));
++		switch (nb_line)
++		{
++			case 0:
++				break;
++			case 1:
++				env->score+=40;
++				break;
++			case 2:
++				env->score+=100;
++				break;
++			case 3:
++				env->score+=300;
++				break;
++			case 4:
++				env->score+=1200;
++				break;
++		}
++
++		env->totline+=nb_line;
++	}
++	if (tmp)
++	{
++		nb_line*=cells;
++	}
++	return nb_line;
++}
++
++static int move(int stack[WIDTH][HEIGHT], t_piece *piece, t_direction direction)
++{
++	int ret=0;
++	int i,j;
++	int next_piece[4][4];
++
++	switch (direction)
++	{
++		case RIGHT:
++			piece->i++;
++			break;
++		case LEFT:
++			piece->i--;
++			break;
++		case DOWN:
++			piece->j++;
++			break;
++		case ROT:
++			memcpy(next_piece, piece->blocks, sizeof(next_piece));
++			for (i=0; i<4; i++)
++			{
++				for (j=0; j<4; j++)
++				{
++					piece->blocks[i][j]=next_piece[j][3-i];
++				}
++			}
++			break;
++	}
++	if (check_collision(stack, piece))
++	{
++		switch (direction)
++		{
++			case RIGHT:
++				piece->i--;
++				break;
++			case LEFT:
++				piece->i++;
++				break;
++			case DOWN:
++				piece->j--;
++				break;
++			case ROT:
++				memcpy(piece->blocks, next_piece, sizeof(piece->blocks));
++				break;
++		}
++		ret=1;
++	}
++
++	return ret;
++}
++
++static int next(tetrisstruct *env)
++{
++
++	int ret=0;
++	if(!env->current_piece.moves.ready)
++	{
++		compute_best_move(env, &(env->current_piece.moves));
++		env->current_piece.moves.ready=1;
++	}
++
++	if(env->current_piece.moves.r)
++	{
++		move(env->stack, &(env->current_piece), ROT);
++		env->current_piece.moves.r--;
++	}
++	else if(env->current_piece.moves.t>0)
++	{
++		move(env->stack, &(env->current_piece), RIGHT);
++		env->current_piece.moves.t--;
++	}
++	else if(env->current_piece.moves.t<0)
++	{
++		move(env->stack, &(env->current_piece), LEFT);
++		env->current_piece.moves.t++;
++	}
++	else if(!move(env->stack, &(env->current_piece), DOWN))
++	{
++		
++	}
++	else if(env->current_piece.moves.t2>0)
++	{
++		move(env->stack, &(env->current_piece), RIGHT);
++		env->current_piece.moves.t2--;
++	}
++	else if(env->current_piece.moves.t2<0)
++	{
++		move(env->stack, &(env->current_piece), LEFT);
++		env->current_piece.moves.t2++;
++	}
++	else
++	{
++		fix_piece(env, &(env->current_piece), 0);
++		ret = check_collision(env->stack, &(env->current_piece));
++	}
++
++	return ret;
++}
++
++static void draw_square(int x, int y, t_color color)
++{
++	switch(color)
++	{
++		case BLACK:
++			glColor3f(0.0f, 0.0f, 0.0f);
++			break;
++		case RED:
++			glColor3f(1.0f, 0.0f, 0.0f);
++			break;
++		case BLUE:
++			glColor3f(1.0f, 1.0f, 0.0f);
++			break;
++		case BROWN:
++			glColor3f(1.0f, 0.0f, 1.0f);
++			break;
++		case MAJ:
++			glColor3f(1.0f, 1.0f, 1.0f);
++			break;
++		case WHITE:
++			glColor3f(0.0f, 1.0f, 0.0f);
++			break;
++		case CYAN:
++			glColor3f(0.0f, 0.0f, 1.0f);
++			break;
++		case GREEN:
++			glColor3f(0.0f, 1.0f, 1.0f);
++			break;
++	}
++
++	x-=5;
++	y-=11;
++
++	glBegin(GL_QUADS);
++		glVertex2f((x)-SQUARE_SIZE, -(y)+SQUARE_SIZE);
++		glVertex2f((x)+SQUARE_SIZE, -(y)+SQUARE_SIZE);
++		glVertex2f((x)+SQUARE_SIZE, -(y)-SQUARE_SIZE);
++		glVertex2f((x)-SQUARE_SIZE, -(y)-SQUARE_SIZE);
++	glEnd();
++}
++
++static void draw_segments(char *segments)
++{
++	while (*segments != '\0')
++	{
++		glBegin(GL_POLYGON);
++		switch (*segments)
++		{
++			case 'a':
++				glVertex2f(0.05f, 1.25f);
++				glVertex2f(0.10f, 1.30f);
++				glVertex2f(0.60f, 1.30f);
++				glVertex2f(0.64f, 1.25f);
++				glVertex2f(0.60f, 1.20f);
++				glVertex2f(0.10f, 1.20f);
++				break;
++			case 'b':
++				glVertex2f(0.65f, 1.25f);
++				glVertex2f(0.70f, 1.20f);
++				glVertex2f(0.70f, 0.70f);
++				glVertex2f(0.65f, 0.65f);
++				glVertex2f(0.60f, 0.70f);
++				glVertex2f(0.60f, 1.20f);
++				break;
++			case 'c':
++				glVertex2f(0.65f, 0.65f);
++				glVertex2f(0.70f, 0.60f);
++				glVertex2f(0.70f, 0.10f);
++				glVertex2f(0.65f, 0.05f);
++				glVertex2f(0.60f, 0.10f);
++				glVertex2f(0.60f, 0.60f);
++				break;
++			case 'd':
++				glVertex2f(0.05f, 0.05f);
++				glVertex2f(0.10f, 0.10f);
++				glVertex2f(0.60f, 0.10f);
++				glVertex2f(0.65f, 0.05f);
++				glVertex2f(0.60f, 0.00f);
++				glVertex2f(0.10f, 0.00f);
++				break;
++			case 'e':
++				glVertex2f(0.05f, 0.65f);
++				glVertex2f(0.10f, 0.60f);
++				glVertex2f(0.10f, 0.10f);
++				glVertex2f(0.05f, 0.05f);
++				glVertex2f(0.00f, 0.10f);
++				glVertex2f(0.00f, 0.60f);
++				break;
++			case 'f':
++				glVertex2f(0.05f, 1.25f);
++				glVertex2f(0.10f, 1.20f);
++				glVertex2f(0.10f, 0.70f);
++				glVertex2f(0.05f, 0.65f);
++				glVertex2f(0.00f, 0.70f);
++				glVertex2f(0.00f, 1.20f);
++				break;
++			case 'g':
++				glVertex2f(0.05f, 0.65f);
++				glVertex2f(0.10f, 0.70f);
++				glVertex2f(0.30f, 0.70f);
++				glVertex2f(0.35f, 0.65f);
++				glVertex2f(0.30f, 0.60f);
++				glVertex2f(0.10f, 0.60f);
++				break;
++			case 'h':
++				glVertex2f(0.35f, 0.65f);
++				glVertex2f(0.40f, 0.70f);
++				glVertex2f(0.60f, 0.70f);
++				glVertex2f(0.65f, 0.65f);
++				glVertex2f(0.60f, 0.60f);
++				glVertex2f(0.40f, 0.60f);
++				break;
++			case 'i':
++				glVertex2f(0.30f, 1.20f);
++				glVertex2f(0.40f, 1.20f);
++				glVertex2f(0.40f, 0.70f);
++				glVertex2f(0.35f, 0.65f);
++				glVertex2f(0.30f, 0.70f);
++				break;
++			case 'j':
++				glVertex2f(0.35f, 0.65f);
++				glVertex2f(0.40f, 0.60f);
++				glVertex2f(0.40f, 0.10f);
++				glVertex2f(0.30f, 0.10f);
++				glVertex2f(0.30f, 0.60f);
++				break;
++			case 'k':
++				glVertex2f(0.100f, 1.200f);
++				glVertex2f(0.175f, 1.200f);
++				glVertex2f(0.300f, 0.775f);
++				glVertex2f(0.300f, 0.700f);
++				glVertex2f(0.225f, 0.700f);
++				glVertex2f(0.100f, 1.125f);
++				break;
++			case 'l':
++				glVertex2f(0.525f, 1.200f);
++				glVertex2f(0.600f, 1.200f);
++				glVertex2f(0.600f, 1.125f);
++				glVertex2f(0.475f, 0.700f);
++				glVertex2f(0.400f, 0.700f);
++				glVertex2f(0.400f, 0.775f);
++				break;
++			case 'm':
++				glVertex2f(0.300f, 0.600f);
++				glVertex2f(0.225f, 0.600f);
++				glVertex2f(0.100f, 0.175f);
++				glVertex2f(0.100f, 0.100f);
++				glVertex2f(0.175f, 0.100f);
++				glVertex2f(0.300f, 0.525f);
++				break;
++			case 'n':
++				glVertex2f(0.400f, 0.600f);
++				glVertex2f(0.475f, 0.600f);
++				glVertex2f(0.600f, 0.175f);
++				glVertex2f(0.600f, 0.100f);
++				glVertex2f(0.525f, 0.100f);
++				glVertex2f(0.400f, 0.525f);
++				break;
++		}
++		glEnd();
++		segments++;
++	}
++}
++
++static void load_segments_font(void)
++{
++	int i=0;
++	glGenLists ((GLuint) 39);
++	while (number_segments[i] != NULL)
++	{
++		glNewList(i+'0'+MYLIST,GL_COMPILE);
++			draw_segments(number_segments[i++]);
++			glTranslatef (1.0f, 0.0f, 0.0f);
++		glEndList();
++	}
++
++	i=0;
++	while (char_segments[i] != NULL)
++	{
++		glNewList(i+'A'+MYLIST,GL_COMPILE);
++			draw_segments(char_segments[i++]);
++			glTranslatef(1.0f, 0.0f, 0.0f);
++		glEndList();
++	}
++
++	glNewList(' '+MYLIST,GL_COMPILE);
++		glTranslatef(1.0f, 0.0f, 0.0f);
++	glEndList();
++
++	glNewList(':'+MYLIST,GL_COMPILE);
++		glBegin(GL_POLYGON);
++			glVertex2f(0.15f, 0.90f);
++			glVertex2f(0.25f, 0.90f);
++			glVertex2f(0.25f, 1.00f);
++			glVertex2f(0.15f, 1.00f);
++		glEnd();
++		glBegin(GL_POLYGON);
++			glVertex2f(0.15f, 0.30f);
++			glVertex2f(0.25f, 0.30f);
++			glVertex2f(0.25f, 0.40f);
++			glVertex2f(0.15f, 0.40f);
++		glEnd();
++		glTranslatef (0.650f, 0.0f, 0.0f);
++	glEndList();
++}
++
++static void draw_string(float x, float y, char *fmt, ...)
++{
++	char buffer[64];
++	va_list args;
++	va_start(args, fmt);
++	
++	vsprintf(buffer, fmt, args);
++	va_end(args);
++	
++	glPushMatrix();
++		glTranslatef(x, y, 0.0f);
++		glListBase(MYLIST);
++		glCallLists(strlen(buffer), GL_UNSIGNED_BYTE, buffer);
++	glPopMatrix();
++}
++
++static void draw_stack(tetrisstruct *env)
++{
++	int i, j;
++
++	for(j=0; j<HEIGHT; j++)
++	{
++		for(i=0; i<WIDTH; i++)
++		{
++			if(env->stack[i][j])
++			{
++				draw_square(i,j,env->stack[i][j]);
++			}
++			else if(i>=env->current_piece.i && i<(env->current_piece.i+4) && j>=env->current_piece.j && j<(env->current_piece.j+4) )
++			{
++				if(env->current_piece.blocks[i-env->current_piece.i][j-env->current_piece.j])
++				{
++					draw_square(i,j,env->current_piece.blocks[i-env->current_piece.i][j-env->current_piece.j]);
++				}
++			}
++		}
++	}
++	
++	for(i=0; i<4; i++)
++	{
++		for(j=0; j<4; j++)
++		{
++			if(env->next_piece.blocks[i][j])
++			{
++				draw_square(13+i, j, env->next_piece.blocks[i][j]);
++			}
++		}
++	}
++
++}
++
++ENTRYPOINT void reshape_tetris (ModeInfo *mi, int w, int h){
++	float ratio;
++
++	/* Prevent a divide by zero, when window is too short
++	 (you cant make a window of zero width).*/
++	if(h == 0)
++		h = 1;
++
++	ratio = 1.0* w / h;
++
++	/* Reset the coordinate system before modifying*/
++	glMatrixMode(GL_PROJECTION);
++	glLoadIdentity();
++
++	/* Set the viewport to be the entire window*/
++	glViewport(0, 0, w, h);
++
++	/* Set the correct perspective.*/
++	gluPerspective(45.0f,ratio,-100.0f,2.0f);
++	glMatrixMode(GL_MODELVIEW);
++	glLoadIdentity();
++	glTranslated(0.0f, 0.0f, -32.0f);
++}
++
++ENTRYPOINT void init_tetris(ModeInfo *mi)
++{
++	tetrisstruct *env;
++
++	if (!tetris)
++	{
++		tetris=calloc (MI_NUM_SCREENS(mi), sizeof(tetrisstruct));
++	}
++	env = &tetris[MI_SCREEN(mi)];
++	env->glx_context = init_GL(mi);
++	reshape_tetris(mi, MI_WIDTH(mi), MI_HEIGHT(mi));
++	
++	glEnable(GL_DEPTH_TEST);
++	
++	load_segments_font();
++
++	env->end=-1;
++	env->newPhase=0;
++	env->game_time=time(NULL);
++	
++	memset(env->stack, 0, WIDTH*HEIGHT*sizeof(int));
++	memset(env->tmp_stack, 0, WIDTH*HEIGHT*sizeof(int));
++}
++
++ENTRYPOINT void release_tetris(ModeInfo * mi) 
++{
++	if (tetris)
++	{
++		free((void *) tetris);
++		tetris = (tetrisstruct *) NULL;
++	}
++	FreeAllGL(mi);
++}
++
++ENTRYPOINT void draw_tetris(ModeInfo *mi)
++{
++	int i,j;
++	unsigned int curtime;
++
++	Display *dpy = MI_DISPLAY(mi);
++	Window window = MI_WINDOW(mi);
++	
++	glXMakeCurrent(MI_DISPLAY(mi), MI_WINDOW(mi), *(tetris->glx_context));
++	if (!tetris->end)
++	{
++		tetris->end=next(tetris);
++	}
++	else
++	{
++		tetris->newPhase++;
++	}
++	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++	glDisable(GL_DEPTH_TEST);
++	glPushMatrix();
++	glColor3f(0.5f, 0.5f, 0.5f);
++
++
++	glBegin(GL_POLYGON);
++		glVertex2f(( -6.0)-SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( -6.0)+SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( -6.0)+SQUARE_SIZE, -( 11.0)-SQUARE_SIZE);
++		glVertex2f(( -6.0)-SQUARE_SIZE, -( 11.0)-SQUARE_SIZE);
++	glEnd();
++	glBegin(GL_POLYGON);
++		glVertex2f(( 5.0)-SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 5.0)+SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 5.0)+SQUARE_SIZE, -( 11.0)-SQUARE_SIZE);
++		glVertex2f(( 5.0)-SQUARE_SIZE, -( 11.0)-SQUARE_SIZE);
++	glEnd();
++	glBegin(GL_POLYGON);
++		glVertex2f(( -6.0)-SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f((  5.0)+SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f((  5.0)+SQUARE_SIZE, -( -12.0)-SQUARE_SIZE);
++		glVertex2f(( -6.0)-SQUARE_SIZE, -( -12.0)-SQUARE_SIZE);
++	glEnd();
++	glBegin(GL_POLYGON);
++		glVertex2f((  5.0)-SQUARE_SIZE, -( 11.0)+SQUARE_SIZE);
++		glVertex2f(( -6.0)+SQUARE_SIZE, -( 11.0)+SQUARE_SIZE);
++		glVertex2f(( -6.0)+SQUARE_SIZE, -( 11.0)-SQUARE_SIZE);
++		glVertex2f((  5.0)-SQUARE_SIZE, -( 11.0)-SQUARE_SIZE);
++	glEnd();
++
++	glBegin(GL_POLYGON);
++		glVertex2f(( 7.0)-SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 7.0)+SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 7.0)+SQUARE_SIZE, -(  -7.0)-SQUARE_SIZE);
++		glVertex2f(( 7.0)-SQUARE_SIZE, -(  -7.0)-SQUARE_SIZE);
++	glEnd();
++	glBegin(GL_POLYGON);
++		glVertex2f(( 12.0)-SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 12.0)+SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 12.0)+SQUARE_SIZE, -(  -7.0)-SQUARE_SIZE);
++		glVertex2f(( 12.0)-SQUARE_SIZE, -(  -7.0)-SQUARE_SIZE);
++	glEnd();
++	glBegin(GL_POLYGON);
++		glVertex2f((  7.0)-SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 12.0)+SQUARE_SIZE, -( -12.0)+SQUARE_SIZE);
++		glVertex2f(( 12.0)+SQUARE_SIZE, -( -12.0)-SQUARE_SIZE);
++		glVertex2f((  7.0)-SQUARE_SIZE, -( -12.0)-SQUARE_SIZE);
++	glEnd();
++	glBegin(GL_POLYGON);
++		glVertex2f(( 12.0)-SQUARE_SIZE, -( -7.0)+SQUARE_SIZE);
++		glVertex2f((  7.0)+SQUARE_SIZE, -( -7.0)+SQUARE_SIZE);
++		glVertex2f((  7.0)+SQUARE_SIZE, -( -7.0)-SQUARE_SIZE);
++		glVertex2f(( 12.0)-SQUARE_SIZE, -( -7.0)-SQUARE_SIZE);
++	glEnd();
++
++	if (tetris->newPhase)
++	{
++		if (tetris->newPhase > 44)
++		{
++			tetris->score=0;
++			tetris->totline=0;
++			tetris->newPhase=0;
++			tetris->end=0;
++			tetris->game_time=time(NULL);
++			memset(tetris->stack, 0, sizeof(tetris->stack));
++			new_piece(&(tetris->current_piece));
++			new_piece(&(tetris->next_piece));
++		}
++		else if (tetris->newPhase>HEIGHT)
++		{
++			for (j=0; j < (tetris->newPhase-HEIGHT); j++)
++			{
++				for (i=0; i<WIDTH; i++)
++				{
++					draw_square(i, j, 0);
++				}
++			}
++			for (; j<HEIGHT; j++)
++			{
++				for (i=0; i<WIDTH; i++)
++				{
++					draw_square(i, j, 1);
++				}
++			}
++		}
++		else
++		{
++			for (j=HEIGHT-1; j >= (HEIGHT-tetris->newPhase); j--)
++			{
++				for (i=0; i < WIDTH; i++)
++				{
++					draw_square(i, j, 1);
++				}
++			}
++		}
++	}
++	draw_stack(tetris);
++
++	curtime = time(NULL) - tetris->game_time;
++	
++	glColor3f(0.5f, 0.5f, 0.5f);
++	draw_string(7.0f, 4.0f, "SCORE");
++	glColor3f(0.0f, 1.0f, 0.0f);
++	draw_string(7.3f, 2.0f, "% 7d", tetris->score);
++
++	glColor3f(0.5f, 0.5f, 0.5f);
++	draw_string(7.0f, -2.0f, "LINES");
++	glColor3f(0.0f, 1.0f, 0.0f);
++	draw_string(7.3f, -4.0f, "% 7d", tetris->totline);
++
++	glColor3f(0.5f, 0.5f, 0.5f);
++	draw_string(7.0f, -8.0f, "TIME");
++	glColor3f(0.0f, 1.0f, 0.0f);
++	draw_string(7.0f, -10.0f, "%.2u:%.2u:%.2u", curtime/3600, (curtime%3600)/60, curtime%60);
++
++	glPopMatrix();
++
++	if (MI_IS_FPS(mi)) do_fps (mi);
++
++	glXSwapBuffers(dpy, window);
++}
++
++ENTRYPOINT Bool tetris_handle_event (ModeInfo *mi, XEvent *event)
++{
++	return False;
++}
++
++XSCREENSAVER_MODULE ("Tetris", tetris)
+diff -ruN xscreensaver-5.26.orig/hacks/glx/tetris.h xscreensaver-5.26/hacks/glx/tetris.h
+--- xscreensaver-5.26.orig/hacks/glx/tetris.h	1970-01-01 01:00:00.000000000 +0100
++++ xscreensaver-5.26/hacks/glx/tetris.h	2013-10-14 22:03:13.000000000 +0200
+@@ -0,0 +1,164 @@
++/* tetris, Copyright (c) 2013 Vivien HENRIET <bubuabu@bubuabu.org>
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that
++ * copyright notice and this permission notice appear in supporting
++ * documentation.  No representations are made about the suitability of this
++ * software for any purpose.  It is provided "as is" without express or 
++ * implied warranty.
++ */
++
++#include "time.h"
++
++typedef enum {RIGHT, LEFT, DOWN, ROT} t_direction;
++typedef enum {BLACK, RED, BLUE, BROWN, MAJ, WHITE, CYAN, GREEN} t_color;
++
++#define HEIGHT	22
++#define WIDTH	10
++
++#define SQUARE_SIZE	0.45f
++
++#define MYLIST	5000
++
++static char *number_segments[] =
++{
++	"abcdef",	/*0*/
++	"bc",		/*1*/
++	"abdegh",	/*2*/
++	"abcdgh",	/*3*/
++	"bcfgh",	/*4*/
++	"acdfgh",	/*5*/
++	"acdefgh",	/*6*/
++	"abc",		/*7*/
++	"abcdefgh",	/*8*/
++	"abcdfgh",	/*9*/
++	NULL
++};
++
++static char *char_segments[] =
++{
++	"abcefgh",	/*A*/
++	"cdefgh",	/*B*/
++	"adef",		/*C*/
++	"bcdegh",	/*D*/
++	"adefgh",	/*E*/
++	"aefg",		/*F*/
++	"acdefh",	/*G*/
++	"bcefgh",	/*H*/
++	"ij",		/*I*/
++	"bcde",		/*J*/
++	"efgln",	/*K*/
++	"def",		/*L*/
++	"bcefkl",	/*M*/
++	"bcefkn",	/*N*/
++	"abcdef",	/*O*/
++	"abefgh",	/*P*/
++	"abcdefn",	/*Q*/
++	"abefghn",	/*R*/
++	"acdfgh",	/*S*/
++	"aij",		/*T*/
++	"bcdef",	/*U*/
++	"eflm",		/*V*/
++	"bcefmn",	/*W*/
++	"klmn",		/*X*/
++	"jkl",		/*Y*/
++	"adlm",		/*Z*/
++	NULL
++};
++
++static int lbl[7][4][4] =
++{
++	{	/*RED I - 1*/
++		{0,0,1,0},
++		{0,0,1,0},
++		{0,0,1,0},
++		{0,0,1,0}
++	},
++	{	/*BLUE O - 2*/
++		{0,0,0,0},
++		{0,6,6,0},
++		{0,6,6,0},
++		{0,0,0,0}
++	},
++	{	/*BROWN T - 3*/
++		{0,2,0,0},
++		{0,2,2,0},
++		{0,2,0,0},
++		{0,0,0,0}
++	},
++	{	/*MAJ L - 4*/
++		{0,3,0,0},
++		{0,3,0,0},
++		{0,3,3,0},
++		{0,0,0,0}
++	},
++	{	/*WHITE J - 5*/
++		{0,0,4,0},
++		{0,0,4,0},
++		{0,4,4,0},
++		{0,0,0,0}
++	},
++	{	/*CYAN Z - 6*/
++		{0,7,7,0},
++		{0,0,7,7},
++		{0,0,0,0},
++		{0,0,0,0}
++	},
++	{	/*GREEN S - 7*/
++		{0,0,5,5},
++		{0,5,5,0},
++		{0,0,0,0},
++		{0,0,0,0}
++	}
++};
++
++typedef struct
++{
++	int r;
++	int t;
++	int ready;
++	int r2;
++	int t2;
++} t_move;
++
++typedef struct
++{
++	int blocks[4][4];
++	int i;
++	int j;
++	t_move moves;
++} t_piece;
++
++typedef struct
++{
++	int score;
++	int totline;
++	t_piece current_piece;
++	t_piece next_piece;
++	int end;
++	int newPhase;
++	int stack[WIDTH][HEIGHT];
++	int tmp_stack[WIDTH][HEIGHT];
++	time_t game_time;
++	GLXContext *glx_context;
++} tetrisstruct;
++
++static int count_holes_shadowed(int stack[WIDTH][HEIGHT]);
++static int count_stack_height(int stack[WIDTH][HEIGHT], t_piece *piece);
++static int count_well_depth(int stack[WIDTH][HEIGHT]);
++static int count_line_transition(int stack[WIDTH][HEIGHT]);
++static int count_row_transition(int stack[WIDTH][HEIGHT]);
++static int compute_score(tetrisstruct *env, t_piece *piece);
++static void compute_best_move(tetrisstruct *env, t_move *best_move);
++static int check_collision(int stack[WIDTH][HEIGHT], t_piece *piece);
++static void copy_piece(t_piece *dest, t_piece *src);
++static void new_piece(t_piece *piece);
++static int fix_piece(tetrisstruct *env, t_piece *piece, int tmp);
++static int move(int stack[WIDTH][HEIGHT], t_piece *piece, t_direction direction);
++static int next(tetrisstruct *env);
++static void draw_square(int x, int y, t_color color);
++static void draw_segments(char *segments);
++static void load_segments_font(void);
++static void draw_string(float x, float y, char *fmt, ...);
++static void draw_stack(tetrisstruct *env);
+diff -ruN xscreensaver-5.26.orig/hacks/glx/tetris.man xscreensaver-5.26/hacks/glx/tetris.man
+--- xscreensaver-5.26.orig/hacks/glx/tetris.man	1970-01-01 01:00:00.000000000 +0100
++++ xscreensaver-5.26/hacks/glx/tetris.man	2013-10-20 16:40:06.000000000 +0200
+@@ -0,0 +1,53 @@
++.TH XScreenSaver 1 "October 2013"
++.SH NAME
++tetris \- tetris screensaver
++.SH SYNOPSIS
++.B tetris
++[\-display \fIhost:display.screen\fP] [\-window] [\-root] [\-install]
++[\-visual \fIvisual\fP] [\-delay \fImicroseconds\fP] [\-fps]
++.SH DESCRIPTION
++\fItetris\fP screensaver.
++.SH OPTIONS
++.I tetris
++accepts the following options:
++.TP 8
++.B \-window
++Draw on a newly-created window.  This is the default.
++.TP 8
++.B \-root
++Draw on the root window.
++.TP 8
++.B \-install
++Install a private colormap for the window.
++.TP 8
++.B \-visual \fIvisual\fP\fP
++Specify which visual to use.  Legal values are the name of a visual class,
++or the id number (decimal or hex) of a specific visual.
++.TP 8
++.B \-fps
++Display the current frame rate, CPU load, and polygon count.
++.SH ENVIRONMENT
++.PP
++.TP 8
++.B DISPLAY
++to get the default host and display number.
++.TP 8
++.B XENVIRONMENT
++to get the name of a resource file that overrides the global resources
++stored in the RESOURCE_MANAGER property.
++.SH SEE ALSO
++.BR X (1),
++.BR xscreensaver (1)
++.BR xscreensaver\-demo (1),
++.BR xscreensaver\-getimage (1)
++.SH COPYRIGHT
++Copyright \(co 2013 by Vivien HENRIET.  Permission to use, copy, modify,
++distribute, and sell this software and its documentation for any purpose is
++hereby granted without fee, provided that the above copyright notice appear
++in all copies and that both that copyright notice and this permission notice
++appear in supporting documentation.  No representations are made about the
++suitability of this software for any purpose.  It is provided "as is" without
++express or implied warranty.
++.SH AUTHOR
++Vivien HENRIET <bubuabu@bubuabu.org>, 1-October-2013.
++ 
+
+diff -ruN xscreensaver-5.26.orig/driver/XScreenSaver.ad.in xscreensaver-5.26/driver/XScreenSaver.ad.in
+--- xscreensaver-5.26.orig/driver/XScreenSaver.ad.in	2013-12-09 12:01:40.000000000 +0100
++++ xscreensaver-5.26/driver/XScreenSaver.ad.in	2014-03-08 22:17:15.843647589 +0100
+@@ -360,8 +360,8 @@
+ 				hexadrop -root				    \n\
+ @GL_KLUDGE@ GL: 				kaleidocycle -root			    \n\
+ @GL_KLUDGE@ GL: 				quasicrystal -root			    \n\
+-@GL_KLUDGE@ GL: 				unknownpleasures -root			    \n
+-
++@GL_KLUDGE@ GL: 				unknownpleasures -root			    \n\
++@GL_KLUDGE@ GL:					tetris -root				    \n
+ 
+ 
+ !=============================================================================
+@@ -502,6 +502,7 @@
+ *hacks.whirlwindwarp.name:  WhirlWindWarp
+ *hacks.xanalogtv.name:      XAnalogTV
+ *hacks.xrayswarm.name:      XRaySwarm
++*hacks.tetris.name:         Tetris
+ 
+ ! obsolete, but still used by xscreensaver-demo-Xm.
+ *hacks.documentation.isInstalled: True
+

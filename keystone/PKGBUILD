@@ -3,7 +3,7 @@
 pkgbase=keystone
 pkgname=keystone
 true && pkgname=('keystone' 'python2-keystone')
-pkgver=2013.2
+pkgver=2013.2.2
 pkgrel=1
 pkgdesc="OpenStack Identity"
 epoch=$(date +%Y%m%d)
@@ -14,9 +14,9 @@ depends=('python2' 'python2-setuptools')
 makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslo-sphinx')
 options=('emptydirs')
 install=keystone.install
-source=("$url/havana/2013.2/+download/$pkgbase-$pkgver.tar.gz"
+source=("$url/havana/2013.2.2/+download/$pkgbase-$pkgver.tar.gz"
         "keystone.service")
-md5sums=('0417878ca3418ac7b552b28330987fac'
+md5sums=('16ec7345796e0b951614812a88b39239'
          'c3ddbede14b4c937c3da77c81b817345')
 
 build() {
@@ -62,11 +62,11 @@ package_keystone() {
 
 package_python2-keystone() {
   pkgdesc+=" - Python library"
-  depends=('python2-babel>=0.9.6'
+  depends=('python2-babel>=1.3'
            'python2-dogpile-cache>=0.5.0'
            'python2-eventlet>=0.13.0'
            'python2-greenlet>=0.3.2'
-           'python2-iso8601>=0.1.4'
+           'python2-iso8601>=0.1.8'
            'python2-keystoneclient>=0.3.2'
            'python2-lxml>=2.3'
            'python2-netaddr'
@@ -83,7 +83,7 @@ package_python2-keystone() {
            'python2-webob>=1.2.3'
            'python2-webob<1.3.0')
   optdepends=('python2-pysqlite: optional backend'
-              'python2-memcached: optional backend'
+              'python2-memcached>=1.48: optional backend'
               'python2-ldap=2.3.13: optional backend')
 
   cd tmp

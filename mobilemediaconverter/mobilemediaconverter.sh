@@ -1,5 +1,6 @@
 #!/bin/sh
-export LD_LIBRARY_PATH=/usr/share/mobilemediaconverter/lib
-/usr/share/mobilemediaconverter/lib/mmc "$@"
+export LD_LIBRARY_PATH=/usr/lib/mobilemediaconverter
+cd "/usr/share/mobilemediaconverter"
+/usr/lib/mobilemediaconverter/mmc "$@"
 
 #./mobilemediaconverter

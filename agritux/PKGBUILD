@@ -1,8 +1,8 @@
 # Maintainer: Jean-Noël Rouchon <mail@mithril.re>
 
 pkgname=agritux
-pkgver=0.4.3
-pkgrel=2
+pkgver=0.4.4
+pkgrel=1
 pkgdesc="Logiciel de gestion d'exploitations agricoles"
 arch=('any')
 url="http://agritux.net"
@@ -22,14 +22,13 @@ depends=('ruby'
 				 )
 options=()
 
-source=('http://public.mithril.re/agritux/agritux-0.4.3.tar.gz')
-md5sums=('a4a867a87a1a714f90f5e969e53bbbc2')
+source=('http://public.mithril.re/agritux/agritux-0.4.4.tar.gz')
+md5sums=('1c75785ecef040bd340f3312689ec52e')
 
 package() {
   cd ${srcdir}/$pkgname-$pkgver
   install -D -m755 agritux $pkgdir/usr/bin/agritux
   install -D -m755 agritux.desktop $pkgdir/usr/share/applications/agritux.desktop
-  install -D -m644 LICENSE $pkgdir/usr/share/licenses/$pkgname/LICENSE
   install -dm755 $pkgdir/usr/share/$pkgname/src/resources/articles
   install -dm755 $pkgdir/usr/share/$pkgname/src/resources/cultures
   install -dm755 $pkgdir/usr/share/$pkgname/src/resources/fonts
@@ -45,4 +44,5 @@ package() {
   install -D -m644 src/i18n/*.* $pkgdir/usr/share/$pkgname/src/i18n/
   install -D -m644 db/*.* $pkgdir/usr/share/$pkgname/db/
   install -D -m644 db/migrate/*.* $pkgdir/usr/share/$pkgname/db/migrate/
+  install -D -m644 LICENSE $pkgdir/usr/share/$pkgname/
 }

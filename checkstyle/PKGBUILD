@@ -2,9 +2,9 @@
 
 pkgname='checkstyle'
 pkgver='5.7'
-pkgrel=1
+pkgrel=2
 pkgdesc='Checkstyle is a development tool to help programmers write Java code that adheres to a coding standard'
-depends=('jdk7-openjdk')
+depends=('java-environment')
 arch=('i686' 'x86_64')
 license=('LGPL2')
 url='http://checkstyle.sourceforge.net'
