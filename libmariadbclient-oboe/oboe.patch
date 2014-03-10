@@ -1,0 +1,358 @@
+--- mariadb-5.5.36.old/libmysql/CMakeLists.txt	2014-03-09 00:00:54.816435907 -0500
++++ mariadb-5.5.36/libmysql/CMakeLists.txt	2014-03-09 00:01:43.373100855 -0500
+@@ -335,7 +335,7 @@ ADD_CONVENIENCE_LIBRARY(clientlib ${CLIE
+ DTRACE_INSTRUMENT(clientlib)
+ ADD_DEPENDENCIES(clientlib GenError)
+ 
+-SET(LIBS clientlib dbug strings vio mysys ${ZLIB_LIBRARY} ${SSL_LIBRARIES} ${LIBDL})
++SET(LIBS clientlib dbug strings vio mysys ${ZLIB_LIBRARY} ${SSL_LIBRARIES} ${LIBDL} oboe)
+ 
+ # Merge several convenience libraries into one big mysqlclient
+ # and link them together into shared library.
+--- mariadb-5.5.36.old/libmysqld/CMakeLists.txt	2014-03-09 00:00:54.769769242 -0500
++++ mariadb-5.5.36/libmysqld/CMakeLists.txt	2014-03-09 00:01:15.189768520 -0500
+@@ -118,7 +118,7 @@ SET(LIBS
+   ${ZLIB_LIBRARY} ${SSL_LIBRARIES} 
+   ${LIBWRAP} ${LIBCRYPT} ${LIBDL}
+   ${MYSQLD_STATIC_PLUGIN_LIBS}
+-  sql_embedded
++  sql_embedded oboe
+ )
+ 
+ # Some storage engine were compiled for embedded specifically
+--- mariadb-5.5.36.old/sql-common/client.c	2014-03-09 00:00:54.776435908 -0500
++++ mariadb-5.5.36/sql-common/client.c	2014-03-09 00:07:28.493088640 -0500
+@@ -114,6 +114,7 @@ my_bool	net_flush(NET *net);
+ #include <mysql/client_plugin.h>
+ #include <my_context.h>
+ #include <mysql_async.h>
++#include <oboe/oboe.h>
+ 
+ #define native_password_plugin_name "mysql_native_password"
+ #define old_password_plugin_name    "mysql_old_password"
+@@ -143,6 +144,14 @@ CHARSET_INFO *default_client_charset_inf
+ unsigned int mysql_server_last_errno;
+ char mysql_server_last_error[MYSQL_ERRMSG_SIZE];
+ 
++#ifdef MYSQL_CLIENT
++/* Oboe prototypes */
++void mysql_oboe_trace_entry (const char *action, const char *arg, ulong length);
++void mysql_oboe_trace_exit  (const char *action, MYSQL *);
++int mysql_oboe_init_trace  ();
++oboe_metadata_t *mysql_oboe_get_metadata ();
++#endif /* MYSQL_CLIENT */
++
+ /****************************************************************************
+   A modified version of connect().  my_connect() allows you to specify
+   a timeout value, in seconds, that we should wait until we
+@@ -1355,7 +1364,7 @@ void mysql_read_default_options(struct s
+           if ((options->protocol= find_type(opt_arg, &sql_protocol_typelib,
+                                             FIND_TYPE_BASIC)) <= 0)
+           {
+-            fprintf(stderr, "Unknown option to protocol: %s\n", opt_arg);
++            fprintf(stdout, "Unknown option to protocol: %s\n", opt_arg);
+             exit(1);
+           }
+           break;
+@@ -3902,6 +3911,9 @@ get_info:
+ 		       mysql->server_status, mysql->warning_count));
+     if (pos < mysql->net.read_pos+length && net_field_length(&pos))
+       mysql->info=(char*) pos;
++#ifdef MYSQL_CLIENT
++    mysql_oboe_trace_exit("mysql_send_query", mysql);
++#endif /* MYSQL_CLIENT */
+     DBUG_RETURN(0);
+   }
+ #ifdef MYSQL_CLIENT
+@@ -3933,10 +3945,225 @@ get_info:
+   mysql->status= MYSQL_STATUS_GET_RESULT;
+   mysql->field_count= (uint) field_count;
+   DBUG_PRINT("exit",("ok"));
++#ifdef MYSQL_CLIENT
++  mysql_oboe_trace_exit("mysql_send_query", mysql);
++#endif /* MYSQL_CLIENT */
+   DBUG_RETURN(0);
+ }
+ 
+ 
++#ifdef MYSQL_CLIENT
++oboe_reporter_t oboe_r;
++/*
++  Check if we have a valid context and initialize a
++  reporter if necessary.  Returns 1 if we would need
++  to start a new trace, 0 if one is already in 
++  progress before libmysql, and -1 on error.
++*/
++int mysql_oboe_init_trace() {
++    static int lock = 0;
++    static int oboe_initialized = 0;
++
++    if (!oboe_initialized) {
++        while (!__sync_bool_compare_and_swap(&lock, 0, 1));
++
++        if (oboe_initialized) {
++            lock = 0;
++            goto post_init;
++        }
++
++        oboe_initialized = 1;
++        oboe_init();
++        if (oboe_reporter_udp_init(&oboe_r, "127.0.0.1", "7831") < 0) {
++            lock = 0;
++            return -1;
++        }
++        lock = 0;
++    }
++post_init:
++   return !oboe_context_is_valid(); 
++}
++
++/*
++  Send a(n) start/entry event with the given params.
++  action: mysql API name (e.g. "mysql_send_query", "mysql_store_result")
++  arg, length: a single binary-OK arg (e.g. query)
++*/
++void mysql_oboe_trace_entry(const char *action, 
++							const char *arg, ulong length) {
++  int start_trace = mysql_oboe_init_trace();
++  const size_t max_query_size = 2048;
++
++  if (start_trace < 0)
++    return;
++
++  oboe_metadata_t *md;
++  oboe_event_t evt;
++  if ((md = mysql_oboe_get_metadata()) != NULL) {
++    if (oboe_event_init(&evt, md) < 0)
++      return;
++
++    oboe_event_add_info(&evt, "Label", "entry");
++    oboe_event_add_info(&evt, "Layer", "libmysql"); //TODO: version info?
++    if (action)
++        oboe_event_add_info(&evt, "Action", action);
++    oboe_event_add_info_binary(&evt, "Query", arg, 
++			       (size_t)length > max_query_size ? max_query_size : (size_t)length);
++
++    // TODO: error
++    if (!start_trace)
++        oboe_event_add_edge(&evt, md);
++
++    oboe_reporter_send(&oboe_r, md, &evt);
++
++    oboe_event_destroy(&evt);
++  }
++}
++
++//
++// start copypaste from php_oboe/wrap.c as of 810fa2e80b79ce7cd009b48bb9ad8d50f4e2ac9a
++//
++
++/* converts mysql "host info" string to a hostname */
++#define LOCALHOST_STR "localhost"
++int hostinfo_to_hostname(const char *host_info, const char **hostname,
++                         size_t *len) {
++    // decide which of the four connections types this host_info string
++    // represents, and parse accordingly.  not scanf-style matching
++    // on patterns because they vary slightly in non-english versions and
++    // are subject to change.
++
++    int ret = -1;
++
++    // 1. unix socket connection, e.g. "Localhost via UNIX socket"
++    //    match if starts with "Localhost"
++    if (!strncmp(host_info, "Localhost", strlen("Localhost"))) {
++        ret = 0;
++        *hostname = LOCALHOST_STR;
++        *len = strlen(LOCALHOST_STR);
++    }
++
++    // 2. shared memory connection, e.g. "Shared memory: %-.100s"
++    //    match if starts with "Shared memory"
++    else if (!strncmp(host_info, "Shared memory", strlen("Shared memory"))) {
++        ret = 0;
++        *hostname = LOCALHOST_STR;
++        *len = strlen(LOCALHOST_STR);
++    }
++
++    // 3. named pipe connection, e.g. "Named pipe: %-.32s"
++    //    match if contains "Named pipe" or "Named Pipe"
++    else if (0) {
++        // host_info is set to this to only in windows as of 5.5 (and
++        // windows supports network pipes?), give up
++    }
++
++    // 4. tcp connection, e.g. "%-.100s via TCP/IP"
++    //    match if contains "TCP/IP"
++    else if (strstr(host_info, "TCP/IP")) {
++        char *c;
++        if ((c = index(host_info, ' ')) && c != host_info) {
++            ret = 0;
++            *hostname = host_info;
++            *len = c - host_info;
++        }
++        else {
++            // give up
++        }
++    }
++
++    else {
++        // give up
++    }
++
++    return ret;
++}
++
++//
++// end copypaste from php_oboe/wrap.c
++//
++
++/*
++  Send an exit event with the given params.
++*/
++void mysql_oboe_trace_exit(const char *action, MYSQL* mysql) {
++  int start_trace = mysql_oboe_init_trace();
++  /* don't send an exit if we won't have an entry or error */
++  if (start_trace != 0)
++    return;
++
++  oboe_metadata_t *md;
++  oboe_event_t evt;
++  if ((md = mysql_oboe_get_metadata()) != NULL) {
++
++    if (oboe_event_init(&evt, md) < 0)
++        return;
++
++    oboe_event_add_info(&evt, "Label", "exit");
++    oboe_event_add_info(&evt, "Layer", "libmysql"); //TODO: version info?
++	if (action)
++		oboe_event_add_info(&evt, "Action", action);
++
++    // get remote host from mysql_get_host_info() (XXX use mysql->host instead?)
++    const char *host_info = mysql_get_host_info(mysql);
++    const char *remote_host;
++    size_t remote_host_len;
++    if (host_info && hostinfo_to_hostname(host_info, &remote_host, &remote_host_len) != -1) {
++        oboe_event_add_info_binary(&evt, "RemoteHost", remote_host, remote_host_len);
++    }
++
++    if (mysql->db) // or perhaps use mysql->db ?
++		oboe_event_add_info(&evt, "Database", mysql->db);
++
++    oboe_event_add_info(&evt, "No-good-index-used",
++        mysql->server_status & SERVER_QUERY_NO_GOOD_INDEX_USED ? "True" : "False");
++    oboe_event_add_info(&evt, "No-index-used",
++        mysql->server_status & SERVER_QUERY_NO_INDEX_USED ? "True" : "False");
++
++	if (mysql->affected_rows != ~(my_ulonglong)0) {
++		oboe_event_add_info_fmt(&evt, "Affected-Rows", "%llu", 
++								mysql->affected_rows);
++	}
++
++    oboe_event_add_edge(&evt, md);
++
++    oboe_reporter_send(&oboe_r, md, &evt);
++
++    oboe_event_destroy(&evt);
++  }
++}
++
++/*
++  Decides whether or not to trace.  If tracing, return a valid metadata
++  pointer.  If not, return NULL.
++*/
++
++oboe_metadata_t *mysql_oboe_get_metadata() {
++  oboe_metadata_t *md;
++  char *trace_mode = getenv("LIBMYSQL_OBOE");
++
++  if (trace_mode == NULL) {
++    trace_mode = "through";
++  }
++
++  /* decide whether to trace or not.  if not, goto sql_query */
++  if (oboe_context_is_valid() && strcmp(trace_mode, "never")) {
++    md = oboe_context_get();
++  }
++  else if (!strcmp(trace_mode, "always")) {
++    // NB: The metadata returned by oboe_context_get() has been init()'d
++    md = oboe_context_get();
++    oboe_metadata_random(md);
++  }
++  else {
++    md = NULL;
++  } 
++
++  return md;
++}
++#endif /* MYSQL_CLIENT */
++
++
+ /*
+   Send the query and return so we can do something else.
+   Needs to be followed by mysql_read_query_result() when we want to
+@@ -3947,6 +4174,11 @@ int STDCALL
+ mysql_send_query(MYSQL* mysql, const char* query, ulong length)
+ {
+   DBUG_ENTER("mysql_send_query");
++
++#ifdef MYSQL_CLIENT
++  mysql_oboe_trace_entry("mysql_send_query", query, length);
++#endif /* MYSQL_CLIENT */
++
+   DBUG_RETURN(simple_command(mysql, COM_QUERY, (uchar*) query, length, 1));
+ }
+ 
+@@ -3974,11 +4206,23 @@ MYSQL_RES * STDCALL mysql_store_result(M
+   MYSQL_RES *result;
+   DBUG_ENTER("mysql_store_result");
+ 
++#ifdef MYSQL_CLIENT
++  mysql_oboe_trace_entry("mysql_store_result", NULL, 0);
++#endif
++
+   if (!mysql->fields)
++  {
++#ifdef MYSQL_CLIENT
++    mysql_oboe_trace_exit("mysql_store_result", mysql);
++#endif
+     DBUG_RETURN(0);
++  }
+   if (mysql->status != MYSQL_STATUS_GET_RESULT)
+   {
+     set_mysql_error(mysql, CR_COMMANDS_OUT_OF_SYNC, unknown_sqlstate);
++#ifdef MYSQL_CLIENT
++    mysql_oboe_trace_exit("mysql_store_result", mysql);
++#endif
+     DBUG_RETURN(0);
+   }
+   mysql->status=MYSQL_STATUS_READY;		/* server is ready */
+@@ -3988,6 +4232,9 @@ MYSQL_RES * STDCALL mysql_store_result(M
+ 				      MYF(MY_WME | MY_ZEROFILL))))
+   {
+     set_mysql_error(mysql, CR_OUT_OF_MEMORY, unknown_sqlstate);
++#ifdef MYSQL_CLIENT
++    mysql_oboe_trace_exit("mysql_store_result", mysql);
++#endif
+     DBUG_RETURN(0);
+   }
+   result->methods= mysql->methods;
+@@ -3997,6 +4244,9 @@ MYSQL_RES * STDCALL mysql_store_result(M
+ 	(*mysql->methods->read_rows)(mysql,mysql->fields,mysql->field_count)))
+   {
+     my_free(result);
++#ifdef MYSQL_CLIENT
++    mysql_oboe_trace_exit("mysql_store_result", mysql);
++#endif
+     DBUG_RETURN(0);
+   }
+   mysql->affected_rows= result->row_count= result->data->rows;
+@@ -4009,6 +4259,9 @@ MYSQL_RES * STDCALL mysql_store_result(M
+   clear_alloc_root(&mysql->field_alloc);
+   /* just in case this was mistakenly called after mysql_stmt_execute() */
+   mysql->unbuffered_fetch_owner= 0;
++#ifdef MYSQL_CLIENT
++    mysql_oboe_trace_exit("mysql_store_result", mysql);
++#endif
+   DBUG_RETURN(result);				/* Data fetched */
+ }
+ 
