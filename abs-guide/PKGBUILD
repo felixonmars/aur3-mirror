@@ -1,13 +1,13 @@
 # Maintainer: rtfreedman  (rob<d0t>til<d0t>freedman<aT>googlemail<d0t>com
 
 pkgname=abs-guide
-pkgver=6.6.17
+pkgver=10
 pkgrel=1
 pkgdesc="Advanced Bash Scripting HTML Guide"
 arch=(any)
 options=(!strip !zipman)
 url="http://bash.deta.in"
-license=('custom:"Open Publication License"')
+license=('PUBLIC DOMAIN')
 source=("http://bash.deta.in/${pkgname}-latest.tar.bz2"
 				"abs-guide" 
 				"abs-guide.desktop"
@@ -29,9 +29,5 @@ package() {
   # install helper app & desktop file
   install -D -m755 abs-guide "$pkgdir"/usr/bin/abs-guide
   install -D -m644 abs-guide.desktop	"$pkgdir"/usr/share/applications/abs-guide.desktop
-  # license
-  mkdir -p "$pkgdir"/usr/share/licenses/$pkgname
-  cd "$pkgdir"/usr/share/licenses/$pkgname
-  ln -s ../../doc/abs-guide/HTML/copyright.html copyright.html
 }
 
