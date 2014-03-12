@@ -1,7 +1,7 @@
 # Maintainer: kusakata <shohei atmark kusakata period com>
 
 pkgname=actionaz
-pkgver=3.7.0
+pkgver=3.8.0
 pkgrel=1
 pkgdesc="A task automation tool"
 arch=('i686' 'x86_64')
@@ -23,4 +23,4 @@ package() {
 	make INSTALL_ROOT="${pkgdir}" install
 }
 
-md5sums=('4dd1420d74d5d7dfa5f155b30bff0e21')
+md5sums=('2de84e361c0cfc8c39965f608111710b')

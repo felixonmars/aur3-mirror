@@ -1,0 +1,76 @@
+diff --git a/cpu/cpu.h b/cpu/cpu.h
+index 7bdc50a..6aa8c0a 100644
+--- a/cpu/cpu.h
++++ b/cpu/cpu.h
+@@ -1218,6 +1218,10 @@ public: // for now...
+   bx_guard_found_t guard_found;
+ #endif
+ 
++#if BX_GDBSTUB
++  Bit8u ispanic;
++#endif
++
+   // for paging
+   struct {
+     bx_TLB_entry entry[BX_TLB_SIZE] BX_CPP_AlignN(16);
+diff --git a/cpu/exception.cc b/cpu/exception.cc
+index b2c5f29..0b7fe1d 100644
+--- a/cpu/exception.cc
++++ b/cpu/exception.cc
+@@ -876,6 +876,15 @@ void BX_CPU_C::exception(unsigned vector, Bit16u error_code)
+       // trap into debugger (similar as done when PANIC occured)
+       bx_debug_break();
+ #endif
++
++#if BX_GDBSTUB
++      if (bx_dbg.gdbstub_enabled) {
++        fprintf(stderr, "Triple fault: stopping for gdb\n");
++        BX_CPU_THIS_PTR ispanic = 1;
++        longjmp(BX_CPU_THIS_PTR jmp_buf_env, 1);
++      }
++#endif
++
+       if (SIM->get_param_bool(BXPN_RESET_ON_TRIPLE_FAULT)->get()) {
+         BX_ERROR(("exception(): 3rd (%d) exception with no resolution, shutdown status is %02xh, resetting", vector, DEV_cmos_get_reg(0x0f)));
+         bx_pc_system.Reset(BX_RESET_HARDWARE);
+diff --git a/gdbstub.cc b/gdbstub.cc
+index 4dab988..f3779f8 100644
+--- a/gdbstub.cc
++++ b/gdbstub.cc
+@@ -477,8 +477,12 @@ static void debug_loop(void)
+         }
+ 
+         stub_trace_flag = 0;
++        bx_cpu.ispanic = 0;
+         bx_cpu.cpu_loop();
+-
++        if (bx_cpu.ispanic)
++        {
++          last_stop_reason = GDBSTUB_EXECUTION_BREAKPOINT;
++        }
+         SIM->refresh_vga();
+ 
+         if (buffer[1] != 0)
+@@ -519,19 +523,19 @@ static void debug_loop(void)
+ 
+         BX_INFO(("stepping"));
+         stub_trace_flag = 1;
++        bx_cpu.ispanic = 0;
+         bx_cpu.cpu_loop();
+         SIM->refresh_vga();
+         stub_trace_flag = 0;
+         BX_INFO(("stopped with %x", last_stop_reason));
+         buf[0] = 'S';
+-        if (last_stop_reason == GDBSTUB_EXECUTION_BREAKPOINT ||
+-            last_stop_reason == GDBSTUB_TRACE)
++        if (last_stop_reason == GDBSTUB_TRACE && !bx_cpu.ispanic)
+         {
+           write_signal(&buf[1], SIGTRAP);
+         }
+         else
+         {
+-          write_signal(&buf[1], SIGTRAP);
++          write_signal(&buf[1], SIGSEGV);
+         }
+         put_reply(buf);
+         break;

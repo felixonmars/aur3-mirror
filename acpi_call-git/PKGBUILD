@@ -1,6 +1,6 @@
 pkgname=acpi_call-git
 pkgver=1.1.0
-pkgrel=5
+pkgrel=6
 pkgdesc="kernel module that enables calls to ACPI methods through /proc/acpi/call. e.g. to turn off discrete graphics card in a dual graphics environment (like NVIDIA Optimus)"
 arch=('i686' 'x86_64')
 url=("http://github.com/mkottman/acpi_call")
@@ -65,7 +65,7 @@ package() {
   # Loop through all detected kernels
   for _kernver in ${_KERNELS}; do
     msg2 'Building module for '"${_kernver}"' ...'
-    make KDIR=/usr/src/linux-${_kernver}
+    make KDIR=/usr/lib/modules/${_kernver}/build
 
     # Loop through all detected extramodules directories
     for _moduledirs in ${_EXTRAMODULES}; do

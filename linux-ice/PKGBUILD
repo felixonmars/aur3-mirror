@@ -6,7 +6,7 @@
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.13
 pkgver=3.13.6
-pkgrel=1
+pkgrel=2
 _toipatch=tuxonice-for-linux-3.13.5-2014-03-05.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -30,6 +30,7 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         '0001-syscalls.h-use-gcc-alias-instead-of-assembler-aliase.patch'
         '0001-Bluetooth-allocate-static-minor-for-vhci.patch'
         'i8042-fix-aliases.patch'
+	'vm_bug_on_fix.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
@@ -49,6 +50,7 @@ md5sums=('0ecbaf65c00374eb4a826c2f9f37606f'
          'e6fa278c092ad83780e2dd0568e24ca6'
          '06f1751777e0772c18c3fa4fbae91aa5'
          '47fc9cc705752f1f16db23383504e194'
+         'd716d1e2792c5a0ca23c7f2b9bb891a5'
          '50ba84d76a4aa04b42e326d6ed8c0a89')
 
 _kernelname=${pkgbase#linux}
@@ -97,6 +99,11 @@ prepare() {
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
+
+  # tuxonice fix
+  # http://lists.tuxonice.net/pipermail/tuxonice-devel/2014-March/007484.html
+  # https://github.com/NigelCunningham/tuxonice-kernel/commit/d6abb8786b3c614bf0d3667c14ac178f250b3df0
+  patch -p1 -i "${srcdir}/vm_bug_on_fix.patch"
 
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config
