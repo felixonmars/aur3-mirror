@@ -1,0 +1,95 @@
+#!/usr/bin/python3
+import asyncore
+import asynchat
+import shlex
+import stem.control
+import socketserver
+
+
+class TorControlProxyHandler(asynchat.async_chat):
+    authenticated = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.ibuffer = []
+        self.set_terminator(b"\n")
+        self.controller = stem.control.Controller.from_port(port=9051)
+
+    def collect_incoming_data(self, data):
+        """Buffer the data."""
+        self.ibuffer.append(data)
+
+    def found_terminator(self):
+        data = b"".join(self.ibuffer).decode('utf-8')
+        self.ibuffer = []
+        command = shlex.split(data)
+
+        if len(command) < 1:
+            return
+        else:
+            print(command)
+
+        if command[0].lower() == 'authenticate':
+            # we do the authentication later, as it's not needed yet
+            self.authenticated = True
+            self.send_reply(250, 'OK')
+        elif self.authenticated:
+            if command[0].lower() == 'getinfo':
+                if command[1] == 'net/listeners/socks':
+                    # send a fake response to make TBB happy
+                    self.push(
+                        b'250-net/listeners/socks="192.168.100.1:9050"\r\n')
+                    self.send_reply(250, 'OK')
+                elif command[1] == 'status/bootstrap-phase':
+                    self.pass_message('GETINFO status/bootstrap-phase')
+                else:
+                    self.send_reply(
+                        510,
+                        'Unrecognized key "{}"'.format(command[1]))
+            elif command[0].lower() == 'signal':
+                if command[1].lower() == 'newnym':
+                    self.pass_message('SIGNAL newnym')
+                else:
+                    self.send_reply(
+                        552,
+                        'Unrecognized signal code "{}"'.format(command[1]))
+            else:
+                self.send_reply(
+                    510,
+                    'Unrecognized command "{}"'.format(command[0]))
+        elif command[0].lower() == 'quit':
+            self.send_reply(250, 'closing connection')
+            self.close()
+        else:
+            self.send_reply(514, 'Authentication required.')
+
+    def close(self):
+        self.controller.close()
+        super().close()
+
+    def pass_message(self, msg):
+        self.controller.authenticate()
+        self.push(self.controller.msg(msg).raw_content(get_bytes=True))
+
+    def send_reply(self, code, msg):
+        out = "{0} {1}\r\n".format(code, msg)
+        self.push(out.encode('utf-8'))
+
+
+class TorControlProxyServer(asyncore.dispatcher):
+    def __init__(self, host, port):
+        super().__init__()
+        self.create_socket()
+        self.set_reuse_addr()
+        self.bind((host, port))
+        self.listen(5)
+
+    def handle_accepted(self, sock, addr):
+        print("Got connection from {}".format(addr))
+        handler = TorControlProxyHandler(sock)
+
+
+if __name__ == '__main__':
+    server = TorControlProxyServer('0.0.0.0', 9052)
+    asyncore.loop()

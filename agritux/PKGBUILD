@@ -2,7 +2,7 @@
 
 pkgname=agritux
 pkgver=0.4.4
-pkgrel=1
+pkgrel=2
 pkgdesc="Logiciel de gestion d'exploitations agricoles"
 arch=('any')
 url="http://agritux.net"
@@ -23,7 +23,7 @@ depends=('ruby'
 options=()
 
 source=('http://public.mithril.re/agritux/agritux-0.4.4.tar.gz')
-md5sums=('1c75785ecef040bd340f3312689ec52e')
+md5sums=('87aa06726273168501c0d9885d129f6f')
 
 package() {
   cd ${srcdir}/$pkgname-$pkgver

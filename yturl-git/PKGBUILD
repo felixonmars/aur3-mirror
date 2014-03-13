@@ -2,7 +2,7 @@
 
 pkgname=yturl-git
 _gitname=yturl
-pkgver=20130905223925.685382e
+pkgver=20140312033836.ba8983c
 pkgrel=1
 pkgdesc="Print direct URLs to YouTube videos."
 url=http://github.com/cdown/yturl
