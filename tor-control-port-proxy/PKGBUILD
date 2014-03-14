@@ -1,6 +1,6 @@
 # Maintainer: mutantmonkey <aur@mutantmonkey.in>
 pkgname=tor-control-port-proxy
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
 pkgdesc="Whitelisting Tor control port proxy written in Python"
 arch=('any')
@@ -9,7 +9,7 @@ license=('GPL')
 depends=('python' 'stem')
 options=(!emptydirs)
 source=('tor-control-port-proxy' 'tor-control-port-proxy.service')
-sha256sums=('7fbc8295f94d074437ecf0607d2da78624c9cd8b07b4a892b783010a573f0893'
+sha256sums=('224c51d07e5393525a05cf11384b775dcb654469a6bdf6c6c5a06375c656c124'
             'eda5f0f43c9d2c8956743ba6485bb50fdb307af9941634902385214ecda14ce4')
 
 package() {
