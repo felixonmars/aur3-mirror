@@ -1,17 +1,16 @@
 pkgname=newpasswd
 pkgver=0.4
-pkgrel=1
+pkgrel=2
 pkgdesc="Generate a brand new password"
-url="https://github.com/simukis/newpasswd"
+url="https://github.com/nagisa/newpasswd"
 license=('ICS')
 arch=('any')
 depends=('python')
-short_hash='f55dc57'
-source=('https://github.com/simukis/newpasswd/zipball/'$short_hash)
-md5sums=('29ecce6796b6abb5f5a6cb3264274873')
+source=('git://github.com/nagisa/newpasswd.git')
+md5sums=('SKIP')
 
 package() {
-    cd $srcdir/simukis-newpasswd-$short_hash/
+    cd $pkgname
     mv usr/ $pkgdir/
     chmod +x $pkgdir/usr/bin/newpasswd
 }
