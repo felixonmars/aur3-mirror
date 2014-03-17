@@ -1,7 +1,7 @@
 
 # Maintainer: Ashley the Catgirl <me@ashley.re>
 pkgname=kailauncher
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
 pkgdesc="A simple dmenu-based application launcher, made for my friend - Kai"
 arch=('any')
@@ -13,7 +13,7 @@ changelog=ChangeLog
 source=(kailauncher
         LICENSE)
 noextract=()
-md5sums=('908ea2cc0af0501cbf4ed17cc06684e8'
+md5sums=('00ba8380695b2ea7fd7b0c60c896cc71'
          '6b7ecf56c49463aba5e61b9b038202e1')
 
 package() {
