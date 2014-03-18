@@ -27,5 +27,11 @@ else
 
 fi
 
+if [ "$#" -gt "0" ]; then # If there are command line arguments given, we want to execute them.
+  run_mode_opt="-i -c"
+else
+  run_mode_opt="-i"
+fi
 
-bash --noprofile ${rcfile_opt} -i "$@"
+
+bash --noprofile ${rcfile_opt} ${run_mode_opt} "$@"
