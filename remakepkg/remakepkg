@@ -1,0 +1,176 @@
+#!/bin/bash
+
+PKGNAME=$1
+if [ -z "$PKGNAME" ]; then
+	echo "Usage: $0 <package-name>"
+	exit 1;
+fi
+
+pacman -Qq "$PKGNAME" >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+	echo "$0: $PKGNAME is not currently installed"
+	exit 1;
+fi
+
+PACLOCALDBDIR="/var/lib/pacman/local"
+DIR=`ls -1d $PACLOCALDBDIR/$PKGNAME-[0-9]*`
+PKGFILE=`basename $DIR`.pkg.tar.xz
+TMPDIR=repackage.DIR.$$
+
+# Generate a .PKGINFO file by parsing the local DB's description of a package.
+parse_desc() {
+	# Map of field names between local DB desc file and .PKGINFO file.
+	declare -A sections
+	sections[%NAME%]="pkgname"
+	sections[%VERSION%]="pkgver"
+	sections[%DESC%]="pkgdesc"
+	sections[%URL%]="url"
+	sections[%ARCH%]="arch"
+	sections[%BUILDDATE%]="builddate"
+	sections[%PACKAGER%]="packager"
+	sections[%SIZE%]="size"
+	sections[%LICENSE%]="license"
+	sections[%REPLACES%]="replaces"
+	sections[%CONFLICTS%]="conflict"
+	sections[%PROVIDES%]="provides"
+	sections[%DEPENDS%]="depend"
+	sections[%OPTDEPENDS%]="optdepend"
+
+	local infile=$1
+	local nextsection=1
+	local sectioname=""
+
+	while read line; do
+		# A blank line signifies the end of a section in the desc file.
+		if [ -z "$line" ]; then
+			nextsection=1
+			continue
+		fi
+
+		# Section names follow the format %SECTIONNAME%
+		if [ $nextsection -eq 1 -a ${line:0:1} = "%" ]; then
+			nextsection=0
+			sectionname=$line
+			continue
+		fi
+
+		# If there is no desc-to-.PKGINFO mapping for this section, just
+		# skip over all lines in this section.
+		if [ -z "${sections[$sectionname]}" ]; then
+			continue
+		fi
+
+		echo "${sections[$sectionname]} = $line"
+	done <$infile
+}
+
+# Parse the local DB's file list's %BACKUP% section. This information should be
+# appended to the .PKGINFO file.
+parse_backup() {
+	# Skip to the first content line of the %BACKUP% section
+	local infile=$TMPDIR/files.$$
+	local lineno=`grep -n %BACKUP% $1 | cut -d':' -f1`
+	tail -n +`expr $lineno + 1` $1 >$infile
+
+	# No %BACKUP% section? Just do nothing, then.
+	if [ -z "$lineno" ]; then
+		return
+	fi
+
+	while read line; do
+		# Blank line signifies end of %BACKUP% section.
+		if [ -z "$line" ]; then
+			break
+		fi
+
+		echo "backup = "`echo "$line" | cut -f1`
+	done <$infile
+	rm $infile
+}
+
+# Parse the local DB's file list's %FILES% section and copy each matched file
+# into the temp directory to be packaged.
+parse_files() {
+	# Skip to the first content line of the %FILES% section
+	local infile=$TMPDIR/files.$$
+	local lineno=`grep -n %FILES% $1 | cut -d':' -f1`
+	tail -n +`expr $lineno + 1` $1 >$infile
+
+	while read line; do
+		# A blank line marks the end of the %FILES% section
+		if [ -z "$line" ]; then
+			break
+		fi
+
+		if [ -d "/$line" ]; then
+			mkdir "$TMPDIR/$line"
+		else
+			cp -a "/$line" "$TMPDIR/$line"
+		fi
+	done <$infile
+	rm $infile
+}
+
+# Generate an .MTREE file based on the mtree file in the local DB. Identify any
+# files that have been modified since the package was originally installed, and
+# replace the mtree line for each.
+parse_mtree() {
+	# Obtain list of files that have been modified.
+	local modifiedlist=(`pacman -Qqkk "$PKGNAME" | cut -d' ' -f2`)
+
+	# Decompress the mtree file.
+	local infile=$TMPDIR/mtree.$$
+	zcat "$1" >$infile
+
+	while read line; do
+		# Extract the filename component of this line.
+		filename=`echo $line | cut -d' ' -f1 | cut -d'/' -f2-`
+
+		# If this is one of the files that were modified, regenerate its
+		# mtree line.
+		if [[ $modifiedlist =~ $filename$ ]]; then
+			if [ -d "/$filename" ]; then
+				stat --format="./$filename time=%Y.000000000 mode=%a type=dir" "/$filename"
+			else
+				echo `stat --format="./$filename time=%Y.000000000 mode=%a size=%s " "/$filename"` "md5digest="`md5sum /$filename | cut -d' ' -f1`  "sha256digest="`sha256sum /$filename | cut -d' ' -f1`
+			fi
+		# Special handling for package metadata files.
+		elif [[ $filename =~ \.INSTALL$ || $filename =~ \.PKGINFO$ ]]; then
+			echo `stat --format="./$filename time=%Y.000000000 size=%s " "$TMPDIR/$filename"` "md5digest="`md5sum $TMPDIR/$filename | cut -d' ' -f1`  "sha256digest="`sha256sum $TMPDIR/$filename | cut -d' ' -f1`
+		# Otherwise, just take the line as-is from the local DB's mtree.
+		else
+			echo "$line"
+		fi
+	done <$infile
+
+	rm $infile
+}
+
+rm -f $PKGFILE
+mkdir $TMPDIR
+
+# Generate .PKGINFO.
+parse_desc "$DIR/desc" >$TMPDIR/.PKGINFO
+parse_backup "$DIR/files" >>$TMPDIR/.PKGINFO
+
+# Move files into position for packaging.
+parse_files "$DIR/files"
+
+# .INSTALL file can be takeen as-is from local DB.
+cp -a $DIR/install $TMPDIR/.INSTALL
+
+# Only generate an .MTREE file if there was one in the original package.
+if [ -f "$DIR/mtree" ]; then
+	parse_mtree "$DIR/mtree" >$TMPDIR/.MTREE
+	gzip $TMPDIR/.MTREE
+	mv $TMPDIR/.MTREE.gz $TMPDIR/.MTREE
+fi
+
+# The package archive must have no leading path components, not even ./
+cd $TMPDIR
+tar -Jcvf ../$PKGFILE .PKGINFO .INSTALL .MTREE * >/dev/null
+cd - >/dev/null
+echo "Wrote package to file: $PWD/$PKGFILE"
+
+# Clean up
+rm -rf $TMPDIR

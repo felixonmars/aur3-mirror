@@ -1,5 +1,4 @@
-# Maintainer : Claire Farron <diesal3@googlemail.com>
-# Github     : https://github.com/clfarron4/lib32-freetype2-ubuntu-archlinux
+# Maintainer : Claire Farron <https://github.com/clfarron4/lib32-freetype2-ubuntu-archlinux>
 # Contributor: Edoardo Maria Elidoro <edoardo.elidoro at gmail.com>
 # Contributor: Scott Bernynski <scott.bernynski@gmx.com>
 # Contributor: Andrea Fagiani <andfagiani {at} gmail {dot} com>
@@ -10,9 +9,9 @@
 _pkgbasename=freetype2-ubuntu
 pkgname=lib32-$_pkgbasename
 pkgver=2.5.2
-_ubver=2.5.2-1ubuntu1
+_ubver=2.5.2-1ubuntu2
 _ubrel=trusty
-pkgrel=1
+pkgrel=2
 pkgdesc="TrueType font rendering library, with Ubuntu's LCD rendering patches (32-bit)"
 arch=('x86_64')
 url="https://launchpad.net/ubuntu/${_ubrel}/+source/freetype"
@@ -27,7 +26,7 @@ source=(http://downloads.sourceforge.net/sourceforge/freetype/freetype-${pkgver}
         freetype-2.2.1-enable-valid.patch)
  
 md5sums=('10e8f4d6a019b124088d18bc26123a25'
-         'ad62ed04833626d78470f5f8931586ff'
+         'eda9c925032709bbd7463edcded05881'
          '214119610444c9b02766ccee5e220680')
  
 build() {
