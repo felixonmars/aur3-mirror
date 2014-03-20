@@ -1,11 +1,11 @@
 # Maintainer: Tom Richards <tom@tomrichards.net>
 
-_nginxver=1.4.6
-_passengerver=4.0.38
+_nginxver=1.4.7
+_passengerver=4.0.40
 
 pkgname=nginx-passenger
-pkgver=1.4.6
-pkgrel=3
+pkgver=1.4.7
+pkgrel=1
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -27,8 +27,8 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
 	"https://github.com/phusion/passenger/archive/release-$_passengerver.tar.gz"
 	'service'
 	'logrotate')
-sha256sums=('7a8b5b15d708b5b9c61e723bd93faa247b06c8b90babb76f612c128edb5812c6'
-            '839cd8986687ea0b64ee9f5fb7ae35809de02653b8fc4bc391e1c4b89c1ad120'
+sha256sums=('23b8ff4a76817090678f91b0efbfcef59a93492f6612dc8370c44c1f1ce1b626'
+            'add9b7a0c69393195ca0d7464f4f4fe8724b550af3e628e76e192fd288d0a2a0'
             '05fdc0c0483410944b988d7f4beabb00bec4a44a41bd13ebc9b78585da7d3f9b'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
 

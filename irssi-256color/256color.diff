@@ -1,10 +1,9 @@
-From 2bf8c28ec6d2903b72a8601bd58b0aabb66c49ee Mon Sep 17 00:00:00 2001
+From dcc7c88b54eb2447b6a72c29c5e89f12633fa79c Mon Sep 17 00:00:00 2001
 From: Ailin Nemui <ailin@esf51.localdomain>
 Date: Thu, 9 Jan 2014 15:20:29 +0100
-Subject: 256 colour support for irssi
+Subject: [PATCH] 256 colour support for irssi by Nei, based on original patch
+ by shabble (https://github.com/shabble/irssi/tree/256-colour)
 
-256 colour support for irssi by Nei, based on original patch by
-shabble (https://github.com/shabble/irssi/tree/256-colour)
 ---
  AUTHORS                        |   2 +
  configure.in                   |  16 ++
@@ -18,7 +17,7 @@ shabble (https://github.com/shabble/irssi/tree/256-colour)
  src/fe-text/gui-printtext.c    |  33 +++-
  src/fe-text/statusbar.c        |   4 +-
  src/fe-text/term-curses.c      |  21 ++-
- src/fe-text/term-terminfo.c    |  67 ++++++--
+ src/fe-text/term-terminfo.c    |  68 ++++++--
  src/fe-text/term.c             |  91 ++++++++++-
  src/fe-text/term.h             |  21 ++-
  src/fe-text/terminfo-core.c    |  17 +-
@@ -27,7 +26,7 @@ shabble (https://github.com/shabble/irssi/tree/256-colour)
  src/fe-text/textbuffer.c       |  96 ++++++++++--
  src/fe-text/textbuffer.h       |   5 +
  src/perl/ui/Themes.xs          |   7 +-
- 21 files changed, 850 insertions(+), 118 deletions(-)
+ 21 files changed, 851 insertions(+), 118 deletions(-)
 
 diff --git a/AUTHORS b/AUTHORS
 index 50f24ac..aa4624c 100644
@@ -94,14 +93,14 @@ index 0ffef08..2a507a0 100644
   In .theme files %n works a bit differently. See default.theme
   for more information.
 diff --git a/irssi.conf b/irssi.conf
-index a92cdaf..bab0f73 100644
+index a92cdaf..90ffdfa 100644
 --- a/irssi.conf
 +++ b/irssi.conf
 @@ -130,6 +130,7 @@ aliases = {
    CHAT = "dcc chat";
    RUN = "SCRIPT LOAD";
    CALC = "exec - if command -v bc >/dev/null 2>&1\\; then printf '%s=' '$*'\\; echo '$*' | bc -l\\; else echo bc was not found\\; fi";
-+  CUBES = "/script exec Irssi::active_win->print(\"%_bases\", MSGLEVEL_CLIENTCRAP) \\;  Irssi::active_win->print( do { join '', map { \"%x0\\${_}0\\$_\" } '0'..'9','A'..'F' }, MSGLEVEL_NEVER | MSGLEVEL_CLIENTCRAP) \\; Irssi::active_win->print(\"%_cubes\", MSGLEVEL_CLIENTCRAP) \\;  Irssi::active_win->print( do { my \\$x = \\$_ \\;  join '', map { \"%x\\$x\\$_\\$x\\$_\" } '0'..'9','A'..'Z' }, MSGLEVEL_NEVER | MSGLEVEL_CLIENTCRAP) for 1..6 \\; Irssi::active_win->print(\"%_grays\", MSGLEVEL_CLIENTCRAP) \\;  Irssi::active_win->print( do { join '', map { \"%x7\\${_}7\\$_\" } 'A'..'X' }, MSGLEVEL_NEVER | MSGLEVEL_CLIENTCRAP)";
++  CUBES = "/script exec Irssi::active_win->print(\"%_bases\", MSGLEVEL_CLIENTCRAP) \\;  Irssi::active_win->print( do { join '', map { \"%x0\\${_}0\\$_\" } '0'..'9','A'..'F' }, MSGLEVEL_NEVER | MSGLEVEL_CLIENTCRAP) \\; Irssi::active_win->print(\"%_cubes\", MSGLEVEL_CLIENTCRAP) \\; Irssi::active_win->print( do { my \\$y = \\$_*6 \\; join '', map { my \\$x = \\$_ \\; map { \"%x\\$x\\$_\\$x\\$_\" } @{['0'..'9','A'..'Z']}[\\$y .. \\$y+5] } 1..6 }, MSGLEVEL_NEVER | MSGLEVEL_CLIENTCRAP) for 0..5 \\; Irssi::active_win->print(\"%_grays\", MSGLEVEL_CLIENTCRAP) \\;  Irssi::active_win->print( do { join '', map { \"%x7\\${_}7\\$_\" } 'A'..'X' }, MSGLEVEL_NEVER | MSGLEVEL_CLIENTCRAP)";
    SBAR = "STATUSBAR";
    INVITELIST = "mode $C +I";
    Q = "QUERY";
@@ -1106,18 +1105,19 @@ index fc674fd..f1ee313 100644
  {
  	wattrset(window->win, get_attr(col));
 diff --git a/src/fe-text/term-terminfo.c b/src/fe-text/term-terminfo.c
-index 9dfc0db..f0aac74 100644
+index 9dfc0db..c38f76f 100644
 --- a/src/fe-text/term-terminfo.c
 +++ b/src/fe-text/term-terminfo.c
-@@ -25,6 +25,7 @@
+@@ -25,6 +25,8 @@
  #include "utf8.h"
  
  #include <signal.h>
 +#include <termios.h>
++#include <stdio.h>
  
  /* returns number of characters in the beginning of the buffer being a
     a single character, or -1 if more input is needed. The character will be
-@@ -48,7 +49,8 @@ static int vcmove, vcx, vcy, curs_visible;
+@@ -48,7 +50,8 @@ static int vcmove, vcx, vcy, curs_visible;
  static int crealx, crealy, cforcemove;
  static int curs_x, curs_y;
  
@@ -1127,7 +1127,7 @@ index 9dfc0db..f0aac74 100644
  
  static GSource *sigcont_source;
  static volatile sig_atomic_t got_sigcont;
-@@ -293,15 +295,41 @@ void term_window_scroll(TERM_WINDOW *window, int count)
+@@ -293,15 +296,41 @@ void term_window_scroll(TERM_WINDOW *window, int count)
  		term_lines_empty[window->y+y] = FALSE;
  }
  
@@ -1174,7 +1174,7 @@ index 9dfc0db..f0aac74 100644
  	if (((last_attrs & ATTR_BOLD) && (col & ATTR_BOLD) == 0) ||
  	    ((last_attrs & ATTR_BLINK) && (col & ATTR_BLINK) == 0)) {
  		/* we'll need to get rid of bold/blink - this can only be
-@@ -310,12 +338,12 @@ void term_set_color(TERM_WINDOW *window, int col)
+@@ -310,12 +339,12 @@ void term_set_color(TERM_WINDOW *window, int col)
  	}
  
  	if (set_normal) {
@@ -1189,7 +1189,7 @@ index 9dfc0db..f0aac74 100644
  		col |= ATTR_REVERSE;
  
  	/* reversed text (use standout) */
-@@ -330,12 +358,15 @@ void term_set_color(TERM_WINDOW *window, int col)
+@@ -330,12 +359,15 @@ void term_set_color(TERM_WINDOW *window, int col)
  	    (fg != 0 || (col & ATTR_RESETFG) == 0)) {
                  if (term_use_colors) {
  			last_fg = fg;
@@ -1207,7 +1207,7 @@ index 9dfc0db..f0aac74 100644
  		col |= ATTR_BLINK;
  	if (col & ATTR_BLINK)
  		current_term->set_blink(current_term);
-@@ -344,12 +375,15 @@ void term_set_color(TERM_WINDOW *window, int col)
+@@ -344,12 +376,15 @@ void term_set_color(TERM_WINDOW *window, int col)
  	    (bg != 0 || (col & ATTR_RESETBG) == 0)) {
                  if (term_use_colors) {
  			last_bg = bg;
@@ -1225,7 +1225,7 @@ index 9dfc0db..f0aac74 100644
  		col |= ATTR_BOLD;
  	if (col & ATTR_BOLD)
  		terminfo_set_bold();
-@@ -361,9 +395,16 @@ void term_set_color(TERM_WINDOW *window, int col)
+@@ -361,9 +396,16 @@ void term_set_color(TERM_WINDOW *window, int col)
  	} else if (last_attrs & ATTR_UNDERLINE)
  		terminfo_set_uline(FALSE);
  
@@ -1454,7 +1454,7 @@ index bddc93e..ba9256b 100644
  
  /* Beep */
 diff --git a/src/fe-text/textbuffer-view.c b/src/fe-text/textbuffer-view.c
-index c296427..ca1b78f 100644
+index c19b9af..a8e14c9 100644
 --- a/src/fe-text/textbuffer-view.c
 +++ b/src/fe-text/textbuffer-view.c
 @@ -104,8 +104,8 @@ static void textbuffer_cache_unref(TEXT_BUFFER_CACHE_REC *cache)
