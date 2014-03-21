@@ -1,7 +1,7 @@
 # Maintainer: Alexandr Boiko <brdcom@ya.ru>
 pkgname=accel-ppp-lts-git
 pkgver=20140313
-pkgrel=14
+pkgrel=15
 pkgdesc="Kernel-mode PPTP/PPPoE/L2TP server"
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/apps/trac/accel-ppp/"
@@ -85,5 +85,6 @@ package() {
 	install -Dm0644 ${srcdir}/accel-pppd.service ${pkgdir}/usr/lib/systemd/system/accel-pppd.service
 	install -Dm0644 ${srcdir}/${_gitname}.tmpfiles ${pkgdir}/usr/lib/tmpfiles.d/${_gitname}.conf
 	install -Dm0644 ${srcdir}/${_gitname}/accel-pppd/${_gitname}.conf ${pkgdir}/etc/${_gitname}.conf
+	install -Dm0644 ${srcdir}/${_gitname}/accel-pppd/extra/net-snmp/ACCEL-PPP-MIB.txt ${pkgdir}/usr/share/snmp/mibs/ACCEL-PPP-MIB.txt
 	install -Dm0644 ${srcdir}/${_gitname}-build/drivers/ipoe/driver/ipoe.ko ${pkgdir}/usr/lib/modules/`uname -r`/extramodules/ipoe.ko
 }

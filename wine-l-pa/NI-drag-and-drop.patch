@@ -1,11 +1,19 @@
---- wine-1.3.24/dlls/ole32/ole2.c.orig	2011-12-08 14:44:37.811271736 -0800
-+++ wine-1.3.24/dlls/ole32/ole2.c	2011-12-08 14:45:46.934191902 -0800
-@@ -2180,7 +2180,16 @@ static LRESULT WINAPI OLEDD_DragTrackerW
+--- wine-1.7.14/dlls/ole32/ole2.c.orig	2011-12-08 14:44:37.811271736 -0800
++++ wine-1.7.14/dlls/ole32/ole2.c	2011-12-08 14:45:46.934191902 -0800
+@@ -158,6 +158,7 @@
+ static void OLEDD_Initialize(void);
+ static LRESULT WINAPI  OLEDD_DragTrackerWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+ static void OLEDD_TrackStateChange(TrackerWindowInfo* trackerInfo);
++static void OLEDD_TrackMouseMove(TrackerWindowInfo* trackerInfo);
+ static DWORD OLEDD_GetButtonState(void);
+ 
+ /******************************************************************************
+@@ -2198,6 +2199,19 @@
+     }
      case WM_TIMER:
      case WM_MOUSEMOVE:
-     {
--      OLEDD_TrackMouseMove((TrackerWindowInfo*)GetWindowLongPtrA(hwnd, 0));
-+      TrackerWindowInfo* p = (TrackerWindowInfo*)GetWindowLongA(hwnd, 0); 
++    {
++      TrackerWindowInfo* p = (TrackerWindowInfo*)GetWindowLongPtrA(hwnd, 0); 
 +      if (!p->trackingDone)
 +      {
 +       p->dwKeyState = OLEDD_GetButtonState();
@@ -15,6 +23,167 @@
 +           OLEDD_TrackStateChange(p);
 +      }
 +
-       break;
-     }
++      break;
++    }
      case WM_LBUTTONUP:
+     case WM_MBUTTONUP:
+     case WM_RBUTTONUP:
+@@ -2222,6 +2236,158 @@
+ }
+ 
+ /***
++ * OLEDD_TrackMouseMove()
++ *
++ * This method is invoked while a drag and drop operation is in effect.
++ * it will generate the appropriate callbacks in the drop source
++ * and drop target. It will also provide the expected feedback to
++ * the user.
++ *
++ * params:
++ *    trackerInfo - Pointer to the structure identifying the
++ *                  drag & drop operation that is currently
++ *                  active.
++ */
++ static void OLEDD_TrackMouseMove(TrackerWindowInfo* trackerInfo)
++ {
++  HWND   hwndNewTarget = 0;
++  HRESULT  hr = S_OK;
++  POINT pt;
++
++  /*
++  * Get the handle of the window under the mouse
++  */
++  pt.x = trackerInfo->curMousePos.x;
++  pt.y = trackerInfo->curMousePos.y;
++  hwndNewTarget = WindowFromPoint(pt);
++
++  /*
++  * Every time, we re-initialize the effects passed to the
++  * IDropTarget to the effects allowed by the source.
++  */
++  *trackerInfo->pdwEffect = trackerInfo->dwOKEffect;
++
++  /*
++  * If we are hovering over the same target as before, send the
++  * DragOver notification
++  */
++  if ( (trackerInfo->curDragTarget != 0) &&
++       (trackerInfo->curTargetHWND == hwndNewTarget) )
++  {
++    IDropTarget_DragOver(trackerInfo->curDragTarget,
++                         trackerInfo->dwKeyState,
++                         trackerInfo->curMousePos,
++                         trackerInfo->pdwEffect);
++  }
++  else
++  {
++    /*
++    * If we changed window, we have to notify our old target and check for
++    * the new one.
++    */
++    if (trackerInfo->curDragTarget)
++      IDropTarget_DragLeave(trackerInfo->curDragTarget);
++ 
++    /*
++     * Make sure we're hovering over a window.
++     */
++    if (hwndNewTarget)
++    {
++      /*
++       * Find-out if there is a drag target under the mouse
++       */
++      HWND next_target_wnd = hwndNewTarget;
++
++      trackerInfo->curTargetHWND = hwndNewTarget;
++
++      while (next_target_wnd && !is_droptarget(next_target_wnd))
++          next_target_wnd = GetParent(next_target_wnd);
++
++      if (next_target_wnd) hwndNewTarget = next_target_wnd;
++ 
++      trackerInfo->curDragTargetHWND = hwndNewTarget;
++      if(trackerInfo->curDragTarget) IDropTarget_Release(trackerInfo->curDragTarget);
++      trackerInfo->curDragTarget     = get_droptarget_pointer(hwndNewTarget);
++
++      /*
++       * If there is, notify it that we just dragged-in
++       */
++      if (trackerInfo->curDragTarget)
++      {
++        hr = IDropTarget_DragEnter(trackerInfo->curDragTarget,
++                                   trackerInfo->dataObject,
++                                   trackerInfo->dwKeyState,
++                                   trackerInfo->curMousePos,
++                                   trackerInfo->pdwEffect);
++ 
++        /* failed DragEnter() means invalid target */
++        if (hr != S_OK)
++        {
++          trackerInfo->curDragTargetHWND = 0;
++          trackerInfo->curTargetHWND     = 0;
++          IDropTarget_Release(trackerInfo->curDragTarget);
++          trackerInfo->curDragTarget     = 0;
++        }
++      }
++    }
++    else
++    {
++      /*
++       * The mouse is not over a window so we don't track anything.
++       */
++      trackerInfo->curDragTargetHWND = 0;
++      trackerInfo->curTargetHWND     = 0;
++      if(trackerInfo->curDragTarget) IDropTarget_Release(trackerInfo->curDragTarget);
++      trackerInfo->curDragTarget     = 0;
++    }
++  }
++ 
++  /*
++   * Now that we have done that, we have to tell the source to give
++   * us feedback on the work being done by the target.  If we don't
++   * have a target, simulate no effect.
++   */
++  if (trackerInfo->curDragTarget==0)
++  {
++    *trackerInfo->pdwEffect = DROPEFFECT_NONE;
++  }
++ 
++  hr = IDropSource_GiveFeedback(trackerInfo->dropSource,
++                                *trackerInfo->pdwEffect);
++
++  /*
++   * When we ask for feedback from the drop source, sometimes it will
++   * do all the necessary work and sometimes it will not handle it
++   * when that's the case, we must display the standard drag and drop
++   * cursors.
++   */
++  if (hr == DRAGDROP_S_USEDEFAULTCURSORS)
++  {
++    HCURSOR hCur;
++
++    if (*trackerInfo->pdwEffect & DROPEFFECT_MOVE)
++    {
++      hCur = LoadCursorW(hProxyDll, MAKEINTRESOURCEW(2));
++    }
++    else if (*trackerInfo->pdwEffect & DROPEFFECT_COPY)
++    {
++      hCur = LoadCursorW(hProxyDll, MAKEINTRESOURCEW(3));
++    }
++    else if (*trackerInfo->pdwEffect & DROPEFFECT_LINK)
++    {
++      hCur = LoadCursorW(hProxyDll, MAKEINTRESOURCEW(4));
++    }
++    else
++    {
++      hCur = LoadCursorW(hProxyDll, MAKEINTRESOURCEW(1));
++    }
++ 
++    SetCursor(hCur);
++  }
++}
++
++
++ /***
+  * OLEDD_TrackStateChange()
+  *
+  * This method is invoked while a drag and drop operation is in effect.
