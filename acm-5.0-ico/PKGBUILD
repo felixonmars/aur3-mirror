@@ -1,13 +1,14 @@
-# Maintainer: Anton Bazhenov <anton.bazhenov at gmail>
+# Maintainer: Andreas Björkman <admin (at) wirecube (dot) x10 (dot) mx> (Used to be: Anton Bazhenov <anton.bazhenov at gmail>)
 
 pkgname=acm-5.0-ico
 pkgver=20100109
-pkgrel=1
+pkgrel=2
 pkgdesc="A fork of the ACM flight simulator"
 arch=('i686' 'x86_64')
 url="http://www.icosaedro.it/acm/download.html"
 license=('GPL')
-depends=('libxext' 'tk')
+#You dont't *need* ossp, any package that provides /dev/dsp will do
+depends=('libxext' 'tk' 'ossp')
 source=("http://www.icosaedro.it/acm/${pkgname}-${pkgver}.tar.gz"
         "${pkgname}.patch"
         "${pkgname}.png"
@@ -22,6 +23,11 @@ build() {
 
   # Fix data and binary paths
   patch -Np1 -i ../${pkgname}.patch
+
+  #fix the broken list.c (err'd out, replaced every occurence of NULL with 0, they're equivalent (I could also have used a macro but I prefer not to use them)
+  cd "${srcdir}/${pkgname}-${pkgver}/src"
+  patch list.c < ../../../list.patch
+  cd "${srcdir}/${pkgname}-${pkgver}"
 
   ./configure --prefix=/usr
   make

@@ -6,8 +6,8 @@
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.13
 pkgver=3.13.6
-pkgrel=2
-_toipatch=tuxonice-for-linux-3.13.5-2014-03-05.patch
+pkgrel=3
+_toipatch=tuxonice-for-linux-3.13.6-2014-03-17.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -30,7 +30,8 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         '0001-syscalls.h-use-gcc-alias-instead-of-assembler-aliase.patch'
         '0001-Bluetooth-allocate-static-minor-for-vhci.patch'
         'i8042-fix-aliases.patch'
-	'vm_bug_on_fix.patch'
+        '0001-Revert-xhci-1.0-Limit-arbitrarily-aligned-scatter-ga.patch'
+        '0002-Revert-USBNET-ax88179_178a-enable-tso-if-usb-host-su.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
@@ -50,8 +51,9 @@ md5sums=('0ecbaf65c00374eb4a826c2f9f37606f'
          'e6fa278c092ad83780e2dd0568e24ca6'
          '06f1751777e0772c18c3fa4fbae91aa5'
          '47fc9cc705752f1f16db23383504e194'
-         'd716d1e2792c5a0ca23c7f2b9bb891a5'
-         '50ba84d76a4aa04b42e326d6ed8c0a89')
+         'c753259957f6f2515c634ef99aef4a6b'
+         '53f116cdcc9635b694bc5735a36ba9d8'
+         'e17863478da1c1986a635a3033014412')
 
 _kernelname=${pkgbase#linux}
 
@@ -97,13 +99,12 @@ prepare() {
   # Fix vhci warning in kmod (to restore every kernel maintainer's sanity)
   patch -p1 -i "${srcdir}/0001-Bluetooth-allocate-static-minor-for-vhci.patch"
 
+  # Fix xhci mass storage problems
+  patch -p1 -i "${srcdir}/0001-Revert-xhci-1.0-Limit-arbitrarily-aligned-scatter-ga.patch"
+  patch -p1 -i "${srcdir}/0002-Revert-USBNET-ax88179_178a-enable-tso-if-usb-host-su.patch"
+
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
-
-  # tuxonice fix
-  # http://lists.tuxonice.net/pipermail/tuxonice-devel/2014-March/007484.html
-  # https://github.com/NigelCunningham/tuxonice-kernel/commit/d6abb8786b3c614bf0d3667c14ac178f250b3df0
-  patch -p1 -i "${srcdir}/vm_bug_on_fix.patch"
 
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config

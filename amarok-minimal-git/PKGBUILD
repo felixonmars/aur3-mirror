@@ -1,7 +1,7 @@
 # Contributor: CtHx
 
 pkgname=amarok-minimal-git
-pkgver=20130407
+pkgver=20140322
 pkgrel=1
 pkgdesc="A media player for KDE. Without lastfm, mp3tunes, mtp, ipod support. GIT version"
 arch=('i686' 'x86_64')
@@ -37,8 +37,8 @@ build() {
   sed -i '/opmldirectory/d' src/services/CMakeLists.txt
   
   # scripts
-  sed -i '/free_music_charts_service/d' src/scripts/CMakeLists.txt
-  sed -i '/librivox_service/d' src/scripts/CMakeLists.txt
+  #sed -i '/free_music_charts_service/d' src/scripting/scripts/CMakeLists.txt
+  sed -i '/librivox_service/d' src/scripting/scripts/CMakeLists.txt
   ##
   
   # remove stupid stats syncing from tools menu
