@@ -2,7 +2,7 @@
 
 pkgname=alltray-stable
 pkgver=0.70
-pkgrel=2
+pkgrel=3
 pkgdesc="Drop's any app in the tray."
 license=("GPL")
 arch=(i686 x86_64)
@@ -13,10 +13,10 @@ options=('!libtool')
 source=(http://downloads.sourceforge.net/sourceforge/alltray/alltray-$pkgver.tar.gz)
 md5sums=('675a0a60f22fae04da787095ef0bd7d9')
 
-build()
-{
+build() {
   cd "$srcdir/alltray-$pkgver"
-  ./configure --prefix=/usr || return 1
-  make || return 1
-  make DESTDIR="$pkgdir" install || return 1
+  export LDFLAGS=-lX11
+  ./configure --prefix=/usr
+  make
+  make DESTDIR="$pkgdir" install
 }
