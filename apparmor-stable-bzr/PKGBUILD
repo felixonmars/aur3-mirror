@@ -1,5 +1,6 @@
-# Mantainer: Gianni Vialetto <gianni at rootcube dot net>
-# Mantainer: Paul N. Maxwell <msg dot maxwel at gmail dot com>
+# Mantainer:   Thomas Kuther <archlinux@kuther.net>
+# Contributor: Gianni Vialetto <gianni at rootcube dot net>
+# Contributor: Paul N. Maxwell <msg dot maxwel at gmail dot com>
 # Contributor: Thomas Mudrunka <harvie@@email..cz>
 # Contributor: Max Fierke <max@maxfierke.com>
 
@@ -13,7 +14,7 @@ arch=('i686' 'x86_64')
 license=('GPL')
 url='http://wiki.apparmor.net/index.php/Main_Page'
 groups=('apparmor')
-makedepends=('bzr' 'flex' 'swig' 'perl' 'python' 'ruby' 'perl-locale-gettext' 'perl-rpc-xml' 'wxgtk' 'audit')
+makedepends=('bzr' 'flex' 'swig' 'perl' 'python' 'perl-locale-gettext' 'perl-rpc-xml' 'audit')
 
 source=("apparmor::bzr+lp:apparmor/2.8"
         "apparmor_load.sh"
@@ -36,42 +37,54 @@ pkgver() {
   echo $(cat common/Version).bzr.$(bzr revno)
 }
 
-build() {
-  msg2 "Building: apparmor-parser"
+prepare() {
   cd "${srcdir}/${_bzrname}/parser"
   # avoid depend on texlive-latex
   sed -i -e 's/pdflatex/true/g' Makefile
 
-  make
-	
-  msg2 "Building: apparmor-libapparmor"
-  cd "${srcdir}/${_bzrname}/libraries/libapparmor"
-  unset PERL_MM_OPT
-  ./autogen.sh
-  ./configure --prefix=/usr --sbindir=/usr/bin --with-perl --with-python
-  make
-
-  msg2 "Building: apparmor-utils"
   cd "${srcdir}/${_bzrname}/utils"
-  make
-
   # Set Arch paths
   sed -e '/logfiles/ s/syslog /syslog.log /g' \
       -e '/logfiles/ s/messages/messages.log/g' \
       -e '/parser/ s# /sbin/# /usr/bin/#g' \
       -i logprof.conf
+  # do not build/install vim file with utils package (causes ref to $srcdir and wrong location)
+  sed -i '/vim/d' Makefile
+
+  cd "${srcdir}/${_bzrname}/profiles/apparmor.d"
+  # /usr merge vs. profiles
+  for i in `find . -name "*sbin*"`; do sed -i -e 's@sbin@bin@g' ${i} && mv ${i} ${i/sbin/bin}; done
+  for i in klogd ping syslog-ng syslogd; do 
+    sed -e "s@/bin/${i}@/usr/bin/${i}@g" \
+        -e "s@bin\.${i}@usr\.bin\.${i}@g" \
+        -i bin.${i} && \
+    mv bin.${i} usr.bin.${i}
+  done
+}
+
+build() {
+  msg2 "Building: apparmor-libapparmor"
+  cd "${srcdir}/${_bzrname}/libraries/libapparmor"
+  unset PERL_MM_OPT
+  NOCONFIGURE=1 ./autogen.sh
+  ./configure --prefix=/usr --sbindir=/usr/bin --with-perl --with-python
+  make
+
+  cd "${srcdir}/${_bzrname}"
+  msg2 "Building: apparmor-parser"
+  make -C parser
+	
+  msg2 "Building: apparmor-utils"
+  make -C utils
 
   msg2 "Building: apparmor-profiles"
-  cd "${srcdir}/${_bzrname}/profiles"
-  make
+  make -C profiles
 
   msg2 "Building: apparmor-pam"
-  cd "${srcdir}/${_bzrname}/changehat/pam_apparmor"
-  make
+  make -C changehat/pam_apparmor
 
   msg2 "Building: apparmor-vim"
-  cd "${srcdir}/${_bzrname}/utils/vim/"
-  make
+  make -C utils/vim -j1
 }
 
 package_apparmor-stable-bzr() {
@@ -91,25 +104,23 @@ package_apparmor-parser-stable-bzr() {
   replaces=(apparmor-parser)
   provides=(apparmor-parser)
 
-  cd "${srcdir}/${_bzrname}/parser"
-  make install DESTDIR=${pkgdir}
+  cd "${srcdir}/${_bzrname}"
+  make -C parser install DESTDIR=${pkgdir}
   mv ${pkgdir}/lib ${pkgdir}/usr/lib
   mv ${pkgdir}/sbin ${pkgdir}/usr/bin
 }
 
 package_apparmor-libapparmor-stable-bzr() {
   pkgdesc='AppArmor library'
-  makedepends=('swig' 'perl' 'python' 'ruby')
-  depends=('ruby' 'python')
-  provides=('apparmor-lib' 'libapparmor' 'apparmor-perl' 'apparmor-python' 'apparmor-ruby' 'apparmor-libapparmor')
+  makedepends=('swig' 'perl' 'python')
+  depends=('python')
+  provides=(apparmor-libapparmor)
   conflicts=(apparmor-libapparmor)
   replaces=(apparmor-libapparmor)
 
-  cd "${srcdir}/${_bzrname}/libraries/libapparmor"
-  make install DESTDIR=${pkgdir}
-  #FIXME: this file should install automatically:
-  install -m644 "swig/perl/LibAppArmor.pm" "${pkgdir}/usr/lib/perl5/vendor_perl/"
-  #mv ${pkgdir}/usr/lib/ruby/site_ruby ${pkgdir}/usr/lib/ruby/vendor_ruby
+  cd "${srcdir}/${_bzrname}"
+  make -C libraries/libapparmor install DESTDIR=${pkgdir}
+  install -D -m644 "libraries/libapparmor/swig/perl/LibAppArmor.pm" "${pkgdir}/usr/lib/perl5/vendor_perl/"
 }
 
 package_apparmor-utils-stable-bzr() {
@@ -117,36 +128,33 @@ package_apparmor-utils-stable-bzr() {
   arch=('any')
   depends=('perl' 'perl-locale-gettext' 'perl-term-readkey' 
     'perl-file-tail' 'perl-rpc-xml' 'python' 'bash')
-  provides=('apparmor-notify' 'apparmor-utils')
   install='apparmor-utils.install'
+  provides=(apparmor-utils)
   conflicts=(apparmor-utils)
   replaces=(apparmor-utils)
 
-  cd "${srcdir}/${_bzrname}/utils"
-  make install DESTDIR=${pkgdir} BINDIR=${pkgdir}/usr/bin
-  install -m755 "${srcdir}/apparmor_load.sh" "${pkgdir}/usr/bin/apparmor_load.sh"
-  install -m755 "${srcdir}/apparmor_unload.sh" "${pkgdir}/usr/bin/apparmor_unload.sh"
-  install -Dm644 "${srcdir}/apparmor.service" "${pkgdir}/usr/lib/systemd/system/apparmor.service"
+  cd "${srcdir}/${_bzrname}"
+  make -C utils install DESTDIR=${pkgdir} BINDIR=${pkgdir}/usr/bin
+  install -D -m755 "${srcdir}/apparmor_load.sh" "${pkgdir}/usr/bin/apparmor_load.sh"
+  install -D -m755 "${srcdir}/apparmor_unload.sh" "${pkgdir}/usr/bin/apparmor_unload.sh"
+  install -D -m644 "${srcdir}/apparmor.service" "${pkgdir}/usr/lib/systemd/system/apparmor.service"
 }
 
 package_apparmor-profiles-stable-bzr() {
   pkgdesc='AppArmor sample pre-made profiles'
+  depends=(apparmor-parser)
   arch=('any')
   conflicts=(apparmor-profiles)
   replaces=(apparmor-profiles)
   provides=(apparmor-profiles)
-
-  # /usr merge
-  cd "${srcdir}/${_bzrname}/profiles"
-  for i in `find . -name "*sbin*"`; do sed -i -e 's@sbin@bin@g' ${i} && mv ${i} ${i/sbin/bin}; done
 
   # backup /etc/apparmor.d/* so using logprof is safe
   cd "${srcdir}/${_bzrname}/profiles/apparmor.d"
   declare -a _profiles=(`find -type f|sed 's@./@etc/apparmor.d/@'`)
   backup=(`echo ${_profiles[@]}`)
 
-  cd "${srcdir}/${_bzrname}/profiles"
-  make install DESTDIR=${pkgdir}
+  cd "${srcdir}/${_bzrname}"
+  make -C profiles install DESTDIR=${pkgdir}
 }
 
 package_apparmor-pam-stable-bzr() {
@@ -156,9 +164,9 @@ package_apparmor-pam-stable-bzr() {
   replaces=(apparmor-pam)
   provides=(apparmor-pam)
 
-  cd "${srcdir}/${_bzrname}/changehat/pam_apparmor"
-  install -dm755 "${pkgdir}/usr/"
-  make install DESTDIR=${pkgdir}/usr
+  cd "${srcdir}/${_bzrname}"
+  make -C changehat/pam_apparmor install DESTDIR=${pkgdir}/usr
+  install -D -m644 changehat/pam_apparmor/README "${pkgdir}/usr/share/doc/apparmor/README.pam_apparmor"
 }
 package_apparmor-vim-stable-bzr() {
   pkgdesc='AppArmor VIM support'
@@ -168,11 +176,12 @@ package_apparmor-vim-stable-bzr() {
   replaces=(apparmor-vim)
   provides=(apparmor-vim)
 
-  install -Dm644 \
-    "${srcdir}/${_bzrname}/utils/vim/apparmor.vim" \
+  cd "${srcdir}/${_bzrname}/utils/vim"
+  install -D -m644 apparmor.vim \
     "${pkgdir}/usr/share/vim/vimfiles/syntax/apparmor.vim"
 }
 #AUR hack:
 pkgdesc='Linux application security framework - mandatory access control for programs (stable 2.8 BZR branch)'
-depends=('perl' 'perl-locale-gettext' 'perl-term-readkey' 
-  'perl-file-tail' 'perl-rpc-xml' 'python' 'bash' 'vim')
+depends=('perl' 'perl-locale-gettext' 'perl-term-readkey' 'perl-file-tail' 'perl-rpc-xml' 'python' 'bash' 'pam' 'vim')
+
+# vim:set ts=2 sw=2 et:
