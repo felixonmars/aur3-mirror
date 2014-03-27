@@ -1,1 +1,1 @@
-export HAXE_LIBRARY_PATH=/opt/haxe/std:.
+export HAXE_STD_PATH=/opt/haxe/std:.

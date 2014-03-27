@@ -1,6 +1,4 @@
 #!/bin/sh
-CARCH=`uname -m`
-ext=x86; [ "$CARCH" = 'x86_64' ] && ext=x86_64
 
 [ -f /etc/tremdedrc ] && . /etc/tremdedrc
 [ -f "$HOME/.tremdedrc" ] && . "$HOME/.tremdedrc"
@@ -14,4 +12,4 @@ if [ ! -r "$HOME/.tremulous/base/vm/game.qvm" ]; then
 fi
 
 cd /opt/tremulous/
-./tremded.$ext "$TREM_ARGS" "$@"
+./tremded.EXT_REPLACE "$TREM_ARGS" "$@"
