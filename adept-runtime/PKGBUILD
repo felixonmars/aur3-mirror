@@ -1,7 +1,7 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
-pkgver=2.13.1
-pkgrel=3
+pkgver=2.15.3
+pkgrel=1
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
@@ -16,8 +16,8 @@ _arch=x86_64
 [[ $CARCH == i686 ]] && _arch=i686
 source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_${pkgver}-${_arch}.tar.gz")
 
-md5sums=('091655dbe852e4eb6fe930668b483570')
-[[ $CARCH == i686 ]] && md5sums[0]='0370f55e5beee0046b0f3e5ade110660'
+md5sums=('fb4cd9111fec2c26444d2326611558c2')
+[[ $CARCH == i686 ]] && md5sums[0]='bea44a171fced85f7f5271d461594796'
 
 prepare() {
   cd "$srcdir/digilent.adept.runtime_$pkgver-$CARCH"

@@ -40,7 +40,7 @@ _pkgname=${pkgname}
 _kernelname=${_pkgname#linux}
 _basekernel=3.12
 true && pkgname=(${_pkgname} ${_pkgname}-headers)
-pkgver=3.12.14
+pkgver=3.12.15
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -58,10 +58,9 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-3.12.tar.xz"
 	'nfs-check-gssd-running-before-krb5i-auth.patch'
 	'rpc_pipe-remove-the-clntXX-dir-if-creating-the-pipe-fails.patch'
 	'sunrpc-add-an-info-file-for-the-dummy-gssd-pipe.patch'
-	'rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-notification-fails.patch'
-	'0001-SUNRPC-Ensure-that-gss_auth-isn-t-freed-before-its-u.patch')
+	'rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-notification-fails.patch')
 sha256sums=('2e120ec7fde19fa51dc6b6cc11c81860a0775defcad5a5bf910ed9a50e845a02'
-            '4354db5c8ae783ccc0c522835206a3480b99129e95a720272f6f057fae35f453'
+            '6fa9dfea3d3bb41464652f07fd036886336be3fbb73e2c06baabd1005af1d2cf'
             'cdad2ad2f3165be86d903f37f6e761f1707cba51bccb802e08ae259445113cad'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
             '9c99f8de81489227a0255d358d8ab64a5232814ee966a37e2d9bc98e52dad144'
@@ -72,8 +71,7 @@ sha256sums=('2e120ec7fde19fa51dc6b6cc11c81860a0775defcad5a5bf910ed9a50e845a02'
             '139d576c540840fe18b0ce8468c243011e5f8b4aebfb1a288afe10b9f8d88137'
             'c045ce9c2571c4e6ff63345ea9abd9f778f56206f686b95491523ac740458420'
             'd8d6745a165e7f1608d8c298e49c8c2fee5a5d6c61c5b80d63a8dc7913ff8dc8'
-            'fecca9a761f3427c7f2f793e5d9a34d6f43799143e9a6b51edc372f88c76022e'
-            '115095cc4ad447cf5139dd838d833212bd89f7456428b01bd6a66363d6acb19a')
+            'fecca9a761f3427c7f2f793e5d9a34d6f43799143e9a6b51edc372f88c76022e')
 
 prepare() {
 	cd "${srcdir}/linux-${_basekernel}"
@@ -91,21 +89,19 @@ prepare() {
 	# patch from fedora
 	patch -Np1 -i "${srcdir}/criu-no-expert.patch"
 	
-	# fix 15 seocnds nfs delay
+	msg "Patching source to fix NFS 15 second delay"
+	# fix 15 seconds nfs delay
 	patch -Np1 -i "${srcdir}/sunrpc-create-a-new-dummy-pipe-for-gssd-to-hold-open.patch"
 	patch -Np1 -i "${srcdir}/sunrpc-replace-gssd_running-with-more-reliable-check.patch"
 	patch -Np1 -i "${srcdir}/nfs-check-gssd-running-before-krb5i-auth.patch"
 	
+	msg "Patching source to fix NFS (flyspray #37866)"
 	# fix nfs kernel oops
 	# flyspray #37866
 	patch -Np1 -i "${srcdir}/rpc_pipe-remove-the-clntXX-dir-if-creating-the-pipe-fails.patch"
 	patch -Np1 -i "${srcdir}/sunrpc-add-an-info-file-for-the-dummy-gssd-pipe.patch"
 	
 	patch -Np1 -i "${srcdir}/rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-notification-fails.patch"
-	
-	# Fix FS#38921
-	# http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=9eb2ddb48ce3a7bd745c14a933112994647fa3cd
-	#patch -p1 -i "${srcdir}/0001-SUNRPC-Ensure-that-gss_auth-isn-t-freed-before-its-u.patch"
 
 	# Clean tree and copy ARCH config over
 	msg "Running make mrproper to clean source tree"
