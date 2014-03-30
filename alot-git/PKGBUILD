@@ -1,15 +1,14 @@
-# Maintainer: Kazuo Teramoto <kaz.rag@gmail.com>
+# Maintainer: Mark Foxwell <mark@opensource.co.uk>
+# Contributor: Kazuo Teramoto <kaz.rag@gmail.com>
 # Contributor: Mark Foxwell <fastfret79@archlinux.org.uk>
 pkgname=alot-git
-pkgver=0.3.5.46.g1bebb66
+pkgver=0.3.5.53.g04f7c24
 pkgrel=1
-epoch=1
 pkgdesc="A terminal interface for notmuch"
 arch=('any')
 url="https://github.com/pazz/alot"
 license=('GPL')
-depends=('notmuch' 'python2-pygpgme' 'python-magic' 'python2' 'python2-configobj' \
-            'python2-urwid' 'python2-six' 'twisted')
+depends=(notmuch python2-pygpgme python-magic python2-configobj python2-urwid twisted)
 makedepends=('git')
 provides=('alot')
 conflicts=('alot')
@@ -19,11 +18,6 @@ md5sums=('SKIP')
 pkgver() {
   cd "$srcdir/alot"
   git describe --always | sed 's|-|.|g'
-}
-
-build() {
-  cd "$srcdir/alot"
-  python2 setup.py build
 }
 
 package() {
