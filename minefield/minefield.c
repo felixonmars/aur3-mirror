@@ -2,6 +2,7 @@
 #include <time.h>
 #include <string.h>
 #include <ncurses.h>
+#include <unistd.h>
 
 #define N 20
 
@@ -109,6 +110,8 @@ int main()
 				clear();
 				attron(COLOR_PAIR(rand()%6+1));
 				mvprintw(rowtot/2,(coltot-strlen(exitmsg))/2,"%s", exitmsg);
+				refresh();
+				sleep(1);
 				attroff(COLOR_PAIR);
 				getch();
 				endwin();
@@ -231,6 +234,7 @@ void victory_check(grid a[][N],int victory,int rowtot,int coltot){
 	else
 		mvprintw(rowtot/2,(coltot-strlen(losemesg))/2,"%s",losemesg);
 	refresh();
+	sleep(1);
 	attroff(A_BOLD);
 	attroff(A_REVERSE);
 	attroff(COLOR_PAIR);

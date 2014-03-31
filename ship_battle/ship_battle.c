@@ -2,6 +2,7 @@
 #include <time.h>
 #include <string.h>
 #include <ncurses.h>
+#include <unistd.h>
 
 #define N 20	//grid costant
 #define L 3		//Life value (3=max)
@@ -148,6 +149,8 @@ void screen_end(){
 		mvprintw(rowtot/2,(coltot-strlen("You scored %d points!"))/2,"You scored %d points!",points);
 	else
 		mvprintw(rowtot/2,(coltot-strlen(exitmsg))/2,"%s", exitmsg);
+	refresh();
+	sleep(1);
 	attroff(COLOR_PAIR);
 	attroff(A_BOLD);
 	getch();

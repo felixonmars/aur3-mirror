@@ -3,7 +3,7 @@
 pkgname=radeon-tray
 _up_pkgname=Radeon-tray
 pkgver=1.1
-pkgrel=2
+pkgrel=3
 pkgdesc="A system tray icon for controlling radeon cards' power states"
 arch=('any')
 url="https://github.com/StuntsPT/Radeon-tray/"
