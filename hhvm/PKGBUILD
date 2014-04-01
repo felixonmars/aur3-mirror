@@ -1,58 +1,100 @@
-# Maintainer: James Miller <james@pocketrent.com>
+# Maintainer: Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
+# Contributor: James Miller <james@pocketrent.com>
 
 pkgname=hhvm
-pkgver=2.3.1
+pkgver=3.0.0
+_folly_commit=d9c79af86a4dc0576d8df453804d3354347c07dc
 pkgrel=1
-epoch=
 pkgdesc="Virtual Machine, Runtime, and JIT for PHP"
 arch=('x86_64')
 url="http://hhvm.com"
 license=('PHP')
-groups=()
 depends=('boost-libs' 'google-glog' 'libmysqlclient' 'libmemcached' 'pcre' 'gd'
-         'libxml2' 'intel-tbb' 'libmcrypt' 'oniguruma' 'libldap' 'elfutils'
-         'jemalloc' 'curl' 'expat')
-makedepends=('git' 'cmake' 'gcc>=4.8' 'chrpath' 'boost' 'imap' 'libdwarf')
-checkdepends=()
-optdepends=()
-provides=()
-conflicts=()
-replaces=()
-backup=()
-options=()
-install=
-changelog=
-_folly_hash="8e8b5e75d"
-source=("$pkgname-$pkgver.tar.gz::https://github.com/facebook/hhvm/archive/HHVM-$pkgver.tar.gz"
-        "folly-$_folly_hash.tar.gz::https://github.com/facebook/folly/archive/$_folly_hash.tar.gz"
-        "$pkgname-$pkgver.patch")
-
-noextract=("folly-$_folly_hash.tar.gz")
-
-noextract=()
-md5sums=('d1f260570b515a01186cfb8ab8aa82b7'
-         '881badfdbc9b07bf66225ac58c74c446'
-         '7cadba09094164d99cac0ef33f8f362f')
+         'libxml2' 'libxslt' 'intel-tbb' 'libmcrypt' 'oniguruma' 'jemalloc' 'curl' 'imap'
+         'libdwarf' 'libunwind' 'imagemagick')
+makedepends=('git' 'cmake' 'gcc' 'chrpath' 'boost' 'double-conversion' 'google-gflags' 'python2')
+source=("https://github.com/facebook/hhvm/archive/HHVM-$pkgver.tar.gz"
+        'git+https://github.com/libevent/libevent.git#tag=release-1.4.14b-stable'
+        "folly-$_folly_commit.tar.gz::https://github.com/facebook/folly/archive/$_folly_commit.tar.gz"
+        'hhvm.tmpfile'
+        'hhvm@.service'
+        'static.mime-types.hdf'
+        'default.hdf'
+        'server.hdf')
+install=hhvm.install
+backup=(etc/hhvm/{conf.d/default,conf.d/static.mime-types,server}.hdf)
 
 prepare() {
-    export CMAKE_PREFIX_PATH="$srcdir"
-    export HPHP_HOME="$srcdir/$pkgname-HHVM-$pkgver"
+    cd "$srcdir"/$pkgname-HHVM-$pkgver
 
-    cd "$srcdir/$pkgname-HHVM-$pkgver"
-	patch -p1 -i "$srcdir/$pkgname-$pkgver.patch"
+    cd hphp/submodules
+    rm -rf folly
+    ln -s "$srcdir"/folly-$_folly_commit folly
 
-    cd "$srcdir/$pkgname-HHVM-$pkgver/hphp/submodules"
-    tar -xzf "$srcdir/folly-$_folly_hash.tar.gz" --strip-components=1 -C "folly"
+    cd "$srcdir/libevent"
+    patch -p1 -i "$srcdir"/$pkgname-HHVM-$pkgver/hphp/third_party/libevent-1.4.14.fb-changes.diff
+
+    # replace hashbang 'python' with 'python2'
+    sed '1 s/\bpython\b/python2/' -i event_rpcgen.py
+
+    # git fix
+    cd "$srcdir"
+    mkdir -p bin
+    [ ! -f bin/git ] && ln -s /usr/bin/false bin/git || true
 }
 
 build() {
-	cd "$srcdir/$pkgname-HHVM-$pkgver"
-    CC=gcc CXX=g++ INCLUDE=/usr/include/libdwarf HPHP_NOTEST=1 \
-    cmake . -DCMAKE_INSTALL_PREFIX="$pkgdir/usr"
-	make -j4 hhvm
+    cd "$srcdir/libevent"
+    msg2 "Building Custom Libevent"
+
+    ./autogen.sh
+    ./configure --prefix="$srcdir" --disable-shared
+    make
+    make install
+
+    cd "$srcdir"/$pkgname-HHVM-$pkgver
+    msg2 "Building hhvm"
+
+    export PATH="$srcdir/bin:$PATH" # git fix
+    export HPHP_HOME="$PWD"
+
+    # comment for tests
+    HPHP_NOTEST=1 \
+    INCLUDE=/usr/include/libdwarf \
+    cmake \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_PREFIX_PATH="$srcdir" \
+        .
+
+    make hhvm
 }
 
+# check() {
+#     cd "$srcdir"/$pkgname-HHVM-$pkgver/hphp/test
+#     ./run --threads 8 quick
+# }
+
 package() {
-	cd "$srcdir/$pkgname-HHVM-$pkgver"
-	make install
+    cd "$srcdir"/$pkgname-HHVM-$pkgver
+    make DESTDIR="$pkgdir/" install
+    rm -rf "$pkgdir"/usr/{lib,include}
+
+    cd "$srcdir"
+    install -Dm644 hhvm.tmpfile "$pkgdir"/usr/lib/tmpfiles.d/hhvm.conf
+    install -Dm644 hhvm@.service "$pkgdir"/usr/lib/systemd/system/hhvm@.service
+
+    install -Dm644 static.mime-types.hdf "$pkgdir"/etc/hhvm/conf.d/static.mime-types.hdf
+    install -Dm644 default.hdf "$pkgdir"/etc/hhvm/conf.d/default.hdf
+    install -Dm644 server.hdf "$pkgdir"/etc/hhvm/server.hdf
+
+    install -dm755 -o http "$pkgdir"/var/log/hhvm
 }
+
+sha256sums=('aec335be19cabe017b82becd17d737632d90012360f393d7994f88948958911d'
+            'SKIP'
+            '0db0f79c45411b3a90889fecd1fb0b505abe51a6fe24724e62372bd4e52abf49'
+            'cabf505fa85e33d7149f90fae95c6f67d5148895fc6efa353b21a3b31c1c3ec6'
+            '8681582439385807fd0f8caff780953d3049de93218ac785c48f6df4f4296bce'
+            '8b9f1dcb0a2fc7d3657e70b880425eccb963e0566247d99d26513d141e84a937'
+            '6d48e6bdc546d60a9770d507366ad23702f9997613cbe355d76463e0bf052f68'
+            'ba82950161ff38e634841360d7e15cf5314f233ed4d97b02c18e0ba9f7a3f560')
