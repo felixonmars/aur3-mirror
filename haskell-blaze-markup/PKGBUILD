@@ -1,18 +1,33 @@
-# Maintainer: Joop Kiefte <ikojba@gmail.com>
+# Maintainer: Aaron Peschel <aaron.peschel via gmail dot com>
+# Contributor: Joop Kiefte <ikojba via gmail dot com>
 _hkgname=blaze-markup
 pkgname=haskell-blaze-markup
-pkgver=0.5.2.1
+pkgver=0.6.0.0
 pkgrel=1
 pkgdesc="A blazingly fast markup combinator library for Haskell"
 url="http://hackage.haskell.org/package/${_hkgname}"
 license=('custom:BSD3')
 arch=('i686' 'x86_64')
 makedepends=()
-depends=('ghc' 'haskell-blaze-builder<0.4' 'haskell-bytestring=0.9.1.10' 'haskell-text=0.11.0.5')
+# The following are provided by the ghc package
+#   haskell-bytestring
+#   haskell-base
+# All others come from the AUR
+depends=(
+    'ghc'
+    'haskell-base>=4'
+    'haskell-base<5'
+    'haskell-blaze-builder>=0.2'
+    'haskell-blaze-builder<0.4'
+    'haskell-bytestring>=0.9'
+    'haskell-bytestring<0.11'
+    'haskell-text>=0.10'
+    'haskell-text<1.2'
+)
 options=('strip' 'staticlibs')
 source=(http://hackage.haskell.org/packages/archive/${_hkgname}/${pkgver}/${_hkgname}-${pkgver}.tar.gz)
 install=${pkgname}.install
-md5sums=('fa7fccd4199f63379b269f3b25cf27d2')
+md5sums=('f4282a01a69f14d88aae891706fbe2aa')
 build() {
     cd ${srcdir}/${_hkgname}-${pkgver}
     runhaskell Setup configure -O ${PKGBUILD_HASKELL_ENABLE_PROFILING:+-p } --enable-split-objs --enable-shared \
