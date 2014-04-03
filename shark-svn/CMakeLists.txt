@@ -115,7 +115,7 @@ ENDIF( UNIX )
 #####################################################################
 #           Enable installer and package generation	            #
 #####################################################################
-INCLUDE( CPack )
+#INCLUDE( CPack )
 
 #####################################################################
 #           Explicit macro setup for debug configuration	    #
@@ -205,46 +205,6 @@ IF( HDF5_FOUND )
 ELSE( HDF5_FOUND )
     MESSAGE(STATUS "HDF5 not found, skip")
 ENDIF( HDF5_FOUND )
-
-#####################################################################
-#           ATLAS configuration	                                    #
-#####################################################################
-OPTION( OPT_ENABLE_ATLAS "Use ATLAS as Linear Algebra Library" OFF )
-IF ( OPT_ENABLE_ATLAS )
-	find_library(CBLAS_LIBRARY
-		cblas
-		HINTS
-		${ATLAS_ROOT}/lib
-	)
-	find_library(CLAPACK_LIBRARY
-		lapack
-		HINTS
-		${ATLAS_ROOT}/lib
-	)
-	find_library(ATLAS_LIBRARY
-		atlas
-		HINTS
-		${ATLAS_ROOT}/lib
-	)
-
-	get_filename_component(ATLAS_PATH @CBLAS_LIBRARY@ PATH )
-	SET (ATLAS_PATH ${ATLAS_PATH}/.. )
-	mark_as_advanced(
-		CBLAS_LIBRARY
-		CLAPACK_LIBRARY
-		ATLAS_LIBRARY
-	)
-	IF ( CBLAS_LIBRARY )
-		message(STATUS "ATLAS found....true")
-		SET(LINK_LIBRARIES ${LINK_LIBRARIES} ${CLAPACK_LIBRARY} )
-		SET(LINK_LIBRARIES ${LINK_LIBRARIES} ${CBLAS_LIBRARY} )
-		SET(LINK_LIBRARIES ${LINK_LIBRARIES} ${ATLAS_LIBRARY} )
-		ADD_DEFINITIONS( -DSHARK_USE_ATLAS )
-		include_directories ( ${ATLAS_ROOT}/include/ ${ATLAS_ROOT}/include/atlas/ )
-	ELSE ( CBLAS_LIBRARY )
-		message(STATUS "ATLAS found....false")
-	ENDIF ( CBLAS_LIBRARY )
-ENDIF ( OPT_ENABLE_ATLAS )
 
 #####################################################################
 #                       Static Code Analysis                        #
