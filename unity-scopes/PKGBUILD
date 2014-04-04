@@ -1,0 +1,160 @@
+# Maintainer: Charles Bos <charlesbos1 AT gmail>
+# Contributor: Xiao-Long Chen <chenxiaolong@cxl.epac.to>
+
+# When updating, check if any packages are missing when compared to
+# /usr/share/unity/client-scopes.json
+
+packages=()
+setver() { eval "_ver_${1}=${2}"; eval "_rel_${1}=${3}"; packages+=(${1}); }
+
+setver audacious		0.1+13.10.20130927.1	0ubuntu1
+setver calculator		0.1+13.10.20130723	0ubuntu1
+setver chromiumbookmarks	0.1+13.10.20130723	0ubuntu1
+setver clementine		0.1+13.10.20130723	0ubuntu1
+setver colourlovers		0.1+13.10.20130723	0ubuntu1
+setver devhelp			0.1+13.10.20130809.1	0ubuntu1
+setver deviantart		0.1+13.10.20130723	0ubuntu1
+setver firefoxbookmarks		0.1+13.10.20130809.1	0ubuntu1
+setver gallica			0.1+13.10.20130816.2	0ubuntu1
+setver gdrive			0.9+13.10.20130723	0ubuntu1
+setver github			0.1+13.10.20130723	0ubuntu1
+setver gmusicbrowser		0.1+13.10.20130723	0ubuntu1
+setver googlenews		0.1+13.10.20130723	0ubuntu1
+setver gourmet			0.1+13.10.20130723	0ubuntu1
+setver guayadeque		0.1+13.10.20130927.1	0ubuntu1
+setver manpages			3.0+13.10.20130723	0ubuntu1
+setver musique			0.1+13.10.20130723	0ubuntu1
+setver openclipart		0.1+13.10.20130723	0ubuntu1
+setver openweathermap		0.1+13.10.20130828	0ubuntu1
+setver soundcloud		0.1+13.10.20130723	0ubuntu1
+setver texdoc			0.1+13.10.20130723	0ubuntu1
+setver tomboy			0.1+13.10.20130723	0ubuntu1
+setver virtualbox		0.1+13.10.20130723	0ubuntu1
+setver yahoostock		0.1+13.10.20130723	0ubuntu1
+setver yelp			0.1+13.10.20130723	0ubuntu1
+setver zotero			0.1+13.10.20130723	0ubuntu1
+
+pkgname=unity-scopes
+epoch=1
+pkgver=1.0
+pkgrel=1
+pkgdesc="Online scopes for the Unity Dash"
+arch=('any')
+url="https://launchpad.net/unity-scopes"
+license=('GPL' 'custom')
+groups=('unity')
+
+depends=('dee' 'glib2' 'libunity' 'python' 'python-gobject' 'unity-scope-home')
+# audacious, clementine, gmusicbrowser, guayadeque, musique
+depends+=('python-dbus')
+# calculator
+depends+=('gnome-calculator')
+# devhelp, gallica
+depends+=('python-lxml')
+# deviantart, googlenews, openclipart, yahoostock
+depends+=('python-feedparser')
+# manpages
+depends+=('gtk3' 'man-db')
+
+makedepends=('python-distutils-extra')
+# texdoc
+makedepends+=('texlive-bin')
+
+install=icon_cache.install
+
+provides=()
+conflicts=()
+replaces=()
+source=()
+for i in ${packages[@]}; do
+  eval "_name=${i}; _ver=\${_ver_${i}}; _rel=\${_rel_${i}}"
+
+  # Smooth upgrade from old packages
+  provides+=("unity-scope-${_name}=${_ver}")
+  replaces+=("unity-scope-${_name}")
+  conflicts+=("unity-scope-${_name}")
+
+  source+=("https://launchpad.net/ubuntu/+archive/primary/+files/unity-scope-${_name}_${_ver}.orig.tar.gz"
+           "https://launchpad.net/ubuntu/+archive/primary/+files/unity-scope-${_name}_${_ver}-${_rel}.diff.gz")
+done
+
+prepare() {
+  for i in ${packages[@]}; do
+    eval "_name=${i}; _ver=\${_ver_${i}}; _rel=\${_rel_${i}}"
+
+    cd "${srcdir}/unity-scope-${_name}-${_ver}"
+    patch -p1 -i "${srcdir}/unity-scope-${_name}_${_ver}-${_rel}.diff"
+  done
+}
+
+package() {
+  install -dm755 "${pkgdir}/usr/share/doc/unity-scopes/"
+
+  for i in ${packages[@]}; do
+    eval "_name=${i}; _ver=\${_ver_${i}}; _rel=\${_rel_${i}}"
+
+    cd "${srcdir}/unity-scope-${_name}-${_ver}"
+    python setup.py install --root="${pkgdir}" --optimize=1
+
+    # License
+    install -dm755 "${pkgdir}/usr/share/licenses/unity-scopes/"
+    install -m644 debian/copyright \
+                  "${pkgdir}/usr/share/licenses/unity-scopes/${_name}"
+
+    echo "${_name} ${_ver} ${_rel}" >> \
+      "${pkgdir}/usr/share/doc/unity-scopes/VERSIONS"
+  done
+}
+
+sha512sums=('3c19ded6c9a5c63b996a4da37afc93200d6e72906062ce94558fdf3c7aba74975c56fee800d727e4a881e829083f90f29cc6676b16c1207df5365589860133af'
+            '3075d7bc393a6be3394d74713ce5cebf29ba2ae642554069b18d09c702fc9deb0db304e98ef1a3e94af53cf500d4a3c24c8e6248594d3d26df840bd51b63e772'
+            'b1b06dc303d1304ca705025396668d93fcb2d423f05d30aae91e76a62bb3e9a586b7b7279242d293748b79ec66792f694ccdb12163e26ba5e1f1a1b48c0fff54'
+            '1e102a8aa4f542ac707ca6a717f1e9c8d391365a4ef1634aa32aa95b6cb700ee0181a3ed1a3e522cee90687a95760a754d8ea93671635d21aae6d8f67c63c8c6'
+            'ca0a52ab74a9a5c5b877ad873f1541e1f0b4efea34bad8ce898855044773762876a73f516e9773b8e4b98d318ed1b336c4adbf9968463fdf91e423f087ea34c4'
+            '907b6001ce20aca58116ab96c324cc0f7c132a42f2a0406a761c2ff906b4cdfdf43b28bcdd67c8bf2fa9d3dfae1dc597a3dd9784d951ee5ddbfb98f7592b9958'
+            '5c13474bc520147e32b47ec10c986ec696516e390397946ec1b38d5196e99a2421aee649dc94562b20cb75977554b8b58d73f0a44f9e69854280b0df1e5a595b'
+            '5ef4a63195396ab42911c1774729d9e7bf36503cbcce6fff7a9b6ad251fc4d6d1b0b2211e473c0a773f457bf888bc841db8b677b3cb90d9be3ec1b9b5a642a5f'
+            '348b11527792ef7c0cbf46300d056c6fbaa5539fa22262fcf72f0c8b5ce9c6e583e2904b95d1be6d0b2860ad84179f05228457b718db83e5cd39b8904d7e47ab'
+            '52def4d9a7ff94a67138d2a80c4556ee610c79312c021c8d69029991914ccdcf73e6c3cd310de006cfb3e1a35f84b8679269af3c8abbc54afa99a57ae262726f'
+            'ac07b41292bb2affb11c8960826a85db0e358bda3b95c003076eb11d1977e68dfd32c51f2a0601a119dc6a6eb61733ae110bf5bc93f46796fb9b0c673b8102c2'
+            'bdc73800c18e61e1e2555fa78bacde73c7dd8c6827885c12e415ebb5e88c488ed0c233406e1974949a456f432e524c70c3dcaccda2513d251c35adc922651229'
+            '07152b0c744488dc7689bc18a9fd82d670cc15e0b8b2aa8eb312691be6cc4103ec3b70ab2e1e133864be1f42ab1098906f773badb8c7529aec595dd01ba5098e'
+            '685cb9b1592759337a8f85cdfb5deb7f914ef491f6a9428a0751b645f8c645fdfcb2f421cda441221aebfe40e42e6073407a662ce1e2651a76b7907c4aea94cd'
+            'ff67c77c8f00cb67e7160eb7f6662adf6180ad0357be3f8609f9593dadb07b9d873ab5f8953b5d4b26f884fc3ec7f4cec6305d96c862829ed5ead4b73fd96686'
+            'a1144f8da5e535c73cd80b408a9695cbe1dd668cc9679ba7c06564575b885ba066f032eb9c7c5763ff313897b0fa51ad0fb8ed0359ebce26751fab3ab592e700'
+            '26bbb2f65e93f05fa30338823ede708642a2a5e13cb3769789b33f8a40c08c605c5db2ad9777ab804834ce12d25fe53da82e77ba3f045c4dbedf5092a44eb8c0'
+            '3d61f2852b40c7d6435024b46be64469ca4333d2158e8ca82bfc8e8be88976ecf020b581278ad88444b0fa89f51bd3354528dca70214a0f58116f69b576130f3'
+            '2c6aa825e7f9f549086dd577445ac05ef950aac1867bd525d62343cb2b84c0d0598983256e17b3c3e92d22b86661319f86be98a5eeecf359c046eaea869ec48f'
+            '70bb1cbd9edd25e5915dfcc56b01a74e66a36e07478df1254ddd55819c65276ff3f61d5752108d85ca6747efeddfae07c83cf6f6203fbd806a4f6bd16ede0fee'
+            '396dc337c8934a1d99ce2ed02568d1cad559d852bbbd7548acdf2ed3417848565127682a63745c46bcddd0aaa4fa9f10a85650d2651bfac2171c676427d7080e'
+            'cb8e890d92d56ab41905f8704fcc3369c8afb08e702be2f5b43307024d3a03dcc5de9a69e2168d1f4f3409eb64a2f16970ac905379bda54c7bdffc821a1e0c0e'
+            '2c83828c6143a0f0bc3b0ad95cf9cae013d532d52428a215aac038abd4b0b8a64ab725647c3bc889109264ee89c2b8bfc09217358357b707018ff1a844a1a788'
+            'ffcc8953ebe56f511cb8e1309e61b51f590467a8bb5e5d2d99c5772e9c1c3f654083886194c1c154666428cacb6833d63ad8ec24ef3443a1e4bbfa1cc4b666aa'
+            'c585ff7c25adb0b151869b9f04deb2ca13e698b3604bbdb852d5011aa57dedada581d989090024bc57fb6dfb705ac9c314319ad2ec7250d5ff42197b4f8182ff'
+            'dafc1c91aeb938039301ffe6ab1f6d03fcde5d83aae26e6f4e276a299177468af1388844fad1e34b5b9860595a3c2c242a5df3e3b3cb8f59bea044fba69965fa'
+            '876f3fbe29990aec29990d6de4e35685eb5e0178e0d5c87dc8d090e84085fc52285534755d57ca3b357f45051ed761873386073fcd54c5a0f47492d2ceb77a10'
+            '59dad9a5e76284badc1fd08458793d0fb2dc5f63abcad9410e5a71c4f25d1754cf5eb411ed270d32bf87f60f2f06ada098172dc069742a5a3ce76c255321e2ba'
+            '8d20ead737d0aa2d74e7dfa0e500f9d6cbf8963bcd70ced1c232edb0d21ce35742347f2a66a0d9293a0973dc22d57d4edb17bd0dc6245175897033d4906f4277'
+            '54862c1035fc811b8b96fe8cdd1699177734177cbe2268dfa4897e9bb92797969da3aa5c5f7ab3cc64e0d156163c20dfd4aaeca6901b436844b8b6a431c22902'
+            'ea13f0c7070ee3354e2b8bff8abd989777b77f67fdfac2ac40b57cbc841734d67481ccd50f3c3d1ee38e766beffc0c90c160c7d735f9620ff1d59e6399295317'
+            'c8d555ee5b46dae52d89bcbff91b3175b0360d3c95e4b9bbd15223030c8602c5b17b472d91373cb1de7f84ddb8b91509a5a472ebed6c6854cbde907633361999'
+            '8b18e41449ba3e04a704be23cf4e06dd67d5c4d741a7e66169da6978b8e3fcaf4a44c3c11d9a442a7803397e6abd8323046fe03447ac664fc05b51819585e6e1'
+            '72476f762fd1ec396579ad06b09b776faa9554f0779df08191f641c0d5126e2d24d88920e87f19ea8217efd70a1336cb65fd8c95dcb9672afb16f1c47f2a8771'
+            'b28a93565550a20c6227ba26c1d4c255e932e9b3e957c141f6e49b25e6dcab3161cc9ea68e318a4e1675de6aa4f9835a67e8b970a8ecbc2391710f7a74d17dd8'
+            'c200f3d81e695a1786a2c27dc2464f8d7d4c71c256a32462de069adf3613bee4b51f9152c624f5515e4752024cf18ad5e331b08c65c244e3abf9b9ad8c37f016'
+            '7ef18cdff930941064dbcdd9311c0f214c1d39b9fdb0039c056baa7d06fe5aa863ed42c86eb543b7119b9da0d523bcca870ed4285b7a5d1f85e9e6fceafd2329'
+            '4abe87b22d1949653bf1551ac6ef164d7ba9c7b7defbc8204df9429823ba8dbb99979b097509e945a68832d7be4313f3412cf574f2627b8532761ae65196860e'
+            '27fa1bf7e1b3058a7515f670c146241d7141f763b18dba6c63eb0b610205b8380c2a03e58a22c7a1fa043458e929550aa78cd36e2d343087e65ab588505a89ef'
+            'c9129b470fc8593727dfed90a2d4cff5f108937b69d4e55cd77ec746d10369637d6b195204a5073011bb118c4b3ac25fc5c0b27965484ec3201fa12de3efb6b4'
+            'a3d7989a6dbf18c3f13da772dbbf3fbd5732a531a337dfaacaf1225913d3251e73eca853896217b1c923fe80302bf4f16c269fa263dee9e6f4280bee696fe664'
+            '519bdc2ee7381c9fa05499c5e672140bf7dcccc9ffde3727b04d32ca291b86dad217c7a858df724ff1d6b09b94117e90deec5f6e5377e0d91af0f6c9dd0c1834'
+            'be51db15c59a6fdd57fbe7f7cc7c6e9bfb2fee75ae32a092970dfba9367487b8420df493759808db755de34fe49064e517a9dcdef9fdae4359b37a1203d85c56'
+            '51fd778dff2d13703a538d12610d896d70e70ac09748795da152bcd5954c1a2159ee566745eb4e12e9b85fb671cd7726b1f726acb99a452ebaa740a6c38a4b89'
+            '372bd54e1291fbf43ccd6becc94e538d6e0655cd0e8991278d28486ed61cbbb81de03fc917f226960415e20643dc6defc0c18d784a46dd0a5cf130cf4749b153'
+            '7465e19369f50d54680f19c0aea50e2d112f71c52afa9d9d8493a4efb910414fc0afdc184a7edbbfdb0b1636deb909d6268c6a576ac50228a1fab525268d182d'
+            'ec215cc24f8a935711d722c3606206614810737e3c266aa76ae99e64df708cdd76a7560cb04a922845dace3e527f8fb33dba299b07c90fb0ddcc62b9e4de5df3'
+            '3c7835b4f924d8f763bff5b696281e05c9a190f436b96730e56c8781d227b07f0c1f31c3f6b6e5ade3cd605b29b6bdb1f580e8605f83e57b055f581335f44539'
+            '9009ad8f84bb143cb4b2369958ec42a49a8c0952c991ba9146b9a376f58bd12efb3d498cce8fe969f4b9ac276eed2b17e672c4cdeff9c2a9cb5a1702874f5b4f'
+            'b622e020e84e7049d756b6adb64d85fbdc9d0078bccca11e4bd63c0dde225525afc4f52cc52ccfe84d464bfc01a3ddda4ab5a0b3821bd6ca62565a85f8bb10a6'
+            '4f8f25a8ca4caf4a2772ce4f5949c480146930bc21233c203a9eb7f6e7fde81821d7cbe8b18b23d47506e8a5767e9e1fab1f97c37305a29b6f7cfcf57920aa16'
+            '84b783800999ad58c693b71e88adaab4034e18fcbd2f593e1082523d39c1f2d853bd9d64033e16ff6c27d95d0e619cd1725ed4fa3c3fb5a3a85ef8b4a4818847')

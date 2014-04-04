@@ -1,6 +1,6 @@
 # Maintainer : Claire Farron <https://github.com/clfarron4/ linux-lts312-archlinux>
 # Contributor: graysky <graysky AT archlinux DOT us> (PKGBUILD)
-# Contributor:  fsckd <fsckdaemon -at- gmail dot com> (PKGBUILD)
+# Contributor: fsckd <fsckdaemon -at- gmail dot com> (PKGBUILD)
 # Contributor: Tobias Powalowski <tpowa@archlinux.org> ([core] package)
 # Contributor: Thomas Baechler <thomas@archlinux.org> ([core] package)
 
@@ -40,7 +40,7 @@ _pkgname=${pkgname}
 _kernelname=${_pkgname#linux}
 _basekernel=3.12
 true && pkgname=(${_pkgname} ${_pkgname}-headers)
-pkgver=3.12.15
+pkgver=3.12.16
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -60,7 +60,7 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-3.12.tar.xz"
 	'sunrpc-add-an-info-file-for-the-dummy-gssd-pipe.patch'
 	'rpc_pipe-fix-cleanup-of-dummy-gssd-directory-when-notification-fails.patch')
 sha256sums=('2e120ec7fde19fa51dc6b6cc11c81860a0775defcad5a5bf910ed9a50e845a02'
-            '6fa9dfea3d3bb41464652f07fd036886336be3fbb73e2c06baabd1005af1d2cf'
+            '588160002572f28af07a0cfd860144c0f7f98f98b569d5985cafe7ebbc69ffb3'
             'cdad2ad2f3165be86d903f37f6e761f1707cba51bccb802e08ae259445113cad'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
             '9c99f8de81489227a0255d358d8ab64a5232814ee966a37e2d9bc98e52dad144'
