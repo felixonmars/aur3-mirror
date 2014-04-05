@@ -1,3 +1,5 @@
 blacklist b43
-blacklist bcma
 blacklist ssb
+blacklist bcma
+blacklist brcmsmac
+blacklist brcmfmac

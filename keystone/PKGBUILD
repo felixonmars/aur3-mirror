@@ -3,7 +3,7 @@
 pkgbase=keystone
 pkgname=keystone
 true && pkgname=('keystone' 'python2-keystone')
-pkgver=2013.2.2
+pkgver=2013.2.3
 pkgrel=1
 pkgdesc="OpenStack Identity"
 epoch=$(date +%Y%m%d)
@@ -14,9 +14,9 @@ depends=('python2' 'python2-setuptools')
 makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslo-sphinx')
 options=('emptydirs')
 install=keystone.install
-source=("$url/havana/2013.2.2/+download/$pkgbase-$pkgver.tar.gz"
+source=("$url/havana/2013.2.3/+download/$pkgbase-$pkgver.tar.gz"
         "keystone.service")
-md5sums=('16ec7345796e0b951614812a88b39239'
+md5sums=('784e7e1acc55f6f2972847ebe7b8fbdd'
          'c3ddbede14b4c937c3da77c81b817345')
 
 build() {
@@ -69,6 +69,7 @@ package_python2-keystone() {
            'python2-iso8601>=0.1.8'
            'python2-keystoneclient>=0.3.2'
            'python2-lxml>=2.3'
+           'python2-migrate>=0.7.2'
            'python2-netaddr'
            'python2-oauth2'
            'python2-oslo-config>=1.2.0'
