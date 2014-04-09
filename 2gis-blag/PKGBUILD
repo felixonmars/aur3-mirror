@@ -1,15 +1,15 @@
 pkgname=2gis-blag
-pkgver=30
+pkgver=31
 pkgrel=1
-pkgdesc="Map of Blagoveschensk for 2GIS, March 2014"
+pkgdesc="Map of Blagoveschensk for 2GIS, April 2014"
 arch=('i686' 'x86_64')
-url="http://blag.2gis.ru/how-get/linux/"
+url="http://blagoveshensk.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.11.0')
-source=("http://download.2gis.ru/arhives/2GISData_Blagoveshensk-30.orig.zip")
-md5sums=('b87eeebaeb7a19d3514a8ec6ad62e9ba')
+depends=('2gis>=3.14.4.0')
+source=("http://download.2gis.ru/arhives/2GISData_Blagoveshensk-31.orig.zip")
+md5sums=('64b393fd5290df9389c8f6e3f6f08ded')
 
 package() {
-  install -D -m 644 "${srcdir}/2gis/3.0/Data_Blagoveshensk.dgdat" "${pkgdir}/opt/2gis/blag.dgdat" || return 1
+  install -D -m 644 "${srcdir}/2gis/3.0/Data_Blagoveshensk.dgdat" "${pkgdir}/opt/2gis/2gis-blag.dgdat" || return 1
   
 }

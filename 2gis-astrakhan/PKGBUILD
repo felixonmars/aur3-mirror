@@ -1,15 +1,15 @@
 pkgname=2gis-astrakhan
-pkgver=100
+pkgver=101
 pkgrel=1
-pkgdesc="Map of Astrakhan for 2GIS, March 2014"
+pkgdesc="Map of Astrakhan for 2GIS, April 2014"
 arch=('i686' 'x86_64')
-url="http://astrakhan.2gis.ru/how-get/linux/"
+url="http://astrahan.2gis.ru/how-get/linux/"
 license=('custom')
-depends=('2gis>=3.13.11.0')
-source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-100.orig.zip")
-md5sums=('0a68e8bca2fa045d61208223e4dca181')
+depends=('2gis>=3.14.4.0')
+source=("http://download.2gis.ru/arhives/2GISData_Astrakhan-101.orig.zip")
+md5sums=('e14e75f91759514ac2e13ac988225609')
 
 package() {
-  install -D -m 644 "${srcdir}/2gis/3.0/Data_Astrakhan.dgdat" "${pkgdir}/opt/2gis/astrakhan.dgdat" || return 1
+  install -D -m 644 "${srcdir}/2gis/3.0/Data_Astrakhan.dgdat" "${pkgdir}/opt/2gis/2gis-astrakhan.dgdat" || return 1
   
 }
