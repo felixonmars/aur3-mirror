@@ -1,12 +1,12 @@
 # Maintainer: Federico Di Pierro <nierro92@gmail.com> 
 
 pkgname=ship_battle
-pkgver=1.2
+pkgver=1.3
 pkgrel=1
 pkgdesc="Classic ship game written in C and ncurses. Destroy enemy ships!"
 arch=(i686 x86_64)
 license=('GPL3')
-url="http://postimg.org/image/g455575oz/full/"
+url="https://github.com/FedeDP/ship_game"
 groups=('games')
 depends=('ncurses')
 source=("$pkgname.c" "makefile")
