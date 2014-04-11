@@ -1,0 +1,173 @@
+From 84b791a4562685f36de573826eabab8c180af191 Mon Sep 17 00:00:00 2001
+From: Vadim Rozenfeld <vrozenfe@redhat.com>
+Date: Thu, 16 Jan 2014 20:18:37 +1100
+Subject: [PATCH 2/9] add support for Hyper-V reference time counter
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off: Peter Lieven <pl@kamp.de>
+Signed-off: Gleb Natapov
+Signed-off: Vadim Rozenfeld <vrozenfe@redhat.com>
+
+After some consideration I decided to submit only Hyper-V reference
+counters support this time. I will submit iTSC support as a separate
+patch as soon as it is ready.
+
+v1 -> v2
+1. mark TSC page dirty as suggested by
+    Eric Northup <digitaleric@google.com> and Gleb
+2. disable local irq when calling get_kernel_ns,
+    as it was done by Peter Lieven <pl@amp.de>
+3. move check for TSC page enable from second patch
+    to this one.
+
+v3 -> v4
+    Get rid of ref counter offset.
+
+v4 -> v5
+    replace __copy_to_user with kvm_write_guest
+    when updateing iTSC page.
+
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+---
+ arch/x86/include/asm/kvm_host.h    |  1 +
+ arch/x86/include/uapi/asm/hyperv.h | 13 +++++++++++++
+ arch/x86/kvm/x86.c                 | 28 +++++++++++++++++++++++++++-
+ include/uapi/linux/kvm.h           |  1 +
+ 4 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index ae5d783..33fef07 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -605,6 +605,7 @@ struct kvm_arch {
+ 	/* fields used by HYPER-V emulation */
+ 	u64 hv_guest_os_id;
+ 	u64 hv_hypercall;
++	u64 hv_tsc_page;
+ 
+ 	#ifdef CONFIG_KVM_MMU_AUDIT
+ 	int audit_point;
+diff --git a/arch/x86/include/uapi/asm/hyperv.h b/arch/x86/include/uapi/asm/hyperv.h
+index b8f1c01..462efe7 100644
+--- a/arch/x86/include/uapi/asm/hyperv.h
++++ b/arch/x86/include/uapi/asm/hyperv.h
+@@ -28,6 +28,9 @@
+ /* Partition Reference Counter (HV_X64_MSR_TIME_REF_COUNT) available*/
+ #define HV_X64_MSR_TIME_REF_COUNT_AVAILABLE	(1 << 1)
+ 
++/* A partition's reference time stamp counter (TSC) page */
++#define HV_X64_MSR_REFERENCE_TSC		0x40000021
++
+ /*
+  * There is a single feature flag that signifies the presence of the MSR
+  * that can be used to retrieve both the local APIC Timer frequency as
+@@ -198,6 +201,9 @@
+ #define HV_X64_MSR_APIC_ASSIST_PAGE_ADDRESS_MASK	\
+ 		(~((1ull << HV_X64_MSR_APIC_ASSIST_PAGE_ADDRESS_SHIFT) - 1))
+ 
++#define HV_X64_MSR_TSC_REFERENCE_ENABLE		0x00000001
++#define HV_X64_MSR_TSC_REFERENCE_ADDRESS_SHIFT	12
++
+ #define HV_PROCESSOR_POWER_STATE_C0		0
+ #define HV_PROCESSOR_POWER_STATE_C1		1
+ #define HV_PROCESSOR_POWER_STATE_C2		2
+@@ -210,4 +216,11 @@
+ #define HV_STATUS_INVALID_ALIGNMENT		4
+ #define HV_STATUS_INSUFFICIENT_BUFFERS		19
+ 
++typedef struct _HV_REFERENCE_TSC_PAGE {
++	__u32 tsc_sequence;
++	__u32 res1;
++	__u64 tsc_scale;
++	__s64 tsc_offset;
++} HV_REFERENCE_TSC_PAGE, *PHV_REFERENCE_TSC_PAGE;
++
+ #endif
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 4e33b85..c3b6502 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -839,11 +839,12 @@ EXPORT_SYMBOL_GPL(kvm_rdpmc);
+  * kvm-specific. Those are put in the beginning of the list.
+  */
+ 
+-#define KVM_SAVE_MSRS_BEGIN	10
++#define KVM_SAVE_MSRS_BEGIN	12
+ static u32 msrs_to_save[] = {
+ 	MSR_KVM_SYSTEM_TIME, MSR_KVM_WALL_CLOCK,
+ 	MSR_KVM_SYSTEM_TIME_NEW, MSR_KVM_WALL_CLOCK_NEW,
+ 	HV_X64_MSR_GUEST_OS_ID, HV_X64_MSR_HYPERCALL,
++	HV_X64_MSR_TIME_REF_COUNT, HV_X64_MSR_REFERENCE_TSC,
+ 	HV_X64_MSR_APIC_ASSIST_PAGE, MSR_KVM_ASYNC_PF_EN, MSR_KVM_STEAL_TIME,
+ 	MSR_KVM_PV_EOI_EN,
+ 	MSR_IA32_SYSENTER_CS, MSR_IA32_SYSENTER_ESP, MSR_IA32_SYSENTER_EIP,
+@@ -1829,6 +1830,8 @@ static bool kvm_hv_msr_partition_wide(u32 msr)
+ 	switch (msr) {
+ 	case HV_X64_MSR_GUEST_OS_ID:
+ 	case HV_X64_MSR_HYPERCALL:
++	case HV_X64_MSR_REFERENCE_TSC:
++	case HV_X64_MSR_TIME_REF_COUNT:
+ 		r = true;
+ 		break;
+ 	}
+@@ -1870,6 +1873,20 @@ static int set_msr_hyperv_pw(struct kvm_vcpu *vcpu, u32 msr, u64 data)
+ 		kvm->arch.hv_hypercall = data;
+ 		break;
+ 	}
++	case HV_X64_MSR_REFERENCE_TSC: {
++		u64 gfn;
++		HV_REFERENCE_TSC_PAGE tsc_ref;
++		memset(&tsc_ref, 0, sizeof(tsc_ref));
++		kvm->arch.hv_tsc_page = data;
++		if (!(data & HV_X64_MSR_TSC_REFERENCE_ENABLE))
++			break;
++		gfn = data >> HV_X64_MSR_TSC_REFERENCE_ADDRESS_SHIFT;
++		if (kvm_write_guest(kvm, data,
++			&tsc_ref, sizeof(tsc_ref)))
++			return 1;
++		mark_page_dirty(kvm, gfn);
++		break;
++	}
+ 	default:
+ 		vcpu_unimpl(vcpu, "HYPER-V unimplemented wrmsr: 0x%x "
+ 			    "data 0x%llx\n", msr, data);
+@@ -2294,6 +2311,14 @@ static int get_msr_hyperv_pw(struct kvm_vcpu *vcpu, u32 msr, u64 *pdata)
+ 	case HV_X64_MSR_HYPERCALL:
+ 		data = kvm->arch.hv_hypercall;
+ 		break;
++	case HV_X64_MSR_TIME_REF_COUNT: {
++		data =
++		     div_u64(get_kernel_ns() + kvm->arch.kvmclock_offset, 100);
++		break;
++	}
++	case HV_X64_MSR_REFERENCE_TSC:
++		data = kvm->arch.hv_tsc_page;
++		break;
+ 	default:
+ 		vcpu_unimpl(vcpu, "Hyper-V unhandled rdmsr: 0x%x\n", msr);
+ 		return 1;
+@@ -2607,6 +2632,7 @@ int kvm_dev_ioctl_check_extension(long ext)
+ #ifdef CONFIG_KVM_DEVICE_ASSIGNMENT
+ 	case KVM_CAP_ASSIGN_DEV_IRQ:
+ 	case KVM_CAP_PCI_2_3:
++	case KVM_CAP_HYPERV_TIME:
+ #endif
+ 		r = 1;
+ 		break;
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 902f124..686c1ca 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -674,6 +674,7 @@ struct kvm_ppc_smmu_info {
+ #define KVM_CAP_ARM_EL1_32BIT 93
+ #define KVM_CAP_SPAPR_MULTITCE 94
+ #define KVM_CAP_EXT_EMUL_CPUID 95
++#define KVM_CAP_HYPERV_TIME 96
+ 
+ #ifdef KVM_CAP_IRQ_ROUTING
+ 
+-- 
+1.9.2
+
