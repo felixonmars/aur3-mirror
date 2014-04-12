@@ -3,22 +3,22 @@
 pkgbase=lib32-gcin
 pkgname=lib32-gcin
 _pkgname=gcin
-pkgver=2.8.1
-pkgrel=3
+pkgver=2.8.2
+pkgrel=1
 true && pkgname=('lib32-gcin-im-client' 'lib32-gcin-qt4' 'lib32-gcin-gtk2')
 url='http://hyperrate.com/dir.php?eid=67'
 license=('LGPL')
 arch=('x86_64')
 depends=("gcin=${pkgver}")
 makedepends=('lib32-gtk2' 'lib32-qt4' 'gcc-multilib')
-source=("http://www.csie.nctu.edu.tw/~cp76/gcin/download/${_pkgname}-${pkgver}.tar.xz"
-"qconfig.h"
-"lib32-gcin.patch")
-sha1sums=('fc7323f1e0558675a94e91de2166c484c72d464d'
-'85dba460dc77e0cd07d07a33388a345cc91c98d3'
-'ee865f29a5229c652fa63348d7caf00ead7e97e5')
+source=("http://hyperrate.com/gcin-source/${_pkgname}-${pkgver}.tar.xz"
+        "qconfig.h"
+        "lib32-gcin.patch")
+sha1sums=('d045f5369cca83c131abf4f871601cd226a6aaec'
+          '85dba460dc77e0cd07d07a33388a345cc91c98d3'
+          '8794e4289c9da97287e55ebc806d4fad6231e254')
 
-build() {
+prepare() {
   cd "${srcdir}/"
 
   # add 32bit version qconfig.h for 32bit Qt im-module
@@ -28,6 +28,9 @@ build() {
   # adjust compiler's parameters for 32bit Qt im-module
   export CC="gcc -m32 -I${srcdir} -I${srcdir}/QtCore"
   export CXX="g++ -m32 -I${srcdir} -I${srcdir}/QtCore"
+
+  # select qt4 because the /usr/bin/moc is a symlink to 'qtchooser'(qt5) now
+  export QT_SELECT=4
 
   cd "${srcdir}/${_pkgname}-${pkgver}"
 
@@ -42,6 +45,10 @@ build() {
   ./configure           \
     --prefix=/usr     \
     --use_i18n=Y
+}
+
+build() {
+  cd "${srcdir}/${_pkgname}-${pkgver}"
 
   # due to dependency, gtk-im will be built together
   make -C im-client

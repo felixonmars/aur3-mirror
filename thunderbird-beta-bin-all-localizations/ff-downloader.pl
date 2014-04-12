@@ -1,6 +1,6 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.9.7
-## Copyright 2011-13 Simone Sclavi 'Ito'
+# ff-downloader v0.5.10.0
+## Copyright 2011-14 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation, either version 3 of the License, or
@@ -17,6 +17,7 @@
 
 use strict;
 use warnings;
+no if $] >= 5.018, warnings => "experimental::smartmatch";
 use feature qw(say switch);
 use Getopt::Long qw(:config no_ignore_case);
 use LWP;
@@ -87,7 +88,6 @@ if (!$LANG)
     my @ff_i18n = (
     { language => 'Acholi', code => 'ach' },
     { language => 'Afrikaans (South Africa)', code => 'af' },
-    { language => 'Akan', code => 'ak' },
     { language => 'Netherlands Antilles', code => 'an' },
     { language => 'Aarabic', code => 'ar' },
     { language => 'Assamese', code => 'as' },
@@ -138,19 +138,17 @@ if (!$LANG)
     { language => 'Kannada', code => 'kn' },
     { language => 'Korean', code => 'ko' },
     { language => 'Kurdish', code => 'ku' },
-    { language => 'Ganda', code => 'lg' },
     { language => 'Ligurian', code => 'lij' },
     { language => 'Lithuanian', code => 'lt' },
     { language => 'Latvian', code => 'lv' },
     { language => 'Maithili', code => 'mai' },
     { language => 'Macedonian', code => 'mk' },
     { language => 'Malayalam', code => 'ml' },
-    { language => 'Mongolian', code => 'mn' },
     { language => 'Marathi', code => 'mr' },
+    { language => 'Malay', code => 'ms' },
     { language => 'Norwegian (Bokmal)', code => 'nb-NO' },
     { language => 'Dutch', code => 'nl' },
     { language => 'Norwegian (Nynorsk)', code => 'nn-NO' },
-    { language => 'Northern Sotho', code => 'nso' },
     { language => 'Oriya', code => 'or' },
     { language => 'Punjabi', code => 'pa-IN' },
     { language => 'Polish', code => 'pl' },
@@ -168,13 +166,13 @@ if (!$LANG)
     { language => 'Swedish', code => 'sv-SE' },
     { language => 'Swahili', code => 'sw' },
     { language => 'Tamil', code => 'ta' },
-    { language => 'Tamil (Sri Lanka)', code => 'ta-LK' },
     { language => 'Telugu', code => 'te' },
     { language => 'Thai', code => 'th' },
     { language => 'Turkish', code => 'tr' },
     { language => 'Ukrainan', code => 'uk' },
     { language => 'Vietnamese', code => 'vi' },
     { language => 'Chinese (Simplified)', code => 'zh-CN' },
+    { language => 'Xhosa', code => 'xh' },
     { language => 'Chinese (Traditional)', code => 'zh-TW' },
     { language => 'Zulu', code => 'zu' },
     );

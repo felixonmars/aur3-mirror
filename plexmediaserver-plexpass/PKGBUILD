@@ -7,9 +7,9 @@
 # Maintainer: Matt Henkel <guildencrantz@gmail.com>
 
 pkgname=plexmediaserver-plexpass
-pkgver=0.9.9.8.436
+pkgver=0.9.9.10.458
 pkgrel=1
-_subver=8abe5c0
+_subver=008ea34
 pkgdesc="Plex Media Server for Linux"
 url='http://www.plexapp.com'
 arch=('i686' 'x86_64')
@@ -21,10 +21,10 @@ install='plexmediaserver.install'
 
 if [ "$CARCH" = "i686" ]; then
     _arch='i386'
-    md5sums=('2b2688032f7372d90f833278031a969c')
+    md5sums=('8077df9d8402cf36704a1b21d2009eee')
 elif [ "$CARCH" = "x86_64" ]; then
     _arch='amd64'
-    md5sums=('2f1240fb8f0d177ca002c5ac3ee97c51')
+    md5sums=('85efe83881901132aec85d0f0d6ee03a')
 fi
 
 if (( !INFAKEROOT )); then

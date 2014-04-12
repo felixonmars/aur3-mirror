@@ -1,16 +1,16 @@
-# Maintainer: Élie Bouttier <cube.elie@gmail.com>
+# Maintainer: Elie Bouttier <elie+aur@bouttier.eu.org>
 pkgname=7robot-eurobot-git
-pkgver=20120212
-pkgrel=2
-pkgdesc="7Robot eurobot related sources"
-arch=('i686' 'x86_64')
-url="http://github.com/7Robot/ARM/"
+pkgver=1.0
+pkgrel=1
+pkgdesc="7Robot Eurobot - ATP related source"
+arch=(i686 x86_64)
+url="http://7robot.fr"
 license=('GPL')
-depends=()
-makedepends=('git')
+makedepends=('cmake')
 
-_gitroot=http://github.com/7Robot/ARM.git
-_gitname=ARM
+_gitteam="7Robot"
+_gitname="ATP"
+_gitroot="https://github.com/$_gitteam/$_gitname"
 
 build() {
   cd "$srcdir"
@@ -26,18 +26,17 @@ build() {
   msg "GIT checkout done or server timeout"
   msg "Starting build..."
 
-  rm -rf "$srcdir/$_gitname-build"
-  git clone "$srcdir/$_gitname" "$srcdir/$_gitname-build"
-  cd "$srcdir/$_gitname-build"
-
-  mkdir build
-  cd build
-  cmake .. -DCMAKE_INSTALL_PREFIX=/usr
-#-DARCHLINUX:Boolean=ON
+  rm -rf "$srcdir/build"
+  mkdir "$srcdir/build"
+  cd "$srcdir/build"
+  cmake -D CMAKE_INSTALL_PREFIX=/usr "$srcdir/$_gitname"
   make
 }
 
 package() {
-  cd "$srcdir/$_gitname-build/build"
-  make DESTDIR="$pkgdir/" install
+  cd "$srcdir/build"
+  make DESTDIR="$pkgdir" install
+
+  cd "$srcdir/$_gitname/atp"
+  python setup.py install --root="$pkgdir"
 }

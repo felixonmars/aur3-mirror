@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.9.9
+# ff-downloader v0.5.10.0
 ## Copyright 2011-14 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -17,6 +17,7 @@
 
 use strict;
 use warnings;
+no if $] >= 5.018, warnings => "experimental::smartmatch";
 use feature qw(say switch);
 use Getopt::Long qw(:config no_ignore_case);
 use LWP;
