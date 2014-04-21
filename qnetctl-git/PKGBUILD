@@ -1,7 +1,7 @@
 # Maintainer: Thomas Lübking <thomas.luebking@gmail.com>
 
 pkgname=qnetctl-git
-pkgver=20131024
+pkgver=20140419
 pkgrel=1
 pkgdesc="A Qt GUI for netctl"
 arch=('i686' 'x86_64')
@@ -29,11 +29,12 @@ build() {
         cd "$_gitname"
     fi
 
-    qmake-qt4
+    qmake-qt4 qmake.pro
     make
 }
 
 package() {
     cd "$srcdir/$_gitname"
     install -D qnetctl "$pkgdir/usr/bin/qnetctl"
+    install -D qnetctl_tool "$pkgdir/usr/bin/qnetctl_tool"
 }

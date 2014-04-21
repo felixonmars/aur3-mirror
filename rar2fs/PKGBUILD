@@ -1,23 +1,26 @@
 pkgname=rar2fs
-pkgver=1.19.8
+pkgver=1.20.0
 _rls="$pkgname-$pkgver"
 pkgrel=1
 pkgdesc="Fuse file system for reading Rar archives"
 arch=(i686 x86_64)
 license=(GPL3)
-url="https://code.google.com/p/rar2fs/"
+url=https://code.google.com/p/rar2fs/
 
-# Exactly the same libunrar version 5.m.n is actually needed at run time
-depends=(fuse "libunrar>=1:5" "libunrar<1:6")
-makedepends=("libunrar>=1:5" "libunrar<1:6")
+# The "rar2fs" program loads the "libunrar" library at run time
+# using the exact version (5.m.n) installed at build time.
+# Also, the "libunrar" source code that "rar2fs" is built with
+# should probably the same version that is installed.
+depends=(fuse "libunrar>=1:5.1" "libunrar<1:6")
+makedepends=("libunrar>=1:5.1" "libunrar<1:6")
 
 source=(
-"$_rls.tar.gz::https://docs.google.com/uc?id=0B-2uEqYiZg3zYTE5OE1MaWRyX1E"
+"$_rls.tar.gz::https://docs.google.com/uc?id=0B-2uEqYiZg3zR1F0b0tmRktiaXc"
 )
-md5sums=(aa2c58a27f9d258c06c5084b042a81b8)
+md5sums=(1cd32b77522eff7fb3db3f7049725a82)
 
-source+=(http://www.rarlab.com/rar/unrarsrc-5.0.14.tar.gz)
-md5sums+=(be4261c70a790c61c1747aef59e72db0)  # From Arch's "unrar" package
+source+=(http://www.rarlab.com/rar/unrarsrc-5.1.2.tar.gz)
+md5sums+=(636556a89bbc655b2714fb430b1604b8)  # From Arch's "unrar" package
 
 build() {
     cd "$srcdir/$_rls"

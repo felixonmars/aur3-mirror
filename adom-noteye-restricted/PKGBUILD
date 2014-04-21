@@ -9,7 +9,7 @@ _password=
 DLAGENTS=("http::/usr/bin/wget --user ${_username} --password ${_password} %u")
 
 pkgname=adom-noteye-restricted
-pkgver=1.2.0_pre20
+pkgver=1.2.0_pre21
 pkgrel=1
 pkgdesc="A roguelike game with a quest-centric, plot driven structure"
 arch=('i686' 'x86_64')
@@ -22,10 +22,10 @@ sha1sums=('' '51d28fe3f0420cd354113fd7ceb2a1a7abf1b069')
 if [ "$CARCH" = x86_64 ]
  then
   _arch_link=64
-  sha1sums[0]='df2e7b73b1cbdb11e07f0cf9dd46e3191f953a03'
+  sha1sums[0]='faddd32b9968b18c655c535c491f7080c25b6ce0'
  else
   _arch_link=32
-  sha1sums[0]='8f15c66fab7910315337d98a4f79bfcd07e6460c'
+  sha1sums[0]='d825dd8c2015c4eb8fa9bf74142c9abc9d68a404'
 fi
 
 source=(http://www.ancardia.com/secure/download/current/adom_noteye_linux_ubuntu_${_arch_link}_${pkgver}.tar.gz LICENSE)

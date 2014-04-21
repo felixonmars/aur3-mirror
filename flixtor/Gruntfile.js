@@ -5,21 +5,12 @@ module.exports = function(grunt) {
 
   require('load-grunt-tasks')(grunt);
 
-  grunt.registerTask('default', [
-    'compass'
-  ]);
-
-  grunt.registerTask('css', [
-    'compass'
-  ]);
-
   grunt.registerTask('nodewkbuild', [
     'nodewebkit:build',
     'copy:ffmpeg'
   ]);
 
   grunt.registerTask('build', [
-    'default',
     'nodewebkit:build',
     'copy:ffmpeg'
   ]);
@@ -32,17 +23,6 @@ module.exports = function(grunt) {
   ]);
 
   grunt.initConfig({
-    compass: {
-      dist: {
-        options: {
-          cssDir: 'css'
-        },
-        files: {
-          'css/app.css': 'sass/app.scss'
-        }
-      }
-    },
-
     nodewebkit: {
       build: {
         options: {
@@ -54,7 +34,7 @@ module.exports = function(grunt) {
           linux32: buildPlatforms.linux32,
           linux64: buildPlatforms.linux64
         },
-        src: ['./css/**', './fonts/**', './images/**', './js/**', './language/**', './node_modules/**', '!./node_modules/grunt*/**', './rc/**', './Config.rb', './index.html', './package.json', './README.md' ] // Your node-webkit app './**/*'
+        src: ['./fonts/**', './images/**', './js/**', './node_modules/**', '!./node_modules/grunt*/**', './index.html', './package.json', './README.md' ] // Your node-webkit app './**/*'
       },
       dist: {
         options: {
@@ -68,7 +48,7 @@ module.exports = function(grunt) {
           linux32: buildPlatforms.linux32,
           linux64: buildPlatforms.linux64
         },
-        src: ['./css/**', './fonts/**', './images/**', './js/**', './language/**', './node_modules/**', '!./node_modules/grunt*/**', './rc/**', './Config.rb', './index.html', './package.json', './README.md' ] // Your node-webkit app './**/*'
+        src: ['./fonts/**', './images/**', './js/**', './node_modules/**', '!./node_modules/grunt*/**', './package.json', './README.md' ] // Your node-webkit app './**/*'
       }
     },
 
@@ -76,42 +56,42 @@ module.exports = function(grunt) {
       ffmpeg: {
         files: [
           {
-            src: 'libraries/win/ffmpegsumo.dll',
+            src: 'librairies/win/ffmpegsumo.dll',
             dest: 'build/releases/Flixtor/win/Flixtor/ffmpegsumo.dll',
             flatten: true
           },
           {
-            src: 'libraries/win/ffmpegsumo.dll',
+            src: 'librairies/win/ffmpegsumo.dll',
             dest: 'build/cache/win/<%= nodewebkit.build.options.version %>/ffmpegsumo.dll',
             flatten: true
           },
           {
-            src: 'libraries/mac/ffmpegsumo.so',
+            src: 'librairies/mac/ffmpegsumo.so',
             dest: 'build/releases/Flixtor/mac/Flixtor.app/Contents/Frameworks/node-webkit Framework.framework/Libraries/ffmpegsumo.so',
             flatten: true
           },
           {
-            src: 'libraries/mac/ffmpegsumo.so',
+            src: 'librairies/mac/ffmpegsumo.so',
             dest: 'build/cache/mac/<%= nodewebkit.build.options.version %>/node-webkit.app/Contents/Frameworks/node-webkit Framework.framework/Libraries/ffmpegsumo.so',
             flatten: true
           },
           {
-            src: 'libraries/linux64/libffmpegsumo.so',
+            src: 'librairies/linux64/libffmpegsumo.so',
             dest: 'build/releases/Flixtor/linux64/Flixtor/libffmpegsumo.so',
             flatten: true
           },
           {
-            src: 'libraries/linux64/libffmpegsumo.so',
+            src: 'librairies/linux64/libffmpegsumo.so',
             dest: 'build/cache/linux64/<%= nodewebkit.build.options.version %>/libffmpegsumo.so',
             flatten: true
           },
           {
-            src: 'libraries/linux32/libffmpegsumo.so',
+            src: 'librairies/linux32/libffmpegsumo.so',
             dest: 'build/releases/Flixtor/linux32/Flixtor/libffmpegsumo.so',
             flatten: true
           },
           {
-            src: 'libraries/linux32/libffmpegsumo.so',
+            src: 'librairies/linux32/libffmpegsumo.so',
             dest: 'build/cache/linux32/<%= nodewebkit.build.options.version %>/libffmpegsumo.so',
             flatten: true
           }

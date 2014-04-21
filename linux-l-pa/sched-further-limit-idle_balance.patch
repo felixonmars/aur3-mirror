@@ -1,0 +1,52 @@
+From: Mike Galbraith <mgalbraith@suse.de>
+Date: Mon Dec  5 10:01:47 CET 2011
+Subject: sched: further limit idle_balance()
+
+Move all restrictions into schedule(), no sense in making a function call
+unless we're going to do something.
+
+In the case of isolated cores, there's no point at all in dropping/re-taking
+the lock to do nothing else but update the time stamp.  Neither rt tasks nor
+kthreads need to be banging on locks either, they have more important things
+to do than play load balancer, possibly being delayed, or causing delay for
+others.  Just say no, and in the right spot.
+
+Signed-off-by: Mike Galbraith <mgalbraith@suse.de>
+
+---
+ kernel/sched/core.c |    9 +++++++--
+ kernel/sched/fair.c |    5 -----
+ 2 files changed, 7 insertions(+), 7 deletions(-)
+
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -2615,8 +2615,13 @@ static void __sched __schedule(void) @@
+ 
+ 	pre_schedule(rq, prev);
+ 
+-	if (unlikely(!rq->nr_running))
+-		idle_balance(cpu, rq);
++	if (unlikely(!rq->nr_running)) {
++		rq->idle_stamp = rq->clock;
++
++		 if (rq->avg_idle >= sysctl_sched_migration_cost &&
++				rq->sd && prev->mm && !rt_task(prev))
++			idle_balance(cpu, rq);
++	}
+ 
+ 	put_prev_task(rq, prev);
+ 	next = pick_next_task(rq);
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -5420,11 +5420,6 @@ void idle_balance(int this_cpu, struct r @@
+ 	int pulled_task = 0;
+ 	unsigned long next_balance = jiffies + HZ;
+ 
+-	this_rq->idle_stamp = rq_clock(this_rq);
+-
+-	if (this_rq->avg_idle < sysctl_sched_migration_cost)
+-		return;
+-
+ 	/*
+ 	 * Drop the rq->lock, but keep IRQ/preempt disabled.
+ 	 */

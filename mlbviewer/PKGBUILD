@@ -2,20 +2,20 @@
 pkgname=mlbviewer
 pkgver=2014_sf_1
 _pkgyear=${pkgver%_sf_*}
-pkgrel=2
+pkgrel=3
 pkgdesc="A collection of tools to view and listen to streaming baseball games from MLB.TV."
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/projects/mlbviewer"
 license=('GPL2')
 depends=('libconfig' 'curl' 'python2' 'rtmpdump')
 makedepends=('subversion')
-optdepends=(
-  'mpv: lightweight streaming media player'
-  'python2-gdata: MLB classics'
-)
+optdepends=('mpv: lightweight streaming media player'
+            'python2-gdata: MLB classics')
 install="${pkgname}.install"
-source=("http://downloads.sourceforge.net/project/${pkgname}/${pkgname}/2014/${pkgname}2014-sf-1.tar.gz")
-sha1sums=('3b4102ef7645518ad884a74b194005a90b083bf2')
+source=("http://downloads.sourceforge.net/project/${pkgname}/${pkgname}/2014/${pkgname}2014-sf-1.tar.gz"
+        "mlbhls::svn+http://mlbtv-hls-nexdef.googlecode.com/svn/branches/experimental")
+sha1sums=('3b4102ef7645518ad884a74b194005a90b083bf2'
+          'SKIP')
 
 build () {
   # python2
@@ -23,9 +23,7 @@ build () {
   sed -i 's:#!/usr/bin/env python:#!/usr/bin/env python2:' *.py
 
   # build mlbhls for nexdef
-  cd ${srcdir}
-  svn export --force --quiet https://mlbtv-hls-nexdef.googlecode.com/svn/branches/experimental mlbhls
-  cd mlbhls
+  cd ${srcdir}/mlbhls
   make
 }
 

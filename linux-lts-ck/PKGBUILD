@@ -58,7 +58,7 @@ pkgname=linux-lts-ck
 true && pkgname=(linux-lts-ck linux-lts-ck-headers)
 _kernelname=-lts-ck
 _srcname=linux-3.10
-pkgver=3.10.36
+pkgver=3.10.37
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://wiki.archlinux.org/index.php/Linux-ck"
@@ -69,8 +69,8 @@ _ckpatchversion=1
 _ckpatchname="patch-3.10-ck${_ckpatchversion}"
 _gcc_patch="enable_additional_cpu_optimizations_for_gcc.patch"
 _bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.10.8+-v7r2"
-source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
-		"http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
+		"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
 		"http://ck.kolivas.org/patches/3.0/3.10/3.10-ck${_ckpatchversion}/${_ckpatchname}.bz2"
 		"http://repo-ck.com/source/gcc_patch/${_gcc_patch}.gz"
 		'enable_haswell_pstate_driver.patch'
@@ -82,7 +82,7 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 		"${_bfqpath}/0002-block-introduce-the-BFQ-v7r2-I-O-sched-for-3.10.8+.patch"
 		"${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7r2-for-3.10.8+.patch")
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
-            '76d7e401c32f85a7943ad9a91d4007ef5a09c014087038ede884d129255cd24b'
+            '259d679a0a8c33bb3ddf97a8c14ce443a53be55239dcae24837317b275ce76ad'
             '747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
             '70717f6c64bed9da2450b3a824b25df0a916cdf43ee1e0f537057db3f9a33b8d'
             'd7fada52453d12a24af9634024c36792697f97ce0bc6552939cd7b2344d00cd9'
