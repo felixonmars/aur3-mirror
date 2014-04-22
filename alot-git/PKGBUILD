@@ -1,14 +1,14 @@
-# Maintainer: Mark Foxwell <mark@opensource.co.uk>
+# Maintainer: Mark Foxwell <mark@openfox.co.uk>
 # Contributor: Kazuo Teramoto <kaz.rag@gmail.com>
 # Contributor: Mark Foxwell <fastfret79@archlinux.org.uk>
 pkgname=alot-git
-pkgver=0.3.5.53.g04f7c24
+pkgver=0.3.5.58.gfa4ddf0
 pkgrel=1
 pkgdesc="A terminal interface for notmuch"
 arch=('any')
 url="https://github.com/pazz/alot"
 license=('GPL')
-depends=(notmuch python2-pygpgme python-magic python2-configobj python2-urwid twisted)
+depends=(notmuch python2-pygpgme python2-magic python2-configobj python2-urwid twisted)
 makedepends=('git')
 provides=('alot')
 conflicts=('alot')
