@@ -1,7 +1,7 @@
 # Maintainer: Thomas Lübking <thomas.luebking@gmail.com>
 
 pkgname=qnetctl-git
-pkgver=20140419
+pkgver=20140422
 pkgrel=1
 pkgdesc="A Qt GUI for netctl"
 arch=('i686' 'x86_64')
