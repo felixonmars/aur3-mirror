@@ -1,4 +1,4 @@
 #!/bin/sh
 
-java -jar /usr/share/java/engulf/engulf.jar $@
+java -server -jar /usr/share/java/engulf/engulf.jar $@
 
