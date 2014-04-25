@@ -1,0 +1,51 @@
+# Maintainer: Damian Nowak <damian.nowak@atlashost.eu>
+# Contributor: max-k <max-k@post.com>
+pkgname='gns3-git'
+pkgver='20140423'
+_pkgver='git'
+pkgrel='1'
+pkgdesc="Graphical network simulator based on Dynamips. With pemu included."
+arch=(i686 x86_64)
+url="http://www.gns3.net/"
+license=('GPLv2')
+depends=('python2-pyqt4' 'python2-sip' 'dynagen' 'inetutils' 'xdotool')
+optdepends=('wireshark: to capture frames from your virtual networks'
+'virtualbox-sdk>=4.1: to use virtualbox hosts'
+'qemu: to run qemu hosts or emulate Cisco ASA5520 and IDS 4235/4215 Sensor'
+'vde2: to emulate virtual switches')
+conflicts=('pemu')
+provides=('pemu')
+source=("gns3-legacy-GNS3-git::git://github.com/GNS3/gns3-legacy.git"
+"http://downloads.sourceforge.net/project/gns-3/Pemu/2008-03-03/pemu_2008-03-03_bin.tar.bz2")
+md5sums=('SKIP'
+'147ab04acdca5a79d6a4ab6307a1243d')
+
+build() {
+  cd ${srcdir}/gns3-legacy-GNS3-${_pkgver}
+  python2 setup.py build
+}
+
+package() {
+  cd ${srcdir}/gns3-legacy-GNS3-${_pkgver}
+  sed -i "s#/usr/lib#${pkgdir}/usr/lib#" setup.py
+  sed -i "s#/usr/share#${pkgdir}/usr/share#" setup.py
+  sed -i "s#/usr/local/share#${pkgdir}/usr/share#" setup.py
+  sed -i '86s/QEMU/VBOX/' src/GNS3/Config/Defaults.py
+  python2 setup.py install --prefix ${pkgdir}/usr
+  gzip ./docs/man/gns3.1
+  install -D -m 644 ./docs/man/gns3.1.gz ${pkgdir}/usr/share/man/man1/gns3.1.gz
+  sed -i 's/#!\/usr\/bin\/env python/#!\/usr\/bin\/env python2/' \
+${pkgdir}/usr/share/gns3/qemuwrapper.py
+  sed -i 's/#!\/usr\/bin\/env python/#!\/usr\/bin\/env python2/' \
+${pkgdir}/usr/share/gns3/vboxwrapper.py
+  sed -i 's/#!\/usr\/bin\/env python/#!\/usr\/bin\/env python2/' \
+${pkgdir}/usr/share/gns3/vboxcontroller_4_1.py
+  cd ${srcdir}/pemu_2008-03-03_bin
+  mkdir -p ${pkgdir}/usr/share/GNS3/pemu
+  install -D -m 755 ./pemu ${pkgdir}/usr/share/gns3/pemu
+  install -D -m 644 ./pemu.ini ${pkgdir}/usr/share/gns3/pemu.ini
+  install -D -m 755 ./ifup ${pkgdir}/usr/share/gns3/ifup
+  install -D -m 644 ./ifup.ini ${pkgdir}/usr/share/gns3/ifup.ini
+  install -D -m 644 ./README ${pkgdir}/usr/share/gns3/README.pemu
+}
+

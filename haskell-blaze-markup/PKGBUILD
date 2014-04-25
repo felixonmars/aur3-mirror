@@ -2,7 +2,7 @@
 # Contributor: Joop Kiefte <ikojba via gmail dot com>
 _hkgname=blaze-markup
 pkgname=haskell-blaze-markup
-pkgver=0.6.0.0
+pkgver=0.6.1.0
 pkgrel=1
 pkgdesc="A blazingly fast markup combinator library for Haskell"
 url="http://hackage.haskell.org/package/${_hkgname}"
@@ -27,7 +27,7 @@ depends=(
 options=('strip' 'staticlibs')
 source=(http://hackage.haskell.org/packages/archive/${_hkgname}/${pkgver}/${_hkgname}-${pkgver}.tar.gz)
 install=${pkgname}.install
-md5sums=('f4282a01a69f14d88aae891706fbe2aa')
+md5sums=('96d06fca820cb883866e12b2f73d99c9')
 build() {
     cd ${srcdir}/${_hkgname}-${pkgver}
     runhaskell Setup configure -O ${PKGBUILD_HASKELL_ENABLE_PROFILING:+-p } --enable-split-objs --enable-shared \
