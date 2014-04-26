@@ -20,7 +20,7 @@ _NUMAdisable=y  # Disable NUMA in kernel config
 # WARNING - make CERTAIN that all modules are modprobed BEFORE you begin making the pkg!
 #
 # To keep track of which modules are needed for your specific system/hardware, give my module_db script
-# a try: http://aur.archlinux.org/packages.php?ID=41689  Note that if you use my script, this PKGBUILD
+# a try: https://aur.archlinux.org/packages/modprobed-db/  Note that if you use my script, this PKGBUILD
 # will auto run the 'sudo modprobed_db reload' for you to probe all the modules you have logged!
 #
 # More at this wiki page ---> https://wiki.archlinux.org/index.php/Modprobed_db
@@ -40,15 +40,15 @@ _pkgname=${pkgname}
 _kernelname=${_pkgname#linux}
 _basekernel=3.12
 true && pkgname=(${_pkgname} ${_pkgname}-headers)
-pkgver=3.12.17
+pkgver=3.12.18
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('kmod' 'inetutils' 'bc')
 options=('!strip')
-source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-3.12.tar.xz"
-	"http://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+source=("https://www.kernel.org/pub/linux/kernel/v3.x/linux-3.12.tar.xz"
+	"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
 	'linux-lts312.preset'
 	'change-default-console-loglevel.patch'
 	'config' 'config.x86_64'
@@ -60,7 +60,7 @@ source=("http://www.kernel.org/pub/linux/kernel/v3.x/linux-3.12.tar.xz"
 	'0005-nfs-sunrpc-add-an-info-file-for-the-dummy-gssd.patch'
 	'0006-nfs-rpc_pipe-fix-cleanup-of-dummy-gssd-directory-whe.patch')
 sha256sums=('2e120ec7fde19fa51dc6b6cc11c81860a0775defcad5a5bf910ed9a50e845a02'
-            '07850d41086057690a7c08aaab3cff83fcc13eed66ddddbfdbd286d2ed1b0b37'
+            '00dc663689caaf74e8223e114eb37a651876ce3e03e42248b625383737243c56'
             'cdad2ad2f3165be86d903f37f6e761f1707cba51bccb802e08ae259445113cad'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
             'cc346d86bf3dd07a983dab996251836b53c156e2f053cc17d9a6069256faef8c'

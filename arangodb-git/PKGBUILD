@@ -1,6 +1,6 @@
 # Maintainer:  Neng Xu <neng2.xu2@gmail.com>
 pkgname=arangodb-git
-pkgver=p20131202
+pkgver=p20140425
 pkgrel=1
 pkgdesc="An open-source database with a flexible data model for documents, graphs, and key-values."
 provides=("arangodb")
@@ -10,7 +10,7 @@ arch=("i686" "x86_64")
 url="http://www.arangodb.org"
 license=("Apache")
 depends=("openssl" "bash" "systemd" "icu")
-makedepends=("python2" "git")
+makedepends=("python2" "git" "go")
 install=arangodb.install
 source=("git://github.com/triAGENS/ArangoDB"
   "arangodb.service")

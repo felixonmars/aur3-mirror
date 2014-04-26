@@ -37,7 +37,7 @@ _NUMAdisable=y  # Disable NUMA in kernel config
 # WARNING - make CERTAIN that all modules are modprobed BEFORE you begin making the pkg!
 #
 # To keep track of which modules are needed for your specific system/hardware, give my module_db script
-# a try: http://aur.archlinux.org/packages.php?ID=41689  Note that if you use my script, this PKGBUILD
+# a try: https://aur.archlinux.org/packages/modprobed-db/  Note that if you use my script, this PKGBUILD
 # will auto run the 'sudo modprobed_db reload' for you to probe all the modules you have logged!
 #
 # More at this wiki page ---> https://wiki.archlinux.org/index.php/Modprobed_db
@@ -59,7 +59,7 @@ true && pkgname=(linux-lts-ck linux-lts-ck-headers)
 _kernelname=-lts-ck
 _srcname=linux-3.10
 pkgver=3.10.37
-pkgrel=1
+pkgrel=2
 arch=('i686' 'x86_64')
 url="https://wiki.archlinux.org/index.php/Linux-ck"
 license=('GPL2')
@@ -68,7 +68,7 @@ options=('!strip')
 _ckpatchversion=1
 _ckpatchname="patch-3.10-ck${_ckpatchversion}"
 _gcc_patch="enable_additional_cpu_optimizations_for_gcc.patch"
-_bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.10.8+-v7r2"
+_bfqpath="http://algo.ing.unimo.it/people/paolo/disk_sched/patches/3.10.8+-v7r3"
 source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 		"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
 		"http://ck.kolivas.org/patches/3.0/3.10/3.10-ck${_ckpatchversion}/${_ckpatchname}.bz2"
@@ -78,9 +78,9 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 		'change-default-console-loglevel.patch'
 		'config' 'config.x86_64'
 		'criu-no-expert.patch'
-		"${_bfqpath}/0001-block-cgroups-kconfig-build-bits-for-BFQ-v7r2-3.10.8+.patch"
-		"${_bfqpath}/0002-block-introduce-the-BFQ-v7r2-I-O-sched-for-3.10.8+.patch"
-		"${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7r2-for-3.10.8+.patch")
+		"${_bfqpath}/0001-block-cgroups-kconfig-build-bits-for-BFQ-v7r3-3.10.8+.patch"
+		"${_bfqpath}/0002-block-introduce-the-BFQ-v7r3-I-O-sched-for-3.10.8+.patch"
+		"${_bfqpath}/0003-block-bfq-add-Early-Queue-Merge-EQM-to-BFQ-v7r3-for-3.10.8+.patch")
 sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
             '259d679a0a8c33bb3ddf97a8c14ce443a53be55239dcae24837317b275ce76ad'
             '747d893b69d040dd82650a1a2d509155beace337020619194661049920650ed6'
@@ -91,9 +91,9 @@ sha256sums=('df27fa92d27a9c410bfe6c4a89f141638500d7eadcca5cce578954efc2ad3544'
             '59be2c933282cb719de8e958996ef51314f2fad5f024930cf2e7d6068f71aa14'
             '17eda278e65924f0c97bd81d90f7672252ac8926b06a0d10ac2d0a7543e68769'
             'daa75228a4c45a925cc5dbfeba884aa696a973a26af7695adc198c396474cbd5'
-            'eb1703be3eeef6d93befd355b2c366ac9d02fe46d1483d012c22a6022b984de1'
-            'ee99c56324f72507c96e14eb3beb495ada6a0f29735801bf1e98f4aac3fff74b'
-            'afa12b38a9304810cb5c9bfc3b3aab88a633048d20c60ffc08973e47c650d203')
+            'c3ef08f4fbe68d201c32a24e422c5e00237102deeea009e52d8a61fc38806ff0'
+            '195139c01bc50475de801aaab9d63ae4e9d6f0e604313e189f0a54d961842fd7'
+            '2eaf0e97eae45218bc7b28d385fd5283447442b44f44725061309c29eceb5f67')
 
 prepare() {
 	cd "${_srcname}"
