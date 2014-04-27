@@ -5,11 +5,12 @@
 # Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
 # Contributor: Evan LeCompte <evanlec@gmail.com>
 # Contributor: Boohbah <boohbah at gmail.com>
+# Contributor: Wesley Merkel <ooesili at gmail.com>
 
 _pkgname=htop
 pkgname=$_pkgname-solarized-vi
-pkgver=1.0.2
-pkgrel=2
+pkgver=1.0.3
+pkgrel=1
 pkgdesc="Interactive process viewer with solarized patch and vi keybindings patch"
 arch=('i686' 'x86_64')
 url="http://htop.sourceforge.net/"
@@ -21,30 +22,28 @@ optdepends=('lsof: show files opened by a process'
 provides=('htop')
 conflicts=('htop' 'htop-vi' 'htop-solarized')
 options=('!emptydirs')
-source=("http://downloads.sourceforge.net/$_pkgname/$_pkgname-$pkgver.tar.gz"
-        htop-solarized-patch.diff
-        htop-vi.patch
-        tree-crash.patch)
-md5sums=('0d01cca8df3349c74569cefebbd9919e'
-         'd7fb999b6dd61e3fd1481331a43200b1'
-         'fd13a0137144fd9c2c7ac43c2d8b48b5'
-         '48eba3c0303bfd19d761b859bc69d713')
+source=("http://hisham.hm/$_pkgname/releases/$pkgver/$_pkgname-$pkgver.tar.gz"
+       'htop-1.0.3-solarized.patch'
+       'htop-1.0.3-vi.patch')
+sha512sums=('4c5c784b093bcad06eb2e8d8bb215e14f6e838a3d47d8da8402344c270c1724f85d0bcde2899571ba5d0e5a02274a0c3390a76fed61785b2604b51351f08f232'
+            '1e1eed2ca1f1d7908f125dd04165b84c722e23d45df4162c98e521312b7736daa88eca70e92f181d2058ad686ed0e4bdcaf95de079d1c04cbd0ed125dd341223'
+            '587a29d96e08f66c3b46fdf0327166500df156233cc9e00b8b8f87e31e04350f075e6565014991ade8342e31ec6cc15d49bc4650d1ec6822e2c54cb62e6a76dc')
 
-build() {
+prepare() {
   cd "$_pkgname-$pkgver"
 
   sed -i 's|ncursesw/curses.h|curses.h|' RichString.[ch] configure
   sed -i 's|python|python2|' scripts/MakeHeader.py
 
-  # Boost field buffer size - crashes when trying to draw very deep UTF-8 trees
-  # Test by nesting 30 shells
-  patch -N -i ../tree-crash.patch
+  # Solarized patch: https://gist.github.com/ooesili/11292686
+  patch -N -i ../htop-1.0.3-solarized.patch
 
-  # Solarized patch: https://gist.github.com/alexeiz/4657334
-  patch -N -i ../htop-solarized-patch.diff
+  # Vi keybindings patch: https://gist.github.com/ooesili/11292865
+  patch -N -i ../htop-1.0.3-vi.patch
+}
 
-  # Vi patch
-  patch -N -i ../htop-vi.patch
+build() {
+  cd "$_pkgname-$pkgver"
 
   ./configure \
       --prefix=/usr \
@@ -59,4 +58,3 @@ build() {
 package() {
   make -C "$_pkgname-$pkgver" DESTDIR="$pkgdir" install
 }
-

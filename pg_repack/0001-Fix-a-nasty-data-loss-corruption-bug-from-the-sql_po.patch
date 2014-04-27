@@ -1,0 +1,57 @@
+From 506104686b374f0be0294afe83b3f82692f5f8d1 Mon Sep 17 00:00:00 2001
+From: Josh Kupershmidt <schmiddy@gmail.com>
+Date: Tue, 22 Apr 2014 10:56:24 -0400
+Subject: [PATCH] Fix a nasty data loss/corruption bug from the sql_pop query.
+
+It is not safe to assume that we can bulk-delete all entries from the
+log table based on their "id" being less than the largest "id" we have
+processed so far, as we may unintentionally delete some tuples from the
+log which we haven't actually processed yet in the case of concurrent
+transactions adding tuples into the log table.
+---
+ lib/pg_repack.sql.in |  2 +-
+ lib/repack.c         | 13 ++++++++-----
+ 2 files changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/lib/pg_repack.sql.in b/lib/pg_repack.sql.in
+index eb42436..80bc2d4 100644
+--- a/lib/pg_repack.sql.in
++++ b/lib/pg_repack.sql.in
+@@ -190,7 +190,7 @@ CREATE VIEW repack.tables AS
+          'INSERT INTO repack.table_' || R.oid || ' VALUES ($1.*)' AS sql_insert,
+          'DELETE FROM repack.table_' || R.oid || ' WHERE ' || repack.get_compare_pkey(PK.indexrelid, '$1') AS sql_delete,
+          'UPDATE repack.table_' || R.oid || ' SET ' || repack.get_assign(R.oid, '$2') || ' WHERE ' || repack.get_compare_pkey(PK.indexrelid, '$1') AS sql_update,
+-         'DELETE FROM repack.log_' || R.oid || ' WHERE id <= $1' AS sql_pop
++         'DELETE FROM repack.log_' || R.oid || ' WHERE id = $1' AS sql_pop
+     FROM pg_class R
+          LEFT JOIN pg_class T ON R.reltoastrelid = T.oid
+          LEFT JOIN repack.primary_keys PK
+diff --git a/lib/repack.c b/lib/repack.c
+index c2c128f..eae361a 100644
+--- a/lib/repack.c
++++ b/lib/repack.c
+@@ -282,13 +282,16 @@ repack_apply(PG_FUNCTION_ARGS)
+ 					plan_update = repack_prepare(sql_update, 2, &argtypes[1]);
+ 				execute_plan(SPI_OK_UPDATE, plan_update, &values[1], &nulls[1]);
+ 			}
++			/* Delete tuple in log.
++			 * XXX It would be a lot more efficient to perform
++			 *     this DELETE in bulk, but be careful to only
++			 *     delete log entries we have actually processed.
++			 */
++			if (plan_pop == NULL)
++			    plan_pop = repack_prepare(sql_pop, 1, argtypes);
++			execute_plan(SPI_OK_DELETE, plan_pop, values, nulls);
+ 		}
+ 
+-		/* delete tuple in log */
+-		if (plan_pop == NULL)
+-			plan_pop = repack_prepare(sql_pop, 1, argtypes);
+-		execute_plan(SPI_OK_DELETE, plan_pop, values, nulls);
+-
+ 		SPI_freetuptable(tuptable);
+ 	}
+ 
+-- 
+1.9.2
+
