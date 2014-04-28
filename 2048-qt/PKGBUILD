@@ -7,14 +7,14 @@ pkgdesc="The 2048 number game implemented in Qt"
 arch=('i686' 'x86_64')
 url="https://github.com/xiaoyong/2048-Qt"
 license=('MIT')
-depends=('qt5-base' 'qt5-declarative' 'hicolor-icon-theme' 'desktop-file-utils' 'xdg-utils')
+depends=('qt5-base' 'qt5-declarative' 'qt5-quickcontrols' 'hicolor-icon-theme' 'desktop-file-utils' 'xdg-utils')
 install=$pkgname.install
 source=(https://github.com/xiaoyong/$_pkgname/archive/v$pkgver.tar.gz)
 md5sums=('c50225bb2ae006f70b2b51a769074278')
 
 build() {
 	cd "$srcdir/$_pkgname-$pkgver"
-	qmake
+	qmake $pkgname.pro
 	make
 }
 

@@ -1,3 +1,8 @@
+## 1.7.0
+* push-0.712
+* slfow-0.9.9(svn)
+* modsecurity-2.8.0
+
 ## 1.5.12-2
 * pushmodule-0.711
 
