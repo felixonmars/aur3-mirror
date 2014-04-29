@@ -26,7 +26,7 @@ case $1 in
         
         echo -n $size > $config/disksize
         mkswap $device
-        swapon $device
+        swapon -p 32767 $device
         ;;
 
     "stop")

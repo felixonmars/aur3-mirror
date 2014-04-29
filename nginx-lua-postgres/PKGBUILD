@@ -7,8 +7,8 @@
 
 _pkgname=nginx
 pkgname="${_pkgname}-lua-postgres"
-pkgver=1.4.7
-pkgrel=2
+pkgver=1.6.0
+pkgrel=1
 pkgdesc='Lightweight HTTP server and IMAP/POP3 proxy server, with lua and postgresql modules support'
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -30,10 +30,10 @@ backup=('etc/nginx/fastcgi.conf'
 install=nginx.install
 source=($url/download/nginx-$pkgver.tar.gz
         ngx_lua::git+https://github.com/chaoslawful/lua-nginx-module.git#tag=v0.9.7
-        ngx_postgres::git+https://github.com/FRiCKLE/ngx_postgres.git#tag=0.9
+        ngx_postgres::git+https://github.com/FRiCKLE/ngx_postgres.git#tag=1.0rc3
         service
         logrotate)
-md5sums=('aee151d298dcbfeb88b3f7dd3e7a4d17'
+md5sums=('8efa354f1c3c2ccf434a50d3fbe82340'
          'SKIP'
          'SKIP'
          'ce9a06bcaf66ec4a3c4eb59b636e0dfd'
