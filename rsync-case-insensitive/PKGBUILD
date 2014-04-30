@@ -1,0 +1,56 @@
+pkgname=rsync-case-insensitive
+pkgver=3.1.0
+pkgrel=2
+pkgdesc="A file transfer program to keep remote files in sync including ignore-case.patch"
+arch=('i686' 'x86_64')
+url="http://rsync.samba.org/"
+license=('GPL3')
+depends=('perl' 'popt')
+provides=('rsync=3.1.0')
+backup=('etc/rsyncd.conf' 'etc/xinetd.d/rsync')
+source=("http://rsync.samba.org/ftp/rsync/rsync-$pkgver.tar.gz"
+        "http://rsync.samba.org/ftp/rsync/rsync-$pkgver.tar.gz.asc"
+	"http://rsync.samba.org/ftp/rsync/rsync-patches-$pkgver.tar.gz"
+        'rsyncd.conf' 'rsync.xinetd' 'rsyncd.service'
+        'rsyncd.socket' 'rsyncd@.service'
+        'CVE-2014-2855.patch')
+md5sums=('3be148772a33224771a8d4d2a028b132'
+         'SKIP'
+	 'a6f46f342017644e4747c1c083feefac'
+         'bce64d122a8e0f86872a4a21a03bc7f3'
+         'ea3e9277dc908bc51f9eddc0f6b935c1'
+         '084140868d38cf3e937a2db716d47c0f'
+         'ae4c381e0c02d6132c7f6ded3f473041'
+         '53f94e613e0bc502d38dd61bd2cd7636'
+         'dacfe77bd72fbf6b6ba65c741c57f74c')
+
+prepare() {
+  cd rsync-$pkgver
+  patch -Np1 -i ../CVE-2014-2855.patch
+  patch -Np1 -i patches/ignore-case.diff 
+}
+
+build() {
+	cd "$srcdir/rsync-$pkgver"
+	./configure --prefix=/usr \
+		--with-included-popt=no \
+		--with-included-zlib=no \
+		--disable-debug
+	make
+}
+
+#check() {
+#	cd "$srcdir/rsync-$pkgver"
+#	make test
+#}
+
+package() {
+	cd "$srcdir/rsync-$pkgver"
+	make DESTDIR="$pkgdir" install
+	install -Dm644 ../rsyncd.conf "$pkgdir/etc/rsyncd.conf"
+	install -Dm644 ../rsync.xinetd "$pkgdir/etc/xinetd.d/rsync"
+	install -Dm644 ../rsyncd.service "$pkgdir/usr/lib/systemd/system/rsyncd.service"
+	install -m644 ../rsyncd.socket "$pkgdir/usr/lib/systemd/system/rsyncd.socket"
+	install -m644 ../rsyncd@.service "$pkgdir/usr/lib/systemd/system/rsyncd@.service"
+	install -Dm755 support/rrsync "$pkgdir/usr/lib/rsync/rrsync"
+}
