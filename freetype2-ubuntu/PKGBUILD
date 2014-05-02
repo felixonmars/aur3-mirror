@@ -7,12 +7,12 @@
 # Contributor: Biru Ionut <biru.ionut at gmail.com>
 # Contributor: lelele <sodomyxxx@gmail.com>
 
-# Installation order:  freetype2-ubuntu fontconfig-ubuntu libxft-ubuntu cairo-ubuntu
+# Installation order:  freetype2-ubuntu fontconfig-ubuntu libxft cairo-ubuntu
 pkgname=freetype2-ubuntu
 pkgver=2.5.2
-_ubver=2.5.2-1ubuntu2
-_ubrel=trusty
-pkgrel=2
+_ubver=2.5.2-1ubuntu3
+_ubrel=utopic
+pkgrel=3
 pkgdesc="TrueType font rendering library, with Ubuntu's LCD rendering patches"
 arch=('i686' 'x86_64')
 url="https://launchpad.net/ubuntu/+source/freetype"
@@ -28,7 +28,7 @@ source=(http://downloads.sourceforge.net/sourceforge/freetype/freetype-${pkgver}
         freetype-2.4.11-enable-sph.patch)
 
 md5sums=('10e8f4d6a019b124088d18bc26123a25'
-         'eda9c925032709bbd7463edcded05881'
+         '3d5dbb70ebf48703ff396338d9e52d80'
          '214119610444c9b02766ccee5e220680'
          '38765b5cc604179bf3afe33671d8ae37'
          '4d4a0caad7aa5e09bea0719cd80681bf')

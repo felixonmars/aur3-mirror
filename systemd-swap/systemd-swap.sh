@@ -4,7 +4,7 @@
 
 #CPU count = Zram devices count
 cpu_count=$(grep -c ^processor /proc/cpuinfo)
-ram_size=$(grep MemTotal: /proc/meminfo | awk '{print $2}')
+ram_size=`grep MemTotal: /proc/meminfo | awk '{print $2}'`
 
 config_manage() {
     run_backup=/run/systemd/swap/swap.conf
@@ -39,11 +39,16 @@ started(){
 
 # ZRam part
 test_zram(){
-    [ -z "$zram_size" ] && echo zram disabled && return 1
-    modprobe zram num_devices=$cpu_count #return 0 or 1
+    if [ -z "$zram_size" ]; then
+        echo zram disabled
+        return 1
+    else
+        return 0
+    fi
 }
 
 create_zram(){
+    modprobe zram num_devices=$cpu_count
     size=$(($zram_size/$cpu_count))
     cpu_count=$(($cpu_count-1))
     for n in `seq 0 $cpu_count`
@@ -51,13 +56,12 @@ create_zram(){
         echo ${size}K > /sys/block/zram$n/disksize
         mkswap /dev/zram$n
         swapon -p 32000 /dev/zram$n
+        echo "$n" >> /run/systemd/swap/zram
     done
-    touch /run/systemd/swap/zram
 }
 
 deatach_zram(){
-    cpu_count=$(($cpu_count-1))
-    for n in `seq 0 $cpu_count`
+    for n in `cat /run/systemd/swap/zram`
     do
         swapoff /dev/zram$n
         echo 1 > /sys/block/zram$n/reset
@@ -67,22 +71,26 @@ deatach_zram(){
 }
 
 test_swapf(){
+    modprobe loop
     if [[ "$swapf_parse_fstab" == "1" ]]; then
-        swap_string="$(grep swap /etc/fstab)" # search swap lines
-        swap_string_commented="$(echo $swap_string | grep '#')" # check, swap lines commented?
+        # search swap lines
+        swap_string="$(grep swap /etc/fstab)"
+        # check, swap lines commented?
+        swap_string_not_commented="$(echo $swap_string | grep '#')"
         # if line exist and not commented - disable swapf
-        [ -z "$swap_string_commented" ] && [ ! -z "$swap_string" ] && \
-        echo swap exist in fstab && return 1
+        if [ -z "$swap_string_not_commented" ] && [ ! -z "$swap_string" ]; then
+            echo swap exist in fstab
+            return 1
+        fi
+    fi
+    if [ -z "$swapf_size" ] || [ -z "$swapf_path" ]; then
+        echo swap file disabled
+        return 1
     fi
     touch "$swapf_path" &> /dev/null || {
             echo Path $swapf_path wrong
             return 1
         }
-    if [ -z "$swapf_size" ] || [ -z "$swapf_path" ]; then
-        echo swap file disabled
-        return 1
-    fi
-    modprobe loop #return 0 or 1
 }
 
 create_swapf(){
@@ -92,11 +100,11 @@ create_swapf(){
     loopdev=$(losetup -f)
     losetup $loopdev $swapf_path
     swapon $loopdev
-    touch /run/systemd/swap/swapf
+    echo $loopdev >> /run/systemd/swap/swapf
 }
 
 deatach_swapf(){
-    for loopdev in `grep loop /proc/swaps | awk '{print $1}'`
+    for loopdev in `cat /run/systemd/swap/swapf`
     do
         swapoff $loopdev
         losetup -d $loopdev
@@ -105,8 +113,11 @@ deatach_swapf(){
 }
 
 set_swappiness(){
-    [ ! -z "$swappiness" ] && sysctl vm.swappiness=$swappiness
-    return 0
+    if [ ! -z "$swappiness" ]; then
+        sysctl vm.swappiness=$swappiness
+    else
+        return 0
+    fi
 }
 
 case $1 in

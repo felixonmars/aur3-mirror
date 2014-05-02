@@ -1,7 +1,7 @@
 # Maintainer : boronology <boronology at gmail dot com>
 pkgname=otf-flop-design
-pkgver=20140110
-pkgrel=2
+pkgver=20140501
+pkgrel=1
 depends=('fontconfig' 'xorg-font-utils')
 makedepends=('convmv')
 pkgdesc="Simple japanese gothic fonts(includes both OpenType and TrueType)"
@@ -36,4 +36,4 @@ package() {
 	  install -Dm644 ReadMe.txt "$pkgdir/usr/share/licenses/$pkgname/ReadMe.txt"
 }
 
-md5sums=('eaf01200ad6c34bfd5815be9655e38c7')
+md5sums=('14c9649d56162f729cd8b55438144dc8')
