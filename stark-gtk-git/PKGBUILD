@@ -4,14 +4,14 @@ pkgver=1.0
 pkgrel=1
 pkgdesc="Stark is a modern GTK3 theme for Linux."
 arch=('any')
-url="https://github.com/snwh/stark-gtk-theme"
+url="https://github.com/moka-project/stark-gtk-theme"
 license=('GPL3')
 depends=(gtk-engine-murrine)
 makedepends=('git')
 optdepends=()
 provides=('stark-gtk-git')
 conflicts=('stark-gtk-git')
-source=('git+https://github.com/snwh/stark-gtk-theme.git')
+source=('git+https://github.com/moka-project/stark-gtk-theme.git')
 md5sums=('SKIP')
 
 pkgver() {
