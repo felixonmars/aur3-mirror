@@ -1,0 +1,260 @@
+From: Cyrill Gorcunov <gorcunov@openvz.org>
+Subject: hrtimer: Backport CLOCK_BOOTTIME feature
+
+systemd-212 requires CLOCK_BOOTTIME feature
+
+ | clock_gettime(0x7 /* CLOCK_??? */, 0x7fff79f0e550) = -1 EINVAL (Invalid argument)
+
+thus to be able to work with it we need to backport CLOCK_BOOTTIME.
+
+https://bugzilla.openvz.org/show_bug.cgi?id=2937
+
+Signed-off-by: Cyrill Gorcunov <gorcunov@openvz.org>
+---
+ include/linux/hrtimer.h   |   18 +++++++++++++++-
+ include/linux/time.h      |    1 
+ kernel/hrtimer.c          |   49 +++++++++++++++++++++++++++++++++-------------
+ kernel/posix-timers.c     |   18 ++++++++++++++++
+ kernel/time/timekeeping.c |    3 +-
+ 5 files changed, 73 insertions(+), 16 deletions(-)
+
+Index: linux-rhel6.git/include/linux/hrtimer.h
+===================================================================
+--- linux-rhel6.git.orig/include/linux/hrtimer.h
++++ linux-rhel6.git/include/linux/hrtimer.h
+@@ -149,7 +149,21 @@ struct hrtimer_clock_base {
+ 	ktime_t			offset;
+ };
+ 
+-#define HRTIMER_MAX_CLOCK_BASES 2
++/*
++ * This enum is not in the same order
++ * as vanilla kernel has, but just to
++ * make CLOCK_BOOTTIME backport easier.
++ * Thus once reworked hrtimers will be
++ * merged this hunk should be dropped
++ * off.
++ * 	-- gorcunov@
++ */
++enum  hrtimer_base_type {
++	HRTIMER_BASE_REALTIME,
++	HRTIMER_BASE_MONOTONIC,
++	HRTIMER_BASE_BOOTTIME,
++	HRTIMER_MAX_CLOCK_BASES,
++};
+ 
+ /*
+  * struct hrtimer_cpu_base - the per cpu clock bases
+@@ -319,7 +333,7 @@ extern ktime_t ktime_get(void);
+ extern ktime_t ktime_get_real(void);
+ extern ktime_t ktime_get_boottime(void);
+ extern ktime_t ktime_get_monotonic_offset(void);
+-extern ktime_t ktime_get_update_offsets(ktime_t *offs_real);
++extern ktime_t ktime_get_update_offsets(ktime_t *offs_real, ktime_t *offs_boot);
+ 
+ DECLARE_PER_CPU(struct tick_device, tick_cpu_device);
+ 
+Index: linux-rhel6.git/include/linux/time.h
+===================================================================
+--- linux-rhel6.git.orig/include/linux/time.h
++++ linux-rhel6.git/include/linux/time.h
+@@ -321,6 +321,7 @@ struct itimerval {
+ #define CLOCK_MONOTONIC_RAW		4
+ #define CLOCK_REALTIME_COARSE		5
+ #define CLOCK_MONOTONIC_COARSE		6
++#define CLOCK_BOOTTIME			7
+ 
+ /*
+  * The IDs of various hardware clocks:
+Index: linux-rhel6.git/kernel/hrtimer.c
+===================================================================
+--- linux-rhel6.git.orig/kernel/hrtimer.c
++++ linux-rhel6.git/kernel/hrtimer.c
+@@ -74,25 +74,43 @@ DEFINE_PER_CPU(struct hrtimer_cpu_base,
+ 			.get_time = &ktime_get,
+ 			.resolution = KTIME_LOW_RES,
+ 		},
++		{
++			.index = CLOCK_BOOTTIME,
++			.get_time = &ktime_get_boottime,
++			.resolution = KTIME_LOW_RES,
++		},
+ 	}
+ };
+ 
++static const int hrtimer_clock_to_base_table[MAX_CLOCKS] = {
++	[CLOCK_REALTIME]	= HRTIMER_BASE_REALTIME,
++	[CLOCK_MONOTONIC]	= HRTIMER_BASE_MONOTONIC,
++	[CLOCK_BOOTTIME]	= HRTIMER_BASE_BOOTTIME,
++};
++
++static inline int hrtimer_clockid_to_base(clockid_t clock_id)
++{
++	BUG_ON(clock_id >= MAX_CLOCKS);
++	return hrtimer_clock_to_base_table[clock_id];
++}
++
+ /*
+  * Get the coarse grained time at the softirq based on xtime and
+  * wall_to_monotonic.
+  */
+ static void hrtimer_get_softirq_time(struct hrtimer_cpu_base *base)
+ {
+-	ktime_t xtim, tomono;
++	ktime_t xtim, mono, boot;
+ 	struct timespec xts, tom, slp;
+ 
+ 	get_xtime_and_monotonic_and_sleep_offset(&xts, &tom, &slp);
+ 
+ 	xtim = timespec_to_ktime(xts);
+-	tomono = timespec_to_ktime(tom);
+-	base->clock_base[CLOCK_REALTIME].softirq_time = xtim;
+-	base->clock_base[CLOCK_MONOTONIC].softirq_time =
+-		ktime_add(xtim, tomono);
++	mono = ktime_add(xtim, timespec_to_ktime(tom));
++	boot = ktime_add(mono, timespec_to_ktime(slp));
++	base->clock_base[HRTIMER_BASE_REALTIME].softirq_time = xtim;
++	base->clock_base[HRTIMER_BASE_MONOTONIC].softirq_time = mono;
++	base->clock_base[HRTIMER_BASE_BOOTTIME].softirq_time = boot;
+ }
+ 
+ /*
+@@ -179,10 +197,11 @@ switch_hrtimer_base(struct hrtimer *time
+ 	struct hrtimer_cpu_base *new_cpu_base;
+ 	int this_cpu = smp_processor_id();
+ 	int cpu = hrtimer_get_target(this_cpu, pinned);
++	int basenum = hrtimer_clockid_to_base(base->index);
+ 
+ again:
+ 	new_cpu_base = &per_cpu(hrtimer_bases, cpu);
+-	new_base = &new_cpu_base->clock_base[base->index];
++	new_base = &new_cpu_base->clock_base[basenum];
+ 
+ 	if (base != new_base) {
+ 		/*
+@@ -643,7 +662,7 @@ static void retrigger_next_event(void *a
+  */
+ static int hrtimer_switch_to_hres(void)
+ {
+-	int cpu = smp_processor_id();
++	int i, cpu = smp_processor_id();
+ 	struct hrtimer_cpu_base *base = &per_cpu(hrtimer_bases, cpu);
+ 	unsigned long flags;
+ 
+@@ -659,8 +678,8 @@ static int hrtimer_switch_to_hres(void)
+ 		return 0;
+ 	}
+ 	base->hres_active = 1;
+-	base->clock_base[CLOCK_REALTIME].resolution = KTIME_HIGH_RES;
+-	base->clock_base[CLOCK_MONOTONIC].resolution = KTIME_HIGH_RES;
++	for (i = 0; i < HRTIMER_MAX_CLOCK_BASES; i++)
++		base->clock_base[i].resolution = KTIME_HIGH_RES;
+ 
+ 	tick_setup_sched_timer();
+ 	/* "Retrigger" the interrupt to get things going */
+@@ -671,9 +690,10 @@ static int hrtimer_switch_to_hres(void)
+ 
+ static inline ktime_t hrtimer_update_base(struct hrtimer_cpu_base *base)
+ {
+-	ktime_t *offs_real = &base->clock_base[CLOCK_REALTIME].offset;
++	ktime_t *offs_real = &base->clock_base[HRTIMER_BASE_REALTIME].offset;
++	ktime_t *offs_boot = &base->clock_base[HRTIMER_BASE_BOOTTIME].offset;
+ 
+-	return ktime_get_update_offsets(offs_real);
++	return ktime_get_update_offsets(offs_real, offs_boot);
+ }
+ 
+ /*
+@@ -1142,6 +1162,7 @@ static void __hrtimer_init(struct hrtime
+ 			   enum hrtimer_mode mode)
+ {
+ 	struct hrtimer_cpu_base *cpu_base;
++	int base;
+ 
+ 	memset(timer, 0, sizeof(struct hrtimer));
+ 
+@@ -1150,7 +1171,8 @@ static void __hrtimer_init(struct hrtime
+ 	if (clock_id == CLOCK_REALTIME && mode != HRTIMER_MODE_ABS)
+ 		clock_id = CLOCK_MONOTONIC;
+ 
+-	timer->base = &cpu_base->clock_base[clock_id];
++	base = hrtimer_clockid_to_base(clock_id);
++	timer->base = &cpu_base->clock_base[base];
+ 	hrtimer_init_timer_hres(timer);
+ 
+ #ifdef CONFIG_TIMER_STATS
+@@ -1185,9 +1207,10 @@ EXPORT_SYMBOL_GPL(hrtimer_init);
+ int hrtimer_get_res(const clockid_t which_clock, struct timespec *tp)
+ {
+ 	struct hrtimer_cpu_base *cpu_base;
++	int base = hrtimer_clockid_to_base(which_clock);
+ 
+ 	cpu_base = &__raw_get_cpu_var(hrtimer_bases);
+-	*tp = ktime_to_timespec(cpu_base->clock_base[which_clock].resolution);
++	*tp = ktime_to_timespec(cpu_base->clock_base[base].resolution);
+ 
+ 	return 0;
+ }
+Index: linux-rhel6.git/kernel/posix-timers.c
+===================================================================
+--- linux-rhel6.git.orig/kernel/posix-timers.c
++++ linux-rhel6.git/kernel/posix-timers.c
+@@ -246,6 +246,13 @@ int posix_get_coarse_res(const clockid_t
+ 	*tp = ktime_to_timespec(KTIME_LOW_RES);
+ 	return 0;
+ }
++
++static int posix_get_boottime(const clockid_t which_clock, struct timespec *tp)
++{
++	get_monotonic_boottime(tp);
++	return 0;
++}
++
+ /*
+  * Initialize everything, well, just everything in Posix clocks/timers ;)
+  */
+@@ -285,12 +292,23 @@ static __init int init_posix_timers(void
+ 		.clock_getres	= posix_get_coarse_res,
+ 		.clock_get	= posix_get_monotonic_coarse,
+ 	};
++	struct k_clock clock_boottime = {
++		.clock_getres	= hrtimer_get_res,
++		.clock_get	= posix_get_boottime,
++		.nsleep		= common_nsleep,
++		.nsleep_restart	= hrtimer_nanosleep_restart,
++		.timer_create	= common_timer_create,
++		.timer_set	= common_timer_set,
++		.timer_get	= common_timer_get,
++		.timer_del	= common_timer_del,
++	};
+ 
+ 	posix_timers_register_clock(CLOCK_REALTIME, &clock_realtime);
+ 	posix_timers_register_clock(CLOCK_MONOTONIC, &clock_monotonic);
+ 	posix_timers_register_clock(CLOCK_MONOTONIC_RAW, &clock_monotonic_raw);
+ 	posix_timers_register_clock(CLOCK_REALTIME_COARSE, &clock_realtime_coarse);
+ 	posix_timers_register_clock(CLOCK_MONOTONIC_COARSE, &clock_monotonic_coarse);
++	posix_timers_register_clock(CLOCK_BOOTTIME, &clock_boottime);
+ 
+ 	posix_timers_cache = kmem_cache_create("posix_timers_cache",
+ 					sizeof (struct k_itimer), 0,
+Index: linux-rhel6.git/kernel/time/timekeeping.c
+===================================================================
+--- linux-rhel6.git.orig/kernel/time/timekeeping.c
++++ linux-rhel6.git/kernel/time/timekeeping.c
+@@ -1379,7 +1379,7 @@ void get_xtime_and_monotonic_and_sleep_o
+  *
+  * RHEL6: We do not have real vs boot clocks in RHEL.
+  */
+-ktime_t ktime_get_update_offsets(ktime_t *offs_real)
++ktime_t ktime_get_update_offsets(ktime_t *offs_real, ktime_t *offs_boot)
+ {
+ 	ktime_t now;
+ 	unsigned int seq;
+@@ -1395,6 +1395,7 @@ ktime_t ktime_get_update_offsets(ktime_t
+ 		nsecs += arch_gettimeoffset();
+ 
+ 		*offs_real = timekeeper.offs_real;
++		*offs_boot = timekeeper.offs_boot;
+ 	} while (read_seqretry(&timekeeper.lock, seq));
+ 
+ 	now = ktime_add_ns(ktime_set(secs, 0), nsecs);

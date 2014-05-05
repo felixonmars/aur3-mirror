@@ -1,84 +1,67 @@
 # Original Maintainer: Jaroslav Lichtblau <dragonlord@aur.archlinux.org>
 # Maintainer: Alexander "butterbrot" Hausmann <alexander-hausmann@web.de>
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
+# Maintaner: thrakcattak
+# most of this PKGBUILD is copied from 0ad-git
+# read the comment down there: https://aur.archlinux.org/packages/0ad-git/
 
 pkgname=0ad-svn
-pkgver=12972
+_pkgname=0ad
+pkgver=20140504
+echo -n '' && pkgver=$(date +"%Y%m%d")
 pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
-url="http://wildfiregames.com/0ad"
+url="http://play0ad.com/"
 license=('GPL2' 'CCPL')
-depends=('binutils' 'boost' 'crypto++' 'devil' 'enet>=1.3.0' 'gamin' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'mesa' 'nasm>2.06' 'openal' 'sdl' 'wxgtk' 'zlib')
-makedepends=('subversion' 'gcc>=4.3' 'cmake' 'zip')
-options=('!makeflags')
-source=('boost-mt-fix.patch')
-md5sums=('0ca5f80c1fb0f0f4c42365580c8c61d8')
+depends=('binutils' 'boost-libs' 'curl' 'enet' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'sdl' 'wxgtk' 'zlib' 'libgl' 'glu' 'gloox' 'libsm')
+#olddepends 'miniupnpc' 
+makedepends=('boost' 'cmake' 'mesa' 'zip' 'python2')
+#source=("git://github.com/0ad/0ad.git")
+md5sums=('SKIP')
 
 _svntrunk="http://svn.wildfiregames.com/public/ps/trunk"
-_svnmod="trunk"
 
 build() {
-msg "Creating start script..."
-    create_start_script
+  msg "Starting SVN checkout..."
+    cd ${srcdir}
+      if [ -d $_pkgname/.svn ]; then
+        (cd $_pkgname && svn up && cd ..)
+      else
+        svn co $_svntrunk $_pkgname
+      fi
+  msg "SVN checkout done or server timeout"
+  
+  cd $_pkgname/build/workspaces
 
-msg "Starting SVN checkout..."
-  cd ${srcdir}
-    if [ -d $_svnmod/.svn ]; then
-      (cd $_svnmod && svn up -r $pkgver)
-    else
-      svn co $_svntrunk --config-dir ./ -r $pkgver $_svnmod
-    fi
-msg "SVN checkout done or server timeout"
+  unset CPPFLAGS # for le spidermonkey
 
-msg "Creating build copy..."
-  if [ -d ${srcdir}/$_svnmod-build ]; then
-    rm -rf $_svnmod-build
-  fi
+  ./update-workspaces.sh \
+      --with-system-enet \
+      --bindir=/usr/bin \
+      --libdir=/usr/lib/${pkgname} \
+      --datadir=/usr/share/${pkgname}/data
+      #--with-system-miniupnpc
 
-  cp -r $_svnmod $_svnmod-build
-  cd $_svnmod-build
+  cd "$srcdir/$_pkgname/build/workspaces/gcc"
 
-msg "Applying boost-mt fix..."
-  cd build/premake
-  patch -uN extern_libs4.lua < ../../../../boost-mt-fix.patch
-  cd ../../
-
-msg "Updating Workspaces..."
-  cd ${srcdir}/$_svnmod-build/build/workspaces
-  ./update-workspaces.sh #--with-system-enet
-
-msg "Building 0AD..."
-  cd ${srcdir}/$_svnmod-build/build/workspaces/gcc
-  make
+  make # CONFIG=debug ## Uncoment this to build a debug release
 }
 
-package(){
-msg "Installing binaries..."
-  install -d ${pkgdir}/opt/0ad
-  cp -r ${srcdir}/$_svnmod-build/binaries/* ${pkgdir}/opt/0ad
+package() {
+  install -d "${pkgdir}"/usr/{bin,lib/${pkgname}}
+  install -Dm755 "${srcdir}"/$_pkgname/binaries/system/pyrogenesis "${pkgdir}/usr/bin/pyrogenesis-svn"
+  install -Dm755 "${srcdir}"/$_pkgname/binaries/system/*.so.{,*} "${pkgdir}/usr/lib/${pkgname}"
 
-msg "Removing SVN stuff..."
-  cd ${pkgdir}/opt/0ad
-  find -name ".svn" -type d -print0 | xargs -0 rm -rf
+  install -Dm755 "${srcdir}/$_pkgname/build/resources/${_pkgname}.sh" "${pkgdir}/usr/bin/${pkgname}"
+  sed -i "s/which pyrogenesis/which pyrogenesis-svn/" "${pkgdir}/usr/bin/${pkgname}"
+  install -Dm644 "${srcdir}/$_pkgname/build/resources/${_pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+  sed -i "s/0ad/0ad-svn/" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+  install -Dm644 "${srcdir}/$_pkgname/build/resources/${_pkgname}.png" "${pkgdir}/usr/share/pixmaps/${pkgname}.png"
 
-msg "Removing sucky windows stuff..."
-  cd ${pkgdir}/opt/0ad/system
-  rm {*.exe,*.dll,*.bat,Microsoft.VC*,*.sys,*.pdb}
-  rm -rf {ape,textureconv}
+  msg "Copy 0ad-data for packaging"
+  install -d ${pkgdir}/usr/share/${pkgname}/data
 
-msg "Fixing file permissions..."
-  cd ${pkgdir}/opt/0ad/data
-  chown -R root:games ${pkgdir}/opt/0ad
-
-msg "Installing run script..."
-  install -D -m755 ${srcdir}/$pkgname.sh ${pkgdir}/usr/bin/$pkgname
-}
-
-create_start_script(){
-cat >> ${pkgname}.sh  << __EOF__
-#!/bin/sh
-cd /opt/0ad/system
-./pyrogenesis $*
-__EOF__
+  cp -r ${srcdir}/$_pkgname/binaries/data ${pkgdir}/usr/share/${pkgname}
+  msg "Done copying 0ad-data"
 }
