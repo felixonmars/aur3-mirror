@@ -7,7 +7,7 @@
 
 pkgname=0ad-svn
 _pkgname=0ad
-pkgver=20140504
+pkgver=20140505
 echo -n '' && pkgver=$(date +"%Y%m%d")
 pkgrel=1
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
@@ -51,7 +51,7 @@ build() {
 package() {
   install -d "${pkgdir}"/usr/{bin,lib/${pkgname}}
   install -Dm755 "${srcdir}"/$_pkgname/binaries/system/pyrogenesis "${pkgdir}/usr/bin/pyrogenesis-svn"
-  install -Dm755 "${srcdir}"/$_pkgname/binaries/system/*.so.{,*} "${pkgdir}/usr/lib/${pkgname}"
+  install -Dm755 "${srcdir}"/$_pkgname/binaries/system/*.so{,.*} "${pkgdir}/usr/lib/${pkgname}"
 
   install -Dm755 "${srcdir}/$_pkgname/build/resources/${_pkgname}.sh" "${pkgdir}/usr/bin/${pkgname}"
   sed -i "s/which pyrogenesis/which pyrogenesis-svn/" "${pkgdir}/usr/bin/${pkgname}"

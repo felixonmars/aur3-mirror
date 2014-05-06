@@ -1,7 +1,7 @@
 # Maintainer: Matt Garriott <matt.garriott at gmail dot com>
 pkgname=freeze-watch
-pkgver=1.0.0
-pkgrel=2
+pkgver=1.0.2
+pkgrel=1
 pkgdesc="Get email alerts when the temperature is predicted to drop below a set point"
 arch=('any')
 url="https://github.com/mgarriott/FreezeWatch"
@@ -11,16 +11,11 @@ makedepends=()
 install="$pkgname.install"
 backup=('etc/freezewatch.yaml')
 source=("https://github.com/mgarriott/FreezeWatch/archive/v$pkgver.tar.gz")
-md5sums=('559af4ddd9cafc1fac3f789e70b33f3b')
+md5sums=('204599f869dc36cb6375d6475382d02d')
 
 build() {
   cd "$srcdir/FreezeWatch-$pkgver"
-  bundle install --path vendor
-}
-
-check() {
-  cd "$srcdir/FreezeWatch-$pkgver"
-  bundle exec rake test
+  bundle install --without=test --standalone --path vendor
 }
 
 package() {
@@ -37,7 +32,10 @@ package() {
   ln -sf "/etc/freezewatch.yaml" "$_dirname/freezewatch.yaml"
 
   mkdir -p "$pkgdir/usr/lib/systemd/system"
-  sed -i "s%ExecStart=.*$%ExecStart=$(which ruby) $_final_dirname/src/watcher.rb%" \
+  sed -i "s%ExecStart=.*$%ExecStart=$(which ruby) $_final_dirname/bin/watcher.rb%" \
+    "$_dirname/systemd/freezewatch.service"
+
+  sed -i "s%WorkingDirectory=.*$%WorkingDirectory=$_final_dirname%" \
     "$_dirname/systemd/freezewatch.service"
 
   install -D "$_dirname/systemd/freezewatch.service" \
