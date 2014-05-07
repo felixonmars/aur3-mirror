@@ -1,8 +1,9 @@
 # Maintainer: Martin, e-mail: mdk at amescon dot com
 pkgname=raspicommrs485
 pkgver=1.4
-pkgrel=3
+pkgrel=4
 pkgdesc="raspicomm rs485 driver /dev/ttyRPC0"
+buildarch=16 # ARMv6 only, as it's a raspberry pi extension
 arch=('armv6h')
 url="http://github.com/amescon/raspicomm-module-package-arch"
 license=('GPL')
@@ -10,7 +11,7 @@ groups=()
 depends=()
 makedepends=()
 optdepends=()
-provides=('/dev/ttyRPC0')
+provides=('raspicommrs485')
 conflicts=()
 replaces=()
 backup=()
