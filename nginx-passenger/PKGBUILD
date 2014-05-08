@@ -1,11 +1,11 @@
 # Maintainer: Tom Richards <tom@tomrichards.net>
 
 _nginxver=1.6.0
-_passengerver=4.0.41
+_passengerver=4.0.42
 
 pkgname=nginx-passenger
 pkgver=1.6.0
-pkgrel=1
+pkgrel=2
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -25,18 +25,18 @@ backup=('etc/nginx/fastcgi.conf'
         'etc/logrotate.d/nginx')
 source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
 	"https://github.com/phusion/passenger/archive/release-$_passengerver.tar.gz"
-	'remove_passenger.patch'
+	'cleanup_headers.patch'
 	'service'
 	'logrotate')
 sha256sums=('943ad757a1c3e8b3df2d5c4ddacc508861922e36fa10ea6f8e3a348fc9abfc1a'
-            'fdb04605a2e7b6078032e8cfe139e99d49b8014a532964c8d422b939486b697c'
+            '402aac06c629b3832a6b5ff662c178847c2ca47a9eeece84d7ccfe5b58971c6a'
             'ef8c92df29814a35f133ec5d9fef896f93709068aa3ca964b64aae68bdec2ab6'
             '05fdc0c0483410944b988d7f4beabb00bec4a44a41bd13ebc9b78585da7d3f9b'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
 
 build() {
 	cd "$srcdir/passenger-release-$_passengerver"
-	patch -p1 < ../remove_passenger.patch
+	patch -p1 < ../cleanup_headers.patch
 	_nginx_addon_dir=`bin/passenger-config --nginx-addon-dir`
 
 	cd "$srcdir/nginx-$_nginxver"
