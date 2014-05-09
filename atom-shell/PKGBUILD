@@ -2,7 +2,7 @@
 
 pkgname=atom-shell
 pkgver=0.12.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Framework to write cross-platform desktop applications using JavaScript, HTML and CSS."
 arch=('i686' 'x86_64')
 url="https://github.com/atom/atom-shell"
@@ -22,6 +22,6 @@ package() {
 
   ln -s "/usr/lib/libudev.so.1" "${pkgdir}/opt/${pkgname}/libudev.so.0"
 
-  install -d "${pkgdir}/usr/local/bin"
-  ln -s "/opt/${pkgname}/atom" "${pkgdir}/usr/local/bin/atom"
+  install -d "${pkgdir}/usr/bin"
+  ln -s "/opt/${pkgname}/atom" "${pkgdir}/usr/bin/atom-shell"
 }
