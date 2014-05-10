@@ -40,7 +40,7 @@ _pkgname=${pkgname}
 _kernelname=${_pkgname#linux}
 _basekernel=3.12
 true && pkgname=(${_pkgname} ${_pkgname}-headers)
-pkgver=3.12.18
+pkgver=3.12.19
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -59,8 +59,9 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/linux-3.12.tar.xz"
 	'0004-nfs-rpc_pipe-remove-the-clntXX-dir-if-creating-the-p.patch'
 	'0005-nfs-sunrpc-add-an-info-file-for-the-dummy-gssd.patch'
 	'0006-nfs-rpc_pipe-fix-cleanup-of-dummy-gssd-directory-whe.patch')
+
 sha256sums=('2e120ec7fde19fa51dc6b6cc11c81860a0775defcad5a5bf910ed9a50e845a02'
-            '00dc663689caaf74e8223e114eb37a651876ce3e03e42248b625383737243c56'
+            'a19ef03193a22a9f268ad06da8369e7f6c2cff2daf98633f246f047189e23993'
             'cdad2ad2f3165be86d903f37f6e761f1707cba51bccb802e08ae259445113cad'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
             'cc346d86bf3dd07a983dab996251836b53c156e2f053cc17d9a6069256faef8c'

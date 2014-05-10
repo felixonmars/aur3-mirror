@@ -115,9 +115,10 @@ static int screen_init(void)
 	if ((rowtot < N + 4) || (coltot < N)) {
 		clear();
 		endwin();
-		printf("This screen has %d rows and %d columns. Enlarge it.\n");
+		printf("This screen has %d rows and %d columns. Enlarge it.\n",
+		       rowtot, coltot);
 		printf("You need at least %d rows and %d columns.\n",
-		       rowtot, coltot, N+4, N);
+		       N + 4, N);
 		return 1;
 	}
 	/* -4 to leave vertical space to the 3 helper lines below. */
