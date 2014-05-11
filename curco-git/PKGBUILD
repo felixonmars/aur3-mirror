@@ -1,6 +1,6 @@
 # Maintainer: Nicola Lamacchia <nicola dot lamacchia ampersat gmail dot com>
 pkgname=curco-git
-pkgver=20130418
+pkgver=20140510
 pkgrel=1
 pkgdesc="A dummy CLI currency converter"
 arch=(any)

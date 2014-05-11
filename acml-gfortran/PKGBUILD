@@ -7,7 +7,7 @@ pkgdesc="AMD Core Math Library (ACML) for Linux built with GFORTRAN"
 arch=("x86_64")
 url="http://developer.amd.com"
 license=(custom)
-depends=("gcc-libs-multilib" "gcc-fortran" "bash" "tcsh")
+depends=("gcc-libs" "gcc-fortran" "bash" "tcsh")
 makedepends=("sed")
 options=('staticlibs')
 _source=("http://developer.amd.com/license-agreement-amd-core-math-library/?f=acml-5-3-1-gfortran-64bit.tgz")

@@ -1,7 +1,7 @@
 # Maintainer: Nicola Lamacchia <nicola dot lamacchia ampersat gmail dot com>
 pkgname=pysay-git
-pkgver=20140509
-pkgrel=1
+pkgver=20140510
+pkgrel=2
 pkgdesc="A Python version of cowsay (with a new cow!)"
 arch=(any)
 url="https://github.com/nicolalamacchia/pysay"
@@ -11,7 +11,7 @@ makedepends=('git')
 provides=('pysay')
 conflicts=('pysay')
 options=(!emptydirs)
-source=('git://github.com/nicolalamacchia/pysay')
+source=('git://github.com/nicolalamacchia/pysay.git')
 md5sums=('SKIP')
 
 _gitroot=git://github.com/nicolalamacchia/pysay.git

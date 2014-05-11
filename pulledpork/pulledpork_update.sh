@@ -13,12 +13,18 @@ then
 fi
 
 # ulimit is needed as sometimes pulledpork.pl goes in infinite loop
-( ulimit -t 60; /usr/bin/pulledpork.pl -c /etc/pulledpork/pulledpork.conf )
+( ulimit -t 60; /usr/bin/pulledpork.pl -P -c /etc/pulledpork/pulledpork.conf )
 
 # restart snort
 if systemctl is-active snort &>/dev/null
 then
 	systemctl restart snort
+fi
+
+# restart suricata
+if systemctl is-active suricata &>/dev/null
+then
+	systemctl restart suricata
 fi
 
 # restart barnyard2
