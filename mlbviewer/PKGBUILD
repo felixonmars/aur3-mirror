@@ -1,8 +1,8 @@
 # Maintainer: Jonah Bernhard <jonah.bernhard at gmail dot com>
 pkgname=mlbviewer
-pkgver=2014_sf_1
+pkgver=2014_sf_2
 _pkgyear=${pkgver%_sf_*}
-pkgrel=3
+pkgrel=1
 pkgdesc="A collection of tools to view and listen to streaming baseball games from MLB.TV."
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/projects/mlbviewer"
@@ -12,9 +12,9 @@ makedepends=('subversion')
 optdepends=('mpv: lightweight streaming media player'
             'python2-gdata: MLB classics')
 install="${pkgname}.install"
-source=("http://downloads.sourceforge.net/project/${pkgname}/${pkgname}/2014/${pkgname}2014-sf-1.tar.gz"
+source=("http://downloads.sourceforge.net/project/${pkgname}/${pkgname}/2014/${pkgname}2014-sf-2.tar.gz"
         "mlbhls::svn+http://mlbtv-hls-nexdef.googlecode.com/svn/branches/experimental")
-sha1sums=('3b4102ef7645518ad884a74b194005a90b083bf2'
+sha1sums=('5347457eef2b487de6e0a903c0b2d32eed2383a3'
           'SKIP')
 
 build () {

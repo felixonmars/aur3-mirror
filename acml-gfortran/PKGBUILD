@@ -1,5 +1,7 @@
 # Maintainer: cornholio <vigo.the.unholy.carpathian@gmail.com>
 
+# You MUST manually download acml-5-3-1-gfortran-64bit.tgz from here: http://developer.amd.com/tools-and-sdks/cpu-development/amd-core-math-library-acml/acml-downloads-resources/
+# I recommend downloading it to the directory specified by SRCDEST in /etc/makepkg.conf
 pkgname=acml-gfortran
 pkgver=5.3.1
 pkgrel=3
@@ -8,34 +10,18 @@ arch=("x86_64")
 url="http://developer.amd.com"
 license=(custom)
 depends=("gcc-libs" "gcc-fortran" "bash" "tcsh")
-makedepends=("sed")
 options=('staticlibs')
-_source=("http://developer.amd.com/license-agreement-amd-core-math-library/?f=acml-5-3-1-gfortran-64bit.tgz")
-sha1sums=('SKIP')
-_sha1sums=('ec445af7944b6acdd1d692e5a1bf766395c0041e')
+source=("http://developer.amd.com/tools-and-sdks/cpu-development/amd-core-math-library-acml/acml-downloads-resources/acml-5-3-1-gfortran-64bit.tgz")
+sha1sums=('ec445af7944b6acdd1d692e5a1bf766395c0041e')
 
-build() {
-
-	# Get the webpage and needed extract variables
-	curl -o index.html ${_source}
-	_nonce=`grep "nonce" "${srcdir}/index.html" | awk '{print $5;}' | sed 's^value="^^g' | sed 's^"^^g'`
-	_f=`grep "nonce" "${srcdir}/index.html" | awk '{print $14;}' | sed 's^value="^^g' | sed 's^"/>^^g'`
-
-	# Request actual file using acquired variables
-	curl -fLC - --retry 3 --retry-delay 3 -d amd_developer_central_nonce=${_nonce} \
-		-d _wp_http_referer=/license-agreement-amd-core-math-library/?f=acml-5-3-1-gfortran-64bit.tgz \
-		-d f=${_f} -o ${srcdir}/output.tgz ${_source}
+prepare() {
 	
-	# Check hash
-	if [ "`sha1sum ${srcdir}/output.tgz | awk '{print $1;}'`" != "$_sha1sums" ]; then
-		echo "Hash does not match"
-		return 1
-	fi
-
+	# Extract
 	mkdir ${srcdir}/acml
-	gzip -dc "${srcdir}/output.tgz" | tar oxvf - -C "${srcdir}/acml"
-	gzip -dc "${srcdir}/acml/contents-acml-5-3-1-gfortran-64bit.tgz" | tar oxvf - -C "${srcdir}/acml"
-	
+	gzip -dc "${srcdir}/contents-acml-5-3-1-gfortran-64bit.tgz" | tar oxvf - -C "${srcdir}/acml"
+}
+
+build() {	
 	_fma4_compat=`${srcdir}/acml/util/cpuid.exe | grep FMA4`
 	if [[ "$_fma4_compat" == *not* ]]
 	then
