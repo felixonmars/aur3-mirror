@@ -9,9 +9,9 @@
 _pkgbasename=freetype2-ubuntu
 pkgname=lib32-$_pkgbasename
 pkgver=2.5.2
-_ubver=2.5.2-1ubuntu3
+_ubver=2.5.2-1ubuntu4
 _ubrel=utopic
-pkgrel=3
+pkgrel=4
 pkgdesc="TrueType font rendering library, with Ubuntu's LCD rendering patches (32-bit)"
 arch=('x86_64')
 url="https://launchpad.net/ubuntu/${_ubrel}/+source/freetype"
@@ -26,7 +26,7 @@ source=(http://downloads.sourceforge.net/sourceforge/freetype/freetype-${pkgver}
         freetype-2.2.1-enable-valid.patch)
  
 md5sums=('10e8f4d6a019b124088d18bc26123a25'
-         '3d5dbb70ebf48703ff396338d9e52d80'
+         '3eb922b411c11d809d846916445a8ef3'
          '214119610444c9b02766ccee5e220680')
  
 build() {
