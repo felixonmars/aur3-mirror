@@ -1,7 +1,7 @@
 # Original Maintainer: Jaroslav Lichtblau <dragonlord@aur.archlinux.org>
 # Maintainer: Alexander "butterbrot" Hausmann <alexander-hausmann@web.de>
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
-# Maintaner: thrakcattak
+# Maintainer: thrakcattak
 # most of this PKGBUILD is copied from 0ad-git
 # read the comment down there: https://aur.archlinux.org/packages/0ad-git/
 

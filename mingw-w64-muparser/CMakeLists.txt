@@ -23,7 +23,7 @@ include_directories(include)
 
 add_library(muparser ${sources})
 if (BUILD_SHARED_LIBS)
-  set_target_properties(muparser PROPERTIES SUFFIX "-2.dll")
+  set_target_properties(muparser PROPERTIES SUFFIX "-0.dll")
 endif()
 
 install (TARGETS muparser RUNTIME DESTINATION bin

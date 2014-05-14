@@ -1,14 +1,14 @@
 # Maintainer: Alexandr Boiko <brdcom@ya.ru>
 pkgname=accel-ppp-lts-git
-pkgver=20140313
-pkgrel=15
-pkgdesc="Kernel-mode PPTP/PPPoE/L2TP server"
+pkgver=20140512
+pkgrel=16
+pkgdesc="Kernel-mode PPTP/PPPoE/L2TP server, with support ipoe mode"
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/apps/trac/accel-ppp/"
 license=('GPL')
-depends=('openssl>=0.9.8' 'pcre')
-makedepends=('git' 'cmake>=2.6' 'libnl' 'net-snmp>=5.x' 'lua51' 'linux-lts-headers')
-conflicts=(accel-ppp)
+depends=('openssl>=0.9.8' 'pcre' 'libnl')
+makedepends=('git' 'cmake>=2.6' 'libnl1' 'net-snmp>=5.x' 'lua51' 'linux-lts-headers')
+conflicts=('accel-ppp' 'accel-ppp-git')
 install='accel-ppp.install'
 options=('docs')
 backup=('etc/accel-ppp.conf' 'etc/accel-ppp.lua' 'etc/snmp/accel-ppp.conf')
@@ -16,7 +16,7 @@ source=(accel-ppp-default
 	accel-ppp.lua
 	accel-ppp.tmpfiles
 	accel-pppd.service)
-md5sums=('e6922a52102c5d8562310bdfd17ba9ad'
+md5sums=('bb3e20c8808000f4efe52230c13a13f3'
          '23e32b0d758be2adf0f7b6987857afc2'
          '5be7d42b434b74d7e692b19a9e3c4297'
          'e5dec17bd405052fc647a805db5dd449')
@@ -69,9 +69,6 @@ build() {
 		-DKDIR=/usr/src/linux-`uname -r` \
 		../${_gitname}
 	make || return 1
-	#	-DKDIR=/usr/lib/modules/`uname -r`/build \
-	#	../${_gitname}
-	#make || return 1
 }
 package() {
 	cd ${srcdir}/${_gitname}-build
