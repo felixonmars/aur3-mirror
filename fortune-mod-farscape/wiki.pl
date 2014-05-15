@@ -16,9 +16,13 @@ my $mw = MediaWiki::API->new({ api_url => 'http://en.wikiquote.org/w/api.php' })
 
 my $page = $mw->get_page( { title => 'Farscape' } );
 
-if (shift eq "revision") {
+if ($#ARGV == 0 && $ARGV[0] eq "revision") {
   print $page->{ 'revid' };
   exit;
+}
+
+if ($#ARGV > -1) {
+  die;
 }
 
 $_ = $page->{ '*' };

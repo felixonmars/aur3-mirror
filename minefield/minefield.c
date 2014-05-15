@@ -2,6 +2,7 @@
 #include <time.h>
 #include <string.h>
 #include <ncurses.h>
+#include <unistd.h>
 
 #define N 20
 
@@ -21,6 +22,8 @@ static void num_bombs(void);
 static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct);
 static void cascadeuncover(grid a[][N], int i, int k);
 static int checknear(grid a[][N], int i, int k);
+void manage_space_press(grid a[][N], int *i, int *k, int *victory);
+void manage_enter_press(grid a[][N], int *i, int *k, int *correct);
 static void victory_check(grid a[][N], int victory, int correct);
 
 /* Global variables */
@@ -121,11 +124,9 @@ static void grid_init(grid a[][N])
 
 static void num_bombs(void)
 {
-	do {
-		printf("Select level.\n*1 for easy, 2 for medium, ");
-		printf("3 for hard, 4 for...good luck!.\n");
-		scanf("%d", &bombs);
-	} while ((bombs < 1) && (bombs > 4));
+	printf("Select level.\n1 for easy, 2 for medium, ");
+	printf("3 for hard, 4 for...good luck!.\n");
+	scanf("%d", &bombs);
 	switch (bombs) {
 	case 1:
 		bombs = 25;
@@ -139,6 +140,8 @@ static void num_bombs(void)
 	case 4:
 		bombs = 80;
 		break;
+	default:
+		return num_bombs();
 	}
 }
 
@@ -164,30 +167,12 @@ static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct)
 			(*i)++;
 		break;
 	case 32: /* space to uncover */
-		if (a[*i][*k].sign == '-') {
-			if (a[*i][*k].nearby == -1)
-				*victory = 0;
-			else
-				cascadeuncover(a, *i, *k);
-		}
+		if (a[*i][*k].sign == '-')
+			manage_space_press(a, i, k, victory);
 		break;
 	case 10: /* Enter to  identify a bomb */
-		if ((a[*i][*k].sign == '*') || (a[*i][*k].sign == '-')) {
-			if (a[*i][*k].sign == '*') {
-				a[*i][*k].sign = '-';
-				bombs++;
-				if (a[*i][*k].nearby != -1)
-					(*correct)++;
-			} else {
-				a[*i][*k].sign = '*';
-				bombs--;
-				if (a[*i][*k].nearby != -1)
-					(*correct)--;
-			}
-			printw("%c", a[*i][*k].sign);
-			mvprintw(rowtot - 3, 1, "Still %d bombs.\n",
-				 bombs);
-		}
+		if ((a[*i][*k].sign == '*') || (a[*i][*k].sign == '-'))
+			manage_enter_press(a, i, k, correct);
 		break;
 	case KEY_F(2): /* f2 to exit */
 		screen_end();
@@ -199,7 +184,7 @@ static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct)
 static void cascadeuncover(grid a[][N], int i, int k)
 {
 	int m, n;
-	if ((i, k >= 0) && (i, k < N) && (a[i][k].sign == '-')) {
+	if ((i >= 0) && (i < N) && (k >= 0) && (k < N) && (a[i][k].sign == '-')) {
 		a[i][k].sign = '0' + a[i][k].nearby;
 		move(row + i * vert_space, col + k * horiz_space);
 		if (a[i][k].nearby != 0) {
@@ -236,6 +221,32 @@ static int checknear(grid a[][N], int i, int k)
 		}
 	}
 	return sum;
+}
+
+void manage_space_press(grid a[][N], int *i, int *k, int *victory)
+{
+	if (a[*i][*k].nearby == -1)
+		*victory = 0;
+	else
+		cascadeuncover(a, *i, *k);
+}
+
+void manage_enter_press(grid a[][N], int *i, int *k, int *correct)
+{
+	if (a[*i][*k].sign == '*') {
+		a[*i][*k].sign = '-';
+		bombs++;
+		if (a[*i][*k].nearby != -1)
+			(*correct)++;
+	} else {
+		a[*i][*k].sign = '*';
+		bombs--;
+		if (a[*i][*k].nearby != -1)
+			(*correct)--;
+	}
+	printw("%c", a[*i][*k].sign);
+	mvprintw(rowtot - 3, 1, "Still %d bombs.\n",
+		 bombs);
 }
 
 static void victory_check(grid a[][N], int victory, int correct)
