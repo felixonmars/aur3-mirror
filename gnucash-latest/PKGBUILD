@@ -1,8 +1,9 @@
 # Maintainer: Neng Xu <neng2.xu2@gmail.com>
+# Contributor: quizzmaster
 
 pkgname=gnucash-latest
 pkgver=2.6.3
-pkgrel=1
+pkgrel=2
 pkgdesc="A personal and small-business financial-accounting application"
 arch=('i686' 'x86_64')
 url="http://www.gnucash.org"
