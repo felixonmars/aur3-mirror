@@ -36,6 +36,7 @@ build() {
 
   unset CPPFLAGS # for le spidermonkey
 
+  ./clean-workspaces.sh
   ./update-workspaces.sh \
       --with-system-enet \
       --bindir=/usr/bin \
@@ -45,6 +46,7 @@ build() {
 
   cd "$srcdir/$_pkgname/build/workspaces/gcc"
 
+  make clean
   make # CONFIG=debug ## Uncoment this to build a debug release
 }
 

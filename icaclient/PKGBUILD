@@ -35,11 +35,23 @@ conflicts=('bin32-citrix-client' 'citrix-client')
 options=(!strip)
 
 source_url="http:$(curl -L -silent 'http://www.citrix.com/downloads/citrix-receiver/linux/receiver-for-linux-130.html' | awk -F 'rel=\"' '/linuxx86-/ {print $2}'| awk -F'"' '{print $1}'| sed '/^$/d' |uniq)"
-source=($pkgname-$pkgver.tar.gz::$source_url wfica.sh)
+#source=($pkgname-$pkgver.tar.gz::$source_url wfica.sh)
+source=('configmgr.desktop'  'conncenter.desktop'  'selfservice.desktop' 'wfica.desktop' 'wfica.sh' 'wfica_assoc.sh' $pkgname-$pkgver.tar.gz::$source_url)
+makedepends=('wget')
+md5sums=('71aca6257f259996ac59729604f32978'
+         'a38c3f844a0fefe8017a25bee213b843'
+         '0e92c33b3fcc99b04269787da2984809'
+         '1f214f6f456f59afd1a3275580f4240e'
+         '59f8e50cc0e0c399d47eb7ace1df5a32'
+         'dca5a1f51449ef35f1441b900d622276'
+         'fe004c2302660211c73688fe1fa966b1')
 
 
-md5sums=('fe004c2302660211c73688fe1fa966b1'
-         '6ebd275423024b5d00812b184c144d0b')
+#md5sums=('fe004c2302660211c73688fe1fa966b1'
+#         '6ebd275423024b5d00812b184c144d0b')
+
+install=citrix-client.install
+
 
 package() {
   cd "${srcdir}"
@@ -83,14 +95,29 @@ package() {
     lang='en'
   fi
   cp ${pkgdir}/$ICAROOT/nls/$lang/{appsrv.ini,module.ini,wfclient.ini} ${pkgdir}/$ICAROOT/config/
-  
-  #Firefox Plugin
-  nspluginwrapper -i  ${pkgdir}/$ICAROOT/npica.so
-
+ 
+  # Create symlinks for util
+        ln -s gst_play.64 ./util/gst_play
+        ln -s gst_read.64 ./util/gst_read
+        ln -s libgstflatstm.64.so ./util/libgstflatstm.so
+        ln -s pnabrowse ./util/pnabrowse_launch
+ 
+# Copy Firefox plugin into plugin directory
+    mkdir -p "${pkgdir}/usr/lib/mozilla/plugins"
+    ln -s ./npica.so "${pkgdir}"/usr/lib/mozilla/plugins/npica.so
+    cd "${srcdir}"
+    # install freedesktop.org files
+    install -Dm644 wfica.desktop "${pkgdir}/usr/share/applications/wfica.desktop"
+    install -Dm644 conncenter.desktop "${pkgdir}/usr/share/applications/conncentre.desktop"
+    install -Dm644 configmgr.desktop "${pkgdir}/usr/share/applications/configmgr.desktop"
+    install -Dm644 selfservice.desktop "${pkgdir}/usr/share/applications/wfcmgr.desktop"
+    # install scripts
+    install -Dm755 wfica.sh "${pkgdir}${instdir}"
+    install -Dm755 wfica_assoc.sh "${pkgdir}${instdir}"
 
   # Intall License
-  install -m644 -D nls/en/eula.txt \
-    "$pkgdir/usr/share/licenses/$pkgname/eula.txt"
+  #install -m644 -D nls/en/eula.txt \
+  #  "$pkgdir/usr/share/licenses/$pkgname/eula.txt"
 }
 
 
