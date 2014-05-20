@@ -1,48 +1,45 @@
-# Maintainer : SpepS <dreamspepser at yahoo dot it>
+# Maintainer : speps <speps at aur dot archlinux dot org>
 # Contributor: Paulo Matias <matiasΘarchlinux-br·org>
 
 pkgname=alliance
-pkgver=5.0_20110203
-pkgrel=2
+pkgver=5.0_20120515
+pkgrel=1
 pkgdesc="Free CAD tools and libraries for VLSI design (complete design flow from VHDL to layout)"
 arch=('i686' 'x86_64')
 url="http://www-asim.lip6.fr/recherche/alliance/"
 license=('GPL')
 depends=('lesstif' 'libxpm')
 optdepends=('zsh: bench script')
-options=('!libtool')
 install="$pkgname.install"
-source=("${url/recherche/pub}distribution/${pkgver/_*}/${pkgname}-${pkgver/_/-}.tar.gz")
-md5sums=('fad7ddc0f74beac0d0abb2701f50fec5')
+source=("${url/recherche/pub}distribution/${pkgver/_*}/${pkgname}-${pkgver/_/-}.tar.gz"
+        "http://ftp.de.debian.org/debian/pool/main/a/alliance/alliance_${pkgver/_/-}-6.debian.tar.gz")
+md5sums=('9c09b669451e0425a2e8be3d8fb409dc'
+         'b21208781b965a7efec6ee77cb55737d')
+
+prepare() {
+  cd $pkgname-${pkgver/_*}
+
+  # use debian patches
+  for _f in ../debian/patches/*.patch; do
+    patch -p1 -i $_f;
+  done;
+}
 
 build() {
-  cd "$srcdir/$pkgname-${pkgver/_*}"
-
-  # Does not build with -Wl,--as-needed
-  export LDFLAGS="${LDFLAGS//,--as-needed}"
-
-  # profile.d script fix
-  sed -e "s|SYSCONF_TOP=\$ALLIANCE_TOP|&/etc|" \
-      -e "s|CELLS_TOP=\$ALLIANCE_TOP|&/cells|" \
-      -i distrib/etc/alc_env.sh.in
-
-  # desktop files fix
-  sed -e "s|\(Cat.*=\)E|\1Development;E|" \
-      -e "s|ALLIANCE_TOP/bin/||" \
-      -i distrib/*.desktop
-
-  ./configure --prefix=/opt/$pkgname \
+  cd $pkgname-${pkgver/_*}
+  ./autostuff
+  ./configure --prefix=/usr \
               --mandir=/usr/share/man \
-              --libdir=/usr/lib \
+              --libdir=/usr/lib/$pkgname \
               --includedir=/usr/include/$pkgname \
+              --sysconfdir=/etc \
               --enable-alc-shared \
               --enable-static=no
   make
 }
 
 package() {
-  cd "$srcdir/$pkgname-${pkgver/_*}"
-
+  cd $pkgname-${pkgver/_*}
   make DESTDIR="$pkgdir/" install
 
   # install desktop files and pixmaps
@@ -52,7 +49,4 @@ package() {
 
   # prevent conflict with man3 log
   cd "$pkgdir/usr/share/man/man3" && mv log.3 log-$pkgname.3
-
-  # remove unneeded csh profile.d script
-  rm "$pkgdir/etc/profile.d/alc_env.csh"
 }

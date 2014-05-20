@@ -2,8 +2,9 @@
 # Maintainer: Alexander "butterbrot" Hausmann <alexander-hausmann@web.de>
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
 # Maintainer: thrakcattak
-# most of this PKGBUILD is copied from 0ad-git
-# read the comment down there: https://aur.archlinux.org/packages/0ad-git/
+#
+# This is the latest svn revision of the game.
+# There is also a 0ad-git in the AUR which may be a few days old.
 
 pkgname=0ad-svn
 _pkgname=0ad
@@ -15,9 +16,7 @@ arch=('i686' 'x86_64')
 url="http://play0ad.com/"
 license=('GPL2' 'CCPL')
 depends=('binutils' 'boost-libs' 'curl' 'enet' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'sdl' 'wxgtk' 'zlib' 'libgl' 'glu' 'gloox' 'libsm')
-#olddepends 'miniupnpc' 
 makedepends=('boost' 'cmake' 'mesa' 'zip' 'python2')
-#source=("git://github.com/0ad/0ad.git")
 md5sums=('SKIP')
 
 _svntrunk="http://svn.wildfiregames.com/public/ps/trunk"
