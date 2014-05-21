@@ -1,37 +1,31 @@
 # Original Maintainer: Jaroslav Lichtblau <dragonlord@aur.archlinux.org>
 # Maintainer: Alexander "butterbrot" Hausmann <alexander-hausmann@web.de>
 # Contributor: Jakob "flocke" Nixdorf <flocke@user-helfen-usern.de>
-# Maintainer: thrakcattak
-#
-# This is the latest svn revision of the game.
-# There is also a 0ad-git in the AUR which may be a few days old.
+# Maintainer: Johannes Altmanninger <j.altmanninger@gmx.net>
 
 pkgname=0ad-svn
 _pkgname=0ad
-pkgver=20140505
-echo -n '' && pkgver=$(date +"%Y%m%d")
-pkgrel=1
+pkgver=20140520
+pkgrel=3
 pkgdesc="Cross-platform, 3D and historically-based real-time strategy game"
 arch=('i686' 'x86_64')
 url="http://play0ad.com/"
 license=('GPL2' 'CCPL')
 depends=('binutils' 'boost-libs' 'curl' 'enet' 'libogg' 'libpng' 'libvorbis' 'libxml2' 'openal' 'sdl' 'wxgtk' 'zlib' 'libgl' 'glu' 'gloox' 'libsm')
-makedepends=('boost' 'cmake' 'mesa' 'zip' 'python2')
+makedepends=('subversion' 'boost' 'cmake' 'mesa' 'zip' 'python2')
+###### clone directly into src/0ad to avoid copying the whole tree on each build
+###### (see https://bugs.archlinux.org/task/35050 )
+source=("src/$_pkgname::svn+http://svn.wildfiregames.com/public/ps/trunk")
+noextract=("src/$_pkgname")
 md5sums=('SKIP')
 
-_svntrunk="http://svn.wildfiregames.com/public/ps/trunk"
-
+pkgver() {
+  cd "$srcdir/repo"
+  local ver="$(svnversion)"
+  printf "r%s" "${ver//[[:alpha:]]}"
+}
 build() {
-  msg "Starting SVN checkout..."
-    cd ${srcdir}
-      if [ -d $_pkgname/.svn ]; then
-        (cd $_pkgname && svn up && cd ..)
-      else
-        svn co $_svntrunk $_pkgname
-      fi
-  msg "SVN checkout done or server timeout"
-  
-  cd $_pkgname/build/workspaces
+  cd "$srcdir"/$_pkgname/build/workspaces
 
   unset CPPFLAGS # for le spidermonkey
 
@@ -63,6 +57,6 @@ package() {
   msg "Copy 0ad-data for packaging"
   install -d ${pkgdir}/usr/share/${pkgname}/data
 
-  cp -r ${srcdir}/$_pkgname/binaries/data ${pkgdir}/usr/share/${pkgname}
+  cp -r ${srcdir}/${_pkgname}/binaries/data ${pkgdir}/usr/share/${pkgname}
   msg "Done copying 0ad-data"
 }

@@ -1,4 +1,6 @@
 # Maintainer: Fazlul Shahriar <fshahriar@gmail.com>
+#
+# Repository: https://github.com/fhs/archlinux-packages
 pkgname=9mount
 pkgver=1.3
 pkgrel=2
@@ -15,8 +17,12 @@ build() {
   cd "$srcdir/$pkgname-$pkgver"
 
   make || return 1
-  make prefix="$pkgdir/usr" install
+}
 
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+
+  make prefix="$pkgdir/usr" install
   mkdir -p $pkgdir/usr/share/licenses/$pkgname
   cp $srcdir/$pkgname-$pkgver/COPYING $pkgdir/usr/share/licenses/$pkgname/
 }
