@@ -1,6 +1,6 @@
 # Maintainer : boronology <boronology at gmail dot com>
 pkgname=otf-flop-design
-pkgver=20140501
+pkgver=20140522
 pkgrel=1
 depends=('fontconfig' 'xorg-font-utils')
 makedepends=('convmv')
@@ -36,4 +36,4 @@ package() {
 	  install -Dm644 ReadMe.txt "$pkgdir/usr/share/licenses/$pkgname/ReadMe.txt"
 }
 
-md5sums=('14c9649d56162f729cd8b55438144dc8')
+md5sums=('ab3b591b066d2be88b528fd66b38f4c1')

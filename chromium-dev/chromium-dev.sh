@@ -2,9 +2,9 @@
 
 # Allow users to override command-line options
 # Based on Gentoo's chromium package (and by extension, Debian's)
-for f in /etc/chromium-dev/* ; do
-   [[ -f ${f} ]] && source "${f}"
-done
+if [[ -f /etc/chromium-dev/default ]]; then
+  . /etc/chromium-dev/default
+fi
 
 # Prefer user defined CHROMIUM_USER_FLAGS (from env) over system
 # default CHROMIUM_FLAGS (from /etc/chromium-dev/default)
