@@ -1,14 +1,11 @@
-From ef99896f5eb0e40fb95ad661c8bb4910394bf379 Mon Sep 17 00:00:00 2001
+From 3a5ea080e77dd6b77d18eff51121e48ee97d09b3 Mon Sep 17 00:00:00 2001
 From: Taegil Bae <esrevinu@gmail.com>
 Date: Thu, 12 Dec 2013 20:52:48 +0900
-Subject: [PATCH 1/7] implement trackpoint wheel emulation
+Subject: [PATCH 1/6] implement trackpoint wheel emulation
 
-Conflicts:
-	src/evdev.c
-	src/synaptics.c
 ---
- src/evdev.c        | 34 +++++++++++++++++++++++++++-
- src/evdev.h        |  1 +
+ src/evdev.c        | 33 ++++++++++++++++++++++++++-
+ src/evdev.h        |  2 ++
  src/synaptics.c    | 66 ++++++++++++++++++++++++++++++++++++------------------
  src/synapticsstr.h |  1 +
  src/synproto.c     |  2 +-
@@ -16,10 +13,10 @@ Conflicts:
  6 files changed, 84 insertions(+), 24 deletions(-)
 
 diff --git a/src/evdev.c b/src/evdev.c
-index 7f4f0c3..330f700 100644
+index 30f809b..d860836 100644
 --- a/src/evdev.c
 +++ b/src/evdev.c
-@@ -108,6 +108,9 @@ static int proximity_bits[] = {
+@@ -115,6 +115,9 @@ static int proximity_bits[] = {
          BTN_TOOL_LENS,
  };
  
@@ -29,16 +26,16 @@ index 7f4f0c3..330f700 100644
  static int EvdevOn(DeviceIntPtr);
  static int EvdevCache(InputInfoPtr pInfo);
  static void EvdevKbdCtrl(DeviceIntPtr device, KeybdCtrl *ctrl);
-@@ -133,6 +136,8 @@ static Atom prop_btn_label;
- static Atom prop_device;
+@@ -141,6 +144,8 @@ static Atom prop_device;
  static Atom prop_virtual;
+ static Atom prop_scroll_dist;
  
 +InputInfoPtr trackpoint = NULL;
 +
  static int EvdevSwitchMode(ClientPtr client, DeviceIntPtr device, int mode)
  {
      InputInfoPtr pInfo;
-@@ -970,7 +975,7 @@ static void EvdevPostQueuedEvents(InputInfoPtr pInfo, int num_v, int first_v,
+@@ -969,7 +974,7 @@ static void EvdevPostQueuedEvents(InputInfoPtr pInfo, int num_v, int first_v,
   * Take the synchronization input event and process it accordingly; the motion
   * notify events are sent first, then any button/key press/release events.
   */
@@ -47,15 +44,7 @@ index 7f4f0c3..330f700 100644
  EvdevProcessSyncEvent(InputInfoPtr pInfo, struct input_event *ev)
  {
      int i;
-@@ -1393,6 +1398,7 @@ EvdevAddAbsValuatorClass(DeviceIntPtr device, int want_scroll_axes)
-         if (pEvdev->mtdev->caps.slot.maximum > 0)
-             num_touches = pEvdev->mtdev->caps.slot.maximum -
-                           pEvdev->mtdev->caps.slot.minimum + 1;
-+        xf86IDrvMsg(pInfo, X_INFO, "num_touches = %d\n", num_touches);
- 
-         if (!InitTouchClassDeviceStruct(device, num_touches, mode,
-                                         num_mt_axes_total)) {
-@@ -2500,6 +2506,11 @@ static void
+@@ -2510,6 +2515,11 @@ static void
  EvdevUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
  {
      EvdevPtr pEvdev = pInfo ? pInfo->private : NULL;
@@ -67,9 +56,9 @@ index 7f4f0c3..330f700 100644
      if (pEvdev)
      {
          /* Release string allocated in EvdevOpenDevice. */
-@@ -2509,6 +2520,12 @@ EvdevUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
-         free(pEvdev->type_name);
-         pEvdev->type_name = NULL;
+@@ -2521,6 +2531,12 @@ EvdevUnInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+ 
+         libevdev_free(pEvdev->dev);
      }
 +
 +    /* TrackPoint */
@@ -80,7 +69,7 @@ index 7f4f0c3..330f700 100644
      xf86DeleteInput(pInfo, flags);
  }
  
-@@ -2540,6 +2557,9 @@ EvdevAlloc(void)
+@@ -2559,6 +2575,9 @@ EvdevAlloc(InputInfoPtr pInfo)
      pEvdev->rel_axis_map[1] = 1;
  
      pEvdev->type_name = NULL;
@@ -90,7 +79,7 @@ index 7f4f0c3..330f700 100644
  
      return pEvdev;
  }
-@@ -2558,6 +2578,11 @@ EvdevPreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+@@ -2577,6 +2596,11 @@ EvdevPreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
      pInfo->device_control = EvdevProc;
      pInfo->read_input = EvdevReadInput;
      pInfo->switch_mode = EvdevSwitchMode;
@@ -102,7 +91,7 @@ index 7f4f0c3..330f700 100644
  
      rc = EvdevOpenDevice(pInfo);
      if (rc != Success)
-@@ -2584,6 +2609,13 @@ EvdevPreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+@@ -2604,6 +2628,13 @@ EvdevPreInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
          rc = BadMatch;
          goto error;
      }
@@ -117,17 +106,18 @@ index 7f4f0c3..330f700 100644
      /* Overwrite type_name with custom-defined one (#62831).
         Note: pInfo->type_name isn't freed so we need to manually do this
 diff --git a/src/evdev.h b/src/evdev.h
-index 4742b43..c79c8d7 100644
+index 520d017..341fd91 100644
 --- a/src/evdev.h
 +++ b/src/evdev.h
-@@ -150,6 +150,7 @@ typedef struct {
+@@ -152,6 +152,8 @@ typedef struct {
  } EventQueueRec, *EventQueuePtr;
  
  typedef struct {
 +    int isSynaptics;
-     unsigned short id_vendor;
-     unsigned short id_product;
++
+     struct libevdev *dev;
  
+     char *device;
 diff --git a/src/synaptics.c b/src/synaptics.c
 index b25c902..aa7725d 100644
 --- a/src/synaptics.c

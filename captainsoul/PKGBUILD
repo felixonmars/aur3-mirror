@@ -9,7 +9,7 @@
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=captainsoul
 pkgver="0.1.8"
-pkgrel=1
+pkgrel=2
 pkgdesc="Netsoul client with pygtk and twisted"
 arch=('any')
 url="https://github.com/gossel-j/CaptainSoul"
@@ -17,7 +17,7 @@ license=('GPL')
 groups=()
 depends=(
 	'python2'
-	'twisted'
+	'python2-twisted'
 	'pygtk'
 	'python2-setuptools'
 )
