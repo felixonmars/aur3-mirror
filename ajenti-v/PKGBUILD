@@ -2,19 +2,19 @@
 
 pkgname=ajenti-v
 pkgver=0.2.26
-pkgrel=1
+pkgrel=2
 pkgdesc='Plugin suite for Ajenti that adds web hosting capabilities.'
 arch=(any)
 url='http://ajenti.org/'
 license=(LGPL)
 depends=('ajenti>=1.2.20.3' 'python2-reconfigure>=0.1.39' 'supervisor>=3.0' 'mariadb'
-         'mariadb-clients' 'nginx' 'php-fpm' 'gunicorn' 'vsftpd>=3.0.2'
+         'mariadb-clients' ' nginx-mainline-common' 'php-fpm' 'gunicorn' 'vsftpd>=3.0.2'
          'db' 'pure-ftpd' 'puma' 'nodejs' 'exim' 'courier-imap>=4.9.3' 'courier-authlib>=0.64.0')
 makedepends=('git')
 provides=(ajenti-v-core)
 install=ajenti-v.install
 source=('git+https://github.com/Eugeny/ajenti-v.git')
-md5sums=(SKIP)
+md5sums=('SKIP')
 
 build() {
   cd ${srcdir}/${pkgname}

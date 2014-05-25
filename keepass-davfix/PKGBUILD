@@ -1,0 +1,81 @@
+# $Id$
+# Maintainer: Timothy Redaelli <timothy.redaelli@gmail.com>
+# Contributor: Kirill "reflexing" Churin <reflexing@reflexing.ru>
+# Contributor: Andrej Gelenberg <andrej.gelenberg@udo.edu>
+# Contributor: William Osler <{firstname}@{lastname}s.us>
+
+pkgname=keepass-davfix
+pkgver=2.26
+pkgrel=1
+pkgdesc='A easy-to-use password manager for Windows, Linux, Mac OS X and mobile devices, patched to fix WebDAV'
+arch=('any')
+url='http://keepass.info/'
+license=('GPL')
+depends=('mono' 'desktop-file-utils' 'xdg-utils' 'shared-mime-info' 'hicolor-icon-theme' 'gtk-update-icon-cache')
+makedepends=('icoutils')
+optdepends=('xdotool: if you want to use auto-type'
+            'xsel: clipboard operations in order to work around Mono clipboard bugs')
+conflicts=('keepass')
+install="keepass.install"
+source=("http://downloads.sourceforge.net/keepass/KeePass-$pkgver-Source.zip"
+        "http://keepass.info/integrity/v2/KeePass-$pkgver-Source.zip.asc"
+        'keepass'
+        'keepass.1'
+        'keepass.desktop'
+        'keepass.xml')
+
+sha256sums=('3a3e0e401acd2e1cc79a42f510c4654654439f0e2243e7f3d340c0b4918f2cd7'
+            'SKIP'
+            '7547f2af38771b66c8c2f3d7900b051b37214af49de3dfa27a5d383bf847d582'
+            'a5fff678466443c0c8256c4771128c86103da47b6a2c49351d9941191b65dd6f'
+            '1d5420e8babce5f4bbb3c68bdffe3bc0d3c3be25ad689138cd02fa14edd89140'
+            '3d017c17a8788166c644e2460ba3596fd503f300342561921201fe5f69e5d194')
+
+prepare() {
+  # Extract icons
+  icotool -x KeePass/KeePass.ico
+
+  pushd Build &>/dev/null
+  bash PrepMonoDev.sh
+  popd &>/dev/null
+
+  # FIXME Right alignment doesn't work correctly (truncated text).
+  sed -i 's/^\(\s*\S*\.TextAlign\s*=\s*System\.Windows\.Forms\.HorizontalAlignment\).Right\(;\s*\)$/\1.Left\2/g' \
+    KeePass/Forms/*.Designer.cs
+}
+
+build() {
+  # Apply our patch
+  cd $srcdir
+  patch -Np1 -i ../v2.26-fix-Mono-WebRequest-not-uploading-file.patch
+
+  xbuild /target:KeePass /property:Configuration=Release
+  cp Ext/KeePass.exe.config Build/KeePass/Release/
+}
+
+package() {
+  install -dm755 "$pkgdir"/usr/bin
+  install -dm755 "$pkgdir"/usr/share/keepass/XSL
+
+  install -Dm755 keepass "$pkgdir"/usr/bin/keepass
+  install -Dm755 Build/KeePass/Release/KeePass.exe "$pkgdir"/usr/share/keepass/KeePass.exe
+  install -Dm755 Ext/KeePass.config.xml "$pkgdir"/usr/share/keepass/KeePass.config.xml
+  install -Dm755 Ext/KeePass.exe.config "$pkgdir"/usr/share/keepass/KeePass.exe.config
+
+  install -m644 Ext/XSL/* "$pkgdir"/usr/share/keepass/XSL
+
+  install -Dm644 keepass.1 "$pkgdir"/usr/share/man/man1/keepass.1
+
+  # Proper installation of .desktop file
+  desktop-file-install -m 644 --dir "$pkgdir"/usr/share/applications/ keepass.desktop
+
+  # Install icons
+  for size in 16 32 48 256; do
+    install -Dm644 \
+    KeePass_*_${size}x${size}x32.png \
+    "$pkgdir"/usr/share/icons/hicolor/${size}x${size}/apps/keepass.png
+  done
+
+  # Needed for postinst with xdg-utils
+  install -Dm644 keepass.xml "$pkgdir"/usr/share/mime/packages/keepass.xml
+}

@@ -2,7 +2,7 @@
 # Contributor: Charles B. Johnson <mail@cbjohnson.info>
 
 pkgname=influxdb
-pkgver=0.6.3
+pkgver=0.7.0
 pkgrel=1
 epoch=
 pkgdesc='Scalable datastore for metrics, events, and real-time analytics'
@@ -25,9 +25,9 @@ source=("http://s3.amazonaws.com/influxdb/$pkgname-$pkgver.src.tar.gz"
         'influxdb.service'
         'influxdb.install')
 noextract=()
-md5sums=('915a5db76d6a9cd8ee58d595c3e506e0'
-         'b685763cc7c62d90a872498347630ba2'
-         '4bca5873a91e150bce354dc5999ecc8f')
+md5sums=('43845322c1464f9606d6b7b7b0314891'
+         'c59b9926d74776d5990889bd48f98543'
+         'b4203001919b80999f18ebfa564ae6e3')
 
 build() {
   cd "$srcdir/$pkgname"
@@ -63,9 +63,14 @@ package() {
   sed -i 's/\/tmp\/influxdb\/development\/wal/\/var\/lib\/influxdb\/wal/g' config.toml
   sed -i 's/influxdb.log/\/var\/log\/influxdb\/influxdb.log/g' config.toml
   sed -i 's/.\/admin/\/usr\/share\/influxdb\/admin/g' config.toml
+  sed -i 's/seed-servers/#seed-servers/g' config.toml
+  sed -i 's/\.\.\/cert.pem/\/usr\/share\/influxdb\/cert\.pem/g' config.toml
   install -D -m644 config.toml "$pkgdir/etc/$pkgname.conf"
   popd
 
   # license
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # self-signed certificate
+  install -Dm644 cert.pem "$pkgdir/usr/share/influxdb/cert.pem"
 }
