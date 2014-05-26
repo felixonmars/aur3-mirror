@@ -1,12 +1,13 @@
 # Maintainer: Elie Bouttier <elie+aur@bouttier.eu.org>
 pkgname=7robot-eurobot-git
 pkgver=1.0
-pkgrel=5
+pkgrel=7
 pkgdesc="7Robot Eurobot - ATP related source"
 arch=(i686 x86_64)
 url="http://7robot.fr"
 license=('GPL')
-depends=('python' 'python-pyqt4')
+depends=('python')
+optdepends=('python-pyqt4')
 makedepends=('cmake' 'git')
 backup=('etc/usbdaemon.conf',
         'etc/atp.conf')
@@ -15,8 +16,8 @@ source=('usbdaemon.service'
         'tcphub@.service'
         'hubmanager.service'
         'jsbot.service')
-md5sums=('8e2fa5c16c72c4dddf073252292930f0'
-         '16893586552dbdb1ef005aacbd2d3d2a'
+md5sums=('7bf79f75b98da92d3923ade4a4ab896c'
+         'b194aa1c5d54493c518091c49fc3e858'
          'cdddd7c0b8b7daddc03e3d7936a74f5b'
          '1b6313f76451c8190dad5c7ef636f00c'
          '38be735b00dfbd51ccbbea938f74b2c2')
