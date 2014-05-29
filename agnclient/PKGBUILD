@@ -17,7 +17,7 @@ sha1sums=('d08eb03d6ca6089eed55f5ef9ad27814d84f1cb3'
           '698e9476e640a45b79579a03817a90d20d4b0249'
           'e7dc0a8e37e97374aed0a576bc06f50ea131323b')
 
-depends=('openssl' 'lib32-glibc' 'lib32-gtk' 'lib32-gtk2' 'lib32-libxml2' 'lib32-curl' 'lib32-pangox-compat')
+depends=('openssl' 'lib32-glibc' 'lib32-gtk2' 'lib32-libxml2' 'lib32-curl' 'lib32-pangox-compat')
 makedepends=('libarchive')
 install=agnclient.install
 

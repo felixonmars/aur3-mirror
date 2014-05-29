@@ -1,0 +1,215 @@
+diff -aur rainbowcrack-1.2-src/src/HashAlgorithm.cpp rainbowcrack-1.2-src.patched/src/HashAlgorithm.cpp
+--- rainbowcrack-1.2-src/src/HashAlgorithm.cpp	2003-11-23 00:33:22.000000000 +0100
++++ rainbowcrack-1.2-src.patched/src/HashAlgorithm.cpp	2014-05-28 17:44:54.224395233 +0200
+@@ -6,9 +6,13 @@
+ 
+ #include "HashAlgorithm.h"
+ 
++#include "Public.h"
++
+ #include <openssl/des.h>
++#include <openssl/md4.h>
+ #include <openssl/md5.h>
+ #include <openssl/sha.h>
++#include <openssl/ripemd.h>
+ #ifdef _WIN32
+ 	#pragma comment(lib, "libeay32.lib")
+ #endif
+@@ -48,6 +52,24 @@
+ 	des_ecb_encrypt((des_cblock*)magic, (des_cblock*)pHash, ks, DES_ENCRYPT);
+ }
+ 
++void HashNTLM(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
++{
++	unsigned char UnicodePlain[MAX_PLAIN_LEN * 2];
++	int i;
++	for (i = 0; i < nPlainLen; i++)
++	{
++		UnicodePlain[i * 2] = pPlain[i];
++		UnicodePlain[i * 2 + 1] = 0x00;
++	}
++
++	MD4(UnicodePlain, nPlainLen * 2, pHash);
++}
++
++void HashMD4(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
++{
++	MD4(pPlain, nPlainLen, pHash);
++}
++
+ void HashMD5(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
+ {
+ 	MD5(pPlain, nPlainLen, pHash);
+@@ -57,3 +79,97 @@
+ {
+ 	SHA1(pPlain, nPlainLen, pHash);
+ }
++
++void HashRIPEMD160(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
++{
++	RIPEMD160(pPlain, nPlainLen, pHash);
++}
++
++
++//*********************************************************************************
++// Code for MySQL password hashing
++//*********************************************************************************
++
++inline void mysql_hash_password_323(unsigned long *result, const char *password) 
++{
++  register unsigned long nr=1345345333L, add=7, nr2=0x12345671L;
++  unsigned long tmp;
++  for (; *password ; password++) 
++  {
++    if (*password == ' ' || *password == '\t') continue;
++	tmp= (unsigned long) (unsigned char) *password;
++	nr^= (((nr & 63)+add)*tmp)+ (nr << 8);
++	nr2+=(nr2 << 8) ^ nr;
++	add+=tmp;
++  }
++  result[0]=nr & (((unsigned long) 1L << 31) -1L); /* Don't use sign bit (str2int) */;
++  result[1]=nr2 & (((unsigned long) 1L << 31) -1L);
++  return;
++}
++
++void HashMySQL323(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
++{
++	unsigned long hash_pass[2];	
++	unsigned char* f = (unsigned char*) hash_pass;
++
++	unsigned char* pass = (unsigned char*) calloc (nPlainLen+4,sizeof(unsigned char));
++	memcpy(pass,pPlain,nPlainLen);
++
++	mysql_hash_password_323(hash_pass, (char*) pass);
++	pHash[0]=*(f+3); pHash[1]=*(f+2); pHash[2]=*(f+1); pHash[3]=*(f+0);
++	pHash[4]=*(f+7); pHash[5]=*(f+6); pHash[6]=*(f+5); pHash[7]=*(f+4);
++
++	free (pass);
++}
++
++void HashMySQLSHA1(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
++{
++	unsigned char hash_stage1[SHA_DIGEST_LENGTH];
++	SHA_CTX ctx;
++
++	SHA1_Init(&ctx);
++	SHA1_Update(&ctx, (unsigned char *) pPlain, nPlainLen);
++	SHA1_Final(hash_stage1, &ctx);
++	SHA1_Init(&ctx);
++	SHA1_Update(&ctx, hash_stage1, SHA_DIGEST_LENGTH);
++	SHA1_Final(pHash, &ctx);
++}
++
++//*********************************************************************************
++// Code for PIX password hashing
++//*********************************************************************************
++static char itoa64[] =          /* 0 ... 63 => ascii - 64 */
++        "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
++
++void _crypt_to64(char *s, unsigned long v, int n)
++{
++        while (--n >= 0) {
++                *s++ = itoa64[v&0x3f];
++                v >>= 6;
++        }
++}
++
++void HashPIX(unsigned char* pPlain, int nPlainLen, unsigned char* pHash)
++{
++	char temp[MD5_DIGEST_LENGTH+1];
++	unsigned char final[MD5_DIGEST_LENGTH];
++	char* pass = (char*) calloc (nPlainLen+MD5_DIGEST_LENGTH,sizeof(char));
++
++	memcpy (pass,pPlain,nPlainLen);
++
++	MD5_CTX ctx;
++	MD5_Init(&ctx);
++	MD5_Update(&ctx, (unsigned char *) pass, MD5_DIGEST_LENGTH);
++	MD5_Final(final, &ctx);
++
++	char* p = (char*) temp;
++	_crypt_to64(p,*(unsigned long*) (final+0),4); p += 4;
++	_crypt_to64(p,*(unsigned long*) (final+4),4); p += 4;
++	_crypt_to64(p,*(unsigned long*) (final+8),4); p += 4;
++	_crypt_to64(p,*(unsigned long*) (final+12),4); p += 4;
++	*p=0;
++
++	memcpy(pHash,temp,MD5_DIGEST_LENGTH);
++
++	free (pass);
++}
+diff -aur rainbowcrack-1.2-src/src/HashAlgorithm.h rainbowcrack-1.2-src.patched/src/HashAlgorithm.h
+--- rainbowcrack-1.2-src/src/HashAlgorithm.h	2003-11-23 00:33:18.000000000 +0100
++++ rainbowcrack-1.2-src.patched/src/HashAlgorithm.h	2014-05-28 17:45:05.257728786 +0200
+@@ -8,7 +8,21 @@
+ #define _HASHALGORITHM_H
+ 
+ void HashLM(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
++void HashNTLM(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
++void HashMD4(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
+ void HashMD5(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
+ void HashSHA1(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
++void HashRIPEMD160(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
++
++//****************************************************************************
++// MySQL Password Hashing
++//****************************************************************************
++void HashMySQL323(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
++void HashMySQLSHA1(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
++
++//****************************************************************************
++// Cisco PIX Password Hashing
++//****************************************************************************
++void HashPIX(unsigned char* pPlain, int nPlainLen, unsigned char* pHash);
+ 
+ #endif
+diff -aur rainbowcrack-1.2-src/src/HashRoutine.cpp rainbowcrack-1.2-src.patched/src/HashRoutine.cpp
+--- rainbowcrack-1.2-src/src/HashRoutine.cpp	2003-11-23 00:33:16.000000000 +0100
++++ rainbowcrack-1.2-src.patched/src/HashRoutine.cpp	2014-05-28 17:45:17.394395697 +0200
+@@ -18,8 +18,14 @@
+ 	// Notice: MIN_HASH_LEN <= nHashLen <= MAX_HASH_LEN
+ 
+ 	AddHashRoutine("lm",   HashLM,   8);
++	AddHashRoutine("ntlm", HashNTLM, 16);
++	AddHashRoutine("md4",  HashMD4,  16);
+ 	AddHashRoutine("md5",  HashMD5,  16);
+ 	AddHashRoutine("sha1", HashSHA1, 20);
++	AddHashRoutine("ripemd160", HashRIPEMD160, 20);
++	AddHashRoutine("mysql323", HashMySQL323, 8);
++	AddHashRoutine("mysqlsha1", HashMySQLSHA1, 20);
++	AddHashRoutine("ciscopix", HashPIX, 16);
+ }
+ 
+ CHashRoutine::~CHashRoutine()
+diff -aur rainbowcrack-1.2-src/src/makefile.linux rainbowcrack-1.2-src.patched/src/makefile.linux
+--- rainbowcrack-1.2-src/src/makefile.linux	2003-11-16 22:38:20.000000000 +0100
++++ rainbowcrack-1.2-src.patched/src/makefile.linux	2014-05-28 17:44:28.467728050 +0200
+@@ -2,13 +2,13 @@
+ all: rtgen rtdump rtsort rcrack
+ 
+ rtgen:
+-	g++ Public.cpp ChainWalkContext.cpp HashAlgorithm.cpp HashRoutine.cpp RainbowTableGenerate.cpp -lssl -O3 -o rtgen
++	g++ Public.cpp ChainWalkContext.cpp HashAlgorithm.cpp HashRoutine.cpp RainbowTableGenerate.cpp -lssl -lcrypto -O3 -o rtgen
+ 
+ rtdump:
+-	g++ Public.cpp ChainWalkContext.cpp HashAlgorithm.cpp HashRoutine.cpp RainbowTableDump.cpp -lssl -o rtdump
++	g++ Public.cpp ChainWalkContext.cpp HashAlgorithm.cpp HashRoutine.cpp RainbowTableDump.cpp -lssl -lcrypto -o rtdump
+ 
+ rtsort:
+ 	g++ Public.cpp RainbowTableSort.cpp -o rtsort
+ 
+ rcrack:
+-	g++ Public.cpp ChainWalkContext.cpp HashAlgorithm.cpp HashRoutine.cpp HashSet.cpp MemoryPool.cpp ChainWalkSet.cpp CrackEngine.cpp RainbowCrack.cpp -lssl -O3 -o rcrack
++	g++ Public.cpp ChainWalkContext.cpp HashAlgorithm.cpp HashRoutine.cpp HashSet.cpp MemoryPool.cpp ChainWalkSet.cpp CrackEngine.cpp RainbowCrack.cpp -lssl -lcrypto -O3 -o rcrack
+diff -aur rainbowcrack-1.2-src/src/Public.h rainbowcrack-1.2-src.patched/src/Public.h
+--- rainbowcrack-1.2-src/src/Public.h	2003-11-23 00:32:50.000000000 +0100
++++ rainbowcrack-1.2-src.patched/src/Public.h	2014-05-28 17:44:28.444394716 +0200
+@@ -8,6 +8,8 @@
+ #define _PUBLIC_H
+ 
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include <string>
+ #include <vector>
