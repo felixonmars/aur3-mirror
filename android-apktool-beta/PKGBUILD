@@ -10,7 +10,7 @@ license=('Apache')
 depends=('java-runtime=7' 'android-sdk-build-tools')
 provides=('android-apktool')
 conflicts=('android-apktool')
-source=(http://miui.connortumbleson.com/other/apktool/test_versions/apktool_${pkgver}.jar
+source=(http://connortumbleson.com/apktool/test_versions/apktool_${pkgver}.jar
         http://android-apktool.googlecode.com/files/apktool-install-linux-r04-brut1.tar.bz2)
 noextract=(apktool_${pkgver}.jar)
 md5sums=('bdc25d5d347762667ed9ac1d8558f274'
