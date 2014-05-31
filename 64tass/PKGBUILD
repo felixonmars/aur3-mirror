@@ -2,7 +2,7 @@
 # Maintainer: lobotomius at gmail dot com
 
 pkgname=64tass
-pkgver=1.51.496
+pkgver=1.51.675
 pkgrel=1
 pkgdesc="6502/65C02/R65C02/W65C02/65CE02/65816/DTV/65EL02 Turbo Assembler"
 arch=('i686' 'x86_64')
@@ -10,7 +10,7 @@ url='http://tass64.sourceforge.net'
 license=('GPL')
 makedepends=('subversion')
 source=("http://downloads.sourceforge.net/project/tass64/source/64tass-$pkgver-src.zip")
-md5sums=('0976265fe140910c6b1d9f0df9928afb')
+md5sums=('efde2926572e0c4894c637ce7abe010a')
 conflicts=("64tass-svn")
 
 build() {

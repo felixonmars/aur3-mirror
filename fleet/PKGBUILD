@@ -1,14 +1,14 @@
 # Maintainer: Zach Latta <zach@zachlatta.com>
 
 pkgname=fleet
-pkgver=v0.3.2
-pkgrel=3
+pkgver=v0.4.0
+pkgrel=4
 pkgdesc='A distributed init system.'
 arch=('any')
 url='https://github.com/coreos/fleet'
 license=('Apache')
 source=("https://github.com/coreos/${pkgname}/releases/download/${pkgver}/fleet-${pkgver}-linux-amd64.tar.gz")
-md5sums=('e6924ea4bcef7ef8e8b0c63fcee614ca')
+md5sums=('40428c2309a9f48f6fd069dc5ce7bf06')
 
 package() {
   cd "$srcdir/fleet-$pkgver-linux-amd64"
