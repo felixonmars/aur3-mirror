@@ -1,14 +1,14 @@
-pkgver=20130819
+pkgver=20140420
 pkgrel=1
 pkgname="absent"
 pkgdesc="Bash script to ease installing from ABS"
-url="http://github.com/JohannesSM64/absent"
+url="http://github.com/Jovlang/absent"
 license="public domain"
 arch=("any")
 makedepends=("git")
 depends=("findutils" "bash" "pacman")
 optdepends=()
-source=('git+https://github.com/JohannesSM64/absent.git')
+source=('git+https://github.com/Jovlang/absent.git')
 md5sums=('SKIP')
 
 pkgver() {
