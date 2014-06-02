@@ -1,6 +1,46 @@
-## 2013-10-27 Firef0x < Firefgx { at } gmail (dot) com >
+# CHANGELOG
+------
+
+#### 2014-06-02 Firef0x < Firefgx { a.t ] gmail [d.ot) com >
+
+### 1845.*-6 :
+
+	Following is the change in English and Simplified Chinese :
+
+	* 修复 同时安装两个内核会导致update-burg生成错误 问题
+	Fix bug that update-burg outputs inproperly when 2 kernels are
+	installed at the same time
+	Firef0x/burg#9 https://github.com/Firef0x/burg/issues/9
+
+	* 修复 grub-mkfont.c 中的 ftsynth.h引用路径 错误问题
+	Correct the file path of ftsynth.h in grub-mkfont.c
+	Firef0x/burg#8 https://github.com/Firef0x/burg/issues/8
+
+	* 改写 10_linux.in, 30_os-prober.in, grub-mkconfig_lib.in，使用 gettext
+	处理某些字符串
+	Rewrite 10_linux.in, 30_os-prober.in, grub-mkconfig_lib.in, use
+	gettext to handle some strings
+	Firef0x/burg#4 https://github.com/Firef0x/burg/issues/4
+	Firef0x/burg#11 https://github.com/Firef0x/burg/issues/11
+
+	* 30_os-prober.in 增加识别 Windows Server 2008
+	Add judge for Windows Server 2008 in 30_os-prober.in
 
 ------
+
+#### 2014-01-04 Firef0x < Firefgx { a.t ] gmail [d.ot) com >
+
+### 1845.*-5 :
+
+	* Fix invalid include file in grub-mkfont.c. (Thx BrainwreckedTech!)
+
+	Following is Simplified Chinese translation :
+
+	* 修正 grub-mkfont.c 中的不正确的include文件。（感谢 BrainwreckedTech!）
+
+------
+
+#### 2013-10-27 Firef0x < Firefgx { a.t ] gmail [d.ot) com >
 
 ### 1845.*-3 :
 
@@ -8,7 +48,7 @@
 	* Add 'burg-mkconfig', for generating burg.cfg.example into /boot/burg
 	* Change dependency 'sdl' to optional dependency as what package 'grub-git' does.
 
-	Following is Simplified Chinese Translation :
+	Following is Simplified Chinese translation :
 
 	* 添加 install-info 命令，用来安装 info 文档到 /usr/share/info/dir 下。
 	* 添加 burg-mkconfig 命令，用来生成 burg.cfg.example 到 /boot/burg/ 目录下。
@@ -16,7 +56,7 @@
 
 ------
 
-## 2013-10-24 Firef0x < Firefgx { at } gmail (dot) com >
+#### 2013-10-24 Firef0x < Firefgx { a.t ] gmail [d.ot) com >
 
 ### 1845.*-2 :
 
@@ -24,14 +64,14 @@
 	* Remove dependency 'ncurses', since 'make'(in group base-devel) depends
 	  on it and 'make' is installed by default.
 
-	Following is Simplified Chinese Translation :
+	Following is Simplified Chinese translation :
 
 	* 添加依赖包 help2man，用来生成 man 文档，放在 /usr/share/man 下。
 	* 去掉依赖包 ncurses，因为 base-devel 的包 make 依赖此包，默认已经安装。
 
 ------
 
-## 2013-10-18 Firef0x < Firefgx { at } gmail (dot) com >
+#### 2013-10-18 Firef0x < Firefgx { a.t ] gmail [d.ot) com >
 
 ### 1845.*-1 :
 
@@ -52,7 +92,7 @@
 		https://bugs.launchpad.net/burg/+bug/692706
 	* Import Simplified Chinese Translation and improve it (Translation contribution is welcomed)
 
-	Following is Simplified Chinese Translation :
+	Following is Simplified Chinese translation :
 
     迁移代码仓库到GitHub（章鱼猫， https://github.com/Firef0x/burg)
 	(因为我完全不会搞Bazzar并且不想装bzr这个包)
