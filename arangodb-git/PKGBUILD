@@ -1,8 +1,8 @@
 # Maintainer:  Neng Xu <neng2.xu2@gmail.com>
 pkgname=arangodb-git
-pkgver=p20140425
+pkgver=p20140602
 pkgrel=1
-pkgdesc="An open-source database with a flexible data model for documents, graphs, and key-values."
+pkgdesc="A distributed open-source database with a flexible data model for documents, graphs, and key-values."
 provides=("arangodb")
 conflicts=("arangodb")
 
@@ -15,7 +15,7 @@ install=arangodb.install
 source=("git://github.com/triAGENS/ArangoDB"
   "arangodb.service")
 md5sums=("SKIP"
-  "6cd564a9efff848e4feb0cc4c552e575")
+  "ccb8ede90277b4f78493c0466a797348")
 
 pkgver() {
   cd ArangoDB
@@ -26,7 +26,8 @@ build() {
   cd ArangoDB
   ln -s -f /usr/bin/python2 python
   export PATH="`pwd`:$PATH"
-  ./configure --bindir=/usr/bin --sbindir=/usr/bin --sysconfdir=/etc --localstatedir=/var --datarootdir=/usr/share
+  #./configure --bindir=/usr/bin --sbindir=/usr/bin --sysconfdir=/etc --localstatedir=/var --datarootdir=/usr/share
+  ./configure --prefix=/usr --sbindir=/usr/bin --sysconfdir=/etc --localstatedir=/var
   make CFLAGS="-Wno-c++0x-compat" CXXFLAGS="-Wno-c++0x-compat"
 }
 

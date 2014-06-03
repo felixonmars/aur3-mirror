@@ -1,7 +1,7 @@
 # Maintainer: Daniel Perez <tuvistavie@gmail.com>
 
 pkgname=atom-shell
-pkgver=0.12.5
+pkgver=0.12.7
 pkgrel=0
 pkgdesc="Framework to write cross-platform desktop applications using JavaScript, HTML and CSS."
 arch=('i686' 'x86_64')
@@ -12,7 +12,7 @@ makedepends=()
 optdepends=()
 options=()
 source=("${pkgname}.zip::https://github.com/atom/${pkgname}/releases/download/v${pkgver}/${pkgname}-v${pkgver}-linux.zip")
-md5sums=('5dfbdf32dcebab5fb6247efe5f776af6')
+md5sums=('bdf332cc1de11f0ac42cd1fbae9f01de')
 
 package() {
   rm "${srcdir}/${pkgname}.zip"

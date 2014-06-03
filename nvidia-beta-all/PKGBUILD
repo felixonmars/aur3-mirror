@@ -3,88 +3,102 @@
 # Based on nvidia-beta: https://aur.archlinux.org/packages/nvidia-beta/
 
 pkgname=nvidia-beta-all
-pkgver=337.19
+pkgver=337.25
 pkgrel=1
 pkgdesc="NVIDIA drivers for all kernels (beta)"
 arch=('i686' 'x86_64')
 url="http://www.nvidia.com/"
-depends=('nvidia-libgl-beta' "nvidia-utils-beta=${pkgver}")
+depends=('nvidia-libgl-beta' "nvidia-utils-beta=$pkgver")
 makedepends=('linux-headers')
 conflicts=('nvidia-96xx' 'nvidia-173xx' 'nvidia')
 provides=('nvidia')
 license=('custom:NVIDIA')
-install=${pkgname}.install
+install=$pkgname.install
 options=('!strip')
 
-_arch='x86'
-_pkg="NVIDIA-Linux-${_arch}-${pkgver}"
-if [ "${CARCH}" = 'x86_64' ]; then
-    _arch='x86_64'
-    _pkg="NVIDIA-Linux-${_arch}-${pkgver}-no-compat32"
+if [ "$CARCH" = 'x86_64' ]; then
+  _arch='x86_64'
+  _pkg="NVIDIA-Linux-$_arch-$pkgver-no-compat32"
+else
+  _arch='x86'
+  _pkg="NVIDIA-Linux-$_arch-$pkgver"
 fi
 
-# source=("http://us.download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
-source=("ftp://download.nvidia.com/XFree86/Linux-${_arch}/${pkgver}/${_pkg}.run")
-md5sums=('cf8e88e313928eb7a4d6f652ff287717')  # NVIDIA-Linux-${_arch}-${pkgver}
-[ "${CARCH}" = 'x86_64' ] && md5sums[0]='5f7ed7eab32fa99c72bb2c30d0a85b9d' # NVIDIA-Linux-${_arch}-${pkgver}-no-compat32
+# Ftp://
+source=("ftp://download.nvidia.com/XFree86/Linux-$_arch/$pkgver/$_pkg.run")
+md5sums=$(curl -s $source.md5 | cut -d " " -f1)
+
+# # Http://
+# source=("http://us.download.nvidia.com/XFree86/Linux-$_arch/$pkgver/$_pkg.run")
+# md5sums=('cf8e88e313928eb7a4d6f652ff287717')  # NVIDIA-Linux-$_arch-$pkgver
+# [ "$CARCH" = 'x86_64' ] && md5sums=('5f7ed7eab32fa99c72bb2c30d0a85b9d')  # NVIDIA-Linux-$_arch-$pkgver-no-compat32
+
+# # Patch
+# source+=('nvidia-linux-3.14.patch')
+# md5sums+=('bf3ad68be85b212f00e9efc0246ce8f5')
 
 prepare() {
-    # Remove previous builds
-    if [ -d ${_pkg} ]; then
-        rm -rf ${_pkg}
+  # Remove previous builds
+  if [ -d $_pkg ]; then
+    rm -rf $_pkg
+  fi
+
+  # Extract
+  msg2 "Self-Extracting $_pkg.run.."
+  sh $_pkg.run -x
+  cd $_pkg
+
+  for _kernel in $(cat /usr/lib/modules/extramodules-*/version); do
+    # Use separate source directories
+    cp -r kernel kernel-$_kernel
+
+    # Patch
+    if [ -f "$srcdir"/*.patch ]; then
+      _major_patch=$(ls "$srcdir"/*.patch | grep -Po "\d+\.\d+")
+      if [[ $_kernel =~ $_major_patch ]]; then
+        msg2 "Updating for linux $_kernel..."
+        cd kernel-$_kernel
+        patch -p2 -i "$srcdir"/nvidia-linux-$_major_patch.patch
+        cd -
+      fi
     fi
-
-    # Extract
-    msg2 "Self-Extracting ${_pkg}.run.."
-    sh ${_pkg}.run --extract-only
-    cd ${_pkg}
-
-    for _kernel in $(cat /usr/lib/modules/extramodules-*/version); do
-        # Use separate source directories
-        cp -r kernel kernel-${_kernel}
-
-#         # Patch
-#         if [[ ${_kernel} = 3.14* ]]; then
-#             msg2 "Updating sources for ${_kernel}..."
-#             patch -d kernel-${_kernel} -p2 -i "${srcdir}"/nvidia-linux-3.14.patch
-#         fi
-    done
+  done
 }
 
 build() {
-    # Build for all kernels
-    for _kernel in $(cat /usr/lib/modules/extramodules-*/version); do
-        cd "${srcdir}"/${_pkg}/kernel-${_kernel}
+  # Build for all kernels
+  for _kernel in $(cat /usr/lib/modules/extramodules-*/version); do
+    cd "$srcdir"/$_pkg/kernel-$_kernel
 
-        # Main module
-        msg2 "Building Nvidia module for ${_kernel}..."
-        make SYSSRC=/usr/lib/modules/${_kernel}/build module
+    # Main module
+    msg2 "Building Nvidia module for $_kernel..."
+    make SYSSRC=/usr/lib/modules/$_kernel/build module
 
-        # UVM
-        cd uvm
-        msg2 "Building UVM module for ${_kernel}...: https://devblogs.nvidia.com/parallelforall/unified-memory-in-cuda-6/"
-        make SYSSRC=/usr/lib/modules/${_kernel}/build module
-    done
+    # UVM
+    cd uvm
+    msg2 "Building UVM module for $_kernel...: https://devblogs.nvidia.com/parallelforall/unified-memory-in-cuda-6/"
+    make SYSSRC=/usr/lib/modules/$_kernel/build module
+  done
 }
 
 package() {
-    # Install for all kernels
-    for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
-        _kernel=$(cat ${_extramod}/version)
+  # Install for all kernels
+  for _extramod in $(find /usr/lib/modules/extramodules-*/version -printf '%h\n'); do
+    _kernel=$(cat $_extramod/version)
 
-        # Install
-        install -Dm644 ${_pkg}/kernel-${_kernel}/nvidia.ko \
-                       "${pkgdir}"/${_extramod}/nvidia.ko
+    # Install
+    install -Dm644 $_pkg/kernel-$_kernel/nvidia.ko \
+                   "$pkgdir"/$_extramod/nvidia.ko
 
-        # Unified Memory
-        install -Dm644 ${_pkg}/kernel-${_kernel}/uvm/nvidia-uvm.ko \
-                       "${pkgdir}/${_extramod}/nvidia-uvm.ko"
+    # Unified Memory
+    install -Dm644 $_pkg/kernel-$_kernel/uvm/nvidia-uvm.ko \
+                   "$pkgdir/$_extramod/nvidia-uvm.ko"
 
-        # Compress
-        gzip "${pkgdir}"/${_extramod}/nvidia*.ko
-    done
+    # Compress
+    gzip "$pkgdir"/$_extramod/nvidia*.ko
+  done
 
-    # Blacklist Nouveau
-    install -d "${pkgdir}"/usr/lib/modprobe.d/
-    echo "blacklist nouveau" >> "${pkgdir}"/usr/lib/modprobe.d/nvidia.conf
+  # Blacklist Nouveau
+  install -d "$pkgdir"/usr/lib/modprobe.d/
+  echo "blacklist nouveau" >> "$pkgdir"/usr/lib/modprobe.d/nvidia.conf
 }
