@@ -1,4 +1,4 @@
-#!/usr/bin/env sh 
+#!/usr/bin/env sh
 DEV="$1"
 MNTPT="$2"
 OPTIONS=""

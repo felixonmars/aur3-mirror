@@ -1,7 +1,7 @@
 # Maintainer: Joshua Hertlein <jmhertlein at gmail dot com>
 pkgname=adminbuddy-mc
 pkgver=1.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Desktop client for the Bukkit plugin AdminBuddy"
 arch=(any)
 url="https://github.com/jmhertlein/AdminBuddy"
@@ -18,7 +18,7 @@ package() {
   git clone https://github.com/jmhertlein/AdminBuddy.git
   cd AdminBuddy
   mkdir -p /tmp/temp_mvn_home_adminbuddy
-  M2_HOME="/opt/maven" mvn package -Dmaven.repo.local="$_mvntemps"
+  M2_HOME="/opt/maven" mvn package -Pshaded -Dmaven.repo.local="$_mvntemps"
 
   mkdir -p "$_instdir" "$pkgdir"/usr/{bin,share/applications}
 
