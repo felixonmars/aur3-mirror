@@ -2,7 +2,7 @@
 
 pkgname=abakus-git
 _pkgname=abakus
-pkgver=20130605
+pkgver=264.3175b9a
 pkgrel=1
 pkgdesc="Abakus is a simple calculator for KDE. Think of it as bc (the command-line calculator) with a nice GUI." 
 url="https://projects.kde.org/abakus"
@@ -14,6 +14,11 @@ source=(git://anongit.kde.org/abakus.git)
 arch=('i686' 'x86_64')
 license='GPL2' 
 md5sums=('SKIP')
+
+pkgver() {
+    cd "$srcdir/$_pkgname"
+    echo $(git rev-list --count master).$(git rev-parse --short master)
+}
 
 build() {
     cd $srcdir/$_pkgname/

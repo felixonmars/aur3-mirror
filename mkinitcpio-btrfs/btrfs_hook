@@ -50,28 +50,29 @@ BTRFS_DIR_SNAPSHOT="${BTRFS_DIR_SNAPSHOT%/}"
 BTRFS_DIR_ROLLBACK="${BTRFS_DIR_ROLLBACK%/}"
 
 # internal variables
-: ${BTRFS_IS_MOUNTED:=false}
 : ${BTRFS_HAS_ROLLBACK:=true}
 : ${BTRFS_DIR_WORK:="/new_root"}
 : ${BTRFS_BOOT_SUBVOL:="."}
 : ${BTRFS_BOOT_SUBVOLID:=0}
+: ${BTRFS_ROLLBACK_DIALOG:=true}
 : ${BTRFS_ROLLBACK_CHOICE:="default"}
 : ${BTRFS_ROLLBACK_LIST:="default"}
 : ${BTRFS_ROLLBACK_LIST_COUNT:=1}
 : ${BTRFS_ROLLBACK_KERNEL:=true}
 : ${BTRFS_KERNEL:="/boot/vmlinuz-linux"}
 : ${BTRFS_INITRD:="/boot/initramfs-linux.img"}
-: ${BTRFS_KVER_CHECK:=false}
+: ${BTRFS_KVER_CHECK:=true}
 : ${BTRFS_KVER_DIFFER:=true}
 : ${BTRFS_ENABLE_DEGRADED:=false}
 : ${BTRFS_ENABLE_DEGRADED_ROLLBACK:=false}
+: ${BTRFS_BOOT_DELAY:=0}
 
 btrfs_mount_handler () {
     local x i=1 work=${1%/}
     BTRFS_DIR_WORK=${work}
 
     # scan for multi device filesystems
-    btrfs device scan 2>&1 | grep -v "No medium found"
+    btrfs device scan 2>&1 | grep -v -E "Scanning for Btrfs filesystems|No medium found"
 
     # temporary mount btrfs root subvolume
     if ! mount -t btrfs -o subvolid=0,rw ${root} ${work}; then
@@ -79,7 +80,7 @@ btrfs_mount_handler () {
         # try to mount in degraded mode
         if ${BTRFS_ENABLE_DEGRADED}; then
             if ! mount -t btrfs -o subvolid=0,rw,degraded ${root} ${work}; then
-                btrfs_fatal "Unable to mount root subvolume" &&
+                btrfs_fatal "Unable to mount root subvolume in degraded mode" &&
                 return 1
             else
                 btrfs_warn "Mounted root subvolume in degraded mode"
@@ -97,138 +98,140 @@ btrfs_mount_handler () {
             return 1
         fi
     fi
-    BTRFS_IS_MOUNTED=true
 
     # check if we already ran kexec
     : ${kexeced:=false}
     if ! ${kexeced}; then
 
         if ! [ -d ${work}${BTRFS_DIR_ACTIVE} ]; then
+
+            # ask to initialize active subvolume
             if ! { btrfs_ask_volatile && btrfs_set_volatile; }; then
                 BTRFS_HAS_ROLLBACK=false
             fi
         fi
 
-        # ask for rollback
-        if ${BTRFS_HAS_ROLLBACK} && btrfs_ask_rollback; then
+        if ${BTRFS_HAS_ROLLBACK}; then
 
-            # collect available snapshots
-            for x in $(btrfs subvolume list ${work} --sort=gen | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_SNAPSHOT}/"); do
-                i=$((${i}+1))
-                BTRFS_ROLLBACK_LIST_COUNT=${i}
-                BTRFS_ROLLBACK_LIST="${BTRFS_ROLLBACK_LIST} ${x}"
-            done; i=1
+            # ask for rollback
+            if ${BTRFS_ROLLBACK_DIALOG} && btrfs_ask_rollback; then
 
-            # print available snapshots
-            echo "Available rollback snapshots:"
-            for x in ${BTRFS_ROLLBACK_LIST}; do
-                echo -e "${i})\t${x#*,}"
-                i=$((${i}+1))
-            done; i=1
+                # collect available snapshots
+                for x in $(btrfs subvolume list ${work} --sort=gen | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_SNAPSHOT}/"); do
+                    i=$((${i}+1))
+                    BTRFS_ROLLBACK_LIST_COUNT=${i}
+                    BTRFS_ROLLBACK_LIST="${BTRFS_ROLLBACK_LIST} ${x}"
+                done; i=1
 
-            # let the user choose a snapshot
-            BTRFS_ROLLBACK_CHOICE="$(btrfs_get_rollback_choice)"
+                # print available snapshots
+                echo "Available rollback snapshots:"
+                for x in ${BTRFS_ROLLBACK_LIST}; do
+                    echo -e "${i})\t${x#*,}"
+                    i=$((${i}+1))
+                done; i=1
 
-            if [ "${BTRFS_ROLLBACK_CHOICE}" != "default" ]; then
-                # choose snapshots subvolume
-                BTRFS_BOOT_SUBVOL=${BTRFS_ROLLBACK_CHOICE#*,}
+                # let the user choose a snapshot
+                BTRFS_ROLLBACK_CHOICE="$(btrfs_get_rollback_choice)"
 
-                # snapshot to rollback
-                btrfs_setup_rollback
+                if [ "${BTRFS_ROLLBACK_CHOICE}" != "default" ]; then
+                    # choose snapshots subvolume
+                    BTRFS_BOOT_SUBVOL=${BTRFS_ROLLBACK_CHOICE#*,}
 
-                # get new subvolid of rollback subvolume
-                x="$(btrfs subvolume list ${work} | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_ROLLBACK}$")"
-                BTRFS_BOOT_SUBVOL=${x#*,}
-                BTRFS_BOOT_SUBVOLID=${x%,*}
+                    # snapshot to rollback
+                    btrfs_setup_rollback
+
+                    # get new subvolid of rollback subvolume
+                    x="$(btrfs subvolume list ${work} | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_ROLLBACK}$")"
+                    BTRFS_BOOT_SUBVOL=${x#*,}
+                    BTRFS_BOOT_SUBVOLID=${x%,*}
+                else
+                    # get subvolid of active subvolume
+                    x="$(btrfs subvolume list ${work} | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_ACTIVE}$")"
+                    BTRFS_BOOT_SUBVOL=${x#*,}
+                    BTRFS_BOOT_SUBVOLID=${x%,*}
+                fi
             else
                 # get subvolid of active subvolume
                 x="$(btrfs subvolume list ${work} | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_ACTIVE}$")"
                 BTRFS_BOOT_SUBVOL=${x#*,}
                 BTRFS_BOOT_SUBVOLID=${x%,*}
             fi
-        else
-            # get subvolid of active subvolume
-            x="$(btrfs subvolume list ${work} | awk '{print $2 ",/" $9}' | grep -E "^[0-9]*,${BTRFS_DIR_ACTIVE}$")"
-            BTRFS_BOOT_SUBVOL=${x#*,}
-            BTRFS_BOOT_SUBVOLID=${x%,*}
-        fi
 
-        # btrfs subvolume set-default
-        btrfs_info "Booting from subvolume [${BTRFS_BOOT_SUBVOL}]..."
-        btrfs subvolume set-default ${BTRFS_BOOT_SUBVOLID} ${work}
+            # btrfs subvolume set-default
+            btrfs_info "Booting from subvolume [${BTRFS_BOOT_SUBVOL}]..."
+            btrfs subvolume set-default ${BTRFS_BOOT_SUBVOLID} ${work}
 
-        # if kernel rollback is enabled (so it is by default)
-        if ${BTRFS_ROLLBACK_KERNEL}; then
+            # if kernel rollback is enabled (so it is by default)
+            if ${BTRFS_ROLLBACK_KERNEL}; then
 
-            # test if a new kernel is present
-            if [ -f ${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} -a -f ${work}${BTRFS_BOOT_SUBVOL}${BTRFS_INITRD} ]; then
+                # test if a new kernel is present
+                if [ -f ${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} -a -f ${work}${BTRFS_BOOT_SUBVOL}${BTRFS_INITRD} ]; then
 
-                # compare running kernel's version against kernel image
-                if ${BTRFS_CHECK_KVER}; then
+                    # compare running kernel's version against kernel image
+                    if ${BTRFS_CHECK_KVER}; then
 
-                    # extract kernel_version from header in kernel image
-                    # according to kernel documentation:
-                    # https://www.kernel.org/doc/Documentation/x86/boot.txt
-                    #
-                    # 0x020E -> 526
-                    kver_pointer_hex="$(dd if=${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} bs=1 skip=526 count=2 2>/dev/null | hexdump -e '"%x"')"
-                    # convert to decimal
-                    kver_pointer="$(printf "%d\n" "0x${kver_pointer_hex}")"
-                    #
-                    # 0x0200 -> 512
-                    kver="$(dd if=${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} bs=1 skip=$((512+${kver_pointer})) count=128 2>/dev/null | strings -n 10)"
-                    echo "${kver}" | grep "$(uname -r)" | grep "$(uname -v)" 1>/dev/null
-                    if [ ${?} -eq 0 ]; then
-                        BTRFS_KVER_DIFFER=false
+                        # extract kernel_version from header in kernel image
+                        # according to kernel documentation:
+                        # https://www.kernel.org/doc/Documentation/x86/boot.txt
+                        #
+                        # 0x020E -> 526
+                        kver_pointer_hex="$(dd if=${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} bs=1 skip=526 count=2 2>/dev/null | hexdump -e '"%x"')"
+                        # convert to decimal
+                        kver_pointer="$(printf "%d\n" "0x${kver_pointer_hex}")"
+                        #
+                        # 0x0200 -> 512
+                        kver="$(dd if=${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} bs=1 skip=$((512+${kver_pointer})) count=128 2>/dev/null | strings -n 10)"
+                        echo "${kver}" | grep "$(uname -r)" | grep "$(uname -v)" 1>/dev/null
+                        if [ ${?} -eq 0 ]; then
+                            BTRFS_KVER_DIFFER=false
+                        fi
                     fi
+
+                    # only load new kernel if versions differ
+                    # if the above check failes they differ by default anyway
+                    if ${BTRFS_KVER_DIFFER}; then
+
+                        # copy kernel to initramfs
+                        cp "${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL}" "/tmp/linux"
+                        cp "${work}${BTRFS_BOOT_SUBVOL}${BTRFS_INITRD}" "/tmp/initrd"
+
+                        # unmount btrfs root subvolume
+                        ! umount ${BTRFS_DIR_WORK} &&
+                            btrfs_fatal "Unable to umount root subvolume" &&
+                            return 1
+
+                        # force reload kernel
+                        btrfs_info "Reloading kernel from [${BTRFS_BOOT_SUBVOL}]..."
+                        kexec -f "/tmp/linux" --initrd="/tmp/initrd" --reuse-cmdline --append="kexeced=true"
+
+                        # at this point the kernel reloads the initramfs and
+                        # restarts init - no further code is executed
+                    fi
+                else
+                    btrfs_warn "Unable to load kernel from new root subvolume"
+                    btrfs_warn "Check your config in /etc/default/btrfs_advanced"
                 fi
-
-                # only load new kernel if versions differ
-                # if the above check failes they differ by default anyway
-                if ${BTRFS_KVER_DIFFER}; then
-
-                    # copy kernel to initramfs
-                    cp "${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL}" "/tmp/linux"
-                    cp "${work}${BTRFS_BOOT_SUBVOL}${BTRFS_INITRD}" "/tmp/initrd"
-
-                    # unmount btrfs root subvolume
-                    ! umount ${BTRFS_DIR_WORK} &&
-                        btrfs_fatal "Unable to umount root subvolume" &&
-                        return 1
-                    BTRFS_IS_MOUNTED=false
-
-                    # force reload kernel
-                    btrfs_info "Reloading kernel from [${BTRFS_BOOT_SUBVOL}]..."
-                    kexec -f "/tmp/linux" --initrd="/tmp/initrd" --reuse-cmdline --append="kexeced=true"
-
-                    # at this point the kernel reloads the initramfs and
-                    # restarts init - no further code is executed
-                fi
-            else
-                btrfs_warn "Unable to load kernel from new root subvolume"
-                btrfs_warn "Check your config in /etc/default/btrfs_advanced"
             fi
-
-            # unmount btrfs root subvolume
-            ! umount ${BTRFS_DIR_WORK} &&
-                btrfs_fatal "Unable to umount root subvolume" &&
-                return 1
-            BTRFS_IS_MOUNTED=false
         fi
     fi
+
+    # unmount btrfs root subvolume
+    ! umount ${BTRFS_DIR_WORK} &&
+        btrfs_fatal "Unable to umount root subvolume" &&
+        return 1
 
     btrfs_process_mount ${work}
 }
 
 btrfs_process_mount () {
 
-    # if btrfs root subvolume is mounted, umount it
-    ${BTRFS_IS_MOUNTED} && umount ${BTRFS_DIR_WORK}
-
     rootfstype=btrfs
 
     # remove subvol/subvolid mount option
     rootflags="$(echo ${rootflags} | sed 's/subvol[id]*=[^,]*,\?//g;s/,$//g')"
+
+    # sleep a short period of time to read console messages
+    [ "${quiet}" != "y" ] && sleep ${BTRFS_BOOT_DELAY}
 
     # call standard mount handler
     default_mount_handler ${1}
@@ -255,8 +258,13 @@ support.  To enable support, a snapshot of your system's current state must be
 made to ${BTRFS_DIR_ACTIVE}.
 This snapshot will subsequently be used as the primary boot device from now on.
 This operation is safe. Your original / will remain intact and unused. It is
-up to you to rm -rf the stagnant files from your old / (var, usr, lib, etc),
+up to you to rm -rf the stagnant files from your old /{var,usr,lib,etc},
 and reclaim what would in time become dead space.
+
+ATTENTION: When deleting your old /boot, it may be necessary to reconfigure AND
+           reinstall your bootloader, to search its configuration under
+           ${BTRFS_DIR_ACTIVE}/boot! Otherwise your system may become
+           unbootable!
 
 DO NOT remove ${BTRFS_DIR_ACTIVE}, ${BTRFS_DIR_SNAPSHOT}, or ${BTRFS_DIR_ROLLBACK}.
 
