@@ -1,0 +1,41 @@
+#!/bin/sh
+
+# the root window should have this color
+xsetroot -solid "#000000" -cursor_name left_ptr
+
+SVG_FILE=/etc/X11/xdm/xdm-arch-logo/Archlinux-official-fullcolour.svg
+
+# identify resolution
+declare -a RESOLUTION
+RESOLUTION=( $(xrandr -q | head -n1 | sed -e 's/.*current \([1-9][0-9]\+\) x \([1-9][0-9]\+\).*/\1 \2/') )
+
+CACHE_DIR=/var/cache/xdm-arch-logo/
+IMAGEFILE=${CACHE_DIR}/arch_logo_${RESOLUTION[0]}x${RESOLUTION[1]}.png
+
+# create cache dir if necessary
+if [[ ! -d ${CACHE_DIR} ]]; then
+  mkdir -p ${CACHE_DIR}
+fi
+
+# check whether image file already exists
+if [[ ! -f ${IMAGEFILE} ]]; then
+  rsvg-convert -a --background-color="#000000" -f png -w $((${RESOLUTION[0]}/3*2)) -o ${IMAGEFILE} ${SVG_FILE}
+fi
+
+# try different methods to set the background
+if which display >> /dev/null 2>&1; then
+    # imagemagick detected
+    display -backdrop -window root ${IMAGEFILE};
+elif which feh >> /dev/null 2>&1; then
+    # feh detected
+    # feh gives error if $HOME isn't set, so...
+    HOME=/root feh --bg-center ${IMAGEFILE};
+elif which xv >> /dev/null 2>&1; then
+    # xv detected
+    # xv spits out an error when using -quit, but it still does the job, so...
+    xv -root -quit -rmode 5 ${IMAGEFILE} >> /dev/null 2>&1
+fi
+
+/etc/X11/xdm/xdm-arch-logo/buttons &
+
+xclock &

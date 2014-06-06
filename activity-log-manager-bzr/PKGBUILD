@@ -1,4 +1,5 @@
-# Maintainer: Klaas Boesche <aurkagebe@googlemail.com>
+# Maintainer: Que Quotion <quequotion@mailinator.com>
+# Contributor: Klaas Boesche <aurkagebe@googlemail.com>
 
 pkgname=activity-log-manager-bzr
 pkgver=91
@@ -11,7 +12,7 @@ install=$pkgname.install
 depends=('zeitgeist' 'hicolor-icon-theme' 'xdg-utils')
 makedepends=('bzr' 'python-distutils-extra')
 optdepends=()
-provides=()
+provides=('activity-log-manager')
 conflicts=()
 replaces=()
 

@@ -1,0 +1,34 @@
+#Maintainer: Xyne <ac xunilhcra enyx, backwards>
+pkgname=pillerpow
+pkgver=2013.9.19
+pkgrel=2
+pkgdesc="Xyne's throwaway test package."
+arch=(any)
+license=(GPL)
+url="http://xyne.archlinux.ca/projects/powerpill"
+depends=(python3 pyalpm 'pm2ml>2012.12.12' reflector aria2)
+optdepends=('rsync: Rsync download support' 'python3-threaded_servers: internal Pacserve support')
+backup=(etc/powerpill/powerpill.json)
+source=(
+  http://xyne.archlinux.ca/projects/powerpill/src/powerpill-2013.9.19.tar.xz
+  http://xyne.archlinux.ca/projects/powerpill/src/powerpill-2013.9.19.tar.xz.sig
+)
+sha512sums=(
+  4b0f8cd480c382ac268c18bad16d88579ea06cec0f75d27caabacd55576f6a6eba8cd3e2df31beac93f76ab9b2df269c4b81e8e9102768b5405db2dbd1e46c49
+  6d27f017cdb7c1acb2db3974a5fd053116ecad585f7b837f567e20d7f6f51616bef6d70246088324b41afef03638e36cf926a282a2b5701f22882bb6f2303ce0
+)
+md5sums=(
+  5703259b0be94bae81fb3125108a6ef8
+  dadabe56d052a906b4ebaac588e77cac
+)
+
+package ()
+{
+  cd "$srcdir/$pkgname-$pkgver"
+  install -Dm755 "$pkgname" "$pkgdir/usr/bin/$pkgname"
+  install -Dm644 "powerpill.json" "$pkgdir/etc/powerpill/powerpill.json"
+  install -Dm644 "man/powerpill.json.1.gz" "$pkgdir/usr/share/man/man1/powerpill.json.1.gz"
+  install -Dm644 "powerpill-bash-completion.sh" "$pkgdir/usr/share/bash-completion/completions/powerpill"
+}
+
+# vim: set ts=2 sw=2 et:
