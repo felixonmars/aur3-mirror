@@ -2,7 +2,7 @@
 # GitHub: https://github.com/pschmitt/aur-docker-registry
 pkgname=docker-registry
 pkgver=0.7.1
-pkgrel=2
+pkgrel=3
 pkgdesc='Registry server for Docker (hosting/delivering of repositories and images)'
 arch=('any')
 url='https://github.com/dotcloud/docker-registry'
@@ -15,7 +15,7 @@ options=(!emptydirs)
 source=("https://github.com/dotcloud/$pkgname/archive/$pkgver.tar.gz"
         "https://raw.githubusercontent.com/pschmitt/aur-$pkgname/master/$pkgname.service")
 md5sums=('ae9fb31c6c6977d5043946d9578dd071'
-         'c8257ed2aca5bb7c2125439662f602cf')
+         'efb9861c7e3c08081893e7afd493041d')
 install="$pkgname.install"
 
 # Change this to wherever you want to put your config files

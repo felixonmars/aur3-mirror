@@ -3,7 +3,7 @@
 # Contributor: Daniel J Griffiths <ghost1227@archlinux.us>
 
 pkgname=album
-pkgver=4.10
+pkgver=4.12
 pkgrel=1
 pkgdesc="Perl HTML photo album generator that supports themes"
 url="http://marginalhacks.com/Hacks/album/"
@@ -12,9 +12,9 @@ license=('custom')
 depends=('perl' 'imagemagick')
 source=(http://marginalhacks.com/bin/album.versions/${pkgname}-${pkgver}.tar.gz \
         http://marginalhacks.com/bin/album.versions/data-4.05.tar.gz)
-md5sums=('de7d03299f02ae43069c1d4130c4ab7e'
+md5sums=('fd93173c80fe2e6deda7006f3082437d'
          '5477cb10ab74f996227aad3012b9ee07')
-build() {
+package() {
   install -d ${pkgdir}/usr/share/album/Themes/ || return 1
   install -d ${pkgdir}/usr/share/album/plugins/ || return 1
   install -d ${pkgdir}/usr/bin/ || return 1

@@ -2,7 +2,7 @@
 
 pkgname=dwm-cdown-git
 _gitname=dwm
-pkgver=20130505124908.be5f3a6
+pkgver=20140606035523.9707ae1
 pkgrel=1
 pkgdesc="A dynamic window manager for X - cdown personalisations"
 license=( "MIT" )

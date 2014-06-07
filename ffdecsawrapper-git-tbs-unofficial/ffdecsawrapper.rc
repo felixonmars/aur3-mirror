@@ -1,0 +1,64 @@
+#!/bin/bash
+
+. /etc/rc.conf
+. /etc/rc.d/functions
+
+[ -f /etc/conf.d/ffdecsawrapper ] && . /etc/conf.d/ffdecsawrapper
+
+PID=$(pidof -o %PPID /usr/bin/ffdecsawrapper)
+
+case $1 in
+start)
+        stat_busy "Loading dvbloopback kernel module"
+
+        [[ -z $DVBLOOPBACK_ARGS ]] && stat_die 1
+
+        modprobe dvbloopback $DVBLOOPBACK_ARGS
+        sleep 2
+
+        stat_done
+
+        stat_busy "Starting FFdecsawrapper daemon"
+
+        [[ -z $FFDECSAWRAPPER_ARGS ]] && stat_die 2
+        [[ -z $CAMDIR ]] && stat_die 3
+        [[ -z $LOGFILE ]] && stat_die 4
+
+        [[ -z $PID ]] && /usr/bin/ffdecsawrapper -D $FFDECSAWRAPPER_ARGS --cam-dir=$CAMDIR -l $LOGFILE
+
+        if [ $? -gt 0 ]; then
+                stat_die 5
+        else
+                add_daemon ffdecsawrapper
+                stat_done
+        fi
+        ;;
+stop)
+        stat_busy "Stopping FFdecsawrapper daemon"
+        [[ ! -z $PID ]] && kill $PID &> /dev/null
+
+        if [ $? -gt 0 ]; then
+                stat_die 6
+        else
+                rm_daemon ffdecsawrapper
+                stat_done
+        fi
+
+        stat_busy "Unloading dvbloopback kernel module"
+
+        sleep 2
+        modprobe -r dvbloopback
+
+        stat_done
+        ;;
+
+restart)
+        $0 stop
+        sleep 2
+        $0 start
+        ;;
+
+*)
+        echo "usage: $0 {start|stop|restart}" >&2
+        exit 1
+esac
