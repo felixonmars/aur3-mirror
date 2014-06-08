@@ -1,13 +1,13 @@
 pkgname=2gis-ivanovo
-pkgver=25
+pkgver=26
 pkgrel=1
-pkgdesc="Map of Ivanovo for 2GIS, May 2014"
+pkgdesc="Map of Ivanovo for 2GIS, June 2014"
 arch=('i686' 'x86_64')
-url="http://ivanovo.2gis.ru/how-get/linux/"
+url="http://info.2gis.ru/ivanovo/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.4.0')
-source=("http://download.2gis.ru/arhives/2GISData_Ivanovo-25.orig.zip")
-md5sums=('613d2a0a0acd1d4f748cb28e564d3a88')
+depends=('2gis>=3.14.6.0')
+source=("http://download.2gis.com/arhives/2GISData_Ivanovo-26.orig.zip")
+md5sums=('866b813d7ff6a131aef80732c0e584e8')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Ivanovo.dgdat" "${pkgdir}/opt/2gis/2gis-ivanovo.dgdat" || return 1

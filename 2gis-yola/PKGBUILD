@@ -1,13 +1,13 @@
 pkgname=2gis-yola
-pkgver=25
+pkgver=26
 pkgrel=1
-pkgdesc="Map of Yoshkar-Ola for 2GIS, May 2014"
+pkgdesc="Map of Yoshkar-Ola for 2GIS, June 2014"
 arch=('i686' 'x86_64')
-url="http://joshkar-ola.2gis.ru/how-get/linux/"
+url="http://info.2gis.ru/joshkar-ola/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.4.0')
-source=("http://download.2gis.ru/arhives/2GISData_Yoshkarola-25.orig.zip")
-md5sums=('1528b18f677dbd40a54c924307c6dada')
+depends=('2gis>=3.14.6.0')
+source=("http://download.2gis.com/arhives/2GISData_Yoshkarola-26.orig.zip")
+md5sums=('f3924ae04411e6a17641e8650f49f594')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Yoshkarola.dgdat" "${pkgdir}/opt/2gis/2gis-yola.dgdat" || return 1

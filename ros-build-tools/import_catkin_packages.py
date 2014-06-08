@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -138,12 +138,12 @@ class PackageBase(object):
   def _ensure_python2_dependency(self, dependency):
     # python     ---> python2
     # python-foo ---> python2-foo
-    return re.sub(r'python(?!2)([a-zA-Z0-9\-]*)', r'python2\1', dependency)
+    return re.sub(r'^python(?!2)([a-zA-Z0-9\-]*)', r'python2\1', dependency)
 
   def _ensure_python3_dependency(self, dependency):
     # python2     ---> python
     # python2-foo ---> python-foo
-    return re.sub(r'python2([a-zA-Z0-9\-]*)', r'python\1', dependency)
+    return re.sub(r'^python2([a-zA-Z0-9\-]*)', r'python\1', dependency)
 
   def _get_package_xml_url(self, url, name, version):
     if url.find('github'):
@@ -624,7 +624,7 @@ def main():
   default_python_version = {"fuerte": "2.7",
                             "groovy": "2.7",
                             "hydro":  "2.7",
-                            "indigo": "3.4"}
+                            "indigo": "2.7"}
 
   python_version = default_python_version[options.distro]
   if options.python_version != "":

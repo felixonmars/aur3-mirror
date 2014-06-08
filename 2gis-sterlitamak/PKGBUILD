@@ -1,13 +1,13 @@
 pkgname=2gis-sterlitamak
-pkgver=30
+pkgver=31
 pkgrel=1
-pkgdesc="Map of Sterlitamak for 2GIS, May 2014"
+pkgdesc="Map of Sterlitamak for 2GIS, June 2014"
 arch=('i686' 'x86_64')
-url="http://sterlitamak.2gis.ru/how-get/linux/"
+url="http://info.2gis.ru/sterlitamak/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.4.0')
-source=("http://download.2gis.ru/arhives/2GISData_Sterlitamak-30.orig.zip")
-md5sums=('fde3e60bb040bb88a96a682b99f655a4')
+depends=('2gis>=3.14.6.0')
+source=("http://download.2gis.com/arhives/2GISData_Sterlitamak-31.orig.zip")
+md5sums=('d12f6f6e8715536c7c03510edee017d4')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Sterlitamak.dgdat" "${pkgdir}/opt/2gis/2gis-sterlitamak.dgdat" || return 1

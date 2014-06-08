@@ -1,13 +1,13 @@
 pkgname=2gis-kazan
-pkgver=66
+pkgver=67
 pkgrel=1
-pkgdesc="Map of Kazan for 2GIS, May 2014"
+pkgdesc="Map of Kazan for 2GIS, June 2014"
 arch=('i686' 'x86_64')
-url="http://kazan.2gis.ru/how-get/linux/"
+url="http://info.2gis.ru/kazan/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.4.0')
-source=("http://download.2gis.ru/arhives/2GISData_Kazan-66.orig.zip")
-md5sums=('df83f0ff8aab60f08b89b275acf32aa5')
+depends=('2gis>=3.14.6.0')
+source=("http://download.2gis.com/arhives/2GISData_Kazan-67.orig.zip")
+md5sums=('1ba7e909b52eacefab6586658d184998')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Kazan.dgdat" "${pkgdir}/opt/2gis/2gis-kazan.dgdat" || return 1

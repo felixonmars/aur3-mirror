@@ -1,13 +1,13 @@
 pkgname=2gis-nizhnevartovsk
-pkgver=96
+pkgver=97
 pkgrel=1
-pkgdesc="Map of Nizhnevartovsk for 2GIS, May 2014"
+pkgdesc="Map of Nizhnevartovsk for 2GIS, June 2014"
 arch=('i686' 'x86_64')
-url="http://nizhnevartovsk.2gis.ru/how-get/linux/"
+url="http://info.2gis.ru/nizhnevartovsk/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.4.0')
-source=("http://download.2gis.ru/arhives/2GISData_Nizhnevartovsk-96.orig.zip")
-md5sums=('35424ba50db575650f0551acb196955f')
+depends=('2gis>=3.14.6.0')
+source=("http://download.2gis.com/arhives/2GISData_Nizhnevartovsk-97.orig.zip")
+md5sums=('5ac50304c7be2bec2eaacf053f477bbb')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Nizhnevartovsk.dgdat" "${pkgdir}/opt/2gis/2gis-nizhnevartovsk.dgdat" || return 1
