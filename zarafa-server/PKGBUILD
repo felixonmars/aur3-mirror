@@ -1,122 +1,116 @@
-# Maintainer: Archist archist@die-optimisten.net
+# Maintainer: Jelle van der Waa <jelle@vdwaa.nl>
+# Contributor: Archist archist@die-optimisten.net
 # Contributor: C Anthony Risinger
-
-pkgname=zarafa-server
-pkgver=7.1.8
-pkgrel=43801
+pkgname=('zarafa-server' 'zarafa-webaccess')
+pkgver=7.1.10
+_pkgrel=44973
+pkgrel=2
 pkgdesc="Open Source Groupware Solution"
-arch=('any')
+arch=('x86_64 i686')
 url="http://www.zarafa.com/"
 license=('AGPL3')
-depends=('libical>=0.44'
-         'mysql'
-         'curl'
-         'libxml2'
-         'openssl'
-         'openldap'
-         'krb5'
-	 'boost>=1.52.0'
-	 'bison'
-	 'python2'
-	 'swig'
-	 'kyotocabinet'
-         'zarafa-libvmime=0.9.2')
-makedepends=('php>=5.2.0'
-             'e2fsprogs'
-             'openldap')
-optdepends=('zarafa-webaccess-ajax: AJAX based web-interface')
-backup=('etc/zarafa/server.cfg'
-	'etc/zarafa/ical.cfg')
+makedepends=('php>=5.2.0' 'e2fsprogs' 'openldap' 'automake' 'swig' 'zarafa-libvmime' 'mysql')
+optdepends=('php: for webaccess')
 install=${pkgname}.install
-source=("zarafa-${pkgver}.tar.gz::http://download.zarafa.com/community/final/7.1/${pkgver}-${pkgrel}/sourcecode/zcp-${pkgver}.tar.gz"
-        "rc.zarafa-ical"
-        "rc.zarafa-server"
+source=("zarafa-${pkgver}.tar.gz::http://download.zarafa.com/community/final/7.1/${pkgver}-${_pkgrel}/sourcecode/zcp-${pkgver}.tar.gz"
 	"zarafa-server.service"
 	"zarafa-ical.service"
-	"mariadb.patch")
-noextract=()
-md5sums=('277506397e3240d06203b94a948bd824'
-         '44d98735e4806e0ed1b8e62931d42eee'
-	 '4a2337e721e6579d012243f990a06252'
-	 '0e2728f1e35b25ca679427fcb57315d8'
-	 '4a774f8c964138e16dfc2c77a380accc'
-	 '1241edb4eac987b81a0700447eea1781')
+        "zarafa-gateway.service"
+        "zarafa-spooler.service"
+        "zarafa-dagent.service"
+        "zarafa-7.1.8-man-pages.patch")
+
+prepare() {
+  cd ${srcdir}/zarafa-${pkgver}
+  # https://jira.zarafa.com/browse/ZCP-12211
+  patch -p1 -i ${srcdir}/zarafa-7.1.8-man-pages.patch
+
+  # Fix python shebang
+  sed -i 's/python setup.py/python2 setup.py/' swig/python/Makefile.in
+  sed -i 's/python setup.py/python2 setup.py/' swig/python/Makefile.am
+
+  # Disable search, doesn't compile due to a boost error
+  cd ${srcdir}/zarafa-${pkgver}/ECtools/
+  sed -i 's/zarafa-search//g' Makefile.in
+  sed -i 's/zarafa-search//g' Makefile.am
+}
 
 build() {
   cd ${srcdir}/zarafa-${pkgver}
-
-  # Patch
-  #patch -p0 <${srcdir}/swig.patch
-
-  # http://gentoo-overlays.zugaina.org/betagarden/portage/net-mail/zarafa/
-  patch -p1 <${srcdir}/mariadb.patch
 
   msg "Starting build..."
   CPPFLAGS=-I/usr/include/python2.7 ./configure --prefix=/usr \
     --enable-oss \
     --enable-release \
     --enable-python \
+    --enable-swig \
     --with-python=/usr/bin/python2 \
     --disable-debug \
-    --disable-testtools \
     --disable-static \
     --with-userscript-prefix=/etc/zarafa/userscripts \
     --with-quotatemplate-prefix=/etc/zarafa/quotamails \
-    --with-sysconfdir=/etc
+    --with-searchscripts-prefix=/etc/zarafa/searchscripts
 
-  # make/g++ doesnt pick up -luuid properly without this... even though configure
-  # finds it, and -luuid is present in the actual command that fails...
-  make LDFLAGS="-luuid" || return 1
+  make
 }
 
 
-package() {
+package_zarafa-server() {
+  pkgdesc="Open Source Groupware Solution"
+  depends=('libical>=0.44' 'mysql' 'curl' 'libxml2' 'openssl' 'openldap' 'krb5'
+	 'boost>=1.52.0' 'bison' 'python2' 'swig' 'kyotocabinet' 'zarafa-libvmime' 'libmariadbclient')
+  backup=('etc/zarafa/server.cfg'
+	'etc/zarafa/dagent.cfg'
+	'etc/zarafa/gateway.cfg'
+	'etc/zarafa/monitor.cfg'
+	'etc/zarafa/spooler.cfg'
+	'etc/zarafa/ical.cfg')
+
   cd ${srcdir}/zarafa-${pkgver}
 
-  make DESTDIR=${pkgdir} install || return 1
-  # This isn't really a PEAR package... but Arch's default PHP config has open_basedir restrictions
-  # and I doubt there will ever be a MAPI PEAR package to conflict, so one less thing user will have to do
-  mv ${pkgdir}/usr/share/php ${pkgdir}/usr/share/pear
-
+  make DESTDIR=${pkgdir} install
   # Finalize
-  install -m 755 -o root -g zarafa -d ${pkgdir}/var/log/zarafa
+  install -m 755 -o root -g root -d ${pkgdir}/var/log/zarafa
+  install -m 755 -o root -g root -d ${pkgdir}/var/lib/zarafa
 
-  install -m 755 -o root -g root -D ${srcdir}/rc.zarafa-ical ${pkgdir}/etc/rc.d/zarafa-ical
-  install -m 755 -o root -g root -D ${srcdir}/rc.zarafa-server ${pkgdir}/etc/rc.d/zarafa-server
+  # move /var/lib to the right place related to https://jira.zarafa.com/browse/ZCP-12249
+  #mv  $pkgdir/usr/var/lib/zarafa/* $pkgdir/var/lib/zarafa/
+  #rm -rf $pkgdir/usr/var
 
-  mkdir -p  ${pkgdir}/etc/systemd/system
-  install -m 755 $startdir/zarafa-server.service ${pkgdir}/etc/systemd/system
-  mkdir -p  ${pkgdir}/etc/systemd/system
-  install -m 755 $startdir/zarafa-ical.service ${pkgdir}/etc/systemd/system
+  # Systemd files
+  install -d  ${pkgdir}/usr/lib/systemd/system
+  install -m 755 $srcdir/zarafa-server.service ${pkgdir}/usr/lib/systemd/system
+  install -m 755 $srcdir/zarafa-ical.service ${pkgdir}/usr/lib/systemd/system
+  install -m 755 $srcdir/zarafa-spooler.service ${pkgdir}/usr/lib/systemd/system
+  install -m 755 $srcdir/zarafa-dagent.service ${pkgdir}/usr/lib/systemd/system
+  install -m 755 $srcdir/zarafa-gateway.service ${pkgdir}/usr/lib/systemd/system
+
+  # Remove unused /usr/etc related to https://jira.zarafa.com/browse/ZCP-12249
+  #rm -rf $pkgdir/usr/etc
 
   # copy example configs to their active locations
   for cfg in ${pkgdir}/usr/share/doc/zarafa/example-config/*.cfg; do
     install -m 755 -o root -g root -D ${cfg} ${pkgdir}/etc/zarafa
   done
+}
 
-#  sed -i 's/root //g' ${pkgdir}/etc/cron.d/zarafa-ssm
+package_zarafa-webaccess() {
+  pkgdesc="Webaccess client for the Zarafa Open Source Groupware Solution"
+  depends=('zarafa-server')
 
-  mkdir -p ${pkgdir}/etc/httpd/conf/extra/
+  # Webaccess
+  install -d ${pkgdir}/etc/httpd/conf/extra/
   install -m 755 ${srcdir}/zarafa-${pkgver}/php-webclient-ajax/zarafa-webaccess.conf ${pkgdir}/etc/httpd/conf/extra/zarafa-webaccess.conf
-#  install ${srcdir}/zarafa-${pkgver}/php-mobile-webaccess/zarafa-webaccess-mobile.conf ${pkgdir}/etc/httpd/conf/extra/zarafa-webaccess-mobile.conf
-
-  mkdir -p ${pkgdir}/usr/share/zarafa-webaccess/
   install -m 755 -d ${pkgdir}/usr/share/zarafa-webaccess/
+
   cp -r ${srcdir}/zarafa-${pkgver}/php-webclient-ajax/* ${pkgdir}/usr/share/zarafa-webaccess/
   mv ${pkgdir}/usr/share/zarafa-webaccess/config.php.dist ${pkgdir}/usr/share/zarafa-webaccess/config.php
-  sed -i 's$/usr/share/php/$/usr/share/pear/$' ${pkgdir}/usr/share/zarafa-webaccess/config.php
-#  mkdir -p ${pkgdir}/usr/share/zarafa-webaccess-mobile/
-#  install -d ${pkgdir}/usr/share/zarafa-mobile-webaccess/
-#  cp -r ${srcdir}/zarafa-${pkgver}/php-mobile-webaccess/* ${pkgdir}/usr/share/zarafa-mobile-webaccess/
-
-  # edit cfg files for better initial defaults... maybe not Arch-like :( ...
-  # /etc/zarafa/server.cfg
-#  sed -e "s/^\(run_as_\(user\|group\)\)\([ \\t]*=\).*$/\\1\\3 zarafa/" \
-#      -e "s/^\(mysql_\(user\|password\)\)\([ \\t]*=\).*$/\\1\\3 zarafa/" \
-#      -e "s/^\(enable_hosted_zarafa\)\([ \\t]*=\).*$/\\1\\2 true/" \
-#      -e "s/^\(loginname_format\)\([ \\t]*=\).*$/\\1\\2 %u@%c/" \
-#  -i ${pkgdir}/etc/zarafa/server.cfg
-
-#  rmdir ${pkgdir}/usr/etc
-
 }
+
+md5sums=('179be643cbc195668a12fc64fd655a22'
+         '0e2728f1e35b25ca679427fcb57315d8'
+         'c25f3982217fe390d68ed9003a5988ed'
+         '705ada3a8c4b904696e0c461c131b4f7'
+         '846b76e5cb0239a488c81e11d74ad08b'
+         '9666bf713645af11dd65b3ac5cbb42d9'
+         'bebbef5a19a94bc2742bca726c739074')

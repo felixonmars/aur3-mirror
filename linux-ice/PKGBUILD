@@ -5,9 +5,9 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.14
-pkgver=3.14.5
+pkgver=3.14.6
 pkgrel=1
-_toipatch=tuxonice-for-linux-3.14.4-2014-05-14.patch
+_toipatch=tuxonice-for-linux-3.14.5-2014-06-02.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -23,31 +23,23 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         '0001-Bluetooth-allocate-static-minor-for-vhci.patch'
         '0002-module-allow-multiple-calls-to-MODULE_DEVICE_TABLE-p.patch'
         '0003-module-remove-MODULE_GENERIC_TABLE.patch'
-        '0005-Revert-Bluetooth-Enable-autosuspend-for-Intel-Blueto.patch'
         '0006-genksyms-fix-typeof-handling.patch'
-        '0010-iwlwifi-mvm-delay-enabling-smart-FIFO-until-after-be.patch'
-        '0011-kernfs-fix-removed-error-check.patch'
         '0012-fix-saa7134.patch'
-        '0015-fix-xsdt-validation.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 sha256sums=('61558aa490855f42b6340d1a1596be47454909629327c49a5e4e10268065dffa'
-            'ecc00856830c05736b3f99609bc6d80353c29d2db9b0dffb91eb2d169808cac4'
-            '3673faf5a18c9fc401bc3fe2afb19899426d5c65bb2d7b566b68cd4e8ed120c5'
-            'a37992a7ed5a729944184280699ad4400846b392c529cf83c58884b314dafb3a'
+            'b8de86f64a62ec1f5d62ef7b0caf302546be0d397e7c7d29e4b1e260220462d7'
+            '02e935be160fc329a95de2bc25c563e3b5642a6bd103df1f8629815aaca6e5fd'
+            '7bc18c71a6307d1967c394d1a926ba9ea47c98a99880430beb2f094b8383339f'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
             '6d72e14552df59e6310f16c176806c408355951724cd5b48a47bf01591b8be02'
             '52dec83a8805a8642d74d764494acda863e0aa23e3d249e80d4b457e20a3fd29'
             '65d58f63215ee3c5f9c4fc6bce36fc5311a6c7dbdbe1ad29de40647b47ff9c0d'
-            '3fffb01cf97a5a7ab9601cb277d2468c0fb1e1cceba4225915f3ffae3a5694ec'
             'cf2e7a2d00787f754028e7459688c2755a406e632ce48b60952fa4ff7ed6f4b7'
-            'c0af4622f75c89fef62183e18b7d49998228d4eaa906c6accaf4aa4ff0134f85'
-            '04f44bf5c181d6dc31905937c1bdccb0f5aecaad3a579e99b302502b9cbe0f7a'
             '79359454c9d8446eb55add2b1cdbf8332bd67dafb01fefb5b1ca090225f64d18'
-            '384dd13fd4248fd6809da8c6ae29ced55d4a5cacc33ac2ae7522093ec0fb26d4'
-            '9c34015226cbe40dcc52d8535f50a5b9b2950a0c2d7f84c5877787295d02791b')
+            '96ac686fe7b055e1c025f7a857ffad7322bc686be362dabde61f1a0488a277f7')
 
 _kernelname=${pkgbase#linux}
 
@@ -72,32 +64,14 @@ prepare() {
   patch -p1 -i "${srcdir}/0002-module-allow-multiple-calls-to-MODULE_DEVICE_TABLE-p.patch"
   patch -p1 -i "${srcdir}/0003-module-remove-MODULE_GENERIC_TABLE.patch"
 
-  # Disable usb autosuspend for intel btusb
-  # See http://www.spinics.net/lists/kernel/msg1716461.html
-  # Until a solution is found, make sure the driver leaves autosuspend alone
-  patch -p1 -i "${srcdir}/0005-Revert-Bluetooth-Enable-autosuspend-for-Intel-Blueto.patch"
-
   # Fix generation of symbol CRCs
   # http://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/commit/?id=dc53324060f324e8af6867f57bf4891c13c6ef18
   patch -p1 -i "${srcdir}/0006-genksyms-fix-typeof-handling.patch"
-
-  # https://git.kernel.org/cgit/linux/kernel/git/iwlwifi/iwlwifi-fixes.git/commit/?id=12f853a89e29f50b17698e17e73c328a35f1498d
-  # FS#39815
-  patch -p1 -i "${srcdir}/0010-iwlwifi-mvm-delay-enabling-smart-FIFO-until-after-be.patch"
-
-  # fix Xorg crash with i810 chipset due to wrong removed error check
-  # References: http://lkml.kernel.org/g/533D01BD.1010200@googlemail.com
-  patch -Np1 -i "${srcdir}/0011-kernfs-fix-removed-error-check.patch"
 
   # fix saa7134 video
   # https://bugs.archlinux.org/task/39904
   # https://bugzilla.kernel.org/show_bug.cgi?id=73361
   patch -Np1 -i "${srcdir}/0012-fix-saa7134.patch"
-
-  # fix xsdt validation bug
-  # https://bugs.archlinux.org/task/39811
-  # https://bugzilla.kernel.org/show_bug.cgi?id=73911
-  patch -Np1 -i "${srcdir}/0015-fix-xsdt-validation.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
@@ -341,5 +315,3 @@ for _p in ${pkgname[@]}; do
     _package${_p#${pkgbase}}
   }"
 done
-
-# vim:set ts=8 sts=2 sw=2 et:
