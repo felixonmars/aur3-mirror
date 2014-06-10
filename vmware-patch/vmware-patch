@@ -21,10 +21,6 @@ msg3() {
   printf "${YELLOW}    ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
-info_yellow() {
-  printf "${YELLOW}$1${ALL_OFF}${BOLD} $2${ALL_OFF}\n"
-}
-
 warning() {
   printf "${YELLOW}==> WARNING:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
@@ -33,7 +29,7 @@ error() {
   printf "${RED}==> ERROR:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
-# Variables for them
+# Colors
 ALL_OFF="$(tput sgr0)"
 BOLD="$(tput bold)"
 BLUE="${BOLD}$(tput setaf 4)"
@@ -41,15 +37,24 @@ GREEN="${BOLD}$(tput setaf 2)"
 RED="${BOLD}$(tput setaf 1)"
 YELLOW="${BOLD}$(tput setaf 3)"
 
+list_options() {
+  msg "Available options:"
+  msg2 "-f, --force:  Force reinstallation even, if modules have already been built."
+  msg2 "-h, --help:   View this help."
+}
+
 # Don't continue with an unknown flag
-if [[ "$@" ]] && [[ "$@" != '-f' ]]; then
+if [[ $@ = *-h* ]]; then
+  list_options
+  exit
+elif [ $1 ] && [[ $@ != *-f* ]]; then
   error "Unknown option: $*"
-  info_yellow "Available options:" "-f (force reinstallation even, if modules have already been built)."
+  list_options
   exit 1
 fi
 
 # Make sure we are root
-if [ $(whoami) != "root" ]; then
+if [ $UID != 0 ]; then
   error "This script needs to be run as root."
   exit 1
 fi
@@ -60,17 +65,17 @@ if [ ! -f /usr/bin/vmware-installer ]; then
   exit 1
 fi
 
-# Set some variables (|&: hide "No protocol specified" in KDE by redirecting all output to cut/grep)
+# Set some variables (|&: hide errors by redirecting all output)
 kernel=$(uname -r | cut -d "." -f-2)
-ver=$(vmware-installer -l |& egrep "(player|workstation)" | grep -Po "(\d+\.){2}\d+")
-if [ $(vmware-installer -l |& egrep "(player|workstation)" | cut -d " " -f1) = "vmware-workstation" ]; then
+ver=$(vmware-installer -l |& grep -Po "player|workstation *\K(\d+\.){2}\d+")
+if vmware-installer -l |& grep -q workstation; then
   name="VMware Workstation"
 else
   name="VMware Player (Plus)"
 fi
 
 # Make sure vmware.service includes our USB Arbitrator service
-if [[ ! $(grep usbarbitrator /usr/lib/systemd/system/vmware.service) ]]; then
+if ! grep -q usbarbitrator /usr/lib/systemd/system/vmware.service; then
   msg "Updating vmware.service.."
   sed '/Description/a Requires=vmware-usbarbitrator.service\nBefore=vmware-usbarbitrator.service' \
       -i /usr/lib/systemd/system/vmware.service
@@ -92,16 +97,16 @@ if grep -q '$vsock_alias' /etc/init.d/vmware; then
       -i /etc/init.d/vmware
 fi
 
-# Symlink version.h, if necessary (# 1) We don't have one already (accept files too))
+# Symlink version.h, if: 1) We don't have one already
 if [ ! -f /usr/src/linux-$(uname -r)/include/linux/version.h ]; then
   # 2) Installed Workstation/Player less than 9.0.2/5.0.2
   if [[ $ver != [59].0.2 ]] && [[ $ver != 6.* ]] && [[ $ver != 10.* ]]; then
     # 3) Kernel version 3.5 or above
-    if [ $(echo $kernel | tr -d .) -ge 35 ]; then
+    if (( $(echo $kernel | tr -d .) >= 35 )); then
       msg "Symlinking version.h for $(uname -r)"
-      install -d "$pkgdir"/usr/src/linux-$(uname -r)/include/linux/
+      install -d /usr/src/linux-$(uname -r)/include/linux/
       ln -s /usr/src/linux-$(uname -r)/include/generated/uapi/linux/version.h \
-            "$pkgdir"/usr/src/linux-$(uname -r)/include/linux/
+            /usr/src/linux-$(uname -r)/include/linux/
     fi
   fi
 fi
@@ -109,7 +114,7 @@ fi
 # Remove leftover header locations
 if [[ $(find /usr/src/ -mindepth 1 -maxdepth 2 -type d) ]]; then
   for i in /usr/src/*; do
-    if [[ $(ls $i) = 'include' ]]; then
+    if [[ $(ls $i) = include ]]; then
       msg_yellow "Removing leftover header location $i/"
       rm -r $i
     fi
@@ -118,54 +123,23 @@ fi
 
 # Remove leftover module locations
 for i in /usr/lib/modules/*; do
-  if [[ $(ls $i) = 'misc' ]]; then
+  if [[ $(ls $i) = misc ]]; then
     msg_yellow "Removing leftover module location $i/"
     rm -r $i
   fi
 done
 
-# Backup/Convert/Remove old backups, whatever necessary
+# Remove old backups
 cd /usr/lib/vmware/modules/
-# 1) Use double quotes ("[[") and "ls" instead of the builtin -d/-f for multiple arguments
-# 2) 2>&-: supported by "ls", basically same as "2>/dev/null" only shorter (ignore errors (STDERR))
-if ls -d source?*/ source/*.tar-* |& grep -qvx source-$ver/; then
+# Use "ls" instead of the builtin -d for multiple arguments
+if ls -d source?*/ |& grep -qvx source-$ver/; then
   msg "Cleaning up old backups.."
-  # 1) Check the new location first
-  # 2) Remove any duplicated/old ones
-  # 3) Print full paths
-  # 4) Sed: leave out the first result containing $ver
-  for i in $(readlink -e source?*/ | sed "0,/$ver/{//d}"); do
+  # 1) Print full paths
+  # 2) Sed: leave out the first result containing $ver
+  for i in $(readlink -f source?*/ | sed "0,/$ver/{//d}"); do
     msg2 "Removing $i"
     rm -r "$i"
   done
-  # If we already have a backup in the new location, remove any from the old one
-  if [ -d source-$ver*/ ]; then
-    for i in $(readlink -e source/*.tar-*); do
-      msg2 "Removing $i"
-      rm -r "$i"
-    done
-    # Rename it as we like (or as I do)
-    if [ -d source-$ver?*/ ]; then
-      msg3 "Renaming: $(readlink -f source-$ver*)/ -> $(readlink -f source-$ver)/"
-      mv source-$ver*/ source-$ver/
-    fi
-  else
-    # Remove any duplicated/old backups
-    for i in vmblock vmci vmmon vmnet vsock; do
-      for j in $(readlink -e source/$i.tar-* | sed "0,/$ver/{//d}"); do
-        msg2 "Removing $j"
-        rm -r "$j"
-      done
-    done
-    # Convert leftovers
-    if [ -f source/vmblock.tar-* ]; then
-      msg3 "Converting: /usr/lib/vmware/modules/source/*.tar -> $(readlink -f source-$ver)/"
-      mkdir source-$ver/
-      for i in vmblock vmci vmmon vmnet vsock; do
-        mv source/$i.tar-* source-$ver/$i.tar
-      done
-    fi
-  fi
 fi
 
 # Support the '-f' flag
@@ -173,9 +147,9 @@ fi
 # 2) Don't check this until we've removed the leftovers
 if [ -f /usr/lib/modules/$(uname -r)/misc/vsock.ko ]; then
   # Offer the ability reinstall this thing
-  if [[ "$@" = '-f' ]]; then
+  if [[ $@ = -f ]]; then
     msg "Reinstalling modules.."
-  elif [[ ! "$@" ]]; then
+  else
     error "VMware modules already installed (use -f to override). Exiting.."
     exit 1
   fi

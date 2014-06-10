@@ -7,10 +7,10 @@
 # Maintainer: Matt Henkel <guildencrantz@gmail.com>
 
 pkgname=plexmediaserver-plexpass
-pkgver=0.9.9.10.458
+pkgver=0.9.9.11.501
 pkgrel=1
-_subver=008ea34
-pkgdesc="Plex Media Server for Linux"
+_subver=fd87a84
+pkgdesc="PlexPass Release of Plex Media Server for Linux"
 url='http://www.plexapp.com'
 arch=('i686' 'x86_64')
 license=('closed')
@@ -21,10 +21,10 @@ install='plexmediaserver.install'
 
 if [ "$CARCH" = "i686" ]; then
     _arch='i386'
-    md5sums=('8077df9d8402cf36704a1b21d2009eee')
+    md5sums=('69bd1554d2fc6e54ce18a02755a35cbd')
 elif [ "$CARCH" = "x86_64" ]; then
     _arch='amd64'
-    md5sums=('85efe83881901132aec85d0f0d6ee03a')
+    md5sums=('484ad87e155be217977bb2c1b4a4bd96')
 fi
 
 if (( !INFAKEROOT )); then
@@ -37,7 +37,7 @@ if (( !INFAKEROOT )); then
     echo
 fi
 
-source=("http://${user}:${password}@plex.r.worldssl.net/plex-media-server/${pkgver}-${_subver}/plexmediaserver_${pkgver}-${_subver}_${_arch}.deb" "plexmediaserver.conf.d" "plexmediaserver.service" "start_pms")
+source=("http://${user}:${password}@downloads.plexapp.com/plex-media-server/${pkgver}-${_subver}/plexmediaserver_${pkgver}-${_subver}_${_arch}.deb" "plexmediaserver.conf.d" "plexmediaserver.service" "start_pms")
 md5sums+=('32cdd9f9de446f6646616a0077151726'
           'd850fe41dd35aba09a375ac8d81175e0'
           '34e9ddaab4ffc84ab9835abd16a383b3')
