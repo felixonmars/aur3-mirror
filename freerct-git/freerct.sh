@@ -1,6 +1,6 @@
 #/bin/bash
 
 cwd=$PWD
-cd /opt/freerct/src
+cd /opt/freerct
 ./freerct
 cd $cwd

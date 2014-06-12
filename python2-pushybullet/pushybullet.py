@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*-
 from requests import session
 from os.path import basename
+from StringIO import StringIO
 import datetime
 import json
 import time
@@ -58,20 +59,39 @@ class PushBulletError(Exception):
     pass
 
 class PushBulletObject(object):
+    '''
+    Abstract Pushbullet object for given REST endpoint
+    '''
+
     @property
     def uri(self):
+        '''
+        Relative REST-object URI
+        '''
         raise NotImplementedError
 
     def delete(self):
+        '''
+        Delete object
+        '''
         self.api.delete(self.uri)
 
     def bind(self, api):
+        '''
+        Bind object to given API object
+
+        :param PushBullet api: API object to bind to
+        :returns: self
+        '''
         assert(isinstance(api, PushBullet))
         self.api = api
         return self
 
     @property
     def bound(self):
+        '''
+        True if an object is bound to an API object
+        '''
         return bool(getattr(self, 'api', None))
 
 # Push targets {{{
@@ -87,11 +107,24 @@ class PushTarget(PushBulletObject):
 
     @property
     def ident(self):
+        '''
+        Interface property with parameters to identify given push target
+        :rtype: dict
+        '''
         raise NotImplementedError
 
     def push(self, push=None, **pushargs):
-        if not push:
-            push = self.api.make_push(pushargs)
+        '''
+        Push a message to the push target
+
+        Either `push` or `pushargs` must be given.
+        If both are present, `pushargs` are ignored.
+
+        :param Push push: a push object
+        :param dict pushargs: parameters to construct push object
+        '''
+        if not isinstance(push, Push):
+            push = self.api.make_push(pushargs, push)
 
         push.send(self)
         return push
@@ -104,7 +137,9 @@ class Contact(PushTarget):
     Contact to push to
     '''
     def __repr__(self):
-        return '<Contact[%s]: %s <%s>>' % (self.iden, self.name, self.email)
+        return '<Contact[%s]: %s <%s>>' % (self.iden,
+                getattr(self, 'name', 'Unnamed'),
+                getattr(self, 'email', None) or getattr(self, 'email_normalized'))
 
     def __str__(self):
         return '%s <%s>' % (self.name, self.email)
@@ -160,19 +195,52 @@ class Push(PushBulletObject):
     def __init__(self, **data):
         self.__dict__.update(data)
 
-    def send(self, target):
+    def send(self, target=None):
+        '''
+        Send the push to some target
+
+        If target is None (or omitted) or a string, the push must be bound to some API.
+        By default the push will be sent to API object (i.e. all user devices).
+
+        If target is a string, it must be a device iden to push to.
+
+        If you use anything except for Device, Contact or PushBullet object as a target
+        (i.e. a PushTarget object), you must make sure a push is bound to PushBullet
+        object before by calling `push.bind(api)` method.
+        Push is already bound if you fetched it with `api.pushes()` call
+        or sent it before.
+
+        :param target: push target
+        :type target: PushTarget|str|None
+        '''
         if not isinstance(target, PushTarget):
-            target = Device(self.api, str(target))
+            target = self.api.make_target(target)
+
+        self.bind(target.api)
 
         data = self.data
         data.update(target.ident)
         data['type'] = self.type
-        result = target.api.post('pushes', **data)
-        self.bind(target.api)
+
+        result = self.api.post('pushes', **data)
         self.__dict__.update(result)
         
+    def resend(self):
+        '''
+        Try to send the push to the same target again (e.g. as a part of error handling logic)
+        '''
+        if not hasattr(self, 'target_device_iden'):
+            raise PushBulletError('push was not sent yet')
+
+        self.send(self.target_device_iden)
+
     @property
     def data(self):
+        '''
+        Push data necessary to send push to a target
+
+        :rtype: dict
+        '''
         raise NotImplementedError
 
     def __eq__(self, other):
@@ -194,6 +262,18 @@ class NotePush(Push):
     '''
     type = 'note'
     def __init__(self, body, title='', **data):
+        '''
+        A note push constructor
+
+        Notes has both body and title parameters optional, but at least one of them
+        must be defined for the push to be useful. The `title` argument defaults to "Note"
+        by PushBullet service, so I choose to require at least `body` argument.
+        If you really don't need body (you should define `title` then, or you will end up
+        with empty note, which usually has no sense), set it to empty string `''`.
+
+        :type body: str
+        :type title: str
+        '''
         self.title, self.body = title, body
         Push.__init__(self, **data)
 
@@ -210,6 +290,16 @@ class LinkPush(Push):
     '''
     type = 'link'
     def __init__(self, url, title='', body='', **data):
+        '''
+        A link push constructor
+
+        URL is the only required argument, otherwise the push is actually useless.
+        You can of cause set it to empty string (`''`), but what is the use of it?
+
+        :type url: str
+        :type title: str
+        :type body: str
+        '''
         self.title, self.url, self.body = title, url, body
         Push.__init__(self, **data)
 
@@ -226,6 +316,15 @@ class AddressPush(Push):
     '''
     type = 'address'
     def __init__(self, address, name='', **data):
+        '''
+        An address push constructor
+
+        Address argument is the only required argument here.
+        The push actually has no sense without it, doesn't it?
+
+        :type address: str
+        :type name: str
+        '''
         self.name, self.address = name, address
         Push.__init__(self, **data)
 
@@ -242,6 +341,15 @@ class ListPush(Push):
     '''
     type = 'list'
     def __init__(self, items, title='', **data):
+        '''
+        A list push constructor
+
+        Items argument is the only required one, and it should be a list
+        of strings. Of cause you can send empty list (`[]`), but what is the use of it?
+
+        :type items: list of str
+        :type title: str
+        '''
         self.title, self.items = title, list(items)
         Push.__init__(self, **data)
 
@@ -258,15 +366,47 @@ class FilePush(Push):
     '''
     type = 'file'
     def __init__(self, file=None, file_name=None, file_type=None, body='', **data):
+        '''
+        A file push constructor
+
+        You must specify at least `file` argument in order to be able to push some new file
+
+        The `file` argument is optional only for internal usage, like if a file push fetched
+        by `api.pushes()` method call, in which case file to push is undefined, but `file_url`
+        is present to download the file. If you then resend such push, file designated by `file_url`
+        will be sent, not any new file set by you. You can use this knowledge to try and
+        set `file_url` directly on `FilePush` object without setting `file` argument on your
+        own risk, but bear in mind it's an internal implementation detail, so please make sure you
+        a) understand what you are doing, b) don't abuse the feature.
+
+        If you specify `file` only, it must be either a file object or a string with absolute file path.
+        You will see basename of the file (the part of path after final slash).
+
+        If you specify both `file` and `file_name`, a push receiver will see `file_name` value
+        as a file name, not the actual file name. You can use it for example to send some
+        system stream without user-friendly name, like `sys.stdin`.
+
+        The `file_type` argument is optional and must be a string in MIME-type format (e.g. `text/plain`).
+        If you omit it, file type will be deteremined by magic library by file's content, and if
+        autodetection will fail, file type will default to `application/octet-stream`.
+        The autodetection reads first 1024 bytes of file content and then resets file's seek cursor
+        to the beginning, so it won't work for non-seekable streams, so if you are about to push
+        something like `sys.stdin`, make sure you set `file_type` manually.
+
+        :param file|str file: file to push
+        :param str file_name: file name to push (will be visible to reciever)
+        :param str file_type: file's MIME type (will be determined by file's content if omitted)
+        :param str body: optional message to accompany file
+        '''
         assert(file or file_name)
         self.file, self.file_name, self.file_type = file or file_name, file_name, file_type
         self.file_url = None
         self.body = body
         Push.__init__(self, **data)
 
-    def send(self, target):
+    def send(self, target=None):
         if not isinstance(target, PushTarget):
-            target = Device(self.api, str(target))
+            target = self.api.make_target(target)
 
         if not self.file_url:  # file not uploaded yet
             fh = self.file if isinstance(self.file, file) else open(self.file, 'rb')
@@ -324,7 +464,7 @@ class DismissalPush(Push):
 
 # Main API class {{{
 
-class PushBullet(object):
+class PushBullet(PushTarget):
     '''
     Main API class for PushBullet
     '''
@@ -334,6 +474,8 @@ class PushBullet(object):
     def __init__(self, apikey):
         '''
         Initialize API object (get API key from https://www.pushbullet.com/account)
+
+        :param str apikey: API key (get at https://www.pushbullet.com/account)
         '''
         self.apikey = apikey
         self.sess = session()
@@ -346,20 +488,64 @@ class PushBullet(object):
                      'file' if 'file' in args or 'file_name' in args else
                      'note')
 
-    def make_push(self, pushargs):
+    def get_push_by_class(self, arg, args={}):
+        if isinstance(arg, file):
+            return FilePush(arg, **args)
+        elif isinstance(arg, buffer):
+            return FilePush(StringIO(arg), **args)
+
+        # any iteratable (except for strings) is a list push
+        elif hasattr(arg, '__iter__') and not isinstance(arg, (str, unicode)):
+            return ListPush(list(arg), **args)
+
+        # default is a note push
+        else:
+            arg = str(arg)
+
+            # special case: looks like url, therefore it is an link push
+            if arg.startswith(('http://', 'https://', 'ftp://', 'ftps://', 'mailto:')):
+                return LinkPush(arg, **args)
+
+            return NotePush(arg, **args)
+
+    def make_push(self, pushargs, pusharg=None):
         '''
         Factory to create a push object out of raw data in dictionary
+
+        The `pushargs` dict should contain `type` element to determine
+        push type. If you omit it, push type will be autodefined by presence of
+        other elements, defaulting to `note`.
+
+        Other `pushargs` elements depend on push type:
+
+        * for `note`: `title` and `body`,
+        * for `list`: `title` and `items`,
+        * for `file`: `file`, `file_name`, `file_type` and `body`,
+        * for `link`: `title` and `url`,
+        * for `address`: `name` and `address`.
+
+        See correspondent push classes docs for details of these arguments.
+
+        :param dict pushargs: a dict of parameters to compose a push object
         '''
-        pushcls = {
-                'note': NotePush,
-                'list': ListPush,
-                'link': LinkPush,
-                'file': FilePush,
-                'address': AddressPush,
-                'mirror': MirrorPush,
-                'dismissal': DismissalPush,
-                }.get(self.get_type_by_args(pushargs), Push)
-        return pushcls(**pushargs).bind(self)
+        # a set of arguments in a dictionary
+        if not pusharg:
+            pushcls = {
+                    'note': NotePush,
+                    'list': ListPush,
+                    'link': LinkPush,
+                    'file': FilePush,
+                    'address': AddressPush,
+                    'mirror': MirrorPush,
+                    'dismissal': DismissalPush,
+                    }.get(self.get_type_by_args(pushargs), Push)
+            push = pushcls(**pushargs)
+
+        else:
+            # otherwise, apply a set of heuristics
+            push = self.get_push_by_class(pusharg, pushargs)
+
+        return push.bind(self)
 
     def delete(self, _uri):
         '''
@@ -406,6 +592,8 @@ class PushBullet(object):
     def devices(self, reset_cache=False):
         '''
         Get available devices to push to
+
+        :param bool reset_cache: if True, reset internal devices cache and force HTTP request
         '''
         if not reset_cache and self.__devices:
             return self.__devices
@@ -415,6 +603,13 @@ class PushBullet(object):
 
 
     def create_device(self, nickname, type='stream'):
+        '''
+        Create new (a stream) device with given nickname
+
+        :param str nickname: device's name
+        :param str type: device's type
+        :rtype: Device
+        '''
         return Device(self, None, nickname=nickname, type=type).create()
 
 
@@ -422,6 +617,8 @@ class PushBullet(object):
     def contacts(self, reset_cache=False):
         '''
         Get available contacts to push to
+
+        :param bool reset_cache: if True, reset internal devices cache and force HTTP request
         '''
         if not reset_cache and self.__contacts:
             return self.__contacts
@@ -430,6 +627,19 @@ class PushBullet(object):
         return self.__contacts
 
     def __getitem__(self, device_iden):
+        '''
+        Find and return device object by device iden or device name
+
+        At first search is done by device iden field, and if it's not found,
+        search is repeated by device name. A device name is either device nickname,
+        model or iden, whichever is defined for any given device object.
+
+        So you can get your Chrome device object with `api["Chrome"]` call.
+
+        Throws `KeyError` if no device is found.
+
+        :param str device_iden: a device iden
+        '''
         try:
             return next(d for d in self.devices() if d.iden == device_iden)
         except StopIteration:
@@ -441,13 +651,36 @@ class PushBullet(object):
     def pushes(self, since=0, skip_empty=True):
         '''
         Generator fetches and yields all pushes since given timestamp
+
+        The `since` argument, which defines time limit in the past to get
+        pushes from, accepts almost any sensible date/time object.
+
+        If it is an integer (int or long) and positive, it is expected
+        to be correct unix timestamp (number of seconds since 1/1/1970 00:00:00 UTC).
+        If it is an integer and negative, it is a number of seconds in the past
+        (e.g. use `-86400` to fetch pushes for the last day).
+        If it is a date or datetime object, it is, well, a date/time =).
+        If it is a timedelta object, it is a time-span in the past
+        (so `timedelta(days=7)` means "pushes for the last week").
+        If it is a string, it is parsed with dateutil.parser.parse() for datetime object.
+
+        :param since: minimal time for pushes to fetch
+        :type since: int|long|date|datetime|timedelta
+        :param bool skip_empty: skip empty (inactive, removed) pushes, default is True
+        :rtype: generator
         '''
         if isinstance(since, datetime.date):
             since = since.strftime('%s')
         elif isinstance(since, datetime.timedelta):
             since = (datetime.datetime.now() - since).strftime('%s')
-        elif since < 0:
-            since = time.time() + since
+        else:
+            try:
+                since = int(since)
+                if since < 0:
+                    since += time.time()
+            except ValueError:
+                from dateutil.parser import parse
+                since = parse(since).strftime('%s')
 
         pushes = self.get('pushes', modified_after=since)
 
@@ -474,26 +707,81 @@ class PushBullet(object):
         self.__me = self.get('users/me')
         return self.__me
 
-    def push(self, target, push=None, **pushargs):
-        '''
-        Send push to a target
-        '''
-        if not isinstance(target, PushTarget):
-            target = Device(self, str(target))
+    def make_target(self, target):
+        if target is None:
+            return self
 
-        if not push:
-            push = self.make_push(pushargs)
+        if isinstance(target, PushTarget):
+            return target
 
-        push.send(target)
+        target = str(target)
+        return (Device(self, target) if '@' not in target else
+                Contact(self, None, email_normalized=target))
+
+    def push(self, push=None, target=None, **pushargs):
+        '''
+        Send push to a target (to all devices by default)
+
+        If you omit `target` argument, the push will be sent to all user devices.
+        If `target` is anything but `PushTarget` object, it will be cast to string
+        and will be taken as a device iden to push to.
+
+        Only one of `push` or `pushargs` arguments must be given at a time.
+        If `push` is omitted, new push will be constructed from `pushargs` arguments,
+        if both `push` and `pushargs` are given, `pushargs` is ignored.
+
+        :param Push push: a push object ot push
+        :param target: a push target to push to
+        :type target: str|PushTarget|None
+        :param dict pushargs: push arguments
+        :rtype: Push
+        :returns: push just sent
+        '''
+        if not isinstance(push, Push):
+            push = self.make_push(pushargs, push)
+
+        push.bind(self).send(target)
         return push
 
     def bind(self, obj):
+        '''
+        Bind given object to the API
+
+        :type obj: PushBulletObject
+        :returns: obj
+        '''
         assert(isinstance(obj, PushBulletObject))
         return obj.bind(self)
+
+    @property
+    def ident(self):
+        '''
+        For `PushTarget` interface compliance
+        '''
+        return {}
+
+    @property
+    def api(self):
+        '''
+        For `PushTarget` interface compliance only
+        '''
+        return self
 
     def stream(self, skip_nop=True):
         '''
         Generator to listen for events on websocket and yield them
+
+        The method requires `websocket` library. It will run an infinite event loop, which
+        fetches events from websocket and provides them as an Event objects, e.g.::
+
+            for ev in api.stream():
+                print(ev)
+
+        To be able to run any other code at the same time, consider running the loop
+        in some other (background) thread.
+
+        :param bool skip_nop: skip "nop" events (used as keep-alive heartbeats only), default is True
+        :rtype: generator
         '''
         from websocket import create_connection
         conn = create_connection('wss://stream.pushbullet.com/websocket/%s' % self.apikey)
@@ -512,6 +800,9 @@ class PushBullet(object):
             last_ts = time.time()
             if event:
                 yield event
+
+    def __str__(self):
+        return '<PushBullet>'
 
 # }}}
 

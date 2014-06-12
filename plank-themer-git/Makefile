@@ -8,7 +8,7 @@ all:
 
 plank-themer:
 	# Create build directory and import files
-	mkdir -p $(_dest)/theme_index/{plank-themer-ondock,updater-icon,theme-icons}
+	mkdir -p $(_dest)/theme_index/{plank-themer,updater-icon,theme-icons}
 	cp -a theme_index/updater-icon/*.svg $(_dest)/theme_index/updater-icon/
 	cp -a theme_index/updater-icon/*.svg $(_dest)/theme_index/theme-icons/
 	cp -a plank-themer.sh $(_dest)/theme_index/
@@ -18,12 +18,12 @@ plank-themer:
 	# Create new .desktop files for each theme
 	while IFS= read -r file; \
 		do \
-			echo \[Desktop Entry\] >> $(_dest)/theme_index/plank-themer-ondock/$$file.desktop; \
-			echo Type=Application >> $(_dest)/theme_index/plank-themer-ondock/$$file.desktop; \
-			echo Terminal=false >> $(_dest)/theme_index/plank-themer-ondock/$$file.desktop; \
-			echo Name="$$file" >> $(_dest)/theme_index/plank-themer-ondock/$$file.desktop; \
-			echo Icon=$(_install)/theme_index/theme-icons/plank_theme.svg >> $(_dest)/theme_index/plank-themer-ondock/$$file.desktop; \
-			echo Exec=$(_install)/theme_index/$$file.sh >> $(_dest)/theme_index/plank-themer-ondock/$$file.desktop; \
+			echo \[Desktop Entry\] >> $(_dest)/theme_index/plank-themer/$$file.desktop; \
+			echo Type=Application >> $(_dest)/theme_index/plank-themer/$$file.desktop; \
+			echo Terminal=false >> $(_dest)/theme_index/plank-themer/$$file.desktop; \
+			echo Name="$$file" >> $(_dest)/theme_index/plank-themer/$$file.desktop; \
+			echo Icon=$(_install)/theme_index/theme-icons/plank_theme.svg >> $(_dest)/theme_index/plank-themer/$$file.desktop; \
+			echo Exec=$(_install)/theme_index/$$file.sh >> $(_dest)/theme_index/plank-themer/$$file.desktop; \
 		done < $(_dest)/theme_index/themes.list
 	# Create new .sh application scripts for each theme
 	while IFS= read -r file; \
@@ -39,8 +39,8 @@ plank-themer:
 	echo Icon=$(_install)/theme_index/update-theme-list.svg >> $(_dest)/theme_index/plank-themer.desktop
 	echo Exec=$(_install)/theme_index/plank-themer.sh >> $(_dest)/theme_index/plank-themer.desktop
 	# Create new plank themer dockitem...
-	echo \[PlankItemsDockItemPreferences\] > $(_dest)/theme_index/plank-themer-ondock.dockitem
-	echo Launcher=file://$(_install)/theme_index/plank-themer-ondock >> $(_dest)/theme_index/plank-themer-ondock.dockitem
+	echo \[PlankItemsDockItemPreferences\] > $(_dest)/theme_index/plank-themer.dockitem
+	echo Launcher=file://$(_install)/theme_index/plank-themer >> $(_dest)/theme_index/plank-themer.dockitem
 
 install: 
 	$(MAKE) install-recursive
@@ -50,14 +50,14 @@ install-recursive:
 	$(MAKE) install-plank-themes install-plank-themer
 	
 install-plank-themer:
-	install -Dd $(DESTDIR)/$(_install)/theme_index/plank-themer-ondock $(DESTDIR)/$(_install)/theme_index/updater-icon $(DESTDIR)/$(_install)/theme_index/theme-icons $(DESTDIR)/usr/share/applications/
+	install -Dd $(DESTDIR)/$(_install)/theme_index/plank-themer $(DESTDIR)/$(_install)/theme_index/updater-icon $(DESTDIR)/$(_install)/theme_index/theme-icons $(DESTDIR)/usr/share/applications/
 	install -Dm644 $(_dest)/theme_index/updater-icon/*.svg $(DESTDIR)/$(_install)/theme_index/updater-icon/
 	install -Dm644 $(_dest)/theme_index/theme-icons/*.svg $(DESTDIR)/$(_install)/theme_index/theme-icons/
-	install -Dm755 $(_dest)/theme_index/plank-themer-ondock/*.desktop $(DESTDIR)/$(_install)/theme_index/plank-themer-ondock/
+	install -Dm755 $(_dest)/theme_index/plank-themer/*.desktop $(DESTDIR)/$(_install)/theme_index/plank-themer/
 	install -Dm755 $(_dest)/theme_index/*.sh $(DESTDIR)/$(_install)/theme_index/
 	install -Dm755 $(_dest)/theme_index/plank-themer.desktop $(DESTDIR)/usr/share/applications/
 	#install -Dm755 $(_dest)/theme_index/plank-themer.sh $(DESTDIR)/$(_install)/theme_index/
-	install -Dm644 $(_dest)/theme_index/plank-themer-ondock.dockitem $(DESTDIR)/$(_install)/theme_index/
+	install -Dm644 $(_dest)/theme_index/plank-themer.dockitem $(DESTDIR)/$(_install)/theme_index/
 
 install-plank-themes:
 	#install -Dd $(DESTDIR)/usr/share/plank/themes
