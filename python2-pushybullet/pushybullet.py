@@ -1,6 +1,7 @@
 # -*- encoding: utf-8 -*-
 from requests import session
 from os.path import basename
+from os import fdopen
 from StringIO import StringIO
 import datetime
 import json
@@ -274,7 +275,7 @@ class NotePush(Push):
         :type body: str
         :type title: str
         '''
-        self.title, self.body = title, body
+        self.title, self.body = str(title), str(body)
         Push.__init__(self, **data)
 
     @property
@@ -300,7 +301,7 @@ class LinkPush(Push):
         :type title: str
         :type body: str
         '''
-        self.title, self.url, self.body = title, url, body
+        self.title, self.url, self.body = str(title), str(url), str(body)
         Push.__init__(self, **data)
 
     @property
@@ -325,7 +326,7 @@ class AddressPush(Push):
         :type address: str
         :type name: str
         '''
-        self.name, self.address = name, address
+        self.name, self.address = str(name), str(address)
         Push.__init__(self, **data)
 
     @property
@@ -350,7 +351,7 @@ class ListPush(Push):
         :type items: list of str
         :type title: str
         '''
-        self.title, self.items = title, list(items)
+        self.title, self.items = str(title), map(str, items)
         Push.__init__(self, **data)
 
     @property
@@ -379,7 +380,9 @@ class FilePush(Push):
         own risk, but bear in mind it's an internal implementation detail, so please make sure you
         a) understand what you are doing, b) don't abuse the feature.
 
-        If you specify `file` only, it must be either a file object or a string with absolute file path.
+        If you specify `file` only, it must be either a file-like object, a file-handler opened for read,
+        a buffer (for in-memory files), an openable object (the one with `open([mode])` method)
+        or a string with absolute file path.
         You will see basename of the file (the part of path after final slash).
 
         If you specify both `file` and `file_name`, a push receiver will see `file_name` value
@@ -393,15 +396,19 @@ class FilePush(Push):
         to the beginning, so it won't work for non-seekable streams, so if you are about to push
         something like `sys.stdin`, make sure you set `file_type` manually.
 
-        :param file|str file: file to push
+        :param file: file to push
+        :type file: str, file, buffer, int, Path or any file-like or openable object
         :param str file_name: file name to push (will be visible to reciever)
         :param str file_type: file's MIME type (will be determined by file's content if omitted)
         :param str body: optional message to accompany file
         '''
         assert(file or file_name)
-        self.file, self.file_name, self.file_type = file or file_name, file_name, file_type
+        self.file, self.file_name, self.file_type = file, str(file_name), str(file_type)
+        if not self.file:
+            self.file = self.file_name
+
         self.file_url = None
-        self.body = body
+        self.body = str(body)
         Push.__init__(self, **data)
 
     def send(self, target=None):
@@ -409,7 +416,11 @@ class FilePush(Push):
             target = self.api.make_target(target)
 
         if not self.file_url:  # file not uploaded yet
-            fh = self.file if isinstance(self.file, file) else open(self.file, 'rb')
+            fh = (self.file if hasattr(self.file, 'read') else  # file-like object
+                  self.file.open('rb') if hasattr(self.file, 'open') else  # openable object
+                  fdopen(self.file, 'rb') if isinstance(self.file, int) else  # file descriptor
+                  StringIO(self.file) if isinstance(self.file, buffer) else  # in-memory file
+                  open(self.file, 'rb'))  # file name
 
             try:
                 file_name = str(self.file_name) if self.file_name else basename(fh.name)
@@ -481,32 +492,28 @@ class PushBullet(PushTarget):
         self.sess = session()
         self.sess.auth = (apikey, '')
 
-    def get_type_by_args(self, args):
+    def get_type_by_args(self, args, arg=None):
         return args.get('type') or ('url' if 'url' in args else
                      'list' if 'items' in args else
                      'address' if 'address' in args else
                      'file' if 'file' in args or 'file_name' in args else
+                     self.get_type_by_class(arg) if arg else
                      'note')
 
-    def get_push_by_class(self, arg, args={}):
-        if isinstance(arg, file):
-            return FilePush(arg, **args)
-        elif isinstance(arg, buffer):
-            return FilePush(StringIO(arg), **args)
+    def get_type_by_class(self, arg):
+        if isinstance(arg, (file, buffer)):
+            return 'file'
 
         # any iteratable (except for strings) is a list push
-        elif hasattr(arg, '__iter__') and not isinstance(arg, (str, unicode)):
-            return ListPush(list(arg), **args)
+        if hasattr(arg, '__iter__') and not isinstance(arg, (str, unicode)):
+            return 'list'
+
+        # special case: looks like url, therefore it is an link push
+        if str(arg).startswith(('http://', 'https://', 'ftp://', 'ftps://', 'mailto:')):
+            return 'link'
 
         # default is a note push
-        else:
-            arg = str(arg)
-
-            # special case: looks like url, therefore it is an link push
-            if arg.startswith(('http://', 'https://', 'ftp://', 'ftps://', 'mailto:')):
-                return LinkPush(arg, **args)
-
-            return NotePush(arg, **args)
+        return 'note'
 
     def make_push(self, pushargs, pusharg=None):
         '''
@@ -529,21 +536,16 @@ class PushBullet(PushTarget):
         :param dict pushargs: a dict of parameters to compose a push object
         '''
         # a set of arguments in a dictionary
-        if not pusharg:
-            pushcls = {
-                    'note': NotePush,
-                    'list': ListPush,
-                    'link': LinkPush,
-                    'file': FilePush,
-                    'address': AddressPush,
-                    'mirror': MirrorPush,
-                    'dismissal': DismissalPush,
-                    }.get(self.get_type_by_args(pushargs), Push)
-            push = pushcls(**pushargs)
-
-        else:
-            # otherwise, apply a set of heuristics
-            push = self.get_push_by_class(pusharg, pushargs)
+        pushcls = {
+                'note': NotePush,
+                'list': ListPush,
+                'link': LinkPush,
+                'file': FilePush,
+                'address': AddressPush,
+                'mirror': MirrorPush,
+                'dismissal': DismissalPush,
+                }.get(self.get_type_by_args(pushargs, pusharg), Push)
+        push = pushcls(pusharg, **pushargs) if pusharg else pushcls(**pushargs)
 
         return push.bind(self)
 

@@ -1,7 +1,7 @@
 # Maintainer: Qiaoyong Zhong <solary.sh@gmail.com>
 pkgname=2048-qt
 _pkgname=2048-Qt
-pkgver=0.1.4
+pkgver=0.1.5
 pkgrel=1
 pkgdesc="The 2048 number game implemented in Qt"
 arch=('i686' 'x86_64')
@@ -10,7 +10,7 @@ license=('MIT')
 depends=('qt5-base' 'qt5-declarative' 'qt5-quickcontrols' 'hicolor-icon-theme' 'desktop-file-utils' 'xdg-utils')
 install=$pkgname.install
 source=(https://github.com/xiaoyong/$_pkgname/archive/v$pkgver.tar.gz)
-md5sums=('6227519091af48b19fe86f34d2c5a66c')
+md5sums=('36a1c1214159b04b9d6332c7f95f7fd9')
 
 build() {
 	cd "$srcdir/$_pkgname-$pkgver"
