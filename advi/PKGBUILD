@@ -3,12 +3,12 @@
 
 pkgname=advi
 pkgver=1.10.2
-pkgrel=1
+pkgrel=2
 pkgdesc="Unix-platform DVI previewer and a programmable presenter for slides written in LaTeX."
 arch=(i686 x86_64)
 url="http://gallium.inria.fr/advi/"
 license=('LGPL')
-depends=('freetype2' 'libtiff' 'libxpm' 'libxinerama' 'libpng' 'libungif' 'tetex')
+depends=('freetype2' 'libtiff' 'libxpm' 'libxinerama' 'libpng' 'giflib' 'tetex')
 makedepends=('camlimages' 'ocaml' 'ocaml-findlib')
 source=(http://gallium.inria.fr/advi/$pkgname-$pkgver.tar.gz)
 #install=advi.install

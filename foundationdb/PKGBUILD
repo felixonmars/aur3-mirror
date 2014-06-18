@@ -1,7 +1,7 @@
 # Maintainer: Sergey Rublev <narma.nsk@gmail.com>
 
 pkgname=foundationdb
-pkgver="2.0.5"
+pkgver="2.0.7"
 pkgrel=1
 pkgdesc="Distributed key/value store with ACID transactions"
 url="https://s3.amazonaws.com/foundationdb/downloads/I_accept_the_FoundationDB_Community_License_Agreement"
@@ -15,8 +15,8 @@ source=(${url}/${pkgver}/foundationdb-clients_${pkgver}-${pkgrel}_amd64.deb
         CommunityLicenseAgreement.pdf)
 backup=('etc/foundationdb/foundationdb.conf')
 install=foundationdb.install
-md5sums=('c9ca2a987c0abf22497996827230385f'
-         '927c2af9f91583e3fb486a88b2548f81'
+md5sums=('5722c84115387f6c622055eca19c387c'
+         '92094f3817b78f1052e6c3874e442539'
          'e7d685cf975b2035fddd4e98c83a1508'
          '3b409077610498e90eb7fa2ff15f2fb2')
 options=('emptydirs')
