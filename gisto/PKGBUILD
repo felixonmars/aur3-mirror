@@ -9,7 +9,7 @@ url="http://www.gistoapp.com/"
 license=("MIT")
 groups=()
 options=(!strip)
-depends=("libudev.so.0")
+depends=("libudev.so.0" "gconf")
 
 _gisto_arch="x86"
 [ "$CARCH" = "x86_64" ] && _gisto_arch="x86_64"

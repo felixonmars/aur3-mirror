@@ -9,7 +9,7 @@
 pkgname=abook-muttgroups
 _pkgname=abook
 pkgver=r344.51847f5
-pkgrel=1
+pkgrel=2
 pkgdesc='abook clone with vcard, mutt groups, merge, delete duplicates, mouse and color support'
 arch=('i686' 'x86_64')
 url='https://gitorious.org/abook/abook'
