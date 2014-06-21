@@ -1,0 +1,117 @@
+--- ifslinux/ufsdvfs.c	2013-10-17 09:51:32.000000000 -0430
++++ src/ifslinux/ufsdvfs.c	2014-06-08 10:56:36.084222623 -0430
+@@ -577,7 +577,7 @@
+ #endif
+ 
+ #ifndef is_owner_or_cap
+-  #define is_owner_or_cap(i) ( (current_fsuid() == (i)->i_uid) || capable(CAP_FOWNER) )
++  #define is_owner_or_cap(i) ( (uid_eq(current_fsuid(), (i)->i_uid)) || capable(CAP_FOWNER) )
+ #endif
+ 
+ //
+@@ -3894,7 +3894,7 @@
+   unsigned int ia_valid = attr->ia_valid;
+ 
+   DebugTrace(+1, Dbg, ("setattr(%x): r=%lx, uid=%d,gid=%d,m=%o,sz=%llx,%llx\n",
+-                        ia_valid, i->i_ino, i->i_uid, i->i_gid, i->i_mode,
++                        ia_valid, i->i_ino, __kuid_val(i->i_uid), __kgid_val(i->i_gid), i->i_mode,
+                         u->mmu, (UINT64)i_size_read(i) ));
+ 
+   err = inode_change_ok( i, attr );
+@@ -4056,12 +4056,12 @@
+   //
+   // Do smart setattr_copy
+   //
+-  if ( (ia_valid & ATTR_UID) && i->i_uid != attr->ia_uid ) {
++  if ( (ia_valid & ATTR_UID) && !uid_eq(i->i_uid, attr->ia_uid) ) {
+     dirty = 1;
+     i->i_uid = attr->ia_uid;
+     u->set_mode = 1;
+   }
+-  if ( (ia_valid & ATTR_GID) && i->i_gid != attr->ia_gid ) {
++  if ( (ia_valid & ATTR_GID) && !gid_eq(i->i_gid, attr->ia_gid) ) {
+     dirty = 1;
+     i->i_gid = attr->ia_gid;
+     u->set_mode = 1;
+@@ -4102,7 +4102,7 @@
+     mark_inode_dirty( i );
+ 
+   DebugTrace(-1, Dbg, ("setattr -> %d, uid=%d,gid=%d,m=%o,sz=%llx,%llx%s\n", err,
+-                        i->i_uid, i->i_gid, i->i_mode,
++                        __kuid_val(i->i_uid), __kgid_val(i->i_gid), i->i_mode,
+                         u->mmu, (UINT64)i_size_read(i), FlagOn(i->i_state, I_DIRTY)?",d":"" ));
+   return err;
+ }
+@@ -4731,7 +4731,7 @@
+     err = PTR_ERR(acl);
+   else {
+ #if defined HAVE_DECL_POSIX_ACL_CHMOD && HAVE_DECL_POSIX_ACL_CHMOD
+-    err = posix_acl_chmod( &acl, GFP_KERNEL, i->i_mode );
++    err = __posix_acl_chmod( &acl, GFP_KERNEL, i->i_mode );
+     if ( err )
+        return err;
+     err = ufsd_set_acl( i, ACL_TYPE_ACCESS, acl );
+@@ -9083,8 +9083,8 @@
+   //
+   // Setup 'uid' and 'gid'
+   //
+-  i->i_uid  = unlikely(sbi->options.uid)? sbi->options.fs_uid : cr? cr->uid : p->Info.is_ugm? p->Info.uid : sbi->options.fs_uid;
+-  i->i_gid  = unlikely(sbi->options.gid)? sbi->options.fs_gid : cr? cr->gid : p->Info.is_ugm? p->Info.gid : sbi->options.fs_gid;
++  i->i_uid  = KUIDT_INIT(unlikely(sbi->options.uid)? sbi->options.fs_uid : cr? cr->uid : p->Info.is_ugm? p->Info.uid : sbi->options.fs_uid);
++  i->i_gid  = KGIDT_INIT(unlikely(sbi->options.gid)? sbi->options.fs_gid : cr? cr->gid : p->Info.is_ugm? p->Info.gid : sbi->options.fs_gid);
+ 
+   //
+   // Setup 'mode'
+@@ -9256,11 +9256,11 @@
+   }
+ 
+   if ( NULL != cr ) {
+-    cr->uid = current_fsuid();
++    cr->uid = __kuid_val(current_fsuid());
+     if ( !(dir->i_mode & S_ISGID) )
+-      cr->gid = current_fsgid();
++      cr->gid = __kgid_val(current_fsgid());
+     else {
+-      cr->gid = dir->i_gid;
++      cr->gid = __kgid_val(dir->i_gid);
+       if ( S_ISDIR(cr->mode) )
+         cr->mode |= S_ISGID;
+     }
+@@ -9359,7 +9359,7 @@
+           posix_acl_mode mode;
+           if ( !S_ISDIR( i->i_mode ) || 0 == ( err = ufsd_set_acl( i, ACL_TYPE_DEFAULT, acl ) ) ) {
+ #if defined HAVE_DECL_POSIX_ACL_CREATE && HAVE_DECL_POSIX_ACL_CREATE
+-            err = posix_acl_create( &acl, GFP_KERNEL, &mode );
++            err = __posix_acl_create( &acl, GFP_KERNEL, &mode );
+             if ( err >= 0 ) {
+               i->i_mode = mode;
+               if ( err > 0 )
+@@ -10260,7 +10260,7 @@
+                              TIMESPEC_SECONDS( &i->i_atime ) == u->atime? NULL : &i->i_atime,
+                              TIMESPEC_SECONDS( &i->i_mtime ) == u->mtime? NULL : &i->i_mtime,
+                              TIMESPEC_SECONDS( &i->i_ctime ) == u->ctime? NULL : &i->i_ctime,
+-                             &i->i_gid, &i->i_uid, u->set_mode? &i->i_mode : NULL );
++                             &i->i_gid.val, &i->i_uid.val, u->set_mode? &i->i_mode : NULL );
+           u->atime = TIMESPEC_SECONDS( &i->i_atime );
+           u->mtime = TIMESPEC_SECONDS( &i->i_mtime );
+           u->ctime = TIMESPEC_SECONDS( &i->i_ctime );
+@@ -11638,8 +11638,8 @@
+ 
+   assert( NULL != current->fs );
+ 
+-  opts->fs_uid   = current_uid();
+-  opts->fs_gid   = current_gid();
++  opts->fs_uid   = __kuid_val(current_uid());
++  opts->fs_gid   = __kgid_val(current_gid());
+ 
+   opts->fs_fmask = opts->fs_dmask = NULL == current->fs
+     ? -1
+@@ -12255,7 +12255,7 @@
+   // Done.
+   //
+   DebugTrace(-1, Dbg, ("read_super(%s), %u -> sb=%p,i=%p,r=%lx,uid=%d,gid=%d,m=%o\n", DevName, jiffies_to_msecs(jiffies-StartJiffies), sb, i,
+-                        i->i_ino, i->i_uid, i->i_gid, i->i_mode ));
++                        i->i_ino, __kuid_val(i->i_uid), __kgid_val(i->i_gid), i->i_mode ));
+ 
+   return 0;
+ 
