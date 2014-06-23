@@ -1,16 +1,10 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-if [ ! -d ${HOME}/.Tribute\ Games ]; then
-    mkdir ${HOME}/.Tribute\ Games
-fi
+CONFDIR="${HOME}/.Tribute Games"
 
-if [ ! -z ${HOME}/Tribute\ Games ]; then
-    ln -s ${HOME}/.Tribute\ Games ${HOME}/Tribute\ Games
-else
-    echo "Temporary config folder location already exists"
-    exit 1
-fi
+[[ -d "$CONFDIR" ]] || install -d "$CONFDIR"
+[[ -h "${HOME}/Tribute Games" ]] || ln -s "$CONFDIR" "${HOME}/Tribute Games"
 
-pushd /opt/wizorb
-    mono Wizorb.exe ; rm ${HOME}/Tribute\ Games
-popd
+cd /opt/wizorb
+mono Wizorb.exe
+rm "${HOME}/Tribute Games"
