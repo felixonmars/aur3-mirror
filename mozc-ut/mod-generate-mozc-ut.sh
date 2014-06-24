@@ -11,7 +11,7 @@ sed -i \
     -e 's/^\(MOZCVER=.*\|DICVER=.*\|NICODIC=.*\)/#&/' \
     -e 's/\$NICODIC/"\$NICODIC"/' \
     -e 's| KEN_ALL.CSV| ../../x-ken-all.csv|' \
-    -e '/rm -f chimei\/\*.CSV/d' \
+    -e '/rm -f chimei\/\*.CSV*/d' \
     -e '/rm -f chimei\/\*.zip/d' \
     -e '/rm -f chimei\/gen_zip_code_seed.py/d' \
     -e '/rm -rf ..\/mozc-$MOZCVER\//d' \
@@ -26,4 +26,4 @@ sed -i \
     -e 's|gzip -d edict.gz|ln -sf \.\./\.\./edict-${DICVER} edict|' \
     edict-katakanago/generate-katakanago.sh
 
-sed -i '71s/s\[5\]/& != "" and &/' chimei/get-entries.rb 
+sed -i '71s/s\[5\]/& != "" and &/' chimei/get-entries.rb

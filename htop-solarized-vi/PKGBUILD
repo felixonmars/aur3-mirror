@@ -6,11 +6,12 @@
 # Contributor: Evan LeCompte <evanlec@gmail.com>
 # Contributor: Boohbah <boohbah at gmail.com>
 # Contributor: Wesley Merkel <ooesili at gmail.com>
+# Contributor: Michael Reed <supertron421@gmail.com>
 
 _pkgname=htop
 pkgname=$_pkgname-solarized-vi
 pkgver=1.0.3
-pkgrel=1
+pkgrel=2
 pkgdesc="Interactive process viewer with solarized patch and vi keybindings patch"
 arch=('i686' 'x86_64')
 url="http://htop.sourceforge.net/"
@@ -50,7 +51,8 @@ build() {
       --enable-unicode \
       --enable-openvz \
       --enable-vserver \
-      --enable-cgroup
+      --enable-cgroup \
+      --enable-oom
 
   make
 }
