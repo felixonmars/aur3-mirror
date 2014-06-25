@@ -1,6 +1,6 @@
 # Maintainer: Profpatsch <mail[at]profpatsch[dot]de>
 pkgname=imup
-pkgver=0.2.4
+pkgver=0.2.5
 pkgrel=1
 pkgdesc="Upload an image to an image host and return the link to the file."
 url="https://github.com/Profpatsch/imup"
