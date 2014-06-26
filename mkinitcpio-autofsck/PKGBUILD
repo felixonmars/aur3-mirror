@@ -1,6 +1,6 @@
 # Contributor: James C Kimble <jckimble at gmail dot com>
 pkgname='mkinitcpio-autofsck'
-pkgver=0.0.1
+pkgver=0.0.2
 pkgrel=1
 pkgdesc='mkinitcpio hook containing auto fsck'
 url='https://github.com/jckimble/mkinitcpio-autofsck'
@@ -15,5 +15,5 @@ package() {
     install -o root -g root -D ${srcdir}/autofsck_hook    ${pkgdir}/usr/lib/initcpio/hooks/autofsck
 }
 
-md5sums=('d270e58964abe4140cd1483f089cce30'
+md5sums=('cc263a07bdc61ac085f6a41e0c807d0b'
          '87f1878c956a19d883ab6dbb1c59d993')
