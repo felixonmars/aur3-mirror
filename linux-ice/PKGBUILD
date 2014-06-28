@@ -5,9 +5,9 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.15
-pkgver=3.15.1
+pkgver=3.15.2
 pkgrel=1
-_toipatch=tuxonice-for-linux-head-3.15.0-rc8-2014-06-02.patch
+_toipatch=tuxonice-for-linux-3.15.2-2014-06-27.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -25,13 +25,13 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 )
 
 sha256sums=('c3927e87be4040fa8aca1b58663dc0776aaf00485604ff88a623be2f3fb07794'
-            '36590c1a522375cd1bf90bd013bf8b600e08680ac4e6c94926f4fa7c8f65328f'
+            '47d902c0f6cb5833a45ba45132197b14e4c85c6bc17883cbdcff60f5c46f3f02'
             '001588e294e3a2a200cf8ae0122722edab33c9e266e16e17a4cea0b5f70f04ff'
             'e728997fbdd82b330cb54209a4146cea6c844e56822c9825ca22fe53131b3ce5'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
             '79359454c9d8446eb55add2b1cdbf8332bd67dafb01fefb5b1ca090225f64d18'
-            '2f825e607e989e146b177e7af286173462a738b4407f219d5577b3ee8a281189')
+            'b6de13c1a5f3fa37af495b57aa608194a5e8f38d2da05851dc535150d29cf43a')
 
 _kernelname=${pkgbase#linux}
 
