@@ -1,7 +1,7 @@
 # Maintainer: kusakata <shohei atmark kusakata period com>
 
 pkgname=adlint
-pkgver=3.2.10
+pkgver=3.2.14
 pkgrel=1
 pkgdesc="A source code static analyzer"
 arch=('any')
@@ -17,4 +17,4 @@ package() {
 	rm "$pkgdir/$_gemdir/cache/$pkgname-$pkgver.gem"
 }
 
-md5sums=('085dc009ab2cd27288af791e3aef185c')
+md5sums=('436e7b7b5cf1e0678a7e1c4d7d14a73a')

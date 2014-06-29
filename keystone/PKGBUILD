@@ -3,13 +3,14 @@
 pkgbase=keystone
 pkgname=('keystone' 'python2-keystone')
 pkgver=2014.1.1
-pkgrel=2
+pkgrel=3
 pkgdesc="OpenStack Identity"
 arch=(any)
 url="https://launchpad.net/keystone"
 license=('Apache')
 depends=('python2' 'python2-setuptools')
-makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslo-sphinx')
+#makedepends=('python2-setuptools' 'python2-sphinx' 'python2-oslosphinx')
+makedepends=('python2-setuptools')
 options=('emptydirs')
 source=("$url/icehouse/2014.1.1/+download/$pkgbase-$pkgver.tar.gz"
         "keystone.service")
@@ -19,7 +20,7 @@ md5sums=('e99ecd6e0e24fedb69c42108960b3ea4'
 build() {
   cd "$pkgbase-$pkgver"
   /usr/bin/python2 setup.py build
-  #/usr/bin/python2 -d setup.py build_sphinx
+  #/usr/bin/python2 setup.py build_sphinx
   /usr/bin/python2 setup.py install --root="$srcdir/tmp" \
                                     --install-data="/" \
                                     --optimize=1

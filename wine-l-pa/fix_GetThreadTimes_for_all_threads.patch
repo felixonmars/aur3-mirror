@@ -1,0 +1,204 @@
+From 17da950643ca369f6a141f51649e8fb5aa92a402 Mon Sep 17 00:00:00 2001
+From: Ray Hinchliffe <ray@pobox.co.uk>
+Date: Tue, 19 Apr 2011 19:06:24 +0100
+Subject: [PATCH] Fix GetThreadTimes() for all threads
+
+---
+ dlls/ntdll/thread.c |   90 ++++++++++++++++++++++++++++++++++++++++----------
+ server/protocol.def |   11 ++++++
+ server/thread.c     |   18 ++++++++++
+ 3 files changed, 101 insertions(+), 18 deletions(-)
+ mode change 100644 => 100755 dlls/ntdll/thread.c
+ mode change 100644 => 100755 server/protocol.def
+ mode change 100644 => 100755 server/thread.c
+
+diff --git a/dlls/ntdll/thread.c b/dlls/ntdll/thread.c
+old mode 100644
+new mode 100755
+index 56eca23..e736cb2
+--- a/dlls/ntdll/thread.c
++++ b/dlls/ntdll/thread.c
+@@ -23,6 +23,8 @@
+ 
+ #include <assert.h>
+ #include <stdarg.h>
++#include <string.h>
++#include <stdio.h>
+ #include <sys/types.h>
+ #ifdef HAVE_SYS_MMAN_H
+ #include <sys/mman.h>
+@@ -916,45 +918,97 @@ NTSTATUS WINAPI NtQueryInformationThread( HANDLE handle, THREADINFOCLASS class,
+     case ThreadTimes:
+         {
+             KERNEL_USER_TIMES   kusrt;
+-            /* We need to do a server call to get the creation time or exit time */
++            int unix_pid, unix_tid;
++
++            /* We need to do a server call to get the creation time, exit time, PID and TID */
+             /* This works on any thread */
+-            SERVER_START_REQ( get_thread_info )
++            SERVER_START_REQ( get_thread_times )
+             {
+                 req->handle = wine_server_obj_handle( handle );
+-                req->tid_in = 0;
+                 status = wine_server_call( req );
+                 if (status == STATUS_SUCCESS)
+                 {
+                     kusrt.CreateTime.QuadPart = reply->creation_time;
+                     kusrt.ExitTime.QuadPart = reply->exit_time;
++                    unix_pid = reply->unix_pid;
++                    unix_tid = reply->unix_tid;
+                 }
+             }
+             SERVER_END_REQ;
+             if (status == STATUS_SUCCESS)
+             {
+-                /* We call times(2) for kernel time or user time */
+-                /* We can only (portably) do this for the current thread */
++                /* do this portably for the current thread */
+                 if (handle == GetCurrentThread())
+                 {
+-                    struct tms time_buf;
+-                    long clocks_per_sec = sysconf(_SC_CLK_TCK);
++#ifdef HAVE_CLOCK_GETTIME
++                    struct timespec spec_buf;
++
++                    /* are thread times available ? */
++
++                    if ((sysconf(_POSIX_THREAD_CPUTIME)) &&
++                        (!clock_gettime(CLOCK_THREAD_CPUTIME_ID, &spec_buf)))
++                    {
++                        /* yes, but no kernel time, so just return user time */
++
++                        kusrt.KernelTime.QuadPart = 0;
++                        kusrt.UserTime.QuadPart   = (ULONGLONG)spec_buf.tv_sec * 10000000 +
++                                                               spec_buf.tv_nsec / 100;
++                    }
++                    else
++#endif
++                    {
++                        struct tms time_buf;
++                        ULONG tick_time = 10000000 / sysconf(_SC_CLK_TCK);
+ 
+-                    times(&time_buf);
+-                    kusrt.KernelTime.QuadPart = (ULONGLONG)time_buf.tms_stime * 10000000 / clocks_per_sec;
+-                    kusrt.UserTime.QuadPart = (ULONGLONG)time_buf.tms_utime * 10000000 / clocks_per_sec;
++                        /* call times(2) for kernel time or user time */
++
++                        times(&time_buf);
++
++                        kusrt.KernelTime.QuadPart = (ULONGLONG)time_buf.tms_stime * tick_time;
++                        kusrt.UserTime.QuadPart   = (ULONGLONG)time_buf.tms_utime * tick_time;
++                    }
+                 }
+                 else
+                 {
+-                    static BOOL reported = FALSE;
++                    ULONG usr, sys, ctt, got, num;
++                    const char *pos;
++                    FILE *fid;
++                    char buf[256];
+ 
+-                    kusrt.KernelTime.QuadPart = 0;
+-                    kusrt.UserTime.QuadPart = 0;
+-                    if (reported)
+-                        TRACE("Cannot get kerneltime or usertime of other threads\n");
+-                    else
++                    sprintf(buf, "/proc/%d/task/%d/stat", unix_pid, unix_tid);
++
++                    got = 0;
++                    fid = fopen(buf, "r");
++
++                    if (fid)
++                    {
++                        pos = fgets(buf, sizeof(buf), fid);
++                        fclose(fid);
++
++                        for (num = 0; (num < 13) && pos; num++) pos = strchr( pos + 1, ' ' );
++
++                        if (pos && (sscanf(pos, " %u %u", &usr, &sys) == 2))
++                        {
++                            ctt = 10000000 / sysconf(_SC_CLK_TCK);
++                            kusrt.KernelTime.QuadPart = (ULONGLONG)sys * ctt;
++                            kusrt.UserTime.QuadPart   = (ULONGLONG)usr * ctt;
++                            got = 1;
++                        }
++                    }
++
++                    if (!got)          /* failed to read and decode /proc ? */
+                     {
+-                        FIXME("Cannot get kerneltime or usertime of other threads\n");
+-                        reported = TRUE;
++                        static BOOL reported = FALSE;
++
++                        kusrt.KernelTime.QuadPart = 0;
++                        kusrt.UserTime.QuadPart = 0;
++                        if (reported)
++                            TRACE("Cannot get kerneltime or usertime of other threads\n");
++                        else
++                        {
++                            FIXME("Cannot get kerneltime or usertime of other threads\n");
++                            reported = TRUE;
++                        }
+                     }
+                 }
+                 if (data) memcpy( data, &kusrt, min( length, sizeof(kusrt) ));
+diff --git a/server/protocol.def b/server/protocol.def
+old mode 100644
+new mode 100755
+index 8e50ed9..6a40853
+--- a/server/protocol.def
++++ b/server/protocol.def
+@@ -747,6 +747,17 @@ typedef union
+ #define SET_PROCESS_INFO_AFFINITY 0x02
+ 
+ 
++/* Retrieve information about thread times */
++@REQ(get_thread_times)
++    obj_handle_t handle;        /* thread handle */
++@REPLY
++    timeout_t    creation_time; /* thread creation time */
++    timeout_t    exit_time;     /* thread exit time */
++    int          unix_pid;      /* thread native pid */
++    int          unix_tid;      /* thread native pid */
++@END
++
++
+ /* Retrieve information about a thread */
+ @REQ(get_thread_info)
+     obj_handle_t handle;        /* thread handle */
+diff --git a/server/thread.c b/server/thread.c
+old mode 100644
+new mode 100755
+index 983ba2d..0cf694c
+--- a/server/thread.c
++++ b/server/thread.c
+@@ -1239,6 +1239,24 @@ DECL_HANDLER(open_thread)
+     }
+ }
+ 
++/* fetch information about thread times */
++DECL_HANDLER(get_thread_times)
++{
++    struct thread *thread;
++
++    thread = get_thread_from_handle( req->handle, THREAD_QUERY_INFORMATION );
++
++    if (thread)
++    {
++        reply->creation_time  = thread->creation_time;
++        reply->exit_time      = thread->exit_time;
++        reply->unix_pid       = thread->unix_pid;
++        reply->unix_tid       = thread->unix_tid;;
++
++        release_object( thread );
++    }
++}
++
+ /* fetch information about a thread */
+ DECL_HANDLER(get_thread_info)
+ {
+-- 
+1.7.0.4
+
+

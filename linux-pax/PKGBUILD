@@ -16,8 +16,8 @@ pkgname=linux-pax
 true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
 _basekernel=3.15
-_paxver=test1
-pkgver=${_basekernel}.1
+_paxver=test2
+pkgver=${_basekernel}.2
 pkgrel=1
 arch=(i686 x86_64)
 url='https://github.com/nning/linux-pax'
@@ -287,8 +287,8 @@ package_linux-pax-headers() {
 }
 
 sha256sums=('c3927e87be4040fa8aca1b58663dc0776aaf00485604ff88a623be2f3fb07794'
-            '36590c1a522375cd1bf90bd013bf8b600e08680ac4e6c94926f4fa7c8f65328f'
-            '3596ffb84829f3aa035dcf4a1ce301fede177f497a0dc221eb7564fc2da3c596'
+            '47d902c0f6cb5833a45ba45132197b14e4c85c6bc17883cbdcff60f5c46f3f02'
+            '072d72f6b7dab45247abde50f44280bc29cf9d5c40030f562b8d56d1e78b8378'
             '50469fd59cee7da149d7237f240961e995a0fc2dede504879efb40b1e200dd0c'
             '596d88e66a4ca463386622ab4c0aa8c76dc6dc1ea59a8844cca2a186eab612a7'
             '2d62c4be4a515cc6aca5a66c0e9fdc23cb7775531c6d102bc3c1be069dd6b0a8'
