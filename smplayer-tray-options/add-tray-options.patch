@@ -1,0 +1,820 @@
+Index: src/basegui.cpp
+===================================================================
+--- src/basegui.cpp	(révision 6266)
++++ src/basegui.cpp	(copie de travail)
+@@ -2244,7 +2244,7 @@
+ 	pref_dialog->setModal(false);
+ 	/* pref_dialog->mod_input()->setActionsList( actions_list ); */
+ 	connect( pref_dialog, SIGNAL(applied()),
+-             this, SLOT(applyNewPreferences()) );
++             this, SLOT(handlePreferencesDialog()) );
+ 	QApplication::restoreOverrideCursor();
+ }
+ 
+@@ -2811,13 +2811,18 @@
+ }
+ 
+ // The user has pressed OK in preferences dialog
++void BaseGui::handlePreferencesDialog() {
++	qDebug("BaseGui::handlePreferencesDialog");
++
++	pref_dialog->getData(pref);
++	applyNewPreferences();
++}
++
+ void BaseGui::applyNewPreferences() {
+ 	qDebug("BaseGui::applyNewPreferences");
+ 
+ 	bool need_update_language = false;
+ 
+-	pref_dialog->getData(pref);
+-
+ 	// Change application font
+ 	if (!pref->default_font.isEmpty()) {
+ 		QFont f;
+Index: src/basegui.h
+===================================================================
+--- src/basegui.h	(révision 6266)
++++ src/basegui.h	(copie de travail)
+@@ -273,7 +273,9 @@
+ 	virtual void dragEnterEvent( QDragEnterEvent * ) ;
+ 	virtual void dropEvent ( QDropEvent * );
+ 
++	virtual void handlePreferencesDialog();
+ 	virtual void applyNewPreferences();
++
+ 	virtual void applyFileProperties();
+ 
+ 	virtual void clearRecentsList();
+Index: src/baseguiplus.cpp
+===================================================================
+--- src/baseguiplus.cpp	(révision 6266)
++++ src/baseguiplus.cpp	(copie de travail)
+@@ -46,6 +46,27 @@
+ 
+ using namespace Global;
+ 
++bool MyTrayIcon::event(QEvent * e)
++{
++	if (e->type() == QEvent::Wheel) {
++		QWheelEvent * w = (QWheelEvent *)e;
++
++		if (w->orientation() == Qt::Vertical) {
++			wheel_delta += w->delta();
++
++			if (abs(wheel_delta) >= 120) {
++				emit wheel(wheel_delta > 0 ? MyTrayIcon::WheelUp : MyTrayIcon::WheelDown);
++				wheel_delta = 0;
++			}
++		}
++
++		return true;
++	}
++
++	// fall through
++	return QSystemTrayIcon::event(e);
++}
++
+ BaseGuiPlus::BaseGuiPlus( QWidget * parent, Qt::WindowFlags flags)
+ 	: BaseGui( parent, flags )
+ {
+@@ -63,11 +84,13 @@
+ 
+ 	mainwindow_pos = pos();
+ 
+-	tray = new QSystemTrayIcon( Images::icon("logo", 22), this );
++	tray = new MyTrayIcon( Images::icon("logo", 22), this );
+ 
+ 	tray->setToolTip( "SMPlayer" );
+ 	connect( tray, SIGNAL(activated(QSystemTrayIcon::ActivationReason)), 
+              this, SLOT(trayIconActivated(QSystemTrayIcon::ActivationReason)));
++	connect( tray, SIGNAL(wheel(MyTrayIcon::WheelMotion)), 
++	         this, SLOT(wheelMotion(MyTrayIcon::WheelMotion)));
+ 
+ 	quitAct = new MyAction(QKeySequence("Ctrl+Q"), this, "quit");
+     connect( quitAct, SIGNAL(triggered()), this, SLOT(quit()) );
+@@ -76,7 +99,7 @@
+ 	showTrayAct = new MyAction(this, "show_tray_icon" );
+ 	showTrayAct->setCheckable(true);
+ 	connect( showTrayAct, SIGNAL(toggled(bool)),
+-             tray, SLOT(setVisible(bool)) );
++	         this, SLOT(setTrayVisibility(bool)) );
+ 
+ #ifndef Q_OS_OS2
+ 	optionsMenu->addAction(showTrayAct);
+@@ -175,27 +198,29 @@
+ 	closeWindow();
+ }
+ 
++void BaseGuiPlus::changeEvent( QEvent * e ) {
++	qDebug("BaseGuiPlus::changeEvent");
++
++	BaseGui::changeEvent(e);
++
++	if ( tray->isVisible() && e->type() == QEvent::WindowStateChange
++	     && isMinimized() && pref->minimize_to_tray )
++	{
++		hideToTray();
++	}
++}
++
+ void BaseGuiPlus::closeWindow() {
+ 	qDebug("BaseGuiPlus::closeWindow");
+ 
+-	if (tray->isVisible()) {
+-		//e->ignore();
+-		exitFullscreen();
+-		showAll(false); // Hide windows
+-		if (core->state() == Core::Playing) core->stop();
++	if (tray->isVisible() && pref->close_to_tray) {
++		hideToTray();
+ 
+-		if (pref->balloon_count > 0) {
+-			tray->showMessage( "SMPlayer", 
+-				tr("SMPlayer is still running here"), 
+-        	    QSystemTrayIcon::Information, 3000 );
+-			pref->balloon_count--;
+-		}
+-
++		if (core->state() == Core::Playing)
++			core->stop();
+ 	} else {
+ 		BaseGui::closeWindow();
+ 	}
+-	//tray->hide();
+-
+ }
+ 
+ void BaseGuiPlus::quit() {
+@@ -230,7 +255,6 @@
+ 
+ 	set->beginGroup( "base_gui_plus");
+ 
+-	set->setValue( "show_tray_icon", showTrayAct->isChecked() );
+ 	set->setValue( "mainwindow_visible", isVisible() );
+ 
+ 	set->setValue( "trayicon_playlist_was_visible", trayicon_playlist_was_visible );
+@@ -258,9 +282,8 @@
+ 
+ 	set->beginGroup( "base_gui_plus");
+ 
+-	bool show_tray_icon = set->value( "show_tray_icon", false).toBool();
+-	showTrayAct->setChecked( show_tray_icon );
+-	//tray->setVisible( show_tray_icon );
++	tray->setVisible( pref->show_tray_icon );
++	showTrayAct->setChecked( pref->show_tray_icon );
+ 
+ 	mainwindow_visible = set->value("mainwindow_visible", true).toBool();
+ 
+@@ -290,15 +313,49 @@
+ 
+ 	updateShowAllAct();
+ 
++	int function = 0;
++
+ 	if (reason == QSystemTrayIcon::Trigger) {
+-		toggleShowAll();
++		function = pref->tray_left_click;
++	} else if (reason == QSystemTrayIcon::MiddleClick) {
++		function = pref->tray_middle_click;
+ 	}
+-	else
+-	if (reason == QSystemTrayIcon::MiddleClick) {
+-		core->pause();
++
++	switch (function) {
++		case Preferences::TrayPlayPause:
++			core->pause();
++			break;
++		case Preferences::TrayShowHide:
++			toggleShowAll();
++			break;
++		case Preferences::TrayMute:
++			core->switchMute();
++			break;
++		default:
++			break;
+ 	}
+ }
+ 
++void BaseGuiPlus::wheelMotion(MyTrayIcon::WheelMotion motion) {
++	qDebug("DefaultGui::wheel: %d", motion);
++
++	updateShowAllAct();
++
++	if (pref->tray_wheel == Preferences::TrayVolume) {
++		if (motion == MyTrayIcon::WheelUp) {
++			core->incVolume();
++		} else {
++			core->decVolume();
++		}
++	} else if (pref->tray_wheel == Preferences::TrayChangeTrack) {
++		if (motion == MyTrayIcon::WheelUp) {
++			playlist->playNext();
++		} else {
++			playlist->playPrev();
++		}
++	}
++}
++
+ void BaseGuiPlus::toggleShowAll() {
+ 	// Ignore if tray is not visible
+ 	if (tray->isVisible()) {
+@@ -332,6 +389,8 @@
+ 		mainwindow_pos = pos();
+ 		hide();
+ 
++		setWindowState(windowState() & ~Qt::WindowMinimized);
++
+ 		/*
+ 		infowindow_visible = info_window->isVisible();
+ 		infowindow_pos = info_window->pos();
+@@ -353,6 +412,8 @@
+ 		}
+ #endif
+ 
++		setWindowState(windowState() & Qt::WindowActive);
++
+ 		/*
+ 		if (infowindow_visible) {
+ 			info_window->show();
+@@ -466,6 +527,26 @@
+ #endif
+ }
+ 
++void BaseGuiPlus::hideToTray()
++{
++	qDebug("BaseGuiPlus::hideToTray");
++
++	if (!tray->isVisible()) {
++		qDebug("BaseGuiPlus::hideToTray: warning tray icon is not visible");
++		return;
++	}
++
++	exitFullscreen();
++	showAll(false); // Hide windows
++
++	if (pref->balloon_count > 0) {
++		tray->showMessage( "SMPlayer", 
++			tr("SMPlayer is still running here"), 
++    	    QSystemTrayIcon::Information, 3000 );
++		pref->balloon_count--;
++	}
++}
++
+ #if DOCK_PLAYLIST
+ void BaseGuiPlus::showPlaylist(bool b) {
+ 	qDebug("BaseGuiPlus::showPlaylist: %d", b);
+@@ -517,6 +598,22 @@
+ }
+ #endif
+ 
++void BaseGuiPlus::applyNewPreferences() {
++	qDebug("BaseGuiPlus::applyNewPreferences");
++
++	setTrayVisibility(pref->show_tray_icon);
++	showTrayAct->setChecked(pref->show_tray_icon);
++
++	BaseGui::applyNewPreferences();
++}
++
++void BaseGuiPlus::setTrayVisibility(bool visible) {
++	qDebug("BaseGuiPlus::setTrayVisibility: %d", visible);
++
++	pref->show_tray_icon = visible;
++	tray->setVisible(visible);
++}
++
+ void BaseGuiPlus::stretchWindow() {
+ 	qDebug("BaseGuiPlus::stretchWindow");
+ 	if ((ignore_playlist_events) || (pref->resize_method!=Preferences::Always)) return;
+Index: src/baseguiplus.h
+===================================================================
+--- src/baseguiplus.h	(révision 6266)
++++ src/baseguiplus.h	(copie de travail)
+@@ -30,6 +30,32 @@
+ class TimeSliderAction;
+ class VolumeSliderAction;
+ 
++// Qt provides no way of receiving wheel motion on tray icons (X11-only)
++// without subclassing QSystemTrayIcon::event method.
++class MyTrayIcon : public QSystemTrayIcon
++{
++	Q_OBJECT
++
++public:
++	enum WheelMotion {
++		WheelUp,
++		WheelDown
++	};
++
++	MyTrayIcon(QObject * parent = 0)
++        : QSystemTrayIcon(parent), wheel_delta(0) {}
++	MyTrayIcon(const QIcon & icon, QObject * parent = 0)
++        : QSystemTrayIcon(icon, parent), wheel_delta(0) {}
++
++	bool event(QEvent * event);
++
++signals:
++	void wheel(MyTrayIcon::WheelMotion motion);
++
++private:
++    int wheel_delta;
++};
++
+ class BaseGuiPlus : public BaseGui
+ {
+ 	Q_OBJECT
+@@ -53,6 +79,7 @@
+ 	virtual void aboutToExitCompactMode();
+ 
+ 	virtual void closeEvent( QCloseEvent * e );
++	virtual void changeEvent( QEvent * e );
+ 
+ 	// Functions for other GUI's
+ 	TimeSliderAction * createTimeSliderAction(QWidget * parent);
+@@ -66,6 +93,7 @@
+ 	virtual void updateMediaInfo();
+ 	// New
+ 	virtual void trayIconActivated(QSystemTrayIcon::ActivationReason);
++	virtual void wheelMotion(MyTrayIcon::WheelMotion motion);
+ 	virtual void toggleShowAll();
+ 	virtual void showAll(bool b);
+ 	virtual void showAll();
+@@ -74,6 +102,8 @@
+ 	void trayAvailable();
+ #endif
+ 
++	void hideToTray();
++
+ #if DOCK_PLAYLIST
+ 	virtual void showPlaylist(bool b);
+ 	void playlistClosed();
+@@ -84,6 +114,10 @@
+ 	void dockTopLevelChanged(bool floating);
+ #endif
+ 
++	virtual void applyNewPreferences();
++
++	void setTrayVisibility(bool visible);
++
+ 	void stretchWindow();
+ 	void shrinkWindow();
+ #endif
+@@ -90,7 +124,7 @@
+ 
+ 
+ protected:
+-	QSystemTrayIcon * tray;
++	MyTrayIcon * tray;
+ 	QMenu * context_menu;
+ 
+ 	MyAction * quitAct;
+Index: src/preferences.cpp
+===================================================================
+--- src/preferences.cpp	(révision 6266)
++++ src/preferences.cpp	(copie de travail)
+@@ -496,7 +496,19 @@
+ 	use_single_instance = true;
+ #endif
+ 
++    /* *********
++       Tray icon
++       ********* */
+ 
++	show_tray_icon = false;
++
++	close_to_tray = true;
++	minimize_to_tray = false;
++
++	tray_left_click = Preferences::TrayShowHide;
++	tray_middle_click = Preferences::TrayPlayPause;
++	tray_wheel = Preferences::TrayVolume;
++
+     /* ****************
+        Floating control
+        **************** */
+@@ -969,7 +981,22 @@
+ 	set->endGroup(); // instances
+ #endif
+ 
++    /* *********
++       Tray icon
++       ********* */
+ 
++	set->beginGroup("base_gui_plus");
++	set->setValue("show_tray_icon", show_tray_icon);
++	set->endGroup();
++
++	set->beginGroup("tray_icon");
++	set->setValue("close_to_tray", close_to_tray);
++	set->setValue("minimize_to_tray", minimize_to_tray);
++	set->setValue("left_click", tray_left_click);
++	set->setValue("middle_click", tray_middle_click);
++	set->setValue("wheel", tray_wheel);
++	set->endGroup(); // tray_icon
++
+     /* ****************
+        Floating control
+        **************** */
+@@ -1468,7 +1495,22 @@
+ 	set->endGroup(); // instances
+ #endif
+ 
++	/* *********
++	   Tray icon
++	   ********* */
+ 
++	set->beginGroup("base_gui_plus");
++	show_tray_icon = set->value("show_tray_icon", show_tray_icon).toBool();
++	set->endGroup();
++
++	set->beginGroup("tray_icon");
++	close_to_tray = set->value("close_to_tray", close_to_tray).toBool();
++	minimize_to_tray = set->value("minimize_to_tray", minimize_to_tray).toBool();
++	tray_left_click = set->value("left_click", tray_left_click).toInt();
++	tray_middle_click = set->value("middle_click", tray_middle_click).toInt();
++	tray_wheel = set->value("wheel", tray_wheel).toInt();
++	set->endGroup(); // tray_icon
++
+     /* ****************
+        Floating control
+        **************** */
+Index: src/preferences.h
+===================================================================
+--- src/preferences.h	(révision 6266)
++++ src/preferences.h	(copie de travail)
+@@ -51,6 +51,9 @@
+ 	enum H264LoopFilter { LoopDisabled = 0, LoopEnabled = 1, LoopDisabledOnHD = 2 };
+ 	enum AutoAddToPlaylistFilter { NoFiles = 0, VideoFiles = 1, AudioFiles = 2, MultimediaFiles = 3, ConsecutiveFiles = 4 };
+ 
++	enum TrayClickFunction { TrayNothing = 0, TrayPlayPause = 1, TrayShowHide = 2, TrayMute = 3 };
++	enum TrayWheelFunction { /* TrayNothing = 0, */ TrayVolume = 1, TrayChangeTrack = 2 };
++
+ 	Q_DECLARE_FLAGS(WheelFunctions, WheelFunction);
+ 
+ 	Preferences();
+@@ -502,7 +505,19 @@
+ 	bool use_single_instance;
+ #endif
+ 
++    /* *********
++       Tray icon
++       ********* */
+ 
++	bool show_tray_icon;
++
++	bool close_to_tray;
++	bool minimize_to_tray;
++
++	int tray_left_click;
++	int tray_middle_click;
++	int tray_wheel;
++
+     /* ****************
+        Floating control
+        **************** */
+Index: src/prefinterface.cpp
+===================================================================
+--- src/prefinterface.cpp	(révision 6266)
++++ src/prefinterface.cpp	(copie de travail)
+@@ -256,6 +256,19 @@
+ 
+ 	setGUI(pref->gui);
+ 
++	setShowTrayIcon(pref->show_tray_icon);
++
++	setCloseToTray(pref->close_to_tray);
++	setMinimizeToTray(pref->minimize_to_tray);
++
++	setTrayLeftClickFunction(pref->tray_left_click);
++	setTrayMiddleClickFunction(pref->tray_middle_click);
++	setTrayWheelFunction(pref->tray_wheel);
++
++#ifndef Q_WS_X11
++	disableTrayWheelCombo();
++#endif
++
+ 	setFloatingAnimated(pref->floating_control_animated);
+ 	setFloatingWidth(pref->floating_control_width);
+ 	setFloatingMargin(pref->floating_control_margin);
+@@ -332,6 +345,15 @@
+ 	pref->floating_activation_area = floating_move_bottom_check->isChecked() ? AutohideWidget::Bottom : AutohideWidget::Anywhere;
+ 	pref->floating_hide_delay = floating_hide_delay_spin->value();
+ 
++	pref->show_tray_icon = showTrayIcon();
++
++	pref->close_to_tray = closeToTray();
++	pref->minimize_to_tray = minimizeToTray();
++
++	pref->tray_left_click = trayLeftClickFunction();
++	pref->tray_middle_click = trayMiddleClickFunction();
++	pref->tray_wheel = trayWheelFunction();
++
+ 	if (pref->history_recents->maxItems() != recentsMaxItems()) {
+ 		pref->history_recents->setMaxItems( recentsMaxItems() );
+ 		recents_changed = true;
+@@ -614,6 +636,58 @@
+ 	return floating_compact_check->isChecked();
+ }
+ 
++void PrefInterface::setShowTrayIcon(bool b) {
++	show_tray_icon_check->setChecked(b);
++}
++
++bool PrefInterface::showTrayIcon() {
++	return show_tray_icon_check->isChecked();
++}
++
++void PrefInterface::setCloseToTray(bool b) {
++	close_to_tray_check->setChecked(b);
++}
++
++bool PrefInterface::closeToTray() {
++	return close_to_tray_check->isChecked();
++}
++
++void PrefInterface::setMinimizeToTray(bool b) {
++	minimize_to_tray_check->setChecked(b);
++}
++
++bool PrefInterface::minimizeToTray() {
++	return minimize_to_tray_check->isChecked();
++}
++
++void PrefInterface::setTrayLeftClickFunction(int v) {
++	tray_left_click_combo->setCurrentIndex(v);
++}
++
++int PrefInterface::trayLeftClickFunction() {
++	return tray_left_click_combo->currentIndex();
++}
++
++void PrefInterface::setTrayMiddleClickFunction(int v) {
++	tray_middle_click_combo->setCurrentIndex(v);
++}
++
++int PrefInterface::trayMiddleClickFunction() {
++	return tray_middle_click_combo->currentIndex();
++}
++
++void PrefInterface::setTrayWheelFunction(int v) {
++	tray_wheel_combo->setCurrentIndex(v);
++}
++
++int PrefInterface::trayWheelFunction() {
++	return tray_wheel_combo->currentIndex();
++}
++
++void PrefInterface::disableTrayWheelCombo() {
++	tray_wheel_combo->setEnabled(false);
++}
++
+ void PrefInterface::setRecentsMaxItems(int n) {
+ 	recents_max_items_spin->setValue(n);
+ }
+Index: src/prefinterface.h
+===================================================================
+--- src/prefinterface.h	(révision 6266)
++++ src/prefinterface.h	(copie de travail)
+@@ -105,6 +105,27 @@
+ 	void setHideVideoOnAudioFiles(bool b);
+ 	bool hideVideoOnAudioFiles();
+ 
++	// Tray icon tab
++	void setShowTrayIcon(bool b);
++	bool showTrayIcon();
++
++	void setCloseToTray(bool b);
++	bool closeToTray();
++
++	void setMinimizeToTray(bool b);
++	bool minimizeToTray();
++
++	void setTrayLeftClickFunction(int v);
++	int trayLeftClickFunction();
++
++	void setTrayMiddleClickFunction(int v);
++	int trayMiddleClickFunction();
++
++	void setTrayWheelFunction(int v);
++	int trayWheelFunction();
++
++	void disableTrayWheelCombo();
++
+ 	// Floating tab
+ 	void setFloatingAnimated(bool b);
+ 	bool floatingAnimated();
+Index: src/prefinterface.ui
+===================================================================
+--- src/prefinterface.ui	(révision 6266)
++++ src/prefinterface.ui	(copie de travail)
+@@ -638,6 +638,199 @@
+      </widget>
+      <widget class="QWidget" name="tab_4">
+       <attribute name="title">
++       <string>&amp;Tray icon</string>
++      </attribute>
++      <layout class="QVBoxLayout" name="verticalLayout_7">
++       <item>
++        <widget class="QCheckBox" name="show_tray_icon_check">
++         <property name="text">
++          <string>&amp;Show icon in notification area</string>
++         </property>
++        </widget>
++       </item>
++       <item>
++        <widget class="QGroupBox" name="groupBox_2">
++         <property name="title">
++          <string>Behavior</string>
++         </property>
++         <layout class="QVBoxLayout" name="verticalLayout_8">
++          <item>
++           <widget class="QCheckBox" name="close_to_tray_check">
++            <property name="text">
++             <string>Keep in notification area when &amp;closed</string>
++            </property>
++           </widget>
++          </item>
++          <item>
++           <widget class="QCheckBox" name="minimize_to_tray_check">
++            <property name="text">
++             <string>Minimize to &amp;notification area</string>
++            </property>
++           </widget>
++          </item>
++          <item>
++           <layout class="QGridLayout" name="gridLayout_2">
++            <item row="2" column="0">
++             <widget class="QLabel" name="label_11">
++              <property name="text">
++               <string>&amp;Wheel motion:</string>
++              </property>
++              <property name="buddy">
++               <cstring>tray_wheel_combo</cstring>
++              </property>
++             </widget>
++            </item>
++            <item row="1" column="1">
++             <widget class="QComboBox" name="tray_middle_click_combo">
++              <item>
++               <property name="text">
++                <string>Do nothing</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Play/Pause</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Show/Hide</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Mute/Unmute</string>
++               </property>
++              </item>
++             </widget>
++            </item>
++            <item row="1" column="0">
++             <widget class="QLabel" name="label_10">
++              <property name="text">
++               <string>&amp;Middle click:</string>
++              </property>
++              <property name="buddy">
++               <cstring>tray_middle_click_combo</cstring>
++              </property>
++             </widget>
++            </item>
++            <item row="2" column="1">
++             <widget class="QComboBox" name="tray_wheel_combo">
++              <item>
++               <property name="text">
++                <string>Do nothing</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Volume up/down</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Next/previous track</string>
++               </property>
++              </item>
++             </widget>
++            </item>
++            <item row="0" column="0">
++             <widget class="QLabel" name="label_9">
++              <property name="text">
++               <string>&amp;Left click:</string>
++              </property>
++              <property name="textInteractionFlags">
++               <set>Qt::LinksAccessibleByMouse</set>
++              </property>
++              <property name="buddy">
++               <cstring>tray_left_click_combo</cstring>
++              </property>
++             </widget>
++            </item>
++            <item row="0" column="1">
++             <widget class="QComboBox" name="tray_left_click_combo">
++              <item>
++               <property name="text">
++                <string>Do nothing</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Play/Pause</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Show/Hide</string>
++               </property>
++              </item>
++              <item>
++               <property name="text">
++                <string>Mute/Unmute</string>
++               </property>
++              </item>
++             </widget>
++            </item>
++            <item row="0" column="3">
++             <spacer name="horizontalSpacer_5">
++              <property name="orientation">
++               <enum>Qt::Horizontal</enum>
++              </property>
++              <property name="sizeHint" stdset="0">
++               <size>
++                <width>40</width>
++                <height>20</height>
++               </size>
++              </property>
++             </spacer>
++            </item>
++            <item row="2" column="3">
++             <spacer name="horizontalSpacer_6">
++              <property name="orientation">
++               <enum>Qt::Horizontal</enum>
++              </property>
++              <property name="sizeHint" stdset="0">
++               <size>
++                <width>40</width>
++                <height>20</height>
++               </size>
++              </property>
++             </spacer>
++            </item>
++            <item row="1" column="3">
++             <spacer name="horizontalSpacer_7">
++              <property name="orientation">
++               <enum>Qt::Horizontal</enum>
++              </property>
++              <property name="sizeHint" stdset="0">
++               <size>
++                <width>40</width>
++                <height>20</height>
++               </size>
++              </property>
++             </spacer>
++            </item>
++           </layout>
++          </item>
++         </layout>
++        </widget>
++       </item>
++       <item>
++        <spacer name="verticalSpacer_2">
++         <property name="orientation">
++          <enum>Qt::Vertical</enum>
++         </property>
++         <property name="sizeHint" stdset="0">
++          <size>
++           <width>20</width>
++           <height>40</height>
++          </size>
++         </property>
++        </spacer>
++       </item>
++      </layout>
++     </widget>
++     <widget class="QWidget" name="tab_5">
++      <attribute name="title">
+        <string>&amp;Floating control</string>
+       </attribute>
+       <layout class="QVBoxLayout" name="verticalLayout_6">
+@@ -794,7 +987,7 @@
+        </item>
+       </layout>
+      </widget>
+-     <widget class="QWidget" name="tab_5">
++     <widget class="QWidget" name="tab_6">
+       <attribute name="title">
+        <string>Privac&amp;y</string>
+       </attribute>

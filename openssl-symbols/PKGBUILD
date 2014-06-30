@@ -2,8 +2,8 @@
 
 _pkg=openssl
 pkgname=openssl-symbols
-_ver=1.0.1g
-pkgver=1.0.1.g
+_ver=1.0.1h
+pkgver=1.0.1.h
 pkgrel=1
 pkgdesc='The Open Source toolkit for Secure Sockets Layer and Transport Layer Security'
 arch=('i686' 'x86_64')
@@ -19,13 +19,11 @@ source=("https://www.openssl.org/source/${_pkg}-${_ver}.tar.gz"
         "https://www.openssl.org/source/${_pkg}-${_ver}.tar.gz.asc"
         'no-rpath.patch'
         'ca-dir.patch'
-        'openssl-1.0.1f-perl-5.18.patch'
         'versioned-symbols.patch')
-md5sums=('de62b43dfcd858e66a74bee1c834e959'
+md5sums=('8d6d684a9430d5cc98a62a5d8fbda8cf'
          'SKIP'
          'dc78d3d06baffc16217519242ce92478'
          '3bf51be3a1bbd262be46dc619f92aa90'
-         'ea2a61c8bd43788d81d98f1ac36c98ac'
          '8352550c89279b85ebf92e5c19f97a48')
 
 prepare() {
@@ -37,8 +35,6 @@ prepare() {
 	patch -p0 -i $srcdir/ca-dir.patch
     # add OPENSSL_1.0.0 symbols
 	patch -p0 -i $srcdir/versioned-symbols.patch
-
-	patch -p1 -i $srcdir/openssl-1.0.1f-perl-5.18.patch
 }
 
 build() {
@@ -56,7 +52,7 @@ build() {
 	./Configure --prefix=/usr --openssldir=/etc/ssl --libdir=lib \
 		shared zlib ${optflags} \
 		"${openssltarget}" \
-		"-Wa,--noexecstack ${CFLAGS} ${LDFLAGS}"
+		"-Wa,--noexecstack ${CPPFLAGS} ${CFLAGS} ${LDFLAGS}"
 
 	make depend
 	make
