@@ -1,0 +1,246 @@
+diff -urbN vpnclient/frag.c vpnclient.new//frag.c
+--- vpnclient/frag.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient.new//frag.c	2010-04-10 23:27:45.000000000 +0200
+@@ -1,5 +1,7 @@
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+@@ -22,7 +24,7 @@
+ #include "frag.h"
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-#define SKB_IPHDR(skb) ((struct iphdr*)skb->network_header)
++#define SKB_IPHDR(skb) ((struct iphdr*)skb_network_header)
+ #else
+ #define SKB_IPHDR(skb) skb->nh.iph
+ #endif
+diff -urbN vpnclient/interceptor.c vpnclient.new//interceptor.c
+--- vpnclient/interceptor.c	2009-05-20 15:16:34.000000000 +0200
++++ vpnclient.new//interceptor.c	2010-04-10 23:28:53.000000000 +0200
+@@ -9,7 +9,9 @@
+ * This module implements the linux driver.
+ ***************************************************************************/
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+@@ -116,6 +118,14 @@
+ };
+ #endif
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++static struct net_device_ops interceptor_netdev_ops = {
++ .ndo_start_xmit = interceptor_tx,
++ .ndo_do_ioctl = interceptor_ioctl,
++ .ndo_get_stats = interceptor_stats,
++};
++#endif
++
+ static struct notifier_block interceptor_notifier = {
+     .notifier_call = handle_netdev_event,
+ };
+@@ -129,9 +139,13 @@
+ {
+     ether_setup(dev);
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    dev->netdev_ops = &interceptor_netdev_ops;
++#else
+     dev->hard_start_xmit = interceptor_tx;
+     dev->get_stats = interceptor_stats;
+     dev->do_ioctl = interceptor_ioctl;
++#endif
+ 
+     dev->mtu = ETH_DATA_LEN-MTU_REDUCTION;
+     kernel_memcpy(dev->dev_addr, interceptor_eth_addr,ETH_ALEN);
+@@ -243,6 +257,10 @@
+     int rc = -1;
+     int i = 0;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    struct net_device_ops * tmp_ops;
++#endif
++
+     if (!supported_device(dev))
+     {
+         goto exit_gracefully;
+@@ -268,9 +286,14 @@
+     Bindings[i].original_mtu = dev->mtu;
+ 
+     /*replace the original send function with our send function */
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    Bindings[i].InjectSend = dev->netdev_ops->ndo_start_xmit;
++    tmp_ops = (struct net_device_ops *) dev->netdev_ops;
++    tmp_ops->ndo_start_xmit = replacement_dev_xmit;
++#else
+     Bindings[i].InjectSend = dev->hard_start_xmit;
+     dev->hard_start_xmit = replacement_dev_xmit;
+-
++#endif
+     /*copy in the ip packet handler function and packet type struct */
+     Bindings[i].InjectReceive = original_ip_handler.orig_handler_func;
+     Bindings[i].pPT = original_ip_handler.pt;
+@@ -286,12 +309,21 @@
+     int rc = -1;
+     BINDING *b;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++    struct net_device_ops * tmp_ops;
++#endif
++
+     b = getbindingbydev(dev);
+ 
+     if (b)
+     {   
+         rc = 0;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
++        tmp_ops = (struct net_device_ops *) dev->netdev_ops;
++        tmp_ops->ndo_start_xmit = b->InjectSend;
++#else
+         dev->hard_start_xmit = b->InjectSend;
++#endif
+         kernel_memset(b, 0, sizeof(BINDING));
+     }
+     else
+@@ -637,19 +669,26 @@
+ 
+     reset_inject_status(&pBinding->recv_stat);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    if (skb->mac_header)
++    if (skb_mac_header_was_set(skb))
+ #else
+     if (skb->mac.raw)
+ #endif
+     {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-        hard_header_len = skb->data - skb->mac_header;
++        hard_header_len = skb->data - skb_mac_header(skb);
+ #else
+         hard_header_len = skb->data - skb->mac.raw;
+ #endif
+         if ((hard_header_len < 0) || (hard_header_len > skb_headroom(skb)))
+         {
+             printk(KERN_DEBUG "bad hh len %d\n", hard_header_len);
++
++            printk(KERN_DEBUG "bad hh len %d, mac: %ld, data: %p, head: %p\n",
++                hard_header_len,
++                (long) skb->mac_header,
++                skb->data,
++                skb->head);
++
+             hard_header_len = 0;
+         }
+     }
+@@ -664,7 +703,7 @@
+     {
+     case ETH_HLEN:
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-        CniNewFragment(ETH_HLEN, skb->mac_header, &MacHdr, CNI_USE_BUFFER);
++        CniNewFragment(ETH_HLEN, skb_mac_header(skb), &MacHdr, CNI_USE_BUFFER);
+ #else
+         CniNewFragment(ETH_HLEN, skb->mac.raw, &MacHdr, CNI_USE_BUFFER);
+ #endif
+@@ -782,7 +821,7 @@
+ #endif //LINUX_VERSION_CODE >= KERNEL_VERSION(2,4,0)
+     reset_inject_status(&pBinding->send_stat);
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    hard_header_len = skb->network_header - skb->data;
++    hard_header_len = skb_network_header(skb) - skb->data;
+ #else
+     hard_header_len = skb->nh.raw - skb->data;
+ #endif
+diff -urbN vpnclient/IPSecDrvOS_linux.c vpnclient.new//IPSecDrvOS_linux.c
+--- vpnclient/IPSecDrvOS_linux.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient.new//IPSecDrvOS_linux.c	2010-04-10 23:27:45.000000000 +0200
+@@ -12,7 +12,9 @@
+ *
+ ***************************************************************************/
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+diff -urbN vpnclient/linuxcniapi.c vpnclient.new//linuxcniapi.c
+--- vpnclient/linuxcniapi.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient.new//linuxcniapi.c	2010-04-10 23:27:45.000000000 +0200
+@@ -10,7 +10,9 @@
+  * Linux Interceptor driver.
+  ***************************************************************************/
+ #include <linux/version.h>
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33)
++#include <generated/autoconf.h>
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,15)
+ #include <linux/autoconf.h>
+ #else
+ #include <linux/config.h>
+@@ -338,8 +340,8 @@
+     skb->ip_summed = CHECKSUM_UNNECESSARY;
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->network_header = (sk_buff_data_t) skb->data;
+-    skb->mac_header = (sk_buff_data_t)pMac;
++    skb_reset_network_header(skb);
++    skb_set_mac_header(skb, (int)((void *)pMac - (void *)skb->data));
+ #else
+     skb->nh.iph = (struct iphdr *) skb->data;
+     skb->mac.raw = pMac;
+@@ -478,8 +480,8 @@
+     skb->dev = pBinding->pDevice;
+ 
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->mac_header = (sk_buff_data_t)pMac;
+-    skb->network_header = (sk_buff_data_t)pIP;
++    skb_set_mac_header(skb, (int)((void *)pMac - (void *)skb->data));
++    skb_set_network_header(skb, (int)((void *)pIP - (void *)skb->data));
+ #else
+     skb->mac.raw = pMac;
+     skb->nh.raw = pIP;
+@@ -487,8 +489,9 @@
+ 
+     /*ip header length is in 32bit words */
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,22)
+-    skb->transport_header = (sk_buff_data_t)
+-      (pIP + (((struct iphdr*)(skb->network_header))->ihl * 4));
++    skb_set_transport_header(skb,
++        ((int)((void *)pIP - (void *)skb->data) +
++           (((struct iphdr*)(skb_network_header(skb)))->ihl * 4)));
+ #else
+     skb->h.raw = pIP + (skb->nh.iph->ihl * 4);
+ #endif
+diff -urbN vpnclient/linuxkernelapi.c vpnclient.new//linuxkernelapi.c
+--- vpnclient/linuxkernelapi.c	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient.new//linuxkernelapi.c	2010-04-10 23:27:45.000000000 +0200
+@@ -9,7 +9,7 @@
+     void*rc = kmalloc(size, GFP_ATOMIC);
+     if(NULL == rc)
+     {
+-        printk("<1> os_malloc size %d failed\n",size);
++        printk("<1> os_malloc size %ld failed\n", (long)size);
+     }
+ 
+     return rc;
+diff -urbN vpnclient/Makefile vpnclient.new//Makefile
+--- vpnclient/Makefile	2008-06-23 18:59:12.000000000 +0200
++++ vpnclient.new//Makefile	2010-04-10 23:27:45.000000000 +0200
+@@ -12,7 +12,7 @@
+ SOURCE_OBJS := linuxcniapi.o frag.o IPSecDrvOS_linux.o interceptor.o linuxkernelapi.o
+ 
+ ifeq ($(SUBARCH),x86_64)
+-CFLAGS += -mcmodel=kernel -mno-red-zone
++EXTRA_CFLAGS += -mcmodel=kernel -mno-red-zone
+ NO_SOURCE_OBJS := libdriver64.so
+ else
+ NO_SOURCE_OBJS := libdriver.so

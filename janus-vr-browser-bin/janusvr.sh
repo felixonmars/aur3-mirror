@@ -1,3 +1,4 @@
 #!/bin/bash
 cd /opt/janusvr/
-./janusvr.sh $@
+export LD_LIBRARY_PATH=./libs
+./janusvr $@

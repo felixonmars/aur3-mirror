@@ -2,8 +2,8 @@
 # Contributor: Ben Cole <wengole@gmail.com>
 # Contributor: Sam Van der Borght <sam@king-foo.be>
 pkgname=valentina-studio
-pkgver=5.5.5
-pkgrel=2
+pkgver=5.5.8
+pkgrel=1
 pkgdesc="SQL admin for valentina DB, MySQL, Postgre and SQLite"
 arch=('x86_64' 'i686')
 url="https://www.valentina-db.com/en/valentina-studio-overview"
@@ -13,10 +13,10 @@ depends=('gtk2')
 
 if [ "$CARCH" = "i686" ]; then
 	source=("http://www.valentina-db.com/download/prev_releases/$pkgver/lin_32/vstudio_5_lin.rpm")
-	md5sums=('fb760dbcfbb911dc39444c1bb2c6987a')
+	md5sums=('53ae4ab86d3b4a8ac40d413ab4dc55b9')
 elif [ "$CARCH" = "x86_64" ]; then
 	source=("http://www.valentina-db.com/download/prev_releases/$pkgver/lin_64/vstudio_x64_5_lin.rpm")
-	md5sums=('13c7bd5bc7e5386daa600bb2e8c17753')
+	md5sums=('b3410dbeed17aea35b46f37749bac3ba')
 fi
 
 package() {

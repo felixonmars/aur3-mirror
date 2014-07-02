@@ -11,9 +11,9 @@
 _pkgname=htop
 pkgname=$_pkgname-solarized-vi
 pkgver=1.0.3
-pkgrel=2
+pkgrel=3
 pkgdesc="Interactive process viewer with solarized patch and vi keybindings patch"
-arch=('i686' 'x86_64')
+arch=('arm' 'i686' 'x86_64')
 url="http://htop.sourceforge.net/"
 license=('GPL')
 depends=('ncurses')
