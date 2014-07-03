@@ -1,13 +1,14 @@
 # Contributor: Robert Orzanna <orschiro@gmail.com>
 
 pkgname=aclidswitch-git
-pkgver=r6.3913e83
+pkgver=r9.ca914d0
 pkgrel=1
 pkgdesc="Change systemd's lid switch action depending on the laptop's AC state"
 arch=('i686' 'x86_64')
 url="https://github.com/orschiro/aclidswitch"
 license=('GPL2')
 depends=('pacman')
+install=aclidswitch.install
 backup=('etc/default/aclidswitch')
 makedepends=('git')
 source=("$pkgname"::'git://github.com/orschiro/aclidswitch.git')

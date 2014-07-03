@@ -15,6 +15,8 @@ md5sums=('ccb5864bde56683182c89c44474e7182')
 package() {
   install -D -m755 ${_pkgname}-${pkgver}/adduser "${pkgdir}/usr/bin/adduser"
   install -D -m755 ${_pkgname}-${pkgver}/deluser "${pkgdir}/usr/bin/deluser"
+  ln -s addgroup "${pkgdir}/usr/bin/addgroup"
+  ln -s delgroup "${pkgdir}/usr/bin/delgroup"
   install -D -m755 ${_pkgname}-${pkgver}/adduser.conf "${pkgdir}/etc/adduser.conf"
   install -D -m755 ${_pkgname}-${pkgver}/deluser.conf "${pkgdir}/etc/deluser.conf"
   install -D -m755 ${_pkgname}-${pkgver}/AdduserCommon.pm "${pkgdir}/usr/share/perl5/vendor_perl/Debian/AdduserCommon.pm"

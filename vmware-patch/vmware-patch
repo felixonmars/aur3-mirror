@@ -1,32 +1,36 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Some colored makepkg-like functions
 msg() {
-  printf "${GREEN}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${GREEN}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 msg_yellow() {
-  printf "${YELLOW}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${YELLOW}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 msg2() {
-  printf "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 read_msg2() {
-  read -p "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}"
+    read -p "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}"
 }
 
 msg3() {
-  printf "${YELLOW}    ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${YELLOW}    ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 warning() {
-  printf "${YELLOW}==> WARNING:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${YELLOW}==> WARNING:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 error() {
-  printf "${RED}==> ERROR:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${RED}==> ERROR:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+}
+
+error2() {
+    printf "${RED}    *${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 # Colors
@@ -37,127 +41,166 @@ GREEN="${BOLD}$(tput setaf 2)"
 RED="${BOLD}$(tput setaf 1)"
 YELLOW="${BOLD}$(tput setaf 3)"
 
-list_options() {
-  msg "Available options:"
-  msg2 "-f, --force:  Force reinstallation even, if modules have already been built."
-  msg2 "-h, --help:   View this 'help' message."
+# Help message
+usage() {
+    echo "Usage: $(basename $0) [-f|-v|-V|-h]"
+    echo "Automate the compilation of VMware modules for Arch Linux."
+    echo
+    echo "Available options:"
+    echo "  -f, --force       Force reinstallation even, if modules already built"
+    echo "  -v, --verbose     Use verbose output (patching, vmware-modconfig)"
+    echo "  -V, --version     Print version information"
+    echo "  -h, --help        Print this help"
 }
 
-# Don't continue with an unknown flag
-if [[ "$@" = *-h* ]]; then
-  list_options
-  exit
-elif [ $1 ] && [[ "$@" != *-f* ]]; then
-  error "Unknown option: $*"
-  list_options
-  exit 1
-fi
+# Version information
+version() {
+    echo "$(basename $0) $(pacman -Q vmware-patch | cut -d ' ' -f2)"
+    echo "Copyright (c) 2013-2014  Nobody"
+    echo
+    echo "THIS SCRIPT IS PROVIDED AS-IS FOR ANY PURPOSE WHATSOEVER. YOU ARE FREE TO SHARE IT, MODIFY IT,"
+    echo "TAKE CREDIT OF IT, AND SELL IT ON THE STREETS."
+    echo
+    echo "FIGHT THE POWER."
+}
+
+# Flags
+while [[ "$1" ]]; do
+    # Can't change $1
+    opt="$1"
+    # Parse current one
+    while [[ "$opt" != "-" ]]; do
+        # Define actions
+        case "$opt" in
+            -f* | --force)     force=1;;
+            -v* | --verbose)   verbose=1;;
+            -V* | --version)   version; exit 0;;
+            -h* | --help)      usage; exit 0;;
+            -*)                echo "$(basename $0): ERROR: bad argument: $opt"
+                               echo
+                               usage $1; exit 0;;
+            *) break;;
+        esac
+        # Support single dash (-fv)
+        # Remove first match ("${opt#-[fv]}")
+        nextopt="${opt#-[fv]}"
+        if [[ "$opt" != "$nextopt" ]]; then
+            # Multiple short flags
+		    opt="-$nextopt"
+        else
+            # Long form (--force/--verbose)
+            break
+        fi
+    done
+    shift
+done
 
 # Make sure we are root
 if (( $EUID != 0 )); then
-  error "This script needs to be run as root."
-  exit 1
+    error "This script needs to be run as root."
+    exit 1
 fi
 
 # Is a VMware product installed?
 if [ ! -f /usr/bin/vmware-installer ]; then
-  error "No VMware product found. Exiting.."
-  exit 1
+    error "No VMware product found. Exiting.."
+    exit 1
 fi
 
 # Set some variables (|&: hide errors by redirecting all output)
 kernel=$(uname -r | cut -d "." -f-2)
-ver=$(vmware-installer -l |& grep -Po "player|workstation *\K(\d+\.){2}\d+")
-if vmware-installer -l |& grep -q workstation; then
-  name="VMware Workstation"
+ver=$(vmware-installer -l |& grep -Po "(player|workstation) *\K(\d+\.){2}\d+")
+if vmware-installer -l |& grep -q "workstation"; then
+    name="VMware Workstation"
 else
-  name="VMware Player (Plus)"
+    name="VMware Player (Plus)"
 fi
 
 # Make sure vmware.service includes our USB Arbitrator service
-if ! grep -q usbarbitrator /usr/lib/systemd/system/vmware.service; then
-  msg "Updating vmware.service.."
-  sed '/Description/a Requires=vmware-usbarbitrator.service\nBefore=vmware-usbarbitrator.service' \
-      -i /usr/lib/systemd/system/vmware.service
+if ! grep -q "usbarbitrator" /usr/lib/systemd/system/vmware.service; then
+    msg "Updating vmware.service.."
+    sed '/Description/a Requires=vmware-usbarbitrator.service\nBefore=vmware-usbarbitrator.service' \
+        -i /usr/lib/systemd/system/vmware.service
 fi
 
 # Make sure there's a version in /etc/arch-release for versions prior to Workstation 10 / Player (Plus) 6:
 # https://wiki.archlinux.org/index.php?title=VMware&oldid=274532#2.29_The_vmware-usbarbitrator_binary_is_segfaulting
 if [[ "$ver" != 6.0.? ]] && [[ "$ver" != 10.0.? ]]; then
-  if [ ! $(cat /etc/arch-release) ]; then
-    msg "Updating /etc/arch-release.."
-    curl -s https://www.archlinux.org/releng/releases/ | grep -Pom1 'for \K[^"]*' > /etc/arch-release
-  fi
+    if [ ! $(cat /etc/arch-release) ]; then
+        msg "Updating /etc/arch-release.."
+        curl -s https://www.archlinux.org/releng/releases/ | grep -Pom1 'for \K[^"]*' > /etc/arch-release
+    fi
 fi
 
-# Fix vmci/vsock failing
+# Fix Vmci/Vsock failing
 if grep -q '$vsock_alias' /etc/init.d/vmware; then
-  sed -e 's/mod=$(vmwareRealModName $vmci $vmci_alias)/mod=vmci/' \
-      -e 's/mod=$(vmwareRealModName $vsock $vsock_alias)/mod=vsock/' \
-      -i /etc/init.d/vmware
+    sed -e 's/mod=$(vmwareRealModName $vmci $vmci_alias)/mod=vmci/' \
+        -e 's/mod=$(vmwareRealModName $vsock $vsock_alias)/mod=vsock/' \
+        -i /etc/init.d/vmware
 fi
 
 # Symlink version.h, if: 1) We don't have one already
 if [ ! -f /usr/src/linux-$(uname -r)/include/linux/version.h ]; then
-  # 2) Installed Workstation/Player less than 9.0.2/5.0.2
-  if [[ "$ver" != [59].0.[234] ]] && [[ "$ver" != 6.* ]] && [[ "$ver" != 10.* ]]; then
-    # 3) Kernel version 3.5 or above
-    if (( $(echo "$kernel" | tr -d .) >= 35 )); then
-      msg "Symlinking version.h for $(uname -r)"
-      install -d /usr/src/linux-$(uname -r)/include/linux/
-      ln -s /usr/src/linux-$(uname -r)/include/generated/uapi/linux/version.h \
-            /usr/src/linux-$(uname -r)/include/linux/
+    # 2) Installed Workstation/Player less than 9.0.2/5.0.2
+    if [[ "$ver" != [59].0.[234] ]] && [[ "$ver" != 6.* ]] && [[ "$ver" != 10.* ]]; then
+        # 3) Kernel version 3.5 or above
+        if (( $(echo "$kernel" | tr -d .) >= 35 )); then
+            msg "Symlinking version.h for $(uname -r)"
+            install -d /usr/src/linux-$(uname -r)/include/linux/
+            ln -s /usr/src/linux-$(uname -r)/include/generated/uapi/linux/version.h \
+                  /usr/src/linux-$(uname -r)/include/linux/
+        fi
     fi
-  fi
 fi
 
 # Remove leftover header locations
 if [[ $(find /usr/src/ -mindepth 1 -maxdepth 2 -type d) ]]; then
-  for i in /usr/src/*; do
-    if [[ $(ls "$i") = include ]]; then
-      msg_yellow "Removing leftover header location: $i/"
-      rm -r "$i"
-    fi
-  done
+    for i in /usr/src/*; do
+        if [[ $(ls "$i") = "include" ]]; then
+            msg_yellow "Removing leftover header location: $i/"
+            rm -r "$i"
+        fi
+    done
 fi
 
 # Remove leftover module locations
 for i in /usr/lib/modules/*; do
-  if [[ $(ls "$i") = misc ]]; then
-    msg_yellow "Removing leftover module location: $i/"
-    rm -r "$i"
-  fi
+    if [[ $(ls "$i") = "misc" ]]; then
+        msg_yellow "Removing leftover module location: $i/"
+        rm -r "$i"
+    fi
 done
 
 # Remove old backups
 cd /usr/lib/vmware/modules/
 # Use "ls" instead of the builtin -d for multiple arguments
 if ls -d source-*.*/ 2>/dev/null | grep -qv "$ver/"; then
-  msg "Cleaning up old backups.."
-  # Print full paths
-  for i in $(readlink -f source-*.*/ | grep -v "$ver"); do
-    msg2 "Removing leftover module source location: $i/"
-    rm -r "$i"
-  done
+    msg "Cleaning up old backups.."
+    # Print full paths
+    for i in $(readlink -f source-*.*/ | grep -v "$ver"); do
+        msg2 "Removing leftover module source location: $i/"
+        rm -r "$i"
+    done
 fi
 
 # Make sure the directory exists
 if [ ! -d /usr/lib/modules/$(uname -r)/ ]; then
-  error "/usr/lib/modules/$(uname -r)/ not found. Exiting.."
-  exit 1
+    error "/usr/lib/modules/$(uname -r)/ not found. Exiting.."
+    exit 1
 fi
 
 # Support the '-f' flag
 # 1) Have we already built (vsock is built last)?
 # 2) Don't check this until we've removed the leftovers
 if [ -f /usr/lib/modules/$(uname -r)/misc/vsock.ko ]; then
-  # Offer the ability reinstall this thing
-  if [[ "$@" = *-f* ]]; then
-    msg "Reinstalling modules.."
-  else
-    error "VMware modules already installed (use -f to override). Exiting.."
-    exit 1
-  fi
+    # Offer the ability reinstall this thing
+    if [[ "$force" ]]; then
+        msg "Reinstalling modules.."
+    else
+        [[ "$verbose" ]] && msg "Verifying current state.."
+        error "VMware modules already installed (use '-f' to override). Exiting.."
+        exit 1
+    fi
 fi
 
 # Patch
@@ -165,48 +208,93 @@ fi
 # 2) Shorther without double brackets ("[["):
 # 3) &>/dev/null: hide all output (STDIN/STDERR)
 if ls patches/*"$ver"*"$kernel"*.patch &>/dev/null; then
-  # Create a backup/Revert
-  if [ ! -d "source-$ver" ]; then
-    msg "Creating a backup.."
-    cp -r source/ "source-$ver/"
-  else  # Get the original sources from the backup (invalidate the need for 'vmware-unpatch')
-    cp "source-$ver/"* source/
-  fi
-  # Loop modules that require patching (vmblock, vmci, vmmon, vmnet and/or vsock)
-  msg "Patching $name v$ver for kernel $(uname -r).."
-  cd source
-  # Prevent duplicate entries with 'sort -u'
-  for mod in $(ls ../patches/v*"$ver"*"$kernel"*.patch 2>&- | grep -Po "s/\K[^-]*" | sort -u); do
-    # Untar
-    tar -xf "$mod.tar"
-    # Patch
-    msg2 "[$mod]"
-    # Loop through all patches
-    for i in ../patches/"$mod"*"$ver"*"$kernel"*.patch; do
-      if ! patch -p0 -s -f -i $i; then
-        error "Failed to apply '$(basename "$i")'"
-        read_msg2 "Continue? (Y/n) "
-        if [[ "$REPLY" != [Yy] ]]; then
-          # Revert
-          msg "Reverting.."
-          cd ..
-          rm -r source/
-          mv "source-$ver/" source/
-          msg "Done."
-          exit 1
+    # Create a backup/Revert
+    if [ ! -d "source-$ver" ]; then
+        msg "Creating a backup.."
+        cp -r source/ "source-$ver/"
+    else
+        # Get the original sources from the backup (invalidate the need for 'vmware-unpatch')
+        cp "source-$ver/"* source/
+    fi
+
+    # Loop modules that require patching (vmblock, vmci, vmmon, vmnet and/or vsock)
+    msg "Patching $name v$ver for kernel $(uname -r).."
+    cd source
+
+    # Prevent duplicate entries with 'sort -u'
+    for mod in $(ls ../patches/v*"$ver"*"$kernel"*.patch 2>&- | grep -Po "s/\K[^-]*" | sort -u); do
+        # Print name
+        msg2 "[$mod]"
+
+        # Untar
+        if [[ "$verbose" ]]; then
+            msg3 "Untarring.."
         fi
-      fi
+        tar -xf "$mod.tar"
+
+        # Patch function
+        _patch() {
+            if [[ "$verbose" ]]; then
+                msg3 "Patching.."
+                patch -p0 -f -i $i
+            else
+                patch -p0 -s -f -i $i
+            fi
+        }
+
+        # Loop through all patches
+        for i in ../patches/"$mod"*"$ver"*"$kernel"*.patch; do
+            # Patch
+            if ! _patch; then
+                error "Failed to apply '$(basename "$i")'"
+                read_msg2 "Continue? (Y/n) "
+                if [[ "$REPLY" != [Yy] ]]; then
+                    # Revert
+                    msg "Reverting.."
+                    cd ..
+                    rm -r source/
+                    mv "source-$ver/" source/
+
+                    # Exit
+                    msg "Done."
+                    exit 1
+                fi
+            fi
+        done
+
+        # Tar patched modules
+        if [[ "$verbose" ]]; then
+            msg3 "Re-tarring.."
+        fi
+        tar -cf "$mod.tar" "$mod-only"
+
+        # Leftovers
+        rm -r "$mod-only"
     done
-    # Tar patched modules
-    tar -cf "$mod.tar" "$mod-only"
-    # Leftovers
-    rm -r "$mod-only"
-  done
 else
-  msg "No patching required."
+    msg "No patching required."
 fi
+
+# Print 'vmware-modconfig-*.log's and exit
+print_logs() {
+    for i in /tmp/vmware-root/vmware-modconfig-*.log; do
+        error2 "$i"
+    done
+    exit 1
+}
 
 # Install
 msg "Installing modules.."
-vmware-modconfig --console --install-all &>/dev/null
+if [[ "$verbose" ]]; then
+    if ! vmware-modconfig --console --install-all; then
+        error "Unable to build. See:"
+        print_logs
+    fi
+else
+    if ! vmware-modconfig --console --install-all &>/dev/null; then
+        error "Unable to build. Re-run with '-v' (--verbose) or see:"
+        print_logs
+    fi
+fi
+
 msg "Done."

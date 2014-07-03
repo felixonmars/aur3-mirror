@@ -1,24 +1,24 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Some colored makepkg-like functions
 msg() {
-  printf "${GREEN}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${GREEN}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 msg_yellow() {
-  printf "${YELLOW}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${YELLOW}==>${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 msg2() {
-  printf "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${BLUE}  ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 msg3() {
-  printf "${YELLOW}    ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${YELLOW}    ->${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 error() {
-  printf "${RED}==> ERROR:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
+    printf "${RED}==> ERROR:${ALL_OFF}${BOLD} $1${ALL_OFF}\n"
 }
 
 # Variables for them
@@ -29,101 +29,102 @@ GREEN="${BOLD}$(tput setaf 2)"
 RED="${BOLD}$(tput setaf 1)"
 YELLOW="${BOLD}$(tput setaf 3)"
 
-# Don't support flags
-if [[ "$@" ]]; then
-  error "Unknown option: $*". Exiting..
-  exit 1
-fi
+# Help message
+usage() {
+    echo "Usage: $(basename $0) [-v|-V|-h]"
+    echo "Revert the VMware modules sources."
+    echo
+    echo "Available options:"
+    echo "  -v, -V, --version   Print version information"
+    echo "  -h, --help          Print this help"
+}
+
+# Version information
+version() {
+    echo "$(basename $0) $(pacman -Q vmware-patch | cut -d ' ' -f2)"
+    echo "Copyright (c) 2013-2014  Nobody"
+    echo
+    echo "THIS SCRIPT IS PROVIDED AS-IS FOR ANY PURPOSE WHATSOEVER. YOU ARE FREE TO SHARE IT, MODIFY IT,"
+    echo "TAKE CREDIT OF IT, AND SELL IT ON THE STREETS."
+    echo
+    echo "FIGHT THE POWER."
+}
+
+# Flags
+while [[ "$1" ]]; do
+    # Define actions
+    case "$1" in
+        -v | -V | --version)   version; exit 0;;
+        -h | --help)           usage; exit 0;;
+        -*)                    echo "$(basename $0): ERROR: bad argument: $1"
+                               echo
+                               usage $1; exit 0;;
+        *) break;;
+    esac
+    shift
+done
 
 # Make sure we are root
-if [ $(whoami) != "root" ]; then
-  error "This script needs to be run as root."
-  exit 1
+if (( $EUID != 0 )); then
+    error "This script needs to be run as root."
+    exit 1
 fi
 
 # Is a VMware product installed?
 if [ ! -f /usr/bin/vmware-installer ]; then
-  error "No VMware product found. Exiting.."
-  exit 1
+    error "No VMware product found. Exiting.."
+    exit 1
 fi
 
-# Set some variables (|&: hide "No protocol specified" in KDE by redirecting all output to cut/grep)
-ver=$(vmware-installer -l |& egrep "(player|workstation)" | grep -Po "(\d+\.){2}\d+")
-if [ $(vmware-installer -l |& egrep "(player|workstation)" | cut -d " " -f1) = "vmware-workstation" ]; then
-  name="VMware Workstation"
+# Set some variables (|&: hide errors by redirecting all output)
+ver=$(vmware-installer -l |& grep -Po "(player|workstation) *\K(\d+\.){2}\d+")
+if vmware-installer -l |& grep -q "workstation"; then
+    name="VMware Workstation"
 else
-  name="VMware Player (Plus)"
+    name="VMware Player (Plus)"
 fi
 
 # Remove leftover header locations
-for i in /usr/src/*; do
-  if [[ $(ls $i) = 'include' ]]; then
-    msg_yellow "Removing leftover header location $i/"
-    rm -r $i
-  fi
-done
+if [[ $(find /usr/src/ -mindepth 1 -maxdepth 2 -type d) ]]; then
+    for i in /usr/src/*; do
+        if [[ $(ls "$i") = "include" ]]; then
+            msg_yellow "Removing leftover header location: $i/"
+            rm -r "$i"
+        fi
+    done
+fi
 
 # Remove leftover module locations
 for i in /usr/lib/modules/*; do
-  if [[ $(ls $i) = 'misc' ]]; then
-    msg_yellow "Removing leftover module location $i/"
-    rm -r $i
-  fi
+    if [[ $(ls "$i") = "misc" ]]; then
+        msg_yellow "Removing leftover module location: $i/"
+        rm -r "$i"
+    fi
 done
 
-# Backup/Convert/Remove old backups, whatever necessary
+# Remove old backups
 cd /usr/lib/vmware/modules/
-# 1) Use double quotes ("[[") and "ls" instead of the builtin -d/-f for multiple arguments
-# 2) 2>&-: supported by "ls", basically same as "2>/dev/null" only shorter (ignore errors (STDERR))
-if [[ $(ls -d source?*/ source/*.tar-* 2>&- | grep -vx source-$ver/) ]]; then
-  msg "Cleaning up old backups.."
-  # 1) Check the new location first
-  # 2) Remove any duplicated/old ones
-  # 3) Print full paths
-  # 4) Sed: leave out the first result containing $ver
-  for i in $(readlink -e source?*/ | sed "0,/$ver/{//d}"); do
-    msg2 "Removing $i"
-    rm -r "$i"
-  done
-  # If we already have a backup in the new location, remove any from the old one
-  if [ -d source-$ver*/ ]; then
-    for i in $(readlink -e source/*.tar-*); do
-      msg2 "Removing $i"
-      rm -r "$i"
+# Use "ls" instead of the builtin -d for multiple arguments
+if ls -d source-*.*/ 2>/dev/null | grep -qv "$ver/"; then
+    msg "Cleaning up old backups.."
+    # Print full paths
+    for i in $(readlink -f source-*.*/ | grep -v "$ver"); do
+        msg2 "Removing leftover module source location: $i/"
+        rm -r "$i"
     done
-    # Rename it as we like (or as I do)
-    if [ -d source-$ver?*/ ]; then
-      msg3 "Renaming: $(readlink -f source-$ver*)/ -> $(readlink -f source-$ver)/"
-      mv source-$ver*/ source-$ver/
-    fi
-  else
-    # Remove any duplicated/old backups
-    for i in vmblock vmci vmmon vmnet vsock; do
-      for j in $(readlink -e source/$i.tar-* | sed "0,/$ver/{//d}"); do
-        msg2 "Removing $j"
-        rm -r "$j"
-      done
-    done
-    # Convert leftovers
-    if [ -f source/vmblock.tar-* ]; then
-      msg3 "Converting: /usr/lib/vmware/modules/source/*.tar -> $(readlink -f source-$ver)/"
-      mkdir source-$ver/
-      for i in vmblock vmci vmmon vmnet vsock; do
-        mv source/$i.tar-* source-$ver/$i.tar
-      done
-    fi
-  fi
 fi
 
 # Revert
 cd /usr/lib/vmware/modules/
-if [ -d source-$ver ]; then
-  msg "Reverting $name v$ver module sources.."
-  msg2 "Removing $(readlink -f source)/"
-  rm -r source/
-  msg3 "Renaming backup: $(readlink -f source-$ver)/ -> $(readlink -f source)/"
-  mv source-$ver/ source/
-  msg "Done."
+if [ -d "source-$ver" ]; then
+    msg "Reverting $name v$ver module sources.."
+    msg2 "Removing $(readlink -f source)/"
+    rm -r source/
+
+    msg3 "Renaming backup: $(readlink -f source-$ver)/ -> $(readlink -f source)/"
+    mv "source-$ver/" source/
+
+    msg "Done."
 else  # Nothing found
-  msg "No backups found."
+    msg "No backups found."
 fi

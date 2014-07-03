@@ -1,4 +1,5 @@
 # Contributor: Tibor Bamhor <tiborb95 at gmail dot com>
+# Contributor: Patryk Kowalczyk < patryk at kowalczyk ws>
 # Edit for ImageMagick support: Sylvain Brunerie <sylvain.brunerie {at} gmail {dot} com>
 
 pkgname=ale-imagemagick
@@ -9,7 +10,7 @@ url="http://auricle.dyndns.org/ALE/"
 license="GPL"
 arch=('i686' 'x86_64')
 depends=('perl-exiftool' 'imagemagick')
-source=(http://auricle.dyndns.org/ALE/download/ale-${pkgver}.tar.gz)
+source=(http://slackware.org.uk/slacky/slackware-12.2/graphic/ale/0.8.11.2/src/ale-${pkgver}.tar.gz)
 
 md5sums=('1ed83d080a4bf80f88ed78acb5149c26')
 
