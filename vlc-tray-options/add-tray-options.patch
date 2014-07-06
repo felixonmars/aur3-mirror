@@ -1,0 +1,269 @@
+diff -ur a/modules/gui/qt4/main_interface.cpp b/modules/gui/qt4/main_interface.cpp
+--- a/modules/gui/qt4/main_interface.cpp	2014-02-21 14:59:56.000000000 +0100
++++ b/modules/gui/qt4/main_interface.cpp	2014-07-05 03:12:50.062868453 +0200
+@@ -79,6 +79,27 @@
+ const QEvent::Type MainInterface::ToolbarsNeedRebuild =
+         (QEvent::Type)QEvent::registerEventType();
+ 
++bool MyTrayIcon::event( QEvent *e )
++{
++    if (e->type() == QEvent::Wheel) {
++        QWheelEvent * w = (QWheelEvent *)e;
++
++        if (w->orientation() == Qt::Vertical) {
++            wheel_delta += w->delta();
++
++            if (abs( wheel_delta ) >= 120) {
++                emit wheel( wheel_delta > 0 ? MyTrayIcon::WheelUp : MyTrayIcon::WheelDown );
++                wheel_delta = 0;
++            }
++        }
++
++        return true;
++    }
++
++    // fall through
++    return QSystemTrayIcon::event( e );
++}
++
+ MainInterface::MainInterface( intf_thread_t *_p_intf ) : QVLCMW( _p_intf )
+ {
+     /* Variables initialisation */
+@@ -1058,7 +1079,7 @@
+         iconVLC = QIcon::fromTheme( "vlc-xmas", QIcon( ":/logo/vlc128-xmas.png" ) );
+     else
+         iconVLC = QIcon::fromTheme( "vlc", QIcon( ":/logo/vlc256.png" ) );
+-    sysTray = new QSystemTrayIcon( iconVLC, this );
++    sysTray = new MyTrayIcon( iconVLC, this );
+     sysTray->setToolTip( qtr( "VLC media player" ));
+ 
+     systrayMenu = new QMenu( qtr( "VLC media player" ), this );
+@@ -1069,6 +1090,8 @@
+ 
+     CONNECT( sysTray, activated( QSystemTrayIcon::ActivationReason ),
+              this, handleSystrayClick( QSystemTrayIcon::ActivationReason ) );
++    CONNECT( sysTray, wheel( MyTrayIcon::WheelMotion ),
++             this, handleSystrayWheel( MyTrayIcon::WheelMotion ) );
+ 
+     /* Connects on nameChanged() */
+     CONNECT( THEMIM->getIM(), nameChanged( const QString& ),
+@@ -1150,20 +1173,69 @@
+ void MainInterface::handleSystrayClick(
+                                     QSystemTrayIcon::ActivationReason reason )
+ {
++    int action = SYSTRAY_CLICK_IGNORE;
++
+     switch( reason )
+     {
+         case QSystemTrayIcon::Trigger:
+         case QSystemTrayIcon::DoubleClick:
++            action = var_InheritInteger( p_intf, "qt-system-tray-click-left" );
++            break;
++        case QSystemTrayIcon::MiddleClick:
++            action = var_InheritInteger( p_intf, "qt-system-tray-click-middle" );
++            break;
++        default:
++            break;
++    }
++
++    switch( action )
++    {
++        case SYSTRAY_CLICK_TOGGLE_UI:
+ #ifdef Q_WS_MAC
+             VLCMenuBar::updateSystrayMenu( this, p_intf );
+ #else
+             toggleUpdateSystrayMenu();
+ #endif
+             break;
+-        case QSystemTrayIcon::MiddleClick:
+-            sysTray->showMessage( qtr( "VLC media player" ),
+-                    qtr( "Control menu for the player" ),
+-                    QSystemTrayIcon::Information, 3000 );
++        case SYSTRAY_CLICK_PLAY_PAUSE:
++            THEAM->play();
++            break;
++        case SYSTRAY_CLICK_TOGGLE_MUTE:
++            THEAM->toggleMuteAudio();
++            break;
++        default:
++            break;
++    }
++}
++
++/* Wheel on systray Icon */
++void MainInterface::handleSystrayWheel( MyTrayIcon::WheelMotion motion )
++{
++    int action = var_InheritInteger( p_intf, "qt-system-tray-wheel" );
++
++    switch ( action )
++    {
++        case SYSTRAY_WHEEL_CHANGE_VOLUME:
++            switch( motion )
++            {
++                case MyTrayIcon::WheelUp:
++                    THEAM->AudioUp();
++                    break;
++                case MyTrayIcon::WheelDown:
++                    THEAM->AudioDown();
++                    break;
++            }
++            break;
++        case SYSTRAY_WHEEL_CHANGE_TRACK:
++            switch( motion )
++            {
++                case MyTrayIcon::WheelUp:
++                    THEMIM->next();
++                    break;
++                case MyTrayIcon::WheelDown:
++                    THEMIM->prev();
++                    break;
++            }
+             break;
+         default:
+             break;
+diff -ur a/modules/gui/qt4/main_interface.hpp b/modules/gui/qt4/main_interface.hpp
+--- a/modules/gui/qt4/main_interface.hpp	2014-02-21 14:59:56.000000000 +0100
++++ b/modules/gui/qt4/main_interface.hpp	2014-07-05 03:09:36.664308374 +0200
+@@ -56,6 +56,32 @@
+ class QSize;
+ class StandardPLPanel;
+ 
++// Qt provides no way of receiving wheel motion on tray icons (X11-only)
++// without subclassing QSystemTrayIcon::event method.
++class MyTrayIcon : public QSystemTrayIcon
++{
++    Q_OBJECT
++
++public:
++    enum WheelMotion {
++        WheelUp,
++        WheelDown
++    };
++
++    MyTrayIcon( QObject * parent = 0 )
++        : QSystemTrayIcon( parent ), wheel_delta( 0 ) {}
++    MyTrayIcon( const QIcon & icon, QObject * parent = 0 )
++        : QSystemTrayIcon( icon, parent ), wheel_delta( 0 ) {}
++
++    bool event( QEvent * event );
++
++signals:
++    void wheel( MyTrayIcon::WheelMotion motion );
++
++private:
++    int wheel_delta;
++};
++
+ class MainInterface : public QVLCMW
+ {
+     Q_OBJECT
+@@ -129,7 +155,7 @@
+ 
+     /* */
+     QSettings           *settings;
+-    QSystemTrayIcon     *sysTray;
++    MyTrayIcon          *sysTray;
+     QMenu               *systrayMenu;
+ 
+     QString              input_name;
+@@ -224,6 +250,7 @@
+     void visual();
+ #endif
+     void handleSystrayClick( QSystemTrayIcon::ActivationReason );
++    void handleSystrayWheel( MyTrayIcon::WheelMotion motion );
+     void updateSystrayTooltipName( const QString& );
+     void updateSystrayTooltipStatus( int );
+     void showCryptedLabel( bool );
+diff -ur a/modules/gui/qt4/qt4.cpp b/modules/gui/qt4/qt4.cpp
+--- a/modules/gui/qt4/qt4.cpp	2013-09-12 17:18:33.000000000 +0200
++++ b/modules/gui/qt4/qt4.cpp	2014-07-05 03:09:36.664308374 +0200
+@@ -79,6 +79,20 @@
+                              "allowing you to control VLC media player " \
+                              "for basic actions." )
+ 
++#define SYSTRAY_ACTIONS_TEXT N_("Systray actions")
++
++#define SYSTRAY_LEFT_CLICK_TEXT N_( "Left click" )
++#define SYSTRAY_LEFT_CLICK_LONGTEXT N_( "Action to execute for a left click on " \
++                                        " the system tray icon")
++
++#define SYSTRAY_MIDDLE_CLICK_TEXT N_( "Middle click" )
++#define SYSTRAY_MIDDLE_CLICK_LONGTEXT N_( "Action to execute for a middle click on " \
++                                          " the system tray icon")
++
++#define SYSTRAY_WHEEL_TEXT N_( "Wheel motion" )
++#define SYSTRAY_WHEEL_LONGTEXT N_( "Action to execute for wheel motion over " \
++                                   "the system tray icon" )
++
+ #define MINIMIZED_TEXT N_( "Start VLC with only a systray icon" )
+ #define MINIMIZED_LONGTEXT N_( "VLC will start with just an icon in " \
+                                "your taskbar" )
+@@ -177,6 +191,20 @@
+ 
+ #define VOLUME_MAX_TEXT N_( "Maximum Volume displayed" )
+ 
++static const int i_systray_click_list[] =
++    { SYSTRAY_CLICK_IGNORE, SYSTRAY_CLICK_TOGGLE_UI, SYSTRAY_CLICK_PLAY_PAUSE,
++      SYSTRAY_CLICK_TOGGLE_MUTE };
++
++static const char *const psz_systray_click_list_text[] =
++    { N_("Ignore"), N_("Toggle main interface"), N_("Play/pause"),
++      N_("Mute/unmute") };
++
++static const int i_systray_wheel_list[] =
++    { SYSTRAY_WHEEL_IGNORE, SYSTRAY_WHEEL_CHANGE_VOLUME, SYSTRAY_WHEEL_CHANGE_TRACK };
++
++static const char *const psz_systray_wheel_list_text[] =
++    { N_("Ignore"), N_("Change volume"), N_("Change track") };
++
+ static const int i_notification_list[] =
+     { NOTIFICATION_NEVER, NOTIFICATION_MINIMIZED, NOTIFICATION_ALWAYS };
+ 
+@@ -279,6 +307,24 @@
+     add_obsolete_bool( "qt-volume-complete" ) /* Since 2.0.0 */
+     add_obsolete_integer( "qt-startvolume" )  /* Since 2.0.0 */
+ 
++    set_section( SYSTRAY_ACTIONS_TEXT, 0 )
++        add_integer( "qt-system-tray-click-left", SYSTRAY_CLICK_TOGGLE_UI,
++                     SYSTRAY_LEFT_CLICK_TEXT,
++                     SYSTRAY_LEFT_CLICK_LONGTEXT, false )
++                change_integer_list( i_systray_click_list, psz_systray_click_list_text )
++
++        add_integer( "qt-system-tray-click-middle", SYSTRAY_CLICK_PLAY_PAUSE,
++                     SYSTRAY_MIDDLE_CLICK_TEXT,
++                     SYSTRAY_MIDDLE_CLICK_LONGTEXT, false )
++                change_integer_list( i_systray_click_list, psz_systray_click_list_text )
++
++#ifdef Q_WS_X11
++        add_integer( "qt-system-tray-wheel", SYSTRAY_WHEEL_CHANGE_VOLUME,
++                     SYSTRAY_WHEEL_TEXT,
++                     SYSTRAY_WHEEL_LONGTEXT, false )
++                change_integer_list( i_systray_wheel_list, psz_systray_wheel_list_text )
++#endif
++
+     cannot_unload_broken_library()
+ 
+     add_submodule ()
+diff -ur a/modules/gui/qt4/qt4.hpp b/modules/gui/qt4/qt4.hpp
+--- a/modules/gui/qt4/qt4.hpp	2013-06-24 20:00:38.000000000 +0200
++++ b/modules/gui/qt4/qt4.hpp	2014-07-05 03:09:36.664308374 +0200
+@@ -49,6 +49,19 @@
+     MsgEventTypeOffset    = 300,
+ };
+ 
++enum {
++    SYSTRAY_CLICK_IGNORE = 0,
++    SYSTRAY_CLICK_TOGGLE_UI = 1,
++    SYSTRAY_CLICK_PLAY_PAUSE = 2,
++    SYSTRAY_CLICK_TOGGLE_MUTE = 3
++};
++
++enum {
++    SYSTRAY_WHEEL_IGNORE = 0,
++    SYSTRAY_WHEEL_CHANGE_VOLUME = 1,
++    SYSTRAY_WHEEL_CHANGE_TRACK = 2,
++};
++
+ enum{
+     NOTIFICATION_NEVER = 0,
+     NOTIFICATION_MINIMIZED = 1,
