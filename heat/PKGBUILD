@@ -6,9 +6,10 @@ pkgname=('heat-api'
          'heat-api-cloudwatch'
          'heat-common'
          'heat-engine'
+         'heat-plugin-docker'
          'python2-heat')
 pkgver=2014.1.1
-pkgrel=1
+pkgrel=2
 pkgdesc="OpenStack orchestration service"
 arch=(any)
 url="https://launchpad.net/heat"
@@ -104,6 +105,16 @@ package_heat-engine() {
   install -D -m 755 usr/bin/heat-engine "$pkgdir/usr/bin/heat-engine"
   install -D -m 644 "$srcdir/heat-engine.service" \
                  "$pkgdir/usr/lib/systemd/system/heat-engine.service"
+}
+
+package_heat-plugin-docker() {
+  pkgdesc+=" - Docker plugin"
+  depends=('heat-common' 'python2-docker')
+
+  cd "$pkgbase-$pkgver"
+
+  install -d "$pkgdir/usr/lib/heat/"
+  cp -R contrib/docker/docker/resources "$pkgdir/usr/lib/heat/docker"
 }
 
 package_python2-heat() {
