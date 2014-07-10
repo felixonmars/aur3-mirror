@@ -1,7 +1,7 @@
 # Maintainer: Paul Staab <develop(at)paulstaab(dot)de>
 
 pkgname=scrm
-pkgver=1.0.b2
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="A Coalescent Simulator for Genome-Scale Biological Sequences"
 arch=('i686' 'x86_64' 'armv7h')
@@ -10,23 +10,22 @@ license=('GPL3')
 depends=('gcc-libs')
 makedepends=('gcc>=4.6.3')
 checkdepends=('cppunit')
-source=('https://scrm.github.io/releases/scrm-1.0-beta2.tar.gz')
-md5sums=('4a1104cc989782b79ddcb7fd6da96212')
-sha512sums=('ac612a5b7744bb829d5accfc1884777710c9e8341fcf4ae8a7f7c99f6be0c3898714e676dadb8df6c39ad0bf383659be4b7cde7263c33c0089d27d5f8ab14a9b')
+source=('https://scrm.github.io/releases/scrm-1.0.0.tar.gz')
+md5sums=('2d9868bd8555027959bb30f8255c984a')
+sha512sums=('abbd668b911955ef45b6e258c7fa5c776c72fcb66f622915dde51e313165213c4725dffcd36376567c283290366cdedd910185294585b13e3cca2eefdda63317')
 
 build() {
-	#cd "$srcdir/$pkgname-$pkgver"
-	cd "$srcdir/$pkgname-1.0-beta2"
+	cd "$srcdir/$pkgname-$pkgver"
 	./configure --prefix=/usr
 	make
 }
 
 check() {
-	cd "$srcdir/$pkgname-1.0-beta2"
+	cd "$srcdir/$pkgname-$pkgver"
 	make -k unittests
 }
 
 package() {
-	cd "$srcdir/$pkgname-1.0-beta2"
+	cd "$srcdir/$pkgname-$pkgver"
 	make DESTDIR="$pkgdir/" install
 }

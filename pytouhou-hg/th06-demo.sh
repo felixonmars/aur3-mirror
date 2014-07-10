@@ -7,4 +7,4 @@ if ! test -d "$DEMO"; then
 	exit 1
 fi
 
-exec eosd -p "$DEMO" "$@"
+exec pytouhou -p "$DEMO" "$@"

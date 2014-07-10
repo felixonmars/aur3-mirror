@@ -2,19 +2,25 @@
 
 pkgname=musl
 pkgver=1.0.3
-pkgrel=1
+pkgrel=4
 pkgdesc="An implementation of the C/POSIX standard library intended for use on Linux-based systems"
 arch=('i686' 'x86_64')
 url="http://www.musl-libc.org/"
 license=('MIT')
 makedepends=('make')
+provides=('musl')
+conflicts=('musl-mainline')
 source=(CHANGELOG http://www.musl-libc.org/releases/$pkgname-$pkgver.tar.gz)
 options=(staticlibs !buildflags !strip)
 
 build() {
   cd "$srcdir/$pkgname-$pkgver"
 
-  CFLAGS="${CFLAGS} -fno-toplevel-reorder" ./configure --prefix=/usr/musl --exec-prefix=/usr && make
+  if [ "$CC" != "clang" ];then
+    _my_flags="-fno-toplevel-reorder -fno-stack-protector"
+  fi
+  CFLAGS="${CFLAGS} $_my_flags"  ./configure --prefix=/usr/musl --exec-prefix=/usr
+  make
 }
 
 package() {
