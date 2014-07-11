@@ -1,12 +1,12 @@
 # Maintainer: Nicholas Helke <nhelke@gmail.com>
 pkgname=openprinting-ppds-postscript-ricoh
 pkgver=20140314
-pkgrel=1
+pkgrel=2
 pkgdesc="PPD files for Ricoh's PostScript printers, supplied by Ricoh"
 arch=('any')
 url="https://www.openprinting.org/driver/Postscript-Ricoh"
 license=('MIT')
-depends=('cups' 'cups-filters')
+depends=('cups' 'cups-filters', 'ghostscript')
 conflicts=(ppd-ricoh)
 install=ricoh.install
 source=('https://www.openprinting.org/download/printdriver/components/lsb3.2/main/RPMS/noarch/openprinting-ppds-postscript-ricoh-20140314-1lsb3.2.noarch.rpm')

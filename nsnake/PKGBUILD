@@ -11,7 +11,7 @@ license=('GPL3')
 depends=('ncurses' 'iniparser')
 conflicts=('nsnake-git')
 source=(https://github.com/alexdantas/$pkgname/archive/v$pkgver.tar.gz)
-sha256sums=('527f000a11cf221ff9e415260c46c86cebe8be690b0e30d47ca7f90c84252000')
+sha256sums=('ff2316cd5a6a99118bc674dba4d2aebc9726d5362a9d4df50e64bb3d352894fe')
 
 build() {
   cd "$srcdir/nSnake-$pkgver"
