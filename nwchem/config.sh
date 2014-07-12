@@ -9,7 +9,7 @@ export USE_MPIF4=yes
 export MPI_LOC=/usr/ #location of openmpi installation
 export MPI_LIB=$MPI_LOC/lib/openmpi
 export MPI_INCLUDE=$MPI_LOC/include/openmpi
-export LIBMPI="-lmpi_f90 -lmpi_f77 -lmpi -ldl -Wl,--export-dynamic -lnsl -lutil"
+export LIBMPI="-pthread -Wl,--enable-new-dtags -lmpi_usempi -lmpi_mpifh -lmpi
 
 #=================================================
 #=NWChem=Settings
