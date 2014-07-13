@@ -1,13 +1,13 @@
 pkgname=2gis-gornoaltaysk
-pkgver=50
+pkgver=51
 pkgrel=1
-pkgdesc="Map of Gorny Altai for 2GIS, June 2014"
+pkgdesc="Map of Gorny Altai for 2GIS, July 2014"
 arch=('i686' 'x86_64')
 url="http://info.2gis.ru/gornyi-altai/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.6.0')
-source=("http://download.2gis.com/arhives/2GISData_Gornoaltaysk-50.orig.zip")
-md5sums=('1b44e29b87f5212e40dad0753dfc0205')
+depends=('2gis>=3.14.7.0')
+source=("http://download.2gis.com/arhives/2GISData_Gornoaltaysk-51.orig.zip")
+md5sums=('833835cf4bbca10b049fbef2c9c6208a')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Gornoaltaysk.dgdat" "${pkgdir}/opt/2gis/2gis-gornoaltaysk.dgdat" || return 1
