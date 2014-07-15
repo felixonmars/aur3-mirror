@@ -12,6 +12,7 @@ depends=('sh')
 makedepends=('git')
 optdepends=('sinit: for init'
             'ubase: for halt, killall5, getty and respawn')
+conflicts=('sysvinit' 'systemd-sysvcompat')
 source=('git+https://github.com/ggjp/servman.git')
 sha256sums=('SKIP')
 backup=('etc/init.d/rc')
@@ -26,5 +27,5 @@ package() {
   mkdir -p "$pkgdir/usr/bin"
   cp -R etc/ "$pkgdir"
   mkdir -p "$pkgdir/etc/init.d/running/net"
-  cp bin/servman "$pkgdir/usr/bin/"
+  cp bin/* "$pkgdir/usr/bin/"
 }

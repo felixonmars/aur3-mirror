@@ -1,3 +1,3 @@
 #!/bin/bash
-export KNIME_SDK_HOME=/usr/share/knime-sdk
-${KNIME_SDK_HOME}/eclipse "$@"
+export KNIME_DESKTOP_HOME=__KNIMEHOME__
+${KNIME_DESKTOP_HOME}/eclipse "$@"
