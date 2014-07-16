@@ -3,7 +3,7 @@
 # Contributor: Fergus Symon <fergofrog@fergofrog.com>
 
 pkgname=razercfg
-pkgver=0.28
+pkgver=0.29
 pkgrel=1
 pkgdesc="Next generation Razer device configuration tool"
 arch=('any')
@@ -18,7 +18,7 @@ source=("http://bues.ch/$pkgname/$pkgname-$pkgver.tar.bz2"
         'razer.svg::http://upload.wikimedia.org/wikipedia/en/0/00/Razer_Snake_Logo.svg'
         'tmpfile.conf')
 install="$pkgname.install"
-sha256sums=('e41f88ee191d11019bce5f2a4b06689e302f50ce0a5193a709c191e78830442d'
+sha256sums=('b737b4335808cb36b95019678554adea278f9295c5b53e958424c82fce529fbf'
             '83f763c414bec401a9c60439b2e15b138a53a279f96565981088824128120063'
             'dae3f745e741bf720066a7015677152792d095bff9bb95f23a38545921071904'
             'a6fa99646938e57bd8be18a38de86ccae5bb19c78e571265db5987a46d0bf21a')

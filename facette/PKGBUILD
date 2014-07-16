@@ -1,7 +1,7 @@
 # Maintainer: Nicolas Leclercq <nicolas.private@gmail.com>
 
 pkgname=facette
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 epoch=
 pkgdesc='Facette is a software to display time series data from several various sources'
@@ -27,7 +27,7 @@ source=(
   '.AURINFO')
 noextract=()
 md5sums=(
-	'130a4c5471ce39219233d34e1d16bf7e'
+	'd296ad384a90fbc36a3748177522df65'
 	'd1e55b27ca233bba20d320113bc1a906'
 	'ade342a98ade039939cf354580b12651'
   'SKIP')

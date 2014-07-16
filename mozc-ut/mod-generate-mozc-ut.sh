@@ -10,7 +10,7 @@ sed -i \
 sed -i \
     -e 's/^\(MOZCVER=.*\|DICVER=.*\|NICODIC=.*\)/#&/' \
     -e 's/\$NICODIC/"\$NICODIC"/' \
-    -e 's| KEN_ALL.CSV| ../../x-ken-all.csv|' \
+    -e 's| KEN_ALL.CSV.r| ../../x-ken-all.csv|' \
     -e '/rm -f chimei\/\*.CSV*/d' \
     -e '/rm -f chimei\/\*.zip/d' \
     -e '/rm -f chimei\/gen_zip_code_seed.py/d' \
@@ -19,6 +19,7 @@ sed -i \
     -e '/# generate zip code dic/,+11d' \
     -e 's/sh generate-katakanago.sh/& || exit 1/' \
     -e '/# debian\/rules/,+2d' \
+    -e '/# PKGBUILD/,+2g' \
     generate-mozc-ut.sh
 
 sed -i \
