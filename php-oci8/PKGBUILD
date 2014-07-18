@@ -3,7 +3,7 @@
 pkgname=php-oci8
 _extname=oci8
 pkgver=2.0.8
-pkgrel=2
+pkgrel=3
 pkgdesc="PHP extension for OCI8"
 arch=('x86_64')
 url="http://pecl.php.net/package/$_extname"
@@ -17,7 +17,7 @@ build() {
   cd "$srcdir/$_extname-$pkgver"
 
   phpize || return 1
-  ./configure --prefix=/usr
+  ./configure --prefix=/usr --with-oci8=instantclient,/usr/lib
   make || return 1
   make INSTALL_ROOT="$pkgdir" install
   echo "extension=$_extname.so" > $_extname.ini

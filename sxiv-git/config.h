@@ -9,16 +9,16 @@ enum {
 /* bar font:
  * (see X(7) section "FONT NAMES" for valid values)
  */
-static const char * const BAR_FONT = "-*-tamsyn-medium-*-*-*-14-*-*-*-*-*-iso8859-*";
+static const char * const BAR_FONT = "-*-fixed-medium-r-*-*-13-*-*-*-*-60-*-*";
 
 /* colors:
  * (see X(7) section "COLOR NAMES" for valid values)
  */
-static const char * const WIN_BG_COLOR = "#1A1A1A";
+static const char * const WIN_BG_COLOR = "#777777";
 static const char * const WIN_FS_COLOR = "#000000";
 static const char * const SEL_COLOR    = "#DDDDDD";
 static const char * const BAR_BG_COLOR = "#222222";
-static const char * const BAR_FG_COLOR = "#899CA1";
+static const char * const BAR_FG_COLOR = "#EEEEEE";
 
 #endif
 #ifdef _IMAGE_CONFIG
@@ -61,7 +61,7 @@ static const bool ALPHA_LAYER = false;
 #ifdef _THUMBS_CONFIG
 
 /* default dimension of thumbnails (width == height): */
-enum { THUMB_SIZE = 100 };
+enum { THUMB_SIZE = 60 };
 
 #endif
 #ifdef _MAPPINGS_CONFIG
@@ -74,7 +74,7 @@ static const keymap_t keys[] = {
 	{ 0,            XK_f,             it_toggle_fullscreen, (arg_t) None },
 	{ 0,            XK_b,             it_toggle_bar,        (arg_t) None },
 
-	{ ControlMask,  XK_s,             it_prefix_external,   (arg_t) None },
+	{ ControlMask,  XK_x,             it_prefix_external,   (arg_t) None },
 
 	{ 0,            XK_r,             it_reload_image,      (arg_t) None },
 	{ 0,            XK_R,             t_reload_all,         (arg_t) None },
@@ -152,15 +152,17 @@ static const keymap_t keys[] = {
 /* mouse button mappings for image mode: */
 static const button_t buttons[] = {
 	/* modifiers    button            function              argument */
-	{ 0,            Button1,          i_navigate,           (arg_t) +1 },
-	{ 0,            Button3,          i_navigate,           (arg_t) -1 },
-	{ 0,            Button2,          i_drag,               (arg_t) None },
-	{ 0,            Button4,          it_scroll_move,       (arg_t) DIR_UP },
-	{ 0,            Button5,          it_scroll_move,       (arg_t) DIR_DOWN },
-	{ ShiftMask,    Button4,          it_scroll_move,       (arg_t) DIR_LEFT },
-	{ ShiftMask,    Button5,          it_scroll_move,       (arg_t) DIR_RIGHT },
-	{ ControlMask,  Button4,          i_zoom,               (arg_t) +1 },
-	{ ControlMask,  Button5,          i_zoom,               (arg_t) -1 },
+	{ 0,            1,                i_navigate,           (arg_t) +1 },
+	{ 0,            3,                i_navigate,           (arg_t) -1 },
+	{ 0,            2,                i_drag,               (arg_t) None },
+	{ 0,            4,                it_scroll_move,       (arg_t) DIR_UP },
+	{ 0,            5,                it_scroll_move,       (arg_t) DIR_DOWN },
+	{ ShiftMask,    4,                it_scroll_move,       (arg_t) DIR_LEFT },
+	{ ShiftMask,    5,                it_scroll_move,       (arg_t) DIR_RIGHT },
+	{ 0,            6,                it_scroll_move,       (arg_t) DIR_LEFT },
+	{ 0,            7,                it_scroll_move,       (arg_t) DIR_RIGHT },
+	{ ControlMask,  4,                i_zoom,               (arg_t) +1 },
+	{ ControlMask,  5,                i_zoom,               (arg_t) -1 },
 };
 
 #endif

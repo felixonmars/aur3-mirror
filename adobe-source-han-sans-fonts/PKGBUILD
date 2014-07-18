@@ -1,28 +1,34 @@
 # Maintainer: Sascha Weaver <wzyboy@wzyboy.org>
 
-cat << EOF
-
-This font family has several variants:
-
-* Multilingual version with Japanese glyphs as default priority
-* Multilingual version with Korean glyphs as default priority
-* Multilingual version with Simplified Chinese glyphs as default priority
-* Multilingual version with Traditional Chinese glyphs as default priority
-* Monolingual version with only Japanese glyphs + Latin
-* Monolingual version with only Korean glyphs + Latin
-* Monolingual version with only Simplified Chinese glyphs + Latin
-* Monolingual version with only Traditional Chinese glyphs + Latin
-
-This PKGBUILD will build four monolingual packages.
-
-EOF
+# According to http://sourceforge.net/adobe/source-han-sans/wiki/Home/ ,
+# this font has three versions:
+#
+# * Multilingual versions with a default langauge:
+#   * Multilingual version with Japanese glyphs as default priority
+#   * Multilingual version with Korean glyphs as default priority
+#   * Multilingual version with Simplified Chinese glyphs as default priority
+#   * Multilingual version with Traditional Chinese glyphs as default priority
+#   (We do not package them)
+# * Multilingual version combined the four versions above.
+#   (This version is "the best of the worlds", but it cannot be used in Windows)
+#   -> adobe-source-han-sans-otc-fonts
+# * Regional subsets with only characters used in CN, JP, KR or TWHK:
+#   (This version has smaller footprints and broader compatiblity)
+#   * Regional subset with only Japanese glyphs + Latin
+#   -> adobe-source-han-sans-jp-fonts
+#   * Regional subset with only Korean glyphs + Latin
+#   -> adobe-source-han-sans-kr-fonts
+#   * Regional subset with only Simplified Chinese glyphs + Latin
+#   -> adobe-source-han-sans-cn-fonts
+#   * Regional subset with only Traditional Chinese glyphs + Latin
+#   -> adobe-source-han-sans-twhk-fonts
 
 pkgbase=adobe-source-han-sans-fonts
 pkgname=($pkgbase-jp $pkgbase-kr $pkgbase-cn $pkgbase-twhk)
 
 pkgver=1.000
 pkgrel=1
-pkgdesc='Adobe Source Han Sans - Religion-specific subsets'
+pkgdesc='Adobe Source Han Sans - Regional-specific subsets'
 arch=('any')
 url='https://github.com/adobe-fonts/source-han-sans'
 source=("http://sourceforge.net/projects/source-han-sans.adobe/files/SourceHanSansJP-1.000.zip"
