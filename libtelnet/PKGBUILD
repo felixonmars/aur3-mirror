@@ -2,19 +2,20 @@
 
 pkgname=libtelnet
 pkgver=0.21
-pkgrel=2
+pkgrel=3
 pkgdesc="Simple RFC-complient TELNET implementation as a C library."
 url="http://github.com/seanmiddleditch/libtelnet"
 license=('custom')
 arch=('i686' 'x86_64')
 depends=('')
-makedepends=('make' 'patch')
+makedepends=('make' 'patch' 'libtool' 'pkg-config' 'autoconf' )
 source=("https://github.com/seanmiddleditch/libtelnet/archive/${pkgver}.tar.gz"
         libtelnet-autoconf-2.6.patch)
 
 build() {
   cd "${srcdir}/${pkgname}-${pkgver}"
   patch -p1 < ../libtelnet-autoconf-2.6.patch
+  libtoolize --force
   autoreconf -i
   ./configure --prefix=/usr
   make

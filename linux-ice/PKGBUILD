@@ -5,8 +5,8 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.15
-pkgver=3.15.5
-pkgrel=2
+pkgver=3.15.6
+pkgrel=1
 _toipatch=tuxonice-for-linux-3.15.2-2014-06-27.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -25,7 +25,7 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 )
 
 sha256sums=('c3927e87be4040fa8aca1b58663dc0776aaf00485604ff88a623be2f3fb07794'
-            '9b0d000e0bdec7a25ee6303afdab8d2af77439995876eadd6ce248e5c954037d'
+            'f2a15b142cd332c57e71ca06097c1fd159fa0d0709389b9fc10b7f78c48f741b'
             '001588e294e3a2a200cf8ae0122722edab33c9e266e16e17a4cea0b5f70f04ff'
             'e728997fbdd82b330cb54209a4146cea6c844e56822c9825ca22fe53131b3ce5'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
