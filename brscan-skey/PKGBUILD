@@ -1,10 +1,10 @@
 pkgname=brscan-skey
 pkgver=0.2.4_1
-pkgrel=2
+pkgrel=3
 pkgdesc="Brother scan-key-tool"
 depends=('sane' 'sed')
 arch=('i686' 'x86_64')
-url="http://welcome.solutions.brother.com/bsc/public_s/id/linux/en/index.html"
+url="http://support.brother.com/g/s/id/linux/en"
 license=('GPL' 'custom:Brother commercial license')
 install=brscan-skey.install
 if [ $CARCH = 'x86_64' ]; then
