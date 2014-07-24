@@ -9,68 +9,33 @@
 # pull requests are welcome
 
 pkgname=thunderbird-enigmail
-pkgver=1.6
-pkgrel=2
-_tbver=24.2.0
+pkgver=1.7
+pkgrel=1
 pkgdesc="Thunderbird extension that enables sending and receiving signed and encrypted e-mail messages"
 arch=('i686' 'x86_64')
 url="https://www.enigmail.net/"
 license=('MPL' 'GPL')
 depends=('thunderbird' 'gnupg')
-makedepends=('zip' 'unzip' 'python2')
-source=("https://www.enigmail.net/download/source/enigmail-${pkgver}.tar.gz"
-        "ftp://ftp.mozilla.org/pub/mozilla.org/thunderbird/releases/$_tbver/source/thunderbird-$_tbver.source.tar.bz2"
-        mozconfig
-        thunderbird-nspr-bug.patch)
-sha256sums=('10d5eb7ba364b9b6e6275aae8bba1d0e4321ed7d55a715337d566ccf2a56ea4d'
-            '66474132bd6ebbb8a913c3f4acd4ecc9bec011e4c7ee49475f29558801a905cf'
-            '987e0bdfc52b9580abe3d9fdb62507b23d1a6f2df3e91c5832e66a423172921b'
-            '449124d4c29724da78a3463513207e1016adc01a73a8360480031826c6f207dd')
+makedepends=('zip' 'unzip' 'python2' 'perl>=5.8')
+source=("https://www.enigmail.net/download/source/enigmail-${pkgver}.tar.gz")
+sha256sums=('cddbf35783194a4e994f9584ad5bee74750e25f690e81727ba9eccc4f814f161')
 
-prepare() {
-  cd "$srcdir/comm-esr${_tbver%%.*}"
-
-  cp "$srcdir/mozconfig" .mozconfig
-  # needs to be an absolute path
-  sed -i'' -e "s:@OBJDIR@:$srcdir/comm-esr${_tbver%%.*}/obj:" .mozconfig
-
-  # configure script misdetects the preprocessor without an optimization level
-  # https://bugs.archlinux.org/task/34644
-  sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' mozilla/configure
-
-  # There's a bug with using system tier_nspr:
-  # https://bugzilla.mozilla.org/show_bug.cgi?id=909076
-  patch -Np1 -i "$srcdir/thunderbird-nspr-bug.patch"
-}
 
 build() {
-  cd "$srcdir/comm-esr${_tbver%%.*}"
-
-  make -f client.mk configure MOZ_MAKE_FLAGS="$MAKEFLAGS"
-  cd obj
-
-  make -C mozilla tier_base tier_js
-  make export
-  cd ..
-
-  # Compile Enigmail
-  cp -R "$srcdir"/enigmail "$srcdir"/comm-esr${_tbver%%.*}/mailnews/extensions
-  cd mailnews/extensions/enigmail
-  ./makemake -r
-  cd "$srcdir/comm-esr${_tbver%%.*}"/obj/mailnews/extensions/enigmail
-  make
-
-  # Create the Enigmail XPI
-  make xpi
+  cd "$srcdir/enigmail"
+  PYTHON=/usr/bin/python2 ./configure
+  make -j1 # fails with -j greater than 1
 }
 
 package() {
-  cd "$srcdir/comm-esr${_tbver%%.*}"
-
-  emid="$(sed -n '/.*<em:id>\(.*\)<\/em:id>.*/{s//\1/p;q}' mailnews/extensions/enigmail/package/install.rdf)"
-
+  cd "$srcdir/enigmail"
+  emid="$(sed -n '/.*<em:id>\(.*\)<\/em:id>.*/{s//\1/p;q}' package/install.rdf)"
   install -d -m755 "$pkgdir"/usr/lib/thunderbird/extensions/"$emid"
   cd "$pkgdir"/usr/lib/thunderbird/extensions/"$emid"
+  unzip "$srcdir"/enigmail/build/enigmail-*.xpi
 
-  unzip "$srcdir"/comm-esr${_tbver%%.*}/obj/mozilla/dist/bin/enigmail-*.xpi
+  # Uncomment the following lines if you use thunderbird-nightly
+  # install -d -m755 "$pkgdir"/opt/thunderbird-nightly-*/extensions/"$emid"
+  # cd "$pkgdir"/opt/thunderbird-nightly-*/extensions/"$emid"
+  # unzip "$srcdir"/enigmail/build/enigmail-*.xpi
 }

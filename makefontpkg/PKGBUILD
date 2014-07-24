@@ -3,18 +3,16 @@
 pkgname=makefontpkg
 pkgver=20140418
 pkgrel=1
-pkgdesc="Tool to create packages from TrueType-Fonts & OpenType-Fonts"
-arch=('x86_64' 'i686')
-url="http://github.com/misterdanb/makefontpkg"
-license=('Beerware')
-depends=('python')
-makedepends=('git')
+pkgdesc="Tool for creating packages from TrueType and OpenType fonts"
+arch=(x86_64 i686)
+url='http://github.com/misterdanb/makefontpkg'
+license=(Beerware)
+depends=(python3)
+makedepends=(git)
 options=('!strip' '!emptydirs')
 source=('makefontpkg::git://github.com/misterdanb/makefontpkg.git')
 md5sums=('SKIP')
 
 package() {
-  install -d "$pkgdir/usr/bin"
-  cp -dpr --no-preserve=ownership "$srcdir/$pkgname/$pkgname" "$pkgdir/usr/bin/"
-  chmod +x "$pkgdir/usr/bin/$pkgname"
+  install -Dm755 "$srcdir/$pkgname/$pkgname" "$pkgdir/usr/bin/$pkgname"
 }

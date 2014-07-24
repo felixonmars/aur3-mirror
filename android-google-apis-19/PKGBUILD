@@ -1,8 +1,8 @@
-# Maintainer: Philipp Wolfer <ph.wolfer@gmail.com>
-# Contributor: Joel Pedraza <joel@joelpedraza.com>
+# Maintaner: Joel Pedraza <joel@joelpedraza.com>
+# Contributor: Philipp Wolfer <ph.wolfer@gmail.com>
 # Contributor: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
-_rev=r05
+_rev=r06
 _sdkver=4.4
 _sdkint=19
 pkgname=android-google-apis-${_sdkint}
@@ -15,15 +15,14 @@ license=('custom')
 depends=("android-platform-${_sdkint}")
 options=('!strip')
 source=(
-	"https://dl.google.com/android/repository/google_apis-${_sdkint}_${_rev}.zip"
+	"http://dl.google.com/android/repository/google_apis-${_sdkint}_${_rev}.zip"
 	"source.properties")
-sha1sums=('5609457b52a2afdbf9aa830c8c30c2ef70e90b74'
-          'afcb3d527ea1b41c28f8977765e3986a071710b8')
+sha1sums=('b91fced8b348df7fb505a687084ec16d03ad9b1c'
+          'cdf43f6ea333685e7677f14b0fbc8c0bc32fb1c8')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/add-ons/"
-  mv "${srcdir}/google_apis-1177510-mac-x86" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google-${_sdkint}"
-  cp "${srcdir}/source.properties" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google-${_sdkint}"
-
+  cp -dpr --no-preserve=ownership "${srcdir}/google_apis-1246540-mac-x86" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google-${_sdkint}"
   chmod -R ugo+rX "${pkgdir}/opt"
+  install -m644 "${srcdir}/source.properties" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google-${_sdkint}/source.properties"
 }
