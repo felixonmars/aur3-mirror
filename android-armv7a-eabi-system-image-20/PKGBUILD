@@ -5,7 +5,7 @@ _sdkver=L
 _sdkint=20
 pkgname=android-armv7a-eabi-system-image-${_sdkint}
 pkgver=${_sdkver}_${_rev}
-pkgrel=1
+pkgrel=2
 pkgdesc="Android ARM EABI v7a System Image, API-${_sdkint}"
 arch=('any')
 url="http://developer.android.com/sdk/index.html"
@@ -16,8 +16,8 @@ source=("http://dl.google.com/android/repository/sys-img/android/sysimg_armv7a-$
 sha1sums=('1d5d81a7078b5b2a685620d93e1e04a51d2e786a')
 
 package() {
-  mkdir -p "${pkgdir}/opt/android-sdk/system-images/android-${_sdkint}/"
-  cp -dpr --no-preserve=ownership "${srcdir}/armeabi-v7a" "${pkgdir}/opt/android-sdk/system-images/android-${_sdkint}/armeabi-v7a"
+  mkdir -p "${pkgdir}/opt/android-sdk/system-images/android-${_sdkver}/default"
+  cp -dpr --no-preserve=ownership "${srcdir}/armeabi-v7a" "${pkgdir}/opt/android-sdk/system-images/android-${_sdkver}/default/armeabi-v7a"
 
   chmod -R ugo+rX "${pkgdir}/opt"
 }

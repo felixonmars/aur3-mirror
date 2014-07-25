@@ -57,7 +57,7 @@ pkgname=($pkgbase $pkgbase-arabic $pkgbase-hebrew
     $pkgbase-zh_cn $pkgbase-zh_tw $pkgbase-thai $pkgbase-other)
 
 pkgver=6.3.9600.17050
-pkgrel=2
+pkgrel=3
 pkgdesc='Microsoft Windows 8.1 TrueType fonts'
 arch=('any')
 url='http://www.microsoft.com/typography/fonts/product.aspx?PID=164'
@@ -329,7 +329,7 @@ function _extract_ttcs {
 				thefontname = theFontNames[j]
 				thisPath = $argv[i] + "(" + thefontname + ")"
 				Open(thisPath, 1)
-				Generate(thefontname + ".ttf")
+				Generate(thefontname + ".ttf", "ttf")
 				Print(thefontname + ".ttf")
 				Close()
 				j++

@@ -1,0 +1,142 @@
+--- doc/user-guide/commands.xml	2014-07-05 23:40:53.000000000 +0200
++++ doc/user-guide/commands.xml	2014-07-24 23:49:48.709435758 +0200
+@@ -76,11 +76,11 @@
+ 					</para>
+ 					
+ 					<para>
+-						By default all your Twitter contacts will appear in a new channel called #twitter_yourusername. You can change this behaviour using the <emphasis>mode</emphasis> setting (see <emphasis>help set mode</emphasis>).
++						By default all your Twitter contacts will appear in a new channel called #&lt;account_tag&gt;. You can change this behaviour using the <emphasis>mode</emphasis> setting (see <emphasis>help set mode</emphasis>).
+ 					</para>
+ 					
+ 					<para>
+-						To send tweets yourself, send them to the twitter_(yourusername) contact, or just write in the groupchat channel if you enabled that option.
++						To send tweets yourself, send them to the &lt;account_tag&gt; contact, or just write in the groupchat channel if you enabled that option.
+ 					</para>
+ 
+ 					<para>
+@@ -1065,11 +1065,11 @@
+ 
+ 		<description>
+ 			<para>
+-				By default, BitlBee will create a separate channel (called #twitter_yourusername) for all your Twitter contacts/messages.
++				By default, BitlBee will create a separate channel (called #&lt;account_tag&gt;) for all your Twitter contacts/messages.
+ 			</para>
+ 
+ 			<para>
+-				If you don't want an extra channel, you can set this setting to "one" (everything will come from one nick, twitter_yourusername), or to "many" (individual nicks for everyone).
++				If you don't want an extra channel, you can set this setting to "one" (everything will come from one nick, &lt;account_tag&gt;), or to "many" (individual nicks for everyone).
+ 			</para>
+ 			
+ 			<para>
+@@ -1077,7 +1077,7 @@
+ 			</para>
+ 			
+ 			<para>
+-				With modes "many" and "one", you can post tweets by /msg'ing the twitter_yourusername contact. In mode "chat", messages posted in the Twitter channel will also be posted as tweets.
++				With modes "many" and "one", you can post tweets by /msg'ing the &lt;account_tag&gt; contact. In mode "chat", messages posted in the Twitter channel will also be posted as tweets.
+ 			</para>
+ 		</description>
+ 
+--- protocols/twitter/twitter.c	2014-07-05 23:40:53.000000000 +0200
++++ protocols/twitter/twitter.c	2014-07-24 23:49:48.719435731 +0200
+@@ -79,7 +79,6 @@
+ 
+ struct groupchat *twitter_groupchat_init(struct im_connection *ic)
+ {
+-	char *name_hint;
+ 	struct groupchat *gc;
+ 	struct twitter_data *td = ic->proto_data;
+ 	GSList *l;
+@@ -89,9 +88,7 @@
+ 
+ 	td->timeline_gc = gc = imcb_chat_new(ic, "twitter/timeline");
+ 
+-	name_hint = g_strdup_printf("%s_%s", td->prefix, ic->acc->user);
+-	imcb_chat_name_hint(gc, name_hint);
+-	g_free(name_hint);
++	imcb_chat_name_hint(gc, ic->acc->tag);
+ 
+ 	for (l = ic->bee->users; l; l = l->next) {
+ 		bee_user_t *bu = l->data;
+@@ -180,7 +177,7 @@
+ 
+ 	td = ic->proto_data;
+ 	if (info->stage == OAUTH_REQUEST_TOKEN) {
+-		char *name, *msg;
++		char *msg;
+ 
+ 		if (info->request_token == NULL) {
+ 			imcb_error(ic, "OAuth error: %s", twitter_parse_error(info->http));
+@@ -188,12 +185,10 @@
+ 			return FALSE;
+ 		}
+ 
+-		name = g_strdup_printf("%s_%s", td->prefix, ic->acc->user);
+ 		msg = g_strdup_printf("To finish OAuth authentication, please visit "
+ 				      "%s and respond with the resulting PIN code.",
+ 				      info->auth_url);
+-		imcb_buddy_msg(ic, name, msg, 0, 0);
+-		g_free(name);
++		imcb_buddy_msg(ic, ic->acc->tag, msg, 0, 0);
+ 		g_free(msg);
+ 	} else if (info->stage == OAUTH_ACCESS_TOKEN) {
+ 		const char *sn;
+@@ -340,7 +335,6 @@
+ {
+ 	struct im_connection *ic = imcb_new(acc);
+ 	struct twitter_data *td;
+-	char name[strlen(acc->user) + 9];
+ 	url_t url;
+ 	char *s;
+ 	
+@@ -393,9 +387,8 @@
+ 	if (strstr(acc->pass, "oauth_token="))
+ 		td->oauth_info = oauth_from_string(acc->pass, get_oauth_service(ic));
+ 
+-	sprintf(name, "%s_%s", td->prefix, acc->user);
+-	imcb_add_buddy(ic, name, NULL);
+-	imcb_buddy_status(ic, name, OPT_LOGGED_IN, NULL, NULL);
++	imcb_add_buddy(ic, acc->tag, NULL);
++	imcb_buddy_status(ic, acc->tag, OPT_LOGGED_IN, NULL, NULL);
+ 
+ 	td->log = g_new0(struct twitter_log_data, TWITTER_LOG_LENGTH);
+ 	td->log_id = -1;
+@@ -449,10 +442,8 @@
+ static int twitter_buddy_msg(struct im_connection *ic, char *who, char *message, int away)
+ {
+ 	struct twitter_data *td = ic->proto_data;
+-	int plen = strlen(td->prefix);
+ 
+-	if (g_strncasecmp(who, td->prefix, plen) == 0 && who[plen] == '_' &&
+-	    g_strcasecmp(who + plen + 1, ic->acc->user) == 0) {
++	if (g_strcasecmp(who, ic->acc->tag) == 0) {
+ 		if (set_getbool(&ic->acc->set, "oauth") &&
+ 		    td->oauth_info && td->oauth_info->token == NULL) {
+ 			char pin[strlen(message) + 1], *s;
+--- protocols/twitter/twitter_lib.c	2014-07-05 23:40:53.000000000 +0200
++++ protocols/twitter/twitter_lib.c	2014-07-24 23:49:48.719435731 +0200
+@@ -690,13 +690,11 @@
+ static void twitter_status_show_msg(struct im_connection *ic, struct twitter_xml_status *status)
+ {
+ 	struct twitter_data *td = ic->proto_data;
+-	char from[MAX_STRING] = "";
+-	char *prefix = NULL, *text = NULL;
++	char *from = NULL, *prefix = NULL, *text = NULL;
+ 	gboolean me = g_strcasecmp(td->user, status->user->screen_name) == 0;
+ 
+ 	if (td->flags & TWITTER_MODE_ONE) {
+-		g_snprintf(from, sizeof(from) - 1, "%s_%s", td->prefix, ic->acc->user);
+-		from[MAX_STRING - 1] = '\0';
++		from = ic->acc->tag;
+ 	}
+ 
+ 	if (td->flags & TWITTER_MODE_ONE)
+@@ -710,7 +708,7 @@
+ 	text = twitter_msg_add_id(ic, status, prefix ? prefix : "");
+ 
+ 	imcb_buddy_msg(ic,
+-	               *from ? from : status->user->screen_name,
++	               from ? from : status->user->screen_name,
+ 	               text ? text : status->text, 0, status->created_at);
+ 
+ 	g_free(text);

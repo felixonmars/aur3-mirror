@@ -2,8 +2,8 @@
 
 pkgname=atlauncher
 pkgver=latest
-pkgrel=1
-pkgdesc="The ATLauncher Minecraft mod pack manager and launcher."
+pkgrel=2
+pkgdesc="The Minecraft mod pack manager and launcher."
 arch=('i686' 'x86_64')
 url="http://www.atlauncher.com"
 license=('CCPL')
@@ -18,12 +18,11 @@ source=("ATLauncher.jar"
         "atlauncher.png"
         "LICENSE")
 
-md5sums=('09f9bf049806ba21a4c3712bad73d9ab'
-        '9dcb29afaab4ac7f2a391c82ca893e3f'
-        'bb6c25c948b8d2341a27803c123df453'
-        '8ab8a70ca8c7dbff0dc23bec40a5a923'
-        '5367190077e12a7f55403d531ef3998e')
-
+md5sums=('0f6c3579dfd86b3eddf7e8afac6efa96'
+         '9dcb29afaab4ac7f2a391c82ca893e3f'
+         'bb6c25c948b8d2341a27803c123df453'
+         '8ab8a70ca8c7dbff0dc23bec40a5a923'
+         '5367190077e12a7f55403d531ef3998e')
 
 package() {
     cd "$srcdir"
