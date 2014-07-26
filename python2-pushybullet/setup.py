@@ -3,7 +3,7 @@
 from distutils.core import setup
 
 setup(name='PushyBullet',
-      version='1.2.3',
+      version='1.3.2',
       description='PushBullet APIv2 python bindings',
       author='Konstantin Stepanov',
       author_email='me@kstep.me',

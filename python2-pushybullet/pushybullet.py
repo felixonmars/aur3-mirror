@@ -20,6 +20,9 @@ class Event(object):
     def __repr__(self):
         return '<%s @%s>' % (self.__class__.__name__, self.time)
 
+    def pushes(self, skip_empty=False):
+        return xrange(0)  # empty generator
+
 class NopEvent(Event):
     '''
     Nop event (keep-alive ticks)
@@ -53,6 +56,9 @@ class PushEvent(Event):
 
     def __repr__(self):
         return '<%s[%r] @%s>' % (self.__class__.__name__, self.push, self.time)
+
+    def pushes(self, skip_empty=False):
+        yield self.push
 
 # }}}
 
@@ -153,6 +159,23 @@ class Contact(PushTarget):
     def uri(self):
         return 'contacts/%s' % self.iden
 
+    def create(self):
+        if self.iden:
+            raise PushBulletError('contact already exists')
+
+        self.__dict__.update(self.api.post('contacts', name=self.name, email=self.email))
+        return self
+
+    def update(self):
+        if not self.iden:
+            raise PushBulletError('contact does not exist yet')
+
+        self.__dict__.update(self.api.post(self.uri, name=self.name)['contacts'][0])
+        return self
+
+    def rename(self, newname):
+        self.name = newname
+        return self.update()
 
 class Device(PushTarget):
     '''
@@ -182,6 +205,27 @@ class Device(PushTarget):
             raise PushBulletError('device already exists')
 
         self.__dict__.update(self.api.post('devices', nickname=self.nickname, type=getattr(self, 'type', 'stream')))
+        return self
+
+class User(PushTarget):
+    '''
+    User profile
+    '''
+    def __repr__(self):
+        return '<User[%s]: %s <%s>>' % (self.iden,
+                getattr(self, 'name', 'Unnamed'),
+                getattr(self, 'email', None) or getattr(self, 'email_normalized'))
+
+    @property
+    def ident(self):
+        return {}
+
+    @property
+    def uri(self):
+        return 'users/me'
+
+    def update(self):
+        self.__dict__.update(self.api.post(self.uri, preferences=getattr(self, 'preferences', {})))
         return self
 
 # }}}
@@ -235,6 +279,20 @@ class Push(PushBulletObject):
 
         self.send(self.target_device_iden)
 
+    def update(self):
+        self.__dict__.update(self.api.post(self.uri, dissmissed=getattr(self, 'dismissed', False))['pushes'][0])
+        return self
+
+    def dismiss(self):
+        '''
+        Dismiss a push
+        '''
+        if getattr(self, 'dismissed', False):
+            return  # don't dismiss twice
+
+        self.dismissed = True
+        return self.update()
+
     @property
     def data(self):
         '''
@@ -262,7 +320,7 @@ class NotePush(Push):
     Note push
     '''
     type = 'note'
-    def __init__(self, body, title='', **data):
+    def __init__(self, body='', title='', **data):
         '''
         A note push constructor
 
@@ -590,18 +648,16 @@ class PushBullet(PushTarget):
         '''
         response = self.sess.post(_uri, data=data, files=files, auth=()).raise_for_status()
 
-    __devices = None
-    def devices(self, reset_cache=False):
+    def iter_devices(self, skip_inactive=True):
         '''
         Get available devices to push to
 
-        :param bool reset_cache: if True, reset internal devices cache and force HTTP request
+        :param bool skip_inactive: if False, fetch all devices, even inactive ones
         '''
-        if not reset_cache and self.__devices:
-            return self.__devices
 
-        self.__devices = map(lambda d: Device(self, **d), self.get('devices')['devices'])
-        return self.__devices
+        return self.paged('devices',
+                (lambda d: d['active']) if skip_inactive else (lambda d: True),
+                lambda d: Device(self, **d))
 
 
     def create_device(self, nickname, type='stream'):
@@ -614,19 +670,52 @@ class PushBullet(PushTarget):
         '''
         return Device(self, None, nickname=nickname, type=type).create()
 
+    def create_contact(self, name, email):
+        '''
+        Create a new contact with given name and email
+
+        :param str name: contact's name
+        :param str email: contact's email
+        :rtype: Contact
+        '''
+        return Contact(self, None, name=name, email=email).create()
+
+    def iter_contacts(self, skip_inactive=True):
+        '''
+        Get available contacts to push to
+
+        :param bool skip_inactive: if False, fetch all contacts, even inactive ones
+        '''
+        return self.paged('contacts',
+                (lambda c: c['active']) if skip_inactive else (lambda c: True),
+                lambda c: Contact(self, **c))
+
 
     __contacts = None
     def contacts(self, reset_cache=False):
         '''
-        Get available contacts to push to
+        Get available contacts to push to as a plain list
 
-        :param bool reset_cache: if True, reset internal devices cache and force HTTP request
+        :param bool reset_cache: if True, reset inner contacts cache
         '''
-        if not reset_cache and self.__contacts:
-            return self.__contacts
+        if reset_cache or self.__contacts is None:
+            self.__contacts = list(self.iter_contacts())
 
-        self.__contacts = map(lambda c: Contact(self, **c), self.get('contacts')['contacts'])
         return self.__contacts
+
+
+    __devices = None
+    def devices(self, reset_cache=False):
+        '''
+        Get available devices to push to as a plain list
+
+        :param bool reset_cache: if True, reset inner devices cache
+        '''
+        if reset_cache or self.__devices is None:
+            self.__devices = list(self.iter_devices())
+
+        return self.__devices
+
 
     def __getitem__(self, device_iden):
         '''
@@ -684,19 +773,24 @@ class PushBullet(PushTarget):
                 from dateutil.parser import parse
                 since = parse(since).strftime('%s')
 
-        pushes = self.get('pushes', modified_after=since)
+        return self.paged('pushes',
+                (lambda p: bool(p.get('type'))) if skip_empty else (lambda p: True),
+                self.make_push,
+                modified_after=since)
+
+
+    def paged(self, _uri, _filter, _wrapper, **params):
+        page = self.get(_uri, **params)
 
         while True:
-            for push in pushes['pushes']:
-                if skip_empty and not push.get('type'):
-                    continue
+            for item in page[_uri]:
+                if _filter(item):
+                    yield _wrapper(item)
 
-                yield self.make_push(push)
-
-            if not pushes.get('cursor'):
+            if not page.get('cursor'):
                 break
 
-            pushes = self.get('pushes', cursor=pushes['cursor'])
+            page = self.get(_uri, cursor=page['cursor'])
 
     __me = None
     def me(self, reset_cache=False):
@@ -706,7 +800,7 @@ class PushBullet(PushTarget):
         if not reset_cache and self.__me:
             return self.__me
 
-        self.__me = self.get('users/me')
+        self.__me = User(self, **self.get('users/me'))
         return self.__me
 
     def make_target(self, target):
