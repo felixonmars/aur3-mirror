@@ -1,8 +1,8 @@
 # Maintainer: Alexandr Boiko <brdcom@ya.ru>
 pkgname=accel-ppp-lts-git
-pkgver=20140710
-pkgrel=17
-pkgdesc="Kernel-mode PPTP/PPPoE/L2TP/IPoE server"
+pkgver=20140726
+pkgrel=18
+pkgdesc="High performance PPTP/L2TP/PPPoE/IPoE server"
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/apps/trac/accel-ppp/"
 license=('GPL')
@@ -60,7 +60,7 @@ build() {
 		-DLUA=TRUE \
 		-DLUA_INCLUDE_DIR="/usr/include/lua5.1" \
 		-DBUILD_IPOE_DRIVER=TRUE \
-		-DKDIR="/usr/src/linux-`uname -r`" \
+		-DKDIR="/usr/lib/modules/`uname -r`/build" \
 		"../$_gitname/"
 	make || return 1
 }

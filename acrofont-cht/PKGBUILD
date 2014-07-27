@@ -1,17 +1,20 @@
 # Contributor: Jesse Lee <joyli@vip.url.com.tw>
 
 pkgname=acrofont-cht
-pkgver=7.0.8
+pkgver=9.1
 pkgrel=1
-pkgdesc="Traditional Chinese font packs for Adobe Acrobat Reader 7.0.8"
+pkgdesc="Traditional Chinese font packs for Adobe Acrobat Reader 9.1"
+arch=('any')
 url="http://www.adobe.com/products/acrobat/acrrasianfontpack.html"
-depends=('acroread>=7.0.8')
-source=("ftp://ftp.adobe.com/pub/adobe/reader/unix/7x/7.0.8/misc/FontPack708_cht_i386-linux.tar.gz")
-md5sums=('8dff8bbeaa4c679655784263882f0f87')
+license=('custom')
+depends=('acroread>=9.1.0')
+source=("ftp://ftp.adobe.com/pub/adobe/reader/unix/9.x/9.1/misc/FontPack910_cht_i486-linux.tar.bz2")
+md5sums=('38baee4eca2d8291220eb8a8ab77f9b7')
 
-build() {
-        mkdir -p $startdir/pkg/opt/acrobat/Resource
-	cd $startdir/pkg/opt/acrobat/Resource
-	find $startdir/src -name LANG\*.TAR -exec tar -xf {} \;
-	rm -f CMap/Identity-[HV]
+
+package() {
+    mkdir -p $pkgdir/opt/acrobat/Resource
+    cd $pkgdir/opt/acrobat/Resource
+    find $srcdir -name LANG\*.TAR -exec tar -xf {} \;
+    rm -f CMap/Identity-[HV]
 }

@@ -1,5 +1,5 @@
 pkgname='sprunge'
-pkgver='0.1.0'
+pkgver='0.1.1'
 pkgrel=1
 pkgdesc='Upload data to sprunge.us via stdin'
 license=('MIT')
@@ -9,7 +9,7 @@ arch=('i686' 'x86_64' 'armv6h')
 depends=('python')
 source=('sprunge')
 sha256sums=(
-    'e36f331e35270978639555f485dc13f37298fe248f02f34dc0670665b44b2d48'
+    '3162365f6edaf5d52f8ce9d57a2800ebeb7184bd1b37d107ad88b45542ed97ec'
 )
 
 package()
