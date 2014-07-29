@@ -20,6 +20,8 @@ package() {
   install -D -m755 ${_pkgname}-${pkgver}/adduser.conf "${pkgdir}/etc/adduser.conf"
   install -D -m755 ${_pkgname}-${pkgver}/deluser.conf "${pkgdir}/etc/deluser.conf"
   install -D -m755 ${_pkgname}-${pkgver}/AdduserCommon.pm "${pkgdir}/usr/share/perl5/vendor_perl/Debian/AdduserCommon.pm"
+  sed -i "s/'-w',$gecos_work/'-p',$gecos_work/" ${pkgdir}/usr/bin/adduser
+  sed -i "s/'-r', $gecos_room/'-o', $gecos_room/" ${pkgdir}/usr/bin/adduser
 }
 
 # vim:set ts=2 sw=2 et:
