@@ -5,9 +5,9 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.15
-pkgver=3.15.6
+pkgver=3.15.7
 pkgrel=1
-_toipatch=tuxonice-for-linux-3.15.2-2014-06-27.patch
+_toipatch=tuxonice-for-linux-3.15.6-2014-07-19.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -20,18 +20,16 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
-        '0013-efistub-fix.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 sha256sums=('c3927e87be4040fa8aca1b58663dc0776aaf00485604ff88a623be2f3fb07794'
-            'f2a15b142cd332c57e71ca06097c1fd159fa0d0709389b9fc10b7f78c48f741b'
-            '001588e294e3a2a200cf8ae0122722edab33c9e266e16e17a4cea0b5f70f04ff'
-            'e728997fbdd82b330cb54209a4146cea6c844e56822c9825ca22fe53131b3ce5'
+            '25f0767908e736a2388fe36810712ee3faa6c86c5255516496d5942ba1ffb451'
+            'db881c5e26a65b4ba8859f319bed946d9f3f5e9939eb0f8a35fc33e097cb2d9f'
+            '7da276e182cd8e9bedac5ac9ec97b460ee6c90e336536ae930082209f82e641e'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
-            '937dc895b4f5948381775a75bd198ed2f157a9f356da0ab5a5006f9f1dacde5c'
-            'b6de13c1a5f3fa37af495b57aa608194a5e8f38d2da05851dc535150d29cf43a')
+            'be774bb5a9c30658e8677133b17dd1bf6b28675b700922a7f66744ccac0fafd0')
 
 _kernelname=${pkgbase#linux}
 
@@ -48,10 +46,6 @@ prepare() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # fix efistub hang #33745
-  # https://git.kernel.org/cgit/linux/kernel/git/mfleming/efi.git/patch/?id=c7fb93ec51d462ec3540a729ba446663c26a0505
-  patch -Np1 -i "${srcdir}/0013-efistub-fix.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
