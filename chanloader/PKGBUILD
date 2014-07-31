@@ -1,7 +1,7 @@
 # Maintainer: Luka Dornhecker <luka.dornhecker@gmail.com>
 pkgname=chanloader
-pkgver=0.0.1
-pkgrel=4
+pkgver=0.0.2
+pkgrel=1
 pkgdesc="4chan command-line image downloader"
 arch=("any")
 url="https://github.com/lukad/chanloader"
