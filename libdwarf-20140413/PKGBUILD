@@ -4,7 +4,7 @@
 
 pkgname=libdwarf-20140413
 pkgver=20140413
-pkgrel=1
+pkgrel=2
 pkgdesc="A library for handling DWARF Debugging Information Format, older compat version for hhvm"
 arch=(i686 x86_64)
 license=('GPL' 'LGPL')
@@ -12,12 +12,8 @@ url="http://www.prevanders.net/dwarf.html"
 depends=('elfutils')
 provides=('libdwarf')
 conflicts=('libdwarf')
-source=(
-	http://www.prevanders.net/libdwarf-${pkgver}.tar.gz
-	.AURINFO
-)
-sha256sums=('c22272889ed1d3e608b06ce7c568fe0a3fafd0d4f642e41e926fec73365d4eeb'
-            'c5f47f0dc16d1cc5f9cfb01410d6d17f05b654b0ae1e41c3f1bbdb0f27730dbe')
+source=(http://www.prevanders.net/libdwarf-${pkgver}.tar.gz)
+sha256sums=('c22272889ed1d3e608b06ce7c568fe0a3fafd0d4f642e41e926fec73365d4eeb')
 
 build() {
   cd "$srcdir"/dwarf-$pkgver

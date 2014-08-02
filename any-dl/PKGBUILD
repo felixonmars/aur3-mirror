@@ -2,11 +2,11 @@
 
 pkgname=any-dl
 pkgver=0.9.12
-pkgrel=1
+pkgrel=2
 pkgdesc="Generic video downloader for principially any site."
 arch=('i686' 'x86_64')
 license=('GPL3')
-source=(http://www.first.in-berlin.de/software/tools/any-dl/any-dl-0.9.12.tgz)
+source=(http://www.first.in-berlin.de/software/tools/any-dl/any-dl-$pkgver.tgz)
 md5sums=('4b744e6a59049bdfd69935c356107e2c')
 url="http://www.first.in-berlin.de/software/tools/any-dl/"
 depends=('ocaml' 'ocaml-pcre' 'ocaml-xml-light' 'ocamlnet' 'ocaml-curl')
