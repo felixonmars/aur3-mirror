@@ -2,8 +2,8 @@
 # Maintainer:  Alexandre Dantas <eu @ alexdantas DOT net>
 
 pkgname=nsnake
-pkgver=3.0.0
-pkgrel=2
+pkgver=3.0.1
+pkgrel=1
 pkgdesc="Customizable Snake game with ncurses for the terminal - stable releases"
 arch=('x86_64' 'i686')
 url="http://nsnake.alexdantas.net/"
@@ -11,7 +11,7 @@ license=('GPL3')
 depends=('ncurses')
 conflicts=('nsnake-git')
 source=(https://github.com/alexdantas/$pkgname/archive/v$pkgver.tar.gz)
-sha256sums=('2630435e8d029ca640cb8457918e60478ca3d9a5011c62bfda00e247dbfdcf2c')
+sha256sums=('7240dafe35e17b01134591d7ae8f09f5a375cded8b01e43ba97ca3610a09ea61')
 
 build() {
   cd "$srcdir/nSnake-$pkgver"
