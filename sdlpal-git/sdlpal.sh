@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 if [ ! -d $HOME/.sdlpal ] ; then
 	echo "No game data, please put them under $HOME/.sdlpal"
