@@ -15,9 +15,9 @@
 pkgname=linux-pax
 true && pkgname=(linux-pax linux-pax-headers)
 _kernelname=${pkgname#linux}
-_basekernel=3.15
-_paxver=test5
-pkgver=${_basekernel}.8
+_basekernel=3.16
+_paxver=test1
+pkgver=${_basekernel}
 pkgrel=1
 arch=(i686 x86_64)
 url='https://github.com/nning/linux-pax'
@@ -28,20 +28,15 @@ makedepends=(bc)
 _menuconfig=0
 [ ! -z $MENUCONFIG ] && _menuconfig=$MENUCONFIG
 
+# http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
 source=(
   http://www.kernel.org/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
-  http://www.kernel.org/pub/linux/kernel/v3.x/patch-$pkgver.xz
   http://grsecurity.net/~paxguy1/pax-linux-$pkgver-$_paxver.patch
   config.i686
   config.x86_64
   $pkgname.install
   $pkgname.preset
 )
-
-[ $LANG = 'de_DE.UTF-8' ] && {
-  source[0]=http://ftp.halifax.rwth-aachen.de/pub/linux/kernel/v3.x/linux-$_basekernel.tar.xz
-  source[1]=http://ftp.halifax.rwth-aachen.de/pub/linux/kernel/v3.x/patch-$pkgver.xz
-}
 
 prepare() {
   cd "$srcdir/linux-$_basekernel"
@@ -286,10 +281,9 @@ package_linux-pax-headers() {
   rm -rf "${pkgdir}"/usr/lib/modules/${_kernver}/build/arch/{alpha,arc,arm,arm26,arm64,avr32,blackfin,c6x,cris,frv,h8300,hexagon,ia64,m32r,m68k,m68knommu,metag,mips,microblaze,mn10300,openrisc,parisc,powerpc,ppc,s390,score,sh,sh64,sparc,sparc64,tile,unicore32,um,v850,xtensa}
 }
 
-sha256sums=('c3927e87be4040fa8aca1b58663dc0776aaf00485604ff88a623be2f3fb07794'
-            'e25557b19dfebc91e42939aa9a62f7a4d4e36ea2cc659368cded51fb2c703456'
-            '00c796e1e05e07150b475afef6ef0addeedb2c10400af44bc98c7bdb29b563fa'
-            '50469fd59cee7da149d7237f240961e995a0fc2dede504879efb40b1e200dd0c'
-            '596d88e66a4ca463386622ab4c0aa8c76dc6dc1ea59a8844cca2a186eab612a7'
+sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
+            '1956c47e9ba43cfc9e49c63bf3b81dc444a3a6f9f178629da53540393e4b1318'
+            'cb4142bd356a45ce5cb35baf2b39d89cf55037bfe795a3b890b349f98b5dec79'
+            '9e3ed677e41acdcdbb84b98b75367f634cc7843ec11aa6e2e8d11438fc765300'
             '2d62c4be4a515cc6aca5a66c0e9fdc23cb7775531c6d102bc3c1be069dd6b0a8'
             '92aadb166d50ca040c7789a4a32cf242f687f357aab2521fd8b807d5479c6c2a')

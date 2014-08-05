@@ -4,32 +4,29 @@
 
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
-_srcname=linux-3.15
-pkgver=3.15.8
+_srcname=linux-3.16
+pkgver=3.16
 pkgrel=1
-_toipatch=tuxonice-for-linux-3.15.7-2014-07-31.patch
+_toipatch=tuxonice-for-linux-head-3.16.0-rc7-2014-07-31.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc')
 options=('!strip')
 source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+        #"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
-        'change-default-console-loglevel.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
-sha256sums=('c3927e87be4040fa8aca1b58663dc0776aaf00485604ff88a623be2f3fb07794'
-            'e25557b19dfebc91e42939aa9a62f7a4d4e36ea2cc659368cded51fb2c703456'
-            'db881c5e26a65b4ba8859f319bed946d9f3f5e9939eb0f8a35fc33e097cb2d9f'
-            '7da276e182cd8e9bedac5ac9ec97b460ee6c90e336536ae930082209f82e641e'
+sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
+            '3b246adbbc31a81b37f2f079f60a4b87d9264a0bef1089a45e304752f499ef55'
+            '6d358a9cc674def25574b6a37bb127dbd49bf2c5cb9e1946f340f9374af73e50'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
-            'faced4eb4c47c4eb1a9ee8a5bf8a7c4b49d6b4d78efbe426e410730e6267d182'
-            '041090df3593b930c7ecd4d57802d3813b4611a696db5c6b1b6ac70532653cc7')
+            '9cefd9838f3299c9c83bed45633f2c7a87ae1f9706e57ae674ed97a9fb3433ab')
 
 _kernelname=${pkgbase#linux}
 
@@ -37,15 +34,10 @@ prepare() {
   cd "${srcdir}/${_srcname}"
 
   # add upstream patch
-  patch -p1 -i "${srcdir}/patch-${pkgver}"
+  #patch -p1 -i "${srcdir}/patch-${pkgver}"
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
-
-  # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
-  # remove this when a Kconfig knob is made available by upstream
-  # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
-  patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"

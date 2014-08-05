@@ -1,11 +1,27 @@
 # -*- encoding: utf-8 -*-
 from requests import session
-from os.path import basename
+from os.path import basename, expanduser
 from os import fdopen
 from StringIO import StringIO
 import datetime
 import json
 import time
+
+def get_apikey_from_config():
+    try:
+        from ConfigParser import SafeConfigParser as ConfigParser
+    except ImportError:
+        from configparser import SafeConfigParser as ConfigParser
+
+    try:
+        config = ConfigParser()
+        config.read(expanduser('~/.config/pushbullet/config.ini'))
+        return config.get('pushbullet', 'apikey')
+    except:
+        return None
+
+def utf8(s):
+    return s if isinstance(s, unicode) else unicode(s, 'utf-8')
 
 # Events {{{
 class Event(object):
@@ -20,8 +36,15 @@ class Event(object):
     def __repr__(self):
         return '<%s @%s>' % (self.__class__.__name__, self.time)
 
-    def pushes(self, skip_empty=False):
+    def pushes(self, skip_empty=False, limit=None):
         return xrange(0)  # empty generator
+
+    def latest_push_time(self):
+        try:
+            push = self.pushes(limit=1).next()
+            return push.get('modified') or push.get('created')
+        except (StopIteration, AttributeError):
+            return None
 
 class NopEvent(Event):
     '''
@@ -39,8 +62,8 @@ class TickleEvent(Event):
         self.subtype = subtype
         self.since = since
 
-    def pushes(self, skip_empty=False):
-        return self.api.pushes(since=self.since, skip_empty=skip_empty)
+    def pushes(self, skip_empty=False, limit=None):
+        return self.api.pushes(since=self.since, skip_empty=skip_empty, limit=limit)
 
     def __repr__(self):
         return '<%s[%s] @%s>' % (self.__class__.__name__, self.subtype, self.time)
@@ -57,7 +80,7 @@ class PushEvent(Event):
     def __repr__(self):
         return '<%s[%r] @%s>' % (self.__class__.__name__, self.push, self.time)
 
-    def pushes(self, skip_empty=False):
+    def pushes(self, skip_empty=False, limit=None):
         yield self.push
 
 # }}}
@@ -101,6 +124,9 @@ class PushBulletObject(object):
         '''
         return bool(getattr(self, 'api', None))
 
+    def get(self, name, default=None):
+        return getattr(self, name, default)
+
 # Push targets {{{
 
 class PushTarget(PushBulletObject):
@@ -136,8 +162,8 @@ class PushTarget(PushBulletObject):
         push.send(self)
         return push
 
-    def __unicode__(self):
-        return unicode(str(self), 'utf-8')
+    def __str__(self):
+        return unicode(self).encode('utf8')
 
 class Contact(PushTarget):
     '''
@@ -148,8 +174,8 @@ class Contact(PushTarget):
                 getattr(self, 'name', 'Unnamed'),
                 getattr(self, 'email', None) or getattr(self, 'email_normalized'))
 
-    def __str__(self):
-        return '%s <%s>' % (self.name, self.email)
+    def __unicode__(self):
+        return u'%s <%s>' % (self.name, self.email)
 
     @property
     def ident(self):
@@ -170,7 +196,7 @@ class Contact(PushTarget):
         if not self.iden:
             raise PushBulletError('contact does not exist yet')
 
-        self.__dict__.update(self.api.post(self.uri, name=self.name)['contacts'][0])
+        self.__dict__.update(self.api.post(self.uri, name=self.name))
         return self
 
     def rename(self, newname):
@@ -187,7 +213,7 @@ class Device(PushTarget):
                 getattr(self, 'model', None) or
                 'Unnamed')
 
-    def __str__(self):
+    def __unicode__(self):
         return (getattr(self, 'nickname', None) or
                 getattr(self, 'model', None) or
                 self.iden)
@@ -206,6 +232,17 @@ class Device(PushTarget):
 
         self.__dict__.update(self.api.post('devices', nickname=self.nickname, type=getattr(self, 'type', 'stream')))
         return self
+
+    def update(self):
+        if not self.iden:
+            raise PushBulletError('device does not exist yet')
+
+        self.__dict__.update(self.api.post(self.uri, nickname=self.nickname))
+        return self
+
+    def rename(self, newname):
+        self.nickname = newname
+        return self.update()
 
 class User(PushTarget):
     '''
@@ -227,6 +264,14 @@ class User(PushTarget):
     def update(self):
         self.__dict__.update(self.api.post(self.uri, preferences=getattr(self, 'preferences', {})))
         return self
+
+    def set_prefs(self, **prefs):
+        try:
+            self.preferences.update(prefs)
+        except AttributeError:
+            self.prefereces = prefs
+
+        return self.update()
 
 # }}}
 
@@ -269,7 +314,7 @@ class Push(PushBulletObject):
 
         result = self.api.post('pushes', **data)
         self.__dict__.update(result)
-        
+
     def resend(self):
         '''
         Try to send the push to the same target again (e.g. as a part of error handling logic)
@@ -280,7 +325,7 @@ class Push(PushBulletObject):
         self.send(self.target_device_iden)
 
     def update(self):
-        self.__dict__.update(self.api.post(self.uri, dissmissed=getattr(self, 'dismissed', False))['pushes'][0])
+        self.__dict__.update(self.api.post(self.uri, dissmissed=getattr(self, 'dismissed', False)))
         return self
 
     def dismiss(self):
@@ -306,10 +351,10 @@ class Push(PushBulletObject):
         return isinstance(other, Push) and self.iden == other.iden
 
     def __repr__(self):
-        return '<%s[%s]: %s>' % (self.__class__.__name__, getattr(self, 'iden', None), str(self))
+        return u'<%s[%s]: %s>' % (self.__class__.__name__, getattr(self, 'iden', None), unicode(self))
 
-    def __str__(self):
-        return '%s push' % getattr(self, 'type', 'general')
+    def __unicode__(self):
+        return u'%s push' % getattr(self, 'type', 'general')
 
     @property
     def uri(self):
@@ -333,14 +378,14 @@ class NotePush(Push):
         :type body: str
         :type title: str
         '''
-        self.title, self.body = str(title), str(body)
+        self.title, self.body = utf8(title), utf8(body)
         Push.__init__(self, **data)
 
     @property
     def data(self):
         return {'title': self.title, 'body': self.body}
 
-    def __str__(self):
+    def __unicode__(self):
         return self.title
 
 class LinkPush(Push):
@@ -359,14 +404,14 @@ class LinkPush(Push):
         :type title: str
         :type body: str
         '''
-        self.title, self.url, self.body = str(title), str(url), str(body)
+        self.title, self.url, self.body = utf8(title), utf8(url), utf8(body)
         Push.__init__(self, **data)
 
     @property
     def data(self):
         return {'title': self.title, 'url': self.url, 'body': self.body}
 
-    def __str__(self):
+    def __unicode__(self):
         return self.url
 
 class AddressPush(Push):
@@ -384,15 +429,15 @@ class AddressPush(Push):
         :type address: str
         :type name: str
         '''
-        self.name, self.address = str(name), str(address)
+        self.name, self.address = utf8(name), utf8(address)
         Push.__init__(self, **data)
 
     @property
     def data(self):
         return {'name': self.name, 'address': self.address}
 
-    def __str__(self):
-        return '%s (%s)' % (self.name, self.address)
+    def __unicode__(self):
+        return u'%s (%s)' % (self.name, self.address)
 
 class ListPush(Push):
     '''
@@ -409,15 +454,15 @@ class ListPush(Push):
         :type items: list of str
         :type title: str
         '''
-        self.title, self.items = str(title), map(str, items)
+        self.title, self.items = utf8(title), map(utf8, items)
         Push.__init__(self, **data)
 
     @property
     def data(self):
         return {'title': self.title, 'items': self.items}
 
-    def __str__(self):
-        return '%s (%d)' % (self.title, len(self.items))
+    def __unicode__(self):
+        return u'%s (%d)' % (self.title, len(self.items))
 
 class FilePush(Push):
     '''
@@ -461,12 +506,12 @@ class FilePush(Push):
         :param str body: optional message to accompany file
         '''
         assert(file or file_name)
-        self.file, self.file_name, self.file_type = file, str(file_name), str(file_type)
+        self.file, self.file_name, self.file_type = file, utf8(file_name), utf8(file_type)
         if not self.file:
             self.file = self.file_name
 
         self.file_url = None
-        self.body = str(body)
+        self.body = utf8(body)
         Push.__init__(self, **data)
 
     def send(self, target=None):
@@ -481,8 +526,8 @@ class FilePush(Push):
                   open(self.file, 'rb'))  # file name
 
             try:
-                file_name = str(self.file_name) if self.file_name else basename(fh.name)
-                file_type = str(self.file_type) if self.file_type else self.guess_type(fh)
+                file_name = utf8(self.file_name) if self.file_name else basename(fh.name)
+                file_type = utf8(self.file_type) if self.file_type else self.guess_type(fh)
                 req = target.api.get('upload-request', file_name=file_name, file_type=file_type)
                 target.api.upload(req['upload_url'], data=req['data'], file=fh)
                 self.file_name, self.file_type, self.file_url = req['file_name'], req['file_type'], req['file_url']
@@ -491,7 +536,7 @@ class FilePush(Push):
                 fh.close()
 
         Push.send(self, target)
-        
+
     def guess_type(self, file):
         try:
             import magic
@@ -508,7 +553,7 @@ class FilePush(Push):
     def data(self):
         return {'file_name': self.file_name, 'file_type': self.file_type, 'file_url': self.file_url, 'body': self.body}
 
-    def __str__(self):
+    def __unicode__(self):
         return self.file_name
 
 class MirrorPush(Push):
@@ -567,7 +612,7 @@ class PushBullet(PushTarget):
             return 'list'
 
         # special case: looks like url, therefore it is an link push
-        if str(arg).startswith(('http://', 'https://', 'ftp://', 'ftps://', 'mailto:')):
+        if utf8(arg).startswith(('http://', 'https://', 'ftp://', 'ftps://', 'mailto:')):
             return 'link'
 
         # default is a note push
@@ -648,7 +693,7 @@ class PushBullet(PushTarget):
         '''
         response = self.sess.post(_uri, data=data, files=files, auth=()).raise_for_status()
 
-    def iter_devices(self, skip_inactive=True):
+    def iter_devices(self, skip_inactive=True, limit=None):
         '''
         Get available devices to push to
 
@@ -657,7 +702,8 @@ class PushBullet(PushTarget):
 
         return self.paged('devices',
                 (lambda d: d['active']) if skip_inactive else (lambda d: True),
-                lambda d: Device(self, **d))
+                lambda d: Device(self, **d),
+                limit=limit)
 
 
     def create_device(self, nickname, type='stream'):
@@ -680,7 +726,7 @@ class PushBullet(PushTarget):
         '''
         return Contact(self, None, name=name, email=email).create()
 
-    def iter_contacts(self, skip_inactive=True):
+    def iter_contacts(self, skip_inactive=True, limit=None):
         '''
         Get available contacts to push to
 
@@ -688,7 +734,8 @@ class PushBullet(PushTarget):
         '''
         return self.paged('contacts',
                 (lambda c: c['active']) if skip_inactive else (lambda c: True),
-                lambda c: Contact(self, **c))
+                lambda c: Contact(self, **c),
+                limit=None)
 
 
     __contacts = None
@@ -735,11 +782,11 @@ class PushBullet(PushTarget):
             return next(d for d in self.devices() if d.iden == device_iden)
         except StopIteration:
             try:
-                return next(d for d in self.devices() if str(d) == device_iden)
+                return next(d for d in self.devices() if utf8(d) == device_iden)
             except StopIteration:
                 raise KeyError(device_iden)
 
-    def pushes(self, since=0, skip_empty=True):
+    def pushes(self, since=0, skip_empty=True, limit=None):
         '''
         Generator fetches and yields all pushes since given timestamp
 
@@ -758,6 +805,7 @@ class PushBullet(PushTarget):
         :param since: minimal time for pushes to fetch
         :type since: int|long|date|datetime|timedelta
         :param bool skip_empty: skip empty (inactive, removed) pushes, default is True
+        :param int limit: limit number of items per page
         :rtype: generator
         '''
         if isinstance(since, datetime.date):
@@ -776,7 +824,8 @@ class PushBullet(PushTarget):
         return self.paged('pushes',
                 (lambda p: bool(p.get('type'))) if skip_empty else (lambda p: True),
                 self.make_push,
-                modified_after=since)
+                modified_after=since,
+                limit=limit)
 
 
     def paged(self, _uri, _filter, _wrapper, **params):
@@ -810,7 +859,7 @@ class PushBullet(PushTarget):
         if isinstance(target, PushTarget):
             return target
 
-        target = str(target)
+        target = utf8(target)
         return (Device(self, target) if '@' not in target else
                 Contact(self, None, email_normalized=target))
 
@@ -863,7 +912,7 @@ class PushBullet(PushTarget):
         '''
         return self
 
-    def stream(self, skip_nop=True):
+    def stream(self, skip_nop=True, use_server_time=False, throttle=1):
         '''
         Generator to listen for events on websocket and yield them
 
@@ -877,11 +926,12 @@ class PushBullet(PushTarget):
         in some other (background) thread.
 
         :param bool skip_nop: skip "nop" events (used as keep-alive heartbeats only), default is True
+        :param bool use_server_time: use server time to track last push to fetch (requires additional request on event), default is False
         :rtype: generator
         '''
         from websocket import create_connection
         conn = create_connection('wss://stream.pushbullet.com/websocket/%s' % self.apikey)
-        last_ts = time.time()
+        last_ts = ((self.latest_push_time() or time.time()) if use_server_time else time.time()) + throttle
 
         while True:
             event = json.loads(conn.recv())
@@ -893,12 +943,21 @@ class PushBullet(PushTarget):
                      TickleEvent(self, event['subtype'], since=last_ts) if evtype == 'tickle' else
                      PushEvent(self, self.make_push(event['push'])) if evtype == 'push' else
                      None)
-            last_ts = time.time()
+
+            last_ts = ((event.latest_push_time() or time.time()) if use_server_time else time.time()) + throttle
+
             if event:
                 yield event
 
-    def __str__(self):
-        return '<PushBullet>'
+    def latest_push_time(self):
+        try:
+            push = self.pushes(limit=1).next()
+            return push.get('modified') or push.get('created')
+        except StopIteration:
+            return None
+
+    def __unicode__(self):
+        return u'<PushBullet>'
 
 # }}}
 

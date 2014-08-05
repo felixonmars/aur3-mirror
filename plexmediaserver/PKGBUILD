@@ -6,9 +6,9 @@
 # Maintainer: Rob Sletten <rsletten [at] gmail [dot] com>
 
 pkgname=plexmediaserver
-pkgver=0.9.9.13.525
+pkgver=0.9.9.14.531
 pkgrel=1
-_subver=197d5ed
+_subver=7eef8c6
 pkgdesc="Plex Media Server for Linux"
 url='https://plex.tv/'
 arch=('i686' 'x86_64')
@@ -20,10 +20,10 @@ install='plexmediaserver.install'
 
 if [ "$CARCH" = "i686" ]; then
        _arch='i386'
-       md5sums=('67be66c66fe57336e9e07e7b221b2134')
+       md5sums=('1f580f732e3e76134afdb4cd98e64dea')
 elif [ "$CARCH" = "x86_64" ]; then
        _arch='amd64'
-       md5sums=('3cc87d4abea413e2daa75eb4a2d59283')
+       md5sums=('3bc1d1c2378332e054ff493d584b5e8b')
 fi
 
 source=("http://downloads.plexapp.com/plex-media-server/${pkgver}-${_subver}/${pkgname}_${pkgver}-${_subver}_${_arch}.deb" "${pkgname}.conf.d" "${pkgname}.service" "start_pms")
