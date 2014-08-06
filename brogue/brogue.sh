@@ -1,4 +1,8 @@
 #!/bin/sh
-cd /usr/share/brogue/
+
+groups | grep -w games > /dev/null || ( echo 'You must be a member of the group games'; exit )
+
+pushd /usr/share/brogue/ > /dev/null
 ./brogue "$@"
-cd - &>/dev/null
+popd > /dev/null
+

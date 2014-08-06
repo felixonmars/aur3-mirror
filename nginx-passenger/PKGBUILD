@@ -1,11 +1,11 @@
 # Maintainer: Tom Richards <tom@tomrichards.net>
 
-_nginxver=1.6.0
+_nginxver=1.6.1
 _passengerver=4.0.48
 
 pkgname=nginx-passenger
-pkgver=1.6.0
-pkgrel=6
+pkgver=1.6.1
+pkgrel=1
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -28,7 +28,7 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
     'cleanup-headers.patch'
     'service'
     'logrotate')
-sha256sums=('943ad757a1c3e8b3df2d5c4ddacc508861922e36fa10ea6f8e3a348fc9abfc1a'
+sha256sums=('f5cfe682a1aeef4602c2ca705402d5049b748f946563f41d8256c18674836067'
             '3248ee613d8e3ed3aadce1d913bcd223f1ee0570280f291b9d16c3f1bf47f2f3'
             'ef8c92df29814a35f133ec5d9fef896f93709068aa3ca964b64aae68bdec2ab6'
             '05fdc0c0483410944b988d7f4beabb00bec4a44a41bd13ebc9b78585da7d3f9b'

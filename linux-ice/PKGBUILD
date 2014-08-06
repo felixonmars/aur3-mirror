@@ -6,7 +6,7 @@
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.16
 pkgver=3.16
-pkgrel=1
+pkgrel=2
 _toipatch=tuxonice-for-linux-head-3.16.0-rc7-2014-07-31.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -19,6 +19,7 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
+        'change-default-console-loglevel.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
@@ -26,6 +27,7 @@ sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
             '3b246adbbc31a81b37f2f079f60a4b87d9264a0bef1089a45e304752f499ef55'
             '6d358a9cc674def25574b6a37bb127dbd49bf2c5cb9e1946f340f9374af73e50'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
+            '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
             '9cefd9838f3299c9c83bed45633f2c7a87ae1f9706e57ae674ed97a9fb3433ab')
 
 _kernelname=${pkgbase#linux}
@@ -38,6 +40,11 @@ prepare() {
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
+
+  # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
+  # remove this when a Kconfig knob is made available by upstream
+  # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
+  patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
