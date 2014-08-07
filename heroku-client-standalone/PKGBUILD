@@ -1,7 +1,7 @@
 # Maintainer: Pat Brisbin <pbrisbin@gmail.com>
 _pkgname='heroku-client'
 pkgname="$_pkgname-standalone"
-pkgver=3.8.2
+pkgver=3.9.6
 pkgrel=1
 pkgdesc="CLI tool for creating and managing Heroku apps"
 arch=('any')
@@ -10,7 +10,7 @@ license=('MIT')
 depends=(ruby)
 conflicts=(heroku-client heroku-toolbelt)
 source=("https://s3.amazonaws.com/assets.heroku.com/$_pkgname/$_pkgname-$pkgver.tgz")
-md5sums=('636459ff7cecd460b855bf8228c077e5')
+md5sums=('f2a504e40a55f81a95dc27687b8ea062')
 
 package() {
   mkdir -p "$pkgdir"/opt/heroku-client
