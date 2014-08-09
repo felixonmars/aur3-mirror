@@ -3,7 +3,7 @@
 # Contributor: Justin Blanchard <UncombedCoconut at gmail dot com>
 
 pkgname=stockfish-git
-pkgver=bal_1.r626.gf4dcec0
+pkgver=r3300.g2efeded
 pkgrel=1
 pkgdesc="A free UCI chess engine derived from Glaurung 2.1 (git version)"
 arch=('i686' 'x86_64')
@@ -14,14 +14,14 @@ makedepends=('git')
 provides=('stockfish')
 conflicts=('stockfish')
 install=stockfish.install
-source=("${pkgname}::git://github.com/mcostalba/Stockfish.git"
+source=("${pkgname}::git+https://github.com/official-stockfish/Stockfish.git"
         'http://cl.ly/3x333m0G173F/download/stockfish-231-book.zip')
 md5sums=('SKIP'
          '9e51c2e57d8b55bbc588150033e4b133')
 
 pkgver() {
   cd "${pkgname}"
-  git describe --long | sed -E 's/([^-]*-g)/r\1/;s/-/./g'
+  printf "r%s.g%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 prepare() {
