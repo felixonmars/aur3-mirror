@@ -1,6 +1,6 @@
 # Maintainer: Christoph Gysin <christoph.gysin@gmail.com>
 pkgname=include-what-you-use-svn
-pkgver=539
+pkgver=559
 pkgrel=1
 pkgdesc="A tool for use with clang to analyze includes in C and C++ source files"
 _pkgname=include-what-you-use
@@ -24,7 +24,7 @@ noextract=()
 md5sums=('SKIP'
          'SKIP'
          'SKIP'
-         '1119115037830f33199692ef9ae3a504')
+         '180ba558c60bc86d747a40f1818e88da')
 
 pkgver() {
   cd "$srcdir/$_pkgname"

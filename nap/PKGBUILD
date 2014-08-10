@@ -1,7 +1,7 @@
 # Maintainer: Chris “Kwpolska” Warrick <chris@chriswarrick.com>
 pkgname=nap
 _prname=nap
-pkgver=0.2.1
+pkgver=0.2.2
 pkgrel=1
 pkgdesc='sleep with a progressbar'
 arch=('i686' 'x86_64')
@@ -11,7 +11,7 @@ depends=()
 makedepends=('make')
 options=(!emptydirs)
 source=("https://github.com/Kwpolska/${_prname}/releases/download/v${pkgver}/${_prname}-${pkgver}.tar.gz")
-md5sums=('4ca1a37746f6fa89e7a38b0ae230c48f')
+md5sums=('e1348709b2c9fc77a06f636bbe2d8c42')
 
 build() {
   cd "${srcdir}/${_prname}-${pkgver}"

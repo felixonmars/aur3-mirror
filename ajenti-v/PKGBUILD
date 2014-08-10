@@ -1,13 +1,13 @@
 # Maintainer : Dustin Falgout <dustin@falgout.us>
 
 pkgname=ajenti-v
-pkgver=0.2.30
+pkgver=0.2.42
 pkgrel=1
 pkgdesc='Plugin suite for Ajenti that adds web hosting capabilities.'
 arch=(any)
 url='http://ajenti.org/'
 license=(LGPL)
-depends=('ajenti>=1.2.20.3' 'python2-reconfigure>=0.1.39' 'supervisor>=3.0' 'mariadb'
+depends=('ajenti>=1.2.21.12' 'python2-reconfigure>=0.1.39' 'supervisor>=3.0' 'mariadb'
          'mariadb-clients' 'nginx-mainline-common' 'php-fpm' 'gunicorn' 'vsftpd>=3.0.2'
          'db' 'pure-ftpd' 'puma' 'nodejs' 'exim' 'courier-imap>=4.9.3' 'courier-authlib>=0.64.0')
 makedepends=('git')
