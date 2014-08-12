@@ -1,8 +1,8 @@
 pkgname='sprunge'
 pkgver='0.1.1'
-pkgrel=1
+pkgrel=2
 pkgdesc='Upload data to sprunge.us via stdin'
-license=('MIT')
+license=('GPL2')
 url='https://github.com/kevr/sprunge'
 
 arch=('i686' 'x86_64' 'armv6h')

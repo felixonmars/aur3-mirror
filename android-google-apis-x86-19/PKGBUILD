@@ -1,6 +1,6 @@
 # Maintainer: Philipp Wolfer <ph.wolfer@gmail.com>
 
-_rev=r06
+_rev=r07
 _sdkver=4.4
 _sdkint=19
 pkgname=android-google-apis-x86-${_sdkint}
@@ -15,8 +15,8 @@ options=('!strip')
 source=(
 	"https://dl-ssl.google.com/android/repository/sys-img/x86/google_apis_x86-${_sdkint}_${_rev}.zip"
 	"source.properties")
-sha1sums=('2bf375d6448af70038e611bad4a5585305d5da66'
-          '5776a97fd64499032fd88f8be979938584e82b5d')
+sha1sums=('6ce01f6956d76d87873e73f8abb60b382decae3b'
+          '634702aeedfc0f223a32480811c0a1d07b433677')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/add-ons/"
