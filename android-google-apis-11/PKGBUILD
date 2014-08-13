@@ -1,20 +1,27 @@
 # Maintainer: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
-pkgname=android-google-apis-11
-pkgver=3.0_r01
-pkgrel=1
-pkgdesc='Android Google APIs, API-11'
+_api=11
+_ver=3.0
+_rev=r01
+
+pkgname=android-google-apis-${_api}
+pkgver=${_ver}_${_rev}
+pkgrel=2
+pkgdesc='Android Google APIs, API-${_api}'
 arch=('any')
 url="http://code.google.com/android/add-ons/google-apis"
 license=('custom')
-depends=('android-platform-11')
+depends=("android-platform-${_api}")
 options=('!strip')
-source=("http://dl-ssl.google.com/android/repository/google_apis-11_r01.zip")
-sha1sums=('5eab5e81addee9f3576d456d205208314b5146a5')
+source=("http://dl-ssl.google.com/android/repository/google_apis-${_api}_${_rev}.zip"
+        "source.properties")
+sha1sums=('5eab5e81addee9f3576d456d205208314b5146a5'
+          '96df34182463fa57fa3ddb3a1595f28b35274348')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/add-ons/"
-  mv "${srcdir}/google_apis-11_r01" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google_inc_-11"
+  mv "${srcdir}/google_apis-${_api}_${_rev}" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google-${_api}"
+  cp "${srcdir}/source.properties" "${pkgdir}/opt/android-sdk/add-ons/addon-google_apis-google-${_api}/"
 
   chmod -R ugo+rX "${pkgdir}/opt"
 }
