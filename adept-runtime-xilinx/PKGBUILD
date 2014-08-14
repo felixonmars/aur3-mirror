@@ -2,7 +2,7 @@
 
 pkgname=adept-runtime-xilinx
 pkgver=2.13.1
-pkgrel=3
+pkgrel=5
 pkgdesc="Core runtime necessary to communicate with Digilent logic devices"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
@@ -14,7 +14,7 @@ install='adept-runtime.install'
 source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_${pkgver}-$CARCH.tar.gz"
         "20-digilent-usb.rules")
 sha256sums=('fc789fb1fbdfa156ef8cc6773f0804136c938b438240fdc87be528c1648bd0c1'
-            '3096132317149ec4de5f9a753384f0e94e70dd14b2d232532298cb522bbe13b5')
+            '6d40750cbb9858516ab698a13196ad2447146206bb13b672edcf683655afd375')
 [[ $CARCH == i686 ]] && sha256sums[0]='c6a51ae4cb1eafb36e1504f0abbf081961e4188851b34ddf792a54bc430ebe0d'
 
 package() {
