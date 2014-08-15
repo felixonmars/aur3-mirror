@@ -3,7 +3,7 @@
 pkgbase=python-oslosphinx
 pkgname=("python-oslosphinx" "python2-oslosphinx")
 _pypiname=oslosphinx
-pkgver=2.2.0.0a1
+pkgver=2.2.0.0a3
 pkgrel=1
 pkgdesc="OpenStack Sphinx Extensions and Theme"
 arch=(any)
@@ -13,7 +13,7 @@ makedepends=('python-pip' 'python2-pip')
 options=(!emptydirs)
 source=("https://pypi.python.org/packages/py2.py3/o/oslosphinx/$_pypiname-$pkgver-py2.py3-none-any.whl")
 noextract=("$_pypiname-$pkgver-py2.py3-none-any.whl")
-md5sums=('f974b748db49e2aa75b810352a6b8b97')
+md5sums=('32fdb8cbcaa6dd083a4dd95a649b1b0b')
 
 package_python-oslosphinx() {
   depends=('python')

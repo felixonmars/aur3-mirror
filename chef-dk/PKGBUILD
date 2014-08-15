@@ -1,8 +1,8 @@
 # Maintainer: Maxim Kraev <maxim.kraev@gmail.com>
 
 pkgname=chef-dk
-pkgver=0.1.0
-pkgrel=2
+pkgver=0.2.0
+pkgrel=1
 _ubuntuver=raring
 _ubunturel=4
 pkgdesc="The Chef Development Kit contains everything you need to start using Chef along with the tools essential to managing the code that runs your business."
@@ -11,8 +11,8 @@ url="http://www.getchef.com/downloads/chef-dk/linux/"
 license=('unknown')
 depends=()
 conflicts=( chef chef-solo )
-source=("https://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/13.10/x86_64/chefdk_0.1.0-1_amd64.deb")
-sha512sums=('31b4567ca02c5c171cdc039f76a223e4c487c42f6a686b6cde65fbc13c231f64e4f904b35f8ed0026ed156a411eefa97dcdba6102d9df2d2444b2cd7437dde1a')
+source=("https://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chefdk_0.2.0-2_amd64.deb")
+sha512sums=('073c55a0e47f76d071a47a46a2b2ef50fa1156250912b69a76cff1c997e38af1cac08c142f523d70b2a49355f9dc55bb367b64b638c121dfad91ce1f84594997')
 
 
 package() {

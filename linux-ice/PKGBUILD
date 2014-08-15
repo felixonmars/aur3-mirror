@@ -5,8 +5,8 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.16
-pkgver=3.16
-pkgrel=2
+pkgver=3.16.1
+pkgrel=1
 _toipatch=tuxonice-for-linux-head-3.16.0-rc7-2014-07-31.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -14,20 +14,23 @@ license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc')
 options=('!strip')
 source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
-        #"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
+        'compal-laptop-hwmon-fix.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
-            '3b246adbbc31a81b37f2f079f60a4b87d9264a0bef1089a45e304752f499ef55'
-            '6d358a9cc674def25574b6a37bb127dbd49bf2c5cb9e1946f340f9374af73e50'
+            'd2bf33289acf5c05b57aaca1fd8bb1935ac280c5c4090874e84806d35e17012e'
+            '7a53718853099e9b66fe2e2bc6813ba8ba5c51dfb246e0dab8517c4789887579'
+            '352b348b24027de50df4b549790fab0b8098aadc2947ef6cbccfffc1b5512d5b'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
+            'f36f61a0a72bcb0a9c04264343503bfbf927c9ea0db819e66734a3933b060588'
             '9cefd9838f3299c9c83bed45633f2c7a87ae1f9706e57ae674ed97a9fb3433ab')
 
 _kernelname=${pkgbase#linux}
@@ -36,7 +39,7 @@ prepare() {
   cd "${srcdir}/${_srcname}"
 
   # add upstream patch
-  #patch -p1 -i "${srcdir}/patch-${pkgver}"
+  patch -p1 -i "${srcdir}/patch-${pkgver}"
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
@@ -45,6 +48,9 @@ prepare() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
+
+  # #41458 fix hwmon for compal-laptop module
+  patch -p1 -i "${srcdir}/compal-laptop-hwmon-fix.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"

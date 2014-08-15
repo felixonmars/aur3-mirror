@@ -1,6 +1,7 @@
 # Maintainer:  Neng Xu <neng2.xu2@gmail.com>
+# Contributor: asaaki
 pkgname=arangodb-git
-pkgver=p20140602
+pkgver=p20140814
 pkgrel=1
 pkgdesc="A distributed open-source database with a flexible data model for documents, graphs, and key-values."
 provides=("arangodb")
@@ -28,7 +29,7 @@ build() {
   export PATH="`pwd`:$PATH"
   #./configure --bindir=/usr/bin --sbindir=/usr/bin --sysconfdir=/etc --localstatedir=/var --datarootdir=/usr/share
   ./configure --prefix=/usr --sbindir=/usr/bin --sysconfdir=/etc --localstatedir=/var
-  make CFLAGS="-Wno-c++0x-compat" CXXFLAGS="-Wno-c++0x-compat"
+  make
 }
 
 check() {

@@ -39,7 +39,7 @@ pkgname=('python2-neutron'
          'neutron-vpn-agent')
 
 pkgver=2014.1.1
-pkgrel=1
+pkgrel=2
 pkgdesc="A virtual network service for Openstack"
 arch=(any)
 url="https://launchpad.net/neutron"
@@ -478,7 +478,7 @@ package_neutron-plugin-oneconvergence() {
 
 package_neutron-plugin-oneconvergence-agent() {
   pkgdesc+=" - One Covergence plugin agent"
-  depends=('neutron-oneconvergence')
+  depends=('neutron-plugin-oneconvergence')
 
   cd tmp
 
