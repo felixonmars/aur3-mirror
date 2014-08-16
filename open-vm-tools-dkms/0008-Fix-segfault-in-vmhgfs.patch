@@ -1,0 +1,110 @@
+From e75a7401a72607476f7a248f5a7fe4f11d6d129d Mon Sep 17 00:00:00 2001
+From: "Scott M. Kroll" <skroll@gmail.com>
+Date: Fri, 15 Aug 2014 11:11:12 -0400
+Subject: [PATCH 12/12] Fix segfault in vmhgfs
+
+* Need to use sync read/write but also set the read_iter/write_iter
+  operations.
+---
+ open-vm-tools/modules/linux/shared/compat_fs.h |  3 ++-
+ open-vm-tools/modules/linux/vmhgfs/file.c      | 23 ++++++++++++-----------
+ 2 files changed, 14 insertions(+), 12 deletions(-)
+
+diff --git a/open-vm-tools/modules/linux/shared/compat_fs.h b/open-vm-tools/modules/linux/shared/compat_fs.h
+index f762f6f..eb53ee7 100644
+--- a/open-vm-tools/modules/linux/shared/compat_fs.h
++++ b/open-vm-tools/modules/linux/shared/compat_fs.h
+@@ -89,7 +89,8 @@
+  * changed over time, so for simplicity, we'll only enable it from 2.6.19 and
+  * on.
+  */
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 19) && \
++         LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0)
+ # define VMW_USE_AIO
+ #endif
+ 
+diff --git a/open-vm-tools/modules/linux/vmhgfs/file.c b/open-vm-tools/modules/linux/vmhgfs/file.c
+index 67606fd..fcf0681 100644
+--- a/open-vm-tools/modules/linux/vmhgfs/file.c
++++ b/open-vm-tools/modules/linux/vmhgfs/file.c
+@@ -76,7 +76,6 @@ static int HgfsGetOpenFlags(uint32 flags);
+ static int HgfsOpen(struct inode *inode,
+                     struct file *file);
+ #if defined VMW_USE_AIO
+-#  if LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0)
+ static ssize_t HgfsAioRead(struct kiocb *iocb,
+                            const struct iovec *iov,
+                            unsigned long numSegs,
+@@ -85,7 +84,6 @@ static ssize_t HgfsAioWrite(struct kiocb *iocb,
+                             const struct iovec *iov,
+                             unsigned long numSegs,
+                             loff_t offset);
+-#  endif
+ #else
+ static ssize_t HgfsRead(struct file *file,
+                         char __user *buf,
+@@ -155,14 +153,13 @@ struct file_operations HgfsFileFileOperations = {
+ #ifdef VMW_USE_AIO
+    .read       = do_sync_read,
+    .write      = do_sync_write,
+-#   if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
+-   .read_iter = generic_file_read_iter,
+-   .write_iter = generic_file_write_iter,
+-#   else
+    .aio_read   = HgfsAioRead,
+    .aio_write  = HgfsAioWrite,
+-#   endif
+ #else /* !VMW_USE_AIO */
++#  if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
++   .read_iter = generic_file_read_iter,
++   .write_iter = generic_file_write_iter,
++# endif
+    .read       = HgfsRead,
+    .write      = HgfsWrite,
+ #endif /* !VMW_USE_AIO */
+@@ -755,7 +752,6 @@ out:
+ 
+ 
+ #if defined VMW_USE_AIO
+-#  if LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0)
+ /*
+  *----------------------------------------------------------------------
+  *
+@@ -890,8 +886,6 @@ out:
+    spin_unlock(&writeDentry->d_inode->i_lock);
+    return result;
+ }
+-
+-#   endif /* if LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0) */
+ #else
+ /*
+  *----------------------------------------------------------------------
+@@ -933,8 +927,11 @@ HgfsRead(struct file *file,  // IN:  File to read from
+       LOG(4, (KERN_DEBUG "VMware hgfs: HgfsRead: invalid dentry\n"));
+       goto out;
+    }
+-
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
++   result = new_sync_read(file, buf, count, offset);
++#else
+    result = generic_file_read(file, buf, count, offset);
++#endif
+   out:
+    return result;
+ }
+@@ -985,7 +982,11 @@ HgfsWrite(struct file *file,      // IN: File to write to
+       goto out;
+    }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 16, 0)
++   result = new_sync_write(file, buf, count, offset);
++#else
+    result = generic_file_write(file, buf, count, offset);
++#endif
+   out:
+    return result;
+ }
+-- 
+2.0.4
+

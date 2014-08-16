@@ -27,22 +27,22 @@ def usage():
 	"""
 	Prints the program usage.
 	"""
-	print "MPAK package handling utility"
-	print "Version 1.4 (Python-implementation)"
-	print "Copyright (c) 2008, Mika Halttunen."
-	print ""
-	print "Usage:", sys.argv[0],"[switch]","-f pakfile.mpk","[file1]","[file2]", "[...]", "[fileN]"
-	print "where [switch] is one of the following:"
-	print "  -f, --file=FILE   Use package FILE"
-	print "  -c, --create      Create a new package with files 'file1' to 'fileN'"
-	print "  -l, --list        List the files from given package"
-	print "  -e, --extract     Extract all files (by default) from given package. If you"
-	print "                    want to only extract some specific files, you can name"
-	print "                    them individually, and/or use wildcards (i.e. *.png)."
-	print "                    You can supply path where to extract with -p."
-	print "  -p, --path=PATH   Extract to PATH (created if doesn't exist)"
-	print "  -h, --help        Print this usage text"
-	print ""
+	print("MPAK package handling utility")
+	print("Version 1.4 (Python-implementation)")
+	print("Copyright (c) 2008, Mika Halttunen.")
+	print("")
+	print("Usage:", sys.argv[0],"[switch]","-f pakfile.mpk","[file1]","[file2]", "[...]", "[fileN]")
+	print("where [switch] is one of the following:")
+	print("  -f, --file=FILE   Use package FILE")
+	print("  -c, --create      Create a new package with files 'file1' to 'fileN'")
+	print("  -l, --list        List the files from given package")
+	print("  -e, --extract     Extract all files (by default) from given package. If you")
+	print("                    want to only extract some specific files, you can name")
+	print("                    them individually, and/or use wildcards (i.e. *.png).")
+	print("                    You can supply path where to extract with -p.")
+	print("  -p, --path=PATH   Extract to PATH (created if doesn't exist)")
+	print("  -h, --help        Print this usage text")
+	print("")
 
 
 def errorMsg(msg):
@@ -52,9 +52,10 @@ def errorMsg(msg):
 	try:
 		pos = traceback.extract_stack(limit=2)
 		if pos:
-			print "ERROR: In %s:%s, line %d:" % (pos[0][0], pos[0][2], pos[0][1])
-		else: print "ERROR:"
-		print "\t",msg
+			print("ERROR: In %s:%s, line %d:" % (pos[0][0], pos[0][2], pos[0][1]))
+		else:
+			print("ERROR:")
+		print("\t",msg)
 	except:
 		if __debug__:
 			traceback.print_exc()
@@ -66,7 +67,7 @@ def separator():
 	"""
 	Prints the separator line.
 	"""
-	print "-"*75
+	print("-"*75)
 
 
 def computeCRC(file, offset):
@@ -80,7 +81,7 @@ def computeCRC(file, offset):
 	# Compute a running CRC32 for the file in 16kb chunks
 	while True:
 		buffer = f.read(16384)
-		if buffer == "": break		# End of file
+		if not buffer: break		# End of file
 
 		crc = binascii.crc32(buffer, crc)
 
@@ -96,7 +97,7 @@ def createPackage(pakFile, files):
 	and closes the package. MPAK doesn't support adding new files to an existing
 	package.
 	"""
-	print "Creating '%s'.." % pakFile
+	print("Creating '%s'.." % pakFile)
 	if len(files) < 1: errorMsg("No input files specified!")
 	separator()
 
@@ -104,8 +105,8 @@ def createPackage(pakFile, files):
 	out = open(pakFile, "wb")
 
 	# Write the header and reserve 4+4 bytes for CRC32 and file table offset
-	out.write("MPK1")
-	out.write("."*8)
+	out.write(b"MPK1")
+	out.write(b"."*8)
 
 	# Write each file
 	package = { "fileNames": [], "fileOffsets": [] }
@@ -113,7 +114,7 @@ def createPackage(pakFile, files):
 	for file in files:
 		# Get the basename
 		filename = os.path.basename(file)
-		print " <",filename,"...",
+		print(" <%s..." % filename, end=' ')
 		package["fileNames"].append(filename)
 
 		# Get the file size in bytes
@@ -127,7 +128,7 @@ def createPackage(pakFile, files):
 		shutil.copyfileobj(f, out, 16384)
 		f.close()
 
-		print "OK. (%.1f KB)" % (stats.st_size / 1024.0)
+		print("OK. (%.1f KB)" % (stats.st_size / 1024.0))
 		count = count + 1
 
 	separator()
@@ -144,7 +145,7 @@ def createPackage(pakFile, files):
 		length = len(package["fileNames"][i]) + 1
 		out.write(struct.pack("B", length))
 		# File name, plus one zero for the C++ implementation
-		out.write(package["fileNames"][i])
+		out.write(package["fileNames"][i].encode('ascii'))
 		out.write(struct.pack("B", 0))
 		# File offset
 		out.write(struct.pack("<L", package["fileOffsets"][i]))
@@ -160,8 +161,8 @@ def createPackage(pakFile, files):
 	out.seek(4)
 	out.write(struct.pack("<L", crc32.value))
 
-	print "Added %d files to %s" % (count, pakFile)
-	print "Package '%s' created successfully. CRC32 checksum is %s." % (pakFile, hex(crc32.value))
+	print("Added %d files to %s" % (count, pakFile))
+	print("Package '%s' created successfully. CRC32 checksum is %s." % (pakFile, hex(crc32.value)))
 	out.close()
 
 
@@ -173,7 +174,7 @@ def readPackage(pakFile):
 	packageInfo = { "filename": pakFile }
 
 	f = open(pakFile, 'rb')
-	if f.read(4) != "MPK1": errorMsg("Unsupported file format!")
+	if f.read(4) != b"MPK1": errorMsg("Unsupported file format!")
 
 	# Read the CRC32 checksum and the file table header offset
 	buffer = f.read(8)
@@ -200,7 +201,7 @@ def readPackage(pakFile):
 		namelen = struct.unpack("B", f.read(1))[0]
 		file = f.read(namelen)
 		offset = struct.unpack("<L", f.read(4))[0]
-		fileNames.append(file[:-1])		# Remove the trailing null character
+		fileNames.append(file[:-1].decode('ascii'))		# Remove the trailing null character
 		fileOffsets.append(offset)
 
 	# Compute the file sizes from the offsets
@@ -221,20 +222,20 @@ def listPackage(pakFile):
 	"""
 	Lists the contents of a MPAK package.
 	"""
-	print "Listing '%s'.." % pakFile
+	print("Listing '%s'.." % pakFile)
 	package = readPackage(pakFile)
 
 	# Print the listing
 	numFiles = package["numFiles"]
-	print "'%s' (CRC32: %s) contains %d files:" % (pakFile, hex(package["crc"]), numFiles)
-	print ""
-	print " NUM : FILE                           : SIZE(KB)   : OFFSET"
+	print("'%s' (CRC32: %s) contains %d files:" % (pakFile, hex(package["crc"]), numFiles))
+	print("")
+	print(" NUM : FILE                           : SIZE(KB)   : OFFSET")
 	separator()
 	for i in range(numFiles):
-		print " %3d : %30s : %-10.1f : (at %s)" % (i+1, package["fileNames"][i], package["fileSizes"][i] / 1024.0, hex(package["fileOffsets"][i]))
+		print(" %3d : %30s : %-10.1f : (at %s)" % (i+1, package["fileNames"][i], package["fileSizes"][i] / 1024.0, hex(package["fileOffsets"][i])))
 
 	separator()
-	print " NUM : FILE                           : SIZE(KB)   : OFFSET"
+	print(" NUM : FILE                           : SIZE(KB)   : OFFSET")
 
 
 def extractPackage(pakFile, path, filters):
@@ -249,13 +250,13 @@ def extractPackage(pakFile, path, filters):
 	If the path is just a single directory name, it's assumed to exist in the current
 	working directory.
 	"""
-	print "Extracting files from '%s' to %s.." % (pakFile, path)
+	print("Extracting files from '%s' to %s.." % (pakFile, path))
 	package = readPackage(pakFile)
 
 	# Try to create the path if it doesn't exist
 	path = os.path.abspath(path)
 	if not os.path.exists(path):
-		print "Path",path,"doesn't exist, creating it.."
+		print("Path",path,"doesn't exist, creating it..")
 		try:
 			os.makedirs(path)
 		except:
@@ -274,7 +275,7 @@ def extractPackage(pakFile, path, filters):
 					break
 			else: continue
 
-		print " >", package["fileNames"][i],"...",
+		print(" >%s..." % package["fileNames"][i], end=' ')
 		# Seek to the correct offset
 		f.seek(package["fileOffsets"][i])
 
@@ -295,12 +296,12 @@ def extractPackage(pakFile, path, filters):
 				break
 
 		out.close()
-		print "OK."
+		print("OK.")
 		count = count + 1
 
 	f.close()
 	separator()
-	print "%d (of %d) files extracted to %s." % (count, package["numFiles"], path)
+	print("%d (of %d) files extracted to %s." % (count, package["numFiles"], path))
 
 
 def main():
@@ -310,9 +311,9 @@ def main():
 	try:
 		# Get the optiosn
 		opts, args = getopt.getopt(sys.argv[1:], "f:clep:h", ["file=", "create", "list", "extract", "path=", "help"])
-	except getopt.GetoptError, err:
+	except getopt.GetoptError as err:
 		# Print the program usage and exit
-		print "ERROR:", str(err)
+		print("ERROR: " + str(err))
 		usage()
 		sys.exit(2)
 
