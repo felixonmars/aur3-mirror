@@ -15,7 +15,7 @@ depends=('common-lisp' 'cl-asdf')
 
 install=cl-ppcre.install
 source=('http://weitz.de/files/cl-ppcre.tar.gz' 'LICENSE')
-md5sums=('e88c0aa8d19057ca8ca4cd5b4fca258f'
+md5sums=('22eef35aad62c7812e051e512f6993c4'
          'c6aa01dce26b45aa916329701a448d11')
 
 package() {

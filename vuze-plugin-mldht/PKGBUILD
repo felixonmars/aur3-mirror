@@ -7,7 +7,7 @@
 # https://github.com/palopezv/vuze-plugin-mldht
 
 pkgname=vuze-plugin-mldht
-pkgver=1.5.0
+pkgver=1.5.5
 pkgrel=1
 pkgdesc="Mainline DHT for Vuze. Talk DHT to µTorrent, Transmission, etc."
 arch=('any')
@@ -17,7 +17,7 @@ depends=('vuze')
 options=(!strip)
 source=("http://azureus.sourceforge.net/plugins/mlDHT_${pkgver}.jar")
 noextract=("mlDHT_${pkgver}.jar")
-sha256sums=('79128552241bf6731c2b8f6e5a52c3eb0d1658578cf3b8befd39a3431da22c8f')
+sha256sums=('fc152dc635686dc96105fabdd7972a057d9d38f156e66b3baa90446bb26e2b3d')
 
 package () {
 	cd "$srcdir"
