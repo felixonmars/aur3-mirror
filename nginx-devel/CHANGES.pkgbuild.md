@@ -1,3 +1,6 @@
+## 1.7.4
+* added armv6h to the arch
+
 ## 1.7.1
 * psol-1.7.30.4
 
