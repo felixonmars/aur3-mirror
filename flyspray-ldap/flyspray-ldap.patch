@@ -1,0 +1,120 @@
+diff -aur fs-pristine/src/flyspray-0.9.9.7/includes/class.flyspray.php fs-mod/src/flyspray-0.9.9.7/includes/class.flyspray.php
+--- fs-pristine/src/flyspray-0.9.9.7/includes/class.flyspray.php	2012-05-28 10:34:46.000000000 -0400
++++ fs-mod/src/flyspray-0.9.9.7/includes/class.flyspray.php	2014-08-18 10:06:56.255408638 -0400
+@@ -607,9 +607,11 @@
+      * @return integer user_id on success, 0 if account or user is disabled, -1 if password is wrong
+      * @version 1.0
+      */
++
++    // Modified for LDAP authentication - This function is adapted from dotproject (www.dotproject.net)licensed under the GPL
+     public static function checkLogin($username, $password)
+     {
+-        global $db;
++        global $db, $conf;
+ 
+         $result = $db->Query("SELECT  uig.*, g.group_open, u.account_enabled, u.user_pass,
+                                         lock_until, login_attempts
+@@ -629,16 +631,19 @@
+         }
+ 
+         //encrypt the password with the method used in the db
+-        switch (strlen($auth_details['user_pass'])) {
+-            case 40:
+-                $password = sha1($password);
+-                break;
+-            case 32:
+-                $password = md5($password);
+-                break;
+-            default:
+-                $password = crypt($password, $auth_details['user_pass']); //using the salt from db
+-                break;
++        //if LDAP is enabled, then we skip this
++        if($conf['general']['ldap_auth']==0) {
++            switch (strlen($auth_details['user_pass'])) {
++                case 40:
++                    $password = sha1($password);
++                    break;
++                case 32:
++                    $password = md5($password);
++                    break;
++                default:
++                    $password = crypt($password, $auth_details['user_pass']); //using the salt from db
++                    break;
++            }
+         }
+ 
+         if ($auth_details['lock_until'] > 0 && $auth_details['lock_until'] < time()) {
+@@ -649,7 +654,14 @@
+         }
+ 
+         // Compare the crypted password to the one in the database
+-        $pwOk = ($password == $auth_details['user_pass']);
++        if($conf['general']['ldap_auth']==1) {
++             $pwOk=Flyspray::ldapAuth($username,$password);
++        }
++        else {
++            $pwOk = ($password == $auth_details['user_pass']);
++        } 
++
++
+         // Admin users cannot be disabled
+         if ($auth_details['group_id'] == 1 /* admin */ && $pwOk) {
+             return $auth_details['user_id'];
+@@ -686,6 +698,57 @@
+ 
+         return setcookie($name, $val, $time, $url['path']);
+     } // }}}
++
++    function ldapAuth($username, $password)
++    {
++        require_once BASEDIR . '/adodb/ldap/adodb-ldap.inc.php';
++
++        $ldap_host = 'ldaphost';
++        $ldap_port = '389';
++        $ldap_version = '3';
++        $base_dn = 'OU=SBSUsers,OU=Users,OU=MyBusiness,DC=MyDomain,DC=local';
++        $ldap_search_user = 'ldapuser@mydomain.local';
++        $ldap_search_pass = "ldapuserpass";
++        $filter = "SAMAccountName=%USERNAME%"; // this is for AD - may be different with other setups
++        $username = $username;
++
++        if (strlen($password) == 0) return false; // LDAP will succeed binding with no password on AD (defaults to anon bind)
++
++        $rs = ldap_connect($ldap_host, $ldap_port);
++        @ldap_set_option($rs, LDAP_OPT_PROTOCOL_VERSION, $ldap_version);
++        @ldap_set_option($rs, LDAP_OPT_REFERRALS, 0);
++        $ldap_bind_dn = empty($ldap_search_user) ? NULL : $ldap_search_user;
++        $ldap_bind_pw = empty($ldap_search_pass) ? NULL : $ldap_search_pass;
++        if (!$bindok = @ldap_bind($rs, $ldap_bind_dn, $ldap_search_pass))
++        {
++            // Uncomment for LDAP debugging
++            $error_msg = ldap_error($rs);
++            die("Couldnt Bind Using ".$ldap_bind_dn."@".$ldap_host.":".$ldap_port." Because:".$error_msg);
++            return false;
++        }
++        else
++        {
++            $filter_r = str_replace("%USERNAME%", $username, $filter);
++            $result = @ldap_search($rs, $base_dn, $filter_r);
++            if (!$result) return false; // ldap search returned nothing or error
++            $result_user = ldap_get_entries($rs, $result);
++            if ($result_user["count"] == 0) return false; // No users match the filter
++            $first_user = $result_user[0];
++            $ldap_user_dn = $first_user["dn"];
++            // Bind with the dn of the user that matched our filter (only one user should match sAMAccountName or uid etc..)
++            if (!$bind_user = @ldap_bind($rs, $ldap_user_dn, $password))
++            {
++                $error_msg = ldap_error($rs);
++                die("Couldnt Bind Using ".$ldap_user_dn."@".$ldap_host.":".$ldap_port." Because:".$error_msg);
++                return false;
++            }
++            else
++            {
++                return true;
++            }
++        }
++    }
++
+             // Start the session {{{
+     /**
+      * Starts the session

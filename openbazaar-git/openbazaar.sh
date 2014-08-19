@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /opt/openbazaar
+cd /var/lib/openbazaar
 ./run.sh

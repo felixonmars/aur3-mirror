@@ -1,6 +1,6 @@
 # Maintainer: XZS <d dot f dot fischer at web dot de>
 pkgname=xmms2-reseeker
-pkgver=1
+pkgver=2
 pkgrel=1
 pkgdesc="A tiny xmms2 client that skips back a few seconds every time a song resumes from pause."
 arch=('i686' 'x86_64')
