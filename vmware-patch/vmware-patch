@@ -13,6 +13,10 @@ msg2() {
     printf "${blue}  ->${all_off}${bold} $1${all_off}\n"
 }
 
+msg2_yellow() {
+    printf "${yellow}  ->${all_off}${bold} $1${all_off}\n"
+}
+
 read_msg2() {
     read -p "${blue}  ->${all_off}${bold} $1${all_off}"
 }
@@ -68,14 +72,14 @@ while [[ "$1" ]]; do
     while [[ "$opt" != "-" ]]; do
         # Define actions
         case "$opt" in
-            -f* | --force)     force=1;;
-            -v* | --verbose)   verbose=1;;
-            -V* | --version)   version; exit 0;;
-            -h* | --help)      usage; exit 0;;
+            -f* | --force)     force=1 ;;
+            -v* | --verbose)   verbose=1 ;;
+            -V* | --version)   version; exit 0 ;;
+            -h* | --help)      usage; exit 0 ;;
             -*)                echo "$(basename $0): error: bad argument: $opt"
                                echo
-                               usage $1; exit 0;;
-            *) break;;
+                               usage $1; exit 0 ;;
+            *) break ;;
         esac
         # Support single dash (-fv)
         # Remove first match ("${opt#-[fv]}")
@@ -98,7 +102,7 @@ if (( $EUID != 0 )); then
 fi
 
 # Is a VMware product installed?
-if [ ! -f /usr/bin/vmware-installer ]; then
+if [[ ! -f /usr/bin/vmware-installer ]]; then
     error "No VMware product found. Exiting.."
     exit 1
 fi
@@ -122,7 +126,7 @@ fi
 # Make sure there's a version in /etc/arch-release for Workstation 9 / Player 5
 # https://wiki.archlinux.org/index.php?title=VMware&oldid=274532#2.29_The_vmware-usbarbitrator_binary_is_segfaulting
 if [[ "$ver" = 9.* ]] || [[ "$ver" = 5.* ]]; then
-    if [ ! $(cat /etc/arch-release) ]; then
+    if [[ ! $(cat /etc/arch-release) ]]; then
         msg "Updating /etc/arch-release.."
         curl -s https://www.archlinux.org/releng/releases/ | grep -Pom1 'for \K[^"]*' > /etc/arch-release
     fi
@@ -135,38 +139,34 @@ if grep -q '$vsock_alias' /etc/init.d/vmware; then
         -i /etc/init.d/vmware
 fi
 
-# Remove leftover header locations
-if [[ $(find /usr/src/ -mindepth 1 -maxdepth 2 -type d) ]]; then
-    for i in /usr/src/*; do
-        if [[ $(ls "$i") = "include" ]]; then
-            msg_yellow "Removing leftover header location: $i/"
-            rm -r "$i"
-        fi
-    done
-fi
-
 # Remove leftover module locations
 for i in /usr/lib/modules/*; do
-    if [[ $(ls "$i") = "misc" ]]; then
-        msg_yellow "Removing leftover module location: $i/"
-        rm -r "$i"
+    if [[ $(ls "$i") = 'misc' ]]; then
+        misc+=("$i")
     fi
 done
+if [[ "$misc" ]]; then
+    msg_yellow "Removing leftover module location.."
+    for i in ${misc[@]}; do
+        msg2 "$i/"
+        rm -r "$i"
+    done
+fi
 
 # Remove old backups
 cd /usr/lib/vmware/modules/
 # Use "ls" instead of the builtin -d for multiple arguments
 if ls -d source-*.*/ 2>/dev/null | grep -qv "$ver/"; then
-    msg "Cleaning up old backups.."
+    msg_yellow "Cleaning up old backups.."
     # Print full paths
     for i in $(readlink -f source-*.*/ | grep -v "$ver"); do
-        msg2 "Removing leftover module source location: $i/"
+        msg2 "$i/"
         rm -r "$i"
     done
 fi
 
 # Make sure the directory exists
-if [ ! -d /usr/lib/modules/$(uname -r)/ ]; then
+if [[ ! -d /usr/lib/modules/$(uname -r)/ ]]; then
     error "/usr/lib/modules/$(uname -r)/ not found. Exiting.."
     exit 1
 fi
@@ -174,48 +174,43 @@ fi
 # Support the '-f' flag
 # 1) Have we already built (vsock is built last)?
 # 2) Don't check this until we've removed the leftovers
-if [ -f /usr/lib/modules/$(uname -r)/misc/vsock.ko ]; then
-    # Offer the ability reinstall this thing
-    if [[ "$force" ]]; then
-        msg "Reinstalling modules.."
-    else
-        [[ "$verbose" ]] && msg "Verifying current state.."
-        error "VMware modules already installed (use '-f' to override). Exiting.."
-        exit 1
+if [[ ! "$force" ]] && [[ -f /usr/lib/modules/$(uname -r)/misc/vsock.ko ]]; then
+    if [[ "$verbose" ]]; then
+        msg "Verifying current state.."
     fi
+    error "VMware modules already installed (use '-f' to override). Exiting.."
+    exit 1
 fi
 
-# Unload conflicting in-kernel modules
+# Unload conflicting in-kernel modules (VMware can't handle these in Arch)
 if sudo rmmod vmw_vsock_vmci_transport 2>/dev/null; then
     sudo rmmod vmw_vmci vsock 2>/dev/null
 fi
 
 # Patch
 # 1) Make sure we can build
-# 2) Shorther without double brackets ("[["):
-# 3) &>/dev/null: hide all output (STDIN/STDERR)
+# 2) &>/dev/null: hide all output (STDIN/STDERR)
+msg "Patching $name v$ver for kernel $(uname -r).."
 if ls patches/*"$ver"*"$kernel"*.patch &>/dev/null; then
     # Create a backup/Revert
-    if [ ! -d "source-$ver" ]; then
-        msg "Creating a backup.."
+    if [[ ! -d "source-$ver" ]]; then
+        msg2_yellow "Backing up.."
         cp -r source/ "source-$ver/"
     else
         # Get the original sources from the backup (invalidate the need for 'vmware-unpatch')
         cp "source-$ver/"* source/
     fi
 
-    # Loop modules that require patching (vmblock, vmci, vmmon, vmnet and/or vsock)
-    msg "Patching $name v$ver for kernel $(uname -r).."
     cd source
-
-    # Prevent duplicate entries with 'sort -u'
+    # Loop modules that require patching (vmci, vmmon, vmnet and/or vsock)
+    # sort -u: prevent duplicate entries with
     for mod in $(ls ../patches/v*"$ver"*"$kernel"*.patch 2>&- | grep -Po "s/\K[^-]*" | sort -u); do
         # Print name
         msg2 "[$mod]"
 
         # Untar
         if [[ "$verbose" ]]; then
-            msg3 "Untarring.."
+            msg3 "Extracting archives.."
         fi
         tar -xf "$mod.tar"
 
@@ -223,9 +218,9 @@ if ls patches/*"$ver"*"$kernel"*.patch &>/dev/null; then
         _patch() {
             if [[ "$verbose" ]]; then
                 msg3 "Patching.."
-                patch -p0 -f -i $i
+                patch -p0 -f -i "$i"
             else
-                patch -p0 -s -f -i $i
+                patch -p0 -s -f -i "$i"
             fi
         }
 
@@ -243,7 +238,7 @@ if ls patches/*"$ver"*"$kernel"*.patch &>/dev/null; then
                     mv "source-$ver/" source/
 
                     # Exit
-                    msg "Done."
+                    msg2 "Done."
                     exit 1
                 fi
             fi
@@ -251,7 +246,7 @@ if ls patches/*"$ver"*"$kernel"*.patch &>/dev/null; then
 
         # Tar patched modules
         if [[ "$verbose" ]]; then
-            msg3 "Re-tarring.."
+            msg3 "Recreating archives.."
         fi
         tar -cf "$mod.tar" "$mod-only"
 
@@ -259,7 +254,7 @@ if ls patches/*"$ver"*"$kernel"*.patch &>/dev/null; then
         rm -r "$mod-only"
     done
 else
-    msg "No patching required."
+    msg2 "No patching required.."
 fi
 
 # Print 'vmware-modconfig-*.log's and exit
@@ -284,4 +279,4 @@ else
     fi
 fi
 
-msg "Done."
+msg2 "Done."

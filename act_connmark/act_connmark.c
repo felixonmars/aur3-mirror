@@ -56,7 +56,7 @@ static int tcf_connmark(struct sk_buff *skb, const struct tc_action *a,
 	} else
 		goto out;
 
-	r = nf_conntrack_in(dev_net(skb->dev), proto, NF_INET_PRE_ROUTING, skb);
+	r = nf_conntrack_in(dev_net(skb->dev), proto, NF_INET_FORWARD, skb);
 	if (r != NF_ACCEPT)
 		goto out;
 

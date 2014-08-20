@@ -2,7 +2,7 @@
 
 pkgname=act_connmark-lts
 pkgver=3.14
-pkgrel=2
+pkgrel=3
 pkgdesc="A TC action to retrieve the MARK of a packet through CTMARK in INGRESS. Source modified from OpenWRT.org"
 arch=('i686' 'x86_64')
 license=('GPL')
@@ -12,15 +12,20 @@ depends=('linux-lts')
 install=act_connmark.install
 source=('act_connmark.c'
 	'Makefile')
-md5sums=('145baf544b087aadf92b6ca131216c75'
-         '0e432ed9c1fafc76aae8b10e440f6a9c')
+md5sums=('93667f17bebefca21381ab4ecf2c885f'
+         '529b8e69a3ba82d3d6f70ecd2d1d4067')
 url="https://dev.openwrt.org/browser/trunk/target/linux/generic/patches-3.14/621-sched_act_connmark.path"
 
+_kernmajor="$(pacman -Q linux-lts | awk '{print $2}' | cut -d - -f1 | cut -d . -f1,2)"
+_extramodules="extramodules-${_kernmajor}-lts"
+_kernver="$(cat /usr/lib/modules/${_extramodules}/version)"
+
 build() {
-  make
+	cd "${srcdir}"
+	make -C /usr/lib/modules/${_kernver}/build M=`pwd`
 }
 
 package() {
- install -Dm755 act_connmark.ko $pkgdir/usr/lib/modules/`uname -r`/extramodules/act_connmark.ko
+ install -Dm755 act_connmark.ko $pkgdir/usr/lib/modules/${_extramodules}/act_connmark.ko
 }
 
