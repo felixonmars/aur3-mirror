@@ -4,22 +4,21 @@ pkgname=('jre8-oracle' 'jdk8-oracle')
 #pkgname=('jre8-oracle-headless' 'jre8-oracle' 'jdk8-oracle')
 pkgbase=java8-oracle
 _java_ver=8
-_update=11
-_build=12
+_update=20
+_build=26
 # FIXME pkgver to match Arch Linux JDK versioning scheme. Watch out for source
 pkgver=${_java_ver}.u${_update}
-pkgrel=2
+pkgrel=1
 
 arch=('i686' 'x86_64')
-# FIXME '_JARCH'
 if [ "${CARCH}" = 'x86_64' ]; then
   _JARCH=x64
   _JARCH_ALT=amd64
-  _sha256sum_jdk='f3593b248b64cc53bf191f45b92a1f10e8c5099c2f84bd5bd5d6465dfd07a8e9'
+  _sha256sum_jdk='3e717622ae48af5ca7298e7797cb71d4d545238f362741a83e69c097ca055de4'
 else
   _JARCH=i586
   _JARCH_ALT=i386
-  _sha256sum_jdk='3981e6fb7d35b20ac3c05ec56fb3798ac1cd872a9e968bb3d77a718af7b146d1'
+  _sha256sum_jdk='fa013b3fcbb1308040bf0e75bbd6ef7e8396b547cbc8dd79e3cb8153604bfd06'
 fi
 
 url='http://www.oracle.com/technetwork/java/index.html'
