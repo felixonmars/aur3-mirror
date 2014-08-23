@@ -8,7 +8,7 @@ _update=20
 _build=26
 # FIXME pkgver to match Arch Linux JDK versioning scheme. Watch out for source
 pkgver=${_java_ver}.u${_update}
-pkgrel=1
+pkgrel=2
 
 arch=('i686' 'x86_64')
 if [ "${CARCH}" = 'x86_64' ]; then
@@ -121,6 +121,9 @@ package_jre8-oracle() {
     install -D -m 644 "${pkgdir}${_filepkgpath}" "${pkgdir}/${file}"
     ln -sf /${file} "${pkgdir}${_filepkgpath}"
   done
+
+  install -d "${pkgdir}/usr/lib/mozilla/plugins/"
+  ln -s ${_jvmdir}/jre/lib/${_JARCH_ALT}/libnpjp2.so "${pkgdir}/usr/lib/mozilla/plugins/"
 }
 
 package_jdk8-oracle() {
