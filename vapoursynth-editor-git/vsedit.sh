@@ -1,1 +1,1 @@
-exec /usr/share/vsedit/vsedit
+exec /usr/share/vsedit/vsedit $@

@@ -12,7 +12,7 @@
 
 pkgname=vuze
 pkgver=5.4.0.0
-pkgrel=2
+pkgrel=3
 
 # _ver=${pkgver//./} 
 # Just for reference purposes. This is how it should be done, but 
@@ -82,7 +82,7 @@ package() {
   # archlinux-java multiversions setup
   sed -i \
     -e 's|#PROGRAM_DIR="/home/username/apps/azureus"|PROGRAM_DIR="/usr/lib/vuze"|' \
-    -e 's|JAVA_PROGRAM_DIR=""|JAVA_PROGRAM_DIR="/usr/lib/jvm/java-default-runtime/bin/"|' \
+    -e 's|JAVA_PROGRAM_DIR=""|JAVA_PROGRAM_DIR="$JAVA_HOME/bin/"|' \
     "$pkgdir/usr/bin/vuze"
 
   # Install main jar.

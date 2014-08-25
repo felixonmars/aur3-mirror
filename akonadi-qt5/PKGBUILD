@@ -1,19 +1,21 @@
-# Maintainer: Andrea Scarpino <andrea@archlinux.org>
+# Maintainer: Antonio Rojas
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
 
 pkgname=akonadi-qt5
-pkgver=1.11.80
+pkgver=1.13.0
 pkgrel=1
 pkgdesc="PIM layer, which provides an asynchronous API to access all kind of PIM data"
 arch=('i686' 'x86_64')
 url='http://community.kde.org/KDE_PIM/Akonadi'
 license=('LGPL')
-depends=('shared-mime-info' 'boost-libs' 'mariadb')
-makedepends=('cmake' 'automoc4' 'boost' 'postgresql')
+depends=('shared-mime-info' 'boost-libs' 'mariadb' 'qt5-base')
+makedepends=('cmake' 'boost' 'postgresql')
 optdepends=('postgresql: PostgreSQL backend')
 install="${pkgname}.install"
 conflicts=('akonadi')
+provides=('akonadi')
 source=("http://download.kde.org/stable/akonadi/src/akonadi-${pkgver}.tar.bz2")
-md5sums=('5f32da9e6370db56980d888f888cc3de')
+md5sums=('84eb2e471bd6bdfe54a2a2f1d858c07d')
 
 prepare() {
   mkdir build
