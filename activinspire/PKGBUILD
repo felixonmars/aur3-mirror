@@ -1,7 +1,7 @@
 # Maintainer: Bazon <bazonbloch@arcor.de>
 pkgname=activinspire
 pkgver=1.7.58968
-pkgrel=2
+pkgrel=3
 pkgdesc="Presentation Software to use with Promethean Hardware products."
 arch=('i686' 'x86_64')
 url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
@@ -38,7 +38,7 @@ package() {
         echo "#! /bin/bash" > "$pkgdir"/usr/bin/inspire
         # in order to make java work, we need an export for 64bit versions:
         if [ "$CARCH" = "x86_64" ]; then
-            echo "export JAVA_HOME=/opt/bin32-jre/" >> "$pkgdir"/usr/bin/inspire
+            echo "export JAVA_HOME=/opt/java32/jre/" >> "$pkgdir"/usr/bin/inspire
         fi
         echo "cd /usr/bin/activsoftware" >> "$pkgdir"/usr/bin/inspire
         echo "./Inspire \$ARGS" >> "$pkgdir"/usr/bin/inspire

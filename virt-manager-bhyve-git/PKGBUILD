@@ -1,0 +1,47 @@
+# Maintainer: Damian Nowak <nowaker@virtkick.io>
+# Contributor: Patryk Kowalczyk <patryk at kowalczyk dot ws>
+
+pkgname='virt-manager-bhyve-git'
+_pkgname='virt-manager'
+pkgver=v1.0.1.85.g768ff1f
+pkgrel='1'
+pkgdesc='A desktop user interface for managing virtual machines (with experimental support for FreeBSD Bhyve)'
+arch=('any')
+url='http://virt-manager.et.redhat.com'
+license=('GPL')
+depends=('dbus-python' 'libvirt' 'libvirt-glib' 'libxml2' 'vte3' 'gtk-vnc' 'rarian' 'gconf' 'urlgrabber'
+         'yajl' 'librsvg' 'python2' 'python2-gconf' 'spice' 'python2-ipaddr' 'spice-gtk3' 'gtk3' 'python2-gobject' 'libvirt-python' 'libosinfo>=0.2.10')
+makedepends=('gnome-doc-utils' 'intltool>=0.35.0' 'git')
+optdepends=('x11-ssh-askpass: for ssh authentication to remote servers'
+            'libuser: for virt-manager-tui'
+            'python2-ipy: for virt-manager-tui'
+            'newt-syrup: for virt-manager-tui')
+install='virt-manager.install'
+conflicts=('virt-manager' 'virtinst')
+provides=('virt-manager')
+source=("git+https://git.fedorahosted.org/git/virt-manager.git")
+md5sums=('SKIP')
+_gitname='virt-manager'
+
+pkgver() {
+  cd  "${srcdir}/${_gitname}"
+ git describe --always | sed 's|-|.|g'
+}
+
+build() {
+  msg "GIT checkout done or server timeout"
+  msg "Starting build..."
+    
+  cd ${srcdir}/${_pkgname}
+  # workaround for old libosinfo
+  # git checkout 517bbad08717c03b6951590a7d2e04ad7605fedd
+  export LDFLAGS=-lX11
+  find . -type f | xargs sed -i 's:/usr/bin/python:/usr/bin/python2.7:'
+}
+
+package() {
+  cd ${srcdir}/${_pkgname}
+  python2.7 setup.py configure --with-bhyve=1
+  python2.7 setup.py install --root=${pkgdir}/
+  sed -i 's/python2.72/python2.7/' ${pkgdir}/usr/share/virt-manager/virt-manager
+}
