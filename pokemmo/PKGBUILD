@@ -1,8 +1,8 @@
 # Maintainer: Shaun Hammill <plloi.pllex@gmail.com>
 # Contributer: Sam Stuewe <halosghost at archlinux dot info>
 pkgname="pokemmo"
-pkgver=20140820
-pkgrel=2
+pkgver=r4369
+pkgrel=1
 pkgdesc="An MMO based on the Pokémon Universe"
 arch=('any')
 url="http://pokemmo.eu"
@@ -16,7 +16,7 @@ install="${pkgname}.install"
 source=("http://pokemmo.eu/download/PokeMMO-Client.zip"
         "${pkgname}.sh"
         "${pkgname}.install")
-sha256sums=('203914df17e0972df34dd3d2b04d94a744d0f3ea7e044c39fe758a3670127e0b'
+sha256sums=('8881d97f790b503e516d1076b47ca6e9b9163a3d0bd03bd46839dc5a59763a36'
             '95c0f9459c850e6378cd2439a76ef6c59d0efe36981082be06e1ef8c94c484ce'
             '8ceb6db076fe3c7aabcb26d1de714074586401beef2915af54e1b4f120c8d592')
 
