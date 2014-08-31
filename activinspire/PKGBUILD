@@ -1,23 +1,23 @@
 # Maintainer: Bazon <bazonbloch@arcor.de>
 pkgname=activinspire
-pkgver=1.7.58968
-pkgrel=3
+pkgver=1.8.64351
+pkgrel=1
 pkgdesc="Presentation Software to use with Promethean Hardware products."
 arch=('i686' 'x86_64')
 url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
 license=('unknown')
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
-  _md5sum='ee5be21afd73cbcc8ab42fc18a3e9a4a'
+  _md5sum='9d5859a8108daddda33cd49e3af4d8d1'
   depends=('qt4' 'gstreamer0.10-good-plugins' 'libjpeg6' 'jre7-openjdk')
-elif [ "$CARCH" = "x86_64" ]; then
+else
   _arch='amd64'
-  _md5sum='5f4c9028d4813f0c394bb9b2258169ce'
+  _md5sum='79ab8624304f31e8579be7ab4b4b148e'
   depends=('qt4' 'gstreamer0.10-good-plugins' 'bin32-jre' 'lib32-libjpeg' 'lib32-libjpeg6' 'lib32-libxmu')
 fi
 optdepends=('activdriver: promethean hardware support'
             'activtools: hardware calibration')
-source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activinspire/activinspire_$pkgver-4."$_arch"_"$_arch".deb)
+source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activinspire/activinspire_$pkgver-2."$_arch"_"$_arch".deb)
 md5sums=( $_md5sum ) 
 package() {
         # extract the archive
@@ -41,7 +41,7 @@ package() {
             echo "export JAVA_HOME=/opt/java32/jre/" >> "$pkgdir"/usr/bin/inspire
         fi
         echo "cd /usr/bin/activsoftware" >> "$pkgdir"/usr/bin/inspire
-        echo "./Inspire \$ARGS" >> "$pkgdir"/usr/bin/inspire
+        echo "./Inspire \$1" >> "$pkgdir"/usr/bin/inspire
         chmod 755 "$pkgdir"/usr/bin/inspire
         
         # delete the no-compiz-shortcut. if you want it, delete the following line
