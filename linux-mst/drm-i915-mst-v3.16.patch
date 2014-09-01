@@ -1,0 +1,6108 @@
+From 5bd19aa0950fd0893e4658b9ba8793d6c2e52026 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 11:17:41 +1000
+Subject: [PATCH 01/18] drm/i915: add some registers need for displayport MST
+ support.
+
+These are just from the Haswell spec.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+---
+ drivers/gpu/drm/i915/i915_reg.h | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/i915_reg.h b/drivers/gpu/drm/i915/i915_reg.h
+index a5bab61..f548101 100644
+--- a/drivers/gpu/drm/i915/i915_reg.h
++++ b/drivers/gpu/drm/i915/i915_reg.h
+@@ -5743,6 +5743,7 @@ enum punit_power_well {
+ #define  TRANS_DDI_EDP_INPUT_A_ONOFF	(4<<12)
+ #define  TRANS_DDI_EDP_INPUT_B_ONOFF	(5<<12)
+ #define  TRANS_DDI_EDP_INPUT_C_ONOFF	(6<<12)
++#define  TRANS_DDI_DP_VC_PAYLOAD_ALLOC	(1<<8)
+ #define  TRANS_DDI_BFI_ENABLE		(1<<4)
+ 
+ /* DisplayPort Transport Control */
+@@ -5752,6 +5753,7 @@ enum punit_power_well {
+ #define  DP_TP_CTL_ENABLE			(1<<31)
+ #define  DP_TP_CTL_MODE_SST			(0<<27)
+ #define  DP_TP_CTL_MODE_MST			(1<<27)
++#define  DP_TP_CTL_FORCE_ACT			(1<<25)
+ #define  DP_TP_CTL_ENHANCED_FRAME_ENABLE	(1<<18)
+ #define  DP_TP_CTL_FDI_AUTOTRAIN		(1<<15)
+ #define  DP_TP_CTL_LINK_TRAIN_MASK		(7<<8)
+@@ -5766,8 +5768,13 @@ enum punit_power_well {
+ #define DP_TP_STATUS_A			0x64044
+ #define DP_TP_STATUS_B			0x64144
+ #define DP_TP_STATUS(port) _PORT(port, DP_TP_STATUS_A, DP_TP_STATUS_B)
+-#define  DP_TP_STATUS_IDLE_DONE		(1<<25)
+-#define  DP_TP_STATUS_AUTOTRAIN_DONE	(1<<12)
++#define  DP_TP_STATUS_IDLE_DONE			(1<<25)
++#define  DP_TP_STATUS_ACT_SENT			(1<<24)
++#define  DP_TP_STATUS_MODE_STATUS_MST		(1<<23)
++#define  DP_TP_STATUS_AUTOTRAIN_DONE		(1<<12)
++#define  DP_TP_STATUS_PAYLOAD_MAPPING_VC2	(3 << 8)
++#define  DP_TP_STATUS_PAYLOAD_MAPPING_VC1	(3 << 4)
++#define  DP_TP_STATUS_PAYLOAD_MAPPING_VC0	(3 << 0)
+ 
+ /* DDI Buffer Control */
+ #define DDI_BUF_CTL_A				0x64000
+-- 
+2.1.0
+
+
+From dbd419ca067fe75d48078a9f5e83276c48cd542f Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 13:22:19 +1000
+Subject: [PATCH 02/18] drm: fix memory leak around mode_group (v2)
+
+This mode group id_list was never being freed.
+
+v2: take David's suggestion to free in minor_free.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/drm_crtc.c
+	drivers/gpu/drm/drm_stub.c
+---
+ drivers/gpu/drm/drm_crtc.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/gpu/drm/drm_crtc.c b/drivers/gpu/drm/drm_crtc.c
+index fe94cc1..ba5b0c3 100644
+--- a/drivers/gpu/drm/drm_crtc.c
++++ b/drivers/gpu/drm/drm_crtc.c
+@@ -1438,6 +1438,7 @@ void drm_mode_group_destroy(struct drm_mode_group *group)
+  * NOTE: Driver's shouldn't ever call drm_mode_group_init_legacy_group - it is
+  * the drm core's responsibility to set up mode control groups.
+  */
++
+ int drm_mode_group_init_legacy_group(struct drm_device *dev,
+ 				     struct drm_mode_group *group)
+ {
+-- 
+2.1.0
+
+
+From 25c1f61e26dd855223b2cc695682dee2a365e309 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 13:25:51 +1000
+Subject: [PATCH 03/18] drm/crtc: add interface to reinitialise the legacy mode
+ group
+
+This can be called to update things after dynamic connectors/encoders
+are created/deleted.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+---
+ drivers/gpu/drm/drm_crtc.c | 9 +++++++++
+ include/drm/drm_crtc.h     | 1 +
+ 2 files changed, 10 insertions(+)
+
+diff --git a/drivers/gpu/drm/drm_crtc.c b/drivers/gpu/drm/drm_crtc.c
+index ba5b0c3..02fe81cd 100644
+--- a/drivers/gpu/drm/drm_crtc.c
++++ b/drivers/gpu/drm/drm_crtc.c
+@@ -1471,6 +1471,15 @@ int drm_mode_group_init_legacy_group(struct drm_device *dev,
+ }
+ EXPORT_SYMBOL(drm_mode_group_init_legacy_group);
+ 
++void drm_reinit_primary_mode_group(struct drm_device *dev)
++{
++	drm_modeset_lock_all(dev);
++	drm_mode_group_destroy(&dev->primary->mode_group);
++	drm_mode_group_init_legacy_group(dev, &dev->primary->mode_group);
++	drm_modeset_unlock_all(dev);
++}
++EXPORT_SYMBOL(drm_reinit_primary_mode_group);
++
+ /**
+  * drm_crtc_convert_to_umode - convert a drm_display_mode into a modeinfo
+  * @out: drm_mode_modeinfo struct to return to the user
+diff --git a/include/drm/drm_crtc.h b/include/drm/drm_crtc.h
+index 251b75e..35346d2 100644
+--- a/include/drm/drm_crtc.h
++++ b/include/drm/drm_crtc.h
+@@ -937,6 +937,7 @@ extern const char *drm_get_tv_select_name(int val);
+ extern void drm_fb_release(struct drm_file *file_priv);
+ extern int drm_mode_group_init_legacy_group(struct drm_device *dev, struct drm_mode_group *group);
+ extern void drm_mode_group_destroy(struct drm_mode_group *group);
++extern void drm_reinit_primary_mode_group(struct drm_device *dev);
+ extern bool drm_probe_ddc(struct i2c_adapter *adapter);
+ extern struct edid *drm_get_edid(struct drm_connector *connector,
+ 				 struct i2c_adapter *adapter);
+-- 
+2.1.0
+
+
+From e1ae78319b2e899d932b4a645e1903deccfcbe03 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Wed, 14 May 2014 12:21:06 +1000
+Subject: [PATCH 04/18] drm/fb_helper: allow adding/removing connectors later
+
+This is required to get fbcon probing to work on new connectors,
+callers should acquire the mode config lock before calling these.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+---
+ drivers/gpu/drm/drm_fb_helper.c | 53 +++++++++++++++++++++++++++++++++++++++++
+ include/drm/drm_fb_helper.h     |  4 ++++
+ 2 files changed, 57 insertions(+)
+
+diff --git a/drivers/gpu/drm/drm_fb_helper.c b/drivers/gpu/drm/drm_fb_helper.c
+index d5d8cea..1ee5348 100644
+--- a/drivers/gpu/drm/drm_fb_helper.c
++++ b/drivers/gpu/drm/drm_fb_helper.c
+@@ -105,6 +105,58 @@ fail:
+ }
+ EXPORT_SYMBOL(drm_fb_helper_single_add_all_connectors);
+ 
++int drm_fb_helper_add_one_connector(struct drm_fb_helper *fb_helper, struct drm_connector *connector)
++{
++	struct drm_fb_helper_connector **temp;
++	struct drm_fb_helper_connector *fb_helper_connector;
++
++	WARN_ON(!mutex_is_locked(&fb_helper->dev->mode_config.mutex));
++	if (fb_helper->connector_count + 1 > fb_helper->connector_info_alloc_count) {
++		temp = krealloc(fb_helper->connector_info, sizeof(struct drm_fb_helper_connector) * (fb_helper->connector_count + 1), GFP_KERNEL);
++		if (!temp)
++			return -ENOMEM;
++
++		fb_helper->connector_info_alloc_count = fb_helper->connector_count + 1;
++		fb_helper->connector_info = temp;
++	}
++
++
++	fb_helper_connector = kzalloc(sizeof(struct drm_fb_helper_connector), GFP_KERNEL);
++	if (!fb_helper_connector)
++		return -ENOMEM;
++
++	fb_helper_connector->connector = connector;
++	fb_helper->connector_info[fb_helper->connector_count++] = fb_helper_connector;
++	return 0;
++}
++EXPORT_SYMBOL(drm_fb_helper_add_one_connector);
++
++int drm_fb_helper_remove_one_connector(struct drm_fb_helper *fb_helper,
++				       struct drm_connector *connector)
++{
++	struct drm_fb_helper_connector *fb_helper_connector;
++	int i, j;
++
++	WARN_ON(!mutex_is_locked(&fb_helper->dev->mode_config.mutex));
++
++	for (i = 0; i < fb_helper->connector_count; i++) {
++		if (fb_helper->connector_info[i]->connector == connector)
++			break;
++	}
++
++	if (i == fb_helper->connector_count)
++		return -EINVAL;
++	fb_helper_connector = fb_helper->connector_info[i];
++
++	for (j = i + 1; j < fb_helper->connector_count; j++) {
++		fb_helper->connector_info[j - 1] = fb_helper->connector_info[j];
++	}
++	fb_helper->connector_count--;
++	kfree(fb_helper_connector);
++	return 0;
++}
++EXPORT_SYMBOL(drm_fb_helper_remove_one_connector);
++
+ static int drm_fb_helper_parse_command_line(struct drm_fb_helper *fb_helper)
+ {
+ 	struct drm_fb_helper_connector *fb_helper_conn;
+@@ -572,6 +624,7 @@ int drm_fb_helper_init(struct drm_device *dev,
+ 		kfree(fb_helper->crtc_info);
+ 		return -ENOMEM;
+ 	}
++	fb_helper->connector_info_alloc_count = dev->mode_config.num_connector;
+ 	fb_helper->connector_count = 0;
+ 
+ 	for (i = 0; i < crtc_count; i++) {
+diff --git a/include/drm/drm_fb_helper.h b/include/drm/drm_fb_helper.h
+index 7997246..2c49b0d 100644
+--- a/include/drm/drm_fb_helper.h
++++ b/include/drm/drm_fb_helper.h
+@@ -86,6 +86,7 @@ struct drm_fb_helper {
+ 	int crtc_count;
+ 	struct drm_fb_helper_crtc *crtc_info;
+ 	int connector_count;
++	int connector_info_alloc_count;
+ 	struct drm_fb_helper_connector **connector_info;
+ 	struct drm_fb_helper_funcs *funcs;
+ 	struct fb_info *fbdev;
+@@ -128,4 +129,7 @@ struct drm_display_mode *
+ drm_pick_cmdline_mode(struct drm_fb_helper_connector *fb_helper_conn,
+ 		      int width, int height);
+ 
++int drm_fb_helper_add_one_connector(struct drm_fb_helper *fb_helper, struct drm_connector *connector);
++int drm_fb_helper_remove_one_connector(struct drm_fb_helper *fb_helper,
++				       struct drm_connector *connector);
+ #endif
+-- 
+2.1.0
+
+
+From aafb5a8e8aa8916ca12507dd7b3c160748564046 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Mon, 12 May 2014 14:33:30 +1000
+Subject: [PATCH 05/18] drm: add a path blob property
+
+This property will be used by the MST code to provide userspace
+with a path to parse so it can recognise connectors around hotplugs.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/drm_crtc.c
+	include/drm/drm_crtc.h
+---
+ drivers/gpu/drm/drm_crtc.c | 26 ++++++++++++++++++++++++++
+ include/drm/drm_crtc.h     |  5 +++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/drivers/gpu/drm/drm_crtc.c b/drivers/gpu/drm/drm_crtc.c
+index 02fe81cd..28608c0 100644
+--- a/drivers/gpu/drm/drm_crtc.c
++++ b/drivers/gpu/drm/drm_crtc.c
+@@ -1214,6 +1214,7 @@ static int drm_mode_create_standard_connector_properties(struct drm_device *dev)
+ {
+ 	struct drm_property *edid;
+ 	struct drm_property *dpms;
++	struct drm_property *dev_path;
+ 
+ 	/*
+ 	 * Standard properties (apply to all connectors)
+@@ -1228,6 +1229,12 @@ static int drm_mode_create_standard_connector_properties(struct drm_device *dev)
+ 				   ARRAY_SIZE(drm_dpms_enum_list));
+ 	dev->mode_config.dpms_property = dpms;
+ 
++	dev_path = drm_property_create(dev,
++				       DRM_MODE_PROP_BLOB |
++				       DRM_MODE_PROP_IMMUTABLE,
++				       "PATH", 0);
++	dev->mode_config.path_property = dev_path;
++
+ 	return 0;
+ }
+ 
+@@ -3713,6 +3720,25 @@ done:
+ 	return ret;
+ }
+ 
++int drm_mode_connector_set_path_property(struct drm_connector *connector,
++					 char *path)
++{
++	struct drm_device *dev = connector->dev;
++	int ret, size;
++	size = strlen(path) + 1;
++
++	connector->path_blob_ptr = drm_property_create_blob(connector->dev,
++							    size, path);
++	if (!connector->path_blob_ptr)
++		return -EINVAL;
++
++	ret = drm_object_property_set_value(&connector->base,
++					    dev->mode_config.path_property,
++					    connector->path_blob_ptr->base.id);
++	return ret;
++}
++EXPORT_SYMBOL(drm_mode_connector_set_path_property);
++
+ /**
+  * drm_mode_connector_update_edid_property - update the edid property of a connector
+  * @connector: drm connector
+diff --git a/include/drm/drm_crtc.h b/include/drm/drm_crtc.h
+index 35346d2..474b37a 100644
+--- a/include/drm/drm_crtc.h
++++ b/include/drm/drm_crtc.h
+@@ -524,6 +524,8 @@ struct drm_connector {
+ 	struct drm_property_blob *edid_blob_ptr;
+ 	struct drm_object_properties properties;
+ 
++	struct drm_property_blob *path_blob_ptr;
++
+ 	uint8_t polled; /* DRM_CONNECTOR_POLL_* */
+ 
+ 	/* requested DPMS state */
+@@ -801,6 +803,7 @@ struct drm_mode_config {
+ 	struct drm_property *edid_property;
+ 	struct drm_property *dpms_property;
+ 	struct drm_property *plane_type_property;
++	struct drm_property *path_property;
+ 
+ 	/* DVI-I properties */
+ 	struct drm_property *dvi_i_subconnector_property;
+@@ -947,6 +950,8 @@ extern void drm_mode_config_init(struct drm_device *dev);
+ extern void drm_mode_config_reset(struct drm_device *dev);
+ extern void drm_mode_config_cleanup(struct drm_device *dev);
+ 
++extern int drm_mode_connector_set_path_property(struct drm_connector *connector,
++						char *path);
+ extern int drm_mode_connector_update_edid_property(struct drm_connector *connector,
+ 						struct edid *edid);
+ 
+-- 
+2.1.0
+
+
+From 531d3286ca342a56d66b4af13b4b60a052aab5cc Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Wed, 4 Jun 2014 15:38:47 +1000
+Subject: [PATCH 06/18] drm/i915: rework digital port IRQ handling
+
+The digital ports from Ironlake and up have the ability to distinguish
+between long and short HPD pulses. Displayport 1.1 only uses the short
+form to request link retraining usually, so we haven't really needed
+support for it until now.
+
+However with DP 1.2 MST we need to handle the short irqs on their
+own outside the modesetting locking the long hpd's involve. This
+patch adds the framework to distinguish between short/long to the
+current code base, to lay the basis for future DP 1.2 MST work.
+
+This should mean we get better bisectability in case of regression
+due to the new irq handling.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/i915/i915_irq.c
+	drivers/gpu/drm/i915/intel_drv.h
+---
+ drivers/gpu/drm/i915/i915_drv.h  |   5 ++
+ drivers/gpu/drm/i915/i915_irq.c  | 138 ++++++++++++++++++++++++++++++++++++---
+ drivers/gpu/drm/i915/intel_ddi.c |   3 +
+ drivers/gpu/drm/i915/intel_dp.c  |  22 +++++++
+ drivers/gpu/drm/i915/intel_drv.h |   2 +
+ 5 files changed, 162 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/i915_drv.h b/drivers/gpu/drm/i915/i915_drv.h
+index 374f964..58a0c0f 100644
+--- a/drivers/gpu/drm/i915/i915_drv.h
++++ b/drivers/gpu/drm/i915/i915_drv.h
+@@ -1541,6 +1541,11 @@ struct drm_i915_private {
+ 
+ 	struct i915_runtime_pm pm;
+ 
++	struct intel_digital_port *hpd_irq_port[I915_MAX_PORTS];
++	u32 long_hpd_port_mask;
++	u32 short_hpd_port_mask;
++	struct work_struct dig_port_work;
++
+ 	/* Old dri1 support infrastructure, beware the dragons ya fools entering
+ 	 * here! */
+ 	struct i915_dri1_state dri1;
+diff --git a/drivers/gpu/drm/i915/i915_irq.c b/drivers/gpu/drm/i915/i915_irq.c
+index c05c84f..6a8954c 100644
+--- a/drivers/gpu/drm/i915/i915_irq.c
++++ b/drivers/gpu/drm/i915/i915_irq.c
+@@ -1090,6 +1090,53 @@ static bool intel_hpd_irq_event(struct drm_device *dev,
+ 	return true;
+ }
+ 
++static void i915_digport_work_func(struct work_struct *work)
++{
++	struct drm_i915_private *dev_priv =
++		container_of(work, struct drm_i915_private, dig_port_work);
++	unsigned long irqflags;
++	u32 long_port_mask, short_port_mask;
++	struct intel_digital_port *intel_dig_port;
++	int i, ret;
++	u32 old_bits = 0;
++
++	spin_lock_irqsave(&dev_priv->irq_lock, irqflags);
++	long_port_mask = dev_priv->long_hpd_port_mask;
++	dev_priv->long_hpd_port_mask = 0;
++	short_port_mask = dev_priv->short_hpd_port_mask;
++	dev_priv->short_hpd_port_mask = 0;
++	spin_unlock_irqrestore(&dev_priv->irq_lock, irqflags);
++
++	for (i = 0; i < I915_MAX_PORTS; i++) {
++		bool valid = false;
++		bool long_hpd = false;
++		intel_dig_port = dev_priv->hpd_irq_port[i];
++		if (!intel_dig_port || !intel_dig_port->hpd_pulse)
++			continue;
++
++		if (long_port_mask & (1 << i))  {
++			valid = true;
++			long_hpd = true;
++		} else if (short_port_mask & (1 << i))
++			valid = true;
++
++		if (valid) {
++			ret = intel_dig_port->hpd_pulse(intel_dig_port, long_hpd);
++			if (ret == true) {
++				/* if we get true fallback to old school hpd */
++				old_bits |= (1 << intel_dig_port->base.hpd_pin);
++			}
++		}
++	}
++
++	if (old_bits) {
++		spin_lock_irqsave(&dev_priv->irq_lock, irqflags);
++		dev_priv->hpd_event_bits |= old_bits;
++		spin_unlock_irqrestore(&dev_priv->irq_lock, irqflags);
++		schedule_work(&dev_priv->hotplug_work);
++	}
++}
++
+ /*
+  * Handle hotplug events outside the interrupt handler proper.
+  */
+@@ -1514,23 +1561,82 @@ static irqreturn_t gen8_gt_irq_handler(struct drm_device *dev,
+ #define HPD_STORM_DETECT_PERIOD 1000
+ #define HPD_STORM_THRESHOLD 5
+ 
++static int port_to_hotplug_shift(enum port port)
++{
++	switch (port) {
++	case PORT_A:
++	case PORT_E:
++	default:
++		return -1;
++	case PORT_B:
++		return 0;
++	case PORT_C:
++		return 8;
++	case PORT_D:
++		return 16;
++	}
++}
++
++static inline enum port get_port_from_pin(enum hpd_pin pin)
++{
++	switch (pin) {
++	case HPD_PORT_B:
++		return PORT_B;
++	case HPD_PORT_C:
++		return PORT_C;
++	case HPD_PORT_D:
++		return PORT_D;
++	default:
++		return PORT_A; /* no hpd */
++	}
++}
++
+ static inline void intel_hpd_irq_handler(struct drm_device *dev,
+ 					 u32 hotplug_trigger,
++					 u32 dig_hotplug_reg,
+ 					 const u32 *hpd)
+ {
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+ 	int i;
++	enum port port;
+ 	bool storm_detected = false;
++	bool queue_dig = false, queue_hp = false;
++	u32 dig_shift;
++	u32 dig_port_mask = 0;
+ 
+ 	if (!hotplug_trigger)
+ 		return;
+ 
+-	DRM_DEBUG_DRIVER("hotplug event received, stat 0x%08x\n",
+-			  hotplug_trigger);
++	DRM_DEBUG_DRIVER("hotplug event received, stat 0x%08x, dig 0x%08x\n",
++			 hotplug_trigger, dig_hotplug_reg);
+ 
+ 	spin_lock(&dev_priv->irq_lock);
+ 	for (i = 1; i < HPD_NUM_PINS; i++) {
++		if (!(hpd[i] & hotplug_trigger))
++			continue;
+ 
++		port = get_port_from_pin(i);
++		if (port && dev_priv->hpd_irq_port[port]) {
++			bool long_hpd;
++			dig_shift = port_to_hotplug_shift(port);
++			long_hpd = (dig_hotplug_reg >> dig_shift) & PORTB_HOTPLUG_LONG_DETECT;
++
++			DRM_DEBUG_DRIVER("digital hpd port %d %d\n", port, long_hpd);
++			/* for long HPD pulses we want to have the digital queue happen,
++			   but we still want HPD storm detection to function. */
++			if (long_hpd) {
++				dev_priv->long_hpd_port_mask |= (1 << port);
++				dig_port_mask |= hpd[i];
++			} else {
++				/* for short HPD just trigger the digital queue */
++				dev_priv->short_hpd_port_mask |= (1 << port);
++				hotplug_trigger &= ~hpd[i];
++			}
++			queue_dig = true;
++		}
++	}
++
++	for (i = 1; i < HPD_NUM_PINS; i++) {
+ 		if (hpd[i] & hotplug_trigger &&
+ 		    dev_priv->hpd_stats[i].hpd_mark == HPD_DISABLED) {
+ 			/*
+@@ -1550,7 +1656,11 @@ static inline void intel_hpd_irq_handler(struct drm_device *dev,
+ 		    dev_priv->hpd_stats[i].hpd_mark != HPD_ENABLED)
+ 			continue;
+ 
+-		dev_priv->hpd_event_bits |= (1 << i);
++		if (!(dig_port_mask & hpd[i])) {
++			dev_priv->hpd_event_bits |= (1 << i);
++			queue_hp = true;
++		}
++
+ 		if (!time_in_range(jiffies, dev_priv->hpd_stats[i].hpd_last_jiffies,
+ 				   dev_priv->hpd_stats[i].hpd_last_jiffies
+ 				   + msecs_to_jiffies(HPD_STORM_DETECT_PERIOD))) {
+@@ -1579,7 +1689,10 @@ static inline void intel_hpd_irq_handler(struct drm_device *dev,
+ 	 * queue for otherwise the flush_work in the pageflip code will
+ 	 * deadlock.
+ 	 */
+-	schedule_work(&dev_priv->hotplug_work);
++	if (queue_dig)
++		schedule_work(&dev_priv->dig_port_work);
++	if (queue_hp)
++		schedule_work(&dev_priv->hotplug_work);
+ }
+ 
+ static void gmbus_irq_handler(struct drm_device *dev)
+@@ -1812,11 +1925,11 @@ static void i9xx_hpd_irq_handler(struct drm_device *dev)
+ 	if (IS_G4X(dev)) {
+ 		u32 hotplug_trigger = hotplug_status & HOTPLUG_INT_STATUS_G4X;
+ 
+-		intel_hpd_irq_handler(dev, hotplug_trigger, hpd_status_g4x);
++		intel_hpd_irq_handler(dev, hotplug_trigger, 0, hpd_status_g4x);
+ 	} else {
+ 		u32 hotplug_trigger = hotplug_status & HOTPLUG_INT_STATUS_I915;
+ 
+-		intel_hpd_irq_handler(dev, hotplug_trigger, hpd_status_i915);
++		intel_hpd_irq_handler(dev, hotplug_trigger, 0, hpd_status_i915);
+ 	}
+ 
+ 	if ((IS_G4X(dev) || IS_VALLEYVIEW(dev)) &&
+@@ -1907,8 +2020,12 @@ static void ibx_irq_handler(struct drm_device *dev, u32 pch_iir)
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+ 	int pipe;
+ 	u32 hotplug_trigger = pch_iir & SDE_HOTPLUG_MASK;
++	u32 dig_hotplug_reg;
+ 
+-	intel_hpd_irq_handler(dev, hotplug_trigger, hpd_ibx);
++	dig_hotplug_reg = I915_READ(PCH_PORT_HOTPLUG);
++	I915_WRITE(PCH_PORT_HOTPLUG, dig_hotplug_reg);
++
++	intel_hpd_irq_handler(dev, hotplug_trigger, dig_hotplug_reg, hpd_ibx);
+ 
+ 	if (pch_iir & SDE_AUDIO_POWER_MASK) {
+ 		int port = ffs((pch_iir & SDE_AUDIO_POWER_MASK) >>
+@@ -2014,8 +2131,12 @@ static void cpt_irq_handler(struct drm_device *dev, u32 pch_iir)
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+ 	int pipe;
+ 	u32 hotplug_trigger = pch_iir & SDE_HOTPLUG_MASK_CPT;
++	u32 dig_hotplug_reg;
++
++	dig_hotplug_reg = I915_READ(PCH_PORT_HOTPLUG);
++	I915_WRITE(PCH_PORT_HOTPLUG, dig_hotplug_reg);
+ 
+-	intel_hpd_irq_handler(dev, hotplug_trigger, hpd_cpt);
++	intel_hpd_irq_handler(dev, hotplug_trigger, dig_hotplug_reg, hpd_cpt);
+ 
+ 	if (pch_iir & SDE_AUDIO_POWER_MASK_CPT) {
+ 		int port = ffs((pch_iir & SDE_AUDIO_POWER_MASK_CPT) >>
+@@ -4324,6 +4445,7 @@ void intel_irq_init(struct drm_device *dev)
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+ 
+ 	INIT_WORK(&dev_priv->hotplug_work, i915_hotplug_work_func);
++	INIT_WORK(&dev_priv->dig_port_work, i915_digport_work_func);
+ 	INIT_WORK(&dev_priv->gpu_error.work, i915_error_work_func);
+ 	INIT_WORK(&dev_priv->rps.work, gen6_pm_rps_work);
+ 	INIT_WORK(&dev_priv->l3_parity.error_work, ivybridge_parity_work);
+diff --git a/drivers/gpu/drm/i915/intel_ddi.c b/drivers/gpu/drm/i915/intel_ddi.c
+index b17b9c7..a80cb3e 100644
+--- a/drivers/gpu/drm/i915/intel_ddi.c
++++ b/drivers/gpu/drm/i915/intel_ddi.c
+@@ -1705,6 +1705,9 @@ void intel_ddi_init(struct drm_device *dev, enum port port)
+ 	intel_encoder->cloneable = 0;
+ 	intel_encoder->hot_plug = intel_ddi_hot_plug;
+ 
++	intel_dig_port->hpd_pulse = intel_dp_hpd_pulse;
++	dev_priv->hpd_irq_port[port] = intel_dig_port;
++
+ 	if (init_dp)
+ 		dp_connector = intel_ddi_init_dp_connector(intel_dig_port);
+ 
+diff --git a/drivers/gpu/drm/i915/intel_dp.c b/drivers/gpu/drm/i915/intel_dp.c
+index 8a1a4fb..6817be8 100644
+--- a/drivers/gpu/drm/i915/intel_dp.c
++++ b/drivers/gpu/drm/i915/intel_dp.c
+@@ -3774,6 +3774,22 @@ intel_dp_hot_plug(struct intel_encoder *intel_encoder)
+ 	intel_dp_check_link_status(intel_dp);
+ }
+ 
++bool
++intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd)
++{
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++
++	if (long_hpd)
++		return true;
++
++	/*
++	 * we'll check the link status via the normal hot plug path later -
++	 * but for short hpds we should check it now
++	 */
++	intel_dp_check_link_status(intel_dp);
++	return false;
++}
++
+ /* Return which DP Port should be selected for Transcoder DP control */
+ int
+ intel_trans_dp_port_sel(struct drm_crtc *crtc)
+@@ -4353,6 +4369,7 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
+ void
+ intel_dp_init(struct drm_device *dev, int output_reg, enum port port)
+ {
++	struct drm_i915_private *dev_priv = dev->dev_private;
+ 	struct intel_digital_port *intel_dig_port;
+ 	struct intel_encoder *intel_encoder;
+ 	struct drm_encoder *encoder;
+@@ -4408,6 +4425,11 @@ intel_dp_init(struct drm_device *dev, int output_reg, enum port port)
+ 	intel_encoder->cloneable = 0;
+ 	intel_encoder->hot_plug = intel_dp_hot_plug;
+ 
++	if (HAS_PCH_SPLIT(dev)) {
++		intel_dig_port->hpd_pulse = intel_dp_hpd_pulse;
++		dev_priv->hpd_irq_port[port] = intel_dig_port;
++	}
++
+ 	if (!intel_dp_init_connector(intel_dig_port, intel_connector)) {
+ 		drm_encoder_cleanup(encoder);
+ 		kfree(intel_dig_port);
+diff --git a/drivers/gpu/drm/i915/intel_drv.h b/drivers/gpu/drm/i915/intel_drv.h
+index f67340e..70376b1 100644
+--- a/drivers/gpu/drm/i915/intel_drv.h
++++ b/drivers/gpu/drm/i915/intel_drv.h
+@@ -566,6 +566,7 @@ struct intel_digital_port {
+ 	u32 saved_port_bits;
+ 	struct intel_dp dp;
+ 	struct intel_hdmi hdmi;
++	bool (*hpd_pulse)(struct intel_digital_port *, bool);
+ };
+ 
+ static inline int
+@@ -835,6 +836,7 @@ void intel_edp_psr_enable(struct intel_dp *intel_dp);
+ void intel_edp_psr_disable(struct intel_dp *intel_dp);
+ void intel_edp_psr_update(struct drm_device *dev);
+ void intel_dp_set_drrs_state(struct drm_device *dev, int refresh_rate);
++bool intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd);
+ 
+ /* intel_dsi.c */
+ bool intel_dsi_init(struct drm_device *dev);
+-- 
+2.1.0
+
+
+From 20f1decfc36a19a8d7968622030cdd74e6eb6d11 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 13:16:47 +1000
+Subject: [PATCH 07/18] drm/helper: add Displayport multi-stream helper (v0.6)
+
+This is the initial import of the helper for displayport multistream.
+
+It consists of a topology manager, init/destroy/set mst state
+
+It supports DP 1.2 MST sideband msg protocol handler - via hpd irqs
+
+connector detect and edid retrieval interface.
+
+It supports i2c device over DP 1.2 sideband msg protocol (EDID reads only)
+
+bandwidth manager API via vcpi allocation and payload updating,
+along with a helper to check the ACT status.
+
+Objects:
+MST topology manager - one per toplevel MST capable GPU port - not sure if this should be higher level again
+MST branch unit - one instance per plugged branching unit - one at top of hierarchy - others hanging from ports
+MST port - one port per port reported by branching units, can have MST units hanging from them as well.
+
+Changes since initial posting:
+a) add a mutex responsbile for the queues, it locks the sideband and msg slots, and msgs to transmit state
+b) add worker to handle connection state change events, for MST device chaining and hotplug
+c) add a payload spinlock
+d) add path sideband msg support
+e) fixup enum path resources transmit
+f) reduce max dpcd msg to 16, as per DP1.2 spec.
+g) separate tx queue kicking from irq processing and move irq acking back to drivers.
+
+Changes since v0.2:
+a) reorganise code,
+b) drop ACT forcing code
+c) add connector naming interface using path property
+d) add topology dumper helper
+e) proper reference counting and lookup for ports and mstbs.
+f) move tx kicking into a workq
+g) add aux locking - this should be redone
+h) split teardown into two parts
+i) start working on documentation on interface.
+
+Changes since v0.3:
+a) vc payload locking and tracking fixes
+b) add hotplug callback into driver - replaces crazy return 1 scheme
+c) txmsg + mst branch device refcount fixes
+d) don't bail on mst shutdown if device is gone
+e) change irq handler to take all 4 bytes of SINK_COUNT + ESI vectors
+f) make DP payload updates timeout longer - observed on docking station redock
+g) add more info to debugfs dumper
+
+Changes since v0.4:
+a) suspend/resume support
+b) more debugging in debugfs
+
+Changes since v0.5:
+a) use byte * to avoid unnecessary stack usage
+b) fix num_sdp_streams interpretation.
+c) init payload state for unplug events
+d) remove lenovo dock sink count hack
+e) drop aux lock - post rebase
+f) call hotplug on port destroy
+
+TODO:
+misc features
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/Makefile
+---
+ Documentation/DocBook/drm.tmpl        |    6 +
+ drivers/gpu/drm/Makefile              |    2 +-
+ drivers/gpu/drm/drm_dp_mst_topology.c | 2712 +++++++++++++++++++++++++++++++++
+ include/drm/drm_dp_mst_helper.h       |  509 +++++++
+ 4 files changed, 3228 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/gpu/drm/drm_dp_mst_topology.c
+ create mode 100644 include/drm/drm_dp_mst_helper.h
+
+diff --git a/Documentation/DocBook/drm.tmpl b/Documentation/DocBook/drm.tmpl
+index 7df3134..c8c19a7 100644
+--- a/Documentation/DocBook/drm.tmpl
++++ b/Documentation/DocBook/drm.tmpl
+@@ -2338,6 +2338,12 @@ void intel_crt_init(struct drm_device *dev)
+ !Edrivers/gpu/drm/drm_dp_helper.c
+     </sect2>
+     <sect2>
++      <title>Display Port MST Helper Functions Reference</title>
++!Pdrivers/gpu/drm/drm_dp_mst_topology.c dp mst helper
++!Iinclude/drm/drm_dp_mst_helper.h
++!Edrivers/gpu/drm/drm_dp_mst_topology.c
++    </sect2>
++    <sect2>
+       <title>EDID Helper Functions Reference</title>
+ !Edrivers/gpu/drm/drm_edid.c
+     </sect2>
+diff --git a/drivers/gpu/drm/Makefile b/drivers/gpu/drm/Makefile
+index dd2ba42..af9a609 100644
+--- a/drivers/gpu/drm/Makefile
++++ b/drivers/gpu/drm/Makefile
+@@ -24,7 +24,7 @@ drm-$(CONFIG_DRM_PANEL) += drm_panel.o
+ drm-usb-y   := drm_usb.o
+ 
+ drm_kms_helper-y := drm_crtc_helper.o drm_dp_helper.o drm_probe_helper.o \
+-		drm_plane_helper.o
++		drm_plane_helper.o drm_dp_mst_topology.o
+ drm_kms_helper-$(CONFIG_DRM_LOAD_EDID_FIRMWARE) += drm_edid_load.o
+ drm_kms_helper-$(CONFIG_DRM_KMS_FB_HELPER) += drm_fb_helper.o
+ drm_kms_helper-$(CONFIG_DRM_KMS_CMA_HELPER) += drm_fb_cma_helper.o
+diff --git a/drivers/gpu/drm/drm_dp_mst_topology.c b/drivers/gpu/drm/drm_dp_mst_topology.c
+new file mode 100644
+index 0000000..73bc773
+--- /dev/null
++++ b/drivers/gpu/drm/drm_dp_mst_topology.c
+@@ -0,0 +1,2712 @@
++/*
++ * Copyright © 2014 Red Hat
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++
++#include <linux/kernel.h>
++#include <linux/delay.h>
++#include <linux/init.h>
++#include <linux/errno.h>
++#include <linux/sched.h>
++#include <linux/i2c.h>
++#include <drm/drm_dp_mst_helper.h>
++#include <drm/drmP.h>
++
++#include <drm/drm_fixed.h>
++
++/**
++ * DOC: dp mst helper
++ *
++ * These functions contain parts of the DisplayPort 1.2a MultiStream Transport
++ * protocol. The helpers contain a topology manager and bandwidth manager.
++ * The helpers encapsulate the sending and received of sideband msgs.
++ */
++static bool dump_dp_payload_table(struct drm_dp_mst_topology_mgr *mgr,
++				  char *buf);
++static int test_calc_pbn_mode(void);
++
++static void drm_dp_put_port(struct drm_dp_mst_port *port);
++
++static int drm_dp_dpcd_write_payload(struct drm_dp_mst_topology_mgr *mgr,
++				     int id,
++				     struct drm_dp_payload *payload);
++
++static int drm_dp_send_dpcd_write(struct drm_dp_mst_topology_mgr *mgr,
++				  struct drm_dp_mst_port *port,
++				  int offset, int size, u8 *bytes);
++
++static int drm_dp_send_link_address(struct drm_dp_mst_topology_mgr *mgr,
++				    struct drm_dp_mst_branch *mstb);
++static int drm_dp_send_enum_path_resources(struct drm_dp_mst_topology_mgr *mgr,
++					   struct drm_dp_mst_branch *mstb,
++					   struct drm_dp_mst_port *port);
++static bool drm_dp_validate_guid(struct drm_dp_mst_topology_mgr *mgr,
++				 u8 *guid);
++
++static int drm_dp_mst_register_i2c_bus(struct drm_dp_aux *aux);
++static void drm_dp_mst_unregister_i2c_bus(struct drm_dp_aux *aux);
++static void drm_dp_mst_kick_tx(struct drm_dp_mst_topology_mgr *mgr);
++/* sideband msg handling */
++static u8 drm_dp_msg_header_crc4(const uint8_t *data, size_t num_nibbles)
++{
++	u8 bitmask = 0x80;
++	u8 bitshift = 7;
++	u8 array_index = 0;
++	int number_of_bits = num_nibbles * 4;
++	u8 remainder = 0;
++
++	while (number_of_bits != 0) {
++		number_of_bits--;
++		remainder <<= 1;
++		remainder |= (data[array_index] & bitmask) >> bitshift;
++		bitmask >>= 1;
++		bitshift--;
++		if (bitmask == 0) {
++			bitmask = 0x80;
++			bitshift = 7;
++			array_index++;
++		}
++		if ((remainder & 0x10) == 0x10)
++			remainder ^= 0x13;
++	}
++
++	number_of_bits = 4;
++	while (number_of_bits != 0) {
++		number_of_bits--;
++		remainder <<= 1;
++		if ((remainder & 0x10) != 0)
++			remainder ^= 0x13;
++	}
++
++	return remainder;
++}
++
++static u8 drm_dp_msg_data_crc4(const uint8_t *data, u8 number_of_bytes)
++{
++	u8 bitmask = 0x80;
++	u8 bitshift = 7;
++	u8 array_index = 0;
++	int number_of_bits = number_of_bytes * 8;
++	u16 remainder = 0;
++
++	while (number_of_bits != 0) {
++		number_of_bits--;
++		remainder <<= 1;
++		remainder |= (data[array_index] & bitmask) >> bitshift;
++		bitmask >>= 1;
++		bitshift--;
++		if (bitmask == 0) {
++			bitmask = 0x80;
++			bitshift = 7;
++			array_index++;
++		}
++		if ((remainder & 0x100) == 0x100)
++			remainder ^= 0xd5;
++	}
++
++	number_of_bits = 8;
++	while (number_of_bits != 0) {
++		number_of_bits--;
++		remainder <<= 1;
++		if ((remainder & 0x100) != 0)
++			remainder ^= 0xd5;
++	}
++
++	return remainder & 0xff;
++}
++static inline u8 drm_dp_calc_sb_hdr_size(struct drm_dp_sideband_msg_hdr *hdr)
++{
++	u8 size = 3;
++	size += (hdr->lct / 2);
++	return size;
++}
++
++static void drm_dp_encode_sideband_msg_hdr(struct drm_dp_sideband_msg_hdr *hdr,
++					   u8 *buf, int *len)
++{
++	int idx = 0;
++	int i;
++	u8 crc4;
++	buf[idx++] = ((hdr->lct & 0xf) << 4) | (hdr->lcr & 0xf);
++	for (i = 0; i < (hdr->lct / 2); i++)
++		buf[idx++] = hdr->rad[i];
++	buf[idx++] = (hdr->broadcast << 7) | (hdr->path_msg << 6) |
++		(hdr->msg_len & 0x3f);
++	buf[idx++] = (hdr->somt << 7) | (hdr->eomt << 6) | (hdr->seqno << 4);
++
++	crc4 = drm_dp_msg_header_crc4(buf, (idx * 2) - 1);
++	buf[idx - 1] |= (crc4 & 0xf);
++
++	*len = idx;
++}
++
++static bool drm_dp_decode_sideband_msg_hdr(struct drm_dp_sideband_msg_hdr *hdr,
++					   u8 *buf, int buflen, u8 *hdrlen)
++{
++	u8 crc4;
++	u8 len;
++	int i;
++	u8 idx;
++	if (buf[0] == 0)
++		return false;
++	len = 3;
++	len += ((buf[0] & 0xf0) >> 4) / 2;
++	if (len > buflen)
++		return false;
++	crc4 = drm_dp_msg_header_crc4(buf, (len * 2) - 1);
++
++	if ((crc4 & 0xf) != (buf[len - 1] & 0xf)) {
++		DRM_DEBUG_KMS("crc4 mismatch 0x%x 0x%x\n", crc4, buf[len - 1]);
++		return false;
++	}
++
++	hdr->lct = (buf[0] & 0xf0) >> 4;
++	hdr->lcr = (buf[0] & 0xf);
++	idx = 1;
++	for (i = 0; i < (hdr->lct / 2); i++)
++		hdr->rad[i] = buf[idx++];
++	hdr->broadcast = (buf[idx] >> 7) & 0x1;
++	hdr->path_msg = (buf[idx] >> 6) & 0x1;
++	hdr->msg_len = buf[idx] & 0x3f;
++	idx++;
++	hdr->somt = (buf[idx] >> 7) & 0x1;
++	hdr->eomt = (buf[idx] >> 6) & 0x1;
++	hdr->seqno = (buf[idx] >> 4) & 0x1;
++	idx++;
++	*hdrlen = idx;
++	return true;
++}
++
++static void drm_dp_encode_sideband_req(struct drm_dp_sideband_msg_req_body *req,
++				       struct drm_dp_sideband_msg_tx *raw)
++{
++	int idx = 0;
++	int i;
++	u8 *buf = raw->msg;
++	buf[idx++] = req->req_type & 0x7f;
++
++	switch (req->req_type) {
++	case DP_ENUM_PATH_RESOURCES:
++		buf[idx] = (req->u.port_num.port_number & 0xf) << 4;
++		idx++;
++		break;
++	case DP_ALLOCATE_PAYLOAD:
++		buf[idx] = (req->u.allocate_payload.port_number & 0xf) << 4 |
++			(req->u.allocate_payload.number_sdp_streams & 0xf);
++		idx++;
++		buf[idx] = (req->u.allocate_payload.vcpi & 0x7f);
++		idx++;
++		buf[idx] = (req->u.allocate_payload.pbn >> 8);
++		idx++;
++		buf[idx] = (req->u.allocate_payload.pbn & 0xff);
++		idx++;
++		for (i = 0; i < req->u.allocate_payload.number_sdp_streams / 2; i++) {
++			buf[idx] = ((req->u.allocate_payload.sdp_stream_sink[i * 2] & 0xf) << 4) |
++				(req->u.allocate_payload.sdp_stream_sink[i * 2 + 1] & 0xf);
++			idx++;
++		}
++		if (req->u.allocate_payload.number_sdp_streams & 1) {
++			i = req->u.allocate_payload.number_sdp_streams - 1;
++			buf[idx] = (req->u.allocate_payload.sdp_stream_sink[i] & 0xf) << 4;
++			idx++;
++		}
++		break;
++	case DP_QUERY_PAYLOAD:
++		buf[idx] = (req->u.query_payload.port_number & 0xf) << 4;
++		idx++;
++		buf[idx] = (req->u.query_payload.vcpi & 0x7f);
++		idx++;
++		break;
++	case DP_REMOTE_DPCD_READ:
++		buf[idx] = (req->u.dpcd_read.port_number & 0xf) << 4;
++		buf[idx] |= ((req->u.dpcd_read.dpcd_address & 0xf0000) >> 16) & 0xf;
++		idx++;
++		buf[idx] = (req->u.dpcd_read.dpcd_address & 0xff00) >> 8;
++		idx++;
++		buf[idx] = (req->u.dpcd_read.dpcd_address & 0xff);
++		idx++;
++		buf[idx] = (req->u.dpcd_read.num_bytes);
++		idx++;
++		break;
++
++	case DP_REMOTE_DPCD_WRITE:
++		buf[idx] = (req->u.dpcd_write.port_number & 0xf) << 4;
++		buf[idx] |= ((req->u.dpcd_write.dpcd_address & 0xf0000) >> 16) & 0xf;
++		idx++;
++		buf[idx] = (req->u.dpcd_write.dpcd_address & 0xff00) >> 8;
++		idx++;
++		buf[idx] = (req->u.dpcd_write.dpcd_address & 0xff);
++		idx++;
++		buf[idx] = (req->u.dpcd_write.num_bytes);
++		idx++;
++		memcpy(&buf[idx], req->u.dpcd_write.bytes, req->u.dpcd_write.num_bytes);
++		idx += req->u.dpcd_write.num_bytes;
++		break;
++	case DP_REMOTE_I2C_READ:
++		buf[idx] = (req->u.i2c_read.port_number & 0xf) << 4;
++		buf[idx] |= (req->u.i2c_read.num_transactions & 0x3);
++		idx++;
++		for (i = 0; i < (req->u.i2c_read.num_transactions & 0x3); i++) {
++			buf[idx] = req->u.i2c_read.transactions[i].i2c_dev_id & 0x7f;
++			idx++;
++			buf[idx] = req->u.i2c_read.transactions[i].num_bytes;
++			idx++;
++			memcpy(&buf[idx], req->u.i2c_read.transactions[i].bytes, req->u.i2c_read.transactions[i].num_bytes);
++			idx += req->u.i2c_read.transactions[i].num_bytes;
++
++			buf[idx] = (req->u.i2c_read.transactions[i].no_stop_bit & 0x1) << 5;
++			buf[idx] |= (req->u.i2c_read.transactions[i].i2c_transaction_delay & 0xf);
++			idx++;
++		}
++		buf[idx] = (req->u.i2c_read.read_i2c_device_id) & 0x7f;
++		idx++;
++		buf[idx] = (req->u.i2c_read.num_bytes_read);
++		idx++;
++		break;
++
++	case DP_REMOTE_I2C_WRITE:
++		buf[idx] = (req->u.i2c_write.port_number & 0xf) << 4;
++		idx++;
++		buf[idx] = (req->u.i2c_write.write_i2c_device_id) & 0x7f;
++		idx++;
++		buf[idx] = (req->u.i2c_write.num_bytes);
++		idx++;
++		memcpy(&buf[idx], req->u.i2c_write.bytes, req->u.i2c_write.num_bytes);
++		idx += req->u.i2c_write.num_bytes;
++		break;
++	}
++	raw->cur_len = idx;
++}
++
++static void drm_dp_crc_sideband_chunk_req(u8 *msg, u8 len)
++{
++	u8 crc4;
++	crc4 = drm_dp_msg_data_crc4(msg, len);
++	msg[len] = crc4;
++}
++
++static void drm_dp_encode_sideband_reply(struct drm_dp_sideband_msg_reply_body *rep,
++					 struct drm_dp_sideband_msg_tx *raw)
++{
++	int idx = 0;
++	u8 *buf = raw->msg;
++
++	buf[idx++] = (rep->reply_type & 0x1) << 7 | (rep->req_type & 0x7f);
++
++	raw->cur_len = idx;
++}
++
++/* this adds a chunk of msg to the builder to get the final msg */
++static bool drm_dp_sideband_msg_build(struct drm_dp_sideband_msg_rx *msg,
++				      u8 *replybuf, u8 replybuflen, bool hdr)
++{
++	int ret;
++	u8 crc4;
++
++	if (hdr) {
++		u8 hdrlen;
++		struct drm_dp_sideband_msg_hdr recv_hdr;
++		ret = drm_dp_decode_sideband_msg_hdr(&recv_hdr, replybuf, replybuflen, &hdrlen);
++		if (ret == false) {
++			print_hex_dump(KERN_DEBUG, "failed hdr", DUMP_PREFIX_NONE, 16, 1, replybuf, replybuflen, false);
++			return false;
++		}
++
++		/* get length contained in this portion */
++		msg->curchunk_len = recv_hdr.msg_len;
++		msg->curchunk_hdrlen = hdrlen;
++
++		/* we have already gotten an somt - don't bother parsing */
++		if (recv_hdr.somt && msg->have_somt)
++			return false;
++
++		if (recv_hdr.somt) {
++			memcpy(&msg->initial_hdr, &recv_hdr, sizeof(struct drm_dp_sideband_msg_hdr));
++			msg->have_somt = true;
++		}
++		if (recv_hdr.eomt)
++			msg->have_eomt = true;
++
++		/* copy the bytes for the remainder of this header chunk */
++		msg->curchunk_idx = min(msg->curchunk_len, (u8)(replybuflen - hdrlen));
++		memcpy(&msg->chunk[0], replybuf + hdrlen, msg->curchunk_idx);
++	} else {
++		memcpy(&msg->chunk[msg->curchunk_idx], replybuf, replybuflen);
++		msg->curchunk_idx += replybuflen;
++	}
++
++	if (msg->curchunk_idx >= msg->curchunk_len) {
++		/* do CRC */
++		crc4 = drm_dp_msg_data_crc4(msg->chunk, msg->curchunk_len - 1);
++		/* copy chunk into bigger msg */
++		memcpy(&msg->msg[msg->curlen], msg->chunk, msg->curchunk_len - 1);
++		msg->curlen += msg->curchunk_len - 1;
++	}
++	return true;
++}
++
++static bool drm_dp_sideband_parse_link_address(struct drm_dp_sideband_msg_rx *raw,
++					       struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++	int i;
++	memcpy(repmsg->u.link_addr.guid, &raw->msg[idx], 16);
++	idx += 16;
++	repmsg->u.link_addr.nports = raw->msg[idx] & 0xf;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	for (i = 0; i < repmsg->u.link_addr.nports; i++) {
++		if (raw->msg[idx] & 0x80)
++			repmsg->u.link_addr.ports[i].input_port = 1;
++
++		repmsg->u.link_addr.ports[i].peer_device_type = (raw->msg[idx] >> 4) & 0x7;
++		repmsg->u.link_addr.ports[i].port_number = (raw->msg[idx] & 0xf);
++
++		idx++;
++		if (idx > raw->curlen)
++			goto fail_len;
++		repmsg->u.link_addr.ports[i].mcs = (raw->msg[idx] >> 7) & 0x1;
++		repmsg->u.link_addr.ports[i].ddps = (raw->msg[idx] >> 6) & 0x1;
++		if (repmsg->u.link_addr.ports[i].input_port == 0)
++			repmsg->u.link_addr.ports[i].legacy_device_plug_status = (raw->msg[idx] >> 5) & 0x1;
++		idx++;
++		if (idx > raw->curlen)
++			goto fail_len;
++		if (repmsg->u.link_addr.ports[i].input_port == 0) {
++			repmsg->u.link_addr.ports[i].dpcd_revision = (raw->msg[idx]);
++			idx++;
++			if (idx > raw->curlen)
++				goto fail_len;
++			memcpy(repmsg->u.link_addr.ports[i].peer_guid, &raw->msg[idx], 16);
++			idx += 16;
++			if (idx > raw->curlen)
++				goto fail_len;
++			repmsg->u.link_addr.ports[i].num_sdp_streams = (raw->msg[idx] >> 4) & 0xf;
++			repmsg->u.link_addr.ports[i].num_sdp_stream_sinks = (raw->msg[idx] & 0xf);
++			idx++;
++
++		}
++		if (idx > raw->curlen)
++			goto fail_len;
++	}
++
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("link address reply parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_remote_dpcd_read(struct drm_dp_sideband_msg_rx *raw,
++						   struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++	repmsg->u.remote_dpcd_read_ack.port_number = raw->msg[idx] & 0xf;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.remote_dpcd_read_ack.num_bytes = raw->msg[idx];
++	if (idx > raw->curlen)
++		goto fail_len;
++
++	memcpy(repmsg->u.remote_dpcd_read_ack.bytes, &raw->msg[idx], repmsg->u.remote_dpcd_read_ack.num_bytes);
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("link address reply parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_remote_dpcd_write(struct drm_dp_sideband_msg_rx *raw,
++						      struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++	repmsg->u.remote_dpcd_write_ack.port_number = raw->msg[idx] & 0xf;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_remote_i2c_read_ack(struct drm_dp_sideband_msg_rx *raw,
++						      struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++
++	repmsg->u.remote_i2c_read_ack.port_number = (raw->msg[idx] & 0xf);
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.remote_i2c_read_ack.num_bytes = raw->msg[idx];
++	idx++;
++	/* TODO check */
++	memcpy(repmsg->u.remote_i2c_read_ack.bytes, &raw->msg[idx], repmsg->u.remote_i2c_read_ack.num_bytes);
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("remote i2c reply parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_enum_path_resources_ack(struct drm_dp_sideband_msg_rx *raw,
++							  struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++	repmsg->u.path_resources.port_number = (raw->msg[idx] >> 4) & 0xf;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.path_resources.full_payload_bw_number = (raw->msg[idx] << 8) | (raw->msg[idx+1]);
++	idx += 2;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.path_resources.avail_payload_bw_number = (raw->msg[idx] << 8) | (raw->msg[idx+1]);
++	idx += 2;
++	if (idx > raw->curlen)
++		goto fail_len;
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("enum resource parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_allocate_payload_ack(struct drm_dp_sideband_msg_rx *raw,
++							  struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++	repmsg->u.allocate_payload.port_number = (raw->msg[idx] >> 4) & 0xf;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.allocate_payload.vcpi = raw->msg[idx];
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.allocate_payload.allocated_pbn = (raw->msg[idx] << 8) | (raw->msg[idx+1]);
++	idx += 2;
++	if (idx > raw->curlen)
++		goto fail_len;
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("allocate payload parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_query_payload_ack(struct drm_dp_sideband_msg_rx *raw,
++						    struct drm_dp_sideband_msg_reply_body *repmsg)
++{
++	int idx = 1;
++	repmsg->u.query_payload.port_number = (raw->msg[idx] >> 4) & 0xf;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++	repmsg->u.query_payload.allocated_pbn = (raw->msg[idx] << 8) | (raw->msg[idx + 1]);
++	idx += 2;
++	if (idx > raw->curlen)
++		goto fail_len;
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("query payload parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_reply(struct drm_dp_sideband_msg_rx *raw,
++					struct drm_dp_sideband_msg_reply_body *msg)
++{
++	memset(msg, 0, sizeof(*msg));
++	msg->reply_type = (raw->msg[0] & 0x80) >> 7;
++	msg->req_type = (raw->msg[0] & 0x7f);
++
++	if (msg->reply_type) {
++		memcpy(msg->u.nak.guid, &raw->msg[1], 16);
++		msg->u.nak.reason = raw->msg[17];
++		msg->u.nak.nak_data = raw->msg[18];
++		return false;
++	}
++
++	switch (msg->req_type) {
++	case DP_LINK_ADDRESS:
++		return drm_dp_sideband_parse_link_address(raw, msg);
++	case DP_QUERY_PAYLOAD:
++		return drm_dp_sideband_parse_query_payload_ack(raw, msg);
++	case DP_REMOTE_DPCD_READ:
++		return drm_dp_sideband_parse_remote_dpcd_read(raw, msg);
++	case DP_REMOTE_DPCD_WRITE:
++		return drm_dp_sideband_parse_remote_dpcd_write(raw, msg);
++	case DP_REMOTE_I2C_READ:
++		return drm_dp_sideband_parse_remote_i2c_read_ack(raw, msg);
++	case DP_ENUM_PATH_RESOURCES:
++		return drm_dp_sideband_parse_enum_path_resources_ack(raw, msg);
++	case DP_ALLOCATE_PAYLOAD:
++		return drm_dp_sideband_parse_allocate_payload_ack(raw, msg);
++	default:
++		DRM_ERROR("Got unknown reply 0x%02x\n", msg->req_type);
++		return false;
++	}
++}
++
++static bool drm_dp_sideband_parse_connection_status_notify(struct drm_dp_sideband_msg_rx *raw,
++							   struct drm_dp_sideband_msg_req_body *msg)
++{
++	int idx = 1;
++
++	msg->u.conn_stat.port_number = (raw->msg[idx] & 0xf0) >> 4;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++
++	memcpy(msg->u.conn_stat.guid, &raw->msg[idx], 16);
++	idx += 16;
++	if (idx > raw->curlen)
++		goto fail_len;
++
++	msg->u.conn_stat.legacy_device_plug_status = (raw->msg[idx] >> 6) & 0x1;
++	msg->u.conn_stat.displayport_device_plug_status = (raw->msg[idx] >> 5) & 0x1;
++	msg->u.conn_stat.message_capability_status = (raw->msg[idx] >> 4) & 0x1;
++	msg->u.conn_stat.input_port = (raw->msg[idx] >> 3) & 0x1;
++	msg->u.conn_stat.peer_device_type = (raw->msg[idx] & 0x7);
++	idx++;
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("connection status reply parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_resource_status_notify(struct drm_dp_sideband_msg_rx *raw,
++							   struct drm_dp_sideband_msg_req_body *msg)
++{
++	int idx = 1;
++
++	msg->u.resource_stat.port_number = (raw->msg[idx] & 0xf0) >> 4;
++	idx++;
++	if (idx > raw->curlen)
++		goto fail_len;
++
++	memcpy(msg->u.resource_stat.guid, &raw->msg[idx], 16);
++	idx += 16;
++	if (idx > raw->curlen)
++		goto fail_len;
++
++	msg->u.resource_stat.available_pbn = (raw->msg[idx] << 8) | (raw->msg[idx + 1]);
++	idx++;
++	return true;
++fail_len:
++	DRM_DEBUG_KMS("resource status reply parse length fail %d %d\n", idx, raw->curlen);
++	return false;
++}
++
++static bool drm_dp_sideband_parse_req(struct drm_dp_sideband_msg_rx *raw,
++				      struct drm_dp_sideband_msg_req_body *msg)
++{
++	memset(msg, 0, sizeof(*msg));
++	msg->req_type = (raw->msg[0] & 0x7f);
++
++	switch (msg->req_type) {
++	case DP_CONNECTION_STATUS_NOTIFY:
++		return drm_dp_sideband_parse_connection_status_notify(raw, msg);
++	case DP_RESOURCE_STATUS_NOTIFY:
++		return drm_dp_sideband_parse_resource_status_notify(raw, msg);
++	default:
++		DRM_ERROR("Got unknown request 0x%02x\n", msg->req_type);
++		return false;
++	}
++}
++
++static int build_dpcd_write(struct drm_dp_sideband_msg_tx *msg, u8 port_num, u32 offset, u8 num_bytes, u8 *bytes)
++{
++	struct drm_dp_sideband_msg_req_body req;
++
++	req.req_type = DP_REMOTE_DPCD_WRITE;
++	req.u.dpcd_write.port_number = port_num;
++	req.u.dpcd_write.dpcd_address = offset;
++	req.u.dpcd_write.num_bytes = num_bytes;
++	req.u.dpcd_write.bytes = bytes;
++	drm_dp_encode_sideband_req(&req, msg);
++
++	return 0;
++}
++
++static int build_link_address(struct drm_dp_sideband_msg_tx *msg)
++{
++	struct drm_dp_sideband_msg_req_body req;
++
++	req.req_type = DP_LINK_ADDRESS;
++	drm_dp_encode_sideband_req(&req, msg);
++	return 0;
++}
++
++static int build_enum_path_resources(struct drm_dp_sideband_msg_tx *msg, int port_num)
++{
++	struct drm_dp_sideband_msg_req_body req;
++
++	req.req_type = DP_ENUM_PATH_RESOURCES;
++	req.u.port_num.port_number = port_num;
++	drm_dp_encode_sideband_req(&req, msg);
++	msg->path_msg = true;
++	return 0;
++}
++
++static int build_allocate_payload(struct drm_dp_sideband_msg_tx *msg, int port_num,
++				  u8 vcpi, uint16_t pbn)
++{
++	struct drm_dp_sideband_msg_req_body req;
++	memset(&req, 0, sizeof(req));
++	req.req_type = DP_ALLOCATE_PAYLOAD;
++	req.u.allocate_payload.port_number = port_num;
++	req.u.allocate_payload.vcpi = vcpi;
++	req.u.allocate_payload.pbn = pbn;
++	drm_dp_encode_sideband_req(&req, msg);
++	msg->path_msg = true;
++	return 0;
++}
++
++static int drm_dp_mst_assign_payload_id(struct drm_dp_mst_topology_mgr *mgr,
++					struct drm_dp_vcpi *vcpi)
++{
++	int ret;
++
++	mutex_lock(&mgr->payload_lock);
++	ret = find_first_zero_bit(&mgr->payload_mask, mgr->max_payloads + 1);
++	if (ret > mgr->max_payloads) {
++		ret = -EINVAL;
++		DRM_DEBUG_KMS("out of payload ids %d\n", ret);
++		goto out_unlock;
++	}
++
++	set_bit(ret, &mgr->payload_mask);
++	vcpi->vcpi = ret;
++	mgr->proposed_vcpis[ret - 1] = vcpi;
++out_unlock:
++	mutex_unlock(&mgr->payload_lock);
++	return ret;
++}
++
++static void drm_dp_mst_put_payload_id(struct drm_dp_mst_topology_mgr *mgr,
++				      int id)
++{
++	if (id == 0)
++		return;
++
++	mutex_lock(&mgr->payload_lock);
++	DRM_DEBUG_KMS("putting payload %d\n", id);
++	clear_bit(id, &mgr->payload_mask);
++	mgr->proposed_vcpis[id - 1] = NULL;
++	mutex_unlock(&mgr->payload_lock);
++}
++
++static bool check_txmsg_state(struct drm_dp_mst_topology_mgr *mgr,
++			      struct drm_dp_sideband_msg_tx *txmsg)
++{
++	bool ret;
++	mutex_lock(&mgr->qlock);
++	ret = (txmsg->state == DRM_DP_SIDEBAND_TX_RX ||
++	       txmsg->state == DRM_DP_SIDEBAND_TX_TIMEOUT);
++	mutex_unlock(&mgr->qlock);
++	return ret;
++}
++
++static int drm_dp_mst_wait_tx_reply(struct drm_dp_mst_branch *mstb,
++				    struct drm_dp_sideband_msg_tx *txmsg)
++{
++	struct drm_dp_mst_topology_mgr *mgr = mstb->mgr;
++	int ret;
++
++	ret = wait_event_timeout(mgr->tx_waitq,
++				 check_txmsg_state(mgr, txmsg),
++				 (4 * HZ));
++	mutex_lock(&mstb->mgr->qlock);
++	if (ret > 0) {
++		if (txmsg->state == DRM_DP_SIDEBAND_TX_TIMEOUT) {
++			ret = -EIO;
++			goto out;
++		}
++	} else {
++		DRM_DEBUG_KMS("timedout msg send %p %d %d\n", txmsg, txmsg->state, txmsg->seqno);
++
++		/* dump some state */
++		ret = -EIO;
++
++		/* remove from q */
++		if (txmsg->state == DRM_DP_SIDEBAND_TX_QUEUED ||
++		    txmsg->state == DRM_DP_SIDEBAND_TX_START_SEND) {
++			list_del(&txmsg->next);
++		}
++
++		if (txmsg->state == DRM_DP_SIDEBAND_TX_START_SEND ||
++		    txmsg->state == DRM_DP_SIDEBAND_TX_SENT) {
++			mstb->tx_slots[txmsg->seqno] = NULL;
++		}
++	}
++out:
++	mutex_unlock(&mgr->qlock);
++
++	return ret;
++}
++
++static struct drm_dp_mst_branch *drm_dp_add_mst_branch_device(u8 lct, u8 *rad)
++{
++	struct drm_dp_mst_branch *mstb;
++
++	mstb = kzalloc(sizeof(*mstb), GFP_KERNEL);
++	if (!mstb)
++		return NULL;
++
++	mstb->lct = lct;
++	if (lct > 1)
++		memcpy(mstb->rad, rad, lct / 2);
++	INIT_LIST_HEAD(&mstb->ports);
++	kref_init(&mstb->kref);
++	return mstb;
++}
++
++static void drm_dp_destroy_mst_branch_device(struct kref *kref)
++{
++	struct drm_dp_mst_branch *mstb = container_of(kref, struct drm_dp_mst_branch, kref);
++	struct drm_dp_mst_port *port, *tmp;
++	bool wake_tx = false;
++
++	cancel_work_sync(&mstb->mgr->work);
++
++	/*
++	 * destroy all ports - don't need lock
++	 * as there are no more references to the mst branch
++	 * device at this point.
++	 */
++	list_for_each_entry_safe(port, tmp, &mstb->ports, next) {
++		list_del(&port->next);
++		drm_dp_put_port(port);
++	}
++
++	/* drop any tx slots msg */
++	mutex_lock(&mstb->mgr->qlock);
++	if (mstb->tx_slots[0]) {
++		mstb->tx_slots[0]->state = DRM_DP_SIDEBAND_TX_TIMEOUT;
++		mstb->tx_slots[0] = NULL;
++		wake_tx = true;
++	}
++	if (mstb->tx_slots[1]) {
++		mstb->tx_slots[1]->state = DRM_DP_SIDEBAND_TX_TIMEOUT;
++		mstb->tx_slots[1] = NULL;
++		wake_tx = true;
++	}
++	mutex_unlock(&mstb->mgr->qlock);
++
++	if (wake_tx)
++		wake_up(&mstb->mgr->tx_waitq);
++	kfree(mstb);
++}
++
++static void drm_dp_put_mst_branch_device(struct drm_dp_mst_branch *mstb)
++{
++	kref_put(&mstb->kref, drm_dp_destroy_mst_branch_device);
++}
++
++
++static void drm_dp_port_teardown_pdt(struct drm_dp_mst_port *port, int old_pdt)
++{
++	switch (old_pdt) {
++	case DP_PEER_DEVICE_DP_LEGACY_CONV:
++	case DP_PEER_DEVICE_SST_SINK:
++		/* remove i2c over sideband */
++		drm_dp_mst_unregister_i2c_bus(&port->aux);
++		break;
++	case DP_PEER_DEVICE_MST_BRANCHING:
++		drm_dp_put_mst_branch_device(port->mstb);
++		port->mstb = NULL;
++		break;
++	}
++}
++
++static void drm_dp_destroy_port(struct kref *kref)
++{
++	struct drm_dp_mst_port *port = container_of(kref, struct drm_dp_mst_port, kref);
++	struct drm_dp_mst_topology_mgr *mgr = port->mgr;
++	if (!port->input) {
++		port->vcpi.num_slots = 0;
++		if (port->connector)
++			(*port->mgr->cbs->destroy_connector)(mgr, port->connector);
++		drm_dp_port_teardown_pdt(port, port->pdt);
++
++		if (!port->input && port->vcpi.vcpi > 0)
++			drm_dp_mst_put_payload_id(mgr, port->vcpi.vcpi);
++	}
++	kfree(port);
++
++	(*mgr->cbs->hotplug)(mgr);
++}
++
++static void drm_dp_put_port(struct drm_dp_mst_port *port)
++{
++	kref_put(&port->kref, drm_dp_destroy_port);
++}
++
++static struct drm_dp_mst_branch *drm_dp_mst_get_validated_mstb_ref_locked(struct drm_dp_mst_branch *mstb, struct drm_dp_mst_branch *to_find)
++{
++	struct drm_dp_mst_port *port;
++	struct drm_dp_mst_branch *rmstb;
++	if (to_find == mstb) {
++		kref_get(&mstb->kref);
++		return mstb;
++	}
++	list_for_each_entry(port, &mstb->ports, next) {
++		if (port->mstb) {
++			rmstb = drm_dp_mst_get_validated_mstb_ref_locked(port->mstb, to_find);
++			if (rmstb)
++				return rmstb;
++		}
++	}
++	return NULL;
++}
++
++static struct drm_dp_mst_branch *drm_dp_get_validated_mstb_ref(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_branch *mstb)
++{
++	struct drm_dp_mst_branch *rmstb = NULL;
++	mutex_lock(&mgr->lock);
++	if (mgr->mst_primary)
++		rmstb = drm_dp_mst_get_validated_mstb_ref_locked(mgr->mst_primary, mstb);
++	mutex_unlock(&mgr->lock);
++	return rmstb;
++}
++
++static struct drm_dp_mst_port *drm_dp_mst_get_port_ref_locked(struct drm_dp_mst_branch *mstb, struct drm_dp_mst_port *to_find)
++{
++	struct drm_dp_mst_port *port, *mport;
++
++	list_for_each_entry(port, &mstb->ports, next) {
++		if (port == to_find) {
++			kref_get(&port->kref);
++			return port;
++		}
++		if (port->mstb) {
++			mport = drm_dp_mst_get_port_ref_locked(port->mstb, to_find);
++			if (mport)
++				return mport;
++		}
++	}
++	return NULL;
++}
++
++static struct drm_dp_mst_port *drm_dp_get_validated_port_ref(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port)
++{
++	struct drm_dp_mst_port *rport = NULL;
++	mutex_lock(&mgr->lock);
++	if (mgr->mst_primary)
++		rport = drm_dp_mst_get_port_ref_locked(mgr->mst_primary, port);
++	mutex_unlock(&mgr->lock);
++	return rport;
++}
++
++static struct drm_dp_mst_port *drm_dp_get_port(struct drm_dp_mst_branch *mstb, u8 port_num)
++{
++	struct drm_dp_mst_port *port;
++
++	list_for_each_entry(port, &mstb->ports, next) {
++		if (port->port_num == port_num) {
++			kref_get(&port->kref);
++			return port;
++		}
++	}
++
++	return NULL;
++}
++
++/*
++ * calculate a new RAD for this MST branch device
++ * if parent has an LCT of 2 then it has 1 nibble of RAD,
++ * if parent has an LCT of 3 then it has 2 nibbles of RAD,
++ */
++static u8 drm_dp_calculate_rad(struct drm_dp_mst_port *port,
++				 u8 *rad)
++{
++	int lct = port->parent->lct;
++	int shift = 4;
++	int idx = lct / 2;
++	if (lct > 1) {
++		memcpy(rad, port->parent->rad, idx);
++		shift = (lct % 2) ? 4 : 0;
++	} else
++		rad[0] = 0;
++
++	rad[idx] |= port->port_num << shift;
++	return lct + 1;
++}
++
++/*
++ * return sends link address for new mstb
++ */
++static bool drm_dp_port_setup_pdt(struct drm_dp_mst_port *port)
++{
++	int ret;
++	u8 rad[6], lct;
++	bool send_link = false;
++	switch (port->pdt) {
++	case DP_PEER_DEVICE_DP_LEGACY_CONV:
++	case DP_PEER_DEVICE_SST_SINK:
++		/* add i2c over sideband */
++		ret = drm_dp_mst_register_i2c_bus(&port->aux);
++		break;
++	case DP_PEER_DEVICE_MST_BRANCHING:
++		lct = drm_dp_calculate_rad(port, rad);
++
++		port->mstb = drm_dp_add_mst_branch_device(lct, rad);
++		port->mstb->mgr = port->mgr;
++		port->mstb->port_parent = port;
++
++		send_link = true;
++		break;
++	}
++	return send_link;
++}
++
++static void drm_dp_check_port_guid(struct drm_dp_mst_branch *mstb,
++				   struct drm_dp_mst_port *port)
++{
++	int ret;
++	if (port->dpcd_rev >= 0x12) {
++		port->guid_valid = drm_dp_validate_guid(mstb->mgr, port->guid);
++		if (!port->guid_valid) {
++			ret = drm_dp_send_dpcd_write(mstb->mgr,
++						     port,
++						     DP_GUID,
++						     16, port->guid);
++			port->guid_valid = true;
++		}
++	}
++}
++
++static void build_mst_prop_path(struct drm_dp_mst_port *port,
++				struct drm_dp_mst_branch *mstb,
++				char *proppath)
++{
++	int i;
++	char temp[8];
++	snprintf(proppath, 255, "mst:%d", mstb->mgr->conn_base_id);
++	for (i = 0; i < (mstb->lct - 1); i++) {
++		int shift = (i % 2) ? 0 : 4;
++		int port_num = mstb->rad[i / 2] >> shift;
++		snprintf(temp, 8, "-%d", port_num);
++		strncat(proppath, temp, 255);
++	}
++	snprintf(temp, 8, "-%d", port->port_num);
++	strncat(proppath, temp, 255);
++}
++
++static void drm_dp_add_port(struct drm_dp_mst_branch *mstb,
++			    struct device *dev,
++			    struct drm_dp_link_addr_reply_port *port_msg)
++{
++	struct drm_dp_mst_port *port;
++	bool ret;
++	bool created = false;
++	int old_pdt = 0;
++	int old_ddps = 0;
++	port = drm_dp_get_port(mstb, port_msg->port_number);
++	if (!port) {
++		port = kzalloc(sizeof(*port), GFP_KERNEL);
++		if (!port)
++			return;
++		kref_init(&port->kref);
++		port->parent = mstb;
++		port->port_num = port_msg->port_number;
++		port->mgr = mstb->mgr;
++		port->aux.name = "DPMST";
++		port->aux.dev = dev;
++		created = true;
++	} else {
++		old_pdt = port->pdt;
++		old_ddps = port->ddps;
++	}
++
++	port->pdt = port_msg->peer_device_type;
++	port->input = port_msg->input_port;
++	port->mcs = port_msg->mcs;
++	port->ddps = port_msg->ddps;
++	port->ldps = port_msg->legacy_device_plug_status;
++	port->dpcd_rev = port_msg->dpcd_revision;
++	port->num_sdp_streams = port_msg->num_sdp_streams;
++	port->num_sdp_stream_sinks = port_msg->num_sdp_stream_sinks;
++	memcpy(port->guid, port_msg->peer_guid, 16);
++
++	/* manage mstb port lists with mgr lock - take a reference
++	   for this list */
++	if (created) {
++		mutex_lock(&mstb->mgr->lock);
++		kref_get(&port->kref);
++		list_add(&port->next, &mstb->ports);
++		mutex_unlock(&mstb->mgr->lock);
++	}
++
++	if (old_ddps != port->ddps) {
++		if (port->ddps) {
++			drm_dp_check_port_guid(mstb, port);
++			if (!port->input)
++				drm_dp_send_enum_path_resources(mstb->mgr, mstb, port);
++		} else {
++			port->guid_valid = false;
++			port->available_pbn = 0;
++			}
++	}
++
++	if (old_pdt != port->pdt && !port->input) {
++		drm_dp_port_teardown_pdt(port, old_pdt);
++
++		ret = drm_dp_port_setup_pdt(port);
++		if (ret == true) {
++			drm_dp_send_link_address(mstb->mgr, port->mstb);
++			port->mstb->link_address_sent = true;
++		}
++	}
++
++	if (created && !port->input) {
++		char proppath[255];
++		build_mst_prop_path(port, mstb, proppath);
++		port->connector = (*mstb->mgr->cbs->add_connector)(mstb->mgr, port, proppath);
++	}
++
++	/* put reference to this port */
++	drm_dp_put_port(port);
++}
++
++static void drm_dp_update_port(struct drm_dp_mst_branch *mstb,
++			       struct drm_dp_connection_status_notify *conn_stat)
++{
++	struct drm_dp_mst_port *port;
++	int old_pdt;
++	int old_ddps;
++	bool dowork = false;
++	port = drm_dp_get_port(mstb, conn_stat->port_number);
++	if (!port)
++		return;
++
++	old_ddps = port->ddps;
++	old_pdt = port->pdt;
++	port->pdt = conn_stat->peer_device_type;
++	port->mcs = conn_stat->message_capability_status;
++	port->ldps = conn_stat->legacy_device_plug_status;
++	port->ddps = conn_stat->displayport_device_plug_status;
++
++	if (old_ddps != port->ddps) {
++		if (port->ddps) {
++			drm_dp_check_port_guid(mstb, port);
++			dowork = true;
++		} else {
++			port->guid_valid = false;
++			port->available_pbn = 0;
++		}
++	}
++	if (old_pdt != port->pdt && !port->input) {
++		drm_dp_port_teardown_pdt(port, old_pdt);
++
++		if (drm_dp_port_setup_pdt(port))
++			dowork = true;
++	}
++
++	drm_dp_put_port(port);
++	if (dowork)
++		queue_work(system_long_wq, &mstb->mgr->work);
++
++}
++
++static struct drm_dp_mst_branch *drm_dp_get_mst_branch_device(struct drm_dp_mst_topology_mgr *mgr,
++							       u8 lct, u8 *rad)
++{
++	struct drm_dp_mst_branch *mstb;
++	struct drm_dp_mst_port *port;
++	int i;
++	/* find the port by iterating down */
++	mstb = mgr->mst_primary;
++
++	for (i = 0; i < lct - 1; i++) {
++		int shift = (i % 2) ? 0 : 4;
++		int port_num = rad[i / 2] >> shift;
++
++		list_for_each_entry(port, &mstb->ports, next) {
++			if (port->port_num == port_num) {
++				if (!port->mstb) {
++					DRM_ERROR("failed to lookup MSTB with lct %d, rad %02x\n", lct, rad[0]);
++					return NULL;
++				}
++
++				mstb = port->mstb;
++				break;
++			}
++		}
++	}
++	kref_get(&mstb->kref);
++	return mstb;
++}
++
++static void drm_dp_check_and_send_link_address(struct drm_dp_mst_topology_mgr *mgr,
++					       struct drm_dp_mst_branch *mstb)
++{
++	struct drm_dp_mst_port *port;
++
++	if (!mstb->link_address_sent) {
++		drm_dp_send_link_address(mgr, mstb);
++		mstb->link_address_sent = true;
++	}
++	list_for_each_entry(port, &mstb->ports, next) {
++		if (port->input)
++			continue;
++
++		if (!port->ddps)
++			continue;
++
++		if (!port->available_pbn)
++			drm_dp_send_enum_path_resources(mgr, mstb, port);
++
++		if (port->mstb)
++			drm_dp_check_and_send_link_address(mgr, port->mstb);
++	}
++}
++
++static void drm_dp_mst_link_probe_work(struct work_struct *work)
++{
++	struct drm_dp_mst_topology_mgr *mgr = container_of(work, struct drm_dp_mst_topology_mgr, work);
++
++	drm_dp_check_and_send_link_address(mgr, mgr->mst_primary);
++
++}
++
++static bool drm_dp_validate_guid(struct drm_dp_mst_topology_mgr *mgr,
++				 u8 *guid)
++{
++	static u8 zero_guid[16];
++
++	if (!memcmp(guid, zero_guid, 16)) {
++		u64 salt = get_jiffies_64();
++		memcpy(&guid[0], &salt, sizeof(u64));
++		memcpy(&guid[8], &salt, sizeof(u64));
++		return false;
++	}
++	return true;
++}
++
++#if 0
++static int build_dpcd_read(struct drm_dp_sideband_msg_tx *msg, u8 port_num, u32 offset, u8 num_bytes)
++{
++	struct drm_dp_sideband_msg_req_body req;
++
++	req.req_type = DP_REMOTE_DPCD_READ;
++	req.u.dpcd_read.port_number = port_num;
++	req.u.dpcd_read.dpcd_address = offset;
++	req.u.dpcd_read.num_bytes = num_bytes;
++	drm_dp_encode_sideband_req(&req, msg);
++
++	return 0;
++}
++#endif
++
++static int drm_dp_send_sideband_msg(struct drm_dp_mst_topology_mgr *mgr,
++				    bool up, u8 *msg, int len)
++{
++	int ret;
++	int regbase = up ? DP_SIDEBAND_MSG_UP_REP_BASE : DP_SIDEBAND_MSG_DOWN_REQ_BASE;
++	int tosend, total, offset;
++	int retries = 0;
++
++retry:
++	total = len;
++	offset = 0;
++	do {
++		tosend = min3(mgr->max_dpcd_transaction_bytes, 16, total);
++
++		ret = drm_dp_dpcd_write(mgr->aux, regbase + offset,
++					&msg[offset],
++					tosend);
++		if (ret != tosend) {
++			if (ret == -EIO && retries < 5) {
++				retries++;
++				goto retry;
++			}
++			DRM_DEBUG_KMS("failed to dpcd write %d %d\n", tosend, ret);
++			WARN(1, "fail\n");
++
++			return -EIO;
++		}
++		offset += tosend;
++		total -= tosend;
++	} while (total > 0);
++	return 0;
++}
++
++static int set_hdr_from_dst_qlock(struct drm_dp_sideband_msg_hdr *hdr,
++				  struct drm_dp_sideband_msg_tx *txmsg)
++{
++	struct drm_dp_mst_branch *mstb = txmsg->dst;
++
++	/* both msg slots are full */
++	if (txmsg->seqno == -1) {
++		if (mstb->tx_slots[0] && mstb->tx_slots[1]) {
++			DRM_DEBUG_KMS("%s: failed to find slot\n", __func__);
++			return -EAGAIN;
++		}
++		if (mstb->tx_slots[0] == NULL && mstb->tx_slots[1] == NULL) {
++			txmsg->seqno = mstb->last_seqno;
++			mstb->last_seqno ^= 1;
++		} else if (mstb->tx_slots[0] == NULL)
++			txmsg->seqno = 0;
++		else
++			txmsg->seqno = 1;
++		mstb->tx_slots[txmsg->seqno] = txmsg;
++	}
++	hdr->broadcast = 0;
++	hdr->path_msg = txmsg->path_msg;
++	hdr->lct = mstb->lct;
++	hdr->lcr = mstb->lct - 1;
++	if (mstb->lct > 1)
++		memcpy(hdr->rad, mstb->rad, mstb->lct / 2);
++	hdr->seqno = txmsg->seqno;
++	return 0;
++}
++/*
++ * process a single block of the next message in the sideband queue
++ */
++static int process_single_tx_qlock(struct drm_dp_mst_topology_mgr *mgr,
++				   struct drm_dp_sideband_msg_tx *txmsg,
++				   bool up)
++{
++	u8 chunk[48];
++	struct drm_dp_sideband_msg_hdr hdr;
++	int len, space, idx, tosend;
++	int ret;
++
++	if (txmsg->state == DRM_DP_SIDEBAND_TX_QUEUED) {
++		txmsg->seqno = -1;
++		txmsg->state = DRM_DP_SIDEBAND_TX_START_SEND;
++	}
++
++	/* make hdr from dst mst - for replies use seqno
++	   otherwise assign one */
++	ret = set_hdr_from_dst_qlock(&hdr, txmsg);
++	if (ret < 0)
++		return ret;
++
++	/* amount left to send in this message */
++	len = txmsg->cur_len - txmsg->cur_offset;
++
++	/* 48 - sideband msg size - 1 byte for data CRC, x header bytes */
++	space = 48 - 1 - drm_dp_calc_sb_hdr_size(&hdr);
++
++	tosend = min(len, space);
++	if (len == txmsg->cur_len)
++		hdr.somt = 1;
++	if (space >= len)
++		hdr.eomt = 1;
++
++
++	hdr.msg_len = tosend + 1;
++	drm_dp_encode_sideband_msg_hdr(&hdr, chunk, &idx);
++	memcpy(&chunk[idx], &txmsg->msg[txmsg->cur_offset], tosend);
++	/* add crc at end */
++	drm_dp_crc_sideband_chunk_req(&chunk[idx], tosend);
++	idx += tosend + 1;
++
++	ret = drm_dp_send_sideband_msg(mgr, up, chunk, idx);
++	if (ret) {
++		DRM_DEBUG_KMS("sideband msg failed to send\n");
++		return ret;
++	}
++
++	txmsg->cur_offset += tosend;
++	if (txmsg->cur_offset == txmsg->cur_len) {
++		txmsg->state = DRM_DP_SIDEBAND_TX_SENT;
++		return 1;
++	}
++	return 0;
++}
++
++/* must be called holding qlock */
++static void process_single_down_tx_qlock(struct drm_dp_mst_topology_mgr *mgr)
++{
++	struct drm_dp_sideband_msg_tx *txmsg;
++	int ret;
++
++	/* construct a chunk from the first msg in the tx_msg queue */
++	if (list_empty(&mgr->tx_msg_downq)) {
++		mgr->tx_down_in_progress = false;
++		return;
++	}
++	mgr->tx_down_in_progress = true;
++
++	txmsg = list_first_entry(&mgr->tx_msg_downq, struct drm_dp_sideband_msg_tx, next);
++	ret = process_single_tx_qlock(mgr, txmsg, false);
++	if (ret == 1) {
++		/* txmsg is sent it should be in the slots now */
++		list_del(&txmsg->next);
++	} else if (ret) {
++		DRM_DEBUG_KMS("failed to send msg in q %d\n", ret);
++		list_del(&txmsg->next);
++		if (txmsg->seqno != -1)
++			txmsg->dst->tx_slots[txmsg->seqno] = NULL;
++		txmsg->state = DRM_DP_SIDEBAND_TX_TIMEOUT;
++		wake_up(&mgr->tx_waitq);
++	}
++	if (list_empty(&mgr->tx_msg_downq)) {
++		mgr->tx_down_in_progress = false;
++		return;
++	}
++}
++
++/* called holding qlock */
++static void process_single_up_tx_qlock(struct drm_dp_mst_topology_mgr *mgr)
++{
++	struct drm_dp_sideband_msg_tx *txmsg;
++	int ret;
++
++	/* construct a chunk from the first msg in the tx_msg queue */
++	if (list_empty(&mgr->tx_msg_upq)) {
++		mgr->tx_up_in_progress = false;
++		return;
++	}
++
++	txmsg = list_first_entry(&mgr->tx_msg_upq, struct drm_dp_sideband_msg_tx, next);
++	ret = process_single_tx_qlock(mgr, txmsg, true);
++	if (ret == 1) {
++		/* up txmsgs aren't put in slots - so free after we send it */
++		list_del(&txmsg->next);
++		kfree(txmsg);
++	} else if (ret)
++		DRM_DEBUG_KMS("failed to send msg in q %d\n", ret);
++	mgr->tx_up_in_progress = true;
++}
++
++static void drm_dp_queue_down_tx(struct drm_dp_mst_topology_mgr *mgr,
++				 struct drm_dp_sideband_msg_tx *txmsg)
++{
++	mutex_lock(&mgr->qlock);
++	list_add_tail(&txmsg->next, &mgr->tx_msg_downq);
++	if (!mgr->tx_down_in_progress)
++		process_single_down_tx_qlock(mgr);
++	mutex_unlock(&mgr->qlock);
++}
++
++static int drm_dp_send_link_address(struct drm_dp_mst_topology_mgr *mgr,
++				    struct drm_dp_mst_branch *mstb)
++{
++	int len;
++	struct drm_dp_sideband_msg_tx *txmsg;
++	int ret;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg)
++		return -ENOMEM;
++
++	txmsg->dst = mstb;
++	len = build_link_address(txmsg);
++
++	drm_dp_queue_down_tx(mgr, txmsg);
++
++	ret = drm_dp_mst_wait_tx_reply(mstb, txmsg);
++	if (ret > 0) {
++		int i;
++
++		if (txmsg->reply.reply_type == 1)
++			DRM_DEBUG_KMS("link address nak received\n");
++		else {
++			DRM_DEBUG_KMS("link address reply: %d\n", txmsg->reply.u.link_addr.nports);
++			for (i = 0; i < txmsg->reply.u.link_addr.nports; i++) {
++				DRM_DEBUG_KMS("port %d: input %d, pdt: %d, pn: %d, dpcd_rev: %02x, mcs: %d, ddps: %d, ldps %d, sdp %d/%d\n", i,
++				       txmsg->reply.u.link_addr.ports[i].input_port,
++				       txmsg->reply.u.link_addr.ports[i].peer_device_type,
++				       txmsg->reply.u.link_addr.ports[i].port_number,
++				       txmsg->reply.u.link_addr.ports[i].dpcd_revision,
++				       txmsg->reply.u.link_addr.ports[i].mcs,
++				       txmsg->reply.u.link_addr.ports[i].ddps,
++				       txmsg->reply.u.link_addr.ports[i].legacy_device_plug_status,
++				       txmsg->reply.u.link_addr.ports[i].num_sdp_streams,
++				       txmsg->reply.u.link_addr.ports[i].num_sdp_stream_sinks);
++			}
++			for (i = 0; i < txmsg->reply.u.link_addr.nports; i++) {
++				drm_dp_add_port(mstb, mgr->dev, &txmsg->reply.u.link_addr.ports[i]);
++			}
++			(*mgr->cbs->hotplug)(mgr);
++		}
++	} else
++		DRM_DEBUG_KMS("link address failed %d\n", ret);
++
++	kfree(txmsg);
++	return 0;
++}
++
++static int drm_dp_send_enum_path_resources(struct drm_dp_mst_topology_mgr *mgr,
++					   struct drm_dp_mst_branch *mstb,
++					   struct drm_dp_mst_port *port)
++{
++	int len;
++	struct drm_dp_sideband_msg_tx *txmsg;
++	int ret;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg)
++		return -ENOMEM;
++
++	txmsg->dst = mstb;
++	len = build_enum_path_resources(txmsg, port->port_num);
++
++	drm_dp_queue_down_tx(mgr, txmsg);
++
++	ret = drm_dp_mst_wait_tx_reply(mstb, txmsg);
++	if (ret > 0) {
++		if (txmsg->reply.reply_type == 1)
++			DRM_DEBUG_KMS("enum path resources nak received\n");
++		else {
++			if (port->port_num != txmsg->reply.u.path_resources.port_number)
++				DRM_ERROR("got incorrect port in response\n");
++			DRM_DEBUG_KMS("enum path resources %d: %d %d\n", txmsg->reply.u.path_resources.port_number, txmsg->reply.u.path_resources.full_payload_bw_number,
++			       txmsg->reply.u.path_resources.avail_payload_bw_number);
++			port->available_pbn = txmsg->reply.u.path_resources.avail_payload_bw_number;
++		}
++	}
++
++	kfree(txmsg);
++	return 0;
++}
++
++int drm_dp_payload_send_msg(struct drm_dp_mst_topology_mgr *mgr,
++			    struct drm_dp_mst_port *port,
++			    int id,
++			    int pbn)
++{
++	struct drm_dp_sideband_msg_tx *txmsg;
++	struct drm_dp_mst_branch *mstb;
++	int len, ret;
++
++	mstb = drm_dp_get_validated_mstb_ref(mgr, port->parent);
++	if (!mstb)
++		return -EINVAL;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg) {
++		ret = -ENOMEM;
++		goto fail_put;
++	}
++
++	txmsg->dst = mstb;
++	len = build_allocate_payload(txmsg, port->port_num,
++				     id,
++				     pbn);
++
++	drm_dp_queue_down_tx(mgr, txmsg);
++
++	ret = drm_dp_mst_wait_tx_reply(mstb, txmsg);
++	if (ret > 0) {
++		if (txmsg->reply.reply_type == 1) {
++			ret = -EINVAL;
++		} else
++			ret = 0;
++	}
++	kfree(txmsg);
++fail_put:
++	drm_dp_put_mst_branch_device(mstb);
++	return ret;
++}
++
++static int drm_dp_create_payload_step1(struct drm_dp_mst_topology_mgr *mgr,
++				       int id,
++				       struct drm_dp_payload *payload)
++{
++	int ret;
++
++	ret = drm_dp_dpcd_write_payload(mgr, id, payload);
++	if (ret < 0) {
++		payload->payload_state = 0;
++		return ret;
++	}
++	payload->payload_state = DP_PAYLOAD_LOCAL;
++	return 0;
++}
++
++int drm_dp_create_payload_step2(struct drm_dp_mst_topology_mgr *mgr,
++				struct drm_dp_mst_port *port,
++				int id,
++				struct drm_dp_payload *payload)
++{
++	int ret;
++	ret = drm_dp_payload_send_msg(mgr, port, id, port->vcpi.pbn);
++	if (ret < 0)
++		return ret;
++	payload->payload_state = DP_PAYLOAD_REMOTE;
++	return ret;
++}
++
++int drm_dp_destroy_payload_step1(struct drm_dp_mst_topology_mgr *mgr,
++				 struct drm_dp_mst_port *port,
++				 int id,
++				 struct drm_dp_payload *payload)
++{
++	DRM_DEBUG_KMS("\n");
++	/* its okay for these to fail */
++	if (port) {
++		drm_dp_payload_send_msg(mgr, port, id, 0);
++	}
++
++	drm_dp_dpcd_write_payload(mgr, id, payload);
++	payload->payload_state = 0;
++	return 0;
++}
++
++int drm_dp_destroy_payload_step2(struct drm_dp_mst_topology_mgr *mgr,
++				 int id,
++				 struct drm_dp_payload *payload)
++{
++	payload->payload_state = 0;
++	return 0;
++}
++
++/**
++ * drm_dp_update_payload_part1() - Execute payload update part 1
++ * @mgr: manager to use.
++ *
++ * This iterates over all proposed virtual channels, and tries to
++ * allocate space in the link for them. For 0->slots transitions,
++ * this step just writes the VCPI to the MST device. For slots->0
++ * transitions, this writes the updated VCPIs and removes the
++ * remote VC payloads.
++ *
++ * after calling this the driver should generate ACT and payload
++ * packets.
++ */
++int drm_dp_update_payload_part1(struct drm_dp_mst_topology_mgr *mgr)
++{
++	int i;
++	int cur_slots = 1;
++	struct drm_dp_payload req_payload;
++	struct drm_dp_mst_port *port;
++
++	mutex_lock(&mgr->payload_lock);
++	for (i = 0; i < mgr->max_payloads; i++) {
++		/* solve the current payloads - compare to the hw ones
++		   - update the hw view */
++		req_payload.start_slot = cur_slots;
++		if (mgr->proposed_vcpis[i]) {
++			port = container_of(mgr->proposed_vcpis[i], struct drm_dp_mst_port, vcpi);
++			req_payload.num_slots = mgr->proposed_vcpis[i]->num_slots;
++		} else {
++			port = NULL;
++			req_payload.num_slots = 0;
++		}
++		/* work out what is required to happen with this payload */
++		if (mgr->payloads[i].start_slot != req_payload.start_slot ||
++		    mgr->payloads[i].num_slots != req_payload.num_slots) {
++
++			/* need to push an update for this payload */
++			if (req_payload.num_slots) {
++				drm_dp_create_payload_step1(mgr, i + 1, &req_payload);
++				mgr->payloads[i].num_slots = req_payload.num_slots;
++			} else if (mgr->payloads[i].num_slots) {
++				mgr->payloads[i].num_slots = 0;
++				drm_dp_destroy_payload_step1(mgr, port, i + 1, &mgr->payloads[i]);
++				req_payload.payload_state = mgr->payloads[i].payload_state;
++			} else
++				req_payload.payload_state = 0;
++
++			mgr->payloads[i].start_slot = req_payload.start_slot;
++			mgr->payloads[i].payload_state = req_payload.payload_state;
++		}
++		cur_slots += req_payload.num_slots;
++	}
++	mutex_unlock(&mgr->payload_lock);
++
++	return 0;
++}
++EXPORT_SYMBOL(drm_dp_update_payload_part1);
++
++/**
++ * drm_dp_update_payload_part2() - Execute payload update part 2
++ * @mgr: manager to use.
++ *
++ * This iterates over all proposed virtual channels, and tries to
++ * allocate space in the link for them. For 0->slots transitions,
++ * this step writes the remote VC payload commands. For slots->0
++ * this just resets some internal state.
++ */
++int drm_dp_update_payload_part2(struct drm_dp_mst_topology_mgr *mgr)
++{
++	struct drm_dp_mst_port *port;
++	int i;
++	int ret;
++	mutex_lock(&mgr->payload_lock);
++	for (i = 0; i < mgr->max_payloads; i++) {
++
++		if (!mgr->proposed_vcpis[i])
++			continue;
++
++		port = container_of(mgr->proposed_vcpis[i], struct drm_dp_mst_port, vcpi);
++
++		DRM_DEBUG_KMS("payload %d %d\n", i, mgr->payloads[i].payload_state);
++		if (mgr->payloads[i].payload_state == DP_PAYLOAD_LOCAL) {
++			ret = drm_dp_create_payload_step2(mgr, port, i + 1, &mgr->payloads[i]);
++		} else if (mgr->payloads[i].payload_state == DP_PAYLOAD_DELETE_LOCAL) {
++			ret = drm_dp_destroy_payload_step2(mgr, i + 1, &mgr->payloads[i]);
++		}
++		if (ret) {
++			mutex_unlock(&mgr->payload_lock);
++			return ret;
++		}
++	}
++	mutex_unlock(&mgr->payload_lock);
++	return 0;
++}
++EXPORT_SYMBOL(drm_dp_update_payload_part2);
++
++#if 0 /* unused as of yet */
++static int drm_dp_send_dpcd_read(struct drm_dp_mst_topology_mgr *mgr,
++				 struct drm_dp_mst_port *port,
++				 int offset, int size)
++{
++	int len;
++	struct drm_dp_sideband_msg_tx *txmsg;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg)
++		return -ENOMEM;
++
++	len = build_dpcd_read(txmsg, port->port_num, 0, 8);
++	txmsg->dst = port->parent;
++
++	drm_dp_queue_down_tx(mgr, txmsg);
++
++	return 0;
++}
++#endif
++
++static int drm_dp_send_dpcd_write(struct drm_dp_mst_topology_mgr *mgr,
++				  struct drm_dp_mst_port *port,
++				  int offset, int size, u8 *bytes)
++{
++	int len;
++	int ret;
++	struct drm_dp_sideband_msg_tx *txmsg;
++	struct drm_dp_mst_branch *mstb;
++
++	mstb = drm_dp_get_validated_mstb_ref(mgr, port->parent);
++	if (!mstb)
++		return -EINVAL;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg) {
++		ret = -ENOMEM;
++		goto fail_put;
++	}
++
++	len = build_dpcd_write(txmsg, port->port_num, offset, size, bytes);
++	txmsg->dst = mstb;
++
++	drm_dp_queue_down_tx(mgr, txmsg);
++
++	ret = drm_dp_mst_wait_tx_reply(mstb, txmsg);
++	if (ret > 0) {
++		if (txmsg->reply.reply_type == 1) {
++			ret = -EINVAL;
++		} else
++			ret = 0;
++	}
++	kfree(txmsg);
++fail_put:
++	drm_dp_put_mst_branch_device(mstb);
++	return ret;
++}
++
++static int drm_dp_encode_up_ack_reply(struct drm_dp_sideband_msg_tx *msg, u8 req_type)
++{
++	struct drm_dp_sideband_msg_reply_body reply;
++
++	reply.reply_type = 1;
++	reply.req_type = req_type;
++	drm_dp_encode_sideband_reply(&reply, msg);
++	return 0;
++}
++
++static int drm_dp_send_up_ack_reply(struct drm_dp_mst_topology_mgr *mgr,
++				    struct drm_dp_mst_branch *mstb,
++				    int req_type, int seqno, bool broadcast)
++{
++	struct drm_dp_sideband_msg_tx *txmsg;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg)
++		return -ENOMEM;
++
++	txmsg->dst = mstb;
++	txmsg->seqno = seqno;
++	drm_dp_encode_up_ack_reply(txmsg, req_type);
++
++	mutex_lock(&mgr->qlock);
++	list_add_tail(&txmsg->next, &mgr->tx_msg_upq);
++	if (!mgr->tx_up_in_progress) {
++		process_single_up_tx_qlock(mgr);
++	}
++	mutex_unlock(&mgr->qlock);
++	return 0;
++}
++
++static int drm_dp_get_vc_payload_bw(int dp_link_bw, int dp_link_count)
++{
++	switch (dp_link_bw) {
++	case DP_LINK_BW_1_62:
++		return 3 * dp_link_count;
++	case DP_LINK_BW_2_7:
++		return 5 * dp_link_count;
++	case DP_LINK_BW_5_4:
++		return 10 * dp_link_count;
++	}
++	return 0;
++}
++
++/**
++ * drm_dp_mst_topology_mgr_set_mst() - Set the MST state for a topology manager
++ * @mgr: manager to set state for
++ * @mst_state: true to enable MST on this connector - false to disable.
++ *
++ * This is called by the driver when it detects an MST capable device plugged
++ * into a DP MST capable port, or when a DP MST capable device is unplugged.
++ */
++int drm_dp_mst_topology_mgr_set_mst(struct drm_dp_mst_topology_mgr *mgr, bool mst_state)
++{
++	int ret = 0;
++	struct drm_dp_mst_branch *mstb = NULL;
++
++	mutex_lock(&mgr->lock);
++	if (mst_state == mgr->mst_state)
++		goto out_unlock;
++
++	mgr->mst_state = mst_state;
++	/* set the device into MST mode */
++	if (mst_state) {
++		WARN_ON(mgr->mst_primary);
++
++		/* get dpcd info */
++		ret = drm_dp_dpcd_read(mgr->aux, DP_DPCD_REV, mgr->dpcd, DP_RECEIVER_CAP_SIZE);
++		if (ret != DP_RECEIVER_CAP_SIZE) {
++			DRM_DEBUG_KMS("failed to read DPCD\n");
++			goto out_unlock;
++		}
++
++		mgr->pbn_div = drm_dp_get_vc_payload_bw(mgr->dpcd[1], mgr->dpcd[2] & DP_MAX_LANE_COUNT_MASK);
++		mgr->total_pbn = 2560;
++		mgr->total_slots = DIV_ROUND_UP(mgr->total_pbn, mgr->pbn_div);
++		mgr->avail_slots = mgr->total_slots;
++
++		/* add initial branch device at LCT 1 */
++		mstb = drm_dp_add_mst_branch_device(1, NULL);
++		if (mstb == NULL) {
++			ret = -ENOMEM;
++			goto out_unlock;
++		}
++		mstb->mgr = mgr;
++
++		/* give this the main reference */
++		mgr->mst_primary = mstb;
++		kref_get(&mgr->mst_primary->kref);
++
++		{
++			struct drm_dp_payload reset_pay;
++			reset_pay.start_slot = 0;
++			reset_pay.num_slots = 0x3f;
++			drm_dp_dpcd_write_payload(mgr, 0, &reset_pay);
++		}
++
++		ret = drm_dp_dpcd_writeb(mgr->aux, DP_MSTM_CTRL,
++					 DP_MST_EN | DP_UP_REQ_EN | DP_UPSTREAM_IS_SRC);
++		if (ret < 0) {
++			goto out_unlock;
++		}
++
++
++		/* sort out guid */
++		ret = drm_dp_dpcd_read(mgr->aux, DP_GUID, mgr->guid, 16);
++		if (ret != 16) {
++			DRM_DEBUG_KMS("failed to read DP GUID %d\n", ret);
++			goto out_unlock;
++		}
++
++		mgr->guid_valid = drm_dp_validate_guid(mgr, mgr->guid);
++		if (!mgr->guid_valid) {
++			ret = drm_dp_dpcd_write(mgr->aux, DP_GUID, mgr->guid, 16);
++			mgr->guid_valid = true;
++		}
++
++		queue_work(system_long_wq, &mgr->work);
++
++		ret = 0;
++	} else {
++		/* disable MST on the device */
++		mstb = mgr->mst_primary;
++		mgr->mst_primary = NULL;
++		/* this can fail if the device is gone */
++		drm_dp_dpcd_writeb(mgr->aux, DP_MSTM_CTRL, 0);
++		ret = 0;
++		memset(mgr->payloads, 0, mgr->max_payloads * sizeof(struct drm_dp_payload));
++		mgr->payload_mask = 0;
++		set_bit(0, &mgr->payload_mask);
++	}
++
++out_unlock:
++	mutex_unlock(&mgr->lock);
++	if (mstb)
++		drm_dp_put_mst_branch_device(mstb);
++	return ret;
++
++}
++EXPORT_SYMBOL(drm_dp_mst_topology_mgr_set_mst);
++
++/**
++ * drm_dp_mst_topology_mgr_suspend() - suspend the MST manager
++ * @mgr: manager to suspend
++ *
++ * This function tells the MST device that we can't handle UP messages
++ * anymore. This should stop it from sending any since we are suspended.
++ */
++void drm_dp_mst_topology_mgr_suspend(struct drm_dp_mst_topology_mgr *mgr)
++{
++	mutex_lock(&mgr->lock);
++	drm_dp_dpcd_writeb(mgr->aux, DP_MSTM_CTRL,
++			   DP_MST_EN | DP_UPSTREAM_IS_SRC);
++	mutex_unlock(&mgr->lock);
++}
++EXPORT_SYMBOL(drm_dp_mst_topology_mgr_suspend);
++
++/**
++ * drm_dp_mst_topology_mgr_resume() - resume the MST manager
++ * @mgr: manager to resume
++ *
++ * This will fetch DPCD and see if the device is still there,
++ * if it is, it will rewrite the MSTM control bits, and return.
++ *
++ * if the device fails this returns -1, and the driver should do
++ * a full MST reprobe, in case we were undocked.
++ */
++int drm_dp_mst_topology_mgr_resume(struct drm_dp_mst_topology_mgr *mgr)
++{
++	int ret = 0;
++
++	mutex_lock(&mgr->lock);
++
++	if (mgr->mst_primary) {
++		int sret;
++		sret = drm_dp_dpcd_read(mgr->aux, DP_DPCD_REV, mgr->dpcd, DP_RECEIVER_CAP_SIZE);
++		if (sret != DP_RECEIVER_CAP_SIZE) {
++			DRM_DEBUG_KMS("dpcd read failed - undocked during suspend?\n");
++			ret = -1;
++			goto out_unlock;
++		}
++
++		ret = drm_dp_dpcd_writeb(mgr->aux, DP_MSTM_CTRL,
++					 DP_MST_EN | DP_UP_REQ_EN | DP_UPSTREAM_IS_SRC);
++		if (ret < 0) {
++			DRM_DEBUG_KMS("mst write failed - undocked during suspend?\n");
++			ret = -1;
++			goto out_unlock;
++		}
++		ret = 0;
++	} else
++		ret = -1;
++
++out_unlock:
++	mutex_unlock(&mgr->lock);
++	return ret;
++}
++EXPORT_SYMBOL(drm_dp_mst_topology_mgr_resume);
++
++static void drm_dp_get_one_sb_msg(struct drm_dp_mst_topology_mgr *mgr, bool up)
++{
++	int len;
++	u8 replyblock[32];
++	int replylen, origlen, curreply;
++	int ret;
++	struct drm_dp_sideband_msg_rx *msg;
++	int basereg = up ? DP_SIDEBAND_MSG_UP_REQ_BASE : DP_SIDEBAND_MSG_DOWN_REP_BASE;
++	msg = up ? &mgr->up_req_recv : &mgr->down_rep_recv;
++
++	len = min(mgr->max_dpcd_transaction_bytes, 16);
++	ret = drm_dp_dpcd_read(mgr->aux, basereg,
++			       replyblock, len);
++	if (ret != len) {
++		DRM_DEBUG_KMS("failed to read DPCD down rep %d %d\n", len, ret);
++		return;
++	}
++	ret = drm_dp_sideband_msg_build(msg, replyblock, len, true);
++	if (!ret) {
++		DRM_DEBUG_KMS("sideband msg build failed %d\n", replyblock[0]);
++		return;
++	}
++	replylen = msg->curchunk_len + msg->curchunk_hdrlen;
++
++	origlen = replylen;
++	replylen -= len;
++	curreply = len;
++	while (replylen > 0) {
++		len = min3(replylen, mgr->max_dpcd_transaction_bytes, 16);
++		ret = drm_dp_dpcd_read(mgr->aux, basereg + curreply,
++				    replyblock, len);
++		if (ret != len) {
++			DRM_DEBUG_KMS("failed to read a chunk\n");
++		}
++		ret = drm_dp_sideband_msg_build(msg, replyblock, len, false);
++		if (ret == false)
++			DRM_DEBUG_KMS("failed to build sideband msg\n");
++		curreply += len;
++		replylen -= len;
++	}
++}
++
++static int drm_dp_mst_handle_down_rep(struct drm_dp_mst_topology_mgr *mgr)
++{
++	int ret = 0;
++
++	drm_dp_get_one_sb_msg(mgr, false);
++
++	if (mgr->down_rep_recv.have_eomt) {
++		struct drm_dp_sideband_msg_tx *txmsg;
++		struct drm_dp_mst_branch *mstb;
++		int slot = -1;
++		mstb = drm_dp_get_mst_branch_device(mgr,
++						    mgr->down_rep_recv.initial_hdr.lct,
++						    mgr->down_rep_recv.initial_hdr.rad);
++
++		if (!mstb) {
++			DRM_DEBUG_KMS("Got MST reply from unknown device %d\n", mgr->down_rep_recv.initial_hdr.lct);
++			memset(&mgr->down_rep_recv, 0, sizeof(struct drm_dp_sideband_msg_rx));
++			return 0;
++		}
++
++		/* find the message */
++		slot = mgr->down_rep_recv.initial_hdr.seqno;
++		mutex_lock(&mgr->qlock);
++		txmsg = mstb->tx_slots[slot];
++		/* remove from slots */
++		mutex_unlock(&mgr->qlock);
++
++		if (!txmsg) {
++			DRM_DEBUG_KMS("Got MST reply with no msg %p %d %d %02x %02x\n",
++			       mstb,
++			       mgr->down_rep_recv.initial_hdr.seqno,
++			       mgr->down_rep_recv.initial_hdr.lct,
++				      mgr->down_rep_recv.initial_hdr.rad[0],
++				      mgr->down_rep_recv.msg[0]);
++			drm_dp_put_mst_branch_device(mstb);
++			memset(&mgr->down_rep_recv, 0, sizeof(struct drm_dp_sideband_msg_rx));
++			return 0;
++		}
++
++		drm_dp_sideband_parse_reply(&mgr->down_rep_recv, &txmsg->reply);
++		if (txmsg->reply.reply_type == 1) {
++			DRM_DEBUG_KMS("Got NAK reply: req 0x%02x, reason 0x%02x, nak data 0x%02x\n", txmsg->reply.req_type, txmsg->reply.u.nak.reason, txmsg->reply.u.nak.nak_data);
++		}
++
++		memset(&mgr->down_rep_recv, 0, sizeof(struct drm_dp_sideband_msg_rx));
++		drm_dp_put_mst_branch_device(mstb);
++
++		mutex_lock(&mgr->qlock);
++		txmsg->state = DRM_DP_SIDEBAND_TX_RX;
++		mstb->tx_slots[slot] = NULL;
++		mutex_unlock(&mgr->qlock);
++
++		wake_up(&mgr->tx_waitq);
++	}
++	return ret;
++}
++
++static int drm_dp_mst_handle_up_req(struct drm_dp_mst_topology_mgr *mgr)
++{
++	int ret = 0;
++	drm_dp_get_one_sb_msg(mgr, true);
++
++	if (mgr->up_req_recv.have_eomt) {
++		struct drm_dp_sideband_msg_req_body msg;
++		struct drm_dp_mst_branch *mstb;
++		bool seqno;
++		mstb = drm_dp_get_mst_branch_device(mgr,
++						    mgr->up_req_recv.initial_hdr.lct,
++						    mgr->up_req_recv.initial_hdr.rad);
++		if (!mstb) {
++			DRM_DEBUG_KMS("Got MST reply from unknown device %d\n", mgr->up_req_recv.initial_hdr.lct);
++			memset(&mgr->up_req_recv, 0, sizeof(struct drm_dp_sideband_msg_rx));
++			return 0;
++		}
++
++		seqno = mgr->up_req_recv.initial_hdr.seqno;
++		drm_dp_sideband_parse_req(&mgr->up_req_recv, &msg);
++
++		if (msg.req_type == DP_CONNECTION_STATUS_NOTIFY) {
++			drm_dp_send_up_ack_reply(mgr, mstb, msg.req_type, seqno, false);
++			drm_dp_update_port(mstb, &msg.u.conn_stat);
++			DRM_DEBUG_KMS("Got CSN: pn: %d ldps:%d ddps: %d mcs: %d ip: %d pdt: %d\n", msg.u.conn_stat.port_number, msg.u.conn_stat.legacy_device_plug_status, msg.u.conn_stat.displayport_device_plug_status, msg.u.conn_stat.message_capability_status, msg.u.conn_stat.input_port, msg.u.conn_stat.peer_device_type);
++			(*mgr->cbs->hotplug)(mgr);
++
++		} else if (msg.req_type == DP_RESOURCE_STATUS_NOTIFY) {
++			drm_dp_send_up_ack_reply(mgr, mstb, msg.req_type, seqno, false);
++			DRM_DEBUG_KMS("Got RSN: pn: %d avail_pbn %d\n", msg.u.resource_stat.port_number, msg.u.resource_stat.available_pbn);
++		}
++
++		drm_dp_put_mst_branch_device(mstb);
++		memset(&mgr->up_req_recv, 0, sizeof(struct drm_dp_sideband_msg_rx));
++	}
++	return ret;
++}
++
++/**
++ * drm_dp_mst_hpd_irq() - MST hotplug IRQ notify
++ * @mgr: manager to notify irq for.
++ * @esi: 4 bytes from SINK_COUNT_ESI
++ *
++ * This should be called from the driver when it detects a short IRQ,
++ * along with the value of the DEVICE_SERVICE_IRQ_VECTOR_ESI0. The
++ * topology manager will process the sideband messages received as a result
++ * of this.
++ */
++int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handled)
++{
++	int ret = 0;
++	int sc;
++	*handled = false;
++	sc = esi[0] & 0x3f;
++
++	if (sc != mgr->sink_count) {
++		mgr->sink_count = sc;
++		*handled = true;
++	}
++
++	if (esi[1] & DP_DOWN_REP_MSG_RDY) {
++		ret = drm_dp_mst_handle_down_rep(mgr);
++		*handled = true;
++	}
++
++	if (esi[1] & DP_UP_REQ_MSG_RDY) {
++		ret |= drm_dp_mst_handle_up_req(mgr);
++		*handled = true;
++	}
++
++	drm_dp_mst_kick_tx(mgr);
++	return ret;
++}
++EXPORT_SYMBOL(drm_dp_mst_hpd_irq);
++
++/**
++ * drm_dp_mst_detect_port() - get connection status for an MST port
++ * @mgr: manager for this port
++ * @port: unverified pointer to a port
++ *
++ * This returns the current connection state for a port. It validates the
++ * port pointer still exists so the caller doesn't require a reference
++ */
++enum drm_connector_status drm_dp_mst_detect_port(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port)
++{
++	enum drm_connector_status status = connector_status_disconnected;
++
++	/* we need to search for the port in the mgr in case its gone */
++	port = drm_dp_get_validated_port_ref(mgr, port);
++	if (!port)
++		return connector_status_disconnected;
++
++	if (!port->ddps)
++		goto out;
++
++	switch (port->pdt) {
++	case DP_PEER_DEVICE_NONE:
++	case DP_PEER_DEVICE_MST_BRANCHING:
++		break;
++
++	case DP_PEER_DEVICE_SST_SINK:
++		status = connector_status_connected;
++		break;
++	case DP_PEER_DEVICE_DP_LEGACY_CONV:
++		if (port->ldps)
++			status = connector_status_connected;
++		break;
++	}
++out:
++	drm_dp_put_port(port);
++	return status;
++}
++EXPORT_SYMBOL(drm_dp_mst_detect_port);
++
++/**
++ * drm_dp_mst_get_edid() - get EDID for an MST port
++ * @connector: toplevel connector to get EDID for
++ * @mgr: manager for this port
++ * @port: unverified pointer to a port.
++ *
++ * This returns an EDID for the port connected to a connector,
++ * It validates the pointer still exists so the caller doesn't require a
++ * reference.
++ */
++struct edid *drm_dp_mst_get_edid(struct drm_connector *connector, struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port)
++{
++	struct edid *edid = NULL;
++
++	/* we need to search for the port in the mgr in case its gone */
++	port = drm_dp_get_validated_port_ref(mgr, port);
++	if (!port)
++		return NULL;
++
++	edid = drm_get_edid(connector, &port->aux.ddc);
++	drm_dp_put_port(port);
++	return edid;
++}
++EXPORT_SYMBOL(drm_dp_mst_get_edid);
++
++/**
++ * drm_dp_find_vcpi_slots() - find slots for this PBN value
++ * @mgr: manager to use
++ * @pbn: payload bandwidth to convert into slots.
++ */
++int drm_dp_find_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr,
++			   int pbn)
++{
++	int num_slots;
++
++	num_slots = DIV_ROUND_UP(pbn, mgr->pbn_div);
++
++	if (num_slots > mgr->avail_slots)
++		return -ENOSPC;
++	return num_slots;
++}
++EXPORT_SYMBOL(drm_dp_find_vcpi_slots);
++
++static int drm_dp_init_vcpi(struct drm_dp_mst_topology_mgr *mgr,
++			    struct drm_dp_vcpi *vcpi, int pbn)
++{
++	int num_slots;
++	int ret;
++
++	num_slots = DIV_ROUND_UP(pbn, mgr->pbn_div);
++
++	if (num_slots > mgr->avail_slots)
++		return -ENOSPC;
++
++	vcpi->pbn = pbn;
++	vcpi->aligned_pbn = num_slots * mgr->pbn_div;
++	vcpi->num_slots = num_slots;
++
++	ret = drm_dp_mst_assign_payload_id(mgr, vcpi);
++	if (ret < 0)
++		return ret;
++	return 0;
++}
++
++/**
++ * drm_dp_mst_allocate_vcpi() - Allocate a virtual channel
++ * @mgr: manager for this port
++ * @port: port to allocate a virtual channel for.
++ * @pbn: payload bandwidth number to request
++ * @slots: returned number of slots for this PBN.
++ */
++bool drm_dp_mst_allocate_vcpi(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port, int pbn, int *slots)
++{
++	int ret;
++
++	port = drm_dp_get_validated_port_ref(mgr, port);
++	if (!port)
++		return false;
++
++	if (port->vcpi.vcpi > 0) {
++		DRM_DEBUG_KMS("payload: vcpi %d already allocated for pbn %d - requested pbn %d\n", port->vcpi.vcpi, port->vcpi.pbn, pbn);
++		if (pbn == port->vcpi.pbn) {
++			*slots = port->vcpi.num_slots;
++			return true;
++		}
++	}
++
++	ret = drm_dp_init_vcpi(mgr, &port->vcpi, pbn);
++	if (ret) {
++		DRM_DEBUG_KMS("failed to init vcpi %d %d %d\n", DIV_ROUND_UP(pbn, mgr->pbn_div), mgr->avail_slots, ret);
++		goto out;
++	}
++	DRM_DEBUG_KMS("initing vcpi for %d %d\n", pbn, port->vcpi.num_slots);
++	*slots = port->vcpi.num_slots;
++
++	drm_dp_put_port(port);
++	return true;
++out:
++	return false;
++}
++EXPORT_SYMBOL(drm_dp_mst_allocate_vcpi);
++
++/**
++ * drm_dp_mst_reset_vcpi_slots() - Reset number of slots to 0 for VCPI
++ * @mgr: manager for this port
++ * @port: unverified pointer to a port.
++ *
++ * This just resets the number of slots for the ports VCPI for later programming.
++ */
++void drm_dp_mst_reset_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port)
++{
++	port = drm_dp_get_validated_port_ref(mgr, port);
++	if (!port)
++		return;
++	port->vcpi.num_slots = 0;
++	drm_dp_put_port(port);
++}
++EXPORT_SYMBOL(drm_dp_mst_reset_vcpi_slots);
++
++/**
++ * drm_dp_mst_deallocate_vcpi() - deallocate a VCPI
++ * @mgr: manager for this port
++ * @port: unverified port to deallocate vcpi for
++ */
++void drm_dp_mst_deallocate_vcpi(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port)
++{
++	port = drm_dp_get_validated_port_ref(mgr, port);
++	if (!port)
++		return;
++
++	drm_dp_mst_put_payload_id(mgr, port->vcpi.vcpi);
++	port->vcpi.num_slots = 0;
++	port->vcpi.pbn = 0;
++	port->vcpi.aligned_pbn = 0;
++	port->vcpi.vcpi = 0;
++	drm_dp_put_port(port);
++}
++EXPORT_SYMBOL(drm_dp_mst_deallocate_vcpi);
++
++static int drm_dp_dpcd_write_payload(struct drm_dp_mst_topology_mgr *mgr,
++				     int id, struct drm_dp_payload *payload)
++{
++	u8 payload_alloc[3], status;
++	int ret;
++	int retries = 0;
++
++	drm_dp_dpcd_writeb(mgr->aux, DP_PAYLOAD_TABLE_UPDATE_STATUS,
++			   DP_PAYLOAD_TABLE_UPDATED);
++
++	payload_alloc[0] = id;
++	payload_alloc[1] = payload->start_slot;
++	payload_alloc[2] = payload->num_slots;
++
++	ret = drm_dp_dpcd_write(mgr->aux, DP_PAYLOAD_ALLOCATE_SET, payload_alloc, 3);
++	if (ret != 3) {
++		DRM_DEBUG_KMS("failed to write payload allocation %d\n", ret);
++		goto fail;
++	}
++
++retry:
++	ret = drm_dp_dpcd_readb(mgr->aux, DP_PAYLOAD_TABLE_UPDATE_STATUS, &status);
++	if (ret < 0) {
++		DRM_DEBUG_KMS("failed to read payload table status %d\n", ret);
++		goto fail;
++	}
++
++	if (!(status & DP_PAYLOAD_TABLE_UPDATED)) {
++		retries++;
++		if (retries < 20) {
++			usleep_range(10000, 20000);
++			goto retry;
++		}
++		DRM_DEBUG_KMS("status not set after read payload table status %d\n", status);
++		ret = -EINVAL;
++		goto fail;
++	}
++	ret = 0;
++fail:
++	return ret;
++}
++
++
++/**
++ * drm_dp_check_act_status() - Check ACT handled status.
++ * @mgr: manager to use
++ *
++ * Check the payload status bits in the DPCD for ACT handled completion.
++ */
++int drm_dp_check_act_status(struct drm_dp_mst_topology_mgr *mgr)
++{
++	u8 status;
++	int ret;
++	int count = 0;
++
++	do {
++		ret = drm_dp_dpcd_readb(mgr->aux, DP_PAYLOAD_TABLE_UPDATE_STATUS, &status);
++
++		if (ret < 0) {
++			DRM_DEBUG_KMS("failed to read payload table status %d\n", ret);
++			goto fail;
++		}
++
++		if (status & DP_PAYLOAD_ACT_HANDLED)
++			break;
++		count++;
++		udelay(100);
++
++	} while (count < 30);
++
++	if (!(status & DP_PAYLOAD_ACT_HANDLED)) {
++		DRM_DEBUG_KMS("failed to get ACT bit %d after %d retries\n", status, count);
++		ret = -EINVAL;
++		goto fail;
++	}
++	return 0;
++fail:
++	return ret;
++}
++EXPORT_SYMBOL(drm_dp_check_act_status);
++
++/**
++ * drm_dp_calc_pbn_mode() - Calculate the PBN for a mode.
++ * @clock: dot clock for the mode
++ * @bpp: bpp for the mode.
++ *
++ * This uses the formula in the spec to calculate the PBN value for a mode.
++ */
++int drm_dp_calc_pbn_mode(int clock, int bpp)
++{
++	fixed20_12 pix_bw;
++	fixed20_12 fbpp;
++	fixed20_12 result;
++	fixed20_12 margin, tmp;
++	u32 res;
++
++	pix_bw.full = dfixed_const(clock);
++	fbpp.full = dfixed_const(bpp);
++	tmp.full = dfixed_const(8);
++	fbpp.full = dfixed_div(fbpp, tmp);
++
++	result.full = dfixed_mul(pix_bw, fbpp);
++	margin.full = dfixed_const(54);
++	tmp.full = dfixed_const(64);
++	margin.full = dfixed_div(margin, tmp);
++	result.full = dfixed_div(result, margin);
++
++	margin.full = dfixed_const(1006);
++	tmp.full = dfixed_const(1000);
++	margin.full = dfixed_div(margin, tmp);
++	result.full = dfixed_mul(result, margin);
++
++	result.full = dfixed_div(result, tmp);
++	result.full = dfixed_ceil(result);
++	res = dfixed_trunc(result);
++	return res;
++}
++EXPORT_SYMBOL(drm_dp_calc_pbn_mode);
++
++static int test_calc_pbn_mode(void)
++{
++	int ret;
++	ret = drm_dp_calc_pbn_mode(154000, 30);
++	if (ret != 689)
++		return -EINVAL;
++	ret = drm_dp_calc_pbn_mode(234000, 30);
++	if (ret != 1047)
++		return -EINVAL;
++	return 0;
++}
++
++/* we want to kick the TX after we've ack the up/down IRQs. */
++static void drm_dp_mst_kick_tx(struct drm_dp_mst_topology_mgr *mgr)
++{
++	queue_work(system_long_wq, &mgr->tx_work);
++}
++
++static void drm_dp_mst_dump_mstb(struct seq_file *m,
++				 struct drm_dp_mst_branch *mstb)
++{
++	struct drm_dp_mst_port *port;
++	int tabs = mstb->lct;
++	char prefix[10];
++	int i;
++
++	for (i = 0; i < tabs; i++)
++		prefix[i] = '\t';
++	prefix[i] = '\0';
++
++	seq_printf(m, "%smst: %p, %d\n", prefix, mstb, mstb->num_ports);
++	list_for_each_entry(port, &mstb->ports, next) {
++		seq_printf(m, "%sport: %d: ddps: %d ldps: %d, %p, conn: %p\n", prefix, port->port_num, port->ddps, port->ldps, port, port->connector);
++		if (port->mstb)
++			drm_dp_mst_dump_mstb(m, port->mstb);
++	}
++}
++
++static bool dump_dp_payload_table(struct drm_dp_mst_topology_mgr *mgr,
++				  char *buf)
++{
++	int ret;
++	int i;
++	for (i = 0; i < 4; i++) {
++		ret = drm_dp_dpcd_read(mgr->aux, DP_PAYLOAD_TABLE_UPDATE_STATUS + (i * 16), &buf[i * 16], 16);
++		if (ret != 16)
++			break;
++	}
++	if (i == 4)
++		return true;
++	return false;
++}
++
++/**
++ * drm_dp_mst_dump_topology(): dump topology to seq file.
++ * @m: seq_file to dump output to
++ * @mgr: manager to dump current topology for.
++ *
++ * helper to dump MST topology to a seq file for debugfs.
++ */
++void drm_dp_mst_dump_topology(struct seq_file *m,
++			      struct drm_dp_mst_topology_mgr *mgr)
++{
++	int i;
++	struct drm_dp_mst_port *port;
++	mutex_lock(&mgr->lock);
++	if (mgr->mst_primary)
++		drm_dp_mst_dump_mstb(m, mgr->mst_primary);
++
++	/* dump VCPIs */
++	mutex_unlock(&mgr->lock);
++
++	mutex_lock(&mgr->payload_lock);
++	seq_printf(m, "vcpi: %lx\n", mgr->payload_mask);
++
++	for (i = 0; i < mgr->max_payloads; i++) {
++		if (mgr->proposed_vcpis[i]) {
++			port = container_of(mgr->proposed_vcpis[i], struct drm_dp_mst_port, vcpi);
++			seq_printf(m, "vcpi %d: %d %d %d\n", i, port->port_num, port->vcpi.vcpi, port->vcpi.num_slots);
++		} else
++			seq_printf(m, "vcpi %d:unsed\n", i);
++	}
++	for (i = 0; i < mgr->max_payloads; i++) {
++		seq_printf(m, "payload %d: %d, %d, %d\n",
++			   i,
++			   mgr->payloads[i].payload_state,
++			   mgr->payloads[i].start_slot,
++			   mgr->payloads[i].num_slots);
++
++
++	}
++	mutex_unlock(&mgr->payload_lock);
++
++	mutex_lock(&mgr->lock);
++	if (mgr->mst_primary) {
++		u8 buf[64];
++		bool bret;
++		int ret;
++		ret = drm_dp_dpcd_read(mgr->aux, DP_DPCD_REV, buf, DP_RECEIVER_CAP_SIZE);
++		seq_printf(m, "dpcd: ");
++		for (i = 0; i < DP_RECEIVER_CAP_SIZE; i++)
++			seq_printf(m, "%02x ", buf[i]);
++		seq_printf(m, "\n");
++		ret = drm_dp_dpcd_read(mgr->aux, DP_FAUX_CAP, buf, 2);
++		seq_printf(m, "faux/mst: ");
++		for (i = 0; i < 2; i++)
++			seq_printf(m, "%02x ", buf[i]);
++		seq_printf(m, "\n");
++		ret = drm_dp_dpcd_read(mgr->aux, DP_MSTM_CTRL, buf, 1);
++		seq_printf(m, "mst ctrl: ");
++		for (i = 0; i < 1; i++)
++			seq_printf(m, "%02x ", buf[i]);
++		seq_printf(m, "\n");
++
++		bret = dump_dp_payload_table(mgr, buf);
++		if (bret == true) {
++			seq_printf(m, "payload table: ");
++			for (i = 0; i < 63; i++)
++				seq_printf(m, "%02x ", buf[i]);
++			seq_printf(m, "\n");
++		}
++
++	}
++
++	mutex_unlock(&mgr->lock);
++
++}
++EXPORT_SYMBOL(drm_dp_mst_dump_topology);
++
++static void drm_dp_tx_work(struct work_struct *work)
++{
++	struct drm_dp_mst_topology_mgr *mgr = container_of(work, struct drm_dp_mst_topology_mgr, tx_work);
++
++	mutex_lock(&mgr->qlock);
++	if (mgr->tx_down_in_progress)
++		process_single_down_tx_qlock(mgr);
++	mutex_unlock(&mgr->qlock);
++}
++
++/**
++ * drm_dp_mst_topology_mgr_init - initialise a topology manager
++ * @mgr: manager struct to initialise
++ * @dev: device providing this structure - for i2c addition.
++ * @aux: DP helper aux channel to talk to this device
++ * @max_dpcd_transaction_bytes: hw specific DPCD transaction limit
++ * @max_payloads: maximum number of payloads this GPU can source
++ * @conn_base_id: the connector object ID the MST device is connected to.
++ *
++ * Return 0 for success, or negative error code on failure
++ */
++int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr,
++				 struct device *dev, struct drm_dp_aux *aux,
++				 int max_dpcd_transaction_bytes,
++				 int max_payloads, int conn_base_id)
++{
++	mutex_init(&mgr->lock);
++	mutex_init(&mgr->qlock);
++	mutex_init(&mgr->payload_lock);
++	INIT_LIST_HEAD(&mgr->tx_msg_upq);
++	INIT_LIST_HEAD(&mgr->tx_msg_downq);
++	INIT_WORK(&mgr->work, drm_dp_mst_link_probe_work);
++	INIT_WORK(&mgr->tx_work, drm_dp_tx_work);
++	init_waitqueue_head(&mgr->tx_waitq);
++	mgr->dev = dev;
++	mgr->aux = aux;
++	mgr->max_dpcd_transaction_bytes = max_dpcd_transaction_bytes;
++	mgr->max_payloads = max_payloads;
++	mgr->conn_base_id = conn_base_id;
++	mgr->payloads = kcalloc(max_payloads, sizeof(struct drm_dp_payload), GFP_KERNEL);
++	if (!mgr->payloads)
++		return -ENOMEM;
++	mgr->proposed_vcpis = kcalloc(max_payloads, sizeof(struct drm_dp_vcpi *), GFP_KERNEL);
++	if (!mgr->proposed_vcpis)
++		return -ENOMEM;
++	set_bit(0, &mgr->payload_mask);
++	test_calc_pbn_mode();
++	return 0;
++}
++EXPORT_SYMBOL(drm_dp_mst_topology_mgr_init);
++
++/**
++ * drm_dp_mst_topology_mgr_destroy() - destroy topology manager.
++ * @mgr: manager to destroy
++ */
++void drm_dp_mst_topology_mgr_destroy(struct drm_dp_mst_topology_mgr *mgr)
++{
++	mutex_lock(&mgr->payload_lock);
++	kfree(mgr->payloads);
++	mgr->payloads = NULL;
++	kfree(mgr->proposed_vcpis);
++	mgr->proposed_vcpis = NULL;
++	mutex_unlock(&mgr->payload_lock);
++	mgr->dev = NULL;
++	mgr->aux = NULL;
++}
++EXPORT_SYMBOL(drm_dp_mst_topology_mgr_destroy);
++
++/* I2C device */
++static int drm_dp_mst_i2c_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs,
++			       int num)
++{
++	struct drm_dp_aux *aux = adapter->algo_data;
++	struct drm_dp_mst_port *port = container_of(aux, struct drm_dp_mst_port, aux);
++	struct drm_dp_mst_branch *mstb;
++	struct drm_dp_mst_topology_mgr *mgr = port->mgr;
++	unsigned int i;
++	bool reading = false;
++	struct drm_dp_sideband_msg_req_body msg;
++	struct drm_dp_sideband_msg_tx *txmsg = NULL;
++	int ret;
++
++	mstb = drm_dp_get_validated_mstb_ref(mgr, port->parent);
++	if (!mstb)
++		return -EREMOTEIO;
++
++	/* construct i2c msg */
++	/* see if last msg is a read */
++	if (msgs[num - 1].flags & I2C_M_RD)
++		reading = true;
++
++	if (!reading) {
++		DRM_DEBUG_KMS("Unsupported I2C transaction for MST device\n");
++		ret = -EIO;
++		goto out;
++	}
++
++	msg.req_type = DP_REMOTE_I2C_READ;
++	msg.u.i2c_read.num_transactions = num - 1;
++	msg.u.i2c_read.port_number = port->port_num;
++	for (i = 0; i < num - 1; i++) {
++		msg.u.i2c_read.transactions[i].i2c_dev_id = msgs[i].addr;
++		msg.u.i2c_read.transactions[i].num_bytes = msgs[i].len;
++		msg.u.i2c_read.transactions[i].bytes = msgs[i].buf;
++	}
++	msg.u.i2c_read.read_i2c_device_id = msgs[num - 1].addr;
++	msg.u.i2c_read.num_bytes_read = msgs[num - 1].len;
++
++	txmsg = kzalloc(sizeof(*txmsg), GFP_KERNEL);
++	if (!txmsg) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	txmsg->dst = mstb;
++	drm_dp_encode_sideband_req(&msg, txmsg);
++
++	drm_dp_queue_down_tx(mgr, txmsg);
++
++	ret = drm_dp_mst_wait_tx_reply(mstb, txmsg);
++	if (ret > 0) {
++
++		if (txmsg->reply.reply_type == 1) { /* got a NAK back */
++			ret = -EREMOTEIO;
++			goto out;
++		}
++		if (txmsg->reply.u.remote_i2c_read_ack.num_bytes != msgs[num - 1].len) {
++			ret = -EIO;
++			goto out;
++		}
++		memcpy(msgs[num - 1].buf, txmsg->reply.u.remote_i2c_read_ack.bytes, msgs[num - 1].len);
++		ret = num;
++	}
++out:
++	kfree(txmsg);
++	drm_dp_put_mst_branch_device(mstb);
++	return ret;
++}
++
++static u32 drm_dp_mst_i2c_functionality(struct i2c_adapter *adapter)
++{
++	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
++	       I2C_FUNC_SMBUS_READ_BLOCK_DATA |
++	       I2C_FUNC_SMBUS_BLOCK_PROC_CALL |
++	       I2C_FUNC_10BIT_ADDR;
++}
++
++static const struct i2c_algorithm drm_dp_mst_i2c_algo = {
++	.functionality = drm_dp_mst_i2c_functionality,
++	.master_xfer = drm_dp_mst_i2c_xfer,
++};
++
++/**
++ * drm_dp_mst_register_i2c_bus() - register an I2C adapter for I2C-over-AUX
++ * @aux: DisplayPort AUX channel
++ *
++ * Returns 0 on success or a negative error code on failure.
++ */
++static int drm_dp_mst_register_i2c_bus(struct drm_dp_aux *aux)
++{
++	aux->ddc.algo = &drm_dp_mst_i2c_algo;
++	aux->ddc.algo_data = aux;
++	aux->ddc.retries = 3;
++
++	aux->ddc.class = I2C_CLASS_DDC;
++	aux->ddc.owner = THIS_MODULE;
++	aux->ddc.dev.parent = aux->dev;
++	aux->ddc.dev.of_node = aux->dev->of_node;
++
++	strlcpy(aux->ddc.name, aux->name ? aux->name : dev_name(aux->dev),
++		sizeof(aux->ddc.name));
++
++	return i2c_add_adapter(&aux->ddc);
++}
++
++/**
++ * drm_dp_mst_unregister_i2c_bus() - unregister an I2C-over-AUX adapter
++ * @aux: DisplayPort AUX channel
++ */
++static void drm_dp_mst_unregister_i2c_bus(struct drm_dp_aux *aux)
++{
++	i2c_del_adapter(&aux->ddc);
++}
+diff --git a/include/drm/drm_dp_mst_helper.h b/include/drm/drm_dp_mst_helper.h
+new file mode 100644
+index 0000000..9b446ad
+--- /dev/null
++++ b/include/drm/drm_dp_mst_helper.h
+@@ -0,0 +1,509 @@
++/*
++ * Copyright © 2014 Red Hat.
++ *
++ * Permission to use, copy, modify, distribute, and sell this software and its
++ * documentation for any purpose is hereby granted without fee, provided that
++ * the above copyright notice appear in all copies and that both that copyright
++ * notice and this permission notice appear in supporting documentation, and
++ * that the name of the copyright holders not be used in advertising or
++ * publicity pertaining to distribution of the software without specific,
++ * written prior permission.  The copyright holders make no representations
++ * about the suitability of this software for any purpose.  It is provided "as
++ * is" without express or implied warranty.
++ *
++ * THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
++ * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
++ * EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY SPECIAL, INDIRECT OR
++ * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
++ * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
++ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
++ * OF THIS SOFTWARE.
++ */
++#ifndef _DRM_DP_MST_HELPER_H_
++#define _DRM_DP_MST_HELPER_H_
++
++#include <linux/types.h>
++#include <drm/drm_dp_helper.h>
++
++struct drm_dp_mst_branch;
++
++/**
++ * struct drm_dp_vcpi - Virtual Channel Payload Identifer
++ * @vcpi: Virtual channel ID.
++ * @pbn: Payload Bandwidth Number for this channel
++ * @aligned_pbn: PBN aligned with slot size
++ * @num_slots: number of slots for this PBN
++ */
++struct drm_dp_vcpi {
++	int vcpi;
++	int pbn;
++	int aligned_pbn;
++	int num_slots;
++};
++
++/**
++ * struct drm_dp_mst_port - MST port
++ * @kref: reference count for this port.
++ * @guid_valid: for DP 1.2 devices if we have validated the GUID.
++ * @guid: guid for DP 1.2 device on this port.
++ * @port_num: port number
++ * @input: if this port is an input port.
++ * @mcs: message capability status - DP 1.2 spec.
++ * @ddps: DisplayPort Device Plug Status - DP 1.2
++ * @pdt: Peer Device Type
++ * @ldps: Legacy Device Plug Status
++ * @dpcd_rev: DPCD revision of device on this port
++ * @num_sdp_streams: Number of simultaneous streams
++ * @num_sdp_stream_sinks: Number of stream sinks
++ * @available_pbn: Available bandwidth for this port.
++ * @next: link to next port on this branch device
++ * @mstb: branch device attach below this port
++ * @aux: i2c aux transport to talk to device connected to this port.
++ * @parent: branch device parent of this port
++ * @vcpi: Virtual Channel Payload info for this port.
++ * @connector: DRM connector this port is connected to.
++ * @mgr: topology manager this port lives under.
++ *
++ * This structure represents an MST port endpoint on a device somewhere
++ * in the MST topology.
++ */
++struct drm_dp_mst_port {
++	struct kref kref;
++
++	/* if dpcd 1.2 device is on this port - its GUID info */
++	bool guid_valid;
++	u8 guid[16];
++
++	u8 port_num;
++	bool input;
++	bool mcs;
++	bool ddps;
++	u8 pdt;
++	bool ldps;
++	u8 dpcd_rev;
++	u8 num_sdp_streams;
++	u8 num_sdp_stream_sinks;
++	uint16_t available_pbn;
++	struct list_head next;
++	struct drm_dp_mst_branch *mstb; /* pointer to an mstb if this port has one */
++	struct drm_dp_aux aux; /* i2c bus for this port? */
++	struct drm_dp_mst_branch *parent;
++
++	struct drm_dp_vcpi vcpi;
++	struct drm_connector *connector;
++	struct drm_dp_mst_topology_mgr *mgr;
++};
++
++/**
++ * struct drm_dp_mst_branch - MST branch device.
++ * @kref: reference count for this port.
++ * @rad: Relative Address to talk to this branch device.
++ * @lct: Link count total to talk to this branch device.
++ * @num_ports: number of ports on the branch.
++ * @msg_slots: one bit per transmitted msg slot.
++ * @ports: linked list of ports on this branch.
++ * @port_parent: pointer to the port parent, NULL if toplevel.
++ * @mgr: topology manager for this branch device.
++ * @tx_slots: transmission slots for this device.
++ * @last_seqno: last sequence number used to talk to this.
++ * @link_address_sent: if a link address message has been sent to this device yet.
++ *
++ * This structure represents an MST branch device, there is one
++ * primary branch device at the root, along with any others connected
++ * to downstream ports
++ */
++struct drm_dp_mst_branch {
++	struct kref kref;
++	u8 rad[8];
++	u8 lct;
++	int num_ports;
++
++	int msg_slots;
++	struct list_head ports;
++
++	/* list of tx ops queue for this port */
++	struct drm_dp_mst_port *port_parent;
++	struct drm_dp_mst_topology_mgr *mgr;
++
++	/* slots are protected by mstb->mgr->qlock */
++	struct drm_dp_sideband_msg_tx *tx_slots[2];
++	int last_seqno;
++	bool link_address_sent;
++};
++
++
++/* sideband msg header - not bit struct */
++struct drm_dp_sideband_msg_hdr {
++	u8 lct;
++	u8 lcr;
++	u8 rad[8];
++	bool broadcast;
++	bool path_msg;
++	u8 msg_len;
++	bool somt;
++	bool eomt;
++	bool seqno;
++};
++
++struct drm_dp_nak_reply {
++	u8 guid[16];
++	u8 reason;
++	u8 nak_data;
++};
++
++struct drm_dp_link_address_ack_reply {
++	u8 guid[16];
++	u8 nports;
++	struct drm_dp_link_addr_reply_port {
++		bool input_port;
++		u8 peer_device_type;
++		u8 port_number;
++		bool mcs;
++		bool ddps;
++		bool legacy_device_plug_status;
++		u8 dpcd_revision;
++		u8 peer_guid[16];
++		u8 num_sdp_streams;
++		u8 num_sdp_stream_sinks;
++	} ports[16];
++};
++
++struct drm_dp_remote_dpcd_read_ack_reply {
++	u8 port_number;
++	u8 num_bytes;
++	u8 bytes[255];
++};
++
++struct drm_dp_remote_dpcd_write_ack_reply {
++	u8 port_number;
++};
++
++struct drm_dp_remote_dpcd_write_nak_reply {
++	u8 port_number;
++	u8 reason;
++	u8 bytes_written_before_failure;
++};
++
++struct drm_dp_remote_i2c_read_ack_reply {
++	u8 port_number;
++	u8 num_bytes;
++	u8 bytes[255];
++};
++
++struct drm_dp_remote_i2c_read_nak_reply {
++	u8 port_number;
++	u8 nak_reason;
++	u8 i2c_nak_transaction;
++};
++
++struct drm_dp_remote_i2c_write_ack_reply {
++	u8 port_number;
++};
++
++
++struct drm_dp_sideband_msg_rx {
++	u8 chunk[48];
++	u8 msg[256];
++	u8 curchunk_len;
++	u8 curchunk_idx; /* chunk we are parsing now */
++	u8 curchunk_hdrlen;
++	u8 curlen; /* total length of the msg */
++	bool have_somt;
++	bool have_eomt;
++	struct drm_dp_sideband_msg_hdr initial_hdr;
++};
++
++
++struct drm_dp_allocate_payload {
++	u8 port_number;
++	u8 number_sdp_streams;
++	u8 vcpi;
++	u16 pbn;
++	u8 sdp_stream_sink[8];
++};
++
++struct drm_dp_allocate_payload_ack_reply {
++	u8 port_number;
++	u8 vcpi;
++	u16 allocated_pbn;
++};
++
++struct drm_dp_connection_status_notify {
++	u8 guid[16];
++	u8 port_number;
++	bool legacy_device_plug_status;
++	bool displayport_device_plug_status;
++	bool message_capability_status;
++	bool input_port;
++	u8 peer_device_type;
++};
++
++struct drm_dp_remote_dpcd_read {
++	u8 port_number;
++	u32 dpcd_address;
++	u8 num_bytes;
++};
++
++struct drm_dp_remote_dpcd_write {
++	u8 port_number;
++	u32 dpcd_address;
++	u8 num_bytes;
++	u8 *bytes;
++};
++
++struct drm_dp_remote_i2c_read {
++	u8 num_transactions;
++	u8 port_number;
++	struct {
++		u8 i2c_dev_id;
++		u8 num_bytes;
++		u8 *bytes;
++		u8 no_stop_bit;
++		u8 i2c_transaction_delay;
++	} transactions[4];
++	u8 read_i2c_device_id;
++	u8 num_bytes_read;
++};
++
++struct drm_dp_remote_i2c_write {
++	u8 port_number;
++	u8 write_i2c_device_id;
++	u8 num_bytes;
++	u8 *bytes;
++};
++
++/* this covers ENUM_RESOURCES, POWER_DOWN_PHY, POWER_UP_PHY */
++struct drm_dp_port_number_req {
++	u8 port_number;
++};
++
++struct drm_dp_enum_path_resources_ack_reply {
++	u8 port_number;
++	u16 full_payload_bw_number;
++	u16 avail_payload_bw_number;
++};
++
++/* covers POWER_DOWN_PHY, POWER_UP_PHY */
++struct drm_dp_port_number_rep {
++	u8 port_number;
++};
++
++struct drm_dp_query_payload {
++	u8 port_number;
++	u8 vcpi;
++};
++
++struct drm_dp_resource_status_notify {
++	u8 port_number;
++	u8 guid[16];
++	u16 available_pbn;
++};
++
++struct drm_dp_query_payload_ack_reply {
++	u8 port_number;
++	u8 allocated_pbn;
++};
++
++struct drm_dp_sideband_msg_req_body {
++	u8 req_type;
++	union ack_req {
++		struct drm_dp_connection_status_notify conn_stat;
++		struct drm_dp_port_number_req port_num;
++		struct drm_dp_resource_status_notify resource_stat;
++
++		struct drm_dp_query_payload query_payload;
++		struct drm_dp_allocate_payload allocate_payload;
++
++		struct drm_dp_remote_dpcd_read dpcd_read;
++		struct drm_dp_remote_dpcd_write dpcd_write;
++
++		struct drm_dp_remote_i2c_read i2c_read;
++		struct drm_dp_remote_i2c_write i2c_write;
++	} u;
++};
++
++struct drm_dp_sideband_msg_reply_body {
++	u8 reply_type;
++	u8 req_type;
++	union ack_replies {
++		struct drm_dp_nak_reply nak;
++		struct drm_dp_link_address_ack_reply link_addr;
++		struct drm_dp_port_number_rep port_number;
++
++		struct drm_dp_enum_path_resources_ack_reply path_resources;
++		struct drm_dp_allocate_payload_ack_reply allocate_payload;
++		struct drm_dp_query_payload_ack_reply query_payload;
++
++		struct drm_dp_remote_dpcd_read_ack_reply remote_dpcd_read_ack;
++		struct drm_dp_remote_dpcd_write_ack_reply remote_dpcd_write_ack;
++		struct drm_dp_remote_dpcd_write_nak_reply remote_dpcd_write_nack;
++
++		struct drm_dp_remote_i2c_read_ack_reply remote_i2c_read_ack;
++		struct drm_dp_remote_i2c_read_nak_reply remote_i2c_read_nack;
++		struct drm_dp_remote_i2c_write_ack_reply remote_i2c_write_ack;
++	} u;
++};
++
++/* msg is queued to be put into a slot */
++#define DRM_DP_SIDEBAND_TX_QUEUED 0
++/* msg has started transmitting on a slot - still on msgq */
++#define DRM_DP_SIDEBAND_TX_START_SEND 1
++/* msg has finished transmitting on a slot - removed from msgq only in slot */
++#define DRM_DP_SIDEBAND_TX_SENT 2
++/* msg has received a response - removed from slot */
++#define DRM_DP_SIDEBAND_TX_RX 3
++#define DRM_DP_SIDEBAND_TX_TIMEOUT 4
++
++struct drm_dp_sideband_msg_tx {
++	u8 msg[256];
++	u8 chunk[48];
++	u8 cur_offset;
++	u8 cur_len;
++	struct drm_dp_mst_branch *dst;
++	struct list_head next;
++	int seqno;
++	int state;
++	bool path_msg;
++	struct drm_dp_sideband_msg_reply_body reply;
++};
++
++/* sideband msg handler */
++struct drm_dp_mst_topology_mgr;
++struct drm_dp_mst_topology_cbs {
++	/* create a connector for a port */
++	struct drm_connector *(*add_connector)(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port, char *path);
++	void (*destroy_connector)(struct drm_dp_mst_topology_mgr *mgr,
++				  struct drm_connector *connector);
++	void (*hotplug)(struct drm_dp_mst_topology_mgr *mgr);
++
++};
++
++#define DP_MAX_PAYLOAD (sizeof(unsigned long) * 8)
++
++#define DP_PAYLOAD_LOCAL 1
++#define DP_PAYLOAD_REMOTE 2
++#define DP_PAYLOAD_DELETE_LOCAL 3
++
++struct drm_dp_payload {
++	int payload_state;
++	int start_slot;
++	int num_slots;
++};
++
++/**
++ * struct drm_dp_mst_topology_mgr - DisplayPort MST manager
++ * @dev: device pointer for adding i2c devices etc.
++ * @cbs: callbacks for connector addition and destruction.
++ * @max_dpcd_transaction_bytes - maximum number of bytes to read/write in one go.
++ * @aux: aux channel for the DP connector.
++ * @max_payloads: maximum number of payloads the GPU can generate.
++ * @conn_base_id: DRM connector ID this mgr is connected to.
++ * @down_rep_recv: msg receiver state for down replies.
++ * @up_req_recv: msg receiver state for up requests.
++ * @lock: protects mst state, primary, guid, dpcd.
++ * @mst_state: if this manager is enabled for an MST capable port.
++ * @mst_primary: pointer to the primary branch device.
++ * @guid_valid: GUID valid for the primary branch device.
++ * @guid: GUID for primary port.
++ * @dpcd: cache of DPCD for primary port.
++ * @pbn_div: PBN to slots divisor.
++ *
++ * This struct represents the toplevel displayport MST topology manager.
++ * There should be one instance of this for every MST capable DP connector
++ * on the GPU.
++ */
++struct drm_dp_mst_topology_mgr {
++
++	struct device *dev;
++	struct drm_dp_mst_topology_cbs *cbs;
++	int max_dpcd_transaction_bytes;
++	struct drm_dp_aux *aux; /* auxch for this topology mgr to use */
++	int max_payloads;
++	int conn_base_id;
++
++	/* only ever accessed from the workqueue - which should be serialised */
++	struct drm_dp_sideband_msg_rx down_rep_recv;
++	struct drm_dp_sideband_msg_rx up_req_recv;
++
++	/* pointer to info about the initial MST device */
++	struct mutex lock; /* protects mst_state + primary + guid + dpcd */
++
++	bool mst_state;
++	struct drm_dp_mst_branch *mst_primary;
++	/* primary MST device GUID */
++	bool guid_valid;
++	u8 guid[16];
++	u8 dpcd[DP_RECEIVER_CAP_SIZE];
++	u8 sink_count;
++	int pbn_div;
++	int total_slots;
++	int avail_slots;
++	int total_pbn;
++
++	/* messages to be transmitted */
++	/* qlock protects the upq/downq and in_progress,
++	   the mstb tx_slots and txmsg->state once they are queued */
++	struct mutex qlock;
++	struct list_head tx_msg_downq;
++	struct list_head tx_msg_upq;
++	bool tx_down_in_progress;
++	bool tx_up_in_progress;
++
++	/* payload info + lock for it */
++	struct mutex payload_lock;
++	struct drm_dp_vcpi **proposed_vcpis;
++	struct drm_dp_payload *payloads;
++	unsigned long payload_mask;
++
++	wait_queue_head_t tx_waitq;
++	struct work_struct work;
++
++	struct work_struct tx_work;
++};
++
++int drm_dp_mst_topology_mgr_init(struct drm_dp_mst_topology_mgr *mgr, struct device *dev, struct drm_dp_aux *aux, int max_dpcd_transaction_bytes, int max_payloads, int conn_base_id);
++
++void drm_dp_mst_topology_mgr_destroy(struct drm_dp_mst_topology_mgr *mgr);
++
++
++int drm_dp_mst_topology_mgr_set_mst(struct drm_dp_mst_topology_mgr *mgr, bool mst_state);
++
++
++int drm_dp_mst_hpd_irq(struct drm_dp_mst_topology_mgr *mgr, u8 *esi, bool *handled);
++
++
++enum drm_connector_status drm_dp_mst_detect_port(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port);
++
++struct edid *drm_dp_mst_get_edid(struct drm_connector *connector, struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port);
++
++
++int drm_dp_calc_pbn_mode(int clock, int bpp);
++
++
++bool drm_dp_mst_allocate_vcpi(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port, int pbn, int *slots);
++
++
++void drm_dp_mst_reset_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port);
++
++
++void drm_dp_mst_deallocate_vcpi(struct drm_dp_mst_topology_mgr *mgr,
++				struct drm_dp_mst_port *port);
++
++
++int drm_dp_find_vcpi_slots(struct drm_dp_mst_topology_mgr *mgr,
++			   int pbn);
++
++
++int drm_dp_update_payload_part1(struct drm_dp_mst_topology_mgr *mgr);
++
++
++int drm_dp_update_payload_part2(struct drm_dp_mst_topology_mgr *mgr);
++
++int drm_dp_check_act_status(struct drm_dp_mst_topology_mgr *mgr);
++
++void drm_dp_mst_dump_topology(struct seq_file *m,
++			      struct drm_dp_mst_topology_mgr *mgr);
++
++void drm_dp_mst_topology_mgr_suspend(struct drm_dp_mst_topology_mgr *mgr);
++int drm_dp_mst_topology_mgr_resume(struct drm_dp_mst_topology_mgr *mgr);
++#endif
+-- 
+2.1.0
+
+
+From 3a471386fbec6c08b78e007282d395a846c72cd4 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 13:36:43 +1000
+Subject: [PATCH 08/18] i915: split some DP modesetting code into a separate
+ function
+
+this is just prep work for mst support.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/i915/intel_ddi.c
+---
+ drivers/gpu/drm/i915/intel_ddi.c | 15 ++++++++++++---
+ drivers/gpu/drm/i915/intel_drv.h |  1 +
+ 2 files changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_ddi.c b/drivers/gpu/drm/i915/intel_ddi.c
+index a80cb3e..7a9186f 100644
+--- a/drivers/gpu/drm/i915/intel_ddi.c
++++ b/drivers/gpu/drm/i915/intel_ddi.c
+@@ -364,6 +364,17 @@ void hsw_fdi_link_train(struct drm_crtc *crtc)
+ 	DRM_ERROR("FDI link training failed!\n");
+ }
+ 
++void intel_ddi_init_dp_buf_reg(struct intel_encoder *encoder)
++{
++	struct intel_dp *intel_dp = enc_to_intel_dp(&encoder->base);
++	struct intel_digital_port *intel_dig_port =
++		enc_to_dig_port(&encoder->base);
++
++	intel_dp->DP = intel_dig_port->saved_port_bits |
++		DDI_BUF_CTL_ENABLE | DDI_BUF_EMP_400MV_0DB_HSW;
++	intel_dp->DP |= DDI_PORT_WIDTH(intel_dp->lane_count);
++}
++
+ static struct intel_encoder *
+ intel_ddi_get_crtc_encoder(struct drm_crtc *crtc)
+ {
+@@ -1269,9 +1280,7 @@ static void intel_ddi_pre_enable(struct intel_encoder *intel_encoder)
+ 		struct intel_digital_port *intel_dig_port =
+ 			enc_to_dig_port(encoder);
+ 
+-		intel_dp->DP = intel_dig_port->saved_port_bits |
+-			       DDI_BUF_CTL_ENABLE | DDI_BUF_EMP_400MV_0DB_HSW;
+-		intel_dp->DP |= DDI_PORT_WIDTH(intel_dp->lane_count);
++		intel_ddi_init_dp_buf_reg(intel_encoder);
+ 
+ 		intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
+ 		intel_dp_start_link_train(intel_dp);
+diff --git a/drivers/gpu/drm/i915/intel_drv.h b/drivers/gpu/drm/i915/intel_drv.h
+index 70376b1..52986be 100644
+--- a/drivers/gpu/drm/i915/intel_drv.h
++++ b/drivers/gpu/drm/i915/intel_drv.h
+@@ -717,6 +717,7 @@ void intel_ddi_fdi_disable(struct drm_crtc *crtc);
+ void intel_ddi_get_config(struct intel_encoder *encoder,
+ 			  struct intel_crtc_config *pipe_config);
+ 
++void intel_ddi_init_dp_buf_reg(struct intel_encoder *encoder);
+ 
+ /* intel_display.c */
+ const char *intel_output_name(int output);
+-- 
+2.1.0
+
+
+From bf4311e850c3be37493281706f08265f3317a70f Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 13:44:18 +1000
+Subject: [PATCH 09/18] drm/i915: check connector->encoder before using it.
+
+DP MST will need connectors that aren't connected to specific
+encoders, add some checks in advance to avoid oopses.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/i915/i915_debugfs.c
+---
+ drivers/gpu/drm/i915/i915_irq.c      |  4 ++++
+ drivers/gpu/drm/i915/intel_display.c | 25 ++++++++++++++-----------
+ 2 files changed, 18 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/i915_irq.c b/drivers/gpu/drm/i915/i915_irq.c
+index 6a8954c..13d5295 100644
+--- a/drivers/gpu/drm/i915/i915_irq.c
++++ b/drivers/gpu/drm/i915/i915_irq.c
+@@ -1169,6 +1169,8 @@ static void i915_hotplug_work_func(struct work_struct *work)
+ 	dev_priv->hpd_event_bits = 0;
+ 	list_for_each_entry(connector, &mode_config->connector_list, head) {
+ 		intel_connector = to_intel_connector(connector);
++		if (!intel_connector->encoder)
++			continue;
+ 		intel_encoder = intel_connector->encoder;
+ 		if (intel_encoder->hpd_pin > HPD_NONE &&
+ 		    dev_priv->hpd_stats[intel_encoder->hpd_pin].hpd_mark == HPD_MARK_DISABLED &&
+@@ -1199,6 +1201,8 @@ static void i915_hotplug_work_func(struct work_struct *work)
+ 
+ 	list_for_each_entry(connector, &mode_config->connector_list, head) {
+ 		intel_connector = to_intel_connector(connector);
++		if (!intel_connector->encoder)
++			continue;
+ 		intel_encoder = intel_connector->encoder;
+ 		if (hpd_event_bits & (1 << intel_encoder->hpd_pin)) {
+ 			if (intel_encoder->hot_plug)
+diff --git a/drivers/gpu/drm/i915/intel_display.c b/drivers/gpu/drm/i915/intel_display.c
+index f0be855..6a36a77 100644
+--- a/drivers/gpu/drm/i915/intel_display.c
++++ b/drivers/gpu/drm/i915/intel_display.c
+@@ -4943,20 +4943,23 @@ static void intel_connector_check_state(struct intel_connector *connector)
+ 		     "wrong connector dpms state\n");
+ 		WARN(connector->base.encoder != &encoder->base,
+ 		     "active connector not linked to encoder\n");
+-		WARN(!encoder->connectors_active,
+-		     "encoder->connectors_active not set\n");
+ 
+-		encoder_enabled = encoder->get_hw_state(encoder, &pipe);
+-		WARN(!encoder_enabled, "encoder not enabled\n");
+-		if (WARN_ON(!encoder->base.crtc))
+-			return;
++		if (encoder) {
++			WARN(!encoder->connectors_active,
++			     "encoder->connectors_active not set\n");
++
++			encoder_enabled = encoder->get_hw_state(encoder, &pipe);
++			WARN(!encoder_enabled, "encoder not enabled\n");
++			if (WARN_ON(!encoder->base.crtc))
++				return;
+ 
+-		crtc = encoder->base.crtc;
++			crtc = encoder->base.crtc;
+ 
+-		WARN(!crtc->enabled, "crtc not enabled\n");
+-		WARN(!to_intel_crtc(crtc)->active, "crtc not active\n");
+-		WARN(pipe != to_intel_crtc(crtc)->pipe,
+-		     "encoder active on the wrong pipe\n");
++			WARN(!crtc->enabled, "crtc not enabled\n");
++			WARN(!to_intel_crtc(crtc)->active, "crtc not active\n");
++			WARN(pipe != to_intel_crtc(crtc)->pipe,
++			     "encoder active on the wrong pipe\n");
++		}
+ 	}
+ }
+ 
+-- 
+2.1.0
+
+
+From 70070b61840928d500862e23f8c7e1238a20d68e Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Thu, 5 Jun 2014 13:22:59 +1000
+Subject: [PATCH 10/18] drm/i915: split some conversion functions out into
+ separate functions.
+
+for MST I need to reuse these, so split them out early.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/i915/intel_display.c
+---
+ drivers/gpu/drm/i915/intel_ddi.c | 27 ++++++++++++++++-----------
+ 1 file changed, 16 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_ddi.c b/drivers/gpu/drm/i915/intel_ddi.c
+index 7a9186f..b791379 100644
+--- a/drivers/gpu/drm/i915/intel_ddi.c
++++ b/drivers/gpu/drm/i915/intel_ddi.c
+@@ -751,6 +751,20 @@ intel_ddi_calculate_wrpll(int clock /* in Hz */,
+ 	*r2_out = best.r2;
+ }
+ 
++static int link_bw_to_pll_sel(int link_bw)
++{
++	switch (link_bw) {
++	case DP_LINK_BW_1_62:
++		return PORT_CLK_SEL_LCPLL_810;
++	case DP_LINK_BW_2_7:
++		return PORT_CLK_SEL_LCPLL_1350;
++	case DP_LINK_BW_5_4:
++		return PORT_CLK_SEL_LCPLL_2700;
++	default:
++		return -1;
++	}
++}
++
+ /*
+  * Tries to find a PLL for the CRTC. If it finds, it increases the refcount and
+  * stores it in intel_crtc->ddi_pll_sel, so other mode sets won't be able to
+@@ -773,17 +787,8 @@ bool intel_ddi_pll_select(struct intel_crtc *intel_crtc)
+ 	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP) {
+ 		struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
+ 
+-		switch (intel_dp->link_bw) {
+-		case DP_LINK_BW_1_62:
+-			intel_crtc->ddi_pll_sel = PORT_CLK_SEL_LCPLL_810;
+-			break;
+-		case DP_LINK_BW_2_7:
+-			intel_crtc->ddi_pll_sel = PORT_CLK_SEL_LCPLL_1350;
+-			break;
+-		case DP_LINK_BW_5_4:
+-			intel_crtc->ddi_pll_sel = PORT_CLK_SEL_LCPLL_2700;
+-			break;
+-		default:
++		intel_crtc->ddi_pll_sel = link_bw_to_pll_sel(intel_dp->link_bw);
++		if (intel_crtc->ddi_pll_sel == -1) {
+ 			DRM_ERROR("Link bandwidth %d unsupported\n",
+ 				  intel_dp->link_bw);
+ 			return false;
+-- 
+2.1.0
+
+
+From a83dfa3815406955631b488d522dd846041ca172 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 2 May 2014 14:02:48 +1000
+Subject: [PATCH 11/18] i915: add DP 1.2 MST support (v0.6)
+
+This adds DP 1.2 MST support on Haswell systems.
+
+Notes:
+a) this reworks irq handling for DP MST ports, so that we can
+avoid the mode config locking in the current hpd handlers, as
+we need to process up/down msgs at a better time.
+
+Changes since v0.1:
+use PORT_PCH_HOTPLUG to detect short vs long pulses
+add a workqueue to deal with digital events as they can get blocked on the
+main workqueue beyong mode_config mutex
+fix a bunch of modeset checker warnings
+acks irqs in the driver
+cleanup the MST encoders
+
+Changes since v0.2:
+check irq status again in work handler
+move around bring up and tear down to fix DPMS on/off
+use path properties.
+
+Changes since v0.3:
+updates for mst apis
+more state checker fixes
+irq handling improvements
+fbcon handling support
+improved reference counting of link - fixes redocking.
+
+Changes since v0.4:
+handle gpu reset hpd reinit without oopsing
+check link status on HPD irqs
+fix suspend/resume
+
+Changes since v0.5:
+use proper functions to get max link/lane counts
+fix another checker backtrace - due to connectors disappearing.
+set output type in more places fro, unknown->displayport
+don't talk to devices if no HPD asserted
+check mst on short irqs only
+check link status properly
+rebase onto prepping irq changes.
+drop unsued force_act
+
+TODO:
+possibly further state checker fixes
+HDMI screaming IRQ needs fixing.
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/i915/Makefile
+	drivers/gpu/drm/i915/i915_drv.c
+	drivers/gpu/drm/i915/intel_ddi.c
+	drivers/gpu/drm/i915/intel_display.c
+	drivers/gpu/drm/i915/intel_dp.c
+	drivers/gpu/drm/i915/intel_drv.h
+	drivers/gpu/drm/i915/intel_fbdev.c
+---
+ drivers/gpu/drm/i915/Makefile         |   1 +
+ drivers/gpu/drm/i915/i915_dma.c       |  10 +
+ drivers/gpu/drm/i915/i915_drv.c       |  15 +-
+ drivers/gpu/drm/i915/i915_drv.h       |   9 +
+ drivers/gpu/drm/i915/i915_irq.c       |   6 +-
+ drivers/gpu/drm/i915/intel_ddi.c      |  81 +++++-
+ drivers/gpu/drm/i915/intel_display.c  |  36 ++-
+ drivers/gpu/drm/i915/intel_dp.c       | 234 ++++++++++++++-
+ drivers/gpu/drm/i915/intel_dp_mst.c   | 531 ++++++++++++++++++++++++++++++++++
+ drivers/gpu/drm/i915/intel_drv.h      |  43 ++-
+ drivers/gpu/drm/i915/intel_opregion.c |   1 +
+ 11 files changed, 929 insertions(+), 38 deletions(-)
+ create mode 100644 drivers/gpu/drm/i915/intel_dp_mst.c
+
+diff --git a/drivers/gpu/drm/i915/Makefile b/drivers/gpu/drm/i915/Makefile
+index cad1683..91bd167 100644
+--- a/drivers/gpu/drm/i915/Makefile
++++ b/drivers/gpu/drm/i915/Makefile
+@@ -59,6 +59,7 @@ i915-y += dvo_ch7017.o \
+ 	  intel_crt.o \
+ 	  intel_ddi.o \
+ 	  intel_dp.o \
++	  intel_dp_mst.o \
+ 	  intel_dsi_cmd.o \
+ 	  intel_dsi.o \
+ 	  intel_dsi_pll.o \
+diff --git a/drivers/gpu/drm/i915/i915_dma.c b/drivers/gpu/drm/i915/i915_dma.c
+index d443441..4eecb90 100644
+--- a/drivers/gpu/drm/i915/i915_dma.c
++++ b/drivers/gpu/drm/i915/i915_dma.c
+@@ -1717,6 +1717,13 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
+ 		goto out_mtrrfree;
+ 	}
+ 
++	dev_priv->dp_wq = alloc_ordered_workqueue("i915-dp", 0);
++	if (dev_priv->dp_wq == NULL) {
++		DRM_ERROR("Failed to create our dp workqueue.\n");
++		ret = -ENOMEM;
++		goto out_freewq;
++	}
++
+ 	intel_irq_init(dev);
+ 	intel_uncore_sanitize(dev);
+ 
+@@ -1792,6 +1799,8 @@ out_gem_unload:
+ 	intel_teardown_gmbus(dev);
+ 	intel_teardown_mchbar(dev);
+ 	pm_qos_remove_request(&dev_priv->pm_qos);
++	destroy_workqueue(dev_priv->dp_wq);
++out_freewq:
+ 	destroy_workqueue(dev_priv->wq);
+ out_mtrrfree:
+ 	arch_phys_wc_del(dev_priv->gtt.mtrr);
+@@ -1892,6 +1901,7 @@ int i915_driver_unload(struct drm_device *dev)
+ 	intel_teardown_gmbus(dev);
+ 	intel_teardown_mchbar(dev);
+ 
++	destroy_workqueue(dev_priv->dp_wq);
+ 	destroy_workqueue(dev_priv->wq);
+ 	pm_qos_remove_request(&dev_priv->pm_qos);
+ 
+diff --git a/drivers/gpu/drm/i915/i915_drv.c b/drivers/gpu/drm/i915/i915_drv.c
+index 651e65e..d323da8 100644
+--- a/drivers/gpu/drm/i915/i915_drv.c
++++ b/drivers/gpu/drm/i915/i915_drv.c
+@@ -526,9 +526,6 @@ static int i915_drm_freeze(struct drm_device *dev)
+ 			return error;
+ 		}
+ 
+-		drm_irq_uninstall(dev);
+-		dev_priv->enable_hotplug_processing = false;
+-
+ 		intel_disable_gt_powersave(dev);
+ 
+ 		/*
+@@ -541,6 +538,9 @@ static int i915_drm_freeze(struct drm_device *dev)
+ 		}
+ 		drm_modeset_unlock_all(dev);
+ 
++		intel_dp_mst_suspend(dev);
++		drm_irq_uninstall(dev);
++
+ 		intel_modeset_suspend_hw(dev);
+ 	}
+ 
+@@ -644,6 +644,15 @@ static int __i915_drm_thaw(struct drm_device *dev, bool restore_gtt_mappings)
+ 
+ 		intel_modeset_init_hw(dev);
+ 
++		{
++			unsigned long irqflags;
++			spin_lock_irqsave(&dev_priv->irq_lock, irqflags);
++			if (dev_priv->display.hpd_irq_setup)
++				dev_priv->display.hpd_irq_setup(dev);
++			spin_unlock_irqrestore(&dev_priv->irq_lock, irqflags);
++		}
++
++		intel_dp_mst_resume(dev);
+ 		drm_modeset_lock_all(dev);
+ 		intel_modeset_setup_hw_state(dev, true);
+ 		drm_modeset_unlock_all(dev);
+diff --git a/drivers/gpu/drm/i915/i915_drv.h b/drivers/gpu/drm/i915/i915_drv.h
+index 58a0c0f..b914134 100644
+--- a/drivers/gpu/drm/i915/i915_drv.h
++++ b/drivers/gpu/drm/i915/i915_drv.h
+@@ -1546,6 +1546,15 @@ struct drm_i915_private {
+ 	u32 short_hpd_port_mask;
+ 	struct work_struct dig_port_work;
+ 
++	/*
++	 * if we get a HPD irq from DP and a HPD irq from non-DP
++	 * the non-DP HPD could block the workqueue on a mode config
++	 * mutex getting, that userspace may have taken. However
++	 * userspace is waiting on the DP workqueue to run which is
++	 * blocked behind the non-DP one.
++	 */
++	struct workqueue_struct *dp_wq;
++
+ 	/* Old dri1 support infrastructure, beware the dragons ya fools entering
+ 	 * here! */
+ 	struct i915_dri1_state dri1;
+diff --git a/drivers/gpu/drm/i915/i915_irq.c b/drivers/gpu/drm/i915/i915_irq.c
+index 13d5295..5a4ddbb 100644
+--- a/drivers/gpu/drm/i915/i915_irq.c
++++ b/drivers/gpu/drm/i915/i915_irq.c
+@@ -1694,7 +1694,7 @@ static inline void intel_hpd_irq_handler(struct drm_device *dev,
+ 	 * deadlock.
+ 	 */
+ 	if (queue_dig)
+-		schedule_work(&dev_priv->dig_port_work);
++		queue_work(dev_priv->dp_wq, &dev_priv->dig_port_work);
+ 	if (queue_hp)
+ 		schedule_work(&dev_priv->hotplug_work);
+ }
+@@ -4552,7 +4552,9 @@ void intel_hpd_init(struct drm_device *dev)
+ 	list_for_each_entry(connector, &mode_config->connector_list, head) {
+ 		struct intel_connector *intel_connector = to_intel_connector(connector);
+ 		connector->polled = intel_connector->polled;
+-		if (!connector->polled && I915_HAS_HOTPLUG(dev) && intel_connector->encoder->hpd_pin > HPD_NONE)
++		if (connector->encoder && !connector->polled && I915_HAS_HOTPLUG(dev) && intel_connector->encoder->hpd_pin > HPD_NONE)
++			connector->polled = DRM_CONNECTOR_POLL_HPD;
++		if (intel_connector->mst_port)
+ 			connector->polled = DRM_CONNECTOR_POLL_HPD;
+ 	}
+ 
+diff --git a/drivers/gpu/drm/i915/intel_ddi.c b/drivers/gpu/drm/i915/intel_ddi.c
+index b791379..54fc7d4 100644
+--- a/drivers/gpu/drm/i915/intel_ddi.c
++++ b/drivers/gpu/drm/i915/intel_ddi.c
+@@ -116,7 +116,10 @@ enum port intel_ddi_get_encoder_port(struct intel_encoder *intel_encoder)
+ 	struct drm_encoder *encoder = &intel_encoder->base;
+ 	int type = intel_encoder->type;
+ 
+-	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP ||
++	if (type == INTEL_OUTPUT_DP_MST) {
++		struct intel_digital_port *intel_dig_port = enc_to_mst(encoder)->primary;
++		return intel_dig_port->port;
++	} else if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP ||
+ 	    type == INTEL_OUTPUT_HDMI || type == INTEL_OUTPUT_UNKNOWN) {
+ 		struct intel_digital_port *intel_dig_port =
+ 			enc_to_dig_port(encoder);
+@@ -784,7 +787,15 @@ bool intel_ddi_pll_select(struct intel_crtc *intel_crtc)
+ 
+ 	intel_ddi_put_crtc_pll(crtc);
+ 
+-	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP) {
++	if (type == INTEL_OUTPUT_DP_MST) {
++		struct intel_dp_mst_encoder *intel_mst = enc_to_mst(encoder);
++		intel_crtc->ddi_pll_sel = link_bw_to_pll_sel(intel_mst->primary->dp.link_bw);
++		if (intel_crtc->ddi_pll_sel == -1) {
++			DRM_ERROR("Link bandwidth %d unsupported\n",
++				  intel_mst->primary->dp.link_bw);
++			return false;
++		}
++	} else if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP) {
+ 		struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
+ 
+ 		intel_crtc->ddi_pll_sel = link_bw_to_pll_sel(intel_dp->link_bw);
+@@ -942,8 +953,7 @@ void intel_ddi_set_pipe_settings(struct drm_crtc *crtc)
+ 	int type = intel_encoder->type;
+ 	uint32_t temp;
+ 
+-	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP) {
+-
++	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP || type == INTEL_OUTPUT_DP_MST) {
+ 		temp = TRANS_MSA_SYNC_CLK;
+ 		switch (intel_crtc->config.pipe_bpp) {
+ 		case 18:
+@@ -965,6 +975,21 @@ void intel_ddi_set_pipe_settings(struct drm_crtc *crtc)
+ 	}
+ }
+ 
++void intel_ddi_set_vc_payload_alloc(struct drm_crtc *crtc, bool state)
++{
++	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
++	struct drm_device *dev = crtc->dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	enum transcoder cpu_transcoder = intel_crtc->config.cpu_transcoder;
++	uint32_t temp;
++	temp = I915_READ(TRANS_DDI_FUNC_CTL(cpu_transcoder));
++	if (state == true)
++		temp |= TRANS_DDI_DP_VC_PAYLOAD_ALLOC;
++	else
++		temp &= ~TRANS_DDI_DP_VC_PAYLOAD_ALLOC;
++	I915_WRITE(TRANS_DDI_FUNC_CTL(cpu_transcoder), temp);
++}
++
+ void intel_ddi_enable_transcoder_func(struct drm_crtc *crtc)
+ {
+ 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+@@ -1042,7 +1067,19 @@ void intel_ddi_enable_transcoder_func(struct drm_crtc *crtc)
+ 		   type == INTEL_OUTPUT_EDP) {
+ 		struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
+ 
+-		temp |= TRANS_DDI_MODE_SELECT_DP_SST;
++		if (intel_dp->is_mst) {
++			temp |= TRANS_DDI_MODE_SELECT_DP_MST;
++		} else
++			temp |= TRANS_DDI_MODE_SELECT_DP_SST;
++
++		temp |= DDI_PORT_WIDTH(intel_dp->lane_count);
++	} else if (type == INTEL_OUTPUT_DP_MST) {
++		struct intel_dp *intel_dp = &enc_to_mst(encoder)->primary->dp;
++
++		if (intel_dp->is_mst) {
++			temp |= TRANS_DDI_MODE_SELECT_DP_MST;
++		} else
++			temp |= TRANS_DDI_MODE_SELECT_DP_SST;
+ 
+ 		temp |= DDI_PORT_WIDTH(intel_dp->lane_count);
+ 	} else {
+@@ -1059,7 +1096,7 @@ void intel_ddi_disable_transcoder_func(struct drm_i915_private *dev_priv,
+ 	uint32_t reg = TRANS_DDI_FUNC_CTL(cpu_transcoder);
+ 	uint32_t val = I915_READ(reg);
+ 
+-	val &= ~(TRANS_DDI_FUNC_ENABLE | TRANS_DDI_PORT_MASK);
++	val &= ~(TRANS_DDI_FUNC_ENABLE | TRANS_DDI_PORT_MASK | TRANS_DDI_DP_VC_PAYLOAD_ALLOC);
+ 	val |= TRANS_DDI_PORT_NONE;
+ 	I915_WRITE(reg, val);
+ }
+@@ -1098,8 +1135,11 @@ bool intel_ddi_connector_get_hw_state(struct intel_connector *intel_connector)
+ 	case TRANS_DDI_MODE_SELECT_DP_SST:
+ 		if (type == DRM_MODE_CONNECTOR_eDP)
+ 			return true;
+-	case TRANS_DDI_MODE_SELECT_DP_MST:
+ 		return (type == DRM_MODE_CONNECTOR_DisplayPort);
++	case TRANS_DDI_MODE_SELECT_DP_MST:
++		/* if the transcoder is in MST state then
++		 * connector isn't connected */
++		return false;
+ 
+ 	case TRANS_DDI_MODE_SELECT_FDI:
+ 		return (type == DRM_MODE_CONNECTOR_VGA);
+@@ -1151,6 +1191,9 @@ bool intel_ddi_get_hw_state(struct intel_encoder *encoder,
+ 
+ 			if ((tmp & TRANS_DDI_PORT_MASK)
+ 			    == TRANS_DDI_SELECT_PORT(port)) {
++				if ((tmp & TRANS_DDI_MODE_SELECT_MASK) == TRANS_DDI_MODE_SELECT_DP_MST)
++					return false;
++
+ 				*pipe = i;
+ 				return true;
+ 			}
+@@ -1479,10 +1522,15 @@ void intel_ddi_prepare_link_retrain(struct drm_encoder *encoder)
+ 			intel_wait_ddi_buf_idle(dev_priv, port);
+ 	}
+ 
+-	val = DP_TP_CTL_ENABLE | DP_TP_CTL_MODE_SST |
++	val = DP_TP_CTL_ENABLE |
+ 	      DP_TP_CTL_LINK_TRAIN_PAT1 | DP_TP_CTL_SCRAMBLE_DISABLE;
+-	if (drm_dp_enhanced_frame_cap(intel_dp->dpcd))
+-		val |= DP_TP_CTL_ENHANCED_FRAME_ENABLE;
++	if (intel_dp->is_mst)
++		val |= DP_TP_CTL_MODE_MST;
++	else {
++		val |= DP_TP_CTL_MODE_SST;
++		if (drm_dp_enhanced_frame_cap(intel_dp->dpcd))
++			val |= DP_TP_CTL_ENHANCED_FRAME_ENABLE;
++	}
+ 	I915_WRITE(DP_TP_CTL(port), val);
+ 	POSTING_READ(DP_TP_CTL(port));
+ 
+@@ -1521,11 +1569,16 @@ void intel_ddi_fdi_disable(struct drm_crtc *crtc)
+ 
+ static void intel_ddi_hot_plug(struct intel_encoder *intel_encoder)
+ {
+-	struct intel_dp *intel_dp = enc_to_intel_dp(&intel_encoder->base);
+-	int type = intel_encoder->type;
++	struct intel_digital_port *intel_dig_port = enc_to_dig_port(&intel_encoder->base);
++	int type = intel_dig_port->base.type;
++
++	if (type != INTEL_OUTPUT_DISPLAYPORT &&
++	    type != INTEL_OUTPUT_EDP &&
++	    type != INTEL_OUTPUT_UNKNOWN) {
++		return;
++	}
+ 
+-	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP)
+-		intel_dp_check_link_status(intel_dp);
++	intel_dp_hot_plug(intel_encoder);
+ }
+ 
+ void intel_ddi_get_config(struct intel_encoder *encoder,
+diff --git a/drivers/gpu/drm/i915/intel_display.c b/drivers/gpu/drm/i915/intel_display.c
+index 6a36a77..68e7e28 100644
+--- a/drivers/gpu/drm/i915/intel_display.c
++++ b/drivers/gpu/drm/i915/intel_display.c
+@@ -68,6 +68,14 @@ static void haswell_set_pipeconf(struct drm_crtc *crtc);
+ static void intel_set_pipe_csc(struct drm_crtc *crtc);
+ static void vlv_prepare_pll(struct intel_crtc *crtc);
+ 
++static struct intel_encoder *intel_find_encoder(struct intel_connector *connector, int pipe)
++{
++	if (!connector->mst_port)
++		return connector->encoder;
++	else
++		return &connector->mst_port->mst_encoders[pipe]->base;
++}
++
+ typedef struct {
+ 	int	min, max;
+ } intel_range_t;
+@@ -4112,6 +4120,9 @@ static void haswell_crtc_enable(struct drm_crtc *crtc)
+ 	if (intel_crtc->config.has_pch_encoder)
+ 		lpt_pch_enable(crtc);
+ 
++	if (intel_crtc->config.dp_encoder_is_mst)
++		intel_ddi_set_vc_payload_alloc(crtc, true);
++
+ 	for_each_encoder_on_crtc(dev, crtc, encoder) {
+ 		encoder->enable(encoder);
+ 		intel_opregion_notify_encoder(encoder, true);
+@@ -4162,6 +4173,9 @@ static void ironlake_crtc_disable(struct drm_crtc *crtc)
+ 
+ 	intel_disable_pipe(dev_priv, pipe);
+ 
++	if (intel_crtc->config.dp_encoder_is_mst)
++		intel_ddi_set_vc_payload_alloc(crtc, false);
++
+ 	ironlake_pfit_disable(intel_crtc);
+ 
+ 	for_each_encoder_on_crtc(dev, crtc, encoder)
+@@ -4939,6 +4953,10 @@ static void intel_connector_check_state(struct intel_connector *connector)
+ 			      connector->base.base.id,
+ 			      connector->base.name);
+ 
++		/* there is no real hw state for MST connectors */
++		if (connector->mst_port)
++			return;
++
+ 		WARN(connector->base.dpms == DRM_MODE_DPMS_OFF,
+ 		     "wrong connector dpms state\n");
+ 		WARN(connector->base.encoder != &encoder->base,
+@@ -10086,6 +10104,14 @@ check_encoder_state(struct drm_device *dev)
+ 			if (connector->base.dpms != DRM_MODE_DPMS_OFF)
+ 				active = true;
+ 		}
++		/*
++		 * for MST connectors if we unplug the connector is gone
++		 * away but the encoder is still connected to a crtc
++		 * until a modeset happens in response to the hotplug.
++		 */
++		if (!enabled && encoder->base.encoder_type == DRM_MODE_ENCODER_DPMST)
++			continue;
++
+ 		WARN(!!encoder->base.crtc != enabled,
+ 		     "encoder's enabled state mismatch "
+ 		     "(expected %i, found %i)\n",
+@@ -10623,7 +10649,7 @@ intel_modeset_stage_output_state(struct drm_device *dev,
+ 		 * for them. */
+ 		for (ro = 0; ro < set->num_connectors; ro++) {
+ 			if (set->connectors[ro] == &connector->base) {
+-				connector->new_encoder = connector->encoder;
++				connector->new_encoder = intel_find_encoder(connector, to_intel_crtc(set->crtc)->pipe);
+ 				break;
+ 			}
+ 		}
+@@ -10669,7 +10695,7 @@ intel_modeset_stage_output_state(struct drm_device *dev,
+ 					 new_crtc)) {
+ 			return -EINVAL;
+ 		}
+-		connector->encoder->new_crtc = to_intel_crtc(new_crtc);
++		connector->new_encoder->new_crtc = to_intel_crtc(new_crtc);
+ 
+ 		DRM_DEBUG_KMS("[CONNECTOR:%d:%s] to [CRTC:%d]\n",
+ 			connector->base.base.id,
+@@ -10703,6 +10729,12 @@ intel_modeset_stage_output_state(struct drm_device *dev,
+ 		}
+ 	}
+ 	/* Now we've also updated encoder->new_crtc for all encoders. */
++	list_for_each_entry(connector, &dev->mode_config.connector_list,
++			    base.head) {
++		if (connector->new_encoder)
++			if (connector->new_encoder != connector->encoder)
++				connector->encoder = connector->new_encoder;
++	}
+ 
+ 	for_each_intel_crtc(dev, crtc) {
+ 		crtc->new_enabled = false;
+diff --git a/drivers/gpu/drm/i915/intel_dp.c b/drivers/gpu/drm/i915/intel_dp.c
+index 6817be8..c0db398 100644
+--- a/drivers/gpu/drm/i915/intel_dp.c
++++ b/drivers/gpu/drm/i915/intel_dp.c
+@@ -114,7 +114,7 @@ static void intel_dp_link_down(struct intel_dp *intel_dp);
+ static bool _edp_panel_vdd_on(struct intel_dp *intel_dp);
+ static void edp_panel_vdd_off(struct intel_dp *intel_dp, bool sync);
+ 
+-static int
++int
+ intel_dp_max_link_bw(struct intel_dp *intel_dp)
+ {
+ 	int max_link_bw = intel_dp->dpcd[DP_MAX_LINK_RATE];
+@@ -773,8 +773,9 @@ intel_dp_connector_unregister(struct intel_connector *intel_connector)
+ {
+ 	struct intel_dp *intel_dp = intel_attached_dp(&intel_connector->base);
+ 
+-	sysfs_remove_link(&intel_connector->base.kdev->kobj,
+-			  intel_dp->aux.ddc.dev.kobj.name);
++	if (!intel_connector->mst_port)
++		sysfs_remove_link(&intel_connector->base.kdev->kobj,
++				  intel_dp->aux.ddc.dev.kobj.name);
+ 	intel_connector_unregister(intel_connector);
+ }
+ 
+@@ -3276,6 +3277,33 @@ int intel_dp_sink_crc(struct intel_dp *intel_dp, u8 *crc)
+ }
+ 
+ static bool
++intel_dp_probe_mst(struct intel_dp *intel_dp)
++{
++	u8 buf[1];
++
++	if (!intel_dp->can_mst)
++		return false;
++
++	if (intel_dp->dpcd[DP_DPCD_REV] < 0x12)
++		return false;
++
++	intel_edp_panel_vdd_on(intel_dp);
++	if (intel_dp_dpcd_read_wake(&intel_dp->aux, DP_MSTM_CAP, buf, 1)) {
++		if (buf[0] & DP_MST_CAP) {
++			DRM_DEBUG_KMS("Sink is MST capable\n");
++			intel_dp->is_mst = true;
++		} else {
++			DRM_DEBUG_KMS("Sink is not MST capable\n");
++			intel_dp->is_mst = false;
++		}
++	}
++	edp_panel_vdd_off(intel_dp, false);
++
++	drm_dp_mst_topology_mgr_set_mst(&intel_dp->mst_mgr, intel_dp->is_mst);
++	return intel_dp->is_mst;
++}
++
++static bool
+ intel_dp_get_sink_irq(struct intel_dp *intel_dp, u8 *sink_irq_vector)
+ {
+ 	return intel_dp_dpcd_read_wake(&intel_dp->aux,
+@@ -3283,6 +3311,20 @@ intel_dp_get_sink_irq(struct intel_dp *intel_dp, u8 *sink_irq_vector)
+ 				       sink_irq_vector, 1) == 1;
+ }
+ 
++static bool
++intel_dp_get_sink_irq_esi(struct intel_dp *intel_dp, u8 *sink_irq_vector)
++{
++	int ret;
++
++	ret = intel_dp_dpcd_read_wake(&intel_dp->aux,
++					     DP_SINK_COUNT_ESI,
++					     sink_irq_vector, 14);
++	if (ret != 14)
++		return false;
++
++	return true;
++}
++
+ static void
+ intel_dp_handle_test_request(struct intel_dp *intel_dp)
+ {
+@@ -3290,6 +3332,63 @@ intel_dp_handle_test_request(struct intel_dp *intel_dp)
+ 	drm_dp_dpcd_writeb(&intel_dp->aux, DP_TEST_RESPONSE, DP_TEST_NAK);
+ }
+ 
++static int
++intel_dp_check_mst_status(struct intel_dp *intel_dp)
++{
++	bool bret;
++
++	if (intel_dp->is_mst) {
++		u8 esi[16] = { 0 };
++		int ret = 0;
++		int retry;
++		bool handled;
++		bret = intel_dp_get_sink_irq_esi(intel_dp, esi);
++	go_again:
++		if (bret == true) {
++
++			/* check link status - esi[10] = 0x200c */
++			if (intel_dp->active_mst_links && !drm_dp_channel_eq_ok(&esi[10], intel_dp->lane_count)) {
++				DRM_DEBUG_KMS("channel EQ not ok, retraining\n");
++				intel_dp_start_link_train(intel_dp);
++				intel_dp_complete_link_train(intel_dp);
++				intel_dp_stop_link_train(intel_dp);
++			}
++
++			DRM_DEBUG_KMS("got esi %02x %02x %02x\n", esi[0], esi[1], esi[2]);
++			ret = drm_dp_mst_hpd_irq(&intel_dp->mst_mgr, esi, &handled);
++
++			if (handled) {
++				for (retry = 0; retry < 3; retry++) {
++					int wret;
++					wret = drm_dp_dpcd_write(&intel_dp->aux,
++								 DP_SINK_COUNT_ESI+1,
++								 &esi[1], 3);
++					if (wret == 3) {
++						break;
++					}
++				}
++
++				bret = intel_dp_get_sink_irq_esi(intel_dp, esi);
++				if (bret == true) {
++					DRM_DEBUG_KMS("got esi2 %02x %02x %02x\n", esi[0], esi[1], esi[2]);
++					goto go_again;
++				}
++			} else
++				ret = 0;
++
++			return ret;
++		} else {
++			struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
++			DRM_DEBUG_KMS("failed to get ESI - device may have failed\n");
++			intel_dp->is_mst = false;
++			drm_dp_mst_topology_mgr_set_mst(&intel_dp->mst_mgr, intel_dp->is_mst);
++			/* send a hotplug event */
++			drm_kms_helper_hotplug_event(intel_dig_port->base.base.dev);
++		}
++	}
++	return -EINVAL;
++}
++
+ /*
+  * According to DP spec
+  * 5.1.2:
+@@ -3298,7 +3397,6 @@ intel_dp_handle_test_request(struct intel_dp *intel_dp)
+  *  3. Use Link Training from 2.5.3.3 and 3.5.1.3
+  *  4. Check link status on receipt of hot-plug interrupt
+  */
+-
+ void
+ intel_dp_check_link_status(struct intel_dp *intel_dp)
+ {
+@@ -3518,6 +3616,7 @@ intel_dp_detect(struct drm_connector *connector, bool force)
+ 	enum drm_connector_status status;
+ 	enum intel_display_power_domain power_domain;
+ 	struct edid *edid = NULL;
++	bool ret;
+ 
+ 	intel_runtime_pm_get(dev_priv);
+ 
+@@ -3527,6 +3626,14 @@ intel_dp_detect(struct drm_connector *connector, bool force)
+ 	DRM_DEBUG_KMS("[CONNECTOR:%d:%s]\n",
+ 		      connector->base.id, connector->name);
+ 
++	if (intel_dp->is_mst) {
++		/* MST devices are disconnected from a monitor POV */
++		if (intel_encoder->type != INTEL_OUTPUT_EDP)
++			intel_encoder->type = INTEL_OUTPUT_DISPLAYPORT;
++		status = connector_status_disconnected;
++		goto out;
++	}
++
+ 	intel_dp->has_audio = false;
+ 
+ 	if (HAS_PCH_SPLIT(dev))
+@@ -3539,6 +3646,16 @@ intel_dp_detect(struct drm_connector *connector, bool force)
+ 
+ 	intel_dp_probe_oui(intel_dp);
+ 
++	ret = intel_dp_probe_mst(intel_dp);
++	if (ret) {
++		/* if we are in MST mode then this connector
++		   won't appear connected or have anything with EDID on it */
++		if (intel_encoder->type != INTEL_OUTPUT_EDP)
++			intel_encoder->type = INTEL_OUTPUT_DISPLAYPORT;
++		status = connector_status_disconnected;
++		goto out;
++	}
++
+ 	if (intel_dp->force_audio != HDMI_AUDIO_AUTO) {
+ 		intel_dp->has_audio = (intel_dp->force_audio == HDMI_AUDIO_ON);
+ 	} else {
+@@ -3734,6 +3851,7 @@ void intel_dp_encoder_destroy(struct drm_encoder *encoder)
+ 	struct drm_device *dev = intel_dp_to_dev(intel_dp);
+ 
+ 	drm_dp_aux_unregister(&intel_dp->aux);
++	intel_dp_mst_encoder_cleanup(intel_dig_port);
+ 	drm_encoder_cleanup(encoder);
+ 	if (is_edp(intel_dp)) {
+ 		cancel_delayed_work_sync(&intel_dp->panel_vdd_work);
+@@ -3766,28 +3884,62 @@ static const struct drm_encoder_funcs intel_dp_enc_funcs = {
+ 	.destroy = intel_dp_encoder_destroy,
+ };
+ 
+-static void
++void
+ intel_dp_hot_plug(struct intel_encoder *intel_encoder)
+ {
+-	struct intel_dp *intel_dp = enc_to_intel_dp(&intel_encoder->base);
+-
+-	intel_dp_check_link_status(intel_dp);
++	return;
+ }
+ 
+ bool
+ intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd)
+ {
+ 	struct intel_dp *intel_dp = &intel_dig_port->dp;
++	struct drm_device *dev = intel_dig_port->base.base.dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	int ret;
++	if (intel_dig_port->base.type != INTEL_OUTPUT_EDP)
++		intel_dig_port->base.type = INTEL_OUTPUT_DISPLAYPORT;
+ 
+-	if (long_hpd)
+-		return true;
++	DRM_DEBUG_KMS("got hpd irq on port %d - %s\n", intel_dig_port->port,
++		      long_hpd ? "long" : "short");
+ 
+-	/*
+-	 * we'll check the link status via the normal hot plug path later -
+-	 * but for short hpds we should check it now
+-	 */
+-	intel_dp_check_link_status(intel_dp);
++	if (long_hpd) {
++		if (!ibx_digital_port_connected(dev_priv, intel_dig_port))
++			goto mst_fail;
++
++		if (!intel_dp_get_dpcd(intel_dp)) {
++			goto mst_fail;
++		}
++
++		intel_dp_probe_oui(intel_dp);
++
++		if (!intel_dp_probe_mst(intel_dp))
++			goto mst_fail;
++
++	} else {
++		if (intel_dp->is_mst) {
++			ret = intel_dp_check_mst_status(intel_dp);
++			if (ret == -EINVAL)
++				goto mst_fail;
++		}
++
++		if (!intel_dp->is_mst) {
++			/*
++			 * we'll check the link status via the normal hot plug path later -
++			 * but for short hpds we should check it now
++			 */
++			intel_dp_check_link_status(intel_dp);
++		}
++	}
+ 	return false;
++mst_fail:
++	/* if we were in MST mode, and device is not there get out of MST mode */
++	if (intel_dp->is_mst) {
++		DRM_DEBUG_KMS("MST device may have disappeared %d vs %d\n", intel_dp->is_mst, intel_dp->mst_mgr.mst_state);
++		intel_dp->is_mst = false;
++		drm_dp_mst_topology_mgr_set_mst(&intel_dp->mst_mgr, intel_dp->is_mst);
++	}
++	return true;
+ }
+ 
+ /* Return which DP Port should be selected for Transcoder DP control */
+@@ -3838,7 +3990,7 @@ bool intel_dp_is_edp(struct drm_device *dev, enum port port)
+ 	return false;
+ }
+ 
+-static void
++void
+ intel_dp_add_properties(struct intel_dp *intel_dp, struct drm_connector *connector)
+ {
+ 	struct intel_connector *intel_connector = to_intel_connector(connector);
+@@ -4339,6 +4491,13 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
+ 
+ 	intel_dp->psr_setup_done = false;
+ 
++	/* init MST on ports that can support it */
++	if (IS_HASWELL(dev) || IS_BROADWELL(dev)) {
++		if (port == PORT_B || port == PORT_C || port == PORT_D) {
++			intel_dp_mst_encoder_init(intel_dig_port, intel_connector->base.base.id);
++		}
++	}
++
+ 	if (!intel_edp_init_connector(intel_dp, intel_connector, &power_seq)) {
+ 		drm_dp_aux_unregister(&intel_dp->aux);
+ 		if (is_edp(intel_dp)) {
+@@ -4436,3 +4595,46 @@ intel_dp_init(struct drm_device *dev, int output_reg, enum port port)
+ 		kfree(intel_connector);
+ 	}
+ }
++
++void intel_dp_mst_suspend(struct drm_device *dev)
++{
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	int i;
++
++	/* disable MST */
++	for (i = 0; i < I915_MAX_PORTS; i++) {
++		struct intel_digital_port *intel_dig_port = dev_priv->hpd_irq_port[i];
++		if (!intel_dig_port)
++			continue;
++
++		if (intel_dig_port->base.type == INTEL_OUTPUT_DISPLAYPORT) {
++			if (!intel_dig_port->dp.can_mst)
++				continue;
++			if (intel_dig_port->dp.is_mst)
++				drm_dp_mst_topology_mgr_suspend(&intel_dig_port->dp.mst_mgr);
++		}
++	}
++}
++
++void intel_dp_mst_resume(struct drm_device *dev)
++{
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	int i;
++
++	for (i = 0; i < I915_MAX_PORTS; i++) {
++		struct intel_digital_port *intel_dig_port = dev_priv->hpd_irq_port[i];
++		if (!intel_dig_port)
++			continue;
++		if (intel_dig_port->base.type == INTEL_OUTPUT_DISPLAYPORT) {
++			int ret;
++
++			if (!intel_dig_port->dp.can_mst)
++				continue;
++
++			ret = drm_dp_mst_topology_mgr_resume(&intel_dig_port->dp.mst_mgr);
++			if (ret != 0) {
++				intel_dp_check_mst_status(&intel_dig_port->dp);
++			}
++		}
++	}
++}
+diff --git a/drivers/gpu/drm/i915/intel_dp_mst.c b/drivers/gpu/drm/i915/intel_dp_mst.c
+new file mode 100644
+index 0000000..2afd364
+--- /dev/null
++++ b/drivers/gpu/drm/i915/intel_dp_mst.c
+@@ -0,0 +1,531 @@
++/*
++ * Copyright © 2008 Intel Corporation
++ *             2014 Red Hat Inc.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
++ * IN THE SOFTWARE.
++ *
++ */
++
++#include <drm/drmP.h>
++#include "i915_drv.h"
++#include "intel_drv.h"
++#include <drm/drm_crtc_helper.h>
++#include <drm/drm_edid.h>
++
++bool
++intel_dp_mst_compute_config(struct intel_encoder *encoder,
++			    struct intel_crtc_config *pipe_config)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
++	struct intel_digital_port *intel_dig_port = intel_mst->primary;
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++	struct drm_device *dev = encoder->base.dev;
++	int bpp;
++	int lane_count, slots;
++	struct drm_display_mode *adjusted_mode = &pipe_config->adjusted_mode;
++	struct intel_connector *found = NULL, *intel_connector;
++	int mst_pbn;
++
++	pipe_config->dp_encoder_is_mst = true;
++	pipe_config->has_pch_encoder = false;
++	pipe_config->has_dp_encoder = true;
++	bpp = 24;
++	/*
++	 * for MST we always configure max link bw - the spec doesn't
++	 * seem to suggest we should do otherwise.
++	 */
++	lane_count = drm_dp_max_lane_count(intel_dp->dpcd);
++	intel_dp->link_bw = intel_dp_max_link_bw(intel_dp);
++	intel_dp->lane_count = lane_count;
++
++	pipe_config->pipe_bpp = 24;
++	pipe_config->port_clock = drm_dp_bw_code_to_link_rate(intel_dp->link_bw);
++
++	list_for_each_entry(intel_connector, &dev->mode_config.connector_list, base.head) {
++		if (intel_connector->new_encoder == encoder) {
++			found = intel_connector;
++			break;
++		}
++	}
++
++	if (!found) {
++		DRM_ERROR("can't find connector\n");
++		return false;
++	}
++
++	mst_pbn = drm_dp_calc_pbn_mode(adjusted_mode->clock, bpp);
++
++	pipe_config->pbn = mst_pbn;
++	slots = drm_dp_find_vcpi_slots(&intel_dp->mst_mgr, mst_pbn);
++
++	intel_link_compute_m_n(bpp, lane_count,
++			       adjusted_mode->crtc_clock,
++			       pipe_config->port_clock,
++			       &pipe_config->dp_m_n);
++
++	pipe_config->dp_m_n.tu = slots;
++	return true;
++
++}
++
++static void intel_mst_disable_dp(struct intel_encoder *encoder)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
++	struct intel_digital_port *intel_dig_port = intel_mst->primary;
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++	int ret;
++
++	DRM_DEBUG_KMS("%d\n", intel_dp->active_mst_links);
++
++	drm_dp_mst_reset_vcpi_slots(&intel_dp->mst_mgr, intel_mst->port);
++
++	ret = drm_dp_update_payload_part1(&intel_dp->mst_mgr);
++	if (ret) {
++		DRM_ERROR("failed to update payload %d\n", ret);
++	}
++}
++
++static void intel_mst_post_disable_dp(struct intel_encoder *encoder)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
++	struct intel_digital_port *intel_dig_port = intel_mst->primary;
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++
++	DRM_DEBUG_KMS("%d\n", intel_dp->active_mst_links);
++
++	/* this can fail */
++	drm_dp_check_act_status(&intel_dp->mst_mgr);
++	/* and this can also fail */
++	drm_dp_update_payload_part2(&intel_dp->mst_mgr);
++
++	drm_dp_mst_deallocate_vcpi(&intel_dp->mst_mgr, intel_mst->port);
++
++	intel_dp->active_mst_links--;
++	intel_mst->port = NULL;
++	if (intel_dp->active_mst_links == 0) {
++		intel_dig_port->base.post_disable(&intel_dig_port->base);
++		intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_OFF);
++	}
++}
++
++static void intel_mst_pre_enable_dp(struct intel_encoder *encoder)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
++	struct intel_digital_port *intel_dig_port = intel_mst->primary;
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++	struct drm_device *dev = encoder->base.dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	enum port port = intel_dig_port->port;
++	int ret;
++	uint32_t temp;
++	struct intel_connector *found = NULL, *intel_connector;
++	int slots;
++	struct drm_crtc *crtc = encoder->base.crtc;
++	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
++
++	list_for_each_entry(intel_connector, &dev->mode_config.connector_list, base.head) {
++		if (intel_connector->new_encoder == encoder) {
++			found = intel_connector;
++			break;
++		}
++	}
++
++	if (!found) {
++		DRM_ERROR("can't find connector\n");
++		return;
++	}
++
++	DRM_DEBUG_KMS("%d\n", intel_dp->active_mst_links);
++	intel_mst->port = found->port;
++
++	if (intel_dp->active_mst_links == 0) {
++		enum port port = intel_ddi_get_encoder_port(encoder);
++
++		I915_WRITE(PORT_CLK_SEL(port), intel_crtc->ddi_pll_sel);
++
++		intel_ddi_init_dp_buf_reg(&intel_dig_port->base);
++
++		intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
++
++
++		intel_dp_start_link_train(intel_dp);
++		intel_dp_complete_link_train(intel_dp);
++		intel_dp_stop_link_train(intel_dp);
++	}
++
++	ret = drm_dp_mst_allocate_vcpi(&intel_dp->mst_mgr,
++				       intel_mst->port, intel_crtc->config.pbn, &slots);
++	if (ret == false) {
++		DRM_ERROR("failed to allocate vcpi\n");
++		return;
++	}
++
++
++	intel_dp->active_mst_links++;
++	temp = I915_READ(DP_TP_STATUS(port));
++	I915_WRITE(DP_TP_STATUS(port), temp);
++
++	ret = drm_dp_update_payload_part1(&intel_dp->mst_mgr);
++}
++
++static void intel_mst_enable_dp(struct intel_encoder *encoder)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
++	struct intel_digital_port *intel_dig_port = intel_mst->primary;
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++	struct drm_device *dev = intel_dig_port->base.base.dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	enum port port = intel_dig_port->port;
++	int ret;
++
++	DRM_DEBUG_KMS("%d\n", intel_dp->active_mst_links);
++
++	if (wait_for((I915_READ(DP_TP_STATUS(port)) & DP_TP_STATUS_ACT_SENT),
++		     1))
++		DRM_ERROR("Timed out waiting for ACT sent\n");
++
++	ret = drm_dp_check_act_status(&intel_dp->mst_mgr);
++
++	ret = drm_dp_update_payload_part2(&intel_dp->mst_mgr);
++}
++
++static bool intel_dp_mst_enc_get_hw_state(struct intel_encoder *encoder,
++				      enum pipe *pipe)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
++	*pipe = intel_mst->pipe;
++	if (intel_mst->port)
++		return true;
++	return false;
++}
++
++static void intel_dp_mst_enc_get_config(struct intel_encoder *encoder,
++					struct intel_crtc_config *pipe_config)
++{
++	struct intel_crtc *crtc = to_intel_crtc(encoder->base.crtc);
++	struct drm_device *dev = encoder->base.dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	enum transcoder cpu_transcoder = crtc->config.cpu_transcoder;
++	u32 temp, flags = 0;
++
++	pipe_config->has_dp_encoder = true;
++
++	temp = I915_READ(TRANS_DDI_FUNC_CTL(cpu_transcoder));
++	if (temp & TRANS_DDI_PHSYNC)
++		flags |= DRM_MODE_FLAG_PHSYNC;
++	else
++		flags |= DRM_MODE_FLAG_NHSYNC;
++	if (temp & TRANS_DDI_PVSYNC)
++		flags |= DRM_MODE_FLAG_PVSYNC;
++	else
++		flags |= DRM_MODE_FLAG_NVSYNC;
++
++	switch (temp & TRANS_DDI_BPC_MASK) {
++	case TRANS_DDI_BPC_6:
++		pipe_config->pipe_bpp = 18;
++		break;
++	case TRANS_DDI_BPC_8:
++		pipe_config->pipe_bpp = 24;
++		break;
++	case TRANS_DDI_BPC_10:
++		pipe_config->pipe_bpp = 30;
++		break;
++	case TRANS_DDI_BPC_12:
++		pipe_config->pipe_bpp = 36;
++		break;
++	default:
++		break;
++	}
++	pipe_config->adjusted_mode.flags |= flags;
++	intel_dp_get_m_n(crtc, pipe_config);
++}
++
++static int intel_dp_mst_get_ddc_modes(struct drm_connector *connector)
++{
++	struct intel_connector *intel_connector = to_intel_connector(connector);
++	struct intel_dp *intel_dp = intel_connector->mst_port;
++	struct edid *edid;
++	int ret;
++
++	edid = drm_dp_mst_get_edid(connector, &intel_dp->mst_mgr, intel_connector->port);
++	if (!edid)
++		return 0;
++
++	ret = intel_connector_update_modes(connector, edid);
++	kfree(edid);
++
++	return ret;
++}
++
++static enum drm_connector_status
++intel_mst_port_dp_detect(struct drm_connector *connector)
++{
++	struct intel_connector *intel_connector = to_intel_connector(connector);
++	struct intel_dp *intel_dp = intel_connector->mst_port;
++
++	return drm_dp_mst_detect_port(&intel_dp->mst_mgr, intel_connector->port);
++}
++
++static enum drm_connector_status
++intel_dp_mst_detect(struct drm_connector *connector, bool force)
++{
++	enum drm_connector_status status;
++	status = intel_mst_port_dp_detect(connector);
++	return status;
++}
++
++static int
++intel_dp_mst_set_property(struct drm_connector *connector,
++			  struct drm_property *property,
++			  uint64_t val)
++{
++	return 0;
++}
++
++static void
++intel_dp_mst_connector_destroy(struct drm_connector *connector)
++{
++	struct intel_connector *intel_connector = to_intel_connector(connector);
++
++	if (!IS_ERR_OR_NULL(intel_connector->edid))
++		kfree(intel_connector->edid);
++
++	drm_connector_cleanup(connector);
++	kfree(connector);
++}
++
++static const struct drm_connector_funcs intel_dp_mst_connector_funcs = {
++	.dpms = intel_connector_dpms,
++	.detect = intel_dp_mst_detect,
++	.fill_modes = drm_helper_probe_single_connector_modes,
++	.set_property = intel_dp_mst_set_property,
++	.destroy = intel_dp_mst_connector_destroy,
++};
++
++static int intel_dp_mst_get_modes(struct drm_connector *connector)
++{
++	return intel_dp_mst_get_ddc_modes(connector);
++}
++
++static enum drm_mode_status
++intel_dp_mst_mode_valid(struct drm_connector *connector,
++			struct drm_display_mode *mode)
++{
++	/* TODO - validate mode against available PBN for link */
++	if (mode->clock < 10000)
++		return MODE_CLOCK_LOW;
++
++	if (mode->flags & DRM_MODE_FLAG_DBLCLK)
++		return MODE_H_ILLEGAL;
++
++	return MODE_OK;
++}
++
++struct drm_encoder *intel_mst_best_encoder(struct drm_connector *connector)
++{
++	struct intel_connector *intel_connector = to_intel_connector(connector);
++	struct intel_dp *intel_dp = intel_connector->mst_port;
++	return &intel_dp->mst_encoders[0]->base.base;
++}
++
++static const struct drm_connector_helper_funcs intel_dp_mst_connector_helper_funcs = {
++	.get_modes = intel_dp_mst_get_modes,
++	.mode_valid = intel_dp_mst_mode_valid,
++	.best_encoder = intel_mst_best_encoder,
++};
++
++void intel_dp_mst_encoder_destroy(struct drm_encoder *encoder)
++{
++	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(encoder);
++
++	drm_encoder_cleanup(encoder);
++	kfree(intel_mst);
++}
++
++static const struct drm_encoder_funcs intel_dp_mst_enc_funcs = {
++	.destroy = intel_dp_mst_encoder_destroy,
++};
++
++static bool intel_dp_mst_get_hw_state(struct intel_connector *connector)
++{
++	if (connector->encoder) {
++		enum pipe pipe;
++		if (!connector->encoder->get_hw_state(connector->encoder, &pipe))
++			return false;
++		return true;
++	}
++	return false;
++}
++
++static struct drm_connector *intel_dp_add_mst_connector(struct drm_dp_mst_topology_mgr *mgr, struct drm_dp_mst_port *port, char *pathprop)
++{
++	struct intel_dp *intel_dp = container_of(mgr, struct intel_dp, mst_mgr);
++	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
++	struct drm_device *dev = intel_dig_port->base.base.dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	struct intel_connector *intel_connector;
++	struct drm_connector *connector;
++	int i;
++
++	intel_connector = kzalloc(sizeof(*intel_connector), GFP_KERNEL);
++	if (!intel_connector)
++		return NULL;
++
++	connector = &intel_connector->base;
++	drm_connector_init(dev, connector, &intel_dp_mst_connector_funcs, DRM_MODE_CONNECTOR_DisplayPort);
++	drm_connector_helper_add(connector, &intel_dp_mst_connector_helper_funcs);
++
++	intel_connector->unregister = intel_connector_unregister;
++	intel_connector->get_hw_state = intel_dp_mst_get_hw_state;
++	intel_connector->mst_port = intel_dp;
++	intel_connector->port = port;
++
++	for (i = PIPE_A; i <= PIPE_C; i++) {
++		drm_mode_connector_attach_encoder(&intel_connector->base,
++						  &intel_dp->mst_encoders[i]->base.base);
++	}
++	intel_dp_add_properties(intel_dp, connector);
++
++	drm_object_attach_property(&connector->base, dev->mode_config.path_property, 0);
++	drm_mode_connector_set_path_property(connector, pathprop);
++	drm_reinit_primary_mode_group(dev);
++	mutex_lock(&dev->mode_config.mutex);
++	drm_fb_helper_add_one_connector(&dev_priv->fbdev->helper, connector);
++	mutex_unlock(&dev->mode_config.mutex);
++	drm_sysfs_connector_add(&intel_connector->base);
++	return connector;
++}
++
++static void intel_dp_destroy_mst_connector(struct drm_dp_mst_topology_mgr *mgr,
++					   struct drm_connector *connector)
++{
++	struct intel_connector *intel_connector = to_intel_connector(connector);
++	struct drm_device *dev = connector->dev;
++	struct drm_i915_private *dev_priv = dev->dev_private;
++	/* need to nuke the connector */
++	mutex_lock(&dev->mode_config.mutex);
++	intel_connector_dpms(connector, DRM_MODE_DPMS_OFF);
++	mutex_unlock(&dev->mode_config.mutex);
++
++	intel_connector->unregister(intel_connector);
++
++	mutex_lock(&dev->mode_config.mutex);
++	drm_fb_helper_remove_one_connector(&dev_priv->fbdev->helper, connector);
++	drm_connector_cleanup(connector);
++	mutex_unlock(&dev->mode_config.mutex);
++
++	drm_reinit_primary_mode_group(dev);
++
++	kfree(intel_connector);
++	DRM_DEBUG_KMS("\n");
++}
++
++static void intel_dp_mst_hotplug(struct drm_dp_mst_topology_mgr *mgr)
++{
++	struct intel_dp *intel_dp = container_of(mgr, struct intel_dp, mst_mgr);
++	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
++	struct drm_device *dev = intel_dig_port->base.base.dev;
++
++	drm_kms_helper_hotplug_event(dev);
++}
++
++struct drm_dp_mst_topology_cbs mst_cbs = {
++	.add_connector = intel_dp_add_mst_connector,
++	.destroy_connector = intel_dp_destroy_mst_connector,
++	.hotplug = intel_dp_mst_hotplug,
++};
++
++static struct intel_dp_mst_encoder *
++intel_dp_create_fake_mst_encoder(struct intel_digital_port *intel_dig_port, enum pipe pipe)
++{
++	struct intel_dp_mst_encoder *intel_mst;
++	struct intel_encoder *intel_encoder;
++	struct drm_device *dev = intel_dig_port->base.base.dev;
++
++	intel_mst = kzalloc(sizeof(*intel_mst), GFP_KERNEL);
++
++	if (!intel_mst)
++		return NULL;
++
++	intel_mst->pipe = pipe;
++	intel_encoder = &intel_mst->base;
++	intel_mst->primary = intel_dig_port;
++
++	drm_encoder_init(dev, &intel_encoder->base, &intel_dp_mst_enc_funcs,
++			 DRM_MODE_ENCODER_DPMST);
++
++	intel_encoder->type = INTEL_OUTPUT_DP_MST;
++	intel_encoder->crtc_mask = 0x7;
++	intel_encoder->cloneable = 0;
++
++	intel_encoder->compute_config = intel_dp_mst_compute_config;
++	intel_encoder->disable = intel_mst_disable_dp;
++	intel_encoder->post_disable = intel_mst_post_disable_dp;
++	intel_encoder->pre_enable = intel_mst_pre_enable_dp;
++	intel_encoder->enable = intel_mst_enable_dp;
++	intel_encoder->get_hw_state = intel_dp_mst_enc_get_hw_state;
++	intel_encoder->get_config = intel_dp_mst_enc_get_config;
++
++	return intel_mst;
++
++}
++
++static bool
++intel_dp_create_fake_mst_encoders(struct intel_digital_port *intel_dig_port)
++{
++	int i;
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++
++	for (i = PIPE_A; i <= PIPE_C; i++)
++		intel_dp->mst_encoders[i] = intel_dp_create_fake_mst_encoder(intel_dig_port, i);
++	return true;
++}
++
++int
++intel_dp_mst_encoder_init(struct intel_digital_port *intel_dig_port, int conn_base_id)
++{
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++	struct drm_device *dev = intel_dig_port->base.base.dev;
++	int ret;
++
++	intel_dp->can_mst = true;
++	intel_dp->mst_mgr.cbs = &mst_cbs;
++
++	/* create encoders */
++	intel_dp_create_fake_mst_encoders(intel_dig_port);
++	ret = drm_dp_mst_topology_mgr_init(&intel_dp->mst_mgr, dev->dev, &intel_dp->aux, 16, 3, conn_base_id);
++	if (ret) {
++		intel_dp->can_mst = false;
++		return ret;
++	}
++	return 0;
++}
++
++void
++intel_dp_mst_encoder_cleanup(struct intel_digital_port *intel_dig_port)
++{
++	struct intel_dp *intel_dp = &intel_dig_port->dp;
++
++	if (!intel_dp->can_mst)
++		return;
++
++	drm_dp_mst_topology_mgr_destroy(&intel_dp->mst_mgr);
++	/* encoders will get killed by normal cleanup */
++}
+diff --git a/drivers/gpu/drm/i915/intel_drv.h b/drivers/gpu/drm/i915/intel_drv.h
+index 52986be..50d1789 100644
+--- a/drivers/gpu/drm/i915/intel_drv.h
++++ b/drivers/gpu/drm/i915/intel_drv.h
+@@ -32,7 +32,7 @@
+ #include <drm/drm_crtc.h>
+ #include <drm/drm_crtc_helper.h>
+ #include <drm/drm_fb_helper.h>
+-#include <drm/drm_dp_helper.h>
++#include <drm/drm_dp_mst_helper.h>
+ 
+ /**
+  * _wait_for - magic (register) wait macro
+@@ -100,6 +100,7 @@
+ #define INTEL_OUTPUT_EDP 8
+ #define INTEL_OUTPUT_DSI 9
+ #define INTEL_OUTPUT_UNKNOWN 10
++#define INTEL_OUTPUT_DP_MST 11
+ 
+ #define INTEL_DVO_CHIP_NONE 0
+ #define INTEL_DVO_CHIP_LVDS 1
+@@ -207,6 +208,10 @@ struct intel_connector {
+ 	/* since POLL and HPD connectors may use the same HPD line keep the native
+ 	   state of connector->polled in case hotplug storm detection changes it */
+ 	u8 polled;
++
++	void *port; /* store this opaque as its illegal to dereference it */
++
++	struct intel_dp *mst_port;
+ };
+ 
+ typedef struct dpll {
+@@ -347,6 +352,9 @@ struct intel_crtc_config {
+ 	bool ips_enabled;
+ 
+ 	bool double_wide;
++
++	bool dp_encoder_is_mst;
++	int pbn;
+ };
+ 
+ struct intel_pipe_wm {
+@@ -499,6 +507,7 @@ struct intel_hdmi {
+ 			       struct drm_display_mode *adjusted_mode);
+ };
+ 
++struct intel_dp_mst_encoder;
+ #define DP_MAX_DOWNSTREAM_PORTS		0x10
+ 
+ /**
+@@ -541,6 +550,10 @@ struct intel_dp {
+ 	struct notifier_block edp_notifier;
+ 
+ 	bool use_tps3;
++	bool can_mst; /* this port supports mst */
++	bool is_mst;
++	int active_mst_links;
++	/* connector directly attached - won't be use for modeset in mst world */
+ 	struct intel_connector *attached_connector;
+ 
+ 	uint32_t (*get_aux_clock_divider)(struct intel_dp *dp, int index);
+@@ -552,12 +565,18 @@ struct intel_dp {
+ 				     bool has_aux_irq,
+ 				     int send_bytes,
+ 				     uint32_t aux_clock_divider);
++
+ 	struct {
+ 		enum drrs_support_type type;
+ 		enum edp_drrs_refresh_rate_type refresh_rate_type;
+ 		struct mutex mutex;
+ 	} drrs_state;
+ 
++	/* mst connector list */
++	struct intel_connector *mst_connectors;
++	struct intel_dp_mst_encoder *mst_encoders[I915_MAX_PIPES];
++	struct drm_dp_mst_topology_mgr mst_mgr;
++
+ };
+ 
+ struct intel_digital_port {
+@@ -569,6 +588,13 @@ struct intel_digital_port {
+ 	bool (*hpd_pulse)(struct intel_digital_port *, bool);
+ };
+ 
++struct intel_dp_mst_encoder {
++	struct intel_encoder base;
++	enum pipe pipe;
++	struct intel_digital_port *primary;
++	void *port; /* store this opaque as its illegal to dereference it */
++};
++
+ static inline int
+ vlv_dport_to_channel(struct intel_digital_port *dport)
+ {
+@@ -653,6 +679,12 @@ enc_to_dig_port(struct drm_encoder *encoder)
+ 	return container_of(encoder, struct intel_digital_port, base.base);
+ }
+ 
++static inline struct intel_dp_mst_encoder *
++enc_to_mst(struct drm_encoder *encoder)
++{
++	return container_of(encoder, struct intel_dp_mst_encoder, base.base);
++}
++
+ static inline struct intel_dp *enc_to_intel_dp(struct drm_encoder *encoder)
+ {
+ 	return &enc_to_dig_port(encoder)->dp;
+@@ -718,6 +750,7 @@ void intel_ddi_get_config(struct intel_encoder *encoder,
+ 			  struct intel_crtc_config *pipe_config);
+ 
+ void intel_ddi_init_dp_buf_reg(struct intel_encoder *encoder);
++void intel_ddi_set_vc_payload_alloc(struct drm_crtc *crtc, bool state);
+ 
+ /* intel_display.c */
+ const char *intel_output_name(int output);
+@@ -839,6 +872,14 @@ void intel_edp_psr_update(struct drm_device *dev);
+ void intel_dp_set_drrs_state(struct drm_device *dev, int refresh_rate);
+ bool intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd);
+ 
++void intel_dp_add_properties(struct intel_dp *intel_dp, struct drm_connector *connector);
++void intel_dp_mst_suspend(struct drm_device *dev);
++void intel_dp_mst_resume(struct drm_device *dev);
++int intel_dp_max_link_bw(struct intel_dp *intel_dp);
++void intel_dp_hot_plug(struct intel_encoder *intel_encoder);
++/* intel_dp_mst.c */
++int intel_dp_mst_encoder_init(struct intel_digital_port *intel_dig_port, int conn_id);
++void intel_dp_mst_encoder_cleanup(struct intel_digital_port *intel_dig_port);
+ /* intel_dsi.c */
+ bool intel_dsi_init(struct drm_device *dev);
+ 
+diff --git a/drivers/gpu/drm/i915/intel_opregion.c b/drivers/gpu/drm/i915/intel_opregion.c
+index 4f6b539..72a6a95 100644
+--- a/drivers/gpu/drm/i915/intel_opregion.c
++++ b/drivers/gpu/drm/i915/intel_opregion.c
+@@ -352,6 +352,7 @@ int intel_opregion_notify_encoder(struct intel_encoder *intel_encoder,
+ 	case INTEL_OUTPUT_UNKNOWN:
+ 	case INTEL_OUTPUT_DISPLAYPORT:
+ 	case INTEL_OUTPUT_HDMI:
++	case INTEL_OUTPUT_DP_MST:
+ 		type = DISPLAY_TYPE_EXTERNAL_FLAT_PANEL;
+ 		break;
+ 	case INTEL_OUTPUT_EDP:
+-- 
+2.1.0
+
+
+From a0d21f59b701041c021e427dfec2346fd33e8b7e Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Mon, 12 May 2014 15:22:27 +1000
+Subject: [PATCH 12/18] i915: mst topology dumper in debugfs (v0.2)
+
+use the mst helper code to dump the topology in debugfs.
+
+v0.2: drop is_mst check - as we want to dump other info
+
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+
+Conflicts:
+	drivers/gpu/drm/i915/i915_debugfs.c
+---
+ drivers/gpu/drm/i915/i915_debugfs.c | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/drivers/gpu/drm/i915/i915_debugfs.c b/drivers/gpu/drm/i915/i915_debugfs.c
+index b8c6892..348054d 100644
+--- a/drivers/gpu/drm/i915/i915_debugfs.c
++++ b/drivers/gpu/drm/i915/i915_debugfs.c
+@@ -2383,6 +2383,28 @@ struct pipe_crc_info {
+ 	enum pipe pipe;
+ };
+ 
++static int i915_dp_mst_info(struct seq_file *m, void *unused)
++{
++	struct drm_info_node *node = (struct drm_info_node *) m->private;
++	struct drm_device *dev = node->minor->dev;
++	struct drm_encoder *encoder;
++	struct intel_encoder *intel_encoder;
++	struct intel_digital_port *intel_dig_port;
++	drm_modeset_lock_all(dev);
++	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
++		intel_encoder = to_intel_encoder(encoder);
++		if (intel_encoder->type != INTEL_OUTPUT_DISPLAYPORT)
++			continue;
++		intel_dig_port = enc_to_dig_port(encoder);
++		if (!intel_dig_port->dp.can_mst)
++			continue;
++
++		drm_dp_mst_dump_topology(m, &intel_dig_port->dp.mst_mgr);
++	}
++	drm_modeset_unlock_all(dev);
++	return 0;
++}
++
+ static int i915_pipe_crc_open(struct inode *inode, struct file *filep)
+ {
+ 	struct pipe_crc_info *info = inode->i_private;
+@@ -3823,6 +3845,7 @@ static const struct drm_info_list i915_debugfs_list[] = {
+ 	{"i915_pc8_status", i915_pc8_status, 0},
+ 	{"i915_power_domain_info", i915_power_domain_info, 0},
+ 	{"i915_display_info", i915_display_info, 0},
++	{"i915_dp_mst_info", i915_dp_mst_info, 0},
+ };
+ #define I915_DEBUGFS_ENTRIES ARRAY_SIZE(i915_debugfs_list)
+ 
+-- 
+2.1.0
+
+
+From a1d6ea91eab91e0f6eb273ef5c5ec0190c5a7409 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Mon, 30 Jun 2014 10:20:21 +1000
+Subject: [PATCH 13/18] backport v0.7 mst core fixes
+
+---
+ drivers/gpu/drm/drm_dp_mst_topology.c | 16 +++++++++-------
+ 1 file changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/gpu/drm/drm_dp_mst_topology.c b/drivers/gpu/drm/drm_dp_mst_topology.c
+index 73bc773..df89128 100644
+--- a/drivers/gpu/drm/drm_dp_mst_topology.c
++++ b/drivers/gpu/drm/drm_dp_mst_topology.c
+@@ -1029,6 +1029,7 @@ static void drm_dp_add_port(struct drm_dp_mst_branch *mstb,
+ 		port->mgr = mstb->mgr;
+ 		port->aux.name = "DPMST";
+ 		port->aux.dev = dev;
++		port->available_pbn = 0xffff;
+ 		created = true;
+ 	} else {
+ 		old_pdt = port->pdt;
+@@ -1057,12 +1058,12 @@ static void drm_dp_add_port(struct drm_dp_mst_branch *mstb,
+ 	if (old_ddps != port->ddps) {
+ 		if (port->ddps) {
+ 			drm_dp_check_port_guid(mstb, port);
+-			if (!port->input)
++			if (!port->input && port->pdt != DP_PEER_DEVICE_MST_BRANCHING)
+ 				drm_dp_send_enum_path_resources(mstb->mgr, mstb, port);
+ 		} else {
+ 			port->guid_valid = false;
+-			port->available_pbn = 0;
+-			}
++			port->available_pbn = 0xffff;
++		}
+ 	}
+ 
+ 	if (old_pdt != port->pdt && !port->input) {
+@@ -1109,7 +1110,7 @@ static void drm_dp_update_port(struct drm_dp_mst_branch *mstb,
+ 			dowork = true;
+ 		} else {
+ 			port->guid_valid = false;
+-			port->available_pbn = 0;
++			port->available_pbn = 0xffff;
+ 		}
+ 	}
+ 	if (old_pdt != port->pdt && !port->input) {
+@@ -1170,8 +1171,9 @@ static void drm_dp_check_and_send_link_address(struct drm_dp_mst_topology_mgr *m
+ 		if (!port->ddps)
+ 			continue;
+ 
+-		if (!port->available_pbn)
+-			drm_dp_send_enum_path_resources(mgr, mstb, port);
++		if (port->pdt != DP_PEER_DEVICE_MST_BRANCHING)
++			if (port->available_pbn == 0xffff)
++				drm_dp_send_enum_path_resources(mgr, mstb, port);
+ 
+ 		if (port->mstb)
+ 			drm_dp_check_and_send_link_address(mgr, port->mstb);
+@@ -2430,7 +2432,7 @@ static void drm_dp_mst_dump_mstb(struct seq_file *m,
+ 
+ 	seq_printf(m, "%smst: %p, %d\n", prefix, mstb, mstb->num_ports);
+ 	list_for_each_entry(port, &mstb->ports, next) {
+-		seq_printf(m, "%sport: %d: ddps: %d ldps: %d, %p, conn: %p\n", prefix, port->port_num, port->ddps, port->ldps, port, port->connector);
++		seq_printf(m, "%sport: %d: ddps: %d ldps: %d, pdt: %d dpcd_rev: %x avail: %d\n", prefix, port->port_num, port->ddps, port->ldps, port->pdt, port->dpcd_rev, port->available_pbn);
+ 		if (port->mstb)
+ 			drm_dp_mst_dump_mstb(m, port->mstb);
+ 	}
+-- 
+2.1.0
+
+
+From e0632b36b415816f34b998da6ad489b1589fc067 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Mon, 30 Jun 2014 10:21:57 +1000
+Subject: [PATCH 14/18] i915: fixup
+
+---
+ drivers/gpu/drm/i915/intel_drv.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_drv.h b/drivers/gpu/drm/i915/intel_drv.h
+index 50d1789..a91eb79 100644
+--- a/drivers/gpu/drm/i915/intel_drv.h
++++ b/drivers/gpu/drm/i915/intel_drv.h
+@@ -573,7 +573,6 @@ struct intel_dp {
+ 	} drrs_state;
+ 
+ 	/* mst connector list */
+-	struct intel_connector *mst_connectors;
+ 	struct intel_dp_mst_encoder *mst_encoders[I915_MAX_PIPES];
+ 	struct drm_dp_mst_topology_mgr mst_mgr;
+ 
+-- 
+2.1.0
+
+
+From 118782b4c16dad8e8968756b0bdbd1f3d442e4cf Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Mon, 30 Jun 2014 11:07:32 +1000
+Subject: [PATCH 15/18] put back missing modeset
+
+---
+ drivers/gpu/drm/i915/intel_dp_mst.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/gpu/drm/i915/intel_dp_mst.c b/drivers/gpu/drm/i915/intel_dp_mst.c
+index 2afd364..24946bd 100644
+--- a/drivers/gpu/drm/i915/intel_dp_mst.c
++++ b/drivers/gpu/drm/i915/intel_dp_mst.c
+@@ -102,6 +102,10 @@ static void intel_mst_disable_dp(struct intel_encoder *encoder)
+ 	}
+ }
+ 
++static void intel_dp_mst_mode_set(struct intel_encoder *encoder)
++{
++}
++
+ static void intel_mst_post_disable_dp(struct intel_encoder *encoder)
+ {
+ 	struct intel_dp_mst_encoder *intel_mst = enc_to_mst(&encoder->base);
+@@ -476,6 +480,7 @@ intel_dp_create_fake_mst_encoder(struct intel_digital_port *intel_dig_port, enum
+ 	intel_encoder->cloneable = 0;
+ 
+ 	intel_encoder->compute_config = intel_dp_mst_compute_config;
++	intel_encoder->mode_set = intel_dp_mst_mode_set;
+ 	intel_encoder->disable = intel_mst_disable_dp;
+ 	intel_encoder->post_disable = intel_mst_post_disable_dp;
+ 	intel_encoder->pre_enable = intel_mst_pre_enable_dp;
+-- 
+2.1.0
+
+
+From e9a92640560f3f5b9aa06b16a6edf1af835865f6 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Tue, 5 Aug 2014 10:40:20 +1000
+Subject: [PATCH 16/18] drm/i915: lock around link status and link training.
+
+We need to take the connection mutex around the link status
+check for non-MST case, but also around the MST link training
+on short HPDs.
+
+I suspect we actually should have a dpcd lock in the future as
+well, that just lock the local copies of dpcd and flags stored
+from that.
+
+Reviewed-by: Daniel Vetter <daniel.vetter@ffwll.ch>
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+---
+ drivers/gpu/drm/i915/intel_dp.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_dp.c b/drivers/gpu/drm/i915/intel_dp.c
+index c0db398..25ed7b0 100644
+--- a/drivers/gpu/drm/i915/intel_dp.c
++++ b/drivers/gpu/drm/i915/intel_dp.c
+@@ -3400,11 +3400,13 @@ intel_dp_check_mst_status(struct intel_dp *intel_dp)
+ void
+ intel_dp_check_link_status(struct intel_dp *intel_dp)
+ {
++	struct drm_device *dev = intel_dp_to_dev(intel_dp);
+ 	struct intel_encoder *intel_encoder = &dp_to_dig_port(intel_dp)->base;
+ 	u8 sink_irq_vector;
+ 	u8 link_status[DP_LINK_STATUS_SIZE];
+ 
+-	/* FIXME: This access isn't protected by any locks. */
++	WARN_ON(!drm_modeset_is_locked(&dev->mode_config.connection_mutex));
++
+ 	if (!intel_encoder->connectors_active)
+ 		return;
+ 
+@@ -3928,7 +3930,9 @@ intel_dp_hpd_pulse(struct intel_digital_port *intel_dig_port, bool long_hpd)
+ 			 * we'll check the link status via the normal hot plug path later -
+ 			 * but for short hpds we should check it now
+ 			 */
++			drm_modeset_lock(&dev->mode_config.connection_mutex, NULL);
+ 			intel_dp_check_link_status(intel_dp);
++			drm_modeset_unlock(&dev->mode_config.connection_mutex);
+ 		}
+ 	}
+ 	return false;
+-- 
+2.1.0
+
+
+From f6db06da3baa07132861422c1ad733d729a47864 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 15 Aug 2014 11:33:16 +1000
+Subject: [PATCH 17/18] fix warning
+
+---
+ drivers/gpu/drm/i915/intel_ddi.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_ddi.c b/drivers/gpu/drm/i915/intel_ddi.c
+index 54fc7d4..9152936 100644
+--- a/drivers/gpu/drm/i915/intel_ddi.c
++++ b/drivers/gpu/drm/i915/intel_ddi.c
+@@ -1325,8 +1325,6 @@ static void intel_ddi_pre_enable(struct intel_encoder *intel_encoder)
+ 
+ 	if (type == INTEL_OUTPUT_DISPLAYPORT || type == INTEL_OUTPUT_EDP) {
+ 		struct intel_dp *intel_dp = enc_to_intel_dp(encoder);
+-		struct intel_digital_port *intel_dig_port =
+-			enc_to_dig_port(encoder);
+ 
+ 		intel_ddi_init_dp_buf_reg(intel_encoder);
+ 
+-- 
+2.1.0
+
+
+From f079acd3de084006e496278d89fa0f8a64f5f4c5 Mon Sep 17 00:00:00 2001
+From: Chris Wilson <chris@chris-wilson.co.uk>
+Date: Mon, 4 Aug 2014 07:15:09 +0100
+Subject: [PATCH 18/18] drm/i915: only hook up hpd pulse for DP outputs
+
+On HSW+, the digital encoders are shared between HDMI and DP outputs,
+with one encoder masquerading as both. The VBT should tell us if we need
+to have DP or HDMI support on a particular port, but if we don't have DP
+support and we enable the DP hpd pulse handler then we cause an oops.
+
+Don't hook up the DP hpd handling if we don't have a DP port.
+
+Bugzilla: https://bugs.freedesktop.org/show_bug.cgi?id=81856
+Reported-by: Intel QA Team.
+Signed-off-by: Dave Airlie <airlied@redhat.com> # v1
+[ickle: Fix the error handling after a malloc failure]
+Reviewed-by: Dave Airlie <airlied@redhat.com>
+Cc: Paulo Zanoni <przanoni@gmail.com>
+Signed-off-by: Chris Wilson <chris@chris-wilson.co.uk>
+Signed-off-by: Dave Airlie <airlied@redhat.com>
+---
+ drivers/gpu/drm/i915/intel_ddi.c | 31 +++++++++++++++++--------------
+ 1 file changed, 17 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/intel_ddi.c b/drivers/gpu/drm/i915/intel_ddi.c
+index 9152936..77c30c2 100644
+--- a/drivers/gpu/drm/i915/intel_ddi.c
++++ b/drivers/gpu/drm/i915/intel_ddi.c
+@@ -1728,15 +1728,13 @@ void intel_ddi_init(struct drm_device *dev, enum port port)
+ 	struct intel_digital_port *intel_dig_port;
+ 	struct intel_encoder *intel_encoder;
+ 	struct drm_encoder *encoder;
+-	struct intel_connector *hdmi_connector = NULL;
+-	struct intel_connector *dp_connector = NULL;
+ 	bool init_hdmi, init_dp;
+ 
+ 	init_hdmi = (dev_priv->vbt.ddi_port_info[port].supports_dvi ||
+ 		     dev_priv->vbt.ddi_port_info[port].supports_hdmi);
+ 	init_dp = dev_priv->vbt.ddi_port_info[port].supports_dp;
+ 	if (!init_dp && !init_hdmi) {
+-		DRM_DEBUG_KMS("VBT says port %c is not DVI/HDMI/DP compatible\n",
++		DRM_DEBUG_KMS("VBT says port %c is not DVI/HDMI/DP compatible, assuming it is\n",
+ 			      port_name(port));
+ 		init_hdmi = true;
+ 		init_dp = true;
+@@ -1766,23 +1764,28 @@ void intel_ddi_init(struct drm_device *dev, enum port port)
+ 					   DDI_A_4_LANES);
+ 
+ 	intel_encoder->type = INTEL_OUTPUT_UNKNOWN;
+-	intel_encoder->crtc_mask =  (1 << 0) | (1 << 1) | (1 << 2);
++	intel_encoder->crtc_mask = (1 << 0) | (1 << 1) | (1 << 2);
+ 	intel_encoder->cloneable = 0;
+ 	intel_encoder->hot_plug = intel_ddi_hot_plug;
+ 
+-	intel_dig_port->hpd_pulse = intel_dp_hpd_pulse;
+-	dev_priv->hpd_irq_port[port] = intel_dig_port;
++	if (init_dp) {
++		if (!intel_ddi_init_dp_connector(intel_dig_port))
++			goto err;
+ 
+-	if (init_dp)
+-		dp_connector = intel_ddi_init_dp_connector(intel_dig_port);
++		intel_dig_port->hpd_pulse = intel_dp_hpd_pulse;
++		dev_priv->hpd_irq_port[port] = intel_dig_port;
++	}
+ 
+ 	/* In theory we don't need the encoder->type check, but leave it just in
+ 	 * case we have some really bad VBTs... */
+-	if (intel_encoder->type != INTEL_OUTPUT_EDP && init_hdmi)
+-		hdmi_connector = intel_ddi_init_hdmi_connector(intel_dig_port);
+-
+-	if (!dp_connector && !hdmi_connector) {
+-		drm_encoder_cleanup(encoder);
+-		kfree(intel_dig_port);
++	if (intel_encoder->type != INTEL_OUTPUT_EDP && init_hdmi) {
++		if (!intel_ddi_init_hdmi_connector(intel_dig_port))
++			goto err;
+ 	}
++
++	return;
++
++err:
++	drm_encoder_cleanup(encoder);
++	kfree(intel_dig_port);
+ }
+-- 
+2.1.0
+
