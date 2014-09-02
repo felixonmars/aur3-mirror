@@ -1,4 +1,4 @@
-this_java='java-9-oracle/jre'
+this_java='java-7-oracle/jre'
 
 update_desktop() {
   echo 'Updating desktop MIME database'
