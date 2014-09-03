@@ -9,12 +9,7 @@ function go_get {
     get_git $1 $2 $3
   elif [[ $1 == code.google.com* ]]
   then 
-    if [[ $3 == "master" ]]
-    then
-      hg clone https://$1 $2
-    else
-      hg clone https://$1 -r $3 $2
-    fi
+    get_hg $1 $2 $3
   else
     echo "ERROR"
   fi
@@ -28,7 +23,26 @@ function get_git {
   if [[ $3 != "master" ]] && [[ ${3:1} == commit* ]]
   then
     cd $2
-    git checkout ${3:8:7}
+    git checkout ${3:8}
+  elif [[ $3 != "master" ]] && [[ ${3:1} == tag* ]]
+  then
+    cd $2
+    git checkout tags/${3:5}
+  else
+    cd $2
+    git checkout ${3:8}
+  fi
+}
+
+# $1 = mercury package name
+# $2 = target directory path
+# $3 = branch/commit/revision string, if empty then maste ist used
+function get_hg {
+  if [[ $3 == "master" ]]
+  then
+    hg clone https://$1 $2
+  else
+    hg clone https://$1 -r $3 $2
   fi
 }
 
@@ -37,6 +51,7 @@ function get_git {
 # $2 = target directory path
 function get_gopm {
   local startStr=""
+  local revStr=""
 
   while read line
   do
@@ -48,15 +63,14 @@ function get_gopm {
       IFS="=" read -a array <<< "$line"
       if [[ ${array[1]} != "" ]]
       then
-        go_get ${array[0]} "$2/${array[0]}" ${array[1]}
+        local revStr=${array[1]//\`}
+        go_get ${array[0]} "$2/${array[0]}" $revStr
       else
-	#echo ${array[0]}
-        #echo "$2/${array[0]}"
         go_get ${array[0]} "$2/${array[0]}" master
       fi
     elif [[ $line == '[deps]' ]]
     then
-      startStr="X"
+      local startStr="X"
     fi
   done <$1
 }
