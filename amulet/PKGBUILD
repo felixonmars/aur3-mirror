@@ -1,55 +1,36 @@
-# This is an example PKGBUILD file. Use this as a start to creating your own,
-# and remove these comments. For more information, see 'man PKGBUILD'.
-# NOTE: Please fill out the license field for your package! If it is unknown,
-# then please put 'unknown'.
+# Contributor: Lex Black <autumn-wind at web dot de>
+# Contributor: "Whoever the guy was who brought it on AUR"
 
-# Maintainer: Your Name <youremail@domain.com>
 pkgname=amulet
-pkgver=20110219
+pkgver=r33.162a254
 pkgrel=1
 pkgdesc="Audio converter based on ffmpeg."
 arch=('i686' 'x86_64')
 url="http://gitorious.org/amulet"
 license=('GPL')
-depends=('ffmpeg' 'qt' 'git')
-makedepends=()
-source=()
+depends=('ffmpeg' 'qt5-base')
+makedepends=('git') #'cmake'
+source=("git://gitorious.org/amulet/amulet.git")
+md5sums=('SKIP')
 
-md5sums=('5179bf5f74de5a1dde47a11b18e2876c')
 
-_gitroot="git://gitorious.org/amulet/amulet.git"
-_gitname="amulet"
+pkgver() {
+  cd "$pkgname"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
 
 build() {
+  cd "$srcdir/$pkgname"
 
-  cd $srcdir
-  msg "Connecting to the GIT server...."
-
-  if [[ -d $srcdir/$_gitname ]] ; then
-    cd $_gitname
-    git pull origin
-    msg "The local files are updated."
-  else
-    git clone $_gitroot
-  fi
-
-  msg "GIT checkout done"
-  msg "Starting make..."
-
-  rm -rf $srcdir/$_gitname-build
-  git clone $srcdir/$_gitname $srcdir/$_gitname-build
-
-  cd $srcdir/$_gitname-build
-
-  #cd "$srcdir/$pkgname"
-
-  qmake ../$pkgname/$pkgname.pro || return 1
-  make || return 1
-  #install -D 
+  #mkdir build
+  #cd build
+  #cmake ..
+  qmake $pkgname.pro
+  make
 }
 
 package() {
-  cd "$srcdir/$pkgname-build"
+  cd "$srcdir/$pkgname"
 
   install -Dm755 $pkgname $pkgdir/usr/bin/$pkgname
   mkdir -p $pkgdir/usr/share/$pkgname/extensions/
@@ -57,6 +38,7 @@ package() {
   install -Dm644 icons/$pkgname.png $pkgdir/usr/share/pixmaps/$pkgname.png
   install -Dm644 $pkgname.desktop $pkgdir/usr/share/applications/$pkgname.desktop
   install -Dm644 man.pdf $pkgdir/usr/share/$pkgname/
+  #make install
 }
 
 # vim:set ts=2 sw=2 et:
