@@ -1,4 +1,4 @@
-### Firefox 31.0 ESR for Linux 自编译版:
+### Firefox 32.0 for Linux 自编译版:
 
 1. 使用`gcc O3 SSE2`编译参数.
 2. BetterPGO编译.
@@ -12,7 +12,7 @@
 
 ### 更新说明:
 
-2014-07-16更新：
+2014-09-01更新：
 
 1. 加入了libgstreamer支持.
 2. 加入了一个MOZILLA_DISABLE_PLUGINS环境变量(设为1时禁止插件启动,同步Iceweasel特性)

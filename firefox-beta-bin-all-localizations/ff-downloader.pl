@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.10.2
+# ff-downloader v0.5.10.3
 ## Copyright 2011-14 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -92,6 +92,7 @@ if (!$LANG)
     { language => 'Aarabic', code => 'ar' },
     { language => 'Assamese', code => 'as' },
     { language => 'Asturian', code => 'ast' },
+    { language => 'Azerbaijani', code => 'az' },
     { language => 'Belarusian', code => 'be' },
     { language => 'Bulgarian', code => 'bg' },
     { language => 'Bengali (Bangladesh)', code => 'bn-BD' },
