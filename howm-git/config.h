@@ -28,7 +28,7 @@
 /** Upon spawning a new window, move the mouse to the new window? */
 #define FOLLOW_SPAWN true
 /** The size (in pixels) of the useless gaps. */
-#define GAP 0
+#define GAP 2
 /** Enable debugging output */
 #define DEBUG_ENABLE 0
 /** The size (in pixels) of the border. */
@@ -101,6 +101,7 @@ static const Key keys[] = {
 	{ MODKEY, NORMAL, XK_m, resize_master, {.i = 5} },
 	{ MODKEY | ShiftMask, NORMAL, XK_m, resize_master, {.i = -5} },
 	{ MODKEY, NORMAL, XK_b, toggle_bar, {NULL} },
+	{ MODKEY, NORMAL, XK_period, replay, {NULL} },
 
 	{ MODKEY | ShiftMask, FLOATING, XK_k, resize_float_height, {.i = -10} },
 	{ MODKEY | ShiftMask, FLOATING, XK_j, resize_float_height, {.i = 10} },
@@ -120,6 +121,7 @@ static const Key keys[] = {
 	{ MODKEY, FLOATING, XK_Escape, change_mode, {.i = NORMAL} },
 	{ MODKEY, FLOATING, XK_f, change_mode, {.i = FOCUS} },
 
+	{ MODKEY, FOCUS, XK_space, toggle_fullscreen, {NULL} },
 	{ MODKEY, FOCUS, XK_k, focus_prev_client, {NULL} },
 	{ MODKEY, FOCUS, XK_j, focus_next_client, {NULL} },
 	{ MODKEY | ShiftMask, FOCUS, XK_k, move_current_up, {NULL} },
@@ -184,11 +186,11 @@ static const Motion motions[] = {
  */
 static Workspace wss[] = {
 	{NULL},
-	{.layout = HSTACK, .gap = 4, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
-	{.layout = HSTACK, .gap = 4, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
-	{.layout = HSTACK, .gap = 4, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
-	{.layout = HSTACK, .gap = 4, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
-	{.layout = HSTACK, .gap = 4, .master_ratio = 0.6, .bar_height = BAR_HEIGHT}
+	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
+	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
+	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
+	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
+	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT}
 };
 
 #endif
