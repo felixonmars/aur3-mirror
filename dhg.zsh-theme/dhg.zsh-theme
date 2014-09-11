@@ -1,5 +1,5 @@
 # Check if 
-local SESSION_TYPE=
+local SESSION_TYPE=''
 if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
   SESSION_TYPE=remote
 else
@@ -34,7 +34,7 @@ fi
 
 # Host prompt
 local _p_host=
-if [ -z "$DHG_ZSH_THEME_HIDE_LOCAL_HOST" ] || [ "$SESSION_TYPE" = remote ]; then
+if [ "$SESSION_TYPE" = remote ]; then
   _p_host="%{$_c_host%}%m%{$_c_separator%}$_p_separator"
 fi
 

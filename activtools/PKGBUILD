@@ -1,22 +1,25 @@
 # Maintainer: Bazon <bazonbloch@arcor.de>
 pkgname=activtools
-pkgver=5.8.46
+pkgver=5.9.27
 pkgrel=1
-pkgdesc="Tools to calibrate (activcalibrate) and manage (activmgr) Promethean hardware devices."
+pkgdesc="Includes activmanager, activcalibrate, activremote and activmonitor.
+ You must install activtools if you want to use ActivInspire with Promethean
+ hardware. You do not need activtools if you just want to run ActivInspire 
+ Personal Edition."
 arch=('i686' 'x86_64')
 url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
 license=('unknown')
-depends=('qt4' 'activdriver')
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
-  _md5sum='f6ae0e4f76b9d3f90cf1557cbc9ff3df'
-elif [ "$CARCH" = "x86_64" ]; then
+  _md5sum='581bde4bb05f3a32b1475ee2d78b3620'
+  depends=('qt4' 'libudev.so.0')
+else
   _arch='amd64'
-  _md5sum='731540a2034a925c6e01adc7c1c36eb3'
+  _md5sum='a21a7297cfaa7387e876a436d2b24a1c'
+  depends=('qt4' 'libudev.so.0' 'lib32-libudev.so.0')
 fi
 optdepends=('activinspire: activboard presentation')
-install=$pkgname.install
-source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activtools/activtools_$pkgver-13~ubuntu~1204_$_arch.deb)
+source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activtools/activtools_$pkgver-1~ubuntu~1204_$_arch.deb)
 md5sums=( $_md5sum )
 
 package() {
@@ -29,21 +32,43 @@ package() {
 
         #activmgr works only when started after board is attached, so no autostart. 
         #Delete the follwing line if you want an autostart of activmgr
-	rm -r "$pkgdir"/etc
+        cd "$pkgdir"
+	rm -r etc
 
         #activcalibrate needs libactivboardex.so.1 instead of libactivboardex.so.1.0 
         #(and needs to be killed after last calibration point with Alt+F4)
         #(if you know how to fix: please tell!)
-	ln -s "$pkgdir"/usr/lib/libactivboardex.so.1.0 "$pkgdir"/usr/lib/libactivboardex.so.1 
-        if [ "$CARCH" = "x86_64" ]; then   
-            ln -s "$pkgdir"/usr/lib32/libactivboardex.so.1.0 "$pkgdir"/usr/lib32/libactivboardex.so.1 
+	cd "$pkgdir"/usr/lib
+	ln -s libactivboardex.so.1.0 libactivboardex.so.1 
+        if [ "$CARCH" = "x86_64" ]; then
+            cd "$pkgdir"/usr/lib32    libactivboardex.so.1.0
+            ln -s libactivboardex.so.1.0 libactivboardex.so.1 
         fi
 
-        # when activtools is installed, activinspire needs to be killed before it can restart
+        echo " "
+        echo "when activtools is installed, activinspire needs to be killed before it can restart"
         #(if you know how to fix: please tell!)
-        # therefore, a second launcher to restart activinspire is created (inspire-restart)
-        echo "#! /bin/bash" > "$pkgdir"/usr/bin/inspire-restart
-        echo "killall inspire Inspire ; inspire" >> "$pkgdir"/usr/bin/inspire-restart
-        chmod 755 "$pkgdir"/usr/bin/inspire-restart
-        install -Dm644 ../activinspire-restart.desktop "$pkgdir"/usr/share/applications/activinspire-restart.desktop
+        echo "therefore, a second launcher to restart activinspire is created (inspire-restart)"
+        cd "$pkgdir"/usr/bin
+        touch inspire-restart
+        chmod a+x inspire-restart
+        echo "#! /bin/bash" > inspire-restart
+        echo "killall inspire Inspire ; inspire \"\$1\"" >> "$pkgdir"/usr/bin/inspire-restart
+
+        cd "$pkgdir"/usr/share/applications/
+        echo "[Desktop Entry]" > activinspire-restart.desktop
+        echo "Name=ActivInspire (restart)" >> activinspire-restart.desktop
+        echo "Comment=Promethean ActivInspire - restart needed when using activtools" >> activinspire-restart.desktop
+        echo "Exec=/usr/bin/inspire-restart" >> activinspire-restart.desktop
+        echo "Icon=/usr/share/icons/hicolor/512x512/apps/inspire.ico" >> activinspire-restart.desktop
+        echo "Terminal=false" >> activinspire-restart.desktop
+        echo "Encoding=UTF-8" >> activinspire-restart.desktop
+        echo "Type=Application" >> activinspire-restart.desktop
+        echo "Categories=Education;Promethean;Applications;" >> activinspire-restart.desktop
+        echo "MimeType=application/x-asstudio;" >> activinspire-restart.desktop
+        echo "StartupNotify=false" >> activinspire-restart.desktop
+
+        echo " "
+        echo "activcalibrate has to be closed by Alt+F4 or get killed after the last calibration-point."
+        echo " "
 }
