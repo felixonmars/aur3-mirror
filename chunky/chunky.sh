@@ -1,2 +1,2 @@
 #!/bin/sh
-"$JAVA_HOME/bin/java" -jar '/usr/share/java/chunky/chunky.jar'
+"$JAVA_HOME/bin/java" -jar /usr/share/java/chunky.jar "$@"

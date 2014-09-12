@@ -4,7 +4,7 @@ pkgname=linux-xps13
 true && pkgname=(linux-xps13 linux-xps13-headers)
 _kernelname=-xps13
 _srcname=linux-3.16
-pkgver=3.16.1
+pkgver=3.16.2
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/gunzy83/linux-xps13-archlinux"
@@ -21,7 +21,7 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'xps13.patch'
         )
 sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
-            'd2bf33289acf5c05b57aaca1fd8bb1935ac280c5c4090874e84806d35e17012e'
+            '567c903c21a932c6265eae1dee9ac708e33fc5405d69204de2588760ed0bde72'
             '060a07957201a04faa98b13e99a260c326c76660cb0dc7a724f644dabfae9eff'
             'f519556d8272e0be3064a255adf0b3533dbcdab24f02426786a7d9366ae1f82e'
             'bf7ccd0ca928dc47b7e2a87d08d8f19faafbb21ff957e22f1ee78a180961047e'
