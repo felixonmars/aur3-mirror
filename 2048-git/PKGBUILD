@@ -2,7 +2,7 @@
 
 pkgname=2048-git
 _realname=2048
-pkgver=2798bb0
+pkgver=5385464
 pkgrel=1
 pkgdesc="Join the numbers and get to the 2048 tile!"
 arch=('i686' 'x86_64')
