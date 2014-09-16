@@ -20,17 +20,17 @@ function go_get {
 # $3 = branch/commit/revision string, if empty then maste ist used
 function get_git {
   git clone https://$1 $2
-  if [[ $3 != "master" ]] && [[ ${3:1} == commit* ]]
+  if [[ $3 != "master" ]] && [[ ${3:0} == commit* ]]
   then
     cd $2
-    git checkout ${3:8}
-  elif [[ $3 != "master" ]] && [[ ${3:1} == tag* ]]
+    git checkout ${3:7}
+  elif [[ $3 != "master" ]] && [[ ${3:0} == tag* ]]
   then
     cd $2
-    git checkout tags/${3:5}
+    git checkout tags/${3:4}
   else
     cd $2
-    git checkout ${3:8}
+    git checkout ${3:7}
   fi
 }
 

@@ -18,11 +18,4 @@
 /^#extension=ftp.so/ s/^#//;
 /^;extension=zip.so/ s/^;//;
 /^#extension=zip.so/ s/^#//;
-/^;open_basedir/ s/^;//;
-/^#open_basedir/ s/^#//;
-/^open_basedir/ s/:\/etc//;
-/^open_basedir/ s/:\/etc\///;
-/^open_basedir/ s/$/:\/etc/;
-/^open_basedir/ s/:\/srv\/http\/zoneminder//;
-/^open_basedir/ s/:\/srv\/http\/zoneminder\///;
-/^open_basedir/ s/$/:\/srv\/http\/zoneminder/;
+s|^open_basedir = /srv/http/:/home/:/tmp/:/usr/share/pear/:/usr/share/webapps/$|&:/etc:/srv/http/zoneminder/:/var/cache/zoneminder/|;

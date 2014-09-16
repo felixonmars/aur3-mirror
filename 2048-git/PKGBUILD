@@ -5,7 +5,7 @@ _realname=2048
 pkgver=5385464
 pkgrel=1
 pkgdesc="Join the numbers and get to the 2048 tile!"
-arch=('i686' 'x86_64')
+arch=('any')
 url=('http://gabrielecirulli.github.io/2048/')
 license=('MIT')
 depends=('xdg-utils')
@@ -13,8 +13,8 @@ makedepends=('git')
 optdepends=('firefox: a web browser is required' 'chromium: a web browser is required' 'epiphany: a web browser is required')
 source=('2048.desktop'
         2048::git+https://github.com/gabrielecirulli/2048)
-md5sums=('8b519e314e72fe2a96a57b6cb2df838f'
-         'SKIP')
+sha256sums=('79415ee8569fb8e9782de2f18b056e7e24908e2cde4bae9cf74e428b1f743eda'
+            'SKIP')
 
 pkgver() {
   cd "${srcdir}/${_realname}"
@@ -35,3 +35,4 @@ package() {
    install -D -m 644 $srcdir/$_realname/favicon.ico $pkgdir/usr/share/2048/
    install -D -m 644 $srcdir/$_realname/index.html $pkgdir/usr/share/2048/
 }
+

@@ -1,8 +1,8 @@
 # Maintainer: Philipp Schmitt <philipp@schmitt.co>
 # GitHub: https://github.com/pschmitt/aur-docker-registry
 pkgname=docker-registry
-pkgver=0.7.1
-pkgrel=3
+pkgver=0.8.1
+pkgrel=1
 pkgdesc='Registry server for Docker (hosting/delivering of repositories and images)'
 arch=('any')
 url='https://github.com/dotcloud/docker-registry'
@@ -14,7 +14,7 @@ depends=('python2' 'gunicorn-python2' 'libevent' 'lrzip' 'xz' 'redis'
 options=(!emptydirs)
 source=("https://github.com/dotcloud/$pkgname/archive/$pkgver.tar.gz"
         "https://raw.githubusercontent.com/pschmitt/aur-$pkgname/master/$pkgname.service")
-md5sums=('ae9fb31c6c6977d5043946d9578dd071'
+md5sums=('0c635e74d138fb0fb3efcf26990b159b'
          'efb9861c7e3c08081893e7afd493041d')
 install="$pkgname.install"
 
