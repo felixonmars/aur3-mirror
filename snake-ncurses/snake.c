@@ -32,7 +32,7 @@ struct state {
 	WINDOW *score;
 };
 
-static int screen_init(struct state *ps, int level);
+static int screen_init(struct state *ps);
 static void screen_end(struct state *ps);
 static snake *reclist(snake *s, int i, snake *previous, struct state *ps);
 static void freelist(snake *s);
@@ -46,16 +46,11 @@ static int main_cycle(struct state *ps);
 
 int main(void)
 {
-	int level;
 	static struct state ps;
 	ps.lose = 0;
 	ps.points = 0;
 	srand(time(NULL));
-	do {
-		printf("Select level: 1 easy, 2 medium, 3 hard, 4 really fuc**ng impossible.\n");
-		scanf("%d", &level);
-	} while (level != 1 && level != 2 && level != 3 && level != 4);
-	if (screen_init(&ps, level))
+	if (screen_init(&ps))
 		return 1;
 	grid_init(&ps);
 	while (!ps.lose) {
@@ -67,7 +62,7 @@ int main(void)
 	return 0;
 }
 
-static int screen_init(struct state *ps, int level)
+static int screen_init(struct state *ps)
 {
 	int i, k;
 	initscr();
@@ -95,20 +90,7 @@ static int screen_init(struct state *ps, int level)
 	ps->field = subwin(stdscr, ROWS + 2, COLS + 2, i, k);
 	ps->score = subwin(stdscr, 2 + 2, ps->coltot, ps->rowtot - 4, 0);
 	keypad(ps->field, TRUE);
-	switch (level) {
-	case 1:
-		wtimeout(ps->field, 180);
-		break;
-	case 2:
-		wtimeout(ps->field, 120);
-		break;
-	case 3:
-		wtimeout(ps->field, 80);
-		break;
-	case 4:
-		wtimeout(ps->field, 30);
-		break;
-	}
+	wtimeout(ps->field, 30);
 	wborder(ps->field, '|', '|', '-', '-', '+', '+', '+', '+');
 	wborder(ps->score, '|', '|', '-', '-', '+', '+', '+', '+');
 	mvwprintw(ps->score, 2, 1, "F2 anytime to *rage* quit. Arrow keys to move.");
@@ -255,31 +237,30 @@ static void change_directions(int direction, struct state *ps)
 
 static int main_cycle(struct state *ps)
 {
+	int direction = ps->s->direction;
 	wmove(ps->field, ps->s->x + 1, ps->s->y + 1);
 	wrefresh(ps->field);
 	switch (wgetch(ps->field)) {
 	case KEY_LEFT:
-		if ((ps->s->direction != RIGHT) && (ps->s->direction != LEFT))
-			change_directions(LEFT, ps);
+		if (direction != RIGHT)
+			direction = LEFT;
 		break;
 	case KEY_RIGHT:
-		if ((ps->s->direction != LEFT) && (ps->s->direction != RIGHT))
-			change_directions(RIGHT, ps);
+		if (direction != LEFT)
+			direction = RIGHT;
 		break;
 	case KEY_UP:
-		if ((ps->s->direction != DOWN && ps->s->direction != UP))
-			change_directions(UP, ps);
+		if (direction != DOWN)
+			direction = UP;
 		break;
 	case KEY_DOWN:
-		if ((ps->s->direction != UP) && (ps->s->direction != DOWN))
-			change_directions(DOWN, ps);
+		if (direction != UP)
+			direction = DOWN;
 		break;
 	case KEY_F(2): /* f2 to exit */
 		return 0;
-	default:
-		change_directions(ps->s->direction, ps);
-		break;
 	}
+	change_directions(direction, ps);
 	return 1;
 }
 

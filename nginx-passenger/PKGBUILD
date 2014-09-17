@@ -1,16 +1,16 @@
 # Maintainer: Tom Richards <tom@tomrichards.net>
 
-_nginxver=1.6.1
+_nginxver=1.6.2
 _passengerver=4.0.50
 
 pkgname=nginx-passenger
-pkgver=1.6.1
-pkgrel=2
+pkgver=1.6.2
+pkgrel=1
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
 license=('custom')
-depends=('pcre' 'zlib' 'openssl' 'ruby' 'ruby-rack' 'curl')
+depends=('pcre' 'zlib' 'openssl' 'ruby' 'ruby-rack' 'curl' 'libev')
 optdepends=('python: Support for python web apps' 'nodejs: Support for node.js web apps')
 conflicts=('nginx' 'passenger')
 backup=('etc/nginx/fastcgi.conf'
@@ -28,7 +28,7 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
     'cleanup-headers.patch'
     'service'
     'logrotate')
-sha256sums=('f5cfe682a1aeef4602c2ca705402d5049b748f946563f41d8256c18674836067'
+sha256sums=('b5608c2959d3e7ad09b20fc8f9e5bd4bc87b3bc8ba5936a513c04ed8f1391a18'
             'c5bdddf19baac169ae3f0ac1e9264c6e43b4f23d9d46d12f2dd5c02bac5c98cd'
             'ef8c92df29814a35f133ec5d9fef896f93709068aa3ca964b64aae68bdec2ab6'
             '05fdc0c0483410944b988d7f4beabb00bec4a44a41bd13ebc9b78585da7d3f9b'
@@ -40,6 +40,7 @@ prepare() {
 }
 
 build() {
+    export USE_VENDORED_LIBEV=no
     cd "$srcdir/passenger-release-$_passengerver"
     _nginx_addon_dir=`bin/passenger-config --nginx-addon-dir`
 
@@ -118,7 +119,7 @@ package() {
     install -d "$pkgdir"/usr/lib/passenger/buildout
     rm -r $(find . -name "Makefile" -or -name "*.o")
     cp -R buildout/{agents,ruby} "$pkgdir"/usr/lib/passenger/buildout
-    cp -R {bin,helper-scripts,lib,node_lib} "$pkgdir"/usr/lib/passenger/
+    cp -R {bin,helper-scripts,lib,node_lib,resources} "$pkgdir"/usr/lib/passenger/
 
     #Passenger native support
     install -d "$pkgdir"/usr/lib/passenger/ext
