@@ -2,7 +2,7 @@
 
 pkgname=airzoshi
 pkgver=2.16.3
-pkgrel=1
+pkgrel=2
 pkgdesc='Vertical text viewer for Japanese "Aozora Bunko" format texts'
 arch=('i686' 'x86_64')
 url="http://www.memememo.com/u/sato/f1892/"
@@ -10,7 +10,7 @@ license=('unknown')
 depends=('adobe-air')
 source=(http://www.satokazzz.com/airzoshi/air/AirZoshi.air $pkgname.sh)
 noextract=(AirZoshi.air)
-md5sums=('a5ddc2cffdc57d838c5c6440b7f4871b'
+md5sums=('ef2ddc993d106b3f6a63bc54c7424efe'
          '29b8f817d0b95021b29b542b118dc7b5')
 
 package() {

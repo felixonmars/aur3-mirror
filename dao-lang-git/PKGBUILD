@@ -5,10 +5,9 @@
 # FIXME fix the doc generation!
 
 _basename=dao
-_docdir="/usr/share/doc/$_basename"
 
 pkgname=${_basename}-lang-git
-pkgver=1359.d15cc54
+pkgver=1368.b7bbaea
 pkgrel=1
 pkgdesc='A very lightweight, portable, optionally typed programming language and VM written in C featuring blazingly fast real concurrency, deferring, OOP, AOP, LLVM JIT, bytecode, many advanced modules & bindings and much more!'
 url='http://www.daovm.net/'
@@ -47,7 +46,7 @@ sha256sums=(
   'SKIP'
   'SKIP'
 )
-depends=('gcc-libs-multilib')
+depends=('gcc-libs-multilib' 'readline')
 makedepends=(
   #'emscripten-git' (wait until clang 3.4 becomes supported)
   #'genometools'
@@ -66,6 +65,8 @@ makedepends=(
   'cblas'
   'gsl'
   'clang'
+  'readline'
+  'zlib'
 )
 optdepends=(
   #'emscripten-git:        support for compilation to JavaScript'
@@ -85,9 +86,10 @@ optdepends=(
   'cblas:                 needed by the cblas module'
   'gsl:                   needed by the DaoGSL module (GNU Scientific Library)'
   'clang:                 needed by clangdao (a C/C++ library autobinding tool)'
+  'zlib:                  needed by the JIT and CXX modules'
 )
 provides=('dao')
-conflicts=()
+conflicts=('dao')
 
 build() {
   mv "$_basename-tools/"*   "$_basename/tools/"
@@ -184,26 +186,26 @@ EOF
 
   # FIXME not getting compiled due to daomake changes
   # enable disabled-by-default FFI (i.e. clinker)
-  patch modules/clinker/libffi/makefile.dao <<\EOF
-@@ -1,5 +1,7 @@
- 
- project = DaoMake::Project( "FFI" ) 
-+daovm = DaoMake::FindPackage( "Dao", $REQUIRED )
-+if( daovm == none ) std.error('package "Dao" not found')
- 
- # TODO: adapt to other platforms.
- 
-@@ -56,7 +58,7 @@
- 
- 
- 
--#project.GenerateFinder( $TRUE );
--#project.Install( daovm.GetPath( "MOD-PATH" ), ffi_dll );
-+project.GenerateFinder( $TRUE );
-+project.Install( daovm.GetPath( "MOD-PATH" ), ffi_dll );
- #project.Install( daovm.GetPath( "MOD-PATH" ), ffiite_dll );
- #project.Install( daovm.GetPath( "MOD-PATH" ), myffi_dll );
-EOF
+#  patch modules/clinker/libffi/makefile.dao <<\EOF
+#@@ -1,5 +1,7 @@
+# 
+# project = DaoMake::Project( "FFI" ) 
+#+daovm = DaoMake::FindPackage( "Dao", $REQUIRED )
+#+if( daovm == none ) std.error('package "Dao" not found')
+# 
+# # TODO: adapt to other platforms.
+# 
+#@@ -56,7 +58,7 @@
+# 
+# 
+# 
+#-#project.GenerateFinder( $TRUE );
+#-#project.Install( daovm.GetPath( "MOD-PATH" ), ffi_dll );
+#+project.GenerateFinder( $TRUE );
+#+project.Install( daovm.GetPath( "MOD-PATH" ), ffi_dll );
+# #project.Install( daovm.GetPath( "MOD-PATH" ), ffiite_dll );
+# #project.Install( daovm.GetPath( "MOD-PATH" ), myffi_dll );
+#EOF
 
   # enable disabled-by-default GObject bindings
   # FIXME not getting compiled (not anymore in dao-modules/makefile.dao???)
@@ -232,51 +234,12 @@ EOF
 +project.Install( daovm.GetPath( "MOD-PATH" ), myffi_dll );
 EOF
 
-  # enable JIT and set the number of CPUs to use
   sed -i -r -e "s/# *(cpu *=).*/\1$(grep '^processor' /proc/cpuinfo | wc -l)/" \
             -e 's/# *(jit *=).*/\1yes/' dao.conf
-
   # stop right after the daomake tool creates the Makefile
   #sed -i -r 's|^[[:space:]]*\$\(MAKE\)[[:space:]]*$||' Makefile.daomake
-
-  msg "Starting bootstrap and make..."
-
-  # FIXME already reported to upstream
-  echo 2.0.dumblobalpha00 > manifest.uuid
   make -f Makefile.daomake linux RESET='--reset' \
-    OPTIONS="--option-INSTALL-PATH '/usr/' \
-             --option-DOC-PATH     '$_docdir/' \
-             --no-local-rpath"
-
-  # FIXME patch all dst paths in the install: target
-  find . -name Makefile | while read f; do
-    awk 'BEGIN{ inst = 0 } {
-      if ($0 ~ /^install:$/) {
-        inst = 1
-        print $0
-      }
-      else if (inst == 1) {
-        # still in install:
-        if ($0 ~ /^\t/) {
-          # full-path
-          if ($0 ~ / \/[^ ]*$/) {
-            sub(/\/[^ ]*$/, "'"$pkgdir"'&", $0)
-            orig = $0
-            match($0, /\/[^ ]*$/)
-            $0 = "\tmkdir -p " substr($0, RSTART, RLENGTH) "; " orig
-          }
-          print $0
-        }
-        else {
-          inst = 0
-          print $0
-        }
-      }
-      else {
-        print $0
-      }
-    }' < "$f" > "$f"2 && mv "$f"2 "$f" || exit $?
-  done
+    OPTIONS="--option-INSTALL-PATH '/usr' --no-local-rpath"
 }
 
 pkgver() {
@@ -286,15 +249,15 @@ pkgver() {
 
 package() {
   cd "$_basename"
-  make install
+  make install INSTALL="$pkgdir/usr"
 
-  # ELF file ('usr/share/doc/dao/demo/modules/clinker/libsample.so') outside of a valid path.
-  rm "$pkgdir/usr/share/doc/dao/demo/modules/clinker/libsample.so"
+  # ELF file outside of a valid path
+  rm "$pkgdir/usr/share/dao/demo/modules/clinker/libsample.so"
 
   # FIXME still not solved?
   rmdir "$pkgdir/usr/lib/daomake/packages/DaoMake.Objs"
 
-  # inst <src> <dst>
+  # inst [cp|mv] <src> <dst>
   inst() {
     # FIXME make it aware of system-wide policy on chmod & chown of dirs
     [ ! -d "$2" ] && {
@@ -312,5 +275,8 @@ package() {
   inst share/dao-logo.png "$pkgdir/usr/share/icons/"
   inst share/daohelp.vim  "$pkgdir/usr/share/vim/vimfiles/syntax/"
   inst share/dao.vim      "$pkgdir/usr/share/vim/vimfiles/syntax/"
-  inst tools/webdemo/     "$pkgdir/$_docdir/"
+  inst tools/webdemo/     "$pkgdir/usr/share/$_basename/"
+  # FIXME check if the documentation uses relative paths
+  mkdir -p "$pkgdir/usr/share/doc/"
+  mv "$pkgdir/usr/share/$_basename/doc/" "$pkgdir/usr/share/doc/$_basename"
 }
