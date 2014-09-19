@@ -1,0 +1,36 @@
+# ODROID Mali GL Driver
+# Maintainer: Kevin Mihelich <kevin@archlinuxarm.org>
+
+buildarch=4
+
+pkgname=odroid-libgl-mali
+pkgver=r4p0
+pkgrel=1.1
+arch=('armv7h')
+pkgdesc="ODROID Mali GL Driver"
+url="http://www.hardkernel.com/"
+license=('Proprietary')
+provides=('libegl' 'libgles' 'libMali')
+source=("http://builder.mdrjr.net/tools/mali-${pkgver}.txz")
+md5sums=('f88d6db219d2edfbbf7b2e4e816e4d57')
+
+package() {
+    install -d -m 0755 ${pkgdir}/opt/${pkgname}/lib
+
+    cd ${srcdir}/mali
+    install -m 0755 libMali.so ${pkgdir}/opt/${pkgname}/lib
+
+    cd ${pkgdir}/opt/${pkgname}/lib
+    ln -s libEGL.so.1 libEGL.so
+    ln -s libEGL.so.1.4 libEGL.so.1
+    ln -s libMali.so libEGL.so.1.4
+    ln -s libGLESv1_CM.so.1 libGLESv1_CM.so
+    ln -s libGLESv1_CM.so.1.1 libGLESv1_CM.so.1
+    ln -s libMali.so libGLESv1_CM.so.1.1
+    ln -s libGLESv2.so.2 libGLESv2.so
+    ln -s libGLESv2.so.2.0 libGLESv2.so.2
+    ln -s libMali.so libGLESv2.so.2.0
+
+    install -d -m 0755 ${pkgdir}/etc/ld.so.conf.d
+    echo "/opt/${pkgname}/lib" > ${pkgdir}/etc/ld.so.conf.d/${pkgname}.conf
+}

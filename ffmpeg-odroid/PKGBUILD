@@ -1,0 +1,88 @@
+# $Id$
+# Maintainer:  Ionut Biru <ibiru@archlinux.org>
+# Maintainer:  Bartłomiej Piotrowski <bpiotrowski@archlinux.org>
+# Contributor: Tom Newsom <Jeepster@gmx.co.uk>
+# Contributor: Paul Mattal <paul@archlinux.org>
+
+# ALARM: Kevin Mihelich <kevin@archlinuxarm.org>
+#  - drop x265 until it builds on ARM
+
+pkgname=ffmpeg-odroid
+pkgver=2.3.3
+pkgrel=2.1
+epoch=1
+pkgdesc='Complete and free Internet live audio and video broadcasting solution'
+arch=('armv7h')
+url='http://ffmpeg.org/'
+license=('GPL')
+provides='ffmpeg'
+depends=(
+      'alsa-lib' 'bzip2' 'fontconfig' 'gnutls' 'gsm' 'lame' 'libass' 'libvdpau'
+      'libbluray' 'libmodplug' 'libpulse' 'libtheora' 'libva' 'libvorbis' 'libvpx'
+      'opencore-amr' 'openjpeg' 'opus' 'rtmpdump' 'schroedinger' 'sdl' 'speex'
+      'v4l-utils' 'libx264' 'xvidcore' 'zlib')
+makedepends=('libvdpau' 'yasm' 'x264')
+source=(http://ffmpeg.org/releases/ffmpeg-$pkgver.tar.bz2{,.asc})
+md5sums=('72361d3b8717b6db3ad2b9da8df7af5e'
+         'SKIP')
+
+build() {
+  cd ffmpeg-$pkgver
+
+  ./configure \
+    --prefix=/usr \
+    --disable-debug \
+    --disable-static \
+    --enable-avisynth \
+    --enable-avresample \
+    --enable-decoder=atrac3 \
+    --enable-decoder=atrac3p \
+    --enable-dxva2 \
+    --enable-fontconfig \
+    --enable-gnutls \
+    --enable-gpl \
+    --enable-libass \
+    --enable-libbluray \
+    --enable-libfreetype \
+    --enable-libgsm \
+    --enable-libmodplug \
+    --enable-libmp3lame \
+    --enable-libopencore_amrnb \
+    --enable-libopencore_amrwb \
+    --enable-libopenjpeg \
+    --enable-libopus \
+    --enable-libpulse \
+    --enable-librtmp \
+    --enable-libschroedinger \
+    --enable-libspeex \
+    --enable-libtheora \
+    --enable-libv4l2 \
+    --enable-libvorbis \
+    --enable-libvpx \
+    --enable-libx264 \
+    --enable-libxvid \
+    --enable-pic \
+    --enable-postproc \
+    --enable-runtime-cpudetect \
+    --enable-shared \
+    --enable-swresample \
+    --enable-vdpau \
+    --enable-version3 \
+    --enable-x11grab \
+    --enable-nonfree \
+    --enable-thumb \
+    --enable-neon \
+    --disable-podpages
+
+  make
+  make tools/qt-faststart
+  make doc/ff{mpeg,play,server}.1
+}
+
+package() {
+  cd ffmpeg-$pkgver
+  make DESTDIR="$pkgdir" install install-man
+  install -Dm755 tools/qt-faststart "$pkgdir"/usr/bin/qt-faststart
+}
+
+# vim:set ts=2 sw=2 et:

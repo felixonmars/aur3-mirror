@@ -5,7 +5,7 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.16
-pkgver=3.16.2
+pkgver=3.16.3
 pkgrel=1
 _toipatch=tuxonice-for-linux-head-3.16.0-2014-08-07.patch
 arch=('i686' 'x86_64')
@@ -25,9 +25,9 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 )
 
 sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
-            '567c903c21a932c6265eae1dee9ac708e33fc5405d69204de2588760ed0bde72'
-            '7a53718853099e9b66fe2e2bc6813ba8ba5c51dfb246e0dab8517c4789887579'
-            '352b348b24027de50df4b549790fab0b8098aadc2947ef6cbccfffc1b5512d5b'
+            '3fbe03714f943605d711ff317aa52053e29bc50e63a8e6a17c2504cde1160208'
+            '62eeeaf1681bcf503b47e2902090683dc5831891179b6652c0a9a34fa22b4302'
+            '5091cde8ab44ef5285dd6b196cd075763be762df9c633d16926e8eae6ce31924'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
             'f36f61a0a72bcb0a9c04264343503bfbf927c9ea0db819e66734a3933b060588'
