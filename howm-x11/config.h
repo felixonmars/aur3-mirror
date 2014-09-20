@@ -30,7 +30,7 @@
 /** The size (in pixels) of the useless gaps. */
 #define GAP 2
 /** Enable debugging output */
-#define DEBUG_ENABLE 0
+#define DEBUG_ENABLE false
 /** The size (in pixels) of the border. */
 #define BORDER_PX 2
 /** The border colour when the window is focused. */
@@ -39,6 +39,8 @@
 #define BORDER_UNFOCUS "#555555"
 /** The border colour of the last focused window.. */
 #define BORDER_PREV_FOCUS "#74718E"
+/** The border colour when the window is urgent. */
+#define BORDER_URGENT "#FF0000"
 /** The height of the status bar to be displayed. */
 #define BAR_HEIGHT 20
 /** Whether the status bar is at the top or bottom of the screen. */
@@ -69,12 +71,17 @@
 /** The minimum height of a floating window that is spawned, if it doesn't
  * respond to geometry requests in a satisfactory manner. */
 #define FLOAT_SPAWN_HEIGHT 500
+/** The path at which the howm binary (or script that started howm) is stored
+ * at. This is used for restarts. */
+#define HOWM_PATH "/usr/bin/howm"
+/** The amount of client lists that can be stored in the register before
+ * needing to be pasted back. */
+#define DELETE_REGISTER_SIZE 5
 
 static const char * const term_cmd[] = {"urxvt", NULL};
-static const char * const dmenu_cmd[] = {"dmenu_run", "-i", "-h", "21", "-b",
+static const char * const dmenu_cmd[] = {"dmenu_run", "-i", "-b",
 		    "-nb", "#70898f", "-nf", "black",
-		    "-sf", "#74718e", "-fn",
-		    "'Droid Sans Mono-10'", NULL};
+		    "-sf", "#74718e", NULL};
 
 /** @brief The standard key map, feel free to change them.
  *
@@ -96,12 +103,14 @@ static const Key keys[] = {
 	{ MODKEY, NORMAL, XK_f, change_mode, {.i = FOCUS} },
 	{ MODKEY | ShiftMask, NORMAL, XK_f, change_mode, {.i = FLOATING} },
 	{ MODKEY, NORMAL, XK_space, toggle_float, {NULL} },
-	{ MODKEY, NORMAL, XK_Delete, quit, {.i = EXIT_SUCCESS} },
-	{ MODKEY | ShiftMask, NORMAL, XK_Delete, quit, {.i = EXIT_FAILURE} },
+	{ MODKEY, NORMAL, XK_Delete, quit_howm, {.i = EXIT_SUCCESS} },
+	{ MODKEY | ShiftMask, NORMAL, XK_Delete, quit_howm, {.i = EXIT_FAILURE} },
+	{ MODKEY, NORMAL, XK_BackSpace, restart_howm, {NULL} },
 	{ MODKEY, NORMAL, XK_m, resize_master, {.i = 5} },
 	{ MODKEY | ShiftMask, NORMAL, XK_m, resize_master, {.i = -5} },
 	{ MODKEY, NORMAL, XK_b, toggle_bar, {NULL} },
 	{ MODKEY, NORMAL, XK_period, replay, {NULL} },
+	{ MODKEY, NORMAL, XK_p, paste, {NULL} },
 
 	{ MODKEY | ShiftMask, FLOATING, XK_k, resize_float_height, {.i = -10} },
 	{ MODKEY | ShiftMask, FLOATING, XK_j, resize_float_height, {.i = 10} },
@@ -122,6 +131,7 @@ static const Key keys[] = {
 	{ MODKEY, FLOATING, XK_f, change_mode, {.i = FOCUS} },
 
 	{ MODKEY, FOCUS, XK_space, toggle_fullscreen, {NULL} },
+	{ MODKEY, FOCUS, XK_Tab, focus_urgent, {NULL} },
 	{ MODKEY, FOCUS, XK_k, focus_prev_client, {NULL} },
 	{ MODKEY, FOCUS, XK_j, focus_next_client, {NULL} },
 	{ MODKEY | ShiftMask, FOCUS, XK_k, move_current_up, {NULL} },
@@ -155,9 +165,10 @@ static const Key keys[] = {
 static const Operator operators[] = {
 	{OTHER_MOD, XK_q, NORMAL, op_kill},
 	{OTHER_MOD, XK_j, NORMAL, op_move_down},
+	{OTHER_MOD, XK_k, NORMAL, op_move_up},
 	{OTHER_MOD, XK_g, NORMAL, op_shrink_gaps},
 	{OTHER_MOD | ShiftMask, XK_g, NORMAL, op_grow_gaps},
-	{OTHER_MOD, XK_k, NORMAL, op_move_up},
+	{OTHER_MOD, XK_d, NORMAL, op_cut},
 	{OTHER_MOD, XK_j, FOCUS, op_focus_down},
 	{OTHER_MOD, XK_k, FOCUS, op_focus_up}
 };
@@ -185,7 +196,7 @@ static const Motion motions[] = {
  * Note: The first item is NULL as workspaces are indexed from 1.
  */
 static Workspace wss[] = {
-	{NULL},
+	{0, 0, 0, 0, 0, NULL, NULL, NULL},
 	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
 	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
 	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT},
@@ -193,4 +204,14 @@ static Workspace wss[] = {
 	{.layout = HSTACK, .gap = GAP, .master_ratio = 0.6, .bar_height = BAR_HEIGHT}
 };
 
+_Static_assert(MASTER_RATIO > 0 && MASTER_RATIO < 1, "MASTER_RATIO should be between 0 and 1.");
+_Static_assert(WORKSPACES >= 1, "WORKSPACES must be at least 1.");
+_Static_assert(DEFAULT_WORKSPACE > 0 && DEFAULT_WORKSPACE <= WORKSPACES, "DEFAULT_WORKSPACE must be between 1 and WORKSPACES.");
+_Static_assert(GAP >= 0, "GAP can't be negative.");
+_Static_assert(BORDER_PX >= 0, "BORDER_PX can't be negative.");
+_Static_assert(OP_GAP_SIZE >= 0, "OP_GAP_SIZE can't be negative.");
+_Static_assert(BAR_HEIGHT >= 0, "BAR_HEIGHT can't be negative.");
+_Static_assert(FLOAT_SPAWN_HEIGHT >= 0, "FLOAT_SPAWN_HEIGHT can't be negative.");
+_Static_assert(FLOAT_SPAWN_WIDTH >= 0, "FLOAT_SPAWN_WIDTH can't be negative.");
+_Static_assert(LENGTH(wss) == WORKSPACES + 1, "wss must contain one more workspace than WORKSPACES.");
 #endif
