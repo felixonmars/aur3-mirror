@@ -20,8 +20,8 @@ SET(QT_INCLUDE_DIRS_NO_SYSTEM ON)
 # set the resource compiler (RHBZ #652435)
 SET(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
 
-# override boost library suffix which defaults to -mgw
-SET(Boost_COMPILER -gcc47)
+# override boost thread component suffix as mingw-w64-boost is compiled with threadapi=win32
+SET(Boost_THREADAPI win32)
 
 # These are needed for compiling lapack (RHBZ #753906)
 SET(CMAKE_Fortran_COMPILER x86_64-w64-mingw32-gfortran)
