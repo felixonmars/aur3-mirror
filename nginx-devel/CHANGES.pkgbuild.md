@@ -1,3 +1,6 @@
+## 1.7.5
+* psol-1.9.32.1-beta
+
 ## 1.7.4
 * added armv6h to the arch
 

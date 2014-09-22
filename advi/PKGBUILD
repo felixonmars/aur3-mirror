@@ -3,7 +3,7 @@
 
 pkgname=advi
 pkgver=1.10.2
-pkgrel=2
+pkgrel=3
 pkgdesc="Unix-platform DVI previewer and a programmable presenter for slides written in LaTeX."
 arch=(i686 x86_64)
 url="http://gallium.inria.fr/advi/"
@@ -20,7 +20,7 @@ build() {
     ./configure --prefix=/usr
    
     # temp fix to remove doc building (currently broken, at least for me)
-    sed -i "s/SUBDIRS = src tex doc/SUBDIRS = src tex #doc/" Makefile
+    #sed -i "s/SUBDIRS = src tex doc/SUBDIRS = src tex #doc/" Makefile
 
     make || return 1
     

@@ -19,4 +19,4 @@ else
 fi
 
 cd "$path/../lib/qsp/"
-exec ./qsp-gui "$@"
+exec -- ./qsp-gui "$@"
