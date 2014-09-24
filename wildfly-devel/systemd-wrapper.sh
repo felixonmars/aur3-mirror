@@ -1,6 +1,6 @@
 #!/bin/bash
 source /etc/profile.d/wildfly-devel.sh
-source /etc/profile.d/jdk.sh
+source /etc/profile.d/jre.sh
 
 if [ "$JBOSS_MODE" = "standalone" ]; then
   JBOSS_CONFIGS="-c $JBOSS_CONFIG"
