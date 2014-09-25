@@ -1,5 +1,5 @@
 pkgname=git-htmldocs
-pkgver=2.0.1
+pkgver=2.1.0
 pkgrel=1
 pkgdesc="Git HTML and plain text documentation pages"
 arch=(any)
@@ -9,7 +9,7 @@ makedepends=(tar)
 _file="$pkgname-$pkgver.tar.xz"
 source=("https://www.kernel.org/pub/software/scm/git/$_file")
 noextract=("$_file")
-md5sums=(bae268539f5cd5a0f1e9c900aca8ff57)
+md5sums=(5ceb3bf2fe3bc2ceb7e58a3ea1af7bea)
 
 package() {
     local DIR="$pkgdir/usr/share/doc/git-doc"

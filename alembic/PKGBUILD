@@ -1,31 +1,37 @@
 # Maintainer: N30N <archlinux@alunamation.com>
 
 pkgname="alembic"
-pkgver=1.0.5
+#pkgver=1.0.5
+pkgver=1.5.5
 pkgrel=1
 pkgdesc="An open framework for storing and sharing 3D geometry data"
 url="http://opensource.imageworks.com/?p=alembic"
 license=("MIT")
 arch=("i686" "x86_64")
-depends=("hdf5")
-makedepends=("cmake" "boost" "ilmbase" "openexr" "glut")
-optdepends=("ilmbase: for SimpleAbcViewer" \
-	"libgl: for SimpleAbcViewer" \
-	"glut: for SimpleAbcViewer")
-source=("http://alembic.googlecode.com/files/alembic-${pkgver}.tar.bz2")
-sha1sums=("56d32e2aca7d1a92dd3d0b3442653f872fa87343")
+depends=("hdf5" "pyilmbase")
+makedepends=("cmake" "boost" "openexr" "glut")
+optdepends=("glut: for SimpleAbcViewer")
+source=("http://alembic.googlecode.com/archive/${pkgver//./_0}.tar.gz")
+sha1sums=("6ca4fabea10ed28ee1839f0a492caa39b861b2fd")
 MAKEFLAGS="-j1"
 
-# alembic E: Dependency ilmbase detected and not included (libraries ['usr/lib/libHalf.so.6', 'usr/lib/libIex.so.6'] needed in files ['usr/bin/SimpleAbcViewer'])
-# alembic E: Dependency nvidia-utils detected and not included (libraries ['usr/lib/libGL.so.1'] needed in files ['usr/bin/SimpleAbcViewer'])
-# alembic E: Dependency freeglut detected and not included (libraries ['usr/lib/libglut.so.3'] needed in files ['usr/bin/SimpleAbcViewer'])
+prepare() {
+	[ -d build ] && rm -rf build
+	mkdir build
+
+	cd "${pkgname}-${pkgver//./_0}"
+	sed "/SET( CMAKE_INSTALL_PREFIX/,+1d" \
+		-i CMakeLists.txt
+	sed "s/BOOST_PYTHON_LIBRARY/Boost_PYTHON_LIBRARY/g" \
+		-i python/examples/AbcView/CMakeLists.txt
+}
 
 build() {
-	sed "/SET( CMAKE_INSTALL_PREFIX/,+1d" -i "${pkgname}-${pkgver}/CMakeLists.txt"
-
-	mkdir build
 	cd build
-	cmake -DCMAKE_INSTALL_PREFIX="${pkgdir}/usr" "../${pkgname}-${pkgver}"
+	cmake -DLIBPYTHON_VERSION=2.7 \
+		-DBoost_PYTHON_LIBRARY_RELEASE="/usr/lib/libboost_python.so" \
+		-DCMAKE_INSTALL_PREFIX="${pkgdir}/usr" \
+		"../${pkgname}-${pkgver//./_0}"
 	make
 }
 
@@ -35,11 +41,12 @@ check() {
 }
 
 package() {
-	install -Dm644 "${pkgname}-${pkgver}/LICENSE.txt" \
+	install -Dm644 "${pkgname}-${pkgver//./_0}/LICENSE.txt" \
 		"${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
 	cd build
 	make install
+	rm -r "${pkgdir}/usr/lib/static/"
 }
 
 # vim: set noet ff=unix:

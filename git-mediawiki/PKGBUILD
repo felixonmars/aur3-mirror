@@ -1,5 +1,5 @@
 pkgname=git-mediawiki
-pkgver=2.0.1
+pkgver=2.1.0
 pkgrel=1
 pkgdesc="Gateway between Git and Media Wiki"
 arch=(any)
@@ -22,5 +22,5 @@ package() {
     make install DESTDIR="$pkgdir" gitexecdir="$DIR" prefix=/usr
 }
 
-md5sums=('6d28a5d112379c20c7f7df9e0ffb070c'
+md5sums=('47b1f55d9a16be112f7ae2c778a9b30c'
 )

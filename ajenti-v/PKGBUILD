@@ -1,7 +1,7 @@
 # Maintainer : Dustin Falgout <dustin@falgout.us>
 
 pkgname=ajenti-v
-pkgver=0.2.46
+pkgver=0.2.50
 pkgrel=1
 pkgdesc='Plugin suite for Ajenti that adds web hosting capabilities.'
 arch=(any)
