@@ -1,25 +1,28 @@
 # Maintainer: N30N <archlinux@alunamation.com>
+# Contributor: Peter Shinners <pete@shinners.org>
 
 pkgname="alembic"
-#pkgver=1.0.5
 pkgver=1.5.5
-pkgrel=1
+pkgrel=2
 pkgdesc="An open framework for storing and sharing 3D geometry data"
-url="http://opensource.imageworks.com/?p=alembic"
+url="http://alembic.io"
 license=("MIT")
 arch=("i686" "x86_64")
-depends=("hdf5" "pyilmbase")
-makedepends=("cmake" "boost" "openexr" "glut")
-optdepends=("glut: for SimpleAbcViewer")
-source=("http://alembic.googlecode.com/archive/${pkgver//./_0}.tar.gz")
-sha1sums=("6ca4fabea10ed28ee1839f0a492caa39b861b2fd")
+depends=("hdf5")
+makedepends=("mercurial" "cmake" "boost" "openexr" "glut" "python2-ilmbase")
+optdepends=("python2-ilmbase: for python2 bindings" \
+	"glut: for SimpleAbcViewer" \
+	"glu: for SimpleAbcViewer")
+source=("hg+https://code.google.com/p/alembic/#tag=${pkgver//./_0}")
+md5sums=("SKIP")
+options=("staticlibs")
 MAKEFLAGS="-j1"
 
 prepare() {
 	[ -d build ] && rm -rf build
 	mkdir build
 
-	cd "${pkgname}-${pkgver//./_0}"
+	cd "${pkgname}"
 	sed "/SET( CMAKE_INSTALL_PREFIX/,+1d" \
 		-i CMakeLists.txt
 	sed "s/BOOST_PYTHON_LIBRARY/Boost_PYTHON_LIBRARY/g" \
@@ -28,10 +31,11 @@ prepare() {
 
 build() {
 	cd build
-	cmake -DLIBPYTHON_VERSION=2.7 \
+	cmake \
+		-DLIBPYTHON_VERSION=2.7 \
 		-DBoost_PYTHON_LIBRARY_RELEASE="/usr/lib/libboost_python.so" \
 		-DCMAKE_INSTALL_PREFIX="${pkgdir}/usr" \
-		"../${pkgname}-${pkgver//./_0}"
+		"../${pkgname}"
 	make
 }
 
@@ -41,12 +45,19 @@ check() {
 }
 
 package() {
-	install -Dm644 "${pkgname}-${pkgver//./_0}/LICENSE.txt" \
+	install -Dm644 "${pkgname}/LICENSE.txt" \
 		"${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
 	cd build
 	make install
-	rm -r "${pkgdir}/usr/lib/static/"
+
+	cd "${pkgdir}/usr/lib/"
+
+	install -d python2.7/site-packages
+	mv alembicmodule.so alembicglmodule.so python2.7/site-packages
+
+	mv static/* .
+	rm -r static
 }
 
 # vim: set noet ff=unix:
