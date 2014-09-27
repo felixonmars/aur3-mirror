@@ -40,3 +40,13 @@ struct rule {
 	{ "fuse",         "root", "root",  0666, NULL,      NULL                           },
 	{ ".*",           "root", "root",  0660, NULL,      NULL                           },
 };
+
+/* Fill into this table if you want to rename the network interface
+ * identified by `mac' to `name'.  By default no such renaming takes
+ * place. */
+struct mac2name {
+	unsigned char mac[6];
+	const char *name;
+} mac2names[] = {
+	{ .mac = { 0 }, .name = NULL }
+};

@@ -5,13 +5,13 @@ _version_label=${_version//./_}
 _debname=""
 pkgname=biicode
 pkgver=$_version
-pkgrel=1
+pkgrel=3
 pkgdesc="Simple C/C++ file-based dependency manager"
 arch=('i686' 'x86_64')
 url="http://www.biicode.com"
 license=('unknown')
 install=biicode.install
-depends=('cmake>=2.8.12','zlib','glibc')
+depends=('cmake>=2.8.12','zlib','glibc','sqlite','wget')
 makedepends=('dpkg')
 
 declare -A _package_32bit_sums=(["1.3.3"]="fd385f488eaf28182b99c52b9bb3e960"
@@ -40,5 +40,5 @@ noextract=('${_debname}')
 
 package()
 {
-    dpkg -i --ignore-depends=zlib1g,libc-bin "${srcdir}/${_debname}" 
+    dpkg -i --ignore-depends=zlib1g,libc-bin,libsqlite3-0,wget "${srcdir}/${_debname}" 
 }
