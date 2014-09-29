@@ -1,7 +1,7 @@
 # Maintainer: Will Price <will.price94+aur@gmail.com>
 pkgname=xtimecomposer
-pkgver=13.1.0
-pkgrel=1
+pkgver=13.2.0
+pkgrel=2
 pkgdesc="Eclipse based IDE for the xCORE microcontrollers"
 arch=('x86_64' 'i686')
 url="https://www.xmos.com/products/tools/xtimecomposer"
@@ -12,10 +12,11 @@ depends=(java-runtime)
 source=('xtimecomposer.patch'
         'xtimecomposer')
 md5sums=('9e96bc2d2a94b174d04bcc6d57874c5b'
-         '7183cd2692d89b69fe230d052a0e3d6d')
-_package="xTIMEcomposer-Community_13-Linux64-Installer(Community_13.1.0).tgz"
+         '7883a9fe1f797babbbb85864709bfefa')
+_package="xTIMEcomposer-Community_${pkgver%%.*}-Linux64-Installer(Community_$pkgver).tgz"
 
 prepare() {
+  echo $_package
  if [[ ! -f "$_package" ]]; then
    echo 'You must download xTIMEcomposer and put
 it into the `src` folder' && exit 1

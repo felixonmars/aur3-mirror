@@ -1,0 +1,189 @@
+diff --git a/src/page_buffer.cpp b/src/page_buffer.cpp
+index b67b27d..0101825 100644
+--- a/src/page_buffer.cpp
++++ b/src/page_buffer.cpp
+@@ -120,14 +120,18 @@ page_buffer::page_buffer(memory_lock m) :
+ page_buffer::~page_buffer() { }
+ 
+ size_t page_buffer::read(size_t n, size_t offset, void *buffer) const {
+-    size_t base = round_down_to_page(offset);
+ 
+     // Shrink request to what we can handle.
+     n = offset < buffer_size_ ? std::min(n, buffer_size_ - offset) : 0;
+ 
+     size_t position = 0;
+-    for (auto it = page_allocations_.lower_bound(base);
++    for (auto it = page_allocations_.begin();
+             it != page_allocations_.end() && it->first < n + offset; ++it) {
++
++        if (it->first + it->second.size() < offset) {
++            continue;
++        }
++
+         if (it->first > position + offset) {
+             // Zerofill gap.
+             size_t zero_length = it->first - position - offset;
+@@ -212,9 +216,16 @@ ssize_t page_buffer::splice(int fd, unsigned int flags) {
+ 
+     // Build up contiguous iov's and flush them to fd.
+     size_t position = 0;
+-    page_allocation_map_t::const_iterator it;
+-    for (it = page_allocations_.begin();
+-            position < last_whole_page && it != page_allocations_.end(); ) {
++
++    bool data_written = false;
++    size_t allocation_remaining = 0;
++
++    page_allocation_map_t::const_iterator it = page_allocations_.begin();
++    if (it != page_allocations_.end()) {
++        allocation_remaining = it->second.size();
++    }
++    for (; position < last_whole_page && it != page_allocations_.end(); ) {
++
+         // Fill in gap, if present.
+         if (position < it->first) {
+             size_t gap_length = it->first - position;
+@@ -246,6 +257,12 @@ ssize_t page_buffer::splice(int fd, unsigned int flags) {
+             v.iov_len = internal_size;
+             ios.push_back(v);
+ 
++            // Current allocation will be written after this while loop (for up
++            // to internal_size bytes). Subtract what will be written to keep
++            // track how many more bytes the current allocation will have
++            // aftewards.
++            allocation_remaining -= internal_size;
++
+             // Advance
+             position += internal_size;
+             if (position == last_whole_page) {
+@@ -253,10 +270,12 @@ ssize_t page_buffer::splice(int fd, unsigned int flags) {
+                 break;
+             }
+             ++it;
++            allocation_remaining = it->second.size();
+         }
+ 
+         assert(!(ios.empty()));
+         ssize_t ret = vmsplice(fd, &ios[0], ios.size(), flags);
++        data_written = true;
+         if (ret == -1) {
+             return ret;
+         }
+@@ -276,17 +295,26 @@ ssize_t page_buffer::splice(int fd, unsigned int flags) {
+ 
+     // If anything remains, write it normally.
+     if (last_whole_page < buffer_size_) {
++
++        // Determine whether the remaining data is in current allocation or the
++        // next one.
++        if (data_written && allocation_remaining == 0) {
++            it++;
++            allocation_remaining = it->second.size();
++        }
+         assert(it != page_allocations_.end());
+         assert(it->first <= last_whole_page);
+ 
+-        size_t internal_offset = last_whole_page - it->first;
+-        assert(internal_offset + buffer_size_ - last_whole_page <
+-            it->second.size());
++        size_t size_remaining = buffer_size_ - last_whole_page;
++        assert(size_remaining < it->second.size());
++        
++        size_t allocation_offset = it->second.size() - allocation_remaining;
+ 
+         ::write(fd,
+-            static_cast<const uint8_t*>(it->second.ptr()) + internal_offset,
+-            buffer_size_ - last_whole_page);
+-        position += buffer_size_ - last_whole_page;
++            static_cast<const uint8_t*>(it->second.ptr()) + allocation_offset,
++            size_remaining);
++
++        position += size_remaining;
+     }
+ 
+     return static_cast<ssize_t>(position);
+diff --git a/src/test/test_page_buffer.cpp b/src/test/test_page_buffer.cpp
+index 324b8cc..a27bbe6 100644
+--- a/src/test/test_page_buffer.cpp
++++ b/src/test/test_page_buffer.cpp
+@@ -129,6 +129,41 @@ TEST_F(PageBufferTest, Overread) {
+     EXPECT_EQ(expected, tmp);
+ }
+ 
++TEST_F(PageBufferTest, ReadSingleAllocation) {
++    const size_t length = 5000;
++
++    const std::string content = make_data(length);
++    buffer.write(content.size(), 0, &content[0]);
++
++    const int offset = 4096;
++    const int n = length - offset;
++    std::string tmp(n, '\1');
++
++    void* ptr = &tmp[0];
++    size_t bytes_read = buffer.read(n, offset, ptr);
++
++    EXPECT_EQ(n, bytes_read);
++    EXPECT_EQ(content.substr(offset), tmp);
++}
++
++TEST_F(PageBufferTest, ReadMiddleAllocation) {
++    const std::string page1 = make_data(4096);
++    buffer.write(page1.size(), 0, &page1[0]);
++
++    const std::string page2 = make_data(4096);
++    buffer.write(page2.size(), 4096, &page2[0]);
++
++    const size_t offset = 5000;
++    const size_t length = 2 * 4096 - offset;
++    std::string tmp(length, '\1');
++
++    void* ptr = &tmp[0];
++    size_t bytes_read = buffer.read(length, offset, ptr);
++
++    EXPECT_EQ(length, bytes_read);
++    EXPECT_EQ(page2.substr(offset - 4096), tmp);
++}
++
+ static char mapping(size_t offset) {
+     return static_cast<char>(offset);
+ }
+@@ -252,6 +287,38 @@ TEST_P(PageBufferSpliceTest, ContiguousStart) {
+     EXPECT_TRUE(loop.eof());
+ }
+ 
++TEST_P(PageBufferSpliceTest, MultiplePages) {
++    const std::string data = make_data(GetParam());
++
++    int num_pages = data.size() / 4096;
++
++    int offset = 0;
++    for (int i = 0; i < num_pages; i++) {
++        buffer.write(4096, offset, &data[0]);
++        offset += 4096;
++    }
++
++    size_t size_remaining = data.size() - offset;
++    if (size_remaining > 0) {
++        buffer.write(size_remaining, offset, &data[0]);
++    }
++
++    EXPECT_EQ(data.size(), buffer.size());
++
++    ssize_t ret = buffer.splice(loop.write(), 0);
++    EXPECT_EQ(data.size(), ret);
++    loop.close_writer();
++
++    // Read data of the pipe and verify the contents.
++    std::string tmp(data.size(), '\0');
++    ssize_t read_bytes = read(loop.read(), &tmp[0], tmp.size());
++    EXPECT_EQ(data.size(), read_bytes);
++    EXPECT_EQ(data, tmp);
++
++    // Check EOF.
++    EXPECT_TRUE(loop.eof());
++}
++
+ // Data will be prefixed by an empty page.
+ TEST_P(PageBufferSpliceTest, EmptyPageStart) {
+     size_t offset = 4096;
