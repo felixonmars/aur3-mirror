@@ -16,8 +16,8 @@ source=(
 sha1sums=(8604ac22dbcb940d692944e36dcdb7f94a9046b8)
 
 build() {
-  cd "$srcdir/tkintertable-$pkgver"
-  python2 setup.py build
+    cd "$srcdir/tkintertable-$pkgver"
+    python2 setup.py build
 }
 
 package() {

@@ -1,0 +1,318 @@
+#!/bin/bash
+
+# Tunnel-configurer:
+#  Client-server IP tunnel configuration via the same IP tunnel.
+#
+# Copyright (C) 2014 Natrio <natrio@list.ru>
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[[ "$1" =~ ^(-tun|-h|-help|--help|)$ ]] || exec ifconfig "$@"
+
+# config defaults
+PORT=68
+MTU=1500
+TIMEOUT=10
+CMD=tun-cat
+
+usage() {
+ [[ -n "$1" ]] && return 0
+ echo "Tunnel-configurer version 1.5.5
+ Client-server IP tunnel configuration via the same IP tunnel.
+
+-- vtund.conf --
+ # ifconfig replacement by wrapper
+options {
+ ...
+ #ifconfig /sbin/ifconfig;
+ ifconfig $HELPSTR;
+ ...
+
+ # Usual ifconfig example ($NAME doesn't break it):
+ # On server
+host0 {
+ passwd K@bI\$D0x;
+ up {
+   ifconfig \"%d 10.10.0.1 pointopoint 10.10.8.8\";
+ };
+}
+
+ # On client
+host0 {
+ passwd K@bI\$D0x;
+ up {
+   ifconfig \"%d 10.10.8.8 pointopoint 10.10.0.1\";
+   ip \"route add 10.10.10.0/24 dev %d\";
+   ip \"route add 10.10.0.0/24 dev %d\";
+ };
+}
+
+ # And same one with parameters transmission:
+ # Server example #1, without ${NAME}.conf and names
+host1 {
+ passwd K@bI\$D0x;
+ up {
+   ifconfig \"-tun %d local 10.10.0.1 send 10.10.10.5 10.10.10.0/24 10.10.0.0/24\";
+ };
+}
+
+ # Server example #2, with ${NAME}.conf and client's domain name
+host1 {
+ passwd K@bI\$D0x;
+ up {
+   ifconfig \"-tun %d send host1.vpn\";
+ };
+}
+
+ # Client example, getting all parameters from server
+host1 {
+ passwd K@bI\$D0x;
+ up {
+   ifconfig \"-tun %d get metric 100\";
+ };
+}
+
+-- Common definion's file /etc/${NAME}.conf (useful for server) --
+ # defaults
+PORT=68
+MTU=1500
+TIMEOUT=10
+ # the address of server for all hosts (example)
+LOCAL=server.vpn
+ # routes for sending to clients (example)
+ROUTES='10.10.10.0/24 10.10.0.0/24'
+
+-- Command-line description --
+ifconfig wrapper:
+ $NAME <'ifconfig' options>
+Server:
+ $NAME -tun <interface> send|-s <client_addr> [OPTIONS] [<client-side routes>]
+Client:
+ $NAME -tun <interface> get|-g|listen [OPTIONS] [<'ip route' options>]
+
+OPTIONS:
+    port|-P <port>  : default=68
+     mtu|-m <MTU>   : default=1500, 0=no change
+forcemtu|+m <MTU>   : Don't get MTU from server (client only)
+   local|-l <addr>|-: Force/skip local address (server only)
+  noaddr|-a         : Don't modify any addresses on interface
+  nopeer|-p         : Don't set peer address
+    peer|+p         : Add a route to peer instead of peer address
+noroutes|-r         : server - Don't send routes from config
+                    : client - Don't add routes from server
+ timeout|-t <sec>   : default=10, 0=endless
+  nofork|-B  | nobg | nobackground
+
+NOTE:
+ Addresses of client and server can be specified by IP or by name,
+ both will be resolved on server side.
+" >&2
+ exit $URET
+}
+
+log() {
+ echo $LPREF "$@" >&2
+}
+
+sec_up() {
+ local garb
+ IFS='. ' read "$1" garb < /proc/uptime
+}
+
+resolve() {
+ local garb
+ [[ -z "$2" ]] && return 1
+ if ! read "$1" garb < <(exec getent ahostsv4 "$2") ; then
+  log "Can't resolve host $2 to $1 IP."
+  exit 7
+ fi
+}
+
+set_addr() {
+ if [[ -z "$NOADDR" && -n "$1" ]] ; then
+  [[ -z "$NOPEER" && -n "$peer" ]] && PEER="peer $peer"
+  log $RPREF "address $1" $PEER
+  ip addr add "$1" $PEER dev "$ifc" || exit 3
+ fi
+ shift
+ if [[ -n "$PLUS" && -n "$peer" ]] ; then
+  log $RPREF "peer route $peer" "$@"
+  ip route rep "$peer" dev "$ifc" "$@" || exit 5
+ fi
+}
+
+main() {
+ case "$ROLE" in
+ send)
+  resolve LOCAL "$LOCAL"
+  set_addr "$LOCAL"
+  read MTU < "/sys/class/net/$ifc/mtu"
+  sec_up START
+  log "sending -> $peer:$LOCAL" "MTU:$MTU" $ROUTES $* >&2
+  while :; do
+   "$CMD" send "$ifc" "$PORT" "$peer:$LOCAL" "MTU:$MTU" $ROUTES $* || exit 4
+   ping -q -c1 -W1 -I "$ifc" "$peer" &> /dev/null && break
+   sec_up SEC
+   if ((TIMEOUT!=0)) && ((SEC > START+TIMEOUT)) ; then
+    log "Time is out."
+    exit 6
+   fi
+  done
+  log "Confirmed, $peer is UP."
+  ;;
+ 
+ get)
+  RPREF='<-'
+  log "listening" $RPREF
+  exec < <(exec "$CMD" listen "$ifc" "$PORT" "$TIMEOUT")
+  IFS=',: ' read local peer && set_addr "$local" "$@"
+  while IFS='=: ' read A B; do
+   if [[ "$A" = MTU && -n "$B" && -z "$FORCEMTU" ]] ; then
+    log $RPREF "mtu $B"
+    ip link set "$ifc" mtu "$B"
+   elif [[ -n "$A" && -z "$B" && -z "$NOROUTES" ]] ; then
+    log $RPREF "route $A" "$@"
+    ip route rep "$A" dev "$ifc" "$@" || exit 5
+   fi
+  done
+  log "Completed."
+  ;;
+ esac
+ }
+
+FILE=`readlink -f $0`
+FILENAME="${FILE##*/}"
+DIR="${FILE%/*}"
+
+CONFIG=/etc/${FILENAME}.conf
+[[ -f "$CONFIG" ]] && . "$CONFIG"
+
+[[ "$CMD" =~ ^/ ]] || CMD="$DIR/$CMD"
+
+[[ -z "$HELPSTR" ]] && HELPSTR="$FILE"
+NAME="${HELPSTR##*/}"
+
+URET=0
+[[ "$1" != '-tun' ]] && usage
+URET=1
+usage "$2"
+ifc="$2"
+shift 2
+
+unset ROLE PLUS PEER NOADDR NOPEER FORCEMTU NOBG NOROUTES RPREF
+while (($#>0)) ; do
+ case "$1" in
+ -s|send)
+  usage "$2"
+  resolve peer "$2"
+  ROLE="send"
+  shift 2
+  ;;
+
+ -g|get|listen)
+  ROLE="get"
+  shift
+  ;;
+
+ -m|mtu)
+  usage "$2"
+  MTU="$2"
+  shift 2
+  ;;
+
+ +m|forcemtu)
+  usage "$2"
+  MTU="$2"
+  FORCEMTU=1
+  shift 2
+  ;;
+
+ -P|port)
+  usage "$2"
+  PORT="$2"
+  shift 2
+  ;;
+
+ -t|timeout)
+  usage "$2"
+  TIMEOUT="$2"
+  shift 2
+  ;;
+
+ -B|nobg|nobackground|nofork)
+  NOBG=1
+  shift
+  ;;
+
+ -l|local)
+  usage "$2"
+  LOCAL="$2"
+  [[ "$2" = '-' ]] && LOCAL=
+  shift 2
+  ;;
+
+ -a|noaddr)
+  NOADDR=1
+  shift
+  ;;
+
+ +p|peer)
+  NOPEER=1
+  PLUS=1
+  shift
+  ;;
+
+ -p|nopeer)
+  NOPEER=1
+  shift
+  ;;
+
+ -r|noroutes)
+  ROUTES=
+  NOROUTES=1
+  shift
+  ;;
+
+ *)
+  break
+  ;;
+ esac
+done
+usage "$ROLE"
+
+[[ -z "$TIMEOUT" ]] && TIMEOUT=0
+[[ -z "$LOCAL" && "$ROLE" = send ]] && NOADDR=1
+
+LPREF="$FILENAME($ifc):"
+fd2="/proc/$$/fd/2"
+if [[ "$(readlink -e $fd2)" =~ ^(/dev/null)|($FILE)$ ]] ; then
+ exec 2>&-
+ exec 2> >(exec logger -t "${LPREF%:}" -p daemon.info)
+ LPREF=
+fi
+
+[[ "$MTU" =~ ^(0|auto)$ ]] && MTU=
+[[ -n "$MTU" ]] && mtu="mtu $MTU" || mtu=
+log "Setting $ifc UP" $mtu
+ip link set "$ifc" up $mtu || exit 2
+
+if [[ -z "$NOADDR" ]] ; then
+ log "flushing address"
+ ip addr flush dev "$ifc" || exit 3
+fi
+
+if [[ -n "$NOBG" ]] ; then
+ main "$@"
+else
+ main "$@" &
+fi
