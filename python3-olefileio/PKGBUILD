@@ -1,20 +1,26 @@
 # Contributor: Wes Brown <wesbrown18@gmail.com>
+# TODO: pkgbase=python-olefile
 pkgname=python3-olefileio
-pkgver=0.31
+pkgver=0.40
 pkgrel=0
-pkgdesc="Python 3 library to parse OLE files"
+pkgdesc='Python 3 library to read and write OLE files (now called "olefile")'
 arch=('any')
 url=("http://www.decalage.info/python/olefileio")
 license=('MIT')
 depends=('python3')
-source=("https://bitbucket.org/decalage/olefileio_pl/downloads/OleFileIO_PL-${pkgver}.zip")
-md5sums=('87c16645230c40f64d32e5cd125c2c55')
+source=("https://bitbucket.org/decalage/olefileio_pl/downloads/olefile-${pkgver}.zip")
+md5sums=('d9d909e6a09a8b0b2f60996e7d4783c0')
 
 package() {
-  cd "$srcdir/OleFileIO_PL-${pkgver}"
+  cd "$srcdir/olefile-${pkgver}"
   python3 setup.py build install --root="${pkgdir}" --optimize=1
-  install -D -m644 LICENSE.txt \
-    "$pkgdir/usr/share/licenses/$pkgname/LICENSE.txt"
-  install -D -m644 README.txt "$pkgdir/usr/share/doc/$pkgname/README.txt"
-  install -D -m644 README.html "$pkgdir/usr/share/doc/$pkgname/README.html"
+  
+  LICENSES="$pkgdir/usr/share/licenses/$pkgname"
+  install -d "$LICENSES/"
+  PACKAGES="$(python3 -c '
+import sys, os.path
+print(os.path.join(
+  "lib", "python{}.{}".format(*sys.version_info), "site-packages",
+))')"
+  ln -s "../../../$PACKAGES/olefile/LICENSE.txt" "$LICENSES/"
 }
