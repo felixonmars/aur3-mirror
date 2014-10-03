@@ -1,0 +1,63 @@
+# Maintainer: Felipe Facundes <felipe.facundes>
+# Credits: PKGBUILD jre7 -- (Jochen Schalanda <jochen+aur@schalanda.name>)
+pkgname=jre8
+_major=8
+_minor=20
+_build=b26
+_pkg=${_major}u$_minor
+pkgver=$_major.$_minor
+pkgrel=1
+pkgdesc="Java $_major Runtime Environment"
+arch=('i686' 'x86_64')
+url=http://www.oracle.com/technetwork/java/javase/downloads/index.html
+license=('custom')
+depends=('desktop-file-utils' 'hicolor-icon-theme' 'java-common' 'shared-mime-info' 'hicolor-icon-theme' 'libxrender' 'libxtst' 'shared-mime-info' 'xdg-utils')
+optdepends=('alsa-lib: sound'
+            'ttf-dejavu: fonts'
+            'java-jce_ustrength: Unrestricted cryptographic libraries')
+provides=("java-environment=$_major" "java-runtime=$_major" "java-runtime-headless=$_major" "java-web-start=$_major")
+conflicts=('java-runtime' 'java-environment' 'java-runtime-headless' 'java-web-start')
+install=jre.install
+_arch=i586  # Workaround for the AUR Web interface Source parser
+_arch2=i386; [ "$CARCH" = 'x86_64' ] && _arch=x64 && _arch2=amd64
+source=("http://download.oracle.com/otn-pub/java/jdk/$_pkg-$_build/jre-$_pkg-linux-$_arch.tar.gz"
+        'java-policy-settings.desktop'
+        'javaws-launcher')
+md5sums=('01cd08eade026ba10d9748a66c2cbb8e'
+         'f4e25ef1ccef8d36ff2433c3987a64fe'
+         '45c15a6b4767288f2f745598455ea2bf')
+[ "$CARCH" = 'x86_64' ] && md5sums[0]='01cd08eade026ba10d9748a66c2cbb8e'  # jre-$_pkg-linux-x64.tar.gz
+# # Alternative mirrors, if your local one is throttled:
+# source[0]="http://uni-smr.ac.ru/archive/dev/java/JRE/oracle/$_major/jre-$_pkg-linux-$_arch.tar.gz"
+# source[0]="http://ftp.wsisiz.edu.pl/pub/pc/pozyteczne%20oprogramowanie/java/jre-$_pkg-linux-$_arch.tar.gz"
+
+DLAGENTS=('http::/usr/bin/curl -LC - -b "oraclelicense=a" -O')
+PKGEXT='.pkg.tar'
+
+package() {
+  msg2 "Creating required dirs"
+  cd jre1.$_major.0_$_minor
+  mkdir -p "$pkgdir"/{opt/java/jre,usr/{bin,lib/mozilla/plugins,share/licenses/jre},etc/{.java/.systemPrefs,profile.d}}
+
+  msg2 "Removing the redundancies"
+  rm -r plugin/ man/ja
+
+  msg2 "Moving stuff in place"
+  mv lib/desktop/* man "$pkgdir"/usr/share/
+  mv COPYRIGHT LICENSE *.txt "$pkgdir"/usr/share/licenses/jre/
+  mv * "$pkgdir"/opt/java/jre/
+
+  msg2 "Symlinking the binaries"
+  find ${pkgdir}/opt/java/jre/bin -type f -printf "%f\n" | while read file; do ln -s /opt/java/jre/bin/${file} "${pkgdir}"/usr/bin/; done
+
+  msg2 "Symlinking the plugin"
+  ln -s /opt/java/jre/lib/$_arch2/libnpjp2.so "$pkgdir"/usr/lib/mozilla/plugins/
+
+  msg2 "Installing the scripts, confs and .desktops of our own"
+  cd "$srcdir"
+  install -m755 javaws-launcher "$pkgdir"/opt/java/jre/bin/
+  install -m644 java-policy-settings.desktop "$pkgdir"/usr/share/applications/
+
+  msg2 "Tweaking the javaws .desktop file"
+  sed -e 's/Exec=javaws/&-launcher %f/' -e '/NoDisplay=true/d' -i "$pkgdir"/usr/share/applications/sun-javaws.desktop
+}

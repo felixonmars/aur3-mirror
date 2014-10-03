@@ -1,6 +1,6 @@
 # Maintainer: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
-_rev=r04
+_rev=r05
 _ver=4.1.2
 _api=16
 pkgname=android-platform-${_api}
@@ -13,7 +13,7 @@ license=('custom')
 depends=('android-sdk')
 options=('!strip')
 source=("http://dl-ssl.google.com/android/repository/android-${_api}_${_rev}.zip")
-sha1sums=('90b9157b8b45f966be97e11a22fba4591b96c2ee')
+sha1sums=('12a5ce6235a76bc30f62c26bda1b680e336abd07')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/platforms/"
