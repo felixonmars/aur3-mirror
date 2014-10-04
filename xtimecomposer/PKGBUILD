@@ -1,17 +1,17 @@
 # Maintainer: Will Price <will.price94+aur@gmail.com>
 pkgname=xtimecomposer
 pkgver=13.2.0
-pkgrel=2
+pkgrel=3
 pkgdesc="Eclipse based IDE for the xCORE microcontrollers"
 arch=('x86_64' 'i686')
 url="https://www.xmos.com/products/tools/xtimecomposer"
 license=('Custom')
 provides=('xtimecomposer')
-options=(!strip)
+options=(!strip staticlibs)
 depends=(java-runtime)
 source=('xtimecomposer.patch'
         'xtimecomposer')
-md5sums=('9e96bc2d2a94b174d04bcc6d57874c5b'
+md5sums=('f6b95cdf13917852a11e58d60153059d'
          '7883a9fe1f797babbbb85864709bfefa')
 _package="xTIMEcomposer-Community_${pkgver%%.*}-Linux64-Installer(Community_$pkgver).tgz"
 

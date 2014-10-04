@@ -1,4 +1,4 @@
-obj-m = xpad.o
+obj-m = steamos-xpad.o
 
 KVERSION = $(shell uname -r)
 all:
