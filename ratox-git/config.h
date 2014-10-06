@@ -1,4 +1,11 @@
 /* See LICENSE file for copyright and license details. */
+#define DATAFILE ".ratox.data"
+/* connection delay in seconds */
+#define CONNECTDELAY 3
+/* ringing delay in seconds */
+#define RINGINGDELAY 9
+#define MAXCALLS 8
+
 static int encryptdatafile = 0;
 
 static char proxyaddr[] = "localhost";

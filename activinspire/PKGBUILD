@@ -13,7 +13,7 @@ if [ "$CARCH" = "i686" ]; then
 else
   _arch='amd64'
   _md5sum='79ab8624304f31e8579be7ab4b4b148e'
-  depends=('qt4' 'gstreamer0.10-good-plugins' 'bin32-jre' 'lib32-libjpeg' 'lib32-libjpeg6' 'lib32-libxmu')
+  depends=('qt4' 'gstreamer0.10-good-plugins' 'bin32-jre' 'lib32-libjpeg' 'lib32-libjpeg6' 'lib32-libxmu' 'lib32-gstreamer0.10-base' 'lib32-alsa-lib')
 fi
 optdepends=('activdriver: promethean hardware support'
             'activtools: hardware calibration')
