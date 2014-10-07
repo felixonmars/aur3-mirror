@@ -1,0 +1,51 @@
+From 015870409be42cd67774ff38295e9c2ba58d4705 Mon Sep 17 00:00:00 2001
+From: Marc Dionne <marc.dionne@your-file-system.com>
+Date: Thu, 25 Sep 2014 07:52:12 -0300
+Subject: [PATCH 4/4] Linux 3.17: Deal with d_splice_alias errors
+
+In 3.17 the logic in d_splice_alias has changed.  Of interest to
+us is the fact that it will now return an EIO error if it finds
+an existing connected directory for the dentry, where it would
+previously have added a new alias for it.  As a result the end
+user can get EIO errors when accessing any file in a volume
+if the volume was first accessed through a different path (ex:
+RO path vs RW path).
+
+This commit just restores the old behaviour, adding the directory
+alias manually in the error case, which is what older versions
+of d_splice_alias used to do.
+
+Change-Id: I5558c64760e4cad2bd3dc648067d81020afc69b6
+---
+ src/afs/LINUX/osi_vnodeops.c | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/src/afs/LINUX/osi_vnodeops.c b/src/afs/LINUX/osi_vnodeops.c
+index 82f1236..60a801e 100644
+--- a/src/afs/LINUX/osi_vnodeops.c
++++ b/src/afs/LINUX/osi_vnodeops.c
+@@ -1484,9 +1484,18 @@ afs_linux_lookup(struct inode *dip, struct dentry *dp)
+     /* It's ok for the file to not be found. That's noted by the caller by
+      * seeing that the dp->d_inode field is NULL.
+      */
+-    if (!code || code == ENOENT)
+-	return newdp;
+-    else 
++    if (!code || code == ENOENT) {
++	/*
++	 * d_splice_alias can return an error (EIO) if there is an existing
++	 * connected directory alias for this dentry.
++	 */
++	if (!IS_ERR(newdp))
++	    return newdp;
++	else {
++	    d_add(dp, ip);
++	    return NULL;
++	}
++    } else
+ 	return ERR_PTR(afs_convert_code(code));
+ }
+ 
+-- 
+2.1.2
+

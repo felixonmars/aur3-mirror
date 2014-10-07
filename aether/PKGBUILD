@@ -1,7 +1,7 @@
 # Maintainer: Luke Snow <lukesnow@tfwno.gf>
 pkgname=aether
-pkgver=1.2.2
-pkgrel=1
+pkgver=1.2.3
+pkgrel=0
 pkgdesc="Anonymous and Encrypted distributed network."
 arch=('any')
 options=('!strip')
@@ -9,7 +9,7 @@ url="http://getaether.net"
 license=("custom")
 source=("https://github.com/nehbit/aether-public/releases/download/v${pkgver}-LNX-TAR/aether_${pkgver}.tar.bz2"
 "https://raw.githubusercontent.com/nehbit/aether-public/master/LICENSE.md")
-sha256sums=('c9c849a0e50da8a0b09a0c571d2fc9a2f8b26439a4e613621b597a8079d378e0'
+sha256sums=('efbc51b6b9cdc575df7df6a7ef7fee4919ee9a662bcef5e40ef4459d53670a8d'
             'b9cca7c724f2243df304571bfc4cf7bac0ee1db567d2b90e44c0940b31eac000')
 
 package() {
