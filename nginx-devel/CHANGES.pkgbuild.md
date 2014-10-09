@@ -1,3 +1,6 @@
+## 1.7.6-2
+* echo-nginx-module-git
+
 ## 1.7.6
 * push-0.73 
 * sflow-0.9.10

@@ -1,14 +1,15 @@
 # Maintainer: Alexander Rødseth <rodseth@gmail.com>
+# Contributor: Stefan Husmann <stefan-husmann@t-online.de>
 
 pkgname=agena
-pkgver=1.5.1
+pkgver=2.2.6
 pkgrel=1
 pkgdesc='Procedural programming language based on Lua'
 arch=('x86_64' 'i686')
 url='http://agena.sourceforge.net/'
 license=('LGPL')
 depends=('readline')
-optdeps=("gnumeric: for reading /usr/share/doc/$pkgname/$pkgname.xls")
+optdepends=("gnumeric: for reading /usr/share/doc/$pkgname/$pkgname.xls")
 source=("http://downloads.sourceforge.net/$pkgname/$pkgname-$pkgver-src.tar.gz"
        'arch.patch'
        'run.sh')
@@ -26,10 +27,8 @@ prepare() {
 build() {
   cd "$pkgname-$pkgver-src"
 
-  patch -p1 -i "$srcdir/arch.patch"
   make -C src config
   make CFLAGS+="-fPIC" -C src linux
-
 }
 
 package() {
@@ -37,7 +36,7 @@ package() {
 
   # Scripts
   install -Dm755 $pkgname.sh "$pkgdir/etc/profile.d/$pkgname.sh"
-  install -Dm755 run.sh "$pkgdir/usr/bin/$pkgname"
+  install -Dm755 $srcdir/run.sh "$pkgdir/usr/bin/$pkgname"
 
   # Include files
   mkdir -p "$pkgdir/usr/include/"
