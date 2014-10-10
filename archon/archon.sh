@@ -1,24 +1,36 @@
 #!/usr/bin/env bash
 
+# Show usage information if the user attempts to run without an Android APK as input
 [[ ! -f "$1" ]] && echo "Usage: $(grep -o -e "[^\/]*$" <<< "$0") [APK]" && exit 1
 
-TMP='/tmp/archon'
+# Allow the user to specify ARCHON_TMPDIR, otherwise use the default
+[[ -z "$ARCHON_TMPDIR" ]] && ARCHON_TMPDIR='/tmp/archon'
+
+# Store the md5sum of the APK so different versions won't overwrite eachother
 SUM=$(md5sum "$1" | sed 's|\ .*||')
 
-if [ ! -d "${TMP}/${SUM}" ]; then
-    install -d "${TMP}/${SUM}"
-    ln -s $(readlink -f "$1") "${TMP}/${SUM}/${1}"
-    pushd "${TMP}/${SUM}" >/dev/null 2>&1
+# If there isn't already an extracted copy of the APK, extract one using chromeos-apk now
+if [ ! -d "${ARCHON_TMPDIR}/${SUM}" ]; then
+    install -d "${ARCHON_TMPDIR}/${SUM}"
+    ln -s $(readlink -f "$1") "${ARCHON_TMPDIR}/${SUM}/${1}"
+    pushd "${ARCHON_TMPDIR}/${SUM}" >/dev/null 2>&1
     chromeos-apk --archon --tablet "$1" >chromeos-apk.log
     popd >/dev/null 2>&1
 fi
 
-APPDIR=$(ls -1 -d --group-directories-first "${TMP}/${SUM}"/* | head -n 1 | sed 's|^.*/||')
-[[ ! -d "${TMP}/${SUM}/${APPDIR}" ]] && echo "Error: no app directory in ${TMP}/${SUM}, delete and run again" && exit 1
+# Evaluate the name of the directory containing the app and produce an error if one can't be found
+APPDIR=$(ls -1 -d --group-directories-first "${ARCHON_TMPDIR}/${SUM}"/* | head -n 1 | sed 's|^.*/||')
+[[ ! -d "${ARCHON_TMPDIR}/${SUM}/${APPDIR}" ]] && echo "Error: no app directory in ${ARCHON_TMPDIR}/${SUM}, delete and run again" && exit 1
 
-EXE="chromium --user-data-dir=${HOME}/.config/archon --profile-directory=${APPDIR} --silent-launch"
+# Define the common part of the execution command used by both ARChon and the Android app
+EXE="chromium --user-data-dir=${HOME}/.config/archon --profile-directory=$APPDIR --silent-launch"
 
-$EXE --load-and-launch-app=/usr/share/archon/ >/dev/null 2>&1 &
+# Start ARChon and the Android app
+$EXE --load-and-launch-app=/usr/share/archon/ > /dev/null 2>&1 &
+sleep 1
+$EXE --load-and-launch-app="${ARCHON_TMPDIR}/${SUM}/${APPDIR}" > "${ARCHON_TMPDIR}/${SUM}/run.log" &
 sleep 1
 
-$EXE --load-and-launch-app="${TMP}/${SUM}/${APPDIR}" >"${TMP}/${SUM}/run.log"
+# Cleanup the non-functional XDG desktop file created by Chromium
+rm ${HOME}/.local/share/applications/chrome-*-${APPDIR}.desktop
+

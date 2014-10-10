@@ -4,7 +4,7 @@
 # Contributor: Ben Alex <ben.alex@acegi.com.au>
 
 pkgname=influxdb
-pkgver=0.7.3
+pkgver=0.8.3
 pkgrel=1
 epoch=
 pkgdesc='Scalable datastore for metrics, events, and real-time analytics'
@@ -12,7 +12,7 @@ arch=('i686' 'x86_64')
 url='http://influxdb.org/'
 license=('MIT')
 groups=()
-depends=('leveldb')
+depends=('leveldb' 'rocksdb')
 makedepends=('protobuf' 'bison' 'flex' 'go')
 checkdepends=()
 optdepends=()
@@ -23,54 +23,51 @@ backup=('etc/influxdb.conf')
 options=()
 install='influxdb.install'
 changelog=
-source=("http://s3.amazonaws.com/influxdb/$pkgname-$pkgver.src.tar.gz"
+source=("http://get.influxdb.org/with_dependencies/$pkgname-$pkgver.src.tar.gz"
         'influxdb.service'
         'influxdb.install'
         '.AURINFO')
 noextract=()
-md5sums=('2f3efe289c43db5595b6b95f6b1d944b'
+md5sums=('9f44d4d4669c410a80de4fc6c0399b89'
          'c59b9926d74776d5990889bd48f98543'
          'b4203001919b80999f18ebfa564ae6e3'
          'SKIP')
 
 build() {
-  cd "$srcdir/$pkgname"
-  export GOPATH="$srcdir/$pkgname"
+  export GOPATH="$srcdir"
+  cd "$srcdir/src/github.com/influxdb/influxdb"
   ./configure --prefix=/usr
-  make protobuf parser
-  go build daemon
+  make protobuf
+  make parser
+  go build -o "$pkgname" github.com/influxdb/influxdb/daemon
 }
 
 check() {
-  cd "$srcdir/$pkgname"
-  ./daemon -v
+  cd "$srcdir/src/github.com/influxdb/influxdb"
+  ./influxdb -v
 }
 
 package() {
   # systemctl service file
   install -D -m644  'influxdb.service' "$pkgdir/usr/lib/systemd/system/influxdb.service"
 
-  cd "$srcdir/$pkgname"
+  cd "$srcdir/src/github.com/influxdb/influxdb"
 
   # influxdb binary
-  install -D -m755 'daemon' "$pkgdir/usr/bin/$pkgname"
+  install -D -m755 "$pkgname" "$pkgdir/usr/bin/$pkgname"
 
   # admin console assets
   install -d "$pkgdir/usr/share/$pkgname"
-  cp -r admin "$pkgdir/usr/share/$pkgname"
+  cp -r admin-ui "$pkgdir/usr/share/$pkgname"
 
   # configuration file
-  pushd .
-  cd "$srcdir/$pkgname"/src/configuration
-  sed -i 's/\/tmp\/influxdb\/development\/db/\/var\/lib\/influxdb\/data/g' config.toml
-  sed -i 's/\/tmp\/influxdb\/development\/raft/\/var\/lib\/influxdb\/raft/g' config.toml
-  sed -i 's/\/tmp\/influxdb\/development\/wal/\/var\/lib\/influxdb\/wal/g' config.toml
-  sed -i 's/influxdb.log/\/var\/log\/influxdb\/influxdb.log/g' config.toml
-  sed -i 's/.\/admin/\/usr\/share\/influxdb\/admin/g' config.toml
-  sed -i 's/seed-servers/#seed-servers/g' config.toml
-  sed -i 's/\.\.\/cert.pem/\/usr\/share\/influxdb\/cert\.pem/g' config.toml
-  install -D -m644 config.toml "$pkgdir/etc/$pkgname.conf"
-  popd
+  sed -i 's/\/tmp\/influxdb\/development\/db/\/var\/lib\/influxdb\/data/g' config.sample.toml
+  sed -i 's/\/tmp\/influxdb\/development\/raft/\/var\/lib\/influxdb\/raft/g' config.sample.toml
+  sed -i 's/\/tmp\/influxdb\/development\/wal/\/var\/lib\/influxdb\/wal/g' config.sample.toml
+  sed -i 's/influxdb.log/\/var\/log\/influxdb\/influxdb.log/g' config.sample.toml
+  sed -i 's/.\/admin/\/usr\/share\/influxdb\/admin-ui/g' config.sample.toml
+  sed -i 's/\.\.\/cert.pem/\/usr\/share\/influxdb\/cert\.pem/g' config.sample.toml
+  install -D -m644 config.sample.toml "$pkgdir/etc/$pkgname.conf"
 
   # license
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
