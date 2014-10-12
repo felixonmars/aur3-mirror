@@ -26,7 +26,7 @@ elif [ "$CARCH" = "x86_64" ]; then
        md5sums=('3bc1d1c2378332e054ff493d584b5e8b')
 fi
 
-source=("http://downloads.plexapp.com/plex-media-server/${pkgver}-${_subver}/${pkgname}_${pkgver}-${_subver}_${_arch}.deb" "${pkgname}.conf.d" "${pkgname}.service" "start_pms")
+source=("http://downloads.plex.tv/plex-media-server/${pkgver}-${_subver}/${pkgname}_${pkgver}-${_subver}_${_arch}.deb" "${pkgname}.conf.d" "${pkgname}.service" "start_pms")
 md5sums+=('32cdd9f9de446f6646616a0077151726'
 	  'd64ea728767856cf08d0261e11b8a9e1'
 	  '69efb2441c7971a9e546d76b51cd12cc')
