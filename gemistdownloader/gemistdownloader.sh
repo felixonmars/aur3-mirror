@@ -1,2 +1,2 @@
 #/bin/sh
-exec mono --debug /usr/share/gemistdownloader/GemistDownloader.exe "$@"
+exec mono /usr/share/gemistdownloader/GemistDownloader.exe "$@"
