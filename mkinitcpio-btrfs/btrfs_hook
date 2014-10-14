@@ -67,12 +67,28 @@ BTRFS_DIR_ROLLBACK="${BTRFS_DIR_ROLLBACK%/}"
 : ${BTRFS_ENABLE_DEGRADED_ROLLBACK:=false}
 : ${BTRFS_BOOT_DELAY:=0}
 
+root_is_btrfs() {
+    [ "$(blkid -s TYPE -o value "$root" )" != "btrfs" ] &&
+        [ "$(blkid -s TYPE -o value -lt "$root" )" != "btrfs" ]
+} 2>/dev/null
+
+kver() {
+    # extract kernel_version from header in kernel image
+    # according to kernel documentation:
+    # https://www.kernel.org/doc/Documentation/x86/boot.txt
+
+    local offset=$(hexdump -s 526 -n 2 -e '"%d"' "$1")
+    hexdump -s $(( 0x200 + offset )) -n 128 -e '"%.2s"' "$1" | strings -n10
+}
+
 btrfs_mount_handler () {
     local x i=1 work=${1%/}
     BTRFS_DIR_WORK=${work}
 
-    # scan for multi device filesystems
-    btrfs device scan 2>&1 | grep -v -E "Scanning for Btrfs filesystems|No medium found"
+    if ! root_is_btrfs; then
+        default_mount_handler "$@"
+        return
+    fi
 
     # temporary mount btrfs root subvolume
     if ! mount -t btrfs -o subvolid=0,rw ${root} ${work}; then
@@ -80,7 +96,7 @@ btrfs_mount_handler () {
         # try to mount in degraded mode
         if ${BTRFS_ENABLE_DEGRADED}; then
             if ! mount -t btrfs -o subvolid=0,rw,degraded ${root} ${work}; then
-                btrfs_fatal "Unable to mount root subvolume in degraded mode" &&
+                btrfs_fatal "Unable to mount root subvolume in degraded mode"
                 return 1
             else
                 btrfs_warn "Mounted root subvolume in degraded mode"
@@ -90,23 +106,22 @@ btrfs_mount_handler () {
                 # supress rollback choice in degraded mode
                 if ! ${BTRFS_ENABLE_DEGRADED_ROLLBACK}; then
                     btrfs_info "Disabled rollback feature in degraded mode"
-                    kexeced=true
+                    kexeced=1
                 fi
             fi
         else
-            btrfs_fatal "Unable to mount root subvolume" &&
+            btrfs_fatal "Unable to mount root subvolume"
             return 1
         fi
     fi
 
     # check if we already ran kexec
-    : ${kexeced:=false}
-    if ! ${kexeced}; then
+    if [ -z "$kexeced" ]; then
 
         if ! [ -d ${work}${BTRFS_DIR_ACTIVE} ]; then
 
             # ask to initialize active subvolume
-            if ! { btrfs_ask_volatile && btrfs_set_volatile; }; then
+            if ! btrfs_ask_volatile && btrfs_set_volatile; then
                 BTRFS_HAS_ROLLBACK=false
             fi
         fi
@@ -169,20 +184,7 @@ btrfs_mount_handler () {
 
                     # compare running kernel's version against kernel image
                     if ${BTRFS_CHECK_KVER}; then
-
-                        # extract kernel_version from header in kernel image
-                        # according to kernel documentation:
-                        # https://www.kernel.org/doc/Documentation/x86/boot.txt
-                        #
-                        # 0x020E -> 526
-                        kver_pointer_hex="$(dd if=${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} bs=1 skip=526 count=2 2>/dev/null | hexdump -e '"%x"')"
-                        # convert to decimal
-                        kver_pointer="$(printf "%d\n" "0x${kver_pointer_hex}")"
-                        #
-                        # 0x0200 -> 512
-                        kver="$(dd if=${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL} bs=1 skip=$((512+${kver_pointer})) count=128 2>/dev/null | strings -n 10)"
-                        echo "${kver}" | grep "$(uname -r)" | grep "$(uname -v)" 1>/dev/null
-                        if [ ${?} -eq 0 ]; then
+                        if kver "${work}${BTRFS_BOOT_SUBVOL}${BTRFS_KERNEL}" | grep -F "$(uname -r)" | grep -Fq "$(uname -v)"; then
                             BTRFS_KVER_DIFFER=false
                         fi
                     fi
@@ -196,13 +198,14 @@ btrfs_mount_handler () {
                         cp "${work}${BTRFS_BOOT_SUBVOL}${BTRFS_INITRD}" "/tmp/initrd"
 
                         # unmount btrfs root subvolume
-                        ! umount ${BTRFS_DIR_WORK} &&
-                            btrfs_fatal "Unable to umount root subvolume" &&
+                        if ! umount ${BTRFS_DIR_WORK}; then
+                            btrfs_fatal "Unable to umount root subvolume"
                             return 1
+                        fi
 
                         # force reload kernel
                         btrfs_info "Reloading kernel from [${BTRFS_BOOT_SUBVOL}]..."
-                        kexec -f "/tmp/linux" --initrd="/tmp/initrd" --reuse-cmdline --append="kexeced=true"
+                        kexec -f "/tmp/linux" --initrd="/tmp/initrd" --reuse-cmdline --append="kexeced"
 
                         # at this point the kernel reloads the initramfs and
                         # restarts init - no further code is executed
@@ -216,9 +219,10 @@ btrfs_mount_handler () {
     fi
 
     # unmount btrfs root subvolume
-    ! umount ${BTRFS_DIR_WORK} &&
-        btrfs_fatal "Unable to umount root subvolume" &&
+    if ! umount ${BTRFS_DIR_WORK}; then
+        btrfs_fatal "Unable to umount root subvolume"
         return 1
+    fi
 
     btrfs_process_mount ${work}
 }
@@ -239,10 +243,13 @@ btrfs_process_mount () {
 }
 
 btrfs_ask_volatile () {
+    local r
 
-    read -s -p "Press any key to setup BTRFS rollback support..." -n1 -t3 && echo && return 0
-    echo && return 1
+    read -s -p "Press any key to setup BTRFS rollback support..." -n1 -t3
+    r=$?
 
+    echo
+    return $r
 }
 
 btrfs_set_volatile () {
@@ -295,12 +302,14 @@ MESSAGE
     # return 1 to DISABLE NON-VOLATILE SUPPORT, and boot / instead
     if [ ${ans} = y ]; then
         btrfs_info "Snapshotting system state to ${BTRFS_DIR_ACTIVE}..."
-        ! btrfs subvolume snapshot ${BTRFS_DIR_WORK} ${BTRFS_DIR_WORK}${BTRFS_DIR_ACTIVE} &&
-            btrfs_error "Unknown problem creating ${BTRFS_DIR_ACTIVE}, fallback to /" &&
+        if ! btrfs subvolume snapshot ${BTRFS_DIR_WORK} ${BTRFS_DIR_WORK}${BTRFS_DIR_ACTIVE}; then
+            btrfs_error "Unknown problem creating ${BTRFS_DIR_ACTIVE}, fallback to /"
             return 1
-        ! mkdir ${BTRFS_DIR_WORK}${BTRFS_DIR_SNAPSHOT} &&
-            btrfs_error "Unknown problem creating ${BTRFS_DIR_SNAPSHOT}, fallback to /" &&
+        fi
+        if ! mkdir ${BTRFS_DIR_WORK}${BTRFS_DIR_SNAPSHOT}; then
+            btrfs_error "Unknown problem creating ${BTRFS_DIR_SNAPSHOT}, fallback to /"
             return 1
+        fi
         return 0
     else
         btrfs_warn "Skipping setup of non-volatile rollback support"
@@ -310,10 +319,13 @@ MESSAGE
 }
 
 btrfs_ask_rollback () {
+    local r
 
-    read -s -p "Press any key to prepare BTRFS rollback..." -n1 -t3 && echo && return 0
-    echo && return 1
+    read -s -p "Press any key to prepare BTRFS rollback..." -n1 -t3;
+    r=$?
 
+    echo
+    return $r
 }
 
 btrfs_get_rollback_choice () {
@@ -336,7 +348,10 @@ btrfs_get_rollback_choice () {
     done
 
     for x in ${BTRFS_ROLLBACK_LIST}; do
-        [ ${ans} -eq ${i} ] && echo "${x}" && return 0
+        if [ ${ans} -eq ${i} ]; then
+            echo "${x}"
+            return 0
+        fi
         i=$((${i}+1))
     done
 
@@ -358,41 +373,7 @@ btrfs_setup_rollback () {
 
 # main
 run_hook () {
-
-    # root must be btrfs else silent return
-    if [ "$(blkid -s TYPE -o value ${root} 2>/dev/null)" != "btrfs" -a "$(blkid -s TYPE -o value -lt ${root} 2>/dev/null)" != "btrfs" ]; then
-        btrfs_warn "Root filesystem ${root} is not a BTRFS filesystem"
-        return 0
-    fi
-
-    # try to load kernel module else silent return
-    ! modprobe btrfs &&
-        btrfs_fatal "Unable to insert BTRFS module" &&
-        return 1
-
-    # wait 10 seconds for creation of /dev/btrfs-control by udev
-    local i=0 timeout=100
-    while [ ! -e /dev/btrfs-control -a ${i} -lt ${timeout} ]; do
-        sleep 0.1
-        i=$((${i}+1))
-    done
-    # else silent return
-    ! [ -e /dev/btrfs-control ] &&
-        btrfs_fatal "Timeout waiting for /dev/btrfs-control" &&
-        return 1
-
-    # if btrfs binary exists override mount handler
-    if [ -n "$(type -p btrfs)" ]; then
-        btrfs_info "Using btrfs binary and advanced mount handling"
-        mount_handler="btrfs_mount_handler"
-        return 0
-    else
-        # no way to mount/scan for multi device
-        # default handler can mount single device
-        btrfs_error "The btrfs binary is missing, trying default handler..."
-        return 0
-    fi
-
+    mount_handler="btrfs_mount_handler"
 }
 
 # vim:set syntax=sh:

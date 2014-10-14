@@ -75,7 +75,7 @@ RANLIB = ranlib
 #RANLIB  = echo
 SCALAP  = -lscalapack -llapack #-lblacs -lblacsf77 -lblacs #
 INCPAR = -I/usr/include/openmpi
-LIBPAR = $(SCALAP) -L/usr/lib/openmpi -lmpi_mpifh -lmpi_usempi -lmpi -ldl -lhwloc
+LIBPAR = $(SCALAP) -L/usr/lib/openmpi -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi
 # See point 17 in the FAQ to have more details on the compilation of mpich with gfortran
 INCSEQ = -I$(topdir)/libseq
 LIBSEQ  =  -L$(topdir)/libseq -lmpiseq

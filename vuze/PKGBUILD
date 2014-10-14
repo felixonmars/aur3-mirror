@@ -12,7 +12,7 @@
 
 pkgname=vuze
 pkgver=5.4.0.0
-pkgrel=3
+pkgrel=4
 
 # _ver=${pkgver//./} 
 # Just for reference purposes. This is how it should be done, but 
@@ -29,7 +29,7 @@ provides=("azureus")
 arch=('i686' 'x86_64')
 url="http://azureus.sourceforge.net/"
 license=('GPL')
-depends=('java-runtime' 'desktop-file-utils')
+depends=('java-environment-common' 'desktop-file-utils')
 makedepends=('unzip')
 install="$pkgname.install"
 options=(!strip)

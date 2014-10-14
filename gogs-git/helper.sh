@@ -38,7 +38,7 @@ function get_git {
 # $2 = target directory path
 # $3 = branch/commit/revision string, if empty then maste ist used
 function get_hg {
-  if [[ $3 == "master" ]]
+  if [[ $3 == "master" ]] || [[ $3 == "" ]]
   then
     hg clone https://$1 $2
   else
