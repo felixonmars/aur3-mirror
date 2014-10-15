@@ -3,7 +3,7 @@
 
 pkgname="alembic"
 pkgver=1.5.5
-pkgrel=2
+pkgrel=3
 pkgdesc="An open framework for storing and sharing 3D geometry data"
 url="http://alembic.io"
 license=("MIT")
@@ -15,8 +15,7 @@ optdepends=("python2-ilmbase: for python2 bindings" \
 	"glu: for SimpleAbcViewer")
 source=("hg+https://code.google.com/p/alembic/#tag=${pkgver//./_0}")
 md5sums=("SKIP")
-options=("staticlibs")
-MAKEFLAGS="-j1"
+options=("!makeflags" "!buildflags")
 
 prepare() {
 	[ -d build ] && rm -rf build
@@ -32,6 +31,7 @@ prepare() {
 build() {
 	cd build
 	cmake \
+		-DBUILD_SHARED_LIBS=1 \
 		-DLIBPYTHON_VERSION=2.7 \
 		-DBoost_PYTHON_LIBRARY_RELEASE="/usr/lib/libboost_python.so" \
 		-DCMAKE_INSTALL_PREFIX="${pkgdir}/usr" \
@@ -52,12 +52,8 @@ package() {
 	make install
 
 	cd "${pkgdir}/usr/lib/"
-
 	install -d python2.7/site-packages
 	mv alembicmodule.so alembicglmodule.so python2.7/site-packages
-
-	mv static/* .
-	rm -r static
 }
 
 # vim: set noet ff=unix:
