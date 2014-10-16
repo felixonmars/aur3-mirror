@@ -42,12 +42,10 @@ fi
 local _p_path="%{$_c_path%}%~%{$_c_separator%}$_p_separator"
 
 
-local _p_status="%(?::
-%{$fg_bold[red]%}%?%s)"
+local _p_status="%(?::%{$fg_bold[red]%}[%?] %s)"
 local _p_dollar="$(if [ "$UID" -eq "0" ]; then echo '#'; else echo '$'; fi)"
 
-PROMPT='$_p_status
-$_p_user$_p_host$_p_path$(git_prompt_info)
+PROMPT='$_p_status$_p_user$_p_host$_p_path$(git_prompt_info)
 %{$_c_prompt%}$_p_dollar %{$_c_reset%}'
 
 RPROMPT="$RPROMPT%{$_c_reset%}"

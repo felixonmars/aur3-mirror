@@ -13,6 +13,7 @@ depends=('glibc' 'sh')
 makedepends=('git' 'automake-1.11')
 provides=("libgpg-error=${pkgver}")
 replaces=("libgpg-error")
+conflicts=("libgpg-error")
 
 _gitroot="git://git.gnupg.org/libgpg-error.git"
 _gitname="libgpg-error"
