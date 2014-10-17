@@ -1,2 +1,1 @@
-export PATH=$PATH:/opt/kotlin/bin
-export KOTLIN_HOME=/opt/kotlin
+export KOTLIN_HOME=/usr/share/kotlin

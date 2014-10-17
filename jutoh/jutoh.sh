@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /usr/share/jutoh
-./jutoh
+JUTOHDIR=/usr/share/jutoh
+$JUTOHDIR/jutoh "$@"

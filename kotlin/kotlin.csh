@@ -1,2 +1,1 @@
-setenv PATH ${PATH}:/opt/kotlin/bin
-setenv KOTLIN_HOME /opt/kotlin
+setenv KOTLIN_HOME /usr/share/kotlin

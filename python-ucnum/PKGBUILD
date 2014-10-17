@@ -1,14 +1,15 @@
 _name=ucnum
 pkgname="python-$_name"
-pkgver=1.0
-pkgrel=3
+pkgver=1.1
+pkgrel=1
 pkgdesc='Unicode helper and search utility'
 arch=('any')
 url="http://github.com/flying-sheep/$_name"
 license=('GPLv3')
-depends=('python')
+depends=('python' 'python-unicodeblocks')
+optdepends=('python-unicodedata2: Updated unicodedata')
 source=("https://pypi.python.org/packages/source/u/$_name/$_name-$pkgver.tar.gz")
-md5sums=('ebbd0b58ba63a0bfd0143c0de74c4b9b')
+md5sums=('d67f0e2e203e39df140f70cb2046193d')
 
 package() {
 	cd "$srcdir/$_name-$pkgver"
