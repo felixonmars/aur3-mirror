@@ -11,7 +11,7 @@ solution "linenoise"
 
 project "linenoise"
   kind "StaticLib"
-  files { "linenoise.c, linenoise.h" }
+  files { "linenoise.c", "linenoise.h" }
   targetdir "lib"
   objdir "build/lib"
 
