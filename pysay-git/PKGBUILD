@@ -1,6 +1,6 @@
 # Maintainer: Nicola Lamacchia <nicola dot lamacchia ampersat gmail dot com>
 pkgname=pysay-git
-pkgver=20140510
+pkgver=r12.535b37c
 pkgrel=2
 pkgdesc="A Python version of cowsay (with a new cow!)"
 arch=(any)
@@ -18,7 +18,8 @@ _gitroot=git://github.com/nicolalamacchia/pysay.git
 _gitname=pysay
 
 pkgver() {
-  date +%Y%m%d
+  cd "$pkgname"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {

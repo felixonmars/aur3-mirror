@@ -1,6 +1,6 @@
 # Maintainer: Nicola Lamacchia <nicola dot lamacchia ampersat gmail dot com>
 pkgname=curco-git
-pkgver=20140510
+pkgver=r11.903bc3b
 pkgrel=1
 pkgdesc="A dummy CLI currency converter"
 arch=(any)
@@ -18,7 +18,8 @@ _gitroot=git://github.com/nicolalamacchia/curco.git
 _gitname=curco
 
 pkgver() {
-  date +%Y%m%d
+  cd "$pkgname"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
