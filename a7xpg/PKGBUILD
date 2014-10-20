@@ -3,14 +3,14 @@
 
 pkgname=a7xpg
 pkgver=0.11
-pkgrel=6
+pkgrel=7
 pkgdesc="An addictive game by Kenta Cho.  Collect gold with your ship and avoid the enemies!"
 arch=('i686' 'x86_64')
 url="http://www.asahi-net.or.jp/~cs8k-cyu/windows/a7xpg_e.html"
 license=('custom')
 depends=('libgl' 'sdl_mixer')
 makedepends=('gdc1')
-source=(http://www.asahi-net.or.jp/~cs8k-cyu/windows/${pkgname}0_11.zip
+source=(http://abagames.sakura.ne.jp/windows/${pkgname}0_11.zip
         http://ftp.de.debian.org/debian/pool/main/a/${pkgname}/${pkgname}_${pkgver}.dfsg1-7.debian.tar.gz)
 md5sums=('3280918840913d629b13dc02bcbbfa7d'
          '88c2919c92379e1104a37d66ad57b929')
