@@ -41,15 +41,17 @@
 #              is the name of the  connection  for  which  we  are
 #              routing.
 #
-#       PLUTO_NEXT_HOP
-#              is the next hop to which packets bound for the peer
-#              must be sent.
-#
 #       PLUTO_INTERFACE
 #              is the name of the ipsec interface to be used.
 #
 #       PLUTO_REQID
-#              is the requid of the ESP policy
+#              is the requid of the AH|ESP policy
+#
+#       PLUTO_PROTO
+#              is the negotiated IPsec protocol, ah|esp
+#
+#       PLUTO_IPCOMP
+#              is not empty if IPComp was negotiated
 #
 #       PLUTO_UNIQUEID
 #              is the unique identifier of the associated IKE_SA
@@ -66,15 +68,6 @@
 #              host's own IP address / max (where max  is  32  for
 #              IPv4 and 128 for IPv6).
 #
-#       PLUTO_MY_CLIENT_NET
-#              is the IP address of our client net.  If the client
-#              is just the host, this will be the  host's  own  IP
-#              address.
-#
-#       PLUTO_MY_CLIENT_MASK
-#              is  the  mask for our client net.  If the client is
-#              just the host, this will be 255.255.255.255.
-#
 #       PLUTO_MY_SOURCEIP
 #       PLUTO_MY_SOURCEIP4_$i
 #       PLUTO_MY_SOURCEIP6_$i
@@ -88,7 +81,8 @@
 #
 #       PLUTO_MY_PORT
 #              is  the  UDP/TCP  port  to  which  the IPsec SA  is
-#              restricted on our side.
+#              restricted on our side.  For ICMP/ICMPv6 this contains the
+#              message type, and PLUTO_PEER_PORT the message code.
 #
 #       PLUTO_PEER
 #              is the IP address of our peer.
@@ -96,31 +90,19 @@
 #       PLUTO_PEER_ID
 #              is the ID of our peer.
 #
-#       PLUTO_PEER_CA
-#              is the CA which issued the cert of our peer.
-#
 #       PLUTO_PEER_CLIENT
 #              is the IP address / count of the peer's client sub-
 #              net.   If the client is just the peer, this will be
 #              the peer's own IP address / max (where  max  is  32
 #              for IPv4 and 128 for IPv6).
 #
-#       PLUTO_PEER_CLIENT_NET
-#              is the IP address of the peer's client net.  If the
-#              client is just the peer, this will  be  the  peer's
-#              own IP address.
-#
-#       PLUTO_PEER_CLIENT_MASK
-#              is  the  mask  for  the  peer's client net.  If the
-#              client   is   just   the   peer,   this   will   be
-#              255.255.255.255.
-#
 #       PLUTO_PEER_PROTOCOL
 #              is the IP protocol that will be transported.
 #
 #       PLUTO_PEER_PORT
 #              is  the  UDP/TCP  port  to  which  the IPsec SA  is
-#              restricted on the peer side.
+#              restricted on the peer side.  For ICMP/ICMPv6 this contains the
+#              message code, and PLUTO_MY_PORT the message type.
 #
 #       PLUTO_XAUTH_ID
 #              is an optional user ID employed by the XAUTH protocol
@@ -141,6 +123,7 @@
 #              responder, $i enumerates from 1 to the number of servers per
 #              address family.
 #
+
 # define a minimum PATH environment in case it is not set
 PATH="/sbin:/bin:/usr/sbin:/usr/bin:/usr/bin"
 export PATH
@@ -305,21 +288,46 @@ then
 	IPSEC_POLICY_OUT=""
 else
 	KLIPS=
-	IPSEC_POLICY="-m policy --pol ipsec --proto esp --reqid $PLUTO_REQID"
+	IPSEC_POLICY="-m policy --pol ipsec --proto $PLUTO_PROTO --reqid $PLUTO_REQID"
 	IPSEC_POLICY_IN="$IPSEC_POLICY --dir in"
 	IPSEC_POLICY_OUT="$IPSEC_POLICY --dir out"
 fi
 
+# use protocol specific options to set ports
+case "$PLUTO_MY_PROTOCOL" in
+1)	# ICMP
+	ICMP_TYPE_OPTION="--icmp-type"
+	;;
+58)	# ICMPv6
+	ICMP_TYPE_OPTION="--icmpv6-type"
+	;;
+*)
+	;;
+esac
+
 # are there port numbers?
 if [ "$PLUTO_MY_PORT" != 0 ]
 then
-	S_MY_PORT="--sport $PLUTO_MY_PORT"
-	D_MY_PORT="--dport $PLUTO_MY_PORT"
+	if [ -n "$ICMP_TYPE_OPTION" ]
+	then
+		S_MY_PORT="$ICMP_TYPE_OPTION $PLUTO_MY_PORT"
+		D_MY_PORT="$ICMP_TYPE_OPTION $PLUTO_MY_PORT"
+	else
+		S_MY_PORT="--sport $PLUTO_MY_PORT"
+		D_MY_PORT="--dport $PLUTO_MY_PORT"
+	fi
 fi
 if [ "$PLUTO_PEER_PORT" != 0 ]
 then
-	S_PEER_PORT="--sport $PLUTO_PEER_PORT"
-	D_PEER_PORT="--dport $PLUTO_PEER_PORT"
+	if [ -n "$ICMP_TYPE_OPTION" ]
+	then
+		# the syntax is --icmp[v6]-type type[/code], so add it to the existing option
+		S_MY_PORT="$S_MY_PORT/$PLUTO_PEER_PORT"
+		D_MY_PORT="$D_MY_PORT/$PLUTO_PEER_PORT"
+	else
+		S_PEER_PORT="--sport $PLUTO_PEER_PORT"
+		D_PEER_PORT="--dport $PLUTO_PEER_PORT"
+	fi
 fi
 
 # resolve octal escape sequences
@@ -406,6 +414,14 @@ up-host:iptables)
 	    -s $PLUTO_ME $S_MY_PORT $IPSEC_POLICY_OUT \
 	    -d $PLUTO_PEER_CLIENT $D_PEER_PORT -j ACCEPT
 	#
+	# allow IPIP traffic because of the implicit SA created by the kernel if
+	# IPComp is used (for small inbound packets that are not compressed)
+	if [ -n "$PLUTO_IPCOMP" ]
+	then
+	  sudo iptables -I INPUT 1 -i $PLUTO_INTERFACE -p 4 \
+	      -s $PLUTO_PEER -d $PLUTO_ME $IPSEC_POLICY_IN -j ACCEPT
+	fi
+	#
 	# log IPsec host connection setup
 	if [ $VPN_LOGGING ]
 	then
@@ -429,6 +445,13 @@ down-host:iptables)
 	sudo iptables -D OUTPUT -o $PLUTO_INTERFACE -p $PLUTO_PEER_PROTOCOL \
 	    -s $PLUTO_ME $S_MY_PORT $IPSEC_POLICY_OUT \
 	    -d $PLUTO_PEER_CLIENT $D_PEER_PORT -j ACCEPT
+	#
+	# IPIP exception teardown
+	if [ -n "$PLUTO_IPCOMP" ]
+	then
+	  sudo iptables -D INPUT -i $PLUTO_INTERFACE -p 4 \
+	      -s $PLUTO_PEER -d $PLUTO_ME $IPSEC_POLICY_IN -j ACCEPT
+	fi
 	#
 	# log IPsec host connection teardown
 	if [ $VPN_LOGGING ]
@@ -467,6 +490,15 @@ up-client:iptables)
 	  sudo iptables -I OUTPUT 1 -o $PLUTO_INTERFACE -p $PLUTO_PEER_PROTOCOL \
 	      -s $PLUTO_MY_CLIENT $S_MY_PORT \
 	      -d $PLUTO_PEER_CLIENT $D_PEER_PORT $IPSEC_POLICY_OUT -j ACCEPT
+	fi
+	#
+	# allow IPIP traffic because of the implicit SA created by the kernel if
+	# IPComp is used (for small inbound packets that are not compressed).
+	# INPUT is correct here even for forwarded traffic.
+	if [ -n "$PLUTO_IPCOMP" ]
+	then
+	  sudo iptables -I INPUT 1 -i $PLUTO_INTERFACE -p 4 \
+	      -s $PLUTO_PEER -d $PLUTO_ME $IPSEC_POLICY_IN -j ACCEPT
 	fi
 	#
 	# log IPsec client connection setup
@@ -510,6 +542,13 @@ down-client:iptables)
 	      -s $PLUTO_MY_CLIENT $S_MY_PORT \
 	      -d $PLUTO_PEER_CLIENT $D_PEER_PORT \
 	         $IPSEC_POLICY_OUT -j ACCEPT
+	fi
+	#
+	# IPIP exception teardown
+	if [ -n "$PLUTO_IPCOMP" ]
+	then
+	  sudo iptables -D INPUT -i $PLUTO_INTERFACE -p 4 \
+	      -s $PLUTO_PEER -d $PLUTO_ME $IPSEC_POLICY_IN -j ACCEPT
 	fi
 	#
 	# log IPsec client connection teardown
