@@ -1,0 +1,321 @@
+From 8b731e2d7ee9c5d93999a1b6ccabcf94bc68f70a Mon Sep 17 00:00:00 2001
+From: elitalobo <loboelita@gmail.com>
+Date: Sat, 16 Aug 2014 14:50:16 +0530
+Subject: [PATCH] Implements History View
+
+---
+ src/Makefile.am        |   1 +
+ src/math-display.vala  |  30 ++++++++-
+ src/math-equation.vala |  13 +++-
+ src/math-history.vala  | 172 +++++++++++++++++++++++++++++++++++++++++++++++++
+ src/math-window.vala   |   1 +
+ 5 files changed, 214 insertions(+), 3 deletions(-)
+ create mode 100644 src/math-history.vala
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+index b2d06d0..f1d41cf 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -39,6 +39,7 @@ gnome_calculator_SOURCES = \
+ 	math-function.vala \
+ 	function-manager.vala \
+ 	math-function-popup.vala \
++        math-history.vala \
+ 	$(BUILT_SOURCES)
+ 
+ gnome_calculator_VALAFLAGS = \
+diff --git a/src/math-display.vala b/src/math-display.vala
+index c708ed4..0efd9ee 100644
+--- a/src/math-display.vala
++++ b/src/math-display.vala
+@@ -13,6 +13,7 @@ public class MathDisplay : Gtk.Viewport
+     /* Equation being displayed */
+     private MathEquation _equation;
+     public MathEquation equation { get { return _equation; } }
++    private HistoryView history;
+ 
+     /* Display widget */
+     Gtk.SourceView source_view;
+@@ -26,10 +27,10 @@ public class MathDisplay : Gtk.Viewport
+     public MathDisplay (MathEquation equation)
+     {
+         _equation = equation;
+-
++        _equation.history_signal.connect (this.handler);
+         var main_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+         add (main_box);
+-
++        history = new HistoryView (this, main_box);
+         source_view = new Gtk.SourceView.with_buffer (equation);
+         source_view.set_accepts_tab (false);
+         source_view.set_pixels_above_lines (8);
+@@ -76,6 +77,31 @@ public class MathDisplay : Gtk.Viewport
+         equation.notify["error-token-end"].connect ((pspec) => { error_status_changed_cb (); });
+     }
+ 
++    public void grabfocus ()
++    {
++        source_view.grab_focus ();
++    }
++
++    public void handler (string answer, Number number, int number_base, uint representation_base)
++    {
++        this.update_history (answer, number, number_base, representation_base);
++    }
++
++    public void display_text (string prev_eq)
++    {
++        _equation.display_selected (prev_eq);
++    }
++
++    public  void update_history (string answer, Number number, int number_base, uint representation_base)
++    {
++        history.insert_entry (answer, number, number_base, representation_base);
++    }
++
++    public void insert_text (string answer)
++    {
++        _equation.insert_selected (answer);
++    }
++
+     private void create_autocompletion ()
+     {
+         Gtk.SourceCompletion completion = source_view.get_completion ();
+diff --git a/src/math-equation.vala b/src/math-equation.vala
+index 1cf0dbd..6ced484 100644
+--- a/src/math-equation.vala
++++ b/src/math-equation.vala
+@@ -118,6 +118,7 @@ public class MathEquation : Gtk.SourceBuffer
+         }
+     }
+ 
++    public signal void history_signal (string answer, Number number, int number_base, uint representation_base);
+     private AngleUnit _angle_units;  /* Units for trigonometric functions */
+     private NumberMode _number_mode;   /* ??? */
+     private bool can_super_minus; /* true if entering minus can generate a superscript minus */
+@@ -199,6 +200,11 @@ public class MathEquation : Gtk.SourceBuffer
+         ans_tag = create_tag (null, "weight", Pango.Weight.BOLD, null);
+     }
+ 
++    public void display_selected (string selected)
++    {
++        set_text (selected, -1);
++    }
++
+     private void get_ans_offsets (out int start, out int end)
+     {
+         if (ans_start_mark == null)
+@@ -759,7 +765,7 @@ public class MathEquation : Gtk.SourceBuffer
+ 
+         if (representation_base != 0)
+             serializer.set_representation_base (serializer.get_base ());
+-
++        this.history_signal (get_current_state ().expression, x, serializer.get_base(), representation_base);
+         set_text (text, -1);
+         state.ans = x;
+ 
+@@ -796,6 +802,11 @@ public class MathEquation : Gtk.SourceBuffer
+         insert_at_cursor (text, -1);
+     }
+ 
++    public void insert_selected (string answer)
++    {
++        insert (answer);
++    }
++
+     public new void insert_square ()
+     {
+         var space_required = false;
+diff --git a/src/math-history.vala b/src/math-history.vala
+new file mode 100644
+index 0000000..46675f2
+--- /dev/null
++++ b/src/math-history.vala
+@@ -0,0 +1,172 @@
++/*
++ * Copyright (C) 2014 ELITA ASTRID ANGELINA LOBO
++ *
++ * This program is free software: you can redistribute it and/or modify it under
++ * the terms of the GNU General Public License as published by the Free Software
++ * Foundation, either version 2 of the License, or (at your option) any later
++ * version. See http://www.gnu.org/copyleft/gpl.html the full text of the
++ * license.
++*/
++
++public class HistoryView : Gtk.Box
++{
++    int no_ofitems = 0;
++    Gtk.ScrolledWindow scroll_window;
++    Gtk.ListBox listbox;
++    Gtk.Box main_box;
++    private MathDisplay _display;
++    public MathDisplay display { get { return _display; } }
++
++    public HistoryView (MathDisplay display, Gtk.Box box)
++    {
++        _display = display;
++        main_box = box;
++        listbox = new Gtk.ListBox ();
++        listbox.set_selection_mode (Gtk.SelectionMode.NONE);
++        listbox.set_border_width (5);
++        scroll_window = new Gtk.ScrolledWindow (null, null);
++        scroll_window.set_shadow_type (Gtk.ShadowType.ETCHED_OUT);
++        scroll_window.set_policy (Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC);
++        scroll_window.set_placement (Gtk.CornerType.TOP_LEFT);
++        scroll_window.add (listbox);
++        scroll_window.set_size_request (100, 100);
++        scroll_window.size_allocate.connect (scroll_bottom);
++        main_box.add (scroll_window);
++        main_box.show_all ();
++    }
++
++    public void scroll_bottom ()
++    {
++        Gtk.Adjustment adjustment = scroll_window.get_vadjustment ();
++        adjustment.set_value (adjustment.get_upper () - adjustment.get_page_size ());
++    }
++
++    public void insert_entry (string equation, Number answer, int number_base, uint representation_base)
++    {
++        string prev_eq = equation;
++        Serializer _serializer = new Serializer (DisplayFormat.AUTOMATIC, number_base, 9);
++        _serializer.set_representation_base (representation_base);
++        string ans = _serializer.to_string (answer);
++        bool check = check_history (prev_eq, ans);
++        if (check == false)
++        {
++            var entry = new HistoryEntryView (prev_eq, answer, _display, number_base, representation_base);
++            if (entry != null)
++            {
++                listbox.add (entry);
++                entry.show ();
++                no_ofitems = no_ofitems + 1;
++            }
++        }
++    }
++
++    public bool check_history (string equation, string answer)
++    {
++        if (no_ofitems == 0)
++        {
++            return false;
++        }
++        string current_equation = equation;
++        string ans = answer;
++        Gtk.ListBoxRow row = (listbox.get_row_at_index (no_ofitems - 1) as Gtk.ListBoxRow);
++        Gtk.Box box = (row.get_child () as Gtk.Box);
++        if (box != null)
++        {
++            Gtk.EventBox ans_eventbox = box.get_children ().nth_data (1) as Gtk.EventBox;
++            string prev_ans = (ans_eventbox.get_child () as Gtk.Label).get_tooltip_text ();
++            Gtk.EventBox eq_eventbox = box.get_children ().nth_data (0) as Gtk.EventBox;
++            string prev_equation = (eq_eventbox.get_child () as Gtk.Label).get_tooltip_text ();
++            
++            if ((no_ofitems >= 1) && (prev_ans == ans) && (current_equation == prev_equation))
++                return true;
++        }
++        return false;
++    }
++}
++
++public class HistoryEntryView : Gtk.ListBoxRow
++{
++    private MathDisplay _display;
++    public MathDisplay display { get { return _display; } }
++    private Number answer;
++    private string prev_equation;
++    private string prev_answer;
++    Gtk.Label equation_label;
++    Gtk.Label answer_label;
++    Gtk.EventBox eq_eventbox;
++    Gtk.EventBox ans_eventbox;
++    Gtk.Box hbox;
++    
++    public HistoryEntryView (string equation, Number number, MathDisplay display, int number_base, uint representation_base)
++    {
++        _display = display;
++        answer = number;
++        prev_equation = equation;
++        Serializer _serializer = new Serializer (DisplayFormat.AUTOMATIC, number_base, 9);
++        _serializer.set_representation_base (representation_base);
++        prev_answer = _serializer.to_string (answer);
++        hbox = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 5);
++        add (hbox);
++        equation_label = new Gtk.Label ("");
++        answer_label = new Gtk.Label ("");
++        eq_eventbox = new Gtk.EventBox ();
++        ans_eventbox = new Gtk.EventBox ();
++        eq_eventbox.add (equation_label);
++        ans_eventbox.add (answer_label);
++        eq_eventbox.set_events (Gdk.EventMask.BUTTON_PRESS_MASK);
++        ans_eventbox.set_events (Gdk.EventMask.BUTTON_PRESS_MASK);
++        eq_eventbox.button_press_event.connect (onclick_equation);
++        ans_eventbox.button_press_event.connect (onclick_answer);
++        equation_label.set_size_request (10, 10);
++        answer_label.set_size_request (10, 10);
++        equation_label.set_selectable (true);
++        answer_label.set_selectable (true);
++        eq_eventbox.set_above_child (true);
++        ans_eventbox.set_above_child (true);
++        equation_label.set_tooltip_text (prev_equation);
++        answer_label.set_tooltip_text (prev_answer);
++        equation_label.set_ellipsize (Pango.EllipsizeMode.END);
++        answer_label.set_ellipsize (Pango.EllipsizeMode.END);
++        equation_label.set_text (prev_equation);
++        string final_answer = "= " + prev_answer;
++        answer_label.set_text (final_answer);
++        hbox.set_homogeneous (true);
++        hbox.pack_start (eq_eventbox, false, true, 0);
++        hbox.pack_start (ans_eventbox, false, true, 0);
++        equation_label.set_alignment (0, 0);
++        answer_label.set_alignment (0, 0);
++        Pango.AttrList list = new Pango.AttrList ();
++        Pango.FontDescription font = new Pango.FontDescription ();
++        font.set_weight (Pango.Weight.BOLD);
++        Pango.Attribute weight = Pango.attr_weight_new (Pango.Weight.BOLD);
++        list.insert ((owned) weight);
++        answer_label.set_attributes (list);
++        hbox.show_all ();
++    } 
++
++    public bool onclick_answer (Gtk.Widget widget,Gdk.EventButton eventbox)
++    {
++        Gtk.EventBox event = (Gtk.EventBox) widget;
++        Gtk.Label label = (event.get_child () as Gtk.Label);
++        string prev_ans = label.get_tooltip_text ();
++        _display.insert_text (prev_ans);
++        return true;
++    }
++
++    private bool onclick_equation (Gtk.Widget widget, Gdk.EventButton eventbutton)
++    {
++        Gtk.EventBox event = (Gtk.EventBox) widget;
++        if (event != null)
++        {
++            Gtk.Label text = (event.get_child () as Gtk.Label);
++            string tooltip_text = text.get_text ();
++            if (tooltip_text != null)
++            {
++                _display.display_text (tooltip_text);
++            }
++        }
++        return true;
++    }
++}
++    
++ 
+diff --git a/src/math-window.vala b/src/math-window.vala
+index 9b07786..9690807 100644
+--- a/src/math-window.vala
++++ b/src/math-window.vala
+@@ -103,6 +103,7 @@ public class MathWindow : Gtk.ApplicationWindow
+         scrolled_window.show ();
+ 
+         _display = new MathDisplay (equation);
++        _display.grabfocus ();
+         scrolled_window.add (display);
+         display.show ();
+ 
+-- 
+1.9.1
+
