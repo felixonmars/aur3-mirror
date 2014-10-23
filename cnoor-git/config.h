@@ -7,9 +7,9 @@ typedef unsigned int fbval_t;
 #define FB_VAL(r, g, b)	fb_val((r), (g), (b))
 
 /* you can get it from http://tanzil.info/download */
-#define QURAN_PATH	"/path/to/quran.txt"
+#define QURAN_PATH	"user"
 /* it should be a utf-8 file with one aya per line or NULL */
-#define TRANS_PATH	"/path/to/translation.txt"
+#define TRANS_PATH	"/usr/share/doc/cnoor/en.ahmedali"
 
 /* fonts and colors */
 #define COLOR_FG	0x000000
