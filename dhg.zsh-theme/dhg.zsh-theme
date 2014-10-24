@@ -1,4 +1,3 @@
-# Check if 
 local SESSION_TYPE=''
 if [ -n "$SSH_CLIENT" ] || [ -n "$SSH_TTY" ]; then
   SESSION_TYPE=remote
@@ -17,9 +16,15 @@ local _c_host="$fg_bold[yellow]"
 local _c_path="$fg_bold[blue]"
 local _c_remote="$fg[cyan]"
 local _c_git_branch="$fg_bold[magenta]"
-local _c_git_dirty="$fg_bold[cyan]"
+local _c_git_dirty="$fg_bold[white]"
 local _c_prompt="$fg_bold[white]"
+local _c_venv="$fg_bold[cyan]"
 
+function venv_prompt_info () {
+    if [[ ! -z $VIRTUAL_ENV ]]; then
+        printf "$(basename "$VIRTUAL_ENV")$_p_separator"
+    fi
+}
 
 # Prompt separator
 local _p_separator='  '
@@ -45,13 +50,15 @@ local _p_path="%{$_c_path%}%~%{$_c_separator%}$_p_separator"
 local _p_status="%(?::%{$fg_bold[red]%}[%?] %s)"
 local _p_dollar="$(if [ "$UID" -eq "0" ]; then echo '#'; else echo '$'; fi)"
 
-PROMPT='$_p_status$_p_user$_p_host$_p_path$(git_prompt_info)
+PROMPT='$_p_status$_p_user$_p_host$_p_path$(git_prompt_info)%{$_c_venv%}$(venv_prompt_info)
 %{$_c_prompt%}$_p_dollar %{$_c_reset%}'
 
-RPROMPT="$RPROMPT%{$_c_reset%}"
+RPROMPT="%{$_c_reset%}"
 
 # Git plugin configuration
 ZSH_THEME_GIT_PROMPT_PREFIX="%{$_c_git_branch%}"
 ZSH_THEME_GIT_PROMPT_SUFFIX="%{$_c_reset%}$_p_separator"
 ZSH_THEME_GIT_PROMPT_DIRTY="%{$_c_git_dirty%}*"
 ZSH_THEME_GIT_PROMPT_CLEAN=""
+
+export VIRTUAL_ENV_DISABLE_PROMPT=1
