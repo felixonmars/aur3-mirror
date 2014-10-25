@@ -1,3 +1,7 @@
+# Auto-completion
+# ---------------
+[[ $- =~ i ]] && source /usr/share/bash-completion/completions/fzf
+
 # Key bindings
 # ------------
 #

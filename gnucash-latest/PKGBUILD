@@ -2,8 +2,8 @@
 # Contributor: quizzmaster
 
 pkgname=gnucash-latest
-pkgver=2.6.3
-pkgrel=2
+pkgver=2.6.4
+pkgrel=1
 pkgdesc="A personal and small-business financial-accounting application"
 arch=('i686' 'x86_64')
 url="http://www.gnucash.org"
@@ -19,7 +19,7 @@ conflicts=('gnucash' 'gnucash-devel')
 provides=('gnucash')
 install=gnucash.install
 source=(http://downloads.sourceforge.net/sourceforge/gnucash/gnucash-${pkgver}.tar.bz2)
-md5sums=('c590a6549be3c1fbbb26b4426bea3ff5')
+md5sums=('a857e9fa058c57a07d8e97bce29f1411')
 
 build() {
   cd "${srcdir}/gnucash-${pkgver}"

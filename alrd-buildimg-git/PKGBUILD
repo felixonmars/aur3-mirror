@@ -1,14 +1,14 @@
-# Maintainer: Gently <toddrpartridge@gmail.com>
+# Maintainer: Todd Partridge <http://https://github.com/Gen2ly/archpkgs>
 
 pkgname=alrd-buildimg-git
 _pkgname=${pkgname%-*}
 pkgver=0.92.6
-pkgrel=1
+pkgrel=2
 pkgdesc="A script that builds the Arch Linux Rescue Disk ISO images."
 arch=("any")
 url="https://github.com/Gen2ly/$_pkgname"
 license=("GPL2")
-depends=("pkgcacheclean" "trizen" "systemd")
+depends=("pkgcacheclean" "trizen" "squashfs-tools" "systemd")
 makedepends=("git")
 conflicts=("")
 install=

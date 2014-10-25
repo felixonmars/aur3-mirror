@@ -15,6 +15,15 @@ if [ ! -d "${ARCHON_TMPDIR}/${SUM}" ]; then
     ln -s $(readlink -f "$1") "${ARCHON_TMPDIR}/${SUM}/${1}"
     pushd "${ARCHON_TMPDIR}/${SUM}" >/dev/null 2>&1
     chromeos-apk --archon --tablet "$1" >chromeos-apk.log
+
+    # Fix 'There is no "message" element for key extName' Error
+    if [[ $(grep -r appNotSupported) ]]; then
+        APKDIR=$(ls -1 --group-directories-first | head -n 1)
+        EXTNAME=$(cat ${APKDIR}/manifest.json  | grep '"name":' | head -n 1 | sed 's|[^"]*"name"[^"]*"||;s|".*||')
+        for msgfile in $(find ${APKDIR}/_locales -type f -name 'messages.json'); do
+            echo -e '{\n  "extName": {\n    "description": "'$EXTNAME'",\n    "message": ""\n  }\n}' > "$msgfile"
+        done
+    fi
     popd >/dev/null 2>&1
 fi
 
@@ -32,5 +41,5 @@ $EXE --load-and-launch-app="${ARCHON_TMPDIR}/${SUM}/${APPDIR}" > "${ARCHON_TMPDI
 sleep 1
 
 # Cleanup the non-functional XDG desktop file created by Chromium
-rm ${HOME}/.local/share/applications/chrome-*-${APPDIR}.desktop
+rm -f ${HOME}/.local/share/applications/chrome-*-${APPDIR}.desktop
 

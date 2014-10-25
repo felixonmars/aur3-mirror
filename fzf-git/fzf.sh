@@ -4,7 +4,14 @@
 fe() {
   local file
   file=$(fzf --query="$1" --select-1 --exit-0)
-  [ -n "$file" ] && $(EDITOR:-vim} "$file")
+  [ -n "$file" ] && ${EDITOR:-vim} "$file"
+}
+
+# Equivalent to above, but opens it with `open` command
+fo() {
+  local file
+  file=$(fzf --query="$1" --select-1 --exit-0)
+  [ -n "$file" ] && open "$file"
 }
 
 # fd - cd to selected directory
@@ -15,6 +22,13 @@ fd() {
 # fda - including hidden directories
 fda() {
   DIR=$(find ${1:-*} -type d 2> /dev/null | fzf) && cd "$DIR"
+}
+
+# cdf - cd into the directory of the selected file
+cdf() {
+  local file
+  local dir
+  file=$(fzf +m -q "$!") && dir=$(dirname "$file") && cd "$dir"
 }
 
 # fh - repeat history
@@ -52,4 +66,14 @@ ftags() {
   cut -c1-80 | fzf --nth=1,2
   ) && $EDITOR $(cut -f3 <<< "$line") -c "set nocst" \
                                       -c "silent tag $(cut -f2 <<< "$line")"
+}
+
+# fs [FUZZY PATTERN] - Select selected tmux session
+#   - Bypass fuzzy finder if there's only one match (--select-1)
+#   - Exit if there's no match (--exit-0)
+fs() {
+  local session
+  session=$(tmux list-sessions -F "#{session_name}" | \
+    fzf --query="$1" --select-1 --exit-0) &&
+    tmux switch-client -t "$session"
 }
