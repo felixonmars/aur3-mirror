@@ -1,0 +1,360 @@
+diff -r 8c6aa30f9d24 libpurple/protocols/jabber/disco.c
+--- a/libpurple/protocols/jabber/disco.c	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/protocols/jabber/disco.c	Wed Jan 22 00:02:50 2014 +0100
+@@ -295,9 +295,8 @@
+ 					capabilities |= JABBER_CAP_PING;
+ 				else if(!strcmp(var, NS_DISCO_ITEMS))
+ 					capabilities |= JABBER_CAP_ITEMS;
+-				else if(!strcmp(var, "http://jabber.org/protocol/commands")) {
++				else if(!strcmp(var, "http://jabber.org/protocol/commands"))
+ 					capabilities |= JABBER_CAP_ADHOC;
+-				}
+ 				else if(!strcmp(var, NS_IBB)) {
+ 					purple_debug_info("jabber", "remote supports IBB\n");
+ 					capabilities |= JABBER_CAP_IBB;
+@@ -386,6 +385,17 @@
+ 		jabber_request_block_list(js);
+ 	}
+ 
++	if ((js->server_caps & JABBER_CAP_CARBONS) && purple_account_get_bool(js->gc->account, "carbons", FALSE)) {
++		JabberIq *iq = jabber_iq_new(js, JABBER_IQ_SET);
++		xmlnode *enable = xmlnode_new_child(iq->node, "enable");
++		
++		purple_debug_info("jabber", "Automatically enabling Carbons.\n");
++
++		xmlnode_set_namespace(enable, NS_XMPP_CARBONS);
++
++		jabber_iq_send(iq);
++	}
++
+ 	/* If there are manually specified bytestream proxies, query them */
+ 	ft_proxies = purple_account_get_string(js->gc->account, "ft_proxies", NULL);
+ 	if (ft_proxies) {
+@@ -574,6 +584,8 @@
+ 			js->server_caps |= JABBER_CAP_ADHOC;
+ 		} else if (!strcmp(NS_SIMPLE_BLOCKING, var)) {
+ 			js->server_caps |= JABBER_CAP_BLOCKING;
++		} else if(!strcmp(var, NS_XMPP_CARBONS)) {
++			js->server_caps |= JABBER_CAP_CARBONS;
+ 		}
+ 	}
+ 
+diff -r 8c6aa30f9d24 libpurple/protocols/jabber/jabber.c
+--- a/libpurple/protocols/jabber/jabber.c	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/protocols/jabber/jabber.c	Wed Jan 22 00:02:50 2014 +0100
+@@ -2566,6 +2566,7 @@
+ 	JabberStream *js = gc->proto_data;
+ 	GList *m = NULL;
+ 	PurplePluginAction *act;
++	gboolean has_carbons = purple_account_get_bool(gc->account, "carbons", FALSE);
+ 
+ 	act = purple_plugin_action_new(_("Set User Info..."),
+ 	                             jabber_setup_set_info);
+@@ -2589,6 +2590,11 @@
+ 	if(js->commands)
+ 		jabber_adhoc_init_server_commands(js, &m);
+ 
++	if(js->server_caps & JABBER_CAP_CARBONS) {
++		act = purple_plugin_action_new((has_carbons ? _("Disable Message Copies") : _("Enable Message Copies")), jabber_toggle_carbons);
++		m = g_list_append(m, act);
++	}
++
+ 	return m;
+ }
+ 
+diff -r 8c6aa30f9d24 libpurple/protocols/jabber/jabber.h
+--- a/libpurple/protocols/jabber/jabber.h	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/protocols/jabber/jabber.h	Wed Jan 22 00:02:50 2014 +0100
+@@ -48,6 +48,8 @@
+ 
+ 	JABBER_CAP_ITEMS          = 1 << 14,
+ 	JABBER_CAP_ROSTER_VERSIONING = 1 << 15,
++	
++	JABBER_CAP_CARBONS        = 1 << 16,
+ 
+ 	JABBER_CAP_RETRIEVED      = 1 << 31
+ } JabberCapabilities;
+diff -r 8c6aa30f9d24 libpurple/protocols/jabber/message.c
+--- a/libpurple/protocols/jabber/message.c	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/protocols/jabber/message.c	Wed Jan 22 00:02:50 2014 +0100
+@@ -58,7 +58,8 @@
+ 
+ static void handle_chat(JabberMessage *jm)
+ {
+-	JabberID *jid = jabber_id_new(jm->from);
++	gchar *contact = jm->outgoing ? jm->to : jm->from;
++	JabberID *jid = jabber_id_new(contact);
+ 
+ 	PurpleConnection *gc;
+ 	PurpleAccount *account;
+@@ -71,48 +72,50 @@
+ 	gc = jm->js->gc;
+ 	account = purple_connection_get_account(gc);
+ 
+-	jb = jabber_buddy_find(jm->js, jm->from, TRUE);
++	jb = jabber_buddy_find(jm->js, contact, TRUE);
+ 	jbr = jabber_buddy_find_resource(jb, jid->resource);
+ 
+ 	if(!jm->xhtml && !jm->body) {
+-		if (jbr && jm->chat_state != JM_STATE_NONE)
+-			jbr->chat_states = JABBER_CHAT_STATES_SUPPORTED;
++		if (!jm->outgoing) {
++			if (jbr && jm->chat_state != JM_STATE_NONE)
++				jbr->chat_states = JABBER_CHAT_STATES_SUPPORTED;
+ 
+-		if(JM_STATE_COMPOSING == jm->chat_state) {
+-			serv_got_typing(gc, jm->from, 0, PURPLE_TYPING);
+-		} else if(JM_STATE_PAUSED == jm->chat_state) {
+-			serv_got_typing(gc, jm->from, 0, PURPLE_TYPED);
+-		} else if(JM_STATE_GONE == jm->chat_state) {
+-			PurpleConversation *conv = purple_find_conversation_with_account(PURPLE_CONV_TYPE_IM,
+-					jm->from, account);
+-			if (conv && jid->node && jid->domain) {
+-				char buf[256];
+-				PurpleBuddy *buddy;
++			if(JM_STATE_COMPOSING == jm->chat_state) {
++				serv_got_typing(gc, contact, 0, PURPLE_TYPING);
++			} else if(JM_STATE_PAUSED == jm->chat_state) {
++				serv_got_typing(gc, contact, 0, PURPLE_TYPED);
++			} else if(JM_STATE_GONE == jm->chat_state) {
++				PurpleConversation *conv = purple_find_conversation_with_account(PURPLE_CONV_TYPE_IM,
++						contact, account);
++				if (conv && jid->node && jid->domain) {
++					char buf[256];
++					PurpleBuddy *buddy;
+ 
+-				g_snprintf(buf, sizeof(buf), "%s@%s", jid->node, jid->domain);
++					g_snprintf(buf, sizeof(buf), "%s@%s", jid->node, jid->domain);
+ 
+-				if ((buddy = purple_find_buddy(account, buf))) {
+-					const char *who;
+-					char *escaped;
++					if ((buddy = purple_find_buddy(account, buf))) {
++						const char *who;
++						char *escaped;
+ 
+-					who = purple_buddy_get_alias(buddy);
+-					escaped = g_markup_escape_text(who, -1);
++						who = purple_buddy_get_alias(buddy);
++						escaped = g_markup_escape_text(who, -1);
+ 
+-					g_snprintf(buf, sizeof(buf),
+-					           _("%s has left the conversation."), escaped);
+-					g_free(escaped);
++						g_snprintf(buf, sizeof(buf),
++						           _("%s has left the conversation."), escaped);
++						g_free(escaped);
+ 
+-					/* At some point when we restructure PurpleConversation,
+-					 * this should be able to be implemented by removing the
+-					 * user from the conversation like we do with chats now. */
+-					purple_conversation_write(conv, "", buf,
+-					                        PURPLE_MESSAGE_SYSTEM, time(NULL));
++						/* At some point when we restructure PurpleConversation,
++						 * this should be able to be implemented by removing the
++						 * user from the conversation like we do with chats now. */
++						purple_conversation_write(conv, "", buf,
++						                        PURPLE_MESSAGE_SYSTEM, time(NULL));
++					}
+ 				}
++				serv_got_typing_stopped(gc, contact);
++
++			} else {
++				serv_got_typing_stopped(gc, contact);
+ 			}
+-			serv_got_typing_stopped(gc, jm->from);
+-
+-		} else {
+-			serv_got_typing_stopped(gc, jm->from);
+ 		}
+ 	} else {
+ 		if (jid->resource) {
+@@ -128,12 +131,12 @@
+ 			PurpleConversation *conv;
+ 
+ 			conv = purple_find_conversation_with_account(PURPLE_CONV_TYPE_IM,
+-			                                             jm->from, account);
+-			if (conv && !g_str_equal(jm->from,
++			                                             contact, account);
++			if (conv && !g_str_equal(contact,
+ 			                         purple_conversation_get_name(conv))) {
+ 				purple_debug_info("jabber", "Binding conversation to %s\n",
+-				                  jm->from);
+-				purple_conversation_set_name(conv, jm->from);
++				                  contact);
++				purple_conversation_set_name(conv, contact);
+ 			}
+ 		}
+ 
+@@ -156,7 +159,8 @@
+ 			jm->body = jabber_google_format_to_html(jm->body);
+ 			g_free(tmp);
+ 		}
+-		serv_got_im(gc, jm->from, jm->xhtml ? jm->xhtml : jm->body, 0, jm->sent);
++		serv_got_im(gc, contact, jm->xhtml ? jm->xhtml : jm->body,
++					(jm->outgoing ? PURPLE_MESSAGE_SEND : PURPLE_MESSAGE_RECV), jm->sent);
+ 	}
+ 
+ 	jabber_id_free(jid);
+@@ -502,7 +506,49 @@
+ 	JabberMessage *jm;
+ 	const char *id, *from, *to, *type;
+ 	xmlnode *child;
+-	gboolean signal_return;
++	gboolean signal_return, is_outgoing = FALSE;
++	time_t message_timestamp = time(NULL);
++	gboolean delayed = FALSE;
++
++	/* Check if this is a carbon-copy of a message.
++	 * If so, use that instead for the rest of this function,
++	 * but keep track of wether the from and to should be swapped.
++	 */
++	from = xmlnode_get_attrib(packet, "from");
++
++	if (jabber_is_own_account(js, from)) {
++		xmlnode *received = xmlnode_get_child_with_namespace(packet, "received", NS_XMPP_CARBONS);
++		xmlnode *sent = xmlnode_get_child_with_namespace(packet, "sent", NS_XMPP_CARBONS);
++
++		if (sent)
++			is_outgoing = TRUE;
++
++		if (received || sent) {
++			xmlnode *forwarded = xmlnode_get_child_with_namespace(received ? received : sent, "forwarded", NS_XMPP_FORWARD);
++
++			if (forwarded) {
++				xmlnode *message = xmlnode_get_child_with_namespace(forwarded, "message", NS_XMPP_CLIENT);
++				xmlnode *delay = xmlnode_get_child_with_namespace(forwarded, "delay", NS_DELAYED_DELIVERY);
++
++				if (message) {
++					purple_debug_info("jabber", "It's a carbon-copy message, using the wrapped message instead.\n");
++					packet = message;
++
++					if (delay) {
++						const char *timestamp = xmlnode_get_attrib(delay, "stamp");
++						
++						if(timestamp) {
++							purple_debug_info("jabber", "Found a delay stamp: %s\n", timestamp);
++
++							delayed = TRUE;
++
++							message_timestamp = purple_str_to_time(timestamp, TRUE, NULL, NULL, NULL);
++						}
++					}
++				}
++			}
++		}
++	}
+ 
+ 	from = xmlnode_get_attrib(packet, "from");
+ 	id   = xmlnode_get_attrib(packet, "id");
+@@ -516,9 +562,10 @@
+ 
+ 	jm = g_new0(JabberMessage, 1);
+ 	jm->js = js;
+-	jm->sent = time(NULL);
+-	jm->delayed = FALSE;
++	jm->sent = message_timestamp;
++	jm->delayed = delayed;
+ 	jm->chat_state = JM_STATE_NONE;
++	jm->outgoing = is_outgoing;
+ 
+ 	if(type) {
+ 		if(!strcmp(type, "normal"))
+@@ -624,12 +671,12 @@
+ 						           jm->type == JABBER_MESSAGE_CHAT) {
+ 							conv =
+ 								purple_find_conversation_with_account(PURPLE_CONV_TYPE_ANY,
+-									from, account);
++									is_outgoing ? to : from, account);
+ 							if (!conv) {
+ 								/* we need to create the conversation here */
+ 								conv =
+ 									purple_conversation_new(PURPLE_CONV_TYPE_IM,
+-									account, from);
++									account, is_outgoing ? to : from);
+ 							}
+ 						}
+ 					}
+@@ -709,6 +756,7 @@
+ 		} else if(!strcmp(child->name, "attention") && !strcmp(xmlns, NS_ATTENTION)) {
+ 			jm->hasBuzz = TRUE;
+ 		} else if(!strcmp(child->name, "delay") && !strcmp(xmlns, NS_DELAYED_DELIVERY)) {
++			/* Carbons/Stanza fowarding might have already set jm->delayed. However, this timestamp was certainly applied earlier, so it overrides Carbons. */
+ 			const char *timestamp = xmlnode_get_attrib(child, "stamp");
+ 			jm->delayed = TRUE;
+ 			if(timestamp)
+@@ -1305,3 +1353,25 @@
+ 
+ 	return purple_account_get_bool(account, "custom_smileys", TRUE);
+ }
++
++void jabber_toggle_carbons(PurplePluginAction *action) {
++	PurpleConnection *gc = (PurpleConnection *) action->context;
++	JabberStream *js = purple_connection_get_protocol_data(gc);
++	JabberIq *iq = jabber_iq_new(js, JABBER_IQ_SET);
++	gboolean has_carbons = !purple_account_get_bool(purple_connection_get_account(gc), "carbons", FALSE);
++	xmlnode *node;
++
++	if (has_carbons) {
++		node = xmlnode_new_child(iq->node, "enable");
++	} else {
++		node = xmlnode_new_child(iq->node, "disable");
++	}
++
++	purple_account_set_bool(gc->account, "carbons", has_carbons);
++
++	xmlnode_set_namespace(node, NS_XMPP_CARBONS);
++	jabber_iq_send(iq);
++
++	/* Force an update of the account actions. */
++	purple_prpl_got_account_actions(purple_connection_get_account(gc));
++}
+diff -r 8c6aa30f9d24 libpurple/protocols/jabber/message.h
+--- a/libpurple/protocols/jabber/message.h	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/protocols/jabber/message.h	Wed Jan 22 00:02:50 2014 +0100
+@@ -62,6 +62,7 @@
+ 	} chat_state;
+ 	GList *etc;
+ 	GList *eventitems;
++	gboolean outgoing;
+ } JabberMessage;
+ 
+ void jabber_message_free(JabberMessage *jm);
+@@ -79,4 +80,6 @@
+ 
+ gboolean jabber_custom_smileys_isenabled(JabberStream *js, const const gchar *namespace);
+ 
++void jabber_toggle_carbons(PurplePluginAction *action);
++
+ #endif /* PURPLE_JABBER_MESSAGE_H_ */
+diff -r 8c6aa30f9d24 libpurple/protocols/jabber/namespaces.h
+--- a/libpurple/protocols/jabber/namespaces.h	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/protocols/jabber/namespaces.h	Wed Jan 22 00:02:50 2014 +0100
+@@ -95,6 +95,12 @@
+ /* XEP-0264 File Transfer Thumbnails (Thumbs) */
+ #define NS_THUMBS "urn:xmpp:thumbs:0"
+ 
++/* XEP-0280 Message Carbons */
++#define NS_XMPP_CARBONS "urn:xmpp:carbons:2"
++
++/* XEP-0297 Message Forwarding */
++#define NS_XMPP_FORWARD "urn:xmpp:forward:0"
++
+ /* Google extensions */
+ #define NS_GOOGLE_CAMERA "http://www.google.com/xmpp/protocol/camera/v1"
+ #define NS_GOOGLE_VIDEO "http://www.google.com/xmpp/protocol/video/v1"
+diff -r 8c6aa30f9d24 libpurple/server.c
+--- a/libpurple/server.c	Thu Jan 16 19:01:36 2014 +0100
++++ b/libpurple/server.c	Wed Jan 22 00:02:50 2014 +0100
+@@ -567,11 +567,6 @@
+ 
+ 	account  = purple_connection_get_account(gc);
+ 
+-	/*
+-	 * XXX: Should we be setting this here, or relying on prpls to set it?
+-	 */
+-	flags |= PURPLE_MESSAGE_RECV;
+-
+ 	if (!purple_privacy_check(account, who)) {
+ 		purple_signal_emit(purple_conversations_get_handle(), "blocked-im-msg",
+ 				account, who, msg, flags, (unsigned int)mtime);

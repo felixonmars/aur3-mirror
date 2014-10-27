@@ -1,3 +1,3 @@
 #!/bin/bash
 
-export PATH=$PATH:/opt/oracle-datamodeler/bin
+exec /opt/oracle-datamodeler/datamodeler.sh -J-Dsdev.insight=false
