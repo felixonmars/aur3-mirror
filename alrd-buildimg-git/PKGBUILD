@@ -2,8 +2,8 @@
 
 pkgname=alrd-buildimg-git
 _pkgname=${pkgname%-*}
-pkgver=0.92.6
-pkgrel=2
+pkgver=0.92.10
+pkgrel=1
 pkgdesc="A script that builds the Arch Linux Rescue Disk ISO images."
 arch=("any")
 url="https://github.com/Gen2ly/$_pkgname"
@@ -11,6 +11,7 @@ license=("GPL2")
 depends=("pkgcacheclean" "trizen" "squashfs-tools" "systemd")
 makedepends=("git")
 conflicts=("")
+backup=(etc/$_pkgname/config)
 install=
 source=("git://github.com/Gen2ly/$_pkgname")
 md5sums=('SKIP')
@@ -23,7 +24,7 @@ pkgver() {
 package() {
   cd $srcdir/$_pkgname
   install -Dm755 $_pkgname      $pkgdir/usr/bin/$_pkgname
-  install -Dm644 $_pkgname.conf $pkgdir/etc/$_pkgname/$_pkgname.conf
+  install -Dm644 config         $pkgdir/etc/$_pkgname/config
   install -Dm644 pacman.conf    $pkgdir/etc/$_pkgname/pacman.conf
   install -Dm644 license.txt    $pkgdir/usr/share/licenses/$_pkgname/license.txt
 }

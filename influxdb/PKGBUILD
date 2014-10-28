@@ -4,7 +4,7 @@
 # Contributor: Ben Alex <ben.alex@acegi.com.au>
 
 pkgname=influxdb
-pkgver=0.8.3
+pkgver=0.8.4
 pkgrel=1
 epoch=
 pkgdesc='Scalable datastore for metrics, events, and real-time analytics'
@@ -21,22 +21,24 @@ conflicts=()
 replaces=()
 backup=('etc/influxdb.conf')
 options=()
-install='influxdb.install'
+install="$pkgname.install"
 changelog=
 source=("http://get.influxdb.org/with_dependencies/$pkgname-$pkgver.src.tar.gz"
-        'influxdb.service'
-        'influxdb.install'
+        "$pkgname.service"
+        "$pkgname.install"
         '.AURINFO')
 noextract=()
-md5sums=('9f44d4d4669c410a80de4fc6c0399b89'
+md5sums=('8d0d039342dadc118bed163849b2743f'
          'c59b9926d74776d5990889bd48f98543'
          'b4203001919b80999f18ebfa564ae6e3'
          'SKIP')
 
+_prefix='/usr'
+
 build() {
   export GOPATH="$srcdir"
   cd "$srcdir/src/github.com/influxdb/influxdb"
-  ./configure --prefix=/usr
+  ./configure --prefix=$_prefix
   make protobuf
   make parser
   go build -o "$pkgname" github.com/influxdb/influxdb/daemon

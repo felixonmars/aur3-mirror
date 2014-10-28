@@ -1,4 +1,4 @@
 #!/bin/sh
 
 echo "Starting kippo in background..."
-sudo -u kippo twistd -y kippo.tac -l log/kippo.log --pidfile kippo.pid
+su -s /bin/sh -c "twistd -y kippo.tac -l log/kippo.log --pidfile kippo.pid" kippo

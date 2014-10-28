@@ -3,8 +3,8 @@
 pkgname=linux-xps13
 true && pkgname=(linux-xps13 linux-xps13-headers)
 _kernelname=-xps13
-_srcname=linux-3.16
-pkgver=3.16.4
+_srcname=linux-3.17
+pkgver=3.17.1
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/gunzy83/linux-xps13-archlinux"
@@ -17,17 +17,15 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'config.x86_64'
         'linux-xps13.preset'
         'change-default-console-loglevel.patch'
-        'compal-laptop-hwmon-fix.patch'
         'xps13.patch'
         )
-sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
-            'bfd65be726f596c0e46f472efa33c46c01be5d44ed93ef645c313a6823e6e6fb'
-            '441fddfd56c28efbf6b61f0f2777ce14e259b9215bae7729800507d98cc223ad'
-            'e47377279009637e95ae25858e195dc0654b647d4e30ad30f9880b46b74ec078'
+sha256sums=('f5153ec93c5fcd41b247950e6a9bcbc63fa87beafd112c133a622439a0f76251'
+            '3b0651951cdc0a81a69b46db99239bc9f00d6a5ae403e0e41c7a1cc177544ec2'
+            '0f1cd431115a2ce84629298d054d5e6f6e78095a3aeda4d1335740c9402efb7e'
+            'fb688bc7ccfa636990b26aecfe62500bc1e0f6c410a837eef03014c161df2ec8'
             'bf7ccd0ca928dc47b7e2a87d08d8f19faafbb21ff957e22f1ee78a180961047e'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            'f36f61a0a72bcb0a9c04264343503bfbf927c9ea0db819e66734a3933b060588'
-	          'f7723d4a2e07da82b3698fb4edb5cf1ca0ccbbc3e789247118fcb7a44d89cdf2')
+            'f7723d4a2e07da82b3698fb4edb5cf1ca0ccbbc3e789247118fcb7a44d89cdf2')
 	    
 prepare() {
   cd "${srcdir}/${_srcname}"
@@ -42,9 +40,6 @@ prepare() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # #41458 fix hwmon for compal-laptop module
-  patch -p1 -i "${srcdir}/compal-laptop-hwmon-fix.patch"
 
   # apply the xps 13 cypress touchpad simulated multitouch patch
   msg "Patching source with XPS13 touchpad patch."
@@ -248,7 +243,7 @@ package_linux-xps13-headers() {
   # add xfs and shmem for aufs building
   mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/fs/xfs"
   mkdir -p "${pkgdir}/usr/lib/modules/${_kernver}/build/mm"
-  cp fs/xfs/xfs_sb.h "${pkgdir}/usr/lib/modules/${_kernver}/build/fs/xfs/xfs_sb.h"
+  # cp fs/xfs/xfs_sb.h "${pkgdir}/usr/lib/modules/${_kernver}/build/fs/xfs/xfs_sb.h"
 
   # copy in Kconfig files
   for i in $(find . -name "Kconfig*"); do
