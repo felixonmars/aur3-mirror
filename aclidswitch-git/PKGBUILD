@@ -1,14 +1,14 @@
 # Contributor: Robert Orzanna <orschiro@gmail.com>
 
 pkgname=aclidswitch-git
-pkgver=r12.3cdc5fd
+pkgver=r14.29b887d
 pkgrel=1
 pkgdesc="Simple power management tool that runs actions depending on the laptop's AC state"
 arch=('i686' 'x86_64')
 url="https://github.com/orschiro/aclidswitch"
 license=('GPL2')
-depends=('pacman' 'xorg-xbacklight')
-install=aclidswitch.install
+depends=('pacman' 'xorg-xbacklight' 'xorg-xset')
+#install=aclidswitch.install
 backup=('etc/default/aclidswitch')
 makedepends=('git')
 source=("$pkgname"::'git://github.com/orschiro/aclidswitch.git')

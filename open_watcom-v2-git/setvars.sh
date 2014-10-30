@@ -14,14 +14,20 @@ export OWUSENATIVETOOLS=1
 # Subdirectory to be used for building OW build tools
 export OWOBJDIR=binbuild
 
+# Set this variable to 1 to get debug build
+export OWDEBUGBUILD=0
+
 # Set this variable to 1 to get default windowing support in clib
-export OWDEFAULT_WINDOWING=1
+export OWDEFAULT_WINDOWING=0
 
 # Change following entries to point your existing Open Watcom installation
 if [ "$OWUSENATIVETOOLS" -ne "1" ]; then
     export WATCOM=/opt/watcom
     export INCLUDE=$WATCOM/lh
     export PATH=$WATCOM/binl:$PATH
+    export OWDEFPATH=$PATH
+    export OWDEFINCLUDE=$INCLUDE
+    export OWDEFWATCOM=$WATCOM
     export OWUSENATIVETOOLS
 fi
 
@@ -54,9 +60,14 @@ export OWDOCBUILD=0
 # if DOSBOX emulator is used then OWDOSBOX variable must be set
 # Uncoment and set OWDOSBOX variable bellow to point to DOSBOX emulator executable
 
-# export OWDOSBOX=dosbox
+export OWDOSBOX=dosbox
 
 # Invoke the script for the common environment
 . $OWROOT/cmnvars.sh
+
+export OWVERBOSE=1
+export OWDOCQUIET=1
+
+export LANG=en_US
 
 cd $OWROOT
