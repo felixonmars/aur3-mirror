@@ -9,7 +9,7 @@ license='GPL3'
 arch=('i686' 'x86_64')
 depends=('gtkmm3' 'libnotifymm' 'libconfig' 'libsodium' 'libvpx' 'opus' 'sqlite')
 makedepends=('check' 'git' 'cmake' 'librsvg')
-source=(.AURINFO "${pkgname%-git}::git+https://github.com/KoKuToru/gTox.git")
+source=(.AURINFO "${pkgname%-git}::git+https://github.com/KoKuToru/gTox.git#branch=unstable")
 sha256sums=('SKIP' 'SKIP')
 provides=('gtox')
 conflicts=('gtox')

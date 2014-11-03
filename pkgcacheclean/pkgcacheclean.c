@@ -214,6 +214,11 @@ int main(const int argc, char ** __restrict__ argv)
         exit(EXIT_FAILURE);
     }
     len = strlen(cachedir);
+    if (len && cachedir[len - 1] != '/')
+    {
+        cachedir[len] = '/';
+        cachedir[++len] = '\0';
+    }
     regcomp(&pkgnamesplit, "^(.*)-([^-]*-[^-]*)-[^-]*$", REG_EXTENDED);
     regcomp(&pkgnametest, "^.*-("CARCH"|any).[^-]*$", REG_EXTENDED);
 

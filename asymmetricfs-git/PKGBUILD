@@ -1,7 +1,7 @@
 # Maintainer: Danny Su <contact@dannysu.com>
 
 pkgname=asymmetricfs-git
-pkgver=r128.aacf726
+pkgver=r129.31da328
 pkgrel=1
 pkgdesc='An Asymmetric, Encrypting Filesystem for Userspace'
 arch=('i686' 'x86_64')
@@ -11,10 +11,8 @@ depends=('fuse' 'boost-libs')
 makedepends=('git' 'cmake' 'boost' 'clang' 'valgrind')
 optdepends=()
 source=('git+https://github.com/ckennelly/asymmetricfs.git'
-        'git+http://git.chromium.org/external/googletest.git'
-        'fix_build.patch')
+        'git+http://git.chromium.org/external/googletest.git')
 sha1sums=('SKIP'
-          'SKIP'
           'SKIP')
 
 _gitname=asymmetricfs
@@ -33,7 +31,6 @@ prepare() {
 
 build() {
   cd "$srcdir/$_gitname"
-  patch -p1 -i "$srcdir/fix_build.patch"
   export CXX=clang++
   export CC=clang
   mkdir build
