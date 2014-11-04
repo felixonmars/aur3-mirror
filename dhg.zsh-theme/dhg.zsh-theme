@@ -11,7 +11,7 @@ fi
 local _c_reset="$reset_color"
 local _c_separator="$fg_bold[black]"
 local _c_user="$fg_bold[green]"
-local _c_user_root="$fg_bold[cyan]"
+local _c_user_root="$fg_bold[white]"
 local _c_host="$fg_bold[yellow]"
 local _c_path="$fg_bold[blue]"
 local _c_remote="$fg[cyan]"

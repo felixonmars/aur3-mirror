@@ -6,36 +6,103 @@
 ## If you will not be using ibus (only use uim), comment out below.
 _ibus_mozc="yes"
 
+## If you do not want to add Japanese zip code into dictionary,
+## comment out below.
+_zipcode="yes"
+
 ## Mozc compile option
 _bldtype=Release
 #_bldtype=Debug
 
-_zipcoderel=201409
+#*************************************************************
+# Upstreams:
+#
+# mozc
+# http://code.google.com/p/mozc/
+#
+# Japanese zip code data by Japan Post (Public Domain)
+# http://www.post.japanpost.jp/zipcode/download.html
+#
+# Modified Japanese zip code data by Ibs (Public Domain)
+# http://zipcloud.ibsnet.co.jp/
+#*************************************************************
+
+_svntrunk="http://mozc.googlecode.com/svn/trunk/src"
+_svndir=mozc-svn
+_svnmod=src
+_depott_url="https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+
+_zipcoderel=201410
+_mozcrev=373
 
 pkgbase=mozc
 pkgname=mozc
 true && pkgname=('mozc' 'ibus-mozc')
-pkgver=1.15.1895.102
+pkgver=1.15.1917.102
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://code.google.com/p/mozc/"
 license=('BSD' 'custom')
-makedepends=('pkg-config' 'python2' 'ninja')
+makedepends=('python2' 'subversion' 'git' 'rsync')
 changelog=ChangeLog
-source=(http://downloads.sourceforge.net/project/pnsft-aur/mozc/mozc-${pkgver}.tar.xz
-        http://downloads.sourceforge.net/project/pnsft-aur/mozc/x-ken-all-${_zipcoderel}.zip
-        http://downloads.sourceforge.net/project/pnsft-aur/mozc/jigyosyo-${_zipcoderel}.zip
-        mozc-el-byte-compile.patch
+#source=("${_svndir}/${_svnmod}::svn+${_svntrunk}"
+source=(
+  "${_svndir}/${_svnmod}::svn+${_svntrunk}"
+  "git+${_depott_url}"
+  http://downloads.sourceforge.net/project/pnsft-aur/mozc/x-ken-all-${_zipcoderel}.zip
+  http://downloads.sourceforge.net/project/pnsft-aur/mozc/jigyosyo-${_zipcoderel}.zip
+  mozc-el-byte-compile.patch
 )
-sha1sums=('28ecf5bfec1706cbffbb73ae6c831158b30af9bd'
-          'ea29852696caeb79d655e58d618a3bde3496c9b3'
-          'ba5898b6bbd501d42baf93a93c548eb2abfbe6f4'
+sha1sums=('SKIP'
+          'SKIP'
+          '4e10ae1aedbb0f053f643343215a71ae558e6144'
+          '813a6ceea9f907226f890ff898b90865a2565599'
           'c8cd7856bdabb8c32df12954642fc0df945dc665')
 
 if [[ "$_emacs_mozc" == "yes" ]]; then
   true && pkgname+=('emacs-mozc')
   makedepends+=('emacs')
 fi
+
+
+pkgver() {
+  . "${SRCDEST}/${_svndir}/${_svnmod}/mozc_version_template.txt"
+  echo ${MAJOR}.${MINOR}.${BUILD}.${REVISION}
+}
+
+
+prepare() {
+  cd "${srcdir}/depot_tools"
+  git config remote.origin.url $_depott_url
+
+  cd "$srcdir"
+  ln -sf `which python2` ./python
+  PATH="${srcdir}:${srcdir}/depot_tools:${PATH}"
+
+  cd "${SRCDEST}/${_svndir}"
+  msg "Running gclient..."
+  [[ ! -f .gclient ]] && gclient config $_svntrunk
+  gclient sync --revision=$_mozcrev
+  msg "Done."
+  msg "Copying working copy of mozc svn repo..."
+  rsync -a --delete ./${_svnmod}/ "${srcdir}/${_svnmod}"
+  msg "Done."
+
+  cd "${srcdir}/${_svnmod}"
+
+  # Patch for byte-compile of mozc.el by Fedora
+  patch -p1 -i "${srcdir}/mozc-el-byte-compile.patch"
+
+  # Generate zip code dictionary seed
+  if [[ "$_zipcode" == "yes" ]]; then
+    msg "Generating zip code dict seed..."
+    cd "$srcdir"
+    python2 ${_svnmod}/dictionary/gen_zip_code_seed.py \
+      --zip_code=x-ken-all.csv --jigyosyo=JIGYOSYO.CSV \
+      >> ${_svnmod}/data/dictionary_oss/dictionary09.txt
+    msg "Done."
+  fi
+}
 
 
 build() {
@@ -55,21 +122,7 @@ build() {
   CFLAGS+=" $_qt4i"
   CXXFLAGS+=" $_qt4i"
 
-  cd "${srcdir}/${pkgbase}-${pkgver}"
-
-  # Patch for byte-compile of mozc.el by Fedora
-  patch -p1 -i "${srcdir}/mozc-el-byte-compile.patch"
-
-  # Adjust to use python2
-  find . -name  \*.py        -type f -exec sed -i -e "1s|python.*$|python2|"  {} +
-  find . -regex '.*\.gypi?$' -type f -exec sed -i -e "s|'python'|'python2'|g" {} +
-
-  # Generate zip code seed
-  msg "Generating zip code seed..."
-  python2 dictionary/gen_zip_code_seed.py \
-    --zip_code="${srcdir}/x-ken-all.csv" --jigyosyo="${srcdir}/JIGYOSYO.CSV" \
-    >> data/dictionary_oss/dictionary09.txt
-  msg "Done."
+  cd "${srcdir}/${_svnmod}"
 
   msg "Starting make..."
   # Get make -j option from $MAKEFLAGS
@@ -105,7 +158,7 @@ package_mozc() {
   conflicts=('mozc-server' 'mozc-utils-gui')
   optdepends=('tegaki-models-zinnia-japanese: hand-writing recognition support')
 
-  cd "${srcdir}/${pkgbase}-${pkgver}"
+  cd "${srcdir}/${_svnmod}"
   install -D -m 755 out_linux/${_bldtype}/mozc_server "${pkgdir}/usr/lib/mozc/mozc_server"
   install    -m 755 out_linux/${_bldtype}/mozc_tool   "${pkgdir}/usr/lib/mozc/mozc_tool"
 
@@ -119,7 +172,7 @@ package_ibus-mozc() {
   groups=('mozc-im')
   depends=("mozc=${pkgver}" 'ibus>=1.4.1')
 
-  cd "${srcdir}/${pkgbase}-${pkgver}"
+  cd "${srcdir}/${_svnmod}"
   install -D -m 755 out_linux/${_bldtype}/ibus_mozc       "${pkgdir}/usr/lib/ibus-mozc/ibus-engine-mozc"
   install -D -m 644 out_linux/${_bldtype}/gen/unix/ibus/mozc.xml "${pkgdir}/usr/share/ibus/component/mozc.xml"
   install -D -m 644 data/images/unix/ime_product_icon_opensource-32.png "${pkgdir}/usr/share/ibus-mozc/product_icon.png"
@@ -145,7 +198,7 @@ package_emacs-mozc() {
   conflicts=('emacs-mozc-bin')
   install=emacs-mozc.install
 
-  cd "${srcdir}/${pkgbase}-${pkgver}"
+  cd "${srcdir}/${_svnmod}"
   install -D -m 755 out_linux/${_bldtype}/mozc_emacs_helper "${pkgdir}/usr/bin/mozc_emacs_helper"
   install -d "${pkgdir}/usr/share/emacs/site-lisp/emacs-mozc/"
   install -m 644 unix/emacs/mozc.el{,c} "${pkgdir}/usr/share/emacs/site-lisp/emacs-mozc"

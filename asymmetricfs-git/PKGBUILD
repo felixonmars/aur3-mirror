@@ -2,10 +2,11 @@
 
 pkgname=asymmetricfs-git
 pkgver=r129.31da328
-pkgrel=1
+pkgrel=2
 pkgdesc='An Asymmetric, Encrypting Filesystem for Userspace'
 arch=('i686' 'x86_64')
 url="https://github.com/ckennelly/asymmetricfs"
+install=asymmetricfs.install
 license=('GPL3')
 depends=('fuse' 'boost-libs')
 makedepends=('git' 'cmake' 'boost' 'clang' 'valgrind')
