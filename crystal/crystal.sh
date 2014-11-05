@@ -1,2 +1,3 @@
 #!/bin/sh
-exec "${CRYSTAL_BIN:-/usr/lib/crystal/crystal}" "$@"
+export CRYSTAL_PATH="src:libs" # :(
+exec "${CRYSTAL_BIN:-/usr/lib/crystal/crystal}" "$@" # :((
