@@ -2,10 +2,10 @@
 # Contributor: Philipp Wolfer <ph.wolfer@gmail.com>
 # Contributor: Jakub Schmidtke <sjakub-at-gmail-dot-com>
 
-_rev=r08
+_rev=r09
 _sdkver=4.4.2
 _sdkint=19
-_build=1488321
+_build=1532129
 pkgname=android-google-apis-${_sdkint}
 pkgver=${_sdkver}_${_rev}
 pkgrel=1
@@ -18,8 +18,8 @@ options=('!strip')
 source=(
 	"http://dl.google.com/android/repository/google_apis-${_sdkint}_${_rev}.zip"
 	"source.properties")
-sha1sums=('d791c0cf5db387e0934497b0bb4c96f0dfb35a3b'
-          '81d872cdb0d09b9ec8b2f090391cc31f93ee5a1e')
+sha1sums=('a0cdca419e4bab9274c7eb56f4ad1df51bf4b837'
+          '95dc4d637d26bee19067d13e06879548230312f1')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/add-ons/"
