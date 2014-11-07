@@ -4,7 +4,7 @@ pkgname=open-vm-tools-dkms
 epoch=3
 pkgver=9.4.6
 _pkgsubver=1770165
-pkgrel=2
+pkgrel=3
 pkgdesc='Open Virtual Machine Tools kernel modules (DKMS)'
 arch=('i686' 'x86_64')
 url='http://open-vm-tools.sourceforge.net/'
@@ -37,7 +37,7 @@ sha256sums=('54d7a83d8115124e4b809098b08d7017ba50828801c2f105cdadbc85a064a079'
             '711e75244057b38de0b8523721106393de0fe9c2c82b0216c57c3b763b49798f'
             '1c685010a0e19456e71c60dd7d15550077da6ef37042d9df40d7e951611130aa'
             '91a46d4f7bc042b6d06e7a8cdf359f520ee95e9bf4d4bcaa3f11a701b388a40f'
-            '27af7dcc051e13d3cab434aff6ccd4366b151516fb70cc84d913e15bccf49fcc'
+            'e9b464790acbd429c6742a87b098ce51e7872511f75400d9d17afeaf2d2f6dea'
             'cbb7116499a33872e1861e050db81c3384e4ff59b767233d34b434ce12e899ad'
             'e8248176971056aca54d1e69a4b2f90e04a1589dd4b596b2af6746be9c3e96a3'
             '8cc2bb0a93f3ff564671f6d12a90a34d87a8084105d4685f16fd9dfd892a25a2'
