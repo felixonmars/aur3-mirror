@@ -1,13 +1,13 @@
 pkgname=2gis-kaliningrad
-pkgver=43
+pkgver=45
 pkgrel=1
-pkgdesc="Map of Kaliningrad for 2GIS, September 2014"
+pkgdesc="Map of Kaliningrad for 2GIS, November 2014"
 arch=('i686' 'x86_64')
 url="http://info.2gis.ru/kaliningrad/products/download#linux"
 license=('custom')
-depends=('2gis>=3.14.7.0')
-source=("http://download.2gis.com/arhives/2GISData_Kaliningrad-43.orig.zip")
-md5sums=('c4216accbe11271ee90d67c0efca1f1e')
+depends=('2gis>=3.14.9.0')
+source=("http://download.2gis.com/arhives/2GISData_Kaliningrad-45.orig.zip")
+md5sums=('9933a1089d6213996ab7f9f00ef49358')
 
 package() {
   install -D -m 644 "${srcdir}/2gis/3.0/Data_Kaliningrad.dgdat" "${pkgdir}/opt/2gis/2gis-kaliningrad.dgdat" || return 1
