@@ -10,6 +10,7 @@ all:
 	$(CC) $(CFLAGS) -o gate gate.c
 	$(CC) $(CFLAGS) -o generate-rules generate-rules.c
 	$(CC) $(CFLAGS) -o hcstatgen hcstatgen.c -lm
+	$(CC) $(CFLAGS) -o keyspace keyspace.c
 	$(CC) $(CFLAGS) -o len len.c
 	$(CC) $(CFLAGS) -o mli2 mli2.c
 	$(CC) $(CFLAGS) -o morph morph.c
@@ -21,6 +22,8 @@ all:
 	$(CC) $(CFLAGS) -o rli rli.c
 	$(CC) $(CFLAGS) -o rli2 rli2.c
 	$(CC) $(CFLAGS) -o splitlen splitlen.c
+	$(CC) $(CFLAGS) -o strip-bsn strip-bsn.c
+	$(CC) $(CFLAGS) -o strip-bsr strip-bsr.c
 
 install:
 	# Compiled stuff
@@ -33,6 +36,7 @@ install:
 	install -Dm0755 gate $(DESTDIR)usr/bin/gate
 	install -Dm0755 generate-rules $(DESTDIR)usr/bin/generate-rules
 	install -Dm0755 hcstatgen $(DESTDIR)usr/bin/hcstatgen
+	install -Dm0755 keyspace $(DESTDIR)usr/bin/keyspace
 	install -Dm0755 len $(DESTDIR)usr/bin/len
 	install -Dm0755 mli2 $(DESTDIR)usr/bin/mli2
 	install -Dm0755 morph $(DESTDIR)usr/bin/morph
@@ -44,6 +48,8 @@ install:
 	install -Dm0755 rli $(DESTDIR)usr/bin/rli
 	install -Dm0755 rli2 $(DESTDIR)usr/bin/rli2
 	install -Dm0755 splitlen $(DESTDIR)usr/bin/splitlen
+	install -Dm0755 strip-bsn $(DESTDIR)usr/bin/strip-bsn
+	install -Dm0755 strip-bsr $(DESTDIR)usr/bin/strip-bsr
 	# Perl stuff
 	install -Dm0755 seprule.pl $(DESTDIR)usr/bin/seprule
 	install -Dm0755 tmesis.pl $(DESTDIR)usr/bin/tmesis

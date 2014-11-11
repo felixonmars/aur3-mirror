@@ -27,7 +27,7 @@ CMD=tun-cat
 
 usage() {
  [[ -n "$1" ]] && return 0
- echo "Tunnel-configurer version 1.5.5
+ echo "Tunnel-configurer version 1.6
  Client-server IP tunnel configuration via the same IP tunnel.
 
 -- vtund.conf --
@@ -98,25 +98,35 @@ ifconfig wrapper:
 Server:
  $NAME -tun <interface> send|-s <client_addr> [OPTIONS] [<client-side routes>]
 Client:
- $NAME -tun <interface> get|-g|listen [OPTIONS] [<'ip route' options>]
+ $NAME -tun <interface> get|-g|listen [OPTIONS] [<'ip route' options>][-6|v6 <options>]
+
+Addresses of client and server may be specified
+ by IP, by name, or by comma-separated list of
+ IPv4,IPv6,names and v4,v6,no4,no6 modifiers.
+All names will be resolved on server side,
+ and only first IPv4 and first IPv6 will be used.
+Examples:
+ 10.1.0.1               -> 10.1.0.1
+ 10.1.0.1,fc00::1001:1  -> 10.1.0.1  fc00::1001:1
+ host.vpn               -> 10.1.0.4  fc00::1001:4
+ host.vpn,v4            -> 10.1.0.4
+ host.vpn,v6            ->           fc00::1001:4
 
 OPTIONS:
     port|-P <port>  : default=68
      mtu|-m <MTU>   : default=1500, 0=no change
 forcemtu|+m <MTU>   : Don't get MTU from server (client only)
    local|-l <addr>|-: Force/skip local address (server only)
-  noaddr|-a         : Don't modify any addresses on interface
-  nopeer|-p         : Don't set peer address
-    peer|+p         : Add a route to peer instead of peer address
+  noaddr|-a         : Don't modify any IPv4 addresses on interface
+ no6addr|-A         : Don't modify any IPv6 addresses on interface
+  nopeer|-p         : Don't set peer address (IPv4)
+    peer|+p         : Add a route to peer instead of peer address (IPv4)
 noroutes|-r         : server - Don't send routes from config
                     : client - Don't add routes from server
+no6routes|-R        : Don't add IPv6 routes from server (client only)
  timeout|-t <sec>   : default=10, 0=endless
   nofork|-B  | nobg | nobackground
-
-NOTE:
- Addresses of client and server can be specified by IP or by name,
- both will be resolved on server side.
-" >&2
+"
  exit $URET
 }
 
@@ -129,13 +139,41 @@ sec_up() {
  IFS='. ' read "$1" garb < /proc/uptime
 }
 
-resolve() {
- local garb
- [[ -z "$2" ]] && return 1
- if ! read "$1" garb < <(exec getent ahostsv4 "$2") ; then
-  log "Can't resolve host $2 to $1 IP."
+get46() {
+ if [[ -z "$IPv4" && "$1" =~ ^[0-9.]+$ ]] ; then IPv4="$1"
+ elif [[ -z "$IPv6" && "${1,,*}" =~ ^[0-9a-f.:]+$ ]] ; then IPv6="$1"
+ else return 1
+ fi
+ return 0
+}
+
+get_addr() {
+ local addr garb prev IFS skip i
+ [[ -z "$3" ]] && return 1
+ unset IPv4 IPv6
+ IFS=' ,'
+ for i in $3 ; do
+  case "${i,,*}" in
+  6|v6|ip6|ipv6|no4|'-4') skip=4 ;;
+  4|v4|ip4|ipv4|no6|'-6') skip=6 ;;
+  *)
+   get46 "$i" && continue
+   while IFS=' ' read addr garb ; do
+    [[ "$addr" = "$prev" ]] && continue
+    get46 "$addr"
+    [[ -n "$IPv4" && -n "$IPv6" ]] && break
+    prev="$addr"
+   done < <(RESOLV_MULTI=on exec getent ahosts "$i")
+   ;;
+  esac
+ done
+ [[ -n "$skip" ]] && unset IPv"$skip"
+
+ if [[ -z "$IPv4" && -z "$IPv6" ]] ; then
+  log "Can't resolve '$3'"
   exit 7
  fi
+ export "$1=$IPv4" "$2=$IPv6"
 }
 
 set_addr() {
@@ -151,39 +189,126 @@ set_addr() {
  fi
 }
 
+set_addr_v6() {
+ if [[ -z "$NO6ADDR" && -n "$1" ]] ; then
+  dis6="/proc/sys/net/ipv6/conf/$ifc/disable_ipv6"
+  [[ -f "$dis6" ]] && echo 0 > "$dis6"
+  log $RPREF "address $1"
+  ip -6 addr add "$1" dev "$ifc" || exit 3
+  echo 0 > "$dis6"
+ fi
+ shift
+ if [[ -n "$peer_6" ]] ; then
+  log $RPREF "peer route $peer_6" "$@"
+  ip -6 route rep "$peer_6" dev "$ifc" "$@"
+ fi
+}
+
+addsend() {
+ local D LOG send
+ D="$1"
+ shift
+ case "$D" in
+ A4)
+  LOG="$1"
+  [[ -n "$2" ]] && LOG="$LOG peer $2"
+  send="$1:$2"
+  ;;
+ R4)
+  LOG="route $1"
+  send="$1"
+  ;;
+ MTU) LOG="mtu $1" ;;
+ A6) LOG="address $1" ;;
+ R6) LOG="route $1" ;;
+ esac
+ [[ -z "$send" ]] && send="$D:$1"
+ log "-> $LOG"
+ SEND[$((i++))]="$send"
+}
+
 main() {
  case "$ROLE" in
  send)
-  resolve LOCAL "$LOCAL"
-  set_addr "$LOCAL"
+  unset SEND; i=0
+  if [[ -n "$peer" ]] ; then
+   set_addr "$LOCAL"
+   addsend A4 "$peer" "$LOCAL"
+  fi
+  if [[ -n "$peer_6" ]] ; then
+   set_addr_v6 "$LOCAL6"
+   addsend A6 "$peer_6"
+   if [[ -n "$LOCAL6" ]] ; then
+    addsend R6 "$LOCAL6"
+   fi
+  fi
   read MTU < "/sys/class/net/$ifc/mtu"
+  addsend MTU "$MTU"
+  for R in $ROUTES $* ; do
+   [[ "${R,,*}" =~ ^defaultv?6$ ]] && R="::/0"
+   if [[ "$R" =~ : ]] ; then
+    [[ -n "$peer_6" ]] || continue
+    addsend R6 "$R"
+   else
+    [[ -n "$peer" ]] || continue
+    addsend R4 "$R"
+   fi
+  done
+
+  if [[ -n "$peer" ]] ; then
+   ping=ping; P="$peer"
+  elif [[ -n "$peer_6" ]] ; then
+   ping=ping6; P="$peer_6"
+  fi
   sec_up START
-  log "sending -> $peer:$LOCAL" "MTU:$MTU" $ROUTES $* >&2
+  log "sending ->"
   while :; do
-   "$CMD" send "$ifc" "$PORT" "$peer:$LOCAL" "MTU:$MTU" $ROUTES $* || exit 4
-   ping -q -c1 -W1 -I "$ifc" "$peer" &> /dev/null && break
+   "$CMD" send "$ifc" "$PORT" "${SEND[@]}" || exit 4
+   "$ping" -q -c1 -W1 -I "$ifc" "$P" &> /dev/null && break
    sec_up SEC
    if ((TIMEOUT!=0)) && ((SEC > START+TIMEOUT)) ; then
     log "Time is out."
     exit 6
    fi
   done
-  log "Confirmed, $peer is UP."
+  log "Confirmed, $P is UP."
   ;;
  
  get)
+  if [[ "$*" =~ ^(.* |)(v6|-6)(| .*)$ ]] ; then
+   ROPTSv4="${BASH_REMATCH[1]}"
+   ROPTSv6="${BASH_REMATCH[3]}"
+  else
+   ROPTSv4="$*"
+   ROPTSv6="$*"
+  fi
+
   RPREF='<-'
   log "listening" $RPREF
   exec < <(exec "$CMD" listen "$ifc" "$PORT" "$TIMEOUT")
-  IFS=',: ' read local peer && set_addr "$local" "$@"
-  while IFS='=: ' read A B; do
-   if [[ "$A" = MTU && -n "$B" && -z "$FORCEMTU" ]] ; then
+
+  FIRST=1
+  while IFS='=,: ' read A B; do
+   if [[ "$A" = A6 ]] ; then
+    set_addr_v6 "$B"
+
+   elif ((FIRST==1)) ; then
+    peer="$B"
+    set_addr "$A" $ROPTSv4
+
+   elif [[ "$A" = MTU && -n "$B" && -z "$FORCEMTU" ]] ; then
     log $RPREF "mtu $B"
     ip link set "$ifc" mtu "$B"
+
+   elif [[ "$A" = R6 && -n "$B" && -z "$NO6ROUTES" ]] ; then
+    log $RPREF "route $B" $ROPTSv6
+    ip -6 route rep "$B" dev "$ifc" $ROPTSv6
+
    elif [[ -n "$A" && -z "$B" && -z "$NOROUTES" ]] ; then
-    log $RPREF "route $A" "$@"
-    ip route rep "$A" dev "$ifc" "$@" || exit 5
+    log $RPREF "route $A" $ROPTSv4
+    ip route rep "$A" dev "$ifc" $ROPTSv4 || exit 5
    fi
+   FIRST=0
   done
   log "Completed."
   ;;
@@ -209,12 +334,12 @@ usage "$2"
 ifc="$2"
 shift 2
 
-unset ROLE PLUS PEER NOADDR NOPEER FORCEMTU NOBG NOROUTES RPREF
+unset ROLE PLUS PEER NO6ADDR NOADDR NOPEER FORCEMTU NOBG NOROUTES NO6ROUTES RPREF
 while (($#>0)) ; do
  case "$1" in
  -s|send)
   usage "$2"
-  resolve peer "$2"
+  get_addr peer peer_6 "$2"
   ROLE="send"
   shift 2
   ;;
@@ -266,6 +391,11 @@ while (($#>0)) ; do
   shift
   ;;
 
+ -A|no6addr)
+  NO6ADDR=1
+  shift
+  ;;
+
  +p|peer)
   NOPEER=1
   PLUS=1
@@ -283,6 +413,11 @@ while (($#>0)) ; do
   shift
   ;;
 
+ -R|no6routes)
+  NO6ROUTES=1
+  shift
+  ;;
+
  *)
   break
   ;;
@@ -291,8 +426,6 @@ done
 usage "$ROLE"
 
 [[ -z "$TIMEOUT" ]] && TIMEOUT=0
-[[ -z "$LOCAL" && "$ROLE" = send ]] && NOADDR=1
-
 LPREF="$FILENAME($ifc):"
 fd2="/proc/$$/fd/2"
 if [[ "$(readlink -e $fd2)" =~ ^(/dev/null)|($FILE)$ ]] ; then
@@ -306,9 +439,21 @@ fi
 log "Setting $ifc UP" $mtu
 ip link set "$ifc" up $mtu || exit 2
 
+if [[ "$ROLE" = send ]] ; then
+ get_addr LOCAL LOCAL6 "$LOCAL"
+ [[ -z "$LOCAL" ]] && NOADDR=1
+ [[ -z "$LOCAL6" ]] && NO6ADDR=1
+fi
+
 if [[ -z "$NOADDR" ]] ; then
- log "flushing address"
- ip addr flush dev "$ifc" || exit 3
+ log "flushing IPv4 address"
+ ip -4 addr flush dev "$ifc" || exit 3
+fi
+
+if [[ -z "$NO6ADDR" ]] ; then
+ log "flushing IPv6 address"
+ ip -6 addr flush dev "$ifc" || exit 3
+ ip -6 route flush dev "$ifc"
 fi
 
 if [[ -n "$NOBG" ]] ; then
