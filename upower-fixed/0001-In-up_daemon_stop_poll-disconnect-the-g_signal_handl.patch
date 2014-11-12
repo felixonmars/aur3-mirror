@@ -1,0 +1,100 @@
+From fa676b07cad88a079736026ce7e285785d773128 Mon Sep 17 00:00:00 2001
+From: Alexander Jesner <alexander@jesner.eu>
+Date: Sat, 23 Aug 2014 19:30:06 +0200
+Subject: [PATCH] In up_daemon_stop_poll, disconnect the g_signal_handler we
+ obtained when connecting to "notify::warning-level" in up_daemon_start_poll.
+ Otherwise, the "open" signal handlers effectively double every time
+ change_idle_timeout is called.
+
+---
+ src/up-daemon.c | 10 +++++++++-
+ src/up-device.c | 23 +++++++++++++++++++++++
+ 2 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/src/up-daemon.c b/src/up-daemon.c
+index 29e6aab..c756cfc 100644
+--- a/src/up-daemon.c
++++ b/src/up-daemon.c
+@@ -940,6 +940,7 @@ up_daemon_start_poll (GObject     *object,
+ 	TimeoutData *data;
+ 	guint timeout;
+ 	char *name;
++	gulong notify_handler_id;
+ 
+ 	device = UP_DEVICE (object);
+ 	daemon = up_device_get_daemon (device);
+@@ -956,8 +957,10 @@ up_daemon_start_poll (GObject     *object,
+ 	timeout = calculate_timeout (device);
+ 	data->timeout = timeout;
+ 
+-	g_signal_connect (device, "notify::warning-level",
++	notify_handler_id = g_signal_connect (device, "notify::warning-level",
+ 			  G_CALLBACK (change_idle_timeout), NULL);
++	up_device_set_notify_handler_id (device, notify_handler_id);
++	g_debug("Connecting g_signal_handler ID %X", notify_handler_id);
+ 	g_object_weak_ref (object, device_destroyed, daemon);
+ 
+ 	data->id = g_timeout_add_seconds (timeout, fire_timeout_callback, device);
+@@ -978,6 +981,7 @@ up_daemon_stop_poll (GObject *object)
+ 	UpDevice *device;
+ 	TimeoutData *data;
+ 	UpDaemon *daemon;
++	gulong notify_handler_id;
+ 
+ 	device = UP_DEVICE (object);
+ 	daemon = up_device_get_daemon (device);
+@@ -989,6 +993,10 @@ up_daemon_stop_poll (GObject *object)
+ 	g_source_remove (data->id);
+ 	g_object_weak_unref (object, device_destroyed, daemon);
+ 	g_hash_table_remove (daemon->priv->poll_timeouts, device);
++
++	notify_handler_id = up_device_get_notify_handler_id (device);
++	g_debug("Disconnecting g_signal_handler ID %X", notify_handler_id);
++	g_signal_handler_disconnect (device, notify_handler_id);
+ }
+ 
+ /**
+diff --git a/src/up-device.c b/src/up-device.c
+index caccb3a..6f6cc13 100644
+--- a/src/up-device.c
++++ b/src/up-device.c
+@@ -82,6 +82,7 @@ struct UpDevicePrivate
+ 	gdouble			 temperature;		/* degrees C */
+ 	UpDeviceLevel		 warning_level;		/* computed */
+ 	const gchar		*icon_name;		/* computed */
++	gulong			 notify_handler_id;     /* ID of the g_signal_handler for the polling callback */
+ };
+ 
+ static gboolean	up_device_register_device	(UpDevice *device);
+@@ -920,6 +921,28 @@ up_device_refresh (UpDevice *device, DBusGMethodInvocation *context)
+ }
+ 
+ /**
++ * Used to store the g_signal_handler ID we get when
++ * connecting the change_idle_timeout in up-daemon.c
++ */
++void
++up_device_set_notify_handler_id (UpDevice *device, gulong handler_id)
++{
++	if (device != NULL)
++		device->priv->notify_handler_id = handler_id;
++}
++
++/**
++ * returns the g_signal_handler ID priviously
++ * stored with up_device_set_notify_handler_id
++ */
++gulong
++up_device_get_notify_handler_id (UpDevice *device)
++{
++	g_return_val_if_fail (UP_IS_DEVICE (device), NULL);
++	return device->priv->notify_handler_id;
++}
++
++/**
+  * up_device_get_object_path:
+  **/
+ const gchar *
+-- 
+2.1.0
+
