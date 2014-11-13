@@ -1,4 +1,5 @@
 #!/bin/bash
 cd /opt/janusvr/
-export LD_LIBRARY_PATH=./libs
+# 5.2 libs not complete
+#export LD_LIBRARY_PATH=./libs
 ./janusvr $@

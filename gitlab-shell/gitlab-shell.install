@@ -1,43 +1,61 @@
-datadir=/usr/share/webapps/gitlab-shell
-homedir=/var/lib/gitlab
+_datadir='/usr/share/webapps/gitlab-shell'
+_homedir='/var/lib/gitlab'
+_logdir='/var/log/gitlab'
+_etcdir='/etc/webapps/gitlab-shell'
 
 fix_perms() {
-	touch ${homedir}/.ssh/authorized_keys ${datadir}/.gitlab_shell_secret
-	chown -R gitlab:gitlab ${datadir} ${homedir}
-	chmod -R go-rwx ${homedir}/.ssh ${datadir}/.gitlab_shell_secret
-	chmod g+s ${homedir}/repositories
+	touch "${_homedir}/.ssh/authorized_keys"
+	chmod 0600 "${_homedir}/.ssh/authorized_keys"
+	chown -R gitlab:gitlab "${_datadir}" "${_homedir}" "${_logdir}"
+	chown root:gitlab "${_etcdir}/secret"
+	chmod 640 "${_etcdir}/secret"
+}
+
+generate_secret() {
+	hexdump -v -n 64 -e '1/1 "%02x"' /dev/urandom > "${_etcdir}/secret"
+	ln -fs "${_etcdir}/secret" "${pkgdir}${_datadir}/.gitlab_shell_secret"
 }
 
 post_install() {
 	groupadd gitlab &>/dev/null
-	useradd -d ${homedir} -g gitlab -s ${datadir}/bin/gitlab-shell gitlab
+	useradd -d "${_homedir}" -g gitlab -s "${_datadir}/bin/gitlab-shell" gitlab
+
+	generate_secret
+
 	fix_perms
 	sudo -u gitlab -H git config --global user.name  "GitLab"
 	sudo -u gitlab -H git config --global user.email "gitlab@$(hostname)"
 }
 
 pre_upgrade() {
-	if [ \( ! -f /etc/webapps/gitlab-shell/config.yml \) -a \( -f /etc/webapps/gitlab/shell.yml \) ]; then
-		mkdir -p /etc/webapps/gitlab-shell
-		cp /etc/webapps/gitlab/shell.yml /etc/webapps/gitlab-shell/config.yml
+	if [ \( ! -f ${_etcdir}/config.yml \) -a \( -f /etc/webapps/gitlab/shell.yml \) ]; then
+		mkdir -p "${_etcdir}"
+		cp /etc/webapps/gitlab/shell.yml ${_etcdir}/config.yml
+	fi
+	if [ \( ! -f "${_etcdir}/secret" \) ]; then
+		if [ \( -f ${_datadir}/.gitlab_shell_secret \) -a \( ! -h ${_datadir}/.gitlab_shell_secret \) -a \( -s ${_datadir}/.gitlab_shell_secret \) ]; then
+			mv "${_datadir}/.gitlab_shell_secret" "${_etcdir}/secret"
+			ln -fs "${_etcdir}/secret" "${pkgdir}${_datadir}/.gitlab_shell_secret"
+		else
+			rm -f "${_datadir}/.gitlab_shell_secret"
+			generate_secret
+		fi
 	fi
 }
 
 post_upgrade() {
 	getent group gitlab >/dev/null 2>&1 || groupadd gitlab &>/dev/null
 	if getent passwd gitlab >/dev/null 2>&1; then
-		usermod -s ${datadir}/bin/gitlab-shell gitlab &>/dev/null
+		usermod -d "${_homedir}" -g gitlab -s "${_datadir}/bin/gitlab-shell" gitlab &>/dev/null
 	else
-		useradd -d ${homedir} -g gitlab -s ${datadir}/bin/gitlab-shell gitlab &>/dev/null
+		useradd -d "${_homedir}" -g gitlab -s "${_datadir}/bin/gitlab-shell" gitlab &>/dev/null
 	fi
+	ln -fs "${_etcdir}/secret" "${pkgdir}${_datadir}/.gitlab_shell_secret"
+
 	fix_perms
 }
 
 post_remove() {
-	if getent passwd gitlab >/dev/null 2>&1; then
-		userdel -r gitlab
-	fi
-	if getent group gitlab >/dev/null 2>&1; then
-		groupdel gitlab
-	fi
+	getent passwd gitlab >/dev/null 2>&1 && userdel -r gitlab
+	getent group gitlab >/dev/null 2>&1 && groupdel gitlab
 }
