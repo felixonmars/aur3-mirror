@@ -1,7 +1,7 @@
 # Maintainer: d.woffinden
 pkgname=z3-git
-pkgver=4.3.1.r0.g89c1785
-pkgrel=3
+pkgver=4.3.2.r0.gcee7dd3
+pkgrel=1
 pkgdesc="Z3 is a high-performance theorem prover being developed at Microsoft Research"
 arch=('i686' 'x86_64')
 url="https://z3.codeplex.com/"
@@ -25,8 +25,6 @@ pkgver() {
 
 build() {
   cd "$srcdir/$pkgname"
-  autoconf
-  ./configure --with-python=/usr/bin/python2
   python2 scripts/mk_make.py
 
   cd "$srcdir/$pkgname/build"
