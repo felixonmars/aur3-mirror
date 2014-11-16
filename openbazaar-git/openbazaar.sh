@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /var/lib/openbazaar
-./run.sh --disable-open-browser -q 8888
+cd /var/lib/openbazaar/node
+python2 openbazaar.py start
