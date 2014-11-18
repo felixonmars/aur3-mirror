@@ -1,5 +1,5 @@
 #!/bin/sh
-phymem=$(free -m | awk '/^Mem:/{print $2}')
+LANG=C phymem=$(free -m | awk '/^Mem:/{print $2}')
 igvmem=$(($phymem / 3))
 java -Xmx${igvmem}m \
   -Dapple.laf.useScreenMenuBar=true \

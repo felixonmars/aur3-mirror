@@ -1,6 +1,6 @@
 # Maintainer: Jonjo McKay <jonjo@jonjomckay.com>
 pkgname=juju-core
-pkgver=1.19.2
+pkgver=1.19.4
 pkgrel=1
 pkgdesc="Open source service orchestration management tool developed by Canonical Ltd."
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ license=('AGPL3')
 makedepends=('go')
 options=('strip' 'ccache')
 source=("https://launchpad.net/${pkgname}/trunk/${pkgver}/+download/${pkgname}_${pkgver}.tar.gz")
-md5sums=('c20a63ae53f75224ab02ab6387c7c3d2')
+md5sums=('74bb8bc04517f4a66cd500715d104e04')
 
 build() {
 	export GOPATH="${srcdir}/${pkgname}_${pkgver}"
@@ -17,5 +17,6 @@ build() {
 }
 
 package() {
+	install -Dm644 "${srcdir}/${pkgname}_${pkgver}/src/launchpad.net/juju-core/etc/bash_completion.d/juju-core" "${pkgdir}/etc/bash_completion.d/juju-core"
 	install -Dm755 "${srcdir}/${pkgname}_${pkgver}/bin/juju" "${pkgdir}/usr/bin/juju"
 }

@@ -1,6 +1,6 @@
 # Maintainer: Jonjo McKay <jonjo@jonjomckay.com>
 pkgname=php-cpp
-pkgver=0.9.1
+pkgver=1.2.1
 pkgrel=1
 pkgdesc="Library to build PHP extensions with C++"
 arch=('i686' 'x86_64')
@@ -10,7 +10,7 @@ depends=('php')
 conflicts=('php-cpp-git')
 options=('strip' 'ccache')
 source=("https://github.com/CopernicaMarketingSoftware/PHP-CPP/archive/v$pkgver.tar.gz")
-md5sums=('2ac59dda48d1a98b61c01d8acb998578')
+md5sums=('3f10e68435232cf45c9c7fc6b3c6d9d6')
 
 build() {
 	cd "$srcdir/${pkgname^^}-$pkgver"
