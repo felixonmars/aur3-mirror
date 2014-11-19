@@ -1,7 +1,7 @@
 # Maintainer: Maxim Kraev <maxim.kraev@gmail.com>
 
 pkgname=chef-dk
-pkgver=0.3.2
+pkgver=0.3.5
 pkgrel=1
 _ubuntuver=raring
 _ubunturel=4
@@ -11,8 +11,8 @@ url="http://www.getchef.com/downloads/chef-dk/linux/"
 license=('unknown')
 depends=()
 conflicts=( chef chef-solo )
-source=("http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chefdk_0.3.2-1_amd64.deb")
-sha512sums=('4333d0cd51a806ffb63d97cd4f4e709a3358232a8dee2547b39f985b8f57c0a86da3174dcbd7cb1db792bda39cb1f6e56795ebd4234cadfb2058efded7586815')
+source=("http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chefdk_0.3.5-1_amd64.deb")
+sha512sums=('02d7011108b3beff3ed4fdb9c253a3f89ce7257ce402b85b080e114414947e6586ec20a26fdfb60eda0153af1bd7c200b166253dd25fdda37bbefc29f01f4907')
 
 
 package() {
