@@ -1,33 +1,25 @@
 # Maintainer: spider-mario <spidermario@free.fr>
 pkgname=afl
-pkgver=0.52b
+pkgver=0.56b
 pkgrel=1
 pkgdesc="a practical instrumentation-driven fuzzer"
 arch=('i686' 'x86_64')
 url="https://code.google.com/p/american-fuzzy-lop"
 license=('Apache')
 depends=('glibc')
-options=('!strip')
+options=('!emptydirs')
 source=(http://lcamtuf.coredump.cx/soft/$pkgname.tgz)
-sha512sums=('4e0fb27e659b6313a4ce6c7a70d77525f49a0ce6c5ba1293499629f85b548b1339538152f9f2873c3e8fcc527299ba612719546f92f1e67133a3b48282c0adb4')
-
-prepare() {
-	cd $pkgname-$pkgver
-	perl -pe 's{/usr/local}{/usr}g' -i Makefile
-}
+sha512sums=('8719d33a920774fb776617bd6af22f3727eb790f92400bc4d78acad1eb9fd4dc31dedf06669af9e8475404a548e67f9930112456945c6746837af7f47b2e3be9')
 
 build() {
 	cd $pkgname-$pkgver
-	make
+	make PREFIX=/usr
 }
 
 package() {
 	cd $pkgname-$pkgver
 
-	install --directory "$pkgdir"/usr/{bin,lib/$pkgname}
-
-	make DESTDIR="$pkgdir" install
-	strip -- "$pkgdir"/usr/bin/*
+	make PREFIX=/usr DESTDIR="$pkgdir" install
 
 	install --directory "$pkgdir"/usr/share/doc/
 	cp --recursive docs "$pkgdir"/usr/share/doc/$pkgname

@@ -4,7 +4,7 @@ pkgname=linux-xps13
 true && pkgname=(linux-xps13 linux-xps13-headers)
 _kernelname=-xps13
 _srcname=linux-3.17
-pkgver=3.17.2
+pkgver=3.17.3
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/gunzy83/linux-xps13-archlinux"
@@ -17,14 +17,16 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'config.x86_64'
         'linux-xps13.preset'
         'change-default-console-loglevel.patch'
+        'fix_CPU0_microcode_on_resume.patch'
         'xps13.patch'
         )
 sha256sums=('f5153ec93c5fcd41b247950e6a9bcbc63fa87beafd112c133a622439a0f76251'
-            '4576c30a46c016502cdd007d28dde4f2d141c0f8096be8623a9ff519323db777'
+            '3c1ba3cc89d0f2d5f7303f448495f64db1ab96efea5f5fdd4b4c8c547600f85d'
             '0f1cd431115a2ce84629298d054d5e6f6e78095a3aeda4d1335740c9402efb7e'
             'fb688bc7ccfa636990b26aecfe62500bc1e0f6c410a837eef03014c161df2ec8'
             'bf7ccd0ca928dc47b7e2a87d08d8f19faafbb21ff957e22f1ee78a180961047e'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
+            '43668fe46147fe93f41b919db673574427ce5a8c376cd28ddddcbf3a00326491'
             'f7723d4a2e07da82b3698fb4edb5cf1ca0ccbbc3e789247118fcb7a44d89cdf2')
 	    
 prepare() {
@@ -40,6 +42,10 @@ prepare() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
+
+  # Fix FS#42689
+  # https://bugzilla.kernel.org/show_bug.cgi?id=88001
+  patch -p1 -i "${srcdir}/fix_CPU0_microcode_on_resume.patch"
 
   # apply the xps 13 cypress touchpad simulated multitouch patch
   msg "Patching source with XPS13 touchpad patch."
