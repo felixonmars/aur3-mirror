@@ -19,7 +19,7 @@ working_directory '/usr/share/webapps/discourse' # available in 0.94.0+
 # Listen on both a Unix domain socket and a TCP port.
 # If you are load-balancing multiple Unicorn masters, lower the backlog
 # setting to e.g. 64 for faster failover.
-#listen "/var/run/gitlab/gitlab.socket", :backlog => 1024
+#listen "/var/run/discourse/discourse.socket", :backlog => 1024
 listen "127.0.0.1:9737", :tcp_nopush => true
 
 # nuke workers after 30 seconds instead of 60 seconds (the default)

@@ -6,7 +6,7 @@
 
 pkgname=arangodb-latest
 pkgver=2.3.0
-pkgrel=3
+pkgrel=4
 pkgdesc="A distributed open-source database with a flexible data model for documents, graphs, and key-values."
 provides=("arangodb")
 conflicts=("arangodb" "arangodb-git")
@@ -19,7 +19,7 @@ makedepends=("go" "python2")
 install=arangodb.install
 source=(  "https://github.com/triAGENS/ArangoDB/archive/v2.3.0.tar.gz"
           "arangodb.service")
-md5sums=( "eac56dca0899c17990c822a2f9046527"
+md5sums=( "c7ef54f2a1d29ff73bc29282e2218a3c"
           "3cdd43ed5552ab918b41627ec4906e52")
 
 build() {
