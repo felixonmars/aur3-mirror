@@ -19,7 +19,7 @@ def main():
     if not exists(where):
         mkdir(where)
         system('cp /usr/share/tiddlywiki/empty.html %s' % (goal))
-    if environ['BROWSER']:
+    if ('BROWSER' in environ) and environ['BROWSER']:
         system(environ['BROWSER'] + " " + goal)
     else:
         system("/usr/bin/gnome-open " + goal)
