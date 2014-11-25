@@ -1,11 +1,11 @@
 # Maintainer: Nicolas Leclercq <nicolas.private@gmail.com>
 
-pkgname=facette
-pkgver=0.2.1
-pkgrel=1
+pkgname='facette'
+pkgver='0.2.2'
+pkgrel='1'
 epoch=
 pkgdesc='Facette is a software to display time series data from several various sources'
-arch=('i686' 'x86_64')
+arch=('x86_64')
 url='http://facette.io/'
 license=('BSD')
 groups=()
@@ -21,12 +21,12 @@ options=()
 install='facette.install'
 changelog=
 source=(
-	"https://github.com/facette/facette/releases/download/$pkgver/$pkgname-$pkgver-linux-amd64.tar.gz"
-	'facette.service'
-	'facette.install'
+  "https://github.com/facette/facette/releases/download/$pkgver/$pkgname-$pkgver-linux-amd64.tar.gz"
+  'facette.service'
+  'facette.install'
   '.AURINFO')
 noextract=()
-md5sums=('9b2237e48530d6940b2d3357da594604'
+md5sums=('e516fb875a1e388fb4f2e038323e4488'
          '0a15a3822fc2ee56a39971528284c9c6'
          'ade342a98ade039939cf354580b12651'
          'SKIP')

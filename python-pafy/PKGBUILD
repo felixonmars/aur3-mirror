@@ -1,5 +1,5 @@
 pkgname=python-pafy
-pkgver=0.3.64
+pkgver=0.3.66
 pkgrel=1
 
 pkgdesc="Python API for YouTube"
@@ -11,7 +11,7 @@ depends=('python')
 
 source=("https://github.com/np1/pafy/archive/v$pkgver.tar.gz")
 
-sha1sums=('53b2bab4f4eb06c6f623b2dd850172ec28a6c27f')
+sha1sums=('bdd097229443a4cec1226d5a428ac859e528be0d')
 
 package() {
 	cd pafy-$pkgver
