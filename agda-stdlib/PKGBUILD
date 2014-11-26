@@ -1,5 +1,5 @@
 pkgname=agda-stdlib
-pkgver=0.8.1
+pkgver=0.9
 pkgrel=1
 pkgdesc="The Agda standard library"
 url="http://wiki.portal.chalmers.se/agda/pmwiki.php?n=Libraries.StandardLibrary"
@@ -8,7 +8,7 @@ arch=('i686' 'x86_64')
 makedepends=('ghc')
 depends=()
 source=("https://github.com/agda/${pkgname}/archive/v${pkgver}.tar.gz")
-sha256sums=('ee11ba4579f2b6b590660d469885636d086beb7a0589676300f88249c9cb4446')
+sha256sums=('923b487876235863e4f778aa40c508984b26636d50d531f0f31ca9dc45ab3717')
 install="${pkgname}.install"
 
 build() {
