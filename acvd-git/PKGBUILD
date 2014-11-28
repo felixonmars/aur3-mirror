@@ -27,5 +27,12 @@ package() {
 	cd "$srcdir/ACVD"
 	install -m 0755 -D "$srcdir/ACVD/bin/ACVD" "$pkgdir/usr/bin/acvd"
 	install -m 0755 -D "$srcdir/ACVD/bin/ACVDQ" "$pkgdir/usr/bin/acvdq"
-	install -m 0644 -D "$srcdir/ACVD/LICENSE.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -m 0755 -D "$srcdir/ACVD/bin/libvtkSurface.so"\
+	                    "$pkgdir/usr/lib/libvtkSurface.so"
+	install -m 0755 -D "$srcdir/ACVD/bin/libvtkDiscreteRemeshing.so"\
+	                   "$pkgdir/usr/lib/libvtkDiscreteRemeshing.so"
+	install -m 0755 -D "$srcdir/ACVD/bin/libvtkVolumeProcessing.so"\
+	                   "$pkgdir/usr/lib/libvtxVolumeProcessing.so"
+	install -m 0644 -D "$srcdir/ACVD/LICENSE.txt"\
+	                   "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
