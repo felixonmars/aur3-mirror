@@ -29,8 +29,11 @@
 #     You should have received a copy of the GNU General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+# http://registrationcenter-download.intel.com/akdlm/irc_nas/4992/parallel_studio_xe_2015_update1.tgz
+
 pkgbase="intel-parallel-studio-xe"
 #pkgname="intel-parallel-studio-xe"
+#pkgname=( 'intel-compiler-base'  'intel-advisor-xe' )
 pkgname=('intel-compiler-base' 'intel-openmp' 'intel-fortran-compiler' 'intel-ipp' 'intel-mkl' 'intel-sourcechecker' 'intel-tbb' 'intel-vtune-amplifier-xe' 'intel-inspector-xe' 'intel-advisor-xe' )
 #true && pkgname=('intel-compiler-base'  'intel-gdb'  )
 
@@ -52,30 +55,30 @@ _remove_static_objects_ipp=true
 ########################################
 
 _year='2015'
-_v_a='0'
-_v_b='090' 
+_v_a='1'
+_v_b='133' 
 
-_update=''
+_update='update1'
 
 pkgrel=1
 
 _sp=''
 
-_icc_ver='15.0.0'
-_ipp_ver='8.2.0'
-_mkl_ver='11.2.0'
-_openmp_ver='15.0.0'
-_sourcechecker_ver='15.0.0'
-_vtune_ver='1.0.367959'
-_advisor_ver='1.0.367266'
-_inspector_ver='1.0.366509'
+_icc_ver='15.0.1'
+_ipp_ver='8.2.1'
+_mkl_ver='11.2.1'
+_openmp_ver='15.0.1'
+_sourcechecker_ver='15.0.1'
+_vtune_ver='1.1.380310'
+_advisor_ver='1.10.380555'
+_inspector_ver='1.2.379161'
 
 _tbb_ver='4.3.0'
 
 
 pkgver=${_year}.${_icc_ver}.${_v_a}.${_v_b}
 
-_dir_nr='4584'
+_dir_nr='4992'
 
 options=(strip libtool staticlibs)
 
@@ -120,7 +123,7 @@ source=(
 
 
 sha256sums=(
-	'31abe447b1db457b38547dfbf0fd7e434cb45d5734892ec3ef95ef5f4d2f8ae2' # parallel_studio_xe_2013_sp1_update1.tgz
+	'84fdf48d1de20e1d580ba5d419a5bc1c55d217a4f5dc1807190ecffe0229a62b' # parallel_studio_xe_2013_sp1_update1.tgz
 	'338041f924d8f3ac31d349bca57f8ab66f094a5bb53d4f821f48fa710a112111' # intel_compilers.sh
 	'7da22140b9d8277d06d88f6bd37cb77ed17bc87d4f7ec5958587416639955991' # intel_vtune-amplifier-xe.sh
 	'292a9eea2c9a836ee9dc0d4ff28fc741d5548a3182e4f75aec7b93e1dd7b4f21' # intel_advisor-xe.sh

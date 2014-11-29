@@ -1,45 +1,36 @@
 # Maintainer: Nathan Typanski <ndt@nathantypanski.com>
+# Contributor: sgelb
 
 _srcname=commonmark
 pkgname=cmark-git
-pkgver=r3.a7db872
+pkgver=r5.488d604
 pkgrel=1
-pkgdesc="cmark CommonMark Markdown compiler"
+pkgdesc="CommonMark to HTML converter program and library"
 arch=('i686' 'x86_64')
 url="https://github.com/jgm/CommonMark.git"
-license=('BSD3')
-depends=('re2c')
+license=('custom:bsd3')
+makedepends=('cmake' 're2c')
 options=(!emptydirs libtool)
 source=(git://github.com/jgm/$_srcname.git)
+md5sums=('SKIP')
+sha256sums=('SKIP')
 
 pkgver() {
-        cd "$srcname"
-        printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  cd "${srcname}"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
-    cd "${srcdir}/${_srcname}"
-    make
-}
-
-check() {
-    cd "${srcdir}/${_srcname}"
-    ## `make test` is failing currently - it's upstream's fault - so I'm
-    ## leaving this disabled for now.
-    #make test
+  cd "${_srcname}"
+  mkdir build
+  cd build
+  cmake -DCMAKE_INSTALL_PREFIX="${pkgdir}/usr/" ..
+  make
 }
 
 package() {
-    # Install the man page.
-    cd "${srcdir}/${_srcname}"
-    gzip man/man1/cmark.1
-    install -Dm644 'man/man1/cmark.1.gz' "$pkgdir"'/usr/share/man/man1/cmark.1.gz'
-    # The `cmark` executable is buried deep ...
-    cd "${srcdir}/${_srcname}"'/build/src'
-    install -Dm755 'cmark' "$pkgdir"'/usr/bin/cmark'
+  cd "${_srcname}"
+  make install
+  install -D -m644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
-md5sums=('SKIP'
-)
-sha256sums=('SKIP'
-)
