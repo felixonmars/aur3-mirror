@@ -1,15 +1,15 @@
 # Maintainer: Patrick Ulbrich <zulu99 at gmx . net>
 
 pkgname=xbmc-es-switch
-pkgver=0.3.0
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="A small utility that switches between XBMC and Emulationstation at boottime via joypad button press"
 arch=('i686' 'x86_64' 'armv6h' 'armv7h')
 url="https://github.com/pulb/xbmc-es-switch"
 license=('GPL')
 depends=('xbmc' 'emulationstation-git-unstable-rpi')
-source=('https://github.com/pulb/xbmc-es-switch/archive/v0.3.0.tar.gz')
-md5sums=('18f3b5f02bd4e1646f3f36c3a56ade6f')
+source=('https://github.com/pulb/xbmc-es-switch/archive/v0.4.0.tar.gz')
+md5sums=('5a8d54dd5a3ff1266306b3657896c621')
 
 build() {
 	cd ${srcdir}/${pkgname}-${pkgver}
