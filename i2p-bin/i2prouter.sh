@@ -13,9 +13,13 @@ fail() {
     printf "\e[1;31m>>> ERROR:\033[0m %s\n" "$*"
     exit 1
 }
+debug() {
+    printf "\e[1;33m>>> DEBUG:\033[0m %s\n" "$*"
+}
 
 check_user() {
     if [[ "$(id -un)" != "$I2P_USER" ]]; then
+        #debug "current user: $(id -un)  dropping to user: $I2P_USER"
         if [[ ! -d "$PIDDIR" ]]; then
             mkdir -p "$PIDDIR"
             chown ${I2P_USER}:${I2P_USER} "$PIDDIR"
@@ -50,7 +54,7 @@ check_if_running() {
     if [[ -f "$PIDFILE" ]]; then
         if [[ -r "$PIDFILE" ]]; then
             pid=$(cat "$PIDFILE")
-            #echo "debug: pid:$pid get_pid:$(get_pid)"
+            #debug "pid:$pid  get_pid:$(get_pid)"
             if [[ ! "$pid" ]]; then
                 pid=$(get_pid)
                 if [[ ! "$pid" ]]; then
@@ -91,7 +95,7 @@ _start() {
             ((i++))
         done
         [[ $(get_pid) ]] &&
-            echo " done" || fail "timeout: Failed to start wrapper!"
+            echo " done (pid $pid)" || fail "timeout: Failed to start wrapper!"
     else
         echo "I2P Service is already running"
     fi
@@ -105,7 +109,7 @@ _restart() {
 _stop() {
     if [[ "$pid" ]]; then
         echo -n "Stopping I2P Service"
-        kill -TERM $pid
+        kill -TERM "$pid"
         [[ $? != 0 ]] && fail "Unable to stop I2P Service: kill -TERM $pid"
         i=0
         while [[ "$pid" || $i > $TIMEOUT ]]; do
@@ -115,7 +119,7 @@ _stop() {
             ((i++))
         done
         if [[ "$pid" ]]; then
-            fail "timeout: Failed to stop wrapper!"
+            fail "timeout: Failed to stop wrapper! (pid: $pid)"
         else
             echo " done"
             [[ "$1" = 'start' ]] && _start
@@ -128,7 +132,7 @@ _stop() {
 _graceful() {
     if [[ "$pid" ]]; then
         echo "Stopping I2P Service gracefully..."
-        kill -HUP $pid
+        kill -HUP "$pid"
         [[ $? != 0 ]] && fail "Unable to stop I2P Service."
     else
         echo "I2P Service is not running."
@@ -143,9 +147,9 @@ _status() {
 _dump() {
     if [[ "$pid" ]]; then
         echo "Dumping threads..."
-        kill -QUIT $pid
+        kill -QUIT "$pid"
         [[ $? != 0 ]] &&
-            fail "Failed to dump I2P Service" || echo "Dumped I2P Service."
+            fail "Failed to dump threads" || echo "Thread Dump is available in wrapper.log"
     else
         echo "I2P Service is not running."
     fi

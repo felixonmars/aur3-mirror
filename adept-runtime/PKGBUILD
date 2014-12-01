@@ -1,6 +1,6 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-runtime
-pkgver=2.15.3
+pkgver=2.16.1
 pkgrel=1
 pkgdesc="core runtime necessary to communicate with Digilent system boards"
 arch=('i686' 'x86_64')
@@ -16,20 +16,20 @@ _arch=x86_64
 [[ $CARCH == i686 ]] && _arch=i686
 source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.runtime_${pkgver}-${_arch}.tar.gz")
 
-md5sums=('fb4cd9111fec2c26444d2326611558c2')
-[[ $CARCH == i686 ]] && md5sums[0]='bea44a171fced85f7f5271d461594796'
+md5sums=('5ce330565d3e387625591d823c9fa43e')
+[[ $CARCH == i686 ]] && md5sums[0]='fe89c7fc9a4e09ebf2e58661e63f0cbd'
 
 prepare() {
   cd "$srcdir/digilent.adept.runtime_$pkgver-$CARCH"
-  # replace local/lib with lib, delete the lib64 line
-  sed -i -e 's_local/lib_lib_' -e '/lib64/,$d' digilent-adept-libraries.conf
+  # delete the lib64 line (Arch stores all libraries in /usr/lib)
+  sed -i '/lib64/,$d' digilent-adept-libraries.conf
   if [[ $CARCH == x86_64 ]]; then
     sed -i 's_32-bit_64-bit_' digilent-adept-libraries.conf
   fi
 
-  sed -i 's_usr/local/share_usr/share_' digilent-adept.conf
-
-  sed -i 's_usr/local/sbin_usr/bin_' 52-digilent-usb.rules
+  # Arch stores all binaries in /usr/bin
+  # https://lists.archlinux.org/pipermail/arch-dev-public/2012-March/022625.html
+  sed -i 's_usr/sbin_usr/bin_' 52-digilent-usb.rules
 }
 
 package() {
@@ -49,20 +49,20 @@ package() {
   install -m 644 digilent-adept-libraries.conf "$pkgdir/etc/ld.so.conf.d"
 
   # firmware images
-  mkdir -p "$pkgdir/usr/share/digilent/data/firmware"
-  install -m 644 data/firmware/*.HEX "$pkgdir/usr/share/digilent/data/firmware"
-  install -m 755 data/firmware/*.so "$pkgdir/usr/share/digilent/data/firmware"
+  mkdir -p "$pkgdir/usr/share/digilent/adept/data/firmware"
+  install -m 644 data/firmware/*.HEX "$pkgdir/usr/share/digilent/adept/data/firmware"
+  install -m 755 data/firmware/*.so "$pkgdir/usr/share/digilent/adept/data/firmware"
 
   # JTSC device list
-  install -m 644 data/jtscdvclist.txt "$pkgdir/usr/share/digilent/data"
+  install -m 644 data/jtscdvclist.txt "$pkgdir/usr/share/digilent/adept/data"
 
   # CoolRunner support files
-  mkdir "$pkgdir/usr/share/digilent/data/xpla3"
-  install -m 644 data/xpla3/*.map "$pkgdir/usr/share/digilent/data/xpla3"
+  mkdir "$pkgdir/usr/share/digilent/adept/data/xpla3"
+  install -m 644 data/xpla3/*.map "$pkgdir/usr/share/digilent/adept/data/xpla3"
 
   # CoolRunner 2 support files
-  mkdir "$pkgdir/usr/share/digilent/data/xbr"
-  install -m 644 data/xbr/*.map "$pkgdir/usr/share/digilent/data/xbr"
+  mkdir "$pkgdir/usr/share/digilent/adept/data/xbr"
+  install -m 644 data/xbr/*.map "$pkgdir/usr/share/digilent/adept/data/xbr"
 
   # Adept runtime configuration file
   install -m 644 digilent-adept.conf "$pkgdir/etc"
@@ -86,5 +86,3 @@ package() {
   mkdir -p "$pkgdir/usr/share/licenses/adept-runtime"
   install -m 644 EULA "$pkgdir/usr/share/licenses/adept-runtime"
 }
-
-# vim:set ts=2 sw=2 et:
