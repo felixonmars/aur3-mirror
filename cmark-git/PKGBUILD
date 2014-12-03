@@ -3,7 +3,7 @@
 
 _srcname=commonmark
 pkgname=cmark-git
-pkgver=r5.488d604
+pkgver=r872.da0d0b6
 pkgrel=1
 pkgdesc="CommonMark to HTML converter program and library"
 arch=('i686' 'x86_64')
@@ -11,12 +11,12 @@ url="https://github.com/jgm/CommonMark.git"
 license=('custom:bsd3')
 makedepends=('cmake' 're2c')
 options=(!emptydirs libtool)
-source=(git://github.com/jgm/$_srcname.git)
+source=(git://github.com/jgm/${_srcname}.git)
 md5sums=('SKIP')
 sha256sums=('SKIP')
 
 pkgver() {
-  cd "${srcname}"
+  cd "${_srcname}"
   printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
@@ -29,8 +29,8 @@ build() {
 }
 
 package() {
-  cd "${_srcname}"
+  cd "${_srcname}/build"
   make install
-  install -D -m644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -D -m644 ../LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
