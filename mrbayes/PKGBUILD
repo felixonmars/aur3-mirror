@@ -1,7 +1,7 @@
 # Original: Abhishek Dasgupta <abhidg@gmail.com>
 # Maintainer: Stunts <f.pinamartins@gmail.com>
 pkgname=mrbayes
-pkgver=3.2.2
+pkgver=3.2.3
 pkgrel=1
 pkgdesc="A program for the Bayesian estimation of phylogeny"
 arch=('i686' 'x86_64')
@@ -10,7 +10,7 @@ url="http://mrbayes.csit.fsu.edu"
 depends=('readline')
 optdepends=('beagle-lib: for using GPU calculations among other enhancements - rebuild package after installing this dep')
 source=(http://downloads.sourceforge.net/mrbayes/${pkgname}-${pkgver}.tar.gz)
-md5sums=('3f9fc9186ef4200e5fcb2eac0abbd6ba')
+md5sums=('8f8aee63b6df21fb3728f62e963f2593')
 
 build() {
   #MrBayes requires specific LDFLAGS and CFLAGS specified in the makefile. Thus we unset our own.
@@ -18,7 +18,7 @@ build() {
   #unset CFLAGS
   #unset CCFLAGS
 
-  cd ${srcdir}/${pkgname}_${pkgver}/src
+  cd ${srcdir}/src
   autoconf
   #Build with beagle-lib support if available:
   if [ -f /usr/lib/libhmsbeagle.so ]
@@ -32,5 +32,5 @@ build() {
   make
 }
 package() {
-  install -D -m755 ${srcdir}/${pkgname}_${pkgver}/src/mb ${pkgdir}/usr/bin/mb
+  install -D -m755 ${srcdir}/src/mb ${pkgdir}/usr/bin/mb
 }
