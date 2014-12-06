@@ -1,0 +1,142 @@
+diff -ur old/CPP/7zip/Archive/Zip/ZipIn.cpp new/CPP/7zip/Archive/Zip/ZipIn.cpp
+--- old/CPP/7zip/Archive/Zip/ZipIn.cpp	2010-10-20 12:56:00.000000000 +0800
++++ new/CPP/7zip/Archive/Zip/ZipIn.cpp	2014-12-05 23:37:06.581506803 +0800
+@@ -2,6 +2,8 @@
+ 
+ #include "StdAfx.h"
+ 
++#include <natspec.h>
++
+ #include "../../../../C/CpuArch.h"
+ 
+ #include "Common/DynamicBuffer.h"
+@@ -27,6 +29,9 @@
+   RINOK(FindAndReadMarker(stream, searchHeaderSizeLimit));
+   RINOK(stream->Seek(m_Position, STREAM_SEEK_SET, NULL));
+   m_Stream = stream;
++  
++  zipOrigCharset = natspec_get_charset_by_locale(NATSPEC_DOSCS, "");
++  
+   return S_OK;
+ }
+ 
+@@ -198,7 +203,7 @@
+   return true;
+ }
+ 
+-void CInArchive::ReadFileName(UInt32 nameSize, AString &dest)
++void CInArchive::ReadFileName(UInt32 nameSize, AString &dest, int flags)
+ {
+   if (nameSize == 0)
+     dest.Empty();
+@@ -206,6 +211,12 @@
+   SafeReadBytes(p, nameSize);
+   p[nameSize] = 0;
+   dest.ReleaseBuffer();
++  
++  if (!(flags & NFileHeader::NFlags::kUtf8)) {
++	  char *p_recode = natspec_convert((const char *)p, NULL, zipOrigCharset, 0);
++	  if (p_recode)
++		  dest = p_recode;
++  }
+ }
+ 
+ void CInArchive::ReadExtra(UInt32 extraSize, CExtraBlock &extraBlock,
+@@ -284,7 +295,7 @@
+   item.UnPackSize = Get32(p + 18);
+   UInt32 fileNameSize = Get16(p + 22);
+   item.LocalExtraSize = Get16(p + 24);
+-  ReadFileName(fileNameSize, item.Name);
++  ReadFileName(fileNameSize, item.Name, item.Flags);
+   item.FileHeaderWithNameSize = 4 + NFileHeader::kLocalBlockSize + fileNameSize;
+   if (item.LocalExtraSize > 0)
+   {
+@@ -464,7 +475,7 @@
+   item.InternalAttributes = Get16(p + 32);
+   item.ExternalAttributes = Get32(p + 34);
+   item.LocalHeaderPosition = Get32(p + 38);
+-  ReadFileName(headerNameSize, item.Name);
++  ReadFileName(headerNameSize, item.Name, item.Flags);
+   
+   if (headerExtraSize > 0)
+   {
+diff -ur old/CPP/7zip/Archive/Zip/ZipIn.h new/CPP/7zip/Archive/Zip/ZipIn.h
+--- old/CPP/7zip/Archive/Zip/ZipIn.h	2010-04-25 23:14:27.000000000 +0800
++++ new/CPP/7zip/Archive/Zip/ZipIn.h	2014-12-05 23:37:06.581506803 +0800
+@@ -78,7 +78,7 @@
+   HRESULT Seek(UInt64 offset);
+ 
+   HRESULT FindAndReadMarker(IInStream *stream, const UInt64 *searchHeaderSizeLimit);
+-  void ReadFileName(UInt32 nameSize, AString &dest);
++  void ReadFileName(UInt32 nameSize, AString &dest, int flags = 0);
+   
+   HRESULT ReadBytes(void *data, UInt32 size, UInt32 *processedSize);
+   bool ReadBytesAndTestSize(void *data, UInt32 size);
+@@ -107,6 +107,8 @@
+   CInArchiveInfo ArcInfo;
+   bool IsZip64;
+   bool IsOkHeaders;
++  
++  const char *zipOrigCharset;
+ 
+   HRESULT ReadHeaders(CObjectVector<CItemEx> &items, CProgressVirt *progress);
+   HRESULT ReadLocalItemAfterCdItem(CItemEx &item);
+diff -ur old/CPP/7zip/Archive/Zip/ZipOut.cpp new/CPP/7zip/Archive/Zip/ZipOut.cpp
+--- old/CPP/7zip/Archive/Zip/ZipOut.cpp	2010-04-25 23:14:42.000000000 +0800
++++ new/CPP/7zip/Archive/Zip/ZipOut.cpp	2014-12-06 00:17:28.878159967 +0800
+@@ -120,8 +120,8 @@
+       ver = NFileHeader::NCompressionMethod::kExtractVersion_Zip64;
+     WriteByte(ver);
+   }
+-  WriteByte(item.ExtractVersion.HostOS);
+-  WriteUInt16(item.Flags);
++  WriteByte(NFileHeader::NHostOS::kUnix);
++  WriteUInt16(item.Flags | NFileHeader::NFlags::kUtf8);
+   WriteUInt16(item.CompressionMethod);
+   WriteUInt32(item.Time);
+   WriteUInt32(item.FileCRC);
+@@ -172,8 +172,8 @@
+       ver = NFileHeader::NCompressionMethod::kExtractVersion_Zip64;
+     WriteByte(ver);
+   }
+-  WriteByte(item.ExtractVersion.HostOS);
+-  WriteUInt16(item.Flags);
++  WriteByte(NFileHeader::NHostOS::kUnix);
++  WriteUInt16(item.Flags | NFileHeader::NFlags::kUtf8);
+   WriteUInt16(item.CompressionMethod);
+   WriteUInt32(item.Time);
+   WriteUInt32(item.FileCRC);
+diff -ur old/CPP/7zip/Archive/Zip/ZipUpdate.cpp new/CPP/7zip/Archive/Zip/ZipUpdate.cpp
+--- old/CPP/7zip/Archive/Zip/ZipUpdate.cpp	2010-11-08 00:48:43.000000000 +0800
++++ new/CPP/7zip/Archive/Zip/ZipUpdate.cpp	2014-12-06 00:13:09.404828074 +0800
+@@ -82,13 +82,14 @@
+   {
+     isDir = ui.IsDir;
+     item.Name = ui.Name;
+-    item.SetUtf8(ui.IsUtf8);
++    item.SetUtf8(true);
+     item.ExternalAttributes = ui.Attributes;
+     item.Time = ui.Time;
+     item.NtfsMTime = ui.NtfsMTime;
+     item.NtfsATime = ui.NtfsATime;
+     item.NtfsCTime = ui.NtfsCTime;
+     item.NtfsTimeIsDefined = ui.NtfsTimeIsDefined;
++    item.ExtractVersion.HostOS = NFileHeader::NHostOS::kUnix;
+   }
+   else
+     isDir = item.IsDir();
+@@ -354,12 +355,13 @@
+     // item.ExternalAttributes = ui.Attributes;
+     // Test it
+     item.Name = ui.Name;
+-    item.SetUtf8(ui.IsUtf8);
++    item.SetUtf8(true);
+     item.Time = ui.Time;
+     item.NtfsMTime = ui.NtfsMTime;
+     item.NtfsATime = ui.NtfsATime;
+     item.NtfsCTime = ui.NtfsCTime;
+     item.NtfsTimeIsDefined = ui.NtfsTimeIsDefined;
++    item.ExtractVersion.HostOS = kHostOS;
+ 
+     item.CentralExtra.RemoveUnknownSubBlocks();
+     item.LocalExtra.RemoveUnknownSubBlocks();
