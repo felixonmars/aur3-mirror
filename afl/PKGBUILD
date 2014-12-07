@@ -1,6 +1,6 @@
 # Maintainer: spider-mario <spidermario@free.fr>
 pkgname=afl
-pkgver=0.79b
+pkgver=0.87b
 pkgrel=1
 pkgdesc="a practical instrumentation-driven fuzzer"
 arch=('i686' 'x86_64')
@@ -9,7 +9,7 @@ license=('Apache')
 depends=('glibc')
 options=('!emptydirs')
 source=(http://lcamtuf.coredump.cx/$pkgname/releases/$pkgname-$pkgver.tgz)
-sha512sums=('1ffad58916c6b11231ff785a4e6862a18a2e96383d8ff5566f8d068cf73282eee03e05ecde02eb0eef762e57171690654083e6c6b47ca1edbd0ec058f50f20fe')
+sha512sums=('94e00264825892acdcb91a6098c0bcc74ae86289bd584e63311c7eee72259220dda832fd223980ddb5b5dd1a40e9f4cd3573fa3947001949e10179a390973d9e')
 
 build() {
 	cd $pkgname-$pkgver

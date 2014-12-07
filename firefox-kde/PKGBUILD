@@ -1,0 +1,169 @@
+# Maintainer: FadeMind <fademind@gmail.com>
+# Contributor: Weng Xuetian <wengxt@gmail.com>
+# Contributor: Yegorius <yegorius@domic.us>
+
+# enable this if you run out of memory during linking
+#_lowmem=true
+
+# try to build with PGO
+#_pgo=true
+
+pkgname=firefox-kde
+pkgver=34.0.5
+pkgrel=1
+pkgdesc="Standalone web browser from mozilla.org with OpenSUSE patch, integrate better with KDE"
+arch=('i686' 'x86_64')
+license=('MPL' 'GPL' 'LGPL')
+url="https://build.opensuse.org/package/show/mozilla:Factory/MozillaFirefox"
+depends=('gtk2' 'mozilla-common' 'libxt' 'startup-notification' 'mime-types'
+         'dbus-glib' 'alsa-lib' 'desktop-file-utils' 'hicolor-icon-theme'
+	 'libvpx' 'icu'  'libevent' 'nss>=3.17.2' 'nspr>=4.10.7' 'hunspell' 
+	 'sqlite' 'libnotify' 'kmozillahelper')
+makedepends=('unzip' 'zip' 'diffutils' 'python2' 'yasm' 'mesa' 'imake'
+             'xorg-server-xvfb' 'libpulse' 'gst-plugins-base-libs' 'inetutils')
+optdepends=('networkmanager: Location detection via available WiFi networks'
+	    'gst-plugins-good: h.264 video'
+	    'gst-libav: h.264 video')
+provides=("firefox=${pkgver}")
+conflicts=('firefox' 'firefox-kde-opensuse')
+install=firefox.install
+options=('!emptydirs' '!makeflags')
+_patchrev=9e3063dcc69e
+_patchurl=http://www.rosenauer.org/hg/mozilla/raw-file/$_patchrev
+source=(https://ftp.mozilla.org/pub/mozilla.org/firefox/releases/$pkgver/source/firefox-$pkgver.source.tar.bz2
+        mozconfig firefox.desktop firefox-install-dir.patch vendor.js kde.js firefox-fixed-loading-icon.png
+	rhbz-966424.patch
+	# Firefox patchset
+	$_patchurl/firefox-branded-icons.patch
+	$_patchurl/firefox-kde.patch
+	$_patchurl/firefox-kde-114.patch
+	$_patchurl/firefox-no-default-ualocale.patch
+	# Gecko/toolkit patchset
+	$_patchurl/mozilla-kde.patch
+	$_patchurl/mozilla-language.patch
+	$_patchurl/mozilla-nongnome-proxies.patch
+	$_patchurl/mozilla-prefer_plugin_pref.patch
+	$_patchurl/toolkit-download-folder.patch)
+sha256sums=('1680191ff7d4c465c0e6a5d7d6ff7a426f5bfa64f8d6d68a4bdfa9ac4ee459c8'
+	    'd6468f627873bdfade1d62a3d84fbb3f53f57b233e691e4d28cda3d7e3e5096e'
+	    '175d03cf3d8eb420d24a5a3072be69c9603e3ddacd3a83f68f49754eaecf6c5a'
+	    'd86e41d87363656ee62e12543e2f5181aadcff448e406ef3218e91865ae775cd'
+	    '4b50e9aec03432e21b44d18c4c97b2630bace606b033f7d556c9d3e3eb0f4fa4'
+	    'b8cc5f35ec35fc96ac5c5a2477b36722e373dbb57eba87eb5ad1276e4df7236d'
+	    '68e3a5b47c6d175cc95b98b069a15205f027cab83af9e075818d38610feb6213'
+	    '4f0046b39a8d98f6e4fc3360ec490cb2416e38c7b3e92699f7e511c206c2c961'
+	    '9e67a4505deaefca2be253cd4f77f6089af76edd9507c1d54a1570cd51415b39'
+	    '172a9595c7ab437c4de5a5b27f4d991412e26d6e25e5852666c6edc69c8d419c'
+	    '8a4c5a2dd56a80ddb83ece96192e23c1b078dd1a0672b6fd408ae37d1c6712f5'
+	    '8a7b0814d0c0648475950117bddf666b30d649e354393879ce547def104d889e'
+	    '6f93cb83a87c245ec2a8b09ed56a6abbcbe388a9ea961b50e2d84d307b71a344'
+	    'b9feb66a33dc1644d7d277dc3fc166c655735de7100bc4e93f1fe44567f35345'
+	    'e8289ea4c1f8191e1e23661312ceee2128b8e790501b9a589d0d7bfc4384553f'
+	    '5f6b0970284d68d5ed18e6bb7ee1e9fc0025ab3c10aaa14c283adb21a4a20ee8'
+	    '60ace1c57577878850e05976ccf02f7e71512c4d62a8a9a6d270a7941d9625d3')
+
+# Google API keys (see http://www.chromium.org/developers/how-tos/api-keys)
+# Note: These are for Arch Linux use ONLY. For your own distribution, please
+# get your own set of keys. Feel free to contact foutrelis@archlinux.org for
+# more information.
+_google_api_key=AIzaSyDwr302FpOSkGRpLlUpPThNTDPbXcIn_FM
+
+prepare() {
+  cd mozilla-release
+
+  cp "$srcdir/mozconfig" .mozconfig
+
+  patch -Np1 -i "$srcdir/firefox-install-dir.patch"
+  echo -n "$_google_api_key" > google-api-key
+
+  # https://bugs.archlinux.org/task/41689
+  patch -Np2 -i "$srcdir/rhbz-966424.patch"
+
+  msg "Patching for KDE"
+  patch -Np1 -i "$srcdir/toolkit-download-folder.patch"
+  patch -Np1 -i "$srcdir/mozilla-nongnome-proxies.patch"
+  patch -Np1 -i "$srcdir/mozilla-prefer_plugin_pref.patch"
+  patch -Np1 -i "$srcdir/mozilla-kde.patch"
+  patch -Np1 -i "$srcdir/mozilla-language.patch"
+
+  patch -Np1 -i "$srcdir/firefox-kde.patch"
+  patch -Np1 -i "$srcdir/firefox-kde-114.patch"
+  patch -Np1 -i "$srcdir/firefox-no-default-ualocale.patch"
+  patch -Np1 -i "$srcdir/firefox-branded-icons.patch"
+
+  # configure script misdetects the preprocessor without an optimization level
+  # https://bugs.archlinux.org/task/34644
+  sed -i '/ac_cpp=/s/$CPPFLAGS/& -O2/' configure
+
+  # WebRTC build tries to execute "python" and expects Python 2
+  mkdir -p "$srcdir/path"
+  ln -sf /usr/bin/python2 "$srcdir/path/python"
+
+  # Fix tab loading icon (flickers with libpng 1.6)
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=841734
+  # TODO: Remove this; Firefox 36 might use CSS animations for the loading icon
+  # https://bugzilla.mozilla.org/show_bug.cgi?id=759252
+  cp "$srcdir/firefox-fixed-loading-icon.png" \
+    browser/themes/linux/tabbrowser/loading.png
+}
+
+build() {
+  if pacman -T firefox && ! pacman -T "firefox=$pkgver"; then
+    error "Please uninstall firefox temporarily before building it (pacman -Rdd ...)"
+    exit 1
+  fi
+
+  cd mozilla-release
+
+  export PATH="$srcdir/path:$PATH"
+  export PYTHON="/usr/bin/python2"
+
+  if [[ -n $_lowmem || $CARCH == i686 ]]; then
+    LDFLAGS+=" -Wl,--no-keep-memory"
+  fi
+
+  if [[ -n $_pgo ]]; then
+    # Do PGO
+    xvfb-run -a -s "-extension GLX -screen 0 1280x1024x24" \
+      make -f client.mk build MOZ_PGO=1
+  else
+    make -f client.mk build
+  fi
+}
+
+package() {
+  cd mozilla-release
+
+  [[ "$CARCH" == "i686" ]] && cp "$srcdir/kde.js" obj-i686-pc-linux-gnu/dist/bin/defaults/pref
+  [[ "$CARCH" == "x86_64" ]] && cp "$srcdir/kde.js" obj-x86_64-unknown-linux-gnu/dist/bin/defaults/pref
+
+  make -f client.mk DESTDIR="$pkgdir" INSTALL_SDK= install
+
+  install -Dm644 "$srcdir/vendor.js" "$pkgdir/usr/lib/firefox/browser/defaults/preferences/vendor.js"
+  install -Dm644 "$srcdir/kde.js" "$pkgdir/usr/lib/firefox/browser/defaults/preferences/kde.js"
+
+  for i in 16 22 24 32 48 256; do
+      install -Dm644 browser/branding/official/default$i.png \
+        "$pkgdir/usr/share/icons/hicolor/${i}x${i}/apps/firefox.png"
+  done
+
+  install -Dm644 browser/branding/official/content/icon64.png \
+    "$pkgdir/usr/share/icons/hicolor/64x64/apps/firefox.png"
+  install -Dm644 browser/branding/official/mozicon128.png \
+    "$pkgdir/usr/share/icons/hicolor/128x128/apps/firefox.png"
+  install -Dm644 browser/branding/official/content/about-logo.png \
+    "$pkgdir/usr/share/icons/hicolor/192x192/apps/firefox.png"
+  install -Dm644 browser/branding/official/content/about-logo@2x.png \
+    "$pkgdir/usr/share/icons/hicolor/384x384/apps/firefox.png"
+
+  install -Dm644 "$srcdir/firefox.desktop" "$pkgdir/usr/share/applications/firefox.desktop"
+
+  # Use system-provided dictionaries
+  rm -rf "$pkgdir"/usr/lib/firefox/{dictionaries,hyphenation}
+  ln -s /usr/share/hunspell "$pkgdir/usr/lib/firefox/dictionaries"
+  ln -s /usr/share/hyphen "$pkgdir/usr/lib/firefox/hyphenation"
+
+  #workaround for now
+  #https://bugzilla.mozilla.org/show_bug.cgi?id=658850
+  ln -sf firefox "$pkgdir/usr/lib/firefox/firefox-bin"
+}
