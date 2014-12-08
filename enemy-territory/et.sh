@@ -1,3 +1,3 @@
 #!/bin/sh
 cd /usr/share/enemy-territory
-./et.x86
+./et.x86 $*

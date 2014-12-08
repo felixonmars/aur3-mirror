@@ -1,3 +1,3 @@
 #!/bin/sh
 
-scummvm "$@" -f -p /usr/share/dreamweb dreamweb-cd
+scummvm "$@" -f -p /usr/share/dreamweb dreamweb
