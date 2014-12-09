@@ -1,59 +1,94 @@
 # Maintainer: Guillaume ALAUX <guillaume at alaux dot net>
 # Contributor: James Bulmer <nekinie@gmail.com>
-# TODO extract zookeeper dependency?
-
+# Sources available at https://github.com/galaux/arch_kafka
 pkgname=kafka
 pkgver=0.8.1.1
-# You can change this for one of the Scala version upstream has already built against
-# as explained on https://kafka.apache.org/downloads.html
+# You can change this for one of the Scala version upstream has already built
+# against as explained on https://kafka.apache.org/downloads.html
+# but do not remove the Scala jar as the Kafka tarball is compiled against it
+# and __not__ against the one from the Scala package
 _scalaver=2.10
-pkgrel=2
+pkgrel=3
 pkgdesc='A high-throughput distributed messaging system'
 arch=('any')
 url='http://kafka.apache.org/'
 license=('Apache')
-depends=('java-runtime')
+depends=('java-runtime' 'zookeeper')
 backup=(etc/kafka/consumer.properties
         etc/kafka/log4j.properties
         etc/kafka/producer.properties
         etc/kafka/server.properties
         etc/kafka/test-log4j.properties
         etc/kafka/tools-log4j.properties
-        etc/kafka/zookeeper.properties)
+        etc/zookeeper/zookeeper-kafka/zoo.cfg
+        etc/zookeeper/zookeeper-kafka/log4j.properties)
+install=install_kafka.sh
 
 source=(https://dist.apache.org/repos/dist/release/${pkgname}/${pkgver}/${pkgname}_${_scalaver}-${pkgver}.tgz
+        zookeeper_log4j.properties
         systemd_kafka.service
-        systemd_kafka-zookeeper.service)
+        systemd_sysusers.d_kafka.conf
+        systemd_tmpfiles.d_kafka.conf
+        fix_log-cleaner_log4j_conf.patch)
 
 sha256sums=('2532af3dbd71d2f2f95f71abff5b7505690bd1f15c7063f8cbaa603b45ee4e86'
-            'f59cd34aba9427eccd2af1a6b070d7b19efacd1b2c6ec5817fb44ca7eb33f6b0'
-            '5452529704524c41399008f22e85f0fd6edc0826e57ebdfa179076cd542f9ed9')
+            '00780ee4cea3bb7a282a548f41b8964d5e392776f9d687ebea89cd49ed5742e3'
+            'e1a5ad12c4f0873740f4c34817bd6733a9b1541c68f2bb3aab3ac1be591f1fde'
+            'dc1f3f94662339bcfb5cd4d058c06431f0e3d37e59f8c66a870e8fb02d9b5079'
+            'a2258d4a06c0fcf7f7d5367c616b0a220bbd3d35256dfb3d5f790e61ac9a98f5'
+            '8e78e1a15d2e547a3aa25dfd8c481c70b9a6dd518ec85fa88b575cdc573b30b8')
+
+prepare() {
+  cd "${srcdir}/${pkgname}_${_scalaver}-${pkgver}"
+
+  patch -p1 < ${srcdir}/fix_log-cleaner_log4j_conf.patch
+}
 
 package() {
   cd "${srcdir}/${pkgname}_${_scalaver}-${pkgver}"
 
   _app_home=/usr/share/${pkgname}
 
-  mkdir -p ${pkgdir}{${_app_home}/bin,/etc,/usr/bin,/usr/share/java/${pkgname},/var/log/${pkgname}}
+  install -d "${pkgdir}"{${_app_home}/bin,/usr/bin,/usr/share/java/${pkgname}}
+  install -d "${pkgdir}"/etc/zookeeper/zookeeper-${pkgname} \
+             "${pkgdir}"/etc/${pkgname}
 
-  cp -r config ${pkgdir}/etc/${pkgname}/
-  ln -s /etc/${pkgname} ${pkgdir}${_app_home}/config
+  cp -r config/* "${pkgdir}/etc/${pkgname}"
+  sed -i "s|^log.dirs=/tmp/kafka-logs$|log.dirs=/var/lib/${pkgname}|" \
+    "${pkgdir}/etc/${pkgname}/server.properties"
+  mv "${pkgdir}/etc/${pkgname}/zookeeper.properties" \
+     "${pkgdir}/etc/zookeeper/zookeeper-${pkgname}/zoo.cfg"
+  sed -i "s|^dataDir=/tmp/zookeeper$|dataDir=/var/lib/zookeeper/zookeeper-${pkgname}|" \
+    "${pkgdir}/etc/zookeeper/zookeeper-${pkgname}/zoo.cfg"
 
-  cp -r bin/*  ${pkgdir}${_app_home}/bin/
-  rm -rf ${pkgdir}${_app_home}/bin/windows
-  sed -i "s|\$(dirname \$0)|${_app_home}/bin|" ${pkgdir}${_app_home}/bin/*
-  for b in ${pkgdir}${_app_home}/bin/*; do
+  install -D -m 644 ${srcdir}/zookeeper_log4j.properties \
+    "${pkgdir}/etc/zookeeper/zookeeper-${pkgname}/log4j.properties"
+
+  ln -s /etc/${pkgname} "${pkgdir}${_app_home}/config"
+
+  cp -r bin/kafka-* "${pkgdir}${_app_home}/bin/"
+  rm -rf "${pkgdir}${_app_home}/bin/windows"
+  sed -i "s|\$(dirname \$0)|${_app_home}/bin|" "${pkgdir}"${_app_home}/bin/*
+  for b in "${pkgdir}"${_app_home}/bin/*; do
     bname=$(basename $b)
-    ln -s ${_app_home}/bin/${bname} ${pkgdir}/usr/bin/${bname}
+    ln -s ${_app_home}/bin/${bname} "${pkgdir}/usr/bin/${bname}"
   done
+  install bin/zookeeper-shell.sh "${pkgdir}${_app_home}/bin/zookeeper-shell.sh"
+  ln -s ${_app_home}/bin/zookeeper-shell.sh "${pkgdir}/usr/bin/kafka-zookeeper-shell.sh"
+  ln -s ../../java/zookeeper/zookeeper.jar \
+    "${pkgdir}/usr/share/java/${pkgname}/zookeeper.jar"
 
-  cp -r libs/* ${pkgdir}/usr/share/java/${pkgname}
-  ln -s ../java/${pkgname} ${pkgdir}${_app_home}/libs
+  cp -r libs/* "${pkgdir}/usr/share/java/${pkgname}"
+  rm "${pkgdir}"/usr/share/java/${pkgname}/zookeeper-*
+  ln -s ../java/${pkgname} "${pkgdir}${_app_home}/libs"
 
-  ln -s /var/log/${pkgname} ${pkgdir}${_app_home}/logs
+  ln -s /var/log/${pkgname} "${pkgdir}${_app_home}/logs"
 
-  for s in kafka-zookeeper kafka; do
-    install -D -m 644 "${srcdir}/systemd_${s}.service" \
-      "${pkgdir}/usr/lib/systemd/system/${s}.service"
-  done
+  install -D -m 644 "${srcdir}/systemd_kafka.service" \
+    "${pkgdir}/usr/lib/systemd/system/kafka.service"
+
+  install -D ${srcdir}/systemd_sysusers.d_kafka.conf \
+    "${pkgdir}/usr/lib/sysusers.d/${pkgname}.conf"
+  install -D -m 644 "${srcdir}/systemd_tmpfiles.d_kafka.conf" \
+    "${pkgdir}/usr/lib/tmpfiles.d/kafka.conf"
 }
