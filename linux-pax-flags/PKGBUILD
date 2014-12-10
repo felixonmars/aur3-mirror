@@ -12,7 +12,7 @@
 pkgname=linux-pax-flags
 pkgdesc='Deactivates PaX flags for several binaries to work with PaX enabled kernels.'
 pkgver=2.0.16
-pkgrel=3
+pkgrel=4
 arch=(any)
 url='https://github.com/nning/linux-pax-flags'
 license=(GPL3)
@@ -40,7 +40,7 @@ package() {
 sha256sums=('8581506830903ffcbb0876e4380d660ff044d9805d68f1432753c5bb99dc0db9'
             '4eaab9347a35c39f13e23866da943b21e4e26bc882b066ef504e4374d9a79311'
             '2020957abcd75d71b7f7dcca49eb3ff5f655eb69a306159eaf2e7d3a60c1ad5c'
-            '7031e80b04bbc2a3f720b7d8e1d32bf9c972be0a7baebaa68bcf3cdfde94b45c'
+            '29d27cf02b1683ed1017775c24476ec7cfcec3d69d2b2d4fd0263252ef01ce46'
             '5f81411fd2e7c15ceed6d04eb1a38bdcf6117b401e180c64b463e6d63e55827b'
             'bb87f4dce8e20f2ce601bdcb888dd688d8f0e9d0ab367e09c8081daffa15b03a'
             'c0b7b6c71490ba3a446db31598b78a8ccb1130f7fa181edb38aa022d9aa1076f'
@@ -52,6 +52,6 @@ sha256sums=('8581506830903ffcbb0876e4380d660ff044d9805d68f1432753c5bb99dc0db9'
             'e5562d68df885c5ceeb51709fc57c86d7b2c7849b9d99f828a77228878e25d71'
             'ea10930e4b20064f104a476958b2f794d6220ac8a1c39b8f3105f7914c61d9f9'
             '459925589cc1c7b3c4e548c0ab30ae8c8780d093d6ff2bfc3c27e9712b032c9e'
-            '04eb22aca9deaee15c14f49f374fcdff39e4026cdfb98106ca91f808987ad1ff'
+            '561ec088f1408e35046ad6d5ef6eac0ede40f97e0a6cc28b470a19c611c970b2'
             'ea003c4201745cd0c4bcf5cec5ca2d0a79cc6b1b04ceaa276ace0ad0287b8c50'
             'd78fe0a02b5801c70e3d64045b12c3cbee358689da9082d71003b1cffda73ee3')

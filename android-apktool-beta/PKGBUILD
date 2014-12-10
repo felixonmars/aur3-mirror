@@ -2,10 +2,10 @@
 # Contributor (original PKGBUILD): Philipp 'TamCore' B. <philipp {at} tamcore {dot} eu>
 pkgname=android-apktool-beta
 pkgver=2.0.0rc3
-pkgrel=1
+pkgrel=2
 pkgdesc="A tool for reengineering Android apk files. Uses JRE7+."
 arch=('i686' 'x86_64')
-url="http://connortumbleson.com/2014/11/27/apktool-2-0-0-rc3-released/"
+url="http://connortumbleson.com/2014/11/27/apktool-rc3-released/"
 license=('Apache')
 depends=('java-runtime>=7' 'android-sdk-build-tools')
 provides=('android-apktool')
