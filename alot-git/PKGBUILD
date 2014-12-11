@@ -2,7 +2,7 @@
 # Contributor: Kazuo Teramoto <kaz.rag@gmail.com>
 # Contributor: Mark Foxwell <fastfret79@archlinux.org.uk>
 pkgname=alot-git
-pkgver=0.3.5.58.gfa4ddf0
+pkgver=0.3.6.r4.g70a8a33
 pkgrel=1
 pkgdesc="A terminal interface for notmuch"
 arch=('any')
@@ -17,7 +17,7 @@ md5sums=('SKIP')
 
 pkgver() {
   cd "$srcdir/alot"
-  git describe --always | sed 's|-|.|g'
+  git describe --long --tags | sed -r 's/([^-]*-g)/r\1/;s/-/./g'
 }
 
 package() {

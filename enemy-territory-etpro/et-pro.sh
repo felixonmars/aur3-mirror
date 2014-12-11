@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /opt/enemy-territory
-exec ./et.x86 +set fs_game etpro $*
+cd /usr/share/enemy-territory
+./et.x86 +set fs_game etpro $*

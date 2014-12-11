@@ -1,0 +1,442 @@
+From 3d851d684647ce394b2e82ef59f384d51f84d07f Mon Sep 17 00:00:00 2001
+From: András Czigány <andras.czigany.13@gmail.com
+Date: Wed, 10 Dec 2014 13:39:46 +0100
+Subject: [PATCH 1/1] compile with libuv 1.x
+
+---
+diff --git a/src/address.cpp b/src/address.cpp
+index db8194d..fc3a2fb 100644
+--- a/src/address.cpp
++++ b/src/address.cpp
+@@ -32,15 +32,33 @@ Address::Address(const std::string& ip, int port) {
+ 
+ bool Address::from_string(const std::string& ip, int port, Address* output) {
+   char buf[sizeof(struct in6_addr)];
++#if UV_VERSION_MAJOR == 0
+   if (uv_inet_pton(AF_INET, ip.c_str(), &buf).code == UV_OK) {
++#else
++  if (uv_inet_pton(AF_INET, ip.c_str(), &buf) == 0) {
++#endif
+     if (output != NULL) {
+-      struct sockaddr_in addr = uv_ip4_addr(ip.c_str(), port);
++      struct sockaddr_in addr;
++#if UV_VERSION_MAJOR == 0
++      addr = uv_ip4_addr(ip.c_str(), port);
++#else
++      uv_ip4_addr(ip.c_str(), port, &addr);
++#endif
+       output->init(copy_cast<struct sockaddr_in*, struct sockaddr*>(&addr));
+     }
+     return true;
++#if UV_VERSION_MAJOR == 0
+   } else if (uv_inet_pton(AF_INET6, ip.c_str(), &buf).code == UV_OK) {
++#else
++  } else if (uv_inet_pton(AF_INET6, ip.c_str(), &buf) == 0) {
++#endif
+     if (output != NULL) {
+-      struct sockaddr_in6 addr = uv_ip6_addr(ip.c_str(), port);
++      struct sockaddr_in6 addr;
++#if UV_VERSION_MAJOR == 0
++      addr = uv_ip6_addr(ip.c_str(), port);
++#else
++      uv_ip6_addr(ip.c_str(), port, &addr);
++#endif
+       output->init(copy_cast<struct sockaddr_in6*, struct sockaddr*>(&addr));
+     }
+     return true;
+@@ -56,14 +74,24 @@ void Address::from_inet(const char* data, size_t size, int port, Address* output
+     char buf[INET_ADDRSTRLEN];
+     uv_inet_ntop(AF_INET, data, buf, sizeof(buf));
+     if (output != NULL) {
+-      struct sockaddr_in addr = uv_ip4_addr(buf, port);
++      struct sockaddr_in addr;
++#if UV_VERSION_MAJOR == 0
++      addr = uv_ip4_addr(buf, port);
++#else
++      uv_ip4_addr(buf, port, &addr);
++#endif
+       output->init(copy_cast<struct sockaddr_in*, struct sockaddr*>(&addr));
+     }
+   } else {
+     char buf[INET6_ADDRSTRLEN];
+     uv_inet_ntop(AF_INET6, data, buf, sizeof(buf));
+     if (output != NULL) {
+-      struct sockaddr_in6 addr = uv_ip6_addr(buf, port);
++      struct sockaddr_in6 addr;
++#if UV_VERSION_MAJOR == 0
++      addr = uv_ip6_addr(buf, port);
++#else
++      uv_ip6_addr(buf, port, &addr);
++#endif
+       output->init(copy_cast<struct sockaddr_in6*, struct sockaddr*>(&addr));
+     }
+   }
+diff --git a/src/connecter.hpp b/src/connecter.hpp
+index d1059d5..3c3814f 100644
+--- a/src/connecter.hpp
++++ b/src/connecter.hpp
+@@ -40,6 +40,8 @@ public:
+     Connecter* connecter = new Connecter(address, data, cb);
+ 
+     int rc = 0;
++
++#if UV_VERSION_MAJOR == 0
+     if (address.family() == AF_INET) {
+       rc = uv_tcp_connect(&connecter->req_, handle, *address.addr_in(),
+                           on_connect);
+@@ -47,6 +49,10 @@ public:
+       rc = uv_tcp_connect6(&connecter->req_, handle, *address.addr_in6(),
+                            on_connect);
+     }
++#else
++    rc = uv_tcp_connect(&connecter->req_, handle, address.addr(),
++                        on_connect);
++#endif
+ 
+     if (rc != 0) {
+       connecter->status_ = FAILED;
+@@ -56,13 +62,19 @@ public:
+   }
+ 
+ private:
++#if UV_VERSION_MAJOR == 0 || 1
+   static void on_connect(uv_connect_t* req, int status) {
++#else
++  static void on_connect(uv_connect_t* req) {
++#endif
+     Connecter* connecter = static_cast<Connecter*>(req->data);
++#if UV_VERSION_MAJOR == 0 || 1
+     if (status != 0) {
+       connecter->status_ = FAILED;
+     } else {
+       connecter->status_ = SUCCESS;
+     }
++#endif
+     connecter->cb_(connecter);
+     delete connecter;
+   }
+diff --git a/src/connection.cpp b/src/connection.cpp
+index 9d195c7..6ec30bc 100644
+--- a/src/connection.cpp
++++ b/src/connection.cpp
+@@ -387,7 +387,11 @@ void Connection::on_connect(Connecter* connecter) {
+     }
+   } else {
+     connection->logger_->info("Connection: Connect error '%s' on host %s",
++#if UV_VERSION_MAJOR == 0
+                               uv_err_name(uv_last_error(connection->loop_)),
++#else
++                              "TODO: use libuv 1.0 API",
++#endif
+                               connection->addr_string_.c_str() );
+     connection->notify_error("Unable to connect");
+   }
+@@ -430,47 +434,86 @@ void Connection::on_close(uv_handle_t* handle) {
+   delete connection;
+ }
+ 
++#if UV_VERSION_MAJOR == 0
+ uv_buf_t Connection::alloc_buffer(uv_handle_t* handle, size_t suggested_size) {
+   return uv_buf_init(new char[suggested_size], suggested_size);
+ }
++#else
++void Connection::alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
++  buf->base = new char[suggested_size];
++  buf->len = suggested_size;
++}
++#endif
+ 
++#if UV_VERSION_MAJOR == 0
+ void Connection::on_read(uv_stream_t* client, ssize_t nread, uv_buf_t buf) {
++#else
++void Connection::on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
++#endif
+   Connection* connection = static_cast<Connection*>(client->data);
+ 
+   if (nread == -1) {
++#if UV_VERSION_MAJOR == 0
+     if (uv_last_error(connection->loop_).code != UV_EOF) {
+       connection->logger_->info("Connection: Read error '%s' on host %s",
+                                 uv_err_name(uv_last_error(connection->loop_)),
+                                 connection->addr_string_.c_str());
+     }
++#else
++    //TODO: use libuv 1.0 API
++#endif
+     connection->defunct();
++#if UV_VERSION_MAJOR == 0
+     delete[] buf.base;
++#else
++    delete[] buf->base;
++#endif
+     return;
+   }
+ 
++#if UV_VERSION_MAJOR == 0
+   connection->consume(buf.base, nread);
+-
+   delete[] buf.base;
++#else
++  connection->consume(buf->base, nread);
++  delete[] buf->base;
++#endif
+ }
+ 
++#if UV_VERSION_MAJOR == 0
+ uv_buf_t Connection::alloc_buffer_ssl(uv_handle_t* handle, size_t suggested_size) {
+   Connection* connection = static_cast<Connection*>(handle->data);
+   char* base = connection->ssl_session_->incoming().peek_writable(&suggested_size);
+   return uv_buf_init(base, suggested_size);
+ }
++#else
++void Connection::alloc_buffer_ssl(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf) {
++  Connection* connection = static_cast<Connection*>(handle->data);
++  buf->base = connection->ssl_session_->incoming().peek_writable(&suggested_size);
++  buf->len = suggested_size;
++}
++#endif
+ 
++#if UV_VERSION_MAJOR == 0
+ void Connection::on_read_ssl(uv_stream_t* client, ssize_t nread, uv_buf_t buf) {
++#else
++void Connection::on_read_ssl(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf) {
++#endif
+   Connection* connection = static_cast<Connection*>(client->data);
+ 
+   SslSession* ssl_session = connection->ssl_session_.get();
+   assert(ssl_session != NULL);
+ 
+   if (nread == -1) {
++#if UV_VERSION_MAJOR == 0
+     if (uv_last_error(connection->loop_).code != UV_EOF) {
+       connection->logger_->info("Connection: Read error '%s' on host %s",
+                                 uv_err_name(uv_last_error(connection->loop_)),
+                                 connection->addr_string_.c_str());
+     }
++#else
++    //TODO: use libuv 1.0 API
++#endif
+     connection->defunct();
+     return;
+   }
+@@ -682,7 +725,11 @@ void Connection::PendingWriteBase::on_write(uv_write_t* req, int status) {
+         } else {
+           if (!connection->is_closing()) {
+             connection->logger_->info("Connection: Write error '%s' on host %s",
++#if UV_VERSION_MAJOR == 0
+                                       uv_err_name(uv_last_error(connection->loop_)),
++#else
++                                      "TODO: use libuv 1.0 API",
++#endif
+                                       connection->addr_string_.c_str());
+             connection->defunct();
+           }
+diff --git a/src/connection.hpp b/src/connection.hpp
+index 6f14e14..7f93994 100644
+--- a/src/connection.hpp
++++ b/src/connection.hpp
+@@ -231,11 +231,17 @@ private:
+   static void on_connect_timeout(Timer* timer);
+   static void on_close(uv_handle_t* handle);
+ 
++#if UV_VERSION_MAJOR == 0
+   static uv_buf_t alloc_buffer(uv_handle_t* handle, size_t suggested_size);
+   static void on_read(uv_stream_t* client, ssize_t nread, uv_buf_t buf);
+-
+   static uv_buf_t alloc_buffer_ssl(uv_handle_t* handle, size_t suggested_size);
+   static void on_read_ssl(uv_stream_t* client, ssize_t nread, uv_buf_t buf);
++#else
++  static void alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
++  static void on_read(uv_stream_t* client, ssize_t nread, const uv_buf_t* buf);
++  static void alloc_buffer_ssl(uv_handle_t* handle, size_t suggested_size, uv_buf_t* buf);
++  static void on_read_ssl(uv_stream_t* client, ssize_t nread, const uv_buf_t *buf);
++#endif
+ 
+   void on_connected();
+   void on_authenticate();
+diff --git a/src/event_thread.hpp b/src/event_thread.hpp
+index 2dbd061..b490eb2 100644
+--- a/src/event_thread.hpp
++++ b/src/event_thread.hpp
+@@ -41,7 +41,11 @@ public:
+   virtual void on_event(const E& event) = 0;
+ 
+ private:
++#if UV_VERSION_MAJOR == 0
+   static void on_event_internal(uv_async_t* async, int status) {
++#else
++  static void on_event_internal(uv_async_t* async) {
++#endif
+     EventThread* thread = static_cast<EventThread*>(async->data);
+     E event;
+     while (thread->event_queue_->dequeue(event)) {
+diff --git a/src/handler.hpp b/src/handler.hpp
+index c9e0617..bbbf647 100644
+--- a/src/handler.hpp
++++ b/src/handler.hpp
+@@ -70,7 +70,11 @@ struct RequestTimer {
+     }
+   }
+ 
++#if UV_VERSION_MAJOR == 0
+   static void on_timeout(uv_timer_t* handle, int status) {
++#else
++  static void on_timeout(uv_timer_t* handle) {
++#endif
+     RequestTimer* timer = static_cast<RequestTimer*>(handle->data);
+     timer->cb_(timer);
+   }
+diff --git a/src/io_worker.cpp b/src/io_worker.cpp
+index 16f9bad..4336e58 100644
+--- a/src/io_worker.cpp
++++ b/src/io_worker.cpp
+@@ -284,7 +284,11 @@ void IOWorker::on_event(const IOWorkerEvent& event) {
+   }
+ }
+ 
++#if UV_VERSION_MAJOR == 0
+ void IOWorker::on_execute(uv_async_t* async, int status) {
++#else
++void IOWorker::on_execute(uv_async_t* async) {
++#endif
+   IOWorker* io_worker = static_cast<IOWorker*>(async->data);
+ 
+   RequestHandler* request_handler = NULL;
+@@ -303,7 +307,11 @@ void IOWorker::on_execute(uv_async_t* async, int status) {
+   io_worker->maybe_close();
+ }
+ 
++#if UV_VERSION_MAJOR == 0
+ void IOWorker::on_prepare(uv_prepare_t* prepare, int status) {
++#else
++void IOWorker::on_prepare(uv_prepare_t* prepare) {
++#endif
+   IOWorker* io_worker = static_cast<IOWorker*>(prepare->data);
+ 
+   for (PoolVec::iterator it = io_worker->pools_pending_flush_.begin(),
+diff --git a/src/io_worker.hpp b/src/io_worker.hpp
+index 8b9bf48..7284a54 100644
+--- a/src/io_worker.hpp
++++ b/src/io_worker.hpp
+@@ -108,8 +108,13 @@ private:
+ 
+   virtual void on_event(const IOWorkerEvent& event);
+ 
++#if UV_VERSION_MAJOR == 0
+   static void on_execute(uv_async_t* async, int status);
+   static void on_prepare(uv_prepare_t *prepare, int status);
++#else
++  static void on_execute(uv_async_t* async);
++  static void on_prepare(uv_prepare_t *prepare);
++#endif
+ 
+ private:
+   typedef std::map<Address, SharedRefPtr<Pool> > PoolMap;
+diff --git a/src/logger.hpp b/src/logger.hpp
+index 369b790..c896af5 100644
+--- a/src/logger.hpp
++++ b/src/logger.hpp
+@@ -97,7 +97,11 @@ private:
+     }
+   }
+ 
++#if UV_VERSION_MAJOR == 0
+   static void on_log(uv_async_t* async, int status) {
++#else
++  static void on_log(uv_async_t* async) {
++#endif
+     Logger* logger = static_cast<Logger*>(async->data);
+ 
+     bool is_closing = false;
+diff --git a/src/session.cpp b/src/session.cpp
+index 6ce7cf8..e514cf8 100644
+--- a/src/session.cpp
++++ b/src/session.cpp
+@@ -85,7 +85,11 @@ int Session::init() {
+     num_threads = 1; // Default if we can't determine the number of cores
+     uv_cpu_info_t* cpu_infos;
+     int cpu_count;
++#if UV_VERSION_MAJOR == 0
+     if (uv_cpu_info(&cpu_infos, &cpu_count).code == 0 && cpu_count > 0) {
++#else
++    if (uv_cpu_info(&cpu_infos, &cpu_count) == 0 && cpu_count > 0) {
++#endif
+       num_threads = cpu_count;
+       uv_free_cpu_info(cpu_infos, cpu_count);
+     }
+@@ -434,7 +438,11 @@ Future* Session::execute(const RoutableRequest* request) {
+   return future;
+ }
+ 
++#if UV_VERSION_MAJOR == 0
+ void Session::on_execute(uv_async_t* data, int status) {
++#else
++void Session::on_execute(uv_async_t* data) {
++#endif
+   Session* session = static_cast<Session*>(data->data);
+ 
+   bool is_closing = false;
+diff --git a/src/session.hpp b/src/session.hpp
+index 3ae6701..9910358 100644
+--- a/src/session.hpp
++++ b/src/session.hpp
+@@ -117,7 +117,12 @@ private:
+   virtual void on_event(const SessionEvent& event);
+ 
+   static void on_resolve(Resolver* resolver);
++
++#if UV_VERSION_MAJOR == 0
+   static void on_execute(uv_async_t* data, int status);
++#else
++  static void on_execute(uv_async_t* data);
++#endif
+ 
+   QueryPlan* new_query_plan(const Request* request = NULL);
+ 
+diff --git a/src/timer.hpp b/src/timer.hpp
+index c8db0f8..80d9254 100644
+--- a/src/timer.hpp
++++ b/src/timer.hpp
+@@ -49,7 +49,11 @@ private:
+     uv_close(copy_cast<uv_timer_t*, uv_handle_t*>(&timer->handle_), on_close);
+   }
+ 
++#if UV_VERSION_MAJOR == 0
+   static void on_timeout(uv_timer_t* handle, int status) {
++#else
++  static void on_timeout(uv_timer_t* handle) {
++#endif
+     Timer* timer = static_cast<Timer*>(handle->data);
+     timer->cb_(timer);
+     close(timer);
+diff --git a/src/uuids.cpp b/src/uuids.cpp
+index 07692b5..1de898f 100644
+--- a/src/uuids.cpp
++++ b/src/uuids.cpp
+@@ -202,7 +202,11 @@ uint64_t Uuids::make_clock_seq_and_node() {
+ 
+   uv_interface_address_t* addresses;
+   int address_count;
+-  if (uv_interface_addresses(&addresses, &address_count).code == 0) {
++#if UV_VERSION_MAJOR == 0
++    if (uv_interface_addresses(&addresses, &address_count).code == 0) {
++#else
++    if (uv_interface_addresses(&addresses, &address_count) == 0) {
++#endif
+     for (int i = 0; i < address_count; ++i) {
+       char buf[256];
+       uv_interface_address_t address = addresses[i];
+@@ -224,7 +228,11 @@ uint64_t Uuids::make_clock_seq_and_node() {
+ 
+   uv_cpu_info_t* cpu_infos;
+   int cpu_count;
++#if UV_VERSION_MAJOR == 0
+   if (uv_cpu_info(&cpu_infos, &cpu_count).code == 0) {
++#else
++  if (uv_cpu_info(&cpu_infos, &cpu_count) == 0) {
++#endif
+     for (int i = 0; i < cpu_count; ++i) {
+       uv_cpu_info_t cpu_info = cpu_infos[i];
+       md5.update(cpu_info.model, strlen(cpu_info.model));
+-- 
+2.1.3
