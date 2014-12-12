@@ -2,7 +2,7 @@
 
 pkgname=aerospike-client-c-git
 pkgver=3.0.90.r0.g928225b
-pkgrel=1
+pkgrel=2
 pkgdesc="SSD optimized NoSQL key-value store. Client"
 arch=('i686' 'x86_64')
 url='http://www.aerospike.com'
@@ -31,7 +31,7 @@ prepare() {
 
 build() {
 	cd "${srcdir}/${pkgname}"
-	make
+	make -j1
 }
 
 package() {
