@@ -4,7 +4,7 @@ pkgname=linux-xps13
 true && pkgname=(linux-xps13 linux-xps13-headers)
 _kernelname=-xps13
 _srcname=linux-3.17
-pkgver=3.17.4
+pkgver=3.17.6
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/gunzy83/linux-xps13-archlinux"
@@ -17,16 +17,18 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'config.x86_64'
         'linux-xps13.preset'
         'change-default-console-loglevel.patch'
-        'fix_CPU0_microcode_on_resume.patch'
+        '0001-x86-microcode-Update-BSPs-microcode-on-resume.patch'
+        '0002-x86-microcode-Limit-the-microcode-reloading-to-64-bi.patch'
         'xps13.patch'
         )
 sha256sums=('f5153ec93c5fcd41b247950e6a9bcbc63fa87beafd112c133a622439a0f76251'
-            'eeef37397a15245bd143569908be40622a87dc7673965e623e811ea3f68b8434'
+            '30d8e0da16ac7cc8be13cd6da72ddc487e8c24fb662caf69da7f6d375fdc1aab'
             'ea9de72fe335055f6e8eebd1d85cad150a47a81004bb27d78f18f2591fd3bbd5'
             '66fc95823d3c99167532f37c07e9582d305961103997fcc61cfc7f6a86b34130'
             'bf7ccd0ca928dc47b7e2a87d08d8f19faafbb21ff957e22f1ee78a180961047e'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            '43668fe46147fe93f41b919db673574427ce5a8c376cd28ddddcbf3a00326491'
+            'fb120d3031886afd86a2054f551545898758b18f8bad1f6fee1c49e1ce23a760'
+            '529ffe2f52cba3ce8d7ab07bd85361d804d377464ee878ac085d6032336e4918'
             'f7723d4a2e07da82b3698fb4edb5cf1ca0ccbbc3e789247118fcb7a44d89cdf2')
 	    
 prepare() {
@@ -45,7 +47,9 @@ prepare() {
 
   # Fix FS#42689
   # https://bugzilla.kernel.org/show_bug.cgi?id=88001
-  patch -p1 -i "${srcdir}/fix_CPU0_microcode_on_resume.patch"
+  #
+  patch -p1 -i "${srcdir}/0001-x86-microcode-Update-BSPs-microcode-on-resume.patch"
+  patch -p1 -i "${srcdir}/0002-x86-microcode-Limit-the-microcode-reloading-to-64-bi.patch"
 
   # apply the xps 13 cypress touchpad simulated multitouch patch
   msg "Patching source with XPS13 touchpad patch."
