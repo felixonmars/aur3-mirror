@@ -1,2 +1,2 @@
 #!/bin/sh
-/usr/share/jacobe/jacobe $@
+/usr/bin/jacobe-bin $@
