@@ -1,16 +1,16 @@
 # Maintainer: Nicolas Leclercq <nicolas.private@gmail.com>
 
 pkgname='facette'
-pkgver='0.2.2'
+pkgver='0.2.3'
 pkgrel='1'
 epoch=
 pkgdesc='Facette is a software to display time series data from several various sources'
-arch=('x86_64')
+arch=('i686' 'x86_64')
 url='http://facette.io/'
 license=('BSD')
 groups=()
 depends=('rrdtool')
-makedepends=()
+makedepends=('pkg-config' 'go' 'nodejs' 'pandoc-static')
 checkdepends=()
 optdepends=()
 provides=('facette')
@@ -21,35 +21,35 @@ options=()
 install='facette.install'
 changelog=
 source=(
-  "https://github.com/facette/facette/releases/download/$pkgver/$pkgname-$pkgver-linux-amd64.tar.gz"
+  "https://github.com/facette/facette/archive/$pkgver.tar.gz"
   'facette.service'
   'facette.install'
   '.AURINFO')
 noextract=()
-md5sums=('e516fb875a1e388fb4f2e038323e4488'
-         '0a15a3822fc2ee56a39971528284c9c6'
-         'ade342a98ade039939cf354580b12651'
+md5sums=('20dfd12a4a33d9c278f7a17081410a9e'
+         'eebed9778725e4c6fc9cfb95b9ce573e'
+         '7b64618623c361cdfd3dec729785191e'
          'SKIP')
 
+_prefix='/usr/local'
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  make
+}
+
 package() {
-  cd "$srcdir/$pkgname-linux-amd64"
+  cd "$srcdir/$pkgname-$pkgver"
+  make PREFIX=${pkgdir}/${_prefix} install
 
 	# create target directory structure
-	mkdir -p ${pkgdir}/{usr/bin,usr/local/share/facette,etc/facette,var/log/facette,var/run/facette}
-
-	# binaries
-	cp bin/{facette,facettectl} ${pkgdir}/usr/bin
-
-  # static content
-  cp -r share/facette/{examples,static,template} ${pkgdir}/usr/local/share/facette
-
-  # man
-  cp -r share/man ${pkgdir}/usr/local/share/facette
+	mkdir -p ${pkgdir}/{etc/facette,var/log/facette,var/run/facette}
 
 	# default config
-	cp -r share/facette/examples/{facette.json,providers} ${pkgdir}/etc/facette
+  cp docs/examples/facette.json  ${pkgdir}/etc/facette
+  cp -r docs/examples/providers  ${pkgdir}/etc/facette
 
 	# copy systemd service file
-	install -D -m644 $srcdir/facette.service $pkgdir/usr/lib/systemd/system/facette.service
+  install -D -m644 $srcdir/facette.service $pkgdir/usr/lib/systemd/system/facette.service
 }
 

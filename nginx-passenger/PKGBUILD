@@ -2,17 +2,18 @@
 # https://github.com/t-richards/aur-nginx-passenger
 
 _nginxver=1.6.2
-_passengerver=4.0.53
+_passengerver=4.0.55
 
 pkgname=nginx-passenger
 pkgver=1.6.2
-pkgrel=2
+pkgrel=3
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
 license=('custom')
 depends=('pcre' 'zlib' 'openssl' 'ruby' 'ruby-rack' 'curl' 'libev')
 optdepends=('python: Support for python web apps' 'nodejs: Support for node.js web apps')
+makedepends=('hardening-wrapper')
 conflicts=('nginx' 'passenger')
 backup=('etc/nginx/fastcgi.conf'
         'etc/nginx/fastcgi_params'
@@ -31,7 +32,7 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
     'service'
     'logrotate')
 sha256sums=('b5608c2959d3e7ad09b20fc8f9e5bd4bc87b3bc8ba5936a513c04ed8f1391a18'
-            'c3577c313c27063f1f8bb8ce41a3121ce632fc50cd2766a58fde4cb4a1876c01'
+            'e1e2f6e278ef454b006dcdb3fd48c7f8327efd363fe2d8863d07823f27225e43'
             'ef8c92df29814a35f133ec5d9fef896f93709068aa3ca964b64aae68bdec2ab6'
             '6fe4c5eb7332f5eebdd7e08e46256a3d344bd375e9134be66013fbc52059e1ac'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
@@ -65,24 +66,24 @@ build() {
         --http-fastcgi-temp-path=/var/lib/nginx/fastcgi \
         --http-scgi-temp-path=/var/lib/nginx/scgi \
         --http-uwsgi-temp-path=/var/lib/nginx/uwsgi \
+        --with-file-aio \
+        --with-http_addition_module \
+        --with-http_dav_module \
+        --with-http_degradation_module \
+        --with-http_flv_module \
+        --with-http_gunzip_module \
+        --with-http_gzip_static_module \
+        --with-http_mp4_module \
+        --with-http_realip_module \
+        --with-http_secure_link_module \
+        --with-http_spdy_module \
+        --with-http_ssl_module \
+        --with-http_stub_status_module \
+        --with-http_sub_module \
         --with-imap \
         --with-imap_ssl_module \
         --with-ipv6 \
         --with-pcre-jit \
-        --with-file-aio \
-        --with-http_dav_module \
-        --with-http_gunzip_module \
-        --with-http_gzip_static_module \
-        --with-http_realip_module \
-        --with-http_spdy_module \
-        --with-http_ssl_module \
-        --with-http_stub_status_module \
-        --with-http_addition_module \
-        --with-http_degradation_module \
-        --with-http_flv_module \
-        --with-http_mp4_module \
-        --with-http_secure_link_module \
-        --with-http_sub_module \
         --add-module="$_nginx_addon_dir"
     make
 }
@@ -91,6 +92,10 @@ package() {
     #Nginx
     cd "$srcdir/nginx-$_nginxver"
     make DESTDIR="$pkgdir/" install
+
+    install -Dm644 contrib/vim/ftdetect/nginx.vim "$pkgdir"/usr/share/vim/vimfiles/ftdetect/nginx.vim
+    install -Dm644 contrib/vim/syntax/nginx.vim "$pkgdir"/usr/share/vim/vimfiles/syntax/nginx.vim
+    install -Dm644 contrib/vim/indent/nginx.vim "$pkgdir"/usr/share/vim/vimfiles/indent/nginx.vim
 
     sed -e 's|\<user\s\+\w\+;|user html;|g' \
     -e '44s|html|/usr/share/nginx/html|' \
