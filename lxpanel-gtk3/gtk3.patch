@@ -1,0 +1,1266 @@
+diff --git a/data/ui/netstatus.glade b/data/ui/netstatus.glade
+index 39f7299..fc956d3 100644
+--- a/data/ui/netstatus.glade
++++ b/data/ui/netstatus.glade
+@@ -107,8 +107,15 @@
+                                   </packing>
+                                 </child>
+                                 <child>
+-                                  <object class="GtkComboBoxEntry" id="name_combo">
++                                  <object class="GtkComboBox" id="name_combo">
+                                     <property name="visible">True</property>
++                                    <property name="can_focus">False</property>
++                                    <property name="has_entry">True</property>
++                                    <child internal-child="entry">
++                                      <object class="GtkEntry" id="combobox-entry">
++                                        <property name="can_focus">True</property>
++                                      </object>
++                                    </child>
+                                   </object>
+                                   <packing>
+                                     <property name="left_attach">1</property>
+diff --git a/plugins/launchtaskbar.c b/plugins/launchtaskbar.c
+index fb0dd2a..a1c72f7 100644
+--- a/plugins/launchtaskbar.c
++++ b/plugins/launchtaskbar.c
+@@ -63,6 +63,9 @@
+ # include "menu-policy.h"
+ #endif
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++#include <gdk/gdkx.h>
++#endif
+ 
+ #define PANEL_ICON_SIZE 24 /* see the private.h */
+ 
+@@ -1907,6 +1910,73 @@ static void task_delete(LaunchTaskBarPlugin * tb, Task * tk, gboolean unlink, gb
+     g_free(tk);
+ }
+ 
++#if GTK_CHECK_VERSION(3,0,0)
++static cairo_surface_t *
++_wnck_cairo_surface_get_from_pixmap (Screen *screen,
++                                     Pixmap  xpixmap)
++{
++    cairo_surface_t *surface;
++    Display *display;
++    Window root_return;
++    int x_ret, y_ret;
++    unsigned int w_ret, h_ret, bw_ret, depth_ret;
++    XWindowAttributes attrs;
++
++    surface = NULL;
++    display = DisplayOfScreen (screen);
++
++ // _wnck_error_trap_push (display);
++
++    if (!XGetGeometry (display, xpixmap, &root_return,
++                       &x_ret, &y_ret, &w_ret, &h_ret, &bw_ret, &depth_ret))
++    goto TRAP_POP;
++
++    if (depth_ret == 1)
++    {
++    surface = cairo_xlib_surface_create_for_bitmap (display,
++                                                    xpixmap,
++                                                    screen,
++                                                    w_ret,
++                                                    h_ret);
++    }
++    else
++    {
++        if (!XGetWindowAttributes (display, root_return, &attrs))
++            goto TRAP_POP;
++        surface = cairo_xlib_surface_create (display,
++                                             xpixmap,
++                                             attrs.visual,
++                                             w_ret, h_ret);
++	}
++
++TRAP_POP:
++    return surface;
++}
++
++
++GdkPixbuf*
++_wnck_gdk_pixbuf_get_from_pixmap (Screen *screen,
++                                  Pixmap  xpixmap)
++{
++    cairo_surface_t *surface;
++    GdkPixbuf *retval;
++
++    surface = _wnck_cairo_surface_get_from_pixmap (screen, xpixmap);
++
++    if (surface == NULL)
++        return NULL;
++
++    retval = gdk_pixbuf_get_from_surface (surface,
++                                          0,
++                                          0,
++                                          cairo_xlib_surface_get_width (surface),
++                                          cairo_xlib_surface_get_height (surface));
++  cairo_surface_destroy (surface);
++
++  return retval;
++}
++
++#else
+ /* Get a pixbuf from a pixmap.
+  * Originally from libwnck, Copyright (C) 2001 Havoc Pennington. */
+ static GdkPixbuf * _wnck_gdk_pixbuf_get_from_pixmap(Pixmap xpixmap, int width, int height)
+@@ -1966,6 +2036,7 @@ static GdkPixbuf * _wnck_gdk_pixbuf_get_from_pixmap(Pixmap xpixmap, int width, i
+         g_object_unref(G_OBJECT(drawable));
+     return retval;
+ }
++#endif
+ 
+ /* Apply a mask to a pixbuf.
+  * Originally from libwnck, Copyright (C) 2001 Havoc Pennington. */
+@@ -2205,7 +2276,11 @@ static GdkPixbuf * get_wm_icon(Window task_win, guint required_width, guint requ
+         /* If we have an X pixmap and its geometry, convert it to a GDK pixmap. */
+         if (result == Success)
+         {
++#if GTK_CHECK_VERSION (3, 0, 0)
++            pixmap = _wnck_gdk_pixbuf_get_from_pixmap(gdk_x11_screen_get_xscreen(gdk_screen_get_default()),xpixmap);
++#else
+             pixmap = _wnck_gdk_pixbuf_get_from_pixmap(xpixmap, w, h);
++#endif
+             result = ((pixmap != NULL) ? Success : -1);
+         }
+ 
+@@ -2221,7 +2296,11 @@ static GdkPixbuf * get_wm_icon(Window task_win, guint required_width, guint requ
+                 &unused_win, &unused, &unused, &w, &h, &unused_2, &unused_2))
+             {
+                 /* Convert the X mask to a GDK pixmap. */
++#if GTK_CHECK_VERSION (3, 0, 0)
++                GdkPixbuf * mask = _wnck_gdk_pixbuf_get_from_pixmap(gdk_x11_screen_get_xscreen(gdk_screen_get_default()),xmask);
++#else
+                 GdkPixbuf * mask = _wnck_gdk_pixbuf_get_from_pixmap(xmask, w, h);
++#endif
+                 if (mask != NULL)
+                 {
+                     /* Apply the mask. */
+diff --git a/plugins/netstat/netstat.c b/plugins/netstat/netstat.c
+index f1fb809..717eebc 100644
+--- a/plugins/netstat/netstat.c
++++ b/plugins/netstat/netstat.c
+@@ -192,7 +192,9 @@ wireless_menu(netdev_info *ni)
+ 
+             signal_quality = gtk_progress_bar_new();
+             gtk_widget_set_size_request(signal_quality, 100, -1);
++#if !GTK_CHECK_VERSION (3, 0, 0)
+             gtk_progress_bar_set_orientation(GTK_PROGRESS_BAR(signal_quality), GTK_PROGRESS_LEFT_TO_RIGHT);
++#endif
+             gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(signal_quality), quality_per);
+             gtk_box_pack_start(GTK_BOX(item_box), signal_quality, FALSE, FALSE, 0);
+ 
+diff --git a/plugins/netstat/passwd_gui.c b/plugins/netstat/passwd_gui.c
+index ad9b87b..54969dd 100644
+--- a/plugins/netstat/passwd_gui.c
++++ b/plugins/netstat/passwd_gui.c
+@@ -86,7 +86,11 @@ struct pgui *passwd_gui_new(ap_setting *aps)
+     /* create dialog */
+     pwdgui->dlg = gtk_dialog_new_with_buttons(_("Setting Encryption Key"),
+                                        NULL,
++#if GTK_CHECK_VERSION (3, 0, 0)
++                                       0,
++#else
+                                        GTK_DIALOG_NO_SEPARATOR,
++#endif
+                                        GTK_STOCK_OK, GTK_RESPONSE_OK,
+                                        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+                                        NULL );
+diff --git a/plugins/netstatus/netstatus-dialog.c b/plugins/netstatus/netstatus-dialog.c
+index b6f3c9f..7be524b 100644
+--- a/plugins/netstatus/netstatus-dialog.c
++++ b/plugins/netstatus/netstatus-dialog.c
+@@ -228,14 +228,18 @@ netstatus_dialog_update_inet4_support (NetstatusDialogData *data)
+       /* Address */
+       if (addr)
+ 	{
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ 	  gtk_table_set_row_spacing (GTK_TABLE (data->inet4_table), 0, 6);
++#endif
+ 	  gtk_label_set_text (GTK_LABEL (data->inet4_addr), addr);
+ 	  gtk_widget_show (data->inet4_addr);
+ 	  gtk_widget_show (data->inet4_addr_title);
+ 	}
+       else
+ 	{
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ 	  gtk_table_set_row_spacing (GTK_TABLE (data->inet4_table), 0, 0);
++#endif
+ 	  gtk_widget_hide (data->inet4_addr);
+ 	  gtk_widget_hide (data->inet4_addr_title);
+ 	}
+@@ -243,14 +247,18 @@ netstatus_dialog_update_inet4_support (NetstatusDialogData *data)
+       /* Destination */
+       if (dest)
+ 	{
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ 	  gtk_table_set_row_spacing (GTK_TABLE (data->inet4_table), 1, 6);
++#endif
+ 	  gtk_label_set_text (GTK_LABEL (data->inet4_dest), dest);
+ 	  gtk_widget_show (data->inet4_dest);
+ 	  gtk_widget_show (data->inet4_dest_title);
+ 	}
+       else
+ 	{
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ 	  gtk_table_set_row_spacing (GTK_TABLE (data->inet4_table), 1, 0);
++#endif
+ 	  gtk_widget_hide (data->inet4_dest);
+ 	  gtk_widget_hide (data->inet4_dest_title);
+ 	}
+@@ -258,14 +266,18 @@ netstatus_dialog_update_inet4_support (NetstatusDialogData *data)
+       /* Broadcast */
+       if (bcast)
+ 	{
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ 	  gtk_table_set_row_spacing (GTK_TABLE (data->inet4_table), 2, 6);
++#endif
+ 	  gtk_label_set_text (GTK_LABEL (data->inet4_bcast), bcast);
+ 	  gtk_widget_show (data->inet4_bcast);
+ 	  gtk_widget_show (data->inet4_bcast_title);
+ 	}
+       else
+ 	{
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ 	  gtk_table_set_row_spacing (GTK_TABLE (data->inet4_table), 2, 0);
++#endif
+ 	  gtk_widget_hide (data->inet4_bcast);
+ 	  gtk_widget_hide (data->inet4_bcast_title);
+ 	}
+@@ -744,7 +756,11 @@ netstatus_dialog_new (NetstatusIface *iface)
+   data = g_new0 (NetstatusDialogData, 1);
+ 
+   data->builder = gtk_builder_new();
+-  gtk_builder_add_from_file(data->builder, PACKAGE_UI_DIR "/netstatus.ui", NULL);
++  if ( !gtk_builder_add_from_file(data->builder, PACKAGE_UI_DIR "/netstatus.ui", NULL) )
++  {
++      g_object_unref(data->builder);
++      return;
++  }
+   data->dialog = (GtkWidget*)gtk_builder_get_object(data->builder, "network_status_dialog");
+ 
+   g_object_set_data (G_OBJECT (data->dialog), "netstatus-dialog-data", data);
+diff --git a/plugins/netstatus/netstatus-icon.c b/plugins/netstatus/netstatus-icon.c
+index 7746779..ecc5422 100644
+--- a/plugins/netstatus/netstatus-icon.c
++++ b/plugins/netstatus/netstatus-icon.c
+@@ -447,7 +447,11 @@ netstatus_icon_signal_changed (NetstatusIface *iface,
+ }
+ 
+ static void
++#if GTK_CHECK_VERSION (3, 0, 0)
++netstatus_icon_destroy (GtkWidget *widget)
++#else
+ netstatus_icon_destroy (GtkObject *widget)
++#endif
+ {
+   NetstatusIcon *icon = (NetstatusIcon *) widget;
+ 
+@@ -475,7 +479,11 @@ netstatus_icon_destroy (GtkObject *widget)
+ 
+   icon->priv->image = NULL;
+ 
++#if GTK_CHECK_VERSION (3, 0, 0)
++  GTK_WIDGET_CLASS (parent_class)->destroy (widget);
++#else
+   GTK_OBJECT_CLASS (parent_class)->destroy (widget);
++#endif
+ }
+ 
+ static GdkPixbuf *
+@@ -581,6 +589,7 @@ get_box_class (GtkOrientation orientation)
+   return g_type_class_peek(orientation == GTK_ORIENTATION_HORIZONTAL ? GTK_TYPE_HBOX : GTK_TYPE_VBOX);
+ }
+ 
++#if !GTK_CHECK_VERSION (3, 0, 0)
+ static void
+ netstatus_icon_size_request (GtkWidget      *widget,
+ 			     GtkRequisition *requisition)
+@@ -593,6 +602,7 @@ netstatus_icon_size_request (GtkWidget      *widget,
+   if (GTK_WIDGET_CLASS (klass)->size_request)
+     GTK_WIDGET_CLASS (klass)->size_request (widget, requisition);
+ }
++#endif
+ 
+ static void
+ netstatus_icon_size_allocate (GtkWidget     *widget,
+@@ -670,7 +680,9 @@ netstatus_icon_realize (GtkWidget *widget)
+   attributes.window_type = GDK_WINDOW_CHILD;
+   attributes.wclass = GDK_INPUT_OUTPUT;
+   attributes.visual = gtk_widget_get_visual (widget);
++#if !GTK_CHECK_VERSION (3, 0, 0)
+   attributes.colormap = gtk_widget_get_colormap (widget);
++#endif
+   attributes.event_mask = gtk_widget_get_events (widget) |
+                           GDK_BUTTON_MOTION_MASK         |
+                           GDK_BUTTON_PRESS_MASK          |
+@@ -679,15 +691,21 @@ netstatus_icon_realize (GtkWidget *widget)
+                           GDK_ENTER_NOTIFY_MASK          |
+                           GDK_LEAVE_NOTIFY_MASK;
+ 
++#if GTK_CHECK_VERSION (3, 0, 0)
++  attributes_mask = GDK_WA_X | GDK_WA_Y | GDK_WA_VISUAL;
++#else
+   attributes_mask = GDK_WA_X | GDK_WA_Y | GDK_WA_VISUAL | GDK_WA_COLORMAP;
++#endif
+ 
+   window = gdk_window_new (gtk_widget_get_parent_window (widget), &attributes, attributes_mask);
+   gtk_widget_set_window (widget, window);
+   gdk_window_set_user_data (window, widget);
+ 
++#if !GTK_CHECK_VERSION (3, 0, 0)
+   gtk_widget_ensure_style (widget);
+   style = gtk_widget_get_style (widget);
+   gtk_style_set_background (style, window, GTK_STATE_NORMAL);
++#endif
+ }
+ 
+ static gboolean
+@@ -799,7 +817,9 @@ static void
+ netstatus_icon_class_init (NetstatusIconClass *klass)
+ {
+   GObjectClass   *gobject_class   = (GObjectClass   *) klass;
++#if !GTK_CHECK_VERSION (3, 0, 0)
+   GtkObjectClass *gtkobject_class = (GtkObjectClass *) klass;
++#endif
+   GtkWidgetClass *widget_class    = (GtkWidgetClass *) klass;
+ 
+   parent_class = g_type_class_peek_parent (klass);
+@@ -810,10 +830,15 @@ netstatus_icon_class_init (NetstatusIconClass *klass)
+   */
+ 
+   gobject_class->finalize     = netstatus_icon_finalize;
++#if GTK_CHECK_VERSION (3, 0, 0)
++  widget_class->destroy = netstatus_icon_destroy;
+ 
++//  widget_class->size_request       = netstatus_icon_size_request;
++#else
+   gtkobject_class->destroy = netstatus_icon_destroy;
+ 
+   widget_class->size_request       = netstatus_icon_size_request;
++#endif
+   widget_class->size_allocate      = netstatus_icon_size_allocate;
+   widget_class->realize            = netstatus_icon_realize;
+   widget_class->button_press_event = netstatus_icon_button_press_event;
+diff --git a/plugins/netstatus/netstatus.c b/plugins/netstatus/netstatus.c
+index 21e6216..a88c56d 100644
+--- a/plugins/netstatus/netstatus.c
++++ b/plugins/netstatus/netstatus.c
+@@ -90,8 +90,10 @@ static gboolean on_button_press( GtkWidget* widget, GdkEventButton* evt, LXPanel
+             iface = netstatus_icon_get_iface( NETSTATUS_ICON(widget) );
+             ns->dlg = netstatus_dialog_new(iface);
+ 
++#if !GTK_CHECK_VERSION (3,0,0)
+             /* fix background */
+             gtk_widget_set_style(ns->dlg, panel_get_defstyle(p));
++#endif
+ 
+             netstatus_dialog_set_configuration_tool( ns->dlg, ns->config_tool );
+             g_signal_connect( ns->dlg, "response", G_CALLBACK(on_response), ns );
+diff --git a/plugins/pager.c b/plugins/pager.c
+index c5e9ed3..b942d3d 100644
+--- a/plugins/pager.c
++++ b/plugins/pager.c
+@@ -64,7 +64,11 @@ static GtkWidget *pager_constructor(LXPanel *panel, config_setting_t *settings)
+     int border = 1; /* NOTE: old 'pager' used 2, WnckPager has 1, need 1 more */
+ 
+     /* FIXME: use some global setting for border */
++#if GTK_CHECK_VERSION (3,0,0)
++    w = wnck_pager_new();
++#else
+     w = wnck_pager_new(NULL);
++#endif
+     g_return_val_if_fail(w != NULL, 0);
+     p = gtk_alignment_new(0, 0, 1.0, 1.0);
+ 
+diff --git a/plugins/tray.c b/plugins/tray.c
+index ace9713..a5b4373 100644
+--- a/plugins/tray.c
++++ b/plugins/tray.c
+@@ -34,6 +34,10 @@
+ #include "misc.h"
+ #include "icon-grid.h"
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++#include <gtk/gtkx.h>
++#endif
++
+ /* Standards reference:  http://standards.freedesktop.org/systemtray-spec/ */
+ 
+ /* Protocol constants. */
+@@ -430,6 +434,9 @@ static void trayclient_request_dock(TrayPlugin * tr, XClientMessageEvent * xeven
+     /* Add the socket to the icon grid. */
+     gtk_container_add(GTK_CONTAINER(tr->plugin), tc->socket);
+     gtk_widget_show(tc->socket);
++#if GTK_CHECK_VERSION (3, 0, 0)
++    gdk_window_set_composited (gtk_widget_get_window(tc->socket),TRUE);
++#endif
+ 
+     /* Connect the socket to the plug.  This can only be done after the socket is realized. */
+     gtk_socket_add_id(GTK_SOCKET(tc->socket), tc->window);
+@@ -443,6 +450,9 @@ static void trayclient_request_dock(TrayPlugin * tr, XClientMessageEvent * xeven
+         return;
+     }
+ 
++#if GTK_CHECK_VERSION (3, 0, 0)
++    gtk_widget_set_size_request (tc->socket,panel_get_icon_size (tr->panel),panel_get_icon_size (tr->panel));
++#endif
+     /* Link the client structure into the client list. */
+     if (tc_pred == NULL)
+     {
+@@ -546,6 +556,88 @@ static void tray_unmanage_selection(TrayPlugin * tr)
+     }
+ }
+ 
++#if GTK_CHECK_VERSION (3, 0, 0)
++static void
++tray_set_visual_property (GtkWidget *invisible, GdkScreen* screen)
++{
++  GdkWindow  *window;
++  GdkDisplay *display;
++  Visual     *xvisual;
++  Atom        visual_atom;
++  gulong      data[1];
++
++  if (!invisible)
++    return;
++  window = gtk_widget_get_window (invisible);
++  if (!window)
++    return;
++
++  /* The visual property is a hint to the tray icons as to what visual they
++   * should use for their windows. If the X server has RGBA colormaps, then
++   * we tell the tray icons to use a RGBA colormap and we'll composite the
++   * icon onto its parents with real transparency. Otherwise, we just tell
++   * the icon to use our colormap, and we'll do some hacks with parent
++   * relative backgrounds to simulate transparency.
++   */
++
++  display = gtk_widget_get_display (invisible);
++  visual_atom = gdk_x11_get_xatom_by_name_for_display (display,
++                               "_NET_SYSTEM_TRAY_VISUAL");
++
++  if (gdk_screen_get_rgba_visual (screen) != NULL &&
++      gdk_display_supports_composite (display))
++    {
++      xvisual = GDK_VISUAL_XVISUAL (gdk_screen_get_rgba_visual (screen));
++    }
++  else
++    {
++      /* We actually want the visual of the tray where the icons will
++       * be embedded. In almost all cases, this will be the same as the visual
++       * of the screen.
++       */
++      xvisual = GDK_VISUAL_XVISUAL (gdk_screen_get_system_visual (screen));
++    }
++
++  data[0] = XVisualIDFromVisual (xvisual);
++
++  XChangeProperty (GDK_DISPLAY_XDISPLAY (display),
++                   GDK_WINDOW_XID (window),
++                   visual_atom,
++                   XA_VISUALID, 32,
++                   PropModeReplace,
++                   (guchar *) &data, 1);
++}
++
++static void
++tray_draw_icon (GtkWidget *widget, gpointer   data)
++{
++      cairo_t *cr = data;
++      GtkAllocation allocation;
++      GtkAllocation parent_alloc;
++
++      gtk_widget_get_allocation (widget, &allocation);
++      gtk_widget_get_allocation (gtk_widget_get_parent(widget), &parent_alloc);
++      cairo_save (cr);
++      gdk_cairo_set_source_window (cr,
++                                   gtk_widget_get_window (widget),
++                                   allocation.x-parent_alloc.x,
++                                   allocation.y-parent_alloc.y);
++      cairo_rectangle (cr, allocation.x-parent_alloc.x, allocation.y-parent_alloc.y, allocation.width, allocation.height);
++      cairo_clip (cr);
++      cairo_paint (cr);
++      cairo_restore (cr);
++}
++
++
++static void
++tray_draw_box (GtkWidget *box,
++                  cairo_t   *cr)
++{
++    gtk_container_foreach (GTK_CONTAINER (box), tray_draw_icon, cr);
++}
++
++#endif
++
+ /* Plugin constructor. */
+ static GtkWidget *tray_constructor(LXPanel *panel, config_setting_t *settings)
+ {
+@@ -574,6 +666,9 @@ static GtkWidget *tray_constructor(LXPanel *panel, config_setting_t *settings)
+     gtk_widget_realize(invisible);
+     gtk_widget_add_events(invisible, GDK_PROPERTY_CHANGE_MASK | GDK_STRUCTURE_MASK);
+ 
++#if GTK_CHECK_VERSION (3, 0, 0)
++    tray_set_visual_property (invisible, screen);
++#endif
+     /* Try to claim the _NET_SYSTEM_TRAY_Sn selection. */
+     guint32 timestamp = gdk_x11_get_server_time(gtk_widget_get_window(invisible));
+     if (gdk_selection_owner_set_for_display(
+@@ -591,7 +686,11 @@ static GtkWidget *tray_constructor(LXPanel *panel, config_setting_t *settings)
+         xev.format = 32;
+         xev.data.l[0] = timestamp;
+         xev.data.l[1] = selection_atom;
++#if GTK_CHECK_VERSION (3,0,0)
++        xev.data.l[2] = GDK_WINDOW_XID(gtk_widget_get_window(invisible));
++#else
+         xev.data.l[2] = GDK_WINDOW_XWINDOW(gtk_widget_get_window(invisible));
++#endif
+         xev.data.l[3] = 0;    /* manager specific data */
+         xev.data.l[4] = 0;    /* manager specific data */
+         XSendEvent(GDK_DISPLAY_XDISPLAY(display), RootWindowOfScreen(xscreen), False, StructureNotifyMask, (XEvent *) &xev);
+@@ -601,7 +700,11 @@ static GtkWidget *tray_constructor(LXPanel *panel, config_setting_t *settings)
+         gulong data = SYSTEM_TRAY_ORIENTATION_HORZ;
+         XChangeProperty(
+             GDK_DISPLAY_XDISPLAY(display),
++#if GTK_CHECK_VERSION (3,0,0)
++            GDK_WINDOW_XID(gtk_widget_get_window(invisible)),
++#else
+             GDK_WINDOW_XWINDOW(gtk_widget_get_window(invisible)),
++#endif
+             a_NET_SYSTEM_TRAY_ORIENTATION,
+             XA_CARDINAL, 32,
+             PropModeReplace,
+@@ -622,13 +725,21 @@ static GtkWidget *tray_constructor(LXPanel *panel, config_setting_t *settings)
+     gdk_window_add_filter(NULL, (GdkFilterFunc) tray_event_filter, tr);
+     /* Reference the window since it is never added to a container. */
+     tr->invisible = g_object_ref_sink(G_OBJECT(invisible));
++#if GTK_CHECK_VERSION (3,0,0)
++    tr->invisible_window = GDK_WINDOW_XID(gtk_widget_get_window(invisible));
++#else
+     tr->invisible_window = GDK_WINDOW_XWINDOW(gtk_widget_get_window(invisible));
++#endif
+ 
+     /* Allocate top level widget and set into Plugin widget pointer. */
+     tr->plugin = p = panel_icon_grid_new(panel_get_orientation(panel),
+                                          panel_get_icon_size(panel),
+                                          panel_get_icon_size(panel),
+                                          3, 0, panel_get_height(panel));
++#if GTK_CHECK_VERSION (3, 0, 0)
++    g_signal_connect (tr->plugin, "draw",
++                      G_CALLBACK (tray_draw_box), NULL);
++#endif
+     lxpanel_plugin_set_data(p, tr, tray_destructor);
+     gtk_widget_set_name(p, "tray");
+     gtk_container_set_border_width(GTK_CONTAINER(p), 1);
+diff --git a/plugins/weather/weatherwidget.c b/plugins/weather/weatherwidget.c
+index 44328a9..fae5266 100644
+--- a/plugins/weather/weatherwidget.c
++++ b/plugins/weather/weatherwidget.c
+@@ -23,6 +23,7 @@
+ #include "yahooutil.h"
+ #include "weatherwidget.h"
+ #include "logutil.h"
++#include "plugin.h"
+ 
+ /* Using pthreads instead of glib's due to cancellability and API stability */
+ #include <pthread.h> 
+@@ -237,6 +238,7 @@ gtk_weather_get_type(void)
+ GtkWidget *
+ gtk_weather_new(gboolean standalone)
+ {
++
+   GObject * object = g_object_new(gtk_weather_get_type(), NULL);
+ 
+   GtkWeatherPrivate * priv = GTK_WEATHER_GET_PRIVATE(GTK_WEATHER(object));
+diff --git a/plugins/weather/weatherwidget.h b/plugins/weather/weatherwidget.h
+index 95f3530..3913dba 100644
+--- a/plugins/weather/weatherwidget.h
++++ b/plugins/weather/weatherwidget.h
+@@ -22,6 +22,7 @@
+ 
+ #ifndef __WEATHERWIDGET_H__
+ #define __WEATHERWIDGET_H__
++#include "plugin.h"
+ 
+ #include <gtk/gtk.h>
+ #include <glib.h>
+diff --git a/plugins/xkb/xkb-plugin.c b/plugins/xkb/xkb-plugin.c
+index 0219436..77ef67e 100644
+--- a/plugins/xkb/xkb-plugin.c
++++ b/plugins/xkb/xkb-plugin.c
+@@ -1203,7 +1203,11 @@ static GtkWidget *xkb_configure(LXPanel *panel, GtkWidget *p)
+     GtkWidget * dlg = gtk_dialog_new_with_buttons(
+         _("Keyboard Layout Handler"),
+         NULL,
++#if GTK_CHECK_VERSION (3, 0, 0)
++        0,
++#else
+         GTK_DIALOG_NO_SEPARATOR,
++#endif
+         GTK_STOCK_CLOSE,
+         GTK_RESPONSE_OK,
+         NULL);
+diff --git a/src/bg.c b/src/bg.c
+index c9f0f0a..0d94dd5 100644
+--- a/src/bg.c
++++ b/src/bg.c
+@@ -179,6 +179,36 @@ fb_bg_get_xrootpmap(FbBg *bg)
+ }
+ 
+ 
++#if GTK_CHECK_VERSION(3,0,0)
++cairo_pattern_t *
++fb_bg_get_pix_from_file(GtkWidget *widget, const char *filename)
++{
++	ENTER;
++	GdkPixbuf *pixbuf;
++	cairo_t *cr;
++	cairo_surface_t *surface;
++	cairo_pattern_t *pattern;
++
++	pixbuf = gdk_pixbuf_new_from_file(filename, NULL);
++	if (!pixbuf) {
++		RET(NULL);
++	}
++	surface = gdk_window_create_similar_surface (gtk_widget_get_window(widget),
++							 CAIRO_CONTENT_COLOR_ALPHA,
++							 gdk_pixbuf_get_width(pixbuf), gdk_pixbuf_get_height(pixbuf));
++	cr = cairo_create(surface);
++	gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
++	cairo_paint(cr);
++	check_cairo_status(cr);
++	cairo_destroy(cr);
++
++	g_object_unref( pixbuf );
++	pattern = cairo_pattern_create_for_surface(surface);
++	cairo_pattern_set_extend(pattern,CAIRO_EXTEND_REPEAT);
++	cairo_surface_destroy(surface);
++	RET(pattern);
++}
++#else
+ GdkPixmap *
+ fb_bg_get_xroot_pix_for_win(FbBg *bg, GtkWidget *widget)
+ {
+@@ -209,6 +239,32 @@ fb_bg_get_xroot_pix_for_win(FbBg *bg, GtkWidget *widget)
+     RET(gbgpix);
+ }
+ 
++GdkPixmap *
++fb_bg_get_pix_from_file(GtkWidget *widget, const char *filename)
++{
++    ENTER;
++    GdkPixbuf *pixbuf;
++    cairo_t *cr;
++    GdkPixmap *pixmap;
++
++    pixbuf = gdk_pixbuf_new_from_file(filename, NULL);
++    if (!pixbuf) {
++        GtkStyle *style = gtk_widget_get_style(widget);
++        if (style->bg_pixmap[0])
++            g_object_ref(style->bg_pixmap[0]);
++        RET(style->bg_pixmap[0]);
++    }
++    pixmap = gdk_pixmap_new(gtk_widget_get_window(widget), gdk_pixbuf_get_width(pixbuf),
++                            gdk_pixbuf_get_height(pixbuf), -1);
++    cr = gdk_cairo_create(pixmap);
++    gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
++    cairo_paint(cr);
++    check_cairo_status(cr);
++    cairo_destroy(cr);
++
++    g_object_unref( pixbuf );
++    RET(pixmap);
++}
+ void
+ fb_bg_composite(GdkDrawable *base, GdkColor *tintcolor, gint alpha)
+ {
+@@ -226,6 +282,7 @@ fb_bg_composite(GdkDrawable *base, GdkColor *tintcolor, gint alpha)
+     g_object_unref(bg);
+     RET();
+ }
++#endif
+ 
+ 
+ static void
+@@ -263,30 +320,3 @@ FbBg *fb_bg_get_for_display(void)
+         g_object_ref(default_bg);
+     RET(default_bg);
+ }
+-
+-GdkPixmap *
+-fb_bg_get_pix_from_file(GtkWidget *widget, const char *filename)
+-{
+-    ENTER;
+-    GdkPixbuf *pixbuf;
+-    cairo_t *cr;
+-    GdkPixmap *pixmap;
+-
+-    pixbuf = gdk_pixbuf_new_from_file(filename, NULL);
+-    if (!pixbuf) {
+-        GtkStyle *style = gtk_widget_get_style(widget);
+-        if (style->bg_pixmap[0])
+-            g_object_ref(style->bg_pixmap[0]);
+-        RET(style->bg_pixmap[0]);
+-    }
+-    pixmap = gdk_pixmap_new(gtk_widget_get_window(widget), gdk_pixbuf_get_width(pixbuf),
+-                            gdk_pixbuf_get_height(pixbuf), -1);
+-    cr = gdk_cairo_create(pixmap);
+-    gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
+-    cairo_paint(cr);
+-    check_cairo_status(cr);
+-    cairo_destroy(cr);
+-
+-    g_object_unref( pixbuf );
+-    RET(pixmap);
+-}
+diff --git a/src/bg.h b/src/bg.h
+index f1fd3fc..d228845 100644
+--- a/src/bg.h
++++ b/src/bg.h
+@@ -56,9 +56,13 @@ typedef struct _FbBg      FbBg;
+ 
+ GType fb_bg_get_type       (void);
+ #define fb_bg_new() (FbBg *)g_object_new(FB_TYPE_BG, NULL)
++#if GTK_CHECK_VERSION (3,0,0)
++cairo_pattern_t *fb_bg_get_pix_from_file(GtkWidget *widget, const char *filename);
++#else
+ void fb_bg_composite(GdkDrawable *base, GdkColor *tintcolor, gint alpha);
+ GdkPixmap *fb_bg_get_xroot_pix_for_win(FbBg *bg, GtkWidget *widget);
++GdkPixmap *fb_bg_get_pix_from_file(GtkWidget *widget, const char *filename);
++#endif
+ void fb_bg_notify_changed_bg(FbBg *bg);
+ FbBg *fb_bg_get_for_display(void);
+-GdkPixmap *fb_bg_get_pix_from_file(GtkWidget *widget, const char *filename);
+ #endif /* __FB_BG_H__ */
+diff --git a/src/gtk-run.c b/src/gtk-run.c
+index dc225c9..785dc0a 100644
+--- a/src/gtk-run.c
++++ b/src/gtk-run.c
+@@ -376,7 +376,11 @@ void gtk_run()
+     {
+         win = gtk_dialog_new_with_buttons( _("Run"),
+                                            NULL,
++#if GTK_CHECK_VERSION(3,0,0)
++                                           0,
++#else
+                                            GTK_DIALOG_NO_SEPARATOR,
++#endif
+                                            GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+                                            GTK_STOCK_OK, GTK_RESPONSE_OK,
+                                            NULL );
+diff --git a/src/icon-grid-old.c b/src/icon-grid-old.c
+index 2e3d7b4..3bd2f81 100644
+--- a/src/icon-grid-old.c
++++ b/src/icon-grid-old.c
+@@ -17,6 +17,9 @@
+  */
+ 
+ #include <gtk/gtk.h>
++#if GTK_CHECK_VERSION (3,0,0)
++#include <gtk/gtkx.h>
++#endif
+ #include <string.h>
+ 
+ #include "icon-grid-old.h"
+diff --git a/src/icon-grid.c b/src/icon-grid.c
+index 4d4d780..32df477 100644
+--- a/src/icon-grid.c
++++ b/src/icon-grid.c
+@@ -109,6 +109,7 @@ static void panel_icon_grid_size_allocate(GtkWidget *widget,
+     }
+ 
+     /* Get and save the desired container geometry. */
++
+     if (ig->orientation == GTK_ORIENTATION_HORIZONTAL && allocation->height > 1)
+         ig->target_dimension = allocation->height;
+     else if (ig->orientation == GTK_ORIENTATION_VERTICAL && allocation->width > 1)
+@@ -152,7 +153,11 @@ static void panel_icon_grid_size_allocate(GtkWidget *widget,
+         if (gtk_widget_get_visible(child))
+         {
+             /* Do necessary operations on the child. */
++#if GTK_CHECK_VERSION (3, 0, 0)
++            gtk_widget_get_preferred_size(child, &req, NULL);
++#else
+             gtk_widget_size_request(child, &req);
++#endif
+             child_allocation.x = x;
+             child_allocation.y = y;
+             child_allocation.width = child_width;
+@@ -192,6 +197,52 @@ static void panel_icon_grid_size_allocate(GtkWidget *widget,
+     }
+ }
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++static void
++panel_icon_grid_get_preferred_width (GtkWidget *widget,
++                               gint      *minimal_width,
++                               gint      *natural_width)
++{
++    GtkRequisition requisition;
++    gint parent_width;
++    GTK_WIDGET_GET_CLASS(gtk_widget_get_parent(widget))->get_preferred_width,(&parent_width,NULL);
++
++    panel_icon_grid_size_request (widget, &requisition);
++
++    if (parent_width<requisition.width)
++    {
++        *minimal_width = parent_width;
++        *natural_width = requisition.width;
++    }
++    else
++    {
++        *minimal_width = *natural_width = requisition.width;
++    }
++}
++
++static void
++panel_icon_grid_get_preferred_height (GtkWidget *widget,
++                                gint      *minimal_height,
++                                gint      *natural_height)
++{
++    GtkRequisition requisition;
++    gint parent_height;
++    GTK_WIDGET_GET_CLASS(gtk_widget_get_parent(widget))->get_preferred_height,(&parent_height,NULL);
++
++    panel_icon_grid_size_request (widget, &requisition);
++
++    if (parent_height<requisition.height)
++    {
++        *minimal_height = parent_height;
++        *natural_height = requisition.height;
++    }
++    else
++    {
++        *minimal_height = *natural_height = requisition.height;
++    }
++}
++#endif
++
+ /* Establish the geometry of an icon grid. */
+ static void panel_icon_grid_size_request(GtkWidget *widget,
+                                          GtkRequisition *requisition)
+@@ -219,8 +270,10 @@ static void panel_icon_grid_size_request(GtkWidget *widget,
+         if (ig->rows == 0)
+             ig->rows = 1;
+         ig->columns = (visible_children + (ig->rows - 1)) / ig->rows;
+-        /* if ((ig->columns == 1) && (ig->rows > visible_children))
+-            ig->rows = visible_children; */
++#if GTK_CHECK_VERSION (3, 0, 0)
++        if ((ig->columns == 1) && (ig->rows > visible_children))
++            ig->rows = visible_children;
++#endif
+     }
+     else
+     {
+@@ -256,6 +309,7 @@ static void panel_icon_grid_size_request(GtkWidget *widget,
+ }
+ 
+ /* Handler for "size-request" event on the icon grid element. */
++#if !GTK_CHECK_VERSION (3,0,0)
+ static void icon_grid_element_size_request(GtkWidget * widget, GtkRequisition * requisition, PanelIconGrid * ig)
+ {
+     /* This is our opportunity to request space for the element. */
+@@ -265,6 +319,18 @@ static void icon_grid_element_size_request(GtkWidget * widget, GtkRequisition *
+         requisition->width = ig->constrained_child_width;
+     requisition->height = ig->child_height;
+ }
++#endif
++#if GTK_CHECK_VERSION (3,0,0)
++static void icon_grid_element_get_preferred_width(GtkWidget * widget,gint* minimal_width, gint* natural_width, PanelIconGrid * ig){
++    *minimal_width = ig->child_width;
++    if ((ig->constrain_width) && (ig->constrained_child_width > 1))
++        *minimal_width = ig->constrained_child_width;
++    *natural_width=*minimal_width;
++}
++static void icon_grid_element_get_preferred_height(GtkWidget * widget,gint* minimal_height, gint* natural_height, PanelIconGrid * ig){
++    *natural_height=*minimal_height = ig->child_height;
++}
++#endif
+ 
+ /* Add an icon grid element and establish its initial visibility. */
+ static void panel_icon_grid_add(GtkContainer *container, GtkWidget *widget)
+@@ -275,10 +341,12 @@ static void panel_icon_grid_add(GtkContainer *container, GtkWidget *widget)
+     ig->children = g_list_append(ig->children, widget);
+ 
+     /* Add the widget to the layout container. */
++#if !GTK_CHECK_VERSION (3, 0, 0)
+     g_signal_connect(G_OBJECT(widget), "size-request",
+                      G_CALLBACK(icon_grid_element_size_request), container);
++#endif
+     gtk_widget_set_parent(widget, GTK_WIDGET(container));
+-//    gtk_widget_queue_resize(GTK_WIDGET(container));
++    gtk_widget_queue_resize(GTK_WIDGET(container));
+ }
+ 
+ void panel_icon_grid_set_constrain_width(PanelIconGrid * ig, gboolean constrain_width)
+@@ -290,7 +358,7 @@ void panel_icon_grid_set_constrain_width(PanelIconGrid * ig, gboolean constrain_
+         return;
+ 
+     ig->constrain_width = !!constrain_width;
+-    gtk_widget_queue_resize(GTK_WIDGET(ig));
++//    gtk_widget_queue_resize(GTK_WIDGET(ig));
+ }
+ 
+ /* void panel_icon_grid_set_fill_width(PanelIconGrid * ig, gboolean fill_width)
+@@ -319,9 +387,11 @@ static void panel_icon_grid_remove(GtkContainer *container, GtkWidget *widget)
+             gboolean was_visible = gtk_widget_get_visible(widget);
+ 
+             /* The child is found.  Remove from child list and layout container. */
++#if !GTK_CHECK_VERSION (3,0,0)
+             g_signal_handlers_disconnect_by_func(widget,
+                                                  icon_grid_element_size_request,
+                                                  container);
++#endif
+             gtk_widget_unparent (widget);
+             ig->children = g_list_remove_link(ig->children, children);
+             g_list_free(children);
+@@ -507,10 +577,15 @@ static void panel_icon_grid_realize(GtkWidget *widget)
+     if (visible_window)
+     {
+         attributes.visual = gtk_widget_get_visual(widget);
++#if GTK_CHECK_VERSION (3,0,0)
++        attributes.wclass = GDK_INPUT_OUTPUT;
++        attributes_mask = GDK_WA_X | GDK_WA_Y | GDK_WA_VISUAL;
++#else
+         attributes.colormap = gtk_widget_get_colormap(widget);
+         attributes.wclass = GDK_INPUT_OUTPUT;
+ 
+         attributes_mask = GDK_WA_X | GDK_WA_Y | GDK_WA_VISUAL | GDK_WA_COLORMAP;
++#endif
+ 
+         window = gdk_window_new(gtk_widget_get_parent_window(widget),
+                                 &attributes, attributes_mask);
+@@ -569,6 +644,16 @@ static void panel_icon_grid_unmap(GtkWidget *widget)
+     GTK_WIDGET_CLASS(panel_icon_grid_parent_class)->unmap(widget);
+ }
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++static gboolean panel_icon_grid_draw(GtkWidget *widget, cairo_t *cr)
++{
++    if (gtk_widget_is_drawable(widget))
++    {
++        GTK_WIDGET_CLASS(panel_icon_grid_parent_class)->draw(widget, cr);
++    }
++    return FALSE;
++}
++#else
+ static gboolean panel_icon_grid_expose(GtkWidget *widget, GdkEventExpose *event)
+ {
+     if (gtk_widget_is_drawable(widget))
+@@ -585,6 +670,7 @@ static gboolean panel_icon_grid_expose(GtkWidget *widget, GdkEventExpose *event)
+     }
+     return FALSE;
+ }
++#endif
+ 
+ static void panel_icon_grid_forall(GtkContainer *container,
+                                    gboolean      include_internals,
+@@ -608,22 +694,27 @@ static GType panel_icon_grid_child_type(GtkContainer *container)
+     return GTK_TYPE_WIDGET;
+ }
+ 
+-static void panel_icon_grid_class_init(PanelIconGridClass *class)
++static void panel_icon_grid_class_init(PanelIconGridClass *klass)
+ {
+-    GObjectClass *object_class = G_OBJECT_CLASS(class);
+-    GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(class);
+-    GtkContainerClass *container_class = GTK_CONTAINER_CLASS(class);
++    GObjectClass *object_class = G_OBJECT_CLASS(klass);
++    GtkWidgetClass *widget_class = GTK_WIDGET_CLASS(klass);
++    GtkContainerClass *container_class = GTK_CONTAINER_CLASS(klass);
+ 
+     object_class->set_property = panel_icon_grid_set_property;
+     object_class->get_property = panel_icon_grid_get_property;
+ 
+-    widget_class->size_request = panel_icon_grid_size_request;
+     widget_class->size_allocate = panel_icon_grid_size_allocate;
+     widget_class->realize = panel_icon_grid_realize;
+     widget_class->unrealize = panel_icon_grid_unrealize;
+     widget_class->map = panel_icon_grid_map;
+     widget_class->unmap = panel_icon_grid_unmap;
++#if GTK_CHECK_VERSION (3,0,0)
++    widget_class->get_preferred_width = panel_icon_grid_get_preferred_width;
++    widget_class->get_preferred_height = panel_icon_grid_get_preferred_height;
++#else
++    widget_class->size_request = panel_icon_grid_size_request;
+     widget_class->expose_event = panel_icon_grid_expose;
++#endif
+ 
+     container_class->add = panel_icon_grid_add;
+     container_class->remove = panel_icon_grid_remove;
+diff --git a/src/misc.c b/src/misc.c
+index f15961b..64b19cb 100644
+--- a/src/misc.c
++++ b/src/misc.c
+@@ -1031,6 +1031,9 @@ get_button_spacing(GtkRequisition *req, GtkContainer *parent, gchar *name)
+ {
+     GtkWidget *b;
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++    GtkRequisition* minimal;
++#endif
+     ENTER;
+     b = gtk_button_new();
+     gtk_widget_set_name(GTK_WIDGET(b), name);
+@@ -1042,7 +1045,11 @@ get_button_spacing(GtkRequisition *req, GtkContainer *parent, gchar *name)
+         gtk_container_add(parent, b);
+ 
+     gtk_widget_show(b);
++#if GTK_CHECK_VERSION (3, 0, 0)
++    gtk_widget_get_preferred_size(b, req, minimal);
++#else
+     gtk_widget_size_request(b, req);
++#endif
+ 
+     gtk_widget_destroy(b);
+     RET();
+diff --git a/src/panel.c b/src/panel.c
+index d5171e6..36cabc0 100644
+--- a/src/panel.c
++++ b/src/panel.c
+@@ -83,7 +83,11 @@ static void lxpanel_finalize(GObject *object)
+     G_OBJECT_CLASS(lxpanel_parent_class)->finalize(object);
+ }
+ 
++#if GTK_CHECK_VERSION(3,0,0)
++static void lxpanel_destroy(GtkWidget *object)
++#else
+ static void lxpanel_destroy(GtkObject *object)
++#endif
+ {
+     LXPanel *self = LXPANEL(object);
+     Panel *p = self->priv;
+@@ -123,7 +127,11 @@ static void lxpanel_destroy(GtkObject *object)
+         p->background_update_queued = 0;
+     }
+ 
++#if GTK_CHECK_VERSION(3,0,0)
++    GTK_WIDGET_CLASS(lxpanel_parent_class)->destroy(object);
++#else
+     GTK_OBJECT_CLASS(lxpanel_parent_class)->destroy(object);
++#endif
+ }
+ 
+ static gboolean idle_update_background(gpointer p)
+@@ -176,12 +184,23 @@ static void lxpanel_size_request(GtkWidget *widget, GtkRequisition *req)
+ {
+     Panel *p = LXPANEL(widget)->priv;
+ 
++#if GTK_CHECK_VERSION(3,0,0)
++    GTK_WIDGET_CLASS(lxpanel_parent_class)->get_preferred_height(widget, &req->height,&req->height);
++    GTK_WIDGET_CLASS(lxpanel_parent_class)->get_preferred_width(widget, &req->width,&req->width);
++    req->height=p->ah;
++    req->width=p->aw;
++#else
+     GTK_WIDGET_CLASS(lxpanel_parent_class)->size_request(widget, req);
++#endif
+ 
+     if (!p->visible)
+         /* When the panel is in invisible state, the content box also got hidden, thus always
+          * report 0 size.  Ask the content box instead for its size. */
++#if GTK_CHECK_VERSION (3, 0, 0)
++        gtk_widget_get_preferred_size(p->box, req, NULL);
++#else
+         gtk_widget_size_request(p->box, req);
++#endif
+ 
+     /* FIXME: is this ever required? */
+     if (p->widthtype == WIDTH_REQUEST)
+@@ -197,6 +216,9 @@ static void lxpanel_size_allocate(GtkWidget *widget, GtkAllocation *a)
+ {
+     Panel *p = LXPANEL(widget)->priv;
+ 
++#if GTK_CHECK_VERSION (3, 0, 0)
++    gtk_widget_set_allocation(widget,a);
++#endif
+     GTK_WIDGET_CLASS(lxpanel_parent_class)->size_allocate(widget, a);
+ 
+     if (p->widthtype == WIDTH_REQUEST)
+@@ -223,6 +245,30 @@ static void lxpanel_size_allocate(GtkWidget *widget, GtkAllocation *a)
+     }
+ }
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++static void
++lxpanel_get_preferred_width (GtkWidget *widget,
++							   gint      *minimal_width,
++							   gint      *natural_width)
++{
++  GtkRequisition requisition;
++  lxpanel_size_request (widget, &requisition);
++
++  *minimal_width = *natural_width = requisition.width;
++}
++
++static void
++lxpanel_get_preferred_height (GtkWidget *widget,
++								gint      *minimal_height,
++								gint      *natural_height)
++{
++  GtkRequisition requisition;
++  lxpanel_size_request (widget, &requisition);
++
++  *minimal_height = *natural_height = requisition.height;
++}
++#endif
++
+ static gboolean lxpanel_configure_event (GtkWidget *widget, GdkEventConfigure *e)
+ {
+     Panel *p = LXPANEL(widget)->priv;
+@@ -264,13 +310,24 @@ static gboolean lxpanel_button_press(GtkWidget *widget, GdkEventButton *event)
+ static void lxpanel_class_init(PanelToplevelClass *klass)
+ {
+     GObjectClass *gobject_class = (GObjectClass *)klass;
++#if !GTK_CHECK_VERSION(3,0,0)
+     GtkObjectClass *gtk_object_class = (GtkObjectClass *)klass;
++#endif
+     GtkWidgetClass *widget_class = (GtkWidgetClass *)klass;
+ 
+     gobject_class->finalize = lxpanel_finalize;
++#if GTK_CHECK_VERSION (3,0,0)
++    widget_class->destroy = lxpanel_destroy;
++#else
+     gtk_object_class->destroy = lxpanel_destroy;
++#endif
+     widget_class->realize = lxpanel_realize;
++#if GTK_CHECK_VERSION (3,0,0)
++    widget_class->get_preferred_width = lxpanel_get_preferred_width;
++    widget_class->get_preferred_height = lxpanel_get_preferred_height;
++#else
+     widget_class->size_request = lxpanel_size_request;
++#endif
+     widget_class->size_allocate = lxpanel_size_allocate;
+     widget_class->configure_event = lxpanel_configure_event;
+     widget_class->style_set = lxpanel_style_set;
+@@ -311,6 +368,11 @@ static void lxpanel_init(PanelToplevel *self)
+     p->config = config_new();
+     p->defstyle = gtk_widget_get_default_style();
+     gtk_window_set_type_hint(GTK_WINDOW(self), GDK_WINDOW_TYPE_HINT_DOCK);
++#if GTK_CHECK_VERSION (3, 0, 0)
++    GdkScreen *screen = gtk_widget_get_screen(GTK_WIDGET(self));
++    GdkVisual *visual = gdk_screen_get_rgba_visual(screen);
++    gtk_widget_set_visual(GTK_WIDGET(self), visual);
++#endif
+ }
+ 
+ /* Allocate and initialize new Panel structure. */
+@@ -597,7 +659,11 @@ void panel_determine_background_pixmap(Panel * panel, GtkWidget * widget, GdkWin
+ 
+ void _panel_determine_background_pixmap(LXPanel * panel, GtkWidget * widget)
+ {
++#if GTK_CHECK_VERSION (3,0,0)
++    cairo_pattern_t* pixmap = NULL;
++#else
+     GdkPixmap * pixmap = NULL;
++#endif
+     GdkWindow * window = gtk_widget_get_window(widget);
+     Panel * p = panel->priv;
+ 
+@@ -624,16 +690,32 @@ void _panel_determine_background_pixmap(LXPanel * panel, GtkWidget * widget)
+             p->bg = fb_bg_get_for_display();
+             g_signal_connect(G_OBJECT(p->bg), "changed", G_CALLBACK(on_root_bg_changed), panel);
+         }
++#if GTK_CHECK_VERSION (3,0,0)
++        GdkRGBA rgba;
++        rgba.red=p->gtintcolor.red/255.0;
++        rgba.green=p->gtintcolor.green/255.0;
++        rgba.blue=p->gtintcolor.blue/255.0;
++        rgba.alpha=p->alpha/255.0;
++        gtk_widget_set_app_paintable(widget, TRUE);
++        gdk_window_set_background_rgba(gtk_widget_get_window(widget),&rgba);
++        return;
++#else
+         pixmap = fb_bg_get_xroot_pix_for_win(p->bg, widget);
+         if ((pixmap != NULL) && (pixmap != GDK_NO_BG) && (p->alpha != 0))
+             fb_bg_composite(pixmap, &p->gtintcolor, p->alpha);
++#endif
+     }
+ 
+     if (pixmap != NULL)
+     {
+         gtk_widget_set_app_paintable(widget, TRUE );
++#if GTK_CHECK_VERSION (3,0,0)
++        gdk_window_set_background_pattern(window,pixmap);
++        cairo_pattern_destroy(pixmap);
++#else
+         gdk_window_set_back_pixmap(window, pixmap, FALSE);
+         g_object_unref(pixmap);
++#endif
+     }
+     else
+         gtk_widget_set_app_paintable(widget, FALSE);
+@@ -653,7 +735,9 @@ static void _panel_update_background(LXPanel * p)
+ 
+     /* Redraw the top level widget. */
+     _panel_determine_background_pixmap(p, w);
++#if !GTK_CHECK_VERSION (3,0,0)
+     gdk_window_clear(gtk_widget_get_window(w));
++#endif
+     gtk_widget_queue_draw(w);
+ 
+     /* Loop over all plugins redrawing each plugin. */
+@@ -1287,7 +1371,11 @@ panel_start_gui(LXPanel *panel)
+     if (p->round_corners)
+         make_round_corners(p);
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++    p->topxwin = GDK_WINDOW_XID(gtk_widget_get_window(w));
++#else
+     p->topxwin = GDK_WINDOW_XWINDOW(gtk_widget_get_window(w));
++#endif
+     DBG("topxwin = %x\n", p->topxwin);
+ 
+     /* the settings that should be done before window is mapped */
+diff --git a/src/plugin.c b/src/plugin.c
+index 668c26e..258c600 100644
+--- a/src/plugin.c
++++ b/src/plugin.c
+@@ -35,6 +35,10 @@
+ #include <glib/gi18n.h>
+ #include <libfm/fm-gtk.h>
+ 
++#if GTK_CHECK_VERSION (3,0,0)
++#include <gtk/gtkx.h>
++#endif
++
+ //#define DEBUG
+ #include "dbg.h"
+ 
+@@ -228,6 +232,25 @@ static void plugin_get_available_classes(void)
+ /* Recursively set the background of all widgets on a panel background configuration change. */
+ void plugin_widget_set_background(GtkWidget * w, LXPanel * panel)
+ {
++#if GTK_CHECK_VERSION (3, 0, 0)
++    if (w != NULL)
++    {
++        Panel *p = panel->priv;
++        if (gtk_widget_get_has_window(w))
++        {
++
++             if (gtk_widget_get_realized(w))
++             {
++                    GdkWindow * window = gtk_widget_get_window(w);
++                    GdkRGBA color;
++                    gdk_rgba_parse(&color,"rgba(0,0,0,0)");
++                    gdk_window_set_background_rgba(window, &color);
++                    gdk_window_set_background_pattern(window, NULL);
++                    gdk_window_invalidate_rect(gtk_widget_get_window(w), NULL, TRUE);
++             }
++         }
++    }
++#else
+     if (w != NULL)
+     {
+         Panel *p = panel->priv;
+@@ -276,6 +299,7 @@ void plugin_widget_set_background(GtkWidget * w, LXPanel * panel)
+         if (GTK_IS_CONTAINER(w))
+             gtk_container_foreach(GTK_CONTAINER(w), (GtkCallback) plugin_widget_set_background, panel);
+     }
++#endif
+ }
+ 
+ /* Handler for "button_press_event" signal with Plugin as parameter.
