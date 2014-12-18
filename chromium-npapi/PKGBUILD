@@ -3,13 +3,13 @@
 
 _pkgname=chromium
 pkgname=${_pkgname}-npapi
-pkgver=37.0.2062.120
+pkgver=39.0.2171.95
 pkgrel=1
 pkgdesc="Chromium with NPAPI reenabled (Michael Müller patches)"
 arch=('i686' 'x86_64')
 url="http://www.chromium.org/"
 license=('BSD')
-depends=('gtk2' 'nss' 'alsa-lib' 'xdg-utils' 'bzip2' 'libevent' 'libxss'
+depends=('gtk2' 'nss' 'alsa-lib' 'xdg-utils' 'bzip2' 'libevent' 'libxss' 'icu'
          'libexif' 'libgcrypt' 'ttf-font' 'systemd' 'dbus' 'flac' 'snappy'
          'speech-dispatcher' 'pciutils' 'libpulse' 'harfbuzz'
          'desktop-file-utils' 'hicolor-icon-theme')
@@ -28,15 +28,19 @@ install=chromium.install
 source=(https://commondatastorage.googleapis.com/chromium-browser-official/$_pkgname-$pkgver.tar.xz
         chromium.desktop
         chromium.default
-        chromium-nacl-bootstrap-cflags.patch
         chromium.sh
-        http://pipelight.net/cms/downloads/chromium/chromium-patches-v37.tar.gz)
-sha256sums=('b3073758b6caf384d30de20ba7514ee52cce5c1460bc768cd28d15f53f0c6efb'
+        0001-Revert-Linux-Remove-some-unused-NPAPI-code.patch
+        0002-Reenable-the-plugin-command-switch-and-process-again.patch
+        0003-Enable-loading-of-NPAPI-plugins-again.patch
+        0004-Add-code-to-properly-initialize-a-NPAPI-plugin-with-.patch)
+sha256sums=('66cb6902afbd8a0f990cb9e70ff1df843a7461f66077ffe7f41d730278a2a868'
             '09bfac44104f4ccda4c228053f689c947b3e97da9a4ab6fa34ce061ee83d0322'
             '478340d5760a9bd6c549e19b1b5d1c5b4933ebf5f8cfb2b3e2d70d07443fe232'
-            'd82bafd8d4d6517c2d420b2987fdbe1dfcc32d5fed74a6c0011bcb2f868225c3'
             '4999fded897af692f4974f0a3e3bbb215193519918a1fa9b31ed51e74a2dccb9'
-            '88f3d16d983921a0ee87920edb63f295328c61f360ab74bfa15c291c0452768c')
+            '4f4980a059369f63c45bae866e6102ad2cbfd00226227b518710d25620a600c5'
+            '4da74f3327c65bb69a13c25c4d2372b2d69659b7c75290180cf531da86fb2ec2'
+            'b04e734801c1557b7e846a4819fa9c6a6f93308dd3f65bc3d0c76a01ef7c3af6'
+            'eed3da7fb06ff02fa0604c0a706a53569b15fd38c5bc025585fd06cf8ef36ca3')
 
 # Google API keys (see http://www.chromium.org/developers/how-tos/api-keys)
 # Note: These are for Arch Linux use ONLY. For your own distribution, please
@@ -46,40 +50,39 @@ _google_api_key=AIzaSyDwr302FpOSkGRpLlUpPThNTDPbXcIn_FM
 _google_default_client_id=413772536636.apps.googleusercontent.com
 _google_default_client_secret=0ZChLK6AxeA3Isu96MkwqDR4
 
+# We can't build (P)NaCL on i686 because the toolchain is x86_64 only and the
+# instructions to build the toolchain from source don't work that well (at least
+# from within the Chromium 39 source tree).
+# https://sites.google.com/a/chromium.org/dev/nativeclient/pnacl/building-pnacl-components-for-distribution-packagers
+_build_nacl=1
+if [[ $CARCH == i686 ]]; then
+  _build_nacl=0
+fi
+
 prepare() {
   cd "$srcdir/$_pkgname-$pkgver"
-
-  # Filter out -fstack-protector-strong for nacl_helper_bootstrap
-  # https://code.google.com/p/chromium/issues/detail?id=104569
-  patch -Np0 -i ../chromium-nacl-bootstrap-cflags.patch
 
   patch -Np1 -i ../0001-Revert-Linux-Remove-some-unused-NPAPI-code.patch
   patch -Np1 -i ../0002-Reenable-the-plugin-command-switch-and-process-again.patch
   patch -Np1 -i ../0003-Enable-loading-of-NPAPI-plugins-again.patch
   patch -Np1 -i ../0004-Add-code-to-properly-initialize-a-NPAPI-plugin-with-.patch
 
+  # Remove bundled ICU; its header files appear to get picked up instead of
+  # the system ones, leading to errors during the final link stage
+  # https://groups.google.com/a/chromium.org/d/topic/chromium-packagers/BNGvJc08B6Q
+  find third_party/icu -type f \! -regex '.*\.\(gyp\|gypi\|isolate\)' -delete
+
   # Use Python 2
-  find . -type f -exec sed -i -r \
-    -e 's|/usr/bin/python$|&2|g' \
-    -e 's|(/usr/bin/python2)\.4$|\1|g' \
-    {} +
+  find . -name '*.py' -exec sed -i -r 's|/usr/bin/python$|&2|g' {} +
   # There are still a lot of relative calls which need a workaround
   mkdir "$srcdir/python2-path"
   ln -s /usr/bin/python2 "$srcdir/python2-path/python"
 
-  # Download NaCL toolchains
-  python2 build/download_nacl_toolchains.py \
-    --packages nacl_x86_newlib,pnacl_newlib,pnacl_translator
-
-  # Build with clang as a temporary solution to startup crash with GCC 4.9
-  mkdir -p third_party/llvm-build/Release+Asserts/bin
-  ln -s /usr/bin/clang third_party/llvm-build/Release+Asserts/bin/
-  ln -s /usr/bin/clang++ third_party/llvm-build/Release+Asserts/bin/
-  ln -s /usr/bin/llvm-symbolizer third_party/llvm-build/Release+Asserts/bin/
-  # clang 3.4 doesn't support this option
-  sed -i '/-Wno-absolute-value/d' \
-    build/common.gypi \
-    third_party/ffmpeg/ffmpeg.gyp
+  # Download the PNaCL toolchain on x86_64; i686 toolchain is no longer provided
+  if (( $_build_nacl )); then
+    python2 build/download_nacl_toolchains.py \
+      --packages nacl_x86_newlib,pnacl_newlib,pnacl_translator
+  fi
 }
 
 build() {
@@ -95,8 +98,7 @@ build() {
     -Dgoogle_default_client_id=$_google_default_client_id
     -Dgoogle_default_client_secret=$_google_default_client_secret
     -Dwerror=
-    -Dclang=1
-    -Dclang_use_chrome_plugins=0
+    -Dclang=0
     -Dpython_ver=2.7
     -Dlinux_link_gsettings=1
     -Dlinux_link_libpci=1
@@ -106,6 +108,7 @@ build() {
     -Dlinux_use_bundled_binutils=0
     -Dlinux_use_bundled_gold=0
     -Dlinux_use_gold_flags=0
+    -Dicu_use_data_file_flag=0
     -Dlogging_like_official_build=1
     -Drelease_extra_cflags="$CFLAGS"
     -Dlibspeechd_h_prefix=speech-dispatcher/
@@ -115,6 +118,7 @@ build() {
     -Duse_system_flac=1
     -Duse_system_ffmpeg=0
     -Duse_system_harfbuzz=1
+    -Duse_system_icu=1
     -Duse_system_libevent=1
     -Duse_system_libjpeg=1
     -Duse_system_libpng=1
@@ -130,8 +134,12 @@ build() {
     -Ddisable_fatal_linker_warnings=1
     -Ddisable_glibc=1)
 
-  # https://code.google.com/p/chromium/issues/detail?id=386097
-  third_party/libaddressinput/chromium/tools/update-strings.py
+  if (( ! $_build_nacl )); then
+    _chromium_conf+=(
+      -Ddisable_nacl=1
+      -Ddisable_pnacl=1
+    )
+  fi
 
   build/linux/unbundle/replace_gyp_files.py "${_chromium_conf[@]}"
   build/gyp_chromium --depth=. "${_chromium_conf[@]}"
@@ -149,23 +157,27 @@ package() {
 
   install -D out/Release/chromedriver "$pkgdir/usr/lib/chromium/chromedriver"
 
-  cp out/Release/{*.pak,libffmpegsumo.so,nacl_helper{,_bootstrap}} \
-    out/Release/{libppGoogleNaClPluginChrome.so,nacl_irt_*.nexe} \
-    out/Release/libpdf.so \
-    "$pkgdir/usr/lib/chromium/"
+  cp out/Release/{*.pak,libffmpegsumo.so,libpdf.so} "$pkgdir/usr/lib/chromium/"
+
+  if (( $_build_nacl )); then
+    cp out/Release/nacl_helper{,_bootstrap} out/Release/nacl_irt_*.nexe \
+      "$pkgdir/usr/lib/chromium/"
+  fi
 
   # Manually strip binaries so that 'nacl_irt_*.nexe' is left intact
   strip $STRIP_BINARIES "$pkgdir/usr/lib/chromium/"{chromium,chrome-sandbox} \
-    "$pkgdir/usr/lib/chromium/chromedriver" \
-    "$pkgdir/usr/lib/chromium/"nacl_helper{,_bootstrap}
+    "$pkgdir/usr/lib/chromium/chromedriver"
   strip $STRIP_SHARED "$pkgdir/usr/lib/chromium/libffmpegsumo.so" \
-    "$pkgdir/usr/lib/chromium/libppGoogleNaClPluginChrome.so" \
     "$pkgdir/usr/lib/chromium/libpdf.so"
+
+  if (( $_build_nacl )); then
+    strip $STRIP_BINARIES "$pkgdir/usr/lib/chromium/"nacl_helper{,_bootstrap}
+  fi
 
   # Allow users to override command-line options
   install -Dm644 "$srcdir/chromium.default" "$pkgdir/etc/chromium/default"
 
-  cp -a out/Release/locales out/Release/icudtl.dat "$pkgdir/usr/lib/chromium/"
+  cp -a out/Release/locales "$pkgdir/usr/lib/chromium/"
 
   install -Dm644 out/Release/chrome.1 "$pkgdir/usr/share/man/man1/chromium.1"
 
@@ -185,7 +197,7 @@ package() {
   install -D "$srcdir/chromium.sh" "$pkgdir/usr/bin/chromium"
   ln -s /usr/lib/chromium/chromedriver "$pkgdir/usr/bin/chromedriver"
 
-  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/chromium/LICENSE"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
 # vim:set ts=2 sw=2 et:
