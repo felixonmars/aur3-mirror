@@ -26,7 +26,7 @@ source=(
   'facette.install'
   '.AURINFO')
 noextract=()
-md5sums=('20dfd12a4a33d9c278f7a17081410a9e'
+md5sums=('7d9882bdf42660f771e16881e4868006'
          'eebed9778725e4c6fc9cfb95b9ce573e'
          '7b64618623c361cdfd3dec729785191e'
          'SKIP')
