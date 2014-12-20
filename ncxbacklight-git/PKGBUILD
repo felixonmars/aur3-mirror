@@ -43,7 +43,7 @@ check() {
 package() {
     cd "$srcdir/$pkgname"
     mkdir -p "$pkgdir/usr/bin/"
-    install -Dm644 ncxbacklight "$pkgdir/usr/bin/"
+    install -Dm755 ncxbacklight "$pkgdir/usr/bin/"
 }
 
 #vim:set ts=2 sw=2 et:
