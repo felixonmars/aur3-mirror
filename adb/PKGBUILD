@@ -1,8 +1,9 @@
 # Modified from adb-git
-# Maintainer: Chris Down <chris@chrisdown.name>
+# Maintainer: Logan Gorence <loganjohngorence@gmail.com>
+# Contributor: Chris Down <chris@chrisdown.name>
 
 pkgname=adb
-pkgver=android.4.4.2_r2
+pkgver=android.5.0.2_r1
 pkgrel=1
 pkgdesc="adb (Android Debug Bridge CLI tool), an Android platform tool"
 arch=('i686' 'x86_64' 'armv7h')

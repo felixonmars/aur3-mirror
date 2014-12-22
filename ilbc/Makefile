@@ -1,7 +1,7 @@
 .PHONY: all clean install
 
 CC=gcc
-CFLAGS=-pipe -Wall
+CFLAGS=-pipe -Wall -O2
 LDFLAGS=-lm
 
 LIBS = libilbc.so libilbc.a
