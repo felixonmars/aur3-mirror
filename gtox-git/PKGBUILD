@@ -7,8 +7,8 @@ pkgdesc="a GTK-based tox-client"
 url="https://github.com/KoKuToru/gTox.git"
 license='GPL3'
 arch=('i686' 'x86_64')
-depends=('gtkmm3' 'libnotifymm' 'libconfig' 'libsodium' 'libvpx' 'opus' 'sqlite', 'gettext')
-makedepends=('check' 'git' 'cmake' 'librsvg', )
+depends=('gtkmm3' 'libnotifymm' 'libconfig' 'libsodium' 'libvpx' 'opus' 'sqlite' 'gettext')
+makedepends=('check' 'git' 'cmake' 'librsvg')
 source=(.AURINFO "${pkgname%-git}::git+https://github.com/KoKuToru/gTox.git#branch=unstable")
 sha256sums=('SKIP' 'SKIP')
 provides=('gtox')
