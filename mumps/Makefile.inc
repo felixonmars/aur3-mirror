@@ -1,7 +1,9 @@
 #
-#  This file is part of MUMPS 4.10.0, built on Tue May 10 12:56:32 UTC 2011
+# This file is part of MUMPS 4.10.0, built on Tue May 10 12:56:32 UTC 2011
+# modified by mickele (aur.archlinux.org - archscientist.altervista.org)
 #
-#Begin orderings
+
+############################## Begin orderings ###############################
 
 # NOTE that PORD is distributed within MUMPS by default. If you would like to
 # use other orderings, you need to obtain the corresponding package and modify
@@ -26,9 +28,9 @@ ISCOTCH    = -I$(SCOTCHDIR)/include/scotch
 # variable below); for both parallel and sequential analysis choose the second
 # line (remember to add -Dptscotch in the ORDERINGSF variable below)
 
-#LSCOTCH    = -L$(SCOTCHDIR)/lib -lesmumps -lscotch -lscotcherr
+LSCOTCH    = -L$(SCOTCHDIR)/lib -lesmumps -lscotch -lscotcherr
 #LSCOTCH    = -L$(SCOTCHDIR)/lib -lptesmumps -lptscotch -lptscotcherr -lscotchmetis
-LSCOTCH    = -L$(SCOTCHDIR)/lib -lptesmumps -lptscotch -lptscotcherr -lscotchmetis -lscotch
+#LSCOTCH    = -L$(SCOTCHDIR)/lib -lptesmumps -lptscotch -lptscotcherr -lscotchmetis -lscotch
 
 
 LPORDDIR = $(topdir)/PORD/lib/
@@ -37,7 +39,7 @@ LPORD    = -L$(LPORDDIR) -lpord
 
 LMETISDIR = /usr/lib
 IMETIS    = -I/usr/include/metis-4
-IPARMETIS    = -I/usr/include/parmetis-3
+# IPARMETIS    = -I/usr/include/parmetis-3
 
 # You have to choose one among the following two lines depending on
 # the type of analysis you want to perform. If you want to perform only
@@ -45,22 +47,21 @@ IPARMETIS    = -I/usr/include/parmetis-3
 # variable below); for both parallel and sequential analysis choose the second
 # line (remember to add -Dparmetis in the ORDERINGSF variable below)
 
-#LMETIS    = -L$(LMETISDIR) -lmetis
-LMETIS    = -L$(LMETISDIR) -lparmetis-3 -lmetis-4
+LMETIS    = -L$(LMETISDIR) -lmetis-4
+# LMETIS    = -L$(LMETISDIR) -lparmetis-3 -lmetis-4
 
 # The following variables will be used in the compilation process.
 # Please note that -Dptscotch and -Dparmetis imply -Dscotch and -Dmetis respectively.
-ORDERINGSF = -Dscotch -Dmetis -Dpord -Dptscotch -Dparmetis
-#ORDERINGSF  = -Dpord
+ORDERINGSF = -Dscotch -Dmetis -Dpord
+# ORDERINGSF = -Dscotch -Dmetis -Dpord -Dptscotch -Dparmetis
+# ORDERINGSF  = -Dpord
 ORDERINGSC  = $(ORDERINGSF)
 
 LORDERINGS = $(LMETIS) $(LPORD) $(LSCOTCH)
 IORDERINGSF = $(ISCOTCH)
 IORDERINGSC = $(IPARMETIS) $(IMETIS) $(IPORD) $(ISCOTCH)
 
-#End orderings
-########################################################################
-################################################################################
+########################### End orderings ###################################
 
 PLAT    = 
 LIBEXT  = .a
@@ -72,8 +73,8 @@ FC = mpif77
 FL = mpif77
 AR = ar vr 
 RANLIB = ranlib
-#RANLIB  = echo
-SCALAP  = -lscalapack -llapack #-lblacs -lblacsf77 -lblacs #
+# RANLIB  = echo
+SCALAP  = -lscalapack -llapack # -lblacs -lblacsf77 -lblacs #
 INCPAR = -I/usr/include/openmpi
 LIBPAR = $(SCALAP) -L/usr/lib/openmpi -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi
 # See point 17 in the FAQ to have more details on the compilation of mpich with gfortran
@@ -81,14 +82,15 @@ INCSEQ = -I$(topdir)/libseq
 LIBSEQ  =  -L$(topdir)/libseq -lmpiseq
 LIBBLAS = -lblas
 LIBOTHERS = -lpthread
-#Preprocessor defs for calling Fortran from C (-DAdd_ or -DAdd__ or -DUPPER)
+# Preprocessor defs for calling Fortran from C (-DAdd_ or -DAdd__ or -DUPPER)
 CDEFS   = -DAdd_
 
-#Begin Optimized options
+# Begin Optimized options
 OPTF    = -DALLOW_NON_INIT ${CFLAGS} -fPIC
 OPTL    = ${CFLAGS} -fPIC
 OPTC    = ${CFLAGS} -fPIC
-#End Optimized options
+# End Optimized options
+
 INCS = $(INCPAR)
 LIBS = $(LIBPAR)
 LIBSEQNEEDED = libseqneeded

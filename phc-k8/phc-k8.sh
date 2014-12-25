@@ -74,7 +74,6 @@ set)
 	for i in /sys/devices/system/cpu/cpu*/cpufreq/phc_vids; do
 		echo $VIDS > "$i"
 	done
-	exit
 	;;
 *)
 	echo "usage: $0 {start|stop|status|setup|set}"

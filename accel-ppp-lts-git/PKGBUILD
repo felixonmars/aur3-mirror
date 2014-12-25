@@ -1,7 +1,7 @@
 # Maintainer: Alexandr Boiko <brdcom@ya.ru>
 pkgname=accel-ppp-lts-git
-pkgver=20140726
-pkgrel=18
+pkgver=20141224
+pkgrel=1
 pkgdesc="High performance PPTP/L2TP/PPPoE/IPoE server"
 arch=('i686' 'x86_64')
 url="http://sourceforge.net/apps/trac/accel-ppp/"
@@ -53,7 +53,6 @@ build() {
 		-DCMAKE_BUILD_TYPE=Debug \
 		-DLOG_FILE=TRUE \
 		-DLOG_PGSQL=FALSE \
-		-DCPACK_TYPE=Archlinux \
 		-DSHAPER=TRUE \
 		-DRADIUS=TRUE \
 		-DNETSNMP=TRUE \
@@ -65,18 +64,18 @@ build() {
 	make || return 1
 }
 package() {
-	cd "$srcdir/$_gitname-build"
+	cd $srcdir/$_gitname-build
 	make DESTDIR="$pkgdir/" install || return 1
 
-	install -d -m0755 "$pkgdir/etc/snmp"
-	touch "$pkgdir/etc/snmp/$_gitname.conf"
-	install -Dm0644 "$srcdir/${_gitname}.lua" "$pkgdir/etc/${_gitname}.lua"
-	install -Dm0644 "$srcdir/$_gitname-default" "$pkgdir/etc/conf.d/accel-pppd"
-	install -Dm0644 "$srcdir/$_gitname/README" "$pkgdir/usr/share/doc/${_gitname}/README"
-	install -Dm0644 "$srcdir/accel-pppd.service" "$pkgdir/usr/lib/systemd/system/accel-pppd.service"
-	install -Dm0644 "$srcdir/${_gitname}.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/${_gitname}.conf"
-	install -Dm0644 "$srcdir/ipoe.conf" "$pkgdir/usr/lib/modules-load.d/ipoe.conf"
-	install -Dm0644 "$srcdir/$_gitname/accel-pppd/${_gitname}.conf" "$pkgdir/etc/${_gitname}.conf"
-	install -Dm0644 "$srcdir/$_gitname/accel-pppd/extra/net-snmp/ACCEL-PPP-MIB.txt" "$pkgdir/usr/share/snmp/mibs/ACCEL-PPP-MIB.txt"
-	install -Dm0644 "$srcdir/$_gitname-build/drivers/ipoe/driver/ipoe.ko" "$pkgdir/usr/lib/modules/`uname -r`/extramodules/ipoe.ko"
+	install -d -m0755 $pkgdir/etc/snmp
+	touch $pkgdir/etc/snmp/$_gitname.conf
+	install -Dm0644 $srcdir/${_gitname}.lua $pkgdir/etc/${_gitname}.lua
+	install -Dm0644 $srcdir/$_gitname-default $pkgdir/etc/conf.d/accel-pppd
+	install -Dm0644 $srcdir/$_gitname/README $pkgdir/usr/share/doc/${_gitname}/README
+	install -Dm0644 $srcdir/accel-pppd.service $pkgdir/usr/lib/systemd/system/accel-pppd.service
+	install -Dm0644 $srcdir/${_gitname}.tmpfiles $pkgdir/usr/lib/tmpfiles.d/${_gitname}.conf
+	install -Dm0644 $srcdir/ipoe.conf $pkgdir/usr/lib/modules-load.d/ipoe.conf
+	install -Dm0644 $pkgdir/etc/${_gitname}.conf.dist $pkgdir/etc/${_gitname}.conf
+	install -Dm0644 $srcdir/$_gitname/accel-pppd/extra/net-snmp/ACCEL-PPP-MIB.txt $pkgdir/usr/share/snmp/mibs/ACCEL-PPP-MIB.txt
+	install -Dm0644 $srcdir/$_gitname-build/drivers/ipoe/driver/ipoe.ko $pkgdir/usr/lib/modules/`uname -r`/extramodules/ipoe.ko
 }
