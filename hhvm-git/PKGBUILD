@@ -1,41 +1,41 @@
+# Maintainer: Yen Chi Hsuan <yan12125 at gmail dot com>
 # Maintainer: Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
 # Contributor: James Miller <james@pocketrent.com>
 
 _pkgname=hhvm
 pkgname=${_pkgname}-git
-pkgver=20141112
-pkgrel=1
+pkgver=20141224
+pkgrel=2
 pkgdesc="Virtual Machine, Runtime, and JIT for PHP"
 arch=('x86_64')
 url="http://hhvm.com"
 license=('PHP')
 depends=('boost-libs' 'google-glog' 'libmysqlclient' 'libmemcached' 'pcre' 'gd'
          'libxml2' 'libxslt' 'intel-tbb' 'libmcrypt' 'oniguruma' 'curl'
-         'libdwarf' 'imagemagick' 'libedit')
+         'libdwarf' 'imagemagick' 'libedit' 'pfff')
 makedepends=('git' 'cmake' 'gcc' 'boost' 'python2')
 source=("git+https://github.com/facebook/hhvm"
         "git+https://github.com/hhvm/hhvm-third-party"
         "git+https://github.com/facebook/folly"
         "git+https://github.com/facebook/fbthrift"
-        'third-party.patch'
         'hhvm.tmpfile'
         'hhvm@.service'
-        'static.mime-types.hdf'
-        'default.hdf'
-        'server.hdf')
+        'server.ini'
+        'systemd-server.conf')
+backup=('etc/hhvm/server.ini' 'etc/hhvm/systemd-server.conf')
 sha256sums=('SKIP'
             'SKIP'
             'SKIP'
             'SKIP'
-            'f2be28dbc9a337bb1632bdef10c84b80b4ba1ef86ab36a6995e8b835c3883233'
-            'cabf505fa85e33d7149f90fae95c6f67d5148895fc6efa353b21a3b31c1c3ec6'
-            '8681582439385807fd0f8caff780953d3049de93218ac785c48f6df4f4296bce'
-            '8b9f1dcb0a2fc7d3657e70b880425eccb963e0566247d99d26513d141e84a937'
-            '6d48e6bdc546d60a9770d507366ad23702f9997613cbe355d76463e0bf052f68'
-            'ba82950161ff38e634841360d7e15cf5314f233ed4d97b02c18e0ba9f7a3f560')
+            'c049b53f5ca7f8384d3b0a9d257018770b3a171f3b7ae8865cbb2c402a26b5e9'
+            'dddf4325926a41b3f1b5a41a1a42364ee463ab627f9d9b05ccf7c4660af3a51c'
+            'bca85e0445f3e26df65876c52e507aec8146cd31cce12c82846b55705529caed'
+            '66ae41fb6ef07dd02a9c959ab6b6e07bcb1d17b0c164a091fc5ecd9dc7967cd0')
+
 install=hhvm.install
-backup=(etc/hhvm/{conf.d/default,conf.d/static.mime-types,server}.hdf)
 options+=('!buildflags') # default flags cause libdwarf failed to link
+
+_EXTRA_COMPONENTS=('hackificator' 'remove_soft_types')
 
 pkgver() {
     cd "${srcdir}/${_pkgname}"
@@ -54,27 +54,35 @@ prepare() {
     git config submodule.folly.url "${srcdir}/folly"
     git config submodule.thrift/src.url "${srcdir}/fbthrift"
     git submodule update
-
-    cd "${srcdir}/${_pkgname}"
-
-    msg2 "Remove pcre"
-    cd $srcdir/${_pkgname}/third-party
-    patch -p1 -i "$srcdir"/third-party.patch
-    rm -rv pcre
 }
 
 build() {
-    cd "$srcdir"/${_pkgname}
+    cd "${srcdir}/${_pkgname}"
     msg2 "Building hhvm"
 
-    # comment for tests
-    HPHP_NOTEST=1 \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DCMAKE_PREFIX_PATH="$srcdir" \
         .
 
     make
+
+    cd "${srcdir}/${_pkgname}/hphp/hack/tools"
+    msg2 "Building extra components"
+
+    for tool in "${_EXTRA_COMPONENTS[@]}"
+    do
+        pushd "$tool"
+        make clean
+        make depend
+        make
+        popd
+    done
+
+    pushd augmented_types
+    make clean
+    make
+    popd
 }
 
 # check() {
@@ -86,14 +94,22 @@ package() {
     cd "${srcdir}/${_pkgname}"
     make DESTDIR="$pkgdir/" install
 
-    cd "$srcdir"
-    install -Dm644 hhvm.tmpfile "$pkgdir"/usr/lib/tmpfiles.d/hhvm.conf
-    install -Dm644 hhvm@.service "$pkgdir"/usr/lib/systemd/system/hhvm@.service
+    msg2 "Install extra components"
+    cd "${srcdir}/${_pkgname}/hphp/hack/bin/tools"
+    for tool in *
+    do
+        install -Dm755 "${tool}" "${pkgdir}/usr/bin/${tool}"
+    done
 
-    install -Dm644 static.mime-types.hdf "$pkgdir"/etc/hhvm/conf.d/static.mime-types.hdf
-    install -Dm644 default.hdf "$pkgdir"/etc/hhvm/conf.d/default.hdf
-    install -Dm644 server.hdf "$pkgdir"/etc/hhvm/server.hdf
+    cd "${srcdir}/${_pkgname}/hphp/hack/tools/augmented_types/_build"
+    install -Dm755 augmented_types.native "${pkgdir}/usr/bin/augmented_types"
 
-    install -dm755 -o http "$pkgdir"/var/log/hhvm
+    cd "${srcdir}"
+    install -Dm644 hhvm.tmpfile "${pkgdir}/usr/lib/tmpfiles.d/hhvm.conf"
+    install -Dm644 hhvm@.service "${pkgdir}/usr/lib/systemd/system/hhvm@.service"
+    install -Dm644 server.ini "${pkgdir}/etc/hhvm/server.ini"
+    install -Dm644 systemd-server.conf "${pkgdir}/etc/hhvm/systemd-server.conf"
+
+    install -Ddm755 -o http "${pkgdir}/var/log/hhvm"
+    install -Ddm755 -o http "${pkgdir}/var/lib/hhvm"
 }
-
