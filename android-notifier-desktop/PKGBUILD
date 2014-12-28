@@ -26,7 +26,7 @@ source=("http://android-notifier.googlecode.com/files/${pkgname}-${pkgver}-linux
 license=('GPL')
 
 
-build() {
+package() {
   mkdir -p $pkgdir/usr/share/android-notifier-desktop/lib
   mkdir -p $pkgdir/usr/share/icons/android-notifier-desktop
   mkdir -p $pkgdir/usr/share/applications  

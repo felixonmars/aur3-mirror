@@ -16,37 +16,41 @@
 extern Client client;
 
 /* general settings */
-char startpage[MAX_SETTING_SIZE]        = "https://bbs.archlinux.org/";
-char useragent[MAX_SETTING_SIZE]        = "Vimprobable2/" VERSION;
-char acceptlanguage[MAX_SETTING_SIZE]   = "";
+char startpage[MAX_SETTING_SIZE]      = "http://www.vimprobable.org/";
+char useragent[MAX_SETTING_SIZE]      = "Vimprobable2/" VERSION;
+char acceptlanguage[MAX_SETTING_SIZE] = "";
 static const gboolean enablePlugins     = TRUE; /* TRUE keeps plugins enabled */
 static const gboolean enableJava        = TRUE; /* FALSE disables Java applets */
 static const gboolean enablePagecache   = FALSE; /* TRUE turns on the page cache. */
+static const gboolean javascriptPopups  = FALSE; /* TRUE disables Webkit's popup blocker */
 static gboolean escape_input_on_load    = TRUE; /* TRUE will disable automatic focusing of input fields via Javascript*/
+static gboolean private_mode            = FALSE; /* TRUE will disable writing to the history file, cookie file and closed file */
 char temp_dir[MAX_SETTING_SIZE]         = "/tmp"; /* location of temporary files, default will be overridden if TEMPDIR is set */
 
+static const gboolean enableLocalstorage = FALSE;
+static const gboolean enableDatabase = FALSE;
+
 char downloads_path[MAX_SETTING_SIZE]   = "";
-char statusfont[MAX_SETTING_SIZE]       = "DejaVu Sans 7";      /* font for status bar */
+char statusfont[MAX_SETTING_SIZE]       = "monospace bold 8";   /* font for status bar */
 
 /* appearance */
-char statusbgcolor[MAX_SETTING_SIZE]    = "#222222";            /* background color for status bar */
-char statuscolor[MAX_SETTING_SIZE]      = "#696969";            /* color for status bar */
-char sslbgcolor[MAX_SETTING_SIZE]       = "#222222";            /* background color for status bar with SSL url */
-char sslinvalidbgcolor[MAX_SETTING_SIZE]= "#8A2F58";            /* background color for status bar with unverified SSL url */
-char sslcolor[MAX_SETTING_SIZE]         = "#53A6A6";            /* color for status bar with SSL url */
+char statusbgcolor[MAX_SETTING_SIZE]    = "#000000";            /* background color for status bar */
+char statuscolor[MAX_SETTING_SIZE]      = "#ffffff";            /* color for status bar */
+char sslbgcolor[MAX_SETTING_SIZE]       = "#b0ff00";            /* background color for status bar with SSL url */
+char sslinvalidbgcolor[MAX_SETTING_SIZE]= "#ff0000";            /* background color for status bar with unverified SSL url */
+char sslcolor[MAX_SETTING_SIZE]         = "#000000";            /* color for status bar with SSL url */
 
-                                        /*  normal,             warning,           error       */
-char urlboxfont[][MAX_SETTING_SIZE]     = { "DejaVu Sans 7",   "DejaVu Sans 7",   "DejaVu Sans 7"};
-static const char *urlboxcolor[]        = { "#CCCCCC",          "#CC99CC",        "#FFB6C1" };
-static const char *urlboxbgcolor[]      = { "#212121",          "#111111",        "#212121" };
+                                        /*  normal,                 warning,                error       */
+char urlboxfont[][MAX_SETTING_SIZE]     = { "monospace normal 8",   "monospace normal 8",   "monospace bold 8"};
+static const char *urlboxcolor[]        = { NULL,                   "#ff0000",              "#ffffff" };
+static const char *urlboxbgcolor[]      = { NULL,                   NULL,                   "#ff0000" };
 
-                                        /*  normal,                          error               */
-char completionfont[2][MAX_SETTING_SIZE] = { "DejaVu Sans 7",   "DejaVu Sans 7" };
+                                        /*  normal,                 error               */
+char completionfont[2][MAX_SETTING_SIZE] = { "monospace normal 8",   "monospace bold 8" };
                                                                                         /* topborder color */
-static const char *completioncolor[]    = { "#899CA1",          "#BF4D80",              "#444444" };
+static const char *completioncolor[]    = { "#000000",              "#ff00ff",              "#000000" };
                                                                                         /* current row background */
-static const char *completionbgcolor[]  = { "#3D3D3D",          "#8C4665",              "#5C5C5C" };
-
+static const char *completionbgcolor[]  = { "#ffffff",              "#ffffff",              "#fff000" };
 /* pango markup for prefix highliting:      opening,                closing             */
 #define             COMPLETION_TAG_OPEN     "<b>"
 #define             COMPLETION_TAG_CLOSE    "</b>"
@@ -57,8 +61,8 @@ static const char *completionbgcolor[]  = { "#3D3D3D",          "#8C4665",      
 #define             ENABLE_WGET_PROGRESS_BAR
 static const int progressbartick        = 20;
 static const char progressborderleft    = '[';
-static const char progressbartickchar   = ':';
-static const char progressbarcurrent    = ':';
+static const char progressbartickchar   = '=';
+static const char progressbarcurrent    = '>';
 static const char progressbarspacer     = ' ';
 static const char progressborderright   = ']';
 
@@ -71,20 +75,21 @@ static const char progressborderright   = ']';
  *       "%s" will translate to "user@example.org"
  */
 static URIHandler uri_handlers[] = {
-    { "mailto:",          "urxvtc -e mutt %s" },
-    { "ftp://",           "urxvtc -e wget ftp://%s" },
-    { "vimprobableedit:", "urxvt -title scratchpad -geometry 86x24+40+60 -e vim %s" },
+    { "mailto:",          "x-terminal-emulator -e mutt %s" },
+    { "vimprobableedit:", "x-terminal-emulator -e vi %s" },
+    { "ftp://",           "x-terminal-emulator -e wget ftp://%s" },
 };
 
 /* cookies */
 #define             ENABLE_COOKIE_SUPPORT
 #define             COOKIES_STORAGE_FILENAME    "%s/vimprobable/cookies", client.config.config_base
 #define             COOKIES_STORAGE_READONLY    FALSE   /* if TRUE new cookies will be lost if you quit */
-SoupCookieJarAcceptPolicy CookiePolicy = SOUP_COOKIE_JAR_ACCEPT_ALWAYS; /* by default, accept all cookies */
+SoupCookieJarAcceptPolicy CookiePolicy = SOUP_COOKIE_JAR_ACCEPT_NO_THIRD_PARTY; /* by default, accept all cookies, but third party */
+SoupCookieJarAcceptPolicy CookiePolicyLastOn = SOUP_COOKIE_JAR_ACCEPT_NO_THIRD_PARTY; /* tracking variable for private mode */
 
 
 /* font size */
-#define             DEFAULT_FONT_SIZE           10
+#define             DEFAULT_FONT_SIZE           12
 
 /* user styles */
 #define             USER_STYLESHEET             "%s/vimprobable/style.css", client.config.config_base
@@ -98,7 +103,7 @@ static gboolean strict_ssl              = TRUE; /* FALSE will accept any SSL cer
 static char ca_bundle[MAX_SETTING_SIZE] = "/etc/ssl/certs/ca-certificates.crt";
 
 /* proxy */
-static const gboolean use_proxy         = FALSE; /* TRUE if you're going to use a proxy (whose address
+static const gboolean use_proxy         = TRUE; /* TRUE if you're going to use a proxy (whose address
                                                   is specified in http_proxy environment variable), false otherwise */
 /* scrolling */
 static unsigned int scrollstep          = 40;   /* cursor difference in pixel */
@@ -112,68 +117,67 @@ gboolean complete_case_sensitive        = TRUE;
 
 /* search engines */
 static Searchengine searchengines[] = {
-    { "d",         "https://duckduckgo.com/html/?q=%s&t=Vimprobable" },
-    { "g",         "https://ixquick.com/do/metasearch.pl?language=english&cat=web&query=%s" },
-    { "b",         "https://ixquick.com/do/metasearch.pl?&cat=web&query=host:bbs.archlinux.org+%s" },
-    { "a",         "https://wiki.archlinux.org/index.php?title=Special%%3ASearch&search=%s&go=Go" },
-    { "w",         "https://secure.wikimedia.org/wikipedia/en/w/index.php?title=Special%%3ASearch&search=%s&go=Go" },
-    /* Hack to shorten urls */
-    { "B",         "https://api-ssl.bitly.com/v3/shorten?access_token=20e9827b9c5ddee1b0cec7722bfc557dec833791&longUrl=%s&format=txt" },
+    { "i",          "http://ixquick.com/do/metasearch.pl?query=%s" },
+    { "s",          "http://startpage.com/do/metasearch.pl?query=%s" },
+    { "w",          "https://secure.wikimedia.org/wikipedia/en/w/index.php?title=Special%%3ASearch&search=%s&go=Go" },
+    { "wd",         "https://secure.wikimedia.org/wikipedia/de/w/index.php?title=Special%%3ASearch&search=%s&go=Go" },
+    { "d",          "https://duckduckgo.com/?q=%s&t=vimprobable" },
+    { "dd",         "https://duckduckgo.com/html/?q=%s&t=vimprobable" },
 };
 
 static char defaultsearch[MAX_SETTING_SIZE] = "d";
 
 /* command mapping */
 Command commands[COMMANDSIZE] = {
-    /* command,                                        function,         argument */
-    { "ba",                                            navigate,         {NavigationBack} },
-    { "back",                                          navigate,         {NavigationBack} },
-    { "ec",                                            script,           {Info} },
-    { "echo",                                          script,           {Info} },
-    { "echoe",                                         script,           {Error} },
-    { "echoerr",                                       script,           {Error} },
-    { "fw",                                            navigate,         {NavigationForward} },
-    { "fo",                                            navigate,         {NavigationForward} },
-    { "forward",                                       navigate,         {NavigationForward} },
-    { "javascript",                                    script,           {Silent} },
-    { "o",                                             open_arg,         {TargetCurrent} },
-    { "open",                                          open_arg,         {TargetCurrent} },
-    { "q",                                             quit,             {0} },
-    { "quit",                                          quit,             {0} },
-    { "re",                                            navigate,         {NavigationReload} },
-    { "re!",                                           navigate,         {NavigationForceReload} },
-    { "reload",                                        navigate,         {NavigationReload} },
-    { "reload!",                                       navigate,         {NavigationForceReload} },
-    { "qt",                                            search_tag,       {0} },
-    { "st",                                            navigate,         {NavigationCancel} },
-    { "stop",                                          navigate,         {NavigationCancel} },
-    { "t",                                             open_arg,         {TargetNew} },
-    { "tabopen",                                       open_arg,         {TargetNew} },
-    { "print",                                         print_frame,      {0} },
-    { "ha",                                            print_frame,      {0} },
-    { "bma",                                           bookmark,         {0} },
-    { "bookmark",                                      bookmark,         {0} },
-    { "source",                                        view_source,      {0} },
-    { "openeditor",                                    open_editor,      {0} },
-    { "set",                                           browser_settings, {0} },
-    { "map",                                           mappings,         {0} },
-    { "inspect",                                       open_inspector,   {0} },
-    { "jumpleft",                                      scroll,           {ScrollJumpTo   | DirectionLeft} },
-    { "jumpright",                                     scroll,           {ScrollJumpTo   | DirectionRight} },
-    { "jumptop",                                       scroll,           {ScrollJumpTo   | DirectionTop} },
-    { "jumpbottom",                                    scroll,           {ScrollJumpTo   | DirectionBottom} },
-    { "pageup",                                        scroll,           {ScrollMove     | DirectionTop      | UnitPage} },
-    { "pagedown",                                      scroll,           {ScrollMove     | DirectionBottom   | UnitPage} },
-    { "navigationback",                                navigate,         {NavigationBack} },
-    { "navigationforward",                             navigate,         {NavigationForward} },
-    { "scrollleft",                                    scroll,           {ScrollMove     | DirectionLeft     | UnitLine} },
-    { "scrollright",                                   scroll,           {ScrollMove     | DirectionRight    | UnitLine} },
-    { "scrollup",                                      scroll,           {ScrollMove     | DirectionTop      | UnitLine} },
-    { "scrolldown",                                    scroll,           {ScrollMove     | DirectionBottom   | UnitLine} },
-    { "zi",                                            zoom,             {ZoomIn         | ZoomText} },
-    { "zo",                                            zoom,             {ZoomOut        | ZoomText} },
-    { "pgzi",                                          zoom,             {ZoomIn         | ZoomFullContent} },
-    { "pgzo",                                          zoom,             {ZoomOut        | ZoomFullContent} },
+    /* command,                                        	function,         argument */
+    { "ba",                                            	navigate,         {NavigationBack} },
+    { "back",                                          	navigate,         {NavigationBack} },
+    { "ec",                                            	script,           {Info} },
+    { "echo",                                          	script,           {Info} },
+    { "echoe",                                         	script,           {Error} },
+    { "echoerr",                                       	script,           {Error} },
+    { "fw",                                            	navigate,         {NavigationForward} },
+    { "fo",                                            	navigate,         {NavigationForward} },
+    { "forward",                                       	navigate,         {NavigationForward} },
+    { "javascript",                                    	script,           {Silent} },
+    { "o",                                             	open_arg,         {TargetCurrent} },
+    { "open",                                          	open_arg,         {TargetCurrent} },
+    { "q",                                             	quit,             {0} },
+    { "quit",                                          	quit,             {0} },
+    { "re",                                            	navigate,         {NavigationReload} },
+    { "re!",                                           	navigate,         {NavigationForceReload} },
+    { "reload",                                        	navigate,         {NavigationReload} },
+    { "reload!",                                       	navigate,         {NavigationForceReload} },
+    { "qt",                                             search_tag,       {0} },
+    { "st",                                            	navigate,         {NavigationCancel} },
+    { "stop",                                          	navigate,         {NavigationCancel} },
+    { "t",                                             	open_arg,         {TargetNew} },
+    { "tabopen",                                       	open_arg,         {TargetNew} },
+    { "print",                                         	print_frame,      {0} },
+    { "bma",                                           	bookmark,         {0} },
+    { "bookmark",                                      	bookmark,         {0} },
+    { "source",                                        	view_source,      {0} },
+    { "esource",                                       	edit_source,      {0} },
+    { "openeditor",                                   	open_editor,      {0} },
+    { "set",                                           	browser_settings, {0} },
+    { "map",                                           	mappings,         {0} },
+    { "inspect",                                        open_inspector,   {0} },
+    { "jumpleft",                                       scroll,           {ScrollJumpTo   | DirectionLeft} },
+    { "jumpright",                                      scroll,           {ScrollJumpTo   | DirectionRight} },
+    { "jumptop",                                        scroll,           {ScrollJumpTo   | DirectionTop} },
+    { "jumpbottom",                                     scroll,           {ScrollJumpTo   | DirectionBottom} },
+    { "pageup",                                         scroll,           {ScrollMove     | DirectionTop      | UnitPage} },
+    { "pagedown",                                       scroll,           {ScrollMove     | DirectionBottom   | UnitPage} },
+    { "navigationback",   	                            navigate,         {NavigationBack} },
+    { "navigationforward",	                            navigate,         {NavigationForward} },
+    { "scrollleft",                                     scroll,           {ScrollMove     | DirectionLeft     | UnitLine} },
+    { "scrollright",                                    scroll,           {ScrollMove     | DirectionRight    | UnitLine} },
+    { "scrollup",                                       scroll,           {ScrollMove     | DirectionTop      | UnitLine} },
+    { "scrolldown",                                     scroll,           {ScrollMove     | DirectionBottom   | UnitLine} },
+    { "zi",                                             zoom,             {ZoomIn         | ZoomText} },
+    { "zo",                                             zoom,             {ZoomOut        | ZoomText} },
+    { "pgzi",                                           zoom,             {ZoomIn         | ZoomFullContent} },
+    { "pgzo",                                           zoom,             {ZoomOut        | ZoomFullContent} },
 };
 
 /* mouse bindings
@@ -211,6 +215,9 @@ static Setting browsersettings[] = {
     { "stylesheet",      NULL,               "user-stylesheet-uri",         FALSE,          FALSE,           FALSE,          FALSE  },
     { "resizetextareas", NULL,               "resizable-text-areas",        FALSE,          TRUE,            FALSE,          FALSE  },
     { "webinspector",    NULL,               "enable-developer-extras",     FALSE,          TRUE,            FALSE,          FALSE  },
+    { "localstorage",    NULL,               "enable-html5-local-storage",  FALSE,          TRUE,            FALSE,          FALSE  },
+    { "html5db",         NULL,               "enable-html5-database",       FALSE,          TRUE,            FALSE,          FALSE  },
+    { "popups",          NULL,               "javascript-can-open-windows-automatically",FALSE,TRUE,         FALSE,          FALSE  },
 
     { "homepage",        startpage,          "",                            FALSE,          FALSE,           FALSE,          FALSE  },
     { "statusbgcolor",   statusbgcolor,      "",                            FALSE,          FALSE,           TRUE,           TRUE   },
@@ -235,6 +242,7 @@ static Setting browsersettings[] = {
     { "inputbox",        NULL,               "",                            FALSE,          TRUE,            FALSE,          FALSE  },
     { "completioncase",  NULL,               "",                            FALSE,          TRUE,            FALSE,          FALSE  },
     { "escapeinput",     NULL,               "",                           FALSE,          TRUE,            FALSE,          FALSE  },
+    { "private",         NULL,               "",                           FALSE,          TRUE,            FALSE,          FALSE  },
     { "strictssl",       NULL,               "",                            FALSE,          TRUE,            FALSE,          FALSE  },
     { "cabundle",        ca_bundle,          "",                            FALSE,          FALSE,           FALSE,          FALSE  },
     { "tempdir",         temp_dir,           "",                            FALSE,          FALSE,           FALSE,          FALSE  },

@@ -25,6 +25,15 @@ Key keys[] = {
     { 0,                    GDK_q,          GDK_7,          quickmark,  { .s = "7" } },
     { 0,                    GDK_q,          GDK_8,          quickmark,  { .s = "8" } },
     { 0,                    GDK_q,          GDK_9,          quickmark,  { .s = "9" } },
+    { 0,                    GDK_Q,          GDK_1,          quickmark,  { .s = "1", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_2,          quickmark,  { .s = "2", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_3,          quickmark,  { .s = "3", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_4,          quickmark,  { .s = "4", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_5,          quickmark,  { .s = "5", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_6,          quickmark,  { .s = "6", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_7,          quickmark,  { .s = "7", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_8,          quickmark,  { .s = "8", .i = 1 } },
+    { 0,                    GDK_Q,          GDK_9,          quickmark,  { .s = "9", .i = 1 } },
     { 0,                    0,              GDK_0,          scroll,     {ScrollJumpTo   | DirectionLeft} },
     { 0,                    0,              GDK_dollar,     scroll,     {ScrollJumpTo   | DirectionRight} },
     { 0,                    GDK_g,          GDK_g,          scroll,     {ScrollJumpTo   | DirectionTop} },
@@ -57,13 +66,11 @@ Key keys[] = {
 
     { GDK_CONTROL_MASK,     0,              GDK_i,          navigate,   {NavigationBack} },
     { GDK_CONTROL_MASK,     0,              GDK_o,          navigate,   {NavigationForward} },
-    { 0,                    0,              GDK_b,          navigate,   {NavigationBack} },
     { 0,                    0,              GDK_H,          navigate,   {NavigationBack} },
-    { 0,                    0,              GDK_m,          navigate,   {NavigationForward} },
     { 0,                    0,              GDK_L,          navigate,   {NavigationForward} },
     { 0,                    0,              GDK_r,          navigate,   {NavigationReload} },
     { 0,                    0,              GDK_R,          navigate,   {NavigationForceReload} },
-    { GDK_CONTROL_MASK,     0,              GDK_s,          navigate,   {NavigationCancel} },
+    { GDK_CONTROL_MASK,     0,              GDK_c,          navigate,   {NavigationCancel} },
 
     { 0,                    0,              GDK_plus,       zoom,       {ZoomIn         | ZoomText} },
     { 0,                    0,              GDK_minus,      zoom,       {ZoomOut        | ZoomText} },
@@ -106,6 +113,7 @@ Key keys[] = {
     { 0,                    0,              GDK_period,     input,      {.s = "."} },
     { 0,                    0,              GDK_comma,      input,      {.s = ","} },
     { 0,                    GDK_semicolon,  GDK_i,          input,      {.s = ";i"} },
+    { 0,                    GDK_semicolon,  GDK_l,          input,      {.s = ";l"} },
     { 0,                    GDK_semicolon,  GDK_s,          input,      {.s = ";s"} },
     { 0,                    GDK_semicolon,  GDK_y,          input,      {.s = ";y"} },
     { 0,                    GDK_semicolon,  GDK_o,          input,      {.s = ";o"} },
@@ -121,7 +129,7 @@ Key keys[] = {
 
     { 0,                    GDK_VoidSymbol, GDK_Escape,     set,        {ModeNormal} },
     { GDK_CONTROL_MASK,     GDK_VoidSymbol, GDK_bracketleft,set,        {ModeNormal} },
-    { GDK_CONTROL_MASK,     0,              GDK_p,          set,        {ModePassThrough} },
+    { GDK_CONTROL_MASK,     0,              GDK_z,          set,        {ModePassThrough} },
     { GDK_CONTROL_MASK,     0,              GDK_v,          set,        {ModeSendKey} },
     { 0,                    0,              GDK_f,          input,      {.s = "."} },
     { 0,                    0,              GDK_F,          input,      {.s = ","} },
@@ -129,16 +137,7 @@ Key keys[] = {
     { 0,                    GDK_g,          GDK_i,          focus_input,{} },
     { 0,                    0,              GDK_u,          revive,     {} },
 
-        /* custom commands */
-    { 0,                    GDK_g,          GDK_b,          input,      {.s = ":tabopen http://bitbucket.jasonwryan.com" } },
-    { 0,                    GDK_g,          GDK_e,          input,      {.s = ":tabopen https://wiki.archlinux.org/index.php/Forum_Etiquette" } },
-    { 0,                    GDK_g,          GDK_f,          input,      {.s = ":tabopen http://flickr.jasonwryan.com" } },
-    { 0,                    GDK_g,          GDK_j,          input,      {.s = ":tabopen http://jasonwryan.com" } },
-    { 0,                    GDK_g,          GDK_p,          input,      {.s = ":tabopen http://127.0.0.1:4000" } },
-    { 0,                    GDK_g,          GDK_r,          input,      {.s = ":tabopen https://www.inoreader.com/" } },
-    { 0,                    GDK_g,          GDK_s,          input,      {.s = ":tabopen https://unix.stackexchange.com" } },
-
-    { 0,                    0,              GDK_x,          quit,       {0} },
+    { 0,                    0,              GDK_d,          quit,       {0} },
 	/* leave this last line as last */
     { 0,                    0,              0,              0,          {0} },
 };
