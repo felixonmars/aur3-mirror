@@ -1,31 +1,30 @@
-# Maintainer: Boohbah <boohbah at gmail dot com>
+# Maintainer: Flaviu Tamas <tamas.flaviu@gmail.com>
+# Contributor: Boohbah <boohbah at gmail dot com>
 # Contributor: sudokode <sudokode at gmail dot com>
 
 pkgname=american-fuzzy-lop
 _pkgname=afl
-pkgver=0.21b
+pkgver=1.05b
 pkgrel=1
 pkgdesc="A fuzzer using a novel type of compile-time instrumentation"
 arch=('i686' 'x86_64')
 url="https://code.google.com/p/american-fuzzy-lop/"
 license=('Apache')
+depends=('bash')
 source=('http://lcamtuf.coredump.cx/afl.tgz')
-md5sums=('cf3db0803db5700633e9cc85e0ba2be0')
+sha256sums=('5c4ab527fb0aa0bec8f6e22e5492a1f786c8abb0a4b085b362d8977752765321')
 
 prepare() {
   cd $_pkgname-$pkgver
-  # Fix paths because there is no configure script
-  sed -i "s:/usr/local/bin:${pkgdir}/usr/bin:" Makefile
-  sed -i "s:/usr/local/lib:${pkgdir}/usr/lib:" Makefile
 }
 
 build() {
   cd $_pkgname-$pkgver
-  make
+  make PREFIX=$pkgdir/usr/
 }
 
 package() {
   cd $_pkgname-$pkgver
   mkdir -p $pkgdir/usr/{bin,lib,}
-  make install
+  make install PREFIX=$pkgdir/usr/
 }
