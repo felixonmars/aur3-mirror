@@ -43,7 +43,7 @@ struct state {
 };
 #pragma pack(pop)
 
-static int screen_init(int *rowtot, int *coltot);
+static void screen_init(int rowtot, int coltot);
 static void screen_end(int rowtot, int coltot, int lose);
 static snake *reclist(int i, snake *previous, int directions[], int x, int y);
 static void freelist(snake *s);
@@ -55,8 +55,8 @@ static void snake_move(int *lose);
 static snake *snake_grow(void);
 static int main_cycle(int *lose);
 static void colored_print(WINDOW *win, int x, int y, char *c, int color);
-static int *resume_func(int *resume);
-static int *init_func(void);
+static int *resume_func(int *resume,int *initial_directions);
+static int *init_func(int *initial_directions);
 static void store_and_exit(void);
 
 static struct state ps;
@@ -74,12 +74,21 @@ int main(void)
         scanf("%d", &resume);
     } while (resume != 0 && resume != 1);
     if (resume)
-        initial_directions = resume_func(&resume);
+        initial_directions = resume_func(&resume, initial_directions);
     else
-        initial_directions = init_func();
+        initial_directions = init_func(initial_directions);
     srand(time(NULL));
-    if (screen_init(&rowtot, &coltot))
+    initscr();
+    getmaxyx(stdscr, rowtot, coltot);
+     /* check terminal size */
+    if ((rowtot < ROWS + 6) || (coltot < COLS + 2)) {
+        clear();
+        endwin();
+        printf("This screen has %d rows and %d columns. Enlarge it.\n", rowtot, coltot);
+        printf("You need at least %d rows and %d columns.\n", ROWS + 6, COLS + 2);
         return 1;
+    }
+    screen_init(rowtot, coltot);
     grid_init(initial_directions, resume);
     free(initial_directions);
     while (!lose) {
@@ -91,9 +100,8 @@ int main(void)
     return 0;
 }
 
-static int screen_init(int *rowtot, int *coltot)
+static void screen_init(int rowtot, int coltot)
 {
-    initscr();
     start_color();
     init_pair(1, COLOR_RED, COLOR_BLACK);
     init_pair(2, COLOR_GREEN, COLOR_BLACK);
@@ -101,18 +109,9 @@ static int screen_init(int *rowtot, int *coltot)
     init_pair(4, COLOR_CYAN, COLOR_BLACK);
     raw();
     noecho();
-    getmaxyx(stdscr, *rowtot, *coltot);
-    /* check terminal size */
-    if ((*rowtot < ROWS + 6) || (*coltot < COLS + 2)) {
-        clear();
-        endwin();
-        printf("This screen has %d rows and %d columns. Enlarge it.\n", *rowtot, *coltot);
-        printf("You need at least %d rows and %d columns.\n", ROWS + 6, COLS + 2);
-        return 1;
-    }
     /* print sub windows centered */
-    field = subwin(stdscr, ROWS + 2, COLS + 2, (*rowtot - 6 - ROWS) / 2, (*coltot - COLS - 2) / 2);
-    score = subwin(stdscr, 2 + 2, *coltot, *rowtot - 4, 0);
+    field = subwin(stdscr, ROWS + 2, COLS + 2, (rowtot - 6 - ROWS) / 2, (coltot - COLS - 2) / 2);
+    score = subwin(stdscr, 2 + 2, coltot, rowtot - 4, 0);
     keypad(field, TRUE);
     wtimeout(field, 30);
     wattron(field, COLOR_PAIR(4));
@@ -121,13 +120,15 @@ static int screen_init(int *rowtot, int *coltot)
     wborder(score, '|', '|', '-', '-', '+', '+', '+', '+');
     wattroff(field, COLOR_PAIR);
     mvwprintw(score, 2, 1, "q anytime to *rage* quit. Arrow keys to move. s to save current game and leave.");
-    mvwprintw(score, 1, 1, "Points: %d", ps.points);
+    mvwprintw(score, 1, 1, "Points: ");
+    if (ps.points > 0)
+        wattron(score, A_BOLD);
+    mvwprintw(score, 1, strlen("Points: ") + 1, "%d", ps.points);
     wattron(field, A_BOLD);
     wattron(score, A_BOLD);
     colored_print(field, -1, -1, "Snake", 4);
     mvwprintw(score, 0, 0, "Score");
     wrefresh(score);
-    return 0;
 }
 
 static void screen_end(int rowtot, int coltot, int lose)
@@ -212,29 +213,22 @@ static void grid_init(int initial_directions[], int resume)
 
 static void snake_move(int *lose)
 {
-    int eat = 0;
-    char c;
     ps.snake_head.x = ((ps.snake_head.x + s->direction % 10) + ROWS) % ROWS;
     ps.snake_head.y = ((ps.snake_head.y + s->direction / 10) + COLS) % COLS;
-    c = (mvwinch(field, ps.snake_head.x + 1, ps.snake_head.y + 1) & A_CHARTEXT);
-    if (c == *SNAKE_CHAR) {
-            *lose = 1;
-            return;
+    if ((mvwinch(field, ps.snake_head.x + 1, ps.snake_head.y + 1) & A_CHARTEXT) == *FRUIT_CHAR) {
+        eat_fruit();
+        mvwprintw(score, 1, strlen("Points: ") + 1, "%d", ps.points);
+        wrefresh(score);
     } else {
-        if (c == *FRUIT_CHAR)
-            eat = 1;
-    }
-    colored_print(field, ps.snake_head.x, ps.snake_head.y, SNAKE_CHAR, 2);
-    if (!eat) {
         mvwprintw(field, ps.snake_tail.x + 1,  ps.snake_tail.y + 1, " ");
         ps.snake_tail.x = ((ps.snake_tail.x + s->previous->direction % 10) + ROWS) % ROWS;
         ps.snake_tail.y = ((ps.snake_tail.y + s->previous->direction / 10) + COLS) % COLS;
-    } else {
-        eat_fruit();
-        ps.size++;
-        mvwprintw(score, 1, strlen("Points: ") + 1, "%d", ps.points);
-        wrefresh(score);
+        if ((mvwinch(field, ps.snake_head.x + 1, ps.snake_head.y + 1) & A_CHARTEXT) == *SNAKE_CHAR) {
+            *lose = 1;
+            return;
+        }
     }
+    colored_print(field, ps.snake_head.x, ps.snake_head.y, SNAKE_CHAR, 2);
 }
 
 static void change_directions(void)
@@ -283,6 +277,7 @@ static void eat_fruit(void)
 {
     ps.points = ps.points + 7;
     s = snake_grow();
+    ps.size++;
     fruit_gen();
 }
 
@@ -308,10 +303,9 @@ static void colored_print(WINDOW *win, int x, int y, char *c, int color)
     wattroff(win, COLOR_PAIR);
 }
 
-static int *resume_func(int *resume)
+static int *resume_func(int *resume, int *initial_directions)
 {
     FILE *f = NULL;
-    int *initial_directions = NULL;
     int i = 0;
     if ((f = fopen(path, "r"))) {
         fread(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
@@ -322,18 +316,16 @@ static int *resume_func(int *resume)
         }
         fclose(f);
         remove(path);
-    } else {
-        printf("No previous games found. Starting a new match.\n");
-        sleep(1);
-        initial_directions = init_func();
-        *resume = 0;
+        return initial_directions;
     }
-    return initial_directions;
+    printf("No previous games found. Starting a new match.\n");
+    *resume = 0;
+    sleep(1);
+    return init_func(initial_directions);
 }
 
-static int *init_func(void)
+static int *init_func(int *initial_directions)
 {
-    int *initial_directions = NULL;
     int i = 0;
     ps.points = 0;
     ps.size = STARTING_SIZE;

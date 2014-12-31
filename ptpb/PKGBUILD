@@ -1,0 +1,18 @@
+# Maintainer: Zatherz <zatherz[at]linux[dot]com>
+pkgname=ptpb
+pkgver=1.0
+pkgrel=1
+pkgdesc="Bash client for ptpb.pw, a simple open source command line pastebin."
+url="https://ptpb.pw/"
+arch=('any')
+license=('GPLv2')
+depends=('bash')
+makedepends=('')
+source=("ptpb")
+md5sums=("32570ee22376926862d1f7dda92affa7")
+sha1sums=("9aef9608c3681b78fa6575272452c6039d91aa80")
+sha256sums=("03def3f5712dd0b1b59842c501443b3f87c4b4d8c8ec775eea07aa031c377f5a")
+
+package() {
+	install -D ptpb "$pkgdir/usr/bin/ptpb"
+}

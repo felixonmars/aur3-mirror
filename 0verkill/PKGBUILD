@@ -1,7 +1,9 @@
-# Maintainer: Diogo Leal <estranho@diogoleal.com>
-# Contribuitor: Marcin Karpezo <sirmacik@gmail.com>
-# Contributor: Petr Kulhavy <brain@artax.karlin.mff.cuni.cz>
-# Contributor: Bartosz Dusilo <cbreaker@tlen.pl>
+# Maintainer: Alireza Savand <alireza.savand@gmail.com
+# Contributors:
+# 	Diogo Leal <estranho@diogoleal.com>
+# 	Marcin Karpezo <sirmacik@gmail.com>
+# 	Petr Kulhavy <brain@artax.karlin.mff.cuni.cz>
+# 	Bartosz Dusilo <cbreaker@tlen.pl>
 pkgname=0verkill
 pkgver=0.16
 pkgrel=7
