@@ -1,6 +1,6 @@
 # Maintainer: eayin2 <eayin2 at gmail dot com>
 pkgname="trashcaron"
-pkgver="0.1"
+pkgver="0.1.1"
 pkgrel=1
 url="https://github.com/eayin2/trashcaron"
 pkgdesc="Trashbin script with btrfs support and automatic trash purge feature."

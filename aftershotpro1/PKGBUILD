@@ -3,7 +3,7 @@
 pkgname=aftershotpro1
 _pkgname=AfterShotPro
 pkgver=1.2.0.7
-pkgrel=1
+pkgrel=2
 pkgdesc="Legacy Professional Workflow and RAW Conversion"
 arch=('i686' 'x86_64')
 license=('custom')
@@ -15,7 +15,7 @@ source=("http://www.corel.com/akdlm/6763/downloads/AfterShotPro/1_2/PF/AfterShot
 url="http://www.corel.com/corel/product/index.jsp?pid=prod4670071"
 
 
-build() {
+package() {
 	bsdtar xf ${_pkgname}_i386.rpm
 	mv ${srcdir}/opt ${pkgdir}/
 	install -d ${pkgdir}/usr/share

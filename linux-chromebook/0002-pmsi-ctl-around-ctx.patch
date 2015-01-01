@@ -1,0 +1,124 @@
+From 9b12f1197c51d59461d25cd4d6ce58aeeccf8d02 Mon Sep 17 00:00:00 2001
+From: root <root@localhost.localdomain>
+Date: Wed, 10 Dec 2014 13:47:00 +0000
+Subject: [PATCH 2/2] pmsi-ctl-around-ctx
+
+---
+ drivers/gpu/drm/i915/i915_gem_context.c | 20 ++++++++++++++++++--
+ drivers/gpu/drm/i915/i915_reg.h         |  2 ++
+ drivers/gpu/drm/i915/intel_ringbuffer.c | 19 ++++++-------------
+ 3 files changed, 26 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/gpu/drm/i915/i915_gem_context.c b/drivers/gpu/drm/i915/i915_gem_context.c
+index 5cd2b97..336fcac 100644
+--- a/drivers/gpu/drm/i915/i915_gem_context.c
++++ b/drivers/gpu/drm/i915/i915_gem_context.c
+@@ -484,7 +484,9 @@ mi_set_context(struct intel_engine_cs *ring,
+ 	       u32 hw_flags)
+ {
+ 	u32 flags = hw_flags | MI_MM_SPACE_GTT;
+-	int ret;
++	struct intel_engine_cs *engine;
++	int num_rings;
++	int ret, i;
+ 
+ 	/* w/a: If Flush TLB Invalidation Mode is enabled, driver must do a TLB
+ 	 * invalidation prior to MI_SET_CONTEXT. On GEN6 we don't set the value
+@@ -501,10 +503,18 @@ mi_set_context(struct intel_engine_cs *ring,
+ 	if (!IS_HASWELL(ring->dev) && INTEL_INFO(ring->dev)->gen < 8)
+ 		flags |= (MI_SAVE_EXT_STATE_EN | MI_RESTORE_EXT_STATE_EN);
+ 
+-	ret = intel_ring_begin(ring, 6);
++	num_rings = hweight32(INTEL_INFO(ring->dev)->ring_mask);
++
++	ret = intel_ring_begin(ring, 6 + 2*(num_rings*2 + 1));
+ 	if (ret)
+ 		return ret;
+ 
++	intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(num_rings));
++	for_each_ring(engine, to_i915(ring->dev), i) {
++		intel_ring_emit(ring, RING_PSMI_CTL(engine->mmio_base));
++		intel_ring_emit(ring, _MASKED_BIT_ENABLE(GEN6_PSMI_SLEEP_MSG_DISABLE));
++	}
++
+ 	/* WaProgramMiArbOnOffAroundMiSetContext:ivb,vlv,hsw,bdw,chv */
+ 	if (INTEL_INFO(ring->dev)->gen >= 7)
+ 		intel_ring_emit(ring, MI_ARB_ON_OFF | MI_ARB_DISABLE);
+@@ -526,6 +536,12 @@ mi_set_context(struct intel_engine_cs *ring,
+ 	else
+ 		intel_ring_emit(ring, MI_NOOP);
+ 
++	intel_ring_emit(ring, MI_LOAD_REGISTER_IMM(num_rings));
++	for_each_ring(engine, to_i915(ring->dev), i) {
++		intel_ring_emit(ring, RING_PSMI_CTL(engine->mmio_base));
++		intel_ring_emit(ring, _MASKED_BIT_DISABLE(GEN6_PSMI_SLEEP_MSG_DISABLE));
++	}
++
+ 	intel_ring_advance(ring);
+ 
+ 	return ret;
+diff --git a/drivers/gpu/drm/i915/i915_reg.h b/drivers/gpu/drm/i915/i915_reg.h
+index 869e5ae..8f3c388 100644
+--- a/drivers/gpu/drm/i915/i915_reg.h
++++ b/drivers/gpu/drm/i915/i915_reg.h
+@@ -1119,6 +1119,7 @@ enum punit_power_well {
+ #define GEN6_VERSYNC	(RING_SYNC_1(VEBOX_RING_BASE))
+ #define GEN6_VEVSYNC	(RING_SYNC_2(VEBOX_RING_BASE))
+ #define GEN6_NOSYNC 0
++#define RING_PSMI_CTL(base)	((base)+0x50)
+ #define RING_MAX_IDLE(base)	((base)+0x54)
+ #define RING_HWS_PGA(base)	((base)+0x80)
+ #define RING_HWS_PGA_GEN6(base)	((base)+0x2080)
+@@ -1449,6 +1450,7 @@ enum punit_power_well {
+ #define   GEN6_BLITTER_FBC_NOTIFY			(1<<3)
+ 
+ #define GEN6_RC_SLEEP_PSMI_CONTROL	0x2050
++#define   GEN6_PSMI_SLEEP_MSG_DISABLE	(1 << 0)
+ #define   GEN8_RC_SEMA_IDLE_MSG_DISABLE	(1 << 12)
+ #define   GEN8_FF_DOP_CLOCK_GATE_DISABLE	(1<<10)
+ 
+diff --git a/drivers/gpu/drm/i915/intel_ringbuffer.c b/drivers/gpu/drm/i915/intel_ringbuffer.c
+index eb6e6eb..e14a961 100644
+--- a/drivers/gpu/drm/i915/intel_ringbuffer.c
++++ b/drivers/gpu/drm/i915/intel_ringbuffer.c
+@@ -987,31 +987,24 @@ static int gen6_signal(struct intel_engine_cs *signaller,
+ {
+ 	struct drm_device *dev = signaller->dev;
+ 	struct drm_i915_private *dev_priv = dev->dev_private;
+-	struct intel_engine_cs *useless;
++	struct intel_engine_cs *waiter;
+ 	int i, ret, num_rings;
+ 
+-#define MBOX_UPDATE_DWORDS 3
+-	num_rings = hweight32(INTEL_INFO(dev)->ring_mask);
+-	num_dwords += round_up((num_rings-1) * MBOX_UPDATE_DWORDS, 2);
+-#undef MBOX_UPDATE_DWORDS
+-
+-	ret = intel_ring_begin(signaller, num_dwords);
++	num_rings = hweight32(INTEL_INFO(dev)->ring_mask) - 1;
++	ret = intel_ring_begin(signaller, num_dwords + 2*num_rings + 2);
+ 	if (ret)
+ 		return ret;
+ 
+-	for_each_ring(useless, dev_priv, i) {
++	intel_ring_emit(signaller, MI_NOOP);
++	intel_ring_emit(signaller, MI_LOAD_REGISTER_IMM(num_rings));
++	for_each_ring(waiter, dev_priv, i) {
+ 		u32 mbox_reg = signaller->semaphore.mbox.signal[i];
+ 		if (mbox_reg != GEN6_NOSYNC) {
+-			intel_ring_emit(signaller, MI_LOAD_REGISTER_IMM(1));
+ 			intel_ring_emit(signaller, mbox_reg);
+ 			intel_ring_emit(signaller, signaller->outstanding_lazy_seqno);
+ 		}
+ 	}
+ 
+-	/* If num_dwords was rounded, make sure the tail pointer is correct */
+-	if (num_rings % 2 == 0)
+-		intel_ring_emit(signaller, MI_NOOP);
+-
+ 	return 0;
+ }
+ 
+-- 
+1.9.3
+

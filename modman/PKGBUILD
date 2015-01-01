@@ -1,6 +1,6 @@
 # Maintainer: Bobby Burden <bobby@brb3.org>
 pkgname=modman
-pkgver=1.9.9
+pkgver=1.10
 pkgrel=1
 pkgdesc="Module deployment script geared towards Magento development with git and svn."
 url="https://github.com/colinmollenhour/modman"
@@ -18,7 +18,7 @@ replaces=()
 backup=()
 install=''
 source=("https://github.com/colinmollenhour/${pkgname}/archive/${pkgver}.tar.gz")
-sha256sums=('8dfec366f63554b50f8cf0f36d2131202cf22da04631700844fb6cf5853fdfc7')
+sha256sums=('0f76397659e05490cec73a44877cd6b7b3f6a10de15463b1daf027e9d1f22548')
 
 build() {
   cd "${pkgname}-${pkgver}"
