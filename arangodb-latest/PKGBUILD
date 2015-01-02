@@ -5,8 +5,8 @@
 # - https://aur.archlinux.org/packages/arangodb-git
 
 pkgname=arangodb-latest
-pkgver=2.3.0
-pkgrel=5
+pkgver=2.3.4
+pkgrel=1
 
 pkgdesc="A distributed open-source database with a flexible data model for documents, graphs, and key-values."
 license=("Apache")
@@ -19,7 +19,7 @@ makedepends=("python2")
 
 arch=("i686" "x86_64")
 
-_go_ver=1.3.3
+_go_ver=1.4
 _go_arch_dl=amd64
 _go_arch=64
 [[ $CARCH = i686 ]] && _go_arch_dl=368 && _go_arch=32
@@ -28,10 +28,10 @@ install=arangodb.install
 source=(  "https://www.arangodb.com/repositories/Source/ArangoDB-${pkgver}.tar.bz2"
           "https://storage.googleapis.com/golang/go${_go_ver}.linux-${_go_arch_dl}.tar.gz"
           "arangodb.service")
-md5sums=( "ff6f86b6924206de020a54779ea25180"
-          "07f9eef17299cd528f03ab95f9fd47f6"
+md5sums=( "26525ffdf76af9e1f6b40421b03a8544"
+          "9b44606c28c88a5c3d0cb4a36ce7de54"
           "3cdd43ed5552ab918b41627ec4906e52")
-[[ $CARCH = i686 ]] && md5sums[1]="4af954468ae860cff2a39895360ac559"
+[[ $CARCH = i686 ]] && md5sums[1]="4fea51cc90b4d78fe6176ec30a1e5334"
 
 build() {
   msg2 "Python2 link"
