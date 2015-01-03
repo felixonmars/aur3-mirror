@@ -66,11 +66,13 @@ Key keys[] = {
 
     { GDK_CONTROL_MASK,     0,              GDK_i,          navigate,   {NavigationBack} },
     { GDK_CONTROL_MASK,     0,              GDK_o,          navigate,   {NavigationForward} },
+    { 0,                    0,              GDK_b,          navigate,   {NavigationBack} },
     { 0,                    0,              GDK_H,          navigate,   {NavigationBack} },
+    { 0,                    0,              GDK_m,          navigate,   {NavigationForward} },
     { 0,                    0,              GDK_L,          navigate,   {NavigationForward} },
     { 0,                    0,              GDK_r,          navigate,   {NavigationReload} },
     { 0,                    0,              GDK_R,          navigate,   {NavigationForceReload} },
-    { GDK_CONTROL_MASK,     0,              GDK_c,          navigate,   {NavigationCancel} },
+    { GDK_CONTROL_MASK,     0,              GDK_s,          navigate,   {NavigationCancel} },
 
     { 0,                    0,              GDK_plus,       zoom,       {ZoomIn         | ZoomText} },
     { 0,                    0,              GDK_minus,      zoom,       {ZoomOut        | ZoomText} },
@@ -129,7 +131,7 @@ Key keys[] = {
 
     { 0,                    GDK_VoidSymbol, GDK_Escape,     set,        {ModeNormal} },
     { GDK_CONTROL_MASK,     GDK_VoidSymbol, GDK_bracketleft,set,        {ModeNormal} },
-    { GDK_CONTROL_MASK,     0,              GDK_z,          set,        {ModePassThrough} },
+    { GDK_CONTROL_MASK,     0,              GDK_p,          set,        {ModePassThrough} },
     { GDK_CONTROL_MASK,     0,              GDK_v,          set,        {ModeSendKey} },
     { 0,                    0,              GDK_f,          input,      {.s = "."} },
     { 0,                    0,              GDK_F,          input,      {.s = ","} },
@@ -137,7 +139,16 @@ Key keys[] = {
     { 0,                    GDK_g,          GDK_i,          focus_input,{} },
     { 0,                    0,              GDK_u,          revive,     {} },
 
-    { 0,                    0,              GDK_d,          quit,       {0} },
+
+        /* custom commands */
+    { 0,                    GDK_g,          GDK_b,          input,      {.s = ":tabopen http://bitbucket.jasonwryan.com" } },
+    { 0,                    GDK_g,          GDK_e,          input,      {.s = ":tabopen https://wiki.archlinux.org/index.php/Forum_Etiquette" } },
+    { 0,                    GDK_g,          GDK_f,          input,      {.s = ":tabopen http://flickr.jasonwryan.com" } },
+    { 0,                    GDK_g,          GDK_j,          input,      {.s = ":tabopen http://jasonwryan.com" } },
+    { 0,                    GDK_g,          GDK_p,          input,      {.s = ":tabopen http://127.0.0.1:4000" } },
+    { 0,                    GDK_g,          GDK_r,          input,      {.s = ":tabopen https://www.inoreader.com/" } },
+    { 0,                    GDK_g,          GDK_s,          input,      {.s = ":tabopen https://unix.stackexchange.com" } },
+    { 0,                    0,              GDK_x,          quit,       {0} },
 	/* leave this last line as last */
     { 0,                    0,              0,              0,          {0} },
 };
