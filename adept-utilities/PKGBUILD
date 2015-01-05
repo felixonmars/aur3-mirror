@@ -1,7 +1,7 @@
 # Maintainer: fishfish <chiizufish of the gmail variety>
 pkgname=adept-utilities
-pkgver=2.1.1
-pkgrel=6
+pkgver=2.2.1
+pkgrel=1
 pkgdesc="utilities to manage and communicate with Digilent's devices"
 arch=('i686' 'x86_64')
 url="http://www.digilentinc.com/Products/Detail.cfm?Prod=ADEPT2"
@@ -15,8 +15,8 @@ _arch=x86_64
 [[ $CARCH == i686 ]] && _arch=i686
 source=("http://www.digilentinc.com/Data/Products/ADEPT2/digilent.adept.utilities_${pkgver}-${_arch}.tar.gz")
 
-md5sums=('2bfcdc40cf12bf823ddf76e2d7bb5455')
-[[ $CARCH == i686 ]] && md5sums[0]='8eb4717d0ca997fa6c5f812dc23ef5a1'
+md5sums=('654b9c4b8b4c3d3a21fc103b201fd756')
+[[ $CARCH == i686 ]] && md5sums[0]='836eaa27442b7cfb1d2d3bff7871829c'
 
 package() {
   cd "$srcdir/digilent.adept.utilities_$pkgver-$CARCH"
@@ -29,6 +29,10 @@ package() {
   fi
   mkdir -p "$pkgdir/usr/share/man/man1"
   install -m 644 man/* "$pkgdir/usr/share/man/man1"
+
+  # bitstreams
+  mkdir -p "$pkgdir/usr/share/digilent/dsumecfg/bitstreams"
+  install -m 644 bitstreams/dsumecfg/* "$pkgdir/usr/share/digilent/dsumecfg/bitstreams/"
 
   # EULA
   mkdir -p "$pkgdir/usr/share/licenses/adept-utilities"

@@ -1,8 +1,11 @@
+## 1.7.9
+* removed http_auth_pam module (404)
+
 ## 1.7.6-2
 * echo-nginx-module-git
 
 ## 1.7.6
-* push-0.73 
+* push-0.73
 * sflow-0.9.10
 
 ## 1.7.5

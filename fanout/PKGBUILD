@@ -1,10 +1,10 @@
 # Maintainer: Augusto Roccasalva <augusto@rioplomo.com.ar>
 
 pkgname=fanout
-pkgver=r69.289a9ba
-pkgrel=2
+pkgver=r80.280e903
+pkgrel=1
 pkgdesc="A simple pubsub message server"
-arch=('i686', 'x86_64')
+arch=('i686' 'x86_64')
 url="https://github.com/travisghansen/fanout"
 license=('MIT')
 depends=('glibc')
