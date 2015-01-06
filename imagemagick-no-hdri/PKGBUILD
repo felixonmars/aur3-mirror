@@ -3,7 +3,7 @@
 # Contributor: Cedric Brancourt <cedric.brancourt at gmail dot com>
 
 pkgname=imagemagick-no-hdri
-pkgver=6.9.0.0
+pkgver=6.9.0.3
 pkgrel=1
 arch=('i686' 'x86_64')
 url="http://www.imagemagick.org/"
@@ -13,7 +13,7 @@ makedepends=('libltdl' 'lcms2' 'libxt' 'fontconfig' 'libxext' 'ghostscript' \
              'opencl-headers' 'libcl' 'libwebp')
 
 source=(http://www.imagemagick.org/download/ImageMagick-${pkgver%.*}-${pkgver##*.}.tar.xz)
-sha1sums=('6bf4263ceaeea61e00fe15a95db320d49bcc48c4')
+sha1sums=('c7bb4eebef59544d0411ed56bda64f34fafb11f3')
 
 provides=('imagemagick')
 conflicts=('imagemagick')

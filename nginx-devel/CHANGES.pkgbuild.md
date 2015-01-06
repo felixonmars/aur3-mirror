@@ -1,3 +1,8 @@
+## 1.7.9-2
+* readded http_auth_pam
+* push-0.73
+* pagespeed-1.9.32.2
+
 ## 1.7.9
 * removed http_auth_pam module (404)
 

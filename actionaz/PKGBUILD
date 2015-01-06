@@ -2,7 +2,7 @@
 
 pkgname=actionaz
 pkgver=3.8.0
-pkgrel=1
+pkgrel=2
 pkgdesc="A task automation tool"
 arch=('i686' 'x86_64')
 url="http://actionaz.org/"
@@ -23,4 +23,4 @@ package() {
 	make INSTALL_ROOT="${pkgdir}" install
 }
 
-md5sums=('2de84e361c0cfc8c39965f608111710b')
+md5sums=('30ebf5c7beba48dd1e471f6d9db6e12a')
