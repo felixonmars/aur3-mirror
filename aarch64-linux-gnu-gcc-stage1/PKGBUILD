@@ -2,20 +2,25 @@
 
 _target=aarch64-linux-gnu
 pkgname=$_target-gcc-stage1
-pkgver=4.9.1
-pkgrel=1
-#_snapshot=4.9-20140730
+pkgver=4.9.2
+_islver=0.12.2
+_cloogver=0.18.1
+pkgrel=2
+_snapshot=4.9-20141224
 pkgdesc='The GNU Compiler Collection - cross compiler for ARM64 target'
 arch=(i686 x86_64)
 url='http://gcc.gnu.org/'
 license=(GPL LGPL FDL)
-depends=($_target-binutils libmpc elfutils)
-makedepends=()
+depends=($_target-binutils libmpc zlib)
+makedepends=(gmp mpfr)
 options=(!emptydirs !strip)
-source=(ftp://gcc.gnu.org/pub/gcc/releases/gcc-$pkgver/gcc-$pkgver.tar.bz2
-        #ftp://gcc.gnu.org/pub/gcc/snapshots/$_snapshot/gcc-$_snapshot.tar.bz2
-       )
-sha256sums=('d334781a124ada6f38e63b545e2a3b8c2183049515a1abab6d513f109f1d717e')
+source=(#ftp://gcc.gnu.org/pub/gcc/releases/gcc-$pkgver/gcc-$pkgver.tar.bz2
+        ftp://gcc.gnu.org/pub/gcc/snapshots/$_snapshot/gcc-$_snapshot.tar.bz2
+        http://isl.gforge.inria.fr/isl-$_islver.tar.bz2
+        http://www.bastoul.net/cloog/pages/download/cloog-$_cloogver.tar.gz)
+sha256sums=('c4038e28fb85496c8b7840b4882d5a6c19b3fe67231a3091de0ca9a90c401f56'
+            'f4b3dbee9712850006e44f0db2103441ab3d13b406f77996d1df19ee89d11fb4'
+            '02500a4edd14875f94fe84cbeda4290425cb0c1c2474c6f75d75a303d64b4196')
 
 if [ -n "$_snapshot" ]; then
   _basedir=gcc-$_snapshot
@@ -24,51 +29,72 @@ else
 fi
 
 prepare() {
-  cd "$srcdir/$_basedir"
+  cd $_basedir
+
+  # link isl/cloog for in-tree builds
+  ln -sf ../isl-$_islver isl
+  ln -sf ../cloog-$_cloogver cloog
+
   echo $pkgver > gcc/BASE-VER
 
   # hack! - some configure tests for header files using "$CPP $CPPFLAGS"
   sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" "$srcdir"/$_basedir/{libiberty,gcc}/configure
+
+  rm -rf $srcdir/gcc-build
+  mkdir $srcdir/gcc-build
 }
 
 build() {
-  cd $_basedir
-  mkdir build
-  cd build
+  cd gcc-build
 
-  export CFLAGS="-O2 -pipe"
-  export CXXFLAGS="-O2 -pipe"
+  export CFLAGS_FOR_TARGET='-O2 -pipe'
 
-  ../configure \
+  # unfortunately CXXFLAGS_FOR_TARGET is not honored https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53579
+  #export CXXFLAGS_FOR_TARGET='-O2 -pipe'
+  export CXXFLAGS='-O2 -pipe'
+
+  $srcdir/$_basedir/configure \
     --prefix=/usr \
-    --program-prefix=$_target- \
+    --libexecdir=/usr/lib \
     --target=$_target \
     --disable-shared \
     --disable-nls \
     --disable-threads \
     --enable-languages=c \
-    --disable-libgomp \
-    --disable-libmudflap \
-    --without-headers \
-    --with-local-prefix=/usr/$_target \
+    --enable-multilib \
+    --disable-libssp \
+    --disable-libquadmath \
+    --with-system-zlib \
     --with-sysroot=/usr/$_target \
+    --with-build-sysroot=/usr/$_target \
     --with-as=/usr/bin/$_target-as \
     --with-ld=/usr/bin/$_target-ld \
-    --enable-softfloat \
-    --with-newlib \
-    --enable-interwork \
-    --enable-addons
+    --disable-libgomp \
+    --enable-__cxa_atexit \
+    --enable-addons \
+    --with-libelf \
+    --with-gmp \
+    --with-mpfr \
+    --with-mpc \
+    --with-cloog \
+    --with-isl \
+    --enable-cloog-backend=isl \
+    --without-headers \
+    --with-newlib
 
   make all-gcc all-target-libgcc
 }
 
 package() {
-  cd $_basedir/build
+  cd gcc-build
 
   make DESTDIR="$pkgdir" install-gcc install-target-libgcc
 
-  # Strip host objects but do not touch target one
-  find "$pkgdir" -executable -type f -exec /usr/bin/strip --strip-debug '{}' \;
+  # strip target binaries
+  find "$pkgdir"/usr/lib/gcc/$_target/ -type f -and \( -name \*.a -or -name \*.o \) -exec $_target-objcopy -R .comment -R .note -R .debug_info -R .debug_aranges -R .debug_pubnames -R .debug_pubtypes -R .debug_abbrev -R .debug_line -R .debug_str -R .debug_ranges -R .debug_loc '{}' \;
+
+  # strip host binaries
+  find "$pkgdir"/usr/bin/ "$pkgdir"/usr/lib/gcc/$_target/ -type f -and \( -executable \) -exec strip '{}' \;
 
   # Remove files that conflict with host gcc package
   rm -r "$pkgdir"/usr/share/man/man7

@@ -2,71 +2,103 @@
 
 _target=aarch64-linux-gnu
 pkgname=$_target-gcc-stage2
-pkgver=4.9.1
-pkgrel=1
-pkgdesc="The GNU Compiler Collection. Stage 2 for toolchain building (${_target})"
+pkgver=4.9.2
+_islver=0.12.2
+_cloogver=0.18.1
+pkgrel=2
+_snapshot=4.9-20141224
+pkgdesc='The GNU Compiler Collection - cross compiler for ARM64 target'
 arch=(i686 x86_64)
-license=(GPL LGPL)
-url='http://gcc.gnu.org'
-depends=($_target-binutils $_target-eglibc-headers libmpc elfutils)
+url='http://gcc.gnu.org/'
+license=(GPL LGPL FDL)
+depends=($_target-binutils $_target-eglibc-headers libmpc zlib)
+makedepends=(gmp mpfr)
 options=(!emptydirs !strip staticlibs)
 conflicts=($_target-gcc-stage1)
 replaces=($_target-gcc-stage1)
 provides=($_target-gcc-stage1)
-source=(ftp://gcc.gnu.org/pub/gcc/releases/gcc-${pkgver}/gcc-${pkgver}.tar.bz2)
-sha1sums=('3f303f403053f0ce79530dae832811ecef91197e')
+source=(#ftp://gcc.gnu.org/pub/gcc/releases/gcc-$pkgver/gcc-$pkgver.tar.bz2
+        ftp://gcc.gnu.org/pub/gcc/snapshots/$_snapshot/gcc-$_snapshot.tar.bz2
+        http://isl.gforge.inria.fr/isl-$_islver.tar.bz2
+        http://www.bastoul.net/cloog/pages/download/cloog-$_cloogver.tar.gz)
+sha256sums=('c4038e28fb85496c8b7840b4882d5a6c19b3fe67231a3091de0ca9a90c401f56'
+            'f4b3dbee9712850006e44f0db2103441ab3d13b406f77996d1df19ee89d11fb4'
+            '02500a4edd14875f94fe84cbeda4290425cb0c1c2474c6f75d75a303d64b4196')
+
+if [ -n "$_snapshot" ]; then
+  _basedir=gcc-$_snapshot
+else
+  _basedir=gcc-$pkgver
+fi
 
 prepare() {
-  cd gcc-$pkgver
+  cd $_basedir
+
+  # link isl/cloog for in-tree builds
+  ln -sf ../isl-$_islver isl
+  ln -sf ../cloog-$_cloogver cloog
+
   echo $pkgver > gcc/BASE-VER
 
   # hack! - some configure tests for header files using "$CPP $CPPFLAGS"
-  sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" {libiberty,gcc}/configure
+  sed -i "/ac_cpp=/s/\$CPPFLAGS/\$CPPFLAGS -O2/" "$srcdir"/$_basedir/{libiberty,gcc}/configure
+
+  rm -rf $srcdir/gcc-build
+  mkdir $srcdir/gcc-build
 }
 
 build() {
-  cd gcc-$pkgver
-
-  export CFLAGS="-O2 -pipe"
-  export CXXFLAGS="-O2 -pipe"
-
-  [[ -d gcc-build ]] || mkdir gcc-build
   cd gcc-build
 
-  [ $NOEXTRACT -eq 1 ] || ../configure \
+  export CFLAGS_FOR_TARGET='-O2 -pipe'
+
+  # unfortunately CXXFLAGS_FOR_TARGET is not honored https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53579
+  #export CXXFLAGS_FOR_TARGET='-O2 -pipe'
+  export CXXFLAGS='-O2 -pipe'
+
+  $srcdir/$_basedir/configure \
     --prefix=/usr \
-    --program-prefix=$_target- \
+    --libexecdir=/usr/lib \
     --target=$_target \
+    --disable-shared \
     --disable-nls \
+    --disable-threads \
     --enable-languages=c \
     --enable-multilib \
-    --with-local-prefix=/usr/$_target \
+    --disable-libssp \
+    --disable-libquadmath \
+    --with-system-zlib \
     --with-sysroot=/usr/$_target \
+    --with-build-sysroot=/usr/$_target \
     --with-as=/usr/bin/$_target-as \
     --with-ld=/usr/bin/$_target-ld \
-    --enable-softfloat \
     --disable-libgomp \
-    --enable-interwork \
-    --enable-addons
+    --enable-__cxa_atexit \
+    --enable-addons \
+    --with-libelf \
+    --with-host-libstdcxx='-static-libgcc -Wl,-Bstatic,-lstdc++,-Bdynamic -lm' \
+    --with-gmp \
+    --with-mpfr \
+    --with-mpc \
+    --with-cloog \
+    --with-isl \
+    --enable-cloog-backend=isl
 
   make all-gcc all-target-libgcc
 }
 
 package() {
-  cd gcc-$pkgver/gcc-build
-
-  export CFLAGS="-O2 -pipe"
-  export CXXFLAGS="-O2 -pipe"
+  cd gcc-build
 
   make DESTDIR="$pkgdir" install-gcc install-target-libgcc
 
-  rm -rf "$pkgdir"/usr/share/{man/man7,info}/
+  # strip target binaries
+  find "$pkgdir"/usr/lib/gcc/$_target/ -type f -and \( -name \*.a -or -name \*.o \) -exec $_target-objcopy -R .comment -R .note -R .debug_info -R .debug_aranges -R .debug_pubnames -R .debug_pubtypes -R .debug_abbrev -R .debug_line -R .debug_str -R .debug_ranges -R .debug_loc '{}' \;
 
-  cp -r "$pkgdir"/usr/libexec/* "$pkgdir"/usr/lib/
-  rm -rf "$pkgdir/usr/libexec"
+  # strip host binaries
+  find "$pkgdir"/usr/bin/ "$pkgdir"/usr/lib/gcc/$_target/ -type f -and \( -executable \) -exec strip '{}' \;
 
-  # strip it manually
-  strip "$pkgdir"/usr/bin/* 2>/dev/null || true
-  find "$pkgdir"/usr/lib -type f -exec /usr/bin/$_target-strip \
-    --strip-unneeded {} \; 2>/dev/null || true
+  # Remove files that conflict with host gcc package
+  rm -r "$pkgdir"/usr/share/man/man7
+  rm -r "$pkgdir"/usr/share/info
 }
