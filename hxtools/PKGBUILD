@@ -1,17 +1,17 @@
 # Contributor: Evilandi666 <evilandi.aur(at)googlemail.com>
 # Maintainer: Marcel Huber <`echo "moc tknup liamg tä oofrebuhlecram" | rev`>
 pkgname=hxtools
-pkgver=20140325
+pkgver=20141112
 pkgrel=2
 pkgdesc="A collection of tools and scripts that have accumulated over the years, and each of which seems to be too small to warrants its own project."
 arch=('i686' 'x86_64')
 url=http://inai.de/projects/hxtools/
 license=('GPL3')
-depends=('libhx>=3.15' perl util-linux pciutils libxcb)
+depends=('libhx>=3.19' perl util-linux pciutils libxcb)
 makedepends=()
 source=(http://jftp.inai.de/hxtools/hxtools-$pkgver.tar.xz
         Rename_rot13_to_trrot13.patch)
-sha256sums=('a66a197a437c23e78cddffcfaf07e6bada56736b6ba1766c3b4333e29ba2a589'
+sha256sums=('8f487234a7ca6cab286ac0d4c525b8909441aab81ade5b406b3f80144c6cacaa'
             '89f65c581179582f178c1d60dbe9a702d7efb5b07f35442f03c9463af0c5b04d')
 
 prepare() {
