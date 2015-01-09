@@ -11,7 +11,7 @@ function go_get {
   then 
     get_hg $1 $2 $3
   else
-    echo "ERROR"
+    go get $1
   fi
 }
 

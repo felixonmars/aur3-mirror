@@ -1,23 +1,20 @@
 # Maintainer: Marcel Huber <`echo "moc tod liamg ta oofrebuhlecram" | rev`>
+# Contributor: float <flo.at at gmx dot de>
 # Contributor: Milan Knížek <knizek@volny.cz>
 
 pkgname=zfs-auto-snapshot-git
-pkgver=1.1.0.r2.gd625c53
-pkgrel=2
-pkgdesc="An alternative implementation of the zfs-auto-snapshot service for Linux that is compatible with zfs-linux and zfs-fuse."
+pkgver=1.2.1.1.r0.g63e4438
+pkgrel=4
+pkgdesc="An alternative implementation of the zfs-auto-snapshot service for Linux that is compatible with zfs-linux and zfs-fuse using systemd instead of cron."
 arch=(i686 x86_64)
-depends=('cronie')
 makedepends=('git')
 url="https://github.com/zfsonlinux/zfs-auto-snapshot"
 license=('GPL')
-source=("$pkgname"::'git+https://github.com/zfsonlinux/zfs-auto-snapshot')
-backup=('etc/cron.d/zfs-auto-snapshot'
-        'etc/cron.daily/zfs-auto-snapshot'
-        'etc/cron.hourly/zfs-auto-snapshot'
-        'etc/cron.monthly/zfs-auto-snapshot'
-        'etc/cron.weekly/zfs-auto-snapshot')
+source=("$pkgname"::'git+https://github.com/zfsonlinux/zfs-auto-snapshot#branch=debian')
 install="$pkgname.install"
 sha256sums=('SKIP')
+depends=('systemd>=212')
+replaces=(zfs-auto-snapshot-systemd-git)
 
 pkgver() {
   cd "$srcdir/$pkgname"
@@ -30,26 +27,14 @@ pkgver() {
   fi
 }
 
+_PREFIX="/usr"
+
 build() {
   msg 'Starting make...'
   cd "$srcdir/$pkgname"
-  sed -i -e 's@/sbin@/usr/bin@' \
-         -e 's@$(PREFIX)/share@/usr/share@' \
-         -e 's@install etc/\(.*\)\(frequent\)@install -m644 etc/\1\2@' \
-         -e 's@install etc/\(.*\)\(daily\)@install -m744 etc/\1\2@' \
-         -e 's@install etc/\(.*\)\(hourly\)@install -m744 etc/\1\2@' \
-         -e 's@install etc/\(.*\)\(monthly\)@install -m744 etc/\1\2@' \
-         -e 's@install etc/\(.*\)\(weekly\)@install -m744 etc/\1\2@' \
+  sed -i -e 's@/sbin@/bin@' \
+         -e '/.cron./d' \
       Makefile
-
-  # Some crontab implementations have different syntax
-  case $( env pacman -Qs cron | grep -e '^local/' ) in
-    local/dcron*)
-      sed -i -e 's@PATH=@#PATH=@' \
-             -e 's@root zfs-@zfs-@' \
-             etc/zfs-auto-snapshot.cron.frequent
-    ;;
-  esac
 
   ### Uncommet the following if you use zfs-fuse. There seems to be a
   ### bug in zfs-fuse, which results in snapshots being created,  but
@@ -57,21 +42,61 @@ build() {
   ### See http://groups.google.com/group/zfs-fuse/browse_thread/thread/eab2b704d4275b8e
   #sed -i 's@SNAPPROP=.*@SNAPPROP=\"\"@' src/zfs-auto-snapshot.sh
 
-  ### Uncomment the following 4 lines to change the snapshot name to
+  ### COMMENT the following 4 lines to NOT change the snapshot name to
   ### @PREFIX_DATE_LABEL instead of @PREFIX-LABEL_DATE
-  ### (this makes the automounted snapshots nicely sorted by time)
-  #sed -i \
-  # -e 's@SNAPNAME=\"\$opt_prefix\${opt_label:+\$opt_sep\$opt_label-\$DATE}\"@SNAPNAME=\"\$opt_prefix\${opt_label:+_$DATE\$opt_sep\$opt_label}"@' \
-  # -e 's@SNAPGLOB=\"\$opt_prefix\${opt_label:+?\$opt_label}????????????????\"@SNAPGLOB=\"\$opt_prefix\${opt_label:+?????????????????\$opt_label}\"@' \
-  # src/zfs-auto-snapshot.sh
+  ### (the following makes the snapshots nicely sorted by time)
+  sed -r -i \
+   -e 's@^(SNAPNAME="\$)(opt_prefix)(.*)-\$DATE@\1{\2}_$DATE\3@' \
+   -e 's@^(SNAPGLOB="\$)(opt_prefix)(.*})([?]+)@\1{\2}\4\3@' \
+   src/zfs-auto-snapshot.sh
 
-  ### Uncomment the following line to change the prefix to a shorter string
-  #sed -i 's@ zfs-auto-snapshot @ zfs-auto-snapshot --prefix=auto @' etc/*.cron.*
+  mkdir -p systemdfiles
+  ### "Label|NumberOfKeptSnapshots|systemd-timer-spec" of snapshots, eg. timer and service files, being created
+  ### adjust/extend if required
+  declare -a arr=(
+    "frequent|4|*:0/15"
+    "hourly|24|hourly"
+    "daily|31|daily"
+    "weekly|8|weekly"
+    "monthly|12|monthly"
+  )
+  for i in "${arr[@]}"
+  do
+    _label="$(echo $i | cut -d'|' -f1)"
+    _keep="$(echo $i | cut -d'|' -f2)"
+    _OnCalendarSpec="$(echo $i | cut -d'|' -f3)"
+	### REMOVE OR CHANGE --prefix to change snapshot prefix
+	_prefix="--prefix=znap"
+    # write service files
+    cat > systemdfiles/zfs-auto-snapshot-${_label}.service <<EOF
+[Unit]
+Description=ZFS $_label snapshot service
+
+[Service]
+ExecStart=$_PREFIX/bin/zfs-auto-snapshot $_prefix --quiet --syslog --label=$_label --keep=$_keep //
+EOF
+
+    # write timer files
+    cat > systemdfiles/zfs-auto-snapshot-${_label}.timer <<EOF
+# See systemd.timers and systemd.time manpages for details
+[Unit]
+Description=ZFS $_label snapshot timer
+
+[Timer]
+OnCalendar=$_OnCalendarSpec
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  done
 }
 
 package() {
   cd "$srcdir/$pkgname"
-  make DESTDIR="$pkgdir" PREFIX="" install
+  make DESTDIR="$pkgdir" PREFIX="$_PREFIX" install
+  mkdir -p $pkgdir"/usr/lib/systemd/system/"
+  install -Dm644 systemdfiles/* $pkgdir"/usr/lib/systemd/system/"
 }
 
 # vim:set ts=2 sw=2 et:
