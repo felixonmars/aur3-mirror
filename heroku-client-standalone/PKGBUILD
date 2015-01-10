@@ -1,7 +1,7 @@
 # Maintainer: Pat Brisbin <pbrisbin@gmail.com>
 _pkgname='heroku-client'
 pkgname="$_pkgname-standalone"
-pkgver=3.22.0
+pkgver=3.22.1
 pkgrel=1
 pkgdesc="CLI tool for creating and managing Heroku apps"
 arch=('any')
@@ -19,4 +19,4 @@ package() {
   ln -s ../../opt/heroku-client/bin/heroku .
 }
 
-md5sums=('7e14b37cffbc549cdf946c1b33afd1f7')
+md5sums=('6fc3a013516efda1a5a970cfca5508b1')

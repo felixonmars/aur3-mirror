@@ -1,75 +1,92 @@
-diff -ur openssh-6.3p1/readconf.c openssh-6.3p1.new/readconf.c
---- openssh-6.3p1/readconf.c	2013-07-18 08:09:05.000000000 +0200
-+++ openssh-6.3p1.new/readconf.c	2013-09-28 17:45:47.851206724 +0200
-@@ -666,8 +666,10 @@
+From 510ee02f90b5c56d1abeafbbdb9fc7d21d173224 Mon Sep 17 00:00:00 2001
+Message-Id: <510ee02f90b5c56d1abeafbbdb9fc7d21d173224.1420755946.git.mschiffer@universe-factory.net>
+From: Matthias Schiffer <mschiffer@universe-factory.net>
+Date: Thu, 8 Jan 2015 22:19:36 +0100
+Subject: [PATCH] multibind patch
+
+---
+ readconf.c   |  8 ++++--
+ readconf.h   | 12 +++++++-
+ ssh.c        |  3 +-
+ ssh_config   |  5 ++++
+ ssh_config.5 |  7 +++--
+ sshconnect.c | 89 +++++++++++++++++++++++++++++++++++-------------------------
+ 6 files changed, 80 insertions(+), 44 deletions(-)
+
+diff --git a/readconf.c b/readconf.c
+index 7948ce1..95f9289 100644
+--- a/readconf.c
++++ b/readconf.c
+@@ -1001,8 +1001,10 @@ parse_char_array:
  		goto parse_string;
  
  	case oBindAddress:
 -		charptr = &options->bind_address;
 -		goto parse_string;
-+          cpptr = (char**)&options->bind_addresses;
-+          uintptr = &options->num_bind_address;
-+          max_entries =SSH_MAX_BIND_ADDRESSES;
-+          goto parse_char_array;
++		cpptr = (char**)&options->bind_addresses;
++		uintptr = &options->num_bind_address;
++		max_entries = SSH_MAX_BIND_ADDRESSES;
++		goto parse_char_array;
  
  	case oPKCS11Provider:
  		charptr = &options->pkcs11_provider;
-@@ -1206,7 +1208,7 @@
+@@ -1576,7 +1578,7 @@ initialize_options(Options * options)
  	options->clear_forwardings = -1;
  	options->log_level = SYSLOG_LEVEL_NOT_SET;
  	options->preferred_authentications = NULL;
 -	options->bind_address = NULL;
-+     options->num_bind_address = 0;
++	options->num_bind_address = 0;
  	options->pkcs11_provider = NULL;
  	options->enable_ssh_keysign = - 1;
  	options->no_host_authentication_for_localhost = - 1;
-diff -ur openssh-6.3p1/readconf.h openssh-6.3p1.new/readconf.h
---- openssh-6.3p1/readconf.h	2013-05-16 12:30:03.000000000 +0200
-+++ openssh-6.3p1.new/readconf.h	2013-09-28 17:45:47.851206724 +0200
-@@ -30,6 +30,11 @@
- 
- #define MAX_SEND_ENV		256
- #define SSH_MAX_HOSTS_FILES	256
-+#define SSH_MAX_BIND_ADDRESSES     8   /* 16 addresses, should be enough */
+diff --git a/readconf.h b/readconf.h
+index 0b9cb77..9299c4b 100644
+--- a/readconf.h
++++ b/readconf.h
+@@ -27,6 +27,11 @@ struct allowed_cname {
+ 	char *source_list;
+ 	char *target_list;
+ };
++#define SSH_MAX_BIND_ADDRESSES	8	/* 16 addresses, should be enough */
 +
-+#define SSH_BIND_ADDRESS_ANY  "any" /* any address mark, used in
-+                                       configuration file */
-+#define SSH_BIND_ADDRESS_ANYlen strlen(SSH_BIND_ADDRESS_ANY)
++#define SSH_BIND_ADDRESS_ANY	"any"	/* any address mark, used in
++					 * configuration file */
++#define SSH_BIND_ADDRESS_ANYlen	strlen(SSH_BIND_ADDRESS_ANY)
  
  typedef struct {
  	int     forward_agent;	/* Forward authentication agent. */
-@@ -90,8 +95,13 @@
+@@ -86,7 +91,12 @@ typedef struct {
  	u_int	num_user_hostfiles;	/* Path for $HOME/.ssh/known_hosts */
  	char   *user_hostfiles[SSH_MAX_HOSTS_FILES];
  	char   *preferred_authentications;
 -	char   *bind_address;	/* local socket address for connection to sshd */
--	char   *pkcs11_provider; /* PKCS#11 provider */
 +
-+     char   *bind_addresses[SSH_MAX_BIND_ADDRESSES];   /* local socket
-+                                                          address list for connection to sshd, main reason for this is ipv4 and
-+                                                          ipv6 only hosts, when using global host match */
-+     u_int   num_bind_address; /* count of bind_addresses */
++	char   *bind_addresses[SSH_MAX_BIND_ADDRESSES];	/* local socket
++							 * address list for connection to sshd, main reason for this is ipv4 and
++							 * ipv6 only hosts, when using global host match */
++	u_int   num_bind_address;			/* count of bind_addresses */
 +
-+     char   *pkcs11_provider; /* PKCS#11 provider */
+ 	char   *pkcs11_provider; /* PKCS#11 provider */
  	int	verify_host_key_dns;	/* Verify host key using DNS */
  
- 	int     num_identity_files;	/* Number of files for RSA/DSA identities. */
-diff -ur openssh-6.3p1/ssh.c openssh-6.3p1.new/ssh.c
---- openssh-6.3p1/ssh.c	2013-07-25 03:55:53.000000000 +0200
-+++ openssh-6.3p1.new/ssh.c	2013-09-28 17:45:47.851206724 +0200
-@@ -612,7 +612,8 @@
+diff --git a/ssh.c b/ssh.c
+index 26e9681..be59241 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -803,7 +803,8 @@ main(int ac, char **av)
  			options.control_path = xstrdup(optarg);
  			break;
  		case 'b':
 -			options.bind_address = optarg;
-+               options.bind_addresses[0]  = optarg;
-+               options.num_bind_address = 1;
++			options.bind_addresses[0]  = optarg;
++			options.num_bind_address = 1;
  			break;
  		case 'F':
  			config = optarg;
-diff -ur openssh-6.3p1/ssh_config openssh-6.3p1.new/ssh_config
---- openssh-6.3p1/ssh_config	2013-05-16 12:28:17.000000000 +0200
-+++ openssh-6.3p1.new/ssh_config	2013-09-28 17:48:22.907878651 +0200
+diff --git a/ssh_config b/ssh_config
+index 03a228f..c1b653b 100644
+--- a/ssh_config
++++ b/ssh_config
 @@ -46,3 +46,8 @@
  #   VisualHostKey no
  #   ProxyCommand ssh -q -W %h:%p gateway.example.com
@@ -79,10 +96,11 @@ diff -ur openssh-6.3p1/ssh_config openssh-6.3p1.new/ssh_config
 +#   BindAddress 192.168.0.1 3004:aaaa::beef any
 +#   This means, that ssh tries 192.168.0.1 if fail to bind, next address willbe 3004:aaaa::beef and if it fails,
 +#    uses default bind strategy, bind on any address
-diff -ur openssh-6.3p1/ssh_config.5 openssh-6.3p1.new/ssh_config.5
---- openssh-6.3p1/ssh_config.5	2013-07-18 08:11:50.000000000 +0200
-+++ openssh-6.3p1.new/ssh_config.5	2013-09-28 17:45:47.851206724 +0200
-@@ -145,8 +145,11 @@
+diff --git a/ssh_config.5 b/ssh_config.5
+index f9ede7a..f138d17 100644
+--- a/ssh_config.5
++++ b/ssh_config.5
+@@ -214,8 +214,11 @@ or
  The default is
  .Dq no .
  .It Cm BindAddress
@@ -96,92 +114,111 @@ diff -ur openssh-6.3p1/ssh_config.5 openssh-6.3p1.new/ssh_config.5
  Only useful on systems with more than one address.
  Note that this option does not work if
  .Cm UsePrivilegedPort
-diff -ur openssh-6.3p1/sshconnect.c openssh-6.3p1.new/sshconnect.c
---- openssh-6.3p1/sshconnect.c	2013-06-01 23:31:19.000000000 +0200
-+++ openssh-6.3p1.new/sshconnect.c	2013-09-28 17:45:47.854540058 +0200
-@@ -196,6 +196,7 @@
- {
- 	int sock, gaierr;
- 	struct addrinfo hints, *res;
-+     uint i=0;
- 
- 	/*
- 	 * If we are running as root and want to connect to a privileged
-@@ -221,28 +222,61 @@
+diff --git a/sshconnect.c b/sshconnect.c
+index ac09eae..5ba4959 100644
+--- a/sshconnect.c
++++ b/sshconnect.c
+@@ -280,49 +280,64 @@ ssh_create_socket(int privileged, struct addrinfo *ai)
  	fcntl(sock, F_SETFD, FD_CLOEXEC);
  
  	/* Bind the socket to an alternative local IP address */
--	if (options.bind_address == NULL)
-+     if (options.num_bind_address == 0){
+-	if (options.bind_address == NULL && !privileged)
++	if (options.num_bind_address == 0 && !privileged)
  		return sock;
-+     }
  
--	memset(&hints, 0, sizeof(hints));
--	hints.ai_family = ai->ai_family;
--	hints.ai_socktype = ai->ai_socktype;
--	hints.ai_protocol = ai->ai_protocol;
--	hints.ai_flags = AI_PASSIVE;
--	gaierr = getaddrinfo(options.bind_address, NULL, &hints, &res);
--	if (gaierr) {
--		error("getaddrinfo: %s: %s", options.bind_address,
--		    ssh_gai_strerror(gaierr));
--		close(sock);
--		return -1;
-+     uint addrfound = 0;
-+     uint last_idx = options.num_bind_address - 1; // last address index
+-	if (options.bind_address) {
+-		memset(&hints, 0, sizeof(hints));
+-		hints.ai_family = ai->ai_family;
+-		hints.ai_socktype = ai->ai_socktype;
+-		hints.ai_protocol = ai->ai_protocol;
+-		hints.ai_flags = AI_PASSIVE;
+-		gaierr = getaddrinfo(options.bind_address, NULL, &hints, &res);
+-		if (gaierr) {
+-			error("getaddrinfo: %s: %s", options.bind_address,
+-			    ssh_gai_strerror(gaierr));
+-			close(sock);
+-			return -1;
++	verbose("Trying %d addresses to connect", options.num_bind_address);
++	uint i;
++	for (i = 0; i < options.num_bind_address || i == 0; i++) {
++		if (options.num_bind_address > 0)
++		    verbose("Trying bind address: %s", options.bind_addresses[i]);
 +
-+     verbose("Trying %d addresses to connect",options.num_bind_address);
-+     for(i=0;i<options.num_bind_address;++i){
++		if (options.num_bind_address > 0 && strncmp(options.bind_addresses[i], SSH_BIND_ADDRESS_ANY, SSH_BIND_ADDRESS_ANYlen) != 0) {
++			memset(&hints, 0, sizeof(hints));
++			hints.ai_family = ai->ai_family;
++			hints.ai_socktype = ai->ai_socktype;
++			hints.ai_protocol = ai->ai_protocol;
++			hints.ai_flags = AI_PASSIVE;
++			gaierr = getaddrinfo(options.bind_addresses[i], NULL, &hints, &res);
++			if (gaierr) {
++				error("getaddrinfo: %s: %s", options.bind_addresses[i],
++				      ssh_gai_strerror(gaierr));
++				continue;
++			}
+ 		}
+-	}
+-	/*
+-	 * If we are running as root and want to connect to a privileged
+-	 * port, bind our own socket to a privileged port.
+-	 */
+-	if (privileged) {
+-		PRIV_START;
+-		r = bindresvport_sa(sock, res ? res->ai_addr : NULL);
+-		PRIV_END;
+-		if (r < 0) {
+-			error("bindresvport_sa: af=%d %s", ai->ai_family,
+-			    strerror(errno));
+-			goto fail;
++		else if (!privileged) {
++			return sock;
+ 		}
+-	} else {
+-		if (bind(sock, res->ai_addr, res->ai_addrlen) < 0) {
+-			error("bind: %s: %s", options.bind_address,
+-			    strerror(errno));
+- fail:
+-			close(sock);
+-			freeaddrinfo(res);
+-			return -1;
 +
-+          if (strncmp(options.bind_addresses[i],SSH_BIND_ADDRESS_ANY,SSH_BIND_ADDRESS_ANYlen) == 0){ // any flag, do not bind, can by anywhere
-+               logit("warning requested 'any' address in BindAddress");
-+               return sock;
-+          }
++		/*
++		 * If we are running as root and want to connect to a privileged
++		 * port, bind our own socket to a privileged port.
++		 */
++		if (privileged) {
++			PRIV_START;
++			r = bindresvport_sa(sock, res ? res->ai_addr : NULL);
++			PRIV_END;
++			if (r < 0) {
++				error("bindresvport_sa: af=%d %s", ai->ai_family,
++				      strerror(errno));
++				goto fail;
++			}
++		} else {
++			if (bind(sock, res->ai_addr, res->ai_addrlen) < 0) {
++				error("bind: %s: %s", options.bind_addresses[i],
++				      strerror(errno));
++			  fail:
++				freeaddrinfo(res);
++				res = NULL;
++				continue;
++			}
+ 		}
 +
-+          memset(&hints, 0, sizeof(hints));
-+          hints.ai_family = ai->ai_family;
-+          hints.ai_socktype = ai->ai_socktype;
-+          hints.ai_protocol = ai->ai_protocol;
-+          hints.ai_flags = AI_PASSIVE;
-+          gaierr = getaddrinfo(options.bind_addresses[i], NULL, &hints, &res);
-+          if (gaierr) {
-+               error("getaddrinfo: %s: %s", options.bind_addresses[i],
-+                    ssh_gai_strerror(gaierr));
-+               if ( i == last_idx){
-+                    close(sock);
-+                    return -1;
-+               } else {
-+                    error("We have more addresses, trying next address: %s",options.bind_addresses[i+1]);
-+                    continue;
-+               }
-+          }
++		if (res != NULL)
++			freeaddrinfo(res);
 +
-+          if (bind(sock, res->ai_addr, res->ai_addrlen) < 0) {
-+               error("bind: %s: %s", options.bind_addresses[i], strerror(errno));
-+               if (  i == last_idx){
-+                    close(sock);
-+                    freeaddrinfo(res);
-+                    return -1;
-+               } else {
-+                    error("We have more addresses, trying next address: %s",options.bind_addresses[i+1]);
-+                    continue;
-+               }
-+          } else {
-+             addrfound = 1;
-+             break;
-+          }
-+          freeaddrinfo(res);
++		return sock;
  	}
--	if (bind(sock, res->ai_addr, res->ai_addrlen) < 0) {
--		error("bind: %s: %s", options.bind_address, strerror(errno));
-+
-+     if (!addrfound){
-+          error("no bindable addres is found, exiting");
- 		close(sock);
+-	if (res != NULL)
 -		freeaddrinfo(res);
- 		return -1;
- 	}
--	freeaddrinfo(res);
- 	return sock;
+-	return sock;
++
++	close(sock);
++	return -1;
  }
  
+ static int
+-- 
+2.2.1
