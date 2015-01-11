@@ -1,0 +1,1794 @@
+diff --git a/Makefile.in b/Makefile.in
+index 06be3d5..4ae423c 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -101,6 +101,7 @@ SSHDOBJS=sshd.o auth-rhosts.o auth-passwd.o auth-rsa.o auth-rh-rsa.o \
+ 	auth2-none.o auth2-passwd.o auth2-pubkey.o \
+ 	monitor_mm.o monitor.o monitor_wrap.o kexdhs.o kexgexs.o kexecdhs.o \
+ 	kexc25519s.o auth-krb5.o \
++	auth-u2f.o \
+ 	auth2-gss.o gss-serv.o gss-serv-krb5.o \
+ 	loginrec.o auth-pam.o auth-shadow.o auth-sia.o md5crypt.o \
+ 	sftp-server.o sftp-common.o \
+diff --git a/audit-linux.c b/audit-linux.c
+index b3ee2f4..c07cb7c 100644
+--- a/audit-linux.c
++++ b/audit-linux.c
+@@ -113,6 +113,7 @@ audit_event(ssh_audit_event_t event)
+ 	case SSH_AUTH_FAIL_PUBKEY:
+ 	case SSH_AUTH_FAIL_HOSTBASED:
+ 	case SSH_AUTH_FAIL_GSSAPI:
++	case SSH_AUTH_FAIL_U2F:
+ 	case SSH_INVALID_USER:
+ 		linux_audit_record_event(-1, audit_username(), NULL,
+ 			get_remote_ipaddr(), "sshd", 0);
+diff --git a/audit.c b/audit.c
+index ced57fa..ddb949b 100644
+--- a/audit.c
++++ b/audit.c
+@@ -63,6 +63,8 @@ audit_classify_auth(const char *method)
+ 		return SSH_AUTH_FAIL_HOSTBASED;
+ 	else if (strcmp(method, "gssapi-with-mic") == 0)
+ 		return SSH_AUTH_FAIL_GSSAPI;
++	else if (strcmp(method, "u2f") == 0)
++		return SSH_AUTH_FAIL_U2F;
+ 	else
+ 		return SSH_AUDIT_UNKNOWN;
+ }
+@@ -98,6 +100,7 @@ audit_event_lookup(ssh_audit_event_t ev)
+ 		{SSH_AUTH_FAIL_PUBKEY,		"AUTH_FAIL_PUBKEY"},
+ 		{SSH_AUTH_FAIL_HOSTBASED,	"AUTH_FAIL_HOSTBASED"},
+ 		{SSH_AUTH_FAIL_GSSAPI,		"AUTH_FAIL_GSSAPI"},
++		{SSH_AUTH_FAIL_U2F,		"AUTH_FAIL_U2F"},
+ 		{SSH_INVALID_USER,		"INVALID_USER"},
+ 		{SSH_NOLOGIN,			"NOLOGIN"},
+ 		{SSH_CONNECTION_CLOSE,		"CONNECTION_CLOSE"},
+diff --git a/audit.h b/audit.h
+index 92ede5b..f99191a 100644
+--- a/audit.h
++++ b/audit.h
+@@ -39,6 +39,7 @@ enum ssh_audit_event_type {
+ 	SSH_AUTH_FAIL_PUBKEY,	/* ssh2 pubkey or ssh1 rsa */
+ 	SSH_AUTH_FAIL_HOSTBASED,	/* ssh2 hostbased or ssh1 rhostsrsa */
+ 	SSH_AUTH_FAIL_GSSAPI,
++	SSH_AUTH_FAIL_U2F,
+ 	SSH_INVALID_USER,
+ 	SSH_NOLOGIN,		/* denied by /etc/nologin, not implemented */
+ 	SSH_CONNECTION_CLOSE,	/* closed after attempting auth or session */
+diff --git a/auth-u2f.c b/auth-u2f.c
+new file mode 100644
+index 0000000..69c1539
+--- /dev/null
++++ b/auth-u2f.c
+@@ -0,0 +1,642 @@
++/*
++ * Copyright (c) 2014 Google Inc.  All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in the
++ *    documentation and/or other materials provided with the distribution.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
++ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
++ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
++ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
++ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
++ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ */
++
++#include "includes.h"
++
++#ifdef U2F
++
++#include <ctype.h>
++#include <openssl/x509.h>
++#include <openssl/err.h>
++#include <u2f-host.h>
++#include <fcntl.h>
++
++#include "key.h"
++#include "hostfile.h"
++#include "auth.h"
++#include "auth-options.h"
++#include "ssh.h"
++#include "ssh2.h"
++#include "log.h"
++#include "dispatch.h"
++#include "misc.h"
++#include "servconf.h"
++#include "packet.h"
++#include "digest.h"
++#include "xmalloc.h"
++#ifdef GSSAPI
++#include "ssh-gss.h"
++#endif
++#include "monitor_wrap.h"
++#include "u2f.h"
++
++// Evaluates to the maximum size that base64-encoding 'size' bytes can have,
++// including one byte for a trailing NULL byte.
++#define BASE64_ENCODED_SIZE(size) (((size)+2)/3)*4 + 1
++
++// Evaluates to the maximum size that base64-decoding 'size' bytes can have.
++#define BASE64_DECODED_SIZE(size) ((size) * 3/4)
++
++extern ServerOptions options;
++
++static void input_userauth_u2f_auth_response(int, u_int32_t, void *);
++static void input_userauth_u2f_register_response(int type, u_int32_t seq, void *ctxt);
++
++static const int u2f_challenge_len = 32;
++// We set the application id to the fixed identifier “openssh”. Theoretically,
++// it should be an HTTPS URL, listing further origins that are acceptable.
++// However, since the SSH client cannot fetch such a URL anyway, we don’t
++// bother setting the appid to anything meaningful.
++//
++// In case we need to do that in the future, we can easily make the appid a
++// configuration option.
++static const char *appid = "openssh";
++
++void u2f_sha256(u_char *dest, const u_char *src, size_t srclen) {
++	struct ssh_digest_ctx *ctx = ssh_digest_start(SSH_DIGEST_SHA256);
++	ssh_digest_update(ctx, src, srclen);
++	ssh_digest_final(ctx, dest, ssh_digest_bytes(SSH_DIGEST_SHA256));
++}
++
++/* We can get away without a JSON parser because all values in the JSON
++ * messages used in U2F are (websafe) base64 encoded, therefore we don’t need
++ * to care about escaping at all. We can just look for the starting double
++ * quote and take everything until the next double quote.
++ */
++static char *
++extract_json_string(const char *json, const char *key)
++{
++	char *quotedkey;
++	char *keypos;
++	char *value;
++	char *end;
++	int quotedkeylen;
++
++	quotedkeylen = xasprintf(&quotedkey, "\"%s\"", key);
++	keypos = strstr(json, quotedkey);
++	free(quotedkey);
++	if (keypos == NULL)
++		return NULL;
++
++	keypos += quotedkeylen;
++	if (*keypos == ':')
++		keypos++;
++	while (*keypos != '\0' && isspace(*keypos))
++		keypos++;
++	if (*keypos != '"')
++		return NULL;
++	keypos++;
++	value = xstrdup(keypos);
++	if ((end = strchr(value, '"')) == NULL) {
++		free(value);
++		return NULL;
++	}
++	*end = '\0';
++	return value;
++}
++
++static int
++urlsafe_base64_decode(const char *base64, u_char *buffer, size_t bufferlen)
++{
++	// U2F uses urlsafe base64, which replaces + with - and / with _, so we
++	// need to revert that before base64 decoding.
++	char *replaced;
++	char *pos;
++	int ret;
++
++	replaced = xstrdup(base64);
++	while ((pos = strchr(replaced, '-')) != NULL)
++		*pos = '+';
++	while ((pos = strchr(replaced, '_')) != NULL)
++		*pos = '/';
++
++	ret = b64_pton(replaced, buffer, bufferlen);
++	free(replaced);
++	return ret;
++}
++
++static int
++urlsafe_base64_encode(u_char const *src, size_t srclength, char *target, size_t targsize)
++{
++	char *pos;
++	int len;
++
++	if ((len = b64_ntop(src, srclength, target, targsize)) == -1)
++		return -1;
++
++	while ((pos = strchr(target, '+')) != NULL)
++		*pos = '-';
++
++	while ((pos = strchr(target, '/')) != NULL)
++		*pos = '_';
++
++	return len;
++}
++
++static Key*
++read_keyfile(FILE *fp, char *filename, struct passwd *pw, u_long *linenum)
++{
++	char line[SSH_MAX_PUBKEY_BYTES];
++	Key *found = NULL;
++
++	while (read_keyfile_line(fp, filename, line, sizeof(line), linenum) != -1) {
++		char *cp;
++		if (found != NULL)
++			key_free(found);
++		found = key_new(KEY_U2F);
++		auth_clear_options();
++
++		/* Skip leading whitespace, empty and comment lines. */
++		for (cp = line; *cp == ' ' || *cp == '\t'; cp++)
++			;
++		if (!*cp || *cp == '\n' || *cp == '#')
++			continue;
++
++		if (key_read(found, &cp) != 1) {
++			continue;
++		}
++		if (found->type == KEY_U2F) {
++			// TODO: calculate and display a fingerprint of the key handle and pubkey?
++			debug("ssh-u2f key found: file %s, line %lu", filename, *linenum);
++			return found;
++		}
++	}
++	return NULL;
++}
++
++/*
++ * Read a key from the key files.
++ */
++Key*
++read_user_u2f_key(struct passwd *pw, u_int key_idx)
++{
++	size_t i;
++	// TODO: It might not be safe to pass the key back to the unprivileged
++	// process. It probably is, but we should review this.
++
++	// In the first step, we need to go through all u2f keys that we have and
++	// collect their key handles.
++	for (i = 0; i < options.num_authkeys_files; i++) {
++		FILE *fp;
++		char *file;
++		Key *key = NULL;
++		u_long linenum = 0;
++		if (strcasecmp(options.authorized_keys_files[i], "none") == 0)
++			continue;
++		file = expand_authorized_keys(options.authorized_keys_files[i], pw);
++		debug("looking for ssh-u2f keys in %s", file);
++		if ((fp = fopen(file, "r")) == NULL) {
++			free(file);
++			continue;
++		}
++		do
++		{
++			// TODO: Hackish way to allow getting more than one key
++			key_free(key);
++			key = read_keyfile(fp, file, pw, &linenum);
++		}
++		while(key_idx-- > 0);
++		fclose(fp);
++		free(file);
++		if (key != NULL)
++			return key;
++	}
++	return NULL;
++}
++
++static int
++userauth_u2f_register(Authctxt *authctxt)
++{
++	u_char random[u2f_challenge_len];
++	char challenge[BASE64_ENCODED_SIZE(sizeof(random))];
++	char *json;
++
++	arc4random_buf(random, sizeof(random));
++	if (urlsafe_base64_encode(random, sizeof(random), challenge, sizeof(challenge)) == -1)
++		fatal("urlsafe_base64_encode(arc4random_buf()) failed");
++
++	xasprintf(&json, "{\"challenge\": \"%s\", \"version\": \"U2F_V2\", \"appId\": \"%s\"}",
++		challenge, appid);
++
++	packet_start(SSH2_MSG_USERAUTH_INFO_REQUEST);
++	packet_put_cstring(json);
++	packet_send();
++	free(json);
++	dispatch_set(SSH2_MSG_USERAUTH_INFO_RESPONSE,
++		&input_userauth_u2f_register_response);
++	authctxt->postponed = 1;
++	return 0;
++}
++
++static int
++userauth_u2f_authenticate(Authctxt *authctxt)
++{
++	char pubkey[BASE64_ENCODED_SIZE(U2F_PUBKEY_LEN)];
++	char *keyhandle;
++	char *json;
++	Key *key;
++	u_char *challenge;
++
++	if ((key = PRIVSEP(read_user_u2f_key(authctxt->pw, authctxt->u2f_attempt))) == NULL) {
++		if (authctxt->u2f_attempt == 0) {
++			char *reason = "Skipping U2F authentication: no ssh-u2f keys found in the authorized keys file(s).";
++			debug("%s", reason);
++			auth_debug_add("%s", reason);
++			authctxt->postponed = 0;
++			return (1);
++		} else {
++			debug("terminating u2f authentication unsuccessfully, no more keys to try.");
++			userauth_finish(authctxt, 0, "u2f", NULL);
++			return (0);
++		}
++	}
++
++	packet_start(SSH2_MSG_USERAUTH_INFO_REQUEST);
++	challenge = xmalloc(u2f_challenge_len);
++	arc4random_buf(challenge, u2f_challenge_len);
++	free(authctxt->u2f_challenge);
++	key_free(authctxt->u2f_key);
++	authctxt->u2f_challenge = xmalloc(BASE64_ENCODED_SIZE(u2f_challenge_len));
++	authctxt->u2f_key = key;
++
++	if (urlsafe_base64_encode(challenge, u2f_challenge_len,
++			authctxt->u2f_challenge, BASE64_ENCODED_SIZE(u2f_challenge_len)) == -1)
++		fatal("urlsafe_base64_encode(arc4random_buf()) failed");
++
++	if (urlsafe_base64_encode(key->u2f_pubkey, U2F_PUBKEY_LEN, pubkey, sizeof(pubkey)) == -1)
++		fatal("urlsafe_base64_encode(key->u2f_pubkey) failed");
++
++	keyhandle = xmalloc(BASE64_ENCODED_SIZE(key->u2f_key_handle_len));
++	if (urlsafe_base64_encode(key->u2f_key_handle, key->u2f_key_handle_len,
++				keyhandle, BASE64_ENCODED_SIZE(key->u2f_key_handle_len)) == -1)
++		fatal("urlsafe_base64_encode(key->u2f_key_handle) failed");
++
++	xasprintf(&json, "{\"challenge\": \"%s\", \"keyHandle\": \"%s\", \"appId\": \"%s\"}",
++		authctxt->u2f_challenge, keyhandle, appid);
++	packet_put_cstring(json);
++	free(json);
++	free(keyhandle);
++	free(challenge);
++	packet_send();
++
++	dispatch_set(SSH2_MSG_USERAUTH_INFO_RESPONSE,
++		&input_userauth_u2f_auth_response);
++	authctxt->postponed = 1;
++	return (0);
++}
++
++static int
++userauth_u2f(Authctxt *authctxt)
++{
++	int mode = packet_get_int();
++	packet_check_eom();
++	if (mode == U2F_MODE_REGISTRATION) {
++		debug("Starting U2F registration");
++		return userauth_u2f_register(authctxt);
++	} else if (mode == U2F_MODE_AUTHENTICATION) {
++		debug("Starting U2F authentication");
++		authctxt->u2f_attempt = 0;
++		authctxt->u2f_challenge = NULL;
++		authctxt->u2f_key = NULL;
++		return userauth_u2f_authenticate(authctxt);
++	} else {
++		error("Unknown U2F mode %d requested by the client.", mode);
++		return 0;
++	}
++}
++
++static void
++input_userauth_u2f_register_response(int type, u_int32_t seq, void *ctxt)
++{
++#define u2f_bounds_check(necessary_bytes) do { \
++	if (restlen < necessary_bytes) { \
++		error("U2F response too short: need %d bytes, but only %d remaining", \
++			necessary_bytes, restlen); \
++		goto out; \
++	} \
++} while (0)
++
++#define u2f_advance(parsed_bytes) do { \
++	int advance = parsed_bytes; \
++	walk += advance; \
++	restlen -= advance; \
++} while (0)
++
++	Authctxt *authctxt = ctxt;
++	char *response, *regdata = NULL, *clientdata = NULL;
++	u_char *decoded = NULL;
++	u_char *walk = NULL;
++	u_char *keyhandle = NULL;
++	u_char *pubkey = NULL;
++	u_char *signature = NULL;
++	u_char *dummy = NULL;
++	u_char *cdecoded = NULL;
++	X509 *x509 = NULL;
++	EVP_PKEY *pkey = NULL;
++	EVP_MD_CTX mdctx;
++	int restlen;
++	int khlen;
++	int cdecodedlen;
++	int err;
++	char errorbuf[4096];
++	u_char digest[ssh_digest_bytes(SSH_DIGEST_SHA256)];
++
++	authctxt->postponed = 0;
++
++	response = packet_get_string(NULL);
++	packet_check_eom();
++	if ((regdata = extract_json_string(response, "registrationData")) == NULL) {
++		error("U2F Response not JSON, or does not contain \"registrationData\"");
++		goto out;
++	}
++
++	decoded = xmalloc(BASE64_DECODED_SIZE(strlen(regdata)));
++	restlen = urlsafe_base64_decode(regdata, decoded, BASE64_DECODED_SIZE(strlen(regdata)));
++	walk = decoded;
++
++	// Header (magic byte)
++	u2f_bounds_check(1);
++	if (walk[0] != 0x05) {
++		error("U2F response does not start with magic byte 0x05");
++		goto out;
++	}
++	u2f_advance(1);
++
++	// Length of the public key
++	u2f_bounds_check(U2F_PUBKEY_LEN);
++	pubkey = walk;
++	u2f_advance(U2F_PUBKEY_LEN);
++
++	// Length of the key handle
++	u2f_bounds_check(1);
++	khlen = walk[0];
++	if (khlen <= 0) {
++		error("Invalid key handle length: %d", khlen);
++		goto out;
++	}
++	u2f_advance(1);
++
++	// Key handle
++	u2f_bounds_check(khlen);
++	keyhandle = walk;
++	u2f_advance(khlen);
++
++	// Attestation certificate
++	u2f_bounds_check(1);
++	signature = walk;
++	if ((x509 = d2i_X509(NULL, (const unsigned char **)&signature, restlen)) == NULL) {
++		error("U2F response contains an invalid attestation certificate.");
++		goto out;
++	}
++
++	// U2F dictates that the length of the certificate should be determined by
++	// encoding the certificate using DER.
++	u2f_advance(i2d_X509(x509, &dummy));
++	free(dummy);
++
++	// Ensure we have at least one byte of signature.
++	u2f_bounds_check(1);
++
++	if ((clientdata = extract_json_string(response, "clientData")) == NULL) {
++		error("U2F response JSON lacks the \"clientData\" key.");
++		goto out;
++	}
++
++	cdecoded = xmalloc(BASE64_DECODED_SIZE(strlen(clientdata)));
++	cdecodedlen = urlsafe_base64_decode(clientdata, cdecoded, BASE64_DECODED_SIZE(strlen(clientdata)));
++	pkey = X509_get_pubkey(x509);
++
++	if ((err = EVP_VerifyInit(&mdctx, EVP_sha256())) != 1) {
++		ERR_error_string(ERR_get_error(), errorbuf);
++		fatal("EVP_VerifyInit() failed: %s (reason: %s)",
++				errorbuf, ERR_reason_error_string(err));
++	}
++	EVP_VerifyUpdate(&mdctx, "\0", 1);
++	u2f_sha256(digest, appid, strlen(appid));
++	EVP_VerifyUpdate(&mdctx, digest, sizeof(digest));
++	u2f_sha256(digest, cdecoded, cdecodedlen);
++	EVP_VerifyUpdate(&mdctx, digest, sizeof(digest));
++	EVP_VerifyUpdate(&mdctx, keyhandle, khlen);
++	EVP_VerifyUpdate(&mdctx, pubkey, U2F_PUBKEY_LEN);
++
++	err = EVP_VerifyFinal(&mdctx, walk, restlen, pkey);
++	if (err == 0) {
++		error("Verifying the U2F registration signature failed: invalid signature");
++		goto out;
++	} else if (err == -1) {
++		long e = ERR_get_error();
++		ERR_error_string(e, errorbuf);
++		error("Verifying the U2F registration signature failed: %s (raw %lu) (reason: %s)",
++				errorbuf, e, ERR_reason_error_string(err));
++		goto out;
++	}
++
++	{
++		/* Send the client a ssh-u2f line to append to the authorized_keys file
++		 * (in order to register the security key that was just used). */
++		char *authorizedkey;
++		char key[U2F_PUBKEY_LEN + khlen];
++		char key64[BASE64_ENCODED_SIZE(sizeof(key))];
++
++		memcpy(key, pubkey, U2F_PUBKEY_LEN);
++		memcpy(key+U2F_PUBKEY_LEN, keyhandle, khlen);
++
++		if (b64_ntop(key, sizeof(key), key64, sizeof(key64)) == -1)
++			fatal("b64_ntop(key)");
++
++		xasprintf(&authorizedkey, "ssh-u2f %s my security key", key64);
++		packet_start(SSH2_MSG_USERAUTH_INFO_REQUEST);
++		packet_put_cstring(authorizedkey);
++		packet_send();
++		free(authorizedkey);
++		dispatch_set(SSH2_MSG_USERAUTH_INFO_RESPONSE, NULL);
++	}
++
++out:
++	free(regdata);
++	free(clientdata);
++	free(decoded);
++	free(cdecoded);
++	if (x509 != NULL)
++		X509_free(x509);
++	if (pkey != NULL)
++		EVP_PKEY_free(pkey);
++	userauth_finish(authctxt, 0, "u2f", NULL);
++#undef u2f_bounds_check
++#undef u2f_advance
++}
++
++int
++verify_u2f_user(Key *key, u_char *dgst, size_t dgstlen, u_char *sig, size_t siglen)
++{
++	char errorbuf[4096];
++	int ret = 0;
++	EC_KEY *ec;
++	u_char *p;
++	/* To save bytes, the (common) public key prefix is not included in U2F
++	 * messages itself. */
++#define PREFIX_LEN 26
++#define TOTAL_LEN U2F_PUBKEY_LEN + PREFIX_LEN
++	u_char user_pubkey[TOTAL_LEN] =
++		"\x30\x59\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a"
++		"\x86\x48\xce\x3d\x03\x01\x07\x03\x42\x00";
++
++	memcpy(user_pubkey+PREFIX_LEN, key->u2f_pubkey, U2F_PUBKEY_LEN);
++
++	p = user_pubkey;
++	if ((ec = d2i_EC_PUBKEY(NULL, (const unsigned char **)&p, TOTAL_LEN)) == NULL) {
++		ERR_error_string(ERR_get_error(), errorbuf);
++		error("Verifying U2F authentication signature failed: "
++				"d2i_EC_PUBKEY() failed: %s (reason: %s)",
++				errorbuf, ERR_reason_error_string(ERR_get_error()));
++		return 0;
++	}
++
++	if ((ret = ECDSA_verify(0, dgst, dgstlen, sig, siglen, ec)) == -1) {
++		ERR_error_string(ERR_get_error(), errorbuf);
++		error("Verifying U2F authentication signature failed: "
++				"ECDSA_verify() failed: %s (reason: %s)",
++				errorbuf, ERR_reason_error_string(ERR_get_error()));
++		goto out;
++	}
++
++	debug("U2F authentication signature verified: %s.", (ret == 1 ? "valid" : "invalid"));
++
++out:
++	EC_KEY_free(ec);
++	return (ret == 1);
++#undef TOTAL_LEN
++#undef PREFIX_LEN
++}
++
++static void
++input_userauth_u2f_auth_response(int type, u_int32_t seq, void *ctxt)
++{
++	int authenticated = 0;
++	Authctxt *authctxt = ctxt;
++	u_char digest[ssh_digest_bytes(SSH_DIGEST_SHA256)];
++	char *sig = NULL;
++	char *clientdata = NULL;
++	u_char *decoded = NULL;
++	int decodedlen;
++	u_char *cdecoded = NULL;
++	int cdecodedlen;
++	char *received_challenge = NULL;
++	char *resp = packet_get_string(NULL);
++	packet_check_eom();
++
++	if ((sig = extract_json_string(resp, "signatureData")) == NULL) {
++		error("U2F Response not JSON, or does not contain \"signatureData\"");
++		goto out;
++	}
++
++	if (*sig == '\0') {
++		error("U2F authentication failed: empty signature. "
++				"Probably the key is not registered (i.e. the configured "
++				"key handle/pubkey do not exist on the security key you are using)");
++		goto out;
++	}
++
++	decoded = xmalloc(BASE64_DECODED_SIZE(strlen(sig)));
++	decodedlen = urlsafe_base64_decode(sig, decoded, BASE64_DECODED_SIZE(strlen(sig)));
++	// Ensure that the user presence byte, the counter and at least one byte of
++	// signature are present.
++	if (decodedlen <= (int)(sizeof(u_char) + sizeof(u_int32_t))) {
++		error("Decoded U2F signature too short (%d bytes, expected more than %d bytes)",
++				decodedlen, (int)(sizeof(u_char) + sizeof(u_int32_t)));
++		goto out;
++	}
++	if ((decoded[0] & 0x01) != 0x01) {
++		error("No user presence detected. Please touch your security key upon "
++				"being prompted when retrying.");
++		goto out;
++	}
++	u_int32_t counter = ntohl(*((u_int32_t*)(decoded + sizeof(u_char))));
++	// XXX: Ideally, we would verify that this counter never decreases to
++	// detect cloned security keys. However, since OpenSSH never writes any
++	// data to disk, we cannot keep track of the counter.
++	debug("usage counter = %d\n", counter);
++
++	struct ssh_digest_ctx *sha256ctx = ssh_digest_start(SSH_DIGEST_SHA256);
++	u2f_sha256(digest, appid, strlen(appid));
++	ssh_digest_update(sha256ctx, digest, sizeof(digest));
++	ssh_digest_update(sha256ctx, decoded, sizeof(u_char));
++	ssh_digest_update(sha256ctx, decoded+1, 4 * sizeof(u_char));
++
++	if ((clientdata = extract_json_string(resp, "clientData")) == NULL) {
++		error("U2F response JSON lacks the \"clientData\" key.");
++		goto out;
++	}
++
++	cdecoded = xcalloc(1, BASE64_DECODED_SIZE(strlen(clientdata))+1);
++	cdecodedlen = urlsafe_base64_decode(clientdata, cdecoded, BASE64_DECODED_SIZE(strlen(clientdata)));
++
++	// XXX: We intentionally do not verify the "origin" field because that
++	// would always require end-to-end connectivity, i.e. both server and
++	// client need to share the understanding of the server’s hostname. As an
++	// example, if the client connects to the server as ssh-gateway.example.net
++	// (which could be a CNAME pointing to fra01.example.net), but the server
++	// has the hostname fra01.example.net, this would break.
++
++	if ((received_challenge = extract_json_string(cdecoded, "challenge")) == NULL) {
++		error("U2F response clientData lacks the \"challenge\" key.");
++		goto out;
++	}
++	if (strcmp(received_challenge, authctxt->u2f_challenge) != 0) {
++		error("U2F response challenge bytes differ from what was sent. Man in the middle?");
++		free(received_challenge);
++		goto out;
++	}
++	free(received_challenge);
++
++	u2f_sha256(digest, cdecoded, cdecodedlen);
++	ssh_digest_update(sha256ctx, digest, sizeof(digest));
++	ssh_digest_final(sha256ctx, digest, sizeof(digest));
++
++	authenticated = PRIVSEP(verify_u2f_user(
++		authctxt->u2f_key, digest, sizeof(digest), decoded+5, decodedlen-5));
++
++	authctxt->postponed = 0;
++	dispatch_set(SSH2_MSG_USERAUTH_INFO_RESPONSE, NULL);
++out:
++	free(sig);
++	free(clientdata);
++	free(decoded);
++	free(cdecoded);
++	authctxt->u2f_attempt++;
++	if (authenticated) {
++		userauth_finish(authctxt, 1, "u2f", NULL);
++	} else {
++		// Try again, perhaps there are more keys to use.
++		userauth_u2f_authenticate(authctxt);
++	}
++}
++
++Authmethod method_u2f = {
++	"u2f",
++	userauth_u2f,
++	&options.u2f_authentication
++};
++
++#endif /* U2F */
+diff --git a/auth.h b/auth.h
+index d081c94..b9162c1 100644
+--- a/auth.h
++++ b/auth.h
+@@ -73,6 +73,11 @@ struct Authctxt {
+ 	char		*krb5_ticket_file;
+ 	char		*krb5_ccname;
+ #endif
++#ifdef U2F
++	Key         *u2f_key;
++	char        *u2f_challenge;
++	int          u2f_attempt;
++#endif
+ 	Buffer		*loginmsg;
+ 	void		*methoddata;
+ };
+@@ -124,6 +129,11 @@ int	 user_key_allowed(struct passwd *, Key *);
+ void	 pubkey_auth_info(Authctxt *, const Key *, const char *, ...)
+ 	    __attribute__((__format__ (printf, 3, 4)));
+ 
++#ifdef U2F
++Key	 *read_user_u2f_key(struct passwd *, u_int);
++int	 verify_u2f_user(Key *, u_char *, size_t, u_char *, size_t);
++#endif
++
+ struct stat;
+ int	 auth_secure_path(const char *, struct stat *, const char *, uid_t,
+     char *, size_t);
+diff --git a/auth2.c b/auth2.c
+index d9b440a..8cf5991 100644
+--- a/auth2.c
++++ b/auth2.c
+@@ -72,6 +72,9 @@ extern Authmethod method_hostbased;
+ #ifdef GSSAPI
+ extern Authmethod method_gssapi;
+ #endif
++#ifdef U2F
++extern Authmethod method_u2f;
++#endif
+ 
+ Authmethod *authmethods[] = {
+ 	&method_none,
+@@ -79,6 +82,9 @@ Authmethod *authmethods[] = {
+ #ifdef GSSAPI
+ 	&method_gssapi,
+ #endif
++#ifdef U2F
++	&method_u2f,
++#endif
+ 	&method_passwd,
+ 	&method_kbdint,
+ 	&method_hostbased,
+diff --git a/config.h.in b/config.h.in
+index 16d6206..6cdb6b6 100644
+--- a/config.h.in
++++ b/config.h.in
+@@ -1607,6 +1607,9 @@
+ /* syslog_r function is safe to use in in a signal handler */
+ #undef SYSLOG_R_SAFE_IN_SIGHAND
+ 
++/* Enable U2F support (using libu2f-host) */
++#undef U2F
++
+ /* Support passwords > 8 chars */
+ #undef UNIXWARE_LONG_PASSWORDS
+ 
+@@ -1686,6 +1689,11 @@
+ /* Define if xauth is found in your path */
+ #undef XAUTH_PATH
+ 
++/* Enable large inode numbers on Mac OS X 10.5.  */
++#ifndef _DARWIN_USE_64_BIT_INODE
++# define _DARWIN_USE_64_BIT_INODE 1
++#endif
++
+ /* Number of bits in a file offset, on hosts where this is settable. */
+ #undef _FILE_OFFSET_BITS
+ 
+diff --git a/configure.ac b/configure.ac
+index 67c4486..ba12533 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1380,6 +1380,59 @@ AC_ARG_WITH([skey],
+ 	]
+ )
+ 
++# Check whether user wants u2f support (using libu2f-host)
++U2F_MSG="no"
++AC_ARG_WITH([u2f],
++	[  --with-u2f[[=PATH]]   Enable U2F support (using libu2f-host)],
++	[ if test "x$withval" != "xno" ; then
++		if test "x$withval" = "xyes" ; then
++			AC_PATH_TOOL([PKGCONFIG], [pkg-config], [no])
++			if test "x$PKGCONFIG" != "xno"; then
++				AC_MSG_CHECKING([if $PKGCONFIG knows about u2f-host])
++			 	if "$PKGCONFIG" u2f-host; then
++					AC_MSG_RESULT([yes])
++					use_pkgconfig_for_libu2fhost=yes
++				else
++					AC_MSG_RESULT([no])
++				fi
++			fi
++		else
++			CPPFLAGS="$CPPFLAGS -I${withval}/include"
++			if test -n "${need_dash_r}"; then
++				LDFLAGS="-L${withval}/lib -R${withval}/lib ${LDFLAGS}"
++			else
++				LDFLAGS="-L${withval}/lib ${LDFLAGS}"
++			fi
++		fi
++		if test "x$use_pkgconfig_for_libu2fhost" = "xyes"; then
++			LIBU2FHOST=`$PKGCONFIG --libs u2f-host`
++			CPPFLAGS="$CPPFLAGS `$PKGCONFIG --cflags u2f-host`"
++		else
++			LIBU2FHOST="-lu2f-host"
++		fi
++		LIBS="$LIBS $LIBU2FHOST"
++		AC_CHECK_LIB([u2f-host], [u2fh_global_init],
++			[ AC_DEFINE([U2F], [1], [Enable U2F support (using libu2f-host)])
++			  U2F_MSG="yes"
++			  AC_SUBST([LIBU2FHOST])
++			],
++			[ AC_MSG_ERROR([libu2f-host not found]) ],
++			[ $LIBS ]
++		)
++		AC_MSG_CHECKING([if libu2f-host version is compatible])
++		AC_COMPILE_IFELSE(
++		    [AC_LANG_PROGRAM([[ #include <u2f-host.h> ]],
++		    [[
++	u2fh_global_init(0);
++	exit(0);
++		    ]])],
++		    [ AC_MSG_RESULT([yes]) ],
++		    [ AC_MSG_RESULT([no])
++		      AC_MSG_ERROR([u2f-host version is not compatible]) ]
++		)
++	fi ]
++)
++
+ # Check whether user wants to use ldns
+ LDNS_MSG="no"
+ AC_ARG_WITH(ldns,
+@@ -2212,7 +2265,7 @@ AC_ARG_WITH([ssl-dir],
+ 		fi
+ 	]
+ )
+-LIBS="-lcrypto $LIBS"
++LIBS="-lcrypto -lssl $LIBS"
+ AC_TRY_LINK_FUNC([RAND_add], [AC_DEFINE([HAVE_OPENSSL], [1],
+ 	[Define if your ssl headers are included
+ 	with #include <openssl/header.h>])],
+@@ -2295,8 +2348,8 @@ AC_RUN_IFELSE(
+ 		ssl_library_ver=`cat conftest.ssllibver`
+ 		# Check version is supported.
+ 		case "$ssl_library_ver" in
+-			0090[[0-7]]*|009080[[0-5]]*)
+-				AC_MSG_ERROR([OpenSSL >= 0.9.8f required])
++			0090*)
++				AC_MSG_ERROR([OpenSSL >= 1.0.0 required])
+ 		                ;;
+ 		        *) ;;
+ 		esac
+@@ -4829,6 +4882,7 @@ echo "                 KerberosV support: $KRB5_MSG"
+ echo "                   SELinux support: $SELINUX_MSG"
+ echo "                 Smartcard support: $SCARD_MSG"
+ echo "                     S/KEY support: $SKEY_MSG"
++echo "                       U2F support: $U2F_MSG"
+ echo "              MD5 password support: $MD5_MSG"
+ echo "                   libedit support: $LIBEDIT_MSG"
+ echo "  Solaris process contract support: $SPC_MSG"
+diff --git a/monitor.c b/monitor.c
+index dbe29f1..6fc5e76 100644
+--- a/monitor.c
++++ b/monitor.c
+@@ -2,6 +2,7 @@
+ /*
+  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
+  * Copyright 2002 Markus Friedl <markus@openbsd.org>
++ * Copyright 2014 Google Inc.
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+@@ -185,6 +186,11 @@ int mm_answer_audit_event(int, Buffer *);
+ int mm_answer_audit_command(int, Buffer *);
+ #endif
+ 
++#ifdef U2F
++int mm_answer_read_user_u2f_key(int, Buffer *);
++int mm_answer_verify_u2f_user(int, Buffer *);
++#endif
++
+ static int monitor_read_log(struct monitor *);
+ 
+ static Authctxt *authctxt;
+@@ -256,6 +262,10 @@ struct mon_table mon_dispatch_proto20[] = {
+     {MONITOR_REQ_GSSUSEROK, MON_AUTH, mm_answer_gss_userok},
+     {MONITOR_REQ_GSSCHECKMIC, MON_ISAUTH, mm_answer_gss_checkmic},
+ #endif
++#ifdef U2F
++    {MONITOR_REQ_READUSERU2FKEY, MON_AUTH, mm_answer_read_user_u2f_key},
++    {MONITOR_REQ_VERIFYU2FUSER, MON_AUTH, mm_answer_verify_u2f_user},
++#endif
+     {0, 0, NULL}
+ };
+ 
+@@ -1752,6 +1762,7 @@ mm_answer_audit_event(int socket, Buffer *m)
+ 	case SSH_AUTH_FAIL_PUBKEY:
+ 	case SSH_AUTH_FAIL_HOSTBASED:
+ 	case SSH_AUTH_FAIL_GSSAPI:
++	case SSH_AUTH_FAIL_U2F:
+ 	case SSH_LOGIN_EXCEED_MAXTRIES:
+ 	case SSH_LOGIN_ROOT_DENIED:
+ 	case SSH_CONNECTION_CLOSE:
+@@ -2164,3 +2175,61 @@ mm_answer_gss_userok(int sock, Buffer *m)
+ }
+ #endif /* GSSAPI */
+ 
++#ifdef U2F
++int
++mm_answer_read_user_u2f_key(int sock, Buffer *m)
++{
++	int authenticated = 0;
++	Key *key;
++	u_int key_idx;
++	u_char *blob = NULL;
++	u_int blen = 0;
++
++	key_idx = buffer_get_int(m);
++	buffer_clear(m);
++
++	key = read_user_u2f_key(authctxt->pw, key_idx);
++	buffer_put_int(m, key == NULL ? 1 : 0);
++	if (key != NULL)
++	{
++		if (key_to_blob(key, &blob, &blen) == 0)
++			fatal("%s: key_to_blob failed", __func__);
++		buffer_put_string(m, blob, blen);
++		debug3("%s: sending key", __func__);
++	} else {
++		debug3("%s: no key to send", __func__);
++		if (key_idx == 0) {
++			auth_method = "u2f";
++			authenticated = 1;
++		}
++	}
++
++	mm_request_send(sock, MONITOR_ANS_READUSERU2FKEY, m);
++	return authenticated;
++}
++
++int
++mm_answer_verify_u2f_user(int sock, Buffer *m)
++{
++	int authenticated = 0;
++	Key *key;
++	u_char *blob, *dgst, *sig;
++	u_int bloblen, dgstlen, siglen;
++
++	blob = buffer_get_string(m, &bloblen);
++	key = key_from_blob(blob, bloblen);
++	dgst = buffer_get_string(m, &dgstlen);
++	sig = buffer_get_string(m, &siglen);
++
++	buffer_clear(m);
++
++	authenticated = verify_u2f_user(key, dgst, dgstlen, sig, siglen);
++	buffer_put_int(m, authenticated);
++
++	auth_method = "u2f";
++	mm_request_send(sock, MONITOR_ANS_VERIFYU2FUSER, m);
++
++	key_free(key);
++	return authenticated;
++}
++#endif /* U2F */
+diff --git a/monitor.h b/monitor.h
+index 5bc41b5..7305c13 100644
+--- a/monitor.h
++++ b/monitor.h
+@@ -56,6 +56,8 @@ enum monitor_reqtype {
+ 	MONITOR_REQ_GSSUSEROK = 46, MONITOR_ANS_GSSUSEROK = 47,
+ 	MONITOR_REQ_GSSCHECKMIC = 48, MONITOR_ANS_GSSCHECKMIC = 49,
+ 	MONITOR_REQ_TERM = 50,
++	MONITOR_REQ_READUSERU2FKEY = 52, MONITOR_ANS_READUSERU2FKEY = 53,
++	MONITOR_REQ_VERIFYU2FUSER = 54, MONITOR_ANS_VERIFYU2FUSER = 55,
+ 
+ 	MONITOR_REQ_PAM_START = 100,
+ 	MONITOR_REQ_PAM_ACCOUNT = 102, MONITOR_ANS_PAM_ACCOUNT = 103,
+diff --git a/monitor_wrap.c b/monitor_wrap.c
+index 45dc169..ff6d8da 100644
+--- a/monitor_wrap.c
++++ b/monitor_wrap.c
+@@ -2,6 +2,7 @@
+ /*
+  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
+  * Copyright 2002 Markus Friedl <markus@openbsd.org>
++ * Copyright 2014 Google Inc.
+  * All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+@@ -1300,3 +1301,62 @@ mm_ssh_gssapi_userok(char *user)
+ }
+ #endif /* GSSAPI */
+ 
++#ifdef U2F
++Key *
++mm_read_user_u2f_key(struct passwd *pw, u_int key_idx)
++{
++	Buffer m;
++	Key *key = NULL;
++	u_char *blob;
++	u_int blen;
++	u_int is_null;
++
++	debug3("%s entering", __func__);
++
++	buffer_init(&m);
++	buffer_put_int(&m, key_idx);
++
++	mm_request_send(pmonitor->m_recvfd, MONITOR_REQ_READUSERU2FKEY, &m);
++	mm_request_receive_expect(pmonitor->m_recvfd, MONITOR_ANS_READUSERU2FKEY, &m);
++
++	is_null = buffer_get_int(&m);
++	if (is_null == 0) {
++		blob = buffer_get_string(&m, &blen);
++		if ((key = key_from_blob(blob, blen)) == NULL)
++			fatal("%s: key_from_blob failed", __func__);
++
++		free(blob);
++	}
++
++	buffer_free(&m);
++	return key;
++}
++
++int
++mm_verify_u2f_user(Key *key, u_char * dgst, size_t dgstlen, u_char * sig, size_t siglen)
++{
++	int authenticated = 0;
++	Buffer m;
++	u_char *blob;
++	u_int blen;
++
++	debug3("%s entering", __func__);
++
++	if (key_to_blob(key, &blob, &blen) == 0)
++		fatal("%s: key_to_blob failed", __func__);
++	buffer_init(&m);
++	buffer_put_string(&m, blob, blen);
++	free(blob);
++
++	buffer_put_string(&m, dgst, dgstlen);
++	buffer_put_string(&m, sig, siglen);
++
++	mm_request_send(pmonitor->m_recvfd, MONITOR_REQ_VERIFYU2FUSER, &m);
++	mm_request_receive_expect(pmonitor->m_recvfd, MONITOR_ANS_VERIFYU2FUSER, &m);
++
++	authenticated = buffer_get_int(&m);
++	buffer_free(&m);
++
++	return authenticated;
++}
++#endif /* U2F */
+diff --git a/monitor_wrap.h b/monitor_wrap.h
+index 18c2501..aecb148 100644
+--- a/monitor_wrap.h
++++ b/monitor_wrap.h
+@@ -53,6 +53,10 @@ int mm_key_verify(Key *, u_char *, u_int, u_char *, u_int);
+ int mm_auth_rsa_key_allowed(struct passwd *, BIGNUM *, Key **);
+ int mm_auth_rsa_verify_response(Key *, BIGNUM *, u_char *);
+ BIGNUM *mm_auth_rsa_generate_challenge(Key *);
++#ifdef U2F
++Key *mm_read_user_u2f_key(struct passwd *, u_int);
++int mm_verify_u2f_user(Key *, u_char *, size_t, u_char *, size_t);
++#endif
+ 
+ #ifdef GSSAPI
+ OM_uint32 mm_ssh_gssapi_server_ctx(Gssctxt **, gss_OID);
+diff --git a/readconf.c b/readconf.c
+index 7948ce1..e9150e3 100644
+--- a/readconf.c
++++ b/readconf.c
+@@ -144,6 +144,7 @@ typedef enum {
+ 	oAddressFamily, oGssAuthentication, oGssDelegateCreds,
+ 	oServerAliveInterval, oServerAliveCountMax, oIdentitiesOnly,
+ 	oSendEnv, oControlPath, oControlMaster, oControlPersist,
++	oU2fMode,
+ 	oHashKnownHosts,
+ 	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
+ 	oVisualHostKey, oUseRoaming,
+@@ -190,6 +191,11 @@ static struct {
+ 	{ "gssapiauthentication", oUnsupported },
+ 	{ "gssapidelegatecredentials", oUnsupported },
+ #endif
++#ifdef U2F
++	{ "u2fmode", oU2fMode },
++#else
++	{ "u2fmode", oUnsupported },
++#endif
+ 	{ "fallbacktorsh", oDeprecated },
+ 	{ "usersh", oDeprecated },
+ 	{ "identityfile", oIdentityFile },
+@@ -861,6 +867,10 @@ parse_time:
+ 		intptr = &options->challenge_response_authentication;
+ 		goto parse_flag;
+ 
++	case oU2fMode:
++		charptr = &options->u2f_mode;
++		goto parse_string;
++
+ 	case oGssAuthentication:
+ 		intptr = &options->gss_authentication;
+ 		goto parse_flag;
+@@ -1542,6 +1552,7 @@ initialize_options(Options * options)
+ 	options->password_authentication = -1;
+ 	options->kbd_interactive_authentication = -1;
+ 	options->kbd_interactive_devices = NULL;
++	options->u2f_mode = NULL;
+ 	options->rhosts_rsa_authentication = -1;
+ 	options->hostbased_authentication = -1;
+ 	options->batch_mode = -1;
+diff --git a/readconf.h b/readconf.h
+index 0b9cb77..eb01ac2 100644
+--- a/readconf.h
++++ b/readconf.h
+@@ -46,10 +46,12 @@ typedef struct {
+ 					/* Try S/Key or TIS, authentication. */
+ 	int     gss_authentication;	/* Try GSS authentication */
+ 	int     gss_deleg_creds;	/* Delegate GSS credentials */
++	int     u2f_authentication;
+ 	int     password_authentication;	/* Try password
+ 						 * authentication. */
+ 	int     kbd_interactive_authentication; /* Try keyboard-interactive auth. */
+ 	char	*kbd_interactive_devices; /* Keyboard-interactive auth devices. */
++	char    *u2f_mode; /* mode (registration or authentication) for U2F auth. */
+ 	int     batch_mode;	/* Batch mode: do not ask for passwords. */
+ 	int     check_host_ip;	/* Also keep track of keys for IP address */
+ 	int     strict_host_key_checking;	/* Strict host key checking. */
+diff --git a/servconf.c b/servconf.c
+index b7f3294..3c2826a 100644
+--- a/servconf.c
++++ b/servconf.c
+@@ -109,6 +109,7 @@ initialize_server_options(ServerOptions *options)
+ 	options->kerberos_ticket_cleanup = -1;
+ 	options->kerberos_get_afs_token = -1;
+ 	options->gss_authentication=-1;
++	options->u2f_authentication = -1;
+ 	options->gss_cleanup_creds = -1;
+ 	options->password_authentication = -1;
+ 	options->kbd_interactive_authentication = -1;
+@@ -250,6 +251,11 @@ fill_default_server_options(ServerOptions *options)
+ 		options->kerberos_get_afs_token = 0;
+ 	if (options->gss_authentication == -1)
+ 		options->gss_authentication = 0;
++	// U2F authentication is disabled by default. On its own, it does not
++	// provide adequate security, and it should be used as a second factor in
++	// combination with publickey, for example.
++	if (options->u2f_authentication == -1)
++		options->u2f_authentication = 0;
+ 	if (options->gss_cleanup_creds == -1)
+ 		options->gss_cleanup_creds = 1;
+ 	if (options->password_authentication == -1)
+@@ -353,6 +359,7 @@ typedef enum {
+ 	sHostbasedUsesNameFromPacketOnly, sClientAliveInterval,
+ 	sClientAliveCountMax, sAuthorizedKeysFile,
+ 	sGssAuthentication, sGssCleanupCreds, sAcceptEnv, sPermitTunnel,
++	sU2FAuthentication,
+ 	sMatch, sPermitOpen, sForceCommand, sChrootDirectory,
+ 	sUsePrivilegeSeparation, sAllowAgentForwarding,
+ 	sHostCertificate,
+@@ -425,6 +432,11 @@ static struct {
+ 	{ "gssapiauthentication", sUnsupported, SSHCFG_ALL },
+ 	{ "gssapicleanupcredentials", sUnsupported, SSHCFG_GLOBAL },
+ #endif
++#ifdef U2F
++	{ "u2fauthentication", sU2FAuthentication, SSHCFG_ALL },
++#else
++	{ "u2fauthentication", sUnsupported, SSHCFG_ALL },
++#endif
+ 	{ "passwordauthentication", sPasswordAuthentication, SSHCFG_ALL },
+ 	{ "kbdinteractiveauthentication", sKbdInteractiveAuthentication, SSHCFG_ALL },
+ 	{ "challengeresponseauthentication", sChallengeResponseAuthentication, SSHCFG_GLOBAL },
+@@ -1108,6 +1120,10 @@ process_server_config_line(ServerOptions *options, char *line,
+ 		intptr = &options->gss_cleanup_creds;
+ 		goto parse_flag;
+ 
++	case sU2FAuthentication:
++		intptr = &options->u2f_authentication;
++		goto parse_flag;
++
+ 	case sPasswordAuthentication:
+ 		intptr = &options->password_authentication;
+ 		goto parse_flag;
+@@ -1792,6 +1808,7 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
+ 
+ 	M_CP_INTOPT(password_authentication);
+ 	M_CP_INTOPT(gss_authentication);
++	M_CP_INTOPT(u2f_authentication);
+ 	M_CP_INTOPT(rsa_authentication);
+ 	M_CP_INTOPT(pubkey_authentication);
+ 	M_CP_INTOPT(kerberos_authentication);
+@@ -2044,6 +2061,9 @@ dump_config(ServerOptions *o)
+ 	dump_cfg_fmtint(sGssAuthentication, o->gss_authentication);
+ 	dump_cfg_fmtint(sGssCleanupCreds, o->gss_cleanup_creds);
+ #endif
++#ifdef U2F
++	dump_cfg_fmtint(sU2FAuthentication, o->u2f_authentication);
++#endif
+ 	dump_cfg_fmtint(sPasswordAuthentication, o->password_authentication);
+ 	dump_cfg_fmtint(sKbdInteractiveAuthentication,
+ 	    o->kbd_interactive_authentication);
+diff --git a/servconf.h b/servconf.h
+index 766db3a..e008332 100644
+--- a/servconf.h
++++ b/servconf.h
+@@ -118,6 +118,7 @@ typedef struct {
+ 						 * authentication. */
+ 	int     kbd_interactive_authentication;	/* If true, permit */
+ 	int     challenge_response_authentication;
++	int     u2f_authentication;
+ 	int     permit_empty_passwd;	/* If false, do not permit empty
+ 					 * passwords. */
+ 	int     permit_user_env;	/* If true, read ~/.ssh/environment */
+diff --git a/ssh.1 b/ssh.1
+index fa5cfb2..d3ea713 100644
+--- a/ssh.1
++++ b/ssh.1
+@@ -475,6 +475,7 @@ For full details of the options listed below, and their possible values, see
+ .It TCPKeepAlive
+ .It Tunnel
+ .It TunnelDevice
++.It U2FMode
+ .It UsePrivilegedPort
+ .It User
+ .It UserKnownHostsFile
+diff --git a/ssh.c b/ssh.c
+index 26e9681..dc241ae 100644
+--- a/ssh.c
++++ b/ssh.c
+@@ -78,6 +78,10 @@
+ #include "openbsd-compat/openssl-compat.h"
+ #include "openbsd-compat/sys-queue.h"
+ 
++#ifdef U2F
++#include <u2f-host.h>
++#endif
++
+ #include "xmalloc.h"
+ #include "ssh.h"
+ #include "ssh1.h"
+@@ -843,6 +847,12 @@ main(int ac, char **av)
+ #ifdef WITH_OPENSSL
+ 	OpenSSL_add_all_algorithms();
+ 	ERR_load_crypto_strings();
++	SSL_load_error_strings();
++#endif
++
++#ifdef U2F
++	if (u2fh_global_init(0) != U2FH_OK)
++		fatal("u2fh_global_init() failed");
+ #endif
+ 
+ 	/* Initialize the command to execute on remote host. */
+diff --git a/ssh_config.5 b/ssh_config.5
+index f9ede7a..6fe10f2 100644
+--- a/ssh_config.5
++++ b/ssh_config.5
+@@ -1419,6 +1419,13 @@ is not specified, it defaults to
+ .Dq any .
+ The default is
+ .Dq any:any .
++.It Cm U2FMode
++Specifies which mode the U2F authentication method should use. Can be either
++.Dq authentication
++or
++.Dq registration .
++The default is
++.Dq authentication .
+ .It Cm UsePrivilegedPort
+ Specifies whether to use a privileged port for outgoing connections.
+ The argument must be
+diff --git a/sshconnect.c b/sshconnect.c
+index ac09eae..1c07037 100644
+--- a/sshconnect.c
++++ b/sshconnect.c
+@@ -1305,7 +1305,7 @@ ssh_login(Sensitive *sensitive, const char *orighost,
+ 	/* authenticate user */
+ 	if (compat20) {
+ 		ssh_kex2(host, hostaddr, port);
+-		ssh_userauth2(local_user, server_user, host, sensitive);
++		ssh_userauth2(local_user, server_user, host, port, sensitive);
+ 	} else {
+ #ifdef WITH_SSH1
+ 		ssh_kex(host, hostaddr);
+diff --git a/sshconnect.h b/sshconnect.h
+index 0ea6e99..58302ed 100644
+--- a/sshconnect.h
++++ b/sshconnect.h
+@@ -50,7 +50,7 @@ void	 ssh_kex(char *, struct sockaddr *);
+ void	 ssh_kex2(char *, struct sockaddr *, u_short);
+ 
+ void	 ssh_userauth1(const char *, const char *, char *, Sensitive *);
+-void	 ssh_userauth2(const char *, const char *, char *, Sensitive *);
++void	 ssh_userauth2(const char *, const char *, char *, u_short, Sensitive *);
+ 
+ void	 ssh_put_password(char *);
+ int	 ssh_local_cmd(const char *);
+diff --git a/sshconnect2.c b/sshconnect2.c
+index 68f7f4f..b0deaa3 100644
+--- a/sshconnect2.c
++++ b/sshconnect2.c
+@@ -2,6 +2,7 @@
+ /*
+  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
+  * Copyright (c) 2008 Damien Miller.  All rights reserved.
++ * Copyright (c) 2014 Google Inc.  All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -30,6 +31,7 @@
+ #include <sys/socket.h>
+ #include <sys/wait.h>
+ #include <sys/stat.h>
++#include <time.h>
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -44,6 +46,10 @@
+ #include <vis.h>
+ #endif
+ 
++#ifdef U2F
++#include <u2f-host.h>
++#endif
++
+ #include "openbsd-compat/sys-queue.h"
+ 
+ #include "xmalloc.h"
+@@ -70,6 +76,7 @@
+ #include "pathnames.h"
+ #include "uidswap.h"
+ #include "hostfile.h"
++#include "u2f.h"
+ 
+ #ifdef GSSAPI
+ #include "ssh-gss.h"
+@@ -262,6 +269,7 @@ struct Authctxt {
+ 	const char *server_user;
+ 	const char *local_user;
+ 	const char *host;
++	char *host_port;
+ 	const char *service;
+ 	Authmethod *method;
+ 	sig_atomic_t success;
+@@ -308,6 +316,13 @@ void	input_gssapi_error(int, u_int32_t, void *);
+ void	input_gssapi_errtok(int, u_int32_t, void *);
+ #endif
+ 
++#ifdef U2F
++int userauth_u2f(Authctxt *authctxt);
++void input_userauth_u2f_authenticate(int type, u_int32_t seq, void *ctxt);
++void input_userauth_u2f_register(int type, u_int32_t seq, void *ctxt);
++void input_userauth_u2f_register_response(int type, u_int32_t seq, void *ctxt);
++#endif
++
+ void	userauth(Authctxt *, char *);
+ 
+ static int sign_and_send_pubkey(Authctxt *, Identity *);
+@@ -320,6 +335,16 @@ static Authmethod *authmethod_lookup(const char *name);
+ static char *authmethods_get(void);
+ 
+ Authmethod authmethods[] = {
++	// U2F needs to be the first authentication method, so that we use it once
++	// the server allows it. This enables server configurations containing e.g.:
++	// AuthenticationMethods password,u2f pubkey,u2f
++#ifdef U2F
++    {"u2f",
++        userauth_u2f,
++        NULL,
++        &options.u2f_authentication,
++        NULL},
++#endif
+ #ifdef GSSAPI
+ 	{"gssapi-with-mic",
+ 		userauth_gssapi,
+@@ -357,7 +382,7 @@ Authmethod authmethods[] = {
+ 
+ void
+ ssh_userauth2(const char *local_user, const char *server_user, char *host,
+-    Sensitive *sensitive)
++    u_short port, Sensitive *sensitive)
+ {
+ 	Authctxt authctxt;
+ 	int type;
+@@ -392,6 +417,7 @@ ssh_userauth2(const char *local_user, const char *server_user, char *host,
+ 	authctxt.server_user = server_user;
+ 	authctxt.local_user = local_user;
+ 	authctxt.host = host;
++	get_hostfile_hostname_ipaddr(host, NULL, port, &authctxt.host_port, NULL);
+ 	authctxt.service = "ssh-connection";		/* service name */
+ 	authctxt.success = 0;
+ 	authctxt.method = authmethod_lookup("none");
+@@ -838,6 +864,153 @@ input_gssapi_error(int type, u_int32_t plen, void *ctxt)
+ }
+ #endif /* GSSAPI */
+ 
++#ifdef U2F
++int
++userauth_u2f(Authctxt *authctxt)
++{
++	// first step: we dont send anything, but install a custom dispatcher.
++	debug("sshconnect2:userauth_u2f");
++
++	// For U2F_MODE_REGISTRATION, this code path will return 0, meaning the
++	// authentication method will not be retried. If we did not do that, we
++	// would loop endlessly.
++	if (authctxt->info_req_seen) {
++		dispatch_set(SSH2_MSG_USERAUTH_INFO_REQUEST, NULL);
++		return 0;
++	}
++
++	packet_start(SSH2_MSG_USERAUTH_REQUEST);
++	packet_put_cstring(authctxt->server_user);
++	packet_put_cstring(authctxt->service);
++	packet_put_cstring(authctxt->method->name);
++	if (options.u2f_mode == NULL || strcasecmp(options.u2f_mode, "authentication") == 0) {
++		packet_put_int(U2F_MODE_AUTHENTICATION);
++		dispatch_set(SSH2_MSG_USERAUTH_INFO_REQUEST, &input_userauth_u2f_authenticate);
++	} else if (options.u2f_mode != NULL && strcasecmp(options.u2f_mode, "registration") == 0) {
++		packet_put_int(U2F_MODE_REGISTRATION);
++		dispatch_set(SSH2_MSG_USERAUTH_INFO_REQUEST, &input_userauth_u2f_register);
++	} else {
++		fatal("Invalid U2F mode (\"%s\"), expected \"authentication\" or \"registration\".",
++				options.u2f_mode);
++	}
++	packet_send();
++
++	return 1;
++}
++
++static void
++wait_for_u2f_devices(u2fh_devs *devs)
++{
++	time_t looking;
++	int attempts = 0;
++	u2fh_rc rc;
++
++	// The U2F implementation considerations recommend 3 seconds as the time a
++	// client implementation should grant for security keys to respond. We wait
++	// 3 times that for the user to insert a security key (and it being
++	// detected).
++	looking = monotime();
++	do {
++		if ((rc = u2fh_devs_discover(devs, NULL)) != U2FH_OK && attempts++ == 0)
++			error("Please insert and touch your U2F security key.");
++		if (rc != U2FH_OK)
++			usleep(50);
++	} while (rc != U2FH_OK && (monotime() - looking) <= 9);
++	if (rc != U2FH_OK)
++		fatal("No U2F devices found (%s). Did you plug in your U2F security key?",
++				u2fh_strerror(rc));
++
++	if (attempts == 0)
++		error("Please touch your U2F security key now.");
++}
++
++void
++input_userauth_u2f_register(int type, u_int32_t seq, void *ctxt)
++{
++	Authctxt *authctxt = ctxt;
++	char *challenge, *response;
++	u2fh_devs *devs = NULL;
++	u2fh_rc rc;
++	const char *origin = authctxt->host_port;
++
++	if (authctxt == NULL)
++		fatal("input_userauth_u2f_register: no authentication context");
++
++	authctxt->info_req_seen = 1;
++
++	challenge = packet_get_string(NULL);
++	packet_check_eom();
++
++	if ((rc = u2fh_devs_init(&devs)) != U2FH_OK)
++		fatal("u2fh_devs_init() failed: %s", u2fh_strerror(rc));
++
++	wait_for_u2f_devices(devs);
++
++	if ((rc = u2fh_register(devs, challenge, origin, &response, U2FH_REQUEST_USER_PRESENCE)) != U2FH_OK)
++		fatal("u2fh_register() failed: %s", u2fh_strerror(rc));
++
++	u2fh_devs_done(devs);
++
++	packet_start(SSH2_MSG_USERAUTH_INFO_RESPONSE);
++	packet_put_cstring(response);
++	packet_send();
++
++	free(response);
++	dispatch_set(SSH2_MSG_USERAUTH_INFO_REQUEST, NULL);
++	dispatch_set(SSH2_MSG_USERAUTH_INFO_REQUEST, &input_userauth_u2f_register_response);
++}
++
++void
++input_userauth_u2f_register_response(int type, u_int32_t seq, void *ctxt)
++{
++	char *response = packet_get_string(NULL);
++	printf("%s\n", response);
++	fflush(stdout);
++}
++
++void
++input_userauth_u2f_authenticate(int type, u_int32_t seq, void *ctxt)
++{
++	Authctxt *authctxt = ctxt;
++	char *challenge, *response;
++	u2fh_devs *devs = NULL;
++	u2fh_rc rc;
++	const char *origin = authctxt->host_port;
++
++	if (authctxt == NULL)
++		fatal("input_userauth_u2f_authenticate: no authentication context");
++
++	authctxt->info_req_seen = 1;
++
++	challenge = packet_get_string(NULL);
++	packet_check_eom();
++
++	debug("Starting U2F authentication for origin \"%s\".", origin);
++
++	if ((rc = u2fh_devs_init(&devs)) != U2FH_OK)
++		fatal("u2fh_devs_init() failed: %s", u2fh_strerror(rc));
++
++	wait_for_u2f_devices(devs);
++
++	// TODO: refactor with input_userauth_u2f_register(), the following line is the only one that is different :)
++	if ((rc = u2fh_authenticate(devs, challenge, origin, &response, U2FH_REQUEST_USER_PRESENCE)) != U2FH_OK)
++		fatal("u2fh_authenticate() failed: %s", u2fh_strerror(rc));
++
++	u2fh_devs_done(devs);
++
++	packet_start(SSH2_MSG_USERAUTH_INFO_RESPONSE);
++	packet_put_cstring(response);
++	packet_send();
++
++	free(response);
++
++	// We intentionally do not set SSH2_MSG_USERAUTH_INFO_REQUEST to NULL,
++	// because the server might send us more challenges (in case more than one
++	// U2F security key is in the authorized_keys).
++}
++
++#endif /* U2F */
++
+ int
+ userauth_none(Authctxt *authctxt)
+ {
+diff --git a/sshd.c b/sshd.c
+index 481d001..b6556ef 100644
+--- a/sshd.c
++++ b/sshd.c
+@@ -1562,6 +1562,7 @@ main(int ac, char **av)
+ 
+ #ifdef WITH_OPENSSL
+ 	OpenSSL_add_all_algorithms();
++	SSL_load_error_strings();
+ #endif
+ 
+ 	/* If requested, redirect the logs to the specified logfile. */
+diff --git a/sshd_config.5 b/sshd_config.5
+index fd44abe..7d5cec0 100644
+--- a/sshd_config.5
++++ b/sshd_config.5
+@@ -1293,6 +1293,25 @@ for authentication using
+ .Cm TrustedUserCAKeys .
+ For more details on certificates, see the CERTIFICATES section in
+ .Xr ssh-keygen 1 .
++.It Cm U2FAuthentication
++Specifies whether user authentication based on U2F (Universal Second Factor) is allowed. The default is
++.Dq no .
++Note that U2F authentication should never be used alone, so specify for example:
++.Bd -literal -offset indent
++U2FAuthentication yes
++AuthenticationMethods pubkey,u2f
++.Ed
++.Pp
++That way, pubkey authentication will be performed and U2F will be required
++after pubkey authentication was successful. In case the user in question does
++not have any ssh-u2f lines in their authorized_keys file, the u2f
++authentication method will just return success.
++.Pp
++In order to register a U2F security key, enable this option as outlined above.
++Then, run
++.Dq ssh -o U2FMode=registration server.example.net
++in order to obtain a ssh-u2f line which you can then append to your
++authorized_keys.
+ .It Cm UseDNS
+ Specifies whether
+ .Xr sshd 8
+diff --git a/sshkey.c b/sshkey.c
+index fdd0c8a..18196ce 100644
+--- a/sshkey.c
++++ b/sshkey.c
+@@ -3,6 +3,7 @@
+  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
+  * Copyright (c) 2008 Alexander von Gernler.  All rights reserved.
+  * Copyright (c) 2010,2011 Damien Miller.  All rights reserved.
++ * Copyright (c) 2014 Google Inc.  All rights reserved.
+  *
+  * Redistribution and use in source and binary forms, with or without
+  * modification, are permitted provided that the following conditions
+@@ -52,6 +53,10 @@
+ #include "digest.h"
+ #define SSHKEY_INTERNAL
+ #include "sshkey.h"
++#include "key.h"
++#include "hostfile.h"
++#include "auth.h"
++#include "u2f.h"
+ 
+ /* openssh private key file format */
+ #define MARK_BEGIN		"-----BEGIN OPENSSH PRIVATE KEY-----\n"
+@@ -110,6 +115,7 @@ static const struct keytype keytypes[] = {
+ 	{ "ssh-dss-cert-v00@openssh.com", "DSA-CERT-V00",
+ 	    KEY_DSA_CERT_V00, 0, 1 },
+ #endif /* WITH_OPENSSL */
++	{ "ssh-u2f", "U2F", KEY_U2F, 0, 0 },
+ 	{ NULL, NULL, -1, -1, 0 }
+ };
+ 
+@@ -508,6 +514,8 @@ sshkey_new(int type)
+ 		break;
+ 	case KEY_UNSPEC:
+ 		break;
++	case KEY_U2F:
++		break;
+ 	default:
+ 		free(k);
+ 		return NULL;
+@@ -790,6 +798,17 @@ to_blob_buf(const struct sshkey *key, struct sshbuf *b, int force_plain)
+ 		    key->ed25519_pk, ED25519_PK_SZ)) != 0)
+ 			return ret;
+ 		break;
++#ifdef U2F
++	case KEY_U2F:
++		if (key->u2f_pubkey == NULL)
++			return SSH_ERR_INVALID_ARGUMENT;
++		if ((ret = sshbuf_put_cstring(b, typename)) != 0 ||
++		    (ret = sshbuf_put_string(b, key->u2f_pubkey, U2F_PUBKEY_LEN)) != 0 ||
++		    (ret = sshbuf_put_string(b,
++				key->u2f_key_handle, key->u2f_key_handle_len)) != 0)
++			return ret;
++		break;
++#endif
+ 	default:
+ 		return SSH_ERR_KEY_TYPE_UNKNOWN;
+ 	}
+@@ -1208,6 +1227,42 @@ sshkey_read(struct sshkey *ret, char **cpp)
+ 		retval = 0;
+ #endif /* WITH_SSH1 */
+ 		break;
++	case KEY_U2F:
++#ifdef U2F
++		space = strchr(cp, ' ');
++		if (space == NULL)
++			return SSH_ERR_INVALID_FORMAT;
++		*space = '\0';
++		type = sshkey_type_from_name(cp);
++		if (type == KEY_UNSPEC)
++			return SSH_ERR_INVALID_FORMAT;
++		cp = space+1;
++		if (*cp == '\0')
++			return SSH_ERR_INVALID_FORMAT;
++		if (ret->type == KEY_UNSPEC) {
++			ret->type = type;
++		} else if (ret->type != type)
++			return SSH_ERR_KEY_TYPE_MISMATCH;
++		cp = space+1;
++		/* trim comment */
++		space = strchr(cp, ' ');
++		if (space)
++			*space = '\0';
++		blob = sshbuf_new();
++		if ((r = sshbuf_b64tod(blob, cp)) != 0) {
++			sshbuf_free(blob);
++			return r;
++		}
++		// TODO: why do we _need_ to use malloc here? xmalloc gives memory that crashes!
++		ret->u2f_pubkey = malloc(U2F_PUBKEY_LEN);
++		memcpy(ret->u2f_pubkey, sshbuf_ptr(blob), U2F_PUBKEY_LEN);
++		ret->u2f_key_handle_len = sshbuf_len(blob) - U2F_PUBKEY_LEN;
++		ret->u2f_key_handle = malloc(ret->u2f_key_handle_len);
++		memcpy(ret->u2f_key_handle, sshbuf_ptr(blob) + U2F_PUBKEY_LEN, ret->u2f_key_handle_len);
++		sshbuf_free(blob);
++		retval = (r >= 0) ? 0 : 1;
++#endif /* U2F */
++		break;
+ 	case KEY_UNSPEC:
+ 	case KEY_RSA:
+ 	case KEY_DSA:
+@@ -1909,6 +1964,9 @@ sshkey_from_blob_internal(const u_char *blob, size_t blen,
+ #if defined(WITH_OPENSSL) && defined(OPENSSL_HAS_ECC)
+ 	EC_POINT *q = NULL;
+ #endif /* WITH_OPENSSL && OPENSSL_HAS_ECC */
++#ifdef U2F
++	u_char *khandle = NULL;
++#endif
+ 
+ #ifdef DEBUG_PK /* XXX */
+ 	dump_base64(stderr, blob, blen);
+@@ -2046,6 +2104,28 @@ sshkey_from_blob_internal(const u_char *blob, size_t blen,
+ 		key->ed25519_pk = pk;
+ 		pk = NULL;
+ 		break;
++#ifdef U2F
++	case KEY_U2F:
++		if ((ret = sshbuf_get_string(b, &pk, &len)) != 0)
++			goto out;
++		if (len != U2F_PUBKEY_LEN) {
++			ret = SSH_ERR_INVALID_FORMAT;
++			goto out;
++		}
++		if ((ret = sshbuf_get_string(b, &khandle, &len)) != 0)
++			goto out;
++		if ((key = sshkey_new(type)) == NULL) {
++			ret = SSH_ERR_ALLOC_FAIL;
++			goto out;
++		}
++		key->u2f_pubkey = pk;
++		key->u2f_key_handle_len = len;
++		key->u2f_key_handle = khandle;
++		pk = NULL;
++		khandle = NULL;
++		ret = SSH_ERR_ALLOC_FAIL;
++		break;
++#endif
+ 	case KEY_UNSPEC:
+ 		if ((key = sshkey_new(type)) == NULL) {
+ 			ret = SSH_ERR_ALLOC_FAIL;
+@@ -2079,6 +2159,9 @@ sshkey_from_blob_internal(const u_char *blob, size_t blen,
+ 	if (q != NULL)
+ 		EC_POINT_free(q);
+ #endif /* WITH_OPENSSL && OPENSSL_HAS_ECC */
++#ifdef U2F
++	free(khandle);
++#endif
+ 	return ret;
+ }
+ 
+diff --git a/sshkey.h b/sshkey.h
+index 450b30c..8f1d6a2 100644
+--- a/sshkey.h
++++ b/sshkey.h
+@@ -64,6 +64,7 @@ enum sshkey_types {
+ 	KEY_ED25519_CERT,
+ 	KEY_RSA_CERT_V00,
+ 	KEY_DSA_CERT_V00,
++	KEY_U2F,
+ 	KEY_UNSPEC
+ };
+ 
+@@ -110,6 +111,11 @@ struct sshkey {
+ 	u_char	*ed25519_sk;
+ 	u_char	*ed25519_pk;
+ 	struct sshkey_cert *cert;
++#ifdef U2F
++	u_char *u2f_pubkey;
++	u_int   u2f_key_handle_len;
++	u_char *u2f_key_handle;
++#endif
+ };
+ 
+ #define	ED25519_SK_SZ	crypto_sign_ed25519_SECRETKEYBYTES
+diff --git a/u2f.h b/u2f.h
+new file mode 100644
+index 0000000..a83bb64
+--- /dev/null
++++ b/u2f.h
+@@ -0,0 +1,8 @@
++#ifndef OPENSSH_U2F_H
++#define OPENSSH_U2F_H
++
++#define U2F_PUBKEY_LEN 65
++#define U2F_MODE_REGISTRATION 0
++#define U2F_MODE_AUTHENTICATION 1
++
++#endif
+-- 
+2.1.0
+

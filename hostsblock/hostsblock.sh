@@ -40,7 +40,7 @@ tmpdir="/dev/shm"
 hostsfile="/etc/hosts.block"
 redirecturl="127.0.0.1"
 postprocess(){
-    /etc/rc.d/dnsmasq restart
+    systemctl restart dnsmasq.service
 }
 blocklists=("http://support.it-mate.co.uk/downloads/HOSTS.txt")
 logfile="/var/log/hostsblock.log"
@@ -83,8 +83,7 @@ for url in ${blocklists[*]}; do
             printf "no changes"
         fi
     else
-        printf "FAILED\nScript exiting @ `date +'%x %T'`"
-        exit 1
+        printf "FAILED"
     fi
 done
 
