@@ -9,16 +9,16 @@
 # pull requests are welcome
 
 pkgname=thunderbird-enigmail
-pkgver=1.7
-pkgrel=2
+pkgver=1.7.2
+pkgrel=1
 pkgdesc="Thunderbird extension that enables sending and receiving signed and encrypted e-mail messages"
 arch=('i686' 'x86_64')
 url="https://www.enigmail.net/"
 license=('MPL' 'GPL')
 depends=('thunderbird' 'gnupg')
 makedepends=('zip' 'unzip' 'python2' 'perl>=5.8')
-source=("https://www.enigmail.net/download/source/enigmail-${pkgver}.tar.gz"{,.asc}) # gpg --recv-keys E443D6D8
-sha256sums=('cddbf35783194a4e994f9584ad5bee74750e25f690e81727ba9eccc4f814f161'
+source=("https://www.enigmail.net/download/source/enigmail-${pkgver}.tar.gz"{,.asc}) # gpg --recv-keys 9369CDF3
+sha256sums=('7b3a62e83961bafec1cdac60075aa6c317c8f655a837e31a7d1f3ce6a49fc7d6'
             'SKIP')
 
 build() {

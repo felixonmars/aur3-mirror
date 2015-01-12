@@ -64,39 +64,42 @@ def nm_autologin(id, filename, enable):
 			with p.open() as f:
 				content = f.read().splitlines()
 	
-			re_dict["##username##"] = content[0]
-			re_dict["##password##"] = content[1]
-	
 		except IOError:
 			print ('Cannot access ' + props.login_config + '. Please make sure the file is created and readable by root.')
-			exit (1)
+			
+		else:
+			re_dict["##username##"] = content[0]
+			re_dict["##password##"] = content[1]
+			
+			re_dict["##id##"] = id
 		
+			# Creates uuid for configuration file
+			re_dict["##uuid##"] = str(uuid.uuid4())
 		
-		re_dict["##id##"] = id
-		
-		# Creates uuid for configuration file
-		re_dict["##uuid##"] = str(uuid.uuid4())
-		
-		# Retrieves remote address from OpenVPN configuration
-		re_dict["##remote##"] = get_remote_address(filename)
-		
-		try:
-			p = pathlib.Path(props.system_connection_conf)
-			with p.open() as f:
-				content = f.read()
-		
-		except IOError:
-			print('Something went wrong')
-			exit (1)
+			# Retrieves remote address from OpenVPN configuration
+			re_dict["##remote##"] = get_remote_address(filename)
 	
-		nm_conf = props.nm_conf_dir + "/" + id
+			try:
+				p = pathlib.Path(props.system_connection_conf)
+				with p.open() as f:
+					content = f.read()
 		
-		#Opens Network Configurations and replaces options from the "re_dict" dictionary
-		with open(nm_conf,"w") as f:
-			f.write(multiple_replace(re_dict,content))
+			except IOError:
+				print('Network Manager template missing from ' + props.system_connection_conf)
+				
+			else:
+				nm_conf = props.nm_conf_dir + "/" + id
 		
-			os.chmod(nm_conf,0o600)
-			os.chown(nm_conf,0,0)
+				try:
+					#Opens Network Configurations and replaces options from the "re_dict" dictionary
+					with open(nm_conf,"w") as f:
+						f.write(multiple_replace(re_dict,content))
+		
+					os.chmod(nm_conf,0o600)
+					os.chown(nm_conf,0,0)
+				except IOError:
+					#No Network Manager installed?
+					pass		
 	else:
 		nm_conf = props.nm_conf_dir + "/" + id
 		content = None
@@ -109,15 +112,20 @@ def nm_autologin(id, filename, enable):
 		except IOError:
 			print (id + " connection does not exist as a Network Manager connection ... skipping")
 			pass
+		
+		else:
+			# Removes password from configuration file
+			if (content):
+				content = re.sub("\[vpn-secrets\]","",content)
+				content = re.sub("password=.*","",content)
 			
-		# Removes password from configuration file
-		if (content):
-			content = re.sub("\[vpn-secrets\]","",content)
-			content = re.sub("password=.*","",content)
-				
-			with open(nm_conf, "w") as f:
-				f.write(content)
-
+			try:
+				with open(nm_conf, "w") as f:
+					f.write(content)
+			except IOError:
+				print ("Failed to write config file for " + id)
+				pass
+			
 # Gets remote address from OpenVPn files
 def get_remote_address(filename):
 	p = pathlib.Path(filename)
@@ -169,4 +177,5 @@ if __name__ == "__main__":
 				print ("Disablig auto-logins for " + id + " remote server...")
 			
 		openvpn_autologin(id, filename, args.auto_login)
+		
 		nm_autologin(id, filename, args.auto_login)

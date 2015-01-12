@@ -1,0 +1,52 @@
+# Maintainer: quequotion <quequotion@bugmenot.com>
+# Contributor: josephgbr <rafael.f.f1@gmail.com>
+
+_pkgbase=bluez
+pkgname=lib32-${_pkgbase}4
+pkgver=4.101
+pkgrel=1
+pkgdesc="Libraries and tools for the Bluetooth protocol stack (32 bit)"
+url="http://www.bluez.org/"
+arch=('x86_64')
+license=('GPL2')
+depends=('lib32-gstreamer0.10-base' 'lib32-alsa-lib' "${_pkgbase}")
+makedepends=(lib32-{gstreamer0.10-base,systemd,dbus-core,flex,lib{usb-compat,sndfile,usbx}} 'gcc-multilib')
+provides=(lib32-bluez{,4}=$pkgver)
+conflicts=('lib32-bluez')
+options=('!libtool')
+source=("http://www.kernel.org/pub/linux/bluetooth/${_pkgbase}-${pkgver}.tar.bz2")
+md5sums=('902b390af95c6c5d6d1a17d94c8344ab')
+
+build() {
+  export CC='gcc -m32'
+  export PKG_CONFIG_PATH='/usr/lib32/pkgconfig'
+  
+  cd ${_pkgbase}-${pkgver}
+
+  ./configure --prefix=/usr \
+    --sysconfdir=/etc \
+    --localstatedir=/var \
+    --libexecdir=/usr/lib32 \
+    --libdir=/usr/lib32 \
+    --enable-gstreamer \
+    --enable-alsa \
+    --enable-usb \
+    --enable-tools \
+    --enable-bccmd \
+    --enable-dfutool \
+    --enable-hid2hci \
+    --enable-hidd \
+    --enable-pand \
+    --enable-dund \
+    --enable-cups \
+    --enable-wiimote \
+    --disable-test \
+    --with-systemdunitdir=/usr/lib/systemd/system
+
+  make
+}
+
+package() {
+  make -C ${_pkgbase}-${pkgver} DESTDIR="${pkgdir}" install
+  rm -rf "${pkgdir}"/{etc,usr/{bin,include,lib,sbin,share},var}
+}
