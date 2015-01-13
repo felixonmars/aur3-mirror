@@ -1,9 +1,10 @@
+# Maintainer: trashstar <trash@ps3zone.org>
 # Contributor: Johannes Dewender  < arch at JonnyJD dot net >
 # Contributor: trashstar
 
 pkgname=addon-sdk
 pkgver=1.17
-pkgrel=1
+pkgrel=2
 pkgdesc="SDK to build add-ons for Mozilla products (formerly jetpack)"
 url="https://addons.mozilla.org/en-US/developers/docs/sdk/latest/"
 arch=('any')

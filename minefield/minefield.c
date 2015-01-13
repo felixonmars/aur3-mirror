@@ -5,15 +5,8 @@
 #include <unistd.h>
 
 #define N 20
-
-/*
- * char to be printed ('*' = has bomb, '-' = covered)
- * nearby = -1 if bomb. Else it is the number of bombs near the cell.
- */
-typedef struct {
-    char sign;
-    int nearby;
-} grid;
+#define BOMB_CHAR "*"
+#define COVERED_CHAR "-"
 
 /* Using this struct to lower number of vars passed to functions */
 struct values {
@@ -21,15 +14,15 @@ struct values {
     int b;
 };
 
-static void screen_init(grid a[][N], struct values dim, struct values *fixed_space);
-static void grid_init(grid a[][N]);
+static void screen_init(int a[][N], struct values dim, struct values *fixed_space);
+static void grid_init(int a[][N]);
 static void num_bombs(void);
-static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct, int *quit, struct values fixed_space);
-static void cascadeuncover(grid a[][N], int i, int k, struct values fixed_space);
-static int checknear(grid a[][N], int i, int k);
-static void manage_space_press(grid a[][N], int i, int k, int *victory, struct values fixed_space);
-static void manage_enter_press(grid a[][N], int i, int k, int *correct);
-static void victory_check(grid a[][N], int victory, int correct, struct values dim, int quit);
+static int main_cycle(int a[][N], int *i, int *k, int *victory, int *correct, int *quit, struct values fixed_space);
+static void cascadeuncover(int a[][N], int i, int k, struct values fixed_space);
+static int checknear(int a[][N], int i, int k);
+static void manage_space_press(int a[][N], int i, int k, int *victory, struct values fixed_space);
+static void manage_enter_press(int a[][N], int i, int k, int *correct, char c);
+static void victory_check(int a[][N], int victory, int correct, struct values dim, int quit);
 
 /* Global variables */
 static int bombs;
@@ -40,7 +33,7 @@ int main(void)
     int i = 0, k = 0, victory = 1, correct = 1, quit = 0;
     struct values dim; /* dim of the screen */
     struct values fixed_space; /* Values to fit terminal size */
-    grid a[N][N];
+    int a[N][N];
     srand(time(NULL));
     num_bombs();
     grid_init(a);
@@ -61,7 +54,7 @@ int main(void)
     return 0;
 }
 
-static void screen_init(grid a[][N], struct values dim, struct values *fixed_space)
+static void screen_init(int a[][N], struct values dim, struct values *fixed_space)
 {
     int i, k, rows, cols;
     start_color();
@@ -77,7 +70,7 @@ static void screen_init(grid a[][N], struct values dim, struct values *fixed_spa
      * (dim.a - 6) : 6 -> 4 lines of borders + 2 lines of score WIN
      * (dim.b - 2) : only 2 lines of borders
      * rows and cols -> + 3 : real dimensions of the field subwin,
-     * calculated as N - 1 spaces between N elements of the grid (both vertical
+     * calculated as N - 1 spaces between N elements of the int (both vertical
      * and horizontal, multiplied fixed_space (either vertical or horizontal)
      * + 3: 2 for the borders and 1 for the first elem
      Graphicallly explained: |O O O O O| -> i have 5 elements, with a total number
@@ -94,14 +87,14 @@ static void screen_init(grid a[][N], struct values dim, struct values *fixed_spa
     wborder(score, '|', '|', '-', '-', '+', '+', '+', '+');
     for (i = 0; i < N; i++) {
         for (k = 0; k < N; k++)
-            mvwprintw(field, (i * fixed_space->a) + 1, (k * fixed_space->b) + 1, "%c", a[i][k].sign);
+            mvwprintw(field, (i * fixed_space->a) + 1, (k * fixed_space->b) + 1, COVERED_CHAR);
     }
     mvwprintw(score, 2, 1, "Enter to put a bomb (*). Space to uncover. q anytime to *rage* quit.");
     mvwprintw(score, 1, 1, "Still %d bombs.", bombs);
     wrefresh(score);
 }
 
-static void grid_init(grid a[][N])
+static void grid_init(int a[][N])
 {
     int i, k, row, col;
     /* Generates random bombs */
@@ -109,14 +102,13 @@ static void grid_init(grid a[][N])
         do {
             row = rand()%N;
             col = rand()%N;
-        } while (a[row][col].nearby == -1);
-        a[row][col].nearby = -1;
+        } while (a[row][col] == -1);
+        a[row][col] = -1;
     }
     for (i = 0; i < N; i++) {
         for (k = 0; k < N; k++) {
-            a[i][k].sign = '-';
-            if (a[i][k].nearby != -1)
-                a[i][k].nearby = checknear(a, i, k);
+            if (a[i][k] != -1)
+                a[i][k] = checknear(a, i, k);
         }
     }
 }
@@ -143,8 +135,9 @@ static void num_bombs(void)
     }
 }
 
-static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct, int *quit, struct values fixed_space)
+static int main_cycle(int a[][N], int *i, int *k, int *victory, int *correct, int *quit, struct values fixed_space)
 {
+    char c = mvwinch(field, (*i * fixed_space.a) + 1, (*k * fixed_space.b) + 1) & A_CHARTEXT;
     wmove(field, (*i * fixed_space.a) + 1, (*k * fixed_space.b) + 1);
     switch (wgetch(field)) {
         case KEY_LEFT:
@@ -164,12 +157,12 @@ static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct, i
                 (*i)++;
             break;
         case 32: /* space to uncover */
-            if (a[*i][*k].sign == '-')
+            if (c == *COVERED_CHAR)
                 manage_space_press(a, *i, *k, victory, fixed_space);
             break;
         case 10: /* Enter to  identify a bomb */
-            if ((a[*i][*k].sign == '*') || (a[*i][*k].sign == '-'))
-                manage_enter_press(a, *i, *k, correct);
+            if (c == *COVERED_CHAR || c == *BOMB_CHAR)
+                manage_enter_press(a, *i, *k, correct, c);
             break;
         case 'q': /* q to exit */
             *quit = 1;
@@ -178,23 +171,23 @@ static int main_cycle(grid a[][N], int *i, int *k, int *victory, int *correct, i
     return 1;
 }
 
-static void cascadeuncover(grid a[][N], int i, int k, struct values fixed_space)
+static void cascadeuncover(int a[][N], int i, int k, struct values fixed_space)
 {
     int m, n;
-    if ((i >= 0) && (i < N) && (k >= 0) && (k < N) && (a[i][k].sign == '-')) {
-        a[i][k].sign = '0' + a[i][k].nearby;
+    char c = mvwinch(field, (i * fixed_space.a) + 1, (k * fixed_space.b) + 1) & A_CHARTEXT;
+    if ((i >= 0) && (i < N) && (k >= 0) && (k < N) && (c == *COVERED_CHAR)) {
         wmove(field, (i * fixed_space.a) + 1, (k * fixed_space.b) + 1);
-        if (a[i][k].nearby != 0) {
-            if (a[i][k].nearby >= 4)
+        if (a[i][k] != 0) {
+            if (a[i][k] >= 4)
                 wattron(field, COLOR_PAIR(1));
             else
-                wattron(field, COLOR_PAIR(a[i][k].nearby + 3));
-            wprintw(field, "%c", a[i][k].sign);
+                wattron(field, COLOR_PAIR(a[i][k] + 3));
+            wprintw(field, "%d", a[i][k]);
             wattroff(field, COLOR_PAIR);
         } else {
             wattron(field, A_BOLD);
             wattron(field, COLOR_PAIR(3));
-            wprintw(field, "%c", a[i][k].sign);
+            wprintw(field, "%d", a[i][k]);
             wattroff(field, COLOR_PAIR);
             wattroff(field, A_BOLD);
             for (m = -1; m < 2; m++) {
@@ -205,13 +198,13 @@ static void cascadeuncover(grid a[][N], int i, int k, struct values fixed_space)
     }
 }
 
-static int checknear(grid a[][N], int i, int k)
+static int checknear(int a[][N], int i, int k)
 {
     int m, n, sum = 0;
     for (m = -1; m < 2; m++) {
         if ((i + m >= 0) && (i + m < N)) {
             for (n = -1; n < 2; n++) {
-                if ((k + n >= 0) && (k + n < N) && (a[i + m][k + n].nearby == -1))
+                if ((k + n >= 0) && (k + n < N) && (a[i + m][k + n] == -1))
                     sum++;
             }
         }
@@ -219,33 +212,33 @@ static int checknear(grid a[][N], int i, int k)
     return sum;
 }
 
-static void manage_space_press(grid a[][N], int i, int k, int *victory, struct values fixed_space)
+static void manage_space_press(int a[][N], int i, int k, int *victory, struct values fixed_space)
 {
-    if (a[i][k].nearby == -1)
+    if (a[i][k] == -1)
         *victory = 0;
     else
         cascadeuncover(a, i, k, fixed_space);
 }
 
-static void manage_enter_press(grid a[][N], int i, int k, int *correct)
+static void manage_enter_press(int a[][N], int i, int k, int *correct, char c)
 {
-    if (a[i][k].sign == '*') {
-        a[i][k].sign = '-';
+    if (c == *BOMB_CHAR) {
+        c = *COVERED_CHAR;
         bombs++;
-        if (a[i][k].nearby != -1)
+        if (a[i][k] != -1)
             (*correct)++;
     } else {
-        a[i][k].sign = '*';
+        c = *BOMB_CHAR;
         bombs--;
-        if (a[i][k].nearby != -1)
+        if (a[i][k] != -1)
             (*correct)--;
     }
-    wprintw(field, "%c", a[i][k].sign);
+    wprintw(field, "%c", c);
     mvwprintw(score, 1, 1, "Still %d bombs.", bombs);
     wrefresh(score);
 }
 
-static void victory_check(grid a[][N], int victory, int correct, struct values dim, int quit)
+static void victory_check(int a[][N], int victory, int correct, struct values dim, int quit)
 {
     char winmesg[] = "YOU WIN! It was just luck...";
     char losemesg[] = "You're a **cking loser. :P";
