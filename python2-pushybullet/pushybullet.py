@@ -1,11 +1,190 @@
 # -*- encoding: utf-8 -*-
-from requests import session
-from os.path import basename, expanduser
-from os import fdopen
+
 from StringIO import StringIO
+import os
 import datetime
-import json
 import time
+import base64
+import binascii
+
+import urllib
+import urlparse
+import httplib
+import random
+
+try:
+    import simplejson as json
+except ImportError:
+    import json
+
+class FilelikeGenerator(object):
+    def __init__(self, gen):
+        self.__gen = gen
+        self.__buf = ''
+        self.__eof = False
+
+    def __popbuf(self, buflen):
+        self.__buf, res = self.__buf[buflen+1:], self.__buf[0:buflen]
+        return res
+
+    def read(self, buflen=0):
+        if buflen > 0:
+            if len(self.__buf) >= buflen:
+                return self.__popbuf(buflen)
+
+            if self.__eof:
+                return None
+
+            while len(self.__buf) < buflen:
+                try:
+                    self.__buf += self.__gen.next()
+                except StopIteration:
+                    self.__eof = True
+                    break
+
+            return self.__popbuf(buflen)
+
+        else:
+            for part in self.__gen:
+                self.__buf += part
+
+            self.__eof = True
+            res, self.__buf = self.__buf, ''
+            return res or None
+
+    def next(self):
+        value = self.read(8192)
+        if value is None:
+            raise StopIteration
+        return value
+
+    def isatty(self):
+        return False
+
+    @property
+    def closed(self):
+        return False
+
+    def close(self):
+        pass
+
+    def seek(self, pos, whence=0):
+        raise NotImplementedError
+
+def filelike_generator(func):
+    def wrapper(*args, **kwargs):
+        return FilelikeGenerator(func(*args, **kwargs))
+    return wrapper
+
+class Session(object):
+    auth = ()
+    headers = {}
+
+    def get(self, url, params=None, auth=None, headers=None):
+        return self._request('GET', url, params=params, auth=auth, headers=headers)
+
+    def post(self, url, params=None, data=None, files=None, auth=None, headers=None):
+        return self._request('POST', url, params=params, data=data, files=files, auth=auth, headers=headers)
+
+    def delete(self, url, params=None, auth=None, headers=None):
+        return self._request('DELETE', url, params=params, auth=auth, headers=headers)
+
+    def _encode_form_data(self, data):
+        boundary = ''.join(chr(random.choice(xrange(ord('a'), ord('z')))) for _ in xrange(0, 30))
+
+        body = []
+        for name, value in data.iteritems():
+            if hasattr(value, 'read'):
+                body.append(
+                    'Content-Type: application/octet-stream\r\n'
+                    'Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
+                    'Content-Length: %s'
+                    '\r\n'
+                    '%s' % (
+                        urllib.quote(name),
+                        urllib.quote(value.name),
+                        os.fstat(value.fileno()).st_size,
+                        value.read()))
+            else:
+                body.append(
+                        'Content-Type: text/plain\r\n'
+                        'Content-Disposition: form-data; name="%s"\r\n'
+                        'Content-Length: %s\r\n'
+                        '\r\n'
+                        '%s' % (
+                            urllib.quote(name),
+                            len(value),
+                            value))
+
+        return 'multipart/form-data; boundary="%s"' % boundary, ('--%s\r\n' % boundary) + ('\r\n--%s\r\n' % boundary).join(body) + ('\r\n--%s--\r\n' % boundary)
+
+    class Response(object):
+        def __init__(self, resp):
+            self.__resp = resp
+
+        def json(self):
+            return json.load(self.__resp)
+
+        def raise_for_status(self):
+            status = self.__resp.status
+            kind = status // 100
+
+            if kind in (1, 2, 3):
+                return
+
+            raise RuntimeError('%s %s' % (status, self.__resp.reason))
+
+    def _request(self, method, url, params=None, data=None, files=None, auth=None, headers=None):
+        _url = urlparse.urlparse(url)
+
+        conn = {'http': httplib.HTTPConnection,
+                'https': httplib.HTTPSConnection}[_url.scheme](_url.hostname, _url.port)
+
+        if params:
+            _params = params.copy()
+            for k in _params.keys():
+                if _params[k] is None:
+                    del _params[k]
+
+            _query = urllib.urlencode(_params)
+
+        else:
+            _query = _url.query
+
+        _headers = self.headers.copy()
+        _headers['Host'] = _url.hostname
+
+        if files:
+            _data = data.copy() if data else {}
+            _data.update(files)
+            boundary = '----' + ''.join(chr(random.choice(xrange(ord('a'), ord('z')))) for _ in xrange(0, 30))
+            content_type, _data = 'multipart/form-data; boundary=%s' % boundary, self._encode_form_data(_data, boundary)
+
+        elif data:
+            content_type, _data = ('application/x-www-form-urlencoded',
+                    urllib.urlencode(data) if isinstance(data, dict) else str(data))
+
+        else:
+            content_type, _data = None, None
+
+        if _data:
+            _headers['Content-Type'] = content_type
+            #_headers['Content-Length'] = str(len(_data))
+
+        if headers:
+            _headers.update(headers)
+
+        _auth = auth if auth is not None else (
+                (_url.username or '', _url.password or '')
+                    if (_url.username is not None or _url.password is not None) else
+                self.auth)
+        if _auth:
+            _headers['Authorization'] = 'Basic %s' % base64.encodestring(':'.join(_auth)).strip()
+
+        conn.request(method, '?'.join((_url.path, _query)), _data, _headers)
+
+        response = conn.getresponse()
+        return self.Response(response)
 
 def get_apikey_from_config():
     try:
@@ -15,13 +194,35 @@ def get_apikey_from_config():
 
     try:
         config = ConfigParser()
-        config.read(expanduser('~/.config/pushbullet/config.ini'))
+        config.read(os.path.expanduser('~/.config/pushbullet/config.ini'))
         return config.get('pushbullet', 'apikey')
     except:
         return None
 
 def utf8(s):
-    return s if isinstance(s, unicode) else unicode(s, 'utf-8')
+    return s if isinstance(s, unicode) else unicode(s, 'utf-8') if isinstance(s, str) else unicode(s)
+
+def parse_since(since):
+    if not since:
+        return 0
+
+    if isinstance(since, (long, int)):
+        return since + time.time() if since < 0 else since
+
+    if isinstance(since, datetime.date):
+        return since.strftime('%s')
+
+    if isinstance(since, datetime.timedelta):
+        return (datetime.datetime.now() - since).strftime('%s')
+
+    try:
+        since = int(since)
+        return since + time.time() if since < 0 else since
+
+    except ValueError:
+        from dateutil.parser import parse
+        return parse(since).strftime('%s')
+
 
 # Events {{{
 class Event(object):
@@ -78,7 +279,7 @@ class PushEvent(Event):
         self.push = push
 
     def __repr__(self):
-        return '<%s[%r] @%s>' % (self.__class__.__name__, self.push, self.time)
+        return (u'<%s[%r] @%s>' % (self.__class__.__name__, self.push, self.time)).encode('utf-8')
 
     def pushes(self, skip_empty=False, limit=None):
         yield self.push
@@ -92,6 +293,8 @@ class PushBulletObject(object):
     '''
     Abstract Pushbullet object for given REST endpoint
     '''
+
+    collection_name = None
 
     @property
     def uri(self):
@@ -124,8 +327,105 @@ class PushBulletObject(object):
         '''
         return bool(getattr(self, 'api', None))
 
+    def reload(self):
+        self.__dict__.update(self.api.get(self.uri))
+        return self
+
+    @classmethod
+    def iterate(cls, api, skip_inactive=True, since=0, limit=None):
+        it = api.paged(cls.collection_name,
+                modified_after=parse_since(since),
+                limit=limit)
+
+        if skip_inactive:
+            return (cls(api, **o) for o in it if o.get('active', False))
+        else:
+            return (cls(api, **o) for o in it)
+
     def get(self, name, default=None):
         return getattr(self, name, default)
+
+    def json(self):
+        return dict(self.__dict__)
+
+    def __contains__(self, name):
+        return hasattr(self, name)
+
+    def __str__(self):
+        return unicode(self).encode('utf8')
+
+class ObjectWithIden(object):
+    @classmethod
+    def load(cls, api, iden):
+        self = cls()
+        self.bind(api)
+        self.iden = iden
+        self.reload()
+        return self
+
+    def __init__(self, api, iden=None, **data):
+        self.iden = iden
+        self.__dict__.update(data)
+        self.bind(api)
+
+    @property
+    def uri(self):
+        return '%s/%s' % (self.collection_name, self.iden)
+
+class Grant(PushBulletObject, ObjectWithIden):
+    collection_name = 'grants'
+
+    def __repr__(self):
+        return (u'<Grant[%s]: %s>' % (self.iden, self.client['name'])).encode('utf-8')
+
+    def __unicode__(self):
+        return u'grant for %s' % (self.client['name'])
+
+class Subscription(PushBulletObject, ObjectWithIden):
+    collection_name = 'subscriptions'
+
+    def __repr__(self):
+        return (u'<Subscription[%s] %s>' % (self.iden, getattr(self, 'channel', {}).get('tag', 'untagged'))).encode('utf-8')
+
+    def __unicode__(self):
+        channel = getattr(self, 'channel', {})
+        return u'%s (%s)' % (
+                channel.get('name', 'Unnamed'),
+                channel.get('tag', 'untagged'))
+
+    def channel(self):
+        return ChannelInfo(self.api, **getattr(self, 'channel', {}))
+
+    def create(self, channel_tag):
+        if self.iden:
+            raise PushBulletError('subscription already exists')
+
+        if isinstance(channel_tag, (ChannelInfo, Channel)):
+            channel_tag = channel_tag.tag
+
+        self.__dict__.update(self.api.post('subscriptions', channel_tag=str(channel_tag)))
+
+        return self
+
+class ChannelInfo(PushBulletObject, ObjectWithIden):
+    collection_name = 'channel-info'
+
+    @classmethod
+    def load_by_tag(cls, api, tag):
+        return cls(api, **api.get('/channel-info', tag=utf8(tag)))
+
+    def __repr__(self):
+        return (u'<ChannelInfo[%s]: %s (%s)>' % (self.iden,
+            getattr(self, 'name', 'Unnamed'),
+            getattr(self, 'tag', 'untagged'))).encode('utf-8')
+
+    def __unicode__(self):
+        return u'%s (%s)' % (
+                getattr(self, 'name', 'Unnamed'),
+                getattr(self, 'tag', 'untagged'))
+
+    def subscribe(self):
+        return Subscription(self.api, None).create(self.tag)
 
 # Push targets {{{
 
@@ -133,11 +433,6 @@ class PushTarget(PushBulletObject):
     '''
     Abstract push target object
     '''
-    def __init__(self, api, iden, **data):
-        self.iden = iden
-        self.__dict__.update(data)
-        self.bind(api)
-
     @property
     def ident(self):
         '''
@@ -162,17 +457,82 @@ class PushTarget(PushBulletObject):
         push.send(self)
         return push
 
-    def __str__(self):
-        return unicode(self).encode('utf8')
+class Channel(PushTarget, ObjectWithIden):
+    '''
+    Channel to push to
+    '''
+    collection_name = 'channels'
 
-class Contact(PushTarget):
+    def __repr__(self):
+        return (u'<Channel[%s]: %s (%s)>' % (self.iden,
+            getattr(self, 'name', 'Unnamed'),
+            getattr(self, 'tag', 'untagged'))).encode('utf-8')
+
+    def __unicode__(self):
+        return u'%s (%s)' % (
+                getattr(self, 'name', 'Unnamed'),
+                getattr(self, 'tag', 'untagged'))
+
+    @property
+    def ident(self):
+        return {'channel_tag': self.tag}
+
+    def create(self):
+        if self.iden:
+            raise PushBulletError('channel already exists')
+
+        self.__dict__.update(self.api.post('clients',
+            tag=self.tag,
+            name=getattr(self, 'name', None),
+            description=getattr(self, 'description', None),
+            feed_url=getattr(self, 'feed_url', None),
+            feed_filters=getattr(self, 'feed_filters', None)))
+
+        return self
+
+    def update(self):
+        if not self.iden:
+            raise PushBulletError('channel does not exist yet')
+
+        self.__dict__.update(self.api.post(self.uri,
+            name=getattr(self, 'name', None),
+            description=getattr(self, 'description', None),
+            feed_url=getattr(self, 'feed_url', None),
+            feed_filters=getattr(self, 'feed_filters', None)))
+
+        return self
+
+    def subscribe(self):
+        return Subscription(self.api, None).create(self.tag)
+
+class Client(PushTarget, ObjectWithIden):
+    '''
+    Current user's OAuth client
+
+    By pushing to it you push to all users, who granted access to the client.
+    '''
+    collection_name = 'clients'
+
+    def __repr__(self):
+        return (u'<Client[%s]: %s>' % (self.iden, getattr(self, 'name', 'Unnamed'))).encode('utf-8')
+
+    def __unicode__(self):
+        return getattr(self, 'name', 'Unnamed')
+
+    @property
+    def ident(self):
+        return {'client_iden': self.iden}
+
+class Contact(PushTarget, ObjectWithIden):
     '''
     Contact to push to
     '''
+    collection_name = 'contacts'
+
     def __repr__(self):
-        return '<Contact[%s]: %s <%s>>' % (self.iden,
+        return (u'<Contact[%s]: %s <%s>>' % (self.iden,
                 getattr(self, 'name', 'Unnamed'),
-                getattr(self, 'email', None) or getattr(self, 'email_normalized'))
+                getattr(self, 'email', None) or getattr(self, 'email_normalized'))).encode('utf-8')
 
     def __unicode__(self):
         return u'%s <%s>' % (self.name, self.email)
@@ -180,10 +540,6 @@ class Contact(PushTarget):
     @property
     def ident(self):
         return {'email': self.email_normalized}
-
-    @property
-    def uri(self):
-        return 'contacts/%s' % self.iden
 
     def create(self):
         if self.iden:
@@ -203,15 +559,17 @@ class Contact(PushTarget):
         self.name = newname
         return self.update()
 
-class Device(PushTarget):
+class Device(PushTarget, ObjectWithIden):
     '''
     Device to push to
     '''
+    collection_name = 'devices'
+
     def __repr__(self):
-        return '<Device[%s]: %s>' % (self.iden,
+        return (u'<Device[%s]: %s>' % (self.iden,
                 getattr(self, 'nickname', None) or
                 getattr(self, 'model', None) or
-                'Unnamed')
+                'Unnamed')).encode('utf-8')
 
     def __unicode__(self):
         return (getattr(self, 'nickname', None) or
@@ -221,10 +579,6 @@ class Device(PushTarget):
     @property
     def ident(self):
         return {'device_iden': self.iden}
-
-    @property
-    def uri(self):
-        return 'devices/%s' % self.iden
 
     def create(self):
         if self.iden:
@@ -248,10 +602,14 @@ class User(PushTarget):
     '''
     User profile
     '''
+    @classmethod
+    def load(cls, api):
+        return cls(api, **api.get('users/me'))
+
     def __repr__(self):
-        return '<User[%s]: %s <%s>>' % (self.iden,
+        return (u'<User[%s]: %s <%s>>' % (self.iden,
                 getattr(self, 'name', 'Unnamed'),
-                getattr(self, 'email', None) or getattr(self, 'email_normalized'))
+                getattr(self, 'email', None) or getattr(self, 'email_normalized'))).encode('utf-8')
 
     @property
     def ident(self):
@@ -282,8 +640,22 @@ class Push(PushBulletObject):
     Abstract push object
     '''
     type = None
+    collection_name = 'pushes'
+
     def __init__(self, **data):
         self.__dict__.update(data)
+        self.decode()
+
+    def decode(self):
+        try:
+            self.modified = datetime.datetime.fromtimestamp(self.modified)
+        except AttributeError:
+            pass
+
+        try:
+            self.created = datetime.datetime.fromtimestamp(self.created)
+        except AttributeError:
+            pass
 
     def send(self, target=None):
         '''
@@ -347,18 +719,31 @@ class Push(PushBulletObject):
         '''
         raise NotImplementedError
 
+    @property
+    def target_device(self):
+        '''
+        Get target device object
+        '''
+        iden = self.get('target_device_iden')
+        return Device(self.api, iden) if iden else None
+
+    @property
+    def source_device(self):
+        '''
+        Get source device object
+        '''
+        iden = self.get('source_device_iden')
+        return Device(self.api, iden) if iden else None
+
     def __eq__(self, other):
         return isinstance(other, Push) and self.iden == other.iden
 
     def __repr__(self):
-        return u'<%s[%s]: %s>' % (self.__class__.__name__, getattr(self, 'iden', None), unicode(self))
+        return (u'<%s[%s]: %s>' % (self.__class__.__name__, getattr(self, 'iden', None), unicode(self))).encode('utf-8')
 
     def __unicode__(self):
         return u'%s push' % getattr(self, 'type', 'general')
 
-    @property
-    def uri(self):
-        return 'pushes/%s' % self.iden
 
 class NotePush(Push):
     '''
@@ -521,12 +906,12 @@ class FilePush(Push):
         if not self.file_url:  # file not uploaded yet
             fh = (self.file if hasattr(self.file, 'read') else  # file-like object
                   self.file.open('rb') if hasattr(self.file, 'open') else  # openable object
-                  fdopen(self.file, 'rb') if isinstance(self.file, int) else  # file descriptor
+                  os.fdopen(self.file, 'rb') if isinstance(self.file, int) else  # file descriptor
                   StringIO(self.file) if isinstance(self.file, buffer) else  # in-memory file
                   open(self.file, 'rb'))  # file name
 
             try:
-                file_name = utf8(self.file_name) if self.file_name else basename(fh.name)
+                file_name = utf8(self.file_name) if self.file_name else os.path.basename(fh.name)
                 file_type = utf8(self.file_type) if self.file_type else self.guess_type(fh)
                 req = target.api.get('upload-request', file_name=file_name, file_type=file_type)
                 target.api.upload(req['upload_url'], data=req['data'], file=fh)
@@ -562,6 +947,14 @@ class MirrorPush(Push):
     '''
     type = 'mirror'
 
+    def decode(self):
+        super(MirrorPush, self).decode()
+
+        try:
+            self.icon = base64.decodestring(self.icon)
+        except (AttributeError, binascii.Error):
+            pass
+
     def send(self, target):
         raise NotImplementedError
 
@@ -578,6 +971,19 @@ class DismissalPush(Push):
 
 # Main API class {{{
 
+def cached_list_method(cls):
+    cache_key = '_%s' % cls.collection_name
+    def wrapper(self, reset_cache=False):
+        if reset_cache or getattr(self, cache_key, None) is None:
+            setattr(self, cache_key, list(cls.iterate(self)))
+        return getattr(self, cache_key)
+    return wrapper
+
+def iterator_method(cls):
+    def iterator(self, skip_inactive=False, since=0, limit=None):
+        return cls.iterate(self, skip_inactive, since, limit)
+    return iterator
+
 class PushBullet(PushTarget):
     '''
     Main API class for PushBullet
@@ -592,7 +998,7 @@ class PushBullet(PushTarget):
         :param str apikey: API key (get at https://www.pushbullet.com/account)
         '''
         self.apikey = apikey
-        self.sess = session()
+        self.sess = Session()
         self.sess.auth = (apikey, '')
 
     def get_type_by_args(self, args, arg=None):
@@ -663,7 +1069,7 @@ class PushBullet(PushTarget):
         Helper method for POST requests to API
         '''
         response = self.sess.post(self.API_URL % _uri, data=json.dumps(data),
-                headers={'content-type': 'application/json'})
+                headers={'Content-Type': 'application/json'})
         response.raise_for_status()
 
         result = response.json()
@@ -693,18 +1099,20 @@ class PushBullet(PushTarget):
         '''
         response = self.sess.post(_uri, data=data, files=files, auth=()).raise_for_status()
 
-    def iter_devices(self, skip_inactive=True, limit=None):
-        '''
-        Get available devices to push to
+    def paged(self, _uri, **params):
+        page = self.get(_uri, **params)
 
-        :param bool skip_inactive: if False, fetch all devices, even inactive ones
-        '''
+        while True:
+            for item in page[_uri]:
+                yield item
 
-        return self.paged('devices',
-                (lambda d: d['active']) if skip_inactive else (lambda d: True),
-                lambda d: Device(self, **d),
-                limit=limit)
+            if not page.get('cursor'):
+                break
 
+            page = self.get(_uri, cursor=page['cursor'])
+
+    def subscribe(self, channel_tag):
+        return Subscription(self, None).create(channel_tag)
 
     def create_device(self, nickname, type='stream'):
         '''
@@ -726,65 +1134,19 @@ class PushBullet(PushTarget):
         '''
         return Contact(self, None, name=name, email=email).create()
 
-    def iter_contacts(self, skip_inactive=True, limit=None):
-        '''
-        Get available contacts to push to
+    iter_contacts = iterator_method(Contact)
+    iter_devices = iterator_method(Device)
+    iter_grants = iterator_method(Grant)
+    iter_clients = iterator_method(Client)
+    iter_channels = iterator_method(Channel)
+    iter_subscriptions = iterator_method(Subscription)
 
-        :param bool skip_inactive: if False, fetch all contacts, even inactive ones
-        '''
-        return self.paged('contacts',
-                (lambda c: c['active']) if skip_inactive else (lambda c: True),
-                lambda c: Contact(self, **c),
-                limit=None)
-
-
-    __contacts = None
-    def contacts(self, reset_cache=False):
-        '''
-        Get available contacts to push to as a plain list
-
-        :param bool reset_cache: if True, reset inner contacts cache
-        '''
-        if reset_cache or self.__contacts is None:
-            self.__contacts = list(self.iter_contacts())
-
-        return self.__contacts
-
-
-    __devices = None
-    def devices(self, reset_cache=False):
-        '''
-        Get available devices to push to as a plain list
-
-        :param bool reset_cache: if True, reset inner devices cache
-        '''
-        if reset_cache or self.__devices is None:
-            self.__devices = list(self.iter_devices())
-
-        return self.__devices
-
-
-    def __getitem__(self, device_iden):
-        '''
-        Find and return device object by device iden or device name
-
-        At first search is done by device iden field, and if it's not found,
-        search is repeated by device name. A device name is either device nickname,
-        model or iden, whichever is defined for any given device object.
-
-        So you can get your Chrome device object with `api["Chrome"]` call.
-
-        Throws `KeyError` if no device is found.
-
-        :param str device_iden: a device iden
-        '''
-        try:
-            return next(d for d in self.devices() if d.iden == device_iden)
-        except StopIteration:
-            try:
-                return next(d for d in self.devices() if utf8(d) == device_iden)
-            except StopIteration:
-                raise KeyError(device_iden)
+    contacts = cached_list_method(Contact)
+    devices = cached_list_method(Device)
+    grants = cached_list_method(Grant)
+    clients = cached_list_method(Client)
+    channels = cached_list_method(Channel)
+    subscriptions = cached_list_method(Subscription)
 
     def pushes(self, since=0, skip_empty=True, limit=None):
         '''
@@ -808,49 +1170,47 @@ class PushBullet(PushTarget):
         :param int limit: limit number of items per page
         :rtype: generator
         '''
-        if isinstance(since, datetime.date):
-            since = since.strftime('%s')
-        elif isinstance(since, datetime.timedelta):
-            since = (datetime.datetime.now() - since).strftime('%s')
-        else:
-            try:
-                since = int(since)
-                if since < 0:
-                    since += time.time()
-            except ValueError:
-                from dateutil.parser import parse
-                since = parse(since).strftime('%s')
-
-        return self.paged('pushes',
-                (lambda p: bool(p.get('type'))) if skip_empty else (lambda p: True),
-                self.make_push,
-                modified_after=since,
+        it = self.paged(Push.collection_name,
+                modified_after=parse_since(since),
                 limit=limit)
 
+        if skip_empty:
+            return (self.make_push(o) for o in it if bool(o.get('type', None)))
+        else:
+            return (self.make_push(o) for o in it)
 
-    def paged(self, _uri, _filter, _wrapper, **params):
-        page = self.get(_uri, **params)
+    def __getitem__(self, device_iden):
+        '''
+        Find and return device object by device iden or device name
 
-        while True:
-            for item in page[_uri]:
-                if _filter(item):
-                    yield _wrapper(item)
+        At first search is done by device iden field, and if it's not found,
+        search is repeated by device name. A device name is either device nickname,
+        model or iden, whichever is defined for any given device object.
 
-            if not page.get('cursor'):
-                break
+        So you can get your Chrome device object with `api["Chrome"]` call.
 
-            page = self.get(_uri, cursor=page['cursor'])
+        Throws `KeyError` if no device is found.
 
-    __me = None
+        :param str device_iden: a device iden
+        '''
+        try:
+            return next(d for d in self.devices() if d.iden == device_iden)
+        except StopIteration:
+            try:
+                return next(d for d in self.devices() if utf8(d) == device_iden)
+            except StopIteration:
+                raise KeyError(device_iden)
+
+    _me = None
     def me(self, reset_cache=False):
         '''
         Get current user information
         '''
-        if not reset_cache and self.__me:
-            return self.__me
+        if not reset_cache and self._me:
+            return self._me
 
-        self.__me = User(self, **self.get('users/me'))
-        return self.__me
+        self._me = User.load(self)
+        return self._me
 
     def make_target(self, target):
         if target is None:

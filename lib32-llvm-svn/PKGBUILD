@@ -1,4 +1,5 @@
-# Maintainer: Christian Babeux <christian.babeux@0x80.ca>
+# Maintainer: Armin K. <krejzi at email dot com>
+# Contributor: Christian Babeux <christian.babeux@0x80.ca>
 # Contributor: Thomas Dziedzic < gostrc at gmail >
 # Contributor: Roberto Alsina <ralsina@kde.org>
 # Contributor: Tomas Lindquist Olsen <tomas@famolsen.dk>
@@ -6,66 +7,65 @@
 # Contributor: Tomas Wilhelmsson <tomas.wilhelmsson@gmail.com>
 
 pkgbase=lib32-llvm-svn
-pkgname=lib32-llvm-svn
-true && pkgname=('lib32-llvm-svn' 'lib32-llvm-libs-svn' 'lib32-llvm-ocaml-svn')
-_pkgname='lib32-llvm'
-pkgver=196379
+pkgname=('lib32-llvm-svn' 'lib32-llvm-libs-svn' 'lib32-clang-svn')
+_pkgname='llvm'
+pkgver=224989
 pkgrel=1
-pkgdesc='Low Level Virtual Machine - Compiler infrastructure.'
 arch=('x86_64')
 url="http://llvm.org"
 license=('custom:University of Illinois')
-makedepends=('subversion' 'lib32-libffi' 'lib32-zlib' 'python2' 'gcc-multilib' 'ocaml')
-options=('staticlibs')
-source=("${_pkgname}::svn+http://llvm.org/svn/llvm-project/llvm/trunk")
-sha1sums=('SKIP')
+makedepends=('subversion' 'lib32-libffi' 'lib32-zlib' 'python2' 'gcc-multilib')
+
 # this is always the latest svn so debug info can be useful
-options=('!strip')
+options=('staticlibs' '!strip')
+
+source=("${_pkgname}::svn+http://llvm.org/svn/llvm-project/llvm/trunk"
+        "clang::svn+http://llvm.org/svn/llvm-project/cfe/trunk"
+        "compiler-rt::svn+http://llvm.org/svn/llvm-project/compiler-rt/trunk")
+sha256sums=('SKIP'
+            'SKIP'    
+            'SKIP')
 
 pkgver()
 {
-    cd "$SRCDEST/${_pkgname}"
+    cd "${srcdir}/${_pkgname}"
     svnversion | tr -d [A-z]
 }
 
 prepare() {
-  cd ""${srcdir}/${_pkgname}""
+    cd "${srcdir}/${_pkgname}"
 
-  # Fix installation directories, ./configure doesn't seem to set them right
-  sed -i -e 's:\$(PROJ_prefix)/lib:$(PROJ_prefix)/lib32:' \
-         -e 's:\$(PROJ_prefix)/docs/llvm:$(PROJ_prefix)/share/doc/llvm:' \
-    Makefile.config.in
-  sed -i '/ActiveLibDir = ActivePrefix/s:lib:lib32:' \
-    tools/llvm-config/llvm-config.cpp
-  sed -i 's:LLVM_LIBDIR="${prefix}/lib":LLVM_LIBDIR="${prefix}/lib32":' \
-    autoconf/configure.ac \
-    configure
+    svn export "${srcdir}/clang" tools/clang
+    svn export "${srcdir}/compiler-rt" projects/compiler-rt
 
-  # Fix insecure rpath (http://bugs.archlinux.org/task/14017)
-  sed -i 's:$(RPATH) -Wl,$(\(ToolDir\|LibDir\|ExmplDir\))::g' Makefile.rules
+    # Fix installation directories, ./configure doesn't seem to set them right
+    sed -e 's:\$(PROJ_prefix)/lib:$(PROJ_prefix)/lib32:' \
+        -e 's:\$(PROJ_prefix)/docs/llvm:$(PROJ_prefix)/share/doc/llvm:' \
+        -i Makefile.config.in
+    sed -e '/ActiveLibDir = ActivePrefix/s:lib:lib32:' \
+        -i tools/llvm-config/llvm-config.cpp
+    sed -e 's:LLVM_LIBDIR="${prefix}/lib":LLVM_LIBDIR="${prefix}/lib32":' \
+        -i autoconf/configure.ac \
+        -i configure
 }
 
-
-build()
-{
+build() {
     cd "${srcdir}/${_pkgname}"
 
     export CC="gcc -m32"
     export CXX="g++ -m32"
     export PKG_CONFIG_PATH="/usr/lib32/pkgconfig"
-    export PYTHON=/usr/bin/python2
 
     # Apply strip option to configure
     _optimized_switch="enable"
     [[ $(check_option strip) == n ]] && _optimized_switch="disable"
 
     # Include location of libffi headers in CPPFLAGS
-    export CPPFLAGS="$CPPFLAGS $(pkg-config --cflags libffi)"
+    CPPFLAGS+=" $(pkg-config --cflags libffi)"
 
     # We had to force host and target to get
     # a proper triplet reported by llvm
 
-    # Force the use of GCC instead of clang
     ./configure \
         --prefix=/usr \
         --libdir=/usr/lib32 \
@@ -74,88 +74,97 @@ build()
         --enable-libffi \
         --enable-targets=all \
         --disable-expensive-checks \
+        --disable-debug-runtime \
+        --disable-assertions \
         --with-binutils-include=/usr/include \
-        --$_optimized_switch-optimized
+        --with-python=/usr/bin/python2 \
+        --build=i686-pc-linux-gnu \
+        --host=i686-pc-linux-gnu \
+        --$_optimized_switch-optimized \
+        --disable-bindings
 
     make REQUIRES_RTTI=1
 }
 
-
 package_lib32-llvm-svn() {
-  pkgdesc="Low Level Virtual Machine"
-  depends=("lib32-llvm-libs-svn=$pkgver-$pkgrel" 'perl')
-  provides=('lib32-llvm')
-  conflicts=('lib32-llvm')
+    pkgdesc="Low Level Virtual Machine (32-bit)"
+    depends=("lib32-llvm-libs-svn=$pkgver-$pkgrel" 'llvm')
+    provides=('lib32-llvm')
+    replaces=('lib32-llvm')
+    conflicts=('lib32-llvm')
 
-  cd "${srcdir}/${_pkgname}"
+    cd "${srcdir}/${_pkgname}"
 
-  # -j1 is due to race conditions during the installation of the OCaml bindings
-  make -j1 DESTDIR="$pkgdir" install
+    make DESTDIR="${pkgdir}" install
 
-  # The runtime library goes into lib32-llvm-libs
-  mv $pkgdir/usr/lib32/libLLVM-*.so "$srcdir"
+    rm -rf "${srcdir}"/*.so
+    mv "${pkgdir}"/usr/lib32/libLLVM-*.so "${srcdir}/"
 
-  # OCaml bindings go to a separate package
-  rm -rf "$srcdir"/{ocaml,ocamldoc}
-  mv "$pkgdir"/usr/{lib/ocaml,share/doc/llvm/ocamldoc} "$srcdir"
+    # Fix permissions of static libs
+    chmod -x "${pkgdir}"/usr/lib32/*.a
 
-  # Remove duplicate files installed by the OCaml bindings
-  rm "$pkgdir"/usr/{lib32/libllvm*,share/doc/llvm/ocamldoc.tar.gz}
+    mv "${pkgdir}/usr/bin/llvm-config" "${pkgdir}/usr/lib32/llvm-config"
 
-  # Fix permissions of static libs
-  chmod -x "$pkgdir"/usr/lib32/*.a
+    rm -rf "${pkgdir}"/usr/lib32/*LLVMHello.*
 
-  mv $pkgdir/usr/bin/* "$pkgdir/usr/lib32/"
+    # Symlink LLVMgold.so into /usr/lib32/bfd-plugins
+    # https://bugs.archlinux.org/task/28479
+    install -m755 -d "${pkgdir}/usr/lib32/bfd-plugins"
+    ln -s ../LLVMgold.so "${pkgdir}/usr/lib32/bfd-plugins/LLVMgold.so"
 
-  # Get rid of example Hello transformation
-  rm "$pkgdir"/usr/lib32/*LLVMHello.*
+    mv "${pkgdir}"/usr/include/llvm/Config/*config.h "${pkgdir}/"
+    rm -rf "${pkgdir}"/usr/{bin,include,share/{doc,man,llvm}}
 
-  # Symlink LLVMgold.so into /usr/lib/bfd-plugins
-  # (https://bugs.archlinux.org/task/28479)
-  install -d "$pkgdir/usr/lib32/bfd-plugins"
-  ln -s ../LLVMgold.so "$pkgdir/usr/lib32/bfd-plugins/LLVMgold.so"
+    # remove conflicting clang files
+    rm -rf "${pkgdir}"/usr/lib
+    rm -rf "${pkgdir}"/usr/lib32/libclang*
+  
+    install -m755 -d "${pkgdir}/usr/include/llvm/Config"
+    mv "${pkgdir}/config.h" "${pkgdir}/usr/include/llvm/Config/config-32.h"
+    mv "${pkgdir}/llvm-config.h" "${pkgdir}/usr/include/llvm/Config/llvm-config-32.h"
 
-  mv "$pkgdir"/usr/include/llvm/Config/*config.h "$pkgdir/"
-  rm -rf "$pkgdir"/usr/{bin,include,share/{doc,man}}
+    install -m755 -d "${pkgdir}/usr/bin"
+    mv "${pkgdir}/usr/lib32/llvm-config" "${pkgdir}/usr/bin/llvm-config32"
 
-  install -d "$pkgdir/usr/include/llvm/Config"
-  mv "$pkgdir/config.h" "$pkgdir/usr/include/llvm/Config/config-32.h"
-  mv "$pkgdir/llvm-config.h" "$pkgdir/usr/include/llvm/Config/llvm-config-32.h"
-
-  mkdir "$pkgdir"/usr/bin
-  mv "$pkgdir/usr/lib32/llvm-config" "$pkgdir/usr/bin/llvm-config32"
-
-  install -Dm644 LICENSE.TXT "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
-
+    install -Dm644 LICENSE.TXT "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
 package_lib32-llvm-libs-svn() {
-  pkgdesc="Low Level Virtual Machine (runtime library)"
-  depends=('gcc-libs' 'zlib' 'libffi')
-  provides=('lib32-llvm-libs')
-  conflicts=('lib32-llvm-libs')
+    pkgdesc="Low Level Virtual Machine (runtime library) (32-bit)"
+    depends=('lib32-libffi' 'lib32-zlib' 'lib32-gcc-libs')
+    provides=('lib32-llvm-libs')
+    replaces=('lib32-llvm-libs')
+    conflicts=('lib32-llvm-libs')
 
-  mkdir -p "$pkgdir"/usr/lib32/
-  install -D "$srcdir"/libLLVM-*.so "$pkgdir/usr/lib32/"
+    install -m755 -d "${pkgdir}"/usr/lib32/
 
-  install -Dm644 "${srcdir}/${_pkgname}/LICENSE.TXT" \
-    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    mv "${srcdir}"/libLLVM-*.so "${pkgdir}/usr/lib32/"
+
+    for _shlib in "${pkgdir}"/usr/lib32/*.so
+    do
+      test -L "${_shlib}" && ln -sf $(basename $(readlink ${_shlib})) ${_shlib}
+    done
+
+    install -Dm644 "${srcdir}/${_pkgname}/LICENSE.TXT" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
-package_lib32-llvm-ocaml-svn() {
-  pkgdesc="OCaml bindings for LLVM"
-  depends=("lib32-llvm-svn=$pkgver-$pkgrel" 'ocaml')
-  provides=('lib32-llvm-ocaml')
-  conflicts=('lib32-llvm-ocaml')
+package_lib32-clang-svn() {
+    pkgdesc="C language family frontend for LLVM"
+    url="http://clang.llvm.org/"
+    depends=("lib32-llvm-svn=$pkgver-$pkgrel" 'clang' 'gcc-multilib')
+    provides=('lib32-clang')
+    replaces=('lib32-clang')
+    conflicts=('lib32-clang')
 
-  cd "${srcdir}/${_pkgname}"
+    cd "${srcdir}/${_pkgname}/tools/clang"
 
-  install -d "$pkgdir"/{usr/lib,usr/share/doc/llvm}
-  cp -r "$srcdir/ocaml" "$pkgdir/usr/lib"
-  cp -r "$srcdir/ocamldoc" "$pkgdir/usr/share/doc/llvm"
+    make DESTDIR="${pkgdir}" install
 
-  # Remove execute bit from static libraries
-  chmod -x "$pkgdir"/usr/lib/ocaml/libllvm*.a
+    mv "${pkgdir}"/usr/lib/* "${pkgdir}/usr/lib32/"
+    rm -rf "${pkgdir}"/usr/{bin,include,lib,share}
+  
+    # Fix permissions of static libs
+    chmod -x "${pkgdir}"/usr/lib32/*.a
 
-  install -Dm644 LICENSE.TXT "$pkgdir/usr/share/licenses/llvm-ocaml/LICENSE"
+    install -Dm644 LICENSE.TXT "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
