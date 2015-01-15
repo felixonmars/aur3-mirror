@@ -1,59 +1,66 @@
 # Maintainer: Kevin MacMartin <prurigro at gmail dot com>
+# Contributor: PedroHCL (https://github.com/PedroHLC)
 
 pkgname=archon
 pkgver=1.2
-_pkgver_x86_64=2.0.0 # x86_64 has a newer version than armv7h or i686
-pkgrel=6
+pkgrel=7
 pkgdesc="Execute Android APKs"
 arch=('i686' 'x86_64' 'armv7h')
 url="https://bitbucket.org/vladikoff/archon"
 license=('Apache' 'custom')
-depends=('chromium' 'chromeos-apk-git')
-makedepends=('git')
 options=('!strip')
-install=${pkgname}.install
+depends=('chromium')
+makedepends=('git' 'openssl')
+optdepends=('archon-exec: wrapper script for launching android apk files'
+            'chromeos-apk: extract and convert android apks into archon apks'
+            'google-chrome: run the archon extension the same as chromium')
 
-# Determine the tag based on $CARCH
+_installpath="/opt/$pkgname"
+_extension_paths=('/usr/share/chromium/extensions' '/usr/share/google-chrome/extensions')
+_extension_ver=38.4410.120.43
 case $CARCH in
-    i686)   _tag="v${pkgver}-x86_32" ;;
-    x86_64) _tag="v${_pkgver_x86_64}-$CARCH" ;;
-    armv7h) _tag="v${pkgver}-ARM" ;;
+    i686)   _tag="x86_32" ;;
+    armv7h) _tag="ARM"    ;;
+    x86_64) _tag="$CARCH"
+            _extension_ver=41.4410.227.0
+            pkgver=2.0.0  ;;
 esac
+_tag="v${pkgver}-${_tag}"
 
-source=(
-    "git+${url}.git#tag=${_tag}"
-    "http://tools.android.com/recent/miscellaneousimprovements-1/android_icon_128.png"
-    "${pkgname}.desktop"
-    "${pkgname}.sh")
-sha512sums=(
-    'SKIP'
-    '16c8aa6c9b27d3727f70d6326c736eccefe630bc3bf7a95ba11ea60acd5078d20fc9fe0991db50a4c4c97225d05cbc1c63267a1ba552aebe66b6f04f9ec70012'
-    '7b47e1f0253a375c510205572e1de17fe2de23f214b5a6dfa7467cda3e85be0bcf33bfea86c7b00f7096dddebe6e4bc49db31c04d0aaad474931d8623a9e1b9f'
-    '4b429b9c27fcae29c040c79c260ded864db8319f2c7e64b06e3d23e5db68ed37445f4c5328df72d5e380dcc5406c46ff9ff7fc33eb66cce82ba358c899d991b2')
-
-pkgver() {
-    # Set the version based on $CARCH
-    [[ "$CARCH" = 'x86_64' ]] \
-        && echo $_pkgver_x86_64 \
-        || echo $pkgver
-}
+source=("git+${url}.git#tag=${_tag}")
+sha512sums=('SKIP')
 
 prepare() {
     # Increase the application font size by 1.2 times (the default is a bit too small)
     sed -i 's|window\.devicePixelRatio|1\.2\*window\.devicePixelRatio|' $pkgname/gen_{index,main}.min.js
 }
 
+build() {
+    # Generate the extension
+    chromium --pack-extension=$pkgname
+
+    # Write the plugin metadata file
+    echo '{"external_crx": "'"$_installpath/$pkgname"'.crx", "external_version": "'"$_extension_ver"'"}' \
+        > pluginid.json
+}
+
 package() {
-    # Install the .desktop file, icon and launch script
-    install -Dm644 $pkgname.desktop "$pkgdir"/usr/share/applications/$pkgname.desktop
-    install -Dm644 android_icon_128.png "$pkgdir"/usr/share/pixmaps/$pkgname.png
-    install -Dm755 $pkgname.sh "$pkgdir"/usr/bin/$pkgname
+    # Install the ARChon license files
+    install -Dm644 $pkgname/NOTICE.{html,txt} -t "$pkgdir"/usr/share/licenses/$pkgname
 
-    # Install the ARChon folder
-    install -d "$pkgdir"/opt/$pkgname
-    cp -r $pkgname/* "$pkgdir"/opt/$pkgname/
+    # Install the ARChon extension
+    install -Dm755 ${pkgname}.crx "$pkgdir$_installpath"/${pkgname}.crx
 
-    # Install links to the license files
-    install -d "$pkgdir"/usr/share/licenses/$pkgname
-    ln -s /opt/$pkgname/NOTICE.{html,txt} "$pkgdir"/usr/share/licenses/$pkgname/
+    # Install the ARChon app files
+    cp -r --no-preserve=ownership $pkgname/* "$pkgdir$_installpath"/
+
+    # Generate the filename for the plugin metadata file using its extension id
+    _extension_file="$(openssl rsa -pubout -outform DER < ${pkgname}.pem \
+        | sha256sum \
+        | head -c32 \
+        | tr 0-9a-f a-p).json"
+    # Install the plugin metadata file to each extension folder
+    for _path in ${_extension_paths[@]}; do
+        install -Dm644 pluginid.json "$pkgdir$_path"/$_extension_file
+    done
 }
