@@ -12,8 +12,15 @@ import sys
 import subprocess
 import re
 
-def subprocess_get_lines(args):
-    return subprocess.check_output(args).decode().splitlines()
+def subprocess_get_lines(args, fail_okay=False):
+    try:
+        output = subprocess.check_output(args)
+    except subprocess.CalledProcessError as e:
+        if fail_okay:
+            output = e.output
+        else:
+            raise
+    return output.decode().splitlines()
 
 # Get the filenames of the libs we need
 ldd_output = subprocess_get_lines(['ldd'] + sys.argv[1:])
@@ -22,7 +29,8 @@ libs = set(match.group(1) for match in map(regex.search, ldd_output) if match)
 
 # Figure out which packages own them
 deps = set(subprocess_get_lines(
-    ['pacman', '--query', '--owns', '--quiet'] + list(libs)
+    ['pacman', '--query', '--owns', '--quiet'] + list(libs),
+    fail_okay=True
 ))
 
 # fakeroot will be linked when building with makepkg, but isn't really needed
