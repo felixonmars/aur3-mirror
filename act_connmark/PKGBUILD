@@ -1,8 +1,8 @@
  # Contributor: gamanakis
 
 pkgname=act_connmark
-pkgver=3.16
-pkgrel=4
+pkgver=3.18
+pkgrel=1
 pkgdesc="A TC action to retrieve the MARK of a packet through CTMARK in INGRESS. Source modified from OpenWRT.org"
 arch=('i686' 'x86_64')
 license=('GPL')
