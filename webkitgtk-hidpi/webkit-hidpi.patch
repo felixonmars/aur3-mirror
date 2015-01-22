@@ -1,0 +1,570 @@
+From 04a9aff031bd26021c89ec307111202cef4519fd Mon Sep 17 00:00:00 2001
+From: Michael Kuhn <suraia@ikkoku.de>
+Date: Fri, 19 Dec 2014 19:14:34 +0100
+Subject: [PATCH] Add HighDPI support.
+
+The code mainly consists of backports from the 2.6 branch:
+- http://trac.webkit.org/changeset/167078
+- http://trac.webkit.org/changeset/167080
+- http://trac.webkit.org/changeset/169445
+
+It also includes adapted changes from:
+- http://fishsoup.net/misc/webkit-hidpi-patches/
+---
+ Source/WebCore/platform/cairo/WidgetBackingStore.h | 11 +++++--
+ .../platform/cairo/WidgetBackingStoreCairo.cpp     | 18 +++++-----
+ .../platform/cairo/WidgetBackingStoreCairo.h       |  4 +--
+ .../platform/graphics/cairo/CairoUtilities.cpp     | 12 +++++++
+ .../platform/graphics/cairo/CairoUtilities.h       |  4 +++
+ .../platform/gtk/WidgetBackingStoreGtkX11.cpp      | 28 ++++++++++------
+ .../platform/gtk/WidgetBackingStoreGtkX11.h        |  4 +--
+ .../WebKit/gtk/WebCoreSupport/ChromeClientGtk.cpp  | 38 ++++++++++++++++++----
+ Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.h |  1 +
+ Source/WebKit/gtk/webkit/webkitwebview.cpp         | 25 ++++++++++++++
+ .../WebKit2/Shared/cairo/ShareableBitmapCairo.cpp  | 15 ++++-----
+ .../UIProcess/API/gtk/WebKitWebViewBase.cpp        | 18 ++++++++++
+ Source/WebKit2/UIProcess/WebPageProxy.cpp          | 10 ++++++
+ .../WebKit2/UIProcess/cairo/BackingStoreCairo.cpp  | 12 +++----
+ 14 files changed, 154 insertions(+), 46 deletions(-)
+
+diff --git a/Source/WebCore/platform/cairo/WidgetBackingStore.h b/Source/WebCore/platform/cairo/WidgetBackingStore.h
+index f4bb255..69ded77 100644
+--- a/Source/WebCore/platform/cairo/WidgetBackingStore.h
++++ b/Source/WebCore/platform/cairo/WidgetBackingStore.h
+@@ -49,11 +49,18 @@ public:
+     virtual cairo_surface_t* cairoSurface() = 0;
+     virtual void scroll(const IntRect& scrollRect, const IntSize& scrollOffset) = 0;
+     const IntSize& size() { return m_size; }
+-    WidgetBackingStore(const IntSize& size) : m_size(size) { }
++    float deviceScaleFactor() { return m_deviceScaleFactor; }
++
++    WidgetBackingStore(const IntSize& size, float deviceScaleFactor)
++        : m_size(size)
++        , m_deviceScaleFactor(deviceScaleFactor)
++    { }
++
+     virtual ~WidgetBackingStore() { }
+ 
+-private:
++protected:
+     IntSize m_size;
++    float m_deviceScaleFactor;
+ };
+ 
+ } // namespace WebCore
+diff --git a/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.cpp b/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.cpp
+index 03dd1be..c1f5023 100644
+--- a/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.cpp
++++ b/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.cpp
+@@ -26,8 +26,10 @@
+ 
+ namespace WebCore {
+ 
+-static PassRefPtr<cairo_surface_t> createSurfaceForBackingStore(PlatformWidget widget, const IntSize& size)
++static PassRefPtr<cairo_surface_t> createSurfaceForBackingStore(PlatformWidget widget, IntSize size, float deviceScaleFactor)
+ {
++    size.scale(deviceScaleFactor);
++
+ #if PLATFORM(GTK)
+     return adoptRef(gdk_window_create_similar_surface(gtk_widget_get_window(widget), CAIRO_CONTENT_COLOR_ALPHA, size.width(), size.height()));
+ #else
+@@ -36,20 +38,20 @@ static PassRefPtr<cairo_surface_t> createSurfaceForBackingStore(PlatformWidget w
+ #endif
+ }
+ 
+-PassOwnPtr<WidgetBackingStore> WidgetBackingStoreCairo::create(PlatformWidget widget, const IntSize& size)
++PassOwnPtr<WidgetBackingStore> WidgetBackingStoreCairo::create(PlatformWidget widget, const IntSize& size, float deviceScaleFactor)
+ {
+-    return adoptPtr(new WidgetBackingStoreCairo(widget, size));
++    return adoptPtr(new WidgetBackingStoreCairo(widget, size, deviceScaleFactor));
+ }
+ 
+ // We keep two copies of the surface here, which will double the memory usage, but increase
+ // scrolling performance since we do not have to keep reallocating a memory region during
+ // quick scrolling requests.
+-WidgetBackingStoreCairo::WidgetBackingStoreCairo(PlatformWidget widget, const IntSize& size)
+-    : WidgetBackingStore(size)
+-    , m_surface(createSurfaceForBackingStore(widget, size))
+-    , m_scrollSurface(createSurfaceForBackingStore(widget, size))
+-
++WidgetBackingStoreCairo::WidgetBackingStoreCairo(PlatformWidget widget, const IntSize& size, float deviceScaleFactor)
++    : WidgetBackingStore(size, deviceScaleFactor)
++    , m_surface(createSurfaceForBackingStore(widget, size, deviceScaleFactor))
++    , m_scrollSurface(createSurfaceForBackingStore(widget, size, deviceScaleFactor))
+ {
++    cairoSurfaceSetDeviceScale(m_surface.get(), deviceScaleFactor, deviceScaleFactor);
+ }
+ 
+ WidgetBackingStoreCairo::~WidgetBackingStoreCairo()
+diff --git a/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.h b/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.h
+index 9b0e0f7..db72667 100644
+--- a/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.h
++++ b/Source/WebCore/platform/cairo/WidgetBackingStoreCairo.h
+@@ -26,8 +26,8 @@ namespace WebCore {
+ class WidgetBackingStoreCairo : public WidgetBackingStore {
+ 
+ public:
+-    static PassOwnPtr<WidgetBackingStore> create(PlatformWidget, const IntSize&);
+-    WidgetBackingStoreCairo(PlatformWidget, const IntSize&);
++    static PassOwnPtr<WidgetBackingStore> create(PlatformWidget, const IntSize&, float deviceScaleFactor);
++    WidgetBackingStoreCairo(PlatformWidget, const IntSize&, float deviceScaleFactor);
+     ~WidgetBackingStoreCairo();
+     cairo_surface_t* cairoSurface();
+     void scroll(const IntRect&, const IntSize&);
+diff --git a/Source/WebCore/platform/graphics/cairo/CairoUtilities.cpp b/Source/WebCore/platform/graphics/cairo/CairoUtilities.cpp
+index 8d20b22..98207e4 100644
+--- a/Source/WebCore/platform/graphics/cairo/CairoUtilities.cpp
++++ b/Source/WebCore/platform/graphics/cairo/CairoUtilities.cpp
+@@ -36,6 +36,7 @@
+ #include "Path.h"
+ #include "PlatformPathCairo.h"
+ #include "RefPtrCairo.h"
++#include <wtf/Assertions.h>
+ #include <wtf/Vector.h>
+ 
+ #if ENABLE(ACCELERATED_2D_CANVAS)
+@@ -259,4 +260,15 @@ IntSize cairoSurfaceSize(cairo_surface_t* surface)
+     }
+ }
+ 
++void cairoSurfaceSetDeviceScale(cairo_surface_t* surface, double xScale, double yScale)
++{
++    // This function was added pretty much simultaneous to when 1.13 was branched.
++#if HAVE(CAIRO_SURFACE_SET_DEVICE_SCALE)
++    cairo_surface_set_device_scale(surface, xScale, yScale);
++#else
++    UNUSED_PARAM(surface);
++    ASSERT_UNUSED(xScale, 1 == xScale);
++    ASSERT_UNUSED(yScale, 1 == yScale);
++#endif
++}
+ } // namespace WebCore
+diff --git a/Source/WebCore/platform/graphics/cairo/CairoUtilities.h b/Source/WebCore/platform/graphics/cairo/CairoUtilities.h
+index 1372dfb..df3680c 100644
+--- a/Source/WebCore/platform/graphics/cairo/CairoUtilities.h
++++ b/Source/WebCore/platform/graphics/cairo/CairoUtilities.h
+@@ -31,6 +31,9 @@
+ #include "IntSize.h"
+ #include <cairo.h>
+ 
++// This function was added pretty much simultaneous to when 1.13 was branched.
++#define HAVE_CAIRO_SURFACE_SET_DEVICE_SCALE CAIRO_VERSION_MAJOR > 1 || (CAIRO_VERSION_MAJOR == 1 && CAIRO_VERSION_MINOR >= 13)
++
+ namespace WebCore {
+ class AffineTransform;
+ class Color;
+@@ -56,6 +59,7 @@ void copyRectFromCairoSurfaceToContext(cairo_surface_t* from, cairo_t* to, const
+ void copyRectFromOneSurfaceToAnother(cairo_surface_t* from, cairo_surface_t* to, const IntSize& offset, const IntRect&, const IntSize& = IntSize(), cairo_operator_t = CAIRO_OPERATOR_OVER);
+ 
+ IntSize cairoSurfaceSize(cairo_surface_t*);
++void cairoSurfaceSetDeviceScale(cairo_surface_t*, double xScale, double yScale);
+ 
+ } // namespace WebCore
+ 
+diff --git a/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.cpp b/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.cpp
+index bcdcfa3..0e551b8 100644
+--- a/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.cpp
++++ b/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.cpp
+@@ -19,6 +19,7 @@
+ #include "config.h"
+ #include "WidgetBackingStoreGtkX11.h"
+ 
++#include "CairoUtilities.h"
+ #include "GtkVersioning.h"
+ #include "RefPtrCairo.h"
+ #include <cairo-xlib.h>
+@@ -27,26 +28,28 @@
+ 
+ namespace WebCore {
+ 
+-PassOwnPtr<WidgetBackingStore> WidgetBackingStoreGtkX11::create(GtkWidget* widget, const IntSize& size)
++PassOwnPtr<WidgetBackingStore> WidgetBackingStoreGtkX11::create(GtkWidget* widget, const IntSize& size, float deviceScaleFactor)
+ {
+-    return adoptPtr(new WidgetBackingStoreGtkX11(widget, size));
++    return adoptPtr(new WidgetBackingStoreGtkX11(widget, size, deviceScaleFactor));
+ }
+ 
+-// We keep two copies of the surface here, which will double the memory usage, but increase
+-// scrolling performance since we do not have to keep reallocating a memory region during
+-// quick scrolling requests.
+-WidgetBackingStoreGtkX11::WidgetBackingStoreGtkX11(GtkWidget* widget, const IntSize& size)
+-    : WidgetBackingStore(size)
++WidgetBackingStoreGtkX11::WidgetBackingStoreGtkX11(GtkWidget* widget, const IntSize& size, float deviceScaleFactor)
++    : WidgetBackingStore(size, deviceScaleFactor)
+ {
++    IntSize scaledSize = size;
++    scaledSize.scale(deviceScaleFactor);
++
+     GdkVisual* visual = gtk_widget_get_visual(widget);
+     GdkScreen* screen = gdk_visual_get_screen(visual);
+     m_display = GDK_SCREEN_XDISPLAY(screen);
+     m_pixmap = XCreatePixmap(m_display, GDK_WINDOW_XID(gdk_screen_get_root_window(screen)),
+-        size.width(), size.height(), gdk_visual_get_depth(visual));
++        scaledSize.width(), scaledSize.height(), gdk_visual_get_depth(visual));
+     m_gc = XCreateGC(m_display, m_pixmap, 0, 0);
+ 
+     m_surface = adoptRef(cairo_xlib_surface_create(m_display, m_pixmap,
+-        GDK_VISUAL_XVISUAL(visual), size.width(), size.height()));
++        GDK_VISUAL_XVISUAL(visual), scaledSize.width(), scaledSize.height()));
++
++    cairoSurfaceSetDeviceScale(m_surface.get(), deviceScaleFactor, deviceScaleFactor);
+ }
+ 
+ WidgetBackingStoreGtkX11::~WidgetBackingStoreGtkX11()
+@@ -70,9 +73,14 @@ void WidgetBackingStoreGtkX11::scroll(const IntRect& scrollRect, const IntSize&
+     if (targetRect.isEmpty())
+         return;
+ 
++    targetRect.scale(m_deviceScaleFactor);
++
++    IntSize scaledScrollOffset = scrollOffset;
++    scaledScrollOffset.scale(m_deviceScaleFactor);
++
+     cairo_surface_flush(m_surface.get());
+     XCopyArea(m_display, m_pixmap, m_pixmap, m_gc, 
+-        targetRect.x() - scrollOffset.width(), targetRect.y() - scrollOffset.height(),
++        targetRect.x() - scaledScrollOffset.width(), targetRect.y() - scaledScrollOffset.height(),
+         targetRect.width(), targetRect.height(),
+         targetRect.x(), targetRect.y());
+     cairo_surface_mark_dirty_rectangle(m_surface.get(),
+diff --git a/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.h b/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.h
+index 62b87df..c8f108d 100644
+--- a/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.h
++++ b/Source/WebCore/platform/gtk/WidgetBackingStoreGtkX11.h
+@@ -28,8 +28,8 @@ namespace WebCore {
+ class WidgetBackingStoreGtkX11 : public WidgetBackingStore {
+ 
+ public:
+-    static PassOwnPtr<WidgetBackingStore> create(GtkWidget*, const IntSize&);
+-    WidgetBackingStoreGtkX11(GtkWidget*, const IntSize&);
++    static PassOwnPtr<WidgetBackingStore> create(GtkWidget*, const IntSize&, float deviceScaleFactor);
++    WidgetBackingStoreGtkX11(GtkWidget*, const IntSize&, float deviceScaleFactor);
+     ~WidgetBackingStoreGtkX11();
+     cairo_surface_t* cairoSurface();
+     void scroll(const IntRect& scrollRect, const IntSize& scrollOffset);
+diff --git a/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.cpp b/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.cpp
+index 0443135..2ca9a0a 100644
+--- a/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.cpp
++++ b/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.cpp
+@@ -25,6 +25,7 @@
+ #include "config.h"
+ #include "ChromeClientGtk.h"
+ 
++#include "CairoUtilities.h"
+ #include "Chrome.h"
+ #include "Console.h"
+ #include "DumpRenderTreeSupportGtk.h"
+@@ -97,18 +98,27 @@
+ #endif
+ #include "WidgetBackingStoreCairo.h"
+ 
++#define HAVE_GTK_SCALE_FACTOR HAVE_CAIRO_SURFACE_SET_DEVICE_SCALE && GTK_CHECK_VERSION(3, 10, 0)
++
+ using namespace WebCore;
+ 
+ namespace WebKit {
+ 
+-static PassOwnPtr<WidgetBackingStore> createBackingStore(GtkWidget* widget, const IntSize& size)
++static PassOwnPtr<WidgetBackingStore> createBackingStore(GtkWidget* widget, const IntSize& size, bool scale)
+ {
++    float deviceScaleFactor = 1.0;
++
++#if HAVE(GTK_SCALE_FACTOR)
++    if (scale)
++        deviceScaleFactor = gtk_widget_get_scale_factor(widget);
++#endif
++
+ #if PLATFORM(X11) && defined(GDK_WINDOWING_X11)
+     GdkDisplay* display = gdk_display_manager_get_default_display(gdk_display_manager_get());
+     if (GDK_IS_X11_DISPLAY(display))
+-        return WebCore::WidgetBackingStoreGtkX11::create(widget, size);
++        return WebCore::WidgetBackingStoreGtkX11::create(widget, size, deviceScaleFactor);
+ #endif
+-    return WebCore::WidgetBackingStoreCairo::create(widget, size);
++    return WebCore::WidgetBackingStoreCairo::create(widget, size, deviceScaleFactor);
+ }
+ 
+ ChromeClient::ChromeClient(WebKitWebView* webView)
+@@ -483,7 +493,7 @@ void ChromeClient::widgetSizeChanged(const IntSize& oldWidgetSize, IntSize newSi
+         || newSize.width() > backingStore->size().width()
+         || newSize.height() > backingStore->size().height()) {
+ 
+-        OwnPtr<WidgetBackingStore> newBackingStore = createBackingStore(GTK_WIDGET(m_webView), newSize);
++        OwnPtr<WidgetBackingStore> newBackingStore = createBackingStore(GTK_WIDGET(m_webView), newSize, true);
+         RefPtr<cairo_t> cr = adoptRef(cairo_create(newBackingStore->cairoSurface()));
+ 
+         clearEverywhereInBackingStore(m_webView, cr.get());
+@@ -518,6 +528,21 @@ void ChromeClient::widgetSizeChanged(const IntSize& oldWidgetSize, IntSize newSi
+         m_repaintSoonSourceId = g_idle_add_full(G_PRIORITY_DEFAULT, reinterpret_cast<GSourceFunc>(repaintEverythingSoonTimeout), this, 0);
+ }
+ 
++void ChromeClient::deviceScaleFactorChanged()
++{
++#if HAVE(GTK_SCALE_FACTOR)
++    if (m_webView->priv->backingStore) {
++        int scaleFactor = gtk_widget_get_scale_factor(GTK_WIDGET(m_webView));
++        float oldScaleFactor = m_webView->priv->backingStore->deviceScaleFactor();
++
++        if (scaleFactor != oldScaleFactor) {
++            m_webView->priv->backingStore = 0;
++            widgetSizeChanged(IntSize(0, 0), getWebViewRect(m_webView).size());
++        }
++    }
++#endif
++}
++
+ static void coalesceRectsIfPossible(const IntRect& clipRect, Vector<IntRect>& rects)
+ {
+     const unsigned int cRectThreshold = 10;
+@@ -553,7 +578,6 @@ static void paintWebView(WebKitWebView* webView, Frame* frame, const Region& dir
+ 
+     RefPtr<cairo_t> backingStoreContext = adoptRef(cairo_create(webView->priv->backingStore->cairoSurface()));
+     GraphicsContext gc(backingStoreContext.get());
+-    gc.applyDeviceScaleFactor(frame->page()->deviceScaleFactor());
+     for (size_t i = 0; i < rects.size(); i++) {
+         const IntRect& rect = rects[i];
+ 
+@@ -1011,11 +1035,11 @@ void ChromeClient::attachRootGraphicsLayer(Frame* frame, GraphicsLayer* rootLaye
+ 
+     if (turningOnCompositing) {
+         m_displayTimer.stop();
+-        m_webView->priv->backingStore = createBackingStore(GTK_WIDGET(m_webView), IntSize(1, 1));
++        m_webView->priv->backingStore = createBackingStore(GTK_WIDGET(m_webView), IntSize(1, 1), false);
+     }
+ 
+     if (turningOffCompositing) {
+-        m_webView->priv->backingStore = createBackingStore(GTK_WIDGET(m_webView), getWebViewRect(m_webView).size());
++        m_webView->priv->backingStore = createBackingStore(GTK_WIDGET(m_webView), getWebViewRect(m_webView).size(), true);
+         RefPtr<cairo_t> cr = adoptRef(cairo_create(m_webView->priv->backingStore->cairoSurface()));
+         clearEverywhereInBackingStore(m_webView, cr.get());
+     }
+diff --git a/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.h b/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.h
+index bdc8907..4c66929 100644
+--- a/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.h
++++ b/Source/WebKit/gtk/WebCoreSupport/ChromeClientGtk.h
+@@ -156,6 +156,7 @@ namespace WebKit {
+         void paint(Timer<ChromeClient>*);
+         void forcePaint();
+         void widgetSizeChanged(const IntSize& oldWidgetSize, IntSize newSize);
++        void deviceScaleFactorChanged();
+ 
+         WebKitWebView* webView() { return m_webView; }
+ 
+diff --git a/Source/WebKit/gtk/webkit/webkitwebview.cpp b/Source/WebKit/gtk/webkit/webkitwebview.cpp
+index a1e41aa..087dafe 100644
+--- a/Source/WebKit/gtk/webkit/webkitwebview.cpp
++++ b/Source/WebKit/gtk/webkit/webkitwebview.cpp
+@@ -130,6 +130,8 @@
+ #include <gdk/gdkwayland.h>
+ #endif
+ 
++#define HAVE_GTK_SCALE_FACTOR HAVE_CAIRO_SURFACE_SET_DEVICE_SCALE && GTK_CHECK_VERSION(3, 10, 0)
++
+ /**
+  * SECTION:webkitwebview
+  * @short_description: The central class of the WebKitGTK+ API
+@@ -281,6 +283,9 @@ G_DEFINE_TYPE_WITH_CODE(WebKitWebView, webkit_web_view, GTK_TYPE_CONTAINER,
+ static void webkit_web_view_settings_notify(WebKitWebSettings* webSettings, GParamSpec* pspec, WebKitWebView* webView);
+ static void webkit_web_view_set_window_features(WebKitWebView* webView, WebKitWebWindowFeatures* webWindowFeatures);
+ static void webkitWebViewDirectionChanged(WebKitWebView*, GtkTextDirection previousDirection, gpointer);
++#if HAVE(GTK_SCALE_FACTOR)
++static void webkitWebViewNotifyScaleFactor(WebKitWebView* webView, GParamSpec *pspec, gpointer);
++#endif
+ 
+ #if ENABLE(CONTEXT_MENUS)
+ static void PopupMenuPositionFunc(GtkMenu* menu, gint *x, gint *y, gboolean *pushIn, gpointer userData)
+@@ -3851,6 +3856,10 @@ static void webkit_web_view_init(WebKitWebView* webView)
+     // time of writing this comment), we simply set all the pages to the same group.
+     priv->corePage->setGroupName(webkitPageGroupName());
+ 
++#if HAVE(GTK_SCALE_FACTOR)
++    priv->corePage->setDeviceScaleFactor(gtk_widget_get_scale_factor(GTK_WIDGET(webView)));
++#endif
++
+     // We also add a simple wrapper class to provide the public
+     // interface for the Web Inspector.
+     priv->webInspector = adoptGRef(WEBKIT_WEB_INSPECTOR(g_object_new(WEBKIT_TYPE_WEB_INSPECTOR, NULL)));
+@@ -3890,6 +3899,10 @@ static void webkit_web_view_init(WebKitWebView* webView)
+ #endif
+ 
+     g_signal_connect(webView, "direction-changed", G_CALLBACK(webkitWebViewDirectionChanged), 0);
++
++#if HAVE(GTK_SCALE_FACTOR)
++    g_signal_connect(webView, "notify::scale-factor", G_CALLBACK(webkitWebViewNotifyScaleFactor), 0);
++#endif
+ }
+ 
+ GtkWidget* webkit_web_view_new(void)
+@@ -5555,6 +5568,18 @@ void webkitWebViewDirectionChanged(WebKitWebView* webView, GtkTextDirection prev
+     }
+ }
+ 
++#if HAVE(GTK_SCALE_FACTOR)
++void webkitWebViewNotifyScaleFactor(WebKitWebView* webView, GParamSpec* pspec, gpointer)
++{
++    Page* page = core(webView);
++
++    page->setDeviceScaleFactor(gtk_widget_get_scale_factor(GTK_WIDGET(webView)));
++
++    WebKit::ChromeClient& chromeClient = static_cast<WebKit::ChromeClient&>(page->chrome().client());
++    chromeClient.deviceScaleFactorChanged();
++}
++#endif
++
+ namespace WebKit {
+ 
+ WebCore::Page* core(WebKitWebView* webView)
+diff --git a/Source/WebKit2/Shared/cairo/ShareableBitmapCairo.cpp b/Source/WebKit2/Shared/cairo/ShareableBitmapCairo.cpp
+index c836c93..378bee7 100644
+--- a/Source/WebKit2/Shared/cairo/ShareableBitmapCairo.cpp
++++ b/Source/WebKit2/Shared/cairo/ShareableBitmapCairo.cpp
+@@ -60,19 +60,16 @@ std::unique_ptr<GraphicsContext> ShareableBitmap::createGraphicsContext()
+ 
+ void ShareableBitmap::paint(GraphicsContext& context, const IntPoint& dstPoint, const IntRect& srcRect)
+ {
+-    RefPtr<cairo_surface_t> surface = createSurfaceFromData(data(), m_size);
+-    FloatRect destRect(dstPoint, srcRect.size());
+-    context.platformContext()->drawSurfaceToContext(surface.get(), destRect, srcRect, &context);
++    paint(context, 1, dstPoint, srcRect);
+ }
+ 
+ void ShareableBitmap::paint(GraphicsContext& context, float scaleFactor, const IntPoint& dstPoint, const IntRect& srcRect)
+ {
+-    if (scaleFactor != 1) {
+-        // See <https://bugs.webkit.org/show_bug.cgi?id=64665>.
+-        notImplemented();
+-        return;
+-    }
+-    paint(context, dstPoint, srcRect);
++    RefPtr<cairo_surface_t> surface = createSurfaceFromData(data(), m_size);
++    FloatRect destRect(dstPoint, srcRect.size());
++    FloatRect srcRectScaled(srcRect);
++    srcRectScaled.scale(scaleFactor);
++    context.platformContext()->drawSurfaceToContext(surface.get(), destRect, srcRectScaled, &context);
+ }
+ 
+ PassRefPtr<cairo_surface_t> ShareableBitmap::createCairoSurface()
+diff --git a/Source/WebKit2/UIProcess/API/gtk/WebKitWebViewBase.cpp b/Source/WebKit2/UIProcess/API/gtk/WebKitWebViewBase.cpp
+index 5ba582e..b22c71f 100644
+--- a/Source/WebKit2/UIProcess/API/gtk/WebKitWebViewBase.cpp
++++ b/Source/WebKit2/UIProcess/API/gtk/WebKitWebViewBase.cpp
+@@ -46,6 +46,7 @@
+ #include "WebPageProxy.h"
+ #include "WebPreferences.h"
+ #include "WebViewBaseInputMethodFilter.h"
++#include <WebCore/CairoUtilities.h>
+ #include <WebCore/ClipboardUtilitiesGtk.h>
+ #include <WebCore/DataObjectGtk.h>
+ #include <WebCore/DragData.h>
+@@ -77,6 +78,10 @@
+ #include <WebCore/RedirectedXCompositeWindow.h>
+ #endif
+ 
++// gtk_widget_get_scale_factor() appeared in GTK 3.10, but we also need
++// to make sure we have cairo new enough to support cairo_surface_set_device_scale
++#define HAVE_GTK_SCALE_FACTOR HAVE_CAIRO_SURFACE_SET_DEVICE_SCALE && GTK_CHECK_VERSION(3, 10, 0)
++
+ using namespace WebKit;
+ using namespace WebCore;
+ 
+@@ -980,6 +985,13 @@ void webkitWebViewBaseUpdatePreferences(WebKitWebViewBase* webkitWebViewBase)
+     priv->pageProxy->pageGroup().preferences()->setAcceleratedCompositingEnabled(false);
+ }
+ 
++#if HAVE(GTK_SCALE_FACTOR)
++static void deviceScaleFactorChanged(WebKitWebViewBase* webkitWebViewBase)
++{
++    webkitWebViewBase->priv->pageProxy->setIntrinsicDeviceScaleFactor(gtk_widget_get_scale_factor(GTK_WIDGET(webkitWebViewBase)));
++}
++#endif // HAVE(GTK_SCALE_FACTOR)
++
+ void webkitWebViewBaseCreateWebPage(WebKitWebViewBase* webkitWebViewBase, WebContext* context, WebPageGroup* pageGroup, WebPageProxy* relatedPage)
+ {
+     WebKitWebViewBasePrivate* priv = webkitWebViewBase->priv;
+@@ -995,6 +1007,12 @@ void webkitWebViewBaseCreateWebPage(WebKitWebViewBase* webkitWebViewBase, WebCon
+         priv->pageProxy->setAcceleratedCompositingWindowId(priv->redirectedWindow->windowId());
+ #endif
+ 
++#if HAVE(GTK_SCALE_FACTOR)
++    // We attach this here, because changes in scale factor are passed directly to the page proxy.
++    priv->pageProxy->setIntrinsicDeviceScaleFactor(gtk_widget_get_scale_factor(GTK_WIDGET(webkitWebViewBase)));
++    g_signal_connect(webkitWebViewBase, "notify::scale-factor", G_CALLBACK(deviceScaleFactorChanged), nullptr);
++#endif
++
+     webkitWebViewBaseUpdatePreferences(webkitWebViewBase);
+ 
+     // This must happen here instead of the instance initializer, because the input method
+diff --git a/Source/WebKit2/UIProcess/WebPageProxy.cpp b/Source/WebKit2/UIProcess/WebPageProxy.cpp
+index 5bfee5c..ff1817c 100644
+--- a/Source/WebKit2/UIProcess/WebPageProxy.cpp
++++ b/Source/WebKit2/UIProcess/WebPageProxy.cpp
+@@ -129,6 +129,10 @@
+ #include "ViewSnapshotStore.h"
+ #endif
+ 
++#if USE(CAIRO)
++#include <WebCore/CairoUtilities.h>
++#endif
++
+ // This controls what strategy we use for mouse wheel coalescing.
+ #define MERGE_WHEEL_EVENTS 1
+ 
+@@ -1630,6 +1634,12 @@ void WebPageProxy::setCustomDeviceScaleFactor(float customScaleFactor)
+     if (!isValid())
+         return;
+ 
++    // FIXME: Remove this once we bump cairo requirements to support HiDPI.
++    // https://bugs.webkit.org/show_bug.cgi?id=133378
++#if USE(CAIRO) && !HAVE(CAIRO_SURFACE_SET_DEVICE_SCALE)
++    return;
++#endif
++
+     if (m_customDeviceScaleFactor == customScaleFactor)
+         return;
+ 
+diff --git a/Source/WebKit2/UIProcess/cairo/BackingStoreCairo.cpp b/Source/WebKit2/UIProcess/cairo/BackingStoreCairo.cpp
+index 6aa00b6..89968ae 100644
+--- a/Source/WebKit2/UIProcess/cairo/BackingStoreCairo.cpp
++++ b/Source/WebKit2/UIProcess/cairo/BackingStoreCairo.cpp
+@@ -48,14 +48,14 @@ using namespace WebCore;
+ namespace WebKit {
+ 
+ #if PLATFORM(GTK)
+-static OwnPtr<WidgetBackingStore> createBackingStoreForGTK(GtkWidget* widget, const IntSize& size)
++static OwnPtr<WidgetBackingStore> createBackingStoreForGTK(GtkWidget* widget, const IntSize& size, float deviceScaleFactor)
+ {
+ #if PLATFORM(X11) && defined(GDK_WINDOWING_X11)
+     GdkDisplay* display = gdk_display_manager_get_default_display(gdk_display_manager_get());
+     if (GDK_IS_X11_DISPLAY(display))
+-        return WebCore::WidgetBackingStoreGtkX11::create(widget, size);
++        return WebCore::WidgetBackingStoreGtkX11::create(widget, size, deviceScaleFactor);
+ #endif
+-    return WebCore::WidgetBackingStoreCairo::create(widget, size);
++    return WebCore::WidgetBackingStoreCairo::create(widget, size, deviceScaleFactor);
+ }
+ #endif
+ 
+@@ -73,9 +73,9 @@ void BackingStore::incorporateUpdate(ShareableBitmap* bitmap, const UpdateInfo&
+ {
+     if (!m_backingStore)
+ #if PLATFORM(EFL)
+-        m_backingStore = WidgetBackingStoreCairo::create(EwkView::toEvasObject(toAPI(m_webPageProxy)), size());
++        m_backingStore = WidgetBackingStoreCairo::create(EwkView::toEvasObject(toAPI(m_webPageProxy)), size(), deviceScaleFactor());
+ #else
+-        m_backingStore = createBackingStoreForGTK(m_webPageProxy->viewWidget(), size());
++        m_backingStore = createBackingStoreForGTK(m_webPageProxy->viewWidget(), size(), deviceScaleFactor());
+ #endif
+ 
+     scroll(updateInfo.scrollRect, updateInfo.scrollOffset);
+@@ -88,7 +88,7 @@ void BackingStore::incorporateUpdate(ShareableBitmap* bitmap, const UpdateInfo&
+         IntRect updateRect = updateInfo.updateRects[i];
+         IntRect srcRect = updateRect;
+         srcRect.move(-updateRectLocation.x(), -updateRectLocation.y());
+-        bitmap->paint(graphicsContext, updateRect.location(), srcRect);
++        bitmap->paint(graphicsContext, deviceScaleFactor(), updateRect.location(), srcRect);
+     }
+ }
+ 
+-- 
+2.2.0
+

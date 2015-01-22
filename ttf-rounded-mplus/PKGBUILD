@@ -1,15 +1,15 @@
 # Maintainer : boronology <boronology at gmail dot com>
 pkgname=ttf-rounded-mplus
-pkgver=20140812
+pkgver=20150110
 pkgrel=1
 depends=('fontconfig' 'xorg-font-utils')
 pkgdesc="Japanese rounded gothic fonts based on M+ FONTS"
 arch=('any')
 license=('custom')
 url="http://jikasei.me/font/rounded-mplus/"
-source=("http://sourceforge.jp/frs/chamber_redir.php?m=jaist&f=%2Fusers%2F6%2F6593%2Frounded-mplus-20140812.7z"
-	"http://sourceforge.jp/frs/chamber_redir.php?m=iij&f=%2Fusers%2F6%2F6592%2Frounded-x-mplus-20140812.7z"
-	"http://sourceforge.jp/frs/chamber_redir.php?m=iij&f=%2Fusers%2F6%2F6594%2Frounded-l-mplus-20140812.7z"
+source=("http://sourceforge.jp/frs/chamber_redir.php?m=jaist&f=%2Fusers%2F7%2F7708%2Frounded-mplus-20150110.7z"
+	"http://sourceforge.jp/frs/chamber_redir.php?m=jaist&f=%2Fusers%2F7%2F7709%2Frounded-x-mplus-20150110.7z"
+	"http://sourceforge.jp/frs/chamber_redir.php?m=osdn&f=%2Fusers%2F7%2F7707%2Frounded-l-mplus-20150110.7z"
 	)
 
 install=$pkgname.install
@@ -31,6 +31,6 @@ package() {
 	    done
 }
 
-md5sums=('e22083d62eef39802a65c85821fa9449'
-         '4d8c0227986fbf2a2cf7d4fee5ea934d'
-         '6739376df0b1fbdee8b1f4b9ff8d5a8f')
+md5sums=('4fa76a841c83bc296ea19a6f6f56b553'
+         '4c0e6167d5d35bb685b86acb2653deb7'
+         '716d686eee8b402805db51c461da2c84')

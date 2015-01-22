@@ -1,0 +1,142 @@
+diff -wbBur cdfs-2.6.27-orin/audio.c cdfs-2.6.27/audio.c
+--- cdfs-2.6.27-orin/audio.c	2015-01-21 15:40:55.000000000 +0800
++++ cdfs-2.6.27/audio.c	2015-01-21 16:55:48.165683504 +0800
+@@ -168,7 +168,7 @@
+ 
+ struct file_operations cdfs_cdda_file_operations = {
+     .read = do_sync_read,
+-    .aio_read = generic_file_aio_read,
++    .aio_read = generic_file_read_iter,
+     .mmap = generic_file_mmap,
+ };
+ 
+diff -wbBur cdfs-2.6.27-orin/cddata.c cdfs-2.6.27/cddata.c
+--- cdfs-2.6.27-orin/cddata.c	2015-01-21 15:40:55.000000000 +0800
++++ cdfs-2.6.27/cddata.c	2015-01-21 16:55:03.022685403 +0800
+@@ -77,7 +77,8 @@
+ 
+ struct file_operations cdfs_cddata_file_operations = {
+   .read = do_sync_read,
+-  .aio_read = generic_file_aio_read,
++  //.aio_read = generic_file_aio_read,
++	.aio_read = generic_file_read_iter,
+ #ifdef OLD_KERNEL
+   .mmap             = generic_file_mmap
+ #else
+diff -wbBur cdfs-2.6.27-orin/cdXA.c cdfs-2.6.27/cdXA.c
+--- cdfs-2.6.27-orin/cdXA.c	2015-01-21 15:40:55.000000000 +0800
++++ cdfs-2.6.27/cdXA.c	2015-01-21 16:56:10.737682555 +0800
+@@ -27,7 +27,8 @@
+ 
+ struct file_operations cdfs_cdXA_file_operations = {
+     .read = do_sync_read,
+-    .aio_read = generic_file_aio_read,
++    //.aio_read = generic_file_aio_read,
++	.aio_read = generic_file_read_iter,
+     .mmap = generic_file_mmap,
+ };
+ 
+diff -wbBur cdfs-2.6.27-orin/daemon.c cdfs-2.6.27/daemon.c
+--- cdfs-2.6.27-orin/daemon.c	2015-01-21 15:40:55.000000000 +0800
++++ cdfs-2.6.27/daemon.c	2015-01-21 16:49:39.128699024 +0800
+@@ -29,6 +29,8 @@
+ 
+ #include "cdfs.h"
+ #include <linux/sched.h>
++//Replace deprecated interruptible_sleep_on() function call with direct
++#include <linux/wait.h>
+ 
+ int kcdfsd_pid = 0;
+ static int kcdfsd_running = 0;
+@@ -167,10 +169,14 @@
+   /* Setup a nice name */
+   strcpy(current->comm, "k"FSNAME"d");
+ 
++	DEFINE_WAIT(wait);
++	
+   /* Send me a signal to get me die */
+   do {
+     kcdfsd_process_request();
+-    interruptible_sleep_on(&kcdfsd_wait);
++	  //Replace deprecated interruptible_sleep_on() function call with direct
++    //interruptible_sleep_on(&kcdfsd_wait);
++	  prepare_to_wait(&kcdfsd_wait, &wait, TASK_INTERRUPTIBLE);
+   } while (!signal_pending(current));
+ 
+   kcdfsd_running = 0;
+Only in cdfs-2.6.27: .directory
+diff -wbBur cdfs-2.6.27-orin/hfs.c cdfs-2.6.27/hfs.c
+--- cdfs-2.6.27-orin/hfs.c	2015-01-21 15:40:55.000000000 +0800
++++ cdfs-2.6.27/hfs.c	2015-01-21 16:56:27.819681837 +0800
+@@ -195,7 +195,7 @@
+ 
+ struct file_operations cdfs_cdhfs_file_operations = {
+   .read = do_sync_read,
+-  .aio_read = generic_file_aio_read,
++  .aio_read = generic_file_read_iter,
+   .mmap             = generic_file_mmap
+ };
+ 
+Only in cdfs-2.6.27: modules.order
+diff -wbBur cdfs-2.6.27-orin/root.c cdfs-2.6.27/root.c
+--- cdfs-2.6.27-orin/root.c	2015-01-21 15:40:55.000000000 +0800
++++ cdfs-2.6.27/root.c	2015-01-21 16:33:57.547738622 +0800
+@@ -36,6 +36,7 @@
+ #include <linux/seq_file.h>
+ #include <linux/statfs.h>
+ #include <linux/sched.h>
++#include <linux/uidgid.h>
+ 
+ extern struct seq_operations cdfs_operations;
+ extern struct _track_info *dummy_track_p;
+@@ -428,7 +429,11 @@
+ 
+ static struct file_operations cdfs_dir_operations = {
+   .read     = generic_read_dir,
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 12, 0)) 
++  .iterate = cdfs_readdir,
++#else
+   .readdir  = cdfs_readdir,
++#endif
+ };
+ 
+ static struct inode_operations cdfs_inode_operations = {
+@@ -445,8 +450,10 @@
+ 
+   PRINT("read inode %ld\n", i->i_ino);
+   
+-  i->i_uid        = this_cd->uid;
+-  i->i_gid        = this_cd->gid;
++ // i->i_uid        = this_cd->uid;
++ // i->i_gid        = this_cd->gid;
++	i->i_uid        = make_kuid(current_user_ns(), this_cd->uid);
++	i->i_gid        = make_kgid(current_user_ns(), this_cd->gid);
+   i->__i_nlink      = 1;
+   i->i_op         = &cdfs_inode_operations;
+   i->i_fop        = NULL;
+@@ -537,6 +544,12 @@
+ 
+ /******************************************************************/
+ 
++static const struct file_operations cdfs_fops = {
++        .owner = THIS_MODULE,
++        .read = seq_read,
++        .write = seq_write,
++};
++
+ static int __init cdfs_init(void) {
+   int err;
+   PRINT("init_module (insmod)\n");
+@@ -548,8 +561,9 @@
+   if (err < 0) return err;
+ 
+   // register /proc entry
+-  if ((cdfs_proc_entry = create_proc_entry(FSNAME, 0, NULL )))
+-    cdfs_proc_entry->proc_fops = &proc_cdfs_operations;
++  //if ((cdfs_proc_entry = create_proc_entry(FSNAME, 0, NULL )))
++	if ((cdfs_proc_entry = proc_create(FSNAME, 0, NULL,  &cdfs_fops)))
++//    cdfs_proc_entry->proc_fops = &proc_cdfs_operations;
+   cdfs_proc_cd=NULL;
+ 
+   // start kernel thread
+Only in cdfs-2.6.27-orin: .tmp_versions
