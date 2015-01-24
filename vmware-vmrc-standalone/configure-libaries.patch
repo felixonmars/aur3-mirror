@@ -1,0 +1,811 @@
+diff -ru src/plugins/lib/wrapper-gtk24.sh src.configured/plugins/lib/wrapper-gtk24.sh
+--- src/plugins/lib/wrapper-gtk24.sh	2010-10-11 20:12:00.000000000 -0700
++++ src.configured/plugins/lib/wrapper-gtk24.sh	2010-10-11 20:12:00.000000000 -0700
+@@ -1,26 +1,526 @@
+ #!/bin/sh
+-if [ -h "$0" ]; then
+-   this="`readlink -f "$0"`"
+-else
+-   this="$0"
++libs="$1"
++shift
++binary="$1"
++shift
++confs="$1"
++shift
++
++# Need to test this for unresolved symbols too
++libvmwareui="$libs/libvmwareui.so.0/libvmwareui.so.0"
++
++# For the sake of simplicity, we only check the first arg for the gdb/valgrind
++# flag.
++valgrind=0
++debugger=0
++if [ "$1" = '--valgrind' ] ; then
++   # Pop --valgrind.
++   shift
++   valgrind=1
++elif [ "$1" = '-G' ] ; then
++   # Pop -G.
++   shift
++   debugger=1
+ fi
+ 
+-vm_libs="$1"
+-vm_binary="$2"
+-vm_confs="$3"
+-
+-echo "Configuring libraries for first use"
+-
+-for vm_lib_conf_file in `find $vm_confs/etc -type f`; do
+-   sed -e "s,@@VMWARE_LIBCONF_ETC_DIR@@,$vm_confs,g" --in-place $vm_lib_conf_file
+-   echo "Configured $vm_lib_conf_file"
+-done
+-
+-mv "$this".configured "$this"
+-if (( $? )); then 
+-   echo "Configuration failed: $?"
+-   exit 1
++#
++# XXX: Until we fully switch to gtk 2.10, we need to conditionalise on it.
++#
++if [ -e "$libs/libcairo.so.2/libcairo.so.2" ]; then
++   # GTK 2.10
++   isgtk210=1
+ else
+-   echo "Configuration successful"
+-   exec "$this" "$@"
++   # GTK 2.4
++   isgtk210=0
+ fi
++
++libpath=
++
++# Take a full path to a lib directory containing a lib of the same name
++# and return the adjusted name.
++vm_translate_lib_name() {
++   local libroot=`echo $1 | sed -e 's/\.so.*/\.so/'`
++   local new_name=`ls -d $libroot* 2>/dev/null`
++   if [ "$new_name" = "" ]; then
++      new_name=$1
++   fi
++   echo "`basename $new_name`"
++}
++
++# Apppend a directory to LD_LIBRARY_PATH
++vm_append_lib() {
++   local lib="$1" # IN: The library to append
++   local path="$libs"'/'"$lib"
++
++   # translate given lib to the same name in the
++   # package that may be a different version
++   if [ "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      local mlib=`vm_translate_lib_name $path`
++      path="$libs"'/'"$mlib"
++      # Don't add missing libs
++      if [ ! -d $path ]; then
++         return
++      fi
++   fi
++
++   if [ "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      path="$path"'/'"$mlib"
++   fi
++
++   if [ "$libpath" = '' ]; then
++      libpath="$path"
++   else
++      libpath="$libpath":"$path"
++   fi
++}
++
++vm_append_cplusplus() {
++   vm_append_lib 'libstdc++.so.6'
++   vm_append_lib 'libgcc_s.so.1'
++   vm_append_lib 'libsigc-2.0.so.0'
++   vm_append_lib 'libgiomm-2.4.so.1'
++   vm_append_lib 'libglibmm-2.4.so.1'
++   vm_append_lib 'libglibmm_generate_extra_defs-2.4.so.1'
++   vm_append_lib 'libatkmm-1.6.so.1'
++   vm_append_lib 'libpangomm-1.4.so.1'
++   vm_append_lib 'libgdkmm-2.4.so.1'
++   vm_append_lib 'libgtkmm-2.4.so.1'
++   vm_append_lib 'libcairomm-1.0.so.1'
++   vm_append_lib 'libgnomecanvasmm-2.6.so.1'
++   vm_append_lib 'libview.so.2'
++   vm_append_lib 'libsexymm.so.2'
++}
++
++# Append the GTK+ libraries to LD_LIBRARY_PATH
++vm_fix_gtk() {
++   # GLib
++   vm_append_lib 'libgio-2.0.so.0'
++   vm_append_lib 'libglib-2.0.so.0'
++   vm_append_lib 'libiconv.so.0'
++   vm_append_lib 'libintl.so.0'
++   vm_append_lib 'libgmodule-2.0.so.0'
++   vm_append_lib 'libgobject-2.0.so.0'
++   vm_append_lib 'libgthread-2.0.so.0'
++
++   # ATK
++   vm_append_lib 'libatk-1.0.so.0'
++   vm_append_lib 'libgailutil.so.17'
++   vm_append_lib 'libspi.so.0'
++
++   # Pango
++   vm_append_lib 'libpango-1.0.so.0'
++   vm_append_lib 'libpangoft2-1.0.so.0'
++   vm_append_lib 'libpangoxft-1.0.so.0'
++   vm_append_lib 'libpangox-1.0.so.0'
++   vm_append_lib 'libpangocairo-1.0.so.0'
++
++   # GTK+
++   vm_append_lib 'libgdk-x11-2.0.so.0'
++   vm_append_lib 'libgdk_pixbuf-2.0.so.0'
++   vm_append_lib 'libgtk-x11-2.0.so.0'
++
++   # Cairo
++   vm_append_lib 'libcairo.so.2'
++
++   # librsvg
++   vm_append_lib 'librsvg-2.so.2'
++
++   # libsexy
++   vm_append_lib 'libsexy.so.2'
++
++   # GnomeCanvas
++   # We use gnomecanvas 2.6. Apparently 2.4 is symbol compatible but not
++   # compatible enough to avoid crashing at times, so consider gnomecanvas to
++   # be part of the base Gtk set.
++   vm_append_lib 'libgnomecanvas-2.so.0'
++
++   # libglade
++   # libglade has a similar potential for trouble as GnomeCanvas
++   vm_append_lib 'libglade-2.0.so.0'
++
++   # These are not a direct dependency of GTK+, but they keep breaking
++   # binary compatibility in both directions, so use ours.
++   vm_append_lib 'libfreetype.so.6'
++   vm_append_lib 'libXinerama.so.1'
++   vm_append_lib 'libXfixes.so.3'
++   vm_append_lib 'libXcursor.so.1'
++   vm_append_lib 'libXrandr.so.2'
++   vm_append_lib 'libXrender.so.1'
++   vm_append_lib 'libXft.so.2'
++   vm_append_lib 'libXcomposite.so.1'
++   vm_append_lib 'libXdamage.so.1'
++
++   # Needed for XScreenSaverSuspend; appeared in libXScrnSaver 1.1.0.
++   vm_append_lib 'libXss.so.1'
++
++   # We have observed cases of incompatibility between system gtk and our
++   # libpng and system libpng and our gtk. So they should be considered
++   # part of the same set.
++   vm_append_lib 'libpng12.so.0'
++
++   # This is technically not needed here but it makes things simpler than
++   # having to handle 'force' separately for libxml2.
++   vm_append_lib 'libxml2.so.2'
++
++   # C++ libs better match the base gtk ones in this case...
++   vm_append_cplusplus
++
++   # We ship libatk-bridge.so which links against libbonobo, so we need
++   # to ship libbonobo as well.
++   vm_append_lib 'libbonobo-2.so.0'
++   vm_append_lib 'libbonobo-activation.so.4'
++
++   echo "$libpath"
++}
++
++# Libraries we should unconditionally append
++vm_append_always() {
++   vm_append_lib 'libcurl.so.4'
++   echo "$libpath"
++}
++
++# Append the C++ libraries to LD_LIBRARY_PATH
++vm_fix_cplusplus() {
++   vm_append_cplusplus
++   echo "$libpath"
++}
++
++vm_fix_libxml2() {
++   vm_append_lib 'libxml2.so.2'
++   echo "$libpath"
++}
++
++vm_fix_libview() {
++   vm_append_lib 'libview.so.2'
++   echo "$libpath"
++}
++
++
++# Append the remaining, usually safe, libraries
++# This is used in the 'force' case to ensure all our libs are used
++vm_force_other_libs() {
++   # Expat
++   vm_append_lib 'libexpat.so.0'
++
++   # libart
++   vm_append_lib 'libart_lgpl_2.so.2'
++
++   echo "$libpath"
++}
++
++# Parse ldd's output and append all missing libraries to LD_LIBRARY_PATH
++vm_append_missing() {
++   local lib
++   local dummy
++   local status
++
++   while read -r lib dummy status; do
++      if [ -n "`echo "$status" | sed -ne '/not found/p'`" ]; then
++         vm_append_lib "$lib"
++      fi
++   done
++
++   echo "$libpath"
++}
++
++vm_append_to_library_path() {
++   local ldBasePath
++   if [ ! -z "$LD_LIBRARY_PATH" ]; then
++      ldBasePath="$LD_LIBRARY_PATH:"
++   fi
++   export LD_LIBRARY_PATH="$ldBasePath""$1"
++}
++
++# Extract the library list from an ldd output
++vm_make_lib_list() {
++   local lib
++
++   while read -r lib dummy; do
++      echo "$lib"
++   done
++}
++
++# Run "$binary" with the correct environment.
++vm_run() {
++   local prevLibList
++   local curLibList
++   local lddOutput
++   local sanityCounter
++
++   vm_append_to_library_path "`vm_append_always`"
++
++   #
++   # Repeatedly run ldd and attempt to append missing libs. This will end when
++   # the list of libraries reported by ldd stops changing. This iteration
++   # ensures that we notice and attempt to satisfy any indirect dependencies.
++   #
++   sanityCounter=20
++   while true; do
++      # If the sanity counter has run out, give up and break.
++      sanityCounter=$(($sanityCounter - 1))
++      if [ "$sanityCounter" = '0' ]; then
++         echo 'Warning: Unable to fully resolve dependencies.'
++         break
++      fi
++
++      # Refresh the ldd output for comparison.
++      lddOutput="`LANGUAGE=C LANG=C ldd "$binary"`"
++
++      prevLibList="$curLibList"
++      curLibList="`echo "$lddOutput" | vm_make_lib_list`"
++
++      # We're no longer changing the ldd output. Our work is done.
++      if [ "$curLibList" = "$prevLibList" ]; then
++         break
++      fi
++
++      # Append any libraries that are still missing.
++      if [ "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++         export preload="$preload":"`echo "$lddOutput" | vm_append_missing`"
++      else
++         vm_append_to_library_path "`echo "$lddOutput" | vm_append_missing`"
++      fi
++   done
++
++   # Refresh ldd output with '-r' to check for missing symbols.
++   lddOutput="`LANGUAGE=C LANG=C ldd -r "$binary" 2>&1 > /dev/null`"
++
++   #
++   # For some libs, we require specific library versions, which we either detect
++   # by missing symbols or missing version tags.
++   #
++   if [ "$VMWARE_USE_SHIPPED_GTK" = '' ]; then
++      if echo "$lddOutput" | grep -q 'xmlReadFile'; then
++         # No sufficiently new libxml2 on the system
++         vm_append_to_library_path "`vm_fix_libxml2`"
++      fi
++   fi
++
++   if [ "$VMWARE_USE_SHIPPED_GTK" = '' ]; then
++      # ldd output with '-r' to check for missing symbols against libvmwareui
++      lddUiLibOutput="`LANGUAGE=C LANG=C ldd -r "$libvmwareui" 2>&1 > /dev/null`"
++      if echo "$lddUiLibOutput" | grep -q 'ViewOvBox_SetVerticalOffset'; then
++         # No sufficiently new libview on the system
++         vm_append_to_library_path "`vm_fix_libview`"
++      fi
++   fi
++
++   if [ "$VMWARE_USE_SHIPPED_GTK" = '' ]; then
++      if echo "$lddOutput" | grep -q 'CXXABI_1.3.1'; then
++         # No sufficiently new C++ runtime environment on the system.
++         vm_append_to_library_path "`vm_fix_cplusplus`"
++      fi
++   fi
++
++   # Use LD_LIBRARY_PATH instead of preload to avoid affecting the loader.
++   if [ "$VMWARE_USE_SHIPPED_GTK" = "force" ]; then
++      LD_LIBRARY_PATH="`echo $preload":" | sed -e 's/\/lib[^\/]*:/:/g'`"':'"$LD_LIBRARY_PATH"
++      export LD_LIBRARY_PATH
++   fi
++
++   if [ $valgrind = 1 ] ; then
++      valgrind --log-file=/tmp/valgrind-ui.log --leak-check=yes \
++               --show-reachable=no --partial-loads-ok=yes \
++               --num-callers=32 "$binary" "$@"
++   elif [ $debugger = 1 ] ; then
++      gdb $VMUI_DEBUG_FLAGS --args "$binary" "$@"
++   else
++      exec "$binary" "$@"
++   fi
++
++   return "$?"
++}
++
++#
++# This function tests if an environment variable is actually set or not.
++# As we had to dig quite a bit to work out what to do, we've put it in
++# a separate function.
++#
++vm_is_var_set() {
++   local var="$1"
++
++   eval '[ "${'"$var"'+yes}" = 'yes' ]'
++}
++
++#
++# We must save all environment variables that we manipulate because we will
++# be fork/exec'ing help/web browsers. We must also explicitly indicate which
++# vars were originally unset. There is a third state where we don't try and
++# save a var at all and this is indicated by not setting VMWARE_<foo> at all.
++#
++vm_save_var() {
++   local var="$1"
++
++   if vm_is_var_set 'VMWARE_'"$var" && [ "$VMWARE_DEBUG" = "yes" ] ; then
++      echo 'VMWARE_'"$var"' is already set, but it will be overridden.'
++   fi
++
++   if vm_is_var_set "$var"; then
++      eval 'export VMWARE_'"$var"'="1$'"$var"'"'
++   else
++      eval 'export VMWARE_'"$var"'="0 VMWARE_UNDEFINED"'
++   fi
++}
++
++#
++# Function to strip qtengine out of the set of GTK2_RC_FILES. SuSE evilness
++# necessitates this. It has to be a function because we wipe the 'command line'
++# argument space when we do the stripping.
++#
++vm_strip_out_qt_engine() {
++   local gtk2_rc_files="$1"
++   local tmp_rc_files=""
++
++   #
++   # gtk-qt-engine is evil and SuSE use an evil mechanism to force it.
++   # So, we have to strip it out like this:
++   #
++   set -- `IFS=':'; echo $gtk2_rc_files`
++   while [ "$#" -gt 0 ]; do
++      case "$1" in
++         *'qtengine'*)
++         ;;
++         *'/Qt/'*)
++         ;;
++         *)
++         tmp_rc_files="$tmp_rc_files""$1"':'
++         ;;
++      esac
++      shift
++   done
++   echo "$tmp_rc_files"
++}
++
++#
++# This list must be kept in sync with the corresponding UI code that restores
++# these variables.
++#
++vm_save_var 'LD_LIBRARY_PATH'
++vm_save_var 'LD_PRELOAD'
++vm_save_var 'PANGO_RC_FILE'
++vm_save_var 'GDK_PIXBUF_MODULE_FILE'
++vm_save_var 'GTK_IM_MODULE_FILE'
++vm_save_var 'FONTCONFIG_PATH'
++vm_save_var 'GTK2_RC_FILES'
++vm_save_var 'GTK_EXE_PREFIX'
++vm_save_var 'GTK_PATH'
++vm_save_var 'GTK_PATH64'
++
++#
++# When environment variable VMWARE_USE_SHIPPED_GTK is set to "force", we
++# forcefully use the GTK+ runtime environment (libraries + their
++# configuration files) that we ship.
++#
++# When environment variable VMWARE_USE_SHIPPED_GTK is set to "yes", we
++# thoughtfully use the GTK+ runtime environment (libraries + their
++# configuration files) that we ship.  This works for all but the most broken
++# environments, so if we're guessing we try this.
++#
++# When environment variable VMWARE_USE_SHIPPED_GTK is set to "no", we use
++# the system's GTK+ runtime environment.
++#
++# When environment variable VMWARE_USE_SHIPPED_GTK is not set (the default), we
++# try to make an educated guess.
++#
++
++if [ "$VMWARE_USE_SHIPPED_GTK" = '' ]; then
++   # We're checking a symbol in gtkmm instead of gtk here so that we can
++   # guarantee the version of gtkmm is new enough. And, if the gtkmm is new
++   # enough, we know that the gtk will be new enough as well, as you cannot
++   # use a version of gtkmm that's newer than gtk.
++   GTKMM_SYMBOL='Glib10ObjectBase24connect_property_changed'
++
++   if LANGUAGE=C LANG=C ldd -r "$binary" 2>&1 >/dev/null \
++         | grep -q $GTKMM_SYMBOL; then
++      # No sufficiently new GTK+ runtime environment on the system.
++      export VMWARE_USE_SHIPPED_GTK=yes
++   fi
++fi
++
++if [ "$VMWARE_USE_SHIPPED_GTK" = 'yes' -o "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++   #
++   # Libraries
++   #
++
++   if [ "$VMWARE_USE_SHIPPED_GTK" = 'yes' ]; then
++      export LD_LIBRARY_PATH="`vm_fix_gtk`"
++   else
++      export preload="`vm_fix_gtk`":"`vm_force_other_libs`"
++   fi
++
++   #
++   # Library configuration files
++   #
++
++   if [ -z "$PANGO_RC_FILE" -o "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      export PANGO_RC_FILE="$confs"'/etc/pango/pangorc'
++   fi
++
++   if [ -z "$GDK_PIXBUF_MODULE_FILE" -o "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      export GDK_PIXBUF_MODULE_FILE="$confs"'/etc/gtk-2.0/gdk-pixbuf.loaders'
++   fi
++
++   if [ -z "$GTK_IM_MODULE_FILE" -o "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      export GTK_IM_MODULE_FILE="$confs"'/etc/gtk-2.0/gtk.immodules'
++   fi
++
++   # We always want to append our gtkrc, unless we're forcing it
++   if [ "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      export GTK2_RC_FILES="$confs"'/etc/gtk-2.0/gtkrc'
++   else
++      if [ -z "$GTK2_RC_FILES" ]; then
++         GTK2_RC_FILES='/etc/gtk-2.0/gtkrc:'"$HOME"'/.gtkrc-2.0:'
++      else
++         GTK2_RC_FILES="`vm_strip_out_qt_engine $GTK2_RC_FILES`"
++      fi
++      export GTK2_RC_FILES="$GTK2_RC_FILES""$confs"'/etc/gtk-2.0/gtkrc'
++   fi
++
++   # We will try as hard as possible to use the system fonts.conf
++   if [ \( ! -e "/etc/fonts/fonts.conf" -a -z "$FONTCONFIG_PATH" \) \
++        -o "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      export FONTCONFIG_PATH="$confs"'/etc/fonts'
++      vm_append_lib 'libfontconfig.so.1'
++   fi
++
++   # SuSE & RedHat use lib64 for 64bit and lib == lib32 while Ubuntu/Debian & us
++   # use lib == lib64 and lib32 is explicit.
++   # Fortunately, lib==lib32 systems modify their Gtk to respect GTK_PATH64.
++   # So we need to detect the lib==lib32 case, which we can do by testing to see
++   # whether or not /usr/lib64 is a directory.
++
++   if [ -d "$confs/gtk-2.0" ]; then
++      GTK_PATH_PREFIX="$confs"
++   else
++      if [ -d "$confs/lib/gtk-2.0" ]; then
++         GTK_PATH_PREFIX="$confs/lib"
++      fi
++   fi
++   # There are systems that don't pay attention to GTK_PATH and appear to
++   # depend on LD_LIBRARY_PATH for modules searching. So add that path to
++   # LD_LIBRARY_PATH.
++   vm_append_to_library_path "$GTK_PATH_PREFIX"
++   vm_append_to_library_path "$GTK_PATH_PREFIX/gtk-2.0/modules"
++   # Always append our libdir to GTK_PATH
++   vm_gtk_path="$GTK_PATH_PREFIX/gtk-2.0/modules"
++   if [ -z "$GTK_PATH" -o "$VMWARE_USE_SHIPPED_GTK" = 'force' ]; then
++      export GTK_PATH="$vm_gtk_path"
++      export GTK_EXE_PREFIX="$confs"
++      if [ -L "/usr/lib32" ]; then
++         # Take the contents of GTK_PATH and set it to GTK_PATH64
++         # and then clear GTK_PATH.
++         export GTK_PATH64="$GTK_PATH"
++         unset GTK_PATH
++      fi
++   else
++      # Incorporate the contents of the system-appropriate 64-bit GTK path into
++      # the path we use.
++      if [ -L "/usr/lib32" ]; then
++         export GTK_PATH="$GTK_PATH64"
++      fi
++      export GTK_PATH="$GTK_PATH"':'"$vm_gtk_path"
++   fi
++
++fi
++
++vm_run "$@"
+Only in src/plugins/lib: wrapper-gtk24.sh.configured
+diff -ru src/plugins/libconf/etc/gtk-2.0/gdk-pixbuf.loaders src.configured/plugins/libconf/etc/gtk-2.0/gdk-pixbuf.loaders
+--- src/plugins/libconf/etc/gtk-2.0/gdk-pixbuf.loaders	2010-10-11 20:11:54.000000000 -0700
++++ src.configured/plugins/libconf/etc/gtk-2.0/gdk-pixbuf.loaders	2015-01-23 11:24:41.688701073 -0800
+@@ -2,40 +2,40 @@
+ # Automatically generated file, do not edit
+ # Created by gdk-pixbuf-query-loaders from gtk+-2.12.11
+ #
+-# LoaderDir = @@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders
++# LoaderDir = ./libconf/lib/gtk-2.0/2.10.0/loaders
+ #
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-ani.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-ani.so"
+ "ani" 4 "gtk20" "The ANI image format"
+ "application/x-navi-animation" ""
+ "ani" ""
+ "RIFF    ACON" "    xxxx    " 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-bmp.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-bmp.so"
+ "bmp" 5 "gtk20" "The BMP image format"
+ "image/bmp" "image/x-bmp" "image/x-MS-bmp" ""
+ "bmp" ""
+ "BM" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-gif.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-gif.so"
+ "gif" 4 "gtk20" "The GIF image format"
+ "image/gif" ""
+ "gif" ""
+ "GIF8" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-ico.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-ico.so"
+ "ico" 5 "gtk20" "The ICO image format"
+ "image/x-icon" "image/x-ico" "image/x-win-bitmap" ""
+ "ico" "cur" ""
+ "  \001   " "zz znz" 100
+ "  \002   " "zz znz" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-jpeg.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-jpeg.so"
+ "jpeg" 5 "gtk20" "The JPEG image format"
+ "image/jpeg" ""
+ "jpeg" "jpe" "jpg" ""
+ "\377\330" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-pcx.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-pcx.so"
+ "pcx" 4 "gtk20" "The PCX image format"
+ "image/x-pcx" ""
+ "pcx" ""
+@@ -45,13 +45,13 @@
+ "\n\004\001" "" 100
+ "\n\005\001" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-png.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-png.so"
+ "png" 5 "gtk20" "The PNG image format"
+ "image/png" ""
+ "png" ""
+ "\211PNG\r\n\032\n" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-pnm.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-pnm.so"
+ "pnm" 4 "gtk20" "The PNM/PBM/PGM/PPM image format family"
+ "image/x-portable-anymap" "image/x-portable-bitmap" "image/x-portable-graymap" "image/x-portable-pixmap" ""
+ "pnm" "pbm" "pgm" "ppm" ""
+@@ -62,13 +62,13 @@
+ "P5" "" 100
+ "P6" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-ras.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-ras.so"
+ "ras" 4 "gtk20" "The Sun raster image format"
+ "image/x-cmu-raster" "image/x-sun-raster" ""
+ "ras" ""
+ "Y\246j\225" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-tga.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-tga.so"
+ "tga" 4 "gtk20" "The Targa image format"
+ "image/x-tga" ""
+ "tga" "targa" ""
+@@ -79,14 +79,14 @@
+ "  \n" "xz " 100
+ "  \013" "xz " 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-tiff.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-tiff.so"
+ "tiff" 1 "gtk20" "The TIFF image format"
+ "image/tiff" ""
+ "tiff" "tif" ""
+ "MM *" "  z " 100
+ "II* " "   z" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-wbmp.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-wbmp.so"
+ "wbmp" 4 "gtk20" "The WBMP image format"
+ "image/vnd.wap.wbmp" ""
+ "wbmp" ""
+@@ -95,20 +95,20 @@
+ " @" "z " 1
+ "  " "z " 1
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-xbm.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-xbm.so"
+ "xbm" 4 "gtk20" "The XBM image format"
+ "image/x-xbitmap" ""
+ "xbm" ""
+ "#define " "" 100
+ "/*" "" 50
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-xpm.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/libpixbufloader-xpm.so"
+ "xpm" 4 "gtk20" "The XPM image format"
+ "image/x-xpixmap" ""
+ "xpm" ""
+ "/* XPM */" "" 100
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/loaders/svg_loader.so"
++"./libconf/lib/gtk-2.0/2.10.0/loaders/svg_loader.so"
+ "svg" 2 "gtk20" "Scalable Vector Graphics"
+ "image/svg+xml" "image/svg" "image/svg-xml" "image/vnd.adobe.svg+xml" "text/xml-svg" ""
+ "svg" "svgz" "svg.gz" ""
+diff -ru src/plugins/libconf/etc/gtk-2.0/gtk.immodules src.configured/plugins/libconf/etc/gtk-2.0/gtk.immodules
+--- src/plugins/libconf/etc/gtk-2.0/gtk.immodules	2010-10-11 20:11:54.000000000 -0700
++++ src.configured/plugins/libconf/etc/gtk-2.0/gtk.immodules	2015-01-23 11:24:41.695367792 -0800
+@@ -2,38 +2,38 @@
+ # Automatically generated file, do not edit
+ # Created by gtk-query-immodules-2.0 from gtk+-2.12.11
+ #
+-# ModulesPath = /mts/home3/jaina/.gtk-2.0/2.10.0/x86_64-redhat-linux-gnu/immodules:/mts/home3/jaina/.gtk-2.0/2.10.0/immodules:/mts/home3/jaina/.gtk-2.0/x86_64-redhat-linux-gnu/immodules:/mts/home3/jaina/.gtk-2.0/immodules:@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/immodules
++# ModulesPath = /mts/home3/jaina/.gtk-2.0/2.10.0/x86_64-redhat-linux-gnu/immodules:/mts/home3/jaina/.gtk-2.0/2.10.0/immodules:/mts/home3/jaina/.gtk-2.0/x86_64-redhat-linux-gnu/immodules:/mts/home3/jaina/.gtk-2.0/immodules:./libconf/lib/gtk-2.0/immodules
+ #
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-am-et.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-am-et.so" 
+ "am_et" "Amharic (EZ+)" "gtk20" "/usr/share/locale" "am" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-cedilla.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-cedilla.so" 
+ "cedilla" "Cedilla" "gtk20" "/usr/share/locale" "az:ca:co:fr:gv:oc:pt:sq:tr:wa" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-cyrillic-translit.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-cyrillic-translit.so" 
+ "cyrillic_translit" "Cyrillic (Transliterated)" "gtk20" "/usr/share/locale" "" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-inuktitut.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-inuktitut.so" 
+ "inuktitut" "Inuktitut (Transliterated)" "gtk20" "/usr/share/locale" "iu" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-ipa.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-ipa.so" 
+ "ipa" "IPA" "gtk20" "/usr/share/locale" "" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-thai.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-thai.so" 
+ "thai" "Thai-Lao" "gtk20" "/usr/share/locale" "lo:th" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-ti-er.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-ti-er.so" 
+ "ti_er" "Tigrigna-Eritrean (EZ+)" "gtk20" "/usr/share/locale" "ti" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-ti-et.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-ti-et.so" 
+ "ti_et" "Tigrigna-Ethiopian (EZ+)" "gtk20" "/usr/share/locale" "ti" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-viqr.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-viqr.so" 
+ "viqr" "Vietnamese (VIQR)" "gtk20" "/usr/share/locale" "vi" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-xim.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-xim.so" 
+ "xim" "X Input Method" "gtk20" "/usr/share/locale" "ko:ja:th:zh" 
+ 
+-"@@VMWARE_LIBCONF_ETC_DIR@@/lib/gtk-2.0/2.10.0/immodules/im-multipress.so" 
++"./libconf/lib/gtk-2.0/2.10.0/immodules/im-multipress.so" 
+ "multipress" "Multipress" "gtk20" "" "" 
+ 
+diff -ru src/plugins/libconf/etc/pango/pango.modules src.configured/plugins/libconf/etc/pango/pango.modules
+--- src/plugins/libconf/etc/pango/pango.modules	2010-10-11 20:11:54.000000000 -0700
++++ src.configured/plugins/libconf/etc/pango/pango.modules	2015-01-23 11:24:41.675367632 -0800
+@@ -1,35 +1,35 @@
+ # Pango Modules file
+ # Automatically generated file, do not edit
+ #
+-# ModulesPath = @@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules
++# ModulesPath = ./libconf/lib/pango/1.6.0/modules
+ #
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-arabic-lang.so ArabicScriptEngineLang PangoEngineLang PangoRenderNone arabic:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-arabic-fc.so ArabicScriptEngineFc PangoEngineShape PangoRenderFc arabic:* nko:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-basic-fc.so BasicScriptEngineFc PangoEngineShape PangoRenderFc latin:* cyrillic:* greek:* armenian:* georgian:* runic:* ogham:* bopomofo:* cherokee:* coptic:* deseret:* ethiopic:* gothic:* han:* hiragana:* katakana:* old-italic:* canadian-aboriginal:* yi:* braille:* cypriot:* limbu:* osmanya:* shavian:* linear-b:* ugaritic:* glagolitic:* cuneiform:* phoenician:* common:
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-basic-x.so BasicScriptEngineX PangoEngineShape PangoRenderX common:
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-hangul-fc.so HangulScriptEngineFc PangoEngineShape PangoRenderFc hangul:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-hebrew-fc.so HebrewScriptEngineFc PangoEngineShape PangoRenderFc hebrew:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so devaScriptEngineFc PangoEngineShape PangoRenderFc devanagari:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so bengScriptEngineFc PangoEngineShape PangoRenderFc bengali:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so guruScriptEngineFc PangoEngineShape PangoRenderFc gurmukhi:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so gujrScriptEngineFc PangoEngineShape PangoRenderFc gujarati:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so oryaScriptEngineFc PangoEngineShape PangoRenderFc oriya:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so tamlScriptEngineFc PangoEngineShape PangoRenderFc tamil:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so teluScriptEngineFc PangoEngineShape PangoRenderFc telugu:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so kndaScriptEngineFc PangoEngineShape PangoRenderFc kannada:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so mlymScriptEngineFc PangoEngineShape PangoRenderFc malayalam:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-fc.so sinhScriptEngineFc PangoEngineShape PangoRenderFc sinhala:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so devaIndicScriptEngineLang PangoEngineLang PangoRenderNone devanagari:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so bengIndicScriptEngineLang PangoEngineLang PangoRenderNone bengali:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so guruIndicScriptEngineLang PangoEngineLang PangoRenderNone gurmukhi:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so gujrIndicScriptEngineLang PangoEngineLang PangoRenderNone gujarati:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so oryaIndicScriptEngineLang PangoEngineLang PangoRenderNone oriya:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so tamlIndicScriptEngineLang PangoEngineLang PangoRenderNone tamil:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so teluIndicScriptEngineLang PangoEngineLang PangoRenderNone telugu:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so kndaIndicScriptEngineLang PangoEngineLang PangoRenderNone kannada:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so mlymIndicScriptEngineLang PangoEngineLang PangoRenderNone malayalam:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-indic-lang.so sinhIndicScriptEngineLang PangoEngineLang PangoRenderNone sinhala:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-khmer-fc.so KhmerScriptEngineFc PangoEngineShape PangoRenderFc khmer:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-syriac-fc.so SyriacScriptEngineFc PangoEngineShape PangoRenderFc syriac:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-thai-fc.so ThaiScriptEngineFc PangoEngineShape PangoRenderFc thai:* lao:*
+-@@VMWARE_LIBCONF_ETC_DIR@@/lib/pango/1.6.0/modules/pango-tibetan-fc.so TibetanScriptEngineFc PangoEngineShape PangoRenderFc tibetan:*
++./libconf/lib/pango/1.6.0/modules/pango-arabic-lang.so ArabicScriptEngineLang PangoEngineLang PangoRenderNone arabic:*
++./libconf/lib/pango/1.6.0/modules/pango-arabic-fc.so ArabicScriptEngineFc PangoEngineShape PangoRenderFc arabic:* nko:*
++./libconf/lib/pango/1.6.0/modules/pango-basic-fc.so BasicScriptEngineFc PangoEngineShape PangoRenderFc latin:* cyrillic:* greek:* armenian:* georgian:* runic:* ogham:* bopomofo:* cherokee:* coptic:* deseret:* ethiopic:* gothic:* han:* hiragana:* katakana:* old-italic:* canadian-aboriginal:* yi:* braille:* cypriot:* limbu:* osmanya:* shavian:* linear-b:* ugaritic:* glagolitic:* cuneiform:* phoenician:* common:
++./libconf/lib/pango/1.6.0/modules/pango-basic-x.so BasicScriptEngineX PangoEngineShape PangoRenderX common:
++./libconf/lib/pango/1.6.0/modules/pango-hangul-fc.so HangulScriptEngineFc PangoEngineShape PangoRenderFc hangul:*
++./libconf/lib/pango/1.6.0/modules/pango-hebrew-fc.so HebrewScriptEngineFc PangoEngineShape PangoRenderFc hebrew:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so devaScriptEngineFc PangoEngineShape PangoRenderFc devanagari:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so bengScriptEngineFc PangoEngineShape PangoRenderFc bengali:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so guruScriptEngineFc PangoEngineShape PangoRenderFc gurmukhi:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so gujrScriptEngineFc PangoEngineShape PangoRenderFc gujarati:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so oryaScriptEngineFc PangoEngineShape PangoRenderFc oriya:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so tamlScriptEngineFc PangoEngineShape PangoRenderFc tamil:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so teluScriptEngineFc PangoEngineShape PangoRenderFc telugu:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so kndaScriptEngineFc PangoEngineShape PangoRenderFc kannada:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so mlymScriptEngineFc PangoEngineShape PangoRenderFc malayalam:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-fc.so sinhScriptEngineFc PangoEngineShape PangoRenderFc sinhala:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so devaIndicScriptEngineLang PangoEngineLang PangoRenderNone devanagari:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so bengIndicScriptEngineLang PangoEngineLang PangoRenderNone bengali:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so guruIndicScriptEngineLang PangoEngineLang PangoRenderNone gurmukhi:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so gujrIndicScriptEngineLang PangoEngineLang PangoRenderNone gujarati:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so oryaIndicScriptEngineLang PangoEngineLang PangoRenderNone oriya:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so tamlIndicScriptEngineLang PangoEngineLang PangoRenderNone tamil:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so teluIndicScriptEngineLang PangoEngineLang PangoRenderNone telugu:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so kndaIndicScriptEngineLang PangoEngineLang PangoRenderNone kannada:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so mlymIndicScriptEngineLang PangoEngineLang PangoRenderNone malayalam:*
++./libconf/lib/pango/1.6.0/modules/pango-indic-lang.so sinhIndicScriptEngineLang PangoEngineLang PangoRenderNone sinhala:*
++./libconf/lib/pango/1.6.0/modules/pango-khmer-fc.so KhmerScriptEngineFc PangoEngineShape PangoRenderFc khmer:*
++./libconf/lib/pango/1.6.0/modules/pango-syriac-fc.so SyriacScriptEngineFc PangoEngineShape PangoRenderFc syriac:*
++./libconf/lib/pango/1.6.0/modules/pango-thai-fc.so ThaiScriptEngineFc PangoEngineShape PangoRenderFc thai:* lao:*
++./libconf/lib/pango/1.6.0/modules/pango-tibetan-fc.so TibetanScriptEngineFc PangoEngineShape PangoRenderFc tibetan:*
+diff -ru src/plugins/libconf/etc/pango/pangorc src.configured/plugins/libconf/etc/pango/pangorc
+--- src/plugins/libconf/etc/pango/pangorc	2010-10-11 20:11:54.000000000 -0700
++++ src.configured/plugins/libconf/etc/pango/pangorc	2015-01-23 11:24:41.682034353 -0800
+@@ -1,5 +1,5 @@
+ [Pango]
+-ModuleFiles = @@VMWARE_LIBCONF_ETC_DIR@@/etc/pango/pango.modules
++ModuleFiles = ./libconf/etc/pango/pango.modules
+ 
+ [PangoX]
+-AliasFiles = @@VMWARE_LIBCONF_ETC_DIR@@/etc/pango/pango/pangox.aliases
++AliasFiles = ./libconf/etc/pango/pango/pangox.aliases
