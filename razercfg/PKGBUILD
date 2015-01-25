@@ -4,13 +4,13 @@
 
 pkgname=razercfg
 pkgver=0.31
-pkgrel=1
+pkgrel=2
 pkgdesc="Next generation Razer device configuration tool"
 arch=('any')
 url="http://dual.bues.ch/cms/hacking/razercfg.html"
 license=('GPL')
 depends=('python' 'libusb')
-makedepends=('cmake')
+makedepends=('cmake' 'hardening-wrapper')
 optdepends=('python-pyside: for the graphical qrazercfg tool')
 backup=('etc/razer.conf')
 source=("http://bues.ch/$pkgname/$pkgname-$pkgver.tar.bz2"{,.asc}
