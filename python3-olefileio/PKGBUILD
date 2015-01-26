@@ -1,7 +1,7 @@
 # Contributor: Wes Brown <wesbrown18@gmail.com>
 # TODO: pkgbase=python-olefile
 pkgname=python3-olefileio
-pkgver=0.41
+pkgver=0.42.1
 pkgrel=0
 pkgdesc='Python 3 library to read and write OLE files (now called "olefile")'
 arch=('any')
@@ -9,7 +9,7 @@ url=("http://www.decalage.info/python/olefileio")
 license=('MIT')
 depends=('python3')
 source=("https://bitbucket.org/decalage/olefileio_pl/downloads/olefile-${pkgver}.zip")
-md5sums=('2d0c56f6c4e9c82b55e1ab5b34996ff4')
+md5sums=('4933a9ba5a5d84647b32e5deb57a4a08')
 
 package() {
   cd "$srcdir/olefile-${pkgver}"
