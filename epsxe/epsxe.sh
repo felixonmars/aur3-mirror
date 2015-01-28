@@ -1,6 +1,2 @@
-#!/bin/sh
-pkgname="$pkgname"
-pkgver="$pkgver"
-pkgdir="$pkgdir"
-
-"$cmd" "$@"
+#!/usr/bin/env bash
+/opt/epsxe/epsxe "$@"
