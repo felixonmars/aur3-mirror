@@ -6,7 +6,7 @@
 
 pkgname=prey-bash-client
 pkgver=0.6.4
-pkgrel=1
+pkgrel=2
 pkgdesc='Remote tracking and monitoring application for laptops, smartphones, and other electronic devices'
 arch=('any')
 url='http://preyproject.com/'
@@ -61,3 +61,7 @@ package() {
                 "${srcdir}/${pkgname}.service" \
                 "${pkgdir}/usr/lib/systemd/system"
 }
+sha256sums=('20dcaa2b0b0af6304c17317a4b57c95ca722a7534b3f83881cbdd01491da65d2'
+            '9614243b70f943ea732c33fc898266f297be199088eaf760ecf2b9951038d464'
+            '5c61fe09d16d343e7641949efacc0185a02a18cd625d13b0527cf051e0947274'
+            '8a9a01b8231abc74060f6cc11b1dd9f1b0d7af5f6a17b9dfb1fa46afce366e95')

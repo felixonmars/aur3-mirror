@@ -13,15 +13,21 @@ arch=('x86_64' 'i686')
 options=(staticlibs !ccache)
 install=wine-silverlight.install
 
+# Change based on whether you are interested in experimental d3d9 support
+enable_d3d9_support=0
+
 # source=(http://prdownloads.sourceforge.net/wine/wine-${pkgver}.tar.bz2{,.sign}
 source=(http://prdownloads.sourceforge.net/wine/wine-${pkgver}.tar.bz2
         "https://github.com/wine-compholio/wine-staging/archive/v${pkgver}.tar.gz"
+        "https://github.com/NP-Hardass/wine-d3d9-patches/archive/wine-d3d9-${pkgver}.tar.gz"
         "30-win32-aliases.conf")
 
 md5sums=('c33d5f3187218ef53e233da3b5cccc80'
 #         'SKIP'
          '41bc21247e5a4f4f3c68667fd9d489fa'
+         '0acfa3e58067acd7d49b7df60467b023'
          '1ff4e467f59409272088d92173a0f801')
+
 #validpgpkeys=(5AC1A08B03BD7A313E0A955AF5E6E9EEB9461DD7) # Alexandre Julliard
 
 depends=('fontconfig'
@@ -169,105 +175,132 @@ if [[ $customprefix != 1 ]]; then
   provides=('wine=${pkgver}' 'wine-compholio=${pkgver}')
 else
   # change _prefix if you don't want to use the default custom prefix of /opt/wine-silverlight
-  _prefix="/opt/$pkgname"
-  _sysconf="$_prefix/etc"
+  _prefix="/opt/${pkgname}"
+  _sysconf="${_prefix}/etc"
   conflicts=('wine-compholio')
   provides=('wine-compholio=${pkgver}')
 fi
 
 prepare() {
-  cd "$srcdir"
+  pushd "${srcdir}"
 
   # Get rid of old build dirs
-  rm -rf $pkgname-{32,64}-build
-  mkdir $pkgname-32-build
+  rm -rf ${pkgname}-{32,64}-build
+  mkdir ${pkgname}-32-build
+
+  if [[ $CARCH == x86_64 ]]; then
+    mkdir ${pkgname}-64-build
+  fi
 
   # These additional CPPFLAGS solve FS#27662 and FS#34195
   export CFLAGS="$CFLAGS -DHAVE_ATTR_XATTR_H=1"
   export CPPFLAGS="${CPPFLAGS/-D_FORTIFY_SOURCE=2/} -D_FORTIFY_SOURCE=0"
 
-  #export MAKEFLAGS="-j4"
-
-  cd "$srcdir"/"${_upname}"
+  pushd "${srcdir}"/"${_upname}"
 
   # use upstream Makefile to apply patches and to call make_requests / autoreconf
-  make -C "$srcdir/wine-staging-${pkgver}/patches/" DESTDIR="$srcdir/${_upname}" install
+  # make -C "$srcdir/wine-staging-${pkgver}/patches/" DESTDIR="$srcdir/${_upname}" install
+  # patchinstall.sh is the updated way to call above command
+  "${srcdir}/wine-staging-${pkgver}/patches/patchinstall.sh" DESTDIR="${srcdir}/${_upname}" --all --no-autoconf
+
+  # Apply d3d9 support patches if enabled.
+  if [[ $enable_d3d9_support != 0 ]]; then
+    patch -p1 < "${srcdir}/wine-d3d9-patches-wine-d3d9-${pkgver}/wine-d3d9.patch"
+  fi
+
+  # Picked up changed configuration after patching
+  autoreconf -f
+  tools/make_requests
+
+  popd
+  popd
 }
 
 build() {
-  cd "$srcdir"
+
+  if [[ $enable_d3d9_support != 0 ]]; then
+    _d3d9_config="--with-d3dadapter"
+  else
+    _d3d9_config=""
+  fi
+
+  pushd "${srcdir}"
 
   if [[ $CARCH == x86_64 ]]; then
 
     msg2 "Building Wine-64..."
-    mkdir $pkgname-64-build
-    cd "$srcdir/$pkgname-64-build"
+    pushd "${srcdir}/${pkgname}-64-build"
     ../$_upname/configure \
-      --prefix=$_prefix \
-      --sysconfdir=$_sysconf \
-      --libdir=$_prefix/lib \
+      --prefix="${_prefix}" \
+      --sysconfdir="${_sysconf}" \
+      --libdir="${_prefix}/lib" \
       --with-x \
       --with-xattr \
       --without-gstreamer \
       --enable-win64 \
-      --disable-tests
+      --disable-tests \
+      ${_d3d9_config}
     # Gstreamer was disabled for FS#33655
     make
 
     _wine32opts=(
-      --libdir=/$_prefix/lib32
-      --with-wine64="$srcdir/$pkgname-64-build"
+      --libdir=/${_prefix}/lib32
+      --with-wine64="${srcdir}/${pkgname}-64-build"
     )
 
-    export PKG_CONFIG_PATH="$_prefix/lib32/pkgconfig"
+    export PKG_CONFIG_PATH="${_prefix}/lib32/pkgconfig"
+    popd
   fi
 
   msg2 "Building Wine-32..."
-  cd "$srcdir/$pkgname-32-build"
+  pushd "${srcdir}/${pkgname}-32-build"
   ../$_upname/configure \
-    --prefix=$_prefix \
-    --sysconfdir=$_sysconf \
+    --prefix="${_prefix}" \
+    --sysconfdir="${_sysconf}" \
     --with-x \
     --with-xattr \
     --without-gstreamer \
     --disable-tests \
-    "${_wine32opts[@]}"
+    "${_wine32opts[@]}" \
+    ${_d3d9_config}
 
   # These additional flags solve FS#23277
   make CFLAGS+="-mstackrealign -mincoming-stack-boundary=2" CXXFLAGS+="-mstackrealign -mincoming-stack-boundary=2"
+  popd
+  popd
 }
 
 package() {
   msg2 "Packaging Wine-32..."
-  cd "$srcdir/$pkgname-32-build"
+  cd "${srcdir}/${pkgname}-32-build"
 
   if [[ $CARCH == i686 ]]; then
-    make prefix="$pkgdir/$_prefix" install
+    make prefix="${pkgdir}/${_prefix}" install
   else
-    make prefix="$pkgdir/$_prefix" \
-      libdir="$pkgdir/$_prefix/lib32" \
-      dlldir="$pkgdir/$_prefix/lib32/wine" install
+    make prefix="${pkgdir}/${_prefix}" \
+      libdir="${pkgdir}/${_prefix}/lib32" \
+      dlldir="${pkgdir}/${_prefix}/lib32/wine" install
 
     msg2 "Packaging Wine-64..."
-    cd "$srcdir/$pkgname-64-build"
-    make prefix="$pkgdir/$_prefix" \
-      libdir="$pkgdir/$_prefix/lib" \
-      dlldir="$pkgdir/$_prefix/lib/wine" install
+    cd "${srcdir}/${pkgname}-64-build"
+    make prefix="${pkgdir}/${_prefix}" \
+      libdir="${pkgdir}/${_prefix}/lib" \
+      dlldir="${pkgdir}/${_prefix}/lib/wine" install
   fi
 
   # Font aliasing settings for Win32 applications
 if [[ $customprefix != 1 ]]; then
-  install -d "$pkgdir"/etc/fonts/conf.{avail,d}
-  install -m644 "$srcdir/30-win32-aliases.conf" "$pkgdir/etc/fonts/conf.avail"
-  ln -s ../conf.avail/30-win32-aliases.conf "$pkgdir/etc/fonts/conf.d/30-win32-aliases.conf"
+  install -d "${pkgdir}"/etc/fonts/conf.{avail,d}
+  install -m644 "${srcdir}/30-win32-aliases.conf" "${pkgdir}/etc/fonts/conf.avail"
+  ln -s ../conf.avail/30-win32-aliases.conf "${pkgdir}/etc/fonts/conf.d/30-win32-aliases.conf"
 fi
 
   # Provide symlinks in /opt/wine-compholio/bin
 
-  if [[ "$_prefix" != "/opt/wine-compholio" ]]; then
-    mkdir -p "$pkgdir/opt/wine-compholio/bin"
-    for _file in $(ls "$pkgdir/$_prefix/bin"); do \
-      ln -s "$_prefix/bin/$_file" "$pkgdir/opt/wine-compholio/bin/$_file"; \
+  if [[ "${_prefix}" != "/opt/wine-compholio" ]]; then
+    mkdir -p "${pkgdir}/opt/wine-compholio/bin"
+    for _file in $(ls "${pkgdir}/${_prefix}/bin"); do \
+      ln -s "${_prefix}/bin/$_file" "${pkgdir}/opt/wine-compholio/bin/$_file"; \
     done
   fi
 
