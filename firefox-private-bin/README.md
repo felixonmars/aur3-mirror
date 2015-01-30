@@ -1,4 +1,4 @@
-### Firefox 35.0 for Linux 自编译版：
+### Firefox 35.0.1 for Linux 自编译版：
 
 1. 使用 `gcc O3 SSE2` 编译参数；
 2. `BetterPGO` 编译；
@@ -10,7 +10,7 @@
 
 ### 更新说明：
 
-2015-01-14更新：
+2015-01-27更新：
 
 1. `gcc 4.8.2 -O3` `CLooG` 优化编译，加入了 `libgstreamer` 支持；
 2. 加入了一个 `MOZILLA_DISABLE_PLUGINS` 环境变量（设为1时禁止插件启动，同步 Iceweasel 特性）；
@@ -21,7 +21,7 @@
 
 ===================================================================
 
-### What's new (01/14/2015):
+### What's new (01/27/2015):
 
 1. `gcc 4.8.2 -O3` with graphite optimization.
 2. ~~Embedded [Flash(x64) plugin][1] and [Alipay(x64)][2] plugins.~~
