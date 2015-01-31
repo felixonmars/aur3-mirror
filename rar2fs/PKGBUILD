@@ -1,7 +1,7 @@
 pkgname=rar2fs
 pkgver=1.20.0
 _rls="$pkgname-$pkgver"
-pkgrel=2
+pkgrel=3
 pkgdesc="Fuse file system for reading Rar archives"
 arch=(i686 x86_64)
 license=(GPL3)
@@ -24,7 +24,7 @@ md5sums+=(69ef5af8442cbb7dfdebe298bfb9c61a)  # From Arch's "unrar" package
 
 build() {
     cd "$srcdir/$_rls"
-    ./configure --prefix=/usr --with-unrar=../unrar
+    ./configure --prefix=/usr --sbindir=/usr/bin --with-unrar=../unrar
     make
 }
 
