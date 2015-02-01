@@ -1,0 +1,48 @@
+# $Id$
+# Maintainer: Eric Bélanger <eric@archlinux.org>
+
+pkgname=gajim015
+conflicts=(gajim)
+provides=(gajim)
+pkgver=0.15.4
+pkgrel=2
+pkgdesc="A full featured and easy to use Jabber client"
+arch=('any')
+url="http://www.gajim.org/"
+license=('GPL3')
+depends=('pygtk' 'python2-pyopenssl' 'python2-pyasn1' 'ca-certificates' 'ldns')
+makedepends=('intltool')
+optdepends=('python2-dbus: dbus support'
+            'farstream-0.1: for video/voice support'
+            'gstreamer0.10-bad: for video/voice support'
+	    'gstreamer0.10-python: for video/voice support'
+            'gtkspell: for spelling support'
+            'libxss: for idle module'
+            'notification-daemon: for desktop notification'
+            'python2-gnomekeyring: for GnomeKeyring support'
+            'python2-crypto: support for E2E encryption'
+            'python2-docutils: for RST generator support'
+            'gupnp-igd: for UPnP-IGD support')
+install=gajim.install
+DLAGENTS=('http::/usr/bin/curl -kfLC - --retry 3 --retry-delay 3 -o %o %u')
+source=(http://www.gajim.org/downloads/${pkgver%.*}/gajim-${pkgver}.tar.bz2 gajim-drill.patch)
+sha1sums=('ffa597e1de7aaf9ca0120fda89fd2ff279068956'
+          'aba73d11ca2594e9f1c5c88734273f80ae79e7ad')
+
+prepare() {
+  cd gajim-${pkgver}
+  patch -p1 -i "${srcdir}/gajim-drill.patch"
+}
+
+build() {
+  cd gajim-${pkgver}
+  PYTHON=python2 ./configure --prefix=/usr --enable-site-packages
+  make
+}
+
+package() {
+  cd gajim-${pkgver}
+  make DESTDIR="${pkgdir}" install
+  # FS#38723
+  rm "${pkgdir}"/usr/share/gajim/data/other/cacerts.pem
+}
