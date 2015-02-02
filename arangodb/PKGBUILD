@@ -1,7 +1,7 @@
 # Maintainer: Christoph Grabo <asaaki@mannaz.cc>
 
 pkgname=arangodb
-pkgver=2.4.1
+pkgver=2.4.2
 pkgrel=1
 
 pkgdesc="A distributed open-source database with a flexible data model for documents, graphs, and key-values."
@@ -24,7 +24,7 @@ install=arangodb.install
 source=( "https://www.arangodb.com/repositories/Source/ArangoDB-${pkgver}.tar.bz2"
          "https://storage.googleapis.com/golang/go${_go_ver}.linux-${_go_arch_dl}.tar.gz"
          'arangodb.service')
-md5sums=('60d13a915f6775671971a954f0633866'
+md5sums=('81b0a86cf9cc1e2de0b1b5c6fc8daf28'
          '9b44606c28c88a5c3d0cb4a36ce7de54'
          '3cdd43ed5552ab918b41627ec4906e52')
 [[ $CARCH = i686 ]] && md5sums[1]='4fea51cc90b4d78fe6176ec30a1e5334'
