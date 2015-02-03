@@ -1,0 +1,242 @@
+From ef3add7864767b3f9effbfb5d8ddaf7604726ab0 Mon Sep 17 00:00:00 2001
+From: Lukas K <lu@0x83.eu>
+Date: Sun, 23 Nov 2014 00:38:00 +0100
+Subject: [PATCH 1/3] add setting decoration colors for specific windows
+
+---
+ docs/userguide             | 21 ++++++++++++++++++++-
+ include/commands.h         |  7 +++++++
+ include/data.h             |  9 +++++++++
+ parser-specs/commands.spec | 15 +++++++++++++++
+ src/commands.c             | 31 +++++++++++++++++++++++++++++++
+ src/con.c                  |  2 ++
+ src/x.c                    | 24 +++++++++++++++++++++---
+ 7 files changed, 105 insertions(+), 4 deletions(-)
+
+diff --git a/docs/userguide b/docs/userguide
+index 5f00fd6..97786b7 100644
+--- a/docs/userguide
++++ b/docs/userguide
+@@ -743,6 +743,8 @@ workspace 5 output VGA1
+ workspace "2: vim" output VGA1
+ ---------------------------
+ 
++[[changing_colors]]
++
+ === Changing colors
+ 
+ You can change all colors which i3 uses to draw the window decorations.
+@@ -1877,9 +1879,26 @@ bindsym $mod+y border 1pixel
+ bindsym $mod+u border none
+ ----------------------------
+ 
+-[[stack-limit]]
++
++=== Setting decoration colors for specific windows
++
++For setting the decoration colors of specific windows when they're not 
++focused, you can use the +set_color+ command.
++
++*Syntax*:
++------------------------------
++set_color none|(<border> <background> <text>)
++------------------------------
++
+++none+ uses the default colors from +client.unfocused+, for the meaning 
++of +<border> <background> <text>+, see <<changing_colors>>.
++
++
++
+ 
+ ///////////////////////////////////////////////////////////////////////////////
++[[stack-limit]]
++
+ TODO: not yet implemented
+ === Changing the stack-limit of a container
+ 
+diff --git a/include/commands.h b/include/commands.h
+index 780a9e8..c8d9fe8 100644
+--- a/include/commands.h
++++ b/include/commands.h
+@@ -276,6 +276,13 @@ void cmd_rename_workspace(I3_CMD, char *old_name, char *new_name);
+  */
+ void cmd_bar(I3_CMD, char *bar_type, char *bar_value, char *bar_id);
+ 
++/**
++ * Implementation of 'set_color none|(<border> <background> <text>)'
++ *
++ */
++void cmd_set_color(I3_CMD, char *enable, char *border, char *background, char *text);
++
++
+ /*
+  * Implementation of 'shmlog <size>|toggle|on|off'
+  *
+diff --git a/include/data.h b/include/data.h
+index 1a67685..b20e064 100644
+--- a/include/data.h
++++ b/include/data.h
+@@ -491,6 +491,10 @@ typedef enum { CF_NONE = 0,
+  * A 'Con' represents everything from the X11 root window down to a single X11 window.
+  *
+  */
++
++#include "config.h"
++/* fixme, Con needs Colortriple, but config.h needs structs from this file */
++
+ struct Con {
+     bool mapped;
+ 
+@@ -498,6 +502,11 @@ struct Con {
+      * inside this container (if any) sets the urgency hint, for example. */
+     bool urgent;
+ 
++    /* if true, custom_color will override the color when this container
++     * is unfocused */
++    bool has_custom_color;
++    struct Colortriple custom_color;
++
+     /** This counter contains the number of UnmapNotify events for this
+      * container (or, more precisely, for its ->frame) which should be ignored.
+      * UnmapNotify events need to be ignored when they are caused by i3 itself,
+diff --git a/parser-specs/commands.spec b/parser-specs/commands.spec
+index 82348df..011629c 100644
+--- a/parser-specs/commands.spec
++++ b/parser-specs/commands.spec
+@@ -39,6 +39,7 @@ state INITIAL:
+   'scratchpad' -> SCRATCHPAD
+   'mode' -> MODE
+   'bar' -> BAR
++  'set_color' -> SET_COLOR_BORDER
+ 
+ state CRITERIA:
+   ctype = 'class' -> CRITERION
+@@ -378,3 +379,17 @@ state BAR_W_ID:
+       ->
+   end
+       -> call cmd_bar($bar_type, $bar_value, $bar_id)
++
++state SET_COLOR_BORDER:
++  'none'
++      -> call cmd_set_color("0", NULL, NULL, NULL)
++  border = word
++      -> SET_COLOR_BACKGROUND
++
++state SET_COLOR_BACKGROUND:
++  background = word
++      -> SET_COLOR_TEXT
++
++state SET_COLOR_TEXT:
++  text = word
++      -> call cmd_set_color("1", $border, $background, $text)
+diff --git a/src/commands.c b/src/commands.c
+index 498c25c..d37b25e 100644
+--- a/src/commands.c
++++ b/src/commands.c
+@@ -2206,3 +2206,34 @@ void cmd_debuglog(I3_CMD, char *argument) {
+     // XXX: default reply for now, make this a better reply
+     ysuccess(true);
+ }
++
++
++/*
++ * Implementation of 'set_color none|(<border> <background> <text>)'
++ *
++ */
++void cmd_set_color(I3_CMD, char *enable, char *border, char *background, char *text) {
++    owindow *current;
++
++    HANDLE_EMPTY_MATCH;
++
++    TAILQ_FOREACH(current, &owindows, owindows) {
++        DLOG("matching: %p / %s\n", current->con, current->con->name);
++        if(strcmp(enable, "1")==0) {
++            DLOG("enabling and setting custom colors\n");
++            current->con->has_custom_color=true;
++            current->con->custom_color.border=get_colorpixel(border);
++            current->con->custom_color.background=get_colorpixel(background);
++            current->con->custom_color.text=get_colorpixel(text);
++        }
++        else {
++            DLOG("disabling custom colors\n");
++            current->con->has_custom_color=false;
++        }
++    }
++
++    cmd_output->needs_tree_render = true;
++
++    // XXX: default reply for now, make this a better reply
++    ysuccess(true);
++}
+diff --git a/src/con.c b/src/con.c
+index 38ea058..02f31d7 100644
+--- a/src/con.c
++++ b/src/con.c
+@@ -44,6 +44,8 @@ Con *con_new_skeleton(Con *parent, i3Window *window) {
+     new->window = window;
+     new->border_style = config.default_border;
+     new->current_border_width = -1;
++    new->has_custom_color = false;
++    new->custom_color = config.client.unfocused;
+     if (window)
+         new->depth = window->depth;
+     else
+diff --git a/src/x.c b/src/x.c
+index b39c19d..340fd8c 100644
+--- a/src/x.c
++++ b/src/x.c
+@@ -301,6 +301,19 @@ void x_window_kill(xcb_window_t window, kill_window_t kill_window) {
+     free(event);
+ }
+ 
++
++static void x_free_deco_render_params(struct deco_render_params **p) {
++     /* p->color can either point to the config struct
++     * or to some memory allocated by malloc. If the latter is true,
++     * whe have to free it */
++    if(*p && (*p)->color &&
++       !(((void*)((*p)->color) > (void*)(&config)) &&
++        ((void*)((*p)->color) < (void*)(&config+1)))
++    )
++        free((*p)->color);
++    FREE(*p);
++}
++
+ /*
+  * Draws the decoration of the given container onto its parent.
+  *
+@@ -345,6 +358,11 @@ void x_draw_decoration(Con *con) {
+         p->color = &config.client.focused;
+     else if (con == TAILQ_FIRST(&(parent->focus_head)))
+         p->color = &config.client.focused_inactive;
++    else if (con->has_custom_color) {
++        p->color = smalloc(sizeof(struct Colortriple));
++        memcpy(p->color, &con->custom_color, sizeof(struct Colortriple));
++        DLOG("drawing custom color decorations %x\n", p->color->background);
++    }
+     else
+         p->color = &config.client.unfocused;
+ 
+@@ -364,16 +382,16 @@ void x_draw_decoration(Con *con) {
+         !parent->pixmap_recreated &&
+         !con->pixmap_recreated &&
+         memcmp(p, con->deco_render_params, sizeof(struct deco_render_params)) == 0) {
+-        free(p);
++        x_free_deco_render_params(&p);
+         goto copy_pixmaps;
+     }
+ 
+     Con *next = con;
+     while ((next = TAILQ_NEXT(next, nodes))) {
+-        FREE(next->deco_render_params);
++        x_free_deco_render_params(&(next->deco_render_params));
+     }
+ 
+-    FREE(con->deco_render_params);
++    x_free_deco_render_params(&(con->deco_render_params));
+     con->deco_render_params = p;
+ 
+     if (con->window != NULL && con->window->name_x_changed)
+-- 
+2.2.2
+
