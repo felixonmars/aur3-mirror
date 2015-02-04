@@ -25,7 +25,7 @@ package() {
         install -m 644 ${srcdir}/AcDown.sh ${pkgdir}/usr/share/acdown
         install -m 644 ${srcdir}/AcDown.exe ${pkgdir}/usr/share/acdown
         install -m 644 ${srcdir}/AcDown.png ${pkgdir}/usr/share/acdown
-        install -m 644 ${srcdir}/AcDown.desktop ${pkgdir}/usr/share/acdown
+        install -m 644 ${srcdir}/AcDown.desktop ${pkgdir}/usr/share/applications
         echo '#!/bin/sh' >> ${pkgdir}/usr/bin/acdown
         echo 'exec mono /usr/share/acdown/AcDown.exe "$@"' >> ${pkgdir}/usr/bin/acdown
         chmod +x ${pkgdir}/usr/bin/acdown
