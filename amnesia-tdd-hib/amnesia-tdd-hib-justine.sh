@@ -1,3 +1,3 @@
 #!/bin/bash
 
-BAZ /opt/BAZ/config/ptest_main_init.cfg $@
+amnesia_tdd_hib /opt/amnesia-tdd-hib/config/ptest_main_init.cfg $@

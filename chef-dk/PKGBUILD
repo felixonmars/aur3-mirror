@@ -1,7 +1,7 @@
 # Maintainer: Maxim Kraev <maxim.kraev@gmail.com>
 
 pkgname=chef-dk
-pkgver=0.3.6
+pkgver=0.4.0
 pkgrel=1
 _ubuntuver=raring
 _ubunturel=4
@@ -11,8 +11,8 @@ url="http://www.getchef.com/downloads/chef-dk/linux/"
 license=('Apache')
 depends=()
 conflicts=( chef chef-solo )
-source=("http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chefdk_0.3.6-1_amd64.deb")
-sha512sums=('666a7572e0485207f89e19aef943c072933e60b7b0c8d92fe60e4e957abaf1fe4415dab4d6d151573321fcafb15cad18b9af2e8ec906acb2b5a24a9b568f299a')
+source=("http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chefdk_0.4.0-1_amd64.deb")
+sha512sums=('88ea6e270178317864cc6d6407f8c2323bcf676f90456880552aad3676a67bc4fdf01b59b15988c50554d95b2cc4f08a94f0faf993cad7416abb270d71130e7d')
 
 
 package() {
@@ -20,7 +20,7 @@ package() {
   bsdtar -xf data.tar.gz -C "$pkgdir"
 
   # cleanup .git folders, any idea why they are in the package?
-  find $pkgdir -name ".git" | xargs  rm -rf
+  find $pkgdir -type d -name ".git" | xargs  rm -rf
 
   # link executables
   binaries="chef chef-solo chef-apply chef-shell knife shef ohai berks chef-zero fauxhai foodcritic kitchen rubocop strain strainer chef-client"
