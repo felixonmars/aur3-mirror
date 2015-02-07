@@ -1,1 +1,1 @@
-export BCFTOOLS_PLUGINS=/usr/share/bcftools/plugins
+export BCFTOOLS_PLUGINS=/usr/lib/bcftools
