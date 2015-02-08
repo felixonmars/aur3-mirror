@@ -1,6 +1,6 @@
 # Author: Patrick Brisbin <pbrisbin@gmail.com>
 pkgname=aurget
-pkgver=4.4.3
+pkgver=4.4.4
 pkgrel=1
 pkgdesc="A simple, Pacman-like AUR helper"
 arch=('any')
@@ -14,4 +14,4 @@ package() {
 
   make PREFIX=/usr DESTDIR="$pkgdir" install
 }
-md5sums=('f6783ff33882aea5ae1715434ab96c30')
+md5sums=('5130e55a9c0082b3341fb44536cb575f')
