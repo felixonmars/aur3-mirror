@@ -1,0 +1,33 @@
+# Maintainer: Oleh Prypin <blaxpirit@gmail.com>
+# Contributor: Massimiliano Torromeo <massimiliano.torromeo@gmail.com>
+# Contributor: Astor Castelo <amcastelo[at]gatech[dot]edu>
+# Contributor: Fabio Volpe <volpefabio@gmail.com>
+
+pkgname=chipmunk7
+pkgver=7.0.0
+pkgrel=1
+pkgdesc="A high-performance 2D rigid body physics library"
+arch=('i686' 'x86_64')
+url='http://chipmunk-physics.net/'
+license=('MIT')
+depends=('glibc')
+makedepends=('cmake')
+conflicts=('chipmunk')
+replaces=('chipmunk')
+source=("http://chipmunk-physics.net/release/Chipmunk-${pkgver%%.*}.x/Chipmunk-$pkgver.tgz")
+sha256sums=('14ab380396a96b15951c42a2d7ca259a53ecab4e550a71857d13dcfd388a51cd')
+
+build() {
+    cd "$srcdir/Chipmunk-$pkgver"
+    sed -i '/MAKE_PROPERTIES_REF(cpShape, IsSensor);/d' include/chipmunk/chipmunk_ffi.h
+    cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -DBUILD_DEMOS=OFF -DCMAKE_C_FLAGS="-DCHIPMUNK_FFI" .
+    make clean
+    make
+}
+
+package() {
+    cd "$srcdir/Chipmunk-$pkgver"
+    install -Dm0644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    make DESTDIR="$pkgdir" install
+}
+
