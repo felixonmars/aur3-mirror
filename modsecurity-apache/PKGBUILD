@@ -1,55 +1,118 @@
-# Maintainer: richiefrich <richiefrich AT penguinslair DOT org>
+# Maintainer: Mark Cornick <mcornick@mcornick.com>
+# Contributor: archsim <myanomail123 AT gmail.com>
+# Contributor: richiefrich <richiefrich AT penguinslair DOT org>
 # Contributor: CRT <crt.011 AT gmail.com>
 # Contributor: chiche <laguaza AT gmail.com>
 
 pkgname=modsecurity-apache
-pkgver=2.6.2
-_pkgname=modsecurity-crs
-_pkgver=2.2.2
+_pkgname=modsecurity
+pkgver=2.8.0
 pkgrel=1
-pkgdesc="An open source web application firewall that runs as an Apache module.\
-        Core Rule Set which provides critical protections against attacks across most every web architecture."
-url="http://www.modsecurity.org \
-        http://www.modsecurity.org/projects/rules/"
+pkgdesc='ModSecurity web application firewall for Apache (and Nginx!) with Core Rule Set'
 arch=('i686' 'x86_64')
-license=('GPLv2')
-depends=('apache>=2.0' 'apr' 'apr-util' 'pcre' 'libxml2')
-optdepends=('lua>=5.1' 'curl>=7.15.1')
-#backup=('/etc/httpd/conf/mod_security.conf' '/etc/httpd/conf/httpd.conf')
-source=(http://softlayer.dl.sourceforge.net/sourceforge/mod-security/${pkgname}_${pkgver}.tar.gz
-        http://voxel.dl.sourceforge.net/project/mod-security/${_pkgname}/0-CURRENT/${_pkgname}_${_pkgver}.tar.gz
-        mod_security.conf modsecurity-crs.install)
-install='modsecurity-crs.install'
+depends=('apr' 'apr-util' 'pcre' 'libxml2' 'lua')
+makedepends=('curl' 'git' 'apache')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname")
+url="http://www.modsecurity.org"
+license=('GPL2' 'Apache')
+install=modsecurity.install
 
-md5sums=('dfffdf21d15e8d0d300d970a74b02bd2'
-         'a8d35ed2ff3f6f0224af912a79fb8b54'
-         '84c4447c1e233974df74c9b64d27391f'
-         '0d8fda0b1869b74125e3b667570bd6a3')
+source=(http://www.modsecurity.org/tarball/${pkgver}/${_pkgname}-${pkgver}.tar.gz
+        nginx.buildconfig
+        modsecurity.tmpfiles)
+sha256sums=('5cbbc7fc993d39106b653213753d25c4ec21771eee17b01b69122ccf3f73460e'
+            'c2fa893eb30e64651f352a7a5bb7db64635661e3762d1353e023055db1e446c0'
+            '019b4de90f2bd18cd624530de123f6f6c2ffa85e7dbb81bc91e435fb54666b47')
+
+
+_gitrepo="git://github.com/SpiderLabs/owasp-modsecurity-crs.git"
+_gitbase="crs"
+_builddir="${_pkgname}-${pkgver}"
 
 build() {
-   cd ${srcdir}/${pkgname}_${pkgver}
+        msg "Building ModSecurity"
 
-   ./configure --prefix=/usr --sysconfdir=/etc --with-apxs=/usr/sbin/apxs
-   make || return 1
-   make mlogc || return 1
-   make DESTDIR=$startdir/pkg install || return 1
+        cd "$_builddir"
+        ./configure \
+                --prefix=/usr \
+                --libdir=/usr/lib/modsecurity \
+                --includedir=/usr/include/modsecurity \
+                --enable-standalone-module \
+                --enable-extentions \
+                --enable-alp2 \
+                --enable-pcre-study \
+                --enable-pcre-jit \
+                --enable-lua-cache \
+                --enable-performance-measurement
+        ./configure \
+                --prefix=/usr \
+                --libdir=/usr/lib/modsecurity \
+                --includedir=/usr/include/modsecurity \
+                --disable-apache2-module \
+                --enable-pcre-study \
+                --enable-pcre-jit \
+                --enable-lua-cache \
+                --enable-performance-measurement
+        make
+        make -C standalone
+        make -C alp2
+        make -C ext
+        make -C apache2
 }
 
-
 package() {
-  cd ${srcdir}/${pkgname}_${pkgver}
-  install -D -dm755 ${pkgdir}/etc/httpd/conf/crs/{base_rules,optional_rules,activated_rules,experimental_rules}
-  install -m644 $startdir/mod_security.conf ${pkgdir}/etc/httpd/conf
+        cd "$_builddir"
 
-  install -D -dm755 ${pkgdir}/usr/lib/httpd/modules
-  mv -v ${pkgdir}/usr/lib/mod_security2.so ${pkgdir}/usr/lib/httpd/modules/mod_security2.so
+        # Basics
+        install -d -m0700 -o http -g http "$pkgdir"/run/modsecurity
+        install -d -m0700 -o http -g http "$pkgdir"/var/lib/modsecurity
+        install -Dm644 "$srcdir"/modsecurity.tmpfiles "$pkgdir"/usr/lib/tmpfiles.d/modsecurity.conf
+        install -d -m0755 "$pkgdir"/usr/lib/modsecurity
+        install -d -m0755 "$pkgdir"/usr/lib/modsecurity/ext
+        install -d -m0755 "$pkgdir"/usr/include/modsecurity
+        make DESTDIR="$pkgdir" install
 
-  install -D -dm755 ${pkgdir}/usr/share/licenses/${pkgname}
-  install -m644 LICENSE ${pkgdir}/usr/share/licenses/${pkgname}/LICENSE
+        # Standalone module
+        install -Dm755 standalone/.libs/*.a "$pkgdir"/usr/lib/modsecurity
+        install -Dm755 standalone/.libs/*.so "$pkgdir"/usr/lib/modsecurity
+        install -Dm644 standalone/*.h "$pkgdir"/usr/include/modsecurity
 
-  cd ${srcdir}/${_pkgname}_${_pkgver}
-  install -D -m644 modsecurity_crs_10_config.conf.example ${pkgdir}/etc/httpd/conf/crs/modsecurity_crs_10_config.conf
-  rsync -aP base_rules/ ${pkgdir}/etc/httpd/conf/crs/base_rules
-  rsync -aP experimental_rules/ ${pkgdir}/etc/httpd/conf/crs/experimental_rules
-  rsync -aP optional_rules/ ${pkgdir}/etc/httpd/conf/crs/optional_rules
+        # Audit Log Parser libs
+        install -Dm755 alp2/.libs/*.a "$pkgdir"/usr/lib/modsecurity
+        install -Dm755 alp2/.libs/*.so "$pkgdir"/usr/lib/modsecurity
+        install -Dm644 alp2/*.h "$pkgdir"/usr/include/modsecurity
+
+        # Apache modules
+        install -d -m0755 "$pkgdir"/usr/lib/modsecurity/ext/apache2
+        install -Dm755 apache2/.libs/*.so "$pkgdir"/usr/lib/modsecurity/ext/apache2
+        install -Dm755 ext/.libs/*.so "$pkgdir"/usr/lib/modsecurity/ext/apache2
+
+        # Nginx module
+        install -d -m0755 "$pkgdir"/usr/lib/modsecurity/ext/nginx
+        install -Dm644 nginx/modsecurity/ngx_http_modsecurity.c "$pkgdir"/usr/lib/modsecurity/ext/nginx
+        install -Dm644 "$srcdir"/nginx.buildconfig "$pkgdir"/usr/lib/modsecurity/ext/nginx/config
+        install -Dm644 apache2/*.h "$pkgdir"/usr/include/modsecurity
+        install -Dm644 /usr/include/httpd/*.h "$pkgdir"/usr/include/modsecurity
+
+        # Miscellaneous and documentation
+        install -Dm644 mlogc/mlogc-default.conf "$pkgdir"/etc/modsecurity/mlogc.conf
+        install -Dm644 tools/rules-updater-example.conf "$pkgdir"/etc/modsecurity/update.conf
+        install -Dm644 modsecurity.conf-recommended "$pkgdir"/etc/modsecurity/modsecurity.conf-recommended
+        install -Dm644 unicode.mapping "$pkgdir"/etc/modsecurity/unicode.mapping
+        install -Dm644 mlogc/INSTALL "$pkgdir"/usr/share/doc/modsecurity/mlogc.txt
+        install -Dm644 ext/README "$pkgdir"/usr/share/doc/modsecurity/extensions.txt
+        install -Dm644 doc/README.txt "$pkgdir"/usr/share/doc/modsecurity/doc.txt
+        install -Dm644 README.TXT "$pkgdir"/usr/share/doc/modsecurity/README.txt
+
+        # Core Ruleset
+        cd "$pkgdir"/etc/modsecurity
+        msg "Retrieving current ModSecurity core ruleset"
+        if [[ -d $_gitbase ]]; then
+                cd $_gitbase && git pull origin
+                msg "Local copy updated"
+        else
+                git clone $_gitrepo $_gitbase
+                msg "Repository cloned"
+        fi
 }
