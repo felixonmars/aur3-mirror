@@ -1,3 +1,10 @@
+Version 4.4.1-1 (Wed Feb 11 18:09:44 AEDT 2015)
+---
+
+Eclipse 4.4.1-5 SR1a
+- fix vim editor comment
+- fix Exec and Icon in eclipse-java.deskop
+
 Version 4.4.1-1 (Tue Nov 25 11:28:48 AEDT 2014)
 ---
 

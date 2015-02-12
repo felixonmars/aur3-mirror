@@ -1,7 +1,7 @@
 # Maintainer: Capi Etheriel <barraponto [at] gmail [dot] com>
 pkgname=boris
 pkgver=1.0.8
-pkgrel=1
+pkgrel=2
 pkgdesc="A tiny REPL for PHP"
 arch=('any')
 url="https://github.com/d11wtq/${pkgname}"
