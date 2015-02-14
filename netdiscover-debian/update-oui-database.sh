@@ -26,6 +26,7 @@ ORIGF=oui.txt
 DSTD=src
 DSTF=oui.h
 URL="https://standards.ieee.org/develop/regauth/oui/oui.txt"
+URL2="http://standards.ieee.org/develop/regauth/oui/oui.txt"
 TMPF=$ORIGF-$DATE
 AWK="gawk"
 #AWK="mawk"
@@ -34,34 +35,26 @@ AWK="gawk"
 [ -d "$DSTD" ] || { echo "$JA: Destdir \"$DSTD\" not exist!"; exit 1; }
 
 if ! [ -f "$TMPF" -a -s "$TMPF" ]; then
-  echo -n "Trying download \"$ORIGF\" with curl..."
-  echo
-  if [[ -x /usr/bin/curl ]]; then
-    curl --insecure -fLC - --retry 3 --retry-delay 3 -o "$TMPF" $URL
-  else
-    echo " with wget..."
-    if [[ -x /usr/bin/wget ]]; then
-      wget --no-check-certificate --quiet --output-document="$TMPF" $URL
-    else
-      echo "$JA: Can't obtain \"$URL\"!"
-      exit 1
-    fi
-  fi
+  echo -n "Trying download \"$ORIGF\" with curl...
+  "
+  curl --insecure -fLC - --retry 3 --retry-delay 3 -o "$TMPF" $URL || curl -fLC - --retry 3 --retry-delay 3 -o "$TMPF" $URL2
 else
    echo -n "\"$TMPF\" already exist, skipping download..."
 fi
 echo ""
 
-echo "Process oui.txt (\"$TMPF\")..."
+if [ -f $TMPF ]; then
+    echo "Process oui.txt (\"$TMPF\")..."
+else
+    echo "ERROR!! file $TMPF does not exist, using oui.txt backup"
+    TMPF=oui.txt
+fi
 
 # if RS is null string, then records are separated by blank lines...
 # but this isn't true in oui.txt
 
-LANG=C $AWK --re-interval --assign URL="$URL" '
+LANG=C grep "base 16" $TMPF | sed "s/\"/'/g" | $AWK --re-interval --assign URL="$URL" '
 BEGIN {
-	RS = "\n([[:blank:]]*\n)+";
-	FS = "\n";
-	MI = "";
 	NN = 0;
 	printf( \
 	  "/*\n" \
@@ -79,40 +72,22 @@ BEGIN {
 	  "struct oui oui_table[] = {\n", strftime("%d-%b-%Y"), URL);
 }
 
-(/[[:xdigit:]]{6}/) {
-	N1 = split($1,A1,/\t+/);
-	N2 = split($2,A2,/\t+/);
-	N3 = split(A2[1],PN,/ +/);
-#	printf("%i,%i,%i>%s<>%s<>%s< $1=%s<, $2=%s<, $3=%s<.\n",N1,N2,N3,PN[1],A1[2],A2[2],$1,$2,$3);
-#	V1 = gensub(/^[[:punct:]]+/,"",1,A1[2]);
-#	V2 = gensub(/^[[:punct:]]+/,"",1,A2[2]);
-	V1 = gensub(/^[[:blank:]]+/,"",1,A1[2]);
-	V2 = gensub(/^[[:blank:]]+/,"",1,A2[2]);
-	V0 = V2;
-	if (V0 ~ /^[[:blank:]]*$/) {
-		V0 = V1;
-	}
-	V = gensub(/\"/,"\\\\\"","g",V0);
-	if (MI != "")
-		printf("   { \"%s\", \"%s\" },\n", MI, MV);
-	MI = PN[1];
-	MV = V;
+{
+	printf("   { \"%s\", \"", $1);
+	for (i=4; i<NF; i++) printf $i " ";
+	printf("%s\" },\n", $NF);
 	NN++;
 }
 
 END {
-	printf( \
-	  "   { \"%s\", \"%s\" },\n" \
-	  "   { NULL, NULL }\n" \
-	  "};\n" \
-	  "\n" \
-	  "// Total %i items.\n", MI, MV, NN);
-}' <"$TMPF" >"$DSTD/$DSTF"
+	printf("   { NULL, NULL }\n};\n\n");
+	printf("// Total %i items.\n\n", NN);
+}' >"$DSTD/$DSTF"
 
 if [ $? -ne 0 ]; then
   echo "$JA: $TMPF parsing error !"
   exit 1
 else
   echo "All OK"
-  ls -oh oui.txt-* src/oui.h
+  ls -oh oui.txt* src/oui.h
 fi
