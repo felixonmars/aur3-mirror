@@ -9,6 +9,7 @@
 #define ROWS 30
 #define COLS 120
 #define STARTING_SIZE 3
+#define MAX_SCORE_LENGTH 10
 
 /* eigenvectors associated to snake movements */
 #define RIGHT 10
@@ -43,6 +44,7 @@ struct state {
 };
 #pragma pack(pop)
 
+static void starting_questions(int **initial_directions);
 static void screen_init(int rowtot, int coltot);
 static void screen_end(int rowtot, int coltot, int lose);
 static snake *reclist(int i, snake *previous, int directions[], int x, int y);
@@ -55,32 +57,29 @@ static void snake_move(int *lose);
 static snake *snake_grow(void);
 static int main_cycle(int *lose);
 static void colored_print(WINDOW *win, int x, int y, char *c, int color);
-static int *resume_func(int *resume,int *initial_directions);
+static int *resume_func(int *initial_directions);
 static int *init_func(int *initial_directions);
 static void store_and_exit(void);
+static void store_score(void);
+static void print_score_list(void);
 
 static struct state ps;
 static WINDOW *field, *score;
-static char *path;
+static int resume;
 static snake *s;
 
 int main(void)
 {
-    int rowtot, coltot, resume, lose = 0;
+    int rowtot, coltot, lose = 0;
     int *initial_directions = NULL;
-    path = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
-    do {
-        printf("Do you want to play a new game[0] or resume[1] last game?\n");
-        scanf("%d", &resume);
-    } while (resume != 0 && resume != 1);
-    if (resume)
-        initial_directions = resume_func(&resume, initial_directions);
-    else
-        initial_directions = init_func(initial_directions);
+    starting_questions(&initial_directions);
+    if (resume == -1) {
+        printf("Bye bye!\n");
+        return 0;
+    }
     srand(time(NULL));
     initscr();
     getmaxyx(stdscr, rowtot, coltot);
-     /* check terminal size */
     if ((rowtot < ROWS + 6) || (coltot < COLS + 2)) {
         clear();
         endwin();
@@ -98,6 +97,28 @@ int main(void)
     freelist(s);
     screen_end(rowtot, coltot, lose);
     return 0;
+}
+
+static void starting_questions(int **initial_directions)
+{
+    do {
+        printf("Do you want to play a new game[0], resume[1] last game, take a look[2] to your top 10 scores or leave[3]?\n");
+        scanf("%d", &resume);
+    } while (resume != 0 && resume != 1 && resume != 2 && resume != 3);
+    switch (resume) {
+        case 0:
+            *initial_directions = init_func(*initial_directions);
+            break;
+        case 1:
+            *initial_directions = resume_func(*initial_directions);
+            break;
+        case 2:
+            print_score_list();
+            return starting_questions(initial_directions);
+        case 3:
+            resume = -1;
+            break;
+    }
 }
 
 static void screen_init(int rowtot, int coltot)
@@ -140,9 +161,10 @@ static void screen_end(int rowtot, int coltot, int lose)
     delwin(score);
     attron(COLOR_PAIR(rand()%4 + 1));
     attron(A_BOLD);
-    if (lose)
+    if (lose) {
+        store_score();
         mvprintw(rowtot / 2, (coltot - strlen("You scored %d points!")) / 2, "You scored %d points!", ps.points);
-    else
+    } else
         mvprintw(rowtot / 2, (coltot - strlen(exitmsg)) / 2, "%s", exitmsg);
     refresh();
     sleep(1);
@@ -246,7 +268,6 @@ static int main_cycle(int *lose)
     snake_move(lose);
     change_directions();
     wmove(field, ps.snake_head.x + 1, ps.snake_head.y + 1);
-    wrefresh(field);
     switch (wgetch(field)) {
     case KEY_LEFT:
         if (s->direction != RIGHT)
@@ -268,6 +289,8 @@ static int main_cycle(int *lose)
         store_and_exit();
         return 0;
     case 'q': /* q to exit */
+        if (ps.points > 0)
+            store_score();
         return 0;
     }
     return 1;
@@ -303,11 +326,12 @@ static void colored_print(WINDOW *win, int x, int y, char *c, int color)
     wattroff(win, COLOR_PAIR);
 }
 
-static int *resume_func(int *resume, int *initial_directions)
+static int *resume_func(int *initial_directions)
 {
+    char *path_resume_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
     FILE *f = NULL;
     int i = 0;
-    if ((f = fopen(path, "r"))) {
+    if ((f = fopen(path_resume_file, "r"))) {
         fread(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
         initial_directions = malloc(sizeof(int) * ps.size);
         while (i != ps.size) {
@@ -315,11 +339,11 @@ static int *resume_func(int *resume, int *initial_directions)
             i++;
         }
         fclose(f);
-        remove(path);
+        remove(path_resume_file);
         return initial_directions;
     }
     printf("No previous games found. Starting a new match.\n");
-    *resume = 0;
+    resume = 0;
     sleep(1);
     return init_func(initial_directions);
 }
@@ -343,15 +367,63 @@ static int *init_func(int *initial_directions)
 
 static void store_and_exit(void)
 {
+    char *path_resume_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
     FILE *f = NULL;
     snake *temp = NULL;
-    if ((f = fopen(path, "w"))) {
-        fwrite(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
-        for (temp = s; temp; temp = temp->next)
-            fprintf(f, "%i\n", temp->direction);
+    f = fopen(path_resume_file, "w");
+    fwrite(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
+    for (temp = s; temp; temp = temp->next)
+        fprintf(f, "%i\n", temp->direction);
+    fclose(f);
+}
+
+static void store_score(void)
+{
+    char *path_score_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake_score.txt");
+    FILE *f = NULL;
+    int score_list[MAX_SCORE_LENGTH] = {ps.points};
+    int i = 0;
+    if ((f = fopen(path_score_file, "r"))) {
+        while(i != MAX_SCORE_LENGTH) {
+            fscanf(f, "%i\n", &score_list[i]);
+            i++;
+        }
         fclose(f);
-    } else {
-        printf("Cannot store.\n");
-        sleep(1);
+        i = MAX_SCORE_LENGTH - 1;
+        if (score_list[i] > ps.points)
+            return;
+        score_list[i] = ps.points;
+        while (score_list[i] > score_list[i - 1] && i > 0) {
+            score_list[i] = score_list[i - 1];
+            score_list[i - 1] = ps.points;
+            i--;
+        }
     }
+    f = fopen(path_score_file, "w");
+    for(i = 0; i < MAX_SCORE_LENGTH; i++) {
+        fprintf(f, "%i\n", score_list[i]);
+    }
+    fclose(f);
+}
+
+static void print_score_list(void)
+{
+    char *path_score_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake_score.txt");
+    FILE *f = NULL;
+    int *score_list, i = 0, dim;
+    if ((f = fopen(path_score_file, "r"))) {
+        do {
+            score_list = realloc(score_list, (i + 1) * sizeof(int));
+            fscanf(f, "%i\n", &score_list[i]);
+            i++;
+        } while (score_list[i - 1] != 0);
+        dim = i - 1;
+        fclose(f);
+        printf("\tTop scores:\n");
+        for(i = 0; i < dim; i++)
+            printf("\t\t%d\n", score_list[i]);
+    } else {
+        printf("No score list found.\n");
+    }
+    free(score_list);
 }
