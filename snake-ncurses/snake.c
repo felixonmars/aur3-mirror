@@ -45,6 +45,7 @@ struct state {
 #pragma pack(pop)
 
 static void starting_questions(int **initial_directions);
+static int check_term_size(int rowtot, int coltot);
 static void screen_init(int rowtot, int coltot);
 static void screen_end(int rowtot, int coltot, int lose);
 static snake *reclist(int i, snake *previous, int directions[], int x, int y);
@@ -80,13 +81,8 @@ int main(void)
     srand(time(NULL));
     initscr();
     getmaxyx(stdscr, rowtot, coltot);
-    if ((rowtot < ROWS + 6) || (coltot < COLS + 2)) {
-        clear();
-        endwin();
-        printf("This screen has %d rows and %d columns. Enlarge it.\n", rowtot, coltot);
-        printf("You need at least %d rows and %d columns.\n", ROWS + 6, COLS + 2);
+    if (check_term_size(rowtot, coltot) == 1)
         return 1;
-    }
     screen_init(rowtot, coltot);
     grid_init(initial_directions, resume);
     free(initial_directions);
@@ -119,6 +115,18 @@ static void starting_questions(int **initial_directions)
             resume = -1;
             break;
     }
+}
+
+static int check_term_size(int rowtot, int coltot)
+{
+    if ((rowtot < ROWS + 6) || (coltot < COLS + 2)) {
+        clear();
+        endwin();
+        printf("This screen has %d rows and %d columns. Enlarge it.\n", rowtot, coltot);
+        printf("You need at least %d rows and %d columns.\n", ROWS + 6, COLS + 2);
+        return 1;
+    }
+    return 0;
 }
 
 static void screen_init(int rowtot, int coltot)
@@ -416,8 +424,8 @@ static void print_score_list(void)
             score_list = realloc(score_list, (i + 1) * sizeof(int));
             fscanf(f, "%i\n", &score_list[i]);
             i++;
-        } while (score_list[i - 1] != 0);
-        dim = i - 1;
+        } while (score_list[i - 1] != 0 && (i < MAX_SCORE_LENGTH));
+        dim = i;
         fclose(f);
         printf("\tTop scores:\n");
         for(i = 0; i < dim; i++)

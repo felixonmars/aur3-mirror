@@ -3,10 +3,9 @@
 #更新日誌
 
 
-### 2015-02-12 Fernando "Firef0x" G.P. da Silva <firefgx { aT ) gmail [ d0t } com>
+##### 2015-02-12 Fernando "Firef0x" G.P. da Silva <firefgx { aT ) gmail [ d0t } com>
 
-## 3.3065-3
-----------
+#### 3.3065-3
 
 	* Add package `sublime-text-dev-zh-tw` providing Traditional Chinese translation
 	* 添加软件包 `sublime-text-dev-zh-tw` 以提供繁体中文翻译
@@ -15,10 +14,11 @@
 	* 完善桌面图标
 	* 完善桌面圖示
 
-### 2014-12-15 Fernando "Firef0x" G.P. da Silva <firefgx { aT ) gmail [ d0t } com>
+--------------------------------------------------------------------------------
 
-## 3.3065-2
-----------
+##### 2014-12-15 Fernando "Firef0x" G.P. da Silva <firefgx { aT ) gmail [ d0t } com>
+
+#### 3.3065-2
 
 	* Add package `sublime-text-dev-zh-cn` providing Simplified Chinese translation
 	* 添加软件包 `sublime-text-dev-zh-cn` 以提供简体中文翻译
@@ -72,7 +72,6 @@ that [sublime_text_3_imfix.desktop][7] is corresponding to
 ## 以下是最新版本的更新日誌：
 
 Sublime Text 3 is currently in beta. The latest build is 3065.
-----------
 
 #### Build 3065
 ----------

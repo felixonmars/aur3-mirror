@@ -4,34 +4,38 @@
 
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
-_srcname=linux-3.16
-pkgver=3.16.7
+_srcname=linux-3.19
+pkgver=3.19
 pkgrel=1
-_toipatch=tuxonice-for-linux-head-3.16.0-2014-08-07.patch
+_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-10.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc')
 options=('!strip')
 source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+        "https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.sign"
+        #"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
+        #"https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.sign"
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
-        'compal-laptop-hwmon-fix.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
-sha256sums=('4813ad7927a7d92e5339a873ab16201b242b2748934f12cb5df9ba2cfe1d77a0'
-            '7e2bbcbbff818e8839a2919fbc208762618498ed56337ab3f20be31c187105ab'
-            '62eeeaf1681bcf503b47e2902090683dc5831891179b6652c0a9a34fa22b4302'
-            '5091cde8ab44ef5285dd6b196cd075763be762df9c633d16926e8eae6ce31924'
+sha256sums=('be42511fe5321012bb4a2009167ce56a9e5fe362b4af43e8c371b3666859806c'
+            'SKIP'
+            '230bf782d9ddd16fd9bc1a320eee3efdaf8b694c0b1e010b209f15a2881b0960'
+            '09dd5ea98a1902276b2ad189ab28afdb74efa66669623ce296acb5af515d389a'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            'f36f61a0a72bcb0a9c04264343503bfbf927c9ea0db819e66734a3933b060588'
-            'f88af16024ae7728aae0ca713977960902a49e224b48fbd64e206a21fc4bf441')
+            '9105e11eff55be56714f8b55703b9efe51ea2cab813cca714e264020014a42c1')
+validpgpkeys=(
+            'ABAF11C65A2970B130ABE3C479BE3E4300411886' # Linus Torvalds
+            '647F28654894E3BD457199BE38DBBDC86092693E' # Greg Kroah-Hartman
+)
 
 _kernelname=${pkgbase#linux}
 
@@ -39,7 +43,7 @@ prepare() {
   cd "${srcdir}/${_srcname}"
 
   # add upstream patch
-  patch -p1 -i "${srcdir}/patch-${pkgver}"
+  #patch -p1 -i "${srcdir}/patch-${pkgver}"
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
@@ -48,9 +52,6 @@ prepare() {
   # remove this when a Kconfig knob is made available by upstream
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
-
-  # #41458 fix hwmon for compal-laptop module
-  patch -p1 -i "${srcdir}/compal-laptop-hwmon-fix.patch"
 
   # tuxonice patch
   patch -p1 -i "${srcdir}/${_toipatch}"
@@ -141,8 +142,6 @@ _package() {
   rm -f "${pkgdir}"/lib/modules/${_kernver}/{source,build}
   # remove the firmware
   rm -rf "${pkgdir}/lib/firmware"
-  # gzip -9 all modules to save 100MB of space
-  find "${pkgdir}" -name '*.ko' -exec gzip -9 {} \;
   # make room for external modules
   ln -s "../extramodules-${_basekernel}${_kernelname:--ARCH}" "${pkgdir}/lib/modules/${_kernver}/extramodules"
   # add real version for building modules and running depmod from post_install/upgrade
