@@ -9,8 +9,9 @@
 #define ROWS 30
 #define COLS 120
 #define STARTING_SIZE 3
-#define MAX_SCORE_LENGTH 10
+#define MAX_SCORE_LENGTH 9
 #define FRUIT_POINTS 7
+#define HEAD 0
 
 /* eigenvectors associated to snake movements */
 #define RIGHT 10
@@ -21,12 +22,6 @@
 /* chars to be printed */
 #define SNAKE_CHAR "O"
 #define FRUIT_CHAR "*"
-
-typedef struct list {
-    int direction;
-    struct list *next;
-    struct list *previous;
-} snake;
 
 /* Coordinates of snake's head and tail */
 struct point {
@@ -44,35 +39,34 @@ struct state {
 };
 #pragma pack(pop)
 
-static int starting_questions(int argc, char *argv[], int **initial_directions, int *resume);
+static int starting_questions(int argc, char *argv[], int *resume);
 static int check_term_size(int rowtot, int coltot);
 static void screen_init(int rowtot, int coltot, int resume);
 static void screen_end(int rowtot, int coltot, int lose, int store);
-static snake *reclist(int i, snake *previous, int directions[], int x, int y);
-static void freelist(snake *s);
+static void print_initial_snake(int x, int y, int i);
 static void fruit_gen(void);
-static void grid_init(int initial_directions[], int resume);
+static void grid_init(int resume);
 static void change_directions(void);
 static void eat_fruit(void);
 static void snake_move(int *lose);
-static snake *snake_grow(void);
+static void snake_grow(void);
 static void main_cycle(int *lose, int *store);
 static void colored_print(WINDOW *win, int x, int y, char *c, int color);
-static void resume_func(int **initial_directions, int *resume);
-static void init_func(int **initial_directions);
+static void resume_func(int *resume);
+static void init_func(void);
 static void store_and_exit(void);
 static void store_score(void);
 static void print_score_list(void);
 
 static struct state ps;
 static WINDOW *field, *score;
-static snake *s;
+static int *snake = NULL;
 
 int main(int argc, char *argv[])
 {
     int rowtot, coltot, lose = 0, resume = 0, store = 0;
-    int *initial_directions = NULL;
-    if (starting_questions(argc, argv, &initial_directions, &resume) == 1)
+    int *snake = NULL;
+    if (starting_questions(argc, argv, &resume) == 1)
         return 0;
     srand(time(NULL));
     initscr();
@@ -80,26 +74,25 @@ int main(int argc, char *argv[])
     if (check_term_size(rowtot, coltot) == 1)
         return 1;
     screen_init(rowtot, coltot, resume);
-    grid_init(initial_directions, resume);
-    free(initial_directions);
+    grid_init(resume);
     while ((!lose) && (!store))
         main_cycle(&lose, &store);
     screen_end(rowtot, coltot, lose, store);
-    freelist(s);
+    free(snake);
     return 0;
 }
 
-static int starting_questions(int argc, char *argv[], int **initial_directions, int *resume)
+static int starting_questions(int argc, char *argv[], int *resume)
 {
     if ((argc == 1) || (((strcmp(argv[1],"-n")) != 0) && ((strcmp(argv[1],"-r")) != 0) && ((strcmp(argv[1],"-s")) != 0))) {
         printf("Helper message.\nStart this program with:\n\t'-n' if you want to play a new game;\n\t'-r' to resume your last saved game;\n\t'-s' to view your top scores.\n");
         return 1;
     }
     if (((strcmp(argv[1],"-n")) == 0))
-        init_func(initial_directions);
+        init_func();
     else if (((strcmp(argv[1],"-r")) == 0)) {
         *resume = 1;
-        resume_func(initial_directions, resume);
+        resume_func(resume);
     } else {
             print_score_list();
             return 1;
@@ -112,6 +105,7 @@ static int check_term_size(int rowtot, int coltot)
     if ((rowtot < ROWS + 6) || (coltot < COLS + 2)) {
         clear();
         endwin();
+        delwin(stdscr);
         printf("This screen has %d rows and %d columns. Enlarge it.\n", rowtot, coltot);
         printf("You need at least %d rows and %d columns.\n", ROWS + 6, COLS + 2);
         return 1;
@@ -157,7 +151,7 @@ static void screen_end(int rowtot, int coltot, int lose, int store)
     wclear(score);
     delwin(field);
     delwin(score);
-    attron(COLOR_PAIR(rand()%4 + 1));
+    attron(COLOR_PAIR(rand() % 4 + 1));
     attron(A_BOLD);
     if (lose) {
         if ((ps.size - STARTING_SIZE) * FRUIT_POINTS > 0)
@@ -176,62 +170,35 @@ static void screen_end(int rowtot, int coltot, int lose, int store)
     delwin(stdscr);
 }
 
-static snake *reclist(int i, snake *previous, int directions[], int x, int y)
+static void print_initial_snake(int x, int y, int i)
 {
-    snake *s = malloc(sizeof(snake));
-    if (s) {
-        s->direction = directions[i];
-        s->previous = previous;
-        if (i != 0) {
-            x = ((x - (s->direction % 10)) + ROWS) % ROWS;
-            y = ((y - (s->direction / 10)) + COLS) % COLS;
-        }
+    if (i != ps.size) {
         colored_print(field, x, y, SNAKE_CHAR, 2);
         i++;
-        if (i != ps.size)
-            s->next = reclist(i, s, directions, x, y);
-        else
-            s->next = NULL;
+        x = ((x - (snake[i] % 10)) + ROWS) % ROWS;
+        y = ((y - (snake[i] / 10)) + COLS) % COLS;
+        return print_initial_snake(x, y, i);
     }
-    return s;
-}
-
-static void freelist(snake *s)
-{
-    if (s->next)
-        freelist(s->next);
-    free(s);
 }
 
 static void fruit_gen(void)
 {
-    int dim = (ROWS * COLS) - ps.size;
-    int fixed_grid[dim];
-    int i, k;
-    int j = 0;
-    if (dim == 0)
+    int j;
+    int tot = ROWS * COLS;
+    if ((tot) == ps.size)
         return;
-    for (i = 0; i < ROWS; i++) {
-        for (k = 0; k < COLS; k++) {
-            if ((mvwinch(field, i + 1, k + 1) & A_CHARTEXT) != *SNAKE_CHAR) {
-                fixed_grid[j] = (i * COLS) + k;
-                j++;
-            }
-        }
-    }
-    j = rand() % dim;
-    ps.fruit_coord.x = fixed_grid[j] / COLS;
-    ps.fruit_coord.y = fixed_grid[j] - (ps.fruit_coord.x * COLS);
+    j = rand() % (tot);
+    do {
+        ps.fruit_coord.x = j / COLS;
+        ps.fruit_coord.y = j - (ps.fruit_coord.x * COLS);
+        j = (j + 1 + (tot)) % (tot);
+    } while ((mvwinch(field,  ps.fruit_coord.x + 1,  ps.fruit_coord.y + 1) & A_CHARTEXT) == *SNAKE_CHAR);
     colored_print(field, ps.fruit_coord.x, ps.fruit_coord.y, FRUIT_CHAR, 1);
 }
 
-static void grid_init(int initial_directions[], int resume)
+static void grid_init(int resume)
 {
-    snake *temp = NULL;
-    s = reclist(0, NULL, initial_directions, ps.snake_head.x, ps.snake_head.y);
-    for (temp = s; temp->next; temp = temp->next);
-    /* Circular list: first elem has a ptr to last elem */
-    s->previous = temp;
+    print_initial_snake(ps.snake_head.x, ps.snake_head.y, 0);
     if (!resume)
         fruit_gen();
     else
@@ -240,16 +207,16 @@ static void grid_init(int initial_directions[], int resume)
 
 static void snake_move(int *lose)
 {
-    ps.snake_head.x = ((ps.snake_head.x + s->direction % 10) + ROWS) % ROWS;
-    ps.snake_head.y = ((ps.snake_head.y + s->direction / 10) + COLS) % COLS;
+    ps.snake_head.x = ((ps.snake_head.x + snake[HEAD] % 10) + ROWS) % ROWS;
+    ps.snake_head.y = ((ps.snake_head.y + snake[HEAD] / 10) + COLS) % COLS;
     if ((mvwinch(field, ps.snake_head.x + 1, ps.snake_head.y + 1) & A_CHARTEXT) == *FRUIT_CHAR) {
         eat_fruit();
         mvwprintw(score, 1, strlen("Points: ") + 1, "%d", (ps.size - STARTING_SIZE) * FRUIT_POINTS);
         wrefresh(score);
     } else {
         mvwprintw(field, ps.snake_tail.x + 1,  ps.snake_tail.y + 1, " ");
-        ps.snake_tail.x = ((ps.snake_tail.x + s->previous->direction % 10) + ROWS) % ROWS;
-        ps.snake_tail.y = ((ps.snake_tail.y + s->previous->direction / 10) + COLS) % COLS;
+        ps.snake_tail.x = ((ps.snake_tail.x + snake[ps.size - 1] % 10) + ROWS) % ROWS;
+        ps.snake_tail.y = ((ps.snake_tail.y + snake[ps.size - 1] / 10) + COLS) % COLS;
         if ((mvwinch(field, ps.snake_head.x + 1, ps.snake_head.y + 1) & A_CHARTEXT) == *SNAKE_CHAR) {
             *lose = 1;
             return;
@@ -260,12 +227,9 @@ static void snake_move(int *lose)
 
 static void change_directions(void)
 {
-    snake *temp = NULL;
-    temp = s->previous;
-    while (temp != s) {
-        temp->direction = temp->previous->direction;
-        temp = temp->previous;
-    }
+    int i;
+    for (i = ps.size - 1; i > 0; i--)
+        snake[i] = snake[i - 1];
 }
 
 static void main_cycle(int *lose, int *store)
@@ -275,20 +239,20 @@ static void main_cycle(int *lose, int *store)
     wmove(field, ps.snake_head.x + 1, ps.snake_head.y + 1);
     switch (wgetch(field)) {
         case KEY_LEFT:
-            if (s->direction != RIGHT)
-                s->direction = LEFT;
+            if (snake[HEAD] != RIGHT)
+                snake[HEAD] = LEFT;
             break;
         case KEY_RIGHT:
-            if (s->direction != LEFT)
-                s->direction = RIGHT;
+            if (snake[HEAD] != LEFT)
+                snake[HEAD] = RIGHT;
             break;
         case KEY_UP:
-            if (s->direction != DOWN)
-                s->direction = UP;
+            if (snake[HEAD] != DOWN)
+                snake[HEAD] = UP;
             break;
         case KEY_DOWN:
-            if (s->direction != UP)
-                s->direction = DOWN;
+            if (snake[HEAD] != UP)
+                snake[HEAD] = DOWN;
             break;
         case 's': /* "s" to store current game and exit */
             *store = 1;
@@ -301,22 +265,15 @@ static void main_cycle(int *lose, int *store)
 
 static void eat_fruit(void)
 {
-    s = snake_grow();
     ps.size++;
+    snake_grow();
     fruit_gen();
 }
 
-static snake *snake_grow(void)
+static void snake_grow(void)
 {
-    snake *temp = s->previous;
-    temp->next = malloc(sizeof(snake));
-    if (temp->next) {
-        temp->next->previous = temp;
-        temp->next->direction = temp->direction;
-        temp->next->next = NULL;
-        s->previous = temp->next;
-    }
-    return s;
+    snake = realloc(snake, ps.size * sizeof(int));
+    snake[ps.size - 1] = snake[ps.size - 2];
 }
 
 static void colored_print(WINDOW *win, int x, int y, char *c, int color)
@@ -326,49 +283,43 @@ static void colored_print(WINDOW *win, int x, int y, char *c, int color)
     wattroff(win, COLOR_PAIR);
 }
 
-static void resume_func(int **initial_directions, int *resume)
+static void resume_func(int *resume)
 {
     char *path_resume_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
     FILE *f = NULL;
-    int i;
     if ((f = fopen(path_resume_file, "r"))) {
         fread(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
-        *initial_directions = malloc(sizeof(int) * ps.size);
-        for (i = 0; i < ps.size; i++)
-            fscanf(f, "%i\n", &(*initial_directions)[i]);
+        snake = malloc(sizeof(int) * ps.size);
+        fread(snake, sizeof(int), ps.size, f);
         fclose(f);
         remove(path_resume_file);
     } else {
         printf("No previous games found. Starting a new match.\n");
         *resume = 0;
         sleep(1);
-        return init_func(initial_directions);
+        return init_func();
     }
 }
 
-static void init_func(int **initial_directions)
+static void init_func(void)
 {
-    int i = 0;
+    int i;
     ps.size = STARTING_SIZE;
     ps.snake_head.x = ROWS/2;
     ps.snake_head.y = COLS/2;
     ps.snake_tail.x = ROWS/2;
     ps.snake_tail.y = COLS/2 - (STARTING_SIZE - 1);
-    *initial_directions = malloc(sizeof(int) * ps.size);
-    do {
-        (*initial_directions)[i] = RIGHT;
-        i++;
-    } while (i != ps.size);
+    snake = malloc(sizeof(int) * ps.size);
+    for (i = 0; i < ps.size; i++)
+        snake[i] = RIGHT;
 }
 
-static void store_and_exit(void)
+static void store_and_exit()
 {
     char *path_resume_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
-    snake *temp = NULL;
     FILE *f = fopen(path_resume_file, "w");
     fwrite(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
-    for (temp = s; temp; temp = temp->next)
-        fprintf(f, "%i\n", temp->direction);
+    fwrite(snake, sizeof(int), ps.size, f);
     fclose(f);
 }
 
@@ -382,7 +333,7 @@ static void store_score(void)
     if ((f = fopen(path_score_file, "r"))) {
         for (i = 1; (i < MAX_SCORE_LENGTH) && (!feof(f)); i++) {
             score_list = realloc(score_list, (i + 1) * sizeof(int));
-            fscanf(f, "%i\n", &score_list[i]);
+            fscanf(f, "%d\n", &score_list[i]);
         }
         fclose(f);
         dim = i;
@@ -397,7 +348,7 @@ static void store_score(void)
     }
     f = fopen(path_score_file, "w");
     for(i = 0; (i < dim) && (i < MAX_SCORE_LENGTH); i++)
-        fprintf(f, "%i\n", score_list[i]);
+        fprintf(f, "%d\n", score_list[i]);
     fclose(f);
     free(score_list);
 }
@@ -410,7 +361,7 @@ static void print_score_list(void)
     if ((f = fopen(path_score_file, "r"))) {
         for (i = 0; (!feof(f) && (i < MAX_SCORE_LENGTH)); i++) {
             score_list = realloc(score_list, (i + 1) * sizeof(int));
-            fscanf(f, "%i\n", &score_list[i]);
+            fscanf(f, "%d\n", &score_list[i]);
         }
         dim = i;
         fclose(f);
