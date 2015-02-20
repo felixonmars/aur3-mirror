@@ -2,8 +2,8 @@
 # This PKGBUILD is a modified xen and xen-git PKGBUILD. Most credits go to these maintainers (kantras and tritron).
 
 pkgname=xen-4.5-git
-pkgver=$(date +%Y%m%d)
-pkgrel=1
+pkgver=r30113.75ac8cf
+pkgrel=3
 pkgdesc="Xen 4.5 Staging (untested)"
 provides="xen"
 arch=(
@@ -76,9 +76,7 @@ conflicts=(
 	xen{,-rc,-git,-gdbsx}
 )
 backup=(
-etc/modules-load.d/xen.conf
 etc/xen/xl.conf
-etc/conf.d/xen{stored,consoled,domains,commons}
 etc/xen/grub.conf
 )
 options=(
@@ -89,23 +87,13 @@ install=$pkgname.install
 changelog=ChangeLog
 source=(
 	09_xen
-	conf.d-xenconsoled
-	conf.d-xenstored
-	efi-xen.cfg
-	enable-spice.patch
 	grub.conf
-	tmpfiles.d-xen.conf
-	xen.conf
+	efi-xen.cfg
 )
 sha256sums=(
 	'06c9f6140f7ef4ccfc4b1a7d9732a673313e269733180f53afcd9e43bf6c26bb'
-	'48d76cc6f25caa79b3f527c96a0883b1decb9012f6616f61336c8d43791bf007'
-	'0e1ad0a6a72b0c22025a556c23235a8f663427f1e769c45fe39d1c525bf82eff'
-	'592f9ed540adbe94095071e4c327aefe85ee5ca057a086a9935847f36aca3be8'
-	'287048dcd1dfa807033127a25a346dbfd508ff06d3e8fa716e7e0c68a14ce1c2'
 	'3f0af16958c3e057b9baa5afc47050d9adf7dd553274dd97ae4f35938fefb568'
-	'40e0760810a49f925f2ae9f986940b40eba477dc6d3e83a78baaae096513b3cf'
-	'50a9b7fd19e8beb1dea09755f07318f36be0b7ec53d3c9e74f3266a63e682c0c'
+	'592f9ed540adbe94095071e4c327aefe85ee5ca057a086a9935847f36aca3be8'
 )
 
 _gitroot="git://xenbits.xen.org/xen.git"
@@ -126,11 +114,6 @@ prepare() {
 
 	cd "$srcdir/$_gitname-build"
 
-	### Patching
-
-	# Enable SPICE support
-	patch -Np1 -i $srcdir/enable-spice.patch
-
 	# Fix Install Paths
 	sed -i 's:/sbin:/bin:' config/StdGNU.mk
 	sed -i 's:/var/lock:/run/lock:' config/StdGNU.mk
@@ -141,15 +124,26 @@ prepare() {
 	echo "XEN_RUN_DIR=/run/xen" >> .config
 	echo "XEN_LOCK_DIR=/run/lock" >> .config
 	echo "SUBSYS_DIR=/run" >> .config
-	echo "INITD_DIR=/etc/init.d" >> .config
+	echo "INITD_DIR=/etc/init.d/" >> .config
 
+}
+
+pkgver() {
+	cd "$srcdir/$_gitname"
+	printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
 	unset CFLAGS
 	cd "$srcdir/$_gitname-build"
 	./autogen.sh
-	./configure PYTHON=/usr/bin/python2 --prefix=/usr --localstatedir=/run
+	./configure PYTHON=/usr/bin/python2 \
+	--prefix=/usr \
+	--localstatedir=/run \
+	--with-extra-qemuu-configure-args=" \
+	--enable-spice \
+	--enable-usb-redir \
+	--audio-drv-list=oss,alsa,sdl,pa "
 	make LANG=C PYTHON=python2 dist
 }
 
@@ -160,39 +154,24 @@ package() {
 
 	# Install files from AUR package
 	cd ../
-	install -Dm644 tmpfiles.d-xen.conf "$pkgdir"/usr/lib/tmpfiles.d/xen.conf
-	install -Dm644 xen.conf "$pkgdir"/etc/modules-load.d/xen.conf
-	install -Dm644 conf.d-xenstored "$pkgdir"/etc/conf.d/xenstored
-	install -Dm644 conf.d-xenconsoled "$pkgdir"/etc/conf.d/xenconsoled
 	install -Dm644 grub.conf "$pkgdir"/etc/xen/grub.conf
 	install -Dm755 09_xen "$pkgdir"/etc/grub.d/09_xen
 	install -Dm644 efi-xen.cfg "$pkgdir"/etc/xen/efi-xen.cfg
 
 	cd "$pkgdir"
 
-	# Fix paths in scripts, move to right locations and create missing directories
-	sed -i 's:/etc/sysconfig:/etc/conf.d:' etc/init.d/xendomains
-# 	sed -i 's:/var/lock:/run/lock:' etc/init.d/xendomains
-# 	sed -i 's:/var/lock:/run/lock:' etc/xen/scripts/hotplugpath.sh
-	sed -i 's:/var/run:/run:' etc/init.d/xencommons
-	sed -i 's:/var/run:/run:' etc/xen/scripts/hotplugpath.sh
-	sed -i 's:/var/run:/run:' etc/xen/scripts/locking.sh
-	
+	# Fix paths in scripts
 	for file in usr/lib/systemd/system/* ; do
 		sed -i 's:/run/run/:/run/:' $file
+		sed -i 's:/run/lib/xenstored:/var/lib/xenstored:' $file
 	done
-	
-	sed -i 's:/run/lib/:/var/lib/:' usr/lib/systemd/system/var-lib-xenstored.mount
+
+	sed -i '/^xen/!d;/xen-scsibk/d' "$pkgdir"/usr/lib/modules-load.d/xen.conf
 
 	mv etc/init.d/* etc/xen/scripts/
-	mv etc/default/* etc/conf.d/
 
 	mv var/xen/dump var/lib/xen/
 	mkdir var/log/xen/console
-
-	for file in usr/lib/systemd/system/* ; do
-		sed -i 's:etc/default:etc/conf.d:' $file
-	done
 
 	# Sanitize library path (if lib64 exists)
 	if [[ -d usr/lib64 ]]; then
@@ -204,7 +183,7 @@ package() {
 
 	# If EFI binaries build, move to /boot
 	if [[ -f usr/lib/efi/xen.efi ]]; then
-		mv usr/lib/efi/xen-$pkgver.efi "$pkgdir"/boot/xen-$pkgver.efi
+		mv usr/lib/efi/xen-4.5.*.efi "$pkgdir"/boot/
 		rm -rf usr/lib/efi
 	fi
 
@@ -239,7 +218,7 @@ package() {
 	rm -f usr/lib/pkgconfig/libcacard.pc
 
 	# Clean up left over empty directories
-	rm -rf var/run var/lock var/xen etc/default etc/init.d
+	rm -rf var/lock var/xen etc/init.d
 
 	# adhere to Static Library Packaging Guidelines
 	rm -rf usr/lib/*.a

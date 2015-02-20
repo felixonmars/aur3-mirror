@@ -1,0 +1,100 @@
+#!/usr/bin/ash
+run_hook ()
+{
+  local line i address netmask gateway dns0 dns1 rootserver rootpath defaultrootpath defaultserver tsp
+  : > /ip_opts
+
+  if [ -z "${ip}" -a -n "${nfsaddrs}" ]; then
+    ip="${nfsaddrs}"
+  fi
+
+  if [ -n "${ip}" ]; then
+    # setup network and save some values
+    ipconfig "ip=${ip}" | while read line; do
+      if [ "${line#"IP-Config:"}" != "${line}" ]; then
+        continue
+      fi
+      line="$(echo ${line} | sed -e 's/ :/:/g;s/: /=/g')"
+
+      for i in ${line}; do
+        case "${i}" in
+          address=*)
+            echo "${i}" >> /ip_opts
+          ;;
+          netmask=*)
+            echo "${i}" >> /ip_opts
+          ;;
+          gateway=*)
+            echo "${i}" >> /ip_opts
+          ;;
+          dns0=*)
+            echo "${i}" >> /ip_opts
+          ;;
+          dns1=*)
+            echo "${i}" >> /ip_opts
+          ;;
+          rootserver=*)
+            echo "${i}" >> /ip_opts
+          ;;
+          rootpath=*)
+            echo "${i}" >> /ip_opts
+          ;;
+        esac
+      done
+    done
+
+    echo "device=$(echo ${ip} | cut -d: -f6)" >> /ip_opts
+  fi
+  . /ip_opts
+  echo "IP-Config: ${address}/${netmask}"
+  echo "IP-Config: gw: ${gateway}    dns0: ${dns0}    dns1: ${dns1}"
+
+  [ -d /dev/pts ] || mkdir -p /dev/pts
+  mount -t devpts devpts /dev/pts
+ 
+# Get alternative ssh listening port if specified
+# TODO: didn't work right now, so will update this.
+	if [ -n "${tsport}" ]; then
+	tsp="${tsport}"
+	else tsp=22
+	fi
+
+  echo "Starting tinyssh on ${tsp}"
+  # Change -c 1 to N for N number of simultaneous connections allowed.
+  # tsp comes from the commandline and determines the server port to listen on.
+  tcpserver -HRDl0 -c5 0.0.0.0 $tsp tinysshd -sO /etc/tinyssh/init/sshkeydir&
+}
+
+run_cleanuphook ()
+{
+    umount /dev/pts
+    rm -R /dev/pts
+    
+    killall tinysshd
+    killall tcpserver
+    . /ip_opts
+                
+	/sbin/ip addr flush dev "$device"
+	/sbin/ip link set down "$device"
+
+	# the mkinitcpio net hook boots interfaces with kernel names, 
+	# i.e. ethX, if one uses udev naming rules, this will leave
+	# remote servers stranded with no interfaces up.
+	# A hack/solution is to bring down the ifaces and bring them back up. 
+	drvdir=/sys/class/net/
+	for if in `ls $drvdir`; do
+		if [ -d /sys/class/net/$if/device  ]; then
+			grep DRIVER $drvdir/$if/device/uevent | cut -f2 -d"=" >> drv.list
+		fi;
+	done
+	rmmod  `cat drv.list`
+	# Try xen, in case this is a xen dom 0. Nothing happens if it is not.
+	modprobe -a xen_netfront xen_pciback 2>/dev/null
+	modprobe -a `cat drv.list`
+	
+		if [ -f drv.list ]; then
+			rm drv.list
+		fi
+}
+
+# vim: set ft=sh ts=4 sw=4 et:
