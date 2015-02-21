@@ -17,7 +17,7 @@ pkgsuffix=
 pkgver=$pkgversion
 
 pkgtmp=
-pkgrel=1
+pkgrel=2
 #epoch=1
 pkgdesc="The Graph-Document NoSQL - Community Edition"
 arch=('any')
@@ -42,7 +42,7 @@ changelog=""
 source=("https://github.com/orientechnologies/orientdb/archive/${pkgversion}${pkgsuffix}.tar.gz"
   'orientdb.service')
 
-md5sums=('570cded88f522d742a22ae5733d7d70e'
+md5sums=('6fec9322a09ea3354375b816e23fa5ca'
   '687903eba3737f9733bf1c45c4e68e6d')
 
 #prepare() {}

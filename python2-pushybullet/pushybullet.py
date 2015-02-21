@@ -89,22 +89,23 @@ class Session(object):
     def delete(self, url, params=None, auth=None, headers=None):
         return self._request('DELETE', url, params=params, auth=auth, headers=headers)
 
-    def _encode_form_data(self, data):
+    def _encode_form_data(self, pairs):
         boundary = ''.join(chr(random.choice(xrange(ord('a'), ord('z')))) for _ in xrange(0, 30))
 
         body = []
-        for name, value in data.iteritems():
+        for name, value in pairs:
             if hasattr(value, 'read'):
+                _body = value.read()
                 body.append(
                     'Content-Type: application/octet-stream\r\n'
                     'Content-Disposition: form-data; name="%s"; filename="%s"\r\n'
-                    'Content-Length: %s'
+                    'Content-Length: %s\r\n'
                     '\r\n'
                     '%s' % (
                         urllib.quote(name),
-                        urllib.quote(value.name),
-                        os.fstat(value.fileno()).st_size,
-                        value.read()))
+                        urllib.quote(getattr(value, 'name', None) or "file.txt"),
+                        len(_body),
+                        _body))
             else:
                 body.append(
                         'Content-Type: text/plain\r\n'
@@ -155,10 +156,7 @@ class Session(object):
         _headers['Host'] = _url.hostname
 
         if files:
-            _data = data.copy() if data else {}
-            _data.update(files)
-            boundary = '----' + ''.join(chr(random.choice(xrange(ord('a'), ord('z')))) for _ in xrange(0, 30))
-            content_type, _data = 'multipart/form-data; boundary=%s' % boundary, self._encode_form_data(_data, boundary)
+            content_type, _data = self._encode_form_data(p for n in (data, files) for p in n.iteritems())
 
         elif data:
             content_type, _data = ('application/x-www-form-urlencoded',
@@ -296,6 +294,9 @@ class PushBulletObject(object):
 
     collection_name = None
 
+    def __init__(self, **data):
+        self.__dict__.update(data)
+
     @property
     def uri(self):
         '''
@@ -337,6 +338,7 @@ class PushBulletObject(object):
                 modified_after=parse_since(since),
                 limit=limit)
 
+        print(cls)
         if skip_inactive:
             return (cls(api, **o) for o in it if o.get('active', False))
         else:
@@ -372,7 +374,7 @@ class ObjectWithIden(object):
     def uri(self):
         return '%s/%s' % (self.collection_name, self.iden)
 
-class Grant(PushBulletObject, ObjectWithIden):
+class Grant(ObjectWithIden, PushBulletObject):
     collection_name = 'grants'
 
     def __repr__(self):
@@ -381,7 +383,7 @@ class Grant(PushBulletObject, ObjectWithIden):
     def __unicode__(self):
         return u'grant for %s' % (self.client['name'])
 
-class Subscription(PushBulletObject, ObjectWithIden):
+class Subscription(ObjectWithIden, PushBulletObject):
     collection_name = 'subscriptions'
 
     def __repr__(self):
@@ -407,7 +409,7 @@ class Subscription(PushBulletObject, ObjectWithIden):
 
         return self
 
-class ChannelInfo(PushBulletObject, ObjectWithIden):
+class ChannelInfo(ObjectWithIden, PushBulletObject):
     collection_name = 'channel-info'
 
     @classmethod
@@ -523,7 +525,7 @@ class Client(PushTarget, ObjectWithIden):
     def ident(self):
         return {'client_iden': self.iden}
 
-class Contact(PushTarget, ObjectWithIden):
+class Contact(ObjectWithIden, PushTarget):
     '''
     Contact to push to
     '''
@@ -559,7 +561,7 @@ class Contact(PushTarget, ObjectWithIden):
         self.name = newname
         return self.update()
 
-class Device(PushTarget, ObjectWithIden):
+class Device(ObjectWithIden, PushTarget):
     '''
     Device to push to
     '''
@@ -598,10 +600,52 @@ class Device(PushTarget, ObjectWithIden):
         self.nickname = newname
         return self.update()
 
+class PhoneNumber(PushTarget):
+    '''
+    Phone number to push SMS to
+    '''
+    device = None
+    number = None
+
+    def __init__(self, device, number):
+        assert isinstance(device, Device)
+        self.device = device
+        self.number = str(number)
+
+    @property
+    def ident(self):
+        return {
+                'type': 'messaging_extension_reply',
+                'package_name': 'com.pushbullet.android',
+                'conversation_iden': self.number,
+                'target_device_iden': self.device.iden,
+                'source_user_iden': self.api.me.iden
+                }
+
+    def push(self, push=None, **pushargs):
+        api = self.device.api
+        if not isinstance(push, Push):
+            push = api.make_push(pushargs, push)
+
+        data = self.ident
+        data['message'] = push.body
+        api.post("ephemerals", type="push", push=data)
+        return push
+
+    def __repr__(self):
+        return (u'<PhoneNumber[%s] device=%s>' % (self.number, self.device)).encode('utf-8')
+
+    def __unicode__(self):
+        return self.number
+
 class User(PushTarget):
     '''
     User profile
     '''
+    def __init__(self, api, **data):
+        self.__dict__.update(data)
+        self.bind(api)
+
     @classmethod
     def load(cls, api):
         return cls(api, **api.get('users/me'))
@@ -642,9 +686,9 @@ class Push(PushBulletObject):
     type = None
     collection_name = 'pushes'
 
-    def __init__(self, **data):
-        self.__dict__.update(data)
-        self.decode()
+    @property
+    def uri(self):
+        return "pushes/%s" % self.iden
 
     def decode(self):
         try:
