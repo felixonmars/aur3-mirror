@@ -1,2 +1,2 @@
 #!/bin/sh
-exec mono /usr/lib/sonarr/NzbDrone.Console.exe "$@"
+exec -a sonarr -- mono /usr/lib/sonarr/NzbDrone.exe "$@"
