@@ -1,6 +1,6 @@
 #!/usr/bin/perl
-# ff-downloader v0.5.10.3
-## Copyright 2011-14 Simone Sclavi 'Ito'
+# ff-downloader v0.5.10.4
+## Copyright 2011-15 Simone Sclavi 'Ito'
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
 #    the Free Software Foundation, either version 3 of the License, or
@@ -17,8 +17,8 @@
 
 use strict;
 use warnings;
-no if $] >= 5.018, warnings => "experimental::smartmatch";
-use feature qw(say switch);
+use Switch 'Perl6';
+use feature 'say';
 use Getopt::Long qw(:config no_ignore_case);
 use LWP;
 use Digest::MD5;
@@ -101,7 +101,6 @@ if (!$LANG)
     { language => 'Bosnian', code => 'bs' },
     { language => 'Catalan', code => 'ca' },
     { language => 'Czech', code => 'cs' },
-    { language => 'Kashubian', code => 'csb' },
     { language => 'Welsh', code => 'cy' },
     { language => 'Danish', code => 'da' },
     { language => 'German', code => 'de' },
@@ -140,7 +139,6 @@ if (!$LANG)
     { language => 'Khmer', code => 'km' },
     { language => 'Kannada', code => 'kn' },
     { language => 'Korean', code => 'ko' },
-    { language => 'Kurdish', code => 'ku' },
     { language => 'Ligurian', code => 'lij' },
     { language => 'Lithuanian', code => 'lt' },
     { language => 'Latvian', code => 'lv' },
@@ -166,7 +164,6 @@ if (!$LANG)
     { language => 'Songhai', code => 'son' },
     { language => 'Albanian', code => 'sq' },
     { language => 'Serbian', code => 'sr' },
-    { language => 'Swedish', code => 'sv-SE' },
     { language => 'Swahili', code => 'sw' },
     { language => 'Tamil', code => 'ta' },
     { language => 'Telugu', code => 'te' },
@@ -177,7 +174,7 @@ if (!$LANG)
     { language => 'Chinese (Simplified)', code => 'zh-CN' },
     { language => 'Xhosa', code => 'xh' },
     { language => 'Chinese (Traditional)', code => 'zh-TW' },
-    { language => 'Zulu', code => 'zu' },
+    { language => 'Uzbek', code => 'uz' },
     );
 
     my @tb_i18n = (

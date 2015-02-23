@@ -11,6 +11,9 @@
 #define MAX_SCORE_LENGTH 9
 #define FRUIT_POINTS 7
 #define HEAD 0
+#define DEFAULT_SPEED 28000
+#define HARD_SPEED 22000
+#define EASY_SPEED 30000
 
 /* eigenvectors associated to snake movements */
 #define RIGHT 10
@@ -32,6 +35,7 @@ struct point {
 #pragma pack(push, 1)
 struct state {
     int size;
+    int delay;
     struct point snake_head;
     struct point snake_tail;
     struct point fruit_coord;
@@ -51,17 +55,18 @@ static void snake_move(int *lose);
 static void snake_grow(void);
 static void main_cycle(int *lose, int *store);
 static void colored_print(WINDOW *win, int x, int y, char *c, int color);
-static void resume_func(void);
+static void init_func(char *argv);
 static void store_and_exit(void);
 static void store_score(void);
 static void print_score_list(void);
 
 /* Give default "new match" values to program state struct */
 static struct state ps = {
+    .delay = DEFAULT_SPEED,
     .size = STARTING_SIZE,
     .snake_head = {ROWS/2, COLS/2},
     .snake_tail = {ROWS/2, COLS/2 - (STARTING_SIZE - 1)},
-    .fruit_coord = {-1, -1},
+    .fruit_coord = {-1, -1}
 };
 static WINDOW *field = NULL, *score = NULL;
 static int *snake = NULL;
@@ -87,20 +92,26 @@ int main(int argc, char *argv[])
 
 static int starting_questions(int argc, char *argv[])
 {
-    int i;
     if ((argc == 1) || (((strcmp(argv[1],"-n")) != 0) && ((strcmp(argv[1],"-r")) != 0) && ((strcmp(argv[1],"-s")) != 0))) {
-        printf("Helper message.\nStart this program with:\n\t'-n' if you want to play a new game;\n\t'-r' to resume your last saved game;\n\t'-s' to view your top scores.\n");
+        printf("Helper message.\nStart this program with:\n\t'-n $level'\tif you want to play a new game, where '$level' is one between easy and hard.\n\t\t\tLeaving only '-n' will play default level;\n\t'-r'\t\tto resume your last saved game;\n\t'-s'\t\tto view your top scores.\n");
         return 1;
     }
     if (((strcmp(argv[1],"-s")) == 0)) {
         print_score_list();
         return 1;
     }
-    snake = malloc(sizeof(int) * STARTING_SIZE);
-    for (i = 0; i < STARTING_SIZE; i++)
-        snake[i] = RIGHT;
-    if (((strcmp(argv[1],"-r")) == 0))
-        resume_func();
+    init_func(argv[1]);
+    if (argc == 3) {
+        if ((((strcmp(argv[argc - 1],"easy")) != 0)) && (((strcmp(argv[argc - 1],"hard")) != 0))) {
+            printf ("Level not recognized. Playing at default level.\n");
+            sleep(1);
+        } else {
+            if (((strcmp(argv[2],"easy")) == 0))
+                ps.delay = EASY_SPEED;
+            else
+                ps.delay = HARD_SPEED;
+        }
+    }
     return 0;
 }
 
@@ -130,7 +141,7 @@ static void screen_init(int rowtot, int coltot)
     field = subwin(stdscr, ROWS + 2, COLS + 2, (rowtot - 6 - ROWS) / 2, (coltot - COLS - 2) / 2);
     score = subwin(stdscr, 2 + 2, coltot, rowtot - 4, 0);
     keypad(field, TRUE);
-    wtimeout(field, 30);
+    nodelay(field, TRUE);
     wattron(field, COLOR_PAIR(4));
     wattron(score, COLOR_PAIR(3));
     wborder(field, '|', '|', '-', '-', '+', '+', '+', '+');
@@ -264,6 +275,7 @@ static void main_cycle(int *lose, int *store)
             *lose = 1;
             break;
     }
+    usleep(ps.delay);
 }
 
 static void eat_fruit(void)
@@ -286,19 +298,25 @@ static void colored_print(WINDOW *win, int x, int y, char *c, int color)
     wattroff(win, COLOR_PAIR);
 }
 
-static void resume_func(void)
+static void init_func(char *argv)
 {
     char *path_resume_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
     FILE *f = NULL;
-    if ((f = fopen(path_resume_file, "r"))) {
+    int i, resume = strcmp(argv, "-r");
+    if ((resume == 0) && (f = fopen(path_resume_file, "r"))) {
         fread(&ps, sizeof(int), sizeof(struct state) / sizeof(int), f);
         snake = malloc(sizeof(int) * ps.size);
         fread(snake, sizeof(int), ps.size, f);
         fclose(f);
         remove(path_resume_file);
     } else {
-        printf("No previous games found. Starting a new match.\n");
-        sleep(1);
+        if (resume == 0) {
+            printf("No previous games found. Starting a new match.\n");
+            sleep(1);
+        }
+        snake = malloc(sizeof(int) * STARTING_SIZE);
+        for (i = 0; i < STARTING_SIZE; i++)
+            snake[i] = RIGHT;
     }
 }
 
@@ -329,13 +347,13 @@ static void store_score(void)
             free(score_list);
             return;
         }
-        for(i = 0; (score_list[i] < score_list[i + 1]) && (i < dim - 1); i++) {
+        for (i = 0; (score_list[i] < score_list[i + 1]) && (i < dim - 1); i++) {
             score_list[i] = score_list[i + 1];
             score_list[i + 1] = points;
         }
     }
     f = fopen(path_score_file, "w");
-    for(i = 0; (i < dim) && (i < MAX_SCORE_LENGTH); i++)
+    for (i = 0; (i < dim) && (i < MAX_SCORE_LENGTH); i++)
         fprintf(f, "%d\n", score_list[i]);
     fclose(f);
     free(score_list);
@@ -354,7 +372,7 @@ static void print_score_list(void)
         dim = i;
         fclose(f);
         printf("\tTop scores:\n");
-        for(i = 0; i < dim; i++)
+        for (i = 0; i < dim; i++)
             printf("\t\t%d) %d\n", i + 1, score_list[i]);
         free(score_list);
     } else {
