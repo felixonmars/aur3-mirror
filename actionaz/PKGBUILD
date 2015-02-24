@@ -2,7 +2,7 @@
 
 pkgname=actionaz
 pkgver=3.8.0
-pkgrel=2
+pkgrel=3
 pkgdesc="A task automation tool"
 arch=('i686' 'x86_64')
 url="http://actionaz.org/"
@@ -12,14 +12,14 @@ install=actionaz.install
 source=("https://github.com/Jmgr/actionaz/archive/v${pkgver}.tar.gz")
 
 build() {
-	cd "${srcdir}/actionaz-${pkgver}"
+	cd "${srcdir}/actiona-${pkgver}"
 	sed -i 's/\/local//' common.pri
 	qmake-qt4
 	make
 }
 
 package() {
-	cd "${srcdir}/actionaz-${pkgver}"
+	cd "${srcdir}/actiona-${pkgver}"
 	make INSTALL_ROOT="${pkgdir}" install
 }
 

@@ -13,7 +13,7 @@
 # Adapted for use with ArchLinux
 
 #   Edited 2009 Giulio Guzzinati
-#   Authors: Giulio Guzzinati (skarn86junk () gmail DOT it)
+#   Authors: Giulio Guzzinati (guzzinati.giulio at gmail)
 #   Last modified date: 24 May 2009
 
 #   Edited 2012/13 Michael Schubert

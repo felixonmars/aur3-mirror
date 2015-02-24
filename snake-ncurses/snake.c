@@ -46,7 +46,7 @@ static int starting_questions(int argc, char *argv[]);
 static int check_term_size(int rowtot, int coltot);
 static void screen_init(int rowtot, int coltot);
 static void screen_end(int rowtot, int coltot, int lose, int store);
-static void print_initial_snake(int x, int y, int i);
+static void print_initial_snake(int x, int y);
 static void fruit_gen(void);
 static void grid_init(void);
 static void change_directions(void);
@@ -185,14 +185,14 @@ static void screen_end(int rowtot, int coltot, int lose, int store)
     delwin(stdscr);
 }
 
-static void print_initial_snake(int x, int y, int i)
+static void print_initial_snake(int x, int y)
 {
-    if (i != ps.size) {
+    int j;
+    colored_print(field, x, y, SNAKE_CHAR, 2);
+    for (j = 1; j < ps.size; j++) {
+        x = ((x - (snake[j] % 10)) + ROWS) % ROWS;
+        y = ((y - (snake[j] / 10)) + COLS) % COLS;
         colored_print(field, x, y, SNAKE_CHAR, 2);
-        i++;
-        x = ((x - (snake[i] % 10)) + ROWS) % ROWS;
-        y = ((y - (snake[i] / 10)) + COLS) % COLS;
-        return print_initial_snake(x, y, i);
     }
 }
 
@@ -212,7 +212,7 @@ static void fruit_gen(void)
 
 static void grid_init()
 {
-    print_initial_snake(ps.snake_head.x, ps.snake_head.y, 0);
+    print_initial_snake(ps.snake_head.x, ps.snake_head.y);
     if (ps.fruit_coord.x == -1)
         fruit_gen();
     else
@@ -320,7 +320,7 @@ static void init_func(char *argv)
     }
 }
 
-static void store_and_exit()
+static void store_and_exit(void)
 {
     char *path_resume_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake.txt");
     FILE *f = fopen(path_resume_file, "w");

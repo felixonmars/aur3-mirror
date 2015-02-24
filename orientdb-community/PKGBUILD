@@ -8,7 +8,7 @@
 pkgname=orientdb-community
 
 ## PKGBUILD:pkgver is not allowed to contain colons, hyphens or whitespace
-pkgversion=2.0.2
+pkgversion=2.0.3
 #pkgrc=rc2
 pkgrc=
 #pkgsuffix=-$pkgrc
@@ -17,7 +17,7 @@ pkgsuffix=
 pkgver=$pkgversion
 
 pkgtmp=
-pkgrel=2
+pkgrel=1
 #epoch=1
 pkgdesc="The Graph-Document NoSQL - Community Edition"
 arch=('any')
@@ -42,7 +42,7 @@ changelog=""
 source=("https://github.com/orientechnologies/orientdb/archive/${pkgversion}${pkgsuffix}.tar.gz"
   'orientdb.service')
 
-md5sums=('6fec9322a09ea3354375b816e23fa5ca'
+md5sums=('b361f08900011e425a6ddbec294af7e5'
   '687903eba3737f9733bf1c45c4e68e6d')
 
 #prepare() {}
