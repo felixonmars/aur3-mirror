@@ -1,4 +1,4 @@
-# Maintainer: Fuhd <hdjsfkad6 [at] gmail [dot] com>
+# Maintainer: Fuhd
 pkgname=amule-dlp-libantileech-git
 pkgver=r8.3e8cbf8
 pkgrel=1

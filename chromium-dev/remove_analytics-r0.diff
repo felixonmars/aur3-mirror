@@ -1,0 +1,1049 @@
+commit 94e0eb330338624c504a38699544b7a88d3bf0fc
+Author: misc (misc@misc.misc)
+Date:   Tue Feb 24 17:37:40 2015 +0100
+
+    Remove Google Analytics changes (for 2314.0) (adapt to 2311.4 by sL1pKn07 thanks to misc)
+
+diff --git a/ui/file_manager/file_manager/background/js/background.js b/ui/file_manager/file_manager/background/js/background.js
+index b5c4144..82a2b3f 100644
+--- a/ui/file_manager/file_manager/background/js/background.js
++++ b/ui/file_manager/file_manager/background/js/background.js
+@@ -21,9 +21,6 @@ var LaunchType = {
+ function FileBrowserBackground() {
+   BackgroundBase.call(this);
+
+-  /** @type {!analytics.Tracker} */
+-  this.tracker = metrics.getTracker();
+-
+   /**
+    * Synchronous queue for asynchronous calls.
+    * @type {!AsyncUtil.Queue}
+@@ -91,8 +88,7 @@ function FileBrowserBackground() {
+       new importer.MediaImportHandler(
+           this.progressCenter,
+           this.historyLoader,
+-          new importer.DriveDuplicateFinder.Factory(),
+-          this.tracker);
++          new importer.DriveDuplicateFinder());
+
+   /**
+    * Promise of string data.
+diff --git a/ui/file_manager/file_manager/background/js/compiled_resources.gyp b/ui/file_manager/file_manager/background/js/compiled_resources.gyp
+index 7134604..2e00bb4 100644
+--- a/ui/file_manager/file_manager/background/js/compiled_resources.gyp
++++ b/ui/file_manager/file_manager/background/js/compiled_resources.gyp
+@@ -19,9 +19,6 @@
+           '../../common/js/error_util.js',
+           '../../common/js/async_util.js',
+           '../../common/js/file_type.js',
+-          '../../common/js/metrics_base.js',
+-          '../../common/js/metrics_events.js',
+-          '../../common/js/metrics.js',
+           '../../common/js/progress_center_common.js',
+           '../../common/js/util.js',
+           '../../common/js/volume_manager_common.js',
+@@ -50,7 +47,6 @@
+           '<(CLOSURE_DIR)/externs/command_line_private.js',
+           '<(CLOSURE_DIR)/externs/file_manager_private.js',
+           '<(CLOSURE_DIR)/externs/metrics_private.js',
+-          '../../../../../third_party/analytics/externs.js',
+           '../../../externs/chrome_test.js',
+           '../../../externs/connection.js',
+           '../../../externs/css_rule.js',
+diff --git a/ui/file_manager/file_manager/background/js/duplicate_finder.js b/ui/file_manager/file_manager/background/js/duplicate_finder.js
+index ce797e6..25ac157 100644
+--- a/ui/file_manager/file_manager/background/js/duplicate_finder.js
++++ b/ui/file_manager/file_manager/background/js/duplicate_finder.js
+@@ -21,17 +21,7 @@ importer.DuplicateFinder = function() {};
+ importer.DuplicateFinder.prototype.checkDuplicate;
+
+ /**
+- * A factory for producing duplicate finders.
+- * @interface
+- */
+-importer.DuplicateFinder.Factory = function() {};
+-
+-/** @return {!importer.DuplicateFinder} */
+-importer.DuplicateFinder.Factory.prototype.create;
+-
+-/**
+  * A duplicate finder for Google Drive.
+- *
+  * @constructor
+  * @implements {importer.DuplicateFinder}
+  * @struct
+@@ -39,31 +29,11 @@ importer.DuplicateFinder.Factory.prototype.create;
+ importer.DriveDuplicateFinder = function() {
+   /** @private {Promise<string>} */
+   this.driveIdPromise_ = null;
+-
+-  /**
+-   * Aggregate time spent computing content hashes (in ms).
+-   * @private {number}
+-   */
+-  this.computeHashTime_ = 0;
+-
+-  /**
+-   * Aggregate time spent performing content hash searches (in ms).
+-   * @private {number}
+-   */
+-  this.searchHashTime_ = 0;
+ };
+
+-/**
+- * @typedef {{
+- *   computeHashTime: number,
+- *   searchHashTime: number
+- * }}
+- */
+-importer.DriveDuplicateFinder.Statistics;
+-
+ /** @override */
+ importer.DriveDuplicateFinder.prototype.checkDuplicate = function(entry) {
+-  return this.computeHash_(entry)
++  return importer.DriveDuplicateFinder.computeHash_(entry)
+       .then(this.findByHash_.bind(this))
+       .then(
+           /**
+@@ -80,24 +50,20 @@ importer.DriveDuplicateFinder.prototype.checkDuplicate = function(entry) {
+  * @param {!FileEntry} entry
+  * @private
+  */
+-importer.DriveDuplicateFinder.prototype.computeHash_ = function(entry) {
++importer.DriveDuplicateFinder.computeHash_ = function(entry) {
+   return new Promise(
+-      /** @this {importer.DriveDuplicateFinder} */
+       function(resolve, reject) {
+-        var startTime = new Date().getTime();
+         chrome.fileManagerPrivate.computeChecksum(
+             entry.toURL(),
+             /** @param {string} result The content hash. */
+             function(result) {
+-              var endTime = new Date().getTime();
+-              this.searchHashTime_ += endTime - startTime;
+               if (chrome.runtime.lastError) {
+                 reject(chrome.runtime.lastError);
+               } else {
+                 resolve(result);
+               }
+             });
+-      }.bind(this));
++      });
+ };
+
+ /**
+@@ -109,7 +75,7 @@ importer.DriveDuplicateFinder.prototype.computeHash_ = function(entry) {
+  */
+ importer.DriveDuplicateFinder.prototype.findByHash_ = function(hash) {
+   return this.getDriveId_()
+-      .then(this.searchFilesByHash_.bind(this, hash));
++      .then(importer.DriveDuplicateFinder.searchFilesByHash_.bind(null, hash));
+ };
+
+ /**
+@@ -138,46 +104,19 @@ importer.DriveDuplicateFinder.prototype.getDriveId_ = function() {
+  * @param {string} volumeId The volume to search.
+  * @return <!Promise<Array<string>>> A list of file URLs.
+  */
+-importer.DriveDuplicateFinder.prototype.searchFilesByHash_ =
+-    function(hash, volumeId) {
++importer.DriveDuplicateFinder.searchFilesByHash_ = function(hash, volumeId) {
+   return new Promise(
+-      /** @this {importer.DriveDuplicateFinder} */
+       function(resolve, reject) {
+-        var startTime = new Date().getTime();
+         chrome.fileManagerPrivate.searchFilesByHashes(
+             volumeId,
+             [hash],
+-            /**
+-             * @param {!Object<string, Array<string>>} urls
+-             * @this {importer.DriveDuplicateFinder}
+-             */
++            /** @param {!Object<string, Array<string>>} urls */
+             function(urls) {
+-              var endTime = new Date().getTime();
+-              this.searchHashTime_ += endTime - startTime;
+               if (chrome.runtime.lastError) {
+                 reject(chrome.runtime.lastError);
+               } else {
+                 resolve(urls[hash]);
+               }
+-            }.bind(this));
+-      }.bind(this));
+-};
+-
+-/** @return {!importer.DriveDuplicateFinder.Statistics} */
+-importer.DriveDuplicateFinder.prototype.getStatistics = function() {
+-  return {
+-    computeHashTime: this.computeHashTime_,
+-    searchHashTime: this.searchHashTime_
+-  };
+-};
+-
+-/**
+- * @constructor
+- * @implements {importer.DuplicateFinder.Factory}
+- */
+-importer.DriveDuplicateFinder.Factory = function() {};
+-
+-/** @override */
+-importer.DriveDuplicateFinder.Factory.prototype.create = function() {
+-  return new importer.DriveDuplicateFinder();
++            });
++      });
+ };
+diff --git a/ui/file_manager/file_manager/background/js/file_operation_util.js b/ui/file_manager/file_manager/background/js/file_operation_util.js
+index a0e7c4f..be018bb 100644
+--- a/ui/file_manager/file_manager/background/js/file_operation_util.js
++++ b/ui/file_manager/file_manager/background/js/file_operation_util.js
+@@ -310,7 +310,7 @@ fileOperationUtil.findEntriesRecursively = function(entry, onResultCallback) {
+                 reader.readEntries(processSubEntries, maybeSettlePromise);
+               },
+               maybeSettlePromise);
+-        };
++        }
+
+         processEntry(entry);
+       });
+diff --git a/ui/file_manager/file_manager/background/js/media_import_handler.js b/ui/file_manager/file_manager/background/js/media_import_handler.js
+index b9f3eb9..78e05d7 100644
+--- a/ui/file_manager/file_manager/background/js/media_import_handler.js
++++ b/ui/file_manager/file_manager/background/js/media_import_handler.js
+@@ -32,11 +32,10 @@ importer.ImportRunner.prototype.importFromScanResult;
+  *
+  * @param {!ProgressCenter} progressCenter
+  * @param {!importer.HistoryLoader} historyLoader
+- * @param {!importer.DuplicateFinder.Factory} duplicateFinderFactory
+- * @param {!analytics.Tracker} tracker
++ * @param {!importer.DuplicateFinder} duplicateFinder
+  */
+ importer.MediaImportHandler =
+-    function(progressCenter, historyLoader, duplicateFinderFactory, tracker) {
++    function(progressCenter, historyLoader, duplicateFinder) {
+   /** @private {!ProgressCenter} */
+   this.progressCenter_ = progressCenter;
+
+@@ -54,11 +53,8 @@ importer.MediaImportHandler =
+     chrome.power.releaseKeepAwake();
+   });
+
+-  /** @private {!importer.DuplicateFinder.Factory} */
+-  this.duplicateFinderFactory_ = duplicateFinderFactory;
+-
+-  /** @private {!analytics.Tracker} */
+-  this.tracker_ = tracker;
++  /** @private {!importer.DuplicateFinder} */
++  this.duplicateFinder_ = duplicateFinder;
+
+   /** @private {number} */
+   this.nextTaskId_ = 0;
+@@ -73,9 +69,8 @@ importer.MediaImportHandler.prototype.importFromScanResult =
+       this.historyLoader_,
+       scanResult,
+       directoryPromise,
+-      this.duplicateFinderFactory_.create(),
+-      destination,
+-      this.tracker_);
++      this.duplicateFinder_,
++      destination);
+
+   task.addObserver(this.onTaskProgress_.bind(this, task));
+
+@@ -158,7 +153,6 @@ importer.MediaImportHandler.prototype.onTaskProgress_ =
+  * @param {!importer.DuplicateFinder} duplicateFinder A duplicate-finder linked
+  *     to the import destination, that will be used to deduplicate imports.
+  * @param {!importer.Destination} destination The logical destination.
+- * @param {!analytics.Tracker} tracker
+  */
+ importer.MediaImportHandler.ImportTask = function(
+     taskId,
+@@ -166,8 +160,7 @@ importer.MediaImportHandler.ImportTask = function(
+     scanResult,
+     directoryPromise,
+     duplicateFinder,
+-    destination,
+-    tracker) {
++    destination) {
+
+   importer.TaskQueue.BaseTask.call(this, taskId);
+   /** @private {string} */
+@@ -188,9 +181,6 @@ importer.MediaImportHandler.ImportTask = function(
+   /** @private {!importer.HistoryLoader} */
+   this.historyLoader_ = historyLoader;
+
+-  /** @private {!analytics.Tracker} */
+-  this.tracker_ = tracker;
+-
+   /** @private {number} */
+   this.totalBytes_ = 0;
+
+@@ -205,12 +195,6 @@ importer.MediaImportHandler.ImportTask = function(
+
+   /** @private {boolean} Indicates whether this task was canceled. */
+   this.canceled_ = false;
+-
+-  /** @private {number} Number of files deduped by content dedupe. */
+-  this.dedupeCount_ = 0;
+-
+-  /** @private {number} */
+-  this.errorCount_ = 0;
+ };
+
+ /** @struct */
+@@ -276,15 +260,9 @@ importer.MediaImportHandler.ImportTask.prototype.requestCancel = function() {
+
+ /** @private */
+ importer.MediaImportHandler.ImportTask.prototype.initialize_ = function() {
+-  var stats = this.scanResult_.getStatistics();
+-
+-  this.remainingFilesCount_ = stats.newFileCount;
+-  this.totalBytes_ = stats.sizeBytes;
++  this.remainingFilesCount_ = this.scanResult_.getFileEntries().length;
++  this.totalBytes_ = this.scanResult_.getTotalBytes();
+   this.notify(importer.TaskQueue.UpdateType.PROGRESS);
+-
+-  this.tracker_.send(metrics.ImportEvents.STARTED);
+-  this.tracker_.send(metrics.ImportEvents.HISTORY_DEDUPE_COUNT
+-                     .value(stats.duplicateFileCount));
+ };
+
+ /**
+@@ -316,8 +294,6 @@ importer.MediaImportHandler.ImportTask.prototype.importOne_ =
+     function(destinationDirectory, completionCallback, entry) {
+   if (this.canceled_) {
+     this.notify(importer.TaskQueue.UpdateType.CANCELED);
+-    this.tracker_.send(metrics.ImportEvents.CANCELLED);
+-    this.sendImportStats_();
+     return;
+   }
+
+@@ -328,7 +304,6 @@ importer.MediaImportHandler.ImportTask.prototype.importOne_ =
+             if (isDuplicate) {
+               // If the given file is a duplicate, don't import it again.  Just
+               // update the progress indicator.
+-              this.dedupeCount_++;
+               this.markAsImported_(entry);
+               this.processedBytes_ += entry.size;
+               this.notify(importer.TaskQueue.UpdateType.PROGRESS);
+@@ -490,8 +465,6 @@ importer.MediaImportHandler.ImportTask.prototype.markAsImported_ =
+ /** @private */
+ importer.MediaImportHandler.ImportTask.prototype.onSuccess_ = function() {
+   this.notify(importer.TaskQueue.UpdateType.SUCCESS);
+-  this.tracker_.send(metrics.ImportEvents.ENDED);
+-  this.sendImportStats_();
+ };
+
+ /**
+@@ -508,7 +481,34 @@ importer.MediaImportHandler.ImportTask.prototype.sendImportStats_ = function() {
+       metrics.ImportEvents.FILE_COUNT
+           .value(importFileCount));
+
+-  this.tracker_.send(metrics.ImportEvents.ERROR.value(this.errorCount_));
++  // Send aggregate deduplication timings, to avoid flooding analytics with one
++  // timing per file.
++  var deduplicatorStats = this.deduplicator_.getStatistics();
++  this.tracker_.sendTiming(
++      metrics.Categories.ACQUISITION,
++      metrics.timing.Variables.COMPUTE_HASH,
++      deduplicatorStats.computeHashTime,
++      'In Place');
++  this.tracker_.sendTiming(
++      metrics.Categories.ACQUISITION,
++      metrics.timing.Variables.SEARCH_BY_HASH,
++      deduplicatorStats.searchHashTime);
++
++};
++
++/**
++ * Sends import statistics to analytics.
++ */
++importer.MediaImportHandler.ImportTask.prototype.sendImportStats_ = function() {
++  this.tracker_.send(
++      metrics.ImportEvents.CONTENT_DEDUPE_COUNT
++          .value(this.dedupeCount_));
++  // TODO(kenobi): Send correct import byte counts.
++  var importFileCount = this.scanResult_.getStatistics().newFileCount -
++      (this.dedupeCount_ + this.remainingFilesCount_);
++  this.tracker_.send(
++      metrics.ImportEvents.FILE_COUNT
++          .value(importFileCount));
+
+   // Send aggregate deduplication timings, to avoid flooding analytics with one
+   // timing per file.
+diff --git a/ui/file_manager/file_manager/background/js/media_scanner.js b/ui/file_manager/file_manager/background/js/media_scanner.js
+index 86dd1bc..b311fc6 100644
+--- a/ui/file_manager/file_manager/background/js/media_scanner.js
++++ b/ui/file_manager/file_manager/background/js/media_scanner.js
+@@ -59,26 +59,26 @@ importer.ScanResult.prototype.isInvalidated;
+ importer.ScanResult.prototype.getFileEntries;
+
+ /**
+- * Returns a promise that fires when scanning is complete.
++ * Returns the aggregate size, in bytes, of all FileEntries discovered
++ * during scanning.
+  *
+- * @return {!Promise.<!importer.ScanResult>}
++ * @return {number}
+  */
+-importer.ScanResult.prototype.whenFinal;
++importer.ScanResult.prototype.getTotalBytes;
+
+ /**
+- * @return {!importer.ScanResult.Statistics}
++ * Returns the scan duration in milliseconds.
++ *
++ * @return {number}
+  */
+-importer.ScanResult.prototype.getStatistics;
++importer.ScanResult.prototype.getScanDurationMs;
+
+ /**
+- * @typedef {{
+- *   scanDuration: number,
+- *   newFileCount: number,
+- *   duplicateFileCount: number,
+- *   sizeBytes: number
+- * }}
++ * Returns a promise that fires when scanning is complete.
++ *
++ * @return {!Promise.<!importer.ScanResult>}
+  */
+-importer.ScanResult.Statistics;
++importer.ScanResult.prototype.whenFinal;
+
+ /**
+  * Recursively scans through a list of given files and directories, and creates
+@@ -266,14 +266,14 @@ importer.DefaultMediaScanner.prototype.onFileEntryFound_ =
+            * @this {importer.DefaultMediaScanner}
+            */
+           function(duplicate) {
+-            return duplicate ?
+-                this.onDuplicateFileFound_(scan, entry) :
+-                this.onUniqueFileFound_(scan, entry);
++            if (!duplicate) {
++              return this.onUniqueFileFound_(scan, entry);
++            }
+           }.bind(this));
+ };
+
+ /**
+- * Adds a newly discovered file to the given scan result.
++ * Finds all files beneath directory.
+  *
+  * @param {!importer.DefaultScanResult} scan
+  * @param {!FileEntry} entry
+@@ -301,21 +301,6 @@ importer.DefaultMediaScanner.prototype.onUniqueFileFound_ =
+ };
+
+ /**
+- * Adds a duplicate file to the given scan result.  This is to track the number
+- * of duplicates that are being encountered.
+- *
+- * @param {!importer.DefaultScanResult} scan
+- * @param {!FileEntry} entry
+- * @return {!Promise}
+- * @private
+- */
+-importer.DefaultMediaScanner.prototype.onDuplicateFileFound_ =
+-    function(scan, entry) {
+-  scan.addDuplicateEntry(entry);
+-  return Promise.resolve();
+-};
+-
+-/**
+  * @param {!FileEntry} entry
+  * @return {!Promise.<boolean>} True if there is a history-entry-duplicate
+  *     for the file.
+@@ -381,9 +366,6 @@ importer.DefaultScanResult = function(hashGenerator) {
+   /** @private {number} */
+   this.totalBytes_ = 0;
+
+-  /** @private {number} */
+-  this.duplicateFileCount_ = 0;
+-
+   /**
+    * The point in time when the scan was started.
+    * @type {Date}
+@@ -430,6 +412,16 @@ importer.DefaultScanResult.prototype.getFileEntries = function() {
+ };
+
+ /** @override */
++importer.DefaultScanResult.prototype.getTotalBytes = function() {
++  return this.totalBytes_;
++};
++
++/** @override */
++importer.DefaultScanResult.prototype.getScanDurationMs = function() {
++  return this.lastScanActivity_.getTime() - this.scanStarted_.getTime();
++};
++
++/** @override */
+ importer.DefaultScanResult.prototype.whenFinal = function() {
+   return this.resolver_.promise;
+ };
+@@ -469,12 +461,11 @@ importer.DefaultScanResult.prototype.addFileEntry = function(entry) {
+                   this.lastScanActivity_ = new Date();
+
+                   if (hashcode in this.fileHashcodes_) {
+-                    this.addDuplicateEntry(entry);
+                     return false;
+                   }
+
+                   entry.size = metadata.size;
+-                  this.totalBytes_ += metadata.size;
++                  this.totalBytes_ += metadata['size'];
+                   this.fileHashcodes_[hashcode] = entry;
+                   this.fileEntries_.push(entry);
+                   return true;
+@@ -484,25 +475,6 @@ importer.DefaultScanResult.prototype.addFileEntry = function(entry) {
+ };
+
+ /**
+- * Logs the fact that a duplicate file entry was discovered during the scan.
+- * @param {!FileEntry} entry
+- */
+-importer.DefaultScanResult.prototype.addDuplicateEntry = function(entry) {
+-  this.duplicateFileCount_++;
+-};
+-
+-/** @override */
+-importer.DefaultScanResult.prototype.getStatistics = function() {
+-  return {
+-    scanDuration:
+-        this.lastScanActivity_.getTime() - this.scanStarted_.getTime(),
+-    newFileCount: this.fileEntries_.length,
+-    duplicateFileCount: this.duplicateFileCount_,
+-    sizeBytes: this.totalBytes_
+-  };
+-};
+-
+-/**
+  * Watcher for directories.
+  * @interface
+  */
+diff --git a/ui/file_manager/file_manager/background/js/mock_media_scanner.js b/ui/file_manager/file_manager/background/js/mock_media_scanner.js
+index 2019150..407c02f 100644
+--- a/ui/file_manager/file_manager/background/js/mock_media_scanner.js
++++ b/ui/file_manager/file_manager/background/js/mock_media_scanner.js
+@@ -115,9 +115,6 @@ function TestScanResult(fileEntries) {
+   /** @type {number} */
+   this.scanDuration = 100;
+
+-  /** @type {number} */
+-  this.duplicateFileCount = 0;
+-
+   /** @type {function} */
+   this.resolveResult_;
+
+@@ -147,6 +144,16 @@ TestScanResult.prototype.getFileEntries = function() {
+ };
+
+ /** @override */
++TestScanResult.prototype.getTotalBytes = function() {
++  return this.totalBytes;
++};
++
++/** @override */
++TestScanResult.prototype.getScanDurationMs = function() {
++  return this.scanDuration;
++};
++
++/** @override */
+ TestScanResult.prototype.finalize = function() {
+   return this.resolveResult_(this);
+ };
+@@ -166,16 +173,6 @@ TestScanResult.prototype.isInvalidated = function() {
+   return false;
+ };
+
+-/** @override */
+-TestScanResult.prototype.getStatistics = function() {
+-  return {
+-    scanDuration: this.scanDuration,
+-    newFileCount: this.fileEntries.length,
+-    duplicateFileCount: this.duplicateFileCount,
+-    sizeBytes: this.totalBytes
+-  };
+-};
+-
+ /**
+  * @constructor
+  * @implements {importer.DirectoryWatcher}
+diff --git a/ui/file_manager/file_manager/background/js/test_duplicate_finder.js b/ui/file_manager/file_manager/background/js/test_duplicate_finder.js
+index 0b6982f..cd09f03 100644
+--- a/ui/file_manager/file_manager/background/js/test_duplicate_finder.js
++++ b/ui/file_manager/file_manager/background/js/test_duplicate_finder.js
+@@ -20,27 +20,3 @@ importer.TestDuplicateFinder = function() {
+ importer.TestDuplicateFinder.prototype.checkDuplicate = function(entry) {
+   return Promise.resolve(this.returnValue);
+ };
+-
+-/** @override */
+-importer.TestDuplicateFinder.prototype.getStatistics = function() {
+-  return {
+-    computeHashTime: 0,
+-    searchHashTime: 0
+-  };
+-};
+-
+-/**
+- * @constructor
+- * @implements {importer.DuplicateFinder.Factory}
+- */
+-importer.TestDuplicateFinder.Factory = function() {
+-  /** @private {!Array<!importer.DuplicateFinder>} */
+-  this.instances = [];
+-};
+-
+-/** @override */
+-importer.TestDuplicateFinder.Factory.prototype.create = function() {
+-  var newInstance = new importer.TestDuplicateFinder();
+-  this.instances.push(newInstance);
+-  return newInstance;
+-};
+diff --git a/ui/file_manager/file_manager/common/js/metrics_events.js b/ui/file_manager/file_manager/common/js/metrics_events.js
+deleted file mode 100644
+index df0f848..0000000
+--- a/ui/file_manager/file_manager/common/js/metrics_events.js
++++ /dev/null
+@@ -1,100 +0,0 @@
+-// Copyright 2015 The Chromium Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
+-
+-// namespace
+-var metrics = metrics || metricsBase;
+-
+-/** @enum {string} */
+-metrics.Categories = {
+-  ACQUISITION: 'Acquisition'
+-};
+-
+-/**
+- * The values of these enums come from the analytics console.
+- * @private @enum {number}
+- */
+-metrics.Dimension_ = {
+-  USER_TYPE: 1,
+-  SESSION_TYPE: 2
+-};
+-
+-/**
+- * @enum {!analytics.EventBuilder.Dimension}
+- */
+-metrics.Dimensions = {
+-  USER_TYPE_NON_IMPORT: {
+-    index: metrics.Dimension_.USER_TYPE,
+-    value: 'Non-import'
+-  },
+-  USER_TYPE_IMPORT: {
+-    index: metrics.Dimension_.USER_TYPE,
+-    value: 'Import'
+-  },
+-  SESSION_TYPE_NON_IMPORT: {
+-    index: metrics.Dimension_.SESSION_TYPE,
+-    value: 'Non-import'
+-  },
+-  SESSION_TYPE_IMPORT: {
+-    index: metrics.Dimension_.SESSION_TYPE,
+-    value: 'Import'
+-  }
+-};
+-
+-// namespace
+-metrics.event = metrics.event || {};
+-
+-/**
+- * Base event builders for files app.
+- * @private @enum {!analytics.EventBuilder}
+- */
+-metrics.event.Builders_ = {
+-  IMPORT: analytics.EventBuilder.builder()
+-      .category(metrics.Categories.ACQUISITION)
+-};
+-
+-/**
+- * @enum {!analytics.EventBuilder}
+- */
+-metrics.ImportEvents = {
+-  STARTED: metrics.event.Builders_.IMPORT
+-      .action('Import Started')
+-      .dimension(metrics.Dimensions.SESSION_TYPE_IMPORT)
+-      .dimension(metrics.Dimensions.USER_TYPE_IMPORT),
+-
+-  ENDED: metrics.event.Builders_.IMPORT
+-      .action('Import Completed'),
+-
+-  CANCELLED: metrics.event.Builders_.IMPORT
+-      .action('Import Cancelled'),
+-
+-  ERROR: metrics.event.Builders_.IMPORT
+-      .action('Import Error'),
+-
+-  FILE_COUNT: metrics.event.Builders_.IMPORT
+-      .action('Files Imported'),
+-
+-  BYTE_COUNT: metrics.event.Builders_.IMPORT
+-      .action('Total Bytes Imported'),
+-
+-  DEVICE_YANKED: metrics.event.Builders_.IMPORT
+-      .action('Device Yanked'),
+-
+-  HISTORY_DEDUPE_COUNT: metrics.event.Builders_.IMPORT
+-      .action('Files Deduped By History'),
+-
+-  CONTENT_DEDUPE_COUNT: metrics.event.Builders_.IMPORT
+-      .action('Files Deduped By Content'),
+-
+-  HISTORY_CHANGED: metrics.event.Builders_.IMPORT
+-      .action('History Changed')
+-};
+-
+-// namespace
+-metrics.timing = metrics.timing || {};
+-
+-/** @enum {string} */
+-metrics.timing.Variables = {
+-  COMPUTE_HASH: 'Compute Content Hash',
+-  SEARCH_BY_HASH: 'Search By Hash'
+-};
+diff --git a/ui/file_manager/file_manager/common/js/test_tracker.js b/ui/file_manager/file_manager/common/js/test_tracker.js
+deleted file mode 100644
+index a33afd7..0000000
+--- a/ui/file_manager/file_manager/common/js/test_tracker.js
++++ /dev/null
+@@ -1,74 +0,0 @@
+-// Copyright 2015 The Chromium Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
+-
+-/**
+- * A tracker to substitute for analytics.Tracker in tests.
+- * @construtor
+- * @implements {analytics.Tracker}
+- */
+-TestTracker = function() {};
+-
+-/**
+- * @param {!analytics.HitType|!analytics.EventBuilder} hitType
+- * @param {(!analytics.ParameterMap|
+- *     !Object.<string, !analytics.Value>)=} opt_extraParams
+- * @return {!goog.async.Deferred}
+- */
+-TestTracker.prototype.send = function(hitType, opt_extraParams) {
+-};
+-
+-/**
+- * @param {string} description
+- * @return {!goog.async.Deferred}
+- */
+-TestTracker.prototype.sendAppView = function() {};
+-
+-/**
+- * @param {string} category
+- * @param {string} action
+- * @param {string=} opt_label
+- * @param {number=} opt_value
+- * @return {!goog.async.Deferred}
+- */
+-TestTracker.prototype.sendEvent = function() {};
+-
+-/**
+- * @param {string} network Specifies the social network, for example Facebook
+- *     or Google Plus.
+- * @param {string} action Specifies the social interaction action.
+- *     For example on Google Plus when a user clicks the +1 button,
+- *     the social action is 'plus'.
+- * @param {string} target Specifies the target of a social interaction.
+- *     This value is typically a URL but can be any text.
+- * @return {!goog.async.Deferred}
+- */
+-TestTracker.prototype.sendSocial = function() {};
+-
+-/**
+- * @param {string=} opt_description Specifies the description of an exception.
+- * @param {boolean=} opt_fatal Was the exception fatal.
+- * @return {!goog.async.Deferred}
+- */
+-TestTracker.prototype.sendException = function() {};
+-
+-/**
+- * @param {string} category Specifies the category of the timing.
+- * @param {string} variable Specifies the variable name of the timing.
+- * @param {number} value Specifies the value of the timing.
+- * @param {string=} opt_label Specifies the optional label of the timing.
+- * @param {number=} opt_sampleRate
+- * @return {!goog.async.Deferred}
+- */
+-TestTracker.prototype.sendTiming = function() {};
+-
+-TestTracker.prototype.forceSessionStart = function() {};
+-
+-/**
+- * @param {string} category
+- * @param {string} variable
+- * @param {string=} opt_label
+- * @param {number=} opt_sampleRate
+- * @return {!TestTracker.Timing}
+- */
+-TestTracker.prototype.startTiming = function() {};
+diff --git a/ui/file_manager/file_manager/foreground/js/compiled_resources.gyp b/ui/file_manager/file_manager/foreground/js/compiled_resources.gyp
+index 6a8b6ea..1779cfe 100644
+--- a/ui/file_manager/file_manager/foreground/js/compiled_resources.gyp
++++ b/ui/file_manager/file_manager/foreground/js/compiled_resources.gyp
+@@ -48,7 +48,6 @@
+           '../../common/js/progress_center_common.js',
+           '../../common/js/lru_cache.js',
+           '../../common/js/metrics_base.js',
+-          '../../common/js/metrics_events.js',
+           '../../common/js/metrics.js',
+           '../../background/js/file_operation_manager.js',
+           '../../background/js/file_operation_util.js',
+@@ -139,7 +138,6 @@
+           '<(CLOSURE_DIR)/externs/command_line_private.js',
+           '<(CLOSURE_DIR)/externs/file_manager_private.js',
+           '<(CLOSURE_DIR)/externs/metrics_private.js',
+-          '../../../../../third_party/analytics/externs.js',
+           '../../../externs/chrome_echo_private.js',
+           '../../../externs/chrome_test.js',
+           '../../../externs/connection.js',
+diff --git a/ui/file_manager/file_manager/foreground/js/file_manager.js b/ui/file_manager/file_manager/foreground/js/file_manager.js
+index a5de158..50dfa39 100644
+--- a/ui/file_manager/file_manager/foreground/js/file_manager.js
++++ b/ui/file_manager/file_manager/foreground/js/file_manager.js
+@@ -118,11 +118,6 @@ function FileManager() {
+    */
+   this.ui_ = null;
+
+-  /**
+-   * @private {analytics.Tracker}
+-   */
+-  this.tracker_ = null;
+-
+   // --------------------------------------------------------------------------
+   // Parameters determining the type of file manager.
+
+@@ -437,8 +432,7 @@ FileManager.prototype = /** @struct */ {
+                     this.mediaScanner_),
+                 /** @type {!importer.ImportRunner} */ (
+                     this.mediaImportHandler_),
+-                new importer.RuntimeCommandWidget(),
+-                assert(this.tracker_));
++                new importer.RuntimeCommandWidget());
+           }
+         }.bind(this));
+
+@@ -639,7 +633,6 @@ FileManager.prototype = /** @struct */ {
+             this.mediaScanner_ =
+                 this.backgroundPage_.background.mediaScanner;
+             this.historyLoader_ = this.backgroundPage_.background.historyLoader;
+-            this.tracker_ = this.backgroundPage_.background.tracker;
+             callback();
+           }.bind(this));
+         }.bind(this)));
+@@ -805,8 +798,6 @@ FileManager.prototype = /** @struct */ {
+    * @private
+    */
+   FileManager.prototype.onHistoryChanged_ = function(event) {
+-    this.tracker_.send(metrics.ImportEvents.HISTORY_CHANGED);
+-
+     // Ignore any entry that isn't an immediate child of the
+     // current directory.
+     util.isChildEntry(event.entry, this.getCurrentDirectoryEntry())
+@@ -858,19 +849,6 @@ FileManager.prototype = /** @struct */ {
+         this.selectionHandler_.onFileSelectionChanged.bind(
+             this.selectionHandler_));
+
+-    this.directoryModel_.addEventListener(
+-        'directory-changed',
+-        function(event) {
+-          if (event.volumeChanged) {
+-            var volumeInfo =
+-                this.volumeManager_.getVolumeInfo(event.newDirEntry);
+-            // NOTE: That dynamic values, like volume name MUST NOT
+-            // be sent to GA as that value can contain PII.
+-            // VolumeType is an enum.
+-            this.tracker_.sendAppView(volumeInfo.volumeType);
+-          }
+-        }.bind(this));
+-
+     // TODO(mtomasz, yoshiki): Create navigation list earlier, and here just
+     // attach the directory model.
+     this.initDirectoryTree_();
+diff --git a/ui/file_manager/file_manager/foreground/js/import_controller.js b/ui/file_manager/file_manager/foreground/js/import_controller.js
+index d09a5cd..0b46e03 100644
+--- a/ui/file_manager/file_manager/foreground/js/import_controller.js
++++ b/ui/file_manager/file_manager/foreground/js/import_controller.js
+@@ -28,10 +28,9 @@ importer.ActivityState = {
+  * @param {!importer.MediaScanner} scanner
+  * @param {!importer.ImportRunner} importRunner
+  * @param {!importer.CommandWidget} commandWidget
+- * @param {!analytics.Tracker} tracker
+  */
+ importer.ImportController =
+-    function(environment, scanner, importRunner, commandWidget, tracker) {
++    function(environment, scanner, importRunner, commandWidget) {
+
+   /** @private {!importer.ControllerEnvironment} */
+   this.environment_ = environment;
+@@ -51,9 +50,6 @@ importer.ImportController =
+   /** @type {!importer.ScanManager} */
+   this.scanManager_ = new importer.ScanManager(environment, scanner);
+
+-  /** @private {!analytics.Tracker} */
+-  this.tracker_ = tracker;
+-
+   /**
+    * The active import task, if any.
+    * @private {?importer.TaskDetails_}
+@@ -141,10 +137,6 @@ importer.ImportController.prototype.onScanEvent_ = function(event, scan) {
+  * @private
+  */
+ importer.ImportController.prototype.onVolumeUnmounted_ = function(volumeId) {
+-  if (this.activeImport_) {
+-    this.activeImport_.task.requestCancel();
+-    this.tracker_.send(metrics.ImportEvents.DEVICE_YANKED);
+-  }
+   this.scanManager_.reset();
+   this.checkState_();
+ };
+@@ -363,7 +355,7 @@ importer.ImportController.prototype.fitsInAvailableSpace_ =
+         // storage in this calculation on the assumption that we
+         // don't want to completely max out storage...even though
+         // synced files will eventually be evicted from the cache.
+-        return availableSpace > scanResult.getStatistics().sizeBytes;
++        return availableSpace > scanResult.getTotalBytes();
+       });
+ };
+
+diff --git a/ui/file_manager/file_manager/foreground/js/main_scripts.js b/ui/file_manager/file_manager/foreground/js/main_scripts.js
+index 197b007..a3e4352 100644
+--- a/ui/file_manager/file_manager/foreground/js/main_scripts.js
++++ b/ui/file_manager/file_manager/foreground/js/main_scripts.js
+@@ -65,10 +65,6 @@
+ //<include src="../../../../webui/resources/js/cr/ui/menu.js">
+ //<include src="../../../../webui/resources/js/cr/ui/menu_button.js">
+ //<include src="../../../../webui/resources/js/cr/ui/context_menu_handler.js">
+-//
+-//<include src="../../../../webui/resources/js/analytics.js">
+-// metrics_events.js must be loaded after the analytics package.
+-//<include src="../../common/js/metrics_events.js">
+
+ (function() {
+ // 'strict mode' is invoked for this scope.
+diff --git a/ui/file_manager/file_manager/main.html b/ui/file_manager/file_manager/main.html
+index d19d496..4e20818 100644
+--- a/ui/file_manager/file_manager/main.html
++++ b/ui/file_manager/file_manager/main.html
+@@ -48,7 +48,6 @@
+       <!-- metrics.js initiates load performance tracking
+            so we want to parse it as early as possible -->
+       <script src="common/js/metrics_base.js"></script>
+-      <script src="common/js/metrics_events.js"></script>
+       <script src="common/js/metrics.js"></script>
+       <script src="foreground/js/metrics_start.js"></script>
+
+@@ -93,8 +92,6 @@
+       <script src="chrome://resources/js/cr/ui/menu_button.js"></script>
+       <script src="chrome://resources/js/cr/ui/context_menu_handler.js"></script>
+
+-      <script src="chrome://resources/js/analytics.js"></script>
+-
+       <!-- This script must be loaded before all other Files.app's scripts. -->
+       <script src="foreground/js/error_counter.js"></script>
+
+diff --git a/ui/file_manager/file_manager/manifest.json b/ui/file_manager/file_manager/manifest.json
+index 36a9aa9..a65db90 100644
+--- a/ui/file_manager/file_manager/manifest.json
++++ b/ui/file_manager/file_manager/manifest.json
+@@ -31,7 +31,6 @@
+     "https://*.googleusercontent.com/",
+     "https://docs.google.com/",
+     "https://drive.google.com/",
+-    "https://www.google-analytics.com/",
+     "mediaPlayerPrivate",
+     "metricsPrivate",
+     "notifications",
+@@ -170,12 +169,8 @@
+         "chrome://resources/js/cr.js",
+         "chrome://resources/js/cr/event_target.js",
+         "chrome://resources/js/cr/ui/array_data_model.js",
+-        "chrome://resources/js/analytics.js",
+         "common/js/async_util.js",
+         "common/js/file_type.js",
+-        "common/js/metrics_base.js",
+-        "common/js/metrics_events.js",
+-        "common/js/metrics.js",
+         "common/js/progress_center_common.js",
+         "common/js/util.js",
+         "common/js/volume_manager_common.js",
+@@ -200,6 +195,6 @@
+       ]
+     },
+     // chrome-extension://pmfjbimdmchhbnneeidfognadeopoehp is the image loader extension.
+-    "content_security_policy": "default-src 'none'; script-src 'self' chrome://resources chrome-extension://pmfjbimdmchhbnneeidfognadeopoehp; style-src 'self' 'unsafe-inline' chrome://resources; frame-src 'self' about:; img-src 'self' chrome://resources chrome://theme data: https://docs.google.com https://*.googleusercontent.com chrome://extension-icon; media-src 'self' https://*.googleusercontent.com; connect-src https://drive.google.com https://www.google-analytics.com chrome://resources; object-src 'self'"
++    "content_security_policy": "default-src 'none'; script-src 'self' chrome://resources chrome-extension://pmfjbimdmchhbnneeidfognadeopoehp; style-src 'self' 'unsafe-inline' chrome://resources; frame-src 'self' about:; img-src 'self' chrome://resources chrome://theme data: https://docs.google.com https://*.googleusercontent.com chrome://extension-icon; media-src 'self' https://*.googleusercontent.com; connect-src https://drive.google.com chrome://resources; object-src 'self'"
+   }
+ }
+diff --git a/ui/file_manager/file_manager_resources.grd b/ui/file_manager/file_manager_resources.grd
+index 5091f19..562d78f 100644
+--- a/ui/file_manager/file_manager_resources.grd
++++ b/ui/file_manager/file_manager_resources.grd
+@@ -17,17 +17,13 @@
+       <include name="IDR_FILE_MANAGER_MAIN_JS" file="file_manager/foreground/js/main_scripts.js" flattenhtml="true" type="BINDATA" />
+       <include name="IDR_FILE_MANAGER_BKGND_JS" file="file_manager/background/js/background.js" type="BINDATA" />
+
+-      <!-- Common Scripts. -->
+-      <include name="IDR_FILE_MANAGER_ANALYTICS_JS" file="../webui/resources/js/analytics.js" flattenhtml="false" type="BINDATA" />
++      <!-- Commone Scripts. -->
+       <include name="IDR_FILE_MANAGER_ERROR_UTIL_JS" file="file_manager/common/js/error_util.js" flattenhtml="false" type="BINDATA" />
+       <include name="IDR_FILE_MANAGER_ASYNC_UTIL_JS" file="file_manager/common/js/async_util.js" flattenhtml="false" type="BINDATA" />
+       <include name="IDR_FILE_MANAGER_PROGRESS_CENTER_COMMON_JS" file="file_manager/common/js/progress_center_common.js" flattenhtml="false" type="BINDATA" />
+       <include name="IDR_FILE_MANAGER_UTIL_JS" file="file_manager/common/js/util.js" flattenhtml="false" type="BINDATA" />
+       <include name="IDR_FILE_MANAGER_VOLUME_MANAGER_COMMON_JS" file="file_manager/common/js/volume_manager_common.js" flattenhtml="false" type="BINDATA" />
+       <include name="IDR_FILE_MANAGER_IMPORTER_COMMON_JS" file="file_manager/common/js/importer_common.js" flattenhtml="false" type="BINDATA" />
+-      <include name="IDR_FILE_MANAGER_METRICS_BASE_JS" file="file_manager/common/js/metrics_base.js" flattenhtml="false" type="BINDATA" />
+-      <include name="IDR_FILE_MANAGER_METRICS_JS" file="file_manager/common/js/metrics.js" flattenhtml="false" type="BINDATA" />
+-      <include name="IDR_FILE_MANAGER_METRICS_EVENTS_JS" file="file_manager/common/js/metrics_events.js" flattenhtml="false" type="BINDATA" />
+
+       <!-- Scripts working in background page. -->
+       <include name="IDR_FILE_MANAGER_DEVICE_APP_WINDOW_WRAPPER_JS" file="file_manager/background/js/app_window_wrapper.js" flattenhtml="false" type="BINDATA" />
+diff --git a/ui/webui/resources/js/analytics.js b/ui/webui/resources/js/analytics.js
+deleted file mode 100644
+index 6a467d3..0000000
+--- a/ui/webui/resources/js/analytics.js
++++ /dev/null
+@@ -1,8 +0,0 @@
+-// Copyright (c) 2015 The Chromium Authors. All rights reserved.
+-// Use of this source code is governed by a BSD-style license that can be
+-// found in the LICENSE file.
+-
+-// This file serves as a proxy to bring the included js file from /third_party
+-// into its correct location under the resources directory tree, whence it is
+-// delivered via a chrome://resources URL.  See ../webui_resources.grd.
+-<include src="../../../../third_party/analytics/google-analytics-bundle.js">
+diff --git a/ui/webui/resources/js/jstemplate_compiled.js b/ui/webui/resources/js/jstemplate_compiled.js
+index 6a79748..de2e0d5 100644
+--- a/ui/webui/resources/js/jstemplate_compiled.js
++++ b/ui/webui/resources/js/jstemplate_compiled.js
+@@ -2,7 +2,4 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+
+-// This file serves as a proxy to bring the included js file from /third_party
+-// into its correct location under the resources directory tree, whence it is
+-// delivered via a chrome://resources URL.  See ../webui_resources.grd.
+ <include src="../../../../third_party/jstemplate/jstemplate_compiled.js">
+diff --git a/ui/webui/resources/webui_resources.grd b/ui/webui/resources/webui_resources.grd
+index c6dc5d3..f44246f 100644
+--- a/ui/webui/resources/webui_resources.grd
++++ b/ui/webui/resources/webui_resources.grd
+@@ -16,7 +16,7 @@ without changes to the corresponding grd file. -->
+       <include name="IDR_WEBUI_I18N_PROCESS_JS" file="js/i18n_process.js" type="BINDATA" />
+       <include name="IDR_WEBUI_I18N_TEMPLATE2_JS" file="js/i18n_template2.js" flattenhtml="true" type="BINDATA" />
+       <include name="IDR_WEBUI_JSTEMPLATE_JS" file="js/jstemplate_compiled.js" flattenhtml="true" type="BINDATA" />
+-      <include name="IDR_WEBUI_ANALYTICS_JS" file="js/analytics.js" flattenhtml="true" type="BINDATA" />
++
+       <!-- Roboto Font -->
+       <include name="IDR_WEBUI_ROBOTO_ROBOTO_WOFF"  file="roboto/roboto.woff" type="BINDATA" />
+       <include name="IDR_WEBUI_ROBOTO_ROBOTO_WOFF2" file="roboto/roboto.woff2" type="BINDATA" />

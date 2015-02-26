@@ -5,7 +5,7 @@
 # Contributor: Dario 'Dax' Vilardi <dax [at] deelab [dot] org>
 # Contributor: Anatol Pomozov <anatol.pomozov@gmail.com>
 pkgname=amule-dlp-git
-pkgver=2.3.1.r80.cf88fd7
+pkgver=2.3.1.r82.002a442
 pkgrel=1
 pkgdesc="An eMule-like client for ed2k p2p network with DLP patch"
 arch=('i686' 'x86_64')
@@ -18,12 +18,10 @@ install=amule.install
 provides=('amule' 'amule-dlp')
 source=("$pkgname::git://github.com/persmule/amule-dlp.git"
         'amuled.systemd'
-        'amuleweb.systemd'
-        'ftbfs-gcc-4.7.diff')
+        'amuleweb.systemd')
 sha256sums=('SKIP'
             '527a2cca6d56b8269722aafc77a89734f59a929f946f342bd0f69b256f9c7522'
-            'f4f43b1154ddccc9036a4291a58c6715f097b171fec62ea7aead0c9d9fa654f2'
-            '65299bf956ce97771f20bfabd89357027599281595a587ea2603822b65120a85')
+            'f4f43b1154ddccc9036a4291a58c6715f097b171fec62ea7aead0c9d9fa654f2')
 
 pkgver() {
   cd "${srcdir}/${pkgname}"
@@ -32,9 +30,6 @@ pkgver() {
 
 build() {
   cd "${srcdir}/${pkgname}"
-  mv configure.in configure.ac
-
-  patch -Np1 -i "../ftbfs-gcc-4.7.diff"
 
   ./autogen.sh
   ./configure --prefix=/usr \
