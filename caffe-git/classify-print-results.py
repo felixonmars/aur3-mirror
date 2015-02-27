@@ -36,15 +36,17 @@ def main(argv):
     )
     parser.add_argument(
         "--pretrained_model",
-        default=os.path.join(pycaffe_dir,
-                             "../models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel"),
-        help="Trained model weights file."
-    )
-    parser.add_argument(
-        "--gpu",
-        action='store_true',
-        help="Switch for gpu computation."
-    )
+        default=os.path.join(
+            pycaffe_dir,
+            "../models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel"),
+        help="Trained model weights file.")
+
+    # parser.add_argument(
+    #     "--gpu",
+    #     action='store_true',
+    #     help="Switch for gpu computation."
+    # )
+
     parser.add_argument(
         "--center_only",
         action='store_true',
@@ -109,13 +111,19 @@ def main(argv):
         channel_swap = [int(s) for s in args.channel_swap.split(',')]
 
     # Make classifier.
+
     classifier = caffe.Classifier(args.model_def, args.pretrained_model,
-                                  image_dims=image_dims, gpu=args.gpu, mean=mean,
+                                  image_dims=image_dims, mean=mean,
                                   input_scale=args.input_scale, raw_scale=args.raw_scale,
                                   channel_swap=channel_swap)
+    # # Make classifier.
+    # classifier = caffe.Classifier(args.model_def, args.pretrained_model,
+    #                               image_dims=image_dims, gpu=args.gpu, mean=mean,
+    #                               input_scale=args.input_scale, raw_scale=args.raw_scale,
+    #                               channel_swap=channel_swap)
 
-    if args.gpu:
-        print 'GPU mode'
+    # if args.gpu:
+    #     print 'GPU mode'
 
     # Load numpy array (.npy), directory glob (*.jpg), or image file.
     args.input_file = os.path.expanduser(args.input_file)
