@@ -1,1 +1,1 @@
-export PATH=$PATH:/opt/alarm-x-tools-armv5
+export PATH=$PATH:/opt/alarm-x-tools-armv5/bin

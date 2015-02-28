@@ -55,21 +55,21 @@ _remove_static_objects_ipp=true
 ########################################
 
 _year='2015'
-_v_a='1'
-_v_b='133' 
+_v_a='2'
+_v_b='164' 
 
-_update='update1'
+_update='update2'
 
 pkgrel=1
 
 _sp=''
 
-_icc_ver='15.0.1'
+_icc_ver='15.0.2'
 _ipp_ver='8.2.1'
-_mkl_ver='11.2.1'
+_mkl_ver='11.2.2'
 _openmp_ver='15.0.1'
-_sourcechecker_ver='15.0.1'
-_vtune_ver='1.1.380310'
+_sourcechecker_ver='15.0.2'
+_vtune_ver='2.0.393444'
 _advisor_ver='1.10.380555'
 _inspector_ver='1.2.379161'
 
@@ -78,7 +78,7 @@ _tbb_ver='4.3.0'
 
 pkgver=${_year}.${_icc_ver}.${_v_a}.${_v_b}
 
-_dir_nr='4992'
+_dir_nr='5207'
 
 options=(strip libtool staticlibs)
 
@@ -123,7 +123,7 @@ source=(
 
 
 sha256sums=(
-	'84fdf48d1de20e1d580ba5d419a5bc1c55d217a4f5dc1807190ecffe0229a62b' # parallel_studio_xe_2013_sp1_update1.tgz
+	'8cbde4d4fb3bbfcc5096d5d924953121ca84e9a9bee7b00dfd07c029c1a89943' # parallel_studio_xe_2015_update2.tgz
 	'338041f924d8f3ac31d349bca57f8ab66f094a5bb53d4f821f48fa710a112111' # intel_compilers.sh
 	'7da22140b9d8277d06d88f6bd37cb77ed17bc87d4f7ec5958587416639955991' # intel_vtune-amplifier-xe.sh
 	'292a9eea2c9a836ee9dc0d4ff28fc741d5548a3182e4f75aec7b93e1dd7b4f21' # intel_advisor-xe.sh
@@ -133,7 +133,6 @@ sha256sums=(
 	'c165386ba33b25453d4f5486b7fefcdba7d31e156ad280cbdfa13ed924b01bef' # intel-fortran.conf
 	'99cc9683cc75934cc21bb5a09f6ad83365ee48712719bfd914de9444695eed13' # intel-openmp.conf
 	'a856326362e9b80c19dc237cbf66bf3d96a69bd7ad1baff99ec9849f8208348c' # intel-mkl.conf
-	#'976de24a127e1f43b1b2696ac3aef9fe03cb26b9bcf81126c73ffc751b2604d5' # intel-gdb.conf
 	'da6f41c2e002c9a793c75a18c8d1c85ef7ef5bf83a7a0a158ff144481491aac8' # intel-ipp.conf
 	'aee2ae7f87f12f4af38d52423b40d547fd5bbe77e18694b9847e9f2a96d33c6e' # intel-tbb.conf
 	'5e68c529c65cac54218026c869e54b2ddb268179725fc1e6b56d920470dad999' # intel-mkl.sh
@@ -400,6 +399,7 @@ package_intel-compiler-base() {
 
 	if $_remove_docs ; then
 	  echo -e " # intel_compiler-base: Remove docs" 
+	  rm -rf ${xe_build_dir}/opt/intel/${_composer_xe_dir}/documentation
 	  rm -rf ${xe_build_dir}/opt/intel/${_composer_xe_dir}/Documentation
 	  rm -rf ${xe_build_dir}/opt/intel/${_composer_xe_dir}/Samples
 	fi
@@ -461,6 +461,7 @@ package_intel-fortran-compiler() {
 
 	if $_remove_docs ; then
 	  echo -e " # intel-fortran-compiler: Remove documentation"
+	  rm -rf ${xe_build_dir}/opt/intel/${_composer_xe_dir}/documentation
 	  rm -rf ${xe_build_dir}/opt/intel/${_composer_xe_dir}/Documentation
 	  rm -rf ${xe_build_dir}/opt/intel/${_composer_xe_dir}/Samples
 	fi
@@ -547,7 +548,7 @@ package_intel-ipp() {
 
 	pkgdesc="Intel Integrated Performance Primitives"
 	pkgver=${_year}.${_ipp_ver}.${_v_b}
-	depends=('intel-compiler-base')
+	#depends=('intel-compiler-base')
 	install=intel-composer.install
 
 	echo -e " # intel-ipp: Start Building"
@@ -604,7 +605,7 @@ package_intel-mkl() {
 
 	pkgdesc="Intel Math Kernel Library (Intel® MKL) "
 	pkgver=${_year}.${_mkl_ver}.${_v_b}
-	depends=('intel-compiler-base')
+	#depends=('intel-compiler-base')
 	install=intel-mkl.install
 	backup=('etc/intel-mkl-th.conf')
 
@@ -716,7 +717,7 @@ package_intel-tbb() {
 
 	pkgdesc="Intel Threading Building Blocks (TBB)"
 	pkgver=${_year}.${_tbb_ver}.${_v_b}
-	depends=('intel-compiler-base')
+	#depends=('intel-compiler-base')
 	install=intel-tbb.install
 
 	echo -e " # intel-tbb: Start Building "

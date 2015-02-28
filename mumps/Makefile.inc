@@ -1,8 +1,3 @@
-#
-# This file is part of MUMPS 4.10.0, built on Tue May 10 12:56:32 UTC 2011
-# modified by mickele (aur.archlinux.org - archscientist.altervista.org)
-#
-
 ############################## Begin orderings ###############################
 
 # NOTE that PORD is distributed within MUMPS by default. If you would like to
@@ -17,7 +12,7 @@
 #          4/ Compile and install MUMPS
 #             make clean; make   (to clean up previous installation)
 #
-#          Metis/ParMetis and SCOTCH/PT-SCOTCH (ver 5.1 and later) orderings are now available for MUMPS.
+#          Metis/ParMetis and SCOTCH/PT-SCOTCH (ver 6.0 and later) orderings are now available for MUMPS.
 #
 
 SCOTCHDIR  = /usr
@@ -38,8 +33,8 @@ IPORD    = -I$(topdir)/PORD/include/
 LPORD    = -L$(LPORDDIR) -lpord
 
 LMETISDIR = /usr/lib
-IMETIS    = -I/usr/include/metis-4
-# IPARMETIS    = -I/usr/include/parmetis-3
+IMETIS    = -I/usr/include/metis
+# IPARMETIS    = -I/usr/include/parmetis
 
 # You have to choose one among the following two lines depending on
 # the type of analysis you want to perform. If you want to perform only
@@ -47,8 +42,8 @@ IMETIS    = -I/usr/include/metis-4
 # variable below); for both parallel and sequential analysis choose the second
 # line (remember to add -Dparmetis in the ORDERINGSF variable below)
 
-LMETIS    = -L$(LMETISDIR) -lmetis-4
-# LMETIS    = -L$(LMETISDIR) -lparmetis-3 -lmetis-4
+LMETIS    = -L$(LMETISDIR) -lmetis
+# LMETIS    = -L$(LMETISDIR) -lparmetis -lmetis
 
 # The following variables will be used in the compilation process.
 # Please note that -Dptscotch and -Dparmetis imply -Dscotch and -Dmetis respectively.

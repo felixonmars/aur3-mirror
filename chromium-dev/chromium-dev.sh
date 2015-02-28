@@ -3,13 +3,13 @@
 # Allow users to override command-line options
 # Based on Gentoo's chromium package
 # Source additional configuration files
-if [[ -f /etc/chromium/default ]]; then
-  . /etc/chromium/default
+if [[ -f /etc/chromium-dev/default ]]; then
+  . /etc/chromium-dev/default
 fi
 # Source additional configuration files
-for file in /etc/chromium/*; do
-  # Don't source /etc/chromium/default again
-  [[ $file == /etc/chromium/default ]] && continue
+for file in /etc/chromium-dev/*; do
+  # Don't source /etc/chromium-dev/default again
+  [[ $file == /etc/chromium-dev/default ]] && continue
 
   if [[ -f $file ]]; then
   . $file
