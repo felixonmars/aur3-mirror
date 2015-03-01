@@ -6,8 +6,8 @@
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.19
 pkgver=3.19
-pkgrel=1
-_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-10.patch
+pkgrel=2
+_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-14.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -22,6 +22,7 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
+        'tuxonice.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
@@ -31,7 +32,8 @@ sha256sums=('be42511fe5321012bb4a2009167ce56a9e5fe362b4af43e8c371b3666859806c'
             '09dd5ea98a1902276b2ad189ab28afdb74efa66669623ce296acb5af515d389a'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            '9105e11eff55be56714f8b55703b9efe51ea2cab813cca714e264020014a42c1')
+            '0a8d1ce70fa1232f563b8f46e322d1902046f43b964a51f51923c341f24fb7e7'
+            'fe1d3cccee47c6e811158bb67c9c21450f1175b73abbb131fbc88f3da26470ab')
 validpgpkeys=(
             'ABAF11C65A2970B130ABE3C479BE3E4300411886' # Linus Torvalds
             '647F28654894E3BD457199BE38DBBDC86092693E' # Greg Kroah-Hartman
@@ -54,7 +56,8 @@ prepare() {
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
 
   # tuxonice patch
-  patch -p1 -i "${srcdir}/${_toipatch}"
+  patch -p1 -i "${srcdir}/tuxonice.patch"
+  patch -Np1 -i "${srcdir}/${_toipatch}" || true
 
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config
