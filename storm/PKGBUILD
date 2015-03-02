@@ -26,7 +26,7 @@ _apache_cgi="http://www.apache.org/dyn/closer.cgi"
 _closest=$(curl "${_apache_cgi}?asjson=1" | tr -d '\n ' | sed -r 's/.*"preferred":"(.+)".*/\1/')
 _app_path="/${pkgname}/apache-${pkgname}-${pkgver}/apache-${pkgname}-${pkgver}.tar.gz"
 source=(${_closest}/${_app_path}
-        https://www.apache.org/dist${_app_path}.asc
+        #https://www.apache.org/dist${_app_path}.asc
         zookeeper_zoo.cfg
         zookeeper_log4j.properties
         systemd_storm-nimbus.service
@@ -36,7 +36,7 @@ source=(${_closest}/${_app_path}
         systemd_tmpfiles.d_storm.conf)
 
 sha256sums=('45d7e51115630985d5ed32f3806f26b4c870fa7458eb28e7beca46d482202f6d'
-            'SKIP'
+            #'SKIP'
             'c94799f4b459f5218faf1da57936baeb4c32b9542a1ba0aacdd637bf2f3aaf05'
             '00780ee4cea3bb7a282a548f41b8964d5e392776f9d687ebea89cd49ed5742e3'
             '0d8958786538714da86ccf3f23cb668fa017530f8858aea2b7325ffe1af66cd1'
