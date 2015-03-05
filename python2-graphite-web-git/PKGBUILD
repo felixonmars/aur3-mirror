@@ -36,11 +36,11 @@ source=('graphite::git+https://github.com/graphite-project/graphite-web.git'
         'graphite_uwsgi.ini'
         'graphite-manage.py')
 md5sums=('SKIP'
-         '75e25c82d44888e2b76ed60a96c3c4fa'
+         'e056fe70185c4975ae4507969b74ac85'
          '7833f8d6acb209bd7de7692aabeb0f5f'
          '9afb0197f417d8867cfd8565202d75b9'
          'c922407af21607c4893a73aaf94e2ac2'
-         '7ce24cd82e299b93e4c0d6cc811afd1f'
+         'bc6202530257b223444732ab7c7e22b1'
          '2f6db163ae8cd9fdb57f6b5d634bac6c') 
 install=graphite.install
 

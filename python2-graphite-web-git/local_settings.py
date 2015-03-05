@@ -66,6 +66,9 @@ CONF_DIR = '/etc/graphite'
 STORAGE_DIR = '/var/lib/graphite'
 CONTENT_DIR = '/usr/share/graphite-web/static'
 
+URL_PREFIX=""
+STATIC_URL = 'content/'
+
 # To further or fully customize the paths, modify the following. Note that the
 # default settings for each of these are relative to CONF_DIR and STORAGE_DIR
 #
