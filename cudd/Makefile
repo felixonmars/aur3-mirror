@@ -1,38 +1,40 @@
 # $Id$
 #
-# Makefile for the CUDD distribution kit 
+# Makefile for the CUDD distribution kit
 #---------------------------------------------------------------------------
 
 # Beginning of the configuration section. These symbol definitions can
 # be overridden from the command line.
 
 # C++ compiler
-CPP	= g++
-#CPP	= icpc
-#CPP	= ecpc
-#CPP	= CC
-#CPP	= /usr/local/opt/SUNWspro/bin/CC
-#CPP	= cxx
+CXX	= g++
+#CXX	= clang++
+#CXX	= icpc
+#CXX	= ecpc
+#CXX	= CC
+#CXX	= /usr/local/opt/SUNWspro/bin/CC
+#CXX	= cxx
 
 # Specific options for compilation of C++ files.
-CPPFLAGS =
+CXXFLAGS =
 # Stricter standard conformance for g++.
-#CPPFLAGS = -std=c++98
+#CXXFLAGS = -std=c++98
 # For Sun CC version 5, this invokes compatibility mode.
-#CPPFLAGS = -compat
+#CXXFLAGS = -compat
 # On some versions of UP-UX, it is necessary to pass the option +a1
 # to CC for the C++ test program to compile successfully.
-#CPPFLAGS = +a1
+#CXXFLAGS = +a1
 
 # C compiler used for all targets except optimize_dec, which always uses cc.
+CC	= gcc
+#CC	= clang
 #CC	= cc
 #CC	= /usr/local/opt/SUNWspro/bin/cc
-CC	= gcc
 #CC	= icc
 #CC	= ecc
 #CC	= /usr/ucb/cc
 #CC	= c89
-#CC	= $(CPP)
+#CC	= $(CXX)
 
 # On some machines ranlib is either non-existent or redundant.
 # Use the following definition if your machine has ranlib and you think
@@ -47,12 +49,9 @@ RANLIB	= ranlib
 #ICFLAGS	= -g
 #ICFLAGS	= -O
 #ICFLAGS	=
-# These four are typical settings for optimized code with gcc.  The
-# last two also work with icc/ecc.
-#ICFLAGS	= -g -O6 -Wall
-ICFLAGS	= -g -O6 -fPIC
+# These two are typical settings for optimized code with gcc.
 #ICFLAGS	= -g -O3 -Wall
-#ICFLAGS	= -g -O3
+ICFLAGS	= -g -O3 -fPIC
 
 # Use XCFLAGS to specify machine-dependent compilation flags.
 # For some platforms no special flags are needed.
@@ -61,12 +60,20 @@ ICFLAGS	= -g -O6 -fPIC
 #==========================
 #  Linux
 #
-# Gcc 2.8.1 or higher on i686.
-#XCFLAGS	= -march=pentiumpro -malign-double -DHAVE_IEEE_754 -DBSD
+# Gcc 4.2.4 or higher on i686.
+#XCFLAGS	= -mtune=native -malign-double -DHAVE_IEEE_754 -DBSD
 # Gcc 3.2.2 or higher on i686.
-#XCFLAGS	= -mcpu=pentium4 -malign-double -DHAVE_IEEE_754 -DBSD
-# Icc on i686.
-#XCFLAGS	= -ansi -align -ip -DHAVE_IEEE_754 -DBSD
+#XCFLAGS	= -mtune=pentium4 -malign-double -DHAVE_IEEE_754 -DBSD
+# Gcc 2.8.1 on i686.
+#XCFLAGS	= -mcpu=pentiumpro -malign-double -DHAVE_IEEE_754 -DBSD
+# Gcc 4.2.4 or higher on x86_64 (64-bit compilation)
+#XCFLAGS	= -mtune=native -DHAVE_IEEE_754 -DBSD -DSIZEOF_VOID_P=8 -DSIZEOF_LONG=8
+# Gcc 4.2.4 or higher on x86_64 (32-bit compilation)
+#XCFLAGS	= -m32 -mtune=native -malign-double -DHAVE_IEEE_754 -DBSD
+# Icc on i686 (older versions may not support -xHost).
+#XCFLAGS	= -ansi -xHost -align -ip -DHAVE_IEEE_754 -DBSD
+# Icc on x86_64 (64-bit compilation).
+#XCFLAGS	= -ansi -xHost -align -ip -DHAVE_IEEE_754 -DBSD -DSIZEOF_VOID_P=8 -DSIZEOF_LONG=8
 # Gcc on ia64.
 #XCFLAGS	= -DHAVE_IEEE_754 -DBSD -DSIZEOF_VOID_P=8 -DSIZEOF_LONG=8
 # Icc/ecc on ia64.
@@ -116,7 +123,7 @@ ICFLAGS	= -g -O6 -fPIC
 #XCFLAGS	= -DBSD -DHAVE_IEEE_754 -ieee_with_no_inexact -tune host -DSIZEOF_VOID_P=8 -DSIZEOF_LONG=8
 # Old native compiler for the Alphas; 32-bit pointers.
 #XCFLAGS	= -DBSD -DHAVE_IEEE_754 -ieee_with_no_inexact -tune host -xtaso -DSIZEOF_LONG=8
-# New native compiler for the Alphas; 64-bit pointers. 
+# New native compiler for the Alphas; 64-bit pointers.
 #XCFLAGS	= -g3 -O4 -std -DBSD -DHAVE_IEEE_754 -ieee_with_no_inexact -tune host -DSIZEOF_VOID_P=8 -DSIZEOF_LONG=8
 # New native compiler for the Alphas; 32-bit pointers.
 #XCFLAGS	= -g3 -O4 -std -DBSD -DHAVE_IEEE_754 -ieee_with_no_inexact -tune host -xtaso -DSIZEOF_LONG=8
@@ -142,15 +149,13 @@ ICFLAGS	= -g -O6 -fPIC
 #
 #==========================
 #
-#  Windows95/98/NT/XP with Cygwin tools
+#  Windows 95/98/NT/XP/Vista/7 with Cygwin tools
 #
-# For b16 it was also necessary to change setup.sh (define CREATE
-# as "cp"). This is no longer necessary since b17.1.
 # The value of RLIMIT_DATA_DEFAULT should reflect the amount of
 # available memory (expressed in bytes).
 # Recent versions of cygwin have getrlimit, but the datasize limit
 # cannot be set.
-#XCFLAGS	= -mcpu=pentiumpro -malign-double -DHAVE_IEEE_754 -DHAVE_GETRLIMIT=0 -DRLIMIT_DATA_DEFAULT=67108864
+#XCFLAGS	= -mtune=native -malign-double -DHAVE_IEEE_754 -DHAVE_GETRLIMIT=0 -DRLIMIT_DATA_DEFAULT=268435456
 
 
 # Define the level of self-checking and verbosity of the CUDD package.
@@ -180,7 +185,8 @@ PURE =
 #PURE	= purify
 #PURE	= quantify
 
-# Define EXE as .exe for MS-DOS and derivatives.
+# Define EXE as .exe for MS-DOS and derivatives.  Not required by recent
+# versions of cygwin.
 EXE	=
 #EXE	= .exe
 
@@ -204,7 +210,7 @@ DIRS	= $(BDIRS) nanotrav
 .PHONY : check_leaks
 .PHONY : optimize_dec
 .PHONY : testcudd
-.PHONY : libobj
+.PHONY : objlib
 .PHONY : testobj
 .PHONY : testdddmp
 .PHONY : testmtr
@@ -216,7 +222,7 @@ DIRS	= $(BDIRS) nanotrav
 
 build:
 	sh ./setup.sh
-	@for dir in $(DIRS); do \
+	@+for dir in $(DIRS); do \
 		(cd $$dir; \
 		echo Making $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" )\
@@ -226,7 +232,7 @@ nanotrav: build
 
 check_leaks:
 	sh ./setup.sh
-	@for dir in mnemosyne $(DIRS); do \
+	@+for dir in mnemosyne $(DIRS); do \
 		(cd $$dir; \
 		echo Making $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) MFLAG=$(MFLAG) MNEMLIB=$(MNEMLIB) ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" EXE="$(EXE)" )\
@@ -234,7 +240,7 @@ check_leaks:
 
 optimize_dec:
 	sh ./setup.sh
-	@for dir in $(DIRS); do \
+	@+for dir in $(DIRS); do \
 		(cd $$dir; \
 		echo Making $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) XCFLAGS="$(XCFLAGS)" LDFLAGS="$(LDFLAGS)" optimize_dec )\
@@ -242,7 +248,7 @@ optimize_dec:
 
 lint:
 	sh ./setup.sh
-	@for dir in $(DIRS) obj; do \
+	@+for dir in $(DIRS) obj; do \
 		(cd $$dir; \
 		echo Making lint in $$dir ...; \
 		make CC=$(CC) lint )\
@@ -250,7 +256,7 @@ lint:
 
 tags:
 	sh ./setup.sh
-	@for dir in $(DIRS) obj; do \
+	@+for dir in $(DIRS) obj; do \
 		(cd $$dir; \
 		echo Making tags in $$dir ...; \
 		make CC=$(CC) tags )\
@@ -258,7 +264,7 @@ tags:
 
 all:
 	sh ./setup.sh
-	@for dir in $(DIRS); do \
+	@+for dir in $(DIRS); do \
 		(cd $$dir; \
 		echo Making all in $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" all )\
@@ -266,7 +272,7 @@ all:
 
 libso:
 	sh ./setup.sh
-	@for dir in $(BDIRS); do \
+	@+for dir in $(BDIRS); do \
 		(cd $$dir; \
 		echo Making all in $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" libso )\
@@ -274,51 +280,51 @@ libso:
 
 testcudd:
 	sh ./setup.sh
-	@for dir in util st mtr epd; do \
+	@+for dir in util st mtr epd; do \
 		(cd $$dir; \
 		echo Making $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" )\
 	done
-	@(cd cudd; \
+	@+(cd cudd; \
 	echo Making testcudd ...; \
 	make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" testcudd$(EXE) )
 
 objlib:
 	sh ./setup.sh
-	@for dir in $(BDIRS); do \
+	@+for dir in $(BDIRS); do \
 		(cd $$dir; \
 		echo Making $$dir ...; \
 		make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" )\
 	done
-	@(cd obj; \
+	@+(cd obj; \
 	echo Making obj ...; \
-	make CPP=$(CPP) CPPFLAGS=$(CPPFLAGS) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" )
+	make CXX=$(CXX) CXXFLAGS=$(CXXFLAGS) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" )
 
 testobj: objlib
-	@(cd obj; \
+	@+(cd obj; \
 	echo Making testobj ...; \
-	make CPP=$(CPP) CPPFLAGS=$(CPPFLAGS) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" testobj$(EXE) )
+	make CXX=$(CXX) CXXFLAGS=$(CXXFLAGS) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" testobj$(EXE) )
 
 testdddmp: build
-	@(cd dddmp; \
+	@+(cd dddmp; \
 	echo Making testdddmp ...; \
 	make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" testdddmp$(EXE) )
 
 testmtr: build
-	@(cd mtr; \
+	@+(cd mtr; \
 	echo Making testmtr ...; \
 	make CC=$(CC) RANLIB=$(RANLIB) MFLAG= MNEMLIB= ICFLAGS="$(ICFLAGS)" XCFLAGS="$(XCFLAGS)" DDDEBUG="$(DDDEBUG)" MTRDEBUG="$(MTRDEBUG)" LDFLAGS="$(LDFLAGS)" PURE="$(PURE)" EXE="$(EXE)" testmtr$(EXE) )
 
 clean:
 	@for dir in mnemosyne $(DIRS) obj; do	\
-	    (cd $$dir; 	\
+	    (cd $$dir;	\
 	     echo Cleaning $$dir ...; \
 	     make -s clean	) \
 	done
 
 distclean:
 	@for dir in mnemosyne $(DIRS) obj; do	\
-	    (cd $$dir; 	\
+	    (cd $$dir;	\
 	     echo Cleaning $$dir ...; \
 	     make -s EXE="$(EXE)" distclean	) \
 	done
