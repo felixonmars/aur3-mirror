@@ -127,12 +127,12 @@ writecmd() {
 
 # fh - repeat history
 fh() {
-  ([ -n "$ZSH_NAME" ] && fc -l 1 || history) | fzf +s | sed -re 's/^\s*[0-9]+\s*//' | writecmd -run
+  ([ -n "$ZSH_NAME" ] && fc -l 1 || history) | fzf +s --tac | sed -re 's/^\s*[0-9]+\s*//' | writecmd -run
 }
 
 # fhe - repeat history edit
 fhe() {
-  ([ -n "$ZSH_NAME" ] && fc -l 1 || history) | fzf +s | sed -re 's/^\s*[0-9]+\s*//' | writecmd
+  ([ -n "$ZSH_NAME" ] && fc -l 1 || history) | fzf +s --tac | sed -re 's/^\s*[0-9]+\s*//' | writecmd
 }
 
 # fkill - kill process
@@ -149,7 +149,7 @@ fkill() {
 fbr() {
   local branches branch
   branches=$(git branch) &&
-  branch=$(echo "$branches" | fzf +s +m) &&
+  branch=$(echo "$branches" | fzf +m) &&
   git checkout $(echo "$branch" | sed "s/.* //")
 }
 
@@ -157,7 +157,7 @@ fbr() {
 fco() {
   local commits commit
   commits=$(git log --pretty=oneline --abbrev-commit --reverse) &&
-  commit=$(echo "$commits" | fzf +s +m -e) &&
+  commit=$(echo "$commits" | fzf --tac +s +m -e) &&
   git checkout $(echo "$commit" | sed "s/ .*//")
 }
 
