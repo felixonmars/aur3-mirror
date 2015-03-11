@@ -1,6 +1,7 @@
 # Auto-completion
 # ---------------
-[[ $- =~ i ]] && source /usr/share/bash-completion/completions/fzf
+[[ $- =~ i && -f /usr/share/bash-completion/completions/fzf ]] \
+  && source /usr/share/bash-completion/completions/fzf
 
 # Key bindings
 # ------------
@@ -9,10 +10,10 @@
 # assumes /etc/profile.d/fzf.sh is sourced from bash config
 #
 __fsel() {
-  command find * -path '*/\.*' -prune \
+  command find -L . \( -path '*/\.*' -o -fstype 'dev' -o -fstype 'proc' \) -prune \
     -o -type f -print \
     -o -type d -print \
-    -o -type l -print 2> /dev/null | fzf -m | while read item; do
+    -o -type l -print 2> /dev/null | sed 1d | cut -b3- | fzf -m | while read item; do
     printf '%q ' "$item"
   done
   echo
@@ -33,13 +34,14 @@ __fsel_tmux() {
 
 __fcd() {
   local dir
-  dir=$(command find -L ${1:-*} -path '*/\.*' -prune -o -type d -print 2> /dev/null | fzf +m) && printf 'cd %q' "$dir"
+  dir=$(command find -L ${1:-.} \( -path '*/\.*' -o -fstype 'dev' -o -fstype 'proc' \) -prune \
+    -o -type d -print 2> /dev/null | sed 1d | cut -b3- | fzf +m) && printf 'cd %q' "$dir"
 }
 
 __use_tmux=0
 [ -n "$TMUX_PANE" -a ${FZF_TMUX:-1} -ne 0 -a ${LINES:-40} -gt 15 ] && __use_tmux=1
 
-if [ -z "$(set -o | grep '^vi.*on')" ]; then
+if [ -z "$(set -o | \grep '^vi.*on')" ]; then
   # Required to refresh the prompt after fzf
   bind '"\er": redraw-current-line'
 
@@ -51,7 +53,7 @@ if [ -z "$(set -o | grep '^vi.*on')" ]; then
   fi
 
   # CTRL-R - Paste the selected command from history into the command line
-  bind '"\C-r": " \C-e\C-u$(HISTTIMEFORMAT= history | fzf +s +m -n2..,.. | sed \"s/ *[0-9]* *//\")\e\C-e\er"'
+  bind '"\C-r": " \C-e\C-u$(HISTTIMEFORMAT= history | fzf +s --tac +m -n2..,.. | sed \"s/ *[0-9]* *//\")\e\C-e\er"'
 
   # ALT-C - cd into the selected directory
   bind '"\ec": " \C-e\C-u$(__fcd)\e\C-e\er\C-m"'
@@ -69,7 +71,7 @@ else
   bind -m vi-command '"\C-t": "i\C-t"'
 
   # CTRL-R - Paste the selected command from history into the command line
-  bind '"\C-r": "\eddi$(HISTTIMEFORMAT= history | fzf +s +m -n2..,.. | sed \"s/ *[0-9]* *//\")\C-x\C-e\e$a\C-x\C-r"'
+  bind '"\C-r": "\eddi$(HISTTIMEFORMAT= history | fzf +s --tac +m -n2..,.. | sed \"s/ *[0-9]* *//\")\C-x\C-e\e$a\C-x\C-r"'
   bind -m vi-command '"\C-r": "i\C-r"'
 
   # ALT-C - cd into the selected directory
@@ -101,16 +103,13 @@ fo() {
 
 # fd - cd to selected directory
 fd() {
-  local dir
-  dir=$(find ${1:-*} -path '*/\.*' -prune \
-                  -o -type d -print 2> /dev/null | fzf +m) &&
-  cd "$dir"
+  DIR=`find ${1:-*} -path '*/\.*' -prune -o -type d -print 2> /dev/null | fzf-tmux` \
+    && cd "$DIR"
 }
 
 # fda - including hidden directories
 fda() {
-  local dir
-  dir=$(find ${1:-.} -type d 2> /dev/null | fzf +m) && cd "$dir"
+  DIR=`find ${1:-*} -type d 2> /dev/null | fzf-tmux` && cd "$DIR"
 }
 
 # cdf - cd into the directory of the selected file
@@ -149,7 +148,7 @@ fkill() {
 fbr() {
   local branches branch
   branches=$(git branch) &&
-  branch=$(echo "$branches" | fzf +m) &&
+  branch=$(echo "$branches" | fzf-tmux +s +m -h 15) &&
   git checkout $(echo "$branch" | sed "s/.* //")
 }
 
@@ -178,6 +177,25 @@ ftags() {
 fs() {
   local session
   session=$(tmux list-sessions -F "#{session_name}" | \
-    fzf --query="$1" --select-1 --exit-0) &&
+    fzf-tmux --query="$1" --select-1 --exit-0) &&
   tmux switch-client -t "$session"
+}
+
+# ftpane - switch pane
+ftpane () {
+  local panes current_window target target_window target_pane
+  panes=$(tmux list-panes -s -F '#I:#P - #{pane_current_path} #{pane_current_command}')
+  current_window=$(tmux display-message  -p '#I')
+
+  target=$(echo "$panes" | fzf) || return
+
+  target_window=$(echo $target | awk 'BEGIN{FS=":|-"} {print$1}')
+  target_pane=$(echo $target | awk 'BEGIN{FS=":|-"} {print$2}' | cut -c 1)
+
+  if [[ $current_window -eq $target_window ]]; then
+    tmux select-pane -t ${target_window}.${target_pane}
+  else
+    tmux select-pane -t ${target_window}.${target_pane} &&
+    tmux select-window -t $target_window
+  fi
 }

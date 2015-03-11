@@ -6,14 +6,15 @@ function fzf_key_bindings
   end
 
   function __fzf_list
-    command find * -path '*/\.*' -prune \
+    command find -L . \( -path '*/\.*' -o -fstype 'dev' -o -fstype 'proc' \) -prune \
       -o -type f -print \
       -o -type d -print \
-      -o -type l -print 2> /dev/null
+      -o -type l -print 2> /dev/null | sed 1d | cut -b3-
   end
 
   function __fzf_list_dir
-    command find -L * -path '*/\.*' -prune -o -type d -print 2> /dev/null
+    command find -L . \( -path '*/\.*' -o -fstype 'dev' -o -fstype 'proc' \) \
+      -prune -o -type d -print 2> /dev/null | sed 1d | cut -b3-
   end
 
   function __fzf_escape
@@ -39,8 +40,16 @@ function fzf_key_bindings
     rm -f $TMPDIR/fzf.result
   end
 
+  function __fzf_reverse
+    if which tac > /dev/null
+      tac $argv
+    else
+      tail -r $argv
+    end
+  end
+
   function __fzf_ctrl_r
-    history | fzf +s +m > $TMPDIR/fzf.result
+    history | __fzf_reverse | fzf +s --tac +m > $TMPDIR/fzf.result
     and commandline (cat $TMPDIR/fzf.result)
     commandline -f repaint
     rm -f $TMPDIR/fzf.result

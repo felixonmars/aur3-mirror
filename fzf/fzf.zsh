@@ -1,12 +1,18 @@
+# Auto-completion
+# ---------------
+if [[ -f /usr/share/zsh/site-functions/_fzf ]]; then
+  source /usr/share/zsh/site-functions/_fzf
+fi
+
 # Key bindings
 # ------------
+
 # CTRL-T - Paste the selected file path(s) into the command line
 __fsel() {
-  set -o nonomatch
-  command find * -path '*/\.*' -prune \
+  command find -L . \( -path '*/\.*' -o -fstype 'dev' -o -fstype 'proc' \) -prune \
     -o -type f -print \
     -o -type d -print \
-    -o -type l -print 2> /dev/null | fzf -m | while read item; do
+    -o -type l -print 2> /dev/null | sed 1d | cut -b3- | fzf -m | while read item; do
     printf '%q ' "$item"
   done
   echo
@@ -23,7 +29,7 @@ if [ -n "$TMUX_PANE" -a ${FZF_TMUX:-1} -ne 0 -a ${LINES:-40} -gt 15 ]; then
     else
       height="-l $height"
     fi
-    tmux split-window $height "zsh -c 'source ~/.fzf.zsh; tmux send-keys -t $TMUX_PANE \"\$(__fsel)\"'"
+    tmux split-window $height "zsh -c 'tmux send-keys -t $TMUX_PANE \"\$(__fsel)\"'"
   }
 else
   fzf-file-widget() {
@@ -36,8 +42,8 @@ bindkey '^T' fzf-file-widget
 
 # ALT-C - cd into the selected directory
 fzf-cd-widget() {
-  cd "${$(set -o nonomatch; command find -L * -path '*/\.*' -prune \
-          -o -type d -print 2> /dev/null | fzf):-.}"
+  cd "${$(command find -L . \( -path '*/\.*' -o -fstype 'dev' -o -fstype 'proc' \) -prune \
+    -o -type d -print 2> /dev/null | sed 1d | cut -b3- | fzf +m):-.}"
   zle reset-prompt
 }
 zle     -N    fzf-cd-widget
@@ -45,7 +51,7 @@ bindkey '\ec' fzf-cd-widget
 
 # CTRL-R - Paste the selected command from history into the command line
 fzf-history-widget() {
-  LBUFFER=$(fc -l 1 | fzf +s +m -n2..,.. | sed "s/ *[0-9*]* *//")
+  LBUFFER=$(fc -l 1 | fzf +s --tac +m -n2..,.. | sed "s/ *[0-9*]* *//")
   zle redisplay
 }
 zle     -N   fzf-history-widget

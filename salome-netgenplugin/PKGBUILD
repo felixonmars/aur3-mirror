@@ -1,85 +1,102 @@
 # Maintainer: Michele Mocciola <mickele>
 
 pkgname=salome-netgenplugin
-pkgver=5.1.4
+pkgver=7.4.1
+_netgenver=4.9.13
 pkgrel=1
-pkgdesc="SALOME provides a generic platform for Pre and Post-Processing for numerical simulation. NETGENPLUGIN Module."
+pkgdesc="Generic platform for Pre and Post-Processing for numerical simulation - NETGEN plugin"
 url="http://www.salome-platform.org"
-depends=('salome-smesh' 'python' 'qt' 'boost' 'opencascade' 'omniorb' 'omniorbpy' 'omninotify' 'swig' 'hdf5' 'med' 'vtk>=5.6' 'graphviz' 'flex' 'bison' 'sed')
-makedepends=('gcc' 'automake' 'autoconf' 'libtool' 'make' 'doxygen' 'docutils' 'patch' 'coreutils')
+depends=('salome-smesh>=7.4.0' 'salome-smesh<7.5.0')
 arch=('i686' 'x86_64')
-conflicts=()
-provides=()
 license=('LGPL')
-# salome uses only a particular version of netgen, that has never been officially released
-# So it is necessary to download a full installation package from www.salome-platform.org (requires a lot of time...)
-source=("http://files.opencascade.com/Salome/Salome${pkgver}/InstallWizard_${pkgver}_Debian_4.0_64bit.tar.gz" "${pkgname}.profile")
-options=('libtool')
+source=("http://downloads.sourceforge.net/netgen-mesher/netgen-${_netgenver}.tar.gz" "netgen-4.9.13-for-SALOME.patch" "netgen-4.9.13-for-CMake.patch" "salome-netgenplugin.profile")
+options=()
 
-_source=InstallWizard_${pkgver}_Debian_4.0_64bit/Products/SOURCES
+_source=netgenplugin
 _installdir=/opt/salome/netgenplugin
-_pythonver=2.6
-_vtkver=5.6
+_paraviewrootdir=/usr
+_paraviewver=4.1
+
+prepare(){
+  cd "netgen-${_netgenver}"
+  patch -Np1 -i "${srcdir}/netgen-4.9.13-for-SALOME.patch"
+  patch -Np1 -i "${srcdir}/netgen-4.9.13-for-CMake.patch"
+  chmod u+x ./build_cmake
+  sed -e "s|python|python2|" -i ./build_cmake
+  sed -e "s|-avoid-version||" -i nglib/Makefile.am
+  sed -e "s|-avoid-version||" -i nglib/Makefile.in
+
+  cd "${srcdir}"
+  msg "Connecting to git server..."
+  if [[ -d ${_source} ]] ; then
+     rm -rf ${_source}
+  fi
+  git clone git://git.salome-platform.org/plugins/${_source}.git
+  cd ${_source}
+  git checkout V7_4_1
+  msg "GIT checkout done or server timeout"
+
+  # python -> python2
+  for _FILE in `grep -Rl "/usr/bin/env python" * `
+  do
+	sed -e "s|/usr/bin/env python|/usr/bin/env python2|" -i ${_FILE}
+  done
+  for _FILE in `grep -Rl "'python'" * `
+  do
+    sed -e "s|'python'|'python2'|" -i ${_FILE}
+  done
+  for _FILE in `grep -Rl '"python"' * `
+  do
+    sed -e 's|"python"|"python2"|' -i ${_FILE}
+  done
+  for _FILE in `grep -Rl '"python ' * `
+  do
+    sed -e 's|"python |"python2 |' -i ${_FILE}
+  done
+}
 
 build() {
-  source /etc/profile.d/salome-kernel.sh || return 1
-  source /etc/profile.d/salome-gui.sh || return 1
-  source /etc/profile.d/salome-geom.sh || return 1
-  source /etc/profile.d/salome-med.sh || return 1
-  source /etc/profile.d/salome-smesh.sh || return 1
+  cd "netgen-${_netgenver}"
+  ./build_cmake ./
+  cmake -DCMAKE_INSTALL_PREFIX=${_installdir} \
+        -DCASROOT=/opt/opencascade
+  make
+  make DESTDIR="${srcdir}" install
 
-  msg "Untar source"
-  
-  cd ${srcdir}/${_source} || return 1
-  bsdtar -xf netgen-4.5.tar.gz || return 1
-  bsdtar -xf NETGENPLUGINsourcesV${pkgver}.tar.gz || return 1
+  rm -rf "${srcdir}/${_source}/build"
+  mkdir -p "${srcdir}/${_source}/build"
+  cd "${srcdir}/${_source}/build"
+  source /etc/salome/profile.d/salome-kernel.sh
+  source /etc/salome/profile.d/salome-gui.sh
+  source /etc/salome/profile.d/salome-geom.sh
+  source /etc/salome/profile.d/salome-smesh.sh
+  cmake .. \
+     -DCMAKE_INSTALL_PREFIX=${_installdir} \
+     -DPYTHON_EXECUTABLE=/usr/bin/python2 \
+     -DSWIG_EXECUTABLE=/usr/bin/swig-2 \
+     -DVTK_DIR="${_paraviewrootdir}/lib/cmake/paraview-${_paraviewver}" \
+     -DCAS_ROOT_DIR=/opt/opencascade \
+     -DNETGEN_ROOT_DIR="${srcdir}${_installdir}"
 
-
-  msg "Builds netgen-4.5"
-
-  cd ${srcdir}/${_source}/netgen-4.5_SRC || return 1
-  patch -Np1 -i ../NETGENPLUGIN_SRC_${pkgver}/src/NETGEN/netgen45ForSalome.patch || return 1
-  # only for 64 bit
-  if [ "$CARCH" = "x86_64" ]; then
-    patch -Np1 -i ../NETGENPLUGIN_SRC_${pkgver}/src/NETGEN/netgen45lib64.patch || return 1
-  fi
-
-  # change necessary for gcc-4.5
-  sed -e "s|BRepMesh_IncrementalMesh::BRepMesh_IncrementalMesh|BRepMesh_IncrementalMesh|" \
-      -i libsrc/occ/occgeom.cpp
-  sh makeForSalome.sh || return 1
-
-
-  msg "Builds NetgenPlugin"
-
-  cd ${srcdir}/${_source}/NETGENPLUGIN_SRC_${pkgver} || return 1
-
-  sed -e "s|BRepMesh_IncrementalMesh::BRepMesh_IncrementalMesh|BRepMesh_IncrementalMesh|" \
-      -i src/NETGENPlugin/NETGENPlugin_Mesher.cxx
-
-  ./build_configure || return 1
-
-  ./configure --prefix=${_installdir} \
-	      --with-python-site=${_installdir}/lib/python-${_pythonver}/site-packages/salome \
-	      --with-python-site-exec=${_installdir}/lib/python-${_pythonver}/site-packages/salome \
-	      --with-qt=/usr \
-	      --with-vtk=/usr \
-	      --with-vtk-version=-${_vtkver} \
-	      --with-netgen=${srcdir}/${_source}/netgen-4.5_SRC/install \
-	      --disable-debug \
-     	      --enable-production || return 1
-
-  make || return 1
+  make
 }
 
 package() {
-  cd ${srcdir}/${_source}/NETGENPLUGIN_SRC_${pkgver} || return 1
+  cd "${srcdir}/netgen-${_netgenver}"
+  
+  make DESTDIR="${pkgdir}" install
+  
+  install -D -m644 "${srcdir}/netgen-${_netgenver}/doc/ng4.pdf" \
+                   "${pkgdir}/${_installdir}/doc/netgen/ng4.pdf"
 
-  make DESTDIR="${pkgdir}" install || return 1
+  cd "${srcdir}/${_source}/build"
 
-  install -D -m755 "${srcdir}/${pkgname}.profile" \
-                   "${pkgdir}/etc/profile.d/${pkgname}.sh" || return 1
+  make DESTDIR="$pkgdir" install
+
+  install -D -m755 "$srcdir/$pkgname.profile" \
+                   "$pkgdir/etc/salome/profile.d/$pkgname.sh"
 }
-
-md5sums=('ac360176044fb18b261f36e26372f8aa'
-         'a889807f3abfe5f74e1a119421a95059')
+md5sums=('2d56642ca673106837bcd08ff9913d57'
+         'f71eea25fc7fb12e6c95f31bf440cae2'
+         '4ae279ab4558b1719fe1d8d65a1ed1a1'
+         'd143fa3d279a64e0676eb0b43709ffee')
