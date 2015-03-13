@@ -14,7 +14,7 @@ source=('act_connmark.c'
 	'Makefile')
 md5sums=('93667f17bebefca21381ab4ecf2c885f'
          '529b8e69a3ba82d3d6f70ecd2d1d4067')
-url="https://dev.openwrt.org/browser/trunk/target/linux/generic/patches-3.14/621-sched_act_connmark.path"
+url="https://dev.openwrt.org/browser/trunk/target/linux/generic/patches-3.14/621-sched_act_connmark.patch"
 
 _kernmajor="$(pacman -Q linux-lts | awk '{print $2}' | cut -d - -f1 | cut -d . -f1,2)"
 _extramodules="extramodules-${_kernmajor}-lts"

@@ -1,11 +1,13 @@
-# Maintainer: Ismael Carnales <icarnales@gmail.com>
+# Contributor: Lex Black <autumn-wind at web dot de>
+# Contributor: Ismael Carnales <icarnales@gmail.com>
 # Contributor:  TDY <tdy@gmx.com>
 # Contributor: Michael S. Walker <barrucadu@localhost>
 
+_pkgname=ack2
 pkgname=ack-git
-pkgver=20091126
+pkgver=2.14.r96.g1cdf5bd
 pkgrel=1
-pkgdesc="A Perl-based grep replacement, aimed at programmers with large trees of heterogeneous source code"
+pkgdesc="Perl-based grep replacement, aimed at programmers with large trees of heterogeneous source code"
 arch=('any')
 url="http://betterthangrep.com/"
 license=('GPL' 'PerlArtistic')
@@ -14,27 +16,22 @@ makedepends=('git')
 provides=('ack')
 conflicts=('ack')
 options=('!emptydirs')
+source=(git://github.com/petdance/ack2.git)
+md5sums=('SKIP')
 
-_gitroot=git://github.com/petdance/ack.git
-_gitname=ack
+
+pkgver() {
+  cd "$_pkgname"
+  git describe --long --tags | sed 's/\([^-]*-g\)/r\1/;s/-/./g'
+}
 
 build() {
-  cd $srcdir
+  cd "$_pkgname"
+  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor
+  make
+}
 
-  msg "Connecting to git.freedesktop.org GIT server...."
-
-  if [ -d $startdir/src/$_gitname ] ; then
-    cd $_gitname && git-pull origin
-    msg "The local files are updated."
-  else
-    git clone $_gitroot
-  fi
-
-  msg "GIT checkout done or server timeout"
-
-  cd "$srcdir/$_gitname"
-  PERL_MM_USE_DEFAULT=1 perl Makefile.PL INSTALLDIRS=vendor || return 1
-  make || return 1
-  make DESTDIR="$pkgdir" install || return 1
-  find "$pkgdir" \( -name '.packlist' -o -name 'perllocal.pod' \) -delete
+package() {
+  cd "$_pkgname"
+  make DESTDIR="$pkgdir" install
 }

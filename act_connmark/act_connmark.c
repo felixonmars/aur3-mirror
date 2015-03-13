@@ -34,9 +34,6 @@
 
 #define CONNMARK_TAB_MASK     3
 
-
-static struct tcf_hashinfo connmark_hash_info;
-
 static int tcf_connmark(struct sk_buff *skb, const struct tc_action *a,
 		       struct tcf_result *res)
 {
@@ -56,7 +53,7 @@ static int tcf_connmark(struct sk_buff *skb, const struct tc_action *a,
 	} else
 		goto out;
 
-	r = nf_conntrack_in(dev_net(skb->dev), proto, NF_INET_FORWARD, skb);
+	r = nf_conntrack_in(dev_net(skb->dev), proto, NF_INET_PRE_ROUTING, skb);
 	if (r != NF_ACCEPT)
 		goto out;
 
@@ -76,13 +73,13 @@ static int tcf_connmark_init(struct net *net, struct nlattr *nla,
 			     struct nlattr *est, struct tc_action *a,
 			     int ovr, int bind)
 {
-	struct tcf_common *pc;	
 	int ret = 0;
 
 	if (!tcf_hash_check(0, a, bind)) {
-		ret = tcf_hash_create(0, est, a, sizeof(*pc), bind);
+		ret = tcf_hash_create(0, est, a, sizeof(struct tcf_common), bind);
 		if (ret)
-			return ret;
+		    return ret;
+
 		tcf_hash_insert(a);
 		ret = ACT_P_CREATED;
 	} else {
@@ -91,14 +88,8 @@ static int tcf_connmark_init(struct net *net, struct nlattr *nla,
 			return -EEXIST;
 		}
 	}
-	
-	return ret;
-}
 
-static void tcf_connmark_cleanup(struct tc_action *a, int bind)
-{
-	if (a->priv)
-		tcf_hash_release(a->priv, bind);
+	return ret;
 }
 
 static inline int tcf_connmark_dump(struct sk_buff *skb, struct tc_action *a,
@@ -109,12 +100,10 @@ static inline int tcf_connmark_dump(struct sk_buff *skb, struct tc_action *a,
 
 static struct tc_action_ops act_connmark_ops = {
 	.kind		=	"connmark",
-	.hinfo		=	&connmark_hash_info,
 	.type		=	TCA_ACT_CONNMARK,
 	.owner		=	THIS_MODULE,
 	.act		=	tcf_connmark,
 	.dump		=	tcf_connmark_dump,
-	.cleanup	=	tcf_connmark_cleanup,
 	.init		=	tcf_connmark_init,
 };
 
@@ -124,11 +113,6 @@ MODULE_LICENSE("GPL");
 
 static int __init connmark_init_module(void)
 {
-	int ret;
-
-	ret = tcf_hashinfo_init(&connmark_hash_info, CONNMARK_TAB_MASK);
-	if (ret)
-		return ret;
 
 	return tcf_register_action(&act_connmark_ops, CONNMARK_TAB_MASK);
 }
