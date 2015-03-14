@@ -1,0 +1,76 @@
+# Maintainer : Thomas - Thomisback[at]GMX[dot]com
+     
+pkgname=nvidia-pf-sandybridge
+pkgver=346.47
+pkgrel=3
+_goodkver=3.18
+_badkver=3.19
+_modver=${_goodkver}-pf
+_extramodules=extramodules-$_modver
+_kernver="$(cat /usr/lib/modules/${_extramodules}/version)"
+_SYSSRC="/usr/lib/modules/$_kernver/build"
+_pf_kernel=$(pacman -Qqo /boot/vmlinuz-linux-pf)
+#_pf_headers=$(pacman -Qqo ${_SYSSRC})
+_cpu=$(sed -e "s/linux-pf//" <<<${_pf_kernel})
+
+pkgdesc="NVIDIA drivers for linux-pf."
+arch=('i686' 'x86_64')
+url="http://www.nvidia.com/"
+makedepends=("linux-pf-headers>=${_goodkver}" "linux-pf-headers<${_badkver}")
+depends=("linux-pf>=${_goodkver}" "linux-pf<${_badkver}" "nvidia-utils=${pkgver}")
+
+if [[ ${_cpu} ]]; then
+  true && pkgdesc="NVIDIA drivers for linux-pf${_cpu}."
+  true && makedepends=("linux-pf-headers${_cpu}>=${_goodkver}" "linux-pf-headers${_cpu}<${_badkver}")
+  true && depends=("linux-pf${_cpu}>=${_goodkver}" "linux-pf${_cpu}<${_badkver}" "nvidia-utils=${pkgver}")
+fi
+conflicts=( 'nvidia-96xx' 'nvidia-173xx' 'nvidia-pf-core2' 'nvidia-pf-k8'
+  'nvidia-pf-atom' 'nvidia-pf-psc' 'nvidia-pf-p4' 'nvidia-pf-p3'
+  'nvidia-pf-pm' 'nvidia-pf-k7')
+license=('custom')
+install=nvidia.install
+options=(!strip)
+
+source_i686=("ftp://download.nvidia.com/XFree86/Linux-x86/${pkgver}/NVIDIA-Linux-x86-${pkgver}.run")
+source_x86_64=("ftp://download.nvidia.com/XFree86/Linux-x86_64/${pkgver}/NVIDIA-Linux-x86_64-${pkgver}-no-compat32.run")
+md5sums=('ff8a5f979e4428f8c847423fb007042c')
+md5sums_i686=('ae61b6c3c081383f991bcc64ee0844b1')
+md5sums_x86_64=('115b5b2d136c4b44c658ef823b8a4bab')
+source+=('nv-drm-343.36.patch')
+[[ "$CARCH" = "i686" ]] && _pkg="NVIDIA-Linux-x86-${pkgver}"
+[[ "$CARCH" = "x86_64" ]] && _pkg="NVIDIA-Linux-x86_64-${pkgver}-no-compat32"
+     
+
+prepare()
+{
+  cd "${srcdir}"
+  [[ -d "${_pkg}" ]] && rm -rf "${_pkg}"
+  sh "${_pkg}.run" --extract-only
+  cd "${_pkg}"
+  # patches here
+  patch -Np1 -i "$srcdir"/nv-drm-343.36.patch
+}
+
+build() {
+  _kernver="$(cat /usr/lib/modules/${_extramodules}/version)"
+  cd "${_pkg}"/kernel
+  make SYSSRC=/usr/lib/modules/"${_kernver}/build" module
+  
+  cd uvm
+  make SYSSRC=/usr/lib/modules/"${_kernver}/build" module
+}
+
+
+package() {
+  if [[ ${_cpu} ]]; then
+    true && pkgname=${pkgname}${_cpu}
+    true && conflicts=(${conflicts[@]/nvidia-pf${_cpu}/} 'nvidia-pf')
+  fi
+  install -D -m644 "${srcdir}/${_pkg}/kernel/nvidia.ko" \
+    "${pkgdir}/usr/lib/modules/${_extramodules}/nvidia.ko"
+  install -D -m644 "${srcdir}/${_pkg}/kernel/uvm/nvidia-uvm.ko" \
+    "${pkgdir}/usr/lib/modules/${_extramodules}/nvidia-uvm.ko"
+  gzip "${pkgdir}/usr/lib/modules/${_extramodules}/"*.ko
+  install -d -m755 "${pkgdir}/usr/lib/modprobe.d"
+  sed -i -e "s/EXTRAMODULES='.*'/EXTRAMODULES='${_extramodules}'/" "${startdir}/nvidia.install"
+}
