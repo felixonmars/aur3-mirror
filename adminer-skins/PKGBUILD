@@ -20,7 +20,7 @@ true && pkgname=(
     'adminer-skins-jukin'
 )
 
-pkgver=20140430
+pkgver=20150316
 pkgrel=1
 pkgdesc='Adminer skins'
 url='http://www.adminer.org'
@@ -49,7 +49,7 @@ source=(
 
 md5sums=('cd9f03ca11aa47f5e43ccb675588007c'
          '9da6b73dfa3bb538b253676e14c50d1e'
-         'f57bf50b557c87b782f9f8962a648c4d'
+         'aa4a8849f110f89a56c12dc4b1b48e7e'
          '0c01f846113983d30254abba6dac7584'
          'aa030a380ca2dca615d01856a333e4d8'
          '091b443d5a728c4745c1ae95760e0cca'
