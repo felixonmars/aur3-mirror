@@ -1,5 +1,5 @@
 pkgname=git-mediawiki
-pkgver=2.1.3
+pkgver=2.3.3
 pkgrel=1
 pkgdesc="Gateway between Git and Media Wiki"
 arch=(any)
@@ -13,6 +13,12 @@ optdepends=(
 makedepends=(git)
 source=("https://www.kernel.org/pub/software/scm/git/git-$pkgver.tar.xz"
 )
+md5sums=('14a885da3b432455b606cc1a25a6c681'
+)
+
+prepare() {
+  cd "$srcdir/git-$pkgver"
+}
 
 package() {
     local DIR="$(git --exec-path)"
@@ -22,6 +28,3 @@ package() {
     make prefix=/usr
     make install DESTDIR="$pkgdir" gitexecdir="$DIR"
 }
-
-md5sums=('43815ec043c0ae46c3efa4c8e28feaba'
-)
