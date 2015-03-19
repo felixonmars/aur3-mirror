@@ -1,0 +1,190 @@
+diff -urN dosbox.orig/include/dos_inc.h dosbox/include/dos_inc.h
+--- dosbox.orig/include/dos_inc.h	2015-03-18 06:20:45.155290987 -0300
++++ dosbox/include/dos_inc.h	2015-03-18 06:20:47.966290780 -0300
+@@ -118,6 +118,7 @@
+ bool DOS_DuplicateEntry(Bit16u entry,Bit16u * newentry);
+ bool DOS_ForceDuplicateEntry(Bit16u entry,Bit16u newentry);
+ bool DOS_GetFileDate(Bit16u entry, Bit16u* otime, Bit16u* odate);
++bool DOS_SetFileDate(Bit16u entry, Bit16u ntime, Bit16u ndate);
+ 
+ /* Routines for Drive Class */
+ bool DOS_OpenFile(char const * name,Bit8u flags,Bit16u * entry);
+diff -urN dosbox.orig/include/dos_system.h dosbox/include/dos_system.h
+--- dosbox.orig/include/dos_system.h	2015-03-18 06:20:45.155290987 -0300
++++ dosbox/include/dos_system.h	2015-03-18 06:20:47.966290780 -0300
+@@ -62,7 +62,7 @@
+ 
+ class DOS_File {
+ public:
+-	DOS_File():flags(0)		{ name=0; refCtr = 0; hdrive=0xff; };
++	DOS_File():flags(0)		{ name=0; refCtr = 0; hdrive=0xff; newtime=false;};
+ 	DOS_File(const DOS_File& orig);
+ 	DOS_File & operator= (const DOS_File & orig);
+ 	virtual	~DOS_File(){if(name) delete [] name;};
+@@ -87,6 +87,7 @@
+ 	Bits refCtr;
+ 	bool open;
+ 	char* name;
++	bool newtime;
+ /* Some Device Specific Stuff */
+ private:
+ 	Bit8u hdrive;
+diff -urN dosbox.orig/src/dos/dos.cpp dosbox/src/dos/dos.cpp
+--- dosbox.orig/src/dos/dos.cpp	2015-03-18 06:20:45.156290987 -0300
++++ dosbox/src/dos/dos.cpp	2015-03-18 06:20:47.966290780 -0300
+@@ -869,8 +869,11 @@
+ 				CALLBACK_SCF(true);
+ 			}
+ 		} else if (reg_al==0x01) {
+-			LOG(LOG_DOSMISC,LOG_ERROR)("DOS:57:Set File Date Time Faked");
+-			CALLBACK_SCF(false);		
++			if (DOS_SetFileDate(reg_bx,reg_cx,reg_dx)) {
++				CALLBACK_SCF(false);
++			} else {
++				CALLBACK_SCF(true);
++			}
+ 		} else {
+ 			LOG(LOG_DOSMISC,LOG_ERROR)("DOS:57:Unsupported subtion %X",reg_al);
+ 		}
+diff -urN dosbox.orig/src/dos/dos_files.cpp dosbox/src/dos/dos_files.cpp
+--- dosbox.orig/src/dos/dos_files.cpp	2015-03-18 06:20:45.156290987 -0300
++++ dosbox/src/dos/dos_files.cpp	2015-03-18 06:20:47.966290780 -0300
+@@ -1277,6 +1277,23 @@
+ 	return true;
+ }
+ 
++bool DOS_SetFileDate(Bit16u entry, Bit16u ntime, Bit16u ndate) {
++	Bit32u handle=RealHandle(entry);
++	if (handle>=DOS_FILES) {
++		DOS_SetError(DOSERR_INVALID_HANDLE);
++		return false;
++	};
++	if (!Files[handle]) {
++		DOS_SetError(DOSERR_INVALID_HANDLE);
++		return false;
++	};
++	Files[handle]->time = ntime;
++	Files[handle]->date = ndate;
++	Files[handle]->newtime = true;
++
++	return true;
++}
++
+ void DOS_SetupFiles (void) {
+ 	/* Setup the File Handles */
+ 	Bit32u i;
+diff -urN dosbox.orig/src/dos/drive_local.cpp dosbox/src/dos/drive_local.cpp
+--- dosbox.orig/src/dos/drive_local.cpp	2015-03-18 06:20:45.156290987 -0300
++++ dosbox/src/dos/drive_local.cpp	2015-03-18 06:20:47.966290780 -0300
+@@ -22,6 +22,8 @@
+ #include <string.h>
+ #include <time.h>
+ #include <errno.h>
++#include <sys/types.h>
++#include <utime.h>
+ 
+ #include "dosbox.h"
+ #include "dos_inc.h"
+@@ -32,7 +34,7 @@
+ 
+ class localFile : public DOS_File {
+ public:
+-	localFile(const char* name, FILE * handle);
++	localFile(const char* name, FILE * handle, const char* basedir);
+ 	bool Read(Bit8u * data,Bit16u * size);
+ 	bool Write(Bit8u * data,Bit16u * size);
+ 	bool Seek(Bit32u * pos,Bit32u type);
+@@ -43,6 +45,7 @@
+ 	void Flush(void);
+ private:
+ 	FILE * fhandle;
++	const char * basedir;
+ 	bool read_only_medium;
+ 	enum { NONE,READ,WRITE } last_action;
+ };
+@@ -73,7 +76,7 @@
+    
+ 	if(!existing_file) dirCache.AddEntry(newname, true);
+ 	/* Make the 16 bit device information */
+-	*file=new localFile(name,hand);
++	*file=new localFile(name,hand,basedir);
+ 	(*file)->flags=OPEN_READWRITE;
+ 
+ 	return true;
+@@ -125,7 +128,7 @@
+ 		return false;
+ 	}
+ 
+-	*file=new localFile(name,hand);
++	*file=new localFile(name,hand,basedir);
+ 	(*file)->flags=flags;  //for the inheritance flag and maybe check for others.
+ //	(*file)->SetFileName(newname);
+ 	return true;
+@@ -517,6 +520,36 @@
+ 		fhandle = 0;
+ 		open = false;
+ 	};
++
++	if (newtime) {
++		// backport from DOS_PackDate() and DOS_PackTime()
++		struct tm tim = { 0 };
++		tim.tm_sec  = (time&0x1f)*2;
++		tim.tm_min  = (time>>5)&0x3f;
++		tim.tm_hour = (time>>11)&0x1f;
++		tim.tm_mday = date&0x1f;
++		tim.tm_mon  = ((date>>5)&0x0f)-1;
++		tim.tm_year = (date>>9)+1980-1900;
++		//  have the C run-time library code compute whether standard time or daylight saving time is in effect.
++		tim.tm_isdst = -1;
++		// serialize time
++		mktime(&tim);
++
++		struct utimbuf ftim;
++		ftim.actime = ftim.modtime = mktime(&tim);
++
++		char fullname[DOS_PATHLENGTH];
++		strcpy(fullname, basedir);
++		strcat(fullname, name);
++//		Dos_SpecoalChar(fullname, true);
++		CROSS_FILENAME(fullname);
++		if (utime(fullname, &ftim)) {
++//			extern int errno;
++//			LOG_MSG("Set time failed for %s (%s)", fullname, strerror(errno));
++			return false;
++		}
++	}
++
+ 	return true;
+ }
+ 
+@@ -525,7 +558,7 @@
+ }
+ 	
+ 
+-localFile::localFile(const char* _name, FILE * handle) {
++localFile::localFile(const char* _name, FILE * handle, const char* _basedir) {
+ 	fhandle=handle;
+ 	open=true;
+ 	UpdateDateTimeFromHost();
+@@ -536,6 +569,7 @@
+ 
+ 	name=0;
+ 	SetName(_name);
++	basedir=_basedir;
+ }
+ 
+ void localFile::FlagReadOnlyMedium(void) {
+diff -urN dosbox.orig/src/shell/shell_cmds.cpp dosbox/src/shell/shell_cmds.cpp
+--- dosbox.orig/src/shell/shell_cmds.cpp	2015-03-18 06:20:45.157290987 -0300
++++ dosbox/src/shell/shell_cmds.cpp	2015-03-18 06:20:47.966290780 -0300
+@@ -728,6 +728,10 @@
+ 								failed |= DOS_ReadFile(sourceHandle,buffer,&toread);
+ 								failed |= DOS_WriteFile(targetHandle,buffer,&toread);
+ 							} while (toread==0x8000);
++							if (!oldsource.concat) {
++								DOS_GetFileDate(sourceHandle,&time,&date);
++								DOS_SetFileDate(targetHandle,time,date);
++							}
+ 							failed |= DOS_CloseFile(sourceHandle);
+ 							failed |= DOS_CloseFile(targetHandle);
+ 							WriteOut(" %s\n",name);
