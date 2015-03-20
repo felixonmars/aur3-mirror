@@ -1,8 +1,8 @@
 # Maintainer: Christoph Grabo <asaaki@mannaz.cc>
 
 pkgname=arangodb
-pkgver=2.4.3
-pkgrel=2
+pkgver=2.5.0
+pkgrel=1
 
 pkgdesc="A distributed open-source database with a flexible data model for documents, graphs, and key-values."
 license=("Apache")
@@ -18,7 +18,7 @@ arch=("i686" "x86_64")
 install=arangodb.install
 source=( "https://www.arangodb.com/repositories/Source/ArangoDB-${pkgver}.tar.bz2"
          'arangodb.service')
-md5sums=('db87e562890ce4638d5b417b5431677b'
+md5sums=('eac065964e2094e900d6bbecbd72a763'
          '3cdd43ed5552ab918b41627ec4906e52')
 
 build() {

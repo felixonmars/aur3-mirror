@@ -1,0 +1,1027 @@
+From 8b04baba10b007f8b6c245a50be73cf09cc3a414 Mon Sep 17 00:00:00 2001
+From: Daniel Martin <consume.noise@gmail.com>
+Date: Sun, 8 Mar 2015 22:27:37 -0700
+Subject: Input: synaptics - split synaptics_resolution(), query first
+
+Split the function synaptics_resolution() into synaptics_resolution() and
+synaptics_quirks().  synaptics_resolution() will be called before
+synaptics_quirks() to query dimensions and resolutions before overwriting
+them with quirks.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Daniel Martin <consume.noise@gmail.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 23e26e0..b501dda 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -343,7 +343,6 @@ static int synaptics_resolution(struct psmouse *psmouse)
+ {
+ 	struct synaptics_data *priv = psmouse->private;
+ 	unsigned char resp[3];
+-	int i;
+ 
+ 	if (SYN_ID_MAJOR(priv->identity) < 4)
+ 		return 0;
+@@ -355,17 +354,6 @@ static int synaptics_resolution(struct psmouse *psmouse)
+ 		}
+ 	}
+ 
+-	for (i = 0; min_max_pnpid_table[i].pnp_ids; i++) {
+-		if (psmouse_matches_pnp_id(psmouse,
+-					   min_max_pnpid_table[i].pnp_ids)) {
+-			priv->x_min = min_max_pnpid_table[i].x_min;
+-			priv->x_max = min_max_pnpid_table[i].x_max;
+-			priv->y_min = min_max_pnpid_table[i].y_min;
+-			priv->y_max = min_max_pnpid_table[i].y_max;
+-			return 0;
+-		}
+-	}
+-
+ 	if (SYN_EXT_CAP_REQUESTS(priv->capabilities) >= 5 &&
+ 	    SYN_CAP_MAX_DIMENSIONS(priv->ext_cap_0c)) {
+ 		if (synaptics_send_cmd(psmouse, SYN_QUE_EXT_MAX_COORDS, resp)) {
+@@ -391,6 +379,27 @@ static int synaptics_resolution(struct psmouse *psmouse)
+ 	return 0;
+ }
+ 
++/*
++ * Apply quirk(s) if the hardware matches
++ */
++
++static void synaptics_apply_quirks(struct psmouse *psmouse)
++{
++	struct synaptics_data *priv = psmouse->private;
++	int i;
++
++	for (i = 0; min_max_pnpid_table[i].pnp_ids; i++) {
++		if (psmouse_matches_pnp_id(psmouse,
++					   min_max_pnpid_table[i].pnp_ids)) {
++			priv->x_min = min_max_pnpid_table[i].x_min;
++			priv->x_max = min_max_pnpid_table[i].x_max;
++			priv->y_min = min_max_pnpid_table[i].y_min;
++			priv->y_max = min_max_pnpid_table[i].y_max;
++			break;
++		}
++	}
++}
++
+ static int synaptics_query_hardware(struct psmouse *psmouse)
+ {
+ 	if (synaptics_identify(psmouse))
+@@ -406,6 +415,8 @@ static int synaptics_query_hardware(struct psmouse *psmouse)
+ 	if (synaptics_resolution(psmouse))
+ 		return -1;
+ 
++	synaptics_apply_quirks(psmouse);
++
+ 	return 0;
+ }
+ 
+-- 
+cgit v0.10.2
+
+
+From 9aff65982d0f58a78a27769fba7e97bc937b2593 Mon Sep 17 00:00:00 2001
+From: Daniel Martin <consume.noise@gmail.com>
+Date: Sun, 8 Mar 2015 22:28:29 -0700
+Subject: Input: synaptics - log queried and quirked dimension values
+
+Logging the dimension values we queried and the values we use from a quirk
+to overwrite can be helpful for debugging.
+
+This partly relates to bug:
+    https://bugzilla.kernel.org/show_bug.cgi?id=91541
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Daniel Martin <consume.noise@gmail.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index b501dda..47c5dca 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -362,6 +362,9 @@ static int synaptics_resolution(struct psmouse *psmouse)
+ 		} else {
+ 			priv->x_max = (resp[0] << 5) | ((resp[1] & 0x0f) << 1);
+ 			priv->y_max = (resp[2] << 5) | ((resp[1] & 0xf0) >> 3);
++			psmouse_info(psmouse,
++				     "queried max coordinates: x [..%d], y [..%d]\n",
++				     priv->x_max, priv->y_max);
+ 		}
+ 	}
+ 
+@@ -373,6 +376,9 @@ static int synaptics_resolution(struct psmouse *psmouse)
+ 		} else {
+ 			priv->x_min = (resp[0] << 5) | ((resp[1] & 0x0f) << 1);
+ 			priv->y_min = (resp[2] << 5) | ((resp[1] & 0xf0) >> 3);
++			psmouse_info(psmouse,
++				     "queried min coordinates: x [%d..], y [%d..]\n",
++				     priv->x_min, priv->y_min);
+ 		}
+ 	}
+ 
+@@ -395,6 +401,10 @@ static void synaptics_apply_quirks(struct psmouse *psmouse)
+ 			priv->x_max = min_max_pnpid_table[i].x_max;
+ 			priv->y_min = min_max_pnpid_table[i].y_min;
+ 			priv->y_max = min_max_pnpid_table[i].y_max;
++			psmouse_info(psmouse,
++				     "quirked min/max coordinates: x [%d..%d], y [%d..%d]\n",
++				     priv->x_min, priv->x_max,
++				     priv->y_min, priv->y_max);
+ 			break;
+ 		}
+ 	}
+-- 
+cgit v0.10.2
+
+
+From ac097930f0730a9b777737de2b51e0fc49d2be7a Mon Sep 17 00:00:00 2001
+From: Daniel Martin <consume.noise@gmail.com>
+Date: Sun, 8 Mar 2015 22:28:40 -0700
+Subject: Input: synaptics - query min dimensions for fw v8.1
+
+Query the min dimensions even if the check
+SYN_EXT_CAP_REQUESTS(priv->capabilities) >= 7 fails, but we know that the
+firmware version 8.1 is safe.
+
+With that we don't need quirks for post-2013 models anymore as they expose
+correct min and max dimensions.
+
+Bugzilla: https://bugzilla.kernel.org/show_bug.cgi?id=91541
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Daniel Martin <consume.noise@gmail.com>
+  re-order the tests to check SYN_CAP_MIN_DIMENSIONS even on FW 8.1
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 47c5dca..87c37f7 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -368,8 +368,14 @@ static int synaptics_resolution(struct psmouse *psmouse)
+ 		}
+ 	}
+ 
+-	if (SYN_EXT_CAP_REQUESTS(priv->capabilities) >= 7 &&
+-	    SYN_CAP_MIN_DIMENSIONS(priv->ext_cap_0c)) {
++	if (SYN_CAP_MIN_DIMENSIONS(priv->ext_cap_0c) &&
++	    (SYN_EXT_CAP_REQUESTS(priv->capabilities) >= 7 ||
++	     /*
++	      * Firmware v8.1 does not report proper number of extended
++	      * capabilities, but has been proven to report correct min
++	      * coordinates.
++	      */
++	     SYN_ID_FULL(priv->identity) == 0x801)) {
+ 		if (synaptics_send_cmd(psmouse, SYN_QUE_EXT_MIN_COORDS, resp)) {
+ 			psmouse_warn(psmouse,
+ 				     "device claims to have min coordinates query, but I'm not able to read it.\n");
+-- 
+cgit v0.10.2
+
+
+From b05f4d1c332a22f98c037fa64f249aa30877adaf Mon Sep 17 00:00:00 2001
+From: Daniel Martin <consume.noise@gmail.com>
+Date: Sun, 8 Mar 2015 22:29:07 -0700
+Subject: Input: synaptics - remove obsolete min/max quirk for X240
+
+The firmware of the X240 (LEN0035, 2013/12) exposes the same values
+    x [1232..5710], y [1156..4696]
+as the quirk applies.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Daniel Martin <consume.noise@gmail.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 87c37f7..af686a8 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -131,7 +131,7 @@ static const struct min_max_quirk min_max_pnpid_table[] = {
+ 		1024, 5052, 2258, 4832
+ 	},
+ 	{
+-		(const char * const []){"LEN0035", "LEN0042", NULL},
++		(const char * const []){"LEN0042", NULL},
+ 		1232, 5710, 1156, 4696
+ 	},
+ 	{
+-- 
+cgit v0.10.2
+
+
+From 5b3089ddb540401c1ad2e385a03d7e89ff954585 Mon Sep 17 00:00:00 2001
+From: Daniel Martin <daniel.martin@secunet.com>
+Date: Sun, 8 Mar 2015 22:29:15 -0700
+Subject: Input: synaptics - support min/max board id in min_max_pnpid_table
+
+Add a min/max range for board ids to the min/max coordinates quirk. This
+makes it possible to restrict quirks to specific models based upon their
+board id. The define ANY_BOARD_ID (0) serves as a wild card.
+
+Bugzilla: https://bugzilla.kernel.org/show_bug.cgi?id=91541
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Daniel Martin <daniel.martin@secunet.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index af686a8..a900a38 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -120,32 +120,41 @@ void synaptics_reset(struct psmouse *psmouse)
+ 
+ static bool cr48_profile_sensor;
+ 
++#define ANY_BOARD_ID 0
+ struct min_max_quirk {
+ 	const char * const *pnp_ids;
++	struct {
++		unsigned long int min, max;
++	} board_id;
+ 	int x_min, x_max, y_min, y_max;
+ };
+ 
+ static const struct min_max_quirk min_max_pnpid_table[] = {
+ 	{
+ 		(const char * const []){"LEN0033", NULL},
++		{ANY_BOARD_ID, ANY_BOARD_ID},
+ 		1024, 5052, 2258, 4832
+ 	},
+ 	{
+ 		(const char * const []){"LEN0042", NULL},
++		{ANY_BOARD_ID, ANY_BOARD_ID},
+ 		1232, 5710, 1156, 4696
+ 	},
+ 	{
+ 		(const char * const []){"LEN0034", "LEN0036", "LEN0037",
+ 					"LEN0039", "LEN2002", "LEN2004",
+ 					NULL},
++		{ANY_BOARD_ID, ANY_BOARD_ID},
+ 		1024, 5112, 2024, 4832
+ 	},
+ 	{
+ 		(const char * const []){"LEN2001", NULL},
++		{ANY_BOARD_ID, ANY_BOARD_ID},
+ 		1024, 5022, 2508, 4832
+ 	},
+ 	{
+ 		(const char * const []){"LEN2006", NULL},
++		{ANY_BOARD_ID, ANY_BOARD_ID},
+ 		1264, 5675, 1171, 4688
+ 	},
+ 	{ }
+@@ -401,18 +410,27 @@ static void synaptics_apply_quirks(struct psmouse *psmouse)
+ 	int i;
+ 
+ 	for (i = 0; min_max_pnpid_table[i].pnp_ids; i++) {
+-		if (psmouse_matches_pnp_id(psmouse,
+-					   min_max_pnpid_table[i].pnp_ids)) {
+-			priv->x_min = min_max_pnpid_table[i].x_min;
+-			priv->x_max = min_max_pnpid_table[i].x_max;
+-			priv->y_min = min_max_pnpid_table[i].y_min;
+-			priv->y_max = min_max_pnpid_table[i].y_max;
+-			psmouse_info(psmouse,
+-				     "quirked min/max coordinates: x [%d..%d], y [%d..%d]\n",
+-				     priv->x_min, priv->x_max,
+-				     priv->y_min, priv->y_max);
+-			break;
+-		}
++		if (!psmouse_matches_pnp_id(psmouse,
++					    min_max_pnpid_table[i].pnp_ids))
++			continue;
++
++		if (min_max_pnpid_table[i].board_id.min != ANY_BOARD_ID &&
++		    priv->board_id < min_max_pnpid_table[i].board_id.min)
++			continue;
++
++		if (min_max_pnpid_table[i].board_id.max != ANY_BOARD_ID &&
++		    priv->board_id > min_max_pnpid_table[i].board_id.max)
++			continue;
++
++		priv->x_min = min_max_pnpid_table[i].x_min;
++		priv->x_max = min_max_pnpid_table[i].x_max;
++		priv->y_min = min_max_pnpid_table[i].y_min;
++		priv->y_max = min_max_pnpid_table[i].y_max;
++		psmouse_info(psmouse,
++			     "quirked min/max coordinates: x [%d..%d], y [%d..%d]\n",
++			     priv->x_min, priv->x_max,
++			     priv->y_min, priv->y_max);
++		break;
+ 	}
+ }
+ 
+-- 
+cgit v0.10.2
+
+
+From 02e07492cdfae9c86e3bd21c0beec88dbcc1e9e8 Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:29:25 -0700
+Subject: Input: synaptics - skip quirks when post-2013 dimensions
+
+Post-2013 Lenovo laptops provide correct min/max dimensions, which are
+different with the ones currently quirked.  According to
+https://bugzilla.kernel.org/show_bug.cgi?id=91541 the following board ids
+are assigned in the post-2013 touchpads:
+
+t440p/t440s: LEN0036 -> 2964/2962
+t540p:       LEN0034 -> 2964
+
+Using 2961 as the common minimum makes these 3 laptops OK. We may need
+to update those values later if other pnp_ids has a lower board_id.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index a900a38..9567a70 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -144,7 +144,7 @@ static const struct min_max_quirk min_max_pnpid_table[] = {
+ 		(const char * const []){"LEN0034", "LEN0036", "LEN0037",
+ 					"LEN0039", "LEN2002", "LEN2004",
+ 					NULL},
+-		{ANY_BOARD_ID, ANY_BOARD_ID},
++		{ANY_BOARD_ID, 2961},
+ 		1024, 5112, 2024, 4832
+ 	},
+ 	{
+-- 
+cgit v0.10.2
+
+
+From dc5465dc8a6d5cae8a0e1d8826bdcb2e4cb261ab Mon Sep 17 00:00:00 2001
+From: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Date: Sun, 8 Mar 2015 22:30:43 -0700
+Subject: Input: synaptics - fix middle button on Lenovo 2015 products
+
+On the X1 Carbon 3rd gen (with a 2015 broadwell cpu), the physical middle
+button of the trackstick (attached to the touchpad serio device, of course)
+seems to get lost.
+
+Actually, the touchpads reports 3 extra buttons, which falls in the switch
+below to the '2' case. Let's handle the case of odd numbers also, so that
+the middle button finds its way back.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 9567a70..e78cc55 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -658,6 +658,18 @@ static void synaptics_parse_agm(const unsigned char buf[],
+ 	priv->agm_pending = true;
+ }
+ 
++static void synaptics_parse_ext_buttons(const unsigned char buf[],
++					struct synaptics_data *priv,
++					struct synaptics_hw_state *hw)
++{
++	unsigned int ext_bits =
++		(SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) + 1) >> 1;
++	unsigned int ext_mask = GENMASK(ext_bits - 1, 0);
++
++	hw->ext_buttons = buf[4] & ext_mask;
++	hw->ext_buttons |= (buf[5] & ext_mask) << ext_bits;
++}
++
+ static bool is_forcepad;
+ 
+ static int synaptics_parse_hw_state(const unsigned char buf[],
+@@ -744,28 +756,9 @@ static int synaptics_parse_hw_state(const unsigned char buf[],
+ 			hw->down = ((buf[0] ^ buf[3]) & 0x02) ? 1 : 0;
+ 		}
+ 
+-		if (SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) &&
++		if (SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) > 0 &&
+ 		    ((buf[0] ^ buf[3]) & 0x02)) {
+-			switch (SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) & ~0x01) {
+-			default:
+-				/*
+-				 * if nExtBtn is greater than 8 it should be
+-				 * considered invalid and treated as 0
+-				 */
+-				break;
+-			case 8:
+-				hw->ext_buttons |= ((buf[5] & 0x08)) ? 0x80 : 0;
+-				hw->ext_buttons |= ((buf[4] & 0x08)) ? 0x40 : 0;
+-			case 6:
+-				hw->ext_buttons |= ((buf[5] & 0x04)) ? 0x20 : 0;
+-				hw->ext_buttons |= ((buf[4] & 0x04)) ? 0x10 : 0;
+-			case 4:
+-				hw->ext_buttons |= ((buf[5] & 0x02)) ? 0x08 : 0;
+-				hw->ext_buttons |= ((buf[4] & 0x02)) ? 0x04 : 0;
+-			case 2:
+-				hw->ext_buttons |= ((buf[5] & 0x01)) ? 0x02 : 0;
+-				hw->ext_buttons |= ((buf[4] & 0x01)) ? 0x01 : 0;
+-			}
++			synaptics_parse_ext_buttons(buf, priv, hw);
+ 		}
+ 	} else {
+ 		hw->x = (((buf[1] & 0x1f) << 8) | buf[2]);
+@@ -832,6 +825,7 @@ static void synaptics_report_buttons(struct psmouse *psmouse,
+ {
+ 	struct input_dev *dev = psmouse->dev;
+ 	struct synaptics_data *priv = psmouse->private;
++	int ext_bits = (SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) + 1) >> 1;
+ 	int i;
+ 
+ 	input_report_key(dev, BTN_LEFT, hw->left);
+@@ -845,8 +839,12 @@ static void synaptics_report_buttons(struct psmouse *psmouse,
+ 		input_report_key(dev, BTN_BACK, hw->down);
+ 	}
+ 
+-	for (i = 0; i < SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap); i++)
+-		input_report_key(dev, BTN_0 + i, hw->ext_buttons & (1 << i));
++	for (i = 0; i < ext_bits; i++) {
++		input_report_key(dev, BTN_0 + 2 * i,
++				 hw->ext_buttons & (1 << i));
++		input_report_key(dev, BTN_1 + 2 * i,
++				 hw->ext_buttons & (1 << (i + ext_bits)));
++	}
+ }
+ 
+ static void synaptics_report_slot(struct input_dev *dev, int slot,
+-- 
+cgit v0.10.2
+
+
+From ebc80840b850db72f7ae84fbcf77630ae5409629 Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:32:43 -0700
+Subject: Input: synaptics - handle spurious release of trackstick buttons
+
+The Fimware 8.1 has a bug in which the extra buttons are only sent when the
+ExtBit is 1.  This should be fixed in a future FW update which should have
+a bump of the minor version.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index e78cc55..2f42a71 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -820,14 +820,36 @@ static void synaptics_report_semi_mt_data(struct input_dev *dev,
+ 	}
+ }
+ 
+-static void synaptics_report_buttons(struct psmouse *psmouse,
+-				     const struct synaptics_hw_state *hw)
++static void synaptics_report_ext_buttons(struct psmouse *psmouse,
++					 const struct synaptics_hw_state *hw)
+ {
+ 	struct input_dev *dev = psmouse->dev;
+ 	struct synaptics_data *priv = psmouse->private;
+ 	int ext_bits = (SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) + 1) >> 1;
+ 	int i;
+ 
++	if (!SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap))
++		return;
++
++	/* Bug in FW 8.1, buttons are reported only when ExtBit is 1 */
++	if (SYN_ID_FULL(priv->identity) == 0x801 &&
++	    !((psmouse->packet[0] ^ psmouse->packet[3]) & 0x02))
++		return;
++
++	for (i = 0; i < ext_bits; i++) {
++		input_report_key(dev, BTN_0 + 2 * i,
++			hw->ext_buttons & (1 << i));
++		input_report_key(dev, BTN_1 + 2 * i,
++			hw->ext_buttons & (1 << (i + ext_bits)));
++	}
++}
++
++static void synaptics_report_buttons(struct psmouse *psmouse,
++				     const struct synaptics_hw_state *hw)
++{
++	struct input_dev *dev = psmouse->dev;
++	struct synaptics_data *priv = psmouse->private;
++
+ 	input_report_key(dev, BTN_LEFT, hw->left);
+ 	input_report_key(dev, BTN_RIGHT, hw->right);
+ 
+@@ -839,12 +861,7 @@ static void synaptics_report_buttons(struct psmouse *psmouse,
+ 		input_report_key(dev, BTN_BACK, hw->down);
+ 	}
+ 
+-	for (i = 0; i < ext_bits; i++) {
+-		input_report_key(dev, BTN_0 + 2 * i,
+-				 hw->ext_buttons & (1 << i));
+-		input_report_key(dev, BTN_1 + 2 * i,
+-				 hw->ext_buttons & (1 << (i + ext_bits)));
+-	}
++	synaptics_report_ext_buttons(psmouse, hw);
+ }
+ 
+ static void synaptics_report_slot(struct input_dev *dev, int slot,
+-- 
+cgit v0.10.2
+
+
+From b57a7128be24062b5b5b26032b7cd58f1651547e Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:33:36 -0700
+Subject: Input: synaptics - do not retrieve the board id on old firmwares
+
+The board id capability has been added in firmware 7.5.
+
+Cc: stable@vger.kernel.org
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 2f42a71..2176874 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -250,6 +250,10 @@ static int synaptics_board_id(struct psmouse *psmouse)
+ 	struct synaptics_data *priv = psmouse->private;
+ 	unsigned char bid[3];
+ 
++	/* firmwares prior 7.5 have no board_id encoded */
++	if (SYN_ID_FULL(priv->identity) < 0x705)
++		return 0;
++
+ 	if (synaptics_send_cmd(psmouse, SYN_QUE_MODES, bid))
+ 		return -1;
+ 	priv->board_id = ((bid[0] & 0xfc) << 6) | bid[1];
+-- 
+cgit v0.10.2
+
+
+From 06aa374bc70468b517dd36b95c48c8f391c08a27 Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:34:03 -0700
+Subject: Input: synaptics - retrieve the extended capabilities in query $10
+
+Newer Synaptics touchpads need to get information from the query $10.
+Retrieve it if available.
+
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 2176874..8f6a153 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -241,11 +241,24 @@ static int synaptics_model_id(struct psmouse *psmouse)
+ 	return 0;
+ }
+ 
++static int synaptics_more_extended_queries(struct psmouse *psmouse)
++{
++	struct synaptics_data *priv = psmouse->private;
++	unsigned char buf[3];
++
++	if (synaptics_send_cmd(psmouse, SYN_QUE_MEXT_CAPAB_10, buf))
++		return -1;
++
++	priv->ext_cap_10 = (buf[0]<<16) | (buf[1]<<8) | buf[2];
++
++	return 0;
++}
++
+ /*
+- * Read the board id from the touchpad
++ * Read the board id and the "More Extended Queries" from the touchpad
+  * The board id is encoded in the "QUERY MODES" response
+  */
+-static int synaptics_board_id(struct psmouse *psmouse)
++static int synaptics_query_modes(struct psmouse *psmouse)
+ {
+ 	struct synaptics_data *priv = psmouse->private;
+ 	unsigned char bid[3];
+@@ -257,6 +270,10 @@ static int synaptics_board_id(struct psmouse *psmouse)
+ 	if (synaptics_send_cmd(psmouse, SYN_QUE_MODES, bid))
+ 		return -1;
+ 	priv->board_id = ((bid[0] & 0xfc) << 6) | bid[1];
++
++	if (SYN_MEXT_CAP_BIT(bid[0]))
++		return synaptics_more_extended_queries(psmouse);
++
+ 	return 0;
+ }
+ 
+@@ -446,7 +463,7 @@ static int synaptics_query_hardware(struct psmouse *psmouse)
+ 		return -1;
+ 	if (synaptics_firmware_id(psmouse))
+ 		return -1;
+-	if (synaptics_board_id(psmouse))
++	if (synaptics_query_modes(psmouse))
+ 		return -1;
+ 	if (synaptics_capability(psmouse))
+ 		return -1;
+diff --git a/drivers/input/mouse/synaptics.h b/drivers/input/mouse/synaptics.h
+index 1bd01f2..8d3761c 100644
+--- a/drivers/input/mouse/synaptics.h
++++ b/drivers/input/mouse/synaptics.h
+@@ -22,6 +22,7 @@
+ #define SYN_QUE_EXT_CAPAB_0C		0x0c
+ #define SYN_QUE_EXT_MAX_COORDS		0x0d
+ #define SYN_QUE_EXT_MIN_COORDS		0x0f
++#define SYN_QUE_MEXT_CAPAB_10		0x10
+ 
+ /* synatics modes */
+ #define SYN_BIT_ABSOLUTE_MODE		(1 << 7)
+@@ -53,6 +54,7 @@
+ #define SYN_EXT_CAP_REQUESTS(c)		(((c) & 0x700000) >> 20)
+ #define SYN_CAP_MULTI_BUTTON_NO(ec)	(((ec) & 0x00f000) >> 12)
+ #define SYN_CAP_PRODUCT_ID(ec)		(((ec) & 0xff0000) >> 16)
++#define SYN_MEXT_CAP_BIT(m)		((m) & (1 << 1))
+ 
+ /*
+  * The following describes response for the 0x0c query.
+@@ -89,6 +91,26 @@
+ #define SYN_CAP_REDUCED_FILTERING(ex0c)	((ex0c) & 0x000400)
+ #define SYN_CAP_IMAGE_SENSOR(ex0c)	((ex0c) & 0x000800)
+ 
++/*
++ * The following descibes response for the 0x10 query.
++ *
++ * byte	mask	name			meaning
++ * ----	----	-------			------------
++ * 1	0x01	ext buttons are stick	buttons exported in the extended
++ *					capability are actually meant to be used
++ *					by the tracktick (pass-through).
++ * 1	0x02	SecurePad		the touchpad is a SecurePad, so it
++ *					contains a built-in fingerprint reader.
++ * 1	0xe0	more ext count		how many more extented queries are
++ *					available after this one.
++ * 2	0xff	SecurePad width		the width of the SecurePad fingerprint
++ *					reader.
++ * 3	0xff	SecurePad height	the height of the SecurePad fingerprint
++ *					reader.
++ */
++#define SYN_CAP_EXT_BUTTONS_STICK(ex10)	((ex10) & 0x010000)
++#define SYN_CAP_SECUREPAD(ex10)		((ex10) & 0x020000)
++
+ /* synaptics modes query bits */
+ #define SYN_MODE_ABSOLUTE(m)		((m) & (1 << 7))
+ #define SYN_MODE_RATE(m)		((m) & (1 << 6))
+@@ -156,6 +178,7 @@ struct synaptics_data {
+ 	unsigned long int capabilities;		/* Capabilities */
+ 	unsigned long int ext_cap;		/* Extended Capabilities */
+ 	unsigned long int ext_cap_0c;		/* Ext Caps from 0x0c query */
++	unsigned long int ext_cap_10;		/* Ext Caps from 0x10 query */
+ 	unsigned long int identity;		/* Identification */
+ 	unsigned int x_res, y_res;		/* X/Y resolution in units/mm */
+ 	unsigned int x_max, y_max;		/* Max coordinates (from FW) */
+-- 
+cgit v0.10.2
+
+
+From 3adde1f59195df2965f632e22b31f97fb371612f Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:34:50 -0700
+Subject: Input: synaptics - remove TOPBUTTONPAD property for Lenovos 2015
+
+The 2015 series of the Lenovo thinkpads added back the hardware buttons on
+top of the touchpad for the trackstick.
+
+Unfortunately, Lenovo used the PNPIDs that are supposed to be "5 buttons"
+touchpads, so the new laptops also have the INPUT_PROP_TOPBUTTONPAD. Yay!
+
+Instead of manually removing each of the new ones, or hoping that we know
+all the current ones, we can consider that the PNPIDs list that were given
+contains touchpads that have the trackstick buttons, either physically
+wired to them, or emulated with the top software button property.
+
+Thanks to the extra buttons capability in query $10, we can reliably detect
+the physical buttons from the software ones, and so we can remove the
+TOPBUTTONPAD property even if it was declared as such.
+
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 8f6a153..9d599eb 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -1570,7 +1570,8 @@ static void set_input_params(struct psmouse *psmouse,
+ 
+ 	if (SYN_CAP_CLICKPAD(priv->ext_cap_0c)) {
+ 		__set_bit(INPUT_PROP_BUTTONPAD, dev->propbit);
+-		if (psmouse_matches_pnp_id(psmouse, topbuttonpad_pnp_ids))
++		if (psmouse_matches_pnp_id(psmouse, topbuttonpad_pnp_ids) &&
++		    !SYN_CAP_EXT_BUTTONS_STICK(priv->ext_cap_10))
+ 			__set_bit(INPUT_PROP_TOPBUTTONPAD, dev->propbit);
+ 		/* Clickpads report only left button */
+ 		__clear_bit(BTN_RIGHT, dev->keybit);
+-- 
+cgit v0.10.2
+
+
+From cdd9dc195916ef5644cfac079094c3c1d1616e4c Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:35:41 -0700
+Subject: Input: synaptics - re-route tracksticks buttons on the Lenovo 2015
+ series
+
+The 2015 series of the Lenovo thinkpads added back the hardware buttons on
+top of the touchpad for the trackstick.
+
+Unfortunately, they are wired to the touchpad, and not the trackstick.
+Thus, they are seen as extra buttons from the kernel point of view.
+
+This leads to a problem in user space because extra buttons on synaptics
+devices used to be used as scroll up/down buttons. So in the end, the
+experience for the user is scroll events for buttons left and right when
+using the trackstick. Yay!
+
+Fortunately, the firmware advertises such behavior in the extended
+capability $10, and so we can re-route the buttons through the pass-through
+interface.
+
+Hallelujah-expressed-by: Peter Hutterer <peter.hutterer@who-t.net>
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 9d599eb..ecc7811 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -579,18 +579,22 @@ static int synaptics_is_pt_packet(unsigned char *buf)
+ 	return (buf[0] & 0xFC) == 0x84 && (buf[3] & 0xCC) == 0xC4;
+ }
+ 
+-static void synaptics_pass_pt_packet(struct serio *ptport, unsigned char *packet)
++static void synaptics_pass_pt_packet(struct psmouse *psmouse,
++				     struct serio *ptport,
++				     unsigned char *packet)
+ {
++	struct synaptics_data *priv = psmouse->private;
+ 	struct psmouse *child = serio_get_drvdata(ptport);
+ 
+ 	if (child && child->state == PSMOUSE_ACTIVATED) {
+-		serio_interrupt(ptport, packet[1], 0);
++		serio_interrupt(ptport, packet[1] | priv->pt_buttons, 0);
+ 		serio_interrupt(ptport, packet[4], 0);
+ 		serio_interrupt(ptport, packet[5], 0);
+ 		if (child->pktsize == 4)
+ 			serio_interrupt(ptport, packet[2], 0);
+-	} else
++	} else {
+ 		serio_interrupt(ptport, packet[1], 0);
++	}
+ }
+ 
+ static void synaptics_pt_activate(struct psmouse *psmouse)
+@@ -847,6 +851,7 @@ static void synaptics_report_ext_buttons(struct psmouse *psmouse,
+ 	struct input_dev *dev = psmouse->dev;
+ 	struct synaptics_data *priv = psmouse->private;
+ 	int ext_bits = (SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap) + 1) >> 1;
++	char buf[6] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+ 	int i;
+ 
+ 	if (!SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap))
+@@ -857,12 +862,30 @@ static void synaptics_report_ext_buttons(struct psmouse *psmouse,
+ 	    !((psmouse->packet[0] ^ psmouse->packet[3]) & 0x02))
+ 		return;
+ 
+-	for (i = 0; i < ext_bits; i++) {
+-		input_report_key(dev, BTN_0 + 2 * i,
+-			hw->ext_buttons & (1 << i));
+-		input_report_key(dev, BTN_1 + 2 * i,
+-			hw->ext_buttons & (1 << (i + ext_bits)));
++	if (!SYN_CAP_EXT_BUTTONS_STICK(priv->ext_cap_10)) {
++		for (i = 0; i < ext_bits; i++) {
++			input_report_key(dev, BTN_0 + 2 * i,
++				hw->ext_buttons & (1 << i));
++			input_report_key(dev, BTN_1 + 2 * i,
++				hw->ext_buttons & (1 << (i + ext_bits)));
++		}
++		return;
+ 	}
++
++	/*
++	 * This generation of touchpads has the trackstick buttons
++	 * physically wired to the touchpad. Re-route them through
++	 * the pass-through interface.
++	 */
++	if (!priv->pt_port)
++		return;
++
++	/* The trackstick expects at most 3 buttons */
++	priv->pt_buttons = SYN_CAP_EXT_BUTTON_STICK_L(hw->ext_buttons)      |
++			   SYN_CAP_EXT_BUTTON_STICK_R(hw->ext_buttons) << 1 |
++			   SYN_CAP_EXT_BUTTON_STICK_M(hw->ext_buttons) << 2;
++
++	synaptics_pass_pt_packet(psmouse, priv->pt_port, buf);
+ }
+ 
+ static void synaptics_report_buttons(struct psmouse *psmouse,
+@@ -1459,7 +1482,8 @@ static psmouse_ret_t synaptics_process_byte(struct psmouse *psmouse)
+ 		if (SYN_CAP_PASS_THROUGH(priv->capabilities) &&
+ 		    synaptics_is_pt_packet(psmouse->packet)) {
+ 			if (priv->pt_port)
+-				synaptics_pass_pt_packet(priv->pt_port, psmouse->packet);
++				synaptics_pass_pt_packet(psmouse, priv->pt_port,
++							 psmouse->packet);
+ 		} else
+ 			synaptics_process_packet(psmouse);
+ 
+@@ -1561,8 +1585,9 @@ static void set_input_params(struct psmouse *psmouse,
+ 		__set_bit(BTN_BACK, dev->keybit);
+ 	}
+ 
+-	for (i = 0; i < SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap); i++)
+-		__set_bit(BTN_0 + i, dev->keybit);
++	if (!SYN_CAP_EXT_BUTTONS_STICK(priv->ext_cap_10))
++		for (i = 0; i < SYN_CAP_MULTI_BUTTON_NO(priv->ext_cap); i++)
++			__set_bit(BTN_0 + i, dev->keybit);
+ 
+ 	__clear_bit(EV_REL, dev->evbit);
+ 	__clear_bit(REL_X, dev->relbit);
+diff --git a/drivers/input/mouse/synaptics.h b/drivers/input/mouse/synaptics.h
+index 8d3761c..f39539c 100644
+--- a/drivers/input/mouse/synaptics.h
++++ b/drivers/input/mouse/synaptics.h
+@@ -111,6 +111,10 @@
+ #define SYN_CAP_EXT_BUTTONS_STICK(ex10)	((ex10) & 0x010000)
+ #define SYN_CAP_SECUREPAD(ex10)		((ex10) & 0x020000)
+ 
++#define SYN_CAP_EXT_BUTTON_STICK_L(eb)	(!!((eb) & 0x01))
++#define SYN_CAP_EXT_BUTTON_STICK_M(eb)	(!!((eb) & 0x02))
++#define SYN_CAP_EXT_BUTTON_STICK_R(eb)	(!!((eb) & 0x04))
++
+ /* synaptics modes query bits */
+ #define SYN_MODE_ABSOLUTE(m)		((m) & (1 << 7))
+ #define SYN_MODE_RATE(m)		((m) & (1 << 6))
+@@ -192,6 +196,7 @@ struct synaptics_data {
+ 	bool disable_gesture;			/* disable gestures */
+ 
+ 	struct serio *pt_port;			/* Pass-through serio port */
++	unsigned char pt_buttons;		/* Pass-through buttons */
+ 
+ 	struct synaptics_mt_state mt_state;	/* Current mt finger state */
+ 	bool mt_state_lost;			/* mt_state may be incorrect */
+-- 
+cgit v0.10.2
+
+
+From 860e6f7fcbe5653ec4e394f9ee335f2032398beb Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:38:55 -0700
+Subject: Input: synaptics - remove X1 Carbon 3rd gen from the topbuttonpad
+ list
+
+Lenovo decided to switch back to physical buttons for the trackstick on
+their latest series. The PNPId list was provided before they reverted back
+to physical buttons, so it contains the new models too.  We can know from
+the touchpad capabilities that the touchpad has physical buttons, so
+removing the ids from the list is not mandatory. It is still nicer to
+remove the wrong ids, so start by removing the X1 Carbon 3rd gen, with the
+PNPId of LEN0048.
+
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Acked-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index ecc7811..160def0 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -183,7 +183,6 @@ static const char * const topbuttonpad_pnp_ids[] = {
+ 	"LEN0045",
+ 	"LEN0046",
+ 	"LEN0047",
+-	"LEN0048",
+ 	"LEN0049",
+ 	"LEN2000",
+ 	"LEN2001", /* Edge E431 */
+-- 
+cgit v0.10.2
+
+
+From 8f004f3f4daf5dc98dc78f8e62497ad834053855 Mon Sep 17 00:00:00 2001
+From: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Date: Sun, 8 Mar 2015 22:39:17 -0700
+Subject: Input: synaptics - remove X250 from the topbuttonpad list
+
+Lenovo X250 has a PnpID of LEN0046, but it does not have the top software
+button requirement.
+
+For the record, Lenovo T450s and W541 have a PnpID of LEN200f and LEN004a,
+so they are not on the top software button list.
+
+Signed-off-by: Benjamin Tissoires <benjamin.tissoires@redhat.com>
+Reviewed-by: Daniel Martin <consume.noise@gmail.com>
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index 160def0..ca7ca8d 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -181,7 +181,6 @@ static const char * const topbuttonpad_pnp_ids[] = {
+ 	"LEN0041",
+ 	"LEN0042", /* Yoga */
+ 	"LEN0045",
+-	"LEN0046",
+ 	"LEN0047",
+ 	"LEN0049",
+ 	"LEN2000",
+-- 
+cgit v0.10.2
+
+
+From 09d042a2eb90ee2c86d80c48ad096ae3f5776cef Mon Sep 17 00:00:00 2001
+From: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Date: Mon, 16 Mar 2015 09:17:16 -0700
+Subject: Revert "Input: synaptics - use dmax in input_mt_assign_slots"
+
+This reverts commit 6ab17a8484f03c188a93713369912f1545eb26e9 since it,
+according to Benjamin, causes issues with slot assignment:
+
+E: 15.669119 0000 0000 0000     # ------------ SYN_REPORT (0) ----------
+E: 15.954242 0003 002f 0000     # EV_ABS / ABS_MT_SLOT          0
+E: 15.954242 0003 0039 0505     # EV_ABS / ABS_MT_TRACKING_ID   505
+E: 15.954242 0003 0035 3851     # EV_ABS / ABS_MT_POSITION_X    3851
+E: 15.954242 0003 0036 4076     # EV_ABS / ABS_MT_POSITION_Y    4076
+E: 15.954242 0003 003a 0034     # EV_ABS / ABS_MT_PRESSURE      34
+E: 15.954242 0001 014a 0001     # EV_KEY / BTN_TOUCH            1
+E: 15.954242 0003 0000 3851     # EV_ABS / ABS_X                3851
+E: 15.954242 0003 0001 4076     # EV_ABS / ABS_Y                4076
+E: 15.954242 0003 0018 0034     # EV_ABS / ABS_PRESSURE         34
+E: 15.954242 0001 0145 0001     # EV_KEY / BTN_TOOL_FINGER      1
+E: 15.954242 0000 0000 0000     # ------------ SYN_REPORT (0) ----------
+... (bunch of regular events)...
+E: 16.020614 0000 0000 0000     # ------------ SYN_REPORT (0) ----------
+E: 16.043601 0003 0035 3873     # EV_ABS / ABS_MT_POSITION_X    3873
+E: 16.043601 0003 0036 3903     # EV_ABS / ABS_MT_POSITION_Y    3903
+E: 16.043601 0003 003a 0050     # EV_ABS / ABS_MT_PRESSURE      50
+E: 16.043601 0003 0035 3032     # EV_ABS / ABS_MT_POSITION_X    3032
+E: 16.043601 0003 0036 3832     # EV_ABS / ABS_MT_POSITION_Y    3832
+E: 16.043601 0003 003a 0044     # EV_ABS / ABS_MT_PRESSURE      44
+E: 16.043601 0003 0000 3032     # EV_ABS / ABS_X                3032
+E: 16.043601 0003 0001 3832     # EV_ABS / ABS_Y                3832
+E: 16.043601 0003 0018 0044     # EV_ABS / ABS_PRESSURE         44
+E: 16.043601 0001 0145 0000     # EV_KEY / BTN_TOOL_FINGER      0
+E: 16.043601 0001 014d 0001     # EV_KEY / BTN_TOOL_DOUBLETAP   1
+E: 16.043601 0000 0000 0000     # ------------ SYN_REPORT (0) ----------
+E: 16.068837 0003 002f 0001     # EV_ABS / ABS_MT_SLOT          1
+E: 16.068837 0003 0039 0506     # EV_ABS / ABS_MT_TRACKING_ID   506
+E: 16.068837 0003 0035 3912     # EV_ABS / ABS_MT_POSITION_X    3912
+E: 16.068837 0003 0036 3743     # EV_ABS / ABS_MT_POSITION_Y    3743
+E: 16.068837 0003 003a 0056     # EV_ABS / ABS_MT_PRESSURE      56
+E: 16.068837 0003 002f 0000     # EV_ABS / ABS_MT_SLOT          0
+E: 16.068837 0003 0035 3026     # EV_ABS / ABS_MT_POSITION_X    3026
+E: 16.068837 0003 0036 3708     # EV_ABS / ABS_MT_POSITION_Y    3708
+E: 16.068837 0003 003a 0052     # EV_ABS / ABS_MT_PRESSURE      52
+E: 16.068837 0003 0000 3026     # EV_ABS / ABS_X                3026
+E: 16.068837 0003 0001 3708     # EV_ABS / ABS_Y                3708
+E: 16.068837 0003 0018 0052     # EV_ABS / ABS_PRESSURE         52
+E: 16.068837 0000 0000 0000     # ------------ SYN_REPORT (0) ----------
+
+Slot 0 and 1 gets inverted in the second report above, which
+introduces a cursor jump. The problem is that this cursor jump is
+often enough to leave the current widget, and X sends the
+scrolling events to whoever is now under the cursor.
+
+Reported-by: Benjamin Tissoires <btissoir@redhat.com>
+Reported-by: Hans de Goede <hdegoede@redhat.com>
+
+diff --git a/drivers/input/mouse/synaptics.c b/drivers/input/mouse/synaptics.c
+index c74bfa1..dda6058 100644
+--- a/drivers/input/mouse/synaptics.c
++++ b/drivers/input/mouse/synaptics.c
+@@ -67,9 +67,6 @@
+ #define X_MAX_POSITIVE 8176
+ #define Y_MAX_POSITIVE 8176
+ 
+-/* maximum ABS_MT_POSITION displacement (in mm) */
+-#define DMAX 10
+-
+ /*****************************************************************************
+  *	Stuff we need even when we do not want native Synaptics support
+  ****************************************************************************/
+@@ -915,7 +912,7 @@ static void synaptics_report_mt_data(struct psmouse *psmouse,
+ 		pos[i].y = synaptics_invert_y(hw[i]->y);
+ 	}
+ 
+-	input_mt_assign_slots(dev, slot, pos, nsemi, DMAX * priv->x_res);
++	input_mt_assign_slots(dev, slot, pos, nsemi, 0);
+ 
+ 	for (i = 0; i < nsemi; i++) {
+ 		input_mt_slot(dev, slot[i]);
+-- 
+cgit v0.10.2
+
