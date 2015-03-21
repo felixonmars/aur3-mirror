@@ -3,8 +3,8 @@
 pkgname=linux-xps13
 true && pkgname=(linux-xps13 linux-xps13-headers)
 _kernelname=-xps13
-_srcname=linux-3.18
-pkgver=3.18.6
+_srcname=linux-3.19
+pkgver=3.19.2
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/gunzy83/linux-xps13-archlinux"
@@ -21,12 +21,12 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'change-default-console-loglevel.patch'
         'xps13.patch'
         )
-sha256sums=('becc413cc9e6d7f5cc52a3ce66d65c3725bc1d1cc1001f4ce6c32b69eb188cbd'
+sha256sums=('be42511fe5321012bb4a2009167ce56a9e5fe362b4af43e8c371b3666859806c'
             'SKIP'
-            '84046931be1a0024eb7d2817480efe62e6b5e651257f4ed4114ddcbce92a23bb'
+            'c2e2e745e7bad33f367432280f7a8451e2488b1f851f24e2830f15279fb87b0f'
             'SKIP'
-            'd3794c8b2cd11b71914b41f7a4e861369d4fa3c29fdd9e1d677ff0c2167eeb52'
-            'df7886f5d57f8f85e89987066dfa5c316e922dc0b22e6e6ad01331333db52377'
+            '704a479de77c9022e5c7a797d2cd7fd0e4ba1f52f9039ec8a80efd57f7e9f0d8'
+            '59830f47c1be39f874640d762dca55f972aca549a7a65ba2f1dac184251dabb2'
             'bf7ccd0ca928dc47b7e2a87d08d8f19faafbb21ff957e22f1ee78a180961047e'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
             'f7723d4a2e07da82b3698fb4edb5cf1ca0ccbbc3e789247118fcb7a44d89cdf2')
