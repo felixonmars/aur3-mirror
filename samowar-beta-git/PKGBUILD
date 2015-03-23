@@ -7,7 +7,7 @@ url="https://github.com/flyboy14/SamowarMP"
 license=('GPL')
 makedepends=('git')
 depends=('qt5-multimedia')
-source=("$pkgname"::'git://github.com/flyboy14/SamowarMP#branch=buggy')
+source=("$pkgname"::'git://github.com/flyboy14/SamowarMP')
 md5sums=( 'SKIP' )
 
 pkgver() {
