@@ -29,7 +29,7 @@ __fsel_tmux() {
   else
     height="-l $height"
   fi
-  tmux split-window $height "bash -c 'tmux send-keys -t $TMUX_PANE \"\$(__fsel)\"'"
+  tmux split-window $height "cd $(printf %q "$PWD");bash -c 'tmux send-keys -t $TMUX_PANE \"\$(__fsel)\"'"
 }
 
 __fcd() {
@@ -90,7 +90,7 @@ fi
 #   - Exit if there's no match (--exit-0)
 fe() {
   local file
-  file=$(fzf --query="$1" --select-1 --exit-0)
+  file=$(fzf-tmux --query="$1" --select-1 --exit-0)
   [ -n "$file" ] && ${EDITOR:-vim} "$file"
 }
 
@@ -109,7 +109,7 @@ fd() {
 
 # fda - including hidden directories
 fda() {
-  DIR=`find ${1:-*} -type d 2> /dev/null | fzf-tmux` && cd "$DIR"
+  DIR=`find ${1:-.} -type d 2> /dev/null | fzf-tmux` && cd "$DIR"
 }
 
 # cdf - cd into the directory of the selected file
@@ -158,6 +158,19 @@ fco() {
   commits=$(git log --pretty=oneline --abbrev-commit --reverse) &&
   commit=$(echo "$commits" | fzf --tac +s +m -e) &&
   git checkout $(echo "$commit" | sed "s/ .*//")
+}
+
+# fshow - git commit browser
+fshow() {
+  local out sha q
+  while out=$(
+      git log --decorate=full --graph --oneline --color=always |
+      fzf --ansi --multi --no-sort --reverse --query="$q" --print-query); do
+    q=$(head -1 <<< "$out")
+    while read sha; do
+      [ -n "$sha" ] && git show --color=always $sha | less -R
+    done < <(sed '1d;s/^[^a-z0-9]*//;/^$/d' <<< "$out" | awk '{print $1}')
+  done
 }
 
 # ftags - search ctags

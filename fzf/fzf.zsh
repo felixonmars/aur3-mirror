@@ -29,7 +29,7 @@ if [ -n "$TMUX_PANE" -a ${FZF_TMUX:-1} -ne 0 -a ${LINES:-40} -gt 15 ]; then
     else
       height="-l $height"
     fi
-    tmux split-window $height "zsh -c 'tmux send-keys -t $TMUX_PANE \"\$(__fsel)\"'"
+    tmux split-window $height "cd $(printf %q "$PWD");zsh -c 'tmux send-keys -t $TMUX_PANE \"\$(__fsel)\"'"
   }
 else
   fzf-file-widget() {
@@ -51,7 +51,12 @@ bindkey '\ec' fzf-cd-widget
 
 # CTRL-R - Paste the selected command from history into the command line
 fzf-history-widget() {
-  LBUFFER=$(fc -l 1 | fzf +s --tac +m -n2..,.. | sed "s/ *[0-9*]* *//")
+  local selected
+  if selected=$(fc -l 1 | fzf +s --tac +m -n2..,.. -q "$LBUFFER"); then
+    num=$(echo "$selected" | head -1 | awk '{print $1}' | sed 's/[^0-9]//g')
+    LBUFFER=!$num
+    zle expand-history
+  fi
   zle redisplay
 }
 zle     -N   fzf-history-widget
