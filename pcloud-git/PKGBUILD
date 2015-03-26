@@ -1,10 +1,9 @@
 # Maintainer: Plamen Semerdzhiev <pl.semerdzhiev@gmail.com>
 pkgname=pcloud-git
-pkgver=2.0.0
+pkgver=3.0.1
 pkgrel=1
 pkgdesc="pCloud Drive client"
-arch=('i686'
-	'x86_64')
+arch=('x86_64')
 url="http://pcloud.com"
 license=('unknown')
 depends=()
@@ -18,8 +17,8 @@ md5sums=('SKIP')
 
 package() {
 	cd "$srcdir"/pcloud
-	deb2targz pCloud_Linux_amd64_2.0.0.deb
-	tar -xf pCloud_Linux_amd64_2.0.0.tar.gz
+	deb2targz pCloud_Linux_amd64_3.0.1.deb
+	tar -xf pCloud_Linux_amd64_3.0.1.tar.gz
 	mkdir "$pkgdir"/usr
 	mkdir "$pkgdir"/usr/bin
 	cp usr/bin/psyncgui "$pkgdir"/usr/bin/psyncgui

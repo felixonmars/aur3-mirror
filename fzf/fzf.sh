@@ -160,11 +160,30 @@ fco() {
   git checkout $(echo "$commit" | sed "s/ .*//")
 }
 
+# fdiff - show diff between two commits
+fdiff() {
+  local out sha q
+  while out=$(
+      git log --graph --color=always \
+          --format="%C(auto)%h%d %s %C(black)%C(bold)%cr" |
+      fzf --ansi --multi --no-sort --reverse --query="$q" --print-query); do
+    q=$(head -1 <<< "$out")
+
+    if [ $(wc -l <<< "$out") -ne 3 ]; then
+      echo -n "Please select only two commits."
+      read
+    else
+      git diff --color=always $(
+        sed '1d;s/^[^a-z0-9]*//;/^$/d' <<< "$out" | awk '{print $1}') | less -R
+    fi
+  done
+}
+
 # fshow - git commit browser
 fshow() {
   local out sha q
   while out=$(
-      git log --decorate=full --graph --oneline --color=always |
+      git log --decorate=short --graph --oneline --color=always |
       fzf --ansi --multi --no-sort --reverse --query="$q" --print-query); do
     q=$(head -1 <<< "$out")
     while read sha; do
