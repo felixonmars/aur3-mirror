@@ -5,7 +5,7 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-3.19
-pkgver=3.19.2
+pkgver=3.19.3
 pkgrel=1
 _toipatch=tuxonice-for-linux-head-3.19.0-2015-02-14.patch
 arch=('i686' 'x86_64')
@@ -28,7 +28,7 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
 
 sha256sums=('be42511fe5321012bb4a2009167ce56a9e5fe362b4af43e8c371b3666859806c'
             'SKIP'
-            'c2e2e745e7bad33f367432280f7a8451e2488b1f851f24e2830f15279fb87b0f'
+            'cd9474b61b859d68f83ff0b769bafef8489d2090e0a933d2a7e5f76a23cc071a'
             'SKIP'
             '230bf782d9ddd16fd9bc1a320eee3efdaf8b694c0b1e010b209f15a2881b0960'
             '09dd5ea98a1902276b2ad189ab28afdb74efa66669623ce296acb5af515d389a'
