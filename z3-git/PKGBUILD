@@ -1,11 +1,11 @@
 # Maintainer: d.woffinden
 pkgname=z3-git
-pkgver=4.3.2.r0.gcee7dd3
+pkgver=r1891.ac21ffe
 pkgrel=1
 pkgdesc="Z3 is a high-performance theorem prover being developed at Microsoft Research"
 arch=('i686' 'x86_64')
-url="https://z3.codeplex.com/"
-license=('custom')
+url="https://github.com/Z3Prover/z3"
+license=('MIT')
 depends=('gcc-libs')
 makedepends=('git' 'python2')
 optdepends=('python2: bindings for python2')
@@ -13,14 +13,15 @@ conflicts=('z3-bin' 'z3-codeplex')
 provides=('z3')
 # The git repo is detected by the 'git:' or 'git+' beginning. The branch
 # '$pkgname' is then checked out upon cloning, expediating versioning:
-source=("$pkgname"::'git+https://git01.codeplex.com/z3')
+source=("$pkgname"::"git+$url")
 # Because the sources are not static, skip Git checksum:
 md5sums=('SKIP')
 
 pkgver() {
-  cd "$srcdir/$pkgname"
-  # Use the tag of the last commit, cutting off 'v' prefix
-  git describe --long --tags | sed -r 's/^v//;s/([^-]*-g)/r\1/;s/-/./g'
+  cd "$pkgname"
+  # Upstream no longer has version tags, use number of revisions since the
+  # beginning of the history:
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {
@@ -33,18 +34,21 @@ build() {
 
 package() {
   cd "$srcdir/$pkgname"
+  # If we specify --prefix in build(), it tries to create
+  # "$pkgdir/usr/lib/python2.7/dist-packages" immediately, which we can't have.
+  python2 scripts/mk_make.py --prefix="$pkgdir/usr"
 
-  install -D src/api/z3.h "$pkgdir/usr/include/z3.h"
-  install -D src/api/z3_api.h "$pkgdir/usr/include/z3_api.h"
-  install -D src/api/z3_v1.h "$pkgdir/usr/include/z3_v1.h"
-  install -D src/api/z3_macros.h "$pkgdir/usr/include/z3_macros.h"
-  install -D src/api/c++/z3++.h "$pkgdir/usr/include/z3++.h"
-  install -D build/z3 "$pkgdir/usr/bin/z3"
-  install -D build/libz3.so "$pkgdir/usr/lib/libz3.so"
-  install -d "$pkgdir/usr/lib/python2.7/site-packages/"
-  ln -s /usr/lib/libz3.so "$pkgdir/usr/lib/python2.7/site-packages/libz3.so"
-  cp build/z3*.pyc "$pkgdir/usr/lib/python2.7/site-packages"
+  cd "$srcdir/$pkgname/build"
+  make install
 
+  cd "$srcdir/$pkgname"
   install -Dm644 LICENSE.txt "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # Arch uses site-packages over dist-packages
+  mv "$pkgdir/usr/lib/python2.7/dist-packages" "$pkgdir/usr/lib/python2.7/site-packages"
+
+  # These are identical, so make a symlink and save 18M
+  rm "$pkgdir/usr/lib/python2.7/site-packages/libz3.so"
+  ln -s ../../libz3.so "$pkgdir/usr/lib/python2.7/site-packages/libz3.so"
 }
 
