@@ -5,7 +5,7 @@
 
 pkgname=teamviewer
 pkgver=10.0.37742
-pkgrel=2
+pkgrel=3
 pkgdesc="All-In-One Software for Remote Support and Online Meetings"
 arch=('i686' 'x86_64')
 url="http://www.teamviewer.com"
@@ -17,7 +17,7 @@ install=${pkgname}.install
 if [[ $CARCH == 'i686' ]]; then
   source=("teamviewer_linux-${pkgver}.deb::http://download.teamviewer.com/download/teamviewer_i386.deb")
   md5sums=('abe6eac56fd9cf0afa664147ee93830f')
-  depends+=('alsa-lib' 'gcc-libs' 'libxdamage' 'libxtst' 'zlib' 'freetype2' 'libxrandr' 'libice' 'libsm' 'libxinerama')
+  depends+=('alsa-lib' 'gcc-libs' 'libxdamage' 'libxtst' 'zlib' 'freetype2' 'libxrandr' 'libice' 'libsm')
 elif [[ $CARCH == 'x86_64' ]]; then
   source=("teamviewer_linux_x64-${pkgver}.deb::http://download.teamviewer.com/download/teamviewer_amd64.deb")
   md5sums=('099c53e8d1eae3635505992a12958e8a')

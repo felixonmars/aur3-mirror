@@ -1,6 +1,6 @@
 # Maintainer: Troels Jacobsen <tkjacobsen@gmail.com>
 pkgname=enote
-pkgver=0.0.2
+pkgver=0.0.3
 pkgrel=1
 pkgdesc='Command line utility to backup Evernote notes and notebooks'
 arch=(any)
@@ -12,7 +12,7 @@ depends=('evernote-sdk-python-git'
          'python2-html2text-git')
 #makedepends=()
 source=("$url/archive/$pkgver.tar.gz")
-sha256sums=('b81a5113832318ddf3124472d9dda6953959157edbfbd1cf4463c470217de7ed')
+sha256sums=(SKIP)
 
 package() {
 	cd "$pkgname-$pkgver"

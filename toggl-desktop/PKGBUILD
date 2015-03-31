@@ -1,7 +1,7 @@
 # Maintainer: Maciej Żok <maciek.zok@gmail.com>
 # Contributor: Florian Krauthan <fkrauthan@gmx.net>
 pkgname=toggl-desktop
-pkgver=7.1.115
+pkgver=7.1.198
 pkgrel=1
 pkgdesc="Time tracker application"
 arch=("x86_64")
@@ -13,9 +13,9 @@ makedepends=("chrpath")
 conflicts=("toggl")
 replaces=("toggl")
 install=${pkgname}.install
-source=("http://assets.toggl.com/installers/toggldesktop_7.1.115_amd64.deb"
+source=("http://assets.toggl.com/installers/toggldesktop_7.1.198_amd64.deb"
         "toggl-desktop.install")
-sha256sums=("f24e5a93c9f694790110e5ef178a738aaf847349c858cbf84f06c1f185c64790"
+sha256sums=("cd874ed926b9952263292a03c37df3fab968c9592ba898410266d7738e720645"
             "774d864ce6e255fc3d329359f81bfeb0448e7c962380632957412f83478147a2")
 
 prepare() {
@@ -49,8 +49,6 @@ package() {
   msg2 "Installing libraries..."
   install -Dm0644 "${srcdir}/opt/toggldesktop/lib/libbugsnag-qt.so.1" \
     "${pkgdir}/opt/${pkgname}/lib/libbugsnag-qt.so.1"
-  install -Dm0644 "${srcdir}/opt/toggldesktop/lib/libjson.so.7" \
-    "${pkgdir}/opt/${pkgname}/lib/libjson.so.7"
   install -Dm0644 "${srcdir}/opt/toggldesktop/lib/libTogglDesktopLibrary.so.1" \
     "${pkgdir}/opt/${pkgname}/lib/libTogglDesktopLibrary.so.1"
 

@@ -2,18 +2,18 @@
 # https://github.com/t-richards/aur-nginx-passenger
 
 _nginxver=1.6.2
-_passengerver=4.0.59
+_passengerver=5.0.5
 
 pkgname=nginx-passenger
 pkgver=1.6.2
-pkgrel=6
+pkgrel=7
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
 license=('custom')
-depends=('pcre' 'zlib' 'openssl' 'ruby' 'ruby-rack' 'curl' 'libev')
+depends=('pcre' 'zlib' 'openssl' 'ruby' 'ruby-rack' 'curl')
 optdepends=('python: Support for python web apps' 'nodejs: Support for node.js web apps')
-makedepends=('hardening-wrapper')
+makedepends=('hardening-wrapper' 'apache')
 conflicts=('nginx' 'passenger')
 backup=('etc/nginx/fastcgi.conf'
         'etc/nginx/fastcgi_params'
@@ -28,29 +28,27 @@ backup=('etc/nginx/fastcgi.conf'
 install="${pkgname}.install"
 source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
     "https://github.com/phusion/passenger/archive/release-$_passengerver.tar.gz"
-    'cleanup-headers.patch'
+    'locations.ini'
     'service'
     'logrotate')
 sha256sums=('b5608c2959d3e7ad09b20fc8f9e5bd4bc87b3bc8ba5936a513c04ed8f1391a18'
-            '09fd3b3fcd401fb9ece715ef72769030960c7a40513c3b38d1aaf16102095bd2'
-            'ef8c92df29814a35f133ec5d9fef896f93709068aa3ca964b64aae68bdec2ab6'
+            'e34e7cf9828426ac538522b139940008fbc4d7c2e1bfc531eaf2ef05c79b960a'
+            '6a99bd6544cadd0563b549a5fb24d0aed98fe51f5dcdaacbfa2f9b8026360d1e'
             '6fe4c5eb7332f5eebdd7e08e46256a3d344bd375e9134be66013fbc52059e1ac'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
 
-prepare() {
-    cd "$srcdir/passenger-release-$_passengerver"
-    patch -p1 < ../cleanup-headers.patch
-}
-
 build() {
-    export USE_VENDORED_LIBEV=no
-    cd "$srcdir/passenger-release-$_passengerver"
-    _nginx_addon_dir=`bin/passenger-config --nginx-addon-dir`
-
-    cd "$srcdir/nginx-$_nginxver"
+    # Setup
     export EXTRA_CFLAGS=$CFLAGS
     export EXTRA_CXXFLAGS=$CXXFLAGS
+    cd "$srcdir/passenger-release-$_passengerver"
 
+    # Apache
+    /usr/bin/rake apache2
+
+    # Nginx
+    _nginx_addon_dir=`bin/passenger-config --nginx-addon-dir`
+    cd "$srcdir/nginx-$_nginxver"
     ./configure \
         --prefix=/etc/nginx \
         --conf-path=/etc/nginx/nginx.conf \
@@ -89,7 +87,7 @@ build() {
 }
 
 package() {
-    #Nginx
+    # Nginx
     cd "$srcdir/nginx-$_nginxver"
     make DESTDIR="$pkgdir/" install
 
@@ -119,25 +117,48 @@ package() {
 
     install -Dm644 man/nginx.8 "$pkgdir"/usr/share/man/man8/nginx.8
 
-    #Passenger
+    # Passenger
     cd "$srcdir/passenger-release-$_passengerver"
 
-    #Passenger bin
-    install -d "$pkgdir"/usr/lib/passenger/buildout
-    rm -r $(find . -name "Makefile" -or -name "*.o")
-    cp -R buildout/{agents,ruby} "$pkgdir"/usr/lib/passenger/buildout
-    cp -R {bin,helper-scripts,lib,node_lib,resources} "$pkgdir"/usr/lib/passenger/
+    # apache module
+    install -Dm644 buildout/apache2/mod_passenger.so "$pkgdir"/usr/lib/httpd/modules/mod_passenger.so
 
-    #Passenger native support
-    install -d "$pkgdir"/usr/lib/passenger/ext
-    cp -R ext/ruby "$pkgdir"/usr/lib/passenger/ext/
+    # bin
+    install -d "$pkgdir"/usr/bin
+    cp -R bin/* "$pkgdir"/usr/bin/
+    /usr/bin/ruby ./dev/install_scripts_bootstrap_code.rb --ruby /usr/lib/ruby/vendor_ruby "$pkgdir"/usr/bin/passenger*
 
-    #Passenger doc
+    # support bin
+    install -Dm755 buildout/support-binaries/PassengerAgent "$pkgdir"/usr/lib/passenger/support-binaries/PassengerAgent
+
+    # share
+    install -d "$pkgdir"/usr/share/passenger
+    cp -R helper-scripts "$pkgdir"/usr/share/passenger/
+
+    # vendored ruby
+    install -Dm644 "$srcdir"/locations.ini "$pkgdir"/usr/lib/ruby/vendor_ruby/phusion_passenger/locations.ini
+    cp -R lib/* "$pkgdir"/usr/lib/ruby/vendor_ruby/
+    _compat_id=`bin/passenger-config --rubyext-compat-id`
+    _native_support_dir=`echo -n $_compat_id | ruby -pe '2.times{ |_| $_.sub!("-", "/") }'`
+    install -Dm755 buildout/ruby/"$_compat_id"/passenger_native_support.so "$pkgdir"/usr/lib/"$_native_support_dir"/passenger_native_support.so
+
+    # vendored node
+    install -d "$pkgdir"/usr/share/passenger/node
+    cp -R node_lib/* "$pkgdir"/usr/share/passenger/node/
+
+    # native support source
+    install -d "$pkgdir"/usr/share/passenger/ruby_extension_source
+    cp -R ext/ruby/* "$pkgdir"/usr/share/passenger/ruby_extension_source/
+
+    # doc
     install -d "$pkgdir"/usr/share/doc/passenger
     cp -R doc "$pkgdir"/usr/share/doc/passenger/
 
-    #Passenger man
+    # man
     install -Dm644 man/passenger-config.1 "$pkgdir"/usr/share/man/man1/passenger-config.1
     install -Dm644 man/passenger-memory-stats.8 "$pkgdir"/usr/share/man/man8/passenger-memory-stats.8
     install -Dm644 man/passenger-status.8 "$pkgdir"/usr/share/man/man8/passenger-status.8
+
+    # cleanup
+    find "$pkgdir" -name "Makefile" -or -name "*.o" -delete
 }
