@@ -1,15 +1,15 @@
 # Maintainer: Capi Etheriel <barraponto [at] gmail [dot] com>
 pkgname=boris
-pkgver=1.0.8
-pkgrel=2
+pkgver=1.0.10
+pkgrel=1
 pkgdesc="A tiny REPL for PHP"
 arch=('any')
-url="https://github.com/d11wtq/${pkgname}"
+url="https://github.com/borisrepl/${pkgname}"
 license=('MIT')
 depends=('php' 'readline')
 install="${pkgname}.install"
 source=("${url}/archive/v${pkgver}.tar.gz")
-md5sums=('0e16b555383a67c3a08be918b7cc1633')
+md5sums=('8fd91ff3f79515e762279a3f3780ee5e')
 
 prepare() {
 	cd "$srcdir/$pkgname-$pkgver"

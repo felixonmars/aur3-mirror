@@ -1,3 +1,3 @@
 #!/bin/sh
-cd /var/lib/openbazaar/node
-python2 openbazaar.py stop
+cd /var/lib/openbazaar/
+python2 -m node.openbazaar stop
