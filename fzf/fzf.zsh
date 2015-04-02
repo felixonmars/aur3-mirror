@@ -65,7 +65,7 @@ bindkey '^R' fzf-history-widget
 # ALT-I - Paste the selected entry from locate output into the command line
 fzf-locate-widget() {
   local selected
-  if selected=$(locate / | fzf +s -q "$LBUFFER"); then
+  if selected=$(locate / | fzf -q "$LBUFFER"); then
     LBUFFER=$selected
   fi
   zle redisplay

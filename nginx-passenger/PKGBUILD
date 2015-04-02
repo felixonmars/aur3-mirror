@@ -2,11 +2,11 @@
 # https://github.com/t-richards/aur-nginx-passenger
 
 _nginxver=1.6.2
-_passengerver=5.0.5
+_passengerver=5.0.6
 
 pkgname=nginx-passenger
 pkgver=1.6.2
-pkgrel=7
+pkgrel=8
 pkgdesc="HTTP Server with Passenger Module"
 arch=('i686' 'x86_64')
 url='http://nginx.org'
@@ -32,7 +32,7 @@ source=("http://nginx.org/download/nginx-$_nginxver.tar.gz"
     'service'
     'logrotate')
 sha256sums=('b5608c2959d3e7ad09b20fc8f9e5bd4bc87b3bc8ba5936a513c04ed8f1391a18'
-            'e34e7cf9828426ac538522b139940008fbc4d7c2e1bfc531eaf2ef05c79b960a'
+            '54faf91bc1e82b7f52773bc88b8d75cfd3bef738c25906bceb90b3d969cb3372'
             '6a99bd6544cadd0563b549a5fb24d0aed98fe51f5dcdaacbfa2f9b8026360d1e'
             '6fe4c5eb7332f5eebdd7e08e46256a3d344bd375e9134be66013fbc52059e1ac'
             '272907d3213d69dac3bd6024d6d150caa23cb67d4f121e4171f34ba5581f9e98')
