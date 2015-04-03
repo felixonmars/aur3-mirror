@@ -3,7 +3,7 @@
 # Contributor: Zsolt Udvari <udvzsolt@gmail.com>
 pkgname=activdriver
 pkgver=5.10.15
-pkgrel=1
+pkgrel=2
 pkgdesc="The kernel mode and X11 drivers for Promethean ActivBoard and ActivHub."
 arch=('i686' 'x86_64')
 url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
@@ -31,6 +31,9 @@ build() {
   echo " "
   echo "Attention!"
   echo "Build will fail if run in a directory with space(s) in its path."
+  echo " "
+  echo "run sudo depmod after installing this."
+  echo "You need to rebuild and reinstall this package after every main new Kernel Version."
   #(reason: makefile of the source. if you know how to fix: please tell!)
   echo " "
   make -C /lib/modules/$(uname -r)/build SUBDIRS="$srcdir"/usr/src/promethean/kernel modules

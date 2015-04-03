@@ -1,6 +1,6 @@
 # Maintainer: Bazon <bazonbloch@arcor.de>
 pkgname=activinspire
-pkgver=1.8.64351
+pkgver=2.3.65940
 pkgrel=2
 pkgdesc="Presentation Software to use with Promethean Hardware products."
 arch=('i686' 'x86_64')
@@ -9,15 +9,15 @@ license=('unknown')
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
   _md5sum='9d5859a8108daddda33cd49e3af4d8d1'
-  depends=('qt4' 'gstreamer0.10-good-plugins' 'libjpeg6' 'jre7-openjdk')
+  depends=('qt4' 'gstreamer0.10-good-plugins' 'libjpeg6' 'jre7-openjdk' 'openssl098' 'libpulse')
 else
   _arch='amd64'
-  _md5sum='79ab8624304f31e8579be7ab4b4b148e'
-  depends=('qt4' 'gstreamer0.10-good-plugins' 'bin32-jre' 'lib32-libjpeg' 'lib32-libjpeg6' 'lib32-libxmu' 'lib32-gstreamer0.10-base' 'lib32-alsa-lib')
+  _md5sum='3b5ada7a4a713d2e3b0d4547530f2919'
+  depends=('qt4' 'gstreamer0.10-good-plugins' 'bin32-jre' 'lib32-libjpeg' 'lib32-libjpeg6' 'lib32-libxmu' 'lib32-gstreamer0.10-base' 'lib32-alsa-lib' 'lib32-openssl098' 'lib32-libpulse')
 fi
 optdepends=('activdriver: promethean hardware support'
             'activtools: hardware calibration')
-source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activinspire/activinspire_$pkgver-2."$_arch"_"$_arch".deb)
+source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activinspire/activinspire_$pkgver-1."$_arch"_"$_arch".deb)
 md5sums=( $_md5sum ) 
 package() {
         # extract the archive

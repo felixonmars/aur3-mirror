@@ -1,6 +1,6 @@
 # Maintainer: Bazon <bazonbloch@arcor.de>
 pkgname=activtools
-pkgver=5.9.27
+pkgver=5.10.15
 pkgrel=1
 pkgdesc="Includes activmanager, activcalibrate, activremote and activmonitor.
  You must install activtools if you want to use ActivInspire with Promethean
@@ -15,8 +15,8 @@ if [ "$CARCH" = "i686" ]; then
   depends=('qt4' 'libudev.so.0')
 else
   _arch='amd64'
-  _md5sum='a21a7297cfaa7387e876a436d2b24a1c'
-  depends=('qt4' 'libudev.so.0' 'lib32-libudev.so.0')
+  _md5sum='c7e54948cc6d38c71a8e70e123d7c200'
+  depends=('qt4' 'libudev.so.0' 'lib32-libudev.so.0' 'lib32-glibc<2.21')
 fi
 optdepends=('activinspire: activboard presentation')
 source=(http://activsoftware.co.uk/linux/repos/ubuntu/pool/non-oss/a/activtools/activtools_$pkgver-1~ubuntu~1204_$_arch.deb)
