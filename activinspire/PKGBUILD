@@ -8,7 +8,7 @@ url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
 license=('unknown')
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
-  _md5sum='9d5859a8108daddda33cd49e3af4d8d1'
+  _md5sum='faed7e0ca0f04190df6702ebc18c7489'
   depends=('qt4' 'gstreamer0.10-good-plugins' 'libjpeg6' 'jre7-openjdk' 'openssl098' 'libpulse')
 else
   _arch='amd64'

@@ -11,7 +11,7 @@ url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
 license=('unknown')
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
-  _md5sum='581bde4bb05f3a32b1475ee2d78b3620'
+  _md5sum='748d75db8520778572dbada9f004e547'
   depends=('qt4' 'libudev.so.0')
 else
   _arch='amd64'

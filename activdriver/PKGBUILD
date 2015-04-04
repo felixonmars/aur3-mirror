@@ -30,7 +30,8 @@ build() {
   tar xf data.tar.gz
   echo " "
   echo "Attention!"
-  echo "Build will fail if run in a directory with space(s) in its path."
+  echo "Build will fail if run from yaourt or in a directory with space(s) in its path."
+  echo "You need to download the tarball, extract it in a path without space(s) and then $ makepkg and # pacman -U *.pkg.tar.xz"
   echo " "
   echo "run sudo depmod after installing this."
   echo "You need to rebuild and reinstall this package after every main new Kernel Version."
