@@ -2,7 +2,7 @@
 pkgname=python-yapsy
 _pyname=Yapsy
 pkgver=1.11.023
-pkgrel=1
+pkgrel=2
 pkgdesc='Yet Another Plugin SYstem'
 arch=('any')
 url='http://yapsy.sourceforge.net/'
@@ -16,7 +16,7 @@ md5sums=('e311ddcc90bb82e0bcc40333a0202e85')
 package() {
   cd "${srcdir}/${_pyname}-${pkgver}"
   python3 setup.py install --root="${pkgdir}/" --optimize=1
-  install -D -m644 src3/package/LICENSE.txt "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -D -m644 LICENSE.txt "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
 
 # vim:set ts=2 sw=2 et:

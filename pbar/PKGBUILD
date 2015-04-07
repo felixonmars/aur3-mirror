@@ -2,8 +2,8 @@
 # Contributor: Gilrain <pierre.buard+aur gmail com>
 # Contributor: bruenig
 pkgname=pbar
-pkgver=20141004
-pkgrel=2
+pkgver=20150406
+pkgrel=1
 pkgdesc="Progress bar in pacman style"
 url="https://github.com/ritze/pbar"
 license="GPL"
