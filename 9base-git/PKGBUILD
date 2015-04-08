@@ -1,4 +1,3 @@
-# Maintainer: Jean-Philippe Gagné Guay <jeanphilippe150 at gmail dot com>
 # Contributor: Army
 
 _pkgname=9base
