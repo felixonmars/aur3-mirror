@@ -1,2 +1,2 @@
 #!/bin/sh
-/usr/bin/mono /opt/sonarr/NzbDrone.Console.exe "$@"
+/usr/bin/mono --debug /opt/sonarr/NzbDrone.Console.exe "$@"
