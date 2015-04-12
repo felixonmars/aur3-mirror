@@ -1,7 +1,7 @@
 # Maintainer: Jens John <dev@2ion.de>
 pkgname=dmenuv-git
-pkgver=4.5.r15
-pkgrel=1
+pkgver=4.5.r16
+pkgrel=2
 pkgdesc="suckless dmenu with gravity patchset"
 arch=('i686' 'x86_64')
 url="https://github.com/2ion/dmenu-v"
@@ -14,16 +14,16 @@ source=('dmenuv::git+https://github.com/2ion/dmenu-v.git#branch=master')
 md5sums=('SKIP')
 
 pkgver() {
-	cd "$srcdir/${pkgname%-git}"
-	printf "4.5.r%s" "$(git rev-list --count HEAD)" 
+  cd "$srcdir/${pkgname%-git}"
+  printf "4.5.r%s" "$(git rev-list --count HEAD)"
 }
 
 build() {
-	cd "$srcdir/${pkgname%-git}"
+  cd "$srcdir/${pkgname%-git}"
   make X11INC=/usr/include/X11 X11LIB=/usr/lib/X11
 }
 
 package() {
-	cd "$srcdir/${pkgname%-git}"
+  cd "$srcdir/${pkgname%-git}"
   install -Dm755 dmenu "${pkgdir}/usr/bin/${pkgname%-git}"
 }
