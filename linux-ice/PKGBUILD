@@ -4,38 +4,35 @@
 
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
-_srcname=linux-3.19
-pkgver=3.19.3
+_srcname=linux-4.0
+pkgver=4.0
 pkgrel=1
-_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-14.patch
+#_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-14.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc')
 options=('!strip')
-source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.sign"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.sign"
+source=("https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.xz"
+        "https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.sign"
+        #"https://www.kernel.org/pub/linux/kernel/v4.x/patch-${pkgver}.xz"
+        #"https://www.kernel.org/pub/linux/kernel/v4.x/patch-${pkgver}.sign"
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
-        'tuxonice.patch'
-        "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
+	"tuxonice-${pkgver}.patch.bz2"
+        #"http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
-sha256sums=('be42511fe5321012bb4a2009167ce56a9e5fe362b4af43e8c371b3666859806c'
+sha256sums=('0f2f7d44979bc8f71c4fc5d3308c03499c26a824dd311fdf6eef4dee0d7d5991'
             'SKIP'
-            'cd9474b61b859d68f83ff0b769bafef8489d2090e0a933d2a7e5f76a23cc071a'
-            'SKIP'
-            '230bf782d9ddd16fd9bc1a320eee3efdaf8b694c0b1e010b209f15a2881b0960'
-            '09dd5ea98a1902276b2ad189ab28afdb74efa66669623ce296acb5af515d389a'
+            '201ce6b96707e7c03642cbea15ab9463b45398420de61d080c1dc246b3db0e72'
+            '4fac3726e8452ffd150dc9bb46ab201489087b8f5ff81e343e0c5dea8ba918af'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            '0a8d1ce70fa1232f563b8f46e322d1902046f43b964a51f51923c341f24fb7e7'
-            'fe1d3cccee47c6e811158bb67c9c21450f1175b73abbb131fbc88f3da26470ab')
+            '800d83469ff03f1ee7d9ac27babddd582cdb83339717ab6ff03fffa8bf0da0fb')
 validpgpkeys=(
             'ABAF11C65A2970B130ABE3C479BE3E4300411886' # Linus Torvalds
             '647F28654894E3BD457199BE38DBBDC86092693E' # Greg Kroah-Hartman
@@ -47,7 +44,7 @@ prepare() {
   cd "${srcdir}/${_srcname}"
 
   # add upstream patch
-  patch -p1 -i "${srcdir}/patch-${pkgver}"
+  # patch -p1 -i "${srcdir}/patch-${pkgver}"
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
@@ -58,8 +55,8 @@ prepare() {
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
 
   # tuxonice patch
-  patch -p1 -i "${srcdir}/tuxonice.patch"
-  patch -Np1 -i "${srcdir}/${_toipatch}" || true
+  #patch -p1 -i "${srcdir}/${_toipatch}"
+  patch -p1 -i "${srcdir}/tuxonice-${pkgver}.patch"
 
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config

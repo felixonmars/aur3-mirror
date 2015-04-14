@@ -3,7 +3,7 @@
 # Contributor: Zsolt Udvari <udvzsolt@gmail.com>
 pkgname=activdriver
 pkgver=5.10.15
-pkgrel=3
+pkgrel=4
 pkgdesc="The kernel mode and X11 drivers for Promethean ActivBoard and ActivHub."
 arch=('i686' 'x86_64')
 url="http://activsoftware.co.uk/linux/repos/ubuntu/dists/precise/Release"
@@ -11,7 +11,7 @@ license=('unknown')
 makedepends=(linux-headers)
 optdepends=('activinspire: activboard presentation'
             'activtools: hardware calibration')
-
+install=$pkgname.install
 if [ "$CARCH" = "i686" ]; then
   _arch='i386'
   _md5sum='a90ae7a20d6704e2c2090136bb505c84'
@@ -21,22 +21,17 @@ elif [ "$CARCH" = "x86_64" ]; then
 fi
 source=("http://activsoftware.co.uk/linux/repos/ubuntu/pool/oss/a/$pkgname/${pkgname}_$pkgver-1~ubuntu~1204_$_arch.deb"
         "10-promethean.conf"
-        "activdriver.install")
+	"activdriver.install")
 md5sums=( $_md5sum
          '11effc25fd592acacb9f9f3108618963'
          '8a8a6ddd6741a80a5839593ed385cd9a')
 
-install="$pkgname.install"
 
 build() {
   tar xf data.tar.gz
   echo " "
   echo "Attention!"
-  echo "Build will fail if run from yaourt or in a directory with space(s) in its path."
-  echo "You need to download the tarball, extract it in a path without space(s) and then $ makepkg and # pacman -U *.pkg.tar.xz"
-  echo " "
-  echo "run sudo depmod after installing this."
-  echo "You need to rebuild and reinstall this package after every main new Kernel Version."
+  echo "Build will fail if run in a directory with space(s) in its path."
   #(reason: makefile of the source. if you know how to fix: please tell!)
   echo " "
   make -C /lib/modules/$(uname -r)/build SUBDIRS="$srcdir"/usr/src/promethean/kernel modules
@@ -53,7 +48,7 @@ package() {
   _extmoddir=$(uname -r | sed "s@\([0-9]*\.[0-9]*\)\.[0-9]*-[0-9]*\(.*\)@\1\2@")
   
   # changed compared to pkgrel=1: needs to be this path now:
-  _moddir="/usr/lib/modules/extramodules-${_extmoddir}"/
+  _moddir="/usr/lib/modules/extramodules-${_extmoddir}"/kernel/drivers/input/tablet/
 
   install -m644 -D usr/src/promethean/kernel/promethean.ko \
     "$pkgdir${_moddir}"/promethean.ko

@@ -11,8 +11,8 @@ license=('proprietary')
 depends=('ffmpeg-compat')
 makedepends=('pacman>=4.2.0')
 provides=("clickshare=$pkgver")
-source=("https://cloud.digi-merc.org/index.php/s/HHz7qeT6LW1vp1L/download")
-sha256sums=('9b402747f5293d9c3e02848be85f2645ed335ada8e008211f290607826ebba6a')
+source=("https://cloud.digi-merc.org/index.php/s/rlQOpUHP6bV3968/download")
+sha256sums=('121b1d76b6ec8bb1fb01bdd5b7215ef0a148e522c35cb60c51265d21e047b4ce')
 
 package() {
 	tar -xf download -C "$pkgdir/"
