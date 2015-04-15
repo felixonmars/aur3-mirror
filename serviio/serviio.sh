@@ -9,10 +9,10 @@ then
     fi
     export PATH=/usr/lib/jvm/java-8-openjdk/jre/bin/:$PATH
     SERVIIO_HOME="/usr/share/java/serviio"
-    CP="$SERVIIO_HOME/lib/*:$SERVIIO_HOME/config"
-    JAVA_OPTS="-Djava.net.preferIPv4Stack=true -Djava.awt.headless=true -Dderby.system.home=$SERVIIO_HOME/library -Dserviio.home=$SERVIIO_HOME -Dffmpeg.location=/usr/bin/ffmpeg"
+    SERVIIO_CLASS_PATH="$SERVIIO_HOME/lib/*:$SERVIIO_HOME/config"
+    JAVA_OPTS="-Djava.net.preferIPv4Stack=true -Djava.awt.headless=true -Dderby.system.home=$SERVIIO_HOME/library -Dserviio.home=$SERVIIO_HOME -Dffmpeg.location=ffmpeg"
 
-    java -Xmx384M $JAVA_OPTS -classpath $CP org.serviio.MediaServer "$@"
+    java -Xmx384M $JAVA_OPTS -classpath $SERVIIO_CLASS_PATH org.serviio.MediaServer "$@"
 else
     echo "Must be run as root."
 fi
