@@ -3,7 +3,7 @@
 # Contributor: Chris Down <chris@chrisdown.name>
 
 pkgname=adb
-pkgver=android.5.0.2_r1
+pkgver=android.5.1.0_r5
 pkgrel=1
 pkgdesc="adb (Android Debug Bridge CLI tool), an Android platform tool"
 arch=('i686' 'x86_64' 'armv7h')
@@ -12,10 +12,10 @@ license=('Apache')
 depends=('openssl' 'zlib')
 makedepends=('git')
 conflicts=('adb-git')
-source=("git+https://android.googlesource.com/platform/system/core#commit=e65b7ea"
+source=("git+https://android.googlesource.com/platform/system/core#commit=eb255708970f4723afa45ebc842de25ac9488235"
         'adbMakefile')
 md5sums=('SKIP'
-         '887d868e544330ef850334961685cab3')
+         'ef7cfcefe017a4448019856902ea242e')
 
 build() {
   cd core/adb

@@ -6,7 +6,7 @@ pkgname=st-transparency-git
 appname='st'
 conflicts=(${appname})
 provides=(${appname})
-pkgver=20150322.4c7c156
+pkgver=20150416.4c7c156
 pkgrel=1
 pkgdesc='A simple virtual terminal emulator for X with patches for transparency and separate border width.'
 arch=('i686' 'x86_64')
@@ -26,12 +26,12 @@ source=(
 	config.diff.monovedek
 )
 md5sums=('SKIP'
-         '1a89c3eb7606c9fb627992123747a8b7'
-         '75303cacdafe2c0710b27d584239064c'
+         '02f213e2fcc84fe8d8be79b9a3c374ab'
+         '9e5e9f62339cb93d31b6fa5eb9806401'
          'SKIP'
-         'fe855c9850398d476848c78123cd88c7'
+         'a86702a9ce1b5a88e109a7fd7a29ff58'
          '0a98972fe4377df541d92677d44bd307'
-         '132675957fc278ed0fb8d94cd58ca059')
+         'e442ed524a2e31b63e4580f26c422661')
 
 prepare() {
 	cd "${srcdir}/${appname}"
