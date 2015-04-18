@@ -10,7 +10,6 @@
 #define STARTING_SIZE 3
 #define MAX_SCORE_LENGTH 9
 #define FRUIT_POINTS 7
-#define HEAD 0
 #define DEFAULT_SPEED 28000
 #define HARD_SPEED 22000
 #define EASY_SPEED 30000
@@ -222,8 +221,8 @@ static void grid_init(void)
 
 static void snake_move(int *quit_value)
 {
-    ps.snake_head.x = ((ps.snake_head.x + snake[HEAD] % 10) + ROWS) % ROWS;
-    ps.snake_head.y = ((ps.snake_head.y + snake[HEAD] / 10) + COLS) % COLS;
+    ps.snake_head.x = ((ps.snake_head.x + snake[0] % 10) + ROWS) % ROWS;
+    ps.snake_head.y = ((ps.snake_head.y + snake[0] / 10) + COLS) % COLS;
     if ((mvwinch(field, ps.snake_head.x + 1, ps.snake_head.y + 1) & A_CHARTEXT) == *FRUIT_CHAR) {
         eat_fruit();
         mvwprintw(score, 1, strlen("Points: ") + 1, "%d", (ps.size - STARTING_SIZE) * FRUIT_POINTS);
@@ -254,20 +253,20 @@ static void main_cycle(int *quit_value)
     wmove(field, ps.snake_head.x + 1, ps.snake_head.y + 1);
     switch (wgetch(field)) {
         case KEY_LEFT:
-            if (snake[HEAD] != RIGHT)
-                snake[HEAD] = LEFT;
+            if (snake[0] != RIGHT)
+                snake[0] = LEFT;
             break;
         case KEY_RIGHT:
-            if (snake[HEAD] != LEFT)
-                snake[HEAD] = RIGHT;
+            if (snake[0] != LEFT)
+                snake[0] = RIGHT;
             break;
         case KEY_UP:
-            if (snake[HEAD] != DOWN)
-                snake[HEAD] = UP;
+            if (snake[0] != DOWN)
+                snake[0] = UP;
             break;
         case KEY_DOWN:
-            if (snake[HEAD] != UP)
-                snake[HEAD] = DOWN;
+            if (snake[0] != UP)
+                snake[0] = DOWN;
             break;
         case 's':
             *quit_value = STORE;
@@ -337,35 +336,26 @@ static void store_score(void)
 {
     char *path_score_file = strcat(getpwuid(getuid())->pw_dir, "/.local/share/snake_score.txt");
     FILE *f = NULL;
-    int i, dim = 1, points = (ps.size - STARTING_SIZE) * FRUIT_POINTS;
-    int *score_list = malloc(sizeof(int));
-    if (!score_list)
-        manage_memory_error();
-    score_list[0] = points;
-    if ((f = fopen(path_score_file, "r"))) {
-        for (i = 1; (i < MAX_SCORE_LENGTH) && (!feof(f)); i++) {
-            if (!(score_list = realloc(score_list, (i + 1) * sizeof(int)))) {
-                free(score_list);
-                manage_memory_error();
+    int i = 0, points = (ps.size - STARTING_SIZE) * FRUIT_POINTS, old_points;
+    long int len;
+    if ((f = fopen(path_score_file, "r+"))) {
+        while ((i < MAX_SCORE_LENGTH) && (!feof(f))) {
+            len = ftell(f);
+            fscanf(f, "%d\n", &old_points);
+            i++;
+            if (old_points < points) {
+                fseek(f, len, SEEK_SET);
+                fprintf(f, "%d\n", points);
+                points = old_points;
             }
-            fscanf(f, "%d\n", &score_list[i]);
         }
-        fclose(f);
-        dim = i;
-        if ((score_list[dim - 1] >= points) && (dim == MAX_SCORE_LENGTH)) {
-            free(score_list);
-            return;
-        }
-        for (i = 0; (score_list[i] < score_list[i + 1]) && (i < dim - 1); i++) {
-            score_list[i] = score_list[i + 1];
-            score_list[i + 1] = points;
-        }
+        if (i < MAX_SCORE_LENGTH)
+            fprintf(f, "%d\n", points);
+    } else {
+        f = fopen(path_score_file, "w");
+        fprintf(f, "%d\n", points);
     }
-    f = fopen(path_score_file, "w");
-    for (i = 0; i < dim; i++)
-        fprintf(f, "%d\n", score_list[i]);
     fclose(f);
-    free(score_list);
 }
 
 static void print_score_list(void)

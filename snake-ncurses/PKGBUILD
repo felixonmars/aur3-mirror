@@ -1,7 +1,7 @@
 # Maintainer: Federico Di Pierro <nierro92@gmail.com>
 
 pkgname=snake-ncurses
-pkgver=8.6
+pkgver=8.7
 pkgrel=1
 pkgdesc="snake game clone written in C and ncurses"
 arch=(i686 x86_64)
