@@ -1,7 +1,7 @@
 # Maintainer: Andrew Kiss <ubervoltage@gmail.com>
 pkgname=kspclicalc
-pkgver=1.4
-pkgrel=5
+pkgver=1.5
+pkgrel=6
 url="https://github.com/supervoltage/$pkgname"
 pkgdesc="Kerbal Space Program calculator"
 arch=('i686' 'x86_64')
@@ -11,7 +11,7 @@ makedepends=('make')
 options=()
 source=("https://dl.dropboxusercontent.com/u/29712116/C%2B%2B/kspclicalc.tar.gz")
 noextract=()
-md5sums=('2f1adc5f29450bd937cdca48068806e4')
+md5sums=('ea04107f145f9293acf9af7f2e8e5a48')
 
 build() {
 	cd $srcdir
