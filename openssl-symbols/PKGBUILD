@@ -1,9 +1,11 @@
+# $Id$
 # Maintainer: Todd Lunter <tlunter@gmail.com>
 
 _pkg=openssl
 pkgname=openssl-symbols
-_ver=1.0.1h
-pkgver=1.0.1.h
+_ver=1.0.2a
+# use a pacman compatible version scheme
+pkgver=${_ver/[a-z]/.${_ver//[0-9.]/}}
 pkgrel=1
 pkgdesc='The Open Source toolkit for Secure Sockets Layer and Transport Layer Security'
 arch=('i686' 'x86_64')
@@ -20,11 +22,12 @@ source=("https://www.openssl.org/source/${_pkg}-${_ver}.tar.gz"
         'no-rpath.patch'
         'ca-dir.patch'
         'versioned-symbols.patch')
-md5sums=('8d6d684a9430d5cc98a62a5d8fbda8cf'
+md5sums=('a06c547dac9044161a477211049f60ef'
          'SKIP'
          'dc78d3d06baffc16217519242ce92478'
          '3bf51be3a1bbd262be46dc619f92aa90'
          '8352550c89279b85ebf92e5c19f97a48')
+validpgpkeys=('8657ABB260F056B1E5190839D9C4D26D0E604491')
 
 prepare() {
 	cd $srcdir/$_pkg-$_ver
@@ -33,7 +36,7 @@ prepare() {
 	patch -p0 -i $srcdir/no-rpath.patch
 	# set ca dir to /etc/ssl by default
 	patch -p0 -i $srcdir/ca-dir.patch
-    # add OPENSSL_1.0.0 symbols
+	# add OPENSSL_1.0.0 symbols
 	patch -p0 -i $srcdir/versioned-symbols.patch
 }
 
