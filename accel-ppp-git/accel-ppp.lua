@@ -6,7 +6,7 @@ function opt82_dlink(pkt)
 --    print(opt82)
 	return opt82
 end
-function username(ses)
+function example(ses)
 --	print('xid='..ses:hdr('xid'))
 --	print('ciaddr='..ses:hdr('ciaddr'))
 --	print('giaddr='..ses:hdr('giaddr'))
@@ -24,3 +24,8 @@ function mac(pkt)
 	local mac=pkt:hdr("chaddr")
 	return mac
 end
+function username(pkt)
+	local username = string.sub(pkt:ifname(), string.find(pkt:ifname(), ".", 1, true)+1, 32)
+	return username
+end
+

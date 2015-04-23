@@ -8,7 +8,7 @@
 pkgname=orientdb-community
 
 ## PKGBUILD:pkgver is not allowed to contain colons, hyphens or whitespace
-pkgversion=2.0.6
+pkgversion=2.0.8
 #pkgrc=rc2
 pkgrc=
 #pkgsuffix=-$pkgrc
@@ -42,7 +42,7 @@ changelog=""
 source=("https://github.com/orientechnologies/orientdb/archive/${pkgversion}${pkgsuffix}.tar.gz"
   'orientdb.service')
 
-md5sums=('44328d23e888a62cf2f8b8b088dbbe7f'
+md5sums=('4a2a094006931a1d3ad9ad1f1b8718ca'
   '687903eba3737f9733bf1c45c4e68e6d')
 
 #prepare() {}
