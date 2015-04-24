@@ -1,29 +1,53 @@
-# Maintainer: Jameson Pugh <imntreal@gmail.com>
+# Maintainer: FadeMind <fademind@gmail.com>
+# Contributor: Que Quotion <quequotion@bugmenot.com>
+# Contributor: Jameson Pugh <imntreal@gmail.com>
 
 _pkgbasename=python2
 pkgname=lib32-$_pkgbasename
-pkgver=2.7.3
+pkgver=2.7.9
 pkgrel=1
 _pybasever=2.7
-pkgdesc="A high-level scripting language (32 bit, libraries only)"
+pkgdesc="A high-level scripting language (32 bit)"
 arch=('x86_64')
 license=('PSF')
 url="http://www.python.org/"
 depends=('lib32-db' 'lib32-bzip2' 'lib32-gdbm' 'lib32-openssl' 'lib32-zlib'
                  'lib32-expat' 'lib32-sqlite3' 'lib32-libffi' "$_pkgbasename>=$pkgver")
-makedepends=('tk' 'gcc-multilib')
-optdepends=('tk: for IDLE')
-conflicts=('python<3')
+makedepends=('lib32-tk' 'gcc-multilib')
+optdepends=('lib32-tk: for IDLE')
+conflicts=('lib32-python<3')
 options=('!makeflags')
-source=(http://www.python.org/ftp/python/${pkgver}/Python-${pkgver}.tar.bz2)
-sha256sums=('726457e11cb153adc3f428aaf1901fc561a374c30e5e7da6742c0742a338663c')
- 
+source=("Python-${pkgver}.tar.xz::http://www.python.org/ftp/python/${pkgver%rc?}/Python-${pkgver}.tar.xz"
+        'python-config-32.patch'
+        'lib32-distutils-sysconfig.patch')
+sha512sums=('6939182463272a6bb9da0e327bfb9efc574a87820f2ae39eaf02d9fae053dbe0004330e916e6828becfef94cbe294acb0a88a600f8930b99b94fcfc4efc44ff4'
+            '68643c7632bd5a8c17fd095589ae97b137313852f75904cc1065d424b731702c9ef5bed4ff711bbde9ce1fe869eac3a32de0743e56070faca66ab63e227d6469'
+            '6a661446a022f3c2e7f0273310c90cd6325efa3aaa0cad833b8fc63f89afd3f70a07795fe46b160a227f5094af25e03e19d094996d49f76f4ecb867b92edff49')
+
+prepare() {
+  cd "${srcdir}/Python-${pkgver}"
+
+  #Just how many places does one have to patch Python?
+  patch -Np2 < ../lib32-distutils-sysconfig.patch
+
+  #Give the configuration script an extention
+  patch -Np2 < ../python-config-32.patch
+
+  #Fix hard-coded paths
+  sed -i "s|base}/lib|base}/lib32|g" "${srcdir}/Python-${pkgver}/Lib/sysconfig.py"
+  sed -i "s|/include|/lib32/python{py_version_short}/include|g" "${srcdir}/Python-${pkgver}/Lib/sysconfig.py"
+  sed -i "s|lib/|lib32/|g" "${srcdir}/Python-${pkgver}/Modules/getpath.c"
+  sed -i "s|base/lib|base/lib32|g" "${srcdir}/Python-${pkgver}/Lib/distutils/command/install.py"
+  sed -i "s|/include|/lib32/python{py_version_short}/include|g" "${srcdir}/Python-${pkgver}/Lib/distutils/command/install.py"
+  sed -i "s|prefix)/lib|prefix)/lib32|g" "${srcdir}/Python-${pkgver}/Makefile.pre.in"
+}
+
 build() {
   cd "${srcdir}/Python-${pkgver}"
  
   # Temporary workaround for FS#22322
   # See http://bugs.python.org/issue10835 for upstream report
-  sed -i "/progname =/s/python/python${_pybasever}/" Python/pythonrun.c
+  sed -i "/progname =/s/python/python${_pybasever}-32/" Python/pythonrun.c
  
   # Enable built-in SQLite3 module to load extensions (fix FS#22122)
   sed -i "/SQLITE_OMIT_LOAD_EXTENSION/d" setup.py
@@ -33,17 +57,19 @@ build() {
   rm -r Modules/expat
   rm -r Modules/zlib
   rm -r Modules/_ctypes/{darwin,libffi}*
- 
+
+  export CC='gcc -m32'
+  export CXX='g++ -m32'
+  export LDFLAGS='-m32'
+  export PKG_CONFIG_PATH='/usr/lib32/pkgconfig'
+
   export OPT="${CFLAGS}"
-  export PKG_CONFIG_PATH="/usr/lib32/pkgconfig"
+
+  #Includes are also arch-specific, we need them to build things like lib32-gobject-introspection
   ./configure --prefix=/usr --enable-shared --with-threads --enable-ipv6 \
               --enable-unicode=ucs4 --with-system-expat --with-system-ffi \
-              --libdir=/usr/lib32 --libexecdir=/usr/lib32 CC='gcc -m32' \
-              CXX='g++ -m32'
- 
-  # Force /usr/lib to /usr/lib32
-  sed -i -e 's#$(prefix)/lib#$(prefix)/lib32#' Makefile
- 
+              --libdir=/usr/lib32 --libexecdir=/usr/lib32 --includedir=/usr/lib32/python${_pybasever}/include \
+              --exec_prefix=/usr/lib32/python${_pybasever}/ --bindir=/usr/bin --sbindir=/usr/sbin --with-suffix='-32'
   make
 }
  
@@ -66,14 +92,17 @@ package() {
  
   # clean up #!s
   find ${pkgdir}/usr/lib32/python2.7/ -name '*.py' | \
-    xargs sed -i "s|#[ ]*![ ]*/usr/bin/env python$|#!/usr/bin/env python2|"
+    xargs sed -i "s|#[ ]*![ ]*/usr/bin/env python$|#!/usr/bin/env python2.7-32|"
  
   # clean-up reference to build directory
   sed -i "s#${srcdir}/Python-${pkgver}:##" \
     ${pkgdir}/usr/lib32/python${_pybasever}/config/Makefile
  
-  # Clean up, only libraries needed
-  rm -rf ${pkgdir}/usr/{bin,include,share}
+  # Clean up
+  rm -rf "${pkgdir}"/{etc,usr/{share,include}} # needs bin/
+
+  # Leave the python binary and configure script for depedants to find the headers
+  cd "${pkgdir}"/usr/bin
+  rm pydoc idle 2to3
 }
 
-# vim:set ts=2 sw=2 et:

@@ -2,7 +2,7 @@
 # Contributor: Tobias Hunger <tobias DOT hunger AT gmail DOT com>
 
 pkgname=discourse
-pkgver=1.3.0.beta5
+pkgver=1.3.0.beta6
 pkgrel=1
 pkgdesc="A simple, flat forum, where replies flow down the page in a line"
 arch=('i686' 'x86_64')
@@ -25,6 +25,8 @@ backup=("etc/webapps/discourse/unicorn.conf.rb"
 source=("${pkgname}::git+https://github.com/discourse/discourse.git#tag=v${pkgver}"
         "discourse-sidekiq.service"
         "discourse-unicorn.service"
+        "discourse-kill.service"
+        "discourse-kill.timer"
         "discourse.target"
         "discourse-update.service"
         "discourse.tmpfiles.d"
@@ -38,6 +40,8 @@ install="${pkgname}.install"
 sha256sums=('SKIP'
             '51e2005fe002d42c8f5ffd3e9ccff54a739555c8e121584603c5d7daee255ca8'
             'ec711a14712cd7419378a92209b9db1af6a26f758f24aeddcf6e73efc763cd9b'
+            '803c5b71fb350577a0e81c60ad5d511cba0d983046592a5dc8a2f9c726ec2143'
+            'd8fab91c2b15e50db26caa00c034db4703b864e6434846b72225c871e4a3d508'
             'b512d219056537f7a7b749a10cfb90fb78116d7c6414e0a0bc72c08f1ced3f43'
             '0b5110b99f3356d9931ce4991344b1149a2d3be04322043b555b91d8751c7a31'
             '71fa450935dea04c30cc5a0eaaa16012ac765445644ca719b7a1d589aad1938f'
@@ -55,76 +59,79 @@ _etcdir="/etc/webapps/${pkgname}"
 _systemddir="/usr/lib/systemd/system"
 
 prepare() {
-  cd "${srcdir}/${pkgname}"
+    cd "${srcdir}/${pkgname}"
 
-  # Patch source files to include a static revision string and remove git repo.
-  # Including the git repository triples the package size.
-  _revision=$(git rev-parse HEAD)
-  _revision_describe=$(git describe --dirty)
-  msg2 "Patching internal revision numbers ${_revision} to a static string..."
-  sed -i "s|\`git rev-parse HEAD\`|'${_revision}'|g" "lib/discourse.rb"
-  # This one is used on the dashboard, see:
-  # https://github.com/discourse/discourse/commit/f1b606bf0890eb1f23cb9cbb9f35af86f4b94245
-  sed -i "s|\`git describe --dirty\`|'${_revision_describe}'|g" "lib/discourse_updates.rb"
-  rm -rf .git
+    # Patch source files to include a static revision string and remove git repo.
+    # Including the git repository triples the package size.
+    _revision=$(git rev-parse HEAD)
+    _revision_describe=$(git describe --dirty)
+    if [ $_revision_describe = "latest-release" ]; then
+      _revision_describe=$pkgver
+    fi
+    msg2 "Patching internal revision numbers ${_revision} to a static string..."
+    sed -i "s|\`git rev-parse HEAD\`|'${_revision}'|g" "lib/discourse.rb"
+    # This one is used on the dashboard, see:
+    # https://github.com/discourse/discourse/commit/f1b606bf0890eb1f23cb9cbb9f35af86f4b94245
+    sed -i "s|\`git describe --dirty\`|'${_revision_describe}'|g" "lib/discourse_updates.rb"
+    rm -rf .git
 
-  msg2 "Patching discourse_defaults.conf to serve assets..."
-  sed -i "s|serve_static_assets = false|serve_static_assets = true|g" "config/discourse_defaults.conf"
+    msg2 "Patching discourse_defaults.conf to serve assets..."
+    sed -i "s|serve_static_assets = false|serve_static_assets = true|g" "config/discourse_defaults.conf"
 }
 
 build() {
-  cd "${srcdir}/${pkgname}"
+    cd "${srcdir}/${pkgname}"
 
-  cpus=$(nproc)
-  msg2 "Starting bundler with ${cpus} jobs..."
-  msg2 "Gems will be installed into vendor/bundle."
-  bundle config build.nokogiri --use-system-libraries
-  bundle install --jobs ${cpus} --no-cache --no-prune --deployment --without development test
+    cpus=$(nproc)
+    msg2 "Starting bundler with ${cpus} jobs..."
+    msg2 "Gems will be installed into vendor/bundle."
+    bundle config build.nokogiri --use-system-libraries
+    bundle install --jobs ${cpus} --no-cache --no-prune --deployment --without development test
 }
 
 package() {
-  cd "${srcdir}/${pkgname}"
+    cd "${srcdir}/${pkgname}"
 
-  install -d "${pkgdir}/usr/share/webapps"
-  cp -r "${srcdir}/${pkgname}" "${pkgdir}${_datadir}"
+    install -d "${pkgdir}/usr/share/webapps"
+    cp -r "${srcdir}/${pkgname}" "${pkgdir}${_datadir}"
 
-  msg2 "Creating directories and symlinks..."
-  install -d \
-    "${pkgdir}${_etcdir}" \
-    "${pkgdir}/usr/share/doc/${pkgname}" \
-    "${pkgdir}${_homedir}" \
-    "${pkgdir}/usr/lib/systemd/system"
+    msg2 "Creating directories and symlinks..."
+    install -d \
+        "${pkgdir}${_etcdir}" \
+        "${pkgdir}/usr/share/doc/${pkgname}" \
+        "${pkgdir}${_homedir}" \
+        "${pkgdir}/usr/lib/systemd/system"
 
-  mv "${pkgdir}${_datadir}/public" "${pkgdir}${_homedir}/public" && \
-    ln -fs "${_homedir}/public" "${pkgdir}${_datadir}/public"
-  mv "${pkgdir}${_datadir}/plugins" "${pkgdir}${_homedir}/plugins" && \
-    ln -fs "${_homedir}/plugins" "${pkgdir}${_datadir}/plugins"
-  # We are using PrivateTmp=true to start unicorn, so this is safe!
-  rm -rf "${pkgdir}${_datadir}/tmp" && ln -sf "/var/tmp" "${pkgdir}${_datadir}/tmp"
-  rm -rf "${pkgdir}${_datadir}/log" && ln -sf "${_logdir}" "${pkgdir}${_datadir}/log"
+    mv "${pkgdir}${_datadir}/public" "${pkgdir}${_homedir}/public" && \
+        ln -fs "${_homedir}/public" "${pkgdir}${_datadir}/public"
+    mv "${pkgdir}${_datadir}/plugins" "${pkgdir}${_homedir}/plugins" && \
+        ln -fs "${_homedir}/plugins" "${pkgdir}${_datadir}/plugins"
+    # We are using PrivateTmp=true to start unicorn, so this is safe!
+    rm -rf "${pkgdir}${_datadir}/tmp" && ln -sf "/var/tmp" "${pkgdir}${_datadir}/tmp"
+    rm -rf "${pkgdir}${_datadir}/log" && ln -sf "${_logdir}" "${pkgdir}${_datadir}/log"
 
-  msg2 "Install and symlink config files..."
-  install -Dm0644 "${srcdir}/unicorn.conf.rb" "${pkgdir}/${_etcdir}/unicorn.conf.rb"
-  cp "config/discourse_quickstart.conf" "config/discourse.conf"
-  for _file in "discourse.conf" "discourse_defaults.conf"; do
-    mv "config/${_file}" "${pkgdir}${_etcdir}"
-    ln -fs "${_etcdir}/${_file}" "${pkgdir}${_datadir}/config/"
-  done
+    msg2 "Install and symlink config files..."
+    install -Dm0644 "${srcdir}/unicorn.conf.rb" "${pkgdir}/${_etcdir}/unicorn.conf.rb"
+    cp "config/discourse_quickstart.conf" "config/discourse.conf"
+    for _file in "discourse.conf" "discourse_defaults.conf"; do
+        mv "config/${_file}" "${pkgdir}${_etcdir}"
+        ln -fs "${_etcdir}/${_file}" "${pkgdir}${_datadir}/config/"
+    done
 
-  msg2 "Installing license, documentation and example files..."
-  mv "README.md" "CONTRIBUTING.md" "COPYRIGHT.txt" "${pkgdir}/usr/share/doc/${pkgname}"
-  cp ${srcdir}/*.conf.example "${pkgdir}/usr/share/doc/${pkgname}"
-  install -D "LICENSE.txt" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.txt"
+    msg2 "Installing license, documentation and example files..."
+    mv "README.md" "CONTRIBUTING.md" "COPYRIGHT.txt" "${pkgdir}/usr/share/doc/${pkgname}"
+    cp ${srcdir}/*.conf.example "${pkgdir}/usr/share/doc/${pkgname}"
+    install -D "LICENSE.txt" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.txt"
 
-  msg2 "Installing systemd service files..."
-  install -Dm0644 "${srcdir}/discourse-unicorn.service" "${pkgdir}/${_systemddir}/discourse-unicorn.service"
-  install -Dm0644 "${srcdir}/discourse-sidekiq.service" "${pkgdir}/${_systemddir}/discourse-sidekiq.service"
-  install -Dm0644 "${srcdir}/discourse.target" "${pkgdir}/${_systemddir}/discourse.target"
-  install -Dm0644 "${srcdir}/discourse-update.service" "${pkgdir}/${_systemddir}/discourse-update.service"
+    msg2 "Installing systemd service files..."
+    install -Dm0644 "${srcdir}/discourse-unicorn.service" "${pkgdir}/${_systemddir}/discourse-unicorn.service"
+    install -Dm0644 "${srcdir}/discourse-sidekiq.service" "${pkgdir}/${_systemddir}/discourse-sidekiq.service"
+    install -Dm0644 "${srcdir}/discourse.target" "${pkgdir}/${_systemddir}/discourse.target"
+    install -Dm0644 "${srcdir}/discourse-update.service" "${pkgdir}/${_systemddir}/discourse-update.service"
 
-  msg2 "Installing systemd tmpfiles.d..."
-  install -Dm0644 "${srcdir}/discourse.tmpfiles.d" "${pkgdir}/usr/lib/tmpfiles.d/discourse.conf"
+    msg2 "Installing systemd tmpfiles.d..."
+    install -Dm0644 "${srcdir}/discourse.tmpfiles.d" "${pkgdir}/usr/lib/tmpfiles.d/discourse.conf"
 
-  msg2 "Installing logrotate..."
-  install -Dm0644 "${srcdir}/discourse.logrotate" "${pkgdir}/etc/logrotate.d/discourse"
+    msg2 "Installing logrotate..."
+    install -Dm0644 "${srcdir}/discourse.logrotate" "${pkgdir}/etc/logrotate.d/discourse"
 }
