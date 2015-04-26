@@ -25,7 +25,7 @@ post_install() {
   esac
 
   if [ ! -f /etc/ssl/certs/java/cacerts ]; then
-    /usr/bin/init-jks-keystore
+    /usr/bin/update-ca-trust
   fi
 }
 
@@ -36,15 +36,15 @@ post_upgrade() {
   fi
 
   if [ ! -f /etc/ssl/certs/java/cacerts ]; then
-    /usr/bin/init-jks-keystore
+    /usr/bin/update-ca-trust
   fi
 }
 
 pre_remove() {
   if [ "x$(fix_default)" = "x${THIS_JDK}" ]; then
-    sudo /usr/bin/archlinux-java unset
+    /usr/bin/archlinux-java unset
     if [ -x /usr/lib/jvm/${THIS_JDK}/jre/bin/java ]; then
-      sudo /usr/bin/archlinux-java set ${THIS_JDK}/jre
+      /usr/bin/archlinux-java set ${THIS_JDK}/jre
     fi
   fi
 }
