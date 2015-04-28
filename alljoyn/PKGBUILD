@@ -1,7 +1,7 @@
 # Maintainer: Your Name <youremail@domain.com>
 pkgname=alljoyn
-pkgver=14.12.00a
-pkgrel=5
+pkgver=14.12.00b
+pkgrel=1
 pkgdesc="Allseen Alliance's Alljoyn framework for IoT"
 arch=('i686' 'x86_64')
 url="http://alljoyn.org"
@@ -13,12 +13,10 @@ install='alljoyn.install'
 source=(https://allseenalliance.org/releases/alljoyn/14.12/$pkgname-$pkgver-src.tar.gz
 	0001-disable-warnings-as-errors.patch
 	alljoyn-daemon.service
-	alljoyn-daemon.socket
 	alljoyn.install)
-md5sums=('1435d8611a26bfde115a771ab7cd3d74'
+md5sums=('74ed192672f4330022f71c6f72095690'
          'f5fd2d07888b88c22d8c6348493ec7c5'
-         'b05ad3cb3df448f31850c78a44a028c6'
-         '631bea65587fd9e6230c942cf04e3bb4'
+         '0a85487f8efdf60aa1e7772878a8cfb3'
          'effea7974cf7850f4854810a7a5086b3')
 _variant=release # release or debug
 
@@ -59,5 +57,5 @@ package() {
 
   # Installing service files
   mkdir -p $pkgdir/usr/lib/systemd/system
-  cp ${srcdir}/alljoyn-daemon.socket ${srcdir}/alljoyn-daemon.service $pkgdir/usr/lib/systemd/system/
+  cp ${srcdir}/alljoyn-daemon.service $pkgdir/usr/lib/systemd/system/
 }

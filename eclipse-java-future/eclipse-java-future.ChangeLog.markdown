@@ -1,3 +1,8 @@
+Version 4.5.0M6-1 (Tue Apr 28 09:48:33 AEST 2015)
+---
+
+Eclipse 4.5.0 Mars Milestone 6
+
 Version 4.5.0M5-1 (Wed Feb 11 17:27:28 AEDT 2015)
 ---
 
