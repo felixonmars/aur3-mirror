@@ -2,4 +2,4 @@
 
 export PYTHONSTARTUP=/usr/lib/gurobi/gurobi.py
 
-python2.7 $*
+python2.7 "$@"
