@@ -1,8 +1,10 @@
 #!/bin/false
-# Contributor: Chris Severance <aur.severach@spamgourmet.com>
+# Maintainer: Chris Severance aur.severach aATt spamgourmet dott com
 
+# Todo: add SystemD getty support to drpadmin
 # Todo: Fix autorebuild for multiple users with sudo chown
-# Todo: Test autouninstall when kernel upgrades
+# Todo: Insure upgrade after kernel upgrade removes previous `uname -r` folder
+# Todo: Fix ttyaa-ttyaa text in drpadmin
 # Digi bug: terminal freezes when viewing /proc/dgrp/mon
 
 # Digi Realport driver for Arch Linux. See Digi release notes for supported products.
@@ -73,7 +75,7 @@ _disable_drpadmin=0  # 0 for enabled, 1 for disabled
 
 # "make install" and other commands described in the release notes
 # only build properly in the Arch environment when you first run
-# "makepkg -sC" to unpack the source allowing PKGBUILD can patch the build files.
+# "makepkg -sC" to unpack the source allowing this PKGBUILD to patch the build files.
 
 # makepkg switches:
 #  -s = build package
@@ -100,6 +102,7 @@ _disable_drpadmin=0  # 0 for enabled, 1 for disabled
 # sleep 5 # wait for network and other services to start
 # /etc/init.d/dgrp_daemon start # This submits configured interfaces to the kernel module
 # /etc/init.d/dgrp_ditty start  # this sets configured baud rates and other ditty-rp settings for the ports
+# You won't get a graceful shutdown on reboot.
 
 # In general for any manual upgrade you will need to:
 # "sudo make preuninstall" # this shuts down all of your interfaces which unloads the kernel module. 
@@ -150,25 +153,37 @@ arch=("i686" "x86_64")
 url="http://www.digi.com/"
 license=("GPL" "APACHE" "custom:DigiInternational")
 makedepends=('linux-headers' 'openssl' 'sudo') # openssl in in Arch Linux "base"
-_kernelversionsmall="`uname -r | sed -e 's/-ARCH//g'`"
-depends=("linux=$_kernelversionsmall" "openssl")
-optdepends=('tcl' 'tk')
-source=("$pkgname-$pkgver-81000137_W.tgz::http://ftp1.digi.com/support/driver/81000137_W.tgz")
-md5sums=('bd47dfdbec3794330fcb9df715ec0c67')
+
+_lock_to_kernel=1
+
+# Locking to a kernel is only necessary if we must manually uninstall before
+# upgrading the kernel. Kernel locking makes upgrades impossible. Without a 
+# lock the service will stop before the reboot, and not start on the next boot.
+# We'll sense the missing kernel module and the upgrade will remove the
+# old kernel module and install the new one. The upgrade will start the kernel
+# module.
+_kernelversionsmall="`uname -r | cut -d - -f 1`"
+if [ $_lock_to_kernel -ne 0 ]; then
+  depends=("linux=$_kernelversionsmall")
+else
+  depends=("linux" "openssl")
+  backup=('etc/dgrp.backing.store') # don't do this if you kernel lock or your config will be lost on upgrade
+fi
+conflicts=("linux>$_kernelversionsmall" "linux<$_kernelversionsmall")
+optdepends=('tcl: digi config manager in X' 'tk: digi config manager in X')
+source=("$pkgname-$pkgver-81000137_W.tgz::http://ftp1.digi.com/support/driver/81000137_W.tgz" 'drpadmin' 'drpadmin.1' 'autorebuild-dgrp.sh')
+sha1sums=('0d160edd35060167ea24e431f0d7a236621b341a'
+          '02897479df2928d07a9e714856ef2373eb301e07'
+          '0aadc7bce6ddd88279b9f2441b207740d2b6aa47'
+          '95dfdd12b9308c079e614c3af1143902d40dfb07')
 options=("!docs" "!emptydirs")
 install="$pkgname-install.sh"
 _autorebuild=autorebuild-$pkgname.sh
-_autorebuildsenseexe="/usr/bin/dgrp/daemon/drpd"
-_kernelversion="`uname -r`"
-#backup=('etc/dgrp.backing.store') 
-# The backup system doesn't work right. This would cause downtime every upgrade
-# as the config file is constantly renamed only to have a dummy file put in 
-# place. Installs and upgrades work perfectly 
-# when we pretend the config file isn't related to us.
+_autorebuildsenseexe="/usr/lib/modules/\`uname -r\`/misc/dgrp.ko"
 
 prepare() {
   cd "$_pkgnamever"
-  ./configure # --prefix=/usr
+  ./configure # --prefix=/usr # this didn't work
 
   # Produce an Arch compatible Makefile
   if [ ! -f Makefile.inc.Arch ]; then
@@ -271,11 +286,11 @@ EOF
   fi
 
   # we need this to be safe just in case this points to the real /etc instead of pkg/etc as we expect
-  # as non root we'll be unable to erase any of these things from the real /etc. On Arch none will exist anyways
+  # as non root we'll be unable to erase any of these things from the real /etc. On Arch Linux none will exist anyways
   mv -n "$pkgdir/etc/init.d/dgrp_daemon" "$pkgdir/etc/init.d/dgrp_ditty" "$pkgdir/usr/bin/dgrp/daemon/"
   rm -f "$pkgdir/etc/init.d/dgrp_daemon" "$pkgdir/etc/init.d/dgrp_ditty"
   rmdir "$pkgdir/etc/init.d" "$pkgdir/etc"
-  chmod 1777 "$pkgdir/tmp"
+  chmod 1777 "$pkgdir/tmp" # /tmp is not allowed in packages. We're not making a binary distro so having /tmp here shouldn't be a problem.
   chmod 700 "$pkgdir/usr/bin/dgelreset" "$pkgdir/usr/bin/dgipserv" "$pkgdir/usr/bin/dgrp/config/postinstall" "$pkgdir/usr/bin/dgrp/config/preuninstall"
   # It's not really clear to me why these are in the man pages but not in the path so you can use them.
   cd "$pkgdir/usr/bin"
@@ -307,34 +322,22 @@ EOF
   rm -f dgrp_$_daemon.service
 done
 
-  # Install my custom drpadmin with man page. This automatically detects if the files wern't generated from being disabled.
+  # Install my custom drpadmin with man page. This automatically detects if the files aren't provided.
   sed -i -e "s/RealPort/$_RealPort/gI" $pkgdir/usr/share/man/man8/*.8 $pkgdir/usr/share/man/man1/*.1
   if [ -s "$srcdir/../drpadmin" ]; then
-    sed -i -e 's/^#distro=:::$/distro="Arch Linux"/g' "$srcdir/../drpadmin"
-    sed -i -e "s/RealPort/$_RealPort/gI" "$srcdir/../drpadmin"
     install -Dm755 "$srcdir/../drpadmin" "$pkgdir/usr/bin/"
-    rm -f "$srcdir/../drpadmin"
+    sed -i -e 's/^#distro=:::$/distro="Arch Linux"/g' \
+           -e "s/RealPort/$_RealPort/gI" "$pkgdir/usr/bin/drpadmin"
     if [ -s "$srcdir/../drpadmin.1" ]; then
-      sed -i -e "s/RealPort/$_RealPort/gI" "$srcdir/../drpadmin.1"
       install -Dm444 "$srcdir/../drpadmin.1" "$pkgdir/usr/share/man/man1/"
+      sed -i -e "s/RealPort/$_RealPort/gI" "$pkgdir/usr/share/man/man1/drpadmin.1"
     fi
   fi
-  rm -f "$srcdir/../drpadmin.1"
-
-  # see man pacman "HANDLING CONFIG FILES" for why we want to do this.
-  #if [ "$_DGRP_STORE" != "/$backup" ]; then
-  #  echo "The backup store has changed. Please update backup= in PKGBUILD"
-  #  exit 127
-  #fi
-  #install -d "$pkgdir/etc"
-  #touch -t 201504040509 "$pkgdir$_DGRP_STORE"
-  # Unfortunately pacman does not handle config files well in a manner that
-  # makes upgrades tolerable. See backup= above.
 }
 
 _geninstall() {
 # produce the install script so it doesnt need to be downloaded separately
-# I'm wondering why there isn't a function for this
+# I'm wondering why there isn't a function for this.
 cat > "$install" << EOF
 # Automatically generated by $pkgname-$pkgver PKGBUILD from Arch Linux AUR
 # http://aur.archlinux.org/
@@ -381,191 +384,3 @@ EOF
 chmod 644 "$install"
 }
 #_geninstall
-
-# Generate the autorebuild script
-rm -f $_autorebuild
-cat > $_autorebuild << EOF
-#!/bin/sh
-
-# Automatically generated by $pkgname-$pkgver PKGBUILD from Arch Linux AUR
-# http://aur.archlinux.org/
-
-# Do not modify or remove this file. It is marked read-only to stop you.
-# It will be overwritten the next time makepkg is run.
-# If you remove this script your package will not auto rebuild and your
-# hardware will stop working after the next kernel upgrade.
-# If you need to update this file then modify the PKGBUILD.
-
-# Purpose: Automatically build and install this package on the next login
-# after pacman removes it on kernel upgrade. 
-# Every package that needs to be autorebuilt should have a shell script
-# like this one. All you need is a PKGBUILD and a sense file to tell
-# when the package is missing.
-
-# This shell script can be easily adapted to any PKGBUILD. As an alternative
-# you can look into "DKMS" Dynamic Kernel Module Support.
-
-# To launch, add this to any user's profile or the system profile.
-# sudo must be installed and configured. Each user expected to rebuild packages
-# must be added to the wheel group (usermod -G).
-
-# for install_group in \`groups\`; do
-#   if [ "\$install_group" = "wheel" ]; then
-#     find ~/pkg -type f -perm /400 -name "autorebuild-*.sh" -exec sh {} \;
-#     break
-#   fi
-# done
-
-# For your search folder you can use ~ if you can be certain that one
-# user will login after a system upgrade. To prevent searching an oversize
-# home folder you might want to keep your rebuilding packages 
-# in a folder like ~/pkg.
-
-# (Note: the multi user aspect has yet to be tested)
-
-# For multiple users you can use a standard folder set to be world writable.
-
-if [ ! -x "$_autorebuildsenseexe" ]; then
-  if [ "\$EUID" -ne "0" ]; then
-    cd "\`dirname "\$0"\`" # compatible with cron and find
-    prevumask=\`umask\`; umask 000
-    makepkg -sCcfi
-    umask \$prevumask
-    ## Allow other users to build without permissions interference
-    ## This would be a security problem in most environments
-    ## chmod 777 files with any x bit set
-    #find . -type f ! "(" -perm 666 -o -perm 777 ")" -a -perm /111 -exec chmod 777 {} \;
-    ## chmod 666 files without any x bit set
-    #find . -type f ! "(" -perm 666 -o -perm 777 ")" -a "!" -perm /111 -exec chmod 666 {} \;
-    ## chmod 777 files with any x bit set
-    #find . -type d ! -perm 777 -exec chmod 777 {} \;
-  else
-    # su user -c "\$*" # this might work if you need the root user to rebuild.
-    echo "\`tput clear\`"
-    echo "Important. A recent kernel upgrade has diabled your"
-    echo ""
-    echo "$_pkgdescshort"
-    echo "Status: Disabled!"
-    echo ""
-    echo "It is easy to rebuild and enable but not by a root user."
-    echo "You must log in as a non root user with sudo access (wheel group) and"
-    echo ""
-    echo "run: \$0"
-    echo ""
-    echo "if it doesn't start automatically."
-    echo "Press Enter"
-    read autorebuild
-  fi
-else
-  echo "$_pkgdescshort installed"
-fi
-EOF
-chmod 555 $_autorebuild
-
-if [ "$_disable_drpadmin" -eq 0 ]; then
-
-# Generate shell script drpadmin from within PKGBUILD.
-# You can disable above this if you don't want anything connected with SCO.
-
-# To update drpadmin from editing versions: 
-# Delete the following scrambly text then run these lines
-# cp -p drpadmin.sh drpadmin
-# cp -p drpadmin_txt.1 drpadmin.1
-# tar czvf - drpadmin drpadmin.1 | openssl base64 >> PKGBUILD
-# echo -e "EOF\nfi" >> PKGBUILD
-
-openssl base64 -d << EOF | tar --no-same-owner -xzf -
-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
-buu2buu2buu2bn9N+x+aOHSSAFAAAA==
-EOF
-fi
