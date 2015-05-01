@@ -1,6 +1,6 @@
 # Maintainer: 2ion <dev@2ion.de>
 pkgname=forecast-git
-pkgver=0.2.r1.gbf2e513
+pkgver=0.3
 pkgrel=1
 pkgdesc="Query weather forecasts from forecast.io"
 arch=('i686' 'x86_64')

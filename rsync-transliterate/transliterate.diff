@@ -1,0 +1,167 @@
+This patch adds an option --tr=BAD/GOOD to transliterate filenames.  It
+can be used to remove characters illegal on the destination filesystem.
+Jeff Weber expressed interest in this:
+
+http://lists.samba.org/archive/rsync/2007-October/018996.html
+
+This patch is a COMPLETE HACK that covers the most common cases.  Others
+are welcome to improve it.
+
+To use this patch, run these commands for a successful build:
+
+    patch -p1 <patches/transliterate.diff
+    ./configure                                 (optional if already run)
+    make
+--- rsync-3.1.1/flist.c.orig	2014-06-13 19:05:08.000000000 -0400
++++ rsync-3.1.1/flist.c	2015-04-30 12:43:23.553840491 -0400
+@@ -86,6 +86,9 @@
+ extern iconv_t ic_send, ic_recv;
+ #endif
+ 
++extern char *tr_opt, *tr_left, *tr_right;
++extern int tr_right_len;
++
+ #define PTR_SIZE (sizeof (struct file_struct *))
+ 
+ int io_error;
+@@ -668,6 +671,24 @@
+ 		stats.total_size += F_LENGTH(file);
+ }
+ 
++static void transliterate(char *thisname)
++{
++	char *p1, *p2, *pleft;
++
++	for (p1 = p2 = thisname; *p1; p1++) {
++		/* Look up the current character in the left string. */
++		pleft = strchr(tr_left, *p1);
++		if (!pleft)
++			/* Not found: no change. */
++			*p2++ = *p1;
++		else if (pleft - tr_left < tr_right_len)
++			/* Store replacement from the right string. */
++			*p2++ = tr_right[pleft - tr_left];
++		/* Otherwise delete. */
++	}
++	*p2 = '\0';
++}
++
+ static struct file_struct *recv_file_entry(int f, struct file_list *flist, int xflags)
+ {
+ 	static int64 modtime;
+@@ -736,6 +757,9 @@
+ 	}
+ #endif
+ 
++        if (tr_opt)
++            transliterate(thisname);
++
+ 	if (*thisname
+ 	 && (clean_fname(thisname, CFN_REFUSE_DOT_DOT_DIRS) < 0 || (!relative_paths && *thisname == '/'))) {
+ 		rprintf(FERROR, "ABORTING due to unsafe pathname from sender: %s\n", thisname);
+--- rsync-3.1.1/options.c.orig	2014-06-14 12:55:37.000000000 -0400
++++ rsync-3.1.1/options.c	2015-04-30 12:40:44.353839608 -0400
+@@ -192,6 +192,8 @@
+ int logfile_format_has_o_or_i = 0;
+ int always_checksum = 0;
+ int list_only = 0;
++char *tr_opt = NULL, *tr_left = NULL, *tr_right = NULL;
++int tr_right_len = 0;
+ 
+ #define MAX_BATCH_NAME_LEN 256	/* Must be less than MAXPATHLEN-13 */
+ char *batch_name = NULL;
+@@ -804,6 +806,7 @@
+   rprintf(F,"     --iconv=CONVERT_SPEC    request charset conversion of filenames\n");
+ #endif
+   rprintf(F,"     --checksum-seed=NUM     set block/file checksum seed (advanced)\n");
++  rprintf(F,"     --tr=BAD/GOOD           transliterate filenames\n");
+   rprintf(F," -4, --ipv4                  prefer IPv4\n");
+   rprintf(F," -6, --ipv6                  prefer IPv6\n");
+   rprintf(F,"     --version               print version number\n");
+@@ -1023,6 +1026,7 @@
+   {"iconv",            0,  POPT_ARG_STRING, &iconv_opt, 0, 0, 0 },
+   {"no-iconv",         0,  POPT_ARG_NONE,   0, OPT_NO_ICONV, 0, 0 },
+ #endif
++  {"tr",               0,  POPT_ARG_STRING, &tr_opt, 0, 0, 0 },
+   {"ipv4",            '4', POPT_ARG_VAL,    &default_af_hint, AF_INET, 0, 0 },
+   {"ipv6",            '6', POPT_ARG_VAL,    &default_af_hint, AF_INET6, 0, 0 },
+   {"8-bit-output",    '8', POPT_ARG_VAL,    &allow_8bit_chars, 1, 0, 0 },
+@@ -2338,6 +2342,31 @@
+ 		}
+ 	}
+ 
++	/* Easiest way to get a local server right is to do this on both sides */
++	if (tr_opt) {
++		if (*tr_opt) {
++			char *p;
++
++			need_unsorted_flist = 1;
++			/* Our mutation shouldn't interfere with transmission of the
++			 * original option to the server. */
++			tr_left = strdup(tr_opt);
++			p = strchr(tr_left, '/');
++			if (p != NULL) {
++				*p = '\0';
++				p++;
++				tr_right = p;
++				tr_right_len = strlen(tr_right);
++				if (strchr(tr_right, '/') != NULL) {
++					snprintf(err_buf, sizeof err_buf,
++						"--tr cannot transliterate slashes\n");
++					return 0;
++				}
++			}
++		} else
++			tr_opt = NULL;
++	}
++
+ 	am_starting_up = 0;
+ 
+ 	return 1;
+@@ -2763,6 +2792,12 @@
+ 	if (preallocate_files && am_sender)
+ 		args[ac++] = "--preallocate";
+ 
++	if (tr_opt) {
++		if (asprintf(&arg, "--tr=%s", tr_opt) < 0)
++			goto oom;
++		args[ac++] = arg;
++	}
++
+ 	if (ac > MAX_SERVER_ARGS) { /* Not possible... */
+ 		rprintf(FERROR, "argc overflow in server_options().\n");
+ 		exit_cleanup(RERR_MALLOC);
+diff --git a/rsync.yo b/rsync.yo
+--- a/rsync.yo
++++ b/rsync.yo
+@@ -427,6 +427,7 @@ to the detailed description below for a complete description.  verb(
+      --read-batch=FILE       read a batched update from FILE
+      --protocol=NUM          force an older protocol version to be used
+      --iconv=CONVERT_SPEC    request charset conversion of filenames
++     --tr=BAD/GOOD           transliterate filenames
+      --checksum-seed=NUM     set block/file checksum seed (advanced)
+  -4, --ipv4                  prefer IPv4
+  -6, --ipv6                  prefer IPv6
+@@ -2122,6 +2123,22 @@ daemon uses the charset specified in its "charset" configuration parameter
+ regardless of the remote charset you actually pass.  Thus, you may feel free to
+ specify just the local charset for a daemon transfer (e.g. bf(--iconv=utf8)).
+ 
++dit(bf(--tr=BAD/GOOD)) Transliterates filenames on the receiver, after the
++iconv conversion (if any).  This can be used to remove characters illegal
++on the destination filesystem.  If you use this option, consider saving a
++"find . -ls" listing of the source in the destination to help you determine
++the original filenames in case of need.
++
++The argument consists of a string of characters to remove, optionally
++followed by a slash and a string of corresponding characters with which to
++replace them.  The second string may be shorter, in which case any leftover
++characters in the first string are simply deleted.  For example,
++bf(--tr=':\/!') replaces colons with exclamation marks and deletes backslashes.
++Slashes cannot be transliterated because it would cause havoc.
++
++If the receiver is invoked over a remote shell, use bf(--protect-args) to
++stop the shell from interpreting any nasty characters in the argument.
++
+ dit(bf(-4, --ipv4) or bf(-6, --ipv6)) Tells rsync to prefer IPv4/IPv6
+ when creating sockets.  This only affects sockets that rsync has direct
+ control over, such as the outgoing socket when directly contacting an
