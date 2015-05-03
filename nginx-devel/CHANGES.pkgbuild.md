@@ -1,3 +1,10 @@
+## 1.9.0
+* modsecurity-2.9.0
+* --with-http_auth_request_module
+* --with-stream
+* --with-stream_ssl_module
+* removed systemd socket ( fail during building )
+
 ## 1.7.9-2
 * readded http_auth_pam
 * push-0.73
