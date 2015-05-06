@@ -1,6 +1,5 @@
-# Maintainer: Yoann Laissus <yoann dot laissus at gmail dot com"
+# Maintainer: Tom Swartz <tom.swartz07+aur@gmail.com>
 # Contributor Kuba Serafinowski <zizzfizzix(at)gmail(dot)com>
-# https://github.com/zizzfizzix/pkgbuilds
 
 ##############################################################
 #### The section below can be adjusted to suit your needs ####
@@ -14,9 +13,9 @@ _buildtype="Release"
 
 ##############################################################
 
-_name=mirall
+_name=owncloudclient
 pkgname=owncloud-client-beta
-pkgver=1.7.0rc1
+pkgver=1.8.1rc2
 pkgrel=1
 pkgdesc="ownCloud client based on mirall. Beta version."
 arch=('i686' 'x86_64' 'armv7h')
@@ -24,12 +23,12 @@ url="http://owncloud.org/"
 license=('GPL2')
 depends=('qtkeychain-qt5' 'neon' 'qt5-base')
 makedepends=('cmake' 'qt5-tools')
-provides=('mirall' 'ocsync' 'owncloud-client')
-conflicts=('mirall-git' 'owncloud-client')
-install=owncloud-client.install
+provides=('owncloudcmd' 'ocsync' 'owncloud-client')
+conflicts=('owncloudcmd' 'ocsync' 'owncloud-client')
+#install=owncloud-client.install
 backup=("etc/ownCloud/sync-exclude.lst")
-source=("http://download.owncloud.com/download/testing/${_name}-${pkgver}.tar.bz2")
-md5sums=('d7f68d35d172ca00a7b04c2552ac9b4b')
+source=("http://download.owncloud.com/desktop/testing/${_name}-${pkgver}.tar.xz")
+md5sums=('18f0c0bab4248a36f204ea14b7598cd5')
 
 if [[ ! ${_buildtype} == "Release" ]] && [[ ! ${_buildtype} == "release" ]]; then
   options=(!strip)

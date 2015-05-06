@@ -2,18 +2,18 @@
 # Maintainer: Matthew Wardrop <mister.wardrop@gmail.com>
 
 pkgbase=linux-surfacepro3
-_srcname=linux-3.19
-pkgver=3.19.3
-pkgrel=2
+_srcname=linux-4.0
+pkgver=4.0.1
+pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/matthewwardrop/linux-surfacepro3"
 license=('GPL2')
 makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc')
 options=('!strip')
-source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.sign"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.xz"
-        "https://www.kernel.org/pub/linux/kernel/v3.x/patch-${pkgver}.sign"
+source=("https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.xz"
+        "https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.sign"
+        "https://www.kernel.org/pub/linux/kernel/v4.x/patch-${pkgver}.xz"
+        "https://www.kernel.org/pub/linux/kernel/v4.x/patch-${pkgver}.sign"
         # the main kernel config files
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
@@ -26,19 +26,19 @@ source=("https://www.kernel.org/pub/linux/kernel/v3.x/${_srcname}.tar.xz"
         'multitouch.patch'
         'surface3-touchpad.conf'
         )
-sha256sums=('be42511fe5321012bb4a2009167ce56a9e5fe362b4af43e8c371b3666859806c'
+sha256sums=('0f2f7d44979bc8f71c4fc5d3308c03499c26a824dd311fdf6eef4dee0d7d5991'
             'SKIP'
-            'cd9474b61b859d68f83ff0b769bafef8489d2090e0a933d2a7e5f76a23cc071a'
+            '9b4b47eb6584dc39aaa5db46843b83f7c60975abecbda4dc106a8722eabe96fb'
             'SKIP'
-            '6cd1b172417216ba5ad573f9de5f4585af58e45131c6ca074916cf5d1344c6e9'
-            'a782bd89eec359b7111ef07e55f4b662ba1ed08ca9466dffa3f078773f3757f5'
+            '409dc2d60e9d163f89c8383fab589bff8f4513f4661207f6064301dd832f2dfe'
+            'a3bebae833dda5f873d6c54159c30f1d3f08cf5c8282c2810d661a082cfd5804'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            '2ff56ee66d720f52cbd2e3311307066da3db409c0082b9c8798e83891a3f0d05'
+            'c77889774ad0c588a79974192865beea4eef1f43414efc2316e182941d591966'
             'a6c5c5dc3fa3e35e9eb762c36c4596f889df7c52be8d0533d697e47786fdef32'
             'e149dda8c92feca0fc9bbcbca0d0c3b749246b441ab9f7d34a0f68aeae76504c'
             'ec4bbf44dc1e226ccfdc33884e4a38b2209af0a576a8edcae9226b9ecb8fa27f'
-            '6483b294f2d35a3697d5747ecb30cc7b9605abe47cb4d4a33a086efbc10f65ad'
+            '4ed061724498d6c7017641caad7c749dad53a20f7c648f23b70c1e402715e002'
             'a4f8197e5efd61c04a531cfc7ffc5fc2c000299bdd93480745a992eec16d0580'
             )
 validpgpkeys=(
