@@ -6,7 +6,7 @@
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-4.0
 toi_ver=4.0
-pkgver=4.0.1
+pkgver=4.0.2
 pkgrel=1
 #_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-14.patch
 arch=('i686' 'x86_64')
@@ -29,10 +29,10 @@ source=("https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.xz"
 
 sha256sums=('0f2f7d44979bc8f71c4fc5d3308c03499c26a824dd311fdf6eef4dee0d7d5991'
             'SKIP'
-            '9b4b47eb6584dc39aaa5db46843b83f7c60975abecbda4dc106a8722eabe96fb'
+            'c879ac300e9c1c8d2433ad9c66be5d374d15cf2175ac9876fb22d7d53a6b2e3b'
             'SKIP'
-            '874707337012f7942c4351687ca56027417b1cf7a055759399256db2da5f7450'
-            'd7e1458126aa876b8b4945c9f6c8cc0bdfa9d8d54141575f447a58ded23cf4d7'
+            'fc9881cd7c74bf0e6d3c4d6fb6a743daaff1f1af0ad7066600ede3b247a618af'
+            'd33167f6561aa589cea36f31eca7e28dd35a65e2ca9e4d31d85d82071aa22142'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
             '800d83469ff03f1ee7d9ac27babddd582cdb83339717ab6ff03fffa8bf0da0fb')
