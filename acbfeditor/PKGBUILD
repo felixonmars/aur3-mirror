@@ -1,7 +1,7 @@
 # Maintainer: Marius Nestor <marius[at]matamare[dot]ro>
 
 pkgname=acbfeditor
-pkgver=0.1
+pkgver=0.4
 pkgrel=1
 pkgdesc="Comic book editor for ACBF and CBZ formats."
 url="https://launchpad.net/acbf"
@@ -11,11 +11,11 @@ depends=('desktop-file-utils' 'hicolor-icon-theme' 'pygtk>=2.12' 'python2-lxml' 
 optdepends=('unzip: for viewing ZIP files containing images')
 source=("https://launchpad.net/acbf/trunk/1.0/+download/ACBFEditor-${pkgver}_linux.tar.gz"
 	acbfe)
-md5sums=('cf567bae773a0e789bdb5161f44547f0' '22eca9865f682cefd793b06cb896f272')
+md5sums=('adf9293c9e248d59ad322e42b38890cc' '22eca9865f682cefd793b06cb896f272')
 
 package() {
   # Mime type
-  install -Dm644 acbf.xml $pkgdir/usr/share/mime/packages/acbf.xml
+  #install -Dm644 acbf.xml $pkgdir/usr/share/mime/packages/acbf.xml
   
   # Program files
   mkdir -p $pkgdir/usr/share/acbfe/src
