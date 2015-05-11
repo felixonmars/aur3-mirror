@@ -1,7 +1,7 @@
 # Maintainer : boronology <boronology at gmail dot com>
 pkgname=ttf-rounded-mplus
 pkgver=20150110
-pkgrel=2
+pkgrel=3
 depends=('fontconfig' 'xorg-font-utils')
 pkgdesc="Japanese rounded gothic fonts based on M+ FONTS"
 arch=('any')
