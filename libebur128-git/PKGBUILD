@@ -2,7 +2,7 @@
 
 pkgname=libebur128-git
 _pkgname=${pkgname%-git}
-pkgver=1.0.2.0.g05a6c1a
+pkgver=1.0.2.2.g552b0cd
 pkgrel=1
 pkgdesc="library implementing the EBU R128 loudness standard"
 arch=(x86 x86_64)
@@ -23,7 +23,10 @@ pkgver() {
 build() {
   mkdir -p "$srcdir/build"
   cd "$srcdir/build"
-  cmake -D CMAKE_INSTALL_PREFIX="$pkgdir/usr" ../${_pkgname}
+  cmake \
+    -D CMAKE_INSTALL_PREFIX="$pkgdir/usr" \
+    -D CMAKE_INSTALL_LIBDIR="$pkgdir/usr/lib" \
+    ../${_pkgname}
   make
 }
 
