@@ -8,6 +8,8 @@ url=https://github.com/Rufflewind/slatec
 license=(PD)
 depends=()
 makedepends=(git gcc-fortran)
+provides=(slatec)
+conflicts=(slatec)
 source=($pkgname::git://github.com/Rufflewind/slatec)
 sha256sums=(SKIP)
 

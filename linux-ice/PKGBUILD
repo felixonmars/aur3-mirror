@@ -5,10 +5,9 @@
 #pkgbase=linux               # Build stock -ARCH kernel
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-4.0
-toi_ver=4.0
-pkgver=4.0.2
+pkgver=4.0.3
 pkgrel=1
-#_toipatch=tuxonice-for-linux-head-3.19.0-2015-02-14.patch
+_toipatch=tuxonice-for-linux-4.0.2-2015-05-11.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
 license=('GPL2')
@@ -23,19 +22,18 @@ source=("https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.xz"
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
         'change-default-console-loglevel.patch'
-        "tuxonice-${toi_ver}.patch.bz2"
-        #"http://tuxonice.net/downloads/all/${_toipatch}.bz2"
+        "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
 
 sha256sums=('0f2f7d44979bc8f71c4fc5d3308c03499c26a824dd311fdf6eef4dee0d7d5991'
             'SKIP'
-            'c879ac300e9c1c8d2433ad9c66be5d374d15cf2175ac9876fb22d7d53a6b2e3b'
+            'e8e42b67cd5ca28d3cd85b868a8caf6c0b971c948d6695ea6e399e132664de83'
             'SKIP'
             'fc9881cd7c74bf0e6d3c4d6fb6a743daaff1f1af0ad7066600ede3b247a618af'
             'd33167f6561aa589cea36f31eca7e28dd35a65e2ca9e4d31d85d82071aa22142'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
-            '800d83469ff03f1ee7d9ac27babddd582cdb83339717ab6ff03fffa8bf0da0fb')
+            '4b92d07f35ef87aba311e61f5fa8df93caae5f4d13cabc36601de85d8a148410')
 validpgpkeys=(
             'ABAF11C65A2970B130ABE3C479BE3E4300411886' # Linus Torvalds
             '647F28654894E3BD457199BE38DBBDC86092693E' # Greg Kroah-Hartman
@@ -45,10 +43,6 @@ _kernelname=${pkgbase#linux}
 
 prepare() {
   cd "${srcdir}/${_srcname}"
-
-  # tuxonice patch
-  #patch -p1 -i "${srcdir}/${_toipatch}"
-  patch -p1 -i "${srcdir}/tuxonice-${toi_ver}.patch"
 
   # add upstream patch
   patch -p1 -i "${srcdir}/patch-${pkgver}"
@@ -61,6 +55,8 @@ prepare() {
   # (relevant patch sent upstream: https://lkml.org/lkml/2011/7/26/227)
   patch -p1 -i "${srcdir}/change-default-console-loglevel.patch"
 
+  # tuxonice patch
+  patch -p1 -i "${srcdir}/${_toipatch}"
 
   if [ "${CARCH}" = "x86_64" ]; then
     cat "${srcdir}/config.x86_64" > ./.config

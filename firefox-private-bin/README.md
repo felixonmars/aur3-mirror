@@ -1,4 +1,4 @@
-### Firefox 37.0 for Linux 自编译版：
+### Firefox 38.0 for Linux 自编译版：
 
 1. 使用 `GCC O3 SSE2` 编译参数；
 2. `BetterPGO` 编译；
@@ -10,7 +10,7 @@
 
 ### 更新说明：
 
-2015-03-27 更新：
+2015-05-l0 更新：
 
 1. `GCC 4.8.2 -O3` 编译，支持 `gstreamer 0.10.x` （API/ABI）；
 2. 加入了一个 `MOZILLA_DISABLE_PLUGINS` 环境变量（设为 1 时禁止插件启动，同步 Iceweasel 特性）；
@@ -22,7 +22,7 @@
 
 ===================================================================
 
-### What's new (03/27/2015):
+### What's new (05/10/2015):
 
 1. `gcc 4.8.2 -O3` with graphite optimization.
 2. ~~Embedded [Flash(x64) plugin][1] and [Alipay(x64)][2] plugins.~~

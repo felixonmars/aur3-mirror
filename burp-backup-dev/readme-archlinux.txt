@@ -1,11 +1,14 @@
-*** For general usage instructions for burp v2 backup refer to the links below:
-http://burp.grke.org/burp2.html
+*** For general usage instructions for burp backup refer to the link below:
 http://burp.grke.org/
 
 *** To setup a burp server edit the "/etc/burp/burp-server.conf" file as desired and then
 execute the following commands:
 # systemctl start burp-server.service
 # systemctl enable burp-server.service
+
+*** To create your first client configuration on the server.
+Copy the "testclient" example from /etc/burp/clientconfdir/incexc to
+/etc/burp/clientconfdir and edit it accordingly.
 
 *** To setup a linux client computer to run regular backups, edit "/etc/burp/burp.conf" and
 then execute the commands below.
