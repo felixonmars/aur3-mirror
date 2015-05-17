@@ -16,7 +16,7 @@ sed -i \
     -e '/rm -f chimei\/\*.zip/d' \
     -e '/rm -f chimei\/gen_zip_code_seed.py/d' \
     -e '/rm -rf ..\/mozc-$MOZCVER\//d' \
-    -e 's/mozc-\$MOZCVER/mozc/g' \
+    -e 's|mozc-\$MOZCVER|mozc/src|g' \
     -e '/# unpack official mozc/,+6d' \
     -e '/# generate zip code dic/,+11d' \
     -e '/# debian\/rules/,+2d' \
