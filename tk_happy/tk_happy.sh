@@ -1,3 +1,3 @@
 #!/bin/sh
 
-python /usr/lib/python2.6/site-packages/tk_happy/run_happy.py "$@"
+python2 /usr/lib/python2.7/site-packages/tk_happy/run_happy.py "$@"

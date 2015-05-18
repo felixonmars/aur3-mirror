@@ -1,7 +1,7 @@
 pkgname=rar2fs
 pkgver=1.20.0
 _rls="$pkgname-$pkgver"
-pkgrel=3
+pkgrel=4
 pkgdesc="Fuse file system for reading Rar archives"
 arch=(i686 x86_64)
 license=(GPL3)
@@ -19,8 +19,8 @@ source=(
 )
 md5sums=(1cd32b77522eff7fb3db3f7049725a82)
 
-source+=(http://www.rarlab.com/rar/unrarsrc-5.2.2.tar.gz)
-md5sums+=(69ef5af8442cbb7dfdebe298bfb9c61a)  # From Arch's "unrar" package
+source+=(http://www.rarlab.com/rar/unrarsrc-5.2.7.tar.gz)
+md5sums+=(0c145e1ac47d428553123462c0740279)  # From Arch's "unrar" package
 
 build() {
     cd "$srcdir/$_rls"
