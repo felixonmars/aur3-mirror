@@ -1,6 +1,6 @@
-# Maintaner: Joel Pedraza <joel@joelpedraza.com>
+# Maintaner: Sushovan Mandal <mandal.sushovan92@gmail.com>
 
-_rev=r02
+_rev=r05
 _sdkver=5.0
 _sdkint=21
 pkgname=android-google-apis-x86_64-${_sdkint}
@@ -13,10 +13,8 @@ license=('custom')
 depends=("android-platform-${_sdkint}")
 options=('!strip')
 source=(
-	"http://dl.google.com/android/repository/sys-img/google_apis/sysimg_x86_64-${_sdkint}_${_rev}.zip"
+	"http://dl-ssl.google.com/android/repository/sys-img/google_apis/sysimg_x86_64-${_sdkint}_${_rev}.zip"
 	"source.properties")
-sha1sums=('b8117ebeae1a9eddfe19cbb30a853dbc713ec1b6'
-          '6bd3e8ddd176957229480d9168d36bbd97982d38')
 
 package() {
   mkdir -p "${pkgdir}/opt/android-sdk/system-images/android-${_sdkint}/google_apis"
