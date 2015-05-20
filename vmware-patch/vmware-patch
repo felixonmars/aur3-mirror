@@ -43,7 +43,7 @@ while [[ $1 ]]; do
         nextopt=${opt#-[afkv]}
         if [[ $opt != $nextopt ]]; then
             # Multiple short flags
-		    opt=-$nextopt
+            opt=-$nextopt
         else
             # Long form (--force/--verbose)
             break
@@ -68,6 +68,16 @@ if ! grep -q "usbarbitrator" /usr/lib/systemd/system/vmware.service; then
         -i /usr/lib/systemd/system/vmware.service
 fi
 
+# Use VMware's bundled libcurl.so.4 to prevent crashes at startup/checking for updates
+for script in vmware vmplayer; do
+    if [[ -f /usr/bin/$script ]]; then
+        if ! grep -q "libcurl" /usr/bin/$script; then
+            sed '/$vmmon/a\   export LD_LIBRARY_PATH=/usr/lib/vmware/lib/libcurl.so.4' \
+                -i /usr/bin/$script
+        fi
+    fi
+done
+
 # Make sure there's a version in /etc/arch-release for Workstation 9 / Player 5
 # https://wiki.archlinux.org/index.php?title=VMware&oldid=274532#2.29_The_vmware-usbarbitrator_binary_is_segfaulting
 if [[ $ver = 9.* ]] || [[ $ver = 5.* ]]; then
@@ -77,23 +87,24 @@ if [[ $ver = 9.* ]] || [[ $ver = 5.* ]]; then
     fi
 fi
 
-# Fix Vmci/Vsock loading
+# Fix VMCI/VSOCK loading for Workstation 10 / Player (Plus) 6 and earlier
 if [[ $ver != 11.* ]] && [[ $ver != 7.* ]]; then
     if grep -q '$vsock_alias' /etc/init.d/vmware; then
         sed -e 's/mod=$(vmwareRealModName $vmci $vmci_alias)/mod=vmci/' \
             -e 's/mod=$(vmwareRealModName $vsock $vsock_alias)/mod=vsock/' \
           -i /etc/init.d/vmware
     fi
-elif grep -q 'mod=vmci' /etc/init.d/vmware; then
-    # Revert the tweak for Workstation 11 / Player (Pro) 7
-    sed -e 's/mod=vmci/mod=$(vmwareRealModName $vmci $vmci_alias)/' \
-        -e 's/mod=vsock/mod=$(vmwareRealModName $vsock $vsock_alias)/' \
-      -i /etc/init.d/vmware
+else
+    if grep -q 'mod=vmci' /etc/init.d/vmware; then
+        # Revert the tweak for Workstation 11 / Player (Pro) 7
+        sed -e 's/mod=vmci/mod=$(vmwareRealModName $vmci $vmci_alias)/' \
+            -e 's/mod=vsock/mod=$(vmwareRealModName $vsock $vsock_alias)/' \
+          -i /etc/init.d/vmware
+    fi
 fi
 
 # Remove leftover module locations
 remove_leftover_module_dirs
-
 cd /usr/lib/vmware/modules/
 
 # Remove old backups
@@ -101,41 +112,6 @@ remove_old_backups
 
 # Available kernels
 kernels_all=($(cat /usr/lib/modules/extramodules-*/version))
-
-# Select kernel from menu
-menu() {
-    # Don't show previous menu
-    clear
-
-    # Menu
-    echo "Select kernels for which to build modules (leave empty for current kernel):"
-    for i in ${!kernels_all[@]}; do 
-        printf "%3d%s) %s\n" "$((i+1))" "${choices[i]:- }" "${kernels_all[i]}"
-    done
-}
-
-# Wrapper function
-list_kernels() {
-    # Wait for Enter
-    while menu && read -rp "Press Enter when done: " num && [[ $num ]]; do
-        # Select correct item
-        (( num -- ))
-
-        # Set plus mark (+)
-        if [[ ${choices[num]} ]]; then
-            choices[num]=""
-        else
-            choices[num]="+"
-        fi
-    done
-
-    # Chosen kernels
-    for i in ${!kernels_all[@]}; do 
-        if [[ ${choices[i]} ]]; then
-            kernels+=("${kernels_all[i]}")
-        fi
-    done
-}
 
 # Kernel(s) to build to
 if [[ ! $all ]]; then
@@ -167,14 +143,17 @@ for kernel in ${kernels[@]}; do
         exit 1
     fi
 
-    # Unload conflicting in-kernel modules (VMware can't handle these in Arch)
+    # Unload conflicting in-kernel modules in less than Workstation 11 / Player (Pro) 7
     if [[ $ver != 11.* ]] && [[ $ver != 7.* ]]; then
         rmmod "vsock" "vmw_vsock_vmci_transport" "vmw_vmci" 2>/dev/null || true
+    else
+        modprobe "vsock" "vmw_vsock_vmci_transport" "vmw_vmci" 2>/dev/null || true
     fi
 
-    # Applicable patches (patches/[mod]-[ver]-[kernel].patch)
+    # Detect applicable patches (/usr/lib/vmware/modules/patches/[mod]-[ver]-[kernel].patch)
     unset patches
     for patch in patches/*; do
+        # Some variables
         ver_patch=$(echo $patch | cut -d "-" -f2)
         kernel_patch=$(echo $patch | grep -Po ".*-\K\d+\.\d+")
         kernel_major=$(echo $kernel | cut -d "." -f-2)
@@ -221,16 +200,6 @@ for kernel in ${kernels[@]}; do
             fi
             tar -xf "$mod.tar"
 
-            # Patch function
-            patch_sources() {
-                if [[ $verbose ]]; then
-                    msg3 "Patching.."
-                    patch -p0 -f -i "../$patch"
-                else
-                    patch -p0 -s -f -i "../$patch"
-                fi
-            }
-
             # Loop through applicable patches
             # printf '%s\n': print ${patches[@]} in separate lines for grepping
             for patch in $(printf '%s\n' "${patches[@]}" | grep "$mod"); do
@@ -268,36 +237,30 @@ for kernel in ${kernels[@]}; do
         msg2 "No patching required.."
     fi
 
-    # Print 'vmware-modconfig-*.log's and exit
-    print_logs() {
-        for log in /tmp/vmware-root/vmware-modconfig-*.log; do
-            error2 "$log"
-        done
-        exit 1
-    }
-
     # Install
     msg "Installing modules.."
     if [[ $verbose ]]; then
+        # Run vmware-modconfig
         if ! vmware-modconfig --console --install-all -k "$kernel"; then
-            if [[ $ver = 11.* ]] || [[ $ver = 7.* ]]; then
-                modprobe vmw_vmci
-                msg2 "Done."
-            else
+            # See logs
+            if ls /tmp/vmware-root/vmware-modconfig-*.log &>/dev/null; then
                 error "Unable to build. See:"
                 print_logs
+            else 
+                error "Unable to build. See logs in /tmp/vmware-root/"
             fi
         else
             msg2 "Done."
         fi
     else
+        # Run vmware-modconfig
         if ! vmware-modconfig --console --install-all -k "$kernel" &>/dev/null; then
-            if [[ $ver = 11.* ]] || [[ $ver = 7.* ]]; then
-                modprobe vmw_vmci
-                msg2 "Done."
-            else
+            # See logs
+            if ls /tmp/vmware-root/vmware-modconfig-*.log &>/dev/null; then
                 error "Unable to build. Re-run with '-v' (--verbose) or see:"
                 print_logs
+            else
+                error "Unable to build. See logs in /tmp/vmware-root/"
             fi
         else
             msg2 "Done."

@@ -44,7 +44,7 @@ yellow="${bold}$(tput setaf 3)"
 # Version information
 print_version() {
     echo "$(basename $0) $(pacman -Q vmware-patch | cut -d ' ' -f2)"
-    echo "Copyright (c) 2013-2014  Nobody"
+    echo "Copyright (c) 2013-2015  Nobody"
     echo
     echo "THIS SCRIPT IS PROVIDED AS-IS FOR ANY PURPOSE WHATSOEVER. YOU ARE FREE TO SHARE IT, MODIFY IT,"
     echo "TAKE CREDIT OF IT, AND SELL IT ON THE STREETS."
@@ -78,6 +78,41 @@ set_product_name() {
     fi
 }
 
+# Select kernel from menu
+menu() {
+    # Don't show previous menu
+    clear
+
+    # Menu
+    echo "Select kernels for which to build modules (leave empty for current kernel):"
+    for i in ${!kernels_all[@]}; do 
+        printf "%3d%s) %s\n" "$((i+1))" "${choices[i]:- }" "${kernels_all[i]}"
+    done
+}
+
+# Wrapper function
+list_kernels() {
+    # Wait for Enter
+    while menu && read -rp "Press Enter when done: " num && [[ $num ]]; do
+        # Select correct item
+        (( num -- ))
+
+        # Set plus mark (+)
+        if [[ ${choices[num]} ]]; then
+            choices[num]=""
+        else
+            choices[num]="+"
+        fi
+    done
+
+    # Chosen kernels
+    for i in ${!kernels_all[@]}; do 
+        if [[ ${choices[i]} ]]; then
+            kernels+=("${kernels_all[i]}")
+        fi
+    done
+}
+
 # Compile leftover module locations
 remove_leftover_module_dirs() {
     for i in /usr/lib/modules/*; do
@@ -107,4 +142,22 @@ remove_old_backups() {
             rm -r "$i"
         done
     fi
+}
+
+# Patch function
+patch_sources() {
+    if [[ $verbose ]]; then
+        msg3 "Patching.."
+        patch -p0 -f -i "../$patch"
+    else
+        patch -p0 -s -f -i "../$patch"
+    fi
+}
+
+# Print vmware-modconfig-*.logs and exit
+print_logs() {
+    for log in /tmp/vmware-root/vmware-modconfig-*.log; do
+        error2 "$log"
+    done
+    exit 1
 }

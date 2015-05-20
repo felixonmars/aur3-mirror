@@ -6,14 +6,14 @@ import xml.etree.ElementTree as ET
 
 
 def main():
-    build_common_xml_filename = 'build_common.xml'
-    if not os.access(build_common_xml_filename, os.R_OK | os.W_OK):
+    build_xml_filename = 'build.xml'
+    if not os.access(build_xml_filename, os.R_OK | os.W_OK):
         print(
-            '%s not found. Skipping' % build_common_xml_filename,
+            '%s not found. Skipping' % build_xml_filename,
             file=sys.stderr)
         return
 
-    tree = ET.parse(build_common_xml_filename)
+    tree = ET.parse(build_xml_filename)
 
     try:
         git_version = subprocess.check_output(
@@ -50,7 +50,7 @@ def main():
         for element in tree.findall(path):
             element.set('value', str(versions[version_type]))
 
-    tree.write('build_common.xml', encoding='UTF-8', xml_declaration=True)
+    tree.write(build_xml_filename, encoding='UTF-8', xml_declaration=True)
 
 if __name__ == '__main__':
     main()
