@@ -1,7 +1,7 @@
 # Maintainer: Anton Batenev <antonbatenev@yandex.ru>
 
 pkgname=('ekstertera')
-pkgver=0.0.8
+pkgver=0.0.9
 pkgrel=1
 pkgdesc=("GUI client for Yandex.Disk")
 arch=('i686' 'x86_64')
@@ -13,50 +13,61 @@ sha256sums=('SKIP')
 
 export QT_SELECT=5
 
-build() {
-    project_file="${pkgname}.pro"
+prepare() {
+    QT_VERSION=$(qmake -query 'QT_VERSION' | cut -d '.' -f 1)
+    export QT_VERSION
+}
 
+build() {
     cd ${srcdir}/${pkgname}
 
     QT_OPTS="network"
-    if [ "${QT_SELECT}" -eq "4" ]; then
-        QT_OPTS="${QT_OPTS}"
-    else
+    SRC_3DPARTY="3dparty/json"
+
+    if [ "${QT_VERSION}" -eq "4" ]; then
+        SRC_3DPARTY="${SRC_3DPARTY} 3dparty/qt5"
+    elif [ "${QT_VERSION}" -eq "5" ]; then
         QT_OPTS="${QT_OPTS} core widgets"
+    else
+        echo "Unknown Qt version"
+        exit 1
     fi
 
-    qmake -project -recursive -Wall -nopwd -o "${project_file}" \
+    qmake -project -recursive -Wall -nopwd -o "${pkgname}.pro" \
         "CODEC = UTF-8" \
         "CODECFORTR = UTF-8" \
         "CONFIG += release" \
         "QT += ${QT_OPTS}" \
         "INCLUDEPATH += src" \
-        "TRANSLATIONS += src/translations/ekstertera_en.ts" \
-        src
+        "TRANSLATIONS += src/translations/${pkgname}_en.ts" \
+        src ${SRC_3DPARTY}
 
-    lrelease -compress -removeidentical "${project_file}"
-    qmake "${project_file}"
+    lrelease -compress -removeidentical "${pkgname}.pro"
+    qmake "${pkgname}.pro"
     make
 
-    mv "${pkgname}" "${pkgname}-qt${QT_SELECT}"
+    mv "${pkgname}" "${pkgname}-qt${QT_VERSION}"
 }
 
 package() {
-    if [ "${QT_SELECT}" -eq "4" ]; then
+    if [ "${QT_VERSION}" -eq "4" ]; then
         depends=('qt4')
-    else
+    elif [ "${QT_VERSION}" -eq "5" ]; then
         depends=('qt5-base')
+    else
+        echo "Unknown Qt version"
+        exit 1
     fi
 
     install -d "${pkgdir}/usr/bin"
     install -d "${pkgdir}/usr/share/pixmaps"
     install -d "${pkgdir}/usr/share/applications"
 
-    install -D -m755 "${srcdir}/${pkgname}/${pkgname}-qt${QT_SELECT}" "${pkgdir}/usr/bin/${pkgname}-qt${QT_SELECT}"
-    install -D -m644 "${srcdir}/${pkgname}/${pkgname}.desktop"        "${pkgdir}/usr/share/applications/${pkgname}.desktop"
-    install -D -m644 "${srcdir}/${pkgname}/src/icons/${pkgname}.xpm"  "${pkgdir}/usr/share/pixmaps/${pkgname}.xpm"
-    install -D -m644 "${srcdir}/${pkgname}/README.md"                 "${pkgdir}/usr/share/doc/${pkgname}/README.md"
-    install -D -m644 "${srcdir}/${pkgname}/debian/copyright"          "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -D -m755 "${srcdir}/${pkgname}/${pkgname}-qt${QT_VERSION}" "${pkgdir}/usr/bin/${pkgname}-qt${QT_VERSION}"
+    install -D -m644 "${srcdir}/${pkgname}/${pkgname}.desktop"         "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+    install -D -m644 "${srcdir}/${pkgname}/src/icons/${pkgname}.xpm"   "${pkgdir}/usr/share/pixmaps/${pkgname}.xpm"
+    install -D -m644 "${srcdir}/${pkgname}/README.md"                  "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -D -m644 "${srcdir}/${pkgname}/debian/copyright"           "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
-    ln -s "/usr/bin/${pkgname}-qt${QT_SELECT}" "${pkgdir}/usr/bin/${pkgname}"
+    ln -s "/usr/bin/${pkgname}-qt${QT_VERSION}" "${pkgdir}/usr/bin/${pkgname}"
 }
