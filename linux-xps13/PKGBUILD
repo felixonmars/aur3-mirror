@@ -4,7 +4,7 @@ pkgname=linux-xps13
 true && pkgname=(linux-xps13 linux-xps13-headers)
 _kernelname=-xps13
 _srcname=linux-4.0
-pkgver=4.0.1
+pkgver=4.0.4
 pkgrel=1
 arch=('i686' 'x86_64')
 url="https://github.com/gunzy83/linux-xps13-archlinux"
@@ -22,10 +22,10 @@ source=("https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.xz"
         'xps13.patch')
 sha256sums=('0f2f7d44979bc8f71c4fc5d3308c03499c26a824dd311fdf6eef4dee0d7d5991'
             'SKIP'
-            '9b4b47eb6584dc39aaa5db46843b83f7c60975abecbda4dc106a8722eabe96fb'
+            'c268985a82483fe75f0f397217208e262f85a356d1d9f34b9e22255e549d7ce9'
             'SKIP'
-            '514aa8a9d03d2419c8084725fcdb2b5b4ce07966f5bd6a51224a5f7a5f8c3694'
-            'b268b03a042e3f604a12a80c6e24c42006e4d9bf4a6d9b3201eb006942718128'
+            'f70f2935b1881697ff986b80b444de422cf1869740ca33c25d3d1f20f5e56ba5'
+            '03b740ce5c70593d26634974499eefc9fc24841d972c38c05f9febd2d0b77249'
             'bf7ccd0ca928dc47b7e2a87d08d8f19faafbb21ff957e22f1ee78a180961047e'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'            
             'f7723d4a2e07da82b3698fb4edb5cf1ca0ccbbc3e789247118fcb7a44d89cdf2')

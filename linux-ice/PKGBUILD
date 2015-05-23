@@ -6,7 +6,7 @@
 pkgbase=linux-ice       # Build kernel with a different name
 _srcname=linux-4.0
 pkgver=4.0.4
-pkgrel=1
+pkgrel=2
 _toipatch=tuxonice-for-linux-4.0.2-2015-05-11.patch
 arch=('i686' 'x86_64')
 url="http://www.kernel.org/"
@@ -21,6 +21,7 @@ source=("https://www.kernel.org/pub/linux/kernel/v4.x/${_srcname}.tar.xz"
         'config' 'config.x86_64'
         # standard config files for mkinitcpio ramdisk
         'linux.preset'
+	'md-raid0-fix-restore-to-sector-variable-in-raid0_mak.patch'
         'change-default-console-loglevel.patch'
         "http://tuxonice.net/downloads/all/${_toipatch}.bz2"
 )
@@ -29,9 +30,10 @@ sha256sums=('0f2f7d44979bc8f71c4fc5d3308c03499c26a824dd311fdf6eef4dee0d7d5991'
             'SKIP'
             'c268985a82483fe75f0f397217208e262f85a356d1d9f34b9e22255e549d7ce9'
             'SKIP'
-            'fc9881cd7c74bf0e6d3c4d6fb6a743daaff1f1af0ad7066600ede3b247a618af'
-            'd33167f6561aa589cea36f31eca7e28dd35a65e2ca9e4d31d85d82071aa22142'
+            'a33ac3308e9bcafd99ab6a51a4429fcb0122b8ffcdb2e7115b52d20f0adb81fc'
+            'cc070af025151db516145d111d6c5c081b933fc9cbbbda394a19d4ea60dd83b7'
             'f0d90e756f14533ee67afda280500511a62465b4f76adcc5effa95a40045179c'
+            'bc83293e64653d60793708a0e277741f57c018f5ea3551a8aff3a220df917ceb'
             '1256b241cd477b265a3c2d64bdc19ffe3c9bbcee82ea3994c590c2c76e767d99'
             '4b92d07f35ef87aba311e61f5fa8df93caae5f4d13cabc36601de85d8a148410')
 validpgpkeys=(
@@ -49,6 +51,9 @@ prepare() {
 
   # add latest fixes from stable queue, if needed
   # http://git.kernel.org/?p=linux/kernel/git/stable/stable-queue.git
+
+  # https://bugzilla.kernel.org/show_bug.cgi?id=98501
+  patch -Np1 -i "${srcdir}/md-raid0-fix-restore-to-sector-variable-in-raid0_mak.patch"
 
   # set DEFAULT_CONSOLE_LOGLEVEL to 4 (same value as the 'quiet' kernel param)
   # remove this when a Kconfig knob is made available by upstream
