@@ -3,8 +3,8 @@
 
 _pkgbase=asix
 pkgname=asix-dkms
-pkgver=v4.14.0
-pkgrel=2
+pkgver=v4.17.0
+pkgrel=1
 pkgdesc="Driver for USB ASIX Ethernet models AX88772C 772B 772A 760 772 178"
 arch=('i686' 'x86_64')
 url="http://www.asix.com.tw/"
@@ -22,10 +22,10 @@ source=("http://www.asix.com.tw/FrootAttach/driver/${_pkgname}_${pkgver}_${_pkgn
         "asix-dkms.install"
         "time_date_errors.patch")
 		
-md5sums=('8fdd212a09196629878491622e19af25'
+md5sums=('611a447e67ac0443d36d16fd065a5a41'
          'fc33b5dd739e8964a346525a1434143e'
-         '811163b44999fd08359e8bf77a705480'
-         'e0682b1f89edfc5e29ca0b9bac220446')
+         '5710bd634c776a8aa842687125386c12'
+         'a13efd5ba934b4b983496d1172ee716a')
 
 package() {
 	
@@ -41,9 +41,9 @@ package() {
             -i $installDir/dkms.conf
 
  	cd "${srcdir}/${_pkgname}_${pkgver}_${_pkgname2}/"
- 	
-        patch -p1 -i $srcdir/time_date_errors.patch
 
+  patch -p1 -i $srcdir/time_date_errors.patch
+ 	
  	for d in `find . -type d`
  	do
 		install -dm755  "$installDir/$d"
