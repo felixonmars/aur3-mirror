@@ -3,7 +3,7 @@
 
 pkgbase=llvmlinux-git
 pkgname=${pkgbase}
-pkgver=4.0.r7209.g7d69cff
+pkgver=4.1.rc5.r75.gde18246
 pkgrel=1
 pkgdesc="The Linux Kernel built with (native) LLVM/Clang"
 arch=('i686' 'x86_64')
@@ -23,7 +23,7 @@ source=('llvmlinux'::'git://git.linuxfoundation.org/llvmlinux.git'
 	'0001_clang_arch.patch')
 md5sums=('SKIP'
          'SKIP'
-         'fad7f266e3fee904117eb59970d246cf'
+         '5529cc75817ac8025bc1cbb9944a851d'
          '951a65b16527d6f9058bcde1ec2ec158'
          'ccd57fa4236cfb7ed622aab11ab71a59')
 
@@ -34,7 +34,7 @@ export KARCH=x86
 export USE_ARCH_PATCH="yes"
 
 #32-bit build assume i586, so we need a variable for that
-if [ ${CARCH} == i686 ]; then
+if [ "${CARCH}" == "i686" ]; then
 	_lll_target=i586
 else
 	_lll_target=x86_64

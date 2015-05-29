@@ -1,31 +1,51 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
-temp_mirrorlist_file="$(mktemp)"
+#TODO: Comment and document!
 
+temp_mirrorlist_file="$(mktemp)"
 cleanup()
 {
 	rm "$temp_mirrorlist_file"
 }
 trap cleanup EXIT
 
-#TODO: Make this configurable outside of the systemd serivce.
-mirrorlist_file="$1"
-mirrorlist_url="$2"
+#TODO: Proper, GNU style, command line argument handling.
+#Use settings from the configuration file first.
+source '/etc/update-pacman-mirrorlist' || true
+set +u
+#Prefer settings from the command line arguments.
+if [ -n "$1" ]; then
+	mirrorlist_file="$1"
+fi
+if [ -n "$2" ]; then
+	mirrorlist_url="$2"
+fi
+#Fall back to defaults if the settings are not defined in the configuration file or command line arguments.
+if [ -z "$mirrorlist_file" ]; then
+	mirrorlist_file='/etc/pacman.d/mirrorlist'
+fi
+if [ -z "$mirrorlist_url" ]; then
+	mirrorlist_url='https://www.archlinux.org/mirrorlist/?country=all&use_mirror_status=on'
+fi
+set -u
 
 if [ ! -e "$mirrorlist_file" ]; then
 	exit 1;
 fi
 
-curl -fL "$mirrorlist_url" -o "$temp_mirrorlist_file"
+echo "Downloading new mirrorlist from $mirrorlist_url to $mirrorlist_file."
+#TODO: Retry download in a more intelligent manner as to not overload the server.
+curl -fLC - --retry 3 --retry-delay 3 "$mirrorlist_url" -o "$temp_mirrorlist_file"
 
 #TODO: Better sanity checking.
-if [[ $(diff <(head -n 3 "$temp_mirrorlist_file" ) <(echo -e '##\n## Arch Linux repository mirrorlist\n## Sorted by mirror score from mirror status page')) ]]; then
+if [[ $(diff <(head -n 3 "$temp_mirrorlist_file") <(echo -e '##\n## Arch Linux repository mirrorlist\n## Sorted by mirror score from mirror status page')) ]]; then
 	exit 1;
 fi
 
 sed '/^#\S/ s|#||' -i "$temp_mirrorlist_file"
 
+#TODO: These last three commands are the only ones that need to run as root; privileges should be dropped until then.
 cat "$mirrorlist_file" > "$mirrorlist_file.backup"
 cat "$temp_mirrorlist_file" > "$mirrorlist_file"
 
