@@ -1,7 +1,7 @@
 # Maintainer: Lars Hagström <lars@foldspace.nu>
 pkgname=airtame-streamer-experimental
 pkgver=1.0.0_b2_6
-pkgrel=1
+pkgrel=2
 pkgdesc="Stream your display to an airtame dongle."
 arch=('x86_64')
 url="http://www.airtame.com"
@@ -9,34 +9,29 @@ license=('Proprietary')
 groups=()
 provides=("airtame-streamer")
 conflicts=("airtame-streamer")
-depends=("ffmpeg-compat" "python" "python-pyqt5")
+depends=("jsonrpc-c" "ffmpeg-compat")
 makedepends=("unzip" "yasm")
 install=
 source=("http://downloads.airtame.com/update/beta/lin_x64/AIRTAME-v${pkgver//_/-}_x64.tar.gz"
-        "jsonrpcc::git+https://github.com/airtame/jsonrpc-c.git"
         "enet::git+https://github.com/airtame/enet.git#branch=development"
         "zlog::git+https://github.com/airtame/zlog.git"
         "x264::git+git://git.videolan.org/x264.git"
-        "streamer.sh")
+        "streamer.sh"
+        "airtame-streamer.service")
 md5sums=('3cb4a74a0cf2127761d98d89a6930e37'
          'SKIP'
          'SKIP'
          'SKIP'
-         'SKIP'
-         '785d2c8f992b595a1bff48d6ec82c058')
+         '785d2c8f992b595a1bff48d6ec82c058'
+         '99547aa5d4ff813ed62a5378673a4495')
 
 #not updated yet
 #        "airtame-tray")
-#        "airtame-streamer.service"
+
 
 backup=()
 
 build() {
-  cd "$srcdir/jsonrpcc"
-  autoreconf -i
-  ./configure
-  make
-
   cd "$srcdir/enet"
   autoreconf -vfi
   ./configure
@@ -61,8 +56,7 @@ package() {
   install -d ${pkgdir}/opt/airtame/bin
   install -d ${pkgdir}/opt/airtame/lib
   install -d ${pkgdir}/usr/bin
-  #install -d ${pkgdir}/usr/lib
-  #install -d ${pkgdir}/usr/lib/systemd/user
+  install -d ${pkgdir}/usr/lib/systemd/user
 
   #copy our own scripts
   cp streamer.sh ${pkgdir}/usr/bin/airtame-streamer
@@ -70,9 +64,9 @@ package() {
   cp views/assets/tray/icon-blue@2x.png ${pkgdir}/opt/airtame/logo.png
 
   #install our systemd user service
-  #cp airtame-streamer.service ${pkgdir}/usr/lib/systemd/user/
+  cp airtame-streamer.service ${pkgdir}/usr/lib/systemd/user/
 
-  #copy the two executables we need to bin directory
+  #copy the executable to bin directory
   cp streamer/bin/airtame-streamer ${pkgdir}/opt/airtame/bin
 
   #copy the modules
@@ -83,7 +77,6 @@ package() {
 
   #copy the libraries that airtame have forked or used newer versions of,
   #and that we've built in the build() function
-  cp jsonrpcc/src/.libs/libjsonrpcc.so.0.0.0 ${pkgdir}/opt/airtame/lib/libjsonrpcc.so.0
   cp enet/.libs/libenet.so.7.0.0 ${pkgdir}/opt/airtame/lib/libenet.so.7
   cp zlog/src/libzlog.so.1.2 ${pkgdir}/opt/airtame/lib
   cp x264/libx264.so.146 ${pkgdir}/opt/airtame/lib
