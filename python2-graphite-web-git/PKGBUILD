@@ -1,10 +1,10 @@
 # Maintainer: Augusto F. Hack <hack.augusto@gmail.com>
 pkgname=python2-graphite-web-git
 pkgver=0.9.12
-pkgrel=3
-pkgdesc="A highly scalable real-time graphing system"
-arch=('x86_64')
-url="https://github.com/graphite-project/graphite-web"
+pkgrel=4
+pkgdesc='A highly scalable real-time graphing system'
+arch=('any')
+url='https://github.com/graphite-project/graphite-web'
 license=('apache')
 depends=('django-tagging'
          'python2'
@@ -41,7 +41,7 @@ md5sums=('SKIP'
          '9afb0197f417d8867cfd8565202d75b9'
          'c922407af21607c4893a73aaf94e2ac2'
          'bc6202530257b223444732ab7c7e22b1'
-         '2f6db163ae8cd9fdb57f6b5d634bac6c') 
+         '2f6db163ae8cd9fdb57f6b5d634bac6c')
 install=graphite.install
 
 pkgver() {

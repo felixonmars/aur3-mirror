@@ -22,7 +22,7 @@ source=("http://www.amok.am/files/releases/AmoK_Exif_Sorter_v${pkgver}_(Linux_${
 	"amok-exif-sorter.desktop"
 	"aes.ico")
 
-build() {
+package() {
 	install -D amok-exif-sorter.desktop $pkgdir/usr/share/applications/amok-exif-sorter.desktop
 	mkdir -p $pkgdir/opt/AmokExifSorter/
 	cp -Lrp * $pkgdir/opt/AmokExifSorter/
