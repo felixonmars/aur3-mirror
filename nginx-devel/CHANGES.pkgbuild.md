@@ -1,3 +1,6 @@
+## 1.9.1
+* pagespeed-1.9.32.3-beta
+
 ## 1.9.0
 * modsecurity-2.9.0
 * --with-http_auth_request_module
