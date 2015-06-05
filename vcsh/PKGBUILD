@@ -4,7 +4,7 @@
 # Contributor: Dieter Plaetinck <dieter@plaetinck.be>
 
 pkgname=vcsh
-pkgver=1.20141026
+pkgver=1.20150502
 pkgrel=1
 pkgdesc='manage config files in HOME via fake bare git repositories'
 arch=('any')
@@ -12,17 +12,19 @@ url='https://github.com/RichiH/vcsh'
 license=('GPL')
 depends=('git')
 optdepends=('myrepos: helps manage a large number of repositories')
-source=("https://github.com/RichiH/vcsh/archive/v${pkgver}-manpage-static.zip")
-_src_dir="vcsh-${pkgver}-manpage-static"
-sha256sums=('9d57bc84a780437a816955a7711ac02d23634ea5a673fdc3018b5aa90f3dd706')
+source=("https://github.com/RichiH/vcsh/archive/v${pkgver}.zip")
+_src_dir="vcsh-${pkgver}"
+sha256sums=('4b39f229f6149e46f07a98fc3cb284f4c7e37b99b35f84b2365032e360dcf61f')
 
-check() {
+prepare() {
   cd "$srcdir/$_src_dir"
-  make -k test
+
+  sed -i 's|\(install:\) all|\1|' Makefile
 }
 
 package() {
   cd "$srcdir/$_src_dir"
+
   make DESTDIR="$pkgdir/" ZSHDIR='$(PREFIX)/share/zsh/site-functions' install
 }
 
