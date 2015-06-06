@@ -1,5 +1,5 @@
 diff --git a/include/ClientDB.py b/include/ClientDB.py
-index 7b87ff2..735063e 100755
+index 1913511..0c7c497 100755
 --- a/include/ClientDB.py
 +++ b/include/ClientDB.py
 @@ -2279,7 +2279,7 @@ class DB( HydrusDB.HydrusDB ):
@@ -11,50 +11,13 @@ index 7b87ff2..735063e 100755
              
          
          #
-diff --git a/include/ClientData.py b/include/ClientData.py
-index 49add31..9fe4e27 100644
---- a/include/ClientData.py
-+++ b/include/ClientData.py
-@@ -1595,32 +1595,6 @@ class Shortcuts( HydrusSerialisable.SerialisableBaseNamed ):
-     
- HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_SHORTCUTS ] = Shortcuts
- 
--class Subscription( HydrusSerialisable.SerialisableBaseNamed ):
--    
--    SERIALISABLE_TYPE = HydrusSerialisable.SERIALISABLE_TYPE_SUBSCRIPTION
--    VERSION = 1
--    
--    def __init__( self, name ):
--        
--        HydrusSerialisable.SerialisableBaseNamed.__init__( self, name )
--        
--        self._gallery_query = None
--        self._periodic_info = None # include last checked and paused
--        self._url_cache = []
--        
--    
--    def _GetSerialisableInfo( self ):
--        
--        return ( serialisable_mouse_actions, serialisable_keyboard_actions )
--        
--    
--    def _InitialiseFromSerialisableInfo( self, serialisable_info ):
--        
--        ( serialisable_mouse_actions, serialisable_keyboard_actions ) = serialisable_info
--        
--    
--HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_SUBSCRIPTION ] = Subscription
--
- class UndoManager( object ):
-     
-     def __init__( self ):
 diff --git a/include/ClientGUICanvas.py b/include/ClientGUICanvas.py
-index cc18d33..4c8f9fe 100755
+index 76df9b3..c900c2d 100755
 --- a/include/ClientGUICanvas.py
 +++ b/include/ClientGUICanvas.py
-@@ -48,7 +48,8 @@ NON_ZOOMABLE_MIMES = list( HC.AUDIO ) + [ HC.APPLICATION_PDF ]
+@@ -50,7 +50,8 @@ NON_LARGABLY_ZOOMABLE_MIMES = [ mime for mime in HC.VIDEO if mime != HC.VIDEO_WE
  
- NON_LARGABLY_ZOOMABLE_MIMES = [ mime for mime in HC.VIDEO if mime != HC.VIDEO_WEBM ] + [ HC.APPLICATION_FLASH ]
+ EMBED_BUTTON_MIMES = [ HC.VIDEO_FLV, HC.APPLICATION_FLASH ]
  
 -def CalculateCanvasZoom( media, ( canvas_width, canvas_height ) ):
 +def CalculateCanvasZoom( media, canvas_dims ):
@@ -63,10 +26,10 @@ index cc18d33..4c8f9fe 100755
      ( media_width, media_height ) = media.GetResolution()
      
 diff --git a/include/ClientGUIDialogs.py b/include/ClientGUIDialogs.py
-index a956ede..ddc95bd 100755
+index 15b7fb4..2ea8e04 100755
 --- a/include/ClientGUIDialogs.py
 +++ b/include/ClientGUIDialogs.py
-@@ -113,7 +113,8 @@ class Dialog( wx.Dialog ):
+@@ -244,7 +244,8 @@ class Dialog( wx.Dialog ):
      
      def EventDialogButton( self, event ): self.EndModal( event.GetId() )
      
@@ -1551,10 +1514,10 @@ index 6a1d8c5..0000000
 -    '''
 \ No newline at end of file
 diff --git a/include/ClientGUIPages.py b/include/ClientGUIPages.py
-index 51205ae..cd0b965 100755
+index 8aae01e..8e8b36e 100755
 --- a/include/ClientGUIPages.py
 +++ b/include/ClientGUIPages.py
-@@ -101,59 +101,6 @@ class PageBase( object ):
+@@ -90,59 +90,6 @@ class PageBase( object ):
          
          HydrusGlobals.pubsub.pub( 'resume', self._page_key )
          
@@ -1614,11 +1577,570 @@ index 51205ae..cd0b965 100755
  class PageWithMedia( PageBase, wx.SplitterWindow ):
      
      def __init__( self, parent, file_service_key = CC.LOCAL_FILE_SERVICE_KEY, initial_hashes = None, initial_media_results = None, starting_from_session = False ):
+diff --git a/include/ClientImporting.py b/include/ClientImporting.py
+deleted file mode 100644
+index c205af2..0000000
+--- a/include/ClientImporting.py
++++ /dev/null
+@@ -1,553 +0,0 @@
+-import ClientConstants as CC
+-import HydrusConstants as HC
+-import HydrusData
+-import HydrusSerialisable
+-import threading
+-import traceback
+-
+-class ImportController( HydrusSerialisable.SerialisableBase ):
+-    
+-    def __init__( self ):
+-        
+-        HydrusSerialisable.SerialisableBase.__init__( self )
+-        
+-        # queues of stuff, where every kind of queue can be serialised
+-        # hence don't have __init__ for subclasses! nothing beyond temp vars
+-        # everything must fit inside what I declare here
+-        # subclasses should mostly fill in _ProcessQueue kind of stuff.
+-        # don't forget THREAD stuff, which should probably be explicitly started by the managementpanel?
+-        # also, what about page_key? how are we reporting new imports and so on? maybe that can be temp var in the daemonspawner
+-        
+-        # hence maybe make a 'queue' object representing a list of urls or whatever -- maybe a urlcache can do that job.
+-        
+-        # a number of queues
+-        # a thing that extends a queue using a search
+-        # a list of searches that will be built into queues
+-        
+-        # maybe some class variables saying what parts to engage, like HDD doesn't accept new queues and so on
+-        
+-        self._file_status_counts = {}
+-        
+-        # if I decide to link search_seeds to the import_seed_queues, then why not bundle the import_seed_queue into the search_seed_info?
+-        # yes, this is a good idea.
+-        
+-        self._import_seed_queues = []
+-        self._importer_status = ( '', 0, 1 )
+-        
+-        self._search_seeds = SeedQueue()
+-        self._searcher_status = ( '', 0, 1 )
+-        
+-        self._options = {}
+-        
+-        self._lock = threading.Lock()
+-        self._import_status = ''
+-        
+-    
+-    def _GetSerialisableInfo( self ):
+-        
+-        # collapse file status counts into a list because of stupid int dict json thing
+-        
+-        serialisable_url_cache = HydrusSerialisable.DumpToTuple( self._url_cache )
+-        
+-        serialisable_options = { name : HydrusSerialisable.DumpToTuple( options ) for ( name, options ) in self._options.items() }
+-        
+-        return ( self._site_type, self._query_type, self._query, self._get_tags_if_redundant, serialisable_url_cache, serialisable_options )
+-        
+-    
+-    def _InitialiseFromSerialisableInfo( self, serialisable_info ):
+-        
+-        ( self._site_type, self._query_type, self._query, self._get_tags_if_redundant, serialisable_url_cache_tuple, serialisable_options_tuple ) = serialisable_info
+-        
+-        self._url_cache = HydrusSerialisable.CreateFromTuple( serialisable_url_cache_tuple )
+-        
+-        self._options = { name : HydrusSerialisable.CreateFromTuple( serialisable_suboptions_tuple ) for ( name, serialisable_suboptions_tuple ) in serialisable_options_tuple.items() }
+-        
+-    
+-    def _ProcessImportSeed( self, seed, seed_info ):
+-        
+-        raise NotImplementedError()
+-        
+-    
+-    def _ProcessSearchSeed( self, seed, seed_info ):
+-        
+-        raise NotImplementedError()
+-        
+-    
+-    def _DAEMONProcessImportSeeds( self ):
+-        
+-        while True:
+-            
+-            # if importer paused
+-            
+-            with self._lock:
+-                
+-                result = None
+-                
+-                # determine paused/cancelled status via searchseedqueue or whatever
+-                
+-                for import_seed_queue in self._import_seed_queues:
+-                    
+-                    result = import_seed_queue.GetNextUnknownSeed()
+-                    
+-                    if result is not None:
+-                        
+-                        # remember current import_seed_queue so we can set seed status later
+-                        
+-                        break
+-                        
+-                    
+-                
+-            
+-            if result is not None:
+-                
+-                ( seed, seed_info ) = result
+-                
+-                self._ProcessImportSeed( import_seed, seed_info )
+-                
+-            
+-        
+-    
+-    def _DAEMONProcessSearchSeeds( self ):
+-        
+-        while True:
+-            
+-            # if searcher paused
+-            
+-            with self._lock:
+-                
+-                result = import_seed_queue.GetNextUnknownSeed()
+-                
+-                
+-            
+-            if result is not None:
+-                
+-                ( seed, seed_info ) = result
+-                
+-                self._ProcessSearchSeed( seed, seed_info )
+-                
+-            
+-        
+-    
+-    def GetOptions( self, name ):
+-        
+-        with self._lock:
+-            
+-            return self._options[ name ]
+-            
+-        
+-    
+-    def GetStatuses( self ):
+-        
+-        with self._lock:
+-            
+-            return ( dict( self._file_status_counts ), self._import_status, self._current_queue_status, self._searcher_status )
+-            
+-        
+-    
+-    def PauseSearcher( self ):
+-        
+-        with self._lock:
+-            
+-            self._searcher_paused = True
+-            
+-        
+-    
+-    def ResumeCurrentQueue( self ):
+-        
+-        with self._lock:
+-            
+-            self._current_queue_paused = False
+-            
+-        
+-    
+-    def ResumeSearcher( self ):
+-        
+-        with self._lock:
+-            
+-            self._searcher_paused = False
+-            
+-        
+-    
+-    def SetOptions( self, name, options ):
+-        
+-        with self._lock:
+-            
+-            self._options[ name ] = options
+-            
+-        
+-    
+-class ImportControllerHDD( HydrusSerialisable.SerialisableBase ):
+-    
+-    SERIALISABLE_TYPE = HydrusSerialisable.SERIALISABLE_TYPE_HDD_IMPORT
+-    SERIALISABLE_VERSION = 1
+-    
+-    def __init__( self ):
+-        
+-        HydrusSerialisable.SerialisableBase.__init__( self )
+-        
+-        # this stuff is all moved to the search seed
+-        self._paths_info = None
+-        self._paths_to_tags = None
+-        self._delete_file_after_import = None
+-        self._import_file_options = None
+-        
+-        self._lock = threading.Lock()
+-        
+-    
+-    def _GetSerialisableInfo( self ):
+-        
+-        serialisable_url_cache = HydrusSerialisable.DumpToTuple( self._url_cache )
+-        
+-        serialisable_options = { name : HydrusSerialisable.DumpToTuple( options ) for ( name, options ) in self._options.items() }
+-        
+-        return ( self._site_type, self._query_type, self._query, self._get_tags_if_redundant, serialisable_url_cache, serialisable_options )
+-        
+-    
+-    def _InitialiseFromSerialisableInfo( self, serialisable_info ):
+-        
+-        ( self._site_type, self._query_type, self._query, self._get_tags_if_redundant, serialisable_url_cache_tuple, serialisable_options_tuple ) = serialisable_info
+-        
+-        self._url_cache = HydrusSerialisable.CreateFromTuple( serialisable_url_cache_tuple )
+-        
+-        self._options = { name : HydrusSerialisable.CreateFromTuple( serialisable_suboptions_tuple ) for ( name, serialisable_suboptions_tuple ) in serialisable_options_tuple.items() }
+-        
+-    
+-    def GetImportStatus( self ):
+-        
+-        with self._lock:
+-            
+-            return self._import_status
+-            
+-        
+-    
+-    def GetQueueStatus( self ):
+-        
+-        with self._lock:
+-            
+-            gauge_value = self._current_position
+-            gauge_range = len( self._paths_info )
+-            
+-            # return progress string
+-            # also return string for num_successful and so on
+-            
+-            pass
+-            
+-        
+-    
+-    def MainLoop( self ):
+-        
+-        # use the lock sparingly, remember
+-        # obey pause and hc.shutdown
+-        # maybe also an internal shutdown, on managementpanel cleanupbeforedestroy
+-        # update file_status_counts
+-        # increment current_position
+-        
+-        pass
+-        
+-    
+-    def Pause( self ):
+-        
+-        with self._lock:
+-            
+-            self._paused = True
+-            
+-        
+-    
+-    def Resume( self ):
+-        
+-        with self._lock:
+-            
+-            self._paused = False
+-            
+-        
+-    
+-    def SetTuple( self, paths_info, paths_to_tags, delete_file_after_import, import_file_options ):
+-        
+-        self._paths_info = paths_info
+-        self._paths_to_tags = paths_to_tags
+-        self._delete_file_after_import = delete_file_after_import
+-        self._import_file_options = import_file_options
+-        
+-    
+-    def Start( self ):
+-        
+-        # init a daemon to work through the list
+-        
+-        pass
+-        
+-    
+-HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_HDD_IMPORT ] = HDDImport
+-
+-class GalleryQuery( HydrusSerialisable.SerialisableBase ):
+-    
+-    SERIALISABLE_TYPE = HydrusSerialisable.SERIALISABLE_TYPE_GALLERY_QUERY
+-    SERIALISABLE_VERSION = 1
+-    
+-    def __init__( self, name ):
+-        
+-        HydrusSerialisable.SerialisableBase.__init__( self )
+-        
+-        self._site_type = None
+-        self._query_type = None
+-        self._query = None
+-        self._get_tags_if_redundant = False
+-        self._file_limit = 500
+-        self._paused = False
+-        self._page_index = 0
+-        self._url_cache = None
+-        self._options = {}
+-        
+-    
+-    def _GetSerialisableInfo( self ):
+-        
+-        serialisable_url_cache = HydrusSerialisable.DumpToTuple( self._url_cache )
+-        
+-        serialisable_options = { name : HydrusSerialisable.DumpToTuple( options ) for ( name, options ) in self._options.items() }
+-        
+-        return ( self._site_type, self._query_type, self._query, self._get_tags_if_redundant, self._file_limit, serialisable_url_cache, serialisable_options )
+-        
+-    
+-    def _InitialiseFromSerialisableInfo( self, serialisable_info ):
+-        
+-        ( self._site_type, self._query_type, self._query, self._get_tags_if_redundant, serialisable_url_cache_tuple, serialisable_options_tuple ) = serialisable_info
+-        
+-        self._url_cache = HydrusSerialisable.CreateFromTuple( serialisable_url_cache_tuple )
+-        
+-        self._options = { name : HydrusSerialisable.CreateFromTuple( serialisable_suboptions_tuple ) for ( name, serialisable_suboptions_tuple ) in serialisable_options_tuple.items() }
+-        
+-    
+-    def GetQuery( self ):
+-        
+-        return self._query
+-        
+-    
+-    def SetTuple( self, site_type, query_type, query, get_tags_if_redundant, file_limit, options ):
+-        
+-        self._site_type = site_type
+-        self._query_type = query_type
+-        self._query = query
+-        self._get_tags_if_redundant = get_tags_if_redundant
+-        self._file_limit = file_limit
+-        self._url_cache = URLCache()
+-        self._options = options
+-        
+-    
+-HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_GALLERY_QUERY ] = GalleryQuery
+-
+-class SubscriptionController( HydrusSerialisable.SerialisableBaseNamed ):
+-    
+-    SERIALISABLE_TYPE = HydrusSerialisable.SERIALISABLE_TYPE_SUBSCRIPTION
+-    SERIALISABLE_VERSION = 1
+-    
+-    def __init__( self, name ):
+-        
+-        HydrusSerialisable.SerialisableBaseNamed.__init__( self, name )
+-        
+-        self._site_type = None
+-        self._query_type = None
+-        self._query = None
+-        self._get_tags_if_redundant = False
+-        self._file_limit = 500
+-        self._periodic = None
+-        self._page_index = 0
+-        self._url_cache = None
+-        self._options = {}
+-        
+-    
+-    def _GetSerialisableInfo( self ):
+-        
+-        return ( HydrusSerialisable.DumpToTuple( self._gallery_query ), HydrusSerialisable.DumpToTuple( self._periodic ) )
+-        
+-    
+-    def _InitialiseFromSerialisableInfo( self, serialisable_info ):
+-        
+-        ( serialised_gallery_query_tuple, serialised_periodic_tuple ) = serialisable_info
+-        
+-        self._gallery_query = HydrusSerialisable.CreateFromTuple( serialised_gallery_query_tuple )
+-        
+-        self._periodic = HydrusSerialisable.CreateFromTuple( serialised_periodic_tuple )
+-        
+-    
+-HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_SUBSCRIPTION ] = Subscription
+-
+-class SeedQueue( HydrusSerialisable.SerialisableBase ):
+-    
+-    SERIALISABLE_TYPE = HydrusSerialisable.SERIALISABLE_TYPE_SEED_QUEUE
+-    SERIALISABLE_VERSION = 1
+-    
+-    def __init__( self ):
+-        
+-        HydrusSerialisable.SerialisableBase.__init__( self )
+-        
+-        self._seeds_ordered = []
+-        self._seeds_to_info = {}
+-        
+-        self._lock = threading.Lock()
+-        
+-    
+-    def _GetSerialisableInfo( self ):
+-        
+-        with self._lock:
+-            
+-            serialisable_info = []
+-            
+-            for seed in self._seeds_ordered:
+-                
+-                seed_info = self._seeds_to_info[ seed ]
+-                
+-                serialisable_info.append( ( seed, seed_info ) )
+-                
+-            
+-            return serialisable_info
+-            
+-        
+-    
+-    def _InitialiseFromSerialisableInfo( self, serialisable_info ):
+-        
+-        with self._lock:
+-            
+-            for ( seed, seed_info ) in serialisable_info:
+-                
+-                self._seeds_ordered.append( seed )
+-                
+-                self._seeds_to_info[ seed ] = seed_info
+-                
+-            
+-        
+-    
+-    def AddSeed( self, seed, additional_info = None ):
+-        
+-        with self._lock:
+-            
+-            if seed in self._seeds_to_info:
+-                
+-                self._seeds_ordered.remove( seed )
+-                
+-            
+-            self._seeds_ordered.append( seed )
+-            
+-            seed_info = {}
+-            
+-            seed_info[ 'status' ] = CC.STATUS_UNKNOWN
+-            seed_info[ 'timestamp' ] = HydrusData.GetNow()
+-            seed_info[ 'note' ] = ''
+-            
+-            if additional_info is not None:
+-                
+-                seed_info.update( additional_info )
+-                
+-            
+-            self._seeds_to_info[ seed ] = seed_info
+-            
+-            
+-        
+-    
+-    def AdvanceSeed( self, seed ):
+-        
+-        with self._lock:
+-            
+-            if seed in self._seeds_to_info:
+-                
+-                index = self._seeds_ordered.index( seed )
+-                
+-                if index > 0:
+-                    
+-                    self._seeds_ordered.remove( seed )
+-                    
+-                    self._seeds_ordered.insert( index - 1, seed )
+-                    
+-                
+-            
+-        
+-    
+-    def DelaySeed( self, seed ):
+-        
+-        with self._lock:
+-            
+-            if seed in self._seeds_to_info:
+-                
+-                index = self._seeds_ordered.index( seed )
+-                
+-                if index < len( self._seeds_ordered ) - 1:
+-                    
+-                    self._seeds_ordered.remove( seed )
+-                    
+-                    self._seeds_ordered.insert( index + 1, seed )
+-                    
+-                
+-            
+-        
+-    
+-    def GetNextUnknownSeed( self ):
+-        
+-        with self._lock:
+-            
+-            for seed in self._seeds_ordered:
+-                
+-                seed_info = self._seeds_to_info[ seed ]
+-                
+-                if seed_info[ 'status' ] == CC.STATUS_UNKNOWN:
+-                    
+-                    return ( seed, seed_info )
+-                    
+-                
+-            
+-        
+-        return None
+-        
+-    
+-    def GetSeeds( self ):
+-        
+-        with self._lock:
+-            
+-            return list( self._seeds_ordered )
+-            
+-        
+-    
+-    def GetSeedsDisplayInfo( self ):
+-        
+-        with self._lock:
+-            
+-            all_info = []
+-            
+-            for seed in self._seeds_ordered:
+-                
+-                seed_info = self._seeds_to_info[ seed ]
+-                
+-                timestamp = seed_info[ 'timestamp' ]
+-                status = seed_info[ 'status' ]
+-                note = seed_info[ 'note' ]
+-                
+-                all_info.append( ( seed, status, timestamp, note ) )
+-                
+-            
+-            return all_info
+-            
+-        
+-    
+-    def RemoveSeed( self, seed ):
+-        
+-        with self._lock:
+-            
+-            if seed in self._seeds_to_info:
+-                
+-                del self._seeds_to_info[ seed ]
+-                
+-                self._seeds_ordered.remove( seed )
+-                
+-            
+-        
+-    
+-    def SetSeedStatus( self, seed, status, note = '' ):
+-        
+-        with self._lock:
+-            
+-            seed_info = self._seeds_to_info[ seed ]
+-            
+-            seed_info[ 'status' ] = status
+-            seed_info[ 'timestamp' ] = HydrusData.GetNow()
+-            seed_info[ 'note' ] = note
+-            
+-        
+-    
+-HydrusSerialisable.SERIALISABLE_TYPES_TO_OBJECT_TYPES[ HydrusSerialisable.SERIALISABLE_TYPE_SEED_QUEUE ] = SeedQueue
 diff --git a/include/HydrusData.py b/include/HydrusData.py
-index b9d06f1..3e34b18 100644
+index c59425b..556095c 100644
 --- a/include/HydrusData.py
 +++ b/include/HydrusData.py
-@@ -946,15 +946,15 @@ class ClientToServerUpdate( HydrusYAMLBase ):
+@@ -959,15 +959,15 @@ class ClientToServerContentUpdatePackage( HydrusYAMLBase ):
                  
                  if data_type in ( HC.CONTENT_DATA_TYPE_TAG_SIBLINGS, HC.CONTENT_DATA_TYPE_TAG_PARENTS ) and action in ( HC.CONTENT_UPDATE_PENDING, HC.CONTENT_UPDATE_PETITION ):
                      
@@ -1638,10 +2160,10 @@ index b9d06f1..3e34b18 100644
                  
              else: new_action = action
 diff --git a/include/HydrusImageHandling.py b/include/HydrusImageHandling.py
-index 606e825..b627041 100755
+index 97c2fca..a69fe4e 100755
 --- a/include/HydrusImageHandling.py
 +++ b/include/HydrusImageHandling.py
-@@ -52,7 +52,8 @@ def ConvertToPngIfBmp( path ):
+@@ -50,7 +50,8 @@ def ConvertToPngIfBmp( path ):
              
          
      
@@ -1651,7 +2173,7 @@ index 606e825..b627041 100755
      
      ( im_y, im_x, depth ) = numpy_image.shape
      
-@@ -65,7 +66,8 @@ def EfficientlyResizeNumpyImage( numpy_image, ( target_x, target_y ) ):
+@@ -63,7 +64,8 @@ def EfficientlyResizeNumpyImage( numpy_image, ( target_x, target_y ) ):
      
      return cv2.resize( result, ( target_x, target_y ), interpolation = cv2.INTER_LINEAR )
      
@@ -1661,7 +2183,7 @@ index 606e825..b627041 100755
      
      ( im_x, im_y ) = pil_image.size
      
-@@ -78,7 +80,8 @@ def EfficientlyResizePILImage( pil_image, ( target_x, target_y ) ):
+@@ -76,7 +78,8 @@ def EfficientlyResizePILImage( pil_image, ( target_x, target_y ) ):
      
      return pil_image.resize( ( target_x, target_y ), PILImage.ANTIALIAS )
      
@@ -1671,7 +2193,7 @@ index 606e825..b627041 100755
      
      ( im_y, im_x, depth ) = numpy_image.shape
      
-@@ -88,7 +91,8 @@ def EfficientlyThumbnailNumpyImage( numpy_image, ( target_x, target_y ) ):
+@@ -86,7 +89,8 @@ def EfficientlyThumbnailNumpyImage( numpy_image, ( target_x, target_y ) ):
      
      return cv2.resize( numpy_image, ( target_x, target_y ), interpolation = cv2.INTER_AREA )
      
@@ -1681,7 +2203,7 @@ index 606e825..b627041 100755
      
      ( im_x, im_y ) = pil_image.size
      
-@@ -350,7 +354,9 @@ def GetResolutionAndNumFrames( path ):
+@@ -348,7 +352,9 @@ def GetResolutionAndNumFrames( path ):
      
      return ( ( x, y ), num_frames )
      
@@ -1936,20 +2458,10 @@ index 1b29013..2ce6c3b 100755
 -    
 \ No newline at end of file
 diff --git a/include/HydrusSerialisable.py b/include/HydrusSerialisable.py
-index f4f4139..a7f052e 100644
+index 473cfe9..533f55c 100644
 --- a/include/HydrusSerialisable.py
 +++ b/include/HydrusSerialisable.py
-@@ -12,7 +12,8 @@ SERIALISABLE_TYPE_IMPORT_FILE_OPTIONS = 7
- 
- SERIALISABLE_TYPES_TO_OBJECT_TYPES = {}
- 
--def CreateFromEasy( ( serialisable_type, version, serialised_info ) ):
-+def CreateFromEasy( tup ):
-+    ( serialisable_type, version, serialised_info ) = tup
-     
-     obj = SERIALISABLE_TYPES_TO_OBJECT_TYPES[ serialisable_type ]()
-     
-@@ -101,4 +102,4 @@ class SerialisableBaseNamed( SerialisableBase ):
+@@ -130,4 +130,4 @@ class SerialisableBaseNamed( SerialisableBase ):
      def GetName( self ): return self._name
      
      def SetName( self, name ): self._name = name
