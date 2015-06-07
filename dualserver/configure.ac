@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ([2.69])
-AC_INIT([dualserverd], [7.14], [achaldhir@gmail.com])
+AC_INIT([dualserverd], [7.23], [achaldhir@gmail.com])
 AM_INIT_AUTOMAKE
 
 AC_CONFIG_SRCDIR([dualserverd.h])

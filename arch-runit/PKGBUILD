@@ -6,9 +6,9 @@
 # http://creativecommons.org/publicdomain/zero/1.0/
 
 pkgname=arch-runit
-pkgver=2.1.2_20150511
+pkgver=2.1.2_20150603
 _runit_ver=2.1.2
-pkgrel=1
+pkgrel=2
 pkgdesc='Arch native runit package'
 url='http://smarden.org/runit/'
 license=('Creative Commons')
@@ -22,7 +22,7 @@ sha256sums=('6fd0160cb0cf1207de4e66754b6d39750cff14bb0aa66ab49490992c0c47ba18'
 			'SKIP'
 			'51c17405558f5bbbe631d92a37adff872b9518fe1876a56b24efb05bedffae94'
 			'527f68f501cc9eb4bbab33f8ad374822624342c7d74b5c795efe4aac6b3f170a'
-			'2a308fef907f1ceace2bc53795d9b68faba8aab4c7726781d46d0d0eda0b8d2a'
+			'14c48eb40c030e6f3d2ea487f11d6e331bd0d73b56adad187d546997f815b055'
 			)
 depends=()
 makedepends=('git')

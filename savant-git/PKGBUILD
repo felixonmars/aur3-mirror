@@ -1,6 +1,6 @@
 # Maintainer: Harley Wiltzer <harleyw@hotmail.com>
 pkgname=savant-git
-pkgver=0.2.3
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="A CLI based calculator that supports variables and uses SDL2 to do graphs."
 arch=('x86_64')
@@ -51,6 +51,10 @@ build() {
 package() {
   cd "$srcdir/$_gitname"
   install -Dm 755 a.out "$pkgdir/usr/bin/$_gitname"
+  if [ ! -d "$HOME/.savant" ]; then
+    mkdir "$HOME/.savant"
+  fi
+  cp logo "$HOME/.savant/logo"
 #make DESTDIR="${pkgdir}" install
 }
 
