@@ -3,13 +3,13 @@
 
 pkgname=liquibase
 pkgver=3.3.5
-pkgrel=1
+pkgrel=2
 pkgdesc="A database management tool"
 arch=('any')
 url="http://www.liquibase.org/"
 license=('APACHE')
 depends=('java-environment')
-source=(http://softlayer-dal.dl.sourceforge.net/project/liquibase/Liquibase%20Core/liquibase-$pkgver-bin.tar.gz
+source=(https://github.com/liquibase/liquibase/releases/download/liquibase-parent-$pkgver/liquibase-$pkgver-bin.tar.gz
 	liquibase.sh)
 md5sums=('83402889148afaf561989d0cbfbc5aa8'
          'c484d4bb165302b261c96dcd2acc6da9')
