@@ -1,2 +1,2 @@
 #!/bin/sh
-mono /usr/lib/openbve/OpenBve.exe "$@"
+mono /usr/lib/openbve/OpenBve.exe /fhs "$@"
