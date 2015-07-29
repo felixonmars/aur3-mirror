@@ -3,8 +3,8 @@
 # Maintainer: Jan de Groot <jgc@archlinux.org>
 
 pkgname=xkeyboard-config-hhk
-pkgver=2.12
-pkgrel=3
+pkgver=2.15
+pkgrel=1
 pkgdesc="X keyboard configuration files with a patch for a layout emulating a happy hacking keyboard"
 arch=(any)
 license=('custom')
@@ -17,7 +17,7 @@ source=(
 	http://xorg.freedesktop.org/archive/individual/data/${pkgname/-hhk/}/${pkgname/-hhk/}-${pkgver}.tar.bz2
     hhk.patch
 )
-sha256sums=('65b62b95b77b609cb6c0439e0148c48c3ab7dcb5c90eb8d34cf1cb8f360cca44'
+sha256sums=('0e443cf7ca2f0b40846472c029647a05933fc705d611e1478c4db8a48a6f38bf'
 '2bfa71b4297156bf948abea8c7bcd5b7c24986e3bbac7dbe5662ae7c1ea6cff0')
 
 prepare() {
