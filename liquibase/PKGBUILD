@@ -2,7 +2,7 @@
 # Maintainer: Andreas Pieber <anpieber@gmail.com>
 
 pkgname=liquibase
-pkgver=3.4.0
+pkgver=3.4.1
 pkgrel=1
 pkgdesc="A database management tool"
 arch=('any')
@@ -11,7 +11,7 @@ license=('APACHE')
 depends=('java-environment')
 source=(https://github.com/liquibase/liquibase/releases/download/liquibase-parent-$pkgver/liquibase-$pkgver-bin.tar.gz
 	liquibase.sh)
-md5sums=('77997fc89a65fa904a3008f6a401439b'
+md5sums=('b1a81cabad83dc13268eeba8ad81c718'
          'c484d4bb165302b261c96dcd2acc6da9')
 
 package() {
