@@ -1,7 +1,7 @@
 # Maintainer: Cédric Picard <cpicard@openmailbox.org>
 
 pkgname=bm
-pkgver=1.5.4
+pkgver=1.6.1
 pkgrel=1
 pkgdesc="Simple command line browser independant bookmark and tagging utility"
 arch=(any)
@@ -12,8 +12,8 @@ depends=('python>=3'
          'python-msgpack'
          'python-requests'
          'python-setuptools')
-source="https://pypi.python.org/packages/source/b/bm/$pkgname-${pkgver}.tar.gz"
-md5sums=('88f4d21a2bc141c88b052521a6df8fa5')
+source="https://pypi.python.org/packages/source/b/bm/bm-1.6.1.tar.gz"
+md5sums=('c8cb61547ecfbe7919bd9f04bc2f9bbe')
 
 package() {
     cd "$srcdir/$pkgname-$pkgver"
